@@ -7,6 +7,7 @@ import { ContextMenu, SEPARATOR, type MenuEntry } from "../../../editor/ui/Conte
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { MoveToDialog } from "../../../editor/ui/MoveToDialog";
 import { TreeView, renameRow, type TreeRow } from "../../../editor/ui/TreeView";
+import { Icon } from "../../components/Icon";
 import type { CaptureNode } from "../profiler/captureTree";
 import { NO_TAKES, searchTakes, takeFiles, takeTree } from "./takeFiles";
 
@@ -45,7 +46,7 @@ export function TakeList(props: TakeListProps) {
     selected: path === props.openPath,
     attrs: { "data-take": path },
     title: path,
-    icon: <span class="tk-file-icon" aria-hidden="true">◉</span>,
+    icon: <Icon name="take" size={14} class="tk-file-icon" />,
     setOpen: () => {},
     select: () => props.onOpen(path),
     activate: () => props.onOpen(path),
@@ -62,7 +63,7 @@ export function TakeList(props: TakeListProps) {
           expandable: true,
           open: !closed.has(n.path),
           selected: false,
-          icon: <span class="tk-file-icon" aria-hidden="true">▸</span>,
+          icon: <Icon name="folder" size={14} class="tk-file-icon" />,
           children: n.children.map(row),
           setOpen: (open) => {
             const next = new Set(closed);
@@ -87,8 +88,8 @@ export function TakeList(props: TakeListProps) {
     <div class="tk-list">
       <div class="tk-list-tools">
         <input type="search" class="tk-search" placeholder="Search takes" aria-label="Search takes" value={query} onInput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)} />
-        <button type="button" disabled={!props.writable} title={props.writable ? "Copy a take file into this project's takes folder" : "This project is read-only"} onClick={() => input.current?.click()}>
-          Open take file…
+        <button type="button" class="tk-tool" disabled={!props.writable} title={props.writable ? "Copy a take file into this project's takes folder" : "This project is read-only"} onClick={() => input.current?.click()}>
+          <Icon name="import" size={14} /> Open take file…
         </button>
         <input
           ref={input}

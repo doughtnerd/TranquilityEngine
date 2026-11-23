@@ -5,6 +5,7 @@ import { useState } from "preact/hooks";
 import type { LoudnessMeasure } from "../../../engine/audio/loudness/integrated";
 import type { SampleEdits, ValueSource } from "../../../engine/audio/sample/types";
 import { Chip } from "../../../editor/ui/Chip";
+import { Icon } from "../../components/Icon";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { TIME_FORMATS, type TimeFormat } from "../../components/timeRulerModel";
 import type { DetectKind } from "../../../engine/audio/sample/detect/detect";
@@ -248,7 +249,7 @@ export function TimeFormatPopover(props: { value: TimeFormat; hasTempo: boolean;
                 props.onChange(f.id);
                 close();
               }}>
-              <span class="smp-menu-check">{props.value === f.id ? "✓" : ""}</span>
+              <span class="smp-menu-check">{props.value === f.id && <Icon name="check" size={12} />}</span>
               {f.label}
             </button>
           ))}

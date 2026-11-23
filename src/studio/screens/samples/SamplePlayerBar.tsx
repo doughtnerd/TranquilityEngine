@@ -4,6 +4,8 @@
 import { effect } from "@preact/signals";
 import { useRef, useState } from "preact/hooks";
 import { usePopover } from "../../../editor/ui/popover";
+import { Icon } from "../../components/Icon";
+import { TransportButton } from "../../components/PlayerBar";
 import { formatTime } from "../../components/timeRulerModel";
 import { setPlayerSlots } from "../../shell/studioServices";
 import * as act from "./sampleActions";
@@ -31,14 +33,15 @@ function ModeMenu() {
   const mode = MODES.find((m) => m.id === playMode.value)!;
   const opt = (label: string, s: { value: boolean }) => (
     <button role="menuitemcheckbox" aria-checked={s.value} onClick={() => (s.value = !s.value)}>
-      <span class="smp-menu-check">{s.value ? "✓" : ""}</span>
+      <span class="smp-menu-check">{s.value && <Icon name="check" size={12} />}</span>
       {label}
     </button>
   );
   return (
     <>
-      <button ref={button} class="smp-tool" aria-haspopup="menu" aria-expanded={open} title="Play mode" onClick={() => setOpen(!open)}>
-        {mode.label} ▾
+      <button ref={button} class="smp-tool smp-tool-icon" aria-haspopup="menu" aria-expanded={open} aria-label={`Play mode: ${mode.label}`} title="Play mode" onClick={() => setOpen(!open)}>
+        <span class="smp-ellipsis">{mode.label}</span>
+        <Icon name="chevronDown" size={12} />
       </button>
       {open && (
         <div ref={pop} class="context-menu kit-menu smp-menu" role="menu" aria-label="Play mode">
@@ -46,7 +49,7 @@ function ModeMenu() {
             <div key={m.id}>
               {(i === 0 || MODES[i - 1].group !== m.group) && <div class="smp-menu-group">{m.group}</div>}
               <button role="menuitemradio" aria-checked={playMode.value === m.id} onClick={() => ((playMode.value = m.id), setOpen(false))}>
-                <span class="smp-menu-check">{playMode.value === m.id ? "✓" : ""}</span>
+                <span class="smp-menu-check">{playMode.value === m.id && <Icon name="check" size={12} />}</span>
                 {m.label}
               </button>
             </div>
@@ -69,10 +72,16 @@ export function SampleTransportButtons() {
   return (
     <>
       <ModeMenu />
-      <button class="primary smp-play" disabled={!session} aria-label={held ? "Release" : mine ? "Stop" : "Play"} title={held ? "Release the held loop (Space)" : "Play the selection (Space)"} onClick={() => act.togglePlay()}>
-        {held ? "⇥ Release" : mine ? "■" : "▶"}
-      </button>
-      <button class="smp-tool" disabled={!mine} aria-label="Stop" onClick={act.stop}>Stop</button>
+      <TransportButton
+        primary={!held}
+        text={!!held}
+        icon={held ? "skipForward" : mine ? "stop" : "play"}
+        label={held ? "Release" : mine ? "Stop" : "Play"}
+        title={held ? "Release the held loop (Space)" : mine ? "Stop (Space)" : "Play the selection (Space)"}
+        disabled={!session}
+        onClick={() => act.togglePlay()}
+      />
+      <TransportButton icon="stop" label="Stop" disabled={!mine} onClick={act.stop} />
     </>
   );
 }

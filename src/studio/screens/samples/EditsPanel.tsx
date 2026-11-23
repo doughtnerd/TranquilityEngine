@@ -13,6 +13,7 @@ import { useState } from "preact/hooks";
 import { Chip } from "../../../editor/ui/Chip";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
+import { Icon } from "../../components/Icon";
 import { effectEdits } from "./sampleEffects";
 import { hasRenderableEdits } from "../../../engine/audio/sample/sampleRender";
 import { flattenSample, renderPathOf, unflattenSample } from "./sampleFlatten";
@@ -55,22 +56,22 @@ function EffectRow(props: { f: Effect; e: SampleEdits; first: boolean; last: boo
           <input type="checkbox" checked={f.on} disabled={ro} aria-label={`${spec.label} on`} onChange={() => commit(effectEdits.bypass(e, f.id))} />
           <b>{spec.label}</b>
         </label>
-        <span class="smp-muted">v{spec.version}</span>
+        <span class="smp-muted smp-fx-version">v{spec.version}</span>
         {misplaced && <Chip tone="warning" title="This effect can't run baked into a sample; move it to a clip, playlist or bus">Not at sample level</Chip>}
         {lanes > 0 && <Chip tone="accent" title="Parameters automated over the sample; Flatten bakes them">Automated · {lanes}</Chip>}
         <span class="smp-fx-tools">
           <button aria-label={`Automate ${spec.label}`} title="Automate its parameters over the sample (curve editor)" disabled={ro} onClick={() => automate(props.session, f, commit)}>Automate…</button>
-          <button aria-label={`Move ${spec.label} up`} disabled={ro || props.first} onClick={() => commit(effectEdits.move(e, f.id, -1))}>↑</button>
-          <button aria-label={`Move ${spec.label} down`} disabled={ro || props.last} onClick={() => commit(effectEdits.move(e, f.id, 1))}>↓</button>
-          <button aria-label={`Remove ${spec.label}`} disabled={ro} onClick={() => commit(effectEdits.remove(e, f.id))}>×</button>
+          <button class="smp-icon-button" aria-label={`Move ${spec.label} up`} title="Move up" disabled={ro || props.first} onClick={() => commit(effectEdits.move(e, f.id, -1))}><Icon name="chevronUp" /></button>
+          <button class="smp-icon-button" aria-label={`Move ${spec.label} down`} title="Move down" disabled={ro || props.last} onClick={() => commit(effectEdits.move(e, f.id, 1))}><Icon name="chevronDown" /></button>
+          <button class="smp-icon-button" aria-label={`Remove ${spec.label}`} title="Remove" disabled={ro} onClick={() => commit(effectEdits.remove(e, f.id))}><Icon name="trash" /></button>
         </span>
       </div>
       {spec.params.map((p) => (
         <label key={p.name} class="smp-fx-param">
           <span>{p.label}</span>
-          <input type="range" min={p.min} max={p.max} step={p.step} value={effectParamValue(f, p.name)} disabled={ro} aria-label={`${spec.label} ${p.label}`}
+          <input type="range" min={p.min} max={p.max} step={p.step} value={effectParamValue(f, p.name)} disabled={ro} aria-label={`${spec.label} ${p.label}`} aria-valuetext={`${effectParamValue(f, p.name)} ${p.unit}`.trim()}
             onChange={(ev) => commit(effectEdits.param(e, f.id, p.name, Number((ev.currentTarget as HTMLInputElement).value)))} />
-          <span class="smp-muted">{effectParamValue(f, p.name)} {p.unit}</span>
+          <span class="smp-muted" aria-hidden="true">{effectParamValue(f, p.name)} {p.unit}</span>
         </label>
       ))}
     </li>
@@ -114,7 +115,7 @@ export function EditsPanel() {
   if (!session) {
     return (
       <Panel bodyClass="studio-panel-body">
-        <EmptyState compact title="Sample effects" body="Effects baked into the sample: no runtime cost. Put effects that must change at runtime on a clip, playlist or bus." />
+        <EmptyState compact title="Sample effects" icon={<Icon name="mixer" size={28} />} body="Effects baked into the sample: no runtime cost. Put effects that must change at runtime on a clip, playlist or bus." />
       </Panel>
     );
   }

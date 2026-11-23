@@ -13,6 +13,7 @@ import type { Automation, LoopBehaviour, PlaylistBody, SequenceSettings } from "
 import { SegmentedControl } from "../../../../editor/ui/SegmentedControl";
 import { accept, type EditResult } from "../../../../plugins/audio/editor/editResult";
 import { EffectChain } from "../../../components/EffectChain";
+import { Icon } from "../../../components/Icon";
 import { chainNote } from "../chainCost";
 import { FieldRow, NumberBox, SelectBox, Section } from "../../../../editor/ui/PanelFields";
 import { addAutomation, deletePoints as deletePointsOf, isTimeInput, ownerOf, QUANTIZE_CHOICES, quantizeChoice, removeAutomation, setAutomation, setPointShape, SHAPES, targetSpec, targetSpecs, type AutomationOwner } from "./automationEdits";
@@ -92,9 +93,9 @@ export function SequenceInspector(props: SequenceInspectorProps) {
             return (
               <li key={a.id}>
                 <span title={a.target}>{nm} <span class="sq-faint">{isTimeInput(a.input) ? "· time" : `· by ${(a.input as { parameter: string }).parameter}`}</span></span>
-                {clipId && isTimeInput(a.input) && <button type="button" class="sq-icon" title="Show this curve on the clip" aria-label={`Show ${nm} on the clip`} onClick={() => (seqShownCurve.value = { ...seqShownCurve.peek(), [clipId]: a.id })}>👁</button>}
+                {clipId && isTimeInput(a.input) && <button type="button" class="sq-icon" title="Show this curve on the clip" aria-label={`Show ${nm} on the clip`} onClick={() => (seqShownCurve.value = { ...seqShownCurve.peek(), [clipId]: a.id })}><Icon name="eye" /></button>}
                 <button type="button" class={`sq-icon${a.bypass ? "" : " on"}`} aria-pressed={!a.bypass} aria-label={`${nm} automation on`} disabled={!writable} title={a.bypass ? "Bypassed (click to turn on)" : "On (click to bypass)"}
-                  onClick={() => runSeq(`${nm} automation ${a.bypass ? "on" : "off"}`, (q) => setAutomation(q, owner, a.id, { bypass: !a.bypass }))}>●</button>
+                  onClick={() => runSeq(`${nm} automation ${a.bypass ? "on" : "off"}`, (q) => setAutomation(q, owner, a.id, { bypass: !a.bypass }))}><Icon name="record" size={10} /></button>
                 {!isTimeInput(a.input) && (
                   <select class="pl-select sq-quantize" aria-label={`${nm} quantize`} disabled={!writable} value={quantizeChoice(a.quantize)}
                     title="When a change of the parameter takes effect: continuously, or on the next beat or bar of the music (rhythm games)"
@@ -106,8 +107,8 @@ export function SequenceInspector(props: SequenceInspectorProps) {
                     {[...QUANTIZE_CHOICES, ...(QUANTIZE_CHOICES.some((c) => c.value === quantizeChoice(a.quantize)) ? [] : [{ value: quantizeChoice(a.quantize), label: `Every ${quantizeChoice(a.quantize)} beats` }])].map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
                   </select>
                 )}
-                <button type="button" class="sq-icon" aria-label={`Edit ${nm} curve`} title="Open in the curve editor" onClick={() => curves(owner, length, name, a.target)}>✎</button>
-                <button type="button" class="sq-icon" aria-label={`Remove ${nm} automation`} title="Remove automation" disabled={!writable} onClick={() => runSeq("Remove automation", (q) => removeAutomation(q, owner, a.id))}>×</button>
+                <button type="button" class="sq-icon" aria-label={`Edit ${nm} curve`} title="Open in the curve editor" onClick={() => curves(owner, length, name, a.target)}><Icon name="edit" /></button>
+                <button type="button" class="sq-icon" aria-label={`Remove ${nm} automation`} title="Remove automation" disabled={!writable} onClick={() => runSeq("Remove automation", (q) => removeAutomation(q, owner, a.id))}><Icon name="close" /></button>
               </li>
             );
           })}
@@ -181,7 +182,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
         <div class="sq-inspector">
           {sel.focus === "points" && sel.points && <PointsSection {...props} s={s} runSeq={runSeq} curves={curves} />}
           <Section title={`Clip · ${name}`} note={c.sample !== undefined ? `Plays ${c.sample} on ${f.track.name}.` : `Plays ${typeof c.playlist === "string" ? c.playlist : "an embedded playlist"} on ${f.track.name}; it resolves once when the playhead enters.`}>
-            {c.sample !== undefined && props.onOpenSamples && <button type="button" class="pl-link" style={{ margin: "0 8px" }} onClick={() => props.onOpenSamples!(c.sample!)}>Edit its loops and markers in Samples ›</button>}
+            {c.sample !== undefined && props.onOpenSamples && <button type="button" class="pl-link" style={{ margin: "0 8px" }} onClick={() => props.onOpenSamples!(c.sample!)}>Edit its loops and markers in Samples <Icon name="chevronRight" size={12} /></button>}
             <FieldRow label="Gain" unit="dB"><NumberBox label="Clip gain" value={c.gain} min={-96} max={24} step={0.5} digits={1} disabled={!writable} onValue={(v) => set("Clip gain", { gain: v })} /></FieldRow>
             <FieldRow label="Pitch" unit="st"><NumberBox label="Clip pitch" value={c.pitch} min={-48} max={48} step={1} digits={2} disabled={!writable} onValue={(v) => set("Clip pitch", { pitch: v })} /></FieldRow>
             <FieldRow label="Pan" unit="%"><NumberBox label="Clip pan" value={Math.round(c.pan * 100)} min={-100} max={100} step={1} digits={0} disabled={!writable} onValue={(v) => set("Clip pan", { pan: v / 100 })} /></FieldRow>
@@ -200,7 +201,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
             </div>
             {follows && (
               <p class="pl-lint" style={{ margin: "2px 8px" }}>
-                ⚠ Overlaps a sync clip on a higher track, which drives the playhead; this clip's loop is ignored.{" "}
+                <Icon name="warning" size={14} /> Overlaps a sync clip on a higher track, which drives the playhead; this clip's loop is ignored.{" "}
                 <button type="button" class="pl-small" disabled={!writable} onClick={() => runSeq("Clip async", (q) => makeAsync(q, c.id))}>Make Async</button>
               </p>
             )}
@@ -297,7 +298,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
             {!hold && (
               <FieldRow label="Ring the tail" title="At each wrap, the audio from the loop's end to the next Exit marker after it rings on over the next pass">
                 <input type="checkbox" aria-label="Ring the tail" checked={!!l.tail} disabled={!writable} onChange={() => runSeq(l.tail ? "Loop tail off" : "Loop tail on", (q) => setLoopMusic(q, l.id, { tail: !l.tail }))} />
-                {l.tail && !s.markers.some((m) => m.type === "exit" && m.at > l.end + 1e-9) && <span class="pl-lint" role="note">⚠ No Exit marker after the loop's end: add one where the tail ends.</span>}
+                {l.tail && !s.markers.some((m) => m.type === "exit" && m.at > l.end + 1e-9) && <span class="pl-lint" role="note"><Icon name="warning" size={14} /> No Exit marker after the loop's end: add one where the tail ends.</span>}
               </FieldRow>
             )}
             {!hold && <button type="button" class="pl-small" disabled={!writable} onClick={() => runSeq("Make hold point", (q) => makeHoldPoint(q, l.id))}>Make hold point</button>}

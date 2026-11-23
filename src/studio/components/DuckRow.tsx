@@ -1,5 +1,5 @@
 // A ducking row (ADR 0349 `DuckRow`, ADR 0344 ducking): one rule lowering a bus while another plays, collapsible like
-// an effect card: caret, the trigger's name and "−6 dB · while playing" while closed, On/Off and × remove; open, Ducked
+// an effect card: caret, the trigger's name and "−6 dB · while playing" while closed, On/Off and Remove; open, Ducked
 // by, When (While playing | Above level), the threshold (level only), Duck by, Attack and Release. Edits come back as
 // `{ next } | { refused }` for the owner to apply as undo steps.
 import { MIX_LIMITS } from "../../engine/audio/project/format";
@@ -7,6 +7,7 @@ import type { DuckingRule } from "../../engine/audio/project/types";
 import { SegmentedControl } from "../../editor/ui/SegmentedControl";
 import type { EditResult } from "../../plugins/audio/editor/editResult";
 import { duckSummary, editDuck, type DuckPatch } from "./mixRowsModel";
+import { Icon } from "./Icon";
 import { ParameterRow } from "./ParameterRow";
 import type { ParamSpec } from "./parameterRowModel";
 import "./audioParts.css";
@@ -37,7 +38,7 @@ export function DuckRow(props: DuckRowProps) {
     <div class={`studio-row studio-duck${rule.enabled ? "" : " off"}`}>
       <div class="studio-row-head">
         <button type="button" class="studio-row-caret" aria-expanded={open} aria-controls={bodyId} aria-label={`${open ? "Collapse" : "Expand"} ducking by ${rule.trigger}`} onClick={() => props.onOpen(!open)}>
-          {open ? "▾" : "▸"}
+          <Icon name={open ? "chevronDown" : "chevronRight"} size={14} />
         </button>
         <span class="studio-row-name" title={`Ducked by ${rule.trigger}`}>
           {rule.trigger}
@@ -47,8 +48,8 @@ export function DuckRow(props: DuckRowProps) {
           <button type="button" class={`studio-onoff${rule.enabled ? "" : " off"}`} aria-pressed={rule.enabled} title={rule.enabled ? "On: click to turn off" : "Off: click to turn on"} disabled={readOnly} onClick={() => edit({ enabled: !rule.enabled }, rule.enabled ? "Turn off ducking" : "Turn on ducking")}>
             {rule.enabled ? "On" : "Off"}
           </button>
-          <button type="button" class="studio-icon" aria-label={`Remove ducking by ${rule.trigger}`} title="Remove" disabled={readOnly} onClick={props.onRemove}>
-            ×
+          <button type="button" class="studio-icon-button" aria-label={`Remove ducking by ${rule.trigger}`} title={`Remove ducking by ${rule.trigger}`} disabled={readOnly} onClick={props.onRemove}>
+            <Icon name="close" size={14} />
           </button>
         </span>
       </div>

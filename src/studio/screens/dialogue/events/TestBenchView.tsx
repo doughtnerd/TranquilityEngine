@@ -4,6 +4,7 @@
 // Reset memory. The path table highlights the picked path and the fallbacks. A view over props.
 import { SelectBox } from "../../../../editor/ui/PanelFields";
 import { argumentName, type DialogueEvent } from "../../../../engine/audio/dialogue/types";
+import { Icon } from "../../../components/Icon";
 import { labelsOf, type EventContext } from "./eventsModel";
 import { FROM_GLOBAL, type BenchView, type RollBar } from "./testBench";
 
@@ -40,27 +41,27 @@ export function TestBenchView(props: TestBenchViewProps) {
           const options = [...(a.kind === "parameter" ? [{ value: FROM_GLOBAL, label: "from global" }] : []), ...labels.map((l) => ({ value: l, label: l }))];
           const value = props.values[name] ?? (a.kind === "parameter" ? FROM_GLOBAL : a.default);
           return (
-            <label key={name} class="dl-row">{name}
+            <label key={name} class="dl-row dl-bench-field">{name}
               <SelectBox label={`Bench ${name}`} value={value} options={options} onValue={(v) => props.onValue(name, v)} />
             </label>
           );
         })}
-        <label class="dl-row">Seed
+        <label class="dl-row dl-bench-field">Seed
           <input type="number" aria-label="Seed" value={props.seed} style={{ width: "72px" }} onChange={(ev) => props.onSeed(Math.trunc(Number((ev.currentTarget as HTMLInputElement).value)) || 1)} />
         </label>
       </div>
-      <p aria-label="Decision" class={"key" in props.view.result ? undefined : "dl-warn"}>{props.view.summary}</p>
+      <p aria-label="Decision" aria-live="polite" class={"key" in props.view.result ? undefined : "dl-warn"}>{props.view.summary}</p>
       {props.subtitle !== null && <p class="dl-note" aria-label="Subtitle">“{props.subtitle}” <span class="dl-from">{props.preview}</span></p>}
       <div class="dl-row">
-        <button class="primary" onClick={props.onSay} title="Decide with the bench's memory, say the line and remember it">Say</button>
+        <button class="primary" onClick={props.onSay} title="Decide with the bench's memory, say the line and remember it"><Icon name="play" /> Say</button>
         <button onClick={props.onRoll} title="Decide 50 times from the seed and show how often each line comes up">Roll ×50</button>
-        <button onClick={props.onResetMemory} disabled={props.memory.length === 0} title="Forget the lines said (avoid-repeat, cooldowns, once)">Reset memory</button>
+        <button onClick={props.onResetMemory} disabled={props.memory.length === 0} title="Forget the lines said (avoid-repeat, cooldowns, once)"><Icon name="history" /> Reset memory</button>
         {props.memory.length > 0 && <span class="dl-muted">Said: {props.memory.slice(-4).join(", ")}</span>}
       </div>
       {props.bars && (
-        <div class="dl-bars" aria-label="Pick distribution">
+        <div class="dl-bars" role="group" aria-label="Pick distribution">
           {props.bars.map((b) => (
-            <div key={b.outcome} class={`dl-bar${b.said ? "" : " none"}`} aria-label={`${b.said ? b.outcome : NONE[b.outcome] ?? b.outcome}: ${b.count} of 50`}>
+            <div key={b.outcome} class={`dl-bar${b.said ? "" : " none"}`} role="img" aria-label={`${b.said ? b.outcome : NONE[b.outcome] ?? b.outcome}: ${b.count} of 50`}>
               <span class="dl-key">{b.said ? b.outcome : NONE[b.outcome] ?? b.outcome}</span>
               <span class="dl-bar-track"><span class="dl-bar-fill" style={{ width: `${b.share * 100}%` }} /></span>
               <span class="dl-muted">{b.count}</span>

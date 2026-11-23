@@ -1,6 +1,6 @@
 /* The Studio's Playlists screen (ADR 0343, 0349). Theme tokens only (src/editor/ui/editor.css lists them). */
 
-.pl-panel-body { padding: 0; display: flex; flex-direction: column; }
+.pl-panel-body { padding: 0; display: flex; flex-direction: column; container-type: inline-size; }
 .pl-doc { display: flex; flex-direction: column; min-height: 100%; outline: none; }
 .pl-note { color: var(--muted); margin: 6px 8px; font-size: calc(12px * var(--ui-scale)); }
 .pl-faint { color: var(--faint); }
@@ -10,7 +10,7 @@
 .pl-num:focus { border-color: var(--focus-ring); outline: none; }
 .pl-num-text { font-variant-numeric: tabular-nums; color: var(--muted); }
 .pl-select, .pl-text { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; min-width: 0; }
-.pl-icon { background: none; border: 1px solid transparent; color: var(--muted); border-radius: 3px; padding: 0 5px; cursor: pointer; }
+.pl-icon { display: inline-flex; align-items: center; justify-content: center; background: none; border: 1px solid transparent; color: var(--muted); border-radius: 3px; padding: 0 5px; cursor: pointer; }
 .pl-icon:hover:not(:disabled) { color: var(--text); border-color: var(--border); }
 .pl-small { background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 1px 8px; font-size: calc(11px * var(--ui-scale)); }
 .pl-small:hover:not(:disabled) { background: var(--button-hover); }
@@ -34,7 +34,7 @@
 .pl-tree, .pl-library { display: flex; flex-direction: column; min-height: 100%; }
 .pl-tree-tools { display: flex; gap: 6px; padding: 6px; border-bottom: 1px solid var(--border); }
 .pl-search { flex: 1 1 120px; min-width: 0; }
-.pl-tool { background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0 9px; font-weight: 600; }
+.pl-tool { display: inline-flex; align-items: center; justify-content: center; background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0 9px; font-weight: 600; }
 .pl-tool:hover:not(:disabled) { background: var(--button-hover); }
 .pl-folder-icon { color: var(--muted); width: 14px; display: inline-block; text-align: center; }
 .pl-count { color: var(--faint); font-size: calc(11px * var(--ui-scale)); margin-left: auto; }
@@ -55,8 +55,9 @@
 .pl-lib-row { display: flex; align-items: center; gap: 6px; padding: 2px 8px; cursor: grab; }
 .pl-lib-row:hover { background: var(--hover); }
 .pl-lib-row.selected { background: var(--selection); color: var(--selection-text); }
+.pl-lib-pick { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; background: none; border: none; color: inherit; padding: 0; font: inherit; text-align: left; cursor: inherit; }
 .pl-lib-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pl-play { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 50%; width: 20px; height: 20px; padding: 0; font-size: calc(9px * var(--ui-scale)); }
+.pl-play { display: inline-grid; place-items: center; flex: none; background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 50%; width: 20px; height: 20px; padding: 0; font-size: calc(9px * var(--ui-scale)); }
 .pl-play.on, .pl-play:hover { color: var(--accent); border-color: var(--accent); }
 
 /* Playlist editor */
@@ -90,7 +91,7 @@
 .pl-entries-empty { padding: 12px 0; }
 
 /* Tables */
-.pl-table { display: flex; flex-direction: column; padding: 0 8px; }
+.pl-table { display: flex; flex-direction: column; padding: 0 8px; overflow-x: auto; }
 .pl-tr { display: grid; gap: 6px; align-items: center; padding: 2px 0; grid-template-columns: repeat(auto-fit, minmax(70px, 1fr)); }
 .pl-th { color: var(--faint); font-size: calc(11px * var(--ui-scale)); }
 .pl-labels .pl-tr { grid-template-columns: minmax(80px, 1fr) minmax(120px, 2fr) minmax(90px, 1fr); }
@@ -157,15 +158,12 @@
 .pl-log-finished { color: var(--muted); }
 .pl-alive { background: var(--accent-soft); }
 
-/* Player bar slot */
-.pl-transport { background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 10px; }
-.pl-transport:hover:not(:disabled) { background: var(--button-hover); }
-.pl-trigger { background: var(--accent); color: var(--accent-text); border-color: var(--accent); min-width: 40px; }
+/* Player bar slot (its buttons are the shared TransportButton) */
 .pl-scrub { width: 100%; }
 
 /* Dialogs */
 .pl-dialog-scrim { position: fixed; inset: 0; background: var(--backdrop); display: grid; place-items: center; z-index: 50; }
-.pl-dialog { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 40px var(--shadow); padding: 14px 16px; width: min(560px, calc(100vw - 32px)); max-height: calc(100vh - 64px); display: flex; flex-direction: column; gap: 8px; }
+.pl-dialog { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 10px 40px var(--shadow); padding: 14px 16px; width: min(560px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); overflow-y: auto; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; }
 .pl-dialog-title { margin: 0; font-size: calc(15px * var(--ui-scale)); color: var(--text-strong); }
 .pl-dialog-foot { display: flex; align-items: center; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 .pl-dialog-foot > .pl-faint { margin-right: auto; }
@@ -177,3 +175,42 @@
 .pl-add-row.selected { background: var(--selection); color: var(--selection-text); }
 .pl-add-row.disabled { opacity: 0.55; cursor: not-allowed; }
 .pl-add-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-add-list:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.pl-add-row.active { box-shadow: inset 0 0 0 2px var(--focus-ring); }
+.pl-add-list:not(:focus-visible) .pl-add-row.active { box-shadow: none; }
+
+/* Icons, focus, small panels and touch (ADR 0361) */
+.pl-crumb .studio-glyph, .pl-link .studio-glyph, .pl-lint .studio-glyph { vertical-align: -0.15em; }
+.pl-link-mark { display: inline-flex; align-items: center; }
+.pl-head { min-width: 0; }
+.pl-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pl-head > .pl-icon { align-self: center; }
+:is(.pl-icon, .pl-small, .pl-tool, .pl-link, .pl-play, .pl-lib-pick, .pl-primary, .pl-danger-btn):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.pl-lib-row:focus-within { background: var(--hover); }
+.pl-lib-row.selected:focus-within { background: var(--selection); }
+
+/* The Plays now panel stacks its two lists in a narrow dock; the entry rows wrap their fields under the name. */
+@container (max-width: 520px) {
+  .pl-voices { grid-template-columns: minmax(0, 1fr); }
+}
+@container (max-width: 420px) {
+  .pl-entry-head { display: none; }
+  .pl-entry { display: flex; flex-wrap: wrap; row-gap: 2px; }
+  .pl-entry-name { flex: 1 1 calc(100% - 90px); }
+  .pl-entry-actions { margin-left: auto; }
+  .pl-kv { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .pl-param { grid-template-columns: minmax(0, 1fr) max-content; }
+  .pl-param > .pl-inline { grid-column: 1 / -1; }
+  .pl-adsr { grid-template-columns: repeat(2, max-content) 1fr; }
+  .pl-adsr-shape { grid-column: 1 / -1; }
+}
+
+@media (pointer: coarse) {
+  .pl-play { width: 36px; height: 36px; }
+  .pl-icon { min-width: 36px; }
+  .pl-lib-row, .pl-entry:not(.pl-entry-head) { min-height: 40px; }
+  .pl-grip { position: relative; padding: 0 4px; }
+  .pl-grip::before { content: ""; position: absolute; inset: -10px -6px; }
+  .pl-node circle { stroke-width: 10; stroke-opacity: 0; }
+  .pl-node.selected circle, .pl-node:focus-visible circle { stroke-opacity: 1; stroke-width: 3; }
+}

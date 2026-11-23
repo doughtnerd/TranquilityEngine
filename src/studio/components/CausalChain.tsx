@@ -1,10 +1,12 @@
 // "Why it played" (ADR 0349 `CausalChain`): the steps from the game's request to the bus a voice played on, as cards
 // joined by arrows on a dot grid. Drag or the wheel pans, Ctrl/⌘+wheel zooms about the pointer; focused, the arrows pan,
-// + and − zoom, 0 fits and 1 is 100 %. It fits itself when the chain changes and the panel resizes (until the user pans
-// or zooms), and stacks top to bottom when the panel is too narrow to read it left to right. Clicking a step's name
-// calls `onStep` (open that playlist, sample or bus); the view maths are `causalChainModel.ts`'s.
+// + and − zoom, 0 fits and 1 is 100 %; the toolbar's Zoom out, 100 %, Zoom in and Fit buttons do the same by touch
+// (ADR 0361). It fits itself when the chain changes and the panel resizes (until the user pans or zooms), and stacks
+// top to bottom when the panel is too narrow to read it left to right. Clicking a step's name calls `onStep` (open that
+// playlist, sample or bus); the view maths are `causalChainModel.ts`'s.
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { KIND_TEXT, START_VIEW, chainKey, chainText, chainWheel, fitView, panBy, shouldStack, worstSeverity, zoomAt, ZOOM_STEP, type CausalStep, type ChainView } from "./causalChainModel";
+import { Icon } from "./Icon";
 import "./audioParts.css";
 
 export interface CausalChainProps {
@@ -73,21 +75,21 @@ export function CausalChain(props: CausalChainProps) {
   return (
     <div class="studio-chainview">
       <div class="studio-chainview-tools" role="toolbar" aria-label="Zoom">
-        <span class={`studio-chainview-status ${worst}`}>{worst === "error" ? "Error" : worst === "warning" ? "Warning" : "Played"}</span>
-        <button type="button" class="studio-icon" aria-label="Zoom out" title="Zoom out (−)" onClick={() => userView(zoomAt(view, 1 / ZOOM_STEP, center().x, center().y))}>
-          −
+        <span class={`studio-chainview-status ${worst}`} role="status">{worst !== "ok" && <Icon name="warning" size={12} />} {worst === "error" ? "Error" : worst === "warning" ? "Warning" : "Played"}</span>
+        <button type="button" class="studio-icon-button" aria-label="Zoom out" title="Zoom out (−)" onClick={() => userView(zoomAt(view, 1 / ZOOM_STEP, center().x, center().y))}>
+          <Icon name="zoomOut" size={14} />
         </button>
         <button type="button" class="studio-chainview-zoom" title="Actual size (1)" onClick={() => userView(zoomAt(view, 1 / view.s, center().x, center().y))}>
           {Math.round(view.s * 100)}%
         </button>
-        <button type="button" class="studio-icon" aria-label="Zoom in" title="Zoom in (+)" onClick={() => userView(zoomAt(view, ZOOM_STEP, center().x, center().y))}>
-          +
+        <button type="button" class="studio-icon-button" aria-label="Zoom in" title="Zoom in (+)" onClick={() => userView(zoomAt(view, ZOOM_STEP, center().x, center().y))}>
+          <Icon name="zoomIn" size={14} />
         </button>
-        <button type="button" class="studio-chainview-zoom" title="Fit (0)" onClick={() => {
+        <button type="button" class="studio-icon-button" aria-label="Fit" title="Fit (0)" onClick={() => {
           user.current = true;
           fit(true);
         }}>
-          Fit
+          <Icon name="fit" size={14} />
         </button>
       </div>
       <div
@@ -129,7 +131,7 @@ export function CausalChain(props: CausalChainProps) {
             <div key={i} class="studio-chainview-cell">
               {i > 0 && (
                 <span class="studio-chainview-arrow" aria-hidden="true">
-                  {stack ? "↓" : "→"}
+                  <Icon name={stack ? "chevronDown" : "chevronRight"} size={14} />
                 </span>
               )}
               <div class={`studio-chainview-step ${step.severity} kind-${step.kind}`}>

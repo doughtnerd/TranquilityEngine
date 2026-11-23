@@ -18,7 +18,8 @@ export interface PlaceholderOptions {
   /** The empty state's title and what the panel is for. */
   readonly empty: string;
   readonly body: ComponentChildren;
-  readonly icon?: string;
+  /** The empty state's picture: an `<Icon size={28} />` of the screen (ADR 0361). */
+  readonly icon?: ComponentChildren;
 }
 
 export function placeholderPanel(o: PlaceholderOptions): StudioPanel {

@@ -4,6 +4,7 @@
 import { useEffect, useRef } from "preact/hooks";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
+import { Icon } from "../../components/Icon";
 import * as act from "./sampleActions";
 import { isHold, loopName, updateLoop } from "./sampleEditing";
 import { lengthOf, pcmNow } from "./sampleSession";
@@ -46,7 +47,7 @@ export function SeamPanel() {
   if (!session || !e || !loop || isHold(loop)) {
     return (
       <Panel bodyClass="studio-panel-body">
-        <EmptyState compact title="Loop seam" body="Select a loop to see its end joined to its start, and how its crossfade smooths the seam." />
+        <EmptyState compact title="Loop seam" icon={<Icon name="loop" size={28} />} body="Select a loop to see its end joined to its start, and how its crossfade smooths the seam." />
       </Panel>
     );
   }
@@ -57,13 +58,17 @@ export function SeamPanel() {
       <div class="smp-seam-head">
         <b>{loopName(e, loop.id)}</b>
         <span class={warn ? "smp-warning" : "smp-ok"} role="status">
+          {warn && <Icon name="warning" />}{" "}
           {jump === null ? "Reading the audio…" : loop.direction === "pingPong" ? "Ping-pong: no seam" : `Level jump ${jump > 0 ? "+" : ""}${jump.toFixed(1)} dB`}
         </span>
         <label>
           Crossfade{" "}
           <input type="number" min={0} max={500} value={loop.crossfadeMs} aria-label="Crossfade in ms" disabled={session.readOnly} onChange={(ev) => session.commit(updateLoop(e, loop.id, { crossfadeMs: Number((ev.currentTarget as HTMLInputElement).value) }))} /> ms
         </label>
-        <button onClick={() => act.togglePlay({ kind: "loop", id: loop.id })}>Play across the seam</button>
+        <button class="smp-tool-icon" onClick={() => act.togglePlay({ kind: "loop", id: loop.id })}>
+          <Icon name="play" />
+          Play across the seam
+        </button>
       </div>
       <canvas ref={canvas} class="smp-seam-strip" role="img" aria-label={`The end of ${loopName(e, loop.id)} then its start, ${strip ? Math.round(strip.window * 1000) : 0} ms each side`} />
       <div class="smp-seam-scale smp-muted">

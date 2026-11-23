@@ -5,6 +5,7 @@
 import { useRef, useState } from "preact/hooks";
 import { ContextMenu, SEPARATOR, type MenuEntry } from "../../../editor/ui/ContextMenu";
 import { EmptyState } from "../../../editor/ui/EmptyState";
+import { Icon } from "../../components/Icon";
 import { MoveToDialog } from "../../../editor/ui/MoveToDialog";
 import { TreeView, renameRow, type TreeRow } from "../../../editor/ui/TreeView";
 import { NEW_SCENE_MENU, type NewSceneKind } from "./newScene";
@@ -152,7 +153,7 @@ export function ScenesPanel(props: ScenesPanelProps) {
       <div class="sp-scenes-tools">
         <input type="search" placeholder="Search scenes" aria-label="Search scenes" value={query} onInput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)} />
         <button ref={newButton} type="button" class="sp-small" disabled={ro} aria-haspopup="menu" title={folder ? `New test scene in ${folder}` : "New test scene"} onClick={() => newButton.current && setMenu({ at: newButton.current, key: "new" })}>
-          + New
+          <Icon name="plus" /> New
         </button>
         <button type="button" class="sp-small" title="Collapse all" onClick={() => setClosed(new Set(folders))}>Collapse</button>
       </div>
@@ -160,7 +161,7 @@ export function ScenesPanel(props: ScenesPanelProps) {
         <EmptyState
           compact
           title="No test scenes yet"
-          icon="◎"
+          icon={<Icon name="spatial" size={28} />}
           body="A test scene places sources, a listener, obstacles and zones to hear how spatial settings sound, through the engine's own audio."
           action={{ label: "New test scene", disabled: ro, run: () => actions.newScene("blank", "") }}
         />

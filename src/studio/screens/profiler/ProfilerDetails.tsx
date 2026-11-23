@@ -45,31 +45,33 @@ export function AtCursor(props: AtCursorProps) {
       <p class="pf-panel-caption">
         At {clockText(props.time)} <span class="pf-hint">{CURSOR_KEYS_HINT}</span>
       </p>
-      <table class="pf-table" aria-label="Buses at the cursor">
-        <thead>
-          <tr>
-            <th scope="col">Bus</th>
-            <th scope="col">You hear</th>
-            <th scope="col">Why</th>
-          </tr>
-        </thead>
-        <tbody>
-          {props.loudness && (
+      <div class="pf-scroll">
+        <table class="pf-table" aria-label="Buses at the cursor">
+          <thead>
             <tr>
-              <th scope="row">{props.loudness.name} loudness</th>
-              <td class="num">{props.loudness.lufs === null ? "—" : `${props.loudness.lufs.toFixed(1)} LUFS`}</td>
-              <td class="pf-why-cell">{props.loudness.target !== null && props.loudness.lufs !== null ? (props.loudness.lufs > props.loudness.target ? `above target ${props.loudness.target}` : `target ${props.loudness.target}`) : ""}</td>
+              <th scope="col">Bus</th>
+              <th scope="col">You hear</th>
+              <th scope="col">Why</th>
             </tr>
-          )}
-          {props.readouts.map((r) => (
-            <tr key={r.slot} data-bus={r.name}>
-              <th scope="row">{r.removed ? `${r.name} (removed)` : r.name}</th>
-              <td class="num">{formatDb(r.db)}</td>
-              <td class="pf-why-cell">{reasonsText(r)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {props.loudness && (
+              <tr>
+                <th scope="row">{props.loudness.name} loudness</th>
+                <td class="num">{props.loudness.lufs === null ? "—" : `${props.loudness.lufs.toFixed(1)} LUFS`}</td>
+                <td class="pf-why-cell">{props.loudness.target !== null && props.loudness.lufs !== null ? (props.loudness.lufs > props.loudness.target ? `above target ${props.loudness.target}` : `target ${props.loudness.target}`) : ""}</td>
+              </tr>
+            )}
+            {props.readouts.map((r) => (
+              <tr key={r.slot} data-bus={r.name}>
+                <th scope="row">{r.removed ? `${r.name} (removed)` : r.name}</th>
+                <td class="num">{formatDb(r.db)}</td>
+                <td class="pf-why-cell">{reasonsText(r)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {props.readouts.length === 0 && <p class="pf-note">No keyframe before the cursor: the bus levels start at the first keyframe.</p>}
     </div>
   );

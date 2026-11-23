@@ -8,6 +8,7 @@ import { Chip } from "../../../../editor/ui/Chip";
 import { SegmentedControl } from "../../../../editor/ui/SegmentedControl";
 import { argumentName, WILDCARD, type DialogueEvent, type DialogueLine } from "../../../../engine/audio/dialogue/types";
 import type { EditResult } from "../../../../plugins/audio/editor/editResult";
+import { Icon } from "../../../components/Icon";
 import { codesOf } from "../languagesModel";
 import { InlineText } from "../LinesView";
 import { labelsChange, labelsOf, pathTree, type ArgumentChange, type ArgumentImpact, type EventContext, type PathLint, type PathNode } from "./eventsModel";
@@ -54,7 +55,7 @@ function Lines(props: { lines: readonly DialogueLine[]; keys: readonly string[];
       ))}
       {!props.disabled && (
         <>
-          <input type="text" aria-label={`Add a line to path ${props.index + 1}`} placeholder="+ line" list={listId} value={adding} style={{ width: "90px" }}
+          <input type="text" aria-label={`Add a line to path ${props.index + 1}`} placeholder="Add line…" list={listId} value={adding} style={{ width: "90px" }}
             onInput={(e) => setAdding((e.currentTarget as HTMLInputElement).value)}
             onKeyDown={(e) => {
               if (e.key !== "Enter" || adding.trim() === "") return;
@@ -77,15 +78,15 @@ function ArgumentHead(props: { event: DialogueEvent; ctx: EventContext; arg: num
       <div><b>{argumentName(a)}</b> {a.kind === "parameter" && <Chip tone="accent" title="A global labelled parameter (audio.json)">global</Chip>}</div>
       <div class="dl-muted" title={labels.join(", ")}>{labels.join(" · ") || "no labels"}</div>
       {!props.disabled && (
-        <div class="dl-row">
-          <button class="smp-link" aria-label={`Move ${argumentName(a)} left`} disabled={props.arg === 0} onClick={() => props.onChange({ kind: "move", arg: props.arg, to: props.arg - 1 })}>‹</button>
-          <button class="smp-link" aria-label={`Move ${argumentName(a)} right`} disabled={props.arg === n - 1} onClick={() => props.onChange({ kind: "move", arg: props.arg, to: props.arg + 1 })}>›</button>
+        <div class="dl-row dl-arg-tools">
+          <button class="smp-link dl-icon-btn" aria-label={`Move ${argumentName(a)} left`} title={`Move ${argumentName(a)} left`} disabled={props.arg === 0} onClick={() => props.onChange({ kind: "move", arg: props.arg, to: props.arg - 1 })}><Icon name="chevronLeft" /></button>
+          <button class="smp-link dl-icon-btn" aria-label={`Move ${argumentName(a)} right`} title={`Move ${argumentName(a)} right`} disabled={props.arg === n - 1} onClick={() => props.onChange({ kind: "move", arg: props.arg, to: props.arg + 1 })}><Icon name="chevronRight" /></button>
           {a.kind === "local" ? (
             <InlineText value={a.labels.join(", ")} label={`Labels of ${a.name}`} class="dl-labels" disabled={props.disabled} onCommit={(text) => props.onChange(labelsChange(props.arg, text))} />
           ) : (
-            <button class="smp-link" onClick={() => props.onChange({ kind: "unlink", arg: props.arg })}>Unlink</button>
+            <button class="smp-link" title="Stop following the global parameter: the argument keeps its labels" onClick={() => props.onChange({ kind: "unlink", arg: props.arg })}><Icon name="link" /> Unlink</button>
           )}
-          <button class="smp-link" aria-label={`Remove argument ${argumentName(a)}`} onClick={() => props.onChange({ kind: "remove", arg: props.arg })}>×</button>
+          <button class="smp-link dl-icon-btn" aria-label={`Remove argument ${argumentName(a)}`} title={`Remove argument ${argumentName(a)} (shows the paths it changes first)`} onClick={() => props.onChange({ kind: "remove", arg: props.arg })}><Icon name="close" /></button>
         </div>
       )}
     </th>
@@ -135,11 +136,11 @@ export function PathTableView(props: PathTableViewProps) {
     <div class="dl-paths-wrap">
       <div class="dl-toolbar">
         <SegmentedControl size="small" label="Path view" value={view} options={[{ value: "table", label: "Table" }, { value: "tree", label: "Group by argument" }]} onChange={setView} />
-        <button disabled={ro || e.arguments.length === 0} onClick={props.onAddPath}>Add path</button>
+        <button disabled={ro || e.arguments.length === 0} title={e.arguments.length === 0 ? "Add an argument first" : "Add a path of * at the end"} onClick={props.onAddPath}><Icon name="plus" /> Add path</button>
         {!ro && (
           <>
-            <input type="text" aria-label="New argument" placeholder="name: A, B" value={newArg} style={{ width: "140px" }} onInput={(ev) => setNewArg((ev.currentTarget as HTMLInputElement).value)} />
-            <button disabled={!newArg.includes(":")} onClick={() => { const [name, rest] = newArg.split(":"); ask({ kind: "add", name, labels: codesOf(rest ?? "") }); setNewArg(""); }}>Add argument</button>
+            <input type="text" class="dl-new-arg" aria-label="New argument" placeholder="name: A, B" value={newArg} onInput={(ev) => setNewArg((ev.currentTarget as HTMLInputElement).value)} />
+            <button disabled={!newArg.includes(":")} title="Type the argument as name: Label, Label" onClick={() => { const [name, rest] = newArg.split(":"); ask({ kind: "add", name, labels: codesOf(rest ?? "") }); setNewArg(""); }}><Icon name="plus" /> Add argument</button>
             {props.parameters.length > 0 && (
               <select aria-label="Link a global parameter" value="" onChange={(ev) => { const v = (ev.currentTarget as HTMLSelectElement).value; if (v) ask({ kind: "link", parameter: v }); }}>
                 <option value="">Link global…</option>
@@ -149,7 +150,7 @@ export function PathTableView(props: PathTableViewProps) {
           </>
         )}
       </div>
-      {props.lints.filter((l) => l.index < 0).map((l) => <p key={l.message} class="dl-lint">{l.message}</p>)}
+      {props.lints.filter((l) => l.index < 0).map((l) => <p key={l.message} class="dl-lint"><Icon name="warning" /> {l.message}</p>)}
       {pending && impact && (
         <section class="dl-impact" aria-label="Argument change">
           <b>{pending.label}</b>
@@ -160,7 +161,7 @@ export function PathTableView(props: PathTableViewProps) {
             </ul>
           )}
           <div class="dl-row">
-            <button class="primary" disabled={"refused" in impact} onClick={() => { props.onArgument(pending.change, pending.label); setPending(null); }}>Apply</button>
+            <button class="primary" disabled={"refused" in impact} onClick={() => { props.onArgument(pending.change, pending.label); setPending(null); }}><Icon name="check" /> Apply</button>
             <button onClick={() => setPending(null)}>Cancel</button>
           </div>
         </section>
@@ -170,6 +171,7 @@ export function PathTableView(props: PathTableViewProps) {
           {pathTree(e, props.ctx).map((n) => <TreeNode key={n.label} node={n} event={e} bench={props.bench} />)}
         </ul>
       ) : (
+        <div class="dl-scroll">
         <table class="dl-table dl-paths" aria-label="Paths">
           <thead>
             <tr>
@@ -178,7 +180,7 @@ export function PathTableView(props: PathTableViewProps) {
               <th scope="col">Lines</th>
               <th scope="col">Probability</th>
               {e.mode === "weighted" && <th scope="col">Weight</th>}
-              <th scope="col" />
+              <th scope="col"><span class="dl-sr">Remove</span></th>
             </tr>
           </thead>
           <tbody>
@@ -199,17 +201,18 @@ export function PathTableView(props: PathTableViewProps) {
                   ))}
                   <td>
                     <Lines lines={p.lines} keys={props.lineKeys} recorded={props.recorded} preview={props.preview} disabled={ro} index={i} onLines={(lines) => props.onLines(i, lines)} />
-                    {lintsOf(i).map((l) => <div key={l.message} class="dl-lint">{l.message}</div>)}
+                    {lintsOf(i).map((l) => <div key={l.message} class="dl-lint"><Icon name="warning" /> {l.message}</div>)}
                     {b && b.reason && b.role !== "picked" && <div class="dl-muted">{b.reason}</div>}
                   </td>
                   <td><input type="number" aria-label={`Probability of path ${i + 1}`} min={0} max={100} step={5} style={{ width: "56px" }} value={Math.round(p.probability * 100)} disabled={ro} onChange={(ev) => props.onNumbers(i, { probability: Number((ev.currentTarget as HTMLInputElement).value) / 100 })} />%</td>
                   {e.mode === "weighted" && <td><input type="number" aria-label={`Weight of path ${i + 1}`} min={0} max={100} step={1} style={{ width: "48px" }} value={p.weight} disabled={ro} onChange={(ev) => props.onNumbers(i, { weight: Number((ev.currentTarget as HTMLInputElement).value) })} /></td>}
-                  <td><button class="smp-link" aria-label={`Remove path ${i + 1}`} disabled={ro} onClick={() => props.onRemovePath(i)}>×</button></td>
+                  <td><button class="smp-link dl-icon-btn" aria-label={`Remove path ${i + 1}`} title={`Remove path ${i + 1}`} disabled={ro} onClick={() => props.onRemovePath(i)}><Icon name="trash" /></button></td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+        </div>
       )}
     </div>
   );

@@ -7,6 +7,7 @@ import { ContextMenu, SEPARATOR, type MenuEntry } from "../../../editor/ui/Conte
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { MoveToDialog } from "../../../editor/ui/MoveToDialog";
 import { TreeView, renameRow, type TreeRow } from "../../../editor/ui/TreeView";
+import { Icon } from "../../components/Icon";
 import { captureTree, isCapturePath, NO_CAPTURES, searchCaptures, type CaptureNode } from "./captureTree";
 
 export interface CaptureListProps {
@@ -44,7 +45,7 @@ export function CaptureList(props: CaptureListProps) {
     selected: path === props.openPath,
     attrs: { "data-capture": path },
     title: path,
-    icon: <span class="pf-file-icon" aria-hidden="true">{path.toLowerCase().endsWith(".mycotake") ? "◉" : "▤"}</span>,
+    icon: <Icon name={path.toLowerCase().endsWith(".mycotake") ? "take" : "profiler"} size={14} class="pf-file-icon" />,
     setOpen: () => {},
     select: () => props.onOpen(path),
     activate: () => props.onOpen(path),
@@ -61,7 +62,7 @@ export function CaptureList(props: CaptureListProps) {
           expandable: true,
           open: !closed.has(n.path),
           selected: false,
-          icon: <span class="pf-file-icon" aria-hidden="true">▸</span>,
+          icon: <Icon name="folder" size={14} class="pf-file-icon" />,
           children: n.children.map(row),
           setOpen: (open) => {
             const next = new Set(closed);
@@ -86,8 +87,8 @@ export function CaptureList(props: CaptureListProps) {
     <div class="pf-captures">
       <div class="pf-captures-tools">
         <input type="search" class="pf-search" placeholder="Search captures" aria-label="Search captures" value={query} onInput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)} />
-        <button type="button" disabled={!props.writable} title={props.writable ? "Copy a capture file into this project's captures folder" : "This project is read-only"} onClick={() => input.current?.click()}>
-          Open capture file…
+        <button type="button" class="pf-tool" disabled={!props.writable} title={props.writable ? "Copy a capture file into this project's captures folder" : "This project is read-only"} onClick={() => input.current?.click()}>
+          <Icon name="import" size={14} /> Open capture file…
         </button>
         <input
           ref={input}
