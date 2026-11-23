@@ -170,7 +170,8 @@ let nextSlotPlayId = 1;
  */
 export async function createGraphInstance(rt: AnimatorRuntime, ns: AnimationWorldCore, skeleton: SkeletonRuntime | null, current: () => boolean): Promise<number> {
   const a = rt.animator;
-  const rig = skeleton?.info ? { path: skeleton.path, info: skeleton.info, profile: skeleton.component.profile } : null;
+  const c = skeleton?.component;
+  const rig = skeleton?.info && c ? { path: skeleton.path, info: skeleton.info, profile: c.profile, retargetSource: c.retargetSource } : null;
   const graph = await acquireGraph(ns, a.graph, rig);
   if (!graph) return 0;
   // Another activation of the same Animator (a Skeleton finishing its load) may have made the instance meanwhile.
