@@ -38,14 +38,21 @@ export async function startRoomFront(target: string): Promise<RoomFront> {
     } catch {
       continue; // taken (another worker's front, or a desktop editor's link): the next port
     }
+    // Every socket, upgraded ones included: `closeAllConnections` leaves WebSocket upgrades open, so `close` would wait on them.
+    const sockets = new Set<import("node:net").Socket>();
+    http.on("connection", (socket) => {
+      sockets.add(socket);
+      socket.once("close", () => sockets.delete(socket));
+    });
     const rendezvous: RunningRendezvous = await startRendezvous(http);
     return {
       url: `http://localhost:${port}/`,
       port,
       async close() {
         await rendezvous.close();
-        http.closeAllConnections();
-        await new Promise<void>((resolve) => http.close(() => resolve()));
+        const closed = new Promise<void>((resolve) => http.close(() => resolve()));
+        for (const socket of sockets) socket.destroy();
+        await closed;
       },
     };
   }

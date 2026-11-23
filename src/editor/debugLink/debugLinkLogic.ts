@@ -99,6 +99,18 @@ export interface BuildEntry {
 
 /** The menu's line for a build: its name, then where it runs when it isn't this machine. */
 export function buildLabel(b: BuildEntry): string {
+  // A build reached through a rendezvous room (ADR 0381) is named by the room's URL, which carries the room and its
+  // token: show only where the rendezvous is.
+  if (b.remote.includes("://")) {
+    let host = "";
+    try {
+      host = new URL(b.remote).hostname.replace(/^\[|\]$/g, "");
+    } catch {
+      host = "";
+    }
+    const room = host === "" ? "a room" : isLocalRemote(host) ? "this machine, through a room" : `${host}, through a room`;
+    return `${b.name} (${b.platform}, ${room})`;
+  }
   const where = isLocalRemote(b.remote) ? "this machine" : remoteHost(b.remote);
   return `${b.name} (${b.platform}, ${where})`;
 }

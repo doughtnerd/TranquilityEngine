@@ -67,6 +67,9 @@ describe("the menu's and prompt's text", () => {
   it("names the build and where it runs", () => {
     expect(buildLabel({ id: 1, name: "Flappy", platform: "web", remote: "127.0.0.1:5" })).toBe("Flappy (web, this machine)");
     expect(buildLabel({ id: 1, name: "Flappy", platform: "desktop", remote: "192.168.1.9:5" })).toBe("Flappy (desktop, 192.168.1.9)");
+    // Through a rendezvous room (ADR 0381): the room's URL carries its token, which the menu never shows.
+    expect(buildLabel({ id: 1, name: "Flappy", platform: "web", remote: "ws://127.0.0.1:7790/myco-rendezvous#room=174&token=136029" })).toBe("Flappy (web, this machine, through a room)");
+    expect(buildLabel({ id: 1, name: "Flappy", platform: "web", remote: "ws://192.168.1.20:3000/myco-rendezvous#room=9&token=5" })).toBe("Flappy (web, 192.168.1.20, through a room)");
     expect(acceptMessage({ name: "Flappy", platform: "desktop", remote: "192.168.1.9:5" })).toMatch(/^"Flappy" \(desktop\) on 192\.168\.1\.9 wants to connect/);
   });
 
