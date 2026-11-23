@@ -3,8 +3,11 @@
 // its own clock); a peer subscribes to topics (pulled: the build sends only what a subscription asks for), sends
 // requests (answered by promises) and commands (applied at the build's next frame start). Nothing reaches a build before
 // the tool accepts it (`accept()`): the tool decides, asking first for a non-local one.
+//
+// ADR 0380 adds the other direction: a `ToolConnector` connects out to a listening build (`host.ts`'s
+// `BuildListener`), pairing with the code the build shows; its peers are the same `DebugLinkPeer`s.
 import type { Transport, TransportConnection } from "../net/Transport";
-import { EnvelopeKind, decodeEnvelope, encodeEnvelope, jsonPayload, readHello, readJsonPayload, type DebugHello, type Envelope } from "./protocol";
+import { EnvelopeKind, decodeEnvelope, encodeEnvelope, jsonPayload, readHello, readJsonPayload, type DebugHello, type DebugPairReply, type EndpointKind, type Envelope } from "./protocol";
 import { readRecords, type LinkRecord } from "./records";
 
 export type PeerState = "pending" | "accepted" | "closed";
@@ -219,5 +222,79 @@ export class DebugLinkListener {
     }
     this.connections.clear();
     this.transport.close();
+  }
+}
+
+// --- the tool connects out (ADR 0380 "Roles"; plan contract C3, filled by L7) ---------------------------------------------
+
+/**
+ * Where one connection attempt to a listening build stands:
+ * - `connecting`: the transport is opening;
+ * - `pairing`: open, `pair` sent, waiting for `paired`;
+ * - `paired`: accepted; the build's `hello` arrived and `peer` is its accepted peer;
+ * - `refused`: the build answered `paired` with a refusal (`refusal`), and closed;
+ * - `failed`: it never opened, or closed before the hello (`reason`), or was cancelled.
+ */
+export type ConnectAttemptState = "connecting" | "pairing" | "paired" | "refused" | "failed";
+
+/** One attempt to connect to a listening build. */
+export interface ConnectAttempt {
+  /** The address it connects to. */
+  readonly address: string;
+  readonly state: ConnectAttemptState;
+  /** The build's refusal while `refused` (its reason and sentence), else null. */
+  readonly refusal: Extract<DebugPairReply, { accepted: false }> | null;
+  /** Why it `failed` ("" otherwise). */
+  readonly reason: string;
+  /** The build, once `paired`; null before. */
+  readonly peer: DebugLinkPeer | null;
+  /** Gives the attempt up (closes its connection); a `paired` attempt's peer closes too. */
+  cancel(): void;
+}
+
+export interface ToolConnectorOptions {
+  /** This tool's endpoint kind, sent in `pair`. */
+  readonly kind: EndpointKind;
+  /** This tool's name, sent in `pair` for the build's list ("Audio Studio on DESKTOP-1"). */
+  readonly name?: string;
+  /** Hears peers (once paired) and their closes, as a listener's events do. */
+  readonly events?: ListenerEvents;
+}
+
+/**
+ * A tool that connects out to listening builds (ADR 0380: a native build listens and the tool connects). Each
+ * `connect` opens one connection on the transport, sends `pair` (role `tool`, this tool's kind and name, the token from
+ * the build's code) as its first message, and on `paired` (accepted) waits for the build's `hello`; the peer it makes is
+ * accepted at once (the tool chose to connect, so there is nothing to ask: it sends `welcome`), and `events.onPeer`
+ * hears it. Peers behave as a listener's do. Polled on the tool's own clock, as `DebugLinkListener` is. Trying an
+ * address code's candidates in turn is the caller's (`connectFlow.ts`): one attempt per address.
+ */
+export class ToolConnector {
+  constructor(transport: Transport, options: ToolConnectorOptions) {
+    void transport;
+    void options;
+    throw new Error("L7: not implemented");
+  }
+
+  /** Starts connecting to the build listening at `address` with `token` (absent: same machine, or the build may ask). */
+  connect(address: string, token?: number): ConnectAttempt {
+    void address;
+    void token;
+    throw new Error("L7: not implemented");
+  }
+
+  /** Every paired peer still connected. */
+  get peers(): readonly DebugLinkPeer[] {
+    throw new Error("L7: not implemented");
+  }
+
+  /** Handles what arrived since the last call (pairing replies, hellos, peers' messages, closes). */
+  poll(): void {
+    throw new Error("L7: not implemented");
+  }
+
+  /** Closes every attempt and peer, and the transport. */
+  close(): void {
+    throw new Error("L7: not implemented");
   }
 }
