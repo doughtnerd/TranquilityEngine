@@ -72,7 +72,8 @@ test("Record take and capture from Play, Open in Audio Studio, then the Studio r
   const chooser = studio.waitForEvent("filechooser");
   await studio.getByRole("button", { name: "Open take file…" }).click();
   await (await chooser).setFiles({ name: takeName, mimeType: "application/octet-stream", buffer: Buffer.from(takeBytes) });
-  await studio.getByRole("treeitem", { name: new RegExp(takeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).click();
+  // The Takes and Captures trees name a file without its extension (the prototype's rows).
+  await studio.getByRole("treeitem", { name: new RegExp(takeName.replace(/\.mycotake$/i, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).click();
   await showPanel(studio, "In this take");
   await expect(studio.getByRole("list", { name: "Playlists in this take" })).toContainText("click");
   await studio.getByRole("button", { name: "Replay", exact: true }).click();
@@ -88,7 +89,7 @@ test("Record take and capture from Play, Open in Audio Studio, then the Studio r
   const capChooser = studio.waitForEvent("filechooser");
   await studio.getByRole("button", { name: "Open capture file…" }).click();
   await (await capChooser).setFiles({ name: captureName, mimeType: "application/octet-stream", buffer: Buffer.from(captureBytes) });
-  await studio.getByRole("treeitem", { name: new RegExp(captureName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).click();
+  await studio.getByRole("treeitem", { name: new RegExp(captureName.replace(/\.mycap$/i, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).click();
   await expect(studio.locator(".pf-counts")).toBeVisible({ timeout: 15_000 });
   await expect(studio.getByRole("alert")).toHaveCount(0);
   expect(studioErrors).toEqual([]);
