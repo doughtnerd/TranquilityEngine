@@ -39,7 +39,7 @@ test("Record take and capture from Play, Open in Audio Studio, then the Studio r
   await page.mouse.click(480, 250);
   const take = page.getByRole("button", { name: /Record take/ });
   const capture = page.getByRole("button", { name: /Record capture/ });
-  await expect(take).toBeEnabled();
+  await expect(take).toBeEnabled({ timeout: 15_000 }); // the toolbar follows the play state a moment after Stop shows (seconds under load)
   await take.click();
   await capture.click();
   await expect(take).toHaveAttribute("aria-pressed", "true");
