@@ -11,7 +11,9 @@
 //   rebuild) don't run every frame. Data components write their typed-array column directly. `engine.Transform`'s
 //   `position`, `rotation` and `scale` go through the Transform. `material.<name>` on a MeshRenderer is a per-renderer
 //   material property override (`setMaterialProperty`: Unity's animated material properties through its property
-//   blocks), so animating it never changes the shared material asset. `morph` tracks write
+//   blocks), so animating it never changes the shared material asset. `materials[1].<name>` (the form model imports
+//   emit, T14) is the same override for material slot 1 only (`setMaterialProperty(name, value, 1)`; T24's render
+//   sync draws it on the renderer's own copy of that slot's material, colours linear). `morph` tracks write
 //   `SkinnedMeshRenderer.morphWeights[i]`; `activation` tracks set the node active.
 // - **Missing targets** (no such node, component or field; not animatable; a track kind the field can't take) leave
 //   the track unbound and give one warning per clip and Animator node, listing them.
