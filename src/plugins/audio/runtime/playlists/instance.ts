@@ -11,12 +11,14 @@
  *   the sink keeps multiplying onto the new base), else through the voice's own setters.
  * - **pause** (ADR 0362 §1) holds the playback: the instance keeps its own clock (`clock()`), the heard clock less the
  *   time it has spent held, and every time the tree plans with (timers, the sequence playhead, stamps, markers, beats)
- *   is on it; `heard()` turns one into the heard time a stamp is sent with. A pause holds at the heard time after the
- *   latest stamp already sent (no stamped start or ramp lies past the hold), so the core holds every voice at that one
- *   frame (stamped SET_PAUSED); the timers wait, the tree isn't updated, and parameter changes wait for the resume. A
- *   resume continues every voice at one frame (a voice that hadn't started yet starts as late as the pause lasted),
- *   moves the timers on by the time held and binds voice-time curves that much later, so the playback continues from
- *   exactly where it held.
+ *   is on it; `heard()` turns one into the heard time a stamp is sent with. A pause holds at the earliest stampable
+ *   heard time (`horizon`), so it is heard at once: the core holds every voice at that one frame (stamped SET_PAUSED).
+ *   What was already sent for later waits with the voices: a voice whose stamped start lies past the hold holds from
+ *   that start, and a held voice's stamped records past the hold (fades, ramps, a cut) wait on the core and land as
+ *   much later as it was held (ABI 6.2). The timers wait, the tree isn't updated, and parameter changes wait for the
+ *   resume. A resume continues every voice at one frame (a voice that hadn't started yet starts as late as the pause
+ *   lasted), moves the timers on by the time held and binds voice-time curves that much later, so the playback
+ *   continues from exactly where it held.
  */
 import type { Curve } from "../../../../engine/core/curve";
 import type { Vec3Like } from "../../../../engine/core/math";
@@ -106,12 +108,6 @@ export type StingerOutcome = "played" | "late" | "skipped" | "dropped";
 
 /** The stop fade when the game names none (ADR 0343: "stop fades everything over 120 ms"). */
 export const STOP_FADE_SECONDS = 0.12;
-/**
- * ADR 0362 §1: how far past the earliest stampable time a pause may wait for the stamps already sent (a sequence plans
- * 0.1 s ahead, a Switch or Queue step 0.25 s). A stamp further out (a play `at` a later time) is a voice that hasn't
- * started when the playback holds: it starts as much later as the pause lasted.
- */
-const PAUSE_LEAD_MAX = 0.5;
 /** A paused voice stopped before its hold fades no longer than this short of the hold, so its fade ends first. */
 const PAUSE_STOP_MARGIN = 0.01;
 /** The core's 5 ms fade a mixed voice makes into its hold (`core/voices.ts`). */
@@ -541,8 +537,6 @@ export class PlaylistInstance implements NodeHost {
   private holdAt: number | null = null;
   /** The heard time the last resume continues at: the instance's clock holds until the heard clock reaches it. */
   private continueAt = Number.NEGATIVE_INFINITY;
-  /** The latest heard time a stamp was sent with (`heard`): a pause holds after it. */
-  private lastStamp = Number.NEGATIVE_INFINITY;
   /** While paused: its timers (heard times as they were scheduled), moved on by the time held when it resumes. */
   private heldTimers: { at: number; run: () => void }[] = [];
   /** While paused: the parameters that changed (the tree hears them when it resumes). */
@@ -562,22 +556,20 @@ export class PlaylistInstance implements NodeHost {
     return t + this.heldFor;
   }
 
-  /** `NodeHost.heard`: the heard time instance time `t` is sent with (the latest one is where a pause can hold). */
+  /** `NodeHost.heard`: the heard time instance time `t` is sent with. */
   heard(t: number): number {
-    const h = t + this.heldFor;
-    if (h > this.lastStamp) this.lastStamp = h;
-    return h;
+    return t + this.heldFor;
   }
 
   /**
-   * Holds the playback: its voices hold at one heard time (the earliest stampable time, or after the stamps already sent,
-   * up to `PAUSE_LEAD_MAX` further), its timers wait and its tree isn't updated until `resume`.
+   * Holds the playback: its voices hold at one heard time, the earliest stampable one (a voice planned to start later
+   * holds from its start, and what was stamped past the hold waits with it), its timers wait and its tree isn't updated
+   * until `resume`.
    */
   pause(): void {
     if (this.stopped || this.holdAt !== null) return;
     const host = playlistHost();
-    const earliest = Math.max(host.horizon() ?? host.clock(), this.continueAt);
-    const at = Math.max(earliest, Math.min(this.lastStamp, earliest + PAUSE_LEAD_MAX));
+    const at = Math.max(host.horizon() ?? host.clock(), this.continueAt);
     this.holdAt = at;
     for (const v of this.voices) if (v.voice.alive ?? v.voice.playing) v.voice.pause(at);
     this.heldTimers = this.sys.takeTimers(this);
