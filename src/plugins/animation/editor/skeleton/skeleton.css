@@ -1,0 +1,43 @@
+/* The Animation plugin's skeleton tools (ADR 0373; T54): the bone map card, the retarget card and the skeleton profile
+   (chain) editor. Theme tokens only (src/editor/theme.ts). */
+.skeleton-note { margin: 4px 0; font-size: calc(11px * var(--ui-scale)); color: var(--muted); }
+.skeleton-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.bone-map-actions { margin: 4px 0 6px; }
+.bone-map-warning { padding: 4px 6px; border-radius: 3px; background: var(--warning-soft); color: var(--text); }
+.bone-map-problem { color: var(--danger); }
+.bone-map-table { width: 100%; border-collapse: collapse; font-size: calc(12px * var(--ui-scale)); table-layout: fixed; }
+.bone-map-table th, .bone-map-table td { padding: 2px 4px; text-align: left; font-weight: 400; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bone-map-table thead th { color: var(--muted); font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.04em; }
+.bone-map-table col, .bone-map-table th:first-child { width: 38%; }
+.bone-map-table th:last-child, .bone-map-table td:last-child { width: 14%; text-align: right; }
+.bone-map-table select { width: 100%; }
+.bone-map-row.unmapped th { color: var(--muted); }
+.bone-map-row.unmapped.required th { color: var(--warning); }
+.bone-map-row.missing th { color: var(--danger); }
+.bone-map-required { color: var(--warning); }
+.bone-map-match { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* Retarget */
+.retarget-previews { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 6px 0; }
+.retarget-side { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.retarget-side-title { font-size: calc(11px * var(--ui-scale)); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.retarget-empty { display: flex; align-items: center; justify-content: center; min-height: 90px; padding: 8px; border: 1px dashed var(--border-strong); border-radius: 4px; color: var(--muted); font-size: calc(12px * var(--ui-scale)); text-align: center; }
+.retarget-result { margin: 6px 0 0; font-size: calc(12px * var(--ui-scale)); color: var(--text); overflow-wrap: anywhere; }
+.retarget-problem { margin: 6px 0 0; font-size: calc(12px * var(--ui-scale)); color: var(--danger); }
+
+/* The skeleton profile editor */
+.skeleton-profile .profile-table { width: 100%; border-collapse: collapse; font-size: calc(12px * var(--ui-scale)); }
+.skeleton-profile .profile-table th, .skeleton-profile .profile-table td { padding: 2px 3px; text-align: left; font-weight: 400; border-bottom: 1px solid var(--border); }
+.skeleton-profile .profile-table thead th { color: var(--muted); font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.04em; }
+.skeleton-profile .profile-table input[type="text"], .skeleton-profile .profile-table select { width: 100%; min-width: 0; box-sizing: border-box; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font: inherit; }
+.skeleton-profile .profile-table input:focus, .skeleton-profile .profile-table select:focus { outline: none; border-color: var(--accent); }
+.skeleton-profile .profile-range { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; }
+.skeleton-profile .profile-range input[type="number"] { padding: 2px 3px; }
+.skeleton-profile .profile-chain { margin: 6px 0; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); }
+.skeleton-profile .profile-chain-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-bottom: 4px; }
+.skeleton-profile .profile-chain-head input[type="text"] { flex: 1; min-width: 6em; }
+.skeleton-profile .profile-chain-roles { display: flex; flex-direction: column; gap: 2px; }
+.skeleton-profile .profile-chain-role { display: flex; align-items: center; gap: 4px; font-size: calc(12px * var(--ui-scale)); }
+.skeleton-profile .profile-chain-role > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.skeleton-profile .profile-chain-role button { padding: 0 6px; }
+.skeleton-profile h4 { margin: 10px 0 4px; font-size: calc(11px * var(--ui-scale)); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }

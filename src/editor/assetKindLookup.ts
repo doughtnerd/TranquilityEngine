@@ -6,7 +6,7 @@
 // Light on imports (no editor state), so `assetBrowser.ts` and `thumbnails/keys.ts` can both use it.
 import { isSidecarPath } from "../engine/scene/importSettings";
 import { studioScreenFor } from "./studioAssets";
-import { assetKinds, assetNodesAugments, type AssetKindContribution, type AssetSceneNodes, type ImportSettingsContribution, type LoadComponent } from "./sdk/contributions";
+import { assetKinds, assetNodesAugments, importSettingsSections, type AssetKindContribution, type AssetSceneNodes, type ImportSettingsContribution, type ImportSettingsSectionContribution, type LoadComponent } from "./sdk/contributions";
 
 /** The kinds the editor shell registers (ADR 0143) and the ones this module answers itself. */
 export type CoreAssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "rendertexture" | "json" | "script" | "javascript" | "typescript" | "text" | "xml" | "other";
@@ -186,4 +186,10 @@ export function subAssetEntries(path: string, kinds: readonly string[]): string[
 export function fieldKindKnown(fieldKind: string): boolean {
   void assetKinds.version.value;
   return fieldKind in CORE_FIELD_RULES || assetKinds.list().some((k) => k.referencedAs?.includes(fieldKind));
+}
+
+/** The cards other plugins added to a kind's Import Settings (ADR 0373), in registration order. Reads the registry's version, so a view follows plugins coming and going. */
+export function kindImportSections(kind: AssetKind): readonly ImportSettingsSectionContribution[] {
+  void importSettingsSections.version.value;
+  return importSettingsSections.list().filter((s) => s.kind === kind);
 }
