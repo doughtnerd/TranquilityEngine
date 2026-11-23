@@ -23,7 +23,7 @@ import { useElementWidth } from "../../../components/useElementWidth";
 import { sampleFromDrag } from "../libraryModel";
 import { playlistTitle } from "../playlistPaths";
 import {
-  addAutomation, addPoint, addVolumeEnvelope, deletePoints, isTimeInput, movePoints, ownerOf, setAutomation, setPointShape, SHAPES, targetSpec, targetSpecs, writeAutomation, type AutomationOwner,
+  addAutomation, addPoint, addVolumeEnvelope, deletePoints, isTimeInput, movePoints, ownerOf, parameterLaneRange, setAutomation, setPointShape, SHAPES, targetSpec, targetSpecs, writeAutomation, type AutomationOwner,
 } from "./automationEdits";
 import { clipFollows } from "./clipGeometry";
 import { CurveOverlay, yToValue } from "./CurveOverlay";
@@ -321,7 +321,7 @@ export function SequenceView(props: SequenceViewProps) {
     if (!sel.clips.includes(clipId)) select(clickClip(sel, clipId, f.track.id));
     const t = snapAt(timeAt(e), e);
     const len = clipLength(f.clip, sourceOf(f.clip));
-    const follows = clipFollows(props.lints, `${props.where ? `${props.where}.` : ""}sequence.tracks[${f.ti}]`, f.track, f.clip);
+    const follows = !!clipFollows(docSeq, clipId, sourceOf);
     setMenu({
       at: { x: e.clientX, y: e.clientY }, label: "Clip",
       entries: [
@@ -332,7 +332,7 @@ export function SequenceView(props: SequenceViewProps) {
         { id: "copy", label: "Copy", hint: "Ctrl+C", run: () => (seqClipboard.value = copySelection(docSeq, { ...sel, focus: "clips", clips: ids })) },
         { id: "dup", label: ids.length > 1 ? "Duplicate clips" : "Duplicate clip", hint: "Ctrl+D", disabled: !writable, run: () => duplicate(ids) },
         { id: "en", label: f.clip.enabled ? "Disable" : "Enable", hint: "E", disabled: !writable, run: () => toggleEnabled(ids) },
-        ...(follows ? [{ id: "async", label: "Make Async", title: "Let this clip loop on its own clock instead of following the higher track", disabled: !writable, run: () => runSeq("Clip async", (q) => makeAsync(q, clipId)) }] : []),
+        ...(follows ? [{ id: "async", label: "Make Async", title: "Let this clip loop on its own clock instead of following the clip before it on this track", disabled: !writable, run: () => runSeq("Clip async", (q) => makeAsync(q, clipId)) }] : []),
         SEPARATOR,
         { id: "del", label: ids.length > 1 ? "Delete clips" : "Delete clip", hint: "Del", danger: true, disabled: !writable, run: () => removeClips(ids) },
       ],
@@ -746,7 +746,6 @@ export function SequenceView(props: SequenceViewProps) {
   const timeCtx = { rate, bpm: s.tempo?.bpm ?? null, meter: s.tempo?.meter ?? null };
   const format = seqTimeFormat.value;
   const thumb = thumbOf(view, limit);
-  const lintPrefix = props.where ? `${props.where}.` : "";
   const hoverClipAt = hover ? findClip(s, hover.clip) : null;
   const shownTrackLane = (trackId: string, automation: string) => sel.points && "track" in sel.points.owner && sel.points.owner.track === trackId && sel.points.automation === automation ? sel.points.keys : [];
   const endX = toPx(length);
@@ -838,7 +837,6 @@ export function SequenceView(props: SequenceViewProps) {
         <div class="sq-rows" ref={rowsRef} style={{ minHeight: `${height + 60}px` }}>
           {rows.map((r) => {
             const t = r.track;
-            const trackWhere = `${lintPrefix}sequence.tracks[${r.ti}]`;
             return (
               <div key={t.id} class="sq-track-block">
                 <div class="sq-row" style={{ height: `${r.h}px` }}>
@@ -883,7 +881,7 @@ export function SequenceView(props: SequenceViewProps) {
                           width={toPx(c.at + len) - x}
                           height={r.h - 4}
                           selected={sel.clips.includes(c.id)}
-                          follows={clipFollows(props.lints, trackWhere, t, c)}
+                          follows={!!clipFollows(s, c.id, sourceOf)}
                           showWave={seqShowWave.value}
                           razor={seqRazor.value}
                           curve={shown ? { ...shown, keys: sel.points && "clip" in sel.points.owner && sel.points.owner.clip === c.id && sel.points.automation === shown.automation.id ? sel.points.keys : [] } : null}
@@ -905,6 +903,7 @@ export function SequenceView(props: SequenceViewProps) {
                   const a = t.automation.find((x) => x.id === lane.automation)!;
                   const spec = targetSpec(a.target, t.effects);
                   const time = isTimeInput(a.input);
+                  const range = parameterLaneRange(a.input, a.curve, props.parameters);
                   return (
                     <div key={lane.automation} class="sq-row sq-auto-row" style={{ height: `${lane.h}px` }}>
                       <div class="sq-auto-head" style={{ height: `${lane.h}px` }}>
@@ -921,6 +920,14 @@ export function SequenceView(props: SequenceViewProps) {
                             onPointPress={(i, e) => pressPoint(e, { track: t.id }, a.id, i, lane.h)}
                             onPointDoubleClick={(i) => runSeq("Delete automation point", (q) => deletePoints(q, { track: t.id }, a.id, [i]))}
                             onPointMenu={(i, e) => pointMenu(e, { track: t.id }, a.id, i, t.name, length)} />
+                        ) : spec && range ? (
+                          <>
+                            {/* Over the parameter's range, min at the left: drawn here, edited in the curve editor (the edit button). */}
+                            <CurveOverlay curve={a.curve} spec={spec} width={width} height={lane.h} toX={(v) => ((v - range.min) / (range.max - range.min)) * width} fromX={(px) => range.min + (px / Math.max(1, width)) * (range.max - range.min)} muted={a.bypass}
+                              label={`${t.name} ${spec.name} by ${range.name}, from ${range.min} to ${range.max}`} />
+                            <span class="sq-param-end min" title={`${range.name} at its minimum`}>{range.name} {range.min}</span>
+                            <span class="sq-param-end max" title={`${range.name} at its maximum`}>{range.max}</span>
+                          </>
                         ) : (
                           <span class="sq-faint sq-driven">Driven by {(a.input as { parameter: string }).parameter}: edit it in the curve editor (the edit button).</span>
                         )}

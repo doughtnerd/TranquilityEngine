@@ -10,17 +10,17 @@ const ctx = { rate: 48000, bpm: 120, meter: "4/4" };
 
 describe("time displays", () => {
   it("writes timecode, samples and bars", () => {
-    expect(formatTime(62.3456, "timecode", ctx)).toBe("1:02.346");
+    expect(formatTime(62.3456, "timecode", ctx)).toBe("01:02.346");
     expect(formatTime(1, "samples", ctx)).toBe("48 000");
     // 120 BPM: a beat is 0.5 s, a bar 2 s.
     expect(formatTime(0, "bars", ctx)).toBe("1:1:000");
     expect(formatTime(2.25, "bars", ctx)).toBe("2:1:480");
     expect(TICKS_PER_BEAT).toBe(960);
-    expect(formatTime(-0.5, "timecode", ctx)).toBe("-0:00.500");
+    expect(formatTime(-0.5, "timecode", ctx)).toBe("-00:00.500");
   });
 
   it("falls back to timecode for bars without a tempo", () => {
-    expect(formatTime(1.5, "bars", { rate: 48000 })).toBe("0:01.500");
+    expect(formatTime(1.5, "bars", { rate: 48000 })).toBe("00:01.500");
   });
 
   it("parses what it writes, plain seconds, ms and samples", () => {
@@ -41,7 +41,7 @@ describe("ruler ticks", () => {
   it("labels ticks at least 70 px apart in timecode", () => {
     const ticks = rulerTicks({ start: 0, end: 2.6 }, 640, "timecode", ctx);
     const majors = ticks.filter((t) => t.major);
-    expect(majors[0]).toMatchObject({ t: 0, label: "0:00.000" });
+    expect(majors[0]).toMatchObject({ t: 0, label: "00:00.000" });
     const step = majors[1].t - majors[0].t;
     expect(step * (640 / 2.6)).toBeGreaterThanOrEqual(70);
     expect(ticks.length).toBeGreaterThan(majors.length);

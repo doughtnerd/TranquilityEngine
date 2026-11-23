@@ -10,9 +10,11 @@ import { forEachEditorWindow } from "./editorWindows";
 
 /**
  * Presses and focus inside these keep the editor focus where it was: the History panel showing the
- * focused editor's history, and the menu bar and menus whose Edit > Undo acts on it (ADR 0145).
+ * focused editor's history, and the menu bar and menus whose Edit > Undo acts on it (ADR 0145); a
+ * popover of a document's fields drawn at the page's floating root (`data-keeps-history-focus`); and the
+ * Audio Studio's player bar, whose transport (Trigger, Play) acts on the document in hand.
  */
-export const KEEPS_HISTORY_FOCUS = '.history-panel, [role="menubar"], [role="menu"]';
+export const KEEPS_HISTORY_FOCUS = '.history-panel, [role="menubar"], [role="menu"], [data-keeps-history-focus], .studio-player';
 
 const focused = signal<Element | null>(null);
 

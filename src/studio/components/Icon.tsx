@@ -23,6 +23,7 @@ const PATHS = {
   skipBack: "M6 5v14M18 5v14L9 12z",
   skipForward: "M18 5v14M6 5v14l9-7z",
   loop: "M17 2l3 3-3 3M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3M20 13v2a4 4 0 0 1-4 4H4",
+  trigger: "M13.5 2L4.5 13.5h6.5L10 22l9.5-12H13z",
   // Actions
   plus: "M12 5v14M5 12h14",
   minus: "M5 12h14",
@@ -33,6 +34,7 @@ const PATHS = {
   copy: "M9 9h11v11H9zM5 15H4V4h11v1",
   import: "M12 3v12M7 10l5 5 5-5M4 17v3h16v-3",
   export: "M12 15V3M7 8l5-5 5 5M4 17v3h16v-3",
+  save: "M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6",
   undo: "M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11",
   redo: "M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13",
   history: "M3 12a9 9 0 1 0 2.6-6.4M3 4v4h4M12 7v5l3 2",
@@ -97,7 +99,7 @@ export interface IconProps {
 }
 
 /** Shapes drawn filled rather than stroked (the transport's solid glyphs). */
-const FILLED: ReadonlySet<IconName> = new Set<IconName>(["play", "pause", "stop", "record"]);
+const FILLED: ReadonlySet<IconName> = new Set<IconName>(["play", "pause", "stop", "record", "trigger"]);
 /** Icons made of dots, drawn with a heavier stroke so the dots show. */
 const DOTS: ReadonlySet<IconName> = new Set<IconName>(["more", "grip"]);
 

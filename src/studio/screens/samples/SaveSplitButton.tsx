@@ -1,8 +1,10 @@
 // The Sample toolbar's Save split button (owner decision 3, 2026-11-23; spec §4.1.5): the main half saves the project
 // data (the sample's sidecar or derived-sample file, ADR 0342; Ctrl+S), and the caret's menu offers Write to file… (the
-// WAV's chunks, after the review dialog) and Fork as new sample… (Ctrl+Shift+S). Pure view over its props.
+// WAV's chunks, after the review dialog) and Fork as new sample… (Ctrl+Shift+S). Pure view over its props. The menu floats
+// at the page's root (the toolbar has container queries, S-03).
 import { useRef, useState } from "preact/hooks";
 import { usePopover } from "../../../editor/ui/popover";
+import { FloatingPortal } from "../../../editor/ui/FloatingPortal";
 import { Icon } from "../../components/Icon";
 
 export interface SaveSplitButtonProps {
@@ -31,13 +33,14 @@ export function SaveSplitButton(props: SaveSplitButtonProps) {
   return (
     <span class="smp-split" role="group" aria-label="Saving">
       <button class="smp-tool smp-tool-icon smp-split-main" aria-label="Save" disabled={!props.canSave} title={`Save the sample's edits now (${props.saveKeys}); they also save on their own. The audio file isn't changed.`} aria-keyshortcuts="Control+S" onClick={props.onSave}>
-        <Icon name="check" />
+        <Icon name="save" />
         <span class="smp-hide-narrow">Save</span>
       </button>
       <button ref={caret} class="smp-tool smp-icon-button smp-split-caret" aria-label="More ways to save" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
         <Icon name="chevronDown" size={12} />
       </button>
       {open && (
+        <FloatingPortal>
         <div ref={pop} class="context-menu kit-menu smp-menu" role="menu" aria-label="Save">
           <button role="menuitem" disabled={!props.canSave} onClick={run(props.onSave)}>
             <span class="smp-menu-label">Save</span>
@@ -51,6 +54,7 @@ export function SaveSplitButton(props: SaveSplitButtonProps) {
             <span class="smp-menu-note">{props.forkKeys}</span>
           </button>
         </div>
+        </FloatingPortal>
       )}
     </span>
   );

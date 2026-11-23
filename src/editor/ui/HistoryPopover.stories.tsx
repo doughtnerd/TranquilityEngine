@@ -57,7 +57,10 @@ export const Tree: StoryObj = {
     await userEvent.click(c.getByRole("button", { name: "Undo" }));
     await expect(c.getByText(/state 2/)).toBeVisible();
     await userEvent.click(c.getByRole("button", { name: /History/ }));
-    await expect(c.getByRole("dialog", { name: "History" })).toBeVisible();
+    // The popover floats at the page's floating root (the body here), out of any container-query toolbar.
+    const popover = within(document.body).getByRole("dialog", { name: "History" });
+    await expect(popover).toBeVisible();
+    await expect(canvasElement.contains(popover)).toBe(false);
   },
 };
 

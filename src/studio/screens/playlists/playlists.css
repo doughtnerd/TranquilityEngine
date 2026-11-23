@@ -1,6 +1,11 @@
 /* The Studio's Playlists screen (ADR 0343, 0349). Theme tokens only (src/editor/ui/editor.css lists them). */
 
 .pl-panel-body { padding: 0; display: flex; flex-direction: column; container-type: inline-size; }
+.pl-history-scope { display: contents; }
+/* Parameter test values (I3): inside the panel's gutter, sliders no wider than a readable row, fields token-styled. */
+.pl-test-values { padding: 6px 10px; max-width: 560px; box-sizing: border-box; }
+.pl-test-values :is(select, input[type="number"], input[type="text"]) { box-sizing: border-box; height: 24px; padding: 2px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); color: var(--text); background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px; }
+.pl-test-values :is(select, input):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
 .pl-doc { display: flex; flex-direction: column; min-height: 100%; outline: none; }
 .pl-note { color: var(--muted); margin: 6px 8px; font-size: calc(12px * var(--ui-scale)); }
 .pl-faint { color: var(--faint); }
@@ -29,11 +34,16 @@
 .pl-field-label { color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
 .pl-field-control { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .kit-section-body > .pl-small { align-self: flex-start; margin: 4px 8px; }
+/* An effect chain sits inside the section's 8px gutter, as every field row does (I6). */
+:is(.pl-inspector, .sq-inspector) .kit-section-body > .studio-chain { padding: 0 8px; }
 
 /* Tree */
 .pl-tree, .pl-library { display: flex; flex-direction: column; min-height: 100%; }
 .pl-tree-tools { display: flex; gap: 6px; padding: 6px; border-bottom: 1px solid var(--border); }
-.pl-search { flex: 1 1 120px; min-width: 0; }
+/* A search field: one 24px token-styled line wherever it sits (T1, A1); in the Add dialog's column it never grows tall. */
+.pl-search { flex: 1 1 120px; min-width: 0; box-sizing: border-box; height: 24px; padding: 3px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); color: var(--text); background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px; appearance: none; }
+.pl-search:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
+.pl-dialog > .pl-search { flex: none; }
 .pl-tool { display: inline-flex; align-items: center; justify-content: center; background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0 9px; font-weight: 600; }
 .pl-tool:hover:not(:disabled) { background: var(--button-hover); }
 .pl-folder-icon { color: var(--muted); width: 14px; display: inline-block; text-align: center; }
@@ -108,7 +118,9 @@
 .pl-blend-settings { display: flex; flex-direction: column; }
 .pl-lane, .pl-plane { display: block; margin: 4px 10px; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 4px; touch-action: none; }
 .pl-lane { width: calc(100% - 20px); height: 170px; }
-.pl-plane { width: min(calc(100% - 20px), 420px); aspect-ratio: 1; }
+.pl-plane { width: min(calc(100% - 20px), 640px); aspect-ratio: 1; }
+.pl-node-name { fill: var(--text-strong); font-size: 26px; font-weight: 600; pointer-events: none; paint-order: stroke; stroke: var(--bg-sunken); stroke-width: 6px; }
+.pl-axis-name { fill: var(--muted); font-size: 24px; pointer-events: none; font-variant-numeric: tabular-nums; }
 .pl-lane-bg { fill: transparent; }
 .pl-poly { fill: var(--series); fill-opacity: 0.18; stroke: var(--series); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .pl-poly.selected { fill-opacity: 0.32; }

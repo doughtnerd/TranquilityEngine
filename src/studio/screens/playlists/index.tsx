@@ -5,15 +5,14 @@
 // bar's slots (Trigger / Stop / Release, previous and next voice event, the voice log's scrub).
 import { effect, signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
-import { folderEntry } from "../../../editor/assetEntry";
 import { deleteAssets } from "../../../editor/assetDelete";
 import { currentProject, docVersion } from "../../../editor/state";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
+import { Section } from "../../../editor/ui/PanelFields";
 import type { Entry } from "../../../engine/audio/playlist/types";
 import { Icon } from "../../components/Icon";
 import { ParameterPanel } from "../../components/ParameterPanel";
-import { TransportButton } from "../../components/PlayerBar";
 import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, keymap, openRoute, setPlayerSlots, studioRouter, toasts } from "../../shell/studioServices";
 import { historyPanel } from "../placeholder";
@@ -26,20 +25,23 @@ import { addItems, addLabel, entriesFor } from "./addDialogModel";
 import { openCurveEditor, openWeightCurveEditor } from "./curveEditorAdapter";
 import { LibraryList } from "./LibraryList";
 import { isSamplePath } from "./libraryModel";
-import { DeleteDialog } from "./PlaylistDialogs";
+import { DeleteDialog, FolderDeleteDialog } from "./PlaylistDialogs";
+import { PlaylistHistoryScope } from "./PlaylistHistoryScope";
 import { PlaylistEditor } from "./PlaylistEditor";
 import { PlaylistInspector } from "./PlaylistInspector";
 import { addEntries, duplicateEntry, removeEntry, setEntryUse, sampleEntry } from "./playlistEdits";
 import { breadcrumb, childPath, editAt, effectiveOutput, entryName, filePath, pathTarget, playlistTitle, whereOf, type PlaylistPath } from "./playlistPaths";
 import {
-  adding, allParameters, askDelete, audioNow, auditioning, busNames, confirmDelete, deleting, docFor, duplicatePlaylistFiles, editContext, editFile, editOpen, followRoute,
+  adding, allParameters, askDelete, askDeleteFolder, deleteFolderKeepingContents, deletingFolder, audioNow, auditioning, busNames, confirmDelete, deleting, docFor, duplicatePlaylistFiles, editContext, editFile, editOpen, followRoute,
   linkedBy, loadPlaylist, logCursor, makeShared, moveToFolder, newPlaylist, newPlaylistFolder, newPlaylistFromSamples, newSequence, openBody, openDoc, openFile, openLints, openPath, openPlaylist,
-  playingNow, releaseAudition, renameFolder, renamePlaylistFile, removeLinkEntry, runDrop, selectedEntry, setTestValue, stopAudition, target, testValues, trigger, unlink, voiceLog, clearLog,
+  playingNow, releaseAudition, renameFolder, renamePlaylistFile, removeLinkEntry, runDrop, selectedEntry, setTestValue, stopAudition, target, testValues, trigger, triggerOffReason, unlink, voiceLog, clearLog,
 } from "./playlistsScreen";
 import { PlaylistTreeView, type TreeActions } from "./PlaylistTreeView";
 import { entryKey, factsOf, fileKey, playlistTree, type PlaylistNode } from "./playlistTree";
 import { dropLabel, planDrop } from "./treeDrop";
-import { canRelease, eventTimes, logSpan, stepEvent } from "./voiceLog";
+import { canRelease } from "./voiceLog";
+import { playlistPlayerSlots } from "./playlistPlayer";
+import { playlistBadge } from "../../components/typeBadgeModel";
 import { VoicesView } from "./VoicesView";
 import { isGeneratorPath } from "../../../engine/audio/generators/format";
 import { GeneratorLibraryPanel, GeneratorPanel } from "./generator/GeneratorPanel";
@@ -98,10 +100,15 @@ const treeActions: TreeActions = {
       if (n.link) removeLinkEntry(n.file, parent, i);
       else editFile(n.file, `Delete ${n.name}`, (r) => editAt(r, parent, (b) => removeEntry(b, i)));
     }
-    const files = nodes.filter((n) => n.kind === "file" || n.kind === "folder").map((n) => (n.kind === "folder" ? folderEntry(n.path) : (n as { path: string }).path));
-    if (files.length) void deleteAssets(files);
+    // Files are deleted; a folder keeps what's inside, which moves up a level (W2.14), each with its Undo.
+    const files = nodes.filter((n) => n.kind === "file").map((n) => (n as { path: string }).path);
+    const folders = nodes.filter((n) => n.kind === "folder").map((n) => n.path).sort((a, b) => b.length - a.length); // inner ones first
+    void (async () => {
+      if (files.length && !(await deleteAssets(files))) return;
+      for (const f of folders) await deleteFolderKeepingContents(f);
+    })();
   },
-  deleteFolder: (path) => void deleteAssets([folderEntry(path)]),
+  deleteFolder: (path) => askDeleteFolder(path),
   unlink: (n) => n.kind === "entry" && unlink(n.file, n.indices.slice(0, -1), n.indices[n.indices.length - 1]!),
   makeShared: (n) => void (n.kind === "entry" && makeShared(n.file, n.indices.slice(0, -1), n.indices[n.indices.length - 1]!)),
   moveTo: (paths, folder) => void moveToFolder(paths, folder),
@@ -122,7 +129,10 @@ function TreePanel() {
   const nestInto = open && open.type !== "clip" && open.type !== "sequence" ? lastCrumbName() : null;
   return (
     <Panel bodyClass="pl-panel-body">
+      <PlaylistHistoryScope doc={openDoc.value}>
       <PlaylistTreeView nodes={nodes} folders={project?.folders ?? []} openKey={openKey()} writable={writable()} hasSamples={files.some(isSamplePath)} nestInto={nestInto} actions={treeActions} />
+      {deletingFolder.value && <FolderDeleteDialog folder={deletingFolder.value} onCancel={() => (deletingFolder.value = null)} onConfirm={() => void deleteFolderKeepingContents(deletingFolder.value!.path)} />}
+      </PlaylistHistoryScope>
     </Panel>
   );
 }
@@ -157,7 +167,9 @@ function LibraryPanel() {
   const addTo = body && body.type !== "sequence" ? lastCrumbName() : null;
   return (
     <Panel bodyClass="pl-panel-body">
+      <PlaylistHistoryScope doc={openDoc.value}>
       <LibraryList files={currentProject.value?.files ?? []} addTo={addTo} previewing={previewing.value?.path ?? null} onPreview={preview} onAdd={addSample} onOpenSamples={() => openRoute({ screen: "samples" })} onCreatePlaylist={(paths) => void newPlaylistFromSamples(paths)} writable={writable()} extra={(query) => <GeneratorLibraryPanel query={query} />} />
+      </PlaylistHistoryScope>
     </Panel>
   );
 }
@@ -243,24 +255,10 @@ function useScreen(): void {
         if (!body || !path) return setPlayerSlots("playlists", null);
         const t = pathTarget(path);
         if (body.type === "sequence") return setPlayerSlots("playlists", sequencePlayerSlots(lastCrumbName(), `Sequence · ${t.file}`));
-        const release = canRelease(body, loadPlaylist);
-        const times = eventTimes(log);
-        const span = logSpan(log, now);
-        setPlayerSlots("playlists", {
-          nowPlaying: { art: "PL", title: lastCrumbName(), subtitle: `${body.type === "clip" ? "Clip" : body.type.charAt(0).toUpperCase() + body.type.slice(1)} · ${t.file}` },
-          transport: (
-            <>
-              <TransportButton icon="skipBack" label="Previous voice event" title="Previous voice start or end" disabled={times.length === 0} onClick={() => (logCursor.value = stepEvent(times, logCursor.peek(), -1) ?? logCursor.peek())} />
-              <TransportButton icon={busy ? "stop" : "play"} primary label={busy ? "Stop" : "Trigger"} title={busy ? "Stop (Shift+Space)" : "Trigger (Space)"} onClick={() => (busy ? stopAudition() : trigger())} />
-              {release && <TransportButton icon="release" text label="Release" title="Release: held loops end by their exit settings" disabled={!busy} onClick={releaseAudition} />}
-              <TransportButton icon="skipForward" label="Next voice event" title="Next voice start or end" disabled={times.length === 0} onClick={() => (logCursor.value = stepEvent(times, logCursor.peek(), 1) ?? logCursor.peek())} />
-            </>
-          ),
-          scrub: span ? (
-            <input type="range" class="pl-scrub" aria-label="Scrub the voice log" min={span[0]} max={span[1]} step={0.01} value={cursor ?? span[1]} onInput={(e) => (logCursor.value = Number((e.currentTarget as HTMLInputElement).value))} />
-          ) : undefined,
-          status: busy ? `Auditioning ${lastCrumbName()}` : cursor !== null && span ? `Voice log at ${(cursor - span[0]).toFixed(2)} s` : undefined,
-        });
+        setPlayerSlots("playlists", playlistPlayerSlots(
+          { title: lastCrumbName(), art: playlistBadge(body.type, factsOf(body).axes).code, subtitle: `${body.type === "clip" ? "Clip" : body.type.charAt(0).toUpperCase() + body.type.slice(1)} · ${t.file}`, busy, release: canRelease(body, loadPlaylist), triggerOff: triggerOffReason(), log, cursor, now },
+          { trigger, stop: stopAudition, release: releaseAudition, seek: (at) => (logCursor.value = at) },
+        ));
       }),
     ];
     return () => {
@@ -299,6 +297,7 @@ function EditorPanel() {
   const title = crumbs[crumbs.length - 1]?.name ?? "";
   return (
     <Panel bodyClass="pl-panel-body">
+      <PlaylistHistoryScope doc={openDoc.value}>
       <div class="pl-doc" data-asset-document={doc.path} tabIndex={-1}>
         <PlaylistEditor
           body={body}
@@ -349,6 +348,7 @@ function EditorPanel() {
         />
       )}
       {deleting.value && <DeleteDialog plan={deleting.value} onCancel={() => (deleting.value = null)} onConfirm={(c, l) => void confirmDelete(deleting.value!, c, l)} />}
+      </PlaylistHistoryScope>
     </Panel>
   );
 }
@@ -388,17 +388,29 @@ function InspectorPanel() {
           onCreateCaptionKey={(key) => project && createCaptionKey(project, key, captionPlaceholder(key))}
         />
   );
+  // Spec 4.2.7: the parameters' test values are an Inspector section too (the bottom Parameters tab stays for a wide view).
+  const parameters = (
+    <Section title="Parameters" open={allParameters.value.length > 0}>
+      <TestValues />
+    </Section>
+  );
   return (
     <Panel bodyClass="pl-panel-body">
+      <PlaylistHistoryScope doc={openDoc.value}>
       <div class="pl-doc" data-asset-document={doc.path} tabIndex={-1}>
         {body.type === "sequence" ? (
           <SequenceInspectorPanel body={body} writable={writable() && !doc.readOnly} lints={openLints.value} where={whereOf(t.indices)} title={lastCrumbName()} onEdit={(label, edit) => editOpen(label, edit)}>
             {inspector}
+            {parameters}
           </SequenceInspectorPanel>
         ) : (
-          inspector
+          <>
+            {inspector}
+            {parameters}
+          </>
         )}
       </div>
+      </PlaylistHistoryScope>
     </Panel>
   );
 }
@@ -408,6 +420,7 @@ function VoicesPanel() {
   const state = host.state.value;
   return (
     <Panel bodyClass="pl-panel-body">
+      <PlaylistHistoryScope doc={openDoc.value}>
       <VoicesView
         now={playingNow.value}
         log={voiceLog.value}
@@ -417,7 +430,17 @@ function VoicesPanel() {
         onClear={clearLog}
         onSeek={(t) => (logCursor.value = t)}
       />
+      </PlaylistHistoryScope>
     </Panel>
+  );
+}
+
+/** The test values of the open playlist's parameters, inside the panel's gutter with token-styled fields (I3). */
+function TestValues() {
+  return (
+    <div class="pl-test-values">
+      <ParameterPanel parameters={allParameters.value} values={testValues.value} empty="No game parameters yet: add global ones in the Global parameters panel, or local ones in the Inspector." onValue={(name, v) => setTestValue(name, v)} />
+    </div>
   );
 }
 
@@ -425,7 +448,9 @@ function ParametersPanel() {
   void openFile.value;
   return (
     <Panel bodyClass="pl-panel-body">
-      <ParameterPanel parameters={allParameters.value} values={testValues.value} empty="No game parameters yet: add global ones in the Global parameters panel, or local ones in the Inspector." onValue={(name, v) => setTestValue(name, v)} />
+      <PlaylistHistoryScope doc={openDoc.value}>
+      <TestValues />
+      </PlaylistHistoryScope>
     </Panel>
   );
 }

@@ -130,6 +130,24 @@ describe("Sequence: sync clips", () => {
     expect(h.playing).toBe(false);
   });
 
+  it("a held loop over a clip as long as its sample (one pass, Sound Lab's engine-single) holds the playhead until release (J6.3)", async () => {
+    await kit.boot({
+      "a.wav.meta.json": meta({ loops: [{ id: "run", start: 0.5, end: 1.5, active: "held" }] }),
+      "s.playlist.json": seq({ length: 2.5, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 2.5, sync: true }])] }),
+    });
+    fake.durations.set("a.wav", 2.5);
+    const h = Audio.play("s.playlist.json");
+    at(1.45); at(2.45); at(3.45);
+    // Held: each time the playhead reaches 1.5 it wraps to 0.5, a new voice from the loop's start (sample 0.5).
+    expect(plays()).toEqual([["a.wav", 0], ["a.wav", 1.5], ["a.wav", 2.5], ["a.wav", 3.5]]);
+    expect(seeks().slice(1)).toEqual([0.5, 0.5, 0.5]);
+    expect(h.playing).toBe(true);
+    h.release();
+    at(4.45);
+    expect(plays().at(-1)).toEqual(["a.wav", 4.5]); // the pass finishes, then the tail
+    expect(seeks().at(-1)).toBe(1.5);
+  });
+
   it("an inactive finish loop leaves at the next Exit marker in the pass (jumping to the tail); jump leaves at once", async () => {
     await kit.boot({
       ...assets({ active: "parameter", binding: { parameter: "Go", op: ">", value: 0.5 } }, { markers: [{ id: "m1", type: "exit", name: "Out", at: 1.5 }] }),

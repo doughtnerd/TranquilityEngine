@@ -1,5 +1,6 @@
 // The Playlists screen's dialogs: the delete confirmation with the prototype's choices (PL:1430–1459: children "move
-// them up" or "delete all N inside"; links "unlink copies" or "remove from all").
+// them up" or "delete all N inside"; links "unlink copies" or "remove from all"), and the folder delete's (W2.14:
+// what's inside moves up a level). Both can be undone.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { playlistTitle } from "./playlistPaths";
 import type { ChildrenChoice, DeletePlan, LinksChoice } from "./structureEdits";
@@ -15,7 +16,7 @@ function deleteWording(plan: DeletePlan): { up: string; summary: string } {
   const file = plan.target.kind === "file";
   return {
     up: file ? "Keep them: each embedded one becomes a playlist file in the same folder" : "Move them up to the parent playlist",
-    summary: file ? `${playlistTitle(plan.target.kind === "file" ? plan.target.path : "")} is deleted from disk; this can't be undone.` : "You can undo this.",
+    summary: "You can undo this.",
   };
 }
 
@@ -48,6 +49,35 @@ export function DeleteDialog(props: DeleteDialogProps) {
         <div class="pl-dialog-foot">
           <button type="button" onClick={props.onCancel}>Cancel</button>
           <button type="button" ref={confirm} class="pl-danger-btn" onClick={() => props.onConfirm(children, links)}>Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export interface FolderDeleteDialogProps {
+  /** The folder, how many items move up, and the folder they move to ("" the top level). */
+  readonly folder: { readonly path: string; readonly items: number; readonly to: string };
+  onConfirm(): void;
+  onCancel(): void;
+}
+
+/** "Delete folder?": what's inside moves up a level, so nothing is lost; Undo puts it back. */
+export function FolderDeleteDialog(props: FolderDeleteDialogProps) {
+  const { path, items, to } = props.folder;
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const confirm = useRef<HTMLButtonElement>(null);
+  useEffect(() => confirm.current?.focus(), []);
+  const where = to ? to.slice(to.lastIndexOf("/") + 1) : "the top level";
+  const moves = items === 0 ? "It's empty." : `${items === 1 ? "1 item moves" : `${items} items move`} to ${where}.`;
+  return (
+    <div class="pl-dialog-scrim" onPointerDown={(e) => e.target === e.currentTarget && props.onCancel()}>
+      <div class="pl-dialog" role="alertdialog" aria-modal="true" aria-label={`Delete folder ${name}?`} onKeyDown={(e) => e.key === "Escape" && props.onCancel()}>
+        <h2 class="pl-dialog-title">Delete folder “{name}”?</h2>
+        <p class="pl-note">{moves} You can undo this.</p>
+        <div class="pl-dialog-foot">
+          <button type="button" onClick={props.onCancel}>Cancel</button>
+          <button type="button" ref={confirm} class="pl-danger-btn" onClick={props.onConfirm}>Delete</button>
         </div>
       </div>
     </div>

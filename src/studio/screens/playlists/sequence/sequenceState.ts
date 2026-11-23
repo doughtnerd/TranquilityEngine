@@ -12,7 +12,7 @@ import type { SeqClipboard } from "./sequenceClipboard";
 import { DEFAULT_SNAP, type SnapSetting } from "./sequenceGrid";
 import type { SourceOf } from "./sequenceModel";
 import { EMPTY_SELECTION, pruneSelection, type SeqSelection } from "./sequenceSelection";
-import { DEFAULT_TRANSPORT, estimatePlayhead, hasHeldLoop, playRange, restingPlayhead, spaceAction, type PlayRange, type TransportOptions } from "./transportModel";
+import { DEFAULT_TRANSPORT, estimatePlayhead, hasHeldLoop, heldRegions, playRange, restingPlayhead, spaceAction, type HeldRegion, type PlayRange, type ReleasePoint, type TransportOptions } from "./transportModel";
 
 export const seqSelection = signal<SeqSelection>(EMPTY_SELECTION);
 export const seqPlayhead = signal(0);
@@ -66,6 +66,12 @@ export interface Playback {
   readonly range: PlayRange;
   readonly startedAt: number;
   readonly released: boolean;
+  /** Where held loops hold the playhead until release (J6.3). */
+  readonly held: readonly HeldRegion[];
+  /** A loop waits for release (a held region, or an Async clip's held loop): playback doesn't end before it. */
+  readonly holds: boolean;
+  /** Where Release was pressed (null: not yet). */
+  readonly releasePoint: ReleasePoint | null;
 }
 export const playback = signal<Playback | null>(null);
 /** Why nothing plays (the runtime refused, the core isn't running), shown in the player bar. */
@@ -101,7 +107,7 @@ export function playSequence(): void {
   // TODO(W3-E sequence runtime): read the runtime's playhead instead of the estimate.
   transportMessage.value = null;
   handle = h;
-  playback.value = { range, startedAt: now(), released: false };
+  playback.value = { range, startedAt: now(), released: false, held: heldRegions(ctx.seq, ctx.sourceOf), holds: hasHeldLoop(ctx.seq, ctx.sourceOf), releasePoint: null };
   seqPlayhead.value = range.start;
   timer ??= setInterval(tick, 30);
 }
@@ -110,9 +116,11 @@ function tick(): void {
   const p = playback.peek();
   const ctx = sequenceContext.peek();
   if (!p || !ctx) return stopSequence();
-  const t = estimatePlayhead(p.range, (now() - p.startedAt) / 1000, ctx.plays);
+  const t = estimatePlayhead(p.range, (now() - p.startedAt) / 1000, ctx.plays, p.held, p.releasePoint);
   seqPlayhead.value = t;
-  const ended = !handle?.playing || (t >= p.range.to && (ctx.plays === "oneShot" || p.range.selection));
+  // A loop waiting for release keeps the play going (J6.3): only the runtime ending it (after Release) or Stop ends it.
+  const waiting = p.holds && !p.released;
+  const ended = !handle?.playing || (!waiting && t >= p.range.to && (p.range.selection || (ctx.plays === "oneShot" && !p.holds)));
   if (ended) finish(t);
 }
 
@@ -136,7 +144,9 @@ export function releaseSequence(): void {
   const p = playback.peek();
   if (!p) return;
   handle?.release();
-  playback.value = { ...p, released: true };
+  const ctx = sequenceContext.peek();
+  const elapsed = (now() - p.startedAt) / 1000;
+  playback.value = { ...p, released: true, releasePoint: { elapsed, at: ctx ? estimatePlayhead(p.range, elapsed, ctx.plays, p.held, null) : seqPlayhead.peek() } };
 }
 
 /** A held loop exists in the open sequence (Space releases it while playing). */
