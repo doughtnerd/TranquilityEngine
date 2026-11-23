@@ -14,7 +14,8 @@ import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { SampleEncoding } from "./SampleEncoding";
 import { sidecarPath, type ImportSettings } from "../../../engine/scene/importSettings";
 import { formatTime, parseTime, type TimeContext } from "../../components/timeRulerModel";
-import { openRoute } from "../../shell/studioServices";
+import { openRoute, toasts } from "../../shell/studioServices";
+import { LipsyncField } from "./LipsyncField";
 import * as act from "./sampleActions";
 import {
   convertMarker, deleteMarker, DIRECTION_NAMES, hasFixedName, isHold, loopName, MARKER_TYPE_NAMES, MARKER_TYPE_ORDER, moveLoop, moveMarker, removeLoop, resetTrim, setStinger, setTrim, snippets,
@@ -329,6 +330,7 @@ function SampleInspector(props: Part & { session: SampleSession }) {
         <span>Loudness</span>
         <span>{loud ? `${db(loud.integrated)} LUFS · peak ${db(loud.peak)} dBFS` : "Measuring…"}</span>
       </div>
+      <LipsyncField e={e} ro={ro} commit={commit} onProblem={(text) => toasts.show({ text })} />
       {wav?.bext && (
         <div class="fld">
           <span>Timecode</span>
