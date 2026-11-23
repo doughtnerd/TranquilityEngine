@@ -10,6 +10,7 @@ import { parseSkeletonProfile, type SkeletonProfile } from "../../../../../engin
 import { Assets, fetchAssetBytes } from "../../../../../engine/scene/Assets";
 import type { SkeletonInfo } from "../../assetInfo";
 import type { AnimationWorldCore } from "../../core/AnimationWorldCore";
+import { readJsonAsset } from "./jsonAsset";
 import { resolveMaskWeights } from "./maskWeights";
 
 /** @internal The skeleton a mask is resolved for: its asset path, bones and the Skeleton component's profile. */
@@ -27,10 +28,7 @@ function warnOnce(key: string, message: string): void {
   console.warn(message);
 }
 
-async function readJson(path: string): Promise<unknown> {
-  const bytes = await fetchAssetBytes(Assets.url(path));
-  return JSON.parse(new TextDecoder().decode(bytes)) as unknown;
-}
+const readJson = readJsonAsset;
 
 const stripRef = (ref: string): string => ref.replace(/^asset:/, "").replace(/^\.?\//, "");
 

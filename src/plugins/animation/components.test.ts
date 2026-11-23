@@ -265,18 +265,8 @@ describe("declared methods name the task that builds them", () => {
     const node = GameObject.create("Hero");
     const anim = node.addComponent(Animator);
     const cases: [string, string, () => unknown][] = [
-      ["Animator.set", "T32", () => anim.set("speed", 1)],
-      ["Animator.request", "T32", () => anim.request("Jump", { within: 0.2 })],
-      ["Animator.travel", "T32", () => anim.travel("Crouch", { layer: "Base" })],
-      ["Animator.jump", "T32", () => anim.jump("Dead")],
-      ["Animator.link", "T32", () => anim.link("Weapon", "sword.animgraph.json")],
-      ["Animator.compute", "T32", () => anim.compute("canVault", () => true)],
-      ["Animator.bone", "T32", () => anim.bone("Head")],
-      ["Animator.play with a slot", "T32", () => anim.play("Slash", { slot: "UpperBody", fade: 0.1, section: "Combo1" })],
-      ["Animator.stop with a slot", "T32", () => anim.stop({ slot: "UpperBody" })],
       ["Animator.ik", "T40t", () => anim.ik("LeftHand")],
       ["Animator.warp", "T40t", () => anim.warp("Vault", { position: new Vector3(0, 1, 2) })],
-      ["animatorParams", "T32", () => animatorParams(node)],
     ];
     for (const [what, task, call] of cases) expect(call, what).toThrow(notBuilt(what, task));
   });

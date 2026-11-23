@@ -14,6 +14,9 @@
 //   animates any property without a rig). When a Skeleton appears later it recreates the instance bound to it, as a
 //   re-enable would (plays end `stopped`, `defaultClip` plays again); a Skeleton that goes away rebinds the Animator
 //   to a zero-bone instance.
+//   An Animator with a `graph` gets a graph instance instead (T32): `graphInstanceHooks.create` (filled by
+//   `graph/register.ts`) compiles and loads the graph for the Skeleton (or for no bones) before creating it, and
+//   `graphInstanceHooks.unbound` hears when it goes; everything else (binding, rebinding, plays ending) is the same.
 // - **BoneAttachment:** joins its World's follow list (`attachments/follow.ts`) while active.
 import type { World } from "../../../../engine/core/World";
 import type { GameObject } from "../../../../engine/scene/GameObject";
@@ -287,7 +290,7 @@ function findSkeleton(world: World, node: GameObject): SkeletonRuntime | null {
  */
 export const graphInstanceHooks: {
   create?(rt: AnimatorRuntime, ns: AnimationWorldCore, skeleton: SkeletonRuntime | null, current: () => boolean): Promise<number>;
-  unbound?(rt: AnimatorRuntime): void;
+  unbound?(rt: AnimatorRuntime, instance: number): void;
 } = {};
 
 let warnedGraph = false;
@@ -304,7 +307,7 @@ async function bindInstance(rt: AnimatorRuntime, ns: AnimationWorldCore, skeleto
     if (!instance) return; // warned by the graph runtime, or no longer current
     if (!current()) {
       // Something changed between the graph runtime's check and here: give the instance back.
-      graphInstanceHooks.unbound?.(rt);
+      graphInstanceHooks.unbound?.(rt, instance);
       ns.destroyInstance(instance);
       return;
     }
@@ -359,7 +362,7 @@ function adoptInstance(rt: AnimatorRuntime, ns: AnimationWorldCore, instance: nu
 /** Destroys the Animator's instance (its plays end `stopped`) and frees its Skeleton. */
 function unbindAnimator(rt: AnimatorRuntime): void {
   endAllPlays(rt, "stopped");
-  if (rt.instance) graphInstanceHooks.unbound?.(rt);
+  if (rt.instance) graphInstanceHooks.unbound?.(rt, rt.instance);
   if (rt.instance && rt.ns) rt.ns.destroyInstance(rt.instance);
   rt.instance = 0;
   rt.evaluated = false;

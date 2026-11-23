@@ -124,6 +124,8 @@ interface GraphRuntime {
   anyDirty: boolean;
   debugSent: boolean;
   readonly machines: MachineClock[];
+  /** Machines (re)started at their entry state whose first entry `AnimatorStateChanges` hasn't had yet. */
+  started: number[];
   readonly plays: Map<number, SlotPlayRecord>;
   readonly travels: TravelWait[];
   /** Graphs linked at run time, by linked-graph slot. */
@@ -171,7 +173,8 @@ export async function createGraphInstance(rt: AnimatorRuntime, ns: AnimationWorl
   const rig = skeleton?.info ? { path: skeleton.path, info: skeleton.info, profile: skeleton.component.profile } : null;
   const graph = await acquireGraph(ns, a.graph, rig);
   if (!graph) return 0;
-  if (!current() || !ns.open) {
+  // Another activation of the same Animator (a Skeleton finishing its load) may have made the instance meanwhile.
+  if (!current() || !ns.open || animatorGraph(a).runtime) {
     releaseGraph(ns, graph);
     return 0;
   }
@@ -192,7 +195,9 @@ export async function createGraphInstance(rt: AnimatorRuntime, ns: AnimationWorl
     dirty: new Uint8Array(n),
     anyDirty: false,
     debugSent: false,
-    machines: meta.machines.map(() => ({ current: -1, previous: -1, time: 0, previousTime: 0 })),
+    // Top machines start in their entry state at creation (the core doesn't report it; `apply` does, once).
+    machines: meta.machines.map((m) => ({ current: m.parent ? -1 : m.entry, previous: -1, time: 0, previousTime: 0 })),
+    started: meta.machines.flatMap((m, i) => (m.parent ? [] : [i])),
     plays: new Map(),
     travels: [],
     links: new Map(),
@@ -231,10 +236,10 @@ function endTravel(w: TravelWait, reason: AnimatorTravelResult["reason"]): void 
   w.resolve({ reason });
 }
 
-/** @internal `graphInstanceHooks.unbound`: the Animator's instance is going; its plays end, its graph is released. */
-export function graphInstanceUnbound(rt: AnimatorRuntime): void {
+/** @internal `graphInstanceHooks.unbound`: the Animator's `instance` is going; its plays end, its graph is released. */
+export function graphInstanceUnbound(rt: AnimatorRuntime, instance: number): void {
   const ag = animatorGraphs.get(rt.animator);
-  if (!ag) return;
+  if (!ag || ag.runtime?.instance !== instance) return;
   for (const i of ag.queue.splice(0)) {
     if (i.kind === "slot") endPlay(i.play, "stopped");
     else if (i.kind === "travel") endTravel(i.wait, "interrupted");
@@ -622,6 +627,7 @@ export function applyGraphs(frame: AnimationFrame): void {
       core.graphChange(i, change);
       const g = map.get(change.instance);
       if (!g) continue;
+      flushStarted(g);
       if (change.kind === GRAPH_STATE_ENTERED) entered(g, change.index, change.value);
       else if (change.kind === GRAPH_SLOT_FINISHED || change.kind === GRAPH_SLOT_INTERRUPTED) {
         const p = g.plays.get(change.value);
@@ -642,9 +648,41 @@ export function applyGraphs(frame: AnimationFrame): void {
     const g = graphInPass(frame, rt);
     if (!g) continue;
     g.debug = null;
+    flushStarted(g);
     const dt = rt.animator.updateMode === "unscaled" ? frame.unscaledDt : frame.dt;
     for (const m of g.machines) if (m.current >= 0) m.time += dt;
   }
+}
+
+/** The first entries of machines started at creation (before any later change of the frame). */
+function flushStarted(g: GraphRuntime): void {
+  if (!g.started.length) return;
+  const started = g.started;
+  g.started = [];
+  for (const m of started) {
+    const entry = g.graph.meta.machines[m]!.entry;
+    pushChange(g, m, -1, entry);
+    restartNested(g, m, entry);
+  }
+}
+
+/** The `AnimatorStateChanges` record of machine `machine` entering `state` from `from` (-1: its first entry). */
+function pushChange(g: GraphRuntime, machine: number, from: number, state: number): void {
+  const meta = g.graph.meta.machines[machine]!;
+  AnimatorStateChanges.push({ animator: g.rt.animator, layer: meta.layer ?? meta.node, from: from >= 0 ? (meta.states[from] ?? null) : null, to: meta.states[state] ?? "" });
+}
+
+/** Machines nested in `machine`'s `state` restart at their entry (re-initialised on entry, D50). */
+function restartNested(g: GraphRuntime, machine: number, state: number): void {
+  g.graph.meta.machines.forEach((m, i) => {
+    if (m.parent?.machine !== machine || m.parent.state !== state) return;
+    const clock = g.machines[i]!;
+    clock.previous = -1;
+    clock.current = m.entry;
+    clock.time = 0;
+    pushChange(g, i, -1, m.entry);
+    restartNested(g, i, m.entry);
+  });
 }
 
 function entered(g: GraphRuntime, machine: number, state: number): void {
@@ -656,7 +694,8 @@ function entered(g: GraphRuntime, machine: number, state: number): void {
   clock.previousTime = clock.time;
   clock.current = state;
   clock.time = 0;
-  AnimatorStateChanges.push({ animator: g.rt.animator, layer: meta.layer ?? meta.node, from: from >= 0 ? (meta.states[from] ?? null) : null, to: meta.states[state] ?? "" });
+  pushChange(g, machine, from, state);
+  restartNested(g, machine, state);
   for (let i = g.travels.length - 1; i >= 0; i--) {
     const w = g.travels[i]!;
     if (w.done) g.travels.splice(i, 1);

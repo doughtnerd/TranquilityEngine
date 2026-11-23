@@ -10,8 +10,8 @@
 // and the core only sees indices.
 import { parseAnimGraph, type AnimGraph, type Condition, type GraphNode, type GraphParamType } from "../../../../../engine/animation/animGraph";
 import { compileAnimGraph, type CompiledAnimGraph } from "../../../../../engine/animation/graphCompile";
-import { Assets, fetchAssetBytes } from "../../../../../engine/scene/Assets";
 import type { AnimationWorldCore } from "../../core/AnimationWorldCore";
+import { readJsonAsset } from "./jsonAsset";
 import { acquireMask, type MaskRig } from "./masks";
 
 /** @internal A state machine of a graph, as the host names it. */
@@ -24,6 +24,10 @@ export interface MachineMeta {
   readonly roots: readonly number[];
   /** The layer it runs in ("Base" or a layer's name), or null for a machine nested in another's state. */
   readonly layer: string | null;
+  /** The entry state (local index): where the machine starts, silently (the core reports later entries only). */
+  readonly entry: number;
+  /** For a machine nested in another's state: that machine and state (entering it restarts this one at its entry). */
+  readonly parent: { readonly machine: number; readonly state: number } | null;
 }
 
 /** @internal The host's tables of a compiled graph. */
@@ -102,6 +106,28 @@ function childrenOf(n: GraphNode): string[] {
   return out;
 }
 
+/** The state machines reached from `root` without passing through another (breadth-first). */
+function machinesBelow(byId: ReadonlyMap<string, GraphNode>, root: string): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>([root]);
+  const queue = [root];
+  while (queue.length) {
+    const n = byId.get(queue.shift()!);
+    if (!n) continue;
+    if (n.kind === "stateMachine") {
+      out.push(n.id);
+      continue;
+    }
+    for (const c of childrenOf(n)) {
+      if (!seen.has(c)) {
+        seen.add(c);
+        queue.push(c);
+      }
+    }
+  }
+  return out;
+}
+
 /** The first state machine reached from `root`, breadth-first (a layer's top machine). */
 function topMachine(byId: ReadonlyMap<string, GraphNode>, root: string | null): string | null {
   if (!root) return null;
@@ -162,6 +188,15 @@ function metaOf(g: AnimGraph, compiled: CompiledAnimGraph): GraphMeta {
     if (m && !tops.has(m)) tops.set(m, l.name);
   }
   const layerMachines = new Map<string, number>();
+  const machineIndex = new Map(compiled.machines.map((m, i) => [m.node, i]));
+  const parents = new Map<string, { machine: number; state: number }>();
+  compiled.machines.forEach((m, i) => {
+    const states = byId.get(m.node)?.machine?.states ?? [];
+    m.states.forEach((name, si) => {
+      const root = states.find((st) => st.name === name)?.root;
+      if (root) for (const c of machinesBelow(byId, root)) if (c !== m.node && machineIndex.has(c) && !parents.has(c)) parents.set(c, { machine: i, state: si });
+    });
+  });
   const machines: MachineMeta[] = compiled.machines.map((m, i) => {
     const node = byId.get(m.node);
     const roots = m.states.map((name) => {
@@ -171,7 +206,9 @@ function metaOf(g: AnimGraph, compiled: CompiledAnimGraph): GraphMeta {
     const layer = tops.get(m.node) ?? null;
     if (layer !== null && !layerMachines.has(layer)) layerMachines.set(layer, i);
     if (!layerMachines.has(m.node)) layerMachines.set(m.node, i);
-    return { node: m.node, states: m.states, roots, layer };
+    const entryName = node?.machine?.entry ?? m.states[0];
+    const entry = Math.max(0, m.states.indexOf(entryName ?? ""));
+    return { node: m.node, states: m.states, roots, layer, entry, parent: parents.get(m.node) ?? null };
   });
   const layerWeights = compiled.layers.map((name) => g.layers.find((l) => l.name === name)?.weight ?? 1);
   const linkedDefaults = compiled.linked.map((name) => {
@@ -191,17 +228,10 @@ interface Compiled {
 /** Compiles by content key (page-wide). */
 const compiles = new Map<string, Compiled | null>();
 
-function compileText(path: string, text: string, bones: readonly string[] | null): Compiled | null {
+function compileSource(path: string, raw: unknown, bones: readonly string[] | null): Compiled | null {
+  const text = JSON.stringify(raw) ?? "";
   const key = `${text.length}:${fnv(text)}:${fnv(bones ? bones.join("\n") : "\u0000none")}`;
   if (compiles.has(key)) return compiles.get(key)!;
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text) as unknown;
-  } catch (err) {
-    warnOnce(`json:${key}`, `[myco] animation: the graph "${path}" isn't valid JSON (${String(err)}).`);
-    compiles.set(key, null);
-    return null;
-  }
   const parsed = parseAnimGraph(raw, path);
   const compiled = compileAnimGraph(parsed.value, bones ? { bones } : {});
   const errors = [...parsed.problems, ...compiled.problems.filter((p) => p.severity === "error").map((p) => `${path}: ${p.path ? `${p.path}: ` : ""}${p.message}`)];
@@ -216,9 +246,9 @@ function compileText(path: string, text: string, bones: readonly string[] | null
 
 const loaded = new WeakMap<AnimationWorldCore, Map<string, Promise<LoadedGraph | null>>>();
 
-async function fetchText(path: string): Promise<string | null> {
+async function readSource(path: string): Promise<{ value: unknown } | null> {
   try {
-    return new TextDecoder().decode(await fetchAssetBytes(Assets.url(path)));
+    return { value: await readJsonAsset(path) };
   } catch (err) {
     warnOnce(`fetch:${path}`, `[myco] animation: couldn't load the graph "${path}": ${String(err)}`);
     return null;
@@ -277,8 +307,8 @@ async function bindAssets(ns: AnimationWorldCore, handle: number, meta: GraphMet
   );
 }
 
-async function load(ns: AnimationWorldCore, path: string, rig: GraphRig, depth: number, map: Map<string, Promise<LoadedGraph | null>>, text: string): Promise<LoadedGraph | null> {
-  const compiled = compileText(path, text, rig ? rig.info.names : null);
+async function load(ns: AnimationWorldCore, path: string, rig: GraphRig, depth: number, map: Map<string, Promise<LoadedGraph | null>>, raw: unknown): Promise<LoadedGraph | null> {
+  const compiled = compileSource(path, raw, rig ? rig.info.names : null);
   if (!compiled) return null;
   const key = `${compiled.key}|${rig ? rig.path : ""}`;
   const known = map.get(key);
@@ -316,9 +346,9 @@ async function load(ns: AnimationWorldCore, path: string, rig: GraphRig, depth: 
 export async function acquireGraph(ns: AnimationWorldCore, path: string, rig: GraphRig, depth = 0): Promise<LoadedGraph | null> {
   let map = loaded.get(ns);
   if (!map) loaded.set(ns, (map = new Map()));
-  const text = await fetchText(path);
-  if (text === null || !ns.open) return null;
-  return load(ns, path, rig, depth, map, text);
+  const source = await readSource(path);
+  if (!source || !ns.open) return null;
+  return load(ns, path, rig, depth, map, source.value);
 }
 
 /** @internal Drops one reference; the last releases the graph and everything it bound. */
