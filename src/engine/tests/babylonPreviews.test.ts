@@ -56,6 +56,8 @@ const project = {
     ],
   },
   "empty.prefab.json": { format: "myco.scene@1", nodes: [{ id: "a", name: "A", components: [] }] },
+  // An .obj's material library, served as a URL like every file that isn't JSON or text (ADR 0254).
+  "lib.mtl": `data:model/mtl;base64,${Buffer.from("newmtl Wood\nKd 0.72 0.50 0.28\nNs 20\n\nnewmtl Paint\nKd 0.1 0.2 0.9\n").toString("base64")}`,
 };
 
 describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
@@ -72,7 +74,7 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
       has: (p) => p in project,
       get: (p) => {
         const v = project[p as keyof typeof project];
-        return typeof v === "string" ? JSON.parse(v) : v;
+        return typeof v === "string" && p.endsWith(".json") ? JSON.parse(v) : v;
       },
     });
     vi.stubGlobal("document", { createElement: () => ({ width: 0, height: 0 }) }); // the renderer's offscreen canvas
@@ -107,6 +109,20 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
       expect(p.camera.position.x).toBeLessThan(0);
       expect(p.camera.position.y).toBeGreaterThan(0);
       expect(p.camera.position.z).toBeGreaterThan(0);
+      p.dispose();
+    });
+
+    it("draws a material library (.mtl) as a sphere per material, each in its own colour", async () => {
+      const p = (await scenes.prepare("model", "lib.mtl", false))!;
+      expect(p).not.toBeNull();
+      expect(p.scene.meshes).toHaveLength(2);
+      const colours = p.scene.meshes.map((m) => (m.material as PBRMaterial).albedoColor);
+      // Wood is warm, Paint is blue (in either order: the meshes are named after the materials).
+      const byName = new Map(p.scene.meshes.map((m, i) => [m.name, colours[i]]));
+      const wood = [...byName].find(([n]) => n.includes("Wood"))![1];
+      const paint = [...byName].find(([n]) => n.includes("Paint"))![1];
+      expect(wood.r).toBeGreaterThan(wood.b);
+      expect(paint.b).toBeGreaterThan(paint.r);
       p.dispose();
     });
 
@@ -278,6 +294,39 @@ describe("Babylon preview renderers (ADR 0075 stage 7)", () => {
         const calls = frame.mock.calls.length;
         await vi.advanceTimersByTimeAsync(300);
         expect(frame.mock.calls.length).toBe(calls); // stopped: nothing steps any more
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("keeps an open preview drawing while another opens and after it closes (the Inspector's and the Sky panel's)", async () => {
+      vi.useFakeTimers();
+      try {
+        const scene = { format: "myco.scene@5", nodes: [{ id: "a", name: "Cube", components: [{ type: "engine.Transform", data: {} }, { type: "engine.MeshRenderer", data: { mesh: "builtin:cube" } }] }] };
+        const inspectorFrame = vi.fn();
+        const panelFrame = vi.fn();
+        const inspector = renderer.previewPosed({ key: "inspector", scene, frame: inspectorFrame }, target(300, 200));
+        await vi.advanceTimersByTimeAsync(100);
+        expect(await inspector.ready).toBe(true);
+        const panel = renderer.previewPosed({ key: "panel", scene, frame: panelFrame }, target(400, 300));
+        await vi.advanceTimersByTimeAsync(100);
+        expect(await panel.ready).toBe(true);
+        // Both draw at once.
+        let before = [inspectorFrame.mock.calls.length, panelFrame.mock.calls.length];
+        await vi.advanceTimersByTimeAsync(300);
+        expect(inspectorFrame.mock.calls.length).toBeGreaterThan(before[0]);
+        expect(panelFrame.mock.calls.length).toBeGreaterThan(before[1]);
+        // The panel closes: the Inspector's goes on, and tiles stay still while it's open.
+        panel.stop();
+        before = [inspectorFrame.mock.calls.length, panelFrame.mock.calls.length];
+        await vi.advanceTimersByTimeAsync(300);
+        expect(inspectorFrame.mock.calls.length).toBeGreaterThan(before[0]);
+        expect(panelFrame.mock.calls.length).toBe(before[1]);
+        const onFrame = vi.fn();
+        renderer.animate("particles", "c.particles.json", target(), onFrame);
+        await vi.advanceTimersByTimeAsync(200);
+        expect(onFrame).not.toHaveBeenCalled();
+        inspector.stop();
       } finally {
         vi.useRealTimers();
       }

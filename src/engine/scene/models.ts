@@ -13,6 +13,9 @@
  *
  * Models load once per path and are shared by every World, and by rendering and physics alike; a
  * changed file or sidecar loads again. Works headless (Node), where textures are left blank.
+ *
+ * An `.mtl` material library on its own loads as a sphere per material (`materialLibraryRoot`): what the
+ * editor's preview of the library draws (ADR 0061).
  */
 // Types only: three.js loads with the first model file parsed (`parseModel`), so it stays out of the
 // start-up bundle of the editor and of games (ADR 0082); the built-in meshes need none of it.
@@ -775,6 +778,31 @@ function manager(modelPath: string): ModelLoadingManager {
   return m;
 }
 
+/** Space between the centres of a material library's swatch spheres (each one unit across). */
+const SWATCH_SPACING = 1.25;
+
+/**
+ * A material library (`.mtl`) as a model to look at: one unit sphere per material, named after it and drawing it
+ * (textures found as an .obj's are), in rows of a square grid. It's what the library's preview shows; an .obj
+ * that uses the library still loads it itself.
+ */
+async function materialLibraryRoot(text: string, loading: LoadingManager): Promise<Object3D> {
+  const { MTLLoader } = await import("three/examples/jsm/loaders/MTLLoader.js");
+  const creator = new MTLLoader(loading).parse(text, "");
+  creator.preload();
+  const names = Object.keys(creator.materialsInfo);
+  const root = new (lib().Group)();
+  const sphere = new (lib().SphereGeometry)(0.5, 48, 24);
+  const columns = Math.max(1, Math.ceil(Math.sqrt(names.length)));
+  names.forEach((name, i) => {
+    const mesh = new (lib().Mesh)(sphere, creator.create(name));
+    mesh.name = name;
+    mesh.position.set((i % columns) * SWATCH_SPACING, -Math.floor(i / columns) * SWATCH_SPACING, 0);
+    root.add(mesh);
+  });
+  return root;
+}
+
 async function parseModel(path: string, url: string, settings: ImportSettings, useBaked = true): Promise<ModelData> {
   // A game build's baked copy (ADR 0090), when it was baked with these import settings.
   if (useBaked && Assets.has(path + BAKED_SUFFIX)) {
@@ -803,6 +831,8 @@ async function parseModel(path: string, url: string, settings: ImportSettings, u
   if (/\.fbx$/i.test(path)) {
     const { FBXLoader } = await import("three/examples/jsm/loaders/FBXLoader.js");
     root = new FBXLoader(loading).parse(bytes, "");
+  } else if (/\.mtl$/i.test(path)) {
+    root = await materialLibraryRoot(new TextDecoder().decode(bytes), loading);
   } else {
     const text = new TextDecoder().decode(bytes);
     const { OBJLoader } = await import("three/examples/jsm/loaders/OBJLoader.js");

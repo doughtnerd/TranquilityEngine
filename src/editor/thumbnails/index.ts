@@ -3,6 +3,7 @@
 // otherwise; the engine's thumbnail renderer is loaded the first time something needs drawing.
 import { effect } from "@preact/signals";
 import { createThumbnailRenderer, type PosedPreviewSpec, type ThumbnailKind, type ThumbnailPreview, type ThumbnailRenderer } from "../../engine/editor";
+import { projectFileKind } from "../../engine/scene/projectFiles";
 import type { EditorProject } from "../projects";
 import { currentProject } from "../state";
 import { type AudioSummary, decodeAudioSummary } from "./audio";
@@ -45,9 +46,13 @@ function previewFailed(err: unknown): false {
 
 let current: { project: EditorProject; service: ThumbnailService } | null = null;
 
-/** The open project as the thumbnail service reads it. */
+/**
+ * The open project as the thumbnail service reads it. JSON and text files (a shader asset's `.wgsl` and
+ * `.glsl`, ADR 0106, 0254) are read from their text, which is also what the project serves as a text
+ * file's asset value: only files that load as a URL are fetched.
+ */
 function adapt(project: EditorProject): ThumbnailProject {
-  // JSON stamps: a number per file that changes when its text does. The text comparison is by
+  // Text stamps: a number per file that changes when its text does. The text comparison is by
   // identity in practice (the project keeps the same string until the file is rewritten), so a
   // stamp costs a map lookup rather than joining whole files into the key's stamp string.
   const versions = new Map<string, { text: string; n: number }>();
@@ -61,15 +66,17 @@ function adapt(project: EditorProject): ThumbnailProject {
     }
     return fileSet.has(p);
   };
+  const textOf = (p: string) => (projectFileKind(p) === "url" ? undefined : project.textOf(p));
   return {
     get files() {
       return project.files;
     },
-    text: (p) => (p.endsWith(".json") ? project.textOf(p) : undefined),
+    text: textOf,
     async bytes(p) {
-      const text = p.endsWith(".json") ? project.textOf(p) : undefined;
+      const text = textOf(p);
       if (text !== undefined) return new TextEncoder().encode(text);
-      const url = project.assets.get(p);
+      // A text file's asset value is its text, not a URL: never fetch it.
+      const url = projectFileKind(p) === "url" ? project.assets.get(p) : undefined;
       if (typeof url !== "string") throw new Error(`Couldn't read ${p}.`);
       const res = await fetch(url);
       if (!res.ok) throw new Error(`Couldn't read ${p}: HTTP ${res.status}`);
@@ -77,8 +84,8 @@ function adapt(project: EditorProject): ThumbnailProject {
     },
     stamp(p) {
       if (!has(p)) return undefined;
-      // JSON: its text's version. Binaries: their URL (new when rewritten) and size.
-      const text = p.endsWith(".json") ? project.textOf(p) : undefined;
+      // JSON and text files: their text's version. Binaries: their URL (new when rewritten) and size.
+      const text = textOf(p);
       if (text !== undefined) {
         let v = versions.get(p);
         if (!v || v.text !== text) versions.set(p, (v = { text, n: ++counter }));
@@ -181,8 +188,8 @@ export interface AssetPreviewHandle {
 }
 
 /**
- * A live, orbitable preview of an asset in `canvas` (the Inspector's), until `stop`. One at a time:
- * while it's open, hovered tiles show their stills.
+ * A live, orbitable preview of an asset in `canvas` (the Inspector's, a panel's), until `stop`. Several
+ * can be open at once (the Inspector's and the Sky panel's); while any is, hovered tiles show their stills.
  */
 export function previewAsset(path: string, canvas: HTMLCanvasElement): AssetPreviewHandle {
   const kind = previewKind(path);
@@ -212,7 +219,7 @@ export function previewAsset(path: string, canvas: HTMLCanvasElement): AssetPrev
 /**
  * A live preview of a World a plugin describes (ADR 0373, T18b), in `canvas`, until `stop`: the World is made for the
  * preview, steps every frame (so the plugin's systems pose what it holds) and is torn down by `stop`, with the services
- * it started. Like `previewAsset`: one at a time, orbitable, and a handle that says whether it drew.
+ * it started. Like `previewAsset`: beside other previews, orbitable, and a handle that says whether it drew.
  */
 export function previewPosed(spec: PosedPreviewSpec, canvas: HTMLCanvasElement): AssetPreviewHandle {
   let live: ThumbnailPreview | null = null;

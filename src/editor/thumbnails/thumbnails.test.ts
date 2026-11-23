@@ -84,6 +84,7 @@ describe("thumbnail kinds and dependencies (ADR 0061)", () => {
     expect(previewKind("models/crate.OBJ")).toBe("model");
     expect(previewKind("models/lamp.glb")).toBe("model");
     expect(previewKind("models/car.gltf")).toBe("model");
+    expect(previewKind("models/crate.mtl")).toBe("model"); // a sphere per material, drawn by the model renderer
     expect(previewKind("materials/wood.material.json")).toBe("material");
     expect(previewKind("shaders/water.shadergraph.json")).toBe("shadergraph");
     expect(previewKind("sky/studio.hdr")).toBe("environment");

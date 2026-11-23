@@ -53,8 +53,9 @@ export const meshesEditorPlugin: EditorPlugin = {
         return variants.map((name) => ({ label: name, value: name }));
       },
     });
-    // An .obj's material library: not a model, but it names the model's textures (ADR 0148).
-    context.registerAssetKind({ id: "mtl", extensions: [".mtl"], label: "Material Library", icon: MTL_ICON, references: materialLibraryReferences });
+    // An .obj's material library: not a model, but it names the model's textures (ADR 0148). Its thumbnail is the
+    // model renderer's: the models module loads a library as a sphere per material.
+    context.registerAssetKind({ id: "mtl", extensions: [".mtl"], label: "Material Library", icon: MTL_ICON, references: materialLibraryReferences, preview: "model" });
   },
 };
 
