@@ -49,6 +49,15 @@ describe("the editor's compile service", () => {
     expect(calls).toBe(1);
   });
 
+  // T70: the runtime swaps its raw clip for the compiled one in place, told when the background compile finishes.
+  it("hands the background compile's bytes to the runtime when it finishes", async () => {
+    const got: Uint8Array[] = [];
+    expect(await service.compiled(request, (b) => got.push(b))).toBeNull();
+    await vi.waitFor(() => expect(got).toHaveLength(1));
+    expect(await service.compiled(request)).toEqual(got[0]);
+    expect(calls).toBe(1);
+  });
+
   it("compiles with the report the Asset Inspector shows", async () => {
     const result = await service.compileClip(request);
     if (!("clip" in result)) throw new Error(result.error);
