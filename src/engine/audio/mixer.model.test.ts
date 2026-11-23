@@ -277,3 +277,16 @@ describe("the mixer runs the audio.json model (ADR 0344)", () => {
     warn.mockRestore();
   });
 });
+
+describe("occlusion curves live (ADR 0362 item 6)", () => {
+  it("apply sets the settings the occlusion pass reads, and clears them; nothing is sent to the backend", () => {
+    const { m, sent } = rig();
+    expect(m.audioSettings.occlusion.curves).toBeUndefined();
+    expect(m.apply({ op: "setOcclusionCurves", curves: { lowpass: [[0, 20000], [1, 900]] } })).toEqual({ ok: true, class: "config" });
+    expect(m.audioSettings.occlusion.curves).toEqual({ lowpass: [[0, 20000], [1, 900]] });
+    expect(m.audioProject.settings.occlusion.curves).toEqual({ lowpass: [[0, 20000], [1, 900]] });
+    expect(m.apply({ op: "setOcclusionCurves", curves: null }).ok).toBe(true);
+    expect(m.audioSettings.occlusion.curves).toBeUndefined();
+    expect(sent).toEqual([]);
+  });
+});

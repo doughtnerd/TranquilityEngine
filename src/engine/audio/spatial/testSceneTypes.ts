@@ -6,6 +6,8 @@
  * Pure; no plugin, no DOM.
  */
 
+import type { OcclusionCurves } from "../occlusionCurves";
+
 export const AUDIO_SCENE_FORMAT = "myco.audioscene@1";
 export const AUDIO_SCENE_SUFFIX = ".audioscene.json";
 
@@ -73,6 +75,11 @@ export interface AudioTestScene {
   base: string | null;
   /** A/B replacement of a base scene's sounds: component path → playlist or sample. */
   replace: Record<string, string>;
+  /**
+   * ADR 0362 item 6: the scene's own settings. `occlusion.curves` (how blocked a path is → volume and low-pass) stand in
+   * for the project's while the scene plays. Absent: the project's settings.
+   */
+  settings?: { occlusion?: { curves?: OcclusionCurves } };
 }
 
 export interface AudioTestSceneParse { scene: AudioTestScene; problems: string[] }

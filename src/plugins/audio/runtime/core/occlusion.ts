@@ -18,6 +18,10 @@
 //   linear gains, of log2 cutoffs and of wet factors.
 // - One-pole smoothing per voice (τ `smoothingMs` or the dominant material's attack/release, cutoff in log2); a voice's
 //   first result applies at once. Results go back only when they change.
+// - ADR 0362 item 6: with `occlusion.curves`, how blocked the source is (each ray's combined loss over the −60 dB
+//   floor, the mean over its rays; `occlusionCurves.ts`) sets the target gain through the volume curve and the target
+//   cutoff through the low-pass curve, each in place of the materials' result; a curve absent leaves its property to
+//   the materials (ADR 0347).
 // - No 3D physics service (or a 2D World, or an empty `occlusion.layers`): no rays, every voice open, one note.
 // Nothing allocates per frame once a World's state and its sources' exclusion sets exist.
 import type { AudioSettings } from "../../../../engine/audio/settings";
@@ -36,6 +40,7 @@ import {
   type OccluderParams,
   type ResolvedHit,
 } from "../../../../engine/audio/occlusionMaterials";
+import { blockedOfDb, occlusionCutoffHz, occlusionVolumeDb, type OcclusionCurves } from "../../../../engine/audio/occlusionCurves";
 import { AudioOccluder, nearestOccluder } from "../AudioOccluder";
 import type { AudioOcclusionDebug } from "../backend";
 import { LP_TOP } from "../wire.generated";
@@ -189,6 +194,8 @@ interface WorldOcclusion {
 
 /** @internal The occlusion pass over one backend's voices (constructed by the backend, run by the frame step, `audioFrame.ts`). */
 export class OcclusionPass {
+  /** ADR 0362 item 6: this frame's `occlusion.curves` (absent: the materials' result as it is). */
+  private curves: OcclusionCurves | undefined = undefined;
   readonly counters: OcclusionCounters = { occlusionRays: 0, occlusionUsedMs: 0, occlusionOverruns: 0, occlusionSources: 0, occlusionNoPhysics: 0, oldestOcclusionAgeFrames: 0 };
   /** Per slot: the smoothed dry gain last handed back (1 open). */
   readonly gain: Float32Array;
@@ -317,6 +324,7 @@ export class OcclusionPass {
     }
     const start = env.now();
     const occ = settings.occlusion;
+    this.curves = occ.curves;
     const ws = this.worldState(world, env, occ, frame.node);
     const has3d = env.hasService(world, PHYSICS_3D_ID);
     const physicsNote = occlusionNote(has3d, !has3d && env.hasService(world, PHYSICS_2D_ID));
@@ -612,6 +620,7 @@ export class OcclusionPass {
     let sumGain = 0;
     let sumLog2 = 0;
     let sumWet = 0;
+    let sumBlocked = 0;
     let hitsCentre = 0;
     let colliderCentre: GameObject | null = null;
     let dominantDb = 1;
@@ -670,10 +679,19 @@ export class OcclusionPass {
       sumGain += dbToGain(acc.transmissionDb);
       sumLog2 += Math.log2(acc.cutoffHz);
       sumWet += wet;
+      sumBlocked += blockedOfDb(acc.transmissionDb);
     }
     q.excludeNodes = ws.listenerOnly;
     this.targetGain[i] = sumGain / rayCount;
     this.targetLog2[i] = sumLog2 / rayCount;
+    if (this.curves) {
+      // ADR 0362 item 6: the curves map how blocked the path is to sound, each in place of the materials' result.
+      const blocked = sumBlocked / rayCount;
+      const vdb = occlusionVolumeDb(this.curves, blocked);
+      if (vdb === vdb) this.targetGain[i] = dbToGain(vdb);
+      const hz = occlusionCutoffHz(this.curves, blocked);
+      if (hz === hz) this.targetLog2[i] = Math.log2(hz);
+    }
     this.targetWet[i] = sumWet / rayCount;
     this.hits[i] = hitsCentre;
     this.collider[i] = colliderCentre;

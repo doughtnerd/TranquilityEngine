@@ -505,6 +505,15 @@ export class Mixer {
     if (projectOpRefusal(before, op) !== null) return this.notSent(target, { ok: false, class: "none" });
     const next = applyOpToProject(before, op);
     if (next === before) return { ok: true, class: "none" };
+    if (op.op === "setOcclusionCurves") {
+      // ADR 0362 item 6: an engine setting the occlusion pass reads from these settings every frame; nothing to send.
+      this.project = next;
+      const { curves: _drop, ...occ } = this.settings.occlusion;
+      const curves = next.settings.occlusion.curves;
+      this.settings = { ...this.settings, occlusion: curves ? { ...occ, curves } : occ };
+      this._dirty();
+      return { ok: true, class: "config" };
+    }
     // A send past the core's sends a bus (`sendsPerBus`): kept for the next Play, as an effect past its chain's limit.
     const later = liveRuleAnswer(this.settings, op, target.liveCaps);
     if (later !== null) return this.notSent(target, { ok: false, class: "direct", reason: later });

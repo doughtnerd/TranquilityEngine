@@ -9,6 +9,7 @@
  * Pure; no plugin, no DOM.
  */
 import { IdScope, isRecord, LenientReader, type JsonRecord } from "../lenientRead";
+import { occlusionCurvesToJson, parseOcclusionCurves } from "../occlusionCurves";
 import {
   AUDIO_SCENE_FORMAT,
   type AudioTestScene,
@@ -191,6 +192,11 @@ export function parseAudioTestScene(raw: unknown, path = "audioscene"): AudioTes
     }
   }
   if (scene.base === null && Object.keys(scene.replace).length > 0) r.problem(`${path}.replace`, "only applies with a base scene; kept for when one is set.");
+  // ADR 0362 item 6: the scene's own occlusion curves (absent: the project's).
+  const settings = r.record(raw.settings, `${path}.settings`);
+  const occ = settings ? r.record(settings.occlusion, `${path}.settings.occlusion`) : undefined;
+  const curves = occ ? parseOcclusionCurves(occ.curves, `${path}.settings.occlusion.curves`, problems) : undefined;
+  if (curves) scene.settings = { occlusion: { curves } };
   return { scene, problems };
 }
 
@@ -316,6 +322,7 @@ export function audioTestSceneToJson(scene: AudioTestScene): JsonRecord {
     sounds2d: scene.sounds2d.map((s) => ({ ...baseJson(s), sound: s.sound, volume: s.volume, output: s.output })),
     base: scene.base,
     replace: { ...scene.replace },
+    ...(scene.settings?.occlusion?.curves ? { settings: { occlusion: { curves: occlusionCurvesToJson(scene.settings.occlusion.curves) } } } : {}),
   };
 }
 

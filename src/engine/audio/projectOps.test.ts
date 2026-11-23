@@ -47,6 +47,7 @@ const CASES: [string, ProjectMixOp][] = [
   ["a snapshot level", { op: "setSnapshotLevel", snapshot: "Under", target: "Reverb", db: -9 }],
   ["unlist a snapshot level", { op: "setSnapshotLevel", snapshot: "Under", target: "Music", db: null }],
   ["a snapshot override", { op: "setSnapshotEffect", snapshot: "Under", target: "Music", effect: "fx1", param: "cutoff", value: 900 }],
+  ["occlusion curves (ADR 0362 item 6)", { op: "setOcclusionCurves", curves: { volume: [[0, 0], [1, -9]], lowpass: [[0, 20000], [1, 1200, "easeOut"]] } }],
 ];
 
 const table = (): MixOpNameTable & { name(id: number): string; bus(ref: number): string } => {
@@ -116,5 +117,14 @@ describe("project ops (ADR 0344)", () => {
     // The project ops alone take the mid-point (the old ops applied) to `after`.
     const mid = { ...before, buses: before.buses.map((b) => (b.name === "Music" ? { ...b, volumeDb: -8 } : b)) };
     expect(json(apply(mid, ops))).toBe(json(after));
+  });
+
+  it("diffProjectMix: occlusion curves move live by their own op, and wait for no restart (ADR 0362 item 6)", () => {
+    const before = project();
+    const after = applyOpToProject(before, { op: "setOcclusionCurves", curves: { volume: [[0, 0], [1, -9]] } });
+    expect(after.settings.occlusion.curves).toEqual({ volume: [[0, 0], [1, -9]] });
+    expect(diffProjectMix(before, after)).toEqual({ ops: [{ op: "setOcclusionCurves", curves: { volume: [[0, 0], [1, -9]] } }], restartRequired: [] });
+    expect(diffProjectMix(after, before)).toEqual({ ops: [{ op: "setOcclusionCurves", curves: null }], restartRequired: [] });
+    expect(projectOpRefusal(before, { op: "setOcclusionCurves", curves: { volume: "loud" } as never })).toMatch(/Occlusion curves/);
   });
 });
