@@ -3,6 +3,8 @@
  * `sequence.ts`) is and what it needs of its instance (`NodeHost`).
  */
 import type { Curve } from "../../../../engine/core/curve";
+import type { CurveBy } from "../../../../engine/audio/curveBy";
+import type { LiveSlice } from "./byCurves";
 import type { Effect } from "../../../../engine/audio/effects/types";
 import type { VoiceProps } from "../../../../engine/audio/playlist/accumulate";
 import type { PickState } from "../../../../engine/audio/playlist/picks";
@@ -186,6 +188,11 @@ export interface NodeHost {
   param(name: string): { value: number; def: ParameterDef } | null;
   paramRef(name: string): ParamRef | null;
   curveId(curve: Curve): number | null;
+  /**
+   * ADR 0362 §5: the instance's slice of lane `main` following second input `by` (`byCurves.ts`), mapped by `pre` (named
+   * `key`) as the lane's owner maps its curve.
+   */
+  byCurve(main: Curve, by: CurveBy, key?: string, pre?: (c: Curve) => Curve): LiveSlice;
   /**
    * Plays one sample entry below `ctx`. `loop` (a sequence clip's own loop, or null for none) replaces the loop the entry
    * would get from its sample and settings; omitted, the entry's.

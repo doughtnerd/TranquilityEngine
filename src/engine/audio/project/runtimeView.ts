@@ -26,7 +26,7 @@ import { allowedAt, effectSpec, isPluginEffectType, pluginEffectNote } from "../
 import type { Effect } from "../effects/types";
 import {
   DEFAULT_BED_PRIORITY, DEFAULT_LOUDNESS_TARGETS, MAX_SEND_LEVEL, ROOT_BED_PRIORITY,
-  type AudioSettings, type BusAutomation, type BusEffect, type BusSettings, type DuckingRule as RuntimeDuckingRule, type LoudnessTarget, type SnapshotSettings,
+  type AudioSettings, type BusAutomation, type BusAutomationBy, type BusEffect, type BusSettings, type DuckingRule as RuntimeDuckingRule, type LoudnessTarget, type SnapshotSettings,
 } from "../settings";
 import { DEFAULT_SUBMIXES } from "./format";
 import { dbToGain } from "./gain";
@@ -97,6 +97,14 @@ export function sectionReturnsOf(project: Pick<AudioProject, "buses" | "returns"
 }
 
 const clampGain = (g: number, max: number) => Math.min(max, Math.max(0, g));
+/**
+ * ADR 0362 §5: an authored bus automation curve (or a slice of it) in the units its section entry carries: dB as a gain
+ * (`map` "gain"), a log-scale parameter as log2 ("log2"), else as is.
+ */
+export function busAutomationCurve(curve: Curve, map: BusAutomationBy["map"]): Curve {
+  return map === "gain" ? curveToGain(curve) : map === "log2" ? log2Curve(curve) : curve;
+}
+
 const curveToGain = (curve: Curve): CurveKey[] => curve.map((k) => (k.length === 3 ? [k[0], dbToGain(k[1]), k[2]] : [k[0], dbToGain(k[1])]) as CurveKey);
 
 /** ADR 0344 (ABI 4.8): true when an automation of `owner` (not bypassed) drives a parameter of `e`, so the core runs it as the catalogue's. */
@@ -158,6 +166,14 @@ function sectionReturn(project: AudioProject, r: Return, warn: (line: string) =>
  * cutoff as the old bus low-pass. What has no parameter the core runs goes to `warn`.
  */
 export function sectionAutomationOf(project: AudioProject, a: MixAutomation, warn: (line: string) => void = () => {}): BusAutomation | null {
+  const entry = sectionAutomationEntry(project, a, warn);
+  if (!entry || !a.by) return entry;
+  // ADR 0362 §5: the second parameter, with the authored curve to slice and how its slices map to the entry's units.
+  const map = a.target === "volume" ? "gain" : entry.log ? "log2" : undefined;
+  return { ...entry, by: { ...structuredClone(a.by), lane: structuredClone(a.curve) as CurveKey[], ...(map ? { map } : {}) } };
+}
+
+function sectionAutomationEntry(project: AudioProject, a: MixAutomation, warn: (line: string) => void): BusAutomation | null {
   if (a.bypass) return null;
   const fitting = sectionReturnsOf(project);
   const isBus = project.buses.some((b) => b.name === a.on);

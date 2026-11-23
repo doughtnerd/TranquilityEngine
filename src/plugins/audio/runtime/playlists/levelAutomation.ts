@@ -13,6 +13,10 @@
  * time-keyed lanes are returned for the caller to place in time (a sequence shifts them to each voice's clip or sequence
  * time; an instance anchors them at its start). Placed in time they are `TimeCurve`s: gain, pitch and low-pass run on
  * main, pan and high-pass become core bindings on the voice's time when the voice starts (`coreTimeBindings`).
+ *
+ * ADR 0362 §5: a lane with a second input (`by`) plays its instance's slice (`byCurves.ts`), mapped as the lane is (an
+ * `enabled` lane's step, a gain effect's offset), re-sliced when the second parameter moves; a quantised one reads both
+ * parameters at its boundary.
  */
 import type { Curve, CurveKey } from "../../../../engine/core/curve";
 import type { Automation, VoiceCurve } from "../../../../engine/audio/playlist/types";
@@ -25,12 +29,15 @@ import { timeParam, TimeParam } from "../automation";
 import { curveParts, type TimeCurve } from "./curves";
 import type { Ctx, NodeHost } from "./liveNode";
 import { QuantLane } from "./quantizedLanes";
+import type { LiveSlice } from "./byCurves";
 
 /** A time-keyed lane, mapped onto a voice control, still to be placed in time. */
 export interface TimeAuto {
   target: TimeCurve["target"];
   curve: Curve;
   input: "clipTime" | "sequenceTime" | "voiceTime";
+  /** ADR 0362 §5: the lane follows a second parameter: its slice now. */
+  live?: LiveSlice;
 }
 
 /** The gain an `enabled` lane gives when off, dB. */
@@ -54,10 +61,18 @@ export function automationParts(host: NodeHost, list: readonly Automation[], eff
       if (lane) { lanes.push(lane); continue; }
     }
     let target: TimeCurve["target"] | null = null;
-    let curve: Curve = a.curve;
+    // How the lane's values map onto the voice control (an `enabled` step, a gain effect's offset): per key and per value.
+    let pre: ((c: Curve) => Curve) | undefined;
+    let preY: ((y: number) => number) | undefined;
+    let preKey = "";
     if (a.target === "volume") target = "gain";
     else if (a.target === "pitch") target = "pitch";
-    else if (a.target === "enabled") { target = "gain"; curve = a.curve.map((k) => [k[0], k[1] >= 0.5 ? 0 : STEP_OFF_DB, "step"] as CurveKey); }
+    else if (a.target === "enabled") {
+      target = "gain";
+      preY = (y) => (y >= 0.5 ? 0 : STEP_OFF_DB);
+      pre = (c) => c.map((k) => [k[0], preY!(k[1]), "step"] as CurveKey);
+      preKey = "enabled";
+    }
     else if (a.target === "pan") target = "pan";
     else {
       const [, id, param] = a.target.split(":");
@@ -72,22 +87,27 @@ export function automationParts(host: NodeHost, list: readonly Automation[], eff
       if (target === "gain" && fx) {
         // The curve is the effect's gain; the effect's static gain is already in the level, so automate the difference.
         const base = effectParamValue(fx, "gain") ?? 0;
-        curve = a.curve.map((k) => [k[0], k[1] - base, ...k.slice(2)] as unknown as CurveKey);
+        preY = (y) => y - base;
+        pre = (c) => c.map((k) => [k[0], k[1] - base, ...k.slice(2)] as unknown as CurveKey);
+        preKey = `gain:${base}`;
       }
     }
+    const curve: Curve = pre ? pre(a.curve) : a.curve;
+    const slice = (main: Curve, by: NonNullable<Automation["by"]>) => host.byCurve(main, by, preKey, pre);
     if (typeof a.input === "string") {
       if (a.quantize !== undefined) warnOnce(`playlist:quantize-time:${where}:${a.id}`, `[myco] ${where}: automation "${a.id}" is keyed on ${a.input}; quantize applies to parameter-keyed lanes and is ignored.`);
-      time.push({ target, curve, input: a.input });
+      time.push({ target, curve, input: a.input, ...(a.by ? { live: slice(a.curve, a.by) } : {}) });
       continue;
     }
     if (a.quantize !== undefined) {
       // ADR 0350: a quantised lane moves on the musical clock: the voices' own gain ramp, or a stepped voice-time binding
       // for pitch, pan and the filters (`quantizedLanes.ts`).
-      ctx = { ...ctx, quantized: [...(ctx.quantized ?? []), new QuantLane(a.input.parameter, curve, a.quantize, where, target)] };
+      const lane = a.by ? new QuantLane(a.input.parameter, a.curve, a.quantize, where, target, a.by, preY) : new QuantLane(a.input.parameter, curve, a.quantize, where, target);
+      ctx = { ...ctx, quantized: [...(ctx.quantized ?? []), lane] };
       continue;
     }
-    const vc: VoiceCurve = { input: a.input, curve, bypass: false };
-    const parts = curveParts({ [target]: vc }, ctx, (n) => host.paramRef(n), (c) => host.curveId(c), where);
+    const vc: VoiceCurve = a.by ? { input: a.input, curve: a.curve, bypass: false, by: a.by } : { input: a.input, curve, bypass: false };
+    const parts = curveParts({ [target]: vc }, ctx, (n) => host.paramRef(n), (c) => host.curveId(c), where, slice);
     ctx = { ...ctx, bindings: parts.bindings };
   }
   if (submix?.automate && host.group) submix.automate(host.group, lanes);
@@ -106,7 +126,8 @@ function submixLane(host: NodeHost, a: Automation, effects: readonly Effect[], w
   const slot = fxParamSlot(fx.type, param);
   const input = typeof a.input === "string" ? timeParam(TimeParam.Sequence) : host.paramRef(a.input.parameter);
   if (!slot || !input) return null;
-  const curve = host.curveId(slot.log ? log2Curve(a.curve) : a.curve);
+  // ADR 0362 §5: a lane with a second input drives the submix through its slice.
+  const curve = a.by ? host.byCurve(a.curve, a.by).curveId(slot.log ? "log2" : "", slot.log ? log2Curve : undefined) : host.curveId(slot.log ? log2Curve(a.curve) : a.curve);
   if (curve === null) {
     warnOnce(`playlist:auto-curve:${where}:${a.id}`, `[myco] ${where}: automation "${a.id}" has no room in the curve table; skipped.`);
     return null;

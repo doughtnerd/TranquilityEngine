@@ -13,6 +13,7 @@ import { effectsToJson, parseEffects as parseEffectChain } from "../effects/cata
 import type { Effect } from "../effects/types";
 import { parseParameters } from "../parameters";
 import { audioCurve } from "../audioCurveLimit";
+import { curveByProblem, curveByToJson, parseCurveBy } from "../curveBy";
 import { BUILTIN_MATERIALS } from "../occlusionMaterials";
 import { sameMaterial } from "../audioSection";
 import {
@@ -385,7 +386,16 @@ function parseAutomation(raw: unknown, project: AudioProject, problems: string[]
     } else if (target !== "volume") return void problems.push(`${where}: target must be "volume", "send:<return>" or "fx:<effect>:<param>"; dropped.`);
     const curve = audioCurve(a.curve, `${where}.curve`, problems);
     if (!curve) return void problems.push(`${where}: the curve has no keys; dropped.`);
-    out.push({ on: owner.name, target: target as MixAutomation["target"], parameter: a.parameter, curve, bypass: bool(a.bypass, `${where}.bypass`, false, problems) });
+    const lane: MixAutomation = { on: owner.name, target: target as MixAutomation["target"], parameter: a.parameter, curve, bypass: bool(a.bypass, `${where}.bypass`, false, problems) };
+    // ADR 0362 §5: a second global parameter; bus lanes are keyed on a parameter, so no rate.
+    const problem = (w: string, m: string) => void problems.push(`${w}: ${m}`);
+    const by = parseCurveBy(a.by, `${where}.by`, { time: false }, (c, w) => audioCurve(c, w, problems), problem);
+    if (by) {
+      const why = by.input === a.parameter ? "the second input is the lane's own parameter; dropped" : curveByProblem(by, project.parameters.find((p) => p.name === by.input), { time: false });
+      if (why) problem(`${where}.by`, why.endsWith("dropped") ? `${why}.` : `${why}; dropped.`);
+      else lane.by = by;
+    }
+    out.push(lane);
   });
   return out;
 }
@@ -555,7 +565,7 @@ export function audioProjectToJson(project: AudioProject): Record<string, unknow
     buses: project.buses.map((b) => ({ name: b.name, parent: b.parent, volumeDb: b.volumeDb, mute: b.mute, voiceLimit: b.voiceLimit, bed: b.bed && { ...b.bed }, meter: b.meter, effects: effectsToJson(b.effects), sends: b.sends.map((s) => ({ ...s })), ...optional("colour", b.colour) })),
     returns: project.returns.map((r) => ({ name: r.name, output: r.output, volumeDb: r.volumeDb, mute: r.mute, effects: effectsToJson(r.effects) })),
     vcas: project.vcas.map((v) => ({ name: v.name, volumeDb: v.volumeDb, members: [...v.members] })),
-    automation: project.automation.map((a) => ({ on: a.on, target: a.target, parameter: a.parameter, curve: clone(a.curve), bypass: a.bypass })),
+    automation: project.automation.map((a) => ({ on: a.on, target: a.target, parameter: a.parameter, curve: clone(a.curve), bypass: a.bypass, ...optional("by", a.by && curveByToJson(a.by)) })),
     ducking: project.ducking.map((d) => ({ ...d })),
     snapshots: project.snapshots.map((s) => clone(s)),
     ...optional("snapshotFolders", project.snapshotFolders && project.snapshotFolders.length > 0 ? [...project.snapshotFolders] : null),

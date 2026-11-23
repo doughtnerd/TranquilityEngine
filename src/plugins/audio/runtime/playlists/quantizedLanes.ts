@@ -26,6 +26,7 @@
  */
 import { evalCurve, type Curve, type CurveKey } from "../../../../engine/core/curve";
 import type { Quantize } from "../../../../engine/audio/playlist/types";
+import { evalCurveBy, secondValueOf, type CurveBy } from "../../../../engine/audio/curveBy";
 import type { GridSpec } from "../../../../engine/audio/musicTypes";
 import type { ParameterDef } from "../../../../engine/audio/parameters";
 import { AutoTarget, MAX_BINDINGS, QUANTIZED_RAMP_SECONDS, TimeParam, timeParam, type Binding } from "../automation";
@@ -67,7 +68,11 @@ export class QuantLane {
   readonly voices = new Set<PVoice>();
   /** Bound targets: the moves still sounding (or ahead), oldest first, and the level before the first. */
   steps: Step[] = [];
-  constructor(readonly parameter: string, readonly curve: Curve, readonly grid: Quantize, readonly where: string, readonly target: QuantTarget = "gain") {}
+  /**
+   * `by` (ADR 0362 §5): a second parameter the lane also follows; a change of either moves the lane at the next
+   * boundary. `pre` maps the lane's value as its owner maps its curve (an `enabled` lane's step, an effect gain's offset).
+   */
+  constructor(readonly parameter: string, readonly curve: Curve, readonly grid: Quantize, readonly where: string, readonly target: QuantTarget = "gain", readonly by?: CurveBy, readonly pre?: (y: number) => number) {}
 }
 
 /** What the lanes need of their instance. */
@@ -147,12 +152,14 @@ export class QuantizedLanes {
 
   /** A parameter changed: every lane on it moves at its next boundary. */
   onParameter(name: string): void {
-    for (const l of this.lanes) if (l.parameter === name) this.change(l);
+    for (const l of this.lanes) if (l.parameter === name || l.by?.input === name) this.change(l);
   }
 
   private read(l: QuantLane): number {
     const p = this.host.param(l.parameter);
-    const y = p ? evalCurve(l.curve, p.value) : Number.NaN;
+    const second = l.by ? this.host.param(l.by.input) : null;
+    const raw = !p ? Number.NaN : l.by && second ? evalCurveBy(l.curve, l.by, p.value, secondValueOf(second.def, second.value)) : evalCurve(l.curve, p.value);
+    const y = l.pre && Number.isFinite(raw) ? l.pre(raw) : raw;
     switch (l.target) {
       case "gain": return Number.isFinite(y) ? dbToGain(y) : 1;
       case "pitch": return Number.isFinite(y) ? stToRatio(y) : 1;

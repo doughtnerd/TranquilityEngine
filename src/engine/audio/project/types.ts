@@ -11,6 +11,7 @@
  * Pure; no plugin, no DOM.
  */
 import type { Curve } from "../../core/curve";
+import type { CurveBy } from "../curveBy";
 import type { Effect } from "../effects/types";
 import type { ParameterDef } from "../parameters";
 import type { AudioSettings, DuckingDetector, DuckingMode, LoudnessTarget } from "../settings";
@@ -80,6 +81,8 @@ export interface MixAutomation {
   parameter: string;
   curve: Curve;
   bypass: boolean;
+  /** ADR 0362 §5: a second global parameter the lane also follows ("And by", `curveBy.ts`; no rate); absent: none. */
+  by?: CurveBy;
 }
 
 export interface DuckingRule {

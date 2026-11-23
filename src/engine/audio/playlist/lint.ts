@@ -26,7 +26,10 @@
  * - `genTargetUnknown` (ADR 0360): a `gen:<param>` curve or lane its generator's kind doesn't have;
  * - `genTargetIgnored` (ADR 0360): a `gen:` lane on a playlist's own or a track's automation (they act on the
  *   instance, not a voice), or a `gen:` curve on an entry or clip that plays no generator;
- * - `genCurveNotStep` (ADR 0360): a curve on a choice parameter (`waveform`) with a key that isn't a step.
+ * - `genCurveNotStep` (ADR 0360): a curve on a choice parameter (`waveform`) with a key that isn't a step;
+ * - `byIgnored` (ADR 0362 §5): a lane's second input ("And by") the runtime ignores: it names no parameter of the
+ *   playlist or (when the context knows them) of the project, a per-label lane follows a parameter without labels, or
+ *   the lane is a `gen:` curve or lane (generator parameters follow one input).
  *
  * Embedded playlists are linted too, with their place in `where`. What the Studio knows about samples and linked
  * playlists comes in through `LintContext`; without it the rules that need it stay quiet rather than guess.
@@ -35,7 +38,8 @@
  */
 import { effectParamSpec } from "../effects/catalogue";
 import type { Effect } from "../effects/types";
-import { isLabelled } from "../parameters";
+import { isLabelled, type ParameterDef } from "../parameters";
+import { curveByProblem, type CurveBy } from "../curveBy";
 import type { Curve } from "../../core/curve";
 import { generatorIsEndless, generatorParamSpec, generatorSpec } from "../generators/catalogue";
 import type { GeneratorBody } from "../generators/types";
@@ -44,7 +48,7 @@ import type { Automation, ChangeHow, Entry, PlaylistBody, Track } from "./types"
 export type PlaylistLintCode =
   | "noTempoSource" | "tempoClash" | "overlappingSyncLoops" | "allWeightsZero" | "unboundLoop" | "unboundParameter" | "unknownLabel"
   | "trackKindMismatch" | "danglingEffectTarget" | "quantizeIgnored" | "quantizeNoTempo" | "regionIgnored" | "tailWithoutExit"
-  | "generatorNeverEnds" | "generatorClipNoLength" | "genTargetUnknown" | "genTargetIgnored" | "genCurveNotStep";
+  | "generatorNeverEnds" | "generatorClipNoLength" | "genTargetUnknown" | "genTargetIgnored" | "genCurveNotStep" | "byIgnored";
 
 export interface PlaylistLint {
   code: PlaylistLintCode;
@@ -61,6 +65,8 @@ export interface LintContext {
   playlist?(path: string): PlaylistBody | null | undefined;
   /** ADR 0360: a linked generator (`*.generator.json`), parsed; null or undefined when it can't be read. */
   generator?(path: string): GeneratorBody | null | undefined;
+  /** ADR 0362 §5: the project's global parameters (`audio.json`); undefined when unknown (unknown second inputs stay quiet). */
+  globalParameters?(): readonly ParameterDef[] | undefined;
 }
 
 type Tri = "yes" | "no" | "unknown";
@@ -231,7 +237,57 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
 
   visit(body, "");
   lintGenerators(body, ctx, add);
+  lintSecondInputs(body, ctx, add);
   return out;
+}
+
+/**
+ * ADR 0362 §5: every lane's second input against the parameters an instance of `root` reads (its local ones, at any
+ * depth of embedded playlists, over the project's global ones). Rate off time is already dropped by the parse.
+ */
+function lintSecondInputs(root: PlaylistBody, ctx: LintContext, add: (code: PlaylistLintCode, where: string, message: string) => void): void {
+  const join = (where: string, key: string) => (where ? `${where}.${key}` : key);
+  const locals = new Map<string, ParameterDef>();
+  const collect = (b: PlaylistBody) => {
+    for (const p of b.parameters) if (!locals.has(p.name)) locals.set(p.name, p);
+    for (const e of b.entries) if (e.kind === "embedded") collect(e.embedded);
+  };
+  collect(root);
+  const globals = ctx.globalParameters?.();
+  const check = (by: CurveBy | undefined, target: string, time: boolean, where: string, owner: string) => {
+    if (!by) return;
+    if (target.startsWith("gen:")) return void add("byIgnored", `${where}.by`, `${owner} drives a generator parameter, which follows one input; its second input "${by.input}" is ignored.`);
+    const def = locals.get(by.input) ?? globals?.find((g) => g.name === by.input);
+    if (!def && globals === undefined) return; // can't tell: the project's parameters are unknown
+    const why = curveByProblem(by, def, { time });
+    if (why) add("byIgnored", `${where}.by`, `${owner}: ${why}.`);
+  };
+  const lanes = (list: readonly Automation[], where: string) =>
+    list.forEach((a, i) => check(a.by, a.target, typeof a.input === "string", `${where}[${i}]`, `Lane "${a.id}"`));
+  const entry = (e: Entry, where: string, label: string) => {
+    for (const [target, c] of Object.entries(e.curves)) if (c) check(c.by, target, typeof c.input === "string", `${where}.curves.${target}`, `${label}'s ${target} curve`);
+    if (e.kind === "embedded") visit(e.embedded, join(where, "embedded"));
+  };
+  const visit = (b: PlaylistBody, where: string) => {
+    const w = (k: string) => join(where, k);
+    lanes(b.automation, w("automation"));
+    b.entries.forEach((e, i) => entry(e, w(`entries[${i}]`), `Entry ${i + 1}`));
+    b.stingers.forEach((s, i) => entry(s.playlist, w(`stingers[${i}].playlist`), `Stinger "${s.trigger}"`));
+    if (b.switch) {
+      const t = b.switch.onChange.transition;
+      if (t) entry(t, w("switch.onChange.transition"), "The transition");
+      b.switch.rules.forEach((r, i) => r.transition && entry(r.transition, w(`switch.rules[${i}].transition`), `Rule ${i + 1}'s transition`));
+    }
+    b.sequence?.tracks.forEach((t, ti) => {
+      const tw = w(`sequence.tracks[${ti}]`);
+      lanes(t.automation, `${tw}.automation`);
+      t.clips.forEach((c, ci) => {
+        lanes(c.automation, `${tw}.clips[${ci}].automation`);
+        if (typeof c.playlist === "object" && c.playlist) visit(c.playlist, `${tw}.clips[${ci}].playlist`);
+      });
+    });
+  };
+  visit(root, "");
 }
 
 /**
