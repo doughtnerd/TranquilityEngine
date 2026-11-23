@@ -28,7 +28,7 @@ import { SettingsPanel } from "./SettingsPanel";
 import { materialText } from "./settingsEdits";
 import { AttenuationChoiceDialog, GameSceneDialog, TakeDialog } from "./SpatialDialogs";
 import {
-  applyFolderChanges, applyRolloff, attenuationChoice, audition, auditionStatus, chooseAttenuation, copySelection, deleteScenes, deleteSelected, duplicateScene, duplicateSelection, editAttenuation, editMix, editScene, endDrag, makeSpatial, occlusionOnFor,
+  applyFolderChanges, applyRolloff, attenuationChoice, audition, auditionStatus, chooseAttenuation, copySelection, deleteScenes, deleteSelected, duplicateScene, duplicateSelection, editAttenuation, editMix, editOcclusionCurves, editScene, endDrag, makeSpatial, occlusionOnFor,
   ensureSceneKind, escapeKey, extraFolders, fit, followRoute, hover, listenHere, mix, mixDoc, materials, mute, newDialog, newFromGameScene, newFromTake, newScene, openDoc, openPath, openPlaylist, openScene, openTake, ownerOf, pasteClipboard,
   baseImport, placeAt, playAllFrom, playing, playScene, readOnly, renameScene, renaming, scene, sceneEntries, selected, sideView, silenced, slab, solo, soundItems, stopAudition, togglePlay, tools, busNames, view, viewportSize, voices, motion,
 } from "./spatialScreen";
@@ -306,7 +306,8 @@ function SettingsListPanel() {
   return (
     <Panel bodyClass="sp-panel-body">
       <div class="sp-doc" data-asset-document={mixDoc.value?.path} tabIndex={-1}>
-        <SettingsPanel mix={m} readOnly={!writable() || !!mixDoc.value?.readOnly} onEdit={editMix} onEndDrag={() => void mixDoc.peek()?.flush()} />
+        <SettingsPanel mix={m} readOnly={!writable() || !!mixDoc.value?.readOnly} onEdit={editMix} onEndDrag={() => void mixDoc.peek()?.flush()}
+          scene={scene.value} sceneReadOnly={readOnly.value} onEditScene={editScene} onOpenCurves={() => editOcclusionCurves()} />
       </div>
     </Panel>
   );

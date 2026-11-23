@@ -43,6 +43,9 @@ import { isScenePath, sceneAfter, sceneName, sceneNote, type FolderChange, type 
 import { escape as escapeTool, INITIAL_TOOLS, afterPlace, place, placeLabel, type Tool, type ToolState } from "./tools";
 import { DEFAULT_VIEW, fitView, type Size, type View } from "./viewTransform";
 import { isSamplePath } from "../playlists/libraryModel";
+import { setRuntimeOcclusionCurves } from "../mixer/mixerRuntime";
+import { sameOcclusionCurves, type OcclusionCurves } from "../../../engine/audio/occlusionCurves";
+import { effectiveOcclusionCurves, OCCLUSION_CONTEXT, OCCLUSION_TARGET, occlusionDialog, occlusionFromResult, setProjectOcclusionCurves, setSceneOcclusionCurves } from "./occlusionCurvesModel";
 
 // --- the scene asset kind --------------------------------------------------------------------------------------------
 
@@ -360,6 +363,16 @@ let played: AudioTestScene | null = null;
 let poll: ReturnType<typeof setInterval> | null = null;
 let follow: (() => void) | null = null;
 let stopFrames: (() => void) | null = null;
+/** ADR 0362 item 6: keeps the runtime's occlusion curves on the ones the playing scene hears (its own, else the project's). */
+let curvesFollow: (() => void) | null = null;
+/** The curves last handed to the runtime (undefined: none). */
+let runtimeCurves: OcclusionCurves | undefined = undefined;
+
+/** Hand `curves` to the running runtime when they differ from what it has (the live op `setOcclusionCurves`). */
+function syncRuntimeCurves(curves: OcclusionCurves | undefined): void {
+  if (sameOcclusionCurves(runtimeCurves, curves)) return;
+  if (setRuntimeOcclusionCurves(curves ?? null)) runtimeCurves = curves;
+}
 /** How often the Voices table and the rays are read, ms. */
 export const VOICES_POLL_MS = 250;
 
@@ -474,6 +487,9 @@ export function playScene(): void {
     }
     if (!sameMotion(motion.peek(), next)) motion.value = next;
   });
+  // The scene's own occlusion curves stand in for the project's while it plays, and follow edits of either.
+  runtimeCurves = mix.peek()?.settings.occlusion.curves;
+  curvesFollow = effect(() => syncRuntimeCurves(effectiveOcclusionCurves(mix.value, scene.value)));
   // Edits reach the running player: moves as poses, anything else rebuilds it.
   follow = effect(() => {
     const next = scene.value;
@@ -507,6 +523,10 @@ export function playScene(): void {
 export function stopAudition(): void {
   follow?.();
   follow = null;
+  curvesFollow?.();
+  curvesFollow = null;
+  syncRuntimeCurves(mix.peek()?.settings.occlusion.curves); // back to the project's
+  runtimeCurves = undefined;
   if (poll) clearInterval(poll);
   poll = null;
   stopFrames?.();
@@ -805,3 +825,28 @@ export function applyRolloff(id: string, next: (a: Attenuation) => Attenuation):
 
 /** Open a playlist on the Playlists screen. */
 export const openPlaylist = (path: string): void => openRoute({ screen: "playlists", asset: path });
+
+// --- occlusion curves (ADR 0362 item 6) -------------------------------------------------------------------------------
+
+/**
+ * The Scene settings' Curves chip: the Curves window in its Occlusion mode on the curves the open scene hears (its own
+ * when it keeps them, else the project's; none yet: a starting point). Apply writes them back where they came from, one
+ * undo step on that document (`audio.json` or the scene file); a playing scene hears them at once.
+ */
+export function editOcclusionCurves(doc: Document = document): void {
+  const s = scene.peek();
+  const m = mix.peek();
+  if (!m) return;
+  const own = !!s?.settings?.occlusion?.curves;
+  openCurveEditorDialog(doc, {
+    ...occlusionDialog(effectiveOcclusionCurves(m, s)),
+    target: OCCLUSION_TARGET,
+    context: own ? `${OCCLUSION_CONTEXT} · this scene's own` : OCCLUSION_CONTEXT,
+    onCancel: () => {},
+    onApply: (result) => {
+      const curves = occlusionFromResult(result);
+      if (own) editScene("Occlusion curves", (sc) => setSceneOcclusionCurves(sc, curves));
+      else editMix("Occlusion curves", (p) => setProjectOcclusionCurves(p, curves));
+    },
+  });
+}

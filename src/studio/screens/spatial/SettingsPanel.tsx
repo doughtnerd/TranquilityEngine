@@ -11,12 +11,22 @@ import { Icon } from "../../components/Icon";
 import { FIELDS } from "./inspectorFields";
 import { addMaterial, dopplerPercent, editMaterial, isBuiltinMaterial, materialText, removeMaterial, setBedBeyond, setDefaultMaterial, setDopplerPercent, setHrtfVoices } from "./settingsEdits";
 import type { EditResult } from "./sceneEdits";
+import type { AudioTestScene } from "../../../engine/audio/spatial/testSceneTypes";
+import { DEFAULT_OCCLUSION_CURVES, effectiveOcclusionCurves, fullyBlockedText, setSceneOcclusionCurves } from "./occlusionCurvesModel";
 
 export interface SettingsPanelProps {
   readonly mix: AudioProject;
   readonly readOnly: boolean;
   onEdit(label: string, edit: (p: AudioProject) => EditResult<AudioProject>, drag?: boolean): boolean;
   onEndDrag(): void;
+  /** The open test scene (its own occlusion curves stand in for the project's while it plays); null: none open. */
+  readonly scene?: AudioTestScene | null;
+  /** The scene can't be changed (read-only project or file). */
+  readonly sceneReadOnly?: boolean;
+  /** Edit the open test scene (one undo step of its document). */
+  onEditScene?(label: string, edit: (s: AudioTestScene) => EditResult<AudioTestScene>): boolean;
+  /** Open the Curves window in its Occlusion mode on the curves the scene hears (ADR 0362 item 6). */
+  onOpenCurves?(): void;
 }
 
 /** The HRTF slider's range (the prototype's 1–6); the field takes the format's whole range. */
@@ -31,6 +41,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
   const occ = s.occlusion;
   const layers = occ.layers === null ? "every layer" : occ.layers.length === 0 ? "none (occlusion is off)" : occ.layers.join(", ");
   const def = occ.materials.find((m) => m.name === occ.defaultMaterial);
+  const scene = props.scene ?? null;
+  const curves = effectiveOcclusionCurves(mix, scene);
+  const sceneOwn = !!scene?.settings?.occlusion?.curves;
   const bed = s.bedBeyond;
   const [bLo, bHi] = FIELDS.bedBeyond.slider;
   return (
@@ -57,15 +70,27 @@ export function SettingsPanel(props: SettingsPanelProps) {
         <dl class="sp-kv">
           <dt title={RAYS_TIP}>Rays per voice</dt>
           <dd>{RAYS_TEXT}</dd>
-          <dt title={`Through one obstacle of the default material (${occ.defaultMaterial})`}>Fully blocked</dt>
-          <dd>{def ? materialText(def) : "—"}</dd>
+          <dt title={curves ? "The occlusion curves at fully blocked" : `Through one obstacle of the default material (${occ.defaultMaterial})`}>Fully blocked</dt>
+          <dd>{fullyBlockedText(curves, def)}</dd>
           <dt>Uses</dt>
           <dd>Physics layer: {layers}</dd>
           <dt>Curves</dt>
-          <dd>
-            <button type="button" class="sp-occb" disabled title="Occlusion curves (volume and low-pass by how blocked the path is) need the engine to read them; until then each material's loss and low-pass below are what a blocked path does (ADR 0347)">
+          <dd class="sp-occ-curves">
+            <button type="button" class="sp-occb" aria-pressed={!!curves} disabled={!props.onOpenCurves}
+              title={curves ? `Occlusion curves: volume and low-pass by how blocked the path is${sceneOwn ? " (this scene's own)" : " (the project's)"}` : "Occlusion curves: volume and low-pass by how blocked the path is. None yet: each material's loss and low-pass below are what a blocked path does"}
+              onClick={() => props.onOpenCurves?.()}>
               <Icon name="automate" size={12} /> Volume, low-pass
             </button>
+          </dd>
+          <dt title="This scene keeps its own occlusion curves, heard while it plays instead of the project's">Scene's own</dt>
+          <dd>
+            <input type="checkbox" class="sp-occ-own" aria-label="This scene's own occlusion curves" checked={sceneOwn} disabled={!scene || !!props.sceneReadOnly || !props.onEditScene}
+              title={!scene ? "Open a test scene to give it its own curves" : sceneOwn ? "Turn off: the scene hears the project's curves" : "Turn on: the scene keeps its own curves (starting from the project's)"}
+              onChange={(e) => {
+                const on = (e.currentTarget as HTMLInputElement).checked;
+                const from = mix.settings.occlusion.curves ?? DEFAULT_OCCLUSION_CURVES;
+                props.onEditScene?.(on ? "Scene's own occlusion curves" : "Use the project's occlusion curves", (sc) => setSceneOcclusionCurves(sc, on ? from : null));
+              }} />
           </dd>
         </dl>
         <div class="sp-mat-head">
