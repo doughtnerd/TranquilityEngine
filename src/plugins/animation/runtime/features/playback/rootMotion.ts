@@ -25,6 +25,12 @@ export function setRootMotionPhysics(active: boolean): void {
   physicsActive = active;
 }
 
+/**
+ * @internal The network feature (T33) says which Animators' root deltas the scene doesn't take: ghosts in networked
+ * Worlds, whose node replication or `animation.PredictedRootMotion` moves (the `RootMotion` buffer still gets them).
+ */
+export const rootMotionHooks: { suppressed?(rt: AnimatorRuntime): boolean } = {};
+
 const warned = new Set<string>();
 
 function warnOnce(key: string, message: string): void {
@@ -56,7 +62,7 @@ interface RigidBodyLike extends Component {
  */
 export function applyRootDelta(rt: AnimatorRuntime, t: Vector3, q: Quaternion, dt: number): void {
   const mode = rt.animator.rootMotion;
-  if (mode === "none") return;
+  if (mode === "none" || rootMotionHooks.suppressed?.(rt)) return;
   const node = rt.animator.node;
   const transform = node.transform;
   if (!transform) return;

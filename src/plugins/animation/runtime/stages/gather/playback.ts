@@ -19,6 +19,7 @@ import {
   MAX_LAYERS,
 } from "../../wasm/wire/core";
 import { animatorsOf, type AnimatorRuntime } from "../../features/instances";
+import { gameplayOnly } from "../../features/network/ghosts";
 import { flushQueue } from "../../features/playback/plays";
 import { enabledCameras, isVisible, lodStep } from "../../features/playback/view";
 import type { Camera } from "../../../../../engine/render/components";
@@ -33,8 +34,10 @@ export function inPass(frame: AnimationFrame, rt: AnimatorRuntime): boolean {
 
 function writeRow(frame: AnimationFrame, rt: AnimatorRuntime, cams: readonly Camera[]): void {
   const a = rt.animator;
-  const visible = isVisible(cams, rt);
-  const cull = CULL[a.cullingMode] ?? CULL_ALWAYS;
+  // Servers evaluate only what gameplay reads (T33): culled as `rootMotionOnly`, unless a BoneAttachment needs the pose.
+  const serverOnly = gameplayOnly(rt);
+  const visible = !serverOnly && isVisible(cams, rt);
+  const cull = serverOnly ? CULL_ROOT_MOTION_ONLY : (CULL[a.cullingMode] ?? CULL_ALWAYS);
   rt.visible = visible;
   rt.frozen = !visible && cull !== CULL_ALWAYS;
   let flags: number = cull;

@@ -23,6 +23,34 @@ function floats(out: Uint32Array, at: number, values: readonly number[]): boolea
   return true;
 }
 
+const fromBits = (w: number): number => {
+  u32[0] = w;
+  return f32[0]!;
+};
+
+/**
+ * @internal Reads a `type` parameter's four words at `words[at]` back as a plain value: a number (float, int), a
+ * boolean, or numbers for vec2, vec3 and quat. Null for `node` (an entity id means nothing in another World).
+ */
+export function decodeParameter(type: GraphParamType, words: Uint32Array, at: number): number | boolean | number[] | null {
+  switch (type) {
+    case "float":
+      return fromBits(words[at]!);
+    case "int":
+      return words[at]! | 0;
+    case "bool":
+      return words[at] !== 0;
+    case "vec2":
+      return [fromBits(words[at]!), fromBits(words[at + 1]!)];
+    case "vec3":
+      return [fromBits(words[at]!), fromBits(words[at + 1]!), fromBits(words[at + 2]!)];
+    case "quat":
+      return [fromBits(words[at]!), fromBits(words[at + 1]!), fromBits(words[at + 2]!), fromBits(words[at + 3]!)];
+    case "node":
+      return null;
+  }
+}
+
 /** @internal Writes `value` as a `type` parameter's four words at `out[at]`; false (nothing written) when it doesn't fit. */
 export function encodeParameter(type: GraphParamType, value: unknown, out: Uint32Array, at: number): boolean {
   const arr = Array.isArray(value) ? (value as unknown[]) : null;
