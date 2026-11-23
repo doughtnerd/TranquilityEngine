@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { expect, type HookHandle, type Hooks, type Locator, openEditor, type Page, play, test, waitForEditor } from "./fixtures";
+import { assetsMenu, hierarchyMenu } from "./menus";
 import { binarySeed, installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 import { captureView, pixelsNear, steadyView, themeColor } from "./viewCapture";
 
@@ -57,8 +58,6 @@ const box = async (l: Locator) => (await l.boundingBox())!;
 const row = (page: Page, name: string) => page.locator(".tree .row", { has: page.locator(".name", { hasText: new RegExp(`^${name}$`) }) });
 /** A component's card in the Inspector, found by its "<name> enabled" checkbox. */
 const card = (page: Page, name: string) => page.locator(".inspector-body .component").filter({ has: page.getByRole("checkbox", { name: `${name} enabled`, exact: true }) });
-const menuItem = (page: Page, name: string) =>
-  page.locator(".hierarchy-menu [role=menuitem]").filter({ has: page.locator("span:first-child", { hasText: new RegExp(`^${name}$`) }) });
 
 async function showFolder(page: Page, name: string): Promise<void> {
   await page.locator(".asset-folder", { hasText: new RegExp(`^${name}$`) }).click();
@@ -177,7 +176,7 @@ test("model import settings and materials save to their files", async ({ page, b
   await showFolder(page, "materials");
   const items = await box(page.locator(".panel.assets .asset-items"));
   await page.mouse.click(items.x + items.width - 10, items.y + items.height - 10, { button: "right" });
-  await page.getByRole("menuitem", { name: "New Material" }).click();
+  await assetsMenu(page, "Create", "Rendering", "Material");
   await expect(page.locator(".asset-tile.selected")).toContainText("New Material.material.json");
   const material = page.getByLabel("Material", { exact: true });
   await material.getByRole("spinbutton", { name: "Metalness" }).fill("0.8");
@@ -191,7 +190,7 @@ test("a cube from the Create menu has a box collider whose face handles resize i
   const errors = trackErrors(page);
   await openPlayground(page, false);
   await page.getByRole("button", { name: "Create node" }).click();
-  await menuItem(page, "Create Cube").click();
+  await hierarchyMenu(page, "3D Object", "Cube");
   await expect(page.locator(".tree .row.selected .name")).toHaveText("Cube");
   await expect(card(page, "MeshRenderer")).toBeVisible();
   const collider = card(page, "BoxCollider");
@@ -223,7 +222,7 @@ test("sphere and capsule collider handles set the radius and height; a spot ligh
   const errors = trackErrors(page);
   await openPlayground(page, false);
   await page.getByRole("button", { name: "Create node" }).click();
-  await menuItem(page, "Create Sphere").click();
+  await hierarchyMenu(page, "3D Object", "Sphere");
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus(undefined, 4));
   const sphere = card(page, "SphereCollider");
   await sphere.locator(".edit-handles").click();
@@ -234,7 +233,7 @@ test("sphere and capsule collider handles set the radius and height; a spot ligh
   expect(await num(radius)).toBeGreaterThan(0.6);
 
   await page.getByRole("button", { name: "Create node" }).click();
-  await menuItem(page, "Create Capsule").click();
+  await hierarchyMenu(page, "3D Object", "Capsule");
   await page.evaluate(() => (window as unknown as Hooks).orbit.focus(undefined, 6));
   const capsule = card(page, "CapsuleCollider");
   await capsule.locator(".edit-handles").click();
@@ -244,7 +243,7 @@ test("sphere and capsule collider handles set the radius and height; a spot ligh
   expect(await num(height)).toBeGreaterThan(2.2);
 
   await page.getByRole("button", { name: "Create node" }).click();
-  await menuItem(page, "Create Spot Light").click();
+  await hierarchyMenu(page, "Light", "Spot Light");
   await expect(page.locator(".tree .row.selected .name")).toHaveText("Spot Light");
   await expect(card(page, "Light").getByRole("combobox", { name: "type" }).locator("option:checked")).toHaveText("spot");
   expect(errors).toEqual([]);

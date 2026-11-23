@@ -12,6 +12,7 @@ import { assetKind, hasSlices, kindOpens } from "./assetKindLookup";
 import { assetClipboard, duplicateAssets, newFolder, pasteAssets, whyNotMovable, whyNotPaste } from "./assetOps";
 import { lastAssetBrowser, openFolder, parentFolder, renamingAsset, selectedAssets, type AssetBrowserView } from "./assetSelection";
 import { selectAssets } from "./inspectorTarget";
+import { categorise, OTHER_CATEGORY, type CategorisedEntry } from "./menuCategories";
 import { newScript } from "./newScript";
 import type { EditorProject } from "./projects";
 import { assetActions, type AssetActionTarget } from "./sdk/contributions";
@@ -207,20 +208,32 @@ export async function makeFolder(parent: string): Promise<void> {
   startRename(folderEntry(path));
 }
 
+/** A Create item, with the submenu it goes in (ADR 0383). */
+export interface AssetCreateItem extends AssetMenuItem {
+  readonly category?: string;
+}
+
 /**
- * The menu's New… items for `target` (no entries: the folder showing; a folder: in it): New Folder, each
- * kind's New… entry, which the asset kind host creates (ADR 0233), and New Script…. What's made is selected.
+ * The menu's Create submenu for `target` (no entries: the folder showing; a folder: in it), arranged in categories
+ * (ADR 0383): Folder, Scene and Script… at the top, then each kind's New… entry (which the asset kind host creates,
+ * ADR 0233) under the category its `create` names, labelled without "New ", sorted; one naming none goes in Other.
+ * What's made is selected.
  */
-export function assetCreateItems(target: AssetTarget): AssetMenuItem[] {
+export function assetCreateItems(target: AssetTarget): CategorisedEntry<AssetCreateItem>[] {
   const { project } = target;
   const whyNot = whyReadOnly(project, "add files");
   const folder = targetFolder(project, target.entries);
-  return [
-    { label: "New Folder", whyNot, run: () => void makeFolder(folder) },
-    // Every file entry is a registered kind's `create`, core kinds' (scenes, render textures) first.
-    ...kindCreators().map((c) => ({ label: c.label, whyNot, run: () => void c.create(folder).then((made) => made && selectAssets([made])) })),
-    ...(project.root !== null ? [{ label: "New Script…", whyNot, run: () => void newScript({ assetFolder: folder }) }] : []),
-  ];
+  return categorise<AssetCreateItem>([
+    { label: "Folder", whyNot, run: () => void makeFolder(folder) },
+    // Every file entry is a registered kind's `create`; a scene is the one the top level keeps.
+    ...kindCreators().map((c) => ({
+      label: c.label.replace(/^New /, ""),
+      category: c.kind === "scene" ? undefined : c.category || OTHER_CATEGORY,
+      whyNot,
+      run: () => void c.create(folder).then((made) => made && selectAssets([made])),
+    })),
+    ...(project.root !== null ? [{ label: "Script…", whyNot, run: () => void newScript({ assetFolder: folder }) }] : []),
+  ]);
 }
 
 /** The targets plugins' actions get: the selected slices, when only slices are selected; otherwise the selected files and folders. */

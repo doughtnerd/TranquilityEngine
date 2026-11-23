@@ -1,5 +1,5 @@
 import { expect, type Locator, openEditor, type Page, test, type Hooks } from "./fixtures";
-import { closeMenus, undoItem } from "./menus";
+import { assetsMenu, closeMenus, undoItem } from "./menus";
 
 // The Assets panel as a file browser, on a writable in-memory copy of the demo project.
 
@@ -106,7 +106,7 @@ test("the right-click menu makes folders, duplicates, and copies and pastes", as
   await treeFolder(page, "images").click();
   const list = await box(panel(page).locator(".asset-items"));
   await page.mouse.click(list.x + list.width - 10, list.y + list.height - 10, { button: "right" });
-  await page.getByRole("menuitem", { name: "New Folder" }).click();
+  await assetsMenu(page, "Create", "Folder");
   const input = panel(page).getByRole("textbox", { name: "New name for New Folder" });
   await expect(input).toBeFocused();
   await page.keyboard.type("tiles");

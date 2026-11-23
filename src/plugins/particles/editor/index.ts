@@ -32,7 +32,7 @@ export const particlesEditorPlugin: EditorPlugin = {
       folder: "effects",
       panel: PARTICLE_GRAPH_PANEL,
       inspector: () => import("./ui/ParticleInspector").then((m) => m.ParticleEffectInspector),
-      create: { label: "New Particle Effect", what: "particle effects" },
+      create: { label: "New Particle Effect", category: "Effects", what: "particle effects" },
       referencedAs: ["particles"],
       preview: "particles",
       addToScene: { nodes: (path, position = [0, 0, 0]) => [{ components: particleSystemComponents(position, `asset:${path}`) }] },
@@ -46,7 +46,7 @@ export const particlesEditorPlugin: EditorPlugin = {
       folder: "effects",
       panel: PARTICLE_GRAPH_PANEL,
       inspector: assetInspector,
-      create: { label: "New Particle Sub-graph", what: "particle sub-graphs" },
+      create: { label: "New Particle Sub-graph", category: "Effects", what: "particle sub-graphs" },
       referencedAs: ["particlesubgraph"],
     });
     context.registerAssetKind({
@@ -58,7 +58,7 @@ export const particlesEditorPlugin: EditorPlugin = {
       folder: "effects",
       panel: PARTICLE_GRAPH_PANEL,
       inspector: assetInspector,
-      create: { label: "New Particle Block", what: "particle blocks" },
+      create: { label: "New Particle Block", category: "Effects", what: "particle blocks" },
       referencedAs: ["particleblock"],
     });
     context.registerPanel({
@@ -77,6 +77,7 @@ export const particlesEditorPlugin: EditorPlugin = {
       label: "Particle System",
       name: "Particle System",
       after: "reflection-probe",
+      category: "Effects", // the Create menus' Effects submenu (ADR 0383)
       createAsset: () => editor.assets.create("particles", { name: "Particle System" }),
       components: particleSystemComponents,
     });

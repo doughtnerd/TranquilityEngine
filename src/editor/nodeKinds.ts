@@ -6,6 +6,7 @@ import { createAsset } from "./assetKindHost";
 import { registeredKind } from "./assetKindLookup";
 import { hierarchyCreateEntries, type HierarchyCreateContribution, type NodeTemplate } from "./sdk/contributions";
 import { WATER_PRESET } from "../engine/render/water/gerstner";
+import { OTHER_CATEGORY } from "./menuCategories";
 
 /** The editor's own node kinds. */
 export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "water" | `ui-${UIKind}` | "ui-document";
@@ -27,43 +28,58 @@ const UI_ELEMENTS: Record<UIKind, { type: string; data: Record<string, unknown> 
 
 type Vec3 = readonly [number, number, number];
 
+/**
+ * A kind the Create menus offer: its label, the new node's base name, and where the menus put it (ADR 0383): its
+ * `category` submenu ("3D Object", "Light"; none: the top level), labelled `short` there when the category already
+ * says part of the label ("Canvas" under UI for "UI Canvas").
+ */
+export interface CreatableKind {
+  readonly kind: NodeKind;
+  readonly label: string;
+  readonly name: string;
+  readonly category?: string;
+  readonly short?: string;
+}
+
 /** The editor's own kinds, in menu order, with their base names. Plugins' kinds join them in `newNodeKinds()`. */
-const NEW_NODE_KINDS: readonly { kind: NewNodeKind; label: string; name: string }[] = [
+const NEW_NODE_KINDS: readonly (CreatableKind & { kind: NewNodeKind })[] = [
   { kind: "empty", label: "Empty", name: "Node" },
-  { kind: "sprite", label: "Sprite", name: "Sprite" },
+  { kind: "sprite", label: "Sprite", name: "Sprite", category: "2D" },
   { kind: "camera", label: "Camera", name: "Camera" },
-  { kind: "text", label: "Text", name: "Text" },
-  { kind: "cube", label: "Cube", name: "Cube" },
-  { kind: "sphere", label: "Sphere", name: "Sphere" },
-  { kind: "capsule", label: "Capsule", name: "Capsule" },
-  { kind: "cylinder", label: "Cylinder", name: "Cylinder" },
-  { kind: "plane", label: "Plane", name: "Plane" },
-  { kind: "directional-light", label: "Directional Light", name: "Directional Light" },
-  { kind: "point-light", label: "Point Light", name: "Point Light" },
-  { kind: "spot-light", label: "Spot Light", name: "Spot Light" },
-  { kind: "ambient-light", label: "Ambient Light", name: "Ambient Light" },
-  { kind: "fog", label: "Fog", name: "Fog" },
-  { kind: "reflection-probe", label: "Reflection Probe", name: "Reflection Probe" },
-  { kind: "water", label: "Water", name: "Water" },
-  { kind: "ui-canvas", label: "UI Canvas", name: "Canvas" },
-  { kind: "ui-panel", label: "UI Panel", name: "Panel" },
-  { kind: "ui-text", label: "UI Text", name: "Text" },
-  { kind: "ui-image", label: "UI Image", name: "Image" },
-  { kind: "ui-button", label: "UI Button", name: "Button" },
-  { kind: "ui-input-field", label: "UI Input Field", name: "Input Field" },
-  { kind: "ui-document", label: "UI Document", name: "UI Document" },
+  { kind: "text", label: "Text", name: "Text", category: "UI", short: "Screen Text" }, // engine.Text: screen-space (ADR 0020)
+  { kind: "cube", label: "Cube", name: "Cube", category: "3D Object" },
+  { kind: "sphere", label: "Sphere", name: "Sphere", category: "3D Object" },
+  { kind: "capsule", label: "Capsule", name: "Capsule", category: "3D Object" },
+  { kind: "cylinder", label: "Cylinder", name: "Cylinder", category: "3D Object" },
+  { kind: "plane", label: "Plane", name: "Plane", category: "3D Object" },
+  { kind: "directional-light", label: "Directional Light", name: "Directional Light", category: "Light" },
+  { kind: "point-light", label: "Point Light", name: "Point Light", category: "Light" },
+  { kind: "spot-light", label: "Spot Light", name: "Spot Light", category: "Light" },
+  { kind: "ambient-light", label: "Ambient Light", name: "Ambient Light", category: "Light" },
+  { kind: "fog", label: "Fog", name: "Fog", category: "Effects" },
+  { kind: "reflection-probe", label: "Reflection Probe", name: "Reflection Probe", category: "Light" },
+  { kind: "water", label: "Water", name: "Water", category: "Effects" },
+  { kind: "ui-canvas", label: "UI Canvas", name: "Canvas", category: "UI", short: "Canvas" },
+  { kind: "ui-panel", label: "UI Panel", name: "Panel", category: "UI", short: "Panel" },
+  { kind: "ui-text", label: "UI Text", name: "Text", category: "UI", short: "Text" },
+  { kind: "ui-image", label: "UI Image", name: "Image", category: "UI", short: "Image" },
+  { kind: "ui-button", label: "UI Button", name: "Button", category: "UI", short: "Button" },
+  { kind: "ui-input-field", label: "UI Input Field", name: "Input Field", category: "UI", short: "Input Field" },
+  { kind: "ui-document", label: "UI Document", name: "UI Document", category: "UI" },
 ];
 
 /**
  * The kinds the Create menu offers, in menu order: the built-in ones, with each plugin's entry (registration
- * order) after the entry its `after` names, or last. Reads the registry's version, so menus follow plugins.
+ * order) after the entry its `after` names, or last. A plugin's entry goes in the category it names, else in the
+ * category of the entry it follows, else in Other (ADR 0383). Reads the registry's version, so menus follow plugins.
  */
-export function newNodeKinds(): readonly { kind: NodeKind; label: string; name: string }[] {
+export function newNodeKinds(): readonly CreatableKind[] {
   void hierarchyCreateEntries.version.value;
-  const out: { kind: NodeKind; label: string; name: string }[] = [...NEW_NODE_KINDS];
+  const out: CreatableKind[] = [...NEW_NODE_KINDS];
   for (const c of hierarchyCreateEntries.list()) {
     const at = c.after === undefined ? -1 : out.findIndex((k) => k.kind === c.after);
-    out.splice(at < 0 ? out.length : at + 1, 0, { kind: c.id, label: c.label, name: c.name });
+    const category = c.category || (at < 0 ? undefined : out[at]!.category) || OTHER_CATEGORY;
+    out.splice(at < 0 ? out.length : at + 1, 0, { kind: c.id, label: c.label, name: c.name, category });
   }
   return out;
 }

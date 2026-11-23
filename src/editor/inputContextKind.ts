@@ -21,6 +21,6 @@ export const inputContextKind: AssetKindContribution<InputContextSpec> = {
   folder: "input",
   panel: "inputContext",
   inspector: () => import("./ui/InputContextEditor").then((m) => m.InputContextInspector),
-  create: { label: "New Input Context", what: "input contexts" },
+  create: { label: "New Input Context", category: "Input", what: "input contexts" },
   referencedAs: ["inputContext"],
 };
