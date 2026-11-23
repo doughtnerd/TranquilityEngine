@@ -1,12 +1,13 @@
 // The Samples panel (ADR 0342 "Samples are assets"; the prototype's library): the project's audio files and derived
 // samples by folder in the editor's TreeView, a search that flattens the matches with their folders, folder
 // operations (new, rename, move, delete moving the contents up), drag to move, context menus, Move to… (the kit's
-// MoveToDialog), and the empty state with Import samples…. Rename, move and delete are the engine's asset operations,
-// so references (playlists, scenes) follow and the file on disk is what changes.
+// MoveToDialog), and the empty state with Import samples…. Rename and move are the engine's asset operations, so
+// references (playlists, scenes) follow and the file on disk is what changes; deleting a sample moves its file to the
+// project's trash, with Undo on the toast (`sampleTrash.ts`).
 import { useState } from "preact/hooks";
 import { isDerivedSamplePath, sampleEditsFromSidecar } from "../../../engine/audio/sample/format";
 import { parseImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
-import { deleteAssets } from "../../../editor/assetDelete";
+import { restoreSample, trashSample } from "./sampleTrash";
 import { folderEntry } from "../../../editor/assetEntry";
 import { moveAssets, newFolder, renameAsset, whyNotValidName } from "../../../editor/assetOps";
 import { moveSourceVersions } from "./sampleVersions";
@@ -92,11 +93,22 @@ export function SamplesPanel() {
   };
 
   const deleteSample = async (path: string) => {
+    // Owner decision 2: no question first; the file goes to the project's trash and the toast's Undo brings it back.
     const uses = usesOf(path, project.files, (p) => project.assets.get(p));
-    if (await deleteAssets([path])) {
-      if (open === path) openSample(null);
-      toasts.show({ text: `Deleted ${nameOf(path)}${uses.length ? ` · ${uses.length} use${uses.length === 1 ? "" : "s"} left without audio` : ""}` });
+    const r = await trashSample(project, path).catch((err: unknown) => ({ refused: err instanceof Error ? err.message : String(err) }));
+    if ("refused" in r) {
+      status.value = { kind: "info", text: `Can't delete ${nameOf(path)}: ${r.refused}.` };
+      return;
     }
+    if (open === path) openSample(null);
+    toasts.show({
+      text: `Deleted ${nameOf(path)}${uses.length ? ` · ${uses.length} use${uses.length === 1 ? "" : "s"} left without audio until it's back` : ""}`,
+      undo: () =>
+        void restoreSample(project, r.trashed).then((back) => {
+          if ("refused" in back) status.value = { kind: "info", text: `Can't bring ${nameOf(path)} back: ${back.refused}.` };
+          else if (open === path) openSample(path);
+        }),
+    });
   };
 
   const deleteFolder = async (folder: string) => {
@@ -137,7 +149,7 @@ export function SamplesPanel() {
         { id: "fork", label: "Fork as new sample…", disabled: readOnly, run: () => (openSample(path), (dialog.value = { kind: "fork", mode: "fork" })) },
         { id: "move", label: "Move to…", disabled: readOnly, run: () => setMoving([path]) },
         SEPARATOR,
-        { id: "delete", label: "Delete", hint: "Del", danger: true, disabled: readOnly, title: "Asks first, listing what uses it", run: () => void deleteSample(path) },
+        { id: "delete", label: "Delete", hint: "Del", danger: true, disabled: readOnly, title: "Moves it to the project's trash; Undo brings it back", run: () => void deleteSample(path) },
       ]),
     });
 

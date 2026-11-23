@@ -48,6 +48,8 @@ export const preRoll = persisted<boolean>("myco.studio.samples.preRoll", false);
 export const returnToStart = persisted<boolean>("myco.studio.samples.returnToStart", false);
 export type PlayMode = "selection" | "whole" | "loop" | "through" | "toNextMarker" | "toEnd";
 export const playMode = persisted<PlayMode>("myco.studio.samples.playMode", "selection");
+/** The Loop seam panel's Repeat: Play across the seam keeps cycling through it until stopped. */
+export const seamRepeat = persisted<boolean>("myco.studio.samples.seamRepeat", true);
 
 /** Per page: the timeline's view (timeline seconds; null: fit), the playhead (source seconds), the razor, the hovered time (timeline seconds). */
 export const viewSpan = signal<TimeSpan | null>(null);

@@ -15,12 +15,12 @@ import { allSamples, cleanFolderName, fileChip, libraryTree, metaLine, moveUpPla
 import { editedLength, inClosedGap, toSource, toView } from "./sampleTime";
 import {
   fitToSource, landmarks, liveSelection, loopRegions, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
-  snapTime, trimHoldingMarkers,
+  snapTime, snippetMenu, snippetUnder, trimHoldingMarkers,
 } from "./sampleView";
 import { nearestZeroCrossing, seamJump, seamStrip, seamWindow } from "./seam";
 import { addTap, tapResult } from "./tapTempo";
 import { effectEdits } from "./sampleEffects";
-import { planPlay } from "./sampleTransport";
+import { planPlay, planSeam } from "./sampleTransport";
 
 const LEN = 2.6;
 const next = (r: SampleEdit): SampleEdits => {
@@ -166,6 +166,31 @@ describe("razor and closed gaps", () => {
     expect(refusalOf(snip(e, 0.002, 2))).toMatch(/too close/);
   });
 
+  it("finds the snippet under a click and builds its menu", () => {
+    const e = next(snip(next(snip(defaultSampleEdits(), 1, 2)), 1.5, 2));
+    expect(snippetUnder(defaultSampleEdits(), 2, 0.5)).toBeNull(); // no cuts: no snippets
+    expect(snippetUnder(e, 2, 0.5)?.index).toBe(1);
+    expect(snippetUnder(e, 2, 1.2)?.index).toBe(2);
+    expect(snippetUnder(e, 2, 2)?.index).toBe(3); // the very end belongs to the last
+    const menu = (x: SampleEdits, i: number) => snippetMenu(x, 2, i).map((m) => [m.label, m.refused]);
+    expect(menu(e, 1)).toEqual([
+      ["Save as sample…", null],
+      ["Tape to the left", "there's no snippet on that side"],
+      ["Tape to the right", null],
+      ["Delete", null],
+      ["Delete and close gap", null],
+    ]);
+    const deleted = next(toggleSnippet(e, 2, 2));
+    expect(menu(deleted, 2)).toEqual([
+      ["Save as sample…", null],
+      ["Tape to the left", "Restore the deleted snippet before taping it"],
+      ["Tape to the right", "Restore the deleted snippet before taping it"],
+      ["Restore", null],
+      ["Close gap", null],
+    ]);
+    expect(snippetMenu(e, 2, 9)).toEqual([]);
+  });
+
   it("deletes, restores and tapes snippets; a cut in a deleted one keeps both halves deleted", () => {
     let e = next(snip(next(snip(defaultSampleEdits(), 1, 2)), 1.5, 2));
     const del = toggleSnippet(e, 2, 2);
@@ -241,6 +266,20 @@ describe("file diff, revert, detach, write and merge", () => {
     expect(merged.markers.find((m) => m.id === "m2")).toMatchObject({ at: 0.4, file: { at: 0.35 } });
     expect(merged.markers.some((m) => m.name === "Stop")).toBe(true);
     expect(merged.loops[0]).toMatchObject({ end: 1.5, file: { end: 1.5 } });
+  });
+
+  it("matches a moved file loop to a project loop that has no file snapshot", () => {
+    const untracked: SampleEdits = { ...defaultSampleEdits("sustain"), loops: [loop("l1", 0.45, 1.55)] };
+    const meta = (end: number): WavMetadata => ({
+      sampleRate: 1000, frames: 2600, channels: 1, root: null, tempo: null, bext: null, regions: [], cues: [],
+      loops: [{ cueId: 0, type: 0, start: 450, end, fraction: 0, playCount: 0 }],
+    });
+    expect(mergeRows(untracked, meta(1550))).toEqual([]); // the file says what the project has: nothing to review
+    const rows = mergeRows(untracked, meta(1600));
+    expect(rows.map((r) => [r.title, r.detail, r.conflict, r.choice, r.id])).toEqual([["Loop end moved", "0.450 s – 1.550 s → 0.450 s – 1.600 s", false, "file", "l1"]]);
+    const merged = next(applyMerge(untracked, rows, "engine-idle.wav"));
+    expect(merged.loops).toHaveLength(1);
+    expect(merged.loops[0]).toMatchObject({ id: "l1", end: 1.6, file: { index: 0, end: 1.6 } });
   });
 });
 
@@ -432,5 +471,16 @@ describe("play plans", () => {
     expect(planPlay(e, LEN, { kind: "sample" }, "toNextMarker", 0.31)).toMatchObject({ from: 0.31, to: 0.32, scope: "To Lock-up" });
     expect(planPlay(e, LEN, { kind: "sample" }, "selection", 1)).toMatchObject({ from: 1, scope: "From the playhead" });
     expect(planPlay(e, LEN, { kind: "tail" }, "selection", 0)).toMatchObject({ from: 1.55, to: LEN });
+  });
+
+  it("plays across a seam: the window before the loop's end, then the window after its start, and no more", () => {
+    const e = skid(); // loop l1 0.45–1.55 s: the window is 1.1 / 6 s, clamped to 120 ms
+    const p = planSeam(e, "l1")!;
+    expect(p.from).toBeCloseTo(1.43, 9);
+    expect(p.to).toBeCloseTo(0.57, 9);
+    expect(p).toMatchObject({ loop: { start: 0.45, end: 1.55, count: 2, crossfadeMs: 35 }, held: false });
+    expect(planSeam(e, "gone")).toBeNull();
+    const short = { ...e, loops: [loop("s", 1, 1.06)] }; // 60 ms: the window can't pass the middle
+    expect(planSeam(short, "s")).toMatchObject({ from: 1.03, to: 1.03 });
   });
 });

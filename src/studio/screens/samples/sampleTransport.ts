@@ -13,6 +13,7 @@ import type { SpanPlayback, StudioAudioHost } from "../../runtime/studioAudioHos
 import { isHold, snippets } from "./sampleEditing";
 import { trimOf } from "./sampleTime";
 import { nextMarker, type SampleSelection } from "./sampleView";
+import { seamWindow } from "./seam";
 import type { PlayMode } from "./samplesState";
 
 export interface PlayPlan {
@@ -82,6 +83,21 @@ export function planPlay(e: SampleEdits, length: number, selection: SampleSelect
       // The trim, or the sample: from the playhead when it's inside the trim, else the trim.
       return plain(playhead > ta && playhead < tb - 0.01 ? playhead : ta, tb, playhead > ta && playhead < tb - 0.01 ? "From the playhead" : "Trim");
   }
+}
+
+/** What the player bar says while the seam plays. */
+export const SEAM_SCOPE = "Loop seam";
+
+/**
+ * Play across the seam (the Loop seam panel): the last `W` of the loop, the seam with its crossfade, then the first
+ * `W` of the loop, and no more (`W` is the seam strip's window, `seam.ts`). A two-pass loop run that stops `W` into
+ * its second pass. Null for a hold loop (no seam) or a loop that's gone.
+ */
+export function planSeam(e: SampleEdits, loopId: string): PlayPlan | null {
+  const l = e.loops.find((x) => x.id === loopId);
+  if (!l || isHold(l) || !(l.end - l.start > 0.002)) return null;
+  const w = Math.min(seamWindow(l.start, l.end), (l.end - l.start) / 2);
+  return { from: l.end - w, to: l.start + w, loop: { start: l.start, end: l.end, count: 2, crossfadeMs: l.crossfadeMs }, held: false, scope: SEAM_SCOPE };
 }
 
 export interface Playing {

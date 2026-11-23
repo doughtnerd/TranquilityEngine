@@ -6,7 +6,7 @@
 import { useRef, useState } from "preact/hooks";
 import { isTauri } from "../../../engine/platform/FileSystem";
 import { readWavMetadata } from "../../../engine/audio/sample/wavChunks";
-import { defaultImportSettings, formatImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
+import { defaultImportSettings, formatImportSettings, isSidecarPath, sidecarPath } from "../../../engine/scene/importSettings";
 import { baseName, filesOfPaths, importFiles, type IncomingFile } from "../../../editor/assetImportFiles";
 import { projectFileSystem } from "../../../editor/projectFs";
 import type { EditorProject } from "../../../editor/projects";
@@ -165,27 +165,34 @@ async function detectFor(project: EditorProject, f: Picked, toggles: KindToggles
 
 /**
  * Copy the picked files and write their sidecars; returns the imported audio paths. With "Detect what's missing" on,
- * a file without tempo or root is analysed first (`onProgress` hears which file).
+ * a file without tempo or root is analysed first (`onProgress` hears which file). Each file's sidecar is written
+ * before its audio: the audio's write is announced to `Assets.onChanged`, and the changed-on-disk review
+ * (`sampleDisk.ts`) must find the sidecar's file snapshots already there, or it reads the file's own cues and loops
+ * as new. The status line then counts every file imported.
  */
 export async function runImport(project: EditorProject, files: readonly Picked[], toggles: KindToggles, into: string, keep: boolean, stream: boolean, onProgress?: (text: string) => void): Promise<string[]> {
   const imported: string[] = [];
+  const failed: string[] = [];
+  const settingsFailed: string[] = [];
   for (const f of files) {
     const folder = destinationFolder(into, f.rel, keep);
-    const result = await importFiles(project, folder, [{ path: baseName(f.rel), read: f.read }]);
-    const path = result.imported[0];
-    if (!path) continue;
-    imported.push(path);
-    if (detectionFor(f.meta, toggles).length) onProgress?.(`Detecting tempo and root of ${baseName(f.rel)}…`);
+    const name = baseName(f.rel);
+    if (detectionFor(f.meta, toggles).length) onProgress?.(`Detecting tempo and root of ${name}…`);
     const sample = sampleBlockFor(f.meta, toggles, await detectFor(project, f, toggles));
-    if (sample || stream) {
-      try {
-        await project.writeText(sidecarPath(path), formatImportSettings({ ...defaultImportSettings(), stream, sample }));
-      } catch (err) {
-        status.value = { kind: "error", text: `Imported ${path} but couldn't write its settings: ${err instanceof Error ? err.message : String(err)}` };
-      }
+    const sidecar: IncomingFile[] = sample || stream ? [{ path: sidecarPath(name), read: async () => new TextEncoder().encode(formatImportSettings({ ...defaultImportSettings(), stream, sample })) }] : [];
+    const result = await importFiles(project, folder, [...sidecar, { path: name, read: f.read }]);
+    const path = result.imported.find((p) => !isSidecarPath(p));
+    if (!path) {
+      failed.push(name);
+      continue;
     }
+    imported.push(path);
+    if (sidecar.length && !result.imported.includes(sidecarPath(path))) settingsFailed.push(`${path} (${result.failed[0]?.error ?? "unknown error"})`);
   }
   docVersion.value++;
+  if (settingsFailed.length) status.value = { kind: "error", text: `Imported ${settingsFailed.join(", ")} but couldn't write the settings.` };
+  else if (imported.length && !failed.length) status.value = { kind: "info", text: `${importedMessage(imported.length, into)}.` };
+  else if (failed.length) status.value = { kind: "error", text: `${imported.length ? `${importedMessage(imported.length, into)}; ` : ""}couldn't import ${failed.join(", ")}.` };
   return imported;
 }
 

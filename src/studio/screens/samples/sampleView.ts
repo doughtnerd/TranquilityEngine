@@ -3,7 +3,7 @@
 // the Outline's groups, snapping and the region under the playhead. Times are source seconds. Pure.
 import type { SampleEdits, SampleLoop, SampleMarker } from "../../../engine/audio/sample/types";
 import { effectiveFormat, type TimeContext } from "../../components/timeRulerModel";
-import { isHold, loopName, MARKER_TYPE_NAMES, snippets, type Snippet } from "./sampleEditing";
+import { closeGap, isHold, loopName, MARKER_TYPE_NAMES, refusalOf, snippets, tapeSnippet, type Snippet } from "./sampleEditing";
 import { trimOf } from "./sampleTime";
 
 // --- selection -------------------------------------------------------------------------------------------------------
@@ -268,6 +268,37 @@ export function outlineGroups(e: SampleEdits, sourceLength: number, query = ""):
 
 /** The name of a marker type with its article-free UI name, for menus. */
 export const markerTypeName = (m: SampleMarker): string => MARKER_TYPE_NAMES[m.type];
+
+// --- snippets on the waveform ----------------------------------------------------------------------------------------
+
+/** The snippet under source time `t` (null with no cuts, or in a closed gap). */
+export function snippetUnder(e: SampleEdits, sourceLength: number, t: number): Snippet | null {
+  const all = snippets(e, sourceLength);
+  return all.find((s) => t >= s.start && (t < s.end || (s.end >= sourceLength && t <= s.end))) ?? null;
+}
+
+export type SnippetAction = "save" | "tapeLeft" | "tapeRight" | "toggle" | "closeGap";
+
+export interface SnippetMenuItem {
+  readonly id: SnippetAction;
+  readonly label: string;
+  /** Why it can't be done now (the item is off), or null. */
+  readonly refused: string | null;
+  readonly danger?: boolean;
+}
+
+/** The snippet's menu (right-click on the waveform, the prototype's): Save as sample…, Tape left / right, Delete or Restore, Delete and close gap. */
+export function snippetMenu(e: SampleEdits, sourceLength: number, index: number): SnippetMenuItem[] {
+  const s = snippets(e, sourceLength).find((x) => x.index === index);
+  if (!s) return [];
+  return [
+    { id: "save", label: "Save as sample…", refused: null },
+    { id: "tapeLeft", label: "Tape to the left", refused: refusalOf(tapeSnippet(e, index, "left", sourceLength)) },
+    { id: "tapeRight", label: "Tape to the right", refused: refusalOf(tapeSnippet(e, index, "right", sourceLength)) },
+    { id: "toggle", label: s.deleted ? "Restore" : "Delete", refused: null, danger: !s.deleted },
+    { id: "closeGap", label: s.deleted ? "Close gap" : "Delete and close gap", refused: refusalOf(closeGap(e, index, sourceLength)), danger: true },
+  ];
+}
 
 // --- snapping --------------------------------------------------------------------------------------------------------
 

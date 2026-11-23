@@ -193,15 +193,27 @@ export function mergeRows(e: SampleEdits, now: WavMetadata): MergeRow[] {
     rows.push({ key, kind: "marker", title: `Removed from the file`, detail: `${pm.name} at ${fmtS(pm.at)}`, conflict: markerDiff(pm).length > 0, options: ["project", "file"], choice: "project", id: pm.id });
   }
   const projectLoops = new Map(e.loops.filter((l) => l.file).map((l) => [l.file!.index, l]));
+  // Loops a sidecar holds without a file snapshot (written before snapshots were kept): a file loop overlapping one
+  // is that loop, its own bounds standing in for what the file last said, rather than a new loop.
+  const untracked = e.loops.filter((l) => !l.file);
+  const overlap = (a: { start: number; end: number }, b: { start: number; end: number }) => Math.min(a.end, b.end) - Math.max(a.start, b.start);
   for (const fl of file.loops) {
     const idx = fl.file!.index;
-    const pl = projectLoops.get(idx);
+    let pl = projectLoops.get(idx);
+    let was: { start: number; end: number; direction: string; count: number } | undefined = pl?.file ?? undefined;
     if (!pl) {
+      const twin = untracked.filter((l) => overlap(l, fl) > 0).sort((a, b) => overlap(b, fl) - overlap(a, fl))[0];
+      if (twin) {
+        untracked.splice(untracked.indexOf(twin), 1);
+        pl = twin;
+        was = { start: twin.start, end: twin.end, direction: twin.direction, count: twin.count };
+      }
+    }
+    if (!pl || !was) {
       rows.push({ key: `smpl:${idx}`, kind: "loop", title: "New loop", detail: `${fmtS(fl.start)} – ${fmtS(fl.end)}`, conflict: false, options: ["add", "skip"], choice: "add", fileLoop: fl });
       continue;
     }
     projectLoops.delete(idx);
-    const was = pl.file!;
     const startMoved = !near(was.start, fl.start), endMoved = !near(was.end, fl.end);
     if (!startMoved && !endMoved && was.direction === fl.direction && was.count === fl.count) continue;
     const edited = loopDiff(pl).length > 0;

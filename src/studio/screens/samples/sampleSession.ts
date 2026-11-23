@@ -68,6 +68,8 @@ export interface SampleSession {
   editDerived(next: DerivedSampleAsset, label: string): void;
   /** Undo the document's last step (a toast's Undo). */
   undo(): void;
+  /** Save (Ctrl+S): write any pending edit now; resolves once every queued write has settled. Edits also save on their own. */
+  flush(): Promise<void>;
   /** Replace the sidecar's settings around the block (Load). */
   setSettings(next: ImportSettings, label: string): void;
 }
@@ -91,6 +93,7 @@ function sidecarSession(project: EditorProject, path: string): SampleSession {
     setSettings: (next, label) => doc.edit(next, { label }),
     editDerived: () => undefined,
     undo: () => doc.undo(),
+    flush: () => doc.flush(),
   };
 }
 
@@ -124,6 +127,7 @@ function derivedSession(project: EditorProject, path: string): SampleSession {
     setSettings: () => undefined,
     editDerived: (next, label) => doc.edit(next, { label }),
     undo: () => doc.undo(),
+    flush: () => doc.flush(),
   };
 }
 
