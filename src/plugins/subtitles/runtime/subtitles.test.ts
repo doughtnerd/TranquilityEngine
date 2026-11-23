@@ -45,7 +45,7 @@ async function boot(options: { storage?: MemoryStorage; subtitles?: Record<strin
 }
 
 /** A node with a SubtitleDisplay, once its document is built. */
-async function display(init: Partial<SubtitleDisplay> = {}): Promise<{ display: SubtitleDisplay; doc: UIDocument }> {
+async function display(init: { document?: string; stylesheet?: string; speakerNames?: SubtitleDisplay["speakerNames"] } = {}): Promise<{ display: SubtitleDisplay; doc: UIDocument }> {
   const display = GameObject.create("HUD").addBehavior(SubtitleDisplay, init);
   const doc = display.node.getComponentInChildren(UIDocument)!;
   await doc.ready;

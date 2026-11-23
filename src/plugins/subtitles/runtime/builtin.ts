@@ -12,6 +12,7 @@
  * so the theme comes after the document's own styles.
  */
 import { Assets, type AssetSource } from "../../../engine/scene/Assets";
+import { SUBTITLE_LOOK } from "./look";
 
 export const BUILTIN_FOLDER = "__myco/subtitles";
 export const BUILTIN_DOCUMENT = `${BUILTIN_FOLDER}/subtitles.ui.xml`;
@@ -34,17 +35,17 @@ const DOCUMENT = `<Panel id="subtitle-root">
 const STYLESHEET = `/* The built-in subtitle look (ADR 0343 §5). Themes override these variables in their own stylesheet. */
 :root {
   --subtitle-font: "";
-  --subtitle-color: #ffffff;
-  --subtitle-background: #000000;
-  --subtitle-speaker-color: #ffd75e;
-  --subtitle-caption-color: #c9d3de;
-  --subtitle-padding: 8px;
-  --subtitle-radius: 6px;
+  --subtitle-color: ${SUBTITLE_LOOK.color};
+  --subtitle-background: ${SUBTITLE_LOOK.background};
+  --subtitle-speaker-color: ${SUBTITLE_LOOK.speakerColor};
+  --subtitle-caption-color: ${SUBTITLE_LOOK.captionColor};
+  --subtitle-padding: ${SUBTITLE_LOOK.padding}px;
+  --subtitle-radius: ${SUBTITLE_LOOK.radius}px;
 }
 
 #subtitle-root { width: 100%; height: 100%; }
-#subtitles { position: absolute; flex-direction: column; align-items: center; gap: 6px; }
-.row { flex-direction: row; align-items: flex-start; gap: 8px; padding: var(--subtitle-padding); }
+#subtitles { position: absolute; flex-direction: column; align-items: center; gap: ${SUBTITLE_LOOK.gap}px; }
+.row { flex-direction: row; align-items: flex-start; gap: ${SUBTITLE_LOOK.nameGap}px; padding: var(--subtitle-padding); }
 .box {
   position: absolute;
   top: 0;

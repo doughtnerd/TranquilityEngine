@@ -1,0 +1,16 @@
+/**
+ * The built-in subtitle look's values (ADR 0343 §5), declared once: the built-in stylesheet's variables are written
+ * from them, and previews without a renderer (the editor, the Studio) draw with them.
+ */
+export const SUBTITLE_LOOK = Object.freeze({
+  color: "#ffffff",
+  background: "#000000",
+  speakerColor: "#ffd75e",
+  captionColor: "#c9d3de",
+  /** UI pixels. */
+  padding: 8,
+  radius: 6,
+  /** Between rows, and between a speaker's name and the line. */
+  gap: 6,
+  nameGap: 8,
+});
