@@ -73,7 +73,7 @@ test("Record take and capture from Play, Open in Audio Studio, then the Studio r
   await studio.getByRole("button", { name: "Open take file…" }).click();
   await (await chooser).setFiles({ name: takeName, mimeType: "application/octet-stream", buffer: Buffer.from(takeBytes) });
   await studio.getByRole("treeitem", { name: new RegExp(takeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).click();
-  await showPanel(studio, "Playlists in this take");
+  await showPanel(studio, "In this take");
   await expect(studio.getByRole("list", { name: "Playlists in this take" })).toContainText("click");
   await studio.getByRole("button", { name: "Replay", exact: true }).click();
   await expect(studio.getByRole("button", { name: "Pause", exact: true })).toHaveAttribute("aria-pressed", "true");

@@ -16,13 +16,27 @@ import { GeneratorBadge } from "../playlists/generator/GeneratorParts";
 
 // ---- Replay of a take -------------------------------------------------------------------------------------------------
 
-/** ADR 0348: a replay capture names the take it recorded the Studio playing; "Open in Take" opens that take. */
-export function ReplayOrigin(props: { readonly take: CaptureReplayOf; onOpenTake(path: string): void }) {
-  const name = props.take.path.slice(props.take.path.lastIndexOf("/") + 1);
+const fileName = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
+const takeTitle = (path: string): string => fileName(path).replace(/\.mycotake$/i, "");
+
+/** "Open in Take" (spec §2.16): the capture's take on the Take screen, at the same playhead (one review position). */
+export function OpenInTake(props: { readonly take: string; onOpen(path: string): void }) {
+  return (
+    <button type="button" class="pf-toggle pf-open-take" title={`Open ${takeTitle(props.take)} in Take at the same playhead`} onClick={() => props.onOpen(props.take)}>
+      Open in Take
+    </button>
+  );
+}
+
+/**
+ * ADR 0348: a replay capture names the take it recorded the Studio playing. "Open in Take" shows only when the project
+ * has that take (`onOpenTake` given).
+ */
+export function ReplayOrigin(props: { readonly take: CaptureReplayOf; onOpenTake?(path: string): void }) {
   return (
     <span class="pf-replay-of" title={`${props.take.path}${props.take.audioHash ? ` · recorded against audio.json ${props.take.audioHash}` : ""}`}>
-      Replay of <strong>{name}</strong>
-      <button type="button" class="pf-toggle" onClick={() => props.onOpenTake(props.take.path)}>Open in Take</button>
+      Replay of <strong>{fileName(props.take.path)}</strong>
+      {props.onOpenTake && <OpenInTake take={props.take.path} onOpen={props.onOpenTake} />}
     </span>
   );
 }

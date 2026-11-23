@@ -161,8 +161,13 @@ export class ProfilerStore {
     const data = await this.reader.refresh();
     if (run !== this.run) return;
     this.apply(data);
+    // At the start before it shows as open, so whatever moves the cursor once it is open (the review link to the open
+    // take) isn't undone.
+    if (!live) {
+      this.model.seekTo(0);
+      this.cursor.value = this.model.time;
+    }
     this.state.value = state;
-    if (!live) this.model.seekTo(0);
     await this.moved();
   }
 

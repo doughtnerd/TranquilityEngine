@@ -20,7 +20,8 @@
 /* Captures */
 .pf-captures { display: flex; flex-direction: column; min-height: 100%; }
 .pf-captures-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-bottom: 1px solid var(--border); }
-.pf-search { flex: 1 1 120px; min-width: 0; }
+.pf-search { flex: 1 1 120px; min-width: 0; box-sizing: border-box; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); }
+.pf-search:focus { outline: none; border-color: var(--accent); box-shadow: var(--glow); }
 .pf-file-icon { flex: none; color: var(--muted); }
 
 /* Toolbar */
@@ -31,6 +32,8 @@
 :is(.pf-toggle, .pf-tool, .pf-plugin-reset, button.pf-step-name):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .pf-replay-of { display: inline-flex; flex-wrap: wrap; min-width: 0; align-items: center; gap: 6px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .pf-replay-of strong { color: var(--text); font-weight: 600; }
+.pf-open-take { white-space: nowrap; }
+.pf-why-take { margin: 8px; }
 .pf-counts { margin-left: auto; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 
 /* Timeline */

@@ -13,7 +13,12 @@ import { busStrip, instanceParametersAt, parameterRows } from "./takeInspectorMo
 import { FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
 import { TakeList } from "./TakeList";
 import type { TakeSelection } from "./takeScreen";
-import { takeTimeline } from "./takeTimeline";
+import { playlistsInTake, takeTimeline } from "./takeTimeline";
+import { PlaylistsInTake } from "./PlaylistsInTake";
+import { DockLayout } from "../../../editor/layout/DockLayout";
+import { screenDock } from "../../shell/studioPanels";
+import { TAKE_PANELS } from ".";
+import "../../studio.css";
 import { TakeTimelineView } from "./TakeTimelineView";
 import "./take.css";
 
@@ -173,6 +178,118 @@ export const Note: Story = {
       <NoteDetails note={{ kind: "region", ...FIXTURE_NOTES.regions[0]! }} writable onText={fn()} onColour={fn()} onTime={fn()} onSpan={fn()} onDelete={fn()} onGoTo={fn()} />
     </div>
   ),
+  play: async ({ canvasElement }) => {
+    // The note's fields use the editor's font and field tokens, not the browser's monospace textarea and inset number box.
+    const text = within(canvasElement).getByRole("textbox", { name: "Note text" });
+    const panelFont = getComputedStyle(canvasElement.querySelector(".tk-inspector")!).fontFamily;
+    await expect(getComputedStyle(text).fontFamily).toBe(panelFont);
+    for (const field of [text, ...within(canvasElement).getAllByRole("spinbutton")]) {
+      await expect(getComputedStyle(field).borderTopWidth).toBe("1px");
+      await expect(getComputedStyle(field).borderTopStyle).toBe("solid");
+    }
+  },
+};
+
+export const DefaultDock: Story = {
+  render: () => {
+    // The screen's real panel list and default layout, each panel's view a stand-in (the views need the running app).
+    const dock = screenDock("take", TAKE_PANELS.map((p) => ({ ...p, view: () => <p>{p.title}</p> })));
+    dock.store.reset();
+    return (
+      <div class="studio" style={{ width: "1200px", height: "520px", gridTemplateRows: "1fr", gridTemplateAreas: '"main"' }}>
+        <main class="studio-dock">
+          <DockLayout host={dock.host} view={(type) => dock.panels.get(type)?.view() ?? null} />
+        </main>
+      </div>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // Both tabs of the left dock show at its default width: the playlists tab isn't hidden behind the overflow button.
+    // The docks are sized once the layout has measured itself; the tabs are fitted after that.
+    await waitFor(() => expect(c.getByRole("tab", { name: "Takes" }).closest<HTMLElement>(".dock-tabs")!.clientWidth).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 200));
+    for (const p of TAKE_PANELS.filter((x) => x.dock === "left")) await expect(c.getByRole("tab", { name: p.title })).toBeVisible();
+    await expect(c.queryByRole("button", { name: "More tabs" })).toBeNull();
+  },
+};
+
+/** The box of `el` (inside the story's canvas). */
+const box = (el: Element) => el.getBoundingClientRect();
+
+export const HeldPart: Story = {
+  render: () => <TimelineDemo start={8} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // The boost is held 5.6 → 7.4 s; its held part is shaded in --accent2-soft, unlike the bar's own fill.
+    const boost = await c.findByRole("option", { name: /boost · instance 1 · held 1\.8 s/ });
+    const held = boost.querySelector(".studio-span-held")!;
+    await expect(held).not.toBeNull();
+    const probe = document.createElement("span");
+    probe.style.background = "var(--accent2-soft)";
+    canvasElement.append(probe);
+    const want = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    await expect(getComputedStyle(held).backgroundColor).toBe(want);
+    await expect(getComputedStyle(held).backgroundColor).not.toBe(getComputedStyle(boost).backgroundColor);
+  },
+};
+
+export const InThisTake: Story = {
+  render: () => {
+    const rows = playlistsInTake(takeTimeline(fixtureTake()));
+    return <div style={{ width: "240px" }}><PlaylistsInTake rows={rows} onOpen={fn()} /></div>;
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // Each row is one button (folder / name, count) on one line: nothing wraps under it at the dock's default width.
+    const rows = c.getAllByRole("button");
+    await expect(rows.length).toBeGreaterThan(3);
+    await expect(c.getByRole("button", { name: /vehicles \/ engine\s*1 instance/ })).toBeVisible();
+    for (const r of rows) await expect(box(r).height).toBeLessThanOrEqual(30);
+    await expect(c.queryByText("Open in Playlists")).toBeNull();
+  },
+};
+
+const openPlaylist = fn();
+
+export const InThisTakeOpens: Story = {
+  render: () => <div style={{ width: "240px" }}><PlaylistsInTake rows={[{ path: "audio/events/boost.playlist.json", label: "events / boost", count: 2 }]} onOpen={openPlaylist} /></div>,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: /events \/ boost/ }));
+    await expect(openPlaylist).toHaveBeenCalledWith("audio/events/boost.playlist.json");
+  },
+};
+
+export const SearchField: Story = {
+  render: () => <div style={{ width: "280px" }}><TakeList files={FILES} openPath={null} {...listArgs} /></div>,
+  play: async ({ canvasElement }) => {
+    // The screen's search uses the editor's field tokens, not the browser's inset default.
+    const search = within(canvasElement).getByRole("searchbox", { name: "Search takes" });
+    const s = getComputedStyle(search);
+    await expect(s.borderTopWidth).toBe("1px");
+    await expect(s.borderTopStyle).toBe("solid");
+    await expect(s.fontSize).toBe("12px");
+  },
+};
+
+export const ShortMixer: Story = {
+  render: () => (
+    <div style={{ width: "600px", height: "130px", display: "flex", flexDirection: "column" }}>
+      <MixerStrip running onOpenMixer={fn()} strips={["Master", "Music", "SFX", "Ambience"].map((name) => busStrip({ name, authored: 1, runtime: 1, duck: 1, peak: 0.5 }))} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // In a short panel every strip's name and level still show whole: the fader gives way, not the labels.
+    const strips = c.getByRole("list", { name: "Buses" });
+    const bottom = box(strips).bottom;
+    for (const name of ["Master", "Music", "SFX", "Ambience"]) {
+      const label = c.getByText(name, { selector: ".tk-strip-name" });
+      await expect(box(label).bottom).toBeLessThanOrEqual(bottom);
+      await expect(box(label.nextElementSibling!).bottom).toBeLessThanOrEqual(bottom);
+    }
+  },
 };
 
 export const Mixer: Story = {
