@@ -148,6 +148,18 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
 
 ## Phase B: after gate A
 
+### B0 findings (2026-11-23, after merging master with the Audio Studio at `22410cbb`)
+
+- **Curves:** `core/curve.ts` has Bézier keys. The shared curve editor is `src/editor/ui/curves/` (`CurveEditorDialog`, `CurvePlot`, `CurveField`, `DopeSheet`, `keyList`); `CurveEditor.tsx` is gone. The Rust evaluator is still `native/audio/crates/audio-core/src/automation.rs` (T70 moves it).
+- **Edit results:** two copies of the refused-or-next module exist: `src/editor/ui/localisation/editResult.ts` and `src/plugins/audio/editor/editResult.ts`. T07 makes one SDK module and points both at it.
+- **Parameters:** `src/plugins/audio/editor/parameterList.ts` and `ParameterCard.tsx` (T07 moves them); the Studio has `ParameterPanel`/`ParameterRow` in `src/studio/components/`.
+- **Component kit:** audio-specific parts in `src/studio/components/`; generic parts in the editor UI (T50–T56 use those).
+- **Audio playlist pieces animation reuses:** fade shapes `src/engine/audio/playlist/fadeShapes.ts` (T30 maps D53's ids onto them), 2D blend weights `src/engine/audio/playlist/blendWeights.ts` (same rule as L31a), `AudioPlaylistHandle` exported from `myco` (T72).
+- **Packages:** `.mycopak` is built (`src/engine/audio/packaging/format.ts`); 0377 is withdrawn, nothing to do.
+- **Takes and the profiler:** located by T73 and T34 at their start (the Studio's take and profiler code moved during the merge).
+- **Baseline:** full Vitest run on the merged tree logged in the build log before B-W1 merges.
+
+
 | ID | Task | Lead | Est. | Depends |
 |---|---|---|---|---|
 | B0 | Reconcile: merge, re-check the "State" facts and every file named below against the merged tree, update this plan | Coordinator | 0.5 | A |
