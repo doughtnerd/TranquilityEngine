@@ -39,7 +39,7 @@ import { boundsOf, type P2 } from "./geometry";
 import { baseSoundRefs } from "./voicesTable";
 import { blankScene, copyScene, gameScene, sceneFromTake, type NewSceneKind } from "./newScene";
 import { activeListener, deleteObject, framePoints, duplicateObject, findObject, KIND_NOUN, pasteObject, positionOf, type EditResult, type SceneObject } from "./sceneEdits";
-import { isScenePath, sceneName, type FolderChange, type SceneEntry } from "./sceneTree";
+import { isScenePath, sceneAfter, sceneName, sceneNote, type FolderChange, type SceneEntry } from "./sceneTree";
 import { escape as escapeTool, INITIAL_TOOLS, afterPlace, place, placeLabel, type Tool, type ToolState } from "./tools";
 import { DEFAULT_VIEW, fitView, type Size, type View } from "./viewTransform";
 import { isSamplePath } from "../playlists/libraryModel";
@@ -161,7 +161,10 @@ export const sceneEntries = computed<SceneEntry[]>(() => {
   const p = project();
   void docVersion.value;
   if (!p) return [];
-  return p.files.filter(isScenePath).map((path) => ({ path, folder: loadScene(path)?.folder ?? "" }));
+  return p.files.filter(isScenePath).map((path) => {
+    const s = loadScene(path);
+    return { path, folder: s?.folder ?? "", ...(s ? { note: sceneNote(s) } : {}) };
+  });
 });
 
 /** The project's mix (`audio.json`), through the Mixer's document. Tracks. */
@@ -344,7 +347,8 @@ export function escapeKey(): void {
 /** Frame the open scene. */
 export function fit(): void {
   const s = scene.peek();
-  const b = s ? boundsOf([...framePoints(s), ...baseFramePoints(baseImport.peek())], 20) : null;
+  // At least 60 m across: a new scene (one listener) opens framed like a scene, not zoomed onto the listener.
+  const b = s ? boundsOf([...framePoints(s), ...baseFramePoints(baseImport.peek())], 60) : null;
   view.value = b ? fitView(b, viewportSize.peek()) : DEFAULT_VIEW;
 }
 
@@ -637,6 +641,8 @@ export async function deleteScenes(paths: readonly string[]): Promise<void> {
   const refused = whyNotDeletable(p, paths);
   if (refused) return void (status.value = { kind: "info", text: `Can't delete ${name}: ${refused}.` });
   const saved = paths.map((path) => ({ path, value: loadScene(path) })).filter((x): x is { path: string; value: AudioTestScene } => x.value !== null);
+  // Deleting the open scene opens the next one in the tree (the prototype's), once the files are gone.
+  const next = paths.includes(openPath.peek() ?? "") ? sceneAfter(sceneEntries.peek(), paths) : null;
   if (paths.includes(openPath.peek() ?? "")) {
     stopAudition();
     openPath.value = null;
@@ -654,6 +660,7 @@ export async function deleteScenes(paths: readonly string[]): Promise<void> {
   await assetDocumentsDeleted(gone); // their open documents go, with their undo (the toast brings the scene back)
   docVersion.value++;
   if (gone.length === 0) return;
+  if (next && !gone.includes(next) && openPath.peek() === null) openScene(next);
   const back = saved.filter((s) => gone.includes(s.path));
   toasts.show({
     text: `Deleted ${gone.length === 1 ? sceneName(gone[0]!) : `${gone.length} scenes`}.`,
@@ -746,14 +753,14 @@ export function editAttenuation(id: string, doc: Document = document): void {
   const open = (att: Attenuation, target: string, apply: (next: Attenuation) => void) => {
     openCurveEditorDialog(doc, {
       ...attenuationDialog(att, distanceNow(id)),
-      title: "Attenuation",
       target,
-      context: name ? `Heard by ${name}` : undefined,
+      // "Distance curves · footstep · Campfire · Attenuation · metres from the listening player" (the prototype's title).
+      context: `${name ? `${name} · ` : ""}Attenuation · metres from the listening player`,
       onCancel: () => {},
       onApply: (result) => apply(attenuationFromResult(att, result)),
     });
   };
-  const fileName = (p: string) => p.slice(p.lastIndexOf("/") + 1);
+  const fileName = (p: string) => p.slice(p.lastIndexOf("/") + 1).replace(/\.(playlist|attenuation)\.json$/i, "");
   if (owner.kind === "preset" && owner.attenuation) {
     const preset = owner.preset;
     open(owner.attenuation, fileName(preset), (next) => {

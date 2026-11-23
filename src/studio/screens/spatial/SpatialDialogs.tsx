@@ -2,7 +2,7 @@
 // take and a moment: listener and emitter positions there) and, for "Edit attenuation…" on a playlist without any,
 // Create preset or Inline.
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { AudioTestScene } from "../../../engine/audio/spatial/testSceneTypes";
 import { takeClock } from "./newScene";
 
@@ -12,7 +12,7 @@ import { takeClock } from "./newScene";
  */
 function Dialog(props: { title: string; onCancel(): void; children: ComponentChildren; footer: ComponentChildren }) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const first = ref.current?.querySelector<HTMLElement>("select:not(:disabled), input:not(:disabled), button.primary:not(:disabled)");
     (first ?? ref.current)?.focus();
   }, []);

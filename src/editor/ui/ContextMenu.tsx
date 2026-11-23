@@ -115,13 +115,17 @@ function MenuList(props: MenuListProps) {
             aria-haspopup={entry.submenu ? "menu" : undefined}
             aria-expanded={entry.submenu ? sub?.index === i : undefined}
             data-entry={i}
-            class={`${entry.danger ? "kit-menu-danger" : ""}${sub?.index === i ? " open" : ""}`.trim() || undefined}
+            class={`${entry.danger ? "kit-menu-danger" : ""}${sub?.index === i ? " open" : ""}${entry.detail ? " kit-menu-two" : ""}`.trim() || undefined}
             disabled={entry.disabled}
             title={entry.title}
             onPointerEnter={(e) => {
+              entry.hover?.(true);
               if (entry.submenu && !entry.disabled) openSub(i, e.currentTarget as HTMLElement, false);
               else if (sub) setSub(null);
             }}
+            onPointerLeave={entry.hover ? () => entry.hover!(false) : undefined}
+            onFocus={entry.hover ? () => entry.hover!(true) : undefined}
+            onBlur={entry.hover ? () => entry.hover!(false) : undefined}
             onClick={(e) => {
               if (entry.submenu) {
                 openSub(i, e.currentTarget as HTMLElement, true);
@@ -136,7 +140,19 @@ function MenuList(props: MenuListProps) {
                 {entry.checked ? "✓" : ""}
               </span>
             )}
-            <span class="kit-menu-label">{entry.label}</span>
+            {entry.icon !== undefined && (
+              <span class="kit-menu-icon" aria-hidden="true">
+                {entry.icon}
+              </span>
+            )}
+            {entry.detail ? (
+              <span class="kit-menu-label">
+                <span class="kit-menu-title">{entry.label}</span>
+                <span class="kit-menu-detail">{entry.detail}</span>
+              </span>
+            ) : (
+              <span class="kit-menu-label">{entry.label}</span>
+            )}
             {right && <span class={entry.hint && !entry.submenu ? "context-key" : "kit-menu-note"}>{right}</span>}
           </button>
         );

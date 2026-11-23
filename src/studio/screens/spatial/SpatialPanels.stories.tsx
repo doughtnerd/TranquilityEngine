@@ -3,13 +3,13 @@
 // settings over a mix, the Voices table from a readout, and the From take / From game scene / attenuation dialogs.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
-import { expect, fn, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import type { AudioProject } from "../../../engine/audio/project/types";
 import { mixerFixture } from "../mixer/mixerFixture";
 import { InspectorPanel, type InspectorProps } from "./InspectorPanel";
 import { OutlinePanel } from "./OutlinePanel";
 import { ScenesPanel } from "./ScenesPanel";
-import { setHidden, setLocked } from "./sceneEdits";
+import { deleteObject, renameObject, setHidden, setLocked } from "./sceneEdits";
 import { SettingsPanel } from "./SettingsPanel";
 import { AttenuationChoiceDialog, GameSceneDialog, TakeDialog } from "./SpatialDialogs";
 import { FIXTURE_SCENE_FILES, fixtureBase, fixtureScene, fixtureVoices } from "./spatialFixture";
@@ -36,9 +36,9 @@ export const Scenes: Story = {
     const tree = c.getByRole("tree", { name: "Test scenes" });
     await expect(within(tree).getByRole("treeitem", { name: /canyon_run/ })).toHaveAttribute("aria-selected", "true");
     await userEvent.type(c.getByRole("searchbox", { name: "Search scenes" }), "drone");
-    await expect(c.getByRole("tree", { name: "Matching scenes" })).toHaveTextContent("Moving sources › drone_flyby");
+    await expect(c.getByRole("tree", { name: "Matching scenes" })).toHaveTextContent(/drone_flyby\s*Moving sources/);
     await userEvent.clear(c.getByRole("searchbox", { name: "Search scenes" }));
-    await userEvent.click(c.getByRole("button", { name: "New" }));
+    await userEvent.click(c.getByRole("button", { name: "More ways to create a test scene or folder" }));
     const menu = within(document.body).getByRole("menu", { name: "New test scene" });
     await expect(within(menu).getByRole("menuitem", { name: /From take/ })).toBeVisible();
     await expect(within(menu).getByRole("menuitem", { name: /From open game scene/ })).toBeVisible();
@@ -59,12 +59,23 @@ export const Outline: Story = {
     return frame(260, 480, (
       <OutlinePanel scene={scene} selected={selected} readOnly={false} onSelect={select}
         onHidden={(id, h) => { const r = setHidden(scene, id, h); if ("next" in r) setScene(r.next); }}
-        onLocked={(id, l) => { const r = setLocked(scene, id, l); if ("next" in r) setScene(r.next); }} />
+        onLocked={(id, l) => { const r = setLocked(scene, id, l); if ("next" in r) setScene(r.next); }}
+        onRename={(id, name) => { const r = renameObject(scene, id, name); if ("next" in r) setScene(r.next); }}
+        onDelete={(id) => { const r = deleteObject(scene, id); if ("next" in r) setScene(r.next); }} />
     ));
   },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByRole("treeitem", { name: "Emitters, 4" })).toBeVisible();
+    // Rename and delete from a row (spec §4.4.3): double-click renames in place; the row's menu deletes.
+    await userEvent.dblClick(c.getByRole("button", { name: "Generator" }));
+    const field = c.getByRole("textbox", { name: "Name" });
+    await userEvent.clear(field);
+    await userEvent.type(field, "Hum{Enter}");
+    await expect(c.getByRole("button", { name: "Hum" })).toBeVisible();
+    await userEvent.pointer({ keys: "[MouseRight]", target: c.getByRole("button", { name: "Hum" }) });
+    await userEvent.click(within(document.body).getByRole("menuitem", { name: /Delete/ }));
+    await expect(c.getByRole("treeitem", { name: "Emitters, 3" })).toBeVisible();
     await userEvent.click(c.getByRole("button", { name: "Hide Waterfall" }));
     await expect(c.getByRole("button", { name: "Show Waterfall" })).toHaveAttribute("aria-pressed", "true");
     await userEvent.type(c.getByRole("searchbox", { name: "Filter the outline" }), "zone");
@@ -164,7 +175,9 @@ export const InspectorMovingEmitter: Story = { render: () => frame(320, 720, <In
 export const InspectorAudioZone: Story = {
   render: () => frame(320, 720, <InspectorPanel {...inspector("zone1")} />),
   play: async ({ canvasElement }) => {
-    await expect(within(canvasElement).getByText("Zone depth")).toBeVisible();
+    await expect(within(canvasElement).getByText(/Zone depth/)).toBeVisible();
+    await expect(within(canvasElement).getByText(/Heard from its nearest edge/)).toBeVisible();
+    await expect(within(canvasElement).getByRole("radio", { name: "From its edge" })).toBeChecked();
   },
 };
 export const InspectorReverbZone: Story = { render: () => frame(320, 720, <InspectorPanel {...inspector("reverb1")} />) };
@@ -200,12 +213,17 @@ export const SettingsNarrow: Story = {
   },
 };
 
+const onVoiceSolo = fn();
 export const Voices: Story = {
-  render: () => frame(640, 260, <VoicesPanel rows={voiceTable(fixtureScene(), fixtureVoices())} playing selected="emitter2" onSelect={fn()} onPlay={fn()} />),
+  render: () => frame(640, 260, <VoicesPanel rows={voiceTable(fixtureScene(), fixtureVoices())} playing selected="emitter2" onSelect={fn()} onPlay={fn()} solo={null} muted={(id) => id === "emitter3"} onSolo={onVoiceSolo} onMute={fn()} />),
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByRole("row", { name: /Generator/ })).toHaveTextContent("Panned");
     await expect(c.getByRole("row", { name: /Drone/ })).toHaveTextContent("+34 ct");
+    // Play and mute per row (spec §4.4.5).
+    await expect(c.getByRole("button", { name: "Unmute Campfire" })).toHaveAttribute("aria-pressed", "true");
+    await userEvent.click(c.getByRole("button", { name: "Play Generator solo" }));
+    await expect(onVoiceSolo).toHaveBeenCalledWith("emitter2");
   },
 };
 
@@ -250,7 +268,7 @@ export const FromTakeNoTakes: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement.ownerDocument.body);
     const dialog = c.getByRole("dialog", { name: "New test scene from a take" });
-    await expect(dialog).toHaveFocus();
+    await waitFor(() => expect(dialog).toHaveFocus());
     const title = within(dialog).getByRole("heading", { name: "New test scene from a take" });
     await expect(getComputedStyle(title).textTransform).toBe("none");
     await expect(getComputedStyle(title).fontWeight).toBe("600");

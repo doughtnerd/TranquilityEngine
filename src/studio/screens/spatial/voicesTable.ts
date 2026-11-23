@@ -163,7 +163,7 @@ export function raysOf(rows: readonly TestSceneVoiceRow[]): Ray[] {
 export const LEGEND: readonly { readonly id: string; readonly label: string }[] = [
   { id: "hrtf", label: "HRTF" },
   { id: "panned", label: "Panned" },
-  { id: "bed", label: "Bed" },
+  { id: "bed", label: "Ambisonic bed" },
   { id: "zone", label: "Audio zone" },
   { id: "edge", label: "Zone edge" },
   { id: "occluded", label: "Occluded" },

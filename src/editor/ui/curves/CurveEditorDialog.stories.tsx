@@ -158,3 +158,80 @@ export const NewParameterInput: StoryObj = {
 };
 
 export const InlineField: StoryObj = { render: () => <FieldDemo /> };
+
+/** The window floats (the prototype's): no backdrop, so a button on the page behind it still takes a click. */
+function FloatDemo() {
+  const [clicks, setClicks] = useState(0);
+  return (
+    <div>
+      <button type="button" onClick={() => setClicks((n) => n + 1)} style={{ position: "fixed", left: "8px", bottom: "8px" }}>
+        Behind ({clicks})
+      </button>
+      <Demo kind="time" target="riser" length={2.4} lanes={[gain]} />
+    </div>
+  );
+}
+
+export const FloatsOverThePage: StoryObj = {
+  render: () => <FloatDemo />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await c.findByRole("dialog");
+    await userEvent.click(c.getByRole("button", { name: /Behind/ }));
+    await expect(c.getByRole("button", { name: "Behind (1)" })).toBeVisible();
+    await expect(c.getByRole("dialog")).toBeVisible();
+  },
+};
+
+/** And by (spec §5.1): Morph between Low and High by a second parameter, with the dashed preview at "Preview at". */
+export const AndByMorph: StoryObj = {
+  render: () => (
+    <Demo
+      kind="time"
+      target="engine_loop"
+      context="Voice time · and by Speed"
+      timeName="Voice time"
+      length={2.4}
+      lanes={[gain, pitch]}
+      secondInputs={[
+        { id: "speed", name: "Speed", min: 0, max: 200, unit: "km/h" },
+        { id: "surface", name: "Surface", min: 0, max: 4, labels: ["Dirt", "Gravel", "Wood", "Metal", "Water"] },
+      ]}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const dialog = await c.findByRole("dialog");
+    const andBy = within(dialog).getByRole("combobox", { name: /And by/ }) as HTMLSelectElement;
+    await userEvent.selectOptions(andBy, "speed");
+    await expect(within(dialog).getByRole("radio", { name: "Morph" })).toBeChecked();
+    await userEvent.click(within(dialog).getByRole("radio", { name: "High" }));
+    await expect(within(dialog).getByRole("slider", { name: "Preview at" })).toBeVisible();
+    await userEvent.click(within(dialog).getByRole("radio", { name: "Scale" }));
+    await expect(within(dialog).getByRole("radio", { name: "×" })).toBeVisible();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+    await expect(c.getByLabelText("Result").textContent).toContain('"mode": "scale"');
+  },
+};
+
+/** And by a labelled parameter: one curve per label, or the Table of one value per label. */
+export const AndByPerLabel: StoryObj = {
+  render: () => (
+    <Demo
+      kind="parameter"
+      target="Footsteps"
+      parameter={{ name: "Speed", min: 0, max: 10 }}
+      lanes={[{ ...gain, curve: [[0, -12], [10, 0]] }]}
+      secondInputs={[{ id: "surface", name: "Surface", min: 0, max: 4, labels: ["Dirt", "Gravel", "Wood", "Metal", "Water"] }]}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const dialog = await c.findByRole("dialog");
+    await userEvent.selectOptions(within(dialog).getByRole("combobox", { name: /And by/ }), "surface");
+    await expect(within(dialog).getByRole("radio", { name: "Metal" })).toBeVisible();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Table" }));
+    await expect(within(dialog).getByRole("columnheader", { name: "Surface" })).toBeVisible();
+    await expect(within(dialog).getAllByRole("button", { name: "Edit curve" })).toHaveLength(5);
+  },
+};

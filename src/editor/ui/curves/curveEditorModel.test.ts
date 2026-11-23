@@ -42,6 +42,8 @@ import {
   xTicks,
   DISTANCE_INPUT,
   withLane,
+  withLiveInputs,
+  yLabels,
   type CurveEditorSpec,
   type CurveLane,
   type LaneContext,
@@ -72,6 +74,25 @@ describe("axes and inputs", () => {
     expect(inputChoices(timeSpec).map((c) => c.id)).toEqual(["time", "speed"]);
     const d = createDraft({ ...timeSpec, lanes: [{ ...gain, input: "nope" }] });
     expect(d.lanes[0].input).toBe("time");
+  });
+});
+
+describe("live inputs", () => {
+  it("reads each input's live value as its now while the window is open, keeping now when it says nothing", () => {
+    let v: number | undefined = 0.3;
+    const s: CurveEditorSpec = { kind: "parameter", lanes: [gain], inputs: [{ id: "rpm", name: "RPM", min: 0, max: 1, now: 0.5, live: () => v }] };
+    expect(withLiveInputs(s).inputs![0]!.now).toBe(0.3);
+    expect(axisOf(withLiveInputs(s), "rpm").now).toBe(0.3);
+    v = undefined;
+    expect(withLiveInputs(s).inputs![0]!.now).toBe(0.5);
+    const plain: CurveEditorSpec = { kind: "time", lanes: [gain], length: 2 };
+    expect(withLiveInputs(plain)).toBe(plain);
+  });
+});
+
+describe("the y axis labels", () => {
+  it("say the sign of a level above 0 dB and keep the unit", () => {
+    expect(yLabels(gain)).toEqual(["+6.0 dB", "−27.0 dB", "−∞ dB"]);
   });
 });
 

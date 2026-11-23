@@ -1,12 +1,15 @@
 // The Scene settings panel (ADR 0347 "Settings the Spatial screen shows are the project's"; the prototype's scene settings,
-// B.4): `audio.json`'s Listening (HRTF for the nearest N voices, the ambisonic bed distance), Doppler amount and the
-// occlusion materials, each change one undo step of the mix document (the Mixer's, so the Mixer's history shows it too).
+// B.4, spec §4.4.7): `audio.json`'s Listening (HRTF for the nearest N voices and the ambisonic bed distance, each a
+// slider with its typed field), Doppler amount, and Occlusion: the spec's summary (rays per voice, what a fully blocked
+// path sounds like, the physics layers rays hit, the occlusion curves) on top of ADR 0347's per-material table. Each
+// change is one undo step of the mix document (the Mixer's, so the Mixer's history shows it too). Explanations are
+// tooltips (spec §1.3).
 import type { AudioProject } from "../../../engine/audio/project/types";
 import { MATERIAL_LIMITS } from "../../../engine/audio/occlusionMaterials";
 import { FieldRow, NumberBox, Section } from "../../../editor/ui/PanelFields";
 import { Icon } from "../../components/Icon";
 import { FIELDS } from "./inspectorFields";
-import { addMaterial, dopplerPercent, editMaterial, isBuiltinMaterial, removeMaterial, setBedBeyond, setDefaultMaterial, setDopplerPercent, setHrtfVoices } from "./settingsEdits";
+import { addMaterial, dopplerPercent, editMaterial, isBuiltinMaterial, materialText, removeMaterial, setBedBeyond, setDefaultMaterial, setDopplerPercent, setHrtfVoices } from "./settingsEdits";
 import type { EditResult } from "./sceneEdits";
 
 export interface SettingsPanelProps {
@@ -16,40 +19,59 @@ export interface SettingsPanelProps {
   onEndDrag(): void;
 }
 
+/** The HRTF slider's range (the prototype's 1–6); the field takes the format's whole range. */
+const HRTF_SLIDER: readonly [number, number] = [1, 6];
+/** Rays the occlusion pass casts per voice (the runtime's: one; the nearest few get more on the high preset). */
+const RAYS_TEXT = "1";
+const RAYS_TIP = "One ray per voice; on the high quality preset the nearest 4 get 3 rays each";
+
 export function SettingsPanel(props: SettingsPanelProps) {
   const { mix, readOnly: ro, onEdit } = props;
   const s = mix.settings;
   const occ = s.occlusion;
-  const layers = occ.layers === null ? "every layer (sensors excluded)" : occ.layers.length === 0 ? "none: occlusion is off" : occ.layers.join(", ");
+  const layers = occ.layers === null ? "every layer" : occ.layers.length === 0 ? "none (occlusion is off)" : occ.layers.join(", ");
+  const def = occ.materials.find((m) => m.name === occ.defaultMaterial);
+  const bed = s.bedBeyond;
+  const [bLo, bHi] = FIELDS.bedBeyond.slider;
   return (
-    <div class="sp-settings">
-      <p class="sp-note">The project's settings (audio.json): they apply to the game as well as these scenes.</p>
+    <div class="sp-settings" title="The project's settings (audio.json): they apply to the game as well as these scenes.">
       <Section title="Listening">
-        <FieldRow label={FIELDS.hrtf.label} unit="voices" title="The nearest voices get HRTF; the rest are panned">
+        <FieldRow label={FIELDS.hrtf.label} unit="voices" title="The nearest voices get HRTF (rendered around your head); the rest are panned">
+          <input type="range" class="sp-range" aria-label="HRTF voices slider" min={HRTF_SLIDER[0]} max={HRTF_SLIDER[1]} step={1} value={Math.min(HRTF_SLIDER[1], Math.max(HRTF_SLIDER[0], s.voices.hrtf))} disabled={ro}
+            onInput={(e) => onEdit("HRTF voice count", (p) => setHrtfVoices(p, Number((e.currentTarget as HTMLInputElement).value)), true)} onChange={props.onEndDrag} />
           <NumberBox label="HRTF voices" value={s.voices.hrtf} min={FIELDS.hrtf.min} max={FIELDS.hrtf.max} step={1} digits={0} disabled={ro} onValue={(v) => onEdit("HRTF voice count", (p) => setHrtfVoices(p, v))} />
         </FieldRow>
-        <FieldRow label={FIELDS.bedBeyond.label} unit="m" title="Sounds farther than this mix into their bus's ambisonic bed">
-          <input type="checkbox" aria-label="Send far sounds to the bed" checked={s.bedBeyond !== null} disabled={ro} onChange={(e) => onEdit("Ambisonic bed distance", (p) => setBedBeyond(p, (e.currentTarget as HTMLInputElement).checked ? 45 : null))} />
-          {s.bedBeyond !== null ? (
-            <NumberBox label="Bed distance" value={s.bedBeyond} min={FIELDS.bedBeyond.min} max={FIELDS.bedBeyond.max} step={1} digits={0} disabled={ro} onValue={(v) => onEdit("Ambisonic bed distance", (p) => setBedBeyond(p, v))} />
+        <FieldRow label={FIELDS.bedBeyond.label} unit="m" title="Far sounds fold into one ambisonic bed, which is cheap; near ones get full HRTF. Off: beds by priority only">
+          <input type="checkbox" class="sp-bed-on" aria-label="Fold far sounds into the bed" title={bed === null ? "Off: beds by priority only. Turn on to fold far sounds into the bed" : "Turn off: beds by priority only"} checked={bed !== null} disabled={ro}
+            onChange={(e) => onEdit("Ambisonic bed distance", (p) => setBedBeyond(p, (e.currentTarget as HTMLInputElement).checked ? 45 : null))} />
+          <input type="range" class="sp-range" aria-label="Bed distance slider" min={bLo} max={bHi} step={1} value={Math.min(bHi, Math.max(bLo, bed ?? 45))} disabled={ro || bed === null}
+            onInput={(e) => onEdit("Ambisonic bed distance", (p) => setBedBeyond(p, Number((e.currentTarget as HTMLInputElement).value)), true)} onChange={props.onEndDrag} />
+          {bed !== null ? (
+            <NumberBox label="Bed distance" value={bed} min={FIELDS.bedBeyond.min} max={FIELDS.bedBeyond.max} step={1} digits={0} disabled={ro} onValue={(v) => onEdit("Ambisonic bed distance", (p) => setBedBeyond(p, v))} />
           ) : (
-            <span class="sp-faint">Off: beds by priority only</span>
+            <span class="sp-faint sp-off">Off</span>
           )}
         </FieldRow>
       </Section>
-      <Section title="Doppler">
-        <FieldRow label="Amount" unit="%">
-          <input type="range" class="sp-range" aria-label="Doppler amount slider" min={0} max={200} step={5} value={dopplerPercent(mix)} disabled={ro}
-            onInput={(e) => onEdit("Doppler amount", (p) => setDopplerPercent(p, Number((e.currentTarget as HTMLInputElement).value)), true)} onChange={props.onEndDrag} />
-          <NumberBox label="Doppler amount" value={dopplerPercent(mix)} min={0} max={200} step={5} digits={0} disabled={ro} onValue={(v) => onEdit("Doppler amount", (p) => setDopplerPercent(p, v))} />
-        </FieldRow>
-        <p class="sp-note">100% is physically accurate. Most games sound better around 50%.</p>
-      </Section>
-      <Section
-        title="Occlusion"
-        actions={<button type="button" class="sp-small" disabled={ro} onClick={() => onEdit("Add material", (p) => { const r = addMaterial(p); return "refused" in r ? r : { next: r.next.project }; })}><Icon name="plus" size={14} /> Material</button>}
-      >
-        <p class="sp-note">Obstacles block sound with their material: losses of several on one ray add up. Rays hit colliders on: {layers}.</p>
+      <Section title="Occlusion" hint="Obstacles block sound with their material: losses of several on one ray add up. Rays hit colliders on the physics layers below.">
+        <dl class="sp-kv">
+          <dt title={RAYS_TIP}>Rays per voice</dt>
+          <dd>{RAYS_TEXT}</dd>
+          <dt title={`Through one obstacle of the default material (${occ.defaultMaterial})`}>Fully blocked</dt>
+          <dd>{def ? materialText(def) : "—"}</dd>
+          <dt>Uses</dt>
+          <dd>Physics layer: {layers}</dd>
+          <dt>Curves</dt>
+          <dd>
+            <button type="button" class="sp-occb" disabled title="Occlusion curves (volume and low-pass by how blocked the path is) need the engine to read them; until then each material's loss and low-pass below are what a blocked path does (ADR 0347)">
+              <Icon name="automate" size={12} /> Volume, low-pass
+            </button>
+          </dd>
+        </dl>
+        <div class="sp-mat-head">
+          <span class="sp-cap">Materials</span>
+          <button type="button" class="sp-small" disabled={ro} onClick={() => onEdit("Add material", (p) => { const r = addMaterial(p); return "refused" in r ? r : { next: r.next.project }; })}><Icon name="plus" size={14} /> Material</button>
+        </div>
         <div class="sp-table-scroll">
         <table class="sp-materials">
           <colgroup><col class="sp-mat-default" /><col /><col class="sp-mat-num" /><col class="sp-mat-hz" /><col class="sp-mat-num" /><col class="sp-mat-remove" /></colgroup>
@@ -80,8 +102,12 @@ export function SettingsPanel(props: SettingsPanelProps) {
         </table>
         </div>
       </Section>
-      <Section title="Reverb zones">
-        <p class="sp-note">The highest priority zone holding a sound wins; a zone marked Level default is used where none does.</p>
+      <Section title="Doppler" hint="100% is physically accurate. Most games sound better around 50%.">
+        <FieldRow label="Amount" unit="%">
+          <input type="range" class="sp-range" aria-label="Doppler amount slider" min={0} max={200} step={5} value={dopplerPercent(mix)} disabled={ro}
+            onInput={(e) => onEdit("Doppler amount", (p) => setDopplerPercent(p, Number((e.currentTarget as HTMLInputElement).value)), true)} onChange={props.onEndDrag} />
+          <NumberBox label="Doppler amount" value={dopplerPercent(mix)} min={0} max={200} step={5} digits={0} disabled={ro} onValue={(v) => onEdit("Doppler amount", (p) => setDopplerPercent(p, v))} />
+        </FieldRow>
       </Section>
     </div>
   );

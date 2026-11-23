@@ -179,7 +179,7 @@ export const MovingEmitter: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     const drone = () => canvasElement.querySelector<SVGGElement>('.sp-emitter[data-id="emitter4"]')!;
-    const at = () => Number(drone().querySelector("rect")!.getAttribute("x"));
+    const at = () => Number(drone().querySelector(".sp-dot")!.getAttribute("cx"));
     await waitFor(() => expect(drone().classList.contains("live")).toBe(true));
     const first = at();
     await waitFor(() => expect(Math.abs(at() - first)).toBeGreaterThan(4)); // it travels
@@ -198,7 +198,7 @@ export const SelectedBox: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByRole("toolbar", { name: "Crate stack actions" })).toBeVisible();
-    await waitFor(() => expect(canvasElement.querySelectorAll(".sp-handle").length).toBe(5)); // 4 corners and the knob
+    await waitFor(() => expect(canvasElement.querySelectorAll(".sp-handle").length).toBe(5)); // 4 edge handles and the knob
   },
 };
 
@@ -232,9 +232,11 @@ export const KeysUnderThePointer: Story = {
     const plan = c.getByLabelText(/^Scene plan:/);
     await userEvent.hover(plan);
     await expect(plan).toHaveFocus();
-    await userEvent.keyboard("[Space>]");
+    // One user session, so the key held down is the one released (each bare userEvent call starts afresh).
+    const user = userEvent.setup();
+    await user.keyboard("[Space>]");
     await expect(c.getByText("Panning · release Space to edit")).toBeVisible();
-    await userEvent.keyboard("[/Space]");
+    await user.keyboard("[/Space]");
     await expect(c.queryByText("Panning · release Space to edit")).toBeNull();
   },
 };
@@ -243,7 +245,7 @@ export const PathEditing: Story = {
   args: { selected: "emitter4", tools: { tool: "select", pathEdit: "emitter4" } },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByRole("status")).toHaveTextContent(/Editing the path/);
+    await expect(c.getByRole("status")).toHaveTextContent(/Editing Drone path/);
     await waitFor(() => expect(canvasElement.querySelectorAll(".sp-waypoint").length).toBe(5));
     await expect(canvasElement.querySelectorAll(".sp-midpoint").length).toBe(4);
     await userEvent.click(c.getByRole("button", { name: "Done" }));
@@ -261,12 +263,11 @@ export const SideView: Story = {
 export const AddTwoDSound: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
+    const before = c.getByRole("img", { name: /Plan of the scene/ }).getAttribute("aria-label");
+    // 2D sound adds at once (it has no place on the plan, the prototype's): the plan counts one more, Select stays on.
     await userEvent.click(c.getByRole("button", { name: "2D sound" }));
-    // A placing tool: the sound goes where the plan is clicked, and its action bar shows.
-    const plan = c.getByRole("img", { name: /Plan of the scene/ });
-    const r = plan.getBoundingClientRect(); // a free spot near the plan's top-left (a click with no position has none)
-    await userEvent.pointer({ keys: "[MouseLeft]", target: plan, coords: { clientX: r.left + 40, clientY: r.top + 40 } });
-    await expect(await c.findByRole("toolbar", { name: /^2D sound \d* ?actions$/ })).toBeInTheDocument();
+    await waitFor(() => expect(c.getByRole("img", { name: /Plan of the scene/ }).getAttribute("aria-label")).not.toBe(before));
+    await expect(c.getByRole("button", { name: "Select" })).toHaveAttribute("aria-pressed", "true");
     await userEvent.click(c.getByRole("button", { name: "Obstacle" }));
     await expect(c.getByRole("button", { name: "Obstacle" })).toHaveAttribute("aria-pressed", "true");
   },

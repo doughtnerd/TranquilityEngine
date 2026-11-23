@@ -22,7 +22,7 @@ const scene = () => parseAudioTestScene({
   activeListener: "p1",
   emitters: [
     { id: "fire", kind: "static", position: { x: 0, y: 0.5, z: 10 }, sound: "fire.playlist.json", volume: -6 },
-    { id: "drone", kind: "moving", route: [{ x: 0, z: 0 }, { x: 20, z: 0 }], height: 9, speed: 10, start: 0, loop: true, sound: "a.wav", volume: 0 },
+    { id: "drone", kind: "moving", route: [{ x: 0, z: 0 }, { x: 20, z: 0 }], height: 9, speed: 10, start: 0, loop: true, sound: "a.wav", volume: 0, output: "SFX" },
   ],
   obstacles: [{ id: "wall", box: { center: { x: 5, y: 0, z: 5 }, width: 4, depth: 1, yaw: 30, bottom: 0, top: 3 }, material: "Rock" }],
   reverbZones: [{ id: "cave", box: { center: { x: 80, y: 0, z: 0 }, width: 40, depth: 40, yaw: 0, bottom: 0, top: 10 }, preset: "smallStone", wet: -6, priority: 2, levelDefault: false }],
@@ -55,6 +55,7 @@ describe("playAudioTestScene", () => {
     expect(voiceOf("c.wav").volume).toBeCloseTo(Math.pow(10, (-6 - d) / 20), 4);
     expect(voiceOf("c.wav").request.owner).toBe("fire");
     expect(voiceOf("b.wav").request.bus).toBe("SFX");
+    expect(voiceOf("a.wav").request.bus).toBe("SFX"); // the emitter's output bus
     expect(voiceOf("b.wav").request.position).toBeUndefined();
     player.dispose();
   });

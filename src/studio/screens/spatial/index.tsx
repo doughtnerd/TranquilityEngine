@@ -23,8 +23,9 @@ import type { SceneHost } from "./sceneHost";
 import { SCENE_KEYS, type SceneAction } from "./sceneKeys";
 import { ScenesPanel } from "./ScenesPanel";
 import { SceneView } from "./SceneView";
-import { setHidden, setLocked } from "./sceneEdits";
+import { findObject, renameObject, setHidden, setLocked } from "./sceneEdits";
 import { SettingsPanel } from "./SettingsPanel";
+import { materialText } from "./settingsEdits";
 import { AttenuationChoiceDialog, GameSceneDialog, TakeDialog } from "./SpatialDialogs";
 import {
   applyFolderChanges, applyRolloff, attenuationChoice, audition, auditionStatus, chooseAttenuation, copySelection, deleteScenes, deleteSelected, duplicateScene, duplicateSelection, editAttenuation, editMix, editScene, endDrag, makeSpatial, occlusionOnFor,
@@ -132,7 +133,19 @@ function sceneHost(): SceneHost | null {
     },
     playAll: playAllFrom,
     listenHere,
+    listening: listeningSettings(),
+    attenuationRange: (id) => {
+      const owner = ownerOf(id);
+      const a = owner ? ownedAttenuation(owner) : null;
+      return a ? { min: a.minDistance, max: a.maxDistance } : null;
+    },
   };
+}
+
+/** The project's Listening settings (audio.json): HRTF for the nearest N, the ambisonic bed distance. */
+function listeningSettings(): { hrtf: number; bedBeyond: number | null } | undefined {
+  const m = mix.value;
+  return m ? { hrtf: m.settings.voices.hrtf, bedBeyond: m.settings.bedBeyond } : undefined;
 }
 
 function runSceneAction(a: SceneAction): boolean | void {
@@ -200,8 +213,8 @@ function ScenePanel() {
         <EmptyState
           title="Spatial"
           icon={<Icon name="spatial" size={28} />}
-          body={<p>Test scenes place emitters, listeners, obstacles and zones to hear how distance, occlusion, reverb zones and Doppler sound, through the engine's own spatial audio. Pick one in the Scenes panel, or make one.</p>}
-          action={{ label: "New test scene", disabled: !writable(), run: () => newScene("blank", "") }}
+          body="Pick a test scene in the Scenes panel, or make one."
+          action={{ label: "New test scene", title: "Test scenes place emitters, listeners, obstacles and zones to hear how distance, occlusion, reverb zones and Doppler sound, through the engine's own spatial audio", disabled: !writable(), run: () => newScene("blank", "") }}
         />
       </Panel>
     );
@@ -229,6 +242,12 @@ function OutlineListPanel() {
           onHidden={(id, h) => editScene(h ? "Hide" : "Show", (x) => setHidden(x, id, h))}
           onLocked={(id, l) => editScene(l ? "Lock" : "Unlock", (x) => setLocked(x, id, l))}
           onHover={(id) => (hover.value = id)}
+          onRename={(id, name) => {
+            const o = findObject(s, id);
+            if (o) editScene(`Rename ${o.obj.name}`, (x) => renameObject(x, id, name));
+          }}
+          onDelete={(id) => void deleteSelected(id)}
+          whyNotDelete={(id) => (s.listeners.length <= 1 && s.listeners.some((l) => l.id === id) ? "A scene needs at least one listener" : null)}
         />
       </div>
     </Panel>
@@ -254,6 +273,10 @@ function InspectorListPanel() {
           playing={playing.value}
           buses={busNames.value}
           materials={materials.value.map((m) => m.name)}
+          blocks={(name) => {
+            const m = materials.value.find((x) => x.name === name);
+            return m ? materialText(m) : null;
+          }}
           attenuation={owner ? { summary: att ? attenuationSummary(att) : null, owner: ownerText(owner), whyNotEdit: whyNotEditAttenuation(owner), rolloff: !!att && !readOnly.value, makeSpatial: canMakeSpatial(owner) } : null}
           solo={audition.value.solo}
           silenced={silenced}
@@ -303,7 +326,7 @@ function VoicesListPanel() {
 function VoicesTable(props: { blocked?: string }) {
   const s = scene.value;
   const rows = s ? voiceTable(s, voices.value, silenced, { base: baseImport.value, motion: playing.value ? motion.value : [], occlusionOn: occlusionOnFor }) : [];
-  return <VoicesPanel rows={rows} playing={playing.value} blocked={props.blocked} selected={selected.value} onSelect={(id) => (selected.value = id)} onPlay={playScene} />;
+  return <VoicesPanel rows={rows} playing={playing.value} blocked={props.blocked} selected={selected.value} onSelect={(id) => (selected.value = id)} onPlay={playScene} solo={audition.value.solo} muted={(id) => silenced(id) && audition.value.solo === null} onSolo={solo} onMute={mute} />;
 }
 
 /** The screen's panels, in the prototype's places. */

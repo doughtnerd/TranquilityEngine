@@ -87,10 +87,28 @@ export function boxSpanX(box: SceneBox): [number, number] {
   return [Math.min(...xs), Math.max(...xs)];
 }
 
-/** The box resized by dragging a corner to `p`: symmetric about its centre (the opposite corner moves too), snapped. */
-export function resizeFromCorner(box: SceneBox, p: P2): SceneBox {
+/** The middle of each edge on the plan (the resize handles, spec §4.4.4): south, east, north, west of the box's own frame. */
+export function boxEdges(box: SceneBox): P2[] {
+  const w = box.width / 2, d = box.depth / 2;
+  return [{ x: 0, z: -d }, { x: w, z: 0 }, { x: 0, z: d }, { x: -w, z: 0 }].map((l) => toWorld(box, l));
+}
+
+/**
+ * The box resized by dragging edge `edge` (0 south, 1 east, 2 north, 3 west, as `boxEdges`) to `p`: the opposite edge
+ * stays where it is, the size snaps to 0.5 m and never goes below `MIN_BOX_SIZE`.
+ */
+export function resizeFromEdge(box: SceneBox, edge: number, p: P2): SceneBox {
   const l = toLocal(box, p);
-  return { ...box, width: Math.max(MIN_BOX_SIZE, snap(2 * Math.abs(l.x))), depth: Math.max(MIN_BOX_SIZE, snap(2 * Math.abs(l.z))) };
+  const across = edge === 1 || edge === 3;
+  const half = across ? box.width / 2 : box.depth / 2;
+  const sign = edge === 1 || edge === 2 ? 1 : -1;
+  // The fixed edge sits at −sign·half on the box's axis; the dragged one goes to the pointer.
+  const reach = sign * (across ? l.x : l.z) + half;
+  const size = Math.max(MIN_BOX_SIZE, snap(reach));
+  const shift = sign * (size / 2 - half);
+  const c = toWorld(box, across ? { x: shift, z: 0 } : { x: 0, z: shift });
+  const tidy = (v: number) => Math.round(v * 1e4) / 1e4 + 0;
+  return { ...box, center: { x: tidy(c.x), y: box.center.y, z: tidy(c.z) }, ...(across ? { width: size } : { depth: size }) };
 }
 
 /** The box turned so its north axis points at `p`, snapped to 5°, -180..180. */

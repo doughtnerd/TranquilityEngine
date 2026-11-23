@@ -316,16 +316,23 @@ export const removeRoutePoint = (scene: AudioTestScene, id: string, i: number) =
 // --- typed field updates ---------------------------------------------------------------------------------------------
 
 /** Fields of a static or moving emitter that aren't its place. */
-export type EmitterPatch = Partial<Pick<StaticEmitter, "sound" | "volume">> & Partial<Pick<MovingEmitter, "speed" | "start" | "loop">>;
+export type EmitterPatch = Partial<Pick<StaticEmitter, "sound" | "volume" | "output">> & Partial<Pick<MovingEmitter, "speed" | "start" | "loop">>;
+
+/** An emitter with `output` "" dropped (it plays on its sound's own bus). */
+const tidyOutput = <T extends { output?: string }>(e: T): T => {
+  if (e.output !== "") return e;
+  const { output: _o, ...rest } = e;
+  return rest as T;
+};
 
 export function patchEmitter(scene: AudioTestScene, id: string, patch: EmitterPatch): EditResult<AudioTestScene> {
   return updateObject(scene, id, (o) => {
     if (o.kind !== "emitter") return refuse("it isn't an emitter");
     if (o.obj.kind === "static") {
       const { speed: _s, start: _a, loop: _l, ...rest } = patch;
-      return { ...o.obj, ...rest };
+      return tidyOutput({ ...o.obj, ...rest });
     }
-    return { ...o.obj, ...patch };
+    return tidyOutput({ ...o.obj, ...patch });
   });
 }
 

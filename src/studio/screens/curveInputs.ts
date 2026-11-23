@@ -23,8 +23,25 @@ export function parameterInputs(defs: readonly ParameterDef[], values: Readonly<
   return defs.map((d) => {
     const [min, max] = parameterRange(d);
     const now = values[d.name];
-    return { id: parameterInputId(d.name), name: isLabelled(d) ? `${d.name} (labels)` : d.name, min, max: max > min ? max : min + 1, ...(now !== undefined ? { now } : {}) };
+    const input: CurveInput = { id: parameterInputId(d.name), name: isLabelled(d) ? `${d.name} (labels)` : d.name, min, max: max > min ? max : min + 1, ...(now !== undefined ? { now } : {}) };
+    // From an open take: how often the game sent each value (each input its own), and its value as the take replays.
+    const histogram = inputHistogram(input.id, [input]);
+    const source = nowSource;
+    return { ...input, ...(histogram ? { histogram } : {}), ...(source ? { live: () => source(d.name) ?? undefined } : {}) };
   });
+}
+
+/** The value the game is sending for `parameter` now (the open take at its playhead), or null when it hasn't sent one. */
+export type ParameterNowSource = (parameter: string) => number | null;
+
+let nowSource: ParameterNowSource | null = null;
+
+/** Register the open take's "game now" (the curve editor's live marker); returns the unregister. */
+export function setParameterNowSource(source: ParameterNowSource): () => void {
+  nowSource = source;
+  return () => {
+    if (nowSource === source) nowSource = null;
+  };
 }
 
 /**

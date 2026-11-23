@@ -6,7 +6,7 @@ import type { TakeRequest } from "../../../engine/audio/take/types";
 import { attenuationDialog, attenuationFromResult, attenuationOwner, attenuationSummary, canMakeSpatial, NEW_SPATIAL, newAttenuation, occlusionOn, ownerText, presetNameFor, ROLLOFF_PRESETS, whyNotEditAttenuation } from "./attenuationModel";
 import { setSpatial } from "../playlists/playlistEdits";
 import { blankScene, copyScene, gameScene, gameScenePaths, sceneFromTake, takeClock } from "./newScene";
-import { deleteSceneFolder, moveSceneFolder, newSceneFolder, renameSceneFolder, sceneFolders, sceneMoveItem, sceneName, sceneTree, searchScenes, whyNotRenameScene } from "./sceneTree";
+import { deleteSceneFolder, moveSceneFolder, newSceneFolder, renameSceneFolder, sceneAfter, sceneFolders, sceneMoveItem, sceneName, sceneNote, sceneTree, searchScenes, whyNotRenameScene } from "./sceneTree";
 import { whyNotMoveTo } from "../../../editor/ui/moveToModel";
 import { FIXTURE_SCENE_FILES, fixtureScene, fixtureVoices } from "./spatialFixture";
 import { occlusionText, raysOf, voiceTable } from "./voicesTable";
@@ -19,6 +19,22 @@ describe("the Scenes tree", () => {
     expect(canyon.kind === "folder" && canyon.children.map((c) => c.name)).toEqual(["canyon_run", "cave_approach"]);
     expect(sceneFolders(FIXTURE_SCENE_FILES, ["Canyon level/Night"])).toContain("Canyon level/Night");
     expect(sceneName("a/b/drone_flyby.audioscene.json")).toBe("drone_flyby");
+  });
+
+  it("opens the next scene in the tree after the open one is deleted (the one before at the end)", () => {
+    const paths = FIXTURE_SCENE_FILES.map((f) => f.path);
+    // Tree order: canyon_run, cave_approach (Canyon level), level_02 (From the game), drone_flyby (Moving sources), behind_crates.
+    expect(sceneAfter(FIXTURE_SCENE_FILES, [paths[0]!])).toBe(paths[1]);
+    expect(sceneAfter(FIXTURE_SCENE_FILES, [paths[1]!])).toBe(paths[4]);
+    expect(sceneAfter(FIXTURE_SCENE_FILES, [paths[3]!])).toBe(paths[2]);
+    expect(sceneAfter([FIXTURE_SCENE_FILES[0]!], [paths[0]!])).toBeNull();
+  });
+
+  it("notes what a scene holds for its row (a game scene's base, blank, or its counts)", () => {
+    expect(sceneNote(fixtureScene())).toBe("4 emitters · 3 obstacles · 3 zones");
+    expect(sceneNote(blankScene())).toBe("Blank");
+    expect(sceneNote(gameScene("scenes/canyon.scene.json"))).toBe("Game scene · canyon");
+    expect(sceneNote({ ...blankScene(), emitters: fixtureScene().emitters.slice(0, 1) })).toBe("1 emitter");
   });
 
   it("searches by name and folder", () => {
