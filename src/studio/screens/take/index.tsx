@@ -156,16 +156,17 @@ function useScreen(): void {
         const open = replay.open.value;
         const note = open?.replay.note.value;
         const playing = open?.replay.playing.value;
-        const t = open?.replay.time.value ?? 0;
         // The transport and scrub follow the replay themselves; the slots change only when their words do.
-        const key = `${open?.path}|${open?.title}|${note}|${playing}|${formatClock(t)}`;
+        // The status bar shows the playhead itself (`playhead`), so the slots don't change as the time does.
+        const key = `${open?.path}|${open?.title}|${note}|${playing}`;
         if (key === slotsKey) return;
         slotsKey = key;
         setPlayerSlots("take", {
-          nowPlaying: open ? { art: "TAKE", title: open.title, subtitle: `Take · ${formatClock(open.take.duration)} · ${open.path}` } : null,
+          nowPlaying: open ? { art: "TAKE", title: open.title, subtitle: `Recorded take · ${open.take.duration.toFixed(1)} s` } : null,
           transport: <TakeTransport />,
           scrub: open ? <TakeScrub /> : undefined,
-          status: note ?? (open ? `${playing ? "Replaying" : "Paused"} · ${formatClock(t)}` : undefined),
+          status: note ?? (open ? (playing ? "Replaying the take" : "Replay, or edit and hear it against the take") : undefined),
+          playhead: open ? replay.time : null,
           replay: null,
         });
       }),

@@ -41,6 +41,7 @@ import { entryKey, factsOf, fileKey, playlistTree, type PlaylistNode } from "./p
 import { dropLabel, planDrop } from "./treeDrop";
 import { canRelease } from "./voiceLog";
 import { playlistPlayerSlots } from "./playlistPlayer";
+import { playlistBadge } from "../../components/typeBadgeModel";
 import { VoicesView } from "./VoicesView";
 import { isGeneratorPath } from "../../../engine/audio/generators/format";
 import { GeneratorLibraryPanel, GeneratorPanel } from "./generator/GeneratorPanel";
@@ -255,7 +256,7 @@ function useScreen(): void {
         const t = pathTarget(path);
         if (body.type === "sequence") return setPlayerSlots("playlists", sequencePlayerSlots(lastCrumbName(), `Sequence · ${t.file}`));
         setPlayerSlots("playlists", playlistPlayerSlots(
-          { title: lastCrumbName(), subtitle: `${body.type === "clip" ? "Clip" : body.type.charAt(0).toUpperCase() + body.type.slice(1)} · ${t.file}`, busy, release: canRelease(body, loadPlaylist), triggerOff: triggerOffReason(), log, cursor, now },
+          { title: lastCrumbName(), art: playlistBadge(body.type, factsOf(body).axes).code, subtitle: `${body.type === "clip" ? "Clip" : body.type.charAt(0).toUpperCase() + body.type.slice(1)} · ${t.file}`, busy, release: canRelease(body, loadPlaylist), triggerOff: triggerOffReason(), log, cursor, now },
           { trigger, stop: stopAudition, release: releaseAudition, seek: (at) => (logCursor.value = at) },
         ));
       }),

@@ -18,6 +18,8 @@ export interface StudioAudioStats {
   /** Output latency, ms (base + output + limiter); `latencyReliable` false when the browser's figure is a guess. */
   readonly latencyMs: number;
   readonly latencyReliable: boolean;
+  /** The output's processing buffer, ms (the context's base latency); 0 when the browser doesn't say. */
+  readonly bufferMs: number;
   /** ADR 0345 (ABI 4.8): effects that got no effect memory (they pass their signal through), and whose the last was. */
   readonly fxStarved: number;
   readonly fxStarvedOwner: string | null;
@@ -38,6 +40,7 @@ export function statsFromDebug(info: Pick<AudioDebugInfo, "status" | "sampleRate
     underruns: info.counters?.underruns ?? 0,
     latencyMs: latency && Number.isFinite(latency.total) ? latency.total * 1000 : 0,
     latencyReliable: latency?.reliable ?? false,
+    bufferMs: latency && Number.isFinite(latency.base) && latency.base > 0 ? latency.base * 1000 : 0,
     fxStarved: info.mix?.fxStarved ?? 0,
     fxStarvedOwner: info.mix?.fxStarvedOwner ?? null,
   };

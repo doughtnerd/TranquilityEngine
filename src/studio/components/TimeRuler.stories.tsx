@@ -21,7 +21,7 @@ type Story = StoryObj<typeof Live>;
 export const Timecode: Story = {
   args: { format: "timecode", view: { start: 0, end: 2.6 } },
   play: async ({ canvasElement }) => {
-    await expect(within(canvasElement).getByRole("slider", { name: "Time" })).toHaveAttribute("aria-valuetext", "0:00.000");
+    await expect(within(canvasElement).getByRole("slider", { name: "Time" })).toHaveAttribute("aria-valuetext", "00:00.000");
   },
 };
 export const Samples: Story = { args: { format: "samples", view: { start: 0, end: 0.05 } } };

@@ -200,12 +200,12 @@ describe("the inspector's values", () => {
   });
 });
 
-describe("the replay slot's clock", () => {
-  it("writes take time as m:ss.s", () => {
-    expect(formatClock(0)).toBe("0:00.0");
-    expect(formatClock(12.44)).toBe("0:12.4");
-    expect(formatClock(59.97)).toBe("1:00.0");
-    expect(formatClock(65.25)).toBe("1:05.3");
-    expect(formatClock(-3)).toBe("0:00.0");
+describe("the replay clock", () => {
+  it("writes take time as timecode, mm:ss.mmm (spec §3.14)", () => {
+    expect(formatClock(0)).toBe("00:00.000");
+    expect(formatClock(20.48)).toBe("00:20.480");
+    expect(formatClock(59.9996)).toBe("01:00.000");
+    expect(formatClock(65.25)).toBe("01:05.250");
+    expect(formatClock(-3)).toBe("00:00.000");
   });
 });

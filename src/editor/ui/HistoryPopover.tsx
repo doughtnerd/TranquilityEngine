@@ -2,9 +2,13 @@
 // document's, `activeHistory.ts`) and a popover drawing its tree with `UndoTree` (click a state to go there; editing
 // after an undo starts a branch, so nothing is lost). The cluster counts as part of the history UI
 // (`KEEPS_HISTORY_FOCUS`: `.history-panel`), so pressing it doesn't move the focus off the document whose history it is.
-import { useRef, useState } from "preact/hooks";
+// The popover floats at the page's floating root (`FloatingPortal`), so a toolbar or header with container queries
+// doesn't trap it. An app with its own icon set gives the buttons their glyphs through `HistoryIcons`.
+import { createContext, type ComponentChildren } from "preact";
+import { useContext, useRef, useState } from "preact/hooks";
 import { activeHistory, redo, undo } from "../activeHistory";
 import { docVersion } from "../state";
+import { FloatingPortal } from "./FloatingPortal";
 import { historyPopoverText } from "./historyPopoverModel";
 import { isMacPlatform } from "./keyCombo";
 import { usePopover } from "./popover";
@@ -16,7 +20,21 @@ export interface HistoryPopoverProps {
   readonly none?: string;
 }
 
+/** The buttons' glyphs (each button keeps its name for assistive tech and its tooltip). */
+export interface HistoryIconSet {
+  readonly undo: ComponentChildren;
+  readonly redo: ComponentChildren;
+  readonly history: ComponentChildren;
+}
+
+/** The editor's own glyphs: arrows, and the word History. */
+const TEXT_ICONS: HistoryIconSet = { undo: "↶", redo: "↷", history: "History" };
+
+/** Provide an app's icons to every Undo/Redo/History cluster below (the Audio Studio's icon set). */
+export const HistoryIcons = createContext<HistoryIconSet>(TEXT_ICONS);
+
 export function HistoryPopover(props: HistoryPopoverProps) {
+  const icons = useContext(HistoryIcons);
   docVersion.value; // re-render on every history change
   const active = activeHistory.value;
   const tree = active?.history.tree;
@@ -29,26 +47,28 @@ export function HistoryPopover(props: HistoryPopoverProps) {
   return (
     <span class="history-panel kit-history" role="group" aria-label="History">
       <button class="kit-icon-button" aria-label="Undo" title={text.undo.title} disabled={!text.undo.enabled} onClick={() => undo()}>
-        ↶
+        {icons.undo}
       </button>
       <button class="kit-icon-button" aria-label="Redo" title={text.redo.title} disabled={!text.redo.enabled} onClick={() => redo()}>
-        ↷
+        {icons.redo}
       </button>
-      <button ref={button} class="kit-icon-button" aria-haspopup="dialog" aria-expanded={open} title="History: every step, with branches" onClick={() => setOpen(!open)}>
-        History
+      <button ref={button} class="kit-icon-button" aria-haspopup="dialog" aria-expanded={open} aria-label="History" title="History: every step, with branches" onClick={() => setOpen(!open)}>
+        {icons.history}
       </button>
       {open && (
-        <div ref={pop} class="kit-history-popover history-panel" role="dialog" aria-label="History">
-          <div class="kit-history-heading" title={active?.path}>
-            {text.heading}
+        <FloatingPortal>
+          <div ref={pop} class="kit-history-popover history-panel" role="dialog" aria-label="History">
+            <div class="kit-history-heading" title={active?.path}>
+              {text.heading}
+            </div>
+            {tree ? (
+              <UndoTree states={tree.states} current={tree.current} marked={tree.saved} markTitle="Matches the file as last saved" label={`Edit history${active?.path ? ` of ${active.path}` : ""}`} scrollKey={docVersion.value} onPick={(seq) => tree.jumpTo(seq)} />
+            ) : (
+              <p class="kit-history-none">{active ? "Undo and Redo step through it." : "Click into a document to see its history."}</p>
+            )}
+            <div class="kit-history-hint">Editing after an undo starts a new branch, so nothing is lost.</div>
           </div>
-          {tree ? (
-            <UndoTree states={tree.states} current={tree.current} marked={tree.saved} markTitle="Matches the file as last saved" label={`Edit history${active?.path ? ` of ${active.path}` : ""}`} scrollKey={docVersion.value} onPick={(seq) => tree.jumpTo(seq)} />
-          ) : (
-            <p class="kit-history-none">{active ? "Undo and Redo step through it." : "Click into a document to see its history."}</p>
-          )}
-          <div class="kit-history-hint">Editing after an undo starts a new branch, so nothing is lost.</div>
-        </div>
+        </FloatingPortal>
       )}
     </span>
   );
