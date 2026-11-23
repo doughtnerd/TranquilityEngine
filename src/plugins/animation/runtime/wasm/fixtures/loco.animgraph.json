@@ -1,0 +1,41 @@
+{
+  "format": "myco.animgraph-source@1",
+  "output": "out",
+  "parameters": [
+    { "name": "x", "type": "float" },
+    { "name": "y", "type": "float" },
+    { "name": "speed", "type": "float", "default": 1 },
+    { "name": "moving", "type": "bool" }
+  ],
+  "nodes": [
+    { "id": "idle", "family": "sources", "kind": "clipPlayer", "params": { "clip": "asset:idle" } },
+    { "id": "walk", "family": "sources", "kind": "clipPlayer", "params": { "clip": "asset:walk" } },
+    { "id": "run", "family": "sources", "kind": "clipPlayer", "params": { "clip": "asset:run" } },
+    { "id": "idleSample", "family": "sources", "kind": "clipPlayer", "params": { "clip": "asset:idle" } },
+    { "id": "jump", "family": "sources", "kind": "clipPlayer", "params": { "clip": "asset:run", "speed": 1.5, "loop": "once" } },
+    {
+      "id": "move", "family": "sources", "kind": "blendSpace2D", "inputs": ["idleSample", "walk", "run"],
+      "params": { "x": "x", "y": "y", "speed": "speed", "glideMs": 150, "sync": true, "speedScale": true, "coords": [0, 0, 0, 1, 1, 1] }
+    },
+    {
+      "id": "machine", "family": "logic", "kind": "stateMachine",
+      "machine": {
+        "entry": "Idle",
+        "states": [
+          { "name": "Idle", "root": "idle", "transitions": [
+            { "to": "Locomotion", "if": { "param": "moving", "op": "==", "value": true }, "how": "crossfade", "duration": 0.2, "shape": "smoothstep" }
+          ] },
+          { "name": "Locomotion", "root": "move", "transitions": [
+            { "to": "Idle", "if": { "param": "moving", "op": "==", "value": false }, "how": "inertialize", "duration": 0.25 }
+          ] },
+          { "name": "Jump", "root": "jump", "transitions": [
+            { "to": "Locomotion", "when": "exit", "duration": 0.15 }
+          ] }
+        ],
+        "anyState": [{ "to": "Jump", "if": { "request": "Jump" }, "how": "inertialize", "duration": 0.2 }]
+      }
+    },
+    { "id": "upper", "family": "slots", "kind": "slot", "inputs": ["machine"], "params": { "mask": "asset:upper" }, "slot": { "name": "UpperBody" } },
+    { "id": "out", "family": "mixing", "kind": "inertialize", "inputs": ["upper"] }
+  ]
+}
