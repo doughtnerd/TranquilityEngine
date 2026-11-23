@@ -1,0 +1,49 @@
+/* The debug link's views (ADR 0376): the status bar's builds button and menu, the accept prompt. Theme tokens only. */
+.debug-link-button {
+  margin-left: 8px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--button);
+  color: var(--muted);
+  font-size: calc(11px * var(--ui-scale));
+  line-height: 1.6;
+}
+.debug-link-button.connected { color: var(--accent); border-color: var(--accent); }
+.debug-link-button:hover:not(:disabled) { background: var(--button-hover); color: var(--text); }
+
+.debug-link-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 260px;
+  max-width: 420px;
+  padding: 4px 0;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  box-shadow: 0 6px 18px var(--shadow);
+}
+.debug-link-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  border-radius: 0;
+  background: none;
+  color: var(--text);
+  padding: 3px 12px;
+  text-align: left;
+  font-size: calc(12px * var(--ui-scale));
+}
+.debug-link-menu button:hover:not(:disabled),
+.debug-link-menu button:focus-visible { background: var(--selection); color: var(--selection-text); outline: none; box-shadow: none; }
+.debug-link-row { display: flex; align-items: center; }
+.debug-link-row .debug-link-pick { flex: 1; }
+.debug-link-row .debug-link-disconnect { width: auto; color: var(--muted); }
+.debug-link-check { display: inline-block; width: 1em; color: var(--accent); }
+.debug-link-empty { padding: 4px 12px; color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.debug-link-separator { height: 1px; margin: 4px 0; background: var(--border); }
+
+.debug-link-prompt { max-width: 440px; }
