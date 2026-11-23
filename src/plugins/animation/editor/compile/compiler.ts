@@ -50,6 +50,26 @@ export interface PoseDbClipInput {
   readonly bytes: Uint8Array;
   readonly asset: string;
   readonly ranges: readonly { readonly start: number; readonly end: number; readonly tags: readonly string[] }[];
+  /** T70: also bake a mirrored copy (through `PoseDbBakeSettings.mirror`). */
+  readonly mirror?: boolean;
+}
+
+/** @internal T70: a custom feature, filled from each clip's curve track of its name (1–4 dims). */
+export interface PoseDbCustomInput {
+  readonly name: string;
+  readonly dims: number;
+  readonly weight: number;
+}
+
+/** @internal A pose-database bake's settings. */
+export interface PoseDbBakeSettings {
+  readonly skeletonName?: string;
+  /** Sample rate, deviation floor, normalisation, KD-tree, leaf size, root bone (`posedb_bake`'s record). */
+  readonly values?: readonly number[];
+  /** T70: the mirror table for mirrored clips: the axis (0 X, 1 Y, 2 Z), then a `MIRROR`-node word per bone. */
+  readonly mirror?: Uint32Array;
+  /** T70: custom features, after the schema's. */
+  readonly custom?: readonly PoseDbCustomInput[];
 }
 
 /** @internal A pose-database feature (`FeatureKind` id, bone or -1, weight, time offset). */
@@ -69,7 +89,7 @@ export interface AnimationCompiler {
   compressClip(raw: Uint8Array, skeleton: Uint8Array, record: Float32Array): CompileOutcome;
   compileSkeleton(skeleton: Uint8Array, roles?: Uint16Array, profile?: string): { readonly bytes: Uint8Array } | { readonly error: string };
   retargetCompressed(source: RetargetSideInput, target: RetargetSideInput, options: { readonly alignChains: boolean; readonly rootAxes: number; readonly ikWeights: Float32Array; readonly record: Float32Array }, clip: Uint8Array): CompileOutcome;
-  bakePoseDatabase(skeleton: Uint8Array, clips: readonly PoseDbClipInput[], schema: readonly PoseDbFeatureInput[], settings: { readonly skeletonName?: string; readonly values?: readonly number[] }): { readonly bytes: Uint8Array } | { readonly error: string };
+  bakePoseDatabase(skeleton: Uint8Array, clips: readonly PoseDbClipInput[], schema: readonly PoseDbFeatureInput[], settings: PoseDbBakeSettings): { readonly bytes: Uint8Array } | { readonly error: string };
   /** A node module metered (fuel counter and checks, `anim-meter`), or why it was refused. */
   meterNodeModule(bytes: Uint8Array): { readonly bytes: Uint8Array } | { readonly error: string };
 }
@@ -108,7 +128,25 @@ function compilerOver(glue: typeof EditorWasm): AnimationCompiler {
         tags.push(...r.tags);
       }));
       const features = schema.flatMap((f) => [f.kind, f.bone, f.weight, f.timeOffset]);
-      return plain(glue.posedb_bake(skeleton, settings.skeletonName ?? "", all, Uint32Array.from(clips.map((c) => c.bytes.length)), clips.map((c) => c.asset).join("\n"), Float32Array.from(ranges), tags.join("\n"), Float32Array.from(features), Float32Array.from(settings.values ?? [])));
+      const flags = clips.some((c) => c.mirror) ? Uint32Array.from(clips.map((c) => (c.mirror ? 1 : 0))) : new Uint32Array(0);
+      const custom = settings.custom ?? [];
+      return plain(
+        glue.posedb_bake(
+          skeleton,
+          settings.skeletonName ?? "",
+          all,
+          Uint32Array.from(clips.map((c) => c.bytes.length)),
+          clips.map((c) => c.asset).join("\n"),
+          Float32Array.from(ranges),
+          tags.join("\n"),
+          Float32Array.from(features),
+          Float32Array.from(settings.values ?? []),
+          flags,
+          settings.mirror ?? new Uint32Array(0),
+          Float32Array.from(custom.flatMap((c) => [c.dims, c.weight])),
+          custom.map((c) => c.name).join("\n"),
+        ),
+      );
     },
   };
 }

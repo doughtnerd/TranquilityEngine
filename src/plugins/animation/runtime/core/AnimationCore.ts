@@ -25,12 +25,13 @@ import {
   TRACK_STRIDE,
 } from "../wasm/wire/core";
 import { BLACKBOARD_STRIDE, GRAPH_CHANGE } from "../wasm/wire/graph";
+import { MATCH_HEADER, MATCH_NODE, MATCH_SAMPLE, SAMPLE_PREDICTED } from "../wasm/wire/match";
 import { PLUGIN_FAULT } from "../wasm/wire/plugin";
 import { RAY_ROW_STRIDE, RIG_INPUT_STRIDE } from "../wasm/wire/rig";
 import { TIMELINE_BLOCK, TIMELINE_CHANGE, TIMELINE_CONTROL, TIMELINE_CREATE, TIMELINE_INFO } from "../wasm/wire/timeline";
 import { TWEEN_CHANGE, TWEEN_CONTROL, TWEEN_CREATE } from "../wasm/wire/tween";
 import type * as AnimWasm from "../wasm/myco_anim.js";
-import { encodeRecord, getRecord, type RecordFields, type RecordValues } from "./records";
+import { encodeRecord, getRecord, recordOpcode, type RecordFields, type RecordValues } from "./records";
 
 /** @internal The glue module (`../wasm/myco_anim.js`) once instantiated. */
 export type AnimationWasm = typeof AnimWasm;
@@ -108,6 +109,41 @@ export interface AnimationCoreStats {
   readonly neededBytes: number;
 }
 
+/** @internal A trajectory sample of a match report: seconds from now, ground position and unit facing in the character's frame (x right, z ahead; D60). */
+export interface MatchSampleReport {
+  readonly time: number;
+  readonly position: readonly [number, number];
+  readonly direction: readonly [number, number];
+}
+
+/** @internal A pose-database node's state in a match report (wire family `match`, T70). */
+export interface MatchNodeReport {
+  /** The graph node index. */
+  readonly node: number;
+  /** The database's and the playing clip's asset handles (0: none). */
+  readonly database: number;
+  readonly clip: number;
+  /** The playing clip's playhead, seconds. */
+  readonly time: number;
+  /** The database frame playing (`0xFFFFFFFF`: none) and its cost. */
+  readonly frame: number;
+  readonly cost: number;
+  readonly updates: number;
+  readonly lastSearch: number;
+  /** `MATCH_*` flags of the last update. */
+  readonly flags: number;
+  /** The trajectory the node predicted at its last update, in time order. */
+  readonly predicted: readonly MatchSampleReport[];
+  /** The playing frame's trajectory features (empty with no frame). */
+  readonly matched: readonly MatchSampleReport[];
+}
+
+/** @internal An instance's match report: one entry per pose-database node of its graph (top level). */
+export interface MatchReport {
+  readonly instance: number;
+  readonly nodes: readonly MatchNodeReport[];
+}
+
 interface AssetEntry {
   readonly key: string;
   readonly handle: number;
@@ -144,6 +180,10 @@ export class AnimationCore {
 
   private readonly byKey = new Map<string, AssetEntry>();
   private readonly byHandle = new Map<number, AssetEntry>();
+  /** Replacements per asset handle (`replaceClip`). */
+  private readonly versions = new Map<number, number>();
+  /** Instances whose match report is read after each evaluate (`setMatchDebug`), with the last one read. */
+  private readonly matchDebugged = new Map<number, MatchReport | null>();
   private readonly instances = new Set<number>();
   private readonly freeWorlds: number[] = [];
   private nextWorld = 0;
@@ -257,7 +297,8 @@ export class AnimationCore {
       if (entry.refs > 0) continue;
       this.wasm.release(entry.handle);
       this.byHandle.delete(entry.handle);
-      this.byKey.delete(entry.key);
+      this.versions.delete(entry.handle);
+      if (this.byKey.get(entry.key) === entry) this.byKey.delete(entry.key);
       n++;
     }
     return n;
@@ -266,6 +307,34 @@ export class AnimationCore {
   /** References held to an asset over every World (0 when idle or unknown). */
   references(handle: number): number {
     return this.byHandle.get(handle)?.refs ?? 0;
+  }
+
+  /**
+   * T70: replaces clip `handle`'s file in place with `bytes` (an editor's raw clip by its compiled form): the handle,
+   * its graph bindings and every play on it stay, playheads keep their times, and the next evaluate samples the new
+   * file. The asset is known by `key` from then on, so a later `acquire(key, "clip")` shares it. Returns a status
+   * (`STATUS_MISMATCH` for another bone count, `STATUS_BAD_ASSET` for bytes that don't parse; `STATUS_STALE_HANDLE`
+   * for a handle this core doesn't hold). A handle already known by `key` is left as it is (`STATUS_OK`).
+   */
+  replaceClip(handle: number, key: string, bytes: Uint8Array): number {
+    const entry = this.byHandle.get(handle);
+    if (!entry) return STATUS_STALE_HANDLE;
+    const next = assetKey(key, "clip");
+    if (entry.key === next) return STATUS_OK;
+    const status = this.wasm.replace_clip(handle, bytes);
+    if (status !== STATUS_OK) return status;
+    this.byKey.delete(entry.key);
+    const moved: AssetEntry = { key: next, handle, refs: entry.refs };
+    this.byHandle.set(handle, moved);
+    // Another asset already known by `key` keeps it; this one is then found by handle only.
+    if (!this.byKey.has(next)) this.byKey.set(next, moved);
+    this.versions.set(handle, (this.versions.get(handle) ?? 0) + 1);
+    return STATUS_OK;
+  }
+
+  /** How many times an asset's file was replaced in place (`replaceClip`): caches of what was read from it compare it. */
+  assetVersion(handle: number): number {
+    return this.versions.get(handle) ?? 0;
   }
 
   /** Binds a graph's string id to a clip, mask or graph handle (0 unbinds). Returns a status. */
@@ -322,6 +391,7 @@ export class AnimationCore {
   /** Destroys an instance. Returns a status (`STATUS_STALE_HANDLE` for one already gone). */
   destroyInstance(handle: number): number {
     if (!this.instances.delete(handle)) return STATUS_STALE_HANDLE;
+    this.matchDebugged.delete(handle);
     return this.wasm.destroy_instance(handle);
   }
 
@@ -331,6 +401,15 @@ export class AnimationCore {
     if (n === 0) return null;
     const out = new Uint8Array(n);
     return this.wasm.snapshot(handle, out) === STATUS_OK ? out : null;
+  }
+
+  /**
+   * T70: limits an instance's bone matrices to the bones a mask (`acquire(…, "mask", …)`) weighs above 0 and their
+   * ancestors; 0 gives every bone back. Other bones' rows of `views().matrices` keep what they held. Server Worlds set
+   * it to the bones gameplay reads. Returns a status (`STATUS_MISMATCH` for a mask of another bone count).
+   */
+  setEvalMask(handle: number, mask: number): number {
+    return this.wasm.set_eval_mask(handle, mask);
   }
 
   /** Restores a snapshot into an instance of the same graph and skeleton. Returns a status. */
@@ -492,6 +571,8 @@ export class AnimationCore {
   /** Evaluates World `world`'s instances of `pass` (`PASS_NORMAL`, `PASS_FIXED`). Returns the state-change records waiting. */
   evaluate(world: number, pass: number, dtScaled: number, dtUnscaled: number): number {
     this.changeCount = this.wasm.evaluate(world, pass, dtScaled, dtUnscaled);
+    // T70: flagged instances' match reports, while their inputs are still the evaluated ones.
+    for (const h of this.matchDebugged.keys()) this.matchDebugged.set(h, this.readMatchReport(h));
     return this.changeCount;
   }
 
@@ -546,6 +627,44 @@ export class AnimationCore {
   /** The debug buffer's byte offset in memory (`debug.DEBUG_BYTES` long). */
   debugPtr(): number {
     return this.wasm.debug_ptr();
+  }
+
+  /**
+   * T70: whether instance `handle`'s pose-database nodes are reported after each evaluate (the editor's match debug
+   * view asks while it shows that Animator). Off by default; reading costs nothing for instances not flagged.
+   */
+  setMatchDebug(handle: number, on: boolean): void {
+    if (!on) this.matchDebugged.delete(handle);
+    else if (!this.matchDebugged.has(handle) && this.instances.has(handle)) this.matchDebugged.set(handle, null);
+  }
+
+  /** The match report of a flagged instance as of its last evaluate (`setMatchDebug`), or null (not flagged, not yet evaluated). */
+  matchDebug(handle: number): MatchReport | null {
+    return this.matchDebugged.get(handle) ?? null;
+  }
+
+  /** Reads instance `handle`'s match report now (`match_debug_write`, wire family `match`), or null for a stale handle. */
+  private readMatchReport(handle: number): MatchReport | null {
+    const n = this.wasm.match_debug_write(handle);
+    if (n < MATCH_HEADER.stride) return null;
+    const view = this.views().data;
+    const base = this.wasm.match_debug_ptr();
+    const nodes: (MatchNodeReport & { predicted: MatchSampleReport[]; matched: MatchSampleReport[] })[] = [];
+    for (let at = base + MATCH_HEADER.stride; at < base + n; ) {
+      const op = recordOpcode(view, at);
+      if (op === MATCH_NODE.opcode) {
+        const r = getRecord(view, at, MATCH_NODE);
+        nodes.push({ node: r.node, database: r.database, clip: r.clip, time: r.time, frame: r.frame, cost: r.cost, updates: r.updates, lastSearch: r.lastSearch, flags: r.flags, predicted: [], matched: [] });
+        at += MATCH_NODE.stride;
+      } else if (op === MATCH_SAMPLE.opcode) {
+        const s = getRecord(view, at, MATCH_SAMPLE);
+        const into = nodes.find((x) => x.node === s.node);
+        const sample: MatchSampleReport = { time: s.time, position: [s.x, s.z], direction: [s.dx, s.dz] };
+        if (into) (s.kind === SAMPLE_PREDICTED ? into.predicted : into.matched).push(sample);
+        at += MATCH_SAMPLE.stride;
+      } else break;
+    }
+    return { instance: handle, nodes };
   }
 
   /** The core's memory now (a load can replace it: re-read after any call). */

@@ -12,6 +12,8 @@ import { clipData } from "./clipData";
 import { columnClip, trackRow, trackWords } from "./trackRegion";
 
 const tables = new WeakMap<AnimatorRuntime, Map<number, BindingTable>>();
+/** The clip tables each binding table was made from (a clip replaced in place, T70, binds again). */
+const madeFrom = new WeakMap<BindingTable, unknown>();
 
 /** @internal The asset reference of clip `handle` as the Animator holds it (for messages and `AnimationEvent.clip`). */
 export function clipPathOf(rt: AnimatorRuntime, handle: number): string {
@@ -23,8 +25,10 @@ function tableFor(frame: AnimationFrame, rt: AnimatorRuntime, clip: number): Bin
   let byClip = tables.get(rt);
   if (!byClip) tables.set(rt, (byClip = new Map()));
   let t = byClip.get(clip);
-  if (!t || !bindingsValid(frame.world, t)) {
-    t = bindClip(frame.world, rt.animator.node, clipPathOf(rt, clip), clipData(frame.core.core, clip));
+  const data = clipData(frame.core.core, clip);
+  if (!t || !bindingsValid(frame.world, t) || madeFrom.get(t) !== data) {
+    t = bindClip(frame.world, rt.animator.node, clipPathOf(rt, clip), data);
+    madeFrom.set(t, data);
     byClip.set(clip, t);
   }
   return t;

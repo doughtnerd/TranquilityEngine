@@ -68,6 +68,20 @@ export function isFollowed(world: World, s: SkeletonRuntime): boolean {
   return !!list && list.attachments.some((a) => skeletonFor(world, a) === s);
 }
 
+/** @internal The bones of `s` active BoneAttachments of `world` follow, ascending, each once (T70: what a server evaluates). */
+export function followedBones(world: World, s: SkeletonRuntime): number[] {
+  const list = lists.get(world);
+  const info = s.info;
+  if (!list || !info) return [];
+  const bones = new Set<number>();
+  for (const a of list.attachments) {
+    if (skeletonFor(world, a) !== s) continue;
+    const i = info.indexOf(a.bone);
+    if (i >= 0) bones.add(i);
+  }
+  return [...bones].sort((x, y) => x - y);
+}
+
 const bone34 = new Float32Array(12);
 const skelMat = new Float64Array(16);
 const boneMat = new Float64Array(16);

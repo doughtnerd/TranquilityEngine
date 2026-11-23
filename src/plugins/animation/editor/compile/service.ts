@@ -44,8 +44,11 @@ export class ClipCompileService implements CompiledClipSource {
     private readonly env: ClipCompileEnv,
   ) {}
 
-  /** The runtime's question (`CompiledClipSource`): the compiled bytes if cached; otherwise null, and the compile starts. */
-  async compiled(request: CompiledClipRequest): Promise<Uint8Array | null> {
+  /**
+   * The runtime's question (`CompiledClipSource`): the compiled bytes if cached; otherwise null, and the compile starts,
+   * and `onCompiled` gets its bytes when it finishes (the runtime swaps its raw clip for them in place, T70).
+   */
+  async compiled(request: CompiledClipRequest, onCompiled?: (bytes: Uint8Array) => void): Promise<Uint8Array | null> {
     const platform = this.env.platform();
     this.known.set(requestId(platform, request), request);
     const job = await prepareClipJob(request.clip, request.skeleton, platform, this.env.settings()).catch(() => null);
@@ -55,7 +58,12 @@ export class ClipCompileService implements CompiledClipSource {
       void this.cache.get({ request: requestId(platform, request), ...job }); // keeps the index current; a hit
       return cached.bytes;
     }
-    void this.cache.get({ request: requestId(platform, request), ...job }, (e) => this.env.warn(`[myco] ${request.clip}: couldn't compile (${e}); it plays uncompressed.`));
+    void this.cache
+      .get({ request: requestId(platform, request), ...job }, (e) => this.env.warn(`[myco] ${request.clip}: couldn't compile (${e}); it plays uncompressed.`))
+      .then((clip) => {
+        if (clip) onCompiled?.(clip.bytes);
+      })
+      .catch(() => {});
     return null;
   }
 

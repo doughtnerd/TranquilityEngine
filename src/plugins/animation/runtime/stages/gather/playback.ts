@@ -20,6 +20,7 @@ import {
 } from "../../wasm/wire/core";
 import { animatorsOf, type AnimatorRuntime } from "../../features/instances";
 import { gameplayOnly } from "../../features/network/ghosts";
+import { syncServerBones } from "../../features/network/serverBones";
 import { flushQueue } from "../../features/playback/plays";
 import { enabledCameras, isVisible, lodStep } from "../../features/playback/view";
 import type { Camera } from "../../../../../engine/render/components";
@@ -36,6 +37,7 @@ function writeRow(frame: AnimationFrame, rt: AnimatorRuntime, cams: readonly Cam
   const a = rt.animator;
   // Servers evaluate only what gameplay reads (T33): culled as `rootMotionOnly`, unless a BoneAttachment needs the pose.
   const serverOnly = gameplayOnly(rt);
+  syncServerBones(rt); // and of a followed skeleton, only the followed bones' matrices (T70)
   const visible = !serverOnly && isVisible(cams, rt);
   const cull = serverOnly ? CULL_ROOT_MOTION_ONLY : (CULL[a.cullingMode] ?? CULL_ALWAYS);
   rt.visible = visible;
