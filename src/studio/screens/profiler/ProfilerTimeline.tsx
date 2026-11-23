@@ -21,6 +21,8 @@ import type { ProfilerData } from "./profilerData";
 import { BOX_H, BOX_W, clockText, extent, linePath, maxOf, pct, rulerTicks, stepPath, valueAt, yOf } from "./timelineGeometry";
 import type { PlannedTrack } from "./trackPlan";
 import { dimmed, STATUS_TEXT, voiceLanes, voiceSummary, type GroupBy, type VoiceBlock } from "./voiceModel";
+import { generatorBadge } from "../playlists/generator/generatorKinds";
+import { GeneratorBadge } from "../playlists/generator/GeneratorParts";
 
 export interface ProfilerTimelineProps {
   readonly data: ProfilerData;
@@ -210,7 +212,7 @@ function ParameterTrack({ data, track, name, cursor, onSeek }: { data: ProfilerD
 function VoiceButton({ block, duration, row, selected, dim, onSelect }: { block: VoiceBlock; duration: number; row: number; selected: boolean; dim: boolean; onSelect(key: string): void }) {
   const left = pct(block.start, duration);
   const width = Math.max(0, pct(block.end, duration) - left);
-  const label = `${block.clipName}: ${STATUS_TEXT[block.status]}, ${clockText(block.start)}${block.end > block.start ? ` to ${clockText(block.end)}` : ""}`;
+  const label = `${block.generator ? `${generatorBadge(block.generator).name} ` : ""}${block.clipName}: ${STATUS_TEXT[block.status]}, ${clockText(block.start)}${block.end > block.start ? ` to ${clockText(block.end)}` : ""}`;
   return (
     <button
       type="button"
@@ -226,6 +228,7 @@ function VoiceButton({ block, duration, row, selected, dim, onSelect }: { block:
         onSelect(block.key);
       }}
     >
+      {block.generator && <GeneratorBadge kind={block.generator} />}
       {block.clipName}
     </button>
   );

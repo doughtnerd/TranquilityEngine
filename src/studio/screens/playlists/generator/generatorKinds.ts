@@ -1,7 +1,7 @@
 // How the Studio shows a generator's kind (ADR 0360 §9): a short badge code in a series colour beside the generator
 // icon (a square wave over a sine, the asset kind's), the kind's name, and the kind of a voice from its reserved clip
 // id (`GEN_CLIP_ID_FIRST` + 1 oscillator … 4 silence; the Profiler's voice rows). Pure.
-import { generatorSpec, isGeneratorKind } from "../../../../engine/audio/generators/catalogue";
+import { generatorSpec } from "../../../../engine/audio/generators/catalogue";
 import { GENERATOR_KINDS, type GeneratorKind } from "../../../../engine/audio/generators/types";
 import { GEN_CLIP_ID_FIRST } from "../../../../plugins/audio/runtime/wire.generated";
 
@@ -32,6 +32,3 @@ export function generatorKindOfClip(clip: number): GeneratorKind | null {
   const k = clip - GEN_CLIP_ID_FIRST;
   return Number.isInteger(k) && k >= 1 && k <= GENERATOR_KINDS.length ? GENERATOR_KINDS[k - 1]! : null;
 }
-
-/** A kind named by text (the runtime's debug `generator` field), or null. */
-export const generatorKindOf = (text: unknown): GeneratorKind | null => (isGeneratorKind(text) ? text : null);

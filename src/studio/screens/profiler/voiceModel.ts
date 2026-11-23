@@ -9,6 +9,8 @@
 // Lanes group blocks by bus or by clip; overlapping blocks take rows within a lane (`assignLanes`, the track kit's).
 import { reasonText, type CaptureEventAt, type CaptureEventType, type CaptureNames, type CaptureReason } from "../../../plugins/audio/runtime/capture/reader";
 import { assignLanes } from "../../../plugins/audio/editor/mix/tracks/lanes";
+import type { GeneratorKind } from "../../../engine/audio/generators/types";
+import { generatorKindOfClip } from "../playlists/generator/generatorKinds";
 
 /** The voice events the model reads (`ProfileSource.events`' `types`). */
 export const VOICE_EVENT_TYPES: readonly CaptureEventType[] = ["voiceStart", "voiceStop", "voiceSteal", "voiceRefused"];
@@ -42,6 +44,8 @@ export interface VoiceBlock {
   readonly voice: number | null;
   readonly clip: number;
   readonly clipName: string;
+  /** ADR 0360: a generator voice's kind (its clip is the kind's reserved id), null for a clip or stream voice. */
+  readonly generator: GeneratorKind | null;
   readonly slot: number;
   readonly busName: string;
   /** Viewport seconds (0 = the capture's first record). */
@@ -91,7 +95,7 @@ export function buildVoices(events: readonly CaptureEventAt[], names: CaptureNam
   const out: VoiceBlock[] = [];
   const open = new Map<number, Open>();
   const counts = new Map<number, number>();
-  const name = (o: { clip: number; slot: number }, at: number) => ({ clipName: names.clip(o.clip, origin + at), busName: names.bus(o.slot, origin + at) });
+  const name = (o: { clip: number; slot: number }, at: number) => ({ clipName: names.clip(o.clip, origin + at), busName: names.bus(o.slot, origin + at), generator: generatorKindOfClip(o.clip) });
   const begin = (voice: number, clip: number, slot: number, at: number, fromKeyframe: boolean, startGain: number | null) => {
     const n = (counts.get(voice) ?? 0) + 1;
     counts.set(voice, n);
