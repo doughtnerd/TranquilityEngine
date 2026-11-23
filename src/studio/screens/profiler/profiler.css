@@ -17,13 +17,6 @@
 .pf-plugins td.over { color: var(--danger); }
 .pf-plugin-reset { padding: 0 6px; font-size: calc(11px * var(--ui-scale)); }
 
-/* Captures */
-.pf-captures { display: flex; flex-direction: column; min-height: 100%; }
-.pf-captures-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-bottom: 1px solid var(--border); }
-.pf-search { flex: 1 1 120px; min-width: 0; box-sizing: border-box; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); }
-.pf-search:focus { outline: none; border-color: var(--accent); box-shadow: var(--glow); }
-.pf-file-icon { flex: none; color: var(--muted); }
-
 /* Toolbar */
 .pf-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pf-toggle { display: inline-flex; align-items: center; gap: 4px; background: var(--button); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 2px 8px; }

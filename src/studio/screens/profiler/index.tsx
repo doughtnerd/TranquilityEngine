@@ -13,11 +13,14 @@ import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, keymap, openRoute, setPlayerSlots, studioRouter } from "../../shell/studioServices";
 import { CaptureList } from "./CaptureList";
 import { recorderStatus } from "./captureRecorder";
-import { isCapturePath, NO_CAPTURES } from "./captureTree";
+import { isCapturePath, NO_CAPTURES, runTreeFolders } from "./captureTree";
 import { CURSOR_KEYS } from "./cursorKeys";
 import { messageCounts } from "./messagesModel";
 import { AtCursor, MessageList, OpenInTake, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
-import { deleteCapture, importCaptures, moveCapture, openCapture, openInTake, profilerRecorder, profilerStore, renameCapture } from "./profilerScreen";
+import { captureFileKind, captureFolder, openCapture, openInTake, profilerRecorder, profilerStore } from "./profilerScreen";
+import { contentFolders } from "../../components/projectFolders";
+import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "./runFileActions";
+import { durationsVersion, fileDuration } from "./runFileDurations";
 import { takeOfCapture } from "./reviewLink";
 import { ProfilerTimeline } from "./ProfilerTimeline";
 import { PluginHealth } from "./PluginHealth";
@@ -30,21 +33,34 @@ import "./profiler.css";
 
 function CapturesPanel() {
   void docVersion.value; // the project's file list grows and shrinks with it
+  void durationsVersion.value; // a capture's duration arrived
   const project = currentProject.value;
+  const files = project?.files ?? [];
+  const folders = project?.folders ?? [];
   const state = profilerStore().state.value;
   const openPath = state.kind === "open" || state.kind === "opening" || state.kind === "failed" ? state.path : null;
+  const k = captureFileKind;
   return (
     <Panel bodyClass="pf-panel-body">
       <CaptureList
-        files={project?.files ?? []}
-        folders={project?.folders ?? []}
+        files={files}
+        // A new project's scenes/, scripts/ and the sample and playlist folders aren't capture folders (UI pass T5).
+        folders={runTreeFolders(folders, files, isCapturePath)}
+        moveFolders={contentFolders(folders, files, isCapturePath)}
+        rootName={project?.name}
         openPath={openPath}
         writable={!!project?.canSave && !!project.fileSystem}
+        duration={(p) => fileDuration(project, p)}
+        onFolder={(f) => (captureFolder.value = f)}
         onOpen={openCapture}
-        onImport={(files) => void importCaptures(files)}
-        onRename={(path, name) => void renameCapture(path, name)}
-        onMove={(path, folder) => void moveCapture(path, folder)}
-        onDelete={(path) => void deleteCapture(path)}
+        onImport={(chosen, folder) => void importInto(k, chosen, folder)}
+        onNewFolder={newRunFolder}
+        onRename={(path, name) => void renameFile(k, path, name)}
+        onRenameFolder={(folder, name) => void renameFolder(k, folder, name)}
+        onMove={(items, folder) => void moveItems(k, items, folder)}
+        onDuplicate={(path) => void duplicateFile(k, path)}
+        onDelete={(path) => void deleteFile(k, path)}
+        onDeleteFolder={(folder) => void deleteFolder(k, folder)}
       />
     </Panel>
   );

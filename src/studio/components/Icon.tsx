@@ -60,6 +60,10 @@ const PATHS = {
   zoomIn: "M11 11m-6 0a6 6 0 1 0 12 0a6 6 0 1 0-12 0M20 20l-4.5-4.5M8.5 11h5M11 8.5v5",
   zoomOut: "M11 11m-6 0a6 6 0 1 0 12 0a6 6 0 1 0-12 0M20 20l-4.5-4.5M8.5 11h5",
   fit: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5",
+  // Collapse all (a tree's folders): two chevrons pointing together over a rule.
+  collapseAll: "M7 4l5 5 5-5M7 20l5-5 5 5M4 12h16",
+  // Opens elsewhere (another screen): a box with an arrow leaving it.
+  external: "M14 4h6v6M20 4l-9 9M18 14v6H4V6h6",
   panels: "M3 4h18v16H3zM9 4v16",
   // State
   headphones: "M4 15v-3a8 8 0 0 1 16 0v3M4 15h3v5H4zM17 15h3v5h-3z",

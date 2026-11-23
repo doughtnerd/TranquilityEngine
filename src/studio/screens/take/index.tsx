@@ -24,7 +24,11 @@ import { busStrip, instanceParametersAt, parameterRows, type BusStrip } from "./
 import { isTakePath } from "./takeFiles";
 import { PlaylistsInTake } from "./PlaylistsInTake";
 import { TakeList } from "./TakeList";
-import { deleteTake, importTakes, moveTake, openSource, openTake, renameTake, takeScreen } from "./takeScreen";
+import { openSource, openTake, takeFileKind, takeScreen } from "./takeScreen";
+import { contentFolders } from "../../components/projectFolders";
+import { runTreeFolders } from "../profiler/captureTree";
+import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "../profiler/runFileActions";
+import { durationsVersion, fileDuration } from "../profiler/runFileDurations";
 import { findInstance, parameterText, playlistsInTake } from "./takeTimeline";
 import { TakeTimelineView } from "./TakeTimelineView";
 import "./take.css";
@@ -42,19 +46,32 @@ function DocScope(props: { children: ComponentChildren }) {
 
 function TakesPanel() {
   void docVersion.value; // the project's file list grows and shrinks with it
+  void durationsVersion.value; // a take's duration arrived
   const project = currentProject.value;
+  const files = project?.files ?? [];
+  const folders = project?.folders ?? [];
+  const k = takeFileKind;
   return (
     <Panel bodyClass="tk-panel-body">
       <TakeList
-        files={project?.files ?? []}
-        folders={project?.folders ?? []}
+        files={files}
+        // A new project's scenes/, scripts/ and the sample and playlist folders aren't take folders (UI pass T5).
+        folders={runTreeFolders(folders, files, isTakePath)}
+        moveFolders={contentFolders(folders, files, isTakePath)}
+        rootName={project?.name}
         openPath={replayStore().open.value?.path ?? null}
         writable={!!project?.canSave && !!project.fileSystem}
+        duration={(p) => fileDuration(project, p)}
+        onFolder={(f) => (takeScreen().folder.value = f)}
         onOpen={openTake}
-        onImport={(files) => void importTakes(files)}
-        onRename={(path, name) => void renameTake(path, name)}
-        onMove={(path, folder) => void moveTake(path, folder)}
-        onDelete={(path) => void deleteTake(path)}
+        onImport={(chosen, folder) => void importInto(k, chosen, folder)}
+        onNewFolder={newRunFolder}
+        onRename={(path, name) => void renameFile(k, path, name)}
+        onRenameFolder={(folder, name) => void renameFolder(k, folder, name)}
+        onMove={(items, folder) => void moveItems(k, items, folder)}
+        onDuplicate={(path) => void duplicateFile(k, path)}
+        onDelete={(path) => void deleteFile(k, path)}
+        onDeleteFolder={(folder) => void deleteFolder(k, folder)}
       />
     </Panel>
   );

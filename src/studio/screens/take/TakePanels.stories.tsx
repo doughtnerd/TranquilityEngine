@@ -136,19 +136,22 @@ export const Replaying: Story = {
 };
 
 const FILES = ["takes/HoverBike/Canyon/canyon_run_01.mycotake", "takes/HoverBike/Canyon/canyon_run_03.mycotake", "takes/HoverBike/Canyon/canyon_run_03.mycotake.notes.json", "takes/Boss/boss_arena_01.mycotake", "captures/capture_01.mycap"];
-const listArgs = { folders: ["takes", "takes/HoverBike", "takes/HoverBike/Canyon", "takes/Boss"], writable: true, onOpen: fn(), onImport: fn(), onRename: fn(), onMove: fn(), onDelete: fn() };
+const listArgs = {
+  folders: ["takes", "takes/HoverBike", "takes/HoverBike/Canyon", "takes/Boss"], writable: true,
+  onOpen: fn(), onImport: fn(), onRename: fn(), onMove: fn(), onDelete: fn(), onDuplicate: fn(), onRenameFolder: fn(), onDeleteFolder: fn(), onNewFolder: fn(async () => null),
+};
 
 export const Takes: Story = {
   render: () => <div style={{ width: "280px" }}><TakeList files={FILES} openPath="takes/HoverBike/Canyon/canyon_run_03.mycotake" {...listArgs} /></div>,
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByText("canyon_run_01.mycotake")).toBeVisible();
+    await expect(c.getByText("canyon_run_01")).toBeVisible();
     await expect(c.queryByText("capture_01.mycap")).toBeNull();
   },
 };
 
 export const NoTakes: Story = {
-  render: () => <div style={{ width: "280px" }}><TakeList files={["audio.json"]} openPath={null} {...listArgs} /></div>,
+  render: () => <div style={{ width: "280px" }}><TakeList files={["audio.json"]} openPath={null} {...listArgs} folders={[]} /></div>,
   play: async ({ canvasElement }) => {
     await expect(within(canvasElement).getByText(/F10 in a game build/)).toBeVisible();
   },

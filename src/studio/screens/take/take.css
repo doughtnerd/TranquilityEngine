@@ -12,15 +12,10 @@
 :is(.tk-link, .tk-swatch, .tk-tool):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .tk-scroll { width: 100%; overflow-x: auto; }
 
-/* Takes */
-.tk-list { display: flex; flex-direction: column; min-height: 100%; }
-.tk-list-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-bottom: 1px solid var(--border); }
-.tk-search { flex: 1 1 120px; min-width: 0; }
 /* The screen's own fields on the editor's tokens (the editor styles fields only inside its Inspector). */
-:is(.tk-search, .tk-field input, .tk-field-text textarea) { box-sizing: border-box; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); }
-:is(.tk-search, .tk-field input, .tk-field-text textarea):focus { outline: none; border-color: var(--accent); box-shadow: var(--glow); }
-:is(.tk-search, .tk-field input, .tk-field-text textarea):disabled { opacity: 0.6; }
-.tk-file-icon { flex: none; color: var(--muted); }
+:is(.tk-field input, .tk-field-text textarea) { box-sizing: border-box; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); }
+:is(.tk-field input, .tk-field-text textarea):focus { outline: none; border-color: var(--accent); box-shadow: var(--glow); }
+:is(.tk-field input, .tk-field-text textarea):disabled { opacity: 0.6; }
 
 /* Playlists in this take */
 .tk-playlists { list-style: none; margin: 0; padding: 4px 0; }
@@ -49,8 +44,6 @@
 .tk-head-sub { color: var(--muted); font-size: calc(10px * var(--ui-scale)); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tk-lane { position: relative; min-width: 0; overflow: hidden; }
 .tk-lane .studio-valuelane-head { display: none; }
-/* An instance's held part (start → RELEASE, D26) shaded so it reads against the bar (the kit's faint fill disappears on it). */
-.tk-lane .studio-span-held { background: var(--accent2-soft); border-left: none; border-right: 1px solid var(--accent2); }
 .tk-playhead-layer { position: absolute; top: 0; bottom: 0; left: var(--tk-head); right: 0; pointer-events: none; }
 
 /* Picture */

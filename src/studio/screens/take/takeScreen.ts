@@ -1,30 +1,28 @@
 // The Take screen's services over the real page (ADR 0348 "The Take screen"): opening a take file into the Studio's
 // replay (`shell/replay.ts`, which keeps it open across screens), the timeline read from it, the selection, the take's
 // notes as an asset document (the engine's undo tree; `<take>.notes.json`, a Studio-registered kind with no file
-// ending, as the samples sidecar is), the takes' file actions (import into `takes/`; rename, move and delete through the
-// Studio's moves and the engine's delete, the notes going with their take) and "Profile this replay". The panels call
-// these; the models are elsewhere.
+// ending, as the samples sidecar is), what is special about takes for the Takes tree's file actions (`takeFileKind`:
+// the notes go with their take, the open take follows a move and closes on a delete; `runFileActions.ts` does the rest)
+// and "Profile this replay". The panels call these; the models are elsewhere.
 import { computed, signal, type ReadonlySignal } from "@preact/signals";
 import { emptyTakeNotes, formatTakeNotes, parseTakeNotes, takeNotesPath } from "../../../engine/audio/take/notes";
 import type { Take } from "../../../engine/audio/take/reader";
 import type { TakeNotes } from "../../../engine/audio/take/types";
 import { isLabelled } from "../../../engine/audio/parameters";
 import { openAssetDocument, type AssetDocument } from "../../../editor/assetDocuments";
-import { deleteAssets } from "../../../editor/assetDelete";
-import { importFiles, whyNotImportable } from "../../../editor/assetImportFiles";
 import { assetKinds } from "../../../editor/sdk/contributions";
 import { currentProject, status } from "../../../editor/state";
 import { studioScreenFor } from "../../../editor/studioAssets";
 import { captureErrorMessage } from "../../../plugins/audio/editor/mix/openSaveFlow";
 import { CaptureError } from "../../../plugins/audio/runtime/capture/format";
 import { openTakeFile } from "../../../plugins/audio/runtime/capture/takeFile";
-import { moveStudioAssets } from "../../boot/studioAssetMoves";
 import { replayStore } from "../../shell/replay";
 import { openRoute } from "../../shell/studioServices";
 import { openMixDocument } from "../mixer/mixerDocument";
 import { profilerRecorder } from "../profiler/profilerScreen";
 import type { NotesEdit } from "./notesEdits";
-import { TAKES_FOLDER, takeDeletion, takeMoves, whyNotTakeFile } from "./takeFiles";
+import type { RunFileKind } from "../profiler/runFileActions";
+import { TAKES_FOLDER, takeDeletion, whyNotTakeFile } from "./takeFiles";
 import { takeTimeline, type TakeTimeline } from "./takeTimeline";
 
 /** The notes document kind (no file ending: opened by path, so `*.json` files keep their own handling). */
@@ -79,6 +77,8 @@ function labelsOf(name: string, path: string | null): readonly string[] | null {
 class TakeScreen {
   readonly state = signal<TakeOpenState>({ kind: "none" });
   readonly selected = signal<TakeSelection>(null);
+  /** The Takes tree's selected folder (where Open take file… and New folder go), null for none. */
+  readonly folder = signal<string | null>(null);
   private run = 0;
 
   /** The open take (the replay store's). */
@@ -170,50 +170,19 @@ export const openTake = (path: string): void => openRoute({ screen: "take", asse
 /** Open the asset behind an instance on its screen ("fix it at the source"): a playlist on Playlists, a sample on Samples. */
 export const openSource = (path: string): void => openRoute({ screen: studioScreenFor(path) ?? "playlists", asset: path });
 
-/** Open take file…: copy chosen files into the project's takes folder, then open the first. */
-export async function importTakes(files: readonly File[]): Promise<void> {
-  const project = currentProject.peek();
-  const refused = whyNotImportable(project);
-  if (refused || !project) {
-    status.value = { kind: "info", text: `Can't import takes: ${refused ?? "no project is open"}.` };
-    return;
-  }
-  const wrong = files.map((f) => whyNotTakeFile(f.name)).find((r) => r !== null);
-  if (wrong) {
-    status.value = { kind: "info", text: wrong };
-    return;
-  }
-  const r = await importFiles(project, TAKES_FOLDER, files.map((f) => ({ path: f.name, read: async () => new Uint8Array(await f.arrayBuffer()) })));
-  if (r.imported[0]) openTake(r.imported[0]);
-  else if (r.failed[0]) status.value = { kind: "info", text: `Couldn't import ${r.failed[0].path}: ${r.failed[0].error}` };
-}
 
-const folderOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
-const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
-
-/** Rename a take (its notes follow); the open one stays open. */
-export async function renameTake(path: string, name: string): Promise<void> {
-  const folder = folderOf(path);
-  await moveTakeTo(path, `${folder ? `${folder}/` : ""}${name}`, "Renamed");
-}
-
-/** Move a take to `folder` (its notes follow); the open one stays open. */
-export async function moveTake(path: string, folder: string): Promise<void> {
-  await moveTakeTo(path, `${folder ? `${folder}/` : ""}${nameOf(path)}`, "Moved");
-}
-
-async function moveTakeTo(from: string, to: string, verb: string): Promise<void> {
-  if (from === to) return;
-  const files = currentProject.peek()?.files ?? [];
-  if (!(await moveStudioAssets(takeMoves(files, from, to), verb))) return;
-  replayStore().moved(from, to);
-  const s = takeScreen().state.peek();
-  if (s.kind !== "none" && s.path === from) openTake(to);
-}
-
-/** Delete a take and its notes (the engine's delete asks first); the open one closes. */
-export async function deleteTake(path: string): Promise<void> {
-  const files = currentProject.peek()?.files ?? [];
-  if (!(await deleteAssets(takeDeletion(files, path)))) return;
-  if (replayStore().open.peek()?.path === path) takeScreen().close();
-}
+/** Takes for the Takes tree's actions: a take's notes go with it; the open take follows a move and closes on a delete. */
+export const takeFileKind: RunFileKind = {
+  noun: "take",
+  defaultFolder: TAKES_FOLDER,
+  whyNotFile: whyNotTakeFile,
+  companions: takeDeletion,
+  openPath: () => replayStore().open.peek()?.path ?? null,
+  open: openTake,
+  moved(from, to) {
+    replayStore().moved(from, to);
+    const s = takeScreen().state.peek();
+    if (s.kind !== "none" && s.path === from) openTake(to);
+  },
+  closed: () => takeScreen().close(),
+};
