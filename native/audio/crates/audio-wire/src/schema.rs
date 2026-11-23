@@ -90,7 +90,10 @@ macro_rules! c {
 /// (standard: two-sample PolyBLEP; high: a 16-tap minBLEP, read two samples late), so they have 11, 26 and 25, which GEN
 /// (at most `GEN_PARAMS_MAX`, 32) and AUTOMATE target 5 carry as one more index; no record changes layout, and a core
 /// without it ignores the index (plays `standard`).
-const CORE_ABI: (u64, u64) = (6, 0);
+///
+/// 6.1 (ADR 0362 items 2 and 3): AMP_ENVELOPE (0x22), a clip voice's per-sample Amp envelope, and the PLAY flag
+/// `reverse` (bit 9), a PCM clip voice read backwards. Both are additions an older shell never sends.
+const CORE_ABI: (u64, u64) = (6, 1);
 
 /// Constants from section 4 and 5 that code on both sides needs.
 pub const CONSTANTS: &[Const] = &[

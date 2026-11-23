@@ -576,7 +576,7 @@ impl ClipStore {
                 ClipFormat::Hrir | ClipFormat::ZoneKernel | ClipFormat::ZoneIrPcm | ClipFormat::MagLs | ClipFormat::Adpcm => return None,
             }
         };
-        Some(Clip { source: Source { samples, channels: e.channels as u32, frames: e.frames }, sample_rate: e.sample_rate })
+        Some(Clip { source: Source { samples, channels: e.channels as u32, frames: e.frames, reversed: false }, sample_rate: e.sample_rate })
     }
 
     /// An ADPCM clip's blocks (format 6), or `None` when `id` isn't held or isn't one. Never allocates (`process`

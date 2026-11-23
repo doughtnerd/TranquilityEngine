@@ -510,7 +510,7 @@ mod tests {
     /// before quantum `q` (a seek, a promote after keeping time).
     fn compare(c: &Case, mode: Mode, mut pos: f64, quanta: usize, step: impl Fn(usize, usize) -> f32, jump: impl Fn(usize) -> Option<f64>) -> usize {
         let clip = AdpcmClip { blocks: &c.blocks, channels: c.ch as u32, frames: c.frames as u32, sample_rate: 48_000.0 };
-        let src = Source { samples: Samples::I16(&c.pcm), channels: c.ch as u32, frames: c.frames as u32 };
+        let src = Source { samples: Samples::I16(&c.pcm), channels: c.ch as u32, frames: c.frames as u32, reversed: false };
         let mut cur: Cursor = unsafe { core::mem::zeroed() };
         let mut ref_pos = pos;
         let mut rendered = 0;
@@ -593,7 +593,7 @@ mod tests {
         compare(&c, Mode::Loop, 0.0, 80, |_, _| 2.2, |q| (q % 13 == 5).then_some((q * 911) as f64 % 8192.0));
         // The same cursor through a loop, then a region, then a one-shot (SET_LOOP changes).
         let clip = AdpcmClip { blocks: &c.blocks, channels: 2, frames: c.frames as u32, sample_rate: 48_000.0 };
-        let src = Source { samples: Samples::I16(&c.pcm), channels: 2, frames: c.frames as u32 };
+        let src = Source { samples: Samples::I16(&c.pcm), channels: 2, frames: c.frames as u32, reversed: false };
         let mut cur: Cursor = unsafe { core::mem::zeroed() };
         let (mut p, mut rp) = (6_000.0f64, 6_000.0f64);
         let steps = [1.17f32; 128];

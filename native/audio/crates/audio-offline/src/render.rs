@@ -20,9 +20,10 @@
 //!   or the spec's tail cap past the input's end is reached (a warning). The output ends at the
 //!   last sample above the floor, never before the input's end.
 //! - **Fades and the envelope** shape the stage's input span: fade in from its first frame, fade
-//!   out ending on its last; the envelope's attack, decay and sustain from the first frame and its
-//!   release ending on the last. Both are silent after the input's end (a tail from an earlier
-//!   effect in the same stage is cut there).
+//!   out ending on its last; the envelope (`audio_dsp::adsr`, ADR 0362: the one a sequence clip's
+//!   Amp envelope plays live) its attack, hold, decay and sustain from the first frame and its
+//!   release ending on the last, the stages squeezed in that order into a short span. Both are
+//!   silent after the input's end (a tail from an earlier effect in the same stage is cut there).
 //! - **Plugin effects** (ADR 0352 §7) stream like the kernels, through the `myco_ext` import the
 //!   caller binds (`audio_core::ext`, the same calls the core's chains make: an instance per channel
 //!   pair, the glide, the flags and the budget). Each control block grants a quantum's shared fuel
@@ -30,6 +31,7 @@
 //!   passes through dry and sets [`warn::PLUGIN_DRY`]. Their tails are rendered as a reverb's are.
 
 use audio_core::ext;
+use audio_dsp::adsr::Adsr;
 use audio_dsp::fx::{self, delay::DELAY_MAX_MS, kind, Ctx, Effect, PARAMS};
 
 use crate::lane::Lane;
@@ -182,28 +184,14 @@ pub fn fade_gain(f: usize, len: usize, rate: f32, in_ms: f32, out_ms: f32) -> f3
     g as f32
 }
 
-/// The ADSR's gain at frame `f` of an input of `len` frames: attack and decay (ms) to sustain
-/// (%) from the first frame, the release (ms) ending on the last.
-pub fn envelope_gain(f: usize, len: usize, rate: f32, a_ms: f32, d_ms: f32, sustain: f32, r_ms: f32) -> f32 {
-    if f >= len {
-        return 0.0;
-    }
-    let fpm = rate as f64 / 1000.0;
-    let (a, d, r) = (a_ms.max(0.0) as f64 * fpm, d_ms.max(0.0) as f64 * fpm, r_ms.max(0.0) as f64 * fpm);
-    let s = (sustain as f64 / 100.0).clamp(0.0, 1.0);
-    let ads = |x: f64| -> f64 {
-        if x < a {
-            x / a
-        } else if x < a + d {
-            1.0 - (1.0 - s) * (x - a) / d
-        } else {
-            s
-        }
-    };
-    let rs = (len as f64 - r).max(0.0);
-    let x = f as f64;
-    let g = if x < rs { ads(x) } else { ads(rs) * (len as f64 - x) / (len as f64 - rs).max(1.0) };
-    g as f32
+/// The catalogue's `envelope` (ADR 0362: attack, hold, decay ms, sustain %, release ms, in the catalogue's order) over an
+/// input of `len` frames at `rate`: `audio_dsp::adsr`'s envelope fitted to the span (the stages squeezed in order, the
+/// release ending on the last frame), the same numbers a sequence clip's Amp envelope plays live (the core's
+/// AMP_ENVELOPE, whose frames the runtime works out the same way).
+pub fn envelope_of(p: &[f32; PARAMS], len: usize, rate: f32) -> Adsr {
+    let frames = |ms: f32| -> u32 { (ms.max(0.0) as f64 * rate as f64 / 1000.0).round().min(u32::MAX as f64 - 1.0) as u32 };
+    let len = len.min(u32::MAX as usize - 1) as u32;
+    Adsr::fit(frames(p[0]), frames(p[1]), frames(p[2]), (p[3] / 100.0).clamp(0.0, 1.0), frames(p[4]), Some(len))
 }
 
 /// Runs one streaming stage over `len` frames of `buf`; returns the output, its length and warnings.
@@ -313,12 +301,8 @@ fn run_stage(buf: &[f32], len: usize, channels: usize, rate: f32, items: &mut [I
                         }
                     }
                     Op::Envelope => {
-                        let p = item.fx.p;
-                        for i in 0..n {
-                            let g = envelope_gain(pos + i, len, rate, p[0], p[1], p[2], p[3]);
-                            l[i] *= g;
-                            r[i] *= g;
-                        }
+                        // Silent past the input's end: its key-off ends the release on the last frame.
+                        envelope_of(&item.fx.p, len, rate).apply(pos as u64, &mut l[..n], &mut r[..n]);
                     }
                     _ => {}
                 }
@@ -480,11 +464,21 @@ mod tests {
         assert!((out.pcm[2_400] - 0.5).abs() < 1e-3, "half way into the fade in");
         assert_eq!(out.pcm[24_000], 1.0);
         assert!((out.pcm[48_000 - 4_800] - 0.5).abs() < 1e-3, "half way through the fade out");
-        let env = render(&input, 1, RATE, &spec(vec![fx(Op::Envelope, &[10.0, 10.0, 50.0, 100.0])], vec![]));
+        // Attack 10 ms, hold 5 ms, decay 10 ms to 50 %, release 100 ms (ADR 0362's order).
+        let env = render(&input, 1, RATE, &spec(vec![fx(Op::Envelope, &[10.0, 5.0, 10.0, 50.0, 100.0])], vec![]));
         assert!((env.pcm[240] - 0.5).abs() < 1e-3, "attack");
         assert!((env.pcm[480] - 1.0).abs() < 1e-3, "peak");
+        assert!((env.pcm[700] - 1.0).abs() < 1e-3, "hold");
         assert!((env.pcm[10_000] - 0.5).abs() < 1e-3, "sustain");
         assert!((env.pcm[48_000 - 2_400] - 0.25).abs() < 1e-3, "half way through the release");
+        // Every frame is `audio_dsp::adsr`'s, fitted to the input (what a clip's AMP_ENVELOPE plays).
+        let e = Adsr::fit(480, 240, 480, 0.5, 4_800, Some(48_000));
+        assert!(env.pcm.iter().enumerate().all(|(t, &x)| x.to_bits() == e.gain(t as u64).to_bits()));
+        // A span shorter than the stages squeezes them in order: the release goes first.
+        let short = render(&input[..960], 1, RATE, &spec(vec![fx(Op::Envelope, &[10.0, 5.0, 10.0, 50.0, 100.0])], vec![]));
+        let e = Adsr::fit(480, 240, 480, 0.5, 4_800, Some(960));
+        assert_eq!((e.decay, e.release), (240, 0));
+        assert!(short.pcm.iter().enumerate().all(|(t, &x)| x.to_bits() == e.gain(t as u64).to_bits()));
     }
 
     #[test]

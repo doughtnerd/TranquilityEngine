@@ -39,7 +39,7 @@ pub enum Op {
     Stream(u32),
     /// Offline only: the catalogue's `fades` (in, out ms).
     Fades,
-    /// The catalogue's `envelope` (ADSR: attack ms, decay ms, sustain %, release ms).
+    /// The catalogue's `envelope` (attack ms, hold ms, decay ms, sustain %, release ms; ADR 0362 added the hold).
     Envelope,
     /// Offline only: `noiseReduction` (amount %), a spectral gate over the whole signal.
     NoiseReduction,
