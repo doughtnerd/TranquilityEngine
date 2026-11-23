@@ -71,3 +71,8 @@
 - Right-click on a Sequence clip opens the track lane menu instead of the clip menu (Shift+F10 works).
 - Mixer bus curves: default driver is the first parameter even when labelled ("by Surface (labels)").
 - Playlists effect-automation dialog (effectAutomation.ts) doesn't offer And by.
+
+## Follow-ups from wave 4 (reverse/envelope)
+- Hold handle sits under Attack at Hold 0 (can't grab until a hold is typed).
+- Reversed clips draw their waveform forwards in the Sequence view.
+- Reversed clips don't drive the playhead/musical clock; async reversed clips report no markers; ADPCM reversed silent.

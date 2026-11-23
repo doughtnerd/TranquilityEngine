@@ -172,3 +172,6 @@ the 4 audio failures above (product follow-ups); stories 365/367. Typecheck clea
   1 failed under full-suite load (`encoding.test.ts` "encode a planned sound once per content and settings"), 3/3 alone:
   recorded as a load-sensitive test. Next: the UI fidelity and bug pass against the owner's prototype and spec
   (`owner-spec.md`); audit gaps files cover Samples, Playlists, Sequence, Mixer, Spatial/Curves, Take/Profiler, shell.
+- 2026-11-23 (UI pass wave 4, ADR 0362 items 2–3): core ABI 6.0 → 6.1, AMP_ENVELOPE (0x22) and PLAY flag `reverse`;
+  mixer 589,076 → 609,528 B (+20.5 KB, the reversed Lagrange kernel copies; under the 640 KB gate, no raise); metered
+  +0.09% overall, worst +0.56% (gen-silence-twin); offline render envelope on `audio_dsp::adsr`, render cache version 2.
