@@ -1,43 +1,62 @@
-// The Sample panel (the screen's fixed panel; the prototype's timeline): toolbar, changed-on-disk banner, marker rows,
-// ruler, loop row (Pickup / Loop / Link / Tail), trim row, waveform with loop bands, the play band, snippets, cut lines
-// and the playhead, zoom and the range scrollbar, the readout and the warnings stack. Everything is drawn in timeline
-// time (closed gaps removed, `sampleTime.ts`); edits store source time. Drags are one coalesced step each.
-import { Fragment } from "preact";
+// The Sample panel (the screen's fixed panel; the prototype's timeline, spec §4.1.5–4.1.6): one toolbar row (Save split,
+// Undo / Redo / History, Source version, A/B, Root note, Normalize, Add marker, Add loop, Razor, Snap), the changed-on-
+// disk banner, then tracks with a 168 px header column: Markers (flag-shaped points and capped ranges packed into rows,
+// the ghost "Marker N" on hover), the ruler with the big playhead readout, its Time display caret and the tempo button,
+// the loop row (Pickup / Loop N / Link / Tail) and the trim row, and the Audio lane (Waveform and/or Spectrogram, the
+// baked effects drawn into it, the playing band, snippets, cut lines with Tape, Close gap), dotted guides from every
+// marker and loop edge, the zoom group with the range scrollbar, the readout strip and the warnings. Everything is
+// drawn in timeline time (closed gaps removed, `sampleTime.ts`); edits store source time. Drags are one coalesced step.
+import { Fragment, type ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
-import type { SampleEdits, SampleMarker } from "../../../engine/audio/sample/types";
+import type { SampleEdits, SampleLoop, SampleMarker } from "../../../engine/audio/sample/types";
 import { currentProject } from "../../../editor/state";
 import { ContextMenu, SEPARATOR, tidyEntries, type MenuEntry } from "../../../editor/ui/ContextMenu";
 import { EmptyState } from "../../../editor/ui/EmptyState";
+import { FloatingPortal } from "../../../editor/ui/FloatingPortal";
 import { HistoryPopover } from "../../../editor/ui/HistoryPopover";
 import { formatKeys, isMacPlatform } from "../../../editor/ui/keyCombo";
 import { Panel } from "../../../editor/ui/panel/Panel";
+import { usePopover } from "../../../editor/ui/popover";
 import { Icon } from "../../components/Icon";
-import { Playhead } from "../../components/Playhead";
 import { TimeRuler } from "../../components/TimeRuler";
 import { formatTime, type TimeContext } from "../../components/timeRulerModel";
 import { Waveform } from "../../components/Waveform";
-import { clampView, fitView, timeToX, xToTime, type WaveBand } from "../../components/waveformModel";
+import { clampView, fitView, timeToX, waveColumns, xToTime, type WaveBand } from "../../components/waveformModel";
 import { useElementWidth } from "../../components/useElementWidth";
 import * as act from "./sampleActions";
 import {
-  addLoop, addMarker, convertMarker, deleteMarker, hasFixedName, isHold, MARKER_TOKENS, MARKER_TYPE_NAMES, MARKER_TYPE_ORDER, moveLoop, moveMarker, removeLoop, resetTrim, setSnapToZero, setTrim,
-  closeGap, refusalOf, slideLoop, snippets, sourceTime, tapeSnippet, toggleSnippet, updateLoop, updateMarker, viewTime, type SampleEdit,
+  addLoop, addMarker, closeGap, convertMarker, deleteMarker, hasFixedName, isHold, loopName, MARKER_TYPE_NAMES, MARKER_TYPE_ORDER, moveLoop, moveMarker, nextMarkerName, refusalOf, removeLoop, resetTrim,
+  setSnapToZero, setTrim, slideLoop, snippets, sourceTime, tapeSnippet, toggleSnippet, updateLoop, updateMarker, viewTime, type SampleEdit,
 } from "./sampleEditing";
+import { effectSpec } from "../../../engine/audio/effects/catalogue";
 import { detachMarker, fileOrigin, markerDiff, revertLoop, revertMarker } from "./sampleFile";
 import { lengthOf, loudnessOf, pcmNow, pcmOf, peaksFailure, peaksOf, wavMetadataOf, type SampleSession } from "./sampleSession";
 import type { DetectKind } from "../../../engine/audio/sample/detect/detect";
 import { detectInto } from "./sampleDetect";
 import { editedLength, trimOf } from "./sampleTime";
-import { estimateLabelWidth, liveSelection, loopRegions, MARKER_ROWS_SHOWN, musicalSpans,nextMarker, packMarkerRows, regionAt, sampleWarnings, selectionSpan, snapTime, snippetMenu, snippetUnder, trimHoldingMarkers, fitToSource, type SnippetAction } from "./sampleView";
+import {
+  estimateLabelWidth, liveSelection, loopLabel, loopRegions, MARKER_PRESETS, MARKER_ROWS_SHOWN, markerColour, musicalSpans, nextMarker, packMarkerRows, regionAt, sampleWarnings, selectionSpan,
+  shortSeconds, snapTime, snippetMenu, snippetUnder, trimHoldingMarkers, fitToSource, type SampleSelection, type SnippetAction,
+} from "./sampleView";
 import { nearestZeroCrossing, seamJump } from "./seam";
-import { NormalizePopover, RootPopover, SnapPopover, TempoPopover, TimeFormatPopover } from "./SampleTools";
-import { dialog, hoverTime, openSession, playheadTime, razorOn, select, selection, snapSetting, timeFormat, viewSpan } from "./samplesState";
+import { NormalizePopover, RootPopover, SnapSplit, TempoPopover, TimeDisplayCaret } from "./SampleTools";
+import { abSource, dialog, fxFocus, fxPreview, hoverTime, openSession, playheadTime, razorOn, savedColours, select, selection, snapSetting, timeFormat, viewSpan, waveViews } from "./samplesState";
 import { playing } from "./sampleTransport";
 import { diskChange } from "./sampleDisk";
-import { nameOf } from "./sampleLibrary";
+import { nameOf, shortLength } from "./sampleLibrary";
 import { SaveSplitButton } from "./SaveSplitButton";
+import { SampleIcon, type SampleIconName } from "./sampleIcons";
+import { VersionMenu } from "./VersionMenu";
+import { previewOf } from "./samplePreview";
+import { effectEdits } from "./sampleEffects";
+import { ClipTicks, clipRuns, effectChip, FxChips, SpectrogramView, WaveOutline, type FxChip } from "./WaveOverlays";
 
-const ROW_PX = 18;
+/** A marker row's height, px (the prototype's `.mrow`). */
+const ROW_PX = 20;
+/** The marker area: three rows and a 4 px top pad (more rows scroll). */
+const MARKER_AREA_PX = MARKER_ROWS_SHOWN * ROW_PX + 4;
+const RULER_PX = 30;
+const RESERVED_ROW_PX = 20;
 
 /** How near an edge (px) a press grabs it rather than the body: wider for a finger. */
 const edgePx = (e: PointerEvent, mouse: number) => (e.pointerType === "touch" || e.pointerType === "pen" ? Math.max(mouse, 14) : mouse);
@@ -77,11 +96,47 @@ export function TimelinePanel() {
   if (!session || !project) {
     return (
       <Panel bodyClass="studio-panel-body">
-        <EmptyState title="Samples" icon={<Icon name="samples" size={28} />} body={<p>Pick a sample in the Samples panel to edit its markers, loops, trim, tempo and loudness. Edits are kept beside the file; the audio isn't changed.</p>} />
+        <EmptyState compact title="No sample open" icon={<Icon name="samples" size={28} />} body="Pick a sample in the Samples panel." />
       </Panel>
     );
   }
   return <Timeline session={session} />;
+}
+
+/** A compact toolbar icon button (the prototype's `.ibtn`). */
+function IconTool(props: { icon: SampleIconName; label: string; title: string; pressed?: boolean; disabled?: boolean; onClick(): void }) {
+  return (
+    <button type="button" class={`smp-ibtn${props.pressed ? " on" : ""}`} aria-label={props.label} aria-pressed={props.pressed} title={props.title} disabled={props.disabled} onClick={props.onClick}>
+      <SampleIcon name={props.icon} size={14} />
+    </button>
+  );
+}
+
+/** An inline Rename / Note editor at a point (the prototype's menu input): Enter keeps (Ctrl+Enter for a note), Escape drops. */
+function InlineEdit(props: { at: { x: number; y: number }; label: string; value: string; multiline?: boolean; onKeep(text: string): void; onClose(): void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [text, setText] = useState(props.value);
+  usePopover(ref, true, { anchor: props.at, focusFirst: true, onDismiss: (why) => (why === "outside" ? props.onKeep(text) : props.onClose()) });
+  const keys = (e: KeyboardEvent) => {
+    if (e.key === "Enter" && (!props.multiline || e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      props.onKeep(text);
+    }
+    e.stopPropagation();
+  };
+  return (
+    <FloatingPortal>
+      <div ref={ref} class="smp-popover smp-snm smp-inline-edit" role="dialog" aria-label={props.label}>
+        <div class="smp-cap">{props.label}</div>
+        {props.multiline ? (
+          <textarea rows={4} value={text} aria-label={props.label} placeholder="Shown on hover" onInput={(e) => setText((e.currentTarget as HTMLTextAreaElement).value)} onKeyDown={keys} />
+        ) : (
+          <input value={text} aria-label={props.label} onInput={(e) => setText((e.currentTarget as HTMLInputElement).value)} onKeyDown={keys} />
+        )}
+        <div class="smp-tci-line smp-muted">{props.multiline ? "Ctrl+Enter keeps · Esc drops" : "Enter keeps · Esc drops"}</div>
+      </div>
+    </FloatingPortal>
+  );
 }
 
 function Timeline(props: { session: SampleSession }) {
@@ -89,26 +144,31 @@ function Timeline(props: { session: SampleSession }) {
   const project = session.project;
   const source = session.source.value;
   const e = session.edits.value;
-  const mips = peaksOf(project, source);
+  const sourceMips = peaksOf(project, source);
   const length = lengthOf(project, source);
   const failed = peaksFailure(project, source);
   const lanes = useRef<HTMLDivElement>(null);
+  const markerScroll = useRef<HTMLDivElement>(null);
   const width = useElementWidth(lanes);
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[]; label: string } | null>(null);
+  const [editing, setEditing] = useState<{ x: number; y: number; label: string; value: string; multiline?: boolean; keep(text: string): void } | null>(null);
   const [ghost, setGhost] = useState<{ x: number; row: number } | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
   const mac = isMacPlatform();
 
   if (length === null) {
     return (
       <Panel bodyClass="studio-panel-body">
-        <EmptyState title={nameOf(session.path)} body={failed ? <p>Couldn't read the audio: {failed}</p> : <p>Reading the audio…</p>} />
+        <EmptyState compact title={nameOf(session.path)} body={failed ? `Couldn't read the audio: ${failed}` : "Reading the audio…"} />
       </Panel>
     );
   }
+  const ro = session.readOnly;
   const len = editedLength(length, e.closedGaps);
   const view = clampView(viewSpan.value ?? fitView(len), len);
   const sel = liveSelection(selection.value, e, length);
-  const ctx: TimeContext = { rate: mips?.rate ?? 48000, bpm: e.tempo?.bpm, meter: e.tempo?.meter };
+  const rate = sourceMips?.rate ?? 48000;
+  const ctx: TimeContext = { rate, bpm: e.tempo?.bpm, meter: e.tempo?.meter };
   const fmt = timeFormat.value;
   const v = (t: number) => viewTime(e, t);
   const x = (t: number) => timeToX(v(t), view, width);
@@ -128,56 +188,112 @@ function Timeline(props: { session: SampleSession }) {
   const scope = selectionSpan(sel, e, length);
   const rows = packMarkerRows(e.markers, (t) => x(t), estimateLabelWidth);
   const rowCount = Math.max(MARKER_ROWS_SHOWN, ...[...rows.values()].map((r) => r + 1));
+  const hiddenRows = Math.max(0, rowCount - MARKER_ROWS_SHOWN);
   const play = playing.value;
+  const mine = play && play.path === session.path ? play : null;
   const playT = playheadTime.value;
   const disk = diskChange.value?.path === source ? diskChange.value : null;
   const wav = wavMetadataOf(project, source);
+  const ab = abSource.value;
+  // An effect hovered in Add effect previews at its defaults, on top of the chain (spec §4.1.7).
+  const trying = fxPreview.value;
+  const preview = previewOf(session, trying ? effectEdits.add(e, trying).next : e, trying ? null : fxFocus.value, ab);
+  // What the lane shows: the render (the source as the outline), or under A/B the source (the render as the outline).
+  const shown = ab ? sourceMips : preview.mips ?? sourceMips;
+  const outline = ab ? previewOf(session, e, null, false).mips : preview.mips ? sourceMips : null;
+  const views = waveViews.value;
+  const selKey = (s: SampleSelection) => JSON.stringify(s);
+  const isSel = (s: SampleSelection) => selKey(s) === selKey(sel);
 
   const bands: WaveBand[] = [
-    ...e.loops.map((l) => ({ start: v(l.start), end: v(l.end), color: "--range-loop", label: isHold(l) ? "Hold" : undefined })),
-    ...snippets(e, length).filter((s) => s.deleted).map((s) => ({ start: v(s.start), end: v(s.end), color: "--danger", hatched: true })),
-    ...(scope && sel.kind !== "sample" ? [{ start: v(scope.start), end: v(scope.end), color: "--accent" }] : []),
+    ...e.loops.filter((l) => !isHold(l)).map((l) => ({ start: v(l.start), end: v(l.end), color: "--range-loop" })),
   ];
-  if (e.trim) bands.push({ start: 0, end: v(ta), color: "--faint", hatched: true }, { start: v(tb), end: len, color: "--faint", hatched: true });
   // ADR 0350: the post-exit tail and the pre-entry, shaded under the waveform.
   const spans = musicalSpans(e, length);
   if (spans.tail) bands.push({ start: v(spans.tail[0]), end: v(spans.tail[1]), color: "--marker-exit", hatched: true, label: "Tail" });
   if (spans.preEntry) bands.push({ start: v(spans.preEntry[0]), end: v(spans.preEntry[1]), color: "--marker-exit", label: "Pre-entry" });
 
+  const point = (ev: MouseEvent) => ({ x: ev.clientX, y: ev.clientY });
+
+  // --- menus ---------------------------------------------------------------------------------------------------------
+
+  const colourMenu = (current: number | string | undefined, set: (c: number | string | null) => void): MenuEntry[] => [
+    { id: "c-default", label: "Default", checked: current === undefined, run: () => set(null) },
+    ...MARKER_PRESETS.map((p) => ({ id: `c-${p.name}`, label: p.name, checked: current === p.series, run: () => set(p.series) })),
+    ...savedColours.value.map((hex) => ({ id: `c-${hex}`, label: hex, checked: current === hex, run: () => set(hex) })),
+    SEPARATOR,
+    { id: "c-custom", label: "Custom colour…", title: "Pick any colour in the Inspector's colour row", run: () => undefined },
+  ];
+
   const markerMenu = (m: SampleMarker, at: { x: number; y: number }) => {
     const diff = markerDiff(m);
+    select({ kind: "marker", id: m.id });
     setMenu({
       ...at,
       label: `${m.name} menu`,
       entries: tidyEntries([
-        ...MARKER_TYPE_ORDER.map((t) => ({ id: `type-${t}`, label: `${m.type === t ? "✓ " : ""}${MARKER_TYPE_NAMES[t]}`, run: () => commit(updateMarker(e, m.id, { type: t })) })),
+        { kind: "group", label: `${MARKER_TYPE_NAMES[m.type]} · ${hasFixedName(m.type) ? MARKER_TYPE_NAMES[m.type] : m.name}` },
+        !hasFixedName(m.type) && { id: "rename", label: m.type === "cue" ? "Rename cue…" : "Rename…", hint: "F2", disabled: ro, run: () => setEditing({ ...at, label: m.type === "cue" ? "Cue name" : "Name", value: m.name, keep: (t) => (t.trim() && commit(updateMarker(e, m.id, { name: t.trim() })), setEditing(null)) }) },
+        { id: "note", label: m.note ? "Edit note…" : "Add note…", disabled: ro, run: () => setEditing({ ...at, label: "Note", value: m.note ?? "", multiline: true, keep: (t) => (commit(updateMarker(e, m.id, { note: t })), setEditing(null)) }) },
+        { kind: "group", label: "Type" },
+        ...MARKER_TYPE_ORDER.map((t) => ({ id: `type-${t}`, label: MARKER_TYPE_NAMES[t], checked: m.type === t, disabled: ro, run: () => commit(updateMarker(e, m.id, { type: t })) })),
+        m.type === "note" && SEPARATOR,
+        m.type === "note" && { id: "colour", label: "Colour", disabled: ro, submenu: colourMenu(m.color, (c) => commit(updateMarker(e, m.id, { color: c }))), run: () => undefined },
         SEPARATOR,
-        m.type === "note" && { id: "convert", label: m.end !== undefined ? "Convert to point" : "Convert to range", run: () => commit(convertMarker(e, m.id, length)) },
+        m.type === "note" && { id: "convert", label: m.end !== undefined ? "Convert to point" : "Convert to range", disabled: ro, run: () => commit(convertMarker(e, m.id, length)) },
         { id: "play", label: "Play from here", run: () => act.togglePlay({ kind: "marker", id: m.id }) },
+        m.file && { id: "revert", label: "Revert to file", disabled: ro || diff.length === 0, run: () => commit(revertMarker(e, m.id)) },
+        m.file && { id: "detach", label: "Detach from file", disabled: ro, run: () => commit(detachMarker(e, m.id)) },
         SEPARATOR,
-        m.file && { id: "revert", label: "Revert to file", disabled: diff.length === 0, run: () => commit(revertMarker(e, m.id)) },
-        m.file && { id: "detach", label: "Detach from file", run: () => commit(detachMarker(e, m.id)) },
-        SEPARATOR,
-        { id: "delete", label: "Delete", hint: "Del", danger: true, run: () => commit(deleteMarker(e, m.id)) },
+        { id: "delete", label: "Delete", hint: "Del", danger: true, disabled: ro, run: () => (commit(deleteMarker(e, m.id)), select({ kind: "sample" })) },
       ]),
     });
   };
 
-  const loopMenu = (id: string, at: { x: number; y: number }) => {
-    const l = e.loops.find((y) => y.id === id)!;
+  const loopMenu = (l: SampleLoop, at: { x: number; y: number }) => {
+    const set = (patch: Parameters<typeof updateLoop>[2]) => commit(updateLoop(e, l.id, patch));
+    select({ kind: "loop", id: l.id });
     setMenu({
       ...at,
-      label: "Loop menu",
+      label: `${loopName(e, l.id)} menu`,
       entries: tidyEntries([
-        { id: "play", label: "Play loop", run: () => act.togglePlay({ kind: "loop", id }) },
+        { kind: "group", label: loopName(e, l.id) },
+        { id: "note", label: l.note ? "Edit note…" : "Add note…", disabled: ro, run: () => setEditing({ ...at, label: "Note", value: l.note ?? "", multiline: true, keep: (t) => (set({ note: t }), setEditing(null)) }) },
+        { id: "play", label: "Play loop", run: () => act.togglePlay({ kind: "loop", id: l.id }) },
+        { kind: "group", label: "Active" },
+        ...(["always", "held", "parameter"] as const).map((a) => ({ id: a, label: { always: "Always", held: "While held", parameter: "Parameter" }[a], checked: l.active === a, disabled: ro, run: () => set({ active: a }) })),
+        { kind: "group", label: "Repeats" },
+        ...[0, 1, 2, 4].map((n) => ({ id: `rep${n}`, label: n === 0 ? "∞ until it stops being active" : `${n} time${n === 1 ? "" : "s"}`, checked: l.count === n, disabled: ro, run: () => set({ count: n }) })),
+        { kind: "group", label: "Direction" },
+        ...(["forward", "pingPong", "backward"] as const).map((d) => ({ id: d, label: { forward: "Forward", pingPong: "Alternating", backward: "Backward" }[d], checked: l.direction === d, disabled: ro, run: () => set({ direction: d }) })),
+        l.active !== "always" && { kind: "group", label: "On exit" },
+        ...(l.active !== "always"
+          ? [
+              ...(["finish", "jump", "crossfade"] as const).map((x) => ({ id: `exit-${x}`, label: { finish: "Finish the pass", jump: "Jump now", crossfade: "Crossfade" }[x], checked: l.exit === x, disabled: ro, run: () => set({ exit: x }) })),
+              { id: "reentry", label: "Re-enter if active again", checked: l.reentry === "reenter", disabled: ro, run: () => set({ reentry: l.reentry === "reenter" ? "ignore" : "reenter" }) },
+            ]
+          : []),
         SEPARATOR,
-        ...(["forward", "pingPong", "backward"] as const).map((d) => ({ id: d, label: `${l.direction === d ? "✓ " : ""}${{ forward: "Forward", pingPong: "Ping-pong", backward: "Backward" }[d]}`, run: () => commit(updateLoop(e, id, { direction: d })) })),
-        SEPARATOR,
-        ...(["always", "held", "parameter"] as const).map((a) => ({ id: a, label: `${l.active === a ? "✓ " : ""}Active: ${{ always: "Always", held: "While held", parameter: "Parameter" }[a]}`, run: () => commit(updateLoop(e, id, { active: a })) })),
-        { id: "reentry", label: `${l.reentry === "reenter" ? "✓ " : ""}Re-enter on play`, run: () => commit(updateLoop(e, id, { reentry: l.reentry === "reenter" ? "ignore" : "reenter" })) },
-        SEPARATOR,
-        l.file && { id: "revert", label: "Revert to file", run: () => commit(revertLoop(e, id)) },
-        { id: "remove", label: "Remove loop", danger: true, run: () => commit(removeLoop(e, id)) },
+        l.file && { id: "revert", label: "Revert to file", disabled: ro, run: () => commit(revertLoop(e, l.id)) },
+        { id: "remove", label: "Remove loop", hint: "Del", danger: true, disabled: ro, run: () => (commit(removeLoop(e, l.id)), select({ kind: "sample" })) },
+      ]),
+    });
+  };
+
+  /** Trim, Pickup, Link and Tail (reserved ranges): what they can do. */
+  const reservedMenu = (s: SampleSelection, at: { x: number; y: number }) => {
+    select(s);
+    const name = { trim: "Trim", pickup: "Pickup", link: "Link", tail: "Tail" }[s.kind as "trim"] ?? "Range";
+    const span = selectionSpan(s, e, length);
+    setMenu({
+      ...at,
+      label: `${name} menu`,
+      entries: tidyEntries([
+        { kind: "group", label: name },
+        { id: "play", label: `Play ${name.toLowerCase()}`, run: () => act.togglePlay(s) },
+        { id: "zoom", label: `Zoom to the ${name.toLowerCase()}`, hint: "Z", run: () => act.zoomToSelection() },
+        s.kind === "trim" && { id: "reset", label: "Reset to the whole file", disabled: ro || !e.trim, run: () => commit(resetTrim(e)) },
+        s.kind !== "trim" && span && { id: "loop", label: "Add a loop here", disabled: ro, run: () => act.addLoopHere((span.start + span.end) / 2) },
       ]),
     });
   };
@@ -191,332 +307,574 @@ function Timeline(props: { session: SampleSession }) {
       toggle: () => commit(toggleSnippet(e, index, length)),
       closeGap: () => act.closeSnippetGap(index),
     };
+    const s = cutSnippets.find((y) => y.index === index);
     const items: MenuEntry[] = snippetMenu(e, length, index).map((item) => ({
       id: item.id,
       label: item.label,
-      disabled: session.readOnly || item.refused !== null,
+      hint: item.id === "toggle" ? "Del" : undefined,
+      disabled: ro || item.refused !== null,
       title: item.refused ?? undefined,
       danger: item.danger,
       run: run[item.id],
     }));
-    setMenu({ ...at, label: `Snippet ${index} menu`, entries: tidyEntries([items[0], SEPARATOR, items[1], items[2], SEPARATOR, items[3], items[4]]) });
+    const caption = s ? `${s.name} · ${formatTime(v(s.start), fmt, ctx)} – ${formatTime(v(s.end), fmt, ctx)}` : `Snippet ${index}`;
+    setMenu({ ...at, label: `Snippet ${index} menu`, entries: tidyEntries([{ kind: "group", label: caption }, items[0], SEPARATOR, items[1], items[2], SEPARATOR, items[3], items[4]]) });
   };
 
-  const onKeyDown = (ev: KeyboardEvent) => {
-    if (ev.key === "Escape" && razorOn.value) {
-      razorOn.value = false;
-      ev.preventDefault();
-    }
+  // --- keys on a focused timeline item (spec §4.1.11) -----------------------------------------------------------------
+
+  /** One snap step in seconds (10 ms without one). */
+  const stepSeconds = () => {
+    const s = snapSetting.value;
+    const sec = s.unit === "ms" ? s.step / 1000 : s.unit === "samples" ? s.step / rate : ctx.bpm ? (s.step * 60) / ctx.bpm : 0.01;
+    return sec > 0 ? sec : 0.01;
+  };
+  const itemKeys = (ev: KeyboardEvent, it: { at: number; end?: number; move(at: number, end?: number): void; remove(): void; menu(at: { x: number; y: number }): void; rename?(at: { x: number; y: number }): void }) => {
+    const box = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+    const at = { x: box.left, y: box.bottom + 2 };
+    const d = (ev.shiftKey && !ev.altKey ? 10 : 1) * stepSeconds();
+    if (ev.key === "ArrowLeft" || ev.key === "ArrowRight") {
+      const dir = ev.key === "ArrowLeft" ? -1 : 1;
+      if (ev.altKey && it.end !== undefined && ev.shiftKey) it.move(it.at, it.end + dir * stepSeconds());
+      else if (ev.altKey) it.move(it.at + dir * stepSeconds(), it.end);
+      else it.move(it.at + dir * d, it.end !== undefined ? it.end + dir * d : undefined);
+    } else if (ev.key === "Enter") act.movePlayhead(it.at);
+    else if (ev.key === "Delete" || ev.key === "Backspace") it.remove();
+    else if (ev.key === "F2" && it.rename) it.rename(at);
+    else if ((ev.key === "F10" && ev.shiftKey) || ev.key === "ContextMenu") it.menu(at);
+    else if (ev.key === "Escape") (ev.currentTarget as HTMLElement).closest<HTMLElement>(".smp-tl")?.focus();
+    else return;
+    ev.preventDefault();
+    ev.stopPropagation();
   };
 
-  return (
-    <Panel
-      class="smp-timeline"
-      toolbar={
-        <div class="smp-toolbar" role="toolbar" aria-label="Sample tools">
-          <span class="smp-file" title={session.path}>{nameOf(session.path)}</span>
-          <SaveSplitButton
-            canSave={!session.readOnly}
-            whyNoWrite={session.readOnly ? "The project is read-only" : !/\.wave?$/i.test(source) ? "Only a WAV file can carry markers and loops" : null}
-            canFork={!session.readOnly}
-            saveKeys={formatKeys("Mod+S", mac)}
-            forkKeys={formatKeys("Mod+Shift+S", mac)}
-            onSave={act.save}
-            onWrite={() => (dialog.value = { kind: "write" })}
-            onFork={() => (dialog.value = { kind: "fork", mode: "fork" })}
-          />
-          <button class="smp-tool smp-tool-icon" aria-label="Re-import…" title="Replace the audio with a new file, keeping the edits (the current audio is kept as a version)" disabled={session.readOnly || session.derived.value !== null} onClick={() => (dialog.value = { kind: "reimport" })}>
-            <Icon name="import" />
-            <span class="smp-hide-narrow">Re-import…</span>
-          </button>
-          <HistoryPopover none="No edits yet" />
-          <span class="smp-sep" aria-hidden="true" />
-          <TempoPopover edits={e} commit={(r) => commit(r)} detect={detect} disabled={session.readOnly} />
-          <RootPopover edits={e} commit={(r) => commit(r)} detect={detect} disabled={session.readOnly} />
-          <NormalizePopover edits={e} measured={loudnessOf(project, source)} bextLoudness={wav?.bext?.loudnessValue ?? null} commit={(r) => commit(r)} disabled={session.readOnly} />
-          <span class="smp-sep" aria-hidden="true" />
-          <button class="smp-tool smp-tool-icon" title="Add marker at the playhead (M)" disabled={session.readOnly} onClick={act.addMarkerAtPlayhead}>
-            <Icon name="plus" />
-            Marker
-          </button>
-          <button class="smp-tool smp-tool-icon" title="Add loop in the largest free gap (L adds one at the playhead)" disabled={session.readOnly} onClick={() => commit(addLoop(e, length))}>
-            <Icon name="plus" />
-            Loop
-          </button>
-          <button class={`smp-tool${razorOn.value ? " on" : ""}`} aria-pressed={razorOn.value} title="Razor (C): click the waveform to snip; S snips at the playhead" disabled={session.readOnly} onClick={act.toggleRazor}>Razor</button>
-          <SnapPopover snap={snapSetting.value} zero={e.snapToZero} onSnap={(s) => (snapSetting.value = s)} onZero={(on) => commit(setSnapToZero(e, on))} />
-          <TimeFormatPopover value={fmt} hasTempo={!!e.tempo} onChange={(f) => (timeFormat.value = f)} />
+  // --- toolbar ---------------------------------------------------------------------------------------------------------
+
+  const toolbar = (
+    <div class="smp-toolbar" role="toolbar" aria-label="Sample tools">
+      <span class="smp-file" title={session.path}>{nameOf(session.path)}</span>
+      <SaveSplitButton
+        canSave={!ro}
+        whyNoWrite={ro ? "The project is read-only" : !/\.wave?$/i.test(source) ? "Only a WAV file can carry markers and loops" : null}
+        canFork={!ro}
+        saveKeys={formatKeys("Mod+S", mac)}
+        forkKeys={formatKeys("Mod+Shift+S", mac)}
+        onSave={act.save}
+        onWrite={() => (dialog.value = { kind: "write" })}
+        onFork={() => (dialog.value = { kind: "fork", mode: "fork" })}
+      />
+      <span class="smp-vsep" aria-hidden="true" />
+      <HistoryPopover none="No edits yet" />
+      <span class="smp-vsep" aria-hidden="true" />
+      <VersionMenu session={session} />
+      <button type="button" class={`smp-sbtn smp-ab${ab ? " on" : ""}`} aria-pressed={ab} aria-label="A/B: hear the source without edits"
+        title={ab ? "Hearing and showing the source without edits · click to show the edits" : "A/B: hear and show the source with every edit bypassed (not Hear as, which compares platforms)"} onClick={() => (abSource.value = !ab)}>
+        A/B
+      </button>
+      <span class="smp-flex" />
+      <RootPopover edits={e} commit={(r) => commit(r)} detect={detect} disabled={ro} />
+      <NormalizePopover edits={e} measured={loudnessOf(project, source)} bextLoudness={wav?.bext?.loudnessValue ?? null} commit={(r) => commit(r)} disabled={ro} />
+      <IconTool icon="addMarker" label="Add marker" title="Add marker at the playhead (M)" disabled={ro} onClick={act.addMarkerAtPlayhead} />
+      <IconTool icon="addLoop" label="Add loop" title={`Add loop: in the largest free space (${e.loops.length} loop${e.loops.length === 1 ? "" : "s"}). You can also double-click the pickup, a link or the tail; L adds one at the playhead. Plays pickup → each loop in order → tail.`} disabled={ro} onClick={() => commit(addLoop(e, length))} />
+      <IconTool icon="razor" label="Razor snipping" title="Razor snipping (C): click the waveform to snip; S snips at the playhead · Esc to stop" pressed={razorOn.value} disabled={ro} onClick={act.toggleRazor} />
+      <SnapSplit snap={snapSetting.value} zero={e.snapToZero} format={fmt} hasTempo={!!e.tempo} onSnap={(s) => (snapSetting.value = s)} onZero={(on) => commit(setSnapToZero(e, on))} />
+    </div>
+  );
+
+  // --- markers ---------------------------------------------------------------------------------------------------------
+
+  const markerEls = e.markers.map((m) => {
+    const mx = x(m.at);
+    if (mx < -200 || mx > width + 10) return null;
+    const outside = m.at < ta || m.at > tb;
+    const on = sel.kind === "marker" && sel.id === m.id;
+    const range = m.end !== undefined;
+    const label = `${m.type === "cue" ? "↯ " : ""}${hasFixedName(m.type) ? MARKER_TYPE_NAMES[m.type] : m.name}`;
+    const startDrag = (ev: PointerEvent, part: "body" | "start" | "end") => {
+      select({ kind: "marker", id: m.id });
+      if (ro) return;
+      const offset = xToTime(ev.clientX - lanes.current!.getBoundingClientRect().left, view, width) - v(part === "end" ? m.end! : m.at);
+      drag(ev, lanes.current!, view, (vt, done) => {
+        const t = toSrc(vt - offset);
+        const now = session.edits.peek();
+        const cur = now.markers.find((y) => y.id === m.id);
+        if (!cur || done) return;
+        if (part === "end") commit(moveMarker(now, m.id, cur.at, length, Math.max(cur.at + 0.001, t)), true);
+        else if (part === "start" && cur.end !== undefined) commit(moveMarker(now, m.id, Math.min(t, cur.end - 0.001), length, cur.end), true);
+        else commit(moveMarker(now, m.id, t, length, cur.end !== undefined ? t + (cur.end - cur.at) : undefined), true);
+      });
+    };
+    const keys = (ev: KeyboardEvent) =>
+      itemKeys(ev, {
+        at: m.at,
+        end: m.end,
+        move: (at, end) => commit(moveMarker(session.edits.peek(), m.id, at, length, end)),
+        remove: () => (commit(deleteMarker(e, m.id)), select({ kind: "sample" })),
+        menu: (at) => markerMenu(m, at),
+        rename: hasFixedName(m.type) ? undefined : (at) => setEditing({ ...at, label: "Name", value: m.name, keep: (t) => (t.trim() && commit(updateMarker(e, m.id, { name: t.trim() })), setEditing(null)) }),
+      });
+    const tip = `${MARKER_TYPE_NAMES[m.type]} · ${m.name} · ${formatTime(v(m.at), fmt, ctx)}${range ? ` – ${formatTime(v(m.end!), fmt, ctx)}` : ""}${m.note ? `\n${m.note}` : ""}${m.file ? `\nFrom file · ${fileOrigin(m)}` : ""}${outside ? "\nOutside the trim · won't play" : ""}\nDrag to move · right-click for more`;
+    const common = {
+      key: m.id,
+      role: "button" as const,
+      tabIndex: 0,
+      "aria-pressed": on,
+      "aria-label": `${MARKER_TYPE_NAMES[m.type]} marker ${m.name} at ${formatTime(v(m.at), fmt, ctx)}`,
+      "aria-keyshortcuts": "ArrowLeft ArrowRight Enter Delete F2 Shift+F10",
+      title: tip,
+      onKeyDown: keys,
+      onFocus: () => !on && select({ kind: "marker", id: m.id }),
+      onContextMenu: (ev: MouseEvent) => (ev.preventDefault(), markerMenu(m, point(ev))),
+      onDblClick: (ev: MouseEvent) => ev.stopPropagation(),
+    };
+    const style = { top: `${(rows.get(m.id) ?? 0) * ROW_PX + 2}px`, "--mc": markerColour(m) };
+    if (range) {
+      return (
+        <div {...common} class={`smp-mr${on ? " on" : ""}${outside ? " oot" : ""}`} style={{ ...style, left: `${mx}px`, width: `${Math.max(14, x(m.end!) - mx)}px` }} onPointerDown={(ev) => startDrag(ev, "body")}>
+          <span class="smp-cp" aria-hidden="true" onPointerDown={(ev) => startDrag(ev, "start")} />
+          <span class="smp-mt">{m.file ? "▪ " : ""}{label}</span>
+          <span class="smp-cp" aria-hidden="true" onPointerDown={(ev) => startDrag(ev, "end")} />
         </div>
-      }
-    >
-      <div class="smp-tl" data-asset-document={session.documentPath} data-keyscope="samples-timeline" tabIndex={0} aria-label={`${nameOf(session.path)} timeline`} onKeyDown={onKeyDown}>
-        {disk && (
-          <div class="smp-banner" role="status">
-            <span>{nameOf(source)} changed on disk. {disk.summary}</span>
-            <Icon name="warning" />
-            <button onClick={() => (dialog.value = { kind: "merge" })}>Review changes…</button>
-            <button onClick={() => (diskChange.value = null)}>Ignore</button>
-          </div>
+      );
+    }
+    return (
+      <div {...common} class={`smp-mp${on ? " on" : ""}${outside ? " oot" : ""}${m.file ? " ff" : ""}${m.type === "entry" ? " entry" : ""}`} style={{ ...style, left: `${mx}px` }} onPointerDown={(ev) => startDrag(ev, "body")}>
+        {label}
+      </div>
+    );
+  });
+
+  // --- reserved rows (loops, trim) --------------------------------------------------------------------------------------
+
+  const ACTIVE_ICON: Record<SampleLoop["active"], SampleIconName> = { always: "endless", held: "held", parameter: "parameter" };
+  const loopRow = loopRegions(e, length).map((r) => {
+    const rx = x(r.start);
+    const hold = r.kind === "loop" && r.loop && isHold(r.loop);
+    const rw = hold ? 2 : Math.max(6, x(r.end) - rx);
+    const on = isSel(r.selection);
+    const ro2 = r.kind !== "loop";
+    const label = r.kind === "loop" && r.loop ? loopLabel(e, r.loop) : r.label;
+    const tips: Record<string, string> = {
+      pickup: "Pickup · plays once before the first loop · starts at trim start, ends at the first loop start · double-click to add a loop here",
+      link: "Link · plays once between two loops · double-click to add a loop here",
+      tail: "Tail · plays once after the last loop · ends at trim end · double-click to add a loop here",
+      loop: r.loop ? `${loopName(e, r.loop.id)} · ${{ always: "always", held: "while held", parameter: "by a parameter" }[r.loop.active]} · ${{ forward: "forward", pingPong: "ping-pong", backward: "backward" }[r.loop.direction]} · ${r.loop.count ? `${r.loop.count}×` : "repeats while active"}${r.loop.file ? " · from the WAV file" : ""} · drag the ends or slide the body` : "",
+    };
+    const grab = (ev: PointerEvent, edge: "start" | "end" | "body") => {
+      select(r.selection);
+      if (r.kind !== "loop" || !r.loop || ro) return;
+      const l = r.loop;
+      const g = xToTime(ev.clientX - lanes.current!.getBoundingClientRect().left, view, width) - v(l.start);
+      drag(ev, lanes.current!, view, (vt) => {
+        const now = session.edits.peek();
+        const cur = now.loops.find((y) => y.id === l.id);
+        if (!cur) return;
+        if (edge === "body") commit(slideLoop(now, l.id, toSrc(vt - g), length), true);
+        else if (edge === "start") commit(moveLoop(now, l.id, toSrc(vt, true), cur.end, length), true);
+        else commit(moveLoop(now, l.id, cur.start, toSrc(vt, true), length), true);
+      });
+    };
+    const token = r.kind === "link" ? "--range-pickup" : r.token;
+    return (
+      <div
+        key={`${r.kind}${r.start}`}
+        class={`smp-mr smp-rg ${r.kind}${ro2 ? " ro" : ""}${on ? " on" : ""}${hold ? " z" : ""}`}
+        style={{ left: `${rx}px`, width: `${rw}px`, top: "2px", "--mc": `var(${token})` }}
+        role="button"
+        tabIndex={0}
+        aria-pressed={on}
+        aria-label={`${r.kind === "loop" && r.loop ? loopName(e, r.loop.id) : r.label} ${formatTime(v(r.start), fmt, ctx)} to ${formatTime(v(r.end), fmt, ctx)}`}
+        title={`${tips[r.kind]}\n${formatTime(v(r.start), fmt, ctx)} – ${formatTime(v(r.end), fmt, ctx)}`}
+        onPointerDown={(ev) => grab(ev, "body")}
+        onFocus={() => !on && select(r.selection)}
+        onKeyDown={(ev) => {
+          if (r.kind === "loop" && r.loop) {
+            const l = r.loop;
+            itemKeys(ev, {
+              at: l.start,
+              end: l.end,
+              move: (a, b) => commit(moveLoop(session.edits.peek(), l.id, a, b ?? l.end, length)),
+              remove: () => (commit(removeLoop(e, l.id)), select({ kind: "sample" })),
+              menu: (at) => loopMenu(l, at),
+            });
+          } else if (ev.key === "Enter") {
+            act.movePlayhead(r.start);
+            ev.preventDefault();
+          } else if ((ev.key === "F10" && ev.shiftKey) || ev.key === "ContextMenu") {
+            const b = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+            reservedMenu(r.selection, { x: b.left, y: b.bottom + 2 });
+            ev.preventDefault();
+          }
+        }}
+        onDblClick={(ev) => {
+          if (r.kind === "loop") return;
+          const lr = lanes.current!.getBoundingClientRect();
+          act.addLoopHere(toSrc(xToTime(ev.clientX - lr.left, view, width)));
+        }}
+        onContextMenu={(ev) => {
+          ev.preventDefault();
+          if (r.loop) loopMenu(r.loop, point(ev));
+          else reservedMenu(r.selection, point(ev));
+        }}
+      >
+        {!ro2 && !hold && <span class="smp-cp live" aria-hidden="true" onPointerDown={(ev) => grab(ev, "start")} />}
+        {hold && r.loop ? (
+          <span class="smp-hold-icon" aria-hidden="true"><SampleIcon name={ACTIVE_ICON[r.loop.active]} size={11} /></span>
+        ) : (
+          <span class="smp-mt">
+            {r.loop && <SampleIcon name={ACTIVE_ICON[r.loop.active]} size={11} />}
+            {label}
+          </span>
         )}
-        <div class="smp-lanes" ref={lanes}>
-          {/* Marker rows */}
-          <div
-            class="smp-markers"
-            style={{ height: `${MARKER_ROWS_SHOWN * ROW_PX + 4}px` }}
-            onDblClick={(ev) => {
-              if ((ev.target as HTMLElement).closest(".smp-marker")) return;
-              const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
-              const res = addMarker(e, toSrc(xToTime(ev.clientX - r.left, view, r.width)), length);
-              if (commit(res) && "next" in res) select({ kind: "marker", id: res.next.markers.find((m) => !e.markers.some((y) => y.id === m.id))!.id });
-            }}
-            onPointerMove={(ev) => {
-              if ((ev.target as HTMLElement).closest(".smp-marker")) return setGhost(null);
-              const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
-              setGhost({ x: ev.clientX - r.left, row: Math.floor((ev.clientY - r.top + (ev.currentTarget as HTMLElement).scrollTop) / ROW_PX) });
-            }}
-            onPointerLeave={() => setGhost(null)}
-          >
-            <div class="smp-markers-inner" style={{ height: `${rowCount * ROW_PX}px` }}>
-              {e.markers.map((m) => {
-                const mx = x(m.at);
-                if (mx < -200 || mx > width + 10) return null;
-                const outside = m.at < ta || m.at > tb;
-                const token = m.type === "note" && m.color !== undefined ? (typeof m.color === "number" ? `var(--series-${m.color})` : m.color) : `var(${MARKER_TOKENS[m.type]})`;
-                const on = sel.kind === "marker" && sel.id === m.id;
-                return (
-                  <div
-                    key={m.id}
-                    class={`smp-marker${m.type === "entry" ? " entry" : ""}${on ? " on" : ""}${m.file ? " ff" : ""}${outside ? " outside" : ""}`}
-                    style={{ left: `${mx}px`, top: `${(rows.get(m.id) ?? 0) * ROW_PX}px`, width: m.end !== undefined ? `${Math.max(2, x(m.end) - mx)}px` : undefined, "--mk": token }}
-                    role="button"
-                    tabIndex={-1}
-                    aria-pressed={on}
-                    title={`${MARKER_TYPE_NAMES[m.type]} · ${m.name} · ${formatTime(v(m.at), fmt, ctx)}${m.note ? `\n${m.note}` : ""}${m.file ? `\nFrom file · ${fileOrigin(m)}` : ""}${outside ? "\nOutside the trim · won't play" : ""}`}
-                    onPointerDown={(ev) => {
-                      select({ kind: "marker", id: m.id });
-                      const grabEnd = m.end !== undefined && (ev.target as HTMLElement).classList.contains("smp-marker-end");
-                      const offset = xToTime(ev.clientX - lanes.current!.getBoundingClientRect().left, view, width) - v(grabEnd ? m.end! : m.at);
-                      drag(ev, lanes.current!, view, (vt, done) => {
-                        const t = toSrc(vt - offset);
-                        const now = session.edits.peek();
-                        const cur = now.markers.find((y) => y.id === m.id);
-                        if (!cur) return;
-                        if (!done) commit(grabEnd ? moveMarker(now, m.id, cur.at, length, t) : moveMarker(now, m.id, t, length), true);
-                      });
-                    }}
-                    onContextMenu={(ev) => {
-                      ev.preventDefault();
-                      markerMenu(m, { x: ev.clientX, y: ev.clientY });
-                    }}
-                  >
-                    <span class="smp-marker-label">
-                      {m.type === "cue" ? "↯ " : ""}
-                      {outside && <Icon name="warning" size={11} />}
-                      {hasFixedName(m.type) ? MARKER_TYPE_NAMES[m.type] : m.name}
-                    </span>
-                    {m.end !== undefined && <span class="smp-marker-end" aria-hidden="true" />}
-                  </div>
-                );
-              })}
-              {ghost && !session.readOnly && (
-                <div class="smp-marker-ghost" style={{ left: `${ghost.x}px`, top: `${Math.min(ghost.row, rowCount - 1) * ROW_PX}px` }} aria-hidden="true">
-                  Double-click to add a marker
-                </div>
+        {!ro2 && !hold && <span class="smp-cp live" aria-hidden="true" onPointerDown={(ev) => grab(ev, "end")} />}
+      </div>
+    );
+  });
+
+  const trimOn = sel.kind === "trim";
+  const trimRow = (
+    <div
+      class={`smp-mr smp-rg trim${trimOn ? " on" : ""}`}
+      style={{ left: `${x(ta)}px`, width: `${Math.max(14, x(tb) - x(ta))}px`, top: "2px", "--mc": "var(--range-trim)" }}
+      role="button"
+      tabIndex={0}
+      aria-pressed={trimOn}
+      aria-label={`Trim ${formatTime(v(ta), fmt, ctx)} to ${formatTime(v(tb), fmt, ctx)}`}
+      title={`Trim: audio outside never plays · drag the ends to trim, the body to slide · double-click to reset to the full file\n${formatTime(v(ta), fmt, ctx)} – ${formatTime(v(tb), fmt, ctx)}`}
+      onDblClick={() => commit(resetTrim(e))}
+      onFocus={() => !trimOn && select({ kind: "trim" })}
+      onContextMenu={(ev) => (ev.preventDefault(), reservedMenu({ kind: "trim" }, point(ev)))}
+      onKeyDown={(ev) =>
+        itemKeys(ev, {
+          at: ta,
+          end: tb,
+          move: (a, b) => commit(setTrim(session.edits.peek(), a, b ?? tb, length)),
+          remove: () => commit(resetTrim(e)),
+          menu: (at) => reservedMenu({ kind: "trim" }, at),
+        })
+      }
+      onPointerDown={(ev) => {
+        select({ kind: "trim" });
+        if (ro) return;
+        const el = ev.currentTarget as HTMLElement;
+        const lx = ev.clientX - el.getBoundingClientRect().left;
+        const w = el.getBoundingClientRect().width;
+        const near = Math.min(edgePx(ev, 8), w / 3);
+        const edge = lx < near ? "start" : lx > w - near ? "end" : "body";
+        const grab = xToTime(ev.clientX - lanes.current!.getBoundingClientRect().left, view, width) - v(ta);
+        drag(ev, lanes.current!, view, (vt) => {
+          const now = session.edits.peek();
+          const [a, b] = trimOf(now, length);
+          if (edge === "start") commit(setTrim(now, toSrc(vt, true), b, length), true);
+          else if (edge === "end") commit(setTrim(now, a, toSrc(vt, true), length), true);
+          else {
+            const na = toSrc(vt - grab);
+            commit(setTrim(now, na, na + (b - a), length), true);
+          }
+        });
+      }}
+    >
+      <span class="smp-cp live" aria-hidden="true" />
+      <span class="smp-mt">{e.loops.length === 0 ? `Plays · ${formatTime(v(tb) - v(ta), fmt, ctx)}` : "Trim"}</span>
+      <span class="smp-cp live" aria-hidden="true" />
+    </div>
+  );
+
+  // --- guides (dotted lines from each item's edges through the waveform) ----------------------------------------------
+
+  const guides: { x: number; top: number; color: string; on: boolean }[] = [];
+  const visibleTop = (row: number) => Math.max(0, Math.min(MARKER_AREA_PX, row * ROW_PX + 4 - scrollTop));
+  for (const m of e.markers) {
+    const on = sel.kind === "marker" && sel.id === m.id;
+    const top = visibleTop((rows.get(m.id) ?? 0) + 1);
+    for (const t of m.end !== undefined ? [m.at, m.end] : [m.at]) guides.push({ x: x(t), top, color: markerColour(m), on });
+  }
+  for (const l of e.loops) {
+    const on = sel.kind === "loop" && sel.id === l.id;
+    for (const t of isHold(l) ? [l.start] : [l.start, l.end]) guides.push({ x: x(t), top: MARKER_AREA_PX + RULER_PX + RESERVED_ROW_PX, color: "var(--range-loop)", on });
+  }
+  if (e.trim) for (const t of [ta, tb]) guides.push({ x: x(t), top: MARKER_AREA_PX + RULER_PX + 2 * RESERVED_ROW_PX, color: "var(--range-trim)", on: trimOn });
+
+  // --- the audio lane ----------------------------------------------------------------------------------------------------
+
+  const fxChips: FxChip[] = [
+    ...(ab ? [{ id: "ab", label: "A/B · source", tip: "Showing the source without edits · click to show the edits", tone: "on" as const, run: () => (abSource.value = false) }] : []),
+    ...e.effects.map((f) => ({ id: f.id, label: effectChip(f), tip: `${effectSpec(f.type).label}${f.on ? "" : " · bypassed"} · click to show the waveform after this step`, tone: !f.on ? ("off" as const) : fxFocus.value === f.id ? ("on" as const) : undefined, run: () => (fxFocus.value = fxFocus.value === f.id ? null : f.id) })),
+    ...(e.normalize.mode !== "off" ? [{ id: "norm", label: `Norm ${e.normalize.target} ${e.normalize.mode === "loudness" ? "LUFS" : "dBFS"}`, tip: `Normalize · gain ${e.normalize.gainDb > 0 ? "+" : ""}${e.normalize.gainDb.toFixed(1)} dB, applied last` }] : []),
+    ...(e.frozen ? [{ id: "frozen", label: "Frozen", tip: "The render is kept as fixed audio", tone: "info" as const }] : []),
+  ];
+  const clips = clipRuns(shown, view, width);
+  if (clips.length) fxChips.push({ id: "clips", label: "Clips", tip: "The audio reaches full scale here: lower the gain or the normalize target", tone: "danger" });
+
+  const playBand = mine ? { left: x(mine.plan.from), width: Math.max(2, x(mine.plan.to) - x(mine.plan.from)) } : null;
+  const trimDimL = e.trim ? Math.max(0, x(ta)) : 0;
+  const trimDimR = e.trim ? Math.max(0, width - x(tb)) : 0;
+
+  const laneChildren = (
+    <>
+      {outline && views.wave && <WaveOutline mips={outline} view={view} />}
+      {views.wave && <ClipTicks runs={clips} />}
+      {playBand && <div class="smp-pband" style={{ left: `${playBand.left}px`, width: `${playBand.width}px` }} aria-hidden="true" />}
+      {trimDimL > 0 && <div class="smp-dim" style={{ left: 0, width: `${trimDimL}px` }} aria-hidden="true" />}
+      {trimDimR > 0 && <div class="smp-dim" style={{ right: 0, width: `${trimDimR}px` }} aria-hidden="true" />}
+      {cutSnippets.length > 1 &&
+        cutSnippets.map((s) => {
+          const sx = x(s.start), sw = x(s.end) - sx;
+          if (sx + sw < 0 || sx > width) return null;
+          const on = sel.kind === "snippet" && sel.index === s.index;
+          const gap = s.deleted ? refusalOf(closeGap(e, s.index, length)) : null;
+          const keep = (ev: Event) => ev.stopPropagation();
+          return (
+            <div key={s.start} class={`smp-seg${on ? " sel" : ""}${s.deleted ? " gone" : ""}`} style={{ left: `${sx}px`, width: `${sw}px` }}>
+              <span class="smp-segl" aria-hidden="true">{s.deleted ? `${s.name} · deleted` : s.name}</span>
+              {s.deleted && !ro && sw > 60 && (
+                <button type="button" class="smp-gapb" disabled={gap !== null} title={gap ?? "Close gap: slide everything after it up to the snippet in front"} aria-label={`Close ${s.name}'s gap`}
+                  onPointerDown={keep} onDblClick={keep} onClick={() => act.closeSnippetGap(s.index)}>
+                  ⇤ Close gap
+                </button>
               )}
             </div>
+          );
+        })}
+      {e.cuts.map((c) => {
+        const after = cutSnippets.find((s) => Math.abs(s.start - c) < 1e-6);
+        const tape = after ? refusalOf(tapeSnippet(e, after.index, "left", length)) : "no snippet there";
+        const keep = (ev: Event) => ev.stopPropagation();
+        return (
+          <Fragment key={c}>
+            <div class="smp-cut" style={{ left: `${x(c)}px` }} aria-hidden="true" />
+            {!ro && after && (
+              <button type="button" class="smp-tape" style={{ left: `${x(c)}px` }} disabled={tape !== null} title={tape ?? `Tape: join Snippet ${after.index - 1} and ${after.name} back into one`} aria-label={`Tape Snippet ${after.index - 1} to ${after.name}`}
+                onPointerDown={keep} onDblClick={keep} onClick={() => commit(tapeSnippet(e, after.index, "left", length))}>
+                <SampleIcon name="tape" size={10} />
+              </button>
+            )}
+          </Fragment>
+        );
+      })}
+      {razorOn.value && hoverTime.value !== null && <div class="smp-rzg" style={{ left: `${timeToX(hoverTime.value, view, width)}px` }} aria-hidden="true" />}
+      <FxChips chips={fxChips} />
+    </>
+  );
+
+  const onWavePress = (vt: number, ev: PointerEvent) => {
+    if (ev.button !== 0) return;
+    if (razorOn.value) return void act.snipAtPlayhead(toSrc(vt, true));
+    const t = sourceTime(e, vt);
+    act.movePlayhead(t);
+    // Between razor cuts a click also selects the snippet under it (the Inspector shows its bar).
+    const s = snippetUnder(e, length, t);
+    if (s && e.cuts.length) select({ kind: "snippet", index: s.index });
+  };
+
+  const waveform = (
+    <Waveform
+      mips={shown}
+      view={view}
+      length={len}
+      bands={bands}
+      label={`${nameOf(source)} waveform${preview.mips && !ab ? " with its effects" : ""}`}
+      placeholder={failed ? `Couldn't read the audio: ${failed}` : undefined}
+      onView={(nv) => (viewSpan.value = nv)}
+      onHover={(t) => (hoverTime.value = t)}
+      onPress={onWavePress}
+      onDoubleClick={(vt) => !razorOn.value && act.addLoopHere(sourceTime(e, vt))}
+    >
+      {laneChildren}
+    </Waveform>
+  );
+  const spectrum = <SpectrogramView pcm={ab ? pcmNow(project, source) : preview.pcm ?? pcmNow(project, source)} view={view} />;
+
+  // --- readout -----------------------------------------------------------------------------------------------------------
+
+  const level = (() => {
+    if (playT < ta || playT > tb) return "silent";
+    const c = waveColumns(shown, { start: v(playT) - 0.01, end: v(playT) + 0.01 }, 1);
+    const a = Math.max(Math.abs(c.min[0] ?? 0), Math.abs(c.max[0] ?? 0));
+    return Number.isFinite(a) && a > 0.0001 ? `${(20 * Math.log10(a)).toFixed(1).replace("-", "−")} dB` : "silent";
+  })();
+  const playScope = mine ? `${mine.plan.held && !mine.released ? "holding" : "playing"} · ${mine.plan.scope}` : scope ? `${sel.kind === "sample" ? "Trim" : (sel.kind[0].toUpperCase() + sel.kind.slice(1))} · ${formatTime(v(scope.start), fmt, ctx)} – ${formatTime(v(scope.end), fmt, ctx)}` : "—";
+  const readItem = (icon: SampleIconName, name: string, value: ComponentChildren) => (
+    <span class="smp-rdi" title={name}>
+      <SampleIcon name={icon} size={14} />
+      <span class="smp-vh">{name}</span>
+      {value}
+    </span>
+  );
+
+  const info = [wav?.sampleRate ? `${Math.round(wav.sampleRate / 100) / 10} kHz` : sourceMips ? `${Math.round(sourceMips.rate / 100) / 10} kHz` : null, sourceMips ? (sourceMips.channels === 1 ? "mono" : sourceMips.channels === 2 ? "stereo" : `${sourceMips.channels} ch`) : null, shortLength(length), e.tempo ? `${e.tempo.bpm} BPM ${e.tempo.meter}` : null].filter(Boolean).join(" · ");
+
+  return (
+    <Panel class="smp-timeline" toolbar={toolbar}>
+      <div class="smp-tl" data-asset-document={session.documentPath} data-keyscope="samples-timeline" tabIndex={0} aria-label={`${nameOf(session.path)} timeline`}
+        onKeyDown={(ev) => {
+          if (ev.key === "Escape" && razorOn.value) {
+            razorOn.value = false;
+            ev.preventDefault();
+          }
+        }}>
+        {disk && (
+          <div class="smp-banner" role="status">
+            <Icon name="warning" />
+            <b>{nameOf(source)} changed on disk.</b>
+            <span class="smp-banner-text">{disk.summary ? disk.summary.charAt(0).toUpperCase() + disk.summary.slice(1) : ""}</span>
+            <button type="button" class="smp-sm2" onClick={() => (dialog.value = { kind: "merge" })}>Review changes…</button>
+            <button type="button" class="smp-sm2" title="Keep everything as it is in the project" onClick={() => (diskChange.value = null)}>Ignore</button>
           </div>
-
-          <TimeRuler view={view} format={fmt} context={ctx} position={v(playT)} length={len} onScrub={(vt) => act.movePlayhead(sourceTime(e, vt))} />
-
-          {/* Loop row */}
-          <div class="smp-looprow" aria-label="Loops">
-            {loopRegions(e, length).map((r) => {
-              const rx = x(r.start), rw = Math.max(r.kind === "loop" && r.loop && isHold(r.loop) ? 3 : 1, x(r.end) - rx);
-              const on = JSON.stringify(sel) === JSON.stringify(r.selection);
-              return (
-                <div
-                  key={`${r.kind}${r.start}`}
-                  class={`smp-region ${r.kind}${on ? " on" : ""}`}
-                  style={{ left: `${rx}px`, width: `${rw}px`, "--rg": `var(${r.token})` }}
-                  title={`${r.label} · ${formatTime(v(r.start), fmt, ctx)} – ${formatTime(v(r.end), fmt, ctx)}${r.kind !== "loop" ? " · double-click to add a loop here" : ""}`}
-                  onPointerDown={(ev) => {
-                    select(r.selection);
-                    if (r.kind !== "loop" || !r.loop || session.readOnly) return;
-                    const l = r.loop;
-                    const lx = ev.clientX - (ev.currentTarget as HTMLElement).getBoundingClientRect().left;
-                    const near = Math.min(edgePx(ev, 6), rw / 3);
-                    const edge = lx < near ? "start" : lx > rw - near ? "end" : "body";
-                    const grab = xToTime(ev.clientX - lanes.current!.getBoundingClientRect().left, view, width) - v(l.start);
-                    drag(ev, lanes.current!, view, (vt) => {
-                      const now = session.edits.peek();
-                      const cur = now.loops.find((y) => y.id === l.id);
-                      if (!cur) return;
-                      if (edge === "body") commit(slideLoop(now, l.id, toSrc(vt - grab), length), true);
-                      else if (edge === "start") commit(moveLoop(now, l.id, toSrc(vt, true), cur.end, length), true);
-                      else commit(moveLoop(now, l.id, cur.start, toSrc(vt, true), length), true);
-                    });
-                  }}
-                  onDblClick={(ev) => {
-                    if (r.kind === "loop") return;
-                    const lr = lanes.current!.getBoundingClientRect();
-                    act.addLoopHere(toSrc(xToTime(ev.clientX - lr.left, view, width)));
-                  }}
-                  onContextMenu={(ev) => {
-                    if (!r.loop) return;
-                    ev.preventDefault();
-                    loopMenu(r.loop.id, { x: ev.clientX, y: ev.clientY });
-                  }}
-                >
-                  <span class="smp-region-label">{r.label}</span>
+        )}
+        <div class="smp-sheet">
+          <div class="smp-trk">
+            <div class="smp-th smp-th-top">
+              <div class="smp-mrl" style={{ height: `${MARKER_AREA_PX}px` }}>
+                <span>Markers</span>
+                {hiddenRows > 0 && <span class="smp-mrl-more">{rowCount} rows · scroll</span>}
+              </div>
+              <div class="smp-phrow" style={{ height: `${RULER_PX}px` }}>
+                <span class="smp-phread" title="Playhead">{formatTime(v(playT), fmt, ctx)}</span>
+                <TimeDisplayCaret value={fmt} at={v(playT)} ctx={ctx} onChange={(f) => (timeFormat.value = f)} />
+              </div>
+              <div class="smp-temporow" style={{ height: `${2 * RESERVED_ROW_PX}px` }}>
+                <TempoPopover edits={e} commit={(r) => commit(r)} detect={detect} disabled={ro} />
+              </div>
+            </div>
+            <div class="smp-lanecol" ref={lanes}>
+              <div
+                ref={markerScroll}
+                class="smp-mscroll"
+                style={{ height: `${MARKER_AREA_PX}px` }}
+                title={hiddenRows > 0 ? `${hiddenRows} more marker row${hiddenRows === 1 ? "" : "s"} · scroll to see them` : undefined}
+                onScroll={(ev) => setScrollTop((ev.currentTarget as HTMLElement).scrollTop)}
+                onDblClick={(ev) => {
+                  if (ro || (ev.target as HTMLElement).closest(".smp-mp, .smp-mr")) return;
+                  const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+                  const res = addMarker(e, toSrc(xToTime(ev.clientX - r.left, view, r.width)), length);
+                  if (commit(res) && "next" in res) select({ kind: "marker", id: res.next.markers.find((m) => !e.markers.some((y) => y.id === m.id))!.id });
+                }}
+                onPointerMove={(ev) => {
+                  if ((ev.target as HTMLElement).closest(".smp-mp, .smp-mr")) return setGhost(null);
+                  const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+                  setGhost({ x: ev.clientX - r.left, row: Math.floor((ev.clientY - r.top - 4 + (ev.currentTarget as HTMLElement).scrollTop) / ROW_PX) });
+                }}
+                onPointerLeave={() => setGhost(null)}
+              >
+                <div class="smp-markers-inner" style={{ height: `${rowCount * ROW_PX + 4}px` }}>
+                  {markerEls}
+                  {ghost && !ro && (
+                    <>
+                      <div class="smp-mg" style={{ left: `${ghost.x}px`, top: `${Math.max(0, Math.min(ghost.row, rowCount - 1)) * ROW_PX + 2}px` }} aria-hidden="true">{nextMarkerName(e)}</div>
+                      <div class={`smp-mgt${ghost.x > width * 0.7 ? " flip" : ""}`} style={{ left: `${ghost.x}px`, top: `${Math.max(0, Math.min(ghost.row, rowCount - 1)) * ROW_PX + 2}px` }} aria-hidden="true">Double-click to add a marker</div>
+                    </>
+                  )}
                 </div>
-              );
-            })}
-            {e.loops.length === 0 && <span class="smp-row-hint">No loops · + Loop, or L at the playhead</span>}
-          </div>
-
-          {/* Trim row */}
-          <div class="smp-trimrow" aria-label="Trim">
-            <div
-              class={`smp-trim${sel.kind === "trim" ? " on" : ""}${e.trim ? " set" : ""}`}
-              style={{ left: `${x(ta)}px`, width: `${Math.max(4, x(tb) - x(ta))}px` }}
-              title={`Trim · ${formatTime(v(ta), fmt, ctx)} – ${formatTime(v(tb), fmt, ctx)} · audio outside never plays · double-click to reset`}
-              onDblClick={() => commit(resetTrim(e))}
-              onPointerDown={(ev) => {
-                select({ kind: "trim" });
-                if (session.readOnly) return;
-                const el = ev.currentTarget as HTMLElement;
-                const lx = ev.clientX - el.getBoundingClientRect().left;
-                const w = el.getBoundingClientRect().width;
-                const near = Math.min(edgePx(ev, 8), w / 3);
-                const edge = lx < near ? "start" : lx > w - near ? "end" : "body";
-                const grab = xToTime(ev.clientX - lanes.current!.getBoundingClientRect().left, view, width) - v(ta);
-                drag(ev, lanes.current!, view, (vt) => {
-                  const now = session.edits.peek();
-                  const [a, b] = trimOf(now, length);
-                  if (edge === "start") commit(setTrim(now, toSrc(vt, true), b, length), true);
-                  else if (edge === "end") commit(setTrim(now, a, toSrc(vt, true), length), true);
-                  else {
-                    const na = toSrc(vt - grab);
-                    commit(setTrim(now, na, na + (b - a), length), true);
-                  }
-                });
-              }}
-            >
-              <span class="smp-trim-handle start" aria-hidden="true" />
-              <span class="smp-region-label">Trim</span>
-              <span class="smp-trim-handle end" aria-hidden="true" />
+              </div>
+              <div class="smp-ruler" style={{ height: `${RULER_PX}px` }} title="Click or drag to move the playhead">
+                <TimeRuler view={view} format={fmt} context={ctx} position={v(playT)} length={len} label="Playhead" labelOf={fmt === "timecode" ? shortSeconds : undefined} onScrub={(vt) => act.movePlayhead(sourceTime(e, vt))} />
+                {v(playT) >= view.start && v(playT) <= view.end && <span class="smp-phead" style={{ left: `${x(playT)}px` }} aria-hidden="true" />}
+              </div>
+              <div class="smp-mrow" aria-label="Loops" onDblClick={(ev) => {
+                if (e.loops.length || ro || (ev.target as HTMLElement).closest(".smp-mr")) return;
+                const r = (ev.currentTarget as HTMLElement).getBoundingClientRect();
+                act.addLoopHere(toSrc(xToTime(ev.clientX - r.left, view, r.width)));
+              }}>
+                {loopRow}
+                {e.loops.length === 0 && <span class="smp-row-hint">No loops (optional) · double-click to add one</span>}
+              </div>
+              <div class="smp-mrow" aria-label="Trim">{trimRow}</div>
             </div>
           </div>
-
-          <div
-            class="smp-wave-wrap"
-            onContextMenu={(ev) => {
-              if (e.cuts.length === 0 || razorOn.value) return;
-              const r = lanes.current!.getBoundingClientRect();
-              const s = snippetUnder(e, length, sourceTime(e, xToTime(ev.clientX - r.left, view, r.width)));
-              if (!s) return;
-              ev.preventDefault();
-              select({ kind: "snippet", index: s.index });
-              snippetMenuAt(s.index, { x: ev.clientX, y: ev.clientY });
-            }}
-          >
-            <Waveform
-              mips={mips}
-              view={view}
-              length={len}
-              bands={bands}
-              label={`${nameOf(source)} waveform`}
-              placeholder={failed ? `Couldn't read the audio: ${failed}` : undefined}
-              onView={(nv) => (viewSpan.value = nv)}
-              onHover={(t) => (hoverTime.value = t)}
-              onPress={(vt, ev) => {
-                if (ev.button !== 0) return;
-                if (razorOn.value) return void act.snipAtPlayhead(toSrc(vt, true));
-                const t = sourceTime(e, vt);
-                act.movePlayhead(t);
-                // Between razor cuts a click also selects the snippet under it (the Inspector shows its bar).
-                const s = snippetUnder(e, length, t);
-                if (s) select({ kind: "snippet", index: s.index });
+          <div class="smp-trk smp-trk-audio">
+            <div class="smp-th">
+              <span class="smp-th-title">Audio</span>
+              <span class="smp-badge" title={wav?.bext ? `Timecode origin ${wav.sampleRate ? formatTime(wav.bext.timeReference / wav.sampleRate, "timecode", ctx) : wav.bext.timeReference}` : undefined}>{info}</span>
+              <div class="smp-views" role="group" aria-label="Audio view">
+                <button type="button" class={`smp-sbtn${views.wave ? " on" : ""}`} aria-pressed={views.wave} aria-label="Waveform" title={views.wave && !views.spectrogram ? "Waveform (one view always stays on)" : views.wave ? "Hide the waveform" : "Show the waveform"}
+                  onClick={() => (waveViews.value = { wave: !views.wave || !views.spectrogram, spectrogram: views.spectrogram || views.wave })}>
+                  <SampleIcon name="waveform" size={12} />
+                </button>
+                <button type="button" class={`smp-sbtn${views.spectrogram ? " on" : ""}`} aria-pressed={views.spectrogram} aria-label="Spectrogram" title={views.spectrogram && !views.wave ? "Spectrogram (one view always stays on)" : views.spectrogram ? "Hide the spectrogram" : "Show the spectrogram (both: a split view)"}
+                  onClick={() => (waveViews.value = { spectrogram: !views.spectrogram || !views.wave, wave: views.wave || views.spectrogram })}>
+                  <SampleIcon name="spectrogram" size={12} />
+                </button>
+              </div>
+            </div>
+            <div
+              class={`smp-lane-audio${razorOn.value ? " razor" : e.cuts.length ? " snippets" : ""}`}
+              onContextMenu={(ev) => {
+                if (e.cuts.length === 0 || razorOn.value) return;
+                const r = lanes.current!.getBoundingClientRect();
+                const s = snippetUnder(e, length, sourceTime(e, xToTime(ev.clientX - r.left, view, r.width)));
+                if (!s) return;
+                ev.preventDefault();
+                select({ kind: "snippet", index: s.index });
+                snippetMenuAt(s.index, point(ev));
               }}
-              onDoubleClick={(vt) => !razorOn.value && act.addLoopHere(sourceTime(e, vt))}
             >
-              {e.cuts.map((c) => (
-                <div key={c} class="smp-cut" style={{ left: `${x(c)}px` }} title={`Cut at ${formatTime(v(c), fmt, ctx)}`} />
-              ))}
-              {cutSnippets.map((s) => {
-                const sx = x(s.start), sw = x(s.end) - sx;
-                if (sx + sw < 0 || sx > width) return null;
-                const on = sel.kind === "snippet" && sel.index === s.index;
-                const tape = s.index > 1 ? refusalOf(tapeSnippet(e, s.index, "left", length)) : null;
-                const gap = s.deleted ? refusalOf(closeGap(e, s.index, length)) : null;
-                const keep = (ev: Event) => ev.stopPropagation();
-                return (
-                  <Fragment key={s.start}>
-                    {on && <div class="smp-snippet-on" style={{ left: `${sx}px`, width: `${sw}px` }} aria-hidden="true" />}
-                    <span class={`smp-segl${on ? " on" : ""}`} style={{ left: `${sx}px`, maxWidth: `${Math.max(0, sw)}px` }} aria-hidden="true">{s.deleted ? `${s.name} (deleted)` : s.name}</span>
-                    {s.index > 1 && !session.readOnly && (
-                      <button class="smp-tape" style={{ left: `${sx}px` }} disabled={tape !== null} title={tape ?? `Tape Snippet ${s.index - 1} and ${s.name} back together (remove the cut)`} aria-label={`Tape Snippet ${s.index - 1} to ${s.name}`}
-                        onPointerDown={keep} onDblClick={keep} onClick={() => commit(tapeSnippet(e, s.index, "left", length))}>
-                        Tape
-                      </button>
-                    )}
-                    {s.deleted && !session.readOnly && sw > 60 && (
-                      <button class="smp-gapb" style={{ left: `${sx + sw / 2}px` }} disabled={gap !== null} title={gap ?? `Close the gap: ${s.name}'s audio is removed and what follows moves up`} aria-label={`Close ${s.name}'s gap`}
-                        onPointerDown={keep} onDblClick={keep} onClick={() => act.closeSnippetGap(s.index)}>
-                        ⇤ Close gap
-                      </button>
-                    )}
-                  </Fragment>
-                );
-              })}
-              {razorOn.value && hoverTime.value !== null && <div class="smp-cut ghost" style={{ left: `${timeToX(hoverTime.value, view, width)}px` }} aria-hidden="true" />}
-              <Playhead t={v(playT)} view={view} playing={!!play} />
-            </Waveform>
+              {views.wave && <div class="smp-wave-wrap">{waveform}</div>}
+              {views.spectrogram && <div class="smp-spec-wrap">{spectrum}</div>}
+            </div>
           </div>
+          <div class="smp-guides" aria-hidden="true">
+            {guides.filter((g) => g.x >= 0 && g.x <= width).map((g, i) => (
+              <span key={i} class={`smp-guide${g.on ? " on" : ""}`} style={{ left: `${g.x}px`, top: `${g.top}px`, "--gc": g.color }} />
+            ))}
+            {v(playT) >= view.start && v(playT) <= view.end && <span class={`smp-playline${mine ? " playing" : ""}`} style={{ left: `${x(playT)}px`, top: `${MARKER_AREA_PX}px` }} />}
+          </div>
+        </div>
 
-          <div class="smp-zoombar">
-            <button class="smp-tool smp-icon-button" aria-label="Zoom out" title="Zoom out (−)" onClick={() => act.zoom(1 / 1.5)}><Icon name="zoomOut" /></button>
-            <button class="smp-tool smp-icon-button" aria-label="Zoom in" title="Zoom in (=)" onClick={() => act.zoom(1.5)}><Icon name="zoomIn" /></button>
-            <button class="smp-tool smp-icon-button" aria-label="Fit" title="Fit the whole sample (0)" onClick={act.zoomFit}><Icon name="fit" /></button>
-            <span class="smp-muted smp-zoom-pct">{Math.round((len / (view.end - view.start)) * 100)}%</span>
-            <RangeBar view={view} length={len} onView={(nv) => (viewSpan.value = nv)} />
+        <div class="smp-zoombar">
+          <div class="smp-zoomgroup" role="group" aria-label="Zoom">
+            <button type="button" class="smp-ibtn" aria-label="Zoom out" title="Zoom out (−) · Shift + wheel or a sideways swipe scrolls" disabled={view.start <= 0 && view.end >= len} onClick={() => act.zoom(1 / 1.5)}><Icon name="zoomOut" size={14} /></button>
+            <button type="button" class="smp-ibtn" aria-label="Zoom in" title="Zoom in at the playhead (=) · Ctrl/⌘ + wheel or pinch zooms at the pointer" onClick={() => act.zoom(1.5)}><Icon name="zoomIn" size={14} /></button>
+            <button type="button" class="smp-ibtn" aria-label="Zoom to selection" title={`Zoom to ${sel.kind === "sample" ? "the trim" : `the ${sel.kind}`} (Z)`} onClick={act.zoomToSelection}><SampleIcon name="zoomSelection" size={13} /></button>
+            <button type="button" class="smp-ibtn" aria-label="Fit the whole sample" title="Fit the whole sample (0) · or double-click the scrollbar" disabled={view.start <= 0 && view.end >= len} onClick={act.zoomFit}><Icon name="fit" size={14} /></button>
+            <span class="smp-muted smp-zoom-pct" title="Zoom">{Math.round((len / (view.end - view.start)) * 100)}%</span>
           </div>
+          <RangeBar view={view} length={len} label={`${formatTime(view.start, fmt, ctx)} – ${formatTime(view.end, fmt, ctx)}`} onView={(nv) => (viewSpan.value = nv)} />
         </div>
 
         <div class="smp-readout" aria-live="off">
-          <span>Playhead <b>{formatTime(v(playT), fmt, ctx)}</b></span>
-          <span>Region <b>{regionAt(e, length, playT)}</b></span>
-          <span>Play scope <b>{scope ? `${formatTime(v(scope.start), fmt, ctx)} – ${formatTime(v(scope.end), fmt, ctx)}` : "—"}</b></span>
-          <span>Next marker <b>{nextMarker(e, playT)?.name ?? "—"}</b></span>
-          <span>Length <b>{formatTime(len, fmt, ctx)}</b></span>
+          {readItem("play", "Play", playScope)}
+          {readItem("region", "Region", regionAt(e, length, playT))}
+          {readItem("level", "Level", level)}
+          {e.markers.length > 0 && readItem("nextMarker", "Next marker", nextMarker(e, playT)?.name ?? "—")}
         </div>
 
         {warnings.length > 0 && (
-          <div class="smp-warnings" role="status">
-            {warnings.map((w) => (
-              <div key={w.id} class="smp-warning-row">
-                <Icon name="warning" />
-                <span>{w.text}</span>
-                {w.actions.includes("select") && w.select && <button onClick={() => select(w.select!)}>Select</button>}
-                {w.actions.includes("extendTrim") && <button onClick={() => commit({ next: { ...e, trim: trimHoldingMarkers(e, length) }, label: "Trim" })}>Extend trim</button>}
-                {w.actions.includes("deleteOutside") && <button onClick={() => commit({ next: { ...e, markers: e.markers.filter((m) => !w.ids?.includes(m.id)) }, label: `Delete ${w.ids?.length} markers` })}>Delete</button>}
-                {w.actions.includes("crossfade50") && w.select?.kind === "loop" && <button onClick={() => commit(updateLoop(e, (w.select as { id: string }).id, { crossfadeMs: 50 }))}>Crossfade 50 ms</button>}
-                {w.actions.includes("fit") && <button onClick={() => commit({ next: fitToSource(e, length), label: "Fit edits to the source" })}>Fit to source</button>}
-              </div>
-            ))}
+          <div class="smp-warnings" role="region" aria-label="Warnings">
+            {warnings.map((w) => {
+              const [title, ...rest] = w.text.split(" · ");
+              return (
+                <div key={w.id} class="smp-warnb" role="status">
+                  <div class="smp-warnb-text">
+                    <span class="smp-warning" aria-hidden="true">⚠</span>
+                    <b>{title}</b>
+                    <span class="smp-muted smp-ellipsis">{rest.join(" · ")}</span>
+                  </div>
+                  <div class="smp-warnb-acts">
+                    {w.actions.includes("select") && w.select && <button type="button" class="smp-sm2" title="Select it" onClick={() => select(w.select!)}>Select</button>}
+                    {w.actions.includes("extendTrim") && <button type="button" class="smp-sm2" title="Move the trim so these play" onClick={() => commit({ next: { ...e, trim: trimHoldingMarkers(e, length) }, label: "Trim" })}>Extend trim</button>}
+                    {w.actions.includes("deleteOutside") && <button type="button" class="smp-sm2" title="Delete the markers outside the trim" onClick={() => commit({ next: { ...e, markers: e.markers.filter((m) => !w.ids?.includes(m.id)) }, label: `Delete ${w.ids?.length} markers` })}>Delete</button>}
+                    {w.actions.includes("crossfade50") && w.select?.kind === "loop" && <button type="button" class="smp-sm2" title="Lengthen this loop's crossfade" onClick={() => commit(updateLoop(e, (w.select as { id: string }).id, { crossfadeMs: 50 }))}>Crossfade 50 ms</button>}
+                    {w.actions.includes("fit") && <button type="button" class="smp-sm2" title="Pull the edits inside the source" onClick={() => commit({ next: fitToSource(e, length), label: "Fit edits to the source" })}>Fit to source</button>}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
       {menu && <ContextMenu entries={menu.entries} at={{ x: menu.x, y: menu.y }} label={menu.label} onClose={() => setMenu(null)} />}
+      {editing && <InlineEdit at={{ x: editing.x, y: editing.y }} label={editing.label} value={editing.value} multiline={editing.multiline} onKeep={editing.keep} onClose={() => setEditing(null)} />}
     </Panel>
   );
 }
 
 /**
- * The range scrollbar: the visible span over the whole length; drag the body to scroll, an end to zoom; double-click
- * fits. From the keyboard, the arrows scroll a tenth of the span (Page Up/Down a whole span), Home and End go to the ends.
+ * The range scrollbar: the visible span over the whole length; drag the body to scroll, a round end handle to zoom,
+ * press the track to centre there; double-click fits. From the keyboard, the arrows scroll a tenth of the span (Page
+ * Up/Down a whole span), Home and End go to the ends.
  */
-function RangeBar(props: { view: { start: number; end: number }; length: number; onView(v: { start: number; end: number }): void }) {
+function RangeBar(props: { view: { start: number; end: number }; length: number; label: string; onView(v: { start: number; end: number }): void }) {
   const ref = useRef<HTMLDivElement>(null);
   const { view, length } = props;
   const pct = (t: number) => `${(t / length) * 100}%`;
@@ -529,39 +887,46 @@ function RangeBar(props: { view: { start: number; end: number }; length: number;
     ev.stopPropagation();
     scrollTo(to);
   };
+  const full = { start: 0, end: length };
+  const dragPart = (part: "body" | "start" | "end") => (ev: PointerEvent) => {
+    ev.stopPropagation();
+    const r = ref.current!.getBoundingClientRect();
+    const grab = xToTime(ev.clientX - r.left, full, r.width) - view.start;
+    drag(ev, ref.current!, full, (t) => {
+      if (part === "body") props.onView(clampView({ start: t - grab, end: t - grab + span }, length));
+      else if (part === "start") props.onView(clampView({ start: Math.min(t, view.end - 0.005), end: view.end }, length));
+      else props.onView(clampView({ start: view.start, end: Math.max(t, view.start + 0.005) }, length));
+    });
+  };
   return (
     <div
       ref={ref}
       class="smp-range"
-      role="scrollbar"
-      tabIndex={0}
-      aria-orientation="horizontal"
-      aria-valuemin={0}
-      aria-valuemax={length}
-      aria-valuenow={view.start}
-      aria-valuetext={`${view.start.toFixed(2)} s to ${view.end.toFixed(2)} s of ${length.toFixed(2)} s`}
-      aria-label="Visible range"
-      onKeyDown={onKeyDown}
+      title={`${props.label} · drag to scroll · drag an end to zoom · double-click to fit`}
+      onPointerDown={(ev) => {
+        if (ev.button !== 0) return;
+        const r = ref.current!.getBoundingClientRect();
+        scrollTo(xToTime(ev.clientX - r.left, full, r.width) - span / 2);
+      }}
       onDblClick={() => props.onView(fitView(length))}
     >
       <div
         class="smp-range-thumb"
-        style={{ left: pct(view.start), width: pct(view.end - view.start) }}
-        onPointerDown={(ev) => {
-          const r = ref.current!.getBoundingClientRect();
-          const full = { start: 0, end: length };
-          const lx = ev.clientX - (ev.currentTarget as HTMLElement).getBoundingClientRect().left;
-          const w = (ev.currentTarget as HTMLElement).getBoundingClientRect().width;
-          const near = Math.min(edgePx(ev, 6), w / 3);
-          const edge = lx < near ? "start" : lx > w - near ? "end" : "body";
-          const grab = xToTime(ev.clientX - r.left, full, r.width) - view.start;
-          drag(ev, ref.current!, full, (t) => {
-            if (edge === "body") props.onView(clampView({ start: t - grab, end: t - grab + (view.end - view.start) }, length));
-            else if (edge === "start") props.onView(clampView({ start: Math.min(t, view.end - 0.005), end: view.end }, length));
-            else props.onView(clampView({ start: view.start, end: Math.max(t, view.start + 0.005) }, length));
-          });
-        }}
-      />
+        role="scrollbar"
+        tabIndex={0}
+        aria-orientation="horizontal"
+        aria-valuemin={0}
+        aria-valuemax={length}
+        aria-valuenow={view.start}
+        aria-valuetext={props.label}
+        aria-label="Timeline view"
+        onKeyDown={onKeyDown}
+        style={{ left: pct(view.start), width: pct(span) }}
+        onPointerDown={dragPart("body")}
+      >
+        <span class="smp-range-knob start" title="Drag to zoom" onPointerDown={dragPart("start")} />
+        <span class="smp-range-knob end" title="Drag to zoom" onPointerDown={dragPart("end")} />
+      </div>
     </div>
   );
 }

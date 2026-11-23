@@ -31,8 +31,8 @@ export const WriteToFile: Story = {
       onCancel={fn()}
     />
   ),
-  play: async ({ canvasElement }) => {
-    const c = within(canvasElement);
+  play: async () => {
+    const c = within(document.body);
     await expect(c.getByRole("dialog", { name: "Write to brake_skid.wav" })).toBeVisible();
     await expect(c.getByText(/stay in the sidecar/)).toBeVisible();
   },
@@ -46,8 +46,8 @@ const rows: MergeRow[] = [
 
 export const ChangedOnDisk: Story = {
   render: () => <MergeReview name="brake_skid.wav" rows={rows} onApply={fn()} onLater={fn()} />,
-  play: async ({ canvasElement }) => {
-    const c = within(canvasElement);
+  play: async () => {
+    const c = within(document.body);
     await expect(c.getByText("1 conflict with project edits")).toBeVisible();
     await expect(c.getByText("You also changed this in the project.")).toBeVisible();
   },
@@ -65,10 +65,15 @@ function Fork() {
 
 export const ForkAsNewSample: Story = {
   render: () => <Fork />,
-  play: async ({ canvasElement }) => {
-    const c = within(canvasElement);
+  play: async () => {
+    const c = within(document.body);
     await userEvent.click(c.getByRole("radio", { name: "Pin to its current state" }));
     await expect(c.getByRole("radio", { name: "Pin to its current state" })).toHaveAttribute("aria-checked", "true");
+    // The folder combo: type a new path and Enter makes it.
+    await userEvent.click(c.getByRole("button", { name: /^Folder: audio/ }));
+    await userEvent.type(c.getByRole("searchbox", { name: "Search folders or type a new one" }), "Props/Doors{Enter}");
+    await expect(c.getByRole("button", { name: /^Folder: Props › Doors/ })).toBeVisible();
+    await expect(c.getByRole("button", { name: "Fork" })).toBeEnabled();
   },
 };
 
@@ -99,12 +104,12 @@ function Review() {
 export const ImportReviewStory: Story = {
   name: "Import review",
   render: () => <Review />,
-  play: async ({ canvasElement }) => {
-    const c = within(canvasElement);
+  play: async () => {
+    const c = within(document.body);
     await expect(c.getByText("Cue points")).toBeVisible();
     await expect(c.getByText("Timecode origin")).toBeVisible();
     await userEvent.click(c.getByRole("checkbox", { name: /Regions/ }));
-    await expect(c.getByText(/4 of 5 kinds of metadata will be imported/)).toBeVisible();
+    await expect(c.getByText(/5 of 6 kinds of metadata will be imported/)).toBeVisible(); // Detect counts too (T-15)
   },
 };
 
@@ -112,9 +117,9 @@ export const ImportReviewStory: Story = {
 export const ImportDetect: Story = {
   name: "Import review · Detect what's missing",
   render: () => <Review />,
-  play: async ({ canvasElement }) => {
-    const c = within(canvasElement);
-    const detect = c.getByRole("checkbox", { name: /Detect what's missing/ });
+  play: async () => {
+    // Dialogs float at the page root; the newest is this story's.
+    const detect = (await within(document.body).findAllByRole("checkbox", { name: /Detect what's missing/ })).at(-1)!;
     await expect(detect).toBeEnabled();
     await expect(detect).toBeChecked();
     await userEvent.click(detect);

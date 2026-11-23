@@ -3,50 +3,49 @@
 // sample. Each review is a pure view over its props; `SampleDialogs` wires them to the open sample.
 import { useState } from "preact/hooks";
 import { currentProject, status } from "../../../editor/state";
+import { KitDialog } from "../../../editor/ui/KitDialog";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
+import { FolderCombo } from "./FolderCombo";
 import { toasts } from "../../shell/studioServices";
 import { ImportDialog } from "./ImportDialog";
 import { ReimportDialog } from "./ReimportDialog";
 import { applyMerge, writeSummary, type MergeChoice, type MergeRow, type WriteSummaryRow } from "./sampleFile";
 import { diskChange } from "./sampleDisk";
 import { snippets } from "./sampleEditing";
-import { folderOf, nameOf } from "./sampleLibrary";
+import { audioFolders, folderOf, nameOf } from "./sampleLibrary";
 import { lengthOf } from "./sampleSession";
 import { deriveSample, freeSamplePath, stemOf, writeDerived, writeToFile, type DeriveKind } from "./sampleWrites";
 import { dialog, openSample, openSession } from "./samplesState";
 
 const CHOICE_NAMES: Record<MergeChoice, string> = { project: "Keep project", file: "Use file", add: "Add", skip: "Skip" };
 
-function Frame(props: { label: string; onCancel(): void; children: preact.ComponentChildren }) {
+function Frame(props: { label: string; width?: number; summary?: preact.ComponentChildren; buttons: preact.ComponentChildren; onCancel(): void; children: preact.ComponentChildren }) {
   return (
-    <div class="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && props.onCancel()}>
-      <div class="dialog smp-dialog" role="dialog" aria-modal="true" aria-label={props.label} onKeyDown={(e) => e.key === "Escape" && props.onCancel()}>
-        {props.children}
-      </div>
-    </div>
+    <KitDialog title={props.label} width={props.width ?? 520} class="smp-dialog" summary={props.summary} buttons={props.buttons} onClose={props.onCancel}>
+      {props.children}
+    </KitDialog>
   );
 }
 
 export function WriteReview(props: { name: string; rows: readonly WriteSummaryRow[]; keptInSidecar: number; busy?: boolean; onWrite(): void; onCancel(): void }) {
   return (
-    <Frame label={`Write to ${props.name}`} onCancel={props.onCancel}>
-      <h2>Write to {props.name}</h2>
-      <p class="smp-muted">The audio isn't changed: only these chunks are rewritten. A copy of the file as it is now is kept in .myco/sample-versions/.</p>
-      <table class="smp-write">
-        <tbody>
-          {props.rows.map((r) => (
-            <tr key={r.chunks + r.what}>
-              <td>{r.what}</td>
-              <td class="smp-muted">{r.chunks}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {props.keptInSidecar > 0 && <p class="smp-muted">{props.keptInSidecar} Exit, Hit point or Cue marker{props.keptInSidecar === 1 ? "" : "s"} stay in the sidecar (a WAV can't carry their types).</p>}
-      <div class="dialog-buttons">
-        <button onClick={props.onCancel}>Cancel</button>
-        <button class="primary" autoFocus disabled={props.busy} onClick={props.onWrite}>{props.busy ? "Writing…" : "Write to file"}</button>
+    <Frame label={`Write to ${props.name}`} onCancel={props.onCancel}
+      summary={<span title="The audio isn't changed: only these chunks are rewritten. A copy of the file as it is now is kept in .myco/sample-versions/.">Backup kept · the audio isn't changed</span>}
+      buttons={
+        <>
+          <button onClick={props.onCancel}>Cancel</button>
+          <button class="primary" autoFocus disabled={props.busy} onClick={props.onWrite}>{props.busy ? "Writing…" : "Write to file"}</button>
+        </>
+      }>
+      <div class="smp-chg-list">
+        {props.rows.map((r) => (
+          <div key={r.chunks + r.what} class="smp-chg">
+            <span>{r.what}</span>
+            <span class="smp-mono smp-faint">{r.chunks}</span>
+          </div>
+        ))}
       </div>
+      {props.keptInSidecar > 0 && <p class="smp-muted">{props.keptInSidecar} Exit, Hit point or Cue marker{props.keptInSidecar === 1 ? "" : "s"} stay in the sidecar (a WAV can't carry their types).</p>}
     </Frame>
   );
 }
@@ -55,8 +54,14 @@ export function MergeReview(props: { name: string; rows: readonly MergeRow[]; on
   const [choices, setChoices] = useState<Record<string, MergeChoice>>(() => Object.fromEntries(props.rows.map((r) => [r.key, r.choice])));
   const conflicts = props.rows.filter((r) => r.conflict).length;
   return (
-    <Frame label={`${props.name} changed on disk`} onCancel={props.onLater}>
-      <h2>{props.name} changed on disk</h2>
+    <Frame label={`${props.name} changed on disk`} width={560} onCancel={props.onLater}
+      summary={conflicts > 0 ? <span class="smp-warning">{conflicts} conflict{conflicts === 1 ? "" : "s"} with project edits</span> : "No conflicts with project edits"}
+      buttons={
+        <>
+          <button onClick={props.onLater}>Later</button>
+          <button class="primary" onClick={() => props.onApply(props.rows.map((r) => ({ ...r, choice: choices[r.key] })))}>Apply</button>
+        </>
+      }>
       <p class="smp-muted">The audio is reloaded either way. For each change to the file's cues and loops, choose what the project keeps. Markers you added in the project are never touched.</p>
       <ul class="smp-merge">
         {props.rows.map((r) => (
@@ -69,11 +74,6 @@ export function MergeReview(props: { name: string; rows: readonly MergeRow[]; on
           </li>
         ))}
       </ul>
-      {conflicts > 0 && <p class="smp-warning">{conflicts} conflict{conflicts === 1 ? "" : "s"} with project edits</p>}
-      <div class="dialog-buttons">
-        <button onClick={props.onLater}>Later</button>
-        <button class="primary" onClick={() => props.onApply(props.rows.map((r) => ({ ...r, choice: choices[r.key] })))}>Apply</button>
-      </div>
     </Frame>
   );
 }
@@ -96,19 +96,21 @@ export interface DeriveFormProps {
 export function DeriveForm(props: DeriveFormProps) {
   const title = props.kind === "fork" ? "Fork as new sample" : props.kind === "duplicate" ? "Duplicate sample" : "Save snippet as sample";
   return (
-    <Frame label={title} onCancel={props.onCancel}>
-      <h2>{title}</h2>
+    <Frame label={title} width={440} onCancel={props.onCancel}
+      buttons={
+        <>
+          <button onClick={props.onCancel}>Cancel</button>
+          <button class="primary" disabled={props.name.trim() === ""} onClick={props.onCreate}>{props.kind === "fork" ? "Fork" : props.kind === "snippet" ? "Save" : "Create"}</button>
+        </>
+      }>
       <label class="fld">
         <span>Name</span>
         <input autoFocus value={props.name} aria-label="Name" onInput={(e) => props.onName((e.currentTarget as HTMLInputElement).value)} />
       </label>
-      <label class="fld">
+      <div class="fld">
         <span>Folder</span>
-        <select value={props.folder} aria-label="Folder" onChange={(e) => props.onFolder((e.currentTarget as HTMLSelectElement).value)}>
-          <option value="">Top level</option>
-          {props.folders.filter((f) => !f.startsWith(".")).map((f) => <option key={f} value={f}>{f.split("/").join(" › ")}</option>)}
-        </select>
-      </label>
+        <FolderCombo label="Folder" value={props.folder} folders={props.folders} onChange={props.onFolder} />
+      </div>
       <p class="smp-muted">References {props.parentName} {props.kind === "snippet" ? "(the snippet's range)" : `and its ${props.edits} edit${props.edits === 1 ? "" : "s"}`}; no audio is copied.</p>
       {props.kind === "fork" && (
         <div class="fld">
@@ -116,10 +118,6 @@ export function DeriveForm(props: DeriveFormProps) {
           <SegmentedControl label="Parent changes" value={props.mode} options={[{ value: "follow", label: "Follow the parent" }, { value: "pin", label: "Pin to its current state" }]} onChange={props.onMode} />
         </div>
       )}
-      <div class="dialog-buttons">
-        <button onClick={props.onCancel}>Cancel</button>
-        <button class="primary" disabled={props.name.trim() === ""} onClick={props.onCreate}>Create</button>
-      </div>
     </Frame>
   );
 }
@@ -138,7 +136,7 @@ function DeriveDialog(props: { kind: DeriveKind; snippet?: number }) {
   const count = e.markers.length + e.loops.length + e.effects.length + (e.trim ? 1 : 0);
   return (
     <DeriveForm
-      kind={props.kind} parentName={nameOf(session.path)} name={name} folder={folder} folders={project.folders} mode={mode} edits={count}
+      kind={props.kind} parentName={nameOf(session.path)} name={name} folder={folder} folders={audioFolders(project.folders, project.files)} mode={mode} edits={count}
       onName={setName} onFolder={setFolder} onMode={setMode} onCancel={close}
       onCreate={async () => {
         const length = lengthOf(project, session.source.peek()) ?? 0;
@@ -166,7 +164,7 @@ export function SampleDialogs() {
   const [busy, setBusy] = useState(false);
   if (!d) return null;
   const close = () => (dialog.value = null);
-  if (d.kind === "import") return <ImportDialog />;
+  if (d.kind === "import") return <ImportDialog dropped={d.dropped} into={d.into} />;
   if (d.kind === "reimport") return <ReimportDialog />;
   if (d.kind === "fork") return <DeriveDialog kind={d.mode} />;
   if (d.kind === "snippet") return <DeriveDialog kind="snippet" snippet={d.index} />;

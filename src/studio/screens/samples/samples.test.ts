@@ -11,16 +11,16 @@ import {
   setRoot, setTempo, setTrim, slideLoop, snip, snippets, tapeSnippet, toggleSnippet, updateLoop, updateMarker, type SampleEdit,
 } from "./sampleEditing";
 import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, revertLoop, revertMarker, summarizeMerge, writeSummary } from "./sampleFile";
-import { allSamples, cleanFolderName, fileChip, libraryTree, metaLine, moveUpPlan, searchSamples, shortLength, usesOf } from "./sampleLibrary";
+import { allSamples, audioFolders, cleanFolderName, cleanPath, fileChip, folderChoices, libraryTree, metaLine, moveUpPlan, searchSamples, shortLength, usesOf } from "./sampleLibrary";
 import { editedLength, inClosedGap, toSource, toView } from "./sampleTime";
 import {
-  fitToSource, landmarks, liveSelection, loopRegions, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
+  colourCss, colourValue, fitToSource, landmarks, liveSelection, loopLabel, loopRegions, MARKER_PRESETS, markerColour, shortSeconds, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
   snapTime, snippetMenu, snippetUnder, trimHoldingMarkers,
 } from "./sampleView";
 import { nearestZeroCrossing, seamJump, seamStrip, seamWindow } from "./seam";
-import { addTap, tapResult } from "./tapTempo";
-import { effectEdits } from "./sampleEffects";
-import { planPlay, planSeam } from "./sampleTransport";
+import { addTap, tapDots, tapResult } from "./tapTempo";
+import { effectCategories, effectEdits, effectSummary, freezeEdit, searchEffects } from "./sampleEffects";
+import { planPlay, planSeam, PLAY_MODES, playModeInfo, playModeRefusal, showsMusicModes } from "./sampleTransport";
 
 const LEN = 2.6;
 const next = (r: SampleEdit): SampleEdits => {
@@ -320,9 +320,20 @@ describe("timeline structure", () => {
 
   it("groups the outline and filters it", () => {
     const g = outlineGroups(skid(), LEN);
-    expect(g.map((x) => x.title)).toEqual(["Cues", "Entries", "Exits", "Hit points", "Loops", "Notes", "Ranges", "Snippets"]);
+    // Spec §4.1.4: markers by type, Loops with the pickup, links and tail, Snippets, and the Trim.
+    expect(g.map((x) => x.title)).toEqual(["Cues", "Entries", "Exits", "Hit points", "Loops", "Notes", "Snippets", "Trim"]);
     expect(g.find((x) => x.id === "notes")!.items.map((i) => i.name)).toEqual(["Lock-up", "Release"]);
-    expect(outlineGroups(skid(), LEN, "rel").find((x) => x.id === "notes")!.items.map((i) => i.name)).toEqual(["Release"]);
+    expect(g.find((x) => x.id === "loops")!.items.map((i) => [i.name, i.at, i.end])).toEqual([["Pickup", 0, 0.45], ["Loop 1", 0.45, 1.55], ["Tail", 1.55, LEN]]);
+    expect(g.find((x) => x.id === "loops")!.items[1]).toMatchObject({ fromFile: true, active: "held", color: "var(--range-loop)" });
+    expect(g.find((x) => x.id === "cues")!.items[0]).toMatchObject({ name: "brake_lockup", at: 0.3, color: "var(--marker-cue)", outside: false });
+    expect(g.find((x) => x.id === "trim")!.items[0]).toMatchObject({ at: 0, end: LEN });
+    const filtered = outlineGroups(skid(), LEN, "rel").find((x) => x.id === "notes")!;
+    expect(filtered.items.map((i) => i.name)).toEqual(["Release"]);
+    expect(filtered.total).toBe(2);
+    // Outside the trim is flagged.
+    const trimmed = outlineGroups({ ...skid(), trim: [0.3, 2] }, LEN).find((x) => x.id === "notes")!;
+    expect(trimmed.items.map((i) => i.outside)).toEqual([false, false]);
+    expect(outlineGroups({ ...skid(), trim: [0.4, 1.6] }, LEN).find((x) => x.id === "notes")!.items.map((i) => [i.name, i.outside])).toEqual([["Lock-up", true], ["Release", true]]);
   });
 
   it("makes a marker an Entry (fixed name), and shades the post-exit tail and the pre-entry inside the trim", () => {
@@ -349,15 +360,44 @@ describe("timeline structure", () => {
   });
 });
 
+describe("marker colours, ruler labels and loop labels", () => {
+  it("stores presets as theme series and custom colours as hex, and draws a note in its own colour", () => {
+    expect(colourValue("var(--series-3)")).toBe(3);
+    expect(colourValue("#6AA8FF")).toBe("#6aa8ff");
+    expect(colourValue("var(--accent)")).toBeNull();
+    expect(colourCss(6)).toBe("var(--series-6)");
+    expect(markerColour({ type: "note", color: 2 })).toBe("var(--series-2)");
+    expect(markerColour({ type: "note" })).toBe("var(--marker-note)");
+    expect(markerColour({ type: "exit", color: 2 })).toBe("var(--marker-exit)");
+    expect(MARKER_PRESETS.map((p) => p.name)).toEqual(["Amber", "Cyan", "Green", "Violet"]);
+  });
+
+  it("labels ruler ticks in short seconds and loops with their direction, count and file mark", () => {
+    expect([0, 0.3, 2.6, 12, 75, 90.5].map(shortSeconds)).toEqual(["0", "0.3 s", "2.6 s", "12 s", "1:15", "1:30.5"]);
+    const e = skid();
+    expect(loopLabel(e, e.loops[0])).toBe("▪ ↻ Loop 1");
+    expect(loopLabel(e, { ...e.loops[0], file: null, direction: "pingPong", count: 2 })).toBe("↔ Loop 1 ×2");
+    expect(loopLabel(e, { ...e.loops[0], end: e.loops[0].start })).toBe("Hold 1");
+  });
+});
+
 describe("tap tempo", () => {
-  it("averages the last 8 intervals and resets after a 2 s pause", () => {
+  it("averages the last 8 intervals and resets after a pause over 2.5 s (spec §4.1.5)", () => {
     let taps: number[] = [];
     for (let i = 0; i < 12; i++) taps = addTap(taps, i * 500);
     expect(taps).toHaveLength(9);
     expect(tapResult(taps)).toEqual({ bpm: 120, steadiness: "steady", taps: 9, usable: true });
-    expect(addTap(taps, 5500 + 2500)).toEqual([8000]);
+    expect(addTap(taps, 5500 + 2400)).toHaveLength(9);
+    expect(addTap(taps, 5500 + 2600)).toEqual([8100]);
     expect(tapResult([0])).toBeNull();
     expect(tapResult([0, 500, 1100, 1500])!.steadiness).toBe("uneven");
+    // The dot strip: each gap against the average, ±15 % at the ends.
+    expect(tapDots([0, 500])).toEqual([]);
+    expect(tapDots([0, 500, 1000, 1500])).toEqual([0.5, 0.5, 0.5]);
+    const dots = tapDots([0, 460, 1000, 1500]); // gaps 460, 540, 500 around a 500 ms mean
+    expect(dots[0]).toBeCloseTo(0.5 - 0.08 / 0.3, 6);
+    expect(dots[1]).toBeCloseTo(0.5 + 0.08 / 0.3, 6);
+    expect(tapDots([0, 100, 1000])).toEqual([0, 1]);
   });
 });
 
@@ -420,6 +460,23 @@ describe("library", () => {
     expect(searchSamples(files, "DOOR")).toEqual(["audio/sfx/door.wav", "audio/sfx/door_fork.sample.json"]);
   });
 
+  it("leaves flattened renders out (they are source versions) and the game's own folders out of the pickers", () => {
+    const withRender = [...files, "audio/sfx/door.flat1.wav"];
+    expect(allSamples(libraryTree(withRender, folders))).not.toContain("audio/sfx/door.flat1.wav");
+    expect(searchSamples(withRender, "door")).not.toContain("audio/sfx/door.flat1.wav");
+    expect(audioFolders(["audio", "audio/sfx", "scenes", "scripts", ".myco", "mine"], ["audio/sfx/door.wav", "scenes/a.scene.json"])).toEqual(["audio", "audio/sfx", "mine"]);
+    expect(audioFolders(["scripts", "scripts/vo"], ["scripts/vo/line.wav"])).toEqual(["scripts", "scripts/vo"]);
+  });
+
+  it("lists folders for the folder combo, filtered by path, with a new folder to make", () => {
+    const fs = ["Vehicles", "Vehicles/HoverBike", "Props"];
+    expect(folderChoices(fs, "")).toEqual({ folders: ["", "Props", "Vehicles", "Vehicles/HoverBike"], create: null });
+    expect(folderChoices(fs, "hover")).toEqual({ folders: ["Vehicles/HoverBike"], create: "hover" });
+    expect(folderChoices(fs, "Vehicles › Hover")).toEqual({ folders: ["Vehicles/HoverBike"], create: "Vehicles/Hover" });
+    expect(folderChoices(fs, "props")).toEqual({ folders: ["Props"], create: null });
+    expect(cleanPath(" Props / Doors /")).toBe("Props/Doors");
+  });
+
   it("writes meta lines and the file chip", () => {
     expect(metaLine("a.wav", null, 0.34, null)).toBe("One-shot · 340 ms");
     expect(metaLine("a.wav", skid(), 2.6, null)).toBe("Loop · while held · 2.6 s");
@@ -461,16 +518,51 @@ describe("baked effects chain", () => {
   });
 });
 
+describe("effects menu, summaries and Freeze", () => {
+  it("groups the sample-level effects by category, searches them, and summarises a row", () => {
+    const cats = effectCategories(["eq", "compressor", "fades", "noiseReduction", "reverse", "gain"]);
+    expect(cats.map((c) => [c.name, c.types])).toEqual([["Dynamics", ["compressor", "gain"]], ["EQ & filter", ["eq"]], ["Envelope", ["fades"]], ["Pitch & time", ["reverse"]], ["Restoration", ["noiseReduction"]]]);
+    expect(effectCategories(["eq", "chorus"]).map((c) => c.name)).toEqual(["EQ & filter", "Other"]);
+    expect(searchEffects(["eq", "compressor", "noiseReduction"], "re")).toEqual([{ type: "compressor", category: "Dynamics" }, { type: "noiseReduction", category: "Restoration" }]);
+    expect(effectSummary({ type: "compressor", params: { threshold: -18, ratio: 3, attack: 10 } })).toBe("Threshold −18 dB · Ratio 3:1 · Attack 10 ms");
+    expect(effectSummary({ type: "reverse", params: {} })).toBe("whole sample");
+  });
+
+  it("freezes and unfreezes the chain, one step each", () => {
+    const f = freezeEdit(defaultSampleEdits());
+    expect(f).toMatchObject({ label: "Freeze", next: { frozen: true } });
+    expect(freezeEdit(f.next)).toMatchObject({ label: "Unfreeze", next: { frozen: false } });
+  });
+});
+
 describe("play plans", () => {
   it("plays the selection by its kind and the whole-sample modes", () => {
     const e = skid();
-    expect(planPlay(e, LEN, { kind: "loop", id: "l1" }, "selection", 0)).toMatchObject({ from: 0.45, to: 1.55, loop: { count: 0, crossfadeMs: 35 }, scope: "Loop" });
-    expect(planPlay(e, LEN, { kind: "marker", id: "m1" }, "selection", 0)).toMatchObject({ from: 0.3, to: LEN, loop: null });
-    expect(planPlay(e, LEN, { kind: "sample" }, "whole", 1)).toMatchObject({ from: 0, to: LEN, scope: "Whole sample" });
+    expect(planPlay(e, LEN, { kind: "loop", id: "l1" }, "selection", 0)).toMatchObject({ from: 0.45, to: 1.55, loop: { count: 0, crossfadeMs: 35 }, scope: "Loop 1" });
+    expect(planPlay(e, LEN, { kind: "marker", id: "m1" }, "selection", 0)).toMatchObject({ from: 0.3, to: LEN, loop: null, scope: "brake_lockup → end" });
+    expect(planPlay({ ...e, loops: [] }, LEN, { kind: "sample" }, "whole", 1)).toMatchObject({ from: 0, to: LEN, scope: "Whole" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "whole", 0)).toMatchObject({ from: 0, to: LEN, held: true, loop: { start: 0.45 }, scope: "Whole" });
     expect(planPlay(e, LEN, { kind: "sample" }, "through", 0)).toMatchObject({ from: 0, to: LEN, held: true, loop: { start: 0.45 } });
     expect(planPlay(e, LEN, { kind: "sample" }, "toNextMarker", 0.31)).toMatchObject({ from: 0.31, to: 0.32, scope: "To Lock-up" });
     expect(planPlay(e, LEN, { kind: "sample" }, "selection", 1)).toMatchObject({ from: 1, scope: "From the playhead" });
     expect(planPlay(e, LEN, { kind: "tail" }, "selection", 0)).toMatchObject({ from: 1.55, to: LEN });
+  });
+
+  it("names the modes as the spec does and plays the music modes, to next exit and from the selection", () => {
+    const e = { ...skid(), markers: [marker("m1", 0.3), { ...marker("x", 2, { type: "exit" as const }) }] };
+    expect(PLAY_MODES.map((m) => m.label)).toEqual(["Selection", "Whole", "Cycle loop", "Pickup → loop", "Loop", "Loop → exit", "To next marker", "To next exit", "To trim end"]);
+    expect(playModeInfo("through").label).toBe("Whole");
+    expect(planPlay(e, LEN, { kind: "sample" }, "loop", 0)).toMatchObject({ from: 0.45, to: 1.55, held: false, scope: "Cycle loop" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "pickupLoop", 0)).toMatchObject({ from: 0, to: 1.55, loop: null, scope: "Pickup → loop" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "heldLoop", 0)).toMatchObject({ from: 0.45, to: 1.55, held: true, scope: "Loop" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "loopExit", 0)).toMatchObject({ from: 0.45, to: LEN, held: true, scope: "Loop → exit" });
+    expect(planPlay(e, LEN, { kind: "marker", id: "m1" }, "toNextExit", 0)).toMatchObject({ from: 0.3, to: 2, scope: "To next exit" });
+    expect(planPlay(e, LEN, { kind: "marker", id: "m1" }, "toEnd", 0)).toMatchObject({ from: 0.3, to: LEN, scope: "To trim end" });
+    expect(playModeRefusal(skid(), "toNextExit")).toBe("no exits");
+    expect(playModeRefusal({ ...skid(), loops: [] }, "loop")).toBe("no loops");
+    expect(playModeRefusal(e, "toNextExit")).toBeNull();
+    expect(showsMusicModes(skid())).toBe(false);
+    expect(showsMusicModes({ ...skid(), kind: "music" })).toBe(true);
   });
 
   it("plays across a seam: the window before the loop's end, then the window after its start, and no more", () => {

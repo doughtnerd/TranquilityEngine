@@ -12,15 +12,20 @@ import { hasRenderableEdits, type SamplePcm } from "../../../engine/audio/sample
 import type { SampleEdits } from "../../../engine/audio/sample/types";
 import { joinPath } from "../../../editor/projectPaths";
 import { docVersion } from "../../../editor/state";
-import { nameOf } from "./sampleLibrary";
+import { isFlatRender, nameOf } from "./sampleLibrary";
 import { projectRenderStore, renderInBackground } from "./sampleRenderClient";
 import type { SampleSession } from "./sampleSession";
 
 /** A render's file name: `<stem>.flat<n>.wav`. */
 const FLAT_NAME = /\.flat(\d+)\.wav$/i;
 
-/** True for a flattened render's path. */
-export const isFlatRender = (path: string): boolean => FLAT_NAME.test(path);
+export { isFlatRender };
+
+/** A render's number (`F<n>` in the version menu), or null for a path that isn't one. */
+export const flatNumber = (path: string): number | null => {
+  const m = FLAT_NAME.exec(path);
+  return m ? Number(m[1]) : null;
+};
 
 /** The first free `<stem>.flat<n>.wav` beside `source` among `files` (n counts up from 1, past any taken). */
 export function flatPathFor(files: readonly string[], source: string): string {

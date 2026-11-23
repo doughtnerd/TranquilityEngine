@@ -1,11 +1,11 @@
-// The Sample toolbar's Save split button (owner decision 3, 2026-11-23; spec §4.1.5): the main half saves the project
-// data (the sample's sidecar or derived-sample file, ADR 0342; Ctrl+S), and the caret's menu offers Write to file… (the
-// WAV's chunks, after the review dialog) and Fork as new sample… (Ctrl+Shift+S). Pure view over its props. The menu floats
-// at the page's root (the toolbar has container queries, S-03).
+// The Sample toolbar's Save split button (owner decision 3, 2026-11-23; spec §4.1.5): the icon-only main half saves the
+// project data (the sample's sidecar or derived-sample file, ADR 0342; Ctrl+S), and the caret's menu (the kit's
+// ContextMenu) offers Save, Write to file… (the WAV's chunks, after the review dialog) and Fork as new sample…
+// (Ctrl+Shift+S). Pure view over its props.
 import { useRef, useState } from "preact/hooks";
-import { usePopover } from "../../../editor/ui/popover";
-import { FloatingPortal } from "../../../editor/ui/FloatingPortal";
+import { ContextMenu } from "../../../editor/ui/ContextMenu";
 import { Icon } from "../../components/Icon";
+import { SampleIcon } from "./sampleIcons";
 
 export interface SaveSplitButtonProps {
   /** Save is offered (a writable project with a sample open). */
@@ -24,37 +24,25 @@ export interface SaveSplitButtonProps {
 export function SaveSplitButton(props: SaveSplitButtonProps) {
   const [open, setOpen] = useState(false);
   const caret = useRef<HTMLButtonElement>(null);
-  const pop = useRef<HTMLDivElement>(null);
-  usePopover(pop, open, { anchor: caret.current, inside: [caret], focusFirst: true, onDismiss: () => setOpen(false) });
-  const run = (f: () => void) => () => {
-    setOpen(false);
-    f();
-  };
   return (
     <span class="smp-split" role="group" aria-label="Saving">
-      <button class="smp-tool smp-tool-icon smp-split-main" aria-label="Save" disabled={!props.canSave} title={`Save the sample's edits now (${props.saveKeys}); they also save on their own. The audio file isn't changed.`} aria-keyshortcuts="Control+S" onClick={props.onSave}>
-        <Icon name="save" />
-        <span class="smp-hide-narrow">Save</span>
+      <button type="button" class="smp-sbtn smp-split-main smp-strong" aria-label="Save" disabled={!props.canSave} title={`Save the sample's edits now (${props.saveKeys}); they also save on their own. The audio file isn't changed: Write to file… writes the WAV.`} aria-keyshortcuts="Control+S" onClick={props.onSave}>
+        <Icon name="save" size={14} />
       </button>
-      <button ref={caret} class="smp-tool smp-icon-button smp-split-caret" aria-label="More ways to save" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
-        <Icon name="chevronDown" size={12} />
+      <button ref={caret} type="button" class="smp-sbtn smp-split-caret" aria-label="More ways to save" title="More ways to save" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <SampleIcon name="caret" size={10} />
       </button>
       {open && (
-        <FloatingPortal>
-        <div ref={pop} class="context-menu kit-menu smp-menu" role="menu" aria-label="Save">
-          <button role="menuitem" disabled={!props.canSave} onClick={run(props.onSave)}>
-            <span class="smp-menu-label">Save</span>
-            <span class="smp-menu-note">{props.saveKeys}</span>
-          </button>
-          <button role="menuitem" disabled={props.whyNoWrite !== null} title={props.whyNoWrite ?? "Write markers, loops, tempo and root into the WAV after a review (a backup is kept)"} onClick={run(props.onWrite)}>
-            <span class="smp-menu-label">Write to file…</span>
-          </button>
-          <button role="menuitem" disabled={!props.canFork} onClick={run(props.onFork)}>
-            <span class="smp-menu-label">Fork as new sample…</span>
-            <span class="smp-menu-note">{props.forkKeys}</span>
-          </button>
-        </div>
-        </FloatingPortal>
+        <ContextMenu
+          at={caret.current!}
+          label="Save"
+          onClose={() => setOpen(false)}
+          entries={[
+            { id: "save", label: "Save", hint: props.saveKeys, disabled: !props.canSave, title: "Save the sample's edits (its project data) now", run: props.onSave },
+            { id: "write", label: "Write to file…", disabled: props.whyNoWrite !== null, title: props.whyNoWrite ?? "See exactly which chunks will be written into the WAV (markers, loops, tempo, root note); a backup is kept", run: props.onWrite },
+            { id: "fork", label: "Fork as new sample…", hint: props.forkKeys, disabled: !props.canFork, title: "Fork: a new sample that references this one's source and edits; no audio is copied", run: props.onFork },
+          ]}
+        />
       )}
     </span>
   );

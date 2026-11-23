@@ -9,7 +9,7 @@ import { editedLength, trimOf } from "./sampleTime";
 import { landmarks, liveSelection, selectionSpan, SAMPLE_SELECTED, type SampleSelection } from "./sampleView";
 import { lengthOf } from "./sampleSession";
 import { renderPathOf } from "./sampleFlatten";
-import { followPlayhead, playMode, playheadTime, preRoll, razorOn, returnToStart, seamRepeat, select, selection, openSession, viewSpan, snapSetting, timeFormat } from "./samplesState";
+import { abSource, followPlayhead, playMode, playheadTime, preRoll, razorOn, returnToStart, seamRepeat, select, selection, openSession, viewSpan, snapSetting, timeFormat } from "./samplesState";
 import { planPlay, planSeam, playing, releasePlay, SEAM_SCOPE, startPlay, stopPlay } from "./sampleTransport";
 import { formatTime } from "../../components/timeRulerModel";
 import { snapSeconds } from "./sampleView";
@@ -174,7 +174,8 @@ export function togglePlay(sel?: SampleSelection): boolean {
   }
   const back = playheadTime.peek();
   // A flattened sample plays its render, which keeps the source's timeline: the plan's source seconds hold.
-  const audio = renderPathOf(c.s.project.files, c.s.source.peek(), c.e) ?? c.s.source.peek();
+  // A/B (spec §4.1.5): the source, every edit bypassed; else a flattened sample plays its render.
+  const audio = (abSource.peek() ? null : renderPathOf(c.s.project.files, c.s.source.peek(), c.e)) ?? c.s.source.peek();
   const begin = () => {
     const why = startPlay(host, c.s.path, audio, plan, preRoll.peek() ? 1 : 0, (t) => movePlayhead(t, followPlayhead.peek()), () => {
       if (returnToStart.peek()) playheadTime.value = back;
@@ -225,12 +226,28 @@ export function playSeam(loopId: string): boolean {
 // --- save ------------------------------------------------------------------------------------------------------------
 
 /**
+ * Ctrl+S pressed while typing in a field: the field's draft is committed first (its change runs as on leaving it),
+ * then focus goes back to it, so what was typed is in what's saved.
+ */
+function commitTyping(): void {
+  const el = typeof document === "undefined" ? null : document.activeElement;
+  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return;
+  const at = el instanceof HTMLSelectElement ? null : [el.selectionStart, el.selectionEnd] as const;
+  el.blur();
+  if (!el.isConnected) return;
+  el.focus({ preventScroll: true });
+  if (at && at[0] !== null && el instanceof HTMLInputElement && el.type !== "number") el.setSelectionRange(at[0], at[1]);
+  else if (at && at[0] !== null && el instanceof HTMLTextAreaElement) el.setSelectionRange(at[0], at[1]);
+}
+
+/**
  * Save (Ctrl+S, the Save split button; owner decision 3): the open sample's project data, its sidecar or derived-sample
- * file, written now. The audio file isn't touched: that is Write to file….
+ * file, written now. The audio file isn't touched: that is Write to file…. A field being typed in commits first.
  */
 export function save(): boolean {
   const s = openSession.peek();
   if (!s) return false;
+  commitTyping();
   if (s.readOnly) {
     status.value = { kind: "info", text: `Can't save ${nameOf(s.path)}: the project is read-only.` };
     return true;

@@ -7,10 +7,24 @@ import type { DerivedSampleAsset, SampleEdits, SampleKind } from "../../../engin
 import { parsePlaylist } from "../../../engine/audio/playlist/format";
 import { referencedPaths } from "../../../engine/audio/playlist/references";
 import { isSidecarPath } from "../../../engine/scene/importSettings";
+import { contentFolders } from "../../components/projectFolders";
 import { isAudioPath } from "./importPlan";
 
-/** True for a file the Samples panel lists: an audio file or a derived sample. */
-export const isSamplePath = (p: string): boolean => !isSidecarPath(p.toLowerCase()) && (isAudioPath(p) || isDerivedSamplePath(p));
+/** True for a flattened render (`<stem>.flat<n>.wav`, ADR 0342 Flatten): a source version of its sample, not a sample. */
+export const isFlatRender = (path: string): boolean => /\.flat\d+\.wav$/i.test(path);
+
+/**
+ * True for a file the Samples panel lists: an audio file or a derived sample. A flattened render isn't one: the version
+ * menu lists it under its sample (E-06).
+ */
+export const isSamplePath = (p: string): boolean => !isSidecarPath(p.toLowerCase()) && !isFlatRender(p) && (isAudioPath(p) || isDerivedSamplePath(p));
+
+/**
+ * The folders the Samples tree and its folder pickers (Move to…, Import's Into folder, Fork's and Save snippet's
+ * Folder) offer: the project's folders without the game's own content folders (scenes, scripts, plugins) and hidden
+ * ones, unless a sample is in them (UI pass T5, `contentFolders`).
+ */
+export const audioFolders = (folders: readonly string[], files: readonly string[]): string[] => contentFolders(folders, files, isSamplePath);
 
 export const folderOf = (p: string): string => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
 export const nameOf = (p: string): string => p.slice(p.lastIndexOf("/") + 1);
@@ -143,4 +157,21 @@ export function usesOf(sample: string, files: readonly string[], read: (path: st
     }
   }
   return out;
+}
+
+const folderCrumbs = (path: string) => (path ? path.split("/").join(" › ") : "Top level");
+
+/** A typed folder path cleaned: trimmed parts, no empty ones, "›" read as "/". */
+export const cleanPath = (text: string): string => text.replace(/\s*›\s*/g, "/").split("/").map((p) => p.trim()).filter(Boolean).join("/");
+
+/**
+ * What the folder combo lists for `query`: with none, Top level ("") and every folder; typing, the folders whose path
+ * holds it ("hover", "Vehicles › Hover"), and a new folder to make when none is the typed path.
+ */
+export function folderChoices(folders: readonly string[], query: string): { folders: string[]; create: string | null } {
+  const q = query.trim().toLowerCase();
+  if (!q) return { folders: ["", ...[...folders].sort()], create: null };
+  const typed = cleanPath(query);
+  const hits = [...folders].sort().filter((f) => f.toLowerCase().includes(q) || folderCrumbs(f).toLowerCase().includes(q));
+  return { folders: hits, create: typed && !folders.some((f) => f.toLowerCase() === typed.toLowerCase()) ? typed : null };
 }

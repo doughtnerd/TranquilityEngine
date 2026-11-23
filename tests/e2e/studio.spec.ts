@@ -41,11 +41,12 @@ test("a sample opens in the Studio and every screen shows", async ({ page }) => 
 test("Samples: import a WAV, add a marker and a loop, undo and redo; the edits are saved and reopen", async ({ page }) => {
   const errors = trackErrors(page);
   await openStudioFolder(page, "Game", MINIMAL_PROJECT);
-  await page.getByRole("button", { name: "Import…" }).click();
+  // The empty project's card over the dock (spec §4.1.2): one line and Import samples….
+  await page.getByRole("region", { name: "No samples yet" }).getByRole("button", { name: "Import samples…" }).click();
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("dialog", { name: "Import samples" }).getByRole("button", { name: "Choose files…" }).click();
   await (await chooser).setFiles({ name: "tone.wav", mimeType: "audio/wav", buffer: Buffer.from(sineWav(1)) });
-  await page.getByRole("dialog", { name: "Import audio" }).getByRole("button", { name: "Import 1 file" }).click();
+  await page.getByRole("dialog", { name: "Import audio" }).getByRole("button", { name: "Import 1" }).click();
   await expect(page.locator('[data-sample="tone.wav"]')).toBeVisible();
   await expect.poll(() => readFile(page, "Game/tone.wav").then((t) => t?.startsWith("RIFF"))).toBe(true);
 
@@ -56,13 +57,14 @@ test("Samples: import a WAV, add a marker and a loop, undo and redo; the edits a
   await page.keyboard.press("m");
   await expect(outlineGroup(page, "Notes")).toHaveCount(1);
   await page.keyboard.press("l");
-  await expect(outlineGroup(page, "Loops")).toHaveCount(1);
+  // The Loops group lists the pickup and tail around the loop (spec §4.1.4).
+  await expect(outlineGroup(page, "Loops").filter({ hasText: "Loop 1" })).toHaveCount(1);
   // Undo takes the loop back, redo brings it again.
   await page.keyboard.press("ControlOrMeta+z");
   await expect(outlineGroup(page, "Loops")).toHaveCount(0);
   await expect(outlineGroup(page, "Notes")).toHaveCount(1);
   await page.keyboard.press("ControlOrMeta+Shift+z");
-  await expect(outlineGroup(page, "Loops")).toHaveCount(1);
+  await expect(outlineGroup(page, "Loops").filter({ hasText: "Loop 1" })).toHaveCount(1);
 
   // The edits are in the sidecar on disk, and come back when the project is opened again.
   await expect.poll(async () => {
@@ -74,7 +76,7 @@ test("Samples: import a WAV, add a marker and a loop, undo and redo; the edits a
   await page.locator('[data-sample="tone.wav"]').click();
   await showPanel(page, "Outline");
   await expect(outlineGroup(page, "Notes")).toHaveCount(1);
-  await expect(outlineGroup(page, "Loops")).toHaveCount(1);
+  await expect(outlineGroup(page, "Loops").filter({ hasText: "Loop 1" })).toHaveCount(1);
   expect(errors).toEqual([]);
 });
 

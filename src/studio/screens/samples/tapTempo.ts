@@ -1,9 +1,9 @@
 // Tap tempo (the prototype's Tempo popover): taps' times in ms; the tempo is the mean of the last 8 intervals; a pause
-// over 2 s starts a new run; steadiness from the intervals' spread (steady under 4 %, a bit uneven under 10 %,
+// over 2.5 s (spec §4.1.5; decisions.md) starts a new run; steadiness from the intervals' spread (steady under 4 %, a bit uneven under 10 %,
 // else uneven). "Use" needs 20–400 BPM. Pure.
 
 export const TAP_INTERVALS = 8;
-export const TAP_RESET_MS = 2000;
+export const TAP_RESET_MS = 2500;
 
 export type Steadiness = "steady" | "a bit uneven" | "uneven";
 
@@ -20,6 +20,17 @@ export function addTap(taps: readonly number[], now: number): number[] {
   const last = taps[taps.length - 1];
   const run = last !== undefined && now - last <= TAP_RESET_MS && now > last ? [...taps, now] : [now];
   return run.slice(-(TAP_INTERVALS + 1));
+}
+
+/** The dot strip's span: each gap is drawn against the average, ±15 % (spec §4.1.5). */
+export const TAP_DOT_SPAN = 0.15;
+
+/** Each gap between taps as a place on the strip (0..1; 0.5 is the average, ±15 % reach the ends). */
+export function tapDots(taps: readonly number[]): number[] {
+  if (taps.length < 3) return [];
+  const iv = taps.slice(1).map((t, i) => t - taps[i]);
+  const mean = iv.reduce((a, b) => a + b, 0) / iv.length;
+  return iv.map((g) => Math.max(0, Math.min(1, 0.5 + (g / mean - 1) / (2 * TAP_DOT_SPAN))));
 }
 
 /** The tempo the taps give, or null with fewer than two. */
