@@ -1,0 +1,25 @@
+[package]
+name = "anim-editor-wasm"
+description = "Myco animation core (ADR 0370, 0371; T19): the editor's compile module (clip compression, skeleton compile, compressed retarget bake, pose-database bake) for the editor's worker and exports. Never loaded by games."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+anim-format.workspace = true
+anim-compress.workspace = true
+anim-sample.workspace = true
+anim-retarget = { workspace = true, features = ["compress"] }
+anim-match.workspace = true
+wasm-bindgen.workspace = true
+
+[build-dependencies]
+sha2.workspace = true
+
+[dev-dependencies]
+anim-offline.workspace = true
+anim-math.workspace = true
