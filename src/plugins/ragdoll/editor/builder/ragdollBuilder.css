@@ -1,0 +1,20 @@
+/* The Ragdoll plugin's builder (ADR 0373; T55): the Generate and Test Drop row and the per-bone table under the Ragdoll
+   card's fields. Theme tokens only (src/editor/theme.ts). */
+.ragdoll-builder { margin: 8px 0 4px; }
+.ragdoll-builder h4 { margin: 0 0 4px; font-size: calc(11px * var(--ui-scale)); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.ragdoll-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; margin: 4px 0; }
+.ragdoll-note { margin: 4px 0; font-size: calc(11px * var(--ui-scale)); color: var(--muted); }
+.ragdoll-problem { margin: 4px 0; font-size: calc(12px * var(--ui-scale)); color: var(--danger); overflow-wrap: anywhere; }
+.ragdoll-table-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); }
+.ragdoll-table { border-collapse: collapse; font-size: calc(12px * var(--ui-scale)); min-width: 100%; }
+.ragdoll-table th, .ragdoll-table td { padding: 2px 3px; text-align: left; font-weight: 400; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.ragdoll-table thead th { color: var(--muted); font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.04em; }
+.ragdoll-table tr.selected th, .ragdoll-table tr.selected td { background: var(--accent-faint); }
+.ragdoll-table tr.problem th { color: var(--danger); }
+.ragdoll-table input[type="number"] { width: 5.2em; min-width: 0; box-sizing: border-box; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font: inherit; }
+.ragdoll-table input:focus, .ragdoll-table select:focus { outline: none; border-color: var(--accent); }
+.ragdoll-table select { min-width: 0; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; font: inherit; }
+.ragdoll-size { display: flex; gap: 2px; }
+.ragdoll-bone { max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: none; border: 0; color: var(--text); padding: 2px 4px; text-align: left; cursor: pointer; }
+.ragdoll-bone[aria-pressed="true"] { color: var(--accent); font-weight: 600; }
+.ragdoll-problems { margin: 4px 0; padding: 4px 6px 4px 22px; border-radius: 3px; background: var(--danger-soft); color: var(--text); font-size: calc(11px * var(--ui-scale)); }
