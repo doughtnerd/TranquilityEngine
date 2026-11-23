@@ -129,3 +129,56 @@ start at the integration branch. Briefs keep that instruction.
   suites: 204 passed, 6 skipped, 3 failed (the baseline `plugins.test.ts` scans).
 - Estimate drift: W1a + W1b planned 18 task-days (estimate); agents took 1.7 hours of wall time in all, plus
   coordinator merging and checks. Agent time doesn't map onto the plan's person-days; the estimates stay as written.
+
+## W2
+
+C7 (coordinator, `69d3db2aa`): `EditorDebugLink.connect()` (a lazily made `ToolConnector`, polled with the listener;
+its peers join `builds` without a prompt) delegating to `connectFlow.ts`; `servePlay()` delegating to `playBuild.ts`;
+`BuildsMenu` `onConnect` and `playSlot`; `ConnectDialog` props; `studioLink.ts` signals.
+
+| Task | Model | Agent time | Result |
+|---|---|---|---|
+| U1 Connect dialog and flow | Sonnet | 8.4 min | 11 flow tests; 12 dialog stories and 3 menu stories with `play` (not run, below) |
+| U2 player side | Sonnet | 4.9 min | listener start, overlay (F8), `?debug-code=` / `__mycoDebugCode` |
+| U3 Play as a build | strongest | 10.1 min | choice (b): Play's own `startBuildListener` on 7791..7799 (the engine's listener refuses tool-role pairs); wired in `link.ts` |
+| U4 Studio link | Sonnet | 5.8 min | its own link and preferences (`myco.studio.debugLink`), menu, prompt, a small settings dialog |
+| U5 Studio Profiler and Take | strongest | 14.5 min | Follow build (remote `LiveHost`); Take: Start take, Mark, Stop, Save into takes/ |
+| U6 export flags, vendored crates | Sonnet | 7.4 min | `--debug-listen`, `--debug-lan`, `--debug-port`; crates under `<out>/src-tauri/vendor/` |
+| U7 OP1 walker | Sonnet | 8.6 min | 4 walker cases over a real WebSocket, full speed and paced; OP1 text |
+| U8 Mixer on the link | Sonnet | 5.8 min | edits go local and remote; refusals in the Mixer's status bar |
+| S1 browser smoke | Sonnet | 6.5 min | spec passed first time (8.5 s) |
+
+**Coordinator fixes and additions after the merges.**
+- `49cfeba0e`: S1's Node-side fixture imports the engine's debug-link client, which brings engine files into
+  `tsconfig.node.json`; it gains the engine's libs (`DOM.Iterable`, `ESNext.Decorators`), `vite/client` and the
+  css-tree parser declaration. Typecheck back to the 2 baseline errors.
+- The editor's builds menu mounts U3's `PlayBuildSlot` in U1's `playSlot`.
+- U4's `startStudioDebugLink` took options its own comment called "for tests"; removed. The tests register the
+  loopback as the listening `websocket` transport and mock the platform check and the native module, so they run the
+  app's path.
+- MIXOP origin `debugLink: 5` (A3 and U8 recommended it): a tool's `mix.op` applies inside
+  `withMixOpOrigin("debugLink")`. The out-of-range fuzz case moves to 6; the 0171 design's record table names the
+  value. Test fails before.
+- The Take screen's empty copy mentions recording from a connected build (within its 90-character line).
+- `docs/guide/debug-link.md`: flags, pairing, the Studio's use, the network checklist and OP1 with the real labels.
+
+**Wave-end checks** (against the baseline).
+- Vitest: 6 failed, 12,038 passed, 16 skipped (1,159 files): all baseline.
+- Typecheck: the 2 baseline errors.
+- `build:editor` passes. `files.json` `debug`: 6 chunks (overlay, host, records, the Tauri listener, two topics).
+- e2e (Chromium): 5 failed, 266 passed: the 4 baseline specs and `three-d` model import settings, which passed 7 of 7
+  on a rerun (flaky). S1 (`@slow`) passed separately.
+- **Stories not run.** `npm run test:stories` can't start on this machine: Vitest's browser server binds port 63315,
+  inside a Windows excluded TCP range (63278–63377, `netsh interface ipv4 show excludedportrange protocol=tcp`), and
+  overriding `browser.api.port` didn't move it. The excluded range is a system setting (Hyper-V/WinNAT reserves it,
+  it moves after `net stop winnat` or a reboot); left to the owner. U1's and U5's stories' `play` functions are
+  unverified until then.
+
+**Open for M1's exit and later.**
+- OP1 on real machines (the first real Tauri run of the listener, the shared commands crate and a vendored debug export).
+- The editor and Studio have no source for this machine's network addresses (`interfaces: () => []`), so a native
+  tool completes codes from the 192.168 fallback, and Play shows no LAN code. Interfaces need a small native command
+  (D1 touches the same crate in M3).
+- No UI prompt for a tokenless tool reaching Play from another machine (it's refused with `no-token`).
+- A paused Play answers no tool until it resumes (U3).
+- `captureLost` reason, the capture queue's limit, `plugins.test.ts`' scans on Linux/CI: still open from W1a.
