@@ -11,9 +11,12 @@
  *   The particle runners (`render/particles/gpu/webgpuRun.ts`, `webgl2Run.ts`) sit on this layer with
  *   their own shader text (`kernelShader.ts`), byte for byte as before.
  * - **Item kernels** (`itemKernel.ts`): a KSL body (`render/shaderSource`) written once, wrapped as WGSL
- *   compute, GLSL fragment and JavaScript; run by `GpuItemKernel` (output in a vertex-bindable storage
- *   buffer), `GlItemKernel` (output in float textures for vertex pulling) or `JsItemKernel` (CPU, tests).
- *   Skinning (`mycoSkin`, T16) is meant to be one of these.
+ *   compute, GLSL fragment, GLSL transform-feedback vertex and JavaScript; run by `GpuItemKernel` (output
+ *   in a vertex-bindable storage buffer), `GlItemKernel` (output in float textures for vertex pulling),
+ *   `GlFeedbackItemKernel` (output captured into an ordinary vertex buffer, laid out like WebGPU's) or
+ *   `JsItemKernel` (CPU, tests). Inputs are tables of vec4 rows; a table several kernels share (a
+ *   skeleton's bone palette) is bound with `bindInput`. Skinning (`render/skinning`, `mycoSkin`, T16)
+ *   runs on `GpuItemKernel` and `GlFeedbackItemKernel`.
  *
  * Every runner has `dispatch` (per frame), `resize`, `dispose` and reports a lost device or context
  * (`lost`; work stops, the owner rebuilds). WebGL2 passes change GL state: the caller restores its own.
@@ -24,3 +27,4 @@ export * from "./webgl2";
 export * from "./itemKernel";
 export { GpuItemKernel, type GpuItemKernelOptions } from "./itemKernelWebgpu";
 export { GlItemKernel } from "./itemKernelWebgl2";
+export { GlFeedbackItemKernel } from "./itemKernelFeedback";

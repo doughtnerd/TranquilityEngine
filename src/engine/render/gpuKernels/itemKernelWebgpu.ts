@@ -21,6 +21,7 @@ export class GpuItemKernel {
   readonly ready: Promise<string[]>;
   private readonly gpu: GpuKernel;
   private readonly info: GpuBuffer;
+  /** Each input's buffer: owned (grown by `setInput`), or another owner's (`bindInput`; `bytes` 0, never destroyed here). */
   private readonly inputs = new Map<string, { buffer: GpuBuffer; bytes: number }>();
   private readonly factory: BufferFactory;
   private n: number;
@@ -59,12 +60,27 @@ export class GpuItemKernel {
     if (!input) throw new Error(`item kernel "${this.spec.name}" has no input "${name}"`);
     const bytes = Math.max(VEC4_BYTES, Math.ceil(data.byteLength / VEC4_BYTES) * VEC4_BYTES);
     if (bytes > input.bytes) {
-      input.buffer.destroy();
+      if (input.bytes) input.buffer.destroy();
       input.buffer = this.device.createBuffer({ size: bytes, usage: BUFFER.STORAGE | BUFFER.COPY_DST, label: `kernel ${this.spec.name} ${name}` });
       input.bytes = bytes;
       this.gpu.invalidate();
     }
     this.device.queue.writeBuffer(input.buffer, 0, data.buffer, data.byteOffset, data.byteLength);
+  }
+
+  /**
+   * Read input `name` from `buffer`, a storage buffer another owner writes (a table several kernels
+   * share, such as one skeleton's bone palette for each of its meshes); it isn't destroyed here. A
+   * later `setInput` gives the input a buffer of its own again.
+   */
+  bindInput(name: string, buffer: GpuBuffer): void {
+    const input = this.inputs.get(name);
+    if (!input) throw new Error(`item kernel "${this.spec.name}" has no input "${name}"`);
+    if (input.buffer === buffer) return;
+    if (input.bytes) input.buffer.destroy();
+    input.buffer = buffer;
+    input.bytes = 0;
+    this.gpu.invalidate();
   }
 
   /** Run every item into `output`. */
@@ -100,7 +116,7 @@ export class GpuItemKernel {
   dispose(): void {
     this.gpu.dispose();
     this.info.destroy();
-    for (const i of this.inputs.values()) i.buffer.destroy();
+    for (const i of this.inputs.values()) if (i.bytes) i.buffer.destroy();
     this.output.destroy();
   }
 }
