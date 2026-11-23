@@ -654,6 +654,61 @@ export interface ComponentWireframeContribution {
   wire(component: Component): Wire | null;
 }
 
+/** A bone of a skeleton as the Hierarchy lists it (ADR 0373): its name and the bones under it. */
+export interface SkeletonBoneRow {
+  readonly name: string;
+  readonly children: readonly SkeletonBoneRow[];
+}
+
+/** What the Inspector's bone view is given (ADR 0242's bone target, 0373): the node with the Skeleton and the bone's name. */
+export interface BoneInspectorProps {
+  readonly scene: OpenScene;
+  readonly path: NodePath;
+  readonly bone: string;
+}
+
+/**
+ * The bones a plugin lists in the Hierarchy under scene nodes (ADR 0373: the Animation plugin's Skeletons): read-only
+ * virtual rows, built from the skeleton asset and never saved in the scene, each collapsed until opened and all hidden
+ * while searching. Selecting one makes the Inspector target that bone (ADR 0242), which `inspector` shows.
+ */
+export interface SkeletonBonesContribution {
+  readonly id: string;
+  /** The root bones under the node at `path` (empty: none). Read while the Hierarchy renders, so it may read signals (a skeleton loading). */
+  bones(scene: OpenScene, path: NodePath): readonly SkeletonBoneRow[];
+  /** The Inspector's view of a selected bone. */
+  readonly inspector: LoadComponent<BoneInspectorProps>;
+}
+
+/**
+ * What dropping Assets panel files on a scene node's Hierarchy row does instead of adding them under it (ADR 0373: a
+ * clip dropped on an Animator). Asked only for the middle of a row ("into"); the first contribution that gives a label
+ * takes the drop, and the label is the drag's text.
+ */
+export interface NodeAssetDropContribution {
+  readonly id: string;
+  /** What releasing `assets` on the node at `path` does ("Set Run as Hero's default clip"), or null when this contribution doesn't take them there. */
+  label(scene: OpenScene, path: NodePath, assets: readonly string[]): string | null;
+  /** Releasing them there, after `label` gave a text. */
+  drop(scene: OpenScene, path: NodePath, assets: readonly string[]): void;
+}
+
+/**
+ * A change another plugin makes to what adding a file of an asset kind to a scene makes (ADR 0140's `addToScene`, ADR
+ * 0373): the Animation plugin gives a dropped model whose meshes are skinned a Skeleton, SkinnedMeshRenderers and an
+ * Animator, though the model kind is the Meshes plugin's. Augments run in registration order on the kind's own templates,
+ * inside the add's one undo step; `prepare` runs beside the kind's own.
+ */
+export interface AssetNodesAugmentContribution {
+  readonly id: string;
+  /** The asset kind whose added nodes it changes, e.g. "model". */
+  readonly kind: string;
+  /** Load what `augment` reads, while the add prepares (with the kind's own `prepare`). Never rejects. */
+  prepare?(path: string): Promise<void>;
+  /** The templates to add for `path` (`templates[0]` the root): a new list, or `templates` itself to change nothing. */
+  augment(path: string, templates: NodeTemplate[]): NodeTemplate[];
+}
+
 export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
 export const panels = createRegistry<PanelContribution>("Panel");
@@ -671,6 +726,9 @@ export const idlePrefetches = createRegistry<IdlePrefetchContribution>("Idle pre
 export const fieldChoices = createRegistry<FieldChoicesContribution>("Field choices");
 export const nameReferences = createRegistry<NameReferencesContribution>("Name references");
 export const componentWireframes = createRegistry<ComponentWireframeContribution>("Component wireframe");
+export const skeletonBones = createRegistry<SkeletonBonesContribution>("Skeleton bones");
+export const nodeAssetDrops = createRegistry<NodeAssetDropContribution>("Node asset drop");
+export const assetNodesAugments = createRegistry<AssetNodesAugmentContribution>("Asset nodes augment");
 
 /** The wireframe a registered contribution draws for `component` (by its Component type id), or null when none draws it or it can't be drawn now. */
 export function componentWireframe(component: Component): Wire | null {

@@ -13,7 +13,7 @@ import { useEditorPlugins } from "../plugins/testEditorPlugins";
 import { runAsset } from "./assetActions";
 import { assetClipboard } from "./assetOps";
 import { lastAssetBrowser, resetAssetBrowser, selectedAssets } from "./assetSelection";
-import { inspectorTarget, previewAssets, select, selectAssets, selectUIElement, showAsset, showSceneSettings } from "./inspectorTarget";
+import { inspectorTarget, previewAssets, select, selectAssets, selectBone, selectUIElement, showAsset, showSceneSettings } from "./inspectorTarget";
 import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
@@ -214,5 +214,32 @@ describe("a live World while playing", () => {
     inspectWorld("Game");
     endLiveInspection(); // Stop
     expect(kind()).toBe("nodes");
+  });
+});
+
+describe("a bone of a Skeleton (ADR 0373)", () => {
+  it("shows the bone and clears the other selections; any of them replaces it again", () => {
+    const scene = openScene.value!;
+    select(["bird"]);
+    selectBone(scene, ["bird"], "Head", "test.bones");
+    expect(selectedKeys.value).toEqual([]);
+    expect(inspectorTarget.value).toEqual({ kind: "bone", scene, path: ["bird"], bone: "Head", provider: "test.bones" });
+    select(["bird"]);
+    expect(kind()).toBe("nodes");
+    selectBone(scene, ["bird"], "Head", "test.bones");
+    selectAssets([INSPECTED[0]]);
+    expect(kind()).toBe("asset");
+    selectBone(scene, ["bird"], "Head", "test.bones");
+    expect(selectedAssets.value).toEqual([]);
+    selectUIElement(HUD);
+    expect(kind()).toBe("uiElement");
+    selectBone(scene, ["bird"], "Head", "test.bones");
+    showSceneSettings();
+    expect(kind()).toBe("sceneSettings");
+  });
+
+  it("gives way to the scene settings once its node is gone", () => {
+    selectBone(openScene.value!, ["nobody"], "Head", "test.bones");
+    expect(kind()).toBe("sceneSettings");
   });
 });

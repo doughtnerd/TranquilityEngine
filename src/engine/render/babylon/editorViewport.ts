@@ -14,6 +14,7 @@
  */
 import { Ray as BabylonRay } from "@babylonjs/core/Culling/ray.js";
 import { Matrix, Vector3 as BabylonVector3 } from "@babylonjs/core/Maths/math.vector.js";
+import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import { Vector2, Vector3 } from "../../core/math";
 import type { World } from "../../core/World";
@@ -281,6 +282,13 @@ const inv = new Matrix();
  * Distance along a world ray (`ray`, from `origin`) to the nearest hit on `meshes`' triangles (visible ones),
  * or null. Babylon's mesh test takes the ray in the mesh's own space and measures the hit there: the hit
  * point goes back to world space for a distance comparable across meshes.
+ *
+ * A mesh whose vertices live only on the GPU (a skinned draw skinned by WebGPU compute or WebGL2 transform
+ * feedback, ADR 0370, T18) has no positions for the triangle test: it's hit by its bounding box instead (the
+ * skinned draw's bounds, from the animated bones or its fixed box). That is coarser: a click in the box but
+ * beside the body (between the legs, past a hand) still picks it, and the nearest-first order compares the
+ * box's face rather than the surface. Exact picking would need a CPU copy of the skinned vertices each frame,
+ * which is what GPU skinning avoids.
  */
 function nearestHit(ray: BabylonRay, origin: BabylonVector3, meshes: readonly AbstractMesh[]): number | null {
   let nearest = Infinity;
@@ -288,12 +296,41 @@ function nearestHit(ray: BabylonRay, origin: BabylonVector3, meshes: readonly Ab
     if (!visible(mesh)) continue;
     const world = mesh.getWorldMatrix();
     const local = BabylonRay.Transform(ray, world.clone().invert());
-    const info = mesh.intersects(local, false);
-    if (!info.hit) continue;
-    const point = BabylonVector3.TransformCoordinates(local.origin.add(local.direction.scale(info.distance)), world);
+    let distance: number | null;
+    if (mesh.getVerticesData(VertexBuffer.PositionKind)) {
+      const info = mesh.intersects(local, false);
+      distance = info.hit ? info.distance : null;
+    } else {
+      const box = mesh.getBoundingInfo().boundingBox;
+      distance = rayBoxDistance(local, box.minimum, box.maximum);
+    }
+    if (distance === null) continue;
+    const point = BabylonVector3.TransformCoordinates(local.origin.add(local.direction.scale(distance)), world);
     nearest = Math.min(nearest, BabylonVector3.Distance(origin, point));
   }
   return nearest < Infinity ? nearest : null;
+}
+
+/**
+ * Distance along `ray` (in the box's space) to where it enters the box `min`..`max` (0 from inside), or null when it
+ * misses or the box is behind it. The slab test.
+ */
+function rayBoxDistance(ray: BabylonRay, min: BabylonVector3, max: BabylonVector3): number | null {
+  let near = 0, far = ray.length;
+  const o = [ray.origin.x, ray.origin.y, ray.origin.z], d = [ray.direction.x, ray.direction.y, ray.direction.z];
+  const lo = [min.x, min.y, min.z], hi = [max.x, max.y, max.z];
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(d[i]!) < 1e-12) {
+      if (o[i]! < lo[i]! || o[i]! > hi[i]!) return null;
+      continue;
+    }
+    let t1 = (lo[i]! - o[i]!) / d[i]!, t2 = (hi[i]! - o[i]!) / d[i]!;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    near = Math.max(near, t1);
+    far = Math.min(far, t2);
+    if (near > far) return null;
+  }
+  return near;
 }
 
 /**

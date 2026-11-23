@@ -6,7 +6,7 @@
 // Light on imports (no editor state), so `assetBrowser.ts` and `thumbnails/keys.ts` can both use it.
 import { isSidecarPath } from "../engine/scene/importSettings";
 import { studioScreenFor } from "./studioAssets";
-import { assetKinds, type AssetKindContribution, type AssetSceneNodes, type ImportSettingsContribution, type LoadComponent } from "./sdk/contributions";
+import { assetKinds, assetNodesAugments, type AssetKindContribution, type AssetSceneNodes, type ImportSettingsContribution, type LoadComponent } from "./sdk/contributions";
 
 /** The kinds the editor shell registers (ADR 0143) and the ones this module answers itself. */
 export type CoreAssetKind = "scene" | "prefab" | "image" | "sprite" | "audio" | "rendertexture" | "json" | "script" | "javascript" | "typescript" | "text" | "xml" | "other";
@@ -108,8 +108,25 @@ export function kindOpens(path: string): boolean {
   return k?.open !== undefined || k?.panel !== undefined || (!path.includes("#") && opensInCodePanel(assetKind(path))) || opensWithAudioStudio(path);
 }
 
-/** What adding the entry at `path` to a scene makes, if anything (a slice adds as its file does). */
-export const sceneNodesAt = (path: string): AssetSceneNodes | undefined => behaviourAt(path)?.addToScene;
+/**
+ * What adding the entry at `path` to a scene makes, if anything (a slice adds as its file does): its kind's `addToScene`,
+ * with the augments other plugins registered for the kind (ADR 0373) run on its templates and prepared with it.
+ */
+export function sceneNodesAt(path: string): AssetSceneNodes | undefined {
+  const kind = behaviourAt(path);
+  const add = kind?.addToScene;
+  if (!add) return undefined;
+  void assetNodesAugments.version.value;
+  const augments = assetNodesAugments.list().filter((a) => a.kind === kind.id);
+  if (augments.length === 0) return add;
+  return {
+    ...add,
+    prepare: async (p) => {
+      await Promise.all([add.prepare?.(p), ...augments.map((a) => a.prepare?.(p))].map((done) => done?.catch(() => undefined)));
+    },
+    nodes: (p, position) => augments.reduce((templates, a) => a.augment(p, templates), add.nodes(p, position)),
+  };
+}
 
 /** True if the file at `path` has a scene node to become. */
 export const canAddToScene = (path: string): boolean => sceneNodesAt(path) !== undefined;

@@ -1,0 +1,21 @@
+/* The Animation plugin's scene tools (ADR 0373; T18): the bone Inspector, the Animator's clip drop zone and the clip
+   preview. Theme tokens only (src/editor/theme.ts). */
+.bone-inspector-header { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; }
+.bone-inspector-name { font-weight: 600; color: var(--text-strong); overflow-wrap: anywhere; }
+.bone-inspector-heading { margin: 10px 0 4px; font-size: calc(11px * var(--ui-scale)); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.bone-inspector-attach { margin-top: 8px; }
+
+.animator-clip-drop { margin: 6px 0 2px; padding: 8px; border: 1px dashed var(--border-strong); border-radius: 4px; color: var(--muted); font-size: calc(12px * var(--ui-scale)); text-align: center; }
+.animator-clip-drop.over { border-color: var(--accent); color: var(--text); background: var(--accent-faint); }
+.animator-clip-drop.refused { border-color: var(--danger); color: var(--danger); }
+
+.clip-preview { display: flex; flex-direction: column; gap: 6px; }
+.clip-preview-model { display: flex; align-items: center; gap: 6px; font-size: calc(12px * var(--ui-scale)); color: var(--muted); }
+.clip-preview-model .clip-preview-model-name { color: var(--text); overflow-wrap: anywhere; }
+.clip-preview-drop { padding: 18px 8px; border: 1px dashed var(--border-strong); border-radius: 4px; color: var(--muted); text-align: center; font-size: calc(12px * var(--ui-scale)); }
+.clip-preview-drop.over { border-color: var(--accent); color: var(--text); background: var(--accent-faint); }
+.clip-preview-controls { display: flex; align-items: center; gap: 6px; }
+.clip-preview-controls input[type="range"] { flex: 1; min-width: 0; accent-color: var(--accent); }
+.clip-preview-time { min-width: 7em; text-align: right; font-variant-numeric: tabular-nums; font-size: calc(12px * var(--ui-scale)); color: var(--muted); }
+.clip-preview-note { margin: 0; font-size: calc(11px * var(--ui-scale)); color: var(--faint); }
+.clip-preview-title { margin: 0; font-size: calc(13px * var(--ui-scale)); color: var(--text-strong); overflow-wrap: anywhere; }

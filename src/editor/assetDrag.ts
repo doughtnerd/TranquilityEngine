@@ -17,6 +17,7 @@ import { moveAssetsTo, whyNotMovable, whyNotMoveTarget } from "./assetOps";
 import { select } from "./inspectorTarget";
 import { currentProject, openScene, playState, sceneCamera, status, viewMode } from "./state";
 import { whyNotEdit } from "./editGate";
+import { nodeAssetDrops } from "./sdk/contributions";
 import { eventWindow } from "./windows/dom";
 
 /** Pointer travel (CSS px) before pressing an asset tile becomes a drag. */
@@ -82,6 +83,21 @@ function targetAt(clientX: number, clientY: number, doc: Document = document): A
 }
 
 /**
+ * A plugin's drop on the middle of a node's Hierarchy row (`registerNodeAssetDrop`, ADR 0373: a clip on an Animator), as
+ * a plugin target, or null when no contribution takes these files there (they're then added under the node as usual).
+ */
+function nodeDropTarget(paths: readonly string[], drop: HierarchyDrop, point: AssetDropPoint): AssetDropTarget | null {
+  const scene = openScene.value;
+  if (!scene || drop.mode !== "into" || drop.row === null) return null;
+  const path = drop.row.split("/");
+  for (const c of nodeAssetDrops.list()) {
+    const label = c.label(scene, path, paths);
+    if (label !== null) return { kind: "plugin", spec: { accepts: () => true, label: () => label, drop: () => c.drop(scene, path, paths) }, label, point };
+  }
+  return null;
+}
+
+/**
  * Where a viewport drop lands: under the cursor on the plane sprites live on (2D view) or on the
  * ground (3D view, y = 0); the camera's focus if the ray misses it.
  */
@@ -144,7 +160,8 @@ export function startAssetDrag(e: PointerEvent, paths: readonly string[]): void 
       assetDrag.value = { paths, x: m.clientX, y: m.clientY, target: plugin.target, problem: plugin.target ? null : plugin.problem };
       return;
     }
-    const target = targetAt(m.clientX, m.clientY, doc);
+    const found = targetAt(m.clientX, m.clientY, doc);
+    const target = (found?.kind === "hierarchy" ? nodeDropTarget(paths, found.drop, { x: m.clientX, y: m.clientY }) : null) ?? found;
     const problem = target ? problemFor(paths, target) : (problemFor(paths, { kind: "viewport", x: 0, y: 0 }) ?? "drop it in the viewport, the hierarchy or a folder");
     assetDrag.value = { paths, x: m.clientX, y: m.clientY, target: problem ? null : target, problem };
   };
