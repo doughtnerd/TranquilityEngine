@@ -35,6 +35,7 @@ import { childrenToKeep, deleteEntry, folderContentsUp, moveAcrossFiles, moveWit
 import type { DropPlan } from "./treeDrop";
 import { updateLog, voicesNow, type DebugSnapshot, type LogRow } from "./voiceLog";
 import { busPath } from "../mixer/busTree";
+import { starterTracks } from "./sequence/sequenceEdits";
 import { playback as sequencePlayback, sequenceContext } from "./sequence/sequenceState";
 
 // --- state -----------------------------------------------------------------------------------------------------------
@@ -235,7 +236,9 @@ export async function newPlaylistFromSamples(samples: readonly string[]): Promis
 
 /** New sequence: a Sequence playlist file in `folder` (its timeline is edited from M5). */
 export async function newSequence(folder: string | null): Promise<void> {
-  const path = await createAsset<PlaylistAsset>("playlist", { folder: folder ?? "", name: "New sequence", value: emptyPlaylist("sequence") });
+  const value = emptyPlaylist("sequence");
+  const seq = value.sequence!;
+  const path = await createAsset<PlaylistAsset>("playlist", { folder: folder ?? "", name: "New sequence", value: { ...value, sequence: { ...seq, tracks: starterTracks(seq) } } });
   if (path) openPlaylist(filePath(path));
 }
 

@@ -136,7 +136,7 @@ button.sq-tci:hover:not(:disabled) { background: var(--hover); }
 .sq-ms.pw[aria-pressed="true"] { color: var(--accent2); border-color: var(--accent2); background: var(--accent2-soft); }
 .sq-ms.tr:hover:not(:disabled) { color: var(--danger); border-color: var(--danger); }
 .sq-head-vol { display: inline-flex; align-items: center; }
-.sq-head-vol .studio-num { width: 44px; padding: 0 4px; font-size: calc(11px * var(--ui-scale)); }
+.sq-head-vol .studio-num { width: 38px; padding: 0 3px; font-size: calc(11px * var(--ui-scale)); }
 .sq-head-out { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .sq-lane { position: relative; flex: 1 1 auto; min-width: 0; overflow: hidden; background: var(--bg); }
 .sq-lane.disabled { opacity: 0.55; }

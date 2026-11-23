@@ -389,6 +389,10 @@
 .pl-pbh:hover .pl-cap { color: var(--text); }
 .pl-pbf { display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 6px 8px; align-items: center; padding: 6px 0 2px; font-size: calc(12px * var(--ui-scale)); }
 .pl-k { color: var(--muted); }
+/* An effect's settings in the narrow Inspector: a shorter name column, so the typed box keeps five digits (a Low-pass
+   cutoff read "2000(" for 20000). */
+:is(.pl-inspector, .sq-inspector) .studio-row-body .studio-slider { grid-template-columns: minmax(44px, 84px) minmax(48px, 1fr) auto; }
+:is(.pl-inspector, .sq-inspector) .studio-row-body .studio-slider .studio-num { min-width: 56px; }
 .pl-pbs { display: flex; flex-direction: column; gap: 2px; }
 /* Its plain rows (When full, Priority) line up with the slider rows: no extra indent, the same label column (V9). */
 .pl-pbs > .kit-field { padding: 2px 0; grid-template-columns: minmax(70px, 110px) minmax(0, 1fr); gap: 6px; }
