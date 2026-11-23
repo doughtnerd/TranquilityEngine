@@ -1,4 +1,4 @@
-// ADR 0340: the animation core's boundary records are defined once in Rust (native/anim/crates/anim-wire) and the
+// ADR 0350: the animation core's boundary records are defined once in Rust (native/anim/crates/anim-wire) and the
 // TypeScript constants in wire/<family>.ts are generated from them. For every family, this test decodes the byte
 // vectors Rust encoded (anim-wire/vectors/<family>.json) with the generated constants and encodes the values back,
 // so both sides agree on every layout; then it drives the core's `init` through the committed wasm with the same

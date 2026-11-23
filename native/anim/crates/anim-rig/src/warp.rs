@@ -319,7 +319,7 @@ impl RootCurve<'_> {
 }
 
 /// A motion warp: over the window `[t0, t1]` of a clip, bend the root's path so that it lands on
-/// `target` at `t1` (`warp("Vault", target, window)` from code, ADR 0342).
+/// `target` at `t1` (`warp("Vault", target, window)` from code, ADR 0352).
 #[derive(Clone, Copy, Debug)]
 pub struct MotionWarp {
     pub t0: f32,

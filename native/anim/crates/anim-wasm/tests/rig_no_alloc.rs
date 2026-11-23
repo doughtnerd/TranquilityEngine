@@ -1,4 +1,4 @@
-//! `write_inputs`, `evaluate` and `debug_write` never allocate with rig nodes (ADR 0340, T40): a
+//! `write_inputs`, `evaluate` and `debug_write` never allocate with rig nodes (ADR 0350, T40): a
 //! counting global allocator sees no allocation across frames that run every rig kind (IK of
 //! every flavour, look-at and aim, the grounder with fed hits, a spring chain with a collider,
 //! copy, limit and damp constraints, stride and orientation warping, a motion warp through its

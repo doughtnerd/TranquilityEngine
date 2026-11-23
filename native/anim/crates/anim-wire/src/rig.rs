@@ -1,4 +1,4 @@
-//! Family `rig`: rig stack inputs and outputs (ADR 0340, 0342): the rig input view (the
+//! Family `rig`: rig stack inputs and outputs (ADR 0350, 0352): the rig input view (the
 //! character's transform, the rig LOD level, IK target slots, last frame's ray hits), the ray
 //! output view (grounder ray requests), and the motion-warp and reset commands.
 //!
@@ -12,7 +12,7 @@
 //! | [`RIG_CHARACTER_POSITION`] | the character's model-to-world transform: position (3 f32) |
 //! | [`RIG_CHARACTER_ROTATION`] | rotation (4 f32, x y z w) |
 //! | [`RIG_CHARACTER_SCALE`] | scale (3 f32) |
-//! | [`RIG_LOD`] | `u32` rig LOD level (0 full detail; rig nodes declare the level they are skipped at, ADR 0340's "rig and spring bones switch off past a distance") |
+//! | [`RIG_LOD`] | `u32` rig LOD level (0 full detail; rig nodes declare the level they are skipped at, ADR 0350's "rig and spring bones switch off past a distance") |
 //! | [`RIG_TARGETS`] | [`RIG_MAX_TARGETS`] IK target slots of [`TARGET_STRIDE`] bytes |
 //! | [`RIG_HITS`] | [`RIG_MAX_RAYS`] ray hits of [`HIT_STRIDE`] bytes |
 //!
@@ -21,9 +21,9 @@
 //! position weight at [`TARGET_POSITION_WEIGHT`] (0: the slot is off), rotation weight at
 //! [`TARGET_ROTATION_WEIGHT`], `u32` flags at [`TARGET_FLAGS`] ([`TARGET_WORLD`]: world space,
 //! converted with the character's transform; otherwise model space). IK targets that are nodes
-//! are written at their world transform from the previous propagation (ADR 0340).
+//! are written at their world transform from the previous propagation (ADR 0350).
 //!
-//! A **hit** answers the ray request of the same index from the previous frame (ADR 0340: a hit
+//! A **hit** answers the ray request of the same index from the previous frame (ADR 0350: a hit
 //! is one frame old), in model space (decision D41): point (3 f32) at [`HIT_POINT`], unit normal
 //! (3 f32) at [`HIT_NORMAL`], `u32` flags at [`HIT_FLAGS`] ([`HIT_VALID`] when the ray hit).
 //!
@@ -118,7 +118,7 @@ pub const WARP_CLEAR: u32 = 1;
 pub const NODE_ALL: u32 = 0xFFFF_FFFF;
 
 wire_record! {
-    /// Command: a motion-warp node's target (`anim.warp(name, target)`, ADR 0342), world space
+    /// Command: a motion-warp node's target (`anim.warp(name, target)`, ADR 0352), world space
     /// (the character transform's space). The node lands the root there at its window's end; a
     /// target set mid-window re-plans from the current frame.
     pub struct WarpTarget: family(ID, VERSION), kind(1) {
@@ -211,7 +211,7 @@ pub const FAMILY: FamilyDesc = FamilyDesc {
     name: "rig",
     id: ID,
     version: VERSION,
-    doc: "Wire family `rig`: rig stack inputs and outputs (ADR 0340, 0342): the rig input view (character transform, rig LOD,\nIK target slots, last frame's ray hits), the ray output view (grounder ray requests) and the motion-warp and reset\ncommands (native/anim/crates/anim-wire/src/rig.rs documents them).",
+    doc: "Wire family `rig`: rig stack inputs and outputs (ADR 0350, 0352): the rig input view (character transform, rig LOD,\nIK target slots, last frame's ray hits), the ray output view (grounder ray requests) and the motion-warp and reset\ncommands (native/anim/crates/anim-wire/src/rig.rs documents them).",
     records: &[WarpTarget::DESC, RigReset::DESC],
     consts: consts![
         RIG_MAX_TARGETS: "Input view: IK target slots per instance.",

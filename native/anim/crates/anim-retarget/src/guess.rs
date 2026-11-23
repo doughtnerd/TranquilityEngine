@@ -1,5 +1,5 @@
 //! [`guess_bone_map`]: fills a profile's roles from a skeleton's bone names and parents (Godot's
-//! bone-map guessing, ADR 0341's import-time `boneMap`), in Rust so TypeScript only calls it.
+//! bone-map guessing, ADR 0351's import-time `boneMap`), in Rust so TypeScript only calls it.
 //!
 //! # How
 //!

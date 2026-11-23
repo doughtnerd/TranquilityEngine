@@ -5,7 +5,7 @@
 //! same rig input rows through the built wasm and compares; the core is deterministic (no FMA, no
 //! relaxed SIMD), so the tolerance is 1e-5 on matrix entries (f32 printing). Also the Node
 //! benchmark's rig graph (`loco_rig.animgraph`, `bench.mjs`): T31's locomotion graph with a
-//! two-foot grounder and a look-at over the 60-bone humanoid (ADR 0340's budget shape).
+//! two-foot grounder and a look-at over the 60-bone humanoid (ADR 0350's budget shape).
 //!
 //! The files are committed; this test fails when they are stale. Regenerate with
 //! `MYCO_UPDATE_FIXTURES=1 cargo test -p anim-wasm --test rig_fixtures`.

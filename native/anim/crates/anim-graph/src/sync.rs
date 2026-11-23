@@ -12,7 +12,7 @@
 //!
 //! # `NOTIFY_GATE` (kind 1)
 //!
-//! Input `[child]`: scales the weight its sub-graph's notifies see (ADR 0342: a notify fires when
+//! Input `[child]`: scales the weight its sub-graph's notifies see (ADR 0352: a notify fires when
 //! its clip's weight passes its threshold), so a layer can mute or halve its events without
 //! changing its pose. Words: 0 `f32` factor (1 when absent), 1 `u32` a float parameter giving it
 //! instead, or `NONE`.

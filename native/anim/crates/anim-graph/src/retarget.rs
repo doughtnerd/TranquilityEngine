@@ -1,4 +1,4 @@
-//! Node family `retarget`: the runtime retarget node, calling `anim-retarget` (ADR 0342, T41).
+//! Node family `retarget`: the runtime retarget node, calling `anim-retarget` (ADR 0352, T41).
 //!
 //! # `RETARGET` (kind 0)
 //!

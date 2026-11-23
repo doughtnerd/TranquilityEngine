@@ -1,4 +1,4 @@
-//! Track kinds over a time window (ADR 0341, 0342): what one playing clip did between the last
+//! Track kinds over a time window (ADR 0351, 0352): what one playing clip did between the last
 //! evaluation and this one.
 //!
 //! # The window
@@ -45,7 +45,7 @@
 //! 3. activation edges, where the level at the window's end differs from its start;
 //! 4. subclip states, per active entry ([`TrackRecord::Subclip`]).
 //!
-//! **Weight gating (ADR 0342).** The caller passes the clip's effective weight. A notify fires
+//! **Weight gating (ADR 0352).** The caller passes the clip's effective weight. A notify fires
 //! when its key says `always`, or when the weight exceeds the key's threshold (`weight >
 //! threshold`; the compiler's default threshold is 0.5). A notify state begins only while that
 //! holds and ends as soon as it stops holding, or when the playhead leaves the state, whichever

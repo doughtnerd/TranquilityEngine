@@ -1,6 +1,6 @@
 [package]
 name = "anim-sample"
-description = "Myco animation core (ADR 0340): decompress and sample clips into SoA local poses, property tracks, and discrete and event tracks."
+description = "Myco animation core (ADR 0350): decompress and sample clips into SoA local poses, property tracks, and discrete and event tracks."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

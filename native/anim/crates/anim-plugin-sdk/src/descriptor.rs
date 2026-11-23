@@ -1,7 +1,7 @@
 //! The descriptor blob: the node kinds a module provides and each one's parameter schema.
 //!
 //! [`crate::abi::DESCRIBE`] returns a pointer to it. The schema matches the built-in nodes' (ADR
-//! 0342's one node catalogue: name, kind, unit, range, default, animatable), so the graph editor
+//! 0352's one node catalogue: name, kind, unit, range, default, animatable), so the graph editor
 //! generates third-party node cards the same way. The SDK builds the blob at compile time
 //! ([`encode`], from each [`crate::Node`]'s [`NodeDesc`]); the loader reads it with
 //! [`Descriptor::parse`], which checks everything [`encode`] guarantees.
@@ -65,7 +65,7 @@ pub const MAX_NAME_BYTES: usize = 64;
 /// Node flag: the node reads the skeleton's parent indices (`parents` is passed).
 pub const NODE_NEEDS_SKELETON: u8 = 1;
 const NODE_FLAGS: u8 = NODE_NEEDS_SKELETON;
-/// Parameter flag: tracks and computed parameters may drive it per frame (0342).
+/// Parameter flag: tracks and computed parameters may drive it per frame (0352).
 pub const PARAM_ANIMATABLE: u8 = 1;
 const PARAM_FLAGS: u8 = PARAM_ANIMATABLE;
 

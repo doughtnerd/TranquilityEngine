@@ -1,6 +1,6 @@
 //! anim-wasm's build script: embeds the source hash (`source_hash.rs`) of `native/anim/` as
 //! `$OUT_DIR/source_hash.bin`, read by `src/init.rs`, so a committed wasm that no longer matches
-//! its sources fails `npm test` (ADR 0340, after 0157).
+//! its sources fails `npm test` (ADR 0350, after 0157).
 
 #[path = "source_hash.rs"]
 mod source_hash;

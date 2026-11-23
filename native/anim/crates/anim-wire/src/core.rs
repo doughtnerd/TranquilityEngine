@@ -1,4 +1,4 @@
-//! Family `core`: the init parameters, the memory-needed reply (ADR 0340, after audio 0327/0328),
+//! Family `core`: the init parameters, the memory-needed reply (ADR 0350, after audio 0327/0328),
 //! the per-frame commands and state-change records, and the layouts of the per-frame views.
 //!
 //! # Setup
@@ -13,7 +13,7 @@
 //!
 //! # The frame
 //!
-//! Per frame the host makes a fixed number of calls, never one per character (ADR 0340):
+//! Per frame the host makes a fixed number of calls, never one per character (ADR 0350):
 //!
 //! 1. It writes each instance's row of the **input view** ([`INPUT_STRIDE`] bytes per instance
 //!    index, at `inputs_ptr()`): time scale, LOD step, flags, layer weights. `create_instance`
@@ -182,7 +182,7 @@ wire_record! {
 
 wire_record! {
     /// Command: play `clip` on a layer of an instance without a graph asset (the implicit graph,
-    /// ADR 0342's code-first `play`/`crossfade`). With `fade` > 0 it crossfades from what the
+    /// ADR 0352's code-first `play`/`crossfade`). With `fade` > 0 it crossfades from what the
     /// layer shows (or, mid-fade or with `PLAY_INERTIALIZE`, inertializes); 0 cuts.
     pub struct Play: family(ID, VERSION), kind(3) {
         /// The instance handle.
@@ -340,7 +340,7 @@ pub const FAMILY: FamilyDesc = FamilyDesc {
     name: "core",
     id: ID,
     version: VERSION,
-    doc: "Wire family `core`: the init parameters and the memory-needed reply (ADR 0340), the per-frame commands and\nstate changes, and the layouts of the input and output views (native/anim/crates/anim-wire/src/core.rs documents\nthe frame).",
+    doc: "Wire family `core`: the init parameters and the memory-needed reply (ADR 0350), the per-frame commands and\nstate changes, and the layouts of the input and output views (native/anim/crates/anim-wire/src/core.rs documents\nthe frame).",
     records: &[
         Init::DESC,
         MemoryNeeded::DESC,

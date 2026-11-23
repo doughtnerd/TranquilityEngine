@@ -1,5 +1,5 @@
 //! The setup calls and the core: `init` reads the one generated init record (`anim-wire` family
-//! `core`), answers with the memory the core needs for it (ADR 0340, after audio 0327/0328) and
+//! `core`), answers with the memory the core needs for it (ADR 0350, after audio 0327/0328) and
 //! (re)starts the [`Core`] with those limits; `source_hash` returns the hash of `native/anim/`
 //! the module was built from (the staleness check).
 //!

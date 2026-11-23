@@ -1,4 +1,4 @@
-//! `myco.posedb@1`: a baked motion-matching pose database (ADR 0342), in the
+//! `myco.posedb@1`: a baked motion-matching pose database (ADR 0352), in the
 //! [container] layout.
 //!
 //! Magic `"MYCOPSDB"`, version [`FORMAT_VERSION`], no header flags (0).

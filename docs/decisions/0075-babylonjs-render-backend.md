@@ -1,6 +1,6 @@
 # 0075. Babylon.js replaces three.js as the render backend, used from upstream with module-by-module imports and copied subsystems instead of a fork
 
-- **Status:** Accepted; `useRightHandedSystem` dropped by 0164 (Unity's left-handed coordinates); stage 10 and the Deprecates list superseded by 0078 (both backends stay, Babylon by default); 0081 supersedes 0078 and restores them for the renderer (three.js stays only for model loaders); amended by 0340 (animation is the engine's own; skinning is its own GPU pass and Babylon draws the result)
+- **Status:** Accepted; `useRightHandedSystem` dropped by 0164 (Unity's left-handed coordinates); stage 10 and the Deprecates list superseded by 0078 (both backends stay, Babylon by default); 0081 supersedes 0078 and restores them for the renderer (three.js stays only for model loaders); amended by 0350 (animation is the engine's own; skinning is its own GPU pass and Babylon draws the result)
 - **Date:** 2026-11-05
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0004

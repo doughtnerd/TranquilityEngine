@@ -1,6 +1,6 @@
 //! Penner easings by id, deterministic: only `+ − × ÷ √`, the exact `round_even`, and
 //! [`trig`](crate::trig)'s polynomial sine and cosine, so every target gives the same bits (no libm
-//! `pow`, `exp` or `sin`). Used by the tween table and timeline programs (ADR 0341, 0342).
+//! `pow`, `exp` or `sin`). Used by the tween table and timeline programs (ADR 0351, 0352).
 //!
 //! # Ids
 //!

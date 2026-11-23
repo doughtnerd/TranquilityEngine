@@ -1,4 +1,4 @@
-// ADR 0342 (T31): the graph runtime through the committed wasm in Node. Loads the locomotion graph (a state machine
+// ADR 0352 (T31): the graph runtime through the committed wasm in Node. Loads the locomotion graph (a state machine
 // with a 2D blend space of three clips and an any-state jump, under an upper-body slot and an inertialization node)
 // and its clips (written by native/anim/crates/anim-wasm/tests/graph_fixtures.rs), runs the fixture's command script
 // through the `graph` family's records (parameters, a slot play with a section, a request), and compares the states

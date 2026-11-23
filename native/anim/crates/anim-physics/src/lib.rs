@@ -1,9 +1,9 @@
-//! `anim-physics` (ADR 0340, 0345): physical-animation drive targets. From a pose and a ragdoll
+//! `anim-physics` (ADR 0350, 0355): physical-animation drive targets. From a pose and a ragdoll
 //! description it computes joint motor targets and strengths per bone, and blends ragdoll poses
 //! back in.
 //!
 //! It computes targets only; simulation stays in the physics plugin (`myco.ragdoll` reads the
-//! targets and drives `BallJoint.drive`, ADR 0345).
+//! targets and drives `BallJoint.drive`, ADR 0355).
 //!
 //! Internal to the animation core: nothing here is engine public API (ADR 0010).
 //!

@@ -1,4 +1,4 @@
-// ADR 0340 (after 0157): the committed myco_anim_bg.wasm must match its Rust sources. This test recomputes the source
+// ADR 0350 (after 0157): the committed myco_anim_bg.wasm must match its Rust sources. This test recomputes the source
 // hash of native/anim/ with node:crypto, by the rule in native/anim/crates/anim-wasm/source_hash.rs, and compares it
 // with wasm/hash.json and with the hash the wasm embeds (read through its glue's `source_hash`). Skipped when
 // native/anim is absent (an exported project, a package).

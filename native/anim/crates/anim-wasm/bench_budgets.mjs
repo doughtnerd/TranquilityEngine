@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// ADR 0340's budget scenarios on the committed wasm in Node (T82r). The budgets are tripwires; this prints, asserts nothing.
+// ADR 0350's budget scenarios on the committed wasm in Node (T82r). The budgets are tripwires; this prints, asserts nothing.
 //
 //   node native/anim/crates/anim-wasm/bench_budgets.mjs [--rounds N] [--frames N] [--only substring] [--regen] [--compare FILE]
 //

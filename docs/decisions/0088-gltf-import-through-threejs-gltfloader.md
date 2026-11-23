@@ -1,6 +1,6 @@
 # 0088. glTF 2.0 models import through three.js's GLTFLoader, baked into model space like OBJ and FBX, with the file's node tree kept for the editor
 
-- **Status:** Proposed, amended by 0341 (skins, animations, morph targets and `KHR_animation_pointer` are imported)
+- **Status:** Proposed, amended by 0351 (skins, animations, morph targets and `KHR_animation_pointer` are imported)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

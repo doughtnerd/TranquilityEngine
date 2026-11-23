@@ -141,7 +141,7 @@ impl TrajectoryPredictor {
     }
 
     /// `u32` words of [`write_words`](Self::write_words): the state as plain words, so a graph
-    /// instance can keep it in its state blob (snapshot and restore are a copy, ADR 0340).
+    /// instance can keep it in its state blob (snapshot and restore are a copy, ADR 0350).
     pub const WORDS: usize = 11 + 4 * HISTORY;
 
     /// Writes the state into `out` ([`WORDS`](Self::WORDS) long; f32 bits, flags and indices as

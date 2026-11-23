@@ -1,6 +1,6 @@
 [package]
 name = "anim-wire"
-description = "Myco animation core (ADR 0340): the boundary's record layouts, defined once, with the TypeScript constants generated from them."
+description = "Myco animation core (ADR 0350): the boundary's record layouts, defined once, with the TypeScript constants generated from them."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

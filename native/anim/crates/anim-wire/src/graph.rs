@@ -1,6 +1,6 @@
 //! Family `graph`: graph inputs and state: blackboard parameter rows, parameter and request
 //! commands, `travel` and `jump`, slot plays, linked-graph selections, layer weights, the seed,
-//! pose captures, the debug flag, and graph state-change records (ADR 0342).
+//! pose captures, the debug flag, and graph state-change records (ADR 0352).
 //!
 //! # Commands
 //!
@@ -15,7 +15,7 @@
 //!
 //! # The blackboard view
 //!
-//! At `blackboard_ptr()`, [`BLACKBOARD_STRIDE`] bytes per instance index (ADR 0342's
+//! At `blackboard_ptr()`, [`BLACKBOARD_STRIDE`] bytes per instance index (ADR 0352's
 //! `animatorParams(entity)`): two `u32` dirty masks (parameters 0–31, 32–63), then
 //! [`BLACKBOARD_PARAMS`] parameters of four words each, typed by the graph's parameter table
 //! (floats and vectors as f32 bits, ints as i32, bools 0/1). The host writes values and sets
@@ -99,7 +99,7 @@ wire_record! {
 }
 
 wire_record! {
-    /// Command: a request (ADR 0342's `request`, replacing triggers): live for `lifetime`
+    /// Command: a request (ADR 0352's `request`, replacing triggers): live for `lifetime`
     /// seconds, consumed by the first transition that reads it and fires.
     pub struct Request: family(ID, VERSION), kind(2) {
         /// The instance handle.
@@ -400,7 +400,7 @@ pub const FAMILY: FamilyDesc = FamilyDesc {
     name: "graph",
     id: ID,
     version: VERSION,
-    doc: "Wire family `graph`: graph inputs and state (ADR 0342): the blackboard view, parameter and request commands,\ntravel and jump, slot plays with sections, linked graphs, layer weights, the seed, pose captures, the debug flag,\nand graph state-change records (native/anim/crates/anim-wire/src/graph.rs documents them).",
+    doc: "Wire family `graph`: graph inputs and state (ADR 0352): the blackboard view, parameter and request commands,\ntravel and jump, slot plays with sections, linked graphs, layer weights, the seed, pose captures, the debug flag,\nand graph state-change records (native/anim/crates/anim-wire/src/graph.rs documents them).",
     records: &[
         SetParam::DESC,
         Request::DESC,

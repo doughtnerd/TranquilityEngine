@@ -1,11 +1,11 @@
-# 0347. Audio packages are named BioPak
+# 0357. Audio packages are named BioPak
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
 - **Amends:** audio 0337 (the package file's name, extension and magic only)
-- **Related:** 0341
+- **Related:** 0351
 
 ## Context
 

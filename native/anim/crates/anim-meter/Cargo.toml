@@ -1,6 +1,6 @@
 [package]
 name = "anim-meter"
-description = "Myco animation core (ADR 0340): the instruction-budget (fuel) pass that rewrites a third-party node module at load."
+description = "Myco animation core (ADR 0350): the instruction-budget (fuel) pass that rewrites a third-party node module at load."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

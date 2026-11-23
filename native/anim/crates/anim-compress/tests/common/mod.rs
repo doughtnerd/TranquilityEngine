@@ -55,7 +55,7 @@ pub enum Shape {
     Chain(usize),
     /// A 60-bone humanoid (root, hips, spine, neck, head, arms with fingers, legs).
     Humanoid,
-    /// An 80-bone humanoid (T82r, ADR 0340's budget skeleton): [`Shape::Humanoid`]'s 60 bones in the
+    /// An 80-bone humanoid (T82r, ADR 0350's budget skeleton): [`Shape::Humanoid`]'s 60 bones in the
     /// same order, then 20 leaf bones (spine, neck and limb twists, face and two prop sockets).
     Humanoid80,
     /// A random tree of n bones.

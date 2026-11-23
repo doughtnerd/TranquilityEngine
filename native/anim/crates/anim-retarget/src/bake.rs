@@ -1,4 +1,4 @@
-//! The offline bake (ADR 0342, 0343's "Bake retargeted clip"): retargets a whole clip to the
+//! The offline bake (ADR 0352, 0353's "Bake retargeted clip"): retargets a whole clip to the
 //! target skeleton through the same [`RetargetMap::retarget`] the runtime node calls, and writes
 //! a raw `myco.anim@1` clip; with the `compress` feature, [`compress_baked`] compresses it.
 //!

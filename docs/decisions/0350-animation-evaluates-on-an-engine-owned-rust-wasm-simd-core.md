@@ -1,11 +1,11 @@
-# 0340. Animation is a first-party plugin whose evaluation runs on an engine-owned Rust/WebAssembly SIMD core
+# 0350. Animation is a first-party plugin whose evaluation runs on an engine-owned Rust/WebAssembly SIMD core
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
 - **Amends:** 0075 (animation is neither Babylon's system nor a copy of it; skinning is the engine's own GPU compute pass and Babylon draws its output)
-- **Related:** 0010, 0011, 0017, 0033, 0065, 0094, 0133, 0157, 0250, 0251, 0303, 0344, 0345, 0346, 0327, 0328, 0341, 0342, 0343; audio 0332 (one curve model), audio 0338 (sandboxed third-party wasm effects)
+- **Related:** 0010, 0011, 0017, 0033, 0065, 0094, 0133, 0157, 0250, 0251, 0303, 0354, 0355, 0356, 0327, 0328, 0351, 0352, 0353; audio 0332 (one curve model), audio 0338 (sandboxed third-party wasm effects)
 
 ## Context
 
@@ -13,10 +13,10 @@ Myco has no animation. glTF skins, animations and morph targets are dropped with
 
 A comparison of Unity (Mecanim, Playables, Animation Rigging, Timeline), Unreal (AnimGraph, Montages, Control Rig, IK Retargeter, Motion Matching, warping, Sequencer, ACL) and Godot (AnimationPlayer property and method tracks, AnimationTree, `travel()`, SkeletonModifier3D, SkeletonProfile), plus their best plugins (Animancer, Final IK, PuppetMaster, MxM, PrimeTween, ALS, Kawaii Physics), led to one design in four records:
 
-- **0340 (this one):** where evaluation runs and how it reaches the ECS, the renderer and the network.
-- **0341:** the data. One property-track format for clips, timelines and tweens, plus importers and compression.
-- **0342:** the animation graph and the scripting API on the ECS.
-- **0343:** the editor tools.
+- **0350 (this one):** where evaluation runs and how it reaches the ECS, the renderer and the network.
+- **0351:** the data. One property-track format for clips, timelines and tweens, plus importers and compression.
+- **0352:** the animation graph and the scripting API on the ECS.
+- **0353:** the editor tools.
 
 **The owner's decisions (2026-11-22):**
 1. The core is Rust compiled to WebAssembly with SIMD, by default. There is no TypeScript evaluator.
@@ -57,10 +57,10 @@ Public types are exported from `myco` like physics and navigation. No Rust, wasm
 - **`anim-wire`:** the boundary's input and output record layouts and the init parameters, defined once. TypeScript constants are generated from them (as `audio-wire`), with a round-trip test.
 - **`anim-math`:** SoA quaternion, vector and transform maths on `glam` with `core::arch::wasm32` `simd128` (4 lanes). Deterministic rules as in nav: no `mul_add`, no relaxed SIMD, no libm trig in hot paths.
 - **`anim-format`:** binary layouts (`myco.anim@1` clips, `myco.skel@1` skeletons, `myco.animgraph@1` compiled graphs, `myco.posedb@1` pose databases). Flat, little-endian, `repr(C)`, 4-byte aligned, so TypeScript reads them as typed-array views without copying.
-- **`anim-compress`:** the compressor from 0341: uniform sampling, range reduction, a bit rate per track chosen against an object-space error bound, as ACL does. It is used by the editor's worker and by exports, never at runtime.
+- **`anim-compress`:** the compressor from 0351: uniform sampling, range reduction, a bit rate per track chosen against an object-space error bound, as ACL does. It is used by the editor's worker and by exports, never at runtime.
 - **`anim-sample`:** decompress and sample clips into SoA local poses; sample generic property tracks; sample discrete and event tracks over a time window.
 - **`anim-pose`:** blend, additive, masked layered blend, local to model space, root-motion extraction, sync-marker phase maths.
-- **`anim-graph`:** runs compiled graph programs (0342). State machines (transitions, requests, `travel` pathfinding), blend spaces 1D and 2D (triangulated), slots, linked graphs, sync groups, notify windows, chooser tables.
+- **`anim-graph`:** runs compiled graph programs (0352). State machines (transitions, requests, `travel` pathfinding), blend spaces 1D and 2D (triangulated), slots, linked graphs, sync groups, notify windows, chooser tables.
 - **`anim-rig`:** the post-process rig stack:
   - IK: two-bone, FABRIK, CCD, full-body IK (a FABRIK-based solver over chains with a centre of mass)
   - look-at and aim
@@ -120,9 +120,9 @@ Public types are exported from `myco` like physics and navigation. No Rust, wasm
 
 | Step (0011) | Animation systems |
 |---|---|
-| 4. fixed steps | `animation.FixedEvaluate`: Animators with `updateMode: "fixed"` (physics-driven and predicted characters) evaluate before the physics step; root motion is applied to `CharacterController` or kinematic `RigidBody` targets; the `myco.ragdoll` plugin (0345) reads the drive targets and pushes them to the physics plugin |
-| 5. after `update()` scripts | `animation.Gather` (blackboard and targets → inputs), `animation.Evaluate`, `animation.Apply` (property outputs → ECS columns, root motion for `"normal"` mode, notify dispatch, 0342) |
-| 6. `lateUpdate()` | scripts see this frame's pose and may override bones through the API (0342), as Unity's LateUpdate does |
+| 4. fixed steps | `animation.FixedEvaluate`: Animators with `updateMode: "fixed"` (physics-driven and predicted characters) evaluate before the physics step; root motion is applied to `CharacterController` or kinematic `RigidBody` targets; the `myco.ragdoll` plugin (0355) reads the drive targets and pushes them to the physics plugin |
+| 5. after `update()` scripts | `animation.Gather` (blackboard and targets → inputs), `animation.Evaluate`, `animation.Apply` (property outputs → ECS columns, root motion for `"normal"` mode, notify dispatch, 0352) |
+| 6. `lateUpdate()` | scripts see this frame's pose and may override bones through the API (0352), as Unity's LateUpdate does |
 | 7. transform propagation | `BoneAttachment` nodes follow their bone (model-space bone × skeleton node's world matrix) |
 | 8. render sync | the animation render hook uploads bone matrices and morph weights to Babylon (below) |
 
@@ -133,23 +133,23 @@ Public types are exported from `myco` like physics and navigation. No Rust, wasm
 
 - A plugin can add graph nodes (a custom blend, a procedural layer, an IK solver) as a **wasm module with its own memory and no imports**, declared in its `plugin.json`. The core calls it inside graph evaluation through a small C ABI: pose in, parameters in, pose out.
 - This copies audio 0338's model: a Rust SDK, an instruction-budget (fuel) pass at load, and faults that pass the input pose through and report once.
-- Node parameters use the same schema as built-in nodes (0342's node catalogue), so the graph editor generates their cards.
+- Node parameters use the same schema as built-in nodes (0352's node catalogue), so the graph editor generates their cards.
 
 ### Rendering
 
-- **Skinned meshes stay engine-side data:** the `SkinnedMeshRenderer` component (0342) holds a mesh, a skeleton reference and bind matrices.
+- **Skinned meshes stay engine-side data:** the `SkinnedMeshRenderer` component (0352) holds a mesh, a skeleton reference and bind matrices.
 - **One skinning model, our own, with a backend per renderer** (owner, 2026-11-22: one path even at the cost of more code, kept small and reusable):
-  - **Written once in KSL** through the shader source module (0250): one `mycoSkin` function applies morph deltas, then skins position, normal and tangent with 4 or 8 influences (0341). 3D meshes and 2D skinned sprites both use it.
+  - **Written once in KSL** through the shader source module (0250): one `mycoSkin` function applies morph deltas, then skins position, normal and tangent with 4 or 8 influences (0351). 3D meshes and 2D skinned sprites both use it.
   - **One GPU kernel executor.** The particle kernels' two runners (`render/particles/gpu/webgpuRun.ts` and `webgl2Run.ts`, 0094) are generalised into `render/gpuKernels/`: a renderer-neutral "run this KSL kernel over N items, from these inputs, into these outputs" with a WebGPU and a WebGL2 backend. Particles move onto it unchanged (their generated WGSL and GLSL stay byte-identical, as 0251 required), and skinning is its second user. This is where the code is condensed: skinning adds one KSL function and its bindings, not a third pair of runners.
   - **WebGPU:** a compute dispatch writes skinned vertices into a storage buffer that the mesh draws from as its vertex buffer.
   - **WebGL2 (no compute):** the same kernel runs through the executor's WebGL2 backend into float textures, one texel per vertex attribute, and the mesh's vertex shader reads them by vertex index. Transform feedback is the alternative; the first render-wave spike picks one, and the choice stays inside the executor.
-  - **Bone matrices** come from the core's output view (0340's boundary) and are uploaded once per frame per skeleton.
+  - **Bone matrices** come from the core's output view (0350's boundary) and are uploaded once per frame per skeleton.
   - **Babylon draws the skinned buffer as an ordinary mesh,** so shadows, depth, picking and every other pass reuse the result instead of skinning again.
   - **Tests** run the KSL's JavaScript output (0250) against `anim-offline`'s reference skinning, through the executor's interface.
   
   Babylon's own `Animation`, `AnimationGroup` and `Skeleton.beginAnimation` are never used. If GPU skinning misses its budget, Babylon's vertex-shader skinning is measured against it before anything changes.
 - Shadow casters, previews (0061) and thumbnails draw skinned meshes through the same path.
-- **2D bones:** sprite skinning deforms a slice mesh (0341) through the same `mycoSkin` kernel. The quad-batch path (`render/babylon/quadBatches.ts`) draws the skinned output.
+- **2D bones:** sprite skinning deforms a slice mesh (0351) through the same `mycoSkin` kernel. The quad-batch path (`render/babylon/quadBatches.ts`) draws the skinned output.
 
 ### LOD and culling
 
@@ -171,7 +171,7 @@ Public types are exported from `myco` like physics and navigation. No Rust, wasm
   These are fields of the Animator component and use 0033's replication, quantisation and interpolation.
 - **Clients re-evaluate.** Interpolated ghosts evaluate at the interpolated tick.
 - **Predicted ghosts use the hybrid model** (owner, 2026-11-22; Unreal's approach):
-  - **Locomotion is driven by gameplay.** The controller's velocity comes from predicted gameplay code, as now. The Animator follows it, with stride and speed warping (0342) so feet don't slide. Locomotion is never rolled back.
+  - **Locomotion is driven by gameplay.** The controller's velocity comes from predicted gameplay code, as now. The Animator follows it, with stride and speed warping (0352) so feet don't slide. Locomotion is never rolled back.
   - **Root-motion one-shots** (rolls, vaults, attacks, anything a clip marks `rootMotion` and plays in a slot) are **extracted at import into a root curve** (translation and yaw over time, part of `myco.anim@1`). A predicted `fixedUpdate` system, `animation.PredictedRootMotion`, samples that curve at the tick and moves the `CharacterController` with the physics plugin's queries against the current world. No physics stepping and no graph replay.
   - **On correction,** only the slot play and its start tick are reconciled; the rest of the graph keeps running as cosmetic state.
   - **This doesn't need CharacterController prediction from 0033's later step.** Moves are kinematic sweeps from a predicted system, which 0033 already supports.
@@ -198,7 +198,7 @@ The editor's Profiler (0326) gets an Animation table: instances evaluated, skipp
 - **Babylon's vertex-shader skinning as the default.** Less code, but every pass (each shadow cascade, depth, picking) skins again, and morphs go through a second path. The owner chose our own GPU skinning; Babylon's is the comparison if ours underperforms.
 - **Babylon's skinning on WebGL2 only, our compute on WebGPU.** Less new code for WebGL2, but two skinning models that can disagree. The owner chose one model with two backends.
 - **wasm threads now.** Faster with many characters, but it needs nightly Rust and cross-origin isolation for every export. The job-shaped core keeps that open.
-- **Bones as scene nodes (Unity).** Bones would be easy to parent and inspect, but every bone would be an entity, transform propagation would run over thousands of nodes, and the pose would cross the boundary each frame. Bones stay in the skeleton (Godot), with `BoneAttachment` for parenting (0342).
+- **Bones as scene nodes (Unity).** Bones would be easy to parent and inspect, but every bone would be an entity, transform propagation would run over thousands of nodes, and the pose would cross the boundary each frame. Bones stay in the skeleton (Godot), with `BoneAttachment` for parenting (0352).
 
 ## Consequences
 
@@ -215,7 +215,7 @@ The editor's Profiler (0326) gets an Animation table: instances evaluated, skipp
 
 ## Deprecates
 
-- 0088's warning "skins, animations, morph targets … ignored". They are imported (0341).
+- 0088's warning "skins, animations, morph targets … ignored". They are imported (0351).
 - The "Missing: animation" entries in implementation status for 0004/0075, 0044, 0088 and 0040 become this plugin's rows.
 
 ## Open questions

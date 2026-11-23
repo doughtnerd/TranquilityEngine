@@ -1,14 +1,14 @@
-# 0346. A debug link connects running builds to the editor and the Studio over the engine's transports, separate from game traffic
+# 0356. A debug link connects running builds to the editor and the Studio over the engine's transports, separate from game traffic
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0033, 0333, 0343; audio 0327 (the Studio has no live link in v1), audio 0334 (takes)
+- **Related:** 0033, 0333, 0353; audio 0327 (the Studio has no live link in v1), audio 0334 (takes)
 
 ## Context
 
-Animation's live debugger (0343) needs to inspect a running build: a browser tab, a Tauri app, or a game on another machine. The Audio Studio (audio 0327) was built with "no live link" in v1 for the same reason.
+Animation's live debugger (0353) needs to inspect a running build: a browser tab, a Tauri app, or a game on another machine. The Audio Studio (audio 0327) was built with "no live link" in v1 for the same reason.
 
 **What exists:**
 - The engine's transports (`src/engine/net/Transport.ts`: loopback and WebSocket, polled once per frame, reliable and unreliable channels).
@@ -30,7 +30,7 @@ We will add a **debug link**: its own protocol and session, built on the engine'
   - topics are owned by plugins and registered through the runtime and editor contexts (`ctx.debugLink.topic("animation", …)`);
   - **subscriptions are pulled:** the tool subscribes to what it shows (one Animator's graph, one bus's meters), and the build sends only those, rate-limited per topic. Nothing is sent without a subscriber;
   - requests and replies use the reliable channel, live samples the unreliable one;
-  - samples reuse each feature's capture and take records (audio 0334, 0343), so the link, captures and takes share one encoding.
+  - samples reuse each feature's capture and take records (audio 0334, 0353), so the link, captures and takes share one encoding.
 - **Commands from the tool** (set an animation parameter, travel a state, solo a bus) are topic messages applied at the build's next frame start, like any input.
 - **Security:**
   - the link exists only in builds with debugging on, and a release export without it contains none of its code;
@@ -45,7 +45,7 @@ We will add a **debug link**: its own protocol and session, built on the engine'
 
 - **Inside the game session.** Debug traffic would compete with replication budgets, exist only in networked games, and follow the server-authoritative topology. A tool needs to reach every build, networked or not.
 - **Chrome DevTools protocol or a custom HTTP server.** Doesn't reach Tauri builds on other machines uniformly, and is a second networking stack.
-- **Takes only (offline).** Already available (audio 0334, 0343), but they can't answer live questions or tune values in a running game.
+- **Takes only (offline).** Already available (audio 0334, 0353), but they can't answer live questions or tune values in a running game.
 
 ## Consequences
 

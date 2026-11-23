@@ -1,17 +1,17 @@
-# 0344. Plugins can name optional dependencies
+# 0354. Plugins can name optional dependencies
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
 - **Amends:** 0133 (the manifest gains `optionalDependencies`)
-- **Related:** 0342
+- **Related:** 0352
 
 ## Context
 
 A plugin manifest (`src/plugins/manifest.ts`) has one kind of dependency, `dependencies`. `order.ts` throws when one is missing, and `pluginSet.ts` refuses to activate a plugin whose dependency failed.
 
-Animation's beat-timed plays (0342) want the audio plugin when it is enabled and nothing when it isn't. The ragdoll plugin (0345) and later integrations will have the same shape. Today such a plugin must either hard-depend, forcing audio on every animated project, or probe globals, which breaks the activation order.
+Animation's beat-timed plays (0352) want the audio plugin when it is enabled and nothing when it isn't. The ragdoll plugin (0355) and later integrations will have the same shape. Today such a plugin must either hard-depend, forcing audio on every animated project, or probe globals, which breaks the activation order.
 
 ## Decision
 

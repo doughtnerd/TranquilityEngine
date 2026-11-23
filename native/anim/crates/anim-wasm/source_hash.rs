@@ -1,4 +1,4 @@
-//! The animation core's source hash (ADR 0340, audio 0157's rule plus `config.toml`). Included by
+//! The animation core's source hash (ADR 0350, audio 0157's rule plus `config.toml`). Included by
 //! `build.rs` (which embeds the hash in the wasm) and by `tests/source_hash.rs`;
 //! `src/plugins/animation/runtime/wasm/sourceHash.test.ts` recomputes the same hash in TypeScript, so
 //! the rule below must match it byte for byte.

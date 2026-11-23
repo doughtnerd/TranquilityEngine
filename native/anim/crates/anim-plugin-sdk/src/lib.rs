@@ -1,4 +1,4 @@
-//! `anim-plugin-sdk` (ADR 0340, "Third-party graph and rig nodes"): the small C ABI a plugin's node
+//! `anim-plugin-sdk` (ADR 0350, "Third-party graph and rig nodes"): the small C ABI a plugin's node
 //! module implements (pose in, parameters in, pose out) and the Rust SDK for writing one.
 //!
 //! A node module is a wasm module with its own memory and no imports, declared in the plugin's

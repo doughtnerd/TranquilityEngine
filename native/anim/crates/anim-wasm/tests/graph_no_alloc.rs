@@ -1,4 +1,4 @@
-//! `write_inputs`, `evaluate` and `debug_write` never allocate with graph assets (ADR 0340, T31):
+//! `write_inputs`, `evaluate` and `debug_write` never allocate with graph assets (ADR 0350, T31):
 //! a counting global allocator sees no allocation across frames that run state machines (cross-
 //! fades, inertialization, a request through an any-state transition, travel, jump), a 2D blend
 //! space with glide, sync and speed scaling, a masked slot with sections, a linked-graph swap, the

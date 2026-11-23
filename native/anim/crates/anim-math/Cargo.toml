@@ -1,6 +1,6 @@
 [package]
 name = "anim-math"
-description = "Myco animation core (ADR 0340): SoA quaternion, vector and transform maths on glam with simd128."
+description = "Myco animation core (ADR 0350): SoA quaternion, vector and transform maths on glam with simd128."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

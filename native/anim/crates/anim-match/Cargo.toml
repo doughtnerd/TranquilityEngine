@@ -1,6 +1,6 @@
 [package]
 name = "anim-match"
-description = "Myco animation core (ADR 0340): motion matching (features, KD-tree and SIMD search, trajectory prediction, inertialization, database bake)."
+description = "Myco animation core (ADR 0350): motion matching (features, KD-tree and SIMD search, trajectory prediction, inertialization, database bake)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

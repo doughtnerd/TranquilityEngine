@@ -1,4 +1,4 @@
-//! Timeline helpers (ADR 0341, 0342): a playhead's wrap modes turned into track windows, subclip
+//! Timeline helpers (ADR 0351, 0352): a playhead's wrap modes turned into track windows, subclip
 //! track tables, and the crossfade mix of overlapping entries. Pure functions over caller-owned
 //! slices; nothing here allocates.
 //!

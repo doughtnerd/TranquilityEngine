@@ -1,6 +1,6 @@
 [package]
 name = "anim-offline"
-description = "Myco animation core (ADR 0340): the f64 scalar reference for sampling, blending, IK, retargeting and matching."
+description = "Myco animation core (ADR 0350): the f64 scalar reference for sampling, blending, IK, retargeting and matching."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

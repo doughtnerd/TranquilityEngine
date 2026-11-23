@@ -1,5 +1,5 @@
 //! Family `tween`: the tween table's create and control commands and its output records (ADR
-//! 0341, 0342).
+//! 0351, 0352).
 //!
 //! # The table
 //!
@@ -358,7 +358,7 @@ pub const FAMILY: FamilyDesc = FamilyDesc {
     name: "tween",
     id: ID,
     version: VERSION,
-    doc: "Wire family `tween`: the tween table's create and control commands and its output records (ADR 0341, 0342).\nnative/anim/crates/anim-wire/src/tween.rs documents the table, its views and its timing.",
+    doc: "Wire family `tween`: the tween table's create and control commands and its output records (ADR 0351, 0352).\nnative/anim/crates/anim-wire/src/tween.rs documents the table, its views and its timing.",
     records: &[TweenCreate::DESC, TweenControl::DESC, TweenChange::DESC],
     consts: &FLAT,
     vectors,

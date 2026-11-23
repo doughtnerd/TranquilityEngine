@@ -1,4 +1,4 @@
-//! `myco.animgraph@1`: a compiled animation graph (ADR 0342), in the
+//! `myco.animgraph@1`: a compiled animation graph (ADR 0352), in the
 //! [container] layout.
 //!
 //! Magic `"MYCOAGPH"`, version [`FORMAT_VERSION`], no header flags (0).
@@ -135,7 +135,7 @@ pub const FORMAT: &str = "myco.animgraph@1";
 /// The format version this build reads and writes.
 pub const FORMAT_VERSION: u32 = 1;
 
-/// Parameter flag: replicated (0340).
+/// Parameter flag: replicated (0350).
 pub const PARAM_REPLICATE: u8 = 1;
 /// Parameter flag: predicted.
 pub const PARAM_PREDICTED: u8 = 2;

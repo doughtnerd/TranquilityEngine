@@ -1,5 +1,5 @@
 //! Native search timings on a synthetic 30-minute database (54,000 frames at 30 Hz, the default
-//! schema), printed, not asserted (budgets are `anim-bench`'s job, T82r; 0340's tripwire is 20
+//! schema), printed, not asserted (budgets are `anim-bench`'s job, T82r; 0350's tripwire is 20
 //! characters ≤ 0.6 ms per frame). The database is generated here, never committed.
 //!
 //! Run with `cargo test --release -p anim-match --test timings -- --ignored --nocapture`.

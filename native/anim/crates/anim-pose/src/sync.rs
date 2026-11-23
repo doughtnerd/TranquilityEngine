@@ -1,4 +1,4 @@
-//! Sync-marker phase maths, for sync groups (ADR 0342): members of a group follow the leader's
+//! Sync-marker phase maths, for sync groups (ADR 0352): members of a group follow the leader's
 //! *phase*, so blended walk and run cycles keep their feet in step.
 //!
 //! A clip's sync markers are `(id, time)` pairs, `id` the interned id of the marker's name

@@ -1,11 +1,11 @@
-# 0343. The editor gets an Animation window, an animation graph editor, a Timeline, rig, retarget, pose database and ragdoll tools, and a live animation debugger
+# 0353. The editor gets an Animation window, an animation graph editor, a Timeline, rig, retarget, pose database and ragdoll tools, and a live animation debugger
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
 - **Amends:** the architecture overview's non-goal "animation timeline … in the editor" (removed)
-- **Related:** 0061, 0133, 0242, 0345, 0346, 0219, 0304, 0307, 0313, 0326, 0340, 0341, 0342; audio 0327 (the Audio Studio), audio 0332 (one curve editor), audio 0334 (takes), audio 0335 (one component kit)
+- **Related:** 0061, 0133, 0242, 0355, 0356, 0219, 0304, 0307, 0313, 0326, 0350, 0351, 0352; audio 0327 (the Audio Studio), audio 0332 (one curve editor), audio 0334 (takes), audio 0335 (one component kit)
 
 ## Context
 
@@ -36,7 +36,7 @@ The editor half lives in `src/plugins/animation/editor/`, contributed through th
   - Edits `*.anim.json` clips and the tracks of a selected Animator's clip.
   - Rows per bound node, component and field; keys as diamonds; box select, move, scale, copy and paste; ripple.
   - The curve view is the shared curve editor (`src/editor/ui/curves/`, audio 0332), with `kind: "time"` lanes per bound field.
-  - **Record mode:** changing an animatable field in the Inspector or with a gizmo writes a key at the playhead. The Inspector shows key buttons on animatable fields (0341).
+  - **Record mode:** changing an animatable field in the Inspector or with a gizmo writes a key at the playhead. The Inspector shows key buttons on animatable fields (0351).
   - Event, marker, audio and activation tracks have their own row editors.
   - Onion skin for sprites and bones.
   - Preview playback in the viewport without entering play mode, through the core in the Editor World.
@@ -46,14 +46,14 @@ The editor half lives in `src/plugins/animation/editor/`, contributed through th
   - A blend-space editor: 1D track and 2D plot with samples, triangulation and a draggable preview point.
   - The chooser table as a spreadsheet view; a linked-graph picker; mask panels;
   - **Parameters through the one parameter list module (0304)**, moved from `plugins/audio/editor/` into the editor SDK so audio and animation share it, with the shared parameter card;
-  - **Node cards generated from the node catalogue's schema** (0342, including third-party nodes, 0340), as audio's effect cards are (audio 0338); rig-stack entries as a list with gizmos in the viewport (IK targets, pole vectors, spring-bone colliders, look-at limits).
+  - **Node cards generated from the node catalogue's schema** (0352, including third-party nodes, 0350), as audio's effect cards are (audio 0338); rig-stack entries as a list with gizmos in the viewport (IK targets, pole vectors, spring-bone colliders, look-at limits).
 - **Live debugger:**
-  - In play mode, or on a selected Animator in a running build connected through the debug link (0346):
+  - In play mode, or on a selected Animator in a running build connected through the debug link (0356):
     - the graph highlights active nodes with weights and phases;
     - transitions show their condition's current value and why they're blocked (priority, interruption, exit time);
     - requests show their remaining lifetime;
     - the parameter panel is live and editable.
-  - A **recorder** keeps the last N seconds (default 10) of parameters, states, slot plays and notifies per selected Animator, in memory. Scrub it to see the pose and graph at any frame. Poses are re-evaluated from the recorded inputs, which the deterministic core allows (0340).
+  - A **recorder** keeps the last N seconds (default 10) of parameters, states, slot plays and notifies per selected Animator, in memory. Scrub it to see the pose and graph at any frame. Poses are re-evaluated from the recorded inputs, which the deterministic core allows (0350).
   - **Animation joins takes (audio 0334).** A take of a run also records what the game asked of animation, in the same capture framing:
 
     | Record | Content |
@@ -77,11 +77,11 @@ The editor half lives in `src/plugins/animation/editor/`, contributed through th
 - **Clip import settings** in the model's Asset Inspector:
   - split takes on a timeline strip; loop with a pose-match indicator;
   - root-motion bone, axes and bake options; additive reference;
-  - compression error with resulting size and maximum error (0341);
+  - compression error with resulting size and maximum error (0351);
   - markers, events and curves on the source take;
   - a live preview (0061) on the model or any profile-compatible character.
-- **Pose database tool:** pick clips and tag ranges; feature and weight settings; bake in the worker (0340) with progress; a debug view of the trajectory and the chosen pose in the viewport.
-- **Ragdoll builder** (the `myco.ragdoll` plugin's editor half, 0345): generate bodies and joints from a skeleton (capsules by bone length, limits from the profile's joint ranges), then edit shapes and limits with gizmos. A test button drops the character in the viewport.
+- **Pose database tool:** pick clips and tag ranges; feature and weight settings; bake in the worker (0350) with progress; a debug view of the trajectory and the chosen pose in the viewport.
+- **Ragdoll builder** (the `myco.ragdoll` plugin's editor half, 0355): generate bodies and joints from a skeleton (capsules by bone length, limits from the profile's joint ranges), then edit shapes and limits with gizmos. A test button drops the character in the viewport.
 - **2D:**
   - flipbook from selected slices (Sprite Editor and Assets panel);
   - a 2D bone editor in the Sprite Editor: place bones, generate the mesh, paint weights with a brush and auto-weight.
@@ -104,7 +104,7 @@ The editor half lives in `src/plugins/animation/editor/`, contributed through th
 ## Consequences
 
 **Positive**
-- Every part of 0340–0342 can be authored and inspected in the editor.
+- Every part of 0350–0352 can be authored and inspected in the editor.
 - The recorder and "why not" transition display go beyond all three engines' debugging.
 
 **Negative / costs**
@@ -117,7 +117,7 @@ The editor half lives in `src/plugins/animation/editor/`, contributed through th
 
 ## Open questions
 
-None. The live connection to running builds is 0346.
+None. The live connection to running builds is 0356.
 
 ## References
 

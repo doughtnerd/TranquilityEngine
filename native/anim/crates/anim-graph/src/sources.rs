@@ -32,7 +32,7 @@
 //! The pose is the clip sampled at the playhead (over identity for additive clips), with the
 //! root bone's ground-plane translation and yaw baked out when the instance asks
 //! ([`EvalContext::bake_root`]). The root delta comes from the clip's root curve (translation
-//! and yaw, ADR 0340's prediction curve) between the previous and current playhead, across a loop
+//! and yaw, ADR 0350's prediction curve) between the previous and current playhead, across a loop
 //! seam when it wrapped; a clip without a root curve has no root motion.
 //!
 //! The player's state functions ([`start_play`], [`interrupt`], [`clear`]) work on any slice laid
@@ -63,7 +63,7 @@
 //!
 //! # `POSE_SNAPSHOT` (kind 3)
 //!
-//! A frozen pose (ragdoll get-up, ADR 0342). Words: 0 `u32` mode: 0 captures the instance's last
+//! A frozen pose (ragdoll get-up, ADR 0352). Words: 0 `u32` mode: 0 captures the instance's last
 //! output when the node is initialised (on entering its state), 1 only by the `graph` family's
 //! `CAPTURE_POSE` command ([`capture`]). Before a capture it outputs nothing (alpha 0). State: a
 //! valid flag, then the pose (`SOA_WORDS` per group).

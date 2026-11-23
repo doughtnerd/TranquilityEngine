@@ -639,7 +639,7 @@ pub struct Loco {
     pub upper: u32,
 }
 
-/// The benchmark's graph (ADR 0340's budget scenario, without the rig): a state machine (Idle,
+/// The benchmark's graph (ADR 0350's budget scenario, without the rig): a state machine (Idle,
 /// Locomotion: a 2D blend space of idle, walk and run with speed scaling and sync; Jump, entered on
 /// a request through an any-state transition and left at its exit) under an upper-body slot, under
 /// an inertialization node.

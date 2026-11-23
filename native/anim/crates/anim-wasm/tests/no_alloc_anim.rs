@@ -1,4 +1,4 @@
-//! `write_inputs` and `evaluate` never allocate while tweens and timelines run (ADR 0340): a
+//! `write_inputs` and `evaluate` never allocate while tweens and timelines run (ADR 0350): a
 //! counting global allocator sees no allocation across frames that advance a thousand tweens
 //! (loops, yoyo, quaternions, completions, kills, destroyed targets), sequences and clip
 //! timelines with nested subclips, crossfades, seeks, wraps, stops and retirements. Setup and the

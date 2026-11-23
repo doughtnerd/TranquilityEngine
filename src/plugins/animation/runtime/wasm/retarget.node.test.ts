@@ -1,4 +1,4 @@
-// ADR 0342 (T41): retargeting through the committed wasm in Node. Guesses both humanoid skeletons' bone maps
+// ADR 0352 (T41): retargeting through the committed wasm in Node. Guesses both humanoid skeletons' bone maps
 // (`guess_bone_map`), creates the retarget map, loads the source graph (a clip player on the T-pose skeleton) and the
 // target graph (a RETARGET node pinning every IK goal) written by native/anim/crates/anim-wasm/tests/retarget_fixtures.rs,
 // runs the frames and compares the bone matrices with what the native core showed. The core is deterministic (no FMA,

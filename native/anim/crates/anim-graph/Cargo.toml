@@ -1,6 +1,6 @@
 [package]
 name = "anim-graph"
-description = "Myco animation core (ADR 0340, 0342): runs compiled graph programs (state machines, blend spaces, slots, linked graphs, sync groups, chooser tables)."
+description = "Myco animation core (ADR 0350, 0352): runs compiled graph programs (state machines, blend spaces, slots, linked graphs, sync groups, chooser tables)."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

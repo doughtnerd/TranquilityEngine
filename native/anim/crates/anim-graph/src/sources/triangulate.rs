@@ -1,4 +1,4 @@
-//! Leaf L31a: a 2D blend space's geometry (ADR 0342, after audio Blend's rule): a Delaunay
+//! Leaf L31a: a 2D blend space's geometry (ADR 0352, after audio Blend's rule): a Delaunay
 //! triangulation of the sample points, built once when the program is built, and the weights of a
 //! query point: barycentric inside a triangle, or the projection onto the nearest hull edge for a
 //! point outside the hull.

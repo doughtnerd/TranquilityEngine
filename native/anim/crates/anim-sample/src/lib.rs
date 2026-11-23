@@ -1,4 +1,4 @@
-//! `anim-sample` (ADR 0340): decompress and sample clips into SoA local poses; sample generic
+//! `anim-sample` (ADR 0350): decompress and sample clips into SoA local poses; sample generic
 //! property tracks; sample discrete, event and the other keyed tracks over a time window.
 //!
 //! Tested against `anim-offline::sample`.

@@ -1,10 +1,10 @@
-# 0342. Animation graphs, state machines, rigs, retargeting, motion matching and physical animation are driven through ECS components, a typed blackboard and a code-first Animator API
+# 0352. Animation graphs, state machines, rigs, retargeting, motion matching and physical animation are driven through ECS components, a typed blackboard and a code-first Animator API
 
 - **Status:** Accepted
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0007, 0011, 0017, 0033, 0133, 0158, 0303, 0344, 0345, 0340, 0341, 0343; audio 0329 (playlists: Blend, Switch rules, Queue picks, stingers), audio 0331 (one catalogue, one parameter schema), audio 0336 (fade shapes, exit markers, bridges)
+- **Related:** 0007, 0011, 0017, 0033, 0133, 0158, 0303, 0354, 0355, 0350, 0351, 0353; audio 0329 (playlists: Blend, Switch rules, Queue picks, stingers), audio 0331 (one catalogue, one parameter schema), audio 0336 (fade shapes, exit markers, bridges)
 
 ## Context
 
@@ -36,10 +36,10 @@ This graph uses the same rules and words, so a designer who knows one knows the 
 
 | Component | Data | Notes |
 |---|---|---|
-| `Skeleton` | skeleton asset, profile, retarget source | on the rig root; the pose itself lives in the core (0340), bones aren't nodes |
+| `Skeleton` | skeleton asset, profile, retarget source | on the rig root; the pose itself lives in the core (0350), bones aren't nodes |
 | `SkinnedMeshRenderer` | mesh, material slots, skeleton node, bounds mode | replaces `MeshRenderer` for skinned meshes; morph weights are animatable fields |
-| `Skeleton2D` | bones (from the image sidecar, 0341) | drives skinned sprites |
-| `Animator` | graph asset (optional), linked-graph overrides, parameter defaults, `updateMode` (`normal`/`unscaled`/`fixed`), `cullingMode`, LOD, `rootMotion` (`none`/`transform`/`characterController`/`rigidBody`), IK target node bindings, replicated state fields (0340) | one per animated hierarchy; its tracks bind relative to its node |
+| `Skeleton2D` | bones (from the image sidecar, 0351) | drives skinned sprites |
+| `Animator` | graph asset (optional), linked-graph overrides, parameter defaults, `updateMode` (`normal`/`unscaled`/`fixed`), `cullingMode`, LOD, `rootMotion` (`none`/`transform`/`characterController`/`rigidBody`), IK target node bindings, replicated state fields (0350) | one per animated hierarchy; its tracks bind relative to its node |
 | `BoneAttachment` | skeleton node, bone, offset, `follow` (`position`/`rotation`/`both`) | a node that follows a bone; for weapons, props and hit volumes |
 | `TimelineDirector` | timeline asset, bindings (track → node), play on start, wrap mode, time | plays a `*.timeline.json` |
 | Tween data (`defineComponent("animation.Tweens", …)`) | handles into the core's tween table | added to the target's entity by `tween()`; removed when the entity's tweens end |
@@ -50,9 +50,9 @@ This graph uses the same rules and words, so a designer who knows one knows the 
 - `RootMotion`: `{ node, delta }`. Filled for `rootMotion: "none"` too, so systems can consume it themselves.
 
 **Built-in systems:**
-- `animation.Gather`, `Evaluate`, `Apply` and `FixedEvaluate`, as ordered in 0340.
+- `animation.Gather`, `Evaluate`, `Apply` and `FixedEvaluate`, as ordered in 0350.
 - `animation.Timeline`, before `Gather`.
-- `animation.PredictedRootMotion` (0340's hybrid model), a predicted `fixedUpdate` system.
+- `animation.PredictedRootMotion` (0350's hybrid model), a predicted `fixedUpdate` system.
 
 All are registered with `registerEngineSystems`, so the System catalogue and Worlds panel (0032) show them.
 
@@ -75,12 +75,12 @@ All are registered with `registerEngineSystems`, so the System catalogue and Wor
   
     Also: any-state transitions with their own priority, sub-machines, entry and exit.
   - **Chooser table** (Unreal): rows of conditions → a clip, blend space or database.
-- **Mixing:** blend by weight, blend by enum or bool, additive (with a reference pose), layered blend by mask (bone-mask or profile-role assets, 0341), time scale, mirror (via the profile's left and right map).
+- **Mixing:** blend by weight, blend by enum or bool, additive (with a reference pose), layered blend by mask (bone-mask or profile-role assets, 0351), time scale, mirror (via the profile's left and right map).
 - **Slots:** named insertion points where code plays one-shots over the graph (below). This is Unreal's slots and montages.
 - **Linked graphs:** a node that runs another `*.animgraph.json` with its own parameters. It can be swapped per instance at runtime (weapon layers, Lyra's pattern; this also covers Unity's Override Controllers).
 - **Sync groups:** members follow a leader's phase by `marker` tracks (feet), so blends never slide.
 - **Notifies:** `event` tracks of every contributing clip fire when the clip's weight exceeds a threshold (default 0.5, per notify), or always for `"always"` notifies.
-- **One node catalogue:** every graph and rig node declares its parameters once, in one schema (as audio's effect catalogue, audio 0331): name, kind, unit, range, default, animatable. The compiler, the core's node table, the graph editor's cards and third-party nodes (0340) all read it.
+- **One node catalogue:** every graph and rig node declares its parameters once, in one schema (as audio's effect catalogue, audio 0331): name, kind, unit, range, default, animatable. The compiler, the core's node table, the graph editor's cards and third-party nodes (0350) all read it.
 - **Rig stack** (`anim-rig`), an ordered list at the graph's output or at any point. Each entry has a weight that a parameter or curve can drive:
   - two-bone IK, chain IK (FABRIK, CCD), full-body IK (effectors for hands, feet, hips, head, centre of mass)
   - look-at and aim (with limits)
@@ -94,14 +94,14 @@ All are registered with `registerEngineSystems`, so the System catalogue and Wor
   - Clips authored on another skeleton play through **profile-based chain retargeting**: the source and target profiles map roles to bones, and the chains (spine, arms, legs, fingers, head) transfer rotations relative to each rest pose.
   - Root and IK goals are scaled by leg length.
   - An optional IK pass pins hands and feet to retargeted goals.
-  - The same code also bakes retargeted clips offline (0343).
+  - The same code also bakes retargeted clips offline (0353).
 - **Motion matching:**
   - A pose database is baked from tagged clip ranges: features are bone positions and velocities plus the future and past trajectory, normalised, with per-feature weights.
   - At runtime the query is built from the current pose and a predicted trajectory (from `CharacterController` velocity and the desired-velocity parameter, spring-damped).
   - Searches run every N frames, or immediately on a large change.
   - Switches use **inertialization**.
   - Tags (e.g. `idle`, `start`, `pivot`) gate the search through parameters or chooser tables.
-- **Physical animation lives in a separate `myco.ragdoll` plugin** (0345), which depends on animation and physics. That keeps animation usable without physics. The animation plugin provides only what it needs: the core's drive targets (`anim-physics`, 0340), the pose snapshot source, and a graph input that blends a physical pose in.
+- **Physical animation lives in a separate `myco.ragdoll` plugin** (0355), which depends on animation and physics. That keeps animation usable without physics. The animation plugin provides only what it needs: the core's drive targets (`anim-physics`, 0350), the pose snapshot source, and a graph input that blends a physical pose in.
 
 ### Scripting API (public, from `myco`)
 
@@ -134,14 +134,14 @@ await dir.play();
 - **Promises fit the existing `wait` style.** A `play` promise resolves with `{ reason: "finished" | "interrupted" | "stopped" }`.
 - **Destroyed targets:** a tween whose target node or component is destroyed stops and is removed silently. Its promise resolves with `reason: "destroyed"`, so awaiting code doesn't hang.
 - **Notifies call methods.** An `event` track names a method. After `Evaluate`, `animation.Apply` delivers it through the World's behaviour messages (0303, `World._sendMessage(nodes, method, e)`): each node once, active behaviours only, throws logged. Each behaviour of the Animator's node that defines it gets `method(e: AnimationEvent)`, as Unity's AnimationEvent does. A notify state calls it with `e.phase` = `"begin"`, `"tick"` and `"end"`. The same records go to the `AnimationEvents` buffer for systems. There is no event bus (0017).
-- **Musical timing (optional, when the audio plugin is enabled):** `play`, `travel` and `request` accept `at: "beat" | "bar" | "exit"` with a music handle (`AudioPlaylistHandle`, audio 0329), and `align: "start" | "hit"`. `hit` lands the clip's `hit` marker on the boundary, as audio stingers do, for dance, rhythm and cutscene sync. The animation plugin reads the handle's music position through the public `Audio` API only, and names audio as an optional dependency (0344). Without the audio plugin, `at` is refused with one warning.
+- **Musical timing (optional, when the audio plugin is enabled):** `play`, `travel` and `request` accept `at: "beat" | "bar" | "exit"` with a music handle (`AudioPlaylistHandle`, audio 0329), and `align: "start" | "hit"`. `hit` lands the clip's `hit` marker on the boundary, as audio stingers do, for dance, rhythm and cutscene sync. The animation plugin reads the handle's music position through the public `Audio` API only, and names audio as an optional dependency (0354). Without the audio plugin, `at` is refused with one warning.
 - **Computed parameters** (owner, 2026-11-22, instead of script functions inside transitions): `anim.compute("canVault", () => this.ledgeAhead())` registers a function that `animation.Gather` runs once per Animator per frame, before evaluation, writing the parameter. Transitions read it like any other parameter, so evaluation stays in the core, the debugger shows its value, and takes record it. Saved graph assets list computed parameters by name, and the script that fills them is the Animator node's behaviour.
 - **No triggers.** `request` replaces them: a request lives for `within` seconds (default 0.25) and is consumed by the first transition that reads it.
 - **Data path for systems:** user systems query `Animator` and call the same methods, or write parameters through `animatorParams(entity)`, a typed view into the blackboard row, for bulk updates (crowds).
 
 ### Replication (0033)
 
-Parameters declare `replicate` and `predicted` in the graph asset's parameter list. Active states, slot plays and linked-graph choices are replicated fields of `Animator` (0340).
+Parameters declare `replicate` and `predicted` in the graph asset's parameter list. Active states, slot plays and linked-graph choices are replicated fields of `Animator` (0350).
 
 ## Alternatives considered
 
@@ -149,7 +149,7 @@ Parameters declare `replicate` and `predicted` in the graph asset's parameter li
 - **Triggers.** Familiar, but the main source of "my animation played late" bugs. Requests with a lifetime keep the convenience without the staleness.
 - **An event bus for notifies.** Contradicts 0017. Method calls plus a buffer match collisions and triggers.
 - **Graph logic in TypeScript, sampling in wasm.** Every transition check would cross the boundary per character. The whole graph runs in the core, and TypeScript only writes parameters.
-- **Bones as nodes with per-bone components.** See 0340. `BoneAttachment` gives parenting without that cost.
+- **Bones as nodes with per-bone components.** See 0350. `BoneAttachment` gives parenting without that cost.
 
 ## Consequences
 

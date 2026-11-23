@@ -138,7 +138,7 @@ pub fn typescript(family: &FamilyDesc) -> String {
     );
     let _ = writeln!(
         out,
-        "// Internal to the animation plugin (ADR 0340): never part of the public API."
+        "// Internal to the animation plugin (ADR 0350): never part of the public API."
     );
     let _ = writeln!(out);
     jsdoc(&mut out, "", family.doc);

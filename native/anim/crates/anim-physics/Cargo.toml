@@ -1,6 +1,6 @@
 [package]
 name = "anim-physics"
-description = "Myco animation core (ADR 0340): physical-animation drive targets and strengths per bone, and ragdoll pose blend-in."
+description = "Myco animation core (ADR 0350): physical-animation drive targets and strengths per bone, and ragdoll pose blend-in."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

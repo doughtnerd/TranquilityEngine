@@ -1,6 +1,6 @@
 [package]
 name = "plugin-sample"
-description = "Myco animation core (ADR 0340, T45): a sample third-party node module (sway and scale) built with anim-plugin-sdk."
+description = "Myco animation core (ADR 0350, T45): a sample third-party node module (sway and scale) built with anim-plugin-sdk."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

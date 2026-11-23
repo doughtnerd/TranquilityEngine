@@ -1,4 +1,4 @@
-//! Family `debug`: the graph debugger's records (ADR 0342, 0343): active nodes with weights and
+//! Family `debug`: the graph debugger's records (ADR 0352, 0353): active nodes with weights and
 //! phases, state machines with each candidate transition's blocker, live request lifetimes.
 //!
 //! Written only for instances flagged with the `graph` family's `DEBUG` command, pulled per
@@ -201,7 +201,7 @@ pub const FAMILY: FamilyDesc = FamilyDesc {
     name: "debug",
     id: ID,
     version: VERSION,
-    doc: "Wire family `debug`: the graph debugger's records (ADR 0342, 0343): active nodes with weights and phases, state\nmachines with each candidate transition's blocker, live request lifetimes (native/anim/crates/anim-wire/src/debug.rs).",
+    doc: "Wire family `debug`: the graph debugger's records (ADR 0352, 0353): active nodes with weights and phases, state\nmachines with each candidate transition's blocker, live request lifetimes (native/anim/crates/anim-wire/src/debug.rs).",
     records: &[
         DebugHeader::DESC,
         DebugNode::DESC,

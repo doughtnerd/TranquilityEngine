@@ -1,7 +1,7 @@
 //! Mirroring a local pose across a plane through the model origin, through a left/right bone map.
 //!
 //! `partner[i]` is the bone whose motion bone `i` takes over, mirrored: the other side's bone for
-//! a left or right bone, `i` itself for a centre bone (the profile's left/right map, ADR 0342).
+//! a left or right bone, `i` itself for a centre bone (the profile's left/right map, ADR 0352).
 //! The map has one entry per bone; an entry out of range counts as the bone itself.
 //!
 //! The reflection of a local transform across the plane with normal axis `a`: the translation's

@@ -1,4 +1,4 @@
-//! `anim-meter` (ADR 0340, "Third-party graph and rig nodes"; audio 0338): the instruction-budget
+//! `anim-meter` (ADR 0350, "Third-party graph and rig nodes"; audio 0338): the instruction-budget
 //! (fuel) pass. It checks a third-party node module against the node ABI
 //! (`anim_plugin_sdk::abi`) and rewrites it at load so that it counts the work it does and stops at
 //! its budget.

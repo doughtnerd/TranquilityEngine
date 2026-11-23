@@ -1,4 +1,4 @@
-//! `write_inputs` and `evaluate` never allocate (ADR 0340): a counting global allocator sees no
+//! `write_inputs` and `evaluate` never allocate (ADR 0350): a counting global allocator sees no
 //! allocation across frames that play, crossfade, inertialize, layer, cull, interpolate (LOD),
 //! fire track events and report state changes, after setup.
 
