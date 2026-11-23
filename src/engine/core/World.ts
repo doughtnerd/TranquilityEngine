@@ -150,6 +150,8 @@ export class World {
   private framing = false;
   /** Work deferred to the end of the frame (ADR 0011 step 10): scene loads and unloads, World tear-down. */
   private frameEndOps: (() => void)[] = [];
+  /** Hooks run after transform propagation (`_afterPropagation`). */
+  private afterPropagation: ((world: World) => void)[] = [];
 
   // --- entity storage -------------------------------------------------------------------
   private capacity = 0;
@@ -684,6 +686,7 @@ export class World {
 
       // 7. Transform propagation
       this.propagateTransforms();
+      this.runAfterPropagation();
       if (timings) [updateMs, mark] = [performance.now() - mark, performance.now()];
 
       // 8–9. Render sync and render
@@ -728,6 +731,7 @@ export class World {
   redraw(surface: RenderSurface): void {
     World._runIn(this, () => {
       this.propagateTransforms();
+      this.runAfterPropagation();
       surface.sync(this);
       surface.render(this);
     });
@@ -831,6 +835,33 @@ export class World {
   /** Step 7: compute world matrices for every dirty transform (reads compute them on demand too). */
   private propagateTransforms(): void {
     for (let e = 0; e < this.highWater; e++) if (this.alive[e] && this.worldDirty[e]) this.computeWorld(e);
+  }
+
+  /**
+   * @internal Run `hook` after each transform propagation (step 7, and `redraw`), before render sync; the nodes it moves
+   * are propagated again. For nodes that follow something only known in world space once propagation is done: the
+   * animation plugin's BoneAttachments (ADR 0370's frame order, step 7; 0372). Hooks run in the order added, with this
+   * World current; one that throws is logged and the rest still run. Returns the function that removes it.
+   */
+  _afterPropagation(hook: (world: World) => void): () => void {
+    this.afterPropagation.push(hook);
+    return () => {
+      const i = this.afterPropagation.indexOf(hook);
+      if (i >= 0) this.afterPropagation.splice(i, 1);
+    };
+  }
+
+  /** Step 7's tail: the `_afterPropagation` hooks, then propagation again for what they moved. */
+  private runAfterPropagation(): void {
+    if (!this.afterPropagation.length) return;
+    for (const hook of [...this.afterPropagation]) {
+      try {
+        hook(this);
+      } catch (err) {
+        console.error("[myco] a post-propagation hook failed:", err);
+      }
+    }
+    this.propagateTransforms();
   }
 
   /** Step 10: empty this frame's buffers. */
