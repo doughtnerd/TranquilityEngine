@@ -4,9 +4,8 @@
 // mapping draws, the loop band with its pass dividers (a zero-length loop is a hold), the sample markers shown in the
 // clip (hidden ones flagged) and the chips (loop activation, parameter binding, FX count, the playlist it picks, the
 // "follows" warning). Pure.
-import type { PlaylistLint } from "../../../../engine/audio/playlist/lint";
-import type { Clip, LoopBehaviour, Track } from "../../../../engine/audio/playlist/types";
-import { clipLength, type SourceFacts, type SourceLoop } from "./sequenceModel";
+import type { Clip, LoopBehaviour, SequenceSettings } from "../../../../engine/audio/playlist/types";
+import { clipLength, type SourceFacts, type SourceLoop, type SourceOf } from "./sequenceModel";
 
 /** A loop as this clip plays it. */
 export interface ClipLoop extends SourceLoop {
@@ -158,9 +157,28 @@ export interface ClipChip {
 const ACTIVE_ICON: Record<LoopBehaviour["active"], string> = { always: "↻", held: "✋", parameter: "P" };
 const ACTIVE_TEXT: Record<LoopBehaviour["active"], string> = { always: "Loops while the voice plays", held: "Loops while held; on release leaves by its exit", parameter: "Loops while its parameter condition holds" };
 
-/** Does a lint say this clip follows another sync clip's loop (overlapping sync loops, ADR 0343)? */
-export function clipFollows(lints: readonly PlaylistLint[], trackWhere: string, track: Pick<Track, "name">, c: Pick<Clip, "id">): boolean {
-  return lints.some((l) => l.code === "overlappingSyncLoops" && l.where === trackWhere && l.message.includes(`"${c.id}" (${track.name})`) && l.message.includes(`"${track.name}" follows`));
+/**
+ * The clip this one follows, or null (owner decision 4, UI pass 2026-11-23): music stems on parallel tracks that start
+ * together are all Sync to the sequence clock, so a clip never "follows" one on another track. A Sync clip follows only
+ * when it is chained after another Sync clip on its own track and overlaps it (a crossfaded chain): the earlier clip's
+ * loop drives the playhead there and this one's is ignored (the runtime's one-driver rule, ADR 0343).
+ */
+export function clipFollows(s: Pick<SequenceSettings, "tracks">, clipId: string, sourceOf: SourceOf): Clip | null {
+  for (const t of s.tracks) {
+    const ci = t.clips.findIndex((x) => x.id === clipId);
+    if (ci < 0) continue;
+    const c = t.clips[ci]!;
+    if (!t.enabled || !c.enabled || !c.sync || c.sample === undefined) return null;
+    let best: Clip | null = null;
+    t.clips.forEach((p, pi) => {
+      if (pi === ci || !p.enabled || !p.sync || p.sample === undefined) return;
+      if (p.at > c.at || (p.at === c.at && pi > ci)) return; // only a clip before it in the chain
+      if (p.at + clipLength(p, sourceOf(p)) <= c.at + 1e-9) return; // back to back: nothing overlaps
+      if (!best || p.at > best.at) best = p;
+    });
+    return best;
+  }
+  return null;
 }
 
 export function clipChips(c: Clip, src: SourceFacts | null, opts: { readonly follows: boolean; readonly playlistName?: string }): ClipChip[] {
@@ -176,6 +194,6 @@ export function clipChips(c: Clip, src: SourceFacts | null, opts: { readonly fol
   }
   if (c.effects.length) out.push({ kind: "fx", text: `FX ${c.effects.length}`, title: c.effects.map((e) => e.type).join(", ") });
   if (c.playlist !== undefined) out.push({ kind: "pick", text: `→ ${opts.playlistName ?? "pick"}`, title: "Resolves once when the playhead enters the clip" });
-  if (opts.follows) out.push({ kind: "follows", text: "⚠ follows", title: "Overlaps a sync clip on a higher track, which drives the playhead; this clip's loop is ignored (Make Async to let it loop on its own)" });
+  if (opts.follows) out.push({ kind: "follows", text: "⚠ follows", title: "Chained over the sync clip before it on this track, whose loop drives the playhead here; this clip's loop is ignored (Make Async to let it loop on its own)" });
   return out;
 }

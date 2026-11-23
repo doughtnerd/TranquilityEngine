@@ -4,6 +4,7 @@ import { clipChips, clipFollows, clipLoops, clipMarkers, clipPlan, clipToSource,
 import { fixtureBody, fixtureSequence, fixtureSource } from "./sequenceFixture";
 import { beatSeconds, beatsPerBar, DEFAULT_SNAP, keepTaps, nudgeStep, snapSpan, snapTime, tapTempo } from "./sequenceGrid";
 import { clipLength, findClip, nextId, onSequence, sequenceLength } from "./sequenceModel";
+import { warningLines } from "./sequenceLints";
 import { clickClip, clickPoint, EMPTY_SELECTION, marqueeSelect, pressClip, pruneSelection, selectAll, selectLoop } from "./sequenceSelection";
 import { clampTimeline, fitTimeline, followView, rowAt, snapEdges, thumbOf, trackIndexAt, trackRows, viewFromThumb, zoomTimeline } from "./timelineLayout";
 import { DEFAULT_TRANSPORT, estimatePlayhead, hasHeldLoop, playRange, restingPlayhead, spaceAction } from "./transportModel";
@@ -104,10 +105,38 @@ describe("clip geometry", () => {
     const unbound = { ...c1, loops: { L1: { active: "parameter" as const } } };
     expect(clipChips(unbound, src, { follows: false }).map((x) => x.kind)).toContain("unbound");
     expect(clipChips(c("c4"), null, { follows: false, playlistName: "stingers" }).map((x) => x.text)).toEqual(["→ stingers"]);
-    const lints = lintPlaylist(fixtureBody());
-    const t3 = seq.tracks[2]!;
-    expect(clipFollows(lints, "sequence.tracks[2]", t3, c("c3"))).toBe(true);
-    expect(clipFollows(lints, "sequence.tracks[1]", seq.tracks[1]!, c("c2"))).toBe(false);
+  });
+
+  it("follows only a sync clip it's chained over on its own track, never one on a parallel track (decision 4)", () => {
+    // c3 (Music B) overlaps c2 (Music) on a parallel track: both are Sync to the sequence clock.
+    expect(clipFollows(seq, "c3", fixtureSource)).toBeNull();
+    expect(clipFollows(seq, "c2", fixtureSource)).toBeNull();
+    // Stems: every track's clip starts at 0, all Sync.
+    const stem = (t: number) => ({ ...seq.tracks[1]!, id: `s${t}`, name: `Stem ${t}`, clips: [{ ...c("c2"), id: `k${t}`, at: 0 }] });
+    const stems = { ...seq, tracks: [stem(1), stem(2), stem(3)] };
+    expect(["k1", "k2", "k3"].map((id) => clipFollows(stems, id, fixtureSource))).toEqual([null, null, null]);
+    // Chained on one track: c5 overlaps the end of c2 and follows it; c6 starts where c2 ends and doesn't.
+    const music = { ...seq.tracks[1]!, clips: [c("c2"), { ...c("c2"), id: "c5", at: 4, length: 2 }, { ...c("c2"), id: "c6", at: 6, length: 2 }] };
+    const chained = { ...seq, tracks: [music] };
+    expect(clipFollows(chained, "c5", fixtureSource)?.id).toBe("c2");
+    expect(clipFollows(chained, "c6", fixtureSource)).toBeNull();
+    expect(clipFollows(chained, "c2", fixtureSource)).toBeNull();
+    // An Async clip never follows.
+    const async = { ...seq, tracks: [{ ...music, clips: [c("c2"), { ...c("c2"), id: "c5", at: 4, sync: false }] }] };
+    expect(clipFollows(async, "c5", fixtureSource)).toBeNull();
+  });
+
+  it("lists warnings without the stems' overlap or the timeline's own, naming clips instead of their ids", () => {
+    const stems = { ...seq, tracks: [seq.tracks[1]!, { ...seq.tracks[2]!, clips: [{ ...c("c3"), at: 0.5 }] }] };
+    const body = fixtureBody(stems);
+    const lints = lintPlaylist(body, { sampleTempo: () => ({ bpm: 90 }) });
+    expect(lints.map((l) => l.code)).toContain("overlappingSyncLoops");
+    const lines = warningLines(lints, body);
+    expect(lines.some((l) => l.includes("overlap"))).toBe(false);
+    expect(lines).toContain("Sync clip music_loop plays a sample at 90 BPM in a 120 BPM sequence; it isn't stretched.");
+    expect(lines.join(" ")).not.toMatch(/"c\d"/);
+    const unbound = fixtureBody({ ...seq, loops: [{ ...seq.loops[0]!, active: "parameter" }] });
+    expect(warningLines(lintPlaylist(unbound), unbound).some((l) => l.includes("names none"))).toBe(false);
   });
 });
 

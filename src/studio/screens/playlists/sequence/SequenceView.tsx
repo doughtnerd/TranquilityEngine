@@ -321,7 +321,7 @@ export function SequenceView(props: SequenceViewProps) {
     if (!sel.clips.includes(clipId)) select(clickClip(sel, clipId, f.track.id));
     const t = snapAt(timeAt(e), e);
     const len = clipLength(f.clip, sourceOf(f.clip));
-    const follows = clipFollows(props.lints, `${props.where ? `${props.where}.` : ""}sequence.tracks[${f.ti}]`, f.track, f.clip);
+    const follows = !!clipFollows(docSeq, clipId, sourceOf);
     setMenu({
       at: { x: e.clientX, y: e.clientY }, label: "Clip",
       entries: [
@@ -332,7 +332,7 @@ export function SequenceView(props: SequenceViewProps) {
         { id: "copy", label: "Copy", hint: "Ctrl+C", run: () => (seqClipboard.value = copySelection(docSeq, { ...sel, focus: "clips", clips: ids })) },
         { id: "dup", label: ids.length > 1 ? "Duplicate clips" : "Duplicate clip", hint: "Ctrl+D", disabled: !writable, run: () => duplicate(ids) },
         { id: "en", label: f.clip.enabled ? "Disable" : "Enable", hint: "E", disabled: !writable, run: () => toggleEnabled(ids) },
-        ...(follows ? [{ id: "async", label: "Make Async", title: "Let this clip loop on its own clock instead of following the higher track", disabled: !writable, run: () => runSeq("Clip async", (q) => makeAsync(q, clipId)) }] : []),
+        ...(follows ? [{ id: "async", label: "Make Async", title: "Let this clip loop on its own clock instead of following the clip before it on this track", disabled: !writable, run: () => runSeq("Clip async", (q) => makeAsync(q, clipId)) }] : []),
         SEPARATOR,
         { id: "del", label: ids.length > 1 ? "Delete clips" : "Delete clip", hint: "Del", danger: true, disabled: !writable, run: () => removeClips(ids) },
       ],
@@ -746,7 +746,6 @@ export function SequenceView(props: SequenceViewProps) {
   const timeCtx = { rate, bpm: s.tempo?.bpm ?? null, meter: s.tempo?.meter ?? null };
   const format = seqTimeFormat.value;
   const thumb = thumbOf(view, limit);
-  const lintPrefix = props.where ? `${props.where}.` : "";
   const hoverClipAt = hover ? findClip(s, hover.clip) : null;
   const shownTrackLane = (trackId: string, automation: string) => sel.points && "track" in sel.points.owner && sel.points.owner.track === trackId && sel.points.automation === automation ? sel.points.keys : [];
   const endX = toPx(length);
@@ -838,7 +837,6 @@ export function SequenceView(props: SequenceViewProps) {
         <div class="sq-rows" ref={rowsRef} style={{ minHeight: `${height + 60}px` }}>
           {rows.map((r) => {
             const t = r.track;
-            const trackWhere = `${lintPrefix}sequence.tracks[${r.ti}]`;
             return (
               <div key={t.id} class="sq-track-block">
                 <div class="sq-row" style={{ height: `${r.h}px` }}>
@@ -883,7 +881,7 @@ export function SequenceView(props: SequenceViewProps) {
                           width={toPx(c.at + len) - x}
                           height={r.h - 4}
                           selected={sel.clips.includes(c.id)}
-                          follows={clipFollows(props.lints, trackWhere, t, c)}
+                          follows={!!clipFollows(s, c.id, sourceOf)}
                           showWave={seqShowWave.value}
                           razor={seqRazor.value}
                           curve={shown ? { ...shown, keys: sel.points && "clip" in sel.points.owner && sel.points.owner.clip === c.id && sel.points.automation === shown.automation.id ? sel.points.keys : [] } : null}
