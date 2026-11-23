@@ -7,14 +7,14 @@
 /* Type badges (prototype `.mb`, ui-pass decisions): 9 px bold code in a 1 px outline, one colour per kind — CLP violet,
  * QUE pink, SW amber, 1D teal, 2D green, SEQ blue, LAY neutral; a sample and the empty "—" placeholder are neutral. */
 .studio-badge { flex: none; display: inline-block; box-sizing: border-box; min-width: 28px; padding: 0 3px; border-radius: 3px; border: 1px solid var(--badge-tone, var(--border-strong)); color: var(--badge-tone, var(--muted)); font-size: calc(9px * var(--ui-scale)); font-weight: 700; letter-spacing: 0.03em; line-height: 14px; text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.studio-badge.tone-clip { --badge-tone: var(--series-6); }
-.studio-badge.tone-queue { --badge-tone: var(--marker-cue); }
-.studio-badge.tone-switch { --badge-tone: var(--warning); }
-.studio-badge.tone-blend1 { --badge-tone: var(--accent); }
-.studio-badge.tone-blend2 { --badge-tone: var(--accent2); }
-.studio-badge.tone-sequence { --badge-tone: var(--series-4); }
-.studio-badge.tone-layer, .studio-badge.tone-sample { --badge-tone: initial; }
-.studio-badge.tone-none { --badge-tone: initial; border-style: dashed; color: var(--faint); }
+.studio-tone-clip { --badge-tone: var(--series-6); }
+.studio-tone-queue { --badge-tone: var(--marker-cue); }
+.studio-tone-switch { --badge-tone: var(--warning); }
+.studio-tone-blend1 { --badge-tone: var(--accent); }
+.studio-tone-blend2 { --badge-tone: var(--accent2); }
+.studio-tone-sequence { --badge-tone: var(--series-4); }
+.studio-tone-layer, .studio-tone-sample { --badge-tone: initial; }
+.studio-badge.studio-tone-none { --badge-tone: initial; border-style: dashed; color: var(--faint); }
 /* Series colours for lanes (ValueLane). */
 .studio-series-1 { color: var(--series-1); --series: var(--series-1); }
 .studio-series-2 { color: var(--series-2); --series: var(--series-2); }

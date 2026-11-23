@@ -8,6 +8,7 @@
 //   <Section title="Playback" hint="When a trigger plays, and what happens at the limit">  a section header
 //   <EmptyState compact title="No takes yet" body="Record one with Record take…" />        an empty state's body
 import { useId, useRef, useState } from "preact/hooks";
+import { FloatingPortal } from "./FloatingPortal";
 import { usePopover } from "./popover";
 import "./kit.css";
 
@@ -45,7 +46,15 @@ export function InfoTip(props: InfoTipProps) {
           <circle cx="6" cy="3.5" r="0.75" fill="currentColor" />
         </svg>
       </button>
-      {open ? <InfoBubble id={id} text={props.text} anchor={button.current} onClose={() => setOpen(false)} /> : <span id={id} class="kit-sr-only">{props.text}</span>}
+      {open ? (
+        <FloatingPortal>
+          <InfoBubble id={id} text={props.text} anchor={button.current} onClose={() => setOpen(false)} />
+        </FloatingPortal>
+      ) : (
+        <span id={id} class="kit-sr-only">
+          {props.text}
+        </span>
+      )}
     </>
   );
 }

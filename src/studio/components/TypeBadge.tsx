@@ -26,7 +26,7 @@ export function TypeBadge(props: TypeBadgeProps) {
   const info = infoOf(props);
   const name = props.title ?? info.name;
   return (
-    <span class={`studio-badge tone-${info.tone}`} title={name} aria-label={name} role="img">
+    <span class={`studio-badge studio-tone-${info.tone}`} title={name} aria-label={name} role="img">
       {info.code}
     </span>
   );

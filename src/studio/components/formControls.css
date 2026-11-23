@@ -116,11 +116,6 @@
 :is(.studio, .studio-forms) :is(.dialog-buttons, .kit-dialog-foot) button.primary:not(:disabled) { background: var(--accent2-soft); border-color: var(--accent2); color: var(--text-strong); font-weight: 600; box-shadow: none; }
 :is(.studio, .studio-forms) :is(.dialog-buttons, .kit-dialog-foot) button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent2) 32%, transparent); }
 
-/* Toasts: one at a time, bottom centre above the player bar (prototype). The shell sets `--studio-bottom-chrome` to the
- * player bar's and status bar's height (89 px, the prototype's 66 + 23, until it does). */
-:is(.studio, .studio-forms) .kit-toasts { left: 50%; right: auto; bottom: calc(var(--studio-bottom-chrome, 89px) + 8px); transform: translateX(-50%); align-items: center; }
-:is(.studio, .studio-forms) .kit-toast { border-color: var(--accent); border-radius: 4px; font-size: calc(12px * var(--ui-scale)); box-shadow: 0 6px 18px var(--shadow); }
-:is(.studio, .studio-forms) .kit-toast-error { border-color: var(--danger); }
 
 /* The kit's number box and select (PanelFields) in the prototype's sizes. */
 :is(.studio, .studio-forms) .kit-num { width: 76px; padding: 2px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); line-height: 16px; text-align: right; }

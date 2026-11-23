@@ -10,8 +10,8 @@
 .studio-player-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr) minmax(min-content, 1.2fr); grid-template-areas: "now centre right"; align-items: center; gap: 4px 14px; padding: 5px 12px; min-height: 66px; box-sizing: border-box; }
 .studio-player-now { grid-area: now; display: flex; align-items: center; gap: 10px; min-width: 0; max-width: 340px; }
 .studio-player-art { flex: none; width: 40px; height: 40px; box-sizing: border-box; border-radius: 6px; display: grid; place-items: center; background: var(--accent-faint); border: 1px solid var(--accent-soft); color: var(--accent); font-size: calc(10px * var(--ui-scale)); font-weight: 700; letter-spacing: 0.04em; }
-/* A playlist's type badge: its type's colour (the `studio-series-N` class sets it), outlined. */
-.studio-player-art.typed { background: none; border-color: currentColor; }
+/* A playlist's type badge: its type's colour (the `studio-tone-<tone>` class sets `--badge-tone`), outlined. */
+.studio-player-art.typed { background: none; color: var(--badge-tone, var(--muted)); border-color: currentColor; }
 .studio-player-art.idle { opacity: 0.55; }
 .studio-player-titles { min-width: 0; display: flex; flex-direction: column; }
 .studio-player-title { color: var(--text-strong); font-weight: 600; font-size: calc(13px * var(--ui-scale)); line-height: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

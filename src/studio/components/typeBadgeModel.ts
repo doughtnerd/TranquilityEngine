@@ -14,7 +14,7 @@ export interface BadgeInfo {
   readonly code: BadgeCode;
   /** The tooltip and accessible name ("Queue playlist"). */
   readonly name: string;
-  /** Its colour (`.studio-badge.tone-<tone>`). */
+  /** Its colour (`.studio-tone-<tone>`, which sets `--badge-tone`). */
   readonly tone: BadgeTone;
 }
 

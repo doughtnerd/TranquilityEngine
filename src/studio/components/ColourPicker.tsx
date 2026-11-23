@@ -7,6 +7,7 @@
 // Colours are CSS colour strings: a preset may be a theme token (`var(--accent)`), so Appearance themes it; custom and
 // saved colours are "#rrggbb". The owner keeps the saved palette (one per project) and hands it in.
 import { useRef, useState } from "preact/hooks";
+import { FloatingPortal } from "../../editor/ui/FloatingPortal";
 import { usePopover } from "../../editor/ui/popover";
 import { hexToHsv, hsvToHex, hueKey, readHex, removeColour, saveColour, svKey, type Hsv } from "./colourPickerModel";
 import "./formControls.css";
@@ -81,6 +82,7 @@ export function ColourPicker(props: ColourPickerProps) {
         +
       </button>
       {open && (
+        <FloatingPortal>
         <CustomColour
           anchor={plus.current}
           start={readHex(props.value ?? "") ?? START_HEX}
@@ -96,6 +98,7 @@ export function ColourPicker(props: ColourPickerProps) {
           }}
           onClose={() => setOpen(false)}
         />
+        </FloatingPortal>
       )}
     </div>
   );

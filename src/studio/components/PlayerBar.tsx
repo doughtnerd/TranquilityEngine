@@ -91,7 +91,7 @@ export function PlayerBar(props: PlayerBarSlots & { readonly label?: string; rea
     <footer class="studio-player" aria-label={props.label ?? "Player"}>
       <div class="studio-player-grid">
         <div class="studio-player-now">
-          <div class={`studio-player-art${np ? "" : " idle"}${badge ? ` typed studio-series-${badge.series}` : ""}`} title={badge?.name} aria-hidden="true">
+          <div class={`studio-player-art${np ? "" : " idle"}${badge ? ` typed studio-tone-${badge.tone}` : ""}`} title={badge?.name} aria-hidden="true">
             {art}
           </div>
           <div class="studio-player-titles">

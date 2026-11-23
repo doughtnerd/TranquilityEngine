@@ -9,6 +9,7 @@
 // caps. The rules are `contextMenuModel.ts`'s.
 import { useRef, useState } from "preact/hooks";
 import { edgeIndex, hasCheckColumn, isGroup, isItem, stepIndex, typeaheadIndex, type MenuEntry, type MenuItem } from "./contextMenuModel";
+import { FloatingPortal } from "./FloatingPortal";
 import { usePopover, type PopoverPoint } from "./popover";
 import "./assets.css";
 import "./kit.css";
@@ -26,7 +27,12 @@ export interface ContextMenuProps {
 }
 
 export function ContextMenu(props: ContextMenuProps) {
-  return <MenuList entries={props.entries} at={props.at} label={props.label} onClose={props.onClose} />;
+  // Drawn at the page's floating root, so a toolbar with container queries doesn't trap it (`FloatingPortal`).
+  return (
+    <FloatingPortal>
+      <MenuList entries={props.entries} at={props.at} label={props.label} onClose={props.onClose} />
+    </FloatingPortal>
+  );
 }
 
 interface MenuListProps extends ContextMenuProps {

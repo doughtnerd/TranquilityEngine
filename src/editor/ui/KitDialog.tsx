@@ -4,6 +4,7 @@
 // (`onClose`). Its title is never caught by `.panel h2`'s caps, whatever it is drawn inside.
 import type { ComponentChildren } from "preact";
 import { useId } from "preact/hooks";
+import { FloatingPortal } from "./FloatingPortal";
 import "./kit.css";
 
 export interface KitDialogProps {
@@ -28,7 +29,9 @@ export interface KitDialogProps {
 
 export function KitDialog(props: KitDialogProps) {
   const titleId = useId();
+  // Drawn at the page's floating root (`FloatingPortal`), so a panel or bar with container queries doesn't trap it.
   return (
+    <FloatingPortal>
     <div class="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && props.onClose()}>
       <div
         class={`dialog kit-dialog${props.class ? ` ${props.class}` : ""}`}
@@ -66,5 +69,6 @@ export function KitDialog(props: KitDialogProps) {
         )}
       </div>
     </div>
+    </FloatingPortal>
   );
 }

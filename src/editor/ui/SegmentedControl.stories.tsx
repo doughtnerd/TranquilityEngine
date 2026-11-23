@@ -36,9 +36,9 @@ export const FillAndWrap: StoryObj = {
   render: () => (
     <div style={{ display: "grid", gridTemplateColumns: "60px 1fr", gap: "8px", width: "180px" }}>
       <span>Fill</span>
-      <SegmentedControl label="Calibrate" look="fill" value="ear" onChange={() => {}} options={[{ value: "ear", label: "By ear" }, { value: "eye", label: "By eye" }]} />
+      <SegmentedControl label="Calibrate" look="fill" value={"ear" as string} onChange={() => {}} options={[{ value: "ear", label: "By ear" }, { value: "eye", label: "By eye" }]} />
       <span>Type</span>
-      <SegmentedControl label="Marker type" value="hit" onChange={() => {}} options={[{ value: "exit", label: "Exit" }, { value: "hit", label: "Hit point" }, { value: "cue", label: "Cue" }, { value: "note", label: "Note" }]} />
+      <SegmentedControl label="Marker type" value={"hit" as string} onChange={() => {}} options={[{ value: "exit", label: "Exit" }, { value: "hit", label: "Hit point" }, { value: "cue", label: "Cue" }, { value: "note", label: "Note" }]} />
     </div>
   ),
   play: async ({ canvasElement }) => {
