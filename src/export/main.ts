@@ -4,7 +4,7 @@
  * ```sh
  * npm run export -- <projectDir> [--out <dir>] [--target web|desktop] [--platform web|desktop|android]
  *                   [--no-audio-convert] [--scene <path>] [--audio-capture] [--languages <codes>] [--pseudo]
- *                   [--debug-link <address>] [--debug-listen] [--debug-lan] [--debug-port N]
+ *                   [--debug-link <address>] [--debug-listen] [--debug-lan] [--debug-port N] [--debug-rendezvous <url>]
  * ```
  *
  * - `--target web` (default) writes a static web build: the prebuilt player (dist/player/, built
@@ -55,6 +55,11 @@ Options:
   --debug-lan      Debugging on; a listening game accepts tools from other machines on its network (debug.lan: binds
                    0.0.0.0, each tool paired by code) instead of this machine only. Off by default
   --debug-port N   Debugging on; the first port a listening game tries (debug.port, default 7790; it tries the next nine)
+  --debug-rendezvous U
+                   Debugging on; the hosted rendezvous (a ws:// or wss:// URL, game.json debug.rendezvous) a room code
+                   without a LAN rendezvous uses. A debug web build's serve.mjs also hosts a rendezvous itself
+                   (rendezvous.mjs beside it, built with npm run build:rendezvous if missing); with --debug-lan it
+                   serves the local network (0.0.0.0) and prints the addresses to open
   --build          Desktop: run tauri build (default when Rust is installed)
   --no-build       Desktop: only write the Tauri project
   -h, --help       Show this help`;
@@ -107,6 +112,19 @@ const EXPORT_COMMAND: Command<ExportOptions> = {
         const port = /^\d+$/.test(v) ? Number(v) : NaN;
         if (!(port >= 1 && port <= 65526)) throw new UsageError(`--debug-port is a whole number from 1 to 65526 (got ${JSON.stringify(v)}).`);
         o.debugPort = port;
+      },
+    },
+    "--debug-rendezvous": {
+      takes: "a ws:// or wss:// URL",
+      set: (o, v) => {
+        let protocol = "";
+        try {
+          protocol = new URL(v.trim()).protocol;
+        } catch {
+          // not a URL: refused below
+        }
+        if (protocol !== "ws:" && protocol !== "wss:") throw new UsageError(`--debug-rendezvous is a ws:// or wss:// URL (got ${JSON.stringify(v)}).`);
+        o.debugRendezvous = v;
       },
     },
     "--build": { set: (o) => void (o.tauriBuild = true) },

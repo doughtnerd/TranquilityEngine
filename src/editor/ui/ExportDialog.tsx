@@ -1,7 +1,7 @@
 import { useEffect, useState } from "preact/hooks";
 import { exportOpen } from "./dialogState";
 import { getFileSystem, type FileSystem } from "../../engine/platform/FileSystem";
-import { desktopExportCommand, exportProjectBuild } from "../exportBuild";
+import { desktopExportCommand, exportProjectBuild, isRendezvousUrl } from "../exportBuild";
 import { projectFileSystem } from "../projectFs";
 import { currentProject, openScene, status } from "../state";
 import "./export.css";
@@ -24,6 +24,7 @@ export function ExportDialog() {
   const [debugLink, setDebugLink] = useState(false);
   const [debugListen, setDebugListen] = useState(false);
   const [debugLan, setDebugLan] = useState(false);
+  const [debugRendezvous, setDebugRendezvous] = useState("");
   const [fs, setFs] = useState<FileSystem | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "info" | "error"; text: string; folder?: string } | null>(null);
@@ -41,14 +42,16 @@ export function ExportDialog() {
   };
   const canWrite = !!fs?.canWrite;
   const dirty = !!openScene.value?.stack.dirty;
+  const rendezvousUrl = debugLink ? debugRendezvous : "";
+  const rendezvousBad = rendezvousUrl.trim() !== "" && !isRendezvousUrl(rendezvousUrl);
   const run = async () => {
-    if (!fs) return;
+    if (!fs || rendezvousBad) return;
     const out = await fs.pickFolder(`Choose a folder for the web build of ${project.name}`);
     if (!out) return;
     setBusy(true);
     setMessage({ kind: "info", text: "Compiling scripts…" });
     try {
-      const plan = await exportProjectBuild(project, fs, out, (done, total) => setMessage({ kind: "info", text: `Writing files… ${done} of ${total}` }), { audioCapture, audioTake, audioTakeFrames: takePictures, ...(debugLink && { debugLink: true as const, ...(debugListen && { debugListen: true as const }), ...(debugListen && debugLan && { debugLan: true as const }) }) });
+      const plan = await exportProjectBuild(project, fs, out, (done, total) => setMessage({ kind: "info", text: `Writing files… ${done} of ${total}` }), { audioCapture, audioTake, audioTakeFrames: takePictures, ...(debugLink && { debugLink: true as const, ...(debugListen && { debugListen: true as const }), ...(debugListen && debugLan && { debugLan: true as const }), ...(rendezvousUrl.trim() && { debugRendezvous: rendezvousUrl.trim() }) }) });
       const text = `Exported ${plan.manifest.name} to ${out}. Put the folder on any web host, or run node serve.mjs in it to play locally.`;
       setMessage({ kind: "info", text, folder: out });
       status.value = { kind: "info", text };
@@ -60,7 +63,7 @@ export function ExportDialog() {
       setBusy(false);
     }
   };
-  const command = desktopExportCommand(project, audioCapture, audioTake, takePictures, debugLink, debugListen, debugLan);
+  const command = desktopExportCommand(project, audioCapture, audioTake, takePictures, debugLink, debugListen, debugLan, debugRendezvous);
 
   return (
     <div class="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && close()}>
@@ -116,6 +119,11 @@ export function ExportDialog() {
           <input type="checkbox" name="export-debug-lan" checked={debugLan} disabled={busy || !debugLink || !debugListen} onChange={(e) => setDebugLan(e.currentTarget.checked)} />
           On the network (LAN)
         </label>
+        <label class="export-debug-rendezvous" style={{ marginLeft: "20px" }} title="Optional: a hosted rendezvous (a ws:// or wss:// address) that pages and tools use to pair by room code when no rendezvous on the local network is reachable. No public one is run: leave empty unless you host one">
+          Rendezvous URL{" "}
+          <input type="text" name="export-debug-rendezvous" placeholder="wss://rendezvous.example.com/myco-rendezvous" value={debugRendezvous} disabled={busy || !debugLink} aria-invalid={rendezvousBad} onInput={(e) => setDebugRendezvous(e.currentTarget.value)} />
+        </label>
+        {rendezvousBad && <p class="export-note" role="alert">The rendezvous address should start with ws:// or wss://.</p>}
         {target === "web" ? (
           <>
             <p>A folder you can put on any web host. Browsers don't run it from disk: run node serve.mjs in it to play locally.</p>

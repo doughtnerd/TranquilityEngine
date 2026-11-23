@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameManifest } from "../export/format";
-import { desktopExportCommand, exportProjectBuild } from "./exportBuild";
+import { desktopExportCommand, exportProjectBuild, isRendezvousUrl } from "./exportBuild";
 import { openFolderProject, readOnlyProject } from "./projects";
 import { demoFolder, ROOT, type MemoryFileSystem } from "./testing";
 
@@ -65,6 +65,48 @@ describe("the Export dialog's audio capture checkbox (its option reaches the bui
     const project = await folderProject(demoFolder());
     expect(desktopExportCommand(project)).not.toContain("--debug-link");
     expect(desktopExportCommand(project, false, false, true, true)).toMatch(/--target desktop --debug-link 7790$/);
+  });
+});
+
+describe("the Export dialog's Rendezvous URL (ADR 0380)", () => {
+  it("the desktop command adds --debug-rendezvous only with debugging on and a URL given", async () => {
+    const project = await folderProject(demoFolder());
+    expect(desktopExportCommand(project, false, false, true, true, false, false, "")).not.toContain("--debug-rendezvous");
+    expect(desktopExportCommand(project, false, false, true, false, false, false, "wss://r.example/myco-rendezvous")).not.toContain("--debug-rendezvous");
+    expect(desktopExportCommand(project, false, false, true, true, false, false, " wss://r.example/myco-rendezvous ")).toMatch(/--debug-link 7790 --debug-rendezvous "wss:\/\/r\.example\/myco-rendezvous"$/);
+  });
+
+  it("is validated as a ws:// or wss:// URL", () => {
+    expect(isRendezvousUrl("wss://r.example/myco-rendezvous")).toBe(true);
+    expect(isRendezvousUrl("ws://192.168.1.4:7790/myco-rendezvous")).toBe(true);
+    expect(isRendezvousUrl("https://r.example")).toBe(false);
+    expect(isRendezvousUrl("r.example")).toBe(false);
+  });
+
+  it("a debug export writes it as debug.rendezvous, and fetches the rendezvous bundle served beside the editor when there is one", async () => {
+    PLAYER["rendezvous/rendezvous.mjs"] = "export async function startRendezvous() {}\n";
+    try {
+      const fs = demoFolder();
+      const project = await folderProject(fs);
+      const plan = await exportProjectBuild(project, fs, "C:\\Out\\flappy", undefined, { debugLink: true, debugRendezvous: "wss://r.example/myco-rendezvous" });
+      expect(JSON.parse(fs.files.get("C:\\Out\\flappy\\game.json") as string).debug).toMatchObject({ rendezvous: "wss://r.example/myco-rendezvous" });
+      expect(fs.files.get("C:\\Out\\flappy\\rendezvous.mjs")).toContain("startRendezvous");
+      expect(fs.files.get("C:\\Out\\flappy\\serve.mjs")).toContain("./rendezvous.mjs");
+      expect(plan.warnings ?? []).toEqual([]);
+      // A release export has none of it.
+      const release = demoFolder();
+      await exportProjectBuild(await folderProject(release), release, "C:\\Out\\flappy");
+      expect(release.files.has("C:\\Out\\flappy\\rendezvous.mjs")).toBe(false);
+    } finally {
+      delete PLAYER["rendezvous/rendezvous.mjs"];
+    }
+  });
+
+  it("without the bundle beside the editor, a debug export still builds and warns", async () => {
+    const fs = demoFolder();
+    const plan = await exportProjectBuild(await folderProject(fs), fs, "C:\\Out\\flappy", undefined, { debugLink: true });
+    expect(fs.files.has("C:\\Out\\flappy\\rendezvous.mjs")).toBe(false);
+    expect(plan.warnings?.join("\n")).toContain("rendezvous.mjs");
   });
 });
 

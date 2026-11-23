@@ -297,9 +297,13 @@ fn run_connection(stream: TcpStream, remote: SocketAddr, shared: Arc<Shared>) {
     let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
     let _ = stream.set_write_timeout(Some(HANDSHAKE_TIMEOUT));
     let path = shared.path.clone();
+    // The path the upgrade asked for, kept for the accept event (a listener at "/" serves several paths).
+    let asked = Arc::new(Mutex::new(String::new()));
+    let asked_in_check = asked.clone();
     #[allow(clippy::result_large_err)] // the error type is tungstenite's
     let check = move |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
         if path_matches(&path, request.uri().path()) {
+            *asked_in_check.lock().unwrap() = request.uri().path().to_string();
             return Ok(response);
         }
         let mut refusal = ErrorResponse::new(Some("Not Found".into()));
@@ -329,9 +333,11 @@ fn run_connection(stream: TcpStream, remote: SocketAddr, shared: Arc<Shared>) {
             queued: queued.clone(),
         },
     );
+    let path = asked.lock().unwrap().clone();
     (shared.sink)(Event::Accept {
         connection: id,
         remote: remote.to_string(),
+        path,
     });
 
     let ended = pump(&mut ws, id, &inbox, &queued, &shared);
@@ -506,7 +512,9 @@ mod tests {
     fn a_client_connects_exchanges_binary_messages_and_closes() {
         let (listener, rx) = listen("127.0.0.1", 0, "/myco-debug");
         let mut client = connect(listener.port(), "/myco-debug?myco-rtc=1").expect("connects");
-        let Event::Accept { connection, remote } = next(&rx) else {
+        let Event::Accept {
+            connection, remote, ..
+        } = next(&rx) else {
             panic!("accept first")
         };
         assert!(remote.starts_with("127.0.0.1:"), "{remote}");
@@ -540,6 +548,16 @@ mod tests {
                 reason: "done".into()
             }
         );
+    }
+
+    #[test]
+    fn accept_reports_the_path_the_upgrade_asked_for() {
+        let (listener, rx) = listen("127.0.0.1", 0, "/");
+        let _client = connect(listener.port(), "/myco-rendezvous?x=1").expect("accepted");
+        let Event::Accept { path, .. } = next(&rx) else {
+            panic!("accept first")
+        };
+        assert_eq!(path, "/myco-rendezvous");
     }
 
     #[test]
