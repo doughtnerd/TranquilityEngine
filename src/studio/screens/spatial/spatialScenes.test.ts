@@ -39,7 +39,7 @@ describe("the Scenes tree", () => {
 
   it("gives the Move to… dialog the scene by its name, under its folder field (UI pass SC7)", () => {
     const item = sceneMoveItem({ path: "audio/scenes/canyon_run.audioscene.json", folder: "Canyon level" });
-    expect(item).toEqual({ path: "Canyon level/canyon_run", folder: false }); // the dialog titles it "Move canyon_run to…"
+    expect(item).toEqual({ path: "Canyon level/canyon_run", folder: false }); // the dialog titles it "Move “canyon_run” to"
     expect(whyNotMoveTo("Canyon level", [item])).toBe("It's already in this folder");
     expect(whyNotMoveTo("", [item])).toBeNull();
     expect(sceneMoveItem({ path: "audio/scenes/behind_crates.audioscene.json", folder: "" })).toEqual({ path: "behind_crates", folder: false });

@@ -7,7 +7,7 @@
 // It renders the label and the box as siblings (a fragment), so a grid row places them in its columns; `FieldRow`-like
 // layouts wrap it in `.studio-fieldrow`. Values are reported as `onValue(v, drag)` (ADR 0282): drag true while the
 // label scrubs, then the last value with false on release; a typed value or a key step reports once with false.
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useRef, useState } from "preact/hooks";
 import type { ValueReport } from "../../editor/ui/valueControls";
 import { useLabelScrub } from "./labelScrub";
 import { numberText, parseNumber, stepNumber } from "./numberFieldModel";
@@ -54,8 +54,10 @@ export function NumberField(props: NumberFieldProps) {
   const range = { min: props.min, max: props.max, step, digits: props.digits };
   const format = props.format ?? ((v: number) => numberText(v, range));
   const idRef = useRef(props.id ?? `studio-num-${++fieldSeq}`);
-  const [draft, setDraft] = useState<string | null>(null);
-  useEffect(() => setDraft(null), [value]);
+  // The typed draft, and the value it was typed over: a new value from outside (a scrub, an undo) drops it.
+  const [typed, setTyped] = useState<{ readonly text: string; readonly over: number } | null>(null);
+  const draft = typed && typed.over === value ? typed.text : null;
+  const setDraft = (text: string | null) => setTyped(text === null ? null : { text, over: value });
   const scrub = useLabelScrub({
     begin: () => (disabled ? null : value),
     valueAt: (start, dx, mods) => (props.scrub ? props.scrub(start, dx, mods) : scrubNumber(start, step, dx, mods, range)),

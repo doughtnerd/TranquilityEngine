@@ -30,3 +30,23 @@ export const Arrows: StoryObj = {
 };
 
 export const Small: StoryObj = { render: () => <Demo small /> };
+
+/** The filled look (prototype `.seg`), and a narrow row: the control keeps its content width and wraps, never clipping. */
+export const FillAndWrap: StoryObj = {
+  render: () => (
+    <div style={{ display: "grid", gridTemplateColumns: "60px 1fr", gap: "8px", width: "180px" }}>
+      <span>Fill</span>
+      <SegmentedControl label="Calibrate" look="fill" value="ear" onChange={() => {}} options={[{ value: "ear", label: "By ear" }, { value: "eye", label: "By eye" }]} />
+      <span>Type</span>
+      <SegmentedControl label="Marker type" value="hit" onChange={() => {}} options={[{ value: "exit", label: "Exit" }, { value: "hit", label: "Hit point" }, { value: "cue", label: "Cue" }, { value: "note", label: "Note" }]} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const fill = c.getByRole("radiogroup", { name: "Calibrate" });
+    await expect(fill.getBoundingClientRect().width).toBeLessThan(120); // its content's width, not the row's
+    const types = c.getByRole("radiogroup", { name: "Marker type" });
+    const cue = c.getByRole("radio", { name: "Cue" });
+    await expect(cue.getBoundingClientRect().right).toBeLessThanOrEqual(types.getBoundingClientRect().right + 0.5); // wrapped, not clipped
+  },
+};

@@ -24,12 +24,23 @@ export const MoveAFile: StoryObj = {
   render: () => <MoveDemo items={[{ path: "audio/sfx/horn.wav", folder: false }]} />,
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    const dialog = await c.findByRole("dialog", { name: "Move horn.wav to…" });
-    await userEvent.click(within(within(dialog).getByRole("treeitem", { name: "sfx" })).getByText("sfx"));
+    const dialog = await c.findByRole("dialog", { name: "Move “horn.wav” to" });
+    const sfx = within(dialog).getByText("sfx");
+    await expect(sfx.parentElement!).toHaveTextContent("here now");
+    await userEvent.click(sfx); // the folder it is in: nothing happens
     await expect(within(dialog).getByRole("button", { name: "Move" })).toBeDisabled();
-    await userEvent.click(within(within(dialog).getByRole("treeitem", { name: "music" })).getByText("music"));
-    await userEvent.click(within(dialog).getByRole("button", { name: "Move" }));
+    await expect(within(dialog).getByRole("heading", { name: "Move “horn.wav” to" })).toHaveStyle({ textTransform: "none" });
+    await userEvent.click(within(dialog).getByText("music")); // one click on an allowed folder moves
     await expect(c.getByLabelText("Result")).toHaveTextContent("moved to audio/music");
+  },
+};
+
+export const CloseButton: StoryObj = {
+  render: () => <MoveDemo items={[{ path: "audio/sfx/horn.wav", folder: false }]} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(await c.findByRole("button", { name: "Close" }));
+    await expect(c.getByLabelText("Result")).toHaveTextContent("cancelled");
   },
 };
 
@@ -42,7 +53,8 @@ export const Search: StoryObj = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await userEvent.type(c.getByRole("searchbox", { name: "Search folders" }), "play");
-    await userEvent.dblClick(c.getByRole("option", { name: "takes/playtests" }));
+    await expect(c.getAllByRole("option").map((o) => o.textContent)).toEqual(["Racer", "takes/playtests"]); // the top level is always listed
+    await userEvent.click(c.getByRole("option", { name: "takes/playtests" }));
     await expect(c.getByLabelText("Result")).toHaveTextContent("moved to takes/playtests");
   },
 };
