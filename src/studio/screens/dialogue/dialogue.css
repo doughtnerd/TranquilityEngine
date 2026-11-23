@@ -1,12 +1,16 @@
 /* The Dialogue screen (ADR 0354 §9, 0355 §7, 0357 §6): theme tokens only. */
 .dl-doc { display: contents; }
 .dl-main { display: flex; flex-direction: column; min-height: 0; }
-.dl-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); padding: 0 6px; }
-.dl-tabs [role="tab"] { background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); padding: 6px 10px; }
+.dl-tabs { flex: none; display: flex; gap: 2px; border-bottom: 1px solid var(--border); padding: 0 6px; overflow-x: auto; scrollbar-width: none; }
+.dl-tabs::-webkit-scrollbar { display: none; }
+.dl-tabs [role="tab"] { flex: none; white-space: nowrap; background: none; border: none; border-bottom: 2px solid transparent; color: var(--muted); padding: 6px 10px; }
+.dl-tabs [role="tab"]:hover { color: var(--text); }
 .dl-tabs [role="tab"].on { color: var(--text); border-bottom-color: var(--accent); }
-.dl-tabpanel { flex: 1; min-height: 0; overflow: auto; padding: 8px; }
+/* The tab's own width decides what it shows (ADR 0361): the panel can be a phone's whole width or a narrow dock. */
+.dl-tabpanel { flex: 1; min-height: 0; min-width: 0; overflow: auto; padding: 8px; container: dl-tab / inline-size; }
 .dl-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 0 6px; }
-.dl-toolbar input[type="search"] { min-width: 180px; flex: 1; max-width: 320px; }
+.dl-toolbar input[type="search"] { min-width: min(180px, 100%); flex: 1; max-width: 320px; }
+.dl-toolbar > *, .dl-row > * { min-width: 0; max-width: 100%; }
 .dl-muted { color: var(--muted); }
 .dl-note { color: var(--muted); margin: 4px 0; }
 .dl-warn { color: var(--warning); }
@@ -21,6 +25,14 @@
 .dl-table input[type="text"]:focus { border-color: var(--accent); background: var(--input-bg); }
 .dl-key { font-family: var(--mono, monospace); }
 .dl-text { min-width: 220px; }
+/* Wide tables scroll sideways inside their own box, never the page. */
+.dl-scroll { max-width: 100%; overflow-x: auto; }
+/* The Lines table fills the tab and scrolls both ways inside its box, so its header row stays on top. */
+.dl-fill { display: flex; flex-direction: column; height: 100%; min-height: 0; outline: none; }
+.dl-lines { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.dl-lines-scroll { flex: 1; min-height: 0; overflow: auto; }
+.dl-lines-scroll .dl-table { min-width: max-content; }
+.dl-lines-scroll .dl-table td:not(.dl-text) input[type="text"] { min-width: 90px; }
 .dl-from { color: var(--faint); font-size: calc(10px * var(--ui-scale)); margin-left: 4px; }
 .dl-cell { font-variant-numeric: tabular-nums; white-space: nowrap; text-align: center; }
 .dl-cell.ok { color: var(--success); }
@@ -30,8 +42,8 @@
 .dl-insp { display: flex; flex-direction: column; gap: 8px; padding: 8px; }
 .dl-insp h3 { margin: 0; font-size: calc(13px * var(--ui-scale)); }
 .dl-lang { border: 1px solid var(--border); border-radius: 4px; padding: 6px; display: flex; flex-direction: column; gap: 4px; }
-.dl-lang-head { display: flex; align-items: center; gap: 6px; }
-.dl-lang-head .dl-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-family: var(--mono, monospace); font-size: calc(11px * var(--ui-scale)); }
+.dl-lang-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.dl-lang-head .dl-path { flex: 1 1 120px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-family: var(--mono, monospace); font-size: calc(11px * var(--ui-scale)); }
 .dl-strip { position: relative; height: 34px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-sunken); overflow: hidden; }
 .dl-strip-audio { position: absolute; top: 0; bottom: 0; left: 0; background: var(--accent-faint); border-right: 1px solid var(--accent); }
 .dl-strip-page { position: absolute; top: 3px; bottom: 3px; border: 1px solid var(--border-strong); border-radius: 3px; background: var(--surface); padding: 1px 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: calc(10px * var(--ui-scale)); }
@@ -44,18 +56,23 @@
 .dl-section h3 { margin: 0 0 6px; font-size: calc(13px * var(--ui-scale)); }
 .dl-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .dl-list { margin: 2px 0 6px; padding-left: 16px; }
-.dl-dialog { display: flex; flex-direction: column; gap: 8px; min-width: min(760px, 90vw); }
+.dialog.dl-dialog-frame { width: min(860px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); overflow: auto; box-sizing: border-box; }
+.dl-dialog-frame:focus { outline: none; }
+.dl-dialog { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .dl-dialog-body { max-height: 50vh; overflow: auto; }
+.dl-dialog .dialog-buttons { flex-wrap: wrap; }
 .dl-status { font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; }
 .dl-status.matched, .dl-status.added { color: var(--success); }
 .dl-status.replace, .dl-status.changed { color: var(--accent); }
 .dl-status.unknownKey, .dl-status.conflict, .dl-status.duplicate { color: var(--warning); }
 .dl-status.unknownLanguage, .dl-status.unmatched, .dl-status.removed { color: var(--muted); }
 .dl-events { display: grid; grid-template-columns: minmax(150px, 200px) minmax(0, 1fr); gap: 10px; min-height: 0; }
+.dl-events-side, .dl-events-main { min-width: 0; }
 .dl-event-list { list-style: none; margin: 0; padding: 0; }
-.dl-event-list button { width: 100%; text-align: left; background: none; border: none; color: var(--text); padding: 3px 6px; border-radius: 3px; }
+.dl-event-list button { width: 100%; text-align: left; background: none; border: none; color: var(--text); padding: 3px 6px; border-radius: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-event-list button:hover:not(.on) { background: var(--hover); }
 .dl-event-list button.on { background: var(--selection); color: var(--selection-text); }
-.dl-event-file { color: var(--faint); font-size: calc(10px * var(--ui-scale)); padding: 6px 6px 2px; }
+.dl-event-file { overflow-wrap: anywhere; color: var(--faint); font-size: calc(10px * var(--ui-scale)); padding: 6px 6px 2px; }
 .dl-paths td select { max-width: 120px; }
 .dl-paths tr.picked { background: var(--accent-soft); }
 .dl-paths tr.fallback td:first-child { box-shadow: inset 3px 0 var(--accent); }
@@ -73,4 +90,40 @@
 .dl-bar.none .dl-bar-fill { background: var(--muted); }
 .dl-impact { border: 1px solid var(--accent); border-radius: 4px; padding: 6px 8px; margin: 6px 0; }
 .dl-lint { color: var(--warning); font-size: calc(11px * var(--ui-scale)); }
+.dl-lint .studio-glyph, .dl-warn .studio-glyph { --icon-size: 13px; }
 .dl-chip-lang { font-variant-numeric: tabular-nums; }
+
+/* ADR 0361: icons, focus, narrow widths and touch. */
+:is(.dl-main, .dl-insp, .dl-dialog-frame) button:has(> .studio-glyph) { display: inline-flex; align-items: center; gap: 4px; }
+.dl-icon-btn { display: inline-flex; align-items: center; justify-content: center; min-width: 22px; min-height: 22px; padding: 0 2px; }
+.dl-arg-tools { gap: 2px; flex-wrap: nowrap; }
+.dl-actions { white-space: nowrap; }
+.dl-new-arg { width: 140px; }
+.dl-grow { flex: 1 1 160px; min-width: 0; }
+.dl-ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.dl-wrap { overflow-wrap: anywhere; }
+.dl-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.dl-chip-lang:focus-within { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.dl-chip-lang select:focus-visible { outline: none; }
+:is(.dl-main, .dl-insp, .dl-dialog-frame) :is(button, summary, input, select, textarea):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.dl-table input[type="text"]:focus-visible { outline: none; }
+.dl-tabs [role="tab"]:focus-visible { outline-offset: -2px; }
+
+/* A narrow tab (a phone, or the panel in a side dock): the event list goes above the event, low-priority columns go. */
+@container dl-tab (max-width: 560px) {
+  .dl-events { grid-template-columns: minmax(0, 1fr); }
+  .dl-event-list { max-height: 30vh; overflow-y: auto; }
+  .dl-bar { grid-template-columns: minmax(60px, 120px) 1fr 36px; }
+}
+@container dl-tab (max-width: 480px) {
+  .dl-opt { display: none; }
+  .dl-text { min-width: 160px; }
+  .dl-toolbar input[type="search"] { flex-basis: 100%; max-width: none; }
+}
+
+@media (pointer: coarse) {
+  .dl-tabs [role="tab"] { min-height: 40px; }
+  .dl-icon-btn { min-width: 36px; min-height: 36px; }
+  .dl-event-list button { min-height: 40px; }
+  .dl-table th, .dl-table td { padding: 4px 6px; vertical-align: middle; }
+}

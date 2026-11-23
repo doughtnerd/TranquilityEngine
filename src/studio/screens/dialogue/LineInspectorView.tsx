@@ -6,6 +6,7 @@ import { Chip } from "../../../editor/ui/Chip";
 import { FieldRow, NumberBox } from "../../../editor/ui/PanelFields";
 import { LINE_LIMITS } from "../../../engine/audio/localisation/lines/format";
 import type { LineRow } from "../../../engine/audio/localisation/types";
+import { Icon } from "../../components/Icon";
 import type { InspectorLanguage } from "./inspectorModel";
 import { cellLabel } from "./lineStatus";
 import { InlineText } from "./LinesView";
@@ -35,8 +36,8 @@ export function LineInspectorView(props: LineInspectorViewProps) {
   if (!line) return <p class="dl-note" style={{ padding: "8px" }}>Select a line to see its recordings, subtitles and settings.</p>;
   const subtitled = line.textKey !== null;
   return (
-    <div class="dl-insp" aria-label={`Line ${line.key}`}>
-      <h3>{line.key}{line.speaker ? ` · ${line.speaker}` : ""}</h3>
+    <div class="dl-insp" role="group" aria-label={`Line ${line.key}`}>
+      <h3 class="dl-ellipsis" title={`${line.key}${line.speaker ? ` · ${line.speaker}` : ""}`}>{line.key}{line.speaker ? ` · ${line.speaker}` : ""}</h3>
       {props.table && <p class="dl-note">{props.table}{line.textKey ? ` · subtitle key ${line.textKey}` : ""}</p>}
       {props.languages.map((l) => {
         const label = cellLabel(l.cell);
@@ -49,9 +50,9 @@ export function LineInspectorView(props: LineInspectorViewProps) {
               <span class="dl-path" title={l.file ?? ""}>{l.file ?? "no file in its chain"}</span>
               {l.def.code === props.preview && <Chip tone="accent" title="The preview language (header chip)">preview</Chip>}
               <button disabled={!l.file} aria-pressed={playing} title={l.file ? `Audition ${l.file} on the table's bus` : "Nothing to play"} onClick={() => (playing ? props.onStop() : props.onAudition(l.def.code))}>
-                {playing ? "Stop" : "Audition"}
+                <Icon name={playing ? "stop" : "play"} /> {playing ? "Stop" : "Audition"}
               </button>
-              {l.file && <button class="smp-link" onClick={() => props.onOpenFile(l.file!)}>Open in Samples</button>}
+              {l.file && <button class="smp-link" title={`Open ${l.file} in the Samples screen`} onClick={() => props.onOpenFile(l.file!)}><Icon name="samples" /> Open in Samples</button>}
             </div>
             <div class="dl-row dl-muted">
               <span>{l.duration === null ? (l.file ? "measuring…" : "—") : `${l.duration.toFixed(2)} s`}</span>
@@ -66,8 +67,8 @@ export function LineInspectorView(props: LineInspectorViewProps) {
         );
       })}
       <div class="dl-fields">
-        <span>Notes</span>
-        <textarea aria-label="Notes for actors" disabled={props.readOnly} value={line.notes ?? ""} onChange={(e) => props.onNotes((e.currentTarget as HTMLTextAreaElement).value)} />
+        <label for="dl-notes">Notes</label>
+        <textarea id="dl-notes" aria-label="Notes for actors" disabled={props.readOnly} value={line.notes ?? ""} onChange={(e) => props.onNotes((e.currentTarget as HTMLTextAreaElement).value)} />
         <span>Tags</span>
         <InlineText value={line.tags.join(", ")} label="Tags" placeholder="main, act1" disabled={props.readOnly} onCommit={(v) => props.onTags(v.split(","))} />
       </div>

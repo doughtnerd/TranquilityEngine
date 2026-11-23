@@ -7,6 +7,7 @@ import { useState } from "preact/hooks";
 import { FieldRow, NumberBox, SelectBox } from "../../../../editor/ui/PanelFields";
 import { DIALOGUE_LIMITS } from "../../../../engine/audio/dialogue/format";
 import type { DialogueEvent } from "../../../../engine/audio/dialogue/types";
+import { Icon } from "../../../components/Icon";
 import { InlineText } from "../LinesView";
 import type { EventRef, EventSettings } from "./eventsModel";
 
@@ -55,17 +56,17 @@ export function EventsView(props: EventsViewProps) {
   let lastFile = "";
   return (
     <div class="dl-events">
-      <div>
+      <div class="dl-events-side">
         <div class="dl-toolbar">
           <input type="search" aria-label="Search events" placeholder="Search events" value={props.search} onInput={(e) => props.onSearch((e.currentTarget as HTMLInputElement).value)} />
         </div>
         <div class="dl-toolbar">
-          <button disabled={props.readOnly} title={props.files.length === 0 ? "Creates dialogue/events.dialogue.json" : undefined} onClick={() => props.onAdd(sel?.path ?? props.files[0] ?? null)}>Add event</button>
-          <button disabled={props.readOnly || !sel} onClick={() => sel && props.onDuplicate(sel)}>Duplicate</button>
+          <button disabled={props.readOnly} title={props.files.length === 0 ? "Creates dialogue/events.dialogue.json" : undefined} onClick={() => props.onAdd(sel?.path ?? props.files[0] ?? null)}><Icon name="plus" /> Add event</button>
+          <button disabled={props.readOnly || !sel} title={sel ? `Duplicate ${sel.event.name}` : "Select an event first"} onClick={() => sel && props.onDuplicate(sel)}><Icon name="copy" /> Duplicate</button>
           {confirm && sel ? (
-            <button class="danger" onClick={() => { props.onDelete(sel); setConfirm(false); }}>Delete {sel.event.name}?</button>
+            <button class="danger" onClick={() => { props.onDelete(sel); setConfirm(false); }}><Icon name="trash" /> Delete {sel.event.name}?</button>
           ) : (
-            <button disabled={props.readOnly || !sel} onClick={() => setConfirm(true)}>Delete</button>
+            <button disabled={props.readOnly || !sel} title={sel ? `Delete ${sel.event.name} (asks once more)` : "Select an event first"} onClick={() => setConfirm(true)}><Icon name="trash" /> Delete</button>
           )}
         </div>
         <ul class="dl-event-list" aria-label="Events">
@@ -73,16 +74,16 @@ export function EventsView(props: EventsViewProps) {
           {props.events.map((r) => {
             const head = r.path !== lastFile ? ((lastFile = r.path), <li key={`f${r.path}`} class="dl-event-file" aria-hidden="true">{r.path}</li>) : null;
             const on = sel?.path === r.path && sel.event.name === r.event.name;
-            return [head, <li key={`${r.path}#${r.event.name}`}><button class={on ? "on" : undefined} aria-current={on ? "true" : undefined} onClick={() => { setConfirm(false); props.onSelect(r); }}>{r.event.name}</button></li>];
+            return [head, <li key={`${r.path}#${r.event.name}`}><button class={on ? "on" : undefined} aria-current={on ? "true" : undefined} title={r.event.name} onClick={() => { setConfirm(false); props.onSelect(r); }}>{r.event.name}</button></li>];
           })}
         </ul>
       </div>
-      <div>
+      <div class="dl-events-main">
         {sel ? (
           <>
             <div class="dl-row">
               <InlineText value={sel.event.name} label="Event name" class="dl-key" disabled={props.readOnly} onCommit={(v) => props.onRename(sel, v.trim())} />
-              <span class="dl-muted">{sel.path}</span>
+              <span class="dl-muted dl-ellipsis" title={sel.path}>{sel.path}</span>
             </div>
             <Settings event={sel.event} names={props.events.map((r) => r.event.name)} ro={props.readOnly} onSettings={(patch, label) => props.onSettings(sel, patch, label)} />
             {props.children}
