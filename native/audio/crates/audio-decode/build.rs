@@ -101,6 +101,11 @@ fn main() {
         }
     }
 
+    // The shared crates (../common/) are hashed too.
+    for path in source_hash::shared_watch(&root) {
+        println!("cargo:rerun-if-changed={}", path.display());
+    }
+
     let hash = source_hash::source_hash(&root);
     let out = PathBuf::from(env::var("OUT_DIR").expect("cargo sets OUT_DIR"));
     fs::write(out.join("source_hash.bin"), hash).expect("OUT_DIR is writable");

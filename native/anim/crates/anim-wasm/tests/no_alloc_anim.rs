@@ -136,6 +136,12 @@ fn clip(
 fn frames_do_not_allocate() {
     let mut core = core(4, 16);
     assert_eq!(core.tweens_configure(2048), 0);
+    // T70: a Bézier curve asset, the easing of every thirteenth tween.
+    let curve = core.load_curve(&[
+        0.0, 0.0, 5.0, 0.0, 0.0, 0.25, 0.5, 0.5, 1.5, 5.0, -0.25, 0.0, 0.25, 0.0, 1.0, 1.0, 0.0,
+        0.0, 0.0, 0.0, 0.0,
+    ]);
+    assert_ne!(curve, 0);
     // A thousand tweens of every flavour.
     let mut handles = Vec::new();
     for i in 0..1000u32 {
@@ -149,7 +155,7 @@ fn frames_do_not_allocate() {
                 tw::KIND_VALUE
             },
             width: 1 + i % 4,
-            ease: i % 31,
+            ease: if i % 13 == 0 { curve } else { i % 31 },
             flags: if i % 3 == 0 { tw::FLAG_YOYO } else { 0 }
                 | if i % 5 == 0 { tw::FLAG_RELATIVE } else { 0 },
             time_mode: i % 3,

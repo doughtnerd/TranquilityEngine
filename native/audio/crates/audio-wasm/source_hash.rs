@@ -5,6 +5,9 @@
 //! The rule:
 //! - Files: every `*.rs`, `Cargo.toml`, `Cargo.lock` and `rust-toolchain.toml` under the root
 //!   (`native/audio/`), skipping any directory named `target`, `vectors` or `tests` at any depth.
+//! - Shared crates (ADR 0370, T70): the same files under `../common/` (`native/common/`, the
+//!   crates the audio and animation cores both link, such as `myco-curve`), keyed `../common/` plus
+//!   their path below it, with the same skips. A root without a `../common/` hashes as before.
 //! - Each file's key is its path relative to the root with `/` separators. Files are taken in
 //!   ascending byte order of their keys.
 //! - Contents are normalised by replacing every `\r\n` with `\n` (a Windows checkout with
@@ -33,6 +36,7 @@ pub const HASHED_NAMES: [&str; 3] = ["Cargo.toml", "Cargo.lock", "rust-toolchain
 pub fn hashed_files(root: &Path) -> Vec<(String, PathBuf)> {
     let mut out = Vec::new();
     collect(root, "", &mut out);
+    collect(&root.join("..").join("common"), "../common", &mut out);
     out.sort_by(|a, b| a.0.as_bytes().cmp(b.0.as_bytes()));
     out
 }
@@ -63,6 +67,28 @@ fn collect(dir: &Path, prefix: &str, out: &mut Vec<(String, PathBuf)>) {
             out.push((key, entry.path()));
         }
     }
+}
+
+/// What a build script watches for the shared crates (`cargo:rerun-if-changed`): each entry of
+/// each `../common/<crate>/` that the hash can see (not the skipped directories, which hold
+/// `target/`, so cargo never scans build output).
+pub fn shared_watch(root: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(crates) = fs::read_dir(root.join("..").join("common")) else {
+        return out;
+    };
+    for krate in crates.flatten() {
+        let Ok(entries) = fs::read_dir(krate.path()) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if !SKIPPED_DIRS.contains(&name.as_str()) {
+                out.push(entry.path());
+            }
+        }
+    }
+    out
 }
 
 /// `contents` with every `\r\n` replaced by `\n`.

@@ -12,6 +12,11 @@ export function compiler_version(): number;
 export function compress_clip(clip: Uint8Array | number[], skeleton: Uint8Array | number[], settings: Float32Array | number[]): Uint8Array;
 
 /**
+ * [`compile_curve_samples`]: the samples, or empty (`last_error`).
+ */
+export function curve_sample(keys: Float32Array | number[], rate: number, end: number, frames: number): Float32Array;
+
+/**
  * Why the last call returned nothing ("" after a success).
  */
 export function last_error(): string;
@@ -57,6 +62,7 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly compiler_version: () => number;
     readonly compress_clip: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+    readonly curve_sample: (a: number, b: number, c: number, d: number, e: number) => [number, number];
     readonly last_error: () => [number, number];
     readonly last_report: () => [number, number];
     readonly meter_node_module: (a: number, b: number) => [number, number];

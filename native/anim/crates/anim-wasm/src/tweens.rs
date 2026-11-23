@@ -1,5 +1,6 @@
-//! Feature `tweens`: the tween table: Penner easings by name, loops, time scales, a destroyed
-//! flag (wire family `tween`, whose docs define the commands, views and timing).
+//! Feature `tweens`: the tween table: Penner easings by name or an engine curve (a curve asset,
+//! T70), loops, time scales, a destroyed flag (wire family `tween`, whose docs define the
+//! commands, views and timing).
 //!
 //! # Shape
 //!
@@ -19,8 +20,9 @@
 //! Elapsed time is f64; values are f32 (`from·(1 − e) + to·e`, so the end values are exact;
 //! quaternions use `anim-math`'s nlerp or slerp with the same endpoint rule).
 
-use anim_math::ease::ease;
+use anim_math::ease::{ease, LAST_ID};
 use anim_math::AosQuat;
+use anim_sample::curve::eval as eval_curve;
 use anim_wire::core::{
     Init, PASS_FIXED, STATUS_BAD_RECORD, STATUS_FULL, STATUS_OK, STATUS_STALE_HANDLE,
 };
@@ -31,7 +33,7 @@ use anim_wire::tween::{
 };
 use anim_wire::WireRecord;
 
-use crate::assets::{handle, split};
+use crate::assets::{handle, split, Arena};
 
 /// The memory this feature needs for `init`'s parameters, in bytes (summed by [`crate::init`]):
 /// the default table, its value rows and its change records.
@@ -57,7 +59,7 @@ pub struct Spec {
     pub kind: u32,
     /// Floats of a value tween (4 for a quaternion).
     pub width: usize,
-    /// An easing id.
+    /// An easing id, or (above `anim_math::ease::LAST_ID`) a curve asset's handle (T70).
     pub ease: u32,
     /// Odd cycles run backwards.
     pub yoyo: bool,
@@ -170,9 +172,22 @@ impl Spec {
         self.delay as f64 + self.duration as f64 * self.loops as f64
     }
 
+    /// Progress `p` through the easing: a Penner id (`anim_math::ease`), or a curve asset of
+    /// `arena` read at `p` (T70: the shared `myco-curve` evaluator, as `curve.ts`'s `evalCurve`;
+    /// a released handle, or one that isn't a curve, is linear, as an unknown id is).
+    fn eased(&self, p: f32, arena: &Arena) -> f32 {
+        if self.ease <= LAST_ID {
+            return ease(self.ease, p);
+        }
+        match arena.curve(self.ease) {
+            Ok(keys) => eval_curve(keys, p),
+            Err(_) => p,
+        }
+    }
+
     /// The value at progress `p` of a cycle (before easing), with exact endpoints.
-    fn value(&self, p: f32, out: &mut [f32; 4]) {
-        let e = ease(self.ease, p);
+    fn value(&self, p: f32, arena: &Arena, out: &mut [f32; 4]) {
+        let e = self.eased(p, arena);
         if e == 0.0 {
             *out = self.from;
         } else if e == 1.0 {
@@ -191,8 +206,9 @@ impl Spec {
     /// The tween at elapsed time `t` seconds since its start (the delay's start): writes the value
     /// into `out` once past the delay, and says which cycle it is in and whether it is done. A
     /// finished tween holds its end value (`to`, or `from` after an odd number of yoyo cycles).
-    /// With `yoyo` an odd cycle runs backwards through the same easing (`ease(1 − p)`).
-    pub fn eval(&self, t: f64, out: &mut [f32; 4]) -> Eval {
+    /// With `yoyo` an odd cycle runs backwards through the same easing (`ease(1 − p)`). A curve
+    /// easing is read from `arena`.
+    pub fn eval(&self, t: f64, arena: &Arena, out: &mut [f32; 4]) -> Eval {
         let delay = self.delay as f64;
         if t.is_nan() || t < delay {
             return Eval {
@@ -216,7 +232,7 @@ impl Spec {
             }
         };
         if dur <= 0.0 || (n != LOOPS_INFINITE && u >= dur * n as f64) {
-            self.value(end_progress(n), out);
+            self.value(end_progress(n), arena, out);
             return Eval {
                 started: true,
                 cycle: n,
@@ -231,7 +247,7 @@ impl Spec {
         } else {
             frac
         };
-        self.value(p, out);
+        self.value(p, arena, out);
         Eval {
             started: true,
             cycle,
@@ -414,8 +430,16 @@ impl Tweens {
         self.free.push(index as u16);
     }
 
-    /// Advances the tweens of `world` in `pass` (see the module docs). Never allocates.
-    pub fn update(&mut self, world: u32, pass: u32, dt_scaled: f32, dt_unscaled: f32) {
+    /// Advances the tweens of `world` in `pass` (see the module docs); curve easings are read
+    /// from `arena`. Never allocates.
+    pub fn update(
+        &mut self,
+        arena: &Arena,
+        world: u32,
+        pass: u32,
+        dt_scaled: f32,
+        dt_unscaled: f32,
+    ) {
         for index in 0..self.slots.len() {
             let head = &self.slots[index];
             if head.state == State::Free || head.world != world {
@@ -453,7 +477,7 @@ impl Tweens {
             let dt = finite_or(base, 0.0).max(0.0) * s.speed;
             let elapsed = s.elapsed + dt as f64;
             let mut v = [0.0f32; 4];
-            let e = s.spec.eval(elapsed, &mut v);
+            let e = s.spec.eval(elapsed, arena, &mut v);
             self.slots[index].elapsed = elapsed;
             if e.started {
                 self.columns[self.rows] = s.column;

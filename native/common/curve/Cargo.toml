@@ -1,0 +1,15 @@
+# `myco-curve` (ADR 0370 "Crates", audio ADR 0346): the engine curve evaluator, shared by the audio core
+# (native/audio, audio-core's automation) and the animation core (native/anim: curve assets, tween easing,
+# curve sampling). It is `src/engine/core/curve.ts` in Rust; tests/parity.rs holds the two together over
+# tests/parity.txt, which src/engine/tests/curveParity.test.ts writes from curve.ts.
+#
+# A path dependency of both workspaces, and its own workspace so `cargo test` runs here. No dependencies.
+[package]
+name = "myco-curve"
+description = "The engine curve evaluator (linear, step, smooth, easeIn, easeOut, Bezier keys), no_std, shared by Myco's audio and animation cores."
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[workspace]

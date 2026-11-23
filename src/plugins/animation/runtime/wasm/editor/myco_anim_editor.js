@@ -38,6 +38,26 @@ export function compress_clip(clip, skeleton, settings) {
 }
 
 /**
+ * [`compile_curve_samples`]: the samples, or empty (`last_error`).
+ * @param {Float32Array | number[]} keys
+ * @param {number} rate
+ * @param {number} end
+ * @param {number} frames
+ * @returns {Float32Array}
+ */
+export function curve_sample(keys, rate, end, frames) {
+    const val2 = +rate;
+    const val3 = +end;
+    const val4 = +frames;
+    const ptr0 = passArrayF32ToWasm0(keys, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.curve_sample(ptr0, len0, val2, val3, val4);
+    var v5 = getArrayF32FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 4, 4);
+    return v5;
+}
+
+/**
  * Why the last call returned nothing ("" after a success).
  * @returns {string}
  */
@@ -256,6 +276,11 @@ function __wbg_get_imports() {
         __proto__: null,
         "./myco_anim_editor_bg.js": import0,
     };
+}
+
+function getArrayF32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getFloat32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
 }
 
 function getArrayF64FromWasm0(ptr, len) {

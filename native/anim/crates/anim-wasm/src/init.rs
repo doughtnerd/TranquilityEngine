@@ -98,6 +98,8 @@ pub struct Core {
     pub(crate) last_status: u32,
     tweens: Tweens,
     timelines: Timelines,
+    /// T70: the last `curve_sample` values ([`crate::curves`]).
+    pub(crate) curve_samples: Vec<f32>,
     /// T44r: the physics rows and views ([`crate::physics`]).
     pub(crate) physics: crate::physics::Physics,
     /// T42: the match debug buffer (`crate::matching`).
@@ -123,6 +125,7 @@ impl Core {
             last_status: STATUS_NOT_INITIALIZED,
             tweens: Tweens::default(),
             timelines: Timelines::default(),
+            curve_samples: Vec::new(),
             physics: crate::physics::Physics::default(),
             matching: crate::matching::MatchBuffers::default(),
         }
@@ -362,7 +365,8 @@ impl Core {
             dt_unscaled,
         );
         // T22r: the tween table and the timeline instances advance after the animators.
-        self.tweens.update(world, pass, dt_scaled, dt_unscaled);
+        self.tweens
+            .update(&self.arena, world, pass, dt_scaled, dt_unscaled);
         self.timelines
             .update(&self.arena, world, pass, dt_scaled, dt_unscaled);
         changes

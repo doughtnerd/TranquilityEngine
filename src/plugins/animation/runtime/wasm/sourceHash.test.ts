@@ -20,7 +20,7 @@ const SKIPPED_DIRS: readonly string[] = ["target", "vectors", "tests"];
 /** File names hashed besides `*.rs`. */
 const HASHED_NAMES: readonly string[] = ["Cargo.toml", "Cargo.lock", "rust-toolchain.toml", "config.toml"];
 /** The digest of the fixture both this test and anim-wasm's tests/source_hash.rs check. */
-const FIXTURE_HASH = "f48c3d629f8005b53ecb5f9bb68520ec";
+const FIXTURE_HASH = "8ece284eaa03b50c228ea132c92d0c91";
 
 /** The hashed files under `root` as `[key, absolutePath]`, sorted by key in ascending byte order. */
 function hashedFiles(root: string): [string, string][] {
@@ -38,6 +38,9 @@ function hashedFiles(root: string): [string, string][] {
     }
   };
   walk(root, "");
+  // The shared crates (ADR 0370): `../common/`, keyed under it, with the same skips.
+  const common = join(root, "..", "common");
+  if (existsSync(common)) walk(common, "../common");
   return out.sort((a, b) => Buffer.compare(Buffer.from(a[0], "utf8"), Buffer.from(b[0], "utf8")));
 }
 
@@ -74,7 +77,9 @@ function sourceHash(root: string): string {
 /** Runs `body` on the fixture (the same files as anim-wasm's tests/source_hash.rs), in a temp dir removed afterwards. */
 function withFixture(body: (root: string) => void, options: { lf?: boolean } = {}): void {
   const base = process.env.TEMP ?? process.env.TMPDIR ?? "/tmp";
-  const root = mkdtempSync(join(base, "myco-anim-source-hash-"));
+  const dir = mkdtempSync(join(base, "myco-anim-source-hash-"));
+  // The hashed root is `dir/core`, so `root/../common` is the fixture's own shared crates.
+  const root = join(dir, "core");
   try {
     const fix = (s: string) => (options.lf ? s.replace(/\r\n/g, "\n") : s);
     const files: [string, string][] = [
@@ -91,6 +96,11 @@ function withFixture(body: (root: string) => void, options: { lf?: boolean } = {
       ["vectors/core.json", "{}\n"],
       ["crates/a/README.md", "# a\n"],
       ["build.mjs", "export {};\n"],
+      // The shared crates beside the root (ADR 0370): hashed under `../common/`, with the same skips.
+      ["../common/c/Cargo.toml", '[package]\nname = "c"\n'],
+      ["../common/c/src/lib.rs", fix("pub fn c() {}\r\n")],
+      ["../common/c/target/debug/y.rs", "fn y() {}\n"],
+      ["../common/c/tests/t.rs", "fn t() {}\n"],
     ];
     for (const [rel, contents] of files) {
       const path = join(root, rel);
@@ -99,7 +109,7 @@ function withFixture(body: (root: string) => void, options: { lf?: boolean } = {
     }
     body(root);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(dir, { recursive: true, force: true });
   }
 }
 
@@ -113,6 +123,8 @@ describe.skipIf(!existsSync(nativeAnim))("animation core source hash", () => {
   it("leaves out skipped directories and other file types", () => {
     withFixture((root) => {
       expect(hashedFiles(root).map(([key]) => key)).toEqual([
+        "../common/c/Cargo.toml",
+        "../common/c/src/lib.rs",
         ".cargo/config.toml",
         "Cargo.lock",
         "Cargo.toml",

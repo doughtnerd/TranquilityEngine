@@ -10,6 +10,7 @@
 //! |---|---|---|
 //! | [`init`] | `init` (init record → memory needed) and `source_hash` | T02, T13r |
 //! | [`assets`] | the pooled asset arena: load and release | T13r |
+//! | [`curves`] | engine curve assets (`myco-curve`): easing, sampling | T70 |
 //! | [`instances`] | the instance table (index plus generation), snapshot and restore, LOD fields | T13r |
 //! | [`evaluate`] | `write_inputs`, `evaluate`, output views | T13r |
 //! | [`tracks`] | property and event track outputs | T20r |
@@ -26,6 +27,7 @@
 pub mod init;
 
 pub mod assets;
+pub mod curves;
 pub mod debug;
 pub mod evaluate;
 pub mod graph;

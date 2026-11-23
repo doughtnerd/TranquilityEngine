@@ -35,6 +35,7 @@ dependencies = [
  "audio-encode",
  "audio-wire",
  "libm",
+ "myco-curve",
 ]
 
 [[package]]
@@ -298,6 +299,10 @@ dependencies = [
  "num-complex",
  "static_assertions",
 ]
+
+[[package]]
+name = "myco-curve"
+version = "0.1.0"
 
 [[package]]
 name = "num-complex"
