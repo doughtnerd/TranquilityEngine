@@ -43,3 +43,63 @@ Failures that exist before any task of this build; wave reviews compare against 
   whether a reliable topic sends several messages a frame.
 - `mix.op` carries its own name and bus tables, because interned ids differ between builds (A3 and U8 follow it).
 - Estimate drift: none measured yet (L1 took one agent run; the pilot measures start in W1a).
+
+## W1a (pilot)
+
+Merged into `feat/debug-link-pairing` in this order: L6, L4, A2, L5, A3, L2, L3, L8, A1, R2, L7, then two coordinator
+fixes. Every task branched from `adb05e55c`; every merge was clean.
+
+| Task | Model | Agent time | Result |
+|---|---|---|---|
+| L2 code format | Haiku | 6.3 min | 11 tests, first pass |
+| L3 token gate | Haiku | 7.4 min | 14 tests, first pass |
+| L4 address completion | Haiku | 4.5 min | 9 tests, first pass |
+| L5 path choice | Haiku | 5.5 min | 10 tests, first pass |
+| L6 config parse | Haiku | 3.9 min | 15 tests, first pass |
+| L7 either side listens | strongest | 19.3 min | 22 roles tests (20 ran only after L2/L3/L6 merged; all pass) |
+| L8 port range, listener move | Sonnet | 7.9 min | 3 cargo tests (12 in the crate), listener tests |
+| A1 audio topic | strongest | 9.5 min | capture, take control, dispatch |
+| A2 take upload | Sonnet | 4.5 min | 23 tests; one rule break fixed (below) |
+| A3 mix commands | Sonnet | 5.7 min | 10 tests |
+| R2 webrtc transport | strongest | 9.9 min | 30 tests on a fake peer pair |
+
+**Pilot measures.** Leaf first-pass success 5/5 (L2–L6), so no leaf kind goes back to its lead. Simplification for
+this wave: the leads wrote their own tests instead of splitting test leaves, to keep the brief count down; it cost
+nothing visible. Every agent started at `4caf082db` and reset to the brief's base as told: worktree agents don't
+start at the integration branch. Briefs keep that instruction.
+
+**Coordinator fixes.**
+- `9270ad5e8`: A2's `upload.test.ts` (runtime) imported the editor's `takeReceiver`, which `plugins.test.ts` forbids.
+  The runtime test now checks chunks directly; the round trip moved to `editor/debugLink/takeRoundTrip.test.ts`.
+- `09da45c9b`: L7 tried ports one by one and assumed the one it asked for, but L8's native listener scans 7790–7799
+  itself, so on the desktop a build's code could name the wrong port. `host.ts` reads the bound port
+  (`tauriListenerPort`, which gains its real caller, so it is no longer a test-only export). Test fails before.
+  `topics.ts` documents L7's reliable multi-sample rule (`RELIABLE_SAMPLES_PER_FRAME` = 8: about 15.7 MB/s at
+  30 Hz; the 256 MiB take cap uploads in about 17 s).
+
+**Wave-end checks** (against the baseline above).
+- Vitest: 6 failed, 11,977 passed, 16 skipped (1,150 files): all in the baseline list. The `uiDocumentEdits` and
+  `babylonPreviewRouting` baseline failures passed this time (flaky).
+- `cargo test` in `native/ws-listener`: 12 passed.
+- `npm run build` stops at its typecheck on the baseline `vitest.stories.config.mts` error. Cause: this worktree's
+  `node_modules` and the parent checkout's both resolve vitest types. `build:editor` and `build:engine` pass.
+  `dist/player/files.json` `debug`: 4 chunks (host, records, two topics); the pairing modules sit in the host chunk.
+- e2e (Chromium): 6 failed, 266 passed. The same specs on `master` (`4caf082db`, temporary worktree) fail
+  `audio-rhythm-latency`, `input-mapper`, `scene-tools` snap and `shadergraph` every node, so these are baseline.
+  `selection` and `sound-lab-touch` fail differently from run to run (flaky); they pass on master. None touch the
+  debug link.
+- **R2 probe** (two real `WebRtcTransport` peers in one page, hand-carried signals, Vite dev server):
+  - Chromium: both open; a 300 KB reliable message (fragmented on `myco-r`) and an unreliable one arrive intact;
+    126 ms in all.
+  - Playwright WebKit on Windows has no `RTCPeerConnection`: the transport refuses with its message. **R6 runs in
+    Chromium only**; WebKit/Safari is signed on a Mac when wanted (the plan's risk, now confirmed).
+
+**Open items for later tasks.**
+- MIXOP origin: debug-link mix ops record as `editor`; a `debugLink` origin needs a capture-format enum value (A3's
+  note). Decide in U8.
+- `captureLost` carries no reason. A1 proposes an optional UTF-8 reason (empty = evicted); a `schema.ts` change, coordinator.
+- A1's capture queue has no limit if capture data outruns the reliable rate. Revisit when S0 measures real rates.
+- When Play stops, the capture feed just stops, with no record sent (A1). U5 should show it.
+- `plugins.test.ts`' editor-half scan finds nothing on this Windows checkout (baseline), so it can't check the new
+  `src/plugins/audio/editor/debugLink/` files. Run it on Linux/CI before M1's PR.
+- A typed full address without a port takes the URL default (80 or 443), as `debugLinkAddress` already does (L4).
