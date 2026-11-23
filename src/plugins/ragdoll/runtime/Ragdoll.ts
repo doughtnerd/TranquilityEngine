@@ -15,8 +15,11 @@
  * for ragdolls has a `physicsBlend` whose physical input is a `physicalPose` node, a `poseSnapshot` node and get-up
  * states (`getUpFromBack`, `getUpFromFront`) in its Base state machine.
  *
- * `getUp()` (or `mode` going from `"ragdoll"` to `"off"` with `autoGetUp`) freezes the simulated pose into the graph's
- * pose snapshot and travels to the get-up state the pelvis's facing picks (lying on the back or on the front).
+ * `getUp()` (or `mode` going from `"ragdoll"` to `"off"` with `autoGetUp`) travels to the get-up state the pelvis's
+ * facing picks (lying on the back or on the front) and turns the ragdoll off. The get-up state blends from a
+ * `poseSnapshot`: with `mode: "onEnter"` (recommended) it captures the pose showing as the state is entered, which is
+ * the simulated one; the Ragdoll also captures the physical pose into `snapshotNode` directly (`physics_capture`),
+ * which holds for a snapshot node that is already running (the core clears a snapshot when its state initialises).
  *
  * Runtime state and systems live in `bodies.ts` and `systems.ts`; this class holds the settings.
  */
