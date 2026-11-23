@@ -43,6 +43,24 @@ export function heightRange(scene: AudioTestScene): [number, number] {
   return [Math.floor(lo), Math.ceil(hi)];
 }
 
+/** The strip's tick marks: every 5 m across `range` (the prototype's 30, 25 … 0). */
+export function heightTicks(range: readonly [number, number]): number[] {
+  const out: number[] = [];
+  for (let m = Math.ceil(range[0] / 5) * 5; m <= range[1] + 1e-9; m += 5) out.push(m);
+  return out;
+}
+
+/**
+ * The side view's heights: from the bottom of the scene's range to a little above the highest thing in it (or the slab's
+ * top), in 5 m steps and at least 10 m, so ground-level scenes aren't squeezed against the floor of a 30 m axis.
+ */
+export function sideRange(scene: AudioTestScene, slab: readonly [number, number]): [number, number] {
+  const lo = heightRange(scene)[0];
+  let top = slab[1];
+  for (const m of heightMarks(scene)) top = Math.max(top, m.high);
+  return [lo, Math.max(lo + 10, Math.ceil((top + 2) / 5) * 5)];
+}
+
 /** The slab's range now: the listener's height ±3 m (kept inside `range`), or the manual one. */
 export function slabRange(slab: Slab, listenerY: number, range: readonly [number, number]): [number, number] {
   if (!slab.follow) return [slab.low, slab.high];

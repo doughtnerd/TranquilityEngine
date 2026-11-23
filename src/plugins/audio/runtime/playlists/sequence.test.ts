@@ -67,11 +67,132 @@ describe("Sequence: clips on the timeline", () => {
     expect(fake.plays[0]!.bus).toBe("SFX");
   });
 
-  it("reverse plays forward with one warning", async () => {
-    await kit.boot({ "s.playlist.json": seq({ length: 1, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 1, reverse: true }])] }) });
+});
+
+describe("Sequence: reverse and the Amp envelope (ADR 0362)", () => {
+  it("a reversed clip reads its span backwards: from its end down to its offset, decoded whole, stopping there", async () => {
+    await kit.boot({
+      "a.wav.meta.json": { format: "myco.import@1", stream: true },
+      "s.playlist.json": seq({ length: 2, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 0.5, offset: 0.25, reverse: true }, { id: "c2", sample: "a.wav", at: 1, length: 0, reverse: true }])] }),
+    });
+    fake.durations.set("a.wav", 1);
     Audio.play("s.playlist.json");
-    expect(plays()).toEqual([["a.wav", 0]]);
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("reverse playback isn't supported"));
+    expect(fake.plays[0]).toMatchObject({ path: "a.wav", reverse: true, stream: false, offset: 0.75 });
+    // It stops where it reaches its offset (0.5 s of audio later), as a forward trim stops at its end.
+    at(0.6);
+    expect(fake.voices[0]!.events.some((e) => e.kind === "stop")).toBe(true);
+    // A clip over the whole sample starts at the file's end (no offset).
+    at(0.95);
+    expect(fake.plays[1]).toMatchObject({ reverse: true, stream: false });
+    expect(fake.plays[1]!.offset).toBeUndefined();
+    expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining("reverse"));
+  });
+
+  it("a reversed sync clip plays its map mirrored: the tail first, the loop's passes backwards, the pickup last", async () => {
+    // a.wav: 4 s, loop 1..2. Forward the 6 s clip is 0..2 (pickup and first pass), 1..2, 1..2, then the tail 2..4.
+    await kit.boot({
+      "a.wav.meta.json": meta({ loops: [{ id: "l1", start: 1, end: 2, active: "always" }] }),
+      "s.playlist.json": seq({ length: 0, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 6, sync: true, reverse: true }])] }),
+    });
+    fake.durations.set("a.wav", 4);
+    Audio.play("s.playlist.json");
+    at(1.95); at(2.95);
+    expect(plays()).toEqual([["a.wav", 0], ["a.wav", 2], ["a.wav", 3]]);
+    // Each piece starts at its stretch's end and reads down: 4 → 2 (the file's end: no offset), then 2 → 1 a pass.
+    expect(seeks()).toEqual([null, 2, 2]);
+    expect(fake.plays.every((p) => p.reverse === true)).toBe(true);
+    expect(lastFade(0)).toEqual({ kind: "fadeShaped", to: 0, seconds: 0.002, law: "linear", at: 2, stopAtEnd: true });
+    // ADR 0362: its loop drives the playhead: always active, it wraps at the mirrored first pass (clip 4 s) back one
+    // pass, so 2 → 1 plays again and again, on a piece boundary each time.
+    at(3.95); at(4.95); at(5.95);
+    expect(plays().slice(3)).toEqual([["a.wav", 4], ["a.wav", 5], ["a.wav", 6]]);
+    expect(seeks().slice(3)).toEqual([2, 2, 2]);
+    expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining("loop drives the playhead only"));
+  });
+
+  it("a reversed sync clip's held loop holds the playhead until release, then plays on through its first pass and pickup", async () => {
+    await kit.boot({
+      "a.wav.meta.json": meta({ loops: [{ id: "l1", start: 1, end: 2, active: "held" }] }),
+      "s.playlist.json": seq({ length: 0, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 6, sync: true, reverse: true }])] }),
+    });
+    fake.durations.set("a.wav", 4);
+    const h = Audio.play("s.playlist.json");
+    at(3.95); at(4.95);
+    expect(plays()).toEqual([["a.wav", 0], ["a.wav", 2], ["a.wav", 3], ["a.wav", 4], ["a.wav", 5]]);
+    h.release();
+    // Released in the pass from 5: it leaves at that pass's end (6), into the mirrored first pass and pickup (2 → 0).
+    at(5.95);
+    expect(plays().at(-1)).toEqual(["a.wav", 6]);
+    expect(seeks().at(-1)).toBe(2);
+    at(6.95); at(7.95);
+    expect(plays()).toHaveLength(6);
+  });
+
+  it("a reversed sync clip with no pass to repeat besides its first follows the playhead, with one warning", async () => {
+    await kit.boot({
+      "a.wav.meta.json": meta({ loops: [{ id: "l1", start: 1, end: 2, active: "always" }] }),
+      "s.playlist.json": seq({ length: 0, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 4, sync: true, reverse: true }])] }),
+    });
+    fake.durations.set("a.wav", 4);
+    Audio.play("s.playlist.json");
+    at(3.95);
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("a reversed clip's loop drives the playhead only with a pass to repeat"));
+  });
+
+  it("an async reversed clip loops its region backwards while the loop is active", async () => {
+    await kit.boot({
+      "a.wav.meta.json": meta({ loops: [{ id: "l1", start: 1, end: 2, active: "held" }] }),
+      "s.playlist.json": seq({ length: 6, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 6, reverse: true }])] }),
+    });
+    fake.durations.set("a.wav", 4);
+    Audio.play("s.playlist.json");
+    expect(fake.plays[0]).toMatchObject({ reverse: true });
+    expect(fake.plays[0]!.offset).toBeUndefined();
+    // The region is in source seconds, as every loop (the core mirrors it for the reversed voice).
+    expect(fake.voices[0]!.events.find((e) => e.kind === "loop")).toMatchObject({ start: 1, end: 2, looping: true });
+  });
+
+  it("reverse on a playlist clip does nothing, with one warning", async () => {
+    await kit.boot({
+      "c.playlist.json": pla("clip", [sample("a.wav")]),
+      "s.playlist.json": seq({ length: 1, tracks: [{ id: "t", kind: "playlist", clips: [{ id: "c1", playlist: "c.playlist.json", at: 0, length: 1, reverse: true }] }] }),
+    });
+    Audio.play("s.playlist.json");
+    expect(fake.plays[0]!.reverse).toBeUndefined();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("a playlist or generator clip plays forward"));
+  });
+
+  it("a clip's Amp envelope goes to each of its voices from where it starts in the clip; not to the clip's submix", async () => {
+    const envelope = { id: "env", type: "envelope", params: { attack: 10, hold: 5, decay: 20, sustain: 50, release: 300 } };
+    await kit.boot({
+      "a.wav.meta.json": meta({ loops: [{ id: "l1", start: 1, end: 2, active: "always" }] }),
+      "s.playlist.json": seq({ length: 0, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 6, sync: true, effects: [envelope] }])] }),
+    });
+    fake.durations.set("a.wav", 4);
+    const h = Audio.play("s.playlist.json");
+    const stages = { attack: 0.01, hold: 0.005, decay: 0.02, sustain: 0.5, release: 0.3 };
+    expect(fake.plays[0]!.envelope).toEqual({ stages, length: 6, offset: 0 });
+    // The next piece (the loop's second pass) starts 2 s into the clip, so 2 s into its envelope.
+    at(1.95);
+    expect(fake.plays[1]!.envelope).toEqual({ stages, length: 6, offset: 2 });
+    h.stop();
+    // Nothing tried to run the envelope as a playlist effect (it isn't the submix's).
+    expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining("envelope"));
+  });
+
+  it("a bypassed Amp envelope plays nothing; a playlist clip's voices take the clip's envelope", async () => {
+    await kit.boot({
+      "c.playlist.json": pla("clip", [sample("b.wav")]),
+      "s.playlist.json": seq({ length: 2, tracks: [
+        track([{ id: "c1", sample: "a.wav", at: 0, length: 1, effects: [{ id: "e", type: "envelope", on: false }] }]),
+        { id: "t2", kind: "playlist", clips: [{ id: "c2", playlist: "c.playlist.json", at: 0, length: 1.5, effects: [{ id: "e2", type: "envelope", params: { attack: 100 } }] }] },
+      ] }),
+    });
+    Audio.play("s.playlist.json");
+    const a = fake.plays.find((p) => p.path === "a.wav")!;
+    const b = fake.plays.find((p) => p.path === "b.wav")!;
+    expect(a.envelope).toBeUndefined();
+    expect(b.envelope).toMatchObject({ stages: { attack: 0.1 }, length: 1.5, offset: 0 });
   });
 });
 
@@ -128,6 +249,24 @@ describe("Sequence: sync clips", () => {
     expect(lastFade(fake.voices.length - 1)).toEqual({ kind: "fadeShaped", to: 0, seconds: 0.005, law: "linear", at: 8, stopAtEnd: true });
     at(8.1);
     expect(h.playing).toBe(false);
+  });
+
+  it("a held loop over a clip as long as its sample (one pass, Sound Lab's engine-single) holds the playhead until release (J6.3)", async () => {
+    await kit.boot({
+      "a.wav.meta.json": meta({ loops: [{ id: "run", start: 0.5, end: 1.5, active: "held" }] }),
+      "s.playlist.json": seq({ length: 2.5, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 2.5, sync: true }])] }),
+    });
+    fake.durations.set("a.wav", 2.5);
+    const h = Audio.play("s.playlist.json");
+    at(1.45); at(2.45); at(3.45);
+    // Held: each time the playhead reaches 1.5 it wraps to 0.5, a new voice from the loop's start (sample 0.5).
+    expect(plays()).toEqual([["a.wav", 0], ["a.wav", 1.5], ["a.wav", 2.5], ["a.wav", 3.5]]);
+    expect(seeks().slice(1)).toEqual([0.5, 0.5, 0.5]);
+    expect(h.playing).toBe(true);
+    h.release();
+    at(4.45);
+    expect(plays().at(-1)).toEqual(["a.wav", 4.5]); // the pass finishes, then the tail
+    expect(seeks().at(-1)).toBe(1.5);
   });
 
   it("an inactive finish loop leaves at the next Exit marker in the pass (jumping to the tail); jump leaves at once", async () => {
@@ -316,6 +455,21 @@ describe("Sequence: playlist tracks, automation, sample markers", () => {
     for (let t = 0.1; t < 2.95; t += 0.1) at(t);
     expect(heard).toEqual([0.5, 1.5, 2.5]);
   });
+
+  it("ADR 0362: an async reversed clip's sample markers report from its voice reading down, its loop backwards", async () => {
+    // a.wav: 4 s, loop 1..2 always, cues at 3.5 (tail) and 1.25 (in the loop). Reversed from 4 s down: 3.5 is heard
+    // at 0.5 s, then the loop runs 2 → 1 again and again, 1.25 heard 0.75 s into each pass from 2 s on.
+    await kit.boot({
+      "a.wav.meta.json": meta({ loops: [{ id: "l1", start: 1, end: 2, active: "always" }], markers: [{ id: "k1", type: "cue", name: "Tail", at: 3.5 }, { id: "k2", type: "cue", name: "Loop", at: 1.25 }] }),
+      "s.playlist.json": seq({ length: 6, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 6, reverse: true }])] }),
+    });
+    fake.durations.set("a.wav", 4);
+    const h = Audio.play("s.playlist.json");
+    const heard: string[] = [];
+    h.onMarker("cue", (e) => heard.push(`${e.name} ${Math.round(e.time * 1e6) / 1e6}`));
+    for (let t = 0.1; t < 4.95; t += 0.1) at(t);
+    expect(heard).toEqual(["Tail 0.5", "Loop 2.75", "Loop 3.75", "Loop 4.75"]);
+  });
 });
 
 describe("Sequence: musical clock, positions and hot reload", () => {
@@ -357,6 +511,50 @@ describe("Sequence: musical clock, positions and hot reload", () => {
     expect(plays().at(-1)).toEqual(["a.wav", 2.6]);
     expect(seeks().at(-1)).toBe(8);
     expect(lastFade(0)).toMatchObject({ to: 0, at: 2.6, stopAtEnd: true });
+  });
+
+  /** Plays through the fake with each new voice reading `waitingForData` while `waits(request)` says so, as the core's do. */
+  const waitingVoices = (waits: (r: { path: string; stream: boolean }) => boolean): (() => void) => {
+    const real = fake.play;
+    fake.play = (r) => {
+      const v = real(r);
+      if (v && waits(r)) (v as { reason: string | null }).reason = "waitingForData";
+      return v;
+    };
+    return () => { fake.play = real; };
+  };
+
+  it("D44: an unstamped sequence whose clip is still loading starts again each frame until the data is there, then plans", async () => {
+    await kit.boot({ "s.playlist.json": tempoSeq() });
+    fake.durations.set("a.wav", 16);
+    let loading = true;
+    const restore = waitingVoices(() => loading);
+    try {
+      const h = Audio.play("s.playlist.json");
+      at(0.1);
+      at(0.2);
+      expect(fake.plays.length, "a new voice each frame while the clip loads").toBe(3);
+      loading = false;
+      at(0.3); // this frame's new voice is not waiting: the sequence plans from it
+      at(0.4);
+      at(0.5);
+      expect(fake.plays.length).toBe(4);
+      expect(h.music?.bar).toBe(1);
+    } finally { restore(); }
+  });
+
+  it("an unstamped sequence of a streamed clip starts once: a stream voice waits for its data by design and isn't restarted (Flappy's town music)", async () => {
+    await kit.boot({ "a.wav.meta.json": { format: "myco.import@1", stream: true }, "s.playlist.json": tempoSeq() });
+    fake.durations.set("a.wav", 16);
+    const restore = waitingVoices((r) => r.stream); // a stream voice reads waitingForData from its play until it sounds
+    try {
+      const h = Audio.play("s.playlist.json");
+      for (let t = 0.1; t < 2; t += 0.1) at(t);
+      expect(fake.plays.map((p) => [p.path, p.stream]), "one play of the stream, not one a frame").toEqual([["a.wav", true]]);
+      expect(fake.voices[0]!.events.some((e) => e.kind === "fadeShaped" && e.to === 0), "never stopped for a new start").toBe(false);
+      expect(h.music, "its musical clock runs (the music rows read it)").not.toBeUndefined();
+      expect(h.music!.bar).toBe(1);
+    } finally { restore(); }
   });
 
   it("an edited sequence swaps at the next bar, at the same time when the tempo is unchanged", async () => {

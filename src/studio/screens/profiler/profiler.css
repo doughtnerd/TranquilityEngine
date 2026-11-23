@@ -17,28 +17,31 @@
 .pf-plugins td.over { color: var(--danger); }
 .pf-plugin-reset { padding: 0 6px; font-size: calc(11px * var(--ui-scale)); }
 
-/* Captures */
-.pf-captures { display: flex; flex-direction: column; min-height: 100%; }
-.pf-captures-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-bottom: 1px solid var(--border); }
-.pf-search { flex: 1 1 120px; min-width: 0; }
-.pf-file-icon { flex: none; color: var(--muted); }
-
 /* Toolbar */
 .pf-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .pf-toggle { display: inline-flex; align-items: center; gap: 4px; background: var(--button); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 2px 8px; }
 .pf-toggle:hover { background: var(--button-hover); }
 .pf-toggle.on { background: var(--warning-soft); border-color: var(--warning); color: var(--text-strong); }
-:is(.pf-toggle, .pf-tool, .pf-plugin-reset, button.pf-step-name):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+:is(.pf-toggle, .pf-tool, .pf-plugin-reset):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .pf-replay-of { display: inline-flex; flex-wrap: wrap; min-width: 0; align-items: center; gap: 6px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .pf-replay-of strong { color: var(--text); font-weight: 600; }
-.pf-counts { margin-left: auto; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.pf-open-take { white-space: nowrap; }
+.pf-why-take { margin: 8px; }
+.pf-counts { color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.pf-toolbar-gap { flex: 1 1 auto; }
+.pf-title { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
+.pf-title strong { color: var(--text-strong); font-size: calc(12px * var(--ui-scale)); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-title-meta { color: var(--muted); font-size: calc(12px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
 
 /* Timeline */
-.pf-timeline { --pf-head: 150px; display: flex; flex-direction: column; min-width: 0; padding-bottom: 8px; }
+.pf-timeline { --pf-head: 168px; --run-head: var(--pf-head); display: flex; flex-direction: column; min-width: 0; padding-bottom: 8px; }
 .pf-tracks { position: relative; }
 .pf-track { display: grid; grid-template-columns: var(--pf-head) 1fr; border-bottom: 1px solid var(--border); min-height: 22px; }
 .pf-track-head { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 2px 8px; background: var(--panel); border-right: 1px solid var(--border); min-width: 0; }
-.pf-track-label { color: var(--text); font-size: calc(11px * var(--ui-scale)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-track-label { color: var(--text); font-size: calc(12px * var(--ui-scale)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The data tracks' names are caps (LOAD, EFFECTS, LOUDNESS); voice lanes keep their names; game lanes are accent2 */
+:is(.pf-track-load, .pf-track-fx, .pf-track-effects, .pf-track-memory, .pf-track-loudness, .pf-track-picture, .pf-track-parameter) .pf-track-label { color: var(--muted); font-size: calc(11px * var(--ui-scale)); letter-spacing: 0.04em; text-transform: uppercase; }
+.pf-track-parameter .pf-track-label { color: var(--accent2); }
 .pf-track-value { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pf-plot { position: relative; min-width: 0; background: var(--bg-sunken); cursor: crosshair; overflow: hidden; }
 .pf-lines { display: block; width: 100%; }
@@ -55,9 +58,10 @@
 .pf-fx-loudness { stroke: var(--muted); color: var(--muted); }
 .pf-fx-legend { position: absolute; top: 2px; right: 4px; display: flex; gap: 6px; pointer-events: auto; font-size: calc(10px * var(--ui-scale)); }
 .pf-fx-key::before { content: ""; display: inline-block; width: 8px; height: 2px; margin-right: 3px; vertical-align: middle; background: currentColor; }
-.pf-bus { stroke: var(--series-2); }
-.pf-loud { stroke: var(--series-4); }
-.pf-param { stroke: var(--series-3); }
+.pf-bus { stroke: var(--accent); }
+.pf-loud { stroke: var(--accent2); }
+.pf-param { stroke: var(--accent2); }
+.pf-fxi { stroke: var(--accent2); }
 /* ADR 0351 §6: memory — the clip arena, the loaded packages, and a mark per package load, unload and failure */
 .pf-mem-arena { stroke: var(--series-5); }
 .pf-mem-packages { stroke: var(--series-6); stroke-dasharray: 3 2; }
@@ -66,35 +70,43 @@
 .pf-mem-mark.failed { border-left-color: var(--danger); }
 .pf-ref { stroke-width: 1; }
 .pf-zero { stroke: var(--border-strong); }
-.pf-target { stroke: var(--warning); stroke-dasharray: 4 3; }
+.pf-target { stroke: var(--muted); stroke-dasharray: 4 3; }
 .pf-ref-label { position: absolute; right: 4px; top: 2px; color: var(--faint); font-size: calc(10px * var(--ui-scale)); pointer-events: none; }
-.pf-float { position: absolute; top: 2px; margin-left: 6px; padding: 1px 6px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 4px; color: var(--text); font-size: calc(10px * var(--ui-scale)); white-space: nowrap; pointer-events: none; z-index: 2; }
+/* The bus breakdown at the cursor: the total in bold, then authored and each lane with its reason */
+.pf-float { position: absolute; top: 2px; display: flex; flex-direction: column; margin-left: 8px; padding: 3px 7px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 4px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); line-height: 14px; white-space: nowrap; pointer-events: none; z-index: 5; box-shadow: 0 4px 12px var(--shadow, rgba(0, 0, 0, 0.4)); }
+.pf-float strong { color: var(--text-strong); font-weight: 600; }
+.pf-track-bus .pf-plot { overflow: visible; }
+.pf-limit { position: absolute; top: 3px; right: 4px; padding: 0 4px; border: 1px solid var(--danger); border-radius: 3px; background: var(--bg); color: var(--danger); font-size: calc(10px * var(--ui-scale)); line-height: 14px; pointer-events: auto; }
+.pf-legend { position: absolute; bottom: 2px; right: 4px; display: flex; gap: 8px; color: var(--muted); font-size: calc(10px * var(--ui-scale)); pointer-events: none; }
+.pf-key::before { content: ""; display: inline-block; width: 10px; height: 2px; margin-right: 3px; vertical-align: middle; background: currentColor; }
+.pf-key-voices { color: var(--accent); }
+.pf-key-cpu { color: var(--muted); }
+.pf-chips { position: absolute; top: 3px; right: 4px; display: flex; gap: 4px; pointer-events: auto; }
+.pf-chip-n { padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--muted); font-size: calc(10px * var(--ui-scale)); line-height: 14px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pf-more-buses .pf-track-head .link { font-size: calc(11px * var(--ui-scale)); text-align: left; padding: 0; }
+.pf-plot-empty { min-height: 22px; cursor: default; }
 .pf-float.left { transform: translateX(calc(-100% - 12px)); }
 .pf-picture { position: absolute; inset: 0; }
 .pf-lane-empty { margin: 0; padding: 3px 6px; color: var(--faint); font-size: calc(11px * var(--ui-scale)); }
 
-/* Ruler */
-.pf-ruler-row { position: sticky; top: 0; z-index: 3; }
-.pf-ruler { height: 24px; background: var(--panel); touch-action: none; }
-.pf-clock { font-variant-numeric: tabular-nums; color: var(--accent); }
-.pf-tick { position: absolute; bottom: 2px; transform: translateX(-50%); color: var(--faint); font-size: calc(10px * var(--ui-scale)); pointer-events: none; font-variant-numeric: tabular-nums; }
-.pf-tick:first-child { transform: none; }
-.pf-mark { position: absolute; top: 1px; width: 10px; height: 10px; margin-left: -5px; padding: 0; border: none; border-radius: 0 0 5px 5px; background: var(--marker-note); cursor: pointer; }
+/* Ruler marks: the problems as ticks at the ruler's foot (2x10, the prototype's), markers in the note colour */
+.pf-mark { position: absolute; bottom: 0; width: 3px; height: 10px; margin-left: -1.5px; padding: 0; border: none; border-radius: 1px; background: var(--marker-note); cursor: pointer; z-index: 1; }
+.pf-mark::after { content: ""; position: absolute; inset: -4px -4px 0; }
 .pf-mark[data-kind="warning"] { background: var(--warning); }
 .pf-mark[data-kind="error"] { background: var(--danger); }
 .pf-mark:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
 /* Cursor */
-.pf-cursor-layer { position: absolute; top: 0; bottom: 0; left: var(--pf-head); right: 0; pointer-events: none; }
-.pf-cursor { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px solid var(--accent); }
+.pf-cursor-layer { position: absolute; top: 0; bottom: 0; left: var(--pf-head); right: 0; pointer-events: none; z-index: 4; }
 
-/* Voice blocks */
-.pf-voice { position: absolute; height: 12px; min-width: 4px; padding: 0 3px; border: 1px solid transparent; border-radius: 3px; background: var(--success-soft); border-color: var(--success); color: var(--text); font-size: calc(9px * var(--ui-scale)); line-height: 10px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: clip; cursor: pointer; }
+/* Voice blocks (the prototype's button.v): 24px in a 34px row; played on the badge fill, problems in their colours */
+.pf-voice { position: absolute; height: 24px; min-width: 6px; padding: 0 4px; border: 1px solid var(--border-strong); border-radius: 3px; background: var(--badge); color: var(--text); font-size: calc(11px * var(--ui-scale)); line-height: 22px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: clip; cursor: pointer; }
 .pf-voice[data-status="stolen"], .pf-voice[data-status="blocked"], .pf-voice[data-status="refused"] { background: var(--warning-soft); border-color: var(--warning); }
 .pf-voice[data-status="missing"], .pf-voice[data-status="failed"] { background: var(--danger-soft); border-color: var(--danger); }
-.pf-voice.instant { width: 8px !important; min-width: 8px; margin-left: -4px; padding: 0; color: transparent; }
+/* A refusal has no length: it gets room for its word */
+.pf-voice.instant { width: auto !important; min-width: 0; max-width: 96px; }
 .pf-voice.dim { opacity: 0.25; }
-.pf-voice.selected { outline: 2px solid var(--focus-ring); outline-offset: 0; z-index: 1; }
+.pf-voice.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); z-index: 1; }
 .pf-voice:focus-visible { outline: 2px solid var(--focus-ring); }
 
 /* Side panels */
@@ -105,38 +117,83 @@
 .pf-table thead th { color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .pf-table .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pf-why-cell { color: var(--warning); }
-.pf-pill { display: inline-block; padding: 1px 8px; border-radius: 10px; background: var(--success-soft); color: var(--text); border: 1px solid var(--success); }
-.pf-pill[data-severity="warning"] { background: var(--warning-soft); border-color: var(--warning); }
-.pf-pill[data-severity="error"] { background: var(--danger-soft); border-color: var(--danger); }
+/* The status chip (the prototype's: radius 3, filled, no border) */
+.pf-chip { display: inline-block; padding: 0 6px; border-radius: 3px; background: var(--success-soft); color: var(--success); font-size: calc(12px * var(--ui-scale)); line-height: 18px; }
+.pf-chip[data-severity="warning"] { background: var(--warning-soft); color: var(--warning); }
+.pf-chip[data-severity="error"] { background: var(--danger-soft); color: var(--danger); }
+.pf-voice-status { margin: 0; }
+/* At cursor: the .cap grid, Bus | You hear, the reason after the name */
+.pf-cap-grid { width: 100%; border-collapse: collapse; font-size: calc(12px * var(--ui-scale)); }
+.pf-cap-grid th, .pf-cap-grid td { padding: 1px 0; text-align: left; font-weight: normal; color: var(--text); }
+.pf-cap-grid thead th { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding-bottom: 2px; }
+.pf-cap-grid .num { text-align: right; width: 64px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.pf-cap-grid .num.over { color: var(--warning); }
+.pf-why-word { color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .pf-reason { color: var(--muted); }
 .pf-facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; margin: 8px 0 0; }
 .pf-facts dt { color: var(--muted); }
 .pf-facts dd { margin: 0; color: var(--text); min-width: 0; overflow-wrap: anywhere; }
-.pf-chain { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
-.pf-step { position: relative; display: grid; grid-template-columns: 64px 1fr; gap: 0 8px; padding: 6px 8px; border: 1px solid var(--border); border-left: 3px solid var(--success); border-radius: 4px; background: var(--surface); }
-.pf-step[data-severity="warning"] { border-left-color: var(--warning); }
-.pf-step[data-severity="error"] { border-left-color: var(--danger); }
-.pf-step-kind { grid-row: span 2; color: var(--muted); font-size: calc(10px * var(--ui-scale)); font-weight: 700; letter-spacing: 0.04em; }
-.pf-step-name { justify-self: start; color: var(--text-strong); padding: 0; background: none; border: none; text-align: left; }
-button.pf-step-name { color: var(--link); cursor: pointer; }
-button.pf-step-name:hover { text-decoration: underline; }
-.pf-step-why { color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+
+/* Why it played: a flow chart on a dot grid (the prototype's .wg, .wn, .wge, .wgz) */
+.pf-why { padding: 0; display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.pf-wg-wrap { flex: 1 1 auto; min-height: 0; display: flex; padding: 10px; }
+.pf-wg { position: relative; flex: 1 1 auto; min-height: 170px; overflow: hidden; border: 1px solid var(--border); border-radius: 4px; background-color: var(--viewport); background-image: radial-gradient(circle, var(--border-strong) 1px, transparent 1.2px); cursor: grab; outline: none; touch-action: none; }
+.pf-wg.panning { cursor: grabbing; }
+.pf-wg:focus-visible { box-shadow: 0 0 0 2px var(--focus-ring); }
+.pf-wg-chart { position: absolute; left: 0; top: 0; display: flex; margin: 0; padding: 0; list-style: none; transform-origin: 0 0; }
+.pf-wg-chart.row { flex-direction: row; align-items: center; }
+.pf-wg-chart.column { flex-direction: column; }
+.pf-wn-item { position: relative; flex: none; box-sizing: border-box; }
+.pf-wn { display: flex; flex-direction: column; justify-content: center; gap: 1px; box-sizing: border-box; width: 100%; height: 100%; padding: 4px 9px; border: 1px solid var(--border); border-top: 3px solid var(--badge-text); border-radius: 5px; background: var(--surface); box-shadow: 0 2px 6px var(--shadow, rgba(0, 0, 0, 0.35)); color: var(--text); text-align: left; font: inherit; }
+button.pf-wn { cursor: pointer; }
+button.pf-wn:hover { border-color: var(--accent); border-top-color: var(--accent); background: var(--hover); }
+button.pf-wn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.pf-wn.bad { border-top-color: var(--warning); background: var(--warning-soft); }
+.pf-wn.err { border-top-color: var(--danger); background: var(--danger-soft); }
+.pf-wn-kind { color: var(--badge-text); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-wn.bad .pf-wn-kind { color: var(--warning); }
+.pf-wn.err .pf-wn-kind { color: var(--danger); }
+.pf-wn-name { color: var(--text-strong); font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-wn-why { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The arrow from the previous node: 24px of 2px line and a 6px head */
+.pf-wge { position: absolute; background: var(--border-strong); }
+.pf-wg-chart.row .pf-wge { right: 100%; top: 50%; width: 24px; height: 2px; margin-top: -1px; }
+.pf-wg-chart.column .pf-wge { bottom: 100%; left: 50%; width: 2px; height: 24px; margin-left: -1px; }
+.pf-wge::after { content: ""; position: absolute; border: 4px solid transparent; }
+.pf-wg-chart.row .pf-wge::after { right: -2px; top: -3px; border-left: 6px solid var(--border-strong); border-right: none; }
+.pf-wg-chart.column .pf-wge::after { bottom: -2px; left: -3px; border-top: 6px solid var(--border-strong); border-bottom: none; }
+.pf-wgz { position: absolute; right: 8px; bottom: 8px; display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 5px; background: var(--surface); box-shadow: 0 2px 8px var(--shadow, rgba(0, 0, 0, 0.4)); cursor: default; }
+.pf-wgz button { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 22px; padding: 0 4px; border: none; border-radius: 3px; background: none; color: var(--text); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; cursor: pointer; }
+.pf-wgz button:hover { background: var(--hover); }
+.pf-wgz button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.pf-wgz-pct { min-width: 44px !important; }
+.pf-why-note { margin: 0 10px 6px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); display: inline-flex; align-items: center; gap: 4px; }
 
 /* Messages */
+.pf-messages-panel { display: flex; flex-direction: column; min-height: 100%; }
+.pf-messages-bar { display: flex; align-items: center; gap: 6px; padding: 4px 6px; }
+.pf-msg-count { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
 .pf-messages { list-style: none; margin: 0; padding: 0; }
-.pf-message { display: grid; grid-template-columns: 56px 64px 1fr; gap: 8px; width: 100%; padding: 3px 8px; background: none; border: none; border-bottom: 1px solid var(--border); color: var(--text); text-align: left; cursor: pointer; }
+.pf-message-row { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
+.pf-message-row > .pf-message { flex: 1 1 auto; min-width: 0; border-bottom: none; }
+.pf-open-mixer { flex: none; padding: 0 8px; white-space: nowrap; }
+.pf-message { display: grid; grid-template-columns: 64px 70px 1fr; gap: 8px; width: 100%; padding: 3px 10px; font-size: calc(12px * var(--ui-scale)); background: none; border: none; border-bottom: 1px solid var(--border); color: var(--text); text-align: left; cursor: pointer; }
 .pf-message:hover { background: var(--hover); }
 .pf-message.selected { background: var(--selection); color: var(--selection-text); }
 .pf-message:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .pf-msg-time { font-variant-numeric: tabular-nums; color: var(--muted); }
-.pf-msg-kind { font-weight: 600; color: var(--marker-note); }
+.pf-msg-kind { font-size: calc(10px * var(--ui-scale)); letter-spacing: 0.04em; color: var(--muted); }
+.pf-msg-time { white-space: nowrap; }
 .pf-message[data-kind="warning"] .pf-msg-kind { color: var(--warning); }
 .pf-message[data-kind="error"] .pf-msg-kind { color: var(--danger); }
 
-/* Record: the player bar's transport button, its dot in the danger colour while it can record */
+/* Record: the player bar's labelled transport button in the prototype's record look (`.btn.rec`): the dot in the danger
+   colour, and the danger edge and tint while it can record or records */
 .pf-record { display: contents; }
-.pf-record .studio-transport-button:not(:disabled) .studio-glyph { color: var(--danger); }
-.pf-record.on .studio-transport-button { background: var(--danger-soft); border-color: var(--danger); }
+.pf-record .studio-transport-button .studio-glyph { color: var(--danger); }
+.pf-record .studio-transport-button:not(:disabled) { border-color: var(--danger); background: var(--danger-soft); color: var(--text-strong); }
+.pf-record .studio-transport-button:disabled { opacity: 0.5; }
+.pf-record.on .studio-transport-button { color: var(--text-strong); }
 
 /* Narrow (a phone's single panel, a side dock): the track names take less room, the effects legend goes (each line
    keeps its colour and the track's value names them) and messages tighten (ADR 0361). */
@@ -144,13 +201,13 @@ button.pf-step-name:hover { text-decoration: underline; }
   .pf-timeline { --pf-head: 96px; }
   .pf-fx-legend { display: none; }
   .pf-message { grid-template-columns: 48px 56px minmax(0, 1fr); gap: 6px; }
-  .pf-step { grid-template-columns: 52px minmax(0, 1fr); }
+  .pf-chips { display: none; }
 }
 
 /* Touch (ADR 0361): voice blocks and ruler marks keep their drawn size (the Studio's 36px button rule would stretch
    them); a mark's hit area reaches past it instead. */
 @media (pointer: coarse) {
-  .studio :is(.pf-voice, .pf-mark) { min-height: 0; min-width: 0; }
+  .studio :is(.pf-voice, .pf-mark, .pf-wn) { min-height: 0; min-width: 0; }
   .pf-mark::before { content: ""; position: absolute; inset: -8px -6px; }
   .pf-plugin-reset { padding: 0 10px; }
 }

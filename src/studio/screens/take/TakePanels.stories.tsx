@@ -8,12 +8,18 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import type { TakeNotes } from "../../../engine/audio/take/types";
 import { performanceClock, TakeReplay, type ReplayTarget } from "../../runtime/takeReplay";
 import { addMarker, moveNote, type NotesEdit } from "./notesEdits";
-import { InstanceDetails, MixerStrip, NoteDetails, PlayheadValues } from "./TakeInspector";
+import { InstanceDetails, MixerStrip, NoteDetails, PlayheadValues, PropertyCards } from "./TakeInspector";
+import type { PropertyCard } from "./takePlaylists";
 import { busStrip, instanceParametersAt, parameterRows } from "./takeInspectorModel";
 import { FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
 import { TakeList } from "./TakeList";
 import type { TakeSelection } from "./takeScreen";
-import { takeTimeline } from "./takeTimeline";
+import { playlistsInTake, takeTimeline } from "./takeTimeline";
+import { PlaylistsInTake } from "./PlaylistsInTake";
+import { DockLayout } from "../../../editor/layout/DockLayout";
+import { screenDock } from "../../shell/studioPanels";
+import { TAKE_PANELS } from ".";
+import "../../studio.css";
 import { TakeTimelineView } from "./TakeTimelineView";
 import "./take.css";
 
@@ -28,6 +34,7 @@ function TimelineDemo(props: { start?: number }) {
   const timeline = useMemo(() => takeTimeline(take, (name, path) => (name === "Surface" && path === null ? SURFACE_LABELS : null)), [take]);
   const [notes, setNotes] = useState<TakeNotes>(FIXTURE_NOTES);
   const [selected, setSelected] = useState<TakeSelection>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
   useEffect(() => {
     if (props.start) replay.seek(props.start);
     let id = requestAnimationFrame(function loop() {
@@ -54,6 +61,15 @@ function TimelineDemo(props: { start?: number }) {
         selected={selected}
         notes={notes}
         notesWritable
+        name="canyon_run_03"
+        plays={(path) => (path.includes("engine") ? "until stopped · Layer" : "one-shot")}
+        drives={(name) => (name === "Speed" ? "Drives pitch, low-pass on engine" : "")}
+        muted={replay.muted.value}
+        soloed={replay.soloed.value}
+        onMute={(path, on) => replay.setMuted(path, on)}
+        onSolo={(path, on) => replay.setSoloed(path, on)}
+        hovered={hovered}
+        onHover={setHovered}
         onSeek={(t) => replay.seek(t)}
         onSelectInstance={(key) => setSelected({ kind: "instance", key })}
         onOpenInstance={fn()}
@@ -63,6 +79,7 @@ function TimelineDemo(props: { start?: number }) {
       />
       <output aria-label="Selected">{selected ? (selected.kind === "instance" ? selected.key : selected.id) : ""}</output>
       <output aria-label="Markers">{notes.markers.length}</output>
+      <output aria-label="Hovered">{hovered ?? ""}</output>
     </div>
   );
 }
@@ -79,6 +96,61 @@ export const Timeline: Story = {
     await expect(canvasElement.querySelector(".tk-segment[title='Rock']")).not.toBeNull(); // Surface as labelled segments
     await userEvent.click(c.getByRole("option", { name: /Velocity 0.71/ }));
     await expect(c.getByLabelText("Selected").textContent).toMatch(/^4@/);
+  },
+};
+
+export const RulerAndLanes: Story = {
+  render: () => <TimelineDemo start={20.48} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // The ruler's head reads the playhead; the lanes say how each playlist plays; game lanes say what they drive.
+    await waitFor(() => expect(canvasElement.querySelector(".run-readout")?.textContent).toBe("00:20.480"));
+    await expect(c.getByRole("slider", { name: "Take time" })).toHaveAttribute("aria-valuetext", "00:20.480");
+    await expect(c.getByText("Gameplay take")).toBeVisible();
+    await expect(c.getByText("Game · Speed")).toBeVisible();
+    await expect(c.getByText("Drives pitch, low-pass on engine")).toBeVisible();
+    // Hovering a game lane's head is the link to the Inspector's cards.
+    await userEvent.hover(c.getByText("Game · Speed"));
+    await expect(c.getByLabelText("Hovered").textContent).toBe("Speed");
+  },
+};
+
+export const MuteAndSolo: Story = {
+  render: () => <TimelineDemo start={2} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const mute = await c.findByRole("button", { name: "Mute engine" });
+    await userEvent.click(mute);
+    await expect(mute).toHaveAttribute("aria-pressed", "true");
+    await expect(mute.closest(".tk-row")!.className).toMatch(/silent/);
+    await userEvent.click(c.getByRole("button", { name: "Solo boost" }));
+    // While a lane is soloed every other lane is silent.
+    await expect(c.getByRole("button", { name: "Solo boost" }).closest(".tk-row")!.className).not.toMatch(/silent/);
+  },
+};
+
+export const InspectorCards: Story = {
+  render: () => {
+    const [hovered, setHovered] = useState<string | null>("Speed");
+    const cards: PropertyCard[] = [
+      { key: "v", label: "Volume", authored: -6, live: -6, unit: "dB", authoredAt: 0.75, liveAt: 0.75, text: "−6.0 dB", driver: null },
+      { key: "p", label: "Pitch", authored: 0, live: 4.2, unit: "st", authoredAt: 0.5, liveAt: 0.59, text: "+4.2 st", driver: { parameter: "Speed", mapping: "−3 to +7 st · ease-in · seek 50/s" } },
+      { key: "r", label: "Reverb send", authored: -18, live: -9, unit: "dB", authoredAt: 0.58, liveAt: 0.71, text: "−9.0 dB", driver: { parameter: "Surface", mapping: "−18 to −9 dB · steps" } },
+    ];
+    return (
+      <div style={{ width: "300px" }}>
+        <PropertyCards cards={cards} hovered={hovered} onHover={setHovered} />
+      </div>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // The chips the hovered game parameter drives are outlined; the static card's fill is muted, the driven one accent2.
+    await expect(c.getByText("← Speed").className).toMatch(/linked/);
+    await expect(c.getByText("← Surface").className).not.toMatch(/linked/);
+    await userEvent.hover(c.getByText("← Surface"));
+    await expect(c.getByText("← Surface").className).toMatch(/linked/);
+    await expect(c.getByRole("listitem", { name: /Pitch \+4.2 st, authored \+0.0 st|Pitch \+4.2 st, authored 0.0 st/ })).toBeVisible();
   },
 };
 
@@ -131,19 +203,22 @@ export const Replaying: Story = {
 };
 
 const FILES = ["takes/HoverBike/Canyon/canyon_run_01.mycotake", "takes/HoverBike/Canyon/canyon_run_03.mycotake", "takes/HoverBike/Canyon/canyon_run_03.mycotake.notes.json", "takes/Boss/boss_arena_01.mycotake", "captures/capture_01.mycap"];
-const listArgs = { folders: ["takes", "takes/HoverBike", "takes/HoverBike/Canyon", "takes/Boss"], writable: true, onOpen: fn(), onImport: fn(), onRename: fn(), onMove: fn(), onDelete: fn() };
+const listArgs = {
+  folders: ["takes", "takes/HoverBike", "takes/HoverBike/Canyon", "takes/Boss"], writable: true,
+  onOpen: fn(), onImport: fn(), onRename: fn(), onMove: fn(), onDelete: fn(), onDuplicate: fn(), onRenameFolder: fn(), onDeleteFolder: fn(), onNewFolder: fn(async () => null),
+};
 
 export const Takes: Story = {
   render: () => <div style={{ width: "280px" }}><TakeList files={FILES} openPath="takes/HoverBike/Canyon/canyon_run_03.mycotake" {...listArgs} /></div>,
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByText("canyon_run_01.mycotake")).toBeVisible();
+    await expect(c.getByText("canyon_run_01")).toBeVisible();
     await expect(c.queryByText("capture_01.mycap")).toBeNull();
   },
 };
 
 export const NoTakes: Story = {
-  render: () => <div style={{ width: "280px" }}><TakeList files={["audio.json"]} openPath={null} {...listArgs} /></div>,
+  render: () => <div style={{ width: "280px" }}><TakeList files={["audio.json"]} openPath={null} {...listArgs} folders={[]} /></div>,
   play: async ({ canvasElement }) => {
     await expect(within(canvasElement).getByText(/F10 in a game build/)).toBeVisible();
   },
@@ -156,14 +231,14 @@ export const Instance: Story = {
     const rows = parameterRows(instanceParametersAt(take, engine, 12), (n) => (n === "Rpm" ? 4321 : undefined));
     return (
       <div style={{ width: "300px" }}>
-        <InstanceDetails instance={engine} emitterName="Bike" emitterPose={{ position: { x: 175.6, y: 1, z: 0 } }} rows={rows} live onGoToStart={fn()} onOpenSource={fn()} />
+        <InstanceDetails instance={engine} emitterName="Bike" emitterPose={{ position: { x: 175.6, y: 1, z: 0 } }} rows={rows} kind="Layer" cards={[]} live onOpenSource={fn()} />
       </div>
     );
   },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByText("4321")).toBeVisible();
-    await expect(c.getByRole("button", { name: "Open playlist ›" })).toBeVisible();
+    await expect(c.getByRole("button", { name: /Open .* in Playlists/ })).toBeVisible();
   },
 };
 
@@ -173,6 +248,118 @@ export const Note: Story = {
       <NoteDetails note={{ kind: "region", ...FIXTURE_NOTES.regions[0]! }} writable onText={fn()} onColour={fn()} onTime={fn()} onSpan={fn()} onDelete={fn()} onGoTo={fn()} />
     </div>
   ),
+  play: async ({ canvasElement }) => {
+    // The note's fields use the editor's font and field tokens, not the browser's monospace textarea and inset number box.
+    const text = within(canvasElement).getByRole("textbox", { name: "Note text" });
+    const panelFont = getComputedStyle(canvasElement.querySelector(".tk-inspector")!).fontFamily;
+    await expect(getComputedStyle(text).fontFamily).toBe(panelFont);
+    for (const field of [text, ...within(canvasElement).getAllByRole("spinbutton")]) {
+      await expect(getComputedStyle(field).borderTopWidth).toBe("1px");
+      await expect(getComputedStyle(field).borderTopStyle).toBe("solid");
+    }
+  },
+};
+
+export const DefaultDock: Story = {
+  render: () => {
+    // The screen's real panel list and default layout, each panel's view a stand-in (the views need the running app).
+    const dock = screenDock("take", TAKE_PANELS.map((p) => ({ ...p, view: () => <p>{p.title}</p> })));
+    dock.store.reset();
+    return (
+      <div class="studio" style={{ width: "1200px", height: "520px", gridTemplateRows: "1fr", gridTemplateAreas: '"main"' }}>
+        <main class="studio-dock">
+          <DockLayout host={dock.host} view={(type) => dock.panels.get(type)?.view() ?? null} />
+        </main>
+      </div>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // Both tabs of the left dock show at its default width: the playlists tab isn't hidden behind the overflow button.
+    // The docks are sized once the layout has measured itself; the tabs are fitted after that.
+    await waitFor(() => expect(c.getByRole("tab", { name: "Takes" }).closest<HTMLElement>(".dock-tabs")!.clientWidth).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 200));
+    for (const p of TAKE_PANELS.filter((x) => x.dock === "left")) await expect(c.getByRole("tab", { name: p.title })).toBeVisible();
+    await expect(c.queryByRole("button", { name: "More tabs" })).toBeNull();
+  },
+};
+
+/** The box of `el` (inside the story's canvas). */
+const box = (el: Element) => el.getBoundingClientRect();
+
+export const HeldPart: Story = {
+  render: () => <TimelineDemo start={8} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // The boost is held 5.6 → 7.4 s; its held part is shaded in --accent2-soft, unlike the bar's own fill.
+    const boost = await c.findByRole("option", { name: /boost · instance 1 · held 1\.8 s/ });
+    const held = boost.querySelector(".studio-span-held")!;
+    await expect(held).not.toBeNull();
+    const probe = document.createElement("span");
+    probe.style.background = "var(--accent2-soft)";
+    canvasElement.append(probe);
+    const want = getComputedStyle(probe).backgroundColor;
+    probe.remove();
+    await expect(getComputedStyle(held).backgroundColor).toBe(want);
+    await expect(getComputedStyle(held).backgroundColor).not.toBe(getComputedStyle(boost).backgroundColor);
+  },
+};
+
+export const InThisTake: Story = {
+  render: () => {
+    const rows = playlistsInTake(takeTimeline(fixtureTake()));
+    return <div style={{ width: "240px" }}><PlaylistsInTake rows={rows} onOpen={fn()} /></div>;
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // Each row is one button (folder / name, count) on one line: nothing wraps under it at the dock's default width.
+    const rows = c.getAllByRole("button");
+    await expect(rows.length).toBeGreaterThan(3);
+    await expect(c.getByRole("button", { name: /vehicles \/ engine\s*1 instance/ })).toBeVisible();
+    for (const r of rows) await expect(box(r).height).toBeLessThanOrEqual(30);
+    await expect(c.queryByText("Open in Playlists")).toBeNull();
+  },
+};
+
+const openPlaylist = fn();
+
+export const InThisTakeOpens: Story = {
+  render: () => <div style={{ width: "240px" }}><PlaylistsInTake rows={[{ path: "audio/events/boost.playlist.json", label: "events / boost", count: 2 }]} onOpen={openPlaylist} /></div>,
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: /events \/ boost/ }));
+    await expect(openPlaylist).toHaveBeenCalledWith("audio/events/boost.playlist.json");
+  },
+};
+
+export const SearchField: Story = {
+  render: () => <div style={{ width: "280px" }}><TakeList files={FILES} openPath={null} {...listArgs} /></div>,
+  play: async ({ canvasElement }) => {
+    // The screen's search uses the editor's field tokens, not the browser's inset default.
+    const search = within(canvasElement).getByRole("searchbox", { name: "Search takes" });
+    const s = getComputedStyle(search);
+    await expect(s.borderTopWidth).toBe("1px");
+    await expect(s.borderTopStyle).toBe("solid");
+    await expect(s.fontSize).toBe("12px");
+  },
+};
+
+export const ShortMixer: Story = {
+  render: () => (
+    <div style={{ width: "600px", height: "130px", display: "flex", flexDirection: "column" }}>
+      <MixerStrip running onOpenMixer={fn()} strips={["Master", "Music", "SFX", "Ambience"].map((name) => busStrip({ name, authored: 1, runtime: 1, duck: 1, peak: 0.5 }))} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // In a short panel every strip's name and level still show whole: the fader gives way, not the labels.
+    const strips = c.getByRole("list", { name: "Buses" });
+    const bottom = box(strips).bottom;
+    for (const name of ["Master", "Music", "SFX", "Ambience"]) {
+      const label = c.getByText(name, { selector: ".tk-strip-name" });
+      await expect(box(label).bottom).toBeLessThanOrEqual(bottom);
+      await expect(box(label.nextElementSibling!).bottom).toBeLessThanOrEqual(bottom);
+    }
+  },
 };
 
 export const Mixer: Story = {

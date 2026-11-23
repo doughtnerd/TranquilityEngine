@@ -237,6 +237,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::BUS_SENDS => wire::BusSends::FIXED_END,
             // ADR 0360 (ABI 5.1).
             wire::op::GEN => wire::Gen::FIXED_END,
+            wire::op::AMP_ENVELOPE => wire::AmpEnvelope::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
         if len < min || off + len > msg.len() {
@@ -378,6 +379,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::LOOPS => voices::loops(core, msg, off),
             // ADR 0360 (ABI 5.1): a generator voice's parameters, on arrival like AUTOMATE (they don't fit a pending record).
             wire::op::GEN => crate::generator::apply(core, msg, off),
+            wire::op::AMP_ENVELOPE => automation::amp_envelope(core, msg, off),
             wire::op::SUBMIX => crate::submix::configure(core, msg, off),
             wire::op::SUBMIX_AUTOMATE => crate::submix::automate(core, msg, off),
             wire::op::ROUTE => automation::route(core, msg, off),
@@ -563,8 +565,12 @@ fn schedule(core: &mut Core, mut record: PendingRecord, at: Option<u64>) {
     }
 }
 
-/// Inserts a record by frame, after any of the same frame (stable). `false` when full.
+/// Inserts a record by frame, after any of the same frame (stable). `false` when full (after dropping the parked
+/// records of voices that are no longer paused: stopped or replaced while held, they never resume).
 fn push(core: &mut Core, record: PendingRecord) -> bool {
+    if queue(core.regions_mut()).area.len as usize >= queue(core.regions_mut()).records.len() {
+        drop_orphans(core);
+    }
     let q = queue(core.regions_mut());
     let (head, len) = (q.area.head as usize, q.area.len as usize);
     if len >= q.records.len() {
@@ -653,6 +659,69 @@ pub fn rebase_pending(core: &mut Core, is_member: &dyn Fn(u32) -> bool, from_fra
     moved
 }
 
+/// ADR 0362 §1: a parked record's frame is this plus how far past its voice's hold it was stamped. Never reached by a
+/// context's frame count, so parked records sort after every other and never come due.
+pub const PARKED: u64 = 1 << 62;
+
+/// ADR 0362 §1, `voices::set_paused`: voice `voice_id` holds from frame `from`; its pending records stamped at or after
+/// it (but its own SET_PAUSED records) wait for its resume: parked at [`PARKED`] + their distance past `from`. Returns
+/// how many. Control rate: a pause, never per quantum.
+pub fn park_pending(core: &mut Core, voice_id: u32, from: u64) -> u32 {
+    retime_pending(core, |r| (r.voice_id == voice_id && r.op as u16 != wire::op::SET_PAUSED && r.frame >= from && r.frame < PARKED).then(|| PARKED + (r.frame - from)))
+}
+
+/// ADR 0362 §1, `voices::set_paused`: voice `voice_id` resumes at frame `at`; its parked records come back as far past
+/// `at` as they were stamped past its hold. Returns how many.
+pub fn unpark_pending(core: &mut Core, voice_id: u32, at: u64) -> u32 {
+    retime_pending(core, |r| (r.voice_id == voice_id && r.frame >= PARKED).then(|| at + (r.frame - PARKED)))
+}
+
+/// Drops parked records whose voice isn't paused any more (it ended or was replaced while held). Returns how many.
+fn drop_orphans(core: &mut Core) -> u32 {
+    let (head, len) = {
+        let q = queue(core.regions_mut());
+        (q.area.head as usize, q.area.len as usize)
+    };
+    let mut kept = 0usize;
+    for i in 0..len {
+        let r = queue(core.regions_mut()).records[head + i];
+        if r.frame >= PARKED && !voices::is_paused(core, r.voice_id) {
+            continue;
+        }
+        queue(core.regions_mut()).records[head + kept] = r;
+        kept += 1;
+    }
+    queue(core.regions_mut()).area.len = kept as u32;
+    (len - kept) as u32
+}
+
+/// Gives each pending record `retime` names a new frame, then sorts the queue by frame again, stable. Returns how many moved.
+fn retime_pending(core: &mut Core, retime: impl Fn(&PendingRecord) -> Option<u64>) -> u32 {
+    let q = queue(core.regions_mut());
+    let (head, len) = (q.area.head as usize, q.area.len as usize);
+    let live = &mut q.records[head..head + len];
+    let mut moved = 0u32;
+    for r in live.iter_mut() {
+        if let Some(frame) = retime(r) {
+            r.frame = frame;
+            moved += 1;
+        }
+    }
+    if moved == 0 {
+        return 0;
+    }
+    for i in 1..live.len() {
+        let r = live[i];
+        let mut j = i;
+        while j > 0 && live[j - 1].frame > r.frame {
+            live[j] = live[j - 1];
+            j -= 1;
+        }
+        live[j] = r;
+    }
+    moved
+}
+
 /// Applies one record that came due (or arrived asap, or found the queue full) to its voice.
 ///
 /// 0166 M4-0: a per-voice record touches only its own voice, so this is also the **per-voice apply**
@@ -662,7 +731,7 @@ pub fn apply(core: &mut Core, record: &PendingRecord) {
     match record.op as u16 {
         wire::op::STOP => voices::stop(core, record.voice_id, record.frames),
         wire::op::FADE => voices::fade(core, record.voice_id, record.values[0], record.frames, record.flags & 1 != 0),
-        wire::op::SET_PAUSED => voices::set_paused(core, record.voice_id, record.flags & 1 != 0),
+        wire::op::SET_PAUSED => voices::set_paused(core, record.voice_id, record.flags & 1 != 0, (record.frame != 0).then_some(record.frame)),
         wire::op::SEEK => voices::seek(core, record.voice_id, record.frames, record.values[0].to_bits()),
         wire::op::SET_LOOP => voices::set_loop(core, record.voice_id, record.frames, record.values[0].to_bits(), record.flags & 1 != 0),
         // ADR 0346: `frames` the group, `mask` which, `flags` bit0 stamped (then `frame` is its anchor).

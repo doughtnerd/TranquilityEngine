@@ -10,9 +10,10 @@ import { signal } from "@preact/signals";
 import type { SampleEdits } from "../../../engine/audio/sample/types";
 import { playheadAt, type PlayRun } from "../../components/playheadModel";
 import type { SpanPlayback, StudioAudioHost } from "../../runtime/studioAudioHost";
-import { isHold, snippets } from "./sampleEditing";
+import { isHold, loopName, snippets } from "./sampleEditing";
 import { trimOf } from "./sampleTime";
 import { nextMarker, type SampleSelection } from "./sampleView";
+import { seamWindow } from "./seam";
 import type { PlayMode } from "./samplesState";
 
 export interface PlayPlan {
@@ -25,46 +26,110 @@ export interface PlayPlan {
   readonly scope: string;
 }
 
+/** A play mode's menu row (spec §4.1.10's names, decisions.md): its group, label and tooltip. */
+export interface PlayModeInfo {
+  readonly id: PlayMode;
+  readonly label: string;
+  readonly group: "Play" | "Whole sample" | "Music" | "From the selection";
+  readonly tip: string;
+}
+
+/** The play modes in menu order. The Music group shows for a music sample or one with a tempo (`showsMusicModes`). */
+export const PLAY_MODES: readonly PlayModeInfo[] = [
+  { id: "selection", label: "Selection", group: "Play", tip: "Plays the selected item: ranges and snippets start to end, loops cycle, point markers to the trim end, the trim from the playhead" },
+  { id: "whole", label: "Whole", group: "Whole sample", tip: "Trim start to trim end, once; with loops, the pickup, each loop as its Active setting says, then the tail" },
+  { id: "loop", label: "Cycle loop", group: "Whole sample", tip: "Cycle the selected loop (or the first loop) until you stop" },
+  { id: "pickupLoop", label: "Pickup → loop", group: "Music", tip: "The pickup into the first pass of the loop: the phrase lands on the downbeat" },
+  { id: "heldLoop", label: "Loop", group: "Music", tip: "The loop repeating, as while the state holds; Release (or Space) leaves it" },
+  { id: "loopExit", label: "Loop → exit", group: "Music", tip: "From the loop, held until you release it, to the next Exit marker, then the tail" },
+  { id: "toNextMarker", label: "To next marker", group: "From the selection", tip: "From the selected item (or the playhead) to the next marker" },
+  { id: "toNextExit", label: "To next exit", group: "From the selection", tip: "From the selected item (or the playhead) to the next Exit marker" },
+  { id: "toEnd", label: "To trim end", group: "From the selection", tip: "From the selected item (or the playhead) to the trim end" },
+];
+
+/** The menu row for `mode` (an old stored "through" reads as Whole). */
+export const playModeInfo = (mode: PlayMode): PlayModeInfo => PLAY_MODES.find((m) => m.id === (mode === "through" ? "whole" : mode)) ?? PLAY_MODES[0];
+
+/** The Music group shows: a music sample, or one with a tempo. */
+export const showsMusicModes = (e: Pick<SampleEdits, "kind" | "tempo">): boolean => e.kind === "music" || e.tempo !== null;
+
+/** Why `mode` can't play on `e` ("no loops", "no exits"), or null when it can: the menu shows it as the row's note. */
+export function playModeRefusal(e: SampleEdits, mode: PlayMode): string | null {
+  const loops = e.loops.some((l) => !isHold(l));
+  if ((mode === "loop" || mode === "pickupLoop" || mode === "heldLoop" || mode === "loopExit") && !loops) return "no loops";
+  if (mode === "toNextExit" && !e.markers.some((m) => m.type === "exit")) return "no exits";
+  return null;
+}
+
+/** Where a "from the selection" mode starts: the selected item's start, else the playhead. */
+function selectionStart(e: SampleEdits, length: number, selection: SampleSelection, playhead: number): number {
+  if (selection.kind === "marker") return e.markers.find((m) => m.id === selection.id)?.at ?? playhead;
+  if (selection.kind === "loop") return e.loops.find((l) => l.id === selection.id)?.start ?? playhead;
+  if (selection.kind === "snippet") return snippets(e, length).find((s) => s.index === selection.index)?.start ?? playhead;
+  return playhead;
+}
+
 /** What `mode` plays for `selection`, from `playhead` (source seconds). Null when there's nothing to play. */
 export function planPlay(e: SampleEdits, length: number, selection: SampleSelection, mode: PlayMode, playhead: number): PlayPlan | null {
   const [ta, tb] = trimOf(e, length);
   const plain = (from: number, to: number, scope: string): PlayPlan | null => (to - from > 0.001 ? { from, to, loop: null, held: false, scope } : null);
-  const cycle = (id: string | undefined): PlayPlan | null => {
-    const l = (id ? e.loops.find((x) => x.id === id) : undefined) ?? e.loops[0];
-    if (!l || isHold(l)) return null;
-    return { from: l.start, to: l.end, loop: { start: l.start, end: l.end, count: 0, crossfadeMs: l.crossfadeMs }, held: false, scope: "Loop" };
+  const loopOf = (id: string | undefined) => (id ? e.loops.find((x) => x.id === id && !isHold(x)) : undefined) ?? e.loops.find((x) => !isHold(x));
+  const cycle = (id: string | undefined, scope = "Loop", held = false): PlayPlan | null => {
+    const l = loopOf(id);
+    if (!l) return null;
+    return { from: l.start, to: l.end, loop: { start: l.start, end: l.end, count: 0, crossfadeMs: l.crossfadeMs }, held, scope };
   };
+  const selLoop = selection.kind === "loop" ? selection.id : undefined;
   switch (mode) {
     case "whole":
-      return plain(ta, tb, "Whole sample");
-    case "loop":
-      return cycle(selection.kind === "loop" ? selection.id : undefined);
     case "through": {
       const l = e.loops.find((x) => !isHold(x));
-      if (!l) return plain(ta, tb, "Through loops");
-      return { from: ta, to: tb, loop: { start: l.start, end: l.end, count: l.active === "held" ? 0 : Math.max(0, l.count), crossfadeMs: l.crossfadeMs }, held: l.active === "held" || l.count === 0, scope: "Through loops" };
+      if (!l) return plain(ta, tb, "Whole");
+      return { from: ta, to: tb, loop: { start: l.start, end: l.end, count: l.active === "held" ? 0 : Math.max(0, l.count), crossfadeMs: l.crossfadeMs }, held: l.active === "held" || l.count === 0, scope: "Whole" };
+    }
+    case "loop":
+      return cycle(selLoop, "Cycle loop");
+    case "pickupLoop": {
+      const l = loopOf(undefined);
+      return l ? plain(Math.min(ta, l.start), l.end, "Pickup → loop") : null;
+    }
+    case "heldLoop":
+      return cycle(selLoop, "Loop", true);
+    case "loopExit": {
+      const l = loopOf(selLoop);
+      if (!l) return null;
+      // Held until Release, then on through the next Exit marker; what follows it is the tail, to the trim end.
+      return { from: l.start, to: tb, loop: { start: l.start, end: l.end, count: 0, crossfadeMs: l.crossfadeMs }, held: true, scope: "Loop → exit" };
     }
     case "toNextMarker": {
-      const next = nextMarker(e, playhead);
-      return plain(playhead, next ? next.at : tb, next ? `To ${next.name}` : "To the end");
+      const from = selectionStart(e, length, selection, playhead);
+      const next = nextMarker(e, from);
+      return plain(from, next ? next.at : tb, next ? `To ${next.name}` : "To trim end");
+    }
+    case "toNextExit": {
+      const from = selectionStart(e, length, selection, playhead);
+      const exit = e.markers.filter((m) => m.type === "exit" && m.at > from + 1e-6).sort((a, b) => a.at - b.at)[0];
+      return plain(from, exit ? exit.at : tb, exit ? "To next exit" : "To trim end");
     }
     case "toEnd":
-      return plain(playhead, tb, "To the end");
+      return plain(selectionStart(e, length, selection, playhead), tb, "To trim end");
     default:
       break;
   }
   // Selection.
   switch (selection.kind) {
-    case "loop":
-      return cycle(selection.id);
+    case "loop": {
+      const l = loopOf(selection.id);
+      return l ? cycle(l.id, loopName(e, l.id)) : null;
+    }
     case "marker": {
       const m = e.markers.find((x) => x.id === selection.id);
       if (!m) return null;
-      return plain(m.at, m.end ?? tb, m.name);
+      return plain(m.at, m.end ?? tb, m.end !== undefined ? m.name : `${m.name} → end`);
     }
     case "snippet": {
       const s = snippets(e, length).find((x) => x.index === selection.index);
-      return s ? plain(s.start, s.end, s.name) : null;
+      return s ? plain(s.start, s.end, s.deleted ? `${s.name} (silent)` : s.name) : null;
     }
     case "pickup":
     case "tail":
@@ -82,6 +147,21 @@ export function planPlay(e: SampleEdits, length: number, selection: SampleSelect
       // The trim, or the sample: from the playhead when it's inside the trim, else the trim.
       return plain(playhead > ta && playhead < tb - 0.01 ? playhead : ta, tb, playhead > ta && playhead < tb - 0.01 ? "From the playhead" : "Trim");
   }
+}
+
+/** What the player bar says while the seam plays. */
+export const SEAM_SCOPE = "Loop seam";
+
+/**
+ * Play across the seam (the Loop seam panel): the last `W` of the loop, the seam with its crossfade, then the first
+ * `W` of the loop, and no more (`W` is the seam strip's window, `seam.ts`). A two-pass loop run that stops `W` into
+ * its second pass. Null for a hold loop (no seam) or a loop that's gone.
+ */
+export function planSeam(e: SampleEdits, loopId: string): PlayPlan | null {
+  const l = e.loops.find((x) => x.id === loopId);
+  if (!l || isHold(l) || !(l.end - l.start > 0.002)) return null;
+  const w = Math.min(seamWindow(l.start, l.end), (l.end - l.start) / 2);
+  return { from: l.end - w, to: l.start + w, loop: { start: l.start, end: l.end, count: 2, crossfadeMs: l.crossfadeMs }, held: false, scope: SEAM_SCOPE };
 }
 
 export interface Playing {

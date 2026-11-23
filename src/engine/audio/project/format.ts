@@ -8,11 +8,13 @@
  *
  * Pure; no plugin, no DOM.
  */
+import { isMarkColour } from "../markColour";
 import type { Curve, CurveKey } from "../../core/curve";
 import { effectsToJson, parseEffects as parseEffectChain } from "../effects/catalogue";
 import type { Effect } from "../effects/types";
 import { parseParameters } from "../parameters";
 import { audioCurve } from "../audioCurveLimit";
+import { curveByProblem, curveByToJson, parseCurveBy } from "../curveBy";
 import { BUILTIN_MATERIALS } from "../occlusionMaterials";
 import { sameMaterial } from "../audioSection";
 import {
@@ -68,7 +70,7 @@ export const DEFAULT_DUCK_ATTACK_MS = 100;
 export const DEFAULT_DUCK_RELEASE_MS = 500;
 export const DEFAULT_SNAPSHOT_FADE_MS = 300;
 export const DEFAULT_SNAPSHOT_PRIORITY = 0;
-export const CONDITION_OPS: readonly ConditionOp[] = ["lt", "le", "eq", "ne", "ge", "gt", "between", "is", "not"];
+export const CONDITION_OPS: readonly ConditionOp[] = ["lt", "le", "eq", "ne", "ge", "gt", "between", "is", "not", "contains", "starts"];
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
@@ -240,6 +242,10 @@ export function parseAudioProject(raw: unknown, options: AudioParseOptions = {})
         else bus.bed = { own: bool(b.bed.own, `${where}.bed.own`, true, problems), priority: ranged(b.bed.priority, `${where}.bed.priority`, BED_PRIORITY_LIMITS, DEFAULT_BED_PRIORITY, problems, true) };
       }
       if (b.parent !== undefined && b.parent !== null && typeof b.parent !== "string") problems.push(`${where}.parent: must be a bus name or null.`);
+      if (b.colour !== undefined) {
+        if (typeof b.colour === "string" && b.colour.trim() !== "" && b.colour.length <= 64) bus.colour = b.colour;
+        else problems.push(`${where}.colour: must be a CSS colour; ignored.`);
+      }
       rawSends.set(bus, b.sends);
       buses.push(bus);
     });
@@ -281,6 +287,10 @@ export function parseAudioProject(raw: unknown, options: AudioParseOptions = {})
   project.automation = parseAutomation(raw.automation, project, problems);
   project.ducking = parseDucking(raw.ducking, project, problems);
   project.snapshots = parseSnapshots(raw.snapshots, project, problems);
+  const folders = parseSnapshotFolders(raw.snapshotFolders, project.snapshots, problems);
+  if (folders.length > 0) project.snapshotFolders = folders;
+  const studio = parseStudioSettings(raw.studio, problems);
+  if (studio) project.studio = studio;
   project.loudness = parseLoudness(raw.loudness, problems);
   // ADR 0351: encoding and packages, set only when the file holds something (absent keys read as their defaults).
   const encoding = parseEncodingConfig(raw.encoding, problems);
@@ -379,7 +389,16 @@ function parseAutomation(raw: unknown, project: AudioProject, problems: string[]
     } else if (target !== "volume") return void problems.push(`${where}: target must be "volume", "send:<return>" or "fx:<effect>:<param>"; dropped.`);
     const curve = audioCurve(a.curve, `${where}.curve`, problems);
     if (!curve) return void problems.push(`${where}: the curve has no keys; dropped.`);
-    out.push({ on: owner.name, target: target as MixAutomation["target"], parameter: a.parameter, curve, bypass: bool(a.bypass, `${where}.bypass`, false, problems) });
+    const lane: MixAutomation = { on: owner.name, target: target as MixAutomation["target"], parameter: a.parameter, curve, bypass: bool(a.bypass, `${where}.bypass`, false, problems) };
+    // ADR 0362 §5: a second global parameter; bus lanes are keyed on a parameter, so no rate.
+    const problem = (w: string, m: string) => void problems.push(`${w}: ${m}`);
+    const by = parseCurveBy(a.by, `${where}.by`, { time: false }, (c, w) => audioCurve(c, w, problems), problem);
+    if (by) {
+      const why = by.input === a.parameter ? "the second input is the lane's own parameter; dropped" : curveByProblem(by, project.parameters.find((p) => p.name === by.input), { time: false });
+      if (why) problem(`${where}.by`, why.endsWith("dropped") ? `${why}.` : `${why}; dropped.`);
+      else lane.by = by;
+    }
+    out.push(lane);
   });
   return out;
 }
@@ -459,6 +478,20 @@ function parseStart(raw: unknown, where: string, project: AudioProject, problems
   return { kind: "conditions", match, conditions };
 }
 
+/** The empty snapshot folders: unique "A/B" paths, none that a snapshot's folder already names (or sits inside). */
+function parseSnapshotFolders(raw: unknown, snapshots: readonly Snapshot[], problems: string[]): string[] {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) return void problems.push("snapshotFolders: must be a list of folder paths; ignored."), [];
+  const out: string[] = [];
+  const used = (f: string) => snapshots.some((s) => s.folder === f || s.folder.startsWith(`${f}/`));
+  raw.forEach((f, i) => {
+    const path = typeof f === "string" ? f.split("/").map((x) => x.trim()).filter((x) => x !== "").join("/") : "";
+    if (path === "") return void problems.push(`snapshotFolders[${i}]: must be a folder path; dropped.`);
+    if (!out.includes(path) && !used(path)) out.push(path);
+  });
+  return out;
+}
+
 function parseSnapshots(raw: unknown, project: AudioProject, problems: string[]): Snapshot[] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) return void problems.push("snapshots: must be a list; ignored."), [];
@@ -532,12 +565,14 @@ export function audioProjectToJson(project: AudioProject): Record<string, unknow
     format: AUDIO_PROJECT_FORMAT,
     settings: settingsToJson(project.settings),
     parameters: clone(project.parameters),
-    buses: project.buses.map((b) => ({ name: b.name, parent: b.parent, volumeDb: b.volumeDb, mute: b.mute, voiceLimit: b.voiceLimit, bed: b.bed && { ...b.bed }, meter: b.meter, effects: effectsToJson(b.effects), sends: b.sends.map((s) => ({ ...s })) })),
+    buses: project.buses.map((b) => ({ name: b.name, parent: b.parent, volumeDb: b.volumeDb, mute: b.mute, voiceLimit: b.voiceLimit, bed: b.bed && { ...b.bed }, meter: b.meter, effects: effectsToJson(b.effects), sends: b.sends.map((s) => ({ ...s })), ...optional("colour", b.colour) })),
     returns: project.returns.map((r) => ({ name: r.name, output: r.output, volumeDb: r.volumeDb, mute: r.mute, effects: effectsToJson(r.effects) })),
     vcas: project.vcas.map((v) => ({ name: v.name, volumeDb: v.volumeDb, members: [...v.members] })),
-    automation: project.automation.map((a) => ({ on: a.on, target: a.target, parameter: a.parameter, curve: clone(a.curve), bypass: a.bypass })),
+    automation: project.automation.map((a) => ({ on: a.on, target: a.target, parameter: a.parameter, curve: clone(a.curve), bypass: a.bypass, ...optional("by", a.by && curveByToJson(a.by)) })),
     ducking: project.ducking.map((d) => ({ ...d })),
     snapshots: project.snapshots.map((s) => clone(s)),
+    ...optional("snapshotFolders", project.snapshotFolders && project.snapshotFolders.length > 0 ? [...project.snapshotFolders] : null),
+    ...optional("studio", studioSettingsToJson(project.studio)),
     loudness: { targets: project.loudness.targets.map((t) => ({ ...t })), resetOnPlay: project.loudness.resetOnPlay },
     ...optional("encoding", project.encoding && encodingConfigToJson(project.encoding)),
     ...optional("packages", project.packages && packagesToJson(project.packages)),
@@ -575,3 +610,29 @@ function settingsToJson(s: AudioEngineSettings): Record<string, unknown> {
   return out;
 }
 
+/** ADR 0362 item 4: `studio`, `{ folderColours: { <folder>: colour } }`; bad entries are dropped with a problem. */
+function parseStudioSettings(raw: unknown, problems: string[]): AudioProject["studio"] | null {
+  if (raw === undefined || raw === null) return null;
+  if (!isRecord(raw)) return void problems.push("studio: must be an object; ignored."), null;
+  const out: NonNullable<AudioProject["studio"]> = {};
+  if (raw.folderColours !== undefined) {
+    if (!isRecord(raw.folderColours)) problems.push("studio.folderColours: must map folder paths to colours; ignored.");
+    else {
+      const colours: Record<string, string> = {};
+      for (const [folder, colour] of Object.entries(raw.folderColours)) {
+        const path = folder.replace(/^\/+|\/+$/g, "");
+        if (path === "") problems.push("studio.folderColours: a key must be a folder path; dropped.");
+        else if (!isMarkColour(colour)) problems.push(`studio.folderColours.${folder}: must be a theme colour name or #rrggbb; dropped.`);
+        else colours[path] = colour.toLowerCase();
+      }
+      if (Object.keys(colours).length) out.folderColours = colours;
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function studioSettingsToJson(studio: AudioProject["studio"]): Record<string, unknown> | null {
+  const colours = studio?.folderColours;
+  if (!colours || Object.keys(colours).length === 0) return null;
+  return { folderColours: Object.fromEntries(Object.keys(colours).sort().map((k) => [k, colours[k]!])) };
+}

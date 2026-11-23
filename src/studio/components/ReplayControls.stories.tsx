@@ -16,7 +16,7 @@ type Story = StoryObj<typeof ReplayControls>;
 export const Paused: Story = {
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
-    await expect(c.getByText("0:12.4")).toBeVisible();
+    await expect(c.getByText("00:12.400")).toBeVisible();
     await userEvent.click(c.getByRole("button", { name: "Replay the take" }));
     await expect(args.onToggle).toHaveBeenCalled();
   },

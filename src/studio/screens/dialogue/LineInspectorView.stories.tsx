@@ -58,7 +58,7 @@ export const LongSubtitle: StoryObj = {
     const cooldown = c.getByRole("textbox", { name: "Cooldown" });
     await userEvent.clear(cooldown);
     await userEvent.type(cooldown, "6{Enter}");
-    await waitFor(() => expect(c.getByRole("textbox", { name: "Cooldown" })).toHaveValue("6.0"));
+    await waitFor(() => expect(c.getByRole("textbox", { name: "Cooldown" })).toHaveValue("6")); // the box drops trailing zeros (numberBoxText)
     await userEvent.click(c.getByRole("checkbox", { name: "Once" }));
     await expect(c.getByRole("checkbox", { name: "Once" })).toBeChecked();
   },

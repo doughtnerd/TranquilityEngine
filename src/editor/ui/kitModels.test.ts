@@ -1,10 +1,10 @@
 // The component kit's pure models (ADR 0349): context menu keys, toasts with an Undo, segmented control keys, the
 // Move to… rules, key combos, the shortcuts list and the History popover's words.
 import { describe, expect, it, vi } from "vitest";
-import { SEPARATOR, edgeIndex, stepIndex, tidyEntries, typeaheadIndex, type MenuEntry } from "./contextMenuModel";
+import { SEPARATOR, edgeIndex, hasCheckColumn, stepIndex, tidyEntries, typeaheadIndex, type MenuEntry } from "./contextMenuModel";
 import { historyPopoverText } from "./historyPopoverModel";
 import { formatCombo, formatKeys, isSingleKey, matchesCombo, parseCombo, type KeyEventLike } from "./keyCombo";
-import { allFolders, folderTree, parentFolder, searchFolders, whyNotMoveTo } from "./moveToModel";
+import { allFolders, folderTree, isCurrentFolder, parentFolder, searchFolders, whyNotMoveTo } from "./moveToModel";
 import { segmentForKey } from "./segmentedModel";
 import { numberBoxCommit, numberBoxStep, numberBoxText } from "./panelFieldsModel";
 import { shownShortcuts } from "./shortcutListModel";
@@ -37,17 +37,31 @@ describe("context menu", () => {
     const tidy = tidyEntries([SEPARATOR, item("a"), null, SEPARATOR, SEPARATOR, false, item("b"), SEPARATOR]);
     expect(tidy.map((e) => ("id" in e ? e.id : "-"))).toEqual(["a", "-", "b"]);
   });
+
+  it("skips group headings, drops one with nothing under it, and draws a check column only when an item can be checked", () => {
+    const group = (label: string): MenuEntry => ({ kind: "group", label });
+    const menu: MenuEntry[] = [group("Play mode"), item("Whole"), item("Loop")];
+    expect(stepIndex(menu, -1, 1)).toBe(1);
+    expect(stepIndex(menu, 1, -1)).toBe(2);
+    const tidy = tidyEntries([group("Empty"), SEPARATOR, item("a"), group("Also empty"), group("Kept"), item("b"), group("Trailing")]);
+    expect(tidy.map((e) => ("id" in e ? e.id : "label" in e ? e.label : "-"))).toEqual(["a", "Kept", "b"]);
+    expect(hasCheckColumn(menu)).toBe(false);
+    expect(hasCheckColumn([...menu, { id: "c", label: "Cycle", checked: false, run() {} }])).toBe(true);
+  });
 });
 
 describe("toasts with an Undo", () => {
   it("stay 10 s with an Undo, 5 s without, and leave when their time is up", () => {
     const q = createToastQueue();
     q.show({ text: "Deleted Engine loop", undo() {} });
-    q.show({ text: "Saved" });
-    expect(q.toasts.value.map((t) => t.remaining)).toEqual([UNDO_TOAST_MS, INFO_TOAST_MS]);
-    q.tick(INFO_TOAST_MS);
+    expect(q.toasts.value.map((t) => t.remaining)).toEqual([UNDO_TOAST_MS]);
+    q.tick(UNDO_TOAST_MS - 1);
     expect(q.toasts.value.map((t) => t.text)).toEqual(["Deleted Engine loop"]);
-    q.tick(UNDO_TOAST_MS - INFO_TOAST_MS);
+    q.tick(1);
+    expect(q.toasts.value).toEqual([]);
+    q.show({ text: "Saved" });
+    expect(q.toasts.value.map((t) => t.remaining)).toEqual([INFO_TOAST_MS]);
+    q.tick(INFO_TOAST_MS);
     expect(q.toasts.value).toEqual([]);
   });
 
@@ -64,7 +78,24 @@ describe("toasts with an Undo", () => {
     expect(undo).toHaveBeenCalledTimes(1);
   });
 
-  it("holds time while paused, can be dismissed, and keeps at most three", () => {
+  it("shows one at a time, and merges a run of the same action into one whose Undo undoes them all (journeys walk 2, V15)", () => {
+    const q = createToastQueue();
+    const undone: string[] = [];
+    q.show({ text: "Created step-wood-1", undo: () => undone.push("1") });
+    q.show({ text: "Created step-wood-2", undo: () => undone.push("2") });
+    const id = q.show({ text: "Created step-wood-3", undo: () => undone.push("3") });
+    expect(q.toasts.value.map((t) => t.text)).toEqual(["Created step-wood-3 · and 2 more"]);
+    expect(q.undo(id)).toBe(true);
+    expect(undone).toEqual(["3", "2", "1"]);
+    // Another action takes the place; its Undo is its own.
+    q.show({ text: "Created a", undo: () => undone.push("a") });
+    const other = q.show({ text: "Deleted b", undo: () => undone.push("b") });
+    expect(q.toasts.value.map((t) => t.text)).toEqual(["Deleted b"]);
+    q.undo(other);
+    expect(undone.slice(3)).toEqual(["b"]);
+  });
+
+  it("holds time while paused, can be dismissed, and a new one takes the place of the one showing", () => {
     const q = createToastQueue();
     const a = q.show({ text: "a", undo() {} });
     q.pause(true);
@@ -76,7 +107,7 @@ describe("toasts with an Undo", () => {
     const undo = vi.fn();
     const first = q.show({ text: "1", undo });
     for (const t of ["2", "3", "4"]) q.show({ text: t });
-    expect(q.toasts.value.map((t) => t.text)).toEqual(["2", "3", "4"]);
+    expect(q.toasts.value.map((t) => t.text)).toEqual(["4"]);
     expect(q.undo(first)).toBe(false);
     expect(q.show({ text: "e", kind: "error", undo() {}, undoLabel: "Restore" })).toBeGreaterThan(0);
     expect(q.toasts.value.at(-1)).toMatchObject({ kind: "error", undoLabel: "Restore" });
@@ -122,10 +153,14 @@ describe("Move to…", () => {
     const mixed = [{ path: "takes/a.mycotake", folder: false }, { path: "b.mycotake", folder: false }];
     expect(whyNotMoveTo("takes", mixed)).toBeNull(); // one of them moves
     expect(whyNotMoveTo("x", [])).not.toBeNull();
+    expect(isCurrentFolder("audio/sfx", file)).toBe(true);
+    expect(isCurrentFolder("audio", file)).toBe(false);
+    expect(isCurrentFolder("takes", mixed)).toBe(false);
   });
 
-  it("searches folders by path", () => {
-    expect(searchFolders(folders, "SFX")).toEqual(["audio/sfx", "audio/sfx/cars"]);
+  it("searches folders by path, always listing the top level first", () => {
+    expect(searchFolders(folders, "SFX")).toEqual(["", "audio/sfx", "audio/sfx/cars"]);
+    expect(searchFolders(folders, "nothing like it")).toEqual([""]);
     expect(searchFolders(folders, "  ")).toHaveLength(6);
   });
 });

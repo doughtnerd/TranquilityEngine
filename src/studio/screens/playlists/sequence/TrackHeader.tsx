@@ -1,58 +1,45 @@
-// A track's header on the Sequence timeline (proto §4 "Track headers"): its colour (a theme series; click for the
-// next), name (double-click to rename), kind, Enabled with its automate button, Mute and Solo, volume and pan (which
-// write automation while Write is armed and the sequence plays), the lanes caret, the FX count and the output bus.
+// A track's header on the Sequence timeline (proto A3 `.th.tkh`, 68 px, 168 px wide). Line 1: the lanes caret (only with
+// automation), the colour chip, the bold name, a "Playlist" badge on a playlist track and "FX n" (its tooltip lists the
+// effects), then Enable (power, green when on), M (danger when pressed) and S (warning when pressed). Line 2: the volume
+// in dB (locked and showing the live value while automated), the output bus, and Delete. Pressing the header selects
+// the track; dragging it vertically reorders the tracks (the timeline handles the press). Right-click for the menu.
 // A view over props.
-import { useState } from "preact/hooks";
 import type { Track } from "../../../../engine/audio/playlist/types";
-import { RenameField } from "../../../../editor/ui/RenameField";
+import { effectSpec } from "../../../../engine/audio/effects/catalogue";
 import { Icon } from "../../../components/Icon";
+import { NumberField } from "../../../components/NumberField";
+import { SeqIcon } from "./sequenceIcons";
 
 export interface TrackHeaderProps {
   readonly track: Track;
   readonly selected: boolean;
   readonly writable: boolean;
   readonly lanesOpen: boolean;
-  readonly buses: readonly string[];
   readonly height: number;
-  onSelect(e: MouseEvent): void;
+  /** The volume's automation now (its live value and what drives it), or null when it isn't automated. */
+  readonly volumeNow: { readonly value: number; readonly by: string } | null;
+  /** The header body pressed (not one of its controls): select, or drag to reorder. */
+  onPress(e: PointerEvent): void;
   onMenu(e: MouseEvent): void;
-  onRename(name: string): void;
-  onColour(): void;
   onToggle(field: "enabled" | "mute" | "solo"): void;
-  onAutomateEnabled(): void;
   onToggleLanes(): void;
-  onOutput(bus: string | null): void;
-  /** A slider pressed (Write records while it is held), moved (preview) and released (commit). */
-  onSlider(field: "volume" | "pan", phase: "start" | "input" | "end", value: number): void;
+  /** The volume typed or scrubbed (`drag` true while the label scrubs, then false). */
+  onVolume(value: number, drag: boolean): void;
+  onDelete(): void;
 }
 
 export function TrackHeader(props: TrackHeaderProps) {
   const { track: t, writable } = props;
-  const [renaming, setRenaming] = useState(false);
   const color = typeof t.color === "number" ? `var(--series-${t.color})` : t.color;
-  const slider = (field: "volume" | "pan", min: number, max: number, step: number, label: string) => (
-    <input
-      type="range"
-      class={`sq-slider ${field}`}
-      aria-label={`${t.name} ${label}`}
-      title={`${label}: ${field === "volume" ? `${t.volume.toFixed(1)} dB` : t.pan === 0 ? "centre" : `${Math.round(Math.abs(t.pan) * 100)} % ${t.pan < 0 ? "left" : "right"}`}`}
-      min={min}
-      max={max}
-      step={step}
-      value={t[field]}
-      disabled={!writable}
-      onPointerDown={(e) => props.onSlider(field, "start", Number((e.currentTarget as HTMLInputElement).value))}
-      onInput={(e) => props.onSlider(field, "input", Number((e.currentTarget as HTMLInputElement).value))}
-      onChange={(e) => props.onSlider(field, "end", Number((e.currentTarget as HTMLInputElement).value))}
-    />
-  );
+  const fx = t.effects.map((e) => effectSpec(e.type).label);
   return (
     <div
       class={`sq-track-head${props.selected ? " selected" : ""}${t.enabled ? "" : " disabled"}`}
       style={{ height: `${props.height}px`, "--clip": color }}
+      title={`${t.name} · right-click for more`}
       onPointerDown={(e) => {
         if ((e.target as HTMLElement).closest("input, button, select")) return;
-        props.onSelect(e);
+        props.onPress(e);
       }}
       onContextMenu={(e) => {
         e.preventDefault();
@@ -60,36 +47,31 @@ export function TrackHeader(props: TrackHeaderProps) {
       }}
     >
       <div class="sq-head-line">
-        <button type="button" class="sq-swatch" aria-label={`${t.name} colour`} title="Track colour (click for the next)" disabled={!writable} onClick={props.onColour} />
-        {renaming ? (
-          <RenameField value={t.name} label="Track name" onCommit={(v) => { setRenaming(false); if (v.trim() && v !== t.name) props.onRename(v); }} onCancel={() => setRenaming(false)} />
-        ) : (
-          <span class="sq-track-name" title={`${t.name} · ${t.kind === "audio" ? "Audio track: takes samples" : "Playlist track: takes playlists"} (double-click to rename)`} onDblClick={() => writable && setRenaming(true)}>
-            {t.name}
-          </span>
+        {t.automation.length > 0 && (
+          <button type="button" class="sq-tcb lanes" aria-expanded={props.lanesOpen} aria-label={`Automation lanes of ${t.name}`} title="Show or hide automation lanes" onClick={props.onToggleLanes}>
+            {props.lanesOpen ? "▾" : "▸"}
+          </button>
         )}
-        <span class="sq-kind" title={t.kind === "audio" ? "Audio track" : "Playlist track"}>{t.kind === "audio" ? "AUD" : "PL"}</span>
-        <button type="button" class="sq-icon" aria-label={`${t.name} menu`} title="Track menu" aria-haspopup="menu" onClick={(e) => props.onMenu(e)}><Icon name="more" /></button>
-      </div>
-      <div class="sq-head-line">
-        <label class="sq-check" title="Enabled: a disabled track's clips don't play">
-          <input type="checkbox" checked={t.enabled} disabled={!writable} aria-label={`${t.name} enabled`} onChange={() => props.onToggle("enabled")} />
-        </label>
-        <button type="button" class="sq-icon sq-automate" aria-label={`Automate ${t.name} enabled`} title="Automate Enabled" disabled={!writable} onClick={props.onAutomateEnabled}><Icon name="automate" size={14} /></button>
-        <button type="button" class={`sq-ms${t.mute ? " on mute" : ""}`} aria-pressed={t.mute} aria-label={`Mute ${t.name}`} disabled={!writable} onClick={() => props.onToggle("mute")}>M</button>
-        <button type="button" class={`sq-ms${t.solo ? " on solo" : ""}`} aria-pressed={t.solo} aria-label={`Solo ${t.name}`} disabled={!writable} onClick={() => props.onToggle("solo")}>S</button>
-        {slider("volume", -60, 12, 0.5, "Volume")}
-        {slider("pan", -1, 1, 0.01, "Pan")}
-      </div>
-      <div class="sq-head-line">
-        <button type="button" class="sq-icon sq-caret" aria-expanded={props.lanesOpen} aria-label={`${t.name} automation lanes`} title={t.automation.length ? "Show or hide the automation lanes" : "No automation yet (track menu › Automate)"} disabled={!t.automation.length} onClick={props.onToggleLanes}>
-          <Icon name={props.lanesOpen ? "chevronDown" : "chevronRight"} size={12} /> {t.automation.length}
+        <span class="sq-swatch" aria-hidden="true" />
+        <span class="sq-track-name" title={t.name}>{t.name}</span>
+        {/* A glyph, not the word: beside the word the name had a few pixels left ("P…", V13). */}
+        {t.kind === "playlist" && <span class="sq-head-badge kind" role="img" aria-label="Playlist track" title="Playlist track: its clips trigger playlists"><Icon name="playlists" size={11} /></span>}
+        {fx.length > 0 && <span class="sq-head-badge fx" title={`Track effects: ${fx.join(", ")}`}>FX {fx.length}</span>}
+        <button type="button" class="sq-ms pw" aria-pressed={t.enabled} aria-label={`${t.name} enabled`} title={t.enabled ? "Enabled · click to disable" : "Disabled · click to enable"} disabled={!writable} onClick={() => props.onToggle("enabled")}>
+          <SeqIcon name="power" size={11} />
         </button>
-        <button type="button" class="sq-fx" title={t.effects.length ? t.effects.map((e) => e.type).join(", ") : "No track effects (edit them in the Inspector)"} onClick={(e) => props.onSelect(e)}>FX {t.effects.length}</button>
-        <select class="sq-out" aria-label={`${t.name} output`} title="Output bus" disabled={!writable} value={t.output ?? ""} onChange={(e) => props.onOutput((e.currentTarget as HTMLSelectElement).value || null)}>
-          <option value="">→ Sequence</option>
-          {props.buses.map((b) => <option key={b} value={b}>→ {b}</option>)}
-        </select>
+        <button type="button" class="sq-ms m" aria-pressed={t.mute} aria-label={`Mute ${t.name}`} title={t.mute ? "Muted · click to unmute" : "Mute"} disabled={!writable} onClick={() => props.onToggle("mute")}>M</button>
+        <button type="button" class="sq-ms s" aria-pressed={t.solo} aria-label={`Solo ${t.name}`} title={t.solo ? "Soloed · click to unsolo" : "Solo"} disabled={!writable} onClick={() => props.onToggle("solo")}>S</button>
+      </div>
+      <div class="sq-head-line">
+        <span class="sq-head-vol" title={props.volumeNow ? `Volume is automated by ${props.volumeNow.by}` : "Track volume"}>
+          <NumberField hideLabel size="narrow" label={`${t.name} volume`} value={props.volumeNow ? Math.round(props.volumeNow.value * 10) / 10 : t.volume} min={-60} max={12} step={0.5} digits={1} unit="dB"
+            disabled={!writable || !!props.volumeNow} onValue={(v, drag) => props.onVolume(v, drag)} />
+        </span>
+        <span class="sq-head-out" title={t.output ? `Plays into ${t.output}` : "Plays into the sequence's output"}>{t.output ?? "Sequence"}</span>
+        <button type="button" class="sq-ms tr" aria-label={`Delete ${t.name}`} title="Delete track (Ctrl/⌘+Z to undo)" disabled={!writable} onClick={props.onDelete}>
+          <SeqIcon name="trash" size={11} />
+        </button>
       </div>
     </div>
   );

@@ -55,9 +55,10 @@ export const Events: StoryObj = {
     await userEvent.click(c.getByRole("button", { name: "Add event" }));
     await waitFor(() => expect(within(list).getByRole("button", { name: "new_event" })).toHaveAttribute("aria-current", "true"));
     const name = c.getByRole("textbox", { name: "Event name" });
+    await waitFor(() => expect(name).toHaveValue("new_event")); // the field takes the new selection's name after paint
     await userEvent.clear(name);
     await userEvent.type(name, "enemy_spotted{Enter}");
-    await expect(c.getByRole("status")).toHaveTextContent('"enemy_spotted" is already an event');
+    await waitFor(() => expect(c.getByRole("status")).toHaveTextContent('"enemy_spotted" is already an event'));
     await userEvent.clear(name);
     await userEvent.type(name, "reload{Enter}");
     await waitFor(() => expect(within(list).getByRole("button", { name: "reload" })).toBeInTheDocument());

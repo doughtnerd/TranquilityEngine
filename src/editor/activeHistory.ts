@@ -14,7 +14,7 @@
 // applied by the editor focus).
 // The histories keep their own implementations; this module only sees them through `UndoHistory`.
 import { computed, signal, type ReadonlySignal } from "@preact/signals";
-import { useEffect, useRef } from "preact/hooks";
+import { useLayoutEffect, useRef } from "preact/hooks";
 import { focusedAssetDocument, type AssetDocument } from "./assetDocuments";
 import type { CommandStack, HistoryState } from "./document";
 import { docVersion, openScene } from "./state";
@@ -167,18 +167,21 @@ export function providePanelHistory(root: Element, history: UndoHistory): () => 
 /**
  * `providePanelHistory` on `ref`'s element while the component is mounted, following the element (it
  * may appear on a later render) and `history` (pass a new object to re-register, e.g. when a history
- * kept in component state changes, so the Edit menu follows). Null: none.
+ * kept in component state changes, so the Edit menu follows). Null: none. It registers as the render
+ * commits (a layout effect), so the history is active as soon as its panel is on the page: a press or a
+ * focus that lands before the next frame (a plain effect waits for one, and a background page's frames
+ * are throttled) finds it.
  */
 export function usePanelHistory(ref: { readonly current: Element | null }, history: UndoHistory | null): void {
   const registered = useRef<{ el: Element | null; history: UndoHistory | null; stop?: () => void }>({ el: null, history: null });
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
     const was = registered.current;
     if (was.el === el && was.history === history) return;
     was.stop?.();
     registered.current = { el, history, stop: el && history ? providePanelHistory(el, history) : undefined };
   });
-  useEffect(() => () => registered.current.stop?.(), []);
+  useLayoutEffect(() => () => registered.current.stop?.(), []);
 }
 
 // --- resolving ------------------------------------------------------------------------------------
@@ -203,6 +206,15 @@ function resolve(): ActiveHistory | null {
   if (doc && editorShown(doc.path)) return { kind: "asset", history: assetDocumentHistory(doc), path: doc.path };
   const scene = openScene.value;
   return scene ? { kind: "scene", history: sceneHistory(scene.stack), path: scene.path } : null;
+}
+
+/**
+ * An asset document's history as the active one would be when its editor has focus: for a toolbar's Undo, Redo and
+ * History that belong to one document whatever is focused (the Audio Studio's Samples toolbar, which acts on the open
+ * sample from the moment it opens).
+ */
+export function assetHistory(doc: AssetDocument<unknown>): ActiveHistory {
+  return { kind: "asset", history: assetDocumentHistory(doc), path: doc.path };
 }
 
 /** The history Undo and Redo act on now, or null (no scene open and no editor with a history focused). */

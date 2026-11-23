@@ -15,7 +15,15 @@ import { axisRange, place1D, place2D } from "./blendPlacement";
 /** What the edits need to know beyond the body: the parameters it can use (global and local). */
 export interface EditContext {
   readonly parameters: readonly ParameterDef[];
+  /**
+   * "+ New parameter…" in a parameter select (UI pass J4.1/J5.1): make a global parameter (`kind`: only that kind) and
+   * resolve with it, null when cancelled. Absent: the selects don't offer it. Edits never call it.
+   */
+  readonly newParameter?: (kind?: "numeric" | "labelled") => Promise<ParameterDef | null>;
 }
+
+/** `ctx` with parameter `def` added (just made by "+ New parameter…", before the screen's signals have it). */
+export const withParameter = (ctx: EditContext, def: ParameterDef): EditContext => ({ ...ctx, parameters: [...ctx.parameters.filter((p) => p.name !== def.name), def] });
 
 const clamp = (v: number, lo: number, hi: number): number => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);
 const round = (v: number, step: number): number => Math.round(v / step) * step;
@@ -369,10 +377,16 @@ export function setOutput(b: PlaylistBody, bus: string | null, buses: readonly s
 
 export const setEffects = (b: PlaylistBody, effects: Effect[]): EditResult<PlaylistBody> => accept({ ...b, effects });
 
-/** The spatial block: null makes the playlist flat (2D); a patch on a flat one starts from the defaults. */
+/** Replace the instance automation (an effect's lanes, `effectAutomation.ts`). */
+export const setAutomation = (b: PlaylistBody, automation: PlaylistBody["automation"]): EditResult<PlaylistBody> => accept({ ...b, automation });
+
+/**
+ * The spatial block: null makes the playlist flat (2D); a patch on a flat one starts from the defaults, occlusion on
+ * (ADR 0162: a positioned sound is occluded unless it opts out).
+ */
 export function setSpatial(b: PlaylistBody, patch: Partial<PlaylistSpatial> | null): EditResult<PlaylistBody> {
   if (patch === null) return accept({ ...b, spatial: null });
-  const base: PlaylistSpatial = b.spatial ?? { attenuation: null, occlusion: false, doppler: 0, spread: null };
+  const base: PlaylistSpatial = b.spatial ?? { attenuation: null, occlusion: true, doppler: 0, spread: null };
   const next = { ...base, ...patch };
   next.doppler = round(clamp(next.doppler, 0, 5), 0.1);
   if (next.spread !== null) next.spread = Math.round(clamp(next.spread, 0, 360));

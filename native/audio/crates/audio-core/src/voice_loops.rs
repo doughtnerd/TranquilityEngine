@@ -465,7 +465,8 @@ fn read(src: &Source<'_>, pos: f64, wrap: Option<(usize, usize)>) -> (f32, f32) 
         }
         j.clamp(0, last as isize) as usize
     };
-    let j = [at(-1), idx, at(1), at(2)];
+    // ADR 0362: a reversed clip's frames are read mirrored (`Source::reversed`), positions counted from its end.
+    let j = [at(-1), idx, at(1), at(2)].map(|j| if src.reversed { last - j } else { j });
     let w = weights(t);
     let l = w[0] * sample(&src.samples, j[0] * ch) + w[1] * sample(&src.samples, j[1] * ch) + w[2] * sample(&src.samples, j[2] * ch) + w[3] * sample(&src.samples, j[3] * ch);
     if ch == 2 {
@@ -671,7 +672,7 @@ mod tests {
     #[test]
     fn a_crossfade_reads_the_tail_against_the_loop_in_equal_power() {
         let clip: Vec<f32> = (0..64).map(|i| i as f32).collect();
-        let src = Source { samples: Samples::F32(&clip), channels: 1, frames: 64 };
+        let src = Source { samples: Samples::F32(&clip), channels: 1, frames: 64, reversed: false };
         let mut p = Program::default();
         load(&mut p, &[LoopDef { xfade: 4, ..def(8, 16, direction::FORWARD, active::ALWAYS, exit::FINISH, 0) }], 1, 0.0);
         let mut pos = 0.0;
@@ -690,7 +691,7 @@ mod tests {
     #[test]
     fn a_shaped_seam_and_exit_read_their_shapes_at_mid_crossfade() {
         let clip: Vec<f32> = (0..64).map(|i| i as f32).collect();
-        let src = Source { samples: Samples::F32(&clip), channels: 1, frames: 64 };
+        let src = Source { samples: Samples::F32(&clip), channels: 1, frames: 64, reversed: false };
         let linear = wire::FADE_SHAPE_LINEAR as u16;
         let s_curve = wire::FADE_SHAPE_S_CURVE as u16;
         let shapes = linear << wire::LOOP_SEAM_SHAPE_SHIFT | s_curve << wire::LOOP_EXIT_SHAPE_SHIFT;

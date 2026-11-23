@@ -4,6 +4,7 @@
 // (`kit.css`).
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
+import { InfoTip } from "./InfoTip";
 import { numberBoxCommit, numberBoxStep, numberBoxText } from "./panelFieldsModel";
 import "./kit.css";
 
@@ -38,8 +39,8 @@ export function NumberBox(props: NumberBoxProps) {
   const digits = props.digits ?? 2;
   const [text, setText] = useState(numberBoxText(props.value, digits));
   useEffect(() => setText(numberBoxText(props.value, digits)), [props.value, digits]);
-  const commit = () => {
-    const v = numberBoxCommit(text, props);
+  const commit = (typed = text) => {
+    const v = numberBoxCommit(typed, props);
     if (v === null) setText(numberBoxText(props.value, digits));
     else props.onValue(v);
   };
@@ -53,7 +54,12 @@ export function NumberBox(props: NumberBoxProps) {
       disabled={props.disabled}
       value={text}
       onInput={(e) => setText((e.currentTarget as HTMLInputElement).value)}
-      onBlur={commit}
+      onBlur={() => commit()}
+      onChange={(e) => {
+        // A change while not focused came from a label scrub (the Studio's `installLabelScrub`): commit it once.
+        const input = e.currentTarget as HTMLInputElement;
+        if (input.ownerDocument.activeElement !== input) commit(input.value);
+      }}
       onKeyDown={(e) => {
         if (e.key === "Enter") commit();
         else if (e.key === "Escape") setText(numberBoxText(props.value, digits));
@@ -87,15 +93,23 @@ export function SelectBox<T extends string>(props: SelectBoxProps<T>) {
   );
 }
 
-/** A titled section of a panel (collapsible). */
-export function Section(props: { readonly title: string; readonly note?: string; readonly children: ComponentChildren; readonly open?: boolean; readonly actions?: ComponentChildren }) {
+/**
+ * A titled section of a panel (collapsible). Its explanation (`hint`; `note` is the older name) is an ⓘ tooltip in the
+ * header, not a paragraph (spec §1.3).
+ */
+export function Section(props: { readonly title: string; readonly hint?: string; readonly note?: string; readonly children: ComponentChildren; readonly open?: boolean; readonly actions?: ComponentChildren }) {
+  const hint = props.hint ?? props.note;
   return (
     <details class="kit-section" open={props.open ?? true}>
       <summary class="kit-section-head">
         <span class="kit-section-title">{props.title}</span>
+        {hint && (
+          <span class="kit-section-hint" onClick={(e) => e.preventDefault()}>
+            <InfoTip text={hint} label={`About ${props.title}`} />
+          </span>
+        )}
         {props.actions && <span class="kit-section-actions" onClick={(e) => e.preventDefault()}>{props.actions}</span>}
       </summary>
-      {props.note && <p class="kit-note">{props.note}</p>}
       <div class="kit-section-body">{props.children}</div>
     </details>
   );

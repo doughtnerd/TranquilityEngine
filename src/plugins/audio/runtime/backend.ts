@@ -4,6 +4,7 @@
  *
  * Lives in the audio plugin (ADR 0157 §6); the engine imports the mixer from `engine/audio/mixer`.
  */
+import type { AmpStages } from "../../../engine/audio/effects/ampEnvelope";
 import type { Vec3Like } from "../../../engine/core/math";
 import type { Effect, PluginEffectDecl } from "../../../engine/audio/effects/types";
 import { mixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../engine/audio/mixer";
@@ -17,6 +18,7 @@ import type { AudioMarkerEvent, AudioMarkerType } from "../../../engine/audio/ma
 import type { ProfileSink } from "./mix/profileSink";
 import type { KeyframePayload } from "./capture/format";
 import type { AudioDebugInfo, AudioMixCaps, AudioPluginDebug, MusicBackendDebug } from "./debugTypes";
+import type { GeneratorKind } from "../../../engine/audio/generators/types";
 import { PendingCoreBackend } from "./pendingBackend";
 import { onAudioSessionReleased } from "./audioSession";
 
@@ -254,6 +256,17 @@ export interface AudioPlaylistHandle extends AudioHandle, MusicEventHandle {
    * the first frame whose heard clock has passed them (`e.time` is the exact heard time).
    */
   onMarker(type: AudioMarkerType, fn: (e: AudioMarkerEvent) => void): () => void;
+  /**
+   * ADR 0362 §1: hold the playback where it is: its voices, timers, sequence clock and pending picks wait, and `resume()`
+   * continues it from that same position (the musical clock, markers and beat callbacks hold too). Pausing a paused
+   * playback, or resuming one that isn't paused, does nothing; `stop()` stops a paused one. Changes to its parameters
+   * while paused take effect when it resumes.
+   */
+  pause(): void;
+  /** ADR 0362 §1: continue a paused playback from where it held. A no-op when it isn't paused. */
+  resume(): void;
+  /** ADR 0362 §1: true from `pause()` until `resume()` or `stop()`. */
+  readonly paused: boolean;
 }
 
 /**
@@ -344,6 +357,48 @@ export interface PlayRequest {
    * own clip (a loop tail). Decoded clips only; a backend without span clips (`holdSpan` absent) ignores it.
    */
   span?: { startFrame: number; endFrame: number };
+
+  // ADR 0360 (G3). Optional; only a backend with `generators` plays it (the pending backend forwards it to the core).
+  /**
+   * The voice is a generator, not a clip: the core plays it as a PLAY of the kind's reserved clip id followed by a GEN
+   * with every value (`url`, `stream`, `offset` and `span` are ignored; `path` names it in debug rows and captures). A
+   * backend without `generators` plays nothing for it.
+   */
+  generator?: GeneratorSource;
+
+  // ADR 0362 (the core's ABI 6.1). Optional; a backend without them plays the clip forward with no envelope.
+  /**
+   * Item 3: the voice reads its clip backwards (a reversed sequence clip). It starts at `offset` seconds into the source
+   * (0 or omitted: the clip's end) and plays down to the clip's start, where it ends; its loops (`setLoop`, `setLoops`,
+   * in source seconds as always) run backwards inside their regions. Decoded clips only: the caller decodes a streamed
+   * source whole for it (`stream: false`).
+   */
+  reverse?: boolean;
+  /** Item 2: the voice's Amp envelope (a sequence clip's `envelope` effect), per sample on the core. */
+  envelope?: VoiceEnvelope;
+}
+
+/**
+ * ADR 0362 item 2: a voice's Amp envelope. `stages` are seconds (`ampEnvelope.ts`); the envelope spans `length` seconds
+ * (its stages fitted to it, the release ending at its end; null: unbounded, never released) and the voice starts at
+ * `offset` seconds into it (a voice that starts inside its clip). It runs on the voice's own time (not its pitch).
+ */
+export interface VoiceEnvelope {
+  readonly stages: AmpStages;
+  readonly length: number | null;
+  readonly offset: number;
+}
+
+/**
+ * ADR 0360 §3, §5: what one trigger of a generator plays, resolved on main (`resolveGenerator`, drawing from the World's
+ * seeded generator in pick order): the kind, every parameter in the generator catalogue's (wire) order, and the noise seed.
+ */
+export interface GeneratorSource {
+  readonly kind: GeneratorKind;
+  /** Every parameter of the kind, in the generator catalogue's order. */
+  readonly values: readonly number[];
+  /** The noise seed (0..2³²−1; the core reads 0 as "keep", so the core backend sends a non-zero one). */
+  readonly seed: number;
 }
 
 /**
@@ -421,8 +476,13 @@ export interface AudioVoice {
   setPosition(p: Vec3Like): void;
   /** Move to another bus while playing. */
   setBus(bus: string): void;
-  pause(): void;
-  resume(): void;
+  /**
+   * Hold the voice (it stops rendering and advancing; its position and ramps hold) and continue it from there. `at`
+   * (ADR 0362 §1, heard time) stamps it, so every voice of a playback holds at the same instant and continues at the same
+   * instant; omitted or past, as soon as possible. The core honours the stamp; the Babylon fallback pauses at once.
+   */
+  pause(at?: number): void;
+  resume(at?: number): void;
   /** Stop now, or fade to silence over `fadeSeconds` (default 0) and stop. */
   stop(fadeSeconds?: number): void;
 
@@ -693,6 +753,27 @@ export interface AudioBackend {
    * (the Babylon fallback): the runtime hands each packaged sound to `play` by an in-memory URL.
    */
   readonly packs?: AudioPacks;
+  /**
+   * ADR 0360 (G3, another capability, 0179): generator voices (`PlayRequest.generator`). The core has it; the Babylon
+   * fallback has it from G5 as offline renders made at the trigger (parameters don't follow; one warning a session); a
+   * backend without it plays nothing for a generator, with one warning per kind; the pending backend forwards a generator
+   * play to the core at the hand-over.
+   */
+  readonly generators?: AudioGenerators;
+}
+
+/**
+ * ADR 0360 §3, §5 (G3): changes to a playing generator voice's parameters (a GEN with a partial mask), for a hot reload
+ * of its `*.generator.json`. Smooth parameters glide over `seconds`; choices step. A voice that isn't a generator ignores it.
+ */
+export interface AudioGenerators {
+  /** Parameters by catalogue index (wire order) to their new values. */
+  setParams(voice: AudioVoice, params: ReadonlyMap<number, number>, seconds: number): void;
+}
+
+/** ADR 0360 (G3): the one warning per generator kind a backend without `generators` gives when asked to play one. */
+export function generatorsNeedTheCore(kind: GeneratorKind): string {
+  return `[myco] audio: generators need the audio core; a ${kind} generator plays nothing on this backend (ADR 0360).`;
 }
 
 /**

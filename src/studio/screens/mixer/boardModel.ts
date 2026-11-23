@@ -3,6 +3,7 @@
 // (authored values, with the runtime's public `Bus` readings when it runs), meter readings, loudness readouts, and the
 // live board's pins (a per-user preference, at most 8). Pure.
 import { evalCurve } from "../../../engine/core/curve";
+import { evalCurveBy, secondValueOf } from "../../../engine/audio/curveBy";
 import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
 import type { AudioProject, MixAutomation } from "../../../engine/audio/project/types";
 import type { GainInputs, LiveLanes } from "../../components/gainLanesModel";
@@ -13,10 +14,15 @@ import { editedSnapshot } from "./mixEdits";
 
 // --- automation at the test values ---------------------------------------------------------------------------------------
 
-/** A lane's value at the test value of its parameter (dB for volume and sends; the parameter's units for fx). */
-export function automationValue(a: Pick<MixAutomation, "parameter" | "curve">, params: readonly ParameterDef[], values: TestValues): number | null {
+/**
+ * A lane's value at the test value of its parameter (dB for volume and sends; the parameter's units for fx), and of its
+ * second parameter when it follows one (ADR 0362 §5, as the runtime evaluates it).
+ */
+export function automationValue(a: Pick<MixAutomation, "parameter" | "curve" | "by">, params: readonly ParameterDef[], values: TestValues): number | null {
   const def = params.find((p) => p.name === a.parameter);
   if (!def || a.curve.length === 0) return null;
+  const second = a.by ? params.find((p) => p.name === a.by!.input) : undefined;
+  if (a.by && second) return evalCurveBy(a.curve, a.by, testValueOf(def, values), secondValueOf(second, testValueOf(second, values)));
   return evalCurve(a.curve, testValueOf(def, values));
 }
 
@@ -121,26 +127,49 @@ export interface LoudnessReading {
 export interface LoudnessRow {
   readonly key: "momentary" | "shortTerm" | "integrated" | "lra" | "truePeak";
   readonly label: string;
+  /** The value with its unit ("-16.4 LUFS"), or "—". */
   readonly text: string;
   /** Over the target's ceiling or outside its tolerance. */
   readonly warn: string | null;
+  /** The tile's big figure ("−16.4", "—"), with a true minus. */
+  readonly value: string;
+  /** The tile's last line: its unit, or its verdict against the target ("Warning · 7.6 LU over −24", "On target (−16)"). */
+  readonly note: string;
+  /** How the verdict reads: a warning, on target, or none (no target or no reading, or a row with no verdict). */
+  readonly verdict: "warn" | "ok" | null;
 }
 
 const lufs = (v: number, unit: string) => (Number.isFinite(v) ? `${round(v)} ${unit}` : "—");
+const minus = (v: number) => (v < 0 ? `−${Math.abs(v)}` : String(v));
 
-/** The five readouts (M, S, I, LRA, TP), "—" without a reading; warnings against `target`. */
+/** The five readouts (M, S, I, LRA, TP), "—" without a reading; warnings and verdicts against `target`. */
 export function loudnessRows(r: LoudnessReading | null, target: { integrated: number; tolerance: number; truePeak: number } | null): LoudnessRow[] {
   const v = (x: number | undefined) => (r && x !== undefined ? x : -Infinity);
   const i = v(r?.integrated), tp = v(r?.maxTruePeak);
-  const iWarn = target && Number.isFinite(i) && Math.abs(i - target.integrated) > target.tolerance ? `${i > target.integrated ? "Over" : "Under"} the ${target.integrated} LUFS target by ${round(Math.abs(i - target.integrated))} LU` : null;
+  const off = target && Number.isFinite(i) ? round(Math.abs(i - target.integrated)) : null;
+  const iWarn = target && off !== null && Math.abs(i - target.integrated) > target.tolerance ? `${i > target.integrated ? "Over" : "Under"} the ${target.integrated} LUFS target by ${off} LU` : null;
   const tpWarn = target && Number.isFinite(tp) && tp > target.truePeak ? `Over ${target.truePeak} dBTP` : null;
+  const row = (key: LoudnessRow["key"], label: string, x: number, unit: string, warn: string | null = null, verdict: { note: string; verdict: "warn" | "ok" } | null = null): LoudnessRow => ({
+    key, label, text: lufs(x, unit), warn, value: Number.isFinite(x) ? minus(round(x)) : "—", note: verdict?.note ?? unit, verdict: verdict?.verdict ?? null,
+  });
+  const iVerdict = target && off !== null ? (iWarn ? { note: `Warning · ${off} LU ${i > target.integrated ? "over" : "under"} ${minus(target.integrated)}`, verdict: "warn" as const } : { note: `On target (${minus(target.integrated)})`, verdict: "ok" as const }) : null;
+  const tpVerdict = tpWarn && target ? { note: `Warning · over ${minus(target.truePeak)} dBTP`, verdict: "warn" as const } : null;
   return [
-    { key: "momentary", label: "Momentary", text: lufs(v(r?.momentary), "LUFS"), warn: null },
-    { key: "shortTerm", label: "Short-term", text: lufs(v(r?.shortTerm), "LUFS"), warn: null },
-    { key: "integrated", label: "Integrated", text: lufs(i, "LUFS"), warn: iWarn },
-    { key: "lra", label: "Range", text: lufs(v(r?.lra), "LU"), warn: null },
-    { key: "truePeak", label: "True peak", text: lufs(tp, "dBTP"), warn: tpWarn },
+    row("momentary", "Momentary", v(r?.momentary), "LUFS"),
+    row("shortTerm", "Short-term", v(r?.shortTerm), "LUFS"),
+    row("integrated", "Integrated", i, "LUFS", iWarn, iVerdict),
+    row("lra", "Range", v(r?.lra), "LU"),
+    row("truePeak", "True peak", tp, "dBTP", tpWarn, tpVerdict),
   ];
+}
+
+/** The default targets' names as the spec words them (§4.3.6); a project's own target shows its name. */
+const TARGET_LABELS: Readonly<Record<string, string>> = { console: "Console", "pc-web": "PC / web", mobile: "Mobile" };
+const signed = (v: number) => `${v < 0 ? "−" : ""}${Math.abs(v)}`;
+
+/** A loudness target as the Platform target picker lists it: "Console · −24 LUFS, −1 dBTP". */
+export function targetOptionText(t: { name: string; integrated: number; truePeak: number }): string {
+  return `${TARGET_LABELS[t.name] ?? t.name} · ${signed(t.integrated)} LUFS, ${signed(t.truePeak)} dBTP`;
 }
 
 // --- live board pins -----------------------------------------------------------------------------------------------------
@@ -159,8 +188,11 @@ export function togglePin(pins: readonly string[], name: string): string[] | nul
   return [...pins, name];
 }
 
-/** The default pins (the prototype's), kept to those the mix has. */
-export const DEFAULT_PINS: readonly string[] = ["Music", "Dialogue", "SFX", "Ambience"];
+/**
+ * The pins a project starts with: none. Pinning is the user's choice (J1.3: a new project showed "2/8 pinned", and a bus
+ * named like one of the prototype's pins was pinned the moment it was made).
+ */
+export const DEFAULT_PINS: readonly string[] = [];
 
 // --- the curve editor's lanes --------------------------------------------------------------------------------------------
 
@@ -177,7 +209,7 @@ export interface AutomatableLane {
   readonly step: number;
   readonly scale: "linear" | "log";
   readonly plain: number;
-  readonly current: { readonly parameter: string; readonly curve: MixAutomation["curve"]; readonly bypass: boolean } | null;
+  readonly current: { readonly parameter: string; readonly curve: MixAutomation["curve"]; readonly bypass: boolean; readonly by?: MixAutomation["by"] } | null;
 }
 
 /**
@@ -190,7 +222,7 @@ export function automatableLanes(p: AudioProject, name: string, only?: string): 
   if (!owner) return [];
   const current = (target: string) => {
     const a = p.automation.find((x) => x.on === name && x.target === target);
-    return a ? { parameter: a.parameter, curve: a.curve, bypass: a.bypass } : null;
+    return a ? { parameter: a.parameter, curve: a.curve, bypass: a.bypass, ...(a.by ? { by: a.by } : {}) } : null;
   };
   const out: AutomatableLane[] = [{ target: "volume", label: "Level", min: -60, max: 6, unit: "dB", step: 0.5, scale: "linear", plain: 0, current: current("volume") }];
   for (const s of bus?.sends ?? []) out.push({ target: `send:${s.to}`, label: `Send to ${s.to}`, min: -60, max: 6, unit: "dB", step: 0.5, scale: "linear", plain: 0, current: current(`send:${s.to}`) });

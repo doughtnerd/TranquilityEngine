@@ -35,8 +35,9 @@ function start(): void {
     ["play", ["Space"], "Play the selection, stop, or release a held loop", () => act.togglePlay()],
     ["marker", ["M"], "Add a marker at the playhead", act.addMarkerAtPlayhead],
     ["loop", ["L"], "Add a loop at the playhead", () => act.addLoopHere(undefined)],
-    ["trimStart", ["I"], "Trim start at the playhead", () => act.trimAtPlayhead("start")],
-    ["trimEnd", ["O"], "Trim end at the playhead", () => act.trimAtPlayhead("end")],
+    // Spec §4.1.11: [ and ] set the trim start and end to the playhead; I and O stay (decisions.md).
+    ["trimStart", ["[", "I"], "Trim start to the playhead", () => act.trimAtPlayhead("start")],
+    ["trimEnd", ["]", "O"], "Trim end to the playhead", () => act.trimAtPlayhead("end")],
     ["snip", ["S"], "Snip at the playhead", () => act.snipAtPlayhead()],
     ["razor", ["C"], "Razor on or off", act.toggleRazor],
     ["delete", ["Delete", "Backspace"], "Delete the selected marker, loop or snippet", act.deleteSelected],
@@ -60,6 +61,8 @@ function start(): void {
     ["fork", ["Mod+Shift+S"], "Fork as new sample", () => (act.current() ? ((dialog.value = { kind: "fork", mode: "fork" }), true) : false)],
   ];
   for (const [id, combos, label, run] of keys) keymap.register({ id: `samples.${id}`, keys: combos, label, group, scope, run });
+  // Owner decision 3: Ctrl+S saves the sample's project data (its sidecar), also from a text field; Write to file… is in the Save menu.
+  keymap.register({ id: "samples.save", keys: ["Mod+S"], label: "Save the sample's edits", group, scope, inText: true, run: act.save });
 }
 
 /** A panel view that starts the screen the first time any of its panels draws. */
@@ -98,7 +101,7 @@ export const SAMPLES_PANELS: readonly StudioPanel[] = [
     )),
   },
   { id: "samples-inspector", title: "Inspector", dock: "right", view: docView(() => <InspectorPanel />) },
-  { id: "samples-edits", title: "Sample effects", dock: "bottom", view: docView(() => <EditsPanel />) },
+  { id: "samples-edits", title: "Edits", dock: "bottom", view: docView(() => <EditsPanel />) },
   { id: "samples-seam", title: "Loop seam", dock: "bottom", view: docView(() => <SeamPanel />) },
   historyPanel("samples"),
 ];

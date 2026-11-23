@@ -31,6 +31,16 @@ describe("parseAudioTestScene", () => {
     expect(again).toEqual({ scene, problems: [] });
   });
 
+  it("reads and writes an emitter's output bus, left out when it plays on its sound's own", () => {
+    const raw = { ...full, emitters: [{ ...full.emitters[0], output: "SFX" }, full.emitters[1]] };
+    const { scene, problems } = parseAudioTestScene(raw);
+    expect(problems).toEqual([]);
+    expect(scene.emitters[0]!.output).toBe("SFX");
+    expect(scene.emitters[1]!.output).toBeUndefined();
+    expect(audioTestSceneToJson(scene)).toEqual(raw);
+    expect(parseAudioTestScene({ ...full, emitters: [{ ...full.emitters[0], output: "" }] }).scene.emitters[0]!.output).toBeUndefined();
+  });
+
   it("never throws: a non-object is an empty scene with one listener", () => {
     for (const raw of [null, 3, "x", []]) {
       const { scene, problems } = parseAudioTestScene(raw);
@@ -138,5 +148,20 @@ describe("references", () => {
     const { scene } = parseAudioTestScene(full);
     expect(rewriteTestSceneReferences(scene, (p) => p)).toBe(scene);
     expect(rewriteTestSceneReferences(scene, new Map([["nope", "x"]]))).toBe(scene);
+  });
+});
+
+describe("a scene's own occlusion curves (ADR 0362 item 6)", () => {
+  it("parse and write back; absent stays absent; bad curves are dropped with a problem", () => {
+    const curves = { volume: [[0, 0], [1, -9]], lowpass: [[0, 20000], [1, 1200]] };
+    const { scene, problems } = parseAudioTestScene({ ...full, settings: { occlusion: { curves } } });
+    expect(problems).toEqual([]);
+    expect(scene.settings?.occlusion?.curves).toEqual(curves);
+    expect(audioTestSceneToJson(scene).settings).toEqual({ occlusion: { curves } });
+    expect(parseAudioTestScene(full).scene.settings).toBeUndefined();
+    expect(audioTestSceneToJson(parseAudioTestScene(full).scene)).not.toHaveProperty("settings");
+    const bad = parseAudioTestScene({ ...full, settings: { occlusion: { curves: { volume: 3 } } } });
+    expect(bad.scene.settings).toBeUndefined();
+    expect(bad.problems).toEqual([expect.stringContaining("settings.occlusion.curves.volume")]);
   });
 });

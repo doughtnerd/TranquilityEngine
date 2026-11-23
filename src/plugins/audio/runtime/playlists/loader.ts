@@ -11,10 +11,13 @@ import { parseAttenuationAsset } from "../../../../engine/audio/attenuation/form
 import type { Attenuation } from "../../../../engine/audio/attenuation/types";
 import { parsePlaylist } from "../../../../engine/audio/playlist/format";
 import { PLAYLIST_FORMAT, type PlaylistAsset } from "../../../../engine/audio/playlist/types";
+import { parseGenerator } from "../../../../engine/audio/generators/format";
+import type { GeneratorAsset } from "../../../../engine/audio/generators/types";
 import { warnOnce } from "../core/handle";
 
 const playlists = new WeakMap<object, PlaylistAsset>();
 const attenuations = new WeakMap<object, Attenuation>();
+const generators = new WeakMap<object, GeneratorAsset>();
 
 /** The raw JSON at `path`, or undefined when there is none (a missing asset, or not JSON). */
 function rawJson(path: string): object | undefined {
@@ -53,6 +56,42 @@ export function samplePlaylist(path: string): PlaylistAsset {
     samplePlaylists.set(path, p);
   }
   return p;
+}
+
+const generatorPlaylists = new Map<string, PlaylistAsset>();
+
+/**
+ * ADR 0360 §1: a generator played through `Audio.play` (`*.generator.json`): a Clip playlist of that one generator entry,
+ * as a sample is wrapped. Built once per path; the generator file is read each time it plays (a hot reload's next trigger
+ * plays the new patch).
+ */
+export function generatorPlaylist(path: string): PlaylistAsset {
+  let p = generatorPlaylists.get(path);
+  if (!p) {
+    p = parsePlaylist({ format: PLAYLIST_FORMAT, type: "clip", entries: [{ generator: path }] }, path).playlist;
+    generatorPlaylists.set(path, p);
+  }
+  return p;
+}
+
+/**
+ * ADR 0360 §1: the parsed generator at `path` (`*.generator.json`), or null (one warning) when there is none. Parsed once
+ * per raw object (an edited asset is a new object); problems are warned once each.
+ */
+export function loadGenerator(path: string): GeneratorAsset | null {
+  const raw = rawJson(path);
+  if (!raw) {
+    warnOnce(`generator:missing:${path}`, `Audio.play: no generator asset "${path}"; that entry plays nothing.`);
+    return null;
+  }
+  let value = generators.get(raw);
+  if (!value) {
+    const r = parseGenerator(raw, path);
+    for (const p of r.problems) warnOnce(`generator:problem:${p}`, `[myco] ${p}`);
+    value = r.generator;
+    generators.set(raw, value);
+  }
+  return value;
 }
 
 /** A linked playlist below `chain` (the paths of the linked playlists above it, the root first): null when missing or when it would contain itself. */

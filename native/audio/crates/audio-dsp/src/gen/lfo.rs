@@ -47,7 +47,7 @@ impl Lfo {
     pub fn advance(&mut self, cycles: f32) {
         let p = self.phase + cycles;
         if p >= 1.0 {
-            self.phase = p - libm::floorf(p);
+            self.phase = p - p.floor();
             self.held = super::noise::uniform(&mut self.state);
         } else {
             self.phase = p;

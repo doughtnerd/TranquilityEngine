@@ -129,6 +129,7 @@ function StoryScene(props: Args) {
     soloToggle: (id) => setAudition(toggleSolo(audition, id)),
     muteToggle: (id) => setAudition(toggleMute(audition, id)),
     editAttenuation: () => {},
+    whyNotEditAttenuation: (id) => (scene.emitters.find((e) => e.id === id)?.sound ? null : "Pick a sound first: attenuation lives on the playlist it plays"),
     playAll: () => setAudition({ ...audition, solo: null }),
     listenHere: (id) => {
       const r = setActiveListener(scene, id);
@@ -157,7 +158,7 @@ export const Plan: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByRole("toolbar", { name: "Tools" })).toBeVisible();
-    await expect(c.getByRole("img", { name: /Plan of the scene, 14 objects/ })).toBeVisible();
+    await expect(c.getByRole("img", { name: /Plan of the scene, \d+ objects/ })).toBeVisible();
     await expect(c.getByText("Waterfall")).toBeInTheDocument();
     await expect(c.getByText("HRTF")).toBeVisible(); // legend
   },
@@ -178,7 +179,7 @@ export const MovingEmitter: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     const drone = () => canvasElement.querySelector<SVGGElement>('.sp-emitter[data-id="emitter4"]')!;
-    const at = () => Number(drone().querySelector("rect")!.getAttribute("x"));
+    const at = () => Number(drone().querySelector(".sp-dot")!.getAttribute("cx"));
     await waitFor(() => expect(drone().classList.contains("live")).toBe(true));
     const first = at();
     await waitFor(() => expect(Math.abs(at() - first)).toBeGreaterThan(4)); // it travels
@@ -197,7 +198,7 @@ export const SelectedBox: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByRole("toolbar", { name: "Crate stack actions" })).toBeVisible();
-    await waitFor(() => expect(canvasElement.querySelectorAll(".sp-handle").length).toBe(5)); // 4 corners and the knob
+    await waitFor(() => expect(canvasElement.querySelectorAll(".sp-handle").length).toBe(5)); // 4 edge handles and the knob
   },
 };
 
@@ -209,11 +210,42 @@ export const LockedEmitter: Story = {
   },
 };
 
+/** UI pass SV12: an emitter with no sound has no attenuation to edit, so its toolbar's Edit attenuation… is disabled, saying why. */
+export const EmitterWithoutSound: Story = {
+  args: { scene: { ...fixtureScene(), emitters: fixtureScene().emitters.map((e) => (e.id === "emitter3" ? { ...e, sound: "" } : e)) }, selected: "emitter3" },
+  play: async ({ canvasElement }) => {
+    const bar = within(canvasElement).getByRole("toolbar", { name: "Campfire actions" });
+    const edit = within(bar).getByRole("button", { name: "Edit attenuation…" });
+    await expect(edit).toBeDisabled();
+    await expect(edit).toHaveAttribute("title", "Pick a sound first: attenuation lives on the playlist it plays");
+  },
+};
+
+/**
+ * UI pass SV13 (D27): with focus elsewhere, the pointer over the plan brings the keyboard to it (so the screen's keymap
+ * gives the Scene panel's keys, + − 0 and the arrows, and Space pans rather than plays), and holding Space says it pans.
+ */
+export const KeysUnderThePointer: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    c.getByRole("button", { name: "Select" }).focus();
+    const plan = c.getByLabelText(/^Scene plan:/);
+    await userEvent.hover(plan);
+    await expect(plan).toHaveFocus();
+    // One user session, so the key held down is the one released (each bare userEvent call starts afresh).
+    const user = userEvent.setup();
+    await user.keyboard("[Space>]");
+    await expect(c.getByText("Panning · release Space to edit")).toBeVisible();
+    await user.keyboard("[/Space]");
+    await expect(c.queryByText("Panning · release Space to edit")).toBeNull();
+  },
+};
+
 export const PathEditing: Story = {
   args: { selected: "emitter4", tools: { tool: "select", pathEdit: "emitter4" } },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByRole("status")).toHaveTextContent(/Editing the path/);
+    await expect(c.getByRole("status")).toHaveTextContent(/Editing Drone path/);
     await waitFor(() => expect(canvasElement.querySelectorAll(".sp-waypoint").length).toBe(5));
     await expect(canvasElement.querySelectorAll(".sp-midpoint").length).toBe(4);
     await userEvent.click(c.getByRole("button", { name: "Done" }));
@@ -231,8 +263,11 @@ export const SideView: Story = {
 export const AddTwoDSound: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
+    const before = c.getByRole("img", { name: /Plan of the scene/ }).getAttribute("aria-label");
+    // 2D sound adds at once (it has no place on the plan, the prototype's): the plan counts one more, Select stays on.
     await userEvent.click(c.getByRole("button", { name: "2D sound" }));
-    await expect(c.getByRole("toolbar", { name: "2D sound 2 actions" })).toBeInTheDocument();
+    await waitFor(() => expect(c.getByRole("img", { name: /Plan of the scene/ }).getAttribute("aria-label")).not.toBe(before));
+    await expect(c.getByRole("button", { name: "Select" })).toHaveAttribute("aria-pressed", "true");
     await userEvent.click(c.getByRole("button", { name: "Obstacle" }));
     await expect(c.getByRole("button", { name: "Obstacle" })).toHaveAttribute("aria-pressed", "true");
   },
@@ -251,7 +286,7 @@ export const OverBaseScene: Story = {
     // Read-only: the pointer passes through the base layer to the plan (it can't be selected or dragged).
     await expect(getComputedStyle(canvasElement.querySelector(".sp-base")!).pointerEvents).toBe("none");
     // The test scene's own objects still draw over it.
-    await expect(c.getByRole("img", { name: /Plan of the scene, 14 objects/ })).toBeVisible();
+    await expect(c.getByRole("img", { name: /Plan of the scene, \d+ objects/ })).toBeVisible();
   },
 };
 

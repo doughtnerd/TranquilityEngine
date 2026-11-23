@@ -4,14 +4,14 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "0241a5815250233e5345489f0e3a1f7b";
+export const SCHEMA_HASH = "1dd90bfde43f8e18293854d31b37d945";
 
 /** the core's C ABI major (`myco_audio_abi_version() >> 8`); a shell refuses a different one */
 export const CORE_ABI_MAJOR = 0x6;
 /** the core's C ABI minor (an added export) */
-export const CORE_ABI_MINOR = 0x0;
+export const CORE_ABI_MINOR = 0x1;
 /** `(CORE_ABI_MAJOR << 8) | CORE_ABI_MINOR`: `myco_audio_abi_version()`, STATUS `abiVersion` and the capture header */
-export const CORE_ABI_VERSION = 0x600;
+export const CORE_ABI_VERSION = 0x601;
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
 /** a core refuses a different major */
@@ -392,15 +392,19 @@ export const FADE_SHAPE_EXP3 = 0x9;
 export const LOOP_SEAM_SHAPE_SHIFT = 0x0;
 /** LOOPS item shapes bits 4-7: the exit crossfade's FADE_SHAPE_* (ABI 4.9) */
 export const LOOP_EXIT_SHAPE_SHIFT = 0x4;
+/** AMP_ENVELOPE flags bit 0: the envelope applies (clear: the voice's envelope is removed; ABI 6.1) */
+export const AMP_ENV_ON = 0x1;
+/** AMP_ENVELOPE keyOffFrame: never keyed off (the sustain holds; ABI 6.1) */
+export const AMP_ENV_KEY_OFF_NONE = 0xffffffff;
 /** reserved clip ids of generator voices: GEN_CLIP_ID_FIRST + kind (ADR 0360; never uploaded) */
 export const GEN_CLIP_ID_FIRST = 0xffff0300;
 /** the reserved generator range's last id */
 export const GEN_CLIP_ID_LAST = 0xffff03ff;
-/** generator kind: oscillator (10 parameters) */
+/** generator kind: oscillator (11 parameters; the last, `quality`, D67) */
 export const GEN_KIND_OSCILLATOR = 0x1;
-/** generator kind: two-oscillator synth (25 parameters) */
+/** generator kind: two-oscillator synth (26 parameters; the last, `quality`, D67) */
 export const GEN_KIND_SYNTH = 0x2;
-/** generator kind: sfxr blip in sfxr's units (24 parameters) */
+/** generator kind: sfxr blip in sfxr's units (25 parameters; the last, `quality`, D67) */
 export const GEN_KIND_BLIP = 0x3;
 /** generator kind: silence (2 parameters), always virtual */
 export const GEN_KIND_SILENCE = 0x4;
@@ -497,6 +501,7 @@ export const Op = {
   SUBMIX_AUTOMATE: 0x1f,
   LISTENER: 0x20,
   GEN: 0x21,
+  AMP_ENVELOPE: 0x22,
   RESET: 0x30,
 } as const;
 
@@ -1287,6 +1292,8 @@ export const PLAY_FLAGS_PANNER_MASK = 0x60;
 export const PLAY_FLAGS_AMBISONIC = 0x80;
 /** the voice starts with its fade ramp at 0, so an incoming stem is silent without touching gain; a stamped FADE to 1 opens it (ADR 0166 M4, API section 4.1); read from PLAY only */
 export const PLAY_FLAGS_FADE_ZERO = 0x100;
+/** ADR 0362 (ABI 6.1): a PCM clip voice reads its clip backwards; its positions (startOffsetFrames, SET_LOOP and LOOPS regions, SEEK, the playhead) count frames from the clip's end; stream and ADPCM voices ignore it; read from PLAY only */
+export const PLAY_FLAGS_REVERSE = 0x200;
 /** start a voice; does not ramp */
 export interface Play {
   voiceId: number;
@@ -1451,6 +1458,8 @@ export const SET_PARAMS_FLAGS_PANNER_MASK = 0x60;
 export const SET_PARAMS_FLAGS_AMBISONIC = 0x80;
 /** the voice starts with its fade ramp at 0, so an incoming stem is silent without touching gain; a stamped FADE to 1 opens it (ADR 0166 M4, API section 4.1); read from PLAY only */
 export const SET_PARAMS_FLAGS_FADE_ZERO = 0x100;
+/** ADR 0362 (ABI 6.1): a PCM clip voice reads its clip backwards; its positions (startOffsetFrames, SET_LOOP and LOOPS regions, SEEK, the playhead) count frames from the clip's end; stream and ADPCM voices ignore it; read from PLAY only */
+export const SET_PARAMS_FLAGS_REVERSE = 0x200;
 /** 0 linear, 1 sCurve, 2 equalPowerIn, 3 equalPowerOut (FadeLaw); 4-7 reserved */
 export const SET_PARAMS_SHAPE_LAW_SHIFT = 0;
 export const SET_PARAMS_SHAPE_LAW_MASK = 0x7;
@@ -3520,6 +3529,71 @@ export function readGen(view: DataView, off: number): Gen {
   const limit = off + view.getUint16(off + 2, true) * 4;
   if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Gen: truncated");
   return _readGen(view, off, limit)[0];
+}
+
+/** a voice's Amp envelope (ADR 0362, ABI 6.1); applies on arrival */
+export interface AmpEnvelope {
+  voiceId: number;
+  frameOffset: number;
+  /** AMP_ENV_ON */
+  flags: number;
+  attackFrames: number;
+  holdFrames: number;
+  decayFrames: number;
+  /** 0..1 */
+  sustain: number;
+  releaseFrames: number;
+  /** the envelope frame the release starts at; AMP_ENV_KEY_OFF_NONE never */
+  keyOffFrame: number;
+  /** the envelope frame of the voice's first rendered frame */
+  offsetFrames: number;
+}
+
+export const AMP_ENVELOPE_FIXED_END = 44;
+
+export function writeAmpEnvelope(view: DataView, off: number, rec: AmpEnvelope): number {
+  view.setUint32(off + 12, rec.flags, true);
+  view.setUint32(off + 16, rec.attackFrames, true);
+  view.setUint32(off + 20, rec.holdFrames, true);
+  view.setUint32(off + 24, rec.decayFrames, true);
+  view.setFloat32(off + 28, rec.sustain, true);
+  view.setUint32(off + 32, rec.releaseFrames, true);
+  view.setUint32(off + 36, rec.keyOffFrame, true);
+  view.setUint32(off + 40, rec.offsetFrames, true);
+  let cur = off + 44;
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "AmpEnvelope: record too long");
+  view.setUint16(off + 0, 34, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readAmpEnvelope(view: DataView, off: number, limit: number): [AmpEnvelope, number] {
+  if (off + 44 > limit) throw new WireError(ErrorCode.TRUNCATED, "AmpEnvelope: truncated");
+  const flags = view.getUint32(off + 12, true);
+  const attackFrames = view.getUint32(off + 16, true);
+  const holdFrames = view.getUint32(off + 20, true);
+  const decayFrames = view.getUint32(off + 24, true);
+  const sustain = view.getFloat32(off + 28, true);
+  const releaseFrames = view.getUint32(off + 32, true);
+  const keyOffFrame = view.getUint32(off + 36, true);
+  const offsetFrames = view.getUint32(off + 40, true);
+  let cur = off + 44;
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "AmpEnvelope: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, flags, attackFrames, holdFrames, decayFrames, sustain, releaseFrames, keyOffFrame, offsetFrames }, cur - off];
+}
+
+export function readAmpEnvelope(view: DataView, off: number): AmpEnvelope {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "AmpEnvelope: truncated");
+  if (view.getUint16(off + 0, true) !== 34) throw new WireError(ErrorCode.MALFORMED, "AmpEnvelope: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "AmpEnvelope: truncated");
+  return _readAmpEnvelope(view, off, limit)[0];
 }
 
 /** reset the core */

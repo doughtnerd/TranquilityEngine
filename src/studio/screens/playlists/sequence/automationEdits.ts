@@ -4,6 +4,7 @@
 // envelope", the curve editor's result, and touch-mode writing: samples recorded while a control is held during
 // playback replace the keys over the range they cover; parameter-driven curves are never overwritten. Pure.
 import { effectParamValue, effectSpec } from "../../../../engine/audio/effects/catalogue";
+import { parameterRange, type ParameterDef } from "../../../../engine/audio/parameters";
 import type { Effect } from "../../../../engine/audio/effects/types";
 import { evalCurve, type CurveInterp, type CurveKey } from "../../../../engine/core/curve";
 import type { Automation, Clip, CurveInput, SequenceSettings, Track } from "../../../../engine/audio/playlist/types";
@@ -54,6 +55,15 @@ export function targetSpecs(effects: readonly Effect[]): TargetSpec[] {
   return out;
 }
 
+/**
+ * The lane Automate on effect `fxId` opens on: its first continuous parameter (a Low-pass's Cutoff), else its On
+ * switch (J6.5: it opened on "Low-pass · On").
+ */
+export function automateLane(effects: readonly Effect[], fxId: string): string {
+  const prefix = `fx:${fxId}:`;
+  return targetSpecs(effects).find((t) => t.target.startsWith(prefix) && !t.bool)?.target ?? `${prefix}on`;
+}
+
 export function targetSpec(target: string, effects: readonly Effect[]): TargetSpec | null {
   return targetSpecs(effects).find((t) => t.target === target) ?? null;
 }
@@ -91,6 +101,19 @@ function mapAutomation(s: SequenceSettings, o: AutomationOwner, id: string, fn: 
 }
 
 export const isTimeInput = (input: CurveInput): boolean => typeof input === "string";
+
+/**
+ * The x range a parameter-driven lane draws its curve over (proto §2.7.3: the parameter's range, its min and max named
+ * at the lane's ends): the parameter's own range (a labelled one 0..labels-1), or the curve's keys when the parameter
+ * isn't defined. Null for a time-driven lane.
+ */
+export function parameterLaneRange(input: CurveInput, curve: readonly CurveKey[], parameters: readonly ParameterDef[]): { readonly name: string; readonly min: number; readonly max: number } | null {
+  if (typeof input === "string") return null;
+  const def = parameters.find((p) => p.name === input.parameter);
+  let [min, max] = def ? parameterRange(def) : [Math.min(0, ...curve.map((k) => k[0])), Math.max(1, ...curve.map((k) => k[0]))];
+  if (!(max > min)) max = min + 1;
+  return { name: input.parameter, min, max };
+}
 
 /** "Automate X": a flat time curve at the target's plain value over `[0, length]`. Returns the lane's id. */
 export function addAutomation(s: SequenceSettings, o: AutomationOwner, target: Automation["target"], length: number, input?: CurveInput): EditResult<{ seq: SequenceSettings; id: string }> {
@@ -220,6 +243,42 @@ export const quantizeChoice = (q: Automation["quantize"]): string => (q === unde
 
 /** "Remove automation". */
 export const removeAutomation = (s: SequenceSettings, o: AutomationOwner, id: string): R => mapAutomation(s, o, id, () => null);
+
+/**
+ * "Paste curves" (proto: the Automate button's menu): each copied lane replaces this owner's lane of the same target,
+ * or is added; a time curve reads this owner's time, a parameter curve keeps its parameter. Lanes of targets this owner
+ * can't automate (another clip's effect) are skipped; refused when none fits.
+ */
+export function pasteCurves(s: SequenceSettings, o: AutomationOwner, lanes: readonly Automation[]): R {
+  const view = ownerOf(s, o);
+  if (!view) return refuse("that clip or track isn't there any more");
+  const fits = lanes.filter((a) => targetSpec(a.target, view.effects));
+  if (!fits.length) return refuse("those curves are for something this one doesn't have");
+  return accept(setOwnerAutomation(s, o, (list) => {
+    const out = [...list];
+    for (const a of fits) {
+      const input = isTimeInput(a.input) ? view.timeInput : a.input;
+      const i = out.findIndex((x) => x.target === a.target);
+      if (i >= 0) out[i] = { ...out[i]!, input, curve: a.curve.map((k) => [...k] as CurveKey), bypass: a.bypass };
+      else if (out.length < MAX_AUTOMATION) out.push({ ...a, id: nextId("a", out.map((x) => x.id)), input, curve: a.curve.map((k) => [...k] as CurveKey) });
+    }
+    return out;
+  }));
+}
+
+/**
+ * A lane's "Driven by" (proto A5): the timeline or a game parameter. Changing it reseeds the curve flat at the target's
+ * plain value over the new axis (`[from, to]`: the clip's or sequence's length, or the parameter's range).
+ */
+export function setDrivenBy(s: SequenceSettings, o: AutomationOwner, id: string, input: CurveInput, from: number, to: number): R {
+  const view = ownerOf(s, o);
+  const a = view?.automation.find((x) => x.id === id);
+  if (!view || !a) return refuse("that automation isn't there any more");
+  const spec = targetSpec(a.target, view.effects);
+  const base = spec?.base ?? a.curve[0]?.[1] ?? 0;
+  const next = isTimeInput(input) ? view.timeInput : input;
+  return mapAutomation(s, o, id, (x) => ({ ...x, input: next, curve: [[tidy(from), base], [tidy(Math.max(from + 0.01, to)), base]] }));
+}
 
 /** Touch writing keeps a key every this many seconds (proto: the control writes every 60 ms while held). */
 export const WRITE_INTERVAL = 0.06;

@@ -1,8 +1,9 @@
 // A span lane (ADR 0349 `SpanLane`): one lane of instances or voices over time (a take's playlist instances, a
 // capture's voices), each a bar coloured by status with its held part (sustain, held loop) drawn inside, overlapping
-// bars stacked in rows. Click a bar to select it; with the lane focused, Left and Right move the selection, Home and
-// End jump to the ends, Enter opens it. A "problems only" filter dims the ones that played fine. The lane takes a
-// time → x function, so it lines up with the ruler above it.
+// bars stacked in rows (or, `collapsed`, drawn over each other on one row, the selected one on top). Click a bar to
+// select it; with the lane focused, Left and Right move the selection, Home and End jump to the ends, Enter opens it.
+// A "problems only" filter dims the ones that played fine. The lane takes a time → x function, so it lines up with the
+// ruler above it.
 import { formatTime, type TimeToX } from "./timeAxis";
 import { STATUS_TEXT, isDimmed, packSpans, spanBoxes, spanEnd, stepSpan, type Span } from "./spanLaneModel";
 import "./audioParts.css";
@@ -20,6 +21,8 @@ export interface SpanLaneProps {
   readonly filter?: "all" | "problems";
   /** Each row's height, px (default 18). */
   readonly rowHeight?: number;
+  /** Every bar on one row, overlapping ones drawn over each other (later on top), instead of stacked in rows. */
+  readonly collapsed?: boolean;
   onSelect?(id: string): void;
   /** Enter or a double-click on a span. */
   onOpen?(id: string): void;
@@ -28,7 +31,9 @@ export interface SpanLaneProps {
 export function SpanLane(props: SpanLaneProps) {
   const { spans, toX, now } = props;
   const rowHeight = props.rowHeight ?? 18;
-  const { rows, count } = packSpans(spans, now);
+  const packed = packSpans(spans, now);
+  const rows = props.collapsed ? new Map<string, number>() : packed.rows;
+  const count = props.collapsed ? Math.min(1, packed.count) : packed.count;
   const filter = props.filter ?? "all";
   return (
     <div
@@ -61,7 +66,7 @@ export function SpanLane(props: SpanLaneProps) {
             role="option"
             aria-selected={selected}
             class={`studio-span ${s.status}${selected ? " selected" : ""}${isDimmed(s, filter) ? " dim" : ""}${s.end === null ? " live" : ""}`}
-            style={{ left: `${box.x}px`, width: `${box.width}px`, top: `${row * rowHeight + 1}px`, height: `${rowHeight - 2}px` }}
+            style={{ left: `${box.x}px`, width: `${box.width}px`, top: `${row * rowHeight + 1}px`, height: `${rowHeight - 2}px`, ...(props.collapsed && selected ? { zIndex: 1 } : {}) }}
             title={`${s.label} · ${STATUS_TEXT[s.status]} · ${formatTime(s.start)} – ${s.end === null ? "playing" : formatTime(spanEnd(s, now))}`}
             onClick={() => props.onSelect?.(s.id)}
             onDblClick={() => props.onOpen?.(s.id)}

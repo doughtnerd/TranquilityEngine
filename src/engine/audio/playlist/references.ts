@@ -151,14 +151,29 @@ export function playlistParameterReferences(body: PlaylistBody | unknown): Playl
       if (!TIME_INPUTS.includes(v)) add(use, v, where);
     } else if (isRecord(v)) add(use, own(v, "parameter"), [...where, "parameter"]);
   };
-  const automation = (v: unknown, where: PlaylistReferenceStep[]) => list(v).forEach((a, i) => isRecord(a) && input("automation", own(a, "input"), [...where, i, "input"]));
+  /** ADR 0362 §5: a lane's second input (`by.input`, a parameter's name). */
+  const by = (use: PlaylistParameterUse, lane: Record<string, unknown>, where: PlaylistReferenceStep[]) => {
+    const v = own(lane, "by");
+    if (isRecord(v)) add(use, own(v, "input"), [...where, "by", "input"]);
+  };
+  const automation = (v: unknown, where: PlaylistReferenceStep[]) => list(v).forEach((a, i) => {
+    if (!isRecord(a)) return;
+    input("automation", own(a, "input"), [...where, i, "input"]);
+    by("automation", a, [...where, i]);
+  });
   const binding = (v: unknown, where: PlaylistReferenceStep[]) => {
     if (isRecord(v) && isRecord(own(v, "binding"))) add("binding", own(own(v, "binding") as Record<string, unknown>, "parameter"), [...where, "binding", "parameter"]);
   };
   const entry = (e: unknown, where: PlaylistReferenceStep[], depth: number) => {
     if (!isRecord(e)) return;
     const curves = own(e, "curves");
-    if (isRecord(curves)) for (const k of Object.keys(curves)) if (isRecord(curves[k])) input("curve", own(curves[k] as Record<string, unknown>, "input"), [...where, "curves", k, "input"]);
+    if (isRecord(curves)) {
+      for (const k of Object.keys(curves)) {
+        if (!isRecord(curves[k])) continue;
+        input("curve", own(curves[k] as Record<string, unknown>, "input"), [...where, "curves", k, "input"]);
+        by("curve", curves[k] as Record<string, unknown>, [...where, "curves", k]);
+      }
+    }
     // A parsed entry says `kind`; a file entry is embedded when it has `embedded`.
     if (isRecord(own(e, "embedded"))) visit(own(e, "embedded"), [...where, "embedded"], depth + 1);
   };

@@ -49,7 +49,9 @@ describe("conversions", () => {
     const [a, b] = await Promise.all([conv.convert(sound), conv.convert(sound)]);
     expect(encoder.requests).toHaveLength(1);
     expect(encoder.requests[0]).toMatchObject({ codec: "vorbis", quality: 0.5, rateCeiling: 22050, mono: true, channels: 2, sampleRate: 48_000 });
-    expect(a).toMatchObject({ codec: "vorbis", bytes: ENCODED.vorbis, rate: 22050, channels: 1, sourceBytes: SOURCE.length, cached: false });
+    expect(a).toMatchObject({ codec: "vorbis", bytes: ENCODED.vorbis, rate: 22050, channels: 1, sourceBytes: SOURCE.length });
+    // Either concurrent call may be the one that encodes (whose key resolves first is up to the digest): one of them did.
+    expect([a.cached, b.cached]).toContain(false);
     expect(b.key).toBe(a.key);
     expect(a.key).toMatch(/^[0-9a-f]{64}$/);
     expect(cache.files.get(`${AUDIO_CACHE_DIR}/${a.key}.ogg`)).toEqual(ENCODED.vorbis);

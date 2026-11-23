@@ -2,33 +2,33 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 0241a5815250233e5345489f0e3a1f7b).
+/// First 16 bytes of the schema's SHA-256 (hex: 1dd90bfde43f8e18293854d31b37d945).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x02,
-    0x41,
-    0xa5,
-    0x81,
-    0x52,
-    0x50,
-    0x23,
-    0x3e,
-    0x53,
+    0x1d,
+    0xd9,
+    0x0b,
+    0xfd,
+    0xe4,
+    0x3f,
+    0x8e,
+    0x18,
+    0x29,
+    0x38,
+    0x54,
+    0xd3,
+    0x1b,
+    0x37,
+    0xd9,
     0x45,
-    0x48,
-    0x9f,
-    0x0e,
-    0x3a,
-    0x1f,
-    0x7b,
 ];
-pub const SCHEMA_HASH_HEX: &str = "0241a5815250233e5345489f0e3a1f7b";
+pub const SCHEMA_HASH_HEX: &str = "1dd90bfde43f8e18293854d31b37d945";
 
 /// the core's C ABI major (`myco_audio_abi_version() >> 8`); a shell refuses a different one
 pub const CORE_ABI_MAJOR: u32 = 0x6;
 /// the core's C ABI minor (an added export)
-pub const CORE_ABI_MINOR: u32 = 0x0;
+pub const CORE_ABI_MINOR: u32 = 0x1;
 /// `(CORE_ABI_MAJOR << 8) | CORE_ABI_MINOR`: `myco_audio_abi_version()`, STATUS `abiVersion` and the capture header
-pub const CORE_ABI_VERSION: u32 = 0x600;
+pub const CORE_ABI_VERSION: u32 = 0x601;
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
 /// a core refuses a different major
@@ -409,15 +409,19 @@ pub const FADE_SHAPE_EXP3: u32 = 0x9;
 pub const LOOP_SEAM_SHAPE_SHIFT: u32 = 0x0;
 /// LOOPS item shapes bits 4-7: the exit crossfade's FADE_SHAPE_* (ABI 4.9)
 pub const LOOP_EXIT_SHAPE_SHIFT: u32 = 0x4;
+/// AMP_ENVELOPE flags bit 0: the envelope applies (clear: the voice's envelope is removed; ABI 6.1)
+pub const AMP_ENV_ON: u32 = 0x1;
+/// AMP_ENVELOPE keyOffFrame: never keyed off (the sustain holds; ABI 6.1)
+pub const AMP_ENV_KEY_OFF_NONE: u32 = 0xffffffff;
 /// reserved clip ids of generator voices: GEN_CLIP_ID_FIRST + kind (ADR 0360; never uploaded)
 pub const GEN_CLIP_ID_FIRST: u32 = 0xffff0300;
 /// the reserved generator range's last id
 pub const GEN_CLIP_ID_LAST: u32 = 0xffff03ff;
-/// generator kind: oscillator (10 parameters)
+/// generator kind: oscillator (11 parameters; the last, `quality`, D67)
 pub const GEN_KIND_OSCILLATOR: u32 = 0x1;
-/// generator kind: two-oscillator synth (25 parameters)
+/// generator kind: two-oscillator synth (26 parameters; the last, `quality`, D67)
 pub const GEN_KIND_SYNTH: u32 = 0x2;
-/// generator kind: sfxr blip in sfxr's units (24 parameters)
+/// generator kind: sfxr blip in sfxr's units (25 parameters; the last, `quality`, D67)
 pub const GEN_KIND_BLIP: u32 = 0x3;
 /// generator kind: silence (2 parameters), always virtual
 pub const GEN_KIND_SILENCE: u32 = 0x4;
@@ -526,6 +530,7 @@ pub mod op {
     pub const SUBMIX_AUTOMATE: u16 = 0x1f;
     pub const LISTENER: u16 = 0x20;
     pub const GEN: u16 = 0x21;
+    pub const AMP_ENVELOPE: u16 = 0x22;
     pub const RESET: u16 = 0x30;
 }
 
@@ -1568,6 +1573,8 @@ pub const PLAY_FLAGS_PANNER_MASK: u16 = 0x60;
 pub const PLAY_FLAGS_AMBISONIC: u16 = 0x80;
 /// the voice starts with its fade ramp at 0, so an incoming stem is silent without touching gain; a stamped FADE to 1 opens it (ADR 0166 M4, API section 4.1); read from PLAY only
 pub const PLAY_FLAGS_FADE_ZERO: u16 = 0x100;
+/// ADR 0362 (ABI 6.1): a PCM clip voice reads its clip backwards; its positions (startOffsetFrames, SET_LOOP and LOOPS regions, SEEK, the playhead) count frames from the clip's end; stream and ADPCM voices ignore it; read from PLAY only
+pub const PLAY_FLAGS_REVERSE: u16 = 0x200;
 /// start a voice; does not ramp
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Play {
@@ -1782,6 +1789,8 @@ pub const SET_PARAMS_FLAGS_PANNER_MASK: u32 = 0x60;
 pub const SET_PARAMS_FLAGS_AMBISONIC: u32 = 0x80;
 /// the voice starts with its fade ramp at 0, so an incoming stem is silent without touching gain; a stamped FADE to 1 opens it (ADR 0166 M4, API section 4.1); read from PLAY only
 pub const SET_PARAMS_FLAGS_FADE_ZERO: u32 = 0x100;
+/// ADR 0362 (ABI 6.1): a PCM clip voice reads its clip backwards; its positions (startOffsetFrames, SET_LOOP and LOOPS regions, SEEK, the playhead) count frames from the clip's end; stream and ADPCM voices ignore it; read from PLAY only
+pub const SET_PARAMS_FLAGS_REVERSE: u32 = 0x200;
 /// 0 linear, 1 sCurve, 2 equalPowerIn, 3 equalPowerOut (FadeLaw); 4-7 reserved
 pub const SET_PARAMS_SHAPE_LAW_SHIFT: u32 = 0;
 pub const SET_PARAMS_SHAPE_LAW_MASK: u32 = 0x7;
@@ -4650,6 +4659,95 @@ impl Gen {
             seed,
             ramp_frames,
             values,
+        }, cur - base))
+    }
+}
+
+/// a voice's Amp envelope (ADR 0362, ABI 6.1); applies on arrival
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct AmpEnvelope {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// AMP_ENV_ON
+    pub flags: u32,
+    pub attack_frames: u32,
+    pub hold_frames: u32,
+    pub decay_frames: u32,
+    /// 0..1
+    pub sustain: f32,
+    pub release_frames: u32,
+    /// the envelope frame the release starts at; AMP_ENV_KEY_OFF_NONE never
+    pub key_off_frame: u32,
+    /// the envelope frame of the voice's first rendered frame
+    pub offset_frames: u32,
+}
+
+impl AmpEnvelope {
+    pub const FIXED_END: usize = 44;
+    pub const OPCODE: u16 = 34; // AMP_ENVELOPE
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, self.flags);
+        put_u32(out, base + 16, self.attack_frames);
+        put_u32(out, base + 20, self.hold_frames);
+        put_u32(out, base + 24, self.decay_frames);
+        put_f32(out, base + 28, self.sustain);
+        put_u32(out, base + 32, self.release_frames);
+        put_u32(out, base + 36, self.key_off_frame);
+        put_u32(out, base + 40, self.offset_frames);
+        let mut cur = base + Self::FIXED_END;
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let flags = get_u32(buf, base + 12);
+        let attack_frames = get_u32(buf, base + 16);
+        let hold_frames = get_u32(buf, base + 20);
+        let decay_frames = get_u32(buf, base + 24);
+        let sustain = get_f32(buf, base + 28);
+        let release_frames = get_u32(buf, base + 32);
+        let key_off_frame = get_u32(buf, base + 36);
+        let offset_frames = get_u32(buf, base + 40);
+        let mut cur = base + Self::FIXED_END;
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            flags,
+            attack_frames,
+            hold_frames,
+            decay_frames,
+            sustain,
+            release_frames,
+            key_off_frame,
+            offset_frames,
         }, cur - base))
     }
 }

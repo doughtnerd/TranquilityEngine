@@ -4,12 +4,13 @@
 // inspector's authored-versus-live rows and bus strips, and the replay slot's clock.
 import { describe, expect, it } from "vitest";
 import { TAKE_NOTES_LIMITS } from "../../../engine/audio/take/notes";
+import { Take } from "../../../engine/audio/take/reader";
 import { formatClock } from "../../components/replayControlsModel";
 import { addMarker, addRegion, deleteNote, editNote, moveNote, noteColourCss, setRegionSpan } from "./notesEdits";
 import { FIXTURE_DURATION, FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
-import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
+import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeEmptyCopy, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
 import { busStrip, instanceParametersAt, parameterRows, valueText } from "./takeInspectorModel";
-import { findInstance, labelSegments, parameterText, pathLabel, playlistsInTake, takeInstances, takeTimeline } from "./takeTimeline";
+import { findInstance, labelSegments, parameterText, pathLabel, pathTitle, playlistsInTake, takeInstances, takeTimeline } from "./takeTimeline";
 import { frameIndexAt, pictureStrip, visibleFrames } from "../../components/filmstripModel";
 
 const take = fixtureTake();
@@ -21,7 +22,27 @@ describe("the take timeline", () => {
   it("spans the take's real duration and has a lane per path, in first-play order", () => {
     expect(tl.duration).toBe(FIXTURE_DURATION);
     expect(tl.lanes.map((l) => l.label)).toEqual(["engine", "boost", "jump", "brake", "land", "checkpoint"].sort((a, b) => order(a) - order(b)));
-    expect(playlistsInTake(tl).find((p) => p.label === "engine")).toEqual({ path: "vehicles/engine.playlist.json", label: "engine", count: 1 });
+    // Playlists in this take reads as folder / name, never the file's extension.
+    expect(playlistsInTake(tl).find((p) => p.path === "vehicles/engine.playlist.json")).toEqual({ path: "vehicles/engine.playlist.json", label: "vehicles / engine", count: 1 });
+    expect(pathTitle("audio/events/engine-single.playlist.json")).toBe("events / engine-single");
+    expect(pathTitle("click.playlist.json")).toBe("click");
+  });
+
+  it("labels instances by their lane and place, how long they were held and their first parameter, never by id", () => {
+    const boost = tl.lanes.find((l) => l.label === "boost")!.spans[0]!;
+    expect(boost.label).toBe("boost · instance 1 · held 1.8 s");
+    const engine = tl.lanes.find((l) => l.label === "engine")!.spans[0]!;
+    expect(engine.label).toBe("engine · instance 1 · Rpm 900");
+    for (const l of tl.lanes) for (const s of l.spans) expect(s.label).not.toMatch(/#\d/);
+  });
+
+  it("holds a parameter set once across the span it applies to, so its lane draws a step", () => {
+    // The landing sets Velocity once, at its PLAY (20.2 s); it stops at 21.4 s.
+    const velocity = tl.parameters.find((p) => p.key === "impacts/land.playlist.json:Velocity")!;
+    expect(velocity.points).toEqual([{ t: 20.2, v: 0.71 }, { t: 21.4, v: 0.71 }]);
+    // A global's last value holds to the take's end.
+    const speed = tl.parameters.find((p) => p.key === "global:Speed")!;
+    expect(speed.points.at(-1)!.t).toBe(FIXTURE_DURATION);
   });
 
   it("draws each instance from its PLAY to its STOP, held up to its RELEASE", () => {
@@ -31,7 +52,7 @@ describe("the take timeline", () => {
     expect(checkpoint.end).toBeNull(); // never stopped: to the end of the take
     expect(checkpoint.held).toBeNull();
     const land = tl.lanes.find((l) => l.label === "land")!;
-    expect(land.spans[0]!.label).toBe("Velocity 0.71 · Surface 1");
+    expect(land.spans[0]!.label).toBe("land · instance 1 · Velocity 0.71");
     expect(findInstance(tl, land.instances[0]!.key)?.path).toBe("impacts/land.playlist.json");
   });
 
@@ -58,6 +79,19 @@ describe("the take timeline", () => {
     const instances = takeInstances(take);
     expect(instances.filter((i) => i.path === "vehicles/engine.playlist.json")).toHaveLength(1);
     expect(new Set(instances.map((i) => i.key)).size).toBe(instances.length);
+  });
+
+  it("ends a one-shot the game never stopped at the first keyframe that no longer lists it, not at the take's end (journeys walk 2, J10.2)", () => {
+    const meta = { ...take.meta, duration: 5 };
+    const play = (t: number, instance: number) => ({ kind: "play" as const, t, instance, path: "sfx/step.playlist.json", emitter: null, options: {} });
+    const listed = (t: number, ...started: number[]) => ({ type: "keyframe" as const, keyframe: { t, globals: {}, instances: started.map((s) => ({ instance: 1, path: "sfx/step.playlist.json", started: s, emitter: null, parameters: {} })) } });
+    const short = new Take(meta, [
+      { type: "request", requests: [play(0.2, 1)] },
+      listed(0), listed(1), // played out within the first second
+      { type: "request", requests: [play(1.5, 1)] }, // the id reused
+      listed(2, 1.5), listed(3, 1.5), listed(4, 1.5), listed(5, 1.5), // still playing at the end
+    ]);
+    expect(takeInstances(short).map((i) => [i.start, i.end])).toEqual([[0.2, 1], [1.5, null]]);
   });
 
   it("thins pictures so thumbnails don't overlap, and names paths", () => {
@@ -139,6 +173,17 @@ describe("the takes' files", () => {
     expect(tree[0]).toMatchObject({ kind: "folder", path: "takes" });
     expect(TAKES_FOLDER).toBe("takes");
     expect(NO_TAKES).toContain("F10");
+    expect(NO_TAKES).toMatch(/^Record one with Record take on the editor/); // a sentence of its own under "No takes yet" (T4)
+  });
+
+  it("the empty centre says how to record a take in one short line (spec §1.3; journeys walk 2, J1.5)", () => {
+    for (const has of [false, true]) {
+      const { title, line } = takeEmptyCopy(has);
+      expect(line).toContain("Record take on the editor's Play toolbar");
+      expect(line.length).toBeLessThanOrEqual(90); // one line at the centre's width
+      expect(line.split(". ").length).toBe(1);
+      expect(title).toBe(has ? "No take open" : "No takes yet");
+    }
   });
 
   it("moves and deletes a take's notes with it", () => {
@@ -180,12 +225,12 @@ describe("the inspector's values", () => {
   });
 });
 
-describe("the replay slot's clock", () => {
-  it("writes take time as m:ss.s", () => {
-    expect(formatClock(0)).toBe("0:00.0");
-    expect(formatClock(12.44)).toBe("0:12.4");
-    expect(formatClock(59.97)).toBe("1:00.0");
-    expect(formatClock(65.25)).toBe("1:05.3");
-    expect(formatClock(-3)).toBe("0:00.0");
+describe("the replay clock", () => {
+  it("writes take time as timecode, mm:ss.mmm (spec §3.14)", () => {
+    expect(formatClock(0)).toBe("00:00.000");
+    expect(formatClock(20.48)).toBe("00:20.480");
+    expect(formatClock(59.9996)).toBe("01:00.000");
+    expect(formatClock(65.25)).toBe("01:05.250");
+    expect(formatClock(-3)).toBe("00:00.000");
   });
 });

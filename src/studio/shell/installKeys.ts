@@ -9,6 +9,7 @@ import { isEditable } from "../../editor/editable";
 import { shortcutFor, type Shortcut } from "../../editor/shortcutKeys";
 import { isMacPlatform } from "../../editor/ui/keyCombo";
 import { panelScopesOf } from "./keymap";
+import { replayStore } from "./replay";
 import { SCREENS } from "./screens";
 import { keymap, openRoute, shortcutsOpen, singleKeyShortcuts, studioRouter } from "./studioServices";
 
@@ -43,6 +44,8 @@ export function installStudioKeys(win: Window = window): () => void {
     keymap.register({ id: "shortcuts", keys: ["?"], label: "Keyboard shortcuts", scope: "global", run: () => void (shortcutsOpen.value = true) }),
     // ADR 0351 §6: A/B between the source and the last platform Hear as played.
     keymap.register({ id: "hearAs.toggle", keys: ["H"], label: "Hear as: switch between Source and the last platform", group: "Audio", scope: "global", run: () => void import("../encoding/studioEncoding").then((m) => m.studioHearAs().toggle()) }),
+    // The Mixer's big button is the game session (UI pass #1: take replay stands in for it).
+    keymap.register({ id: "mixer.session", keys: ["Space"], label: "Play or stop the game session (the open take's replay)", scope: { screen: "mixer" }, run: () => (replayStore().open.peek() ? replayStore().toggle() : false) }),
     keymap.register({ id: "undo", keys: ["Mod+Z"], label: "Undo", group: "Edit", scope: "global", run: withHistory(undo) }),
     keymap.register({ id: "redo", keys: ["Mod+Shift+Z", "Ctrl+Y"], label: "Redo", group: "Edit", scope: "global", run: withHistory(redo) }),
     keymap.register({ id: "history.back", keys: ["Mod+Alt+Z"], label: "Step back through history (in the order made)", group: "Edit", scope: "global", run: withHistory(stepBack) }),

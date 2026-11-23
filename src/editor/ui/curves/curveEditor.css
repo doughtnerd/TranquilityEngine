@@ -1,6 +1,8 @@
 /* The shared curve editor dialog (ADR 0346, CurveEditorDialog.tsx). Theme tokens only; lane colours are the series
    palette (--series-1 … --series-8), set inline from the model. */
-.ce-backdrop { position: fixed; inset: 0; z-index: 35; background: var(--backdrop); display: flex; align-items: center; justify-content: center; }
+/* A floating window (the prototype's): no backdrop; the layer passes the pointer through, so the page behind stays usable. */
+.ce-float { position: fixed; inset: 0; z-index: 35; display: flex; align-items: flex-start; justify-content: center; padding-top: min(110px, 8vh); pointer-events: none; }
+.ce-float > .ce-window { pointer-events: auto; box-shadow: 0 18px 48px var(--shadow); }
 .dialog.ce-window { position: relative; display: flex; flex-direction: column; box-sizing: border-box; width: min(920px, calc(100vw - 16px)); height: min(700px, calc(100vh - 32px)); padding: 0; background: var(--panel); border: 1px solid var(--border-strong); border-radius: 6px; overflow: hidden; font-size: calc(12px * var(--ui-scale)); }
 .dialog.ce-window[data-kind="parameter"], .dialog.ce-window[data-kind="distance"] { height: min(580px, calc(100vh - 32px)); }
 .ce-window:focus { outline: none; }
@@ -36,7 +38,27 @@
 .ce-field-label { color: var(--muted); white-space: nowrap; user-select: none; }
 .ce-field-label.scrub { cursor: ew-resize; }
 .ce-field-label.scrub:hover { color: var(--text); }
-.ce-in { width: 72px; font-variant-numeric: tabular-nums; }
+.ce-in { width: 72px; font-variant-numeric: tabular-nums; background: var(--input-bg); }
+/* No key selected: the fields keep their input look, faded (not the browser's grey disabled fill). */
+.ce-in:disabled { background: var(--input-bg); opacity: 0.45; }
+.ce-float > .ce-window { max-height: calc(100vh - min(110px, 8vh) - 16px); }
+/* The live value in a property row (spec §5.1: two-line rows so names and values don't truncate). */
+.ce-live { font-size: calc(11px * var(--ui-scale)); color: var(--text); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ce-by { color: var(--accent2); }
+/* And by: its bar, the faint other layer, the dashed preview, the Table. */
+.ce-bybar { gap: 10px; }
+.ce-range { width: 90px; accent-color: var(--accent); }
+.ce-toggle { height: 22px; padding: 0 10px; border: 1px solid var(--border); border-radius: 3px; background: var(--button); color: var(--text); font-size: calc(11px * var(--ui-scale)); cursor: pointer; }
+.ce-toggle:hover { background: var(--button-hover); }
+.ce-toggle.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text-strong); }
+.ce-ghost { fill: none; stroke-width: 1.25; stroke-dasharray: 5 4; opacity: 0.35; }
+.ce-preview { fill: none; stroke: var(--text-strong); stroke-width: 1.5; stroke-dasharray: 4 4; opacity: 0.85; }
+.ce-table { flex: 1 0 200px; padding: 10px 12px; overflow: auto; }
+.ce-table table { border-collapse: collapse; width: 100%; max-width: 420px; }
+.ce-table th, .ce-table td { padding: 4px 8px; border-bottom: 1px solid var(--border); text-align: left; font-weight: 400; }
+.ce-table thead th { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.ce-table td { display: flex; align-items: center; gap: 10px; }
+.ce-link { background: none; border: 0; padding: 0; color: var(--link); cursor: pointer; font: inherit; }
 .ce-unit { color: var(--muted); }
 
 /* Properties */
@@ -65,9 +87,9 @@
 .ce-readout dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
 
 /* Plot */
-.ce-plot { flex: 1 0 200px; min-height: 200px; display: grid; grid-template-columns: 58px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 20px; padding: 10px 12px 0 0; user-select: none; }
+.ce-plot { flex: 1 0 200px; min-height: 200px; display: grid; grid-template-columns: 64px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 20px; padding: 12px 12px 0 0; user-select: none; }
 .ce-ylabels, .ce-xlabels { position: relative; }
-.ce-ylabels span { position: absolute; right: 6px; font-size: calc(10px * var(--ui-scale)); line-height: 12px; color: var(--muted); white-space: nowrap; }
+.ce-ylabels span { position: absolute; left: 0; right: 8px; text-align: right; font-size: calc(10px * var(--ui-scale)); line-height: 12px; color: var(--muted); white-space: nowrap; }
 .ce-xlabels span { position: absolute; top: 4px; font-size: calc(10px * var(--ui-scale)); line-height: 12px; color: var(--muted); white-space: nowrap; }
 .ce-plot-box { position: relative; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 3px; cursor: crosshair; touch-action: none; }
 .ce-plot-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
@@ -108,7 +130,7 @@
 .ce-tb.del:hover:not(:disabled) { color: var(--danger); }
 
 /* Presets */
-.ce-presets { display: flex; align-items: center; gap: 6px; padding: 8px 12px 8px 58px; flex: none; flex-wrap: wrap; }
+.ce-presets { display: flex; align-items: center; gap: 6px; padding: 8px 12px 8px 64px; flex: none; flex-wrap: wrap; }
 .ce-pt { padding: 2px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-sunken); cursor: pointer; line-height: 0; }
 .ce-pt:hover { border-color: var(--accent); background: var(--accent-faint); }
 .ce-pt svg path { fill: none; stroke: var(--accent); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
@@ -116,6 +138,9 @@
 .ce-up .ce-pt svg path { stroke: var(--accent2); }
 .ce-upx { position: absolute; top: -6px; right: -6px; width: 14px; height: 14px; border-radius: 7px; border: 1px solid var(--border); background: var(--bg-sunken); color: var(--muted); font-size: 10px; line-height: 12px; padding: 0; cursor: pointer; display: none; }
 .ce-up:hover .ce-upx, .ce-upx:focus-visible { display: block; }
+/* Save as preset: a dashed 46 × 30 box (the prototype's). */
+.ce-presets .ce-ib { width: 46px; height: 30px; border: 1px dashed var(--border-strong); color: var(--muted); }
+.ce-presets .ce-ib:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); background: var(--accent-faint); }
 
 /* Dope sheet */
 .ce-dope { border-top: 1px solid var(--border); flex: none; }
@@ -129,7 +154,10 @@
 .ce-dl { display: flex; align-items: center; gap: 6px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 0 6px 0 10px; height: 24px; background: none; color: var(--text); text-align: left; cursor: pointer; }
 .ce-dl.on { background: var(--selection); color: var(--selection-text); }
 .ce-dl.off { color: var(--faint); }
-.ce-dl .ce-swatch { width: 10px; }
+.ce-dl .ce-swatch { width: 10px; flex: none; }
+/* One line per lane, as tall as its row: a long name ("Low-pass · Cutoff") ends in an ellipsis, not a second line. */
+.ce-dl { min-width: 0; overflow: hidden; }
+.ce-dl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ce-drow { position: relative; height: 24px; border: 1px solid var(--border); border-top: 0; background: var(--bg-sunken); }
 .ce-drow-playhead { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--accent); pointer-events: none; }
 .ce-dia { position: absolute; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; padding: 0; transform: rotate(45deg); border: 2px solid; border-radius: 0; background: var(--panel); cursor: ew-resize; touch-action: none; z-index: 2; }

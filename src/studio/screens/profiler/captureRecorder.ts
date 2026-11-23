@@ -141,7 +141,7 @@ export function recorderStatus(state: RecorderState, seconds: number, replayOf: 
     case "starting":
       return "Starting a capture…";
     case "recording":
-      return `${replayOf ? `Recording the replay of ${takeName(replayOf.path)}` : "Recording the Studio"} · ${seconds.toFixed(1)} s`;
+      return `● ${replayOf ? `Recording the replay of ${takeName(replayOf.path).replace(/\.mycotake$/i, "")}` : "Recording a new capture"} · ${seconds.toFixed(1)} s`;
     case "saving":
       return "Saving the capture…";
     case "saved":

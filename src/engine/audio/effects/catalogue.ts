@@ -81,8 +81,10 @@ export const EFFECT_CATALOGUE: Readonly<Record<BuiltinEffectType, EffectSpec>> =
   reverb: spec({ type: "reverb", label: "Reverb", version: "1", cost: "heavy", levels: ["instance", "bus"], params: [
     p("size", "Size", 0, 1, 0.01, "", 0.5), p("decay", "Decay", 0.1, 20, 0.1, "s", 1.8), mix(20),
   ] }),
+  // ADR 0362: `hold` (default 0, so files without it read as before) between the attack and the decay; a sequence
+  // clip's chain runs it too (the clip's voices, per sample: `ampEnvelope.ts`).
   envelope: spec({ type: "envelope", label: "Amp envelope", version: "1", cost: "light", levels: ["voice"], params: [
-    p("attack", "Attack", 0, 5000, 1, "ms", 5), p("decay", "Decay", 0, 5000, 1, "ms", 100),
+    p("attack", "Attack", 0, 5000, 1, "ms", 5), p("hold", "Hold", 0, 5000, 1, "ms", 0), p("decay", "Decay", 0, 5000, 1, "ms", 100),
     p("sustain", "Sustain", 0, 100, 1, "%", 100), p("release", "Release", 0, 10000, 1, "ms", 200),
   ] }),
   fades: spec({ type: "fades", label: "Fades", version: "1", cost: "light", levels: ["sample"], params: [

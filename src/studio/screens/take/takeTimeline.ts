@@ -1,9 +1,10 @@
 // The Take screen's timeline, read from a take (ADR 0348 "The Take screen"; the prototype's Take): the instances per
-// playlist path (each a span from its PLAY to its STOP, or to the take's end, with the held part up to its RELEASE),
+// playlist path (each a span from its PLAY to its STOP, to where it played out, or to the take's end, with the held part up to its RELEASE),
 // the parameter lanes (each global parameter, and each instance parameter per path, from the keyframes' values and the
 // PARAM records; labelled parameters as segments), the game's marks, the pictures, and "Playlists in this take" (each
 // path with its instance count). Pure: the panels draw what this returns.
 import type { Take } from "../../../engine/audio/take/reader";
+import { TAKE_MAX_KEYFRAME_INSTANCES } from "../../../engine/audio/take/records";
 import type { TakeFrame, TakePlayOptions } from "../../../engine/audio/take/types";
 import type { Span } from "../../components/spanLaneModel";
 import type { ValuePoint } from "../../components/valueLaneModel";
@@ -16,7 +17,7 @@ export interface TakeInstance {
   readonly path: string;
   readonly emitter: number | null;
   readonly start: number;
-  /** STOP time; null when it played to the end of the take. */
+  /** STOP time, or for one the game never stopped the first keyframe that no longer lists it; null when it played to the end of the take. */
   readonly end: number | null;
   /** RELEASE time (the held part ends), or null. */
   readonly release: number | null;
@@ -84,6 +85,8 @@ export function takeInstances(take: Take): TakeInstance[] {
     start: number;
     end: number | null;
     release: number | null;
+    /** Ended by its STOP (not by played out, nor by its id being reused). */
+    stopped?: boolean;
     options: TakePlayOptions;
     parameters: Record<string, number>;
   }
@@ -108,21 +111,41 @@ export function takeInstances(take: Take): TakeInstance[] {
       open({ instance: q.instance, path: q.path, emitter: q.emitter, start: q.t, options: q.options, parameters: { ...q.options.parameters } });
     } else if (q.kind === "stop") {
       const l = live.get(q.instance);
-      if (l && l.end === null) l.end = q.t;
+      if (l && l.end === null) (l.end = q.t), (l.stopped = true);
       live.delete(q.instance);
     } else if (q.kind === "release") {
       const l = live.get(q.instance);
       if (l && l.release === null) l.release = q.t;
     }
   }
+  // An instance the game never stopped (a one-shot that played out) ended before the first keyframe that no longer lists
+  // it: the recorder lists every instance still playing each second. One that every later keyframe lists ran to the end.
+  for (const x of out) {
+    if (x.stopped) continue;
+    const gone = take.keyframes.find((k) => k.t > x.start + 1e-6 && k.instances.length < TAKE_MAX_KEYFRAME_INSTANCES && !k.instances.some((i) => i.instance === x.instance && Math.abs(i.started - x.start) < 1e-6));
+    if (gone && (x.end === null || gone.t < x.end)) x.end = gone.t;
+  }
   return out.sort((a, b) => a.start - b.start || a.instance - b.instance);
 }
 
-/** The instance's span on its lane. */
-export function instanceSpan(i: TakeInstance): Span {
+/** "audio/events/engine.playlist.json" → "events / engine": the folder it is in and its name, as a designer reads it. */
+export function pathTitle(path: string): string {
+  const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "";
+  const parent = folder.slice(folder.lastIndexOf("/") + 1);
+  return parent ? `${parent} / ${pathLabel(path)}` : pathLabel(path);
+}
+
+/**
+ * The instance's span on its lane: `n` is its place among the lane's instances (1-based) and `lane` the lane's label.
+ * Never the runtime's instance id: "boost · instance 2 · held 1.8 s · Velocity 0.71".
+ */
+export function instanceSpan(i: TakeInstance, n: number, lane: string): Span {
   const held = i.release !== null ? { start: i.start, end: i.release } : null;
-  const params = Object.entries(i.parameters).slice(0, 2).map(([k, v]) => `${k} ${roundValue(v)}`);
-  return { id: i.key, start: i.start, end: i.end, held, status: "ok", label: params.length ? params.join(" · ") : `#${i.instance}` };
+  const parts = [`${lane} · instance ${n}`];
+  if (i.release !== null) parts.push(`held ${Math.max(0, i.release - i.start).toFixed(1)} s`);
+  const first = Object.entries(i.parameters)[0];
+  if (first) parts.push(`${first[0]} ${roundValue(first[1])}`);
+  return { id: i.key, start: i.start, end: i.end, held, status: "ok", label: parts.join(" · ") };
 }
 
 const roundValue = (v: number): string => String(Math.round(v * 100) / 100);
@@ -140,7 +163,8 @@ export function takeTimeline(take: Take, labelsOf: LabelsOf = () => null): TakeT
   const order = [...played, ...[...byPath.keys()].filter((p) => !played.includes(p))];
   const lanes: InstanceLane[] = order.filter((p) => byPath.has(p)).map((path) => {
     const list = byPath.get(path)!;
-    return { path, label: pathLabel(path), instances: list, spans: list.map(instanceSpan) };
+    const label = pathLabel(path);
+    return { path, label, instances: list, spans: list.map((i, n) => instanceSpan(i, n + 1, label)) };
   });
   return { duration: take.duration, lanes, parameters: parameterLanes(take, instances, labelsOf), marks: take.marks().map((m) => ({ t: m.t, text: m.text })), frames: take.frames };
 }
@@ -170,8 +194,15 @@ function parameterLanes(take: Take, instances: readonly TakeInstance[], labelsOf
   }
   events.sort((a, b) => a.t - b.t);
   for (const e of events) push(e.name, e.path, e.t, e.v);
+  // Each lane's last value holds to where it stops applying (the take's end; an instance parameter's, its last
+  // instance's end), so a parameter set once draws a step across that span, not a lone point.
+  const endOf = (path: string | null): number =>
+    path === null ? take.duration : instances.reduce((e, i) => (i.path === path ? Math.max(e, i.end ?? take.duration) : e), 0);
   const lanes: ParameterLane[] = [];
   for (const [key, lane] of points) {
+    const last = lane.points[lane.points.length - 1];
+    const end = endOf(lane.path);
+    if (last && end > last.t) lane.points.push({ t: end, v: last.v });
     const labels = labelsOf(lane.name, lane.path);
     lanes.push({
       key,
@@ -198,9 +229,9 @@ export function labelSegments(points: readonly ValuePoint[], labels: readonly st
   return out;
 }
 
-/** "Playlists in this take": each path the take plays, with its instance count, in first-play order. */
+/** "Playlists in this take": each path the take plays (labelled folder / name), with its instance count, in first-play order. */
 export function playlistsInTake(timeline: TakeTimeline): { path: string; label: string; count: number }[] {
-  return timeline.lanes.map((l) => ({ path: l.path, label: l.label, count: l.instances.length }));
+  return timeline.lanes.map((l) => ({ path: l.path, label: pathTitle(l.path), count: l.instances.length }));
 }
 
 /** The instance a timeline key names. */

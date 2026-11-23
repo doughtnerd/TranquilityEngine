@@ -68,6 +68,8 @@ export const VoiceFlag = {
   WANTS_PLAYHEAD: 1 << 4,
   PAUSED: 1 << 5,
   STOP_ON_FADE_END: 1 << 6,
+  /** ADR 0360: never mixed (a silence generator): selection keeps it virtual, as a paused voice, whatever the room. */
+  VIRTUAL_ONLY: 1 << 7,
 } as const;
 
 /**
@@ -83,6 +85,8 @@ export const VoiceFlag2 = {
   AUX: 1 << 3,
   /** ADR 0347: the voice asks for its bus's bed whatever its rank (an audio zone's interior, `PlayRequest.bed`). */
   BED: 1 << 4,
+  /** ADR 0362: a clip voice read backwards (`PlayRequest.reverse`; PLAY flag `reverse`): its positions count from the clip's end. */
+  REVERSE: 1 << 5,
 } as const;
 
 /**
@@ -256,6 +260,23 @@ export class VoiceTable implements VoiceTableHandleApi {
   readonly epoch: Uint32Array;
   readonly owner: Int32Array;
 
+  // --- ADR 0360 (G3): generator voices (a PLAY of `GEN_CLIP_ID_FIRST + kind`, then GEN) ---
+  /** Per slot: 0 a clip or stream voice, else its generator kind's number after `GEN_CLIP_ID_FIRST` (1 oscillator … 4 silence). */
+  readonly genKind: Uint8Array;
+  /**
+   * Per slot: what the voice weighs against the mixed cap in selection, in sample voices (1; a generator its kind's
+   * measured cost, `selection.ts` `generatorVoiceCost`).
+   */
+  readonly capWeight: Float32Array;
+  /** Per slot: a generator's noise seed (non-zero), sent with its GEN (and again by a REPLAY). */
+  readonly genSeed: Uint32Array;
+  /** Per slot: a generator's parameters in wire order, as last sent (the REPLAY re-sends them); null for other voices. */
+  readonly genParams: (Float32Array | null)[];
+  /** Per slot: the name a generator plays under (its `*.generator.json`, or where it is embedded); null for other voices. */
+  readonly genPath: (string | null)[];
+  /** Live generator voices (selection weighs the cap only while there are any). */
+  genLive = 0;
+
   // --- Bookkeeping (no §3 row; all preallocated) ---
   /** §3 free list: slot indices, `freeTop` of them valid. */
   readonly freeStack: Uint16Array;
@@ -398,6 +419,11 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.fadeSeconds = new Float32Array(capacity);
     this.started = new Uint8Array(capacity);
     this.stopWhy = new Uint8Array(capacity);
+    this.genKind = new Uint8Array(capacity);
+    this.capWeight = new Float32Array(capacity).fill(1);
+    this.genSeed = new Uint32Array(capacity);
+    this.genParams = new Array<Float32Array | null>(capacity).fill(null);
+    this.genPath = new Array<string | null>(capacity).fill(null);
     this.queuedSlots = new Uint16Array(capacity);
     this.queuedIds = new Uint32Array(capacity);
     this.reset();
@@ -411,6 +437,8 @@ export class VoiceTable implements VoiceTableHandleApi {
   }
 
   private clipName(i: number): string {
+    // ADR 0360: a generator voice is named by its generator (its reserved clip id names only the kind).
+    if (this.genKind[i] !== 0) return this.genPath[i] ?? "";
     const c = this.clip[i]!;
     return this.names ? this.names.clip(c, (this.flags[i]! & VoiceFlag.STREAM) !== 0) : String(c);
   }
@@ -463,6 +491,12 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.endedTop = 0;
     this.dirtyTop = 0;
     this.musicGroup.fill(0);
+    this.genKind.fill(0);
+    this.capWeight.fill(1);
+    this.genSeed.fill(0);
+    this.genParams.fill(null);
+    this.genPath.fill(null);
+    this.genLive = 0;
     this.stampedCount.fill(0);
     this.stampedTotal = 0;
     this.stampedInSeconds = false;
@@ -512,6 +546,21 @@ export class VoiceTable implements VoiceTableHandleApi {
     const base = i * MAX_STAMPED;
     for (let k = this.stampedCount[i]! - 1; k >= 0; k--) {
       if (this.stampedEnd[base + k]! <= nowFrame) this.removeStamped(i, k);
+    }
+  }
+
+  /**
+   * ADR 0362 §1: slot `i` was held from frame `from` and resumed `by` frames later; its entries stamped at or after
+   * `from` waited with it on the core and land that much later, so they move with them (order kept). Allocates nothing.
+   */
+  shiftStamped(i: number, from: number, by: number): void {
+    if (!(by > 0)) return;
+    const base = i * MAX_STAMPED;
+    for (let k = 0; k < this.stampedCount[i]!; k++) {
+      const e = base + k;
+      if (this.stampedFrame[e]! < from) continue;
+      this.stampedFrame[e] += by;
+      this.stampedEnd[e] += by;
     }
   }
 
@@ -798,6 +847,29 @@ export class VoiceTable implements VoiceTableHandleApi {
     return true;
   }
 
+  /**
+   * ADR 0360 (G3): slot `i` (just allocated) is a generator voice of kind number `kind` (1..4) playing `values` (wire
+   * order) with noise `seed` (0 becomes 1: GEN reads 0 as "keep"), named `path`, weighing `weight` against the mixed cap.
+   */
+  setGenerator(i: number, kind: number, values: ArrayLike<number>, seed: number, path: string, weight: number): void {
+    if (this.genKind[i] === 0) this.genLive++;
+    this.genKind[i] = kind;
+    this.genSeed[i] = (seed >>> 0) || 1;
+    this.genParams[i] = Float32Array.from(values);
+    this.genPath[i] = path;
+    this.capWeight[i] = weight > 0 && Number.isFinite(weight) ? weight : 1;
+  }
+
+  /** ADR 0360: slot `i` is no longer a generator voice. */
+  private clearGenerator(i: number): void {
+    this.genKind[i] = 0;
+    this.genSeed[i] = 0;
+    this.genParams[i] = null;
+    this.genPath[i] = null;
+    this.capWeight[i] = 1;
+    if (this.genLive > 0) this.genLive--;
+  }
+
   /** See `VoiceTableHandleApi.endedReason`. */
   endedReason(id: number): VoiceReasonCode {
     if (id >>> 0 !== id || id === 0) return VoiceReason.NONE;
@@ -1040,6 +1112,7 @@ export class VoiceTable implements VoiceTableHandleApi {
     this.musicGroup[i] = 0;
     this.clearStamped(i);
     this.clearStem(i);
+    if (this.genKind[i] !== 0) this.clearGenerator(i);
     if (this.busLive[b]! > 0) this.busLive[b]!--;
     this.liveCount--;
     const g = this.gen[i]!;

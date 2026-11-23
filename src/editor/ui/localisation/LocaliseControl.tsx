@@ -92,7 +92,7 @@ export function LocaliseControl(p: LocaliseControlProps) {
           <ul class="localise-matches" aria-label="Keys">
             {matches.map((m) => (
               <li key={m.key}>
-                <button type="button" title={`${m.table}: ${m.preview}`} onClick={() => p.onPick(m.key)}>
+                <button type="button" title={`${m.table}: ${m.preview}`} onClick={() => (setMode("closed"), p.onPick(m.key))}>
                   <span class="mono">{m.key}</span>
                   <span>{m.preview}</span>
                 </button>
@@ -108,7 +108,7 @@ export function LocaliseControl(p: LocaliseControlProps) {
     <div class="localise-control" role="group" aria-label={`${p.field} localisation`}>
       <span class="localise-preview">Reference text: “{p.literal}”</span>
       <div class="localise-row">
-        <input type="text" class="mono" aria-label="New key" value={key} onInput={(e) => setKey((e.currentTarget as HTMLInputElement).value)} onKeyDown={(e) => e.key === "Enter" && p.onExtract(table, key)} />
+        <input type="text" class="mono" aria-label="New key" value={key} onInput={(e) => setKey((e.currentTarget as HTMLInputElement).value)} onKeyDown={(e) => e.key === "Enter" && (setMode("closed"), p.onExtract(table, key))} />
       </div>
       <div class="localise-row">
         <input type="text" list="localise-tables" aria-label="String table" value={table} onInput={(e) => setTable((e.currentTarget as HTMLInputElement).value)} />
@@ -119,7 +119,7 @@ export function LocaliseControl(p: LocaliseControlProps) {
         </datalist>
       </div>
       <div class="localise-row">
-        <button type="button" class="primary" disabled={key.trim() === "" || table.trim() === ""} onClick={() => p.onExtract(table.trim(), key.trim())}>
+        <button type="button" class="primary" disabled={key.trim() === "" || table.trim() === ""} onClick={() => (setMode("closed"), p.onExtract(table.trim(), key.trim()))}>
           Extract
         </button>
         <button type="button" onClick={() => setMode("closed")}>

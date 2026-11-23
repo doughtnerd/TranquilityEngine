@@ -2,11 +2,15 @@
  * The live playlist tree's shared shapes and base node (ADR 0343): what every resolver's node (`nodes.ts`,
  * `sequence.ts`) is and what it needs of its instance (`NodeHost`).
  */
+import type { AmpStages } from "../../../../engine/audio/effects/ampEnvelope";
 import type { Curve } from "../../../../engine/core/curve";
+import type { CurveBy } from "../../../../engine/audio/curveBy";
+import type { LiveSlice } from "./byCurves";
 import type { Effect } from "../../../../engine/audio/effects/types";
 import type { VoiceProps } from "../../../../engine/audio/playlist/accumulate";
 import type { PickState } from "../../../../engine/audio/playlist/picks";
-import type { ChangeHow, LineEntry, LoopBehaviour, PlaylistBody, SampleEntry } from "../../../../engine/audio/playlist/types";
+import type { ChangeHow, CurveInput, LineEntry, LoopBehaviour, PlaylistBody, Quantize, SampleEntry } from "../../../../engine/audio/playlist/types";
+import type { GeneratorBody } from "../../../../engine/audio/generators/types";
 import type { ParameterDef } from "../../../../engine/audio/parameters";
 import type { AudioMarkerEvent, AudioVoice, Attenuation, SubmixLevel } from "../backend";
 import type { Binding, ParamRef } from "../automation";
@@ -18,19 +22,20 @@ import { fadePieces } from "../../../../engine/audio/playlist/fadeShapes";
 import type { QuantLane } from "./quantizedLanes";
 
 /**
- * ADR 0350: one fade of `voice`'s fade ramp from `from` to `to` over `seconds` in `shape`, starting at heard `at` (null:
- * as soon as possible, or `asap` when a shape needs several stamped pieces). The core's laws are one record; other
- * shapes are `fadePieces`' stamped linear pieces. `stopAtEnd` stops the voice when it ends.
+ * ADR 0350: one fade of `voice`'s fade ramp from `from` to `to` over `seconds` in `shape`, starting at `at` (null: as soon
+ * as possible, or `asap` when a shape needs several stamped pieces). The core's laws are one record; other shapes are
+ * `fadePieces`' stamped linear pieces. `stopAtEnd` stops the voice when it ends. `heard` turns the times (the instance's
+ * clock, ADR 0362 §1) into the heard times the stamps go with (`NodeHost.heard`); omitted, they are heard times already.
  */
-export function shapedFade(voice: AudioVoice, shape: FadeShape, seconds: number, from: number, to: number, at: number | null, asap: () => number, stopAtEnd = false): void {
+export function shapedFade(voice: AudioVoice, shape: FadeShape, seconds: number, from: number, to: number, at: number | null, asap: () => number, stopAtEnd = false, heard: (t: number) => number = (t) => t): void {
   const pieces = fadePieces(shape, seconds, from, to);
   if (pieces.length === 1) {
     const p = pieces[0]!;
-    voice.fadeShaped({ to, seconds: p.seconds, law: p.law, ...(stopAtEnd ? { stopAtEnd } : {}), ...(at !== null ? { at } : {}) });
+    voice.fadeShaped({ to, seconds: p.seconds, law: p.law, ...(stopAtEnd ? { stopAtEnd } : {}), ...(at !== null ? { at: heard(at) } : {}) });
     return;
   }
   const t0 = at ?? asap();
-  pieces.forEach((p, k) => voice.fadeShaped({ to: p.to, seconds: p.seconds, law: p.law, at: t0 + p.at, ...(stopAtEnd && k === pieces.length - 1 ? { stopAtEnd } : {}) }));
+  pieces.forEach((p, k) => voice.fadeShaped({ to: p.to, seconds: p.seconds, law: p.law, at: heard(t0 + p.at), ...(stopAtEnd && k === pieces.length - 1 ? { stopAtEnd } : {}) }));
 }
 
 // --- shared shapes ---------------------------------------------------------------------------------------------------
@@ -89,6 +94,20 @@ export interface PVoice {
   appliedLowpass: number | null;
   /** Played with a position (it follows the handle's `position`). */
   readonly positioned: boolean;
+  /**
+   * A stream voice (the sample's `stream` import setting): it reads `waitingForData` from its play until its first chunk
+   * sounds, whenever it starts, so starting it again later never finds its data there (`waitsForClipData`).
+   */
+  readonly streamed: boolean;
+}
+
+/**
+ * The voice waits for its clip's data to reach the core (D44: a start that can't sound where it was stamped yet, worth
+ * starting again once the clip is resident). A stream voice's wait is its stream opening, which a new start only begins
+ * again: it isn't counted, or a sequence of a streamed sample would restart every frame and never sound.
+ */
+export function waitsForClipData(v: PVoice): boolean {
+  return !v.leaving && !v.streamed && v.voice.reason === "waitingForData";
 }
 
 /** Where a voice plays from, resolved from the playlist's `spatial` block. */
@@ -126,6 +145,54 @@ export interface Ctx {
    * null: none (or the voices below are on another bus).
    */
   submix?: CtxSubmix | null;
+  /**
+   * ADR 0360 §4: the `gen:<param>` curves of the entries above (an entry's voice curves reach the generator it plays,
+   * directly or wrapped in an embedded Clip). Only a generator voice reads them; absent: none.
+   */
+  genCurves?: readonly GenCurve[];
+  /**
+   * ADR 0362 item 2: a sequence clip's Amp envelope over the clip instance's time: its stages (seconds), the clip's
+   * length (the release ends there; null: unbounded) and the heard time of the clip's time 0. Every voice below takes it
+   * from where it starts (a playlist clip's voices too). Absent: none.
+   */
+  envelope?: CtxEnvelope;
+  /**
+   * ADR 0362 item 3: the sample voice this context starts plays its trim backwards (a reversed sequence clip's piece):
+   * from the trim's end down to its start, its loop running backwards. Set only on a sample play, never inherited.
+   */
+  reverse?: boolean;
+}
+
+/** ADR 0362 item 2: a clip's Amp envelope as the context carries it down (`Ctx.envelope`). */
+export interface CtxEnvelope {
+  readonly stages: AmpStages;
+  readonly length: number | null;
+  /** Heard time of the clip's time 0 (envelope time 0). */
+  readonly origin: number;
+}
+
+/** ADR 0360 §4: one `gen:<param>` curve or lane, still named by parameter (the generator's kind resolves it). */
+export interface GenCurve {
+  /** The generator catalogue's parameter name. */
+  readonly param: string;
+  readonly input: CurveInput;
+  /** In the parameter's own units (Hz, ms, dB, …). */
+  readonly curve: Curve;
+  /** A time-keyed lane read this many seconds ahead of the voice's time (a sequence clip's clip or sequence time). */
+  readonly offset?: number;
+  /** ADR 0353: a parameter-keyed curve moving only on this boundary (not followed yet for generators; one warning). */
+  readonly quantize?: Quantize;
+}
+
+/** ADR 0360 §5: one generator voice to play: its source, and how a sequence clip ends it. */
+export interface GeneratorPlay {
+  /** A `*.generator.json` path or an embedded generator. */
+  readonly generator: string | GeneratorBody;
+  /**
+   * Seconds after its start at which an oscillator, synth or silence keys itself off (a sequence clip's remaining
+   * length: the core's `length`, sample-exact); absent: the generator's own `length`.
+   */
+  readonly keyOffAfter?: number;
 }
 
 /** ADR 0345 levels: a level's submix as the context carries it down. */
@@ -148,14 +215,24 @@ export interface NodeHost {
   random(): number;
   /** The persistent pick state of the Queue at `key` (per playlist, per World). */
   pickState(key: string): PickState;
-  /** The heard clock now. */
+  /**
+   * The instance's clock now: the heard clock less the time the playback has been paused (ADR 0362 §1). Every time a
+   * node plans with (`at`, `startOf`, `schedule`, markers) is on this clock.
+   */
   clock(): number;
   /** `at`, else the earliest exact start, else now. */
   startOf(at: number | null): number;
+  /** ADR 0362 §1: the heard time (`Audio.time`) a stamp at instance time `t` goes to the backend with. */
+  heard(t: number): number;
   /** A parameter's value and definition (local, else global); null when there is none. */
   param(name: string): { value: number; def: ParameterDef } | null;
   paramRef(name: string): ParamRef | null;
   curveId(curve: Curve): number | null;
+  /**
+   * ADR 0362 §5: the instance's slice of lane `main` following second input `by` (`byCurves.ts`), mapped by `pre` (named
+   * `key`) as the lane's owner maps its curve.
+   */
+  byCurve(main: Curve, by: CurveBy, key?: string, pre?: (c: Curve) => Curve): LiveSlice;
   /**
    * Plays one sample entry below `ctx`. `loop` (a sequence clip's own loop, or null for none) replaces the loop the entry
    * would get from its sample and settings; omitted, the entry's.
@@ -167,6 +244,14 @@ export interface NodeHost {
    * settings. Null when nothing plays (the host keeps why for the handle's reason). Absent: line entries play nothing.
    */
   lineSample?(entry: LineEntry, ctx: Ctx): SampleEntry | null;
+  /**
+   * ADR 0360 §5: plays one generator voice below `ctx` (its `gen:` curves are `ctx.genCurves`): the patch resolved now,
+   * drawing from the World's generator in pick order. Null when nothing plays (a missing asset, a backend without
+   * generators). Absent: generators play nothing.
+   */
+  playGenerator?(play: GeneratorPlay, ctx: Ctx): PVoice | null;
+  /** ADR 0360 §5: a playing generator voice's parameters (by catalogue index) change, gliding over `seconds` (hot reload). */
+  setGeneratorParams?(v: PVoice, params: ReadonlyMap<number, number>, seconds: number): void;
   /** A marker passes at heard `e.time`: the handle's `onMarker` listeners hear it once the heard clock reaches it. */
   emitMarker(e: AudioMarkerEvent): void;
   /** Report the Cue, Exit and Hit markers of `facts` as voice `v` (playing from file seconds `from`) passes them. */
@@ -229,7 +314,7 @@ export abstract class LiveNode {
     for (const v of this.voices) {
       if (v.leaving) continue;
       v.leaving = true;
-      shapedFade(v.voice, shape, seconds, 1, 0, at, () => this.host.startOf(null), true);
+      shapedFade(v.voice, shape, seconds, 1, 0, at, () => this.host.startOf(null), true, (t) => this.host.heard(t));
     }
     for (const c of this.children) c.leave(seconds, at, shape);
   }
@@ -246,7 +331,7 @@ export abstract class LiveNode {
       // An always-active sample loop can't be let go (only a stop ends it): it is cut at the hand-over, as before.
       if (v.loop.behaviour.active === "always") {
         v.leaving = true;
-        v.voice.fadeShaped({ to: 0, seconds: 0.005, law: "linear", stopAtEnd: true, ...(at !== null ? { at } : {}) });
+        v.voice.fadeShaped({ to: 0, seconds: 0.005, law: "linear", stopAtEnd: true, ...(at !== null ? { at: this.host.heard(at) } : {}) });
       } else this.host.endLoop(v);
     }
     for (const c of this.children) c.ringOut(at);
@@ -299,7 +384,7 @@ export abstract class LiveNode {
 
   /** A voice below still waits for its clip's data (it hasn't reached the core, so it can't start where it was stamped). */
   waitingForData(): boolean {
-    for (const v of this.voices) if (!v.leaving && v.voice.reason === "waitingForData") return true;
+    for (const v of this.voices) if (waitsForClipData(v)) return true;
     for (const c of this.children) if (!c.stopped && c.waitingForData()) return true;
     return false;
   }

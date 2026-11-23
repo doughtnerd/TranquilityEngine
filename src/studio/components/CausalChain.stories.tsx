@@ -46,7 +46,7 @@ export const Played: StoryObj = {
   render: () => <Demo steps={LAND} />,
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getByRole("button", { name: "Open Bike impacts" }));
+    await userEvent.click(c.getByRole("button", { name: "Bike impacts" }));
     await expect(c.getByTestId("opened")).toHaveTextContent("Bike impacts");
     c.getByRole("group", { name: /Why it played/ }).focus();
     await userEvent.keyboard("1");

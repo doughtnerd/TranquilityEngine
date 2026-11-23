@@ -43,7 +43,7 @@ export default meta;
 export const Keyboard: StoryObj = {
   render: () => <MenuDemo />,
   play: async ({ canvasElement }) => {
-    const c = within(canvasElement);
+    const c = within(canvasElement.ownerDocument.body); // menus and dialogs float at the page root (FloatingPortal)
     await userEvent.click(c.getByRole("button", { name: "Engine loop.wav" }));
     const menu = await c.findByRole("menu", { name: "Sample menu" });
     await expect(within(menu).getByRole("menuitem", { name: /Rename/ })).toHaveFocus();
@@ -51,6 +51,59 @@ export const Keyboard: StoryObj = {
     await expect(within(menu).getByRole("menuitem", { name: /Delete/ })).toHaveFocus();
     await userEvent.keyboard("m{Enter}");
     await expect(c.getByRole("list", { name: "Log" })).toHaveTextContent("move");
+    await expect(c.queryByRole("menu")).toBeNull();
+  },
+};
+
+/** The prototype's play-mode menu: a caps group, ✓ on the current mode, muted notes on the right, a submenu. */
+function ModeMenuDemo() {
+  const [open, setOpen] = useState(true);
+  const [mode, setMode] = useState("whole");
+  const pick = (id: string) => () => setMode(id);
+  return (
+    <div>
+      <output aria-label="Mode">{mode}</output>
+      <button onClick={() => setOpen(true)}>Play mode</button>
+      {open && (
+        <ContextMenu
+          label="Play mode"
+          at={{ x: 20, y: 40 }}
+          onClose={() => setOpen(false)}
+          entries={[
+            { kind: "group", label: "Play mode" },
+            { id: "whole", label: "Whole", checked: mode === "whole", run: pick("whole") },
+            { id: "loop", label: "Pickup → loop", checked: mode === "loop", disabled: true, note: "no loops", run: pick("loop") },
+            { id: "exit", label: "To next exit", checked: mode === "exit", disabled: true, note: "no exits", run: pick("exit") },
+            SEPARATOR,
+            { id: "more", label: "Scope", run: () => {}, submenu: [{ id: "trim", label: "Trim", hint: "T", run: pick("trim") }, { id: "sel", label: "Selection", run: pick("selection") }] },
+          ]}
+        />
+      )}
+    </div>
+  );
+}
+
+export const ChecksNotesSubmenu: StoryObj = {
+  render: () => <ModeMenuDemo />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement.ownerDocument.body); // menus and dialogs float at the page root (FloatingPortal)
+    const menu = await c.findByRole("menu", { name: "Play mode" });
+    const whole = within(menu).getByRole("menuitemradio", { name: /Whole/ });
+    await expect(whole).toHaveAttribute("aria-checked", "true");
+    await expect(whole).toHaveStyle({ justifyContent: "flex-start" }); // labels left, not pushed right
+    await expect(within(menu).getByRole("menuitemradio", { name: /To next exit/ })).toHaveTextContent("no exits");
+    await userEvent.keyboard("{ArrowDown}");
+    const scope = within(menu).getByRole("menuitem", { name: /Scope/ });
+    await expect(scope).toHaveFocus(); // the disabled modes are skipped
+    await userEvent.keyboard("{ArrowRight}");
+    const sub = await c.findByRole("menu", { name: "Scope" });
+    await expect(within(sub).getByRole("menuitem", { name: /Trim/ })).toHaveFocus();
+    await userEvent.keyboard("{ArrowLeft}");
+    await expect(scope).toHaveFocus();
+    await expect(c.queryByRole("menu", { name: "Scope" })).toBeNull();
+    await userEvent.keyboard("{Enter}");
+    await userEvent.click(within(await c.findByRole("menu", { name: "Scope" })).getByRole("menuitem", { name: /Selection/ }));
+    await expect(c.getByLabelText("Mode")).toHaveTextContent("selection");
     await expect(c.queryByRole("menu")).toBeNull();
   },
 };

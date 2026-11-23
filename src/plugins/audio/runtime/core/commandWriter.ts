@@ -29,6 +29,8 @@
 // runtime (G3) decides when to send them.
 import {
   ASAP,
+  AMP_ENV_KEY_OFF_NONE,
+  AMP_ENV_ON,
   BUS_AUTOMATE_MAX_BINDINGS,
   SUBMIX_AUTOMATE_BINDINGS_FIXED_END,
   writeSubmixAutomate,
@@ -41,6 +43,9 @@ import {
   ROUTE_FIXED_END,
   writeRoute,
   type Route,
+  AMP_ENVELOPE_FIXED_END,
+  writeAmpEnvelope,
+  type AmpEnvelope,
   CURVES_CURVES_FIXED_END,
   CURVES_CURVES_KEYS_FIXED_END,
   CURVES_FIXED_END,
@@ -181,6 +186,17 @@ export interface BatchPort {
 }
 
 /** §4.2 PLAY, minus the head. `frameOffset` is the writer's business (see `play`). */
+/** ADR 0362: an Amp envelope fitted to frames (`fitEnvelopeFrames`), as AMP_ENVELOPE carries it. */
+export interface FramesEnvelope {
+  readonly attack: number;
+  readonly hold: number;
+  readonly decay: number;
+  readonly sustain: number;
+  readonly release: number;
+  /** The envelope frame its release starts at; `AMP_ENV_KEY_OFF_NONE` never. */
+  readonly keyOff: number;
+}
+
 export interface PlayArgs {
   voiceId: number;
   clip: number;
@@ -364,6 +380,7 @@ export class CommandWriter implements VoiceCommandSink {
   private readonly genViews: readonly Float32Array[] = Array.from({ length: GEN_PARAMS_MAX + 1 }, (_, n) => this.genValues.subarray(0, n));
   private readonly submixRec: Submix = { voiceId: 0, frameOffset: ASAP, group: 0, bus: 0, parent: 0, reserved: 0, effects: [] };
   private readonly routeRec: Route = { voiceId: 0, frameOffset: ASAP, submix: 0, reserved: 0 };
+  private readonly envRec: AmpEnvelope = { voiceId: 0, frameOffset: ASAP, flags: 0, attackFrames: 0, holdFrames: 0, decayFrames: 0, sustain: 1, releaseFrames: 0, keyOffFrame: 0, offsetFrames: 0 };
   private readonly timeRec: Time = { voiceId: 0, frameOffset: ASAP, group: 0, which: TIME_SEQUENCE, value: 0, rate: 0 };
   private readonly automateRec: Automate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
   private readonly busAutomateRec: BusAutomate = { voiceId: 0, frameOffset: ASAP, bindings: [] };
@@ -556,14 +573,14 @@ export class CommandWriter implements VoiceCommandSink {
     this.end(at, writeSetMixed(this.view, at, r));
   }
 
-  /** SET_PAUSED `id`. */
-  setPaused(id: number, paused: boolean): void {
+  /** SET_PAUSED `id`, stamped at `atFrame` (ADR 0362 §1) or asap. */
+  setPaused(id: number, paused: boolean, atFrame?: number): void {
     const r = this.pausedRec;
     r.voiceId = id;
     r.paused = paused ? 1 : 0;
     const at = this.begin(16);
     if (at < 0) return;
-    this.end(at, writeSetPaused(this.view, at, r));
+    this.end(at, writeSetPaused(this.view, at, r), atFrame);
   }
 
   /** SEEK `id` to `clipFrame` (a stream voice's: its seek `epoch`; a clip voice's: 0). */
@@ -817,6 +834,26 @@ export class CommandWriter implements VoiceCommandSink {
     r.submix = slot === null ? 0 : slot + 1;
     const at = this.begin(ROUTE_FIXED_END);
     if (at >= 0) this.end(at, writeRoute(this.view, at, r), atFrame);
+  }
+
+  /**
+   * AMP_ENVELOPE (ADR 0362, ABI 6.1): voice `voiceId`'s Amp envelope (`env`, frames; null removes it), its first rendered
+   * frame at envelope frame `offsetFrames`. Applies on arrival, like AUTOMATE: the caller sends it right behind the PLAY,
+   * stamped as the PLAY (`atFrame`) so the frame-ordered batch keeps it after the PLAY that would clear it.
+   */
+  ampEnvelope(voiceId: number, env: FramesEnvelope | null, offsetFrames: number, atFrame?: number): void {
+    const r = this.envRec;
+    r.voiceId = voiceId;
+    r.flags = env ? AMP_ENV_ON : 0;
+    r.attackFrames = env ? env.attack : 0;
+    r.holdFrames = env ? env.hold : 0;
+    r.decayFrames = env ? env.decay : 0;
+    r.sustain = env ? env.sustain : 1;
+    r.releaseFrames = env ? env.release : 0;
+    r.keyOffFrame = env ? env.keyOff : AMP_ENV_KEY_OFF_NONE;
+    r.offsetFrames = Math.max(0, Math.min(0xfffffffe, Math.round(offsetFrames))) >>> 0;
+    const at = this.begin(AMP_ENVELOPE_FIXED_END);
+    if (at >= 0) this.end(at, writeAmpEnvelope(this.view, at, r), atFrame);
   }
 
   /**

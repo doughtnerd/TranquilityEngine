@@ -1,14 +1,10 @@
-// The replay slot's words (ADR 0348): take time as a clock, "m:ss.s" (one decimal: the slot is small, the Take screen's
-// ruler has the detail). Pure.
+// A position as a clock (spec §3.14: positions as timecode, two-digit minutes and milliseconds): the replay and game
+// session clocks, the status bar's playhead and session time, the Take screen's transport. Pure.
 
-/** Seconds as "m:ss.s" (negative reads as 0). */
+/** Seconds as "mm:ss.mmm" ("00:20.480", "61:05.250"); negative or not a number reads as 0. */
 export function formatClock(t: number): string {
-  const s = Math.max(0, Number.isFinite(t) ? t : 0);
-  let m = Math.floor(s / 60);
-  let rest = Math.round((s - m * 60) * 10) / 10;
-  if (rest >= 60) {
-    m++;
-    rest -= 60;
-  }
-  return `${m}:${rest < 10 ? "0" : ""}${rest.toFixed(1)}`;
+  const ms = Math.round(Math.max(0, Number.isFinite(t) ? t : 0) * 1000);
+  const m = Math.floor(ms / 60000);
+  const s = Math.floor((ms % 60000) / 1000);
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(ms % 1000).padStart(3, "0")}`;
 }

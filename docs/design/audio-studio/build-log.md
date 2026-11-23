@@ -82,3 +82,143 @@ Plan: [plan.md](plan.md). Ground rules for tasks: [ground-rules.md](ground-rules
 - Checks: typecheck clean; full Vitest 927 files, 10,039 passed after two fixes (a capture test that named ABI 5.0, and
   the ADR 0347 spatial loopback test needing master's in-process spatial prepare); `cargo test` 1,335 passed;
   `check:audio-metered` pass; `npm run build` passes. Playwright not run (coordinator).
+
+### Final e2e and stories pass (2026-11-23, branch `studio/final-e2e` from `e42008aa`, master merged at `45638071`)
+
+**Baseline** (`npm run test:e2e`, Chromium, 279 tests in 68 files, `E2E_PORT=3317`): stopped after 38 results (24 passed,
+14 failed) because one product bug failed every spec that presses Play, each at its full timeout (the run was on course
+for about two hours): at 1280 px the Play toolbar (Record take, Record capture, Preview language, Subtitles) had grown
+until the menu bar's `Layouts` lay over **▶ Play** and took its clicks. Failing by then: arena (2 of 3), audio-mix-b (5 of
+5), audio-mix-smoke (5 of 5), audio-music-a (2 of 2 run). Fixed here first (`menubar.css`), then master's own fix of the
+same row (a wrapping flex row, in `45638071`) was taken in the merge.
+
+**Inventory** of specs on audio, the retired panels and runtime, music players, `Audio.debug().music` and audio settings:
+audio-babylon, audio-core, audio-events, audio-mix-b/d/listening/smoke, audio-music-a/b/c/smoke/listening, audio-parity(-hrtf),
+audio-rhythm-latency, audio-spatial-gizmos/play/replay, audio-stress, sound-lab-touch, export, export-capture, projects,
+projectsettings(-categories); helpers `audioMusic.ts`, `audioMix.ts`, `audioExport.ts`, `audioSpatial.ts`. Only
+audio-music-a and -b used the `audioBackend` fixture option (it patches `audio.json`); it has no user now and is left in
+`fixtures.ts` (documented in the e2e README) for the next backend spec.
+
+**Deleted** (their subject is the retired event and music-event runtime, W7-B; they built `*.audioevent.json` music events
+in the page): `audio-music-a`, `audio-music-b`, `audio-music-c`, `audio-music-smoke`, `audio-music-listening`,
+`audio-events`. Covered by the playlist runtime's unit and loopback tests (`src/plugins/audio/runtime/playlists/`:
+`sequence`, `switchAndBlend`, `quantize.loopback`, `musicRows`, `musical`, `soundLabPlaylists`, `firstSound.loopback`…).
+`audioMusic.ts` keeps only the row reads `sound-lab-touch` uses.
+
+**Ported**: `projects` (Make a Copy: the Flappy sample has no audio event left, so no migration is offered),
+`projectsettings-categories` (Languages and Subtitles categories), `audio-mix-smoke` (capture format 2, read from
+`CAPTURE_FORMAT`).
+
+**Added** (Studio helper `tests/e2e/studio.ts`: `openStudioSample`, `openStudioFolder` through the start screen and the
+faked folder picker, `studioScreen`, `showPanel` (a tab or the "More tabs" menu), `startStudioAudio`, `sineWav`;
+`fakeFolders.ts` gained `readFileBytes`; `audioExport.ts` gained `exportProjectAndServe`):
+- `studio.spec.ts` (regular): every screen of a sample; Samples (import a WAV through the file chooser, M marker, L loop,
+  undo/redo, the sidecar on disk, close and reopen from recents); Playlists (new playlist, a Library sample added by
+  double-click, Trigger heard in the status bar's voice count and Plays now, undo); Mixer (new bus, a snapshot offset of
+  -6 dB in `audio.json`, reopened); Generators (a blip, Explosion preset, hold to audition, Bake makes a WAV).
+- `studio-editor.spec.ts` (regular, ~20 s): a writable Sound Lab copy in the editor; Open in Audio Studio opens
+  `studio.html?project=/MyLab#/samples…click.wav`; Play, Record take and Record capture while key 1 plays; the Studio
+  (own page, same files) imports the take with Open take file…, lists click and beep, replays it (voices in the status
+  bar, no "picked … recorded" difference), and the Profiler opens the capture.
+- `localisation.spec.ts` (regular): the Localisation panel adds `menu.greeting` and its French text (files checked); in
+  Play a `t:text` UI text reads Hello, and the Preview language switches it to Bonjour (read through `UIDocument`/`UIText`).
+- `studio-export.spec.ts` (`@slow`): a Flappy copy with the town music in a preloaded package, exported; the build has
+  `audio/packages/Music.mycopak` and `audio-report.json` lists the package and the sound in it; the exported player loads
+  the package and plays the music. Passed (48 s).
+
+**Product fixes** (each with a unit test where one fits):
+1. Editor toolbar: Play under the menus at 1280 px (above; master's fix kept in the merge).
+2. Game launch: the project's autoloads start with the World's first scene, after its preparation, not at World
+   creation (`Engine.ts` `autoloadsWithFirstScene` (internal), `SceneManager.load`, `launch.ts`): a preloaded package's
+   music, played by an autoload prefab, was refused as not loaded. Tests: `launch.test.ts` (2), `worldServices.test.ts`.
+3. Audio packages: a scene waiting for packages starts the pending core (`preparePackages(…, startCore)`, packages World
+   service): otherwise a first scene with preload packages and no earlier sound waited for a core nobody started.
+   Test: `packages.test.ts`.
+4. `TreeView`: each treeitem is named by its own row (`aria-labelledby`), not by every row under an open folder.
+5. `RecordButton`: redraws once after subscribing (a press before the effect ran left a stale state; the take's failure
+   message never showed).
+6. `LocaliseControl`: picking a key or extracting closes the picker (after Unlink it reopened on the search list).
+7. Latency calibration: Start over hands focus back to Tap (it disabled itself and dropped focus, so Escape no longer
+   cancelled).
+
+**Final regular run** (on the merged result, with all fixes): **254 tests, 245 passed, 4 failed, 5 skipped** (WebGPU
+specs; software GL has no adapter). One earlier full run (before the last fixes) had 240 passed, 9 failed, 5 skipped;
+re-run alone: `selection` Alt+click and `studio-editor` passed (load flakes; Record take now waits 15 s for the toolbar
+to follow the play state), the rest are the four below plus the three spec ports above.
+
+**Left failing** (reproduced alone; not fixed in this pass):
+- `sound-lab-touch` (3): `Audio.debug().music` has no row for Flappy's town music in editor Play, and its voices restart
+  every couple of seconds with playhead 0 (`waitingForData`), the same before and after this branch's engine changes;
+  the exported build plays it steadily. The music-page case also asserts the retired music-event fields (`stems`,
+  `groups`), which the playlist runtime's rows leave empty. Needs a look at streamed sequence clips in editor Play.
+- `audio-mix-smoke` M5-0 duck: Music's duck begins 1,152–11,776 frames after the stamped start of a streamed voice
+  (`melody-loop.wav`, 0.3 s ahead); either the streamed voice starts late or the duck isn't stamped any more.
+- Not run: the other `@slow` specs (`export.spec` reads `music[].segment === "town"`, which the playlist rows report as the
+  playlist path; likely to fail).
+
+**Stories** (`npm run test:stories`): first run 37 failed of 368 (24 files), 1 unhandled error. Most `play` functions had
+never run: inputs with a datalist are `combobox`es, not `textbox`es; 0361's icon labels ("Switch playlist footsteps");
+duplicate names (breadcrumb + title, plot key + dope-sheet diamond); positionless clicks land at x = 0; separate
+`userEvent.pointer` calls don't share a held button; state shown after paint (`waitFor`). Fixed the stories, and the
+product where it was wrong (fixes 4–7). The ScreenDock Profiler story was removed (the Profiler dock needs the app's
+router and recorder; its panels have their own stories). Final: **365 passed, 2 failed** of 367: `PlaylistEditor` Blend
+1D Region (a keyboard nudge of the region's start handle shows no "Custom") and `SceneView` Add Two D Sound (a placing
+click doesn't place in the story); both need a closer look at the view's pointer and key handling under user-event.
+
+**Handoff status**: Studio core workflows have e2e coverage (8 tests in 4 specs, all passing); the regular suite is green except
+the 4 audio failures above (product follow-ups); stories 365/367. Typecheck clean; unit tests of every touched module pass.
+
+- 2026-11-23 (coordinator): merged `studio/final-e2e` after master (45638071). Full Vitest on the merge: 10,142 passed,
+  1 failed under full-suite load (`encoding.test.ts` "encode a planned sound once per content and settings"), 3/3 alone:
+  recorded as a load-sensitive test. Next: the UI fidelity and bug pass against the owner's prototype and spec
+  (`owner-spec.md`); audit gaps files cover Samples, Playlists, Sequence, Mixer, Spatial/Curves, Take/Profiler, shell.
+- 2026-11-23 (UI pass wave 4, ADR 0362 items 2–3): core ABI 6.0 → 6.1, AMP_ENVELOPE (0x22) and PLAY flag `reverse`;
+  mixer 589,076 → 609,528 B (+20.5 KB, the reversed Lagrange kernel copies; under the 640 KB gate, no raise); metered
+  +0.09% overall, worst +0.56% (gen-silence-twin); offline render envelope on `audio_dsp::adsr`, render cache version 2.
+- 2026-11-23 (UI pass wave 5): core behaviour change without an ABI bump (no record layout changed; D67 precedent):
+  a paused voice's stamped records wait on the core (`park_pending`/`unpark_pending`). Mixer 609,528 → 611,423 B;
+  metered +0.09% overall, worst +0.56% (gen-silence-twin). Journeys re-walk after waves 1–4: 42 work, 5 partly, 1 fails
+  (J10.1, no Studio take recording by owner decision); defects in scratchpad audit2/journeys.md → wave 6.
+- 2026-11-23 (UI pass wave 6): journey defects fixed (w6-a, w6-b). Capture/take readers accept another minor of the
+  core ABI major (6.0 files open in 6.1); refuse only a major mismatch or an unversioned schema change. Full Vitest on
+  the merge: 981 files, 10,460 passed.
+
+## UI pass final verification
+
+2026-11-23, branch `ui/final-e2e` from `ccr-8460d665-umr8or` (d921646f), 4-core container, `E2E_PORT=3200`.
+
+- **Regular e2e, first run:** 254 tests, 244 passed, 5 failed, 5 skipped (10.8 min).
+  - Mixer (`studio.spec`): stale. A new bus opens in a rename field, and the Inspector's field is now named "Level in dB".
+  - Take (`studio-editor.spec`): stale. Two buttons are named "Open take file…" (the tree's + and the empty card).
+  - `sound-lab-touch` (3 tests): **a product bug, fixed.** An unstamped Sequence of a streamed sample restarted every
+    frame and never sounded. D44's wait-for-data (87df3a49, on origin/master) counted a stream voice's
+    `waitingForData`, but a stream voice reads that by design until its first chunk. This hit Flappy's town music and
+    the Sound Lab's eight stems (melody-loop streams). Now only voices waiting for clip data count
+    (`waitsForClipData`). Unit tests in `sequence.test.ts`: the stream case failed before (19 plays in 19 frames)
+    and plays once now. The D44 case is kept. The spec was also stale against the ADR 0343 music rows (no
+    stems or primed groups, `segment` is the clock's playlist path). It now reads the instance's voices, A/B/C by
+    bar, and the rhythm row by asset.
+- **audio-mix-smoke M5-0 presence duck:** the test was timing-sensitive, not the product. The core frame runs about
+  0.15 s ahead of the heard clock. Under four workers, main-thread stalls of 0.15–0.3 s made the stamped presence
+  arrive late, or left no read before a stamp only 0.3 s ahead. 6 of 12 runs failed. With the voice stamped 1 s
+  ahead, 8 of 8 pass.
+- **Slow (`studio-export export`):** F-35 was stale (segment `music/town.playlist.json`). Export capture raced: F9
+  right after the click rejects while the core is still loading (the designed `Audio.capture.start` contract), so
+  the spec now waits for the audio to run. Second run: 11 of 12 passed. **Left failing:** M5b, "reference tone reads
+  -22.99 LUFS". Master holds a steady -22.93 (tolerance ±0.05) with only `loudness-reference.wav` playing (checked
+  in `Audio.debug()`). This container's context runs at 44.1 kHz and the reference is 48 kHz. Not touched by the UI
+  pass; needs a look at the 44.1 kHz path.
+- **Stories, first run:** 105 files, 447 passed, 5 failed.
+  - Particle Color Pick, Particle System Overrides, Tileset Tile Size and Parameter Own Parameters: **a product
+    bug, fixed.** The UI pass's `FloatingPortal` imported `createPortal` from `preact/compat`. Compat's options hook
+    turns every input's `onChange` into an input listener for the whole page, so fields committed on every step.
+    `createPortal` now comes from Preact 11's core in all four places, and `src/editor/preactCompat.test.ts` keeps
+    compat out of shipped sources.
+  - "History Follows Open Playlist" and "HistoryPopover > Tree": not a cross-file leak. Each story file runs in its
+    own iframe. The cause was timing: `usePanelHistory` registered in a plain effect, which waits for a frame (frames
+    are throttled in a background iframe), so the play's click found no active history. It failed every time with
+    the two files run together. It now registers in a layout effect.
+  - Stories after the fixes: 105 files, 452 of 452 pass. The two-file combination passed 2 of 2.
+- **Final:** `npm run typecheck` clean. Full Vitest: 982 files, 10,463 passed, 6 skipped, 1 todo. By the owner's
+  call there was no second full e2e run. Specs covering the product files changed after the first run (`studio`,
+  `studio-editor`, `history`, `inspector-fields`, `particles`, `childwindow`, `sound-lab-touch`): 26 of 26 passed.

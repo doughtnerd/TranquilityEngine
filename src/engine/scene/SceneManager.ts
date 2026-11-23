@@ -63,6 +63,8 @@ export class SceneManager {
             for (const scene of world.sceneNodes) world._destroyNode(scene.entity);
             world._flushDestroyed();
           }
+          // The World's first scene brings the project's autoloads, now that its preparation is done (Engine.createWorld).
+          if (world._autoloadsPending) SceneManager.loadAutoloads(world);
           const name = path.slice(path.lastIndexOf("/") + 1).replace(/\.(scene\.)?json$/, "");
           const sceneNode = world._createNode(name, world.root.entity, { transform: false });
           world.setSceneNode(sceneNode.entity);
@@ -102,6 +104,7 @@ export class SceneManager {
 
   /** @internal Instance autoload files under the World root; they persist across loads. */
   static loadAutoloads(world: World): void {
+    world._autoloadsPending = false;
     for (const path of world.settings.autoload) {
       instantiateFile(world, loadSceneFile(path), world.root, path);
     }

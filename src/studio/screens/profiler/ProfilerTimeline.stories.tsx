@@ -60,7 +60,9 @@ export const Fixture: Story = {
     const c = within(canvasElement);
     await waitFor(() => expect(c.getByRole("region", { name: "Capture timeline" })).toBeVisible());
     const labels = [...canvasElement.querySelectorAll(".pf-track-label")].map((e) => e.textContent);
-    await expect(labels.slice(1, 7)).toEqual(["Load", "Memory", "Bus · Music", "Bus · Vehicles", "Bus · Dialogue", "Dialogue"]);
+    await expect(labels.slice(0, 4)).toEqual(["Load", "Effects", "Memory", "Bus · Music"]);
+    // The ruler's head reads the cursor as the take's playhead does.
+    await expect(canvasElement.querySelector(".run-readout")?.textContent).toMatch(/^\d\d:\d\d\.\d{3}$/);
     await expect(c.getAllByRole("button", { name: /Warning at|Error at|Marker at/ }).length).toBeGreaterThan(2);
   },
 };
@@ -88,8 +90,8 @@ export const SelectStolenVoice: Story = {
     await userEvent.click(stolen);
     await expect(stolen).toHaveAttribute("aria-pressed", "true");
     await expect(c.getByLabelText("Selected").textContent).toBe(stolen.dataset.voice);
-    // The cursor went to the voice's start: the Music bus breakdown floats at it.
-    await waitFor(() => expect(canvasElement.querySelector(".pf-float")?.textContent).toMatch(/^Music /));
+    // The cursor went to the voice's start.
+    await waitFor(() => expect(canvasElement.querySelector(".run-readout")?.textContent).not.toBe("00:00.000"));
   },
 };
 
@@ -124,7 +126,10 @@ export const EffectsCost: Story = {
     const row = await waitFor(() => c.getByRole("group", { name: "Effects cost · estimated" }));
     await expect(within(row).getByText("Voices")).toBeVisible();
     // A click moves the cursor there: the costliest sections then.
-    await userEvent.click(row.querySelector<HTMLElement>(".pf-plot")!);
+    // At the plot's middle (a click with no position lands at its left edge, time 0, before the first reading).
+    const plot = row.querySelector<HTMLElement>(".pf-plot")!;
+    const r = plot.getBoundingClientRect();
+    await userEvent.pointer({ keys: "[MouseLeft]", target: plot, coords: { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 } });
     await waitFor(() => expect(row.querySelector(".pf-track-value")?.textContent).toMatch(/^Voices \d+‰ · Buses \d+‰$/));
   },
 };

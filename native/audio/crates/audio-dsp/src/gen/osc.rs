@@ -4,6 +4,8 @@
 //! sine through a polynomial. Every read takes `dt`, the phase increment of this sample (frequency × pitch ÷ rate), so a
 //! pitch that moves per sample bends the residuals with it. `dt` must stay below [`MAX_DT`].
 
+use super::blep::Ring;
+
 /// The largest phase increment an oscillator takes (0.45 × the rate): the residuals assume one discontinuity at most in
 /// two samples, so callers clamp their frequency to this ([`dt_of`]).
 pub const MAX_DT: f64 = 0.45;
@@ -54,8 +56,9 @@ pub fn blamp(t: f64, dt: f64) -> f64 {
 /// `sin(2π t)` for any `t` (in cycles), from a 9th-order odd polynomial on a quarter cycle: error below 4e-6 (−108 dB).
 #[inline]
 pub fn sine_cycles(t: f64) -> f32 {
-    // Wrap to [-0.5, 0.5), then fold to [-0.25, 0.25] (sin(π - θ) = sin θ).
-    let mut u = (t - libm::floor(t + 0.5)) as f32;
+    // Wrap to [-0.5, 0.5), then fold to [-0.25, 0.25] (sin(π - θ) = sin θ). `f64::floor` (exact, one wasm instruction),
+    // not `libm::floor` (a software routine on wasm32: libm's intrinsics need an unstable feature).
+    let mut u = (t - (t + 0.5).floor()) as f32;
     if u > 0.25 {
         u = 0.5 - u;
     } else if u < -0.25 {
@@ -111,6 +114,69 @@ impl Osc {
         self.step(dt);
         y
     }
+
+    // `high` quality (D67): the waveform through `ring`, band-limited by its minBLEP ([`super::blep`]), `DELAY` samples
+    // late. Each moves the phase first and reads the waveform there; a discontinuity crossed by the move adds its
+    // residual from this sample on, `tau` (the samples since it) worked out from where the phase landed.
+
+    /// A rising saw, −1..1, `high` quality.
+    #[inline]
+    pub fn saw_hq(&mut self, dt: f64, ring: &mut Ring) -> f32 {
+        let mut p = self.phase + dt;
+        if p >= 1.0 {
+            p -= 1.0;
+            ring.edge(p / dt, -2.0);
+        }
+        self.phase = p;
+        ring.push((p + p - 1.0) as f32)
+    }
+
+    /// A pulse of `amp`, high for the first `width` of the cycle, `high` quality.
+    #[inline]
+    pub fn pulse_hq(&mut self, dt: f64, width: f64, amp: f32, ring: &mut Ring) -> f32 {
+        let p0 = self.phase;
+        let mut p = p0 + dt;
+        if p0 < width && p >= width {
+            ring.edge((p - width) / dt, -2.0 * amp);
+        }
+        if p >= 1.0 {
+            p -= 1.0;
+            ring.edge(p / dt, 2.0 * amp);
+            if p >= width {
+                ring.edge((p - width) / dt, -2.0 * amp);
+            }
+        }
+        self.phase = p;
+        ring.push(if p < width { amp } else { -amp })
+    }
+
+    /// A triangle, −1 at phase 0 and +1 at 0.5, `high` quality (its corners by the integrated residual).
+    #[inline]
+    pub fn triangle_hq(&mut self, dt: f64, ring: &mut Ring) -> f32 {
+        let p0 = self.phase;
+        let mut p = p0 + dt;
+        // The slope changes by 8 dt per sample at each corner: −8 dt at the top, +8 dt at the bottom.
+        if p0 < 0.5 && p >= 0.5 {
+            ring.corner((p - 0.5) / dt, (-8.0 * dt) as f32);
+        }
+        if p >= 1.0 {
+            p -= 1.0;
+            ring.corner(p / dt, (8.0 * dt) as f32);
+            if p >= 0.5 {
+                ring.corner((p - 0.5) / dt, (-8.0 * dt) as f32);
+            }
+        }
+        self.phase = p;
+        ring.push(if p < 0.5 { 4.0 * p - 1.0 } else { 3.0 - 4.0 * p } as f32)
+    }
+
+    /// A sine through `ring` (no discontinuity; delayed like the other waveforms so mixed oscillators stay aligned).
+    #[inline]
+    pub fn sine_hq(&mut self, dt: f64, ring: &mut Ring) -> f32 {
+        let y = sine_cycles(self.phase);
+        self.step(dt);
+        ring.push(y)
+    }
 }
 
 /// A rising saw at phase `t` (−1..1), band-limited for increment `dt`.
@@ -123,6 +189,13 @@ pub fn saw_at(t: f64, dt: f64) -> f64 {
 #[inline]
 pub fn pulse_at(t: f64, dt: f64, width: f64, amp: f64) -> f64 {
     let naive = if t < width { amp } else { -amp };
+    // Most samples sit more than `dt` from both edges, where both residuals are 0: the naive value, with four compares
+    // (the residuals are continuous at the edges of their support, so where a compare rounds either way both are ~0).
+    let far = 1.0 - dt;
+    let u = (t - width).abs();
+    if t >= dt && t <= far && u >= dt && u <= far {
+        return naive;
+    }
     let mut down = t - width;
     if down < 0.0 {
         down += 1.0;
@@ -180,5 +253,25 @@ impl Held {
             self.phase = p;
         }
         y as f32
+    }
+
+    /// The held value at `high` quality, through `ring` (each step a minBLEP edge, `DELAY` samples late). With `dt` of a
+    /// step or more a sample, a fresh value every sample (white), as [`Held::next`] does from [`MAX_DT`].
+    #[inline]
+    pub fn next_hq(&mut self, dt: f64, mut draw: impl FnMut() -> f32, ring: &mut Ring) -> f32 {
+        if dt >= 1.0 {
+            self.cur = draw();
+            return ring.push(self.cur);
+        }
+        let mut p = self.phase + dt;
+        if p >= 1.0 {
+            p -= 1.0;
+            ring.edge(p / dt, self.next - self.cur);
+            self.last = self.next - self.cur;
+            self.cur = self.next;
+            self.next = draw();
+        }
+        self.phase = p;
+        ring.push(self.cur)
     }
 }

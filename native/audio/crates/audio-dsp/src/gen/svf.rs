@@ -22,6 +22,8 @@ pub struct Svf {
     a2: f32,
     a3: f32,
     k: f32,
+    /// `tan(π f / rate)`, for [`Svf::lowpass`].
+    g: f32,
 }
 
 impl Svf {
@@ -33,6 +35,7 @@ impl Svf {
         let g = libm::tanf(core::f32::consts::PI * hz / rate);
         let k = 1.0 / q.max(0.005);
         self.k = k;
+        self.g = g;
         self.a1 = 1.0 / (1.0 + g * (g + k));
         self.a2 = g * self.a1;
         self.a3 = g * self.a2;
@@ -47,6 +50,18 @@ impl Svf {
         self.ic1 = 2.0 * v1 - self.ic1;
         self.ic2 = 2.0 * v2 - self.ic2;
         (v2, v1, v0 - self.k * v1 - v2)
+    }
+
+    /// One sample of the low-pass alone, in Simper's reduced form: `v2 = ic2 + g·v1` (the same filter as [`Svf::tick`]'s
+    /// low output, `a2·ic1 + a3·v3` being `g·v1`, with three operations fewer; it rounds differently in the last bits).
+    #[inline]
+    pub fn lowpass(&mut self, v0: f32) -> f32 {
+        let v3 = v0 - self.ic2;
+        let v1 = self.a1 * self.ic1 + self.a2 * v3;
+        let v2 = self.ic2 + self.g * v1;
+        self.ic1 = v1 + v1 - self.ic1;
+        self.ic2 = v2 + v2 - self.ic2;
+        v2
     }
 
     /// One sample of type `kind` ([`LOWPASS`], [`HIGHPASS`], [`BANDPASS`]: the band-pass normalised to 0 dB at its centre).

@@ -7,7 +7,8 @@ import { createKeymap, panelScopesOf, type KeyContext } from "./keymap";
 import { createRouter, formatRoute, parseRoute, resolveRoute, type HashLocation } from "./route";
 import { SCREENS, screenGroups } from "./screens";
 import { screenDock } from "./studioPanels";
-import { outputName } from "./outputDevice";
+import { outputChoices, outputName } from "./outputDevice";
+import { SCREEN_ARRANGEMENTS } from "./screenDocks";
 import { SCREEN_PANELS } from "../screens";
 import { canClosePanel } from "../../editor/layout/catalog";
 import { closePanel, instancesOf, openTypes } from "../../editor/layout/model";
@@ -166,7 +167,75 @@ describe("output device name", () => {
   });
 });
 
+describe("output device list", () => {
+  it("lists the system output first (the one playing), then the other named outputs, without the aliases", () => {
+    const list = outputChoices([
+      { kind: "audiooutput", deviceId: "default", label: "Default - Speakers (Realtek)" },
+      { kind: "audiooutput", deviceId: "communications", label: "Communications - Headset" },
+      { kind: "audiooutput", deviceId: "abc", label: "Speakers (Realtek)" },
+      { kind: "audiooutput", deviceId: "hdmi", label: "TV · HDMI" },
+      { kind: "audioinput", deviceId: "mic", label: "Mic" },
+    ]);
+    expect(list.map((d) => [d.name, d.current])).toEqual([["System output · Speakers (Realtek)", true], ["TV · HDMI", false]]);
+    expect(outputChoices([])).toEqual([{ id: "default", name: "System output", current: true }]);
+  });
+});
+
 describe("screen docks", () => {
+  // The browser storage layouts are remembered in, in memory.
+  const stored = new Map<string, string>();
+  vi.stubGlobal("localStorage", { getItem: (k: string) => stored.get(k) ?? null, setItem: (k: string, v: string) => void stored.set(k, v), removeItem: (k: string) => void stored.delete(k) });
+
+  /** The panel types of each group of a layout's side dock, in order. */
+  const groupsOf = (dock: ReturnType<typeof screenDock>, side: "left" | "right" | "bottom") => {
+    const layout = dock.store.layout.value;
+    return layout.docks.find((d) => d.side === side && d.groups.every((g) => !g.panels.some((id) => SCREEN_PANELS[dock.screen].find((p) => p.id === layout.instances[id].type)?.fixed)))?.groups.map((g) => g.panels.map((id) => layout.instances[id].type));
+  };
+
+  it("start each screen in the prototype's arrangement: side panels stacked, the bottom dock under the middle (G70)", () => {
+    const expected: Record<string, Record<string, string[][]>> = {
+      samples: { left: [["samples-library"], ["samples-outline"]], right: [["samples-inspector"]], bottom: [["samples-edits"], ["samples-seam"]] },
+      playlists: { left: [["playlists-library"], ["playlists-samples"]], right: [["playlists-inspector"], ["playlists-voices", "playlists-voice-log"]] },
+      spatial: { left: [["spatial-scenes"], ["spatial-outline"]], right: [["spatial-inspector"], ["spatial-settings"]], bottom: [["spatial-voices"]] },
+      take: { left: [["take-list"], ["take-playlists"]], right: [["take-inspector"]], bottom: [["take-mixer"]] },
+      profiler: { left: [["profiler-captures"]], right: [["profiler-cursor"], ["profiler-voice"]], bottom: [["profiler-messages"], ["profiler-why", "profiler-plugins"]] },
+    };
+    for (const [screen, sides] of Object.entries(expected)) {
+      localStorage.removeItem(`myco.studio.layout.${screen}`);
+      const dock = screenDock(screen as never, SCREEN_PANELS[screen as keyof typeof SCREEN_PANELS], SCREEN_ARRANGEMENTS[screen as keyof typeof SCREEN_ARRANGEMENTS]);
+      for (const [side, groups] of Object.entries(sides)) expect(groupsOf(dock, side as "left"), `${screen} ${side}`).toEqual(groups);
+      // The side docks are outermost (full height); the bottom dock sits between them, over the filling dock.
+      expect(dock.store.layout.value.docks.map((d) => d.id).filter((id) => id !== "main")).toEqual(Object.keys(sides).sort((a, b) => ["left", "right", "bottom"].indexOf(a) - ["left", "right", "bottom"].indexOf(b)));
+    }
+    localStorage.removeItem("myco.studio.layout.mixer");
+    const mixer = screenDock("mixer", SCREEN_PANELS.mixer, SCREEN_ARRANGEMENTS.mixer);
+    expect(groupsOf(mixer, "left")).toEqual([["mixer-snapshots"], ["mixer-gain"]]);
+    expect(groupsOf(mixer, "right")![0]).toEqual(["mixer-inspector"]);
+    expect(groupsOf(mixer, "right")![1][0]).toBe("mixer-parameters");
+  });
+
+  it("name only panels the screens have, and still open every panel that isn't on demand", () => {
+    for (const [screen, arrangement] of Object.entries(SCREEN_ARRANGEMENTS)) {
+      const ids = new Set(SCREEN_PANELS[screen as keyof typeof SCREEN_PANELS].map((p) => p.id));
+      for (const side of Object.values(arrangement!)) for (const g of side!.groups) for (const id of g) expect(ids.has(id), `${screen}: ${id}`).toBe(true);
+      localStorage.removeItem(`myco.studio.layout.${screen}`);
+      const dock = screenDock(screen as never, SCREEN_PANELS[screen as keyof typeof SCREEN_PANELS], arrangement);
+      expect(openTypes(dock.store.layout.value).sort()).toEqual(SCREEN_PANELS[screen as keyof typeof SCREEN_PANELS].filter((p) => !p.onDemand).map((p) => p.id).sort());
+    }
+  });
+
+  it("keep a layout the user saved before; Reset layout gives the arrangement", () => {
+    localStorage.removeItem("myco.studio.layout.samples");
+    const old = screenDock("samples", SCREEN_PANELS.samples); // the plain default: Samples and Outline as tabs of one group
+    old.store.layout.value = { ...old.store.layout.value }; // remembered
+    expect(groupsOf(old, "left")).toEqual([["samples-library", "samples-outline"]]);
+    const dock = screenDock("samples", SCREEN_PANELS.samples, SCREEN_ARRANGEMENTS.samples);
+    expect(groupsOf(dock, "left")).toEqual([["samples-library", "samples-outline"]]);
+    dock.host.reset!();
+    expect(groupsOf(dock, "left")).toEqual([["samples-library"], ["samples-outline"]]);
+    localStorage.removeItem("myco.studio.layout.samples");
+  });
+
   it("give every screen one fixed panel filling the middle, its own layout key, and the rest in their docks", () => {
     for (const s of SCREENS) {
       const dock = screenDock(s.id, SCREEN_PANELS[s.id]);

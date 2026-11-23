@@ -225,7 +225,7 @@ export function playAudioTestScene(world: World, scene: AudioTestScene, options:
       mover.travel = travelAt(e.start);
       mover.place();
     }
-    const source = n.addBehavior(AudioSource, { clip: e.sound, loop: true, spatial: true, volume: dbToGain(e.volume), playOnAwake: e.sound !== "" });
+    const source = n.addBehavior(AudioSource, { clip: e.sound, loop: true, spatial: true, volume: dbToGain(e.volume), output: e.output ?? "", playOnAwake: e.sound !== "" });
     emitters.set(e.id, { emitter: e, source, mover });
   }
 

@@ -136,7 +136,7 @@ test.describe("Flappy web build", { tag: "@slow" }, () => {
     await page.locator("#game canvas").click();
     await expect
       .poll(async () => (await audioDebug(page))?.music?.find((m) => m.asset.includes("town")) ?? null, { timeout: 20_000 })
-      .toMatchObject({ state: "playing", segment: "town" });
+      .toMatchObject({ state: "playing", segment: "music/town.playlist.json" }); // the row's clock: the town Sequence (ADR 0343)
     expect(await busPeakOver(page, "Music", 1000), "the Music bus meter").toBeGreaterThan(0);
     expect(warnings.filter((w) => w.includes("no music support"))).toEqual([]);
     expect(errors).toEqual([]);

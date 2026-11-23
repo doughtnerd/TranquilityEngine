@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { lintPlaylist } from "../../../../engine/audio/playlist/lint";
-import { clipChips, clipFollows, clipLoops, clipMarkers, clipPlan, clipToSource, loopBand, wavePieces } from "./clipGeometry";
+import { clipChips, clipFollows, clipLoops, clipMarkers, clipPlan, clipToSource, drawnLoopBand, loopBand, wavePieces } from "./clipGeometry";
 import { fixtureBody, fixtureSequence, fixtureSource } from "./sequenceFixture";
 import { beatSeconds, beatsPerBar, DEFAULT_SNAP, keepTaps, nudgeStep, snapSpan, snapTime, tapTempo } from "./sequenceGrid";
 import { clipLength, findClip, nextId, onSequence, sequenceLength } from "./sequenceModel";
+import { warningLines } from "./sequenceLints";
 import { clickClip, clickPoint, EMPTY_SELECTION, marqueeSelect, pressClip, pruneSelection, selectAll, selectLoop } from "./sequenceSelection";
 import { clampTimeline, fitTimeline, followView, rowAt, snapEdges, thumbOf, trackIndexAt, trackRows, viewFromThumb, zoomTimeline } from "./timelineLayout";
 import { DEFAULT_TRANSPORT, estimatePlayhead, hasHeldLoop, playRange, restingPlayhead, spaceAction } from "./transportModel";
@@ -94,6 +95,16 @@ describe("clip geometry", () => {
     expect(wavePieces(hold).some((p) => p.hold)).toBe(true);
   });
 
+  it("ADR 0362: draws a reversed clip's loop band and markers mirrored, where they are heard", () => {
+    // Forward: band 0.4–1.9 with passes from 0.9 and 1.4 on a 3 s clip; reversed clip time u plays the map at 3 − u.
+    const band = drawnLoopBand(plan, true)!;
+    expect([band.start, band.end].map((x) => +x.toFixed(3))).toEqual([1.1, 2.6]);
+    expect(band.dividers.map((x) => +x.toFixed(3))).toEqual([1.6, 2.1]);
+    expect(drawnLoopBand(plan, false)).toEqual(loopBand(plan));
+    const ms = clipMarkers({ ...c1, reverse: true }, src, plan);
+    expect(ms.map((m) => [m.id, +m.at.toFixed(3)])).toEqual([["k1", 0.8], ["k2", 2.8]]);
+  });
+
   it("places sample markers on the first pass or the tail, flagging hidden ones", () => {
     const ms = clipMarkers({ ...c1, hiddenMarkers: ["k2"] }, src, plan);
     expect(ms.map((m) => [m.id, +m.at.toFixed(3), m.hidden])).toEqual([["k1", 2.2, false], ["k2", 0.2, true]]);
@@ -104,10 +115,38 @@ describe("clip geometry", () => {
     const unbound = { ...c1, loops: { L1: { active: "parameter" as const } } };
     expect(clipChips(unbound, src, { follows: false }).map((x) => x.kind)).toContain("unbound");
     expect(clipChips(c("c4"), null, { follows: false, playlistName: "stingers" }).map((x) => x.text)).toEqual(["→ stingers"]);
-    const lints = lintPlaylist(fixtureBody());
-    const t3 = seq.tracks[2]!;
-    expect(clipFollows(lints, "sequence.tracks[2]", t3, c("c3"))).toBe(true);
-    expect(clipFollows(lints, "sequence.tracks[1]", seq.tracks[1]!, c("c2"))).toBe(false);
+  });
+
+  it("follows only a sync clip it's chained over on its own track, never one on a parallel track (decision 4)", () => {
+    // c3 (Music B) overlaps c2 (Music) on a parallel track: both are Sync to the sequence clock.
+    expect(clipFollows(seq, "c3", fixtureSource)).toBeNull();
+    expect(clipFollows(seq, "c2", fixtureSource)).toBeNull();
+    // Stems: every track's clip starts at 0, all Sync.
+    const stem = (t: number) => ({ ...seq.tracks[1]!, id: `s${t}`, name: `Stem ${t}`, clips: [{ ...c("c2"), id: `k${t}`, at: 0 }] });
+    const stems = { ...seq, tracks: [stem(1), stem(2), stem(3)] };
+    expect(["k1", "k2", "k3"].map((id) => clipFollows(stems, id, fixtureSource))).toEqual([null, null, null]);
+    // Chained on one track: c5 overlaps the end of c2 and follows it; c6 starts where c2 ends and doesn't.
+    const music = { ...seq.tracks[1]!, clips: [c("c2"), { ...c("c2"), id: "c5", at: 4, length: 2 }, { ...c("c2"), id: "c6", at: 6, length: 2 }] };
+    const chained = { ...seq, tracks: [music] };
+    expect(clipFollows(chained, "c5", fixtureSource)?.id).toBe("c2");
+    expect(clipFollows(chained, "c6", fixtureSource)).toBeNull();
+    expect(clipFollows(chained, "c2", fixtureSource)).toBeNull();
+    // An Async clip never follows.
+    const async = { ...seq, tracks: [{ ...music, clips: [c("c2"), { ...c("c2"), id: "c5", at: 4, sync: false }] }] };
+    expect(clipFollows(async, "c5", fixtureSource)).toBeNull();
+  });
+
+  it("lists warnings without the stems' overlap or the timeline's own, naming clips instead of their ids", () => {
+    const stems = { ...seq, tracks: [seq.tracks[1]!, { ...seq.tracks[2]!, clips: [{ ...c("c3"), at: 0.5 }] }] };
+    const body = fixtureBody(stems);
+    const lints = lintPlaylist(body, { sampleTempo: () => ({ bpm: 90 }) });
+    expect(lints.map((l) => l.code)).not.toContain("overlappingSyncLoops");
+    const lines = warningLines(lints, body);
+    expect(lines.some((l) => l.includes("overlap"))).toBe(false);
+    expect(lines).toContain("Sync clip music_loop plays a sample at 90 BPM in a 120 BPM sequence; it isn't stretched.");
+    expect(lines.join(" ")).not.toMatch(/"c\d"/);
+    const unbound = fixtureBody({ ...seq, loops: [{ ...seq.loops[0]!, active: "parameter" }] });
+    expect(warningLines(lintPlaylist(unbound), unbound).some((l) => l.includes("names none"))).toBe(false);
   });
 });
 
@@ -143,8 +182,8 @@ describe("selection", () => {
 describe("timeline layout", () => {
   it("stacks tracks and their open lanes and says what a y is over", () => {
     const { rows, height } = trackRows(seq, new Set(["t1"]));
-    expect(rows.map((r) => [r.y, r.lanes.length])).toEqual([[0, 1], [92, 0], [150, 0], [208, 0]]);
-    expect(height).toBe(266);
+    expect(rows.map((r) => [r.y, r.lanes.length])).toEqual([[0, 1], [122, 0], [190, 0], [258, 0]]); // proto: 68 px tracks, 54 px lanes
+    expect(height).toBe(326);
     expect(rowAt(rows, 10)).toEqual({ kind: "track", ti: 0 });
     expect(rowAt(rows, 70)).toEqual({ kind: "lane", ti: 0, automation: "a1" });
     expect(rowAt(rows, 400)).toEqual({ kind: "below" });
@@ -179,6 +218,12 @@ describe("transport", () => {
     expect(playRange(seq, selectLoop(EMPTY_SELECTION, "l1"), 0, DEFAULT_TRANSPORT, fixtureSource)).toMatchObject({ from: 1.6, to: 6, selection: false });
     expect(playRange(seq, EMPTY_SELECTION, 2.5, { ...DEFAULT_TRANSPORT, mode: "playhead" }, fixtureSource)).toMatchObject({ from: 2.5, to: 6 });
     expect(playRange(seq, sel, 2.5, { ...DEFAULT_TRANSPORT, mode: "start" }, fixtureSource)).toMatchObject({ from: 0, to: 6 });
+  });
+
+  it("wraps Play to the start when the playhead is at or past the sequence end", () => {
+    expect(playRange(seq, EMPTY_SELECTION, 6, { ...DEFAULT_TRANSPORT, mode: "playhead" }, fixtureSource)).toMatchObject({ start: 0, from: 0, to: 6 });
+    expect(playRange(seq, EMPTY_SELECTION, 9, DEFAULT_TRANSPORT, fixtureSource)).toMatchObject({ from: 0, to: 6 });
+    expect(playRange(seq, EMPTY_SELECTION, 5.5, { ...DEFAULT_TRANSPORT, mode: "playhead" }, fixtureSource)).toMatchObject({ from: 5.5, to: 6 });
   });
 
   it("releases with Space while a held loop waits, else stops", () => {

@@ -66,6 +66,18 @@ export function busPath(p: Pick<AudioProject, "buses">, name: string): string {
   return [...ancestorsOf(p, name).reverse().filter((a) => a !== master), name].join(" › ");
 }
 
+/**
+ * The routing tree as folder paths, for the shared Move to… dialog picking a bus's new parent (the touch alternative to
+ * dragging, spec §1.3): Master is the root (""), each other bus the path of the buses above it ("SFX/Vehicles"). A "/"
+ * in a name shows as "∕" so it can't split the path. `busAt` turns a picked path back into its bus.
+ */
+export function busFolders(p: Pick<AudioProject, "buses">): { folders: string[]; pathOf(name: string): string; busAt(path: string): string | null } {
+  const master = masterOf(p);
+  const pathOf = (name: string) => (name === master ? "" : [...ancestorsOf(p, name).reverse().filter((a) => a !== master), name].map((n) => n.replaceAll("/", "∕")).join("/"));
+  const byPath = new Map(p.buses.map((b) => [pathOf(b.name), b.name] as const));
+  return { folders: [...byPath.keys()].filter((k) => k !== ""), pathOf, busAt: (path) => byPath.get(path) ?? null };
+}
+
 /** One row of the routing tree. */
 export interface BusRow {
   readonly name: string;

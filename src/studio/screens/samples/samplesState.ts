@@ -3,6 +3,8 @@
 // Per-user view choices (time display, snap, play options) are preferences; the view span, playhead and razor are
 // per page.
 import { computed, signal, untracked } from "@preact/signals";
+import type { EffectType } from "../../../engine/audio/effects/types";
+import type { IncomingFile } from "../../../editor/assetImportFiles";
 import { persisted } from "../../../editor/preferences";
 import { currentProject, docVersion } from "../../../editor/state";
 import type { TimeFormat, TimeSpan } from "../../components/timeRulerModel";
@@ -46,8 +48,25 @@ export const snapSetting = persisted<SnapSetting>("myco.studio.samples.snap", { 
 export const followPlayhead = persisted<boolean>("myco.studio.samples.follow", true);
 export const preRoll = persisted<boolean>("myco.studio.samples.preRoll", false);
 export const returnToStart = persisted<boolean>("myco.studio.samples.returnToStart", false);
-export type PlayMode = "selection" | "whole" | "loop" | "through" | "toNextMarker" | "toEnd";
+/** Spec §4.1.10's play modes ("loop" is Cycle loop; "through" is a Whole stored by an older Studio). */
+export type PlayMode = "selection" | "whole" | "loop" | "through" | "pickupLoop" | "heldLoop" | "loopExit" | "toNextMarker" | "toNextExit" | "toEnd";
 export const playMode = persisted<PlayMode>("myco.studio.samples.playMode", "selection");
+/** The Loop seam panel's Repeat: Play across the seam keeps cycling through it until stopped. */
+export const seamRepeat = persisted<boolean>("myco.studio.samples.seamRepeat", true);
+
+/** The audio lane's views (spec §4.1.6): Waveform, Spectrogram, or both (a split view); one always stays on. */
+export const waveViews = persisted<{ readonly wave: boolean; readonly spectrogram: boolean }>("myco.studio.samples.views", { wave: true, spectrogram: false });
+/** Colours saved from the custom colour picker (§3.12), offered in every marker's colour row. */
+export const savedColours = persisted<string[]>("myco.studio.samples.savedColours", ["#6aa8ff", "#e8907a"]);
+
+/**
+ * Per page: A/B (spec §4.1.5, §2.11): hear and show the source with every edit bypassed; the effect whose step the
+ * waveform shows (a row or chip hovered or chosen in Sample effects; null: after the whole chain).
+ */
+export const abSource = signal(false);
+export const fxFocus = signal<string | null>(null);
+/** An effect type hovered in Add effect: the waveform previews it, added at its defaults (spec §4.1.7). */
+export const fxPreview = signal<EffectType | null>(null);
 
 /** Per page: the timeline's view (timeline seconds; null: fit), the playhead (source seconds), the razor, the hovered time (timeline seconds). */
 export const viewSpan = signal<TimeSpan | null>(null);
@@ -55,4 +74,4 @@ export const playheadTime = signal(0);
 export const razorOn = signal(false);
 export const hoverTime = signal<number | null>(null);
 /** The Import dialog, Write dialog, merge review, fork dialog. */
-export const dialog = signal<null | { kind: "import" } | { kind: "reimport" } | { kind: "write" } | { kind: "merge" } | { kind: "fork"; mode: "fork" | "duplicate" } | { kind: "snippet"; index: number }>(null);
+export const dialog = signal<null | { kind: "import"; dropped?: readonly IncomingFile[]; into?: string } | { kind: "reimport" } | { kind: "write" } | { kind: "merge" } | { kind: "fork"; mode: "fork" | "duplicate" } | { kind: "snippet"; index: number }>(null);

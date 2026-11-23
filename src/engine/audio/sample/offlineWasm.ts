@@ -7,6 +7,9 @@
  * ABI 1.1 (ADR 0352 §7): the module imports `myco_ext`, the plugin effect calls the core's chains make. One instance
  * serves every render, so its import is a trampoline to the current render's plugin session (`offlinePlugins.ts`, the
  * plugin glue a caller opened); with none, the stubs give no instance and plugin effects pass through dry.
+ *
+ * ABI 1.2 (ADR 0360 §6): `myco_offline_generate` renders one generator voice (the core's, bit for bit at pitch 1 with no
+ * lanes) to mono float32; `generateOffline` drives it (`generators/generatorRender.ts` is its caller).
  */
 import type { MycoExtCalls, OfflinePluginSession } from "./offlinePlugins";
 
@@ -16,6 +19,7 @@ interface OfflineExports {
   myco_offline_alloc(bytes: number): number;
   myco_offline_free(ptr: number, bytes: number): void;
   myco_offline_render(pcm: number, frames: number, channels: number, rate: number, spec: number, specLen: number): number;
+  myco_offline_generate(kind: number, values: number, count: number, seed: number, rate: number, frames: number, spec: number, specLen: number): number;
   myco_offline_output_pcm(h: number): number;
   myco_offline_output_frames(h: number): number;
   myco_offline_output_warnings(h: number): number;
@@ -24,6 +28,8 @@ interface OfflineExports {
 
 /** The ABI major this wrapper speaks. */
 const ABI_MAJOR = 1;
+/** The ABI minor `generateOffline` needs (1.2: `myco_offline_generate`). */
+const GENERATE_MINOR = 2;
 
 /** One render's raw result: interleaved PCM (the input's channels), its frames and the warning bits. */
 export interface RawRender {
@@ -104,6 +110,42 @@ export async function renderOffline(pcm: Float32Array, channels: number, rate: n
   } finally {
     current = null;
     if (p) x.myco_offline_free(p, pcmBytes);
+    if (s) x.myco_offline_free(s, specBytes);
+  }
+}
+
+/**
+ * ADR 0360 §6: renders a generator of `kind` (1 oscillator, 2 synth, 3 blip, 4 silence: the reserved clip id's offset)
+ * with `values` (the generator catalogue's wire order), noise seed `seed` (u32; 0 keeps the start's), at `rate`, for at
+ * most `frames` frames, through `spec` (the crate's `generate.rs` layout: pitch and lanes; empty for pitch 1 and none).
+ * Mono: `pcm` holds `frames` samples, shorter than asked when the voice ended first.
+ */
+export async function generateOffline(kind: number, values: ArrayLike<number>, seed: number, rate: number, frames: number, spec: Float64Array = new Float64Array(0)): Promise<RawRender> {
+  const x = await load();
+  if ((x.myco_offline_abi_version() & 0xff) < GENERATE_MINOR || typeof x.myco_offline_generate !== "function") {
+    throw new Error("offline render: myco_audio_offline.wasm predates generators (ABI 1.2); run npm run build:audio");
+  }
+  const count = values.length;
+  const valueBytes = Math.max(4, count * 4);
+  const specBytes = Math.max(8, spec.length * 8);
+  const v = x.myco_offline_alloc(valueBytes);
+  const s = x.myco_offline_alloc(specBytes);
+  try {
+    if (!v || !s) throw new Error("offline render: out of memory");
+    const view = new Float32Array(x.memory.buffer, v, count);
+    for (let i = 0; i < count; i++) view[i] = values[i]!;
+    new Float64Array(x.memory.buffer, s, spec.length).set(spec);
+    const h = x.myco_offline_generate(kind, v, count, seed >>> 0, rate, Math.max(0, Math.floor(frames)), s, spec.length);
+    if (!h) throw new Error("offline render: the generator was refused (unknown kind, bad rate or spec)");
+    try {
+      const n = x.myco_offline_output_frames(h);
+      const out = new Float32Array(x.memory.buffer, x.myco_offline_output_pcm(h), n).slice();
+      return { pcm: out, frames: n, warnings: x.myco_offline_output_warnings(h) };
+    } finally {
+      x.myco_offline_output_free(h);
+    }
+  } finally {
+    if (v) x.myco_offline_free(v, valueBytes);
     if (s) x.myco_offline_free(s, specBytes);
   }
 }

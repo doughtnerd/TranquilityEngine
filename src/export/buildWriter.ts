@@ -19,7 +19,7 @@ import type { AudioEncoder } from "./audioEncoder";
 import { withAudioEffects } from "./audioEffects";
 import { processImages, type ImageTranscoder } from "./images";
 import { withRenderedSamples } from "./sampleRenders";
-import { ExportError, copiedPath, withBakedModels, type BakeModel, type WebBuildPlan } from "./webBuild";
+import { ExportError, copiedPath, shipsPlayerFile, withBakedModels, type BakeModel, type WebBuildPlan } from "./webBuild";
 
 /** Read access to a folder of files (a project, a built player), by "/"-separated relative path. */
 export interface FileSource {
@@ -92,7 +92,8 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
   const { folder, project } = options;
   const web = options.web ?? "";
   const log = options.log ?? (() => {});
-  const player = await playerFiles(options.player, options.playerWhere);
+  // ADR 0360 §8: the offline render module only goes in when the project may play generators (`shipsPlayerFile`).
+  const player = (await playerFiles(options.player, options.playerWhere)).filter((file) => shipsPlayerFile(plan, file));
   for (const w of plan.warnings ?? []) log(`warning: ${w}`);
   const entries = (await folder.exists("")) ? await folder.list("") : [];
   if (entries.length > 0 && !(await folder.exists(join(web, MANIFEST_FILE)))) {

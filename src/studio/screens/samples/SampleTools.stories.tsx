@@ -1,5 +1,5 @@
-// Stories (ADR 0219, 0349) for the Samples toolbar's popovers over a live sample block: Tempo with Tap tempo, Root
-// note with validation, Normalize with the clip warning, Snap and the Time display.
+// Stories (ADR 0219, 0349) for the Samples timeline's tools over a live sample block: Tempo with the Tap tempo dialog,
+// Root note with validation, Normalize with the clip warning, the Snap split button and the Time display caret.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, userEvent, within } from "storybook/test";
@@ -9,7 +9,7 @@ import type { TimeFormat } from "../../components/timeRulerModel";
 import type { SampleDetection } from "../../../engine/audio/sample/detect/detect";
 import type { SampleEdit } from "./sampleEditing";
 import { detectedEdit } from "./sampleDetectModel";
-import { NormalizePopover, RootPopover, SnapPopover, TempoPopover, TimeFormatPopover, type DetectRun } from "./SampleTools";
+import { NormalizePopover, RootPopover, SnapSplit, TempoPopover, TimeDisplayCaret, type DetectRun } from "./SampleTools";
 import type { SnapSetting } from "./sampleView";
 
 /** What the analysers "find" in the story's sample (the screen runs them on a worker over the decoded audio). */
@@ -31,12 +31,13 @@ function Tools() {
     return { result: FOUND, applied: true };
   };
   return (
-    <div style={{ display: "flex", gap: "6px", padding: "8px" }}>
+    <div style={{ display: "flex", gap: "6px", padding: "8px", alignItems: "center" }}>
       <TempoPopover edits={e} commit={commit} detect={detect} />
       <RootPopover edits={e} commit={commit} detect={detect} />
       <NormalizePopover edits={e} measured={{ integrated: -19.5, peak: -2 }} bextLoudness={-24} commit={commit} />
-      <SnapPopover snap={snap} zero={e.snapToZero} onSnap={setSnap} onZero={(on) => setE({ ...e, snapToZero: on })} />
-      <TimeFormatPopover value={fmt} hasTempo={!!e.tempo} onChange={setFmt} />
+      <SnapSplit snap={snap} zero={e.snapToZero} format={fmt} hasTempo={!!e.tempo} onSnap={setSnap} onZero={(on: boolean) => setE({ ...e, snapToZero: on })} />
+      <span>{fmt}</span>
+      <TimeDisplayCaret value={fmt} at={0.468} ctx={{ rate: 48000, bpm: e.tempo?.bpm, meter: e.tempo?.meter }} onChange={setFmt} />
     </div>
   );
 }
@@ -48,10 +49,53 @@ type Story = StoryObj<typeof Tools>;
 export const Popovers: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
+    const page = within(document.body);
     await userEvent.click(c.getByRole("button", { name: "Normalize" }));
-    await userEvent.click(within(document.body).getByRole("radio", { name: "Loudness" }));
-    await expect(within(document.body).getByText(/Gain \+3\.5 dB/)).toBeVisible();
-    await expect(within(document.body).getByRole("alert")).toHaveTextContent("Peaks would reach +1.5 dBFS and clip");
+    await userEvent.click(page.getByRole("menuitemradio", { name: "Loudness" }));
+    await expect(page.getByText(/\+3\.5 dB/)).toBeVisible();
+    await expect(page.getByRole("alert")).toHaveTextContent("Peaks would reach +1.5 dBFS and clip");
+    await userEvent.keyboard("{Escape}");
+    // The Snap split: the left half turns snapping off and on; the caret offers the increments.
+    await userEvent.click(c.getByRole("button", { name: "Snap" }));
+    await expect(c.getByRole("button", { name: "Snap" })).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(c.getByRole("button", { name: "Snap settings" }));
+    await userEvent.click(page.getByRole("menuitemradio", { name: "100 ms" }));
+    await expect(c.getByRole("button", { name: "Snap" })).toHaveTextContent("100 ms");
+    await expect(c.getByRole("button", { name: "Snap" })).toHaveAttribute("aria-pressed", "true");
+  },
+};
+
+/** The Time display caret: each format with a live example; picking one changes the display. */
+export const TimeDisplay: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const page = within(document.body);
+    await userEvent.click(c.getByRole("button", { name: "Time display…" }));
+    await expect(page.getByRole("menuitemradio", { name: /Samples/ })).toHaveTextContent(/22.464/); // the locale's thousands separator
+    await userEvent.click(page.getByRole("menuitemradio", { name: /Samples/ }));
+    await expect(c.getByText("samples")).toBeVisible();
+  },
+};
+
+/** Tap tempo: four taps a steady 500 ms apart give 120 BPM, and Use sets it. */
+export const TapTempo: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const page = within(document.body);
+    await userEvent.click(c.getByRole("button", { name: "Tempo and meter" }));
+    await userEvent.click(page.getByRole("button", { name: "Tap" }));
+    const dialog = page.getByRole("dialog", { name: "Tap tempo" });
+    await expect(dialog).toBeVisible();
+    await expect(within(dialog).getByRole("button", { name: "Use" })).toBeDisabled();
+    for (let i = 0; i < 3; i++) {
+      await userEvent.click(within(dialog).getByRole("button", { name: "Tap" }));
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    await userEvent.click(within(dialog).getByRole("button", { name: "Tap" }));
+    const use = within(dialog).getByRole("button", { name: /^Use \d/ });
+    await expect(use).toBeEnabled();
+    await userEvent.click(use);
+    await expect(page.queryByRole("dialog", { name: "Tap tempo" })).toBeNull();
   },
 };
 
@@ -61,17 +105,17 @@ export const Detect: Story = {
     const c = within(canvasElement);
     const page = within(document.body);
     await userEvent.click(c.getByRole("button", { name: "Tempo and meter" }));
-    const detectTempo = page.getByRole("button", { name: "Detect" });
+    const detectTempo = page.getByRole("menuitem", { name: "Detect" });
     await expect(detectTempo).toBeEnabled();
     await userEvent.click(detectTempo);
     await expect(await page.findByText("Detected 128 BPM · 90 % sure")).toBeVisible();
     await expect(page.getByText("Detected", { exact: true })).toBeVisible(); // the Source chip
-    await expect(c.getByRole("button", { name: "Tempo and meter" })).toHaveTextContent("128 BPM 4/4");
+    await expect(c.getByRole("button", { name: "Tempo and meter" })).toHaveTextContent("128");
     await userEvent.click(page.getByRole("button", { name: /½× 64 BPM/ }));
-    await expect(c.getByRole("button", { name: "Tempo and meter" })).toHaveTextContent("64 BPM 4/4");
+    await expect(c.getByRole("button", { name: "Tempo and meter" })).toHaveTextContent("64");
 
     await userEvent.click(c.getByRole("button", { name: "Root note" }));
-    await userEvent.click(page.getByRole("button", { name: "Detect" }));
+    await userEvent.click(page.getByRole("menuitem", { name: "Detect" }));
     await expect(await page.findByText(/Detected A3 −12 ct/)).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Root note" })).toHaveValue("A3");
     await expect(c.getByRole("button", { name: "Root note" })).toHaveTextContent("A3 -12");

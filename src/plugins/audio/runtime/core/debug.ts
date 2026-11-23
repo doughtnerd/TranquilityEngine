@@ -5,6 +5,7 @@ import { buildMixDebug } from "../mix/mixDebug";
 import type { AudioBackground, AudioDebugInfo, AudioMixDebug,AudioMemoryDebug, AudioM3Counters, AudioStatus, AudioVoiceM3Debug } from "../backend";
 import type { Mixer } from "../../../../engine/audio/mixer";
 import { MAX_BUSES } from "../../../../engine/audio/settings";
+import { GENERATOR_KINDS } from "../../../../engine/audio/generators/types";
 import { AUX_BUS_NONE, FX_STARVED_NONE, FX_STARVED_SUBMIX } from "../wire.generated";
 
 /** ABI 4.8: whose effect starved (STATUS `fxStarvedOwner`): a bus or return by slot (`names`), or an instance submix; null for none. */
@@ -201,9 +202,12 @@ export function buildDebugInfo(backend: DebugSource): AudioDebugInfo {
     const world = table.world[i]!;
     // E3.9: an event voice's automated gain and pitch (main's estimate of the core's smoothed parameters) multiply in.
     const automated = backend.automation?.voiceAutomation?.(i, auto) === true;
+    // ADR 0360 (G3): a generator voice is named by its generator and shows its kind.
+    const genKind = table.genKind[i]!;
     voices.push({
       id: ((table.gen[i]! << 16) | i) >>> 0,
-      clip: clip?.path ?? "",
+      clip: genKind !== 0 ? (table.genPath[i] ?? "") : (clip?.path ?? ""),
+      ...(genKind !== 0 ? { generator: GENERATOR_KINDS[genKind - 1] } : {}),
       bus: busNames[table.bus[i]!] ?? "",
       world: world === 0 ? null : String(world),
       state: stateName(table, i),

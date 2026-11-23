@@ -3,18 +3,24 @@
 // review: the metadata kinds found with a toggle each, Load (the `stream` flag), Into folder and Keep structure. Import
 // copies the files with the editor's import rules (`importFiles`: never overwrites, a taken name gets " (1)") and
 // writes each sidecar's `sample` block from its chunks, less the kinds turned off.
-import { useRef, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { isTauri } from "../../../engine/platform/FileSystem";
 import { readWavMetadata } from "../../../engine/audio/sample/wavChunks";
-import { defaultImportSettings, formatImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
+import { defaultImportSettings, formatImportSettings, isSidecarPath, sidecarPath } from "../../../engine/scene/importSettings";
 import { baseName, filesOfPaths, importFiles, type IncomingFile } from "../../../editor/assetImportFiles";
 import { projectFileSystem } from "../../../editor/projectFs";
 import type { EditorProject } from "../../../editor/projects";
 import { currentProject, docVersion, status } from "../../../editor/state";
 import { toasts } from "../../shell/studioServices";
+import { KitDialog } from "../../../editor/ui/KitDialog";
+import { InfoTip } from "../../../editor/ui/InfoTip";
+import { Checkbox } from "../../components/Checkbox";
+import { Icon } from "../../components/Icon";
+import { FolderCombo } from "./FolderCombo";
 import type { SampleDetection } from "../../../engine/audio/sample/detect/detect";
 import { destinationFolder, detectionFor, importedMessage, isAudioPath, isWavPath, kindOn, kindsFound, METADATA_KINDS, sampleBlockFor, type KindToggles, type MetadataKind, type PickedFile } from "./importPlan";
 import { detectInBackground } from "./sampleDetect";
+import { allSamples, audioFolders, libraryTree } from "./sampleLibrary";
 import { decodeAudio } from "./sampleSession";
 import { dialog, openSample } from "./samplesState";
 
@@ -40,91 +46,78 @@ export interface ImportReviewProps {
   onCancel(): void;
 }
 
-/** The review step (pure view over its props). */
+/** The review step (pure view over its props): what the files carry, row by row, the settings, Into folder. */
 export function ImportReview(props: ImportReviewProps) {
   const found = kindsFound(props.files);
-  const usable = found.filter((k) => k.kind.id !== "detect");
-  const on = usable.filter((k) => kindOn(props.toggles, k.kind.id)).length;
-  const [newFolder, setNewFolder] = useState<string | null>(null);
+  const on = found.filter((k) => kindOn(props.toggles, k.kind.id)).length;
   const hasStructure = props.files.some((f) => f.rel.includes("/"));
+  const n = props.files.length;
+  const allOn = found.every((k) => kindOn(props.toggles, k.kind.id));
   return (
-    <div class="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && props.onCancel()}>
-      <div class="dialog smp-dialog" role="dialog" aria-modal="true" aria-label="Import audio" onKeyDown={(e) => e.key === "Escape" && props.onCancel()}>
-        <h2>Import audio</h2>
-        <p class="smp-muted">
-          {props.files.length} file{props.files.length === 1 ? "" : "s"}. These come from the WAVs' own chunks (written by Reaper, Sound Forge, a sampler editor…). Imported items keep a link to the file.
-        </p>
-        {found.length === 0 ? (
-          <p class="smp-muted">No metadata found: the files import as plain samples.</p>
-        ) : (
-          <>
-            <div class="smp-kinds-bar">
-              <b>Found in these files</b>
-              <button class="smp-link" onClick={() => props.onToggle("all", true)}>Import all</button>
-              <button class="smp-link" onClick={() => props.onToggle("none", false)}>Import none</button>
-            </div>
-            <ul class="smp-kinds">
-              {found.map((k) => (
-                <li key={k.kind.id}>
-                  <label class="smp-check" title={k.kind.id === "detect" ? "Analyse the audio for a tempo and root note where the file says none (confident results only; marked Detected)" : undefined}>
-                    <input type="checkbox" checked={kindOn(props.toggles, k.kind.id)} onChange={(e) => props.onToggle(k.kind.id, (e.currentTarget as HTMLInputElement).checked)} />
-                    <span>
-                      <b>{k.kind.title}</b> <span class="smp-muted">{k.kind.chunks}</span>
-                      <br />
-                      <span class="smp-muted">→ {k.kind.becomes} · {k.files} file{k.files === 1 ? "" : "s"}{k.items > k.files ? ` · ${k.items} items` : ""}</span>
-                    </span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-            <p class="smp-muted" role="status">{on} of {usable.length} kind{usable.length === 1 ? "" : "s"} of metadata will be imported</p>
-          </>
-        )}
-        <h3 class="smp-insp-section">Import settings</h3>
-        <label class="fld">
-          <span>Load</span>
-          <select value={props.stream ? "stream" : "decode"} onChange={(e) => props.onStream((e.currentTarget as HTMLSelectElement).value === "stream")} aria-label="Load">
-            <option value="decode">Decode on load</option>
-            <option value="stream">Stream (long music)</option>
-          </select>
-        </label>
-        {/* TODO(ADR 0119): Format and Sample rate are per-platform export settings; the sidecar has no audio export fields yet. */}
-        <label class="fld">
-          <span>Into folder</span>
-          {newFolder === null ? (
-            <select value={props.into} aria-label="Into folder" onChange={(e) => {
-              const v = (e.currentTarget as HTMLSelectElement).value;
-              if (v === "\u0000new") setNewFolder("");
-              else props.onInto(v);
-            }}>
-              <option value="">Top level</option>
-              {props.folders.filter((f) => !f.startsWith(".") && !f.includes("/.")).map((f) => <option key={f} value={f}>{f.split("/").join(" › ")}</option>)}
-              {props.into && !props.folders.includes(props.into) && <option value={props.into}>{props.into.split("/").join(" › ")} (new)</option>}
-              <option value={"\u0000new"}>+ New folder…</option>
-            </select>
-          ) : (
-            <input autoFocus value={newFolder} placeholder="audio/sfx" aria-label="New folder path" onInput={(e) => setNewFolder((e.currentTarget as HTMLInputElement).value)}
-              onBlur={() => {
-                const clean = (newFolder ?? "").split("/").map((p) => p.trim()).filter(Boolean).join("/");
-                if (clean) props.onInto(clean);
-                setNewFolder(null);
-              }}
-              onKeyDown={(e) => e.key === "Enter" && (e.currentTarget as HTMLInputElement).blur()} />
-          )}
-        </label>
-        <label class="smp-check">
-          <input type="checkbox" checked={props.keep} disabled={!hasStructure} onChange={(e) => props.onKeep((e.currentTarget as HTMLInputElement).checked)} />
-          Keep structure (the picked folders inside {props.into ? props.into.split("/").join(" › ") : "the top level"})
-        </label>
-        {props.busy && props.progress && <p class="smp-muted" role="status">{props.progress}</p>}
-        <div class="dialog-buttons">
+    <KitDialog
+      title="Import audio"
+      titleExtra={<span class="smp-badge">{n} file{n === 1 ? "" : "s"}</span>}
+      width={620}
+      class="smp-dialog"
+      onClose={props.onCancel}
+      summary={props.busy && props.progress ? <span role="status">{props.progress}</span> : found.length ? <span role="status">{on} of {found.length} kind{found.length === 1 ? "" : "s"} of metadata will be imported</span> : "No metadata found: the files import as plain samples"}
+      buttons={
+        <>
           <button onClick={props.onCancel}>Cancel</button>
-          <button class="primary" disabled={props.busy || props.files.length === 0} onClick={props.onImport}>
-            {props.busy ? "Importing…" : `Import ${props.files.length} file${props.files.length === 1 ? "" : "s"}`}
+          <button class="primary" disabled={props.busy || n === 0} title={n === 0 ? "Tick folders or files to import" : undefined} onClick={props.onImport}>
+            {props.busy ? "Importing…" : `Import ${n}`}
           </button>
-        </div>
+        </>
+      }
+    >
+      <div class="smp-drop" title={props.files.map((f) => f.rel).join("\n")}>
+        <Icon name="import" size={14} />
+        {n === 1 ? props.files[0].rel : `${n} audio files selected`}
       </div>
-    </div>
+      {found.length > 0 && (
+        <>
+          <div class="smp-kinds-bar">
+            <span class="smp-cap">Found in {n === 1 ? "this file" : "these files"}</span>
+            <InfoTip text="These come from the WAV's own chunks (written by Reaper, Sound Forge, a sampler editor…). Imported items keep a link to the file." label="About the file's metadata" />
+            <span class="smp-flex" />
+            <button type="button" class="smp-sm2" onClick={() => props.onToggle(allOn ? "none" : "all", !allOn)}>{allOn ? "Import none" : "Import all"}</button>
+          </div>
+          <div class="smp-kinds">
+            {found.map((k) => {
+              const ticked = kindOn(props.toggles, k.kind.id);
+              return (
+                <label key={k.kind.id} class={`smp-mrow2${ticked ? "" : " off"}`} title={k.kind.id === "detect" ? "Analyse the audio for a tempo and root note where the file says none (confident results only; marked Detected)" : undefined}>
+                  <input type="checkbox" checked={ticked} aria-label={k.kind.title} onChange={(e) => props.onToggle(k.kind.id, (e.currentTarget as HTMLInputElement).checked)} />
+                  <span class="smp-ellipsis">
+                    <b>{k.kind.title}</b> <span class="smp-muted">{k.files} file{k.files === 1 ? "" : "s"}{k.items > k.files ? ` · ${k.items} items` : ""}</span>
+                  </span>
+                  <span class="smp-mono smp-faint smp-ellipsis">{k.kind.chunks}</span>
+                  <span class="smp-faint" aria-hidden="true">→</span>
+                  <span class="smp-ellipsis">{k.kind.becomes}</span>
+                </label>
+              );
+            })}
+          </div>
+        </>
+      )}
+      <span class="smp-cap">Import settings</span>
+      <div class="fld">
+        <span>Load</span>
+        <select value={props.stream ? "stream" : "decode"} onChange={(e) => props.onStream((e.currentTarget as HTMLSelectElement).value === "stream")} aria-label="Load" title="Decode on load for short sounds; stream long music">
+          <option value="decode">Decode on load</option>
+          <option value="stream">Stream (long music)</option>
+        </select>
+      </div>
+      {/* Format and Sample rate are per-platform encoding settings (ADR 0351; decisions.md): the Inspector's Encoding section. */}
+      <div class="fld">
+        <span>Into folder</span>
+        <FolderCombo label="Into folder" value={props.into} folders={props.folders} onChange={props.onInto} />
+      </div>
+      <div class="fld">
+        <span />
+        <Checkbox checked={props.keep && hasStructure} disabled={!hasStructure} title={hasStructure ? "Recreate the folders from disk inside the target folder" : "The picked files have no folders to keep"} label="Keep the source folder structure" onChange={props.onKeep} />
+      </div>
+    </KitDialog>
   );
 }
 
@@ -165,43 +158,56 @@ async function detectFor(project: EditorProject, f: Picked, toggles: KindToggles
 
 /**
  * Copy the picked files and write their sidecars; returns the imported audio paths. With "Detect what's missing" on,
- * a file without tempo or root is analysed first (`onProgress` hears which file).
+ * a file without tempo or root is analysed first (`onProgress` hears which file). Each file's sidecar is written
+ * before its audio: the audio's write is announced to `Assets.onChanged`, and the changed-on-disk review
+ * (`sampleDisk.ts`) must find the sidecar's file snapshots already there, or it reads the file's own cues and loops
+ * as new. The status line then counts every file imported.
  */
 export async function runImport(project: EditorProject, files: readonly Picked[], toggles: KindToggles, into: string, keep: boolean, stream: boolean, onProgress?: (text: string) => void): Promise<string[]> {
   const imported: string[] = [];
+  const failed: string[] = [];
+  const settingsFailed: string[] = [];
   for (const f of files) {
     const folder = destinationFolder(into, f.rel, keep);
-    const result = await importFiles(project, folder, [{ path: baseName(f.rel), read: f.read }]);
-    const path = result.imported[0];
-    if (!path) continue;
-    imported.push(path);
-    if (detectionFor(f.meta, toggles).length) onProgress?.(`Detecting tempo and root of ${baseName(f.rel)}…`);
+    const name = baseName(f.rel);
+    if (detectionFor(f.meta, toggles).length) onProgress?.(`Detecting tempo and root of ${name}…`);
     const sample = sampleBlockFor(f.meta, toggles, await detectFor(project, f, toggles));
-    if (sample || stream) {
-      try {
-        await project.writeText(sidecarPath(path), formatImportSettings({ ...defaultImportSettings(), stream, sample }));
-      } catch (err) {
-        status.value = { kind: "error", text: `Imported ${path} but couldn't write its settings: ${err instanceof Error ? err.message : String(err)}` };
-      }
+    const sidecar: IncomingFile[] = sample || stream ? [{ path: sidecarPath(name), read: async () => new TextEncoder().encode(formatImportSettings({ ...defaultImportSettings(), stream, sample })) }] : [];
+    const result = await importFiles(project, folder, [...sidecar, { path: name, read: f.read }]);
+    const path = result.imported.find((p) => !isSidecarPath(p));
+    if (!path) {
+      failed.push(name);
+      continue;
     }
+    imported.push(path);
+    if (sidecar.length && !result.imported.includes(sidecarPath(path))) settingsFailed.push(`${path} (${result.failed[0]?.error ?? "unknown error"})`);
   }
   docVersion.value++;
+  if (settingsFailed.length) status.value = { kind: "error", text: `Imported ${settingsFailed.join(", ")} but couldn't write the settings.` };
+  else if (imported.length && !failed.length) status.value = { kind: "info", text: `${importedMessage(imported.length, into)}.` };
+  else if (failed.length) status.value = { kind: "error", text: `${imported.length ? `${importedMessage(imported.length, into)}; ` : ""}couldn't import ${failed.join(", ")}.` };
   return imported;
 }
 
-export function ImportDialog() {
+/** The Import dialog: the picker, or straight to the review with `dropped` files (audio dropped on the Samples panel). */
+export function ImportDialog(props: { dropped?: readonly IncomingFile[]; into?: string }) {
   const project = currentProject.value;
   const [files, setFiles] = useState<Picked[] | null>(null);
   const [toggles, setToggles] = useState<KindToggles>({});
-  const [into, setInto] = useState("");
+  const [into, setInto] = useState(props.into ?? "");
   const [keep, setKeep] = useState(true);
   const [stream, setStream] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState("");
   const filesInput = useRef<HTMLInputElement>(null);
   const folderInput = useRef<HTMLInputElement>(null);
-  if (!project) return null;
   const close = () => (dialog.value = null);
+  // Files dropped on the Samples panel go straight to the review.
+  useEffect(() => {
+    if (!props.dropped) return;
+    void readPicked(props.dropped).then((picked) => (picked.length ? setFiles(picked) : (toasts.show({ text: "No audio files there (WAV, OGG, MP3, FLAC or M4A)." }), close())));
+  }, [props.dropped]);
+  if (!project) return null;
   const take = async (incoming: IncomingFile[]) => {
     const picked = await readPicked(incoming);
     if (picked.length === 0) return void toasts.show({ text: "No audio files there (WAV, OGG, MP3, FLAC or M4A)." });
@@ -217,27 +223,21 @@ export function ImportDialog() {
   };
   if (!files) {
     return (
-      <div class="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && close()}>
-        <div class="dialog smp-dialog" role="dialog" aria-modal="true" aria-label="Import samples" onKeyDown={(e) => e.key === "Escape" && close()}>
-          <h2>Import samples</h2>
-          <p class="smp-muted">Pick audio files, or a folder of them (its folders are kept). The files are copied into the project; the originals aren't changed.</p>
-          <div class="smp-actions">
-            <button class="primary" autoFocus onClick={() => filesInput.current?.click()}>Choose files…</button>
-            <button onClick={() => void pickFolder()}>Choose a folder…</button>
-          </div>
-          <input ref={filesInput} type="file" multiple accept=".wav,.wave,.ogg,.mp3,.flac,.m4a,audio/*" hidden onChange={(e) => void take(fromInput((e.currentTarget as HTMLInputElement).files))} />
-          <input ref={folderInput} type="file" hidden {...({ webkitdirectory: "" } as Record<string, string>)} onChange={(e) => void take(fromInput((e.currentTarget as HTMLInputElement).files))} />
-          <div class="dialog-buttons">
-            <button onClick={close}>Cancel</button>
-          </div>
+      <KitDialog title="Import samples" width={460} class="smp-dialog" onClose={close} buttons={<button onClick={close}>Cancel</button>}>
+        <p class="smp-muted" title="The files are copied into the project; the originals aren't changed">Pick audio files, or a folder of them (its folders are kept), or drop them on the Samples panel.</p>
+        <div class="smp-actions">
+          <button class="primary" autoFocus onClick={() => filesInput.current?.click()}>Choose files…</button>
+          <button onClick={() => void pickFolder()}>Choose a folder…</button>
         </div>
-      </div>
+        <input ref={filesInput} type="file" multiple accept=".wav,.wave,.ogg,.mp3,.flac,.m4a,audio/*" hidden onChange={(e) => void take(fromInput((e.currentTarget as HTMLInputElement).files))} />
+        <input ref={folderInput} type="file" hidden {...({ webkitdirectory: "" } as Record<string, string>)} onChange={(e) => void take(fromInput((e.currentTarget as HTMLInputElement).files))} />
+      </KitDialog>
     );
   }
   return (
     <ImportReview
       files={files}
-      folders={project.folders}
+      folders={audioFolders(project.folders, project.files)}
       toggles={toggles}
       into={into}
       keep={keep}
@@ -257,7 +257,8 @@ export function ImportDialog() {
         close();
         if (done.length) {
           toasts.show({ text: importedMessage(done.length, into) });
-          openSample(done[0]);
+          // The first one as the tree lists them (a folder picker hands files over in no particular order: J2.1).
+          openSample(allSamples(libraryTree(done, [])).find((p) => done.includes(p)) ?? done[0]!);
         }
       }}
     />

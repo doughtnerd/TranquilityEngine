@@ -1,5 +1,5 @@
 // The time ruler's model (ADR 0349 `TimeRuler`): the three time displays of the prototype's Samples screen
-// (timecode `m:ss.mmm`, samples, bars `bbb:b:ttt` at 960 ticks per beat), typed times parsed back, and the ticks a
+// (timecode `mm:ss.mmm`, samples, bars `bbb:b:ttt` at 960 ticks per beat), typed times parsed back, and the ticks a
 // ruler draws for a view so labelled ticks are at least ~70 px apart. Pure: no DOM.
 //
 // A beat lasts 60 / bpm seconds and a bar holds the meter's numerator beats (BPM counts the meter's beats, as the
@@ -47,7 +47,7 @@ export const effectiveFormat = (format: TimeFormat, ctx: TimeContext): TimeForma
 
 const pad = (n: number, width: number) => String(n).padStart(width, "0");
 
-/** `t` seconds in `format`: `1:02.345`, `49 152`, `3:2:480`. Negative times get a minus sign. */
+/** `t` seconds in `format`: `01:02.345` (spec §3.14: two-digit minutes), `49 152`, `3:2:480`. Negative times get a minus sign. */
 export function formatTime(t: number, format: TimeFormat, ctx: TimeContext): string {
   const f = effectiveFormat(format, ctx);
   const sign = t < 0 ? "-" : "";
@@ -65,7 +65,7 @@ export function formatTime(t: number, format: TimeFormat, ctx: TimeContext): str
   const ms = Math.round(a * 1000);
   const m = Math.floor(ms / 60000);
   const s = Math.floor((ms % 60000) / 1000);
-  return `${sign}${m}:${pad(s, 2)}.${pad(ms % 1000, 3)}`;
+  return `${sign}${pad(m, 2)}:${pad(s, 2)}.${pad(ms % 1000, 3)}`;
 }
 
 /**

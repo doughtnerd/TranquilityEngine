@@ -41,7 +41,11 @@ import {
   PLAY_FLAGS_LOOP,
   PLAY_FLAGS_MIXED,
   PLAY_FLAGS_PANNER_SHIFT,
+  PLAY_FLAGS_REVERSE,
   PLAY_FLAGS_SPATIAL,
+  AMP_ENVELOPE_FIXED_END,
+  AMP_ENV_ON,
+  writeAmpEnvelope,
   FADE_FLAGS_STOP_AT_END,
   REPLAY_CHUNK_MAX_BYTES,
   REPLAY_FLAGS_FIRST_CHUNK,
@@ -54,6 +58,9 @@ import {
   writeBusConfig,
   writeEnvelope,
   writeFade,
+  writeGen,
+  GEN_FIXED_END,
+  GEN_PARAMS_MAX,
   writeMaster,
   writePlay,
   writeReset,
@@ -66,7 +73,8 @@ import {
 import type { ClipInfo, ClipRegistry } from "./clipRegistry";
 import type { ClockMap } from "./clock";
 import type { StatusMirror } from "./mirror";
-import { MAX_STAMPED, StampedKind, STAMPED_FLAG_STOP_AT_END, VoiceFlag, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
+import { MAX_STAMPED, StampedKind, STAMPED_FLAG_STOP_AT_END, VoiceFlag, VoiceFlag2, VoiceReason, VoiceState, type VoiceTable } from "./voiceTable";
+import type { FramesEnvelope } from "./commandWriter";
 import { effectiveDryGain, effectivePitch } from "./voices";
 import { wrapPosition } from "./coreAutomation";
 
@@ -305,6 +313,8 @@ export interface ReplaySource {
   hrtfPanner?(i: number): number;
   /** ADR 0158 (E3.1): slot `i`'s SET_LOOP region (the automation mirror's); absent: none. */
   readonly automation?: ReplayAutomation;
+  /** ADR 0362: slot `i`'s Amp envelope as a replay at context frame `frame` resumes it; absent or null: none. */
+  ampEnvelope?(i: number, frame: number): { readonly env: FramesEnvelope; readonly offsetFrames: number } | null;
 }
 
 /** @internal What the replay asks of the automation mirror (`CoreAutomation` satisfies it). */
@@ -470,6 +480,11 @@ export class Replayer {
         streams.push(this.idOf(i));
         continue;
       }
+      // ADR 0360: a generator has no clip to wait for: it goes back with the first voices.
+      if (t.genKind[i] !== 0) {
+        this.back.push(this.idOf(i));
+        continue;
+      }
       const clip = t.clip[i]!;
       const ids = this.waiting.get(clip);
       if (ids) ids.push(this.idOf(i));
@@ -561,9 +576,11 @@ export class Replayer {
       // ADR 0158: a SET_LOOP region (looping, or released) decides instead of PLAY's whole-clip flag.
       const region = this.src.automation?.loopOf(i) ?? null;
       const loop = region ? region.looping : (flags & VoiceFlag.LOOP) !== 0;
-      let pos = playheads.positionNow(i, frame);
+      // ADR 0360: a generator starts again from its parameters (no clip, no position: its envelope restarts).
+      const genParams = t.genKind[i] !== 0 ? t.genParams[i] : null;
+      let pos = genParams ? 0 : playheads.positionNow(i, frame);
       const shortOneShot = (flags & VoiceFlag.ONE_SHOT) !== 0 && frames / clipRate < REPLAY_SHORT_ONE_SHOT_SECONDS;
-      if ((!loop && pos >= frames) || (shortOneShot && !loop && waited > REPLAY_SHORT_ONE_SHOT_MAX_WAIT_SECONDS)) {
+      if (!genParams && ((!loop && pos >= frames) || (shortOneShot && !loop && waited > REPLAY_SHORT_ONE_SHOT_MAX_WAIT_SECONDS))) {
         t.free(id, VoiceReason.NONE);
         this.stats.dropped++;
         continue;
@@ -574,12 +591,15 @@ export class Replayer {
         this.stats.dropped++;
         continue;
       }
-      if (region && loop) pos = wrapPosition(pos, region.start, region.end, frames);
+      if (genParams) pos = 0;
+      else if (region && loop) pos = wrapPosition(pos, region.start, region.end, frames);
       else if (loop && frames > 0) pos %= frames;
       playheads.start(i, frame, pos);
       const spatial = (flags & VoiceFlag.SPATIAL) !== 0;
       const panner = spatial ? (this.src.hrtfPanner?.(i) ?? 0) << PLAY_FLAGS_PANNER_SHIFT : 0;
-      const playFlags = (s === VoiceState.PLAYING ? PLAY_FLAGS_MIXED : 0) | (loop ? PLAY_FLAGS_LOOP : 0) | (spatial ? PLAY_FLAGS_SPATIAL : 0) | panner;
+      // ADR 0362: a reversed voice stays reversed (its playhead and regions count from the clip's end, as before).
+      const reverse = (t.flags2[i]! & VoiceFlag2.REVERSE) !== 0 && (flags & VoiceFlag.STREAM) === 0 ? PLAY_FLAGS_REVERSE : 0;
+      const playFlags = (s === VoiceState.PLAYING ? PLAY_FLAGS_MIXED : 0) | (loop ? PLAY_FLAGS_LOOP : 0) | (spatial ? PLAY_FLAGS_SPATIAL : 0) | panner | reverse;
       b.record(56, (view, off) =>
         writePlay(view, off, {
           voiceId: id,
@@ -600,6 +620,19 @@ export class Replayer {
           startOffsetFrames: Math.floor(pos),
         }),
       );
+      // ADR 0360: a generator's GEN with every parameter at its current value and its seed, right behind its PLAY.
+      if (genParams) {
+        const n = Math.min(genParams.length, GEN_PARAMS_MAX);
+        const mask = n >= 32 ? 0xffffffff : 2 ** n - 1;
+        const seed = t.genSeed[i]! || 1;
+        b.record(GEN_FIXED_END + 4 * n, (view, off) => writeGen(view, off, { voiceId: id, frameOffset: 0, mask, seed, rampFrames: 0, values: genParams.subarray(0, n) }));
+      }
+      // ADR 0362: its Amp envelope, from where it has got to, right behind its PLAY.
+      const amp = this.src.ampEnvelope?.(i, frame) ?? null;
+      if (amp) {
+        const e = amp.env;
+        b.record(AMP_ENVELOPE_FIXED_END, (view, off) => writeAmpEnvelope(view, off, { voiceId: id, frameOffset: 0, flags: AMP_ENV_ON, attackFrames: e.attack, holdFrames: e.hold, decayFrames: e.decay, sustain: e.sustain, releaseFrames: e.release, keyOffFrame: e.keyOff, offsetFrames: Math.max(0, Math.min(0xfffffffe, Math.round(amp.offsetFrames))) }));
+      }
       // ADR 0178: what follows the PLAY is the session's `replayVoice` phase (AUTOMATE and SET_LOOP, SET_VOICE_FX, the
       // voice table's FADE, stamped ramps and SET_PAUSED, in `PHASE_ORDER.replayVoice`'s order).
       const v = this.voice;

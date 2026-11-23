@@ -59,6 +59,9 @@
 //!   SET_MIXED 0 arrived meanwhile, which the fade then completes.
 //! - A voice not started yet doesn't start while paused; resumed after its start frame has passed,
 //!   it starts at once (not counted late).
+//! - ADR 0362 §1: the voice's stamped records past the frame its hold begins wait with it (parked in the pending queue),
+//!   and the resume puts them back as many frames later as it was held, so what main sent ahead (a fade, a ramp, a
+//!   cut) lands where it would have, the hold's length later. A record stamped while it is held lands at its frame.
 //! - STOP, or FADE with "stop at end", ends a held voice at the next quantum (it is silent). The
 //!   cap's own demote and its counts leave paused voices out (they are already leaving the mix);
 //!   main never promotes a paused voice (selection forces it virtual), and a promote while paused is
@@ -124,6 +127,9 @@ pub mod flag {
 pub mod flag2 {
     /// PLAY flag `ambisonic` (bit 7): a B-format clip voice, never filtered (C17).
     pub const AMBISONIC: u8 = 1 << 0;
+    /// ADR 0362 (ABI 6.1), PLAY flag `reverse` (bit 9): a PCM clip voice reads its clip backwards (`Source::reversed`:
+    /// its positions count from the clip's end). Bits 1-6 are the due list's and the gate's (`due.rs`, `groups.rs`).
+    pub const REVERSE: u8 = 1 << 7;
 }
 
 /// The promote and demote fade (architecture §4.7: "promote and demote 5 ms").
@@ -969,7 +975,12 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
         return;
     }
     // ADR 0351 A4: a PCM clip, or an ADPCM one (format 6), which a mixed voice decodes as it reads.
-    let pcm = clips.frames(slot.clip);
+    let mut pcm = clips.frames(slot.clip);
+    // ADR 0362: a reversed voice reads its PCM clip backwards (its positions count from the clip's end); an ADPCM
+    // clip's reader moves forward only, so main never sends one reversed (it would play forward).
+    if let Some(c) = pcm.as_mut() {
+        c.source.reversed = slot.flags2 & flag2::REVERSE != 0;
+    }
     let adpcm = if pcm.is_none() { clips.adpcm(slot.clip) } else { None };
     let clip_frames = match (&pcm, &adpcm) {
         (Some(c), _) => c.source.frames,
@@ -1123,6 +1134,7 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
         }
         slot.mix.advance(n as u32);
         slot.panner.advance(n as u32);
+        env_keep_time(auto.as_deref_mut(), n);
     }
     let ran_out = (region.is_some() || program || !looping) && slot.position >= clip_frames as f64;
     if ran_out || (stopping && slot.fade.is_settled()) {
@@ -1223,6 +1235,7 @@ fn render_gen_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, aut
         }
         slot.mix.advance(n as u32);
         slot.panner.advance(n as u32);
+        env_keep_time(auto.as_deref_mut(), n);
     }
     slot.position += n as f64;
     if keys_off {
@@ -1388,6 +1401,7 @@ fn render_stream_voice<const AUTO: bool>(slot: &mut VoiceSlot, auto: Option<&mut
         advance_due(&mut slot.fade, ramp_of::FADE, fx.due, done as u32);
         slot.mix.advance(done as u32);
         slot.panner.advance(done as u32);
+        env_keep_time(auto.as_deref_mut(), done);
     }
     let p = slot.position - start;
     let behind = (p.max(0.0) as u64).saturating_sub(1).min(written);
@@ -1702,6 +1716,11 @@ fn voice_chain_body<const DUE: bool>(slot: &mut VoiceSlot, mut auto: Option<&mut
     let (mut cap, mut floor) = (None, None);
     if let Some(a) = auto.as_deref_mut() {
         auto_gain(a, l, r, from);
+        // ADR 0362 (ABI 6.1): the clip's Amp envelope, a gain per sample over the envelope's own frames.
+        if a.env_on != 0 {
+            a.env.apply(a.env_pos as u64, l, r);
+            a.env_pos = a.env_pos.saturating_add(n as u32);
+        }
         if a.count != 0 && a.targets & automation::has::LOWPASS != 0 {
             cap = Some(a.lp);
         }
@@ -1842,6 +1861,17 @@ fn auto_gain(a: &VoiceAuto, l: &mut [f32], r: &mut [f32], from: usize) {
             let g = a.gain_at(from + i);
             l[i] *= g;
             r[i] *= g;
+        }
+    }
+}
+
+/// ADR 0362: a voice that keeps time without mixing (virtual) moves its Amp envelope on by `n` frames, as a mixed one
+/// does in its chain, so a promote lands on the envelope frame it would have reached.
+#[inline]
+fn env_keep_time(auto: Option<&mut VoiceAuto>, n: usize) {
+    if let Some(a) = auto {
+        if a.env_on != 0 {
+            a.env_pos = a.env_pos.saturating_add(n as u32);
         }
     }
 }
@@ -2190,6 +2220,9 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         s.rate_ratio = clip_rate / sample_rate;
         s.score = play.score;
         s.flags2 = if play.flags & wire::PLAY_FLAGS_AMBISONIC != 0 { flag2::AMBISONIC } else { 0 };
+        if play.flags & wire::PLAY_FLAGS_REVERSE != 0 && play.flags & wire::PLAY_FLAGS_STREAM == 0 {
+            s.flags2 |= flag2::REVERSE;
+        }
         // ADR 0162 D1: the old voice's pool entry goes; a mixed voice takes a fresh one.
         crate::fxpool::release(v.pool, old.fx, index);
         s.fx = 0;
@@ -2678,36 +2711,48 @@ pub fn demote_lowest(core: &mut Core, keep: u32) -> u32 {
 
 /// SET_PAUSED (api-and-models §4.2, A3.7): pauses or resumes `voice_id`; see the module notes. A
 /// stale id is dropped; a voice already in the asked state is left alone.
-pub fn set_paused(core: &mut Core, voice_id: u32, paused: bool) {
+///
+/// `at` is the record's frame (`None` asap: the next quantum's first frame). ADR 0362 §1: the voice's own stamped records
+/// past the frame its hold begins (its fade's end for a mixed voice) wait with it, out of the pending queue's way
+/// ([`scheduler::park_pending`]), and a resume puts them back as many frames later as it was held
+/// ([`scheduler::unpark_pending`]): a fade, a ramp or a cut main sent ahead lands where it would have, the hold's length
+/// later. Records stamped before the hold begins keep their frames.
+pub fn set_paused(core: &mut Core, voice_id: u32, paused: bool, at: Option<u64>) {
     let frames = mix_fade_frames(core);
     // The next quantum's first frame (the frame after the last one rendered).
     let now = core.frame() + QUANTUM as u64;
+    let at = at.unwrap_or(now);
     let v = view(core.regions_mut());
     let Some(index) = find(&v, voice_id) else { return };
     let s = &mut v.slots[index];
     if paused {
-        pause_slot(s, frames);
-    } else {
-        resume_slot(s, frames, now);
+        if let Some(fade) = pause_slot(s, frames) {
+            crate::scheduler::park_pending(core, voice_id, at + fade as u64);
+        }
+    } else if resume_slot(s, frames, now) {
+        crate::scheduler::unpark_pending(core, voice_id, at);
     }
 }
 
-fn pause_slot(s: &mut VoiceSlot, frames: u32) {
+/// Pauses the slot; `Some(frames)` until its hold begins (its fade-out, or 0) when it wasn't paused, `None` when it was.
+fn pause_slot(s: &mut VoiceSlot, frames: u32) -> Option<u32> {
     if s.flags & flag::PAUSED != 0 {
-        return;
+        return None;
     }
     s.flags |= flag::PAUSED;
     if s.state == state::PLAYING && s.flags & flag::MIXED != 0 && s.flags & flag::DEMOTING == 0 {
         // Mixed: fade out over 5 ms, then hold (a voice already demoting finishes its own fade).
         s.flags |= flag::PAUSING;
         s.mix.set_target(0.0, frames);
+        return Some(frames);
     }
+    Some(0)
 }
 
-/// `now` is the context frame of the next quantum.
-fn resume_slot(s: &mut VoiceSlot, frames: u32, now: u64) {
+/// `now` is the context frame of the next quantum. Whether it was paused.
+fn resume_slot(s: &mut VoiceSlot, frames: u32, now: u64) -> bool {
     if s.flags & flag::PAUSED == 0 {
-        return;
+        return false;
     }
     s.flags &= !flag::PAUSED;
     if s.flags & flag::PAUSING != 0 {
@@ -2721,6 +2766,13 @@ fn resume_slot(s: &mut VoiceSlot, frames: u32, now: u64) {
         // Its start passed while it was paused: start now, not counted late.
         s.start_frame = ASAP;
     }
+    true
+}
+
+/// ADR 0362 §1: whether `voice_id` is a live voice that is paused (its parked records still wait for it).
+pub fn is_paused(core: &mut Core, voice_id: u32) -> bool {
+    let v = view(core.regions_mut());
+    find(&v, voice_id).is_some_and(|i| v.slots[i].flags & flag::PAUSED != 0)
 }
 
 #[cfg(test)]

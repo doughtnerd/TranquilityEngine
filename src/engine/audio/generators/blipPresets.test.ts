@@ -96,6 +96,13 @@ describe("Randomise, Mutate and locks", () => {
     expect({ ...mLocked.params, baseFrequency: 0 }).toEqual({ ...mFree.params, baseFrequency: 0 });
   });
 
+  it("presets, Randomise and Mutate keep the blip's quality (D67)", () => {
+    const high: GeneratorBody = { ...coin, params: { ...coin.params, quality: 1 } };
+    expect(applyBlipPreset(high, "laser", 9).params.quality).toBe(1);
+    expect(randomiseBlip(high).params.quality).toBe(1);
+    expect(mutateBlip(high).params.quality).toBe(1);
+  });
+
   it("a non-blip body becomes a blip and keeps nothing", () => {
     const osc = emptyGeneratorBody("oscillator");
     const b = applyBlipPreset(osc, "jump", 5, ["frequency"]);

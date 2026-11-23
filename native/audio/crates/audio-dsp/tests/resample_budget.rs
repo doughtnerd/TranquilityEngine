@@ -65,8 +65,8 @@ fn rendering_never_allocates() {
     let f = noise(2 * CLIP_FRAMES);
     let i: Vec<i16> = f.iter().map(|&v| (v * 32767.0) as i16).collect();
     let sources = [
-        Source { samples: Samples::F32(&f), channels: 1, frames: CLIP_FRAMES as u32 },
-        Source { samples: Samples::I16(&i), channels: 2, frames: CLIP_FRAMES as u32 },
+        Source { samples: Samples::F32(&f), channels: 1, frames: CLIP_FRAMES as u32, reversed: false },
+        Source { samples: Samples::I16(&i), channels: 2, frames: CLIP_FRAMES as u32, reversed: false },
     ];
     let steps = [1.37f32; QUANTUM];
     let (mut l, mut r) = ([0.0f32; QUANTUM], [0.0f32; QUANTUM]);
@@ -117,10 +117,10 @@ fn cost_per_voice_quantum() {
     let f = noise(2 * CLIP_FRAMES);
     let i: Vec<i16> = f.iter().map(|&v| (v * 32767.0) as i16).collect();
     let cases = [
-        ("mono f32", Source { samples: Samples::F32(&f), channels: 1, frames: CLIP_FRAMES as u32 }),
-        ("stereo f32", Source { samples: Samples::F32(&f), channels: 2, frames: CLIP_FRAMES as u32 }),
-        ("mono i16", Source { samples: Samples::I16(&i), channels: 1, frames: CLIP_FRAMES as u32 }),
-        ("stereo i16", Source { samples: Samples::I16(&i), channels: 2, frames: CLIP_FRAMES as u32 }),
+        ("mono f32", Source { samples: Samples::F32(&f), channels: 1, frames: CLIP_FRAMES as u32, reversed: false }),
+        ("stereo f32", Source { samples: Samples::F32(&f), channels: 2, frames: CLIP_FRAMES as u32, reversed: false }),
+        ("mono i16", Source { samples: Samples::I16(&i), channels: 1, frames: CLIP_FRAMES as u32, reversed: false }),
+        ("stereo i16", Source { samples: Samples::I16(&i), channels: 2, frames: CLIP_FRAMES as u32, reversed: false }),
     ];
     for (name, src) in &cases {
         for &pitch in &[1.0f32, 1.37, 4.0, 16.0] {

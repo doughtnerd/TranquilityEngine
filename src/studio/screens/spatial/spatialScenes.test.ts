@@ -3,9 +3,11 @@ import { audioTestSceneToJson, parseAudioTestScene } from "../../../engine/audio
 import type { Attenuation } from "../../../engine/audio/attenuation/types";
 import type { PlaylistAsset } from "../../../engine/audio/playlist/types";
 import type { TakeRequest } from "../../../engine/audio/take/types";
-import { attenuationDialog, attenuationFromResult, attenuationOwner, attenuationSummary, newAttenuation, ownerText, presetNameFor, ROLLOFF_PRESETS } from "./attenuationModel";
+import { attenuationDialog, attenuationFromResult, attenuationOwner, attenuationSummary, canMakeSpatial, NEW_SPATIAL, newAttenuation, occlusionOn, ownerText, presetNameFor, ROLLOFF_PRESETS, whyNotEditAttenuation } from "./attenuationModel";
+import { setSpatial } from "../playlists/playlistEdits";
 import { blankScene, copyScene, gameScene, gameScenePaths, sceneFromTake, takeClock } from "./newScene";
-import { deleteSceneFolder, moveSceneFolder, newSceneFolder, renameSceneFolder, sceneFolders, sceneName, sceneTree, searchScenes, whyNotRenameScene } from "./sceneTree";
+import { deleteSceneFolder, moveSceneFolder, newSceneFolder, renameSceneFolder, sceneAfter, sceneFolders, sceneMoveItem, sceneName, sceneNote, sceneTree, searchScenes, whyNotRenameScene } from "./sceneTree";
+import { whyNotMoveTo } from "../../../editor/ui/moveToModel";
 import { FIXTURE_SCENE_FILES, fixtureScene, fixtureVoices } from "./spatialFixture";
 import { occlusionText, raysOf, voiceTable } from "./voicesTable";
 
@@ -17,6 +19,22 @@ describe("the Scenes tree", () => {
     expect(canyon.kind === "folder" && canyon.children.map((c) => c.name)).toEqual(["canyon_run", "cave_approach"]);
     expect(sceneFolders(FIXTURE_SCENE_FILES, ["Canyon level/Night"])).toContain("Canyon level/Night");
     expect(sceneName("a/b/drone_flyby.audioscene.json")).toBe("drone_flyby");
+  });
+
+  it("opens the next scene in the tree after the open one is deleted (the one before at the end)", () => {
+    const paths = FIXTURE_SCENE_FILES.map((f) => f.path);
+    // Tree order: canyon_run, cave_approach (Canyon level), level_02 (From the game), drone_flyby (Moving sources), behind_crates.
+    expect(sceneAfter(FIXTURE_SCENE_FILES, [paths[0]!])).toBe(paths[1]);
+    expect(sceneAfter(FIXTURE_SCENE_FILES, [paths[1]!])).toBe(paths[4]);
+    expect(sceneAfter(FIXTURE_SCENE_FILES, [paths[3]!])).toBe(paths[2]);
+    expect(sceneAfter([FIXTURE_SCENE_FILES[0]!], [paths[0]!])).toBeNull();
+  });
+
+  it("notes what a scene holds for its row (a game scene's base, blank, or its counts)", () => {
+    expect(sceneNote(fixtureScene())).toBe("4 emitters · 3 obstacles · 3 zones");
+    expect(sceneNote(blankScene())).toBe("Blank");
+    expect(sceneNote(gameScene("scenes/canyon.scene.json"))).toBe("Game scene · canyon");
+    expect(sceneNote({ ...blankScene(), emitters: fixtureScene().emitters.slice(0, 1) })).toBe("1 emitter");
   });
 
   it("searches by name and folder", () => {
@@ -34,6 +52,14 @@ describe("the Scenes tree", () => {
     expect(moveSceneFolder(FIXTURE_SCENE_FILES, "Canyon level", "Canyon level/x")).toEqual({ refused: "a folder can't move into itself" });
     expect(deleteSceneFolder([{ path: "a.audioscene.json", folder: "X/Y/Z" }], "X/Y")).toEqual([{ path: "a.audioscene.json", folder: "X/Z" }]);
     expect(newSceneFolder(FIXTURE_SCENE_FILES, "", ["New folder"])).toBe("New folder 2");
+  });
+
+  it("gives the Move to… dialog the scene by its name, under its folder field (UI pass SC7)", () => {
+    const item = sceneMoveItem({ path: "audio/scenes/canyon_run.audioscene.json", folder: "Canyon level" });
+    expect(item).toEqual({ path: "Canyon level/canyon_run", folder: false }); // the dialog titles it "Move “canyon_run” to"
+    expect(whyNotMoveTo("Canyon level", [item])).toBe("It's already in this folder");
+    expect(whyNotMoveTo("", [item])).toBeNull();
+    expect(sceneMoveItem({ path: "audio/scenes/behind_crates.audioscene.json", folder: "" })).toEqual({ path: "behind_crates", folder: false });
   });
 
   it("checks scene file names", () => {
@@ -100,6 +126,43 @@ describe("attenuation", () => {
     expect(attenuationOwner("c.playlist.json", read, presets).kind).toBe("none");
     expect(attenuationOwner("d.playlist.json", read, presets).kind).toBe("flat");
     expect(ownerText(attenuationOwner("x.wav", read, presets))).toMatch(/sample: attenuation lives on playlists/);
+  });
+
+  it("offers Make it 3D in Spatial for a flat playlist, after which Edit attenuation… opens (J9.2)", () => {
+    const flat = attenuationOwner("d.playlist.json", read, presets);
+    expect(canMakeSpatial(flat)).toBe(true);
+    expect(ownerText(flat)).toBe("d.playlist.json plays flat (2D). Make it 3D to hear it in place.");
+    for (const p of ["", "x.wav", "a.playlist.json", "b.playlist.json", "c.playlist.json"]) expect(canMakeSpatial(attenuationOwner(p, read, presets))).toBe(false);
+    // The block it gets (through the playlist's own edit) hears it in place, occluded (ADR 0162) with Doppler, as a game's AudioSource.
+    const made = setSpatial({ ...files["d.playlist.json"]!, spatial: null } as never, { ...NEW_SPATIAL });
+    const after = "next" in made ? (made.next as unknown as PlaylistAsset) : null;
+    expect(after?.spatial).toEqual({ attenuation: null, occlusion: true, doppler: 1, spread: null });
+    const owner = attenuationOwner("d.playlist.json", (p) => (p === "d.playlist.json" ? after : read(p)), presets);
+    expect(owner.kind).toBe("none");
+    expect(whyNotEditAttenuation(owner)).toBeNull(); // Create preset / Inline, then the curves
+  });
+
+  it("knows when a sound's own setting turns occlusion off, and the readout says Off, not Clear (J9.3)", () => {
+    expect(occlusionOn("a.playlist.json", read)).toBe(true);
+    expect(occlusionOn("c.playlist.json", read)).toBe(false);
+    expect(occlusionOn("d.playlist.json", read)).toBe(true); // flat: not traced anyway
+    expect(occlusionOn("x.wav", read)).toBe(true); // an AudioSource's own default
+    const open = { ...fixtureVoices()[0]! };
+    expect(occlusionText(open)).toBe("Clear");
+    expect(occlusionText(open, false)).toBe("Off (this sound)");
+  });
+
+  it("says why Edit attenuation… can't open, the same for the Inspector and the plan's toolbar (UI pass SV12)", () => {
+    const why = (sound: string) => whyNotEditAttenuation(attenuationOwner(sound, read, presets));
+    expect(why("")).toBe("Pick a sound first: attenuation lives on the playlist it plays");
+    expect(why("x.wav")).toBe("x.wav is a sample: attenuation lives on playlists");
+    expect(why("z.playlist.json")).toBe("z.playlist.json isn't in the project");
+    expect(why("d.playlist.json")).toMatch(/plays flat/);
+    expect(why("d.playlist.json")).toBe("d.playlist.json plays flat (2D): make it 3D first"); // not "in Playlists" (J9.2)
+    expect(why("a.playlist.json")).toBeNull(); // opens the preset's curves
+    expect(why("b.playlist.json")).toBeNull(); // the inline curves
+    expect(why("c.playlist.json")).toBeNull(); // offers Create preset / Inline
+    expect(whyNotEditAttenuation({ kind: "preset", playlist: "e.playlist.json", preset: "audio/attenuation/gone.attenuation.json", attenuation: null })).toBe("The preset gone.attenuation.json isn't in the project");
   });
 
   it("summarises", () => {

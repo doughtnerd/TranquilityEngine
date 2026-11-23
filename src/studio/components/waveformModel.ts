@@ -83,6 +83,31 @@ export function waveColumns(mips: PeakMips | null | undefined, view: TimeSpan, w
   return { min, max };
 }
 
+/** A stretch of columns with audio: where it starts (px) and each column's amplitude, 0..1 (the larger of |min| and |max|). */
+export interface EnvelopeRun {
+  readonly x: number;
+  readonly amps: readonly number[];
+}
+
+/**
+ * The waveform drawn as the owner's prototype draws it: a filled envelope mirrored about the centre line, so each
+ * column's amplitude is the larger of its lowest and highest value. Gaps (no audio) split it into runs.
+ */
+export function envelopeRuns(cols: WaveColumns): EnvelopeRun[] {
+  const runs: EnvelopeRun[] = [];
+  let cur: { x: number; amps: number[] } | null = null;
+  for (let x = 0; x < cols.min.length; x++) {
+    const lo = cols.min[x]!, hi = cols.max[x]!;
+    if (Number.isNaN(lo) || Number.isNaN(hi)) {
+      cur = null;
+      continue;
+    }
+    if (!cur) runs.push((cur = { x, amps: [] }));
+    cur.amps.push(Math.min(1, Math.max(Math.abs(lo), Math.abs(hi))));
+  }
+  return runs;
+}
+
 /** A coloured band over the waveform (a loop, the play scope, a deleted snippet). */
 export interface WaveBand {
   readonly start: number;

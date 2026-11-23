@@ -9,6 +9,7 @@ import { World } from "../../../engine/core/World";
 import { worldKeyOf, worldPlays } from "./AudioSource";
 import { clipRequest, clipSource } from "./clipResolver";
 import { isPlaylistPath } from "../../../engine/audio/playlist/format";
+import { isGeneratorPath } from "../../../engine/audio/generators/format";
 import { Assets } from "../../../engine/scene/Assets";
 import { audioPackage, audioPackages, mediaRefusal, packagesDebug, playlistRefusal, type AudioPackage, type AudioPackageDebug } from "./media/packages";
 import { playSampleVoice } from "./sampleVoice";
@@ -111,7 +112,7 @@ class VoiceHandle implements AudioHandle {
 
 /** A handle for a playlist that didn't play. */
 const INERT_EVENT: AudioPlaylistHandle = Object.freeze({
-  playing: false, reason: null, position: null, panner: null, occlusion: 1,
+  playing: false, reason: null, position: null, panner: null, occlusion: 1, paused: false, pause() {}, resume() {},
   stop() {}, fade() {}, setParameter() {}, getParameter: () => undefined, release() {}, onMarker: () => () => {},
   // ADR 0166 §1.2 (Q0): a playlist that didn't play has no music.
   music: undefined, onMusic: () => () => {}, trigger: () => false,
@@ -146,6 +147,9 @@ class TakePlaylistHandle implements AudioPlaylistHandle {
   get music(): MusicHandle | undefined { return this.h.music; }
   onMusic(kind: MusicKind, fn: (e: MusicEvent) => void): () => void { return this.h.onMusic(kind, fn); }
   trigger(name: string): boolean { takeTap.sink?.trigger(this.instance, String(name)); return this.h.trigger(name); }
+  pause(): void { this.h.pause(); }
+  resume(): void { this.h.resume(); }
+  get paused(): boolean { return this.h.paused; }
 }
 
 /** A playlist's stop without a fade fades over 120 ms (ADR 0343); the take records the fade the replay must use. */
@@ -308,7 +312,8 @@ export const Audio = {
   },
 
   /**
-   * Play a playlist (`*.playlist.json`, ADR 0343) or a sample (as a one-sample Clip playlist). Always returns a handle (an
+   * Play a playlist (`*.playlist.json`, ADR 0343), a sample or a sound generator (`*.generator.json`, ADR 0360; each as a
+   * one-entry Clip playlist). Always returns a handle (an
    * inert one when nothing played: no World with the view, a missing asset, a trigger the playback rules refused, or an
    * old audio event file, which is refused with a message naming the migration; `Audio.debug().playlistTotals` says
    * why); never throws.
@@ -319,7 +324,8 @@ export const Audio = {
       const asset = String(pathOrSample).replace(/^asset:/, "");
       // ADR 0351 §7: the strict rule for a packaged playlist or sample (`playlistRefusal` for a playlist).
       if (worldPlays(World.active)) {
-        const refused = isPlaylistPath(asset) ? playlistRefusal(asset, clipSource) : Assets.has(asset) ? mediaRefusal(clipSource(asset)) : null;
+        // ADR 0360: a generator (`*.generator.json`) is JSON, never packaged media: nothing to refuse.
+        const refused = isPlaylistPath(asset) ? playlistRefusal(asset, clipSource) : isGeneratorPath(asset) ? null : Assets.has(asset) ? mediaRefusal(clipSource(asset)) : null;
         if (refused) return refused === "notLoaded" ? NOT_LOADED_EVENT : FAILED_EVENT;
       }
       const p = _playPlaylist(asset, o, World.active);

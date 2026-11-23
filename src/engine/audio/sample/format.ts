@@ -8,6 +8,7 @@
  *
  * Pure; no plugin, no DOM.
  */
+import { colourNoteJson, readColourNote } from "../markColour";
 import { deepEqual } from "../deepEqual";
 import { effectsToJson, parseEffects } from "../effects/catalogue";
 import { curveToJson, IdScope, isFiniteNumber, isRecord, LenientReader, type JsonRecord } from "../lenientRead";
@@ -17,7 +18,7 @@ import { NOTE_NAME_PATTERN } from "./noteNames";
 import {
   SAMPLE_FORMAT, SAMPLE_SUFFIX, type DerivedSampleAsset, type LoopDirection, type LoopFileSnapshot, type MarkerFileSnapshot, type MarkerType,
   type SampleAutomation, type SampleEdits, type SampleKind, type SampleLineage, type SampleLoop, type SampleMarker, type SampleNormalize, type SampleRoot,
-  type SampleTempo, type TempoMarker, type ValueSource,
+  type SampleTempo, type TempoMarker, type ValueSource, RESERVED_RANGES, type RangeLook, type ReservedRange, type SampleRanges,
 } from "./types";
 
 export const SAMPLE_KINDS: readonly SampleKind[] = ["oneshot", "loop", "sustain", "music"];
@@ -361,7 +362,28 @@ export function parseSampleEdits(raw: unknown, where: string, problems: string[]
       out.vo = { key: vo.key, textHash: vo.textHash };
     } else r.problem(`${where}.vo`, "must be { key, textHash } with a line key and 16 hex digits; dropped.");
   }
+  const ranges = parseRanges(raw.ranges, `${where}.ranges`, r, problems);
+  if (ranges) out.ranges = ranges;
   return out;
+}
+
+/** ADR 0362 item 4: `ranges`, `{ trim?, pickup?, tail? }` each `{ colour?, note? }`; empty ones are left out. */
+function parseRanges(raw: unknown, where: string, r: LenientReader, problems: string[]): SampleRanges | null {
+  if (raw === undefined || raw === null) return null;
+  if (!isRecord(raw)) {
+    r.problem(where, "must be an object; dropped.");
+    return null;
+  }
+  const out: SampleRanges = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const w = `${where}.${key}`;
+    if (!(RESERVED_RANGES as readonly string[]).includes(key)) { r.problem(w, "not a reserved range (trim, pickup or tail); dropped."); continue; }
+    if (!isRecord(value)) { r.problem(w, "must be { colour, note }; dropped."); continue; }
+    const look: RangeLook = {};
+    readColourNote(value, w, look, problems);
+    if (look.colour || look.note) out[key as ReservedRange] = look;
+  }
+  return Object.keys(out).length ? out : null;
 }
 
 /**
@@ -466,6 +488,14 @@ export function sampleEditsToJson(e: SampleEdits): JsonRecord {
   if (e.sourceVersion !== undefined) out.sourceVersion = e.sourceVersion;
   if (e.lipsync) out.lipsync = { set: e.lipsync.set, keys: e.lipsync.keys.map((k) => [k[0], k[1]]) };
   if (e.vo) out.vo = { key: e.vo.key, textHash: e.vo.textHash };
+  if (e.ranges) {
+    const ranges: JsonRecord = {};
+    for (const k of RESERVED_RANGES) {
+      const look = e.ranges[k];
+      if (look && (look.colour || look.note)) ranges[k] = colourNoteJson(look);
+    }
+    if (Object.keys(ranges).length) out.ranges = ranges;
+  }
   return out;
 }
 
@@ -522,7 +552,7 @@ export function derivedSampleToJson(a: DerivedSampleAsset): JsonRecord {
 // --- forks -----------------------------------------------------------------------------------------------------------
 
 
-const EDIT_FIELDS = ["kind", "trim", "loops", "markers", "tempo", "root", "normalize", "effects", "automation", "frozen", "cuts", "deleted", "closedGaps", "stinger", "snapToZero", "source", "sourceVersion", "lipsync", "vo"] as const satisfies readonly (keyof SampleEdits)[];
+const EDIT_FIELDS = ["kind", "trim", "loops", "markers", "tempo", "root", "normalize", "effects", "automation", "frozen", "cuts", "deleted", "closedGaps", "stinger", "snapToZero", "source", "sourceVersion", "lipsync", "vo", "ranges"] as const satisfies readonly (keyof SampleEdits)[];
 
 /**
  * The edits a derived sample plays with. A following fork reads each top-level field that still equals its `baseline`

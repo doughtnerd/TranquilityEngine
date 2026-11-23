@@ -36,6 +36,8 @@ const bezierAuto = { bus: "Music", parameter: "Intensity", target: "volume" as c
 /** ABI 4.8: an effect parameter's automation (by the effect's and the parameter's index, a log2 curve) and a send's. */
 const fxAuto = { bus: "Music", parameter: "Intensity", target: "fx" as const, effect: 0, param: 0, log: true, curve: [[0, 14], [1, 9]] as const };
 const sendAuto = { bus: "Stems", parameter: "Intensity", target: "send" as const, to: "SFX", curve: [[0, 0], [1, -12]] as const };
+/** ADR 0362 §5: a lane with a second input (its authored curve and how its slices map). */
+const byAuto = { ...auto, target: "volume" as const, curve: [[0, 1], [1, 0.5]] as const, by: { input: "Intensity", mode: "morph" as const, curve: [[0, -3], [1, 0, "bezier", { in: [-0.2, 0], out: [0, 0] }]] as const, lane: [[0, 0], [1, -6]] as const, map: "gain" as const } };
 const tgt = { name: "radio", integrated: -23, tolerance: 1, truePeak: -2 };
 
 /** Every op kind (and each variant that changes its class), with the class it has against `base()`. */
@@ -79,6 +81,7 @@ const CASES: [string, MixOp, OpClass][] = [
   ["setAutomation remove", { op: "setAutomation", index: 0, rule: null }, "direct"],
   ["setAutomation insert, an effect parameter", { op: "setAutomation", index: 1, rule: fxAuto, insert: true }, "direct"],
   ["setAutomation replace, a send", { op: "setAutomation", index: 0, rule: sendAuto }, "direct"],
+  ["setAutomation replace, a second input", { op: "setAutomation", index: 0, rule: byAuto }, "direct"],
   ["setTarget insert", { op: "setTarget", index: 2, target: tgt, insert: true }, "direct"],
   ["setTarget replace", { op: "setTarget", index: 1, target: tgt }, "direct"],
   ["setTarget remove", { op: "setTarget", index: 1, target: null }, "direct"],
@@ -155,7 +158,7 @@ describe("refusals: what the parse would drop (§2.1, §2.2)", () => {
   it("writes targets equal to the defaults as absent, and resetOnPlay true as absent", () => {
     const a = defaultAudioSettings();
     const b = applyOpToSettings(a, { op: "setTarget", index: 1, target: null });
-    expect(b.loudnessTargets).toEqual([{ name: "console", integrated: -24, tolerance: 2, truePeak: -1 }]);
+    expect(b.loudnessTargets).toEqual([{ name: "console", integrated: -24, tolerance: 2, truePeak: -1 }, { name: "mobile", integrated: -16, tolerance: 2, truePeak: -1 }]);
     expect("loudnessTargets" in applyOpToSettings(b, invert({ op: "setTarget", index: 1, target: null }, a)[0])).toBe(false);
     const off = applyOpToSettings(a, { op: "setOption", key: "loudnessResetOnPlay", value: false });
     expect(off.loudnessResetOnPlay).toBe(false);

@@ -10,6 +10,7 @@ import { clampDb } from "../../../engine/audio/project/gain";
 import type { AudioProject, Bus, DuckingRule, MixAutomation, Return, Send, Snapshot, SnapshotStart } from "../../../engine/audio/project/types";
 import type { Effect } from "../../../engine/audio/effects/types";
 import type { Curve } from "../../../engine/core/curve";
+import { curveByProblem } from "../../../engine/audio/curveBy";
 import { busOf, kindOf, masterOf, returnOf, type EditResult } from "./busTree";
 
 /** The undo label of an edit on `name` ("Set level · SFX"). */
@@ -314,14 +315,19 @@ export const automationOf = (p: Pick<AudioProject, "automation">, t: AutomationT
  * The lane for `t` set ("Edit automation"): `lane` null removes it. A flat curve that isn't bypassed is removed too
  * (a flat curve is just the plain value, the prototype's rule).
  */
-export function setAutomation(p: AudioProject, t: AutomationTarget, lane: { parameter: string; curve: Curve; bypass: boolean } | null): EditResult<AudioProject> {
+export function setAutomation(p: AudioProject, t: AutomationTarget, lane: { parameter: string; curve: Curve; bypass: boolean; by?: MixAutomation["by"] } | null): EditResult<AudioProject> {
   if (!ownerOf(p, t.on)) return { refused: `"${t.on}" isn't a bus or return` };
   const others = p.automation.filter((a) => !(a.on === t.on && a.target === t.target));
-  const flat = lane !== null && !lane.bypass && lane.curve.length > 0 && lane.curve.every((k) => k[1] === lane.curve[0]![1]);
+  // A lane that follows a second parameter (ADR 0362 §5) isn't flat, whatever its own curve.
+  const flat = lane !== null && !lane.bypass && !lane.by && lane.curve.length > 0 && lane.curve.every((k) => k[1] === lane.curve[0]![1]);
   if (lane === null || lane.curve.length === 0 || flat) return { next: others.length === p.automation.length ? p : { ...p, automation: others } };
   if (!p.parameters.some((q) => q.name === lane.parameter)) return { refused: `there's no game parameter "${lane.parameter}"` };
+  if (lane.by) {
+    const why = lane.by.input === lane.parameter ? "a lane can't follow its own parameter twice" : curveByProblem(lane.by, p.parameters.find((q) => q.name === lane.by!.input), { time: false });
+    if (why) return { refused: why };
+  }
   const at = p.automation.findIndex((a) => a.on === t.on && a.target === t.target);
-  const entry: MixAutomation = { on: t.on, target: t.target, parameter: lane.parameter, curve: lane.curve, bypass: lane.bypass };
+  const entry: MixAutomation = { on: t.on, target: t.target, parameter: lane.parameter, curve: lane.curve, bypass: lane.bypass, ...(lane.by ? { by: lane.by } : {}) };
   if (at < 0 && p.automation.length >= MIX_LIMITS.automation) return { refused: `a mix has at most ${MIX_LIMITS.automation} automation lanes` };
   return { next: { ...p, automation: at < 0 ? [...p.automation, entry] : p.automation.map((a, i) => (i === at ? entry : a)) } };
 }

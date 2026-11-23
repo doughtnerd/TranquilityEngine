@@ -14,16 +14,18 @@ import { defaultBlend, defaultQueue, defaultSwitch } from "../../../../engine/au
 import { pickEntry } from "../../../../engine/audio/playlist/picks";
 import { changeFor } from "../../../../engine/audio/playlist/switchRules";
 import type {
-  Adsr, BlendAxis, ChangeHow, ChangeRule, Entry, EntryUse, FadeShape, LineEntry, PlaylistBody, PlaylistType, SampleEntry, SwitchSettings, TimeLength,
+  Adsr, BlendAxis, ChangeHow, ChangeRule, Entry, EntryUse, FadeShape, GeneratorEntry, LineEntry, PlaylistBody, PlaylistType, SampleEntry, SwitchSettings, TimeLength,
 } from "../../../../engine/audio/playlist/types";
 import type { Region1D } from "../../../../engine/audio/playlist/blendWeights";
 import { isLabelled, parameterRange } from "../../../../engine/audio/parameters";
 import { warnOnce } from "../core/handle";
-import { curveParts } from "./curves";
+import { curveParts, genCurvesOf } from "./curves";
 import { levelEffects, playlistEffectProps } from "./effects";
 import { automationParts, type TimeAuto } from "./levelAutomation";
 import { EmptyNode, LiveNode, type Ctx, type DynGain, type NodeHost, type PendingSwitchChange, type PVoice, type SpatialPlan } from "./liveNode";
-import { linkedPlaylist } from "./loader";
+import { linkedPlaylist, loadGenerator } from "./loader";
+import { changedGeneratorParams } from "./generatorVoice";
+import type { GeneratorBody } from "../../../../engine/audio/generators/types";
 import { FALLBACK_SECONDS_PER_BEAT, MUSICAL_FALLBACK_NOTE, type MusicalSource } from "./musical";
 import { resolveSequence } from "./sequence";
 import { taps } from "../mix/profileTaps";
@@ -50,13 +52,18 @@ const lerp = ([lo, hi]: readonly [number, number], t: number): number => (lo ===
 
 // --- context down the tree -------------------------------------------------------------------------------------------
 
-/** An entry's per-use settings below `ctx`: gain and pitch add, its curves add bindings or voice-time curves. */
+/**
+ * An entry's per-use settings below `ctx`: gain and pitch add, its curves add bindings or voice-time curves, and its
+ * `gen:` curves (ADR 0360 §4) go down to the generator it plays.
+ */
 export function useCtx(host: NodeHost, ctx: Ctx, use: EntryUse): Ctx {
   const hasCurves = Object.keys(use.curves).length > 0;
   if (use.volume === 0 && use.pitch === 0 && !hasCurves) return ctx;
-  const parts = hasCurves ? curveParts(use.curves, ctx, (n) => host.paramRef(n), (c) => host.curveId(c), ctx.where) : ctx;
+  const parts = hasCurves ? curveParts(use.curves, ctx, (n) => host.paramRef(n), (c) => host.curveId(c), ctx.where, (m, by) => host.byCurve(m, by)) : ctx;
   const quantized = "quantized" in parts && parts.quantized ? { quantized: parts.quantized } : {};
-  return { ...ctx, props: accumulate(ctx.props, { gainDb: use.volume, pitchSt: use.pitch }), bindings: parts.bindings, timeCurves: parts.timeCurves, ...quantized };
+  const genCurves = hasCurves ? genCurvesOf(use.curves, ctx.genCurves) : ctx.genCurves;
+  const gen = genCurves !== ctx.genCurves && genCurves ? { genCurves } : {};
+  return { ...ctx, props: accumulate(ctx.props, { gainDb: use.volume, pitchSt: use.pitch }), bindings: parts.bindings, timeCurves: parts.timeCurves, ...quantized, ...gen };
 }
 
 /** A playlist's own level below `ctx`: volume and pitch with their random ranges (drawn per trigger), effects, output, spatial, delay. */
@@ -90,7 +97,7 @@ function instanceAutomation(host: NodeHost, ctx: Ctx, body: PlaylistBody, where:
   const next = automationParts(host, body.automation, body.effects, ctx, time, where);
   if (time.length === 0) return next;
   const origin = host.startOf(ctx.at);
-  return { ...next, timeCurves: [...next.timeCurves, ...time.map((t) => ({ target: t.target, curve: t.curve, origin }))] };
+  return { ...next, timeCurves: [...next.timeCurves, ...time.map((t) => ({ target: t.target, curve: t.curve, origin, ...(t.live ? { live: t.live } : {}) }))] };
 }
 
 /**
@@ -134,8 +141,8 @@ export function resolveEntry(host: NodeHost, entry: Entry, parent: Ctx, key: str
       // ADR 0354 §5: the line's file in the current language, resolved now (the moment the entry is picked).
       return new ClipNode(host, ctx, `${key}/${index}`, lineSampleOf(host, entry, ctx));
     case "generator":
-      // TODO(G3, ADR 0360 §5): generator voices (PLAY reserved id + GEN). Not playable yet: plays nothing.
-      return null;
+      // ADR 0360 §5: the parse wraps generators outside a Clip; one reached here plays as a one-entry Clip (its use is in `ctx`).
+      return new GeneratorNode(host, ctx, `${key}/${index}`, entry.generator);
   }
 }
 
@@ -192,10 +199,55 @@ class ClipNode extends LiveNode {
 }
 
 const resolveClip: Resolver = (host, body, ctx, key) => {
-  // ADR 0354 §5: a Clip plays its first sample or line entry.
-  const first = body.entries.find((e): e is SampleEntry | LineEntry => e.kind === "sample" || e.kind === "line") ?? null;
+  // ADR 0354 §5, 0360 §1: a Clip plays its first sample, line or generator entry.
+  const first = body.entries.find((e): e is SampleEntry | LineEntry | GeneratorEntry => e.kind === "sample" || e.kind === "line" || e.kind === "generator") ?? null;
+  if (first?.kind === "generator") return new GeneratorNode(host, useCtx(host, ctx, first), key, first.generator);
   return new ClipNode(host, ctx, key, first?.kind === "line" ? lineSampleOf(host, first, ctx) : first);
 };
+
+// --- Generator -------------------------------------------------------------------------------------------------------
+
+/**
+ * ADR 0360 §5: one generator voice, resolved when the entry is picked (`NodeHost.playGenerator`). Its key-off is the
+ * instance's release (an endless or looping generator holds a "held" loop, `LiveNode.release`); its end, when known, is
+ * its envelope's.
+ */
+class GeneratorNode extends LiveNode {
+  /** A linked generator's path and the parsed patch it started with (hot reload compares it); null when embedded. */
+  private linked: { readonly path: string; body: GeneratorBody } | null = null;
+
+  constructor(host: NodeHost, ctx: Ctx, key: string, generator: GeneratorEntry["generator"]) {
+    super(host, ctx, key);
+    const v = host.playGenerator?.({ generator }, ctx) ?? null;
+    if (!v) return;
+    this.voices.push(v);
+    if (typeof generator === "string") {
+      const body = loadGenerator(generator);
+      if (body) this.linked = { path: generator, body };
+    }
+  }
+
+  /**
+   * ADR 0360 §5: hot reload. An edited `*.generator.json` (a new parsed object) sends its changed parameters to the
+   * playing voice, gliding over `HOT_RELOAD_GLIDE` (a kind change waits for the next trigger).
+   */
+  override update(now: number, dt: number): void {
+    super.update(now, dt);
+    const l = this.linked;
+    const v = this.voices[0];
+    if (!l || !v || v.leaving || !v.voice.playing) return;
+    const next = loadGenerator(l.path);
+    if (!next || next === l.body) return;
+    const before = l.body;
+    l.body = next;
+    if (next.kind !== before.kind) return;
+    const changed = changedGeneratorParams(before, next);
+    if (changed.size > 0) this.host.setGeneratorParams?.(v, changed, HOT_RELOAD_GLIDE);
+  }
+}
+
+/** ADR 0360 §5: a hot-reloaded generator's changed parameters glide over 20 ms. */
+const HOT_RELOAD_GLIDE = 0.02;
 
 // --- Layer -----------------------------------------------------------------------------------------------------------
 

@@ -148,3 +148,30 @@ Read-only projects (and samples served beside the editor) keep thumbnails in mem
 Committing them means a teammate, or a fresh checkout, sees previews at once instead of rendering every one. To keep thumbnails local too, ignore all of `.myco/` (delete the second line). Only new projects get this `.gitignore`; for an older project, add the lines yourself.
 
 **Exports.** A game build leaves `.myco/` out (hidden folders are skipped), so history and thumbnails never ship.
+
+## Building the desktop app on Windows
+
+`npm run tauri:dev` (the desktop editor) and `npm run tauri:build` (installers) compile `src-tauri/` with Rust. On Windows that needs a little more than `rustup`, because the desktop app links SDL3 for gamepads ([ADR 0335](../decisions/0335-gamepads-come-from-a-native-sdl3-adapter-on-desktop-and-device-state-reaches-worlds-as-entities-in-an-input-phase.md)), and SDL3 is **built from source by CMake** during the Rust build (the `sdl3` crate's `build-from-source-static` feature, driven by the `cmake` crate). Exported desktop games (`npm run export -- <dir> --target desktop`) build the same way.
+
+**What to install**
+
+- **Rust** with the **MSVC toolchain**: install [rustup](https://rustup.rs/) and keep its default `x86_64-pc-windows-msvc` host. It needs Visual Studio (or the Build Tools for Visual Studio) with the **Desktop development with C++** workload, which brings the MSVC compiler and the Windows SDK.
+- **CMake**, on `PATH`. **With Visual Studio 2026 installed you need CMake 4.2 or later**: the `cmake` crate picks the newest Visual Studio generator it finds, "Visual Studio 18 2026", and older CMake doesn't know it, so SDL3's configure step fails ("Could not create named generator Visual Studio 18 2026"). Visual Studio 2022 works with older CMake.
+
+**When the build fails in SDL3's CMake step**
+
+- **An older CMake shadows yours.** JetBrains IDEs (CLion, RustRover, Rider) bundle their own CMake, and their terminals put it first on `PATH`. Check which one runs with `where.exe cmake`: the first line wins. Put CMake 4.2+ first, or build from a terminal outside the IDE.
+- **A preview Visual Studio isn't found.** CMake doesn't look at preview (Insiders) installations of Visual Studio unless you name one: set `CMAKE_GENERATOR_INSTANCE` to its installation folder, for example `$env:CMAKE_GENERATOR_INSTANCE="C:\Program Files\Microsoft Visual Studio\18\Insiders"`.
+- **A failed configure is cached.** After a failed attempt, CMake keeps the generator it chose in the build folder, so fixing `PATH` alone doesn't help. Clean SDL3's build first: `cargo clean -p sdl3-sys`, run in `src-tauri/`.
+
+**The robust path.** Open **Developer PowerShell for VS 2026** (from the Start menu; it sets up the MSVC compiler and the Windows SDK for that shell), ask CMake for Ninja, which takes the compiler from that shell and needs no Visual Studio generator at all (Visual Studio installs Ninja with its C++ CMake tools), clean the failed configure and build:
+
+```powershell
+$env:CMAKE_GENERATOR="Ninja"
+cd src-tauri
+cargo clean -p sdl3-sys
+cd ..
+npm run tauri:build
+```
+
+`npm run tauri:build` writes the installers under `src-tauri/target/release/bundle/`.

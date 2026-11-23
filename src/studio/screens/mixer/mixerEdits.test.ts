@@ -4,11 +4,11 @@ import type { AudioProject } from "../../../engine/audio/project/types";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { setEffectOn, setEffectParam, removeEffect } from "../../components/effectChainModel";
 import { editSendLevel } from "../../components/mixRowsModel";
-import { automatedParams, gainInputs, levelAutomationDb, livePins, loudnessRows, snapshotLane, togglePin } from "./boardModel";
+import { automatedParams, gainInputs, levelAutomationDb, livePins, loudnessRows, snapshotLane, targetOptionText, togglePin } from "./boardModel";
 import type { EditResult } from "./busTree";
 import { createLiveMix, liveOps } from "./liveMix";
 import { addDucking, addSend, baseGhost, clearOffset, clearOverride, doubleDucks, editEffects, editSend, levelGhosts, levelLabel, overridesOn, removeSend, setAutomation, setLevel, setMute, setTrigger, shownEffects, shownLevel } from "./mixEdits";
-import { mixerFixture } from "./mixerFixture";
+import { emptyMix, mixerFixture } from "./mixerFixture";
 import { busRenameEdit, busUsers, renameBusInPlaylist, renameBusInScene } from "./renameReferences";
 import { gainBreakdown } from "../../components/gainLanesModel";
 
@@ -127,6 +127,17 @@ describe("sends, ducking, automation, triggers", () => {
     expect(levelAutomationDb(p, "Music", { threat: 1 })).toBe(-3);
     expect(automatedParams(p, "Ambience", { depth: 30 })).toEqual({ fx1: { cutoff: "800 Hz" } });
   });
+  it("automation with a second input (ADR 0362 §5): kept when flat, refused when it can't run, valued at both test parameters", () => {
+    const p = mixerFixture();
+    const by = { input: "gameState", mode: "labels" as const, labels: { Paused: [[0, -30], [1, -30]] as [number, number][] } };
+    const next = ok(setAutomation(p, { on: "Music", target: "volume" }, { parameter: "threat", curve: [[0, -2], [1, -2]], bypass: false, by }));
+    expect(next.automation.find((a) => a.on === "Music")!.by).toEqual(by);
+    expect(levelAutomationDb(next, "Music", { threat: 1 })).toBe(-2);
+    expect(levelAutomationDb(next, "Music", { threat: 1, gameState: 1 })).toBe(-30);
+    expect(refused(setAutomation(p, { on: "Music", target: "volume" }, { parameter: "threat", curve: [[0, 0]], bypass: false, by: { input: "health", mode: "labels" } }))).toMatch(/no labels/);
+    expect(refused(setAutomation(p, { on: "Music", target: "volume" }, { parameter: "threat", curve: [[0, 0]], bypass: false, by: { input: "threat", mode: "scale" } }))).toMatch(/own parameter/);
+    valid(next);
+  });
   it("triggers: clamped, unknown parameters refused", () => {
     const p = mixerFixture();
     const next = ok(setTrigger(p, "Underwater", { priority: 250.4, fadeInMs: -5, combine: "add" }));
@@ -219,6 +230,18 @@ describe("board", () => {
     expect(rows.map((r) => r.text)).toEqual(["-14.2 LUFS", "-15.8 LUFS", "-16.4 LUFS", "7.2 LU", "-0.6 dBTP"]);
     expect(rows[2]!.warn).toMatch(/Over the -24 LUFS target by 7.6 LU/);
     expect(rows[4]!.warn).toBe("Over -1 dBTP");
+    // The tiles: the figure with a true minus, then the unit or the verdict (the prototype's Loudness tiles).
+    expect(rows.map((r) => [r.value, r.note, r.verdict])).toEqual([
+      ["−14.2", "LUFS", null], ["−15.8", "LUFS", null], ["−16.4", "Warning · 7.6 LU over −24", "warn"], ["7.2", "LU", null], ["−0.6", "Warning · over −1 dBTP", "warn"],
+    ]);
+    const mobile = loudnessRows({ momentary: -14.2, shortTerm: -15.8, integrated: -16.4, lra: 7.2, maxTruePeak: -1.5, tainted: false }, { integrated: -16, tolerance: 1, truePeak: -1 });
+    expect([mobile[2]!.note, mobile[2]!.verdict, mobile[4]!.verdict]).toEqual(["On target (−16)", "ok", null]);
+    expect(loudnessRows(null, { integrated: -16, tolerance: 1, truePeak: -1 })[2]).toMatchObject({ value: "—", note: "LUFS", verdict: null });
+  });
+  it("a new project's platform targets are the spec's three, listed as the spec words them (§4.3.6)", () => {
+    const targets = emptyMix().loudness.targets;
+    expect(targets.map(targetOptionText)).toEqual(["Console · −24 LUFS, −1 dBTP", "PC / web · −18 LUFS, −1 dBTP", "Mobile · −16 LUFS, −1 dBTP"]);
+    expect(targetOptionText({ name: "Handheld", integrated: -14.5, truePeak: 0 })).toBe("Handheld · −14.5 LUFS, 0 dBTP");
   });
   it("pins: at most 8, pruned to what the mix has", () => {
     const p = mixerFixture();

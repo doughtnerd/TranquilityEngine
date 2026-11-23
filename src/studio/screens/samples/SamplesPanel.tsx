@@ -1,12 +1,21 @@
 // The Samples panel (ADR 0342 "Samples are assets"; the prototype's library): the project's audio files and derived
 // samples by folder in the editor's TreeView, a search that flattens the matches with their folders, folder
 // operations (new, rename, move, delete moving the contents up), drag to move, context menus, Move to… (the kit's
-// MoveToDialog), and the empty state with Import samples…. Rename, move and delete are the engine's asset operations,
-// so references (playlists, scenes) follow and the file on disk is what changes.
-import { useState } from "preact/hooks";
+// MoveToDialog), Copy / Paste here / Duplicate (Ctrl+C / V / D), audio files dropped from the OS (the import review),
+// two-line rows with a filled 46×20 thumbnail, folder counts with a hover Delete, the split Add button (Import samples… /
+// New folder), Collapse all, and with no samples the prototype's centred card over the dock ("No samples yet", Import
+// samples…). Rename and move are the engine's asset operations, so
+// references (playlists, scenes) follow and the file on disk is what changes; deleting a sample moves its file to the
+// project's trash, with Undo on the toast (`sampleTrash.ts`).
+import { openMixDocument } from "../mixer/mixerDocument";
+import { applyEdit } from "../../../plugins/audio/editor/editResult";
+import { FOLDER_COLOURS, folderColour, folderColourCss, moveFolderColours, setFolderColour } from "./folderColours";
+import { useRef, useState } from "preact/hooks";
+import { createPortal } from "preact";
+import { signal } from "@preact/signals";
 import { isDerivedSamplePath, sampleEditsFromSidecar } from "../../../engine/audio/sample/format";
 import { parseImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
-import { deleteAssets } from "../../../editor/assetDelete";
+import { restoreSample, trashSample } from "./sampleTrash";
 import { folderEntry } from "../../../editor/assetEntry";
 import { moveAssets, newFolder, renameAsset, whyNotValidName } from "../../../editor/assetOps";
 import { moveSourceVersions } from "./sampleVersions";
@@ -22,10 +31,13 @@ import { confirmInEditor } from "../../../editor/ui/ConfirmDialog";
 import { parseDerivedSample } from "../../../engine/audio/sample/format";
 import { Icon } from "../../components/Icon";
 import { toasts } from "../../shell/studioServices";
-import { allSamples, cleanFolderName, fileChip, folderOf, libraryTree, metaLine, moveUpPlan, nameOf, searchSamples, usesOf, type LibraryFolder } from "./sampleLibrary";
-import { lengthOf, peaksOf } from "./sampleSession";
+import { allSamples, audioFolders, cleanFolderName, fileChip, folderOf, libraryTree, metaLine, moveUpPlan, nameOf, sampleName, searchSamples, usesOf, type LibraryFolder } from "./sampleLibrary";
+import { lengthOf, peaksOf, sampleSession } from "./sampleSession";
+import { filesOfDrop } from "../../../editor/assetImportFiles";
+import { deriveSample, freeSamplePath, stemOf, writeDerived } from "./sampleWrites";
+import { SampleIcon } from "./sampleIcons";
 import { dialog, openSample, openSamplePath } from "./samplesState";
-import { waveColumns } from "../../components/waveformModel";
+import { envelopeRuns, waveColumns } from "../../components/waveformModel";
 
 const TREE = "studio-samples";
 
@@ -41,25 +53,51 @@ function editsOf(project: EditorProject, path: string) {
   }
 }
 
-/** A tiny waveform (24 columns) from the peaks, once read. */
+/** The row's 46×20 thumbnail: the sample's filled envelope (the prototype's), once its peaks are read. */
 function MiniWave(props: { project: EditorProject; path: string }) {
   const src = isDerivedSamplePath(props.path) ? (parseDerivedSample(props.project.assets.get(props.path), props.path).sample.source || null) : props.path;
   const mips = src ? peaksOf(props.project, src) : null;
-  if (!mips) return <span class="smp-mini" aria-hidden="true" />;
-  const cols = waveColumns(mips, { start: 0, end: mips.frames / mips.rate }, 24);
+  if (!mips) return <span class="smp-thumb" aria-hidden="true" />;
+  const runs = envelopeRuns(waveColumns(mips, { start: 0, end: mips.frames / mips.rate }, 46));
+  const d = runs.map((r) => {
+    const top = r.amps.map((a, i) => `${r.x + i},${(10 - Math.max(0.4, a * 9)).toFixed(1)}`);
+    const bottom = r.amps.map((a, i) => `${r.x + i},${(10 + Math.max(0.4, a * 9)).toFixed(1)}`).reverse();
+    return `M${[...top, ...bottom].join("L")}Z`;
+  }).join("");
   return (
-    <svg class="smp-mini" viewBox="0 0 24 12" aria-hidden="true" preserveAspectRatio="none">
-      {Array.from(cols.max, (hi, i) => (Number.isNaN(hi) ? null : <rect key={i} x={i} y={6 - hi * 6} width={0.8} height={Math.max(0.5, (hi - cols.min[i]) * 6)} />))}
+    <svg class="smp-thumb" viewBox="0 0 46 20" aria-hidden="true" preserveAspectRatio="none">
+      <path d={d} />
     </svg>
   );
 }
+
+/** The sample copied with Ctrl+C or the menu's Copy (Paste here makes a duplicate of it). */
+const copied = signal<string | null>(null);
 
 /** The engine's asset moves, then the moved samples' source versions with them (ADR 0342, per machine). */
 async function moveSamples(moves: readonly (readonly [string, string])[], verb?: string): Promise<boolean> {
   const ok = await moveAssets(moves, verb);
   const project = currentProject.peek();
   if (ok && project) await moveSourceVersions(project, moves);
+  if (ok) followFolderColours(moves);
   return ok;
+}
+
+/** ADR 0362 item 4: a renamed or moved folder keeps its colour (and its subfolders theirs) in the project's settings. */
+function followFolderColours(moves: readonly (readonly [string, string])[]): void {
+  const doc = openMixDocument(currentProject.peek());
+  if (!doc || doc.readOnly) return;
+  const before = doc.value.peek();
+  const next = moves.reduce((p, [from, to]) => moveFolderColours(p, from, to), before);
+  if (next !== before) doc.edit(next, { label: "Folder colour" });
+}
+
+/** ADR 0362 item 4: set or clear a folder's colour, one step of `audio.json`'s history. */
+function editFolderColour(folder: string, colour: string | null): void {
+  const doc = openMixDocument(currentProject.peek());
+  if (!doc) return;
+  const before = doc.value.peek();
+  applyEdit(setFolderColour(before, folder, colour), colour === null ? "Clear folder colour" : "Folder colour", (next, label) => doc.edit(next, { label }), before);
 }
 
 /** The engine's rename of `entry` (a file, or a folder entry) to `name`; `from` → `to` are the project paths it changes. */
@@ -67,6 +105,7 @@ async function renameSample(entry: string, name: string, from: string, to: strin
   const ok = await renameAsset(entry, name);
   const project = currentProject.peek();
   if (ok && project) await moveSourceVersions(project, [[from, to]]);
+  if (ok) followFolderColours([[from, to]]);
   return ok;
 }
 
@@ -80,8 +119,13 @@ export function SamplesPanel() {
   const [moving, setMoving] = useState<string[] | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [dropOn, setDropOn] = useState<string | null>(null);
+  const [osDrop, setOsDrop] = useState(false);
+  const addCaret = useRef<HTMLButtonElement>(null);
   if (!project) return null;
-  const tree = libraryTree(project.files, project.folders);
+  const mixDoc = openMixDocument(project);
+  const mixValue = mixDoc?.value.value ?? null;
+  const folders = audioFolders(project.folders, project.files);
+  const tree = libraryTree(project.files, folders);
   const count = allSamples(tree).length;
   const open = openSamplePath.value;
   const readOnly = !project.canSave;
@@ -92,11 +136,22 @@ export function SamplesPanel() {
   };
 
   const deleteSample = async (path: string) => {
+    // Owner decision 2: no question first; the file goes to the project's trash and the toast's Undo brings it back.
     const uses = usesOf(path, project.files, (p) => project.assets.get(p));
-    if (await deleteAssets([path])) {
-      if (open === path) openSample(null);
-      toasts.show({ text: `Deleted ${nameOf(path)}${uses.length ? ` · ${uses.length} use${uses.length === 1 ? "" : "s"} left without audio` : ""}` });
+    const r = await trashSample(project, path).catch((err: unknown) => ({ refused: err instanceof Error ? err.message : String(err) }));
+    if ("refused" in r) {
+      status.value = { kind: "info", text: `Can't delete ${nameOf(path)}: ${r.refused}.` };
+      return;
     }
+    if (open === path) openSample(null);
+    toasts.show({
+      text: `Deleted ${nameOf(path)}${uses.length ? ` · ${uses.length} use${uses.length === 1 ? "" : "s"} left without audio until it's back` : ""}`,
+      undo: () =>
+        void restoreSample(project, r.trashed).then((back) => {
+          if ("refused" in back) status.value = { kind: "info", text: `Can't bring ${nameOf(path)} back: ${back.refused}.` };
+          else if (open === path) openSample(path);
+        }),
+    });
   };
 
   const deleteFolder = async (folder: string) => {
@@ -126,18 +181,40 @@ export function SamplesPanel() {
     }
   };
 
+  /** A duplicate of `path` in `folder`: a new sample with the same edits; no audio is copied (Paste here, Duplicate). */
+  const duplicateInto = async (path: string, folder: string) => {
+    const session = sampleSession(project, path);
+    const to = freeSamplePath(project, folder, `${stemOf(path)}_copy`);
+    try {
+      await writeDerived(project, to, deriveSample("duplicate", path, session.source.peek(), session.edits.peek()));
+      toasts.show({ text: `Duplicated ${nameOf(path)} as ${nameOf(to)}${folder !== folderOf(path) ? ` in ${folder ? folder.split("/").join(" › ") : "the top level"}` : ""}` });
+      openSample(to);
+    } catch (err) {
+      status.value = { kind: "error", text: `Couldn't duplicate ${nameOf(path)}: ${err instanceof Error ? err.message : String(err)}` };
+    }
+  };
+  const copy = (path: string) => {
+    copied.value = path;
+    toasts.show({ text: `Copied ${nameOf(path)} · Paste here (Ctrl+V) makes a duplicate` });
+  };
   const sampleMenu = (path: string, x: number, y: number) =>
     setMenu({
       x, y, label: `${nameOf(path)} menu`,
       entries: tidyEntries([
-        { id: "open", label: "Open", run: () => openSample(path) },
+        { kind: "group", label: sampleName(path) },
         { id: "rename", label: "Rename", hint: "F2", disabled: readOnly, title: "Renames the file; references follow", run: () => renameRow(TREE, `s:${path}`) },
+        { id: "settings", label: "Import settings…", title: "Its Load and encoding settings, in the Inspector", run: () => openSample(path) },
+        { id: "disk", label: "Show on disk", title: "Where the file is in the project folder", run: () => toasts.show({ text: `On disk: ${project.root ? `${project.root}/` : ""}${isDerivedSamplePath(path) ? path : path}` }) },
         SEPARATOR,
-        { id: "duplicate", label: "Duplicate", disabled: readOnly, title: "A new sample with the same edits; no audio is copied", run: () => (openSample(path), (dialog.value = { kind: "fork", mode: "duplicate" })) },
-        { id: "fork", label: "Fork as new sample…", disabled: readOnly, run: () => (openSample(path), (dialog.value = { kind: "fork", mode: "fork" })) },
+        { id: "copy", label: "Copy", hint: "Ctrl+C", run: () => copy(path) },
+        { id: "paste", label: "Paste here", hint: "Ctrl+V", disabled: readOnly || !copied.value, title: copied.value ? `A duplicate of ${nameOf(copied.value)} in this folder` : "Copy a sample first", run: () => copied.value && void duplicateInto(copied.value, folderOf(path)) },
+        { id: "duplicate", label: "Duplicate", hint: "Ctrl+D", disabled: readOnly, title: "A new sample with the same edits; no audio is copied", run: () => void duplicateInto(path, folderOf(path)) },
+        { id: "fork", label: "Fork as new sample…", hint: "Ctrl+Shift+S", disabled: readOnly, run: () => (openSample(path), (dialog.value = { kind: "fork", mode: "fork" })) },
+        SEPARATOR,
         { id: "move", label: "Move to…", disabled: readOnly, run: () => setMoving([path]) },
+        folderOf(path) !== "" && { id: "top", label: "Move to top level", disabled: readOnly, run: () => void moveSamples([[path, nameOf(path)]]).then((ok) => ok && open === path && openSample(nameOf(path))) },
         SEPARATOR,
-        { id: "delete", label: "Delete", hint: "Del", danger: true, disabled: readOnly, title: "Asks first, listing what uses it", run: () => void deleteSample(path) },
+        { id: "delete", label: "Delete", hint: "Del", danger: true, disabled: readOnly, title: "Moves it to the project's trash; Undo brings it back", run: () => void deleteSample(path) },
       ]),
     });
 
@@ -145,12 +222,21 @@ export function SamplesPanel() {
     setMenu({
       x, y, label: `${nameOf(folder)} folder menu`,
       entries: tidyEntries([
-        { id: "new", label: "New folder", disabled: readOnly, run: () => void addFolder(folder) },
+        { kind: "group", label: nameOf(folder) },
         { id: "rename", label: "Rename", hint: "F2", disabled: readOnly, run: () => renameRow(TREE, `f:${folder}`) },
+        { id: "new", label: "New folder inside", disabled: readOnly, run: () => void addFolder(folder) },
+        { id: "paste", label: "Paste here", hint: "Ctrl+V", disabled: readOnly || !copied.value, title: copied.value ? `A duplicate of ${nameOf(copied.value)} in this folder` : "Copy a sample first", run: () => copied.value && void duplicateInto(copied.value, folder) },
         { id: "move", label: "Move to…", disabled: readOnly, run: () => setMoving([folder]) },
+        {
+          id: "colour", label: "Colour", disabled: readOnly || !mixDoc, run: () => {},
+          submenu: [
+            { id: "colour-none", label: "Default", checked: folderColour(mixValue, folder) === null, run: () => editFolderColour(folder, null) },
+            ...FOLDER_COLOURS.map((c) => ({ id: `colour-${c.colour}`, label: c.name, checked: folderColour(mixValue, folder) === c.colour, run: () => editFolderColour(folder, c.colour) })),
+          ],
+        },
         folderOf(folder) !== "" && { id: "top", label: "Move to top level", disabled: readOnly, run: () => void moveSamples([[folder, nameOf(folder)]]) },
         SEPARATOR,
-        { id: "delete", label: "Delete folder", danger: true, disabled: readOnly, run: () => void deleteFolder(folder) },
+        { id: "delete", label: "Delete folder", hint: "Del", danger: true, disabled: readOnly, run: () => void deleteFolder(folder) },
       ]),
     });
 
@@ -195,18 +281,18 @@ export function SamplesPanel() {
     const m = meta(path);
     return {
       key: `s:${path}`,
-      label: nameOf(path),
+      label: sampleName(path),
       expandable: false,
       open: false,
       selected: open === path,
       className: "smp-row",
       attrs: { "data-sample": path },
-      title: path,
+      title: `${path} · drag onto a folder to move it · right-click for more · F2 renames`,
       icon: <MiniWave project={project} path={path} />,
       trailing: (
         <span class="smp-row-meta">
-          <span class="smp-muted">{withPath ? `${folderOf(path) || "top level"} · ${m.line}` : m.line}</span>
-          {m.chip && <Chip tone="success" title={`From the file: ${m.chip}. The file isn't changed unless you use Write to file`}>cues</Chip>}
+          <span class="smp-muted smp-ellipsis">{withPath ? `${folderOf(path) ? folderOf(path).split("/").join(" › ") : "Top level"} · ${m.line}` : m.line}</span>
+          {m.chip && <Chip tone="success" title={`Read from the WAV: ${m.chip}. The file isn't changed unless you use Write to file`}>cues</Chip>}
         </span>
       ),
       dragging: dragging === path,
@@ -246,6 +332,19 @@ export function SamplesPanel() {
     selected: folderSel === f.path,
     className: "smp-folder",
     attrs: { "data-drop-folder": f.path },
+    title: `${f.path} · double-click to rename · drop samples here · right-click for its colour`,
+    icon: folderColourCss(mixValue, f.path) ? <span class="smp-folder-colour" style={{ color: folderColourCss(mixValue, f.path)! }}><Icon name="folder" size={13} /></span> : <Icon name="folder" size={13} />,
+    trailing: (
+      <span class="smp-folder-tail">
+        <span class="smp-fcount">{allSamples(f).length}</span>
+        {!readOnly && (
+          <button type="button" class="smp-fdel" aria-label={`Delete folder ${f.name}`} title="Delete folder (what's inside moves up a level)"
+            onPointerDown={(e) => e.stopPropagation()} onClick={(e) => (e.stopPropagation(), void deleteFolder(f.path))}>
+            <SampleIcon name="trash" size={11} />
+          </button>
+        )}
+      </span>
+    ),
     drop: dropOn === f.path ? "into" : null,
     dragging: dragging === f.path,
     children: [...f.folders.map(folderRow), ...f.samples.map((s) => sampleRow(s))],
@@ -270,29 +369,57 @@ export function SamplesPanel() {
   const found = query.trim() ? searchSamples(project.files, query) : null;
   const rows = found ? found.map((p) => sampleRow(p, true)) : [...tree.folders.map(folderRow), ...tree.samples.map((s) => sampleRow(s))];
 
+  const onTreeKeys = (e: KeyboardEvent) => {
+    const row = (e.target as HTMLElement).closest?.("[role=treeitem]")?.querySelector<HTMLElement>("[data-sample], [data-drop-folder]");
+    if (!row) return;
+    const sample = row.dataset.sample ?? null;
+    const folder = sample ? folderOf(sample) : row.dataset.dropFolder ?? "";
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && !e.shiftKey && e.key.toLowerCase() === "c" && sample) copy(sample);
+    else if (mod && !e.shiftKey && e.key.toLowerCase() === "v" && copied.value && !readOnly) void duplicateInto(copied.value, folder);
+    else if (mod && !e.shiftKey && e.key.toLowerCase() === "d" && sample && !readOnly) void duplicateInto(sample, folder);
+    else if ((e.key === "F10" && e.shiftKey) || e.key === "ContextMenu") {
+      const r = row.getBoundingClientRect();
+      if (sample) sampleMenu(sample, r.left + 24, r.bottom);
+      else folderMenu(folder, r.left + 24, r.bottom);
+    } else return;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+  const dropTarget = (e: DragEvent) => !readOnly && !!e.dataTransfer && [...e.dataTransfer.types].includes("Files");
   return (
     <Panel
-      class="smp-library"
+      class={`smp-library${osDrop ? " os-drop" : ""}`}
       toolbar={
         <div class="smp-library-bar">
-          <input type="search" placeholder={`Search ${count} sample${count === 1 ? "" : "s"}`} aria-label="Search samples" value={query} onInput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)} />
-          <button class="smp-tool smp-icon-button" title="New folder (inside the selected folder)" aria-label="New folder" disabled={readOnly} onClick={() => void addFolder(folderSel ?? "")}>
-            <Icon name="folderPlus" />
-          </button>
-          <button class="smp-tool smp-tool-icon" title={readOnly ? "Open a project folder to import" : "Import samples… (files or a folder)"} aria-label="Import…" disabled={readOnly} onClick={() => (dialog.value = { kind: "import" })}>
-            <Icon name="import" />
-            <span class="smp-hide-narrow">Import…</span>
+          <input type="search" placeholder={`Search ${count.toLocaleString("en")} sample${count === 1 ? "" : "s"}`} aria-label="Search samples" title="Search samples by name; results show each sample's folder" value={query} onInput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)} />
+          <span class="smp-adsp" role="group" aria-label="Add">
+            <button type="button" class="smp-adb" aria-label="Import samples…" title={readOnly ? "Open a project folder to import" : "Import samples… (or drop audio files on this panel)"} disabled={readOnly} onClick={() => (dialog.value = { kind: "import", into: folderSel ?? "" })}>
+              <Icon name="plus" size={12} />
+            </button>
+            <button ref={addCaret} type="button" class="smp-adb caret" aria-label="More ways to add" aria-haspopup="menu" title="More: Import samples…, New folder" disabled={readOnly}
+              onClick={() => {
+                const r = addCaret.current!.getBoundingClientRect();
+                setMenu({ x: r.left, y: r.bottom + 2, label: "Add", entries: [
+                  { id: "import", label: "Import samples…", title: "Add audio files to the selected folder", run: () => (dialog.value = { kind: "import", into: folderSel ?? "" }) },
+                  SEPARATOR,
+                  { id: "folder", label: "New folder", title: "Inside the selected folder, or at the top level", run: () => void addFolder(folderSel ?? "") },
+                ] });
+              }}>
+              <SampleIcon name="caret" size={9} />
+            </button>
+          </span>
+          <button type="button" class="smp-ibtn smp-plain" aria-label="Collapse all" title="Collapse all folders" onClick={() => setClosed(new Set(project.folders))}>
+            <SampleIcon name="collapseAll" size={14} />
           </button>
         </div>
       }
     >
       {count === 0 && !found ? (
-        <EmptyState
-          title="No samples yet"
-          icon={<Icon name="samples" size={28} />}
-          body={<p>Import WAV, OGG, MP3 or FLAC files, or a folder of them. Their cue points, loops, tempo and root note come along.</p>}
-          action={{ label: "Import samples…", disabled: readOnly, title: readOnly ? "Open a project folder to import" : undefined, run: () => (dialog.value = { kind: "import" }) }}
-        />
+        <>
+          <EmptyState compact title="No samples yet" body="Drop audio files here, or use +." />
+          <EmptyProjectCard readOnly={readOnly} />
+        </>
       ) : found && found.length === 0 ? (
         <p class="smp-muted smp-pad" role="status">No sample's name holds “{query.trim()}”.</p>
       ) : (
@@ -302,14 +429,29 @@ export function SamplesPanel() {
               <Icon name="chevronUp" /> Top level
             </div>
           )}
-          <TreeView tree={TREE} label="Samples" rows={rows} />
+          <div class="smp-tree" onKeyDown={onTreeKeys}
+        onDragOver={(e) => {
+          if (!dropTarget(e)) return;
+          e.preventDefault();
+          setOsDrop(true);
+        }}
+        onDragLeave={() => setOsDrop(false)}
+        onDrop={(e) => {
+          if (!dropTarget(e)) return;
+          e.preventDefault();
+          setOsDrop(false);
+          const into = (e.target as HTMLElement).closest<HTMLElement>("[data-drop-folder]")?.dataset.dropFolder ?? folderSel ?? "";
+          void filesOfDrop(e.dataTransfer!).then((dropped) => (dialog.value = { kind: "import", dropped, into }));
+        }}>
+        <TreeView tree={TREE} label="Samples" rows={rows} />
+      </div>
         </>
       )}
       {menu && <ContextMenu entries={menu.entries} at={{ x: menu.x, y: menu.y }} label={menu.label} onClose={() => setMenu(null)} />}
       {moving && (
         <MoveToDialog
           items={moving.map((p) => ({ path: p, folder: project.folders.includes(p) }))}
-          folders={project.folders}
+          folders={folders}
           noun="sample"
           rootName={project.name}
           onCancel={() => setMoving(null)}
@@ -323,5 +465,27 @@ export function SamplesPanel() {
         />
       )}
     </Panel>
+  );
+}
+
+/**
+ * The empty project (the prototype's trial board, spec §4.1.2): a centred card over the whole dock area, one line and
+ * one button. Drawn into the dock (the Samples panel can't reach past its own box otherwise).
+ */
+function EmptyProjectCard(props: { readOnly: boolean }) {
+  const dock = typeof document === "undefined" ? null : document.querySelector(".studio-dock");
+  if (!dock) return null;
+  return createPortal(
+    <div class="smp-empty-overlay">
+      <div class="smp-empty-card" role="region" aria-label="No samples yet">
+        <Icon name="samples" size={40} />
+        <span class="smp-empty-title">No samples yet</span>
+        <button type="button" class="primary smp-empty-import" autoFocus disabled={props.readOnly} title={props.readOnly ? "Open a project folder to import" : "Import samples… (or drop audio files on the Samples panel)"} onClick={() => (dialog.value = { kind: "import" })}>
+          <Icon name="import" size={14} />
+          Import samples…
+        </button>
+      </div>
+    </div>,
+    dock,
   );
 }

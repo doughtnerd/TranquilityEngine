@@ -13,12 +13,15 @@
  * - `setSnapshotDef`: a snapshot created, replaced (renamed with `from`) or removed (`snapshot` null).
  * - `setSnapshotLevel`: one bus's or return's offset in a snapshot (null: unlisted).
  * - `setSnapshotEffect`: one effect parameter's override in a snapshot (null: no override).
+ * - `setOcclusionCurves` (ADR 0362 item 6): the project's occlusion curves (`settings.occlusion.curves`; null: none,
+ *   the materials' losses as they are). The one engine setting with a live path: the occlusion pass reads it each frame.
  *
  * Pure; no plugin, no DOM.
  */
 import { audioProjectToJson, MIX_LIMITS, parseAudioProject } from "./project/format";
 import { clampDb } from "./project/gain";
 import type { AudioProject, Return, Snapshot, Vca } from "./project/types";
+import { parseOcclusionCurves, sameOcclusionCurves, type OcclusionCurves } from "./occlusionCurves";
 
 export type ProjectMixOp =
   | { op: "setMute"; name: string; value: boolean }
@@ -27,10 +30,11 @@ export type ProjectMixOp =
   | { op: "setVca"; name: string; vca: Vca | null; from?: string }
   | { op: "setSnapshotDef"; name: string; snapshot: Snapshot | null; from?: string }
   | { op: "setSnapshotLevel"; snapshot: string; target: string; db: number | null }
-  | { op: "setSnapshotEffect"; snapshot: string; target: string; effect: string; param: string; value: number | null };
+  | { op: "setSnapshotEffect"; snapshot: string; target: string; effect: string; param: string; value: number | null }
+  | { op: "setOcclusionCurves"; curves: OcclusionCurves | null };
 
 /** The project op names, in the byte form's order after the old ops (`MIX_OP_NAMES` appends them). */
-export const PROJECT_OP_NAMES = ["setMute", "setReturn", "setSend", "setVca", "setSnapshotDef", "setSnapshotLevel", "setSnapshotEffect"] as const satisfies readonly ProjectMixOp["op"][];
+export const PROJECT_OP_NAMES = ["setMute", "setReturn", "setSend", "setVca", "setSnapshotDef", "setSnapshotLevel", "setSnapshotEffect", "setOcclusionCurves"] as const satisfies readonly ProjectMixOp["op"][];
 
 /** Whether `op` is one of the mix model's own ops (this module's), not one of the old section's. */
 export const isProjectOp = (op: { op: string }): op is ProjectMixOp => (PROJECT_OP_NAMES as readonly string[]).includes(op.op);
@@ -100,7 +104,20 @@ export function projectOpRefusal(p: AudioProject, op: ProjectMixOp): string | nu
       if (!nameOk(op.param)) return "An override needs a parameter name.";
       return op.value === null || finite(op.value) ? null : "An override must be a number or unset.";
     }
+    case "setOcclusionCurves": {
+      if (op.curves === null) return null;
+      const problems: string[] = [];
+      parseOcclusionCurves(op.curves, "curves", problems);
+      return problems.length === 0 ? null : `Occlusion curves: ${problems[0]}`;
+    }
   }
+}
+
+/** `p` with its occlusion curves set (`null` or an empty set: none). */
+export function withOcclusionCurves(p: AudioProject, curves: OcclusionCurves | null): AudioProject {
+  const { curves: _drop, ...occ } = p.settings.occlusion;
+  const keep = curves && (curves.volume || curves.lowpass) ? structuredClone(curves) : null;
+  return { ...p, settings: { ...p.settings, occlusion: keep ? { ...occ, curves: keep } : occ } };
 }
 
 /** `p` with every reference to `from` (a return, VCA or snapshot name of `kind`) renamed to `to`. */
@@ -136,6 +153,8 @@ const sameProject = (a: AudioProject, b: AudioProject): boolean => JSON.stringif
  */
 export function applyOpToProject(p: AudioProject, op: ProjectMixOp): AudioProject {
   if (projectOpRefusal(p, op) !== null) return p;
+  // An engine setting, not the mix: the file's mix parse doesn't touch it.
+  if (op.op === "setOcclusionCurves") return sameOcclusionCurves(p.settings.occlusion.curves, op.curves ?? undefined) ? p : withOcclusionCurves(p, op.curves);
   let next: AudioProject;
   switch (op.op) {
     case "setMute":
@@ -229,6 +248,7 @@ export function invertProjectOp(op: ProjectMixOp, before: AudioProject): Project
     }
     case "setSnapshotLevel": return [{ ...op, db: before.snapshots.find((s) => s.name === op.snapshot)!.buses[op.target] ?? null }];
     case "setSnapshotEffect": return [{ ...op, value: before.snapshots.find((s) => s.name === op.snapshot)!.effects[op.target]?.[op.effect]?.[op.param] ?? null }];
+    case "setOcclusionCurves": return [{ op: "setOcclusionCurves", curves: before.settings.occlusion.curves ? structuredClone(before.settings.occlusion.curves) : null }];
   }
 }
 
@@ -273,5 +293,7 @@ export function diffProjectOps(before: AudioProject, after: AudioProject): Proje
     const was = before.snapshots.find((x) => x.name === s.name);
     if (!was || !same(was, s)) ops.push({ op: "setSnapshotDef", name: s.name, snapshot: structuredClone(s) });
   }
+  const curves = after.settings.occlusion.curves;
+  if (!sameOcclusionCurves(before.settings.occlusion.curves, curves)) ops.push({ op: "setOcclusionCurves", curves: curves ? structuredClone(curves) : null });
   return ops;
 }

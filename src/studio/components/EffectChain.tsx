@@ -4,9 +4,10 @@
 // `onEdit(result, label, drag)`; the owner applies it as one undo step (`applyEdit`; a drag coalesces until `drag` is
 // false) and removes a removed effect's automation, which it holds.
 import { useRef, useState } from "preact/hooks";
-import { effectSpec } from "../../engine/audio/effects/catalogue";
-import type { Effect, EffectLevel } from "../../engine/audio/effects/types";
+import { allowedAt, effectSpec } from "../../engine/audio/effects/catalogue";
+import type { Effect, EffectLevel, EffectType } from "../../engine/audio/effects/types";
 import { ContextMenu } from "../../editor/ui/ContextMenu";
+import { InfoTip } from "../../editor/ui/InfoTip";
 import { SEPARATOR, type MenuEntry } from "../../editor/ui/contextMenuModel";
 import type { AudioPluginDebug } from "../../plugins/audio/runtime/debugTypes";
 import { addEffect, effectMenuGroups, moveEffect, nextEffectId, removeEffect, setEffectKey, setEffectOn, setEffectParam, type EditResult, type EffectMenuItem } from "./effectChainModel";
@@ -27,12 +28,16 @@ export interface EffectChainProps {
   /** Automated parameters: effect id → parameter → current value text. */
   readonly automated?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   readonly readOnly?: boolean;
-  /** The heading ("Bus effects"); its note says where the chain runs. */
+  /** The heading ("Bus effects"); its note says where the chain runs (an ⓘ tooltip beside it, spec §1.3). */
   readonly title?: string;
   readonly note?: string;
   onEdit(result: EditResult<Effect[]>, label: string, drag?: boolean): void;
   /** Automate ◆ on a card. */
   onAutomate?(effectId: string): void;
+  /** A right-click (or the context-menu key) on a card's Automate button: the owner's curve menu at `at`. */
+  onAutomateMenu?(effectId: string, at: { x: number; y: number }): void;
+  /** Types the Add effect menu leaves out at this owner (a Clip's chain: no Delay or Reverb, decisions.md). */
+  readonly exclude?: readonly string[];
   /**
    * ADR 0352 §9: plugin effect health rows (`Audio.debug().plugins`). Absent: the chain reads the runtime's own while it
    * holds a plugin effect (`EffectChainHealth.ts`).
@@ -40,12 +45,18 @@ export interface EffectChainProps {
   readonly pluginHealth?: readonly AudioPluginDebug[];
   /** Reset plugin on a card (default: the running backend's `effectPlugins.reset`). */
   onResetPlugin?(type: string): void;
+  /**
+   * The Add effect list instead of the level's catalogue (a sequence clip: the instance level's types minus Delay and
+   * Reverb, plus the Amp envelope, spec B.2). A listed type the level doesn't run is added at its own first level.
+   */
+  readonly types?: readonly EffectType[];
 }
 
 /** The Add effect menu's entries: the built-ins, then each plugin's effects under its title (ADR 0352 §9). */
-function menuEntries(level: EffectLevel, add: (item: EffectMenuItem) => void): MenuEntry[] {
+function menuEntries(level: EffectLevel, add: (item: EffectMenuItem) => void, exclude: readonly string[] = []): MenuEntry[] {
   const groups = effectMenuGroups(level);
-  const entries: MenuEntry[] = groups.builtins.map((item) => ({ id: item.type, label: item.label, run: () => add(item) }));
+  // MX-31: the menu is captioned "Add effect", as the prototype's.
+  const entries: MenuEntry[] = [{ kind: "group", label: "Add effect" }, ...groups.builtins.filter((item) => !exclude.includes(item.type)).map((item): MenuEntry => ({ id: item.type, label: item.label, run: () => add(item) }))];
   for (const g of groups.plugins) {
     entries.push(SEPARATOR, { id: `plugin:${g.plugin}`, label: g.title, disabled: true, title: `Effects of the plugin ${g.title} ${g.version}`.trim(), run: () => {} });
     for (const item of g.items) entries.push({ id: item.type, label: item.label, hint: g.title, title: `${item.label} (${g.title})`, run: () => add(item) });
@@ -72,9 +83,10 @@ export function EffectChain(props: EffectChainProps) {
   return (
     <section class="studio-chain" aria-label={props.title ?? "Effects"}>
       <header class="studio-chain-head">
-        <span class="studio-chain-title" title={props.note}>
+        <span class="studio-chain-title">
           {props.title ?? "Effects"}
           {props.limit !== undefined && <span class="studio-chain-count"> {effects.length} / {props.limit}</span>}
+          {props.note && <InfoTip text={props.note} label={`About ${props.title ?? "Effects"}`} />}
         </span>
         <button
           ref={addButton}
@@ -89,7 +101,6 @@ export function EffectChain(props: EffectChainProps) {
           <Icon name="plus" size={14} /> Add effect
         </button>
       </header>
-      {props.note && <p class="studio-chain-note">{props.note}</p>}
       {effects.length === 0 && <p class="studio-row-empty">No effects. Effects run top to bottom.</p>}
       {effects.map((effect, i) => {
         const label = effectSpec(effect.type).label;
@@ -98,6 +109,7 @@ export function EffectChain(props: EffectChainProps) {
             key={effect.id}
             effect={effect}
             level={level}
+            runs={props.types}
             open={open.has(effect.id)}
             first={i === 0}
             last={i === effects.length - 1}
@@ -111,6 +123,7 @@ export function EffectChain(props: EffectChainProps) {
             onRemove={() => onEdit(removeEffect(effects, effect.id), `Remove ${label}`)}
             onKey={(bus) => onEdit(setEffectKey(effects, effect.id, bus, props.ownBus), `Set ${label} key`)}
             onAutomate={props.onAutomate ? () => props.onAutomate!(effect.id) : undefined}
+            onAutomateMenu={props.onAutomateMenu ? (at) => props.onAutomateMenu!(effect.id, at) : undefined}
             pluginHealth={health.find((h) => h.type === effect.type) ?? null}
             onResetPlugin={() => resetPlugin(effect.type)}
           />
@@ -120,10 +133,21 @@ export function EffectChain(props: EffectChainProps) {
         <ContextMenu
           label="Add effect"
           at={addButton.current ?? { x: 0, y: 0 }}
-          entries={menuEntries(level, (item) => {
-            const id = nextEffectId(effects);
-            onEdit(addEffect(effects, item.type, level, { limit: props.limit }), `Add ${item.label}`);
-            toggle(id, true);
+          entries={(props.types
+            ? [{ kind: "group", label: "Add effect" } as MenuEntry, ...props.types.map((type): MenuEntry => ({ id: type, label: effectSpec(type).label, run: () => {} }))]
+            : menuEntries(level, () => {}, props.exclude)
+          ).map((entry) => {
+            if (entry.kind === "separator" || entry.kind === "group" || entry.disabled) return entry;
+            const type = entry.id as EffectType;
+            return {
+              ...entry,
+              run: () => {
+                const id = nextEffectId(effects);
+                const at = allowedAt(type, level) ? level : effectSpec(type).levels[0]!;
+                onEdit(addEffect(effects, type, at, { limit: props.limit }), `Add ${effectSpec(type).label}`);
+                toggle(id, true);
+              },
+            };
           })}
           onClose={() => setMenu(false)}
         />

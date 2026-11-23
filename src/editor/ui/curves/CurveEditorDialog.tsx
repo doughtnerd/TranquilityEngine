@@ -6,6 +6,7 @@ import type { Signal } from "@preact/signals";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { CurveKey } from "../../../engine/core/curve";
 import { usePanelHistory, type UndoHistory } from "../../activeHistory";
+import { editorFocus } from "../../windows/editorFocus";
 import { EditHistory } from "../../editHistory";
 import { persisted } from "../../preferences";
 import { ContextMenu, SEPARATOR } from "../ContextMenu";
@@ -17,6 +18,9 @@ import {
   deleteKey,
   draftChanged,
   draftResult,
+  formatX,
+  typedValue,
+  withLiveInputs,
   inputChoices,
   isShaped,
   keyCountText,
@@ -37,9 +41,12 @@ import {
   type CurveDraft,
   type CurveEditorResult,
   type CurveEditorSpec,
+  type CurveInput,
   type UserPreset,
 } from "./curveEditorModel";
 import { CurvePlot, Icon, type DraftEditor, type WaveformFn } from "./CurvePlot";
+import { byModes, labelRows, layersOf, layerView, MODE_LABELS, previewValue, secondChoices, secondInput, setBy, setByMode, setLabelValue, writeLayer, type ByLayer } from "./andByModel";
+import { SegmentedControl } from "../SegmentedControl";
 import { DopeSheet } from "./DopeSheet";
 import { ScrubNumber } from "./ScrubNumber";
 import "../kit.css";
@@ -62,6 +69,11 @@ export interface CurveEditorDialogProps extends CurveEditorSpec {
   readonly listenerDensity?: (d: number) => number;
   /** A shaded band on a parameter plot ("This zone"). */
   readonly band?: readonly [number, number];
+  /**
+   * "Driven by" ends with "+ New parameter…" (the Studio's game parameters, UI pass J6.5): it asks the owner for a new
+   * input (the owner makes the parameter), which the dialog adds to its inputs and drives the curve by; null: cancelled.
+   */
+  readonly newInput?: () => Promise<CurveInput | null>;
   onApply(result: CurveEditorResult): void;
   onCancel(): void;
 }
@@ -125,8 +137,76 @@ function useDraftHistory(initial: CurveDraft) {
   };
 }
 
+/** The "Driven by" option value of "+ New parameter…" (no input id holds a control character). */
+const NEW_INPUT = "\u0001new-input";
+
+/** "And by" per label, as a Table: one row per label with its value when flat, else its keys and Edit curve. */
+function LabelTable(props: { spec: CurveEditorSpec; draft: CurveDraft; laneId: string; inputName: string; onValue(layer: ByLayer, value: number): void; onEdit(layer: ByLayer): void }) {
+  const found = laneOf(props.spec, props.draft, props.laneId);
+  if (!found) return null;
+  const { lane } = found;
+  return (
+    <div class="ce-table">
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">{props.inputName}</th>
+            <th scope="col">{lane.name}</th>
+          </tr>
+        </thead>
+        <tbody>
+          {labelRows(props.spec, props.draft, props.laneId).map((r) => (
+            <tr key={r.label}>
+              <th scope="row">{r.label}</th>
+              <td>
+                {r.value !== null ? (
+                  <ScrubNumber label="" ariaLabel={`${lane.name} for ${r.label}`} value={r.value} step={lane.step} unit={lane.unit} onPreview={() => {}} onCommit={(v) => props.onValue(r.layer, typedValue(lane, v))} onCancel={() => {}} />
+                ) : (
+                  <span class="ce-muted">{r.keys} keys</span>
+                )}
+                <button type="button" class="ce-link" onClick={() => props.onEdit(r.layer)}>
+                  Edit curve
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+const FOCUSABLE = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]';
+
+/** `el` and its ancestors as they are now (kept, since `el` may be taken off the page while the dialog is open). */
+function focusTrail(el: Element | null): Element[] {
+  const out: Element[] = [];
+  for (let n = el; n && n.tagName !== "BODY"; n = n.parentElement) out.push(n);
+  return out;
+}
+
+/** Focus the first element of `trail` still on the page that takes focus; whether one did. */
+function focusFirst(trail: readonly Element[]): boolean {
+  const target = trail.find((el) => el.isConnected && el.matches(FOCUSABLE)) as HTMLElement | undefined;
+  if (!target) return false;
+  target.focus();
+  return target.ownerDocument.activeElement === target;
+}
+
+/** How often live inputs (a take replaying) are read while the window is open, ms (the prototype's 120). */
+const LIVE_MS = 120;
+
 export function CurveEditorDialog(props: CurveEditorDialogProps) {
-  const spec: CurveEditorSpec = props;
+  // Inputs made with "+ New parameter…" while it is open join the owner's.
+  const [added, setAdded] = useState<readonly CurveInput[]>([]);
+  // Live inputs ("Game now" as a take replays) are read on a timer; each read redraws the marks and the values.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (!props.inputs?.some((i) => i.live)) return;
+    const t = setInterval(() => setTick((n) => n + 1), LIVE_MS);
+    return () => clearInterval(t);
+  }, []);
+  const spec: CurveEditorSpec = withLiveInputs(added.length ? { ...props, inputs: [...(props.inputs ?? []), ...added] } : props);
   const initial = useMemo(() => createDraft(spec), []);
   const h = useDraftHistory(initial);
   const { draft } = h;
@@ -142,15 +222,23 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [laneMenu, setLaneMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [dopeMenu, setDopeMenu] = useState(false);
+  const [layer, setLayer] = useState<ByLayer>("main");
+  const [table, setTable] = useState(false);
+  const [previewAt, setPreviewAt] = useState<number | null>(null);
   const win = useRef<{ x: number; y: number } | null>(null);
   const store = userPresetStore();
   const userPresets: UserPreset[] = parseUserPresets(store.value);
 
-  // Focus moves into the window when it opens and back to where it was when it closes.
+  // Focus moves into the window when it opens and back to where it was when it closes. When that element is gone (a
+  // button in a popover or menu that closed, a row drawn anew by the Apply), it goes back to where the editor focus was
+  // (a popover of fields keeps it on what opened the popover), or the nearest focusable panel around it, so Ctrl+Z
+  // right after Apply undoes in the history of the panel the dialog was opened from (ADR 0145).
   useEffect(() => {
-    const before = root.current?.ownerDocument.activeElement as HTMLElement | null;
+    const back = [root.current?.ownerDocument.activeElement ?? null, editorFocus.peek()].map(focusTrail);
     root.current?.focus();
-    return () => before?.focus?.();
+    return () => {
+      for (const trail of back) if (focusFirst(trail)) return;
+    };
   }, []);
 
   const editor: DraftEditor = {
@@ -164,12 +252,32 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
     refused: (label, reason) => setNotice(`Can't ${label.charAt(0).toLowerCase()}${label.slice(1)}: ${reason}.`),
   };
 
-  const found = laneOf(spec, draft, active);
-  const ctx = laneContext(spec, draft, active);
+  const mainFound = laneOf(spec, draft, active);
+  if (!mainFound) return null;
+  // "And by": the plot edits one layer of the active lane (its own curve, Morph's High, a × curve, a label's curve).
+  const by = mainFound.state.by;
+  const layers = layersOf(spec, by);
+  const layerId: ByLayer = layers.some((l) => l.id === layer) ? layer : "main";
+  const view = layerView(spec, draft, active, layerId) ?? { spec, draft };
+  const vspec = view.spec;
+  const found = laneOf(vspec, view.draft, active);
+  const ctx = laneContext(vspec, view.draft, active);
   if (!found || !ctx) return null;
   const { lane, state } = found;
   const curve = state.curve;
   const axis = ctx.axis;
+  /** The plot's editor: the main editor, through the layer when one is picked. */
+  const plotEditor: DraftEditor =
+    layerId === "main"
+      ? editor
+      : {
+          live: () => layerView(spec, h.live(), active, layerId)?.draft ?? h.live(),
+          preview: (next) => h.preview(writeLayer(h.live(), active, layerId, laneOf(vspec, next, active)!.state.curve)),
+          commit: (label, next) => editor.commit(label, next ? writeLayer(h.live(), active, layerId, laneOf(vspec, next, active)!.state.curve) : undefined),
+          cancel: editor.cancel,
+          refused: editor.refused,
+        };
+  const liveCurve = () => laneOf(vspec, plotEditor.live(), active)!.state.curve;
   const sel = selection && selection.lane === active && selection.index < curve.length ? selection.index : null;
   const viewRange: readonly [number, number] = axis.kind === "time" && range ? range : [axis.min, axis.max];
   const choices = inputChoices(spec);
@@ -178,8 +286,17 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
   const pick = (id: string) => {
     setActive(id);
     setSelection(null);
+    setLayer("main");
+    setTable(false);
   };
-  const setCurve = (label: string, next: readonly CurveKey[]) => editor.commit(label, withLane(h.live(), active, { curve: next }));
+  const setCurve = (label: string, next: readonly CurveKey[]) => plotEditor.commit(label, withLane(plotEditor.live(), active, { curve: next }));
+  const second = by ? secondInput(spec, by.input) : undefined;
+  const seconds = secondChoices(spec, mainFound.state.input);
+  const at = second ? Math.min(second.max, Math.max(second.min, previewAt ?? (second.labels?.length ? 0 : (second.min + second.max) / 2))) : 0;
+  // Morph and labels draw the other curve faint; the preview line shows the result at "Preview at" (same X as the lane).
+  const ghost = by && layerId !== "scale" && layerId !== "rate" ? (layerId === "main" ? (by.mode === "morph" ? by.curve : undefined) : mainFound.state.curve) : undefined;
+  const preview = by && layerId !== "scale" && layerId !== "rate" && by.mode !== "labels" ? (x: number) => previewValue(spec, h.live(), active, x, at) : undefined;
+  const inputHistogram = vspec.inputs?.find((i) => i.id === state.input)?.histogram;
 
   const cancel = () => props.onCancel();
   const apply = () => props.onApply(draftResult(spec, h.live()));
@@ -206,6 +323,7 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
     const l = laneOf(spec, draft, id)!;
     const shown = !hidden.has(id);
     return [
+      { kind: "group" as const, label: l.lane.name },
       { id: "clear", label: "Clear curve", title: "Back to a flat curve at the plain value", disabled: !isShaped(l.state.curve), run: () => doClear(id) },
       SEPARATOR,
       { id: "bypass", label: l.state.bypass ? "Turn on" : "Turn off (bypass)", run: () => toggleBypass(id) },
@@ -230,6 +348,7 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
       return next;
     });
 
+  const readings = readout(spec, draft, playhead);
   const selKey = sel !== null ? curve[sel] : null;
   const selEnd = sel !== null && (sel === 0 || sel === curve.length - 1);
   const status = notice ?? (dirty ? `Unsaved changes. Apply writes them to ${props.target}.` : "No changes yet");
@@ -241,12 +360,13 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
         : "Inside Min the sound plays at full volume. Dragging Min or Max stretches every curve with it. Beyond Max the last value holds.";
 
   return (
-    <div class="ce-backdrop" onPointerDown={(e) => e.target === e.currentTarget && e.preventDefault()}>
+    // A floating window, not modal (the prototype's): no backdrop, so the page behind stays usable while it is open.
+    <div class="ce-float">
       <div
         ref={root}
         class="dialog ce-window"
         role="dialog"
-        aria-modal="true"
+        aria-modal="false"
         aria-labelledby="ce-title"
         tabIndex={-1}
         style={{ left: `${offset.x}px`, top: `${offset.y}px` }}
@@ -283,6 +403,7 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
             </div>
             <ul class="ce-props" aria-label="Properties">
               {spec.lanes.map((l, i) => {
+                const value = readings.find((r) => r.id === l.id)?.text;
                 const s = draft.lanes.find((q) => q.id === l.id)!;
                 const on = l.id === active;
                 const shown = !hidden.has(l.id);
@@ -303,8 +424,10 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
                         <span class="ce-pnn">{l.name}</span>
                         <span class="ce-kc">
                           {keyCountText(s.curve)}
-                          {driver && ` · by ${driver}`}
+                          {driver && <span class="ce-by">{` · by ${driver}`}</span>}
+                          {s.by && <span class="ce-by">{` · and by ${secondInput(spec, s.by.input)?.name ?? s.by.input}`}</span>}
                         </span>
+                        {value && <span class="ce-live" title="Its value now (at the playhead, at game now, or at the listener)">{value}</span>}
                       </span>
                     </button>
                     {isShaped(s.curve) && (
@@ -327,7 +450,7 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
             </div>
             <div class="ce-readhead">{readoutHeading(axis, playhead)}</div>
             <dl class="ce-readout">
-              {readout(spec, draft, playhead).map((r) => [
+              {readings.map((r) => [
                 <dt key={`${r.id}-n`}>{r.name}</dt>,
                 <dd key={`${r.id}-v`}>{r.text}</dd>,
               ])}
@@ -339,14 +462,29 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
               <span class="ce-cap">Curve editor</span>
             </div>
             <div class="ce-bar" role="toolbar" aria-label="Curve tools">
-              {choices.length > 1 && (
+              {(choices.length > 1 || props.newInput) && (
                 <label class="ce-drv">
                   <span class="ce-muted">Driven by</span>
                   <select
+                    aria-label="Driven by"
                     class="ce-sel"
                     value={state.input}
                     title="What X is for this curve: time, or a game parameter (the curve then maps that parameter to the value)"
                     onChange={(e) => {
+                      const select = e.currentTarget as HTMLSelectElement;
+                      if (select.value === NEW_INPUT && props.newInput) {
+                        select.value = state.input;
+                        const lane = active;
+                        void props.newInput().then((input) => {
+                          if (!input) return;
+                          const next: CurveEditorSpec = { ...spec, inputs: [...(spec.inputs ?? []).filter((i) => i.id !== input.id), input] };
+                          setAdded((list) => [...list.filter((i) => i.id !== input.id), input]);
+                          const r = setLaneInput(next, h.live(), lane, input.id);
+                          if ("refused" in r) return editor.refused("Change what drives the curve", r.refused);
+                          editor.commit(`Drive ${laneOf(next, h.live(), lane)?.lane.name ?? "curve"} by ${input.name}`, r.next);
+                        });
+                        return;
+                      }
                       const r = setLaneInput(spec, h.live(), active, (e.currentTarget as HTMLSelectElement).value);
                       if ("refused" in r) return editor.refused("Change what drives the curve", r.refused);
                       editor.commit(`Drive ${lane.name} by ${axisOf(spec, (e.currentTarget as HTMLSelectElement).value).name}`, r.next);
@@ -359,6 +497,7 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
                         {c.name}
                       </option>
                     ))}
+                    {props.newInput && <option value={NEW_INPUT}>+ New parameter…</option>}
                   </select>
                   <span class="ce-vsep" aria-hidden="true" />
                 </label>
@@ -372,15 +511,15 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
                 disabled={!selKey || selEnd}
                 title={selEnd ? "End keys stay at the ends" : selKey ? "Drag to move the key (Shift faster, Alt finer)" : "Select a key to edit where it sits"}
                 onPreview={(x) => {
-                  const r = setKeyX(ctx, laneOf(spec, h.live(), active)!.state.curve, sel!, x);
-                  if ("next" in r) editor.preview(withLane(h.live(), active, { curve: r.next }));
+                  const r = setKeyX(ctx, liveCurve(), sel!, x);
+                  if ("next" in r) plotEditor.preview(withLane(plotEditor.live(), active, { curve: r.next }));
                 }}
                 onCommit={(x) => {
-                  const r = setKeyX(ctx, laneOf(spec, h.live(), active)!.state.curve, sel!, x);
+                  const r = setKeyX(ctx, liveCurve(), sel!, x);
                   if ("refused" in r) return editor.refused("Move key", r.refused);
                   setCurve("Move key", r.next);
                 }}
-                onCancel={editor.cancel}
+                onCancel={plotEditor.cancel}
               />
               <ScrubNumber
                 label="→"
@@ -391,42 +530,117 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
                 disabled={!selKey}
                 title={selKey ? `Drag to change the value (Shift faster, Alt finer)` : "Select a key to type its value"}
                 onPreview={(v) => {
-                  const r = setKeyValue(ctx, laneOf(spec, h.live(), active)!.state.curve, sel!, v);
-                  if ("next" in r) editor.preview(withLane(h.live(), active, { curve: r.next }));
+                  const r = setKeyValue(ctx, liveCurve(), sel!, v);
+                  if ("next" in r) plotEditor.preview(withLane(plotEditor.live(), active, { curve: r.next }));
                 }}
                 onCommit={(v) => {
-                  const r = setKeyValue(ctx, laneOf(spec, h.live(), active)!.state.curve, sel!, v);
+                  const r = setKeyValue(ctx, liveCurve(), sel!, v);
                   if ("refused" in r) return editor.refused("Set key value", r.refused);
                   setCurve("Set key value", r.next);
                 }}
-                onCancel={editor.cancel}
+                onCancel={plotEditor.cancel}
               />
               <span class="ce-spacer" />
               <span class="ce-muted ce-xname">{axis.kind === "time" ? axis.name : axis.kind === "distance" ? "Metres from the listener" : axis.name}</span>
             </div>
+            {seconds.length > 0 && (
+              <div class="ce-bar ce-bybar" role="toolbar" aria-label="And by">
+                <label class="ce-drv">
+                  <span class="ce-muted">And by</span>
+                  <select
+                    aria-label="And by"
+                    class="ce-sel"
+                    value={by?.input ?? ""}
+                    title="A second game parameter the curve also follows: morph between two curves, scale it, change its rate, or one curve per label"
+                    onChange={(e) => {
+                      const v = (e.currentTarget as HTMLSelectElement).value;
+                      editor.commit(v ? `${lane.name} and by ${secondInput(spec, v)?.name ?? v}` : `${lane.name} and by nothing`, setBy(spec, h.live(), active, v || null));
+                      setLayer("main");
+                      setTable(false);
+                      setPreviewAt(null);
+                      setSelection(null);
+                    }}
+                  >
+                    <option value="">Nothing</option>
+                    {seconds.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.labels?.length ? `${s.name} · per label` : s.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {by && second && !second.labels?.length && (
+                  <>
+                    <SegmentedControl
+                      label="How it follows"
+                      size="small"
+                      value={by.mode}
+                      options={byModes(spec, second, mainFound.state.input).map((m) => ({ value: m, label: MODE_LABELS[m] }))}
+                      onChange={(m) => {
+                        editor.commit(`${lane.name}: ${MODE_LABELS[m]}`, setByMode(spec, h.live(), active, m));
+                        setLayer("main");
+                        setSelection(null);
+                      }}
+                    />
+                    <SegmentedControl label="Curve to edit" size="small" value={layerId} options={layers.map((l) => ({ value: l.id, label: l.label }))} onChange={(l) => { setLayer(l); setSelection(null); }} />
+                    <label class="ce-drv" title={`Where the dashed preview sits on ${second.name}`}>
+                      <span class="ce-muted">Preview at</span>
+                      <input type="range" class="ce-range" aria-label="Preview at" min={second.min} max={second.max} step={(second.max - second.min) / 100 || 0.01} value={at} onInput={(e) => setPreviewAt(Number((e.currentTarget as HTMLInputElement).value))} />
+                      <span class="ce-num">{formatX(axisOf(vspec, second.id), at)}</span>
+                    </label>
+                  </>
+                )}
+                {by && second?.labels?.length ? (
+                  <>
+                    {!table && <SegmentedControl label="Label to edit" size="small" value={layerId} options={layers.map((l) => ({ value: l.id, label: l.label }))} onChange={(l) => { setLayer(l); setSelection(null); }} />}
+                    <span class="ce-spacer" />
+                    <button type="button" class={`ce-toggle${table ? " on" : ""}`} aria-pressed={table} title="One value per label instead of a curve" onClick={() => setTable(!table)}>
+                      Table
+                    </button>
+                  </>
+                ) : null}
+              </div>
+            )}
 
-            <CurvePlot
-              spec={spec}
-              draft={draft}
-              ctx={ctx}
-              activeIndex={found.index}
-              hidden={hidden}
-              range={viewRange}
-              selected={sel}
-              selectedFromDope={!!selection?.fromDope}
-              playhead={playhead}
-              waveform={props.waveform}
-              histogram={props.histogram}
-              listenerDensity={props.listenerDensity}
-              band={props.band}
-              editor={editor}
-              onSelect={(i) => setSelection(i === null ? null : { lane: active, index: i })}
-            />
+            {table && by?.mode === "labels" ? (
+              <LabelTable
+                spec={spec}
+                draft={draft}
+                laneId={active}
+                inputName={second?.name ?? by.input}
+                onValue={(l, v) => editor.commit(`Set ${l === "main" ? (second?.labels?.[0] ?? "") : l.slice(6)} value`, setLabelValue(spec, h.live(), active, l, v))}
+                onEdit={(l) => {
+                  setLayer(l);
+                  setTable(false);
+                  setSelection(null);
+                }}
+              />
+            ) : (
+              <CurvePlot
+                spec={vspec}
+                draft={view.draft}
+                ctx={ctx}
+                activeIndex={found.index}
+                hidden={hidden}
+                range={viewRange}
+                selected={sel}
+                selectedFromDope={!!selection?.fromDope}
+                playhead={playhead}
+                waveform={layerId === "scale" || layerId === "rate" ? undefined : props.waveform}
+                histogram={inputHistogram ?? (state.input === mainFound.state.input && layerId === "main" ? props.histogram : undefined)}
+                listenerDensity={props.listenerDensity}
+                band={props.band}
+                ghost={ghost}
+                preview={preview}
+                editor={plotEditor}
+                onSelect={(i) => setSelection(i === null ? null : { lane: active, index: i })}
+              />
+            )}
 
             <div class="ce-presets" role="group" aria-label="Curve presets">
               <span class="ce-cap">Presets</span>
               {presetsFor(ctx).map((p) => (
-                <button key={p.id} type="button" class="ce-pt" aria-label={p.name} title={`${p.name}: ${p.tip}`} onClick={() => setCurve(`Preset: ${p.name}`, presetCurve(ctx, h.live(), laneOf(spec, h.live(), active)!.state.curve, p.id))}>
+                <button key={p.id} type="button" class="ce-pt" aria-label={p.name} title={`${p.name}: ${p.tip}`} onClick={() => setCurve(`Preset: ${p.name}`, presetCurve(ctx, plotEditor.live(), liveCurve(), p.id))}>
                   <svg width="40" height="24" viewBox="0 0 40 24" aria-hidden="true">
                     <path d={p.icon} />
                   </svg>
@@ -439,7 +653,7 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
                     class="ce-pt"
                     aria-label={p.name}
                     title={`${p.name} (right-click to remove)`}
-                    onClick={() => setCurve(`Preset: ${p.name}`, applyUserPreset(ctx, h.live(), p))}
+                    onClick={() => setCurve(`Preset: ${p.name}`, applyUserPreset(ctx, plotEditor.live(), p))}
                     onContextMenu={(e) => {
                       e.preventDefault();
                       store.value = userPresets.filter((_, j) => j !== i);
@@ -460,7 +674,7 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
                 aria-label="Save as preset"
                 title="Save this curve as a preset (every curve editor shows it)"
                 onClick={() => {
-                  const r = saveUserPreset(ctx, h.live(), curve, userPresets);
+                  const r = saveUserPreset(ctx, plotEditor.live(), curve, userPresets);
                   if ("refused" in r) return editor.refused("Save preset", r.refused);
                   store.value = r.next;
                 }}

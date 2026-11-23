@@ -27,19 +27,19 @@ describe("the generator catalogue", () => {
 
   it("has exactly ADR 0360's parameters, in its order (the wire order)", () => {
     const names = (k: (typeof GENERATOR_KINDS)[number]) => GENERATOR_CATALOGUE[k].params.map((q) => q.name);
-    expect(names("oscillator")).toEqual(["waveform", "noiseColour", "frequency", "pulseWidth", "level", "attack", "decay", "sustain", "release", "length"]);
+    expect(names("oscillator")).toEqual(["waveform", "noiseColour", "frequency", "pulseWidth", "level", "attack", "decay", "sustain", "release", "length", "quality"]);
     expect(names("synth")).toEqual([
       "osc1Wave", "osc2Wave", "osc2Semitones", "detune", "oscMix", "pulseWidth", "frequency", "filterType", "cutoff", "resonance", "filterEnvAmount",
       "filterAttack", "filterDecay", "filterSustain", "filterRelease", "attack", "decay", "sustain", "release", "lfoWave", "lfoRate", "lfoDepth", "lfoTarget",
-      "level", "length",
+      "level", "length", "quality",
     ]);
     expect(names("blip")).toEqual([
       "waveform", "attack", "sustain", "punch", "decay", "baseFrequency", "frequencyLimit", "slide", "deltaSlide", "vibratoDepth", "vibratoSpeed",
       "arpeggioAmount", "arpeggioSpeed", "duty", "dutySweep", "repeatSpeed", "phaserOffset", "phaserSweep", "lowpassCutoff", "lowpassSweep",
-      "lowpassResonance", "highpassCutoff", "highpassSweep", "level",
+      "lowpassResonance", "highpassCutoff", "highpassSweep", "level", "quality",
     ]);
     expect(names("silence")).toEqual(["length", "lengthRandom"]);
-    expect([names("synth").length, names("blip").length]).toEqual([25, 24]);
+    expect([names("oscillator").length, names("synth").length, names("blip").length]).toEqual([11, 26, 25]);
   });
 
   it("has the record's ranges and defaults", () => {
@@ -60,12 +60,28 @@ describe("the generator catalogue", () => {
     expect(generatorParamIndex("blip", "nope")).toBe(-1);
     expect(GENERATOR_KINDS.map(generatorKindIndex)).toEqual([1, 2, 3, 4]);
     const values = generatorWireValues("oscillator", { frequency: 99999, waveform: 2.6 });
-    expect(values).toHaveLength(10);
+    expect(values).toHaveLength(11);
     expect(values[2]).toBe(20000);
     expect(values[0]).toBe(3);
     expect(values[4]).toBe(-12);
     expect(isGeneratorKind("blip")).toBe(true);
     expect(isGeneratorKind("granular")).toBe(false);
+  });
+
+  it("ends every oscillating kind with `quality`, standard or high, standard by default (D67)", () => {
+    for (const kind of ["oscillator", "synth", "blip"] as const) {
+      const params = GENERATOR_CATALOGUE[kind].params;
+      const q = params[params.length - 1];
+      expect(q).toMatchObject({ name: "quality", min: 0, max: 1, step: 1, default: 0, smooth: false });
+      expect(q.choiceIds).toEqual(["standard", "high"]);
+      // Appended: every index before it is the one ADR 0360 fixed (the wire order), and it is sent as the last value.
+      expect(generatorParamIndex(kind, "quality")).toBe(params.length - 1);
+      const values = generatorWireValues(kind, { quality: 1 });
+      expect(values[values.length - 1]).toBe(1);
+      expect(generatorWireValues(kind, {})[values.length - 1]).toBe(0);
+    }
+    expect(generatorParamIndex("blip", "level")).toBe(23);
+    expect(generatorParamSpec("silence", "quality")).toBeUndefined();
   });
 
   it("clamps, finds choices and knows endless generators", () => {

@@ -39,6 +39,7 @@ type EffectOverrides = ResolvedMix["effects"];
 import { liveRuleAnswer, unsupportedAnswer, type LiveCaps, type SentClass } from "./busCapability";
 import { LoudnessView, EMPTY_BUS_LOUDNESS, type BusLoudness, type LoudnessSource } from "./loudnessTypes";
 import { parameterDefault } from "./parameters";
+import { evalCurveBy, secondValueOf } from "./curveBy";
 import { engineSettingsOf, projectOfMix } from "./project/format";
 import { dbToGain, levelDbOf, MIN_DB } from "./project/gain";
 import { fromLegacySection, mergeLegacyIntoProject } from "./project/legacy";
@@ -505,6 +506,15 @@ export class Mixer {
     if (projectOpRefusal(before, op) !== null) return this.notSent(target, { ok: false, class: "none" });
     const next = applyOpToProject(before, op);
     if (next === before) return { ok: true, class: "none" };
+    if (op.op === "setOcclusionCurves") {
+      // ADR 0362 item 6: an engine setting the occlusion pass reads from these settings every frame; nothing to send.
+      this.project = next;
+      const { curves: _drop, ...occ } = this.settings.occlusion;
+      const curves = next.settings.occlusion.curves;
+      this.settings = { ...this.settings, occlusion: curves ? { ...occ, curves } : occ };
+      this._dirty();
+      return { ok: true, class: "config" };
+    }
     // A send past the core's sends a bus (`sendsPerBus`): kept for the next Play, as an effect past its chain's limit.
     const later = liveRuleAnswer(this.settings, op, target.liveCaps);
     if (later !== null) return this.notSent(target, { ok: false, class: "direct", reason: later });
@@ -924,7 +934,7 @@ export class Mixer {
     if (this.player.setParameter(name, value, now)) this.planSnapshots(now, 0, true);
     if (this.paramValues[name] !== v) {
       this.paramValues[name] = v;
-      if (this.project.automation.some((a) => a.parameter === name)) {
+      if (this.project.automation.some((a) => a.parameter === name || a.by?.input === name)) {
         this.evaluateAutomation();
         this.effectsDirty = true;
         this._dirty();
@@ -1027,7 +1037,10 @@ export class Mixer {
       if (!e) continue;
       const byId = this.autoFx.get(a.on) ?? new Map<string, Map<string, number>>();
       const ps = byId.get(id) ?? new Map<string, number>();
-      ps.set(p, FREQUENCY_PARAMS.has(p) ? evalLogCurve(a.curve, x) : evalCurve(a.curve, x));
+      const ev = FREQUENCY_PARAMS.has(p) ? evalLogCurve : evalCurve;
+      // ADR 0362 §5: a second parameter the lane also follows.
+      const second = a.by ? this.project.parameters.find((q) => q.name === a.by!.input) : undefined;
+      ps.set(p, a.by && second ? evalCurveBy(a.curve, a.by, x, secondValueOf(second, this.paramValues[second.name] ?? parameterDefault(second)), ev) : ev(a.curve, x));
       byId.set(id, ps);
       this.autoFx.set(a.on, byId);
     }
