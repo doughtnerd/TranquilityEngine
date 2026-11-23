@@ -40,7 +40,7 @@ function DialogDemo() {
 export const HeaderAndFooter: StoryObj = {
   render: () => <DialogDemo />,
   play: async ({ canvasElement }) => {
-    const c = within(canvasElement);
+    const c = within(canvasElement.ownerDocument.body); // menus and dialogs float at the page root (FloatingPortal)
     const dialog = c.getByRole("dialog", { name: "Import samples" });
     // Inside a `.panel`, the title still isn't a caps panel caption.
     await expect(within(dialog).getByRole("heading", { name: "Import samples" })).toHaveStyle({ textTransform: "none" });
@@ -64,7 +64,7 @@ export const InfoTips: StoryObj = {
     </div>
   ),
   play: async ({ canvasElement }) => {
-    const c = within(canvasElement);
+    const c = within(canvasElement.ownerDocument.body); // menus and dialogs float at the page root (FloatingPortal)
     const tip = c.getByRole("button", { name: "About Playback" });
     await expect(tip).toHaveAttribute("title", "When a trigger plays, how often, and what happens at the voice limit.");
     await expect(c.queryByText("When a trigger plays", { selector: "p" })).toBeNull(); // no helper paragraph

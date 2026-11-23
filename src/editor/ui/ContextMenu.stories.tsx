@@ -43,7 +43,7 @@ export default meta;
 export const Keyboard: StoryObj = {
   render: () => <MenuDemo />,
   play: async ({ canvasElement }) => {
-    const c = within(canvasElement);
+    const c = within(canvasElement.ownerDocument.body); // menus and dialogs float at the page root (FloatingPortal)
     await userEvent.click(c.getByRole("button", { name: "Engine loop.wav" }));
     const menu = await c.findByRole("menu", { name: "Sample menu" });
     await expect(within(menu).getByRole("menuitem", { name: /Rename/ })).toHaveFocus();
@@ -86,7 +86,7 @@ function ModeMenuDemo() {
 export const ChecksNotesSubmenu: StoryObj = {
   render: () => <ModeMenuDemo />,
   play: async ({ canvasElement }) => {
-    const c = within(canvasElement);
+    const c = within(canvasElement.ownerDocument.body); // menus and dialogs float at the page root (FloatingPortal)
     const menu = await c.findByRole("menu", { name: "Play mode" });
     const whole = within(menu).getByRole("menuitemradio", { name: /Whole/ });
     await expect(whole).toHaveAttribute("aria-checked", "true");
