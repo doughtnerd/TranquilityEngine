@@ -110,7 +110,9 @@ export function effectSummary(effect: Effect, count = 2): string {
 }
 
 /** Why an effect in the chain won't play at `level` (it was moved from a level it can run at), or null. */
-export function levelWarning(effect: Effect, level: EffectLevel): string | null {
+export function levelWarning(effect: Effect, level: EffectLevel, runs?: readonly EffectType[]): string | null {
+  // `runs`: the types the chain's owner runs whatever the level lists (a sequence clip's Gain and Amp envelope, ADR 0362).
+  if (runs?.includes(effect.type)) return null;
   return allowedAt(effect.type, level) ? null : `${effectSpec(effect.type).label} doesn't run on ${LEVEL_NAME[level]}; it won't play here`;
 }
 

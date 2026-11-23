@@ -18,8 +18,12 @@ import { encodeWavFloat32 } from "./wavEncode";
 /** Where renders are cached, relative to the project folder. */
 export const RENDER_CACHE_DIR = ".myco/cache/samples";
 
-/** Bumped when the render's output changes for the same inputs (a kernel fix, a new spec field), so old renders miss. */
-export const RENDER_VERSION = 1;
+/**
+ * Bumped when the render's output changes for the same inputs (a kernel fix, a new spec field), so old renders miss.
+ * 2 (ADR 0362): the Amp envelope is the core's (`audio_dsp::adsr`: a hold, and stages squeezed in order into a short
+ * sample, the release last), so an envelope render may differ from a version 1 one.
+ */
+export const RENDER_VERSION = 2;
 
 /** Read and write access to the cache folder, by path relative to the project folder. */
 export interface RenderStore {

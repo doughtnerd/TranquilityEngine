@@ -108,6 +108,7 @@ export function EffectChain(props: EffectChainProps) {
             key={effect.id}
             effect={effect}
             level={level}
+            runs={props.types}
             open={open.has(effect.id)}
             first={i === 0}
             last={i === effects.length - 1}
