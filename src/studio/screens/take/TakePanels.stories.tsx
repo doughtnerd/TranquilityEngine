@@ -15,6 +15,10 @@ import { TakeList } from "./TakeList";
 import type { TakeSelection } from "./takeScreen";
 import { playlistsInTake, takeTimeline } from "./takeTimeline";
 import { PlaylistsInTake } from "./PlaylistsInTake";
+import { DockLayout } from "../../../editor/layout/DockLayout";
+import { screenDock } from "../../shell/studioPanels";
+import { TAKE_PANELS } from ".";
+import "../../studio.css";
 import { TakeTimelineView } from "./TakeTimelineView";
 import "./take.css";
 
@@ -183,6 +187,30 @@ export const Note: Story = {
       await expect(getComputedStyle(field).borderTopWidth).toBe("1px");
       await expect(getComputedStyle(field).borderTopStyle).toBe("solid");
     }
+  },
+};
+
+export const DefaultDock: Story = {
+  render: () => {
+    // The screen's real panel list and default layout, each panel's view a stand-in (the views need the running app).
+    const dock = screenDock("take", TAKE_PANELS.map((p) => ({ ...p, view: () => <p>{p.title}</p> })));
+    dock.store.reset();
+    return (
+      <div class="studio" style={{ width: "1200px", height: "520px", gridTemplateRows: "1fr", gridTemplateAreas: '"main"' }}>
+        <main class="studio-dock">
+          <DockLayout host={dock.host} view={(type) => dock.panels.get(type)?.view() ?? null} />
+        </main>
+      </div>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // Both tabs of the left dock show at its default width: the playlists tab isn't hidden behind the overflow button.
+    // The docks are sized once the layout has measured itself; the tabs are fitted after that.
+    await waitFor(() => expect(c.getByRole("tab", { name: "Takes" }).closest<HTMLElement>(".dock-tabs")!.clientWidth).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 200));
+    for (const p of TAKE_PANELS.filter((x) => x.dock === "left")) await expect(c.getByRole("tab", { name: p.title })).toBeVisible();
+    await expect(c.queryByRole("button", { name: "More tabs" })).toBeNull();
   },
 };
 
