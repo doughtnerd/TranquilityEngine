@@ -113,8 +113,52 @@ export type PairCode = AddressPairCode | RoomPairCode;
  * naming the field for a value out of its range (a programming error: codes are made from issued tokens).
  */
 export function encodePairCode(code: PairCode): string {
-  void code;
-  throw new Error("L2: not implemented");
+  let first: number;
+  let rest: number;
+  if (code.kind === "address") {
+    checkRange("portOffset", code.portOffset, PAIR_PORT_OFFSETS - 1);
+    checkRange("token", code.token, 2 ** PAIR_TOKEN_BITS - 1);
+    const octets = octetsValue("address", code.octets);
+    first = code.portOffset * 2 + Math.floor(octets / 2 ** 15);
+    rest = (octets % 2 ** 15) * 2 ** 30 + code.token;
+  } else if (code.rendezvous === null) {
+    checkRange("room", code.room, 2 ** HOSTED_ROOM_BITS - 1);
+    checkRange("token", code.token, 2 ** PAIR_TOKEN_BITS - 1);
+    first = HOSTED_ROOM_FIRST;
+    rest = code.room * 2 ** PAIR_TOKEN_BITS + code.token;
+  } else {
+    checkRange("room", code.room, 2 ** LAN_ROOM_BITS - 1);
+    checkRange("token", code.token, 2 ** LAN_ROOM_TOKEN_BITS - 1);
+    const portIndex = RENDEZVOUS_PORTS.indexOf(code.rendezvous.port);
+    if (portIndex < 0) throw new RangeError(`rendezvous port ${code.rendezvous.port} is not in RENDEZVOUS_PORTS`);
+    const octets = octetsValue("rendezvous", code.rendezvous.octets);
+    first = ROOM_CODE_FIRST + Math.floor(portIndex / 2);
+    rest =
+      (portIndex % 2) * 2 ** 44 +
+      octets * 2 ** 28 +
+      code.room * 2 ** LAN_ROOM_TOKEN_BITS +
+      code.token;
+  }
+  const value = first * 2 ** 45 + rest;
+  let text = "";
+  for (let place = PAIR_CODE_LENGTH - 1; place >= 0; place--) {
+    text += CROCKFORD_ALPHABET.charAt(Math.floor(value / 32 ** place) % 32);
+  }
+  return `${text.slice(0, PAIR_CODE_GROUP)}-${text.slice(PAIR_CODE_GROUP)}`;
+}
+
+/** Throws a RangeError naming `field` unless `value` is an integer in `0..max`. */
+function checkRange(field: string, value: number, max: number): void {
+  if (!Number.isInteger(value) || value < 0 || value > max) {
+    throw new RangeError(`${field} ${value} is out of range 0..${max}`);
+  }
+}
+
+/** The 16-bit value of two octets `[third, fourth]`, each checked to 0..255. */
+function octetsValue(field: string, octets: PairOctets): number {
+  checkRange(`${field} third octet`, octets[0], 255);
+  checkRange(`${field} fourth octet`, octets[1], 255);
+  return octets[0] * 256 + octets[1];
 }
 
 /**
@@ -122,6 +166,60 @@ export function encodePairCode(code: PairCode): string {
  * above), the wrong length, or a room code naming a reserved rendezvous port index. Never throws.
  */
 export function decodePairCode(text: string): { code: PairCode } | { refused: string } {
-  void text;
-  throw new Error("L2: not implemented");
+  // Case is folded per ASCII letter, so a locale's case rules (`ß` and the like) can't change the length.
+  const upper = text.replace(/[a-z]/g, (letter) => letter.toUpperCase());
+  const digits = upper.replace(/[\s-]/g, "").replace(/O/g, "0").replace(/[IL]/g, "1");
+  for (let i = 0; i < digits.length; i++) {
+    if (!CROCKFORD_ALPHABET.includes(digits.charAt(i))) {
+      return { refused: `"${digits.charAt(i)}" is not a character of a pairing code` };
+    }
+  }
+  if (digits.length !== PAIR_CODE_LENGTH) {
+    return { refused: `a pairing code has ${PAIR_CODE_LENGTH} characters, not ${digits.length}` };
+  }
+
+  let value = 0;
+  for (let i = 0; i < PAIR_CODE_LENGTH; i++) {
+    value = value * 32 + CROCKFORD_ALPHABET.indexOf(digits.charAt(i));
+  }
+  const first = Math.floor(value / 2 ** 45);
+  const rest = value - first * 2 ** 45;
+
+  if (first < ROOM_CODE_FIRST) {
+    const octets = Math.floor(rest / 2 ** 30) + (first % 2) * 2 ** 15;
+    return {
+      code: {
+        kind: "address",
+        octets: [Math.floor(octets / 256), octets % 256],
+        portOffset: Math.floor(first / 2),
+        token: rest % 2 ** PAIR_TOKEN_BITS,
+      },
+    };
+  }
+  if (first < HOSTED_ROOM_FIRST) {
+    const portIndex = (first - ROOM_CODE_FIRST) * 2 + Math.floor(rest / 2 ** 44);
+    if (portIndex >= RENDEZVOUS_PORTS.length) {
+      return { refused: `rendezvous port index ${portIndex} is reserved` };
+    }
+    const octets = Math.floor(rest / 2 ** 28) % 2 ** 16;
+    return {
+      code: {
+        kind: "room",
+        rendezvous: {
+          octets: [Math.floor(octets / 256), octets % 256],
+          port: RENDEZVOUS_PORTS[portIndex],
+        },
+        room: Math.floor(rest / 2 ** LAN_ROOM_TOKEN_BITS) % 2 ** LAN_ROOM_BITS,
+        token: rest % 2 ** LAN_ROOM_TOKEN_BITS,
+      },
+    };
+  }
+  return {
+    code: {
+      kind: "room",
+      rendezvous: null,
+      room: Math.floor(rest / 2 ** PAIR_TOKEN_BITS),
+      token: rest % 2 ** PAIR_TOKEN_BITS,
+    },
+  };
 }
