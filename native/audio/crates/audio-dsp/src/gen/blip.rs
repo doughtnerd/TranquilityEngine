@@ -35,7 +35,7 @@
 //! The PLAY loop flag re-triggers the blip at its end (sfxr's repeat, endless) until the key-off.
 
 use super::osc::{pulse_at, saw_at, sine_cycles, triangle_at, Held, MAX_DT};
-use super::svf::{OnePole, Svf, LOWPASS};
+use super::svf::{OnePole, Svf};
 
 /// sfxr's control rate (its per-sample loop).
 pub const SFXR_RATE: f64 = 44_100.0;
@@ -520,7 +520,7 @@ impl Blip {
     /// the clock there). Stops at a sample whose ticks ended the blip: returns it and `true`.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
-    fn run<const W: u8>(&mut self, from: usize, n: usize, steps: &[f32], out: &mut [f32], g0: f32, dg: f32, rate: f32, fresh: bool, noise: &mut u32) -> (usize, bool) {
+    fn run<const W: u8, const LP: bool>(&mut self, from: usize, n: usize, steps: &[f32], out: &mut [f32], g0: f32, dg: f32, rate: f32, fresh: bool, noise: &mut u32) -> (usize, bool) {
         self.coefficients(rate);
         let step = SFXR_RATE / rate as f64;
         let adv0 = SFXR_SUPER / rate as f64;
@@ -529,8 +529,10 @@ impl Blip {
         let mut phase = self.phase;
         let mut held = self.held;
         let (mut lp, mut hp) = (self.lp, self.hp);
-        // 0: no low-pass; 1: the low-pass; 2: a low-pass at 0 (silence).
-        let lp_mode = if self.lp_on == 0 { 0 } else if self.fltw > 0.0 { 1 } else { 2 };
+        if LP && self.fltw <= 0.0 {
+            // A low-pass at 0 passes nothing: an all-zero filter outputs exactly 0.
+            lp = Svf::default();
+        }
         let phaser = self.phaser_on != 0;
         // The phaser's delay for the block, `whole + 1 - frac` samples back: read `a` one further back than `b` and take
         // `a + (b - a) × frac` (frac 1 reads `b`, the delay a whole number of samples).
@@ -590,10 +592,8 @@ impl Blip {
                 wave::TRIANGLE => triangle_at(ph, dt) as f32,
                 _ => pulse_at(ph, dt, t.square_duty as f64, 0.5) as f32,
             };
-            if lp_mode == 1 {
-                x = lp.process(LOWPASS, x);
-            } else if lp_mode == 2 {
-                x = 0.0;
+            if LP {
+                x = lp.lowpass(x);
             }
             xb[j] = hp.highpass(x);
             eb[j] = env;
@@ -644,12 +644,21 @@ impl Blip {
         let dg = (g1 - g0) / n as f32;
         let (mut from, mut fresh) = (0, false);
         loop {
+            macro_rules! run {
+                ($w:expr) => {
+                    if self.lp_on != 0 {
+                        self.run::<{ $w }, true>(from, n, steps, out, g0, dg, rate, fresh, noise)
+                    } else {
+                        self.run::<{ $w }, false>(from, n, steps, out, g0, dg, rate, fresh, noise)
+                    }
+                };
+            }
             let (m, ended) = match self.wave {
-                wave::SAW => self.run::<{ wave::SAW }>(from, n, steps, out, g0, dg, rate, fresh, noise),
-                wave::SINE => self.run::<{ wave::SINE }>(from, n, steps, out, g0, dg, rate, fresh, noise),
-                wave::NOISE => self.run::<{ wave::NOISE }>(from, n, steps, out, g0, dg, rate, fresh, noise),
-                wave::TRIANGLE => self.run::<{ wave::TRIANGLE }>(from, n, steps, out, g0, dg, rate, fresh, noise),
-                _ => self.run::<{ wave::SQUARE }>(from, n, steps, out, g0, dg, rate, fresh, noise),
+                wave::SAW => run!(wave::SAW),
+                wave::SINE => run!(wave::SINE),
+                wave::NOISE => run!(wave::NOISE),
+                wave::TRIANGLE => run!(wave::TRIANGLE),
+                _ => run!(wave::SQUARE),
             };
             if !ended {
                 break;
