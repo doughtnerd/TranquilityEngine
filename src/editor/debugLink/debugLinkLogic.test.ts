@@ -1,13 +1,37 @@
 // The editor's debug link without state (ADR 0376): preferences read leniently, where it listens per LAN setting,
 // which remotes are this machine, and the menu's and prompt's text.
 import { describe, expect, it } from "vitest";
-import { acceptMessage, buildLabel, buildsButtonText, cleanPort, cleanPreferences, connectAddress, isLocalRemote, listenAddress, remoteHost } from "./debugLinkLogic";
+import { acceptMessage, buildLabel, buildsButtonText, cleanIceServers, cleanPort, cleanPreferences, cleanRendezvous, connectAddress, isLocalRemote, listenAddress, remoteHost } from "./debugLinkLogic";
 
 describe("debug link preferences", () => {
   it("read leniently, defaults on for listening, off for the LAN", () => {
-    expect(cleanPreferences(undefined)).toEqual({ listen: true, lan: false, port: 7790 });
-    expect(cleanPreferences({ listen: false, lan: true, port: 8000 })).toEqual({ listen: false, lan: true, port: 8000 });
-    expect(cleanPreferences({ listen: "yes", lan: 1, port: 80 })).toEqual({ listen: true, lan: false, port: 7790 });
+    expect(cleanPreferences(undefined)).toEqual({ listen: true, lan: false, port: 7790, rendezvous: "", iceServers: [] });
+    expect(cleanPreferences({ listen: false, lan: true, port: 8000 })).toEqual({ listen: false, lan: true, port: 8000, rendezvous: "", iceServers: [] });
+    expect(cleanPreferences({ listen: "yes", lan: 1, port: 80 })).toEqual({ listen: true, lan: false, port: 7790, rendezvous: "", iceServers: [] });
+  });
+
+  it("a rendezvous: a ws:// or wss:// URL with a host is kept (trimmed); anything else is dropped to empty", () => {
+    expect(cleanRendezvous("ws://rv.example:7800/myco-rendezvous")).toBe("ws://rv.example:7800/myco-rendezvous");
+    expect(cleanRendezvous("  wss://rv.example/myco-rendezvous ")).toBe("wss://rv.example/myco-rendezvous");
+    expect(cleanRendezvous("")).toBe("");
+    expect(cleanRendezvous("http://rv.example")).toBe("");
+    expect(cleanRendezvous("ws://")).toBe("");
+    expect(cleanRendezvous("rv.example:7800")).toBe("");
+    expect(cleanRendezvous(42)).toBe("");
+    expect(cleanPreferences({ rendezvous: "https://rv.example" }).rendezvous).toBe("");
+    expect(cleanPreferences({ rendezvous: "ws://rv.example:7800" }).rendezvous).toBe("ws://rv.example:7800");
+  });
+
+  it("ICE servers: only stun:, turn: and turns: URLs are kept, blanks and others dropped", () => {
+    expect(cleanIceServers(["stun:stun.example.org:3478", "turn:turn.example.org:3478", "turns:turn.example.org:5349"])).toEqual([
+      "stun:stun.example.org:3478",
+      "turn:turn.example.org:3478",
+      "turns:turn.example.org:5349",
+    ]);
+    expect(cleanIceServers(["  stun:stun.example.org  ", "", "https://x.example", "stun:", "STUN:a.example:1"])).toEqual(["stun:stun.example.org", "STUN:a.example:1"]);
+    expect(cleanIceServers("stun:stun.example.org")).toEqual([]);
+    expect(cleanIceServers(undefined)).toEqual([]);
+    expect(cleanPreferences({ iceServers: ["https://x.example", "turn:t.example:3478"] }).iceServers).toEqual(["turn:t.example:3478"]);
   });
 
   it("ports: integers 1024..65535 only", () => {
