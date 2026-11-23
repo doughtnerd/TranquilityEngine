@@ -93,7 +93,16 @@ export function AtCursor(props: AtCursorProps) {
 
 // ---- Voice ----------------------------------------------------------------------------------------------------------------
 
-export function VoiceDetails(props: { readonly voice: VoiceBlock | null }) {
+/** "Open in Mixer ›": the Mixer with bus `bus` selected (J10.4). */
+function OpenInMixer(props: { bus: string; onOpen(bus: string): void }) {
+  return (
+    <button type="button" class="link pf-open-mixer" title={`Open the Mixer with ${props.bus} selected`} onClick={() => props.onOpen(props.bus)}>
+      Open in Mixer ›
+    </button>
+  );
+}
+
+export function VoiceDetails(props: { readonly voice: VoiceBlock | null; onOpenBus?(bus: string): void }) {
   const v = props.voice;
   if (!v) return <EmptyState compact title="No voice selected" body="Click a voice on the timeline, or a message, to see what happened to it." />;
   const played = v.end > v.start ? `${clockText(v.start)} – ${v.open ? "end of capture" : clockText(v.end)} (${(v.end - v.start).toFixed(2)} s)` : `${clockText(v.start)} (never started)`;
@@ -116,7 +125,10 @@ export function VoiceDetails(props: { readonly voice: VoiceBlock | null }) {
         <dt>Playlist</dt>
         <dd class="pf-missing">Not in this capture</dd>
         <dt>Bus</dt>
-        <dd>{v.busName}</dd>
+        <dd>
+          {v.busName}
+          {v.busName && props.onOpenBus && <> <OpenInMixer bus={v.busName} onOpen={props.onOpenBus} /></>}
+        </dd>
         <dt>Start gain</dt>
         <dd>{v.startGain === null ? "—" : formatDb(gainToDb(v.startGain))}</dd>
         <dt>Distance</dt>
@@ -179,6 +191,8 @@ export interface MessageListProps {
   readonly selected: string | null;
   readonly open: boolean;
   onPick(message: ProfilerMessage): void;
+  /** "Open in Mixer ›" on a message about a bus: the Mixer with that bus selected (J10.4). */
+  onOpenBus?(bus: string): void;
 }
 
 export function MessageList(props: MessageListProps) {
@@ -187,12 +201,13 @@ export function MessageList(props: MessageListProps) {
   return (
     <ul class="pf-messages" aria-label="Messages">
       {props.messages.map((m) => (
-        <li key={m.key}>
+        <li key={m.key} class="pf-message-row">
           <button type="button" class={`pf-message${m.voice !== null && m.voice === props.selected ? " selected" : ""}`} data-kind={m.kind} onClick={() => props.onPick(m)}>
             <span class="pf-msg-time">{clockText(m.time)}</span>
             <span class="pf-msg-kind">{KIND_TEXT[m.kind]}</span>
             <span class="pf-msg-text">{m.text}</span>
           </button>
+          {m.bus && m.kind !== "info" && props.onOpenBus && <OpenInMixer bus={m.bus} onOpen={props.onOpenBus} />}
         </li>
       ))}
     </ul>

@@ -163,10 +163,13 @@ function CursorPanel() {
   );
 }
 
+/** "Open in Mixer ›" from a voice or a message: the Mixer with the bus selected (its route's `select`). */
+const openBusInMixer = (bus: string): void => openRoute({ screen: "mixer", select: bus });
+
 function VoicePanel() {
   return (
     <Panel bodyClass="pf-panel-body">
-      <VoiceDetails voice={profilerStore().selectedVoice.value} />
+      <VoiceDetails voice={profilerStore().selectedVoice.value} onOpenBus={openBusInMixer} />
     </Panel>
   );
 }
@@ -205,6 +208,7 @@ function MessagesPanel() {
           if (m.voice) store.select(m.voice);
           store.seekTo(m.time);
         }}
+        onOpenBus={openBusInMixer}
       />
     </Panel>
   );

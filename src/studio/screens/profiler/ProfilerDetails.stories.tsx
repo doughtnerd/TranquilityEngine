@@ -123,6 +123,36 @@ export const Messages: Story = {
   },
 };
 
+/** J10.4: a warning about a bus links to the Mixer with that bus selected; notes and markers don't. */
+const openBus = fn();
+export const MessagesOpenInMixer: Story = {
+  render: () => (
+    <div style={{ width: "520px" }}>
+      <MessageList open selected={null} onPick={() => {}} onOpenBus={openBus} messages={buildMessages({ voices, markers: [{ time: 5, text: "Boss spawned" }] })} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const links = c.getAllByRole("button", { name: "Open in Mixer ›" });
+    await expect(links.length).toBe(buildMessages({ voices }).filter((m) => m.bus).length);
+    await userEvent.click(links[0]!);
+    await expect(openBus).toHaveBeenCalledWith(stolen.busName);
+  },
+};
+
+const openVoiceBus = fn();
+export const StolenVoiceOpenInMixer: Story = {
+  render: () => (
+    <div style={{ width: "320px" }}>
+      <VoiceDetails voice={stolen} onOpenBus={openVoiceBus} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Open in Mixer ›" }));
+    await expect(openVoiceBus).toHaveBeenCalledWith(stolen.busName);
+  },
+};
+
 export const NoMessages: Story = { render: () => <MessageList open selected={null} onPick={() => {}} messages={[]} /> };
 
 const toggle = fn();
