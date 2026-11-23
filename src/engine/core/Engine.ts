@@ -239,12 +239,23 @@ export class Engine implements BootstrapEngine, WorldOwner {
     // A server World doesn't want the view unless it asks; any other World does unless it says no.
     this.views.add(world, { renders: c.renders ?? !tags.includes("server"), input: c.input });
 
-    // Autoloads are game-wide nodes (a GameManager, say): they go in the default World only.
-    if (first) World._runIn(world, () => SceneManager.loadAutoloads(world));
+    // Autoloads are game-wide nodes (a GameManager, say): they go in the default World only. With a first scene they
+    // start with it, after its preparation (its services, the audio's preload packages: a music prefab's sounds in a
+    // preloaded package played before it loaded, and were refused); without one, now.
+    const scenes = c.scenes ?? [];
+    if (first && scenes.length === 0) World._runIn(world, () => SceneManager.loadAutoloads(world));
+    else if (first) world._autoloadsPending = true;
     let loading = Promise.resolve();
-    (c.scenes ?? []).forEach((path, i) => {
+    scenes.forEach((path, i) => {
       loading = loading.then(() => (handle.alive ? handle.loadScene(path, { additive: i > 0 }) : undefined));
     });
+    if (first && scenes.length > 0) {
+      // The first scene failed to load: the autoloads still come.
+      loading = loading.catch((err: unknown) => {
+        if (world._autoloadsPending && handle.alive) World._runIn(world, () => SceneManager.loadAutoloads(world));
+        throw err;
+      });
+    }
     if (this.starting) this.starting.push(loading);
     else loading.catch((err) => console.error(`[myco] World "${c.name}" couldn't load its scenes:`, err));
     // Links this World completes (ADR 0062); the start-up Worlds' are applied by `Engine.create`, once they all exist.

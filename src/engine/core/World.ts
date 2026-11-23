@@ -146,6 +146,11 @@ export class World {
    * runtime). The audio plugin treats it as the World that has the view: listened to and mixed.
    */
   _audioOnly = false;
+  /**
+   * @internal The project's autoloads wait for this World's first scene (`SceneManager.load` instantiates them just before
+   * it), so they start after the scene's preparation: its World services and the audio's preload packages (ADR 0351 §9).
+   */
+  _autoloadsPending = false;
   /** True while this World's frame runs (`step`); structural scene changes wait for its end. */
   private framing = false;
   /** Work deferred to the end of the frame (ADR 0011 step 10): scene loads and unloads, World tear-down. */
