@@ -16,6 +16,8 @@ export interface SnapSetting {
   readonly custom: number;
   /** Snap to edges (0, the end, clip edges, loops, markers, the playhead). */
   readonly edges: boolean;
+  /** The step snapping goes back to when the toggle turns it on again (kept while it is off). */
+  readonly last?: SnapMode;
 }
 
 export const DEFAULT_SNAP: SnapSetting = { mode: "beat", custom: 0.25, edges: true };
@@ -113,10 +115,13 @@ export function snapSpan(start: number, length: number, ctx: SnapContext): numbe
   return snapTime(start, { ...ctx, snap: { ...ctx.snap, edges: false } });
 }
 
-/** Tap tempo: the BPM of the taps (ms timestamps), from the last up to 8 intervals; a pause over 2 s starts again. */
+/** A pause longer than this (ms) between taps starts a new count (prototype and UI pass default: 2.5 s). */
+export const TAP_RESET_MS = 2500;
+
+/** Tap tempo: the BPM of the taps (ms timestamps), from the last up to 8 intervals; a pause over 2.5 s starts again. */
 export function tapTempo(taps: readonly number[]): number | null {
   let from = 0;
-  for (let i = 1; i < taps.length; i++) if (taps[i]! - taps[i - 1]! > 2000) from = i;
+  for (let i = 1; i < taps.length; i++) if (taps[i]! - taps[i - 1]! > TAP_RESET_MS) from = i;
   const use = taps.slice(Math.max(from, taps.length - 9));
   if (use.length < 2) return null;
   const mean = (use[use.length - 1]! - use[0]!) / (use.length - 1);
@@ -124,8 +129,44 @@ export function tapTempo(taps: readonly number[]): number | null {
   return Math.min(400, Math.max(20, Math.round((60000 / mean) * 10) / 10));
 }
 
-/** Taps worth keeping: drop the ones before a pause over 2 s (the next tap starts a new count). */
+/** Taps worth keeping: drop the ones before a pause over 2.5 s (the next tap starts a new count). */
 export function keepTaps(taps: readonly number[], now: number): number[] {
   const last = taps[taps.length - 1];
-  return last !== undefined && now - last > 2000 ? [now] : [...taps, now].slice(-9);
+  return last !== undefined && now - last > TAP_RESET_MS ? [now] : [...taps, now].slice(-9);
+}
+
+// --- the Snap split button (proto A1, A13 "Snap increment") ------------------------------------------------------------
+
+type Display = "timecode" | "samples" | "bars";
+const thousands = (label: string): string => label.replace(/(\d)(\d{3}) smp/, "$1,$2 smp");
+
+/** The three presets the Snap increment menu offers for a time display (proto: one set per display). */
+export function snapPresets(format: Display): readonly { readonly mode: SnapMode; readonly label: string }[] {
+  const group = format === "bars" ? "music" : format === "samples" ? "samples" : "time";
+  return SNAP_MENU.filter((o) => o.group === group).map((o) => ({ mode: o.mode, label: thousands(o.label) }));
+}
+
+/** The custom step's unit in a time display, and seconds per unit. */
+export function customUnit(format: Display, tempo: SequenceSettings["tempo"]): { readonly unit: "ms" | "beat" | "smp"; readonly seconds: number } {
+  if (format === "bars") return { unit: "beat", seconds: beatSeconds(tempo) };
+  if (format === "samples") return { unit: "smp", seconds: 1 / GRID_RATE };
+  return { unit: "ms", seconds: 0.001 };
+}
+
+/** What the Snap button reads: its step ("100 ms", "1 beat", "1,000 smp", a custom "250 ms"), even while off. */
+export function snapLabel(snap: SnapSetting, format: Display, tempo: SequenceSettings["tempo"]): string {
+  const mode = snap.mode === "off" ? (snap.last ?? "off") : snap.mode;
+  if (mode === "off") return "Off";
+  if (mode === "custom") {
+    const u = customUnit(format, tempo);
+    const n = Math.round((snap.custom / u.seconds) * 100) / 100;
+    return `${n.toLocaleString("en-US")} ${u.unit}`;
+  }
+  return thousands(SNAP_MENU.find((o) => o.mode === mode)?.label ?? "Off");
+}
+
+/** The Snap toggle: off remembers the step; on goes back to it (else the display's middle preset). */
+export function toggleSnap(snap: SnapSetting, format: Display): SnapSetting {
+  if (snap.mode !== "off") return { ...snap, mode: "off", last: snap.mode };
+  return { ...snap, mode: snap.last && snap.last !== "off" ? snap.last : snapPresets(format)[1]!.mode };
 }
