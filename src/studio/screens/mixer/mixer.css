@@ -260,4 +260,4 @@
 .mx-targets th { text-align: left; color: var(--muted); font-weight: 400; font-size: calc(11px * var(--ui-scale)); padding: 0 6px 4px 0; }
 .mx-targets td { padding: 3px 6px 3px 0; }
 .mx-target-name { width: 130px; }
-.mx-target-add { margin-top: 8px; display: inline-flex; align-items: center; gap: 4px; }
+.mx-target-add { margin-top: 8px; display: inline-flex; align-items: center; gap: 4px; width: auto; align-self: flex-start; }

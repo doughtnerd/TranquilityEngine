@@ -278,7 +278,7 @@ export function outlineGroups(e: SampleEdits, sourceLength: number, query = ""):
   const loopItems: OutlineItem[] = loopRegions(e, sourceLength).map((r) =>
     r.kind === "loop" && r.loop
       ? { key: `l:${r.loop.id}`, name: loopName(e, r.loop.id), at: r.start, end: r.end, selection: r.selection, fromFile: r.loop.file !== null, color: `var(${r.token})`, active: r.loop.active, outside: false }
-      : { key: `${r.kind}:${r.start}`, name: r.kind === "link" ? `Link ${e.loops.findIndex((l) => r.selection.kind === "link" && l.id === r.selection.after) + 1}` : r.label, at: r.start, end: r.end, selection: r.selection, fromFile: false, color: `var(${r.kind === "link" ? "--range-pickup" : r.token})`, outside: false },
+      : { key: `${r.kind}:${r.start}`, name: r.kind === "link" ? `Link ${e.loops.findIndex((l) => r.selection.kind === "link" && l.id === r.selection.after) + 1}` : r.label, at: r.start, end: r.end, selection: r.selection, fromFile: false, color: r.kind === "pickup" || r.kind === "tail" ? rangeLook(e, r.kind).css : `var(${r.kind === "link" ? "--range-pickup" : r.token})`, outside: false },
   );
   const order = (i: OutlineItem) => (i.selection.kind === "pickup" ? 0 : i.selection.kind === "tail" ? 2 : 1);
   const groups: Omit<OutlineGroup, "total">[] = [
@@ -289,7 +289,7 @@ export function outlineGroups(e: SampleEdits, sourceLength: number, query = ""):
     { id: "loops", title: "Loops", empty: "No loops · Add loop, or L at the playhead", items: loopItems },
     { id: "notes", title: "Notes", empty: "None · double-click a marker row to add one", items: m((x) => x.type === "note") },
     { id: "snippets", title: "Snippets", empty: "None · snip with the razor (C)", items: snippets(e, sourceLength).map((s: Snippet) => ({ key: `s:${s.index}`, name: s.deleted ? `${s.name} · deleted` : s.name, at: s.start, end: s.end, selection: { kind: "snippet", index: s.index }, fromFile: false, color: "var(--text-strong)", outside: out(s.start, s.end), deleted: s.deleted })) },
-    { id: "trim", title: "Trim", empty: "", items: [{ key: "trim", name: "Trim", at: ta, end: tb, selection: { kind: "trim" }, fromFile: false, color: "var(--range-trim)", outside: false }] },
+    { id: "trim", title: "Trim", empty: "", items: [{ key: "trim", name: "Trim", at: ta, end: tb, selection: { kind: "trim" }, fromFile: false, color: rangeLook(e, "trim").css, outside: false }] },
   ];
   return groups
     .map((g) => ({

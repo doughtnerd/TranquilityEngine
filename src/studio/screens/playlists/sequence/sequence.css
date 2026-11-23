@@ -338,7 +338,8 @@ button.sq-tci:hover:not(:disabled) { background: var(--hover); }
 .sq-use-chip.warn { border-color: var(--warning); color: var(--warning); }
 
 /* Player bar transport */
-.sq-transport { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.sq-transport { display: inline-flex; align-items: center; gap: 4px; flex-wrap: nowrap; white-space: nowrap; }
+.sq-transport .studio-transport-button.primary.with-text span { max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
 .sq-transport label { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 
 /* Focus and touch (ADR 0361). The timeline's drag surfaces keep the browser from scrolling under a finger; the thin

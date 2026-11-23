@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { defaultSampleEdits, parseSampleEdits, sampleEditsToJson } from "../../../engine/audio/sample/format";
 import type { SampleEdits } from "../../../engine/audio/sample/types";
 import { setRangeLook, type SampleEdit } from "./sampleEditing";
-import { noteLine, rangeLook } from "./sampleView";
+import { noteLine, outlineGroups, rangeLook } from "./sampleView";
 
 const next = (r: SampleEdit): SampleEdits => {
   if ("refused" in r) throw new Error(r.refused);
@@ -30,6 +30,9 @@ describe("a reserved range's colour and note", () => {
     expect(rangeLook(e, "tail").css).toBe("var(--range-tail)");
     expect(noteLine("Breath kept")).toBe("\nBreath kept");
     expect(noteLine(undefined)).toBe("");
+    // The Outline's Trim row draws with it too.
+    const red = next(setRangeLook(defaultSampleEdits(), "trim", { colour: "danger" }));
+    expect(outlineGroups(red, 4).find((g) => g.id === "trim")?.items[0]?.color).toBe("var(--danger)");
   });
 
   it("are kept in the sidecar's sample block and read back; bad entries are dropped with a problem", () => {
