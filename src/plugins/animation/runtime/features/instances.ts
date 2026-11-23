@@ -3,7 +3,9 @@
 //
 // - **Skeleton:** on activation it starts the World's core and acquires its skeleton asset (`skeleton`, a project path
 //   to a `myco.skel@1` file; `model.glb#Skeleton` references come with the import, T14) through `acquireFile`, and reads
-//   the file's bones, rest pose and bind matrices on the host (`../assetInfo.ts`). Released on detach.
+//   the file's bones, rest pose and bind matrices on the host (`../assetInfo.ts`). Released on detach. A `Skeleton2D`
+//   (`sprites2d.ts`, T21) is a skeleton too, its bytes made on the host from an image slice's `skin`: both go through
+//   `skeletonHooksFor` with their own `SkeletonSource`, so Animators bind to either the same way.
 // - **Animator:** bound to the first Skeleton on its node or below it (Unity's Animator drives the hierarchy under it,
 //   its Avatar's bones in that subtree), it owns one implicit-graph core instance (4 layers × 2 players and a
 //   crossfade, D31) while active and bound. Deactivation or losing the Skeleton destroys the instance and ends its
@@ -19,7 +21,9 @@
 //   An Animator with a `graph` gets a graph instance instead (T32): `graphInstanceHooks.create` (filled by
 //   `graph/register.ts`) compiles and loads the graph for the Skeleton (or for no bones) before creating it, and
 //   `graphInstanceHooks.unbound` hears when it goes; everything else (binding, rebinding, plays ending) is the same.
+//   A clip no file holds (an image flipbook, `image.png#Flip/<name>`) is made on the host (`subAssetClips.ts`).
 // - **BoneAttachment:** joins its World's follow list (`attachments/follow.ts`) while active.
+import type { Component } from "../../../../engine/core/Component";
 import type { World } from "../../../../engine/core/World";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import { Assets, fetchAssetBytes } from "../../../../engine/scene/Assets";
@@ -34,6 +38,7 @@ import { INPUT_LAYER_WEIGHTS, INPUT_STRIDE, HANDLE_INDEX_MASK, MAX_LAYERS } from
 import { joinFollowList, leaveFollowList } from "./attachments/follow";
 import { resolveClip, resolveSkeleton, type AnimatorSkeleton, type ResolvedAsset } from "./clipSources";
 import { endAllPlays, queueDefaultClip, type PlayCommand, type PlayRecord } from "./playback/plays";
+import { subAssetClip } from "./subAssetClips";
 
 // ------------------------------------------------------------------------------------------------ state
 
@@ -44,9 +49,18 @@ export interface ClipEntry {
   info: ClipInfo | null;
 }
 
-/** @internal A Skeleton's runtime state. */
+/** @internal Where a skeleton component's bones come from: a file (`Skeleton`) or bytes made on the host (`Skeleton2D`). */
+export interface SkeletonSource<C extends Component> {
+  /** What the component names now ("" for nothing); loading again with the same key reuses the load. */
+  key(component: C): string;
+  /** One reference to the skeleton `key` names, in `ns`: its handle (0 when it couldn't load) and header. */
+  acquire(ns: AnimationWorldCore, key: string, component: C): Promise<{ handle: number; info: SkeletonInfo | null }>;
+}
+
+/** @internal A Skeleton's (or Skeleton2D's) runtime state. */
 export interface SkeletonRuntime {
-  readonly component: Skeleton;
+  readonly component: Component;
+  readonly source: SkeletonSource<Component>;
   readonly world: World;
   ns: AnimationWorldCore | null;
   /** The skeleton asset's handle; 0 until loaded (or when it couldn't load). */
@@ -101,7 +115,7 @@ interface WorldAnimation {
 
 const worlds = new WeakMap<World, WorldAnimation>();
 const animators = new WeakMap<Animator, AnimatorRuntime>();
-const skeletons = new WeakMap<Skeleton, SkeletonRuntime>();
+const skeletons = new WeakMap<Component, SkeletonRuntime>();
 
 function worldState(world: World): WorldAnimation {
   let w = worlds.get(world);
@@ -129,8 +143,8 @@ export function skeletonOnNode(world: World, node: GameObject): SkeletonRuntime 
   return worlds.get(world)?.skeletons.get(node.entity) ?? null;
 }
 
-/** @internal The Skeleton runtime of a Skeleton component. */
-export function skeletonRuntime(skeleton: Skeleton): SkeletonRuntime | null {
+/** @internal The Skeleton runtime of a Skeleton (or Skeleton2D) component. */
+export function skeletonRuntime(skeleton: Component): SkeletonRuntime | null {
   return skeletons.get(skeleton) ?? null;
 }
 
@@ -184,9 +198,16 @@ async function acquireResolved<I>(ns: AnimationWorldCore, resolved: ResolvedAsse
 /** The skeleton an Animator's clips bind to (ADR 0371: bone tracks by name): the first Skeleton on its node or below, once loaded. */
 async function animatorSkeleton(rt: AnimatorRuntime): Promise<AnimatorSkeleton | null> {
   const s = rt.skeleton ?? findSkeleton(rt.world, rt.animator.node);
-  if (!s || !s.component.skeleton) return null;
+  const ref = s ? s.source.key(s.component) : "";
+  if (!s || !ref) return null;
   if (s.loading) await s.loading;
-  return { ref: s.component.skeleton, bones: s.info };
+  return { ref, bones: s.info };
+}
+
+/** @internal The skeleton profile a Skeleton names (Skeleton2D has none: ""). */
+export function skeletonProfileOf(s: SkeletonRuntime): string {
+  const profile = (s.component as { profile?: unknown }).profile;
+  return typeof profile === "string" ? profile : "";
 }
 
 /** @internal The clip `path` for an Animator: acquired on first use (once per Animator and path), released on detach. */
@@ -201,8 +222,13 @@ export function clipEntry(rt: AnimatorRuntime, path: string): ClipEntry {
       e.handle = 0;
       return;
     }
-    const resolved = await resolveClip(path, await animatorSkeleton(rt));
-    const { handle, info } = await acquireResolved<ClipInfo>(ns, resolved, "clip");
+    const made = subAssetClip(path);
+    const { handle, info } =
+      made === undefined
+        ? await acquireResolved<ClipInfo>(ns, await resolveClip(path, await animatorSkeleton(rt)), "clip")
+        : made
+          ? { handle: ns.acquire(made.key, "clip", { kind: "clip", bytes: made.bytes }), info: readClipInfo(made.bytes) }
+          : { handle: 0, info: null };
     if (rt.detached || rt.clips.get(path) !== e) {
       if (handle) ns.release(handle);
       return;
@@ -222,7 +248,7 @@ function releaseClips(rt: AnimatorRuntime): void {
 // ------------------------------------------------------------------------------------------------ Skeleton
 
 function loadSkeleton(s: SkeletonRuntime): Promise<void> {
-  const path = s.component.skeleton;
+  const path = s.source.key(s.component);
   if (s.loading && s.path === path) return s.loading;
   if (s.handle && s.ns) s.ns.release(s.handle);
   s.handle = 0;
@@ -233,7 +259,7 @@ function loadSkeleton(s: SkeletonRuntime): Promise<void> {
     const ns = await startAnimationCore(s.world).catch(() => null);
     if (!ns || s.detached || s.path !== path) return;
     s.ns = ns;
-    const { handle, info } = await acquireResolved<SkeletonInfo>(ns, await resolveSkeleton(path), "skeleton");
+    const { handle, info } = await s.source.acquire(ns, path, s.component);
     if (s.detached || s.path !== path) {
       if (handle) ns.release(handle);
       return;
@@ -266,33 +292,44 @@ function rebindToSkeleton(rt: AnimatorRuntime): void {
   void activateAnimator(rt);
 }
 
-/** @internal A Skeleton's lifecycle: load its skeleton asset into the core's arena while used. */
-export const skeletonHooks: LifecycleHooks<Skeleton> = {
-  attach(component) {
-    const world = component.node.world;
-    const s: SkeletonRuntime = { component, world, ns: null, handle: 0, info: null, path: "", loading: null, animator: null, detached: false };
-    skeletons.set(component, s);
-    worldState(world).skeletons.set(component.node.entity, s);
-  },
-  activate(component) {
-    const s = skeletons.get(component);
-    if (s) void loadSkeleton(s);
-  },
-  detach(component) {
-    const s = skeletons.get(component);
-    if (!s) return;
-    s.detached = true;
-    skeletons.delete(component);
-    const w = worldState(s.world);
-    if (w.skeletons.get(component.node.entity) === s) w.skeletons.delete(component.node.entity);
-    const animator = s.animator;
-    if (animator) unbindAnimator(animator);
-    if (s.handle && s.ns) s.ns.release(s.handle);
-    s.handle = 0;
-    // The Animator keeps running on whatever rig is left, or none (T17b).
-    if (animator?.active && !animator.detached) void activateAnimator(animator);
-  },
-};
+/**
+ * @internal The lifecycle of a skeleton component whose bones come from `source`: load them into the core's arena while
+ * used; Animators on its node or above bind to it.
+ */
+export function skeletonHooksFor<C extends Component>(source: SkeletonSource<C>): LifecycleHooks<C> {
+  return {
+    attach(component) {
+      const world = component.node.world;
+      const s: SkeletonRuntime = { component, source: source as unknown as SkeletonSource<Component>, world, ns: null, handle: 0, info: null, path: "", loading: null, animator: null, detached: false };
+      skeletons.set(component, s);
+      worldState(world).skeletons.set(component.node.entity, s);
+    },
+    activate(component) {
+      const s = skeletons.get(component);
+      if (s) void loadSkeleton(s);
+    },
+    detach(component) {
+      const s = skeletons.get(component);
+      if (!s) return;
+      s.detached = true;
+      skeletons.delete(component);
+      const w = worldState(s.world);
+      if (w.skeletons.get(component.node.entity) === s) w.skeletons.delete(component.node.entity);
+      const animator = s.animator;
+      if (animator) unbindAnimator(animator);
+      if (s.handle && s.ns) s.ns.release(s.handle);
+      s.handle = 0;
+      // The Animator keeps running on whatever rig is left, or none (T17b).
+      if (animator?.active && !animator.detached) void activateAnimator(animator);
+    },
+  };
+}
+
+/** @internal A Skeleton's lifecycle: its skeleton asset (`skeleton`, a `myco.skel@1` file). */
+export const skeletonHooks: LifecycleHooks<Skeleton> = skeletonHooksFor<Skeleton>({
+  key: (c) => c.skeleton,
+  acquire: async (ns, path) => acquireResolved<SkeletonInfo>(ns, await resolveSkeleton(path), "skeleton"),
+});
 
 // ------------------------------------------------------------------------------------------------ Animator
 

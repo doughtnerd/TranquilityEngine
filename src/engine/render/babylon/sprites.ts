@@ -17,6 +17,7 @@ import { Assets } from "../../scene/Assets";
 import { authoredSize, splitSpriteRef } from "../../scene/importSettings";
 import { Camera, SpriteRenderer } from "../components";
 import { snapToGrid } from "../pixelPerfect";
+import { spriteClaimed } from "../spriteClaims";
 import { sortingOrder, unknownLayerMessage } from "../sortOrder";
 import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import type { BabylonFeature, DrawnNode, FeatureSyncContext } from "./feature";
@@ -155,7 +156,8 @@ export class BabylonSprites implements BabylonFeature {
     if (entry.texture && image) this.host.loadedTexture(image);
 
     const ready = !s.sprite || !!entry.texture;
-    const visible = s.isActiveAndEnabled && ready;
+    // A skinned slice under a Skeleton2D is another feature's to draw (ADR 0371, `spriteClaims.ts`).
+    const visible = s.isActiveAndEnabled && ready && !spriteClaimed(s);
     if (!visible) {
       entry.mesh?.setEnabled(false);
       if (entry.item) this.spritesDirty = true;

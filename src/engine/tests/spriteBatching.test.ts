@@ -18,6 +18,7 @@ import type { FeatureSyncContext } from "../render/babylon/feature";
 import { SpriteBatcher, type SpriteItem } from "../render/babylon/layeredQuads";
 import { nullEngine, shaderText } from "./pbrShaderSource";
 import { _registeredRenderFeatures } from "../render/renderFeatures";
+import { claimSprites } from "../render/spriteClaims";
 
 /** A plugin's render feature spec, as its activation registered it. */
 const registeredSpec = (name: string) => _registeredRenderFeatures().find((f) => f.spec.name === name)!.spec;
@@ -198,6 +199,19 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
     f.sync(world, ctx);
     expect(batchedSprites(scene)).toBe(1);
     expect(drawnNodes(f).map((n) => n.name)).toEqual(["a"]);
+    f.dispose();
+  });
+
+  it("leaves sprites another feature claims to it (ADR 0371: skinned slices), in the same frame", () => {
+    const f = make();
+    sprite("a", 0);
+    const b = sprite("b", 2);
+    const unclaim = claimSprites((r) => r === b);
+    f.sync(world, ctx);
+    expect(drawnNodes(f).map((n) => n.name)).toEqual(["a"]);
+    unclaim();
+    f.sync(world, ctx);
+    expect(drawnNodes(f).map((n) => n.name).sort()).toEqual(["a", "b"]);
     f.dispose();
   });
 

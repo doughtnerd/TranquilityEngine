@@ -33,6 +33,7 @@ function fakeHost() {
           b.extent = [0, 0];
           for (let i = 0; i < positions.length; i += 3) b.extent = [Math.max(b.extent[0], positions[i]), Math.max(b.extent[1], positions[i + 1])];
         },
+        setTriangles() {},
         setMatrix(m, offset = 0) { b.matrix = Array.from(m).slice(offset, offset + 16); },
         setOrder(o) { b.order = o; },
         setTint(c, a) { b.tint = [c, a]; },

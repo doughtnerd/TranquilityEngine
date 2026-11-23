@@ -25,6 +25,12 @@ export interface QuadBatch {
    * v up) and 6 `indices`. Shown once it has quads and is visible.
    */
   setQuads(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array): void;
+  /**
+   * Replace the geometry with any triangles: xyz `positions` and uv (`uvs`, v up) per vertex, three `indices` per
+   * triangle (a skinned sprite's mesh, ADR 0370, 0371). A call with the same texture, vertex count and `indices` array
+   * only moves the vertices, so a deforming mesh can be updated every frame.
+   */
+  setTriangles(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array): void;
   /** The column-major 4×4 node-to-world matrix at `offset` (the layout `World.worldMatrix` gives). */
   setMatrix(m: ArrayLike<number>, offset?: number): void;
   /** Draw order (from `QuadBatchHost.sortOrder`). */

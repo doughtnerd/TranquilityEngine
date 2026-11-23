@@ -44,7 +44,7 @@ import {
   STATUS_UNREACHABLE,
   TRAVEL,
 } from "../../wasm/wire/graph";
-import { animatorRuntime, animatorsOf, clipEntry, type AnimatorRuntime, type ClipEntry, type SkeletonRuntime } from "../instances";
+import { animatorRuntime, animatorsOf, clipEntry, skeletonProfileOf, type AnimatorRuntime, type ClipEntry, type SkeletonRuntime } from "../instances";
 import { acquireGraph, releaseGraph, type GraphMeta, type LoadedGraph } from "./asset";
 import { readClipCues, sectionRange } from "./clipCues";
 import { encodeParameter, PARAM_TYPE_IDS } from "./parameters";
@@ -170,7 +170,7 @@ let nextSlotPlayId = 1;
  */
 export async function createGraphInstance(rt: AnimatorRuntime, ns: AnimationWorldCore, skeleton: SkeletonRuntime | null, current: () => boolean): Promise<number> {
   const a = rt.animator;
-  const rig = skeleton?.info ? { path: skeleton.path, info: skeleton.info, profile: skeleton.component.profile } : null;
+  const rig = skeleton?.info ? { path: skeleton.path, info: skeleton.info, profile: skeletonProfileOf(skeleton) } : null;
   const graph = await acquireGraph(ns, a.graph, rig);
   if (!graph) return 0;
   // Another activation of the same Animator (a Skeleton finishing its load) may have made the instance meanwhile.
@@ -547,7 +547,7 @@ function flushIntent(frame: AnimationFrame, g: GraphRuntime, intent: Intent): bo
         if (intent.loaded === undefined) {
           if (!intent.loading) {
             intent.loading = true;
-            const rig = g.rt.skeleton?.info ? { path: g.rt.skeleton.path, info: g.rt.skeleton.info, profile: g.rt.skeleton.component.profile } : null;
+            const rig = g.rt.skeleton?.info ? { path: g.rt.skeleton.path, info: g.rt.skeleton.info, profile: skeletonProfileOf(g.rt.skeleton) } : null;
             const ns = g.ns;
             void acquireGraph(ns, intent.path, rig).then((l) => {
               if (intent.dropped) {

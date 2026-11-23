@@ -13,7 +13,7 @@ import type { AnimationFrame } from "../../stages/frame";
 import type { AnimationPlayEndReason, AnimationPlayResult, AnimatorStateInfo } from "../../types";
 import { CHANGE_FINISHED, CHANGE_INTERRUPTED, CHANGE_REFUSED, PLAY, PLAY_LOOP, PLAY_ONCE, SET_LAYER, STATE_CHANGE, STOP } from "../../wasm/wire/core";
 import type { RecordFields } from "../../core/records";
-import { clipEntry, playsOf, type AnimatorRuntime, type ClipEntry } from "../instances";
+import { clipEntry, playsOf, skeletonProfileOf, type AnimatorRuntime, type ClipEntry } from "../instances";
 import { acquireMask } from "../graph/masks";
 
 /** @internal One play of a clip on a layer. */
@@ -113,7 +113,7 @@ function maskEntry(rt: AnimatorRuntime, path: string): ClipEntry | null {
   const e: ClipEntry = { path, handle: undefined, info: null };
   rt.clips.set(key, e);
   const ns = rt.ns;
-  void acquireMask(ns, path, { path: s.path, info: s.info, profile: s.component.profile }).then((handle) => {
+  void acquireMask(ns, path, { path: s.path, info: s.info, profile: skeletonProfileOf(s) }).then((handle) => {
     if (rt.detached || rt.clips.get(key) !== e) {
       if (handle) ns.release(handle);
       return;
