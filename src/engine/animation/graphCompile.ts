@@ -47,7 +47,9 @@ import {
   type AnimGraph, type Condition, type GraphNode, type GraphParamType, type NodeParamValue, type Transition,
 } from "./animGraph";
 import { ByteWriter, encodeStringTable, f32Bits, writeContainer } from "./binaryWriter";
-import { familyId, NONE, nodeKindSchema, type AssetRefKind, type NodeKindSchema, type NodePacker, type NodeParamSchema } from "./graphNodes";
+import { familyId, NONE, nodeKindSchema, type AssetRefKind, type NodeKindSchema, type NodePacker, type NodeParamSchema, type NodeResolveContext } from "./graphNodes";
+import { pluginNodeModuleDescriptor } from "./graphNodes/plugin";
+import type { PluginModuleDescriptor } from "./pluginDescriptor";
 
 /** @internal One problem: where in the source model, what, and how bad. */
 export interface CompileProblem {
@@ -95,6 +97,11 @@ export interface GraphCompileOptions {
   readonly bones?: readonly string[];
   /** A pose database's tag names, for tag lists given by name (`database` null: a `matchTags` node's). */
   readonly poseDatabaseTags?: (database: string | null) => readonly string[] | undefined;
+  /**
+   * A third-party node module's descriptor by project path, so plugin nodes that name a module node pack named
+   * parameters (T45t). Absent: the catalogue's registry (`graphNodes/plugin.ts`, filled by the loaders).
+   */
+  readonly pluginDescriptors?: (module: string) => PluginModuleDescriptor | undefined;
 }
 
 const MAGIC = "MYCOAGPH";
@@ -171,6 +178,10 @@ class Compiler {
   readonly programs: [number, number][] = [];
 
   constructor(readonly g: AnimGraph, readonly options: GraphCompileOptions) {}
+
+  readonly resolveContext: NodeResolveContext = {
+    pluginDescriptor: (module) => (this.options.pluginDescriptors ?? pluginNodeModuleDescriptor)(module),
+  };
 
   error(path: string, message: string): void {
     this.problems.push({ path, message, severity: "error" });
@@ -484,7 +495,8 @@ class Compiler {
     }
     const s = nodeKindSchema(n.family, n.kind);
     if (!s) this.error(`${at}.kind`, `${JSON.stringify(n.kind)} isn't a "${n.family}" node kind; the node outputs nothing.`);
-    return s;
+    // A kind may answer a more specific schema for this node (a plugin node's descriptor-generated kind, T45t).
+    return s?.resolve?.(n.params, this.resolveContext) ?? s;
   }
 
   /** Stable topological order, children first; null (with an error naming a cycle) when there is one. */
@@ -814,6 +826,9 @@ class Packer implements NodePacker {
   }
   has(name: string): boolean {
     return this.raw(name) !== undefined;
+  }
+  value(name: string): NodeParamValue | undefined {
+    return this.raw(name);
   }
 
   private clamp(s: NodeParamSchema, v: number, what = "value"): number {

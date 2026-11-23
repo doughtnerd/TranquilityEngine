@@ -25,6 +25,7 @@ import {
   TRACK_STRIDE,
 } from "../wasm/wire/core";
 import { BLACKBOARD_STRIDE, GRAPH_CHANGE } from "../wasm/wire/graph";
+import { PLUGIN_FAULT } from "../wasm/wire/plugin";
 import { RAY_ROW_STRIDE, RIG_INPUT_STRIDE } from "../wasm/wire/rig";
 import { TIMELINE_BLOCK, TIMELINE_CHANGE, TIMELINE_CONTROL, TIMELINE_CREATE, TIMELINE_INFO } from "../wasm/wire/timeline";
 import { TWEEN_CHANGE, TWEEN_CONTROL, TWEEN_CREATE } from "../wasm/wire/tween";
@@ -517,6 +518,21 @@ export class AnimationCore {
   /** Graph state-change record `i` (`graph.GRAPH_CHANGE`), into `out` when given. */
   graphChange(i: number, out?: RecordFields<typeof GRAPH_CHANGE>): RecordFields<typeof GRAPH_CHANGE> {
     return getRecord(this.views().data, this.wasm.graph_changes_ptr() + i * GRAPH_CHANGE.stride, GRAPH_CHANGE, out);
+  }
+
+  /** Third-party node faults reported since the last `writeInputs` (T45t: each node instance's first fault). */
+  pluginFaultCount(): number {
+    return this.wasm.plugin_fault_count();
+  }
+
+  /** Third-party node fault record `i` (`plugin.PLUGIN_FAULT`), into `out` when given. */
+  pluginFault(i: number, out?: RecordFields<typeof PLUGIN_FAULT>): RecordFields<typeof PLUGIN_FAULT> {
+    return getRecord(this.views().data, this.wasm.plugin_faults_ptr() + i * PLUGIN_FAULT.stride, PLUGIN_FAULT, out);
+  }
+
+  /** Fault reports dropped since the last `writeInputs` because the buffer was full. */
+  pluginFaultsDropped(): number {
+    return this.wasm.plugin_faults_dropped();
   }
 
   /**
