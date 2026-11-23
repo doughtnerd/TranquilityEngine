@@ -7,6 +7,9 @@
 // samples…). Rename and move are the engine's asset operations, so
 // references (playlists, scenes) follow and the file on disk is what changes; deleting a sample moves its file to the
 // project's trash, with Undo on the toast (`sampleTrash.ts`).
+import { openMixDocument } from "../mixer/mixerDocument";
+import { applyEdit } from "../../../plugins/audio/editor/editResult";
+import { FOLDER_COLOURS, folderColour, folderColourCss, moveFolderColours, setFolderColour } from "./folderColours";
 import { useRef, useState } from "preact/hooks";
 import { createPortal } from "preact/compat";
 import { signal } from "@preact/signals";
@@ -76,7 +79,25 @@ async function moveSamples(moves: readonly (readonly [string, string])[], verb?:
   const ok = await moveAssets(moves, verb);
   const project = currentProject.peek();
   if (ok && project) await moveSourceVersions(project, moves);
+  if (ok) followFolderColours(moves);
   return ok;
+}
+
+/** ADR 0362 item 4: a renamed or moved folder keeps its colour (and its subfolders theirs) in the project's settings. */
+function followFolderColours(moves: readonly (readonly [string, string])[]): void {
+  const doc = openMixDocument(currentProject.peek());
+  if (!doc || doc.readOnly) return;
+  const before = doc.value.peek();
+  const next = moves.reduce((p, [from, to]) => moveFolderColours(p, from, to), before);
+  if (next !== before) doc.edit(next, { label: "Folder colour" });
+}
+
+/** ADR 0362 item 4: set or clear a folder's colour, one step of `audio.json`'s history. */
+function editFolderColour(folder: string, colour: string | null): void {
+  const doc = openMixDocument(currentProject.peek());
+  if (!doc) return;
+  const before = doc.value.peek();
+  applyEdit(setFolderColour(before, folder, colour), colour === null ? "Clear folder colour" : "Folder colour", (next, label) => doc.edit(next, { label }), before);
 }
 
 /** The engine's rename of `entry` (a file, or a folder entry) to `name`; `from` → `to` are the project paths it changes. */
@@ -84,6 +105,7 @@ async function renameSample(entry: string, name: string, from: string, to: strin
   const ok = await renameAsset(entry, name);
   const project = currentProject.peek();
   if (ok && project) await moveSourceVersions(project, [[from, to]]);
+  if (ok) followFolderColours([[from, to]]);
   return ok;
 }
 
@@ -100,6 +122,8 @@ export function SamplesPanel() {
   const [osDrop, setOsDrop] = useState(false);
   const addCaret = useRef<HTMLButtonElement>(null);
   if (!project) return null;
+  const mixDoc = openMixDocument(project);
+  const mixValue = mixDoc?.value.value ?? null;
   const folders = audioFolders(project.folders, project.files);
   const tree = libraryTree(project.files, folders);
   const count = allSamples(tree).length;
@@ -203,6 +227,13 @@ export function SamplesPanel() {
         { id: "new", label: "New folder inside", disabled: readOnly, run: () => void addFolder(folder) },
         { id: "paste", label: "Paste here", hint: "Ctrl+V", disabled: readOnly || !copied.value, title: copied.value ? `A duplicate of ${nameOf(copied.value)} in this folder` : "Copy a sample first", run: () => copied.value && void duplicateInto(copied.value, folder) },
         { id: "move", label: "Move to…", disabled: readOnly, run: () => setMoving([folder]) },
+        {
+          id: "colour", label: "Colour", disabled: readOnly || !mixDoc, run: () => {},
+          submenu: [
+            { id: "colour-none", label: "Default", checked: folderColour(mixValue, folder) === null, run: () => editFolderColour(folder, null) },
+            ...FOLDER_COLOURS.map((c) => ({ id: `colour-${c.colour}`, label: c.name, checked: folderColour(mixValue, folder) === c.colour, run: () => editFolderColour(folder, c.colour) })),
+          ],
+        },
         folderOf(folder) !== "" && { id: "top", label: "Move to top level", disabled: readOnly, run: () => void moveSamples([[folder, nameOf(folder)]]) },
         SEPARATOR,
         { id: "delete", label: "Delete folder", hint: "Del", danger: true, disabled: readOnly, run: () => void deleteFolder(folder) },
@@ -301,8 +332,8 @@ export function SamplesPanel() {
     selected: folderSel === f.path,
     className: "smp-folder",
     attrs: { "data-drop-folder": f.path },
-    title: `${f.path} · double-click to rename · drop samples here`,
-    icon: <Icon name="folder" size={13} />,
+    title: `${f.path} · double-click to rename · drop samples here · right-click for its colour`,
+    icon: folderColourCss(mixValue, f.path) ? <span class="smp-folder-colour" style={{ color: folderColourCss(mixValue, f.path)! }}><Icon name="folder" size={13} /></span> : <Icon name="folder" size={13} />,
     trailing: (
       <span class="smp-folder-tail">
         <span class="smp-fcount">{allSamples(f).length}</span>
