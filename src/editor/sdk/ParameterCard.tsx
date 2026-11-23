@@ -24,6 +24,11 @@ export interface ParameterCardsProps<H> {
   removeTitle(p: ParameterDef): string;
   /** Under each card (a holder's extra controls). */
   extra?(p: ParameterDef): ComponentChildren;
+  /**
+   * A holder whose parameters are typed its own way (an animation graph's float, int, bool…): its fields replace the
+   * kind select and the range or labels fields, and the list offers only "+ Parameter".
+   */
+  fields?(p: ParameterDef): ComponentChildren;
 }
 
 /** A number input committing on change; non-numbers and the same value are ignored. */
@@ -52,7 +57,7 @@ export function ParameterCard<H>(props: ParameterCardsProps<H> & { parameter: Pa
     <div class="param-card" role="group" aria-label={`Parameter ${name}`} data-parameter={name} data-kind={isLabelled(p) ? "labelled" : "numeric"}>
       <div class="param-head">
         <TextField class="param-name" value={name} label={`Parameter ${name} name`} onCommit={(v) => apply(list.rename(holder, name, v), `Rename parameter ${name} to ${v.trim()}`)} />
-        <select
+        {!props.fields && <select
           aria-label={`${name} kind`}
           value={isLabelled(p) ? "labelled" : "numeric"}
           disabled={readOnly}
@@ -63,12 +68,12 @@ export function ParameterCard<H>(props: ParameterCardsProps<H> & { parameter: Pa
         >
           <option value="numeric">Numeric</option>
           <option value="labelled">Labelled</option>
-        </select>
+        </select>}
         <button class="icon param-remove" aria-label={`Remove parameter ${name}`} title={props.removeTitle(p)} disabled={readOnly} onClick={() => apply(list.remove(holder, name), `Remove parameter ${name}`)}>
           ×
         </button>
       </div>
-      {isLabelled(p) ? (
+      {props.fields ? props.fields(p) : isLabelled(p) ? (
         <div class="param-fields">
           <label class="param-field param-wide" title="Comma-separated; the first is the default unless you pick another">
             <span>Labels</span>
@@ -115,9 +120,11 @@ export function ParameterCards<H>(props: ParameterCardsProps<H>) {
         <button disabled={readOnly || full} title={addTitle} onClick={() => apply(list.add(holder), "Add parameter")}>
           + Parameter
         </button>
-        <button disabled={readOnly || full} title={addTitle} onClick={() => apply(list.add(holder, "labelled"), "Add labelled parameter")}>
-          + Labelled parameter
-        </button>
+        {!props.fields && (
+          <button disabled={readOnly || full} title={addTitle} onClick={() => apply(list.add(holder, "labelled"), "Add labelled parameter")}>
+            + Labelled parameter
+          </button>
+        )}
       </div>
     </div>
   );
