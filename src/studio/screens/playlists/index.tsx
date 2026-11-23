@@ -37,6 +37,8 @@ import {
   playingNow, releaseAudition, renameFolder, renamePlaylistFile, removeLinkEntry, runDrop, selectedEntry, setTestValue, stopAudition, target, testValues, trigger, triggerOffReason, unlink, voiceLog, clearLog,
 } from "./playlistsScreen";
 import { newPlaylistParameter } from "./newParameter";
+import { contentFolders } from "../../components/projectFolders";
+import { isPlaylistPath } from "../../../engine/audio/playlist/format";
 import { NewGlobalParameterHost } from "../mixer/newGlobalParameter";
 import { PlaylistTreeView, type TreeActions } from "./PlaylistTreeView";
 import { entryKey, factsOf, fileKey, playlistTree, type PlaylistNode } from "./playlistTree";
@@ -126,13 +128,15 @@ function TreePanel() {
   void docVersion.value;
   const project = currentProject.value;
   const files = project?.files ?? [];
-  const nodes = playlistTree(files, project?.folders ?? [], loadPlaylist);
+  // A new project's scenes/ and scripts/ aren't playlist folders (T5).
+  const folders = contentFolders(project?.folders ?? [], files, isPlaylistPath);
+  const nodes = playlistTree(files, folders, loadPlaylist);
   const open = openBody.value;
   const nestInto = open && open.type !== "clip" && open.type !== "sequence" ? lastCrumbName() : null;
   return (
     <Panel bodyClass="pl-panel-body">
       <PlaylistHistoryScope doc={openDoc.value}>
-      <PlaylistTreeView nodes={nodes} folders={project?.folders ?? []} openKey={openKey()} writable={writable()} hasSamples={files.some(isSamplePath)} nestInto={nestInto} actions={treeActions} />
+      <PlaylistTreeView nodes={nodes} folders={folders} openKey={openKey()} writable={writable()} hasSamples={files.some(isSamplePath)} nestInto={nestInto} actions={treeActions} />
       {deletingFolder.value && <FolderDeleteDialog folder={deletingFolder.value} onCancel={() => (deletingFolder.value = null)} onConfirm={() => void deleteFolderKeepingContents(deletingFolder.value!.path)} />}
       </PlaylistHistoryScope>
     </Panel>
