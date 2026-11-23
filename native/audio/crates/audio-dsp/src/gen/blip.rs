@@ -32,9 +32,14 @@
 //!   once a block (the phaser's offset, the low- and high-pass sweeps), are swept once a block by the block's tick count,
 //!   multiplication by multiplication as sfxr does.
 //!
+//! **Quality** (D67): at `quality` `high` the oscillator's discontinuities (the saw's and square's jumps, the triangle's
+//! corners, the held noise's steps) take a minBLEP residual (`blep.rs`) instead of PolyBLEP, the blip reading its
+//! waveform `blep::DELAY` samples late; latched at the trigger like the other parameters.
+//!
 //! The PLAY loop flag re-triggers the blip at its end (sfxr's repeat, endless) until the key-off.
 
 use super::osc::{pulse_at, saw_at, sine_cycles, triangle_at, Held, MAX_DT};
+use super::blep::Ring;
 use super::svf::{OnePole, Svf};
 
 /// sfxr's control rate (its per-sample loop).
@@ -74,7 +79,8 @@ pub mod p {
     pub const HIGHPASS_CUTOFF: usize = 21;
     pub const HIGHPASS_SWEEP: usize = 22;
     pub const LEVEL: usize = 23;
-    pub const COUNT: usize = 24;
+    pub const QUALITY: usize = 24;
+    pub const COUNT: usize = 25;
 }
 
 /// The waveforms (sfxr's `wave_type` 0-3, then bfxr's triangle).
@@ -155,6 +161,22 @@ impl Ticks {
 #[inline(always)]
 fn whole_period(rfperiod: f64) -> f64 {
     (rfperiod as i64).max(8) as f64
+}
+
+/// At `high` quality: `f(tau)` for a threshold `th` (cycles) the oscillator crossed moving from `prev` to `ph` (`wrapped`:
+/// through the end of the cycle), `tau` the samples since the crossing for a move of `cycles` a sample.
+#[inline(always)]
+fn crossed(prev: f64, ph: f64, wrapped: bool, th: f64, cycles: f64, mut f: impl FnMut(f64)) {
+    if wrapped {
+        if prev < th {
+            f((ph + 1.0 - th) / cycles);
+        }
+        if ph >= th {
+            f((ph - th) / cycles);
+        }
+    } else if prev < th && ph >= th {
+        f((ph - th) / cycles);
+    }
 }
 
 /// A block's second pass, in place: `x[i] ← (x[i] + y[i]) × e[i] × (g0 + dg × (base + i + 1))`, where `e[i]` is the envelope and
@@ -250,7 +272,9 @@ pub struct Blip {
     fltdmp: f32,
     /// The high-pass needs its sweep (moving, or outside sfxr's clamp).
     hp_sweep: u8,
-    _pad: [u8; 3],
+    /// `quality` is `high` (latched at the trigger).
+    hq: u8,
+    _pad: [u8; 2],
     // Swept once a block.
     fphase: f32,
     flthp: f32,
@@ -261,6 +285,11 @@ pub struct Blip {
     /// mid-cycle slows the cycle, as in sfxr).
     phase: f64,
     held: Held,
+    /// At `high` quality: the oscillator's position (cycles) at the last sample (the ring is the voice's, passed to
+    /// [`Blip::render`]), and a trigger since the ring was last cleared.
+    hq_ph: f64,
+    ring_stale: u8,
+    _pad3: [u8; 7],
     lp: Svf,
     hp: OnePole,
     lp_w_set: f32,
@@ -293,6 +322,9 @@ impl Blip {
         let sq = |x: f32| x * x;
         let cube = |x: f32| x as f64 * x as f64 * x as f64;
         self.wave = p[p::WAVEFORM].clamp(0.0, 4.0) as u8;
+        self.hq = (p[p::QUALITY] as u8 == super::quality::HIGH) as u8;
+        self.ring_stale = 1;
+        self.hq_ph = 0.0;
         self.fperiod0 = 100.0 / (sq(p[p::BASE_FREQUENCY]) as f64 + 0.001);
         self.fmaxperiod = 100.0 / (sq(p[p::FREQUENCY_LIMIT]) as f64 + 0.001);
         self.limit_ends = (p[p::FREQUENCY_LIMIT] > 0.0) as u8;
@@ -523,12 +555,13 @@ impl Blip {
         }
     }
 
-    /// Samples `from..n` of waveform `W` (with the low-pass when `LP`): the ticks, the oscillator and the filters, fused,
+    /// Samples `from..n` of waveform `W` (the low-pass `LP`: 0 none, 1 on, 2 as `lp_on` says; `high` quality when `HQ`):
+    /// the ticks, the oscillator and the filters, fused,
     /// into `out` (before the phaser), and the envelope's level into `eb`. No ticks before sample `from` when `fresh` (a
     /// re-trigger just reset the clock there). Stops at a sample whose ticks ended the blip: returns it and `true`.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
-    fn run<const W: u8, const LP: bool>(&mut self, from: usize, n: usize, steps: &[f32], out: &mut [f32], eb: &mut [f32; BLOCK], rate: f32, fresh: bool, noise: &mut u32) -> (usize, bool) {
+    fn run<const W: u8, const LP: u8, const HQ: bool>(&mut self, from: usize, n: usize, steps: &[f32], out: &mut [f32], eb: &mut [f32; BLOCK], rate: f32, fresh: bool, noise: &mut u32, ring: &mut Ring) -> (usize, bool) {
         self.coefficients(rate);
         let step = SFXR_RATE / rate as f64;
         let adv0 = SFXR_SUPER / rate as f64;
@@ -537,11 +570,17 @@ impl Blip {
         let mut phase = self.phase;
         let mut held = self.held;
         let (mut lp, mut hp) = (self.lp, self.hp);
-        if LP && self.fltw <= 0.0 {
+        let lp_on = LP == 1 || (LP == 2 && self.lp_on != 0);
+        if lp_on && self.fltw <= 0.0 {
             // A low-pass at 0 passes nothing: an all-zero filter outputs exactly 0.
             lp = Svf::default();
         }
         let n = n.min(out.len());
+        if HQ && self.ring_stale != 0 {
+            ring.clear();
+            self.ring_stale = 0;
+        }
+        let mut hq_ph = self.hq_ph;
         let mut env = t.envelope();
         let acc0 = t.acc;
         let mut j = from;
@@ -571,8 +610,10 @@ impl Blip {
             skip = false;
             // sfxr's phase moves 8 steps a tick (352,800 a second), times the pitch.
             let adv = adv0 * steps[j] as f64;
+            let mut wrapped = false;
             if phase >= t.period {
                 // sfxr's `phase %= period`: one subtraction unless the period just shrank below half the phase.
+                wrapped = true;
                 phase -= t.period;
                 if phase >= t.period {
                     core::hint::cold_path();
@@ -584,15 +625,48 @@ impl Blip {
             // (A compare, not `f64::min`: no NaN can arrive, and `min`'s NaN rule costs a select chain.)
             let dt = if cycles < MAX_DT { cycles } else { MAX_DT };
             phase += adv;
-            let mut x = match W {
-                wave::SAW => -saw_at(ph, dt) as f32,
-                wave::SINE => sine_cycles(ph),
-                // sfxr's 32 held values a period.
-                wave::NOISE => held.next(32.0 * cycles, || super::noise::uniform(noise)),
-                wave::TRIANGLE => triangle_at(ph, dt) as f32,
-                _ => pulse_at(ph, dt, t.square_duty as f64, 0.5) as f32,
+            let mut x = if HQ {
+                // `high`: the naive waveform through the ring, each discontinuity the move crossed (the wrap, the
+                // square's duty, the triangle's top) a residual from `tau` = (its distance behind) / (the move).
+                let prev = hq_ph;
+                hq_ph = ph;
+                match W {
+                    wave::SAW => {
+                        if wrapped {
+                            ring.edge(ph / cycles, 2.0);
+                        }
+                        ring.push((1.0 - 2.0 * ph) as f32)
+                    }
+                    wave::SINE => ring.push(sine_cycles(ph)),
+                    wave::NOISE => held.next_hq(32.0 * cycles, || super::noise::uniform(noise), ring),
+                    wave::TRIANGLE => {
+                        let c = (8.0 * cycles) as f32;
+                        if wrapped {
+                            ring.corner(ph / cycles, c);
+                        }
+                        crossed(prev, ph, wrapped, 0.5, cycles, |tau| ring.corner(tau, -c));
+                        ring.push(if ph < 0.5 { 4.0 * ph - 1.0 } else { 3.0 - 4.0 * ph } as f32)
+                    }
+                    _ => {
+                        let duty = t.square_duty as f64;
+                        if wrapped {
+                            ring.edge(ph / cycles, 1.0);
+                        }
+                        crossed(prev, ph, wrapped, duty, cycles, |tau| ring.edge(tau, -1.0));
+                        ring.push(if ph < duty { 0.5 } else { -0.5 })
+                    }
+                }
+            } else {
+                match W {
+                    wave::SAW => -saw_at(ph, dt) as f32,
+                    wave::SINE => sine_cycles(ph),
+                    // sfxr's 32 held values a period.
+                    wave::NOISE => held.next(32.0 * cycles, || super::noise::uniform(noise)),
+                    wave::TRIANGLE => triangle_at(ph, dt) as f32,
+                    _ => pulse_at(ph, dt, t.square_duty as f64, 0.5) as f32,
+                }
             };
-            if LP {
+            if lp_on {
                 x = lp.lowpass(x);
             }
             out[j] = hp.highpass(x);
@@ -611,6 +685,9 @@ impl Blip {
         self.held = held;
         self.lp = lp;
         self.hp = hp;
+        if HQ {
+            self.hq_ph = hq_ph;
+        }
         (j, ended)
     }
 
@@ -651,9 +728,9 @@ impl Blip {
     }
 
     /// Renders `out.len()` samples (at most [`BLOCK`]) with per-sample pitch `steps`, times gain `g0` ramping to `g1`;
-    /// `noise` draws held values. Returns `false` once the blip has ended (the rest of `out` is zero).
+    /// `noise` draws held values; `ring` is the minBLEP ring `high` quality uses (the voice's). Returns `false` once the blip has ended (the rest of `out` is zero).
     #[allow(clippy::too_many_arguments)]
-    pub fn render(&mut self, steps: &[f32], out: &mut [f32], g0: f32, g1: f32, rate: f32, repeat: bool, noise: &mut u32) -> bool {
+    pub fn render(&mut self, steps: &[f32], out: &mut [f32], g0: f32, g1: f32, rate: f32, repeat: bool, noise: &mut u32, ring: &mut Ring) -> bool {
         let n = out.len().min(BLOCK);
         let dg = (g1 - g0) / n as f32;
         let (mut from, mut fresh) = (0, false);
@@ -661,10 +738,12 @@ impl Blip {
         loop {
             macro_rules! run {
                 ($w:expr) => {
-                    if self.lp_on != 0 {
-                        self.run::<{ $w }, true>(from, n, steps, out, &mut eb, rate, fresh, noise)
+                    if self.hq != 0 {
+                        self.run::<{ $w }, 2, true>(from, n, steps, out, &mut eb, rate, fresh, noise, ring)
+                    } else if self.lp_on != 0 {
+                        self.run::<{ $w }, 1, false>(from, n, steps, out, &mut eb, rate, fresh, noise, ring)
                     } else {
-                        self.run::<{ $w }, false>(from, n, steps, out, &mut eb, rate, fresh, noise)
+                        self.run::<{ $w }, 0, false>(from, n, steps, out, &mut eb, rate, fresh, noise, ring)
                     }
                 };
             }

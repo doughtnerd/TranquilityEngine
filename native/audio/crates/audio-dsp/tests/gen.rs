@@ -3,6 +3,7 @@
 //! determinism, and the blip against a direct port of sfxr's own synthesiser (44.1 kHz, 8× supersampled) for the
 //! presets' key parameters.
 
+use audio_dsp::gen::blep::{self, Ring};
 use audio_dsp::gen::blip::{self, p as bp};
 use audio_dsp::gen::env::{stage, Adsr};
 use audio_dsp::gen::noise::Noise;
@@ -112,6 +113,111 @@ fn the_waveforms_keep_their_shapes() {
         let t = k as f64 / 1_000.0;
         assert!((gen::osc::sine_cycles(t) as f64 - (core::f64::consts::TAU * t).sin()).abs() < 4e-6, "{t}");
     }
+}
+
+// --- Quality (D67) ---
+
+/// `N` samples of an oscillator at fundamental `bin` read through a `high` quality ring, after `N` samples to settle
+/// (the ring's delay and the residuals' tails), so the measured window is periodic in `N`.
+fn render_hq(bin: usize, mut f: impl FnMut(&mut Osc, f64, &mut Ring) -> f32) -> Vec<f32> {
+    let dt = bin as f64 / N as f64;
+    let (mut o, mut r) = (Osc::default(), Ring::default());
+    let all: Vec<f32> = (0..2 * N).map(|_| f(&mut o, dt, &mut r)).collect();
+    all[N..].to_vec()
+}
+
+/// `high` quality's bound on the worst alias bin against the fundamental at each of [`BINS`] (the owner's targets: −60 dB
+/// below 2 kHz, −45 dB at 3.5 kHz), and the waveforms it holds them for: saw, pulse (50 % and 25 %) and triangle, each
+/// read by `standard`'s kernel and by `high`'s (`(standard, high)`).
+const HIGH_BOUND: [f64; 3] = [-60.0, -60.0, -45.0];
+
+fn both_kernels(bin: usize) -> Vec<(&'static str, Vec<f32>, Vec<f32>)> {
+    vec![
+        ("saw", render(bin, |o, dt| o.saw(dt)), render_hq(bin, |o, dt, r| o.saw_hq(dt, r))),
+        ("pulse", render(bin, |o, dt| o.pulse(dt, 0.5, 1.0)), render_hq(bin, |o, dt, r| o.pulse_hq(dt, 0.5, 1.0, r))),
+        ("pulse 25 %", render(bin, |o, dt| o.pulse(dt, 0.25, 1.0)), render_hq(bin, |o, dt, r| o.pulse_hq(dt, 0.25, 1.0, r))),
+        ("triangle", render(bin, |o, dt| o.triangle(dt)), render_hq(bin, |o, dt, r| o.triangle_hq(dt, r))),
+    ]
+}
+
+#[test]
+fn high_quality_holds_the_owners_alias_targets_and_beats_standard() {
+    for (b, bin) in BINS.into_iter().enumerate() {
+        let hz = bin as f32 * RATE / N as f32;
+        for (what, standard, high) in both_kernels(bin) {
+            let (s, h) = (alias_db(&standard, bin), alias_db(&high, bin));
+            eprintln!("{hz:7.1} Hz {what:10} (total / worst bin): standard {:6.1} / {:6.1} dB, high {:6.1} / {:6.1} dB", s.0, s.1, h.0, h.1);
+            assert!(h.1 < HIGH_BOUND[b], "{hz} Hz {what}: high {h:?} (bound {})", HIGH_BOUND[b]);
+            // At least 20 dB below standard's worst bin, and less alias energy in all.
+            assert!(h.1 < s.1 - 20.0 && h.0 < s.0, "{hz} Hz {what}: high {h:?} against standard {s:?}");
+        }
+    }
+}
+
+#[test]
+fn the_high_bounds_reject_standards_kernel() {
+    // The fails-before proof: the bound the test above holds `high` to, applied to `standard`'s output, fails for the saw
+    // and the pulse at every fundamental (PolyBLEP's two-sample residual measures −45, −34 and −25 dB), so the test above
+    // can only pass on a better kernel.
+    for (b, bin) in BINS.into_iter().enumerate() {
+        for (what, standard, _) in both_kernels(bin).into_iter().filter(|(w, ..)| !w.starts_with("triangle")) {
+            let s = alias_db(&standard, bin);
+            assert!(s.1 >= HIGH_BOUND[b], "{what} at bin {bin}: standard {s:?} already meets high's bound");
+        }
+    }
+}
+
+#[test]
+fn high_quality_keeps_the_waveforms_two_samples_late() {
+    // The same shapes as `standard`'s, read `DELAY` samples late (a slow saw, a 25 % pulse, a triangle).
+    let dt = 1.0 / 480.0;
+    for (what, mut f, mut g) in [
+        ("saw", Box::new(|o: &mut Osc, r: &mut Ring| o.saw_hq(dt, r)) as Box<dyn FnMut(&mut Osc, &mut Ring) -> f32>, Box::new(|o: &mut Osc| o.saw(dt)) as Box<dyn FnMut(&mut Osc) -> f32>),
+        ("pulse", Box::new(|o: &mut Osc, r: &mut Ring| o.pulse_hq(dt, 0.25, 1.0, r)), Box::new(|o: &mut Osc| o.pulse(dt, 0.25, 1.0))),
+        ("triangle", Box::new(|o: &mut Osc, r: &mut Ring| o.triangle_hq(dt, r)), Box::new(|o: &mut Osc| o.triangle(dt))),
+    ] {
+        let (mut o, mut r, mut s) = (Osc::default(), Ring::default(), Osc::default());
+        let high: Vec<f32> = (0..960).map(|_| f(&mut o, &mut r)).collect();
+        let standard: Vec<f32> = (0..960).map(|_| g(&mut s)).collect();
+        // `high` reads the phase after its step: sample i is `standard`'s i + 1, delayed DELAY samples.
+        let mut worst = 0.0f32;
+        for i in 480..900 {
+            worst = worst.max((high[i + blep::DELAY] - standard[i + 1]).abs());
+        }
+        // Away from the edges the two agree; within a few samples of an edge they differ by the band-limiting.
+        let near = (480..900).filter(|&i| (high[i + blep::DELAY] - standard[i + 1]).abs() > 0.02).count();
+        eprintln!("{what}: high against standard, {near} of 420 samples differ by more than 0.02 (worst {worst:.3})");
+        assert!(near <= 24, "{what}: {near}");
+    }
+}
+
+#[test]
+fn quality_is_a_voice_parameter_of_the_oscillator_and_the_synth() {
+    // Through the voice's interface: the same saw at 3.53 kHz (bin 301) with `quality` standard and high.
+    let hz = 301.0 * RATE / N as f32;
+    let alias = |kind: u8, params: &[(usize, f32)]| {
+        let mut v = voice(kind, params);
+        let x = run(&mut v, 1.0, 2 * N);
+        alias_db(&x[N..], 301)
+    };
+    let osc = |q: f32| alias(gen::OSCILLATOR, &[(osc_p::WAVEFORM, 2.0), (osc_p::FREQUENCY, hz), (osc_p::QUALITY, q)]);
+    let (s, h) = (osc(0.0), osc(1.0));
+    eprintln!("oscillator saw at {hz} Hz: standard {s:?}, high {h:?}");
+    assert!(h.1 < -45.0 && s.1 > -45.0, "{s:?} {h:?}");
+    // The synth: two saws an octave apart (bins 301 and 602), the filter wide open, no LFO.
+    let synth = |q: f32| {
+        alias(gen::SYNTH, &[(synth_p::FREQUENCY, hz), (synth_p::OSC2_SEMITONES, 12.0), (synth_p::DETUNE, 0.0), (synth_p::CUTOFF, 20_000.0), (synth_p::FILTER_ENV_AMOUNT, 0.0), (synth_p::RESONANCE, 0.0), (synth_p::QUALITY, q)])
+    };
+    let (s, h) = (synth(0.0), synth(1.0));
+    eprintln!("synth saws at {hz} and {} Hz: standard {s:?}, high {h:?}", 2.0 * hz);
+    assert!(h.1 < s.1 - 15.0, "{s:?} {h:?}");
+    // A switch mid-note doesn't drop out: the delay holds the last value, so no sample is a hole of 0 in a loud saw.
+    let mut v = voice(gen::OSCILLATOR, &[(osc_p::WAVEFORM, 2.0), (osc_p::FREQUENCY, 110.0), (osc_p::LEVEL, 0.0)]);
+    let before = run(&mut v, 1.0, 4_700);
+    v.set(osc_p::QUALITY, 1.0, 0);
+    let after = run(&mut v, 1.0, 64);
+    let jump = (after[0] - before[before.len() - 1]).abs().max((after[1] - after[0]).abs());
+    assert!(jump < 0.05, "switching to high: {jump} ({} -> {:?})", before[before.len() - 1], &after[..4]);
 }
 
 // --- Noise ---
@@ -439,10 +545,17 @@ fn the_same_seed_and_parameters_give_the_same_samples() {
 
 #[test]
 fn every_kind_declares_its_catalogue_parameters() {
-    assert_eq!(gen::params(gen::OSCILLATOR).len(), 10);
-    assert_eq!(gen::params(gen::SYNTH).len(), 25);
-    assert_eq!(gen::params(gen::BLIP).len(), 24);
+    assert_eq!(gen::params(gen::OSCILLATOR).len(), 11);
+    assert_eq!(gen::params(gen::SYNTH).len(), 26);
+    assert_eq!(gen::params(gen::BLIP).len(), 25);
     assert_eq!(gen::params(gen::SILENCE).len(), 2);
+    // D67: `quality` is each oscillating kind's last parameter (the indices before it unchanged), a stepped choice,
+    // `standard` by default.
+    for (kind, at) in [(gen::OSCILLATOR, osc_p::QUALITY), (gen::SYNTH, synth_p::QUALITY), (gen::BLIP, bp::QUALITY)] {
+        let q = gen::params(kind)[at];
+        assert_eq!(at, gen::params(kind).len() - 1, "{kind}");
+        assert_eq!((q.min, q.max, q.default, q.glide), (0.0, 1.0, gen::quality::STANDARD as f32, gen::Glide::Step), "{kind}");
+    }
     assert!(gen::params(0).is_empty() && gen::params(5).is_empty());
     for kind in 1..=4 {
         for s in gen::params(kind) {
@@ -862,4 +975,81 @@ fn a_looping_blip_re_triggers_until_the_key_off() {
         n += 128;
     }
     assert!((n as f64) < len * RATE as f64 + 256.0, "after the key-off it plays to its end: {n}");
+}
+
+// --- The blip at `high` quality (D67) ---
+
+#[test]
+fn a_high_quality_blip_follows_sfxr_as_the_standard_one_does() {
+    // The reference checks above (length, envelope, pitch), with `quality` high.
+    for (name, p) in presets() {
+        let mut q = p;
+        q[bp::QUALITY] = 1.0;
+        let reference = Sfxr::new(p).run();
+        let secs = reference.len() as f64 / 44_100.0;
+        let ours = blip_at(q, RATE);
+        let ours_s = ours.len() as f64 / RATE as f64;
+        // The ring's delay adds `blep::DELAY` samples.
+        assert!((ours_s - secs).abs() < 2.0 / 44_100.0 + (16 + blep::DELAY) as f64 / RATE as f64, "{name}: {ours_s} s against {secs} s");
+        let noise = p[bp::WAVEFORM] as u8 == blip::wave::NOISE;
+        let ms = if noise { 40.0 } else { 10.0 };
+        let (a, b) = (envelope(&reference, 44_100.0, ms), envelope(&ours, RATE, ms));
+        let worst = (1..a.len().min(b.len()) - 1).fold(0.0f32, |m, k| m.max((a[k] - b[k]).abs()));
+        eprintln!("{name} (high): {ours_s:.4} s against {secs:.4} s, envelope within {worst:.3}");
+        assert!(worst < if noise { 0.2 } else { 0.15 }, "{name}: {worst}");
+        if noise || p[bp::VIBRATO_DEPTH] > 0.0 {
+            continue;
+        }
+        let (mut r, mut s) = (q, p);
+        (r[bp::LOWPASS_CUTOFF], r[bp::HIGHPASS_CUTOFF], r[bp::REPEAT_SPEED]) = (1.0, 0.0, 0.0);
+        (s[bp::LOWPASS_CUTOFF], s[bp::HIGHPASS_CUTOFF], s[bp::REPEAT_SPEED]) = (1.0, 0.0, 0.0);
+        let (reference, ours) = (Sfxr::new(s).run(), blip_at(r, RATE));
+        let mut t = 0.01;
+        while t + 0.02 < reference.len() as f64 / 44_100.0 - 0.01 {
+            let a = (t * 44_100.0) as usize;
+            let fr = frequency(&reference[a..a + 882]) * 44_100.0 / RATE;
+            let b = (t * RATE as f64) as usize;
+            let fo = frequency(&ours[b..b + 960]);
+            if fr > 30.0 {
+                assert!((fo / fr - 1.0).abs() < 0.01, "{name} (high) at {t:.2} s: {fo} Hz against sfxr's {fr} Hz");
+            }
+            t += 0.02;
+        }
+    }
+}
+
+#[test]
+fn a_high_quality_blip_aliases_far_less() {
+    // A held tone at 44.1 kHz (8 supersteps a sample) of sfxr period 512, pitched by `bin / 64` so it is periodic in N
+    // samples at bins 21, 105 and 301 (226 Hz, 1.13 kHz, 3.24 kHz), coprime with N so its edges fall between samples.
+    // Measured late in a long sustain (punch 0: the envelope is exactly 1), after sfxr's 0.56 Hz high-pass has settled.
+    let rate = 44_100.0f32;
+    let period = 512.0f32;
+    let bf = (100.0 / (period + 0.5) - 0.001f32).sqrt();
+    assert_eq!((100.0 / (bf as f64 * bf as f64 + 0.001)) as i64, period as i64);
+    for wave in [blip::wave::SQUARE, blip::wave::SAW, blip::wave::TRIANGLE] {
+        for bin in BINS {
+            let pitch = bin as f32 / 64.0;
+            let measure = |q: f32| {
+                let p = preset(&[(bp::WAVEFORM, wave as f32), (bp::BASE_FREQUENCY, bf), (bp::SUSTAIN, 1.0), (bp::DECAY, 0.1), (bp::QUALITY, q)]);
+                let mut v = GenVoice::default();
+                v.start(gen::BLIP, rate, 5);
+                for (i, &x) in p.iter().enumerate() {
+                    v.set(i, x, 0);
+                }
+                v.set(bp::LEVEL, 0.0, 0);
+                let mut out = vec![0.0f32; 9 * N];
+                for c in out.chunks_mut(128) {
+                    v.render(&[pitch; 128], c, false);
+                }
+                alias_db(&out[8 * N..], bin)
+            };
+            let (s, h) = (measure(0.0), measure(1.0));
+            eprintln!("blip wave {wave} at bin {bin} (total / worst bin): standard {:6.1} / {:6.1} dB, high {:6.1} / {:6.1} dB", s.0, s.1, h.0, h.1);
+            if wave != blip::wave::TRIANGLE {
+                assert!(h.1 < s.1 - 20.0, "wave {wave} bin {bin}: high {h:?} against standard {s:?}");
+            }
+            assert!(h.1 < -55.0, "wave {wave} bin {bin}: high {h:?}");
+        }
+    }
 }

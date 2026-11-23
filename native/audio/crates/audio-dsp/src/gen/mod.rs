@@ -4,6 +4,7 @@
 //!
 //! - `osc`: band-limited oscillators (PolyBLEP saw and pulse, PolyBLAMP triangle, polynomial sine) and a band-limited
 //!   sample-and-hold;
+//! - `blep`: the `high` quality's minBLEP (D67): a table-read residual per discontinuity, through a ring;
 //! - `noise`: xorshift32 white, Kellet pink, leaky-integrator brown;
 //! - `svf`: a TPT state-variable filter (low, high, band) and a TPT one-pole;
 //! - `env`: ADSR envelopes (linear attack, exponential decay and release);
@@ -14,14 +15,23 @@
 //! `src/engine/audio/generators/catalogue.ts`), their glides and the kind's state. A parameter set with a ramp glides
 //! (frequencies in log2, levels in dB, others linearly; choices and times step); the render reads parameters once per
 //! control block of [`CONTROL_FRAMES`] samples, recomputing the filter only while something moves it.
+//!
+//! **Quality** (D67, owner: "Make it a setting"): the oscillator, synth and blip each end their parameters with
+//! `quality`, a choice: [`quality::STANDARD`] (two-sample PolyBLEP, as ADR 0346 built) or [`quality::HIGH`] (the minBLEP
+//! of `blep.rs`, for saw, pulse and triangle, and the blip's held noise, read [`blep::DELAY`] samples late). A blip
+//! latches it at its trigger like its other parameters; the oscillator and synth follow it per control block (a switch to
+//! `high` holds the last value over the delay; it is meant to be set per sound, not swept).
 
+pub mod blep;
 pub mod blip;
 pub mod env;
 pub mod lfo;
+mod minblep_table;
 pub mod noise;
 pub mod osc;
 pub mod svf;
 
+use blep::Ring;
 use env::Adsr;
 use lfo::Lfo;
 use noise::Noise;
@@ -69,6 +79,14 @@ const fn log(min: f32, max: f32, default: f32) -> ParamSpec {
     ParamSpec { min, max, default, glide: Glide::Log }
 }
 
+/// The `quality` choice (every kind with oscillators has it, last).
+pub mod quality {
+    /// Two-sample PolyBLEP (ADR 0346).
+    pub const STANDARD: u8 = 0;
+    /// A 16-tap minBLEP (`blep.rs`, D67).
+    pub const HIGH: u8 = 1;
+}
+
 /// The oscillator's and synth's waveforms (the `waveform`, `osc1Wave` and `osc2Wave` choice order).
 pub mod wave {
     pub const SINE: u8 = 0;
@@ -90,7 +108,8 @@ pub mod osc_p {
     pub const SUSTAIN: usize = 7;
     pub const RELEASE: usize = 8;
     pub const LENGTH: usize = 9;
-    pub const COUNT: usize = 10;
+    pub const QUALITY: usize = 10;
+    pub const COUNT: usize = 11;
 }
 
 /// The synth's parameters in wire order.
@@ -120,7 +139,8 @@ pub mod synth_p {
     pub const LFO_TARGET: usize = 22;
     pub const LEVEL: usize = 23;
     pub const LENGTH: usize = 24;
-    pub const COUNT: usize = 25;
+    pub const QUALITY: usize = 25;
+    pub const COUNT: usize = 26;
 }
 
 /// The silence's parameters in wire order (the core plays it with no voice state: only `length` matters there).
@@ -149,6 +169,7 @@ static OSCILLATOR_PARAMS: [ParamSpec; osc_p::COUNT] = [
     lin(0.0, 100.0, 100.0),          // sustain %
     step(0.0, 10_000.0, 10.0),       // release ms (a click guard)
     step(0.0, 60.0, 0.0),            // length s, 0 until released
+    step(0.0, 1.0, 0.0),             // quality: standard
 ];
 
 static SYNTH_PARAMS: [ParamSpec; synth_p::COUNT] = [
@@ -177,6 +198,7 @@ static SYNTH_PARAMS: [ParamSpec; synth_p::COUNT] = [
     step(0.0, 3.0, 0.0),             // lfoTarget: pitch
     lin(-60.0, 0.0, -12.0),          // level dB
     step(0.0, 60.0, 0.0),            // length s
+    step(0.0, 1.0, 0.0),             // quality: standard
 ];
 
 static BLIP_PARAMS: [ParamSpec; blip::p::COUNT] = [
@@ -204,6 +226,7 @@ static BLIP_PARAMS: [ParamSpec; blip::p::COUNT] = [
     step(0.0, 1.0, 0.0),             // highpassCutoff
     step(-1.0, 1.0, 0.0),            // highpassSweep
     lin(-60.0, 0.0, -12.0),          // level dB
+    step(0.0, 1.0, 0.0),             // quality: standard
 ];
 
 static SILENCE_PARAMS: [ParamSpec; silence_p::COUNT] = [
@@ -282,13 +305,17 @@ pub struct GenVoice {
     gain: f32,
     noise: Noise,
     osc: [Osc; 2],
+    /// The oscillators' minBLEP rings at `high` quality.
+    rings: [Ring; 2],
     svf: Svf,
     amp: Adsr,
     fenv: Adsr,
     lfo: Lfo,
     /// The synth's filter needs a coefficient update at the next control block.
     filter_moving: u8,
-    _pad2: [u8; 3],
+    /// The last control block ran at `high` quality.
+    hq: u8,
+    _pad2: [u8; 2],
     /// The synth's oscillator 2 ratio (`osc2Semitones` + `detune`) and filter Q (from `resonance`), worked out with the
     /// envelopes when parameters change.
     ratio2: f64,
@@ -321,6 +348,8 @@ impl GenVoice {
         }
         self.noise = Noise::seeded(seed, rate);
         self.osc = [Osc::default(); 2];
+        self.rings = [Ring::default(); 2];
+        self.hq = 0;
         self.svf = Svf::default();
         self.amp = Adsr::default();
         self.fenv = Adsr::default();
@@ -525,19 +554,34 @@ impl GenVoice {
             let width = (self.value(osc_p::PULSE_WIDTH) * 0.01) as f64;
             let wave = self.choice(osc_p::WAVEFORM);
             let colour = self.choice(osc_p::NOISE_COLOUR);
+            let hq = self.quality(osc_p::QUALITY, &[(wave, width)]);
             let (g0, g1) = self.control(k);
             let dg = (g1 - g0) / k as f32;
             let (o, s, amp) = (&mut self.osc[0], &steps[i..i + k], &mut self.amp);
             let block = &mut out[i..i + k];
-            match wave {
-                wave::SQUARE => run(block, s, hz, inv, amp, g0, dg, |dt| o.pulse(dt, width, 1.0)),
-                wave::SAW => run(block, s, hz, inv, amp, g0, dg, |dt| o.saw(dt)),
-                wave::TRIANGLE => run(block, s, hz, inv, amp, g0, dg, |dt| o.triangle(dt)),
-                wave::NOISE => {
-                    let noise = &mut self.noise;
-                    run(block, s, hz, inv, amp, g0, dg, |_| noise.colour(colour))
+            if hq {
+                let r = &mut self.rings[0];
+                match wave {
+                    wave::SQUARE => run(block, s, hz, inv, amp, g0, dg, |dt| o.pulse_hq(dt, width, 1.0, r)),
+                    wave::SAW => run(block, s, hz, inv, amp, g0, dg, |dt| o.saw_hq(dt, r)),
+                    wave::TRIANGLE => run(block, s, hz, inv, amp, g0, dg, |dt| o.triangle_hq(dt, r)),
+                    wave::NOISE => {
+                        let noise = &mut self.noise;
+                        run(block, s, hz, inv, amp, g0, dg, |_| r.push(noise.colour(colour)))
+                    }
+                    _ => run(block, s, hz, inv, amp, g0, dg, |dt| o.sine_hq(dt, r)),
                 }
-                _ => run(block, s, hz, inv, amp, g0, dg, |dt| o.sine(dt)),
+            } else {
+                match wave {
+                    wave::SQUARE => run(block, s, hz, inv, amp, g0, dg, |dt| o.pulse(dt, width, 1.0)),
+                    wave::SAW => run(block, s, hz, inv, amp, g0, dg, |dt| o.saw(dt)),
+                    wave::TRIANGLE => run(block, s, hz, inv, amp, g0, dg, |dt| o.triangle(dt)),
+                    wave::NOISE => {
+                        let noise = &mut self.noise;
+                        run(block, s, hz, inv, amp, g0, dg, |_| noise.colour(colour))
+                    }
+                    _ => run(block, s, hz, inv, amp, g0, dg, |dt| o.sine(dt)),
+                }
             }
             if self.amp.done() {
                 out[i + k..].fill(0.0);
@@ -587,12 +631,17 @@ impl GenVoice {
             }
             let dg = (g1 - g0) / k as f32;
             let width = width as f64;
+            let hq = self.quality(QUALITY, &[(w1, width), (w2, width)]);
             for j in 0..k {
                 let s = steps[i + j] as f64 * pitch;
                 let d1 = dt_of(hz * s, inv);
                 let d2 = dt_of(hz * ratio2 * s, inv);
-                let o1 = Self::wave(&mut self.osc[0], &mut self.noise, w1, d1, width);
-                let o2 = Self::wave(&mut self.osc[1], &mut self.noise, w2, d2, width);
+                let (o1, o2) = if hq {
+                    let [r1, r2] = &mut self.rings;
+                    (Self::wave_hq(&mut self.osc[0], &mut self.noise, r1, w1, d1, width), Self::wave_hq(&mut self.osc[1], &mut self.noise, r2, w2, d2, width))
+                } else {
+                    (Self::wave(&mut self.osc[0], &mut self.noise, w1, d1, width), Self::wave(&mut self.osc[1], &mut self.noise, w2, d2, width))
+                };
                 let x = o1 + (o2 - o1) * mix;
                 self.fenv.next();
                 let y = self.svf.process(kind, x);
@@ -605,6 +654,39 @@ impl GenVoice {
             i += k;
         }
         true
+    }
+
+    /// The control block's quality from parameter `param`: on a switch to `high`, each oscillator's ring (one per
+    /// `(waveform, width)` in `oscs`) is primed with its waveform's current value, so the delay doesn't drop to 0.
+    fn quality(&mut self, param: usize, oscs: &[(u8, f64)]) -> bool {
+        let hq = self.choice(param) == quality::HIGH;
+        if hq && self.hq == 0 {
+            for (i, &(w, width)) in oscs.iter().enumerate().take(2) {
+                let t = self.osc[i].phase;
+                let now = match w {
+                    wave::SQUARE => osc::pulse_at(t, 0.0, width, 1.0) as f32,
+                    wave::SAW => osc::saw_at(t, 0.0) as f32,
+                    wave::TRIANGLE => osc::triangle_at(t, 0.0) as f32,
+                    wave::NOISE => 0.0,
+                    _ => osc::sine_cycles(t),
+                };
+                self.rings[i].clear();
+                self.rings[i].prime(now);
+            }
+        }
+        self.hq = hq as u8;
+        hq
+    }
+
+    #[inline]
+    fn wave_hq(o: &mut Osc, noise: &mut Noise, r: &mut Ring, w: u8, dt: f64, width: f64) -> f32 {
+        match w {
+            wave::SQUARE => o.pulse_hq(dt, width, 1.0, r),
+            wave::SAW => o.saw_hq(dt, r),
+            wave::TRIANGLE => o.triangle_hq(dt, r),
+            wave::NOISE => r.push(noise.white()),
+            _ => o.sine_hq(dt, r),
+        }
     }
 
     #[inline]
@@ -636,7 +718,7 @@ impl GenVoice {
         while i < n {
             let k = (n - i).min(CONTROL_FRAMES);
             let (g0, g1) = self.control(k);
-            if !self.blip.render(&steps[i..i + k], &mut out[i..i + k], g0, g1, self.rate, repeat, &mut self.noise.state) {
+            if !self.blip.render(&steps[i..i + k], &mut out[i..i + k], g0, g1, self.rate, repeat, &mut self.noise.state, &mut self.rings[0]) {
                 out[i + k..].fill(0.0);
                 return false;
             }
