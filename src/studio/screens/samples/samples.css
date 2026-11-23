@@ -81,7 +81,8 @@
 .smp-th { display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 4px 10px; border-right: 1px solid var(--border); background: var(--panel); min-width: 0; }
 .smp-th-top { justify-content: flex-end; padding: 0 10px; gap: 0; }
 .smp-th-title { font-weight: 600; color: var(--text); }
-.smp-mrl { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; font-size: calc(10px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--marker-note); white-space: nowrap; }
+/* The label sits on the first marker row (rows pack from the top, 4 px down, 20 px each), level with its flags (V3). */
+.smp-mrl { display: flex; flex-direction: column; align-items: flex-end; justify-content: flex-start; padding-top: 8px; box-sizing: border-box; line-height: 12px; font-size: calc(10px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--marker-note); white-space: nowrap; }
 .smp-mrl-more { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--muted); }
 .smp-phrow { display: flex; align-items: center; gap: 4px; }
 .smp-phread { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: calc(14px * var(--ui-scale)); font-weight: 600; color: var(--text-strong); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
@@ -258,8 +259,9 @@ span.smp-tcin.ro { display: inline-block; padding: 2px 6px; border: 1px solid va
 .smp-outline-group li.gone { color: var(--faint); }
 .smp-osw { width: 8px; height: 8px; flex: none; border-radius: 50%; }
 .smp-osw.range { border-radius: 2px; }
-.smp-oname { flex: 1; min-width: 0; }
-.smp-otime { margin-left: auto; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* The name keeps room for a few letters ("Loop 1"); a long time range is what gives way (V5). */
+.smp-outline-group .smp-oname { flex: 1 1 auto; min-width: calc(5.5ch + 2px); }
+.smp-otime { margin-left: auto; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .smp-outline-group li.on .smp-otime { color: var(--selection-text); }
 .smp-outline-empty { margin: 0 10px 4px 26px; font-size: calc(11px * var(--ui-scale)); }
 

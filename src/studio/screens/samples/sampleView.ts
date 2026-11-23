@@ -133,8 +133,9 @@ export function regionAt(e: SampleEdits, sourceLength: number, t: number): strin
   return e.loops.length ? "tail" : "in the trim";
 }
 
-/** The next marker after `t` (the readout's "Next marker"). */
-export const nextMarker = (e: SampleEdits, t: number): SampleMarker | null => e.markers.find((m) => m.at > t + 1e-6) ?? null;
+/** The next marker after `t` (the readout's "Next marker"), by time whatever order they were added in. */
+export const nextMarker = (e: SampleEdits, t: number): SampleMarker | null =>
+  e.markers.reduce<SampleMarker | null>((best, m) => (m.at > t + 1e-6 && (!best || m.at < best.at) ? m : best), null);
 
 /** Landmarks for Ctrl+←/→: markers, loop edges, cuts, trim edges, sorted and unique. */
 export function landmarks(e: SampleEdits, sourceLength: number): number[] {

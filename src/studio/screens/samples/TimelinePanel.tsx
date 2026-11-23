@@ -861,9 +861,10 @@ function Timeline(props: { session: SampleSession }) {
 
         <div class="smp-readout" aria-live="off">
           {readItem("play", "Play", playScope)}
-          {readItem("region", "Region", regionAt(e, length, playT))}
+          {/* The region and the next marker are the playhead's, whatever is selected: they say so (V4). */}
+          {readItem("region", "Region at the playhead", `Playhead ${regionAt(e, length, playT)}`)}
           {readItem("level", "Level", level)}
-          {e.markers.length > 0 && readItem("nextMarker", "Next marker", nextMarker(e, playT)?.name ?? "—")}
+          {e.markers.length > 0 && readItem("nextMarker", "Next marker after the playhead", `Next: ${nextMarker(e, playT)?.name ?? "none"}`)}
         </div>
 
         {warnings.length > 0 && (

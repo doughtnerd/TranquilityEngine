@@ -14,7 +14,7 @@ import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, r
 import { allSamples, audioFolders, cleanFolderName, cleanPath, fileChip, folderChoices, libraryTree, metaLine, moveUpPlan, sampleName, searchSamples, shortLength, usesOf } from "./sampleLibrary";
 import { editedLength, inClosedGap, toSource, toView } from "./sampleTime";
 import {
-  colourCss, colourValue, fitToSource, landmarks, liveSelection, loopLabel, loopRegions, MARKER_PRESETS, markerColour, shortSeconds, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
+  colourCss, colourValue, fitToSource, landmarks, liveSelection, loopLabel, loopRegions, MARKER_PRESETS, markerColour, nextMarker, shortSeconds, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
   snapTime, snippetMenu, snippetUnder, trimHoldingMarkers,
 } from "./sampleView";
 import { nearestZeroCrossing, seamJump, seamStrip, seamWindow } from "./seam";
@@ -300,6 +300,10 @@ describe("timeline structure", () => {
     expect(loopRegions(e, 2).map((r) => r.label)).toEqual(["Pickup", "Loop 1 · while held", "Link", "Loop 2", "Tail"]);
     expect(regionAt(e, 2, 0.3)).toBe("loop 1 (while held)");
     expect(regionAt(e, 2, 0.8)).toBe("link");
+    // The next marker is by time, whatever order the markers were added in (journeys walk 2, V4).
+    const late = { ...e, markers: [{ ...e.markers[0]!, id: "late", at: 1.5 }, { ...e.markers[0]!, id: "soon", at: 0.9 }] };
+    expect(nextMarker(late, 0.5)?.id).toBe("soon");
+    expect(nextMarker(late, 1.6)).toBeNull();
     expect(selectionSpan({ kind: "tail" }, e, 2)).toEqual({ start: 1.4, end: 2 });
     expect(selectionSpan({ kind: "marker", id: "m1" }, e, 2)).toEqual({ start: 0.3, end: 2 });
     expect(landmarks(e, 2)).toContain(1.4);
