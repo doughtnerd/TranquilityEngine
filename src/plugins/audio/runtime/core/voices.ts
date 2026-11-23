@@ -608,8 +608,10 @@ export class CoreVoices {
     if (t.submix[i]! > 0) host.writer.route(id, t.submix[i]! - 1, stamp);
     // ADR 0162 (C3): its SET_VOICE_FX at the same frame, when mixed and non-default.
     host.voiceFx.onPlay(i, stamp);
-    // A3.7: paused before it reached the core (locked, or its clip loading): it waits there, paused, until resumed.
-    if (f & VoiceFlag.PAUSED) host.writer.setPaused(id, true);
+    // A3.7: paused before it reached the core (locked, or its clip loading): it waits there, paused, until resumed. At
+    // its PLAY's frame (ADR 0362 §1): the batch goes in frame order, and an asap record would reach the core before a
+    // stamped PLAY does.
+    if (f & VoiceFlag.PAUSED) host.writer.setPaused(id, true, stamp);
     if (start > 0) t.startFrame[i] = 0;
     this.spatialDirty[i] = 0;
   }
@@ -737,18 +739,22 @@ export class CoreVoices {
     const host = this.host;
     const clock = host.clockMap;
     this.dropFlip(i);
+    // A stamped start still ahead: its PLAY may be in this frame's batch, which goes in frame order, so nothing for the
+    // voice is stamped before it (it would reach the core before the voice exists there). As `setBus` does.
+    const playAt = this.onCore(i) ? clock.stampFor(host.playheads.anchorFrame[i]!) : undefined;
     const hold = at !== undefined && Number.isFinite(at) && this.onCore(i) ? clock.stampFor(clock.frameOfTime(at)) : undefined;
     if (hold === undefined) {
       t.flags[i] = paused ? t.flags[i]! | VoiceFlag.PAUSED : t.flags[i]! & ~VoiceFlag.PAUSED;
       if (this.onCore(i)) host.playheads.retime(i, clock.framesNow());
-      if (this.onCore(i)) host.writer.setPaused(id, paused);
+      if (this.onCore(i)) host.writer.setPaused(id, paused, playAt);
       return;
     }
     let frame = hold;
     if (paused && t.state[i] === VoiceState.PLAYING) frame = clock.stampFor(hold - Math.round(MIX_FADE_SECONDS * clock.sampleRate)) ?? hold;
+    if (playAt !== undefined && playAt > frame) frame = playAt;
     host.writer.setPaused(id, paused, frame);
     this.flipTo[i] = paused ? FLIP_PAUSE : FLIP_RESUME;
-    this.flipAt[i] = hold;
+    this.flipAt[i] = Math.max(hold, frame);
     this.flips++;
   }
 

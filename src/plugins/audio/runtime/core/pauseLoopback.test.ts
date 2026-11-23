@@ -97,4 +97,48 @@ describe("pause and resume on the loopback host (A3.7)", () => {
     expectFrames(out, first, 2_000, (k) => clipAt(STEP + k), "started on resume");
     backend.dispose();
   });
+
+  it("ADR 0362 §1: stamped, a voice not started yet when it holds starts as much later as it was held (within a quantum)", async (ctx) => {
+    const r = await rig();
+    if (!r) return ctx.skip();
+    const { backend, step, out } = r;
+    const clock = backend.clock!;
+    // A probe maps heard time to output frames: its stamped start's frame is where its first sample lands.
+    await step(4);
+    const probeAt = clock.horizon() + 0.05;
+    const probe = backend.play({ path: "ramp.wav", url: "ramp.wav", loop: false, stream: false, bus: "SFX", at: probeAt })!;
+    await step(12);
+    const probeStart = out.findIndex((s) => s !== 0) - STEP;
+    expect(probeStart).toBeGreaterThan(0);
+    const frameOf = (t: number): number => probeStart + Math.round((t - probeAt) * 48_000);
+    probe.stop(0);
+    await step(DWELL_FRAMES + 4);
+    const quiet = out.length;
+    expect(out.slice(quiet - 1000).every((s) => s === 0)).toBe(true);
+
+    const startAt = clock.horizon() + 0.08;
+    const voice = backend.play({ path: "ramp.wav", url: "ramp.wav", loop: false, stream: false, bus: "SFX", at: startAt })!;
+    const holdAt = clock.horizon();
+    voice.pause(holdAt);
+    await step(DWELL_FRAMES + 20);
+    expect(out.slice(quiet).every((s) => s === 0)).toBe(true);
+    const resumeAt = clock.horizon();
+    voice.resume(startAt + (resumeAt - holdAt));
+    await step(DWELL_FRAMES + 12);
+    const first = out.findIndex((s, j) => j >= quiet && s !== 0);
+    // It starts (virtual: selection kept it so while held) at the shifted start, within the quantum the resume lands in
+    // (the core starts a held voice at its next quantum), keeping time until promoted; then the clip from there.
+    const startFrame = frameOf(startAt + (resumeAt - holdAt));
+    expect(first).toBeGreaterThanOrEqual(startFrame);
+    const at = first + FADE;
+    const k = Math.round(out[at]! * 32768) * STEP; // the clip frame playing there, to within a step
+    const started = at - k;
+    expect(started - startFrame).toBeGreaterThan(-STEP);
+    expect(started - startFrame).toBeLessThan(128 + STEP);
+    const offsets = Array.from({ length: 2 * STEP + 1 }, (_, n) => n - STEP);
+    const d = offsets.find((o) => [0, 500, 1999].every((j) => Math.abs(out[at + j]! - clipAt(k + o + j)) <= TOL));
+    expect(d).toBeDefined();
+    expectFrames(out, at, 2_000, (j) => clipAt(k + d! + j), "started late by the hold");
+    backend.dispose();
+  });
 });
