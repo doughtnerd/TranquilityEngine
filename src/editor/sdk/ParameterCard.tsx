@@ -4,8 +4,8 @@
 // list's refused-or-next result, handed to the holder's adapter (ADR 0307), which applies it as one undo step or reports
 // the refusal.
 import type { ComponentChildren } from "preact";
-import { TextField } from "../../../editor/sdk";
-import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
+import { TextField } from "../ui/settingsControls";
+import { isLabelled, type ParameterDef } from "../../engine/audio/parameters";
 import type { EditResult } from "./editResult";
 import type { ParameterKind, ParameterList } from "./parameterList";
 import "./parameters.css";

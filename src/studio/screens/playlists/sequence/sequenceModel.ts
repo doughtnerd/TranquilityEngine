@@ -4,7 +4,7 @@
 // clip"), finding clips and tracks, fresh ids, and lifting an edit of the `sequence` block into an edit of the playlist
 // body (the Playlists screen's `onEdit` takes body edits). Pure.
 import type { Clip, LoopBehaviour, PlaylistBody, SequenceSettings, Track } from "../../../../engine/audio/playlist/types";
-import { accept, refuse, type EditResult } from "../../../../plugins/audio/editor/editResult";
+import { accept, refuse, type EditResult } from "../../../../editor/sdk/editResult";
 
 /** An edit of the `sequence` block. */
 export type SeqEdit = (s: SequenceSettings) => EditResult<SequenceSettings>;

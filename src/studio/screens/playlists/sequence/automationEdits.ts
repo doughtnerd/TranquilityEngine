@@ -7,7 +7,7 @@ import { effectParamValue, effectSpec } from "../../../../engine/audio/effects/c
 import type { Effect } from "../../../../engine/audio/effects/types";
 import { evalCurve, type CurveInterp, type CurveKey } from "../../../../engine/core/curve";
 import type { Automation, Clip, CurveInput, SequenceSettings, Track } from "../../../../engine/audio/playlist/types";
-import { accept, refuse, type EditResult } from "../../../../plugins/audio/editor/editResult";
+import { accept, refuse, type EditResult } from "../../../../editor/sdk/editResult";
 import { findClip, mapClips, mapTrack, nextId, tidy, trackIndex } from "./sequenceModel";
 
 type R = EditResult<SequenceSettings>;

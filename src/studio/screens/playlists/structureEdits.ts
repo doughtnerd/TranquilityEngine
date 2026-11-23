@@ -5,7 +5,7 @@
 // file's document. Pure.
 import { emptyPlaylistBody } from "../../../engine/audio/playlist/format";
 import type { Entry, PlaylistBody } from "../../../engine/audio/playlist/types";
-import { accept, refuse, type EditResult } from "../../../plugins/audio/editor/editResult";
+import { accept, refuse, type EditResult } from "../../../editor/sdk/editResult";
 import { addEntries, moveEntry, removeEntry, spliceUp, type EditContext } from "./playlistEdits";
 import { bodyAt, editAt } from "./playlistPaths";
 import type { BodyRef } from "./treeDrop";

@@ -1,9 +1,11 @@
-// One refused-or-next result for the audio editor's edits (ADR 0307, 0313): every pure edit a user can get refused
+// One refused-or-next result for every editor's edits (ADR 0307, 0313; audio, localisation, animation): every pure edit a user can get refused
 // (segment, rule, event and music tree, every settings edit with a rule of its own, parameter list) returns `EditResult`,
 // and `applyEdit` is the one place a result is applied: a refusal goes to the status bar and the message log, an accepted
 // change is committed once with its undo label. `applyToDocument` and `applyToSettings` are the asset document's and the
 // settings draft's adapters; the music panels apply through their node handle (`music/musicNodeHandle.ts`).
-import { editor, type AssetDocument, type SettingsDraft } from "../../../editor/sdk";
+import type { AssetDocument } from "../assetDocuments";
+import type { SettingsDraft } from "../projectSettingsModel";
+import { editor } from "./editor";
 
 /** The next value, or why the edit was refused (nothing changes). */
 export type EditResult<T> = { readonly next: T } | { readonly refused: string };
@@ -16,6 +18,11 @@ export const refuse = (reason: string): { readonly refused: string } => ({ refus
  * `disabled={refusalOf(duplicateNode(root, path)) !== null}`, so the rule lives in one place.
  */
 export const refusalOf = <T>(result: EditResult<T>): string | null => ("refused" in result ? result.refused : null);
+
+/** `result`'s next value passed through `f`; a refusal stays. */
+export function mapEdit<T, U>(result: EditResult<T>, f: (next: T) => U): EditResult<U> {
+  return "refused" in result ? result : { next: f(result.next) };
+}
 
 /**
  * Lift an edit of `part` (a segment, a container) into the `whole` it sits in: refused stays refused, `part` itself

@@ -13,7 +13,7 @@ import { isStringKey, STRINGS_LIMITS, type StringEntry, type StringTable } from 
 import { effectiveStatus, emptyTranslation, translatedEntry, type EffectiveStatus, type TranslationFile } from "../../../engine/localisation/strings/translation";
 import { messageLength } from "../../../engine/localisation/exchange/length";
 import { translationOf, type ExchangeProject, type ExchangeTable } from "../../../engine/localisation/exchange/model";
-import { accept, refuse, type EditResult } from "./editResult";
+import { accept, refuse, type EditResult } from "../../sdk/editResult";
 
 /** One language's cell of a row. */
 export interface StringCell {

@@ -5,7 +5,7 @@
 import { MIX_LIMITS } from "../../engine/audio/project/format";
 import type { DuckingRule } from "../../engine/audio/project/types";
 import { SegmentedControl } from "../../editor/ui/SegmentedControl";
-import type { EditResult } from "../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../editor/sdk/editResult";
 import { duckSummary, editDuck, type DuckPatch } from "./mixRowsModel";
 import { ParameterRow } from "./ParameterRow";
 import type { ParamSpec } from "./parameterRowModel";

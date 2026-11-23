@@ -17,7 +17,7 @@ import { renamePlaylistParameter } from "../../../engine/audio/playlist/referenc
 import { PLAYLIST_SUFFIX } from "../../../engine/audio/playlist/types";
 import { AUDIO_PROJECT_FILE, type AudioProject, type Snapshot } from "../../../engine/audio/project/types";
 import type { ProjectFileEdit } from "../../../editor/projectFileEdits";
-import { parameterList, type ParameterList } from "../../../plugins/audio/editor/parameterList";
+import { parameterList, type ParameterList } from "../../../editor/sdk/parameterList";
 
 const mapConditions = (s: Snapshot, fn: (c: Extract<Snapshot["start"], { kind: "conditions" }>["conditions"]) => Extract<Snapshot["start"], { kind: "conditions" }>["conditions"]): Snapshot =>
   s.start.kind === "conditions" ? { ...s, start: { ...s.start, conditions: fn(s.start.conditions) } } : s;

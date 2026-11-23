@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { parseLanguages } from "../../../engine/localisation/languages";
 import type { SettingsDraft } from "../../projectSettingsModel";
-import type { EditResult } from "../localisation/editResult";
+import type { EditResult } from "../../sdk/editResult";
 import {
   addFont, addLanguage, codesOf, languagesProblems, languagesSettings, moveLanguage, removeFont, removeLanguage, renameLanguage, setDefault,
   setDirection, setLanguageCode, setLanguageFallback, setLanguageVoice, setProjectFallback, setReference, setRemember, setShip,

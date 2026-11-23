@@ -15,7 +15,7 @@ import {
 } from "../../../engine/localisation/languages";
 import type { SettingsDraft, SettingsProblem } from "../../projectSettingsModel";
 import { settingsSection } from "../../settingsSection";
-import { accept, mapEdit, refuse, type EditResult } from "../localisation/editResult";
+import { accept, mapEdit, refuse, type EditResult } from "../../sdk/editResult";
 
 /** The `languages` key of the draft: read leniently (English only when absent), written minimal. */
 export const languagesSettings = settingsSection<LanguageSettings>({

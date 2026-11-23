@@ -12,7 +12,7 @@ import { showPanel } from "../../layout/store";
 import { Chip } from "../Chip";
 import { ProblemList, TextField } from "../settingsControls";
 import { SegmentedControl } from "../SegmentedControl";
-import { refusalOf, type EditResult } from "../localisation/editResult";
+import { refusalOf, type EditResult } from "../../sdk/editResult";
 import {
   addFont, addLanguage, codesOf, fontFiles, languagesSettings, moveLanguage, removeFont, removeLanguage, renameLanguage, setDefault,
   setDirection, setLanguageCode, setLanguageFallback, setLanguageVoice, setProjectFallback, setReference, setRemember, setShip,

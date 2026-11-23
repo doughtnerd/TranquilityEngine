@@ -8,7 +8,7 @@ import { FieldRow, NumberBox, SelectBox } from "../../../editor/ui/PanelFields";
 import type { AudioLocalisation } from "../../../engine/audio/localisation/types";
 import type { AudioProject } from "../../../engine/audio/project/types";
 import { fallbackChain, type LanguageSettings } from "../../../engine/localisation/languages";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 import {
   addLanguage, codesOf, removeLanguage, renameLanguage, setDefault, setLanguageFallback, setLoudness, setMissing, setProjectFallback, setReference, setRoots, setShip, setTolerance,
   type LanguagesAccess,

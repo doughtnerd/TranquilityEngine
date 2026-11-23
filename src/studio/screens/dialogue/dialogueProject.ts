@@ -18,8 +18,8 @@ import { emptyStringTable, formatStringTable, parseStringTable, stringsPathKind,
 import { emptyTranslation, formatTranslation, parseTranslation, type TranslationFile } from "../../../engine/localisation/strings/translation";
 import { parseSubtitleSettings } from "../../../engine/localisation/subtitleSettings";
 import { sidecarPath, type ImportSettings } from "../../../engine/scene/importSettings";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
-import { applyEdit } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
+import { applyEdit } from "../../../editor/sdk/editResult";
 import { openMixDocument } from "../mixer/mixerDocument";
 import { lengthOf, registerSampleKinds, SIDECAR_KIND } from "../samples/sampleSession";
 import type { DialogueData, FileFacts } from "./dialogueData";

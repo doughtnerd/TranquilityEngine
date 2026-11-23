@@ -5,7 +5,7 @@ import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import type { AudioProject } from "../../../engine/audio/project/types";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 import { STORY_FILES, storyProject } from "./packagesStoryData";
 import { addProfile, addRule, configOfDoc, deleteProfile, moveRule, removeRule, renameProfile, rulePreview, setDefaultProfile, setProfileKey, updateRule } from "./profilesModel";
 import { ProfilesView, type ProfileScope } from "./ProfilesView";

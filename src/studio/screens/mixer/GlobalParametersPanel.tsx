@@ -6,8 +6,8 @@
 // The Mixer shows it beside its test values; the Playlists screen offers it in its panel catalog.
 import type { ReadonlySignal } from "@preact/signals";
 import type { AudioProject } from "../../../engine/audio/project/types";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
-import { ParameterCards } from "../../../plugins/audio/editor/ParameterCard";
+import type { EditResult } from "../../../editor/sdk/editResult";
+import { ParameterCards } from "../../../editor/sdk/ParameterCard";
 import { globalParameterList, parameterUsesInMix, renamedParameter } from "./globalParameters";
 
 /** What the panel edits through: the Mixer's session, or the Playlists screen's adapter over the same document. */

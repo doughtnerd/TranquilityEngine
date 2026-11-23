@@ -21,7 +21,7 @@ import { measureLoudness } from "../../../engine/audio/loudness/integrated";
 import { AUDIO_PROJECT_FILE, type AudioProject } from "../../../engine/audio/project/types";
 import { fallbackChain, languagesToJson, type LanguageSettings } from "../../../engine/localisation/languages";
 import { isTauri } from "../../../engine/platform/FileSystem";
-import { applyEdit, type EditResult } from "../../../plugins/audio/editor/editResult";
+import { applyEdit, type EditResult } from "../../../editor/sdk/editResult";
 import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, openRoute } from "../../shell/studioServices";
 import { openMixDocument } from "../mixer/mixerDocument";

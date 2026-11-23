@@ -4,7 +4,7 @@
 import { PLAYLIST_LIMITS } from "../../../engine/audio/playlist/format";
 import type { PlaylistBody } from "../../../engine/audio/playlist/types";
 import { isStringKey } from "../../../engine/localisation/strings/format";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 
 /** Set the caption (an empty key removes it); `minGap` keeps its value when not given. */
 export function setCaption(b: PlaylistBody, key: string, minGap?: number): EditResult<PlaylistBody> {

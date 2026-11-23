@@ -7,7 +7,7 @@ import { estimateText } from "../../../engine/ui/layout";
 import { parseLanguages } from "../../../engine/localisation/languages";
 import { effectiveStatus } from "../../../engine/localisation/strings/translation";
 import { textHash } from "../../../engine/localisation/textHash";
-import type { EditResult } from "./editResult";
+import type { EditResult } from "../../sdk/editResult";
 import { exportFiles, formatOfFile, importPreviewOf, importWrites, previewSummary } from "./exchangeModel";
 import { fitCheck } from "./fitCheck";
 import { exchangeProjectOf, studioOwnedTables, tableAccess } from "./localisationData";

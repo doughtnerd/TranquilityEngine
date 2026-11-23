@@ -12,7 +12,7 @@ import { isStringKey } from "../../../engine/localisation/strings/format";
 import { isRecord } from "../../../engine/localisation/lenient";
 import type { SettingsDraft, SettingsProblem } from "../../projectSettingsModel";
 import { settingsSection } from "../../settingsSection";
-import { accept, mapEdit, refuse, type EditResult } from "../localisation/editResult";
+import { accept, mapEdit, refuse, type EditResult } from "../../sdk/editResult";
 
 /** The `subtitles` key of the draft: read leniently (the defaults when absent), written minimal (removed when all default). */
 export const subtitlesSettings = settingsSection<SubtitleProjectSettings>({

@@ -3,8 +3,8 @@
 // non-empty names, at most the holder's limit, `min <= default <= max` (a min above max swaps, as the parse does), a
 // labelled default among its labels. A holder plugs in where the list lives and what a rename or a remove carries along
 // (an event's references; the settings' bus automation). Every edit is a refused-or-next result (ADR 0307).
-import { isLabelled, parameterDefault, parameterRange, type LabelledParameter, type NumericParameter, type ParameterDef } from "../../../engine/audio/parameters";
-import { uniqueName } from "../../../engine/core/uniqueName";
+import { isLabelled, parameterDefault, parameterRange, type LabelledParameter, type NumericParameter, type ParameterDef } from "../../engine/audio/parameters";
+import { uniqueName } from "../../engine/core/uniqueName";
 import { accept, refuse, type EditResult } from "./editResult";
 
 export type ParameterKind = "numeric" | "labelled";

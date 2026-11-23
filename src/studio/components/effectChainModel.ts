@@ -5,7 +5,7 @@
 // leaves its automation (`fx:<id>:<param>`) to the owner, which holds it.
 import { allowedAt, clampEffectParam, defaultEffect, effectParamSpec, effectSpec, effectTypesAt, pluginEffectNote, registeredPluginEffects } from "../../engine/audio/effects/catalogue";
 import type { Effect, EffectLevel, EffectType } from "../../engine/audio/effects/types";
-import type { EditResult } from "../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../editor/sdk/editResult";
 import type { AudioPluginDebug, AudioPluginFaultReason } from "../../plugins/audio/runtime/debugTypes";
 import { formatParam } from "./parameterRowModel";
 

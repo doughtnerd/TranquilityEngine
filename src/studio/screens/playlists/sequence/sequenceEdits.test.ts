@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SequenceSettings } from "../../../../engine/audio/playlist/types";
-import type { EditResult } from "../../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../../editor/sdk/editResult";
 import { addAutomation, addPoint, addVolumeEnvelope, deletePoints, movePoints, removeAutomation, setAutomation, setPointShape, targetSpecs, writeAutomation } from "./automationEdits";
 import { addLoop, addMarker, clearLoopOverride, deleteLoops, makeHoldPoint, moveLoop, nudgeLoopsAndMarkers, renameMarker, setLoopBehaviour, setLoopEdge, setLoopOverride, setMarkerHidden, setMarkerType } from "./loopMarkerEdits";
 import { copySelection, paste, pasteLabel } from "./sequenceClipboard";

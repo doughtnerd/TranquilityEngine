@@ -3,7 +3,7 @@
 // limits `audio.json`'s parse declares (`MIX_LIMITS`), so the owner applies them as undo steps.
 import { MIX_LIMITS } from "../../engine/audio/project/format";
 import type { DuckingRule, Send } from "../../engine/audio/project/types";
-import type { EditResult } from "../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../editor/sdk/editResult";
 import { FADER_MAX_DB, FADER_MIN_DB, formatDb, snapFaderDb } from "./faderModel";
 
 const clamp = (v: number, [lo, hi]: readonly [number, number]) => Math.min(hi, Math.max(lo, v));

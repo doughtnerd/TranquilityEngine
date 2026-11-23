@@ -4,7 +4,7 @@
 // inheritance follows it. Edits go to the last file on the path, at the entry indices after it. Pure.
 import { parsePlaylist, playlistToJson } from "../../../engine/audio/playlist/format";
 import type { Entry, PlaylistAsset, PlaylistBody } from "../../../engine/audio/playlist/types";
-import { accept, refuse, type EditResult } from "../../../plugins/audio/editor/editResult";
+import { accept, refuse, type EditResult } from "../../../editor/sdk/editResult";
 
 /** One step of a path: a playlist file, or an embedded entry of the playlist before it. */
 export type PathStep = { readonly file: string } | { readonly entry: number };

@@ -17,7 +17,7 @@ import type { ParameterDef } from "../../../engine/audio/parameters";
 import { emptyPlaylist, emptyPlaylistBody, isPlaylistPath } from "../../../engine/audio/playlist/format";
 import { lintPlaylist, type PlaylistLint } from "../../../engine/audio/playlist/lint";
 import { PLAYLIST_FORMAT, type PlaylistAsset, type PlaylistBody, type SampleEntry } from "../../../engine/audio/playlist/types";
-import { applyEdit, type EditResult } from "../../../plugins/audio/editor/editResult";
+import { applyEdit, type EditResult } from "../../../editor/sdk/editResult";
 import type { AudioEventHandle, AudioHandle } from "../../../plugins/audio/runtime";
 import { audioHost, openRoute, toasts } from "../../shell/studioServices";
 import { linkEntry, unlinkEntry, type EditContext } from "./playlistEdits";

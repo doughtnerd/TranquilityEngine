@@ -7,7 +7,7 @@ import { isLineKey, lineRow, LINE_LIMITS, subtitleKeyOf } from "../../../engine/
 import type { LineRow, LineTable } from "../../../engine/audio/localisation/types";
 import { emptyStringTable, isStringKey, STRINGS_LIMITS, translationPath, type StringTable } from "../../../engine/localisation/strings/format";
 import { emptyTranslation, translatedEntry, type TranslationFile } from "../../../engine/localisation/strings/translation";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 import { allLines, keyIndex, referenceText, stringsPathOf, textThrough, type DialogueData, type LineRef } from "./dialogueData";
 import { languageCells, type LanguageCell } from "./lineStatus";
 

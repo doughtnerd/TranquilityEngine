@@ -4,7 +4,7 @@
 // the files outside `audio.json`.
 import type { AssetDocument } from "../../../editor/assetDocuments";
 import type { AudioProject } from "../../../engine/audio/project/types";
-import { applyEdit } from "../../../plugins/audio/editor/editResult";
+import { applyEdit } from "../../../editor/sdk/editResult";
 import type { GlobalParametersHost } from "./GlobalParametersPanel";
 import type { MixerSession } from "./mixerScreen";
 

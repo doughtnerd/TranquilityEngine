@@ -2,7 +2,7 @@
 // effect card: caret, "→ Reverb" with its level while closed, Automate ◆ and × remove; open, the level as a row
 // (−60..+6 dB, 0.5 dB steps). Edits come back as `{ next } | { refused }` for the owner to apply as undo steps.
 import type { Send } from "../../engine/audio/project/types";
-import type { EditResult } from "../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../editor/sdk/editResult";
 import { FADER_MAX_DB, FADER_MIN_DB, FADER_STEP_DB } from "./faderModel";
 import { editSendLevel, sendSummary } from "./mixRowsModel";
 import { ParameterRow } from "./ParameterRow";

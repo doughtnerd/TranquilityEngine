@@ -16,7 +16,7 @@ import type { LineTable } from "../../../engine/audio/localisation/types";
 import type { SampleEdits, SampleLipsync, SampleVo } from "../../../engine/audio/sample/types";
 import { languageOf } from "../../../engine/localisation/languages";
 import { textHash } from "../../../engine/localisation/textHash";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 import { normalizeGain, type Measured } from "../samples/sampleEditing";
 import { fileIn, findLine, recordingPath, referenceText, type DialogueData, type LineRef, type TableDoc } from "./dialogueData";
 import { tableStem } from "./scriptCsv";

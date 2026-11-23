@@ -9,7 +9,7 @@ import type {
 } from "../../../engine/audio/playlist/types";
 import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
 import type { Effect } from "../../../engine/audio/effects/types";
-import { accept, refuse, type EditResult } from "../../../plugins/audio/editor/editResult";
+import { accept, refuse, type EditResult } from "../../../editor/sdk/editResult";
 import { axisRange, place1D, place2D } from "./blendPlacement";
 
 /** What the edits need to know beyond the body: the parameters it can use (global and local). */

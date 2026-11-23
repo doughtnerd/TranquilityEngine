@@ -74,3 +74,7 @@ export { KeyboardShortcutsDialog, type KeyboardShortcutsDialogProps, type Shortc
 // The 3D shape kit (ADR 0295): pose maths, wireframes, the face, radius and blend-shell handle rules and the axis drag
 // that 3D handle gizmos build their shape tables from.
 export * as shapeKit3d from "../shapeKit3d";
+// One refused-or-next result and the one place it is applied (ADR 0307, 0313); one parameter list and its cards (ADR 0304).
+export { accept, refuse, refusalOf, mapEdit, placeEdit, applyEdit, applyToDocument, applyToSettings, type EditResult } from "./editResult";
+export { parameterList, type ParameterHolder, type ParameterKind, type ParameterList, type ParameterRangePatch } from "./parameterList";
+export { ParameterCards } from "./ParameterCard";

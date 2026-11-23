@@ -11,7 +11,7 @@ import { isLabelled } from "../../../../engine/audio/parameters";
 import type { PlaylistLint } from "../../../../engine/audio/playlist/lint";
 import type { Automation, LoopBehaviour, PlaylistBody, SequenceSettings } from "../../../../engine/audio/playlist/types";
 import { SegmentedControl } from "../../../../editor/ui/SegmentedControl";
-import { accept, type EditResult } from "../../../../plugins/audio/editor/editResult";
+import { accept, type EditResult } from "../../../../editor/sdk/editResult";
 import { EffectChain } from "../../../components/EffectChain";
 import { chainNote } from "../chainCost";
 import { FieldRow, NumberBox, SelectBox, Section } from "../../../../editor/ui/PanelFields";

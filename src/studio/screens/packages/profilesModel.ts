@@ -11,7 +11,7 @@ import { ENCODING_KEYS, type AudioBudget, type EncodingConfig, type EncodingKey,
 import type { AudioProject } from "../../../engine/audio/project/types";
 import type { ImportPlatform } from "../../../engine/scene/importSettings";
 import type { ProjectFileEdit } from "../../../editor/projectFileEdits";
-import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import type { EditResult } from "../../../editor/sdk/editResult";
 import { AUDIO_FILE } from "../../../export/audio";
 import { isRecord } from "../../jsonObjects";
 
