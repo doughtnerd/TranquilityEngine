@@ -85,7 +85,7 @@ describe("parsePlaylist: defaults and the canonical form", () => {
     expect(playlist.volume).toBe(24);
     expect(playlist.playback).toMatchObject({ maxInstances: 32, chance: 1, whenFull: "stealOldest" });
     expect(playlist.volumeRandom).toEqual([-3, 3]);
-    expect(playlist.spatial).toEqual({ attenuation: null, occlusion: false, doppler: 5, spread: 360 });
+    expect(playlist.spatial).toEqual({ attenuation: null, occlusion: true, doppler: 5, spread: 360 });
     expect(problems).toHaveLength(8);
   });
 

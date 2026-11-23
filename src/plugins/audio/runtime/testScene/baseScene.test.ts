@@ -8,6 +8,7 @@ import { parseAudioTestScene } from "../../../../engine/audio/spatial/testScene"
 import { AUDIO_SCENE_FORMAT, type AudioTestScene } from "../../../../engine/audio/spatial/testSceneTypes";
 import { AudioSource } from "../AudioSource";
 import { setAudioBackend } from "../backend";
+import { pla, sample } from "../playlists/testKit";
 import { closeRecordingAudio, endAudioSession, makeFakeClipRegistry, recordingAudio } from "../testing";
 import { loadBaseScene, type LoadedBaseScene } from "./baseScene";
 import { playAudioTestScene, type AudioTestScenePlayer } from "./player";
@@ -43,7 +44,10 @@ beforeEach(async () => {
   endAudioSession();
   vi.spyOn(console, "warn").mockImplementation(() => {});
   Assets.clearSources();
-  Assets.addSource(Assets.fromObject({ "a.wav": "data:audio/wav;base64,AAAA", "b.wav": "data:audio/wav;base64,AAAA", "scenes/yard.scene.json": yard }));
+  Assets.addSource(Assets.fromObject({ "a.wav": "data:audio/wav;base64,AAAA", "b.wav": "data:audio/wav;base64,AAAA", "scenes/yard.scene.json": yard,
+    // A playlist made 3D with nothing said about occlusion (the Studio's "Make it 3D" on a flat playlist, J9.2/J9.3).
+    "engine.playlist.json": pla("clip", [sample("a.wav")], { playback: { plays: "untilStopped" }, spatial: { attenuation: null } }),
+  }));
   // The Studio's World: no scene of its own, the audio and physics plugins (the test setup activates every first-party one).
   engine = await Engine.create({ headless: true, project: { audio: { buses: [{ name: "Master" }] } } });
   engine.world.render = {} as never;
@@ -112,6 +116,23 @@ describe("a test scene over a base game scene (headless)", () => {
     }
     expect(bell().occlusion!.gain).toBeLessThan(0.5);
     expect(bell().occlusion!.material).toBe("metal");
+  });
+
+  it("a playlist with a spatial block is occluded by the scene's obstacle unless it opts out (ADR 0162), not read as Clear", async () => {
+    // The journey's scene (J9.3): a concrete wall 10 m wide and 0–6 m tall fully between the listener and an emitter
+    // playing a playlist made 3D, both at the listener's height.
+    const s = testScene(null);
+    s.listeners = [{ ...s.listeners[0]!, position: { x: 0, y: 1.7, z: 0 } }];
+    s.emitters = [{ id: "bell", name: "Emitter 1", hidden: false, locked: false, kind: "static", position: { x: 10, y: 1.7, z: 0 }, sound: "engine.playlist.json", volume: 0 }];
+    s.obstacles = [{ id: "wall", name: "Obstacle 1", hidden: false, locked: false, material: "concrete", box: { center: { x: 5, y: 0, z: 0 }, width: 4, depth: 10, yaw: 0, bottom: 0, top: 6 } }];
+    player = playAudioTestScene(engine.world, s);
+    for (let i = 0; i < 50 && (bell().occlusion?.gain ?? 1) === 1; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+      run(2);
+    }
+    expect(bell().playing).toBe(true);
+    expect(bell().occlusion!.gain).toBeLessThan(0.5);
+    expect(bell().occlusion!.material).toBe("concrete");
   });
 
   it("loads the base's audio and colliders underneath, read-only, and unloads them", async () => {
