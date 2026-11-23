@@ -225,7 +225,7 @@ describe("control tracks and seeks", () => {
     expect(play).toHaveBeenCalledOnce();
   });
 
-  it("plays a nested Animator's slot (guarded until slot plays are built, T32)", async () => {
+  it("plays a nested Animator's slot through Animator.play (slot plays are built, T32)", async () => {
     const { dir } = await rig("tl/slot.timeline.json", { playOnStart: false });
     const hero = GameObject.create("Hero", { parent: dir.node }).addComponent(Animator);
     const play = vi.spyOn(Animator.prototype, "play");
@@ -234,6 +234,7 @@ describe("control tracks and seeks", () => {
     steps(2);
     expect(play).toHaveBeenCalledWith("anims/wave.anim", { slot: "UpperBody", fade: 0.1 });
     expect(play.mock.contexts[0]).toBe(hero);
-    expect(warn.mock.calls.some((c) => String(c[0]).includes("can't play yet"))).toBe(true);
+    // The control handler no longer guards against an unbuilt slot play.
+    expect(warn.mock.calls.some((c) => String(c[0]).includes("can't play yet"))).toBe(false);
   });
 });
