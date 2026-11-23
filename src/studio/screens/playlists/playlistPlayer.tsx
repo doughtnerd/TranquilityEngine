@@ -1,7 +1,9 @@
-// The player bar's slots while a playlist (not a sequence) is open (ADR 0343; UI pass L2, PB4): now playing, the
-// transport (previous and next voice event, Trigger / Stop, Release for held loops), the voice log's scrub and the
-// status. Trigger is off, saying why, when there's nothing to play. The scrub row is always there, an idle track before
-// the first trigger, so the bar keeps its height when a trigger starts the log.
+// The player bar's slots while a playlist (not a sequence) is open (ADR 0343; UI pass L2, PB1–PB6): now playing (the
+// type badge in its colour, the name, the type summary), the transport (previous and next voice event around the
+// Trigger pill, which becomes Release while a held loop waits, Pause / Resume, Stop only while something plays), the
+// voice strip and the status: what the next trigger plays at rest, what plays while busy. Trigger is off, saying why,
+// when there's nothing to play. The scrub row is always there, an idle track before the first trigger, so the bar keeps
+// its height when a trigger starts the log.
 import { TransportButton, VoiceStrip, type PlayerBarSlots } from "../../components/PlayerBar";
 import { eventTimes, logSpan, stepEvent, type LogRow } from "./voiceLog";
 
@@ -12,10 +14,14 @@ export interface PlaylistPlayerState {
   readonly art?: string;
   /** Something the audition started still plays. */
   readonly busy: boolean;
+  /** The views are frozen and the audition held (Pause). */
+  readonly paused?: boolean;
   /** The open playlist holds a loop that waits for release. */
   readonly release: boolean;
   /** Why Trigger is off (null: it plays). */
   readonly triggerOff: string | null;
+  /** What the next trigger plays at the test values ("Random pick · 1 of 5"), for the status at rest. */
+  readonly next?: string;
   readonly log: readonly LogRow[];
   readonly cursor: number | null;
   /** The audio clock at the last poll. */
@@ -26,6 +32,8 @@ export interface PlaylistPlayerActions {
   trigger(): void;
   stop(): void;
   release(): void;
+  pause?(): void;
+  resume?(): void;
   seek(t: number | null): void;
 }
 
@@ -33,20 +41,23 @@ export function playlistPlayerSlots(s: PlaylistPlayerState, a: PlaylistPlayerAct
   const times = eventTimes(s.log);
   const span = logSpan(s.log, s.now);
   const off = !s.busy && s.triggerOff !== null;
-  // The big button is the prototype's accent pill: Trigger, then Release while a held loop waits, then Stop.
-  const pill = s.busy
-    ? s.release
-      ? { icon: "release" as const, label: "Release", title: "Release: held loops end by their exit settings (Space)", run: a.release }
-      : { icon: "stop" as const, label: "Stop", title: "Stop (Shift+Space)", run: a.stop }
-    : { icon: "trigger" as const, label: "Trigger", title: s.triggerOff ?? "Resolve and play one voice of this playlist (Space)", run: a.trigger };
+  // The big button is the prototype's accent pill: Trigger, or Release while a held loop waits (a paused one triggers fresh).
+  const pill = s.busy && s.release && !s.paused
+    ? { icon: "release" as const, label: "Release", title: "Release: held loops end by their exit settings (Space)", run: a.release }
+    : { icon: "trigger" as const, label: "Trigger", title: s.triggerOff ?? (s.paused ? "Trigger: start fresh (Space)" : "Resolve and play one voice of this playlist (Space)"), run: a.trigger };
   const voices = s.log.filter((r) => r.kind === "voice");
   return {
     nowPlaying: { art: s.art ?? "PL", title: s.title, subtitle: s.subtitle },
     transport: (
       <>
         <TransportButton icon="skipBack" label="Previous voice event" title="Step back to the previous voice start or end" disabled={times.length === 0} onClick={() => a.seek(stepEvent(times, s.cursor, -1) ?? s.cursor)} />
-        <TransportButton trigger icon={pill.icon} label={pill.label} title={pill.title} disabled={off} onClick={pill.run} />
-        {s.busy && s.release && <TransportButton icon="stop" label="Stop" title="Stop (Shift+Space)" onClick={a.stop} />}
+        <TransportButton trigger icon={pill.icon} label={pill.label} title={pill.title} disabled={off && !s.paused} onClick={pill.run} />
+        {s.paused ? (
+          <TransportButton icon="play" label="Resume" title="Resume: hear the audition again and follow it live" onClick={() => a.resume?.()} />
+        ) : (
+          <TransportButton icon="pause" label="Pause" title="Pause: freeze Plays now, Voices and the curves at this moment" disabled={!s.busy || !a.pause} onClick={() => a.pause?.()} />
+        )}
+        {s.busy && <TransportButton icon="stop" label="Stop" title="Stop (Shift+Space)" onClick={a.stop} />}
         <TransportButton icon="skipForward" label="Next voice event" title="Step forward to the next voice start or end" disabled={times.length === 0} onClick={() => a.seek(stepEvent(times, s.cursor, 1) ?? s.cursor)} />
       </>
     ),
@@ -65,6 +76,12 @@ export function playlistPlayerSlots(s: PlaylistPlayerState, a: PlaylistPlayerAct
     ) : (
       <VoiceStrip from={0} to={1} cursor={0} segments={[]} startText="0.00" endText="—" title="Trigger to start the voice log" disabled onSeek={() => {}} />
     ),
-    status: s.busy ? `Playing ${s.title}` : s.cursor !== null && span ? `Voice log at ${(s.cursor - span[0]).toFixed(2)} s` : (s.triggerOff ?? "Space triggers"),
+    status: s.paused
+      ? `Paused at ${span ? ((s.cursor ?? span[1]) - span[0]).toFixed(2) : "0.00"} s`
+      : s.busy
+        ? `Playing: ${s.title}${s.release ? " · held until released" : ""}`
+        : s.cursor !== null && span
+          ? `Voice log at ${(s.cursor - span[0]).toFixed(2)} s`
+          : (s.triggerOff ?? (s.next ? `Next trigger: ${s.next}` : "Space triggers")),
   };
 }

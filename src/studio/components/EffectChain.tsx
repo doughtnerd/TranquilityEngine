@@ -34,6 +34,10 @@ export interface EffectChainProps {
   onEdit(result: EditResult<Effect[]>, label: string, drag?: boolean): void;
   /** Automate ◆ on a card. */
   onAutomate?(effectId: string): void;
+  /** A right-click (or the context-menu key) on a card's Automate button: the owner's curve menu at `at`. */
+  onAutomateMenu?(effectId: string, at: { x: number; y: number }): void;
+  /** Types the Add effect menu leaves out at this owner (a Clip's chain: no Delay or Reverb, decisions.md). */
+  readonly exclude?: readonly string[];
   /**
    * ADR 0352 §9: plugin effect health rows (`Audio.debug().plugins`). Absent: the chain reads the runtime's own while it
    * holds a plugin effect (`EffectChainHealth.ts`).
@@ -44,9 +48,9 @@ export interface EffectChainProps {
 }
 
 /** The Add effect menu's entries: the built-ins, then each plugin's effects under its title (ADR 0352 §9). */
-function menuEntries(level: EffectLevel, add: (item: EffectMenuItem) => void): MenuEntry[] {
+function menuEntries(level: EffectLevel, add: (item: EffectMenuItem) => void, exclude: readonly string[] = []): MenuEntry[] {
   const groups = effectMenuGroups(level);
-  const entries: MenuEntry[] = groups.builtins.map((item) => ({ id: item.type, label: item.label, run: () => add(item) }));
+  const entries: MenuEntry[] = groups.builtins.filter((item) => !exclude.includes(item.type)).map((item) => ({ id: item.type, label: item.label, run: () => add(item) }));
   for (const g of groups.plugins) {
     entries.push(SEPARATOR, { id: `plugin:${g.plugin}`, label: g.title, disabled: true, title: `Effects of the plugin ${g.title} ${g.version}`.trim(), run: () => {} });
     for (const item of g.items) entries.push({ id: item.type, label: item.label, hint: g.title, title: `${item.label} (${g.title})`, run: () => add(item) });
@@ -112,6 +116,7 @@ export function EffectChain(props: EffectChainProps) {
             onRemove={() => onEdit(removeEffect(effects, effect.id), `Remove ${label}`)}
             onKey={(bus) => onEdit(setEffectKey(effects, effect.id, bus, props.ownBus), `Set ${label} key`)}
             onAutomate={props.onAutomate ? () => props.onAutomate!(effect.id) : undefined}
+            onAutomateMenu={props.onAutomateMenu ? (at) => props.onAutomateMenu!(effect.id, at) : undefined}
             pluginHealth={health.find((h) => h.type === effect.type) ?? null}
             onResetPlugin={() => resetPlugin(effect.type)}
           />
@@ -125,7 +130,7 @@ export function EffectChain(props: EffectChainProps) {
             const id = nextEffectId(effects);
             onEdit(addEffect(effects, item.type, level, { limit: props.limit }), `Add ${item.label}`);
             toggle(id, true);
-          })}
+          }, props.exclude)}
           onClose={() => setMenu(false)}
         />
       )}

@@ -15,7 +15,7 @@ export const SCREEN_ARRANGEMENTS: Readonly<Partial<Record<ScreenId, DockArrangem
   },
   playlists: {
     left: { size: 260, groups: [["playlists-library"], ["playlists-samples"]], fractions: [0.58, 0.42] },
-    right: { size: 320, groups: [["playlists-inspector"], ["playlists-voices", "playlists-parameters"]], fractions: [0.62, 0.38] },
+    right: { size: 320, groups: [["playlists-inspector"], ["playlists-voices", "playlists-voice-log"]], fractions: [0.62, 0.38] },
   },
   mixer: {
     left: { size: 240, groups: [["mixer-snapshots"], ["mixer-gain"]], fractions: [0.55, 0.45] },

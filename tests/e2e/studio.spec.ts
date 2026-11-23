@@ -97,7 +97,7 @@ test("Playlists: a new playlist with a sample triggers and is heard; undo takes 
   await page.getByRole("toolbar", { name: "Transport" }).getByRole("button", { name: "Stop" }).click();
 
   // Undo (in the playlist's history) takes the entry out again.
-  await page.locator(".pl-crumbs").click();
+  await page.getByRole("toolbar", { name: "Playlist", exact: true }).click({ position: { x: 4, y: 4 } });
   await page.keyboard.press("ControlOrMeta+z");
   await expect.poll(async () => JSON.parse((await readFile(page, "Game/New playlist.playlist.json")) ?? "{}").entries?.length ?? 0).toBe(0);
   expect(errors).toEqual([]);
