@@ -14,9 +14,11 @@
  *   `length - u`, read backwards (the core voice reads the decoded PCM backwards, ABI 6.1; a streamed sample is decoded
  *   whole for it), so its tail comes first and its loop's passes run backwards inside the span. A sync clip's pieces are
  *   the mirrored map's; an async clip's voice loops its region backwards while the loop is active. Its markers are
- *   reported where they are heard (sync clips; an async reversed clip's voice reports none), and it never drives the
- *   playhead or the musical clock (its loop follows, one warning). `reverse` on a playlist or generator clip does
- *   nothing (one warning).
+ *   reported where they are heard (an async clip's from its voice read down: its pass walk runs on the file mirrored).
+ *   A sync clip's loop drives the playhead on the mirrored map: it wraps on the passes after the tail, so the first
+ *   pass runs on with the pickup once it leaves (a clip with no pass besides its first follows, one warning). It
+ *   never gives the musical clock (a reversed sample's bars run backwards; a sequence tempo does). `reverse` on a
+ *   playlist or generator clip does nothing (one warning).
  * - **Amp envelope** (ADR 0362 item 2): a clip's first enabled `envelope` effect is a gain on every voice the clip
  *   plays, per sample on the core (AMP_ENVELOPE, ABI 6.1): attack, hold, decay and sustain from the clip's start, the
  *   release ending on the clip's end (its key-off), over the clip instance's own time (`ampEnvelope.ts`: the shape the
@@ -308,26 +310,30 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     for (const c of this.clips) {
       const g = c.geo;
       if (!c.sync || !g || !g.loop || !c.loop) continue;
-      if (c.reversed) {
-        warnOnce(`playlist:sync-reverse:${this.ctx.where}:${c.clip.id}`, `[myco] ${this.ctx.where} clip "${c.clip.id}": a reversed clip's loop can't drive the playhead; it follows.`);
-        continue;
-      }
       const passLen = g.loop.end - g.loop.start;
       const hold = passLen <= 1e-6;
+      if (c.reversed && (!Number.isFinite(g.length) || (!hold && g.extraPasses < 1))) {
+        warnOnce(`playlist:sync-reverse:${this.ctx.where}:${c.clip.id}`, `[myco] ${this.ctx.where} clip "${c.clip.id}": a reversed clip's loop drives the playhead only with a pass to repeat besides its first; it follows.`);
+        continue;
+      }
       if (!hold && g.offset > g.loop.start + EPS) {
         warnOnce(`playlist:sync-partial:${this.ctx.where}:${c.clip.id}`, `[myco] ${this.ctx.where} clip "${c.clip.id}": it starts inside its loop, so the loop can't drive the playhead; it follows.`);
         continue;
       }
-      const start = c.start + (hold ? g.firstPassEnd : g.firstPassEnd - passLen);
-      const end = c.start + (hold ? g.firstPassEnd : g.tailStart);
-      const region: [number, number] = [start, hold ? c.start + g.tailStart : end];
+      // ADR 0362: a reversed clip's map is mirrored (clip time u plays the forward map at length − u): its passes come
+      // after its tail, the first pass last before the pickup. Its loop wraps on the passes that follow the tail (the
+      // first pass runs on with the pickup once it leaves), so every wrap is on a piece boundary, sample for sample.
+      const mirror = (u: number): number => c.start + g.length - u;
+      const start = c.reversed ? mirror(g.tailStart) : c.start + (hold ? g.firstPassEnd : g.firstPassEnd - passLen);
+      const end = c.reversed ? mirror(g.firstPassEnd) : c.start + (hold ? g.firstPassEnd : g.tailStart);
+      const region: [number, number] = c.reversed ? [start, end] : [start, hold ? c.start + g.tailStart : end];
       if (taken.some(([a, b]) => region[0] < b - EPS && a < region[1] - EPS || (hold && Math.abs(a - region[0]) < EPS))) {
         warnOnce(`playlist:sync-clash:${this.ctx.where}:${c.clip.id}`, `[myco] ${this.ctx.where} clip "${c.clip.id}": its sync loop overlaps a higher track's; that one drives and this one follows.`);
         continue;
       }
       taken.push(region);
       const pl: PlayheadLoop = hold
-        ? { start, end: start, wrapTo: start, behaviour: c.loop.behaviour, leaveTo: c.start + g.tailStart }
+        ? { start, end: start, wrapTo: start, behaviour: c.loop.behaviour, leaveTo: c.reversed ? end : c.start + g.tailStart }
         : { start, end, wrapTo: end - passLen, behaviour: c.loop.behaviour, exitAfter: (from) => this.syncExitAfter(c, from) };
       c.driving = this.loops.length;
       this.loops.push({ pl, behaviour: c.loop.behaviour });
@@ -338,16 +344,17 @@ export class SequenceNode extends LiveNode implements MusicalSource {
   private syncExitAfter(c: ClipRt, from: number): number {
     const g = c.geo!;
     const passLen = g.loop!.end - g.loop!.start;
-    let best = c.start + g.tailStart;
+    // ADR 0362: reversed, the passes the loop wraps on run from the mirrored tail's end to the mirrored first pass.
+    const last = c.reversed ? g.length - g.firstPassEnd : g.tailStart;
+    let best = c.start + last;
     for (let k = 0; k <= g.extraPasses; k++) {
-      const b = c.start + g.firstPassEnd + k * passLen;
+      const b = c.start + (c.reversed ? g.length - g.tailStart + k * passLen : g.firstPassEnd + k * passLen);
       if (b >= from - EPS && b < best) best = b;
     }
     const u = from - c.start;
     for (const m of c.markers) {
       if (m.type !== "exit" || m.at < g.loop!.start - EPS || m.at >= g.loop!.end - EPS) continue;
-      this.scratch.length = 0;
-      for (const t of clipTimesOf(g, m.at, u, g.tailStart, this.scratch)) if (c.start + t < best) best = c.start + t;
+      for (const t of this.markerTimes(c, m.at, u, last)) if (c.start + t < best) best = c.start + t;
     }
     return best;
   }
@@ -674,7 +681,18 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     if (!v) return;
     c.voice = v;
     this.voices.push(v);
-    if (!c.sync && !c.reversed && c.markers.length > 0) this.host.trackMarkers(v, { ...facts, markers: c.markers }, trim[0]);
+    if (!c.sync && c.markers.length > 0) {
+      if (!c.reversed) this.host.trackMarkers(v, { ...facts, markers: c.markers }, trim[0]);
+      else if (facts.end !== null) {
+        // ADR 0362: the voice reads down from `trim[1]`: its markers are found by the same pass walk on the file mirrored
+        // about its end (file position x is end − x), the loop region mirrored with it.
+        const k = facts.end;
+        const mirror = (l: LoopRun | null): LoopRun | null => l && { ...l, start: k - (l.end > 0 ? l.end : k), end: k - l.start };
+        const read = Object.create(v, { loop: { get: () => mirror(v.loop) } }) as PVoice;
+        const markers = c.markers.filter((m) => m.at >= trim[0] - EPS && m.at <= trim[1] + EPS).map((m) => ({ ...m, at: k - m.at })).sort((a, b) => a.at - b.at);
+        if (markers.length > 0) this.host.trackMarkers(read, { ...facts, from: k - trim[1], end: k - trim[0], loops: [], markers, grid: null, entry: null }, k - trim[1]);
+      }
+    }
   }
 
   /**

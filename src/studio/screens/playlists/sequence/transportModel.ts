@@ -119,6 +119,15 @@ export function heldRegions(s: SequenceSettings, sourceOf: SourceOf): HeldRegion
     const band = loopBand(plan);
     if (!band || band.active !== "held" || !plan.loop) continue;
     const span = plan.loop.end - plan.loop.start;
+    if (clip.reverse) {
+      // ADR 0362: reversed, the map is mirrored: the runtime wraps back one pass at the mirrored first pass (the passes
+      // after the tail; a clip with no pass besides its first follows), a zero-length loop parks it after the tail.
+      const L = plan.length;
+      if (!Number.isFinite(L)) continue;
+      if (span > 0 && plan.avail >= span - 1e-9) out.push({ start: clip.at + L - plan.pre - span, end: clip.at + L - plan.pre });
+      else if (span <= 0) out.push({ start: clip.at + L - band.end, end: clip.at + L - band.end });
+      continue;
+    }
     out.push(span > 0 ? { start: clip.at + Math.max(band.start, band.end - span), end: clip.at + band.end } : { start: clip.at + band.start, end: clip.at + band.start });
   }
   return out.sort((a, b) => a.start - b.start);
