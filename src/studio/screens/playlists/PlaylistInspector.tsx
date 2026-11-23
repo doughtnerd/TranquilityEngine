@@ -146,7 +146,7 @@ export function PlaylistInspector(props: PlaylistInspectorProps) {
   const chain = (effects: readonly Effect[], level: "playlist" | "clip", edit: (next: Effect[]) => BodyEdit, entry: number | null, automation: PlaylistBody["automation"]) => (
     <EffectChain effects={effects} level="instance" readOnly={!writable} title={level === "clip" ? "Clip effects" : "Playlist effects"}
       note={chainNote(level === "clip" ? "clipPlaylist" : "playlist", effects)} exclude={level === "clip" ? NOT_ON_CLIPS : undefined}
-      automated={automatedNow(effects, automation, values)}
+      automated={automatedNow(effects, automation, values, props.ctx.parameters)}
       onAutomate={props.onAutomate ? (id) => props.onAutomate!(id, entry) : undefined}
       onAutomateMenu={props.onAutomateMenu ? (id, at) => props.onAutomateMenu!(id, entry, at) : undefined}
       onEdit={(r, label, drag) => onEdit(label, (b) => ("refused" in r ? r : edit(r.next)(b)), drag)} />

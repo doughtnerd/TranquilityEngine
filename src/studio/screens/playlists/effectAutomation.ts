@@ -2,14 +2,17 @@
 // the prototype's effect row Automate button, W11.3): a dialog of kind "time" with one lane per parameter of the effect
 // and one for its On (bypass), each over voice time or one of the playlist's parameters; the dialog's result turned back
 // into the playlist's `automation` (a lane left flat at the effect's own value, not bypassed, is removed). Also the
-// automate button's menu edits (copy, paste, turn off or on, clear) and the "automated now" text a card shows. Pure.
+// automate button's menu edits (copy, paste, turn off or on, clear) and the "automated now" text a card shows. Each lane
+// may also follow a second parameter ("And by", ADR 0362 §5): the dialog offers the playlist's parameters as second
+// inputs and Apply writes the lane's `by` (a lane with one is never "flat"). Pure.
 import { TIME_INPUT, type CurveEditorResult, type CurveEditorSpec, type CurveInput as DialogInput, type CurveLane } from "../../../editor/ui/curves/curveEditorModel";
 import { effectParamValue, effectSpec } from "../../../engine/audio/effects/catalogue";
 import type { Effect } from "../../../engine/audio/effects/types";
 import type { ParameterDef } from "../../../engine/audio/parameters";
 import type { Automation, CurveInput } from "../../../engine/audio/playlist/types";
 import { evalCurve } from "../../../engine/core/curve";
-import { curvesLabel, parameterInputId, parameterInputs, parameterOfInput } from "../curveInputs";
+import { evalCurveBy, secondValueOf } from "../../../engine/audio/curveBy";
+import { curveByOf, curvesLabel, laneByOf, parameterInputId, parameterInputs, parameterOfInput, secondInputsOf } from "../curveInputs";
 
 /** The voice time axis is at least this long, seconds. */
 const MIN_LENGTH = 2;
@@ -20,8 +23,11 @@ const inputId = (input: CurveInput): string => (typeof input === "string" ? TIME
 /** Effect `id`'s lanes in `automation`. */
 export const lanesOf = (automation: readonly Automation[], id: string): Automation[] => automation.filter((a) => a.target.startsWith(prefix(id)));
 
-/** Each effect's automated parameters with their value now (voice time 0, the test values): effect id → param → text. */
-export function automatedNow(effects: readonly Effect[], automation: readonly Automation[], values: Readonly<Record<string, number>>): Record<string, Record<string, string>> {
+/**
+ * Each effect's automated parameters with their value now (voice time 0, the test values): effect id → param → text. A
+ * lane's second input counts when its parameter is among `parameters`.
+ */
+export function automatedNow(effects: readonly Effect[], automation: readonly Automation[], values: Readonly<Record<string, number>>, parameters: readonly ParameterDef[] = []): Record<string, Record<string, string>> {
   const out: Record<string, Record<string, string>> = {};
   for (const e of effects) {
     const spec = effectSpec(e.type);
@@ -30,7 +36,8 @@ export function automatedNow(effects: readonly Effect[], automation: readonly Au
       const name = a.target.slice(prefix(e.id).length);
       const p = spec.params.find((q) => q.name === name);
       const x = typeof a.input === "string" ? 0 : (values[a.input.parameter] ?? 0);
-      const v = a.curve.length ? evalCurve(a.curve, x) : 0;
+      const second = a.by && parameters.find((d) => d.name === a.by!.input);
+      const v = !a.curve.length ? 0 : a.by && second ? evalCurveBy(a.curve, a.by, x, secondValueOf(second, values[second.name] ?? 0)) : evalCurve(a.curve, x);
       (out[e.id] ??= {})[name === "on" ? "On" : name] = p ? `${Math.round(v / p.step) * p.step}${p.unit ? ` ${p.unit}` : ""}` : v >= 0.5 ? "on" : "off";
     }
   }
@@ -53,7 +60,8 @@ export function effectAutomationDialog(effect: Effect, automation: readonly Auto
   for (const a of mine) if (typeof a.input === "string") for (const k of a.curve) length = Math.max(length, k[0]);
   const lane = (target: string, rest: Omit<CurveLane, "id" | "curve" | "input" | "bypass">): CurveLane => {
     const a = mine.find((x) => x.target === target);
-    return { id: target, ...rest, curve: a?.curve ?? [], ...(a ? { input: inputId(a.input), bypass: a.bypass } : {}) };
+    const by = laneByOf(a?.by);
+    return { id: target, ...rest, curve: a?.curve ?? [], ...(a ? { input: inputId(a.input), bypass: a.bypass } : {}), ...(by ? { by } : {}) };
   };
   const lanes: CurveLane[] = [
     ...spec.params.filter((p) => !p.bool).map((p) =>
@@ -61,7 +69,8 @@ export function effectAutomationDialog(effect: Effect, automation: readonly Auto
     ),
     lane(`${prefix(effect.id)}on`, { name: "On", unit: "", min: 0, max: 1, step: 1, base: effect.on ? 1 : 0, bool: true }),
   ];
-  return { spec: { kind: "time", timeName: "Voice time", length: Math.ceil(length * 2) / 2, lanes, inputs }, effect, lanes: mine };
+  const secondInputs = secondInputsOf(parameters, values, parameterInputId, mine.flatMap((a) => (a.by ? [a.by.input] : [])));
+  return { spec: { kind: "time", timeName: "Voice time", length: Math.ceil(length * 2) / 2, lanes, inputs, ...(secondInputs.length ? { secondInputs } : {}) }, effect, lanes: mine };
 }
 
 const flatAt = (c: readonly (readonly [number, number, ...unknown[]])[], y: number) => c.length > 0 && c.every((k) => k[1] === y);
@@ -81,10 +90,11 @@ export function applyEffectAutomationResult(dialog: EffectAutomationDialog, auto
     const was = next.find((a) => a.target === r.id);
     const parameter = parameterOfInput(r.input);
     const input: CurveInput = parameter !== null ? { parameter } : "voiceTime";
-    const none = !r.bypass && flatAt(r.curve, lane.base);
+    const by = curveByOf(r.by, parameter === null);
+    const none = !r.bypass && flatAt(r.curve, lane.base) && !by;
     if (!was) {
       if (none || r.curve.length === 0) continue;
-      next.push({ id: freeId(next), target: r.id as Automation["target"], input, curve: r.curve, bypass: r.bypass });
+      next.push({ id: freeId(next), target: r.id as Automation["target"], input, curve: r.curve, bypass: r.bypass, ...(by ? { by } : {}) });
       changed.push(lane.name);
       continue;
     }
@@ -93,8 +103,12 @@ export function applyEffectAutomationResult(dialog: EffectAutomationDialog, auto
       changed.push(lane.name);
       continue;
     }
-    if (inputId(was.input) === r.input && was.bypass === r.bypass && JSON.stringify(was.curve) === JSON.stringify(r.curve)) continue;
-    next = next.map((a) => (a === was ? { ...a, input, curve: r.curve, bypass: r.bypass } : a));
+    if (inputId(was.input) === r.input && was.bypass === r.bypass && JSON.stringify(was.curve) === JSON.stringify(r.curve) && JSON.stringify(was.by ?? null) === JSON.stringify(by ?? null)) continue;
+    next = next.map((a) => {
+      if (a !== was) return a;
+      const { by: _old, ...rest } = a;
+      return { ...rest, input, curve: r.curve, bypass: r.bypass, ...(by ? { by } : {}) };
+    });
     changed.push(lane.name);
   }
   const label = curvesLabel(effectSpec(dialog.effect.type).label, changed);
