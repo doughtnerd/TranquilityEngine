@@ -1033,6 +1033,37 @@ fn slots_play_sections_and_report_finished() {
 }
 
 #[test]
+fn a_slot_that_blends_out_on_its_own_reports_finished_once() {
+    // T30 found that an automatic blend-out cleared the play without reporting it.
+    let (mut r, h, shot, _, _) = slot_rig();
+    frame(&mut r.core, DT);
+    let play = SlotPlay {
+        instance: h,
+        slot: 0,
+        clip: shot,
+        play_id: 9,
+        blend_in: 0.0,
+        blend_out: 0.1,
+        speed: 1.0,
+        start: 0.2,
+        end: 0.5,
+        flags: 0,
+    }
+    .encode();
+    send(&mut r.core, &[play]);
+    r.core.evaluate(0, 0, DT, DT);
+    let mut reports = 0;
+    for _ in 2..=30 {
+        frame(&mut r.core, DT);
+        reports += graph_changes(&r.core)
+            .iter()
+            .filter(|c| c.kind == GRAPH_SLOT_FINISHED && c.value == 9)
+            .count();
+    }
+    assert_eq!(reports, 1);
+}
+
+#[test]
 fn slot_next_sections_chain_and_loops_hold() {
     let (mut r, h, shot, _, _) = slot_rig();
     send(&mut r.core, &[slot_play(h, 0, shot, 3, 0.0, 0.2, 0)]);

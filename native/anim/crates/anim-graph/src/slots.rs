@@ -295,9 +295,21 @@ fn update_slot(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
         let oe = f(s, slot::OUT_ELAPSED) + dt.abs();
         s[slot::OUT_ELAPSED] = oe.to_bits();
         if oe >= f(s, slot::BLEND_OUT) {
+            // An automatic blend-out (the section's end reached while fading) finishes the play;
+            // a stop already marked it finished and reported it.
+            let finished_here = s[slot::FINISHED] == 0;
+            let id = s[slot::PLAY_ID];
+            s[slot::FINISHED] = 1;
             s[slot::MODE] = 0;
             sources::clear(&mut s[slot::A..slot::A + player::WORDS as usize]);
             sources::clear(&mut s[slot::B..slot::B + player::WORDS as usize]);
+            if finished_here && id != 0 {
+                cx.emit(StateEvent {
+                    kind: StateEventKind::SlotFinished,
+                    layer: side,
+                    play_id: id,
+                });
+            }
             return;
         }
     }

@@ -96,30 +96,34 @@ fn build(strings: &[&str], tracks: Vec<Track>, sampled: bool) -> Vec<u8> {
 
 fn props() -> Vec<u8> {
     let strings = [
-        "Lamp",                 // 0
-        "engine.Light",         // 1
-        "intensity",            // 2
-        "Body",                 // 3
-        "engine.MeshRenderer",  // 4
-        "material.color",       // 5
-        "Sprite",               // 6
+        "Lamp",                  // 0
+        "engine.Light",          // 1
+        "intensity",             // 2
+        "Body",                  // 3
+        "engine.MeshRenderer",   // 4
+        "material.color",        // 5
+        "Sprite",                // 6
         "engine.SpriteRenderer", // 7
-        "sprite",               // 8
+        "sprite",                // 8
         "asset:sheet.png#run_0", // 9
         "asset:sheet.png#run_3", // 10
-        "Trail",                // 11
-        "Face",                 // 12
-        "1",                    // 13
-        "Joint",                // 14
-        "engine.BallJoint",     // 15
-        "drive.targetRotation", // 16
-        "Ghost",                // 17
-        "type",                 // 18
+        "Trail",                 // 11
+        "Face",                  // 12
+        "1",                     // 13
+        "Joint",                 // 14
+        "engine.BallJoint",      // 15
+        "drive.targetRotation",  // 16
+        "Ghost",                 // 17
+        "type",                  // 18
     ];
     let half_turn = std::f32::consts::FRAC_PI_4; // half of 90°
     let tracks = vec![
-        sampled(TrackKind::Float, Binding::property(0, 1, 2), |t| vec![2.0 * t]),
-        sampled(TrackKind::Color, Binding::property(3, 4, 5), |t| vec![t, 0.5, 1.0 - t, 1.0]),
+        sampled(TrackKind::Float, Binding::property(0, 1, 2), |t| {
+            vec![2.0 * t]
+        }),
+        sampled(TrackKind::Color, Binding::property(3, 4, 5), |t| {
+            vec![t, 0.5, 1.0 - t, 1.0]
+        }),
         keyed(
             TrackKind::Discrete,
             DiscreteType::Asset.id(),
@@ -129,8 +133,15 @@ fn props() -> Vec<u8> {
                 key(0.5, 0.5, KeyData::Discrete { value: 10 }),
             ],
         ),
-        keyed(TrackKind::Activation, 0, node(11), vec![key(0.25, 0.75, KeyData::Activation)]),
-        sampled(TrackKind::Morph, Binding::property(12, NONE, 13), |t| vec![t]),
+        keyed(
+            TrackKind::Activation,
+            0,
+            node(11),
+            vec![key(0.25, 0.75, KeyData::Activation)],
+        ),
+        sampled(TrackKind::Morph, Binding::property(12, NONE, 13), |t| {
+            vec![t]
+        }),
         sampled(TrackKind::Quat, Binding::property(14, 15, 16), move |t| {
             vec![0.0, (half_turn * t).sin(), 0.0, (half_turn * t).cos()]
         }),
@@ -142,15 +153,15 @@ fn props() -> Vec<u8> {
 
 fn notifies() -> Vec<u8> {
     let strings = [
-        "footstep",                     // 0
-        r#"["L",2]"#,                   // 1
-        "swing",                        // 2
-        r#"{"power":3}"#,               // 3
-        "update",                       // 4
-        "asset:sfx/step.wav",           // 5
+        "footstep",                      // 0
+        r#"["L",2]"#,                    // 1
+        "swing",                         // 2
+        r#"{"power":3}"#,                // 3
+        "update",                        // 4
+        "asset:sfx/step.wav",            // 5
         r#"{"volume":0.5,"surface":2}"#, // 6
-        "Sparks",                       // 7
-        "Feet",                         // 8
+        "Sparks",                        // 7
+        "Feet",                          // 8
     ];
     let event = |method: u32, args: u32| KeyData::Event {
         method,
@@ -169,7 +180,19 @@ fn notifies() -> Vec<u8> {
                 key(0.5, 0.5, event(4, NONE)),
             ],
         ),
-        keyed(TrackKind::Audio, 0, node(8), vec![key(0.3, 0.3, KeyData::Audio { asset: 5, params: 6 })]),
+        keyed(
+            TrackKind::Audio,
+            0,
+            node(8),
+            vec![key(
+                0.3,
+                0.3,
+                KeyData::Audio {
+                    asset: 5,
+                    params: 6,
+                },
+            )],
+        ),
         keyed(
             TrackKind::Control,
             0,
