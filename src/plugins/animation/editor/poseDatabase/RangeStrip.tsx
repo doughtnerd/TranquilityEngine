@@ -23,7 +23,16 @@ export interface RangeStripProps {
   onAdd(from: number, to: number): void;
 }
 
-type Gesture = { kind: "range"; index: number; part: RangeDrag; x0: number; from: number; to: number } | { kind: "new"; x0: number; t0: number; t1: number };
+/** Keep the pointer's moves on the element, where the browser knows the pointer (a synthetic event's id it doesn't). */
+function capture(e: PointerEvent): void {
+  try {
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  } catch {
+    // an unknown pointer: the strip's own move handler still hears it over the bar
+  }
+}
+
+type Gesture ={ kind: "range"; index: number; part: RangeDrag; x0: number; from: number; to: number } | { kind: "new"; x0: number; t0: number; t1: number };
 
 export function RangeStrip(props: RangeStripProps) {
   const { ranges, selected, disabled } = props;
@@ -41,7 +50,7 @@ export function RangeStrip(props: RangeStripProps) {
     e.stopPropagation();
     props.onSelect(index);
     if (disabled) return;
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    capture(e);
     setGesture({ kind: "range", index, part, x0: e.clientX, from: ranges[index]!.from, to: ranges[index]!.to });
   };
   const startNew = (e: PointerEvent) => {
@@ -49,7 +58,7 @@ export function RangeStrip(props: RangeStripProps) {
     if (disabled) return;
     const rect = bar.current?.getBoundingClientRect();
     if (!rect) return;
-    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    capture(e);
     const t = timeAt((e.clientX - rect.left) / rect.width, span);
     setGesture({ kind: "new", x0: e.clientX, t0: t, t1: t });
   };

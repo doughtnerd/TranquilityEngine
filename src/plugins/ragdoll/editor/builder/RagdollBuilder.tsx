@@ -5,13 +5,13 @@
 import { useState } from "preact/hooks";
 import { applyEdit, editor, sectionField, type InspectorSectionProps } from "../../../../editor/sdk";
 import type { GameObject } from "../../../../engine/scene/GameObject";
-import { skeletonInfoIfLoaded } from "../../../animation/editor/scene/skeletonAssets";
-import { loadSkeletonBytes } from "../../../animation/runtime/features/clipSources";
+import { loadSkeletonBytes } from "../../../animation/runtime";
 import { Ragdoll, type RagdollBone, type RagdollMode } from "../../runtime/Ragdoll";
 import { BuilderPanel } from "./BuilderPanel";
 import { generateRagdoll } from "./generateLogic";
 import { selectedBodyBone } from "./ragdollGizmo";
 import { findRigSkeleton } from "./rigLookup";
+import { skeletonInfoIfLoaded } from "./skeletonInfo";
 import { liveNodeFor, nextDropMode, testDropState } from "./testDropLogic";
 
 /** The mode a live Ragdoll had before a test drop, by node: what Reset puts back. */

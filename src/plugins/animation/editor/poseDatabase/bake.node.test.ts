@@ -36,7 +36,7 @@ function env(written: Map<string, Uint8Array>): PoseDbBakeEnv {
 }
 
 function source(): PoseDatabaseSource {
-  let db = { ...emptyPoseDatabase(), skeleton: "asset:rigs/small.skel" };
+  let db: PoseDatabaseSource = { ...emptyPoseDatabase(), skeleton: "asset:rigs/small.skel" };
   for (const bone of ["LeftFoot", "RightFoot", "Hips"]) db = ok(removeBoneFeature(db, bone));
   for (const bone of ["bone3", "bone7"]) db = ok(addBoneFeature(db, bone));
   db = ok(setTrajectoryTimes(db, [0.25, 0.5]));

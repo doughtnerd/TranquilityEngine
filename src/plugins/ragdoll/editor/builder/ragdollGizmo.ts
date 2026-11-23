@@ -10,11 +10,13 @@ import { signal } from "@preact/signals";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import { viewport, type EditorOverlay } from "../../../../engine/editor";
 import { type ComponentEditMode, type ViewportToolContribution, editor, theme, viewportColors } from "../../../../editor/sdk";
-import { boneWorldMatrix } from "../../../animation/editor/scene/bones";
+import { boneWorldMatrixOf } from "../../../animation/runtime";
+import type { SkeletonInfo } from "../../../animation/runtime";
 import { Ragdoll, type RagdollBone } from "../../runtime/Ragdoll";
 import { bodyHandles, bodyMatrix, dragPatch, handlesToWorld, invertAffine, jointLimitWire, shapeWire, transformPoint, wireToWorld } from "./gizmoGeometry";
 import { editBone } from "./ragdollLogic";
 import { findRigSkeleton } from "./rigLookup";
+import { skeletonInfoIfLoaded } from "./skeletonInfo";
 
 /** The tool's id: also its overlay id and its active-tool id. */
 export const RAGDOLL_TOOL_ID = "myco.ragdoll.builder";
@@ -32,19 +34,19 @@ const JOINT = 0xffcf70;
 type V3 = [number, number, number];
 
 /** The selected node's Ragdoll with the node of its Skeleton, or null. */
-function selectedRagdoll(): { node: GameObject; ragdoll: Ragdoll; skeletonPath: string[] } | null {
+function selectedRagdoll(): { node: GameObject; ragdoll: Ragdoll; rig: GameObject; info: SkeletonInfo } | null {
   const node = editor.scene.selection.node();
   const ragdoll = node?.getComponent(Ragdoll);
   const rig = node && findRigSkeleton(node);
-  if (!node || !ragdoll || !rig) return null;
-  return { node, ragdoll, skeletonPath: [rig.node.id] };
+  const info = rig && skeletonInfoIfLoaded(rig.skeleton.skeleton);
+  if (!node || !ragdoll || !rig || !info) return null;
+  return { node, ragdoll, rig: rig.node, info };
 }
 
 /** A body's frame in the world now: its bone's world matrix turned by the body's frame, or null when the bone isn't posed. */
-function bodyFrame(path: string[], b: RagdollBone): number[] | null {
-  const scene = editor.scene.peekOpen();
-  const bone = scene && boneWorldMatrix(scene, path, b.bone);
-  return bone ? bodyMatrix(bone.matrix, b.frame) : null;
+function bodyFrame(sel: { rig: GameObject; info: SkeletonInfo }, b: RagdollBone): number[] | null {
+  const bone = boneWorldMatrixOf(sel.rig, sel.info, b.bone);
+  return bone ? bodyMatrix(bone, b.frame) : null;
 }
 
 /** What to draw this frame: every body of the selected Ragdoll, the selected one's joint, and its handles while editing. */
@@ -55,7 +57,7 @@ function ragdollOverlay(): EditorOverlay {
   const selected = selectedBodyBone.value;
   const editing = editingRagdoll.value !== null;
   for (const b of sel.ragdoll.bones) {
-    const m = bodyFrame(sel.skeletonPath, b);
+    const m = bodyFrame(sel, b);
     if (!m) continue;
     const isSelected = b.bone === selected;
     for (const points of wireToWorld(m, shapeWire(b))) overlay.lines.push({ points, closed: false, color: isSelected ? BODY_SELECTED : BODY });
@@ -91,7 +93,7 @@ export const ragdollTool: ViewportToolContribution<ComponentEditMode> = {
       if (!mode || !sel || !scene || !body) return null;
       const id = viewport(world).pickOverlayHandle(p.x, p.y);
       if (!id) return null;
-      const m = bodyFrame(sel.skeletonPath, body);
+      const m = bodyFrame(sel, body);
       const inverse = m && invertAffine(m);
       const ray = viewport(world).rayAt(p.x, p.y);
       const handle = m && bodyHandles(body)[id];

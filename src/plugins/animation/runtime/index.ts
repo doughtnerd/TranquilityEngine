@@ -53,6 +53,9 @@ export type * from "./types";
 // First-party plugins only (the ragdoll plugin, ADR 0375): not exported from `myco`.
 export { PHYSICAL_ANIMATION, type PhysicalAnimationClient, type PhysicalAnimationSource, type RagdollBodyPose, type RagdollBoneDescription, type RagdollControl, type RagdollDescription, type RagdollDrives, type RagdollDriveTarget, type RagdollRig } from "./ragdoll";
 
+// First-party plugins only (the ragdoll builder, T55): authoring reads; not exported from `myco`.
+export { boneWorldMatrixOf, defaultRagdollDescription, loadSkeletonBytes, readSkeletonInfo, type SkeletonInfo } from "./authoring";
+
 /** The feature seams, in registration order: the core first (its World service), then what plays through it. */
 const FEATURES: readonly FeatureRegistration[] = [
   registerCore, // T13t: the AnimationCore World service (lazy wasm load)

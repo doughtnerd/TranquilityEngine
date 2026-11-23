@@ -8,7 +8,6 @@
 // Its joint sits at the frame's origin, with the twist axis along the frame's x and the swing axes along its y and z
 // (ADR 0375). `bodyMatrix` puts that frame in the world; everything here takes it as a column-major 4×4.
 import type { shapeKit3d } from "../../../../editor/sdk";
-import { ARC_RADIUS, jointWire, rotateAround } from "../../../physics/editor/jointMath";
 import type { RagdollBone } from "../../runtime/Ragdoll";
 import { RAGDOLL_LIMITS, type BonePatch } from "./ragdollLogic";
 
@@ -17,6 +16,18 @@ type V3 = shapeKit3d.V3;
 export type Mat4 = ArrayLike<number>;
 
 const DEG = Math.PI / 180;
+/** The swing cone's radius in joint-wire units, before `jointScaleOf` sizes it to the body. */
+const ARC_RADIUS = 0.5;
+const CONE_SEGMENTS = 32;
+const MAX_SWING_DRAWN = 89;
+
+/** `v` turned by `deg` degrees around the unit `axis` (Rodrigues' formula). */
+function rotateAround(v: readonly number[], axis: readonly number[], deg: number): V3 {
+  const c = Math.cos(deg * DEG), s = Math.sin(deg * DEG);
+  const kxv: V3 = [axis[1]! * v[2]! - axis[2]! * v[1]!, axis[2]! * v[0]! - axis[0]! * v[2]!, axis[0]! * v[1]! - axis[1]! * v[0]!];
+  const kdv = axis[0]! * v[0]! + axis[1]! * v[1]! + axis[2]! * v[2]!;
+  return [0, 1, 2].map((i) => v[i]! * c + kxv[i]! * s + axis[i]! * kdv * (1 - c)) as V3;
+}
 const RAD = 180 / Math.PI;
 const SEGMENTS = 24;
 /** The twist arc's radius in joint-wire units (jointMath's TWIST_RADIUS is 0.6 of the cone's). */
@@ -140,9 +151,22 @@ export const jointScaleOf = (b: Pick<RagdollBone, "shape" | "size">): number => 
 /** A body's joint limits in the body frame (the joint at its origin): the swing cone and the twist arc, sized to the body. */
 export function jointLimitWire(b: Pick<RagdollBone, "swing" | "twist" | "shape" | "size">): V3[][] {
   const scale = jointScaleOf(b);
-  const origin: V3 = [0, 0, 0];
-  const wire = jointWire({ kind: "ball", anchor: origin, connected: null, axis: [1, 0, 0], ball: { twist: b.twist, swing: b.swing, frameY: [0, 1, 0], frameZ: [0, 0, 1] } });
-  // `jointWire` also draws the anchor's cross at a fixed size; scaled like the rest, it stays proportionate.
+  // The same drawing as the physics plugin's ball joint gizmo (an elliptical swing cone on the twist axis x with a spoke to
+  // each axis' end, and the twist arc with a radius to each end), in joint-wire units, then sized to the body.
+  const ty = Math.tan(Math.min(Math.abs(b.swing.z), MAX_SWING_DRAWN) * DEG), tz = Math.tan(Math.min(Math.abs(b.swing.y), MAX_SWING_DRAWN) * DEG);
+  const rim = Array.from({ length: CONE_SEGMENTS + 1 }, (_, i) => {
+    const t = (i / CONE_SEGMENTS) * 2 * Math.PI;
+    const d: V3 = [1, ty * Math.cos(t), tz * Math.sin(t)];
+    return mul(d, ARC_RADIUS / Math.hypot(...d));
+  });
+  const wire: V3[][] = [rim];
+  for (let k = 0; k < 4; k++) wire.push([[0, 0, 0], rim[(k * CONE_SEGMENTS) / 4]!]);
+  const { min, max } = b.twist;
+  if (max !== min) {
+    const n = Math.max(2, Math.min(64, Math.ceil(Math.abs(max - min) / 10)));
+    wire.push(Array.from({ length: n + 1 }, (_, i) => mul(rotateAround([0, 1, 0], [1, 0, 0], min + ((max - min) * i) / n), TWIST_UNITS)));
+    for (const deg of [min, max]) wire.push([[0, 0, 0], mul(rotateAround([0, 1, 0], [1, 0, 0], deg), TWIST_UNITS)]);
+  }
   return wire.map((line) => line.map((p) => mul(p, scale)));
 }
 

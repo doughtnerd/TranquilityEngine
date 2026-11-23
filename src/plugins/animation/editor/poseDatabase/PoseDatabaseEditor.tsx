@@ -210,8 +210,8 @@ function FeaturesCard({ db, doc, apply, bones }: CardProps & { bones: readonly s
   const t = db.schema.trajectory;
   const lacking = bones ? missingBones(db, bones) : [];
   const free = bones ? bones.filter((b) => !db.schema.bones.some((f) => f.bone === b)) : [];
-  const commitTimes = () => {
-    const parsed = (times ?? "").split(/[,\s]+/).filter((w) => w !== "").map(Number);
+  const commitTimes = (text: string) => {
+    const parsed = text.split(/[,\s]+/).filter((w) => w !== "").map(Number);
     const result = parsed.some((n) => Number.isNaN(n)) ? refuse("sample times are numbers of seconds.") : setTrajectoryTimes(db, parsed);
     if (apply(result, "Set the trajectory times")) setTimes(null);
   };
@@ -279,7 +279,7 @@ function FeaturesCard({ db, doc, apply, bones }: CardProps & { bones: readonly s
       <h4 class="posedb-heading">Trajectory</h4>
       <label class="import-row" title="Seconds from now the query looks at: negative is the past. Non-zero, distinct, within ±10 s.">
         <span>Sample times (s)</span>
-        <input type="text" aria-label="Trajectory sample times" disabled={readOnly} value={times ?? t.times.map(timeText).join(", ")} onInput={(e) => setTimes(input(e).value)} onChange={commitTimes} onBlur={() => setTimes(null)} />
+        <input type="text" aria-label="Trajectory sample times" disabled={readOnly} value={times ?? t.times.map(timeText).join(", ")} onInput={(e) => setTimes(input(e).value)} onChange={(e) => commitTimes(input(e).value)} onBlur={() => setTimes(null)} />
       </label>
       <label class="import-row">
         <span>Position weight</span>
