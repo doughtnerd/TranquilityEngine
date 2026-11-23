@@ -12,8 +12,12 @@
 //   the priority weight `1 + priority/255` (at most 2x, +6 dB: §1 "it only mildly raises audibility"). Stored in the
 //   table's `audibility0`; ADR 0162 C20: times the voice's smoothed occlusion gain (`occGain`, 1 open) it is the
 //   table's `audibility`, which ranking, stealing (`VoiceTable.allocate`) and `Audio.debug()` read.
-// - **Forced virtual**: voices of an inaudible World (§3.9: the World lost the view) and paused voices are virtual
-//   whatever the room, at once (no dwell). A voice below `MIN_AUDIBILITY` (-100 dB) is never promoted.
+// - **Forced virtual**: voices of an inaudible World (§3.9: the World lost the view), paused voices and (ADR 0346)
+//   silence generators are virtual whatever the room, at once (no dwell). A voice below `MIN_AUDIBILITY` (-100 dB) is
+//   never promoted.
+// - **Generator weights (ADR 0346)**: a generator voice weighs its kind's measured cost (`GENERATOR_VOICE_COST`)
+//   against the cap; the top `cap` by key is cut again by weight while generator voices play. Never more than `cap`
+//   voices mix, whatever they weigh.
 // - **Top N**: `selectTopK` (O(L), no sort, no allocation) keeps the `cap` best of the candidates mixed, where cap is
 //   `min(voices.mixed, mixedCap)` (the backend's `mixedCap()`: STATUS `mixedCap`, A3.3's adaptive cap, through
 //   `effectiveMixedCap`). When the cap drops, the core has already demoted the lowest-score voices itself (STATUS
@@ -223,8 +227,13 @@ export class Selection {
   readonly busGain = new Float32Array(MAX_BUSES).fill(1);
   /** 1 while World key `k` is audible (has the view); key 0 (no World) is always audible. All audible until set. */
   readonly worldAudible = new Uint8Array(256).fill(1);
-  /** Mixed voices after the last `run`, plus those `admit` mixed since. */
+  /**
+   * Mixed voices after the last `run`, plus those `admit` mixed since, each weighed by its `capWeight` (1, so a count,
+   * unless generator voices play: ADR 0346).
+   */
   mixedCount = 0;
+  /** The same voices counted (never more than the cap mix, whatever they weigh). */
+  private mixedVoices = 0;
   /** Selection frames run (the table's `frame` follows it, for the debug view's recent steals). */
   frame = 0;
   readonly stats: SelectionStats = { candidates: 0, ranked: 0, mixed: 0, promoted: 0, demoted: 0, stolen: 0, scores: 0 };
@@ -294,9 +303,13 @@ export class Selection {
   admit(i: number, cap: number): boolean {
     const a = this.audibilityOf(i);
     // ADR 0346: a generator voice weighs its kind's cost against the cap (1 for every other voice, as a count).
+    // Never more than `cap` voices, whatever they weigh (the core's mixed pool).
     const w = this.table.capWeight[i]!;
-    const mixed = a >= MIN_AUDIBILITY && this.mixedCount + w <= cap;
-    if (mixed) this.mixedCount += w;
+    const mixed = a >= MIN_AUDIBILITY && this.mixedVoices < cap && this.mixedCount + w <= cap;
+    if (mixed) {
+      this.mixedCount += w;
+      this.mixedVoices++;
+    }
     this.seen[i] = (this.table.gen[i]! << 1) | (mixed ? 1 : 0);
     this.dwell[i] = DWELL_FRAMES;
     // Rc3 (§5.6): the PLAY is sent now, with every field filled in, so this is `voiceStart`; a voice admitted virtual says why.
@@ -468,6 +481,7 @@ export class Selection {
       }
     }
     this.mixedCount = weightNow;
+    this.mixedVoices = mixedNow;
     stats.mixed = mixedNow;
     return stats;
   }

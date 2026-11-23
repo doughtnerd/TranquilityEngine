@@ -248,6 +248,14 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     setParams: (voice, params, seconds) => this.voices.setGeneratorParams(voice.id, params, seconds),
   };
 
+  /**
+   * ADR 0346: what the automation sink reads as a generator voice's "clip" (slot `i`): ready, mono, no frames, at the
+   * context's rate, so its SET_LOOP release (the key-off) is sent like any voice's.
+   */
+  private generatorClipInfo(i: number): ClipInfo {
+    return { id: this.table.clip[i]!, path: this.table.genPath[i] ?? "", state: "ready", refs: 1, frames: 0, channels: 1, sampleRate: this.clockMap.sampleRate, format: 0, bytes: 0, failure: null };
+  }
+
   /** ADR 0338 §7: plugin effects (the core runs them inside its chains; `effectPlugins/host.ts`). */
   get effectPlugins(): EffectPluginHost {
     return this.plugins;
@@ -526,7 +534,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
       writer: this.writer,
       clockMap: this.clockMap,
       playheads: this.playheads,
-      clipInfo: (i) => ((this.table.flags[i]! & VoiceFlag.STREAM) !== 0 ? this.streams.clipInfo(this.table.clip[i]!) : this.clips.info(this.table.clip[i]!)),
+      // ADR 0346: a generator voice has no clip; its SET_LOOP (the key-off, region 0..0) counts in the context's frames.
+      clipInfo: (i) => (this.table.genKind[i] !== 0 ? this.generatorClipInfo(i) : (this.table.flags[i]! & VoiceFlag.STREAM) !== 0 ? this.streams.clipInfo(this.table.clip[i]!) : this.clips.info(this.table.clip[i]!)),
       busIndex: (name) => this.busIndexByName.get(name) ?? -1,
       session: this.session,
       streamLoop: (i, loop, at) => this.streams.setLoop(this.table.clip[i]!, loop, at),
