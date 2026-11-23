@@ -53,8 +53,8 @@ export interface RetargetBinding {
   readonly source: MaskRig;
 }
 
-/** @internal Where a RETARGET node's source side comes from (see the file header); null without a source skeleton. */
-export function retargetSourceOf(mapRef: string, retargetSource: string): { readonly skeleton: string; readonly profile: string } | null {
+/** Where a RETARGET node's source side comes from (see the file header); null without a source skeleton. */
+function retargetSourceOf(mapRef: string, retargetSource: string): { readonly skeleton: string; readonly profile: string } | null {
   const own = retargetSource ? stripRef(retargetSource) : "";
   const map = stripRef(mapRef);
   const skeleton = own && !isProfile(own) ? own : map && !isProfile(map) ? map : "";

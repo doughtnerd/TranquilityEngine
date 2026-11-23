@@ -19,7 +19,6 @@ import {
   SkinnedMeshRenderer,
   TimelineDirector,
   Tweens,
-  Vector3,
   animatorParams,
   getFields,
 } from "../../myco";
@@ -253,18 +252,5 @@ describe("the tween data component and the buffers", () => {
   });
 });
 
-describe("declared methods name the task that builds them", () => {
-  const notBuilt = (what: string, task: string) => new RegExp(`^Animation: ${what.replace(/[.()`]/g, "\\$&")} is not built yet \\(${task}\\)\\.$`);
-
-  it("Animator", async () => {
-    await load(EMPTY);
-    const node = GameObject.create("Hero");
-    const anim = node.addComponent(Animator);
-    const cases: [string, string, () => unknown][] = [
-      ["Animator.ik", "T40t", () => anim.ik("LeftHand")],
-      ["Animator.warp", "T40t", () => anim.warp("Vault", { position: new Vector3(0, 1, 2) })],
-    ];
-    for (const [what, task, call] of cases) expect(call, what).toThrow(notBuilt(what, task));
-  });
-  // TimelineDirector, tween, sequence and parallel are built (T22t): features/timeline.node.test.ts, features/tweens.node.test.ts.
-});
+// Every Animator method is built: Animator.ik and Animator.warp (T40t) are covered by runtime/features/ik.node.test.ts;
+// TimelineDirector, tween, sequence and parallel (T22t) by features/timeline.node.test.ts and features/tweens.node.test.ts.

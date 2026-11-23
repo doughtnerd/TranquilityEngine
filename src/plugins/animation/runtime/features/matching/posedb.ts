@@ -19,8 +19,8 @@ function warnOnce(key: string, message: string): void {
 /** The most clips a database lists (`CLIPS` entries; `posedb_clip` answers "" past the last). */
 const MAX_CLIPS = 4096;
 
-/** @internal The baked file a pose-database reference loads: the `*.posedb.bin` beside a source, or the reference itself. */
-export function bakedPoseDatabasePath(ref: string): string {
+/** The baked file a pose-database reference loads: the `*.posedb.bin` beside a source, or the reference itself. */
+function bakedPoseDatabasePath(ref: string): string {
   const path = normalizeAssetPath(ref.replace(/^asset:/, ""));
   return /\.posedb\.json$/i.test(path) ? path.replace(/\.posedb\.json$/i, ".posedb.bin") : path;
 }
