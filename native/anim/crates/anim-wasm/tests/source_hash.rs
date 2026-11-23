@@ -12,10 +12,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use source_hash::{hashed_files, source_hash, to_hex};
 
 /// The digest of the fixture (the same constant as FIXTURE_HASH in sourceHash.test.ts).
-const FIXTURE_HASH: &str = "f48c3d629f8005b53ecb5f9bb68520ec";
+const FIXTURE_HASH: &str = "8ece284eaa03b50c228ea132c92d0c91";
 
 /// The keys the fixture hashes, in order.
-const EXPECTED_KEYS: [&str; 7] = [
+const EXPECTED_KEYS: [&str; 9] = [
+    "../common/c/Cargo.toml",
+    "../common/c/src/lib.rs",
     ".cargo/config.toml",
     "Cargo.lock",
     "Cargo.toml",
@@ -27,6 +29,9 @@ const EXPECTED_KEYS: [&str; 7] = [
 
 /// A fixture directory under the system temp dir, removed on drop (even when a test panics).
 struct Fixture {
+    /// The temp directory, removed on drop.
+    base: PathBuf,
+    /// The hashed root, `base/core`, so `root/../common` is the fixture's own shared crates.
     root: PathBuf,
 }
 
@@ -42,8 +47,10 @@ impl Fixture {
             "myco-anim-source-hash-{tag}-{}-{nanos}-{n}",
             std::process::id()
         ));
+        let base = root;
+        let root = base.join("core");
         fs::create_dir_all(&root).unwrap();
-        Fixture { root }
+        Fixture { base, root }
     }
 
     fn write(&self, rel: &str, contents: &str) {
@@ -78,6 +85,11 @@ impl Fixture {
         self.write("vectors/core.json", "{}\n");
         self.write("crates/a/README.md", "# a\n");
         self.write("build.mjs", "export {};\n");
+        // The shared crates beside the root (ADR 0370): hashed under `../common/`, with the same skips.
+        self.write("../common/c/Cargo.toml", "[package]\nname = \"c\"\n");
+        self.write("../common/c/src/lib.rs", &fix("pub fn c() {}\r\n"));
+        self.write("../common/c/target/debug/y.rs", "fn y() {}\n");
+        self.write("../common/c/tests/t.rs", "fn t() {}\n");
     }
 
     fn keys(&self) -> Vec<String> {
@@ -94,7 +106,7 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
-        let _ = fs::remove_dir_all(&self.root);
+        let _ = fs::remove_dir_all(&self.base);
     }
 }
 
@@ -142,4 +154,15 @@ fn files_are_sorted_by_relative_key() {
     fixture.populate(true);
     let keys = fixture.keys();
     assert!(keys.windows(2).all(|w| w[0].as_bytes() < w[1].as_bytes()));
+}
+
+#[test]
+fn a_shared_crate_is_hashed_and_its_build_output_is_not() {
+    let fixture = Fixture::new("shared");
+    fixture.populate(true);
+    let before = fixture.hash();
+    fixture.write("../common/c/target/debug/y.rs", "fn changed() {}\n");
+    assert_eq!(fixture.hash(), before);
+    fixture.write("../common/c/src/lib.rs", "pub fn c() { changed() }\n");
+    assert_ne!(fixture.hash(), before);
 }

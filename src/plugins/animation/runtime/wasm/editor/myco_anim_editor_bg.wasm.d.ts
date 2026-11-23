@@ -3,6 +3,7 @@
 export const memory: WebAssembly.Memory;
 export const compiler_version: () => number;
 export const compress_clip: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
+export const curve_sample: (a: number, b: number, c: number, d: number, e: number) => [number, number];
 export const last_error: () => [number, number];
 export const last_report: () => [number, number];
 export const meter_node_module: (a: number, b: number) => [number, number];

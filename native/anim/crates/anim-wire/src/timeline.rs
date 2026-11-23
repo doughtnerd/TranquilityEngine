@@ -208,7 +208,7 @@ wire_record! {
         value_kind: u32,
         /// Floats of a `KIND_VALUE` tween, 1 to 4.
         width: u32,
-        /// An easing id.
+        /// An easing id, or a curve asset's handle (`tween` family, "Engine curves").
         ease: u32,
         /// `FLAG_RELATIVE`, `FLAG_YOYO` (`tween` family).
         flags: u32,

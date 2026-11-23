@@ -20,6 +20,7 @@
 //! | ragdoll (T44r) | a validated ragdoll description ([`crate::physics`]) |
 //! | pose database (`myco.posedb@1`, T42) | the search-ready `MatchDb`, a clip handle per database clip (`crate::matching`) |
 //! | plugin module (T45) | its descriptor's node kinds and default parameter blocks (`crate::plugin`) |
+//! | curve (T70) | an engine curve's baked keys (`anim_sample::curve`, the shared `myco-curve` evaluator): tween and sequence easing, `curve_sample` |
 //!
 //! The parsed views borrow the asset's own block for as long as the asset lives (the block never
 //! moves and is freed after the views, when the slot is cleared).
@@ -37,6 +38,7 @@ use anim_math::layout::{pack_pose, soa_len};
 use anim_math::{AosMat3x4, AosTransform, AosVec3, F32x4, SoaTransform};
 use anim_pose::sync::SyncMarker;
 use anim_rig::JointLimit;
+use anim_sample::curve::{parse_keys, CurveError, Key};
 use anim_sample::{BoundClip, ClipBindings, ClipSampler, Form};
 use anim_wire::core::{
     Init, HANDLE_GENERATION_SHIFT, HANDLE_INDEX_MASK, STATUS_BAD_ASSET, STATUS_FULL,
@@ -195,6 +197,8 @@ pub enum Asset {
     PoseDb(crate::matching::PoseDbAsset),
     /// T45: a registered third-party node module (`crate::plugin`).
     Plugin(crate::plugin::PluginModule),
+    /// T70: an engine curve's baked keys (`anim_sample::curve`).
+    Curve(Vec<Key<f32>>),
 }
 
 struct Slot {
@@ -474,6 +478,23 @@ impl Arena {
             bones: clean.len(),
             packed,
         }))
+    }
+
+    /// T70: loads an engine curve (`anim_sample::curve`'s keys, 7 floats each).
+    pub fn load_curve(&mut self, keys: &[f32]) -> Result<u32, u32> {
+        match parse_keys(keys) {
+            Ok(k) => self.insert(Asset::Curve(k)),
+            Err(CurveError::TooLarge) => Err(STATUS_TOO_LARGE),
+            Err(CurveError::Malformed) => Err(STATUS_BAD_ASSET),
+        }
+    }
+
+    /// T70: the keys of curve `handle`.
+    pub fn curve(&self, handle: u32) -> Result<&[Key<f32>], u32> {
+        match self.get(handle)? {
+            Asset::Curve(k) => Ok(k),
+            _ => Err(STATUS_WRONG_KIND),
+        }
     }
 
     /// Binds string id `id` of graph `graph` to `asset` (0 unbinds). Instances created afterwards

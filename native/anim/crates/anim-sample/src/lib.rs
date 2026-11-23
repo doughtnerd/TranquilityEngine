@@ -55,6 +55,12 @@
 //! states, `marker`, `subclip`, `control`, `audio`) over a playhead move `(t_prev, t_now]`, with
 //! loops, reverse play, seeks and weight gating, into caller-provided column words and a
 //! [`TrackSink`] of [`TrackRecord`]s. Tested against `anim-offline::sample`'s window reference.
+//!
+//! # Engine curves
+//!
+//! [`curve`] (T70) reads engine-curve keys from the host and evaluates them with the shared
+//! `myco-curve` crate (the audio core's evaluator, held to `curve.ts` by its parity test): curve
+//! assets for easing, and uniform sampling of source and runtime curve tracks.
 
 use anim_format::clip::{
     ChannelKind, ChannelMode, ClipView, CompressedView, QuatInterp, RotationFormat, TrackKind,
@@ -67,6 +73,7 @@ use anim_math::quant::{is_supported_bits, unpack_range, unpack_unorm};
 use anim_math::{AosQuat, AosTransform, AosVec3, F32x4, Lane, SoaTransform};
 
 mod bind;
+pub mod curve;
 mod frames;
 pub mod timeline;
 pub mod window;

@@ -17,7 +17,9 @@
 //!    A Bézier segment (interp 5, ADR 0346) is the cubic through the key's out handle and the next
 //!    key's in handle (a flat handle a third of the segment long when the next key isn't Bézier),
 //!    control x clamped into the segment; its control points are worked out once, at CURVES, and
-//!    the parameter at `x` is found by [`BEZIER_STEPS`] halvings.
+//!    the parameter at `x` is found by [`BEZIER_STEPS`] halvings. The evaluator is the shared
+//!    `myco-curve` crate (`native/common/curve/`, ADR 0370), which the animation core links too;
+//!    its parity test holds it to `curve.ts`.
 //! 3. **Voice bindings** (AUTOMATE, up to 8 per voice): each quantum the voice's volume curves
 //!    multiply into `gainMul`, its pitch curves into `pitchMul`, and its lowpass curves give
 //!    `lpAuto` (their minimum; 24,000 Hz when none), each curve evaluated once (control rate).
@@ -100,12 +102,10 @@ pub const LOCAL_PARAMS: usize = 16;
 pub const PARAMS: usize = GLOBAL_PARAMS + GROUPS * LOCAL_PARAMS;
 /// Curve ids 0..CURVES.
 pub const CURVES: usize = 1_024;
-/// Keys kept per curve (extra keys are ignored; ADR 0346 raised it from 32).
-pub const CURVE_KEYS: usize = 64;
-/// The Bézier interp code (CURVES `interp`).
-pub const INTERP_BEZIER: u8 = 5;
-/// Halvings of the Bézier parameter search (`curve.ts` `BEZIER_STEPS`).
-pub const BEZIER_STEPS: usize = 28;
+/// Keys kept per curve (extra keys are ignored; ADR 0346 raised it from 32), the Bézier interp code
+/// (CURVES `interp`) and the halvings of the Bézier parameter search (`curve.ts` `BEZIER_STEPS`):
+/// the shared evaluator's (`myco-curve`, ADR 0370).
+pub use myco_curve::{BEZIER_STEPS, CURVE_KEYS, INTERP_BEZIER};
 /// Bindings kept per voice (extra ones are ignored).
 pub const BINDINGS: usize = 8;
 /// Bindings kept per bus and per submix (ABI 4.8: 8 before; extra ones are ignored).
@@ -207,23 +207,9 @@ pub struct Param {
     pub seeking: u32,
 }
 
-/// One curve: `count` keys (at most [`CURVE_KEYS`]) as parallel arrays. All-zero is empty.
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct Curve {
-    pub count: u32,
-    pub x: [f32; CURVE_KEYS],
-    pub y: [f32; CURVE_KEYS],
-    /// The shape from each key to the next: 0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut,
-    /// 5 Bézier (anything else is linear, as `curve.ts`'s default).
-    pub interp: [u8; CURVE_KEYS],
-    /// The control points of each Bézier segment (from key `k` to `k + 1`): x relative to `x[k]`
-    /// and inside `0..=span`, y absolute. Unused for other shapes.
-    pub c1x: [f32; CURVE_KEYS],
-    pub c1y: [f32; CURVE_KEYS],
-    pub c2x: [f32; CURVE_KEYS],
-    pub c2y: [f32; CURVE_KEYS],
-}
+/// One curve: `count` keys (at most [`CURVE_KEYS`]) as parallel arrays. All-zero is empty. The
+/// shared evaluator's fixed layout (`myco_curve::Curve`).
+pub use myco_curve::Curve;
 
 /// A group's clock (`sequenceTime`, ADR 0346): `value` seconds at context frame `anchor`, moving at
 /// `rate` seconds per second. All-zero is a parked clock at 0. `anchor` [`UNANCHORED`]: an asap
@@ -657,126 +643,18 @@ fn advance_params(v: &mut View<'_>) {
 
 // --- Curves ---
 
-/// The shape of a segment at `u` (`curve.ts`'s `curveShape`).
+/// The shape of a segment at `u` (`curve.ts`'s `curveShape`; `myco_curve::shape`).
 #[inline]
 pub fn shape(interp: u8, u: f32) -> f32 {
-    match interp {
-        1 => 0.0,
-        2 => u * u * (3.0 - 2.0 * u),
-        3 => u * u,
-        4 => 1.0 - (1.0 - u) * (1.0 - u),
-        _ => u,
-    }
+    myco_curve::shape(interp, u)
 }
 
-/// The curve's value at `x` (`curve.ts`'s `evalCurve`, in f32). An empty curve is 0.
+/// The curve's value at `x` (`curve.ts`'s `evalCurve`, in f32; `myco_curve::eval`). An empty curve
+/// is 0. [`Curve::from_keys`] builds one as CURVES does, for callers outside the mixer, such as the
+/// offline sample render (ADR 0342), so they evaluate curves exactly as the core does.
+#[inline]
 pub fn eval(c: &Curve, x: f32) -> f32 {
-    let n = (c.count as usize).min(CURVE_KEYS);
-    if n == 0 {
-        return 0.0;
-    }
-    if !(x > c.x[0]) {
-        return c.y[0]; // also NaN
-    }
-    if x >= c.x[n - 1] {
-        return c.y[n - 1];
-    }
-    let (mut lo, mut hi) = (0usize, n - 1);
-    while hi - lo > 1 {
-        let mid = (lo + hi) >> 1;
-        if c.x[mid] <= x {
-            lo = mid;
-        } else {
-            hi = mid;
-        }
-    }
-    let span = c.x[hi] - c.x[lo];
-    if span <= 0.0 {
-        return c.y[hi];
-    }
-    if c.interp[lo] == INTERP_BEZIER {
-        return bezier_at(c, lo, span, x - c.x[lo]);
-    }
-    c.y[lo] + (c.y[hi] - c.y[lo]) * shape(c.interp[lo], (x - c.x[lo]) / span)
-}
-
-/// The cubic Bézier through `p0..p3` at `t` (`curve.ts`'s `cubic`, term for term).
-#[inline]
-fn cubic(p0: f32, p1: f32, p2: f32, p3: f32, t: f32) -> f32 {
-    let m = 1.0 - t;
-    m * m * m * p0 + 3.0 * m * m * t * p1 + 3.0 * m * t * t * p2 + t * t * t * p3
-}
-
-/// The Bézier segment from key `k` (span `> 0`) at `dx` past its key: bisection for the parameter
-/// whose x is `dx` (x(t) never decreases with control x inside the segment), then its y.
-fn bezier_at(c: &Curve, k: usize, span: f32, dx: f32) -> f32 {
-    let (c1x, c2x) = (c.c1x[k], c.c2x[k]);
-    let (mut lo, mut hi) = (0.0f32, 1.0f32);
-    for _ in 0..BEZIER_STEPS {
-        let t = (lo + hi) * 0.5;
-        if cubic(0.0, c1x, c2x, span, t) < dx {
-            lo = t;
-        } else {
-            hi = t;
-        }
-    }
-    cubic(c.y[k], c.c1y[k], c.c2y[k], c.y[k + 1], (lo + hi) * 0.5)
-}
-
-/// `v` clamped into `0..=span`; NaN is 0 (`curve.ts`'s `clampSpan`).
-#[inline]
-fn clamp_span(v: f32, span: f32) -> f32 {
-    if v > 0.0 {
-        if v < span {
-            v
-        } else {
-            span
-        }
-    } else {
-        0.0
-    }
-}
-
-/// Works out the control points of every Bézier segment of `c` from the keys' handles:
-/// `handles(k)` is key `k`'s `(inDx, inDy, outDx, outDy)` (`curve.ts`'s `bezierControls`).
-fn bezier_controls(c: &mut Curve, n: usize, handles: impl Fn(usize) -> (f32, f32, f32, f32)) {
-    for k in 0..n.saturating_sub(1) {
-        if c.interp[k] != INTERP_BEZIER {
-            continue;
-        }
-        let span = c.x[k + 1] - c.x[k];
-        let (_, _, out_dx, out_dy) = handles(k);
-        c.c1x[k] = clamp_span(out_dx, span);
-        c.c1y[k] = c.y[k] + out_dy;
-        if c.interp[k + 1] == INTERP_BEZIER {
-            let (in_dx, in_dy, _, _) = handles(k + 1);
-            c.c2x[k] = clamp_span(span + in_dx, span);
-            c.c2y[k] = c.y[k + 1] + in_dy;
-        } else {
-            c.c2x[k] = span - span / 3.0;
-            c.c2y[k] = c.y[k + 1];
-        }
-    }
-}
-
-impl Curve {
-    /// A curve from keys `(x, y, interp, [inDx, inDy, outDx, outDy])` sorted by x, as CURVES
-    /// builds one (its Bézier control points worked out the same way); keys past
-    /// [`CURVE_KEYS`] are ignored. For callers outside the mixer, such as the offline sample
-    /// render (ADR 0342), so they evaluate curves exactly as the core does.
-    pub fn from_keys(keys: &[(f32, f32, u8, [f32; 4])]) -> Curve {
-        // SAFETY: integers and floats only; all-zero is an empty curve.
-        let mut c: Curve = unsafe { core::mem::zeroed() };
-        let n = keys.len().min(CURVE_KEYS);
-        c.count = n as u32;
-        for (i, k) in keys[..n].iter().enumerate() {
-            c.x[i] = k.0;
-            c.y[i] = k.1;
-            c.interp[i] = k.2;
-        }
-        bezier_controls(&mut c, n, |k| (keys[k].3[0], keys[k].3[1], keys[k].3[2], keys[k].3[3]));
-        c
-    }
+    myco_curve::eval(c, x)
 }
 
 #[inline]
@@ -849,9 +727,9 @@ pub fn curves(core: &mut Core, msg: &[u8], off: usize) {
                 c.y[k] = f32_at(msg, at + 4);
                 c.interp[k] = u32_at(msg, at + 8).min(255) as u8;
             }
-            bezier_controls(c, n, |k| {
+            c.set_controls(|k| {
                 let at = key(k);
-                (f32_at(msg, at + 12), f32_at(msg, at + 16), f32_at(msg, at + 20), f32_at(msg, at + 24))
+                [f32_at(msg, at + 12), f32_at(msg, at + 16), f32_at(msg, at + 20), f32_at(msg, at + 24)]
             });
         }
         cur += keys * wire::CurvesCurvesKeys::FIXED_END;
@@ -1445,103 +1323,11 @@ pub fn bus_entry(core: &mut Core, bus: usize) -> Option<BusAuto> {
 mod tests {
     use super::*;
 
-    /// A curve from `(x, y, interp)` keys.
-    fn curve(keys: &[(f32, f32, u8)]) -> Curve {
-        bez(&keys.iter().map(|&(x, y, i)| (x, y, i, [0.0; 4])).collect::<Vec<_>>())
-    }
-
-    /// A curve from `(x, y, interp, [inDx, inDy, outDx, outDy])` keys.
-    fn bez(keys: &[(f32, f32, u8, [f32; 4])]) -> Curve {
-        Curve::from_keys(keys)
-    }
-
     fn close(a: f32, b: f32) -> bool {
         (a - b).abs() < 1e-5
     }
 
-    // The cases of `src/engine/tests/curve.test.ts`.
-
-    #[test]
-    fn is_0_when_empty_and_flat_beyond_the_ends() {
-        assert_eq!(eval(&curve(&[]), 3.0), 0.0);
-        let c = curve(&[(1.0, 2.0, 0), (3.0, 6.0, 0)]);
-        assert_eq!(eval(&c, -5.0), 2.0);
-        assert_eq!(eval(&c, 9.0), 6.0);
-        assert_eq!(eval(&c, f32::NAN), 2.0);
-    }
-
-    #[test]
-    fn interpolates_linearly_by_default() {
-        assert!(close(eval(&curve(&[(0.0, 0.0, 0), (10.0, 1.0, 0)]), 2.5), 0.25));
-        assert!(close(eval(&curve(&[(0.0, 0.0, 0), (1.0, 10.0, 0), (2.0, 0.0, 0)]), 1.5), 5.0));
-        assert!(close(eval(&curve(&[(0.0, 0.0, 9), (10.0, 1.0, 0)]), 2.5), 0.25), "an unknown shape is linear");
-    }
-
-    #[test]
-    fn holds_a_step_until_the_next_key() {
-        let c = curve(&[(0.0, 1.0, 1), (1.0, 5.0, 0)]);
-        assert_eq!(eval(&c, 0.999), 1.0);
-        assert_eq!(eval(&c, 1.0), 5.0);
-    }
-
-    #[test]
-    fn shapes_smooth_ease_in_and_ease_out_segments() {
-        assert!(close(eval(&curve(&[(0.0, 0.0, 2), (1.0, 1.0, 0)]), 0.25), 0.15625));
-        assert!(close(eval(&curve(&[(0.0, 0.0, 3), (1.0, 1.0, 0)]), 0.5), 0.25));
-        assert!(close(eval(&curve(&[(0.0, 0.0, 4), (1.0, 1.0, 0)]), 0.5), 0.75));
-        for s in [0u8, 2, 3, 4] {
-            assert_eq!(shape(s, 0.0), 0.0);
-            assert_eq!(shape(s, 1.0), 1.0);
-        }
-    }
-
-    #[test]
-    fn jumps_at_keys_with_the_same_x() {
-        let c = curve(&[(0.0, 0.0, 0), (1.0, 1.0, 0), (1.0, 4.0, 0), (2.0, 4.0, 0)]);
-        assert!(close(eval(&c, 0.5), 0.5));
-        assert_eq!(eval(&c, 1.0), 4.0);
-        assert_eq!(eval(&c, 1.5), 4.0);
-    }
-
-    #[test]
-    fn finds_the_right_segment_in_a_long_curve() {
-        let keys: Vec<(f32, f32, u8)> = (0..CURVE_KEYS).map(|i| (i as f32, i as f32 * 2.0, 0)).collect();
-        let c = curve(&keys);
-        for x in [0.5f32, 17.25, 23.9, 30.5, 47.1, 62.5] {
-            assert!(close(eval(&c, x), x * 2.0), "{x}");
-        }
-    }
-
-    // The Bézier cases of `curve.test.ts` (ADR 0346).
-
-    #[test]
-    fn a_bezier_with_handles_on_the_line_is_linear() {
-        let c = bez(&[(0.0, 0.0, 5, [0.0, 0.0, 1.0, 1.0]), (3.0, 3.0, 5, [-1.0, -1.0, 0.0, 0.0])]);
-        for x in [0.3f32, 1.0, 1.7, 2.9] {
-            assert!(close(eval(&c, x), x), "{x}: {}", eval(&c, x));
-        }
-    }
-
-    #[test]
-    fn a_bezier_before_a_plain_key_uses_a_flat_third_handle() {
-        // Out handle flat and a third long, next key plain: the same control points as smoothstep's cubic.
-        let c = bez(&[(0.0, 0.0, 5, [0.0, 0.0, 1.0 / 3.0, 0.0]), (1.0, 1.0, 0, [0.0; 4])]);
-        for x in [0.1f32, 0.25, 0.5, 0.8] {
-            assert!(close(eval(&c, x), x * x * (3.0 - 2.0 * x)), "{x}");
-        }
-        assert_eq!(eval(&c, 0.0), 0.0);
-        assert_eq!(eval(&c, 1.0), 1.0);
-    }
-
-    #[test]
-    fn a_bezier_clamps_control_x_into_the_segment_and_overshoots_in_y() {
-        // Handles reaching past the segment: x clamped, so the curve stays a function and ends on its keys.
-        let c = bez(&[(0.0, 0.0, 5, [0.0, 0.0, 9.0, 2.0]), (1.0, 1.0, 5, [-9.0, 2.0, 0.0, 0.0])]);
-        assert_eq!((c.c1x[0], c.c2x[0]), (1.0, 0.0));
-        let mid = eval(&c, 0.5);
-        assert!(mid > 1.0, "{mid}: control y of 2 and 3 lift the middle above both keys");
-        assert!((eval(&c, 0.999) - 1.0).abs() < 0.05);
-    }
+    // The curve evaluator's cases moved to `myco-curve` with it (native/common/curve).
 
     #[test]
     fn param_indices_stay_in_range() {

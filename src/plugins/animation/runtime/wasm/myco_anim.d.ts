@@ -43,6 +43,17 @@ export function commands_ptr(): number;
 export function create_instance(world: number, skeleton: number, graph: number): number;
 
 /**
+ * Samples a curve at `frames` frames of `rate` Hz, clamped to `end` seconds, into the view at
+ * `curve_samples_ptr()`; returns a status.
+ */
+export function curve_sample(curve: number, rate: number, end: number, frames: number): number;
+
+/**
+ * The byte offset of the last `curve_sample`'s values (`f32` each).
+ */
+export function curve_samples_ptr(): number;
+
+/**
  * The debug buffer's byte offset in memory (`debug` family, `DEBUG_BYTES` long).
  */
 export function debug_ptr(): number;
@@ -104,6 +115,12 @@ export function last_status(): number;
  * Loads a `myco.anim@1` file (copied in); returns its handle, or 0.
  */
 export function load_clip(bytes: Uint8Array | number[]): number;
+
+/**
+ * Loads an engine curve (`CURVE_KEY_FLOATS` floats per key, sorted by x); returns its handle, or
+ * 0 (see `last_status`). Release it with `release`.
+ */
+export function load_curve(keys: Float32Array | number[]): number;
 
 /**
  * Loads a `myco.animgraph@1` file (copied in); returns its handle, or 0.
@@ -476,6 +493,8 @@ export interface InitOutput {
     readonly clip_columns: (a: number, b: number, c: number, d: any) => number;
     readonly commands_ptr: () => number;
     readonly create_instance: (a: number, b: number, c: number) => number;
+    readonly curve_sample: (a: number, b: number, c: number, d: number) => number;
+    readonly curve_samples_ptr: () => number;
     readonly debug_ptr: () => number;
     readonly debug_write: (a: number) => number;
     readonly destroy_instance: (a: number) => number;
@@ -488,6 +507,7 @@ export interface InitOutput {
     readonly inputs_ptr: () => number;
     readonly last_status: () => number;
     readonly load_clip: (a: number, b: number) => number;
+    readonly load_curve: (a: number, b: number) => number;
     readonly load_graph: (a: number, b: number) => number;
     readonly load_mask: (a: number, b: number) => number;
     readonly load_skeleton: (a: number, b: number) => number;

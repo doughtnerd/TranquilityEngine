@@ -1230,7 +1230,9 @@ fn end_all(
 
 /// Evaluates every sequence member at time `t` (writes the blocks) and reports the members that
 /// completed (`emit`), ordered by completion time.
+#[allow(clippy::too_many_arguments)]
 fn eval_seq(
+    arena: &Arena,
     inst: &mut Inst,
     values: &mut [u32],
     weights: &mut [f32],
@@ -1244,7 +1246,7 @@ fn eval_seq(
     inst.order.clear();
     for (i, m) in inst.members.iter_mut().enumerate() {
         let mut v = [0.0f32; 4];
-        let ev = m.spec.eval(t as f64 - m.offset as f64, &mut v);
+        let ev = m.spec.eval(t as f64 - m.offset as f64, arena, &mut v);
         let b = inst.blocks[i];
         if ev.started {
             for (k, x) in v.iter().enumerate().take(b.words as usize) {
@@ -1335,7 +1337,7 @@ impl Timelines {
                 inst.dirty = false;
                 if let Some(t) = target {
                     if inst.is_seq {
-                        eval_seq(inst, values, weights, changes, h, t, false);
+                        eval_seq(arena, inst, values, weights, changes, h, t, false);
                         inst.head.time = t;
                     } else {
                         let from = inst.head.time;
@@ -1353,21 +1355,23 @@ impl Timelines {
                         match inst.wrap {
                             Wrap::Loop if adv.wraps > 0 => {
                                 let edge = if forward { d } else { 0.0 };
-                                eval_seq(inst, values, weights, changes, h, edge, true);
+                                eval_seq(arena, inst, values, weights, changes, h, edge, true);
                             }
                             Wrap::PingPong => {
                                 let n = adv.count;
                                 for (i, w) in adv.windows().iter().enumerate() {
                                     if i + 1 < n {
                                         let edge = if w.delta >= 0.0 { d } else { 0.0 };
-                                        eval_seq(inst, values, weights, changes, h, edge, true);
+                                        eval_seq(
+                                            arena, inst, values, weights, changes, h, edge, true,
+                                        );
                                     }
                                 }
                             }
                             _ => {}
                         }
                         let t = inst.head.time;
-                        eval_seq(inst, values, weights, changes, h, t, true);
+                        eval_seq(arena, inst, values, weights, changes, h, t, true);
                     } else {
                         for w in adv.windows() {
                             eval_clip_window(arena, inst, values, weights, &mut writer, subs, *w);

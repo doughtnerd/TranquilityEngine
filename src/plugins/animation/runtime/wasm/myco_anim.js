@@ -84,6 +84,29 @@ export function create_instance(world, skeleton, graph) {
 }
 
 /**
+ * Samples a curve at `frames` frames of `rate` Hz, clamped to `end` seconds, into the view at
+ * `curve_samples_ptr()`; returns a status.
+ * @param {number} curve
+ * @param {number} rate
+ * @param {number} end
+ * @param {number} frames
+ * @returns {number}
+ */
+export function curve_sample(curve, rate, end, frames) {
+    const ret = wasm.curve_sample(curve, rate, end, frames);
+    return ret >>> 0;
+}
+
+/**
+ * The byte offset of the last `curve_sample`'s values (`f32` each).
+ * @returns {number}
+ */
+export function curve_samples_ptr() {
+    const ret = wasm.curve_samples_ptr();
+    return ret >>> 0;
+}
+
+/**
  * The debug buffer's byte offset in memory (`debug` family, `DEBUG_BYTES` long).
  * @returns {number}
  */
@@ -227,6 +250,19 @@ export function load_clip(bytes) {
     const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.load_clip(ptr0, len0);
+    return ret >>> 0;
+}
+
+/**
+ * Loads an engine curve (`CURVE_KEY_FLOATS` floats per key, sorted by x); returns its handle, or
+ * 0 (see `last_status`). Release it with `release`.
+ * @param {Float32Array | number[]} keys
+ * @returns {number}
+ */
+export function load_curve(keys) {
+    const ptr0 = passArrayF32ToWasm0(keys, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.load_curve(ptr0, len0);
     return ret >>> 0;
 }
 

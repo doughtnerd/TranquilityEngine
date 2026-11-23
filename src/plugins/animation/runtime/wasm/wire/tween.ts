@@ -4,7 +4,7 @@
 
 /**
  * Wire family `tween`: the tween table's create and control commands and its output records (ADR 0371, 0372).
- * native/anim/crates/anim-wire/src/tween.rs documents the table, its views and its timing.
+ * native/anim/crates/anim-wire/src/tween.rs documents the table, its views, its timing and engine curves (`load_curve`, curve easing, `curve_sample`).
  */
 export const TWEEN_FAMILY = { name: "tween", id: 6, version: 1 } as const;
 
@@ -37,6 +37,15 @@ export const TIME_FIXED = 2;
 
 /** `TWEEN_CREATE.loops`: repeat forever. */
 export const LOOPS_INFINITE = 4294967295;
+
+/** `load_curve`: floats per key (x, y, interp, inDx, inDy, outDx, outDy). */
+export const CURVE_KEY_FLOATS = 7;
+
+/** `load_curve`: the most keys a curve holds. */
+export const MAX_CURVE_KEYS = 65536;
+
+/** `curve_sample`: the most frames one call writes. */
+export const MAX_CURVE_SAMPLES = 1048576;
 
 /** `TWEEN_CONTROL.op`: pause. */
 export const OP_PAUSE = 1;
@@ -171,7 +180,7 @@ export const TWEEN_CREATE = {
     valueKind: { offset: 16, type: "u32" },
     /** Floats of a `KIND_VALUE` tween, 1 to 4 (a quaternion always has 4). */
     width: { offset: 20, type: "u32" },
-    /** An easing id (`EASE_*`). */
+    /** An easing id (`EASE_*`), or a curve asset's handle (`load_curve`; module docs). */
     ease: { offset: 24, type: "u32" },
     /** `FLAG_RELATIVE`, `FLAG_YOYO`. */
     flags: { offset: 28, type: "u32" },

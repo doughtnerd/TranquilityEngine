@@ -44,7 +44,28 @@
 //!
 //! `EASE_LINEAR` is 0; the others are `EASE_<IN|OUT|IN_OUT>_<FAMILY>` = `1 + 3·family + mode`
 //! (families quad, cubic, quart, quint, sine, expo, circ, back, elastic, bounce). Formulas:
-//! `anim_math::ease`. Engine-curve easing arrives with the shared Bézier evaluator (decision D1).
+//! `anim_math::ease`.
+//!
+//! # Engine curves (T70)
+//!
+//! An `ease` above `EASE_IN_OUT_BOUNCE` (30) is a **curve asset's handle** (handles are never
+//! below `1 << 16`): the cycle's progress `p` is read through the curve, `evalCurve(curve, p)` in
+//! `src/engine/core/curve.ts`'s terms, by the shared `myco-curve` evaluator (the audio core's;
+//! ADR 0370). The endpoint rule still holds: an eased 0 gives `from` and 1 gives `to` exactly;
+//! other values (a curve may overshoot) mix `from·(1 − e) + to·e`. A released handle, or one
+//! that isn't a curve, eases linearly, as an unknown id. Sequence members (`timeline` family)
+//! take curve handles the same way.
+//!
+//! - `load_curve(keys: f32[])` loads a curve: [`CURVE_KEY_FLOATS`] floats per key, `x, y, interp,
+//!   inDx, inDy, outDx, outDy`, sorted by x, at most [`MAX_CURVE_KEYS`] keys. `interp` is
+//!   `curve.ts`'s code (0 linear, 1 step, 2 smooth, 3 easeIn, 4 easeOut, 5 Bézier; anything else
+//!   linear); the handles are a Bézier key's `in` and `out` offsets. It returns the handle, or 0
+//!   with `last_status()` `STATUS_BAD_ASSET` (not whole keys, a non-finite number, keys out of
+//!   order) or `STATUS_TOO_LARGE`. `release(handle)` frees it.
+//! - `curve_sample(curve, rate, end, frames)` writes the curve at frame `i`'s
+//!   x = `min(i / rate, end)` for `frames` frames (at most [`MAX_CURVE_SAMPLES`]) to the `f32`
+//!   view at `curve_samples_ptr()`, valid until the next call; it returns a status. Hosts sample
+//!   runtime curve tracks with it, so the core's evaluator gives their values.
 
 use crate::record::{Const, FamilyDesc, WireRecord};
 use crate::vector::Vector;
@@ -81,6 +102,13 @@ pub const TIME_FIXED: u32 = 2;
 /// [`TweenCreate::loops`]: repeat forever.
 pub const LOOPS_INFINITE: u32 = 0xFFFF_FFFF;
 
+/// Floats per key of `load_curve`: x, y, interp, inDx, inDy, outDx, outDy.
+pub const CURVE_KEY_FLOATS: u32 = 7;
+/// The most keys `load_curve` takes (`src/engine/animation/tracks.ts` `TRACK_LIMITS.keys`).
+pub const MAX_CURVE_KEYS: u32 = 65_536;
+/// The most frames one `curve_sample` writes (above an hour at 240 Hz).
+pub const MAX_CURVE_SAMPLES: u32 = 1 << 20;
+
 /// [`TweenControl::op`]: stop advancing.
 pub const OP_PAUSE: u32 = 1;
 /// [`TweenControl::op`]: continue.
@@ -112,7 +140,7 @@ wire_record! {
         value_kind: u32,
         /// Floats of a `KIND_VALUE` tween, 1 to 4 (a quaternion always has 4).
         width: u32,
-        /// An easing id (`EASE_*`).
+        /// An easing id (`EASE_*`), or a curve asset's handle (`load_curve`; module docs).
         ease: u32,
         /// `FLAG_RELATIVE`, `FLAG_YOYO`.
         flags: u32,
@@ -340,6 +368,9 @@ const CONTROL_CONSTS: &[Const] = consts![
     TIME_UNSCALED: "`TWEEN_CREATE.timeMode`: unscaled time.",
     TIME_FIXED: "`TWEEN_CREATE.timeMode`: the fixed pass.",
     LOOPS_INFINITE: "`TWEEN_CREATE.loops`: repeat forever.",
+    CURVE_KEY_FLOATS: "`load_curve`: floats per key (x, y, interp, inDx, inDy, outDx, outDy).",
+    MAX_CURVE_KEYS: "`load_curve`: the most keys a curve holds.",
+    MAX_CURVE_SAMPLES: "`curve_sample`: the most frames one call writes.",
     OP_PAUSE: "`TWEEN_CONTROL.op`: pause.",
     OP_RESUME: "`TWEEN_CONTROL.op`: resume.",
     OP_KILL: "`TWEEN_CONTROL.op`: the host cancelled it.",
@@ -358,13 +389,13 @@ pub const FAMILY: FamilyDesc = FamilyDesc {
     name: "tween",
     id: ID,
     version: VERSION,
-    doc: "Wire family `tween`: the tween table's create and control commands and its output records (ADR 0371, 0372).\nnative/anim/crates/anim-wire/src/tween.rs documents the table, its views and its timing.",
+    doc: "Wire family `tween`: the tween table's create and control commands and its output records (ADR 0371, 0372).\nnative/anim/crates/anim-wire/src/tween.rs documents the table, its views, its timing and engine curves (`load_curve`, curve easing, `curve_sample`).",
     records: &[TweenCreate::DESC, TweenControl::DESC, TweenChange::DESC],
     consts: &FLAT,
     vectors,
 };
 
-const FLAT_LEN: usize = 18 + 31;
+const FLAT_LEN: usize = 21 + 31;
 
 /// `ALL_CONSTS` flattened (a `const` can't concatenate slices, so this builds the array).
 const FLAT: [Const; FLAT_LEN] = {

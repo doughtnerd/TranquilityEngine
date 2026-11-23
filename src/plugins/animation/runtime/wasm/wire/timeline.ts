@@ -142,7 +142,7 @@ export const SEQ_MEMBER = {
     valueKind: { offset: 12, type: "u32" },
     /** Floats of a `KIND_VALUE` tween, 1 to 4. */
     width: { offset: 16, type: "u32" },
-    /** An easing id. */
+    /** An easing id, or a curve asset's handle (`tween` family, "Engine curves"). */
     ease: { offset: 20, type: "u32" },
     /** `FLAG_RELATIVE`, `FLAG_YOYO` (`tween` family). */
     flags: { offset: 24, type: "u32" },

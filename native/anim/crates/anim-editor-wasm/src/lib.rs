@@ -12,6 +12,7 @@
 //! | `source_hash()` | the hash of `native/anim/` the module was built from (as the runtime module's) |
 //! | `compress_clip(clip, skeleton, settings)` | a raw `myco.anim@1` clip → the compressed clip (empty on failure); the report in `last_report()` |
 //! | `skeleton_compile(skeleton, roles, profile)` | a `myco.skel@1` file re-written canonically, with a role per bone and a profile name when given |
+//! | `curve_sample(keys, rate, end, frames)` | T70: a source value curve sampled at a clip's rate by the shared `myco-curve` evaluator (empty on failure) |
 //! | `retarget_bake_compressed(…)` | a clip retargeted through a map built from two skeleton files, compressed for the target |
 //! | `posedb_bake(…)` | a `myco.posedb@1` pose database from a skeleton and clips (`anim-match`'s bake) |
 //! | `meter_node_module(bytes)` | a third-party node module validated and metered by `anim-meter` (T45t; empty on refusal) |
@@ -218,6 +219,35 @@ pub fn compile_clip(
         anim_compress::compress(&view.to_clip(), skel.as_ref(), &s).map_err(compress_error)?;
     Ok((out.bytes, out.report))
 }
+
+/// T70: a source value curve (`anim_sample::curve`'s keys, 7 floats each) sampled at `frames`
+/// frames of `rate` Hz, frame `i` at `min(i / rate, end)` seconds, as the compile step samples
+/// source curves into a clip's raw form, by the evaluator both cores link (`myco-curve`).
+pub fn compile_curve_samples(
+    keys: &[f32],
+    rate: f64,
+    end: f64,
+    frames: u32,
+) -> Result<Vec<f32>, CompileError> {
+    use anim_sample::curve::{parse_keys, sample_uniform, CurveError, MAX_KEYS};
+    let keys = parse_keys(keys).map_err(|e| match e {
+        CurveError::Malformed => err(format_args!(
+            "curve: keys must be whole (7 floats), finite and in x order"
+        )),
+        CurveError::TooLarge => err(format_args!("curve: more than {MAX_KEYS} keys")),
+    })?;
+    if frames > MAX_CURVE_FRAMES {
+        return Err(err(format_args!(
+            "curve: more than {MAX_CURVE_FRAMES} frames"
+        )));
+    }
+    let mut out = vec![0.0; frames as usize];
+    sample_uniform(&keys, rate, end, &mut out);
+    Ok(out)
+}
+
+/// The most frames [`compile_curve_samples`] writes (the runtime's `MAX_CURVE_SAMPLES`).
+pub const MAX_CURVE_FRAMES: u32 = 1 << 20;
 
 /// A skeleton file re-written canonically (parsed and validated first), with `roles` (one profile
 /// role per bone, `0xFFFF` none; empty: keep the file's) and `profile` (a profile reference; "":
@@ -585,6 +615,12 @@ pub fn compress_clip(clip: &[u8], skeleton: &[u8], settings: &[f32]) -> Vec<u8> 
 #[wasm_bindgen]
 pub fn skeleton_compile(skeleton: &[u8], roles: &[u16], profile: &str) -> Vec<u8> {
     finish(compile_skeleton(skeleton, roles, profile), None)
+}
+
+/// [`compile_curve_samples`]: the samples, or empty (`last_error`).
+#[wasm_bindgen]
+pub fn curve_sample(keys: &[f32], rate: f64, end: f64, frames: u32) -> Vec<f32> {
+    finish(compile_curve_samples(keys, rate, end, frames), None)
 }
 
 /// [`compile_retarget`]: the compressed target clip, or empty (`last_error`); the report in `last_report`.
