@@ -5,7 +5,8 @@ import type { PlaylistAsset } from "../../../engine/audio/playlist/types";
 import type { TakeRequest } from "../../../engine/audio/take/types";
 import { attenuationDialog, attenuationFromResult, attenuationOwner, attenuationSummary, newAttenuation, ownerText, presetNameFor, ROLLOFF_PRESETS } from "./attenuationModel";
 import { blankScene, copyScene, gameScene, gameScenePaths, sceneFromTake, takeClock } from "./newScene";
-import { deleteSceneFolder, moveSceneFolder, newSceneFolder, renameSceneFolder, sceneFolders, sceneName, sceneTree, searchScenes, whyNotRenameScene } from "./sceneTree";
+import { deleteSceneFolder, moveSceneFolder, newSceneFolder, renameSceneFolder, sceneFolders, sceneMoveItem, sceneName, sceneTree, searchScenes, whyNotRenameScene } from "./sceneTree";
+import { whyNotMoveTo } from "../../../editor/ui/moveToModel";
 import { FIXTURE_SCENE_FILES, fixtureScene, fixtureVoices } from "./spatialFixture";
 import { occlusionText, raysOf, voiceTable } from "./voicesTable";
 
@@ -34,6 +35,14 @@ describe("the Scenes tree", () => {
     expect(moveSceneFolder(FIXTURE_SCENE_FILES, "Canyon level", "Canyon level/x")).toEqual({ refused: "a folder can't move into itself" });
     expect(deleteSceneFolder([{ path: "a.audioscene.json", folder: "X/Y/Z" }], "X/Y")).toEqual([{ path: "a.audioscene.json", folder: "X/Z" }]);
     expect(newSceneFolder(FIXTURE_SCENE_FILES, "", ["New folder"])).toBe("New folder 2");
+  });
+
+  it("gives the Move to… dialog the scene by its name, under its folder field (UI pass SC7)", () => {
+    const item = sceneMoveItem({ path: "audio/scenes/canyon_run.audioscene.json", folder: "Canyon level" });
+    expect(item).toEqual({ path: "Canyon level/canyon_run", folder: false }); // the dialog titles it "Move canyon_run to…"
+    expect(whyNotMoveTo("Canyon level", [item])).toBe("It's already in this folder");
+    expect(whyNotMoveTo("", [item])).toBeNull();
+    expect(sceneMoveItem({ path: "audio/scenes/behind_crates.audioscene.json", folder: "" })).toEqual({ path: "behind_crates", folder: false });
   });
 
   it("checks scene file names", () => {
