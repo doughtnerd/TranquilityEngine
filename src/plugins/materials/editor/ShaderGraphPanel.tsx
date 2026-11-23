@@ -40,7 +40,7 @@ import { createMaterialForGraph, SHADER_GRAPH_PANEL, shaderGraphDocument } from 
 import { shaderFindItems } from "./shaderGraph/graphSearch";
 import { PropertyValue, TEXTURE_SLOT, numberValue } from "./ShaderPropertyValue";
 import { Color } from "../../../engine";
-import { AssetPicker, ColorField, editor, type EditorProject, type ValueReport, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, GraphFindBox, WireRefusal, handleProps, px, toGraph, useGraphCanvas, useGraphFind, useGraphSearch, useGraphSelection, useGraphWiring, useNodeDrag, wirePath, type CanvasNode, type GraphDragHooks, type Point, type SearchItem, Panel } from "../../../editor/sdk";
+import { AssetPicker, ColorField, editor, type EditorProject, type ValueReport, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, GraphFindBox, WireRefusal, handleProps, px, toGraph, useGraphCanvas, useGraphFind, useGraphSearch, useGraphSelection, useGraphWiring, useNodeDrag, usePreviewCardSize, GraphPreviewCard, wirePath, type CanvasNode, type GraphDragHooks, type Point, type SearchItem, Panel } from "../../../editor/sdk";
 import "../../../editor/graph/graph.css";
 import "./shaderGraph.css";
 
@@ -87,6 +87,8 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   const [showCode, setShowCode] = useState(false);
   const [maximized, setMaximized] = useState(false);
   const [shaderError, setShaderError] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(true);
+  const [previewSize, setPreviewSize] = usePreviewCardSize("shader-graph", { w: 260, h: 200 });
 
   const root = useRef<HTMLDivElement>(null);
   // Selection, box select, item drags and the shared shortcuts (ADR 0228, 0259); a selected wire is this panel's own.
@@ -99,7 +101,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     root,
     canvas: () => canvas,
     nodes: () => live.current.nodes,
-    paneIgnore: ".sg-node, .sg-search, .sg-find, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap",
+    paneIgnore: ".sg-node, .sg-search, .sg-find, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap, .sg-previewcard",
     openSearch: () => search.open(paneCenter(), { pending: null }),
     openFind: () => find.open(),
     deleteOther: () => {
@@ -145,7 +147,7 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
     viewKey: path,
     nodes: canvasNodes,
     onContextMenu: (e, at) => {
-      if ((e.target as Element).closest(".sg-node")) return;
+      if ((e.target as Element).closest(".sg-node, .sg-previewcard")) return;
       e.preventDefault();
       search.open(at, { pending: null });
     },
@@ -240,21 +242,24 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
   const previewHost = useRef<HTMLDivElement>(null);
   const preview = useRef<MaterialPreview | null>(null);
   const mesh = graph.previewMesh ?? "sphere";
+  // Made while the preview card is shown (docked in the canvas's corner), freed when it's hidden.
   useEffect(() => {
-    const p = new MaterialPreview(previewHost.current!);
+    if (!showPreview || !previewHost.current) return;
+    const p = new MaterialPreview(previewHost.current);
     p.onShaderError = setShaderError;
     preview.current = p;
     return () => {
       p.dispose();
       preview.current = null;
+      setShaderError(null); // only the preview compiles the shader
     };
-  }, []);
+  }, [showPreview]);
   // Rebuild the preview's material when anything but node positions changes.
   const codeKey = JSON.stringify({ ...graph, previewMesh: 0, nodes: graph.nodes.map((n) => ({ ...n, position: 0 })) });
   useEffect(() => {
     preview.current?.setGraph(graph);
-  }, [codeKey]);
-  useEffect(() => preview.current?.setMesh(mesh), [mesh]);
+  }, [codeKey, showPreview]);
+  useEffect(() => preview.current?.setMesh(mesh), [mesh, showPreview]); // and a newly shown preview
 
   // Node previews (ADR 0048): one offscreen renderer draws each node's preview about ten times a second.
   const previewGraphs = useMemo(() => {
@@ -387,6 +392,9 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
         <button title="Show every node (F)" onClick={() => frameAll()}>
           Frame
         </button>
+        <button class={showPreview ? "active" : ""} aria-pressed={showPreview} title="Show the preview" onClick={() => setShowPreview(!showPreview)}>
+          Preview
+        </button>
         <button class={showCode ? "active" : ""} aria-pressed={showCode} title="Show the WGSL this graph compiles to" onClick={() => setShowCode(!showCode)}>
           WGSL
         </button>
@@ -415,19 +423,6 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
           <KeywordList graph={graph} readOnly={readOnly} commit={commit} />
           {sub && <SubGraphOutputs graph={graph} readOnly={readOnly} commit={commit} />}
           {selectedNode?.type === "customFunction" && <FunctionEditor key={selectedNode.id} node={selectedNode} graph={graph} wgslFiles={project.files.filter((x) => x.toLowerCase().endsWith(".wgsl"))} readOnly={readOnly} commit={commit} />}
-          <div class="sg-preview-card">
-            <div class="sg-preview-head">
-              <span>Preview</span>
-              <select aria-label="Preview mesh" title="The mesh the preview draws (saved with the graph)" disabled={readOnly} value={mesh} onChange={(e) => commit(setGraphPreviewMesh(graph, (e.currentTarget as HTMLSelectElement).value as GraphPreviewMesh))}>
-                {GRAPH_PREVIEW_MESHES.map((m) => (
-                  <option key={m} value={m}>
-                    {m[0].toUpperCase() + m.slice(1)}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div class="sg-preview" ref={previewHost} aria-label="Shader preview" title="Drag to turn" />
-          </div>
         </aside>
         <div
           class="sg-pane"
@@ -497,8 +492,28 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
           <Minimap nodes={canvasNodes} view={view} size={paneSize} pane={paneApi} />
           <GraphFindBox find={find} placeholder="Find nodes, properties, notes…" />
           {search.search && <NodeSearch graph={graph} subgraphs={subgraphs} at={search.search.popup} pending={search.search.pending} onPick={(type, settings) => addFromSearch(type, settings, search.search!.at, search.search!.pending)} onClose={search.close} />}
+          {showPreview && (
+            <GraphPreviewCard
+              label="Shader graph preview"
+              size={previewSize}
+              onResize={setPreviewSize}
+              onClose={() => setShowPreview(false)}
+              controls={
+                <select aria-label="Preview mesh" title="The mesh the preview draws (saved with the graph)" disabled={readOnly} value={mesh} onChange={(e) => commit(setGraphPreviewMesh(graph, (e.currentTarget as HTMLSelectElement).value as GraphPreviewMesh))}>
+                  {GRAPH_PREVIEW_MESHES.map((m) => (
+                    <option key={m} value={m}>
+                      {m[0].toUpperCase() + m.slice(1)}
+                    </option>
+                  ))}
+                </select>
+              }
+            >
+              <div class="sg-preview" ref={previewHost} aria-label="Shader preview" title="Drag to turn" />
+            </GraphPreviewCard>
+          )}
           {(problems.length > 0 || shaderError) && (
-            <ul class="sg-problems" aria-label="Shader graph problems">
+            // Left of the preview card, which docks in the same corner.
+            <ul class="sg-problems" aria-label="Shader graph problems" style={showPreview ? { right: px(previewSize.w + 24) } : undefined}>
               {shaderError && <li class="error">The generated shader didn't compile: {shaderError}</li>}
               {problems.map((p) => (
                 <li key={p}>{p}</li>
