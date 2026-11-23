@@ -716,8 +716,9 @@ export interface AudioBackend {
   readonly packs?: AudioPacks;
   /**
    * ADR 0360 (G3, another capability, 0179): generator voices (`PlayRequest.generator`). The core has it; the Babylon
-   * fallback doesn't until the offline render (G5), so a generator plays nothing there, with one warning per kind; the
-   * pending backend forwards a generator play to the core at the hand-over.
+   * fallback has it from G5 as offline renders made at the trigger (parameters don't follow; one warning a session); a
+   * backend without it plays nothing for a generator, with one warning per kind; the pending backend forwards a generator
+   * play to the core at the hand-over.
    */
   readonly generators?: AudioGenerators;
 }

@@ -125,7 +125,7 @@ describe("bakeGenerator", () => {
       sequence: { length: 4, tracks: [{ id: "t1", name: "A", kind: "audio", clips: [{ id: "c1", generator: GEN, at: 1, length: 0.5 }, { id: "c2", sample: "a.wav", at: 2, length: 0 }] }] },
     };
     const other = { format: "myco.playlist@1", type: "clip", entries: [{ generator: "audio/ui/other.generator.json" }] };
-    const files = { [GEN]: formatGenerator(coin), "a.playlist.json": JSON.stringify(clip), "b.playlist.json": JSON.stringify(seq), "c.playlist.json": JSON.stringify(other) };
+    const files: Record<string, string> = { [GEN]: formatGenerator(coin), "a.playlist.json": JSON.stringify(clip), "b.playlist.json": JSON.stringify(seq), "c.playlist.json": JSON.stringify(other) };
     const p = new MemoryProject(files);
     const result = await bakeGenerator(GEN, { host: p, replaceUses: true });
     if ("refused" in result) throw new Error(result.refused);
