@@ -5,8 +5,12 @@
 // commands). The listening transport is given, so a headless test listens over loopback; in the editor it is the
 // WebSocket transport where this host can listen.
 import { batch, signal, type ReadonlySignal } from "@preact/signals";
-import type { Transport } from "../../engine/net/Transport";
-import { DebugLinkListener, type DebugLinkPeer } from "../../engine/debugLink/client";
+import type { Engine } from "../../engine/core/Engine";
+import { createTransport, type Transport } from "../../engine/net/Transport";
+import { DebugLinkListener, ToolConnector, type DebugLinkPeer } from "../../engine/debugLink/client";
+import type { EndpointKind } from "../../engine/debugLink/protocol";
+import { connectToBuild, type ConnectTarget } from "./connectFlow";
+import { servePlayBuild, type PlayBuild } from "./playBuild";
 import { isLocalRemote, listenAddress, remoteHost, type BuildEntry, type DebugLinkPreferences } from "./debugLinkLogic";
 
 /** A build that said hello. */
@@ -27,6 +31,8 @@ export interface EditorDebugLinkOptions {
   readonly autoPoll?: boolean;
   /** How often, milliseconds (default 33). */
   readonly pollMs?: number;
+  /** This tool's name in a build's list when it connects out ("Audio Studio on DESKTOP-1"; default "Myco editor"). */
+  readonly name?: string;
 }
 
 /** @internal The editor's debug link. */
@@ -94,6 +100,61 @@ export class EditorDebugLink {
   /** Handles what arrived (the timer calls it; tests call it by hand). */
   poll(): void {
     this.listener?.poll();
+    this.connector?.poll();
+  }
+
+  /**
+   * Connects to a listening build (ADR 0380): by the code it shows, or a typed address. Resolves once it paired (it
+   * joins `builds` at once: the tool chose to connect, so there is no prompt); rejects with the reason
+   * (`connectFlow.ts`). C7: the flow is U1's.
+   */
+  connect(target: ConnectTarget): Promise<void> {
+    const connector = this.ensureConnector();
+    return connectToBuild(target, {
+      connector,
+      interfaces: () => [],
+      pageHost: typeof location !== "undefined" && !("__TAURI_INTERNALS__" in globalThis) ? location.hostname : null,
+      waitFor: (done, timeoutMs) => this.waitFor(done, timeoutMs),
+    });
+  }
+
+  /**
+   * Serves the play Engine as a build on this link while the editor plays (ADR 0380, U3), so a tool can pair with
+   * Play. C7: U3 fills `playBuild.ts` and decides how the listener hands it tool-role peers.
+   */
+  servePlay(engine: Engine, name: string): PlayBuild {
+    return servePlayBuild(engine, name);
+  }
+
+  private connector: ToolConnector | null = null;
+
+  private ensureConnector(): ToolConnector {
+    if (this.connector) return this.connector;
+    const kind: EndpointKind =
+      "__TAURI_INTERNALS__" in globalThis ? "native" : typeof location !== "undefined" && location.protocol === "https:" ? "page-https" : "page-http";
+    this.connector = new ToolConnector(createTransport("websocket"), {
+      kind,
+      name: this.options.name ?? "Myco editor",
+      events: { onPeer: (peer) => this.joined(peer), onClose: (peer) => this.left(peer) },
+    });
+    if (this.options.autoPoll !== false && this.timer === null) this.timer = setInterval(() => this.poll(), this.options.pollMs ?? 33);
+    return this.connector;
+  }
+
+  /** Polls until `done` or `timeoutMs` of wall time (a person waits on a connect; tests poll by hand and pass 0). */
+  private async waitFor(done: () => boolean, timeoutMs: number): Promise<boolean> {
+    const until = Date.now() + timeoutMs;
+    for (;;) {
+      this.poll();
+      if (done()) return true;
+      if (Date.now() >= until) return false;
+      await new Promise((r) => setTimeout(r, this.options.pollMs ?? 33));
+    }
+  }
+
+  /** A build this link connected to paired: no prompt (the person typed its code). */
+  private joined(peer: DebugLinkPeer): void {
+    this.admit({ id: this.nextId++, name: peer.hello.name, platform: peer.hello.platform, remote: peer.remote, peer });
   }
 
   /** Lets a pending build in. */
@@ -134,6 +195,8 @@ export class EditorDebugLink {
     this.timer = null;
     this.listener?.close();
     this.listener = null;
+    this.connector?.close();
+    this.connector = null;
     batch(() => {
       this.buildsSignal.value = [];
       this.pendingSignal.value = [];

@@ -1,6 +1,7 @@
 // The connected-builds menu (ADR 0376): a status bar button that counts the builds connected through the debug link,
 // opening a menu to pick the build the live debuggers read, disconnect one, or open the link's settings. `BuildsMenu`
 // is the view; `DebugLinkBuilds` connects it to the editor's link.
+import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
 import { usePopover } from "../ui/popover";
 import { buildLabel, buildsButtonText, type BuildEntry } from "./debugLinkLogic";
@@ -16,6 +17,16 @@ export interface BuildsMenuProps {
   onChoose(id: number | null): void;
   onDisconnect(id: number): void;
   onSettings(): void;
+  /**
+   * Opens the Connect dialog (ADR 0380: connect to a listening build by its code or address). C7: U1 adds the menu item
+   * and the dialog; absent, no item.
+   */
+  onConnect?(): void;
+  /**
+   * Drawn at the top of the open menu: the editor's Play as a build (its code and paired tools, `playBuild.ts`). C7: U1
+   * renders it; U3 fills it.
+   */
+  playSlot?: ComponentChildren;
 }
 
 /** The status bar button and its menu. */
