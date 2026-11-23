@@ -1,12 +1,13 @@
 // The Inspector panel's view (the prototype's right panel): the selected entry's use settings (volume, pitch, weight,
 // position, at weight 0, "Edit voice curves…"), then the open playlist's Playback rules, Output (its own bus or the one
-// it inherits, › to open it in the Mixer), Effects (the catalogue's chain, ADR 0345), Spatial (an attenuation preset or
+// it inherits, a button to open it in the Mixer), Effects (the catalogue's chain, ADR 0345), Spatial (an attenuation preset or
 // inline distances; curves are M7's), local parameters, and Used by. A view over props: edits are labelled body edits.
 import type { ParameterDef } from "../../../engine/audio/parameters";
 import { isLabelled } from "../../../engine/audio/parameters";
 import type { PlaylistBody, PlaybackRules } from "../../../engine/audio/playlist/types";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { EffectChain } from "../../components/EffectChain";
+import { Icon } from "../../components/Icon";
 import { chainNote } from "./chainCost";
 import type { BodyEdit } from "./EntryList";
 import { FieldRow, NumberBox, SelectBox, Section } from "../../../editor/ui/PanelFields";
@@ -129,7 +130,7 @@ export function PlaylistInspector(props: PlaylistInspectorProps) {
             <SelectBox label="Output bus" value={body.output ?? ""} disabled={!writable}
               options={[{ value: "", label: `Inherit (${props.output.own ? "Master" : props.output.bus}${props.output.from ? ` from ${props.output.from}` : ""})` }, ...props.buses.map((b) => ({ value: b, label: b }))]}
               onValue={(v) => onEdit(`Output: ${v || "inherit"}`, (b) => setOutput(b, v || null, props.buses))} />
-            <button type="button" class="pl-icon" aria-label={`Open ${props.output.bus} in the Mixer`} title="Open the bus in the Mixer" onClick={() => props.onOpenBus(props.output.bus)}>›</button>
+            <button type="button" class="pl-icon" aria-label={`Open ${props.output.bus} in the Mixer`} title="Open the bus in the Mixer" onClick={() => props.onOpenBus(props.output.bus)}><Icon name="chevronRight" /></button>
           </span>
         </div>
       </Section>
@@ -212,10 +213,10 @@ export function LocalParameters(props: { readonly list: readonly ParameterDef[];
               <NumberBox label={`${p.name} default`} value={p.default} min={p.min} max={p.max} digits={3} disabled={!writable} onValue={(v) => set(k, { ...p, default: v })} />
             </span>
           )}
-          <button type="button" class="pl-icon" aria-label={`Remove ${p.name}`} disabled={!writable} onClick={() => props.onChange(list.filter((_, i) => i !== k), "Change setting")}>×</button>
+          <button type="button" class="pl-icon" aria-label={`Remove ${p.name}`} title="Remove parameter" disabled={!writable} onClick={() => props.onChange(list.filter((_, i) => i !== k), "Change setting")}><Icon name="close" /></button>
         </div>
       ))}
-      <button type="button" class="pl-small" disabled={!writable} onClick={() => props.onChange([...list, { name: freeName(), min: 0, max: 1, default: 0, seekSpeed: 0 }], "Change setting")}>+ Parameter</button>
+      <button type="button" class="pl-small" disabled={!writable} onClick={() => props.onChange([...list, { name: freeName(), min: 0, max: 1, default: 0, seekSpeed: 0 }], "Change setting")}><Icon name="plus" size={12} /> Parameter</button>
     </div>
   );
 }

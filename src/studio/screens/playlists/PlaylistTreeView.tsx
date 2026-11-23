@@ -8,6 +8,7 @@ import { ContextMenu, SEPARATOR, tidyEntries, type MenuEntry } from "../../../ed
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { MoveToDialog } from "../../../editor/ui/MoveToDialog";
 import { TreeView, renameRow, type TreeRow } from "../../../editor/ui/TreeView";
+import { Icon } from "../../components/Icon";
 import { TypeBadge } from "../../components/TypeBadge";
 import { findNode, searchTree, type PlaylistNode } from "./playlistTree";
 import { dropZone, type DragSource, type DropPlan, type DropTarget, type DropZone } from "./treeDrop";
@@ -98,17 +99,19 @@ export function PlaylistTreeView(props: PlaylistTreeViewProps) {
       const zone = dropZone((ev.clientY - rect.top) / Math.max(1, rect.height), { folder: over.kind === "folder" });
       setDrag({ key: n.key, over: overKey, zone, plan: actions.planDrop(sourceOf(n), targetOf(over), zone) });
     };
-    const up = () => {
+    const up = (ev: PointerEvent) => {
       doc.removeEventListener("pointermove", move);
       doc.removeEventListener("pointerup", up);
+      doc.removeEventListener("pointercancel", up);
       const d = dragRef.current;
       setDrag(null);
-      if (!started || !d || !d.over || !d.plan) return;
+      if (ev.type === "pointercancel" || !started || !d || !d.over || !d.plan) return;
       const target = d.over === "root" ? ({ kind: "root" } as const) : targetOf(findNode(nodes, d.over)!);
       actions.drop(d.plan, n.kind === "folder" ? { kind: "folder", path: n.path, name: n.name } : n, target);
     };
     doc.addEventListener("pointermove", move);
     doc.addEventListener("pointerup", up);
+    doc.addEventListener("pointercancel", up);
   };
 
   const pick = (key: string, toggle: boolean) => setSelection(toggle ? (selection.includes(key) ? selection.filter((k) => k !== key) : [...selection, key]) : [key]);
@@ -134,7 +137,7 @@ export function PlaylistTreeView(props: PlaylistTreeViewProps) {
         expandable: true,
         open: !closed.has(n.key),
         className: "pl-folder-row",
-        icon: <span class="pl-folder-icon" aria-hidden="true">▸</span>,
+        icon: <Icon name="folder" class="pl-folder-icon" size={14} />,
         trailing: <span class="pl-count">{n.count}</span>,
         children: n.children.map((c) => row(c)),
         setOpen: (open) => toggleOpen(n.key, open),
@@ -161,8 +164,8 @@ export function PlaylistTreeView(props: PlaylistTreeViewProps) {
       trailing: (
         <span class="pl-row-trail">
           {meta && <span class="pl-row-meta">{meta}</span>}
-          {linked && <span class="pl-link-mark" title="Linked copy" aria-label="Linked copy">⛓</span>}
-          {n.kind === "file" && n.linkedBy.length > 0 && <span class="pl-link-mark pl-original" title={`Linked in ${n.linkedBy.length} playlist${n.linkedBy.length === 1 ? "" : "s"}`} aria-label="Linked elsewhere">⛓</span>}
+          {linked && <span class="pl-link-mark" title="Linked copy"><Icon name="link" size={12} label="Linked copy" /></span>}
+          {n.kind === "file" && n.linkedBy.length > 0 && <span class="pl-link-mark pl-original" title={`Linked in ${n.linkedBy.length} playlist${n.linkedBy.length === 1 ? "" : "s"}`} ><Icon name="link" size={12} label="Linked elsewhere" /></span>}
           {n.output && <span class="pl-out-mark" title={`Plays on ${n.output} (its own output)`}>→ {n.output}</span>}
         </span>
       ),
@@ -230,13 +233,13 @@ export function PlaylistTreeView(props: PlaylistTreeViewProps) {
     <div class="pl-tree" data-keyscope="playlists-tree">
       <div class="pl-tree-tools">
         <input type="search" class="pl-search" placeholder="Search playlists" aria-label="Search playlists" value={query} onInput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)} />
-        <button type="button" class="pl-tool" disabled={!writable} title={writable ? "New playlist, sequence or folder" : "This project is read-only"} aria-label="New" onClick={(e) => setAddMenu(e.currentTarget as Element)}>
-          +
+        <button type="button" class="pl-tool" disabled={!writable} title={writable ? "New playlist, sequence or folder" : "This project is read-only"} aria-label="New" aria-haspopup="menu" aria-expanded={!!addMenu} onClick={(e) => setAddMenu(e.currentTarget as Element)}>
+          <Icon name="plus" />
         </button>
       </div>
       {drag && (
         <div class={`pl-top-drop${drag.over === "root" ? " over" : ""}`} data-pl-key="root">
-          ⤒ Top level
+          <Icon name="chevronUp" size={14} /> Top level
         </div>
       )}
       {drag?.plan?.kind === "refused" && <p class="pl-drop-why" role="status">{drag.plan.reason}</p>}
@@ -267,7 +270,7 @@ export function PlaylistTreeView(props: PlaylistTreeViewProps) {
           <button type="button" disabled={!writable} onClick={() => actions.duplicate(selectedNodes)}>Duplicate</button>
           <button type="button" disabled={!writable || selectedNodes.some((x) => x.kind === "entry")} onClick={() => setMoving(selectedNodes)}>Move to…</button>
           <button type="button" class="pl-danger" disabled={!writable} onClick={() => actions.removeMany(selectedNodes)}>Delete…</button>
-          <button type="button" aria-label="Clear the selection" onClick={() => setSelection([])}>×</button>
+          <button type="button" class="pl-icon" aria-label="Clear the selection" title="Clear the selection" onClick={() => setSelection([])}><Icon name="close" /></button>
         </div>
       )}
       {menu && menuNode && <ContextMenu entries={entriesFor(menuNode)} at={{ x: menu.x, y: menu.y }} label="Playlist menu" onClose={() => setMenu(null)} />}

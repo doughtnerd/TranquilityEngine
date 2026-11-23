@@ -13,7 +13,14 @@ export interface DragHandlers {
 
 export function beginDrag(e: PointerEvent, h: DragHandlers): void {
   if (e.button !== 0) return;
-  const doc = (e.currentTarget as Element | null)?.ownerDocument ?? document;
+  const pressed = e.currentTarget as Element | null;
+  const doc = pressed?.ownerDocument ?? document;
+  // Keep the pointer while it drags (a finger that leaves the clip or handle still moves it, ADR 0361).
+  try {
+    pressed?.setPointerCapture?.(e.pointerId);
+  } catch {
+    // A synthetic press (no active pointer) can't be captured; the document listeners still follow it.
+  }
   const x0 = e.clientX, y0 = e.clientY;
   const limit = h.threshold ?? DRAG_THRESHOLD;
   let dragged = false;

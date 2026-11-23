@@ -76,6 +76,9 @@ const PATHS = {
   reverbZone: "M4 4h16v16H4zM8 8h8v8H8z",
   audioZone: "M3 9c3-3 6 3 9 0s6-3 9 0M3 15c3-3 6 3 9 0s6-3 9 0",
   note: "M9 18V5l11-2v13M9 18m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0M20 16m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0",
+  // Playlists
+  release: "M3 12h13M12 7l5 5-5 5M20 5v14",
+  razor: "M6 6m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 18m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0M8.5 7.8L20 18M8.5 16.2L20 6",
 } as const;
 
 export type IconName = keyof typeof PATHS;
