@@ -584,3 +584,13 @@ generator runtime (G3) was moved onto the renumbered base (180 reference lines r
 mixed-voice cap (the core's pool is a count); the PLAY loop flag only for `untilStopped` playlists; a sequence
 generator clip keys off at the clip's end (a blip plays its whole envelope); embedded generators are named
 `<playlist>#<kind>` in debug and captures; hot reload diffs stored values.
+
+**D70. Generators complete apart from e2e (G2b, G4, G5, finish merged).** Owner's "Optimise further": blip 2.38× →
+1.47× (sfxr-accurate; vibrato now a phasor). "Make it a setting": `quality` standard/high (high = 16-tap minBLEP, 2
+samples late; `gen-blip-high` 1.57×, over the 1.5× tripwire as an opt-in). Mixer tripwire 640 KB; offline module
+213 KB. Choices to review: presets/Randomise/Mutate keep `quality` and `level`; blip latches `quality` at its trigger;
+Rebake overwrites the sample's own file with the same variation; the JS reference preview was removed (the preview is
+the real offline render); generators are listed in the Playlists Library; locks are session-only; the Babylon fallback
+has no release envelope for looping generators; existing bakes show "out of date" once after `quality` joined the
+patch text. Windows desktop build notes (CMake ≥ 4.2 with Visual Studio 2026, JetBrains' bundled CMake, preview VS
+instances, Ninja) are in `docs/guide/editor.md`.

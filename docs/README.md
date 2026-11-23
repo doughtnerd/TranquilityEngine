@@ -29,6 +29,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Spatial audio](guide/spatial-audio.md) | Beds, reverb zones, occlusion and materials (the door recipe), Doppler, ambisonic clips, the Babylon fallback's limits, how it compares with Wwise, FMOD and Unity |
 | [Playlists](guide/playlists.md) | The playlist format (`*.playlist.json`): Clip, Queue, Switch, Blend, Layer and Sequence, `Audio.play`, parameters, loops and release, limits; replaces audio events (ADR 0343) |
 | [Interactive music](guide/interactive-music.md) | Music on playlists: the musical clock, Switch rules and transitions, sequences, sync clips, stingers, markers, `handle.music`, mapping from old music events |
+| [Sound generators](guide/sound-generators.md) | Oscillators, synths, sfxr-style blips and silence as playlist entries: presets, Randomise/Mutate/seed, the quality setting, audition, Bake to samples, `gen:` curves, the Web Audio fallback |
 | [Audio takes](guide/audio-takes.md) | Takes: Record take, F10 and `audioTake`, `Audio.take`, opening takes in the Audio Studio and the Profiler, what a take reveals |
 | [Audio core minimum versions](guide/audio-minimum-versions.md) | Browser and webview versions the `"core"` audio backend needs (AudioWorklet, `simd128`), the one-warning fallback to `"babylon"`, Android WebView |
 | [Writing a plugin](guide/plugins.md) | Third-party plugins: the folder layout, `plugin.json`, runtime and editor halves, a physics backend, enabling, reloading, npm packages, what refuses a plugin, trust |
