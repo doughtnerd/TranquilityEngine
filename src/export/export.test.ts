@@ -246,7 +246,7 @@ describe("the debug link's listening flags (ADR 0380)", () => {
     expect(files.get("Cargo.toml")).toMatch(/^\[dependencies\][\s\S]*^myco-debug-link-tauri = \{ path = "vendor\/debug-link-tauri" \}$[\s\S]*^\[dev-dependencies\]/m);
     const lib = files.get("src/lib.rs")!;
     expect(lib).toContain("builder = builder.manage(debug_link_tauri::DebugLinkListeners::default());");
-    for (const c of ["listen_range", "listen", "send", "close"]) expect(lib).toContain(`debug_link_tauri::commands::myco_debuglink_${c},`);
+    for (const c of ["listen_range", "listen", "send", "close", "interfaces"]) expect(lib).toContain(`debug_link_tauri::commands::myco_debuglink_${c},`);
     expect(lib).toContain("gamepad::myco_gamepad_listen,");
     expect(lib).toContain('a == "--debug-code"');
     expect(lib).toContain("globalThis.__mycoDebugCode = {literal};");

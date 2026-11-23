@@ -42,7 +42,7 @@ export const DEBUG_LISTENER_CRATES = ["ws-listener", "debug-link-tauri"] as cons
 /** The listener crate's dependency line in the generated Cargo.toml (its own path dependency on `../ws-listener` resolves in vendor/). */
 export const DEBUG_LISTENER_DEPENDENCY = 'myco-debug-link-tauri = { path = "vendor/debug-link-tauri" }';
 /** The four commands native/debug-link-tauri defines, for the generated `generate_handler!`. */
-export const DEBUG_LISTENER_COMMANDS = ["myco_debuglink_listen_range", "myco_debuglink_listen", "myco_debuglink_send", "myco_debuglink_close"];
+export const DEBUG_LISTENER_COMMANDS = ["myco_debuglink_listen_range", "myco_debuglink_listen", "myco_debuglink_send", "myco_debuglink_close", "myco_debuglink_interfaces"];
 
 /** ADR 0376: the shell lines that hand `--debug-link <address>` (or `--debug-link=<address>`) to the page as `__mycoDebugLink`. */
 export const DEBUG_LINK_FLAG_RUST = `    // ADR 0376: \`--debug-link <address>\` overrides game.json's debug.link: the page reads it as __mycoDebugLink.

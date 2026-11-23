@@ -163,3 +163,64 @@ pub fn myco_debuglink_close(state: State<'_, DebugLinkListeners>, id: u32) {
     let closed = state.listeners.lock().unwrap().remove(&id);
     drop(closed);
 }
+
+/// One network address of this machine, in the shape of Node's `os.networkInterfaces()` entries
+/// (`NetworkInterfaceAddress` in `src/engine/debugLink/pairing/address.ts`).
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct InterfaceAddress {
+    address: String,
+    family: &'static str,
+    internal: bool,
+}
+
+/// The pure part of `myco_debuglink_interfaces`: the primary address (when one was found) first, then loopback,
+/// which is marked internal. An unspecified or loopback primary is no address.
+pub fn interface_list(primary: Option<std::net::Ipv4Addr>) -> Vec<InterfaceAddress> {
+    let mut list = Vec::new();
+    if let Some(ip) = primary.filter(|ip| !ip.is_unspecified() && !ip.is_loopback()) {
+        list.push(InterfaceAddress { address: ip.to_string(), family: "IPv4", internal: false });
+    }
+    list.push(InterfaceAddress { address: "127.0.0.1".into(), family: "IPv4", internal: true });
+    list
+}
+
+/// The address the OS would use to reach the internet: a UDP socket `connect`ed to a public address picks the route
+/// (and so the adapter) without sending a packet. None when there is no route (offline), or the route is IPv6.
+fn primary_ipv4() -> Option<std::net::Ipv4Addr> {
+    let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    match socket.local_addr().ok()?.ip() {
+        std::net::IpAddr::V4(ip) => Some(ip),
+        std::net::IpAddr::V6(_) => None,
+    }
+}
+
+/// This machine's IPv4 addresses for the pairing code (ADR 0380 "Address code"): the primary address, which is the
+/// adapter the OS routes outward through, and loopback (internal). Std offers no adapter list, so a second adapter
+/// (Wi-Fi beside Ethernet) or a VPN that isn't the default route doesn't appear; a person can type the full address.
+#[tauri::command]
+pub fn myco_debuglink_interfaces() -> Vec<InterfaceAddress> {
+    interface_list(primary_ipv4())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::Ipv4Addr;
+
+    #[test]
+    fn the_primary_address_comes_first_then_loopback_as_internal() {
+        let list = interface_list(Some(Ipv4Addr::new(192, 168, 1, 20)));
+        assert_eq!(list.len(), 2);
+        assert_eq!((list[0].address.as_str(), list[0].family, list[0].internal), ("192.168.1.20", "IPv4", false));
+        assert_eq!((list[1].address.as_str(), list[1].internal), ("127.0.0.1", true));
+    }
+
+    #[test]
+    fn no_route_or_an_unspecified_address_leaves_loopback_only() {
+        for primary in [None, Some(Ipv4Addr::UNSPECIFIED), Some(Ipv4Addr::LOCALHOST)] {
+            let list = interface_list(primary);
+            assert_eq!(list, vec![InterfaceAddress { address: "127.0.0.1".into(), family: "IPv4", internal: true }]);
+        }
+    }
+}

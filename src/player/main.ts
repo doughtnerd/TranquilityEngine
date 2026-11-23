@@ -20,6 +20,7 @@ import { LEGACY_AUDIO_MESSAGE, projectWithAudio } from "../engine/audio/project/
 import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
 import { installAudioMedia } from "../plugins/audio/runtime/media/mediaTable";
 import { installBuildStrings } from "../engine/localisation/runtime/boot";
+import type { NetworkInterfaceAddress } from "../engine/debugLink/pairing/address";
 
 /** A build file's URL, from its "/"-separated path. */
 const urlOf = (path: string) => new URL(path.split("/").map(encodeURIComponent).join("/"), document.baseURI).href;
@@ -109,7 +110,13 @@ async function boot(): Promise<void> {
     const desktop = "__TAURI_INTERNALS__" in window;
     const platform = desktop ? "desktop" : "web";
     // A desktop game can listen: the native WebSocket server stands in for the transport a page lacks.
-    if (desktop) (await import("../engine/debugLink/tauriListener")).registerTauriWebSocketTransport();
+    // Its network addresses go in the pairing code (a code holds the machine's private IPv4 octets).
+    let interfaces: NetworkInterfaceAddress[] = [];
+    if (desktop) {
+      const native = await import("../engine/debugLink/tauriListener");
+      native.registerTauriWebSocketTransport();
+      if ((manifest.debug as { listen?: boolean }).listen === true) interfaces = await native.nativeInterfaces();
+    }
     const { startDebugLink, startBuildListener } = await import("../engine/debugLink/host");
     const d = manifest.debug as Partial<typeof manifest.debug>;
     // A listening-only build (`listen` without a `link`) doesn't also dial the default address.
@@ -117,7 +124,7 @@ async function boot(): Promise<void> {
       await startDebugLink(runtime, { debug: manifest.debug, override, name: manifest.name, platform, code });
     }
     if (d.listen === true) {
-      const listener = await startBuildListener(runtime, { debug: manifest.debug, name: manifest.name, platform });
+      const listener = await startBuildListener(runtime, { debug: manifest.debug, name: manifest.name, platform, interfaces: () => interfaces });
       if (listener) (await import("./debugOverlay")).installDebugOverlay(listener);
     }
   }

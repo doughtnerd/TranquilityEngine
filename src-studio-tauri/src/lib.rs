@@ -35,7 +35,8 @@ pub fn run() {
             debug_link_tauri::commands::myco_debuglink_listen_range,
             debug_link_tauri::commands::myco_debuglink_listen,
             debug_link_tauri::commands::myco_debuglink_send,
-            debug_link_tauri::commands::myco_debuglink_close
+            debug_link_tauri::commands::myco_debuglink_close,
+            debug_link_tauri::commands::myco_debuglink_interfaces
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");
