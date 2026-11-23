@@ -162,3 +162,15 @@ export const ReadOnly: Story = {
   },
 };
 
+
+/** Right-click on a clip opens the clip's menu, not the lane's under it (the lane's menu is for its empty space). */
+export const ClipMenu: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const page = within(canvasElement.ownerDocument.body);
+    await userEvent.pointer({ keys: "[MouseRight]", target: c.getByRole("button", { name: "Clip brake_skid" }) });
+    await expect(page.getByRole("menu", { name: "Clip" })).toBeVisible();
+    await expect(page.queryByRole("menu", { name: "Lane" })).toBeNull();
+    await expect(page.getByRole("menuitem", { name: /^Copy/ })).toBeVisible();
+  },
+};

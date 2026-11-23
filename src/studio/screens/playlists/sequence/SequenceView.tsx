@@ -494,6 +494,8 @@ export function SequenceView(props: SequenceViewProps) {
   };
 
   const laneMenu = (e: MouseEvent, ti: number) => {
+    // A clip, marker or curve key on the lane opened its own menu (and took the default) first; the lane's doesn't replace it.
+    if (e.defaultPrevented) return;
     e.preventDefault();
     const t = snapAt(timeAt(e), e);
     const track = s.tracks[ti];
