@@ -594,3 +594,16 @@ the real offline render); generators are listed in the Playlists Library; locks 
 has no release envelope for looping generators; existing bakes show "out of date" once after `quality` joined the
 patch text. Windows desktop build notes (CMake ≥ 4.2 with Visual Studio 2026, JetBrains' bundled CMake, preview VS
 instances, Ninja) are in `docs/guide/editor.md`.
+
+**D71. UI fidelity pass (2026-11-23).** The owner found the Studio far from their prototype. Seven auditors drove the
+rendered prototype and the owner's spec (`owner-spec.md`, committed) against the real Studio: ~550 findings
+(`ui-pass/`). Owner answers: the player bar shows the spec's Game session pill and "Linked to game", driving take
+replay until a live link exists (amends 0341's removal); deleting a sample moves it and its sidecar to the project
+trash `.myco/trash/` with toast Undo (newest 20 kept; edit history not kept); Ctrl+S saves project data and a Save
+split button offers Write to file… and Fork…; stems that start together on parallel tracks sync to the sequence clock,
+"follows" only for a clip chained on the same track. Coordinator defaults are in `ui-pass/decisions.md` (spec wins
+where newer; recorded decisions stand otherwise). Behaviour changes: loudness target defaults are now console −24,
+PC/web −18, mobile −16 LUFS (amends 0171 decision 4; projects with an authored list keep it, so the samples still
+show two targets); deleting a test scene is immediate with toast Undo; "Profile this replay" always replays from the
+take's start so Take and Profiler share one review position (`profiler/reviewLink.ts`); hovering Spatial's plan takes
+keyboard focus unless a field, menu or dialog has it.
