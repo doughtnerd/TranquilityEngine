@@ -12,6 +12,7 @@ import { BED_PRIORITY_LIMITS } from "../../../engine/audio/settings";
 import { DuckRow } from "../../components/DuckRow";
 import { EffectChain } from "../../components/EffectChain";
 import { Fader } from "../../components/Fader";
+import { Icon } from "../../components/Icon";
 import { SendRow } from "../../components/SendRow";
 import { keyBusOptions } from "../../components/effectChainModel";
 import { duckTriggerOptions, sendTargets } from "../../components/mixRowsModel";
@@ -24,7 +25,7 @@ import { allocateBeds, bedModeOf, bedText, seedVoiceLimit, setBed, setVoiceLimit
 
 const Diamond = (props: { set: boolean; label: string; onClick(): void; disabled?: boolean }) => (
   <button class={`studio-icon mx-auto${props.set ? " set" : ""}`} aria-label={props.label} title={props.label} disabled={props.disabled} onClick={props.onClick}>
-    ◆
+    <span aria-hidden="true">◆</span>
   </button>
 );
 
@@ -200,7 +201,7 @@ function Sends(props: { session: MixerSession; name: string }) {
     <section class="mx-isection" aria-label="Sends">
       <h3 class="mx-ihead">
         Sends <span class="mx-faint">post-fader, to returns</span>
-        <button class="mx-tool" disabled={session.readOnly || name === masterOf(p) || targets.every((t) => t.disabled)} onClick={() => setAdding(!adding)} aria-expanded={adding}>+ Send</button>
+        <button class="mx-tool" disabled={session.readOnly || name === masterOf(p) || targets.every((t) => t.disabled)} onClick={() => setAdding(!adding)} aria-expanded={adding}><Icon name="plus" /> Send</button>
       </h3>
       {adding && (
         <div class="mx-pick" role="group" aria-label="Send to">
@@ -246,7 +247,7 @@ function Ducking(props: { session: MixerSession; name: string }) {
     <section class="mx-isection" aria-label="Ducking">
       <h3 class="mx-ihead">
         Ducking <span class="mx-faint">lowers {name} while another bus plays</span>
-        <button class="mx-tool" disabled={session.readOnly} onClick={() => setAdding(!adding)} aria-expanded={adding}>+ Duck</button>
+        <button class="mx-tool" disabled={session.readOnly} onClick={() => setAdding(!adding)} aria-expanded={adding}><Icon name="plus" /> Duck</button>
       </h3>
       {adding && (
         <div class="mx-pick" role="group" aria-label="Duck when this plays">
@@ -361,7 +362,7 @@ export function MixerInspector(props: { session: MixerSession }) {
       {kind === "vca" && <VcaInspector session={session} name={name} />}
       {name !== masterOf(p) && (
         <div class="mx-delete">
-          <button class="danger" disabled={session.readOnly} onClick={() => void session.remove(name)}>Delete {kind}…</button>
+          <button class="danger" disabled={session.readOnly} onClick={() => void session.remove(name)}><Icon name="trash" /> Delete {kind}…</button>
         </div>
       )}
     </MixFrame>

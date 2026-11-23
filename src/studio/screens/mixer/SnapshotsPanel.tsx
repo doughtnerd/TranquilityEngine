@@ -9,6 +9,7 @@ import { EmptyState } from "../../../editor/ui/EmptyState";
 import { MoveToDialog } from "../../../editor/ui/MoveToDialog";
 import { TreeView, renameRow, type TreeRow } from "../../../editor/ui/TreeView";
 import type { Snapshot } from "../../../engine/audio/project/types";
+import { Icon } from "../../components/Icon";
 import { labelOn } from "./mixEdits";
 import type { MixerSession } from "./mixerScreen";
 import { MixFrame } from "./mixerViewParts";
@@ -164,8 +165,8 @@ export function SnapshotsPanel(props: { session: MixerSession }) {
     <MixFrame session={session} class="mx-snapshots" label="Snapshots">
       <div class="mx-snap-tools">
         <input type="search" placeholder="Search snapshots" aria-label="Search snapshots" value={query} onInput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)} />
-        <button class="mx-tool" disabled={ro} title={folder ? `New snapshot in ${folder}` : "New snapshot"} onClick={() => newSnap(folder)}>+ New</button>
-        <button class="mx-tool" disabled={ro} title="New folder" onClick={() => newFolder(folder)}>+ Folder</button>
+        <button class="mx-tool" disabled={ro} title={folder ? `New snapshot in ${folder}` : "New snapshot"} onClick={() => newSnap(folder)}><Icon name="plus" /> New</button>
+        <button class="mx-tool" disabled={ro} title="New folder" onClick={() => newFolder(folder)}><Icon name="folderPlus" /> Folder</button>
         <button class="mx-tool" title="Collapse all" onClick={() => setClosed(new Set(snapshotFolders(p.snapshots, extra)))}>Collapse</button>
       </div>
       {matches ? (
@@ -174,7 +175,7 @@ export function SnapshotsPanel(props: { session: MixerSession }) {
         <TreeView tree={TREE} label="Snapshots" rows={[base, ...tree.map(row)]} />
       )}
       {p.snapshots.length === 0 && !matches && (
-        <EmptyState compact title="No snapshots yet" body="A snapshot is a named mix the game blends to: a pause menu, underwater, a cutscene." action={{ label: "New snapshot", disabled: ro, run: () => newSnap("") }} />
+        <EmptyState compact icon={<Icon name="snapshot" size={28} />} title="No snapshots yet" body="A snapshot is a named mix the game blends to: a pause menu, underwater, a cutscene." action={{ label: "New snapshot", disabled: ro, run: () => newSnap("") }} />
       )}
       {menu && <ContextMenu entries={entries(menu.key)} at={{ x: menu.x, y: menu.y }} label="Snapshot menu" onClose={() => setMenu(null)} />}
       {moving && (

@@ -38,7 +38,7 @@ export const Scenes: Story = {
     await userEvent.type(c.getByRole("searchbox", { name: "Search scenes" }), "drone");
     await expect(c.getByRole("tree", { name: "Matching scenes" })).toHaveTextContent("Moving sources › drone_flyby");
     await userEvent.clear(c.getByRole("searchbox", { name: "Search scenes" }));
-    await userEvent.click(c.getByRole("button", { name: "+ New" }));
+    await userEvent.click(c.getByRole("button", { name: "New" }));
     const menu = within(document.body).getByRole("menu", { name: "New test scene" });
     await expect(within(menu).getByRole("menuitem", { name: /From take/ })).toBeVisible();
     await expect(within(menu).getByRole("menuitem", { name: /From open game scene/ })).toBeVisible();
