@@ -126,7 +126,7 @@ function LiveText(props: { session: MixerSession; drag: Drag }) {
   return null;
 }
 
-function Toolbar(props: { session: MixerSession; drag: Drag }) {
+function Toolbar(props: { session: MixerSession; drag: Drag; onCreated(name: string | null): void }) {
   const { session } = props;
   const p = session.project.value;
   const beds = allocateBeds(p);
@@ -160,7 +160,7 @@ function Toolbar(props: { session: MixerSession; drag: Drag }) {
       <button class="kit-icon-button mx-cib" aria-label="Collapse all" title="Collapse all buses (top-level buses stay visible)" onClick={() => (session.collapsed.value = new Set(routingRows(p).filter((r) => r.depth === 1 && r.hasChildren).map((r) => r.name)))}>
         <Icon name="collapse" size={14} />
       </button>
-      <button class="kit-icon-button mx-cib" aria-label="New bus" disabled={session.readOnly} onClick={() => session.newBus()} title={`New bus (inside the selected one: ${session.selected.value})`}>
+      <button class="kit-icon-button mx-cib" aria-label="New bus" disabled={session.readOnly} onClick={() => props.onCreated(session.newBus())} title={`New bus (inside the selected one: ${session.selected.value})`}>
         <Icon name="plus" size={14} />
       </button>
     </div>
@@ -224,14 +224,14 @@ function RenameField(props: { value: string; label: string; onDone(value: string
   );
 }
 
-function menuFor(session: MixerSession, name: string, rename: (() => void) | null, moveTo: () => void): MenuEntry[] {
+function menuFor(session: MixerSession, name: string, rename: (() => void) | null, moveTo: () => void, onCreated: (name: string | null) => void = () => {}): MenuEntry[] {
   const p = session.project.peek();
   const kind = kindOf(p, name);
   const master = name === masterOf(p);
   const pinned = session.pins.peek().includes(name);
   const noun = kind === "return" ? "return" : kind === "vca" ? "VCA" : "bus";
   return [
-    ...(kind === "bus" ? [{ id: "child", label: "Add child bus", disabled: session.readOnly, run: () => { session.select(name); session.newBus(); } }] : []),
+    ...(kind === "bus" ? [{ id: "child", label: "Add child bus", disabled: session.readOnly, run: () => { session.select(name); onCreated(session.newBus()); } }] : []),
     { id: "rename", label: "Rename", hint: "F2", disabled: session.readOnly || master || !rename, title: master ? "Master keeps its name" : rename ? undefined : "Rename it in the Inspector", run: () => rename?.() },
     ...(kind === "bus" ? [{ id: "move", label: "Move to…", disabled: session.readOnly || master, title: master ? "Master can't be re-routed" : "Pick the bus it feeds (as dragging it does)", run: moveTo }] : []),
     ...(kind !== "vca" ? [{ id: "pin", label: pinned ? "Unpin from live board" : "Pin to live board", run: () => session.togglePin(name) }] : []),
@@ -282,14 +282,14 @@ function TreeCell(props: { session: MixerSession; name: string; depth: number; h
   );
 }
 
-function ListView(props: { session: MixerSession; drag: Drag; startDrag(e: PointerEvent, bus: string): void; menu: Menu; setMenu(m: Menu): void }) {
+function ListView(props: { session: MixerSession; drag: Drag; startDrag(e: PointerEvent, bus: string): void; menu: Menu; setMenu(m: Menu): void; renaming: string | null; setRenaming(name: string | null): void }) {
   const { session, drag } = props;
   const p = session.project.value;
   const rows = routingRows(p, session.collapsed.value);
   const beds = allocateBeds(p);
   const selected = session.selected.value;
   const master = masterOf(p);
-  const [renaming, setRenaming] = useState<string | null>(null);
+  const { renaming, setRenaming } = props;
   const [moving, setMoving] = useState<string | null>(null);
   const doneRename = (from: string, to: string | null) => {
     setRenaming(null);
@@ -338,7 +338,7 @@ function ListView(props: { session: MixerSession; drag: Drag; startDrag(e: Point
       </div>
       <h3 class="mx-section">
         Returns <InfoTip text="Returns are fed by sends: a bus copies its signal to one after its fader. A return mixes them and outputs to its bus." label="About returns" />
-        <button class="kit-icon-button mx-cib" aria-label="New return" title="New return" disabled={session.readOnly} onClick={() => session.newReturn()}><Icon name="plus" size={14} /></button>
+        <button class="kit-icon-button mx-cib" aria-label="New return" title="New return" disabled={session.readOnly} onClick={() => setRenaming(session.newReturn())}><Icon name="plus" size={14} /></button>
       </h3>
       {p.returns.length > 0 ? (
         <div role="listbox" aria-label="Returns">
@@ -356,7 +356,7 @@ function ListView(props: { session: MixerSession; drag: Drag; startDrag(e: Point
       ) : <p class="mx-note">No returns.</p>}
       <h3 class="mx-section">
         VCAs <InfoTip text="VCAs offset their members' levels; the member faders stay put and no audio runs through a VCA." label="About VCAs" />
-        <button class="kit-icon-button mx-cib" aria-label="New VCA" title="New VCA" disabled={session.readOnly} onClick={() => session.newVca()}><Icon name="plus" size={14} /></button>
+        <button class="kit-icon-button mx-cib" aria-label="New VCA" title="New VCA" disabled={session.readOnly} onClick={() => setRenaming(session.newVca())}><Icon name="plus" size={14} /></button>
       </h3>
       {p.vcas.length > 0 ? (
         <div role="listbox" aria-label="VCAs">
@@ -372,7 +372,7 @@ function ListView(props: { session: MixerSession; drag: Drag; startDrag(e: Point
           ))}
         </div>
       ) : <p class="mx-note">No VCAs.</p>}
-      {props.menu && <ContextMenu entries={menuFor(session, props.menu.name, () => setRenaming(props.menu!.name), () => setMoving(props.menu!.name))} at={props.menu.at} label={`${props.menu.name} menu`} onClose={() => props.setMenu(null)} />}
+      {props.menu && <ContextMenu entries={menuFor(session, props.menu.name, () => setRenaming(props.menu!.name), () => setMoving(props.menu!.name), setRenaming)} at={props.menu.at} label={`${props.menu.name} menu`} onClose={() => props.setMenu(null)} />}
       {moving && <MoveBusDialog session={session} name={moving} onClose={() => setMoving(null)} />}
     </div>
   );
@@ -471,12 +471,24 @@ export function BusesPanel(props: { session: MixerSession }) {
   const p = session.project.value;
   const { drag, start } = useRerouteDrag(session);
   const [menu, setMenu] = useState<Menu>(null);
+  // The row whose name is being typed: F2, a double-click, Rename, or a bus, return or VCA just made (it starts in
+  // rename mode with its name selected, as New playlist and New snapshot do).
+  const [renaming, setRenaming] = useState<string | null>(null);
+  const created = (name: string | null) => {
+    if (name === null) return;
+    session.view.value = "list";
+    // Its parents open, so the row (and its name field) shows.
+    const open = new Set(session.collapsed.peek());
+    for (let up = busOf(session.project.peek(), name)?.parent ?? null; up; up = busOf(session.project.peek(), up)?.parent ?? null) open.delete(up);
+    if (open.size !== session.collapsed.peek().size) session.collapsed.value = open;
+    setRenaming(name);
+  };
   return (
     <MixFrame session={session} class="mx-buses" label="Buses">
       <div class="mx-buses-inner">
-        <Toolbar session={session} drag={drag} />
+        <Toolbar session={session} drag={drag} onCreated={created} />
         {p.buses.length === 1 && p.returns.length === 0 && <p class="mx-note">Only Master so far: add a bus for each kind of sound.</p>}
-        {session.view.value === "list" ? <ListView session={session} drag={drag} startDrag={start} menu={menu} setMenu={setMenu} /> : <StripsView session={session} menu={menu} setMenu={setMenu} />}
+        {session.view.value === "list" ? <ListView session={session} drag={drag} startDrag={start} menu={menu} setMenu={setMenu} renaming={renaming} setRenaming={setRenaming} /> : <StripsView session={session} menu={menu} setMenu={setMenu} />}
         {session.view.value === "list" && <LiveBoard session={session} />}
       </div>
     </MixFrame>

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
+import { signal } from "@preact/signals";
 import { setLevel } from "./mixEdits";
+import { createMixerSession } from "./mixerScreen";
 import { mixerFixture } from "./mixerFixture";
 import { fakeMixer, type FakeMixer } from "./mixerStoryData";
 
@@ -25,7 +27,7 @@ describe("the Mixer session", () => {
     s.select("Vehicles");
     s.newBus();
     expect(s.selected.peek()).toBe("New bus");
-    expect(f.steps.at(-1)!.label).toBe("New bus · New bus");
+    expect(f.steps.at(-1)!.label).toBe("New bus");
     expect(s.project.peek().buses.find((b) => b.name === "New bus")!.parent).toBe("Vehicles");
   });
 
@@ -103,7 +105,38 @@ describe("the Mixer session", () => {
     const s = f.session;
     expect(s.newFolder("States")).toBe("States/New folder");
     expect(s.project.peek().snapshotFolders).toEqual(["States/New folder"]);
-    expect(f.steps.at(-1)!.label).toBe("New folder · New folder");
+    expect(f.steps.at(-1)!.label).toBe("New folder");
+  });
+
+  it("names a new bus, return, VCA, snapshot or folder step by what it made, once", () => {
+    const f = make(mixerFixture());
+    const s = f.session;
+    expect(s.newReturn()).toBe("New return");
+    expect(s.newVca()).toBe("New VCA");
+    expect(s.newSnapshot("")).toBe("New snapshot");
+    expect(f.steps.map((x) => x.label).slice(-3)).toEqual(["New return", "New VCA", "New snapshot"]);
+  });
+
+  it("cancels a snapshot made just now (Escape on its first name): its step is undone, not followed by a delete", () => {
+    const f = make(mixerFixture());
+    const s = f.session;
+    const before = s.project.peek();
+    const name = s.newSnapshot("")!;
+    s.cancelNewSnapshot(name);
+    expect(s.project.peek()).toBe(before);
+    expect(f.steps.map((x) => x.label)).not.toContain("New snapshot");
+    expect(s.editing.peek()).toBeNull();
+  });
+
+  it("starts with nothing pinned to the live board, and a new bus isn't pinned by its name (J1.3, J8.1)", () => {
+    const value = signal(mixerFixture());
+    const s = createMixerSession({ doc: { value, readOnly: false, edit: (next) => void (value.value = next) }, confirm: async () => true, toast: () => {}, report: () => {} });
+    expect(s.pins.peek()).toEqual([]);
+    s.select("Master");
+    s.newBus();
+    s.rename("New bus", "Music 2");
+    expect(s.pins.peek()).toEqual([]);
+    s.dispose();
   });
 
   it("pins at most 8 and solo needs the runtime", () => {

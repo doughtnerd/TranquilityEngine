@@ -7,7 +7,7 @@
 // its fades in a popover, Remove), the rule that fired last lit. Entries no label plays are listed under them. A view
 // over props.
 import { useState } from "preact/hooks";
-import type { ChangeHow, Entry, PlaylistBody } from "../../../engine/audio/playlist/types";
+import type { ChangeHow, ChangeRule, Entry, PlaylistBody } from "../../../engine/audio/playlist/types";
 import type { PlaylistLint } from "../../../engine/audio/playlist/lint";
 import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
 import { defaultEntryUse } from "../../../engine/audio/playlist/format";
@@ -86,8 +86,8 @@ export function SwitchView(props: SwitchViewProps) {
     const cur = r.transition?.kind === "linked" ? r.transition.playlist : "";
     return [
       { kind: "group", label: "Transition clip" },
-      { id: "none", label: "— None", checked: !cur, disabled: !writable, run: () => onEdit("Change setting", (b) => setRule(b, rule, { transition: undefined })) },
-      ...props.playlists.map((p): MenuEntry => ({ id: p, label: playlistTitle(p), checked: p === cur, disabled: !writable, run: () => onEdit("Change setting", (b) => setRule(b, rule, { transition: { kind: "linked", playlist: p, ...defaultEntryUse() } })) })),
+      { id: "none", label: "— None", checked: !cur, disabled: !writable, run: () => onEdit(`Change rule ${rule + 1} transition clip`, (b) => setRule(b, rule, { transition: undefined })) },
+      ...props.playlists.map((p): MenuEntry => ({ id: p, label: playlistTitle(p), checked: p === cur, disabled: !writable, run: () => onEdit(`Change rule ${rule + 1} transition clip`, (b) => setRule(b, rule, { transition: { kind: "linked", playlist: p, ...defaultEntryUse() } })) })),
     ];
   };
 
@@ -153,14 +153,14 @@ export function SwitchView(props: SwitchViewProps) {
         </div>
         {s.rules.map((r, i) => {
           const lint = props.lints.filter((x) => x.where === `${props.rulePrefix}[${i}]` || x.where.startsWith(`${props.rulePrefix}[${i}].`));
-          const set = (patch: Partial<ChangeHow>, label = "Change setting") => onEdit(label, (b) => setRule(b, i, patch));
+          const set = (patch: Partial<ChangeRule>, label = `Change rule ${i + 1} fades`) => onEdit(label, (b) => setRule(b, i, patch));
           const tr = r.transition?.kind === "linked" ? r.transition.playlist : "";
           return (
             <div key={i} role="row" class={`pl-rrow${props.fired === i ? " hot" : ""}${lint.length ? " pl-has-lint" : ""}`}>
-              <SelectBox label={`Rule ${i + 1}: from`} value={r.from} disabled={!writable} options={sideOptions} onValue={(v) => onEdit("Change setting", (b) => setRule(b, i, { from: v }))} />
-              <SelectBox label={`Rule ${i + 1}: to`} value={r.to} disabled={!writable} options={sideOptions} onValue={(v) => onEdit("Change setting", (b) => setRule(b, i, { to: v }))} />
-              <SelectBox label={`Rule ${i + 1}: when`} value={r.when} disabled={!writable} options={WHEN} onValue={(v) => set({ when: v })} />
-              <SelectBox label={`Rule ${i + 1}: how`} value={r.how} disabled={!writable} options={HOW} onValue={(v) => set({ how: v })} />
+              <SelectBox label={`Rule ${i + 1}: from`} value={r.from} disabled={!writable} options={sideOptions} onValue={(v) => set({ from: v }, `Change rule ${i + 1} From`)} />
+              <SelectBox label={`Rule ${i + 1}: to`} value={r.to} disabled={!writable} options={sideOptions} onValue={(v) => set({ to: v }, `Change rule ${i + 1} To`)} />
+              <SelectBox label={`Rule ${i + 1}: when`} value={r.when} disabled={!writable} options={WHEN} onValue={(v) => set({ when: v }, `Change rule ${i + 1} When`)} />
+              <SelectBox label={`Rule ${i + 1}: how`} value={r.how} disabled={!writable} options={HOW} onValue={(v) => set({ how: v }, `Change rule ${i + 1} How`)} />
               <span class="pl-inline pl-fadecell">
                 {r.how === "transition" ? (
                   <button type="button" class="pl-small pl-menu-btn" aria-haspopup="menu" aria-expanded={transition?.rule === i} aria-label={`Rule ${i + 1}: transition clip`} title="Transition clip" disabled={!writable}
@@ -170,13 +170,13 @@ export function SwitchView(props: SwitchViewProps) {
                   </button>
                 ) : r.how === "crossfade" ? (
                   <>
-                    <NumberBox class="pl-n56" label={`Rule ${i + 1}: fade length`} value={lengthOf(r)} min={0} max={9999} step={unitOf(r) === "ms" ? 10 : 0.25} digits={unitOf(r) === "ms" ? 0 : 2} disabled={!writable} onValue={(v) => set({ length: changeLength(r, v) })} />
+                    <NumberBox class="pl-n56" label={`Rule ${i + 1}: fade length`} value={lengthOf(r)} min={0} max={9999} step={unitOf(r) === "ms" ? 10 : 0.25} digits={unitOf(r) === "ms" ? 0 : 2} disabled={!writable} onValue={(v) => set({ length: changeLength(r, v) }, `Change rule ${i + 1} fade length`)} />
                     <span class="pl-unit">{unitOf(r)}</span>
                   </>
                 ) : null}
                 <ChangeExtras change={r} writable={writable} playlists={props.playlists} name={`Rule ${i + 1}`} set={set} />
               </span>
-              <button type="button" class="pl-ib" aria-label={`Remove rule ${i + 1}`} title="Remove rule" disabled={!writable} onClick={() => onEdit("Remove rule", (b) => removeRule(b, i))}>
+              <button type="button" class="pl-ib" aria-label={`Remove rule ${i + 1}`} title="Remove rule" disabled={!writable} onClick={() => onEdit(`Remove rule ${i + 1}`, (b) => removeRule(b, i))}>
                 <Icon name="trash" size={12} />
               </button>
               {lint.map((l) => (

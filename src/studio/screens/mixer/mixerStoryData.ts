@@ -30,6 +30,8 @@ export interface FakeOptions {
 export function fakeMixer(project: AudioProject, options: FakeOptions = {}): FakeMixer {
   const value = signal(project);
   const steps: { label: string; coalesce: boolean }[] = [];
+  const past: AudioProject[] = [];
+  const undoLabel = signal<string | null>(null);
   const reports: string[] = [];
   const toasts: { text: string; undo?: () => void }[] = [];
   const applied: MixOp[] = [];
@@ -41,8 +43,18 @@ export function fakeMixer(project: AudioProject, options: FakeOptions = {}): Fak
       readOnly: options.readOnly ?? false,
       edit(next, o) {
         steps.push({ label: o?.label ?? "Edit", coalesce: !!o?.coalesce });
+        past.push(value.peek());
         value.value = next;
+        undoLabel.value = steps.at(-1)!.label;
       },
+      undo() {
+        const was = past.pop();
+        if (!was) return;
+        steps.pop();
+        value.value = was;
+        undoLabel.value = steps.at(-1)?.label ?? null;
+      },
+      undoLabel,
     },
     path: "audio.json",
     confirm: async () => answer,

@@ -188,8 +188,11 @@ export function togglePin(pins: readonly string[], name: string): string[] | nul
   return [...pins, name];
 }
 
-/** The default pins (the prototype's), kept to those the mix has. */
-export const DEFAULT_PINS: readonly string[] = ["Music", "Dialogue", "SFX", "Ambience"];
+/**
+ * The pins a project starts with: none. Pinning is the user's choice (J1.3: a new project showed "2/8 pinned", and a bus
+ * named like one of the prototype's pins was pinned the moment it was made).
+ */
+export const DEFAULT_PINS: readonly string[] = [];
 
 // --- the curve editor's lanes --------------------------------------------------------------------------------------------
 

@@ -32,6 +32,8 @@ export interface TreeRename {
   readonly selectTo?: number;
   /** The text as typed when Enter or blur ends it (the adapter compares it with the old name). */
   commit(value: string): void;
+  /** Escape ended it without a change (a row made just now can take itself away). */
+  cancel?(): void;
 }
 
 /** One row of a tree and its edits, from an adapter. */
@@ -259,7 +261,10 @@ export function TreeView(props: TreeViewProps) {
                 endRename();
                 row.rename!.commit(value);
               }}
-              onCancel={endRename}
+              onCancel={() => {
+                endRename();
+                row.rename!.cancel?.();
+              }}
               onKeyboardEnd={() => elements.get(row.key)?.focus()}
             />
           ) : (

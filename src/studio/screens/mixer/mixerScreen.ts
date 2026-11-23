@@ -25,6 +25,9 @@ export interface MixDocument {
    * so a change the session didn't make is told apart as an undo or a redo. Absent (a story): such changes are edits.
    */
   readonly history?: { readonly current: number; readonly states: readonly unknown[] };
+  /** Undo the last step, and its name (absent: a story without a history; a new snapshot is then deleted instead). */
+  undo?(): void;
+  readonly undoLabel?: ReadonlySignal<string | null>;
 }
 
 /** Where the session reaches the world: confirm dialogs, toasts, the status bar, other files, the runtime. */
@@ -89,12 +92,18 @@ export interface MixerSession {
   /** Apply an edit as one undo step (`coalesce` for drags); a refusal goes to the status bar. Returns whether it applied. */
   commit(result: EditResult<AudioProject>, label: string, coalesce?: boolean): boolean;
   refuse(label: string, reason: string): void;
-  newBus(): void;
-  newReturn(): void;
-  newVca(): void;
+  /** A new bus inside the selected one (selected after); its name, or null when refused. */
+  newBus(): string | null;
+  newReturn(): string | null;
+  newVca(): string | null;
   rename(from: string, to: string): Promise<boolean>;
   remove(name: string): Promise<boolean>;
   newSnapshot(folder: string): string | null;
+  /**
+   * Escape while a just-made snapshot's name is typed: it never happened (its "New snapshot" step is undone; without a
+   * history it's deleted).
+   */
+  cancelNewSnapshot(name: string): void;
   /** A new empty snapshot folder under `parent` ("New folder"); its path, or null when refused. */
   newFolder(parent: string): string | null;
   removeSnapshot(name: string): void;
@@ -218,18 +227,24 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
     refuse,
     newBus() {
       const r = addBus(project.peek(), selected.peek());
-      if ("refused" in r) return refuse("New bus", r.refused);
-      if (commit({ next: r.next.project }, labelOn("New bus", r.next.name))) chosen.value = r.next.name;
+      if ("refused" in r) return refuse("New bus", r.refused), null;
+      if (!commit({ next: r.next.project }, "New bus")) return null;
+      chosen.value = r.next.name;
+      return r.next.name;
     },
     newReturn() {
       const r = addReturn(project.peek());
-      if ("refused" in r) return refuse("New return", r.refused);
-      if (commit({ next: r.next.project }, labelOn("New return", r.next.name))) chosen.value = r.next.name;
+      if ("refused" in r) return refuse("New return", r.refused), null;
+      if (!commit({ next: r.next.project }, "New return")) return null;
+      chosen.value = r.next.name;
+      return r.next.name;
     },
     newVca() {
       const r = addVca(project.peek());
-      if ("refused" in r) return refuse("New VCA", r.refused);
-      if (commit({ next: r.next.project }, labelOn("New VCA", r.next.name))) chosen.value = r.next.name;
+      if ("refused" in r) return refuse("New VCA", r.refused), null;
+      if (!commit({ next: r.next.project }, "New VCA")) return null;
+      chosen.value = r.next.name;
+      return r.next.name;
     },
     async rename(from, to) {
       const label = labelOn("Rename", from);
@@ -273,14 +288,22 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
     newSnapshot(folder) {
       const r = newSnapshot(project.peek(), folder);
       if ("refused" in r) return refuse("New snapshot", r.refused), null;
-      if (!commit({ next: r.next.project }, labelOn("New snapshot", r.next.name))) return null;
+      if (!commit({ next: r.next.project }, "New snapshot")) return null;
       editing.value = r.next.name;
       return r.next.name;
+    },
+    cancelNewSnapshot(name) {
+      if (!project.peek().snapshots.some((s) => s.name === name)) return;
+      if (doc.undo && doc.undoLabel?.peek() === "New snapshot") {
+        doc.undo();
+        return;
+      }
+      commit(deleteSnapshot(project.peek(), name), labelOn("Delete snapshot", name));
     },
     newFolder(parent) {
       const r = addFolder(project.peek(), parent);
       if ("refused" in r) return refuse("New folder", r.refused), null;
-      return commit({ next: r.next.project }, labelOn("New folder", r.next.path.slice(r.next.path.lastIndexOf("/") + 1))) ? r.next.path : null;
+      return commit({ next: r.next.project }, "New folder") ? r.next.path : null;
     },
     removeSnapshot(name) {
       const label = labelOn("Delete snapshot", name);
