@@ -3,6 +3,7 @@
 // records the plugin with each entry and remembers every registration so deactivating the plugin removes them all.
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
+import type { PluginsView } from "../../plugins/pluginSet";
 import { assetActions, assetKinds, componentHeaderActions, componentNotes, componentWireframes, fieldChoices, hierarchyCreateEntries, idlePrefetches, nameReferences, panelExtensions, panels, playStatsCounters, playToolbarItems, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, viewportTools } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import { componentEditToggle } from "../componentEditToggle";
@@ -90,7 +91,10 @@ const CONTRIBUTION_POINTS = {
 type ContextOf<P> = { [K in keyof P]: P[K] extends ContributionPoint<infer F> ? F : never };
 
 /** What a plugin's editor half registers through: one `register…` method per contribution point (ADR 0284). */
-export interface EditorPluginContext extends ContextOf<typeof CONTRIBUTION_POINTS> {}
+export interface EditorPluginContext extends ContextOf<typeof CONTRIBUTION_POINTS> {
+  /** The other plugins, as this one sees them (ADR 0374): `plugins.isActive(name)` is read at activation, for optional dependencies. */
+  readonly plugins: PluginsView;
+}
 
 /** A plugin's editor half. */
 export interface EditorPlugin {
@@ -101,13 +105,13 @@ export interface EditorPlugin {
 const active = new Map<string, Array<() => void>>();
 
 /** Activate one editor half (its dependencies must be active); nothing happens when it already is. A half that throws is rolled back and the error rethrown. */
-export function activatePlugin(plugin: EditorPlugin): void {
+export function activatePlugin(plugin: EditorPlugin, plugins: PluginsView = { isActive: (name) => active.has(name) }): void {
   const name = plugin.manifest.name;
   if (active.has(name)) return;
   const undo: Array<() => void> = [];
   active.set(name, undo);
   const owner: ContributionOwner = { plugin: name, pluginTitle: plugin.manifest.title ?? name };
-  const context = {} as Record<string, (...args: never[]) => void>;
+  const context = { plugins } as unknown as Record<string, (...args: never[]) => void>;
   for (const [method, point] of Object.entries(CONTRIBUTION_POINTS) as [string, ContributionPoint<(...args: never[]) => void>][]) {
     context[method] = (...args) => void undo.push(...point.add(owner, ...args));
   }

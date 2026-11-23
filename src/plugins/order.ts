@@ -16,6 +16,11 @@ export function orderPlugins<P extends { manifest: PluginManifest }>(plugins: re
     if (state.get(name) === "done") return;
     if (state.get(name) === "visiting") throw new Error(`Plugin dependency cycle: ${[...chain, name].join(" → ")}.`);
     state.set(name, "visiting");
+    // An optional dependency (ADR 0374) orders like a dependency when it is in the list, and is ignored when it isn't.
+    for (const dep of Object.keys(p.manifest.optionalDependencies ?? {})) {
+      const d = byName.get(dep);
+      if (d) visit(d, [...chain, name]);
+    }
     for (const dep of Object.keys(p.manifest.dependencies ?? {})) {
       const d = byName.get(dep);
       if (!d && provided.has(dep)) continue;

@@ -109,7 +109,7 @@ describe("plugin import direction", () => {
   it("keeps the editor core free of plugins' code: it reaches them through contribution points (ADR 0146; only main.tsx loads them, through editorBoot.ts)", () => {
     // The plugin host modules directly under src/plugins/ (manifests, ordering, enabling, the runtime list, third-party
     // loading) are the plugin system itself, which the shell drives; every file in a plugin's folder is off limits.
-    const HOST = new Set(["manifest", "order", "enabled", "runtime", "runtimeContext", "thirdParty", "thirdPartyEditor", "pluginSet", "editorPlugins", "editorActivator"]);
+    const HOST = new Set(["manifest", "order", "enabled", "runtime", "runtimeContext", "thirdParty", "thirdPartyEditor", "pluginSet", "editorPlugins", "editorActivator", "pluginNotices", "semver"]);
     const bad: string[] = [];
     for (const f of files(join(SRC, "editor"))) {
       if (/\.test\.tsx?$/.test(f)) continue;

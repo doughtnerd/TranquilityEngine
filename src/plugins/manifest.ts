@@ -9,6 +9,12 @@ export interface PluginManifest {
   readonly description?: string;
   /** Plugin names this one needs, with version ranges (first-party plugins: the engine's version). */
   readonly dependencies?: Readonly<Record<string, string>>;
+  /**
+   * Plugins this one works with when they are on, with version ranges (ADR 0374). Same shape as `dependencies`, but a
+   * missing, disabled, failed or out-of-range one never blocks the plugin: it activates without it, and reads
+   * `ctx.plugins.isActive(name)` to register its integration code. When one comes or goes the plugin activates again.
+   */
+  readonly optionalDependencies?: Readonly<Record<string, string>>;
   /** False for a runtime half the dedicated server skips (drawing only). Default true. */
   readonly server?: boolean;
 }
