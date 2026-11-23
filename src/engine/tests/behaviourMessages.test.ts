@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { NamedMessage } from "../core/Component";
 import { Assets, BoxCollider2D, CircleCollider2D, Engine, GameBehavior, GameObject, RigidBody2D, SceneManager, type Collision2D, type Component } from "../../myco";
 
 // ADR 0303: the World delivers behaviour messages (physics hooks) with lifecycle hooks' rules.
@@ -130,5 +131,53 @@ describe("World._sendMessage (ADR 0303)", () => {
     w._sendMessage([a], "onTriggerEnter", r);
     await flush();
     expect(error.mock.calls.map((c) => String(c[0]))).toEqual(["[myco] Rejecter.onTriggerEnter rejected:"]);
+  });
+});
+
+class Notified extends GameBehavior {
+  label = "";
+  footstep(side: string) { heard.push(`${this.label}:${side}`); }
+  async swing(_e: unknown) {
+    await Promise.resolve();
+    throw new Error("async boom");
+  }
+}
+
+describe("World._sendMessage with a named method (ADR 0372's notifies)", () => {
+  async function world() {
+    heard.length = 0;
+    const engine = await Engine.create({ headless: true });
+    engines.push(engine);
+    return engine.world;
+  }
+
+  it("calls the named method on each active behaviour that defines it, each node once, skipping edited scenes", async () => {
+    const w = await world();
+    const a = GameObject.create("a");
+    a.addBehavior(Notified, { label: "a" });
+    a.addBehavior(Listener, { label: "no method" });
+    const edited = GameObject.create("edited");
+    edited.addBehavior(Notified, { label: "edited" });
+    w.setEditMode(edited.entity, true);
+    w._sendMessage([a, a, edited], NamedMessage.of("footstep")!, "L");
+    expect(heard).toEqual(["a:L"]);
+  });
+
+  it("logs a named method whose Promise rejects with the behaviour's name", async () => {
+    const w = await world();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const a = GameObject.create("a");
+    a.addBehavior(Notified);
+    w._sendMessage([a], NamedMessage.of("swing")!, {});
+    await flush();
+    expect(error.mock.calls.map((c) => String(c[0]))).toEqual(["[myco] Notified.swing rejected:"]);
+  });
+
+  it("refuses lifecycle hook names and the base classes' members, so data can't fake a hook", () => {
+    for (const name of ["update", "start", "onDestroy", "onCollisionEnter", "onTriggerEnter", "enabled", "wait", "node", "transform", "constructor", "toString", ""]) {
+      expect(NamedMessage.of(name)).toBeNull();
+    }
+    expect(NamedMessage.of("footstep")?.method).toBe("footstep");
+    expect(NamedMessage.of("footstep")).toBe(NamedMessage.of("footstep"));
   });
 });

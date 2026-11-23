@@ -264,6 +264,21 @@ export class AnimationCore {
     return written === out.length ? out : out.subarray(0, written);
   }
 
+  /**
+   * A copy of a clip's or graph's file bytes as the core holds them (the container's length word sizes it), or null for
+   * a handle without bytes. The host reads a clip's track table from it (`features/properties/clipData.ts`), so clips
+   * loaded any way (a file, an import made in memory) bind the same.
+   */
+  assetBytes(handle: number): Uint8Array | null {
+    const at = this.wasm.asset_bytes_ptr(handle);
+    if (at === 0) return null;
+    const buffer = this.memory();
+    if (at + 32 > buffer.byteLength) return null;
+    const length = new DataView(buffer).getUint32(at + 16, true);
+    if (length < 32 || at + length > buffer.byteLength) return null;
+    return new Uint8Array(buffer, at, length).slice();
+  }
+
   /** The IK goals of a retarget map. */
   retargetGoalCount(map: number): number {
     return this.wasm.retarget_goal_count(map);

@@ -1,5 +1,6 @@
-// Registration seam: properties (T20t). Registers the binding table that scatters property-track outputs into ECS columns.
-// `activate()` (`../../index.ts`) calls it once per activation; empty until T20t.
+// Registration seam: properties (T20t). The binding tables are built lazily per Animator and clip by `animation.Apply`
+// (`scatter.ts`, `bindings.ts`) and need nothing registered at activation; the seam stays for later property features.
+// `activate()` (`../../index.ts`) calls it once per activation.
 import type { RuntimePluginContext } from "../../../../runtimeContext";
 import type { AnimationIntegrations } from "../../registration";
 
