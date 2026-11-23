@@ -247,7 +247,9 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     ...(linked.assetRefs.length > 0 && { assetRefs: linked.assetRefs }),
     ...(debugLink && {
       debug: {
-        link: debugLink,
+        // A listen-only build (listening flags, no --debug-link) writes no link, so it doesn't also dial the default
+        // address every few seconds (the player connects out only when a link, an override or a code is given).
+        ...((options.debugLink !== undefined || !listening) && { link: debugLink }),
         ...(options.debugListen === true && { listen: true }),
         ...(options.debugLan === true && { lan: true }),
         ...(options.debugPort !== undefined && { port: options.debugPort }),

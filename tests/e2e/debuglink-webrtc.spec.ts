@@ -1,6 +1,6 @@
 import { expect, test, openEditor } from "./fixtures";
 import { exportAndServe, stopServed, type Served } from "./audioExport";
-import { startRoomFront, type RoomFront } from "./debugLinkRoomFront";
+import { createServer } from "node:net";
 
 // Room codes over WebRTC in real browsers (ADR 0380 "Pairing code", 0381; plan task R6). Page A is a debug web export of
 // samples/flappy that listens (`--debug-listen`): a page can't listen, so it opens a rendezvous room on its own origin and shows the
@@ -22,11 +22,9 @@ test.describe.configure({ timeout: 240_000 });
 
 test.describe("room codes over WebRTC in real browsers", { tag: "@slow" }, () => {
   let served: Served | undefined;
-  let front: RoomFront | undefined;
-  test.afterEach(async () => {
-    await front?.close();
+  test.afterEach(() => {
     stopServed(served);
-    front = served = undefined;
+    served = undefined;
   });
 
   test("a browser editor connects to a debug web export by its room code; a wrong code is refused", async ({ page: game, context, browserName }) => {
@@ -34,9 +32,9 @@ test.describe("room codes over WebRTC in real browsers", { tag: "@slow" }, () =>
     const errors: string[] = [];
     game.on("pageerror", (err) => errors.push(err.message));
 
-    served = await exportAndServe("flappy", ["--debug-listen"]);
-    front = await startRoomFront(served.url);
-    await game.goto(front.url);
+    // The export's own serve.mjs hosts the rendezvous at /myco-rendezvous (R4), on a port a room code can name (0381).
+    served = await exportAndServe("flappy", ["--debug-listen"], await freeRoomPort());
+    await game.goto(served.url);
 
     // Page A shows a room code and says it pairs only with tools on this machine (it was opened from localhost).
     const overlay = game.getByText(/Debug pairing code: [0-9A-Z]{5}-[0-9A-Z]{5}/i);
@@ -79,3 +77,16 @@ test.describe("room codes over WebRTC in real browsers", { tag: "@slow" }, () =>
     expect(errors).toEqual([]);
   });
 });
+
+/** The first free port of 7790..7799, the native range a room code can name (`RENDEZVOUS_PORTS`, ADR 0381). */
+async function freeRoomPort(): Promise<number> {
+  for (let port = 7790; port <= 7799; port++) {
+    const free = await new Promise<boolean>((resolve) => {
+      const probe = createServer();
+      probe.once("error", () => resolve(false));
+      probe.listen(port, "127.0.0.1", () => probe.close(() => resolve(true)));
+    });
+    if (free) return port;
+  }
+  throw new Error("no port of 7790..7799 is free for the export's rendezvous");
+}

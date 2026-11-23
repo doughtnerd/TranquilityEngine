@@ -294,7 +294,7 @@ describe("a debug web build hosts the rendezvous (ADR 0380 'Rendezvous' 2 and 3)
 
   it("--debug-rendezvous implies debugging on and is written as debug.rendezvous; a bad address is refused", async () => {
     const plan = await planWebBuild(source(), { debugRendezvous: "wss://rdv.example.com/myco-rendezvous" });
-    expect(plan.manifest.debug).toEqual({ link: "ws://localhost:7790/myco-debug", rendezvous: "wss://rdv.example.com/myco-rendezvous" });
+    expect(plan.manifest.debug).toEqual({ rendezvous: "wss://rdv.example.com/myco-rendezvous" });
     await expect(planWebBuild(source(), { debugRendezvous: "https://x" })).rejects.toThrow(/ws:\/\/ or wss:\/\/ URL/);
     await expect(planWebBuild(source(), { debugRendezvous: "nope" })).rejects.toThrow(/ws:\/\/ or wss:\/\/ URL/);
   });
@@ -316,11 +316,11 @@ describe("the debug link's listening flags (ADR 0380)", () => {
     expect(USAGE).toMatch(/--debug-listen[\s\S]*--debug-code[\s\S]*--debug-lan[\s\S]*--debug-port/);
   });
 
-  it("game.json gets debug.listen, debug.lan and debug.port, with the default link when no address is given", async () => {
+  it("game.json gets debug.listen, debug.lan and debug.port; a listen-only build writes no link (it would dial the default address)", async () => {
     const debug = async (o: object) => JSON.parse((await planWebBuild(source(), o)).generated.get("game.json")!).debug;
-    expect(await debug({ debugListen: true })).toEqual({ link: "ws://localhost:7790/myco-debug", listen: true });
-    expect(await debug({ debugListen: true, debugLan: true, debugPort: 7800 })).toEqual({ link: "ws://localhost:7790/myco-debug", listen: true, lan: true, port: 7800 });
-    expect(await debug({ debugLan: true })).toEqual({ link: "ws://localhost:7790/myco-debug", lan: true });
+    expect(await debug({ debugListen: true })).toEqual({ listen: true });
+    expect(await debug({ debugListen: true, debugLan: true, debugPort: 7800 })).toEqual({ listen: true, lan: true, port: 7800 });
+    expect(await debug({ debugLan: true })).toEqual({ lan: true });
     expect(await debug({ debugLink: "192.168.1.4:7790", debugListen: true })).toEqual({ link: "ws://192.168.1.4:7790/myco-debug", listen: true });
     expect(await debug({})).toBeUndefined();
     await expect(planWebBuild(source(), { debugPort: 70000 })).rejects.toThrow(/debug port/);
