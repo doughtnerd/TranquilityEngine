@@ -6,7 +6,7 @@ Every brief in this build points here. Read it, then `CLAUDE.md`, then the recor
 
 - **The records are the requirements.** The owner decided:
   - a Rust/wasm `simd128` core with no TypeScript evaluator;
-  - everything in 0350–0356 gets built, plus 0357 after the audio merge;
+  - everything in 0350–0356 gets built (0357, the BioPak rename, is withdrawn);
   - every TypeScript part with behaviour, data or systems is built on the ECS (`@component` classes, data components, buffers, built-in systems through the plugin runtime context);
   - one skinning model (KSL, two backends);
   - computed parameters, not script functions inside transitions;

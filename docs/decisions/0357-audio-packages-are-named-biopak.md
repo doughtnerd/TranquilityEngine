@@ -1,6 +1,6 @@
 # 0357. Audio packages are named BioPak
 
-- **Status:** Accepted
+- **Status:** Withdrawn (owner, 2026-11-23: the package name needs more thought; nothing was built). Audio keeps `.mycopak` as audio 0337 defines it.
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

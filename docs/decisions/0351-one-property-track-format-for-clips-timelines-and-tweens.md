@@ -149,7 +149,7 @@ We will use **one track model** for everything that changes over time. A clip, a
 
 ## Open questions
 
-- **Loadable packages:** BioPaks are audio-only (0357). A package of mixed assets (clips, skeletons, pose databases, models) gets a different name and convention in its own record, after this build. Until then clips and pose databases load as individual assets.
+- **Loadable packages:** audio's packages stay audio-only (0357, which would have renamed them, is withdrawn). A package of mixed assets (clips, skeletons, pose databases, models) gets a different name and convention in its own record, after this build. Until then clips and pose databases load as individual assets.
 
 ## References
 

@@ -25,7 +25,6 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - 0334 (takes), 0329 (playlists) and 0336 are partly done;
   - **0337 (packages) and 0338 (third-party effects) are not started.**
   
-  So BioPak (T74) waits for 0337 to be built, not only for the merge.
 - **Facts the Phase B tasks depend on:**
   - `World._sendMessage` takes only lifecycle hook names (`Component.ts:185`), so animation events must widen it (T20t).
   - `propagateTransforms` is private to `World` (`World.ts:824`), so BoneAttachment needs an internal hook (T17).
@@ -46,14 +45,12 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - Particle shaders stay byte-identical through T15.
 - **Migrations:**
   - **BallJoint `swingLimit` → `swing`** (T43), a component field migration with a test on a saved scene;
-  - **the BioPak rename** (T74);
   - **moving `editResult.ts` and `parameterList.ts` into the editor SDK** (T07), with every audio import updated in the same commit.
 - **Budgets are tripwires** (CLAUDE.md, 0350): the wasm size gate, per-frame budgets and pose-database size. They are never acceptance criteria or gates. Agents report a reason when one is passed, and the coordinator copies it into the build log.
 
 ## Gates
 
 - **A:** the audio branch merged into master, then master into this branch. Phase B starts with B0, a coordinator reconciliation that re-checks this plan's file list against the merged tree.
-- **A+0337:** audio 0337 built (for T74).
 
 ## Phase R: the Rust core (now)
 
@@ -191,7 +188,6 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
 | T72 | **Musical timing** (see below) | M | 1.5 | T04, T32 |
 | T73 | **Takes** (see below) | S | 2.5 | T32, T52 |
 | T70 | **`myco-curve` and the Bézier evaluator** (see below) | S | 2 | B0, T20t, T22t |
-| T74 | **BioPak rename (0357)** (see below) | M | 1 | A+0337 |
 | T80 | **User guide** (see below) | M | 1.5 | all |
 | T81 | **e2e specs** (see below) | Coordinator | 2 | all |
 | T82 | **Benches through the shipped player** (see below) | M | 1 | all |
@@ -326,7 +322,6 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - `native/common/curve/` is moved out of `audio-core/src/automation.rs`, and audio depends on it, with a parity test against `core/curve.ts`;
   - animation source value curves, tween custom easing and runtime curve tracks use it;
   - **the coordinator rebuilds and commits audio's wasm, hash and metered wasm** and logs any audio gate change.
-- **T74, BioPak rename (0357):** `.biopak`, `BIOPAK01`, `myco.biopak@1`; refusal of `MYCOPAK1`; mark audio 0337 "amended by 0357".
 - **T80, user guide:** `docs/guide/animation.md`; glossary.
 - **T81, e2e specs:** animation smoke (capture-based); editor flows; cold-loaded exported build; WebKit.
 - **T82, benches through the shipped player:** benches through the shipped player; size gate review; logged as tripwires.
@@ -342,7 +337,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
 | B1 | Skeletal playback in the engine | B0, T04, T05, T07, T15, T01, T03t, T13t, T14, T19, T16, T17 | Drop a skinned `.glb` in the editor, press Play: it animates with shadows. The same in an exported web build opened cold. `samples/playground3d` still renders; particle shaders byte-identical |
 | B2 | Tracks, sprites, tweens, timelines, graph | T20t, T18, T21, T22t, T24, T30, T32, T33, T34 | Clip keys a light and a material; a flipbook plays; `await tween`; a timeline drives two nodes; a graph with a blend space, request and slot runs; a two-World client matches |
 | B3 | Procedural and physics | T40t–T42t, T43, T44, T45t | Foot IK, look-at, spring bones; retarget between two skeletons; matching on a small database; a powered ragdoll falls and gets up; a sample third-party node runs under fuel |
-| B4 | Editor, debug link, audio integration | T50–T56, T60, T72, T73, T70, (T74) | The M5 author-and-debug flows in the editor; a build with `--debug-link` inspected live; Bézier curve lanes; a play on the next bar; a take replays animation |
+| B4 | Editor, debug link, audio integration | T50–T56, T60, T72, T73, T70 | The M5 author-and-debug flows in the editor; a build with `--debug-link` inspected live; Bézier curve lanes; a play on the next bar; a take replays animation |
 | B5 | Finish | T80–T82 | Guide, status rows, e2e green, benches logged |
 
 **Every B milestone's exit includes the shipped-form smoke:** an exported web build, served with `node serve.mjs` and opened cold.
@@ -380,7 +375,7 @@ At most four agents, at most two building Rust. No agent runs Playwright or Stor
 | B-W9 | T50, T51, T56 | — |
 | B-W10 | T52, T53, T54, T55 | — |
 | B-W11 | T60, T70, T72, T73 | T70 |
-| B-W12 | T74 (if 0337 is built), T80, T82 | — |
+| B-W12 | T80, T82 | — |
 | B-W13 | T81 and the shipped smoke | — |
 
 ## Critical path (estimates)
@@ -481,7 +476,7 @@ An independent review of revision 1 found 50 items. They are answered by:
   - 0354 items (4.11);
   - 0355 springs and profile joint ranges (4.12);
   - 0351 warnings, rewriting and shared 2D skeletons (4.13);
-  - T74 gated on 0337 (4.14).
+  - T74 (BioPak) later dropped: 0357 withdrawn by the owner (2026-11-23).
 - **Facts:** the audio and master state (5.2, 5.4), `_sendMessage` (5.5), the profiler (5.6), the critical path recomputed (5.7), and the inconsistencies (5.8, 5.9).
 - **Cadence:**
   - status rows at each wave (6.1);

@@ -367,7 +367,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0354](decisions/0354-plugins-can-name-optional-dependencies.md) | Plugin manifests gain `optionalDependencies`: ordered like dependencies when present, never blocking when absent, failed or out of range; `ctx.plugins.isActive(name)`; toggling one re-activates its dependents (amends 0133) | Accepted |
 | [0355](decisions/0355-ball-joints-gain-swing-twist-limits-and-a-rotation-drive-and-ragdolls-are-their-own-plugin.md) | `BallJoint` gains swing and twist limits and a target-rotation drive in the physics plugin and its Rapier backend; ragdolls (component, systems, builder, get-up) are a separate `myco.ragdoll` plugin depending on physics and animation (amends 0305) | Accepted |
 | [0356](decisions/0356-a-debug-link-connects-running-builds-to-the-editor-and-the-studio.md) | A debug link connects running builds to the editor and the Studio: its own protocol and session on the engine transports (WebSocket locally and on the LAN, WebRTC for remote devices), plugin-owned topics with pulled subscriptions, take-record encoding, off in release exports | Accepted |
-| [0357](decisions/0357-audio-packages-are-named-biopak.md) | Audio's loadable packages are named BioPak (`.biopak`, `BIOPAK01`, `myco.biopak@1`), audio only; a mixed-asset package gets a different name in a later record (amends audio 0337) | Accepted |
+| [0357](decisions/0357-audio-packages-are-named-biopak.md) | Audio's loadable packages are named BioPak (`.biopak`, `BIOPAK01`, `myco.biopak@1`), audio only; a mixed-asset package gets a different name in a later record (amends audio 0337) | Withdrawn |
 
 ## Working with decisions
 
