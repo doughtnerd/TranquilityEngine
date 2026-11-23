@@ -1,6 +1,6 @@
 # 0372. Animation graphs, state machines, rigs, retargeting, motion matching and physical animation are driven through ECS components, a typed blackboard and a code-first Animator API
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0378 (`travel()` promise, `section` ranges, crossfade musical timing, four layer weights, no `AnimationEvent.weight`)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

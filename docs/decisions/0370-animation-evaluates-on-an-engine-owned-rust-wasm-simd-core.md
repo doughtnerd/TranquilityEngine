@@ -1,6 +1,6 @@
 # 0370. Animation is a first-party plugin whose evaluation runs on an engine-owned Rust/WebAssembly SIMD core
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0378 (plugin.json `animationNodes`; Engine frame hooks)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
