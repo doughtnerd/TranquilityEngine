@@ -25,6 +25,7 @@ import {
   TRACK_STRIDE,
 } from "../wasm/wire/core";
 import { BLACKBOARD_STRIDE, GRAPH_CHANGE } from "../wasm/wire/graph";
+import { RAY_ROW_STRIDE, RIG_INPUT_STRIDE } from "../wasm/wire/rig";
 import { TIMELINE_BLOCK, TIMELINE_CHANGE, TIMELINE_CONTROL, TIMELINE_CREATE, TIMELINE_INFO } from "../wasm/wire/timeline";
 import { TWEEN_CHANGE, TWEEN_CONTROL, TWEEN_CREATE } from "../wasm/wire/tween";
 import type * as AnimWasm from "../wasm/myco_anim.js";
@@ -86,6 +87,10 @@ export interface AnimationViews {
   readonly roots: Float32Array;
   /** Track regions, `TRACK_STRIDE` bytes per instance index (`TRACK_*` offsets, the `tracks` family's records). */
   readonly tracks: DataView;
+  /** Rig input rows (T40t), `RIG_INPUT_STRIDE` bytes per instance index (`rig` family: character, rig LOD, IK target slots, ray hits). */
+  readonly rigInputs: DataView;
+  /** Grounder ray requests (T40t), `RAY_ROW_STRIDE` bytes per instance index (`rig` family), written by the last evaluate. */
+  readonly rays: DataView;
 }
 
 /** @internal Counts for the profiler and the debug views. */
@@ -503,6 +508,8 @@ export class AnimationCore {
       matrices: new Float32Array(buffer, w.matrices_ptr(), n * this.limits.maxBones * MATRIX_FLOATS),
       roots: new Float32Array(buffer, w.roots_ptr(), (n * ROOT_STRIDE) / 4),
       tracks: new DataView(buffer, w.tracks_ptr(), n * TRACK_STRIDE),
+      rigInputs: new DataView(buffer, w.rig_inputs_ptr(), n * RIG_INPUT_STRIDE),
+      rays: new DataView(buffer, w.rig_rays_ptr(), n * RAY_ROW_STRIDE),
     };
     return this.cached;
   }

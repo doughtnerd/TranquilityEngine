@@ -7,10 +7,20 @@
 //
 // The host keeps the compile's tables (`GraphMeta`): parameter indices and kinds, request names, state machines with
 // their states and the layer each runs in, slots, linked-graph slots and layers, so the API names everything by name
-// and the core only sees indices.
+// and the core only sees indices. T40t–T42t add the rig's motion-warp windows (the compile's `ikTargets` and `rays`
+// are in `compiled`), the parameters motion matching reads from the host, and the RETARGET nodes.
+//
+// Procedural bindings (T41t, T42t): a RETARGET node's map is made for the rig the graph loads for
+// (`../retarget/maps.ts`: the map reference and the Skeleton's `retargetSource` name the source side), and its source
+// graph is compiled and loaded for that map's source skeleton, not the target's. Pose databases load their baked
+// `*.posedb.bin` with their clips bound (`../matching/posedb.ts`).
 import { parseAnimGraph, type AnimGraph, type Condition, type GraphNode, type GraphParamType } from "../../../../../engine/animation/animGraph";
 import { compileAnimGraph, type CompiledAnimGraph } from "../../../../../engine/animation/graphCompile";
 import type { AnimationWorldCore } from "../../core/AnimationWorldCore";
+import { matchingInputs, type MatchingInputs } from "../matching/inputs";
+import { acquirePoseDatabase } from "../matching/posedb";
+import { acquireRetargetMap, retargetNodes, type RetargetBinding } from "../retarget/maps";
+import { warpWindows } from "../warp/windows";
 import { readJsonAsset } from "./jsonAsset";
 import { acquireMask, type MaskRig } from "./masks";
 
@@ -45,6 +55,12 @@ export interface GraphMeta {
   readonly layerWeights: readonly number[];
   /** Linked-graph slot index → its default graph's project path ("": none). */
   readonly linkedDefaults: readonly string[];
+  /** Motion-warp window name → its `motionWarp` node index (T40t, `../warp/windows.ts`). */
+  readonly warps: ReadonlyMap<string, number>;
+  /** The parameters the graph's pose-database nodes read from the host (T42t), or null without such nodes. */
+  readonly matching: MatchingInputs | null;
+  /** The RETARGET nodes' map and source-graph project paths (T41t). */
+  readonly retargets: readonly { readonly map: string; readonly source: string }[];
 }
 
 /** @internal A graph loaded into one World's core for one skeleton, with what it bound. */
@@ -62,8 +78,11 @@ export interface LoadedGraph {
   refs: number;
 }
 
-/** @internal The rig a graph is loaded for: none (a zero-bone instance, D109) or a Skeleton's. */
-export type GraphRig = MaskRig | null;
+/**
+ * @internal The rig a graph is loaded for: none (a zero-bone instance, D109) or a Skeleton's, with its
+ * `retargetSource` (T41t; absent or "" for none).
+ */
+export type GraphRig = (MaskRig & { readonly retargetSource?: string }) | null;
 
 /** Linked graphs nested deeper than this are refused (a cycle of links). */
 const MAX_DEPTH = 4;
@@ -215,7 +234,10 @@ function metaOf(g: AnimGraph, compiled: CompiledAnimGraph): GraphMeta {
     const n = g.nodes.find((x) => x.kind === "linked" && (x.linked?.name || x.id) === name);
     return n?.linked?.graph ? stripRef(n.linked.graph) : "";
   });
-  return { compiled, params, paramTypes, requests, machines, layerMachines, layerWeights, linkedDefaults };
+  return {
+    compiled, params, paramTypes, requests, machines, layerMachines, layerWeights, linkedDefaults,
+    warps: warpWindows(g, compiled.nodes), matching: matchingInputs(g, compiled.parameters), retargets: retargetNodes(g),
+  };
 }
 
 // ------------------------------------------------------------------------------------------------ compile cache
@@ -255,8 +277,28 @@ async function readSource(path: string): Promise<{ value: unknown } | null> {
   }
 }
 
+/** The RETARGET nodes' maps for `rig` (T41t), by map path: made before the bindings, as their source graphs compile for them. */
+async function retargetMaps(ns: AnimationWorldCore, meta: GraphMeta, rig: GraphRig, held: number[]): Promise<Map<string, RetargetBinding | null>> {
+  const out = new Map<string, RetargetBinding | null>();
+  if (!meta.retargets.length) return out;
+  if (!rig) {
+    warnOnce(`retarget-norig:${meta.retargets[0]!.map}`, `[myco] animation: a graph's retarget node needs the Animator to have a Skeleton; it plays nothing.`);
+    return out;
+  }
+  const target = { ...rig, retargetSource: rig.retargetSource ?? "" };
+  for (const r of meta.retargets) if (!out.has(r.map)) out.set(r.map, await acquireRetargetMap(ns, r.map, target, held));
+  return out;
+}
+
 /** Loads and binds one graph's assets; the handles it took go to `held`. */
 async function bindAssets(ns: AnimationWorldCore, handle: number, meta: GraphMeta, rig: GraphRig, depth: number, held: number[], linked: LoadedGraph[], graphHandles: Map<string, number>): Promise<void> {
+  const maps = await retargetMaps(ns, meta, rig, held);
+  /** Source graph path → the rig its RETARGET node's map runs it on. */
+  const sourceRigs = new Map<string, GraphRig>();
+  for (const r of meta.retargets) {
+    const b = maps.get(r.map);
+    if (b && r.source && !sourceRigs.has(r.source)) sourceRigs.set(r.source, b.source);
+  }
   await Promise.all(
     meta.compiled.bindings.map(async (b) => {
       const path = stripRef(b.ref);
@@ -268,28 +310,18 @@ async function bindAssets(ns: AnimationWorldCore, handle: number, meta: GraphMet
           if (asset) held.push(asset);
           else warnOnce(`bind:${path}`, `[myco] animation: couldn't load "${path}" for a graph; it plays as nothing.`);
           break;
-        case "posedb": {
-          asset = await ns.acquireFile(path, "posedb");
-          if (!asset) break;
-          held.push(asset);
-          for (let i = 0; i < 4096; i++) {
-            const clip = ns.core.poseDbClip(asset, i);
-            if (!clip) break;
-            const c = await ns.acquireFile(stripRef(clip), "clip");
-            if (c) {
-              held.push(c);
-              ns.core.bindPoseDb(asset, i, c);
-            }
-          }
+        case "posedb":
+          asset = await acquirePoseDatabase(ns, path, rig ? { ref: rig.path, bones: rig.info } : null, held);
           break;
-        }
         case "mask":
           if (!rig) break; // a zero-bone instance has no bones to mask
           asset = await acquireMask(ns, path, rig);
           if (asset) held.push(asset);
           break;
         case "graph": {
-          const g = depth + 1 > MAX_DEPTH ? null : await acquireGraph(ns, path, rig, depth + 1);
+          // A RETARGET node's source graph runs on its map's source skeleton (T41t).
+          const graphRig = sourceRigs.has(path) ? sourceRigs.get(path)! : rig;
+          const g = depth + 1 > MAX_DEPTH ? null : await acquireGraph(ns, path, graphRig, depth + 1);
           if (depth + 1 > MAX_DEPTH) warnOnce(`depth:${path}`, `[myco] animation: linked graphs nest deeper than ${MAX_DEPTH} at "${path}"; not linked.`);
           if (g) {
             linked.push(g);
@@ -299,7 +331,7 @@ async function bindAssets(ns: AnimationWorldCore, handle: number, meta: GraphMet
           break;
         }
         case "retargetMap":
-          warnOnce(`retarget:${path}`, `[myco] animation: retarget maps in graphs aren't bound at run time yet (T41t); "${path}" plays as nothing.`);
+          asset = maps.get(path)?.map ?? 0;
           break;
       }
       if (asset && ns.open) ns.core.bindGraph(handle, b.stringId, asset);
@@ -310,7 +342,7 @@ async function bindAssets(ns: AnimationWorldCore, handle: number, meta: GraphMet
 async function load(ns: AnimationWorldCore, path: string, rig: GraphRig, depth: number, map: Map<string, Promise<LoadedGraph | null>>, raw: unknown): Promise<LoadedGraph | null> {
   const compiled = compileSource(path, raw, rig ? rig.info.names : null);
   if (!compiled) return null;
-  const key = `${compiled.key}|${rig ? rig.path : ""}`;
+  const key = `${compiled.key}|${rig ? `${rig.path}|${rig.profile}|${rig.retargetSource ?? ""}` : ""}`;
   const known = map.get(key);
   if (known) {
     const g = await known;
