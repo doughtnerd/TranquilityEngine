@@ -6,6 +6,7 @@ import { useRef, useState } from "preact/hooks";
 import { usePopover } from "../ui/popover";
 import { buildLabel, buildsButtonText, type BuildEntry } from "./debugLinkLogic";
 import type { ListenState } from "./editorLink";
+import { ConnectDialog } from "./ConnectDialog";
 import { editorDebugLink } from "./link";
 import "./debugLink.css";
 
@@ -57,6 +58,12 @@ export function BuildsMenu(props: BuildsMenuProps) {
       </button>
       {open && (
         <div ref={menu} class="debug-link-menu" role="menu" aria-label="Connected builds" onClick={(e) => e.stopPropagation()}>
+          {props.playSlot && (
+            <>
+              <div class="debug-link-slot">{props.playSlot}</div>
+              <div class="debug-link-separator" role="separator" />
+            </>
+          )}
           {props.builds.length === 0 && <div class="debug-link-empty">{emptyText(props.listen)}</div>}
           {props.builds.map((b) => (
             <div key={b.id} class="debug-link-row">
@@ -80,6 +87,11 @@ export function BuildsMenu(props: BuildsMenuProps) {
             </button>
           )}
           <div class="debug-link-separator" role="separator" />
+          {props.onConnect && (
+            <button role="menuitem" onClick={() => pick(props.onConnect!)}>
+              Connect to a build…
+            </button>
+          )}
           <button role="menuitem" onClick={() => pick(props.onSettings)}>
             Debug link settings…
           </button>
@@ -99,14 +111,19 @@ function emptyText(listen: ListenState): string {
 export function DebugLinkBuilds({ onSettings }: { onSettings(): void }) {
   const link = editorDebugLink();
   const builds = link.builds.value;
+  const [connecting, setConnecting] = useState(false);
   return (
-    <BuildsMenu
-      builds={builds}
-      active={link.active.value?.id ?? null}
-      listen={link.state.value}
-      onChoose={(id) => link.choose(id)}
-      onDisconnect={(id) => link.disconnect(id)}
-      onSettings={onSettings}
-    />
+    <>
+      <BuildsMenu
+        builds={builds}
+        active={link.active.value?.id ?? null}
+        listen={link.state.value}
+        onChoose={(id) => link.choose(id)}
+        onDisconnect={(id) => link.disconnect(id)}
+        onSettings={onSettings}
+        onConnect={() => setConnecting(true)}
+      />
+      {connecting && <ConnectDialog onConnect={(target) => link.connect(target)} onClose={() => setConnecting(false)} />}
+    </>
   );
 }
