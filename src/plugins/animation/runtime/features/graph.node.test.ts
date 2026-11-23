@@ -456,8 +456,15 @@ describe("slots", () => {
     return { frames, result };
   }
 
+  /** Plays `clip` once in the slot so the Animator holds it loaded: a counted play then starts on its first frame (a cold load takes a varying number of frames). */
+  async function warm(anim: Animator, clip: string): Promise<void> {
+    const { result } = await playUntilDone(anim.play(clip, { slot: "UpperBody" }), 600);
+    expect(result).toEqual({ reason: "finished" });
+  }
+
   it("plays a section named by the clip's cues to its end: the promise resolves finished", async () => {
     const { anim } = await heroInIdle();
+    await warm(anim, CUED);
     const p = anim.play(CUED, { slot: "UpperBody", section: "B" }); // [0.4, 0.7): 9 frames
     expect(anim.onFinished).toBe(p);
     const { frames, result } = await playUntilDone(p);
@@ -469,6 +476,7 @@ describe("slots", () => {
 
   it("plays explicit section times, and finishes after a blend-out", async () => {
     const { anim } = await heroInIdle();
+    await warm(anim, SHOT);
     const { frames, result } = await playUntilDone(anim.play(SHOT, { slot: "UpperBody", section: { start: 0.2, end: 0.5 }, fade: 0.1 }));
     expect(result).toEqual({ reason: "finished" });
     expect(frames).toBeGreaterThanOrEqual(8);
