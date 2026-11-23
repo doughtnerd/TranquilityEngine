@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 const fixture = (name: string) => readFileSync(new URL(`../plugins/animation/runtime/wasm/fixtures/${name}`, import.meta.url));
-const metered = (bytes: Uint8Array) => WebAssembly.Module.customSections(new WebAssembly.Module(bytes), "myco.metered").length > 0;
+const metered = (bytes: Uint8Array) => WebAssembly.Module.customSections(new WebAssembly.Module(bytes as Uint8Array<ArrayBuffer>), "myco.metered").length > 0;
 
 /** A stand-in for dist/player/. */
 function fakePlayer(): string {
@@ -61,7 +61,7 @@ describe("exports meter animation node modules (ADR 0370, T45t)", () => {
     expect(metered(raw)).toBe(false);
     const sample = new Uint8Array(readFileSync(join(out, "project/plugins/acme/nodes/sample.wasm")));
     expect(metered(sample)).toBe(true);
-    expect(WebAssembly.Module.imports(new WebAssembly.Module(sample))).toEqual([]);
+    expect(WebAssembly.Module.imports(new WebAssembly.Module(sample as Uint8Array<ArrayBuffer>))).toEqual([]);
     expect(new Uint8Array(readFileSync(join(out, "project/plugins/acme/nodes/shipped.wasm")))).toEqual(new Uint8Array(fixture("plugin_sample.wasm")));
     // The budgets stay in the shipped plugin.json, where the runtime loader reads them.
     expect(JSON.parse(readFileSync(join(out, "project/plugins/acme/plugin.json"), "utf8")).animationNodes[0]).toEqual({ module: "nodes/sample.wasm", budget: 5000 });
