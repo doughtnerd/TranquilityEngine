@@ -75,20 +75,6 @@ export function readJsonValue(raw: unknown): unknown {
   return raw === undefined ? undefined : JSON.parse(JSON.stringify(raw));
 }
 
-/** @internal A non-empty name of at most `max` UTF-8 bytes; anything else gives null with a problem (absent: null, silently). */
-export function readName(r: LenientReader, raw: unknown, where: string, max = 255): string | null {
-  if (raw === undefined) return null;
-  if (typeof raw !== "string" || raw === "") {
-    r.problem(where, "must be a non-empty string; dropped.");
-    return null;
-  }
-  if (utf8Length(raw) > max) {
-    r.problem(where, `longer than ${max} bytes; dropped.`);
-    return null;
-  }
-  return raw;
-}
-
 /** @internal A string's UTF-8 byte length. */
 export const utf8Length = (s: string): number => new TextEncoder().encode(s).length;
 

@@ -128,11 +128,11 @@ describe("authored clips (myco.anim-source@1)", () => {
     expect(many.problems).toEqual([`tracks: at most ${TRACK_LIMITS.tracks} tracks; the rest are dropped.`]);
     const keys = Array.from({ length: TRACK_LIMITS.keys + 1 }, () => ({ time: 0, kind: "cue" }));
     const longTrack = track({ kind: "marker", keys });
-    expect((longTrack.value.tracks[0] as { keys: unknown[] }).keys).toHaveLength(TRACK_LIMITS.keys);
+    expect((longTrack.value.tracks[0] as { keys: readonly unknown[] }).keys).toHaveLength(TRACK_LIMITS.keys);
     expect(longTrack.problems).toEqual([`tracks[0].keys: at most ${TRACK_LIMITS.keys} keys; the rest are dropped.`]);
     const curve = Array.from({ length: TRACK_LIMITS.keys + 1 }, (_, i) => [i / 100000, 0]);
     const longCurve = track({ kind: "float", target: { component: "c", field: "f" }, curves: [curve] });
-    expect((longCurve.value.tracks[0] as { curves: unknown[][] }).curves[0]).toHaveLength(TRACK_LIMITS.keys);
+    expect((longCurve.value.tracks[0] as { curves: readonly (readonly unknown[])[] }).curves[0]).toHaveLength(TRACK_LIMITS.keys);
     expect(longCurve.problems).toEqual([`tracks[0].curves[0]: at most ${TRACK_LIMITS.keys} keys; the rest are dropped.`]);
   });
 
