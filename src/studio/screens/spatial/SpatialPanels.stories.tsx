@@ -128,7 +128,7 @@ export const Settings: Story = {
   },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getByRole("button", { name: "+ Material" }));
+    await userEvent.click(c.getByRole("button", { name: "Material" }));
     await expect(c.getByRole("textbox", { name: "Material name" })).toHaveValue("Material");
   },
 };
