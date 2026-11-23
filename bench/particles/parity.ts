@@ -4,10 +4,11 @@
 import { compileParticleGraph } from "../../src/engine/scene/particleCompile";
 import { KERNEL_FLOATS, type KernelSystem } from "../../src/engine/scene/particleKernel";
 import { KernelEffect, JsRun, type KernelRun } from "../../src/engine/render/particles/gpu/kernelEffect";
-import { WebGpuRun, type GpuDevice } from "../../src/engine/render/particles/gpu/webgpuRun";
+import { WebGpuRun } from "../../src/engine/render/particles/gpu/webgpuRun";
+import type { GpuDevice } from "../../src/engine/render/gpuKernels/webgpu";
 import { WebGl2Run, supportsTextureKernels } from "../../src/engine/render/particles/gpu/webgl2Run";
 import { parityGraph } from "./graphs";
-import { BUFFER } from "../../src/engine/render/particles/gpu/webgpuRun";
+import { BUFFER } from "../../src/engine/render/gpuKernels/webgpu";
 import { WebGl2Sorter, WebGpuSorter, sortLayout, sortPairsJs } from "../../src/engine/render/particles/gpu/sort";
 
 /** Sort parity (ADR 0126): the GPU sorts must give the same key order as the JavaScript sort. */
