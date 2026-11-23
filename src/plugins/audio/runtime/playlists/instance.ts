@@ -15,7 +15,7 @@
  *   heard time (`horizon`), so it is heard at once: the core holds every voice at that one frame (stamped SET_PAUSED).
  *   What was already sent for later waits with the voices: a voice whose stamped start lies past the hold holds from
  *   that start, and a held voice's stamped records past the hold (fades, ramps, a cut) wait on the core and land as
- *   much later as it was held (ABI 6.2). The timers wait, the tree isn't updated, and parameter changes wait for the
+ *   much later as it was held (the core parks them). The timers wait, the tree isn't updated, and parameter changes wait for the
  *   resume. A resume continues every voice at one frame (a voice that hadn't started yet starts as late as the pause
  *   lasted), moves the timers on by the time held and binds voice-time curves that much later, so the playback
  *   continues from exactly where it held.

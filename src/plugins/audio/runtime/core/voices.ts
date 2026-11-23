@@ -217,6 +217,12 @@ export class CoreVoices {
   private readonly flipTo: Uint8Array;
   private readonly flipAt: Float64Array;
   private flips = 0;
+  /**
+   * ADR 0362 §1: per slot, the frame a pause's hold begins on the core (NaN: not held). The core keeps the voice's
+   * records stamped from then on until it resumes and lands them as many frames later as it was held; the resume moves
+   * the voice's stamped log (`VoiceTable.shiftStamped`) the same way, so a REPLAY puts them where the core has them.
+   */
+  private readonly holdFrom: Float64Array;
 
   constructor(private readonly host: CoreVoicesHost) {
     const t = (this.t = host.table);
@@ -229,6 +235,7 @@ export class CoreVoices {
     this.flatPlayId = new Uint32Array(t.capacity);
     this.flipTo = new Uint8Array(t.capacity);
     this.flipAt = new Float64Array(t.capacity);
+    this.holdFrom = new Float64Array(t.capacity).fill(Number.NaN);
     this.gainApplied = new Float32Array(t.capacity).fill(1);
     this.basis.set(this.listenerPos, this.listenerFwd, this.listenerUp);
     this.lockedQueue = new UnlockQueue<number>({
@@ -790,19 +797,36 @@ export class CoreVoices {
     // voice is stamped before it (it would reach the core before the voice exists there). As `setBus` does.
     const playAt = this.onCore(i) ? clock.stampFor(host.playheads.anchorFrame[i]!) : undefined;
     const hold = at !== undefined && Number.isFinite(at) && this.onCore(i) ? clock.stampFor(clock.frameOfTime(at)) : undefined;
+    const fade = Math.round(MIX_FADE_SECONDS * clock.sampleRate);
     if (hold === undefined) {
       t.flags[i] = paused ? t.flags[i]! | VoiceFlag.PAUSED : t.flags[i]! & ~VoiceFlag.PAUSED;
-      if (this.onCore(i)) host.playheads.retime(i, clock.framesNow());
-      if (this.onCore(i)) host.writer.setPaused(id, paused, playAt);
+      if (!this.onCore(i)) return;
+      const now = clock.framesNow();
+      host.playheads.retime(i, now);
+      host.writer.setPaused(id, paused, playAt);
+      const at = Math.max(now, playAt ?? 0);
+      this.heldFrom(i, paused, paused && t.state[i] === VoiceState.PLAYING ? at + fade : at);
       return;
     }
     let frame = hold;
-    if (paused && t.state[i] === VoiceState.PLAYING) frame = clock.stampFor(hold - Math.round(MIX_FADE_SECONDS * clock.sampleRate)) ?? hold;
+    if (paused && t.state[i] === VoiceState.PLAYING) frame = clock.stampFor(hold - fade) ?? hold;
     if (playAt !== undefined && playAt > frame) frame = playAt;
     host.writer.setPaused(id, paused, frame);
     this.flipTo[i] = paused ? FLIP_PAUSE : FLIP_RESUME;
     this.flipAt[i] = Math.max(hold, frame);
     this.flips++;
+    this.heldFrom(i, paused, this.flipAt[i]!);
+  }
+
+  /** A pause's hold begins at `frame` on the core, or a resume continues there: the stamped log follows the core. */
+  private heldFrom(i: number, paused: boolean, frame: number): void {
+    if (paused) {
+      if (Number.isNaN(this.holdFrom[i]!)) this.holdFrom[i] = frame;
+      return;
+    }
+    const from = this.holdFrom[i]!;
+    this.holdFrom[i] = Number.NaN;
+    if (!Number.isNaN(from)) this.t.shiftStamped(i, from, frame - from);
   }
 
   /**
@@ -1215,6 +1239,7 @@ export class CoreVoices {
       if (!member) host.streams.close(t.clip[i]!);
     } else if (t.genKind[i] === 0) host.clips.release(t.clip[i]!); // ADR 0360: a generator holds no clip
     this.dropFlip(i);
+    this.holdFrom[i] = Number.NaN;
     host.panners.forget(i);
     host.automation.forget(i);
     // ADR 0162 (K4): the M3 per-slot state goes with the voice.

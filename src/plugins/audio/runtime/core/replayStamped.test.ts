@@ -83,6 +83,17 @@ describe("the voice table's stamped log", () => {
     expect(t.stampedFrame[i * MAX_STAMPED]).toBe((2 + 5 - 4) * 2000);
     expect(t.stampedEnd[i * MAX_STAMPED]).toBe((3 + 5 - 4) * 2000);
   });
+
+  it("ADR 0362 §1: a held voice's entries from its hold on move as far as it was held (the core lands them so)", () => {
+    const t = new VoiceTable(4);
+    const id = t.allocate(0, 1, 0, VoiceState.PLAYING);
+    const i = id & 0xffff;
+    t.logStamped(id, StampedKind.GAIN, 100, RATE, 0, 0, 1, 0.5, 0, 0); // before the hold: stays
+    t.logStamped(id, StampedKind.FADE, 400, RATE, 0, 1, 0, 0.1, 0, 0); // a cut sent ahead, past the hold at 300
+    t.shiftStamped(i, 300, 1000);
+    expect([t.stampedFrame[i * MAX_STAMPED], t.stampedFrame[i * MAX_STAMPED + 1]]).toEqual([100, 1400]);
+    expect([t.stampedEnd[i * MAX_STAMPED], t.stampedEnd[i * MAX_STAMPED + 1]]).toEqual([600, 1500]);
+  });
 });
 
 describe("Replayer, stamped ramps", () => {

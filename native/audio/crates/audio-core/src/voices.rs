@@ -59,6 +59,9 @@
 //!   SET_MIXED 0 arrived meanwhile, which the fade then completes.
 //! - A voice not started yet doesn't start while paused; resumed after its start frame has passed,
 //!   it starts at once (not counted late).
+//! - ADR 0362 §1: the voice's stamped records past the frame its hold begins wait with it (parked in the pending queue),
+//!   and the resume puts them back as many frames later as it was held, so what main sent ahead (a fade, a ramp, a
+//!   cut) lands where it would have, the hold's length later. A record stamped while it is held lands at its frame.
 //! - STOP, or FADE with "stop at end", ends a held voice at the next quantum (it is silent). The
 //!   cap's own demote and its counts leave paused voices out (they are already leaving the mix);
 //!   main never promotes a paused voice (selection forces it virtual), and a promote while paused is
@@ -2708,36 +2711,48 @@ pub fn demote_lowest(core: &mut Core, keep: u32) -> u32 {
 
 /// SET_PAUSED (api-and-models §4.2, A3.7): pauses or resumes `voice_id`; see the module notes. A
 /// stale id is dropped; a voice already in the asked state is left alone.
-pub fn set_paused(core: &mut Core, voice_id: u32, paused: bool) {
+///
+/// `at` is the record's frame (`None` asap: the next quantum's first frame). ADR 0362 §1: the voice's own stamped records
+/// past the frame its hold begins (its fade's end for a mixed voice) wait with it, out of the pending queue's way
+/// ([`scheduler::park_pending`]), and a resume puts them back as many frames later as it was held
+/// ([`scheduler::unpark_pending`]): a fade, a ramp or a cut main sent ahead lands where it would have, the hold's length
+/// later. Records stamped before the hold begins keep their frames.
+pub fn set_paused(core: &mut Core, voice_id: u32, paused: bool, at: Option<u64>) {
     let frames = mix_fade_frames(core);
     // The next quantum's first frame (the frame after the last one rendered).
     let now = core.frame() + QUANTUM as u64;
+    let at = at.unwrap_or(now);
     let v = view(core.regions_mut());
     let Some(index) = find(&v, voice_id) else { return };
     let s = &mut v.slots[index];
     if paused {
-        pause_slot(s, frames);
-    } else {
-        resume_slot(s, frames, now);
+        if let Some(fade) = pause_slot(s, frames) {
+            crate::scheduler::park_pending(core, voice_id, at + fade as u64);
+        }
+    } else if resume_slot(s, frames, now) {
+        crate::scheduler::unpark_pending(core, voice_id, at);
     }
 }
 
-fn pause_slot(s: &mut VoiceSlot, frames: u32) {
+/// Pauses the slot; `Some(frames)` until its hold begins (its fade-out, or 0) when it wasn't paused, `None` when it was.
+fn pause_slot(s: &mut VoiceSlot, frames: u32) -> Option<u32> {
     if s.flags & flag::PAUSED != 0 {
-        return;
+        return None;
     }
     s.flags |= flag::PAUSED;
     if s.state == state::PLAYING && s.flags & flag::MIXED != 0 && s.flags & flag::DEMOTING == 0 {
         // Mixed: fade out over 5 ms, then hold (a voice already demoting finishes its own fade).
         s.flags |= flag::PAUSING;
         s.mix.set_target(0.0, frames);
+        return Some(frames);
     }
+    Some(0)
 }
 
-/// `now` is the context frame of the next quantum.
-fn resume_slot(s: &mut VoiceSlot, frames: u32, now: u64) {
+/// `now` is the context frame of the next quantum. Whether it was paused.
+fn resume_slot(s: &mut VoiceSlot, frames: u32, now: u64) -> bool {
     if s.flags & flag::PAUSED == 0 {
-        return;
+        return false;
     }
     s.flags &= !flag::PAUSED;
     if s.flags & flag::PAUSING != 0 {
@@ -2751,6 +2766,13 @@ fn resume_slot(s: &mut VoiceSlot, frames: u32, now: u64) {
         // Its start passed while it was paused: start now, not counted late.
         s.start_frame = ASAP;
     }
+    true
+}
+
+/// ADR 0362 §1: whether `voice_id` is a live voice that is paused (its parked records still wait for it).
+pub fn is_paused(core: &mut Core, voice_id: u32) -> bool {
+    let v = view(core.regions_mut());
+    find(&v, voice_id).is_some_and(|i| v.slots[i].flags & flag::PAUSED != 0)
 }
 
 #[cfg(test)]

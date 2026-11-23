@@ -406,3 +406,42 @@ fn pause_and_resume_never_allocate() {
     }
     assert_eq!(allocations(), before, "submit and process allocated");
 }
+
+fn stop_at(voice: u32, fade_frames: u32, frame_offset: u32) -> Rec {
+    Rec::Stop(wire::Stop { voice_id: voice, frame_offset, fade_frames, reason: 0, shape: 0 })
+}
+
+#[test]
+fn a_held_voice_s_stamped_records_wait_with_it_and_land_as_much_later_as_it_was_held() {
+    // ADR 0362 §1: main sent a cut ahead (STOP with a 5 ms fade at frame 3_000); the voice is paused at 1_280 before it.
+    let mut m = Mixer::new();
+    m.submit(&[play(V1, false)]);
+    m.render(10);
+    m.submit(&[stop_at(V1, FADE as u32, 3_000 - 1_280), paused(V1, true)]);
+    // Held well past the cut's frame: still live, holding at 1_280.
+    m.render(40);
+    assert_eq!(status::counters(&m.core).live_voices, 1, "the cut waits with the held voice");
+    assert_eq!(m.slot(V1).position, 1_280.0);
+    // Resumed at 6_400 (held 5_120 frames) and promoted: it plays on from 1_280; the cut lands 1_720 frames later.
+    m.submit(&[paused(V1, false), set_mixed(V1, true)]);
+    let out = m.render(20);
+    let cut = 3_000 - 1_280;
+    assert_frames(&out[FADE..cut], |k| clip_at(1_280 + FADE + k), "plays on up to the cut");
+    assert_frames(&out[cut..cut + FADE], |k| clip_at(3_000 + k) * ramp_at(1.0, 0.0, FADE, k), "the cut's fade");
+    assert!(out[cut + FADE + 1..].iter().all(|&s| s == 0.0), "ended after the cut");
+    m.render(2);
+    assert_eq!(status::counters(&m.core).live_voices, 0);
+}
+
+#[test]
+fn a_voice_paused_at_its_stamped_start_renders_nothing_and_starts_where_it_resumes() {
+    // ADR 0362 §1: the playback held before a start main had already stamped; the voice holds from its start.
+    let mut m = Mixer::new();
+    m.submit(&[play_at(V1, true, 2_000), paused_at(V1, true, 2_000)]);
+    let out = m.render(40);
+    assert!(out.iter().all(|&s| s == 0.0), "no blip at its start");
+    assert_eq!(m.slot(V1).state, state::SCHEDULED);
+    m.submit(&[paused(V1, false), set_mixed(V1, true)]);
+    let out = m.render(4);
+    assert_frames(&out, clip_at, "starts at once from its first frame");
+}

@@ -549,6 +549,21 @@ export class VoiceTable implements VoiceTableHandleApi {
     }
   }
 
+  /**
+   * ADR 0362 §1: slot `i` was held from frame `from` and resumed `by` frames later; its entries stamped at or after
+   * `from` waited with it on the core and land that much later, so they move with them (order kept). Allocates nothing.
+   */
+  shiftStamped(i: number, from: number, by: number): void {
+    if (!(by > 0)) return;
+    const base = i * MAX_STAMPED;
+    for (let k = 0; k < this.stampedCount[i]!; k++) {
+      const e = base + k;
+      if (this.stampedFrame[e]! < from) continue;
+      this.stampedFrame[e] += by;
+      this.stampedEnd[e] += by;
+    }
+  }
+
   // --- F-9b: a music stem's level (`stemGain`, `stemDry`) ---
 
   /**
