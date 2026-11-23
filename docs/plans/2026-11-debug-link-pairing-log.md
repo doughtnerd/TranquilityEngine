@@ -103,3 +103,29 @@ start at the integration branch. Briefs keep that instruction.
 - `plugins.test.ts`' editor-half scan finds nothing on this Windows checkout (baseline), so it can't check the new
   `src/plugins/audio/editor/debugLink/` files. Run it on Linux/CI before M1's PR.
 - A typed full address without a port takes the URL default (80 or 443), as `debugLinkAddress` already does (L4).
+
+## W1b
+
+| Task | Model | Agent time | Result |
+|---|---|---|---|
+| L9 glue crate | Sonnet | 9.0 min | `native/debug-link-tauri` (`DebugLinkListeners` state; `commands::{myco_debuglink_listen_range, myco_debuglink_listen, myco_debuglink_send, myco_debuglink_close}`), registered by `src-tauri` and `src-studio-tauri`; `src-tauri/src/debug_link.rs` moved into it |
+| S0 integration smoke | Sonnet | 7.2 min | `src/plugins/audio/editor/debugLink/linkSmoke.test.ts`, 3 cases, passed 3 runs of 3 |
+
+- **L9:** commands, not a plugin (C8). No capability changes: the shells use no app manifest, so app commands aren't
+  gated (the editor listed none before either). `cargo check`: src-tauri 1 m 13 s, src-studio-tauri 56 s on the
+  shared warm cache (`src-tauri/target` of the main checkout); after the merge, 3.6 s and 2.8 s. `ws-listener`:
+  12 cargo tests pass (L9's report said 0; it read the doc-test line). The crate has no tests of its own; its
+  commands are thin and need a real Tauri run (OP1). A `Cargo.lock` sits beside the crate, as beside `ws-listener`.
+- **S0:** a headless Engine with the real `audio` topic and the capture tests' fake core backend:
+  1. the build listens, a `ToolConnector` pairs by token, records a take over the link (start, mark, stop),
+     uploads it, and the bytes equal `Audio.take.save()`'s;
+  2. a tool listener and a build connecting out with a code;
+  3. a tokenless same-machine build accepted by the tool.
+  The take is 37,306 bytes: one chunk, one frame. **Multi-chunk uploads aren't in the smoke**, only in the unit tests
+  (`upload.test.ts`, `takeRoundTrip.test.ts`); S1 (W2) uploads a real exported game's take.
+  The helper yields with `setTimeout(0)` between rounds because `take.start` loads modules on macrotasks; the link's
+  time stays on an injected clock.
+- **Checks after both merges:** typecheck: the 2 baseline errors only; the debug-link, audio-link, player and plugin
+  suites: 204 passed, 6 skipped, 3 failed (the baseline `plugins.test.ts` scans).
+- Estimate drift: W1a + W1b planned 18 task-days (estimate); agents took 1.7 hours of wall time in all, plus
+  coordinator merging and checks. Agent time doesn't map onto the plan's person-days; the estimates stay as written.
