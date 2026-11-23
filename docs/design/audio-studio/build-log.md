@@ -175,3 +175,7 @@ the 4 audio failures above (product follow-ups); stories 365/367. Typecheck clea
 - 2026-11-23 (UI pass wave 4, ADR 0362 items 2–3): core ABI 6.0 → 6.1, AMP_ENVELOPE (0x22) and PLAY flag `reverse`;
   mixer 589,076 → 609,528 B (+20.5 KB, the reversed Lagrange kernel copies; under the 640 KB gate, no raise); metered
   +0.09% overall, worst +0.56% (gen-silence-twin); offline render envelope on `audio_dsp::adsr`, render cache version 2.
+- 2026-11-23 (UI pass wave 5): core behaviour change without an ABI bump (no record layout changed; D67 precedent):
+  a paused voice's stamped records wait on the core (`park_pending`/`unpark_pending`). Mixer 609,528 → 611,423 B;
+  metered +0.09% overall, worst +0.56% (gen-silence-twin). Journeys re-walk after waves 1–4: 42 work, 5 partly, 1 fails
+  (J10.1, no Studio take recording by owner decision); defects in scratchpad audit2/journeys.md → wave 6.
