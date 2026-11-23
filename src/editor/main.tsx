@@ -66,6 +66,7 @@ async function main(): Promise<void> {
   installShortcuts();
   forEachChildWindow((win) => installShortcuts(win)); // and in each detached panel window (ADR 0174)
   installCloseGuard();
+  void import("./debugLink/link").then((m) => m.startEditorDebugLink()); // ADR 0376: builds exported with debugging on connect here
   if (isTauri()) await (await import("./launcher/editorWindow")).serveDesktopProjectsWindow();
   // A sample to open goes first; the background loading waits for it so as not to compete.
   const opening = sample ? (await session()).openProject({ kind: "sample", sample: await findSample(sample) }) : Promise.resolve();

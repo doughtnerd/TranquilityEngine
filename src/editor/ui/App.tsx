@@ -7,6 +7,7 @@ import { art, PRODUCT_NAME } from "../brand";
 import { AboutDialog, aboutOpen } from "./AboutDialog";
 import { AssetDragGhost } from "./AssetDragOverlay";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { DebugLinkPrompt } from "../debugLink/AcceptPrompt";
 import { exportOpen, settingsOpen } from "./dialogState";
 import { lazyDialog } from "./lazy";
 import { addPanelRequest } from "../layout/store";
@@ -41,6 +42,7 @@ export function App() {
       <StatusBar />
       <AssetDragGhost />
       <ConfirmDialog />
+      <DebugLinkPrompt />
       <NewScriptDialog />
       <ExportDialog />
       <NewProjectDialog />

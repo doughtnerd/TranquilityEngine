@@ -95,7 +95,9 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
   const { folder, project } = options;
   const web = options.web ?? "";
   const log = options.log ?? (() => {});
-  const player = await playerFiles(options.player, options.playerWhere);
+  const listed = await playerFiles(options.player, options.playerWhere);
+  // ADR 0376: a release export (no `debug`) leaves out the player's debug link files, so it holds none of the link's code.
+  const player = plan.manifest.debug ? listed.files : listed.files.filter((f) => !listed.debug.has(f));
   for (const w of plan.warnings ?? []) log(`warning: ${w}`);
   const entries = (await folder.exists("")) ? await folder.list("") : [];
   if (entries.length > 0 && !(await folder.exists(join(web, MANIFEST_FILE)))) {
@@ -160,18 +162,20 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
   return plan;
 }
 
-/** The player's files, from its `files.json`. Throws an `ExportError` if it isn't a built player. */
-async function playerFiles(player: FileSource, where: string): Promise<string[]> {
-  let files: unknown;
+/** The player's files and its debug link files, from its `files.json`. Throws an `ExportError` if it isn't a built player. */
+async function playerFiles(player: FileSource, where: string): Promise<{ files: string[]; debug: ReadonlySet<string> }> {
+  let list: { files?: unknown; debug?: unknown };
   try {
-    files = (JSON.parse(textOf(await player.read(PLAYER_FILE_LIST))) as { files?: unknown }).files;
+    list = JSON.parse(textOf(await player.read(PLAYER_FILE_LIST))) as { files?: unknown; debug?: unknown };
   } catch {
     throw new ExportError(`There's no game player in ${where} to export with (no ${PLAYER_FILE_LIST}). Run \`npm run build:player\`.`);
   }
+  const files = list.files;
   if (!Array.isArray(files) || !files.includes(PLAYER_PAGE) || !files.includes(ENGINE_FILE)) {
     throw new ExportError(`The game player in ${where} is incomplete (no ${PLAYER_PAGE} or ${ENGINE_FILE}). Run \`npm run build:player\` again.`);
   }
-  return files as string[];
+  const debug = Array.isArray(list.debug) ? list.debug.filter((f): f is string => typeof f === "string") : [];
+  return { files: files as string[], debug: new Set(debug) };
 }
 
 /** Remove everything in `dir` but the paths in `keep`, descending into folders that hold one. */

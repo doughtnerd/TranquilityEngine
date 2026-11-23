@@ -21,6 +21,7 @@ export function ExportDialog() {
   const [audioCapture, setAudioCapture] = useState(false);
   const [audioTake, setAudioTake] = useState(false);
   const [takePictures, setTakePictures] = useState(true);
+  const [debugLink, setDebugLink] = useState(false);
   const [fs, setFs] = useState<FileSystem | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "info" | "error"; text: string; folder?: string } | null>(null);
@@ -45,7 +46,7 @@ export function ExportDialog() {
     setBusy(true);
     setMessage({ kind: "info", text: "Compiling scripts…" });
     try {
-      const plan = await exportProjectBuild(project, fs, out, (done, total) => setMessage({ kind: "info", text: `Writing files… ${done} of ${total}` }), { audioCapture, audioTake, audioTakeFrames: takePictures });
+      const plan = await exportProjectBuild(project, fs, out, (done, total) => setMessage({ kind: "info", text: `Writing files… ${done} of ${total}` }), { audioCapture, audioTake, audioTakeFrames: takePictures, ...(debugLink && { debugLink: true as const }) });
       const text = `Exported ${plan.manifest.name} to ${out}. Put the folder on any web host, or run node serve.mjs in it to play locally.`;
       setMessage({ kind: "info", text, folder: out });
       status.value = { kind: "info", text };
@@ -57,7 +58,7 @@ export function ExportDialog() {
       setBusy(false);
     }
   };
-  const command = desktopExportCommand(project, audioCapture, audioTake, takePictures);
+  const command = desktopExportCommand(project, audioCapture, audioTake, takePictures, debugLink);
 
   return (
     <div class="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && close()}>
@@ -100,6 +101,10 @@ export function ExportDialog() {
         <label class="export-audio-take-pictures" title="A take holds a small picture of the game view about once a second, which the Studio shows beside it; leave this off to keep the game's screen out of takes">
           <input type="checkbox" name="export-audio-take-pictures" checked={audioTake && takePictures} disabled={busy || !audioTake} onChange={(e) => setTakePictures(e.currentTarget.checked)} />
           Include pictures of the game view in takes
+        </label>
+        <label class="export-debug-link" title="The game connects to this editor's debug link, so the live debuggers (such as the animation graph's) can inspect it while it runs. Builds without it hold none of the link's code.">
+          <input type="checkbox" name="export-debug-link" checked={debugLink} disabled={busy} onChange={(e) => setDebugLink(e.currentTarget.checked)} />
+          Debugging on: connect to this editor's debug link
         </label>
         {target === "web" ? (
           <>

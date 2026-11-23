@@ -60,6 +60,12 @@ describe("the Export dialog's audio capture checkbox (its option reaches the bui
     expect(desktopExportCommand(project, false)).not.toContain("--audio-capture");
     expect(desktopExportCommand(project, true)).toMatch(/--target desktop --audio-capture$/);
   });
+
+  it("adds --debug-link with this editor's port only when debugging is on (ADR 0376)", async () => {
+    const project = await folderProject(demoFolder());
+    expect(desktopExportCommand(project)).not.toContain("--debug-link");
+    expect(desktopExportCommand(project, false, false, true, true)).toMatch(/--target desktop --debug-link 7790$/);
+  });
 });
 
 describe("exportProjectBuild", () => {

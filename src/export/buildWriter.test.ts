@@ -170,6 +170,30 @@ describe("writeWebBuild", () => {
     expect(file("web/game.json")).toBeDefined();
   });
 
+  it("ADR 0376: a release build leaves out the player's debug link files; a build with debugging on ships them", async () => {
+    const playerFiles = {
+      "files.json": JSON.stringify({ files: ["assets/host-x.js", "assets/player-x.js", "assets/topic-y.js", "myco.js", "player.html"], debug: ["assets/host-x.js", "assets/topic-y.js"] }),
+      "assets/host-x.js": "// the debug link",
+      "assets/topic-y.js": "// the animation topic",
+      "assets/player-x.js": "// player",
+      "myco.js": "export {};",
+      "player.html": "<title>player</title>",
+    };
+    const release = setup({ playerFiles });
+    await writeWebBuild(plan(), release.options);
+    expect(release.player.reads).not.toContain("assets/host-x.js");
+    expect(release.file("assets/host-x.js")).toBeUndefined();
+    expect(release.file("assets/topic-y.js")).toBeUndefined();
+    expect(release.file("assets/player-x.js")).toBeDefined();
+    expect(release.writes.some((w) => /host-x|topic-y/.test(w))).toBe(false);
+
+    const debug = setup({ playerFiles });
+    const p = plan();
+    await writeWebBuild({ ...p, manifest: { ...p.manifest, debug: { link: "ws://localhost:7790/myco-debug" } } }, debug.options);
+    expect(debug.file("assets/host-x.js")).toBeDefined();
+    expect(debug.file("assets/topic-y.js")).toBeDefined();
+  });
+
   it("names a project file it can't read", async () => {
     const { options } = setup();
     await expect(writeWebBuild(plan(["project.json", "missing.png"]), options)).rejects.toThrow(/Couldn't read missing\.png from the project/);

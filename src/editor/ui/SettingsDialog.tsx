@@ -36,6 +36,7 @@ import {
   type FontChoice,
 } from "../theme";
 import { aboutOpen } from "./AboutDialog";
+import { DebugLinkSettings } from "../debugLink/DebugLinkSettings";
 import "./history.css";
 import "./brand.css";
 
@@ -181,6 +182,7 @@ function GeneralSettings() {
           Load the code editor in the background when a project opens
         </label>
       </fieldset>
+      <DebugLinkSettings />
     </>
   );
 }

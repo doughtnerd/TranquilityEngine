@@ -24,6 +24,7 @@ import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, type GameManif
 import { planLocalisation, type BuildLanguages } from "./strings";
 import { planLineIndex } from "./lines";
 import { LINE_INDEX_PATH } from "../engine/audio/localisation/lines/lineIndex";
+import { DEFAULT_DEBUG_LINK, debugLinkAddress } from "../engine/debugLink/config";
 
 /** A project to build, however it was read. */
 export interface BuildSource {
@@ -54,6 +55,11 @@ export interface BuildOptions {
   readonly languages?: readonly string[];
   /** ADR 0356 §9: `--pseudo`: add the pseudo-languages, for QA builds. */
   readonly pseudo?: boolean;
+  /**
+   * ADR 0376: `--debug-link`: debugging on. `game.json` gets `debug: { link }` (this address, or the editor on the same
+   * machine when it's `true`) and the build ships the debug link's code; without it the build holds none of it.
+   */
+  readonly debugLink?: string | true;
 }
 
 /** What a web build is made of, before anything is written. */
@@ -173,6 +179,11 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   const files = linked.output;
   const plugins: BuiltPlugin[] = pluginPlan.runtime.map((p) => ({ manifest: p.manifest, module: p.source.kind === "project" ? modulePath(p.runtime!) : linked.entries.get(p.runtime!)! }));
   const name = typeof source.settings.name === "string" && source.settings.name ? source.settings.name : source.name;
+  let debugLink: string | null = null;
+  if (options.debugLink !== undefined) {
+    debugLink = options.debugLink === true ? DEFAULT_DEBUG_LINK : debugLinkAddress(options.debugLink);
+    if (!debugLink) throw new ExportError(`The debug link address "${options.debugLink}" isn't a WebSocket address (ws://host:port, host:port or a port).`);
+  }
   const manifest: GameManifest = {
     format: MANIFEST_FORMAT,
     name,
@@ -185,6 +196,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     ...(options.audioTake === true && options.audioTakeFrames === false && { audioTakeFrames: false as const }),
     ...(localisation.manifest && { localisation: localisation.manifest }),
     ...(linked.assetRefs.length > 0 && { assetRefs: linked.assetRefs }),
+    ...(debugLink && { debug: { link: debugLink } }),
   };
   const generated = new Map([...files, ...localisation.generated, ...[...lineFiles].map(([p, t]) => [copiedPath(p), t] as const)]);
   generated.set(MANIFEST_FILE, `${JSON.stringify(manifest, null, 2)}\n`);

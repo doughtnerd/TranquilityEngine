@@ -54,6 +54,9 @@ export { setValue, type SettingsDraft, type SettingsProblem } from "../projectSe
 // One project.json key of the settings draft (ADR 0253): its lenient parse, defaults, set-by-path, reset and problems.
 export { settingsSection, type SettingsSection, type SettingsSectionSpec } from "../settingsSection";
 export { persisted } from "../preferences";
+// The debug link (ADR 0376): builds connected to this editor, and the one the live debuggers read (`active`).
+export { editorDebugLink } from "../debugLink/link";
+export type { ConnectedBuild, EditorDebugLink, ListenState } from "../debugLink/editorLink";
 // The editor theme's tokens (ADR 0025): `theme.value` tracks the Settings > Appearance theme.
 export { theme, mix, parseHex, viewportColors, type ThemeTokens } from "../theme";
 // The shared graph view (ADR 0060): canvas, wires, notes, minimap and search popup.
