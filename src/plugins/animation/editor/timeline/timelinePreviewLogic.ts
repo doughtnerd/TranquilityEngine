@@ -4,13 +4,17 @@
 //
 // - **Version:** the runtime loads a director's timeline once, on activation, so each edited version is served under a path
 //   of its own from an in-memory source (`ClipPreviewPlayer.pathOf`, T50's, which serves timelines too) and the director
-//   is pointed at it and re-activated (`enabled` off and on). Scrubbing within one version only writes `playhead`, which
+//   is pointed at it and reloaded (`previewTimeline`). Scrubbing within one version only writes `playhead`, which
 //   the runtime treats as a seek at the next frame: nothing plays (no time passes), nothing fires for the skipped span.
+// - **Edit mode:** the scene open in the editor is in edit mode (ADR 0026), where a director is inert (it loads nothing
+//   and writes nothing); `previewTimeline` (D135) gives it an instance that never plays on its own, and no audio or
+//   control keys fire.
 // - **Leaving:** `stop` puts the director's own fields back (its timeline, play on start, wrap mode and playhead) and
-//   re-activates it on its own timeline. The scene's animated fields are put back by the session
-//   (`timelineSession.ts`), which knows the scene.
+//   lets it go (`endTimelinePreview`): inert again in edit mode, else reloaded on its own timeline. The scene's animated
+//   fields are put back by the session (`timelineSession.ts`), which knows the scene.
 import type { Timeline } from "../../../../engine/animation/timeline";
 import type { TimelineDirector } from "../../runtime/components/TimelineDirector";
+import { endTimelinePreview, previewTimeline } from "../../runtime/features/timeline";
 import { ClipPreviewPlayer } from "../animationWindow/previewLogic";
 
 /** What a director held before the first show. */
@@ -48,7 +52,7 @@ export class TimelinePreviewPlayer {
     director.playOnStart = false;
     director.wrapMode = "hold";
     director.playhead = at;
-    reactivate(director);
+    if (director.node.isValid) previewTimeline(director);
   }
 
   /** Stop previewing on `director`: its own fields back, loaded again. Does nothing when it was never shown. */
@@ -60,7 +64,7 @@ export class TimelinePreviewPlayer {
     director.playOnStart = s.playOnStart;
     director.wrapMode = s.wrapMode;
     director.playhead = s.playhead;
-    reactivate(director);
+    if (director.node.isValid) endTimelinePreview(director);
   }
 
   /** Stop on every director and drop the served versions. */
@@ -68,11 +72,4 @@ export class TimelinePreviewPlayer {
     for (const d of [...this.saved.keys()]) this.stop(d);
     this.versions.dispose();
   }
-}
-
-/** The runtime loads a director's timeline when it activates: turn it off and on. */
-function reactivate(director: TimelineDirector): void {
-  if (!director.node.isValid) return;
-  director.enabled = false;
-  director.enabled = true;
 }

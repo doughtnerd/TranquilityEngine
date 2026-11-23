@@ -14,6 +14,8 @@
 //   read), so they call nothing; `ACTIVATION_EDGE` (the activation column already holds the level) and `SUBCLIP_STATE`
 //   (timelines, T22t) are skipped here.
 //
+// An editor preview in a scene being edited (ADR 0026, D135) delivers nothing: no notifies, audio or control keys.
+//
 // Every Animator's records are decoded first and delivered after, so a behaviour that calls into the animation core
 // (a play, a new Animator) can't move the memory under the reader.
 import type { ControlAction } from "../../../../../engine/animation/tracks";
@@ -26,7 +28,7 @@ import type { AnimationFrame } from "../../stages/frame";
 import { inPass } from "../../stages/gather/playback";
 import { TRACK_HEADER, TRACK_RECORDS } from "../../wasm/wire/core";
 import { ACTIVATION_EDGE, AUDIO, CONTROL, EVENT, MARKER, NOTIFY_STATE, OUTPUT_HEADER, PHASE_BEGIN, PHASE_TICK, SUBCLIP_STATE } from "../../wasm/wire/tracks";
-import { animatorsOf, type AnimatorRuntime } from "../instances";
+import { animatorsOf, inEditMode, type AnimatorRuntime } from "../instances";
 import { clipData, type ClipData } from "../properties/clipData";
 import { clipPathOf } from "../properties/scatter";
 import { trackRow } from "../properties/trackRegion";
@@ -124,7 +126,7 @@ function decode(frame: AnimationFrame, rt: AnimatorRuntime, out: Pending[]): voi
 export function deliverEvents(frame: AnimationFrame): void {
   let pending: Pending[] | null = null;
   for (const rt of animatorsOf(frame.world)) {
-    if (!inPass(frame, rt)) continue;
+    if (!inPass(frame, rt) || inEditMode(rt)) continue;
     decode(frame, rt, (pending ??= []));
   }
   if (!pending?.length) return;

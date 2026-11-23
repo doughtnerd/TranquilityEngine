@@ -27,6 +27,10 @@
 // - **Promises:** `play()` resolves `finished` at the end (`hold`, `none`), `stopped` on `stop()`, deactivation or
 //   destruction, `interrupted` when `play()` is called again while one waits. A looping timeline's resolves only when
 //   stopped or interrupted.
+// - **Edit mode** (ADR 0026, D135): inside a scene being edited the director activates (`_activatesInEditMode`) but stays
+//   inert: nothing loads, nothing plays, no field is written. An editor preview loads it with `previewTimeline` (never
+//   playing on start; the preview writes `playhead` to seek) and lets it go with `endTimelinePreview`, which destroys the
+//   instance again. Audio and control keys don't fire in edit mode.
 import { parseAnimSource } from "../../../../engine/animation/animSource";
 import { parseTimeline } from "../../../../engine/animation/timeline";
 import { TRACK_KINDS, CONTROL_ACTIONS } from "../../../../engine/animation/tracks";
@@ -205,6 +209,8 @@ interface DirectorRuntime {
   t: number;
   written: number;
   waiting: ((r: AnimationPlayResult) => void) | null;
+  /** An editor preview wants an instance although the director is in edit mode (`previewTimeline`). */
+  previewing: boolean;
 }
 
 const runtimes = new WeakMap<TimelineDirector, DirectorRuntime>();
@@ -236,6 +242,7 @@ function runtimeOf(director: TimelineDirector): DirectorRuntime {
       t: 0,
       written: 0,
       waiting: null,
+      previewing: false,
     };
     runtimes.set(director, rt);
     let set = byWorld.get(world);
@@ -267,9 +274,15 @@ function destroyInstance(rt: DirectorRuntime): void {
   rt.playing = false;
 }
 
+/** Whether the director is inside a scene being edited (ADR 0026). */
+function editing(rt: DirectorRuntime): boolean {
+  return rt.director.node.isValid && rt.world.inEditMode(rt.director.node.entity);
+}
+
 async function activate(rt: DirectorRuntime): Promise<void> {
   const epoch = ++rt.epoch;
   rt.active = true;
+  if (!rt.previewing && editing(rt)) return; // inert until a preview asks (see the file header)
   let ns: AnimationWorldCore | null = null;
   try {
     ns = await startAnimationCore(rt.world);
@@ -302,7 +315,7 @@ function createInstance(rt: DirectorRuntime, ns: AnimationWorldCore): void {
   const loaded = rt.loaded!;
   const d = rt.director;
   rt.wrap = d.wrapMode === "loop" || d.wrapMode === "none" ? d.wrapMode : "hold";
-  const play = d.playOnStart || rt.wantPlay;
+  const play = (d.playOnStart && !editing(rt)) || rt.wantPlay;
   const start = Number.isFinite(d.playhead) && d.playhead > 0 ? d.playhead : 0;
   const h = ns.createTimeline({ hostId: rt.hostId, clip: loaded.root.handle, timeMode: TIME_SCALED, wrap: rt.wrap === "loop" ? WRAP_LOOP : WRAP_HOLD, flags: play ? FLAG_PLAY : 0, speed: 1, start });
   if (h === 0) {
@@ -352,6 +365,37 @@ export const timelineHooks: LifecycleHooks<TimelineDirector> = {
     runtimes.delete(d);
   },
 };
+
+// ------------------------------------------------------------------------------------------------ editor preview
+
+/**
+ * @internal An editor preview (re)loads `director` from its fields (`timeline`, `wrapMode`, `playhead`): in edit mode it
+ * makes an instance that doesn't play (the preview seeks by writing `playhead`); outside edit mode it reloads as a
+ * re-activation would.
+ */
+export function previewTimeline(director: TimelineDirector): void {
+  const rt = runtimeOf(director);
+  rt.previewing = true;
+  if (!rt.active) return;
+  destroyInstance(rt);
+  void activate(rt);
+}
+
+/** @internal The preview lets `director` go: in edit mode its instance goes (inert again); outside it, it reloads from its fields. */
+export function endTimelinePreview(director: TimelineDirector): void {
+  const rt = runtimes.get(director);
+  if (!rt?.previewing) return;
+  rt.previewing = false;
+  if (!rt.active) return;
+  if (editing(rt)) {
+    rt.epoch++;
+    destroyInstance(rt);
+    settle(rt, "stopped");
+    return;
+  }
+  destroyInstance(rt);
+  void activate(rt);
+}
 
 // ------------------------------------------------------------------------------------------------ the API
 
@@ -559,7 +603,7 @@ function decodeRecords(frame: AnimationFrame, byInstance: Map<number, DirectorRu
     if (stride === undefined) break; // not this build's layout
     const instance = view.getUint32(at + 4, true);
     const rt = byInstance.get(instance);
-    if (rt) {
+    if (rt && !editing(rt)) {
       if (opcode === AUDIO.opcode) {
         const r = getRecord(view, at, AUDIO);
         const data = clipData(core, r.clip);

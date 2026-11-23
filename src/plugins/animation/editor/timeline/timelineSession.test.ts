@@ -1,7 +1,9 @@
 // T53 (ADR 0373): the Timeline window's session in a headless editor with a project and an open scene, through the editor
 // SDK as the panels use it. Selecting a node under a TimelineDirector binds the window to the director's timeline; edits
 // are one undo step on the timeline's document, a refused edit changes nothing, nested timelines open and the breadcrumb
-// leads back, and the preview plays the edited timeline on the director in the Editor World and puts the scene back.
+// leads back, and the preview plays the edited timeline on the director in the Editor World and puts the scene back. The
+// scene is in edit mode, as the editor opens it (ADR 0026): the director, though it plays on start, does nothing until
+// the preview drives it, and nothing again after (D135).
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, GameObject, Input, Light } from "../../../../myco";
 import { OrbitCamera } from "../../../../editor/OrbitCamera";
@@ -22,7 +24,7 @@ const INNER = "animation/inner.timeline.json";
 const SCENE = {
   format: "myco.scene@4",
   nodes: [
-    { id: "dir", name: "Dir", components: [{ type: "engine.Transform", data: {} }, { type: "engine.TimelineDirector", data: { timeline: `asset:${FILE}`, playOnStart: false } }] },
+    { id: "dir", name: "Dir", components: [{ type: "engine.Transform", data: {} }, { type: "engine.TimelineDirector", data: { timeline: `asset:${FILE}`, playOnStart: true } }] },
     { id: "lamp", name: "Lamp", parent: "dir", components: [{ type: "engine.Transform", data: {} }, { type: "engine.Light", data: { type: "point", intensity: 1 } }] },
     { id: "loose", name: "Loose", components: [{ type: "engine.Transform", data: {} }] },
   ],
@@ -106,18 +108,40 @@ describe("the Timeline window's session (ADR 0373)", () => {
     if (t.kind !== "director") throw new Error("not bound");
     const lamp = scene.sync.nodeFor(["lamp"])!;
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    s.setPreview(true);
-    s.seek(0.5);
     const light = lamp.getComponent(Light)!;
+    const saved = JSON.stringify(scene.doc.toJSON());
+    const frames = async (n: number) => {
+      for (let i = 0; i < n; i++) {
+        engine.step(1 / 60);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    };
+    expect(engine.world.inEditMode(t.director.node.entity)).toBe(true);
+    // In edit mode the director doesn't play on start: the lamp keeps the scene's value.
+    await frames(30);
+    expect(light.intensity).toBe(1);
+    expect(t.director.playhead).toBe(0);
+
+    s.setPreview(true);
+    s.seek(0.2);
+    s.show();
     await vi.waitFor(() => {
       engine.step(0);
-      expect(light.intensity).toBeCloseTo(1, 4); // the ramp 0 to 2 at 0.5 s
+      expect(light.intensity).toBeCloseTo(0.4, 4); // the ramp 0 to 2 at 0.2 s
     });
     expect(t.director.timeline).toContain(".animation-preview/");
+    await frames(10); // the preview holds: no time passes
+    expect(light.intensity).toBeCloseTo(0.4, 4);
+    expect(t.director.playhead).toBeCloseTo(0.2, 6);
+
     s.setPreview(false);
     expect(t.director.timeline.replace(/^asset:/, "")).toBe(FILE);
-    expect(t.director.playOnStart).toBe(false);
+    expect(t.director.playOnStart).toBe(true);
     expect(light.intensity).toBe(1); // the scene's own value is back
+    await frames(30); // and the director is still again
+    expect(light.intensity).toBe(1);
+    expect(t.director.playhead).toBe(0);
+    expect(JSON.stringify(scene.doc.toJSON())).toBe(saved);
     warn.mockRestore();
   });
 });

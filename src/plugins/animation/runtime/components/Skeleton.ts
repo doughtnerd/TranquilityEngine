@@ -21,6 +21,11 @@ export class Skeleton extends Component {
   @field(AssetRef, { kind: ["skeleton", "skelprofile"], animatable: false, description: "Where clips authored for another rig come from, for retargeting. Empty: none." })
   retargetSource = "";
 
+  /** @internal Loads its bones in a scene being edited too, so an editor preview can pose them (ADR 0026, D135). */
+  override get _activatesInEditMode(): boolean {
+    return true;
+  }
+
   override _onAttach(): void {
     skeletonHooks.attach?.(this);
   }

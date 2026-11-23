@@ -1,17 +1,22 @@
 // Preview playback in the viewport without entering play mode (ADR 0373): the clip being edited plays on the bound
 // Animator in the Editor World through the runtime's own path (the animation service runs in every World kind, T13t),
-// so the viewport shows exactly what the game would: `Animator.play` with speed 0 at the playhead's normalised time,
+// so the viewport shows exactly what the game would: a play with speed 0 at the playhead's normalised time,
 // the clip resolved by `clipSources.ts` and played in its raw form (T19's `rawClip.ts`), property tracks written by
 // the binding table (T20t). No TypeScript evaluates the clip.
 //
 // The runtime acquires a clip once per Animator and path and keeps it (D119), so each edited version of the clip is
 // served under a path of its own (`.animation-preview/<n>/<file>`) from an in-memory asset source: the next show after
 // an edit plays the new version. Only the latest versions are kept in the source.
+//
+// The scene open in the editor is in edit mode (ADR 0026), where an Animator is inert: the runtime's edit preview
+// (`runtime/features/editPreview.ts`, D135) gives it an instance for the preview, playing only the clip being edited
+// (no graph, `defaultClip`, root motion or notifies), and `stop` takes it away again, so the bones go back to rest.
 import type { AnimSource } from "../../../../engine/animation/animSource";
 import { animSourceToJson } from "../../../../engine/animation/animSource";
 import { timelineToJson, TIMELINE_FORMAT, TIMELINE_SUFFIX, type Timeline } from "../../../../engine/animation/timeline";
 import { Assets, type AssetSource } from "../../../../engine/scene/Assets";
 import type { Animator } from "../../runtime/components/Animator";
+import { endClipPreview, previewClip } from "../../runtime/features/editPreview";
 
 /** Versions kept in the preview source (older ones are dropped; an Animator holding one keeps its loaded copy). */
 const KEPT = 4;
@@ -46,12 +51,15 @@ export class ClipPreviewPlayer {
     const path = this.pathOf(clip, file);
     const d = clip.duration;
     const normalizedTime = d > 0 ? Math.min(1, Math.max(0, t / d)) : 0;
-    void animator.play(path, { speed: 0, normalizedTime, loop: false });
+    previewClip(animator, path, normalizedTime);
   }
 
-  /** Stop previewing on `animator` (its fields keep the last values shown, as in the game, D107). */
+  /**
+   * Stop previewing on `animator`: in a scene being edited its bones go back to rest; its fields keep the last values
+   * shown (as in the game, D107) until the session puts the scene's back (`restoreBindings`).
+   */
   stop(animator: Animator): void {
-    animator.stop();
+    endClipPreview(animator);
   }
 
   /** Drop the served versions and leave the asset sources. */

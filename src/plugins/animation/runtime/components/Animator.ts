@@ -212,6 +212,11 @@ export class Animator extends Component {
 
   // ------------------------------------------------------------------------------------------------ lifecycle
 
+  /** @internal Activates in a scene being edited, inert until an editor preview drives it (ADR 0026, D135; `features/instances.ts`). */
+  override get _activatesInEditMode(): boolean {
+    return true;
+  }
+
   override _onAttach(): void {
     animatorHooks.attach?.(this);
   }
