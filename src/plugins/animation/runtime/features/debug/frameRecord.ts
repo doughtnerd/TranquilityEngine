@@ -19,6 +19,24 @@ import { readDebugReport, type DebugReport } from "./report";
 
 /** The record type (below 0x80, after audio's request records 0x10–0x1f; T73's take records reuse it). */
 export const ANIM_FRAME = 0x40;
+/**
+ * The animation records a take holds beside `ANIM_FRAME` (ADR 0348, 0373; T73; payloads in `takeRecords.ts`). They sit in
+ * the range plugins may write into a take (`engine/audio/take/extensions.ts`, 0x40..0x7e); a reader that doesn't know them
+ * passes over them by length. The records of one Animator are written in this order each frame, and the records
+ * after an `ANIM_TARGET` or `ANIM_SELECT` belong to the Animator it names, until the next one:
+ *
+ * | Record        | Type | Content                                                                              |
+ * |---------------|------|--------------------------------------------------------------------------------------|
+ * | `ANIM_FRAME`  | 0x40 | one `AnimatorDebugFrame` (this file): inputs, report, parameters, root motion         |
+ * | `ANIM_TARGET` | 0x41 | declares an Animator: id, label, graph path, graph hash, bones, the graph's tables    |
+ * | `ANIM_KEY`    | 0x42 | the instance's snapshot before the frame applied (a keyframe: replay can start here)  |
+ * | `ANIM_RAW`    | 0x43 | the rows and commands the core applied that frame, so it can be re-evaluated          |
+ * | `ANIM_SELECT` | 0x44 | the Animator the records after it belong to                                          |
+ */
+export const ANIM_TARGET = 0x41;
+export const ANIM_KEY = 0x42;
+export const ANIM_RAW = 0x43;
+export const ANIM_SELECT = 0x44;
 /** A string's cap, UTF-8 bytes (longer ones are cut on encode). */
 export const FRAME_TEXT_MAX_BYTES = 1024;
 /** Parameters (the blackboard holds 64) and inputs per frame. */

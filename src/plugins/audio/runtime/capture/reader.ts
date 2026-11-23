@@ -18,6 +18,7 @@ import {
   type GapPayload, type IndexPayload, type MarkerPayload, type MixOpPayload, type NameTable,
   type NamesPayload, type RecordHead, CAPTURE_FLAG_TAKE, TAKE_MAX_UNCOMPRESSED_BYTES, decodeRequestRecord, isTakeRecordType,
 } from "./format";
+import { isTakeExtensionType, type TakeExtensionRecord } from "../../../../engine/audio/take/extensions";
 import type { TakeRecord } from "../../../../engine/audio/take/records";
 import { LOUD_OUTPUT_TAP, readStatus, readStatusHeaderField, STATUS_HEADER_COLUMNS, type StatusBlock, type StatusHeaderField } from "../wire.generated";
 import { firstAtOrAfter, lastAtOrBefore } from "../../../../engine/core/sortedSearch";
@@ -70,6 +71,11 @@ export interface ReaderOptions {
    * it the reader passes over them (the Profiler's views read only the profile records).
    */
   onRequestRecord?(record: TakeRecord, seq: number): void;
+  /**
+   * ADR 0348: each plugin record of a take (types 0x40..0x7e, `engine/audio/take/extensions.ts`), with its payload copied.
+   * The reader doesn't read them: the plugin that wrote one decodes it. Without this they are passed over.
+   */
+  onExtensionRecord?(record: TakeExtensionRecord): void;
 }
 
 /** Records between cancel checks and progress calls. */
@@ -356,6 +362,9 @@ export class CaptureDecoder {
           if (!c.take) throw new CaptureError("badRecord", at, `a request record (type 0x${h.type.toString(16)}) in a capture that is not a take`);
           const r = decodeRequestRecord(h.type, view, p, len, base);
           this.opts.onRequestRecord?.(r, h.seq);
+        }
+        else if (c.take && isTakeExtensionType(h.type) && this.opts.onExtensionRecord) {
+          this.opts.onExtensionRecord({ type: h.type, seq: h.seq, payload: new Uint8Array(view.buffer, view.byteOffset + p, len).slice() });
         }
         break; // an unknown type below 0x80: skipped by `len` (§5.3)
     }

@@ -10,6 +10,9 @@
 // the requests are never dropped: a take that would pass the take cap (256 MiB) stops recording with a message, and what
 // it holds can still be saved. A take stops by itself when Play stops (or the Engine goes): it is kept for a `save()`.
 import { mixer } from "../../../../engine/audio/mixer";
+import { takeSources, type TakeSourceRun } from "../../../../engine/audio/take/extensions";
+import type { Engine } from "../../../../engine/core/Engine";
+import { World } from "../../../../engine/core/World";
 import { onAudioSessionReleased } from "../audioSession";
 import { playlistHost } from "../playlists/host";
 import { captureTakeRing, onCapturePlayStopped, type CaptureTakeRing } from "./capture";
@@ -73,6 +76,8 @@ class Take implements AudioTake {
   private saved: SaveTake | null = null;
   private lastSeconds = 0;
   private seedFacts = { seed: 0, seeded: false, audioHash: "" };
+  /** The plugins' take sources recording beside this take (ADR 0348, `engine/audio/take/extensions.ts`). */
+  private runs: TakeSourceRun[] = [];
   /** Why the last take stopped by itself (the cap, the recorder released); null when it was stopped. */
   stopMessage: string | null = null;
 
@@ -137,6 +142,34 @@ class Take implements AudioTake {
     this.saved = null;
     this.stopMessage = null;
     takeTap.sink = rec;
+    await this.startSources(rec, token);
+  }
+
+  /** Starts each registered plugin source on the active World's Engine; one that fails to load or start is logged and left out. */
+  private async startSources(rec: TakeRecorder, token: number): Promise<void> {
+    const engine = World.active?._owner as Engine | null | undefined;
+    if (!engine || typeof engine.worlds !== "function") return; // a World with no Engine (a bare test World)
+    for (const [name, load] of takeSources()) {
+      try {
+        const source = await load();
+        if (token !== this.token || this.rec !== rec) return; // stopped while loading
+        this.runs.push(source.start({ engine, get seconds() { return rec.seconds; }, write: (type, payload) => rec.writeExtension(type, payload) }));
+      } catch (e) {
+        console.warn(`[myco] Audio.take: the "${name}" source couldn't start (${messageOf(e)}).`);
+      }
+    }
+  }
+
+  private stopSources(): void {
+    const runs = this.runs;
+    this.runs = [];
+    for (const r of runs) {
+      try {
+        r.stop();
+      } catch (e) {
+        console.warn(`[myco] Audio.take: a source couldn't stop (${messageOf(e)}).`);
+      }
+    }
   }
 
   stop(message: string | null = null): void {
@@ -149,6 +182,7 @@ class Take implements AudioTake {
     this.ring = null;
     if (message !== null) this.stopMessage = message;
     this.lastSeconds = rec.seconds;
+    this.stopSources();
     try {
       const { requests, section } = rec.finish(this.seedFacts);
       const frozen = ring.freeze();

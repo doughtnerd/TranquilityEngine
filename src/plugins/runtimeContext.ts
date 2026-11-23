@@ -8,6 +8,7 @@ import { _undefineBuiltinSystem, _undefineSystem, defineBuiltinSystem, defineSys
 import { _registerWorldService, type WorldServiceDef } from "../engine/core/worldServices";
 import { _registerRenderFeature, type RenderFeatureRegistration, type RenderFeatureSpec } from "../engine/render/renderFeatures";
 import { registerDebugTopic, type DebugTopicLoader } from "../engine/debugLink/topics";
+import { registerTakeSource, type TakeSourceLoader } from "../engine/audio/take/extensions";
 import type { PluginManifest } from "./manifest";
 import type { HalfActivator, PluginsView } from "./pluginSet";
 
@@ -66,6 +67,12 @@ export interface RuntimePluginContext {
    * of it). Removed again on deactivation.
    */
   readonly debugLink: { topic(name: string, load: DebugTopicLoader): void };
+  /**
+   * Takes (ADR 0348): `source(name, load)` registers a source of records a take writes beside audio's (record types
+   * 0x40..0x7e). `load` is an `import()` of the source's code, which only a take that starts loads. Removed again on
+   * deactivation.
+   */
+  readonly take: { source(name: string, load: TakeSourceLoader): void };
 }
 
 /** A plugin's runtime half. */
@@ -134,6 +141,7 @@ function disableRuntimePlugin(plugin: RuntimePlugin): void {
     registerRenderFeature: () => {},
     contribute: () => {},
     debugLink: { topic: () => {} },
+    take: { source: () => {} },
   });
 }
 
@@ -173,6 +181,7 @@ function activateRuntimePlugin(plugin: RuntimePlugin, plugins: PluginsView = { i
     },
     contribute: (point, value) => void undo.push(point.register(value)),
     debugLink: { topic: (topic, load) => void undo.push(registerDebugTopic(topic, load)) },
+    take: { source: (name, load) => void undo.push(registerTakeSource(name, load)) },
   };
   try {
     plugin.activate(context);
