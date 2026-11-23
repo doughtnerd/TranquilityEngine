@@ -2,10 +2,13 @@
 // commands crate) and connects out by code (everywhere), with the editor's link class (`EditorDebugLink`), accept
 // prompt, builds menu and Connect dialog. The Profiler (U5), Take (U5) and Mixer (U8) screens read the build chosen
 // here and talk to it through its `DebugLinkPeer` (the `audio` topic).
-//
-// C7 (plan §8): the signal U5 and U8 read is declared now; U4 fills `startStudioDebugLink`.
-import { computed, signal, type ReadonlySignal } from "@preact/signals";
-import type { ConnectedBuild, EditorDebugLink } from "../../editor/debugLink/editorLink";
+import { computed, effect, signal, type ReadonlySignal } from "@preact/signals";
+import { isTauri } from "../../engine/platform/FileSystem";
+import { createTransport, transportCanListen, type Transport } from "../../engine/net/Transport";
+import "../../engine/net/transport/websocket";
+import { DEFAULT_DEBUG_LINK_PREFERENCES, cleanPreferences, type DebugLinkPreferences } from "../../editor/debugLink/debugLinkLogic";
+import { EditorDebugLink, type ConnectedBuild } from "../../editor/debugLink/editorLink";
+import { persisted } from "../../editor/preferences";
 
 const linkSignal = signal<EditorDebugLink | null>(null);
 
@@ -15,8 +18,44 @@ export const studioLink: ReadonlySignal<EditorDebugLink | null> = linkSignal;
 /** The build the Studio's screens read: the link's active build, or null (the Studio's own runtime then). */
 export const studioBuild: ReadonlySignal<ConnectedBuild | null> = computed(() => linkSignal.value?.active.value ?? null);
 
-/** Starts the Studio's link (listening as its preferences say); returns the stop. C7 stub: U4 fills it and sets `linkSignal`. */
-export function startStudioDebugLink(): () => void {
-  void linkSignal;
-  throw new Error("U4: not implemented");
+/** The Studio's debug link preferences (per user, apart from the editor's): listening on for this machine, the LAN off. */
+export const studioDebugLinkPreferences = persisted<DebugLinkPreferences>("myco.studio.debugLink", DEFAULT_DEBUG_LINK_PREFERENCES);
+
+/** Options for tests; the app passes none. */
+export interface StudioLinkOptions {
+  /** A listening transport (default: the WebSocket transport where this host can listen). */
+  readonly transport?: () => Transport | null;
+  /** Registers the native listening transport first (default: the desktop app's, `tauriListener.ts`; nothing in a browser). */
+  readonly registerNative?: () => Promise<void>;
+  /** Polls by timer (default true). */
+  readonly autoPoll?: boolean;
+}
+
+/**
+ * Starts the Studio's link (listening as its preferences say, again when they change); returns the stop. In the
+ * desktop app the native listening transport is registered first (dynamic import); in a browser page the link can't
+ * listen (the settings say so) but can still connect out.
+ */
+export function startStudioDebugLink(options: StudioLinkOptions = {}): () => void {
+  let stopped = false;
+  let dispose: (() => void) | null = null;
+  const register = options.registerNative ?? (isTauri() ? () => import("../../engine/debugLink/tauriListener").then((m) => m.registerTauriWebSocketTransport()) : () => Promise.resolve());
+  void register()
+    .catch((err) => console.warn("[studio] the native debug-link listener didn't register:", err))
+    .then(() => {
+      if (stopped) return;
+      const link = new EditorDebugLink({
+        name: "Audio Studio",
+        autoPoll: options.autoPoll,
+        transport: options.transport ?? (() => (transportCanListen("websocket") ? createTransport("websocket") : null)),
+      });
+      linkSignal.value = link;
+      dispose = effect(() => void link.apply(cleanPreferences(studioDebugLinkPreferences.value)));
+    });
+  return () => {
+    stopped = true;
+    dispose?.();
+    linkSignal.peek()?.stop();
+    linkSignal.value = null;
+  };
 }
