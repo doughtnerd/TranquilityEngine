@@ -5,6 +5,7 @@ import { signal } from "@preact/signals";
 import { AcceptPrompt } from "../../editor/debugLink/AcceptPrompt";
 import { BuildsMenu } from "../../editor/debugLink/BuildsMenu";
 import { ConnectDialog } from "../../editor/debugLink/ConnectDialog";
+import { OfferRoomDialog } from "../../editor/debugLink/OfferRoomDialog";
 import { DebugLinkFields } from "../../editor/debugLink/DebugLinkSettings";
 import { cleanPreferences } from "../../editor/debugLink/debugLinkLogic";
 import { studioDebugLinkPreferences, studioLink } from "./studioLink";
@@ -12,6 +13,7 @@ import "../../editor/debugLink/debugLink.css";
 import "./studioLink.css";
 
 const connectOpen = signal(false);
+const offerOpen = signal(false);
 const settingsOpen = signal(false);
 
 /** The status bar's button and menu (nothing until the link has started). */
@@ -28,8 +30,10 @@ export function StudioBuildsMenu() {
         onDisconnect={(id) => link.disconnect(id)}
         onSettings={() => (settingsOpen.value = true)}
         onConnect={() => (connectOpen.value = true)}
+        onOfferRoom={() => (offerOpen.value = true)}
       />
       {connectOpen.value && <ConnectDialog onConnect={(target) => link.connect(target)} onClose={() => (connectOpen.value = false)} />}
+      {offerOpen.value && <OfferRoomDialog offer={() => link.offerRoom()} onClose={() => (offerOpen.value = false)} />}
       {settingsOpen.value && (
         <div class="studio-link-settings" onPointerDown={(e) => e.target === e.currentTarget && (settingsOpen.value = false)}>
           <div class="dialog" role="dialog" aria-modal="true" aria-label="Debug link settings" onKeyDown={(e) => e.key === "Escape" && (settingsOpen.value = false)}>

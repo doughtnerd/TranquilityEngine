@@ -7,6 +7,7 @@ import { usePopover } from "../ui/popover";
 import { buildLabel, buildsButtonText, type BuildEntry } from "./debugLinkLogic";
 import type { ListenState } from "./editorLink";
 import { ConnectDialog } from "./ConnectDialog";
+import { OfferRoomDialog } from "./OfferRoomDialog";
 import { editorDebugLink } from "./link";
 import { PlayBuildSlot } from "./playBuild";
 import "./debugLink.css";
@@ -24,6 +25,11 @@ export interface BuildsMenuProps {
    * and the dialog; absent, no item.
    */
   onConnect?(): void;
+  /**
+   * Opens the Offer a room dialog (ADR 0381: a tool that can't listen shows a room code a browser game joins with
+   * `?debug-code=`); absent, no item.
+   */
+  onOfferRoom?(): void;
   /**
    * Drawn at the top of the open menu: the editor's Play as a build (its code and paired tools, `playBuild.ts`). C7: U1
    * renders it; U3 fills it.
@@ -93,6 +99,11 @@ export function BuildsMenu(props: BuildsMenuProps) {
               Connect to a build…
             </button>
           )}
+          {props.onOfferRoom && (
+            <button role="menuitem" onClick={() => pick(props.onOfferRoom!)}>
+              Offer a room…
+            </button>
+          )}
           <button role="menuitem" onClick={() => pick(props.onSettings)}>
             Debug link settings…
           </button>
@@ -113,6 +124,7 @@ export function DebugLinkBuilds({ onSettings }: { onSettings(): void }) {
   const link = editorDebugLink();
   const builds = link.builds.value;
   const [connecting, setConnecting] = useState(false);
+  const [offering, setOffering] = useState(false);
   return (
     <>
       <BuildsMenu
@@ -123,9 +135,11 @@ export function DebugLinkBuilds({ onSettings }: { onSettings(): void }) {
         onDisconnect={(id) => link.disconnect(id)}
         onSettings={onSettings}
         onConnect={() => setConnecting(true)}
+        onOfferRoom={() => setOffering(true)}
         playSlot={link.play.value ? <PlayBuildSlot build={link.play.value} /> : undefined}
       />
       {connecting && <ConnectDialog onConnect={(target) => link.connect(target)} onClose={() => setConnecting(false)} />}
+      {offering && <OfferRoomDialog offer={() => link.offerRoom()} onClose={() => setOffering(false)} />}
     </>
   );
 }
