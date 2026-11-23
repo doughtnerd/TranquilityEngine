@@ -14,6 +14,7 @@
  */
 import type { ContributionPoint } from "../../runtimeContext";
 import type { Quaternion, Vector3 } from "../../../engine/core/math";
+import type { GameObject } from "../../../engine/scene/GameObject";
 import type { Animator } from "./components/Animator";
 import { registerPhysicalClient } from "./features/physical";
 
@@ -101,8 +102,23 @@ export interface RagdollBodyPose {
   readonly multiplier?: number;
 }
 
+/** @internal The skeleton an Animator animates, as a ragdoll builds bodies on it (T44). */
+export interface RagdollRig {
+  /** The Skeleton's node: model space is its frame (bone poses, drive targets and bodies are relative to it). */
+  readonly node: GameObject;
+  readonly names: readonly string[];
+  /** Each bone's parent index, or -1; parents come first. */
+  readonly parents: Int32Array;
+  /** The rest pose in model space: 3×4 row-major, 12 floats per bone. */
+  readonly restModel: Float32Array;
+}
+
 /** @internal What the animation plugin offers a connected ragdoll plugin. Methods take the Animator that owns the instance. */
 export interface PhysicalAnimationSource {
+  /** The skeleton the Animator's instance is bound to, once it is (null before, or without a Skeleton). */
+  rig(animator: Animator): RagdollRig | null;
+  /** The default description for the Animator's skeleton (the core's builder: joint ranges, else profile roles), or null. */
+  defaultDescription(animator: Animator): Promise<RagdollDescription | null>;
   /** Give an Animator's instance a ragdoll; false when its skeleton doesn't match or every physics row is taken. */
   attach(animator: Animator, ragdoll: RagdollDescription): boolean;
   /** Take the ragdoll off an Animator's instance. */

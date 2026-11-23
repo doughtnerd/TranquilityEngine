@@ -14,6 +14,7 @@ import { tilemapsEditorPlugin } from "./tilemaps/editor";
 import { meshesEditorPlugin } from "./meshes/editor";
 import { environmentEditorPlugin } from "./environment/editor";
 import { postProcessingEditorPlugin } from "./post-processing/editor";
+import { ragdollEditorPlugin } from "./ragdoll/editor";
 import { uiEditorPlugin } from "./ui/editor";
 
 // Catalogue entries' editor halves (ADR 0275), in registration order. Particles first: its panel and the
@@ -34,6 +35,7 @@ const EDITOR_HALVES: { readonly [K in FirstPartyPlugin]?: EditorPlugin } = {
   ui: uiEditorPlugin,
   subtitles: subtitlesEditorPlugin,
   animation: animationEditorPlugin,
+  ragdoll: ragdollEditorPlugin,
 };
 
 /** The first-party editor halves, in registration order (panels, settings categories). */

@@ -13,6 +13,7 @@ import { particlesManifest } from "./particles/manifest";
 import { physicsManifest } from "./physics/manifest";
 import { physicsRapierManifest } from "./physics-rapier/manifest";
 import { postProcessingManifest } from "./post-processing/manifest";
+import { ragdollManifest } from "./ragdoll/manifest";
 import { skyManifest } from "./sky/manifest";
 import { spritesManifest } from "./sprites/manifest";
 import { subtitlesManifest } from "./subtitles/manifest";
@@ -44,6 +45,8 @@ export const FIRST_PARTY = {
   subtitles: subtitlesManifest,
   // After physics and audio, its optional dependencies (ADR 0370, 0374).
   animation: animationManifest,
+  // After physics and animation, which it needs (ADR 0375).
+  ragdoll: ragdollManifest,
 } as const satisfies Readonly<Record<string, PluginManifest>>;
 
 /** A first-party plugin's catalogue key: its folder under `src/plugins/`. */

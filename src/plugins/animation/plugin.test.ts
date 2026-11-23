@@ -178,20 +178,21 @@ describe("the ragdoll contribution point (ADR 0375)", () => {
     expect(log).toEqual(["a", "a off"]);
   });
 
-  it("offers a source whose methods name T44 until it is built", async () => {
+  it("offers a source that refuses, answers nothing or does nothing for an Animator without a skeleton instance (T44)", async () => {
     const seen: { source: PhysicalAnimationSource | null } = { source: null };
     runtimeActivator.activate(ragdollPlugin([], seen));
     const engine = await Engine.create({ headless: true });
     engines.push(engine);
     const anim = GameObject.create("Rig").addComponent(Animator);
     const source = seen.source!;
-    const notBuilt = /^Animation: PhysicalAnimationSource\.\w+ is not built yet \(T44\)\.$/;
-    expect(() => source.attach(anim, { bones: [], front: "+z" })).toThrow(notBuilt);
-    expect(() => source.detach(anim)).toThrow(notBuilt);
-    expect(() => source.control(anim, { strength: 1 })).toThrow(notBuilt);
-    expect(() => source.drives(anim)).toThrow(notBuilt);
-    expect(() => source.setPhysicalPose(anim, [])).toThrow(notBuilt);
-    expect(() => source.captureSnapshot(anim, "Physical", "GetUp")).toThrow(notBuilt);
+    expect(source.rig(anim)).toBeNull();
+    await expect(source.defaultDescription(anim)).resolves.toBeNull();
+    expect(source.attach(anim, { bones: [], front: "+z" })).toBe(false);
+    expect(() => source.detach(anim)).not.toThrow();
+    expect(() => source.control(anim, { strength: 1 })).not.toThrow();
+    expect(source.drives(anim)).toBeNull();
+    expect(() => source.setPhysicalPose(anim, [])).not.toThrow();
+    expect(source.captureSnapshot(anim, "Physical", "GetUp")).toBe(false);
     runtimeActivator.deactivate("t.ragdoll");
   });
 });

@@ -13,6 +13,7 @@ import { physicsRuntimePlugin } from "./physics/runtime";
 import { physicsRapierRuntimePlugin } from "./physics-rapier/runtime";
 import { createPluginSet, throwOnPluginProblem, type PluginSet, type SetPlugin } from "./pluginSet";
 import { postProcessingRuntimePlugin } from "./post-processing/runtime";
+import { ragdollRuntimePlugin } from "./ragdoll/runtime";
 import { runtimeActivator, type RuntimePlugin } from "./runtimeContext";
 import { skyRuntimePlugin } from "./sky/runtime";
 import { spritesRuntimePlugin } from "./sprites/runtime";
@@ -39,6 +40,7 @@ const RUNTIME_HALVES: { readonly [K in FirstPartyPlugin]: RuntimePlugin } = {
   audio: audioRuntimePlugin,
   subtitles: subtitlesRuntimePlugin,
   animation: animationRuntimePlugin,
+  ragdoll: ragdollRuntimePlugin,
 };
 
 /** The first-party runtime halves in catalogue order, the order render features and systems register in (ADR 0135, 0140). */

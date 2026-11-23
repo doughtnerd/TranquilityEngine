@@ -51,7 +51,7 @@ export { animatorParams, parallel, sequence, tween } from "./api";
 export type * from "./types";
 
 // First-party plugins only (the ragdoll plugin, ADR 0375): not exported from `myco`.
-export { PHYSICAL_ANIMATION, type PhysicalAnimationClient, type PhysicalAnimationSource, type RagdollBodyPose, type RagdollBoneDescription, type RagdollControl, type RagdollDescription, type RagdollDrives, type RagdollDriveTarget } from "./ragdoll";
+export { PHYSICAL_ANIMATION, type PhysicalAnimationClient, type PhysicalAnimationSource, type RagdollBodyPose, type RagdollBoneDescription, type RagdollControl, type RagdollDescription, type RagdollDrives, type RagdollDriveTarget, type RagdollRig } from "./ragdoll";
 
 /** The feature seams, in registration order: the core first (its World service), then what plays through it. */
 const FEATURES: readonly FeatureRegistration[] = [
