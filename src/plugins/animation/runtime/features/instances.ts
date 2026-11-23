@@ -8,7 +8,9 @@
 //   its Avatar's bones in that subtree), it owns one implicit-graph core instance (4 layers × 2 players and a
 //   crossfade, D31) while active and bound. Deactivation or losing the Skeleton destroys the instance and ends its
 //   plays with `stopped`; reactivation makes a new one (Unity resets an Animator's state on re-enable) and plays
-//   `defaultClip` again. Clips are acquired once per Animator and path, and released on detach.
+//   `defaultClip` again. Clips are acquired once per Animator and path, and released on detach. A clip source
+//   (`*.anim.json`, `model#Anim/<name>`) resolves through `clipSources.ts` (T19): the build's compiled file, the editor's
+//   compiled clip, else its raw form made here, bound to the Animator's skeleton.
 //   An Animator with no Skeleton on its node or below gets a zero-bone instance (skeleton handle 0, T17b): clips play
 //   and their property tracks, events, notify states and root curves run, with no pose or matrices (Unity's Animator
 //   animates any property without a rig). When a Skeleton appears later it recreates the instance bound to it, as a
@@ -27,6 +29,7 @@ import { startAnimationCore } from "../core/service";
 import type { LifecycleHooks } from "../lifecycle";
 import { INPUT_LAYER_WEIGHTS, INPUT_STRIDE, HANDLE_INDEX_MASK, MAX_LAYERS } from "../wasm/wire/core";
 import { joinFollowList, leaveFollowList } from "./attachments/follow";
+import { resolveClip, resolveSkeleton, type AnimatorSkeleton, type ResolvedAsset } from "./clipSources";
 import { endAllPlays, queueDefaultClip, type PlayCommand, type PlayRecord } from "./playback/plays";
 
 // ------------------------------------------------------------------------------------------------ state
@@ -163,6 +166,26 @@ async function acquireWithInfo<I>(ns: AnimationWorldCore, path: string, kind: An
   return { handle, info: (info as I | null) ?? null };
 }
 
+/**
+ * One reference to a resolved clip or skeleton (`clipSources.ts`): a file through `acquireWithInfo`, or bytes made on
+ * the host (a raw clip, the editor's compiled clip, a model's skeleton) acquired by their key. Handle 0 when unresolved.
+ */
+async function acquireResolved<I>(ns: AnimationWorldCore, resolved: ResolvedAsset | null, kind: "skeleton" | "clip"): Promise<{ handle: number; info: I | null }> {
+  if (!resolved) return { handle: 0, info: null };
+  if ("path" in resolved) return acquireWithInfo<I>(ns, resolved.path, kind);
+  const handle = ns.acquire(resolved.key, kind, { kind, bytes: resolved.bytes });
+  const info = kind === "skeleton" ? readSkeletonInfo(resolved.bytes) : readClipInfo(resolved.bytes);
+  return { handle, info: (info as I | null) ?? null };
+}
+
+/** The skeleton an Animator's clips bind to (ADR 0371: bone tracks by name): the first Skeleton on its node or below, once loaded. */
+async function animatorSkeleton(rt: AnimatorRuntime): Promise<AnimatorSkeleton | null> {
+  const s = rt.skeleton ?? findSkeleton(rt.world, rt.animator.node);
+  if (!s || !s.component.skeleton) return null;
+  if (s.loading) await s.loading;
+  return { ref: s.component.skeleton, bones: s.info };
+}
+
 /** @internal The clip `path` for an Animator: acquired on first use (once per Animator and path), released on detach. */
 export function clipEntry(rt: AnimatorRuntime, path: string): ClipEntry {
   let entry = rt.clips.get(path);
@@ -175,7 +198,8 @@ export function clipEntry(rt: AnimatorRuntime, path: string): ClipEntry {
       e.handle = 0;
       return;
     }
-    const { handle, info } = await acquireWithInfo<ClipInfo>(ns, path, "clip");
+    const resolved = await resolveClip(path, await animatorSkeleton(rt));
+    const { handle, info } = await acquireResolved<ClipInfo>(ns, resolved, "clip");
     if (rt.detached || rt.clips.get(path) !== e) {
       if (handle) ns.release(handle);
       return;
@@ -206,7 +230,7 @@ function loadSkeleton(s: SkeletonRuntime): Promise<void> {
     const ns = await startAnimationCore(s.world).catch(() => null);
     if (!ns || s.detached || s.path !== path) return;
     s.ns = ns;
-    const { handle, info } = await acquireWithInfo<SkeletonInfo>(ns, path, "skeleton");
+    const { handle, info } = await acquireResolved<SkeletonInfo>(ns, await resolveSkeleton(path), "skeleton");
     if (s.detached || s.path !== path) {
       if (handle) ns.release(handle);
       return;

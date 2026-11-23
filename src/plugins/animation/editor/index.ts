@@ -5,6 +5,7 @@ import type { EditorPlugin, EditorPluginContext } from "../../../editor/sdk";
 import { animationManifest } from "../manifest";
 import { registerAnimationWindow } from "./animationWindow/register";
 import { registerClipImport } from "./clipImport/register";
+import { registerCompile } from "./compile/register";
 import { registerDebugger } from "./debugger/register";
 import { registerFormats } from "./formats/register";
 import { registerGraphEditor } from "./graphEditor/register";
@@ -20,6 +21,7 @@ import { registerTwoD } from "./twoD/register";
 const TOOLS: readonly ((context: EditorPluginContext, on: AnimationEditorIntegrations) => void)[] = [
   registerFormats, // T03t: asset kinds, formats, reference rewriting
   registerScene, // T18: model drops, clips on Animators, bones in the Hierarchy, bone gizmo, clip preview
+  registerCompile, // T19: the clip compile pipeline (compression settings, the compile worker and cache)
   registerAnimationWindow, // T50
   registerGraphEditor, // T51
   registerDebugger, // T52

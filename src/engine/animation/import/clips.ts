@@ -13,7 +13,7 @@
  *       { "name": "Walk", "from": 0, "to": 1.2, "loop": true,       // seconds in the take; `to` absent: its end
  *         "rootMotion": { "bone": "Hips", "axes": ["x", "z", "yaw"], "bakeIntoPose": false },
  *         "additive": { "reference": "first" },                     // "first" (the clip's first frame) or "Clip#frame"
- *         "compression": { "error": 0.1, "maxRate": 30 },           // mm (default 0.1); Hz (default: the clip's)
+ *         "compression": { "error": 0.1, "maxRate": 30 },           // mm; Hz; also propertyError, platforms (T19: unset values inherit)
  *         "markers": [{ "time": 0.3, "kind": "sync", "name": "L" }],
  *         "events": [{ "time": 0.3, "method": "footstep", "args": ["L"] }],
  *         "curves": [{ "name": "FootIK", "curve": [[0, 1], [1.2, 0]] }],
@@ -38,6 +38,7 @@ import { ANIM_SOURCE_FORMAT, ROOT_MOTION_AXES, type AnimSource, type RootMotion 
 import { compact, isFiniteNumber, LenientReader, limited, type JsonRecord } from "../shared";
 import { parseTracks, trackToJson, TRACK_LIMITS, type EventKey, type MarkerKey, type QuatKey, type RangeKey, type Track, type Vec3Key } from "../tracks";
 import type { ImportedTake } from "./channels";
+import { readCompressionLevel, type CompressionLevel } from "../compile/settings";
 
 /** @internal Limits of the section, declared once (ADR 0306). */
 export const ANIMATION_IMPORT_LIMITS = Object.freeze({ takes: 1024, clipsPerTake: 256, boneMap: 1024, error: 1000, maxRate: TRACK_LIMITS.maxRate });
@@ -57,7 +58,8 @@ export interface ClipImportSettings {
   readonly rootMotion: RootMotion | null;
   /** The additive reference pose: `"first"` or `"Clip#frame"`; null: not additive. */
   readonly additive: { readonly reference: string } | null;
-  readonly compression: { readonly error: number; readonly maxRate: number | null };
+  /** What the entry sets (`error` mm, `maxRate` Hz, `propertyError`, `platforms`); the rest inherits (T19, `compile/settings.ts`). */
+  readonly compression: CompressionLevel;
   readonly markers: readonly MarkerKey[];
   readonly events: readonly EventKey[];
   readonly curves: readonly { readonly name: string; readonly curve: Curve }[];
@@ -80,7 +82,7 @@ export interface ModelAnimationSettings {
 export const defaultModelAnimationSettings = (): ModelAnimationSettings => ({ clips: {}, retargetSource: null, profile: null, boneMap: {}, influences: 4 });
 
 /** @internal A clip entry's defaults (named `name`). */
-export const defaultClipSettings = (name: string): ClipImportSettings => ({ name, from: 0, to: null, loop: false, rootMotion: null, additive: null, compression: { error: DEFAULT_COMPRESSION_ERROR, maxRate: null }, markers: [], events: [], curves: [], mirror: false });
+export const defaultClipSettings = (name: string): ClipImportSettings => ({ name, from: 0, to: null, loop: false, rootMotion: null, additive: null, compression: {}, markers: [], events: [], curves: [], mirror: false });
 
 function readRootMotion(r: LenientReader, raw: unknown, where: string): RootMotion | null {
   const o = r.record(raw, where);
@@ -118,10 +120,8 @@ function readClip(r: LenientReader, raw: unknown, where: string): ClipImportSett
   const add = r.record(o.additive, `${where}.additive`);
   if (add) additive = { reference: r.str(add.reference, `${where}.additive.reference`, "first") || "first" };
   const comp = r.record(o.compression, `${where}.compression`);
-  const compression = {
-    error: comp ? r.num(comp.error, `${where}.compression.error`, DEFAULT_COMPRESSION_ERROR, 0.001, ANIMATION_IMPORT_LIMITS.error) : DEFAULT_COMPRESSION_ERROR,
-    maxRate: comp && comp.maxRate !== undefined && comp.maxRate !== null ? r.num(comp.maxRate, `${where}.compression.maxRate`, 30, TRACK_LIMITS.minRate, ANIMATION_IMPORT_LIMITS.maxRate) : null,
-  };
+  // T19: only what the entry sets, so the rest inherits (compile/settings.ts: project → rule → sidecar → platform).
+  const compression = comp ? readCompressionLevel(r, comp, `${where}.compression`) : {};
   const cx = { duration: TRACK_LIMITS.duration, bones: false };
   const markerTrack = o.markers === undefined ? null : parseTracks(r, [{ kind: "marker", keys: o.markers }], `${where}.markers`, cx)[0];
   const eventTrack = o.events === undefined ? null : parseTracks(r, [{ kind: "event", keys: o.events }], `${where}.events`, cx)[0];
@@ -194,7 +194,7 @@ export function parseModelAnimation(raw: unknown, where: string, problems: strin
 function clipToJson(c: ClipImportSettings): JsonRecord {
   const rm = c.rootMotion;
   const sameAxes = rm !== null && rm.axes.length === DEFAULT_AXES.length && rm.axes.every((a, i) => a === DEFAULT_AXES[i]);
-  const comp = compact({ error: c.compression.error === DEFAULT_COMPRESSION_ERROR ? undefined : c.compression.error, maxRate: c.compression.maxRate ?? undefined });
+  const comp = compact({ error: c.compression.error, maxRate: c.compression.maxRate, propertyError: c.compression.propertyError, platforms: c.compression.platforms });
   const markers = c.markers.length ? (trackToJson({ kind: "marker", keys: c.markers }).keys as unknown[]) : undefined;
   const events = c.events.length ? (trackToJson({ kind: "event", target: { nodePath: "", component: "", field: "" }, keys: c.events }).keys as unknown[]) : undefined;
   const curves = c.curves.length ? c.curves.map((k) => ({ name: k.name, curve: (trackToJson({ kind: "curve", target: { nodePath: "", component: "", field: "" }, name: k.name, curves: [k.curve] }).curves as unknown[])[0] })) : undefined;
