@@ -9,7 +9,7 @@ import { addMarker, addRegion, deleteNote, editNote, moveNote, noteColourCss, se
 import { FIXTURE_DURATION, FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
 import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
 import { busStrip, instanceParametersAt, parameterRows, valueText } from "./takeInspectorModel";
-import { findInstance, labelSegments, parameterText, pathLabel, playlistsInTake, takeInstances, takeTimeline } from "./takeTimeline";
+import { findInstance, labelSegments, parameterText, pathLabel, pathTitle, playlistsInTake, takeInstances, takeTimeline } from "./takeTimeline";
 import { frameIndexAt, pictureStrip, visibleFrames } from "../../components/filmstripModel";
 
 const take = fixtureTake();
@@ -21,7 +21,27 @@ describe("the take timeline", () => {
   it("spans the take's real duration and has a lane per path, in first-play order", () => {
     expect(tl.duration).toBe(FIXTURE_DURATION);
     expect(tl.lanes.map((l) => l.label)).toEqual(["engine", "boost", "jump", "brake", "land", "checkpoint"].sort((a, b) => order(a) - order(b)));
-    expect(playlistsInTake(tl).find((p) => p.label === "engine")).toEqual({ path: "vehicles/engine.playlist.json", label: "engine", count: 1 });
+    // Playlists in this take reads as folder / name, never the file's extension.
+    expect(playlistsInTake(tl).find((p) => p.path === "vehicles/engine.playlist.json")).toEqual({ path: "vehicles/engine.playlist.json", label: "vehicles / engine", count: 1 });
+    expect(pathTitle("audio/events/engine-single.playlist.json")).toBe("events / engine-single");
+    expect(pathTitle("click.playlist.json")).toBe("click");
+  });
+
+  it("labels instances by their lane and place, how long they were held and their first parameter, never by id", () => {
+    const boost = tl.lanes.find((l) => l.label === "boost")!.spans[0]!;
+    expect(boost.label).toBe("boost · instance 1 · held 1.8 s");
+    const engine = tl.lanes.find((l) => l.label === "engine")!.spans[0]!;
+    expect(engine.label).toBe("engine · instance 1 · Rpm 900");
+    for (const l of tl.lanes) for (const s of l.spans) expect(s.label).not.toMatch(/#\d/);
+  });
+
+  it("holds a parameter set once across the span it applies to, so its lane draws a step", () => {
+    // The landing sets Velocity once, at its PLAY (20.2 s); it stops at 21.4 s.
+    const velocity = tl.parameters.find((p) => p.key === "impacts/land.playlist.json:Velocity")!;
+    expect(velocity.points).toEqual([{ t: 20.2, v: 0.71 }, { t: 21.4, v: 0.71 }]);
+    // A global's last value holds to the take's end.
+    const speed = tl.parameters.find((p) => p.key === "global:Speed")!;
+    expect(speed.points.at(-1)!.t).toBe(FIXTURE_DURATION);
   });
 
   it("draws each instance from its PLAY to its STOP, held up to its RELEASE", () => {
@@ -31,7 +51,7 @@ describe("the take timeline", () => {
     expect(checkpoint.end).toBeNull(); // never stopped: to the end of the take
     expect(checkpoint.held).toBeNull();
     const land = tl.lanes.find((l) => l.label === "land")!;
-    expect(land.spans[0]!.label).toBe("Velocity 0.71 · Surface 1");
+    expect(land.spans[0]!.label).toBe("land · instance 1 · Velocity 0.71");
     expect(findInstance(tl, land.instances[0]!.key)?.path).toBe("impacts/land.playlist.json");
   });
 
