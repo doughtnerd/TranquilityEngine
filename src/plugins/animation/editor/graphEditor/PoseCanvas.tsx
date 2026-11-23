@@ -40,8 +40,6 @@ export interface PoseCanvasProps {
   readOnly: boolean;
   problems: ProblemIndex;
   onOpenMachine(id: string): void;
-  /** The canvas root that owns the keyboard (Delete, Space, F). */
-  root: { readonly current: HTMLElement | null };
 }
 
 interface PoseSearchItem extends SearchItem { family: GraphFamily; kind: string }
@@ -87,7 +85,7 @@ function NodeView(props: {
 }
 
 export function PoseCanvas(props: PoseCanvasProps) {
-  const { graph, visible, selection, readOnly, root } = props;
+  const { graph, visible, selection, readOnly } = props;
   const [dragging, setDragging] = useState<ReadonlyMap<string, Point> | null>(null);
   const [box, setBox] = useState<{ a: Point; b: Point } | null>(null);
   const shown = graph.nodes.map((n, i) => ({ n, i })).filter(({ n }) => !visible || visible.has(n.id));
@@ -114,7 +112,7 @@ export function PoseCanvas(props: PoseCanvasProps) {
       search.open(at, { pending: null });
     },
   });
-  const search = useGraphSearch<{ pending: { side: "input" | "output"; ref: string } | null }>({ pane: canvas.pane, root, readOnly });
+  const search = useGraphSearch<{ pending: { side: "input" | "output"; ref: string } | null }>({ pane: canvas.pane, root: canvas.pane, readOnly });
 
   const edits: GraphWiringEdits<AnimGraph> = {
     sourceOf: (g, input) => { const { node, port } = split(input); const src = nodeById(g, node)?.inputs[pinIndex(port)]; return src ? `${src}.${OUT}` : null; },
@@ -138,7 +136,7 @@ export function PoseCanvas(props: PoseCanvasProps) {
     graph: () => live.current.graph,
     commit: (next) => live.current.apply({ next }, lastLabel.current),
     readOnly,
-    root,
+    root: canvas.pane,
     canvas: () => canvas,
     nodes: () => live.current.nodes,
     onDropInSpace: (at, from) => search.open(at, { pending: { side: from.side, ref: from.ref } }),
@@ -181,7 +179,7 @@ export function PoseCanvas(props: PoseCanvasProps) {
 
   const onItemDown = (e: PointerEvent, id: string) => {
     if (isFieldTarget(e.target) || e.button !== 0) return;
-    root.current?.focus({ preventScroll: true });
+    canvas.pane.current?.focus({ preventScroll: true });
     const additive = e.shiftKey || e.ctrlKey || e.metaKey;
     if (additive) {
       const next = new Set(selection);
@@ -202,7 +200,7 @@ export function PoseCanvas(props: PoseCanvasProps) {
       onPointerDown={(e) => {
         if (e.button !== 0 || (e.target as Element).closest(".ag-node, .sg-search, .sg-minimap")) return;
         search.dismiss();
-        root.current?.focus({ preventScroll: true });
+        canvas.pane.current?.focus({ preventScroll: true });
         startBoxSelect(e as unknown as PointerEvent, { pane: canvas.pane.current!, view: () => canvas.viewRef.current, nodes: () => live.current.nodes, selection, onSelection: props.onSelection, onBox: setBox });
       }}
       onKeyDown={(e) => {

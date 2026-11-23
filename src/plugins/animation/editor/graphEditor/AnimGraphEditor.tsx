@@ -143,11 +143,11 @@ export function AnimGraphEditor(props: { project: EditorProject; path: string })
           </aside>
           {shownView.kind === "machine" ? (
             <MachineCanvas key={shownView.machine} graph={graph} machine={shownView.machine} viewKey={path} selection={selection} onSelection={setSelection} transition={transition} onTransition={setTransitionRef}
-              apply={apply} readOnly={readOnly} problems={problems} root={root} onOpenState={(s) => go({ kind: "state", machine: shownView.machine, state: s })} />
+              apply={apply} readOnly={readOnly} problems={problems} onOpenState={(s) => go({ kind: "state", machine: shownView.machine, state: s })} />
           ) : (
             <PoseCanvas key={shownView.kind === "state" ? `${shownView.machine}/${shownView.state}` : "graph"} graph={graph} viewKey={shownView.kind === "state" ? `${path}#${shownView.machine}/${shownView.state}` : path}
               visible={shownView.kind === "state" ? subGraph(graph, state?.root ?? null) : null} selection={selection} onSelection={setSelection} apply={apply} onAdded={onAdded}
-              readOnly={readOnly} problems={problems} root={root} onOpenMachine={(id) => go({ kind: "machine", machine: id })} />
+              readOnly={readOnly} problems={problems} onOpenMachine={(id) => go({ kind: "machine", machine: id })} />
           )}
           <aside class="ag-inspector" aria-label="Graph inspector">
             {shownView.kind === "machine" && machine ? (

@@ -39,7 +39,6 @@ export interface MachineCanvasProps {
   readOnly: boolean;
   problems: ProblemIndex;
   onOpenState(name: string): void;
-  root: { readonly current: HTMLElement | null };
 }
 
 function StateView(props: { id: string; label: string; at: Point; kind: "state" | "entry" | "any"; entry: boolean; exit: boolean; selected: boolean; problem: "error" | "warning" | null; flowId: string; readOnly: boolean; drag: GraphDragHooks; onDown(e: PointerEvent): void; onOpen(): void; onPortDown(e: MouseEvent, node: string, port: string, side: "input" | "output"): void }) {
@@ -98,7 +97,7 @@ function Arrow(props: { a: Point; b: Point; offset: number; label: string; selec
 }
 
 export function MachineCanvas(props: MachineCanvasProps) {
-  const { graph, machine, selection, readOnly, root } = props;
+  const { graph, machine, selection, readOnly } = props;
   const m = nodeById(graph, machine)?.machine as StateMachine;
   const [dragging, setDragging] = useState<ReadonlyMap<string, Point> | null>(null);
   const [box, setBox] = useState<{ a: Point; b: Point } | null>(null);
@@ -148,7 +147,7 @@ export function MachineCanvas(props: MachineCanvasProps) {
     graph: () => live.current.graph,
     commit: (next) => live.current.apply({ next }, lastLabel.current),
     readOnly,
-    root,
+    root: canvas.pane,
     canvas: () => canvas,
     nodes: () => live.current.nodes,
     onDropInSpace: () => {},
@@ -166,7 +165,7 @@ export function MachineCanvas(props: MachineCanvasProps) {
   };
   const onDown = (e: PointerEvent, id: string) => {
     if (isFieldTarget(e.target) || e.button !== 0) return;
-    root.current?.focus({ preventScroll: true });
+    canvas.pane.current?.focus({ preventScroll: true });
     if (id === ENTRY_ID || id === ANY_ID) {
       props.onSelection(new Set());
       if (id === ANY_ID) props.onTransition(null);
@@ -203,7 +202,7 @@ export function MachineCanvas(props: MachineCanvasProps) {
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         if (e.button !== 0 || (e.target as Element).closest(".ag-state, .ag-priority-badge, .sg-minimap")) return;
-        root.current?.focus({ preventScroll: true });
+        canvas.pane.current?.focus({ preventScroll: true });
         props.onTransition(null);
         startBoxSelect(e as unknown as PointerEvent, { pane: canvas.pane.current!, view: () => canvas.viewRef.current, nodes: () => live.current.nodes.filter((n) => n.id !== ENTRY_ID && n.id !== ANY_ID), selection, onSelection: props.onSelection, onBox: setBox });
       }}
