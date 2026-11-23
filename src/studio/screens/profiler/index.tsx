@@ -28,6 +28,7 @@ import { PluginHealth } from "./PluginHealth";
 import { resetPluginEffect, usePluginHealth } from "../../components/EffectChainHealth";
 import { Icon } from "../../components/Icon";
 import { RecordButton, whyNotRecord } from "./RecordButton";
+import { replayStore } from "../../shell/replay";
 import { clockText, valueAt } from "./timelineGeometry";
 import type { GroupBy } from "./voiceModel";
 import "./profiler.css";
@@ -83,7 +84,7 @@ function ProfilerTransport() {
   const host = audioHost();
   const r = recorder.state.value;
   const recording = r.kind === "recording" || r.kind === "starting";
-  return <RecordButton recording={recording} busy={r.kind === "saving"} blocked={whyNotRecord({ playable: host.playable.value, voices: host.stats.value?.voices ?? 0 })} onToggle={() => void recorder.toggle()} />;
+  return <RecordButton recording={recording} busy={r.kind === "saving"} blocked={whyNotRecord({ playable: host.playable.value, voices: host.stats.value?.voices ?? 0, replaying: replayStore().playing.value })} onToggle={() => void recorder.toggle()} />;
 }
 
 /** Bumped twice a second while recording, so the player bar's elapsed time moves. */

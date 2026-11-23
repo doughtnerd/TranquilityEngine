@@ -187,10 +187,13 @@ button.pf-wn:focus-visible { outline: 2px solid var(--focus-ring); outline-offse
 .pf-message[data-kind="warning"] .pf-msg-kind { color: var(--warning); }
 .pf-message[data-kind="error"] .pf-msg-kind { color: var(--danger); }
 
-/* Record: the player bar's transport button, its dot in the danger colour while it can record */
+/* Record: the player bar's labelled transport button in the prototype's record look (`.btn.rec`): the dot in the danger
+   colour, and the danger edge and tint while it can record or records */
 .pf-record { display: contents; }
-.pf-record .studio-transport-button:disabled { opacity: 0.35; }
-.pf-record.on .studio-transport-button, .pf-record.on .studio-transport-button .studio-glyph { color: var(--danger); }
+.pf-record .studio-transport-button .studio-glyph { color: var(--danger); }
+.pf-record .studio-transport-button:not(:disabled) { border-color: var(--danger); background: var(--danger-soft); color: var(--text-strong); }
+.pf-record .studio-transport-button:disabled { opacity: 0.5; }
+.pf-record.on .studio-transport-button { color: var(--text-strong); }
 
 /* Narrow (a phone's single panel, a side dock): the track names take less room, the effects legend goes (each line
    keeps its colour and the track's value names them) and messages tighten (ADR 0361). */
