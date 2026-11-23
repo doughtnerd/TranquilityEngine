@@ -5,18 +5,38 @@
 // `priority`, `offset`, `minDistance`, `maxDistance` by name, `parameters` (an object) and any other number or string
 // as the playlist's local parameters. The clip's weight scales the volume (D29: audio keys fire at any weight above 0
 // and carry it), so a clip fading out sounds fainter.
-import { Audio } from "../../../../audio/runtime";
+import type { Audio as AudioApi } from "../../../../audio/runtime";
 import type { GameObject } from "../../../../../engine/scene/GameObject";
 
+// Audio is an optional dependency (ADR 0374), so its module is loaded with `import()` when it's active, never
+// statically (ADR 0133/0136: a value import would need it in the manifest's hard dependencies).
 let active = false;
+let audio: typeof AudioApi | null = null;
+let loading: Promise<void> | null = null;
+/** Keys that arrived while the module was loading, played once it has. */
+const pending: { asset: string; params: unknown; weight: number; node: GameObject }[] = [];
 
-/** @internal Whether `audio` keys play: set at each activation. */
+/** @internal Whether `audio` keys play: set at each activation (loads the audio module the first time it's on). */
 export function setAudioTracks(on: boolean): void {
   active = on;
+  if (on && !audio && !loading) {
+    loading = import("../../../../audio/runtime").then(
+      (m) => {
+        audio = m.Audio;
+        const queued = pending.splice(0);
+        for (const k of queued) if (active) audio.play(k.asset, audioOptions(k.params, k.weight, k.node));
+      },
+      (err: unknown) => {
+        loading = null;
+        pending.length = 0;
+        console.warn(`Animation: audio keys can't play: the audio module failed to load (${String(err)}).`);
+      },
+    );
+  }
 }
 
 const OPTION_KEYS = new Set(["volume", "pitch", "bus", "priority", "offset", "minDistance", "maxDistance"]);
-type PlayOptions = NonNullable<Parameters<typeof Audio.play>[1]>;
+type PlayOptions = NonNullable<Parameters<typeof AudioApi.play>[1]>;
 
 /** `Audio.play`'s options for a key's params JSON and the clip's weight, positioned at `node`. */
 function audioOptions(params: unknown, weight: number, node: GameObject): PlayOptions {
@@ -41,5 +61,6 @@ function audioOptions(params: unknown, weight: number, node: GameObject): PlayOp
 /** @internal Plays one audio key (`asset`: the key's audio asset reference). */
 export function playAudioKey(asset: string, params: unknown, weight: number, node: GameObject): void {
   if (!active || !asset) return;
-  Audio.play(asset, audioOptions(params, weight, node));
+  if (audio) audio.play(asset, audioOptions(params, weight, node));
+  else if (pending.length < 64) pending.push({ asset, params, weight, node });
 }
