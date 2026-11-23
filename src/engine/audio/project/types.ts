@@ -52,6 +52,11 @@ export interface Bus {
   meter: boolean;
   effects: Effect[];
   sends: Send[];
+  /**
+   * Its colour in the Studio's Mixer (spec §2.9 "colour"): a CSS colour, a theme token (`var(--warning)`) or "#rrggbb".
+   * Absent: the colour of its top-level branch. Display only; the runtime ignores it.
+   */
+  colour?: string;
 }
 
 export interface Return {
@@ -89,7 +94,8 @@ export interface DuckingRule {
   enabled: boolean;
 }
 
-export type ConditionOp = "lt" | "le" | "eq" | "ne" | "ge" | "gt" | "between" | "is" | "not";
+/** `contains` and `starts` read a text parameter's value as text (case-insensitive). */
+export type ConditionOp = "lt" | "le" | "eq" | "ne" | "ge" | "gt" | "between" | "is" | "not" | "contains" | "starts";
 export interface SnapshotCondition {
   parameter: string;
   op: ConditionOp;
@@ -130,6 +136,11 @@ export interface AudioProject {
   automation: MixAutomation[];
   ducking: DuckingRule[];
   snapshots: Snapshot[];
+  /**
+   * Snapshot folders with nothing in them yet (the Snapshots tree's empty folders), so they are saved and undone like
+   * any edit. A folder holding a snapshot is named by the snapshot's `folder` and isn't listed. Absent when none.
+   */
+  snapshotFolders?: string[];
   loudness: { targets: LoudnessTarget[]; resetOnPlay: boolean };
   /**
    * ADR 0351 §2: encoding profiles, folder rules and budgets (`encoding/format.ts`). Absent when the file has none (every

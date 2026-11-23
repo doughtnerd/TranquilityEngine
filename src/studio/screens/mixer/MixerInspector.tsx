@@ -1,12 +1,20 @@
-// The Mixer's Inspector (ADR 0344; the prototype's Inspector): for the selected bus its name, parent, level (with
-// Automate ◆), voice limit, bed and VCAs, then its effects (the catalogue's bus level; a sidechain's key), its sends to
-// returns and its ducking rules; for a return its output, level and effects; for a VCA its level and members. While a
-// snapshot is edited, the level and effect parameters write that snapshot (its overrides are listed with Clear).
-// Every change is one undo step of `audio.json`, labelled "<what> · <bus>".
+// The Mixer's Inspector (ADR 0344; the prototype's Inspector): its kind badge and name; for the selected bus its name,
+// parent, level (with the automated value it reaches now and Automate), voice limit, bed, colour and VCAs, then its
+// effects (the catalogue's bus level; a sidechain's key), its sends to returns, its ducking rules, and the playlists
+// that play through it (Used by, linking to Playlists); for a return its output, level and effects; for a VCA its level
+// and members. While a snapshot is edited, the level and effect parameters write that snapshot (its overrides are
+// listed with Clear). Explanations live in ⓘ tips (spec §1.3). Every change is one undo step of `audio.json`,
+// labelled "<what> · <bus>".
 import type { JSX } from "preact";
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { ContextMenu, type MenuEntry } from "../../../editor/ui/ContextMenu";
+import { InfoTip } from "../../../editor/ui/InfoTip";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
+import { isPlaylistPath } from "../../../engine/audio/playlist/format";
+import { Checkbox } from "../../components/Checkbox";
+import { ColourPicker } from "../../components/ColourPicker";
 import { effectSpec } from "../../../engine/audio/effects/catalogue";
+import { isLabelled } from "../../../engine/audio/parameters";
 import { MIX_LIMITS } from "../../../engine/audio/project/format";
 import { BED_PRIORITY_LIMITS } from "../../../engine/audio/settings";
 import { DuckRow } from "../../components/DuckRow";
@@ -17,15 +25,18 @@ import { Icon } from "../../components/Icon";
 import { SendRow } from "../../components/SendRow";
 import { keyBusOptions } from "../../components/effectChainModel";
 import { duckTriggerOptions, sendTargets } from "../../components/mixRowsModel";
-import { automatedParams, automatedSend } from "./boardModel";
+import { automatedParams, automatedSend, levelAutomationDb } from "./boardModel";
+import { BRANCH_COLOURS, busColour, defaultBusColour, kindBadge, playlistName, setBusColour, usedBy } from "./busRows";
 import { busOf, busPath, kindOf, masterOf, returnOf, setReturnOutput, setVcaMembers } from "./busTree";
 import { addDucking, addSend, clearOffset, clearOverride, doubleDucks, editDucking, editEffects, editedSnapshot, editSend, labelOn, levelGhosts, levelLabel, overridesOn, removeDucking, removeSend, setLevel, setMute, shownEffects, shownLevel } from "./mixEdits";
 import type { MixerSession } from "./mixerScreen";
+import { MixDropdown } from "./MixDropdown";
+import { testValueOf } from "./snapshotBlend";
 import { automate, DbField, MixFrame } from "./mixerViewParts";
 import { allocateBeds, bedModeOf, bedText, seedVoiceLimit, setBed, setVoiceLimit, voiceLimitOf, voiceLimitRange, type BedMode } from "./voicesAndBeds";
 
-const Diamond = (props: { set: boolean; label: string; onClick(): void; disabled?: boolean }) => (
-  <button class={`studio-icon-button mx-auto${props.set ? " set" : ""}`} aria-label={props.label} title={props.label} disabled={props.disabled} onClick={props.onClick}>
+const Diamond = (props: { set: boolean; label: string; title?: string; onClick(): void; disabled?: boolean }) => (
+  <button class={`studio-icon-button mx-auto${props.set ? " set" : ""}`} aria-label={props.label} title={props.title ?? props.label} disabled={props.disabled} onClick={props.onClick}>
     <Icon name="automate" size={14} />
   </button>
 );
@@ -65,13 +76,25 @@ function LevelField(props: { session: MixerSession; name: string }) {
   const p = session.project.value;
   const editing = session.editing.value;
   const value = shownLevel(p, name, editing);
-  const hasAuto = p.automation.some((a) => a.on === name && a.target === "volume");
+  const lanes = p.automation.filter((a) => a.on === name && a.target === "volume");
+  const live = lanes.filter((a) => !a.bypass);
+  const values = session.testValues.value;
+  const auto = levelAutomationDb(p, name, values);
+  const drivers = [...new Set(live.map((a) => a.parameter))];
+  const driverText = drivers.map((d) => {
+    const def = p.parameters.find((q) => q.name === d);
+    if (!def) return `${d} (missing)`;
+    const now = testValueOf(def, values);
+    return `${d} (now ${isLabelled(def) ? (def.labels[Math.round(now)] ?? now) : Math.round(now * 100) / 100})`;
+  }).join(", ");
   const commit = (db: number, drag?: boolean) => session.commit(setLevel(session.project.peek(), name, db, session.editing.peek()), levelLabel(session.project.peek(), name, session.editing.peek()), drag);
   return (
     <div class="mx-ilevel">
-      <Fader value={value} label={`${name} level`} ghosts={levelGhosts(p, name, editing)} disabled={session.readOnly} onValue={(db, drag) => commit(db, drag || undefined)} />
-      <DbField value={value} label={`${name} level in dB`} disabled={session.readOnly} onCommit={(db) => commit(db)} />
-      {kindOf(p, name) !== "vca" && <Diamond set={hasAuto} label={`Automate ${name}'s level`} disabled={session.readOnly} onClick={() => automate(session, name, "volume")} />}
+      <Fader value={value} label={`${name} level`} ghosts={levelGhosts(p, name, editing)} disabled={session.readOnly} selected onValue={(db, drag) => commit(db, drag || undefined)} />
+      <DbField value={value} label={`${name} level in dB`} disabled={session.readOnly} title="Type a level in dB (−60 to +6)" onCommit={(db) => commit(db)} />
+      <span class="mx-unit">dB</span>
+      {live.length > 0 && <span class="mx-avalue" title={`Driven by ${driverText}`}>→ {formatDb(Math.max(-60, Math.min(6, value + auto)))} dB</span>}
+      {kindOf(p, name) !== "vca" && <Diamond set={lanes.length > 0} label={`Automate ${name}'s level`} title={live.length > 0 ? `Driven by ${driverText} · click to edit the curves` : "Curves for the level (driven by a game parameter)"} disabled={session.readOnly} onClick={() => automate(session, name, "volume")} />}
     </div>
   );
 }
@@ -108,13 +131,16 @@ function VoiceField(props: { session: MixerSession; name: string }) {
         label="Voice limit"
         size="small"
         value={bus.voiceLimit === null ? "inherit" : "limit"}
-        options={[{ value: "inherit", label: master ? "None" : "Inherit" }, { value: "limit", label: "Limit" }]}
+        options={[{ value: "inherit", label: master ? "None" : "Inherit", title: master ? "No voice cap" : "Use the limit of the nearest bus above" }, { value: "limit", label: "Limit", title: "Cap this bus and everything under it" }]}
         onChange={(m) => session.commit(setVoiceLimit(session.project.peek(), name, m === "inherit" ? null : seedVoiceLimit(session.project.peek(), name)), label)}
       />
       {bus.voiceLimit !== null ? (
-        <input type="number" min={lo} max={hi} step={1} value={bus.voiceLimit} aria-label="Voices" disabled={session.readOnly} onChange={(e) => session.commit(setVoiceLimit(session.project.peek(), name, Number((e.target as HTMLInputElement).value)), label)} />
+        <span class="mx-inline" title={`Caps this bus and the buses under it`}>
+          <input type="number" class="mx-nf" min={lo} max={hi} step={1} value={bus.voiceLimit} aria-label="Voices" disabled={session.readOnly} onChange={(e) => session.commit(setVoiceLimit(session.project.peek(), name, Number((e.target as HTMLInputElement).value)), label)} />
+          <span class="mx-unit">voices</span>
+        </span>
       ) : (
-        <span class="kit-chip" title={v.from ? `Shares ${v.from}'s limit` : "No limit above it"}>{v.from ? `↑ ${v.limit} from ${v.from}` : "∞ no limit"}</span>
+        <span class="mx-ichip" title={v.from ? `Uses the limit of the nearest bus above: ${v.from}` : "No limit above it"}>{v.from ? `${v.limit} · ${v.from}` : "No limit"}</span>
       )}
     </div>
   );
@@ -134,17 +160,17 @@ function BedField(props: { session: MixerSession; name: string }) {
           label="Bed"
           size="small"
           value={mode}
-          options={[{ value: "share", label: "Share", title: "Distant sounds mix into the nearest bed above" }, { value: "own", label: "Own", title: "Ask for a bed of its own (by priority)" }, { value: "off", label: "Off", title: "Its sounds never go to a bed" }]}
+          options={[{ value: "share", label: "Share", title: "Mix distant sounds into the nearest bed above this bus" }, { value: "own", label: "Own", title: "Ask for a bed of its own (wins by priority)" }, { value: "off", label: "Off", title: "Its sounds never go to a bed" }]}
           onChange={(m) => session.commit(setBed(session.project.peek(), name, m), label)}
         />
       )}
       {mode === "own" && (
-        <label class="mx-inline">
+        <label class="mx-inline" title="When more buses ask for a bed than Max beds allows, the highest priorities win">
           Priority
-          <input type="number" min={BED_PRIORITY_LIMITS[0]} max={BED_PRIORITY_LIMITS[1]} value={bus.bed!.priority} disabled={session.readOnly} onChange={(e) => session.commit(setBed(session.project.peek(), name, "own", Number((e.target as HTMLInputElement).value)), label)} />
+          <input type="number" class="mx-nf" min={BED_PRIORITY_LIMITS[0]} max={BED_PRIORITY_LIMITS[1]} value={bus.bed!.priority} disabled={session.readOnly} onChange={(e) => session.commit(setBed(session.project.peek(), name, "own", Number((e.target as HTMLInputElement).value)), label)} />
         </label>
       )}
-      <span class={`kit-chip${state?.kind === "lost" ? " warn" : ""}`}>{bedText(state)}</span>
+      <span class={`mx-ichip${state?.kind === "lost" ? " warn" : ""}`}>{bedText(state, bus.parent === null)}</span>
     </div>
   );
 }
@@ -162,7 +188,8 @@ function Effects(props: { session: MixerSession; name: string }) {
     <section class="mx-isection" aria-label="Bus effects">
       {snap && (
         <p class="mx-snapnote" role="note">
-          Editing <strong>{snap.name}</strong>: parameter changes are saved in the snapshot. Adding, removing, reordering or switching effects changes the base mix.
+          Parameters save in <strong>{snap.name}</strong>
+          <InfoTip text={`Editing ${snap.name}: parameter changes are saved in the snapshot. Adding, removing, reordering or switching effects changes the base mix.`} label="About editing a snapshot's effects" />
         </p>
       )}
       <EffectChain
@@ -174,7 +201,7 @@ function Effects(props: { session: MixerSession; name: string }) {
         automated={automatedParams(p, name, session.testValues.value)}
         readOnly={session.readOnly}
         title={kindOf(p, name) === "return" ? "Return effects" : "Bus effects"}
-        note="Inserts run top to bottom, before the fader."
+        note="Runs on everything routed here, all the time: one instance, always running. Use it for mix categories and shared treatment (reverb, ducking, limiting); for one sound or one group, put the effect on its clip or playlist. Inserts run top to bottom, before the fader."
         onEdit={(result, _what, drag) => session.commit(editEffects(session.project.peek(), name, result, session.editing.peek()), label, drag)}
         onAutomate={(id) => automate(session, name, `fx:${id}`)}
       />
@@ -199,30 +226,56 @@ function Effects(props: { session: MixerSession; name: string }) {
   );
 }
 
+/** An add button with a "+▾" look that opens a menu under it (the prototype's `.sbtn` + `.pop`). */
+function AddMenu(props: { label: string; title: string; disabled?: boolean; entries: () => MenuEntry[]; menuLabel: string; chevron?: boolean; onDirect?: () => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLButtonElement>(null);
+  return (
+    <>
+      <button ref={ref} class="mx-sbtn" aria-label={props.label} title={props.title} disabled={props.disabled} aria-haspopup={props.onDirect ? undefined : "menu"} aria-expanded={props.onDirect ? undefined : open} onClick={() => (props.onDirect ? props.onDirect() : setOpen(!open))}>
+        <Icon name="plus" size={13} />
+        {props.chevron !== false && !props.onDirect && <Icon name="chevronDown" size={11} />}
+      </button>
+      {open && ref.current && <ContextMenu entries={props.entries()} at={ref.current} label={props.menuLabel} onClose={() => setOpen(false)} />}
+    </>
+  );
+}
+
+/** A section's header: its caps caption with an ⓘ tip, and its add button at the right. */
+function SectionHead(props: { title: string; tip: string; children?: preact.ComponentChildren }) {
+  return (
+    <div class="mx-lph">
+      <h3 class="mx-cap">{props.title}</h3>
+      <InfoTip text={props.tip} label={`About ${props.title.toLowerCase()}`} />
+      <span class="mx-spacer" />
+      {props.children}
+    </div>
+  );
+}
+
 function Sends(props: { session: MixerSession; name: string }) {
   const { session, name } = props;
   const p = session.project.value;
   const bus = busOf(p, name)!;
   const [open, setOpen] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  const master = name === masterOf(p);
   const targets = sendTargets(p.returns.map((r) => r.name), name, bus.sends, masterOf(p));
+  const free = targets.filter((t) => !t.disabled);
   const label = labelOn("Edit send", name);
+  const add = (to: string) => { if (session.commit(addSend(session.project.peek(), name, to), label)) setOpen(to); };
+  const addTitle = master ? "Master can't send" : targets.length === 0 ? "No returns yet: add one under Returns in the Buses panel" : free.length === 0 ? (targets.length === 1 ? `Already sends to ${targets[0]!.name} (the only return)` : "Already sends to every return") : free.length === 1 ? `Add a send to ${free[0]!.name}` : "Add a send to a return";
   return (
     <section class="mx-isection" aria-label="Sends">
-      <h3 class="mx-ihead">
-        Sends <span class="mx-faint">post-fader, to returns</span>
-        <button class="mx-tool" disabled={session.readOnly || name === masterOf(p) || targets.every((t) => t.disabled)} onClick={() => setAdding(!adding)} aria-expanded={adding}><Icon name="plus" /> Send</button>
-      </h3>
-      {adding && (
-        <div class="mx-pick" role="group" aria-label="Send to">
-          {targets.length === 0 && <span class="mx-note">No returns yet: add one under VCAs in the Buses panel.</span>}
-          {targets.map((t) => (
-            <button key={t.name} disabled={!!t.disabled} title={t.disabled ?? undefined} onClick={() => { setAdding(false); if (session.commit(addSend(session.project.peek(), name, t.name), label)) setOpen(t.name); }}>
-              → {t.name}{t.disabled ? ` (${t.disabled})` : ""}
-            </button>
-          ))}
-        </div>
-      )}
+      <SectionHead title="Sends" tip="Copies of this bus's signal sent to a return (like Reverb), after the fader. The return mixes them and outputs to its bus.">
+        <AddMenu
+          label="Add send"
+          title={addTitle}
+          disabled={session.readOnly || master || free.length === 0}
+          menuLabel="Send to"
+          onDirect={free.length === 1 ? () => add(free[0]!.name) : undefined}
+          entries={() => [{ kind: "group", label: "Send to" }, ...targets.map((t) => ({ id: t.name, label: `→ ${t.name}`, disabled: !!t.disabled, note: t.disabled ?? undefined, run: () => add(t.name) }))]}
+        />
+      </SectionHead>
       {bus.sends.map((s) => (
         <SendRow
           key={s.to}
@@ -236,7 +289,7 @@ function Sends(props: { session: MixerSession; name: string }) {
           onAutomate={() => automate(session, name, `send:${s.to}`)}
         />
       ))}
-      {bus.sends.length === 0 && name !== masterOf(p) && <p class="mx-note">No sends.</p>}
+      {bus.sends.length === 0 && <p class="mx-note">{master ? "Master can't send." : "No sends. Add one with +."}</p>}
     </section>
   );
 }
@@ -245,7 +298,6 @@ function Ducking(props: { session: MixerSession; name: string }) {
   const { session, name } = props;
   const p = session.project.value;
   const [open, setOpen] = useState<number | null>(null);
-  const [adding, setAdding] = useState(false);
   const rules = p.ducking.map((r, i) => ({ r, i })).filter(({ r }) => r.target === name);
   const names = [...p.buses.map((b) => b.name), ...p.returns.map((r) => r.name)];
   const parentOf = (n: string) => busOf(p, n)?.parent ?? null;
@@ -255,20 +307,15 @@ function Ducking(props: { session: MixerSession; name: string }) {
   if (name === masterOf(p)) return null;
   return (
     <section class="mx-isection" aria-label="Ducking">
-      <h3 class="mx-ihead">
-        Ducking <span class="mx-faint">lowers {name} while another bus plays</span>
-        <button class="mx-tool" disabled={session.readOnly} onClick={() => setAdding(!adding)} aria-expanded={adding}><Icon name="plus" /> Duck</button>
-      </h3>
-      {adding && (
-        <div class="mx-pick" role="group" aria-label="Duck when this plays">
-          <span class="mx-ilabel">Duck when this plays</span>
-          {options.map((o) => (
-            <button key={o.name} disabled={!!o.disabled} title={o.disabled ?? undefined} onClick={() => { setAdding(false); if (session.commit(addDucking(session.project.peek(), name, o.name), label)) setOpen(session.project.peek().ducking.length - 1); }}>
-              {o.name}{o.disabled ? ` (${o.disabled})` : ""}
-            </button>
-          ))}
-        </div>
-      )}
+      <SectionHead title="Ducking" tip={`Turn ${name} down while another bus plays`}>
+        <AddMenu
+          label="Add ducking"
+          title="Duck when another bus plays"
+          disabled={session.readOnly}
+          menuLabel="Duck when this plays"
+          entries={() => [{ kind: "group", label: "Duck when this plays" }, ...options.map((o) => ({ id: o.name, label: o.name, disabled: !!o.disabled, note: o.disabled ?? undefined, run: () => { if (session.commit(addDucking(session.project.peek(), name, o.name), label)) setOpen(session.project.peek().ducking.length - 1); } }))]}
+        />
+      </SectionHead>
       {lint.map((d) => (
         <p key={d.trigger} class="mx-warn" role="note">{d.trigger} ducks {name} twice: by a rule here and by a sidechain compressor keyed on it. Keep one.</p>
       ))}
@@ -284,8 +331,57 @@ function Ducking(props: { session: MixerSession; name: string }) {
           onRemove={() => session.commit(removeDucking(session.project.peek(), i), label)}
         />
       ))}
-      {rules.length === 0 && <p class="mx-note">Nothing ducks it.</p>}
+      {rules.length === 0 && <p class="mx-note">No ducking. Add a bus with +.</p>}
     </section>
+  );
+}
+
+/** The playlists that play through `name` (spec §4.3.4 "Used by"): up to 4 links to Playlists, then how many more. */
+function UsedBySection(props: { session: MixerSession; name: string }) {
+  const { session, name } = props;
+  const p = session.project.value;
+  const usersOf = session.deps.usersOf;
+  if (!usersOf) return null;
+  const u = usedBy(p, name, usersOf, isPlaylistPath);
+  const shown = u.direct.slice(0, 4);
+  const more = u.direct.length - shown.length;
+  return (
+    <section class="mx-isection" aria-label="Used by">
+      <SectionHead title="Used by" tip="Playlists and sequences routed here. Open one in Playlists to change where it routes." />
+      {shown.length === 0 && u.inside === 0 && <p class="mx-note">No playlists route here directly.</p>}
+      {shown.length > 0 && (
+        <ul class="mx-usedby">
+          {shown.map((f) => (
+            <li key={f}>
+              <button class="mx-link" title={`Open ${f} in Playlists`} disabled={!session.deps.openFile} onClick={() => session.deps.openFile?.(f)}>{playlistName(f)}</button>
+            </li>
+          ))}
+        </ul>
+      )}
+      {(more > 0 || u.inside > 0) && (
+        <p class="mx-note">{[more > 0 ? `+${more} more` : "", u.inside > 0 ? `${u.inside} more via buses inside` : ""].filter(Boolean).join(" · ")}</p>
+      )}
+    </section>
+  );
+}
+
+/** The bus's colour (spec §2.9): the branch colours as swatches; Reset goes back to its branch's. */
+function ColourField(props: { session: MixerSession; name: string }) {
+  const { session, name } = props;
+  const p = session.project.value;
+  const bus = busOf(p, name)!;
+  const label = labelOn("Bus colour", name);
+  return (
+    <div class="mx-icolour">
+      <ColourPicker
+        value={busColour(p, name)}
+        label={`${name} colour`}
+        presets={BRANCH_COLOURS.map((c, i) => ({ name: ["Cyan", "Green", "Amber", "Badge", "Link", "Red"][i] ?? c, color: c }))}
+        disabled={session.readOnly}
+        onChange={(c) => session.commit(setBusColour(session.project.peek(), name, c === defaultBusColour(session.project.peek(), name) ? null : c), label)}
+      />
+      {bus.colour !== undefined && <button class="mx-link" disabled={session.readOnly} title="Back to its branch's colour" onClick={() => session.commit(setBusColour(session.project.peek(), name, null), label)}>Reset</button>}
+    </div>
   );
 }
 
@@ -297,17 +393,19 @@ function BusInspector(props: { session: MixerSession; name: string }) {
   return (
     <>
       <Field label="Name"><NameField session={session} name={name} locked={bus.parent === null} /></Field>
-      <Field label="Parent">{bus.parent === null ? "— (the master bus)" : <span title="Drag the bus in the Buses panel to re-route it">{busPath(p, bus.parent)}</span>}</Field>
+      <Field label="Parent">{bus.parent === null ? <span class="mx-faint">— (the output)</span> : <span title="Drag the bus in Routing to change its parent">{busPath(p, bus.parent)}</span>}</Field>
       <LevelRows session={session} name={name} />
       <Field label="Mute">
         <button class={`mx-toggle mute${bus.mute ? " on" : ""}`} aria-pressed={bus.mute} disabled={session.readOnly} onClick={() => session.commit(setMute(session.project.peek(), name, !bus.mute), labelOn(bus.mute ? "Unmute" : "Mute", name))}>M</button>
       </Field>
       <Field label="Voice limit"><VoiceField session={session} name={name} /></Field>
       <Field label="Bed"><BedField session={session} name={name} /></Field>
-      <Field label="VCAs">{vcas.length > 0 ? vcas.join(", ") : <span class="mx-faint">none</span>}</Field>
+      <Field label="Colour"><ColourField session={session} name={name} /></Field>
+      <Field label="VCAs">{vcas.length > 0 ? vcas.join(", ") : <span class="mx-faint">None</span>}</Field>
       <Effects session={session} name={name} />
-      {bus.parent !== null && <Sends session={session} name={name} />}
+      <Sends session={session} name={name} />
       <Ducking session={session} name={name} />
+      <UsedBySection session={session} name={name} />
     </>
   );
 }
@@ -316,14 +414,13 @@ function ReturnInspector(props: { session: MixerSession; name: string }) {
   const { session, name } = props;
   const p = session.project.value;
   const ret = returnOf(p, name)!;
+  const feeders = p.buses.filter((b) => b.sends.some((x) => x.to === name));
   return (
     <>
-      <p class="mx-note">A return is fed only by buses' post-fader sends and isn't a child of the buses that feed it.</p>
       <Field label="Name"><NameField session={session} name={name} locked={false} /></Field>
+      <Field label="Fed by">{feeders.length > 0 ? feeders.map((b) => `${b.name} (${formatDb(b.sends.find((x) => x.to === name)!.levelDb)} dB)`).join(", ") : <span class="mx-faint">No sends yet</span>}</Field>
       <Field label="Output">
-        <select aria-label="Output" value={ret.output} disabled={session.readOnly} onChange={(e) => session.commit(setReturnOutput(session.project.peek(), name, (e.target as HTMLSelectElement).value), labelOn("Return output", name))}>
-          {p.buses.map((b) => <option key={b.name} value={b.name}>{busPath(p, b.name)}</option>)}
-        </select>
+        <MixDropdown label="Output" value={ret.output} disabled={session.readOnly} options={p.buses.map((b) => ({ value: b.name, label: busPath(p, b.name) }))} onChange={(v) => session.commit(setReturnOutput(session.project.peek(), name, v), labelOn("Return output", name))} />
       </Field>
       <LevelRows session={session} name={name} />
       <Field label="Mute">
@@ -342,17 +439,16 @@ function VcaInspector(props: { session: MixerSession; name: string }) {
   const toggle = (bus: string, on: boolean) => session.commit(setVcaMembers(session.project.peek(), name, on ? [...vca.members, bus] : vca.members.filter((m) => m !== bus)), labelOn("VCA members", name));
   return (
     <>
-      <p class="mx-note">A VCA offsets its member buses and everything under them. No audio passes through it; the members' faders stay where they are.</p>
       <Field label="Name"><NameField session={session} name={name} locked={false} /></Field>
       <LevelRows session={session} name={name} />
-      <fieldset class="mx-members-list">
-        <legend>Members</legend>
-        {p.buses.filter((b) => b.parent !== null).map((b) => (
-          <label key={b.name}>
-            <input type="checkbox" checked={vca.members.includes(b.name)} disabled={session.readOnly} onChange={(e) => toggle(b.name, (e.target as HTMLInputElement).checked)} /> {busPath(p, b.name)}
-          </label>
-        ))}
-      </fieldset>
+      <section class="mx-isection" aria-label="Members">
+        <SectionHead title="Members" tip="Adds its level to these buses and every bus inside them. Their faders stay where you set them; a violet tick on each shows where the VCA lands it, and meters follow. No audio passes through, so routing is unchanged." />
+        <div class="mx-members-list" role="group" aria-label="Members">
+          {p.buses.filter((b) => b.parent !== null).map((b) => (
+            <Checkbox key={b.name} checked={vca.members.includes(b.name)} disabled={session.readOnly} label={busPath(p, b.name)} onChange={(on) => toggle(b.name, on)} />
+          ))}
+        </div>
+      </section>
     </>
   );
 }
@@ -365,14 +461,17 @@ export function MixerInspector(props: { session: MixerSession }) {
   return (
     <MixFrame session={session} class="mx-inspector" label={`Inspector: ${name}`}>
       <h2 class="mx-ititle">
-        {name} <span class="mx-faint">{kind === "bus" ? (name === masterOf(p) ? "master bus" : "bus") : kind}</span>
+        <span class={`mx-kind${kind === "vca" ? " vca" : ""}`}>{kindBadge(p, name)}</span>
+        <span class="mx-ititle-name">{name}</span>
+        {kind === "return" && <InfoTip text="A return is fed by sends from buses and outputs to its bus. It isn't a child of the buses that feed it: they keep their own routing." label="About returns" />}
+        {kind === "vca" && <InfoTip text="A VCA offsets its member buses and everything under them. No audio passes through it; the members' faders stay where they are." label="About VCAs" />}
       </h2>
       {kind === "bus" && <BusInspector session={session} name={name} />}
       {kind === "return" && <ReturnInspector session={session} name={name} />}
       {kind === "vca" && <VcaInspector session={session} name={name} />}
       {name !== masterOf(p) && (
         <div class="mx-delete">
-          <button class="danger" disabled={session.readOnly} onClick={() => void session.remove(name)}><Icon name="trash" /> Delete {kind}…</button>
+          <button class="mx-danger-quiet" disabled={session.readOnly} title={kind === "bus" ? "Its children move up to its parent" : undefined} onClick={() => void session.remove(name)}><Icon name="trash" /> Delete {kind === "vca" ? "VCA" : kind}…</button>
         </div>
       )}
     </MixFrame>

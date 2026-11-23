@@ -219,6 +219,13 @@ describe("board", () => {
     expect(rows.map((r) => r.text)).toEqual(["-14.2 LUFS", "-15.8 LUFS", "-16.4 LUFS", "7.2 LU", "-0.6 dBTP"]);
     expect(rows[2]!.warn).toMatch(/Over the -24 LUFS target by 7.6 LU/);
     expect(rows[4]!.warn).toBe("Over -1 dBTP");
+    // The tiles: the figure with a true minus, then the unit or the verdict (the prototype's Loudness tiles).
+    expect(rows.map((r) => [r.value, r.note, r.verdict])).toEqual([
+      ["−14.2", "LUFS", null], ["−15.8", "LUFS", null], ["−16.4", "Warning · 7.6 LU over −24", "warn"], ["7.2", "LU", null], ["−0.6", "Warning · over −1 dBTP", "warn"],
+    ]);
+    const mobile = loudnessRows({ momentary: -14.2, shortTerm: -15.8, integrated: -16.4, lra: 7.2, maxTruePeak: -1.5, tainted: false }, { integrated: -16, tolerance: 1, truePeak: -1 });
+    expect([mobile[2]!.note, mobile[2]!.verdict, mobile[4]!.verdict]).toEqual(["On target (−16)", "ok", null]);
+    expect(loudnessRows(null, { integrated: -16, tolerance: 1, truePeak: -1 })[2]).toMatchObject({ value: "—", note: "LUFS", verdict: null });
   });
   it("a new project's platform targets are the spec's three, listed as the spec words them (§4.3.6)", () => {
     const targets = emptyMix().loudness.targets;

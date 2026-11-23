@@ -121,25 +121,39 @@ export interface LoudnessReading {
 export interface LoudnessRow {
   readonly key: "momentary" | "shortTerm" | "integrated" | "lra" | "truePeak";
   readonly label: string;
+  /** The value with its unit ("-16.4 LUFS"), or "—". */
   readonly text: string;
   /** Over the target's ceiling or outside its tolerance. */
   readonly warn: string | null;
+  /** The tile's big figure ("−16.4", "—"), with a true minus. */
+  readonly value: string;
+  /** The tile's last line: its unit, or its verdict against the target ("Warning · 7.6 LU over −24", "On target (−16)"). */
+  readonly note: string;
+  /** How the verdict reads: a warning, on target, or none (no target or no reading, or a row with no verdict). */
+  readonly verdict: "warn" | "ok" | null;
 }
 
 const lufs = (v: number, unit: string) => (Number.isFinite(v) ? `${round(v)} ${unit}` : "—");
+const minus = (v: number) => (v < 0 ? `−${Math.abs(v)}` : String(v));
 
-/** The five readouts (M, S, I, LRA, TP), "—" without a reading; warnings against `target`. */
+/** The five readouts (M, S, I, LRA, TP), "—" without a reading; warnings and verdicts against `target`. */
 export function loudnessRows(r: LoudnessReading | null, target: { integrated: number; tolerance: number; truePeak: number } | null): LoudnessRow[] {
   const v = (x: number | undefined) => (r && x !== undefined ? x : -Infinity);
   const i = v(r?.integrated), tp = v(r?.maxTruePeak);
-  const iWarn = target && Number.isFinite(i) && Math.abs(i - target.integrated) > target.tolerance ? `${i > target.integrated ? "Over" : "Under"} the ${target.integrated} LUFS target by ${round(Math.abs(i - target.integrated))} LU` : null;
+  const off = target && Number.isFinite(i) ? round(Math.abs(i - target.integrated)) : null;
+  const iWarn = target && off !== null && Math.abs(i - target.integrated) > target.tolerance ? `${i > target.integrated ? "Over" : "Under"} the ${target.integrated} LUFS target by ${off} LU` : null;
   const tpWarn = target && Number.isFinite(tp) && tp > target.truePeak ? `Over ${target.truePeak} dBTP` : null;
+  const row = (key: LoudnessRow["key"], label: string, x: number, unit: string, warn: string | null = null, verdict: { note: string; verdict: "warn" | "ok" } | null = null): LoudnessRow => ({
+    key, label, text: lufs(x, unit), warn, value: Number.isFinite(x) ? minus(round(x)) : "—", note: verdict?.note ?? unit, verdict: verdict?.verdict ?? null,
+  });
+  const iVerdict = target && off !== null ? (iWarn ? { note: `Warning · ${off} LU ${i > target.integrated ? "over" : "under"} ${minus(target.integrated)}`, verdict: "warn" as const } : { note: `On target (${minus(target.integrated)})`, verdict: "ok" as const }) : null;
+  const tpVerdict = tpWarn && target ? { note: `Warning · over ${minus(target.truePeak)} dBTP`, verdict: "warn" as const } : null;
   return [
-    { key: "momentary", label: "Momentary", text: lufs(v(r?.momentary), "LUFS"), warn: null },
-    { key: "shortTerm", label: "Short-term", text: lufs(v(r?.shortTerm), "LUFS"), warn: null },
-    { key: "integrated", label: "Integrated", text: lufs(i, "LUFS"), warn: iWarn },
-    { key: "lra", label: "Range", text: lufs(v(r?.lra), "LU"), warn: null },
-    { key: "truePeak", label: "True peak", text: lufs(tp, "dBTP"), warn: tpWarn },
+    row("momentary", "Momentary", v(r?.momentary), "LUFS"),
+    row("shortTerm", "Short-term", v(r?.shortTerm), "LUFS"),
+    row("integrated", "Integrated", i, "LUFS", iWarn, iVerdict),
+    row("lra", "Range", v(r?.lra), "LU"),
+    row("truePeak", "True peak", tp, "dBTP", tpWarn, tpVerdict),
   ];
 }
 
