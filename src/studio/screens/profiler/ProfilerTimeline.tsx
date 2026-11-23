@@ -4,7 +4,8 @@
 // each), Memory (the clip arena and the loaded packages, with package marks; ADR 0351 §6), a Bus track per bus (its
 // effective gain, with the lane
 // breakdown floating at the cursor), Loudness (short-term against the target), the voice lanes (by bus or by clip, with
-// status colours; a click selects a voice and seeks to its start) and the game parameters. Clicking a track seeks. The
+// status colours; a click selects a voice and seeks to its start) and the game parameters. Clicking a track seeks;
+// pressing and dragging on the ruler scrubs (a pointer drag, so it works by touch too). The
 // whole capture fits the width; lines are drawn in a fixed SVG box stretched to the track (`timelineGeometry.ts`).
 // A view over props: the panel feeds it the store's signals, a story its own.
 import type { ComponentChildren, JSX } from "preact";
@@ -263,7 +264,18 @@ function Ruler({ data, cursor, onSeek, onSelect }: { data: ProfilerData; cursor:
           {clockText(cursor)}
         </span>
       </div>
-      <div class="pf-plot pf-ruler" onClick={(e) => onSeek(timeAt(e, data.duration))} aria-label="Ruler: click to move the cursor">
+      <div
+        class="pf-plot pf-ruler"
+        title="Click or drag to move the cursor (← → step it)"
+        onPointerDown={(e) => {
+          if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
+          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+          onSeek(timeAt(e, data.duration));
+        }}
+        onPointerMove={(e) => {
+          if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) onSeek(timeAt(e, data.duration));
+        }}
+      >
         {rulerTicks(data.duration).map((t) => (
           <span key={t} class="pf-tick" style={{ left: `${pct(t, data.duration)}%` }}>
             {clockText(t).replace(/\.0$/, "")}

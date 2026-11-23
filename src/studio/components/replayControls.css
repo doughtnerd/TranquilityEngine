@@ -1,6 +1,6 @@
 /* The player bar's replay slot (ReplayControls.tsx): theme tokens only. */
 .studio-replay { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 2px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); font-variant-numeric: tabular-nums; }
-.studio-replay-play { flex: none; width: 24px; height: 22px; padding: 0; border-radius: 4px; border: 1px solid var(--border); background: var(--button); color: var(--text); }
+.studio-replay-play { flex: none; display: inline-grid; place-items: center; width: 24px; height: 22px; padding: 0; border-radius: 4px; border: 1px solid var(--border); background: var(--button); color: var(--text); }
 .studio-replay-play:hover { background: var(--button-hover); }
 .studio-replay-play[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--text-strong); }
 .studio-replay-title { flex: 0 1 auto; min-width: 0; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); background: none; border: none; padding: 0; font: inherit; text-align: left; }
@@ -8,5 +8,9 @@ button.studio-replay-title { cursor: pointer; color: var(--link); }
 button.studio-replay-title:hover { text-decoration: underline; }
 .studio-replay-scrub { flex: 1 1 60px; min-width: 40px; accent-color: var(--accent); }
 .studio-replay-time { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
-.studio-replay-close { flex: none; width: 20px; height: 20px; padding: 0; border: none; background: none; color: var(--muted); border-radius: 4px; }
+.studio-replay-close { flex: none; display: inline-grid; place-items: center; width: 20px; height: 20px; padding: 0; border: none; background: none; color: var(--muted); border-radius: 4px; }
 .studio-replay-close:hover { background: var(--hover); color: var(--text); }
+.studio-replay :is(.studio-replay-play, .studio-replay-close, button.studio-replay-title):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+@media (pointer: coarse) { .studio-replay :is(.studio-replay-play, .studio-replay-close) { width: 36px; height: 36px; } }
+/* A narrow player bar keeps the buttons and the time; the take's name and scrub give way first (ADR 0361). */
+@container (max-width: 620px) { .studio-replay-title { max-width: 80px; } .studio-replay-scrub { flex-basis: 40px; } }

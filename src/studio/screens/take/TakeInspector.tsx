@@ -61,24 +61,26 @@ export function InstanceDetails(props: InstanceDetailsProps) {
       {props.rows.length === 0 ? (
         <p class="tk-note">The game set no parameters on this instance.</p>
       ) : (
-        <table class="tk-params">
-          <thead>
-            <tr>
-              <th scope="col">Parameter</th>
-              <th scope="col">Recorded</th>
-              <th scope="col" title="What the replaying instance reports now, in the current project">Live</th>
-            </tr>
-          </thead>
-          <tbody>
-            {props.rows.map((r) => (
-              <tr key={r.name} class={r.differs ? "differs" : undefined}>
-                <th scope="row">{r.name}</th>
-                <td>{valueText(r.recorded)}</td>
-                <td>{props.live ? valueText(r.live) : "—"}</td>
+        <div class="tk-scroll">
+          <table class="tk-params">
+            <thead>
+              <tr>
+                <th scope="col">Parameter</th>
+                <th scope="col">Recorded</th>
+                <th scope="col" title="What the replaying instance reports now, in the current project">Live</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {props.rows.map((r) => (
+                <tr key={r.name} class={r.differs ? "differs" : undefined}>
+                  <th scope="row">{r.name}</th>
+                  <td>{valueText(r.recorded)}</td>
+                  <td>{props.live ? valueText(r.live) : "—"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
       {!props.live && <p class="tk-note">Replay the take through this instance to see its live values.</p>}
     </div>

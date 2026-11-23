@@ -89,6 +89,7 @@ export function LatencyCalibrationDialog(props: LatencyCalibrationDialogProps) {
         )}
         <button
           ref={tapButton}
+          type="button"
           class="studio-tap primary"
           onPointerDown={(e) => {
             e.preventDefault();
@@ -105,7 +106,7 @@ export function LatencyCalibrationDialog(props: LatencyCalibrationDialogProps) {
           Tap
         </button>
         <div class="studio-calibrate-strip" role="img" aria-label={summary.average === null ? "No taps yet" : `${summary.count} taps, average ${formatOffset(summary.average)}`}>
-          <span class="studio-calibrate-zero" style={{ left: "50%" }} />
+          <span class="studio-calibrate-zero" style={{ left: "50%" }} aria-hidden="true" />
           {taps.map((t, i) => (
             <span key={i} class="studio-calibrate-tap" style={{ left: stripX(t) }} />
           ))}
@@ -117,11 +118,11 @@ export function LatencyCalibrationDialog(props: LatencyCalibrationDialogProps) {
           {summary.count === 0 ? "No taps yet." : `${summary.count} tap${summary.count === 1 ? "" : "s"} · average ${formatOffset(summary.average!)} · spread ±${summary.spread} ms${summary.usable ? "" : ` · ${MIN_TAPS - summary.count} more to use it`}`}
         </p>
         <div class="dialog-buttons">
-          <button disabled={taps.length === 0} onClick={() => setTaps([])}>
+          <button type="button" disabled={taps.length === 0} onClick={() => setTaps([])}>
             Start over
           </button>
-          <button onClick={props.onCancel}>Cancel</button>
-          <button class="primary" disabled={!summary.usable} onClick={() => summary.offset !== null && props.onUse(summary.offset)}>
+          <button type="button" onClick={props.onCancel}>Cancel</button>
+          <button type="button" class="primary" disabled={!summary.usable} onClick={() => summary.offset !== null && props.onUse(summary.offset)}>
             {summary.offset === null ? "Use" : `Use ${formatOffset(summary.offset)}`}
           </button>
         </div>
