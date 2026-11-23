@@ -1,7 +1,7 @@
 // The build writer (ADR 0296): writes a planned web build (webBuild.ts) into a build folder, for
 // the Node exporter (node.ts) and the editor's Build / Export (src/editor/exportBuild.ts) alike.
 // It owns the order: check the player and the folder before anything is touched, bake models
-// (ADR 0090), render baked samples (ADR 0342, sampleRenders.ts), process images (ADR 0119) and
+// (ADR 0090), compile animation clips (ADR 0371), render baked samples (ADR 0342, sampleRenders.ts), process images (ADR 0119) and
 // convert and package audio (ADR 0351, audio.ts) through the project's files, clear an earlier
 // build, then write each file once (a processed image or a converted sound in place of its
 // original; a packaged sound not at all) with progress, the game's third-party notices (ADR 0359
@@ -20,6 +20,8 @@ import { withAudioEffects } from "./audioEffects";
 import { processImages, type ImageTranscoder } from "./images";
 import { withRenderedSamples } from "./sampleRenders";
 import { ExportError, copiedPath, withBakedModels, type BakeModel, type WebBuildPlan } from "./webBuild";
+import { withCompiledClips } from "./animationClips";
+import { loadAnimationCompiler } from "../plugins/animation/editor/compile/compiler";
 
 /** Read access to a folder of files (a project, a built player), by "/"-separated relative path. */
 export interface FileSource {
@@ -100,6 +102,8 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
   }
 
   plan = await withBakedModels(plan, options.bake, log);
+  // ADR 0371 (T19): every referenced clip compiled to *.anim.bin, and model skeletons to *.skel.bin, for the platform.
+  plan = await withCompiledClips(plan, { platform: options.platform, read: (path) => project.read(path), compiler: loadAnimationCompiler, log });
   // ADR 0352 §8: the plugins' audio modules hashed into game.json; their offline host renders baked plugin effects.
   const effects = await withAudioEffects(plan, (path) => project.read(path), log);
   plan = effects.plan;
