@@ -2,12 +2,14 @@
  * Quad batches on Babylon (ADR 0136): the backend half of `QuadBatchHost`. Each batch is one mesh; its
  * material is shared by every batch with the same texture, tint and opacity. Like sprites, quads are
  * layered 2D quads: `layeredQuads.ts` gives them their material and their place in the draw order
- * (ADR 0014, 0186). Knows nothing of tiles: the Tilemaps plugin's tile renderer decides what the quads are.
+ * (ADR 0014, 0186). Knows nothing of tiles or bones: the Tilemaps plugin's tile renderer and the Animation plugin's
+ * skinned sprites (`setTriangles`, updated in place each frame) decide what the quads are.
  */
 import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3 } from "@babylonjs/core/Maths/math.color.js";
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
+import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import type { Scene } from "@babylonjs/core/scene.js";
@@ -111,6 +113,10 @@ export class BabylonQuadBatches implements QuadBatchHost {
 class BabylonQuadBatch implements QuadBatch {
   mesh: Mesh | null = null;
   private texture = "";
+  /** What the mesh was built from (`setTriangles` only moves the vertices of an updatable mesh with the same indices). */
+  private indices: Uint32Array | null = null;
+  private vertexFloats = 0;
+  private updatable = false;
   private color = "#ffffff";
   private opacity = 1;
   private materialKey: string | null = null;
@@ -125,19 +131,33 @@ class BabylonQuadBatch implements QuadBatch {
   ) {}
 
   setQuads(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array): void {
+    this.build(texture, positions, uvs, indices, false);
+  }
+
+  setTriangles(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array): void {
+    if (this.mesh && this.updatable && texture === this.texture && indices === this.indices && positions.length === this.vertexFloats) {
+      this.mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
+      return;
+    }
+    this.build(texture, positions, uvs, indices, true);
+  }
+
+  private build(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, updatable: boolean): void {
     if (this.disposed) return;
     this.mesh?.dispose();
     this.mesh = null;
     this.texture = texture;
-    const quads = indices.length / 6;
-    if (quads > 0) {
+    this.indices = indices;
+    this.vertexFloats = positions.length;
+    this.updatable = updatable;
+    if (indices.length >= 3) {
       const mesh = new Mesh(this.name, this.owner.scene);
       const data = new VertexData();
       data.positions = positions;
       data.uvs = uvs;
       data.indices = indices;
-      data.normals = new Float32Array(quads * 12).map((_, i) => (i % 3 === 2 ? 1 : 0));
-      data.applyToMesh(mesh, false);
+      data.normals = new Float32Array(positions.length).map((_, i) => (i % 3 === 2 ? 1 : 0));
+      data.applyToMesh(mesh, updatable);
       mesh.alwaysSelectAsActiveMesh = true;
       placeInLayer(mesh, this.order);
       mesh.freezeWorldMatrix(this.matrix);

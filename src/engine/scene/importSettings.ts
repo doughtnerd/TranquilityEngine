@@ -19,7 +19,10 @@
  *   "pivot": [0.5, 0],            // the whole image's pivot, 0..1 from the bottom-left (default centre)
  *   "sprites": [                  // named slices: rect in pixels from the top-left, pivot as above
  *     { "name": "walk_0", "rect": [0, 0, 16, 16], "pivot": [0.5, 0], "border": [2, 2, 2, 2] }
- *   ],
+ *   ],                         // a slice may carry a 2D `skin` (bones, mesh, weights; ADR 0371, `animation/sprites/sidecar.ts`)
+ *   "flipbooks": {               // images: slices shown in turn, each a clip `image.png#Flip/<name>` (ADR 0371)
+ *     "walk": { "slices": ["walk_0", "walk_1"], "fps": 12, "loop": true }
+ *   },
  *   "volume": 0.8,                // audio: multiplies every playback's volume (default 1)
  *   "stream": true,               // audio: decode in pieces while playing instead of up front (default false)
  *   "loopStart": 1.5,             // audio: loop region start in seconds; wins over the file's own points (ADR 0158 §4)
@@ -67,6 +70,7 @@ import { generatedProvenanceToJson, parseGeneratedProvenance, type GeneratedProv
 import { parseSampleEdits, sampleEditsToJson } from "../audio/sample/format";
 import type { SampleEdits } from "../audio/sample/types";
 import { modelAnimationToJson, parseModelAnimation, type ModelAnimationSettings } from "../animation/import/clips";
+import { flipbooksToJson, parseFlipbooks, parseSliceSkin, sliceSkinToJson, type SliceSkin, type SpriteFlipbook } from "../animation/sprites/sidecar";
 
 export const IMPORT_FORMAT = "myco.import@1";
 export const SIDECAR_SUFFIX = ".meta.json";
@@ -126,6 +130,8 @@ export interface SpriteSlice {
   border?: [number, number, number, number];
   /** How the edges and centre fill their area: `stretch` (default) or `tile` (repeat at pixel size; ADR 0115). Written only when `tile`. */
   fill?: SpriteFill;
+  /** A 2D skin (ADR 0371): bones, a mesh and weights, drawn deformed under a `Skeleton2D`. */
+  skin?: SliceSkin;
 }
 
 export interface ImportSettings {
@@ -142,6 +148,8 @@ export interface ImportSettings {
   platforms: Partial<Record<ImportPlatform, PlatformOverrides>>;
   pivot: [number, number];
   sprites: SpriteSlice[];
+  /** Images (ADR 0371): flipbooks by name, each a clip `image.png#Flip/<name>` over the named slices. */
+  flipbooks: Record<string, SpriteFlipbook>;
   volume: number;
   stream: boolean;
   /** Audio (ADR 0158 §4): the loop region's start in seconds, or null to use the file's own. Wins over the file. */
@@ -188,6 +196,7 @@ const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<ImportSe
   platforms: {},
   pivot: [0.5, 0.5],
   sprites: [],
+  flipbooks: Object.freeze({}) as Record<string, SpriteFlipbook>,
   volume: 1,
   stream: false,
   loopStart: null,
@@ -206,7 +215,7 @@ const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<ImportSe
 });
 
 /** A copy of the defaults (safe to change). */
-export const defaultImportSettings = (): ImportSettings => ({ ...DEFAULT_IMPORT_SETTINGS, pivot: [0.5, 0.5], sprites: [], materials: {}, platforms: {} });
+export const defaultImportSettings = (): ImportSettings => ({ ...DEFAULT_IMPORT_SETTINGS, pivot: [0.5, 0.5], sprites: [], flipbooks: {}, materials: {}, platforms: {} });
 
 /** `images/a.png` → `images/a.png.meta.json`. */
 export const sidecarPath = (assetPath: string): string => `${assetPath}${SIDECAR_SUFFIX}`;
@@ -415,8 +424,18 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
           if (s.fill === "stretch" || s.fill === "tile") slice.fill = s.fill;
           else problems.push(`${where}: ${at}.fill should be "stretch" or "tile"; ignored.`);
         }
+        const skin = parseSliceSkin(s.skin, `${where}: ${at}.skin`, problems);
+        if (skin) slice.skin = skin;
         settings.sprites.push(slice);
       });
+    }
+  }
+  if (raw.flipbooks !== undefined && raw.flipbooks !== null) {
+    settings.flipbooks = parseFlipbooks(raw.flipbooks, `${where}: flipbooks`, problems);
+    const names = new Set(settings.sprites.map((s) => s.name));
+    for (const [name, f] of Object.entries(settings.flipbooks)) {
+      const missing = f.slices.filter((s) => !names.has(s));
+      if (missing.length) problems.push(`${where}: flipbooks.${name} names slices the image doesn't have (${missing.join(", ")}); those frames draw the whole image.`);
     }
   }
   return { settings, problems };
@@ -515,21 +534,27 @@ function importSettingsJSON(settings: ImportSettings): Record<string, unknown> {
   const animation = modelAnimationToJson(settings.animation);
   if (animation) out.animation = animation;
   if (settings.sprites.length > 0) {
-    out.sprites = settings.sprites.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}), ...(s.fill === "tile" ? { fill: "tile" } : {}) }));
+    out.sprites = settings.sprites.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}), ...(s.fill === "tile" ? { fill: "tile" } : {}), ...(s.skin ? { skin: sliceSkinToJson(s.skin) } : {}) }));
   }
+  const flipbooks = flipbooksToJson(settings.flipbooks);
+  if (flipbooks) out.flipbooks = flipbooks;
   return out;
 }
 
 /** Sidecar text: two-space JSON with number lists on one line, one slice per line. */
 export function formatImportSettings(settings: ImportSettings): string {
   const json = importSettingsJSON(settings);
-  const { sprites, ...rest } = json;
+  const { sprites, flipbooks, ...rest } = json;
   let text = JSON.stringify(rest, null, 2).replace(/\[\s+([-\d.e+,\s]+?)\s+\]/g, (_, inner: string) => `[${inner.split(/,\s*/).join(", ")}]`);
+  // One object per line: `"key": value` pairs, number lists spaced.
+  const inline = (o: Record<string, unknown>) => `{ ${Object.entries(o).map(([k, v]) => `${JSON.stringify(k)}: ${Array.isArray(v) && v.every((x) => typeof x === "number") ? `[${v.join(", ")}]` : JSON.stringify(v)}`).join(", ")} }`;
   if (Array.isArray(sprites)) {
-    const lines = (sprites as Record<string, unknown>[]).map(
-      (s) => `    { ${Object.entries(s).map(([k, v]) => `${JSON.stringify(k)}: ${Array.isArray(v) ? `[${v.join(", ")}]` : JSON.stringify(v)}`).join(", ")} }`,
-    );
+    const lines = (sprites as Record<string, unknown>[]).map((s) => `    ${inline(s)}`);
     text = `${text.slice(0, -2)},\n  "sprites": [\n${lines.join(",\n")}\n  ]\n}`;
+  }
+  if (flipbooks) {
+    const lines = Object.entries(flipbooks as Record<string, Record<string, unknown>>).map(([name, f]) => `    ${JSON.stringify(name)}: ${inline(f)}`);
+    text = `${text.slice(0, -2)},\n  "flipbooks": {\n${lines.join(",\n")}\n  }\n}`;
   }
   return `${text}\n`;
 }

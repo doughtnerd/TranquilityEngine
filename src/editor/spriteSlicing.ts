@@ -1,16 +1,12 @@
 // The Sprite Editor's logic (ADR 0040): slicing an image into named rectangles by a grid (cell
 // size or cell count) or automatically (islands of opaque pixels), and moving and resizing
 // rectangles by hand. Rectangles are [x, y, width, height] in whole pixels from the image's
-// top-left corner, as sidecars store them. Pure functions; ui/SpriteEditor.tsx draws them.
+// top-left corner, as sidecars store them. Pure functions; ui/SpriteEditor.tsx draws them. The island maths is the
+// engine's (`engine/animation/sprites/islands.ts`), which 2D skin meshes share.
+import { alphaIslands, type PixelRect, type Pixels } from "../engine/animation/sprites/islands";
 
-export type Rect = [number, number, number, number];
-
-/** Pixels as the canvas API gives them: RGBA, 4 bytes per pixel, row by row from the top. */
-export interface Pixels {
-  readonly width: number;
-  readonly height: number;
-  readonly data: Uint8ClampedArray | Uint8Array;
-}
+export type Rect = PixelRect;
+export type { Pixels };
 
 /** Named pivot positions, 0..1 from the bottom-left (y up), as in the sidecar. */
 export const PIVOT_PRESETS: readonly { label: string; pivot: [number, number] }[] = [
@@ -72,38 +68,8 @@ const union = (a: Rect, b: Rect): Rect => {
  * within one box height share a row), then left to right.
  */
 export function autoSlice(pixels: Pixels, options: { threshold?: number; minSize?: number } = {}): Rect[] {
-  const { width: W, height: H } = pixels;
   const threshold = options.threshold ?? 0, minSize = options.minSize ?? 1;
-  const seen = new Uint8Array(W * H);
-  const stack: number[] = [];
-  let boxes: Rect[] = [];
-  for (let start = 0; start < W * H; start++) {
-    if (seen[start] || pixels.data[start * 4 + 3] <= threshold) continue;
-    let x0 = W, y0 = H, x1 = -1, y1 = -1;
-    seen[start] = 1;
-    stack.push(start);
-    while (stack.length > 0) {
-      const i = stack.pop()!;
-      const x = i % W, y = (i - x) / W;
-      if (x < x0) x0 = x;
-      if (x > x1) x1 = x;
-      if (y < y0) y0 = y;
-      if (y > y1) y1 = y;
-      for (let dy = -1; dy <= 1; dy++) {
-        const ny = y + dy;
-        if (ny < 0 || ny >= H) continue;
-        for (let dx = -1; dx <= 1; dx++) {
-          const nx = x + dx;
-          if (nx < 0 || nx >= W) continue;
-          const j = ny * W + nx;
-          if (seen[j] || pixels.data[j * 4 + 3] <= threshold) continue;
-          seen[j] = 1;
-          stack.push(j);
-        }
-      }
-    }
-    boxes.push([x0, y0, x1 - x0 + 1, y1 - y0 + 1]);
-  }
+  let boxes: Rect[] = alphaIslands(pixels, threshold).boxes.map((b): Rect => [b[0], b[1], b[2], b[3]]);
   // Merge overlapping boxes until none overlap.
   for (let merged = true; merged; ) {
     merged = false;

@@ -11,14 +11,18 @@
 //   evaluates the samples.
 // - Keyed kinds (discrete, event, audio, activation, subclip, control, marker) become `KEYS` records, ends clamped into
 //   the duration. An enum key given by name (not index) is 0.
-// - Bone tracks are left out (a timeline binds nodes, D46), reported in `dropped`.
+// - Bone tracks are written only with a `skeleton` (a clip made on the host for one rig: 2D bone clips, T21), sampled
+//   like the rest: translation and scale linearly, rotation by nlerp, a channel without keys at the bone's rest value;
+//   a bone the skeleton lacks is left out. Without one (a timeline binds nodes, D46) they are left out. Either way
+//   what's left out is reported in `dropped`.
 //
 // Pure; returns the bytes plus, per subclip track, its keys' clip string ids, which the director binds
 // (`timeline_bind`). Internal.
 import { f32Bits, encodeStringTable, ByteWriter, writeContainer } from "../../../../../engine/animation/binaryWriter";
-import { CONTROL_ACTIONS, CURVE_TRACK_WIDTH, DISCRETE_TYPES, MARKER_KINDS, QUAT_INTERPS, TRACK_KINDS, type QuatKey, type Track } from "../../../../../engine/animation/tracks";
+import { CONTROL_ACTIONS, CURVE_TRACK_WIDTH, DISCRETE_TYPES, MARKER_KINDS, QUAT_INTERPS, TRACK_KINDS, type QuatKey, type Track, type Vec3Key } from "../../../../../engine/animation/tracks";
 import { evalCurve } from "../../../../../engine/core/curve";
 import { Quaternion } from "../../../../../engine/core/math";
+import type { NodePose } from "../../../../../engine/scene/models";
 
 const NONE = 0xffffffff;
 const MAGIC = "MYCOANIM";
@@ -32,6 +36,8 @@ export interface RawClipSource {
   readonly duration: number;
   readonly loop: boolean;
   readonly tracks: readonly Track[];
+  /** The skeleton bone tracks bind to (names and rest poses, in the skeleton's order); absent: bone tracks are left out. */
+  readonly skeleton?: { readonly bones: readonly { readonly name: string; readonly rest: NodePose }[] };
 }
 
 /** @internal A written clip. */
@@ -86,6 +92,18 @@ const quatAt = (keys: readonly QuatKey[], t: number, slerp: boolean): [number, n
   return [q.x, q.y, q.z, q.w];
 };
 
+const vec3At = (keys: readonly Vec3Key[], t: number): [number, number, number] => {
+  const k0 = keys[0]!;
+  if (keys.length === 1 || t <= k0[0]) return [k0[1], k0[2], k0[3]];
+  const last = keys[keys.length - 1]!;
+  if (t >= last[0]) return [last[1], last[2], last[3]];
+  let i = 0;
+  while (i + 1 < keys.length && keys[i + 1]![0] <= t) i++;
+  const a = keys[i]!, b = keys[i + 1]!;
+  const u = b[0] > a[0] ? (t - a[0]) / (b[0] - a[0]) : 1;
+  return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u];
+};
+
 /** @internal Writes `src` as a raw `myco.anim@1` clip. */
 export function writeRawClip(src: RawClipSource): RawClip {
   const duration = Number.isFinite(src.duration) && src.duration > 0 ? src.duration : 0;
@@ -103,19 +121,20 @@ export function writeRawClip(src: RawClipSource): RawClip {
   let keyCount = 0;
   const clampEnd = (time: number, end: number | undefined) => Math.min(duration, Math.max(time, end ?? time));
 
-  const trackRecord = (kind: number, subtype: number, width: number, path: string, component: string, field: string, rawOffset: number, firstKey: number, count: number) => {
-    tracks.u8(kind).u8(0).u8(subtype).u8(width).u32(NONE).u32(strings.id(path)).u32(strings.id(component)).u32(strings.id(field)).u32(rawOffset).u32(firstKey).u32(count);
+  const trackRecord = (kind: number, subtype: number, width: number, path: string, component: string, field: string, rawOffset: number, firstKey: number, count: number, bone = NONE) => {
+    tracks.u8(kind).u8(0).u8(subtype).u8(width).u32(bone).u32(strings.id(path)).u32(strings.id(component)).u32(strings.id(field)).u32(rawOffset).u32(firstKey).u32(count);
     trackCount++;
   };
-  const sampled = (kind: number, subtype: number, width: number, path: string, component: string, field: string, sample: (t: number) => readonly number[]) => {
+  const sampled = (kind: number, subtype: number, width: number, path: string, component: string, field: string, sample: (t: number) => readonly number[], bone = NONE) => {
     while (raw.length % 4) raw.push(0);
     const offset = raw.length;
     for (const t of times) {
       const v = sample(t);
       for (let c = 0; c < width; c++) raw.push(Number.isFinite(v[c]) ? v[c]! : 0);
     }
-    trackRecord(kind, subtype, width, path, component, field, offset, 0, 0);
+    trackRecord(kind, subtype, width, path, component, field, offset, 0, 0, bone);
   };
+  const boneIndex = new Map(src.skeleton?.bones.map((b, i) => [b.name, i]) ?? []);
   const keyed = (kind: number, subtype: number, path: string, component: string, field: string, list: readonly { time: number; end: number; words: readonly number[] }[]) => {
     const first = keyCount;
     for (const k of list) {
@@ -130,9 +149,20 @@ export function writeRawClip(src: RawClipSource): RawClip {
   for (const t of src.tracks) {
     const kind = TRACK_KINDS.indexOf(t.kind);
     switch (t.kind) {
-      case "bone":
-        dropped.push("bone");
+      case "bone": {
+        const bone = boneIndex.get(t.bone);
+        if (bone === undefined) {
+          dropped.push("bone");
+          break;
+        }
+        const rest = src.skeleton!.bones[bone]!.rest;
+        sampled(kind, 0, 10, "", "", "", (time) => [
+          ...(t.translation.length ? vec3At(t.translation, time) : rest.position),
+          ...(t.rotation.length ? quatAt(t.rotation, time, false) : rest.rotation),
+          ...(t.scale.length ? vec3At(t.scale, time) : rest.scale),
+        ], bone);
         break;
+      }
       case "float":
       case "vec2":
       case "vec3":
@@ -196,7 +226,7 @@ export function writeRawClip(src: RawClipSource): RawClip {
     }
   }
 
-  const info = new ByteWriter().f32(duration).f32(rate).u32(frames).u32(trackCount).u32(name).u32(0).u32(NONE).u32(0).finish();
+  const info = new ByteWriter().f32(duration).f32(rate).u32(frames).u32(trackCount).u32(name).u32(src.skeleton?.bones.length ?? 0).u32(NONE).u32(0).finish();
   const sections = [
     { kind: S_STRINGS, count: strings.list.length, data: encodeStringTable(strings.list) },
     { kind: S_INFO, count: 1, data: info },
