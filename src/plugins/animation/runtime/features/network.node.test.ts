@@ -286,9 +286,19 @@ function animatorIn(world: World, name: string): Animator | null {
 }
 
 const pose = (world: World, node: GameObject) => skinningMatrices(world, node)?.slice() ?? null;
+/**
+ * The bones a server computes for the heroes' hit volume (T70: a server writes matrices only for the bones BoneAttachments
+ * follow and their ancestors): bone4 and its chain to the root.
+ */
+const SERVER_BONES: readonly number[] = (() => {
+  const chain: number[] = [];
+  for (let b = 4; b >= 0; b = skel.parents[b]!) chain.push(b);
+  return chain;
+})();
+/** The largest difference between two poses over the bones the server computes. */
 function diff(a: Float32Array, b: Float32Array): number {
   let w = 0;
-  for (let i = 0; i < skel.bones * 12; i++) w = Math.max(w, Math.abs(a[i]! - b[i]!));
+  for (const bone of SERVER_BONES) for (let k = 0; k < 12; k++) w = Math.max(w, Math.abs(a[bone * 12 + k]! - b[bone * 12 + k]!));
   return w;
 }
 
