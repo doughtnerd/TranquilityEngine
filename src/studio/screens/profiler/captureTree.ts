@@ -2,6 +2,8 @@
 // capture files (`*.mycap`, and takes, `*.mycotake`, whose profile the Profiler reads too) by folder, wherever they are,
 // or while searching the matches by path. Saved and imported captures go to `captures/`. Pure.
 
+import { contentFolders } from "../../components/projectFolders";
+
 /** The files the Profiler opens. */
 export const CAPTURE_SUFFIXES = [".mycap", ".mycotake"] as const;
 
@@ -36,24 +38,27 @@ export type CaptureNode =
   | { readonly kind: "folder"; readonly path: string; readonly name: string; readonly children: readonly CaptureNode[] }
   | { readonly kind: "file"; readonly path: string; readonly name: string; readonly take: boolean };
 
-/** The capture files of `files` as a tree of the folders that hold them: folders first, then files, each by name. */
-export function captureTree(files: readonly string[]): CaptureNode[] {
+/**
+ * The capture files of `files` as a tree of the folders that hold them, plus `folders` (empty ones too: a folder the
+ * user just made shows, so a file can be moved into it): folders first, then files, each by name.
+ */
+export function captureTree(files: readonly string[], folders: readonly string[] = []): CaptureNode[] {
   interface Dir {
     dirs: Map<string, Dir>;
     files: string[];
   }
   const root: Dir = { dirs: new Map(), files: [] };
-  for (const path of files) {
-    if (!isCapturePath(path)) continue;
+  const dirOf = (folder: string): Dir => {
     let d = root;
-    const folder = folderOf(path);
     for (const part of folder ? folder.split("/") : []) {
       let next = d.dirs.get(part);
       if (!next) d.dirs.set(part, (next = { dirs: new Map(), files: [] }));
       d = next;
     }
-    d.files.push(path);
-  }
+    return d;
+  };
+  for (const folder of folders) dirOf(folder);
+  for (const path of files) if (isCapturePath(path)) dirOf(folderOf(path)).files.push(path);
   const build = (d: Dir, prefix: string): CaptureNode[] => [
     ...[...d.dirs.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, sub]): CaptureNode => {
       const path = prefix ? `${prefix}/${name}` : name;
@@ -81,6 +86,42 @@ export function treeFolders(nodes: readonly CaptureNode[]): string[] {
   };
   walk(nodes);
   return out;
+}
+
+/**
+ * The folders a Takes or Captures tree shows: of the project's content folders (`contentFolders`: not the game's scenes,
+ * scripts and plugins, nor hidden ones, unless they hold such files), those holding a file the tree lists, at any depth,
+ * and those holding no file at all (a folder the user just made, to move files into). A folder of samples or playlists
+ * stays in the Samples and Playlists trees. Move to… offers every content folder.
+ */
+export function runTreeFolders(folders: readonly string[], files: readonly string[], isFile: (path: string) => boolean): string[] {
+  const holding = new Set<string>();
+  const used = new Set<string>();
+  for (const f of files) {
+    const parts = f.split("/");
+    for (let i = 1; i < parts.length; i++) {
+      const dir = parts.slice(0, i).join("/");
+      used.add(dir);
+      if (isFile(f)) holding.add(dir);
+    }
+  }
+  return contentFolders(folders, files, isFile).filter((f) => holding.has(f) || !used.has(f));
+}
+
+/** The folders a search result's meta names: "HoverBike › Canyon" ("" at the top level). */
+export const folderTrail = (path: string): string => folderOf(path).split("/").filter(Boolean).join(" › ");
+
+/** A duration as the trees show it: "32.0 s" under a minute, else "1:05". */
+export function durationText(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "";
+  if (seconds < 60) return `${seconds.toFixed(1)} s`;
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+/** A tree row's meta: its duration, and while searching its folders first ("HoverBike › Canyon · 41.0 s"). */
+export function rowMeta(path: string, duration: number | null, searching: boolean): string {
+  return [searching ? folderTrail(path) || "Top level" : "", duration === null ? "" : durationText(duration)].filter(Boolean).join(" · ");
 }
 
 /** The first free `captures/<stem>_NN.mycap` (01, 02…) in `files`. */

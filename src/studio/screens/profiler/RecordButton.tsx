@@ -15,10 +15,10 @@ export interface RecordButtonProps {
 
 export function RecordButton(props: RecordButtonProps) {
   const disabled = props.busy || (!props.recording && props.blocked !== null);
-  const title = props.recording ? "Stop and save the capture into the project's captures folder" : (props.blocked ?? "Record a capture of the Studio's runtime");
+  const title = props.recording ? "Stop recording and save the capture into the selected folder" : (props.blocked ?? "Record: capture the Studio's runtime as a new capture");
   return (
     <span class={`pf-record${props.recording ? " on" : ""}`}>
-      <TransportButton icon={props.recording ? "stop" : "record"} label={props.recording ? "Stop" : props.busy ? "Saving…" : "Record"} text pressed={props.recording} disabled={disabled} title={title} onClick={() => props.onToggle()} />
+      <TransportButton icon="record" label={props.recording ? "Stop recording" : props.busy ? "Saving…" : "Record"} pressed={props.recording} disabled={disabled} title={title} onClick={() => props.onToggle()} />
     </span>
   );
 }

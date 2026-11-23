@@ -15,7 +15,7 @@ describe("the Profiler's data reader", () => {
   it("plans the tracks the fixture has data for, in the prototype's order", async () => {
     const source = await openFixture();
     const data = await new ProfilerDataReader(source).refresh();
-    expect(data.tracks.map((t) => t.label)).toEqual(["Load", "Memory", "Bus · Music", "Bus · Vehicles", "Bus · Dialogue", "Voices", "Game · Speed"]);
+    expect(data.tracks.map((t) => t.label)).toEqual(["Load", "Effects", "Memory", "Bus · Music", "Bus · Vehicles", "Bus · Dialogue", "Voices", "Game · Speed"]);
     expect(data.load!.cap.values[0]).toBe(4);
     // Music is ducked by 6 dB from 4 s to 7 s: -6 dB authored, -12 dB while ducked.
     const music = data.buses.get(1)!;

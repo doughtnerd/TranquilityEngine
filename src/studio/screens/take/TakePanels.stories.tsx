@@ -8,7 +8,8 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import type { TakeNotes } from "../../../engine/audio/take/types";
 import { performanceClock, TakeReplay, type ReplayTarget } from "../../runtime/takeReplay";
 import { addMarker, moveNote, type NotesEdit } from "./notesEdits";
-import { InstanceDetails, MixerStrip, NoteDetails, PlayheadValues } from "./TakeInspector";
+import { InstanceDetails, MixerStrip, NoteDetails, PlayheadValues, PropertyCards } from "./TakeInspector";
+import type { PropertyCard } from "./takePlaylists";
 import { busStrip, instanceParametersAt, parameterRows } from "./takeInspectorModel";
 import { FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
 import { TakeList } from "./TakeList";
@@ -33,6 +34,7 @@ function TimelineDemo(props: { start?: number }) {
   const timeline = useMemo(() => takeTimeline(take, (name, path) => (name === "Surface" && path === null ? SURFACE_LABELS : null)), [take]);
   const [notes, setNotes] = useState<TakeNotes>(FIXTURE_NOTES);
   const [selected, setSelected] = useState<TakeSelection>(null);
+  const [hovered, setHovered] = useState<string | null>(null);
   useEffect(() => {
     if (props.start) replay.seek(props.start);
     let id = requestAnimationFrame(function loop() {
@@ -59,6 +61,15 @@ function TimelineDemo(props: { start?: number }) {
         selected={selected}
         notes={notes}
         notesWritable
+        name="canyon_run_03"
+        plays={(path) => (path.includes("engine") ? "until stopped · Layer" : "one-shot")}
+        drives={(name) => (name === "Speed" ? "Drives pitch, low-pass on engine" : "")}
+        muted={replay.muted.value}
+        soloed={replay.soloed.value}
+        onMute={(path, on) => replay.setMuted(path, on)}
+        onSolo={(path, on) => replay.setSoloed(path, on)}
+        hovered={hovered}
+        onHover={setHovered}
         onSeek={(t) => replay.seek(t)}
         onSelectInstance={(key) => setSelected({ kind: "instance", key })}
         onOpenInstance={fn()}
@@ -68,6 +79,7 @@ function TimelineDemo(props: { start?: number }) {
       />
       <output aria-label="Selected">{selected ? (selected.kind === "instance" ? selected.key : selected.id) : ""}</output>
       <output aria-label="Markers">{notes.markers.length}</output>
+      <output aria-label="Hovered">{hovered ?? ""}</output>
     </div>
   );
 }
@@ -84,6 +96,61 @@ export const Timeline: Story = {
     await expect(canvasElement.querySelector(".tk-segment[title='Rock']")).not.toBeNull(); // Surface as labelled segments
     await userEvent.click(c.getByRole("option", { name: /Velocity 0.71/ }));
     await expect(c.getByLabelText("Selected").textContent).toMatch(/^4@/);
+  },
+};
+
+export const RulerAndLanes: Story = {
+  render: () => <TimelineDemo start={20.48} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // The ruler's head reads the playhead; the lanes say how each playlist plays; game lanes say what they drive.
+    await waitFor(() => expect(canvasElement.querySelector(".run-readout")?.textContent).toBe("00:20.480"));
+    await expect(c.getByRole("slider", { name: "Take time" })).toHaveAttribute("aria-valuetext", "00:20.480");
+    await expect(c.getByText("Gameplay take")).toBeVisible();
+    await expect(c.getByText("Game · Speed")).toBeVisible();
+    await expect(c.getByText("Drives pitch, low-pass on engine")).toBeVisible();
+    // Hovering a game lane's head is the link to the Inspector's cards.
+    await userEvent.hover(c.getByText("Game · Speed"));
+    await expect(c.getByLabelText("Hovered").textContent).toBe("Speed");
+  },
+};
+
+export const MuteAndSolo: Story = {
+  render: () => <TimelineDemo start={2} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const mute = await c.findByRole("button", { name: "Mute engine" });
+    await userEvent.click(mute);
+    await expect(mute).toHaveAttribute("aria-pressed", "true");
+    await expect(mute.closest(".tk-row")!.className).toMatch(/silent/);
+    await userEvent.click(c.getByRole("button", { name: "Solo boost" }));
+    // While a lane is soloed every other lane is silent.
+    await expect(c.getByRole("button", { name: "Solo boost" }).closest(".tk-row")!.className).not.toMatch(/silent/);
+  },
+};
+
+export const InspectorCards: Story = {
+  render: () => {
+    const [hovered, setHovered] = useState<string | null>("Speed");
+    const cards: PropertyCard[] = [
+      { key: "v", label: "Volume", authored: -6, live: -6, unit: "dB", authoredAt: 0.75, liveAt: 0.75, text: "−6.0 dB", driver: null },
+      { key: "p", label: "Pitch", authored: 0, live: 4.2, unit: "st", authoredAt: 0.5, liveAt: 0.59, text: "+4.2 st", driver: { parameter: "Speed", mapping: "−3 to +7 st · ease-in · seek 50/s" } },
+      { key: "r", label: "Reverb send", authored: -18, live: -9, unit: "dB", authoredAt: 0.58, liveAt: 0.71, text: "−9.0 dB", driver: { parameter: "Surface", mapping: "−18 to −9 dB · steps" } },
+    ];
+    return (
+      <div style={{ width: "300px" }}>
+        <PropertyCards cards={cards} hovered={hovered} onHover={setHovered} />
+      </div>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // The chips the hovered game parameter drives are outlined; the static card's fill is muted, the driven one accent2.
+    await expect(c.getByText("← Speed").className).toMatch(/linked/);
+    await expect(c.getByText("← Surface").className).not.toMatch(/linked/);
+    await userEvent.hover(c.getByText("← Surface"));
+    await expect(c.getByText("← Surface").className).toMatch(/linked/);
+    await expect(c.getByRole("listitem", { name: /Pitch \+4.2 st, authored \+0.0 st|Pitch \+4.2 st, authored 0.0 st/ })).toBeVisible();
   },
 };
 
@@ -136,19 +203,22 @@ export const Replaying: Story = {
 };
 
 const FILES = ["takes/HoverBike/Canyon/canyon_run_01.mycotake", "takes/HoverBike/Canyon/canyon_run_03.mycotake", "takes/HoverBike/Canyon/canyon_run_03.mycotake.notes.json", "takes/Boss/boss_arena_01.mycotake", "captures/capture_01.mycap"];
-const listArgs = { folders: ["takes", "takes/HoverBike", "takes/HoverBike/Canyon", "takes/Boss"], writable: true, onOpen: fn(), onImport: fn(), onRename: fn(), onMove: fn(), onDelete: fn() };
+const listArgs = {
+  folders: ["takes", "takes/HoverBike", "takes/HoverBike/Canyon", "takes/Boss"], writable: true,
+  onOpen: fn(), onImport: fn(), onRename: fn(), onMove: fn(), onDelete: fn(), onDuplicate: fn(), onRenameFolder: fn(), onDeleteFolder: fn(), onNewFolder: fn(async () => null),
+};
 
 export const Takes: Story = {
   render: () => <div style={{ width: "280px" }}><TakeList files={FILES} openPath="takes/HoverBike/Canyon/canyon_run_03.mycotake" {...listArgs} /></div>,
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByText("canyon_run_01.mycotake")).toBeVisible();
+    await expect(c.getByText("canyon_run_01")).toBeVisible();
     await expect(c.queryByText("capture_01.mycap")).toBeNull();
   },
 };
 
 export const NoTakes: Story = {
-  render: () => <div style={{ width: "280px" }}><TakeList files={["audio.json"]} openPath={null} {...listArgs} /></div>,
+  render: () => <div style={{ width: "280px" }}><TakeList files={["audio.json"]} openPath={null} {...listArgs} folders={[]} /></div>,
   play: async ({ canvasElement }) => {
     await expect(within(canvasElement).getByText(/F10 in a game build/)).toBeVisible();
   },
@@ -161,14 +231,14 @@ export const Instance: Story = {
     const rows = parameterRows(instanceParametersAt(take, engine, 12), (n) => (n === "Rpm" ? 4321 : undefined));
     return (
       <div style={{ width: "300px" }}>
-        <InstanceDetails instance={engine} emitterName="Bike" emitterPose={{ position: { x: 175.6, y: 1, z: 0 } }} rows={rows} live onGoToStart={fn()} onOpenSource={fn()} />
+        <InstanceDetails instance={engine} emitterName="Bike" emitterPose={{ position: { x: 175.6, y: 1, z: 0 } }} rows={rows} kind="Layer" cards={[]} live onOpenSource={fn()} />
       </div>
     );
   },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByText("4321")).toBeVisible();
-    await expect(c.getByRole("button", { name: "Open playlist ›" })).toBeVisible();
+    await expect(c.getByRole("button", { name: /Open .* in Playlists/ })).toBeVisible();
   },
 };
 

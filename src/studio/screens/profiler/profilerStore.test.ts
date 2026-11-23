@@ -92,7 +92,7 @@ describe("the recorder", () => {
     await r.start();
     expect(capture.start).toHaveBeenCalled();
     expect(r.state.value.kind).toBe("recording");
-    expect(recorderStatus(r.state.value, r.seconds)).toBe("Recording the Studio · 3.0 s");
+    expect(recorderStatus(r.state.value, r.seconds)).toBe("● Recording a new capture · 3.0 s");
     await r.stop();
     expect(capture.stop).toHaveBeenCalled();
     expect(seams.fileBytes).toHaveBeenCalled();
@@ -128,7 +128,7 @@ describe("the recorder", () => {
     const r = new CaptureRecorder(seams);
     await r.start();
     expect(r.replayOf).toEqual(take);
-    expect(recorderStatus(r.state.value, r.seconds, r.replayOf)).toBe("Recording the replay of canyon_run_01.mycotake · 3.0 s");
+    expect(recorderStatus(r.state.value, r.seconds, r.replayOf)).toBe("● Recording the replay of canyon_run_01 · 3.0 s");
     await r.stop();
     expect(named).toEqual([take, null]);
     expect(r.replayOf).toBeNull();

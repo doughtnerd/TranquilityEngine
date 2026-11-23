@@ -2,19 +2,20 @@
 // open project, the capture Worker and the Studio's audio runtime (`audioHost().audio.capture`, the public API, and the
 // recorder's live ring through the `LiveHost` seam the editor's Profiler panel uses), and the captures' file actions
 // through the engine's asset operations (import, delete) and the Studio's moves (rename, move: studioAssetMoves.ts, which
-// leave the editor the references it owns while it has the project open). The panels call these; the models are elsewhere.
+// leave the editor the references it owns while it has the project open; `runFileActions.ts`, given `captureFileKind`).
+// The panels call these; the models are elsewhere.
+import { signal } from "@preact/signals";
 import { importFiles, whyNotImportable } from "../../../editor/assetImportFiles";
-import { deleteAssets } from "../../../editor/assetDelete";
-import { currentProject, status } from "../../../editor/state";
+import { currentProject } from "../../../editor/state";
 import { CaptureSource } from "../../../plugins/audio/editor/mix/profilerSource";
 import { captureFileBytes, captureLiveHost, setCaptureReplayOf } from "../../../plugins/audio/runtime/capture/capture";
 import { replayStore } from "../../shell/replay";
-import { moveStudioAssets, renameStudioAsset } from "../../boot/studioAssetMoves";
 import { audioHost, openRoute } from "../../shell/studioServices";
 import { CaptureRecorder } from "./captureRecorder";
 import { CAPTURES_FOLDER, whyNotCaptureFile } from "./captureTree";
 import { ProfilerStore } from "./profilerStore";
 import { linkReview } from "./reviewLink";
+import type { RunFileKind } from "./runFileActions";
 
 let store: ProfilerStore | null = null;
 let recorder: CaptureRecorder | null = null;
@@ -40,13 +41,13 @@ export function profilerStore(): ProfilerStore {
 /** Open in Take: the take on the Take screen at the Profiler's position (the review link seeks it once it is open). */
 export const openInTake = (path: string): void => openRoute({ screen: "take", asset: path });
 
-/** Write capture bytes into the project's captures folder (never over a file); resolves with the path written. */
+/** Write capture bytes into the selected Captures folder (else the project's captures folder) (never over a file); resolves with the path written. */
 async function writeCapture(path: string, bytes: Uint8Array): Promise<string> {
   const project = currentProject.peek();
   const refused = whyNotImportable(project);
   if (refused || !project) throw new Error(refused ?? "no project is open");
   const name = path.slice(path.lastIndexOf("/") + 1);
-  const r = await importFiles(project, CAPTURES_FOLDER, [{ path: name, read: async () => bytes }]);
+  const r = await importFiles(project, captureFolder.peek() ?? CAPTURES_FOLDER, [{ path: name, read: async () => bytes }]);
   if (r.imported.length === 0) throw new Error(r.failed[0]?.error ?? `couldn't write ${path}`);
   return r.imported[0]!;
 }
@@ -82,41 +83,23 @@ export function profilerRecorder(): CaptureRecorder {
 /** Open a capture on the Profiler (the route says which, so a reload or a hand-off opens the same one). */
 export const openCapture = (path: string): void => openRoute({ screen: "profiler", asset: path });
 
-/** Open capture file…: copy chosen files into the project's captures folder, then open the first. */
-export async function importCaptures(files: readonly File[]): Promise<void> {
-  const project = currentProject.peek();
-  const refused = whyNotImportable(project);
-  if (refused || !project) {
-    status.value = { kind: "info", text: `Can't import captures: ${refused ?? "no project is open"}.` };
-    return;
-  }
-  const wrong = files.map((f) => whyNotCaptureFile(f.name)).find((r) => r !== null);
-  if (wrong) {
-    status.value = { kind: "info", text: wrong };
-    return;
-  }
-  const r = await importFiles(project, CAPTURES_FOLDER, files.map((f) => ({ path: f.name, read: async () => new Uint8Array(await f.arrayBuffer()) })));
-  if (r.imported[0]) openCapture(r.imported[0]);
-}
+/** The Captures tree's selected folder: where Open capture file…, New folder and a new recording go (null: `captures/`). */
+export const captureFolder = signal<string | null>(null);
 
-/** Rename a capture file in its folder; the open one follows. */
-export async function renameCapture(path: string, name: string): Promise<void> {
-  const to = `${path.includes("/") ? `${path.slice(0, path.lastIndexOf("/"))}/` : ""}${name}`;
-  if (await renameStudioAsset(path, name)) followMove(path, to);
-}
-
-/** Move a capture file to `folder`; the open one follows. */
-export async function moveCapture(path: string, folder: string): Promise<void> {
-  const to = `${folder ? `${folder}/` : ""}${path.slice(path.lastIndexOf("/") + 1)}`;
-  if (await moveStudioAssets([[path, to]])) followMove(path, to);
-}
-
-/** Delete a capture file (the engine's delete asks first); the open one closes. */
-export async function deleteCapture(path: string): Promise<void> {
-  if (!(await deleteAssets([path]))) return;
-  const s = profilerStore().state.peek();
-  if ((s.kind === "open" || s.kind === "failed") && s.path === path) profilerStore().close();
-}
+/** Captures for the Captures tree's actions: the open capture follows a move and closes on a delete. */
+export const captureFileKind: RunFileKind = {
+  noun: "capture",
+  defaultFolder: CAPTURES_FOLDER,
+  whyNotFile: whyNotCaptureFile,
+  companions: (_files, path) => [path],
+  openPath: () => {
+    const s = profilerStore().state.peek();
+    return s.kind === "open" || s.kind === "failed" || s.kind === "opening" ? s.path : null;
+  },
+  open: openCapture,
+  moved: (from, to) => followMove(from, to),
+  closed: () => profilerStore().close(),
+};
 
 function followMove(from: string, to: string): void {
   const s = profilerStore().state.peek();

@@ -7,9 +7,12 @@
 // status colours; a click selects a voice and seeks to its start) and the game parameters. Clicking a track seeks;
 // pressing and dragging on the ruler scrubs (a pointer drag, so it works by touch too). The
 // whole capture fits the width; lines are drawn in a fixed SVG box stretched to the track (`timelineGeometry.ts`).
-// A view over props: the panel feeds it the store's signals, a story its own.
-import type { ComponentChildren, JSX } from "preact";
-import { useRef } from "preact/hooks";
+// The ruler is the run screens' (`RunRuler`: the playhead readout, second labels, the triangle) with the problem marks on
+// it; bus tracks that never move are folded into one "+ N unchanged buses" row; the Effects track counts instances by
+// level (spec §4.6.3). A view over props: the panel feeds it the store's signals, a story its own.
+import { Fragment, type ComponentChildren, type JSX } from "preact";
+import { useRef, useState } from "preact/hooks";
+import { RunPlayhead, RunRuler } from "./RunRuler";
 import { Filmstrip } from "../../components/Filmstrip";
 import { useElementWidth } from "../../components/useElementWidth";
 import { formatDb } from "../../../plugins/audio/editor/dbScale";
@@ -19,7 +22,7 @@ import { memoryText } from "./memoryModel";
 import { formatBytes } from "../../encoding/estimate";
 import type { RulerMark } from "./messagesModel";
 import type { ProfilerData } from "./profilerData";
-import { BOX_H, BOX_W, clockText, extent, linePath, maxOf, pct, rulerTicks, stepPath, valueAt, yOf } from "./timelineGeometry";
+import { BOX_H, BOX_W, clockText, extent, linePath, maxOf, pct, stepPath, valueAt, yOf } from "./timelineGeometry";
 import type { PlannedTrack } from "./trackPlan";
 import { dimmed, STATUS_TEXT, voiceLanes, voiceSummary, type GroupBy, type VoiceBlock } from "./voiceModel";
 import { generatorBadge } from "../playlists/generator/generatorKinds";
@@ -33,6 +36,8 @@ export interface ProfilerTimelineProps {
   readonly selected: string | null;
   readonly problemsOnly: boolean;
   readonly groupBy: GroupBy;
+  /** Buses running an effect chain in the project's mix (the Effects track's Bus chip). */
+  readonly busChains?: number;
   onSeek(t: number): void;
   /** A voice block clicked (seek to its start too). */
   onSelect(key: string): void;
@@ -44,8 +49,8 @@ const BUS_MAX_DB = 6;
 /** LUFS range of the loudness track. */
 const LUFS_MIN = -60;
 const LUFS_MAX = 0;
-/** Height of one voice row, px. */
-const ROW_PX = 16;
+/** Height of one voice row, px (a 24px block inset 5px, the prototype's 34px lanes). */
+const ROW_PX = 34;
 
 /** The time under a pointer event on a plot element. */
 function timeAt(e: MouseEvent, duration: number): number {
@@ -123,7 +128,32 @@ function LoadTrack({ data, track, cursor, onSeek }: { data: ProfilerData; track:
           { d: linePath(load.voices, data.duration, 0, top), cls: "pf-line pf-voices" },
         ]}
       />
-      <span class="pf-ref-label">voice cap {capNow}</span>
+      <span class="pf-limit" title="The core's voice cap (mixedCap): voices past it are stolen or refused">voice limit {capNow}</span>
+      <span class="pf-legend" aria-hidden="true">
+        <span class="pf-key pf-key-voices">voices</span>
+        {load.cpu.length > 0 && <span class="pf-key pf-key-cpu">CPU</span>}
+      </span>
+    </TrackRow>
+  );
+}
+
+/** Spec §4.6.3: effect instances by level at the cursor, as chips, and their total over time. */
+function FxTrack({ data, track, cursor, busChains, onSeek }: { data: ProfilerData; track: PlannedTrack; cursor: number; busChains: number; onSeek(t: number): void }) {
+  const fx = data.fxInstances!;
+  const clips = fx.clips ? (valueAt(fx.clips, cursor) ?? 0) : null;
+  const playlists = fx.playlists ? (valueAt(fx.playlists, cursor) ?? 0) : null;
+  const total = fx.clips ?? fx.playlists!;
+  const top = Math.max(1, maxOf(total.values) + busChains) * 1.15;
+  const shifted = { times: total.times, values: Float64Array.from(total.values as ArrayLike<number>, (v, i) => v + busChains + (fx.clips && fx.playlists ? (valueAt(fx.playlists, total.times[i]!) ?? 0) : 0)) };
+  return (
+    <TrackRow track={track} value="instances by level" duration={data.duration} onSeek={onSeek} height={44}>
+      <Lines height={44} paths={[{ d: stepPath(shifted, data.duration, 0, top), cls: "pf-line pf-fxi" }]} />
+      <span class="pf-chips">
+        <span class="pf-chip-n" title="Rendered into the audio offline: no instances at runtime">Sample baked · 0</span>
+        {clips !== null && <span class="pf-chip-n" title={`Per voice: ${clips} voice${clips === 1 ? "" : "s"} running a clip chain`}>Clip {clips}</span>}
+        {playlists !== null && <span class="pf-chip-n" title={`One per playing playlist or sequence track (${playlists} playing)`}>Playlist / track {playlists}</span>}
+        <span class="pf-chip-n" title="One per bus chain, always running (the project's mix now)">Bus {busChains}</span>
+      </span>
     </TrackRow>
   );
 }
@@ -172,13 +202,21 @@ function BusTrack({ data, track, slot, readout, cursor, onSeek }: { data: Profil
   const line = data.buses.get(slot)!;
   const now = valueAt(line, cursor);
   return (
-    <TrackRow track={track} value={now === null ? null : formatDb(now)} duration={data.duration} onSeek={onSeek} height={40}>
+    <TrackRow track={track} value={now === null ? "effective gain" : `${formatDb(now)} · effective gain`} duration={data.duration} onSeek={onSeek} height={40}>
       <Lines height={40} paths={[{ d: stepPath(line, data.duration, BUS_MIN_DB, BUS_MAX_DB), cls: "pf-line pf-bus" }]}>
         {refLine(yOf(0, BUS_MIN_DB, BUS_MAX_DB), "pf-ref pf-zero")}
       </Lines>
-      {readout && (
-        <span class={`pf-float${pct(cursor, data.duration) > 60 ? " left" : ""}`} style={{ left: `${pct(cursor, data.duration)}%` }} role="note">
-          {breakdownText(readout)}
+      {readout && (readout.lanes.length > 0 || readout.muted) && (
+        <span class={`pf-float${pct(cursor, data.duration) > 70 ? " left" : ""}`} style={{ left: `${pct(cursor, data.duration)}%` }} role="note" aria-label={breakdownText(readout)}>
+          <strong>
+            {readout.name} {formatDb(readout.db)}
+          </strong>
+          <span>authored {formatDb(readout.authoredDb).replace(" dB", "")}</span>
+          {readout.lanes.map((l) => (
+            <span key={l.lane}>
+              {l.lane} {formatDb(l.db).replace(" dB", "")} ({l.reason})
+            </span>
+          ))}
         </span>
       )}
     </TrackRow>
@@ -220,7 +258,7 @@ function VoiceButton({ block, duration, row, selected, dim, onSelect }: { block:
       class={`pf-voice${selected ? " selected" : ""}${dim ? " dim" : ""}${block.end <= block.start ? " instant" : ""}`}
       data-status={block.status}
       data-voice={block.key}
-      style={{ left: `${left}%`, width: `${width}%`, top: `${row * ROW_PX + 2}px` }}
+      style={{ left: `${left}%`, width: `${width}%`, top: `${row * ROW_PX + 5}px` }}
       aria-pressed={selected}
       aria-label={label}
       title={`${voiceSummary(block)} · ${clockText(block.start)}`}
@@ -248,7 +286,7 @@ function VoiceLanes(props: { data: ProfilerData; track: PlannedTrack; selected: 
   return (
     <>
       {lanes.map((lane) => (
-        <TrackRow key={lane.key} track={{ ...props.track, label: lane.label }} value={lane.problems > 0 ? `${lane.problems} problem${lane.problems === 1 ? "" : "s"}` : null} duration={data.duration} onSeek={props.onSeek} height={lane.rowCount * ROW_PX + 4}>
+        <TrackRow key={lane.key} track={{ ...props.track, label: lane.label }} value={lane.problems > 0 ? `${lane.problems} problem${lane.problems === 1 ? "" : "s"}` : null} duration={data.duration} onSeek={props.onSeek} height={lane.rowCount * ROW_PX}>
           {lane.blocks.map((b, i) => (
             <VoiceButton key={b.key} block={b} duration={data.duration} row={lane.rows[i]!} selected={b.key === props.selected} dim={dimmed(b, props.problemsOnly)} onSelect={props.onSelect} />
           ))}
@@ -261,52 +299,46 @@ function VoiceLanes(props: { data: ProfilerData; track: PlannedTrack; selected: 
 function Ruler({ data, cursor, onSeek, onSelect }: { data: ProfilerData; cursor: number; onSeek(t: number): void; onSelect(key: string): void }) {
   const markAt = (m: RulerMark) => () => (m.voice ? onSelect(m.voice) : onSeek(m.time));
   return (
-    <div class="pf-track pf-ruler-row">
-      <div class="pf-track-head">
-        <span class="pf-track-label pf-clock" aria-live="off">
-          {clockText(cursor)}
-        </span>
-      </div>
-      <div
-        class="pf-plot pf-ruler"
-        title="Click or drag to move the cursor (← → step it)"
-        onPointerDown={(e) => {
-          if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;
-          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-          onSeek(timeAt(e, data.duration));
-        }}
-        onPointerMove={(e) => {
-          if ((e.currentTarget as HTMLElement).hasPointerCapture(e.pointerId)) onSeek(timeAt(e, data.duration));
-        }}
-      >
-        {rulerTicks(data.duration).map((t) => (
-          <span key={t} class="pf-tick" style={{ left: `${pct(t, data.duration)}%` }}>
-            {clockText(t).replace(/\.0$/, "")}
-          </span>
-        ))}
-        {data.marks.map((m, i) => (
-          <button
-            key={i}
-            type="button"
-            class="pf-mark"
-            data-kind={m.kind}
-            style={{ left: `${pct(m.time, data.duration)}%` }}
-            title={`${clockText(m.time)} ${m.text}`}
-            aria-label={`${m.kind === "info" ? "Marker" : m.kind === "error" ? "Error" : "Warning"} at ${clockText(m.time)}: ${m.text}`}
-            onClick={(e) => {
-              e.stopPropagation();
-              markAt(m)();
-            }}
-          />
-        ))}
-      </div>
-    </div>
+    <RunRuler duration={data.duration} time={cursor} label="Capture time" onSeek={(t) => onSeek(t)}>
+      {data.marks.map((m, i) => (
+        <button
+          key={i}
+          type="button"
+          class="pf-mark"
+          data-kind={m.kind}
+          style={{ left: `${pct(m.time, data.duration)}%` }}
+          title={`${clockText(m.time)} ${m.text}`}
+          aria-label={`${m.kind === "info" ? "Marker" : m.kind === "error" ? "Error" : "Warning"} at ${clockText(m.time)}: ${m.text}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            markAt(m)();
+          }}
+        />
+      ))}
+    </RunRuler>
   );
+}
+
+/** A bus that never moves off one level (a step line within 0.05 dB) is left out until asked for. */
+function busMoves(data: ProfilerData, slot: number, readout: BusReadout | undefined): boolean {
+  const line = data.buses.get(slot);
+  if (!line || line.values.length === 0) return false;
+  let lo = Infinity, hi = -Infinity;
+  for (let i = 0; i < line.values.length; i++) {
+    lo = Math.min(lo, line.values[i]!);
+    hi = Math.max(hi, line.values[i]!);
+  }
+  return hi - lo > 0.05 || (readout?.lanes.length ?? 0) > 0;
 }
 
 export function ProfilerTimeline(props: ProfilerTimelineProps) {
   const { data, cursor } = props;
+  const [allBuses, setAllBuses] = useState(false);
   const readout = (slot: number) => props.readouts.find((r) => r.slot === slot);
+  const busTracks = data.tracks.filter((t): t is Extract<PlannedTrack, { kind: "bus" }> => t.kind === "bus");
+  const quiet = busTracks.filter((t) => !busMoves(data, t.slot, readout(t.slot)));
+  const hidden = allBuses ? new Set<string>() : new Set(quiet.map((t) => t.id));
+  const lastBus = busTracks[busTracks.length - 1]?.id;
   return (
     <div class="pf-timeline" role="region" aria-label="Capture timeline">
       <Ruler data={data} cursor={cursor} onSeek={props.onSeek} onSelect={props.onSelect} />
@@ -321,8 +353,24 @@ export function ProfilerTimeline(props: ProfilerTimelineProps) {
               return <EffectsTrack key={track.id} data={data} track={track} cursor={cursor} onSeek={props.onSeek} />;
             case "memory":
               return <MemoryTrack key={track.id} data={data} track={track} cursor={cursor} onSeek={props.onSeek} />;
+            case "fx":
+              return <FxTrack key={track.id} data={data} track={track} cursor={cursor} busChains={props.busChains ?? 0} onSeek={props.onSeek} />;
             case "bus":
-              return <BusTrack key={track.id} data={data} track={track} slot={track.slot} readout={readout(track.slot)} cursor={cursor} onSeek={props.onSeek} />;
+              return (
+                <Fragment key={track.id}>
+                  {!hidden.has(track.id) && <BusTrack data={data} track={track} slot={track.slot} readout={readout(track.slot)} cursor={cursor} onSeek={props.onSeek} />}
+                  {track.id === lastBus && quiet.length > 0 && (
+                    <div class="pf-track pf-more-buses">
+                      <div class="pf-track-head">
+                        <button type="button" class="link" aria-expanded={allBuses} onClick={() => setAllBuses(!allBuses)}>
+                          {allBuses ? `Hide ${quiet.length} unchanged bus${quiet.length === 1 ? "" : "es"}` : `+ ${quiet.length} unchanged bus${quiet.length === 1 ? "" : "es"}`}
+                        </button>
+                      </div>
+                      <div class="pf-plot pf-plot-empty" title={quiet.map((t) => t.label.replace("Bus · ", "")).join(", ")} />
+                    </div>
+                  )}
+                </Fragment>
+              );
             case "loudness":
               return <LoudnessTrack key={track.id} data={data} track={track} cursor={cursor} onSeek={props.onSeek} />;
             case "voices":
@@ -332,7 +380,7 @@ export function ProfilerTimeline(props: ProfilerTimelineProps) {
           }
         })}
         <div class="pf-cursor-layer" aria-hidden="true">
-          <div class="pf-cursor" style={{ left: `${pct(cursor, data.duration)}%` }} />
+          <RunPlayhead time={cursor} duration={data.duration} />
         </div>
       </div>
     </div>

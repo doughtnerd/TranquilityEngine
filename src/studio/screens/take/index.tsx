@@ -24,8 +24,17 @@ import { busStrip, instanceParametersAt, parameterRows, type BusStrip } from "./
 import { isTakePath } from "./takeFiles";
 import { PlaylistsInTake } from "./PlaylistsInTake";
 import { TakeList } from "./TakeList";
-import { deleteTake, importTakes, moveTake, openSource, openTake, renameTake, takeScreen } from "./takeScreen";
-import { findInstance, parameterText, playlistsInTake } from "./takeTimeline";
+import { globalParameters, openSource, openTake, takeFileKind, takePlaylist, takeScreen } from "./takeScreen";
+import { contentFolders } from "../../components/projectFolders";
+import { runTreeFolders } from "../profiler/captureTree";
+import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "../profiler/runFileActions";
+import { durationsVersion, fileDuration } from "../profiler/runFileDurations";
+import { findInstance, parameterText, pathTitle, playlistsInTake, type TakeInstance, type TakeTimeline } from "./takeTimeline";
+import { drivesText, playlistSummary, playsText, propertyCards, typeName, type PropertyCard } from "./takePlaylists";
+import type { Take } from "../../../engine/audio/take/reader";
+import type { Effect } from "../../../engine/audio/effects/types";
+import { EFFECT_CATALOGUE, isBuiltinEffectType } from "../../../engine/audio/effects/catalogue";
+import { openMixDocument } from "../mixer/mixerDocument";
 import { TakeTimelineView } from "./TakeTimelineView";
 import "./take.css";
 
@@ -42,19 +51,32 @@ function DocScope(props: { children: ComponentChildren }) {
 
 function TakesPanel() {
   void docVersion.value; // the project's file list grows and shrinks with it
+  void durationsVersion.value; // a take's duration arrived
   const project = currentProject.value;
+  const files = project?.files ?? [];
+  const folders = project?.folders ?? [];
+  const k = takeFileKind;
   return (
     <Panel bodyClass="tk-panel-body">
       <TakeList
-        files={project?.files ?? []}
-        folders={project?.folders ?? []}
+        files={files}
+        // A new project's scenes/, scripts/ and the sample and playlist folders aren't take folders (UI pass T5).
+        folders={runTreeFolders(folders, files, isTakePath)}
+        moveFolders={contentFolders(folders, files, isTakePath)}
+        rootName={project?.name}
         openPath={replayStore().open.value?.path ?? null}
         writable={!!project?.canSave && !!project.fileSystem}
+        duration={(p) => fileDuration(project, p)}
+        onFolder={(f) => (takeScreen().folder.value = f)}
         onOpen={openTake}
-        onImport={(files) => void importTakes(files)}
-        onRename={(path, name) => void renameTake(path, name)}
-        onMove={(path, folder) => void moveTake(path, folder)}
-        onDelete={(path) => void deleteTake(path)}
+        onImport={(chosen, folder) => void importInto(k, chosen, folder)}
+        onNewFolder={newRunFolder}
+        onRename={(path, name) => void renameFile(k, path, name)}
+        onRenameFolder={(folder, name) => void renameFolder(k, folder, name)}
+        onMove={(items, folder) => void moveItems(k, items, folder)}
+        onDuplicate={(path) => void duplicateFile(k, path)}
+        onDelete={(path) => void deleteFile(k, path)}
+        onDeleteFolder={(folder) => void deleteFolder(k, folder)}
       />
     </Panel>
   );
@@ -62,11 +84,17 @@ function TakesPanel() {
 
 function PlaylistsPanel() {
   const timeline = takeScreen().timeline.value;
+  const rows = timeline ? playlistsInTake(timeline).map((r) => ({ ...r, summary: playlistSummary(takePlaylist(r.path)) })) : null;
   return (
     <Panel bodyClass="tk-panel-body">
-      <PlaylistsInTake rows={timeline ? playlistsInTake(timeline) : null} onOpen={openSource} />
+      <PlaylistsInTake rows={rows} onOpen={openSource} />
     </Panel>
   );
+}
+
+/** A bus's effects as the Mixer card's FX line: "Low-pass · Comp". */
+function effectsLine(effects: readonly Effect[]): string {
+  return effects.filter((e) => e.on).map((e) => (isBuiltinEffectType(e.type) ? EFFECT_CATALOGUE[e.type].label : e.type)).join(" · ");
 }
 
 // --- the timeline, the screen's keys and the player bar -----------------------------------------------------------------
@@ -112,7 +140,7 @@ function TakeTransport() {
       <TransportButton icon="skipBack" label="Go to start" title="Go to start (Home)" onClick={goToStart} />
       <TransportButton icon={playing ? "pause" : "play"} label={playing ? "Pause" : "Replay"} title={playing ? "Pause (Space)" : "Replay the take against your current audio (Space)"} primary pressed={playing} onClick={() => r.toggle()} />
       <TransportButton icon="loop" label="Loop" pressed={!!loop} title={loop ? `Looping ${formatClock(loop.from)}–${formatClock(loop.to)}: click to stop` : "Loop the selected region, or the whole take"} onClick={toggleLoop} />
-      <TransportButton icon="redo" label="Restart instances" title="Restart the playing instances so they use your latest edits" disabled={!playing} onClick={() => r.restartInstances()} />
+      <TransportButton icon="redo" label="Restart instances" title="Changed during Play: restart the playing copies with the new version" disabled={!playing} onClick={() => r.restartInstances()} />
     </>
   );
 }
@@ -178,6 +206,20 @@ function useScreen(): void {
   }, []);
 }
 
+/** What a lane's playlist plays like, and what a game parameter drives, from the project's playlists now. */
+function useLaneWords(timeline: TakeTimeline | null) {
+  const lanes = timeline?.lanes ?? [];
+  const playlists = lanes.map((l) => ({ path: l.path, label: l.label, body: takePlaylist(l.path) }));
+  return {
+    plays: (path: string) => {
+      const p = playlists.find((x) => x.path === path);
+      const lane = lanes.find((l) => l.path === path);
+      return playsText(p?.body ?? null, !!lane?.instances.some((i) => i.release !== null));
+    },
+    drives: (parameter: string) => drivesText(parameter, playlists),
+  };
+}
+
 function TimelinePanel() {
   useScreen();
   const store = takeScreen();
@@ -188,28 +230,30 @@ function TimelinePanel() {
   const sel = store.selected.value;
   const instance = sel?.kind === "instance" && timeline ? findInstance(timeline, sel.key) : null;
   const writable = !!doc && !doc.readOnly;
+  const words = useLaneWords(timeline);
+  const sequence = instance ? takePlaylist(instance.path)?.type === "sequence" : false;
   const toolbar = open ? (
     <div class="tk-toolbar">
       {instance ? (
         <>
-          <strong class="tk-toolbar-title" title={instance.path}>{instance.path}</strong>
-          <button type="button" class="tk-tool" onClick={() => open.replay.seek(instance.start)}>
-            <Icon name="skipBack" size={14} /> Go to start
+          <strong class="tk-toolbar-title" title={instance.path}>{pathTitle(instance.path)}</strong>
+          <button type="button" class="tk-btn" title="Move the playhead to where this instance started" onClick={() => open.replay.seek(instance.start)}>Go to start</button>
+          <button type="button" class="tk-btn" title={`Edit this ${sequence ? "sequence" : "playlist"}'s clips, regions and automation in Playlists`} onClick={() => openSource(instance.path)}>
+            Open {sequence ? "sequence" : "playlist"} ›
           </button>
-          <button type="button" class="tk-link" onClick={() => openSource(instance.path)}>Open playlist ›</button>
         </>
       ) : (
-        <strong class="tk-toolbar-title">{open.title}</strong>
+        <strong class="tk-toolbar-title" title="Scrub to audition the whole mix · click an instance to inspect it">{open.title}</strong>
       )}
       <span class="tk-toolbar-gap" />
-      <button type="button" class="tk-tool" disabled={!writable} aria-label="Add marker" title="Add a note marker at the playhead (M)" onClick={() => addMarkerAt(open.replay.time.peek())}>
-        <Icon name="plus" size={14} /> Marker
+      <button type="button" class="tk-icon-btn" disabled={!writable} aria-label="Add marker" title="Add a note marker at the playhead (M)" onClick={() => addMarkerAt(open.replay.time.peek())}>
+        <Icon name="note" size={14} />
       </button>
-      <button type="button" class="tk-tool" disabled={!writable} aria-label="Add region" title="Add a note region from the playhead" onClick={() => store.commitNotes(addRegion(notesOf(), open.replay.time.peek(), open.replay.time.peek(), open.take.duration), { select: true })}>
-        <Icon name="plus" size={14} /> Region
+      <button type="button" class="tk-icon-btn" disabled={!writable} aria-label="Add region" title="Add a note region from the playhead" onClick={() => store.commitNotes(addRegion(notesOf(), open.replay.time.peek(), open.replay.time.peek(), open.take.duration), { select: true })}>
+        <Icon name="razor" size={14} />
       </button>
-      <button type="button" class="tk-tool" title="Record the Studio's runtime in the Profiler while this take replays" onClick={() => store.profileReplay()}>
-        <Icon name="profiler" size={14} /> Profile this replay
+      <button type="button" class="tk-icon-btn" aria-label="Profile this replay" title="Profile this replay: record the Studio's runtime in the Profiler while this take replays" onClick={() => store.profileReplay()}>
+        <Icon name="profiler" size={14} />
       </button>
     </div>
   ) : undefined;
@@ -217,20 +261,33 @@ function TimelinePanel() {
   if (s.kind === "opening") body = <p class="tk-note" role="status">Opening {s.path}…</p>;
   else if (s.kind === "failed") body = <p class="tk-error" role="alert">Can't open {s.path}: {s.message}</p>;
   else if (!open || !timeline)
-    body = <EmptyState title="Take" icon={<Icon name="take" size={28} />} body={<p>Recordings of what a game asked of audio, replayed against your current audio so edits are heard in context, and annotated. Open a take from the Takes panel.</p>} />;
+    body = <EmptyState title="Take" icon={<Icon name="take" size={28} />} body={<p>Recordings of what a game asked of audio, replayed against your current audio so edits are heard in context. Open a take from the Takes panel.</p>} />;
   else
     body = (
       <>
         {open.replay.note.value && <p class="tk-hint" role="status">{open.replay.note.value}</p>}
         <TakeTimelineView
           timeline={timeline}
+          name={open.title}
           time={open.replay.time.value}
           playing={open.replay.playing.value}
           selected={sel}
           notes={notesOf()}
           notesWritable={writable}
+          plays={words.plays}
+          drives={words.drives}
+          muted={open.replay.muted.value}
+          soloed={open.replay.soloed.value}
+          onMute={(path, on) => open.replay.setMuted(path, on)}
+          onSolo={(path, on) => open.replay.setSoloed(path, on)}
+          hovered={store.hovered.value}
+          onHover={(p) => (store.hovered.value = p)}
           onSeek={(t) => open.replay.seek(t)}
-          onSelectInstance={(key) => (store.selected.value = { kind: "instance", key })}
+          onSelectInstance={(key) => {
+            store.selected.value = { kind: "instance", key };
+            const i = findInstance(timeline, key);
+            if (i) store.focusPath.value = i.path;
+          }}
           onOpenInstance={(key) => {
             const i = findInstance(timeline, key);
             if (i) openSource(i.path);
@@ -248,6 +305,28 @@ function TimelinePanel() {
   );
 }
 
+/** The game's value of each parameter at `t` for an instance: its own parameters first, then the take's globals. */
+function valuesAt(take: Take, timeline: TakeTimeline, t: number, instance: TakeInstance | null): (name: string) => number | null {
+  const own = instance ? instanceParametersAt(take, instance, t) : {};
+  return (name) => {
+    if (name in own) return own[name]!;
+    const lane = timeline.parameters.find((p) => p.path === null && p.name === name);
+    if (!lane) return null;
+    let v: number | null = null;
+    for (const p of lane.points) {
+      if (p.t > t) break;
+      v = p.v;
+    }
+    return v ?? lane.points[0]?.v ?? null;
+  };
+}
+
+/** The badge and cards of the playlist at `path` at the playhead. */
+function trackCards(path: string, valueOf: (name: string) => number | null): { kind: string | null; cards: PropertyCard[] } {
+  const body = takePlaylist(path);
+  return body ? { kind: typeName(body), cards: propertyCards(body, valueOf, globalParameters()) } : { kind: null, cards: [] };
+}
+
 function InspectorPanel() {
   const store = takeScreen();
   const open = replayStore().open.value;
@@ -255,6 +334,7 @@ function InspectorPanel() {
   const sel = store.selected.value;
   const t = open?.replay.time.value ?? 0;
   void open?.replay.instances.value; // the live instances change as the take replays
+  const hover = { hovered: store.hovered.value, onHover: (p: string | null) => (store.hovered.value = p) };
   let body;
   if (open && timeline && sel?.kind === "instance") {
     const i = findInstance(timeline, sel.key);
@@ -263,14 +343,17 @@ function InspectorPanel() {
       const sounding = !!live && Math.abs(live.started - i.start) < 1e-6 && !!live.handle?.playing;
       const handle = sounding ? live!.handle : null;
       const rows = parameterRows(instanceParametersAt(open.take, i, t), handle?.getParameter ? (n) => handle.getParameter!(n) : null);
+      const track = trackCards(i.path, valuesAt(open.take, timeline, t, i));
       body = (
         <InstanceDetails
           instance={i}
+          kind={track.kind}
+          cards={track.cards}
           emitterName={i.emitter === null ? null : (open.take.meta.emitters[i.emitter] ?? null)}
           emitterPose={i.emitter === null ? null : open.replay.poseAt(i.emitter, t)}
           rows={rows}
           live={sounding}
-          onGoToStart={() => open.replay.seek(i.start)}
+          {...hover}
           onOpenSource={() => openSource(i.path)}
         />
       );
@@ -295,24 +378,39 @@ function InspectorPanel() {
         />
       );
   }
-  body ??= <PlayheadValues open={!!timeline} time={t} picture={open?.take.frameAt(t) ?? open?.take.frames[0] ?? null} values={(timeline?.parameters ?? []).filter((p) => p.path === null).map((p) => ({ name: p.name, text: parameterText(p, t) }))} />;
+  if (!body) {
+    const focus = timeline ? (timeline.lanes.find((l) => l.path === store.focusPath.value) ?? timeline.lanes[0] ?? null) : null;
+    const track = open && timeline && focus ? { path: focus.path, ...trackCards(focus.path, valuesAt(open.take, timeline, t, null)) } : null;
+    body = (
+      <PlayheadValues
+        open={!!timeline}
+        time={t}
+        picture={open?.take.frameAt(t) ?? open?.take.frames[0] ?? null}
+        values={(timeline?.parameters ?? []).filter((p) => p.path === null).map((p) => ({ name: p.name, text: parameterText(p, t) }))}
+        track={track && track.kind ? track : null}
+        {...hover}
+        onOpenSource={openSource}
+      />
+    );
+  }
   return <Panel bodyClass="tk-panel-body">{body}</Panel>;
 }
 
 /** Bus readings at 10 Hz while the panel shows and the runtime is up. */
-function useBusStrips(): { running: boolean; strips: BusStrip[] } {
+function useBusStrips(): { running: boolean; strips: (BusStrip & { fx: string })[] } {
   const host = audioHost();
   const running = host.playable.value;
-  const [strips, setStrips] = useState<BusStrip[]>([]);
+  const [strips, setStrips] = useState<(BusStrip & { fx: string })[]>([]);
   useEffect(() => {
     if (!running) return;
     const read = () => {
       const a = host.audio;
+      const mix = openMixDocument()?.value.peek();
       setStrips(
         a.buses
           .map((name) => a.bus(name))
           .filter((b) => b.exists)
-          .map((b) => busStrip({ name: b.name, authored: b.authoredVolume, runtime: b.volume, duck: b.duckGain, peak: b.peak })),
+          .map((b) => ({ ...busStrip({ name: b.name, authored: b.authoredVolume, runtime: b.volume, duck: b.duckGain, peak: b.peak }), fx: effectsLine(mix?.buses.find((x) => x.name === b.name)?.effects ?? []) })),
       );
     };
     read();
@@ -338,7 +436,7 @@ export const TAKE_PANELS: readonly StudioPanel[] = [
   { id: "take-list", title: "Takes", dock: "left", view: () => <TakesPanel /> },
   // "In this take": short enough that both tabs of the left dock show at its default width (the full name is too long).
   { id: "take-playlists", title: "In this take", dock: "left", view: () => <PlaylistsPanel /> },
-  { id: "take-timeline", title: "Timeline", dock: "fill", fixed: true, view: inDoc(() => <TimelinePanel />) },
+  { id: "take-timeline", title: "Take", dock: "fill", fixed: true, view: inDoc(() => <TimelinePanel />) },
   { id: "take-inspector", title: "Inspector", dock: "right", view: inDoc(() => <InspectorPanel />) },
   { id: "take-mixer", title: "Mixer", dock: "bottom", view: () => <MixerPanel /> },
   historyPanel("take"),

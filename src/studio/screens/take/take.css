@@ -12,15 +12,10 @@
 :is(.tk-link, .tk-swatch, .tk-tool):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .tk-scroll { width: 100%; overflow-x: auto; }
 
-/* Takes */
-.tk-list { display: flex; flex-direction: column; min-height: 100%; }
-.tk-list-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-bottom: 1px solid var(--border); }
-.tk-search { flex: 1 1 120px; min-width: 0; }
 /* The screen's own fields on the editor's tokens (the editor styles fields only inside its Inspector). */
-:is(.tk-search, .tk-field input, .tk-field-text textarea) { box-sizing: border-box; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); }
-:is(.tk-search, .tk-field input, .tk-field-text textarea):focus { outline: none; border-color: var(--accent); box-shadow: var(--glow); }
-:is(.tk-search, .tk-field input, .tk-field-text textarea):disabled { opacity: 0.6; }
-.tk-file-icon { flex: none; color: var(--muted); }
+:is(.tk-field input, .tk-field-text textarea) { box-sizing: border-box; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 3px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); }
+:is(.tk-field input, .tk-field-text textarea):focus { outline: none; border-color: var(--accent); box-shadow: var(--glow); }
+:is(.tk-field input, .tk-field-text textarea):disabled { opacity: 0.6; }
 
 /* Playlists in this take */
 .tk-playlists { list-style: none; margin: 0; padding: 4px 0; }
@@ -29,29 +24,66 @@
 .tk-pl-row { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 24px; padding: 4px 6px; margin: 0; border: none; border-radius: 3px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
 .tk-pl-row:hover { background: var(--hover); }
 .tk-pl-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-.tk-pl-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.tk-pl-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.tk-pl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.tk-pl-summary { color: var(--muted); font-size: calc(11px * var(--ui-scale)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tk-pl-count { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
 
-/* Toolbar */
-.tk-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
-.tk-toolbar-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); }
+/* Toolbar: the title (the take, or the selected instance's folder / name), 22px buttons, icon buttons */
+.tk-toolbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.tk-toolbar-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); font-size: calc(12px * var(--ui-scale)); font-weight: 600; }
 .tk-toolbar-gap { flex: 1 1 auto; }
+.tk-btn { height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: 3px; background: var(--button); color: var(--text); font: inherit; font-size: calc(12px * var(--ui-scale)); white-space: nowrap; cursor: pointer; }
+.tk-btn:hover { background: var(--button-hover); }
+.tk-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 24px; padding: 0; border: none; border-radius: 4px; background: none; color: var(--text); cursor: pointer; }
+.tk-icon-btn:hover:not(:disabled) { background: var(--hover); }
+.tk-icon-btn:disabled { opacity: 0.4; cursor: default; }
+:is(.tk-btn, .tk-icon-btn, .tk-ins-open):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
-/* Timeline */
+/* Timeline (the prototype's .trk rows: a 168px head column, caps for sections and game lanes) */
 .tk-timeline-body { display: flex; flex-direction: column; }
-.tk-timeline { --tk-head: 160px; display: flex; flex-direction: column; min-width: 0; padding-bottom: 8px; }
+.tk-timeline { --tk-head: 168px; --run-head: var(--tk-head); display: flex; flex-direction: column; min-width: 0; padding-bottom: 8px; }
 .tk-rows { position: relative; }
 .tk-row { display: grid; grid-template-columns: var(--tk-head) minmax(0, 1fr); border-bottom: 1px solid var(--border); min-height: 24px; }
 .tk-row.active > .tk-head { background: var(--active); }
-.tk-ruler-row { position: sticky; top: 0; z-index: 4; background: var(--panel); }
-.tk-head { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 2px 8px; border-right: 1px solid var(--border); background: var(--panel); min-width: 0; }
-.tk-head-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tk-head-sub { color: var(--muted); font-size: calc(10px * var(--ui-scale)); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-head { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 4px 10px; border-right: 1px solid var(--border); background: var(--panel); min-width: 0; }
+.tk-head-line { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tk-head-name { flex: 1 1 auto; min-width: 0; color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-head-sub { color: var(--muted); font-size: calc(10px * var(--ui-scale)); line-height: 12px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.tk-head-meta { color: var(--muted); font-size: calc(12px * var(--ui-scale)); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-cap { color: var(--muted); font-size: calc(11px * var(--ui-scale)); line-height: 14px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .tk-lane { position: relative; min-width: 0; overflow: hidden; }
 .tk-lane .studio-valuelane-head { display: none; }
-/* An instance's held part (start → RELEASE, D26) shaded so it reads against the bar (the kit's faint fill disappears on it). */
-.tk-lane .studio-span-held { background: var(--accent2-soft); border-left: none; border-right: 1px solid var(--accent2); }
 .tk-playhead-layer { position: absolute; top: 0; bottom: 0; left: var(--tk-head); right: 0; pointer-events: none; }
+/* Sections */
+.tk-section-row { min-height: 22px; }
+.tk-section-row > .tk-head { padding-top: 2px; padding-bottom: 2px; }
+/* Gameplay take: the filmstrip, or placeholder tiles labelled by time */
+.tk-gameplay-row .tk-lane { height: 64px; }
+.tk-tiles { position: absolute; inset: 2px 0; display: flex; gap: 2px; }
+.tk-tile { flex: 1 1 0; position: relative; background: var(--viewport); border: 1px solid var(--border); border-radius: 3px; color: var(--muted); font-size: calc(10px * var(--ui-scale)); padding: 0 4px; display: flex; align-items: flex-end; padding-bottom: 2px; }
+/* Instance lanes: blocks inset in a 40px lane, the held part in the accent2 band, M and S toggles */
+.tk-inst-row { min-height: 40px; }
+.tk-inst-lane { padding: 3px 0; }
+.tk-inst-lane .studio-spanlane { background: none; }
+.tk-inst-lane .studio-span { background: var(--accent-faint); border-color: var(--accent); align-items: flex-end; }
+.tk-inst-lane .studio-span-label { font-size: calc(11px * var(--ui-scale)); padding-bottom: 3px; }
+.tk-inst-lane .studio-span.selected { background: var(--accent-soft); box-shadow: none; outline: 2px solid var(--accent); outline-offset: 0; }
+.tk-inst-row.silent .tk-inst-lane { opacity: 0.35; }
+.tk-ms { display: inline-flex; gap: 2px; flex: none; }
+.tk-ms-b { width: 18px; height: 16px; padding: 0; border: 1px solid var(--border); border-radius: 3px; background: var(--button); color: var(--muted); font-size: calc(10px * var(--ui-scale)); line-height: 14px; cursor: pointer; }
+.tk-ms-b:hover { color: var(--text); background: var(--button-hover); }
+.tk-ms-b.m.on { background: var(--warning); border-color: var(--warning); color: var(--accent-text); }
+.tk-ms-b.s.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.tk-ms-b:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+/* Game parameter lanes: the accent2 cap and line; hovering (here or a card in the Inspector) shades the head */
+.tk-param-row > .tk-head { cursor: help; }
+.tk-param-row.linked > .tk-head, .tk-param-row > .tk-head:hover { background: var(--accent2-soft); }
+.tk-cap-game { color: var(--accent2); }
+.tk-param-value { color: var(--text); font-size: calc(12px * var(--ui-scale)); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tk-param-row .studio-valuelane { --series: var(--accent2); }
+.tk-param-row .studio-valuelane-plot { background: none; }
+.tk-param-row .studio-valuelane-dot { display: none; }
 
 /* Picture */
 .tk-picture { height: 40px; background: var(--bg-sunken); }
@@ -59,9 +91,9 @@
 .tk-picture-now img { display: block; width: 100%; height: auto; border-radius: 3px; border: 1px solid var(--border); background: var(--bg-sunken); }
 .tk-picture-now figcaption { margin-top: 2px; color: var(--muted); font-size: calc(10px * var(--ui-scale)); }
 
-/* Labelled parameters */
-.tk-segments { position: relative; height: 22px; margin: 4px 0; }
-.tk-segment { position: absolute; top: 0; bottom: 0; padding: 0 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-size: calc(11px * var(--ui-scale)); line-height: 20px; }
+/* Labelled parameters: accent2-soft segments */
+.tk-segments { position: relative; height: 34px; margin: 1px 0; }
+.tk-segment { position: absolute; top: 0; bottom: 0; padding: 2px 6px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: var(--accent2-soft); border-radius: 3px; color: var(--text); font-size: calc(11px * var(--ui-scale)); line-height: 14px; }
 
 /* Notes */
 .tk-notes { height: 34px; background: var(--bg-sunken); cursor: copy; outline: none; }
@@ -81,9 +113,26 @@
 /* Inspector */
 .tk-inspector { display: flex; flex-direction: column; gap: 8px; padding: 8px; align-items: flex-start; }
 .tk-inspector > * { max-width: 100%; }
-.tk-ins-head { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
-.tk-ins-title { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); }
-.tk-badge { flex: none; padding: 1px 6px; border-radius: 3px; background: var(--accent-soft); color: var(--text-strong); font-size: calc(10px * var(--ui-scale)); }
+.tk-ins-head { display: flex; align-items: center; gap: 6px; width: 100%; min-width: 0; }
+.tk-ins-title { min-width: 0; max-width: 50%; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); font-size: calc(12px * var(--ui-scale)); font-weight: 600; }
+.tk-ins-subline { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: calc(12px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.tk-ins-open { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 22px; height: 22px; padding: 0; border: none; border-radius: 3px; background: none; color: var(--muted); cursor: pointer; }
+.tk-ins-open:hover { color: var(--accent); background: var(--hover); }
+.tk-badge { flex: none; padding: 0 5px; border-radius: 3px; background: var(--badge); color: var(--badge-text); font-size: calc(11px * var(--ui-scale)); line-height: 16px; }
+/* Property cards: label and value, a 4px bar with the live fill (accent2 when a game parameter drives it, muted when
+   static) and the authored tick, and the "← Speed · range · shape" line */
+.tk-cards { display: flex; flex-direction: column; gap: 6px; width: 100%; }
+.tk-card { padding: 6px 8px; border-radius: 3px; background: var(--bg); }
+.tk-card-top { display: flex; align-items: baseline; gap: 8px; }
+.tk-card-label { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: calc(12px * var(--ui-scale)); font-weight: 600; }
+.tk-card-value { flex: none; color: var(--text-strong); font-size: calc(12px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.tk-card-bar { position: relative; height: 4px; margin: 5px 0 2px; border-radius: 2px; background: var(--border); }
+.tk-card-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--muted); }
+.tk-card.driven .tk-card-fill { background: var(--accent2); }
+.tk-card-tick { position: absolute; top: -2px; width: 2px; height: 8px; margin-left: -1px; background: var(--muted); }
+.tk-card-map { margin-top: 3px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); line-height: 14px; }
+.tk-chip { color: var(--accent2); padding: 0 2px; border-radius: 3px; border: 1px solid transparent; cursor: help; }
+.tk-chip.linked { border-color: var(--accent2); }
 .tk-ins-sub { margin: 4px 0 0; color: var(--muted); font-weight: normal; font-size: calc(11px * var(--ui-scale)); }
 .tk-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; margin: 0; width: 100%; }
 .tk-facts dt { color: var(--muted); }
@@ -105,22 +154,24 @@
 
 /* Mixer strip */
 .tk-mixer { display: flex; flex-direction: column; height: 100%; min-height: 0; }
-.tk-mixer-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; padding: 0 8px; flex: none; }
-.tk-mixer-tools .tk-note { margin: 4px 0; flex: 1 1 160px; }
+.tk-mixer-tools { display: flex; align-items: center; gap: 0 8px; padding: 6px 8px 0; flex: none; }
 /* The fader takes what is left after the name and dB rows, so they always show; a panel too short for even the
    smallest fader scrolls instead of clipping them. */
-.tk-strips { display: flex; gap: 10px; padding: 6px 8px; overflow: auto; flex: 1 1 auto; min-height: 0; }
-.tk-strip { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 72px; flex: none; min-height: 0; }
+.tk-strips { display: flex; gap: 2px; padding: 6px 8px; overflow: auto; flex: 1 1 auto; min-height: 0; }
+/* Each bus a card (the prototype's 92px channel cards): name, FX line, the fader with its meter, the level */
+.tk-strip { display: flex; flex-direction: column; align-items: stretch; gap: 3px; width: 92px; box-sizing: border-box; padding: 6px; flex: none; min-height: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; }
+.tk-strip .studio-fader.vertical { align-self: center; }
+.tk-strip-fx { order: -1; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .tk-strip .studio-fader.vertical { flex: 1 1 0; height: auto; min-height: 48px; }
-.tk-strip :is(.tk-strip-name, .tk-strip-db) { flex: none; }
-.tk-strip-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
-.tk-strip-db { color: var(--muted); font-size: calc(10px * var(--ui-scale)); text-align: center; font-variant-numeric: tabular-nums; }
+.tk-strip :is(.tk-strip-name, .tk-strip-db, .tk-strip-fx) { flex: none; }
+.tk-strip-name { order: -2; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: calc(12px * var(--ui-scale)); font-weight: 600; }
+.tk-strip-db { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
 
 /* Narrow (a phone's single panel, a side dock): the lane names take less room, and the take's toolbar and the
    Inspector's fields wrap (ADR 0361). */
 @container (max-width: 480px) {
   .tk-timeline { --tk-head: 96px; }
-  .tk-head-sub { display: none; }
+  .tk-head-sub, .tk-ms { display: none; }
   .tk-field input { width: 72px; }
 }
 

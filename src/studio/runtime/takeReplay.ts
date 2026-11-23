@@ -166,6 +166,13 @@ const normal = (v: Vec3): Vec3 => {
   return n > 1e-9 ? { x: v.x / n, y: v.y / n, z: v.z / n } : v;
 };
 
+const toggled = (set: ReadonlySet<string>, key: string, on: boolean): ReadonlySet<string> => {
+  const next = new Set(set);
+  if (on) next.add(key);
+  else next.delete(key);
+  return next;
+};
+
 export class TakeReplay {
   /** The playhead, take seconds. */
   readonly time = signal(0);
@@ -316,6 +323,48 @@ export class TakeReplay {
       if (this.playing.peek() && (t < from || t >= to)) this.seek(from);
     } else this.loop.value = null;
     return true;
+  }
+
+  /** Paths muted on the Take screen's lanes (their instances don't sound; the take keeps them). */
+  readonly muted = signal<ReadonlySet<string>>(new Set());
+  /** Paths soloed: while any is, only soloed paths sound. */
+  readonly soloed = signal<ReadonlySet<string>>(new Set());
+
+  /** Whether instances of `path` sound under the lanes' mute and solo. */
+  audible(path: string): boolean {
+    const solo = this.soloed.peek();
+    return !this.muted.peek().has(path) && (solo.size === 0 || solo.has(path));
+  }
+
+  /** Mute or unmute a path's lane; its playing instances stop or start at once (spec 4.5.4 "one lane per sequence with mute/solo"). */
+  setMuted(path: string, on: boolean): void {
+    this.muted.value = toggled(this.muted.peek(), path, on);
+    this.applyAudible();
+  }
+
+  /** Solo or unsolo a path's lane. */
+  setSoloed(path: string, on: boolean): void {
+    this.soloed.value = toggled(this.soloed.peek(), path, on);
+    this.applyAudible();
+  }
+
+  /** While playing: stop the instances that went silent, start (from where they are) the ones that became audible. */
+  private applyAudible(): void {
+    if (!this.playing.peek()) return;
+    const t = this.time.peek();
+    let changed = false;
+    for (const l of this.live.values()) {
+      const on = this.audible(l.path);
+      if (!on && l.handle) {
+        l.handle.stop(REPLAY_STOP_FADE);
+        l.handle = null;
+        changed = true;
+      } else if (on && !l.handle?.playing) {
+        l.handle = this.start(l, t);
+        changed = true;
+      }
+    }
+    if (changed) this.version.value++;
   }
 
   /** Restart the instances playing now with the current project (an edit reaches them); returns how many. */
@@ -509,6 +558,7 @@ export class TakeReplay {
   }
 
   private start(l: Live, t: number): ReplayHandle | null {
+    if (!this.audible(l.path)) return null;
     const pose = l.emitter === null ? null : this.poseAt(l.emitter, t);
     // Alive since before `t` (a seek, a resume): it starts as far in as it had played.
     const offset = t - l.started;
