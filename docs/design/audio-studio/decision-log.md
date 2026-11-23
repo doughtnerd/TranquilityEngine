@@ -607,3 +607,28 @@ PC/web −18, mobile −16 LUFS (amends 0171 decision 4; projects with an author
 show two targets); deleting a test scene is immediate with toast Undo; "Profile this replay" always replays from the
 take's start so Take and Profiler share one review position (`profiler/reviewLink.ts`); hovering Spatial's plan takes
 keyboard focus unless a field, menu or dialog has it.
+
+**D72. UI pass waves 1–3 (2026-11-23).** Shared kit (W2-A): Studio form controls, label scrubbing with the prototype's
+rules (ParameterRow keeps D12's share-of-range rate), NumberField/SliderField/Checkbox/ColourPicker/InfoTip/KitDialog;
+Studio dialog primary buttons are moss (prototype `.btn.play`). Chrome (W2-B): FloatingPortal for floating UI under
+container-query bars (the calibration dialog never opened before), per-screen stacked default docks
+(`SCREEN_ARRANGEMENTS`, same storage key), timecode `mm:ss.mmm`. Playlist spatial `occlusion` defaults to on (0162);
+3D on writes it on. "+ New parameter…" creates global parameters from any parameter select. Hold areas in sequences
+use a dot pattern (hatch means disabled). Play modes use the spec's names (stored `through` reads as Whole). Saved
+custom colours are per user (localStorage) until a project palette exists. Take/capture delete uses the samples'
+`.myco/trash` with toast Undo. Why it played ties a voice to its playlist instance by record order and instant
+(captures carry no voice→instance id). The Effects bus chip counts the current mix's bus chains. Mixer mute on is
+solid amber (saved), solo on warning-soft (monitor). Engine/format work the owner chose to finish is ADR 0362.
+
+**D73. UI pass waves 4–6 and verification (2026-11-23).** ADR 0362 built in full (pause, clip Amp envelope, reverse,
+marker/range/folder colours, "And by", occlusion curves). Decisions taken: the audition pause holds at the earliest
+stampable time and a held voice's stamped records wait on the core (no ABI bump, D67 precedent); the clip envelope is a
+per-voice core kernel (sample-accurate; key-off = clip end − release, stages squeezed attack→hold→decay, release gives
+way first); reversed voices count positions from the clip's end, a reversed sample never gives the musical clock, and
+reversed ADPCM is silent rather than wrong; "And by" plays slices re-defined when the second parameter changes (rate
+scales the clock without integrating; a change of the second parameter jumps); occlusion blocked-ness is the combined
+loss over the −60 dB floor, mean over rays, and a curve replaces the materials' value for its property; take/capture
+readers accept another minor of the core ABI major. Verification found and fixed: unstamped sequences of streamed
+samples restarting every frame (D44 regression), `preact/compat` loaded by `FloatingPortal` rewiring every input's
+onChange (guard test keeps compat out), and panel histories registering a frame late. Left: export M5b reference tone
+reads −22.93 LUFS against −22.99 ±0.05 in a 44.1 kHz context (not investigated on master).
