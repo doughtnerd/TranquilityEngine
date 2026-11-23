@@ -47,6 +47,8 @@ export function SnapshotsPanel(props: { session: MixerSession }) {
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set());
   const [folder, setFolder] = useState<string>("");
   const [menu, setMenu] = useState<{ x: number; y: number; key: string } | null>(null);
+  /** The snapshot just made, while its name is first typed (Escape then cancels making it). */
+  const fresh = useRef<string | null>(null);
   const [addMenu, setAddMenu] = useState(false);
   const [moving, setMoving] = useState<{ path: string; folder: boolean; name: string } | null>(null);
   const [drag, setDrag] = useState<SnapDrag>(null);
@@ -76,6 +78,7 @@ export function SnapshotsPanel(props: { session: MixerSession }) {
   const newSnap = (inFolder: string) => {
     const name = session.newSnapshot(inFolder);
     if (name) {
+      fresh.current = name;
       setQuery("");
       // The folder it lands in (and those above it) open, so the rename shows.
       if (inFolder) setClosed((c) => new Set([...c].filter((f) => inFolder !== f && !inFolder.startsWith(`${f}/`))));
@@ -162,9 +165,16 @@ export function SnapshotsPanel(props: { session: MixerSession }) {
         value: s.name,
         label: "Snapshot name",
         commit: (v) => {
+          if (fresh.current === s.name) fresh.current = null;
           if (v === s.name) return;
           const wasEditing = session.editing.peek() === s.name;
           if (session.commit(renameSnapshot(session.project.peek(), s.name, v), labelOn("Rename snapshot", s.name)) && wasEditing) session.editing.value = v;
+        },
+        // Escape on the name of a snapshot just made cancels making it (J8.4).
+        cancel: () => {
+          if (fresh.current !== s.name) return;
+          fresh.current = null;
+          session.cancelNewSnapshot(s.name);
         },
       },
       remove: ro ? undefined : () => remove(s.name),

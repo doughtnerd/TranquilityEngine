@@ -466,6 +466,7 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
                 <label class="ce-drv">
                   <span class="ce-muted">Driven by</span>
                   <select
+                    aria-label="Driven by"
                     class="ce-sel"
                     value={state.input}
                     title="What X is for this curve: time, or a game parameter (the curve then maps that parameter to the value)"
@@ -547,6 +548,7 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
                 <label class="ce-drv">
                   <span class="ce-muted">And by</span>
                   <select
+                    aria-label="And by"
                     class="ce-sel"
                     value={by?.input ?? ""}
                     title="A second game parameter the curve also follows: morph between two curves, scale it, change its rate, or one curve per label"

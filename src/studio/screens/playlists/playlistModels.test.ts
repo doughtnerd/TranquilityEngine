@@ -197,6 +197,12 @@ describe("type conversion", () => {
     const q = ok(convertType(emptied, "queue", ctx));
     expect(q.entries.map((e) => e.kind)).toEqual(["embedded", "linked"]);
   });
+
+  it("gives an empty playlist turned Sequence the prototype's empty Audio 1 and Playlist 1 tracks (J6.1)", () => {
+    const s = ok(convertType(queue(), "sequence", ctx));
+    expect(s.sequence!.tracks.map((t) => [t.name, t.kind, t.clips.length])).toEqual([["Audio 1", "audio", 0], ["Playlist 1", "playlist", 0]]);
+    expect(new Set(s.sequence!.tracks.map((t) => t.id)).size).toBe(2);
+  });
 });
 
 describe("blend placement", () => {

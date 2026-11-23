@@ -145,9 +145,22 @@ export function previewCards(rootName: string, body: PlaylistBody, defs: readonl
   }
 }
 
-/** The type summary after a playlist's name ("Switch · Surface", "1D blend · Rain", "Queue · 3 entries", "Clip · glass_shatter"). */
+/**
+ * What a playlist holds, counted: "3 entries", or for a Sequence (whose entries list is empty: it plays clips on tracks)
+ * "4 clips · 2 tracks" (J6.2: a sequence with clips said "0 entries").
+ */
+export function contentCount(body: PlaylistBody): string {
+  const count = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  if (body.type === "sequence") {
+    const tracks = body.sequence?.tracks ?? [];
+    const clips = tracks.reduce((n, t) => n + t.clips.length, 0);
+    return `${count(clips, "clip", "clips")} · ${count(tracks.length, "track", "tracks")}`;
+  }
+  return count(body.entries.length, "entry", "entries");
+}
+
+/** The type summary after a playlist's name ("Switch · Surface", "1D blend · Rain", "Queue · 3 entries", "Clip · glass_shatter", "Sequence · 4 clips · 2 tracks"). */
 export function typeSummary(body: PlaylistBody): string {
-  const n = body.entries.length;
   switch (body.type) {
     case "clip": {
       const s = body.entries[0];
@@ -158,7 +171,7 @@ export function typeSummary(body: PlaylistBody): string {
     case "blend":
       return `${body.blend?.axes.length === 2 ? "2D" : "1D"} blend · ${(body.blend?.axes ?? []).map((a) => ("voiceTime" in a ? "Voice time" : a.parameter)).join(" × ")}`;
     default:
-      return `${body.type.charAt(0).toUpperCase()}${body.type.slice(1)} · ${n === 1 ? "1 entry" : `${n} entries`}`;
+      return `${body.type.charAt(0).toUpperCase()}${body.type.slice(1)} · ${contentCount(body)}`;
   }
 }
 

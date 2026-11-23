@@ -154,7 +154,10 @@
 .ce-dl { display: flex; align-items: center; gap: 6px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; padding: 0 6px 0 10px; height: 24px; background: none; color: var(--text); text-align: left; cursor: pointer; }
 .ce-dl.on { background: var(--selection); color: var(--selection-text); }
 .ce-dl.off { color: var(--faint); }
-.ce-dl .ce-swatch { width: 10px; }
+.ce-dl .ce-swatch { width: 10px; flex: none; }
+/* One line per lane, as tall as its row: a long name ("Low-pass · Cutoff") ends in an ellipsis, not a second line. */
+.ce-dl { min-width: 0; overflow: hidden; }
+.ce-dl-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ce-drow { position: relative; height: 24px; border: 1px solid var(--border); border-top: 0; background: var(--bg-sunken); }
 .ce-drow-playhead { position: absolute; top: 0; bottom: 0; border-left: 1px solid var(--accent); pointer-events: none; }
 .ce-dia { position: absolute; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; padding: 0; transform: rotate(45deg); border: 2px solid; border-radius: 0; background: var(--panel); cursor: ew-resize; touch-action: none; z-index: 2; }

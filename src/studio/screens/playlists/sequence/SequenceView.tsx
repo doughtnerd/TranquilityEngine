@@ -1226,7 +1226,8 @@ export function SequenceView(props: SequenceViewProps) {
         </div>
       </div>
       <div class="sq-readout" role="status" aria-label="At the playhead">
-        <span class="sq-faint">At {fmt(playhead)}:</span>
+        {/* The colon only leads into something said about the playhead ("At 00:00.000:" and nothing after it, D22). */}
+        <span class="sq-faint">At {fmt(playhead)}{readout.writing || readout.run || (playing && readout.tracks.length > 0) ? ":" : ""}</span>
         {readout.writing && <span class="sq-chip-r danger">● Writing automation</span>}
         {readout.run && <span class="sq-chip-r accent">{readout.run}</span>}
         {playing && readout.tracks.map((t, i) => (

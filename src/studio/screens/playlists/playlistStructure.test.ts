@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { defaultEntryUse, emptyPlaylistBody } from "../../../engine/audio/playlist/format";
 import type { Entry, PlaylistBody } from "../../../engine/audio/playlist/types";
-import { addItems, entriesFor, filterCounts, filterItems, togglePick, addLabel } from "./addDialogModel";
+import { addItems, entriesFor, filterCounts, filterItems, pickRange, togglePick, addLabel } from "./addDialogModel";
 import { isSamplePath, libraryGroups, sampleDragText, sampleFromDrag } from "./libraryModel";
 import { ancestorKeys, entryKey, fileKey, findNode, folderKey, linkedByIndex, nodePath, playlistTree, searchTree } from "./playlistTree";
 import { childrenToKeep, countLinks, deleteEntry, moveAcrossFiles, moveWithinFile, planDelete, replaceLinks, shiftAfterRemoval } from "./structureEdits";
@@ -158,6 +158,12 @@ describe("add dialog", () => {
     expect(togglePick([a.path], b, true, false)).toEqual([a.path, b.path]);
     expect(togglePick([a.path], b, true, true)).toEqual([b.path]);
     expect(togglePick([a.path], self, true, false)).toEqual([a.path]);
+  });
+
+  it("picks a Shift-click range, either way, skipping what can't be added", () => {
+    const [a, b, self] = [items[0]!, items[1]!, items[2]!];
+    expect(pickRange([], items, 0, 2)).toEqual(self.disabled ? [a.path, b.path] : [a.path, b.path, self.path]);
+    expect(pickRange([b.path], items, 1, 0)).toEqual([b.path, a.path]);
   });
 
   it("adds samples, links or copies", () => {

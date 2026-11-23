@@ -188,6 +188,12 @@ describe("the Snap split button and tap tempo", () => {
     expect(toggleSnap({ ...DEFAULT_SNAP, mode: "off" }, "bars").mode).toBe("beat");
   });
 
+  it("reads a musical step in time while the sequence has no tempo (D22: \"1 beat\" beside \"No tempo\")", () => {
+    expect(snapLabel({ ...DEFAULT_SNAP, mode: "beat" }, "timecode", null)).toBe("500 ms");
+    expect(snapLabel({ ...DEFAULT_SNAP, mode: "bar" }, "timecode", null)).toBe("2 s");
+    expect(snapLabel({ ...DEFAULT_SNAP, mode: "beat" }, "timecode", { bpm: 120, meter: "4/4" })).toBe("1 beat");
+  });
+
   it("starts a new tap count after a pause over 2.5 s", () => {
     expect(tapTempo([0, 2200])).toBeCloseTo(27.3, 1);
     expect(keepTaps([0], 2200)).toEqual([0, 2200]);

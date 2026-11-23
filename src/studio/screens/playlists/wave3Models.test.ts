@@ -11,7 +11,8 @@ import { setBy, setByMode, writeLayer } from "../../../editor/ui/curves/andByMod
 import { applyEffectAutomationResult, automatedNow, bypassLanes, clearLanes, effectAutomationDialog, pasteLanes } from "./effectAutomation";
 import { entryMeta, shares, voiceSummary } from "./entryRowModel";
 import { hoistEffect, sharedClipEffects } from "./hoistModel";
-import { entryLevels, pathTo, previewCards, typeSummary, usedParameters, voiceCards } from "./liveModel";
+import { contentCount, entryLevels, pathTo, previewCards, typeSummary, usedParameters, voiceCards } from "./liveModel";
+import { fixtureBody } from "./sequence/sequenceFixture";
 import { setSpatial } from "./playlistEdits";
 
 const params: ParameterDef[] = [
@@ -66,6 +67,17 @@ describe("live levels and paths", () => {
 });
 
 describe("the Inspector's header and \"this voice\" cards", () => {
+  it("counts a Sequence's clips and tracks, not its (empty) entries (J6.2)", () => {
+    const seq = fixtureBody();
+    const tracks = seq.sequence!.tracks;
+    const clips = tracks.reduce((n, t) => n + t.clips.length, 0);
+    expect(seq.entries).toHaveLength(0);
+    expect(clips).toBeGreaterThan(1);
+    expect(contentCount(seq)).toBe(`${clips} clips · ${tracks.length} tracks`);
+    expect(typeSummary(seq)).toBe(`Sequence · ${clips} clips · ${tracks.length} tracks`);
+    expect(contentCount(surface())).toBe(`${surface().entries.length} entries`);
+  });
+
   it("summarises the type and resolves a Switch's label to what it plays", () => {
     expect(typeSummary(surface())).toBe("Switch · Surface");
     const cards = voiceCards("Steps", surface(), params, { Surface: 1 }, null);

@@ -34,6 +34,9 @@ import { clipsPlaylist } from "./clipsPlaylist";
 import { childrenToKeep, deleteEntry, folderContentsUp, moveAcrossFiles, moveWithinFile, insertEntries, planDelete, replaceLinks, takeEntry, type ChildrenChoice, type DeletePlan, type DeleteTarget, type LinksChoice } from "./structureEdits";
 import type { DropPlan } from "./treeDrop";
 import { updateLog, voicesNow, type DebugSnapshot, type LogRow } from "./voiceLog";
+import { busPath } from "../mixer/busTree";
+import { starterTracks } from "./sequence/sequenceEdits";
+import { playback as sequencePlayback, sequenceContext } from "./sequence/sequenceState";
 
 // --- state -----------------------------------------------------------------------------------------------------------
 
@@ -99,6 +102,11 @@ export const mix = computed(() => {
   return p ? currentAudioProject(p) : null;
 });
 export const busNames = computed(() => (mix.value?.buses ?? []).map((b) => b.name));
+/** Each bus's routing path ("SFX › Vehicles"), as the Output select names it (J8.2: a flat list of names). */
+export const busPaths = computed<ReadonlyMap<string, string>>(() => {
+  const m = mix.value;
+  return new Map((m?.buses ?? []).map((b) => [b.name, busPath(m!, b.name)]));
+});
 export const globalParameters = computed<readonly ParameterDef[]>(() => mix.value?.parameters ?? []);
 /** The open playlist's local parameters: its file's, then the open body's own (an embedded one may have some). */
 export const localParameters = computed<readonly ParameterDef[]>(() => {
@@ -228,7 +236,9 @@ export async function newPlaylistFromSamples(samples: readonly string[]): Promis
 
 /** New sequence: a Sequence playlist file in `folder` (its timeline is edited from M5). */
 export async function newSequence(folder: string | null): Promise<void> {
-  const path = await createAsset<PlaylistAsset>("playlist", { folder: folder ?? "", name: "New sequence", value: emptyPlaylist("sequence") });
+  const value = emptyPlaylist("sequence");
+  const seq = value.sequence!;
+  const path = await createAsset<PlaylistAsset>("playlist", { folder: folder ?? "", name: "New sequence", value: { ...value, sequence: { ...seq, tracks: starterTracks(seq) } } });
   if (path) openPlaylist(filePath(path));
 }
 
@@ -656,9 +666,8 @@ function noteSwitchChange(name: string, value: number | null): void {
 function startPolling(): void {
   idlePolls = 0;
   auditioning.value = true;
-  if (poller) return;
-  poller = setInterval(poll, 100);
-  poll();
+  poller ??= setInterval(poll, 100);
+  poll(); // read at once, also when already polling (a new play's voices show without waiting for the next poll)
 }
 
 function poll(): void {
@@ -682,6 +691,25 @@ function poll(): void {
     poller = null;
   }
 }
+
+/**
+ * Follow `path`'s voices in Plays now and the Voices log, as Trigger does: a sequence's play is started by its own
+ * transport (`playSequence`), and its voices are logged too (J6.3: Voices said "Trigger to start capturing" while the
+ * sequence played).
+ */
+export function followVoices(path: string): void {
+  if (logAsset !== path) {
+    logAsset = path;
+    voiceLog.value = [];
+    logCursor.value = null;
+  }
+  startPolling();
+}
+effect(() => {
+  if (!sequencePlayback.value) return;
+  const file = sequenceContext.peek()?.file;
+  if (file) followVoices(file);
+});
 
 /** Clear the voice log. */
 export function clearLog(): void {

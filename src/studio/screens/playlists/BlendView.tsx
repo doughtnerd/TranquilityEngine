@@ -198,7 +198,7 @@ export function BlendView(props: BlendViewProps) {
         </div>
         <div class="pl-bh-row">
           {pts.map((p, i) => (
-            <span key={i} class={`pl-bh ${series(i)}${props.selected === i ? " on" : ""}`} style={{ left: `${p.x * 100}%` }} tabIndex={writable ? 0 : -1} role="slider"
+            <span key={i} class={`pl-bh ${series(i)}${props.selected === i ? " on" : ""}`} style={{ left: `${p.x * 100}%`, transform: `translateX(${-p.x * 100}%)` }} tabIndex={writable ? 0 : -1} role="slider"
               aria-label={`${entryName(body.entries[i]!, i)} position`} aria-valuenow={body.entries[i]!.x ?? 0} aria-valuetext={fmtAt(0, body.entries[i]!.x ?? ranges[0]![0])}
               title="Drag to move this entry along the axis (← → nudge, Shift ×10)"
               onPointerDown={(e) => startNode(i, e)} onKeyDown={(e) => nodeKeys(i, e)} onFocus={() => props.onSelect(i)}>

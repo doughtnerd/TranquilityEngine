@@ -14,7 +14,7 @@ function editorWindow() {
   const win = { document } as unknown as Window;
   (win as { window: unknown }).window = win;
   const close = registerEditorWindow(win);
-  const fire = (type: "focusin" | "pointerdown", target: unknown) => {
+  const fire = (type: "focusin" | "pointerdown" | "change", target: unknown) => {
     for (const l of listeners.get(type) ?? []) l({ target } as unknown as Event);
   };
   return { fire, close, listening: () => [...listeners.values()].some((l) => l.length > 0) };
@@ -33,6 +33,15 @@ describe("the editor focus (ADR 0145, ADR 0174)", () => {
     expect(editorFocus.value).toBe(inA);
     b.fire("pointerdown", inB);
     expect(editorFocus.value).toBe(inB);
+  });
+
+  it("follows a committed change in a field neither focus nor a press reached (a select set by a script)", () => {
+    const a = editorWindow();
+    cleanups.push(a.close);
+    a.fire("pointerdown", element());
+    const select = element();
+    a.fire("change", select);
+    expect(editorFocus.value).toBe(select);
   });
 
   it("stays where it was for presses in the History panel or a menu, and for targets that aren't elements", () => {

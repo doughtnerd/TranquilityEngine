@@ -6,6 +6,7 @@
 // A view over props.
 import type { Track } from "../../../../engine/audio/playlist/types";
 import { effectSpec } from "../../../../engine/audio/effects/catalogue";
+import { Icon } from "../../../components/Icon";
 import { NumberField } from "../../../components/NumberField";
 import { SeqIcon } from "./sequenceIcons";
 
@@ -52,8 +53,9 @@ export function TrackHeader(props: TrackHeaderProps) {
           </button>
         )}
         <span class="sq-swatch" aria-hidden="true" />
-        <span class="sq-track-name">{t.name}</span>
-        {t.kind === "playlist" && <span class="sq-head-badge" title="Playlist track: its clips trigger playlists">Playlist</span>}
+        <span class="sq-track-name" title={t.name}>{t.name}</span>
+        {/* A glyph, not the word: beside the word the name had a few pixels left ("P…", V13). */}
+        {t.kind === "playlist" && <span class="sq-head-badge kind" role="img" aria-label="Playlist track" title="Playlist track: its clips trigger playlists"><Icon name="playlists" size={11} /></span>}
         {fx.length > 0 && <span class="sq-head-badge fx" title={`Track effects: ${fx.join(", ")}`}>FX {fx.length}</span>}
         <button type="button" class="sq-ms pw" aria-pressed={t.enabled} aria-label={`${t.name} enabled`} title={t.enabled ? "Enabled · click to disable" : "Disabled · click to enable"} disabled={!writable} onClick={() => props.onToggle("enabled")}>
           <SeqIcon name="power" size={11} />

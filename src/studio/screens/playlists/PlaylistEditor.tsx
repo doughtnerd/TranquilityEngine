@@ -21,6 +21,7 @@ import { ModeToolbar } from "./ModeToolbar";
 import type { EditContext } from "./playlistEdits";
 import type { Crumb, PlaylistPath } from "./playlistPaths";
 import type { PlaylistFacts } from "./playlistTree";
+import { contentCount } from "./liveModel";
 import { SwitchView } from "./SwitchView";
 import { SequencePanel } from "./sequence/SequencePanel";
 import { warningLines } from "./sequence/sequenceLints";
@@ -171,7 +172,7 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
           </button>
         )}
         <span class="pl-vs" />
-        <span class="pl-u">{n === 1 ? "1 entry" : `${n} entries`}</span>
+        <span class="pl-u">{contentCount(body)}</span>
       </div>
       {props.usedIn && props.usedIn.length > 0 && <div class="pl-used-in">Used in {props.usedIn.join(", ")}</div>}
       <ModeToolbar body={body} ctx={props.ctx} writable={writable} playlists={props.playlists} onEdit={onEdit} />

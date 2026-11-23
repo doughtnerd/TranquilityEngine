@@ -44,7 +44,7 @@ import { PlaylistInspector } from "./PlaylistInspector";
 import { addEntries, duplicateEntry, removeEntry, setAutomation, setEntryUse, sampleEntry } from "./playlistEdits";
 import { breadcrumb, childPath, editAt, effectiveOutput, entryName, filePath, pathTarget, playlistTitle, sampleTitle, whereOf, type PlaylistPath } from "./playlistPaths";
 import {
-  adding, allParameters, askDelete, askDeleteFolder, deleteFolderKeepingContents, deletingFolder, audioNow, auditioning, busNames, confirmDelete, deleting, docFor, duplicatePlaylistFiles, editContext, editFile, editOpen, followRoute,
+  adding, allParameters, askDelete, busPaths, askDeleteFolder, deleteFolderKeepingContents, deletingFolder, audioNow, auditioning, busNames, confirmDelete, deleting, docFor, duplicatePlaylistFiles, editContext, editFile, editOpen, followRoute,
   linkedBy, loadPlaylist, logCursor, makeShared, moveToFolder, newPlaylist, newPlaylistFolder, newPlaylistFromSamples, newSequence, openBody, openDoc, openFile, openLints, openPath, openPlaylist,
   playingNow, releaseAudition, renameFolder, renamePlaylistFile, removeLinkEntry, runDrop, selectedEntry, setTestValue, stopAudition, target, testValues, trigger, triggerOffReason, unlink, voiceLog, clearLog,
   frozen, lastChange, pauseAudition, renamingOpen, resumeAudition,
@@ -53,7 +53,7 @@ import { newPlaylistParameter } from "./newParameter";
 import { contentFolders } from "../../components/projectFolders";
 import { isPlaylistPath } from "../../../engine/audio/playlist/format";
 import { NewGlobalParameterHost } from "../mixer/newGlobalParameter";
-import { PlaylistTreeView, type TreeActions } from "./PlaylistTreeView";
+import { PlaylistTreeView, renameFolderRow, type TreeActions } from "./PlaylistTreeView";
 import { entryKey, factsOf, fileKey, playlistTree, type PlaylistNode } from "./playlistTree";
 import { dropLabel, planDrop } from "./treeDrop";
 import { canRelease } from "./voiceLog";
@@ -93,7 +93,7 @@ const treeActions: TreeActions = {
   newPlaylist: (folder) => void newPlaylist(folder, false),
   newPlaylistInside: () => void newPlaylist(null, true),
   newSequence: (folder) => void newSequence(folder),
-  newFolder: (parent) => void newPlaylistFolder(parent),
+  newFolder: (parent) => newPlaylistFolder(parent),
   renameFile: (path, name) => void renamePlaylistFile(path, name),
   renameFolder: (path, name) => void renameFolder(path, name),
   duplicate: (nodes) => {
@@ -404,7 +404,7 @@ function NothingOpen() {
       <div class="pl-nothing-actions">
         <button type="button" class="pl-play-btn" disabled={!w} onClick={() => void newPlaylist("", false)}>New playlist</button>
         <button type="button" class="pl-small" disabled={!w} onClick={() => void newSequence("")}>New sequence</button>
-        <button type="button" class="pl-small" disabled={!w} onClick={() => void newPlaylistFolder("")}>New folder</button>
+        <button type="button" class="pl-small" disabled={!w} onClick={() => void newPlaylistFolder("").then((path) => path && renameFolderRow(path))}>New folder</button>
       </div>
     </div>
   );
@@ -546,6 +546,7 @@ function InspectorPanel() {
           writable={writable() && !doc.readOnly}
           ctx={editContext.value}
           buses={busNames.value}
+          busPath={(b) => busPaths.value.get(b) ?? b}
           output={effectiveOutput(path, loadPlaylist)}
           presets={(project?.files ?? []).filter((f) => f.toLowerCase().endsWith(".attenuation.json"))}
           usedBy={usedBy}

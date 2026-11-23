@@ -35,6 +35,15 @@ export function newTrack(s: SequenceSettings, kind: Track["kind"], name?: string
   };
 }
 
+/**
+ * A new sequence's tracks (the prototype's): an empty Audio 1 for samples and an empty Playlist 1 for playlists, so a
+ * drop lands on a track at once (J6.1: a new sequence started with none).
+ */
+export function starterTracks(s: SequenceSettings): Track[] {
+  const audio = newTrack(s, "audio");
+  return [audio, newTrack({ ...s, tracks: [audio] }, "playlist")];
+}
+
 /** "Add audio track" / "Add playlist track", at the end (or after `after`). */
 export function addTrack(s: SequenceSettings, kind: Track["kind"], after?: number): R {
   if (s.tracks.length >= MAX_TRACKS) return refuse(`a sequence holds at most ${MAX_TRACKS} tracks`);

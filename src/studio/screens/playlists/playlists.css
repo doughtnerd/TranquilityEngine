@@ -98,7 +98,8 @@
 .pl-row-trail { display: inline-flex; gap: 6px; align-items: center; margin-left: auto; min-width: 0; }
 .pl-link-mark { color: var(--accent); font-size: calc(11px * var(--ui-scale)); display: inline-flex; align-items: center; }
 .pl-original { opacity: 0.8; }
-.pl-out-mark { color: var(--accent); font-size: calc(11px * var(--ui-scale)); white-space: nowrap; }
+/* "→ SFX": the bus it plays into, named (J8.2: a bare arrow); a long name ends in an ellipsis. */
+.pl-out-mark { flex: none; max-width: 72px; overflow: hidden; text-overflow: ellipsis; color: var(--accent); font-size: calc(11px * var(--ui-scale)); white-space: nowrap; }
 .tree-view .row.pl-linked .pl-link-mark { color: var(--series-6); }
 .tree-view .row.pl-linked { outline: 1px dashed var(--border-strong); outline-offset: -2px; }
 /* Rows (T3): 12px text, the badge 6px from the name, the open row on the selection with an accent edge. */
@@ -128,8 +129,11 @@
 .pl-lwv { position: relative; flex: none; width: 72px; height: 36px; padding: 0; border: 0; border-radius: 3px; background: var(--bg); overflow: hidden; cursor: pointer; }
 .pl-lwv svg { position: absolute; inset: 0; width: 100%; height: 100%; }
 .pl-lwv path { fill: var(--badge-text); opacity: 0.6; }
-.pl-lpi { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-strong); opacity: 0.55; filter: drop-shadow(0 0 2px var(--bg)); }
-.pl-lwv:hover .pl-lpi, .pl-lwv.on .pl-lpi { opacity: 1; }
+/* The preview glyph is faint at rest (the prototype's), full on hover, focus or while previewing (V6). */
+.pl-lpi { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-strong); opacity: 0.3; filter: drop-shadow(0 0 2px var(--bg)); transition: opacity 0.1s; }
+.pl-lwv:hover .pl-lpi, .pl-lwv:focus-visible .pl-lpi, .pl-lib-row:hover .pl-lpi, .pl-lwv.on .pl-lpi { opacity: 1; }
+.pl-lib-meta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (hover: none) { .pl-lpi { opacity: 0.55; } }
 .pl-lph { position: absolute; top: 0; bottom: 0; left: 0; width: 1.5px; background: var(--accent); box-shadow: 0 0 4px var(--accent); animation: pl-lph 2s linear forwards; }
 @keyframes pl-lph { from { left: 0; } to { left: 100%; } }
 .pl-lsn { display: flex; flex-direction: column; min-width: 0; flex: 1; line-height: 16px; }
@@ -200,9 +204,12 @@
 /* Switch (`.srow`, `.rrow`) */
 .pl-switch { display: flex; flex-direction: column; gap: 4px; }
 .pl-srows, .pl-rrows { display: flex; flex-direction: column; gap: 2px; }
-.pl-srow { display: grid; grid-template-columns: 60px minmax(120px, 2fr) 84px minmax(24px, 1fr) 22px; gap: 8px; align-items: center; padding: 4px 8px; border: 1px solid transparent; border-radius: 3px; font-size: calc(12px * var(--ui-scale)); }
+.pl-srow { display: grid; grid-template-columns: minmax(60px, 96px) minmax(120px, 2fr) 84px minmax(24px, 1fr) 22px; gap: 8px; align-items: center; padding: 4px 8px; border: 1px solid transparent; border-radius: 3px; font-size: calc(12px * var(--ui-scale)); }
 .pl-srow.hot { border-color: var(--warning); background: var(--warning-soft); }
 .pl-srow.pl-lh { padding-bottom: 2px; }
+/* Column headers stay on one line ("GAME STATE" wrapped onto two, V8); a long parameter name ends in an ellipsis. */
+.pl-lh > span { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-srow > .pl-lbl { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-lbl { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pl-cell { min-width: 0; }
 .pl-chip { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 10px; background: var(--button); color: var(--text); font: inherit; font-size: calc(11px * var(--ui-scale)); cursor: pointer; }
@@ -263,6 +270,8 @@
 .pl-cur { position: absolute; top: 0; bottom: 0; border-left: 2px solid var(--accent); pointer-events: none; z-index: 1; }
 .pl-curt { position: absolute; bottom: 4px; left: 0; transform: translateX(4px); padding: 0 5px; border-radius: 3px; background: var(--accent); color: var(--accent-text); font-size: calc(10px * var(--ui-scale)); line-height: 16px; white-space: nowrap; }
 .pl-bh-row { position: relative; height: 22px; margin-top: 2px; }
+/* A handle's label slides from left-aligned at the axis's start to right-aligned at its end (inline transform), so the
+   end labels stay inside the lane ("▲ 800" clipped, V7). */
 .pl-bh { position: absolute; top: 2px; transform: translateX(-50%); padding: 0 5px; border: 1px solid var(--border); border-radius: 3px; background: var(--surface); color: var(--text); font-size: calc(10px * var(--ui-scale)); line-height: 15px; white-space: nowrap; font-variant-numeric: tabular-nums; cursor: ew-resize; touch-action: none; outline: none; }
 .pl-bh.on { border-color: var(--accent); }
 .pl-bh:focus-visible { box-shadow: 0 0 0 2px var(--focus-ring); }
@@ -351,7 +360,9 @@
 .pl-inspector { display: flex; flex-direction: column; }
 /* Section titles are caps (I4), one hairline between sections. */
 .pl-inspector .kit-section { border-top: 1px solid var(--border); }
-.pl-inspector .kit-section-title { font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+/* One heading style through the Inspector, the Sequence's sections too ("Loops · 1", "Parameters" were title case
+   beside "PLAYBACK", V9). */
+:is(.pl-inspector, .sq-inspector, .pl-doc > .kit-section, .pl-doc > * > .kit-section) .kit-section-title { font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
 .pl-ph { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-bottom: 1px solid var(--border); background: var(--panel); min-width: 0; font-size: calc(12px * var(--ui-scale)); }
 .pl-ph > b { color: var(--text-strong); flex: none; max-width: 55%; }
 .pl-caps { text-transform: uppercase; letter-spacing: 0.04em; }
@@ -378,7 +389,14 @@
 .pl-pbh:hover .pl-cap { color: var(--text); }
 .pl-pbf { display: grid; grid-template-columns: 86px minmax(0, 1fr); gap: 6px 8px; align-items: center; padding: 6px 0 2px; font-size: calc(12px * var(--ui-scale)); }
 .pl-k { color: var(--muted); }
+/* An effect's settings in the narrow Inspector: a shorter name column, so the typed box keeps five digits (a Low-pass
+   cutoff read "2000(" for 20000). */
+:is(.pl-inspector, .sq-inspector) .studio-row-body .studio-slider { grid-template-columns: minmax(44px, 84px) minmax(48px, 1fr) auto; }
+:is(.pl-inspector, .sq-inspector) .studio-row-body .studio-slider .studio-num { min-width: 56px; }
 .pl-pbs { display: flex; flex-direction: column; gap: 2px; }
+/* Its plain rows (When full, Priority) line up with the slider rows: no extra indent, the same label column (V9). */
+.pl-pbs > .kit-field { padding: 2px 0; grid-template-columns: minmax(70px, 110px) minmax(0, 1fr); gap: 6px; }
+.pl-pbs > .kit-field > .kit-field-label { font-size: calc(11px * var(--ui-scale)); }
 .pl-entry-sec { border-top: 1px solid var(--border); }
 .pl-kv2s { padding: 4px 10px; }
 .pl-curves { list-style: none; margin: 0; padding: 4px 10px 8px; display: flex; flex-direction: column; gap: 3px; font-size: calc(11px * var(--ui-scale)); }

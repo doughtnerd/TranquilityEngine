@@ -9,7 +9,7 @@ import type { StudioAudioRuntime } from "../../../runtime/studioAudioHost";
 import { createRouter, type HashLocation } from "../../../shell/route";
 import { provideStudio } from "../../../shell/studioServices";
 import type { SourceFacts } from "./sequenceModel";
-import { bindSequence, pauseSequence, playback, playSequence, releaseSequence, resumeSequence, seqPlayhead, seqTransport, sequenceSpace, stopSequence } from "./sequenceState";
+import { bindSequence, pauseSequence, playback, playSequence, releaseSequence, resumeSequence, seqPlayhead, seqSelection, seqTransport, sequenceSpace, stopSequence } from "./sequenceState";
 import { sequencePlayerSlots } from "./SequenceTransport";
 import type { VNode } from "preact";
 import { DEFAULT_TRANSPORT, heldRegions } from "./transportModel";
@@ -108,6 +108,7 @@ describe("Pause in the sequence transport (ADR 0362 §1)", () => {
     transportButtons().get("Pause")!.onClick();
     expect(handle.pause).toHaveBeenCalledTimes(1);
     expect(sequencePlayerSlots("music", "Sequence").status).toMatch(/^Paused music/);
+    expect(sequencePlayerSlots("music", "Sequence").nowPlaying?.art).toBe("SEQ"); // the tree's badge (V13: it said "SQ")
     vi.advanceTimersByTime(3_000);
     expect(seqPlayhead.value).toBe(at);
     expect(playback.value).not.toBeNull();
@@ -154,5 +155,24 @@ describe("Pause in the sequence transport (ADR 0362 §1)", () => {
     expect(playback.value?.pausedAt).toBeNull();
     resumeSequence(); // not paused: nothing
     expect(handle.resume).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("the selection across an edit (J6.2)", () => {
+  it("keeps a clip selected by the edit that made it while the view redraws before its document has the edit", () => {
+    const key = `test:${Math.random()}`;
+    const before = sequence(clip({ id: "c1" }));
+    const ctx = (seq: SequenceSettings) => ({ file: "audio/music.playlist.json", title: "music", seq, plays: "oneShot" as const, sourceOf: () => A });
+    bindSequence(key, ctx(before));
+    // The drop selects the new clip c2 at once; the view redraws (the selection changed) with the old sequence.
+    seqSelection.value = { ...seqSelection.peek(), focus: "clips", clips: ["c2"] };
+    bindSequence(key, ctx(before));
+    expect(seqSelection.value.clips).toEqual(["c2"]);
+    // Then the document has the edit: c2 is there and stays selected; an undo that takes it away prunes it.
+    const after: SequenceSettings = { ...before, tracks: [track([clip({ id: "c1" }), clip({ id: "c2", at: 2 })])] };
+    bindSequence(key, ctx(after));
+    expect(seqSelection.value.clips).toEqual(["c2"]);
+    bindSequence(key, ctx(before));
+    expect(seqSelection.value.clips).toEqual([]);
   });
 });

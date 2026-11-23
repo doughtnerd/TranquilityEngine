@@ -4,7 +4,9 @@
 // one listener per window and one rule for what keeps the previous focus.
 //
 // It follows every editor window from the moment this module loads, and each window as it opens
-// (`forEachEditorWindow`): `focusin` and `pointerdown`, in the capture phase, on its document.
+// (`forEachEditorWindow`): `focusin`, `pointerdown` and `change`, in the capture phase, on its
+// document. A committed `change` counts, so a value set without focus or a press (a select driven by
+// an assistive tool or a script) still makes the edited panel's history the one Undo acts on.
 import { signal, type ReadonlySignal } from "@preact/signals";
 import { forEachEditorWindow } from "./editorWindows";
 
@@ -36,8 +38,10 @@ forEachEditorWindow((win) => {
   const doc = win.document;
   doc.addEventListener("focusin", follow, true);
   doc.addEventListener("pointerdown", follow, true);
+  doc.addEventListener("change", follow, true);
   return () => {
     doc.removeEventListener("focusin", follow, true);
     doc.removeEventListener("pointerdown", follow, true);
+    doc.removeEventListener("change", follow, true);
   };
 });

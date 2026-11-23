@@ -5,7 +5,7 @@
 // Gain lanes, Game parameters, Global parameters and Loudness panels, and Automate ◆ opening the shared curve editor.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useMemo } from "preact/hooks";
-import { expect, userEvent, within } from "storybook/test";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import { UndoToasts } from "../../../editor/ui/UndoToast";
 import { createToastQueue } from "../../../editor/ui/undoToastModel";
 import type { AudioProject } from "../../../engine/audio/project/types";
@@ -101,6 +101,39 @@ export const StripsMenu: Story = {
     const menu = await body.findByRole("menu", { name: "Music menu" });
     await expect(within(menu).getByRole("menuitem", { name: "Add child bus" })).toBeTruthy();
     await userEvent.keyboard("{Escape}");
+  },
+};
+
+/** J8.1: + New bus starts the new bus's name in rename mode, its text selected; typing names it. */
+export const NewBusRename: Story = {
+  args: { which: "buses" },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole("button", { name: "New bus" }));
+    const field = await c.findByRole("textbox", { name: "Rename New bus" });
+    await waitFor(() => expect(field).toHaveFocus());
+    const input = field as HTMLInputElement;
+    await expect([input.selectionStart, input.selectionEnd]).toEqual([0, "New bus".length]);
+    await userEvent.keyboard("Vehicles 2{Enter}");
+    await expect(c.getByRole("listbox", { name: "Buses" }).querySelector('[data-bus-row="Vehicles 2"]')).toBeTruthy();
+  },
+};
+
+/** V10 / J8.3: one name per control (the live board's strips and the Inspector don't repeat a row's), dB fields clear of the fader caps. */
+export const LiveBoardStrips: Story = {
+  args: { which: "buses", setup: (s) => void (s.boardOpen.value = true) },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getAllByRole("textbox", { name: "Music level in dB" })).toHaveLength(1);
+    const board = c.getByRole("region", { name: "Live board" });
+    const field = within(board).getByRole("textbox", { name: "Live board: Music level in dB" });
+    const strip = field.closest(".mx-strip")!;
+    const fader = strip.querySelector(".studio-fader")!.getBoundingClientRect();
+    await expect(fader.bottom).toBeLessThanOrEqual(field.getBoundingClientRect().top);
+    const name = strip.querySelector(".mx-strip-name") as HTMLElement;
+    const ambience = within(board).getByText("Ambience");
+    await expect(ambience.scrollWidth).toBeLessThanOrEqual(ambience.clientWidth);
+    await expect(name).toBeTruthy();
   },
 };
 
