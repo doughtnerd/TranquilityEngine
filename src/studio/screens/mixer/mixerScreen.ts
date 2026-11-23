@@ -48,6 +48,10 @@ export interface MixerDeps {
   auditionSnapshot?(name: string | null, fadeSeconds: number): void;
   /** The loudness target the meters check against (`Audio.loudnessTarget`). */
   setLoudnessTarget?(name: string): void;
+  /** Reset the loudness meters (a whole take's measurement starts from its first second). */
+  resetLoudness?(): void;
+  /** MX-63: the open take's replay (its path, length, playhead and whether it plays), null with none. Subscribes in a render. */
+  takeReplay?(): { readonly take: string; readonly duration: number; readonly time: number; readonly playing: boolean } | null;
   /**
    * The game session is live (the player bar's session: the open take's replay until the live game link, owner
    * decision UI pass #1). Read inside a render, it should subscribe (a signal's value). Absent: never live.
