@@ -1,4 +1,5 @@
 mod debug_link;
+mod game_build;
 mod gamepad;
 
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -182,7 +183,10 @@ pub fn run() {
             // The debug link's WebSocket listener (ADR 0379).
             debug_link::myco_debuglink_listen,
             debug_link::myco_debuglink_send,
-            debug_link::myco_debuglink_close
+            debug_link::myco_debuglink_close,
+            // Desktop game builds from the editor with the host's toolchain (ADR 0381).
+            game_build::myco_build_toolchain,
+            game_build::myco_build_desktop_app
         ])
         .on_window_event(|window, event| {
             let other = |label: &str| window.app_handle().get_webview_window(label);

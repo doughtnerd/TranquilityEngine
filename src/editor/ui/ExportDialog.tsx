@@ -1,7 +1,10 @@
-import { useEffect, useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { exportOpen } from "./dialogState";
 import { getFileSystem, type FileSystem } from "../../engine/platform/FileSystem";
-import { desktopExportCommand, exportProjectBuild } from "../exportBuild";
+import { desktopExportCommand, exportDesktopProject, exportProjectBuild, writeDesktopReadme } from "../exportBuild";
+import { buildDesktopApp, probeHostToolchain } from "../hostToolchain";
+import { assessToolchain, foundTools, type ToolchainProbe } from "../../export/toolchain";
+import { joinPath } from "../projectPaths";
 import { projectFileSystem } from "../projectFs";
 import { currentProject, openScene, status } from "../state";
 import "./export.css";
@@ -10,10 +13,15 @@ import "./export.css";
 
 type Target = "web" | "desktop";
 
+/** Build output lines the dialog keeps (a Tauri build prints thousands). */
+const LOG_LINES = 300;
+
 /**
  * Build / Export (ADR 0041): write a web build of the project into a folder the user picks, when
- * the platform FileSystem can write (the desktop editor, or a browser with folder access); a
- * desktop package is made from the command line, which the dialog shows.
+ * the platform FileSystem can write (the desktop editor, or a browser with folder access). A
+ * desktop app (ADR 0381): the desktop editor checks this computer's toolchain, then writes the
+ * desktop package and builds it with that toolchain, or says what's missing; the browser editor
+ * shows the command line.
  */
 export function ExportDialog() {
   const project = currentProject.value;
@@ -25,13 +33,30 @@ export function ExportDialog() {
   const [fs, setFs] = useState<FileSystem | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "info" | "error"; text: string; folder?: string } | null>(null);
+  // ADR 0381: the host's toolchain: undefined while checking, null where the editor can't run programs (a browser).
+  const [toolchain, setToolchain] = useState<ToolchainProbe | null | undefined>(undefined);
+  const [log, setLog] = useState<string[]>([]);
+  const logRef = useRef<HTMLPreElement>(null);
   const open = exportOpen.value && !!project;
+  const checkToolchain = () => {
+    setToolchain(undefined);
+    probeHostToolchain().then(setToolchain, (err: unknown) => {
+      console.warn(`[myco] Couldn't check the build toolchain: ${err instanceof Error ? err.message : String(err)}`);
+      setToolchain(null);
+    });
+  };
   useEffect(() => {
     if (!open) return;
     setMessage(null);
+    setLog([]);
     // The project folders' file system (ADR 0038): Tauri, or File System Access in Chromium; else the read-only one.
     void projectFileSystem().then(async (pfs) => setFs(pfs ?? (await getFileSystem())));
+    checkToolchain();
   }, [open]);
+  useEffect(() => {
+    const pre = logRef.current;
+    if (pre) pre.scrollTop = pre.scrollHeight;
+  }, [log]);
   if (!open || !project) return null;
 
   const close = () => {
@@ -59,6 +84,45 @@ export function ExportDialog() {
     }
   };
   const command = desktopExportCommand(project, audioCapture, audioTake, takePictures, debugLink);
+  const readiness = toolchain ? assessToolchain(toolchain) : null;
+  /** ADR 0381: write the desktop package into a picked folder, then build it with the host's toolchain when it has one. */
+  const runDesktop = async () => {
+    if (!fs) return;
+    const cli = readiness?.ready ? readiness.cli : null;
+    const out = await fs.pickFolder(`Choose a folder for the desktop app of ${project.name}`);
+    if (!out) return;
+    setBusy(true);
+    setLog([]);
+    setMessage({ kind: "info", text: "Compiling scripts…" });
+    const options = { audioCapture, audioTake, audioTakeFrames: takePictures, ...(debugLink && { debugLink: true as const }) };
+    try {
+      const plan = await exportDesktopProject(project, fs, out, (done, total) => setMessage({ kind: "info", text: `Writing files… ${done} of ${total}` }), options);
+      const name = plan.manifest.name;
+      if (!cli) {
+        const text = `Wrote the desktop project of ${name} to ${out}. README.txt there says how to build it once the toolchain is installed.`;
+        setMessage({ kind: "info", text, folder: out });
+        status.value = { kind: "info", text };
+        return;
+      }
+      await buildDesktopApp(
+        out,
+        cli,
+        (line) => setLog((lines) => [...lines.slice(Math.max(0, lines.length - LOG_LINES + 1)), line]),
+        (step) => setMessage({ kind: "info", text: step === "icon" ? "Making the app icons…" : "Building the app with tauri build (the first build compiles Tauri, which takes several minutes)…" }),
+      );
+      await writeDesktopReadme(fs, out, name, true);
+      const bundle = joinPath(out, "src-tauri/target/release/bundle");
+      const text = `Built ${name}: its installers are in ${bundle}.`;
+      setMessage({ kind: "info", text, folder: bundle });
+      status.value = { kind: "info", text };
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      setMessage({ kind: "error", text });
+      status.value = { kind: "error", text: `Desktop build failed: ${text.split("\n")[0]}`, detail: text };
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <div class="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && close()}>
@@ -112,11 +176,36 @@ export function ExportDialog() {
             {!canWrite && fs && <p class="export-note">Exporting writes files, which this browser editor can't do. Use the desktop editor, or the command line: npm run export -- &lt;projectDir&gt;</p>}
             {dirty && <p class="export-note">Unsaved changes to {openScene.value!.path} aren't in the build. Save first to include them.</p>}
           </>
-        ) : (
+        ) : toolchain === null ? (
           <>
             <p>Desktop apps are built from the command line, with the Rust toolchain installed (rustup.rs). Without Rust, it writes the Tauri project and says how to build it.</p>
             <pre class="export-command"><code>{command}</code></pre>
           </>
+        ) : !readiness ? (
+          <p class="export-toolchain" role="status">Checking this computer for the build toolchain…</p>
+        ) : readiness.ready ? (
+          <>
+            <p class="export-toolchain">Builds the app with this computer's toolchain, into installers in the folder you choose. The first build compiles Tauri, which takes several minutes.</p>
+            <ul class="export-tools">{foundTools(toolchain!).map((line) => <li key={line}>{line}</li>)}</ul>
+            {dirty && <p class="export-note">Unsaved changes to {openScene.value!.path} aren't in the build. Save first to include them.</p>}
+          </>
+        ) : (
+          <>
+            <p class="export-note export-toolchain-missing" role="alert">You don't have the toolchain to build desktop apps on this computer. Install what's missing, then check again:</p>
+            <ul class="export-tools">
+              {readiness.missing.map((tool) => (
+                <li key={tool.name}>
+                  <strong>{tool.name}</strong>: {tool.how} <span class="export-url">{tool.url}</span>
+                </li>
+              ))}
+            </ul>
+            <p>Until then, the editor can write the desktop project, with a README that says how to build it.</p>
+          </>
+        )}
+        {log.length > 0 && (
+          <pre class="export-log" ref={logRef} aria-label="Build output">
+            {log.join("\n")}
+          </pre>
         )}
         {message && (
           <p class={`export-message${message.kind === "error" ? " problem" : ""}`} role="status" aria-live="polite">
@@ -125,9 +214,14 @@ export function ExportDialog() {
         )}
         <div class="dialog-buttons">
           {message?.folder && fs?.reveal && <button onClick={() => void fs.reveal!(message.folder!)}>Show Folder</button>}
-          {target === "desktop" && (
+          {target === "desktop" && toolchain === null && (
             <button onClick={() => void navigator.clipboard?.writeText(command)} title="Copy the command">
               Copy Command
+            </button>
+          )}
+          {target === "desktop" && readiness && !readiness.ready && (
+            <button onClick={checkToolchain} disabled={busy}>
+              Check Again
             </button>
           )}
           <button onClick={close} disabled={busy}>
@@ -136,6 +230,11 @@ export function ExportDialog() {
           {target === "web" && (
             <button class="primary" disabled={!canWrite || busy} onClick={() => void run()}>
               {busy ? "Exporting…" : "Choose Folder and Export…"}
+            </button>
+          )}
+          {target === "desktop" && readiness && (
+            <button class="primary" disabled={!canWrite || busy} onClick={() => void runDesktop()}>
+              {busy ? "Building…" : readiness.ready ? "Choose Folder and Build…" : "Choose Folder and Write Project…"}
             </button>
           )}
         </div>

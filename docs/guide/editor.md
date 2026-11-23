@@ -151,7 +151,7 @@ Committing them means a teammate, or a fresh checkout, sees previews at once ins
 
 ## Building the desktop app on Windows
 
-`npm run tauri:dev` (the desktop editor) and `npm run tauri:build` (installers) compile `src-tauri/` with Rust. On Windows that needs a little more than `rustup`, because the desktop app links SDL3 for gamepads ([ADR 0335](../decisions/0335-gamepads-come-from-a-native-sdl3-adapter-on-desktop-and-device-state-reaches-worlds-as-entities-in-an-input-phase.md)), and SDL3 is **built from source by CMake** during the Rust build (the `sdl3` crate's `build-from-source-static` feature, driven by the `cmake` crate). Exported desktop games (`npm run export -- <dir> --target desktop`) build the same way.
+`npm run tauri:dev` (the desktop editor) and `npm run tauri:build` (installers) compile `src-tauri/` with Rust. On Windows that needs a little more than `rustup`, because the desktop app links SDL3 for gamepads ([ADR 0335](../decisions/0335-gamepads-come-from-a-native-sdl3-adapter-on-desktop-and-device-state-reaches-worlds-as-entities-in-an-input-phase.md)), and SDL3 is **built from source by CMake** during the Rust build (the `sdl3` crate's `build-from-source-static` feature, driven by the `cmake` crate). Exported desktop games build the same way: from `npm run export -- <dir> --target desktop`, or from **File > Build and Export… > Desktop app** in the desktop editor, which checks this computer for Rust, a C compiler, CMake and the Tauri CLI (`cargo tauri`, or Node.js for `npx`), builds the installers when they are all there, and lists what to install when they are not ([ADR 0381](../decisions/0381-the-desktop-editor-builds-desktop-apps-with-the-hosts-toolchain.md)).
 
 **What to install**
 

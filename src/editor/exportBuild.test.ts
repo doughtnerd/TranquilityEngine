@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameManifest } from "../export/format";
-import { desktopExportCommand, exportProjectBuild } from "./exportBuild";
+import { desktopExportCommand, exportDesktopProject, exportProjectBuild, writeDesktopReadme } from "./exportBuild";
 import { openFolderProject, readOnlyProject } from "./projects";
 import { demoFolder, ROOT, type MemoryFileSystem } from "./testing";
+import { joinPath } from "./projectPaths";
 
 // Build / Export in the editor (ADR 0041): the editor's file sources (the open project's files, its scripts compiled, and the
 // player fetched from beside the editor) wired to the build writer (ADR 0296), whose own suite has the rest.
@@ -101,5 +102,57 @@ describe("exportProjectBuild", () => {
     } finally {
       PLAYER["player/files.json"] = JSON.stringify({ files: ["assets/player-x.js", "myco.js", "player.html"] });
     }
+  });
+});
+
+describe("exportDesktopProject (ADR 0381)", () => {
+  const OUT = "C:\\Out\\desktop";
+  const file = (fs: MemoryFileSystem, p: string) => fs.files.get(joinPath(OUT, p));
+  /** project.json's exporter-only `build` settings (ADR 0041). */
+  const setBuild = (fs: MemoryFileSystem, build: Record<string, string>) => {
+    const at = joinPath(ROOT, "project.json");
+    fs.files.set(at, JSON.stringify({ ...(JSON.parse(fs.files.get(at) as string) as object), build }));
+  };
+
+  it("writes the web build in web/, the generated Tauri project, the default icon's source and a README", async () => {
+    const fs = demoFolder();
+    const project = await folderProject(fs);
+    const plan = await exportDesktopProject(project, fs, OUT);
+    expect(file(fs, "web/game.json")).toBeDefined();
+    expect(file(fs, "web/index.html")).toBeDefined();
+    expect(file(fs, "game.json")).toBeUndefined();
+    const config = JSON.parse(file(fs, "src-tauri/tauri.conf.json") as string) as { productName: string; build: { frontendDist: string } };
+    expect(config).toMatchObject({ productName: plan.manifest.name, build: { frontendDist: "../web" } });
+    expect(file(fs, "src-tauri/src/gamepad.rs")).toContain("myco_gamepad_listen");
+    expect(file(fs, "src-tauri/app-icon.svg")).toContain("<svg");
+    expect(file(fs, "README.txt")).toContain("npx @tauri-apps/cli build");
+    expect(file(fs, "README.txt")).not.toContain("Installers:");
+  });
+
+  it("re-exporting keeps the Rust build cache, and build.icon's PNG replaces the default icon source", async () => {
+    const fs = demoFolder();
+    const project = await folderProject(fs);
+    await exportDesktopProject(project, fs, OUT);
+    fs.files.set(joinPath(OUT, "src-tauri/target/release/cached.rlib"), new Uint8Array([7]));
+    setBuild(fs, { icon: "images/flappyBird.png" });
+    const withIcon = await folderProject(fs);
+    await exportDesktopProject(withIcon, fs, OUT);
+    expect(file(fs, "src-tauri/target/release/cached.rlib")).toEqual(new Uint8Array([7]));
+    expect(file(fs, "src-tauri/app-icon.png")).toEqual(new Uint8Array([137, 80, 78, 71]));
+    expect(file(fs, "src-tauri/app-icon.svg")).toBeUndefined();
+  });
+
+  it("refuses an icon that isn't a PNG or SVG, before writing anything", async () => {
+    const fs = demoFolder();
+    setBuild(fs, { icon: "images/ground.jpg" });
+    const project = await folderProject(fs);
+    await expect(exportDesktopProject(project, fs, OUT)).rejects.toThrow(/PNG or SVG/);
+    expect([...fs.files.keys()].some((k) => k.startsWith(OUT))).toBe(false);
+  });
+
+  it("the README names the installers once the app is built", async () => {
+    const fs = demoFolder();
+    await writeDesktopReadme(fs, OUT, "flappy", true);
+    expect(file(fs, "README.txt")).toContain("Installers: src-tauri/target/release/bundle/");
   });
 });

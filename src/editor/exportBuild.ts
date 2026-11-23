@@ -16,8 +16,11 @@ import { packageSourceFor } from "./projectPackages";
 import { ExportError, isOutputInsideProject, planWebBuild, type BuildOptions, type WebBuildPlan } from "../export/webBuild";
 import { jsonFiles, type EditorProject } from "./projects";
 import { DEFAULT_DEBUG_LINK_PORT } from "../engine/debugLink/config";
+import { DEFAULT_ICON_SVG, desktopProjectFiles, desktopReadme, type BuildSettings } from "../export/desktop";
+// ADR 0335: exported games' gamepad module is the editor shell's, copied verbatim (as the command line's exporter does).
+import GAMEPAD_MODULE from "../../src-tauri/src/gamepad.rs?raw";
 
-/** The command-line export, for what the editor can't do (desktop packages need Rust and a shell). */
+/** The command-line export of a desktop package, for the browser editor, which can't run the host's toolchain (ADR 0381). */
 export const desktopExportCommand = (project: EditorProject, audioCapture = false, audioTake = false, takePictures = true, debugLink = false) =>
   `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop${audioCapture ? " --audio-capture" : ""}${audioTake ? " --audio-take" : ""}${audioTake && !takePictures ? " --no-take-pictures" : ""}${debugLink ? ` --debug-link ${DEFAULT_DEBUG_LINK_PORT}` : ""}`;
 
@@ -48,7 +51,41 @@ const playerFiles: FileSource = { read: (path) => fetchBytes(new URL(`player/${p
  * build (replaced). `progress` hears how many files are written out of how many. Throws an
  * `ExportError` if the project can't be built or the folder can't take it.
  */
-export async function exportProjectBuild(project: EditorProject, fs: FileSystem, out: string, progress?: (done: number, total: number) => void, options: BuildOptions = {}): Promise<WebBuildPlan> {
+export function exportProjectBuild(project: EditorProject, fs: FileSystem, out: string, progress?: (done: number, total: number) => void, options: BuildOptions = {}): Promise<WebBuildPlan> {
+  return writeBuild(project, fs, out, "web", progress, options);
+}
+
+/**
+ * ADR 0381: write a desktop package of `project` into `out` (ADR 0041's layout): the web build in
+ * `web/`, the generated Tauri project in `src-tauri/` with its icon's source as
+ * `src-tauri/app-icon.png` or `.svg` (`build.icon`, else the neutral default) for `tauri icon` to
+ * make the icons from, and README.txt. `out` must be empty or hold an earlier desktop package
+ * (replaced, keeping `src-tauri/target/`, the Rust build cache). Building it is the host's job
+ * (`hostToolchain.ts`); `built` says where its installers are, for the README.
+ */
+export async function exportDesktopProject(project: EditorProject, fs: FileSystem, out: string, progress?: (done: number, total: number) => void, options: BuildOptions = {}): Promise<WebBuildPlan> {
+  const settings = project.settings as typeof project.settings & { build?: BuildSettings };
+  const icon = settings.build?.icon?.replace(/^\.?\//, "");
+  if (icon && !/\.(png|svg)$/i.test(icon)) throw new ExportError(`project.json's build.icon "${icon}" must be a square PNG or SVG.`);
+  const iconSource = icon ? await projectFiles(project).read(icon).catch(() => { throw new ExportError(`project.json's build.icon "${icon}" isn't in the project.`); }) : DEFAULT_ICON_SVG;
+  const plan = await writeBuild(project, fs, out, "desktop", progress, options);
+  const folder = fileSystemFolder(fs, out);
+  for (const [path, text] of desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule: GAMEPAD_MODULE, debug: plan.manifest.debug !== undefined })) {
+    await folder.writeText(`src-tauri/${path}`, text);
+  }
+  const iconFile = `src-tauri/app-icon.${icon?.toLowerCase().endsWith(".png") ? "png" : "svg"}`;
+  for (const stale of ["src-tauri/app-icon.png", "src-tauri/app-icon.svg"]) if (stale !== iconFile && (await folder.exists(stale))) await folder.remove(stale, false);
+  await (typeof iconSource === "string" ? folder.writeText(iconFile, iconSource) : folder.writeBytes(iconFile, iconSource));
+  await writeDesktopReadme(fs, out, plan.manifest.name, false);
+  return plan;
+}
+
+/** README.txt of the desktop package in `out`; `built` once its installers are in src-tauri/target/release/bundle/. */
+export function writeDesktopReadme(fs: FileSystem, out: string, name: string, built: boolean): Promise<void> {
+  return fileSystemFolder(fs, out).writeText("README.txt", desktopReadme(name, built ? "src-tauri/target/release/bundle/" : null));
+}
+
+async function writeBuild(project: EditorProject, fs: FileSystem, out: string, target: "web" | "desktop", progress: ((done: number, total: number) => void) | undefined, options: BuildOptions): Promise<WebBuildPlan> {
   if (project.root && isOutputInsideProject(project.root, out)) throw new ExportError("That folder is inside the project, where the next export would copy it in. Choose a folder outside it (or its dist/ folder).");
   const name = project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name;
   const plan = await planWebBuild({ name, settings: project.settings, files: project.files, scripts: project.scripts, json: jsonFiles(project), packages: packageSourceFor(project, "production") }, options);
@@ -58,8 +95,10 @@ export async function exportProjectBuild(project: EditorProject, fs: FileSystem,
     player: playerFiles,
     playerWhere: "player/ beside the editor",
     folder: fileSystemFolder(fs, out),
-    // The editor builds web games; models bake through the project's assets the editor already serves (ADR 0090).
-    platform: "web",
+    // A desktop package's web build sits in web/; its Rust build cache survives (rebuilding Tauri from scratch takes minutes).
+    ...(target === "desktop" && { web: "web", keep: ["src-tauri/target"], kind: "desktop" }),
+    // Models bake through the project's assets the editor already serves (ADR 0090).
+    platform: target,
     transcode: browserTranscoder,
     bake: bakeModelFile,
     // ADR 0351: audio converted in Web Workers (at most two at once, ADR 0359 §3), cached in the project's .myco/cache/audio/ when it is a folder.
