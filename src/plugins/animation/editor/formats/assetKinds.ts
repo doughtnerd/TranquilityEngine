@@ -20,6 +20,7 @@ import { MASK_SUFFIX, emptyMask, formatMask, maskReferences, parseMask, type Ava
 import { SKELETON_PROFILE_SUFFIX, emptySkeletonProfile, formatSkeletonProfile, parseSkeletonProfile, type SkeletonProfile } from "../../../../engine/animation/skeletonProfile";
 import { POSE_DATABASE_SUFFIX, emptyPoseDatabase, formatPoseDatabase, parsePoseDatabase, poseDatabaseReferences, type PoseDatabaseSource } from "../../../../engine/animation/poseDatabase";
 import type { FormatParse } from "../../../../engine/animation/shared";
+import { ANIM_GRAPH_PANEL } from "../graphEditor/panelId";
 
 /** A play triangle over a key line: a clip. */
 const CLIP_ICON = "M4 18h16M7 15V9M12 15V6M17 15v-4M9 4l6 3.5L9 11z";
@@ -100,6 +101,9 @@ export const ANIMATION_ASSET_KINDS: readonly AssetKindContribution[] = [
     // `Animator.graph` and linked-graph overrides.
     referencedAs: ["animgraph"],
     references: reader(ANIM_GRAPH_SUFFIX, parseAnimGraph, animGraphReferences),
+    // The graph editor (T51, `graphEditor/`): opening a graph shows it there; the Inspector sums it up.
+    panel: ANIM_GRAPH_PANEL,
+    inspector: () => import("../graphEditor/AnimGraphSummary").then((m) => m.AnimGraphSummary),
   },
   {
     id: "timeline", extensions: [TIMELINE_SUFFIX], label: "Timeline", icon: TIMELINE_ICON, format: timelineFormat, folder: "animation",
