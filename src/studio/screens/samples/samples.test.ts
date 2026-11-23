@@ -14,11 +14,11 @@ import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, r
 import { allSamples, cleanFolderName, fileChip, libraryTree, metaLine, moveUpPlan, searchSamples, shortLength, usesOf } from "./sampleLibrary";
 import { editedLength, inClosedGap, toSource, toView } from "./sampleTime";
 import {
-  fitToSource, landmarks, liveSelection, loopRegions, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
+  colourCss, colourValue, fitToSource, landmarks, liveSelection, loopLabel, loopRegions, MARKER_PRESETS, markerColour, shortSeconds, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
   snapTime, snippetMenu, snippetUnder, trimHoldingMarkers,
 } from "./sampleView";
 import { nearestZeroCrossing, seamJump, seamStrip, seamWindow } from "./seam";
-import { addTap, tapResult } from "./tapTempo";
+import { addTap, tapDots, tapResult } from "./tapTempo";
 import { effectEdits } from "./sampleEffects";
 import { planPlay, planSeam, PLAY_MODES, playModeInfo, playModeRefusal, showsMusicModes } from "./sampleTransport";
 
@@ -349,6 +349,27 @@ describe("timeline structure", () => {
   });
 });
 
+describe("marker colours, ruler labels and loop labels", () => {
+  it("stores presets as theme series and custom colours as hex, and draws a note in its own colour", () => {
+    expect(colourValue("var(--series-3)")).toBe(3);
+    expect(colourValue("#6AA8FF")).toBe("#6aa8ff");
+    expect(colourValue("var(--accent)")).toBeNull();
+    expect(colourCss(6)).toBe("var(--series-6)");
+    expect(markerColour({ type: "note", color: 2 })).toBe("var(--series-2)");
+    expect(markerColour({ type: "note" })).toBe("var(--marker-note)");
+    expect(markerColour({ type: "exit", color: 2 })).toBe("var(--marker-exit)");
+    expect(MARKER_PRESETS.map((p) => p.name)).toEqual(["Amber", "Cyan", "Green", "Violet"]);
+  });
+
+  it("labels ruler ticks in short seconds and loops with their direction, count and file mark", () => {
+    expect([0, 0.3, 2.6, 12, 75, 90.5].map(shortSeconds)).toEqual(["0", "0.3 s", "2.6 s", "12 s", "1:15", "1:30.5"]);
+    const e = skid();
+    expect(loopLabel(e, e.loops[0])).toBe("▪ ↻ Loop 1");
+    expect(loopLabel(e, { ...e.loops[0], file: null, direction: "pingPong", count: 2 })).toBe("↔ Loop 1 ×2");
+    expect(loopLabel(e, { ...e.loops[0], end: e.loops[0].start })).toBe("Hold 1");
+  });
+});
+
 describe("tap tempo", () => {
   it("averages the last 8 intervals and resets after a pause over 2.5 s (spec §4.1.5)", () => {
     let taps: number[] = [];
@@ -359,6 +380,13 @@ describe("tap tempo", () => {
     expect(addTap(taps, 5500 + 2600)).toEqual([8100]);
     expect(tapResult([0])).toBeNull();
     expect(tapResult([0, 500, 1100, 1500])!.steadiness).toBe("uneven");
+    // The dot strip: each gap against the average, ±15 % at the ends.
+    expect(tapDots([0, 500])).toEqual([]);
+    expect(tapDots([0, 500, 1000, 1500])).toEqual([0.5, 0.5, 0.5]);
+    const dots = tapDots([0, 460, 1000, 1500]); // gaps 460, 540, 500 around a 500 ms mean
+    expect(dots[0]).toBeCloseTo(0.5 - 0.08 / 0.3, 6);
+    expect(dots[1]).toBeCloseTo(0.5 + 0.08 / 0.3, 6);
+    expect(tapDots([0, 100, 1000])).toEqual([0, 1]);
   });
 });
 

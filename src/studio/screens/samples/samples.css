@@ -1,6 +1,8 @@
 /* The Samples screen (ADR 0342). Theme tokens only: markers use --marker-*, reserved ranges --range-*, note colours --series-*. */
 
 .smp-doc { display: contents; }
+/* The document scope is `display: contents`, so the dock's `.dock-group > .panel` rule doesn't reach its panel: say it here (B-02). */
+.dock-group > .smp-doc > .panel { flex: 1; min-height: 0; background: none; }
 .smp-muted { color: var(--muted); }
 .smp-pad { padding: 8px 10px; }
 .smp-ok { color: var(--success); }
@@ -9,7 +11,6 @@
 .smp-link { background: none; border: none; color: var(--link); padding: 0 4px; cursor: pointer; }
 .smp-link:disabled { color: var(--faint); cursor: default; }
 .smp-link.danger:not(:disabled) { color: var(--danger); }
-.smp-sep { width: 1px; align-self: stretch; background: var(--border); margin: 2px 2px; }
 .smp-tool { padding: 2px 8px; white-space: nowrap; }
 .smp-tool.on { background: var(--accent-soft); color: var(--text-strong); border-color: var(--accent); }
 .smp-check { display: flex; align-items: center; gap: 6px; }
@@ -24,84 +25,162 @@
 .smp-toplevel { margin: 4px 6px; padding: 4px 8px; border: 1px dashed var(--border-strong); border-radius: 4px; color: var(--muted); }
 .smp-toplevel.drop { border-color: var(--accent); color: var(--text); background: var(--accent-faint); }
 
-/* Timeline */
-.smp-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; }
-.smp-file { font-weight: 600; color: var(--text-strong); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 4px; }
-/* The timeline fills the panel: the body is a column, the lanes take what's left, and the audio lane grows (B-02). */
-.smp-timeline > .panel-body { display: flex; flex-direction: column; }
-.smp-tl { display: flex; flex-direction: column; gap: 0; flex: 1 0 auto; outline: none; }
-.smp-tl:focus-visible { box-shadow: inset 0 0 0 1px var(--focus-ring); }
-.smp-banner { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--warning-soft); color: var(--text); border-bottom: 1px solid var(--warning); }
-.smp-banner span { flex: 1; }
-.smp-lanes { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 240px; }
-.smp-markers { position: relative; overflow-y: auto; overflow-x: hidden; background: var(--panel); border-bottom: 1px solid var(--border); }
-.smp-markers-inner { position: relative; }
-.smp-marker { position: absolute; height: 16px; min-width: 2px; border-left: 2px solid var(--mk); cursor: grab; display: flex; align-items: center; white-space: nowrap; user-select: none; touch-action: none; }
-.smp-marker[style*="width"] { background: color-mix(in srgb, var(--mk) 18%, transparent); border-right: 1px solid var(--mk); }
-.smp-marker-label { padding: 0 4px; font-size: calc(11px * var(--ui-scale)); color: var(--mk); }
-.smp-marker.on .smp-marker-label { color: var(--text-strong); background: color-mix(in srgb, var(--mk) 40%, transparent); border-radius: 2px; }
-.smp-marker.ff .smp-marker-label::after { content: " ▪"; color: var(--muted); }
-.smp-marker.outside { opacity: 0.6; }
-.smp-marker.entry { border-left-style: dotted; }
-.smp-marker-end { position: absolute; right: -3px; top: 0; bottom: 0; width: 6px; cursor: ew-resize; }
-.smp-marker-ghost { position: absolute; height: 16px; border-left: 1px dashed var(--faint); padding-left: 4px; color: var(--faint); font-size: calc(10px * var(--ui-scale)); pointer-events: none; white-space: nowrap; }
-.smp-looprow, .smp-trimrow { position: relative; height: 20px; background: var(--panel); border-bottom: 1px solid var(--border); overflow: hidden; }
-.smp-row-hint { position: absolute; left: 8px; top: 2px; color: var(--faint); font-size: calc(10px * var(--ui-scale)); }
-.smp-region { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; background: color-mix(in srgb, var(--rg) 18%, transparent); border: 1px solid color-mix(in srgb, var(--rg) 60%, transparent); cursor: pointer; overflow: hidden; touch-action: none; }
-.smp-region.loop { background: color-mix(in srgb, var(--rg) 30%, transparent); cursor: grab; }
-.smp-region.link { border-style: dashed; }
-.smp-region.on { border-color: var(--rg); box-shadow: 0 0 0 1px var(--rg); }
-.smp-region-label { padding: 0 5px; font-size: calc(10px * var(--ui-scale)); color: var(--text); white-space: nowrap; line-height: 14px; }
-.smp-trim { position: absolute; top: 2px; bottom: 2px; border-radius: 3px; background: color-mix(in srgb, var(--range-trim) 14%, transparent); border: 1px solid color-mix(in srgb, var(--range-trim) 50%, transparent); display: flex; align-items: center; cursor: grab; touch-action: none; }
-.smp-trim.set { background: color-mix(in srgb, var(--range-trim) 26%, transparent); }
-.smp-trim.on { border-color: var(--range-trim); }
-.smp-trim .smp-region-label { flex: 1; text-align: center; }
-.smp-trim-handle { width: 6px; align-self: stretch; background: var(--range-trim); cursor: ew-resize; }
-.smp-wave-wrap { position: relative; flex: 1 1 auto; min-height: 96px; display: flex; }
-.smp-wave-wrap .tl-wave { flex: 1; }
-.smp-cut { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text-strong); z-index: 2; pointer-events: none; }
-.smp-cut.ghost { width: 1px; margin-left: 0; background: var(--faint); }
-/* Snippets on the waveform (B-13): a label each, a Tape button on each cut, Close gap on a deleted one. */
-.smp-segl { position: absolute; top: 2px; z-index: 3; padding: 0 4px; font-size: calc(10px * var(--ui-scale)); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
-.smp-segl.on { color: var(--text-strong); }
-.smp-snippet-on { position: absolute; top: 0; bottom: 0; z-index: 1; box-shadow: inset 0 0 0 1px var(--accent); pointer-events: none; }
-.smp-tape { position: absolute; bottom: 2px; z-index: 4; transform: translateX(-50%); padding: 0 5px; font-size: calc(10px * var(--ui-scale)); line-height: 16px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border-strong); color: var(--text); cursor: pointer; }
-.smp-tape:hover:not(:disabled) { border-color: var(--accent); }
-.smp-gapb { position: absolute; top: 50%; z-index: 4; transform: translate(-50%, -50%); padding: 1px 8px; font-size: calc(11px * var(--ui-scale)); border-radius: 10px; background: var(--surface); border: 1px solid var(--border-strong); color: var(--text); white-space: nowrap; cursor: pointer; }
-.smp-gapb:hover:not(:disabled) { border-color: var(--accent); }
-.smp-zoombar { display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-top: 1px solid var(--border); background: var(--panel); }
-.smp-range { position: relative; flex: 1; height: 10px; border-radius: 5px; background: var(--bg-sunken); border: 1px solid var(--border); margin-left: 6px; }
-.smp-range-thumb { position: absolute; top: 0; bottom: 0; min-width: 8px; border-radius: 5px; background: var(--button-hover); border: 1px solid var(--border-strong); cursor: grab; touch-action: none; }
-.smp-readout { display: flex; flex-wrap: wrap; gap: 4px 16px; padding: 4px 10px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); border-top: 1px solid var(--border); }
-.smp-readout b { color: var(--text); font-weight: 500; font-variant-numeric: tabular-nums; }
-.smp-warnings { display: flex; flex-direction: column; gap: 2px; padding: 4px 10px 8px; }
-.smp-warning-row { display: flex; align-items: center; gap: 8px; color: var(--warning); background: var(--warning-soft); padding: 3px 8px; border-radius: 4px; }
-.smp-warning-row span { flex: 1; }
-
-/* Popovers */
-.smp-popover { position: fixed; z-index: 50; min-width: 240px; max-width: 340px; padding: 10px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 6px 18px var(--shadow); }
-.smp-popover-title { font-weight: 600; margin-bottom: 8px; color: var(--text-strong); }
-.smp-form { display: flex; flex-direction: column; gap: 6px; }
-.smp-form label, .smp-form-row { display: flex; align-items: center; gap: 8px; }
-.smp-form label > span:first-child, .smp-form-row > span:first-child { min-width: 64px; color: var(--muted); }
-.smp-form p { margin: 0; }
-.smp-form-actions { display: flex; flex-wrap: wrap; gap: 4px; }
-.smp-form-actions button.on { border-color: var(--accent); }
-.smp-tap { display: flex; align-items: center; gap: 6px; }
-.smp-tap-button { min-width: 56px; }
-.smp-menu { display: flex; flex-direction: column; }
-.smp-menu button { display: flex; gap: 6px; text-align: left; background: none; border: none; padding: 4px 8px; }
-.smp-menu button:hover { background: var(--hover); }
-.smp-menu-check { width: 12px; color: var(--accent); }
-/* The kit's context-menu rows spread their parts apart; these menus read left to right: ✓, label, then a note at the right (S-07). */
-.smp-menu.context-menu button { justify-content: flex-start; text-align: left; }
-.smp-menu-label { flex: 1 1 auto; }
-.smp-menu-note { margin-left: 16px; color: var(--faint); font-size: calc(11px * var(--ui-scale)); }
-/* The Save split button: two halves joined. */
-.smp-split { display: inline-flex; align-items: stretch; }
+/* Timeline (the prototype's `.tlbar`, `.trk`/`.th`, `.mp`/`.mr`, `.ruler`, `.lane`, `.readout`, `.warnb`; spec §4.1.5–4.1.6) */
+.smp-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; min-height: 26px; }
+.smp-file { font-weight: 600; color: var(--text-strong); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smp-vsep { width: 1px; height: 16px; background: var(--border); margin: 0 2px; flex: none; }
+.smp-flex { flex: 1 1 auto; }
+.smp-tabular { font-variant-numeric: tabular-nums; }
+.smp-strong { color: var(--text) !important; }
+/* `.sbtn`: 24 px, button fill, muted text; on = accent. `.ibtn`: a 26×24 icon button. */
+.smp-sbtn, .smp-ibtn { display: inline-flex; align-items: center; justify-content: center; gap: 5px; height: calc(24px * var(--ui-scale)); min-width: 0; padding: 0 6px; font-size: calc(12px * var(--ui-scale)); border: 1px solid var(--border); border-radius: 4px; background: var(--button); color: var(--muted); cursor: pointer; white-space: nowrap; }
+.smp-ibtn { width: calc(26px * var(--ui-scale)); padding: 0; }
+.smp-sbtn:hover:not(:disabled), .smp-ibtn:hover:not(:disabled) { background: var(--button-hover); color: var(--text); }
+.smp-sbtn.on, .smp-ibtn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--text-strong); }
+.smp-sbtn:disabled, .smp-ibtn:disabled { opacity: 0.45; cursor: default; }
+.smp-ab { font-size: calc(11px * var(--ui-scale)); font-weight: 600; }
+.smp-split { display: inline-flex; align-items: stretch; flex: none; }
 .smp-split > .smp-split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
-.smp-split > .smp-split-caret { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-width: 0; min-width: 0; padding: 2px 4px; }
-.smp-menu-group { padding: 4px 8px 2px; color: var(--faint); font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.05em; }
+.smp-split > .smp-split-caret { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-width: 0; padding: 0 5px; color: var(--text); }
+.smp-split-caret .smp-glyph { --icon-size: 10px; }
+.smp-sm2 { padding: 1px 8px; font-size: calc(11px * var(--ui-scale)); }
+.smp-timeline > .panel-body { display: flex; flex-direction: column; }
+.smp-tl { display: flex; flex-direction: column; flex: 1 0 auto; outline: none; background: var(--panel); }
+.smp-tl:focus-visible { box-shadow: inset 0 0 0 1px var(--focus-ring); }
+.smp-banner { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--warning-soft); color: var(--text); border-bottom: 1px solid var(--warning); flex-wrap: wrap; }
+.smp-banner > .studio-glyph { color: var(--warning); }
+.smp-banner-text { flex: 1; min-width: 12em; }
+.smp-sheet { position: relative; display: flex; flex-direction: column; flex: 1 0 auto; min-height: 240px; }
+.smp-trk { display: grid; grid-template-columns: calc(168px * var(--ui-scale)) minmax(0, 1fr); border-bottom: 1px solid var(--border); }
+.smp-trk-audio { flex: 1 1 auto; min-height: 96px; }
+.smp-th { display: flex; flex-direction: column; justify-content: center; gap: 2px; padding: 4px 10px; border-right: 1px solid var(--border); background: var(--panel); min-width: 0; }
+.smp-th-top { justify-content: flex-end; padding: 0 10px; gap: 0; }
+.smp-th-title { font-weight: 600; color: var(--text); }
+.smp-mrl { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; font-size: calc(10px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--marker-note); white-space: nowrap; }
+.smp-mrl-more { font-weight: 400; letter-spacing: 0; text-transform: none; color: var(--muted); }
+.smp-phrow { display: flex; align-items: center; gap: 4px; }
+.smp-ph { flex: 1; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: calc(14px * var(--ui-scale)); font-weight: 600; color: var(--text-strong); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; }
+.smp-tcb { flex: none; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 3px; background: none; color: var(--muted); cursor: pointer; }
+.smp-tcb:hover, .smp-tcb[aria-expanded="true"] { background: var(--hover); color: var(--text); }
+.smp-temporow { display: flex; align-items: flex-start; padding-top: 4px; }
+.smp-badge { align-self: flex-start; background: var(--badge); color: var(--badge-text); border-radius: 3px; padding: 0 5px; font-size: calc(11px * var(--ui-scale)); line-height: 16px; white-space: normal; }
+.smp-views { display: inline-flex; gap: 4px; align-self: flex-start; margin-top: 4px; }
+.smp-lanecol { position: relative; display: flex; flex-direction: column; min-width: 0; background: var(--panel); }
+.smp-mscroll { position: relative; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin; }
+.smp-markers-inner { position: relative; padding-top: 4px; box-sizing: border-box; }
+/* Point markers: a flag (clip-path arrow) with a 2 px edge in the marker colour; ranges: a capped bar. */
+.smp-mp { position: absolute; height: 16px; padding: 0 9px 0 5px; border-left: 2px solid var(--mc); background: color-mix(in srgb, var(--mc) 42%, var(--panel)); clip-path: polygon(0 0, calc(100% - 6px) 0, 100% 50%, calc(100% - 6px) 100%, 0 100%); font-size: calc(10px * var(--ui-scale)); line-height: 16px; color: var(--text-strong); cursor: grab; white-space: nowrap; touch-action: none; user-select: none; }
+.smp-mp.on, .smp-mr.on { background: var(--mc); color: var(--accent-text); }
+.smp-mp.ff::before { content: ""; display: inline-block; width: 5px; height: 6px; border: 1px solid currentColor; border-radius: 1px; margin-right: 4px; opacity: 0.85; }
+.smp-mp.entry { border-left-style: dotted; }
+.smp-mr { position: absolute; height: 16px; border-radius: 3px; border: 1px solid var(--mc); background: color-mix(in srgb, var(--mc) 42%, var(--panel)); display: flex; align-items: center; cursor: grab; touch-action: none; user-select: none; overflow: hidden; font-size: calc(10px * var(--ui-scale)); line-height: 14px; color: var(--text-strong); box-sizing: border-box; }
+.smp-mr .smp-cp { flex: none; width: 6px; align-self: stretch; background: color-mix(in srgb, var(--text) 78%, transparent); cursor: ew-resize; }
+.smp-mr.ro { cursor: pointer; }
+.smp-mr.ro .smp-cp { background: color-mix(in srgb, var(--mc) 70%, transparent); cursor: pointer; }
+.smp-mt { flex: 1; min-width: 0; padding: 0 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: inline-flex; align-items: center; gap: 3px; }
+.smp-mr.z { width: 2px !important; padding: 0; border-radius: 0; overflow: visible; background: var(--mc); }
+.smp-hold-icon { position: absolute; left: 4px; top: 1px; color: var(--mc); }
+.smp-mp.oot, .smp-mr.oot { opacity: 0.5; background-image: repeating-linear-gradient(135deg, transparent 0 3px, color-mix(in srgb, var(--bg) 60%, transparent) 3px 5px); }
+.smp-mp:focus-visible, .smp-mr:focus-visible { outline: 2px solid var(--text); outline-offset: 1px; }
+.smp-mg { position: absolute; height: 16px; padding: 0 9px 0 5px; border-left: 2px dashed var(--marker-note); background: color-mix(in srgb, var(--marker-note) 18%, transparent); font-size: calc(10px * var(--ui-scale)); line-height: 16px; color: var(--muted); white-space: nowrap; pointer-events: none; opacity: 0.8; }
+.smp-mgt { position: absolute; height: 16px; margin-left: 12px; padding: 0 6px; border: 1px solid var(--border-strong); border-radius: 3px; background: var(--surface); font-size: calc(10px * var(--ui-scale)); line-height: 14px; color: var(--text); white-space: nowrap; pointer-events: none; box-shadow: 0 2px 6px var(--shadow); transform: translateX(60px); }
+.smp-mgt.flip { transform: translateX(calc(-100% - 24px)); }
+.smp-ruler { position: relative; }
+.smp-ruler .tl-ruler { height: 100%; background: var(--panel); border-bottom: 0; cursor: ew-resize; }
+.smp-ruler .tl-tick { height: 3px; background: var(--border-strong); }
+.smp-ruler .tl-tick.major { height: 6px; background: var(--border-strong); }
+.smp-ruler .tl-tick-label { bottom: 12px; left: 0; transform: translateX(-50%); }
+.smp-ruler .tl-tick:first-child .tl-tick-label { transform: none; }
+.smp-phead { position: absolute; bottom: 0; width: 0; height: 0; margin-left: -7px; border-left: 7px solid transparent; border-right: 7px solid transparent; border-top: 11px solid var(--accent); pointer-events: none; z-index: 2; }
+.smp-mrow { position: relative; height: 20px; overflow: hidden; }
+.smp-row-hint { position: absolute; left: 8px; top: 3px; color: var(--faint); font-size: calc(10px * var(--ui-scale)); pointer-events: none; }
+.smp-lane-audio { position: relative; display: flex; flex-direction: column; min-height: 96px; background: var(--bg-sunken); }
+.smp-lane-audio.razor { cursor: crosshair; }
+.smp-lane-audio.snippets { cursor: pointer; }
+.smp-wave-wrap, .smp-spec-wrap { position: relative; flex: 1 1 0; min-height: 48px; display: flex; }
+.smp-spec-wrap { border-top: 1px solid var(--border); }
+.smp-wave-wrap:only-child, .smp-spec-wrap:only-child { border-top: 0; }
+.smp-wave-wrap .tl-wave { flex: 1; background: var(--bg-sunken); }
+.smp-wave-wrap .tl-band { background: var(--accent-faint); border-right: 0; border-left: 1px solid var(--accent); }
+.smp-spectrogram { position: relative; flex: 1; }
+.smp-spectrogram canvas, .smp-overlay canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.smp-overlay { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+.smp-clip { position: absolute; top: 0; bottom: 0; border-top: 3px solid var(--danger); border-bottom: 3px solid var(--danger); box-sizing: border-box; }
+.smp-dim { position: absolute; top: 0; bottom: 0; background: var(--bg-sunken); opacity: 0.75; pointer-events: none; z-index: 1; }
+.smp-pband { position: absolute; top: 0; bottom: 0; background: var(--accent2-soft); border-left: 1px solid var(--accent2); border-right: 1px solid var(--accent2); pointer-events: none; z-index: 1; }
+.smp-cut { position: absolute; top: 0; bottom: 0; width: 0; border-left: 2px solid var(--text-strong); margin-left: -1px; z-index: 3; pointer-events: none; }
+.smp-rzg { position: absolute; top: 0; bottom: 0; width: 0; border-left: 1px dashed var(--text-strong); z-index: 3; pointer-events: none; }
+.smp-tape { position: absolute; top: 2px; transform: translateX(-50%); z-index: 4; width: 18px; height: 16px; padding: 0; border: 1px solid var(--border-strong); border-radius: 3px; background: var(--surface); color: var(--text); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; }
+.smp-tape:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); }
+.smp-seg { position: absolute; top: 0; bottom: 0; pointer-events: none; z-index: 2; }
+.smp-seg.sel { box-shadow: inset 0 0 0 2px var(--accent); }
+.smp-seg.gone { background: repeating-linear-gradient(135deg, color-mix(in srgb, var(--bg) 70%, transparent) 0 4px, transparent 4px 8px); }
+.smp-segl { position: absolute; left: 4px; bottom: 2px; font-size: calc(10px * var(--ui-scale)); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: calc(100% - 8px); }
+.smp-seg.sel .smp-segl { color: var(--text-strong); }
+.smp-gapb { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 5; pointer-events: auto; box-shadow: 0 2px 6px var(--shadow); font-size: calc(11px * var(--ui-scale)); padding: 2px 8px; border: 1px solid var(--border-strong); border-radius: 10px; background: var(--surface); color: var(--text); cursor: pointer; white-space: nowrap; }
+.smp-gapb:hover:not(:disabled) { background: var(--accent-soft); border-color: var(--accent); }
+/* The effect chips across the top of the lane. */
+.smp-fxs { position: absolute; top: 4px; left: 6px; right: 6px; z-index: 4; display: flex; flex-wrap: wrap; gap: 4px; pointer-events: none; }
+.smp-fxc { pointer-events: auto; font-size: calc(10px * var(--ui-scale)); line-height: 14px; padding: 0 6px; border-radius: 8px; border: 1px solid var(--border-strong); background: color-mix(in srgb, var(--surface) 85%, transparent); color: var(--text); cursor: pointer; white-space: nowrap; }
+.smp-fxc:disabled { cursor: default; opacity: 1; }
+.smp-fxc.on { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.smp-fxc.off { color: var(--muted); text-decoration: line-through; }
+.smp-fxc.info { border-color: var(--info, var(--accent)); color: var(--text); }
+.smp-fxc.danger { border-color: var(--danger); background: var(--danger-soft); color: var(--danger); }
+/* Dotted guides from every marker and loop edge, and the playhead line. */
+.smp-guides { position: absolute; top: 0; bottom: 0; left: calc(168px * var(--ui-scale)); right: 0; pointer-events: none; z-index: 3; overflow: hidden; }
+.smp-guide { position: absolute; bottom: 0; margin-left: -1px; border-left: 1px dotted color-mix(in srgb, var(--gc) 55%, transparent); }
+.smp-guide.on { border-left: 2px dotted var(--gc); }
+.smp-playline { position: absolute; bottom: 0; border-left: 1px solid var(--accent); z-index: 5; }
+.smp-zoombar { display: flex; align-items: center; padding: 6px 10px 8px 0; background: var(--panel); }
+.smp-zoomgroup { width: calc(168px * var(--ui-scale)); flex: none; display: flex; align-items: center; gap: 3px; padding-left: 10px; box-sizing: border-box; }
+.smp-zoomgroup .smp-ibtn { width: 24px; height: 22px; border-color: transparent; background: none; }
+.smp-zoomgroup .smp-ibtn:hover:not(:disabled) { background: var(--hover); }
+.smp-range { position: relative; flex: 1; min-width: 0; height: 14px; border-radius: 7px; background: var(--bg-sunken); cursor: pointer; touch-action: none; user-select: none; }
+.smp-range-thumb { position: absolute; top: 0; bottom: 0; min-width: 28px; border-radius: 7px; background: var(--border-strong); cursor: grab; touch-action: none; }
+.smp-range-knob { position: absolute; top: 1px; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--text); background: var(--panel); box-sizing: border-box; cursor: ew-resize; }
+.smp-range-knob.start { left: 1px; }
+.smp-range-knob.end { right: 1px; }
+.smp-readout { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 6px 10px; border-top: 1px solid var(--border); background: var(--surface); font-size: calc(12px * var(--ui-scale)); color: var(--text); }
+.smp-rdi { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.smp-rdi .studio-glyph { color: var(--muted); stroke-width: 1.5; }
+.smp-vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.smp-warnings { display: flex; flex-direction: column; }
+.smp-warnb { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--warning-soft); border-top: 1px solid var(--warning); font-size: calc(12px * var(--ui-scale)); }
+.smp-warnb-text { flex: 2 1 0; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.smp-warnb-text b { white-space: nowrap; }
+.smp-warnb-acts { flex: 1 1 0; min-width: 0; display: flex; gap: 6px; }
+.smp-warnb-acts button { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; justify-content: center; }
+
+/* Popovers (`.snm`): --surface, a caps caption, compact rows (`.tci`). */
+.smp-popover { position: fixed; z-index: 50; min-width: 220px; max-width: 320px; padding: 4px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 5px; box-shadow: 0 6px 18px var(--shadow); display: flex; flex-direction: column; }
+.smp-cap { padding: 4px 8px 2px; font-size: calc(11px * var(--ui-scale)); line-height: 14px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.smp-tci { display: flex; align-items: center; gap: 6px; padding: 5px 8px; border: 0; border-radius: 3px; background: none; color: var(--text); font-size: calc(12px * var(--ui-scale)); text-align: left; cursor: pointer; width: 100%; box-sizing: border-box; }
+button.smp-tci:hover:not(:disabled) { background: var(--hover); }
+.smp-tci:disabled { opacity: 0.45; cursor: default; }
+.smp-tci-fields { cursor: default; flex-wrap: wrap; }
+.smp-tci-label { flex: 1; min-width: 0; }
+.smp-tci-note { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.smp-tci-check { width: 12px; flex: none; color: var(--accent); }
+.smp-tci-sep { height: 1px; background: var(--border); margin: 4px 0; }
+.smp-tci-line { margin: 0; padding: 2px 8px 4px; font-size: calc(11px * var(--ui-scale)); }
+.smp-num { width: 62px; text-align: right; font-variant-numeric: tabular-nums; }
+.smp-note { width: 52px; }
+.smp-unit { width: 34px; }
+.smp-inline-edit { width: 240px; gap: 4px; }
+.smp-inline-edit input, .smp-inline-edit textarea { margin: 0 4px; }
+/* Tap tempo. */
+.smp-tap-lights { display: flex; gap: 6px; }
+.smp-tap-lights span { flex: 1; height: 10px; border-radius: 3px; background: var(--border); }
+.smp-tap-lights span.on { background: var(--accent2); }
+.smp-tap-target { height: 72px; font-size: calc(16px * var(--ui-scale)); font-weight: 600; border-radius: 6px; background: var(--accent-faint); border: 1px solid var(--accent); color: var(--text-strong); cursor: pointer; }
+.smp-tap-target:active { background: var(--accent-soft); }
+.smp-tap-read { display: flex; align-items: baseline; gap: 6px; font-size: calc(11px * var(--ui-scale)); }
+.smp-tap-bpm { font-size: calc(24px * var(--ui-scale)); line-height: 28px; font-weight: 600; color: var(--text-strong); font-variant-numeric: tabular-nums; }
+.smp-tap-dots { position: relative; height: 20px; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; }
+.smp-tap-mid { position: absolute; left: 50%; top: 0; bottom: 0; border-left: 1px solid var(--accent); }
+.smp-tap-dot { position: absolute; top: 6px; width: 7px; height: 7px; margin-left: -3.5px; border-radius: 50%; background: var(--accent2); }
+.smp-tapd .kit-dialog-body { display: flex; flex-direction: column; gap: 10px; }
 
 /* Inspector */
 .smp-insp-body { padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
@@ -200,9 +279,6 @@
 .smp-ellipsis { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .smp-menu-check { display: inline-flex; align-items: center; justify-content: center; }
 .smp-toplevel { display: flex; align-items: center; gap: 6px; }
-.smp-banner { flex-wrap: wrap; }
-.smp-banner span { min-width: 12em; }
-.smp-marker-label { display: inline-flex; align-items: center; gap: 2px; }
 .smp-zoom-pct { min-width: 3.5em; text-align: right; font-variant-numeric: tabular-nums; }
 .smp-range:focus-visible, .smp-outline-group li:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .smp-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; border-radius: 2px; }
@@ -245,13 +321,8 @@
 @media (pointer: coarse) {
   .smp-icon-button { min-width: 36px; }
   .smp-swatch { width: 28px; height: 28px; }
-  .smp-looprow, .smp-trimrow { height: 32px; }
-  .smp-region-label { line-height: 26px; }
   .smp-range { height: 20px; border-radius: 10px; }
   .smp-range-thumb { border-radius: 10px; min-width: 28px; }
   .smp-menu button { min-height: 40px; align-items: center; }
   /* The handles' hit areas reach past their thin marks. */
-  .smp-trim-handle { position: relative; }
-  .smp-trim-handle::before, .smp-marker-end::before { content: ""; position: absolute; inset: -6px -10px; }
-  .smp-marker::before { content: ""; position: absolute; left: -10px; width: 20px; top: 0; bottom: 0; }
 }

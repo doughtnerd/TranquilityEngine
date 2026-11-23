@@ -16,6 +16,8 @@ export interface TimeRulerProps {
   /** The whole length (the slider's max). */
   readonly length?: number;
   readonly label?: string;
+  /** A labelled tick's text instead of the display's full time (a screen's short "0.3 s", spec §3.14). */
+  labelOf?(t: number): string;
   onScrub?(t: number, done: boolean): void;
 }
 
@@ -54,7 +56,7 @@ export function TimeRuler(props: TimeRulerProps) {
     >
       {ticks.map((t) => (
         <div key={t.t} class={`tl-tick${t.major ? " major" : ""}`} style={{ left: `${timeToX(t.t, view, width)}px` }}>
-          {t.label && <span class="tl-tick-label">{t.label}</span>}
+          {t.label && <span class="tl-tick-label">{props.labelOf ? props.labelOf(t.t) : t.label}</span>}
         </div>
       ))}
     </div>

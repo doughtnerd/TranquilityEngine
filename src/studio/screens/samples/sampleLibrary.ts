@@ -10,8 +10,14 @@ import { isSidecarPath } from "../../../engine/scene/importSettings";
 import { contentFolders } from "../../components/projectFolders";
 import { isAudioPath } from "./importPlan";
 
-/** True for a file the Samples panel lists: an audio file or a derived sample. */
-export const isSamplePath = (p: string): boolean => !isSidecarPath(p.toLowerCase()) && (isAudioPath(p) || isDerivedSamplePath(p));
+/** True for a flattened render (`<stem>.flat<n>.wav`, ADR 0342 Flatten): a source version of its sample, not a sample. */
+export const isFlatRender = (path: string): boolean => /\.flat\d+\.wav$/i.test(path);
+
+/**
+ * True for a file the Samples panel lists: an audio file or a derived sample. A flattened render isn't one: the version
+ * menu lists it under its sample (E-06).
+ */
+export const isSamplePath = (p: string): boolean => !isSidecarPath(p.toLowerCase()) && !isFlatRender(p) && (isAudioPath(p) || isDerivedSamplePath(p));
 
 /**
  * The folders the Samples tree and its folder pickers (Move to…, Import's Into folder, Fork's and Save snippet's

@@ -300,6 +300,55 @@ export function snippetMenu(e: SampleEdits, sourceLength: number, index: number)
   ];
 }
 
+// --- colours, ruler labels, loop labels ------------------------------------------------------------------------------
+
+/**
+ * The colour presets a note marker offers (the prototype's Amber, Cyan, Green, Violet), as theme series: the marker
+ * stores the series index, so Settings > Appearance themes it.
+ */
+export const MARKER_PRESETS: readonly { readonly name: string; readonly series: number }[] = [
+  { name: "Amber", series: 3 },
+  { name: "Cyan", series: 1 },
+  { name: "Green", series: 2 },
+  { name: "Violet", series: 6 },
+];
+
+/** A stored marker colour (a series index or "#rrggbb") as CSS. */
+export const colourCss = (c: number | string): string => (typeof c === "number" ? `var(--series-${c})` : c);
+
+/** A CSS colour from the picker back to what a marker stores: `var(--series-n)` → n, "#rrggbb" kept; null for anything else. */
+export function colourValue(css: string): number | string | null {
+  const series = /^var\(--series-([1-8])\)$/.exec(css.trim());
+  if (series) return Number(series[1]);
+  return /^#[0-9a-f]{6}$/i.test(css.trim()) ? css.trim().toLowerCase() : null;
+}
+
+/** A marker's colour as CSS: a note's own colour, else its type's token. */
+export function markerColour(m: Pick<SampleMarker, "type" | "color">): string {
+  return m.type === "note" && m.color !== undefined ? colourCss(m.color) : `var(${MARKER_TYPE_TOKENS[m.type]})`;
+}
+
+const MARKER_TYPE_TOKENS: Readonly<Record<SampleMarker["type"], string>> = { note: "--marker-note", exit: "--marker-exit", entry: "--marker-exit", hit: "--marker-hit", cue: "--marker-cue" };
+
+/** A ruler label in short seconds (spec §3.14): "0", "0.3 s", "12 s"; m:ss from a minute. */
+export function shortSeconds(t: number): string {
+  if (Math.abs(t) < 1e-9) return "0";
+  if (t < 60) return `${Math.round(t * 1000) / 1000} s`;
+  const m = Math.floor(t / 60);
+  const s = t - m * 60;
+  return `${m}:${String(Math.floor(s)).padStart(2, "0")}${s % 1 > 1e-6 ? `.${String(Math.round((s % 1) * 10))}` : ""}`;
+}
+
+/** The glyph a loop's direction shows on the loop row: ↻ forward, ↔ ping-pong, ↺ backward. */
+export const DIRECTION_GLYPHS: Readonly<Record<SampleLoop["direction"], string>> = { forward: "↻", pingPong: "↔", backward: "↺" };
+
+/** A loop's label on the loop row: "▪ ↻ Loop 1 ×2" (▪ when it's from the file; ×n with a set count). */
+export function loopLabel(e: SampleEdits, l: SampleLoop): string {
+  const i = e.loops.findIndex((x) => x.id === l.id);
+  if (isHold(l)) return `Hold ${i + 1}`;
+  return `${l.file ? "▪ " : ""}${DIRECTION_GLYPHS[l.direction]} Loop ${i + 1}${l.count > 0 ? ` ×${l.count}` : ""}`;
+}
+
 // --- snapping --------------------------------------------------------------------------------------------------------
 
 export type SnapUnit = "ms" | "samples" | "beats";

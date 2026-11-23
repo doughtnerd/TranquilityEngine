@@ -22,6 +22,17 @@ export function addTap(taps: readonly number[], now: number): number[] {
   return run.slice(-(TAP_INTERVALS + 1));
 }
 
+/** The dot strip's span: each gap is drawn against the average, ±15 % (spec §4.1.5). */
+export const TAP_DOT_SPAN = 0.15;
+
+/** Each gap between taps as a place on the strip (0..1; 0.5 is the average, ±15 % reach the ends). */
+export function tapDots(taps: readonly number[]): number[] {
+  if (taps.length < 3) return [];
+  const iv = taps.slice(1).map((t, i) => t - taps[i]);
+  const mean = iv.reduce((a, b) => a + b, 0) / iv.length;
+  return iv.map((g) => Math.max(0, Math.min(1, 0.5 + (g / mean - 1) / (2 * TAP_DOT_SPAN))));
+}
+
 /** The tempo the taps give, or null with fewer than two. */
 export function tapResult(taps: readonly number[]): TapResult | null {
   if (taps.length < 2) return null;

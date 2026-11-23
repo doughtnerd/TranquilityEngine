@@ -52,6 +52,18 @@ export const playMode = persisted<PlayMode>("myco.studio.samples.playMode", "sel
 /** The Loop seam panel's Repeat: Play across the seam keeps cycling through it until stopped. */
 export const seamRepeat = persisted<boolean>("myco.studio.samples.seamRepeat", true);
 
+/** The audio lane's views (spec §4.1.6): Waveform, Spectrogram, or both (a split view); one always stays on. */
+export const waveViews = persisted<{ readonly wave: boolean; readonly spectrogram: boolean }>("myco.studio.samples.views", { wave: true, spectrogram: false });
+/** Colours saved from the custom colour picker (§3.12), offered in every marker's colour row. */
+export const savedColours = persisted<string[]>("myco.studio.samples.savedColours", ["#6aa8ff", "#e8907a"]);
+
+/**
+ * Per page: A/B (spec §4.1.5, §2.11): hear and show the source with every edit bypassed; the effect whose step the
+ * waveform shows (a row or chip hovered or chosen in Sample effects; null: after the whole chain).
+ */
+export const abSource = signal(false);
+export const fxFocus = signal<string | null>(null);
+
 /** Per page: the timeline's view (timeline seconds; null: fit), the playhead (source seconds), the razor, the hovered time (timeline seconds). */
 export const viewSpan = signal<TimeSpan | null>(null);
 export const playheadTime = signal(0);
