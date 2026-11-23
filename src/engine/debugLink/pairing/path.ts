@@ -48,8 +48,23 @@ export type PairPath =
 
 /** The path between a `local` and a `remote` endpoint, per the rules above. */
 export function choosePath(local: EndpointKind, remote: EndpointKind, capabilities: PathCapabilities): PairPath {
-  void local;
-  void remote;
-  void capabilities;
-  throw new Error("L5: not implemented");
+  const { canListen, webrtc, lanRendezvous, hostedRendezvous } = capabilities;
+  // Only a native side can listen; a page never can, whatever it reports.
+  const listens = { local: local === "native" && canListen.local, remote: remote === "native" && canListen.remote };
+  // Rule 1: a WebSocket to the native side that can listen. A page on https can't open ws:// (mixed content).
+  if (local !== "page-https" && remote !== "page-https" && (listens.local || listens.remote)) {
+    if (listens.local && listens.remote) return { path: "websocket", listener: "either" };
+    return { path: "websocket", listener: listens.local ? "local" : "remote" };
+  }
+  // Rule 2: otherwise both sides need WebRTC.
+  const hasWebrtc = { local: webrtc?.local ?? true, remote: webrtc?.remote ?? true };
+  if (!hasWebrtc.local || !hasWebrtc.remote) return { path: "unreachable", reason: "no-webrtc" };
+  // Rule 3: a page on https signals only through the hosted rendezvous.
+  if (local === "page-https" || remote === "page-https") {
+    return hostedRendezvous ? { path: "webrtc", rendezvous: "hosted" } : { path: "unreachable", reason: "needs-hosted-rendezvous" };
+  }
+  // Rule 4: pages on http (or native sides that can't listen) signal through a LAN rendezvous when one is known, else the hosted one.
+  if (lanRendezvous) return { path: "webrtc", rendezvous: "lan" };
+  if (hostedRendezvous) return { path: "webrtc", rendezvous: "hosted" };
+  return { path: "unreachable", reason: "needs-rendezvous" };
 }
