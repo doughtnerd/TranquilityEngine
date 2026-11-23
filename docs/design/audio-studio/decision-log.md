@@ -515,3 +515,11 @@ translation files download through the browser. Live texture swap on a language 
 listening to `Assets.onChanged`. Coordinator fix: `Audio.setLanguage` in separate mode now loads package parts before
 committing (it had a placeholder); a switch with nothing to load stays synchronous. G1: locks are arguments not file
 data; Mutate advances the seed; blip `level` in dB; synth waves default to saw.
+
+**D66. Subtitles plugin and generator core merged.** Subtitles: public API `SubtitleDisplay`, `Subtitles`,
+`SubtitleSettings`; the overlay toggle lives in the plugin's editor half (import rules); paging uses a character
+estimate. Generator core (ABI 5.1): mixer +37.3 KB, tripwire 512 → 576 KB (record estimated 10–15 KB). **Raised with
+the owner:** the blip costs 2.38× a sample voice (0346's tripwire 1.5×, estimate 1.1×), and two-sample PolyBLEP leaves
+the worst alias at −25 dB at 3.5 kHz (estimate −40 to −60 dB). Other defaults built: blip parameters latch at trigger
+(only `level` glides, as sfxr); sfxr's ×0.05 master volume dropped for `level` in dB (−12 default); GEN seed 0 keeps the
+voice's seed. Coordinator fix: `LocalizedText` declared before `UIDocumentSync`.
