@@ -391,8 +391,8 @@ export function auditionTarget(): { kind: "file"; path: string } | { kind: "samp
   const b = openBody.peek();
   if (!t || !b) return null;
   if (t.indices.length && b.type === "clip") {
-    const s = b.entries[0] as SampleEntry | undefined;
-    return s ? { kind: "sample", path: s.sample } : null;
+    const s = b.entries[0];
+    return s?.kind === "sample" ? { kind: "sample", path: s.sample } : null; // a generator Clip auditions in the Generator editor (ADR 0360)
   }
   return { kind: "file", path: t.file };
 }

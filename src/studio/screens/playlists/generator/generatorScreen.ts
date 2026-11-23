@@ -3,14 +3,16 @@
 // Clip's own entry when embedded), edits as one labelled undo step of the document that holds it (the generator's
 // file, or the playlist file for an embedded one; drags coalesce), the editor's locks (not saved), the preview
 // rendered off the main thread, the audition (a gate per held source, played through the Studio's runtime with the
-// key's pitch; a linked generator's edits reach a playing voice through the runtime's hot reload, which sends
-// `generators.setParams` with a 20 ms glide), the Library's New and Add, and Bake. The panels read the signals and
+// key's pitch; a generator file's edits, drags included, reach a playing voice at once through an asset source that
+// serves the document's value and the runtime's hot reload, which sends `generators.setParams` with a 20 ms glide),
+// the Library's New and Add, and Bake. The panels read the signals and
 // call these; the rules are the pure models beside this file.
 import { computed, effect, signal } from "@preact/signals";
 import { openAssetDocument, readAsset, type AssetDocument } from "../../../../editor/assetDocuments";
 import { createAsset } from "../../../../editor/assetKindHost";
 import { currentProject, docVersion } from "../../../../editor/state";
-import { emptyGenerator, emptyGeneratorBody, isGeneratorPath } from "../../../../engine/audio/generators/format";
+import { emptyGenerator, emptyGeneratorBody, generatorToJson, isGeneratorPath } from "../../../../engine/audio/generators/format";
+import { Assets, type AssetSource } from "../../../../engine/scene/Assets";
 import { generatorSpec, generatorIsEndless } from "../../../../engine/audio/generators/catalogue";
 import type { GeneratorAsset, GeneratorBody, GeneratorKind } from "../../../../engine/audio/generators/types";
 import { isPlaylistPath } from "../../../../engine/audio/playlist/format";
@@ -64,25 +66,26 @@ export function loadGenerator(path: string): GeneratorAsset | null {
   }
 }
 
-/** The open generator's value. */
-export const generatorBody = computed<GeneratorBody | null>(() => {
-  const t = generatorTarget.value;
-  if (!t) return null;
-  if (t.kind === "file") return loadGenerator(t.path);
-  const g = clipGenerator(openBody.value);
-  return g && typeof g.generator !== "string" ? g.generator : null;
-});
-
 /** The document that holds the open generator (its file's, or the playlist file's for an embedded one). */
 export const generatorDoc = computed<AssetDocument<unknown> | null>(() => {
   const t = generatorTarget.value;
   const p = currentProject.value;
-  if (!t || !p || !generatorBody.value) return null;
+  void docVersion.value;
+  if (!t || !p || !p.files.includes(t.kind === "file" ? t.path : t.file)) return null;
   try {
     return t.kind === "file" ? openAssetDocument<GeneratorAsset>(p, t.path, "generator") : openAssetDocument(p, t.file, "playlist");
   } catch {
     return null;
   }
+});
+
+/** The open generator's value (a file's from its document, unsaved edits and drags included). */
+export const generatorBody = computed<GeneratorBody | null>(() => {
+  const t = generatorTarget.value;
+  if (!t) return null;
+  if (t.kind === "file") return (generatorDoc.value?.value.value as GeneratorAsset | undefined) ?? null;
+  const g = clipGenerator(openBody.value);
+  return g && typeof g.generator !== "string" ? g.generator : null;
 });
 
 /** The editor's title and where the generator lives. */
@@ -243,6 +246,33 @@ export function releaseAll(): void {
   const step = gateReleaseAll(gate.peek());
   gate.value = step.state;
   run(step.commands);
+}
+
+/**
+ * While the editor shows a generator file: an asset source ahead of the project's serves its document's value as it
+ * is now (a drag's values before they are written), and each change is announced, so a playing voice follows every
+ * edit at once: the runtime's hot reload sends the changed parameters through the backend's `generators.setParams`
+ * with its 20 ms glide (ADR 0360 §5). Returns the stop.
+ */
+export function followLiveEdits(): () => void {
+  let path: string | null = null;
+  let value: unknown;
+  const source: AssetSource = { has: (p) => p === path, get: () => value, paths: () => (path ? [path] : []) };
+  Assets.addSource(source);
+  const stop = effect(() => {
+    const t = generatorTarget.value;
+    const body = generatorBody.value;
+    const was = path;
+    path = t?.kind === "file" && body ? t.path : null;
+    value = path && body ? generatorToJson(body) : undefined;
+    if (was && was !== path) Assets.notifyChanged(was);
+    if (path) Assets.notifyChanged(path);
+  });
+  return () => {
+    stop();
+    Assets.removeSource(source);
+    if (path) Assets.notifyChanged(path);
+  };
 }
 
 /** Space while a generator is open (the screen's Space binding hands it here): gate on; the key-up lets it go. */

@@ -8,14 +8,14 @@ import { GeneratorEditor } from "./GeneratorEditor";
 import { GeneratorLibrary } from "./GeneratorLibrary";
 import { libraryGenerators } from "./generatorEntries";
 import {
-  addGeneratorToOpen, auditionState, bake, bakeDefaults, bakeState, baking, editGenerator, followPreview, gate, generatorBody, generatorDoc, generatorTarget, generatorTitle, installGeneratorKeys,
+  addGeneratorToOpen, auditionState, bake, bakeDefaults, bakeState, baking, editGenerator, followLiveEdits, followPreview, gate, generatorBody, generatorDoc, generatorTarget, generatorTitle, installGeneratorKeys,
   newEmbeddedGenerator, newGenerator, libraryAddTarget, openGeneratorFile, openLocks, pressGate, preview, previewBusy, releaseGate, toggleGeneratorLock,
 } from "./generatorScreen";
 
 /** The Generator editor for the open generator (null when none is open). */
 export function GeneratorPanel() {
   useEffect(() => {
-    const stops = [followPreview(), installGeneratorKeys()];
+    const stops = [followPreview(), followLiveEdits(), installGeneratorKeys()];
     return () => stops.forEach((s) => s());
   }, []);
   void docVersion.value;
