@@ -66,7 +66,8 @@ function augmentSkinnedModel(path: string, templates: NodeTemplate[], model: Mod
   const added: ComponentEntry[] = [];
   if (!has("engine.Skeleton")) added.push({ type: "engine.Skeleton", data: { skeleton: skeletonRefOf(path) } });
   if (!has("engine.Animator")) {
-    const first = model.clips?.find((c) => typeof c === "string" && c !== "");
+    // The imported model's clips (T14: `ModelData.animation.clips`, each named for `#Anim/<name>`).
+    const first = model.animation?.clips.find((c) => c.name !== "")?.name;
     added.push({ type: "engine.Animator", data: first ? { defaultClip: clipRefOf(path, first) } : {} });
   }
   out[0] = { ...root, components: [...(root.components ?? []), ...added] };

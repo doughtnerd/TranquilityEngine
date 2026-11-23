@@ -45,11 +45,11 @@ afterEach(() => {
   closeTestProject();
 });
 
-/** Load `path` and give its `skinned` meshes a skin and the model `clips`, as the importer (T14) will. */
+/** Load `path` and give its `skinned` meshes a skin and the model's imported `clips` (`ModelData.animation.clips`, as T14 fills them). */
 async function skinModel(path: string, skinned: readonly string[], clips?: readonly string[]): Promise<void> {
   const model = await loadModel(path);
   for (const mesh of model.meshes) if (skinned.includes(mesh.name)) Object.assign(mesh, { skin: SKIN });
-  if (clips) Object.assign(model, { clips });
+  if (clips) Object.assign(model, { animation: { skeleton: null, takes: [], clips: clips.map((name) => ({ name })), boneMap: {}, boneMapSource: "none" } });
 }
 
 /** Drop `path` on the scene view at the origin; the added root's subtree, by name. */
