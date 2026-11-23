@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { Quaternion, Vector2, Vector3 } from "../../../../../engine/core/math";
 import type { World } from "../../../../../engine/core/World";
 import { GameObject } from "../../../../../engine/scene/GameObject";
-import { encodeParameter } from "./parameters";
+import { decodeParameter, encodeParameter } from "./parameters";
 
 const f32 = (v: number) => new Uint32Array(new Float32Array([v]).buffer)[0]!;
 function words(type: Parameters<typeof encodeParameter>[0], value: unknown): number[] | null {
@@ -45,5 +45,24 @@ describe("encodeParameter", () => {
     expect(words("node", node)).toEqual([7, 0, 0, 0]);
     expect(words("node", null)).toEqual([0xffffffff, 0, 0, 0]);
     expect(words("node", 7)).toBeNull();
+  });
+});
+
+describe("decodeParameter (T33: replicated parameter values)", () => {
+  const back = (type: Parameters<typeof encodeParameter>[0], value: unknown) => {
+    const out = new Uint32Array(8);
+    expect(encodeParameter(type, value, out, 4)).toBe(true);
+    return decodeParameter(type, out, 4);
+  };
+
+  it("reads each kind back as a plain value; node gives null", () => {
+    expect(back("float", 1.5)).toBe(1.5);
+    expect(back("int", -2)).toBe(-2);
+    expect(back("bool", true)).toBe(true);
+    expect(back("bool", false)).toBe(false);
+    expect(back("vec2", [1, 2])).toEqual([1, 2]);
+    expect(back("vec3", [1, 2, 3])).toEqual([1, 2, 3]);
+    expect(back("quat", [0, 0, 0, 1])).toEqual([0, 0, 0, 1]);
+    expect(back("node", null)).toBeNull();
   });
 });

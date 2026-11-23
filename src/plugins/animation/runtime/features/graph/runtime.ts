@@ -47,7 +47,7 @@ import {
 import { animatorRuntime, animatorsOf, clipEntry, skeletonProfileOf, type AnimatorRuntime, type ClipEntry, type SkeletonRuntime } from "../instances";
 import { acquireGraph, releaseGraph, type GraphMeta, type LoadedGraph } from "./asset";
 import { readClipCues, sectionRange } from "./clipCues";
-import { encodeParameter, PARAM_TYPE_IDS } from "./parameters";
+import { decodeParameter, encodeParameter, PARAM_TYPE_IDS } from "./parameters";
 
 const NONE = 0xffffffff;
 
@@ -75,10 +75,31 @@ export interface SlotPlayRecord {
   readonly loop: boolean;
   readonly section: SlotSection;
   readonly normalizedTime: number;
+  /** The network tick it was asked for on (`slotNetHooks.admit`; -1 outside networked Worlds, T33). */
+  readonly tick: number;
+  /** Clip seconds it starts late by (a replicated or re-simulated play joining after its start tick, T33); not for loops. */
+  readonly offset: number;
   readonly promise: Promise<AnimationPlayResult>;
   readonly resolve: (r: AnimationPlayResult) => void;
   done: boolean;
 }
+
+/** @internal How the network feature admits a slot play (T33): its tick and late start, or an existing play's promise (a repeat). */
+export type SlotPlayAdmission = { readonly tick: number; readonly offset: number } | Promise<AnimationPlayResult>;
+
+/**
+ * @internal What the network feature hears from graph Animators (ADR 0370 "Networking"; T33 fills these from
+ * `network/register.ts`): slot plays are stamped with the tick they're asked for on (and a re-simulated tick's repeat
+ * of a play answered with the first one's promise), told when the core starts one, and slot stops and links are
+ * reported as they're sent to the core.
+ */
+export const slotNetHooks: {
+  admit?(animator: Animator, slot: string, clip: string, explicit: { readonly tick: number; readonly offset: number } | undefined, speed: number): SlotPlayAdmission;
+  queued?(animator: Animator, play: SlotPlayRecord): void;
+  started?(animator: Animator, play: SlotPlayRecord): void;
+  stopped?(animator: Animator, slot: string | null, fade: number): void;
+  linked?(animator: Animator, node: string, path: string | null): void;
+} = {};
 
 /** @internal A travel waiting to arrive. */
 interface TravelWait {
@@ -121,6 +142,8 @@ interface GraphRuntime {
   /** Parameter words waiting for the blackboard (4 per parameter) and which are dirty. */
   readonly values: Uint32Array;
   readonly dirty: Uint8Array;
+  /** Parameters the host has written at least once (the others hold the graph's defaults in the core). */
+  readonly written: Uint8Array;
   anyDirty: boolean;
   debugSent: boolean;
   readonly machines: MachineClock[];
@@ -196,6 +219,7 @@ export async function createGraphInstance(rt: AnimatorRuntime, ns: AnimationWorl
     instance,
     values: new Uint32Array(n * 4),
     dirty: new Uint8Array(n),
+    written: new Uint8Array(n),
     anyDirty: false,
     debugSent: false,
     // Top machines start in their entry state at creation (the core doesn't report it; `apply` does, once).
@@ -281,6 +305,7 @@ function writeParameter(g: GraphRuntime, name: string | number, value: AnimatorP
     return false;
   }
   g.dirty[index] = 1;
+  g.written[index] = 1;
   g.anyDirty = true;
   return true;
 }
@@ -307,6 +332,24 @@ export function setParameter(animator: Animator, name: string | number, value: A
 /** @internal `AnimatorParams.indexOf`. */
 export function parameterIndex(animator: Animator, name: string): number {
   return graphMeta(animator)?.params.get(name) ?? -1;
+}
+
+/**
+ * @internal The values the host has written to `animator`'s parameters that `include` accepts (by index), as plain
+ * values (`decodeParameter`; `node` parameters are left out). Parameters never written hold the graph's defaults and
+ * are left out too. Empty while the graph loads.
+ */
+export function writtenParameters(animator: Animator, include: (index: number) => boolean): [number, number | boolean | number[]][] {
+  const g = animatorGraphs.get(animator)?.runtime;
+  if (!g) return [];
+  const out: [number, number | boolean | number[]][] = [];
+  const types = g.graph.meta.paramTypes;
+  for (let i = 0; i < types.length; i++) {
+    if (!g.written[i] || !include(i)) continue;
+    const v = decodeParameter(types[i]!, g.values, i * 4);
+    if (v !== null) out.push([i, v]);
+  }
+  return out;
 }
 
 /** Copies dirty parameters into the instance's blackboard row (0–63) or `SET_PARAM` commands (64 and up). */
@@ -368,7 +411,8 @@ export function queueJump(animator: Animator, state: string, layer: AnimatorLaye
 
 /** @internal `Animator.link`. */
 export function queueLink(animator: Animator, node: string, path: string | null): void {
-  queue(animator, { kind: "link", node, path: path ? path.replace(/^asset:/, "") : null }, "link()");
+  const p = path ? path.replace(/^asset:/, "") : null;
+  queue(animator, { kind: "link", node, path: p }, "link()");
 }
 
 /** @internal `Animator.layerWeight` on a graph Animator. */
@@ -376,19 +420,46 @@ export function queueLayerWeight(animator: Animator, layer: AnimatorLayer, weigh
   queue(animator, { kind: "weight", layer, weight }, "layerWeight()");
 }
 
-/** @internal `Animator.play` with a slot. */
-export function queueSlotPlay(animator: Animator, clip: string, options: { slot: string; fade: number; speed: number; loop: boolean; section: SlotSection; normalizedTime: number }): Promise<AnimationPlayResult> {
+/**
+ * @internal `Animator.play` with a slot. `net` (the network feature's replicated plays, T33) gives the play's tick and
+ * late start instead of asking `slotNetHooks.admit`.
+ */
+export function queueSlotPlay(
+  animator: Animator,
+  clip: string,
+  options: { slot: string; fade: number; speed: number; loop: boolean; section: SlotSection; normalizedTime: number },
+  net?: { readonly tick: number; readonly offset: number },
+): Promise<AnimationPlayResult> {
   const rt = animatorRuntime(animator);
   if (!rt || !clip) return Promise.resolve(STOPPED);
+  const path = clip.replace(/^asset:/, "");
+  let admission: SlotPlayAdmission = net ?? { tick: -1, offset: 0 };
+  if (animator.graph && slotNetHooks.admit) admission = slotNetHooks.admit(animator, options.slot, path, net, options.speed);
+  if (admission instanceof Promise) return admission; // a re-simulated tick asking again for a play it already made
   let resolve!: (r: AnimationPlayResult) => void;
   const promise = new Promise<AnimationPlayResult>((r) => (resolve = r));
-  const path = clip.replace(/^asset:/, "");
-  const play: SlotPlayRecord = { id: 0, slot: options.slot, clip: clipEntry(rt, path), name: clip, fade: options.fade, speed: options.speed, loop: options.loop, section: options.section, normalizedTime: options.normalizedTime, promise, resolve, done: false };
+  const play: SlotPlayRecord = {
+    id: 0,
+    slot: options.slot,
+    clip: clipEntry(rt, path),
+    name: clip,
+    fade: options.fade,
+    speed: options.speed,
+    loop: options.loop,
+    section: options.section,
+    normalizedTime: options.normalizedTime,
+    tick: admission.tick,
+    offset: options.loop ? 0 : Math.max(0, admission.offset),
+    promise,
+    resolve,
+    done: false,
+  };
   if (!queue(animator, { kind: "slot", play }, "play() with a slot")) {
     endPlay(play, "stopped");
     return promise;
   }
   animatorGraph(animator).latest = play;
+  slotNetHooks.queued?.(animator, play);
   return promise;
 }
 
@@ -454,8 +525,28 @@ function linkedIndex(meta: GraphMeta, node: string): number {
   return meta.compiled.linked.indexOf(node);
 }
 
-/** Section `[start, end)` in clip seconds for a slot play; null (with a warning) when the cue isn't in the clip. */
+/**
+ * Section `[start, end)` in clip seconds for a slot play, its start moved on by the play's late start (`offset`, T33);
+ * null (with a warning) when the cue isn't in the clip.
+ */
 function sectionOf(g: GraphRuntime, p: SlotPlayRecord): { start: number; end: number } | null {
+  const range = sectionRangeOf(g, p);
+  if (!range || !p.offset) return range;
+  const last = range.end > range.start ? range.end : (p.clip.info?.duration ?? range.start);
+  return { start: Math.min(last, range.start + p.offset), end: range.end };
+}
+
+/**
+ * @internal A slot play's section `[start, end)` in clip seconds, before any late start (end 0: the clip's end):
+ * undefined while its clip or the graph loads, null when it can't play (no clip, no such cue).
+ */
+export function slotPlaySection(animator: Animator, p: SlotPlayRecord): { start: number; end: number } | null | undefined {
+  const g = animatorGraphs.get(animator)?.runtime;
+  if (!g || p.clip.handle === undefined) return undefined;
+  return p.clip.handle ? sectionRangeOf(g, p) : null;
+}
+
+function sectionRangeOf(g: GraphRuntime, p: SlotPlayRecord): { start: number; end: number } | null {
   const duration = p.clip.info?.duration ?? 0;
   if (p.section === undefined) return { start: Math.min(1, Math.max(0, p.normalizedTime)) * duration, end: 0 };
   if (typeof p.section === "object") {
@@ -524,16 +615,21 @@ function flushIntent(frame: AnimationFrame, g: GraphRuntime, intent: Intent): bo
       nextSlotPlayId = nextSlotPlayId >= 0xffffffff ? 1 : nextSlotPlayId + 1;
       g.plays.set(p.id, p);
       cmds.put(SLOT_PLAY, { instance, slot, clip: p.clip.handle, playId: p.id, blendIn: p.fade, blendOut: p.fade, speed: p.speed, start: section.start, end: section.end, flags: p.loop ? SECTION_LOOP : 0 });
+      slotNetHooks.started?.(g.rt.animator, p);
       return true;
     }
     case "stop": {
       if (intent.slot === null) {
         meta.compiled.slots.forEach((_, slot) => cmds.put(SLOT_STOP, { instance, slot, playId: 0, fade: intent.fade }));
+        slotNetHooks.stopped?.(g.rt.animator, null, intent.fade);
         return true;
       }
       const slot = meta.compiled.slots.indexOf(intent.slot);
       if (slot < 0) warnOnce(`slot:${g.graph.path}:${intent.slot}`, `[myco] ${who}: the graph "${g.graph.path}" has no slot "${intent.slot}"; stop ignored.`);
-      else cmds.put(SLOT_STOP, { instance, slot, playId: 0, fade: intent.fade });
+      else {
+        cmds.put(SLOT_STOP, { instance, slot, playId: 0, fade: intent.fade });
+        slotNetHooks.stopped?.(g.rt.animator, intent.slot, intent.fade);
+      }
       return true;
     }
     case "link": {
@@ -568,6 +664,7 @@ function flushIntent(frame: AnimationFrame, g: GraphRuntime, intent: Intent): bo
       else g.links.delete(index);
       if (old) releaseGraph(g.ns, old);
       cmds.put(LINK, { instance, linked: index, graph: handle });
+      slotNetHooks.linked?.(g.rt.animator, intent.node, intent.path);
       return true;
     }
     case "weight": {

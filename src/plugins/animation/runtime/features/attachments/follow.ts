@@ -62,6 +62,12 @@ function skeletonFor(world: World, a: BoneAttachment): SkeletonRuntime | null {
   return null;
 }
 
+/** @internal Whether an active BoneAttachment of `world` follows a bone of `s` (servers keep evaluating its pose, T33). */
+export function isFollowed(world: World, s: SkeletonRuntime): boolean {
+  const list = lists.get(world);
+  return !!list && list.attachments.some((a) => skeletonFor(world, a) === s);
+}
+
 const bone34 = new Float32Array(12);
 const skelMat = new Float64Array(16);
 const boneMat = new Float64Array(16);

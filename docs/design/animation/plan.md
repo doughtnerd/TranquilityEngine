@@ -334,6 +334,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   The Studio may reuse it; that isn't required by 0376.
 - **T72, musical timing:** `at: beat | bar | exit` and `align: hit` against `AudioPlaylistHandle` (audio active).
 - **T73, takes:** `ANIM_*` records in the take recorder and reader; editor replay against the current project.
+- **T70 also carries** the core follow-ups found in Phase B: a normalised-time field on the graph family's `JUMP` (T33), a per-bone server evaluation flag (T17/T33), swapping a playing raw clip for its compiled one (T19).
 - **T70, `myco-curve` and the Bézier evaluator:**
   - `native/common/curve/` is moved out of `audio-core/src/automation.rs`, and audio depends on it, with a parity test against `core/curve.ts`;
   - animation source value curves, tween custom easing and runtime curve tracks use it;

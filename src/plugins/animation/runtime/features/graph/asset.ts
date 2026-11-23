@@ -46,6 +46,8 @@ export interface GraphMeta {
   /** Parameter name → index; `paramTypes[index]` its kind. */
   readonly params: ReadonlyMap<string, number>;
   readonly paramTypes: readonly GraphParamType[];
+  /** Parameter index → whether it is declared `replicate` and `predicted` (ADR 0372, "Replication"; T33). */
+  readonly paramReplication: readonly { readonly replicate: boolean; readonly predicted: boolean }[];
   /** Request name → string id. */
   readonly requests: ReadonlyMap<string, number>;
   readonly machines: readonly MachineMeta[];
@@ -186,12 +188,15 @@ function requestNames(g: AnimGraph): Set<string> {
 
 function metaOf(g: AnimGraph, compiled: CompiledAnimGraph): GraphMeta {
   const byId = new Map(g.nodes.map((n) => [n.id, n]));
-  const typeByName = new Map(g.parameters.map((p) => [p.name, p.type]));
+  const byName = new Map(g.parameters.map((p) => [p.name, p]));
   const params = new Map<string, number>();
   const paramTypes: GraphParamType[] = [];
+  const paramReplication: { replicate: boolean; predicted: boolean }[] = [];
   compiled.parameters.forEach((name, i) => {
     params.set(name, i);
-    paramTypes.push(typeByName.get(name) ?? "float");
+    const p = byName.get(name);
+    paramTypes.push(p?.type ?? "float");
+    paramReplication.push({ replicate: p?.replicate ?? false, predicted: p?.predicted ?? false });
   });
   const requests = new Map<string, number>();
   for (const name of requestNames(g)) {
@@ -235,7 +240,7 @@ function metaOf(g: AnimGraph, compiled: CompiledAnimGraph): GraphMeta {
     return n?.linked?.graph ? stripRef(n.linked.graph) : "";
   });
   return {
-    compiled, params, paramTypes, requests, machines, layerMachines, layerWeights, linkedDefaults,
+    compiled, params, paramTypes, paramReplication, requests, machines, layerMachines, layerWeights, linkedDefaults,
     warps: warpWindows(g, compiled.nodes), matching: matchingInputs(g, compiled.parameters), retargets: retargetNodes(g),
   };
 }
