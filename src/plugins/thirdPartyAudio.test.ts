@@ -37,7 +37,7 @@ describe("plugin.json audio section", () => {
 
   it("still needs some entry or an audio section", async () => {
     const p = await plan({ "plugins/x/plugin.json": JSON.stringify({ name: "x", version: "1.0.0", sdk: "^1.0.0" }) });
-    expect(messages(p)).toEqual([`a plugin needs a "runtime" or an "editor" entry, or an "audio" section`]);
+    expect(messages(p)).toEqual([`a plugin needs a "runtime" or an "editor" entry, or an "audio" or "animationNodes" section`]);
   });
 
   it("refuses a project plugin whose module file is missing (when the host lists files)", async () => {

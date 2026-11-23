@@ -129,8 +129,7 @@ export class NodeModule {
     const u = (f: keyof typeof F) => view.getUint32(record + F[f].offset, true);
     const kind = u("kind"), count = u("count"), bones = u("bones"), inputs = u("inputs");
     const paramWords = u("paramWords"), stateBytes = u("stateBytes"), parents = u("parents");
-    const dt = view.getFloat32(record + F.dt.offset, true);
-    const pose = bones * BONE_BYTES;
+    const dt = view.getFloat32(record + F.dt.offset, true);    const pose = bones * BONE_BYTES;
     const sizes = { input: count * inputs * pose, output: count * pose, params: count * paramWords * 4, state: count * align16(stateBytes), parents: parents ? bones * 2 : 0 };
     const total = align16(sizes.input) + align16(sizes.output) + align16(sizes.params) + sizes.state + align16(sizes.parents);
     try {
