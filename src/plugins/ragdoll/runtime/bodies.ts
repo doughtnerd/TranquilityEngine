@@ -376,7 +376,8 @@ function animatorOf(ragdoll: Ragdoll): Animator | null {
 }
 
 function writeBlend(st: RagdollState, animator: Animator | null, value: number): void {
-  if (!animator?.graph || !st.ragdoll.blendParameter || st.lastBlend === value) return;
+  // Written every step while simulating (a new graph instance starts from its default), once per change otherwise.
+  if (!animator?.graph || !st.ragdoll.blendParameter || (!st.set && st.lastBlend === value)) return;
   st.lastBlend = value;
   animator.set(st.ragdoll.blendParameter, value);
 }
