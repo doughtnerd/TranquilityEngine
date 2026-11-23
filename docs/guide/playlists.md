@@ -93,6 +93,26 @@ shapes, and the curve editor for the rest; the 2D plane tints each entry's shape
 
 **Loops and release.** A loop is `always`, `held` (until `release()`) or bound to a parameter (`binding: { parameter, op, value }`). An inactive loop is left by its `exit`: `finish` plays the pass out, `jump` leaves at once, `crossfade` leaves with `exitFadeMs`. In a Sequence, a loop over **sync** clips moves the playhead and restarts their audio each pass; an **async** clip runs its own voice and loops only by its sample's own loops, so a held engine loop belongs on the sample (its sidecar) or on sync clips.
 
+**Second inputs ("And by", ADR 0362).** A voice curve, a sequence clip or track automation lane, and a Mixer bus or
+bus-effect automation lane (`audio.json`) can also follow a second game parameter, `by`:
+
+```jsonc
+"by": { "input": "Speed", "mode": "morph", "curve": [[0, -6], [2, 0]] }        // blend toward a High curve as Speed rises
+"by": { "input": "Load", "mode": "scale", "curve": [[0, 1], [1, 0.5]] }        // multiply the lane by a curve of Load
+"by": { "input": "Speed", "mode": "rate", "curve": [[0, 1], [100, 2]] }        // time lanes: run the clock faster
+"by": { "input": "Surface", "mode": "labels", "labels": { "Wood": [[0, -3]] } } // one curve per label (the first label is the lane's own)
+```
+
+`morph` blends the lane's curve (Low) and `curve` (High) by where the second parameter sits in its range; `scale`
+multiplies the lane's value by `curve` at the second parameter; `rate` (lanes keyed on time only) reads the lane at its
+time × `curve` at the second parameter (a change of rate applies at once, it isn't integrated); `labels` (a labelled
+parameter only) plays one curve per label. In the curve editor, pick the parameter in **And by**, then how it follows
+and which curve to edit; the dashed line previews the result at the **Preview at** value. The runtime plays a lane's
+slice at the second parameter's value and re-slices when that parameter changes. The parse drops `rate` on a lane keyed
+on a parameter; the Studio lints a second input that names no parameter, one on a `gen:` curve or lane (generator
+parameters follow one input), or a per-label lane on a parameter without
+labels (`byIgnored`), and a Mixer lane's parse drops those (and one that names the lane's own parameter).
+
 **Effects, spatial, attenuation.** `effects` run once per playing instance on its mixed output; tracks and clips have their own. `spatial` names an attenuation preset (`*.attenuation.json`) or inline curves, occlusion, Doppler and spread ([Spatial audio](spatial-audio.md)).
 
 Limits (the parse drops what is past them, with one problem line each): 256 entries, nesting 16, 32 tracks, 512 clips, 64 keys per curve, 16 local parameters. The parse is lenient: a bad value falls back to its default and is reported once in the console.
