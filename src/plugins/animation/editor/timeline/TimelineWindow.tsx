@@ -272,6 +272,8 @@ function TimelineEditor(props: { target: Exclude<TimelineTarget, { kind: "none" 
   return (
     <div
       class="aw-root"
+      // The timeline's document is the active history while the window has the focus: Undo / Redo act on its steps (ADR 0145).
+      data-asset-document={s.document.value?.path}
       tabIndex={0}
       onKeyDown={(e) => {
         if ((e.target as HTMLElement).closest("input, select, textarea")) return;

@@ -197,6 +197,8 @@ function ClipEditor(props: { target: Exclude<WindowTarget, { kind: "none" }>; cl
   return (
     <div
       class="aw-root"
+      // The clip's document is the active history while the window has the focus: Undo / Redo act on its steps (ADR 0145).
+      data-asset-document={s.document.value?.path}
       tabIndex={0}
       onKeyDown={(e) => {
         const target = e.target as HTMLElement;
