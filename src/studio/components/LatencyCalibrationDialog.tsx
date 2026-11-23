@@ -63,6 +63,20 @@ export function LatencyCalibrationDialog(props: LatencyCalibrationDialogProps) {
     };
   }, [mode, clicks]);
 
+  // Escape cancels wherever focus is while the dialog is open (it's modal), not only from inside it.
+  const cancel = useRef(props.onCancel);
+  cancel.current = props.onCancel;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      e.preventDefault();
+      e.stopPropagation();
+      cancel.current();
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, []);
+
   const tap = (timeStamp: number) => {
     if (timeStamp < start.current - BEAT_MS / 2) return; // before the first beat
     setTaps((t) => addTap(t, foldError(timeStamp, start.current)));
