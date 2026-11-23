@@ -45,3 +45,17 @@
 - Playlists header Undo/Redo/History buttons (H3 rest); Blend 2D Nodes list; Parameters live marker on lanes.
 - Mixer: MX-23 strip right-click menu; snapshot folder renames into History labels; extraFolders not in undo.
 - Load-sensitive test recurring 3×: src/studio/encoding/encoding.test.ts "encode a planned sound once…" — investigate.
+
+## Wave 4 follow-ups (from wave 3 Mixer and Sequence)
+- Amp envelope on clips: the Studio offers it and draws handles, but `clipEffects` parsing flags `envelope` ("no
+  submix runs it") and the runtime doesn't apply it on clips (ADR 0345 lists it). Implement in format + runtime.
+- Reverse: runtime plays reversed clips forward (warning in sequence.ts).
+- Marker colour and note (sequence I22) need format fields. Saved custom colours live in localStorage; no project
+  palette store.
+- Sequence L4 point marquee, L5 Latch/Read write modes, L6 sequence-level lanes (spec [Planned]).
+- Player bar: Play label names what will play (sequence W-2).
+- Mixer MX-30 EffectCard summary, MX-31 Add effect caption (+Formant/Pitch on buses per 0345), MX-33 DuckRow
+  "Ducked by" native select, MX-43 MoveToDialog leftovers, MX-63 per-project loudness targets + integrated over a take.
+- Format additions needing an ADR: audio.json `snapshotFolders`, `Bus.colour`, parameter `type: bool|text`, condition
+  ops `contains`/`starts`.
+- Dev note: Vite's watcher misses edits with several servers (inotify); use CHOKIDAR_USEPOLLING=1.
