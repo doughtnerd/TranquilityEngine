@@ -76,6 +76,8 @@ export interface Playback {
   readonly holds: boolean;
   /** Where Release was pressed (null: not yet). */
   readonly releasePoint: ReleasePoint | null;
+  /** ADR 0362 §1: when Pause was pressed (the clock `now` reads; null: playing). The playhead holds there. */
+  readonly pausedAt: number | null;
 }
 export const playback = signal<Playback | null>(null);
 /** Why nothing plays (the runtime refused, the core isn't running), shown in the player bar. */
@@ -114,16 +116,22 @@ export function playSequence(): void {
   // The Parameters panel's Held toggle off: the key is already up, so While-held loops leave at once.
   const released = !seqHeld.peek();
   if (released) h.release();
-  playback.value = { range, startedAt: now(), released, held: heldRegions(ctx.seq, ctx.sourceOf), holds: hasHeldLoop(ctx.seq, ctx.sourceOf), releasePoint: released ? { elapsed: 0, at: range.start } : null };
+  playback.value = { range, startedAt: now(), released, held: heldRegions(ctx.seq, ctx.sourceOf), holds: hasHeldLoop(ctx.seq, ctx.sourceOf), releasePoint: released ? { elapsed: 0, at: range.start } : null, pausedAt: null };
   seqPlayhead.value = range.start;
   timer ??= setInterval(tick, 30);
+}
+
+/** Seconds the play has played: since it started, less the time it was paused (it holds while paused). */
+function elapsedOf(p: Playback): number {
+  return ((p.pausedAt ?? now()) - p.startedAt) / 1000;
 }
 
 function tick(): void {
   const p = playback.peek();
   const ctx = sequenceContext.peek();
   if (!p || !ctx) return stopSequence();
-  const t = estimatePlayhead(p.range, (now() - p.startedAt) / 1000, ctx.plays, p.held, p.releasePoint);
+  if (p.pausedAt !== null) return; // paused: the playhead and the play hold
+  const t = estimatePlayhead(p.range, elapsedOf(p), ctx.plays, p.held, p.releasePoint);
   seqPlayhead.value = t;
   // A loop waiting for release keeps the play going (J6.3): only the runtime ending it (after Release) or Stop ends it.
   const waiting = p.holds && !p.released;
@@ -152,8 +160,27 @@ export function releaseSequence(): void {
   if (!p) return;
   handle?.release();
   const ctx = sequenceContext.peek();
-  const elapsed = (now() - p.startedAt) / 1000;
+  const elapsed = elapsedOf(p);
   playback.value = { ...p, released: true, releasePoint: { elapsed, at: ctx ? estimatePlayhead(p.range, elapsed, ctx.plays, p.held, null) : seqPlayhead.peek() } };
+}
+
+/**
+ * ADR 0362 §1: Pause holds the play where it is (`AudioPlaylistHandle.pause`: its voices, the sequence clock and what it
+ * planned) and freezes the playhead; Resume continues both from there.
+ */
+export function pauseSequence(): void {
+  const p = playback.peek();
+  if (!p || p.pausedAt !== null) return;
+  handle?.pause();
+  playback.value = { ...p, pausedAt: now() };
+}
+
+export function resumeSequence(): void {
+  const p = playback.peek();
+  if (!p || p.pausedAt === null) return;
+  handle?.resume();
+  // The time it was paused doesn't count: the playhead continues from where it froze.
+  playback.value = { ...p, startedAt: p.startedAt + (now() - p.pausedAt), pausedAt: null };
 }
 
 /** A held loop exists in the open sequence (Space releases it while playing). */
@@ -162,9 +189,10 @@ export function sequenceHasHeldLoop(): boolean {
   return !!ctx && hasHeldLoop(ctx.seq, ctx.sourceOf);
 }
 
-/** Space: play, release a held loop, or stop. */
+/** Space: play, release a held loop, or stop; on a paused play, resume. */
 export function sequenceSpace(): void {
   const p = playback.peek();
+  if (p?.pausedAt != null) return resumeSequence(); // Space continues a paused play
   switch (spaceAction(!!p, sequenceHasHeldLoop(), !!p?.released)) {
     case "play": return playSequence();
     case "release": return releaseSequence();

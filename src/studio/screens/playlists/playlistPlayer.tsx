@@ -14,7 +14,7 @@ export interface PlaylistPlayerState {
   readonly art?: string;
   /** Something the audition started still plays. */
   readonly busy: boolean;
-  /** The views are frozen and the audition held (Pause). */
+  /** The audition is paused (its playbacks hold) and the views frozen (Pause). */
   readonly paused?: boolean;
   /** The open playlist holds a loop that waits for release. */
   readonly release: boolean;
@@ -53,9 +53,9 @@ export function playlistPlayerSlots(s: PlaylistPlayerState, a: PlaylistPlayerAct
         <TransportButton icon="skipBack" label="Previous voice event" title="Step back to the previous voice start or end" disabled={times.length === 0} onClick={() => a.seek(stepEvent(times, s.cursor, -1) ?? s.cursor)} />
         <TransportButton trigger icon={pill.icon} label={pill.label} title={pill.title} disabled={off && !s.paused} onClick={pill.run} />
         {s.paused ? (
-          <TransportButton icon="play" label="Resume" title="Resume: hear the audition again and follow it live" onClick={() => a.resume?.()} />
+          <TransportButton icon="play" label="Resume" title="Resume: continue the audition from where it paused" onClick={() => a.resume?.()} />
         ) : (
-          <TransportButton icon="pause" label="Pause" title="Pause: freeze Plays now, Voices and the curves at this moment" disabled={!s.busy || !a.pause} onClick={() => a.pause?.()} />
+          <TransportButton icon="pause" label="Pause" title="Pause: hold the audition where it is; Plays now, Voices and the curves freeze there" disabled={!s.busy || !a.pause} onClick={() => a.pause?.()} />
         )}
         {s.busy && <TransportButton icon="stop" label="Stop" title="Stop (Shift+Space)" onClick={a.stop} />}
         <TransportButton icon="skipForward" label="Next voice event" title="Step forward to the next voice start or end" disabled={times.length === 0} onClick={() => a.seek(stepEvent(times, s.cursor, 1) ?? s.cursor)} />

@@ -105,7 +105,7 @@ describe("pause and resume on the loopback host (A3.7)", () => {
     const clock = backend.clock!;
     // A probe maps heard time to output frames: its stamped start's frame is where its first sample lands.
     await step(4);
-    const probeAt = clock.horizon() + 0.05;
+    const probeAt = clock.horizon()! + 0.05;
     const probe = backend.play({ path: "ramp.wav", url: "ramp.wav", loop: false, stream: false, bus: "SFX", at: probeAt })!;
     await step(12);
     const probeStart = out.findIndex((s) => s !== 0) - STEP;
@@ -116,13 +116,13 @@ describe("pause and resume on the loopback host (A3.7)", () => {
     const quiet = out.length;
     expect(out.slice(quiet - 1000).every((s) => s === 0)).toBe(true);
 
-    const startAt = clock.horizon() + 0.08;
+    const startAt = clock.horizon()! + 0.08;
     const voice = backend.play({ path: "ramp.wav", url: "ramp.wav", loop: false, stream: false, bus: "SFX", at: startAt })!;
-    const holdAt = clock.horizon();
+    const holdAt = clock.horizon()!;
     voice.pause(holdAt);
     await step(DWELL_FRAMES + 20);
     expect(out.slice(quiet).every((s) => s === 0)).toBe(true);
-    const resumeAt = clock.horizon();
+    const resumeAt = clock.horizon()!;
     voice.resume(startAt + (resumeAt - holdAt));
     await step(DWELL_FRAMES + 12);
     const first = out.findIndex((s, j) => j >= quiet && s !== 0);
