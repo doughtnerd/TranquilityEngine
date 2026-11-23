@@ -607,3 +607,15 @@ PC/web −18, mobile −16 LUFS (amends 0171 decision 4; projects with an author
 show two targets); deleting a test scene is immediate with toast Undo; "Profile this replay" always replays from the
 take's start so Take and Profiler share one review position (`profiler/reviewLink.ts`); hovering Spatial's plan takes
 keyboard focus unless a field, menu or dialog has it.
+
+**D72. UI pass waves 1–3 (2026-11-23).** Shared kit (W2-A): Studio form controls, label scrubbing with the prototype's
+rules (ParameterRow keeps D12's share-of-range rate), NumberField/SliderField/Checkbox/ColourPicker/InfoTip/KitDialog;
+Studio dialog primary buttons are moss (prototype `.btn.play`). Chrome (W2-B): FloatingPortal for floating UI under
+container-query bars (the calibration dialog never opened before), per-screen stacked default docks
+(`SCREEN_ARRANGEMENTS`, same storage key), timecode `mm:ss.mmm`. Playlist spatial `occlusion` defaults to on (0162);
+3D on writes it on. "+ New parameter…" creates global parameters from any parameter select. Hold areas in sequences
+use a dot pattern (hatch means disabled). Play modes use the spec's names (stored `through` reads as Whole). Saved
+custom colours are per user (localStorage) until a project palette exists. Take/capture delete uses the samples'
+`.myco/trash` with toast Undo. Why it played ties a voice to its playlist instance by record order and instant
+(captures carry no voice→instance id). The Effects bus chip counts the current mix's bus chains. Mixer mute on is
+solid amber (saved), solo on warning-soft (monitor). Engine/format work the owner chose to finish is ADR 0362.
