@@ -288,7 +288,11 @@ span.smp-tcin.ro { display: inline-block; padding: 2px 6px; border: 1px solid va
 .smp-seam-ruler span { position: absolute; top: 2px; transform: translateX(-50%); white-space: nowrap; }
 .smp-seam-ruler span:first-child { transform: none; }
 .smp-seam-ruler span:last-child { transform: translateX(-100%); }
-.smp-seam > .panel-body { display: flex; flex-direction: column; }
+.smp-seam > .panel-body { display: flex; flex-direction: column; container-type: inline-size; }
+@container (max-width: 440px) {
+  .smp-seam-body { grid-template-columns: minmax(0, 1fr); }
+  .smp-seam-th { display: none; }
+}
 
 /* Edits */
 .smp-edits-bar { display: flex; align-items: center; gap: 6px; width: 100%; }
