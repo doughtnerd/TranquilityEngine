@@ -220,7 +220,7 @@ describe("the debug link's listening flags (ADR 0380)", () => {
     expect(parseArgs(["proj", "--debug-listen", "--debug-lan", "--debug-port", "7800"])).toEqual({ projectDir: "proj", debugListen: true, debugLan: true, debugPort: 7800 });
     expect(() => parseArgs(["proj", "--debug-port", "0"])).toThrow(/whole number/);
     expect(() => parseArgs(["proj", "--debug-port", "x"])).toThrow(/whole number/);
-    expect(USAGE).toMatch(/--debug-listen[\s\S]*--debug-lan[\s\S]*--debug-port[\s\S]*--debug-code/);
+    expect(USAGE).toMatch(/--debug-listen[\s\S]*--debug-code[\s\S]*--debug-lan[\s\S]*--debug-port/);
   });
 
   it("game.json gets debug.listen, debug.lan and debug.port, with the default link when no address is given", async () => {
