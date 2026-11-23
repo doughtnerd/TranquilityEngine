@@ -221,6 +221,24 @@ export const EmitterWithoutSound: Story = {
   },
 };
 
+/**
+ * UI pass SV13 (D27): with focus elsewhere, the pointer over the plan brings the keyboard to it (so the screen's keymap
+ * gives the Scene panel's keys, + − 0 and the arrows, and Space pans rather than plays), and holding Space says it pans.
+ */
+export const KeysUnderThePointer: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    c.getByRole("button", { name: "Select" }).focus();
+    const plan = c.getByLabelText(/^Scene plan:/);
+    await userEvent.hover(plan);
+    await expect(plan).toHaveFocus();
+    await userEvent.keyboard("[Space>]");
+    await expect(c.getByText("Panning · release Space to edit")).toBeVisible();
+    await userEvent.keyboard("[/Space]");
+    await expect(c.queryByText("Panning · release Space to edit")).toBeNull();
+  },
+};
+
 export const PathEditing: Story = {
   args: { selected: "emitter4", tools: { tool: "select", pathEdit: "emitter4" } },
   play: async ({ canvasElement }) => {

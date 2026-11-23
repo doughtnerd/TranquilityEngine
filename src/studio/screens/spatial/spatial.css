@@ -112,6 +112,7 @@
 .sp-zoom-readout { min-width: 40px; text-align: center; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
 .sp-pathbar { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); max-width: calc(100% - 16px); box-sizing: border-box; flex-wrap: wrap; display: flex; gap: 8px; align-items: center; background: var(--surface); border: 1px solid var(--accent); border-radius: 5px; padding: 4px 8px; font-size: calc(12px * var(--ui-scale)); }
 .sp-pathbar .primary { background: var(--accent); color: var(--accent-text); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 10px; cursor: pointer; }
+.sp-panhint { position: absolute; left: 8px; top: 8px; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; pointer-events: none; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px; font-size: calc(12px * var(--ui-scale)); white-space: nowrap; }
 
 /* Elevation strip */
 .sp-elevation { width: 58px; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--panel); }
