@@ -7,7 +7,7 @@
 // takes the preview's place when it lands): close enough to see the shape, the envelope and the pitch movement.
 //
 // What it gives: mono samples at 44.1 kHz for the first `maxSeconds` (2 s) or to the end, where the voice keys off,
-// and the amplitude envelope to overlay; `previewPeaks` turns the samples into the kit's waveform peaks. Pure.
+// and the amplitude envelope to overlay; `previewBase` and `peaksFromBase` turn the samples into the kit's waveform peaks. Pure.
 import { generatorIsEndless, generatorSpec } from "../../../../engine/audio/generators/catalogue";
 import { mulberry32, type Draw } from "../../../../engine/audio/generators/random";
 import { resolveGenerator } from "../../../../engine/audio/generators/resolve";

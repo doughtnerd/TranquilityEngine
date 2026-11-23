@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import { emptyGeneratorBody } from "../../../../engine/audio/generators/format";
 import type { GeneratorBody } from "../../../../engine/audio/generators/types";
-import { BAKE, BAKE_PENDING, bakeAvailability, cleanBakeOptions, defaultBakeOptions, generatorPatchHash, provenanceView, type BakeGenerator } from "./bakeModel";
+import { BAKE, BAKE_PENDING, bakeAvailability, cleanBakeOptions, defaultBakeOptions, generatorPatchHash, provenanceView, studioBake, type BakeGenerator, type OfflineBake } from "./bakeModel";
 
 const fakeBake: BakeGenerator = async () => ({ files: [] });
 const coin: GeneratorBody = { ...emptyGeneratorBody("blip"), seed: 1734, params: { ...emptyGeneratorBody("blip").params, baseFrequency: 0.42 } };
@@ -25,6 +25,21 @@ describe("Bake", () => {
     expect(defaultBakeOptions("hum.generator.json", true).length).toBe(2);
     expect(cleanBakeOptions({ variations: 500, folder: "", queue: true, replaceUses: false, length: 0 })).toEqual({ variations: 64, folder: "", queue: true, replaceUses: false, length: 0.05 });
     expect(cleanBakeOptions({ variations: 1, folder: "", queue: true, replaceUses: false }).queue).toBe(false);
+  });
+});
+
+describe("the Studio's bake over the offline bake", () => {
+  it("passes the dialog's options, returns the files, and rejects a refusal or no project", async () => {
+    const calls: unknown[] = [];
+    const offline: OfflineBake<string> = async (path, options) => {
+      calls.push([path, options]);
+      return path.includes("silence") ? { refused: "a silence has nothing to bake" } : { files: [{ path: "audio/hum.baked.wav" }, { path: "audio/hum.baked2.wav" }], queue: "audio/hum.baked.playlist.json" };
+    };
+    const bake = studioBake(offline, () => "project");
+    await expect(bake("audio/hum.generator.json", { length: 3, variations: 2, folder: "audio", queue: true, replaceUses: false })).resolves.toEqual({ files: ["audio/hum.baked.wav", "audio/hum.baked2.wav"], queue: "audio/hum.baked.playlist.json" });
+    expect(calls[0]).toEqual(["audio/hum.generator.json", { host: "project", variations: 2, seconds: 3, folder: "audio", queue: true, replaceUses: false }]);
+    await expect(bake("audio/silence.generator.json", { variations: 1, folder: "", queue: false, replaceUses: false })).rejects.toThrow("a silence has nothing to bake");
+    await expect(studioBake(offline, () => null)("a.generator.json", { variations: 1, folder: "", queue: false, replaceUses: false })).rejects.toThrow("no project is open");
   });
 });
 

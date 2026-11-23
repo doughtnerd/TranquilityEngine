@@ -1,8 +1,9 @@
 // Bake (ADR 0360 §6, §9) as the Studio calls it, and the provenance a baked sample's sidecar carries.
 //
 // The bake itself is G5's (`generators/bake.ts`, through the offline render). The Studio asks for one call:
-// `bakeGenerator(path, options)`. Until G5 is merged `BAKE` is null and the Bake dialog and Rebake say why they are
-// off (`bakeAvailability`); merging G5 sets `BAKE` to its function, nothing else changes here.
+// `bakeGenerator(path, options)` (`BakeGenerator`; `studioBake` adapts G5's own). Until G5 is merged `BAKE` is null
+// and the Bake dialog and Rebake say why they are off (`bakeAvailability`); merging G5 sets `BAKE` to
+// `studioBake(bakeGenerator, <the project as its host>)`, nothing else changes here.
 //
 // Provenance: a sample baked from a generator has a sidecar `generated` block (`provenance.ts`): "Baked from
 // coin.generator.json", and "out of date" when the generator's resolved patch no longer hashes to the block's `hash`
@@ -36,8 +37,30 @@ export interface BakeResult {
 /** G5's bake: render `path` (a `*.generator.json`) to samples with their sidecars. */
 export type BakeGenerator = (path: string, options: BakeOptions) => Promise<BakeResult>;
 
-/** The bake the Studio calls; null until G5's offline bake is merged. */
+/** The bake the Studio calls; null until G5's offline bake is merged (then `studioBake(bakeGenerator, <project host>)`). */
 export const BAKE: BakeGenerator | null = null;
+
+/** The offline bake's own call as the Studio relies on it (G5's `bakeGenerator`, structurally). */
+export type OfflineBake<H> = (
+  path: string,
+  options: { readonly host: H; readonly variations?: number; readonly seconds?: number; readonly folder?: string; readonly queue?: boolean; readonly replaceUses?: boolean },
+) => Promise<{ readonly files: readonly { readonly path: string }[]; readonly queue: string | null } | { readonly refused: string }>;
+
+/**
+ * The Studio's `bakeGenerator(path, options)` over the offline bake: the dialog's options as its options, its files as
+ * paths, and a refusal as a rejection (the screen's toast says why). `host` gives the project to write to (null: none
+ * open, which rejects).
+ */
+export function studioBake<H>(bake: OfflineBake<H>, host: () => H | null): BakeGenerator {
+  return async (path, o) => {
+    const h = host();
+    if (h === null) throw new Error("no project is open");
+    const c = cleanBakeOptions(o);
+    const r = await bake(path, { host: h, variations: c.variations, ...(c.length !== undefined ? { seconds: c.length } : {}), folder: c.folder, queue: c.queue, replaceUses: c.replaceUses });
+    if ("refused" in r) throw new Error(r.refused);
+    return { files: r.files.map((f) => f.path), ...(r.queue ? { queue: r.queue } : {}) };
+  };
+}
 
 /** Why Bake is off when there is no bake yet. */
 export const BAKE_PENDING = "Bake renders through the offline module, which isn't in this build yet (ADR 0360, G5).";
