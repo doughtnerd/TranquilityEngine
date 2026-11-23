@@ -843,12 +843,14 @@ const preloadedWorlds = new WeakSet<World>();
  * (before its first scene starts), and the packages the scene's `AudioPackageLoader`s name; resolves once all are loaded.
  * A package that fails or doesn't exist doesn't stop the scene (it was warned).
  */
-export async function preparePackages(world: World, names: readonly string[]): Promise<void> {
+export async function preparePackages(world: World, names: readonly string[], startCore?: () => void): Promise<void> {
   const waits: Promise<void>[] = [];
-  if (!preloadedWorlds.has(world)) {
-    preloadedWorlds.add(world);
-    for (const d of definitions().list) if (d.preload) waits.push(acquire(d.name, world, world));
-  }
+  const preload = preloadedWorlds.has(world) ? [] : definitions().list.filter((d) => d.preload);
+  preloadedWorlds.add(world);
+  // A package loads into the core, which may not be loading yet (nothing in the World has asked for sound before its first
+  // scene): the scene would wait for a load nobody began. `startCore` begins it.
+  if ((preload.length > 0 || names.length > 0) && startCore && hasAudioBackend() && isPendingCoreBackend(audioBackend())) startCore();
+  for (const d of preload) waits.push(acquire(d.name, world, world));
   for (const n of new Set(names)) waits.push(acquire(n, preparedOf(world), world));
   await Promise.all(waits.map((w) => w.catch(() => undefined)));
 }

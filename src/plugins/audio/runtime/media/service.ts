@@ -5,7 +5,8 @@
  * own World, servers and headless Worlds never run it, so they never load packages.
  */
 import type { World } from "../../../../engine/core/World";
-import type { WorldServiceDef } from "../../../../engine/core/worldServices";
+import { _startWorldService, _worldServiceIds, type WorldServiceDef } from "../../../../engine/core/worldServices";
+import { AUDIO } from "../core/service";
 import { resolvedComponents } from "../../../../engine/scene/resolvedScene";
 import { worldPlays } from "../AudioSource";
 import { preparePackages, releaseWorldPackages } from "./packages";
@@ -46,6 +47,10 @@ export const AUDIO_PACKAGES_SERVICE: WorldServiceDef<null, PackagesService> = {
   // ADR 0354 §4: the start language (the remembered one) is decided before the preload packages load.
   prepareScene: async (world, path) => {
     await prepareStartLanguage();
-    await preparePackages(world, scenePackages(path));
+    // The core starts with the World's audio service (its AudioSources start it, or the audio system's first frame):
+    // a scene waiting for packages before either would wait for good, so the packages start it.
+    await preparePackages(world, scenePackages(path), () => {
+      if (_worldServiceIds().includes(AUDIO)) _startWorldService(world, AUDIO).catch((err: unknown) => console.error(`[myco] World service "${AUDIO}" couldn't load:`, err));
+    });
   },
 };
