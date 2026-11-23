@@ -6,7 +6,8 @@ import { captureView, pixelsChanged, type ViewCapture } from "./viewCapture";
 // The animation runtime in Play mode (ADR 0370–0372), read from captures of the game view and the public `myco` API:
 // a skinned model's Animator poses it differently over time (the column bends), a clip keying a light changes what it
 // lights, a flipbook steps a sprite through its frames, an awaited tween resolves where it ends, and a timeline drives
-// two nodes. Untagged, so `npm run test:e2e:webkit` runs it too (WebKit renders on the CPU, hence the timeouts).
+// two nodes. Tagged @webkit: not @slow, so `npm run test:e2e:webkit` runs it, and `-- --grep @webkit` picks it alone
+// (WebKit renders on the CPU, hence the timeouts).
 
 test.describe.configure({ timeout: 90_000 });
 
@@ -65,7 +66,7 @@ const liveNode = <R>(page: Page, name: string, read: (n: LiveNode) => R) =>
     { name, read: read.toString() },
   ) as Promise<R | null>;
 
-test("a skinned model's Animator poses it differently over time in Play mode", async ({ page }) => {
+test("a skinned model's Animator poses it differently over time in Play mode", { tag: "@webkit" }, async ({ page }) => {
   const errors = trackErrors(page);
   await playScene(page, [...stage(), ...bender()], benderFiles());
   const view = gameView(page);
@@ -87,7 +88,7 @@ test("a skinned model's Animator poses it differently over time in Play mode", a
   expect(errors).toEqual([]);
 });
 
-test("a clip keying a light's colour changes what it lights", async ({ page }) => {
+test("a clip keying a light's colour changes what it lights", { tag: "@webkit" }, async ({ page }) => {
   const errors = trackErrors(page);
   const glow = {
     format: "myco.anim-source@1",
@@ -125,7 +126,7 @@ test("a clip keying a light's colour changes what it lights", async ({ page }) =
   expect(errors).toEqual([]);
 });
 
-test("a flipbook steps a sprite through its frames", async ({ page }) => {
+test("a flipbook steps a sprite through its frames", { tag: "@webkit" }, async ({ page }) => {
   const errors = trackErrors(page);
   const nodes = [
     node("camera", "Camera", [0, 0, -10], [{ type: "engine.Camera", data: { projection: "orthographic", orthographicSize: 1.5 } }]),
@@ -153,7 +154,7 @@ test("a flipbook steps a sprite through its frames", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test("an awaited tween resolves when its node has arrived", async ({ page }) => {
+test("an awaited tween resolves when its node has arrived", { tag: "@webkit" }, async ({ page }) => {
   const errors = trackErrors(page);
   const probe = `import { GameBehavior, behavior, tween } from "myco";
 
@@ -178,7 +179,7 @@ export class TweenProbe extends GameBehavior {
   expect(errors).toEqual([]);
 });
 
-test("a timeline drives two nodes at once", async ({ page }) => {
+test("a timeline drives two nodes at once", { tag: "@webkit" }, async ({ page }) => {
   const errors = trackErrors(page);
   // A rises from y 0 to 2 while B falls from 2 to 0, over 2 s, looping.
   const move = {
