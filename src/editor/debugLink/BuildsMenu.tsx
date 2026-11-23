@@ -8,6 +8,7 @@ import { buildLabel, buildsButtonText, type BuildEntry } from "./debugLinkLogic"
 import type { ListenState } from "./editorLink";
 import { ConnectDialog } from "./ConnectDialog";
 import { editorDebugLink } from "./link";
+import { PlayBuildSlot } from "./playBuild";
 import "./debugLink.css";
 
 export interface BuildsMenuProps {
@@ -122,6 +123,7 @@ export function DebugLinkBuilds({ onSettings }: { onSettings(): void }) {
         onDisconnect={(id) => link.disconnect(id)}
         onSettings={onSettings}
         onConnect={() => setConnecting(true)}
+        playSlot={link.play.value ? <PlayBuildSlot build={link.play.value} /> : undefined}
       />
       {connecting && <ConnectDialog onConnect={(target) => link.connect(target)} onClose={() => setConnecting(false)} />}
     </>
