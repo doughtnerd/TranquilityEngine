@@ -50,3 +50,46 @@ export const FillAndWrap: StoryObj = {
     await expect(cue.getBoundingClientRect().right).toBeLessThanOrEqual(types.getBoundingClientRect().right + 0.5); // wrapped, not clipped
   },
 };
+
+const TYPES = [
+  { value: "note", label: "Note" },
+  { value: "exit", label: "Exit" },
+  { value: "entry", label: "Entry" },
+  { value: "hit", label: "Hit point" },
+  { value: "cue", label: "Cue" },
+] as const;
+type MarkerType = (typeof TYPES)[number]["value"];
+
+function FitDemo(props: { width: number }) {
+  const [type, setType] = useState<MarkerType>("note");
+  return (
+    <div style={{ width: `${props.width}px` }}>
+      <SegmentedControl label="Marker type" size="small" fit="menu" value={type} onChange={setType} options={TYPES} />
+      <output aria-label="Type">{type}</output>
+    </div>
+  );
+}
+
+/** Journeys walk 2, V1: an inspector's Type at the dock's default width stays one row: a menu when the segments don't fit. */
+export const FitsAsAMenu: StoryObj = {
+  render: () => <FitDemo width={150} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const menu = await c.findByRole("combobox", { name: "Marker type" });
+    await expect(c.queryByRole("radiogroup", { name: "Marker type" })).toBeNull();
+    await userEvent.selectOptions(menu, "Hit point");
+    await expect(c.getByLabelText("Type")).toHaveTextContent("hit");
+  },
+};
+
+/** With room, the same control is one row of segments. */
+export const FitsAsSegments: StoryObj = {
+  render: () => <FitDemo width={400} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const group = await c.findByRole("radiogroup", { name: "Marker type" });
+    await expect(c.queryByRole("combobox", { name: "Marker type" })).toBeNull();
+    const tops = [...group.querySelectorAll("button")].map((b) => b.getBoundingClientRect().top);
+    await expect(new Set(tops).size).toBe(1); // one row
+  },
+};

@@ -219,7 +219,7 @@ button.smp-tci:hover:not(:disabled) { background: var(--hover); }
 .smp-fld-v { display: flex; align-items: center; gap: 6px; min-width: 0; flex-wrap: wrap; }
 .smp-fld-v > input:not([type="checkbox"]), .smp-fld-v > textarea, .smp-fld-v > select { flex: 1; min-width: 0; }
 .smp-insp p { margin: 0; }
-.smp-insp .kit-segmented { flex-wrap: wrap; max-width: 100%; }
+.smp-insp .kit-segmented:not(.one-row) { flex-wrap: wrap; max-width: 100%; }
 .smp-insp .kit-segmented button { flex: 0 0 auto; white-space: nowrap; }
 .smp-iconseg button { display: inline-flex; align-items: center; justify-content: center; min-width: 28px; }
 .smp-range-fields { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
@@ -350,9 +350,12 @@ span.smp-tcin.ro { display: inline-block; padding: 2px 6px; border: 1px solid va
 .smp-scrub { flex: 1; }
 
 /* ADR 0351 §6: the Inspector's Encoding section. */
-.enc-section { display: flex; flex-direction: column; gap: 6px; }
+.enc-section { display: flex; flex-direction: column; gap: 6px; container-type: inline-size; }
+/* Narrower still: Memory goes (each row's tooltip keeps it). */
+@container (max-width: 280px) { .enc-readouts th:nth-child(5), .enc-readouts td:nth-child(5) { display: none; } }
 .enc-head { display: flex; gap: 6px; align-items: center; }
-.enc-rows { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(0, 1.2fr) auto; gap: 4px 6px; align-items: center; }
+/* The control column gets the room its choices need ("Decode on load"); "built-in (Web)" is the one that ellipsizes. */
+.enc-rows { display: grid; grid-template-columns: auto minmax(calc(124px * var(--ui-scale)), 2fr) minmax(0, 1fr) auto; gap: 4px 6px; align-items: center; }
 .enc-row { display: contents; }
 .enc-key { color: var(--muted); }
 .enc-row.overridden .enc-key { color: var(--accent); font-weight: 600; }
@@ -364,6 +367,8 @@ span.smp-tcin.ro { display: inline-block; padding: 2px 6px; border: 1px solid va
 .enc-note { font-size: calc(11px * var(--ui-scale)); }
 .enc-readouts { width: 100%; border-collapse: collapse; font-size: calc(11px * var(--ui-scale)); }
 .enc-readouts th, .enc-readouts td { text-align: left; padding: 2px 4px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+/* "Ships as" wraps ("vorbis · 24 kHz · / mono") so Size, Ratio and Memory stay in view at the dock's default width (V2). */
+.enc-readouts td:nth-child(2) { white-space: normal; }
 .enc-readouts thead th { color: var(--muted); font-weight: normal; }
 .enc-readouts tr.current { background: var(--hover); }
 .enc-foot { display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap; }

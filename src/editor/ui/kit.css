@@ -64,6 +64,12 @@
 .kit-segmented.fill button { padding: 3px 10px; font-size: calc(12px * var(--ui-scale)); }
 .kit-segmented.fill button.on { background: var(--accent); color: var(--accent-text); box-shadow: none; }
 .kit-segmented.small button { padding: 1px 6px; font-size: calc(11px * var(--ui-scale)); }
+/* fit="menu": one row while it fits (measured on a hidden copy), else a select of the same options */
+.kit-segmented-fit { position: relative; display: block; min-width: 0; max-width: 100%; }
+.kit-segmented-probe { position: absolute; left: 0; top: 0; visibility: hidden; pointer-events: none; white-space: nowrap; width: max-content; }
+.kit-segmented.one-row { flex-wrap: nowrap; max-width: none; }
+.kit-segmented.one-row.small button { padding: 1px 5px; }
+.kit-segmented-menu { max-width: 100%; }
 
 /* Chip */
 .kit-chip { display: inline-flex; align-items: center; gap: 4px; padding: 0 7px; height: calc(18px * var(--ui-scale)); border-radius: 9px; border: 1px solid var(--border); background: var(--badge); color: var(--badge-text); font-size: calc(11px * var(--ui-scale)); font-weight: 600; white-space: nowrap; line-height: 1; }

@@ -307,7 +307,7 @@ function MarkerInspector(props: Part & { m: SampleMarker }) {
         onRevert={(f) => commit(revertMarker(e, m.id, f))} onDetach={() => commit(detachMarker(e, m.id))} />
       <div class="smp-insp-body">
         <Row label="Type" title={TYPE_TIPS[m.type]}>
-          <SegmentedControl size="small" label="Marker type" value={m.type} options={MARKER_TYPE_ORDER.map((tp) => ({ value: tp, label: MARKER_TYPE_NAMES[tp], title: TYPE_TIPS[tp] }))} onChange={(tp) => !ro && commit(updateMarker(e, m.id, { type: tp }))} />
+          <SegmentedControl size="small" fit="menu" label="Marker type" value={m.type} options={MARKER_TYPE_ORDER.map((tp) => ({ value: tp, label: MARKER_TYPE_NAMES[tp], title: TYPE_TIPS[tp] }))} onChange={(tp) => !ro && commit(updateMarker(e, m.id, { type: tp }))} />
         </Row>
         {!fixed && (
           <Row label={m.type === "cue" ? "Cue name" : "Name"}>
@@ -501,7 +501,7 @@ function SampleInspector(props: Part & { session: SampleSession }) {
       <TitleBar kind="Sample" name={nameOf(session.path)} />
       <div class="smp-insp-body">
         <Row label="Kind">
-          <SegmentedControl size="small" label="Kind" value={e.kind} options={KIND_OPTIONS} onChange={(k) => !ro && commit({ next: { ...e, kind: k }, label: `Make it ${KIND_OPTIONS.find((o) => o.value === k)!.label.toLowerCase()}` })} />
+          <SegmentedControl size="small" fit="menu" label="Kind" value={e.kind} options={KIND_OPTIONS} onChange={(k) => !ro && commit({ next: { ...e, kind: k }, label: `Make it ${KIND_OPTIONS.find((o) => o.value === k)!.label.toLowerCase()}` })} />
         </Row>
       </div>
       <h4 class="smp-ph">Sample</h4>
