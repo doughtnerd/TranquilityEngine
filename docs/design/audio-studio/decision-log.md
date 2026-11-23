@@ -577,3 +577,10 @@ steps run before the link, and `DEPS_DIR` now comes from `projectCode/buildTarge
 `audioBackend` option answers the sample's `audio.json` (`settings.backend`), not `project.json`, since project.json
 holds no audio here. (9) E2E specs the Studio deleted stay deleted (master only converted them to `openEditor`).
 Revert: per item in the merge commit.
+
+**D69. PR #187 merged into master; generator runtime integrated after it.** Owner chose "Merge now, e2e after". The
+generator runtime (G3) was moved onto the renumbered base (180 reference lines renumbered; capture ABI follows
+`CORE_ABI_VERSION`; the core's memory answer already covers GenEntries). Choices to review: cost weights only lower the
+mixed-voice cap (the core's pool is a count); the PLAY loop flag only for `untilStopped` playlists; a sequence
+generator clip keys off at the clip's end (a blip plays its whole envelope); embedded generators are named
+`<playlist>#<kind>` in debug and captures; hot reload diffs stored values.
