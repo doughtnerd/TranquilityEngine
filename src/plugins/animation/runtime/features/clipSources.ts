@@ -20,6 +20,7 @@ import { compiledClipPath, compiledSkeletonPath, isClipSource, modelClipOf, mode
 import { compileRawClip, importedClipSkeleton, usesBones, type ClipSkeleton } from "../../../../engine/animation/compile/rawClip";
 import type { CompressionLevel } from "../../../../engine/animation/compile/settings";
 import { encodeSkeleton } from "../../../../engine/animation/import/skeletonBinary";
+import { loadAnimationCore } from "../core/loader";
 import { Assets, normalizeAssetPath } from "../../../../engine/scene/Assets";
 import { loadModel } from "../../../../engine/scene/models";
 
@@ -148,7 +149,11 @@ export async function resolveClip(clipRef: string, skeleton: AnimatorSkeleton | 
   }
   try {
     const bones = data.ownSkeleton ? await modelBones(modelClipOf(clipRef)!.model) : skeletonRef ? skeleton?.bones ?? null : null;
-    const raw = compileRawClip(data.source, bones);
+    // Curve tracks are sampled by the animation core's evaluator (T70), the one that plays them.
+    const loaded = await loadAnimationCore();
+    if (loaded.status !== "ready") throw new Error("the animation core isn't available");
+    const core = loaded.core;
+    const raw = compileRawClip(data.source, bones, "", (curve, rate, end, frames) => core.curveSamples(curve, rate, end, frames));
     for (const p of raw.problems) console.warn(`[myco] ${clipRef}: ${p}`);
     return { key: `clip:${keyOf(raw.bytes)}`, bytes: raw.bytes, compiled };
   } catch (err) {

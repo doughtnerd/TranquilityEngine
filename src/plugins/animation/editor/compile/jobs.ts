@@ -7,6 +7,7 @@ import type { ImportPlatform } from "../../../../engine/scene/importSettings";
 import { clipContentKey, compressionRecord } from "../../../../engine/animation/compile/keys";
 import { compileRawClip, rootMotionAxes } from "../../../../engine/animation/compile/rawClip";
 import { resolveCompression, type AnimationProjectSettings, type ResolvedCompression } from "../../../../engine/animation/compile/settings";
+import { loadAnimationCompiler } from "./compiler";
 import { readSkeletonInfo } from "../../runtime/assetInfo";
 import { loadClipSource, loadSkeletonBytes, skeletonFor } from "../../runtime/features/clipSources";
 
@@ -43,7 +44,9 @@ export async function prepareClipJob(clip: string, animatorSkeleton: string | nu
     skeleton = bytes;
     bones = info;
   }
-  const raw = compileRawClip(data.source, bones);
+  // Source curves are sampled by the editor module, the evaluator the runtime core links, so the compile matches the runtime.
+  const compiler = await loadAnimationCompiler();
+  const raw = compileRawClip(data.source, bones, "", compiler.sampleCurve);
   const { settings } = resolveCompression({ path: data.settingsPath, sidecar: data.sidecar }, platform, project);
   const record = compressionRecord(settings, data.source.rate, raw.rootBone, rootMotionAxes(data.source.rootMotion));
   // A clip that binds no bones compiles without its skeleton (the compressor reads it only for bone tracks).

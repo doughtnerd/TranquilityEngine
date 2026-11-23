@@ -2,6 +2,8 @@
 // Time comes from `engine.step(dt)` only. Values pass through the core as f32: compared at 1e-5 (f32 rounding of
 // values near 1–10), except slerped rotations (1e-5 on the quaternion's components).
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { evalCurve } from "../../../../engine/core/curve";
+import { animationCoreOf } from "../core/service";
 import { Color, Engine, GameObject, Light, MeshRenderer, Quaternion, Time, Tweens, parallel, sequence, tween, type Curve, type Tween, type TweenResult } from "../../../../myco";
 
 let engine: Engine;
@@ -182,6 +184,98 @@ describe("tween()", () => {
     expect(light.intensity).toBeCloseTo(5, TOL);
     go(0.5);
     expect(light.intensity).toBeCloseTo(10, TOL);
+  });
+
+  describe("engine Curve easing (T70: the core's evaluator)", () => {
+    // Each curve eases a 0 → 1 intensity over 4 s in sixteenth steps: the value is the curve at the progress, as the engine's
+    // `evalCurve` (what the host evaluated before T70) gives it, within f32 (1e-6 of the 0..1 scale).
+    const CURVES: [string, Curve][] = [
+      ["linear keys", [[0, 0], [0.25, 0.8], [1, 1]]],
+      ["smooth and ease shapes", [[0, 0, "smooth"], [0.5, 0.7, "easeIn"], [0.75, 0.2, "easeOut"], [1, 1]]],
+      ["a step", [[0, 0, "step"], [0.5, 1], [1, 0.25]]],
+      ["Bézier keys", [[0, 0, "bezier", { in: [0, 0], out: [0.2, 0.9] }], [0.6, 0.4, "bezier", { in: [-0.2, -0.3], out: [0.1, 0.6] }], [1, 1]]],
+      ["an overshoot", [[0, 0, "bezier", { in: [0, 0], out: [0.3, 1.6] }], [1, 1, "bezier", { in: [-0.3, 0.4], out: [0, 0] }]]],
+    ];
+    for (const [name, ease] of CURVES) {
+      it(`matches the TypeScript evaluator: ${name}`, () => {
+        const { light } = lamp();
+        tween(light, "intensity", 1, { duration: 4, from: 0, ease });
+        for (let i = 1; i <= 16; i++) {
+          engine.step(0.25);
+          expect(Math.abs(light.intensity - evalCurve(ease, i / 16)), `progress ${i}/16`).toBeLessThanOrEqual(1e-6);
+        }
+      });
+    }
+
+    it("eases yoyo cycles and delays in the core", () => {
+      const { light } = lamp();
+      const ease: Curve = [[0, 0, "smooth"], [1, 1]];
+      tween(light, "intensity", 1, { duration: 1, from: 0, ease, loops: 2, loopMode: "yoyo", delay: 0.5 });
+      go(0.5);
+      expect(light.intensity).toBeCloseTo(0, 5);
+      go(0.25); // a quarter into the forward cycle
+      expect(Math.abs(light.intensity - evalCurve(ease, 0.25))).toBeLessThanOrEqual(1e-6);
+      go(1); // a quarter into the way back: progress 0.75 of the reversed cycle
+      expect(Math.abs(light.intensity - evalCurve(ease, 0.75))).toBeLessThanOrEqual(1e-6);
+    });
+
+    it("eases a sequence's members, and a chained member starts where a curve tween ended", () => {
+      const { light } = lamp();
+      const ease: Curve = [[0, 0], [1, 0.5]]; // ends half way: the next member starts there
+      sequence(tween(light, "intensity", 1, { duration: 1, from: 0, ease }), tween(light, "intensity", 3, { duration: 1, ease: "linear" }));
+      go(0.5);
+      expect(Math.abs(light.intensity - 0.25)).toBeLessThanOrEqual(1e-6);
+      go(1); // half way through the second: from 0.5 to 3
+      expect(Math.abs(light.intensity - 1.75)).toBeLessThanOrEqual(1e-5);
+    });
+
+    it("uses linear easing, with one warning, for a curve the core refuses", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      const { light } = lamp();
+      tween(light, "intensity", 1, { duration: 1, from: 0, ease: [[1, 0], [0, 1]] });
+      engine.step(0.25);
+      expect(light.intensity).toBeCloseTo(0.25, TOL);
+      expect(warn.mock.calls.some((c) => String(c[0]).includes("easing curve"))).toBe(true);
+      warn.mockRestore();
+    });
+
+    it("loads each distinct curve once and frees it when no tween uses it", async () => {
+      const core = animationCoreOf(engine.world)!.core;
+      const baseline = core.stats().assets;
+      const a = lamp("A").light, b = lamp("B").light, c = lamp("C").light;
+      const shared = (): Curve => [[0, 0], [0.5, 1], [1, 1]]; // equal content, a new array each time
+      const ta = tween(a, "intensity", 1, { duration: 1, from: 0, ease: shared() });
+      const tb = tween(b, "intensity", 1, { duration: 2, from: 0, ease: shared() });
+      const tc = tween(c, "intensity", 1, { duration: 4, from: 0, ease: [[0, 0], [1, 1, "smooth"]] });
+      engine.step(0);
+      expect(core.stats().assets).toBe(baseline + 2); // two distinct curves
+      go(1); // `ta` ended: `tb` still holds the shared curve
+      await expect(ta).resolves.toEqual({ reason: "finished" });
+      expect(core.stats().assets).toBe(baseline + 2);
+      go(1);
+      await expect(tb).resolves.toEqual({ reason: "finished" });
+      expect(core.stats().assets).toBe(baseline + 1);
+      tc.stop();
+      expect(core.stats().assets).toBe(baseline);
+    });
+
+    it("frees the curve of a tween whose target is destroyed, and of a group's members", async () => {
+      const core = animationCoreOf(engine.world)!.core;
+      const baseline = core.stats().assets;
+      const d = lamp("D");
+      const td = tween(d.light, "intensity", 1, { duration: 4, from: 0, ease: [[0, 0], [1, 1, "easeIn"]] });
+      const e = lamp("E").light;
+      const g = parallel(tween(e, "intensity", 1, { duration: 1, from: 0, ease: [[0, 0], [1, 0.5]] }), tween(e, "range", 5, { duration: 1, from: 0, ease: [[0, 0], [1, 0.25, "smooth"]] }));
+      engine.step(0.25);
+      expect(core.stats().assets).toBe(baseline + 3);
+      GameObject.destroy(d.node);
+      steps(2, 0.25);
+      await expect(td).resolves.toEqual({ reason: "destroyed" });
+      expect(core.stats().assets).toBe(baseline + 2);
+      go(1);
+      await expect(g).resolves.toEqual({ reason: "finished" });
+      expect(core.stats().assets).toBe(baseline);
+    });
   });
 
   it("pauses, resumes and stops where it is", async () => {

@@ -1,8 +1,9 @@
 // One World's namespace in the page's animation core (ADR 0370: "Worlds, the editor viewport and play mode are
 // namespaces in it"): a World id, the instances created in it, the asset references it holds, its command writer and
 // the frame its stages share. Made by the `AnimationCore` World service (`service.ts`) the first time the World needs
-// animation, closed when the World is torn down: its instances are destroyed and its asset references dropped (assets
+// animation, closed when the World is torn down: its instances are destroyed and its asset references and curves dropped (assets
 // no other World holds go idle, and are released when the Engine is disposed: see `AnimationCore`).
+import type { Curve } from "../../../../engine/core/curve";
 import type { World } from "../../../../engine/core/World";
 import { Assets, fetchAssetBytes } from "../../../../engine/scene/Assets";
 import { PASS_FIXED, PASS_NORMAL, STATUS_STALE_HANDLE } from "../wasm/wire/core";
@@ -46,6 +47,9 @@ export class AnimationWorldCore {
   private readonly timelines = new Set<number>();
   /** Asset handle → references this World holds. */
   private readonly refs = new Map<number, number>();
+  /** Curve assets this World holds (T70): by content, with their references, and the content of each handle. */
+  private readonly curves = new Map<string, { readonly handle: number; refs: number }>();
+  private readonly curveByHandle = new Map<number, string>();
   private readonly sink: CommandSink;
   private readonly frame: { world: World; core: AnimationWorldCore; dt: number; unscaledDt: number; fixed: boolean; pass: number };
   private closed = false;
@@ -197,6 +201,39 @@ export class AnimationWorldCore {
     return h;
   }
 
+  // --- Curves -----------------------------------------------------------------------------------------------------
+
+  /**
+   * One reference to the core asset of `curve` for this World (T70): loaded on the first reference of its content, shared
+   * by later ones. Returns its handle (a tween's `ease`), or 0 when the core refused it (keys out of order, a non-finite
+   * number) or this World closed. Give it back with `releaseCurve`.
+   */
+  acquireCurve(curve: Curve): number {
+    if (this.closed) return 0;
+    const key = JSON.stringify(curve);
+    const known = this.curves.get(key);
+    if (known) {
+      known.refs++;
+      return known.handle;
+    }
+    const handle = this.core.loadCurve(curve);
+    if (handle === 0) return 0;
+    const entry = { handle, refs: 1 };
+    this.curves.set(key, entry);
+    this.curveByHandle.set(handle, key);
+    return handle;
+  }
+
+  /** Drops one reference to a curve `acquireCurve` gave; the core's asset is freed with the last. */
+  releaseCurve(handle: number): void {
+    const key = this.curveByHandle.get(handle);
+    const entry = key === undefined ? undefined : this.curves.get(key);
+    if (key === undefined || !entry || --entry.refs > 0) return;
+    this.curves.delete(key);
+    this.curveByHandle.delete(handle);
+    this.core.releaseCurve(handle);
+  }
+
   /** Forgets a tween or timeline handle that has ended (its change record was read). */
   forgetTween(handle: number): void {
     this.tweens.delete(handle);
@@ -239,6 +276,9 @@ export class AnimationWorldCore {
     this.timelines.clear();
     for (const [handle, n] of this.refs) for (let i = 0; i < n; i++) this.core.release(handle);
     this.refs.clear();
+    for (const { handle } of this.curves.values()) this.core.releaseCurve(handle);
+    this.curves.clear();
+    this.curveByHandle.clear();
     this.commands.clear();
     this.core.closeWorld(this.id);
   }

@@ -32,6 +32,8 @@ import { RAY_ROW_STRIDE, RIG_INPUT_STRIDE } from "../wasm/wire/rig";
 import { TIMELINE_BLOCK, TIMELINE_CHANGE, TIMELINE_CONTROL, TIMELINE_CREATE, TIMELINE_INFO } from "../wasm/wire/timeline";
 import { TWEEN_CHANGE, TWEEN_CONTROL, TWEEN_CREATE } from "../wasm/wire/tween";
 import type * as AnimWasm from "../wasm/myco_anim.js";
+import { curveKeyFloats } from "../../../../engine/animation/compile/curveKeys";
+import type { Curve } from "../../../../engine/core/curve";
 import { readSkeletonInfo } from "../assetInfo";
 import { encodeRecord, getRecord, recordOpcode, type RecordFields, type RecordValues } from "./records";
 
@@ -99,7 +101,7 @@ export interface AnimationViews {
 
 /** @internal Counts for the profiler and the debug views. */
 export interface AnimationCoreStats {
-  /** Assets loaded (in use or idle). */
+  /** Assets loaded (in use or idle), curves (`loadCurve`) included. */
   readonly assets: number;
   /** Of those, assets no World references (released by `releaseIdle`). */
   readonly idleAssets: number;
@@ -189,6 +191,8 @@ export class AnimationCore {
   /** Instances whose match report is read after each evaluate (`setMatchDebug`), with the last one read. */
   private readonly matchDebugged = new Map<number, MatchReport | null>();
   private readonly instances = new Set<number>();
+  /** Curve assets alive (`loadCurve`): outside the keyed registry, freed one by one. */
+  private readonly curves = new Set<number>();
   private readonly freeWorlds: number[] = [];
   private nextWorld = 0;
   private cached: AnimationViews | null = null;
@@ -319,6 +323,48 @@ export class AnimationCore {
       n++;
     }
     return n;
+  }
+
+  // --- Curves ---------------------------------------------------------------------------------------------------
+
+  /**
+   * T70: loads an engine curve (keys sorted by x) as a core asset: its handle, which a tween's or sequence member's
+   * `ease` takes and `sampleCurve` reads, or 0 when the core refused it (`lastStatus` says why). Not shared: each call
+   * makes a handle, freed by `releaseCurve`.
+   */
+  loadCurve(curve: Curve): number {
+    const handle = this.wasm.load_curve(curveKeyFloats(curve));
+    if (handle !== 0) this.curves.add(handle);
+    return handle;
+  }
+
+  /** Frees a curve `loadCurve` made. False for a handle that isn't a live curve of this core. */
+  releaseCurve(handle: number): boolean {
+    if (!this.curves.delete(handle)) return false;
+    this.wasm.release(handle);
+    return true;
+  }
+
+  /**
+   * Curve `handle` at `frames` frames of `rate` Hz, frame `i` at `min(i / rate, end)` seconds, as f32 values (a copy);
+   * null when the core refused (a handle that isn't a live curve, too many frames).
+   */
+  sampleCurve(handle: number, rate: number, end: number, frames: number): Float32Array | null {
+    if (this.wasm.curve_sample(handle, rate, end, frames) !== STATUS_OK) return null;
+    return new Float32Array(this.memory(), this.wasm.curve_samples_ptr(), frames).slice();
+  }
+
+  /**
+   * `curve` sampled once (`loadCurve`, `sampleCurve`, `releaseCurve`): what the runtime's raw clip writers sample curve
+   * tracks with (`CurveSampler`). Zeros for an empty curve or one the core refused.
+   */
+  curveSamples(curve: Curve, rate: number, end: number, frames: number): Float32Array {
+    if (curve.length === 0) return new Float32Array(frames);
+    const handle = this.loadCurve(curve);
+    if (handle === 0) return new Float32Array(frames);
+    const out = this.sampleCurve(handle, rate, end, frames);
+    this.releaseCurve(handle);
+    return out ?? new Float32Array(frames);
   }
 
   /** References held to an asset over every World (0 when idle or unknown). */
@@ -725,7 +771,7 @@ export class AnimationCore {
   stats(): AnimationCoreStats {
     let idle = 0;
     for (const e of this.byHandle.values()) if (e.refs === 0) idle++;
-    return { assets: this.byHandle.size, idleAssets: idle, instances: this.instances.size, memoryBytes: this.memory().byteLength, neededBytes: this.neededBytes };
+    return { assets: this.byHandle.size + this.curves.size, idleAssets: idle, instances: this.instances.size, memoryBytes: this.memory().byteLength, neededBytes: this.neededBytes };
   }
 }
 

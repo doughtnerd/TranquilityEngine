@@ -5,8 +5,8 @@
 // the shared container (`engine/animation/binaryWriter.ts`).
 //
 // - Sampled kinds (float, vec2–4, colour, morph, curve; quat) are sampled at the timeline's rate over
-//   `round(duration × rate) + 1` frames: engine curves through the engine's curve evaluator (`evalCurve`, the same one
-//   the compile step samples with), quaternion keys by nlerp or slerp. A track whose curves are all empty is left out;
+//   `round(duration × rate) + 1` frames: engine curves through the caller's `CurveSampler` (T70: the animation core's
+//   evaluator, the one the compile step samples with), quaternion keys by nlerp or slerp. A track whose curves are all empty is left out;
 //   an empty component of a track with others is 0. This is compile-time sampling, as T19's compile does: the core
 //   evaluates the samples.
 // - Keyed kinds (discrete, event, audio, activation, subclip, control, marker) become `KEYS` records, ends clamped into
@@ -18,9 +18,9 @@
 //
 // Pure; returns the bytes plus, per subclip track, its keys' clip string ids, which the director binds
 // (`timeline_bind`). Internal.
+import type { CurveSampler } from "../../../../../engine/animation/compile/curveKeys";
 import { f32Bits, encodeStringTable, ByteWriter, writeContainer } from "../../../../../engine/animation/binaryWriter";
 import { CONTROL_ACTIONS, CURVE_TRACK_WIDTH, DISCRETE_TYPES, MARKER_KINDS, QUAT_INTERPS, TRACK_KINDS, type QuatKey, type Track, type Vec3Key } from "../../../../../engine/animation/tracks";
-import { evalCurve } from "../../../../../engine/core/curve";
 import { Quaternion } from "../../../../../engine/core/math";
 import type { NodePose } from "../../../../../engine/scene/models";
 
@@ -104,8 +104,11 @@ const vec3At = (keys: readonly Vec3Key[], t: number): [number, number, number] =
   return [a[1] + (b[1] - a[1]) * u, a[2] + (b[2] - a[2]) * u, a[3] + (b[3] - a[3]) * u];
 };
 
-/** @internal Writes `src` as a raw `myco.anim@1` clip. */
-export function writeRawClip(src: RawClipSource): RawClip {
+/**
+ * @internal Writes `src` as a raw `myco.anim@1` clip. `sampler` samples its curve tracks (without one they are left out,
+ * reported in `dropped` as "curve"; a clip that has none needs no sampler).
+ */
+export function writeRawClip(src: RawClipSource, sampler?: CurveSampler): RawClip {
   const duration = Number.isFinite(src.duration) && src.duration > 0 ? src.duration : 0;
   const rate = Number.isFinite(src.rate) && src.rate > 0 ? src.rate : 30;
   const frames = Math.max(1, Math.round(duration * rate) + 1);
@@ -171,10 +174,22 @@ export function writeRawClip(src: RawClipSource): RawClip {
       case "morph":
       case "curve": {
         if (t.curves.every((c) => c.length === 0)) break;
+        if (!sampler) {
+          dropped.push("curve");
+          break;
+        }
         const width = CURVE_TRACK_WIDTH[t.kind];
         const b = t.target;
         const field = t.kind === "curve" ? t.name : b.field;
-        sampled(kind, 0, width, b.nodePath, b.component, field, (time) => Array.from({ length: width }, (_, c) => evalCurve(t.curves[c] ?? [], time)));
+        const lanes = Array.from({ length: width }, (_, c) => {
+          const curve = t.curves[c];
+          return curve && curve.length ? sampler(curve, rate, duration, frames) : null;
+        });
+        let frame = 0;
+        sampled(kind, 0, width, b.nodePath, b.component, field, () => {
+          const i = frame++;
+          return lanes.map((l) => l?.[i] ?? 0);
+        });
         break;
       }
       case "quat": {

@@ -12,10 +12,12 @@ import { Animator, Assets, Engine, GameObject, Skeleton } from "../../../../myco
 import type { World } from "../../../../engine/core/World";
 import { emptyAnimSource, type AnimSource } from "../../../../engine/animation/animSource";
 import { readAnimationHeader, type ClipInfo } from "../../../../engine/animation/binaryHeader";
+import { evalCurve, type Curve } from "../../../../engine/core/curve";
 import { CLIP_COMPILER_VERSION, compressionRecord } from "../../../../engine/animation/compile/keys";
 import { compileRawClip } from "../../../../engine/animation/compile/rawClip";
 import { BUILTIN_COMPRESSION } from "../../../../engine/animation/compile/settings";
 import { readSkeletonInfo } from "../../runtime/assetInfo";
+import { loadAnimationCore } from "../../runtime/core/loader";
 import { instanceForSkeleton, skinningMatrices } from "../../runtime/skeletonInstances";
 import { loadAnimationCompiler, type AnimationCompiler, type ClipReport } from "./compiler";
 
@@ -65,6 +67,47 @@ beforeAll(async () => {
 });
 
 afterAll(() => engine?.dispose());
+
+describe("the compile module's curve sampling (T70c)", () => {
+  // The compile step samples source curves with the module's `curve_sample`; the runtime samples with the core's `curve_sample`.
+  // Both link the one evaluator, so the compiled clip holds the runtime's own numbers: bit for bit. Against the TypeScript
+  // evaluator they differ by f32 rounding only (the parity bound of `native/common/curve`, 1e-6; these curves span 0..2).
+  const WAVE: Curve = [[0, 0], [0.5, 1, "smooth"], [1, -0.25, "bezier", { in: [-0.2, 0.3], out: [0.3, 0.5] }], [1.5, 2, "easeIn"], [1.9, 0.5, "step"], [2, 1]];
+  const RATE = 30, DURATION = 2, FRAMES = RATE * DURATION + 1;
+
+  it("samples a curve as the runtime core does, and as evalCurve does within the f32 bound", async () => {
+    const load = await loadAnimationCore();
+    if (load.status !== "ready") throw new Error("no simd128 in this Node");
+    const got = compiler.sampleCurve(WAVE, RATE, DURATION, FRAMES);
+    expect(got).toHaveLength(FRAMES);
+    expect(Array.from(got)).toEqual(Array.from(load.core.curveSamples(WAVE, RATE, DURATION, FRAMES)));
+    for (let i = 0; i < FRAMES; i++) expect(Math.abs(got[i]! - evalCurve(WAVE, Math.min(i / RATE, DURATION))), `frame ${i}`).toBeLessThanOrEqual(1e-6);
+  });
+
+  it("samples an empty curve, and one the module refuses, as zeros", () => {
+    expect(Array.from(compiler.sampleCurve([], RATE, DURATION, 3))).toEqual([0, 0, 0]);
+    expect(Array.from(compiler.sampleCurve([[1, 1], [0, 0]], RATE, DURATION, 3))).toEqual([0, 0, 0]);
+  });
+
+  it("compiles a clip's curve track to the same raw samples as before, within the bound", () => {
+    const source: AnimSource = {
+      ...emptyAnimSource(), name: "Fade", rate: RATE, duration: DURATION,
+      tracks: [{ kind: "float", target: { nodePath: "Lamp", component: "engine.Light", field: "intensity" }, name: "", curves: [WAVE] }],
+    };
+    const bytes = compileRawClip(source, null, "", compiler.sampleCurve).bytes;
+    const h = readAnimationHeader(bytes, "myco.anim@1");
+    if (!h.ok) throw new Error(h.problem);
+    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const track = h.header.sections.find((s) => s.kind === 3)!;
+    const rawSection = h.header.sections.find((s) => s.kind === 5)!;
+    const first = view.getUint32(track.offset + 20, true);
+    expect(track.count).toBe(1);
+    for (let i = 0; i < FRAMES; i++) {
+      const v = view.getFloat32(rawSection.offset + 4 * (first + i), true);
+      expect(Math.abs(v - evalCurve(WAVE, Math.min(i / RATE, DURATION))), `frame ${i}`).toBeLessThanOrEqual(1e-6);
+    }
+  });
+});
 
 describe("the editor's compile module", () => {
   it("is the version the content keys hash, built from the sources its hash.json names", () => {

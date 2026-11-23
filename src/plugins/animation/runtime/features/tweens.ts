@@ -9,9 +9,9 @@
 //   then as its start (`from` overrides); until then `sequence()` and `parallel()` can take it. The host resolves
 //   `relative` (vectors: start + by; quaternions: start × by) and the start values, so the core gets plain from/to.
 // - **Easing:** a Penner name becomes the core's easing id (`EASE_*`, default `outQuad`). An engine `Curve` (over 0–1)
-//   can't be evaluated in the core until T70 (the shared `myco-curve` evaluator), so such a tween runs in the core as a
-//   linear 0→1 progress (timing, delay, loops, yoyo and pause stay in the core) and the host maps that progress through
-//   the curve (`evalCurve`) and interpolates from → to (quaternions: slerp). T70 moves it into the core.
+//   is a core asset (T70, D142): the World loads it once per distinct curve (`AnimationWorldCore.acquireCurve`), the
+//   tween passes its handle as `ease`, and the core eases with the shared `myco-curve` evaluator. The tween gives its
+//   reference back when it ends, and the World's close frees what is left.
 // - **Values:** each frame the core's tween rows (column = the tween's host id) and the sequence blocks (weight > 0)
 //   are written through the target's write, after `animation.Evaluate`.
 // - **End:** the promise resolves `finished` from the core's completion records; `stop()` kills it in the core and
@@ -26,7 +26,7 @@
 //   played to its end, `stopped` if all were stopped (or the group was), `destroyed` if every target was destroyed.
 //   `pause`/`resume` on a member act on its whole group; `stop` on a member stops only that member writing. A group
 //   follows its first member's clock (`time`); members' `speed` scales their own length.
-import { evalCurve, type Curve } from "../../../../engine/core/curve";
+import type { Curve } from "../../../../engine/core/curve";
 import { Quaternion } from "../../../../engine/core/math";
 import type { World } from "../../../../engine/core/World";
 import { Transform } from "../../../../engine/scene/Transform";
@@ -182,6 +182,11 @@ class Leaf extends Item {
   /** A group member's program, while it runs in one. */
   run: Run | null = null;
   counted = false;
+  /** The core's `ease` (`loadEase`), once resolved. */
+  private ease: number | null = null;
+  /** The curve asset it holds a reference to (0: none), and the World's namespace that gave it. */
+  private curveHandle = 0;
+  private curveNs: AnimationWorldCore | null = null;
 
   constructor(
     world: World | null,
@@ -220,24 +225,43 @@ class Leaf extends Item {
     return (this.delay + this.duration * this.loops) / this.speed;
   }
 
-  /** The value it ends on (`to`, or `from` after an even number of yoyo cycles); null when it never ends. */
+  /**
+   * The value it ends on (`to`, or `from` after an even number of yoyo cycles); null when it never ends. A curve tween
+   * ends on its curve's value at 0 or 1, read from the core (`loadEase` first).
+   */
   endValue(): number[] | null {
     if (this.loops === LOOPS_INFINITE) return null;
     const back = this.yoyo && (this.loops - 1) % 2 === 1;
-    const c = this.curve;
-    if (!c) return back ? this.from : this.to;
-    return this.mix(evalCurve(c, back ? 0 : 1));
+    const ends = this.curveHandle ? this.curveNs!.core.sampleCurve(this.curveHandle, 1, 1, 2) : null;
+    if (!ends) return back ? this.from : this.to;
+    return this.mix(ends[back ? 0 : 1]!);
   }
 
-  /** The core's easing id, warning about unknown names. */
-  easeId(): number {
-    if (this.curve) return EASE_LINEAR;
+  /**
+   * Resolves the core's `ease` (once): a curve's handle (a reference taken from `ns`, given back when it ends), else
+   * the Penner id of its name, warning about unknown names.
+   */
+  loadEase(ns: AnimationWorldCore): void {
+    if (this.ease !== null) return;
+    const c = this.curve;
+    if (c) {
+      this.curveHandle = ns.acquireCurve(c);
+      if (this.curveHandle) {
+        this.curveNs = ns;
+        this.ease = this.curveHandle;
+      } else {
+        warnOnce("ease:curve", `[myco] tween: the animation core refused an easing curve (keys must be finite and sorted by x); using "linear".`);
+        this.ease = EASE_LINEAR;
+      }
+      return;
+    }
     const e = this.options.ease as TweenEase | undefined;
-    if (e === undefined) return EASE_OUT_QUAD;
-    const id = easeId(e);
-    if (id >= 0) return id;
-    warnOnce(`ease:${String(e)}`, `[myco] tween: "${String(e)}" isn't an easing; using "outQuad".`);
-    return EASE_OUT_QUAD;
+    if (e === undefined) this.ease = EASE_OUT_QUAD;
+    else {
+      const id = easeId(e);
+      if (id < 0) warnOnce(`ease:${String(e)}`, `[myco] tween: "${String(e)}" isn't an easing; using "outQuad".`);
+      this.ease = id >= 0 ? id : EASE_OUT_QUAD;
+    }
   }
 
   /** Resolves `from` and `to` against `start` (the field's value now, or a preceding member's end). False: no start value. */
@@ -265,7 +289,7 @@ class Leaf extends Item {
     return true;
   }
 
-  /** from → to at eased progress `e` (host-side, for curve easing). */
+  /** from → to at eased progress `e` (the core's rule: quaternions slerp). */
   mix(e: number): number[] {
     if (this.binding!.quat) {
       const f = this.from, t = this.to;
@@ -275,15 +299,14 @@ class Leaf extends Item {
     return this.from.map((f, i) => f + (this.to[i]! - f) * e);
   }
 
-  /** The fields the core takes (`TWEEN_CREATE` / `SEQ_MEMBER` share them). */
+  /** The fields the core takes (`TWEEN_CREATE` / `SEQ_MEMBER` share them); `loadEase` first. */
   spec(): Record<string, number> {
     const b = this.binding!;
-    const curve = !!this.curve;
-    const from = curve ? [0] : this.from, to = curve ? [1] : this.to;
+    const from = this.from, to = this.to;
     return {
-      valueKind: !curve && b.quat ? KIND_QUAT_SLERP : KIND_VALUE,
-      width: curve ? 1 : b.width,
-      ease: this.easeId(),
+      valueKind: b.quat ? KIND_QUAT_SLERP : KIND_VALUE,
+      width: b.width,
+      ease: this.ease!,
       flags: this.yoyo ? FLAG_YOYO : 0,
       loops: this.loops,
       from0: from[0] ?? 0, from1: from[1] ?? 0, from2: from[2] ?? 0, from3: from[3] ?? 0,
@@ -291,12 +314,11 @@ class Leaf extends Item {
     };
   }
 
-  /** Writes one core row (`width` floats, or the curve progress). */
+  /** Writes one core row (`width` floats). */
   writeRow(v: ArrayLike<number>): void {
     const b = this.binding!;
     if (!b.alive()) return;
-    const c = this.curve;
-    let out: ArrayLike<number> = c ? this.mix(evalCurve(c, v[0]!)) : v;
+    let out: ArrayLike<number> = v;
     if (b.bool) out = [Math.abs(out[0]! - this.to[0]!) < 1e-6 ? this.to[0]! : this.from[0]!];
     b.write(out);
   }
@@ -322,6 +344,11 @@ class Leaf extends Item {
       if (this.handle) store.byHost.delete(this.hostId);
     }
     if (this.handle) this.ns?.forgetTween(this.handle);
+    if (this.curveHandle) {
+      this.curveNs?.releaseCurve(this.curveHandle);
+      this.curveHandle = 0;
+      this.curveNs = null;
+    }
     if (this.counted) {
       this.counted = false;
       const node = this.binding!.node;
@@ -492,6 +519,7 @@ const timeMode = (o: TweenOptions): number => (o.time === "unscaled" ? TIME_UNSC
 function startLeaf(store: Store, ns: AnimationWorldCore, leaf: Leaf): void {
   if (!leaf.binding!.alive()) return leaf.end("destroyed");
   if (!leaf.resolve(null)) return leaf.end("stopped");
+  leaf.loadEase(ns);
   const id = newId();
   const handle = ns.createTween({
     ...leaf.spec(),
@@ -555,6 +583,7 @@ function startGroup(store: Store, ns: AnimationWorldCore, g: Group): void {
       continue;
     }
     compiled.push(m);
+    m.leaf.loadEase(ns);
     const value = m.leaf.endValue();
     if (value) {
       let byField = ends.get(b.target);

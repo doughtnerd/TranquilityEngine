@@ -1,10 +1,14 @@
 // An authored clip's raw form (T19): a valid `myco.anim@1` container (checked by `readAnimationHeader`, which mirrors
 // `container::parse`) whose header, tracks, samples and keys follow `anim-format`'s clip layout. The runtime core
 // accepting and playing it is the Node tests' (`runtime/features/clipSources.node.test.ts`). Samples are compared at
-// f32 precision (1e-6): they are the source's keys interpolated in f64 and stored as f32.
+// f32 precision (1e-6): they are the source's keys interpolated in f64 and stored as f32. Curve tracks are sampled by the
+// caller's `CurveSampler` (the animation core's, T70): here the engine's evaluator stands in, so the layout is what is
+// tested; the core's values are the plugin's tests' (`runtime/core/host.node.test.ts`, `editor/compile/compiler.node.test.ts`).
 import { describe, expect, it } from "vitest";
 import { emptyAnimSource, type AnimSource } from "../animSource";
 import { readAnimationHeader, type ClipInfo } from "../binaryHeader";
+import { evalCurve } from "../../core/curve";
+import type { CurveSampler } from "./curveKeys";
 import { compileRawClip, frameCount, rootMotionAxes, usesBones, type ClipSkeleton } from "./rawClip";
 
 const SKELETON: ClipSkeleton = {
@@ -12,6 +16,8 @@ const SKELETON: ClipSkeleton = {
   // t xyz, r xyzw, s xyz per bone
   rest: Float32Array.from([0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0.3, 0, 0, 0, 0, 1, 1, 1, 1]),
 };
+
+const sampler: CurveSampler = (curve, rate, end, frames) => Float32Array.from({ length: frames }, (_, i) => evalCurve(curve, Math.min(i / rate, end)));
 
 const s = Math.SQRT1_2;
 function clip(): AnimSource {
@@ -46,7 +52,7 @@ function section(bytes: Uint8Array, kind: number): { offset: number; count: numb
 
 describe("raw clips (myco.anim@1 raw form)", () => {
   it("write a valid container with the clip's header facts", () => {
-    const out = compileRawClip(clip(), SKELETON);
+    const out = compileRawClip(clip(), SKELETON, "", sampler);
     const h = readAnimationHeader(out.bytes, "myco.anim@1");
     expect(h.ok).toBe(true);
     if (!h.ok) return;
@@ -60,7 +66,7 @@ describe("raw clips (myco.anim@1 raw form)", () => {
   });
 
   it("sample bone tracks at the clip's rate: keys interpolated, missing channels at rest", () => {
-    const out = compileRawClip(clip(), SKELETON);
+    const out = compileRawClip(clip(), SKELETON, "", sampler);
     const tracks = section(out.bytes, 3);
     const raw = section(out.bytes, 5);
     const at = (track: number) => tracks.view.getUint32(tracks.offset + track * 32 + 20, true);
@@ -78,8 +84,16 @@ describe("raw clips (myco.anim@1 raw form)", () => {
     expect([color(4, 0), color(4, 1), color(4, 2), color(4, 3)]).toEqual([1, 0, 0, 1]);
   });
 
-  it("write keyed tracks as key lists with their strings", () => {
+  it("drop curve tracks, with a problem, when no sampler is given", () => {
     const out = compileRawClip(clip(), SKELETON);
+    const h = readAnimationHeader(out.bytes, "myco.anim@1");
+    expect(h.ok && (h.header.info as ClipInfo).tracks).toBe(4); // Hips and the three keyed lists
+    expect(out.problems).toContain("float track Lamp intensity: no curve sampler was given; dropped.");
+    expect(out.problems).toContain("color track (node) material.color: no curve sampler was given; dropped.");
+  });
+
+  it("write keyed tracks as key lists with their strings", () => {
+    const out = compileRawClip(clip(), SKELETON, "", sampler);
     const keys = section(out.bytes, 4);
     expect(keys.count).toBe(4);
     const time = (k: number) => keys.view.getFloat32(keys.offset + k * 32, true);
@@ -88,7 +102,7 @@ describe("raw clips (myco.anim@1 raw form)", () => {
   });
 
   it("drop bone tracks without a skeleton, and bind nothing then", () => {
-    const out = compileRawClip(clip(), null);
+    const out = compileRawClip(clip(), null, "", sampler);
     const h = readAnimationHeader(out.bytes, "myco.anim@1");
     expect(h.ok && (h.header.info as ClipInfo).bones).toBe(0);
     expect(out.rootBone).toBe(-1);
@@ -96,7 +110,7 @@ describe("raw clips (myco.anim@1 raw form)", () => {
   });
 
   it("are deterministic, and say what the compile needs", () => {
-    expect(compileRawClip(clip(), SKELETON).bytes).toEqual(compileRawClip(clip(), SKELETON).bytes);
+    expect(compileRawClip(clip(), SKELETON, "", sampler).bytes).toEqual(compileRawClip(clip(), SKELETON, "", sampler).bytes);
     expect(frameCount(0.8, 30)).toBe(25);
     expect(frameCount(0, 30)).toBe(1);
     expect(usesBones(clip())).toBe(true);

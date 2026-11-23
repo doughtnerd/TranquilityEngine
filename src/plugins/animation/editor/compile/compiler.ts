@@ -12,6 +12,7 @@
 //   the editor (`runtime/features/nodes/loader.ts`) and the export step (`src/export/animationNodes.ts`).
 //
 // Internal to the Animation plugin.
+import { curveKeyFloats, type CurveSampler } from "../../../../engine/animation/compile/curveKeys";
 import type * as EditorWasm from "../../runtime/wasm/editor/myco_anim_editor.js";
 
 /** @internal What the compressor measured for one clip (ADR 0371). Sizes in bytes; `maxError` in metres. */
@@ -87,6 +88,12 @@ export interface AnimationCompiler {
   /** The source hash the module was built from. */
   readonly sourceHash: string;
   compressClip(raw: Uint8Array, skeleton: Uint8Array, record: Float32Array): CompileOutcome;
+  /**
+   * T70: a source curve sampled at `frames` frames of `rate` Hz, frame `i` at `min(i / rate, end)` seconds, by the evaluator
+   * the runtime core links (`CurveSampler`): what the raw clip's curve tracks hold, so the compiled clip matches the runtime
+   * exactly. Zeros for an empty curve or one the module refuses (keys out of order, a non-finite number).
+   */
+  sampleCurve: CurveSampler;
   compileSkeleton(skeleton: Uint8Array, roles?: Uint16Array, profile?: string): { readonly bytes: Uint8Array } | { readonly error: string };
   retargetCompressed(source: RetargetSideInput, target: RetargetSideInput, options: { readonly alignChains: boolean; readonly rootAxes: number; readonly ikWeights: Float32Array; readonly record: Float32Array }, clip: Uint8Array): CompileOutcome;
   bakePoseDatabase(skeleton: Uint8Array, clips: readonly PoseDbClipInput[], schema: readonly PoseDbFeatureInput[], settings: PoseDbBakeSettings): { readonly bytes: Uint8Array } | { readonly error: string };
@@ -110,6 +117,11 @@ function compilerOver(glue: typeof EditorWasm): AnimationCompiler {
     version: glue.compiler_version(),
     sourceHash: glue.source_hash(),
     compressClip: (raw, skeleton, record) => outcome(glue.compress_clip(raw, skeleton, record)),
+    sampleCurve(curve, rate, end, frames) {
+      if (curve.length === 0) return new Float32Array(frames);
+      const out = glue.curve_sample(curveKeyFloats(curve), rate, end, frames);
+      return out.length === frames ? out : new Float32Array(frames);
+    },
     compileSkeleton: (skeleton, roles = new Uint16Array(0), profile = "") => plain(glue.skeleton_compile(skeleton, roles, profile)),
     meterNodeModule: (bytes) => plain(glue.meter_node_module(bytes)),
     retargetCompressed: (s, t, o, clip) => outcome(glue.retarget_bake_compressed(s.skeleton, s.profile, s.map, t.skeleton, t.profile, t.map, o.alignChains ? 1 : 0, clip, o.rootAxes, o.ikWeights, o.record)),

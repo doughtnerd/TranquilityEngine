@@ -8,6 +8,7 @@
 // Engine (an editor play session) is disposed. Time comes from the core's `evaluate(dt)` only.
 import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { evalCurve, type Curve } from "../../../../engine/core/curve";
 import { Engine } from "../../../../engine/core/Engine";
 import type { World } from "../../../../engine/core/World";
 import { CHANGE_INTERRUPTED, PASS_NORMAL, PLAY, PLAY_INERTIALIZE, STATUS_OK, STATUS_STALE_HANDLE } from "../wasm/wire/core";
@@ -211,12 +212,62 @@ describe("the animation core host", () => {
     expect(matrices(h)).not.toEqual(pose);
   });
 
+  describe("curves (T70)", () => {
+    const wave: Curve = [[0, 0], [0.5, 1, "smooth"], [1, -0.25, "bezier", { in: [-0.2, 0.3], out: [0.3, 0.5] }], [2, 2, "easeIn"], [3, 0]];
+
+    it("samples a loaded curve at min(i / rate, end), as the engine's evaluator does, within f32", () => {
+      const handle = core.loadCurve(wave);
+      expect(handle, `status ${core.lastStatus()}`).not.toBe(0);
+      const rate = 30, end = 2.5, frames = 100;
+      const got = core.sampleCurve(handle, rate, end, frames)!;
+      expect(got).toHaveLength(frames);
+      for (let i = 0; i < frames; i++) expect(Math.abs(got[i]! - evalCurve(wave, Math.min(i / rate, end))), `frame ${i}`).toBeLessThan(1e-5);
+      expect(core.releaseCurve(handle)).toBe(true);
+    });
+
+    it("refuses curves whose keys are out of order, and stale handles", () => {
+      const before = core.stats().assets;
+      expect(core.loadCurve([[1, 0], [0, 1]])).toBe(0);
+      expect(core.stats().assets).toBe(before);
+      const handle = core.loadCurve(wave);
+      expect(core.releaseCurve(handle)).toBe(true);
+      expect(core.releaseCurve(handle)).toBe(false); // already freed
+      expect(core.sampleCurve(handle, 30, 1, 4)).toBeNull();
+      expect(core.stats().assets).toBe(before);
+    });
+
+    it("samples a curve once and leaves no asset behind (the raw clip writers' sampler)", () => {
+      const before = core.stats().assets;
+      const got = core.curveSamples(wave, 10, 3, 31);
+      expect(got[15]).toBeCloseTo(evalCurve(wave, 1.5), 5);
+      expect(Array.from(core.curveSamples([], 10, 3, 4))).toEqual([0, 0, 0, 0]);
+      expect(core.stats().assets).toBe(before);
+    });
+
+    it("holds a curve once per content in a World, until its last reference or the World's close", () => {
+      const before = core.stats().assets;
+      const h = b.acquireCurve(wave);
+      expect(b.acquireCurve(JSON.parse(JSON.stringify(wave)) as Curve)).toBe(h); // another array, the same curve
+      expect(core.stats().assets).toBe(before + 1);
+      b.releaseCurve(h);
+      expect(core.sampleCurve(h, 30, 1, 4)).not.toBeNull(); // one reference left
+      b.releaseCurve(h);
+      expect(core.stats().assets).toBe(before);
+      expect(core.sampleCurve(h, 30, 1, 4)).toBeNull();
+      expect(b.acquireCurve([[1, 0], [0, 1]])).toBe(0);
+      expect(b.acquireCurve(wave)).not.toBe(0); // left for the World's close (next test)
+      expect(core.stats().assets).toBe(before + 1);
+    });
+  });
+
   it("closes a World's namespace when the World is torn down", () => {
     const f = assets(b);
     const h = b.createInstance(f.skel);
     const refs = core.references(f.skel);
     const instances = core.stats().instances;
+    const held = core.stats().assets;
     engine.findWorld("B")!.destroy();
+    expect(core.stats().assets).toBe(held - 1); // the curve World B held is freed
     expect(b.open).toBe(false);
     expect(animationCoreOf(worldB)).toBeNull();
     expect(frameFor(worldB, dt, false)).toBeNull();

@@ -12,8 +12,10 @@
  *   name"): one track per named bone the skeleton has, its bone index the skeleton's. A channel with no keys holds the
  *   bone's rest value; translation and scale interpolate linearly, rotation by the clip's `rotation` (nlerp or slerp,
  *   on the shorter arc). A bone the skeleton lacks, or any bone track without a skeleton, is dropped with a problem.
- * - **Curve tracks** sample each component's engine curve (`core/curve.ts`); a component with an empty curve samples
- *   0 (a colour's alpha 1), and a track whose curves are all empty is dropped.
+ * - **Curve tracks** sample each component's engine curve (`core/curve.ts`) through the caller's `CurveSampler` (T70:
+ *   the animation core's evaluator, the runtime's or the editor module's, so the compiled clip matches the runtime
+ *   exactly; this module has none of its own); a component with an empty curve samples 0 (a colour's alpha 1), and a
+ *   track whose curves are all empty is dropped. Without a sampler the curve tracks are dropped with a problem.
  * - **Quat tracks** interpolate by their own `interp`; JSON values (event args, audio params, control payloads) are
  *   written as JSON strings; empty bindings are `NONE`.
  * - **Root motion:** the root-motion bone goes into the header (none with `bakeIntoPose`); the root curve is extracted
@@ -21,8 +23,8 @@
  *
  * Deterministic and pure. Internal: not public API.
  */
-import { evalCurve } from "../../core/curve";
 import type { AnimSource, RootMotion } from "../animSource";
+import type { CurveSampler } from "./curveKeys";
 import { ByteWriter, encodeStringTable, f32Bits, writeContainer } from "../binaryWriter";
 import type { ImportedSkeleton } from "../import/skeleton";
 import { CONTROL_ACTIONS, CURVE_TRACK_WIDTH, DISCRETE_TYPES, MARKER_KINDS, QUAT_INTERPS, TRACK_KINDS, type Binding, type QuatKey, type Vec3Key } from "../tracks";
@@ -161,8 +163,9 @@ const WIDTH: Record<string, number> = { bone: 10, quat: 4, ...CURVE_TRACK_WIDTH 
 /**
  * @internal `source` as a raw `myco.anim@1` file, its bone tracks bound to `skeleton` by name (null: a clip without bone
  * tracks, or a property-only play; bone tracks are then dropped with a problem). `name` is used when the clip has none.
+ * `sampler` samples the curve tracks (see the file header).
  */
-export function compileRawClip(source: AnimSource, skeleton: ClipSkeleton | null, name = ""): RawClip {
+export function compileRawClip(source: AnimSource, skeleton: ClipSkeleton | null, name = "", sampler?: CurveSampler): RawClip {
   const problems: string[] = [];
   const strings = new Strings();
   const nameId = strings.id(source.name || name);
@@ -275,15 +278,17 @@ export function compileRawClip(source: AnimSource, skeleton: ClipSkeleton | null
       default: {
         // Curve kinds: one engine curve per component.
         if (t.curves.every((c) => c.length === 0)) continue;
+        if (!sampler) {
+          problems.push(`${t.kind} track ${t.target.nodePath || "(node)"} ${t.target.field || t.name}: no curve sampler was given; dropped.`);
+          continue;
+        }
         const width = WIDTH[t.kind];
         const raw = new Float32Array(frames * width);
-        const fill = (c: number) => (t.kind === "color" && c === 3 ? 1 : 0);
-        times.forEach((time, f) => {
-          for (let c = 0; c < width; c++) {
-            const curve = t.curves[c];
-            raw[f * width + c] = curve && curve.length ? evalCurve(curve, time) : fill(c);
-          }
-        });
+        for (let c = 0; c < width; c++) {
+          const curve = t.curves[c];
+          const samples = curve && curve.length ? sampler(curve, rate, source.duration, frames) : null;
+          for (let f = 0; f < frames; f++) raw[f * width + c] = samples ? samples[f]! : t.kind === "color" && c === 3 ? 1 : 0;
+        }
         const target: Binding = t.kind === "curve" ? { nodePath: t.target.nodePath, component: t.target.component, field: t.name } : t.target;
         tracks.push({ kind, subtype: 0, width, bone: NONE, binding: binding(target), raw, keys: [] });
       }

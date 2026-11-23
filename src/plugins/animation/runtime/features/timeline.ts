@@ -133,7 +133,7 @@ async function loadClip(ns: AnimationWorldCore, ref: string, depth: number, out:
     }
     const src = sourceOf(path);
     if (!src) return null;
-    const written = writeRawClip(src);
+    const written = writeRawClip(src, (curve, rate, end, frames) => ns.core.curveSamples(curve, rate, end, frames));
     if (written.dropped.length) warnOnce(`dropped:${path}`, `[myco] animation: "${path}" has bone tracks, which a timeline doesn't play (a character's motion comes through its own Animator); left out.`);
     const handle = ns.acquire(`${path}#raw:${fnv(written.bytes)}`, "clip", { kind: "clip", bytes: written.bytes });
     if (handle === 0) {
