@@ -16,6 +16,8 @@ import {
   type TransitionRef,
 } from "./machineLogic";
 import { transitionKey, worst, type ProblemIndex } from "./problemLogic";
+import { useLiveOverlay } from "../debugger/overlayContext";
+import type { LiveTransition } from "../debugger/overlayLogic";
 
 const STATE_W = 150, STATE_H = 40;
 const split = (ref: string) => { const i = ref.lastIndexOf("."); return { node: ref.slice(0, i), port: ref.slice(i + 1) }; };
@@ -41,7 +43,7 @@ export interface MachineCanvasProps {
   onOpenState(name: string): void;
 }
 
-function StateView(props: { id: string; label: string; at: Point; kind: "state" | "entry" | "any"; entry: boolean; exit: boolean; selected: boolean; problem: "error" | "warning" | null; flowId: string; readOnly: boolean; drag: GraphDragHooks; onDown(e: PointerEvent): void; onOpen(): void; onPortDown(e: MouseEvent, node: string, port: string, side: "input" | "output"): void }) {
+function StateView(props: { id: string; label: string; at: Point; kind: "state" | "entry" | "any"; entry: boolean; exit: boolean; selected: boolean; problem: "error" | "warning" | null; flowId: string; readOnly: boolean; drag: GraphDragHooks; onDown(e: PointerEvent): void; onOpen(): void; onPortDown(e: MouseEvent, node: string, port: string, side: "input" | "output"): void; live?: { current: boolean; target: boolean; normalized: number; stateTime: number } }) {
   const el = useRef<HTMLDivElement>(null);
   useNodeDrag(el, props.id, props.readOnly || props.kind !== "state", props.drag);
   const out = handleProps(props.flowId, props.id, "out", "output");
@@ -49,7 +51,7 @@ function StateView(props: { id: string; label: string; at: Point; kind: "state" 
   return (
     <div
       ref={el}
-      class={`ag-state ag-state-${props.kind}${props.selected ? " selected" : ""}${props.entry ? " entry" : ""}${props.exit ? " exit" : ""}${props.problem ? ` ${props.problem}` : ""}`}
+      class={`ag-state ag-state-${props.kind}${props.selected ? " selected" : ""}${props.entry ? " entry" : ""}${props.exit ? " exit" : ""}${props.problem ? ` ${props.problem}` : ""}${props.live?.current ? " live-current" : ""}${props.live?.target ? " live-target" : ""}`}
       style={{ left: px(props.at.x), top: px(props.at.y), width: px(STATE_W), height: px(STATE_H) }}
       data-state={props.id}
       aria-label={props.kind === "state" ? `State ${props.label}` : props.label}
@@ -58,18 +60,26 @@ function StateView(props: { id: string; label: string; at: Point; kind: "state" 
     >
       {props.kind === "state" && <span {...inp} class={`${inp.class} ag-state-in`} onMouseDown={(e) => props.onPortDown(e, props.id, "in", "input")} />}
       <span class="ag-state-label">{props.label}</span>
+      {props.live?.current && (
+        <span class="dbg-state-phase" title={`${props.live.stateTime.toFixed(2)} s in the state, normalised time ${props.live.normalized.toFixed(2)}`}>
+          <span class="dbg-state-phase-fill" style={{ width: `${(props.live.normalized - Math.floor(props.live.normalized)) * 100}%` }} />
+        </span>
+      )}
       <span {...out} class={`${out.class} ag-state-out`} title={props.kind === "entry" ? "Drag to the entry state" : "Drag to a state to add a transition"} onMouseDown={(e) => props.onPortDown(e, props.id, "out", "output")} />
     </div>
   );
 }
 
 /** The arrow and priority label of one transition, between two boxes' centres (offset sideways when both ways are wired). */
-function Arrow(props: { a: Point; b: Point; offset: number; label: string; selected: boolean; problem: "error" | "warning" | null; onClick(): void; self: boolean }) {
+function Arrow(props: { a: Point; b: Point; offset: number; label: string; selected: boolean; problem: "error" | "warning" | null; onClick(): void; self: boolean; live?: LiveTransition; fading?: boolean }) {
   const { a, b } = props;
+  const liveClass = `${props.live ? ` live-${props.live.blocker}` : ""}${props.fading ? " live-fading" : ""}`;
+  const why = props.live ? <title>{`Transition ${props.label}: ${props.live.why}`}</title> : props.fading ? <title>{`Transition ${props.label} is in progress.`}</title> : null;
   if (props.self) {
     const x = a.x + STATE_W / 2, y = a.y;
     return (
-      <g class={`ag-arrow${props.selected ? " selected" : ""}`}>
+      <g class={`ag-arrow${props.selected ? " selected" : ""}${liveClass}`}>
+        {why}
         <path class="ag-arrow-line" d={`M ${x - 20} ${y} C ${x - 30} ${y - 40}, ${x + 30} ${y - 40}, ${x + 20} ${y}`} markerEnd="url(#ag-arrowhead)" />
         <g class={`ag-priority-badge${props.problem ? ` ${props.problem}` : ""}`} onClick={props.onClick} role="button" aria-label={`Transition ${props.label}`}>
           <circle cx={x} cy={y - 30} r={9} /><text x={x} y={y - 26}>{props.label}</text>
@@ -87,7 +97,8 @@ function Arrow(props: { a: Point; b: Point; offset: number; label: string; selec
   const end = { x: cb.x - dx * edge + nx * o, y: cb.y - dy * edge + ny * o };
   const mid = { x: (p0.x + end.x) / 2, y: (p0.y + end.y) / 2 };
   return (
-    <g class={`ag-arrow${props.selected ? " selected" : ""}`}>
+    <g class={`ag-arrow${props.selected ? " selected" : ""}${liveClass}`}>
+      {why}
       <line class="ag-arrow-line" x1={p0.x} y1={p0.y} x2={end.x} y2={end.y} markerEnd="url(#ag-arrowhead)" />
       <g class={`ag-priority-badge${props.problem ? ` ${props.problem}` : ""}`} onClick={props.onClick} role="button" aria-label={`Transition ${props.label}`}>
         <circle cx={mid.x} cy={mid.y} r={9} /><text x={mid.x} y={mid.y + 4}>{props.label}</text>
@@ -99,6 +110,8 @@ function Arrow(props: { a: Point; b: Point; offset: number; label: string; selec
 export function MachineCanvas(props: MachineCanvasProps) {
   const { graph, machine, selection, readOnly } = props;
   const m = nodeById(graph, machine)?.machine as StateMachine;
+  const overlay = useLiveOverlay();
+  const liveMachine = overlay?.machines.get(machine);
   const [dragging, setDragging] = useState<ReadonlyMap<string, Point> | null>(null);
   const [box, setBox] = useState<{ a: Point; b: Point } | null>(null);
   const pos = (s: MachineState, i: number) => dragging?.get(s.name) ?? statePosition(s, i);
@@ -238,7 +251,9 @@ export function MachineCanvas(props: MachineCanvasProps) {
             const offset = (both ? 7 : 0) + n * 14;
             const ps = props.problems.byTransition.get(transitionKey(machine, a.ref));
             const selected = props.transition?.from === a.ref.from && props.transition?.index === a.ref.index;
+            const fading = liveMachine?.active?.from === a.ref.from && liveMachine?.active?.index === a.ref.index;
             return <Arrow key={`${key}#${a.ref.index}#${a.ref.from ?? "@"}`} a={pa} b={pb} offset={offset} self={a.from === a.to} label={priorityLabel(a.ref)} selected={selected} problem={worst(ps)}
+              live={overlay?.transitions.get(transitionKey(machine, a.ref))} fading={fading}
               onClick={() => { props.onTransition(a.ref); props.onSelection(a.ref.from ? new Set([a.ref.from]) : new Set()); }} />;
           })}
           {wiring.draft && <line class={`sg-draft${wiring.draft.valid ? " valid" : ""}`} x1={wiring.draft.from.x} y1={wiring.draft.from.y} x2={wiring.draft.to.x} y2={wiring.draft.to.y} />}
@@ -248,7 +263,8 @@ export function MachineCanvas(props: MachineCanvasProps) {
         {m.states.map((s, i) => (
           <StateView key={s.name} id={s.name} label={s.name} kind="state" at={pos(s, i)} entry={entry === s.name} exit={s.exit} selected={selection.has(s.name)}
             problem={worst(props.problems.byState.get(`${machine}/${s.name}`))} flowId={wiring.flowId} readOnly={readOnly} drag={drag}
-            onDown={(e) => onDown(e, s.name)} onOpen={() => props.onOpenState(s.name)} onPortDown={wiring.onPortDown} />
+            onDown={(e) => onDown(e, s.name)} onOpen={() => props.onOpenState(s.name)} onPortDown={wiring.onPortDown}
+            live={liveMachine ? { current: liveMachine.current === s.name, target: liveMachine.target === s.name, normalized: liveMachine.normalized, stateTime: liveMachine.stateTime } : undefined} />
         ))}
         <WireRefusal draft={wiring.draft} hint={wiring.hint} />
       </div>

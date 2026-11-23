@@ -89,6 +89,13 @@ export interface CompiledAnimGraph {
   readonly ikTargets: readonly string[];
   /** Ray rows the grounders use. */
   readonly rays: number;
+  /**
+   * Transition index (the `TRANSITIONS` table, over every machine) → its source path
+   * (`nodes[3].machine.states[1].transitions[0]`, `nodes[3].machine.anyState[0]`): what the debugger's records name (T52).
+   */
+  readonly transitions: readonly string[];
+  /** Condition term index (the `CONDITIONS` table) → its source path (`….transitions[0].if.all[1]`): a debug blocker's failing term (T52). */
+  readonly conditions: readonly string[];
 }
 
 /** @internal What the compiler may know beyond the graph. */
@@ -144,7 +151,7 @@ const assetKey = (ref: string): string => ref.replace(/^asset:/, "").replace(/^\
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
 const finiteF32 = (v: number): boolean => Number.isFinite(Math.fround(v));
 
-interface CondRecord { code: number; op: number; src: number; operand: number; value: number }
+interface CondRecord { code: number; op: number; src: number; operand: number; value: number; path: string }
 interface TransitionRecord { target: number; condition: number; when: number; whenValue: number; how: number; duration: number; shape: number; bridge: number; mode: number; first: number; count: number }
 interface NodeRecord { family: number; kind: number; inputs: number[]; words: number[]; name: number }
 
@@ -175,6 +182,8 @@ class Compiler {
   readonly ikTargets: string[] = [];
   rays = 0;
   readonly conds: CondRecord[] = [];
+  /** Each `TRANSITIONS` record's source path, in table order. */
+  readonly transitionPaths: string[] = [];
   readonly programs: [number, number][] = [];
 
   constructor(readonly g: AnimGraph, readonly options: GraphCompileOptions) {}
@@ -213,7 +222,7 @@ class Compiler {
   }
 
   fail(): CompiledAnimGraph {
-    return { bytes: null, ok: false, problems: this.problems, strings: this.strings, bindings: [], nodes: [], parameters: [], machines: [], slots: [], linked: [], layers: [], ikTargets: [], rays: 0 };
+    return { bytes: null, ok: false, problems: this.problems, strings: this.strings, bindings: [], nodes: [], parameters: [], machines: [], slots: [], linked: [], layers: [], ikTargets: [], rays: 0, transitions: [], conditions: [] };
   }
 
   run(): CompiledAnimGraph {
@@ -484,6 +493,7 @@ class Compiler {
     return {
       bytes, ok: !this.problems.some((p) => p.severity === "error"), problems: this.problems, strings: this.strings, bindings: [...this.bindings.values()],
       nodes: nodeIds, parameters: paramNames, machines: machineInfo, slots: slotNames, linked: linkedNames, layers: layerNames, ikTargets: this.ikTargets, rays: this.rays,
+      transitions: this.transitionPaths, conditions: this.conds.map((c) => c.path),
     };
   }
 
@@ -686,6 +696,7 @@ class Compiler {
         }
       } else if (t.interrupt !== "never") this.error(`${b.path}.interrupt`, 'must be "never", "any" or a list of transition ids; using "never".');
       transitions.push(rec);
+      this.transitionPaths.push(b.path);
     };
     const anyFirst = transitions.length;
     anyList.filter((b) => b.ok).forEach(write);
@@ -741,7 +752,7 @@ class Compiler {
       const items = (c as Record<string, readonly Condition[]>)[group];
       if (depth > GRAPH_LIMITS.conditionDepth) return this.error(at, `conditions nest at most ${GRAPH_LIMITS.conditionDepth} deep.`), false;
       if (!Array.isArray(items) || items.length === 0) return this.error(`${at}.${group}`, `an "${group}" group needs at least one condition.`), false;
-      out.push({ code: group === "all" ? 0 : 1, op: 0, src: 0, operand: items.length, value: 0 });
+      out.push({ code: group === "all" ? 0 : 1, op: 0, src: 0, operand: items.length, value: 0, path: at });
       return items.every((x, i) => this.cond(x, `${at}.${group}[${i}]`, depth + 1, out));
     }
     if (depth > GRAPH_LIMITS.conditionDepth) return this.error(at, `conditions nest at most ${GRAPH_LIMITS.conditionDepth} deep.`), false;
@@ -752,7 +763,7 @@ class Compiler {
       if (!c.request) return this.error(`${at}.request`, "a request needs a name."), false;
       if (op > 1) return this.error(`${at}.op`, "a request compares with == or != only."), false;
       if (typeof c.value !== "boolean") return this.error(`${at}.value`, "a request's value is true or false."), false;
-      out.push({ code: 2, op, src: 5, operand: this.intern(c.request), value: c.value ? 1 : 0 });
+      out.push({ code: 2, op, src: 5, operand: this.intern(c.request), value: c.value ? 1 : 0, path: at });
       return true;
     }
     if ("param" in c) {
@@ -762,19 +773,19 @@ class Compiler {
       if (type === "bool") {
         if (op > 1) return this.error(`${at}.op`, "a bool parameter compares with == or != only."), false;
         if (typeof c.value !== "boolean") return this.error(`${at}.value`, `"${c.param}" is a bool parameter; compare it with true or false.`), false;
-        out.push({ code: 2, op, src: 0, operand: p, value: c.value ? 1 : 0 });
+        out.push({ code: 2, op, src: 0, operand: p, value: c.value ? 1 : 0, path: at });
         return true;
       }
       if (type === "int") {
         if (!Number.isInteger(c.value) || Math.abs(c.value as number) > 0x7fffffff) return this.error(`${at}.value`, `"${c.param}" is an int parameter; compare it with a whole number.`), false;
-        out.push({ code: 2, op, src: 0, operand: p, value: (c.value as number) >>> 0 });
+        out.push({ code: 2, op, src: 0, operand: p, value: (c.value as number) >>> 0, path: at });
         return true;
       }
       if (type !== "float") return this.error(`${at}.param`, `"${c.param}" is a ${type} parameter, which isn't comparable.`), false;
       if (typeof c.value !== "number") return this.error(`${at}.value`, `"${c.param}" is a float parameter; compare it with a number.`), false;
       const v = floatValue(c.value);
       if (v === null) return false;
-      out.push({ code: 2, op, src: 0, operand: p, value: v });
+      out.push({ code: 2, op, src: 0, operand: p, value: v, path: at });
       return true;
     }
     if ("operand" in c) {
@@ -782,14 +793,14 @@ class Compiler {
       if (src < 0) return this.error(`${at}.operand`, `must be one of ${STATE_OPERANDS.join(", ")}.`), false;
       const v = floatValue(c.value);
       if (v === null) return false;
-      out.push({ code: 2, op, src: src + 1, operand: 0, value: v });
+      out.push({ code: 2, op, src: src + 1, operand: 0, value: v, path: at });
       return true;
     }
     if ("curve" in c) {
       if (!c.curve) return this.error(`${at}.curve`, "a curve needs a name."), false;
       const v = floatValue(c.value);
       if (v === null) return false;
-      out.push({ code: 2, op, src: 4, operand: this.intern(c.curve), value: v });
+      out.push({ code: 2, op, src: 4, operand: this.intern(c.curve), value: v, path: at });
       return true;
     }
     this.error(at, "a condition is all, any, or a comparison of a param, operand, curve or request.");
