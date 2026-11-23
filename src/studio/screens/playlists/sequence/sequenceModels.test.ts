@@ -181,6 +181,12 @@ describe("transport", () => {
     expect(playRange(seq, sel, 2.5, { ...DEFAULT_TRANSPORT, mode: "start" }, fixtureSource)).toMatchObject({ from: 0, to: 6 });
   });
 
+  it("wraps Play to the start when the playhead is at or past the sequence end", () => {
+    expect(playRange(seq, EMPTY_SELECTION, 6, { ...DEFAULT_TRANSPORT, mode: "playhead" }, fixtureSource)).toMatchObject({ start: 0, from: 0, to: 6 });
+    expect(playRange(seq, EMPTY_SELECTION, 9, DEFAULT_TRANSPORT, fixtureSource)).toMatchObject({ from: 0, to: 6 });
+    expect(playRange(seq, EMPTY_SELECTION, 5.5, { ...DEFAULT_TRANSPORT, mode: "playhead" }, fixtureSource)).toMatchObject({ from: 5.5, to: 6 });
+  });
+
   it("releases with Space while a held loop waits, else stops", () => {
     expect(hasHeldLoop(seq, fixtureSource)).toBe(true);
     expect(hasHeldLoop({ ...seq, loops: [], tracks: [] }, fixtureSource)).toBe(false);

@@ -36,7 +36,7 @@ export interface PlayRange {
   readonly selection: boolean;
 }
 
-/** What Play plays. */
+/** What Play plays (from the playhead or a marker at the end: from the start). */
 export function playRange(s: SequenceSettings, sel: SeqSelection, playhead: number, opts: TransportOptions, sourceOf: SourceOf): PlayRange {
   const length = sequenceLength(s, sourceOf);
   let from = 0, to = length, selection = false;
@@ -56,6 +56,8 @@ export function playRange(s: SequenceSettings, sel: SeqSelection, playhead: numb
     } else if (sel.focus === "marker" && marker) from = Math.min(marker.at, length);
     else from = Math.min(playhead, length);
   }
+  // At (or past) the end there's nothing left to hear: Play wraps to the start (proto W53).
+  if (!selection && length > 0 && from >= length) from = 0;
   const start = opts.preRoll ? Math.max(0, from - PRE_ROLL_SECONDS) : from;
   return { start, from, to: Math.max(from, to), selection };
 }
