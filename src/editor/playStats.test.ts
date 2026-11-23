@@ -4,7 +4,8 @@ import { Engine } from "../engine";
 import { addEditorOverlay } from "../engine/editor";
 import { FakeRenderSurface } from "../engine/render/fakeViewport";
 import { FrameWindow } from "./frameWindow";
-import { StatsCollector } from "./playStats";
+import { StatsCollector, takeSnapshot } from "./playStats";
+import { playStatsTables } from "./sdk/contributions";
 import { cleanPlayGizmos, installPlayGizmos, outlineShown, playGizmos, updatePlayGizmos } from "./playGizmos";
 import type { PlaySession } from "./playMode";
 
@@ -99,5 +100,22 @@ describe("play view gizmos settings", () => {
   it("replaces unusable stored values with the defaults", () => {
     expect(cleanPlayGizmos(null)).toEqual(DEFAULT_PLAY_GIZMOS);
     expect(cleanPlayGizmos({ enabled: false, navigation: "yes" as unknown as boolean })).toEqual({ ...DEFAULT_PLAY_GIZMOS, enabled: false });
+  });
+});
+
+describe("play stats: plugin tables (T34)", () => {
+  it("lists each registered table's rows on every World, and leaves out a table with none", async () => {
+    const engine = await Engine.create({ headless: true });
+    const off = [
+      playStatsTables.register({ id: "test.rows", title: "Rows", rows: () => [{ label: "A", value: "1", detail: "one" }] }),
+      playStatsTables.register({ id: "test.none", title: "None", rows: () => null }),
+    ];
+    try {
+      const snapshot = takeSnapshot(engine, new StatsCollector());
+      expect(snapshot.worlds[0]!.tables).toEqual([{ title: "Rows", rows: [{ label: "A", value: "1", detail: "one" }] }]);
+    } finally {
+      for (const o of off) o();
+      engine.dispose();
+    }
   });
 });

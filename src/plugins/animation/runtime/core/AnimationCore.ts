@@ -26,6 +26,7 @@ import {
 } from "../wasm/wire/core";
 import { BLACKBOARD_STRIDE, GRAPH_CHANGE } from "../wasm/wire/graph";
 import { PLUGIN_FAULT } from "../wasm/wire/plugin";
+import type { EvaluateCounts } from "./frameMeter";
 import { RAY_ROW_STRIDE, RIG_INPUT_STRIDE } from "../wasm/wire/rig";
 import { TIMELINE_BLOCK, TIMELINE_CHANGE, TIMELINE_CONTROL, TIMELINE_CREATE, TIMELINE_INFO } from "../wasm/wire/timeline";
 import { TWEEN_CHANGE, TWEEN_CONTROL, TWEEN_CREATE } from "../wasm/wire/tween";
@@ -576,6 +577,14 @@ export class AnimationCore {
   /** The float offset of instance `handle`'s first bone matrix in `views().matrices`. */
   matrixOffset(handle: number): number {
     return instanceRow(handle) * this.limits.maxBones * MATRIX_FLOATS;
+  }
+
+  /** The last `evaluate` call's counters (the profiler's Animation table; `core/frameMeter.ts`). */
+  evaluateCounts(): EvaluateCounts {
+    const d = this.views().data;
+    const at = this.wasm.stats_ptr();
+    const w = (i: number) => d.getUint32(at + i * 4, true);
+    return { instances: w(0), culled: w(1), lodSkipped: w(2), evaluated: w(3), bones: w(4), skinned: w(5) };
   }
 
   stats(): AnimationCoreStats {

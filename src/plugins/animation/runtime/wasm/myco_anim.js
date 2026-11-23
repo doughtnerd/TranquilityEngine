@@ -710,6 +710,15 @@ export function source_hash() {
 }
 
 /**
+ * The last `evaluate`'s counters' byte offset in memory (`STATS_WORDS` u32 words, profiler).
+ * @returns {number}
+ */
+export function stats_ptr() {
+    const ret = wasm.stats_ptr();
+    return ret >>> 0;
+}
+
+/**
  * Timeline instances evaluated this frame.
  * @returns {number}
  */

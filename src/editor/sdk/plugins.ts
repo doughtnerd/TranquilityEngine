@@ -4,7 +4,7 @@
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
 import type { PluginsView } from "../../plugins/pluginSet";
-import { assetActions, assetKinds, componentHeaderActions, componentNotes, componentWireframes, fieldAdornments, fieldChoices, fieldWriteInterceptors, hierarchyCreateEntries, idlePrefetches, nameReferences, nodeAssetDrops, assetNodesAugments, importSettingsSections, spriteEditorTools, panelExtensions, panels, playStatsCounters, playToolbarItems, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, skeletonBones, viewportTools } from "./contributions";
+import { assetActions, assetKinds, componentHeaderActions, componentNotes, componentWireframes, fieldAdornments, fieldChoices, fieldWriteInterceptors, hierarchyCreateEntries, idlePrefetches, nameReferences, nodeAssetDrops, assetNodesAugments, importSettingsSections, spriteEditorTools, panelExtensions, panels, playStatsCounters, playStatsTables, playToolbarItems, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, skeletonBones, viewportTools } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import { componentEditToggle } from "../componentEditToggle";
 import type { LoadComponent } from "./contributions";
@@ -76,6 +76,8 @@ const CONTRIBUTION_POINTS = {
   registerAssetAction: registryPoint(assetActions),
   /** A count on the Play Stats panel's Nodes row (ADR 0146). */
   registerPlayStatsCounter: registryPoint(playStatsCounters),
+  /** A titled table under a World's rows in the Play Stats panel (T34). */
+  registerPlayStatsTable: registryPoint(playStatsTables),
   /** Work done on a scene when the editor opens it (ADR 0146). */
   registerSceneOpenMigration: registryPoint(sceneOpenMigrations),
   /** Code fetched once the editor is idle (ADR 0146). */

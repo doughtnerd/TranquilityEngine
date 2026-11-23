@@ -12,6 +12,7 @@ import type { RecordValues } from "./records";
 import type { AnimationFrame } from "../stages/frame";
 import type { AnimationAssetKind, AnimationAssetSource, AnimationCore } from "./AnimationCore";
 import { CommandWriter, type CommandSink } from "./commands";
+import { FrameMeter, takeNodeFuel } from "./frameMeter";
 
 /** Asset kinds made from one file's bytes, which `acquireFile` can fetch. */
 export type AnimationFileKind = "skeleton" | "clip" | "graph" | "posedb" | "profile" | "plugin";
@@ -50,6 +51,8 @@ export class AnimationWorldCore {
   private closed = false;
   /** What watches this World's evaluates (the live debugger's recorder, T52). */
   readonly taps = new Set<EvaluateTap>();
+  /** This World's frame numbers for the profiler's Animation table (stage times, counters). */
+  readonly meter = new FrameMeter();
   /** The evaluate in progress (for the taps). */
   private evaluating = { pass: PASS_NORMAL, dtScaled: 0, dtUnscaled: 0 };
 
@@ -214,7 +217,11 @@ export class AnimationWorldCore {
     if (this.closed) return 0;
     this.evaluating = { pass, dtScaled, dtUnscaled };
     this.commands.flush(this.sink);
-    const changes = this.core.evaluate(this.id, pass, dtScaled, dtUnscaled);
+    let changes = 0;
+    this.meter.time("evaluate", () => {
+      changes = this.core.evaluate(this.id, pass, dtScaled, dtUnscaled);
+    });
+    this.meter.evaluated(this.core.evaluateCounts(), takeNodeFuel(), this.core.pluginFaultCount(), pass === PASS_NORMAL);
     for (const t of this.taps) t.evaluated(this, pass);
     return changes;
   }

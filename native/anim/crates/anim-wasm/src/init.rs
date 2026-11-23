@@ -706,6 +706,12 @@ pub fn roots_ptr() -> u32 {
     with(|c| Core::addr(&c.frame.roots))
 }
 
+/// The last `evaluate`'s counters' byte offset in memory (`STATS_WORDS` u32 words, profiler).
+#[wasm_bindgen]
+pub fn stats_ptr() -> u32 {
+    with(|c| Core::addr(&c.frame.stats))
+}
+
 /// The state-change records' byte offset in memory.
 #[wasm_bindgen]
 pub fn changes_ptr() -> u32 {

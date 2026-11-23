@@ -59,6 +59,7 @@ export const roots_ptr: () => number;
 export const snapshot: (a: number, b: number, c: number, d: any) => number;
 export const snapshot_bytes: (a: number) => number;
 export const source_hash: () => [number, number];
+export const stats_ptr: () => number;
 export const timeline_active_count: () => number;
 export const timeline_active_ptr: () => number;
 export const timeline_bind: (a: number, b: number, c: number, d: number) => number;

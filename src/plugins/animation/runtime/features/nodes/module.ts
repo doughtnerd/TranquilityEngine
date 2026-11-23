@@ -16,6 +16,7 @@
 import { callFuel, NODE_FUEL } from "../../../../../engine/animation/pluginNodes";
 import { NODE_ABI_VERSION, readPluginDescriptor, type PluginModuleDescriptor } from "../../../../../engine/animation/pluginDescriptor";
 import { FAULT_NO_ROOM, FAULT_TRAP, PLUGIN_CALL } from "../../wasm/wire/plugin";
+import { recordNodeFuel } from "../../core/frameMeter";
 
 interface NodeExports {
   readonly memory: WebAssembly.Memory;
@@ -159,6 +160,7 @@ export class NodeModule {
         this.reinstantiate();
         return this.fault(FAULT_TRAP, outOfFuel, outOfFuel ? `it ran out of its instruction budget (${fuel} for ${count} instance${count === 1 ? "" : "s"})` : `it trapped (${err instanceof Error ? err.message : String(err)})`);
       }
+      recordNodeFuel(Number(fuel - this.exports.myco_fuel_get()));
       if (status !== 0) return this.fault(status, false, `it returned status ${status}`);
       const back = new Uint8Array(this.exports.memory.buffer);
       from.set(back.subarray(p.output, p.output + sizes.output), u("output"));

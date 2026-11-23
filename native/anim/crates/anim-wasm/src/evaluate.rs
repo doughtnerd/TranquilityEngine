@@ -59,6 +59,10 @@ pub const CHANGES_PER_INSTANCE: usize = 2 * MAX_LAYERS as usize;
 /// State-change records the buffer always has room for.
 pub const CHANGES_RESERVE: usize = 256;
 
+/// Words of the per-evaluate counters (`stats_ptr`): instances of the world and pass, culled (frozen), skipped by
+/// LOD (pose not due), poses evaluated, bones in those poses, instances whose matrices were written.
+pub const STATS_WORDS: usize = 6;
+
 const INPUT_WORDS: usize = (INPUT_STRIDE / 4) as usize;
 const ROOT_FLOATS: usize = (ROOT_STRIDE / 4) as usize;
 const TRACK_WORDS: usize = (TRACK_STRIDE / 4) as usize;
@@ -106,6 +110,8 @@ pub struct Frame {
     pub debug: Vec<u8>,
     /// The rig input and ray output views (`rig` family, T40).
     pub rig: crate::rig::RigViews,
+    /// The last `evaluate`'s counters (profiler; `STATS_WORDS` words).
+    pub stats: [u32; STATS_WORDS],
     poses: Vec<SoaTransform>,
     display: Vec<SoaTransform>,
     sample: Vec<AosTransform>,
@@ -135,6 +141,7 @@ impl Frame {
             graph_changes: GraphChanges::new(max_instances),
             debug: vec![0; anim_wire::debug::DEBUG_BYTES as usize],
             rig: crate::rig::RigViews::new(max_instances),
+            stats: [0; STATS_WORDS],
             poses: vec![SoaTransform::identity(); slots * groups],
             display: vec![SoaTransform::identity(); groups],
             sample: vec![AosTransform::identity(); 2 * max_bones],
@@ -547,6 +554,7 @@ pub fn evaluate(
     let max_bones = frame.max_bones;
     let rig_inputs = &frame.rig.inputs[..];
     let rig_rays = core::cell::Cell::from_mut(&mut frame.rig.rays[..]).as_slice_of_cells();
+    let mut stats = [0u32; STATS_WORDS];
     for (h, inst) in table.iter_mut() {
         if inst.world != world {
             continue;
@@ -557,6 +565,7 @@ pub fn evaluate(
         if (flags & FLAG_FIXED != 0) != (pass == PASS_FIXED) {
             continue;
         }
+        stats[0] += 1;
         // T45: plugin fault reports name the instance being evaluated.
         arena.plugin_rt.set_instance(h);
         let Ok(skel) = arena.skeleton(inst.skeleton) else {
@@ -655,6 +664,7 @@ pub fn evaluate(
             root[..7].copy_from_slice(&[0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0]);
         }
         if frozen {
+            stats[1] += 1;
             inst.stale = true;
             continue;
         }
@@ -684,6 +694,8 @@ pub fn evaluate(
             if frame.poses.len() < slots {
                 continue;
             }
+            stats[3] += 1;
+            stats[4] += skel.bones() as u32;
             let scratch = Scratch {
                 poses: &mut frame.poses[..slots],
                 sample: &mut frame.sample,
@@ -714,6 +726,9 @@ pub fn evaluate(
             inst.since = 0;
             inst.stale = false;
         }
+        if !due {
+            stats[2] += 1;
+        }
         let shows_last = step <= 1 || inst.history < 2;
         if shows_last && same && inst.shown_last {
             // The row already holds these matrices (model space and skinning are pure functions
@@ -728,6 +743,7 @@ pub fn evaluate(
             let t = (inst.since + 1) as f32 / step as f32;
             anim_pose::blend::lerp(&inst.prev, &inst.last, t, display);
         }
+        stats[5] += 1;
         let bones = skel.bones();
         let model = &mut frame.model[..bones];
         anim_pose::model::model_space(&skel.parents, display, model);
@@ -735,5 +751,6 @@ pub fn evaluate(
         let out = &mut frame.matrices[at..at + bones * MATRIX_FLOATS as usize];
         anim_pose::model::skinning_from_model(model, &skel.inverse_bind, out);
     }
+    frame.stats = stats;
     frame.change_count as u32
 }
