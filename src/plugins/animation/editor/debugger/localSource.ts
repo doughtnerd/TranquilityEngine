@@ -3,14 +3,12 @@
 // the one the debugger shows), parameter edits through `Animator.set`, and the Hierarchy's live selection. The session
 // is given as functions (`LocalSession`), so a headless World serves as well as the editor's.
 import type { World } from "../../../../engine/core/World";
-import { Quaternion, Vector2, Vector3 } from "../../../../engine/core/math";
 import type { GameObject } from "../../../../engine/scene/GameObject";
 import type { Animator } from "../../runtime/components/Animator";
 import type { AnimatorDebugFrame, DebugParamValue } from "../../runtime/features/debug/frame";
 import { AnimatorRecorder } from "../../runtime/features/debug/recorder";
+import { graphAnimators, graphPath, paramValue } from "../../runtime/features/debug/targets";
 import { graphDebugReport, graphInstanceOf, writtenParameters } from "../../runtime/features/graph/runtime";
-import { animatorsOf } from "../../runtime/features/instances";
-import type { AnimatorParameterValue } from "../../runtime/types";
 import type { AnimationDebugSource, DebugRecording, DebugTarget } from "./source";
 
 /** @internal What the local source reads of the play session. */
@@ -20,17 +18,6 @@ export interface LocalSession {
   /** The node selected in the live World shown in the Hierarchy, or null. */
   liveNode(): GameObject | null;
   redraw(): void;
-}
-
-const targetId = (world: World, animator: Animator) => `${world.name}#${animator.node.entity}`;
-const graphPath = (ref: string) => ref.replace(/^asset:/, "").replace(/^\.?\//, "");
-
-/** A debugger value as `Animator.set` takes it (vectors and quaternions as engine types). */
-function paramValue(v: DebugParamValue): AnimatorParameterValue {
-  if (typeof v === "number" || typeof v === "boolean") return v;
-  if (v.length === 2) return new Vector2(v[0]!, v[1]!);
-  if (v.length === 3) return new Vector3(v[0]!, v[1]!, v[2]!);
-  return new Quaternion(v[0] ?? 0, v[1] ?? 0, v[2] ?? 0, v[3] ?? 1);
 }
 
 /** @internal The play session's source; `dispose` ends its recording. */
@@ -43,10 +30,7 @@ export function createLocalSource(session: LocalSession, options: { seconds?: nu
   let recorder: AnimatorRecorder | null = null;
   let seconds = options.seconds ?? 10;
 
-  const all = (): { world: World; animator: Animator; id: string }[] => {
-    const worlds = session.worlds();
-    return worlds.flatMap((world) => [...animatorsOf(world)].filter((rt) => rt.animator.graph && rt.animator.node.isValid).map((rt) => ({ world, animator: rt.animator, id: targetId(world, rt.animator) })));
-  };
+  const all = () => graphAnimators(session.worlds());
   const find = (id: string) => all().find((a) => a.id === id) ?? null;
   const recorderFor = (animator: Animator): AnimatorRecorder => {
     if (recorder?.animator !== animator) {

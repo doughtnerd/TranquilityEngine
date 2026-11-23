@@ -7,6 +7,7 @@ import { _unregisterComponent, getComponentClass, getComponentId, getComponentOp
 import { _undefineBuiltinSystem, _undefineSystem, defineBuiltinSystem, defineSystem, type BuiltinSystem, type SystemDef } from "../engine/core/systems";
 import { _registerWorldService, type WorldServiceDef } from "../engine/core/worldServices";
 import { _registerRenderFeature, type RenderFeatureRegistration, type RenderFeatureSpec } from "../engine/render/renderFeatures";
+import { registerDebugTopic, type DebugTopicLoader } from "../engine/debugLink/topics";
 import type { PluginManifest } from "./manifest";
 import type { HalfActivator, PluginsView } from "./pluginSet";
 
@@ -59,6 +60,12 @@ export interface RuntimePluginContext {
   registerRenderFeature(feature: RenderFeatureContribution): void;
   /** Add `value` to a contribution point another plugin owns (a physics backend); removed again on deactivation. */
   contribute<T>(point: ContributionPoint<T>, value: T): void;
+  /**
+   * The debug link (ADR 0376): `topic(name, load)` registers a topic a build with debugging on serves to the editor and
+   * the Studio. `load` is an `import()` of the topic's code, which only such a build loads (a release export holds none
+   * of it). Removed again on deactivation.
+   */
+  readonly debugLink: { topic(name: string, load: DebugTopicLoader): void };
 }
 
 /** A plugin's runtime half. */
@@ -126,6 +133,7 @@ function disableRuntimePlugin(plugin: RuntimePlugin): void {
     registerWorldService: () => {},
     registerRenderFeature: () => {},
     contribute: () => {},
+    debugLink: { topic: () => {} },
   });
 }
 
@@ -164,6 +172,7 @@ function activateRuntimePlugin(plugin: RuntimePlugin, plugins: PluginsView = { i
       undo.push(_registerRenderFeature({ spec: after.length ? { ...f.spec, after } : f.spec, load: f.load, ...(f.loadWarm ? { loadWarm: f.loadWarm } : {}) }));
     },
     contribute: (point, value) => void undo.push(point.register(value)),
+    debugLink: { topic: (topic, load) => void undo.push(registerDebugTopic(topic, load)) },
   };
   try {
     plugin.activate(context);

@@ -118,6 +118,8 @@ export class Engine implements BootstrapEngine, WorldOwner {
   private running = false;
   /** @internal Editor: gets timings while set (play mode's Stats); null costs one check per phase. */
   private timing: EngineTiming | null = null;
+  /** Hooks around each frame (the debug link, ADR 0376), in the order added. */
+  private readonly frameHooks: EngineFrameHook[] = [];
 
   private disposed = false;
 
@@ -425,12 +427,27 @@ export class Engine implements BootstrapEngine, WorldOwner {
     this.links.beginFrame();
     // 2. Input snapshot: once per Engine frame, shared by the Worlds that take input
     Input.beginFrame();
+    for (const hook of [...this.frameHooks]) hook.begin?.(dt);
     for (const world of [...this.list]) {
       if (world._paused || !this.handles.has(world)) continue; // paused, or destroyed earlier this frame
       this.stepWorld(world, dt);
     }
     if (this.defaultWorld) World.active = this.defaultWorld;
+    for (const hook of [...this.frameHooks]) hook.end?.(dt);
     timing?.frame(dt * 1000, performance.now() - begun);
+  }
+
+  /**
+   * @internal Runs `hook` around every frame from now on: `begin` after the input snapshot and before any World steps,
+   * `end` after the last World; `dispose` when the Engine goes. Returns the removal (which doesn't call `dispose`).
+   * The debug link (ADR 0376) applies a tool's commands at `begin` and sends its samples at `end`.
+   */
+  _addFrameHook(hook: EngineFrameHook): () => void {
+    this.frameHooks.push(hook);
+    return () => {
+      const i = this.frameHooks.indexOf(hook);
+      if (i >= 0) this.frameHooks.splice(i, 1);
+    };
   }
 
   /** @internal Editor play mode (ADR 0080): every surface, now and later, logs shader variants compiled after loading. */
@@ -482,6 +499,7 @@ export class Engine implements BootstrapEngine, WorldOwner {
     if (this.disposed) return;
     this.disposed = true;
     this.stop();
+    for (const hook of this.frameHooks.splice(0)) hook.dispose?.();
     const worlds = this.list.splice(0);
     for (const world of worlds) {
       this.handles.get(world)!._alive = false;
@@ -499,6 +517,13 @@ export class Engine implements BootstrapEngine, WorldOwner {
 }
 
 let nextEngineNumber = 1;
+
+/** @internal What runs around an Engine's frames (`Engine._addFrameHook`). */
+export interface EngineFrameHook {
+  begin?(dt: number): void;
+  end?(dt: number): void;
+  dispose?(): void;
+}
 
 /** A bootstrap setting or option that's a declarative config (not a code bootstrap, a script path or nothing), or null. */
 function declarative(setting: BootstrapSetting | Bootstrap | null | undefined): BootstrapConfig | null {
