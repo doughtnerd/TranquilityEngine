@@ -159,6 +159,7 @@ describe("the takes' files", () => {
     expect(tree[0]).toMatchObject({ kind: "folder", path: "takes" });
     expect(TAKES_FOLDER).toBe("takes");
     expect(NO_TAKES).toContain("F10");
+    expect(NO_TAKES).toMatch(/^Record one with Record take on the editor/); // a sentence of its own under "No takes yet" (T4)
   });
 
   it("moves and deletes a take's notes with it", () => {

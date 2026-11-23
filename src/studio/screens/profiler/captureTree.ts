@@ -9,7 +9,11 @@ export const CAPTURE_SUFFIXES = [".mycap", ".mycotake"] as const;
 export const CAPTURES_FOLDER = "captures";
 
 /** The empty state's words. */
-export const NO_CAPTURES = "No captures yet — record one from the editor's Play (Record capture), a game build (F9), or the Studio while a take replays.";
+/**
+ * How to get a capture, under "No captures yet" (sentence case, UI pass T4): the Studio's own Record first (it records
+ * while a playlist auditions or a take replays, `whyNotRecord`), then the editor's Play toolbar and a game build.
+ */
+export const NO_CAPTURES = "Record one here while a playlist or a take plays, or with Record capture in the editor's Play toolbar or F9 in a game build.";
 
 export const isCapturePath = (path: string): boolean => {
   const lower = path.toLowerCase();

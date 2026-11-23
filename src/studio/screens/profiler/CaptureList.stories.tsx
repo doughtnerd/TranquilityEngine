@@ -76,7 +76,8 @@ export const MoveTo: Story = {
 export const Empty: Story = {
   args: { files: ["sfx/boom.wav"], openPath: null },
   play: async ({ canvasElement }) => {
-    await expect(within(canvasElement).getByText(/record one from the editor's Play/)).toBeVisible();
+    // Sentence case, and the Studio's own Record first (UI pass T4).
+    await expect(within(canvasElement).getByText(/^Record one here while a playlist or a take plays/)).toBeVisible();
   },
 };
 

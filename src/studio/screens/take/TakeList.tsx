@@ -107,7 +107,7 @@ export function TakeList(props: TakeListProps) {
         />
       </div>
       {!any ? (
-        <EmptyState compact title="No takes yet" body={NO_TAKES.replace(/^No takes yet — /, "")} />
+        <EmptyState compact title="No takes yet" body={NO_TAKES} />
       ) : matches ? (
         matches.length === 0 ? (
           <p class="tk-note">No take matches “{query.trim()}”.</p>

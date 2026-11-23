@@ -106,7 +106,7 @@ export function CaptureList(props: CaptureListProps) {
         />
       </div>
       {!any ? (
-        <EmptyState compact title="No captures yet" body={NO_CAPTURES.replace(/^No captures yet — /, "")} />
+        <EmptyState compact title="No captures yet" body={NO_CAPTURES} />
       ) : matches ? (
         matches.length === 0 ? (
           <p class="pf-note">No capture matches “{query.trim()}”.</p>
