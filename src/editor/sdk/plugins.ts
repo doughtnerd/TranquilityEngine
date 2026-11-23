@@ -4,7 +4,8 @@
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
 import type { PluginsView } from "../../plugins/pluginSet";
-import { assetActions, assetKinds, componentHeaderActions, componentNotes, componentWireframes, fieldChoices, hierarchyCreateEntries, idlePrefetches, nameReferences, panelExtensions, panels, playStatsCounters, playToolbarItems, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, viewportTools } from "./contributions";
+import { assetActions, assetKinds, componentHeaderActions, componentNotes, componentWireframes, fieldChoices, hierarchyCreateEntries, idlePrefetches, nameReferences, nodeAssetDrops, panelExtensions, panels, playStatsCounters, playToolbarItems, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, skeletonBones, viewportTools } from "./contributions";
+import type { ContributionPoint as PluginContributionPoint } from "../../plugins/runtimeContext";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import { componentEditToggle } from "../componentEditToggle";
 import type { LoadComponent } from "./contributions";
@@ -86,6 +87,15 @@ const CONTRIBUTION_POINTS = {
   registerNameReferences: registryPoint(nameReferences),
   /** A Component's wireframe for other plugins' scene-view tools to draw (ADR 0295). */
   registerComponentWireframe: registryPoint(componentWireframes),
+  /** Read-only bone rows under scene nodes in the Hierarchy, with the Inspector's bone view (ADR 0373, 0242). */
+  registerSkeletonBones: registryPoint(skeletonBones),
+  /** What dropping files on a node's Hierarchy row does instead of adding them under it (ADR 0373: a clip on an Animator). */
+  registerNodeAssetDrop: registryPoint(nodeAssetDrops),
+  /**
+   * Add `value` to a contribution point another plugin's editor half owns (ADR 0137, as the runtime context's
+   * `contribute`): the Meshes plugin's model-drop augments (`modelNodeAugments`). Removed again on deactivation.
+   */
+  contribute: point<<T>(target: PluginContributionPoint<T>, value: T) => void>((_owner, target, value) => [target.register(value)]),
 };
 
 type ContextOf<P> = { [K in keyof P]: P[K] extends ContributionPoint<infer F> ? F : never };

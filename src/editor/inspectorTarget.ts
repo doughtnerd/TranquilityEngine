@@ -1,11 +1,12 @@
 // What the Inspector shows (ADR 0242), and the rule that keeps the selections behind it apart.
-// Three selections can take the Inspector: the scene's nodes (`selectedKeys`), the Assets panel's
-// entries (`selectedAssets`) and a UI document element (`selectedUIElement`, ADR 0077). Their
+// Four selections can take the Inspector: the scene's nodes (`selectedKeys`), the Assets panel's
+// entries (`selectedAssets`), a UI document element (`selectedUIElement`, ADR 0077) and a bone of a
+// node's Skeleton, a read-only Hierarchy row (ADR 0373's bone target, kept here as `selectedBone`). Their
 // signals stay where they are (state.ts, assetSelection.ts) as storage; every selection source
 // writes them through the functions here, which apply the rule, and `inspectorTarget` answers
 // what the Inspector shows. A live World of the running game (ADR 0022, 0124) is an overlay, not a
 // selection: while one is picked it wins (runtimeInspect.ts).
-import { batch, computed } from "@preact/signals";
+import { batch, computed, signal } from "@preact/signals";
 import type { GameObject } from "../engine";
 import { assetKind, folderOf } from "./assetBrowser";
 import { isSliceEntry, splitSliceEntry } from "./assetEntry";
@@ -25,6 +26,8 @@ export type InspectorTarget =
   | { readonly kind: "asset"; readonly path: string }
   /** An element of a UI document. */
   | { readonly kind: "uiElement"; readonly ref: UIElementRef }
+  /** A bone of the Skeleton on the node at `path` (ADR 0373), named by `bone`; `provider` is the contribution listing it (`registerSkeletonBones`). */
+  | { readonly kind: "bone"; readonly scene: OpenScene; readonly path: NodePath; readonly bone: string; readonly provider: string }
   /** The selected nodes that still exist (an undo may have removed some), active last. */
   | { readonly kind: "nodes"; readonly scene: OpenScene; readonly paths: readonly NodePath[] }
   /** Nothing selected: the open scene's settings. */
@@ -43,6 +46,15 @@ function inspectableAsset(entry: string): string | null {
 /** The asset a selection of Assets panel entries puts in the Inspector: the one entry's file, or null. */
 const assetOf = (entries: readonly string[]): string | null => (entries.length === 1 ? inspectableAsset(entries[0]) : null);
 
+/** The selected bone (ADR 0373): the scene it was picked in, its node's path key, its name and the contribution listing it. */
+interface BoneSelection {
+  readonly scene: OpenScene;
+  readonly key: string;
+  readonly bone: string;
+  readonly provider: string;
+}
+const selectedBone = signal<BoneSelection | null>(null);
+
 /** What the Inspector shows now. Tracks the selections, play mode and the open document. */
 export const inspectorTarget = computed<InspectorTarget>(() => {
   if (liveInspecting()) return { kind: "live", world: inspectedWorld.value!, node: liveSelection.value };
@@ -57,6 +69,11 @@ export const inspectorTarget = computed<InspectorTarget>(() => {
   docVersion.value; // an undo may remove selected nodes
   const scene = openScene.value;
   if (!scene) return { kind: "nothing" };
+  const bone = keys.length === 0 ? selectedBone.value : null;
+  if (bone && bone.scene === scene) {
+    const path = bone.key.split("/") as NodePath;
+    if (scene.doc.has(path[0]) && (path.length === 1 || findInner(scene.doc, path) !== null)) return { kind: "bone", scene, path, bone: bone.bone, provider: bone.provider };
+  }
   const paths = keys.map((k) => k.split("/") as NodePath).filter((p) => scene.doc.has(p[0]) && (p.length === 1 || findInner(scene.doc, p) !== null));
   return paths.length > 0 ? { kind: "nodes", scene, paths } : { kind: "sceneSettings", scene };
 });
@@ -72,6 +89,7 @@ export function select(keys: Iterable<string>, active?: string | null): void {
   const same = next.length === current.length && next.every((k, i) => k === current[i]);
   batch(() => {
     if (selectedUIElement.peek() !== null) selectedUIElement.value = null; // any node selection replaces a UI element's
+    if (selectedBone.peek() !== null) selectedBone.value = null; // and a bone's
     if (same) return;
     selectedKeys.value = next;
     if (next.length > 0 && selectedAssets.peek().length > 0) setPanelSelection([]);
@@ -89,6 +107,7 @@ export function selectAssets(entries: readonly string[], focus: string | null = 
     if (assetOf(entries) === null) return;
     if (selectedKeys.peek().length > 0) selectedKeys.value = [];
     if (selectedUIElement.peek() !== null) selectedUIElement.value = null;
+    if (selectedBone.peek() !== null) selectedBone.value = null;
   });
 }
 
@@ -106,7 +125,22 @@ export function selectUIElement(ref: UIElementRef | null): void {
   batch(() => {
     if (selectedKeys.peek().length > 0) selectedKeys.value = [];
     if (selectedAssets.peek().length > 0) setPanelSelection([]);
+    if (selectedBone.peek() !== null) selectedBone.value = null;
     selectedUIElement.value = ref ? uiRefKey(ref) : null;
+  });
+}
+
+/**
+ * Select the bone `bone` of the Skeleton on the node at `path` in `scene` (ADR 0373: a bone row of the Hierarchy, listed by
+ * the contribution `provider`). Clears the nodes, the Assets panel's entries and the UI element; selecting any of them
+ * clears the bone again.
+ */
+export function selectBone(scene: OpenScene, path: NodePath, bone: string, provider: string): void {
+  batch(() => {
+    if (selectedKeys.peek().length > 0) selectedKeys.value = [];
+    if (selectedAssets.peek().length > 0) setPanelSelection([]);
+    if (selectedUIElement.peek() !== null) selectedUIElement.value = null;
+    selectedBone.value = { scene, key: path.join("/"), bone, provider };
   });
 }
 

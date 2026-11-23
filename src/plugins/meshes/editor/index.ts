@@ -6,7 +6,7 @@
 // Both the model kind and the `.mtl` kind name the files they use in their own formats (ADR 0148).
 import { loadModel } from "../../../engine/scene/models";
 import { materialLibraryReferences, modelReferences } from "./modelReferences";
-import { disabledCamerasNote, modelNodeTemplates } from "./modelNodes";
+import { disabledCamerasNote, modelNodeTemplates, prepareModelNodes } from "./modelNodes";
 import { LargePreview, type EditorPlugin } from "../../../editor/sdk";
 import { meshesManifest } from "../manifest";
 import type { ComponentInfo } from "../../../engine/editor";
@@ -27,7 +27,7 @@ export const meshesEditorPlugin: EditorPlugin = {
       referencedAs: ["model", "mesh"],
       preview: "model",
       addToScene: {
-        prepare: (path) => loadModel(path).then(() => undefined),
+        prepare: prepareModelNodes,
         nodes: (path, position) => modelNodeTemplates(path, position),
         note: (_path, entries) => disabledCamerasNote(entries),
       },

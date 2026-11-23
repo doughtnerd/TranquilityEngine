@@ -12,7 +12,8 @@ import { isHidden, isLocked, nodeFlags, setHidden, setLocked } from "../nodeVisi
 import { instanceInnerNodes, type InnerNode } from "../prefabs";
 import { openPrefabFrom } from "../prefabTabs";
 import { ancestorKeys, combineSelection, rangeBetween } from "../selectionModel";
-import { select, selectUIElement, showSceneSettings } from "../inspectorTarget";
+import { inspectorTarget, select, selectBone, selectUIElement, showSceneSettings } from "../inspectorTarget";
+import { skeletonBones, type SkeletonBoneRow, type SkeletonBonesContribution } from "../sdk/contributions";
 import { docVersion, isSelected, openScene, selectedKeys, selectedUIElement, type OpenScene } from "../state";
 import { documentRows, resolveUIElement, rowAncestry, selectedUIRef, uiBuildVersion, watchUIDocumentBuilds, type UIDocumentRows, type UIElementRow } from "../uiDocuments";
 import { HIERARCHY_TREE, HierarchyMenu, openCreateMenu, openHierarchyMenu, openUIElementMenu, uiTreeKey } from "./HierarchyMenu";
@@ -36,6 +37,8 @@ class HierarchyView {
   readonly expanded = signal<ReadonlySet<string>>(new Set());
   /** UI document element rows the user opened (they start closed: a document can have hundreds). */
   readonly uiExpanded = signal<ReadonlySet<string>>(new Set());
+  /** Bone rows the user opened (ADR 0373: they start closed, a rig has dozens). */
+  readonly boneExpanded = signal<ReadonlySet<string>>(new Set());
   /** The search box text: words match names, `t:Type` component types (`hierarchyFilter.ts`). */
   readonly query = signal("");
   /** Where a Shift+click range starts: the last row clicked without Shift. */
@@ -68,7 +71,15 @@ function setMember(set: Signal<ReadonlySet<string>>, key: string, member: boolea
 
 /** True if a selected node is strictly inside the node at `key` (so its ancestors open up). */
 const selectionInside = (key: string) =>
-  selectedKeys.value.some((k) => k.startsWith(`${key}/`) || (k.includes("/") && !!openScene.value && ancestorKeys(openScene.value.doc, k).includes(key))) || uiSelectionUnder(key);
+  selectedKeys.value.some((k) => k.startsWith(`${key}/`) || (k.includes("/") && !!openScene.value && ancestorKeys(openScene.value.doc, k).includes(key))) || uiSelectionUnder(key) || boneSelectionUnder(key);
+
+/** True if the selected bone (ADR 0373) is on the node at `key` or below it. */
+function boneSelectionUnder(key: string): boolean {
+  const t = inspectorTarget.value, scene = openScene.value;
+  if (t.kind !== "bone" || !scene) return false;
+  const host = pathKey(t.path);
+  return host === key || host.startsWith(`${key}/`) || ancestorKeys(scene.doc, host).includes(key);
+}
 
 /** True if the selected UI element (ADR 0077) is in a document on the node at `key` or below it. */
 function uiSelectionUnder(key: string): boolean {
@@ -90,7 +101,7 @@ function uiDocumentsAt(view: HierarchyView, key: string): UIDocumentRows[] {
 /** A row picked by a click or an arrow key: it alone, Ctrl/Cmd toggles it, Shift selects the visible scene rows from the anchor (Ctrl+Shift adds them). */
 function selectRow(view: HierarchyView, key: string, how: TreeSelect): void {
   if (how.range) {
-    const order = how.visible.filter((k) => !k.startsWith(uiTreeKey("")));
+    const order = how.visible.filter((k) => !k.startsWith(uiTreeKey("")) && !k.startsWith(BONE_ROW));
     const range = rangeBetween(order, view.anchor ?? key, key);
     select(how.toggle ? combineSelection(selectedKeys.peek(), range, "add") : range, key);
     return;
@@ -218,14 +229,15 @@ function sceneNodeRow(view: HierarchyView, scene: OpenScene, id: string): TreeRo
     });
   }
   const children = doc.children(id);
+  const bones = boneRows(view, scene, id);
   return nodeRow(view, scene, {
     key: id,
     name: node.name ?? id,
     inactive: node.active === false,
-    expandable: children.length > 0 || ui.length > 0,
+    expandable: children.length > 0 || ui.length > 0 || bones.length > 0,
     open: !view.collapsed.value.has(id) || selectionInside(id) || (!!view.filter.value && children.some((c) => view.shown(c))),
     collapseSet: view.collapsed,
-    children: () => [...children.flatMap((c) => sceneNodeRow(view, scene, c) ?? []), ...uiDocumentRows(view, ui)],
+    children: () => [...bones, ...children.flatMap((c) => sceneNodeRow(view, scene, c) ?? []), ...uiDocumentRows(view, ui)],
   });
 }
 
@@ -234,17 +246,57 @@ function innerNodeRow(view: HierarchyView, scene: OpenScene, node: InnerNode): T
   const key = pathKey(node.path);
   if (!view.shown(key)) return null;
   const ui = uiDocumentsAt(view, key);
+  const bones = boneRows(view, scene, key);
   return nodeRow(view, scene, {
     key,
     name: node.name,
     inner: true,
     inactive: !node.active,
-    expandable: node.children.length > 0 || ui.length > 0,
+    expandable: node.children.length > 0 || ui.length > 0 || bones.length > 0,
     open: (node.prefab ? view.expanded.value.has(key) : !view.collapsed.value.has(key)) || selectionInside(key) || (!!view.filter.value && node.children.some((c) => view.shown(pathKey(c.path)))),
     ...(node.prefab ? { openSet: view.expanded } : { collapseSet: view.collapsed }),
     badge: node.prefab ? { text: prefabName(node.prefab), title: node.prefab, modified: false } : undefined,
-    children: () => [...node.children.flatMap((c) => innerNodeRow(view, scene, c) ?? []), ...uiDocumentRows(view, ui)],
+    children: () => [...bones, ...node.children.flatMap((c) => innerNodeRow(view, scene, c) ?? []), ...uiDocumentRows(view, ui)],
   });
+}
+
+/** Where bone rows' tree keys start (ADR 0373): they aren't nodes, so selection ranges and drops skip them. */
+const BONE_ROW = "bone:";
+
+/**
+ * The bone rows under the node at `key` (ADR 0373): read-only rows the plugins' `registerSkeletonBones` list from the
+ * node's skeleton asset, each closed until opened (or until a bone under it is selected). None while searching.
+ */
+function boneRows(view: HierarchyView, scene: OpenScene, key: string): TreeRow[] {
+  if (view.filter.value) return [];
+  const path = key.split("/");
+  return skeletonBones.list().flatMap((c) => c.bones(scene, path).map((b) => boneRow(view, scene, c, path, `${BONE_ROW}${c.id}:${key}`, b)));
+}
+
+function boneRow(view: HierarchyView, scene: OpenScene, provider: SkeletonBonesContribution, path: readonly string[], parentKey: string, bone: SkeletonBoneRow): TreeRow {
+  const key = `${parentKey}>${bone.name}`;
+  const t = inspectorTarget.value;
+  const selectedHere = t.kind === "bone" && t.provider === provider.id && pathKey(t.path) === path.join("/") ? t.bone : null;
+  const holdsSelected = (b: SkeletonBoneRow): boolean => b.children.some((c) => c.name === selectedHere || holdsSelected(c));
+  const open = view.boneExpanded.value.has(key) || (selectedHere !== null && holdsSelected(bone));
+  return {
+    key,
+    label: bone.name,
+    expandable: bone.children.length > 0,
+    open,
+    children: open ? bone.children.map((c) => boneRow(view, scene, provider, path, key, c)) : undefined,
+    selected: selectedHere === bone.name,
+    className: "bone-row",
+    attrs: { "data-bone": bone.name },
+    title: `Bone ${bone.name} of the skeleton: read from the skeleton asset, not saved in the scene. Select it to see its pose and add a BoneAttachment.`,
+    icon: (
+      <span class="bone-row-icon" aria-hidden="true">
+        ⟡
+      </span>
+    ),
+    setOpen: (on) => setMember(view.boneExpanded, key, on),
+    select: () => selectBone(scene, [...path], bone.name, provider.id),
+  };
 }
 
 interface NodeRowSpec {
