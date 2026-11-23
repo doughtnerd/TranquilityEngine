@@ -221,13 +221,13 @@ describe("joints in scene files (ADR 0092)", () => {
 });
 
 describe("ball joint limits (ADR 0092)", () => {
-  it("swingLimit stops a ball-jointed pendulum from swinging further off its axis", async () => {
+  it("swing stops a ball-jointed pendulum from swinging further off its axis", async () => {
     const engine = await setup("3d");
     // Hanging sideways from (0, 5, 0): the free one falls to straight down, the limited one stops near 20°.
     const free = body3("free", 1, 5);
     free.addBehavior(BallJoint).anchor.set(-1, 0, 0);
     const limited = body3("limited", 1, 0);
-    const j = limited.addBehavior(BallJoint, { useLimits: true, swingLimit: 20, twistLimits: { min: -5, max: 5 } });
+    const j = limited.addBehavior(BallJoint, { useLimits: true, swing: { y: 20, z: 20 }, twistLimits: { min: -5, max: 5 } });
     j.anchor.set(-1, 0, 0);
     steps(engine, 120);
     expect(pos(free).y).toBeLessThan(4.3);

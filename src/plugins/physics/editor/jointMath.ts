@@ -86,6 +86,42 @@ export interface JointShape {
   ref?: V3;
   /** Degrees for hinges, units for sliders; null or missing when limits are off. */
   limits?: { min: number; max: number } | null;
+  /**
+   * A ball joint's ranges while limits are on (`axis` is its twist axis): twist degrees about `axis`, swing degrees
+   * about the joint frame's y and z axes (`frameY`, `frameZ`: unit vectors in world space, perpendicular to `axis`).
+   */
+  ball?: { twist: { min: number; max: number }; swing: { y: number; z: number }; frameY: V3; frameZ: V3 } | null;
+}
+
+/** The segments an elliptical swing cone's rim is drawn with. */
+const CONE_SEGMENTS = 32;
+/** Swing angles are drawn up to this many degrees: a cone is open at 90°. */
+const MAX_SWING_DRAWN = 89;
+/** The twist arc's radius, inside the cone's. */
+const TWIST_RADIUS = ARC_RADIUS * 0.6;
+
+/**
+ * The unit direction on the swing cone's rim at parameter `t` (radians). The cone is elliptical: `swing.y` degrees
+ * about the frame's y axis tip the twist axis towards the frame's z direction, `swing.z` about z tip it towards y.
+ * The rim is exact on both axes and the ellipse of the tangent plane between them.
+ */
+export function swingRimDirection(axis: readonly number[], frameY: readonly number[], frameZ: readonly number[], swing: { y: number; z: number }, t: number): V3 {
+  const ty = Math.tan(Math.min(Math.abs(swing.z), MAX_SWING_DRAWN) * DEG), tz = Math.tan(Math.min(Math.abs(swing.y), MAX_SWING_DRAWN) * DEG);
+  return normalize(add(add(normalize(axis), mul(frameY, ty * Math.cos(t))), mul(frameZ, tz * Math.sin(t))));
+}
+
+/** A ball joint's limits: the swing cone's rim with a spoke to each end of its two axes, and the twist arc with a radius to each end. */
+function ballWire(anchor: V3, axis: V3, ball: NonNullable<JointShape["ball"]>): V3[][] {
+  const wire: V3[][] = [];
+  const rim = Array.from({ length: CONE_SEGMENTS + 1 }, (_, i) => add(anchor, mul(swingRimDirection(axis, ball.frameY, ball.frameZ, ball.swing, (i / CONE_SEGMENTS) * 2 * Math.PI), ARC_RADIUS)));
+  wire.push(rim);
+  for (let k = 0; k < 4; k++) wire.push([anchor, rim[(k * CONE_SEGMENTS) / 4]!]);
+  const { min, max } = ball.twist;
+  if (Number.isFinite(min) && Number.isFinite(max) && max !== min) {
+    wire.push(arcPoints(anchor, axis, ball.frameY, min, max, TWIST_RADIUS));
+    for (const deg of [min, max]) wire.push([anchor, add(anchor, mul(rotateAround(ball.frameY, axis, deg), TWIST_RADIUS))]);
+  }
+  return wire;
 }
 
 /** Whether two points are apart enough to draw a line between them. */
@@ -112,6 +148,8 @@ export function jointWire(shape: JointShape): V3[][] {
       const ends = [l.min, l.max].map((deg) => add(anchor, mul(rotateAround(normalize(ref), axis, deg), ARC_RADIUS)));
       for (const end of ends) wire.push([anchor, end]);
     }
+  } else if (shape.kind === "ball" && axis && shape.ball) {
+    wire.push(...ballWire(anchor, axis, shape.ball));
   } else if (shape.kind === "slider" && axis) {
     const l = shape.limits;
     const lo = l ? Math.min(l.min, l.max) : -AXIS_LENGTH / 2, hi = l ? Math.max(l.min, l.max) : AXIS_LENGTH / 2;

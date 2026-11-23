@@ -176,6 +176,8 @@ export {
   type ShapeCastHit,
   type CollisionFlags,
   type ControllerColliderHit,
+  type BallDrive,
+  type BallSwing,
   type JointKind,
   type JointLimits,
   type JointMotor,

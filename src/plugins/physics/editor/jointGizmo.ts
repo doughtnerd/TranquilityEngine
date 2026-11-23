@@ -6,10 +6,12 @@
 // What a joint is and where its anchors are come from the joint class itself (`_jointFields`, `_worldAnchors`,
 // ADR 0305), as the physics worlds build it; 2D axes turn and mirror with the node's 2D frame (ADR 0301).
 import { GameObject, type Engine } from "../../../engine";
+import { Quat, Vector3 } from "../../../engine/core/math";
 import { Joint, Joint2D } from "../runtime";
+import { fromXTo } from "../runtime/jointFrame";
 import type { EditorOverlay } from "../../../engine/editor";
 import { frame2DOf, frameDirection } from "../../../engine/scene/frame2d";
-import { jointWire, type JointShape } from "./jointMath";
+import { jointWire, type JointShape, type V3 } from "./jointMath";
 import { type ViewportToolContribution, editor, shapeKit3d } from "../../../editor/sdk";
 
 const { pose3DOf, rotate } = shapeKit3d;
@@ -25,6 +27,16 @@ function joint3DShape(j: Joint): JointShape | null {
   if (fields.kind === "hinge" || fields.kind === "slider") {
     shape.axis = rotate(pose3DOf(j.node).rotation, fields.axis);
     shape.limits = fields.limits;
+  }
+  if (fields.kind === "ball") {
+    const axis = rotate(pose3DOf(j.node).rotation, fields.axis);
+    shape.axis = axis;
+    if (fields.limits) {
+      // The joint's frame, as the physics world builds it: the shortest turn of x onto the twist axis carries y and z.
+      const frame = fromXTo(new Vector3(...axis).normalize());
+      const turn = (v: V3): V3 => Quat.rotate(frame, new Vector3(...v)).toArray() as V3;
+      shape.ball = { twist: fields.limits.twist, swing: fields.limits.swing, frameY: turn([0, 1, 0]), frameZ: turn([0, 0, 1]) };
+    }
   }
   return shape;
 }

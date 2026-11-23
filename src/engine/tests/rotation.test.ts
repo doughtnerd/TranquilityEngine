@@ -192,7 +192,7 @@ describe("scene format 3: quaternion rotations (ADR 0163)", () => {
 
   it("converts every version 2 Transform rotation to the quaternion it meant", () => {
     const out = migrateSceneFile(structuredClone(v2)); // through format 4 (mirrored): undo the mirror to compare
-    expect(out.format).toBe("myco.scene@4");
+    expect(out.format).toBe("myco.scene@5");
     const unmirror = (q: number[]) => [-q[0] + 0, -q[1] + 0, q[2], q[3]];
     for (const n of out.nodes) for (const c of n.components ?? []) if (Array.isArray(c.data?.rotation)) c.data!.rotation = unmirror(c.data!.rotation as number[]);
     for (const o of out.nodes[3].overrides!) {
@@ -215,7 +215,7 @@ describe("scene format 3: quaternion rotations (ADR 0163)", () => {
   });
 
   it("loads a version 2 scene mirrored into Unity's coordinates", async () => {
-    await Engine.create({ headless: true, assets: Assets.fromObject({ "old.json": v2, "p.json": { format: "myco.scene@4", nodes: [{ id: "r" }] } }) });
+    await Engine.create({ headless: true, assets: Assets.fromObject({ "old.json": v2, "p.json": { format: "myco.scene@5", nodes: [{ id: "r" }] } }) });
     const scene = await SceneManager.load("old.json");
     const a = scene.find("A")!;
     const old = legacyXYZ(10, 20, 30);
@@ -276,7 +276,7 @@ describe("scene format 4: Unity's coordinates (ADR 0164)", () => {
   });
 
   it("reads hand-written Euler rotations in scene files as degrees", async () => {
-    await Engine.create({ headless: true, assets: Assets.fromObject({ "s.json": { format: "myco.scene@4", nodes: [{ id: "n", name: "N", components: [{ type: "engine.Transform", data: { rotation: [0, 90, 0] } }] }, { id: "m", name: "M", components: [{ type: "engine.Transform", data: { rotation: 45 } }] }] } }) });
+    await Engine.create({ headless: true, assets: Assets.fromObject({ "s.json": { format: "myco.scene@5", nodes: [{ id: "n", name: "N", components: [{ type: "engine.Transform", data: { rotation: [0, 90, 0] } }] }, { id: "m", name: "M", components: [{ type: "engine.Transform", data: { rotation: 45 } }] }] } }) });
     const scene = await SceneManager.load("s.json");
     expectSameRotation(scene.find("N")!.transform!.rotation, Quaternion.rotateY(Math.PI / 2), 6);
     expect(scene.find("M")!.transform!.rotation2D).toBeCloseTo(Math.PI / 4, 6);

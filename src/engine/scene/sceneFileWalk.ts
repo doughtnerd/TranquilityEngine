@@ -15,7 +15,20 @@ import type { ComponentEntry, NodeEntry, OverrideEntry, SceneFile } from "./Scen
 /** Returned by a field rule to drop the value: a component field goes back to its default, an override goes (the prefab's value shows again). */
 export const REMOVE_FIELD: unique symbol = Symbol("REMOVE_FIELD");
 
-/** A rule over one field value: the same value to keep it, a new value, or `REMOVE_FIELD`. */
+/** What a field rule returns to move a value to another field of the same component, with a new value. */
+export interface FieldRename {
+  readonly renameTo: string;
+  readonly value: unknown;
+}
+
+/** A field rule's answer that renames: the value moves to the field `to` (an existing `to` in a component's data wins). */
+export function renameField(to: string, value: unknown): FieldRename {
+  return { renameTo: to, value };
+}
+
+const isRename = (v: unknown): v is FieldRename => typeof v === "object" && v !== null && "renameTo" in v && Object.keys(v).length === 2;
+
+/** A rule over one field value: the same value to keep it, a new value, `renameField(...)`, or `REMOVE_FIELD`. */
 export type FieldRule = (component: string, field: string, value: unknown) => unknown;
 
 export interface SceneFileRule {
@@ -71,7 +84,10 @@ function mapComponent(c: ComponentEntry, rule: SceneFileRule): ComponentEntry {
     if (next === value) continue;
     data ??= { ...c.data };
     if (next === REMOVE_FIELD) delete data[name];
-    else data[name] = next;
+    else if (isRename(next)) {
+      delete data[name];
+      if (!(next.renameTo in c.data)) data[next.renameTo] = next.value;
+    } else data[name] = next;
   }
   return data ? { ...c, data } : c;
 }
@@ -81,7 +97,8 @@ function mapOverride(o: OverrideEntry, rule: SceneFileRule): OverrideEntry | und
   if (rule.field && o.component && o.field && "value" in o) {
     const value = rule.field(o.component, o.field, o.value);
     if (value === REMOVE_FIELD) return undefined;
-    if (value !== o.value) out = { ...out, value };
+    if (isRename(value)) out = { ...out, field: value.renameTo, value: value.value };
+    else if (value !== o.value) out = { ...out, value };
   }
   if (o.addComponent) {
     const addComponent = mapComponent(o.addComponent, rule);

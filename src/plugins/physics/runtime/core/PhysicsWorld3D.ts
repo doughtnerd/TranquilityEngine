@@ -16,6 +16,7 @@ import type { BackendRayInto, CharacterSettings, Dim3, PhysicsWorld3DBackend, Jo
 import { CharacterController, type ControllerColliderHit } from "../CharacterController";
 import { Collider } from "../Collider";
 import { AxisJoint, BallJoint, Joint } from "../Joint";
+import { fromXTo } from "../jointFrame";
 import { RigidBody } from "../RigidBody";
 import { CollisionEvents, TriggerEvents } from "../systems3d";
 import { bodyInertia, bodyMass } from "../bodyCommands";
@@ -44,13 +45,10 @@ const plain = (q: QuatLike): Q => ({ x: q.x, y: q.y, z: q.z, w: q.w });
 const quat = (q: Q): Quaternion => new Quaternion(q.x, q.y, q.z, q.w);
 const v3 = (v: { x: number; y: number; z: number }): Vec3 => ({ x: v.x, y: v.y, z: v.z });
 
-/** The shortest turn taking the x axis onto unit vector `v`. */
-function fromXTo(v: Vector3): Quaternion {
-  const d = v.x;
-  if (d < -0.999999) return new Quaternion(0, 1, 0, 0); // half a turn around y
-  const q = new Quaternion(0, -v.z, v.y, 1 + d); // cross((1,0,0), v), 1 + dot
+/** A drive target as a unit quaternion (a zero or non-finite one is the identity). */
+function unitQuat(q: Q): Q {
   const len = Math.hypot(q.x, q.y, q.z, q.w);
-  return new Quaternion(q.x / len, q.y / len, q.z / len, q.w / len);
+  return len > 1e-9 && Number.isFinite(len) ? { x: q.x / len, y: q.y / len, z: q.z / len, w: q.w / len } : { x: 0, y: 0, z: 0, w: 1 };
 }
 
 /** @internal One World's 3D physics: the shared core over a 3D backend. */
@@ -300,9 +298,16 @@ export class PhysicsWorld3D extends PhysicsCore<Dim3, Types3D> {
 
   protected jointSettings(j: Joint): JointSettings | null {
     if (j instanceof BallJoint) {
-      if (!j.useLimits) return null;
-      const t = j.twistLimits ?? { min: 0, max: 0 };
-      return { limits: null, motor: null, spring: null, cone: { twist: [Math.min(t.min, t.max) * DEG2RAD, Math.max(t.min, t.max) * DEG2RAD], swing: Math.abs(j.swingLimit) * DEG2RAD } };
+      const f = j._jointFields();
+      if (f.kind !== "ball") return null;
+      const l = f.limits, d = f.drive;
+      return {
+        limits: null,
+        motor: null,
+        spring: null,
+        cone: l ? { twist: [l.twist.min * DEG2RAD, l.twist.max * DEG2RAD], swing: [l.swing.y * DEG2RAD, l.swing.z * DEG2RAD] } : null,
+        drive: d ? { rotation: unitQuat(d.targetRotation), stiffness: Math.max(d.stiffness, 0), damping: Math.max(d.damping, 0), maxForce: Math.max(d.maxForce, 0) } : null,
+      };
     }
     if (!(j instanceof AxisJoint)) return null;
     const k = j.jointKind === "hinge" ? DEG2RAD : 1;

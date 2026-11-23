@@ -9,8 +9,8 @@ import { RigidBody } from "./RigidBody";
 import { attachedBody } from "./attachedBody";
 
 import { Mat4 } from "../../../engine/core/math";
-import { isDistanceJoint, type JointKind, type JointLimits, type JointMotor, type JointSpring } from "../../../engine/physics/types";
-export type { JointKind, JointLimits, JointMotor, JointSpring };
+import { isDistanceJoint, type BallDrive, type BallSwing, type JointKind, type JointLimits, type JointMotor, type JointSpring } from "../../../engine/physics/types";
+export type { BallDrive, BallSwing, JointKind, JointLimits, JointMotor, JointSpring };
 
 type V3 = [number, number, number];
 
@@ -23,9 +23,15 @@ type V3 = [number, number, number];
 export type JointFields3D =
   | { readonly kind: "fixed" }
   | { readonly kind: "hinge" | "slider"; readonly axis: V3; readonly limits: JointLimits | null }
-  | { readonly kind: "ball"; readonly axis: V3 }
+  | { readonly kind: "ball"; readonly axis: V3; readonly limits: BallLimits | null; readonly drive: BallDrive | null }
   | { readonly kind: "rope"; readonly length: number | null }
   | { readonly kind: "spring"; readonly length: number | null; readonly stiffness: number; readonly damping: number };
+
+/** @internal A ball joint's ranges while `useLimits` is on: twist about its axis, swing about the frame's y and z (degrees). */
+export interface BallLimits {
+  readonly twist: JointLimits;
+  readonly swing: BallSwing;
+}
 
 /** @internal A joint's two anchors in world space; `connected` null is the same point as `anchor`. */
 export interface JointAnchors3D {
@@ -134,7 +140,8 @@ export abstract class AxisJoint extends Joint {
   @field(PlainObject) motor: JointMotor = { targetVelocity: 0, force: 10 };
   /** Ignored while `useMotor` is on. */
   @field(Boolean) useSpring = false;
-  @field(PlainObject) spring: JointSpring = { spring: 10, damper: 1, targetPosition: 0 };
+  /** `targetPosition` changes a live joint without rebuilding it, so a clip may drive it (D86). */
+  @field(PlainObject, { animatable: ["targetPosition"] }) spring: JointSpring = { spring: 10, damper: 1, targetPosition: 0 };
 
   override _settingsSignature(): string {
     const l = this.limits, m = this.motor, s = this.spring;
@@ -172,9 +179,11 @@ export class SliderJoint extends AxisJoint {
 }
 
 /**
- * Keeps the anchors together but lets the body turn around them, like a shoulder. With `useLimits`,
- * it twists around `axis` only between `twistLimits` (degrees) and swings off it at most
- * `swingLimit` degrees around each of the two axes across it (a four-sided limit, not a round cone).
+ * Keeps the anchors together but lets the body turn around them, like a shoulder. With `useLimits`, it
+ * twists around `axis` only between `twistLimits` (degrees) and swings off it at most `swing.y` degrees around
+ * the joint frame's y axis and `swing.z` around its z axis (the frame's x axis is `axis`; y and z are the world
+ * axes carried by the shortest turn onto it): an elliptical cone, round when the two are equal. With
+ * `useDrive`, a spring turns the body towards `drive.targetRotation` (see `BallDrive`).
  */
 @component("engine.BallJoint")
 export class BallJoint extends Joint {
@@ -182,10 +191,22 @@ export class BallJoint extends Joint {
   @field(Vector3, { animatable: false }) axis = new Vector3(1, 0, 0);
   @field(Boolean, { animatable: false }) useLimits = false;
   @field(PlainObject) twistLimits: JointLimits = { min: -45, max: 45 };
-  @field(Number) swingLimit = 45;
+  /** Swing half-angles (degrees) around the frame's y and z axes. A scene's old scalar `swingLimit: s` loads as `{ y: s, z: s }`. */
+  @field(PlainObject) swing: BallSwing = { y: 45, z: 45 };
+  /** Turn the body towards `drive.targetRotation`. */
+  @field(Boolean) useDrive = false;
+  /** Its target, stiffness, damping and force limit change a live joint without rebuilding it, so a clip may drive them (D86). */
+  @field(PlainObject, { animatable: ["targetRotation", "stiffness", "damping", "maxForce"] })
+  drive: BallDrive = { targetRotation: { x: 0, y: 0, z: 0, w: 1 }, stiffness: 100, damping: 10, maxForce: 1000 };
 
   override _jointFields(): JointFields3D {
-    return { kind: "ball", axis: [this.axis.x, this.axis.y, this.axis.z] };
+    const t = this.twistLimits ?? { min: 0, max: 0 }, s = this.swing ?? { y: 0, z: 0 };
+    return {
+      kind: "ball",
+      axis: [this.axis.x, this.axis.y, this.axis.z],
+      limits: this.useLimits ? { twist: { min: Math.min(t.min, t.max), max: Math.max(t.min, t.max) }, swing: { y: Math.abs(s.y), z: Math.abs(s.z) } } : null,
+      drive: this.useDrive && this.drive ? this.drive : null,
+    };
   }
 
   override _jointSignature(): string {
@@ -193,7 +214,8 @@ export class BallJoint extends Joint {
   }
 
   override _settingsSignature(): string {
-    return [this.twistLimits?.min, this.twistLimits?.max, this.swingLimit].join("|");
+    const t = this.twistLimits, s = this.swing, d = this.drive, q = d?.targetRotation;
+    return [t?.min, t?.max, s?.y, s?.z, this.useDrive, q?.x, q?.y, q?.z, q?.w, d?.stiffness, d?.damping, d?.maxForce].join("|");
   }
 }
 
