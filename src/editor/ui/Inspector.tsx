@@ -19,6 +19,7 @@ import {
   type WorldsSetting,
 } from "../inspectorEdits";
 import "./inspector-fields.css";
+import { useDraftText } from "./draftText";
 import { FieldRows, TextInput } from "./fieldRows";
 import { documentFieldTarget } from "../fieldTarget";
 import {
@@ -48,7 +49,7 @@ import { RuntimeInspector } from "./RuntimeInspector";
 import { UIElementInspector } from "./UIElementInspector";
 import { openScript } from "../code/codeBuffers";
 import { scriptFor } from "../code/codeState";
-import { applyPrefabOverrides, createPrefabFrom, nodeHeader, openPrefabOf, prefabActions, renameNode, revertAllOverrides, revertNameAndActive, setNodesActive } from "../nodeEdits";
+import { applyPrefabOverrides, createPrefabFrom, nodeHeader, openPrefabOf, prefabActions, renameNode, renameNodeId, revertAllOverrides, revertNameAndActive, setNodesActive } from "../nodeEdits";
 import { currentProject, docVersion, scriptsVersion, status, type OpenScene } from "../state";
 import { componentHeaderActions, skeletonBones, type BoneInspectorProps, type ComponentHeaderActionContribution, type SkeletonBonesContribution } from "../sdk/contributions";
 import { lazyComponent, type LazyComponent } from "./lazy";
@@ -143,7 +144,7 @@ function NodeInspector(props: { scene: OpenScene; path: NodePath }) {
         </div>
         <dl class="node-meta">
           <dt>Id</dt>
-          <dd>{key}</dd>
+          <dd>{inner ? key : <NodeIdField scene={scene} id={id} />}</dd>
           {entry.prefab && (
             <>
               <dt>{inner ? "Inside" : "Prefab"}</dt>
@@ -238,6 +239,26 @@ function SceneSettings(props: { scene: OpenScene }) {
         </div>
       </section>
     </div>
+  );
+}
+
+/** A top-level node's id, editable: commits on Enter or blur, reverts on Escape; a refused id shows why under the field. */
+function NodeIdField(props: { scene: OpenScene; id: string }) {
+  const { scene, id } = props;
+  const [error, setError] = useState<string | null>(null);
+  const { input } = useDraftText(id, (draft) => {
+    if (draft === id) return setError(null);
+    setError(renameNodeId(scene, id, draft));
+  });
+  return (
+    <>
+      <input type="text" class={`node-id${error ? " invalid" : ""}`} aria-label="Id" aria-invalid={error ? true : undefined} aria-describedby={error ? "node-id-error" : undefined} {...input} />
+      {error && (
+        <div id="node-id-error" class="node-id-error" role="alert">
+          {error}
+        </div>
+      )}
+    </>
   );
 }
 

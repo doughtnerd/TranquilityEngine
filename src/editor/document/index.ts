@@ -30,4 +30,4 @@ export { TextHistory } from "./TextHistory";
 export { applyPatch, changesBetween, diffFiles, hashFile, hashText, type DocPatch } from "./patch";
 export { WorldSync } from "./WorldSync";
 export { RevertOverrides, SetOverrides } from "./prefabCommands";
-export { SetComponentWorlds, SetTags } from "./nodeCommands";
+export { RenameNodeId, SetComponentWorlds, SetTags } from "./nodeCommands";

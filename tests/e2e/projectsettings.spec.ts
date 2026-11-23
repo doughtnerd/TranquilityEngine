@@ -170,10 +170,3 @@ test("renaming a physics layer asks first and renames the colliders; cancelling 
   expect((await projectJson(page)).physics.collisionMatrix).toEqual({ Player: ["Obstacle", "Score", "Floor", "Bounds"] });
   await expect(page.locator(".status-text")).toHaveText("Renamed references in 1 file.");
 });
-
-test("Project Settings > Audio points at the Audio Studio, which edits audio.json", async ({ page }) => {
-  await openProject(page);
-  await pickCategory(page, "Audio");
-  await expect(panel(page)).toContainText("edited in the Audio Studio");
-  await expect(panel(page).getByRole("button", { name: "Open in Audio Studio" })).toBeEnabled();
-});

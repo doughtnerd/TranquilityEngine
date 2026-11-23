@@ -291,6 +291,9 @@ button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px
 .node-meta { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; margin: 0 0 10px; font-size: calc(12px * var(--ui-scale)); }
 .node-meta dt { color: var(--muted); }
 .node-meta dd { margin: 0; overflow-wrap: anywhere; }
+.node-meta input.node-id { width: 100%; min-width: 0; box-sizing: border-box; }
+.node-meta input.node-id.invalid { border-color: var(--danger); }
+.node-id-error { margin-top: 2px; color: var(--danger); }
 .component { border-top: 1px solid var(--border); padding: 8px 0; }
 .component h3 { display: flex; align-items: center; gap: 6px; margin: 0 0 6px; font-size: calc(12px * var(--ui-scale)); font-weight: 600; }
 .fields { display: grid; grid-template-columns: minmax(90px, 40%) 1fr; gap: 4px 8px; align-items: center; font-size: calc(12px * var(--ui-scale)); }
