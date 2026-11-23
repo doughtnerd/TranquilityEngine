@@ -43,11 +43,19 @@ export function NewGlobalParameterDialog(props: NewGlobalParameterDialogProps) {
   );
 }
 
-const asked = signal<{ host: GlobalParametersHost; kind?: NewParameterKind; then(name: string): void } | null>(null);
+const asked = signal<{ host: GlobalParametersHost; kind?: NewParameterKind; then(name: string): void; cancelled?(): void } | null>(null);
 
-/** Open the dialog from code; `then` runs with the new parameter's name once it is added. */
-export function askNewGlobalParameter(host: GlobalParametersHost, then: (name: string) => void, kind?: NewParameterKind): void {
-  asked.value = { host, kind, then };
+/** Open the dialog from code; `then` runs with the new parameter's name once it is added, `cancelled` if it isn't. */
+export function askNewGlobalParameter(host: GlobalParametersHost, then: (name: string) => void, kind?: NewParameterKind, cancelled?: () => void): void {
+  asked.peek()?.cancelled?.();
+  asked.value = { host, kind, then, cancelled };
+}
+
+/** The same as a promise of the new parameter (null: cancelled), for the curve editor's "+ New parameter…". */
+export function newGlobalParameter(host: GlobalParametersHost, kind?: NewParameterKind): Promise<ParameterDef | null> {
+  return new Promise((resolve) =>
+    askNewGlobalParameter(host, (name) => resolve(host.project.peek().parameters.find((p) => p.name === name) ?? null), kind, () => resolve(null)),
+  );
 }
 
 /** Mounted once by a screen that calls `askNewGlobalParameter`. */
@@ -58,7 +66,10 @@ export function NewGlobalParameterHost() {
     <NewGlobalParameterDialog
       host={a.host}
       kind={a.kind}
-      onCancel={() => (asked.value = null)}
+      onCancel={() => {
+        asked.value = null;
+        a.cancelled?.();
+      }}
       onCreated={(name) => {
         asked.value = null;
         a.then(name);

@@ -131,4 +131,30 @@ function FieldDemo() {
   );
 }
 
+/**
+ * UI pass J6.5: with no game parameters yet, "Driven by" still shows (time only) and ends with "+ New parameter…"; the
+ * owner makes one (here at once) and the curve is driven by it.
+ */
+export const NewParameterInput: StoryObj = {
+  render: () => (
+    <Demo
+      kind="time"
+      target="Brake"
+      timeName="Clip time"
+      length={2.4}
+      lanes={[lowpass]}
+      newInput={() => Promise.resolve({ id: "param:speed", name: "speed", min: 0, max: 200 })}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const driven = c.getByRole("combobox", { name: /Driven by/ }) as HTMLSelectElement;
+    await expect([...driven.options].map((o) => o.textContent)).toEqual(["Clip time", "+ New parameter…"]);
+    await userEvent.selectOptions(driven, "+ New parameter…");
+    await expect(driven).toHaveDisplayValue("speed");
+    await userEvent.click(c.getByRole("button", { name: "Apply" }));
+    await expect(c.getByRole("status", { name: "Result" }).textContent).toContain('"input": "param:speed"');
+  },
+};
+
 export const InlineField: StoryObj = { render: () => <FieldDemo /> };
