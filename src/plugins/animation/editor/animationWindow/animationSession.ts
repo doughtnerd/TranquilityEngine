@@ -25,6 +25,7 @@ import {
   type NodePath,
   type OpenScene,
 } from "../../../../editor/sdk";
+import { storedFieldValue } from "../../../../editor/componentField";
 import { Animator } from "../../runtime/components/Animator";
 import { ClipPlayhead } from "../scene/clipPreviewLogic";
 import { findTrack, type KeyClipboard } from "./clipEditLogic";
@@ -129,6 +130,7 @@ class AnimationSession {
   seek(t: number): void {
     const clip = this.document.peek()?.value.peek();
     const rate = clip?.rate ?? 30;
+    if (clip) this.playhead.setTiming({ duration: clip.duration, looping: this.loop.peek(), known: true });
     this.playhead.seek(Math.round(t * rate) / rate);
   }
 
@@ -234,7 +236,10 @@ export const recordInterceptor: FieldWriteInterceptorContribution = {
     entry.label = rec.label;
     if (place) {
       const key = `${w.path.join("/")}|${w.type}|${w.index}|${w.field}`;
-      if (!entry.restore.has(key)) entry.restore.set(key, () => void (w.stored !== undefined && editor.scene.writeField(place, w.field, w.stored)));
+      if (!entry.restore.has(key)) {
+        const shown = storedFieldValue(place, w.field) ?? w.stored; // what the viewport shows before the drag
+        entry.restore.set(key, () => void (shown !== undefined && editor.scene.writeField(place, w.field, shown)));
+      }
       editor.scene.writeField(place, w.field, w.value); // the viewport follows the drag
     }
     pending.set(w.gesture, entry);
