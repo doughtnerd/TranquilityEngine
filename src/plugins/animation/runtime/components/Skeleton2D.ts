@@ -12,6 +12,11 @@ export class Skeleton2D extends Component {
   @field(AssetRef, { kind: "sprite", animatable: false, description: "The image slice whose skin declares the bones." })
   bones = "";
 
+  /** @internal Loads its bones in a scene being edited too, so an editor preview can pose them (ADR 0026, D135). */
+  override get _activatesInEditMode(): boolean {
+    return true;
+  }
+
   override _onAttach(): void {
     skeleton2DHooks.attach?.(this);
   }

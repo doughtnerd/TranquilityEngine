@@ -47,6 +47,11 @@ export class TimelineDirector extends Component {
     timeline.stopTimeline(this);
   }
 
+  /** @internal Activates in a scene being edited, inert until an editor preview drives it (ADR 0026, D135; `features/timeline.ts`). */
+  override get _activatesInEditMode(): boolean {
+    return true;
+  }
+
   override _onAttach(): void {
     timeline.timelineHooks.attach?.(this);
   }

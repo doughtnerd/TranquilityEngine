@@ -23,6 +23,11 @@
 //   `graphInstanceHooks.unbound` hears when it goes; everything else (binding, rebinding, plays ending) is the same.
 //   A clip no file holds (an image flipbook, `image.png#Flip/<name>`) is made on the host (`subAssetClips.ts`).
 // - **BoneAttachment:** joins its World's follow list (`attachments/follow.ts`) while active.
+// - **Edit mode** (ADR 0026, D135): inside a scene being edited, Animators, Skeletons and Skeleton2Ds activate (they opt in
+//   with `_activatesInEditMode`) but an Animator stays inert: no instance, no `defaultClip`, no graph, so nothing moves
+//   and the skinned mesh keeps its bind pose. An editor preview (`editPreview.ts`) asks for an instance with
+//   `setAnimatorPreview`: always the implicit graph's (a `graph` doesn't run), with nothing played until the preview
+//   plays; ending the preview destroys it again, so the pose goes back to rest. Skeletons load as usual (no motion).
 import type { Component } from "../../../../engine/core/Component";
 import type { World } from "../../../../engine/core/World";
 import type { GameObject } from "../../../../engine/scene/GameObject";
@@ -89,6 +94,8 @@ export interface AnimatorRuntime {
   evaluated: boolean;
   /** Bumps each time the instance's matrices may have changed (`skinningVersion`). */
   version: number;
+  /** An editor preview wants an instance although the Animator is in edit mode (`setAnimatorPreview`). */
+  previewing: boolean;
   /** This frame's visibility and whether the culling mode froze the pose (gather). */
   visible: boolean;
   frozen: boolean;
@@ -282,12 +289,27 @@ function bindAnimatorsAbove(s: SkeletonRuntime): void {
   }
 }
 
+/** @internal Whether `rt`'s Animator is inside a scene being edited (ADR 0026): it plays nothing by itself there. */
+export function inEditMode(rt: AnimatorRuntime): boolean {
+  return rt.animator.node.isValid && rt.world.inEditMode(rt.animator.node.entity);
+}
+
+/** In edit mode without a preview, an Animator has no instance (see the file header). */
+function inert(rt: AnimatorRuntime): boolean {
+  return !rt.previewing && inEditMode(rt);
+}
+
+/** Queues `defaultClip` on an Animator without a graph, outside edit mode. */
+function playDefaultClip(rt: AnimatorRuntime): void {
+  if (!rt.animator.graph && rt.animator.defaultClip && !inEditMode(rt)) queueDefaultClip(rt, rt.animator.defaultClip);
+}
+
 /** A Skeleton showed up for an Animator: drops its zero-bone instance (if any) and binds a new one to the Skeleton. */
 function rebindToSkeleton(rt: AnimatorRuntime): void {
   if (rt.instance) {
     rt.epoch++;
     unbindAnimator(rt);
-    if (!rt.animator.graph && rt.animator.defaultClip) queueDefaultClip(rt, rt.animator.defaultClip);
+    playDefaultClip(rt);
   }
   void activateAnimator(rt);
 }
@@ -364,7 +386,8 @@ let warnedGraph = false;
  */
 async function bindInstance(rt: AnimatorRuntime, ns: AnimationWorldCore, skeleton: SkeletonRuntime | null, current: () => boolean): Promise<void> {
   let instance: number;
-  if (!rt.animator.graph) instance = ns.createInstance(skeleton?.handle ?? 0);
+  // An edit-mode preview always gets the implicit graph: the clip being edited plays alone, and no graph runs.
+  if (!rt.animator.graph || inEditMode(rt)) instance = ns.createInstance(skeleton?.handle ?? 0);
   else if (graphInstanceHooks.create) {
     instance = await graphInstanceHooks.create(rt, ns, skeleton, current);
     if (!instance) return; // warned by the graph runtime, or no longer current
@@ -393,9 +416,10 @@ async function bindInstance(rt: AnimatorRuntime, ns: AnimationWorldCore, skeleto
 }
 
 async function activateAnimator(rt: AnimatorRuntime): Promise<void> {
+  if (inert(rt)) return;
   const epoch = rt.epoch;
   const ns = await startAnimationCore(rt.world).catch(() => null);
-  if (!ns || rt.epoch !== epoch || !rt.active) return;
+  if (!ns || rt.epoch !== epoch || !rt.active || inert(rt)) return;
   rt.ns = ns;
   const s = findSkeleton(rt.world, rt.animator.node);
   if (!s) {
@@ -448,6 +472,7 @@ export const animatorHooks: LifecycleHooks<Animator> = {
       instance: 0,
       evaluated: false,
       version: 0,
+      previewing: false,
       visible: true,
       frozen: false,
       layerWeights: new Float32Array(MAX_LAYERS).fill(Number.NaN),
@@ -465,7 +490,7 @@ export const animatorHooks: LifecycleHooks<Animator> = {
     if (!rt) return;
     rt.active = true;
     rt.epoch++;
-    if (!animator.graph && animator.defaultClip) queueDefaultClip(rt, animator.defaultClip);
+    playDefaultClip(rt);
     void activateAnimator(rt);
   },
   deactivate(animator) {
@@ -487,6 +512,22 @@ export const animatorHooks: LifecycleHooks<Animator> = {
     worldState(rt.world).animators.delete(rt);
   },
 };
+
+/**
+ * @internal An editor preview drives `animator` (`on`) or lets it go. In edit mode, on makes its implicit-graph instance
+ * (nothing played) and off destroys it: its plays end `stopped` and the pose goes back to rest. Outside edit mode the
+ * Animator runs as usual and this changes nothing.
+ */
+export function setAnimatorPreview(animator: Animator, on: boolean): void {
+  const rt = animators.get(animator);
+  if (!rt || rt.previewing === on) return;
+  rt.previewing = on;
+  if (!inEditMode(rt)) return;
+  rt.epoch++;
+  if (on) {
+    if (rt.active && !rt.instance) void activateAnimator(rt);
+  } else unbindAnimator(rt);
+}
 
 // ------------------------------------------------------------------------------------------------ BoneAttachment
 
