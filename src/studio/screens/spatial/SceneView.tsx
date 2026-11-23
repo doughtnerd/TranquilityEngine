@@ -9,6 +9,7 @@ import type { JSX } from "preact";
 import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { ContextMenu, type MenuEntry } from "../../../editor/ui/ContextMenu";
 import { HistoryPopover } from "../../../editor/ui/HistoryPopover";
+import { Icon } from "../../components/Icon";
 import type { SceneBox, Vec3 } from "../../../engine/audio/spatial/testSceneTypes";
 import { dragSlabEdge, heightMarks, heightRange, inRange, inSlab, LISTENER_STEP, moveSlab, relativeHeight, shiftSpan, slabRange, type HeightMark } from "./elevation";
 import { boxCorners, boxSpanX, growBox, nearestOnBox, rotateKnob, routeMidpoints, type P2 } from "./geometry";
@@ -180,14 +181,18 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
     const el = ref.current!;
     el.focus({ preventScroll: true });
     const at = local(e);
+    el.setPointerCapture?.(e.pointerId);
     if (e.pointerType === "touch") {
       touches.current.set(e.pointerId, at);
       if (touches.current.size === 2) {
+        // A second finger turns whatever the first began into a pinch; a drag it had moved ends as one undo step.
+        const g = gesture.current;
+        if (g?.kind === "drag" && g.moved) hostRef.current.endDrag();
         gesture.current = { kind: "pinch" };
         return;
       }
+      if (touches.current.size > 2) return;
     }
-    el.setPointerCapture?.(e.pointerId);
     if (e.button === 1 || space.current) {
       gesture.current = { kind: "pan", last: at };
       return;
@@ -273,7 +278,7 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
       ref={ref}
       class={`sp-viewport${placesByClick(host.tools.tool) ? " placing" : ""}`}
       tabIndex={0}
-      aria-label="Scene plan: drag to move, wheel to zoom"
+      aria-label="Scene plan: drag to move, wheel or pinch to zoom, arrow keys to pan"
       onKeyDown={onKeyDown}
       onKeyUp={onKeyUp}
       onPointerDown={onPointerDown}
@@ -294,10 +299,10 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
       {sel && size.width > 0 && <NodeToolbar host={host} o={sel} S={S} size={size} />}
       {host.renaming && size.width > 0 && <RenameField host={host} S={S} />}
       <div class="sp-zoombar" role="toolbar" aria-label="Zoom" onPointerDown={(e) => e.stopPropagation()}>
-        <button type="button" aria-label="Zoom out" title="Zoom out (−)" onClick={() => host.setView(zoomAt(v, size, { x: size.width / 2, y: size.height / 2 }, 1 / ZOOM_STEP))}>−</button>
+        <button type="button" aria-label="Zoom out" title="Zoom out (−)" onClick={() => host.setView(zoomAt(v, size, { x: size.width / 2, y: size.height / 2 }, 1 / ZOOM_STEP))}><Icon name="zoomOut" size={14} /></button>
         <span class="sp-zoom-readout" aria-live="polite">{zoomPercent(v)}%</span>
-        <button type="button" aria-label="Zoom in" title="Zoom in (+)" onClick={() => host.setView(zoomAt(v, size, { x: size.width / 2, y: size.height / 2 }, ZOOM_STEP))}>+</button>
-        <button type="button" title="Frame the scene (0)" onClick={host.fit}>Fit</button>
+        <button type="button" aria-label="Zoom in" title="Zoom in (+)" onClick={() => host.setView(zoomAt(v, size, { x: size.width / 2, y: size.height / 2 }, ZOOM_STEP))}><Icon name="zoomIn" size={14} /></button>
+        <button type="button" aria-label="Fit" title="Frame the scene (0)" onClick={host.fit}><Icon name="fit" size={14} /></button>
         <button type="button" aria-pressed={host.sideView} class={host.sideView ? "on" : ""} title="Show the scene from the south, looking north" onClick={() => host.setSideView(!host.sideView)}>Side view</button>
       </div>
       {host.tools.pathEdit && (
@@ -495,24 +500,31 @@ function Selection(props: { host: SceneHost; o: SceneObject; S: (p: P2) => Px })
 
 function NodeToolbar(props: { host: SceneHost; o: SceneObject; S: (p: P2) => Px; size: Size }) {
   const { host, o, S, size } = props;
+  const bar = useRef<HTMLDivElement>(null);
+  // Its own width keeps it inside the view (it wraps when the view is narrower than it).
+  const [width, setWidth] = useState(120);
+  useLayoutEffect(() => {
+    const w = bar.current?.offsetWidth ?? 120;
+    if (w !== width) setWidth(w);
+  });
   const b = boxOf(o);
   const anchor = b ? boxCorners(b).map(S).reduce((top, p) => (p.y < top.y ? p : top)) : positionOf(o) ? S(positionOf(o)!) : null;
   if (!anchor) return null;
-  const x = Math.min(size.width - 120, Math.max(8, anchor.x - 60));
+  const x = Math.max(8, Math.min(size.width - width - 8, anchor.x - width / 2));
   const y = Math.max(4, anchor.y - 52);
   const id = o.obj.id;
   const ro = host.readOnly;
   const playable = o.kind === "emitter" || o.kind === "audioZone" || o.kind === "sound2d";
   return (
-    <div class="sp-nodebar" role="toolbar" aria-label={`${o.obj.name} actions`} style={{ left: `${x}px`, top: `${y}px` }} onPointerDown={(e) => e.stopPropagation()}>
+    <div ref={bar} class="sp-nodebar" role="toolbar" aria-label={`${o.obj.name} actions`} style={{ left: `${x}px`, top: `${y}px` }} onPointerDown={(e) => e.stopPropagation()}>
       {o.kind === "listener" ? (
         <>
-          <button type="button" title="Play every unmuted sound, heard from this listener" onClick={() => host.playAll(id)}>▶ Play all</button>
+          <button type="button" title="Play every unmuted sound, heard from this listener" onClick={() => host.playAll(id)}><Icon name="play" size={12} /> Play all</button>
           <button type="button" disabled={ro || host.scene.activeListener === id} title="Hear the scene from this listener" onClick={() => host.listenHere(id)}>Listen here</button>
         </>
       ) : playable ? (
         <>
-          <button type="button" aria-pressed={host.solo === id} class={host.solo === id ? "on" : ""} title={host.solo === id ? "Hear everything again" : "Play it on its own"} onClick={() => host.soloToggle(id)}>▶ Solo</button>
+          <button type="button" aria-pressed={host.solo === id} class={host.solo === id ? "on" : ""} title={host.solo === id ? "Hear everything again" : "Play it on its own"} onClick={() => host.soloToggle(id)}><Icon name="play" size={12} /> Solo</button>
           <button type="button" aria-pressed={host.silenced(id) && host.solo !== null ? false : host.silenced(id)} class={host.silenced(id) && host.solo === null ? "on" : ""} title="Mute or unmute it in the audition" onClick={() => host.muteToggle(id)}>Mute</button>
         </>
       ) : null}
@@ -522,8 +534,8 @@ function NodeToolbar(props: { host: SceneHost; o: SceneObject; S: (p: P2) => Px;
           Edit path
         </button>
       )}
-      <button type="button" disabled={ro} aria-label="Rename" title="Rename (double-click)" onClick={() => host.setRenaming(id)}>✎</button>
-      <button type="button" disabled={ro || (o.kind === "listener" && host.scene.listeners.length <= 1)} aria-label="Delete" title={o.kind === "listener" && host.scene.listeners.length <= 1 ? "A scene needs a listener" : "Delete (Del)"} class="danger" onClick={() => host.remove(id)}>🗑</button>
+      <button type="button" disabled={ro} aria-label="Rename" title="Rename (double-click)" onClick={() => host.setRenaming(id)}><Icon name="edit" size={14} /></button>
+      <button type="button" disabled={ro || (o.kind === "listener" && host.scene.listeners.length <= 1)} aria-label="Delete" title={o.kind === "listener" && host.scene.listeners.length <= 1 ? "A scene needs a listener" : "Delete (Del)"} class="danger" onClick={() => host.remove(id)}><Icon name="trash" size={14} /></button>
     </div>
   );
 }
@@ -602,14 +614,16 @@ function ElevationStrip(props: { host: SceneHost; range: [number, number]; slab:
     const y = at(e);
     const m = a.m(y);
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-    const mark = !host.readOnly ? marks.find((k) => (k.point ? Math.abs(a.y(k.low) - y) < 5 : y >= a.y(k.high) - 2 && y <= a.y(k.low) + 2) && Math.abs(markX(k) - (e.clientX - ref.current!.getBoundingClientRect().left)) < 6) : undefined;
+    // A finger gets a wider reach for the marks and the slab's edges.
+    const reach = e.pointerType === "touch" ? 12 : 5;
+    const mark = !host.readOnly ? marks.find((k) => (k.point ? Math.abs(a.y(k.low) - y) < reach : y >= a.y(k.high) - 2 && y <= a.y(k.low) + 2) && Math.abs(markX(k) - (e.clientX - ref.current!.getBoundingClientRect().left)) < reach + 1) : undefined;
     if (mark && !findObject(s, mark.id)?.obj.locked) {
       host.select(mark.id);
       drag.current = { kind: "mark", mark, grab: m - mark.low };
       return;
     }
-    if (Math.abs(y - a.y(slab[1])) < 5) drag.current = { kind: "edge", edge: "high" };
-    else if (Math.abs(y - a.y(slab[0])) < 5) drag.current = { kind: "edge", edge: "low" };
+    if (Math.abs(y - a.y(slab[1])) < reach) drag.current = { kind: "edge", edge: "high" };
+    else if (Math.abs(y - a.y(slab[0])) < reach) drag.current = { kind: "edge", edge: "low" };
     else if (m >= slab[0] && m <= slab[1]) drag.current = { kind: "slab", grab: m - (slab[0] + slab[1]) / 2 };
     else host.setSlab(moveSlab(host.slab, slab, m, range));
   };
@@ -632,6 +646,15 @@ function ElevationStrip(props: { host: SceneHost; range: [number, number]; slab:
     if (drag.current?.kind === "mark") host.endDrag();
     drag.current = null;
   };
+  // The keyboard moves the shown heights: arrows 1 m, Page Up / Page Down 5 m, Home / End to the ends of the range.
+  const center = (slab[0] + slab[1]) / 2;
+  const onKey = (e: KeyboardEvent) => {
+    const half = (slab[1] - slab[0]) / 2;
+    const to = e.key === "ArrowUp" ? center + 1 : e.key === "ArrowDown" ? center - 1 : e.key === "PageUp" ? center + 5 : e.key === "PageDown" ? center - 5 : e.key === "Home" ? range[0] + half : e.key === "End" ? range[1] - half : null;
+    if (to === null) return;
+    e.preventDefault();
+    host.setSlab(moveSlab(host.slab, slab, to, range));
+  };
   // Marks side by side: bars in columns, points on the right.
   const bars = marks.filter((k) => !k.point);
   const markX = (k: HeightMark) => (k.point ? size.width - 12 : 10 + (bars.indexOf(k) % 4) * 7);
@@ -646,12 +669,21 @@ function ElevationStrip(props: { host: SceneHost; range: [number, number]; slab:
         <button type="button" aria-pressed={host.slab.follow} class={host.slab.follow ? "on" : ""} title="Follow the listener's height (±3 m)" onClick={() => host.setSlab({ ...host.slab, follow: !host.slab.follow, low: slab[0], high: slab[1] })}>
           Follow
         </button>
-        <button type="button" aria-label="Raise the listener 1 m" title="Raise the listener (or the selected one) 1 m" disabled={host.readOnly} onClick={() => stepListener(1)}>▲</button>
-        <button type="button" aria-label="Lower the listener 1 m" title="Lower the listener (or the selected one) 1 m" disabled={host.readOnly} onClick={() => stepListener(-1)}>▼</button>
+        <button type="button" aria-label="Raise the listener 1 m" title="Raise the listener (or the selected one) 1 m" disabled={host.readOnly} onClick={() => stepListener(1)}><Icon name="chevronUp" size={14} /></button>
+        <button type="button" aria-label="Lower the listener 1 m" title="Lower the listener (or the selected one) 1 m" disabled={host.readOnly} onClick={() => stepListener(-1)}><Icon name="chevronDown" size={14} /></button>
       </div>
       <div
         ref={ref}
         class="sp-elev-track"
+        role="slider"
+        tabIndex={0}
+        aria-label="Heights the plan shows"
+        aria-orientation="vertical"
+        aria-valuemin={range[0]}
+        aria-valuemax={range[1]}
+        aria-valuenow={Math.round(center * 10) / 10}
+        aria-valuetext={`${slab[0].toFixed(1)} to ${slab[1].toFixed(1)} m`}
+        onKeyDown={onKey}
         onPointerDown={onDown}
         onPointerMove={onMove}
         onPointerUp={onUp}
@@ -660,7 +692,7 @@ function ElevationStrip(props: { host: SceneHost; range: [number, number]; slab:
           e.preventDefault();
           setMenu({ x: e.clientX, y: e.clientY });
         }}
-        title={`Heights ${range[0]}–${range[1]} m; the plan shows ${slab[0].toFixed(1)}–${slab[1].toFixed(1)} m. Right-click for what's in range.`}
+        title={`Heights ${range[0]}–${range[1]} m; the plan shows ${slab[0].toFixed(1)}–${slab[1].toFixed(1)} m. Right-click or long-press for what's in range; arrow keys move it.`}
       >
         {size.height > 0 && (
           <svg width={size.width} height={size.height} aria-hidden="true">

@@ -13,6 +13,7 @@ import { confirmInEditor } from "../../../editor/ui/ConfirmDialog";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { AUDIO_PROJECT_FILE, type AudioProject } from "../../../engine/audio/project/types";
+import { Icon } from "../../components/Icon";
 import type { StudioPanel } from "../../shell/studioPanels";
 import { studioRouter, toasts } from "../../shell/studioServices";
 import { historyPanel } from "../placeholder";
@@ -81,7 +82,7 @@ function mixerSession(): MixerSession | null {
 }
 
 function NoProject() {
-  return <EmptyState compact title="No project open" body="Open a project to mix its buses, returns, VCAs and snapshots." />;
+  return <EmptyState compact icon={<Icon name="mixer" size={28} />} title="No project open" body="Open a project to mix its buses, returns, VCAs and snapshots." />;
 }
 
 /** A panel's frame around `view` with the session, or the no-project state. */

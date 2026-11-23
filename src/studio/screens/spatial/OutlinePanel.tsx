@@ -3,6 +3,7 @@
 // (it selects but doesn't move). Hovering a row highlights its object on the plan.
 import { useState } from "preact/hooks";
 import type { AudioTestScene } from "../../../engine/audio/spatial/testSceneTypes";
+import { Icon } from "../../components/Icon";
 import { outlineGroups } from "./outline";
 import type { ObjectKind } from "./sceneEdits";
 
@@ -39,7 +40,7 @@ export function OutlinePanel(props: OutlinePanelProps) {
                   setClosed(s);
                 }}
               >
-                <span class="sp-caret" aria-hidden="true">{open ? "▾" : "▸"}</span>
+                <Icon name={open ? "chevronDown" : "chevronRight"} size={12} class="sp-caret" />
                 {g.title}
                 <span class="sp-count">{g.count}</span>
               </button>
@@ -51,8 +52,8 @@ export function OutlinePanel(props: OutlinePanelProps) {
                       role="treeitem"
                       aria-selected={props.selected === r.id}
                       class={`sp-outline-row${props.selected === r.id ? " selected" : ""}${r.hidden ? " hidden" : ""}`}
-                      onMouseEnter={() => props.onHover?.(r.id)}
-                      onMouseLeave={() => props.onHover?.(null)}
+                      onPointerEnter={() => props.onHover?.(r.id)}
+                      onPointerLeave={() => props.onHover?.(null)}
                     >
                       <button type="button" class="sp-outline-name" onClick={() => props.onSelect(r.id)} title={r.active ? "Hears the scene" : undefined}>
                         {r.name}
@@ -68,7 +69,7 @@ export function OutlinePanel(props: OutlinePanelProps) {
                         disabled={props.readOnly}
                         onClick={() => props.onHidden(r.id, !r.hidden)}
                       >
-                        {r.hidden ? "◌" : "◉"}
+                        <Icon name={r.hidden ? "eyeOff" : "eye"} size={14} />
                       </button>
                       <button
                         type="button"
@@ -79,7 +80,7 @@ export function OutlinePanel(props: OutlinePanelProps) {
                         disabled={props.readOnly}
                         onClick={() => props.onLocked(r.id, !r.locked)}
                       >
-                        {r.locked ? "🔒" : "🔓"}
+                        <Icon name="lock" size={14} />
                       </button>
                     </li>
                   ))}

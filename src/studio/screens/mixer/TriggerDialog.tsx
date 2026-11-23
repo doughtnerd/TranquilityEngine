@@ -9,6 +9,7 @@ import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { isLabelled } from "../../../engine/audio/parameters";
 import { MIX_LIMITS } from "../../../engine/audio/project/format";
 import type { Snapshot, SnapshotCondition, SnapshotStart } from "../../../engine/audio/project/types";
+import { Icon } from "../../components/Icon";
 import { parameterNote } from "./boardModel";
 import { labelOn, setTrigger, type TriggerPatch } from "./mixEdits";
 import type { MixerSession } from "./mixerScreen";
@@ -64,7 +65,7 @@ export function TriggerDialog(props: { session: MixerSession; snapshot: Snapshot
     </label>
   );
   return (
-    <div class="mx-modal-backdrop" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
+    <div class="mx-modal-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
       <div
         ref={ref}
         class="mx-modal mx-trigger"
@@ -122,11 +123,11 @@ export function TriggerDialog(props: { session: MixerSession; snapshot: Snapshot
                   )}
                   {def && <span class="mx-faint" title="Its range">{parameterNote(def)}</span>}
                   <span class={`mx-dot${holds ? " on" : ""}`} role="img" aria-label={holds ? "True with the test values" : "False with the test values"} title={holds ? "True now" : "False now"} />
-                  <button class="kit-icon-button" aria-label={`Remove condition ${i + 1}`} onClick={() => setConds(conds.conditions.filter((_, j) => j !== i))}>×</button>
+                  <button class="kit-icon-button" aria-label={`Remove condition ${i + 1}`} title="Remove this condition" onClick={() => setConds(conds.conditions.filter((_, j) => j !== i))}><Icon name="close" size={14} /></button>
                 </div>
               );
             })}
-            <button class="mx-tool" disabled={p.parameters.length === 0} onClick={() => setConds([...conds.conditions, defaultCondition(p.parameters[0]!)])}>+ Condition</button>
+            <button class="mx-tool" disabled={p.parameters.length === 0} onClick={() => setConds([...conds.conditions, defaultCondition(p.parameters[0]!)])}><Icon name="plus" /> Condition</button>
           </div>
         )}
         <fieldset class="mx-fieldset">
