@@ -9,6 +9,7 @@ import type { AudioLocalisation } from "../../../engine/audio/localisation/types
 import type { AudioProject } from "../../../engine/audio/project/types";
 import { fallbackChain, type LanguageSettings } from "../../../engine/localisation/languages";
 import type { EditResult } from "../../../plugins/audio/editor/editResult";
+import { Icon } from "../../components/Icon";
 import {
   addLanguage, codesOf, removeLanguage, renameLanguage, setDefault, setLanguageFallback, setLoudness, setMissing, setProjectFallback, setReference, setRoots, setShip, setTolerance,
   type LanguagesAccess,
@@ -50,29 +51,34 @@ export function LanguagesView(props: LanguagesViewProps) {
       )}
       <section class="dl-section" aria-label="Project languages">
         <h3>Languages</h3>
-        <table class="dl-table" aria-label="Languages">
-          <thead><tr><th scope="col">Code</th><th scope="col">Name</th><th scope="col">Ship</th><th scope="col">Falls back to</th><th scope="col">Chain</th><th scope="col">Reference</th><th scope="col">Start</th><th scope="col" /></tr></thead>
+        <div class="dl-scroll">
+        <table class="dl-table dl-languages-table" aria-label="Languages">
+          <thead><tr><th scope="col">Code</th><th scope="col">Name</th><th scope="col">Ship</th><th scope="col">Falls back to</th><th scope="col" class="dl-opt">Chain</th><th scope="col">Reference</th><th scope="col">Start</th><th scope="col"><span class="dl-sr">Actions</span></th></tr></thead>
           <tbody>
             {s.list.map((l) => (
               <tr key={l.code}>
-                <th scope="row" class="dl-key">{l.code}{l.code === props.preview ? " ·" : ""}</th>
+                <th scope="row" class="dl-key" title={l.code === props.preview ? "The preview language" : undefined}>{l.code}{l.code === props.preview ? " ·" : ""}</th>
                 <td><InlineText value={l.name} label={`Name of ${l.code}`} disabled={ro} onCommit={(v) => lang(`Rename ${l.code}`, (x) => renameLanguage(x, l.code, v))} /></td>
                 <td><input type="checkbox" aria-label={`Ship ${l.code}`} checked={l.ship} disabled={ro} onChange={(e) => lang(`${(e.currentTarget as HTMLInputElement).checked ? "Ship" : "Don't ship"} ${l.code}`, (x) => setShip(x, l.code, (e.currentTarget as HTMLInputElement).checked))} /></td>
                 <td><InlineText value={l.fallback.join(", ")} label={`Fallback of ${l.code}`} placeholder="none" disabled={ro} onCommit={(v) => lang(`Fallback of ${l.code}`, (x) => setLanguageFallback(x, l.code, codesOf(v)))} /></td>
-                <td class="dl-muted" title="The language, its own fallback, then the project's chain">{fallbackChain(s, l.code).join(" → ")}</td>
+                <td class="dl-muted dl-opt" title="The language, its own fallback, then the project's chain">{fallbackChain(s, l.code).join(" → ")}</td>
                 <td><input type="radio" name="dl-reference" aria-label={`Reference ${l.code}`} checked={s.reference === l.code} disabled={ro} onChange={() => lang(`Reference language ${l.code}`, (x) => setReference(x, l.code))} /></td>
                 <td><input type="radio" name="dl-default" aria-label={`Start in ${l.code}`} checked={s.default === l.code} disabled={ro} onChange={() => lang(`Start language ${l.code}`, (x) => setDefault(x, l.code))} /></td>
-                <td>
-                  <button class="smp-link" onClick={() => props.onPreview(l.code)} disabled={l.code === props.preview} title="Hear and read the Studio in this language (per user)">Preview</button>{" "}
-                  <button class="smp-link" disabled={ro || l.code === s.reference || l.code === s.default} onClick={() => lang(`Remove ${l.code}`, (x) => removeLanguage(x, l.code))}>Remove</button>
+                <td class="dl-actions">
+                  <button class="smp-link" onClick={() => props.onPreview(l.code)} disabled={l.code === props.preview} title={l.code === props.preview ? "Already the preview language" : "Hear and read the Studio in this language (per user)"}><Icon name="headphones" /> Preview</button>
+                  <button class="smp-link" disabled={ro || l.code === s.reference || l.code === s.default}
+                    title={l.code === s.reference || l.code === s.default ? "The reference and start languages can't be removed" : `Remove ${l.code}`}
+                    onClick={() => lang(`Remove ${l.code}`, (x) => removeLanguage(x, l.code))}><Icon name="trash" /> Remove</button>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
         <div class="dl-row" style={{ marginTop: "6px" }}>
-          <input type="text" aria-label="New language code" placeholder="fr-CA" value={code} disabled={ro} onInput={(e) => setCode((e.currentTarget as HTMLInputElement).value)} />
-          <button disabled={ro || code.trim() === ""} onClick={() => { lang(`Add language ${code.trim()}`, (x) => addLanguage(x, code)); setCode(""); }}>Add language</button>
+          <input type="text" class="dl-code-input" aria-label="New language code" placeholder="fr-CA" value={code} disabled={ro} onInput={(e) => setCode((e.currentTarget as HTMLInputElement).value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && code.trim() !== "" && !ro) { lang(`Add language ${code.trim()}`, (x) => addLanguage(x, code)); setCode(""); } }} />
+          <button disabled={ro || code.trim() === ""} onClick={() => { lang(`Add language ${code.trim()}`, (x) => addLanguage(x, code)); setCode(""); }}><Icon name="plus" /> Add language</button>
           <FieldRow label="Every chain ends with">
             <InlineText value={s.fallback.join(", ")} label="Project fallback" disabled={ro} onCommit={(v) => lang("Project fallback", (x) => setProjectFallback(x, codesOf(v)))} />
           </FieldRow>
@@ -99,7 +105,7 @@ export function LanguagesView(props: LanguagesViewProps) {
           {s.list.map((l) => (
             <li key={l.code}>
               {l.code}: {props.unnormalised[l.code] ? `${props.unnormalised[l.code]} file${props.unnormalised[l.code] === 1 ? "" : "s"} not normalised to the setting ` : "every file normalised "}
-              <button class="smp-link" disabled={props.audioReadOnly || !props.unnormalised[l.code] || loc.loudness.mode === "off"} onClick={() => props.onNormalise(l.code)}>Normalise {l.code}</button>
+              <button class="smp-link" disabled={props.audioReadOnly || !props.unnormalised[l.code] || loc.loudness.mode === "off"} onClick={() => props.onNormalise(l.code)}><Icon name="volume" /> Normalise {l.code}</button>
             </li>
           ))}
         </ul>

@@ -153,6 +153,7 @@ function LinesTab(s: Screen) {
   const target = () => q.table ?? findLine(s.data, sel ?? "")?.doc.path ?? tables[0];
   return (
     <div
+      class="dl-fill"
       onKeyDown={(e) => {
         if (e.key !== " " || (e.target as HTMLElement).closest("input, textarea, select, button")) return;
         e.preventDefault();
@@ -506,10 +507,13 @@ function MainPanel() {
   const tab = dialogueTab.value;
   const move = (e: KeyboardEvent) => {
     const i = TABS.findIndex((t) => t.id === tab);
-    const step = e.key === "ArrowRight" ? 1 : e.key === "ArrowLeft" ? -1 : 0;
-    if (!step) return;
+    const to = e.key === "ArrowRight" ? i + 1 : e.key === "ArrowLeft" ? i - 1 : e.key === "Home" ? 0 : e.key === "End" ? TABS.length - 1 : null;
+    if (to === null) return;
     e.preventDefault();
-    dialogueTab.value = TABS[(i + step + TABS.length) % TABS.length]!.id;
+    const next = TABS[(to + TABS.length) % TABS.length]!.id;
+    dialogueTab.value = next;
+    // The focus follows the selected tab (roving tabindex).
+    queueMicrotask(() => document.getElementById(`dl-tab-${next}`)?.focus());
   };
   const sel = findLine(s.data, selectedLine.value ?? "");
   // The document Ctrl+Z acts on: the selected line's table on the Lines tab.
