@@ -77,8 +77,33 @@ export const Add: Story = {
   },
 };
 
+/** J3.2: in a multi-pick a click toggles a row, as its checkbox shows (three clicks: three picked; again: two). */
+const addMany = fn();
+export const AddClicksToggle: Story = {
+  render: () => <AddDialog items={addItems(FIXTURE_FILES, "audio/footsteps/dirt.playlist.json", "queue", loadFixture)} title="Add to dirt" single={false} onAdd={addMany} onClose={fn()} />,
+  play: async ({ canvasElement }) => {
+    const dialog = within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Add to dirt" }));
+    const rows = dialog.getAllByRole("option").filter((o) => o.getAttribute("aria-disabled") !== "true").slice(0, 3);
+    for (const r of rows) await userEvent.click(r);
+    await expect(dialog.getByText("3 picked")).toBeVisible();
+    for (const r of rows) await expect(r.querySelector("input[type=checkbox]")).toBeChecked();
+    await userEvent.click(rows[1]!);
+    await expect(dialog.getByText("2 picked")).toBeVisible();
+    await expect(rows[1]!.querySelector("input[type=checkbox]")).not.toBeChecked();
+  },
+};
+
+/** A single pick (a Clip's sample) shows no checkboxes: a click picks that one. */
 export const ChooseSample: Story = {
   render: () => <AddDialog items={addItems(FIXTURE_FILES, "audio/ui/boom.playlist.json", "clip", loadFixture)} title="Replace sample…" single onAdd={fn()} onClose={fn()} />,
+  play: async ({ canvasElement }) => {
+    const dialog = within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Replace sample…" }));
+    await expect(canvasElement.ownerDocument.body.querySelectorAll(".pl-add input[type=checkbox]")).toHaveLength(0);
+    const rows = dialog.getAllByRole("option").filter((o) => o.getAttribute("aria-disabled") !== "true");
+    await userEvent.click(rows[0]!);
+    await userEvent.click(rows[1]!);
+    await expect(dialog.getByText("1 picked")).toBeVisible();
+  },
 };
 
 export const Library: Story = {

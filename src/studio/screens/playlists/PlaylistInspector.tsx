@@ -154,11 +154,14 @@ export function PlaylistInspector(props: PlaylistInspectorProps) {
 
   return (
     <div class="pl-inspector">
-      <div class="pl-ph">
-        <TypeBadge playlist={body.type} axes={body.blend?.axes.length === 2 ? 2 : 1} />
-        <b class="pl-nm">{props.name ?? ""}</b>
-        <span class="pl-u pl-nm">{typeSummary(body)}</span>
-      </div>
+      {/* A Sequence's Inspector heads this with its own (badge, name, length, tempo): one header, not two (V13). */}
+      {body.type !== "sequence" && (
+        <div class="pl-ph">
+          <TypeBadge playlist={body.type} axes={body.blend?.axes.length === 2 ? 2 : 1} />
+          <b class="pl-nm">{props.name ?? ""}</b>
+          <span class="pl-u pl-nm">{typeSummary(body)}</span>
+        </div>
+      )}
       {props.cards && props.cards.length > 0 && (
         <div class="pl-axrs">
           {props.cards.map((c, k) => (

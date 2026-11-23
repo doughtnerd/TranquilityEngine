@@ -53,7 +53,7 @@ import { newPlaylistParameter } from "./newParameter";
 import { contentFolders } from "../../components/projectFolders";
 import { isPlaylistPath } from "../../../engine/audio/playlist/format";
 import { NewGlobalParameterHost } from "../mixer/newGlobalParameter";
-import { PlaylistTreeView, type TreeActions } from "./PlaylistTreeView";
+import { PlaylistTreeView, renameFolderRow, type TreeActions } from "./PlaylistTreeView";
 import { entryKey, factsOf, fileKey, playlistTree, type PlaylistNode } from "./playlistTree";
 import { dropLabel, planDrop } from "./treeDrop";
 import { canRelease } from "./voiceLog";
@@ -93,7 +93,7 @@ const treeActions: TreeActions = {
   newPlaylist: (folder) => void newPlaylist(folder, false),
   newPlaylistInside: () => void newPlaylist(null, true),
   newSequence: (folder) => void newSequence(folder),
-  newFolder: (parent) => void newPlaylistFolder(parent),
+  newFolder: (parent) => newPlaylistFolder(parent),
   renameFile: (path, name) => void renamePlaylistFile(path, name),
   renameFolder: (path, name) => void renameFolder(path, name),
   duplicate: (nodes) => {
@@ -404,7 +404,7 @@ function NothingOpen() {
       <div class="pl-nothing-actions">
         <button type="button" class="pl-play-btn" disabled={!w} onClick={() => void newPlaylist("", false)}>New playlist</button>
         <button type="button" class="pl-small" disabled={!w} onClick={() => void newSequence("")}>New sequence</button>
-        <button type="button" class="pl-small" disabled={!w} onClick={() => void newPlaylistFolder("")}>New folder</button>
+        <button type="button" class="pl-small" disabled={!w} onClick={() => void newPlaylistFolder("").then((path) => path && renameFolderRow(path))}>New folder</button>
       </div>
     </div>
   );

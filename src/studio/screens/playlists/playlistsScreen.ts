@@ -34,6 +34,7 @@ import { clipsPlaylist } from "./clipsPlaylist";
 import { childrenToKeep, deleteEntry, folderContentsUp, moveAcrossFiles, moveWithinFile, insertEntries, planDelete, replaceLinks, takeEntry, type ChildrenChoice, type DeletePlan, type DeleteTarget, type LinksChoice } from "./structureEdits";
 import type { DropPlan } from "./treeDrop";
 import { updateLog, voicesNow, type DebugSnapshot, type LogRow } from "./voiceLog";
+import { playback as sequencePlayback, sequenceContext } from "./sequence/sequenceState";
 
 // --- state -----------------------------------------------------------------------------------------------------------
 
@@ -656,9 +657,8 @@ function noteSwitchChange(name: string, value: number | null): void {
 function startPolling(): void {
   idlePolls = 0;
   auditioning.value = true;
-  if (poller) return;
-  poller = setInterval(poll, 100);
-  poll();
+  poller ??= setInterval(poll, 100);
+  poll(); // read at once, also when already polling (a new play's voices show without waiting for the next poll)
 }
 
 function poll(): void {
@@ -682,6 +682,25 @@ function poll(): void {
     poller = null;
   }
 }
+
+/**
+ * Follow `path`'s voices in Plays now and the Voices log, as Trigger does: a sequence's play is started by its own
+ * transport (`playSequence`), and its voices are logged too (J6.3: Voices said "Trigger to start capturing" while the
+ * sequence played).
+ */
+export function followVoices(path: string): void {
+  if (logAsset !== path) {
+    logAsset = path;
+    voiceLog.value = [];
+    logCursor.value = null;
+  }
+  startPolling();
+}
+effect(() => {
+  if (!sequencePlayback.value) return;
+  const file = sequenceContext.peek()?.file;
+  if (file) followVoices(file);
+});
 
 /** Clear the voice log. */
 export function clearLog(): void {

@@ -82,6 +82,14 @@ export function togglePick(picked: readonly string[], item: AddItem, toggle: boo
   return picked.includes(item.path) ? picked.filter((p) => p !== item.path) : [...picked, item.path];
 }
 
+/** The picked set after a Shift-click: every enabled item of `shown` from `from` to `to` (either order) is added. */
+export function pickRange(picked: readonly string[], shown: readonly AddItem[], from: number, to: number): string[] {
+  const [lo, hi] = from <= to ? [from, to] : [to, from];
+  const out = [...picked];
+  for (const i of shown.slice(Math.max(0, lo), hi + 1)) if (!i.disabled && !out.includes(i.path)) out.push(i.path);
+  return out;
+}
+
 /** The entries picking `paths` adds: samples as samples (the edit wraps them), playlists linked or copied (`load` gives the copy's body). */
 export function entriesFor(paths: readonly string[], items: readonly AddItem[], mode: "link" | "copy", load: (path: string) => PlaylistBody | null): Entry[] {
   const out: Entry[] = [];

@@ -9,7 +9,7 @@ import { MoveToDialog } from "../../../editor/ui/MoveToDialog";
 import { TreeView, renameRow, type TreeRow } from "../../../editor/ui/TreeView";
 import { Icon } from "../../components/Icon";
 import { TypeBadge } from "../../components/TypeBadge";
-import { findNode, searchTree, type PlaylistNode } from "./playlistTree";
+import { findNode, folderKey, searchTree, type PlaylistNode } from "./playlistTree";
 import { dropZone, type DragSource, type DropPlan, type DropTarget, type DropZone } from "./treeDrop";
 import { COLLAPSE_GLYPH, Glyph } from "./glyphs";
 
@@ -19,7 +19,8 @@ export interface TreeActions {
   /** New playlist inside the open one (an embedded Queue), when it holds entries. */
   newPlaylistInside(): void;
   newSequence(folder: string): void;
-  newFolder(parent: string): void;
+  /** A new folder under `parent`; its path once made, or null. The tree then starts it in rename mode. */
+  newFolder(parent: string): Promise<string | null> | void;
   renameFile(path: string, name: string): void;
   renameFolder(path: string, name: string): void;
   duplicate(nodes: readonly PlaylistNode[]): void;
@@ -50,6 +51,14 @@ export interface PlaylistTreeViewProps {
 }
 
 const TREE = "playlists-tree";
+
+/**
+ * Start renaming the folder at `path` in the Playlists tree, its name selected (J6.1: a new folder starts in rename
+ * mode, as a new playlist does). The row shows the field as soon as it's drawn.
+ */
+export function renameFolderRow(path: string): void {
+  renameRow(TREE, folderKey(path));
+}
 
 const sourceOf = (n: PlaylistNode): DragSource =>
   n.kind === "folder" ? { kind: "folder", path: n.path } : n.kind === "file" ? { kind: "file", path: n.path } : { kind: "entry", file: n.file, parent: n.indices.slice(0, -1), index: n.indices[n.indices.length - 1]!, link: n.link };
@@ -191,6 +200,15 @@ export function PlaylistTreeView(props: PlaylistTreeViewProps) {
       ...(writable ? { remove: () => actions.remove(n) } : {}),
     };
   };
+  /** New folder: its parents open and the search clears, so its row (in rename mode) shows. */
+  const makeFolder = (parent: string) => {
+    void Promise.resolve(actions.newFolder(parent)).then((path) => {
+      if (!path) return;
+      setQuery("");
+      setClosed((c) => new Set([...c].filter((k) => !(k.startsWith("f:") && (path === k.slice(2) || path.startsWith(`${k.slice(2)}/`))))));
+      renameFolderRow(path);
+    });
+  };
   const toggleOpen = (key: string, open: boolean) => {
     const next = new Set(closed);
     if (open) next.delete(key);
@@ -215,7 +233,7 @@ export function PlaylistTreeView(props: PlaylistTreeViewProps) {
       return [
         { kind: "group", label: n.name },
         { id: "rename", label: "Rename", hint: "F2", disabled: !writable, run: () => renameRow(TREE, n.key) },
-        { id: "folder", label: "New folder inside", disabled: !writable, run: () => actions.newFolder(n.path) },
+        { id: "folder", label: "New folder inside", disabled: !writable, run: () => makeFolder(n.path) },
         { id: "new", label: "New playlist here", disabled: !writable, run: () => actions.newPlaylist(n.path) },
         { id: "newsq", label: "New sequence here", disabled: !writable, run: () => actions.newSequence(n.path) },
         SEPARATOR,
@@ -302,7 +320,7 @@ export function PlaylistTreeView(props: PlaylistTreeViewProps) {
             ...(props.nestInto ? [{ id: "in", label: `New playlist in ${props.nestInto}`, note: "nested", title: "A playlist inside the open playlist", run: () => actions.newPlaylistInside() }] : []),
             { id: "sq", label: "New sequence", note: selectedFolder ? `in ${selectedFolder}` : "at the top level", title: "A timeline of tracks and clips", run: () => actions.newSequence(selectedFolder) },
             SEPARATOR,
-            { id: "f", label: "New folder", note: selectedFolder ? `in ${selectedFolder}` : "at the top level", title: "Inside the selected folder, or at the top level", run: () => actions.newFolder(selectedFolder) },
+            { id: "f", label: "New folder", note: selectedFolder ? `in ${selectedFolder}` : "at the top level", title: "Inside the selected folder, or at the top level", run: () => makeFolder(selectedFolder) },
           ]}
         />
       )}
