@@ -16,6 +16,7 @@ import type { LoadMode } from "../engine/audio/encoding/types";
 import type { PackCodec } from "../engine/audio/packaging/format";
 import type { ImportPlatform } from "../engine/scene/importSettings";
 import type { BuiltPlugin } from "../plugins/thirdParty";
+import type { DebugManifest } from "../engine/debugLink/config";
 
 /** The manifest's file name, at the build's root. */
 export const MANIFEST_FILE = "game.json";
@@ -27,7 +28,10 @@ export const CODE_DIR = "code";
 export const ENGINE_FILE = "myco.js";
 /** The prebuilt player's page, written as the build's index.html. */
 export const PLAYER_PAGE = "player.html";
-/** The list of the prebuilt player's files, in dist/player/ (not copied into builds). */
+/**
+ * The list of the prebuilt player's files, in dist/player/ (not copied into builds): `{ files, debug? }`. `debug` names
+ * the files of `files` that hold only the debug link (ADR 0376), which only builds with `game.json` `debug` get.
+ */
 export const PLAYER_FILE_LIST = "files.json";
 /** The manifest format this exporter writes and the player reads. */
 export const MANIFEST_FORMAT = 1;
@@ -81,6 +85,11 @@ export interface GameManifest {
    * `languages` section nor string tables.
    */
   readonly localisation?: LocalisationManifest;
+  /**
+   * ADR 0376: debugging on (`--debug-link`): the player starts the debug link, which connects to the tool at `link`. Only
+   * such a build ships the link's code (the player's `debug` files). Omitted in a release export.
+   */
+  readonly debug?: DebugManifest;
 }
 
 /** `game.json`'s `localisation` (ADR 0356 §11), as `readBuildLocalisation` reads it. */
