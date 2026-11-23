@@ -17,7 +17,8 @@
 //   it, as the only candidate, whatever its range.
 // - The port is `PAIR_BASE_PORT + portOffset`; the scheme `ws:`; the path the link's (`/myco-debug`), or the one given
 //   (`/myco-rendezvous` for a room code's rendezvous).
-import type { PairOctets } from "./code";
+import { DEBUG_LINK_PATH, debugLinkAddress } from "../config";
+import { PAIR_BASE_PORT, type PairOctets } from "./code";
 
 /** One network interface as a native shell lists it (Tauri's interface list, Node's `os.networkInterfaces()` flattened). */
 export interface NetworkInterfaceAddress {
@@ -62,14 +63,44 @@ export interface AddressCandidate {
  * `debugLinkAddress` can't read.
  */
 export function addressCandidates(target: AddressTarget, context: AddressContext, options?: AddressOptions): AddressCandidate[] {
-  void target;
-  void context;
-  void options;
-  throw new Error("L4: not implemented");
+  if ("address" in target) {
+    const url = debugLinkAddress(target.address);
+    if (url === null) return [];
+    const parsed = new URL(url);
+    const port = parsed.port ? Number(parsed.port) : parsed.protocol === "wss:" ? 443 : 80;
+    return [{ host: parsed.hostname, port, url }];
+  }
+  const port = options?.port ?? PAIR_BASE_PORT + target.portOffset;
+  const path = options?.path ?? DEBUG_LINK_PATH;
+  const [third, fourth] = target.octets;
+  const prefixes = privatePrefixes(context);
+  const hosts = prefixes.length > 0 ? prefixes.map((prefix) => `${prefix}.${third}.${fourth}`) : [`192.168.${third}.${fourth}`];
+  return hosts.map((host) => ({ host, port, url: `ws://${host}:${port}${path}` }));
 }
 
 /** Whether `address` (dotted IPv4) is in a private range (10/8, 172.16/12, 192.168/16). False for anything else. */
 export function isPrivateIpv4(address: string): boolean {
-  void address;
-  throw new Error("L4: not implemented");
+  const [a = -1, b = -1] = ipv4Octets(address);
+  return a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
+/** The four octets of a dotted IPv4 address, or `[]` for anything else (IPv6, names, out-of-range or malformed text). */
+function ipv4Octets(address: string): number[] {
+  const parts = address.split(".");
+  if (parts.length !== 4 || !parts.every((part) => /^(0|[1-9]\d{0,2})$/.test(part))) return [];
+  const values = parts.map(Number);
+  return values.every((value) => value <= 255) ? values : [];
+}
+
+/** The first two octets of each private IPv4 address the context offers, in order, without duplicates. */
+function privatePrefixes(context: AddressContext): string[] {
+  const addresses = context.kind === "page" ? [context.host] : context.interfaces.filter((i) => !i.internal).map((i) => i.address);
+  const prefixes: string[] = [];
+  for (const address of addresses) {
+    if (!isPrivateIpv4(address)) continue;
+    const [first = 0, second = 0] = ipv4Octets(address);
+    const prefix = `${first}.${second}`;
+    if (!prefixes.includes(prefix)) prefixes.push(prefix);
+  }
+  return prefixes;
 }
