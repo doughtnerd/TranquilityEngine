@@ -29,6 +29,8 @@ export interface PlayRecord {
   readonly fade: number;
   /** Start, normalised (0–1). */
   readonly startNormalized: number;
+  /** Clip seconds the start moves on by (a musical play released late, T72; negative playing backward). */
+  readonly startShift: number;
   /** Loop override; undefined: the clip's own setting. */
   readonly loop: boolean | undefined;
   readonly promise: Promise<AnimationPlayResult>;
@@ -52,6 +54,8 @@ export interface PlaySpec {
   readonly fade: number;
   readonly speed: number;
   readonly startNormalized: number;
+  /** Clip seconds added to the start (default 0): musical timing's late or hit-aligned start (T72). */
+  readonly startShift?: number;
   readonly loop: boolean | undefined;
 }
 
@@ -78,6 +82,7 @@ export function queuePlay(rt: AnimatorRuntime, clip: string, spec: PlaySpec): Pl
     speed: spec.speed,
     fade: Math.max(0, spec.fade),
     startNormalized: spec.startNormalized,
+    startShift: Number.isFinite(spec.startShift) ? spec.startShift! : 0,
     loop: spec.loop,
     promise,
     resolve,
@@ -181,7 +186,7 @@ export function flushQueue(frame: AnimationFrame, rt: AnimatorRuntime): void {
         layer: play.layer,
         fade: play.fade,
         speed: play.speed,
-        start: Math.min(1, Math.max(0, play.startNormalized)) * duration,
+        start: Math.min(duration, Math.max(0, Math.min(1, Math.max(0, play.startNormalized)) * duration + play.startShift)),
         flags,
       });
       rt.layers[play.layer] = play;
@@ -245,7 +250,7 @@ export function layerState(rt: AnimatorRuntime | null, layer: number): AnimatorS
   const looping = p.loop ?? info?.looping ?? false;
   let normalizedTime = 0;
   if (duration > 0) {
-    normalizedTime = p.startNormalized + (p.elapsed * p.speed) / duration;
+    normalizedTime = p.startNormalized + (p.startShift + p.elapsed * p.speed) / duration;
     if (!looping) normalizedTime = Math.min(1, Math.max(0, normalizedTime));
   }
   return {
