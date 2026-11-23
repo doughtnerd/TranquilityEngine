@@ -4,8 +4,8 @@
 // `onEdit(result, label, drag)`; the owner applies it as one undo step (`applyEdit`; a drag coalesces until `drag` is
 // false) and removes a removed effect's automation, which it holds.
 import { useRef, useState } from "preact/hooks";
-import { effectSpec } from "../../engine/audio/effects/catalogue";
-import type { Effect, EffectLevel } from "../../engine/audio/effects/types";
+import { allowedAt, effectSpec } from "../../engine/audio/effects/catalogue";
+import type { Effect, EffectLevel, EffectType } from "../../engine/audio/effects/types";
 import { ContextMenu } from "../../editor/ui/ContextMenu";
 import { InfoTip } from "../../editor/ui/InfoTip";
 import { SEPARATOR, type MenuEntry } from "../../editor/ui/contextMenuModel";
@@ -45,6 +45,11 @@ export interface EffectChainProps {
   readonly pluginHealth?: readonly AudioPluginDebug[];
   /** Reset plugin on a card (default: the running backend's `effectPlugins.reset`). */
   onResetPlugin?(type: string): void;
+  /**
+   * The Add effect list instead of the level's catalogue (a sequence clip: the instance level's types minus Delay and
+   * Reverb, plus the Amp envelope, spec B.2). A listed type the level doesn't run is added at its own first level.
+   */
+  readonly types?: readonly EffectType[];
 }
 
 /** The Add effect menu's entries: the built-ins, then each plugin's effects under its title (ADR 0352 §9). */
@@ -126,11 +131,22 @@ export function EffectChain(props: EffectChainProps) {
         <ContextMenu
           label="Add effect"
           at={addButton.current ?? { x: 0, y: 0 }}
-          entries={menuEntries(level, (item) => {
-            const id = nextEffectId(effects);
-            onEdit(addEffect(effects, item.type, level, { limit: props.limit }), `Add ${item.label}`);
-            toggle(id, true);
-          }, props.exclude)}
+          entries={(props.types
+            ? props.types.map((type): MenuEntry => ({ id: type, label: effectSpec(type).label, run: () => {} }))
+            : menuEntries(level, () => {}, props.exclude)
+          ).map((entry) => {
+            if (entry.kind === "separator" || entry.kind === "group" || entry.disabled) return entry;
+            const type = entry.id as EffectType;
+            return {
+              ...entry,
+              run: () => {
+                const id = nextEffectId(effects);
+                const at = allowedAt(type, level) ? level : effectSpec(type).levels[0]!;
+                onEdit(addEffect(effects, type, at, { limit: props.limit }), `Add ${effectSpec(type).label}`);
+                toggle(id, true);
+              },
+            };
+          })}
           onClose={() => setMenu(false)}
         />
       )}

@@ -5,7 +5,9 @@
  * - `noTempoSource`: a Switch change or a stinger waits for a beat or bar, but the playing entry has no tempo (no sequence
  *   tempo, no sync sample with a tempo), so it acts at once;
  * - `tempoClash`: a sync clip's sample has a tempo other than its sequence's (v1 plays samples at their own tempo);
- * - `overlappingSyncLoops`: sync clips on two tracks overlap in time, so the higher track drives and the other follows;
+ * - `overlappingSyncLoops`: a sync clip chained over another on the same track (it starts before the earlier one ends),
+ *   so the earlier one's loop drives the playhead and the later one follows. Sync clips on parallel tracks (music
+ *   stems that start together) all run on the sequence clock, so their overlap is not a warning (UI pass decision 4);
  * - `allWeightsZero`: a random Queue whose every entry has weight 0 never plays anything;
  * - `unboundLoop`: a loop active "while a parameter…" with no parameter binding never turns active;
  * - `unboundParameter`: a Switch or a Blend axis that names no parameter;
@@ -198,12 +200,13 @@ export function lintPlaylist(body: PlaylistBody, ctx: LintContext = {}): Playlis
           if (typeof c.playlist === "object" && c.playlist) visit(c.playlist, `${cw}.playlist`);
         });
       });
+      // Only a chain on one track: the clip that starts first drives, the one laid over its end follows.
       for (let i = 0; i < syncs.length; i++) {
         for (let j = i + 1; j < syncs.length; j++) {
           const a = syncs[i], b2 = syncs[j];
-          if (a.ti !== b2.ti && a.at < b2.end && b2.at < a.end) {
-            const [hi, lo] = a.ti < b2.ti ? [a, b2] : [b2, a];
-            add("overlappingSyncLoops", w(`sequence.tracks[${lo.ti}]`), `Sync clips "${hi.id}" (${hi.track.name}) and "${lo.id}" (${lo.track.name}) overlap; "${hi.track.name}" drives the playhead and "${lo.track.name}" follows.`);
+          if (a.ti === b2.ti && a.at < b2.end && b2.at < a.end) {
+            const [first, later] = a.at <= b2.at ? [a, b2] : [b2, a];
+            add("overlappingSyncLoops", w(`sequence.tracks[${later.ti}]`), `Sync clip "${later.id}" starts before sync clip "${first.id}" ends on track "${later.track.name}"; "${first.id}" drives the playhead and "${later.id}" follows.`);
           }
         }
       }

@@ -15,6 +15,7 @@ import { Panel } from "../../../editor/ui/panel/Panel";
 import { AUDIO_PROJECT_FILE, type AudioProject } from "../../../engine/audio/project/types";
 import { Icon } from "../../components/Icon";
 import type { StudioPanel } from "../../shell/studioPanels";
+import { replayStore } from "../../shell/replay";
 import { studioRouter, toasts } from "../../shell/studioServices";
 import { historyPanel } from "../placeholder";
 import { BusesPanel } from "./BusesPanel";
@@ -66,6 +67,8 @@ function mixerSession(): MixerSession | null {
     setParameter: setRuntimeParameter,
     auditionSnapshot,
     setLoudnessTarget,
+    sessionLive: () => replayStore().playing.value,
+    openFile: (path) => studioRouter().open({ screen: "playlists", asset: path }),
     prefs,
   });
   // The route's selection (a hand-off from Playlists, "#/mixer?select=Music") picks the bus.

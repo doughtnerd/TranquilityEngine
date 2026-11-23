@@ -27,7 +27,7 @@ export function automate(session: MixerSession, name: string, only?: string): vo
 }
 
 /** A level typed as text ("−6", "-inf"); commits on Enter or blur, Escape puts it back. */
-export function DbField(props: { value: number; label: string; disabled?: boolean; onCommit(db: number): void }) {
+export function DbField(props: { value: number; label: string; disabled?: boolean; title?: string; onCommit(db: number): void }) {
   const [text, setText] = useState(formatDb(props.value));
   useEffect(() => setText(formatDb(props.value)), [props.value]);
   const commit = () => {
@@ -42,6 +42,7 @@ export function DbField(props: { value: number; label: string; disabled?: boolea
       inputMode="decimal"
       value={text}
       aria-label={props.label}
+      title={props.title}
       disabled={props.disabled}
       onInput={(e) => setText((e.target as HTMLInputElement).value)}
       onBlur={commit}

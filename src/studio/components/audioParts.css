@@ -196,15 +196,20 @@
 .studio-gain-row { display: grid; grid-template-columns: minmax(70px, 96px) minmax(40px, 1fr) minmax(64px, auto); gap: 8px; align-items: center; min-height: 20px; }
 .studio-gain-row.neutral .studio-gain-value, .studio-gain-row.neutral .studio-gain-label { color: var(--faint); }
 .studio-gain-label { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.studio-gain-bar { position: relative; height: 6px; background: var(--bg-sunken); border-radius: 3px; overflow: hidden; }
-.studio-gain-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 3px; }
-.studio-gain-fill.cut { background: var(--warning); }
-.studio-gain-fill.boost { background: var(--accent); }
+/* Gain lanes (prototype `.lane`): an 8 px bar on the border track, a cut filled from the right; accent, violet for the
+ * VCA lane, warning for the monitor lane; active rows 600. */
+.studio-gain-bar { position: relative; height: 8px; background: var(--border); border-radius: 2px; overflow: hidden; }
+.studio-gain-fill { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 2px; background: var(--accent); }
+.studio-gain-fill.cut { left: auto; right: 0; }
+.studio-gain-row.vca .studio-gain-fill { background: var(--series-6); }
+.studio-gain-row.monitor .studio-gain-fill { background: var(--warning); }
+.studio-gain-row:not(.neutral):not(.total):not(.parents) .studio-gain-label, .studio-gain-row:not(.neutral):not(.total):not(.parents) .studio-gain-value { color: var(--text); font-weight: 600; }
+.studio-gain-chain { min-width: 0; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: calc(11px * var(--ui-scale)); }
 .studio-gain-value { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .studio-gain-row.parents { border-top: 1px solid var(--border); padding-top: 3px; margin-top: 2px; }
-.studio-gain-row.total { grid-template-columns: minmax(70px, 96px) 1fr auto; border-top: 1px solid var(--border-strong); padding-top: 4px; }
+.studio-gain-row.total { grid-template-columns: minmax(70px, 96px) 1fr; border-top: 1px solid var(--border-strong); padding-top: 4px; }
 .studio-gain-row.total .studio-gain-label, .studio-gain-row.total .studio-gain-value { color: var(--text-strong); font-weight: 600; }
-.studio-gain-row.total .studio-gain-value { text-align: left; }
+.studio-gain-row.total .studio-gain-value { text-align: right; font-size: calc(16px * var(--ui-scale)); }
 .studio-gain-linear { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* Why it played */

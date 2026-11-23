@@ -63,7 +63,7 @@ import { PlaysNowView, VoicesLogView } from "./VoicesView";
 import { isGeneratorPath } from "../../../engine/audio/generators/format";
 import { GeneratorLibraryPanel, GeneratorPanel } from "./generator/GeneratorPanel";
 import { addGeneratorToOpen, followGeneratorRoute, generatorSpace, generatorTarget, loadGenerator } from "./generator/generatorScreen";
-import { SequenceInspectorPanel } from "./sequence/SequencePanel";
+import { SequenceInspectorPanel, SequenceParametersPanel } from "./sequence/SequencePanel";
 import { sequenceSpace, stopSequence } from "./sequence/sequenceState";
 import { sequencePlayerSlots } from "./sequence/SequenceTransport";
 import "./playlists.css";
@@ -643,7 +643,9 @@ function VoicesLogPanel() {
 
 /** The test values of the parameters the open playlist uses (all of them when it uses none), inside the panel's gutter (I3). */
 function TestValues() {
+  // A sequence lists only the parameters it uses, with use chips and Held (spec §4.2.9).
   const body = openBody.value;
+  if (body?.type === "sequence" && body.sequence) return <div class="pl-test-values"><SequenceParametersPanel body={body} writable={writable()} /></div>;
   const used = body ? usedParameters(body, loadPlaylist) : new Set<string>();
   const shown = allParameters.value.filter((p) => used.has(p.name));
   return (

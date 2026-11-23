@@ -8,7 +8,7 @@ import type { DuckingRule } from "../../engine/audio/project/types";
 import { START_VIEW, chainKey, chainText, chainWheel, fitView, shouldStack, worstSeverity, zoomAt, type CausalStep } from "./causalChainModel";
 import { addEffect, effectMenu, effectSummary, keyBusOptions, levelWarning, moveEffect, nextEffectId, removeEffect, setEffectKey, setEffectOn, setEffectParam, type EditResult } from "./effectChainModel";
 import { FADER_MAX_DB, FADER_MIN_DB, dbToPosition, faderGhosts, faderKey, formatDb, parseDb, pointerToDb, positionToDb, snapFaderDb } from "./faderModel";
-import { audibleUnderSolo, dbText, gainBreakdown, gainText, laneBar, laneText, type GainInputs } from "./gainLanesModel";
+import { audibleUnderSolo, dbText, gainBreakdown, gainText, laneBar, laneText, parentsText, totalText, type GainInputs } from "./gainLanesModel";
 import { EMPTY_HOLD, clearClip, meterFill, meterText, meterZone, nextHold } from "./meterModel";
 import { duckSummary, duckTriggerOptions, editDuck, editSendLevel, sendSummary, sendTargets } from "./mixRowsModel";
 import { numericSpec, parameterRows, withTestValue } from "./parameterPanelModel";
@@ -446,6 +446,11 @@ describe("gain lanes", () => {
     expect(["Master", "SFX", "Vehicles", "Engine", "Reverb"].map((n) => audibleUnderSolo(solo, n, "Vehicles"))).toEqual([true, true, true, true, true]);
     expect(audibleUnderSolo(solo, "Dialogue", "Vehicles")).toBe(false);
     expect(gainBreakdown(solo, "Reverb")!.totalDb).toBe(-3);
+    // The spec's words (§4.3.5): stage names, who sets a lane, the chain above, the total with its linear gain.
+    expect(gainBreakdown(mix, "Music")!.lanes.map((l) => l.label)).toEqual(["authored", "runtime", "snapshot", "vca", "monitor", "dip", "duck", "automation"]);
+    expect(totalText(gainBreakdown(solo, "Music")!)).toBe("−∞ (monitor)");
+    expect(totalText({ totalDb: -10, gain: Math.pow(10, -0.5), lanes: [] })).toBe("−10.0 dB · 0.32×");
+    expect(parentsText({ parents: [{ name: "SFX", db: -2 }, { name: "Master", db: 0 }] })).toBe("SFX −2.0 · Master 0.0");
   });
 
   it("writes lanes and bars", () => {

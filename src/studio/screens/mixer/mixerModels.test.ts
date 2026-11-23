@@ -145,8 +145,8 @@ describe("beds", () => {
     expect(a.lost).toEqual(["Rain"]);
     expect(a.chip).toBe("Beds 2/2 · 1 sharing");
     expect(bedText(a.state.get("Rain"))).toBe("Lost · shares Ambience");
-    expect(bedText(a.state.get("SFX"))).toBe("Shares Master");
-    expect(bedText(a.state.get("Ambience"))).toBe("Own · 80");
+    expect(bedText(a.state.get("SFX"))).toBe("→ Master");
+    expect(bedText(a.state.get("Ambience"))).toBe("Own · p80");
     const raised = ok(setBed(p, "Rain", "own", 90));
     expect(allocateBeds(raised).hosts).toEqual(["Master", "Rain"]);
     expect(bedText(allocateBeds(raised).state.get("Ambience"))).toBe("Lost · shares Master");
