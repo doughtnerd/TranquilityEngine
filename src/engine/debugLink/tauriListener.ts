@@ -30,6 +30,7 @@
 // side in the order the page made them.
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { parseListenAddress } from "../net/listenTarget";
+import type { NetworkInterfaceAddress } from "./pairing/address";
 import { registerTransport, type Transport } from "../net/Transport";
 import { WebSocketTransport, type SocketLike } from "../net/transport/websocket";
 
@@ -228,6 +229,21 @@ class TauriWebSocketTransport extends WebSocketTransport {
     this.ipc = this.ipc
       .then(() => invoke(cmd, args, options))
       .catch((err: unknown) => console.warn(`[myco] The debug link listener (${cmd}): ${err instanceof Error ? err.message : String(err)}`));
+  }
+}
+
+/**
+ * This machine's network addresses from the desktop shell (`myco_debuglink_interfaces`: the primary IPv4 address and
+ * loopback), for the pairing code's LAN address (`startBuildListener`'s and `connectToBuild`'s `interfaces`). Empty
+ * outside Tauri, or when the command fails or is missing (an older shell).
+ */
+export async function nativeInterfaces(): Promise<NetworkInterfaceAddress[]> {
+  if (!("__TAURI_INTERNALS__" in globalThis)) return [];
+  try {
+    const list = await invoke<NetworkInterfaceAddress[]>("myco_debuglink_interfaces");
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
   }
 }
 

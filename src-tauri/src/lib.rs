@@ -182,7 +182,8 @@ pub fn run() {
             debug_link_tauri::commands::myco_debuglink_listen_range,
             debug_link_tauri::commands::myco_debuglink_listen,
             debug_link_tauri::commands::myco_debuglink_send,
-            debug_link_tauri::commands::myco_debuglink_close
+            debug_link_tauri::commands::myco_debuglink_close,
+            debug_link_tauri::commands::myco_debuglink_interfaces
         ])
         .on_window_event(|window, event| {
             let other = |label: &str| window.app_handle().get_webview_window(label);

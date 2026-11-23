@@ -9,6 +9,8 @@ import "../../engine/net/transport/loopback";
 import { DebugLinkSession } from "../../engine/debugLink/session";
 import { listenAddress, type DebugLinkPreferences } from "./debugLinkLogic";
 import { EditorDebugLink } from "./editorLink";
+import { decodePairCode, encodePairCode } from "../../engine/debugLink/pairing/code";
+import "../../engine/net/transport/websocket";
 import type { PlayBuild } from "./playBuild";
 
 let port = 9100;
@@ -185,5 +187,69 @@ describe("the editor's Play on its link (servePlay)", () => {
     link.stop();
     expect(link.play.value).toBeNull();
     expect(play.state.value).toEqual({ kind: "stopped" });
+  });
+});
+
+describe("the editor's own network addresses (the desktop shell's interface list)", () => {
+  const lan = [{ address: "192.168.1.20", family: "IPv4" as const, internal: false }];
+
+  it("Play shows a LAN code once the addresses are fetched, from the list fetched once", async () => {
+    const fetches: number[] = [];
+    const link = new EditorDebugLink({
+      transport: () => createTransport("loopback"),
+      autoPoll: false,
+      playTransport: "loopback",
+      playOptions: { log: () => {} },
+      interfaces: async () => (fetches.push(1), lan),
+    });
+    stops.push(() => link.stop());
+    await link.apply({ listen: true, lan: true, port: 7790 });
+    const engine = await Engine.create({ headless: true });
+    stops.push(() => engine.dispose());
+    const play = link.servePlay(engine, "Game (editor Play)");
+    expect(play.state.value).toEqual({ kind: "starting" });
+    await vi.waitFor(() => expect(play.code.value).not.toBeNull());
+    expect(decodePairCode(play.code.value!)).toMatchObject({ code: { kind: "address", octets: [1, 20] } });
+    link.servePlay(engine, "Game (editor Play)"); // a replaced Play reuses the list
+    await vi.waitFor(() => expect(link.play.value?.code.value).not.toBeNull());
+    expect(fetches).toHaveLength(1);
+  });
+
+  it("a stopped Play is not started by a fetch that finishes later", async () => {
+    let release!: (list: typeof lan) => void;
+    const link = new EditorDebugLink({
+      transport: () => createTransport("loopback"),
+      autoPoll: false,
+      playTransport: "loopback",
+      playOptions: { log: () => {} },
+      interfaces: () => new Promise((r) => (release = r)),
+    });
+    stops.push(() => link.stop());
+    await link.apply({ listen: true, lan: true, port: 9710 });
+    const engine = await Engine.create({ headless: true });
+    stops.push(() => engine.dispose());
+    const play = link.servePlay(engine, "Game (editor Play)");
+    play.stop();
+    release(lan);
+    await new Promise((r) => setTimeout(r, 20));
+    expect(link.play.value).toBeNull();
+    expect(play.state.value).toEqual({ kind: "stopped" });
+  });
+
+  it("connect completes a code from them: the only candidate is on the machine's own network", async () => {
+    vi.useFakeTimers();
+    try {
+      const link = new EditorDebugLink({ transport: () => null, autoPoll: false, interfaces: async () => [{ address: "10.5.0.3", family: "IPv4" }] });
+      stops.push(() => link.stop());
+      const code = encodePairCode({ kind: "address", octets: [1, 20], portOffset: 0, token: 5 });
+      const result = link.connect({ code }).then(
+        () => "paired",
+        (e: Error) => String((e.cause as { message?: string } | undefined)?.message ?? e.message),
+      );
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(await result).toContain("ws://10.5.1.20:7790/myco-debug");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

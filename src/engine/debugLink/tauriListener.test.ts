@@ -8,7 +8,8 @@ import { createTransport, transportCanListen, type Transport, type TransportConn
 import { DebugLinkSession } from "./session";
 import { DebugLinkListener, type DebugLinkPeer } from "./client";
 import { DEBUG_LINK_PATH } from "./config";
-import { registerTauriWebSocketTransport, tauriListenerPort } from "./tauriListener";
+import { nativeInterfaces, registerTauriWebSocketTransport, tauriListenerPort } from "./tauriListener";
+import "../net/transport/loopback";
 import { Engine } from "../../myco";
 import { startBuildListener } from "./host";
 import { decodePairCode } from "./pairing/code";
@@ -21,7 +22,7 @@ interface Backend {
   close(listener: number): Promise<void>;
 }
 
-const tauri = vi.hoisted(() => ({ backend: null as unknown as Backend, calls: [] as string[], noRange: false }));
+const tauri = vi.hoisted(() => ({ backend: null as unknown as Backend, calls: [] as string[], noRange: false, interfaces: [] as unknown }));
 
 vi.mock("@tauri-apps/api/core", () => ({
   Channel: class {
@@ -43,6 +44,9 @@ vi.mock("@tauri-apps/api/core", () => ({
         return tauri.backend.send(Number(options!.headers["myco-listener"]), decodeOutbox(args as Uint8Array));
       case "myco_debuglink_close":
         return tauri.backend.close((args as { id: number }).id);
+      case "myco_debuglink_interfaces":
+        if (tauri.interfaces instanceof Error) throw tauri.interfaces;
+        return tauri.interfaces;
     }
     throw new Error(`unknown command ${cmd}`);
   },
@@ -393,6 +397,57 @@ describe("the debug link listener on the desktop transport", () => {
     } finally {
       listener.close();
       taken.close();
+    }
+  });
+});
+
+describe("this machine's network addresses from the shell (nativeInterfaces)", () => {
+  const withTauri = (on: boolean) => {
+    const g = globalThis as { __TAURI_INTERNALS__?: unknown };
+    if (on) g.__TAURI_INTERNALS__ = {};
+    else delete g.__TAURI_INTERNALS__;
+  };
+  afterEach(() => {
+    withTauri(false);
+    tauri.interfaces = [];
+  });
+
+  it("is empty outside Tauri, without asking", async () => {
+    tauri.calls.length = 0;
+    expect(await nativeInterfaces()).toEqual([]);
+    expect(tauri.calls).toEqual([]);
+  });
+
+  it("is the shell's list under Tauri, and empty when the command fails (an older shell)", async () => {
+    withTauri(true);
+    tauri.interfaces = [{ address: "192.168.1.20", family: "IPv4", internal: false }, { address: "127.0.0.1", family: "IPv4", internal: true }];
+    expect(await nativeInterfaces()).toEqual(tauri.interfaces);
+    tauri.interfaces = new Error("Command myco_debuglink_interfaces not found");
+    expect(await nativeInterfaces()).toEqual([]);
+  });
+
+  it("gives a listening build a pairing code for the machine's private address, and none without them", async () => {
+    withTauri(true);
+    tauri.interfaces = [{ address: "192.168.7.31", family: "IPv4", internal: false }, { address: "127.0.0.1", family: "IPv4", internal: true }];
+    const engine = await Engine.create({ headless: true });
+    try {
+      const list = await nativeInterfaces();
+      const build = await startBuildListener(engine, { debug: { listen: true, lan: true, port: 7794 }, name: "Game", platform: "loopback-test", transport: "loopback", interfaces: () => list, log: () => {} });
+      try {
+        expect(decodePairCode(build!.code!)).toMatchObject({ code: { kind: "address", octets: [7, 31], portOffset: 4 } });
+      } finally {
+        build!.close();
+      }
+      tauri.interfaces = new Error("nope");
+      const none = await nativeInterfaces();
+      const bare = await startBuildListener(engine, { debug: { listen: true, lan: true, port: 7795 }, name: "Game", platform: "loopback-test", transport: "loopback", interfaces: () => none, log: () => {} });
+      try {
+        expect(bare!.code).toBeNull();
+      } finally {
+        bare!.close();
+      }
+    } finally {
+      engine.dispose();
     }
   });
 });

@@ -10,6 +10,8 @@ import { createTransport, type Transport } from "../../engine/net/Transport";
 import { DebugLinkListener, ToolConnector, type DebugLinkPeer } from "../../engine/debugLink/client";
 import type { EndpointKind } from "../../engine/debugLink/protocol";
 import { DEFAULT_DEBUG_LINK_PORT } from "../../engine/debugLink/config";
+import type { NetworkInterfaceAddress } from "../../engine/debugLink/pairing/address";
+import { nativeInterfaces } from "../../engine/debugLink/tauriListener";
 import { connectToBuild, type ConnectTarget } from "./connectFlow";
 import { servePlayBuild, type PlayBuild, type PlayBuildOptions, type PlayBuildState } from "./playBuild";
 import { isLocalRemote, listenAddress, remoteHost, type BuildEntry, type DebugLinkPreferences } from "./debugLinkLogic";
@@ -39,6 +41,8 @@ export interface EditorDebugLinkOptions {
    * host can't listen. Tests pass `loopback`.
    */
   readonly playTransport?: string | null;
+  /** Where this machine's network addresses come from (default `nativeInterfaces`: the desktop shell's, empty elsewhere). */
+  readonly interfaces?: () => Promise<readonly NetworkInterfaceAddress[]>;
   /** Everything else about how Play listens (tests: the loopback's clock, the gate's clock, this machine's addresses). */
   readonly playOptions?: Omit<PlayBuildOptions, "transport" | "lan" | "port">;
 }
@@ -56,7 +60,9 @@ export class EditorDebugLink {
   private readonly refused = new Set<string>();
   private generation = 0;
 
-  constructor(private readonly options: EditorDebugLinkOptions) {}
+  constructor(private readonly options: EditorDebugLinkOptions) {
+    if (!options.interfaces && !("__TAURI_INTERNALS__" in globalThis)) this.interfaceList = [];
+  }
 
   /** Accepted builds, in connection order. */
   get builds(): ReadonlySignal<readonly ConnectedBuild[]> {
@@ -123,11 +129,12 @@ export class EditorDebugLink {
    * joins `builds` at once: the tool chose to connect, so there is no prompt); rejects with the reason
    * (`connectFlow.ts`). C7: the flow is U1's.
    */
-  connect(target: ConnectTarget): Promise<void> {
+  async connect(target: ConnectTarget): Promise<void> {
     const connector = this.ensureConnector();
+    const interfaces = await this.machineInterfaces();
     return connectToBuild(target, {
       connector,
-      interfaces: () => [],
+      interfaces: () => interfaces,
       pageHost: typeof location !== "undefined" && !("__TAURI_INTERNALS__" in globalThis) ? location.hostname : null,
       waitFor: (done, timeoutMs) => this.waitFor(done, timeoutMs),
     });
@@ -148,11 +155,24 @@ export class EditorDebugLink {
     return {
       code: computed(() => current.value?.code.value ?? null),
       tools: computed(() => current.value?.tools.value ?? []),
-      state: computed((): PlayBuildState => (this.served === served ? (current.value?.state.value ?? { kind: "stopped" }) : { kind: "stopped" })),
+      state: computed((): PlayBuildState => (this.served === served ? (current.value?.state.value ?? { kind: "starting" }) : { kind: "stopped" })),
       stop: () => {
         if (this.served === served) this.endPlay();
       },
     };
+  }
+
+  /** This machine's addresses, fetched once: known at once where there's nothing to ask (a browser page), null until then in a native shell. */
+  private interfaceList: readonly NetworkInterfaceAddress[] | null = null;
+  private interfaceFetch: Promise<readonly NetworkInterfaceAddress[]> | null = null;
+  private restarts = 0;
+
+  private machineInterfaces(): Promise<readonly NetworkInterfaceAddress[]> {
+    if (this.interfaceList) return Promise.resolve(this.interfaceList);
+    return (this.interfaceFetch ??= (this.options.interfaces ?? nativeInterfaces)().then(
+      (list) => (this.interfaceList = list),
+      () => (this.interfaceList = []),
+    ));
   }
 
   private readonly playSignal = signal<PlayBuild | null>(null);
@@ -162,6 +182,7 @@ export class EditorDebugLink {
 
   /** (Re)starts serving the remembered play Engine by the current preferences. */
   private restartPlay(): void {
+    this.restarts++;
     this.playSignal.peek()?.stop();
     const served = this.served;
     if (!served) {
@@ -169,14 +190,26 @@ export class EditorDebugLink {
       return;
     }
     const prefs = this.prefs ?? { listen: true, lan: false, port: DEFAULT_DEBUG_LINK_PORT };
-    this.playSignal.value = prefs.listen
-      ? servePlayBuild(served.engine, served.name, {
-          ...this.options.playOptions,
-          transport: this.options.playTransport === undefined ? "websocket" : this.options.playTransport,
-          lan: prefs.lan,
-          port: prefs.port + 1,
-        })
-      : offBuild();
+    if (!prefs.listen) {
+      this.playSignal.value = offBuild();
+      return;
+    }
+    const begin = (list: readonly NetworkInterfaceAddress[]) => {
+      this.playSignal.value = servePlayBuild(served.engine, served.name, {
+        interfaces: () => list,
+        ...this.options.playOptions,
+        transport: this.options.playTransport === undefined ? "websocket" : this.options.playTransport,
+        lan: prefs.lan,
+        port: prefs.port + 1,
+      });
+    };
+    if (this.interfaceList) return begin(this.interfaceList);
+    // The first fetch in a native shell: Play starts once the addresses are known (its code needs them).
+    this.playSignal.value = null;
+    const restart = this.restarts;
+    void this.machineInterfaces().then((list) => {
+      if (this.served === served && this.restarts === restart) begin(list);
+    });
   }
 
   private endPlay(): void {
