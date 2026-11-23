@@ -66,6 +66,29 @@ export function last_report() {
 }
 
 /**
+ * [`meter_module`]: the metered module, or empty (`last_error` says why it was refused).
+ * @param {Uint8Array | number[]} bytes
+ * @returns {Uint8Array}
+ */
+export function meter_node_module(bytes) {
+    const ptr0 = passArray8ToWasm0(bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.meter_node_module(ptr0, len0);
+    var v2 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v2;
+}
+
+/**
+ * The fuel pass's version ([`anim_meter::METER_VERSION`]): a metered module's cache key includes it.
+ * @returns {number}
+ */
+export function meter_version() {
+    const ret = wasm.meter_version();
+    return ret >>> 0;
+}
+
+/**
  * [`compile_posedb`]: the database file, or empty (`last_error`).
  * @param {Uint8Array | number[]} skeleton
  * @param {string} skeleton_name
