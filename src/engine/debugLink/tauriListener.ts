@@ -20,11 +20,18 @@
 // The port a listening transport got: `tauriListenerPort(transport)`.
 //
 // Wire format (`native/ws-listener/src/wire.rs` is the other side; big-endian, UTF-8):
-// - events, one per channel message: [kind u8][connection u32][rest]; 1 accept (rest: the peer's address), 2 message
+// - events, one per channel message: [kind u8][connection u32][rest]; 1 accept (rest: the peer's address, then a newline
+//   and the path the upgrade asked for; an older native side sends the address alone), 2 message
 //   (rest: the payload), 3 close (rest: [code u16][reason]; only for closes the page didn't ask for), 4 error
 //   (connection 0, rest: the message);
 // - an outbox body: records [op u8][connection u32][length u32][bytes]; 1 send (bytes: the payload), 2 close (bytes:
 //   [code u16][reason]).
+//
+// One native listener serves more than one path (ADR 0380 "Rendezvous", ADR 0067): the native side takes one listen
+// path, and "/" accepts every path and reports each accept's path, so this transport routes by it. `routePath` (before
+// `listen`) hands a path's connections to a second transport (`RoutedTransport`); `hostRendezvous` runs a
+// `RendezvousServer` over one at `/myco-rendezvous`. With routes, the listen path moves to "/" natively and any path
+// that is neither the listen path nor a route is closed here (the native side no longer refuses it).
 //
 // IPC calls go one at a time, in order (listen, then each outbox, then close), so sends and closes reach the native
 // side in the order the page made them.
@@ -33,6 +40,8 @@ import { parseListenAddress } from "../net/listenTarget";
 import type { NetworkInterfaceAddress } from "./pairing/address";
 import { registerTransport, type Transport } from "../net/Transport";
 import { WebSocketTransport, type SocketLike } from "../net/transport/websocket";
+import { RENDEZVOUS_PATH } from "./rendezvous/protocol";
+import { RendezvousServer } from "./rendezvous/server";
 
 /** How many ports from the requested one the native listener may try (ADR 0380: 7790..7799). */
 const PORT_RANGE = 10;
@@ -86,6 +95,28 @@ function encodeOutbox(records: readonly OutboxRecord[]): Uint8Array {
   return out;
 }
 
+/** @internal The connections of one extra path of a native listener (`routePath`): the parent transport adopts them here. */
+class RoutedTransport extends WebSocketTransport {
+  /** Called once when this transport closes (a parent that closes closes it too). */
+  onClosed: (() => void) | null = null;
+  private closedOnce = false;
+
+  override async listen(): Promise<void> {
+    // Nothing to bind: the parent's native listener does that.
+  }
+
+  adopt(remote: string, socket: SocketLike): Accepted {
+    return this.addConnection(remote, socket);
+  }
+
+  override close(): void {
+    super.close();
+    if (this.closedOnce) return;
+    this.closedOnce = true;
+    this.onClosed?.();
+  }
+}
+
 /** @internal A WebSocket transport that listens through the desktop shell's native server and connects as the client does. */
 class TauriWebSocketTransport extends WebSocketTransport {
   /** The native listener's id once `listen` resolved; null before, and after `close`. */
@@ -104,11 +135,31 @@ class TauriWebSocketTransport extends WebSocketTransport {
   /** The IPC chain: every call waits for the one before it. */
   private ipc: Promise<unknown> = Promise.resolve();
   private flushQueued = false;
+  /** Extra paths this listener serves, by path (`routePath`). */
+  private readonly routes = new Map<string, RoutedTransport>();
+  /** The path `listen` was asked for. */
+  private mainPath = "/";
+  /** The native listener takes every path and this transport filters (there are routes). */
+  private filtering = false;
+
+  /** A transport for the connections to `path`, or null when this one is listening or closed already (routes come first). */
+  routePath(path: string): Transport | null {
+    if (this.listening || this.closed) return null;
+    let route = this.routes.get(path);
+    if (!route) {
+      route = new RoutedTransport();
+      this.routes.set(path, route);
+    }
+    return route;
+  }
 
   override async listen(address: string): Promise<void> {
     if (this.listening || this.closed) throw new Error(this.closed ? "This transport is closed." : "This transport is already listening.");
     this.listening = true;
-    const { host, port, path } = parseListenAddress(address);
+    const { host, port, path: asked } = parseListenAddress(address);
+    this.mainPath = asked;
+    this.filtering = this.routes.size > 0 && asked !== "/";
+    const path = this.filtering ? "/" : asked;
     const events = new Channel<ArrayBuffer>((message) => this.handleEvent(message));
     const bindHost = host ?? "0.0.0.0";
     const call = this.ipc.then(async () => {
@@ -143,6 +194,7 @@ class TauriWebSocketTransport extends WebSocketTransport {
   override close(): void {
     if (this.closed) return;
     super.close(); // every connection, which queues its close
+    for (const route of this.routes.values()) route.close();
     this.closed = true;
     const id = this.listenerId;
     if (id === null) return; // still binding: closed once the listen call returns
@@ -159,7 +211,16 @@ class TauriWebSocketTransport extends WebSocketTransport {
     const rest = new Uint8Array(message, 5);
     switch (kind) {
       case ACCEPT: {
-        const connection = this.addConnection(decoder.decode(rest), this.socket(id));
+        const text = decoder.decode(rest);
+        const at = text.indexOf("\n");
+        const remote = at < 0 ? text : text.slice(0, at);
+        const path = at < 0 ? undefined : text.slice(at + 1);
+        const route = path === undefined ? undefined : this.routes.get(path);
+        if (!route && this.filtering && path !== undefined && path !== this.mainPath) {
+          this.queue({ op: CLOSE_OP, connection: id, bytes: closeBytes(1008, "Not found.") }); // neither the listen path nor a route
+          break;
+        }
+        const connection = route ? route.adopt(remote, this.socket(id)) : this.addConnection(remote, this.socket(id));
         this.accepted.set(id, connection);
         connection.handleOpen();
         break;
@@ -250,6 +311,29 @@ export async function nativeInterfaces(): Promise<NetworkInterfaceAddress[]> {
 /** The port a transport from `registerTauriWebSocketTransport` got from the native listener (null before it is listening, or for another transport). */
 export function tauriListenerPort(transport: Transport): number | null {
   return transport instanceof TauriWebSocketTransport ? transport.boundPort : null;
+}
+
+/** How often a hosted rendezvous is polled, ms. */
+const RENDEZVOUS_POLL_MS = 33;
+
+/**
+ * Runs a rendezvous (ADR 0380 "Rendezvous") on the native listener `transport` is, at `/myco-rendezvous` on the same
+ * port, so a native Myco app hosts rooms for pages and tools on its LAN. Call it before `transport.listen`. Returns the
+ * stop, or null when `transport` isn't the native listener or has started listening. The rendezvous stops with the
+ * transport. It carries only signalling.
+ */
+export function hostRendezvous(transport: Transport, path: string = RENDEZVOUS_PATH): (() => void) | null {
+  if (!(transport instanceof TauriWebSocketTransport)) return null;
+  const route = transport.routePath(path);
+  if (!(route instanceof RoutedTransport)) return null;
+  const server = new RendezvousServer({ transport: route, now: () => Date.now() });
+  void server.listen(path);
+  const timer = setInterval(() => server.poll(), RENDEZVOUS_POLL_MS);
+  route.onClosed = () => clearInterval(timer);
+  return () => {
+    clearInterval(timer);
+    server.close();
+  };
 }
 
 /** Registers "websocket" as the transport above, which can listen: called once by the desktop editor before its debug link starts. */

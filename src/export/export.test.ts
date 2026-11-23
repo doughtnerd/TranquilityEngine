@@ -1,12 +1,13 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { spawn } from "node:child_process";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { GAMEPAD_COMMANDS, GAMEPAD_DEPENDENCIES, desktopProjectFiles, slug } from "./desktop";
 import { modulePath, relativeSpecifier, type GameManifest } from "./format";
 import { exportProject } from "./node";
 import { USAGE, parseArgs } from "./main";
-import { ExportError, isOutputInsideProject, planWebBuild, type BuildSource } from "./webBuild";
+import { ExportError, RENDEZVOUS_FILE, SERVE_SCRIPT, debugServeScript, isOutputInsideProject, planWebBuild, type BuildSource } from "./webBuild";
 import { typescript } from "../editor/moduleImports";
 
 const SAMPLES = join(__dirname, "..", "..", "samples");
@@ -214,6 +215,98 @@ describe("the debug link option (ADR 0376)", () => {
   });
 });
 
+/** This machine's non-loopback IPv4 addresses (a machine without any prints no "On your network" line). */
+const networkInterfaces4 = () => Object.values(networkInterfaces()).flatMap((list) => (list ?? []).filter((a) => a.family === "IPv4" && !a.internal));
+
+describe("a debug web build hosts the rendezvous (ADR 0380 'Rendezvous' 2 and 3)", () => {
+  const BUNDLE = "export async function startRendezvous() {}\n";
+  const files = async (o: object) => (await planWebBuild(source(), o)).generated;
+
+  it("a release build's serve.mjs is unchanged and has no bundle, whatever the bundle option says", async () => {
+    const release = await files({ rendezvousBundle: BUNDLE });
+    expect(release.get("serve.mjs")).toBe(SERVE_SCRIPT);
+    expect(release.get("serve.mjs")).toContain('server.listen(port, "127.0.0.1"');
+    expect(release.has(RENDEZVOUS_FILE)).toBe(false);
+  });
+
+  it("--debug-link with the bundle: rendezvous.mjs beside a serve.mjs that mounts it, still on 127.0.0.1", async () => {
+    const g = await files({ debugLink: true, rendezvousBundle: BUNDLE });
+    expect(g.get(RENDEZVOUS_FILE)).toBe(BUNDLE);
+    const serve = g.get("serve.mjs")!;
+    expect(serve).toContain('import { startRendezvous } from "./rendezvous.mjs"');
+    expect(serve).toContain('await startRendezvous(server, "/myco-rendezvous")');
+    expect(serve).toContain('server.listen(port, "127.0.0.1"');
+    expect(serve).not.toContain("0.0.0.0");
+    expect(g.get("README.txt")).toContain("/myco-rendezvous");
+  });
+
+  it("--debug-lan binds 0.0.0.0 and prints the LAN addresses; without the bundle it still does, and warns", async () => {
+    const lan = await files({ debugLan: true, rendezvousBundle: BUNDLE });
+    expect(lan.get("serve.mjs")).toContain('server.listen(port, "0.0.0.0"');
+    expect(lan.get("serve.mjs")).toContain("On your network: http://");
+    expect(lan.get("README.txt")).toContain("every network interface");
+    const plan = await planWebBuild(source(), { debugLan: true });
+    expect(plan.generated.has(RENDEZVOUS_FILE)).toBe(false);
+    expect(plan.generated.get("serve.mjs")).not.toContain("rendezvous.mjs");
+    expect(plan.generated.get("serve.mjs")).toContain('server.listen(port, "0.0.0.0"');
+    expect(plan.warnings?.join("\n")).toMatch(/no rendezvous\.mjs[\s\S]*npm run build:rendezvous/);
+  });
+
+  it("every flag combination writes a serve.mjs that runs: serves the page, mounts the rendezvous, prints the LAN", async () => {
+    // A stand-in bundle: it is handed the server and the path, and answers /rendezvous-mounted over HTTP with the path.
+    const bundle = 'export async function startRendezvous(server, path) { server.prependListener("request", (req, res) => { if (req.url === "/rendezvous-mounted") res.end(path); }); }\n';
+    for (const lan of [false, true]) {
+      for (const rendezvous of [false, true]) {
+        const label = `lan ${lan}, rendezvous ${rendezvous}`;
+        const dir = mkdtempSync(join(tmpdir(), "myco-serve-"));
+        try {
+          writeFileSync(join(dir, "serve.mjs"), debugServeScript({ lan, rendezvous }));
+          writeFileSync(join(dir, "index.html"), "<title>game</title>");
+          if (rendezvous) writeFileSync(join(dir, RENDEZVOUS_FILE), bundle);
+          const child = spawn(process.execPath, [join(dir, "serve.mjs"), "0"], { stdio: ["ignore", "pipe", "pipe"] });
+          let out = "";
+          child.stderr.on("data", (d: Buffer) => (out += d));
+          try {
+            const port = await new Promise<number>((resolve, reject) => {
+              child.on("exit", (code) => reject(new Error(`serve.mjs exited ${code}: ${out}`)));
+              child.stdout.on("data", (d: Buffer) => {
+                out += d;
+                const m = /http:\/\/127\.0\.0\.1:(\d+)\//.exec(out);
+                if (m) setTimeout(() => resolve(Number(m[1])), 50); // the rest of the lines
+              });
+            });
+            expect(await (await fetch(`http://127.0.0.1:${port}/`)).text(), label).toContain("<title>game</title>");
+            const mounted = await fetch(`http://127.0.0.1:${port}/rendezvous-mounted`);
+            if (rendezvous) expect(await mounted.text(), label).toBe("/myco-rendezvous");
+            else expect(mounted.status, label).toBe(404);
+            expect(out.includes("Pairing rendezvous at ws://127.0.0.1:"), label).toBe(rendezvous);
+            expect(out.includes("On your network: http://"), label).toBe(lan && networkInterfaces4().length > 0);
+          } finally {
+            child.removeAllListeners("exit");
+            child.kill();
+          }
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+    }
+  }, 30_000);
+
+  it("--debug-rendezvous implies debugging on and is written as debug.rendezvous; a bad address is refused", async () => {
+    const plan = await planWebBuild(source(), { debugRendezvous: "wss://rdv.example.com/myco-rendezvous" });
+    expect(plan.manifest.debug).toEqual({ link: "ws://localhost:7790/myco-debug", rendezvous: "wss://rdv.example.com/myco-rendezvous" });
+    await expect(planWebBuild(source(), { debugRendezvous: "https://x" })).rejects.toThrow(/ws:\/\/ or wss:\/\/ URL/);
+    await expect(planWebBuild(source(), { debugRendezvous: "nope" })).rejects.toThrow(/ws:\/\/ or wss:\/\/ URL/);
+  });
+
+  it("the command line takes --debug-rendezvous and the help says what it does", () => {
+    expect(parseArgs(["proj", "--debug-rendezvous", "wss://rdv.example.com/myco-rendezvous"])).toEqual({ projectDir: "proj", debugRendezvous: "wss://rdv.example.com/myco-rendezvous" });
+    expect(() => parseArgs(["proj", "--debug-rendezvous", "https://x"])).toThrow(/ws:\/\/ or wss:\/\//);
+    expect(() => parseArgs(["proj", "--debug-rendezvous"])).toThrow(/needs/);
+    expect(USAGE).toMatch(/--debug-rendezvous[\s\S]*rendezvous\.mjs[\s\S]*--build/);
+  });
+});
+
 describe("the debug link's listening flags (ADR 0380)", () => {
   it("--debug-listen, --debug-lan and --debug-port parse, imply debugging on, and the help says so", () => {
     expect(parseArgs(["proj", "--debug-listen"])).toEqual({ projectDir: "proj", debugListen: true });
@@ -359,6 +452,24 @@ describe("exportProject (Node)", () => {
     const result = await exportProject({ projectDir: project, out: on, playerDir: fakePlayer(), audioCapture: true });
     expect(manifestOf(on).audioCapture).toBe(true);
     expect(result.plan.manifest).toEqual(manifestOf(on));
+  });
+
+  it("a debug web build copies the rendezvous bundle beside serve.mjs; a release build writes neither; --debug-rendezvous reaches game.json", async () => {
+    const project = temp();
+    mkdirSync(join(project, "scenes"));
+    writeFileSync(join(project, "project.json"), '{ "name": "Tiny" }');
+    writeFileSync(join(project, "scenes", "main.scene.json"), "{}");
+    const bundle = join(temp(), "rendezvous.mjs");
+    writeFileSync(bundle, "// the rendezvous bundle\nexport async function startRendezvous() {}\n");
+    const release = join(temp(), "web");
+    await exportProject({ projectDir: project, out: release, playerDir: fakePlayer(), rendezvousFile: bundle });
+    expect(existsSync(join(release, "rendezvous.mjs"))).toBe(false);
+    expect(readFileSync(join(release, "serve.mjs"), "utf8")).toBe(SERVE_SCRIPT);
+    const debug = join(temp(), "web");
+    await exportProject({ projectDir: project, out: debug, playerDir: fakePlayer(), rendezvousFile: bundle, debugRendezvous: "wss://rdv.example.com/myco-rendezvous", debugLan: true });
+    expect(readFileSync(join(debug, "rendezvous.mjs"), "utf8")).toContain("// the rendezvous bundle");
+    expect(readFileSync(join(debug, "serve.mjs"), "utf8")).toContain('"0.0.0.0"');
+    expect((JSON.parse(readFileSync(join(debug, "game.json"), "utf8")) as GameManifest).debug).toMatchObject({ lan: true, rendezvous: "wss://rdv.example.com/myco-rendezvous" });
   });
 
   it("replaces an earlier build through Node's fs, and keeps it when the given player isn't a built one", async () => {

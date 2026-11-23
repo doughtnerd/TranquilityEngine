@@ -18,13 +18,33 @@ import { jsonFiles, type EditorProject } from "./projects";
 import { DEFAULT_DEBUG_LINK_PORT } from "../engine/debugLink/config";
 
 /** The command-line export, for what the editor can't do (desktop packages need Rust and a shell). */
-export const desktopExportCommand = (project: EditorProject, audioCapture = false, audioTake = false, takePictures = true, debugLink = false, debugListen = false, debugLan = false) =>
-  `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop${audioCapture ? " --audio-capture" : ""}${audioTake ? " --audio-take" : ""}${audioTake && !takePictures ? " --no-take-pictures" : ""}${debugLink ? ` --debug-link ${DEFAULT_DEBUG_LINK_PORT}` : ""}${debugLink && debugListen ? " --debug-listen" : ""}${debugLink && debugListen && debugLan ? " --debug-lan" : ""}`;
+export const desktopExportCommand = (project: EditorProject, audioCapture = false, audioTake = false, takePictures = true, debugLink = false, debugListen = false, debugLan = false, debugRendezvous = "") =>
+  `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop${audioCapture ? " --audio-capture" : ""}${audioTake ? " --audio-take" : ""}${audioTake && !takePictures ? " --no-take-pictures" : ""}${debugLink ? ` --debug-link ${DEFAULT_DEBUG_LINK_PORT}` : ""}${debugLink && debugListen ? " --debug-listen" : ""}${debugLink && debugListen && debugLan ? " --debug-lan" : ""}${debugLink && debugRendezvous.trim() ? ` --debug-rendezvous "${debugRendezvous.trim()}"` : ""}`;
+
+/** Whether `value` is a `ws://` or `wss://` URL, as the Export dialog's Rendezvous URL field takes (an empty one is none). */
+export function isRendezvousUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value.trim()).protocol;
+    return protocol === "ws:" || protocol === "wss:";
+  } catch {
+    return false;
+  }
+}
 
 async function fetchBytes(url: string): Promise<Uint8Array> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Couldn't read ${url}: HTTP ${res.status}`);
   return new Uint8Array(await res.arrayBuffer());
+}
+
+/** A text file's contents, or undefined when it can't be read (a missing optional file). */
+async function fetchText(url: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(url);
+    return res.ok ? await res.text() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The open project's files: text the editor holds, else the bytes behind its asset URL. */
@@ -51,7 +71,10 @@ const playerFiles: FileSource = { read: (path) => fetchBytes(new URL(`player/${p
 export async function exportProjectBuild(project: EditorProject, fs: FileSystem, out: string, progress?: (done: number, total: number) => void, options: BuildOptions = {}): Promise<WebBuildPlan> {
   if (project.root && isOutputInsideProject(project.root, out)) throw new ExportError("That folder is inside the project, where the next export would copy it in. Choose a folder outside it (or its dist/ folder).");
   const name = project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name;
-  const plan = await planWebBuild({ name, settings: project.settings, files: project.files, scripts: project.scripts, json: jsonFiles(project), packages: packageSourceFor(project, "production") }, options);
+  // ADR 0380 "Rendezvous" 2: a debug build's serve.mjs hosts the rendezvous from a bundle served beside the editor (rendezvous/rendezvous.mjs); without it the build says so.
+  const debugOn = options.debugLink !== undefined || options.debugListen === true || options.debugLan === true || options.debugPort !== undefined || options.debugRendezvous !== undefined;
+  const rendezvousBundle = debugOn && options.rendezvousBundle === undefined ? await fetchText(new URL("rendezvous/rendezvous.mjs", document.baseURI).href) : undefined;
+  const plan = await planWebBuild({ name, settings: project.settings, files: project.files, scripts: project.scripts, json: jsonFiles(project), packages: packageSourceFor(project, "production") }, { ...options, ...(rendezvousBundle !== undefined && { rendezvousBundle }) });
   const encoder = createBrowserAudioEncoder();
   return writeWebBuild(plan, {
     project: projectFiles(project),

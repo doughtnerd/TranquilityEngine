@@ -8,7 +8,8 @@ import { createTransport, transportCanListen, type Transport, type TransportConn
 import { DebugLinkSession } from "./session";
 import { DebugLinkListener, type DebugLinkPeer } from "./client";
 import { DEBUG_LINK_PATH } from "./config";
-import { nativeInterfaces, registerTauriWebSocketTransport, tauriListenerPort } from "./tauriListener";
+import { hostRendezvous, nativeInterfaces, registerTauriWebSocketTransport, tauriListenerPort } from "./tauriListener";
+import { encodeRendezvousMessage, decodeServerMessage, RENDEZVOUS_PATH, type RendezvousClientMessage } from "./rendezvous/protocol";
 import "../net/transport/loopback";
 import { Engine } from "../../myco";
 import { startBuildListener } from "./host";
@@ -62,7 +63,8 @@ function event(kind: number, connection: number, rest: Uint8Array = new Uint8Arr
   out.set(rest, 5);
   return out.buffer;
 }
-const accept = (c: number, remote: string) => event(1, c, text.encode(remote));
+const accept = (c: number, remote: string, path?: string) => event(1, c, text.encode(path === undefined ? remote : `${remote}
+${path}`));
 const message = (c: number, bytes: number[]) => event(2, c, Uint8Array.from(bytes));
 function closed(c: number, code: number, reason: string): ArrayBuffer {
   const r = text.encode(reason);
@@ -449,5 +451,80 @@ describe("this machine's network addresses from the shell (nativeInterfaces)", (
     } finally {
       engine.dispose();
     }
+  });
+});
+
+describe("one native listener serving the rendezvous beside the debug link (ADR 0380)", () => {
+  const frame = (m: RendezvousClientMessage) => [0, ...encodeRendezvousMessage(m)];
+  const join = (room: number, seat: "waiting" | "joining"): RendezvousClientMessage => ({ t: "join", v: 1, room, token: 5, seat, kind: "page-http" });
+  /** What the native side was asked to send to `connection`, decoded as rendezvous messages. */
+  const sentTo = (native: ReturnType<typeof memoryBackend>, connection: number) =>
+    native.records.flatMap((r) => (r.op === "send" && r.connection === connection ? [decodeServerMessage(Uint8Array.from(r.data.slice(1)))] : []));
+
+  it("listens natively at / and routes by the path each accept reports", async () => {
+    const native = memoryBackend();
+    const t = transport();
+    expect(hostRendezvous(t)).toBeTypeOf("function");
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    expect(native.listens[0]).toMatchObject({ path: "/" });
+
+    native.emit(accept(1, "10.0.0.1:1", "/myco-debug")); // a debug-link peer reaches the transport itself
+    native.emit(accept(2, "10.0.0.2:2", RENDEZVOUS_PATH)); // a rendezvous seat does not
+    const events = t.poll();
+    expect(events.map((e) => e.kind)).toEqual(["open"]);
+    expect((events[0] as Extract<TransportEvent, { kind: "open" }>).connection.remote).toBe("10.0.0.1:1");
+  });
+
+  it("serves a signalling exchange between two seats over the rendezvous path", async () => {
+    const native = memoryBackend();
+    const t = transport();
+    hostRendezvous(t);
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    native.emit(accept(21, "10.0.0.1:1", RENDEZVOUS_PATH));
+    native.emit(accept(22, "10.0.0.2:2", `${RENDEZVOUS_PATH}`));
+    native.emit(message(21, frame(join(77, "waiting"))));
+    native.emit(message(22, frame(join(77, "joining"))));
+    await new Promise((r) => setTimeout(r, 120)); // the hosted rendezvous polls on its own timer
+    expect(sentTo(native, 21).map((m) => ("message" in m ? m.message.t : "refused"))).toEqual(["joined", "peer-joined"]);
+    expect(sentTo(native, 22).map((m) => ("message" in m ? m.message.t : "refused"))).toEqual(["joined", "peer-joined"]);
+    native.emit(message(21, frame({ t: "offer", sdp: "v=0" } as RendezvousClientMessage)));
+    await new Promise((r) => setTimeout(r, 120));
+    expect(sentTo(native, 22).map((m) => ("message" in m ? m.message.t : "refused"))).toContain("offer");
+  });
+
+  it("closes a path that is neither the listen path nor a route", async () => {
+    const native = memoryBackend();
+    const t = transport();
+    hostRendezvous(t);
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    native.emit(accept(5, "10.0.0.5:5", "/elsewhere"));
+    await settle();
+    expect(t.poll()).toEqual([]);
+    expect(native.records).toEqual([{ op: "close", connection: 5, code: 1008, reason: "Not found." }]);
+  });
+
+  it("without a rendezvous the native side keeps the debug path (no filtering)", async () => {
+    const native = memoryBackend();
+    await transport().listen("ws://127.0.0.1:7790/myco-debug");
+    expect(native.listens[0]).toMatchObject({ path: "/myco-debug" });
+  });
+
+  it("does nothing for another transport or after listening", async () => {
+    memoryBackend();
+    expect(hostRendezvous(createTransport("loopback"))).toBeNull();
+    const t = transport();
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    expect(hostRendezvous(t)).toBeNull();
+  });
+
+  it("stops the rendezvous with the transport", async () => {
+    const native = memoryBackend();
+    const t = transport();
+    hostRendezvous(t);
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    native.emit(accept(9, "10.0.0.9:9", RENDEZVOUS_PATH));
+    t.close();
+    await settle();
+    expect(native.closed).toEqual([7]);
   });
 });

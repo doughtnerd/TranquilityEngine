@@ -9,9 +9,9 @@ import { DebugLinkSession } from "../../engine/debugLink/session";
 import { listenAddress, type DebugLinkPreferences } from "../../editor/debugLink/debugLinkLogic";
 import { startStudioDebugLink, studioBuild, studioDebugLinkPreferences, studioLink } from "./studioLink";
 
-const platform = vi.hoisted(() => ({ tauri: false, registered: 0 }));
+const platform = vi.hoisted(() => ({ tauri: false, registered: 0, hosted: 0 }));
 vi.mock("../../engine/platform/FileSystem", async (original) => ({ ...(await original<object>()), isTauri: () => platform.tauri }));
-vi.mock("../../engine/debugLink/tauriListener", () => ({ registerTauriWebSocketTransport: () => void platform.registered++ }));
+vi.mock("../../engine/debugLink/tauriListener", () => ({ registerTauriWebSocketTransport: () => void platform.registered++, hostRendezvous: () => (platform.hosted++, null) }));
 
 registerTransport("websocket", (options) => createTransport("loopback", options), { listen: true });
 
@@ -21,6 +21,7 @@ afterEach(() => {
   for (const s of stops.splice(0)) s();
   platform.tauri = false;
   platform.registered = 0;
+  platform.hosted = 0;
 });
 
 async function start() {
@@ -36,6 +37,7 @@ describe("the Studio's debug link", () => {
     platform.tauri = true;
     const { link, prefs } = await start();
     expect(platform.registered).toBe(1);
+    expect(platform.hosted).toBe(1); // the listening transport also hosts the rendezvous (ADR 0380)
     expect(link.state.value).toEqual({ kind: "listening", address: expect.stringContaining(String(prefs.port)) });
   });
 

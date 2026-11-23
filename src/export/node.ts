@@ -67,6 +67,13 @@ export interface ExportOptions {
   debugLan?: boolean;
   /** ADR 0380: `--debug-port N`: the first port a listening build tries (`debug.port`). Implies debugging on. */
   debugPort?: number;
+  /** ADR 0380 "Rendezvous" 3: `--debug-rendezvous <url>`: the hosted rendezvous, written as `debug.rendezvous`. Implies debugging on. */
+  debugRendezvous?: string;
+  /**
+   * The rendezvous bundle a debug web build ships beside `serve.mjs`; default this checkout's `dist/rendezvous/rendezvous.mjs`,
+   * built now (`npm run build:rendezvous`) if it's missing, as the player is.
+   */
+  rendezvousFile?: string;
   log?: (line: string) => void;
 }
 
@@ -92,7 +99,10 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (isOutputInsideProject(project.root, out)) {
     throw new ExportError(`The output folder "${out}" is inside the project, where the next export would copy it in. Use a folder outside it, or under its dist/ folder.`);
   }
-  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames, languages: options.languages, pseudo: options.pseudo, ...(options.debugLink !== undefined && { debugLink: options.debugLink }), ...(options.debugListen && { debugListen: true }), ...(options.debugLan && { debugLan: true }), ...(options.debugPort !== undefined && { debugPort: options.debugPort }) });
+  // ADR 0380 "Rendezvous" 2: a debug web build's serve.mjs hosts the rendezvous, so the build carries its bundle.
+  const debugOn = options.debugLink !== undefined || options.debugListen || options.debugLan || options.debugPort !== undefined || options.debugRendezvous !== undefined;
+  const rendezvousBundle = debugOn && target === "web" ? await readFile(options.rendezvousFile ?? (await ensureRendezvous(log)), "utf8") : undefined;
+  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames, languages: options.languages, pseudo: options.pseudo, ...(options.debugLink !== undefined && { debugLink: options.debugLink }), ...(options.debugListen && { debugListen: true }), ...(options.debugLan && { debugLan: true }), ...(options.debugPort !== undefined && { debugPort: options.debugPort }), ...(options.debugRendezvous !== undefined && { debugRendezvous: options.debugRendezvous }), ...(rendezvousBundle !== undefined && { rendezvousBundle }) });
   const playerDir = options.playerDir ?? (await ensurePlayer(log));
 
   const folder = nodeFolder(out);
@@ -177,6 +187,20 @@ async function ensurePlayer(log: (line: string) => void): Promise<string> {
   const code = await run(process.execPath, [vite, "build", "--config", "vite.player.config.ts", "--logLevel", "warn"], REPO);
   if (code !== 0 || !existsSync(join(DEFAULT_PLAYER, PLAYER_FILE_LIST))) throw new ExportError("Couldn't build the player (npm run build:player).");
   return DEFAULT_PLAYER;
+}
+
+const DEFAULT_RENDEZVOUS = join(REPO, "dist", "rendezvous", "rendezvous.mjs");
+
+/** The rendezvous bundle (`npm run build:rendezvous`): this checkout's dist/rendezvous/rendezvous.mjs, built now if it isn't. */
+async function ensureRendezvous(log: (line: string) => void): Promise<string> {
+  if (existsSync(DEFAULT_RENDEZVOUS)) return DEFAULT_RENDEZVOUS;
+  log("The rendezvous isn't built yet: building it (npm run build:rendezvous)…");
+  const vitePackage = createRequire(join(REPO, "package.json")).resolve("vite/package.json");
+  const { bin } = JSON.parse(await readFile(vitePackage, "utf8")) as { bin: string | Record<string, string> };
+  const vite = join(dirname(vitePackage), typeof bin === "string" ? bin : bin.vite);
+  const code = await run(process.execPath, [vite, "build", "--config", "tools/rendezvous/vite.config.ts", "--logLevel", "warn"], REPO);
+  if (code !== 0 || !existsSync(DEFAULT_RENDEZVOUS)) throw new ExportError("Couldn't build the rendezvous for the debug build's serve.mjs. Run: npm run build:rendezvous");
+  return DEFAULT_RENDEZVOUS;
 }
 
 const under = (root: string, path: string) => (path ? join(root, ...path.split("/")) : root);

@@ -6,6 +6,7 @@ import { computed, effect, signal, type ReadonlySignal } from "@preact/signals";
 import { isTauri } from "../../engine/platform/FileSystem";
 import { createTransport, transportCanListen } from "../../engine/net/Transport";
 import "../../engine/net/transport/websocket";
+import { listeningTransport } from "../../engine/debugLink/rendezvous/nativeHost";
 import { DEFAULT_DEBUG_LINK_PREFERENCES, cleanPreferences, type DebugLinkPreferences } from "../../editor/debugLink/debugLinkLogic";
 import { EditorDebugLink, type ConnectedBuild } from "../../editor/debugLink/editorLink";
 import { persisted } from "../../editor/preferences";
@@ -36,7 +37,8 @@ export function startStudioDebugLink(): () => void {
       if (stopped) return;
       const link = new EditorDebugLink({
         name: "Audio Studio",
-        transport: () => (transportCanListen("websocket") ? createTransport("websocket") : null),
+        // The desktop Studio's listener also answers the rendezvous at `/myco-rendezvous` (ADR 0380).
+        transport: () => (transportCanListen("websocket") ? listeningTransport(createTransport("websocket")) : null),
       });
       linkSignal.value = link;
       dispose = effect(() => void link.apply(cleanPreferences(studioDebugLinkPreferences.value)));
