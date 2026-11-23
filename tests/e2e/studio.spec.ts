@@ -19,7 +19,8 @@ const outlineGroup = (page: Page, name: string) => page.getByRole("listbox", { n
 async function reopen(page: Page, name: string): Promise<void> {
   await studioHeader(page).locator(".studio-project").click();
   await expect(studioStart(page)).toBeVisible();
-  await studioStart(page).getByRole("list", { name: "Recent projects" }).getByRole("button", { name: new RegExp(`^${name}`) }).click();
+  // The project just closed is the newest, under Continue where you left off (ADR 0380).
+  await studioStart(page).getByRole("button", { name: new RegExp(`^Open ${name}`) }).first().click();
   await expect(studioHeader(page)).toBeVisible();
 }
 

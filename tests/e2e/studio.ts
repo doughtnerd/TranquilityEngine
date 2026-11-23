@@ -4,7 +4,7 @@ import { expect, type Locator, type Page } from "./fixtures";
 import { binarySeed, installFakeFolders, nextFolder } from "./fakeFolders";
 
 // Opening the Audio Studio (studio.html, ADR 0341) in a spec, the way a user does: a read-only sample by `?sample=`, or a
-// project folder through the start screen's Open Project… (the folder picker is faked, fakeFolders.ts, so what the Studio
+// project folder through the start screen's Add from Folder… (the folder picker is faked, fakeFolders.ts, so what the Studio
 // writes can be read back). The Studio is checked only through its UI and the files it writes (CLAUDE.md, ADR 0330).
 
 /** A project folder's files: path → text, or bytes (a WAV, a take, a capture). */
@@ -32,8 +32,8 @@ export function filesOnDisk(dir: string, base = dir): StudioFiles {
 export const studioHeader = (page: Page): Locator => page.locator(".studio-header");
 /** The Studio's status bar (the audio core's state, its voice count, the last message). */
 export const studioStatus = (page: Page): Locator => page.locator(".studio-status");
-/** The start screen (no project open). */
-export const studioStart = (page: Page): Locator => page.getByRole("dialog", { name: "Start" });
+/** The start screen (no project open): Biosonic's projects screen (ADR 0380). */
+export const studioStart = (page: Page): Locator => page.getByRole("region", { name: "Biosonic projects" });
 
 /** Open the Studio on a read-only sample and wait for its header. */
 export async function openStudioSample(page: Page, sample: string, hash = ""): Promise<void> {
@@ -43,7 +43,7 @@ export async function openStudioSample(page: Page, sample: string, hash = ""): P
 
 /**
  * Open the Studio on a writable project folder named `folder` holding `files`: the folder picker is faked with it, then the
- * start screen's Open Project… picks it. Waits for the header with the project's name.
+ * start screen's Add from Folder… picks it. Waits for the header with the project's name.
  */
 export async function openStudioFolder(page: Page, folder: string, files: StudioFiles): Promise<void> {
   const seed: Record<string, string> = {};
@@ -51,7 +51,7 @@ export async function openStudioFolder(page: Page, folder: string, files: Studio
   await installFakeFolders(page, { [folder]: seed });
   await page.goto("/studio.html");
   await nextFolder(page, folder);
-  await studioStart(page).getByRole("button", { name: "Open Project…" }).click();
+  await studioStart(page).getByRole("button", { name: "Add from Folder…" }).click();
   await expect(studioHeader(page)).toBeVisible({ timeout: 30_000 });
 }
 

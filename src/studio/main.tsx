@@ -9,7 +9,7 @@
 import { render } from "preact";
 import { Audio } from "../plugins/audio/runtime";
 import { registerCoreAssetKinds } from "../editor/assetKinds.builtin";
-import { installMessageLog } from "../editor/messages";
+import { errorStatus, installMessageLog } from "../editor/messages";
 import { installProjectTheme } from "../editor/projectTheme";
 import { status } from "../editor/state";
 import { isTauri } from "../engine/platform/FileSystem";
@@ -21,6 +21,7 @@ import "../editor/ui/fonts";
 import { activateStudioPlugins } from "./boot/studioPlugins";
 import { studioProjects } from "./boot/studioProject";
 import { startRequest } from "./boot/startQuery";
+import type { RecentTake } from "./start/recentTakes";
 import { engineRuntime } from "./runtime/engineRuntime";
 import { createStudioAudioHost } from "./runtime/studioAudioHost";
 import { installCalibration } from "./shell/applyCalibration";
@@ -61,9 +62,18 @@ async function main(): Promise<void> {
   installLabelScrub(document);
   installCalibration(runtime);
 
-  render(<StudioApp onCloseProject={projects.close} />, document.getElementById("app")!);
+  render(<StudioApp onCloseProject={projects.close} onOpenTake={(take) => openTake(projects.handOff, take)} />, document.getElementById("app")!);
   if (isTauri()) await serveHandoff(projects.handOff);
   await projects.openRequest(startRequest(location.search));
+}
+
+/** A take picked on the start screen (ADR 0380): its project, on the Take screen with the take. Failures are in the status line. */
+async function openTake(open: (request: StudioOpenRequest) => Promise<void>, take: RecentTake): Promise<void> {
+  try {
+    await open({ project: take.project.path, asset: take.path });
+  } catch (err) {
+    status.value = errorStatus("Couldn't open the take", err);
+  }
 }
 
 /** The desktop app: answer the editor's hand-off over Tauri events (ADR 0341). The page serves it while it lives. */

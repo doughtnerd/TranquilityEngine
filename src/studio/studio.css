@@ -3,7 +3,7 @@
 
 .studio { display: grid; height: 100%; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 1fr auto auto; grid-template-areas: "header" "banner" "main" "player" "status"; }
 .studio.studio-starting { display: block; }
-.studio-start-title { margin: 0 0 4px; color: var(--accent); font-size: calc(11px * var(--ui-scale)); font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+
 
 /* Header, as the prototype draws it: the app mark and name, the project, the screens as caps tabs in their groups
  * (Author | Mix | Run | Ship, split by thin rules; each group names itself in its tooltip), the header tools and the

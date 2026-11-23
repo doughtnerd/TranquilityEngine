@@ -6,10 +6,11 @@ import { projectOpening, type OpenOutcome } from "../projectOpening";
 import type { RecentProjects } from "../recentProjectList";
 import type { StartActions } from "../startActions";
 import { status } from "../state";
+import { StudioRefusal } from "../studioHandoff";
 import { EditorRefusal, type EditorLink } from "./handoff";
 
 export interface LauncherSeams {
-  /** The editor window, which opens the project (it says why when it couldn't). */
+  /** The window that opens the project: the editor's, or the Audio Studio's for Biosonic (ADR 0380); it says why when it couldn't. */
   readonly link: Pick<EditorLink, "open">;
   /** Runs once the editor window shows the project (the Projects window hides). */
   opened(): void;
@@ -26,8 +27,8 @@ export function launcherActions({ link, opened, folders, recent }: LauncherSeams
       try {
         await link.open(source.kind === "folder" ? { kind: "folder", root: source.root } : { kind: "sample", id: source.sample.id });
       } catch (err) {
-        // The editor window words its own refusal; anything else (the window didn't start) is worded here.
-        if (err instanceof EditorRefusal) return { kind: "refused", reason: { kind: "error", text: err.message } };
+        // The editor or Studio window words its own refusal; anything else (the window didn't start) is worded here.
+        if (err instanceof EditorRefusal || err instanceof StudioRefusal) return { kind: "refused", reason: { kind: "error", text: err.message } };
         throw err;
       }
       return { kind: "opened" };

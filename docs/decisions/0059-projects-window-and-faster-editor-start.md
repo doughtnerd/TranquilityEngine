@@ -1,6 +1,6 @@
 # 0059. The desktop editor opens on a Projects window while the editor loads hidden
 
-- **Status:** Proposed, amended by 0082 (the Projects window creates the editor window once it shows)
+- **Status:** Proposed, amended by 0082 (the Projects window creates the editor window once it shows) and 0380 (the window becomes the Foxfire launcher)
 - **Date:** 2026-11-03
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

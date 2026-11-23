@@ -56,7 +56,7 @@ export async function openSampleProject(sample: SampleInfo): Promise<EditorProje
   ]);
   if (problems.length > 0) throw new Error(`Some JSON files in the sample "${sample.id}" don't parse: ${problems.map((p) => `${p.path} (${p.message})`).join(", ")}`);
   const { readOnlyProject } = await import("./projects"); // the engine, which the Projects window (ADR 0059) doesn't load
-  return readOnlyProject(`${sample.name} (sample, read-only)`, { values, texts, scripts, sizes });
+  return readOnlyProject(`${sample.name} (sample, read-only)`, { values, texts, scripts, sizes }, sample.id);
 }
 
 /** Write a sample's files into the folder `root` (which shouldn't hold a project yet). */

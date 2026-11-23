@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openFolderProject } from "./projects";
+import { openFolderProject, readOnlyProject } from "./projects";
 import { studioAssetItems, studioRequest, whyNotOpenInStudio } from "./studioLaunch";
 import { demoFolder, ROOT, sampleProject } from "./testing";
 
@@ -25,5 +25,11 @@ describe("Open in Audio Studio", () => {
     expect(item.whyNot).toMatch(/opens project folders/);
     expect(studioRequest(project)).toEqual({ project: null });
     expect(studioRequest(null, { screen: "mixer" })).toEqual({ project: null, screen: "mixer" });
+  });
+
+  it("opens the same sample in the Studio when the editor has a sample open", () => {
+    const project = readOnlyProject("Sound Lab (sample, read-only)", { values: new Map(), texts: new Map() }, "sound-lab");
+    expect(studioRequest(project)).toEqual({ project: null, sample: "sound-lab" });
+    expect(studioRequest(project, { screen: "mixer" })).toEqual({ project: null, sample: "sound-lab", screen: "mixer" });
   });
 });
