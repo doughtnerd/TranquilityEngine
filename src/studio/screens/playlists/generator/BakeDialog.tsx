@@ -1,6 +1,7 @@
 // The Bake dialog (ADR 0360 §6, §9): length (an endless generator becomes a loop of it), variations, folder, a Queue
-// over the variations, and Replace uses; Bake calls G5's `bakeGenerator(path, options)`. Until the offline bake is
-// in the build the form shows and Bake is off with why. Escape or Cancel closes. A view over props.
+// over the variations, and Replace uses; Bake calls G5's `bakeGenerator(path, options)` on the open project. When
+// Bake can't run (no project, a read-only one, an embedded generator) the form shows and Bake is off with why. Escape
+// or Cancel closes. A view over props.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { cleanBakeOptions, type Availability, type BakeOptions } from "./bakeModel";
 

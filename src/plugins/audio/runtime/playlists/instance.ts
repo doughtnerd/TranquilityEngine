@@ -887,8 +887,8 @@ export class PlaylistInstance implements NodeHost {
     const linked = typeof play.generator === "string" ? play.generator : null;
     const body = typeof play.generator === "string" ? loadGenerator(play.generator) : play.generator;
     if (!body) return null;
-    // A backend that can't play generators (the Babylon fallback until G5's offline render) plays nothing, one warning
-    // per kind. The pending backend forwards the play to the core at the hand-over.
+    // A backend that can't play generators plays nothing, one warning per kind (the core plays them as voices, the
+    // Babylon fallback as offline renders). The pending backend forwards the play to the core at the hand-over.
     const backend = audioBackend();
     if (!backend.generators && !isPendingCoreBackend(backend)) {
       warnOnce(`generators:${body.kind}`, generatorsNeedTheCore(body.kind));

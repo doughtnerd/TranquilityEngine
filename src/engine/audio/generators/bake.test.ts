@@ -118,6 +118,19 @@ describe("bakeGenerator", () => {
     expect(queue.playlist.entries.map((e) => (e.kind === "embedded" && e.embedded.entries[0]?.kind === "sample" ? e.embedded.entries[0].sample : null))).toEqual(result.files.map((f) => f.path));
   });
 
+  it("re-renders one variation of several over its own file (Rebake)", async () => {
+    const p = new MemoryProject({ [GEN]: formatGenerator(coin) });
+    const all = await bakeGenerator(GEN, { host: p, variations: 3 });
+    if ("refused" in all) throw new Error(all.refused);
+    const third = Array.from(decodeWavPcm(p.binary.get("audio/ui/coin.baked3.wav")!)!.pcm);
+    p.binary.set("audio/ui/coin.baked3.wav", new Uint8Array(4));
+    const again = await bakeGenerator(GEN, { host: p, variation: 2, paths: ["audio/ui/coin.baked3.wav"] });
+    if ("refused" in again) throw new Error(again.refused);
+    expect(again.files.map((f) => [f.path, f.seed, f.variation])).toEqual([["audio/ui/coin.baked3.wav", 1736, 2]]);
+    expect(Array.from(decodeWavPcm(p.binary.get("audio/ui/coin.baked3.wav")!)!.pcm)).toEqual(third);
+    expect(p.files.filter((f) => f.endsWith(".wav"))).toHaveLength(3);
+  });
+
   it("points the generator's uses at the bake as one undoable project edit", async () => {
     const clip = { format: "myco.playlist@1", type: "clip", entries: [{ generator: GEN, volume: -3, curves: { "gen:level": { input: "voiceTime", curve: [[0, -12]] } } }] };
     const seq = {

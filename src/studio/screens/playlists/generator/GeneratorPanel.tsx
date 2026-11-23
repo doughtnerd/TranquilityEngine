@@ -9,7 +9,7 @@ import { GeneratorLibrary } from "./GeneratorLibrary";
 import { libraryGenerators } from "./generatorEntries";
 import {
   addGeneratorToOpen, auditionState, bake, bakeDefaults, bakeState, baking, editGenerator, followLiveEdits, followPreview, gate, generatorBody, generatorDoc, generatorTarget, generatorTitle, installGeneratorKeys,
-  newEmbeddedGenerator, newGenerator, libraryAddTarget, openGeneratorFile, openLocks, pressGate, preview, previewBusy, releaseGate, toggleGeneratorLock,
+  newEmbeddedGenerator, newGenerator, libraryAddTarget, openGeneratorFile, openLocks, pressGate, preview, previewBusy, previewError, releaseGate, toggleGeneratorLock,
 } from "./generatorScreen";
 
 /** The Generator editor for the open generator (null when none is open). */
@@ -37,6 +37,7 @@ export function GeneratorPanel() {
         locks={openLocks.value}
         preview={preview.value}
         previewBusy={previewBusy.value}
+        previewError={previewError.value}
         audition={{ available: a.available, reason: a.reason, held: gate.value.held }}
         bake={bakeState.value}
         onEdit={(label, edit, drag) => editGenerator(label, edit, drag)}

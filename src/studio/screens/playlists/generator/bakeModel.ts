@@ -1,17 +1,19 @@
 // Bake (ADR 0360 §6, §9) as the Studio calls it, and the provenance a baked sample's sidecar carries.
 //
 // The bake itself is G5's (`generators/bake.ts`, through the offline render). The Studio asks for one call:
-// `bakeGenerator(path, options)` (`BakeGenerator`; `studioBake` adapts G5's own). Until G5 is merged `BAKE` is null
-// and the Bake dialog and Rebake say why they are off (`bakeAvailability`); merging G5 sets `BAKE` to
-// `studioBake(bakeGenerator, <the project as its host>)`, nothing else changes here.
+// `bakeGenerator(path, options)` (`BakeGenerator`; `studioBake` adapts G5's own). `BAKE` is that call over the Studio's
+// open project (`projectBakeHost`); with no project open it rejects, and the Bake dialog and Rebake say why they are
+// off (`bakeAvailability`).
 //
 // Provenance: a sample baked from a generator has a sidecar `generated` block (`provenance.ts`): "Baked from
 // coin.generator.json", and "out of date" when the generator's resolved patch no longer hashes to the block's `hash`
-// (SHA-256 of `generatorPatchText`, so formatting and notes don't count). Pure.
+// (SHA-256 of `generatorPatchText`, so formatting and notes don't count). Rebake renders the sample's variation again
+// over its own file (`rebakeOptions`). The rules here are pure; `BAKE` is the one binding to the project.
+import { currentProject } from "../../../../editor/state";
+import { bakeGenerator, generatorPatchHash } from "../../../../engine/audio/generators/bake";
 import type { GeneratedProvenance } from "../../../../engine/audio/generators/provenance";
-import { generatorPatchText } from "../../../../engine/audio/generators/resolve";
 import type { GeneratorBody } from "../../../../engine/audio/generators/types";
-import { sha256Hex } from "../../../../engine/localisation/textHash";
+import { projectBakeHost } from "./projectBakeHost";
 
 /** What the Bake dialog asks for (ADR 0360 §6). */
 export interface BakeOptions {
@@ -25,6 +27,10 @@ export interface BakeOptions {
   readonly queue: boolean;
   /** Point the playlist entries that use the generator at the baked sample. */
   readonly replaceUses: boolean;
+  /** Rebake: the first variation's index (default 0; variation i plays seed `seed + i`). */
+  readonly variation?: number;
+  /** Rebake: the files to overwrite, in variation order, instead of free names. */
+  readonly paths?: readonly string[];
 }
 
 export interface BakeResult {
@@ -37,13 +43,19 @@ export interface BakeResult {
 /** G5's bake: render `path` (a `*.generator.json`) to samples with their sidecars. */
 export type BakeGenerator = (path: string, options: BakeOptions) => Promise<BakeResult>;
 
-/** The bake the Studio calls; null until G5's offline bake is merged (then `studioBake(bakeGenerator, <project host>)`). */
-export const BAKE: BakeGenerator | null = null;
-
 /** The offline bake's own call as the Studio relies on it (G5's `bakeGenerator`, structurally). */
 export type OfflineBake<H> = (
   path: string,
-  options: { readonly host: H; readonly variations?: number; readonly seconds?: number; readonly folder?: string; readonly queue?: boolean; readonly replaceUses?: boolean },
+  options: {
+    readonly host: H;
+    readonly variations?: number;
+    readonly variation?: number;
+    readonly paths?: readonly string[];
+    readonly seconds?: number;
+    readonly folder?: string;
+    readonly queue?: boolean;
+    readonly replaceUses?: boolean;
+  },
 ) => Promise<{ readonly files: readonly { readonly path: string }[]; readonly queue: string | null } | { readonly refused: string }>;
 
 /**
@@ -56,14 +68,25 @@ export function studioBake<H>(bake: OfflineBake<H>, host: () => H | null): BakeG
     const h = host();
     if (h === null) throw new Error("no project is open");
     const c = cleanBakeOptions(o);
-    const r = await bake(path, { host: h, variations: c.variations, ...(c.length !== undefined ? { seconds: c.length } : {}), folder: c.folder, queue: c.queue, replaceUses: c.replaceUses });
+    const r = await bake(path, {
+      host: h, variations: c.variations, ...(c.length !== undefined ? { seconds: c.length } : {}), folder: c.folder, queue: c.queue, replaceUses: c.replaceUses,
+      ...(c.variation ? { variation: c.variation } : {}), ...(c.paths ? { paths: c.paths } : {}),
+    });
     if ("refused" in r) throw new Error(r.refused);
     return { files: r.files.map((f) => f.path), ...(r.queue ? { queue: r.queue } : {}) };
   };
 }
 
-/** Why Bake is off when there is no bake yet. */
-export const BAKE_PENDING = "Bake renders through the offline module, which isn't in this build yet (ADR 0360, G5).";
+/** The bake the Studio calls: G5's offline bake over the open project (rejects with none open). */
+export const BAKE: BakeGenerator | null = studioBake(bakeGenerator, () => {
+  const p = currentProject.peek();
+  return p ? projectBakeHost(p) : null;
+});
+
+/** Why Bake is off in a build without a bake. */
+export const BAKE_PENDING = "Bake renders through the offline module, which isn't in this build.";
+/** Why Bake is off with no project open. */
+export const NO_PROJECT = "Open a project to bake into.";
 
 export interface Availability {
   readonly enabled: boolean;
@@ -71,9 +94,13 @@ export interface Availability {
   readonly reason: string | null;
 }
 
-/** Whether Bake can run for a generator at `path` (null: an embedded generator, which has no file to bake beside). */
-export function bakeAvailability(bake: BakeGenerator | null, path: string | null, writable = true): Availability {
+/**
+ * Whether Bake can run for a generator at `path` (null: an embedded generator, which has no file to bake beside);
+ * `writable` is whether the open project can be written, null when no project is open.
+ */
+export function bakeAvailability(bake: BakeGenerator | null, path: string | null, writable: boolean | null = true): Availability {
   if (!bake) return { enabled: false, reason: BAKE_PENDING };
+  if (writable === null) return { enabled: false, reason: NO_PROJECT };
   if (!path) return { enabled: false, reason: "An embedded generator has no file to bake beside: make it a file first." };
   if (!writable) return { enabled: false, reason: "This project is read-only." };
   return { enabled: true, reason: null };
@@ -85,15 +112,27 @@ export function defaultBakeOptions(path: string, endless: boolean): BakeOptions 
   return { ...(endless ? { length: 2 } : {}), variations: 1, folder, queue: false, replaceUses: false };
 }
 
+/**
+ * Rebake's options for `sample`, baked from `g`: the sample's own variation rendered again over the sample (and its
+ * sidecar), from the generator as it is now. `loopSeconds` is the sample's loop length when it is a baked endless
+ * generator (the loop keeps its length; default the dialog's 2 s).
+ */
+export function rebakeOptions(sample: string, g: GeneratedProvenance, endless: boolean, loopSeconds?: number): BakeOptions {
+  const folder = sample.includes("/") ? sample.slice(0, sample.lastIndexOf("/")) : "";
+  const length = endless ? (loopSeconds !== undefined && loopSeconds > 0 ? loopSeconds : 2) : undefined;
+  return { ...(length !== undefined ? { length } : {}), variations: 1, folder, queue: false, replaceUses: false, ...(g.variation > 0 ? { variation: g.variation } : {}), paths: [sample] };
+}
+
 /** Options checked: variations 1..64, an endless one's length 0.05..60 s; a Queue only over several files. */
 export function cleanBakeOptions(o: BakeOptions): BakeOptions {
   const variations = Math.max(1, Math.min(64, Math.round(Number.isFinite(o.variations) ? o.variations : 1)));
   const length = o.length === undefined ? undefined : Math.max(0.05, Math.min(60, Number.isFinite(o.length) ? o.length : 2));
-  return { ...o, variations, ...(length === undefined ? {} : { length }), queue: o.queue && variations > 1 };
+  const variation = o.variation === undefined ? undefined : Math.max(0, Math.min(63, Math.round(Number.isFinite(o.variation) ? o.variation : 0)));
+  return { ...o, variations, ...(length === undefined ? {} : { length }), ...(variation === undefined ? {} : { variation }), queue: o.queue && variations > 1 };
 }
 
 /** The hash a bake records: SHA-256 (hex) of the generator's resolved patch text. */
-export const generatorPatchHash = (body: GeneratorBody): string => sha256Hex(new TextEncoder().encode(generatorPatchText(body)));
+export { generatorPatchHash };
 
 export interface ProvenanceView {
   readonly generator: string;
@@ -108,7 +147,7 @@ export interface ProvenanceView {
 }
 
 /** What the Samples inspector says about a sample's `generated` block (`load` reads the generator now, null if gone). */
-export function provenanceView(g: GeneratedProvenance | null, load: (path: string) => GeneratorBody | null, bake: BakeGenerator | null, writable = true): ProvenanceView | null {
+export function provenanceView(g: GeneratedProvenance | null, load: (path: string) => GeneratorBody | null, bake: BakeGenerator | null, writable: boolean | null = true): ProvenanceView | null {
   if (!g) return null;
   const name = g.generator.slice(g.generator.lastIndexOf("/") + 1);
   const body = load(g.generator);

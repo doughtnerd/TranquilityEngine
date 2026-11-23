@@ -1,17 +1,26 @@
-// Bake and provenance (ADR 0360 §6, §9) through the model: Bake is off with why until G5's bake is merged, a baked
-// sample's provenance says where it came from and "out of date" when the patch's hash differs, Rebake follows Bake.
+// Bake and provenance (ADR 0360 §6, §9) through the model: Bake is off with why without a bake or a project, a baked
+// sample's provenance says where it came from and "out of date" when the patch's hash differs, Rebake follows Bake and
+// renders the sample's own variation over it.
 import { describe, expect, it } from "vitest";
 import { emptyGeneratorBody } from "../../../../engine/audio/generators/format";
 import type { GeneratorBody } from "../../../../engine/audio/generators/types";
-import { BAKE, BAKE_PENDING, bakeAvailability, cleanBakeOptions, defaultBakeOptions, generatorPatchHash, provenanceView, studioBake, type BakeGenerator, type OfflineBake } from "./bakeModel";
+import { BAKE, BAKE_PENDING, NO_PROJECT, bakeAvailability, cleanBakeOptions, defaultBakeOptions, generatorPatchHash, provenanceView, rebakeOptions, studioBake, type BakeGenerator, type OfflineBake } from "./bakeModel";
 
 const fakeBake: BakeGenerator = async () => ({ files: [] });
 const coin: GeneratorBody = { ...emptyGeneratorBody("blip"), seed: 1734, params: { ...emptyGeneratorBody("blip").params, baseFrequency: 0.42 } };
 
 describe("Bake", () => {
-  it("is off, saying why, until G5's bake is in the build", () => {
-    expect(BAKE).toBeNull();
-    expect(bakeAvailability(BAKE, "audio/ui/coin.generator.json")).toEqual({ enabled: false, reason: BAKE_PENDING });
+  it("is on in this build, and off saying why without a bake or a project", () => {
+    expect(BAKE).not.toBeNull();
+    expect(bakeAvailability(null, "audio/ui/coin.generator.json")).toEqual({ enabled: false, reason: BAKE_PENDING });
+    expect(bakeAvailability(BAKE, "audio/ui/coin.generator.json", null)).toEqual({ enabled: false, reason: NO_PROJECT });
+  });
+
+  it("rebakes a sample's own variation over it, a baked loop keeping its length", () => {
+    const g = { generator: "audio/ui/coin.generator.json", hash: "x", seed: 1736, variation: 2 };
+    expect(rebakeOptions("sfx/coin.baked3.wav", g, false)).toEqual({ variations: 1, folder: "sfx", queue: false, replaceUses: false, variation: 2, paths: ["sfx/coin.baked3.wav"] });
+    expect(rebakeOptions("hum.baked.wav", { ...g, variation: 0 }, true, 3.5)).toEqual({ length: 3.5, variations: 1, folder: "", queue: false, replaceUses: false, paths: ["hum.baked.wav"] });
+    expect(rebakeOptions("hum.baked.wav", { ...g, variation: 0 }, true).length).toBe(2);
   });
 
   it("is on with a bake, except for an embedded generator or a read-only project", () => {

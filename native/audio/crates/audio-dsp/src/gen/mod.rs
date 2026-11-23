@@ -363,10 +363,12 @@ impl GenVoice {
         self.fenv.gate_on();
     }
 
-    /// Re-seeds the noise (and the synth LFO's sample-and-hold).
+    /// Re-seeds the noise and the synth LFO's sample-and-hold: its generator *and* the value it holds now are derived
+    /// from `seed` (the phase is kept), so a voice started with one seed (the core's PLAY seeds by voice id) and re-seeded
+    /// by its GEN plays exactly what a voice started with the GEN's seed plays.
     pub fn reseed(&mut self, seed: u32) {
         self.noise.reseed(seed);
-        self.lfo = Lfo { state: Lfo::seeded(seed).state, ..self.lfo };
+        self.lfo = Lfo { phase: self.lfo.phase, ..Lfo::seeded(seed) };
     }
 
     /// Parameter `i` in its own units.

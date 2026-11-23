@@ -12,7 +12,7 @@ import { accept, refuse, type EditResult } from "../../../../plugins/audio/edito
 import { addEntries, type EditContext } from "../playlistEdits";
 import { MAX_CLIPS, MAX_TRACKS, newTrack } from "../sequence/sequenceEdits";
 import { allClips, clipIds, nextId, tidy } from "../sequence/sequenceModel";
-import { renderGeneratorPreview } from "./referenceRender";
+import { generatorSoundSeconds } from "./previewRender";
 
 /** A generator's name: its file's, without `.generator.json`. */
 export const generatorName = (path: string): string => path.slice(path.lastIndexOf("/") + 1).replace(/\.generator\.json$/i, "");
@@ -50,11 +50,14 @@ export function setClipGenerator(b: PlaylistBody, next: GeneratorBody): EditResu
   return accept({ ...b, entries });
 }
 
-/** How long a generator clip is on a timeline: its sound's length (an endless one 2 s, ended at the clip's end). */
+/**
+ * How long a generator clip is on a timeline: its sound's length (`generatorSoundSeconds`: to the end of its release,
+ * its sfxr envelope or its `length`); an endless one 2 s, ended at the clip's end.
+ */
 export function generatorClipLength(body: GeneratorBody | null): number {
   if (!body) return 2;
   if (generatorIsEndless(body.kind, body.params)) return 2;
-  return tidy(Math.max(0.05, renderGeneratorPreview(body, 60).seconds));
+  return tidy(Math.max(0.05, Math.min(60, generatorSoundSeconds(body))));
 }
 
 /**

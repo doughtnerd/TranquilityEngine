@@ -89,6 +89,8 @@ export interface GeneratorPreviewProps {
   readonly picture: PreviewPicture | null;
   /** Rendering a newer patch (the old picture stays, dimmed). */
   readonly busy?: boolean;
+  /** Why there is no picture (the offline render didn't load), or null. */
+  readonly error?: string | null;
 }
 
 /** The first 2 s (or to the end) of the generator, with its amplitude envelope and key-off. */
@@ -96,10 +98,11 @@ export function GeneratorPreview(props: GeneratorPreviewProps) {
   const pic = props.picture;
   const length = Math.max(pic?.seconds ?? 1, 0.001);
   const env = pic ? pic.envelope.map(([t, v]) => `${((t / length) * 100).toFixed(3)},${((1 - v) * 50).toFixed(3)}`).join(" ") : "";
-  const caption = !pic ? "Rendering the preview…" : `${pic.endless ? "First" : "Whole sound:"} ${pic.seconds.toFixed(2)} s${pic.endless ? " (it plays until released)" : ""}${pic.keyOff !== null ? ` · key-off at ${pic.keyOff.toFixed(2)} s` : ""}`;
+  const none = props.error ? `No preview: ${props.error}` : "Rendering the preview…";
+  const caption = !pic ? none : `${pic.endless ? "First" : "Whole sound:"} ${pic.seconds.toFixed(2)} s${pic.endless ? " (it plays until released)" : ""}${pic.keyOff !== null ? ` · key-off at ${pic.keyOff.toFixed(2)} s` : ""}`;
   return (
-    <figure class={`gen-preview${props.busy ? " busy" : ""}`} aria-busy={props.busy || !pic}>
-      <Waveform mips={pic?.mips ?? null} view={{ start: 0, end: length }} length={length} height={96} placeholder="Rendering the preview…" label="Generator preview">
+    <figure class={`gen-preview${props.busy ? " busy" : ""}`} aria-busy={props.busy || (!pic && !props.error)}>
+      <Waveform mips={pic?.mips ?? null} view={{ start: 0, end: length }} length={length} height={96} placeholder={props.error ? "No preview" : "Rendering the preview…"} label="Generator preview">
         {pic && (
           <svg class="gen-envelope" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
             <polyline points={env} />

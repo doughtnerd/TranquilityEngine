@@ -77,7 +77,12 @@ export interface BakeOptions {
   readonly body?: GeneratorBody;
   /** 1..`MAX_BAKE_VARIATIONS`; default 1. */
   readonly variations?: number;
-  /** The first variation's seed; default the generator's, else drawn. */
+  /**
+   * The first variation's index (default 0): a bake renders variations `variation` … `variation + variations - 1`, so
+   * Rebake of variation 2 of a bake renders that variation again (seed `seed + 2`, the same mutation).
+   */
+  readonly variation?: number;
+  /** Variation 0's seed; default the generator's, else drawn. */
   readonly seed?: number;
   /** An endless generator's length (default 2 s, then a loop); a cap on a finite one. */
   readonly seconds?: number;
@@ -299,6 +304,7 @@ export async function bakeGenerator(path: string, options: BakeOptions): Promise
   if (body.kind === "silence") return { refused: "a silence has nothing to bake" };
   if (options.replaceUses && !host.editProjectFiles) return { refused: "Replace uses needs a project to edit" };
   const count = Math.max(1, Math.min(MAX_BAKE_VARIATIONS, Math.floor(options.variations ?? 1)));
+  const first = Math.max(0, Math.min(MAX_BAKE_VARIATIONS - 1, Math.floor(options.variation ?? 0) || 0));
   const seed = (options.seed ?? body.seed ?? Math.floor(Math.random() * (MAX_SEED + 1))) >>> 0;
   const rate = options.rate && options.rate > 0 ? options.rate : GENERATOR_RENDER_RATE;
   const hash = generatorPatchHash(body);
@@ -306,11 +312,11 @@ export async function bakeGenerator(path: string, options: BakeOptions): Promise
   const stem = stemOf(path);
   const taken = new Set(host.files.map((f) => f.toLowerCase()));
   const files: BakedFile[] = [];
-  for (let i = 0; i < count; i++) {
+  for (let i = first; i < first + count; i++) {
     const resolved = variationOf(body, seed, i);
     const render = await renderResolvedGenerator(resolved, { rate, seconds: options.seconds, loop: "region" });
     warnings.push(...render.warnings);
-    const out = options.paths?.[i] ?? freePath(folder, stem, ".wav", taken);
+    const out = options.paths?.[i - first] ?? freePath(folder, stem, ".wav", taken);
     const generated: GeneratedProvenance = { generator: path, hash, seed: resolved.seed, variation: i };
     await host.writeBinary(out, encodeWavFloat32(render.pcm, 1, rate));
     const sidecar = sidecarPath(out);

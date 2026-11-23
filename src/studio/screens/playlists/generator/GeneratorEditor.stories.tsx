@@ -2,7 +2,7 @@
 // locks, the preview, the keyboard), a synth whose kind switch asks first, and an embedded oscillator that can't
 // audition here. Each `play` drives the view and checks what it reports.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
-import { useState } from "preact/hooks";
+import { useEffect, useState } from "preact/hooks";
 import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { applyBlipPreset } from "../../../../engine/audio/generators/blipPresets";
 import { emptyGeneratorBody } from "../../../../engine/audio/generators/format";
@@ -11,7 +11,7 @@ import type { GeneratorBody } from "../../../../engine/audio/generators/types";
 import { BAKE_PENDING } from "./bakeModel";
 import { GeneratorEditor, type GeneratorEditorProps } from "./GeneratorEditor";
 import { toggleLock } from "./generatorModel";
-import { pictureOf } from "./previewClient";
+import { pictureOf, type PreviewPicture } from "./previewClient";
 import "../playlists.css";
 
 const meta = { title: "Studio/Playlists/Generator editor" } satisfies Meta;
@@ -23,6 +23,17 @@ function Live(props: { initial: GeneratorBody; title: string; where: string; aud
   const [body, setBody] = useState(props.initial);
   const [locks, setLocks] = useState<readonly string[]>([]);
   const [held, setHeld] = useState<ReadonlyMap<string, number>>(new Map());
+  // The preview follows the patch as the screen's does (the offline render, off the story's first paint).
+  const [picture, setPicture] = useState<PreviewPicture | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    pictureOf(body).then(
+      (p) => live && (setPicture(p), setPreviewError(null)),
+      (err: unknown) => live && setPreviewError(err instanceof Error ? err.message : String(err)),
+    );
+    return () => void (live = false);
+  }, [body]);
   return (
     <div style={{ width: "900px", height: "760px", overflow: "auto" }}>
       <GeneratorEditor
@@ -31,7 +42,8 @@ function Live(props: { initial: GeneratorBody; title: string; where: string; aud
         where={props.where}
         writable
         locks={locks}
-        preview={pictureOf(body)}
+        preview={picture}
+        previewError={previewError}
         audition={props.audition ?? { available: true, reason: null, held }}
         bake={{ enabled: false, reason: BAKE_PENDING }}
         onEdit={(label, edit) => {

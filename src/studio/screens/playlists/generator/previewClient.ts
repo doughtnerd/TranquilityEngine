@@ -1,10 +1,11 @@
 // The Generator editor's preview off the main thread (ADR 0360 §9): `requestPreview` sends the patch to a worker of
-// its own (`preview.worker.ts`, which runs the reference render) and resolves to the waveform's peaks and envelope.
-// Only the newest request for a key is answered (an older one resolves to null), so a drag's previews never pile up.
-// Where workers don't exist (Node, the Storybook test runner without them) it renders here.
+// its own (`preview.worker.ts`, which renders it through the offline module, `previewRender.ts`) and resolves to the
+// waveform's peaks and envelope, or to why there is none (the offline module didn't load). Only the newest request for
+// a key is answered (an older one resolves to null), so a drag's previews never pile up. Where workers don't exist
+// (Node, the Storybook test runner without them) it renders here.
 import type { GeneratorBody } from "../../../../engine/audio/generators/types";
 import type { PeakMips } from "../../../../plugins/audio/editor/music/peaksMip";
-import { peaksFromBase, previewBase, renderGeneratorPreview, PREVIEW_RATE, PREVIEW_SECONDS } from "./referenceRender";
+import { peaksFromBase, previewBase, renderGeneratorPreview, PREVIEW_SECONDS } from "./previewRender";
 
 export interface PreviewRequestMessage {
   readonly id: number;
@@ -16,6 +17,7 @@ export type PreviewReplyMessage =
       readonly id: number;
       readonly base: { binFrames: number; bins: number; data: Int16Array };
       readonly frames: number;
+      readonly rate: number;
       readonly seconds: number;
       readonly keyOff: number | null;
       readonly endless: boolean;
@@ -32,15 +34,22 @@ export interface PreviewPicture {
   readonly envelope: readonly (readonly [number, number])[];
 }
 
-/** The picture of one render (`preview.worker.ts` sends the same parts). */
-export function pictureOf(body: GeneratorBody, maxSeconds = PREVIEW_SECONDS): PreviewPicture {
-  const r = renderGeneratorPreview(body, maxSeconds);
-  return { mips: peaksFromBase(previewBase(r.samples), r.samples.length), seconds: r.seconds, keyOff: r.keyOff, endless: r.endless, envelope: r.envelope };
+/** A preview that couldn't render, and why. */
+export interface PreviewFailure {
+  readonly failed: string;
 }
+
+/** The picture of one render (`preview.worker.ts` sends the same parts). */
+export async function pictureOf(body: GeneratorBody, maxSeconds = PREVIEW_SECONDS): Promise<PreviewPicture> {
+  const r = await renderGeneratorPreview(body, maxSeconds);
+  return { mips: peaksFromBase(previewBase(r.samples), r.samples.length, r.rate), seconds: r.seconds, keyOff: r.keyOff, endless: r.endless, envelope: r.envelope };
+}
+
+const failure = (err: unknown): PreviewFailure => ({ failed: err instanceof Error ? err.message : String(err) });
 
 let worker: Worker | null = null;
 let serial = 0;
-const waiting = new Map<number, (r: PreviewPicture | null) => void>();
+const waiting = new Map<number, (r: PreviewPicture | PreviewFailure) => void>();
 const newest = new Map<string, number>();
 
 function previewWorker(): Worker | null {
@@ -56,11 +65,11 @@ function previewWorker(): Worker | null {
     const done = waiting.get(r.id);
     if (!done) return;
     waiting.delete(r.id);
-    if ("error" in r) return done(null);
-    done({ mips: peaksFromBase(r.base, r.frames, PREVIEW_RATE), seconds: r.seconds, keyOff: r.keyOff, endless: r.endless, envelope: r.envelope });
+    if ("error" in r) return done({ failed: r.error });
+    done({ mips: peaksFromBase(r.base, r.frames, r.rate), seconds: r.seconds, keyOff: r.keyOff, endless: r.endless, envelope: r.envelope });
   };
   worker.onerror = () => {
-    for (const done of waiting.values()) done(null);
+    for (const done of waiting.values()) done({ failed: "the preview worker stopped" });
     waiting.clear();
     worker?.terminate();
     worker = null;
@@ -68,14 +77,18 @@ function previewWorker(): Worker | null {
   return worker;
 }
 
-/** The preview of `body` for `key` (the open generator); null when a newer request for the key replaced it. */
-export function requestPreview(key: string, body: GeneratorBody, maxSeconds = PREVIEW_SECONDS): Promise<PreviewPicture | null> {
+/**
+ * The preview of `body` for `key` (the open generator), or why it couldn't render; null when a newer request for the
+ * key replaced it.
+ */
+export function requestPreview(key: string, body: GeneratorBody, maxSeconds = PREVIEW_SECONDS): Promise<PreviewPicture | PreviewFailure | null> {
   const id = ++serial;
   newest.set(key, id);
+  const current = <T>(r: T): T | null => (newest.get(key) === id ? r : null);
   const w = previewWorker();
-  if (!w) return Promise.resolve(newest.get(key) === id ? pictureOf(body, maxSeconds) : null);
+  if (!w) return pictureOf(body, maxSeconds).then(current, (err: unknown) => current(failure(err)));
   return new Promise((resolve) => {
-    waiting.set(id, (r) => resolve(newest.get(key) === id ? r : null));
+    waiting.set(id, (r) => resolve(current(r)));
     w.postMessage({ id, body, maxSeconds } satisfies PreviewRequestMessage);
   });
 }

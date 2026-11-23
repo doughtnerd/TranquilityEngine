@@ -347,7 +347,7 @@ function SampleInspector(props: Part & { session: SampleSession }) {
           {forks.length > 0 && ` · ${forks.length} fork${forks.length === 1 ? "" : "s"}`}
         </span>
       </div>
-      <SampleProvenance project={project} generated={session.settings.value?.generated} writable={!ro} />
+      <SampleProvenance project={project} sample={session.path} generated={session.settings.value?.generated} writable={!ro} />
       {parentChanged && derived && (
         <p class="smp-warning">
           Parent changed{" "}
