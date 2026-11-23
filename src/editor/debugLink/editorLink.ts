@@ -94,7 +94,7 @@ export class EditorDebugLink {
     if (!prefs.listen) return;
     const transport = this.options.transport();
     if (!transport) {
-      this.stateSignal.value = { kind: "unavailable", why: "This editor can't listen for builds here: a browser page can't open a server socket. The desktop editor can." };
+      this.stateSignal.value = { kind: "unavailable", why: "This editor can't listen for builds here: a browser page can't open a server socket. The desktop editor can, and this one can still connect to a build by its code (Connect to a build… in the builds menu)." };
       return;
     }
     const listener = new DebugLinkListener(transport, {
