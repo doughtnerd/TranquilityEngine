@@ -146,6 +146,34 @@ describe("moving panels", () => {
   });
 });
 
+describe("reordering a group's tabs (ADR 0381)", () => {
+  const tabs = (l: Layout, group: string) => l.docks.flatMap((d) => d.groups).find((g) => g.id === group)!;
+
+  it("moves a tab to a slot in its own group's order, showing it", () => {
+    const l = defaultLayout(); // assets group: assets, code, tilepalette
+    expect(tabs(movePanel(l, "tilepalette", { kind: "tab", group: "assets", index: 0 }), "assets")).toMatchObject({ panels: ["tilepalette", "assets", "code"], active: "tilepalette" });
+    expect(tabs(movePanel(l, "assets", { kind: "tab", group: "assets", index: 2 }), "assets").panels).toEqual(["code", "assets", "tilepalette"]); // before tilepalette
+    expect(tabs(movePanel(l, "assets", { kind: "tab", group: "assets", index: 3 }), "assets").panels).toEqual(["code", "tilepalette", "assets"]); // after the last
+  });
+
+  it("returns the same layout when the tab would stay where it is", () => {
+    const l = defaultLayout();
+    expect(movePanel(l, "code", { kind: "tab", group: "assets", index: 1 })).toBe(l); // before itself
+    expect(movePanel(l, "code", { kind: "tab", group: "assets", index: 2 })).toBe(l); // after itself
+  });
+
+  it("joins another group at a slot, clamping one past the end", () => {
+    const l = defaultLayout();
+    expect(tabs(movePanel(l, "hierarchy", { kind: "tab", group: "assets", index: 1 }), "assets").panels).toEqual(["assets", "hierarchy", "code", "tilepalette"]);
+    expect(tabs(movePanel(l, "hierarchy", { kind: "tab", group: "assets", index: 99 }), "assets").panels).toEqual(["assets", "code", "tilepalette", "hierarchy"]);
+  });
+
+  it("survives saving: the new order is in the layout read back", () => {
+    const l = movePanel(defaultLayout(), "tilepalette", { kind: "tab", group: "assets", index: 0 });
+    expect(tabs(parseLayout(JSON.parse(JSON.stringify(l)))!, "assets").panels).toEqual(["tilepalette", "assets", "code"]);
+  });
+});
+
 describe("the scene view as a panel", () => {
   it("can join another group as a tab; the next dock in then fills the middle", () => {
     const l = movePanel(movePanel(movePanel(defaultLayout(), "shadergraph", { kind: "tab", group: "assets" }), "particlegraph", { kind: "tab", group: "assets" }), "scene", { kind: "tab", group: "assets" });
@@ -211,6 +239,38 @@ describe("hit testing a drag", () => {
     expect(lower.target).toEqual({ kind: "split", dock: "left", index: 1 });
     expect(lower.preview).toMatchObject({ y: left.y + left.h / 2, h: left.h / 2 }); // the bottom half
     expect(hitTest(l, geo, "hierarchy", x, left.y + left.h * 0.75)).toBeNull(); // its own dock, same place
+  });
+
+  describe("over a header with its drawn tabs (ADR 0381)", () => {
+    const h = geo.docks[0].groups[0].header; // the assets group: assets, code, tilepalette
+    const mid = h.y + HEADER_HEIGHT / 2;
+    const spans = { assets: [{ panel: "assets", start: 0, end: 80 }, { panel: "code", start: 80, end: 140 }, { panel: "tilepalette", start: 140, end: 240 }] };
+
+    it("reorders its own group's tabs at the slot under the pointer, marking it between the tabs", () => {
+      const hit = hitTest(l, geo, "tilepalette", 30, mid, spans)!;
+      expect(hit.target).toEqual({ kind: "tab", group: "assets", index: 0 });
+      expect(hit.insert).toEqual({ x: -1, y: h.y, w: 2, h: h.h });
+      expect(hit.preview).toBeUndefined(); // the mark alone shows a reorder
+      expect(hitTest(l, geo, "assets", 230, mid, spans)?.target).toEqual({ kind: "tab", group: "assets", index: 3 }); // past the last tab's middle
+      expect(hitTest(l, geo, "assets", 230, mid, spans)?.insert?.x).toBe(239);
+    });
+
+    it("is no target where the tab already is", () => {
+      expect(hitTest(l, geo, "code", 100, mid, spans)).toBeNull(); // its own left half: before itself
+      expect(hitTest(l, geo, "code", 130, mid, spans)).toBeNull(); // its right half: before the next tab, the same place
+    });
+
+    it("joins another group at the slot, highlighting the group too", () => {
+      const hit = hitTest(l, geo, "hierarchy", 120, mid, spans)!;
+      expect(hit.target).toEqual({ kind: "tab", group: "assets", index: 2 });
+      expect(hit.preview).toEqual(geo.docks[0].groups[0].rect);
+      expect(hit.insert?.x).toBe(139);
+    });
+
+    it("places among the drawn tabs only, so a slot past a hidden tab maps into the whole order", () => {
+      const shown = { assets: [{ panel: "assets", start: 0, end: 80 }, { panel: "tilepalette", start: 80, end: 180 }] }; // code behind "» N"
+      expect(hitTest(l, geo, "hierarchy", 100, mid, shown)?.target).toEqual({ kind: "tab", group: "assets", index: 2 }); // before tilepalette
+    });
   });
 });
 

@@ -174,9 +174,8 @@ button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px
 .dock-tab.solo { border-right: none; flex: 1; }
 .dock-tab.active:not(.solo) { color: var(--text-strong); background: var(--active); box-shadow: inset 0 -2px 0 var(--accent); }
 .dock-tab:hover { color: var(--text); }
-/* The red × that closes a panel (ADR 0174), at the right end of its tab. */
-.dock-tab.closable { padding-right: 4px; gap: 4px; }
-.dock-tab.solo.closable { justify-content: space-between; }
+/* The × that closes a panel (ADR 0174, 0381): right after its title, muted until hovered or focused, then red. */
+.dock-tab.closable, .dock-tab-measure.closable { padding-right: 4px; gap: 6px; }
 .dock-tab-close {
   flex: none;
   display: grid;
@@ -187,13 +186,13 @@ button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px
   border: none;
   border-radius: 3px;
   background: none;
-  color: var(--danger);
+  color: var(--muted);
   font-size: calc(14px * var(--ui-scale));
   line-height: 1;
   cursor: pointer;
 }
-.dock-tab-close:hover { background: var(--hover); }
-.dock-tab-close:focus-visible { outline: 1px solid var(--focus-ring); }
+.dock-tab-close:hover { color: var(--danger); background: var(--hover); }
+.dock-tab-close:focus-visible { color: var(--danger); outline: 1px solid var(--focus-ring); }
 /* A panel's toolbar row (the Panel component, ADR 0174): stays put while the body scrolls. */
 .panel-toolbar { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px 10px 0; }
 /* Hidden copies the strip measures its tabs' natural sizes from. */
@@ -250,6 +249,8 @@ button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px
 .resize-handle.axis-y .resize-grip { width: 24px; height: 2px; }
 .resize-handle:hover, .resize-handle:active { background: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: 0 0 8px var(--accent-soft); }
 .drop-preview { position: absolute; z-index: 5; pointer-events: none; background: var(--accent-soft); border: 2px solid var(--accent); border-radius: 3px; box-sizing: border-box; transition: left 80ms, top 80ms, width 80ms, height 80ms; }
+/* Where a dragged tab goes among a header's tabs (ADR 0381). */
+.tab-insert-mark { position: absolute; z-index: 6; pointer-events: none; background: var(--accent); border-radius: 1px; }
 .drag-ghost { position: absolute; z-index: 6; pointer-events: none; padding: 3px 8px; border-radius: 3px; background: var(--accent); color: var(--accent-text); font-size: calc(11px * var(--ui-scale)); font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; white-space: nowrap; }
 
 /* The Scene panel (a dockable panel): the engine's canvas fills it. */
