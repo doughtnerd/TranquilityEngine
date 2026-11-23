@@ -25,11 +25,12 @@ const mixed = (t: VoiceTable): number[] => [...Array(t.capacity).keys()].filter(
 
 describe("selection with generator voices (ADR 0360)", () => {
   it("reads the kinds' costs from one table: G2's measured ratios, the oscillator's noise apart", () => {
-    expect(GENERATOR_VOICE_COST).toEqual({ oscillator: 0.67, noise: 0.76, synth: 1.43, blip: 2.38, silence: 0.64 });
-    expect(generatorVoiceCost("oscillator", generatorWireValues("oscillator", {}))).toBe(0.67);
-    expect(generatorVoiceCost("oscillator", generatorWireValues("oscillator", { waveform: 4 }))).toBe(0.76);
-    expect(generatorVoiceCost("blip", generatorWireValues("blip", {}))).toBe(2.38);
-    expect(generatorVoiceCost("synth", generatorWireValues("synth", {}))).toBe(1.43);
+    // The measured ratios after D67's blip optimisation (metered gen-* scenes against their sample twins).
+    expect(GENERATOR_VOICE_COST).toEqual({ oscillator: 0.68, noise: 0.78, synth: 1.44, blip: 1.47, silence: 0.64 });
+    expect(generatorVoiceCost("oscillator", generatorWireValues("oscillator", {}))).toBe(GENERATOR_VOICE_COST.oscillator);
+    expect(generatorVoiceCost("oscillator", generatorWireValues("oscillator", { waveform: 4 }))).toBe(GENERATOR_VOICE_COST.noise);
+    expect(generatorVoiceCost("blip", generatorWireValues("blip", {}))).toBe(GENERATOR_VOICE_COST.blip);
+    expect(generatorVoiceCost("synth", generatorWireValues("synth", {}))).toBe(GENERATOR_VOICE_COST.synth);
   });
 
   it("a silence is never mixed: admitted virtual with room to spare, and kept virtual frame after frame", () => {
@@ -43,18 +44,21 @@ describe("selection with generator voices (ADR 0360)", () => {
     expect(mixed(table)).toEqual([tone]);
   });
 
-  it("weighs blips at 2.38 against the cap at admission, and keeps the loudest that fit when ranking", () => {
+  it("weighs blips at their cost against the cap at admission, and keeps the loudest that fit when ranking", () => {
     const table = new VoiceTable(16);
     const sel = new Selection(table);
-    // Cap 8: three blips (7.14) fit, a fourth (9.52) doesn't; a sample voice (1) still would not after three blips.
-    const blips = [0.4, 0.5, 0.6, 0.7].map((g) => admit(table, sel, g, 8, 3, GENERATOR_VOICE_COST.blip));
-    expect(mixed(table)).toEqual(blips.slice(0, 3));
-    const sample = admit(table, sel, 0.1, 8);
+    // Cap 3: two blips (2 × 1.47 = 2.94) fit, a third (4.41) doesn't; a sample voice (1) would not after two (3.94).
+    const w = GENERATOR_VOICE_COST.blip;
+    const fit = Math.floor(3 / w);
+    expect(fit).toBe(2);
+    const blips = [0.4, 0.5, 0.6].map((g) => admit(table, sel, g, 3, 3, w));
+    expect(mixed(table)).toEqual(blips.slice(0, fit));
+    const sample = admit(table, sel, 0.1, 3);
     expect(table.state[sample]).toBe(VoiceState.VIRTUAL);
-    // Past the dwell the loudest three blips are mixed (7.14 of 8); the sample voice and the quietest blip wait.
-    for (let f = 0; f < 6; f++) sel.run(8, sink);
+    // Past the dwell the loudest two blips are mixed; the sample voice and the quietest blip wait.
+    for (let f = 0; f < 6; f++) sel.run(3, sink);
     expect(mixed(table).sort()).toEqual(blips.slice(1).sort());
-    expect(sel.mixedCount).toBeCloseTo(3 * 2.38, 4);
+    expect(sel.mixedCount).toBeCloseTo(fit * w, 4);
     // Oscillators weigh less than a sample voice, but never more than `cap` voices mix (the core's mixed pool).
     const t2 = new VoiceTable(32);
     const s2 = new Selection(t2);

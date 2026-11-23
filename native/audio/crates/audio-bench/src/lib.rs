@@ -273,13 +273,39 @@ pub struct GenScene {
     pub noise: bool,
     /// Only the scene's virtual voices are generators (the mixed ones stay clip voices).
     pub virtual_only: bool,
+    /// A blip plays one of sfxr's presets ([`BLIP_PRESETS`], index + 1) instead of the all-features blip (0).
+    pub preset: u8,
+    /// The generator's `quality` is `high` (else `standard`).
+    pub high: bool,
 }
 
 impl GenScene {
     const fn of(kind: u32) -> Option<GenScene> {
-        Some(GenScene { kind, noise: false, virtual_only: false })
+        Some(GenScene { kind, noise: false, virtual_only: false, preset: 0, high: false })
+    }
+
+    const fn blip(preset: u8) -> Option<GenScene> {
+        Some(GenScene { kind: wire::GEN_KIND_BLIP, noise: false, virtual_only: false, preset, high: false })
     }
 }
+
+/// ADR 0360 (blip cost, D67): the key parameters of sfxr's presets (one fixed draw of each generator function, as
+/// `audio-dsp`'s sfxr reference tests use), for the per-preset `gen-blip-<name>` scenes. Each scene stretches its preset
+/// to the all-features blip's 1.25 s (attack 0, sustain 0.5, decay 0.55) and drops a frequency limit, so every scene
+/// restarts its voices at the twin's rate and measures the preset's per-sample kernel, not its start cost.
+pub const BLIP_PRESETS: [(&str, &[(usize, f32)]); 8] = {
+    use audio_dsp::gen::blip::p::*;
+    [
+        ("coin", &[(WAVEFORM, 0.0), (BASE_FREQUENCY, 0.55), (PUNCH, 0.45), (ARPEGGIO_SPEED, 0.55), (ARPEGGIO_AMOUNT, 0.4)]),
+        ("laser", &[(WAVEFORM, 1.0), (BASE_FREQUENCY, 0.75), (SLIDE, -0.3), (DUTY, 0.3)]),
+        ("jump", &[(WAVEFORM, 0.0), (DUTY, 0.6), (BASE_FREQUENCY, 0.4), (SLIDE, 0.25), (LOWPASS_CUTOFF, 0.8)]),
+        ("explosion", &[(WAVEFORM, 3.0), (BASE_FREQUENCY, 0.2), (SLIDE, -0.3), (PUNCH, 0.4), (PHASER_OFFSET, 0.3), (PHASER_SWEEP, -0.2)]),
+        ("powerup", &[(WAVEFORM, 1.0), (BASE_FREQUENCY, 0.3), (SLIDE, 0.15), (VIBRATO_DEPTH, 0.4), (VIBRATO_SPEED, 0.4)]),
+        ("hit", &[(WAVEFORM, 0.0), (BASE_FREQUENCY, 0.5), (SLIDE, -0.5), (DUTY, 0.4), (HIGHPASS_CUTOFF, 0.2)]),
+        ("blip", &[(WAVEFORM, 0.0), (DUTY, 0.5), (BASE_FREQUENCY, 0.4), (HIGHPASS_CUTOFF, 0.1)]),
+        ("sweep", &[(WAVEFORM, 2.0), (BASE_FREQUENCY, 0.6), (LOWPASS_CUTOFF, 0.5), (LOWPASS_SWEEP, 0.3), (LOWPASS_RESONANCE, 0.5), (REPEAT_SPEED, 0.6)]),
+    ]
+};
 
 /// ADR 0171/0172 M5 (Bn4): the level rules of a sidechain scene ([`Scene::duck`]), peak or RMS detectors, amount 0.5, attack 20 ms,
 /// release 150 ms (Gs1's). Triggers and targets are leaf buses (4 and up), so no rule is inert and no level edge closes a cycle:
@@ -794,13 +820,21 @@ pub fn scene(name: &str) -> Option<Scene> {
         // 4,096 looping silences (virtual) beside 4,096 looping virtual sample voices, over 16 mixed sample voices
         // (`-base`: those alone). `GEN_PAIRS` in the gate reports each kind's cost against its twin.
         "gen-osc" => Scene { max_mixed: 1_024, gen: GenScene::of(wire::GEN_KIND_OSCILLATOR), ..Scene::looping(name, 256) },
-        "gen-noise" => Scene { max_mixed: 1_024, gen: Some(GenScene { kind: wire::GEN_KIND_OSCILLATOR, noise: true, virtual_only: false }), ..Scene::looping(name, 256) },
+        // D67: `gen-osc` and `gen-blip` at `quality` high (the 16-tap minBLEP), against the same twins.
+        "gen-osc-high" => Scene { max_mixed: 1_024, gen: Some(GenScene { high: true, ..GenScene::of(wire::GEN_KIND_OSCILLATOR).unwrap() }), ..Scene::looping(name, 256) },
+        "gen-blip-high" => Scene { max_mixed: 1_024, one_shots: true, gen: Some(GenScene { high: true, ..GenScene::of(wire::GEN_KIND_BLIP).unwrap() }), ..Scene::looping(name, 256) },
+        "gen-noise" => Scene { max_mixed: 1_024, gen: Some(GenScene { noise: true, ..GenScene::of(wire::GEN_KIND_OSCILLATOR).unwrap() }), ..Scene::looping(name, 256) },
         "gen-twin-256" => Scene { max_mixed: 1_024, ..Scene::looping(name, 256) },
         "gen-synth" => Scene { max_mixed: 512, gen: GenScene::of(wire::GEN_KIND_SYNTH), ..Scene::looping(name, 128) },
         "gen-twin-128" => Scene { max_mixed: 512, ..Scene::looping(name, 128) },
         "gen-blip" => Scene { max_mixed: 1_024, one_shots: true, gen: GenScene::of(wire::GEN_KIND_BLIP), ..Scene::looping(name, 256) },
         "gen-blip-twin" => Scene { max_mixed: 1_024, one_shots: true, ..Scene::looping(name, 256) },
-        "gen-silence" => Scene { max_logical: 8_192, virtual_voices: 4_096, gen: Some(GenScene { kind: wire::GEN_KIND_SILENCE, noise: false, virtual_only: true }), ..Scene::looping(name, 16) },
+        // D67 (blip cost): `gen-blip` with each of sfxr's presets ([`BLIP_PRESETS`]), against the same twin.
+        _ if name.starts_with("gen-blip-") && BLIP_PRESETS.iter().any(|(p, _)| name["gen-blip-".len()..] == **p) => {
+            let at = BLIP_PRESETS.iter().position(|(p, _)| name["gen-blip-".len()..] == **p).unwrap_or(0);
+            Scene { max_mixed: 1_024, one_shots: true, gen: GenScene::blip(at as u8 + 1), ..Scene::looping(name, 256) }
+        }
+        "gen-silence" => Scene { max_logical: 8_192, virtual_voices: 4_096, gen: Some(GenScene { virtual_only: true, ..GenScene::of(wire::GEN_KIND_SILENCE).unwrap() }), ..Scene::looping(name, 16) },
         "gen-silence-twin" => Scene { max_logical: 8_192, virtual_voices: 4_096, ..Scene::looping(name, 16) },
         "gen-silence-base" => Scene { max_logical: 8_192, ..Scene::looping(name, 16) },
         // ADR 0166 M4b (Bench1): music on the default preset, decoded and streamed, each beside its music-free twin (the
@@ -1908,6 +1942,16 @@ impl Bench {
                 (sp::LFO_TARGET, 1.0),
                 (sp::LEVEL, -18.0),
             ],
+            // A preset, stretched to 1.25 s (see `BLIP_PRESETS`).
+            wire::GEN_KIND_BLIP if g.preset > 0 => {
+                let mut v = vec![(bp::SUSTAIN, 0.5), (bp::DECAY, 0.55), (bp::LEVEL, -18.0)];
+                v.extend_from_slice(BLIP_PRESETS[g.preset as usize - 1].1);
+                if let Some(f) = v.iter_mut().find(|(i, _)| *i == bp::BASE_FREQUENCY) {
+                    f.1 += 0.1 * self.rng.unit() - 0.05;
+                }
+                v.sort_by_key(|&(i, _)| i);
+                v
+            }
             // A 1.25 s blip (sustain 0.5, decay 0.55: 55,253 ticks), so 256 of them restart about 204 times a second.
             wire::GEN_KIND_BLIP => vec![
                 (bp::WAVEFORM, 0.0),
@@ -2038,7 +2082,17 @@ impl Bench {
             ..Default::default()
         });
         if let Some(g) = gen {
-            let values = self.gen_params(g);
+            let mut values = self.gen_params(g);
+            if g.high {
+                // `quality` is each oscillating kind's last parameter (D67).
+                use audio_dsp::gen::{blip::p as bp, osc_p as op, synth_p as sp};
+                let at = match g.kind {
+                    wire::GEN_KIND_OSCILLATOR => op::QUALITY,
+                    wire::GEN_KIND_SYNTH => sp::QUALITY,
+                    _ => bp::QUALITY,
+                };
+                values.push((at, audio_dsp::gen::quality::HIGH as f32));
+            }
             let seed = self.rng.next() | 1;
             let mask = values.iter().fold(0u32, |m, &(i, _)| m | 1 << i);
             self.push(&wire::Gen { voice_id: id, frame_offset: wire::ASAP, mask, seed, ramp_frames: 0, values: values.iter().map(|&(_, v)| v).collect() });

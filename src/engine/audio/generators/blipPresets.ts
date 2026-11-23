@@ -13,7 +13,7 @@
  *
  * Draws never depend on the locks (a locked parameter's draws are taken and thrown away), so locking one parameter
  * changes no other. `level` is the blip's volume, not one of sfxr's synthesis parameters: presets, Randomise and
- * Mutate keep it. A null seed counts as 0.
+ * Mutate keep it, and `quality` too. A null seed counts as 0.
  *
  * Pure; no plugin, no DOM.
  */
@@ -35,8 +35,8 @@ export type BlipPresetId = (typeof BLIP_PRESETS)[number]["id"];
 
 export const isBlipPreset = (id: unknown): id is BlipPresetId => typeof id === "string" && BLIP_PRESETS.some((p) => p.id === id);
 
-/** Parameters presets, Randomise and Mutate never change. */
-const KEPT = new Set(["level"]);
+/** Parameters presets, Randomise and Mutate never change: how loud and how band-limited, not the sound's design. */
+const KEPT = new Set(["level", "quality"]);
 
 /** sfxr's wave types, as the blip's `waveform` index. */
 const SQUARE = 0, SAW = 1, NOISE = 3;

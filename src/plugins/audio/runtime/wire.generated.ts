@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "0241a5815250233e5345489f0e3a1f7b";
+export const SCHEMA_HASH = "53d39632ff8a6e199180e06b3659611f";
 
 /** the core's C ABI major (`myco_audio_abi_version() >> 8`); a shell refuses a different one */
 export const CORE_ABI_MAJOR = 0x6;
@@ -396,11 +396,11 @@ export const LOOP_EXIT_SHAPE_SHIFT = 0x4;
 export const GEN_CLIP_ID_FIRST = 0xffff0300;
 /** the reserved generator range's last id */
 export const GEN_CLIP_ID_LAST = 0xffff03ff;
-/** generator kind: oscillator (10 parameters) */
+/** generator kind: oscillator (11 parameters; the last, `quality`, D67) */
 export const GEN_KIND_OSCILLATOR = 0x1;
-/** generator kind: two-oscillator synth (25 parameters) */
+/** generator kind: two-oscillator synth (26 parameters; the last, `quality`, D67) */
 export const GEN_KIND_SYNTH = 0x2;
-/** generator kind: sfxr blip in sfxr's units (24 parameters) */
+/** generator kind: sfxr blip in sfxr's units (25 parameters; the last, `quality`, D67) */
 export const GEN_KIND_BLIP = 0x3;
 /** generator kind: silence (2 parameters), always virtual */
 export const GEN_KIND_SILENCE = 0x4;

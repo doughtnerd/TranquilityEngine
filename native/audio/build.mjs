@@ -50,7 +50,11 @@ const WASI_SDK_VERSION = "25.0";
  * monomorphised per waveform, plus `generator.rs` and the render branch) take the mixer to 538,902 B, +37,300 B (the
  * record estimated 10-15 KB). Not traded for speed or quality: the per-waveform loops keep the per-sample dispatch out.
  */
-const MIXER_LIMIT = 576 * 1024;
+// 640 KB since the blip-cost and quality task (2026-11-23, owner decision D67, ADR 0360): from 542,629 B (ABI 6.0) to
+// ≈ 589 KB, ≈ +46 KB: the blip kernel monomorphised per waveform and low-pass (its fused loop took it from 2.38× to
+// 1.47× a sample voice), the `quality` parameter's `high` loops (16-tap minBLEP) for the oscillator, synth and blip, and
+// the minBLEP tables (4.2 KB). Not traded for CPU: the per-waveform loops are what keep the blip under 0360's 1.5×.
+const MIXER_LIMIT = 640 * 1024;
 /** ADR 0162 (api-and-models §5.2): M3's mixer warning, under the gate: a build past it warns but passes. */
 const MIXER_WARN = 300 * 1024;
 /** The decoder's size tripwire (M1b: 900 KB). 1,000 KB since ADR 0359 §4 (2026-11-22, A7): libopus (fixed point, no

@@ -86,6 +86,10 @@ macro_rules! c {
 /// 6.0 (the merge of both lines, 2026-11-23): master's 5.0 (the INIT record, the memory exports) with the Studio's 5.1
 /// (the `myco_ext` import, 16-parameter effect records and the records above). Both 5.0s changed the ABI
 /// incompatibly, so the joined core is a new major.
+/// Owner decision D67 (ADR 0360) adds no version: the oscillator, synth and blip end their parameters with `quality`
+/// (standard: two-sample PolyBLEP; high: a 16-tap minBLEP, read two samples late), so they have 11, 26 and 25, which GEN
+/// (at most `GEN_PARAMS_MAX`, 32) and AUTOMATE target 5 carry as one more index; no record changes layout, and a core
+/// without it ignores the index (plays `standard`).
 const CORE_ABI: (u64, u64) = (6, 0);
 
 /// Constants from section 4 and 5 that code on both sides needs.

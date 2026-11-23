@@ -82,7 +82,7 @@ const R_WAITING = VoiceReason.WAITING_FOR_DATA;
  * runs late. The one table: G2b's measurements update it here. A silence is always virtual (its figure is its virtual
  * cost, kept for completeness).
  */
-export const GENERATOR_VOICE_COST = { oscillator: 0.67, noise: 0.76, synth: 1.43, blip: 2.38, silence: 0.64 } as const;
+export const GENERATOR_VOICE_COST = { oscillator: 0.68, noise: 0.78, synth: 1.44, blip: 1.47, silence: 0.64 } as const;
 
 /** @internal ADR 0360: the cap weight of a generator of `kind` playing wire-order `values` (`GENERATOR_VOICE_COST`). */
 export function generatorVoiceCost(kind: GeneratorKind, values: ArrayLike<number>): number {
