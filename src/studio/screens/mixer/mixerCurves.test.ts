@@ -29,12 +29,24 @@ describe("Mixer automation in the curve editor", () => {
     expect(d.initialLane).toBe("fx:fx1:cutoff");
     const cutoff = d.spec.lanes.find((l) => l.id === "fx:fx1:cutoff")!;
     expect(cutoff).toMatchObject({ unit: "Hz", scale: "log", input: "param:depth", base: 20000 });
-    // Each lane has its own driver; unautomated lanes start on the first parameter.
+    // Each lane has its own driver; unautomated lanes start on the first numeric parameter.
     expect(d.spec.lanes.find((l) => l.id === "volume")!.input).toBe("param:threat");
-    expect(d.spec.lanes.find((l) => l.id === "send:Reverb")!.input).toBeUndefined();
+    expect(d.spec.lanes.find((l) => l.id === "send:Reverb")!.input).toBe("param:threat");
     expect(d.spec.inputs!.find((i) => i.id === "param:depth")).toMatchObject({ min: 0, max: 30, now: 12 });
     expect(d.spec.inputs!.find((i) => i.id === "param:combat")).toMatchObject({ name: "combat (labels)", min: 0, max: 1 });
     expect(ok(automationDialog(p, "Reverb", "volume")).title).toBe("Return curves");
+  });
+
+  it("starts an unautomated lane on the first numeric parameter, not a labelled one listed before it", () => {
+    const p = mixerFixture();
+    const labelledFirst = { ...p, parameters: [...p.parameters.filter((d) => d.name === "surface"), ...p.parameters.filter((d) => d.name !== "surface")] };
+    const d = ok(automationDialog(labelledFirst, "Ambience", undefined));
+    expect(d.spec.inputs![0]!.name).toBe("surface (labels)");
+    expect(d.spec.lanes.find((l) => l.id === "send:Reverb")!.input).toBe("param:threat");
+    expect(ok(applyAutomationResult(labelledFirst, d, untouched(d)))).toBeNull();
+    // With only labelled parameters, the first one drives.
+    const onlyLabels = { ...p, parameters: p.parameters.filter((d) => d.name === "surface" || d.name === "combat") };
+    expect(ok(automationDialog(onlyLabels, "Ambience", undefined)).spec.lanes.find((l) => l.id === "send:Reverb")!.input).toBe("param:combat");
   });
 
   it("is refused without game parameters, or on a name that isn't a bus or return", () => {
