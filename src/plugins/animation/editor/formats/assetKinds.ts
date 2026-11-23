@@ -136,6 +136,8 @@ export const ANIMATION_ASSET_KINDS: readonly AssetKindContribution[] = [
     create: { label: "New Pose Database", what: "pose databases" },
     referencedAs: ["posedb"],
     references: reader(POSE_DATABASE_SUFFIX, parsePoseDatabase, poseDatabaseReferences),
+    // The pose database tool (T55, `poseDatabase/PoseDatabaseEditor.tsx`): clips and tagged ranges, features, Bake.
+    inspector: () => import("../poseDatabase/PoseDatabaseEditor").then((m) => m.PoseDatabaseEditor),
   },
   // Compiled files (`myco.skel@1`, `myco.anim@1`, `myco.animgraph@1`, `myco.posedb@1`): binary, made by the editor's
   // compile and bake steps (or brought in), never edited. A compiled skeleton is what a `skeleton` field takes when no
@@ -143,5 +145,6 @@ export const ANIMATION_ASSET_KINDS: readonly AssetKindContribution[] = [
   { id: "compiledskeleton", extensions: [".skel.bin"], label: "Skeleton (compiled)", icon: COMPILED_ICON, referencedAs: ["skeleton"] },
   { id: "compiledclip", extensions: [".anim.bin"], label: "Animation Clip (compiled)", icon: COMPILED_ICON, inspector: () => import("../scene/ClipPreview").then((m) => m.ClipPreview) },
   { id: "compiledgraph", extensions: [".animgraph.bin"], label: "Animation Graph (compiled)", icon: COMPILED_ICON },
-  { id: "posedbbake", extensions: [".posedb.bin"], label: "Pose Database (baked)", icon: COMPILED_ICON },
+  // The summary of a bake, read from its header (T55, `poseDatabase/BakedSummary.tsx`).
+  { id: "posedbbake", extensions: [".posedb.bin"], label: "Pose Database (baked)", icon: COMPILED_ICON, inspector: () => import("../poseDatabase/BakedSummary").then((m) => m.BakedPoseDatabase) },
 ];
