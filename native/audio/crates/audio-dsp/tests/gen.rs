@@ -398,21 +398,27 @@ fn key_off_releases_and_the_voice_ends() {
     }
     // To -60 dB from full scale: 1.5 times the release time.
     assert!((n as f32 / 7_200.0 - 1.0).abs() < 0.03, "{n}");
-    assert_eq!(v.ended, 1);
+    assert!(!v.render(&[1.0; 128], &mut out, false) && out.iter().all(|&x| x == 0.0), "it stays ended");
 }
 
 #[test]
-fn a_virtual_voice_advances_its_envelope_as_a_rendered_one_does() {
-    let mut a = voice(gen::SYNTH, &[(synth_p::AMP_ATTACK, 50.0), (synth_p::AMP_RELEASE, 80.0)]);
+fn a_virtual_voice_advances_its_envelopes_as_a_rendered_one_does() {
+    // One sine through an open filter, a 200 ms attack and a filter envelope moving the cut-off: after 100 ms rendered or
+    // advanced, the next block of each sounds alike (the same level and the same filtering).
+    let p = [(synth_p::OSC_MIX, 0.0), (synth_p::OSC1_WAVE, 0.0), (synth_p::AMP_ATTACK, 200.0), (synth_p::AMP_RELEASE, 80.0), (synth_p::CUTOFF, 200.0), (synth_p::FILTER_ATTACK, 400.0)];
+    let mut a = voice(gen::SYNTH, &p);
     let mut b = a;
-    run(&mut a, 1.0, 12_800);
-    assert!(b.advance(12_800, false));
-    assert!((a.amp.value - b.amp.value).abs() < 1e-3 && (a.fenv.value - b.fenv.value).abs() < 1e-3, "{} {} / {} {}", a.amp.value, b.amp.value, a.fenv.value, b.fenv.value);
+    run(&mut a, 1.0, 4_800);
+    assert!(b.advance(4_800, false));
+    // (The advanced voice's filter starts from rest: its first 10 ms are left out.)
+    let (ra, rb) = (run(&mut a, 1.0, 1_440), run(&mut b, 1.0, 1_440));
+    let (ra, rb) = (&ra[480..], &rb[480..]);
+    assert!(rms(ra) > 0.01 && (rms(rb) / rms(ra) - 1.0).abs() < 0.02, "advanced {} against rendered {}", rms(rb), rms(ra));
     a.key_off();
     b.key_off();
     let ra = run(&mut a, 1.0, 12_800);
-    let alive = b.advance(12_800, false);
-    assert!(!alive && a.ended == 1 && ra[12_000..].iter().all(|&x| x == 0.0));
+    assert!(!b.advance(12_800, false), "the advanced voice's release ended");
+    assert!(ra[12_000..].iter().all(|&x| x == 0.0), "and so did the rendered one's");
 }
 
 #[test]

@@ -267,24 +267,24 @@ fn run(block: &mut [f32], steps: &[f32], hz: f64, inv: f64, amp: &mut Adsr, g0: 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct GenVoice {
-    pub kind: u8,
+    kind: u8,
     /// Set by [`GenVoice::key_off`].
-    pub keyed_off: u8,
+    keyed_off: u8,
     /// Set once the voice has ended (its amp envelope finished, or the blip ended).
-    pub ended: u8,
+    ended: u8,
     /// Parameters changed since the derived values (gain, envelopes, filter) were worked out.
     dirty: u8,
-    pub rate: f32,
+    rate: f32,
     /// Bit i: parameter i is gliding.
     gliding: u32,
-    pub params: [Param; PARAMS_MAX],
+    params: [Param; PARAMS_MAX],
     /// The level as a gain (with the synth's LFO amplitude), at the end of the last control block.
     gain: f32,
-    pub noise: Noise,
+    noise: Noise,
     osc: [Osc; 2],
     svf: Svf,
-    pub amp: Adsr,
-    pub fenv: Adsr,
+    amp: Adsr,
+    fenv: Adsr,
     lfo: Lfo,
     /// The synth's filter needs a coefficient update at the next control block.
     filter_moving: u8,
@@ -293,7 +293,7 @@ pub struct GenVoice {
     /// envelopes when parameters change.
     ratio2: f64,
     q: f32,
-    pub blip: blip::Blip,
+    blip: blip::Blip,
 }
 
 impl Default for GenVoice {

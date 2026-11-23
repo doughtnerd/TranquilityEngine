@@ -66,6 +66,10 @@
 //!    `value + rate × (frame − anchor) / sampleRate`, so a running clock costs nothing until a
 //!    binding reads it. A voice's start frame is taken while it is scheduled (its PLAY's stamp, or
 //!    the first quantum after an asap PLAY) by [`begin_quantum`].
+//! 8. **Generator parameters** (ADR 0346, ABI 5.1): a voice binding of target kind 5 (`AUTO_TARGET_GEN`, the
+//!    parameter's index in bits 8-15, `AUTO_TARGET_LOG` for 2^value) hands its curve's value to the voice's generator
+//!    (`generator::automate`) once a quantum in [`begin_quantum`]; the parameter glides to it over the quantum (at once
+//!    for a binding just made or a voice not sounding yet). Buses read kind 5 as an effect parameter.
 //!
 //! **Timing.** CURVES, PARAM, AUTOMATE and BUS_AUTOMATE apply when they arrive (between quanta),
 //! whatever their `frameOffset`; a voice's AUTOMATE finds it because PLAY writes its slot at once.

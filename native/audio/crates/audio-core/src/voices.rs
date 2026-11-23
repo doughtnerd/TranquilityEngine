@@ -27,6 +27,11 @@
 //! encodes into the bed instead (`panner.rs`, `bed.rs`), through its pool entry's bed share and
 //! last encode gains; `bed::begin_quantum` runs once a quantum before the voices.
 //!
+//! ADR 0346 (ABI 5.1): a PLAY of a reserved generator clip id starts a **generator voice** (`generator.rs`), rendered by
+//! [`render_gen_voice`] from its pool entry's `audio_dsp::gen` voice instead of a clip, through the same chain. A
+//! silence generator is always virtual (PLAY's mixed flag and a promote are refused); SET_LOOP's release is a
+//! generator's key-off; SEEK does nothing to one.
+//!
 //! **Mixed and virtual** (A3.1; architecture §2.2, §4.7 "promote and demote 5 ms"). Main's selection
 //! decides which voices are mixed and sends SET_MIXED for changes ([`set_mixed`]); the adaptive cap
 //! (A3.3) demotes through [`demote`] / [`demote_lowest`], which report the ids in STATUS `demoted`.

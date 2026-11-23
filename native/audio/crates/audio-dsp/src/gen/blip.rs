@@ -87,10 +87,10 @@ pub fn envelope_seconds(attack: f32, sustain: f32, decay: f32) -> f64 {
 #[derive(Clone, Copy, Debug)]
 pub struct Blip {
     /// The parameters read at the start and each re-trigger.
-    pub p: [f32; p::COUNT],
-    pub started: u8,
+    pub(crate) p: [f32; p::COUNT],
+    pub(crate) started: u8,
     /// 0 once the blip has ended (its envelope's last stage, or the frequency limit).
-    pub playing: u8,
+    pub(crate) playing: u8,
     wave: u8,
     lp_on: u8,
     phaser_on: u8,
@@ -112,8 +112,8 @@ pub struct Blip {
     vib_phase: f64,
     vib_speed: f64,
     vib_amp: f32,
-    pub env_vol: f32,
-    pub env_stage: u32,
+    env_vol: f32,
+    env_stage: u32,
     env_time: u32,
     env_length: [u32; 3],
     /// `1 / env_length` per stage (0 for a stage of no length), so a tick multiplies rather than divides.
