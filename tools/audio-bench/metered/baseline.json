@@ -1,7 +1,7 @@
 {
   "note": "Wasm instructions per quantum of audio-bench scenes in the metered build (ADR 0157 C1b). Rewrite with UPDATE_METERED_BASELINE=1 node tools/audio-bench/metered-gate.mjs.",
   "meterVersion": 1,
-  "sourceHash": "a23f7aef59597feafd3289d14dfb60ec",
+  "sourceHash": "2f5e1d8c536097713dfad3063a783212",
   "settings": {
     "seconds": 2,
     "warmup": 1,
@@ -41,7 +41,7 @@
     "high-pitch16": {
       "quanta": 750,
       "perQuantum": 33622512,
-      "total": 25216883685,
+      "total": 25216883693,
       "p99": 35046704,
       "max": 35198852,
       "wuMean": 2343643,
@@ -61,7 +61,7 @@
     "stress-cap": {
       "quanta": 750,
       "perQuantum": 25570922,
-      "total": 19178191568,
+      "total": 19178191560,
       "p99": 27847470,
       "max": 28441588,
       "wuMean": 1791275,
@@ -281,7 +281,7 @@
     "fx-submix-formant": {
       "quanta": 750,
       "perQuantum": 20649573,
-      "total": 15487180005,
+      "total": 15487180013,
       "p99": 20651220,
       "max": 20651220,
       "wuMean": 441840,
@@ -391,7 +391,7 @@
     "filters-256": {
       "quanta": 750,
       "perQuantum": 21123179,
-      "total": 15842383958,
+      "total": 15842383950,
       "p99": 21971926,
       "max": 21972656,
       "wuMean": 1109573,
@@ -411,7 +411,7 @@
     "m3-worst-high": {
       "quanta": 750,
       "perQuantum": 37393384,
-      "total": 28045038098,
+      "total": 28045038105,
       "p99": 39346768,
       "max": 39428896,
       "wuMean": 2090222,
@@ -421,7 +421,7 @@
     "m3-worst-default": {
       "quanta": 750,
       "perQuantum": 22227788,
-      "total": 16670841083,
+      "total": 16670841075,
       "p99": 23876968,
       "max": 23922646,
       "wuMean": 1282213,
@@ -461,7 +461,7 @@
     "m3-high": {
       "quanta": 750,
       "perQuantum": 36327136,
-      "total": 27245352263,
+      "total": 27245352270,
       "p99": 38141800,
       "max": 38165160,
       "wuMean": 2090924,
@@ -471,7 +471,7 @@
     "m3-worst-high-sends": {
       "quanta": 750,
       "perQuantum": 45410594,
-      "total": 34057945635,
+      "total": 34057945628,
       "p99": 47010824,
       "max": 47061792,
       "wuMean": 2090267,
@@ -621,7 +621,7 @@
     "music-trans": {
       "quanta": 750,
       "perQuantum": 19817448,
-      "total": 14863086195,
+      "total": 14863086203,
       "p99": 20795002,
       "max": 20925032,
       "wuMean": 1388839,
@@ -631,7 +631,7 @@
     "music-trans-streamed": {
       "quanta": 750,
       "perQuantum": 19826038,
-      "total": 14869528538,
+      "total": 14869528545,
       "p99": 20805910,
       "max": 20959472,
       "wuMean": 1388502,
@@ -661,7 +661,7 @@
     "music-worst-streamed": {
       "quanta": 750,
       "perQuantum": 20086658,
-      "total": 15064993650,
+      "total": 15064993643,
       "p99": 21049848,
       "max": 21140714,
       "wuMean": 1401540,
@@ -921,7 +921,7 @@
     "adpcm-default": {
       "quanta": 750,
       "perQuantum": 25664233,
-      "total": 19248174923,
+      "total": 19248174938,
       "p99": 26665122,
       "max": 26957048,
       "wuMean": 1415245,
@@ -930,20 +930,30 @@
     },
     "gen-osc": {
       "quanta": 750,
-      "perQuantum": 6771567,
-      "total": 5078675288,
-      "p99": 6773136,
-      "max": 6773339,
+      "perQuantum": 6888303,
+      "total": 5166227288,
+      "p99": 6889872,
+      "max": 6890075,
+      "wuMean": 880880,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "gen-osc-high": {
+      "quanta": 750,
+      "perQuantum": 7720756,
+      "total": 5790566670,
+      "p99": 7724273,
+      "max": 7725493,
       "wuMean": 880880,
       "splitQuanta": 0,
       "voiceSplits": 0
     },
     "gen-noise": {
       "quanta": 750,
-      "perQuantum": 7664602,
-      "total": 5748451605,
-      "p99": 7665965,
-      "max": 7666007,
+      "perQuantum": 7879642,
+      "total": 5909731605,
+      "p99": 7881005,
+      "max": 7881047,
       "wuMean": 880880,
       "splitQuanta": 0,
       "voiceSplits": 0
@@ -960,10 +970,10 @@
     },
     "gen-synth": {
       "quanta": 750,
-      "perQuantum": 7275682,
-      "total": 5456761508,
-      "p99": 7277327,
-      "max": 7277635,
+      "perQuantum": 7319640,
+      "total": 5489730293,
+      "p99": 7321827,
+      "max": 7322549,
       "wuMean": 441840,
       "splitQuanta": 0,
       "voiceSplits": 0
@@ -980,10 +990,100 @@
     },
     "gen-blip": {
       "quanta": 750,
-      "perQuantum": 23955043,
-      "total": 17966282535,
-      "p99": 24842764,
-      "max": 28367552,
+      "perQuantum": 14817819,
+      "total": 11113364093,
+      "p99": 15182458,
+      "max": 19706932,
+      "wuMean": 870500,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "gen-blip-high": {
+      "quanta": 750,
+      "perQuantum": 15844740,
+      "total": 11883555030,
+      "p99": 16226857,
+      "max": 20791828,
+      "wuMean": 870500,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "gen-blip-coin": {
+      "quanta": 750,
+      "perQuantum": 10376903,
+      "total": 7782677048,
+      "p99": 10481821,
+      "max": 14578174,
+      "wuMean": 870500,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "gen-blip-laser": {
+      "quanta": 750,
+      "perQuantum": 11183337,
+      "total": 8387503020,
+      "p99": 11355331,
+      "max": 15203006,
+      "wuMean": 870500,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "gen-blip-jump": {
+      "quanta": 750,
+      "perQuantum": 13718356,
+      "total": 10288766655,
+      "p99": 14586316,
+      "max": 16767970,
+      "wuMean": 870500,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "gen-blip-explosion": {
+      "quanta": 750,
+      "perQuantum": 12048139,
+      "total": 9036104588,
+      "p99": 12308976,
+      "max": 16466108,
+      "wuMean": 870500,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "gen-blip-powerup": {
+      "quanta": 750,
+      "perQuantum": 11445290,
+      "total": 8583967725,
+      "p99": 11601956,
+      "max": 15716917,
+      "wuMean": 870500,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "gen-blip-hit": {
+      "quanta": 750,
+      "perQuantum": 11708730,
+      "total": 8781547725,
+      "p99": 11847830,
+      "max": 15845757,
+      "wuMean": 870500,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "gen-blip-blip": {
+      "quanta": 750,
+      "perQuantum": 10274239,
+      "total": 7705679385,
+      "p99": 10376356,
+      "max": 14372241,
+      "wuMean": 870500,
+      "splitQuanta": 0,
+      "voiceSplits": 0
+    },
+    "gen-blip-sweep": {
+      "quanta": 750,
+      "perQuantum": 11678567,
+      "total": 8758925588,
+      "p99": 12074945,
+      "max": 16316282,
       "wuMean": 870500,
       "splitQuanta": 0,
       "voiceSplits": 0

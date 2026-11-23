@@ -820,6 +820,9 @@ pub fn scene(name: &str) -> Option<Scene> {
         // 4,096 looping silences (virtual) beside 4,096 looping virtual sample voices, over 16 mixed sample voices
         // (`-base`: those alone). `GEN_PAIRS` in the gate reports each kind's cost against its twin.
         "gen-osc" => Scene { max_mixed: 1_024, gen: GenScene::of(wire::GEN_KIND_OSCILLATOR), ..Scene::looping(name, 256) },
+        // D67: `gen-osc` and `gen-blip` at `quality` high (the 16-tap minBLEP), against the same twins.
+        "gen-osc-high" => Scene { max_mixed: 1_024, gen: Some(GenScene { high: true, ..GenScene::of(wire::GEN_KIND_OSCILLATOR).unwrap() }), ..Scene::looping(name, 256) },
+        "gen-blip-high" => Scene { max_mixed: 1_024, one_shots: true, gen: Some(GenScene { high: true, ..GenScene::of(wire::GEN_KIND_BLIP).unwrap() }), ..Scene::looping(name, 256) },
         "gen-noise" => Scene { max_mixed: 1_024, gen: Some(GenScene { noise: true, ..GenScene::of(wire::GEN_KIND_OSCILLATOR).unwrap() }), ..Scene::looping(name, 256) },
         "gen-twin-256" => Scene { max_mixed: 1_024, ..Scene::looping(name, 256) },
         "gen-synth" => Scene { max_mixed: 512, gen: GenScene::of(wire::GEN_KIND_SYNTH), ..Scene::looping(name, 128) },
@@ -2079,7 +2082,17 @@ impl Bench {
             ..Default::default()
         });
         if let Some(g) = gen {
-            let values = self.gen_params(g);
+            let mut values = self.gen_params(g);
+            if g.high {
+                // `quality` is each oscillating kind's last parameter (D67).
+                use audio_dsp::gen::{blip::p as bp, osc_p as op, synth_p as sp};
+                let at = match g.kind {
+                    wire::GEN_KIND_OSCILLATOR => op::QUALITY,
+                    wire::GEN_KIND_SYNTH => sp::QUALITY,
+                    _ => bp::QUALITY,
+                };
+                values.push((at, audio_dsp::gen::quality::HIGH as f32));
+            }
             let seed = self.rng.next() | 1;
             let mask = values.iter().fold(0u32, |m, &(i, _)| m | 1 << i);
             self.push(&wire::Gen { voice_id: id, frame_offset: wire::ASAP, mask, seed, ramp_frames: 0, values: values.iter().map(|&(_, v)| v).collect() });

@@ -658,9 +658,19 @@ impl GenVoice {
 
     /// The control block's quality from parameter `param`: on a switch to `high`, each oscillator's ring (one per
     /// `(waveform, width)` in `oscs`) is primed with its waveform's current value, so the delay doesn't drop to 0.
+    #[inline(always)]
     fn quality(&mut self, param: usize, oscs: &[(u8, f64)]) -> bool {
         let hq = self.choice(param) == quality::HIGH;
-        if hq && self.hq == 0 {
+        if hq as u8 != self.hq {
+            core::hint::cold_path();
+            self.switch_quality(hq, oscs);
+        }
+        hq
+    }
+
+    #[inline(never)]
+    fn switch_quality(&mut self, hq: bool, oscs: &[(u8, f64)]) {
+        if hq {
             for (i, &(w, width)) in oscs.iter().enumerate().take(2) {
                 let t = self.osc[i].phase;
                 let now = match w {
@@ -675,7 +685,6 @@ impl GenVoice {
             }
         }
         self.hq = hq as u8;
-        hq
     }
 
     #[inline]

@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 0241a5815250233e5345489f0e3a1f7b).
+/// First 16 bytes of the schema's SHA-256 (hex: 53d39632ff8a6e199180e06b3659611f).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x02,
-    0x41,
-    0xa5,
-    0x81,
-    0x52,
-    0x50,
-    0x23,
-    0x3e,
     0x53,
-    0x45,
-    0x48,
-    0x9f,
-    0x0e,
-    0x3a,
+    0xd3,
+    0x96,
+    0x32,
+    0xff,
+    0x8a,
+    0x6e,
+    0x19,
+    0x91,
+    0x80,
+    0xe0,
+    0x6b,
+    0x36,
+    0x59,
+    0x61,
     0x1f,
-    0x7b,
 ];
-pub const SCHEMA_HASH_HEX: &str = "0241a5815250233e5345489f0e3a1f7b";
+pub const SCHEMA_HASH_HEX: &str = "53d39632ff8a6e199180e06b3659611f";
 
 /// the core's C ABI major (`myco_audio_abi_version() >> 8`); a shell refuses a different one
 pub const CORE_ABI_MAJOR: u32 = 0x6;
@@ -413,11 +413,11 @@ pub const LOOP_EXIT_SHAPE_SHIFT: u32 = 0x4;
 pub const GEN_CLIP_ID_FIRST: u32 = 0xffff0300;
 /// the reserved generator range's last id
 pub const GEN_CLIP_ID_LAST: u32 = 0xffff03ff;
-/// generator kind: oscillator (10 parameters)
+/// generator kind: oscillator (11 parameters; the last, `quality`, D67)
 pub const GEN_KIND_OSCILLATOR: u32 = 0x1;
-/// generator kind: two-oscillator synth (25 parameters)
+/// generator kind: two-oscillator synth (26 parameters; the last, `quality`, D67)
 pub const GEN_KIND_SYNTH: u32 = 0x2;
-/// generator kind: sfxr blip in sfxr's units (24 parameters)
+/// generator kind: sfxr blip in sfxr's units (25 parameters; the last, `quality`, D67)
 pub const GEN_KIND_BLIP: u32 = 0x3;
 /// generator kind: silence (2 parameters), always virtual
 pub const GEN_KIND_SILENCE: u32 = 0x4;
