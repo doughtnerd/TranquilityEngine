@@ -591,6 +591,8 @@ export class SequenceNode extends LiveNode implements MusicalSource {
       const from = piece.sample + (u - piece.from);
       return { trim: [from, piece.sample + (piece.to - piece.from)], to: piece.to };
     }
+    // The sample's length not known yet (its data still loading): read down from its end.
+    if (!Number.isFinite(g.length)) return { trim: [g.offset, Number.POSITIVE_INFINITY], to: Number.POSITIVE_INFINITY };
     const v = g.length - u - MIRROR;
     const piece = pieceAt(g, v);
     if (!piece || piece.sample === null) return null;
@@ -604,7 +606,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
       const piece = pieceAt(g, u);
       return piece ? piece.to : Number.POSITIVE_INFINITY;
     }
-    const piece = pieceAt(g, g.length - u - MIRROR);
+    const piece = Number.isFinite(g.length) ? pieceAt(g, g.length - u - MIRROR) : null;
     return piece ? g.length - piece.from : Number.POSITIVE_INFINITY;
   }
 

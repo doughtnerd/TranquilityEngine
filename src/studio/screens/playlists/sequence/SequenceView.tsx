@@ -24,7 +24,7 @@ import { useElementWidth } from "../../../components/useElementWidth";
 import type { Pcm } from "../../samples/seam";
 import { sampleFromDrag } from "../libraryModel";
 import { playlistTitle } from "../playlistPaths";
-import { clipAdsr, dragAdsr, type AdsrHandle } from "./adsrModel";
+import { adsrShape, clipAdsr, dragAdsr, type AdsrHandle } from "./adsrModel";
 import {
   addAutomation, addPoint, addVolumeEnvelope, deletePoints, isTimeInput, movePoints, ownerOf, parameterLaneRange, pasteCurves, removeAutomation, setAutomation, setDrivenBy, setPointShape, SHAPES, targetSpec, targetSpecs, writeAutomation, type AutomationOwner,
 } from "./automationEdits";
@@ -302,8 +302,9 @@ export function SequenceView(props: SequenceViewProps) {
     const env = f ? clipAdsr(f.clip.effects) : null;
     if (!f || !env) return;
     const len = clipLength(f.clip, sourceOf(f.clip));
-    const shape = { attack: env.adsr.attack, decay: env.adsr.decay, sustain: env.adsr.sustain, release: env.adsr.release };
-    const start = handle === "attack" ? [shape.attack / 1000, 1] : handle === "decaySustain" ? [(shape.attack + shape.decay) / 1000, shape.sustain / 100] : [len - shape.release / 1000, shape.sustain / 100];
+    const shape = env.adsr;
+    // Where the handle is drawn (the stages as the clip plays them), so the drag starts under the pointer.
+    const start = adsrShape(shape, len).handles[handle];
     let cur: SeqEdit | null = null;
     drag(e, {
       move: (dx, dy) => {
