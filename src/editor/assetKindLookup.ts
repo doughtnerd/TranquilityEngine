@@ -151,8 +151,18 @@ const CORE_FIELD_RULES: Readonly<Record<string, (path: string, kind: AssetKind) 
 
 /** True if the file at `path` suits field kind `fieldKind`: its kind declares it, or a core rule takes it. */
 export function satisfiesFieldKind(fieldKind: string, path: string): boolean {
+  const hash = path.indexOf("#");
+  const holder = hash >= 0 ? registeredKind(assetKind(path.slice(0, hash))) : undefined;
+  if (holder?.subAssets) return holder.subAssets.referencedAs(path.slice(hash + 1)).includes(fieldKind);
   const kind = assetKind(path);
   return fieldKindsOf(kind).includes(fieldKind) || CORE_FIELD_RULES[fieldKind]?.(path, kind) === true;
+}
+
+/** The sub-asset entries (`path#sub`, ADR 0371) the file at `path` holds now for fields of `kinds`, if its kind has sub-assets. */
+export function subAssetEntries(path: string, kinds: readonly string[]): string[] {
+  if (path.includes("#")) return [];
+  const k = registeredKind(assetKind(path));
+  return k?.subAssets ? k.subAssets.list(path, kinds).map((sub) => `${path}#${sub}`) : [];
 }
 
 /** True if some registered kind, or a core rule, can satisfy field kind `fieldKind`. */
