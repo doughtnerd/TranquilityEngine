@@ -1,8 +1,9 @@
 // Dropping a clip on an Animator (ADR 0373 "Drop behaviour"; T18), through the plugin's node drop contribution as the
 // Hierarchy's asset drag asks it (`registerNodeAssetDrop`): without a graph it sets the default clip, or replaces it, as
-// one undo step; with a graph, or when the Animator already plays the clip, it's refused (refused-or-next, ADR 0307) with
-// the reason in the status bar; files that aren't one clip, and nodes without an Animator, aren't taken (they add as
-// usual). The Animator's Inspector card gets the drop zone section.
+// one undo step; with a graph it adds the clip as a state of the graph ("Add as state", T51) as one undo step of the
+// graph file's document; a graph file the project lacks, or a clip the Animator already plays, is refused
+// (refused-or-next, ADR 0307) with the reason in the status bar; files that aren't one clip, and nodes without an
+// Animator, aren't taken (they add as usual). The Animator's Inspector card gets the drop zone section.
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input } from "../../../../myco";
 import { OrbitCamera } from "../../../../editor/OrbitCamera";
@@ -13,6 +14,8 @@ import { openScene, playState, sceneCamera, status, type OpenScene } from "../..
 import { closeTestProject, inspectorSectionsFor, openTestProject } from "../../../../editor/testing";
 import { useEditorPlugins } from "../../../testEditorPlugins";
 import { animationEditorPlugin } from "..";
+import { editor, openAssetDocument } from "../../../../editor/sdk";
+import type { AnimGraph } from "../../../../engine/animation/animGraph";
 
 useEditorPlugins([animationEditorPlugin]);
 
@@ -23,7 +26,18 @@ const SCENE = {
     { id: "empty", name: "Empty", components: animator({}) },
     { id: "idle", name: "Idler", components: animator({ defaultClip: "asset:animation/idle.anim.json" }) },
     { id: "graph", name: "Graphed", components: animator({ graph: "asset:animation/loco.animgraph.json" }) },
+    { id: "lost", name: "Lost", components: animator({ graph: "asset:animation/missing.animgraph.json" }) },
     { id: "plain", name: "Plain", components: [{ type: "engine.Transform", data: {} }] },
+  ],
+};
+
+/** A graph whose output is a machine with one state. */
+const LOCO = {
+  format: "myco.animgraph-source@1",
+  output: "loco",
+  nodes: [
+    { id: "idle", family: "sources", kind: "clipPlayer", params: { clip: "asset:animation/idle.anim.json" } },
+    { id: "loco", family: "logic", kind: "stateMachine", machine: { states: [{ name: "Idle", root: "idle" }] } },
   ],
 };
 
@@ -33,7 +47,7 @@ let scene: OpenScene;
 beforeEach(async () => {
   Input.reset();
   playState.value = "edit";
-  const { project } = await openTestProject({ "scenes/main.scene.json": JSON.stringify(SCENE) });
+  const { project } = await openTestProject({ "scenes/main.scene.json": JSON.stringify(SCENE), "animation/loco.animgraph.json": JSON.stringify(LOCO) });
   useProjectAssets(project);
   engine = await Engine.create({ headless: true, kind: "editor", project: editorSettings(project) });
   sceneCamera.value = OrbitCamera.create(GameObject.create("SceneCamera", { parent: engine.world.root }));
@@ -67,11 +81,24 @@ describe("dropping a clip on an Animator (ADR 0373)", () => {
     expect(defaultClip("idle")).toBe("asset:models/hero.glb#Anim/Run");
   });
 
-  it("refuses with a graph (adding a state is the graph editor's), saying why", () => {
-    expect(label("graph", ["animation/run.anim.json"])).toMatch(/^Can't add run: it runs an animation graph/);
+  it("adds the clip as a state of the Animator's graph, as one undo step of the graph's document", () => {
+    expect(label("graph", ["animation/run.anim.json"])).toBe("Add run as a state in loco");
     contribution().drop(scene, ["graph"], ["animation/run.anim.json"]);
     expect(defaultClip("graph")).toBeUndefined();
-    expect(status.value?.text).toMatch(/Can't add run to Graphed: it runs an animation graph, so the clip goes in as a state/);
+    const doc = openAssetDocument<AnimGraph>(editor.project.current!, "animation/loco.animgraph.json");
+    const machine = doc.value.value.nodes.find((n) => n.id === "loco")!.machine!;
+    expect(machine.states.map((s) => s.name)).toEqual(["Idle", "run"]);
+    const player = doc.value.value.nodes.find((n) => n.id === machine.states[1]!.root)!;
+    expect(player).toMatchObject({ family: "sources", kind: "clipPlayer", params: { clip: "asset:animation/run.anim.json" } });
+    expect(doc.undoLabel.value).toBe("Add run as a state in loco");
+    doc.undo();
+    expect(doc.value.value.nodes.find((n) => n.id === "loco")!.machine!.states.map((s) => s.name)).toEqual(["Idle"]);
+  });
+
+  it("refuses when the Animator's graph isn't in the project, saying why", () => {
+    expect(label("lost", ["animation/run.anim.json"])).toBe("Can't add run: its graph animation/missing.animgraph.json isn't in the project");
+    contribution().drop(scene, ["lost"], ["animation/run.anim.json"]);
+    expect(status.value?.text).toMatch(/Can't add run as a state in missing: its graph animation\/missing.animgraph.json isn't in the project/);
   });
 
   it("refuses the clip the Animator already plays", () => {

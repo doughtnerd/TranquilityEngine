@@ -102,12 +102,13 @@ export function addState(graph: AnimGraph, machine: string, position: readonly [
       const rootWhy = whyNotRoot(graph, machine, root);
       if (rootWhy) return refuse(rootWhy);
     }
-    return accept({ ...m, states: [...m.states, { name: made, root, exit: false, transitions: [], position: [Math.round(position[0]), Math.round(position[1])] }] });
+    // The entry is written as a name once there's a state (the format reads a missing one as the first state).
+    return accept({ ...m, entry: m.entry ?? m.states[0]?.name ?? made, states: [...m.states, { name: made, root, exit: false, transitions: [], position: [Math.round(position[0]), Math.round(position[1])] }] });
   });
   return "refused" in r ? r : accept({ graph: r.next, state: made });
 }
 
-/** A state removed with the transitions into it (and their ids from interrupt lists); the entry moves to the first state if it was this one. */
+/** A state removed with the transitions into it (and their ids from interrupt lists); the entry moves to the first state left if it was this one. */
 export function removeState(graph: AnimGraph, machine: string, name: string): EditResult<AnimGraph> {
   return withMachine(graph, machine, (m) => {
     const s = stateOf(m, name);
@@ -115,8 +116,9 @@ export function removeState(graph: AnimGraph, machine: string, name: string): Ed
     const gone = new Set<string>();
     for (const t of s.transitions) if (t.id) gone.add(t.id);
     const keep = (t: Transition) => { if (t.to === name) { if (t.id) gone.add(t.id); return false; } return true; };
+    const left = m.states.filter((x) => x.name !== name);
     let next: StateMachine = {
-      entry: m.entry === name ? null : m.entry,
+      entry: m.entry === name || m.entry === null ? (left[0]?.name ?? null) : m.entry,
       anyState: m.anyState.filter(keep),
       states: m.states.filter((x) => x.name !== name).map((x) => ({ ...x, transitions: x.transitions.filter(keep) })),
     };
