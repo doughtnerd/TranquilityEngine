@@ -80,6 +80,9 @@
 .sq-auto-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px * var(--ui-scale)); color: var(--text); }
 .sq-auto-lane { background: color-mix(in srgb, var(--bg-sunken) 70%, var(--panel)); }
 .sq-driven { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); }
+.sq-param-end { position: absolute; bottom: 1px; font-size: calc(9px * var(--ui-scale)); color: var(--faint); pointer-events: none; font-variant-numeric: tabular-nums; }
+.sq-param-end.min { left: 4px; }
+.sq-param-end.max { right: 4px; }
 .sq-fill { position: absolute; left: 0; right: 0; bottom: 0; min-height: 60px; }
 .sq-fill-hint { margin: 16px calc(var(--sq-head) + 12px); }
 .sq-overlay { position: absolute; top: 0; right: 0; pointer-events: none; overflow: hidden; }
@@ -120,6 +123,7 @@
 .sq-curve.muted polyline { stroke: var(--faint); stroke-dasharray: 3 3; }
 .sq-key { fill: var(--panel); stroke: var(--warning); stroke-width: 1.5; pointer-events: auto; cursor: grab; }
 .sq-key.selected { fill: var(--warning); stroke: var(--text-strong); }
+.sq-key.at-edge { pointer-events: none; }
 
 /* Scrollbar-zoom */
 .sq-scrollbar { position: relative; height: 12px; margin: 2px calc(8px) 2px calc(var(--sq-head) + 2px); background: var(--bg-sunken); border-radius: 6px; flex: none; }

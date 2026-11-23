@@ -4,6 +4,7 @@
 // envelope", the curve editor's result, and touch-mode writing: samples recorded while a control is held during
 // playback replace the keys over the range they cover; parameter-driven curves are never overwritten. Pure.
 import { effectParamValue, effectSpec } from "../../../../engine/audio/effects/catalogue";
+import { parameterRange, type ParameterDef } from "../../../../engine/audio/parameters";
 import type { Effect } from "../../../../engine/audio/effects/types";
 import { evalCurve, type CurveInterp, type CurveKey } from "../../../../engine/core/curve";
 import type { Automation, Clip, CurveInput, SequenceSettings, Track } from "../../../../engine/audio/playlist/types";
@@ -91,6 +92,19 @@ function mapAutomation(s: SequenceSettings, o: AutomationOwner, id: string, fn: 
 }
 
 export const isTimeInput = (input: CurveInput): boolean => typeof input === "string";
+
+/**
+ * The x range a parameter-driven lane draws its curve over (proto §2.7.3: the parameter's range, its min and max named
+ * at the lane's ends): the parameter's own range (a labelled one 0..labels-1), or the curve's keys when the parameter
+ * isn't defined. Null for a time-driven lane.
+ */
+export function parameterLaneRange(input: CurveInput, curve: readonly CurveKey[], parameters: readonly ParameterDef[]): { readonly name: string; readonly min: number; readonly max: number } | null {
+  if (typeof input === "string") return null;
+  const def = parameters.find((p) => p.name === input.parameter);
+  let [min, max] = def ? parameterRange(def) : [Math.min(0, ...curve.map((k) => k[0])), Math.max(1, ...curve.map((k) => k[0]))];
+  if (!(max > min)) max = min + 1;
+  return { name: input.parameter, min, max };
+}
 
 /** "Automate X": a flat time curve at the target's plain value over `[0, length]`. Returns the lane's id. */
 export function addAutomation(s: SequenceSettings, o: AutomationOwner, target: Automation["target"], length: number, input?: CurveInput): EditResult<{ seq: SequenceSettings; id: string }> {

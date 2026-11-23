@@ -175,7 +175,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
       const src = props.sourceOf(c);
       const len = clipLength(c, src);
       const set = (label: string, patch: Parameters<typeof setClip>[2]) => runSeq(label, (q) => setClip(q, c.id, patch));
-      const follows = clipFollows(props.lints, `${props.where ? `${props.where}.` : ""}sequence.tracks[${f.ti}]`, f.track, c);
+      const follows = clipFollows(s, c.id, props.sourceOf);
       const loops = clipLoops(c, src);
       const name = clipName(c);
       return (
@@ -201,7 +201,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
             </div>
             {follows && (
               <p class="pl-lint" style={{ margin: "2px 8px" }}>
-                <Icon name="warning" size={14} /> Overlaps a sync clip on a higher track, which drives the playhead; this clip's loop is ignored.{" "}
+                <Icon name="warning" size={14} /> Follows {clipName(follows)}: it overlaps that Sync clip before it on this track, whose loop drives the playhead here, so this clip's loop is ignored.{" "}
                 <button type="button" class="pl-small" disabled={!writable} onClick={() => runSeq("Clip async", (q) => makeAsync(q, c.id))}>Make Async</button>
               </p>
             )}
