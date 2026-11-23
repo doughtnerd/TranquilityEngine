@@ -40,8 +40,9 @@ engine.resume();                   // continue from exactly where it held
 `pause()` holds the whole playback: its voices, the sequence playhead and musical clock, its pending picks and the
 starts and fades it has planned. `resume()` continues it from the same position, sample-exact on the audio core;
 everything it had planned plays as much later as the pause lasted, and `music`, markers and beat callbacks hold with it.
-A pause lands at the next exact point (just after whatever the playlist has already scheduled, a fraction of a second at
-most), and the sound fades out over 5 ms into it and back in over 5 ms when it continues. Pausing twice or resuming a
+A pause lands at the earliest exact point (a frame or two after the call), and the sound fades out over 5 ms into it and
+back in over 5 ms when it continues. What the playlist had already scheduled for later (a sequence plans a little
+ahead: the next clip, a cut or a crossfade) waits with it and lands as much later as the pause lasted. Pausing twice or resuming a
 playlist that isn't paused does nothing; `stop()` stops a paused playlist at once. Parameter changes made while it is
 paused take effect when it resumes.
 
@@ -123,7 +124,7 @@ on a parameter; the Studio lints a second input that names no parameter, one on 
 parameters follow one input), or a per-label lane on a parameter without
 labels (`byIgnored`), and a Mixer lane's parse drops those (and one that names the lane's own parameter).
 
-**Reverse.** A sequence clip with `reverse: true` plays its span backwards: its tail first, then its loop's passes run backwards inside the span, then the pickup, ending at the clip's offset (the Sequencer's Direction control). A reversed clip that streams is decoded whole for it, and a sample shipped compressed (ADPCM, load "compressed") is silent reversed (one warning; set it to decode). Its loop never moves the playhead: a reversed sync clip follows. Reverse needs the audio core; the Web Audio fallback plays it forward.
+**Reverse.** A sequence clip with `reverse: true` plays its span backwards: its tail first, then its loop's passes run backwards inside the span, then the pickup, ending at the clip's offset (the Sequencer's Direction control). A reversed clip that streams is decoded whole for it, and a sample shipped compressed (ADPCM, load "compressed") is silent reversed (one warning; set it to decode). A reversed sync clip's loop drives the playhead on the mirrored clip: it wraps on the passes after the tail, and once it leaves, the first pass and the pickup play out (a clip with no pass besides its first follows, with one warning). A reversed async clip reports its sample markers where they are heard as its voice reads down. A reversed sample never gives the sequence its musical clock (its bars would run backwards); give the sequence a tempo. Reverse needs the audio core; the Web Audio fallback plays it forward.
 
 **Amp envelope on clips.** A sequence clip's `envelope` effect (Attack, Hold, Decay, Sustain, Release) shapes the clip's own voices sample by sample: it rises from silence over the attack at the clip's start, holds, falls to the sustain, and its release ends on the clip's end (the clip's key-off). A clip shorter than the stages squeezes them in order, the release first. Drag the ADSR handles drawn over the clip in the Sequencer to set them; what is drawn is what plays. A sample's baked Amp envelope (the Samples screen) is the same envelope over the sample.
 
