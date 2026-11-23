@@ -123,6 +123,18 @@ impl ClipAsset {
     }
 }
 
+/// The zero-bone skeleton behind skeleton handle 0 (T17b).
+static NO_SKELETON: SkeletonAsset = SkeletonAsset {
+    parents: Vec::new(),
+    rest: Vec::new(),
+    rest_soa: Vec::new(),
+    identity: Vec::new(),
+    inverse_bind: Vec::new(),
+    bind_soa: Vec::new(),
+    limits: Vec::new(),
+    roles: Vec::new(),
+};
+
 impl SkeletonAsset {
     pub fn bones(&self) -> usize {
         self.parents.len()
@@ -273,7 +285,12 @@ impl Arena {
         }
     }
 
+    /// The skeleton of `handle`; handle 0 is the empty skeleton (no bones) of an instance
+    /// without a rig (T17b).
     pub fn skeleton(&self, handle: u32) -> Result<&SkeletonAsset, u32> {
+        if handle == 0 {
+            return Ok(&NO_SKELETON);
+        }
         match self.get(handle)? {
             Asset::Skeleton(s) => Ok(s),
             _ => Err(STATUS_WRONG_KIND),

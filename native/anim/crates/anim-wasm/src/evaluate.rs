@@ -469,7 +469,8 @@ fn play(
     let skeleton = table.get_mut(c.instance)?.skeleton;
     let bones = arena.skeleton(skeleton)?.bones();
     let clip = arena.clip_asset(c.clip)?;
-    if clip.bone_count != 0 && clip.bone_count as usize != bones {
+    // A zero-bone instance (no skeleton, T17b) plays any clip: only its tracks run.
+    if bones != 0 && clip.bone_count != 0 && clip.bone_count as usize != bones {
         return Err(STATUS_MISMATCH);
     }
     let inst = implicit_instance(table, c.instance, c.layer)?;
@@ -658,6 +659,11 @@ pub fn evaluate(
             continue;
         }
 
+        if skel.bones() == 0 {
+            // T17b: no skeleton, no pose or matrix work (clip players, tracks, root curves and
+            // graph logic ran above).
+            continue;
+        }
         let groups = inst.groups;
         inst.since = inst.since.saturating_add(1);
         let due = inst.history == 0 || inst.stale || inst.since >= step;
