@@ -59,6 +59,8 @@ export const Add: Story = {
     const body = within(canvasElement.ownerDocument.body);
     const dialog = await body.findByRole("dialog", { name: "Add to dirt" });
     await expect(within(dialog).getByText("footsteps already contains dirt")).toBeVisible();
+    // The search field is one 24px line, not stretched down the dialog's column (A1).
+    await expect(within(dialog).getByRole("searchbox", { name: "Search" }).getBoundingClientRect().height).toBeLessThanOrEqual(26);
     await userEvent.click(within(dialog).getByText("engine_idle"));
     await userEvent.click(within(dialog).getByRole("button", { name: "Add" }));
     await expect(add).toHaveBeenCalledWith(["audio/vehicles/engine_idle.wav"], "link");

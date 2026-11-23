@@ -36,7 +36,10 @@
 /* Tree */
 .pl-tree, .pl-library { display: flex; flex-direction: column; min-height: 100%; }
 .pl-tree-tools { display: flex; gap: 6px; padding: 6px; border-bottom: 1px solid var(--border); }
-.pl-search { flex: 1 1 120px; min-width: 0; }
+/* A search field: one 24px token-styled line wherever it sits (T1, A1); in the Add dialog's column it never grows tall. */
+.pl-search { flex: 1 1 120px; min-width: 0; box-sizing: border-box; height: 24px; padding: 3px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); color: var(--text); background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px; appearance: none; }
+.pl-search:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -1px; }
+.pl-dialog > .pl-search { flex: none; }
 .pl-tool { display: inline-flex; align-items: center; justify-content: center; background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 0 9px; font-weight: 600; }
 .pl-tool:hover:not(:disabled) { background: var(--button-hover); }
 .pl-folder-icon { color: var(--muted); width: 14px; display: inline-block; text-align: center; }
