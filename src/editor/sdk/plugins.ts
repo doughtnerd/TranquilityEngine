@@ -4,7 +4,7 @@
 import type { PluginManifest } from "../../plugins/manifest";
 import { orderPlugins } from "../../plugins/order";
 import type { PluginsView } from "../../plugins/pluginSet";
-import { assetActions, assetKinds, componentHeaderActions, componentNotes, componentWireframes, fieldAdornments, fieldChoices, fieldWriteInterceptors, hierarchyCreateEntries, idlePrefetches, nameReferences, nodeAssetDrops, assetNodesAugments, importSettingsSections, panelExtensions, panels, playStatsCounters, playToolbarItems, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, skeletonBones, viewportTools } from "./contributions";
+import { assetActions, assetKinds, componentHeaderActions, componentNotes, componentWireframes, fieldAdornments, fieldChoices, fieldWriteInterceptors, hierarchyCreateEntries, idlePrefetches, nameReferences, nodeAssetDrops, assetNodesAugments, importSettingsSections, spriteEditorTools, panelExtensions, panels, playStatsCounters, playToolbarItems, projectSettingsSections, sceneOpenMigrations, sceneToolbarItems, skeletonBones, viewportTools } from "./contributions";
 import { registerInspectorSection, type InspectorSectionOptions, type InspectorSectionProps } from "../ui/inspectorSections";
 import { componentEditToggle } from "../componentEditToggle";
 import type { LoadComponent } from "./contributions";
@@ -94,6 +94,8 @@ const CONTRIBUTION_POINTS = {
   registerAssetNodesAugment: registryPoint(assetNodesAugments),
   /** A card in an asset kind's Import Settings, editing the same draft as the kind's own rows (ADR 0373: the Animation plugin's bone map and clip import settings on a model). */
   registerImportSettingsSection: registryPoint(importSettingsSections),
+  /** A tab of the Sprite Editor beside Slices, its view over the image's slices and flipbooks (ADR 0373: the Animation plugin's Flipbooks and Bones). */
+  registerSpriteEditorTool: registryPoint(spriteEditorTools),
   /** A control after a field's name in the scene Inspector (ADR 0373: the Animation window's key buttons). */
   registerFieldAdornment: registryPoint(fieldAdornments),
   /** Takes component field writes to scene documents instead of the document (ADR 0373: the Animation window's record mode). */
