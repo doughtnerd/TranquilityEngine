@@ -108,8 +108,6 @@ export interface NodePacker {
   bone(name: string): number;
   /** A bone word for a bone or Humanoid role name (not a parameter's value). */
   boneByName(name: string): number;
-  /** A string parameter's text ("" when absent). */
-  text(name: string): string;
   /** A string list parameter's texts. */
   texts(name: string): string[];
   /** An IK target slot index, or `NONE`. */
@@ -118,8 +116,6 @@ export interface NodePacker {
   has(name: string): boolean;
   /** A list parameter's packed words (floats as f32 bits). */
   list(name: string): number[];
-  /** A list parameter's length. */
-  listLength(name: string): number;
   /** A top-level graph layer's index by name, or `NONE`. */
   layerIndex(name: string): number;
   /** Assigns `n` consecutive ray rows (grounders), returning the first. */

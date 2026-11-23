@@ -97,8 +97,6 @@ export interface GraphCompileOptions {
   readonly poseDatabaseTags?: (database: string | null) => readonly string[] | undefined;
 }
 
-/** @internal The binary format's name and magic. */
-export const ANIM_GRAPH_BINARY_FORMAT = "myco.animgraph@1";
 const MAGIC = "MYCOAGPH";
 
 /** Parameter flags (`PARAM_REPLICATE`, `PARAM_PREDICTED`, `PARAM_COMPUTED`). */
@@ -910,10 +908,6 @@ class Packer implements NodePacker {
     if (typeof v !== "string") return this.problem("must be a name; none.", name), NONE;
     return this.c.intern(v);
   }
-  text(name: string): string {
-    const v = this.raw(name);
-    return typeof v === "string" ? v : "";
-  }
   texts(name: string): string[] {
     const v = this.raw(name);
     return Array.isArray(v) ? v.map(String) : [];
@@ -970,10 +964,6 @@ class Packer implements NodePacker {
     }
     this.c.rays += n;
     return first;
-  }
-  listLength(name: string): number {
-    const v = this.raw(name);
-    return Array.isArray(v) ? v.length : 0;
   }
   list(name: string): number[] {
     const s = this.s(name);
