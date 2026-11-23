@@ -378,7 +378,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
             <Fld label="Offset">{tc("Clip offset", c.offset, (v) => set("Clip offset", { offset: v }), "Where in the sample it starts · Enter to apply, Esc to cancel")}</Fld>
             <Fld label="Direction">
               <SegmentedControl<"forward" | "reverse"> size="small" label="Direction" value={c.reverse ? "reverse" : "forward"}
-                options={[{ value: "forward", label: "Forward" }, { value: "reverse", label: "Reverse", title: "Plays the clip backwards (the audio core plays it forward until reverse playback lands)" }]}
+                options={[{ value: "forward", label: "Forward" }, { value: "reverse", label: "Reverse", title: "Plays the clip's span backwards: its tail first, its loop's passes backwards inside the span" }]}
                 onChange={(v) => writable && set(v === "reverse" ? "Reverse clip" : "Forward clip", { reverse: v === "reverse" })} />
             </Fld>
             <Fld label="Timing">

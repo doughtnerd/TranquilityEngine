@@ -15,7 +15,7 @@ import { TypeBadge } from "../../../components/TypeBadge";
 import { Waveform } from "../../../components/Waveform";
 import type { Pcm } from "../../samples/seam";
 import { sampleTitle, playlistTitle } from "../playlistPaths";
-import { adsrShape, adsrTip, clipAdsr, type AdsrHandle } from "./adsrModel";
+import { ADSR_HANDLES, adsrShape, adsrTip, clipAdsr, type AdsrHandle } from "./adsrModel";
 import type { TargetSpec } from "./automationEdits";
 import { clipChips, clipMarkers, clipPlan, loopBand, wavePieces, type WavePiece } from "./clipGeometry";
 import { CurveOverlay } from "./CurveOverlay";
@@ -212,7 +212,7 @@ export function TimelineClip(props: TimelineClipProps) {
           <polygon points={adsr.points.map(([x, y]) => `${at(x).toFixed(1)},${levelY(y).toFixed(1)}`).join(" ")} />
         </svg>
       )}
-      {adsr && env!.effect.on && !props.razor && (["attack", "decaySustain", "release"] as const).map((h) => (
+      {adsr && env!.effect.on && !props.razor && ADSR_HANDLES.map((h) => (
         <span key={h} class="sq-adsr-handle" style={{ left: `${at(adsr.handles[h][0])}px`, top: `${levelY(adsr.handles[h][1])}px` }} title={adsrTip(env!.adsr, h)}
           onPointerDown={(e) => { e.stopPropagation(); props.onAdsrPress?.(h, e, { width: Math.max(3, width), height }); }} />
       ))}

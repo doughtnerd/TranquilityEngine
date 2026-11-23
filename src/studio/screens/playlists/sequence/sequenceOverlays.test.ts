@@ -67,14 +67,33 @@ describe("overlays", () => {
 
 describe("the Amp envelope's handles", () => {
   it("draws attack, decay to sustain and the release at the clip's end, and drags each stage", () => {
-    const a = { attack: 100, decay: 200, sustain: 50, release: 300 };
-    expect(adsrShape(a, 2).handles).toEqual({ attack: [0.1, 1], decaySustain: [0.30000000000000004, 0.5], release: [1.7, 0.5] });
+    const a = { attack: 100, hold: 0, decay: 200, sustain: 50, release: 300 };
+    expect(adsrShape(a, 2).handles).toEqual({ attack: [0.1, 1], hold: [0.1, 1], decaySustain: [0.30000000000000004, 0.5], release: [1.7, 0.5] });
     expect(dragAdsr(a, "release", 1.5, 0.5, 2)).toEqual({ release: 500 });
     expect(dragAdsr(a, "decaySustain", 0.5, 0.8, 2)).toEqual({ decay: 400, sustain: 80 });
     expect(dragAdsr(a, "attack", 0.05, 1, 2)).toEqual({ attack: 50 });
     expect(adsrTip(a, "decaySustain")).toBe("Decay 200 ms · Sustain 50% · drag");
-    expect(clipAdsr([{ id: "e", type: "envelope", on: true, params: { attack: 5 } }])?.adsr).toEqual({ attack: 5, decay: 100, sustain: 100, release: 200 });
+    expect(clipAdsr([{ id: "e", type: "envelope", on: true, params: { attack: 5 } }])?.adsr).toEqual({ attack: 5, hold: 0, decay: 100, sustain: 100, release: 200 });
     expect(clipAdsr([])).toBeNull();
+  });
+
+  it("ADR 0362: draws the hold as a plateau with its own handle, and drags it between the attack and the decay", () => {
+    const a = { attack: 100, hold: 150, decay: 200, sustain: 50, release: 300 };
+    const shape = adsrShape(a, 2);
+    expect(shape.points.slice(0, 3)).toEqual([[0, 0], [0.1, 1], [0.25, 1]]);
+    expect(shape.handles.hold).toEqual([0.25, 1]);
+    expect(shape.handles.decaySustain[0]).toBeCloseTo(0.45);
+    expect(dragAdsr(a, "hold", 0.6, 1, 2)).toEqual({ hold: 500 });
+    expect(dragAdsr(a, "hold", 5, 1, 2)).toEqual({ hold: 1400 }); // never past the decay and release
+    expect(dragAdsr(a, "decaySustain", 0.75, 0.5, 2)).toEqual({ decay: 500, sustain: 50 });
+    expect(adsrTip(a, "hold")).toBe("Hold 150 ms · drag");
+  });
+
+  it("ADR 0362: a clip shorter than the stages squeezes them as the voices play them (the release first)", () => {
+    const a = { attack: 100, hold: 20, decay: 100, sustain: 50, release: 200 };
+    const shape = adsrShape(a, 0.25);
+    expect(shape.handles.release[0]).toBeCloseTo(0.22); // a 30 ms release, ending on the clip's end
+    expect(shape.points.at(-1)).toEqual([0.25, 0]);
   });
 });
 

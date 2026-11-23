@@ -1323,6 +1323,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
         return b.session;
       },
       hrtfPanner: (i) => b.hrtfPanner(i),
+      ampEnvelope: (i, frame) => b.voices.replayEnvelope(i, frame),
     };
   }
 

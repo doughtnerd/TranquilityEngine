@@ -237,6 +237,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::BUS_SENDS => wire::BusSends::FIXED_END,
             // ADR 0360 (ABI 5.1).
             wire::op::GEN => wire::Gen::FIXED_END,
+            wire::op::AMP_ENVELOPE => wire::AmpEnvelope::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
         if len < min || off + len > msg.len() {
@@ -378,6 +379,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::LOOPS => voices::loops(core, msg, off),
             // ADR 0360 (ABI 5.1): a generator voice's parameters, on arrival like AUTOMATE (they don't fit a pending record).
             wire::op::GEN => crate::generator::apply(core, msg, off),
+            wire::op::AMP_ENVELOPE => automation::amp_envelope(core, msg, off),
             wire::op::SUBMIX => crate::submix::configure(core, msg, off),
             wire::op::SUBMIX_AUTOMATE => crate::submix::automate(core, msg, off),
             wire::op::ROUTE => automation::route(core, msg, off),

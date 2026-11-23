@@ -123,6 +123,10 @@ on a parameter; the Studio lints a second input that names no parameter, one on 
 parameters follow one input), or a per-label lane on a parameter without
 labels (`byIgnored`), and a Mixer lane's parse drops those (and one that names the lane's own parameter).
 
+**Reverse.** A sequence clip with `reverse: true` plays its span backwards: its tail first, then its loop's passes run backwards inside the span, then the pickup, ending at the clip's offset (the Sequencer's Direction control). A reversed clip that streams is decoded whole for it, and a sample shipped compressed (ADPCM, load "compressed") is silent reversed (one warning; set it to decode). Its loop never moves the playhead: a reversed sync clip follows. Reverse needs the audio core; the Web Audio fallback plays it forward.
+
+**Amp envelope on clips.** A sequence clip's `envelope` effect (Attack, Hold, Decay, Sustain, Release) shapes the clip's own voices sample by sample: it rises from silence over the attack at the clip's start, holds, falls to the sustain, and its release ends on the clip's end (the clip's key-off). A clip shorter than the stages squeezes them in order, the release first. Drag the ADSR handles drawn over the clip in the Sequencer to set them; what is drawn is what plays. A sample's baked Amp envelope (the Samples screen) is the same envelope over the sample.
+
 **Effects, spatial, attenuation.** `effects` run once per playing instance on its mixed output; tracks and clips have their own. `spatial` names an attenuation preset (`*.attenuation.json`) or inline curves, occlusion, Doppler and spread ([Spatial audio](spatial-audio.md)).
 
 Limits (the parse drops what is past them, with one problem line each): 256 entries, nesting 16, 32 tracks, 512 clips, 64 keys per curve, 16 local parameters. The parse is lenient: a bad value falls back to its default and is reported once in the console.

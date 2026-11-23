@@ -81,6 +81,8 @@ pub const CONSTANTS: &[Const] = &[
     c!("FADE_SHAPE_EXP3", 9, "LOOPS shapes nibble: exp u^3"),
     c!("LOOP_SEAM_SHAPE_SHIFT", 0, "LOOPS item shapes bits 0-3: the seam crossfade's FADE_SHAPE_* (ABI 4.9)"),
     c!("LOOP_EXIT_SHAPE_SHIFT", 4, "LOOPS item shapes bits 4-7: the exit crossfade's FADE_SHAPE_* (ABI 4.9)"),
+    c!("AMP_ENV_ON", 1, "AMP_ENVELOPE flags bit 0: the envelope applies (clear: the voice's envelope is removed; ABI 6.1)"),
+    c!("AMP_ENV_KEY_OFF_NONE", 0xFFFF_FFFFu32, "AMP_ENVELOPE keyOffFrame: never keyed off (the sustain holds; ABI 6.1)"),
 ];
 
 /// One effect of a SUBMIX chain: 72 B (ABI 5.0, ADR 0352: 16 parameters; 40 B before).
@@ -202,4 +204,30 @@ pub const TIME: Opcode = Opcode {
     total_bytes: Some(24),
     sent: true,
     doc: "re-anchor a group's sequence clock (ADR 0346); stamped",
+};
+
+/// 0x22 AMP_ENVELOPE, 44 B (ADR 0362 item 2, ABI 6.1): voice `voiceId`'s Amp envelope (the catalogue's `envelope` on
+/// a sequence clip), a gain per sample over the envelope's own frames (`audio_dsp::adsr`): from 0 to 1 over
+/// `attackFrames`, 1 for `holdFrames`, down to `sustain` over `decayFrames`, then `sustain`; at `keyOffFrame` the
+/// release falls from the level reached to 0 over `releaseFrames` (silent after it). Envelope frame `offsetFrames` is the
+/// voice's first rendered frame (a voice that starts inside its clip starts inside the envelope), and the envelope
+/// moves one frame per output frame the voice renders or, virtual, keeps time for (not while paused; independent of
+/// pitch). Applies on arrival, like AUTOMATE, so main sends it right after the PLAY; a later one replaces it, and one
+/// with `AMP_ENV_ON` clear removes it. A stale id is ignored.
+pub const AMP_ENVELOPE: Opcode = Opcode {
+    id: 0x22,
+    name: "AMP_ENVELOPE",
+    payload: Body::fixed(&[
+        Field::new("flags", Ty::U32).doc("AMP_ENV_ON"),                                                       // 12
+        Field::new("attackFrames", Ty::U32),                                                                 // 16
+        Field::new("holdFrames", Ty::U32),                                                                   // 20
+        Field::new("decayFrames", Ty::U32),                                                                  // 24
+        Field::new("sustain", Ty::F32).doc("0..1"),                                                          // 28
+        Field::new("releaseFrames", Ty::U32),                                                                // 32
+        Field::new("keyOffFrame", Ty::U32).doc("the envelope frame the release starts at; AMP_ENV_KEY_OFF_NONE never"), // 36
+        Field::new("offsetFrames", Ty::U32).doc("the envelope frame of the voice's first rendered frame"),    // 40
+    ]),
+    total_bytes: Some(44),
+    sent: true,
+    doc: "a voice's Amp envelope (ADR 0362, ABI 6.1); applies on arrival",
 };

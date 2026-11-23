@@ -2,6 +2,7 @@
  * The live playlist tree's shared shapes and base node (ADR 0343): what every resolver's node (`nodes.ts`,
  * `sequence.ts`) is and what it needs of its instance (`NodeHost`).
  */
+import type { AmpStages } from "../../../../engine/audio/effects/ampEnvelope";
 import type { Curve } from "../../../../engine/core/curve";
 import type { CurveBy } from "../../../../engine/audio/curveBy";
 import type { LiveSlice } from "./byCurves";
@@ -135,6 +136,25 @@ export interface Ctx {
    * directly or wrapped in an embedded Clip). Only a generator voice reads them; absent: none.
    */
   genCurves?: readonly GenCurve[];
+  /**
+   * ADR 0362 item 2: a sequence clip's Amp envelope over the clip instance's time: its stages (seconds), the clip's
+   * length (the release ends there; null: unbounded) and the heard time of the clip's time 0. Every voice below takes it
+   * from where it starts (a playlist clip's voices too). Absent: none.
+   */
+  envelope?: CtxEnvelope;
+  /**
+   * ADR 0362 item 3: the sample voice this context starts plays its trim backwards (a reversed sequence clip's piece):
+   * from the trim's end down to its start, its loop running backwards. Set only on a sample play, never inherited.
+   */
+  reverse?: boolean;
+}
+
+/** ADR 0362 item 2: a clip's Amp envelope as the context carries it down (`Ctx.envelope`). */
+export interface CtxEnvelope {
+  readonly stages: AmpStages;
+  readonly length: number | null;
+  /** Heard time of the clip's time 0 (envelope time 0). */
+  readonly origin: number;
 }
 
 /** ADR 0360 §4: one `gen:<param>` curve or lane, still named by parameter (the generator's kind resolves it). */
