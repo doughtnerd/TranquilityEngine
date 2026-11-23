@@ -2,26 +2,26 @@
 // `cargo run --manifest-path native/audio/crates/audio-wire/Cargo.toml --bin gen_wire`.
 #![allow(clippy::all, dead_code, unused_mut)]
 
-/// First 16 bytes of the schema's SHA-256 (hex: 797237fb87d71684489bf0737d14986d).
+/// First 16 bytes of the schema's SHA-256 (hex: 367bbddae8da669b79cc3dd15c7cacfa).
 pub const SCHEMA_HASH: [u8; 16] = [
-    0x79,
-    0x72,
-    0x37,
-    0xfb,
-    0x87,
-    0xd7,
-    0x16,
-    0x84,
-    0x48,
+    0x36,
+    0x7b,
+    0xbd,
+    0xda,
+    0xe8,
+    0xda,
+    0x66,
     0x9b,
-    0xf0,
-    0x73,
-    0x7d,
-    0x14,
-    0x98,
-    0x6d,
+    0x79,
+    0xcc,
+    0x3d,
+    0xd1,
+    0x5c,
+    0x7c,
+    0xac,
+    0xfa,
 ];
-pub const SCHEMA_HASH_HEX: &str = "797237fb87d71684489bf0737d14986d";
+pub const SCHEMA_HASH_HEX: &str = "367bbddae8da669b79cc3dd15c7cacfa";
 
 /// envelope magic, 'MYA1'
 pub const MAGIC: u32 = 0x4d594131;
@@ -403,6 +403,24 @@ pub const FADE_SHAPE_EXP3: u32 = 0x9;
 pub const LOOP_SEAM_SHAPE_SHIFT: u32 = 0x0;
 /// LOOPS item shapes bits 4-7: the exit crossfade's FADE_SHAPE_* (ABI 4.9)
 pub const LOOP_EXIT_SHAPE_SHIFT: u32 = 0x4;
+/// reserved clip ids of generator voices: GEN_CLIP_ID_FIRST + kind (ADR 0346; never uploaded)
+pub const GEN_CLIP_ID_FIRST: u32 = 0xffff0300;
+/// the reserved generator range's last id
+pub const GEN_CLIP_ID_LAST: u32 = 0xffff03ff;
+/// generator kind: oscillator (10 parameters)
+pub const GEN_KIND_OSCILLATOR: u32 = 0x1;
+/// generator kind: two-oscillator synth (25 parameters)
+pub const GEN_KIND_SYNTH: u32 = 0x2;
+/// generator kind: sfxr blip in sfxr's units (24 parameters)
+pub const GEN_KIND_BLIP: u32 = 0x3;
+/// generator kind: silence (2 parameters), always virtual
+pub const GEN_KIND_SILENCE: u32 = 0x4;
+/// parameters a generator kind has at most (GEN mask bits 0-31)
+pub const GEN_PARAMS_MAX: u32 = 0x20;
+/// voice binding target kind (AUTOMATE): a generator parameter, its index in bits 8-15, AUTO_TARGET_LOG for a log2 curve; the curve's value replaces it, glided over the quantum (ABI 5.1; buses read kind 5 as AUTO_TARGET_FX)
+pub const AUTO_TARGET_GEN: u32 = 0x5;
+/// binding target bits 8-15 of an AUTO_TARGET_GEN binding: the parameter's index
+pub const AUTO_TARGET_GEN_PARAM_SHIFT: u32 = 0x8;
 
 /// K2 stub: the export exists but does nothing yet
 pub const ERR_NOT_IMPLEMENTED: i32 = -1;
@@ -482,6 +500,7 @@ pub mod op {
     pub const BUS_SENDS: u16 = 0x1e;
     pub const SUBMIX_AUTOMATE: u16 = 0x1f;
     pub const LISTENER: u16 = 0x20;
+    pub const GEN: u16 = 0x21;
     pub const RESET: u16 = 0x30;
 }
 
@@ -2108,7 +2127,7 @@ pub struct AutomateBindings {
     pub param: u16,
     /// curve id (CURVES)
     pub curve: u16,
-    /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4)
+    /// 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_GEN a generator voice's parameter (its index in bits 8-15, AUTO_TARGET_LOG for a log2 curve; ABI 5.1)
     pub target: u32,
     /// ABI 4.9: seconds added to a time parameter before the curve reads it (the binding's time origin: a lane keyed on its playlist's start, read by a voice that started later, is `start - origin`); ignored for other params
     pub offset: f32,
@@ -4419,6 +4438,103 @@ impl Listener {
     }
 }
 
+/// a generator voice's parameters and noise seed (ADR 0346, ABI 5.1); applies on arrival
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Gen {
+    pub voice_id: u32,
+    pub frame_offset: u32,
+    /// bit i: parameter i is in `values`
+    pub mask: u32,
+    /// the noise generator's seed (xorshift32, also the synth LFO's sample-and-hold); 0 keeps the voice's seed
+    pub seed: u32,
+    /// glide of the changed smooth parameters; 0 steps
+    pub ramp_frames: u32,
+    /// the masked parameters' values in bit order, each in its own units (Hz, ms, dB, %, sfxr's units, a choice's index); clamped by the core
+    pub values: Vec<f32>,
+}
+
+impl Gen {
+    pub const FIXED_END: usize = 28;
+    pub const OPCODE: u16 = 33; // GEN
+    pub fn write(&self, out: &mut [u8], base: usize) -> Result<usize, i32> {
+        if base + Self::FIXED_END > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 12, self.mask);
+        put_u32(out, base + 16, self.seed);
+        put_u32(out, base + 20, self.ramp_frames);
+        if self.values.len() > 32 {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u32(out, base + 24, u32::try_from(self.values.len()).map_err(|_| ERR_OVERSIZE)?);
+        let mut cur = base + Self::FIXED_END;
+        let padded = (self.values.len() * 4 + 3) & !3;
+        if cur + padded > out.len() {
+            return Err(ERR_OVERSIZE);
+        }
+        for (i, v) in self.values.iter().enumerate() {
+            put_f32(out, cur + i * 4, *v);
+        }
+        out[cur + self.values.len() * 4..cur + padded].fill(0);
+        cur += padded;
+        let total = cur - base;
+        if total % 4 != 0 || total / 4 > u16::MAX as usize {
+            return Err(ERR_OVERSIZE);
+        }
+        put_u16(out, base + RecordHead::OPCODE_AT, Self::OPCODE);
+        put_u16(out, base + RecordHead::WORDS_AT, (total / 4) as u16);
+        put_u32(out, base + RecordHead::VOICE_ID_AT, self.voice_id);
+        put_u32(out, base + RecordHead::FRAME_OFFSET_AT, self.frame_offset);
+        Ok(cur - base)
+    }
+    pub fn read(buf: &[u8], base: usize) -> Result<(Self, usize), i32> {
+        let (head, _) = RecordHead::read(buf, base)?;
+        if head.opcode != Self::OPCODE {
+            return Err(ERR_MALFORMED);
+        }
+        let limit = base + head.words as usize * 4;
+        if limit > buf.len() {
+            return Err(ERR_TRUNCATED);
+        }
+        Self::read_to(buf, base, limit)
+    }
+    fn read_to(buf: &[u8], base: usize, limit: usize) -> Result<(Self, usize), i32> {
+        if base.checked_add(Self::FIXED_END).map_or(true, |e| e > limit) {
+            return Err(ERR_TRUNCATED);
+        }
+        let (head, _) = RecordHead::read(buf, base)?;
+        let mask = get_u32(buf, base + 12);
+        let seed = get_u32(buf, base + 16);
+        let ramp_frames = get_u32(buf, base + 20);
+        let value_count = get_u32(buf, base + 24);
+        let mut cur = base + Self::FIXED_END;
+        if value_count as usize > 32 {
+            return Err(ERR_MALFORMED);
+        }
+        let padded = (value_count as usize).checked_mul(4).and_then(|n| n.checked_add(3)).map(|n| n & !3).ok_or(ERR_TRUNCATED)?;
+        if padded > limit - cur {
+            return Err(ERR_TRUNCATED);
+        }
+        let mut values = Vec::with_capacity(value_count as usize);
+        for i in 0..value_count as usize {
+            values.push(get_f32(buf, cur + i * 4));
+        }
+        cur += padded;
+        if cur > limit {
+            return Err(ERR_MALFORMED);
+        }
+        let cur = limit; // appended words of a newer minor are skipped
+        Ok((Self {
+            voice_id: head.voice_id,
+            frame_offset: head.frame_offset,
+            mask,
+            seed,
+            ramp_frames,
+            values,
+        }, cur - base))
+    }
+}
+
 /// reset the core
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Reset {
@@ -5042,8 +5158,10 @@ pub struct StatusBlock {
     pub bus_records_early: u16,
     /// late sidechain detections (cumulative, saturating)
     pub sidechain_late: u16,
+    /// generator voices that found the generator pool full and play silent (cumulative, saturating; ADR 0346, ABI 5.1)
+    pub gen_starved: u16,
     /// reserved, 0
-    pub reserved2: u32,
+    pub reserved2: u16,
     /// voices that ended in this block
     /// At most 1024 per block.
     pub ended: Vec<u32>,
@@ -5213,7 +5331,8 @@ impl StatusBlock {
         put_u16(out, base + 246, self.loud_shed);
         put_u16(out, base + 248, self.bus_records_early);
         put_u16(out, base + 250, self.sidechain_late);
-        put_u32(out, base + 252, self.reserved2);
+        put_u16(out, base + 252, self.gen_starved);
+        put_u16(out, base + 254, self.reserved2);
         let mut cur = base + 256;
         if cur + self.ended.len() * 4 > out.len() {
             return Err(ERR_OVERSIZE);
@@ -5410,7 +5529,8 @@ impl StatusBlock {
         let loud_shed = get_u16(buf, base + 246);
         let bus_records_early = get_u16(buf, base + 248);
         let sidechain_late = get_u16(buf, base + 250);
-        let reserved2 = get_u32(buf, base + 252);
+        let gen_starved = get_u16(buf, base + 252);
+        let reserved2 = get_u16(buf, base + 254);
         let mut cur = base + 256;
         if ended_count as usize > 1024 || (ended_count as usize) * 4 > limit - cur {
             return Err(ERR_OVERSIZE);
@@ -5600,6 +5720,7 @@ impl StatusBlock {
             loud_shed,
             bus_records_early,
             sidechain_late,
+            gen_starved,
             reserved2,
             ended,
             demoted,

@@ -13,6 +13,7 @@
 
 pub mod batch;
 pub mod envelope;
+pub mod generator;
 pub mod mix;
 pub mod music;
 pub mod spatial;
@@ -27,6 +28,7 @@ pub const SCHEMA_SOURCES: &[(&str, &str)] = &[
     ("src/schema.rs", include_str!("schema.rs")),
     ("src/schema/batch.rs", include_str!("schema/batch.rs")),
     ("src/schema/envelope.rs", include_str!("schema/envelope.rs")),
+    ("src/schema/generator.rs", include_str!("schema/generator.rs")),
     ("src/schema/mix.rs", include_str!("schema/mix.rs")),
     ("src/schema/music.rs", include_str!("schema/music.rs")),
     ("src/schema/spatial.rs", include_str!("schema/spatial.rs")),
@@ -226,10 +228,10 @@ pub const ERRORS: &[ErrorCode] = &[
     er!("MALFORMED", -16, "a record's fields are inconsistent (count versus length)"),
 ];
 
-/// `CONSTANTS` followed by `music::CONSTANTS`, `mix::CONSTANTS` and `studio::CONSTANTS`.
+/// `CONSTANTS` followed by `music::CONSTANTS`, `mix::CONSTANTS`, `studio::CONSTANTS` and `generator::CONSTANTS`.
 fn all_constants() -> &'static [Const] {
     static ALL: std::sync::OnceLock<Vec<Const>> = std::sync::OnceLock::new();
-    ALL.get_or_init(|| CONSTANTS.iter().chain(music::CONSTANTS).chain(mix::CONSTANTS).chain(studio::CONSTANTS).copied().collect())
+    ALL.get_or_init(|| CONSTANTS.iter().chain(music::CONSTANTS).chain(mix::CONSTANTS).chain(studio::CONSTANTS).chain(generator::CONSTANTS).copied().collect())
 }
 
 /// `ENUMS` followed by `music::ENUMS`.

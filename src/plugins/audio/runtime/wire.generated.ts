@@ -4,7 +4,7 @@
 
 export const WIRE_GENERATED = true;
 /** First 16 bytes of the schema's SHA-256, lower-case hex (32 characters). */
-export const SCHEMA_HASH = "797237fb87d71684489bf0737d14986d";
+export const SCHEMA_HASH = "367bbddae8da669b79cc3dd15c7cacfa";
 
 /** envelope magic, 'MYA1' */
 export const MAGIC = 0x4d594131;
@@ -386,6 +386,24 @@ export const FADE_SHAPE_EXP3 = 0x9;
 export const LOOP_SEAM_SHAPE_SHIFT = 0x0;
 /** LOOPS item shapes bits 4-7: the exit crossfade's FADE_SHAPE_* (ABI 4.9) */
 export const LOOP_EXIT_SHAPE_SHIFT = 0x4;
+/** reserved clip ids of generator voices: GEN_CLIP_ID_FIRST + kind (ADR 0346; never uploaded) */
+export const GEN_CLIP_ID_FIRST = 0xffff0300;
+/** the reserved generator range's last id */
+export const GEN_CLIP_ID_LAST = 0xffff03ff;
+/** generator kind: oscillator (10 parameters) */
+export const GEN_KIND_OSCILLATOR = 0x1;
+/** generator kind: two-oscillator synth (25 parameters) */
+export const GEN_KIND_SYNTH = 0x2;
+/** generator kind: sfxr blip in sfxr's units (24 parameters) */
+export const GEN_KIND_BLIP = 0x3;
+/** generator kind: silence (2 parameters), always virtual */
+export const GEN_KIND_SILENCE = 0x4;
+/** parameters a generator kind has at most (GEN mask bits 0-31) */
+export const GEN_PARAMS_MAX = 0x20;
+/** voice binding target kind (AUTOMATE): a generator parameter, its index in bits 8-15, AUTO_TARGET_LOG for a log2 curve; the curve's value replaces it, glided over the quantum (ABI 5.1; buses read kind 5 as AUTO_TARGET_FX) */
+export const AUTO_TARGET_GEN = 0x5;
+/** binding target bits 8-15 of an AUTO_TARGET_GEN binding: the parameter's index */
+export const AUTO_TARGET_GEN_PARAM_SHIFT = 0x8;
 
 /** Negative i32 results of the C ABI (0 is ok). */
 export const ErrorCode = {
@@ -462,6 +480,7 @@ export const Op = {
   BUS_SENDS: 0x1e,
   SUBMIX_AUTOMATE: 0x1f,
   LISTENER: 0x20,
+  GEN: 0x21,
   RESET: 0x30,
 } as const;
 
@@ -1679,7 +1698,7 @@ export interface AutomateBindings {
   param: number;
   /** curve id (CURVES) */
   curve: number;
-  /** 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4) */
+  /** 0 volume (gain multiplier), 1 pitch (ratio multiplier), 2 lowpass (Hz), 3 highpass (Hz floor, highest wins; voices only, ABI 4.4), 4 pan (-1..1, summed; voices only, ABI 4.4), AUTO_TARGET_GEN a generator voice's parameter (its index in bits 8-15, AUTO_TARGET_LOG for a log2 curve; ABI 5.1) */
   target: number;
   /** ABI 4.9: seconds added to a time parameter before the curve reads it (the binding's time origin: a lane keyed on its playlist's start, read by a voice that started later, is `start - origin`); ignored for other params */
   offset: number;
@@ -3349,6 +3368,72 @@ export function readListener(view: DataView, off: number): Listener {
   return _readListener(view, off, limit)[0];
 }
 
+/** a generator voice's parameters and noise seed (ADR 0346, ABI 5.1); applies on arrival */
+export interface Gen {
+  voiceId: number;
+  frameOffset: number;
+  /** bit i: parameter i is in `values` */
+  mask: number;
+  /** the noise generator's seed (xorshift32, also the synth LFO's sample-and-hold); 0 keeps the voice's seed */
+  seed: number;
+  /** glide of the changed smooth parameters; 0 steps */
+  rampFrames: number;
+  /** the masked parameters' values in bit order, each in its own units (Hz, ms, dB, %, sfxr's units, a choice's index); clamped by the core */
+  values: ArrayLike<number>;
+}
+
+export const GEN_FIXED_END = 28;
+
+export function writeGen(view: DataView, off: number, rec: Gen): number {
+  view.setUint32(off + 12, rec.mask, true);
+  view.setUint32(off + 16, rec.seed, true);
+  view.setUint32(off + 20, rec.rampFrames, true);
+  if (rec.values.length > 32) throw new WireError(ErrorCode.OVERSIZE, "Gen: values over its cap 32");
+  view.setUint32(off + 24, rec.values.length, true);
+  let cur = off + 28;
+  {
+    const list = rec.values;
+    for (let i = 0; i < list.length; i++) view.setFloat32(cur + i * 4, list[i]!, true);
+    const end = cur + Math.ceil((list.length * 4) / 4) * 4;
+    for (let b = cur + list.length * 4; b < end; b++) view.setUint8(b, 0);
+    cur = end;
+  }
+  const total = cur - off;
+  if (total % 4 !== 0 || total / 4 > 0xffff) throw new WireError(ErrorCode.OVERSIZE, "Gen: record too long");
+  view.setUint16(off + 0, 33, true);
+  view.setUint16(off + 2, total / 4, true);
+  view.setUint32(off + 4, rec.voiceId, true);
+  view.setUint32(off + 8, rec.frameOffset, true);
+  return cur - off;
+}
+
+function _readGen(view: DataView, off: number, limit: number): [Gen, number] {
+  if (off + 28 > limit) throw new WireError(ErrorCode.TRUNCATED, "Gen: truncated");
+  const mask = view.getUint32(off + 12, true);
+  const seed = view.getUint32(off + 16, true);
+  const rampFrames = view.getUint32(off + 20, true);
+  const valueCount = view.getUint32(off + 24, true);
+  let cur = off + 28;
+  if (valueCount > 32) throw new WireError(ErrorCode.MALFORMED, "Gen: values over its cap");
+  if (Math.ceil((valueCount * 4) / 4) * 4 > limit - cur) throw new WireError(ErrorCode.TRUNCATED, "Gen: values overrun");
+  const values: number[] = [];
+  for (let i = 0; i < valueCount; i++) values.push(view.getFloat32(cur + i * 4, true));
+  cur += Math.ceil((valueCount * 4) / 4) * 4;
+  if (cur > limit) throw new WireError(ErrorCode.MALFORMED, "Gen: malformed");
+  cur = limit;
+  const voiceId = view.getUint32(off + 4, true);
+  const frameOffset = view.getUint32(off + 8, true);
+  return [{ voiceId, frameOffset, mask, seed, rampFrames, values }, cur - off];
+}
+
+export function readGen(view: DataView, off: number): Gen {
+  if (off + 12 > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Gen: truncated");
+  if (view.getUint16(off + 0, true) !== 33) throw new WireError(ErrorCode.MALFORMED, "Gen: wrong opcode");
+  const limit = off + view.getUint16(off + 2, true) * 4;
+  if (limit > view.byteLength) throw new WireError(ErrorCode.TRUNCATED, "Gen: truncated");
+  return _readGen(view, off, limit)[0];
+}
+
 /** reset the core */
 export interface Reset {
   voiceId: number;
@@ -3854,6 +3939,8 @@ export interface StatusHeader {
   busRecordsEarly: number;
   /** late sidechain detections (cumulative, saturating) */
   sidechainLate: number;
+  /** generator voices that found the generator pool full and play silent (cumulative, saturating; ADR 0346, ABI 5.1) */
+  genStarved: number;
   /** reserved, 0 */
   reserved2: number;
 }
@@ -3980,7 +4067,8 @@ export function writeStatus(view: DataView, off: number, rec: StatusBlock, seq: 
   view.setUint16(off + 246, rec.loudShed, true);
   view.setUint16(off + 248, rec.busRecordsEarly, true);
   view.setUint16(off + 250, rec.sidechainLate, true);
-  view.setUint32(off + 252, rec.reserved2, true);
+  view.setUint16(off + 252, rec.genStarved, true);
+  view.setUint16(off + 254, rec.reserved2, true);
   let cur = off + 256;
   for (const v of rec.ended) {
     view.setUint32(cur, v, true);
@@ -4095,7 +4183,8 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
   const loudShed = view.getUint16(off + 246, true);
   const busRecordsEarly = view.getUint16(off + 248, true);
   const sidechainLate = view.getUint16(off + 250, true);
-  const reserved2 = view.getUint32(off + 252, true);
+  const genStarved = view.getUint16(off + 252, true);
+  const reserved2 = view.getUint16(off + 254, true);
   let cur = 256;
   if (endedCount > 1024 || endedCount * 4 > limit - cur) throw new WireError(ErrorCode.OVERSIZE, "STATUS: ended overrun");
   const ended: number[] = [];
@@ -4187,7 +4276,7 @@ export function readStatus(buf: ArrayBuffer | ArrayBufferView): StatusBlock {
     busDuck.push(readStatusBusDuckItem(view, cur));
     cur += 8;
   }
-  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, m3Shed, zoneUsedKB, workBed, workZones, musicRingsOpen, streamStartsLate, groupsLate, groupsHeld, groupsAbandoned, curvePoolFull, maxSlipFrames, splitQuanta, voiceSplits, fxStarved, fxStarvedOwner, busyMsTotal, quantaTotal, wuVoices, wuBuses, wuSpatial, wuMusic, wuLoudness, clockStepMs, loudSubBlockFrames, clockSteps, loudShed, busRecordsEarly, sidechainLate, reserved2, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents, musicRings, groupStarts, loudBuses, loudEnergies, busDuck };
+  return { currentFrame, dateMs, pingSeq, pingFrameLo, underruns, lateCommands, workUnits, workUnitsMax, mixedVoices, liveVoices, flags, mixedCap, loadPermille, traps, minSlackFrames, underrunFrames, arenaUsedKB, arenaLargestFreeKB, abiVersion, maxLatenessFrames, hrtfVoices, hrtfLoadFailure, bedVoices, fxVoices, ambisonicVoices, zonesActive, zonesRinging, bedsRefused, m3Shed, zoneUsedKB, workBed, workZones, musicRingsOpen, streamStartsLate, groupsLate, groupsHeld, groupsAbandoned, curvePoolFull, maxSlipFrames, splitQuanta, voiceSplits, fxStarved, fxStarvedOwner, busyMsTotal, quantaTotal, wuVoices, wuBuses, wuSpatial, wuMusic, wuLoudness, clockStepMs, loudSubBlockFrames, clockSteps, loudShed, busRecordsEarly, sidechainLate, genStarved, reserved2, ended, demoted, starved, playheads, clipEvents, streamEvents, peaks, beds, zones, zoneEvents, musicRings, groupStarts, loudBuses, loudEnergies, busDuck };
 }
 
 /** A `StatusHeader` with every field 0. */
@@ -4249,6 +4338,7 @@ export function newStatusHeader(): StatusHeader {
     loudShed: 0,
     busRecordsEarly: 0,
     sidechainLate: 0,
+    genStarved: 0,
     reserved2: 0,
   };
 }
@@ -4311,6 +4401,7 @@ export function copyStatusHeader(dst: StatusHeader, src: StatusHeader): void {
   dst.loudShed = src.loudShed;
   dst.busRecordsEarly = src.busRecordsEarly;
   dst.sidechainLate = src.sidechainLate;
+  dst.genStarved = src.genStarved;
   dst.reserved2 = src.reserved2;
 }
 
@@ -4373,6 +4464,7 @@ export function newStatusBlock(): StatusBlock {
     loudShed: 0,
     busRecordsEarly: 0,
     sidechainLate: 0,
+    genStarved: 0,
     reserved2: 0,
     ended: [],
     demoted: [],
@@ -4456,7 +4548,8 @@ export const STATUS_HEADER_COLUMNS = {
   loudShed: [246, "u16"],
   busRecordsEarly: [248, "u16"],
   sidechainLate: [250, "u16"],
-  reserved2: [252, "u32"],
+  genStarved: [252, "u16"],
+  reserved2: [254, "u16"],
 } as const satisfies Record<keyof StatusHeader, readonly [number, StatusColumnType]>;
 /** A STATUS header column's name. */
 export type StatusHeaderField = keyof typeof STATUS_HEADER_COLUMNS;
@@ -4754,7 +4847,8 @@ export class StatusBlockReader {
     b.loudShed = view.getUint16(246, true);
     b.busRecordsEarly = view.getUint16(248, true);
     b.sidechainLate = view.getUint16(250, true);
-    b.reserved2 = view.getUint32(252, true);
+    b.genStarved = view.getUint16(252, true);
+    b.reserved2 = view.getUint16(254, true);
     {
       const list = b.ended;
       const n = count[0]!;

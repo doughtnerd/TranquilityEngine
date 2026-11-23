@@ -20,6 +20,7 @@
 //!   arrival order, whatever their `frameOffset` (AUTOMATE finds its voice because PLAY writes the
 //!   slot at once); SET_LOOP is scheduled like STOP (a release lands on its exact frame).
 //! - ADR 0328: LOOPS (a clip voice's loop program) applies at once, like AUTOMATE (`voices::loops`).
+//! - ADR 0346 (ABI 5.1): GEN (a generator voice's parameters) applies at once, like AUTOMATE (`generator::apply`).
 //! - ADR 0332: TIME (a group clock's re-anchor) is scheduled like STOP; when its quantum comes it
 //!   applies with its own frame (`due::route`, `Route::Clock`), never splitting. Asap anchors at
 //!   the next quantum's first frame.
@@ -234,6 +235,8 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::LOUD_CONFIG => wire::LoudConfig::FIXED_END,
             wire::op::BUS_SLOT => wire::BusSlot::FIXED_END,
             wire::op::BUS_SENDS => wire::BusSends::FIXED_END,
+            // ADR 0346 (ABI 5.1).
+            wire::op::GEN => wire::Gen::FIXED_END,
             _ => RecordHead::FIXED_END,
         };
         if len < min || off + len > msg.len() {
@@ -253,6 +256,7 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             wire::op::LOUD_CONFIG => loudness::config_is_well_formed(msg, off, len),
             wire::op::BUS_SLOT => bus_slots::slot_is_well_formed(msg, off, len),
             wire::op::BUS_SENDS => crate::bus_sends::is_well_formed(msg, off, len),
+            wire::op::GEN => crate::generator::is_well_formed(msg, off, len),
             _ => true,
         };
         if !entries_fit {
@@ -372,6 +376,8 @@ pub fn submit(core: &mut Core, msg: &[u8]) -> i32 {
             }
             wire::op::AUTOMATE => automation::automate(core, msg, off),
             wire::op::LOOPS => voices::loops(core, msg, off),
+            // ADR 0346 (ABI 5.1): a generator voice's parameters, on arrival like AUTOMATE (they don't fit a pending record).
+            wire::op::GEN => crate::generator::apply(core, msg, off),
             wire::op::SUBMIX => crate::submix::configure(core, msg, off),
             wire::op::SUBMIX_AUTOMATE => crate::submix::automate(core, msg, off),
             wire::op::ROUTE => automation::route(core, msg, off),
@@ -478,6 +484,8 @@ pub fn reset(core: &mut Core, keep_clips: bool) {
     bus::reset(core);
     // ADR 0158 E2: curves, parameters, bindings and loop regions.
     automation::reset(core);
+    // ADR 0346: every generator slot record and pool entry (main replays its voices and their GENs).
+    crate::generator::reset(core);
     // ADR 0331: every submix slot and route (main replays the ones in use).
     crate::submix::reset(core);
     if !keep_clips {

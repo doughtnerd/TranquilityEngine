@@ -38,6 +38,7 @@ pub mod ext;
 pub mod fx;
 pub mod fxmem;
 pub mod fxpool;
+pub mod generator;
 pub mod group_hold;
 pub mod group_rebase;
 pub mod groups;

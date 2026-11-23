@@ -117,10 +117,13 @@ pub mod off {
     pub const LOUD_SHED: usize = 246;
     pub const BUS_RECORDS_EARLY: usize = 248;
     pub const SIDECHAIN_LATE: usize = 250;
-    pub const M5_RESERVED: usize = 252;
+    /// ABI 5.1 (ADR 0346): `genStarved`.
+    pub const GEN_STARVED: usize = 252;
+    /// The header's last u16 (`reserved2`), 0.
+    pub const M5_RESERVED: usize = 254;
 }
 
-const _: () = assert!(off::M5_RESERVED + 4 == HEADER_BYTES && HEADER_BYTES == audio_wire::generated::STATUS_HEADER_BYTES as usize);
+const _: () = assert!(off::M5_RESERVED + 2 == HEADER_BYTES && HEADER_BYTES == audio_wire::generated::STATUS_HEADER_BYTES as usize);
 const _: () = assert!(BUFFER_BYTES == audio_wire::generated::STATUS_BUFFER_BYTES as usize);
 
 /// The writer's own state, kept beside the counters.
@@ -221,6 +224,10 @@ pub fn take(core: &mut Core, out: &mut [u8], abi_version: u32) -> usize {
     let area = area_mut(core);
     area.counters.mix.fx_starved = starved.min(u16::MAX as u32) as u16;
     area.counters.mix.fx_starved_owner = if starved == 0 { audio_wire::generated::FX_STARVED_NONE as u16 } else { owner };
+    // ABI 5.1 (ADR 0346): generator voices that found the pool full.
+    let gen_starved = crate::generator::starved(core.regions_mut());
+    let area = area_mut(core);
+    area.counters.mix.gen_starved = gen_starved.min(u16::MAX as u32) as u16;
     let n = write_with(&area.counters, &mix, area.writer.seq, out);
     if n == 0 {
         return 0;
@@ -351,7 +358,9 @@ pub fn write_with(c: &Counters, mix: &MixSections, seq: u32, out: &mut [u8]) -> 
     put_u16(out, off::LOUD_SHED, x.loud_shed);
     put_u16(out, off::BUS_RECORDS_EARLY, x.bus_records_early);
     put_u16(out, off::SIDECHAIN_LATE, x.sidechain_late);
-    put_u32(out, off::M5_RESERVED, 0);
+    // ABI 5.1: generator PLAYs that found the pool full (`generator.rs`), refreshed by `take`.
+    put_u16(out, off::GEN_STARVED, x.gen_starved);
+    put_u16(out, off::M5_RESERVED, 0);
     // Sections, in §4.3's order.
     let mut cur = HEADER_BYTES;
     for list in [c.ended.as_slice(), c.demoted.as_slice(), c.starved.as_slice()] {
@@ -737,7 +746,7 @@ mod tests {
         assert_eq!((u16_at(&out, off::LOUD_BUS_COUNT), u16_at(&out, off::LOUD_ENERGY_COUNT), u16_at(&out, off::DUCK_COUNT)), (0, 0, 0));
         assert_eq!(u32_at(&out, off::LOUD_SUB_BLOCK_FRAMES), 4_800);
         assert_eq!((u16_at(&out, off::LOUD_SHED), u16_at(&out, off::BUS_RECORDS_EARLY), u16_at(&out, off::SIDECHAIN_LATE)), (1, 7, 9));
-        assert_eq!(u32_at(&out, off::M5_RESERVED), 0);
+        assert_eq!(u16_at(&out, off::M5_RESERVED), 0);
         assert_eq!(u32_at(&out, off::BODY_BYTES), (HEADER_BYTES - 16) as u32);
         assert_eq!((u16_at(&out, off::FX_STARVED), u16_at(&out, off::FX_STARVED_OWNER)), (0, audio_wire::generated::FX_STARVED_NONE as u16), "no effect has starved");
     }

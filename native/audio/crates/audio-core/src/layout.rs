@@ -110,12 +110,15 @@ pub enum RegionKind {
     /// ADR 0337 A4 (ABI 4.12): the ADPCM voice cursors, one per mixed-voice pool entry
     /// (`adpcm_voice::region_bytes`: `max_mixed` × `CURSOR_BYTES`).
     AdpcmCursors,
+    /// ADR 0346 (ABI 5.1): the generator voices' slot records and pool (`generator::region_bytes`: max(16,
+    /// `max_mixed` / 4) entries of `generator::ENTRY_BYTES` and 8 B per voice slot).
+    GenEntries,
     /// The clip arena's initial reserve. Always last.
     Arena,
 }
 
 /// The layout order. Append-only before `Arena` (see the module comment).
-pub const REGION_ORDER: [RegionKind; 27] = [
+pub const REGION_ORDER: [RegionKind; 28] = [
     RegionKind::Output,
     RegionKind::CoreState,
     RegionKind::Pending,
@@ -142,6 +145,7 @@ pub const REGION_ORDER: [RegionKind; 27] = [
     RegionKind::Submixes,
     RegionKind::FxMem,
     RegionKind::AdpcmCursors,
+    RegionKind::GenEntries,
     RegionKind::Arena,
 ];
 
@@ -222,6 +226,7 @@ fn region_len(kind: RegionKind, p: &InitParams) -> usize {
         RegionKind::Submixes => crate::submix::REGION_BYTES,
         RegionKind::FxMem => crate::fxmem::region_bytes(p),
         RegionKind::AdpcmCursors => crate::adpcm_voice::region_bytes(p),
+        RegionKind::GenEntries => crate::generator::region_bytes(p),
         RegionKind::Arena => align_up(p.arena_initial_bytes as usize, PAGE_BYTES),
     }
 }
@@ -316,8 +321,12 @@ mod tests {
         let adpcm = layout.region(RegionKind::AdpcmCursors).len;
         assert_eq!(adpcm, 128 * crate::adpcm_voice::CURSOR_BYTES);
         assert!(adpcm < 300 * 1024, "ADPCM cursors: {adpcm}");
-        let fixed = fixed - streams - automation - fxmem - submixes - adpcm;
-        assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF, streams, automation, effect memory, submixes and ADPCM cursors: {fixed}");
+        // ADR 0346: the generator pool, 32 entries at 128 mixed voices (≈ 160 KB), and 8 B per voice slot.
+        let gen = layout.region(RegionKind::GenEntries).len;
+        assert_eq!(gen, crate::generator::region_bytes(&preset(4_096, 128, 16)));
+        assert!(gen < 240 * 1024, "generator pool: {gen}");
+        let fixed = fixed - streams - automation - fxmem - submixes - adpcm - gen;
+        assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF, streams, automation, effect memory, submixes, ADPCM cursors and the generator pool: {fixed}");
         eprintln!("default preset: automation {automation} B, total {} B", layout.total());
     }
 

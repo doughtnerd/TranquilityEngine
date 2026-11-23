@@ -63,6 +63,7 @@ const OPCODES: Record<string, Codec> = {
   SUBMIX_AUTOMATE: { write: wire.writeSubmixAutomate, read: wire.readSubmixAutomate },
   ZONE_CONFIG: { write: wire.writeZoneConfig, read: wire.readZoneConfig },
   LISTENER: { write: wire.writeListener, read: wire.readListener },
+  GEN: { write: wire.writeGen, read: wire.readGen },
 };
 
 /** ADR 0162's blob headers (formats 3 and 4). */
@@ -564,6 +565,7 @@ describe("wire round trip", () => {
       loudShed: 1,
       busRecordsEarly: 21,
       sidechainLate: 22,
+      genStarved: 23,
       reserved2: 0,
       ended: [1, 2, 9],
       demoted: [4],
@@ -838,7 +840,8 @@ function handStatus(s: wire.StatusBlock, seq: number): Uint8Array {
   view.setUint16(246, s.loudShed, true);
   view.setUint16(248, s.busRecordsEarly, true);
   view.setUint16(250, s.sidechainLate, true);
-  view.setUint32(252, s.reserved2, true);
+  view.setUint16(252, s.genStarved, true);
+  view.setUint16(254, s.reserved2, true);
 
   let cur = 256;
   for (const v of [...s.ended, ...s.demoted, ...s.starved]) {

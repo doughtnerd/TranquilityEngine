@@ -30,6 +30,7 @@ pub mod equal_power;
 pub mod fade_shapes;
 pub mod fx;
 pub mod fxfilter;
+pub mod gen;
 pub mod hrtf;
 pub mod limiter;
 pub mod loudness;

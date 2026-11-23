@@ -27,6 +27,11 @@
 //! encodes into the bed instead (`panner.rs`, `bed.rs`), through its pool entry's bed share and
 //! last encode gains; `bed::begin_quantum` runs once a quantum before the voices.
 //!
+//! ADR 0346 (ABI 5.1): a PLAY of a reserved generator clip id starts a **generator voice** (`generator.rs`), rendered by
+//! [`render_gen_voice`] from its pool entry's `audio_dsp::gen` voice instead of a clip, through the same chain. A
+//! silence generator is always virtual (PLAY's mixed flag and a promote are refused); SET_LOOP's release is a
+//! generator's key-off; SEEK does nothing to one.
+//!
 //! **Mixed and virtual** (A3.1; architecture §2.2, §4.7 "promote and demote 5 ms"). Main's selection
 //! decides which voices are mixed and sends SET_MIXED for changes ([`set_mixed`]); the adaptive cap
 //! (A3.3) demotes through [`demote`] / [`demote_lowest`], which report the ids in STATUS `demoted`.
@@ -480,6 +485,8 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
     let zones: *mut [u8] = &mut regions.zones[..];
     // ADR 0337 A4: the ADPCM voice cursors, another region again.
     let adpcm_region: *mut [u8] = &mut regions.adpcm[..];
+    // ADR 0346: the generator voices' state, another region again.
+    let gen_region: *mut [u8] = &mut regions.gen[..];
     // ADR 0162 A4: the beds kind-2 voices encode into, another region again (`None` without beds).
     // SAFETY: the `Beds` region is distinct from every region borrowed here.
     let mut beds = crate::bed::view(unsafe { &mut *(&mut regions.beds[..] as *mut [u8]) });
@@ -598,6 +605,18 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
         // SAFETY: `adpcm` views the `AdpcmCursors` region, distinct from every region borrowed here.
         let adpcm = if slot.fx != 0 { crate::adpcm_voice::cursor(crate::adpcm_voice::cursors(unsafe { &mut *adpcm_region }), slot.fx) } else { None };
         let fx = VoiceFx { entry: crate::fxpool::owned(v.pool, slot.fx, index), zones: unsafe { &mut *zones }, beds: beds.as_mut(), due, route, adpcm };
+        // ADR 0346: a generator voice (a reserved clip id, never a stream) renders its kernel instead of a clip.
+        if slot.flags & flag::STREAM == 0 && crate::generator::kind_of(slot.clip).is_some() {
+            // SAFETY: `gen_region` views the `GenEntries` region, distinct from every region borrowed here; one voice
+            // holds it at a time.
+            let g = crate::generator::state(unsafe { &mut *gen_region }, index, slot.id);
+            match (auto.is_some(), LIST) {
+                (true, true) => render_gen_voice::<true, false>(slot, auto, fx, g, hrtf.as_mut(), frame, sample_rate, start, to, out_l, out_r),
+                (false, true) => render_gen_voice::<false, false>(slot, None, fx, g, hrtf.as_mut(), frame, sample_rate, start, to, out_l, out_r),
+                (true, false) => render_gen_voice::<true, true>(slot, auto, fx, g, hrtf.as_mut(), frame, sample_rate, start, to, out_l, out_r),
+                (false, false) => render_gen_voice::<false, true>(slot, None, fx, g, hrtf.as_mut(), frame, sample_rate, start, to, out_l, out_r),
+            }
+        } else {
         // `AUTO = false` compiles the automation away: a voice without bindings or a loop region takes
         // exactly the M1 code (0158 E2: it costs nothing and renders bit for bit as before).
         match (slot.flags & flag::STREAM != 0, auto.is_some()) {
@@ -607,6 +626,7 @@ fn render_voices<const LIST: bool>(core: &mut Core, frame: u64, from: usize, to:
             (false, false) if LIST => render_voice::<false, false>(slot, None, None, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
             (false, true) => render_voice::<true, true>(slot, auto, prog, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
             (false, false) => render_voice::<false, true>(slot, None, None, fx, clips, hrtf.as_mut(), frame, sample_rate, fade_frames, start, to, out_l, out_r),
+        }
         }
         // A voice that left the mix (a demote or pause fade settled) or ended gives its entry back.
         let s = &mut v.slots[index];
@@ -1106,6 +1126,111 @@ fn render_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: O
     }
     let ran_out = (region.is_some() || program || !looping) && slot.position >= clip_frames as f64;
     if ran_out || (stopping && slot.fade.is_settled()) {
+        slot.state = state::ENDED;
+    }
+}
+
+/// ADR 0346 (ABI 5.1): renders one playing **generator** voice over frames `from..to` (mixed) or keeps its time
+/// (virtual). The third source beside clips and streams: a mixed voice fills its block from its pool entry's
+/// `audio_dsp::gen` voice (mono, copied to both channels) instead of the resampler, then runs the clip voice's chain
+/// (gain, fade and mix ramps, automation, filters, sends, spread, the panner); a virtual one advances only its
+/// envelopes and glides. The pitch ramp times the pitch binding is the per-sample step array (`rate_ratio` is 1), so
+/// every frequency follows the voice's pitch. `position` counts the voice's frames: a `length` keys it off at its
+/// frame (sample-exactly; PLAY's loop flag makes it endless). A voice with no entry (silence, or starved) is silent
+/// and ends at its key-off; one with an entry ends when its kernel does (the amp envelope released, a blip's end).
+#[allow(clippy::too_many_arguments)]
+fn render_gen_voice<const AUTO: bool, const DUE: bool>(slot: &mut VoiceSlot, auto: Option<&mut VoiceAuto>, mut fx: VoiceFx<'_>, gen: Option<crate::generator::Gen<'_>>, hrtf: Option<&mut Hrtf<'_>>, frame: u64, sample_rate: f32, from: usize, to: usize, out_l: &mut [f32], out_r: &mut [f32]) {
+    let mut auto = if AUTO { auto } else { None };
+    let Some(crate::generator::Gen { slot: rec, mut voice }) = gen else {
+        slot.state = state::ENDED;
+        return;
+    };
+    if slot.flags & (flag::PAUSED | flag::MIXED) == flag::PAUSED {
+        // Paused and out of the mix (A3.7): holds; a stop asked for while held ends it now.
+        if slot.flags & flag::STOP_ON_FADE_END != 0 {
+            slot.state = state::ENDED;
+        }
+        return;
+    }
+    let stopping = slot.flags & flag::STOP_ON_FADE_END != 0;
+    if stopping && slot.fade.is_settled() {
+        slot.state = state::ENDED;
+        return;
+    }
+    let mut n = to - from;
+    if stopping {
+        n = n.min(slot.fade.remaining as usize);
+    }
+    if slot.flags & flag::PAUSED != 0 {
+        n = n.min(slot.mix.remaining as usize);
+    }
+    if DUE {
+        n = n.min(fx.due.truncate_at as usize);
+    }
+    // The key-off by length: the frames of this range before it (all of them when it doesn't fall here).
+    let looping = slot.flags & flag::LOOP != 0;
+    let t0 = slot.position as u64;
+    let keyed = rec.flags & crate::generator::KEYED_OFF != 0;
+    let split = if !looping && !keyed && rec.keyoff_at != 0 { (rec.keyoff_at as u64).saturating_sub(t0).min(n as u64) as usize } else { n };
+    let keys_off = split < n || (split == n && !looping && !keyed && rec.keyoff_at != 0 && t0 + n as u64 >= rec.keyoff_at as u64);
+    let mut alive = true;
+    if slot.flags & flag::MIXED != 0 {
+        let mut steps = [0.0f32; QUANTUM];
+        for step in steps[..n].iter_mut() {
+            *step = slot.pitch.next();
+        }
+        if auto.as_deref().is_some_and(|a| a.count != 0 && a.targets & automation::has::PITCH != 0) {
+            if let Some(a) = auto.as_deref() {
+                auto_pitch(a, &mut steps[..n], from);
+            }
+        }
+        let mut l = [0.0f32; QUANTUM];
+        let mut r = [0.0f32; QUANTUM];
+        if let Some(v) = voice.as_deref_mut() {
+            alive = v.render(&steps[..split], &mut l[..split], looping);
+            if split < n {
+                v.key_off();
+                alive = v.render(&steps[split..n], &mut l[split..n], false);
+            } else if keys_off {
+                v.key_off();
+            }
+        }
+        r[..n].copy_from_slice(&l[..n]);
+        voice_chain(slot, auto.as_deref_mut(), &mut fx, sample_rate, from, &mut l[..n], &mut r[..n]);
+        spread(&mut fx, &slot.panner, &mut l[..n], &mut r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
+        let (id, bus) = (slot.id, slot.bus);
+        let route = fx.route;
+        slot.panner.mix_range(hrtf, fx.bed(bus), id, route, frame, from, &l[..n], &r[..n], &mut out_l[from..from + n], &mut out_r[from..from + n]);
+        if slot.flags & (flag::DEMOTING | flag::PAUSING | flag::PAUSED) != 0 && slot.mix.is_settled() {
+            slot.flags &= !(flag::MIXED | flag::DEMOTING | flag::PAUSING);
+        }
+    } else {
+        // Virtual: the kernel's envelopes and glides keep time; no oscillator or filter work.
+        if let Some(v) = voice.as_deref_mut() {
+            alive = v.advance(split as u32, looping);
+            if split < n || keys_off {
+                v.key_off();
+                alive = v.advance((n - split) as u32, false);
+            }
+        }
+        slot.pitch.advance(n as u32);
+        if DUE {
+            advance_due(&mut slot.gain, ramp_of::GAIN, fx.due, n as u32);
+            advance_due(&mut slot.fade, ramp_of::FADE, fx.due, n as u32);
+        } else {
+            slot.gain.advance(n as u32);
+            slot.fade.advance(n as u32);
+        }
+        slot.mix.advance(n as u32);
+        slot.panner.advance(n as u32);
+    }
+    slot.position += n as f64;
+    if keys_off {
+        rec.flags |= crate::generator::KEYED_OFF;
+    }
+    // With no entry (silence, starved) the voice ends at its key-off: its release would be silent.
+    let silent_end = voice.is_none() && rec.flags & crate::generator::KEYED_OFF != 0;
+    if !alive || silent_end || (stopping && slot.fade.is_settled()) {
         slot.state = state::ENDED;
     }
 }
@@ -2045,7 +2170,8 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
         if play.flags & wire::PLAY_FLAGS_LOOP != 0 {
             flags |= flag::LOOP;
         }
-        if play.flags & wire::PLAY_FLAGS_MIXED != 0 {
+        // ADR 0346: a silence generator is always virtual (the core may demote; it never mixes one).
+        if play.flags & wire::PLAY_FLAGS_MIXED != 0 && crate::generator::kind_of(play.clip) != Some(audio_dsp::gen::SILENCE) {
             flags |= flag::MIXED;
         }
         if play.flags & wire::PLAY_FLAGS_WANTS_PLAYHEAD != 0 {
@@ -2087,6 +2213,11 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
     };
     // ADR 0158 E2: the slot's automation entry now belongs to this voice and its group.
     automation::on_play(core, index, play.voice_id, play.group, start_frame);
+    // ADR 0346: a generator voice's slot record and pool entry (another region than the voices').
+    if crate::generator::kind_of(play.clip).is_some() {
+        let regions = core.regions_mut();
+        crate::generator::on_play(&mut regions.gen[..], slots_of(&regions.voices[..]), index, play.voice_id, play.clip);
+    }
     if let Some((old, stream, clip, old_flags2)) = replaced {
         // 0166 M4a (C2b): a replaced member leaves its group.
         crate::groups::leave(crate::groups::entries(core.regions_mut().groups), old_flags2, old);
@@ -2259,16 +2390,26 @@ pub fn stop(core: &mut Core, voice_id: u32, fade_frames: u32) {
 /// stale id is dropped. Stream voices are ignored in E2: their region loops go through the decoder
 /// worker's gapless-loop path (E4).
 pub fn set_loop(core: &mut Core, voice_id: u32, start: u32, end: u32, looping: bool) {
-    let index = {
+    let (index, generator) = {
         let v = view(core.regions_mut());
         let Some(index) = find(&v, voice_id) else { return };
         let s = &mut v.slots[index];
         if s.flags & flag::STREAM != 0 {
             return;
         }
-        s.flags &= !flag::LOOP;
-        index
+        let generator = crate::generator::kind_of(s.clip).is_some();
+        if !generator || !looping {
+            s.flags &= !flag::LOOP;
+        }
+        (index, generator)
     };
+    if generator {
+        // ADR 0346: a generator voice has no region; a release is its key-off (and ends a looping blip's repeats).
+        if !looping {
+            crate::generator::key_off(&mut core.regions_mut().gen[..], index, voice_id);
+        }
+        return;
+    }
     if !looping {
         // ADR 0328: a voice with a loop program takes it as its key-off, at this sample.
         let mut pos = view(core.regions_mut()).slots[index].position;
@@ -2314,6 +2455,9 @@ pub fn seek(core: &mut Core, voice_id: u32, frame: u32, epoch: u32) {
         let stream = s.clip;
         core.streams_mut().seek(stream, epoch, frame);
         return;
+    }
+    if crate::generator::kind_of(s.clip).is_some() {
+        return; // ADR 0346: a generator voice has nothing to seek in
     }
     if s.state == state::SCHEDULED {
         s.position = frame as f64; // not started: it starts there
@@ -2394,6 +2538,10 @@ pub fn set_mixed(core: &mut Core, m: &wire::SetMixed) {
     let Some(index) = find(&v, m.voice_id) else { return };
     let s = &mut v.slots[index];
     if m.mixed != 0 {
+        if crate::generator::kind_of(s.clip) == Some(audio_dsp::gen::SILENCE) {
+            // ADR 0346: a silence generator is never mixed.
+            return;
+        }
         promote_slot(s, m.gain, [m.dir_x, m.dir_y, m.dir_z], frames);
         if v.slots[index].flags & flag::MIXED != 0 {
             // ADR 0162 D1: a voice turning round keeps its entry and ramps to the new `lpHz` over
