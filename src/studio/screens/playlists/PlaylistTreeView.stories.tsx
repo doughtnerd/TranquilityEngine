@@ -58,7 +58,7 @@ export const MenuAndRename: Story = {
     await expect(args.actions.renameFile).toHaveBeenCalledWith("audio/vehicles/engine.playlist.json", "motor");
     within(c.getByRole("treeitem", { name: /two axes wind$/ })).getAllByText("wind")[0]!.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 40, clientY: 80 }));
     const body = within(canvasElement.ownerDocument.body);
-    await userEvent.click(await body.findByRole("menuitem", { name: "Delete…" }));
+    await userEvent.click(await body.findByRole("menuitem", { name: /^Delete…/ }));
     await expect(args.actions.remove).toHaveBeenCalled();
   },
 };

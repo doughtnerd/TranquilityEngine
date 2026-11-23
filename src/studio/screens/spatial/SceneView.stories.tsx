@@ -233,7 +233,9 @@ export const AddTwoDSound: Story = {
     const c = within(canvasElement);
     await userEvent.click(c.getByRole("button", { name: "2D sound" }));
     // A placing tool: the sound goes where the plan is clicked, and its action bar shows.
-    await userEvent.click(c.getByRole("img", { name: /Plan of the scene/ }));
+    const plan = c.getByRole("img", { name: /Plan of the scene/ });
+    const r = plan.getBoundingClientRect(); // a free spot near the plan's top-left (a click with no position has none)
+    await userEvent.pointer({ keys: "[MouseLeft]", target: plan, coords: { clientX: r.left + 40, clientY: r.top + 40 } });
     await expect(await c.findByRole("toolbar", { name: /^2D sound \d* ?actions$/ })).toBeInTheDocument();
     await userEvent.click(c.getByRole("button", { name: "Obstacle" }));
     await expect(c.getByRole("button", { name: "Obstacle" })).toHaveAttribute("aria-pressed", "true");

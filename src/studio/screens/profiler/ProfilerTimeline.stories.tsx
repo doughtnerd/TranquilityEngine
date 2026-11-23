@@ -124,7 +124,10 @@ export const EffectsCost: Story = {
     const row = await waitFor(() => c.getByRole("group", { name: "Effects cost · estimated" }));
     await expect(within(row).getByText("Voices")).toBeVisible();
     // A click moves the cursor there: the costliest sections then.
-    await userEvent.click(row.querySelector<HTMLElement>(".pf-plot")!);
+    // At the plot's middle (a click with no position lands at its left edge, time 0, before the first reading).
+    const plot = row.querySelector<HTMLElement>(".pf-plot")!;
+    const r = plot.getBoundingClientRect();
+    await userEvent.pointer({ keys: "[MouseLeft]", target: plot, coords: { clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 } });
     await waitFor(() => expect(row.querySelector(".pf-track-value")?.textContent).toMatch(/^Voices \d+‰ · Buses \d+‰$/));
   },
 };
