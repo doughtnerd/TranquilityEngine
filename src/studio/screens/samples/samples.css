@@ -27,7 +27,9 @@
 /* Timeline */
 .smp-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; width: 100%; }
 .smp-file { font-weight: 600; color: var(--text-strong); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 4px; }
-.smp-tl { display: flex; flex-direction: column; gap: 0; min-height: 100%; outline: none; }
+/* The timeline fills the panel: the body is a column, the lanes take what's left, and the audio lane grows (B-02). */
+.smp-timeline > .panel-body { display: flex; flex-direction: column; }
+.smp-tl { display: flex; flex-direction: column; gap: 0; flex: 1 0 auto; outline: none; }
 .smp-tl:focus-visible { box-shadow: inset 0 0 0 1px var(--focus-ring); }
 .smp-banner { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--warning-soft); color: var(--text); border-bottom: 1px solid var(--warning); }
 .smp-banner span { flex: 1; }
@@ -55,10 +57,18 @@
 .smp-trim.on { border-color: var(--range-trim); }
 .smp-trim .smp-region-label { flex: 1; text-align: center; }
 .smp-trim-handle { width: 6px; align-self: stretch; background: var(--range-trim); cursor: ew-resize; }
-.smp-wave-wrap { position: relative; flex: 1; min-height: 100px; display: flex; }
+.smp-wave-wrap { position: relative; flex: 1 1 auto; min-height: 96px; display: flex; }
 .smp-wave-wrap .tl-wave { flex: 1; }
-.smp-cut { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--danger); z-index: 2; pointer-events: none; }
-.smp-cut.ghost { background: var(--faint); }
+.smp-cut { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text-strong); z-index: 2; pointer-events: none; }
+.smp-cut.ghost { width: 1px; margin-left: 0; background: var(--faint); }
+/* Snippets on the waveform (B-13): a label each, a Tape button on each cut, Close gap on a deleted one. */
+.smp-segl { position: absolute; top: 2px; z-index: 3; padding: 0 4px; font-size: calc(10px * var(--ui-scale)); color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+.smp-segl.on { color: var(--text-strong); }
+.smp-snippet-on { position: absolute; top: 0; bottom: 0; z-index: 1; box-shadow: inset 0 0 0 1px var(--accent); pointer-events: none; }
+.smp-tape { position: absolute; bottom: 2px; z-index: 4; transform: translateX(-50%); padding: 0 5px; font-size: calc(10px * var(--ui-scale)); line-height: 16px; border-radius: 8px; background: var(--surface); border: 1px solid var(--border-strong); color: var(--text); cursor: pointer; }
+.smp-tape:hover:not(:disabled) { border-color: var(--accent); }
+.smp-gapb { position: absolute; top: 50%; z-index: 4; transform: translate(-50%, -50%); padding: 1px 8px; font-size: calc(11px * var(--ui-scale)); border-radius: 10px; background: var(--surface); border: 1px solid var(--border-strong); color: var(--text); white-space: nowrap; cursor: pointer; }
+.smp-gapb:hover:not(:disabled) { border-color: var(--accent); }
 .smp-zoombar { display: flex; align-items: center; gap: 4px; padding: 3px 6px; border-top: 1px solid var(--border); background: var(--panel); }
 .smp-range { position: relative; flex: 1; height: 10px; border-radius: 5px; background: var(--bg-sunken); border: 1px solid var(--border); margin-left: 6px; }
 .smp-range-thumb { position: absolute; top: 0; bottom: 0; min-width: 8px; border-radius: 5px; background: var(--button-hover); border: 1px solid var(--border-strong); cursor: grab; touch-action: none; }
@@ -83,6 +93,14 @@
 .smp-menu button { display: flex; gap: 6px; text-align: left; background: none; border: none; padding: 4px 8px; }
 .smp-menu button:hover { background: var(--hover); }
 .smp-menu-check { width: 12px; color: var(--accent); }
+/* The kit's context-menu rows spread their parts apart; these menus read left to right: ✓, label, then a note at the right (S-07). */
+.smp-menu.context-menu button { justify-content: flex-start; text-align: left; }
+.smp-menu-label { flex: 1 1 auto; }
+.smp-menu-note { margin-left: 16px; color: var(--faint); font-size: calc(11px * var(--ui-scale)); }
+/* The Save split button: two halves joined. */
+.smp-split { display: inline-flex; align-items: stretch; }
+.smp-split > .smp-split-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.smp-split > .smp-split-caret { border-top-left-radius: 0; border-bottom-left-radius: 0; border-left-width: 0; min-width: 0; padding: 2px 4px; }
 .smp-menu-group { padding: 4px 8px 2px; color: var(--faint); font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.05em; }
 
 /* Inspector */
@@ -94,6 +112,9 @@
 .smp-insp-body .fld > span:first-child, .smp-dialog .fld > span:first-child { color: var(--muted); }
 .smp-insp-body p { margin: 0; }
 .smp-type-help { font-size: calc(11px * var(--ui-scale)); }
+/* A segmented control wider than the Inspector wraps onto a second row instead of running out of it (I-02). */
+.smp-insp-body .kit-segmented { flex-wrap: wrap; max-width: 100%; }
+.smp-insp-body .kit-segmented button { flex: 1 0 auto; white-space: nowrap; }
 .smp-range-fields { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .smp-time { width: 92px; font-variant-numeric: tabular-nums; }
 .smp-swatches { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }

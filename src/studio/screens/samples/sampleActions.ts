@@ -13,6 +13,8 @@ import { followPlayhead, playMode, playheadTime, preRoll, razorOn, returnToStart
 import { planPlay, playing, releasePlay, startPlay, stopPlay } from "./sampleTransport";
 import { formatTime } from "../../components/timeRulerModel";
 import { snapSeconds } from "./sampleView";
+import { status } from "../../../editor/state";
+import { nameOf } from "./sampleLibrary";
 
 /** The open sample with its length, or null when there's none (or its length isn't read yet). */
 export function current() {
@@ -183,6 +185,26 @@ export function togglePlay(sel?: SampleSelection): boolean {
   const hear = studioHearAs();
   if (hear.choice.peek() === "source") begin();
   else void hear.prepare([audio]).then(begin);
+  return true;
+}
+
+// --- save ------------------------------------------------------------------------------------------------------------
+
+/**
+ * Save (Ctrl+S, the Save split button; owner decision 3): the open sample's project data, its sidecar or derived-sample
+ * file, written now. The audio file isn't touched: that is Write to file….
+ */
+export function save(): boolean {
+  const s = openSession.peek();
+  if (!s) return false;
+  if (s.readOnly) {
+    status.value = { kind: "info", text: `Can't save ${nameOf(s.path)}: the project is read-only.` };
+    return true;
+  }
+  void s.flush().then(
+    () => (status.value = { kind: "info", text: `Saved ${nameOf(s.path)}.` }),
+    (err: unknown) => (status.value = { kind: "error", text: `Couldn't save ${nameOf(s.path)}: ${err instanceof Error ? err.message : String(err)}` }),
+  );
   return true;
 }
 

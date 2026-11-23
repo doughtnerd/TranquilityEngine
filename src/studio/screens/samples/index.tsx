@@ -60,6 +60,8 @@ function start(): void {
     ["fork", ["Mod+Shift+S"], "Fork as new sample", () => (act.current() ? ((dialog.value = { kind: "fork", mode: "fork" }), true) : false)],
   ];
   for (const [id, combos, label, run] of keys) keymap.register({ id: `samples.${id}`, keys: combos, label, group, scope, run });
+  // Owner decision 3: Ctrl+S saves the sample's project data (its sidecar), also from a text field; Write to file… is in the Save menu.
+  keymap.register({ id: "samples.save", keys: ["Mod+S"], label: "Save the sample's edits", group, scope, inText: true, run: act.save });
 }
 
 /** A panel view that starts the screen the first time any of its panels draws. */

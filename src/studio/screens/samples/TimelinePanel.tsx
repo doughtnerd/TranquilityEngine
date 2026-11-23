@@ -8,6 +8,7 @@ import { currentProject } from "../../../editor/state";
 import { ContextMenu, SEPARATOR, tidyEntries, type MenuEntry } from "../../../editor/ui/ContextMenu";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { HistoryPopover } from "../../../editor/ui/HistoryPopover";
+import { formatKeys, isMacPlatform } from "../../../editor/ui/keyCombo";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { Icon } from "../../components/Icon";
 import { Playhead } from "../../components/Playhead";
@@ -33,6 +34,7 @@ import { dialog, hoverTime, openSession, playheadTime, razorOn, select, selectio
 import { playing } from "./sampleTransport";
 import { diskChange } from "./sampleDisk";
 import { nameOf } from "./sampleLibrary";
+import { SaveSplitButton } from "./SaveSplitButton";
 
 const ROW_PX = 18;
 
@@ -93,6 +95,7 @@ function Timeline(props: { session: SampleSession }) {
   const width = useElementWidth(lanes);
   const [menu, setMenu] = useState<{ x: number; y: number; entries: MenuEntry[]; label: string } | null>(null);
   const [ghost, setGhost] = useState<{ x: number; row: number } | null>(null);
+  const mac = isMacPlatform();
 
   if (length === null) {
     return (
@@ -191,21 +194,21 @@ function Timeline(props: { session: SampleSession }) {
       toolbar={
         <div class="smp-toolbar" role="toolbar" aria-label="Sample tools">
           <span class="smp-file" title={session.path}>{nameOf(session.path)}</span>
-          <span class="history-panel">
-            <HistoryPopover none="No edits yet" />
-          </span>
-          <button class="smp-tool smp-tool-icon" aria-label="Write to file…" title="Write markers, loops, tempo and root into the WAV (a backup is kept)" disabled={session.readOnly || !/\.wave?$/i.test(source)} onClick={() => (dialog.value = { kind: "write" })}>
-            <Icon name="export" />
-            <span class="smp-hide-narrow">Write to file…</span>
-          </button>
+          <SaveSplitButton
+            canSave={!session.readOnly}
+            whyNoWrite={session.readOnly ? "The project is read-only" : !/\.wave?$/i.test(source) ? "Only a WAV file can carry markers and loops" : null}
+            canFork={!session.readOnly}
+            saveKeys={formatKeys("Mod+S", mac)}
+            forkKeys={formatKeys("Mod+Shift+S", mac)}
+            onSave={act.save}
+            onWrite={() => (dialog.value = { kind: "write" })}
+            onFork={() => (dialog.value = { kind: "fork", mode: "fork" })}
+          />
           <button class="smp-tool smp-tool-icon" aria-label="Re-import…" title="Replace the audio with a new file, keeping the edits (the current audio is kept as a version)" disabled={session.readOnly || session.derived.value !== null} onClick={() => (dialog.value = { kind: "reimport" })}>
             <Icon name="import" />
             <span class="smp-hide-narrow">Re-import…</span>
           </button>
-          <button class="smp-tool smp-tool-icon" aria-label="Fork…" title="Fork as new sample (Ctrl+Shift+S)" disabled={session.readOnly} onClick={() => (dialog.value = { kind: "fork", mode: "fork" })}>
-            <Icon name="copy" />
-            <span class="smp-hide-narrow">Fork…</span>
-          </button>
+          <HistoryPopover none="No edits yet" />
           <span class="smp-sep" aria-hidden="true" />
           <TempoPopover edits={e} commit={(r) => commit(r)} detect={detect} disabled={session.readOnly} />
           <RootPopover edits={e} commit={(r) => commit(r)} detect={detect} disabled={session.readOnly} />
