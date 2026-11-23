@@ -97,6 +97,10 @@ shapes, and the curve editor for the rest; the 2D plane tints each entry's shape
 
 Limits (the parse drops what is past them, with one problem line each): 256 entries, nesting 16, 32 tracks, 512 clips, 64 keys per curve, 16 local parameters. The parse is lenient: a bad value falls back to its default and is reported once in the console.
 
+## Generators
+
+A Clip playlist can play a **sound generator** (`*.generator.json`: an oscillator, a two-oscillator synth, an sfxr blip, or silence) beside its samples, linked (`{ "generator": "audio/ui/coin.generator.json" }`) or embedded (the generator object itself), and a sequence clip can have a generator as its source instead of a sample or a playlist. Its parameters follow `gen:<param>` voice curves and clip automation. `Audio.play("audio/ui/coin.generator.json")` plays one directly. Making them, presets, audition, Bake and the fallback's limits are in [Sound generators](sound-generators.md).
+
 ## Debugging
 
 `Audio.debug().events` lists the playing instances (`id`, `asset` = the playlist path, `voices`, `parameters`, `lateStarts`); `Audio.debug().playlistTotals` has the refused triggers by reason, the latest refusals and steals, and the late starts. The Audio Studio's Profiler shows the same in a capture or a take. See [Why is there no sound?](why-no-sound.md).
