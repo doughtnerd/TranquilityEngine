@@ -242,6 +242,20 @@ describe("file diff, revert, detach, write and merge", () => {
     expect(merged.markers.some((m) => m.name === "Stop")).toBe(true);
     expect(merged.loops[0]).toMatchObject({ end: 1.5, file: { end: 1.5 } });
   });
+
+  it("matches a moved file loop to a project loop that has no file snapshot", () => {
+    const untracked: SampleEdits = { ...defaultSampleEdits("sustain"), loops: [loop("l1", 0.45, 1.55)] };
+    const meta = (end: number): WavMetadata => ({
+      sampleRate: 1000, frames: 2600, channels: 1, root: null, tempo: null, bext: null, regions: [], cues: [],
+      loops: [{ cueId: 0, type: 0, start: 450, end, fraction: 0, playCount: 0 }],
+    });
+    expect(mergeRows(untracked, meta(1550))).toEqual([]); // the file says what the project has: nothing to review
+    const rows = mergeRows(untracked, meta(1600));
+    expect(rows.map((r) => [r.title, r.detail, r.conflict, r.choice, r.id])).toEqual([["Loop end moved", "0.450 s – 1.550 s → 0.450 s – 1.600 s", false, "file", "l1"]]);
+    const merged = next(applyMerge(untracked, rows, "engine-idle.wav"));
+    expect(merged.loops).toHaveLength(1);
+    expect(merged.loops[0]).toMatchObject({ id: "l1", end: 1.6, file: { index: 0, end: 1.6 } });
+  });
 });
 
 describe("timeline structure", () => {
