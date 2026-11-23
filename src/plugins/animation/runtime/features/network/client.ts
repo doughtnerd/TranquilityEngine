@@ -8,8 +8,8 @@
 // - Parameters declared `replicate` are set when their value changes.
 // - Each layer machine's state: when the client's machine is in another state for `GRACE_SECONDS` after the server
 //   entered its state (so a transition the replicated parameters drive locally isn't fought), it jumps there (once per
-//   difference; again only if it drifts away again). The core's `JUMP` carries no time yet, so the state starts from
-//   its beginning rather than at the server's normalised time (its time since the replicated entry tick).
+//   difference; again only if it drifts away again), entering it as far in as the server is: its time since the
+//   replicated entry tick (the core's `JUMP` time offset, T70).
 // - Slot plays start at their start tick; one that started earlier (a late join, a load) starts that far into its
 //   section, and one already over or stopped isn't played. Stops apply at their tick.
 // - Link choices apply at their tick.
@@ -89,7 +89,7 @@ function applyLinks(na: NetAnimator, a: Animator, now: number | null): void {
 }
 
 /** Interpolated ghosts: each layer machine follows the server's state, jumping only after a lasting difference. */
-function applyStates(na: NetAnimator, a: Animator, meta: GraphMeta, now: number, grace: number): void {
+function applyStates(na: NetAnimator, a: Animator, meta: GraphMeta, now: number, grace: number, tickSeconds: number): void {
   for (const s of na.remoteStates) {
     const m = meta.machines[s.machine];
     const target = m?.states[s.state];
@@ -102,7 +102,8 @@ function applyStates(na: NetAnimator, a: Animator, meta: GraphMeta, now: number,
     const since = na.mismatch.get(s.machine);
     if (since === undefined) na.mismatch.set(s.machine, now);
     else if (now - since >= grace) {
-      queueJump(a, target, m.layer);
+      // Into the state as far as the server is: its time since the replicated entry tick (T70).
+      queueJump(a, target, m.layer, 0, (now - s.tick) * tickSeconds);
       na.mismatch.set(s.machine, now);
     }
   }
@@ -189,7 +190,7 @@ export function applyReplicated(frame: AnimationFrame): void {
     if (role === "interpolated") {
       applyParameters(na, a, meta, now, false);
       applyLinks(na, a, now);
-      applyStates(na, a, meta, now, grace);
+      applyStates(na, a, meta, now, grace, 1 / session.tickRate);
       applySlots(na, rt, now, dt);
     } else {
       applyParameters(na, a, meta, null, true);

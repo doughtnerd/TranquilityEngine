@@ -254,8 +254,15 @@ pub fn apply(
                 logic::travel(program, &mut inst.state, groups, machine as usize, state)
                     .map_err(|_| r(STATUS_UNREACHABLE))?;
             } else {
-                logic::jump(program, &mut inst.state, groups, machine as usize, state, at)
-                    .map_err(|_| r(STATUS_NO_SUCH))?;
+                logic::jump(
+                    program,
+                    &mut inst.state,
+                    groups,
+                    machine as usize,
+                    state,
+                    at,
+                )
+                .map_err(|_| r(STATUS_NO_SUCH))?;
             }
         }
         SlotPlay::OPCODE => {

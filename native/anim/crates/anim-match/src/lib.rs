@@ -50,7 +50,9 @@ pub const MAX_TRAJECTORY: usize = 16;
 /// The deepest KD-tree the search accepts (a median-split tree over 2^32 frames is 32 deep).
 pub const MAX_KD_DEPTH: usize = 64;
 
-pub use bake::{bake, BakeClip, BakeError, BakeSettings, Baked, Normalization, TaggedRange};
+pub use bake::{
+    bake, BakeClip, BakeError, BakeSettings, Baked, CustomFeature, Normalization, TaggedRange,
+};
 pub use character::CharacterFrame;
 pub use controller::{ControllerSettings, MatchController, MatchOutput};
 pub use db::{tag_index, LoadError, MatchDb, TagFilter, TagMask};

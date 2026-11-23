@@ -27,7 +27,7 @@ use anim_compress::{CompressError, Report, RootMotion, Settings};
 use anim_format::clip::{ClipView, RotationFormat};
 use anim_format::skeleton::SkeletonView;
 use anim_format::NONE;
-use anim_match::{BakeClip, BakeSettings, FeatureSpec, Normalization, TaggedRange};
+use anim_match::{BakeClip, BakeSettings, CustomFeature, FeatureSpec, Normalization, TaggedRange};
 use anim_retarget::bake::{bake, compress_baked, SkeletonData};
 use anim_retarget::{BoneMap, MapSettings, Profile, RetargetMap, RetargetOptions, RootAxis, Side};
 use anim_sample::Form;
@@ -332,6 +332,23 @@ pub fn compile_retarget(
     Ok((out.bytes, out.report))
 }
 
+/// Custom feature record stride (f32 values): dims (1–4), weight.
+pub const CUSTOM_LEN: usize = 2;
+
+/// T70: a pose database bake's mirrored copies and custom features.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PosedbExtras<'a> {
+    /// Per clip, flags (bit 0: also bake a mirrored copy); empty: none.
+    pub clip_flags: &'a [u32],
+    /// The mirror table: the axis (0 X, 1 Y, 2 Z), then a `MIRROR`-node word per skeleton bone
+    /// (`retarget_mirror_table` with the skeleton's profile); needed when a clip is mirrored.
+    pub mirror: &'a [u32],
+    /// [`CUSTOM_LEN`] f32 per custom feature; each reads the clips' curve track named by the
+    /// matching line of `custom_names`.
+    pub custom: &'a [f32],
+    pub custom_names: &'a str,
+}
+
 /// Ranges record stride (f32 values): clip index, start, end, tag count.
 pub const RANGE_LEN: usize = 4;
 /// Schema record stride (f32 values): kind (`FeatureKind` id), bone, weight, time offset.
@@ -342,7 +359,8 @@ pub const FEATURE_LEN: usize = 4;
 /// [`RANGE_LEN`] f32 per tagged range, whose tags are the next `tag count` lines of `tags`;
 /// `schema` is [`FEATURE_LEN`] f32 per feature; `bake` is sample rate, std floor,
 /// normalization (0 per dimension, 1 per feature), KD-tree (0/1), leaf size and root bone (< 0:
-/// none), missing values taking the bake's defaults. `skeleton_name`: "" for none.
+/// none), missing values taking the bake's defaults. `skeleton_name`: "" for none. `extras`:
+/// T70's mirrored copies and custom features.
 #[allow(clippy::too_many_arguments)]
 pub fn compile_posedb(
     skeleton: &[u8],
@@ -354,6 +372,7 @@ pub fn compile_posedb(
     tags: &str,
     schema: &[f32],
     bake_settings: &[f32],
+    extras: &PosedbExtras<'_>,
 ) -> Result<Vec<u8>, CompileError> {
     use anim_format::posedb::FeatureKind;
     let skel = SkeletonView::parse(skeleton).map_err(|e| err(format_args!("skeleton: {e}")))?;
@@ -427,6 +446,33 @@ pub fn compile_posedb(
             },
             asset: names[i],
             ranges: &range_lists[i],
+            mirror: extras.clip_flags.get(i).is_some_and(|f| f & 1 != 0),
+        })
+        .collect();
+    let custom_names: Vec<&str> = if extras.custom_names.is_empty() {
+        Vec::new()
+    } else {
+        extras.custom_names.split('\n').collect()
+    };
+    if !extras.custom.len().is_multiple_of(CUSTOM_LEN)
+        || extras.custom.len() / CUSTOM_LEN != custom_names.len()
+    {
+        return Err(err("custom: 2 values and a name per custom feature"));
+    }
+    let custom: Vec<CustomFeature<'_>> = extras
+        .custom
+        .as_chunks::<CUSTOM_LEN>()
+        .0
+        .iter()
+        .zip(&custom_names)
+        .map(|(c, name)| CustomFeature {
+            name,
+            dims: if c[0] >= 1.0 && c[0] <= 4.0 {
+                c[0] as u16
+            } else {
+                0
+            },
+            weight: c[1],
         })
         .collect();
     if !schema.len().is_multiple_of(FEATURE_LEN) {
@@ -472,6 +518,8 @@ pub fn compile_posedb(
     if !skeleton_name.is_empty() {
         s.skeleton = Some(skeleton_name);
     }
+    s.mirror = extras.mirror;
+    s.custom = &custom;
     anim_match::bake(&skel, &bake_clips, &features, &s)
         .map(|b| b.bytes)
         .map_err(|e| err(format_args!("pose database: {e:?}")))
@@ -574,7 +622,8 @@ pub fn retarget_bake_compressed(
     ))
 }
 
-/// [`compile_posedb`]: the database file, or empty (`last_error`).
+/// [`compile_posedb`]: the database file, or empty (`last_error`). `clip_flags`, `mirror`,
+/// `custom` and `custom_names` are [`PosedbExtras`]'s fields (T70; empty for none).
 #[allow(clippy::too_many_arguments)]
 #[wasm_bindgen]
 pub fn posedb_bake(
@@ -587,6 +636,10 @@ pub fn posedb_bake(
     tags: &str,
     schema: &[f32],
     settings: &[f32],
+    clip_flags: &[u32],
+    mirror: &[u32],
+    custom: &[f32],
+    custom_names: &str,
 ) -> Vec<u8> {
     finish(
         compile_posedb(
@@ -599,6 +652,12 @@ pub fn posedb_bake(
             tags,
             schema,
             settings,
+            &PosedbExtras {
+                clip_flags,
+                mirror,
+                custom,
+                custom_names,
+            },
         ),
         None,
     )

@@ -308,6 +308,7 @@ impl Fixture {
                 form: Form::Raw,
                 asset: n,
                 ranges: r,
+                mirror: false,
             })
             .collect();
         anim_match::bake(&skel, &clips, schema, settings).unwrap()

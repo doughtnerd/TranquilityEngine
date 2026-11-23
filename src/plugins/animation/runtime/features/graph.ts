@@ -35,7 +35,7 @@ export function travel(animator: Animator, state: string, options: AnimatorTrave
 
 /** @internal `Animator.jump`. */
 export function jump(animator: Animator, state: string, options: AnimatorJumpOptions): void {
-  queueJump(animator, state, options.layer);
+  queueJump(animator, state, options.layer, options.normalizedTime ?? 0);
 }
 
 /** @internal `Animator.link`. */

@@ -205,6 +205,7 @@ fn ranges_select_frames_and_union_their_tags() {
         form: Form::Raw,
         asset: "walk.anim",
         ranges: &ranges,
+        mirror: false,
     }];
     let baked = bake(&skel, &clips, &schema(), &BakeSettings::default()).unwrap();
     let view = PoseDbView::parse(&baked.bytes).unwrap();
@@ -264,6 +265,7 @@ fn bad_input_is_refused() {
         form: Form::Raw,
         asset: "idle.anim",
         ranges: &[],
+        mirror: false,
     }];
     let s = BakeSettings::default();
     let custom = FeatureSpec {
@@ -319,6 +321,7 @@ fn bad_input_is_refused() {
             end: 2.5,
             tags: &[],
         }],
+        mirror: false,
     }];
     assert_eq!(
         bake(&skel, &short, &schema(), &s).unwrap_err(),

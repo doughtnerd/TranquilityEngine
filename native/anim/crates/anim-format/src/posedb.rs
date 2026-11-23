@@ -78,6 +78,15 @@
 //!
 //! Children have larger indices than their parent (so the tree has no cycles).
 //! `KD_INDICES` holds frame indices.
+//!
+//! ## `CLIP_FLAGS`, `MIRROR` (T70, optional)
+//!
+//! `CLIP_FLAGS`: a `u32` per clip ([`CLIP_MIRRORED`]; other bits 0). A mirrored entry names the
+//! same clip asset as its original; its frames were measured on the pose mirrored through
+//! `MIRROR`, and the runtime plays it mirrored the same way. `MIRROR` (required when a clip is
+//! mirrored): the mirror axis (0 X, 1 Y, 2 Z), then a word per bone as the graph's `MIRROR` node
+//! takes it (`anim_graph::mixing::mirror_word`: the partner bone in bits 0–15, `0xFFFF` for
+//! itself; the flip in bits 16–17; other bits 0).
 
 use crate::bytes::*;
 use crate::container::{self, Container, FormatSpec, Layout, SectionEntry, SectionSpec};
@@ -116,7 +125,15 @@ pub mod section {
     pub const KD_NODES: u32 = 10;
     /// KD-tree leaf entries.
     pub const KD_INDICES: u32 = 11;
+    /// Per-clip flags (T70: mirrored copies).
+    pub const CLIP_FLAGS: u32 = 12;
+    /// The mirror table mirrored clips play through.
+    pub const MIRROR: u32 = 13;
 }
+
+/// `CLIP_FLAGS` bit: the clip entry is a mirrored copy (its frames were measured on the clip's
+/// pose mirrored through `MIRROR`, and the runtime plays it mirrored the same way).
+pub const CLIP_MIRRORED: u32 = 1;
 
 const INFO_LEN: usize = 32;
 const FEATURE_LEN: usize = 24;
@@ -201,6 +218,20 @@ static SPEC: FormatSpec = FormatSpec {
         SectionSpec {
             kind: section::KD_INDICES,
             name: "KD_INDICES",
+            align: 4,
+            layout: Layout::Records(4),
+            required: false,
+        },
+        SectionSpec {
+            kind: section::CLIP_FLAGS,
+            name: "CLIP_FLAGS",
+            align: 4,
+            layout: Layout::Records(4),
+            required: false,
+        },
+        SectionSpec {
+            kind: section::MIRROR,
+            name: "MIRROR",
             align: 4,
             layout: Layout::Records(4),
             required: false,
@@ -319,6 +350,10 @@ pub struct PoseDb {
     pub tags: Vec<u32>,
     /// The KD-tree, if baked.
     pub kd_tree: Option<KdTree>,
+    /// T70: a `CLIP_*` flag word per clip, or empty (no flags).
+    pub clip_flags: Vec<u32>,
+    /// T70: the mirror table (axis, then a word per bone), or empty (none).
+    pub mirror: Vec<u32>,
 }
 
 /// u32 words of tag bits per frame for `tags` tags.
@@ -428,6 +463,16 @@ impl PoseDb {
                 kd.indices.len(),
                 u32_bytes(&kd.indices),
             )?;
+        }
+        if !self.clip_flags.is_empty() {
+            w.section(
+                section::CLIP_FLAGS,
+                self.clip_flags.len(),
+                u32_bytes(&self.clip_flags),
+            )?;
+        }
+        if !self.mirror.is_empty() {
+            w.section(section::MIRROR, self.mirror.len(), u32_bytes(&self.mirror))?;
         }
         let bytes = w.finish()?;
         PoseDbView::parse(&bytes)?;
@@ -703,6 +748,39 @@ impl<'a> PoseDbView<'a> {
         for f in U32s::new(c.data(section::KD_INDICES)).iter() {
             check_index("KD frame", f, frames)?;
         }
+
+        if c.get(section::CLIP_FLAGS).is_some() {
+            count("CLIP_FLAGS words", c.count(section::CLIP_FLAGS), n_clips)?;
+        }
+        let mut mirrored = false;
+        for f in U32s::new(c.data(section::CLIP_FLAGS)).iter() {
+            if f & !CLIP_MIRRORED != 0 {
+                return Err(FormatError::InvalidValue {
+                    what: "clip flags",
+                    value: f,
+                });
+            }
+            mirrored |= f & CLIP_MIRRORED != 0;
+        }
+        let mirror = U32s::new(c.data(section::MIRROR));
+        if mirrored && mirror.is_empty() {
+            return Err(FormatError::MissingSection {
+                section: "MIRROR with a mirrored clip",
+            });
+        }
+        if let Some(axis) = mirror.get(0) {
+            check_index("mirror axis", axis, 3)?;
+        }
+        let bones = mirror.len().saturating_sub(1);
+        for w in mirror.iter().skip(1) {
+            // A partner (low 16 bits; 0xFFFF: none) and a flip (bits 16-17).
+            if w >> 18 != 0 || ((w & 0xFFFF) != 0xFFFF && (w & 0xFFFF) as usize >= bones) {
+                return Err(FormatError::InvalidValue {
+                    what: "mirror word",
+                    value: w,
+                });
+            }
+        }
         Ok(())
     }
 
@@ -814,6 +892,18 @@ impl<'a> PoseDbView<'a> {
         U32s::new(self.c.data(section::KD_INDICES))
     }
 
+    /// Clip `i`'s `CLIP_*` flags (0 without a `CLIP_FLAGS` section).
+    pub fn clip_flags(&self, i: usize) -> u32 {
+        U32s::new(self.c.data(section::CLIP_FLAGS))
+            .get(i)
+            .unwrap_or(0)
+    }
+    /// The mirror table: the axis (0 X, 1 Y, 2 Z), then a `MIRROR`-node word per bone (partner,
+    /// flip in bits 16-17); empty without one.
+    pub fn mirror(&self) -> U32s<'a> {
+        U32s::new(self.c.data(section::MIRROR))
+    }
+
     /// The owned model.
     pub fn to_posedb(&self) -> PoseDb {
         let frames = self.frame_count();
@@ -841,6 +931,8 @@ impl<'a> PoseDbView<'a> {
                     .collect(),
                 indices: self.kd_indices().to_vec(),
             }),
+            clip_flags: U32s::new(self.c.data(section::CLIP_FLAGS)).to_vec(),
+            mirror: self.mirror().to_vec(),
         }
     }
 }

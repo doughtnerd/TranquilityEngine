@@ -2073,6 +2073,19 @@ impl<'a> EvalContext<'a> {
         Some((pa, pb, po))
     }
 
+    /// An input slot and an output slot (different); `None` without scratch or for equal slots.
+    pub fn poses2(
+        &mut self,
+        a: usize,
+        out: usize,
+    ) -> Option<(&[SoaTransform], &mut [SoaTransform])> {
+        let g = self.groups;
+        let sb = self.stack_base();
+        let s = self.scratch.as_mut()?;
+        let [pa, po] = split_slots(&mut s.poses[sb..], g, [a, out])?;
+        Some((pa, po))
+    }
+
     /// `out ← lerp(out, from, t)` for two distinct slots (an accumulating blend).
     pub fn lerp_slot_into(&mut self, out: usize, from: usize, t: f32) {
         let g = self.groups;

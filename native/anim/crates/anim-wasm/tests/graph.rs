@@ -748,8 +748,16 @@ fn a_jump_with_a_normalised_time_enters_the_state_that_far_in() {
     assert!(diff(&r.mats(h), &want) < 1e-5);
     let rep = report(&mut r.core, h);
     let mr = &rep.machines[0];
-    assert!((mr.normalized - (0.3 + DT / 2.0)).abs() < 1e-5, "{}", mr.normalized);
-    assert!((mr.state_time - (0.6 + DT)).abs() < 1e-5, "{}", mr.state_time);
+    assert!(
+        (mr.normalized - (0.3 + DT / 2.0)).abs() < 1e-5,
+        "{}",
+        mr.normalized
+    );
+    assert!(
+        (mr.state_time - (0.6 + DT)).abs() < 1e-5,
+        "{}",
+        mr.state_time
+    );
 
     // Past the end: a looping clip wraps (1.25 cycles = 0.5 s in), a one-shot clamps at its end.
     send(&mut r.core, &[jump_at(h, 0, 1, 1.25, 0.0)]);

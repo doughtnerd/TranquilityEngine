@@ -123,6 +123,9 @@ pub struct MatchDb {
     pub(crate) runs: Vec<Run>,
     pub(crate) offsets: [f32; MAX_TRAJECTORY],
     pub(crate) offset_count: usize,
+    /// T70: each clip entry's `CLIP_*` flags (empty: none) and the mirror table.
+    pub(crate) clip_flags: Vec<u32>,
+    pub(crate) mirror: Vec<u32>,
 }
 
 impl MatchDb {
@@ -244,6 +247,10 @@ impl MatchDb {
             runs,
             offsets,
             offset_count,
+            clip_flags: (0..view.clips().len())
+                .map(|i| view.clip_flags(i))
+                .collect(),
+            mirror: view.mirror().to_vec(),
         };
         if !db.nodes.is_empty() {
             db.check_tree(view)?;
@@ -419,6 +426,19 @@ impl MatchDb {
         }
         any || !p.need_any
     }
+    /// T70: whether clip entry `clip` is a mirrored copy (`CLIP_MIRRORED`; played mirrored
+    /// through [`mirror_table`](Self::mirror_table)).
+    pub fn clip_mirrored(&self, clip: u32) -> bool {
+        self.clip_flags
+            .get(clip as usize)
+            .is_some_and(|f| f & anim_format::posedb::CLIP_MIRRORED != 0)
+    }
+
+    /// T70: the mirror table (the axis, then a `MIRROR`-node word per bone; empty: none).
+    pub fn mirror_table(&self) -> &[u32] {
+        &self.mirror
+    }
+
     /// Frame `frame`'s trajectory features in the character's frame (T70, the live debugger's
     /// matched trajectory): one sample per distinct trajectory offset, de-normalised (`row / √weight
     /// · std + mean`). A feature of weight 0 can't be recovered and reads as its mean. `false`

@@ -91,6 +91,8 @@ fn gen_db(rng: &mut Rng) -> PoseDb {
         tag_names,
         tags,
         kd_tree: rng.bool().then(|| gen_kd(rng, frames as u32, dims)),
+        clip_flags: Vec::new(),
+        mirror: Vec::new(),
     }
 }
 
@@ -165,6 +167,8 @@ fn sample() -> PoseDb {
             ],
             indices: vec![0, 1, 2],
         }),
+        clip_flags: Vec::new(),
+        mirror: Vec::new(),
     }
 }
 

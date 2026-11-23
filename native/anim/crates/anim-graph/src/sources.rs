@@ -305,7 +305,12 @@ fn clip_player(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
             let (norm, secs) = cx.init_offset();
             if norm > 0.0 || secs > 0.0 {
                 if let Some(c) = cx.assets().clip(clip) {
-                    start = offset_start(start, norm * c.duration + secs, c.duration, loops(&c, flags));
+                    start = offset_start(
+                        start,
+                        norm * c.duration + secs,
+                        c.duration,
+                        loops(&c, flags),
+                    );
                 }
             }
             let s = cx.state();

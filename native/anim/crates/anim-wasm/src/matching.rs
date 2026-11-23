@@ -21,11 +21,11 @@ use anim_format::posedb::PoseDbView;
 use anim_graph::dispatch::Family;
 use anim_graph::matching::{self, MatchRef, MAX_QUERY_LANES};
 use anim_match::MatchDb;
+use anim_match::Trajectory;
 use anim_wire::core::{
     Init, STATUS_BAD_ASSET, STATUS_MISMATCH, STATUS_NOT_INITIALIZED, STATUS_OK, STATUS_TOO_LARGE,
     STATUS_WRONG_KIND,
 };
-use anim_match::Trajectory;
 use anim_wire::r#match::{
     MatchHeader, MatchNode, MatchSample, MATCH_DEBUG_BYTES, SAMPLE_MATCHED, SAMPLE_PREDICTED,
 };

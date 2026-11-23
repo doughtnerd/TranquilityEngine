@@ -329,7 +329,10 @@ fn an_eval_mask_writes_only_the_masked_bones_and_their_ancestors() {
             p => b = p as usize,
         }
     }
-    assert!(needed.iter().any(|n| !n), "the tree has bones off the leaf's chain");
+    assert!(
+        needed.iter().any(|n| !n),
+        "the tree has bones off the leaf's chain"
+    );
     send(
         &mut f.core,
         &[play(full, f.a, 0, 0.0, 1, 0), play(part, f.a, 0, 0.0, 2, 0)],
@@ -341,7 +344,10 @@ fn an_eval_mask_writes_only_the_masked_bones_and_their_ancestors() {
         if n {
             assert_eq!(a[r.clone()], p[r], "bone {bone} is computed exactly");
         } else {
-            assert!(p[r].iter().all(|v| *v == 0.0), "bone {bone} is never written");
+            assert!(
+                p[r].iter().all(|v| *v == 0.0),
+                "bone {bone} is never written"
+            );
         }
     }
     // Mask 0: every bone again; a mask of another bone count is refused.
@@ -371,7 +377,9 @@ fn a_clip_replaced_in_place_keeps_its_plays_and_samples_the_new_file() {
     // Both played 12 frames from 0 and now sample the same file at the same time.
     assert_eq!(mats(&f, h), mats(&f, other));
     assert!(
-        changes(&f.core).iter().all(|c| c.kind != CHANGE_INTERRUPTED),
+        changes(&f.core)
+            .iter()
+            .all(|c| c.kind != CHANGE_INTERRUPTED),
         "no play restarted"
     );
     let expected = f
@@ -383,7 +391,10 @@ fn a_clip_replaced_in_place_keeps_its_plays_and_samples_the_new_file() {
     let (small, _) = skeleton(Shape::Chain(3), 1);
     let few = clip(&small, 1.0, true, 5);
     assert_eq!(f.core.replace_clip(f.a, &few), STATUS_MISMATCH);
-    assert_eq!(f.core.replace_clip(f.skel, &f.b_bytes.clone()), STATUS_WRONG_KIND);
+    assert_eq!(
+        f.core.replace_clip(f.skel, &f.b_bytes.clone()),
+        STATUS_WRONG_KIND
+    );
 }
 
 const NO_PARENT_BONE: u16 = 0xFFFF;

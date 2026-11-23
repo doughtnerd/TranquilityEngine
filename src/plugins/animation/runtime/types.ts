@@ -147,6 +147,11 @@ export interface AnimatorTravelResult {
 export interface AnimatorJumpOptions {
   /** The layer whose state machine jumps (default 0). */
   readonly layer?: AnimatorLayer;
+  /**
+   * Enter the state this far in: cycles of its clips (0.5 is halfway; a looping clip wraps past 1, a one-shot holds its
+   * end), as Unity's `Play(state, layer, normalizedTime)`. Default 0, the state's start. Nothing fires for the skipped part.
+   */
+  readonly normalizedTime?: number;
 }
 
 /** What `Animator.state(layer)` reports (ADR 0372). */

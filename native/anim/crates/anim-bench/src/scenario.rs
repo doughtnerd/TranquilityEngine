@@ -427,6 +427,7 @@ pub fn match_set() -> MatchSet {
             form: Form::Raw,
             asset: n,
             ranges: r,
+            mirror: false,
         })
         .collect();
     let schema =

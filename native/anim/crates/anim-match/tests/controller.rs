@@ -71,6 +71,8 @@ fn tiny(ramp: f32) -> Vec<u8> {
         tag_names: vec![2, 3],
         tags,
         kd_tree: None,
+        clip_flags: Vec::new(),
+        mirror: Vec::new(),
     }
     .write()
     .unwrap()

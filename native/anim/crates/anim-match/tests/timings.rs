@@ -71,6 +71,7 @@ fn search_timings_on_a_30_minute_database() {
             form: Form::Raw,
             asset: n,
             ranges: r,
+            mirror: false,
         })
         .collect();
 
