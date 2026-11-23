@@ -39,6 +39,8 @@ import {
   toNorm,
   valueAt,
   withEnds,
+  xTicks,
+  DISTANCE_INPUT,
   withLane,
   type CurveEditorSpec,
   type CurveLane,
@@ -259,6 +261,12 @@ describe("distance", () => {
     expect(c[6][1]).toBeCloseTo(-20 * Math.log10(20));
     expect(c.at(-2)).toEqual([40.1, -60]);
     expect(c.at(-1)![0]).toBe(60);
+  });
+  it("leaves out an axis label that would run into the end's (UI pass CU6: Max 50 m, axis to 75 m)", () => {
+    const axis = axisOf({ ...spec, maxDistance: 50 }, DISTANCE_INPUT);
+    const ticks = xTicks(axis, [0, 75]);
+    expect(ticks).toEqual([0, 10, 20, 30, 40, 50, 60, 75]); // no 70 beside 75
+    expect(xTicks(axis, [0, 60])).toEqual([0, 10, 20, 30, 40, 50, 60]);
   });
   it("presets apply between Min and Max, leading with a key at 0", () => {
     const ctx = ctxOf(spec, "gain");
