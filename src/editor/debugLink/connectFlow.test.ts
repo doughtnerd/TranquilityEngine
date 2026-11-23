@@ -6,10 +6,14 @@ import { createTransport } from "../../engine/net/Transport";
 import "../../engine/net/transport/loopback";
 import { ToolConnector, type DebugLinkPeer } from "../../engine/debugLink/client";
 import { startBuildListener } from "../../engine/debugLink/host";
-import { encodePairCode } from "../../engine/debugLink/pairing/code";
+import { decodePairCode, encodePairCode, type RoomPairCode } from "../../engine/debugLink/pairing/code";
 import { TOKEN_EXPIRY_MS } from "../../engine/debugLink/pairing/gate";
 import { pairRefusalMessage } from "../../engine/debugLink/protocol";
-import { connectToBuild, type ConnectFailure, type ConnectHost, type ConnectTarget } from "./connectFlow";
+import { FakeNet, fakePeers, flushPeers } from "../../engine/debugLink/fakePeers.testSupport";
+import { RendezvousServer } from "../../engine/debugLink/rendezvous/server";
+import { ROOM_EXPIRY_MS } from "../../engine/debugLink/rendezvous/protocol";
+import { RoomJoinTransport } from "../../engine/debugLink/rooms";
+import { NO_ROOM_MESSAGE, connectToBuild, type ConnectFailure, type ConnectHost, type ConnectTarget } from "./connectFlow";
 
 const undo: (() => void)[] = [];
 afterEach(() => {
@@ -144,7 +148,7 @@ describe("connectToBuild", () => {
     expect((await failureOf(connectToBuild({ code }, h))).kind).toBe("refused");
   });
 
-  it("says a room code needs the rendezvous, without connecting", async () => {
+  it("says a room code needs a rendezvous where the host can't join rooms, without connecting", async () => {
     const { tried, host } = await setup();
     const code = encodePairCode({ kind: "room", rendezvous: null, room: 5, token: 7 });
     const failure = await failureOf(connectToBuild({ code }, host()));
@@ -179,6 +183,94 @@ describe("connectToBuild", () => {
     expect(failure.message).toContain("no answer");
     expect(waits).toEqual([4000]);
     expect(timeouts).toEqual([]);
+    expect(peers).toHaveLength(0);
+  });
+});
+
+// Room codes (ADR 0381, R5): a page build waits in a room on its own server's rendezvous (loopback here); the flow joins
+// it through the room connector, over the fake peer pair.
+describe("connectToBuild with a room code", () => {
+  async function roomSetup() {
+    let t = 1000;
+    let seed = 0;
+    const now = () => t;
+    const randomToken = (bits: number) => (++seed * 104_729) % 2 ** bits;
+    const server = new RendezvousServer({ transport: createTransport("loopback", { now }), now });
+    await server.listen("ws://192.168.1.20:3000/myco-rendezvous");
+    undo.push(() => server.close());
+    const PeerConnection = fakePeers(new FakeNet());
+    const engine = await Engine.create({ headless: true });
+    undo.push(() => engine.dispose());
+    const build = (await startBuildListener(engine, {
+      debug: { listen: true },
+      name: "Page game",
+      kind: "page-http",
+      page: { protocol: "http:", hostname: "192.168.1.20", port: "3000" },
+      transport: "loopback",
+      transportOptions: { now },
+      webrtc: { PeerConnection },
+      now,
+      randomToken,
+      log: () => {},
+    }))!;
+    undo.push(() => build.close());
+    const transport = new RoomJoinTransport({ kind: "page-http", signalTransport: () => createTransport("loopback", { now }), webrtc: { PeerConnection } });
+    const peers: DebugLinkPeer[] = [];
+    const connector = new ToolConnector(transport, { kind: "page-http", name: "Browser Studio", events: { onPeer: (p) => peers.push(p) } });
+    undo.push(() => connector.close());
+    const tick = async () => {
+      server.poll();
+      engine.step(1 / 60);
+      connector.poll();
+      await flushPeers();
+      t += 10;
+    };
+    for (let i = 0; i < 100 && build.code === null; i++) await tick();
+    const host = (hosted: string | null = null): ConnectHost => ({
+      connector: null as unknown as ToolConnector, // a room code never uses the WebSocket connector
+      interfaces: () => [],
+      pageHost: "192.168.7.9",
+      waitFor: async (done, timeoutMs) => {
+        for (let waited = 0; waited <= timeoutMs; waited += 10) {
+          await tick();
+          if (done()) return true;
+        }
+        return false;
+      },
+      rooms: { connector, kind: "page-http", hosted, webrtc: true, refusal: (a) => transport.refusal(a) },
+    });
+    return { build, peers, host, step: (ms: number) => void (t += ms), tick };
+  }
+
+  it("joins the build's room and pairs", async () => {
+    const { build, peers, host } = await roomSetup();
+    expect(build.code).not.toBeNull();
+    await connectToBuild({ code: build.code! }, host());
+    expect(peers).toHaveLength(1);
+    expect(peers[0]!.hello.name).toBe("Page game");
+  });
+
+  it("stops at once on a wrong token, with the refusal's message", async () => {
+    const { build, peers, host } = await roomSetup();
+    const read = decodePairCode(build.code!) as { code: RoomPairCode };
+    const wrong = encodePairCode({ ...read.code, token: (read.code.token + 1) % 2 ** 20 });
+    expect(await failureOf(connectToBuild({ code: wrong }, host()))).toEqual({ kind: "refused", message: pairRefusalMessage("bad-token") });
+    expect(peers).toHaveLength(0);
+  });
+
+  it("says the room is gone once it expired", async () => {
+    const { build, host, step, tick } = await roomSetup();
+    const old = build.code!;
+    step(ROOM_EXPIRY_MS + 1);
+    for (let i = 0; i < 100 && build.code === old; i++) await tick();
+    expect(await failureOf(connectToBuild({ code: old }, host()))).toEqual({ kind: "refused", message: NO_ROOM_MESSAGE });
+  });
+
+  it("refuses a hosted code when no hosted rendezvous is set, without connecting", async () => {
+    const { host, peers } = await roomSetup();
+    const failure = await failureOf(connectToBuild({ code: encodePairCode({ kind: "room", rendezvous: null, room: 5, token: 7 }) }, host(null)));
+    expect(failure.kind).toBe("needs-rendezvous");
+    expect(failure.message).toContain("no hosted rendezvous is configured");
     expect(peers).toHaveLength(0);
   });
 });
