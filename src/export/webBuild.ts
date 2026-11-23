@@ -23,6 +23,8 @@ import { MANIFEST_FILE, MANIFEST_FORMAT, PROJECT_DIR, modulePath, type GameManif
 import { planLocalisation, type BuildLanguages } from "./strings";
 import { planLineIndex } from "./lines";
 import { LINE_INDEX_PATH } from "../engine/audio/localisation/lines/lineIndex";
+import { isGeneratorPath } from "../engine/audio/generators/format";
+import { isPlaylistPath } from "../engine/audio/playlist/format";
 
 /** A project to build, however it was read. */
 export interface BuildSource {
@@ -83,7 +85,31 @@ export interface WebBuildPlan {
   readonly languages?: BuildLanguages;
   /** Build warnings found while planning (`--languages` codes ignored, string keys that fell back), for the log. */
   readonly warnings?: readonly string[];
+  /**
+   * ADR 0360 §8: the build ships the offline render module (`myco_audio_offline.wasm`), which the Babylon audio fallback
+   * fetches to play a generator. `planWebBuild` sets it when the project may play generators (`projectMayUseGenerators`);
+   * false leaves the module out of the player's files (`shipsPlayerFile`). Absent: the player ships whole.
+   */
+  readonly offlineRender?: boolean;
 }
+
+/**
+ * ADR 0360 §8, the export rule: a build ships the offline render module only when its project may play a generator —
+ * it holds a `*.generator.json`, or a playlist that embeds a generator (a `"generator"` key) — because only a generator
+ * makes the Babylon fallback fetch it, and every web build may run on the fallback (a browser without the core). Other
+ * games save its 167 KB. The test is by text, so it errs towards shipping (a playlist that merely mentions the word).
+ */
+export function projectMayUseGenerators(files: readonly string[], json: ReadonlyMap<string, string>): boolean {
+  if (files.some(isGeneratorPath)) return true;
+  for (const [path, text] of json) if (isPlaylistPath(path) && text.includes('"generator"')) return true;
+  return false;
+}
+
+/** True for the offline render module among a built player's files (Vite names it `assets/myco_audio_offline-<hash>.wasm`). */
+export const isOfflineRenderFile = (file: string): boolean => /(^|\/)myco_audio_offline([-.][^/]*)?\.wasm$/i.test(file);
+
+/** Whether a built player's `file` goes into the build `plan` (the offline render module only when the plan ships it). */
+export const shipsPlayerFile = (plan: Pick<WebBuildPlan, "offlineRender">, file: string): boolean => plan.offlineRender !== false || !isOfflineRenderFile(file);
 
 /** A project that can't be built: scripts that don't compile, a missing bootstrap script or scene. */
 export class ExportError extends Error {
@@ -186,6 +212,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     ...(audioEffects.modules.length > 0 && { audioEffects: audioEffects.modules }),
     languages: localisation.languages,
     ...(localisation.warnings.length > 0 && { warnings: localisation.warnings }),
+    offlineRender: projectMayUseGenerators(shipped, source.json),
   };
 }
 
