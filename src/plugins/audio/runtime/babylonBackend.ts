@@ -35,7 +35,8 @@ import { NULL_PROFILE_SINK, type ProfileSink, type ProfileStopReason } from "./m
 import { mixerTapFor, taps } from "./mix/profileTaps";
 import type { KeyframeBus, KeyframeVoice } from "./capture/format";
 import { KEYFRAME_BUS_LANES, KEYFRAME_MAX_BUSES, KEYFRAME_MAX_VOICES, NO_NAME, keyframeAudibility, keyframePitch } from "./capture/keyframeLayout";
-import { generatorsNeedTheCore, mixer, registerDefaultBackend, resolveBackendKind, zeroCounters, type AudioBackend, type AudioBackground, type AudioCaptureSource, type AudioClipCache, type AudioDebugInfo, type AudioLiveMix, type AudioM3Counters, type AudioMixCaps, type ClipSpanHold, type RecorderTap, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicLifecycleEvent, type MusicGroupRequest, type AudioOutputDevice, type BackendKeyframe, type MusicBackendDebug, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type ShapedParams, type VoiceSpatialOptions } from "./backend";
+import { generatorParamIndex } from "../../../engine/audio/generators/catalogue";
+import { mixer, registerDefaultBackend, resolveBackendKind, zeroCounters, type AudioBackend, type AudioBackground, type AudioCaptureSource, type AudioClipCache, type AudioDebugInfo, type AudioGenerators, type GeneratorSource, type AudioLiveMix, type AudioM3Counters, type AudioMixCaps, type ClipSpanHold, type RecorderTap, type AudioReason, type AudioStatus, type AudioVoice, type Attenuation, type ListenerPose, type MusicAdmitResult, type MusicBackend, type MusicGroupEvent, type MusicLifecycleEvent, type MusicGroupRequest, type AudioOutputDevice, type BackendKeyframe, type MusicBackendDebug, type MusicGroupStamp, type MusicPrimedState, type PlayRequest, type ShapedFade, type ShapedParams, type VoiceSpatialOptions } from "./backend";
 import { AMBISONIC_DECODE_LIMIT_BYTES, busCreationSteps, decodedBytes, dopplerPlaybackRate, filterIsActive, listenerQuaternion, occludedVolume, planBuses, spatialParams, spatialSoundOptions, webAudioVector, type BusPlan } from "./babylonMapping";
 import { DistanceEffect, SendCurveTable, SpatialViewFlag, type ListenerFrame, type SpatialPassHost, type SpatialVoiceView, type ZonePass } from "./core/spatial";
 import { DopplerPass } from "./core/doppler";
@@ -78,6 +79,24 @@ interface Live {
   readonly durations: Map<string, number>;
   /** ADR 0162 §8: ambisonic clips' channel 0 as a mono buffer, by URL (null: refused, already warned). */
   readonly wBuffers: Map<string, Promise<AudioBuffer | null>>;
+  /** ADR 0360 §8: generator renders by patch and seed (`generatorKey`), oldest first, at most `GENERATOR_CACHE_RENDERS`. */
+  readonly generatorBuffers: Map<string, Promise<AudioBuffer>>;
+}
+
+/** ADR 0360 §8: the generator renders the fallback keeps (a render is ≈ 0.2 MB a second at 48 kHz). */
+const GENERATOR_CACHE_RENDERS = 64;
+
+/** The one warning a session gets the first time the fallback plays a generator (ADR 0360 §8). */
+const GENERATOR_RENDER_WARNING =
+  "the Babylon audio fallback plays generators as offline renders: their parameters and gen: curves don't follow while they play (ADR 0360).";
+
+/** A generator render's cache key: the kind, the resolved values (the patch) and the seed. */
+const generatorKey = (g: GeneratorSource): string => `${g.kind}|${g.seed >>> 0}|${g.values.join(",")}`;
+
+/** True when the generator sounds until released (an oscillator or synth with no length): its render loops. */
+function generatorLoops(g: GeneratorSource): boolean {
+  const i = generatorParamIndex(g.kind, "length");
+  return (g.kind === "oscillator" || g.kind === "synth") && i >= 0 && !((g.values[i] ?? 0) > 0);
 }
 
 /** Babylon ramps each parameter change over this many seconds (`parameterRampDuration`); no per-call duration is needed. */
@@ -195,7 +214,7 @@ class BabylonVoice implements AudioVoice {
     }
     // E4.5 (ADR 0158 §4): a plain looping clip or stream loops its sidecar's or file's loop points; they are read
     // from the file once per path (`loadFileLoopPoints`) and applied when known (`pointsArrived`).
-    if (req.loop && !music && !(req.group && req.group > 0)) {
+    if (req.loop && !music && !(req.group && req.group > 0) && !req.generator) {
       this.unsubPoints = onLoopPoints(req.path, (p) => this.pointsArrived(p));
       void loadFileLoopPoints(req.path, req.url);
     }
@@ -310,7 +329,12 @@ class BabylonVoice implements AudioVoice {
       else {
         // §8: an ambisonic clip is decoded with `decodeAudioData` and its channel 0 handed over as a mono `AudioBuffer`
         // (null: refused over the size limit, warned once; the voice fails quietly).
-        const buffer: StaticSoundBuffer | AudioBuffer | null = this.req.ambisonic === true ? await this.backend._wBuffer(live, this.req.url, this.req.path) : await this.backend._buffer(live, this.req.url);
+        // ADR 0360 §8: a generator plays its offline render (cached by patch and seed) as a clip.
+        const buffer: StaticSoundBuffer | AudioBuffer | null = this.req.generator
+          ? await this.backend._generatorBuffer(live, this.req.generator)
+          : this.req.ambisonic === true
+            ? await this.backend._wBuffer(live, this.req.url, this.req.path)
+            : await this.backend._buffer(live, this.req.url);
         if (buffer === null) {
           if (!this.ended) {
             this.reason = "failed";
@@ -992,7 +1016,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
         volume: this.isMuted ? 0 : this.master,
       });
       const main = engine.defaultMainBus ?? (await engine.createMainBusAsync("main"));
-      const live: Live = { engine, main, buses: new Map(), plan: [], rootName: null, buffers: new Map(), durations: new Map(), wBuffers: new Map() };
+      const live: Live = { engine, main, buses: new Map(), plan: [], rootName: null, buffers: new Map(), durations: new Map(), wBuffers: new Map(), generatorBuffers: new Map() };
       if (this.disposed) {
         this.teardown(live);
         return null;
@@ -1274,13 +1298,52 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
   }
 
   play(req: PlayRequest): AudioVoice | null {
-    // ADR 0360 (G3): no `generators` capability until the offline render (G5); a generator play that reaches here (handed
-    // over by the pending backend) plays nothing, with the runtime's one warning per kind.
+    // ADR 0360 §8: a generator plays as its offline render (`_generatorBuffer`), looped when it sounds until released;
+    // its parameters don't follow while it plays (one warning a session).
     if (req.generator) {
-      warnOnce(`generators:${req.generator.kind}`, generatorsNeedTheCore(req.generator.kind));
-      return null;
+      warnOnce("babylon-generators", GENERATOR_RENDER_WARNING);
+      return this._playVoice({ ...req, url: "", stream: false, loop: req.loop || generatorLoops(req.generator) });
     }
     return this._playVoice(req);
+  }
+
+  /**
+   * ADR 0360 §8 (another capability, 0179): generators play here as renders made at the trigger, so a later change to a
+   * playing voice's parameters (a hot reload) isn't heard; the play's own warning already said so.
+   */
+  readonly generators: AudioGenerators = {
+    setParams: () => {},
+  };
+
+  /**
+   * @internal ADR 0360 §8: generator `g` rendered by the offline module (fetched on the first generator: the fallback's
+   * only use of it) at the context's rate (a finite generator to its end, an endless one 2 s looped with a 50 ms
+   * crossfade) as a mono `AudioBuffer`, cached by patch and seed.
+   */
+  _generatorBuffer(live: Live, g: GeneratorSource): Promise<AudioBuffer> {
+    const key = generatorKey(g);
+    let buffer = live.generatorBuffers.get(key);
+    if (buffer) {
+      // Most recently used last.
+      live.generatorBuffers.delete(key);
+      live.generatorBuffers.set(key, buffer);
+      return buffer;
+    }
+    buffer = this.renderGenerator(g);
+    live.generatorBuffers.set(key, buffer);
+    buffer.catch(() => live.generatorBuffers.delete(key));
+    while (live.generatorBuffers.size > GENERATOR_CACHE_RENDERS) live.generatorBuffers.delete(live.generatorBuffers.keys().next().value!);
+    return buffer;
+  }
+
+  private async renderGenerator(g: GeneratorSource): Promise<AudioBuffer> {
+    const ctx = this.ctx;
+    if (!ctx) throw new Error("no audio context");
+    const { renderResolvedGenerator } = await import("../../../engine/audio/generators/generatorRender");
+    const r = await renderResolvedGenerator({ kind: g.kind, values: [...g.values], seed: g.seed }, { rate: ctx.sampleRate, loop: "buffer" });
+    const buffer = ctx.createBuffer(1, Math.max(1, r.frames), r.rate);
+    buffer.copyToChannel(r.pcm as Float32Array<ArrayBuffer>, 0);
+    return buffer;
   }
 
   /** @internal `play`, with a music member's extras. */
@@ -1480,6 +1543,7 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
     live.buffers.clear();
     live.durations.clear();
     live.wBuffers.clear();
+    live.generatorBuffers.clear();
     const ctx = this.ctx;
     // `engine.dispose()` closes its context. The host's context outlives this backend, so shield it from the close.
     const shielded = ctx !== null && !this.ownsContext;
