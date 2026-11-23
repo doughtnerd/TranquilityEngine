@@ -21,3 +21,17 @@
   (take.css has a local override to remove).
 - G03: global `input[type=search], input[type=text], input:not([type]), textarea` rule in editor.css with editor
   tokens; then remove local .tk-search/.pf-search/.tk-field rules.
+
+## From Samples (ui/w1-samples)
+- S-03 Calibrate… does nothing: `.studio-header{container: studio-header / inline-size}` makes the header the
+  containing block for position:fixed children, so the calibration dialog is laid out inside the ~40px header. Render
+  dialogs/popovers through a portal to document.body (AudioDeviceMenu → LatencyCalibrationDialog), or move the
+  container to an inner wrapper. Same trap in `.studio-player` and `.smp-timeline > .panel-toolbar`; audit every
+  fixed popover/dialog under a container-type element.
+- S-10 status truncation: `.studio-player-status{flex:none; max-width:220px}`; grid `minmax(160px,1fr) minmax(240px,2fr)
+  minmax(min-content,1fr)`; hide `.studio-hear-as-label` at `@container (max-width:1500px)`. (Reconcile with PB1/G05.)
+- HistoryPopover.tsx: Icon undo/redo/history instead of "↶ ↷ History".
+- Waveform.tsx: filled mirrored path, colour --badge-text at .5 (match prototype); redraw on height change too.
+- Icon set: add `save` (Save uses `check` for now).
+- Context menu: `.context-menu button{justify-content:space-between}` pushes labels right; menus should left-align
+  labels with a right column for shortcuts/notes (Samples overrides locally with .smp-menu).
