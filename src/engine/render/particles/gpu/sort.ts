@@ -4,8 +4,8 @@
 // The same network runs as WebGPU compute dispatches, WebGL2 full-screen passes, or a JavaScript sort.
 // Renderer-neutral: raw GPUDevice / WebGL2 contexts, like the executors.
 import { KERNEL_FLOATS, U } from "../../../scene/particleKernel";
-import type { GpuBuffer, GpuDevice } from "./webgpuRun";
-import { BUFFER } from "./webgpuRun";
+import type { GpuBuffer, GpuDevice } from "../../gpuKernels/webgpu";
+import { BUFFER } from "../../gpuKernels/webgpu";
 import { bitonicStages } from "./bitonic";
 
 /** Sorted pairs a draw reads: the padded count, and its layout as a texture (width × height). */
