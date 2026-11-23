@@ -523,3 +523,8 @@ the owner:** the blip costs 2.38× a sample voice (0346's tripwire 1.5×, estima
 the worst alias at −25 dB at 3.5 kHz (estimate −40 to −60 dB). Other defaults built: blip parameters latch at trigger
 (only `level` glides, as sfxr); sfxr's ×0.05 master volume dropped for `level` in dB (−12 default); GEN seed 0 keeps the
 voice's seed. Coordinator fix: `LocalizedText` declared before `UIDocumentSync`.
+
+**D67. Owner (2026-11-23) on generator cost and aliasing.** Blip at 2.38×: "Optimise further" — a task works the blip
+kernel toward 0346's 1.5× tripwire without losing sfxr accuracy. Aliasing: "Make it a setting" — a per-generator
+quality parameter, standard (two-sample PolyBLEP, as built) or high (a higher-order band-limited method or
+oversampling for saw/square/pulse, more CPU), declared in the catalogue so it saves, automates and shows in the Studio.
