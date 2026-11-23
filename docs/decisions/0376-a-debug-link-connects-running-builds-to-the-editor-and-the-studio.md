@@ -1,6 +1,6 @@
 # 0376. A debug link connects running builds to the editor and the Studio over the engine's transports, separate from game traffic
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0378 (export `debugLink` options, lazy topics; no shipped editor listens yet)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

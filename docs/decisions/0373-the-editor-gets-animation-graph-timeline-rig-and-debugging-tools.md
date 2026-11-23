@@ -1,6 +1,6 @@
 # 0373. The editor gets an Animation window, an animation graph editor, a Timeline, rig, retarget, pose database and ragdoll tools, and a live animation debugger
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0378 (SDK additions; retarget bake writes `.anim.bin`, Animation table in Play Stats, onion skin and match debug as built)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

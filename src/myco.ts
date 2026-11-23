@@ -272,6 +272,7 @@ export {
   type AnimatorStopOptions,
   type AnimatorRequestOptions,
   type AnimatorTravelOptions,
+  type AnimatorTravelResult,
   type AnimatorJumpOptions,
   type AnimatorStateInfo,
   type AnimatorIKOptions,

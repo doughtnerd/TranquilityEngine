@@ -1,6 +1,6 @@
 # 0375. Ball joints gain swing and twist limits and a target-rotation drive; ragdolls are their own plugin
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0378 (`Ragdoll.getUp()`, `body()` and further fields)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

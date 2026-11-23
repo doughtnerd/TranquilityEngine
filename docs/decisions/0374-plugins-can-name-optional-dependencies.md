@@ -1,6 +1,6 @@
 # 0374. Plugins can name optional dependencies
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0378 (optional dependencies are loaded with `import()` only)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
