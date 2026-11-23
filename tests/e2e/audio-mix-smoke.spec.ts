@@ -195,10 +195,13 @@ test("M5-0 smoke: a presence duck starts on its stamped frame", async ({ page })
   const rebuiltBefore = await rebuilds();
   const before = await page.evaluate(() => (globalThis as unknown as G).__myco.Audio.bus("Music").duckGain);
   expect(before, "nothing on SFX yet: Music not ducked").toBe(1);
-  // 1. A quiet voice on SFX, `at` 0.3 s ahead of the heard clock: its start frame, and so the stamp of its presence.
+  // 1. A quiet voice on SFX, `at` 1 s ahead of the heard clock: its start frame, and so the stamp of its presence. The core's
+  //    frame already runs about 0.15 s ahead of the heard clock here (its output latency), and a stamped record reaches the
+  //    core with the next engine frame's batch: at 0.3 s ahead, a loaded page that stalled 0.15–0.3 s (seen between two reads
+  //    and before the batch went out) delivered the presence late, or left no read before the stamp. 1 s leaves room for that.
   const { stamp, rate } = await page.evaluate(() => {
     const g = globalThis as unknown as G;
-    const at = g.__myco.Audio.time + 0.3;
+    const at = g.__myco.Audio.time + 1;
     const rate = g.__myco.Audio.debug().sampleRate;
     g.__dp1 = g.__myco.Audio.playOneShot("audio/melody-loop.wav", { volume: 0.0001, bus: "SFX", at });
     return { stamp: Math.round(at * rate), rate };
