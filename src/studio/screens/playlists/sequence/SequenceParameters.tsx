@@ -6,7 +6,7 @@ import type { ParameterDef } from "../../../../engine/audio/parameters";
 import type { SequenceSettings } from "../../../../engine/audio/playlist/types";
 import { EmptyState } from "../../../../editor/ui/EmptyState";
 import { ParameterPanel } from "../../../components/ParameterPanel";
-import { parameterUses, useChip } from "./sequenceParameters";
+import { parameterUses, useChip } from "./parameterUses";
 import type { SourceOf } from "./sequenceModel";
 import { sequenceHeldNow, toggleHeld } from "./sequenceState";
 import { hasHeldLoop } from "./transportModel";

@@ -318,7 +318,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
                   </select>
                 )}
                 <button type="button" class="sq-ib" aria-label={`Edit ${nm} curve`} title="Open in the curve editor" onClick={() => curves(owner, length, name, a.target)}><Icon name="edit" size={13} /></button>
-                <button type="button" class="sq-ib danger" aria-label={`Remove ${nm} automation`} title="Delete this automation (Ctrl/⌘+Z to undo)" disabled={!writable} onClick={() => runSeq("Remove automation", (q) => removeAutomation(q, owner, a.id))}><Icon name="trash" size={13} /></button>
+                <button type="button" class="sq-ib del" aria-label={`Remove ${nm} automation`} title="Delete this automation (Ctrl/⌘+Z to undo)" disabled={!writable} onClick={() => runSeq("Remove automation", (q) => removeAutomation(q, owner, a.id))}><Icon name="trash" size={13} /></button>
               </li>
             );
           })}
@@ -609,7 +609,7 @@ function PointsSection(props: SequenceInspectorProps & { readonly s: SequenceSet
       </FieldRow>
       <div class="sq-actions">
         <button type="button" class="sq-btn" onClick={() => props.curves(owner, length, name, lane.target)}>Open in curve editor…</button>
-        <button type="button" class="sq-btn danger" disabled={!props.writable} onClick={() => props.runSeq(keys.length > 1 ? "Delete automation points" : "Delete automation point", (q) => deletePointsOf(q, owner, lane.id, keys))}>Delete</button>
+        <button type="button" class="sq-btn del" disabled={!props.writable} onClick={() => props.runSeq(keys.length > 1 ? "Delete automation points" : "Delete automation point", (q) => deletePointsOf(q, owner, lane.id, keys))}>Delete</button>
       </div>
     </Section>
   );

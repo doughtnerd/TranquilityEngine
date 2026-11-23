@@ -147,7 +147,7 @@ button.sq-tci:hover:not(:disabled) { background: var(--hover); }
 .sq-auto-value { flex: none; color: var(--muted); font-size: calc(10px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
 .sq-ib { flex: none; width: 18px; height: 18px; padding: 0; display: inline-flex; align-items: center; justify-content: center; border: 0; border-radius: 3px; background: none; color: var(--muted); cursor: pointer; }
 .sq-ib:hover:not(:disabled) { background: var(--hover); color: var(--text); }
-.sq-ib.danger:hover:not(:disabled) { color: var(--danger); }
+.sq-ib.del:hover:not(:disabled) { color: var(--danger); }
 .sq-ib:disabled { opacity: 0.45; cursor: default; }
 .sq-driven-by { font-size: calc(11px * var(--ui-scale)); padding: 0 4px; height: 20px; min-width: 0; width: 100%; }
 .sq-auto-lane { background: var(--bg-sunken); }
@@ -319,7 +319,7 @@ button.sq-tci:hover:not(:disabled) { background: var(--hover); }
 .sq-auto-list li > span.off { color: var(--muted); text-decoration: line-through; }
 .sq-quantize { width: auto; max-width: 110px; }
 .sq-actions { display: flex; gap: 6px; flex-wrap: wrap; }
-.sq-btn.danger:not(:disabled) { color: var(--danger); }
+.sq-btn.del:not(:disabled) { color: var(--danger); }
 .sq-inspector .studio-chain { margin: 0; }
 
 /* Parameters panel (proto A10) */

@@ -172,8 +172,8 @@ describe("selection", () => {
 describe("timeline layout", () => {
   it("stacks tracks and their open lanes and says what a y is over", () => {
     const { rows, height } = trackRows(seq, new Set(["t1"]));
-    expect(rows.map((r) => [r.y, r.lanes.length])).toEqual([[0, 1], [92, 0], [150, 0], [208, 0]]);
-    expect(height).toBe(266);
+    expect(rows.map((r) => [r.y, r.lanes.length])).toEqual([[0, 1], [122, 0], [190, 0], [258, 0]]); // proto: 68 px tracks, 54 px lanes
+    expect(height).toBe(326);
     expect(rowAt(rows, 10)).toEqual({ kind: "track", ti: 0 });
     expect(rowAt(rows, 70)).toEqual({ kind: "lane", ti: 0, automation: "a1" });
     expect(rowAt(rows, 400)).toEqual({ kind: "below" });

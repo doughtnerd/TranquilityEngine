@@ -1114,7 +1114,7 @@ export function SequenceView(props: SequenceViewProps) {
                           <span class={`sq-auto-name${a.bypass ? " off" : ""}`} title={a.target}>{nm}</span>
                           <span class="sq-auto-value">{spec ? valueText(valueNow, spec.unit, spec.bool) : ""}</span>
                           <button type="button" class="sq-ib" aria-label={`Edit ${nm} curve`} title="Open in the curve editor" onClick={() => openCurves({ track: t.id }, length, t.name, a.target)}><Icon name="edit" size={12} /></button>
-                          <button type="button" class="sq-ib danger" aria-label={`Delete ${nm} automation`} title="Delete this automation (Ctrl/⌘+Z to undo)" disabled={!writable} onClick={() => runSeq("Delete automation", (q) => removeAutomation(q, { track: t.id }, a.id))}><Icon name="trash" size={12} /></button>
+                          <button type="button" class="sq-ib del" aria-label={`Delete ${nm} automation`} title="Delete this automation (Ctrl/⌘+Z to undo)" disabled={!writable} onClick={() => runSeq("Delete automation", (q) => removeAutomation(q, { track: t.id }, a.id))}><Icon name="trash" size={12} /></button>
                         </div>
                         <select class="kit-select sq-driven-by" aria-label={`${nm} driven by`} title="What drives this curve: the timeline or a game parameter" disabled={!writable} value={param ?? ""}
                           onChange={(e) => {

@@ -9,7 +9,7 @@ import { sequenceReadout } from "./readoutModel";
 import { fixtureSequence, fixtureSource } from "./sequenceFixture";
 import { keepTaps, snapLabel, snapPresets, tapTempo, toggleSnap, DEFAULT_SNAP } from "./sequenceGrid";
 import { findClip } from "./sequenceModel";
-import { parameterUses, useChip } from "./sequenceParameters";
+import { parameterUses, useChip } from "./parameterUses";
 import { spectrogramBands } from "./spectrogramModel";
 import { activeText, crossfadeZones, loopName, voicePosition } from "./timelineOverlays";
 
