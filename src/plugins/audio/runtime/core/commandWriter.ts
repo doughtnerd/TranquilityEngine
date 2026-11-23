@@ -556,14 +556,14 @@ export class CommandWriter implements VoiceCommandSink {
     this.end(at, writeSetMixed(this.view, at, r));
   }
 
-  /** SET_PAUSED `id`. */
-  setPaused(id: number, paused: boolean): void {
+  /** SET_PAUSED `id`, stamped at `atFrame` (ADR 0362 §1) or asap. */
+  setPaused(id: number, paused: boolean, atFrame?: number): void {
     const r = this.pausedRec;
     r.voiceId = id;
     r.paused = paused ? 1 : 0;
     const at = this.begin(16);
     if (at < 0) return;
-    this.end(at, writeSetPaused(this.view, at, r));
+    this.end(at, writeSetPaused(this.view, at, r), atFrame);
   }
 
   /** SEEK `id` to `clipFrame` (a stream voice's: its seek `epoch`; a clip voice's: 0). */

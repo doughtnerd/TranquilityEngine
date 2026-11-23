@@ -2,8 +2,8 @@
 // records what it's asked to play (UI pass Q7, PB4, L2): the open nested playlist itself (served under its audition
 // path, where the runtime reads it through `Assets`), not its file's root; nothing on an empty playlist, Trigger off
 // with the reason; the player bar's scrub row there before the first trigger. Wave 3: a nested audition keeps its
-// parents' playlist effects; Pause freezes the views and holds the audition silent; a Switch's label change while it
-// plays notes the rule that applies.
+// parents' playlist effects; Pause pauses the audition's playbacks (ADR 0362 §1) and freezes the views; a Switch's
+// label change while it plays notes the rule that applies.
 import { signal } from "@preact/signals";
 import type { VNode } from "preact";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -67,8 +67,8 @@ function footsteps(): PlaylistAsset {
 }
 
 let played: string[];
-/** The gains the audition's handles were faded to. */
-let fades: number[];
+/** What the audition's handles were asked to do: pause, resume, stop. */
+let calls: string[];
 
 beforeEach(async () => {
   const fs = new MemoryFileSystem();
@@ -80,13 +80,13 @@ beforeEach(async () => {
   fs.files.set(joinPath(ROOT, SWITCH), JSON.stringify(surface()));
   currentProject.value = await openFolderProject(fs, ROOT);
   played = [];
-  fades = [];
+  calls = [];
   const hash: HashLocation = { get: () => "#/playlists", set: () => {}, listen: () => () => {} };
   const runtime = {
     playable: signal(true),
     state: signal({ kind: "running" }),
     audio: { setParameter: () => {}, debug: () => null },
-    audition: (path: string) => (played.push(path), { playing: true, stop: () => {}, fade: (to: number) => fades.push(to), setParameter: () => {} }),
+    audition: (path: string) => (played.push(path), { playing: true, stop: () => calls.push("stop"), pause: () => calls.push("pause"), resume: () => calls.push("resume"), setParameter: () => {} }),
     playClip: (path: string) => (played.push(path), { playing: false, stop: () => {} }),
     stopAll: () => {},
   } as unknown as StudioAudioRuntime;
@@ -156,20 +156,37 @@ describe("Trigger on the Playlists screen", () => {
 });
 
 describe("Pause on the Playlists screen", () => {
-  it("freezes the views and holds the audition silent; Resume brings it back; Trigger while paused starts fresh", () => {
+  it("pauses the audition's playbacks and freezes the views; Resume continues them; Trigger while paused starts fresh", () => {
     openPlaylist(filePath(FILE));
     trigger();
     pauseAudition();
     expect(frozen.value).not.toBeNull();
-    expect(fades).toEqual([0]);
+    expect(calls).toEqual(["pause"]);
+    pauseAudition(); // already paused
+    expect(calls).toEqual(["pause"]);
     resumeAudition();
     expect(frozen.value).toBeNull();
-    expect(fades).toEqual([0, 1]);
+    expect(calls).toEqual(["pause", "resume"]);
     pauseAudition();
     trigger();
     expect(frozen.value).toBeNull();
+    expect(calls).toEqual(["pause", "resume", "pause", "stop"]);
     expect(played).toEqual([FILE, FILE]);
   });
+
+  it("the player bar shows Pause while it plays and Resume (its paused state) while paused", () => {
+    const state = { title: "footsteps", subtitle: "Queue", busy: true, release: false, triggerOff: null, log: [], cursor: null, now: 0 };
+    const actions = { trigger, stop: stopAudition, release: () => {}, pause: pauseAudition, resume: resumeAudition, seek: () => {} };
+    const labels = (paused: boolean) => {
+      const slots = playlistPlayerSlots({ ...state, paused }, actions);
+      return { buttons: ((slots.transport as VNode<{ children: VNode<{ label: string; icon: string }>[] }>).props.children).filter(Boolean).map((b) => [b.props.label, b.props.icon]), status: slots.status };
+    };
+    expect(labels(false).buttons).toContainEqual(["Pause", "pause"]);
+    expect(labels(true).buttons).toContainEqual(["Resume", "play"]);
+    expect(labels(true).buttons).not.toContainEqual(["Pause", "pause"]);
+    expect(labels(true).status).toMatch(/^Paused at/);
+  });
+
 });
 
 describe("A Switch's label change while it plays", () => {

@@ -484,7 +484,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     if (v && !v.leaving && c.pieceTo > s + EPS) {
       c.voice = null;
       v.leaving = true;
-      v.voice.fadeShaped({ to: 0, seconds: CUT_FADE, law: "linear", at: at + Math.min(seconds, c.pieceTo - s), stopAtEnd: true });
+      v.voice.fadeShaped({ to: 0, seconds: CUT_FADE, law: "linear", at: this.host.heard(at + Math.min(seconds, c.pieceTo - s)), stopAtEnd: true });
       return;
     }
     this.endVoice(c, at, SPLICE_FADE, false);
@@ -630,7 +630,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     c.voice = null;
     if (!v || v.leaving) return;
     v.leaving = true;
-    shapedFade(v.voice, crossfade ? shape : "linear", fade, 1, 0, at, () => at, true);
+    shapedFade(v.voice, crossfade ? shape : "linear", fade, 1, 0, at, () => at, true, (t) => this.host.heard(t));
   }
 
   private endClip(c: ClipRt, at: number, fade: number, crossfade = false, shape: FadeShape = "equalPower"): void {

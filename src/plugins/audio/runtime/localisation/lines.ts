@@ -172,6 +172,9 @@ export class LineHandle implements AudioLineHandle {
   onMarker(type: AudioMarkerType, fn: (e: AudioMarkerEvent) => void): () => void { return this.h ? this.h.onMarker(type, fn) : () => {}; }
   onMusic(kind: MusicKind, fn: (e: MusicEvent) => void): () => void { return this.h ? this.h.onMusic(kind, fn) : NO_MUSIC(); }
   trigger(name: string): boolean { return this.h?.trigger(name) ?? false; }
+  pause(): void { this.h?.pause(); }
+  resume(): void { this.h?.resume(); }
+  get paused(): boolean { return this.h?.paused ?? false; }
 
   viseme(): AudioViseme | null {
     if (this.state !== "playing" || !this.heard) return null;

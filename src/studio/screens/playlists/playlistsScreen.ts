@@ -23,7 +23,7 @@ import { lintPlaylist, type PlaylistLint } from "../../../engine/audio/playlist/
 import { PLAYLIST_FORMAT, type ChangeHow, type PlaylistAsset, type PlaylistBody, type SampleEntry } from "../../../engine/audio/playlist/types";
 import { matchChangeRule } from "../../../engine/audio/playlist/switchRules";
 import { applyEdit, type EditResult } from "../../../plugins/audio/editor/editResult";
-import type { AudioEventHandle, AudioHandle } from "../../../plugins/audio/runtime";
+import type { AudioEventHandle } from "../../../plugins/audio/runtime";
 import { audioHost, openRoute, toasts } from "../../shell/studioServices";
 import { newPlaylistParameter } from "./newParameter";
 import { linkEntry, unlinkEntry, type EditContext } from "./playlistEdits";
@@ -61,9 +61,9 @@ export const renamingOpen = signal(false);
  */
 export const lastChange = signal<{ readonly playlist: string; readonly from: string; readonly to: string; readonly rule: number; readonly change: ChangeHow } | null>(null);
 /**
- * Pause (W14.2): Plays now, Voices and the voice log's cursor freeze at the moment it was pressed, and the audition is
- * held silent; Resume brings both back. The public playlist handle has no transport pause, so the voices keep time
- * underneath (see the build log).
+ * Pause (W14.2, ADR 0362 §1): the audition's playbacks pause (`AudioPlaylistHandle.pause`: voices, timers, picks and the
+ * sequence clock hold) and Plays now, Voices and the voice log's cursor freeze at that moment; Resume continues the
+ * playbacks from where they held and the views follow them live again.
  */
 export const frozen = signal<{ readonly log: readonly LogRow[]; readonly now: ReturnType<typeof voicesNow>; readonly time: number } | null>(null);
 
@@ -513,8 +513,7 @@ export async function runDrop(plan: DropPlan, label: string): Promise<void> {
 
 // --- audition --------------------------------------------------------------------------------------------------------
 
-type Playing = AudioEventHandle | AudioHandle;
-const handles = new Set<Playing>();
+const handles = new Set<AudioEventHandle>();
 let poller: ReturnType<typeof setInterval> | null = null;
 let idlePolls = 0;
 /** The file the log follows. */
@@ -579,7 +578,8 @@ export function trigger(): void {
   // Global test values go to the runtime first, so the trigger picks with them.
   for (const [name, value] of Object.entries(parameterOptions(globalParameters.peek()))) host.audio.setParameter(name, value);
   if (what.kind === "file" && what.nested) serveAudition(what.path, what.nested);
-  const h = what.kind === "file" ? host.audition(what.path, { parameters: parameterOptions(localParameters.peek()) }) : host.playClip(what.path);
+  // A Clip's sample plays through the playlist runtime too (`Audio.play` takes a sample), so Pause holds it as well.
+  const h = what.kind === "file" ? host.audition(what.path, { parameters: parameterOptions(localParameters.peek()) }) : host.audition(what.path);
   if (!h) {
     status.value = { kind: "info", text: host.state.peek().kind === "failed" ? "The audio core isn't running, so nothing plays." : `Nothing played: ${what.path} was refused (Plays now says why).` };
   } else handles.add(h);
@@ -602,25 +602,25 @@ export function stopAudition(): void {
   }
 }
 
-/** Pause (W14.2): freeze Plays now, Voices and the log's cursor at this moment, and hold the audition silent. */
+/** Pause (W14.2): pause the audition's playbacks where they are and freeze Plays now, Voices and the log's cursor there. */
 export function pauseAudition(): void {
   if (frozen.peek()) return;
   frozen.value = { log: voiceLog.peek(), now: playingNow.peek(), time: audioNow.peek() };
   logCursor.value = audioNow.peek();
-  for (const h of handles) h.fade(0, 0.08);
+  for (const h of handles) h.pause();
 }
 
-/** Resume: the audition is heard again and the views follow it live. */
+/** Resume: the playbacks continue from where they held and the views follow them live. */
 export function resumeAudition(): void {
   if (!frozen.peek()) return;
   frozen.value = null;
   logCursor.value = null;
-  for (const h of handles) h.fade(1, 0.08);
+  for (const h of handles) h.resume();
 }
 
 /** Key-off: held loops end by their exit settings, a Blend's envelope releases. */
 export function releaseAudition(): void {
-  for (const h of handles) if ("release" in h) h.release();
+  for (const h of handles) h.release();
 }
 
 /** A test value changed: globals go to the runtime, locals to the playing instances. */
@@ -634,7 +634,7 @@ export function setTestValue(name: string, value: number | null): void {
   if (!def) return;
   const v = value === null ? def.default : "labels" in def ? (def.labels[Math.round(value)] ?? def.default) : value;
   if (localParameters.peek().some((l) => l.name === name)) {
-    for (const h of handles) if ("setParameter" in h) h.setParameter(name, v);
+    for (const h of handles) h.setParameter(name, v);
   } else audioHost().audio.setParameter(name, v);
 }
 

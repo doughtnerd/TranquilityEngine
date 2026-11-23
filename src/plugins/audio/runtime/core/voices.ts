@@ -59,6 +59,12 @@ const MIN_PITCH = 0.0625;
 const ROLLOFF_NAMES = ["linear", "inverse", "exponential"] as const;
 /** Architecture §4.7: promote and demote fade 5 ms; a voice stolen while on the core fades out as long. */
 const STEAL_FADE_SECONDS = 0.005;
+/** The core's promote, demote and pause fade (`MIX_FADE_SECONDS` in `voices.rs`): a mixed voice fades out this long before it holds. */
+const MIX_FADE_SECONDS = 0.005;
+/** `flipTo`: the stamped change a slot's mirror takes at `flipAt` (ADR 0362 §1). */
+const FLIP_NONE = 0;
+const FLIP_PAUSE = 1;
+const FLIP_RESUME = 2;
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 const idAt = (t: VoiceTable, i: number): number => ((t.gen[i]! << 16) | i) >>> 0;
@@ -186,6 +192,15 @@ export class CoreVoices {
   private readonly playArgs: PlayArgs = { voiceId: 0, clip: 0, bus: 0, flags: 0, group: 0, gain: 1, pitch: 1, dirX: 0, dirY: 0, dirZ: -1, lpHz: BUS_LP_OFF_HZ, score: 0, startOffsetFrames: 0 };
   private lastBusName: string | null = null;
   private lastBusIndex = 0;
+  /**
+   * ADR 0362 §1: per slot, a stamped pause or resume (`flipTo`) the core applies at a frame, and the context frame the
+   * mirror takes it at (`flipAt`: where the voice holds, or where it continues). Until then the mirror keeps the old
+   * state: main must not force the voice virtual before the core holds it, nor promote it before the core resumes it
+   * (the core drops a promote while paused). `flips` counts the slots with one.
+   */
+  private readonly flipTo: Uint8Array;
+  private readonly flipAt: Float64Array;
+  private flips = 0;
 
   constructor(private readonly host: CoreVoicesHost) {
     const t = (this.t = host.table);
@@ -195,6 +210,8 @@ export class CoreVoices {
     this.startOffset = new Float64Array(t.capacity);
     this.streamStart = new Uint32Array(t.capacity);
     this.flatPlayId = new Uint32Array(t.capacity);
+    this.flipTo = new Uint8Array(t.capacity);
+    this.flipAt = new Float64Array(t.capacity);
     this.gainApplied = new Float32Array(t.capacity).fill(1);
     this.basis.set(this.listenerPos, this.listenerFwd, this.listenerUp);
     this.lockedQueue = new UnlockQueue<number>({
@@ -591,8 +608,10 @@ export class CoreVoices {
     if (t.submix[i]! > 0) host.writer.route(id, t.submix[i]! - 1, stamp);
     // ADR 0162 (C3): its SET_VOICE_FX at the same frame, when mixed and non-default.
     host.voiceFx.onPlay(i, stamp);
-    // A3.7: paused before it reached the core (locked, or its clip loading): it waits there, paused, until resumed.
-    if (f & VoiceFlag.PAUSED) host.writer.setPaused(id, true);
+    // A3.7: paused before it reached the core (locked, or its clip loading): it waits there, paused, until resumed. At
+    // its PLAY's frame (ADR 0362 §1): the batch goes in frame order, and an asap record would reach the core before a
+    // stamped PLAY does.
+    if (f & VoiceFlag.PAUSED) host.writer.setPaused(id, true, stamp);
     if (start > 0) t.startFrame[i] = 0;
     this.spatialDirty[i] = 0;
   }
@@ -704,13 +723,66 @@ export class CoreVoices {
     host.presence.voiceStarted(next, i);
   }
 
-  setPaused(id: number, paused: boolean): void {
+  /**
+   * A3.7: pause or resume voice `id`, as soon as possible, or (ADR 0362 §1) at heard time `at` (`Audio.time` seconds), so
+   * every voice of a playback holds at the same frame and continues at the same frame. A stamped pause holds the voice
+   * exactly at `at`: a mixed voice's SET_PAUSED goes the core's 5 ms fade earlier (it renders that fade, then holds), a
+   * virtual one's at `at`. A stamped resume continues it from there at `at`, as a virtual voice keeping time; main's
+   * selection promotes it once the mirror takes the resume (the first frame whose commands arrive after `at`), so the
+   * sound continues sample-exact from where it held and is heard from that promote's 5 ms fade-in. A past `at`, or a
+   * voice not on the core yet, goes as soon as possible (as without `at`).
+   */
+  setPaused(id: number, paused: boolean, at?: number): void {
     const i = this.slot(id);
     if (i < 0) return;
     const t = this.t;
-    t.flags[i] = paused ? t.flags[i]! | VoiceFlag.PAUSED : t.flags[i]! & ~VoiceFlag.PAUSED;
-    if (this.onCore(i)) this.host.playheads.retime(i, this.host.clockMap.framesNow());
-    if (this.onCore(i)) this.host.writer.setPaused(id, paused);
+    const host = this.host;
+    const clock = host.clockMap;
+    this.dropFlip(i);
+    // A stamped start still ahead: its PLAY may be in this frame's batch, which goes in frame order, so nothing for the
+    // voice is stamped before it (it would reach the core before the voice exists there). As `setBus` does.
+    const playAt = this.onCore(i) ? clock.stampFor(host.playheads.anchorFrame[i]!) : undefined;
+    const hold = at !== undefined && Number.isFinite(at) && this.onCore(i) ? clock.stampFor(clock.frameOfTime(at)) : undefined;
+    if (hold === undefined) {
+      t.flags[i] = paused ? t.flags[i]! | VoiceFlag.PAUSED : t.flags[i]! & ~VoiceFlag.PAUSED;
+      if (this.onCore(i)) host.playheads.retime(i, clock.framesNow());
+      if (this.onCore(i)) host.writer.setPaused(id, paused, playAt);
+      return;
+    }
+    let frame = hold;
+    if (paused && t.state[i] === VoiceState.PLAYING) frame = clock.stampFor(hold - Math.round(MIX_FADE_SECONDS * clock.sampleRate)) ?? hold;
+    if (playAt !== undefined && playAt > frame) frame = playAt;
+    host.writer.setPaused(id, paused, frame);
+    this.flipTo[i] = paused ? FLIP_PAUSE : FLIP_RESUME;
+    this.flipAt[i] = Math.max(hold, frame);
+    this.flips++;
+  }
+
+  /**
+   * ADR 0362 §1, once per frame before selection: the mirror takes each stamped pause or resume whose frame the core has
+   * reached by the time this frame's commands arrive (flag, playhead anchored at the hold or resume frame), and sends it
+   * again as soon as possible, a no-op for the core unless a rebuild dropped the stamped one meanwhile.
+   */
+  private landFlips(): void {
+    const now = this.host.clockMap.framesNow();
+    const t = this.t;
+    for (let i = 0; i < this.flipTo.length && this.flips > 0; i++) {
+      const to = this.flipTo[i]!;
+      if (to === FLIP_NONE || this.flipAt[i]! > now) continue;
+      const paused = to === FLIP_PAUSE;
+      const frame = this.flipAt[i]!;
+      this.dropFlip(i);
+      t.flags[i] = paused ? t.flags[i]! | VoiceFlag.PAUSED : t.flags[i]! & ~VoiceFlag.PAUSED;
+      if (!this.onCore(i)) continue;
+      this.host.playheads.retime(i, frame);
+      this.host.writer.setPaused(idAt(t, i), paused);
+    }
+  }
+
+  private dropFlip(i: number): void {
+    if (this.flipTo[i] === FLIP_NONE) return;
+    this.flipTo[i] = FLIP_NONE;
+    this.flips--;
   }
 
   /**
@@ -922,6 +994,7 @@ export class CoreVoices {
 
   /** A3.1: the frame's selection over every logical voice, at the current mixed cap. */
   select(): void {
+    if (this.flips > 0) this.landFlips();
     if (this.t.liveCount === 0) return;
     this.host.selection.run(this.host.mixedCap(), this.selectionSink);
   }
@@ -1094,6 +1167,7 @@ export class CoreVoices {
     if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) {
       if (!member) host.streams.close(t.clip[i]!);
     } else if (t.genKind[i] === 0) host.clips.release(t.clip[i]!); // ADR 0360: a generator holds no clip
+    this.dropFlip(i);
     host.panners.forget(i);
     host.automation.forget(i);
     // ADR 0162 (K4): the M3 per-slot state goes with the voice.

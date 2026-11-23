@@ -114,8 +114,9 @@ export type FakeVoiceEvent =
   | { readonly kind: "attenuation"; readonly value: Attenuation }
   | { readonly kind: "position"; readonly value: Vec3Like }
   | { readonly kind: "bus"; readonly value: string }
-  | { readonly kind: "pause" }
-  | { readonly kind: "resume" }
+  // ADR 0362 §1: `at`, the heard time a stamped pause or resume was asked for.
+  | { readonly kind: "pause"; readonly at?: number }
+  | { readonly kind: "resume"; readonly at?: number }
   | { readonly kind: "stop"; readonly fadeSeconds?: number }
   | { readonly kind: "fade"; readonly to: number; readonly seconds: number }
   // ADR 0166 (G-1, §4.2), ADR 0264: the stamped ramps, as asked.
@@ -594,8 +595,8 @@ function makeFakeVoice(request: PlayRequest): FakeVoice {
       events.push({ kind: "bus", value: bus });
     },
     setLoop(start, end, looping) { events.push({ kind: "loop", start, end, looping }); },
-    pause() { state.paused = true; events.push({ kind: "pause" }); },
-    resume() { state.paused = false; events.push({ kind: "resume" }); },
+    pause(at) { state.paused = true; events.push(at === undefined ? { kind: "pause" } : { kind: "pause", at }); },
+    resume(at) { state.paused = false; events.push(at === undefined ? { kind: "resume" } : { kind: "resume", at }); },
     stop(fadeSeconds) {
       state.stopped = true; state.playing = false;
       events.push(fadeSeconds ? { kind: "stop", fadeSeconds } : { kind: "stop" });
