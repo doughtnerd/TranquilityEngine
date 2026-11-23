@@ -14,6 +14,9 @@
 //   animates any property without a rig). When a Skeleton appears later it recreates the instance bound to it, as a
 //   re-enable would (plays end `stopped`, `defaultClip` plays again); a Skeleton that goes away rebinds the Animator
 //   to a zero-bone instance.
+//   An Animator with a `graph` gets a graph instance instead (T32): `graphInstanceHooks.create` (filled by
+//   `graph/register.ts`) compiles and loads the graph for the Skeleton (or for no bones) before creating it, and
+//   `graphInstanceHooks.unbound` hears when it goes; everything else (binding, rebinding, plays ending) is the same.
 // - **BoneAttachment:** joins its World's follow list (`attachments/follow.ts`) while active.
 import type { World } from "../../../../engine/core/World";
 import type { GameObject } from "../../../../engine/scene/GameObject";
@@ -280,31 +283,62 @@ function findSkeleton(world: World, node: GameObject): SkeletonRuntime | null {
   return null;
 }
 
+/**
+ * @internal Graph-asset instances (ADR 0372; T32 fills these from `graph/register.ts`): an Animator with a `graph` gets
+ * its instance from `create` (which compiles and loads the graph for the Skeleton, then creates the instance only while
+ * `current()` holds, returning 0 otherwise), and `unbound` hears when it goes (its slot plays end, its graph is released).
+ */
+export const graphInstanceHooks: {
+  create?(rt: AnimatorRuntime, ns: AnimationWorldCore, skeleton: SkeletonRuntime | null, current: () => boolean): Promise<number>;
+  unbound?(rt: AnimatorRuntime, instance: number): void;
+} = {};
+
 let warnedGraph = false;
+
+/**
+ * A new instance for `rt` on `skeleton` (null: zero bones), adopted while `current()` holds: the implicit graph's
+ * (synchronously), or its graph asset's (once the graph has loaded). Warns when the core refuses one.
+ */
+async function bindInstance(rt: AnimatorRuntime, ns: AnimationWorldCore, skeleton: SkeletonRuntime | null, current: () => boolean): Promise<void> {
+  let instance: number;
+  if (!rt.animator.graph) instance = ns.createInstance(skeleton?.handle ?? 0);
+  else if (graphInstanceHooks.create) {
+    instance = await graphInstanceHooks.create(rt, ns, skeleton, current);
+    if (!instance) return; // warned by the graph runtime, or no longer current
+    if (!current()) {
+      // Something changed between the graph runtime's check and here: give the instance back.
+      graphInstanceHooks.unbound?.(rt, instance);
+      ns.destroyInstance(instance);
+      return;
+    }
+  } else {
+    if (!warnedGraph) {
+      warnedGraph = true;
+      console.warn(`[myco] ${rt.animator.node.name}: Animator graphs need the graph feature, which isn't registered; it stays at its bind pose.`);
+    }
+    return;
+  }
+  if (!instance) {
+    console.warn(`[myco] ${rt.animator.node.name}: Animator couldn't get a core instance (status ${ns.core.lastStatus()}).`);
+    return;
+  }
+  if (skeleton) {
+    rt.skeleton = skeleton;
+    skeleton.animator = rt;
+  }
+  adoptInstance(rt, ns, instance);
+}
 
 async function activateAnimator(rt: AnimatorRuntime): Promise<void> {
   const epoch = rt.epoch;
   const ns = await startAnimationCore(rt.world).catch(() => null);
   if (!ns || rt.epoch !== epoch || !rt.active) return;
   rt.ns = ns;
-  if (rt.animator.graph) {
-    // Graph-asset instances are T32's (`graph.ts`); the implicit graph serves only Animators without one (D94).
-    if (!warnedGraph) {
-      warnedGraph = true;
-      console.warn(`[myco] ${rt.animator.node.name}: Animator graphs aren't built yet (T32); it stays at its bind pose.`);
-    }
-    return;
-  }
   const s = findSkeleton(rt.world, rt.animator.node);
   if (!s) {
-    // No rig: a zero-bone instance, so property tracks, events and notifies still run (T17b).
+    // No rig: a zero-bone instance, so property tracks, events, notifies and graph logic still run (T17b).
     if (rt.instance) return;
-    const instance = ns.createInstance(0);
-    if (!instance) {
-      console.warn(`[myco] ${rt.animator.node.name}: Animator couldn't get a core instance (status ${ns.core.lastStatus()}).`);
-      return;
-    }
-    adoptInstance(rt, ns, instance);
+    await bindInstance(rt, ns, null, () => rt.epoch === epoch && rt.active && !rt.instance && !findSkeleton(rt.world, rt.animator.node));
     return;
   }
   if (s.animator && s.animator !== rt) {
@@ -312,16 +346,8 @@ async function activateAnimator(rt: AnimatorRuntime): Promise<void> {
     return;
   }
   if (s.loading) await s.loading;
-  if (rt.epoch !== epoch || !rt.active || s.detached || !s.handle || rt.instance) return;
-  if (s.animator && s.animator !== rt) return;
-  const instance = ns.createInstance(s.handle);
-  if (!instance) {
-    console.warn(`[myco] ${rt.animator.node.name}: Animator couldn't get a core instance (status ${ns.core.lastStatus()}).`);
-    return;
-  }
-  adoptInstance(rt, ns, instance);
-  rt.skeleton = s;
-  s.animator = rt;
+  const current = () => rt.epoch === epoch && rt.active && !s.detached && !!s.handle && !rt.instance && (!s.animator || s.animator === rt);
+  if (current()) await bindInstance(rt, ns, s, current);
 }
 
 /** Makes `instance` the Animator's and seeds its layer weights from the core's defaults. */
@@ -336,6 +362,7 @@ function adoptInstance(rt: AnimatorRuntime, ns: AnimationWorldCore, instance: nu
 /** Destroys the Animator's instance (its plays end `stopped`) and frees its Skeleton. */
 function unbindAnimator(rt: AnimatorRuntime): void {
   endAllPlays(rt, "stopped");
+  graphInstanceHooks.unbound?.(rt, rt.instance);
   if (rt.instance && rt.ns) rt.ns.destroyInstance(rt.instance);
   rt.instance = 0;
   rt.evaluated = false;

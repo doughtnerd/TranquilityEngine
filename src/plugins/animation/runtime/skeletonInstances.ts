@@ -5,6 +5,7 @@
 // need the model-space pose there anyway; a server simply never reads them through this module.
 import type { World } from "../../../engine/core/World";
 import type { GameObject } from "../../../engine/scene/GameObject";
+import { posedMatrices } from "./features/bones";
 import { skeletonOnNode, type AnimatorRuntime } from "./features/instances";
 import { MATRIX_FLOATS } from "./wasm/wire/core";
 
@@ -18,11 +19,14 @@ export function instanceForSkeleton(world: World, skeleton: GameObject): number 
   return animating(world, skeleton)?.instance ?? 0;
 }
 
-/** @internal This frame's model-space skinning matrices for `skeleton` (row-major 3×4, 12 floats per bone, model × inverse bind, D10), a view valid until the next core call; null when not animated. */
+/** @internal This frame's model-space skinning matrices for `skeleton` (row-major 3×4, 12 floats per bone, model × inverse bind, D10), with this frame's bone overrides, a view valid until the next core call; null when not animated. */
 export function skinningMatrices(world: World, skeleton: GameObject): Float32Array | null {
   const rt = animating(world, skeleton);
   const bones = rt?.skeleton?.info?.bones ?? 0;
-  if (!rt || !rt.evaluated || !bones) return null;
+  if (!rt || !bones) return null;
+  const posed = posedMatrices(rt); // this frame's bone overrides (`Animator.bone`, T32)
+  if (posed) return posed.subarray(0, bones * MATRIX_FLOATS);
+  if (!rt.evaluated) return null;
   const core = rt.ns!.core;
   const at = core.matrixOffset(rt.instance);
   return core.views().matrices.subarray(at, at + bones * MATRIX_FLOATS);

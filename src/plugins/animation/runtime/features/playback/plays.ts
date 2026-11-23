@@ -11,9 +11,10 @@
 // so a later play never lands before an earlier one.
 import type { AnimationFrame } from "../../stages/frame";
 import type { AnimationPlayEndReason, AnimationPlayResult, AnimatorStateInfo } from "../../types";
-import { CHANGE_FINISHED, CHANGE_INTERRUPTED, CHANGE_REFUSED, PLAY, PLAY_LOOP, PLAY_ONCE, STATE_CHANGE, STOP } from "../../wasm/wire/core";
+import { CHANGE_FINISHED, CHANGE_INTERRUPTED, CHANGE_REFUSED, PLAY, PLAY_LOOP, PLAY_ONCE, SET_LAYER, STATE_CHANGE, STOP } from "../../wasm/wire/core";
 import type { RecordFields } from "../../core/records";
 import { clipEntry, playsOf, type AnimatorRuntime, type ClipEntry } from "../instances";
+import { acquireMask } from "../graph/masks";
 
 /** @internal One play of a clip on a layer. */
 export interface PlayRecord {
@@ -40,7 +41,10 @@ export interface PlayRecord {
 }
 
 /** @internal What waits in an Animator's queue for the gather stage. */
-export type PlayCommand = { readonly kind: "play"; readonly play: PlayRecord } | { readonly kind: "stop"; readonly layers: readonly number[]; readonly fade: number };
+export type PlayCommand =
+  | { readonly kind: "play"; readonly play: PlayRecord }
+  | { readonly kind: "stop"; readonly layers: readonly number[]; readonly fade: number }
+  | { readonly kind: "mask"; readonly layer: number; readonly path: string };
 
 /** @internal Options of a queued play, already resolved to numbers. */
 export interface PlaySpec {
@@ -89,6 +93,35 @@ export function queuePlay(rt: AnimatorRuntime, clip: string, spec: PlaySpec): Pl
 /** @internal `Animator.defaultClip` on activation: a plain play on layer 0. */
 export function queueDefaultClip(rt: AnimatorRuntime, clip: string): void {
   queuePlay(rt, clip, { layer: 0, fade: 0, speed: 1, startNormalized: 0, loop: undefined });
+}
+
+/** @internal Queues mask `path` (`*.mask.json`) for implicit-graph layer `layer` (1–3), ahead of what is queued after it (T32). */
+export function queueLayerMask(rt: AnimatorRuntime, layer: number, path: string): void {
+  rt.queue.push({ kind: "mask", layer, path });
+}
+
+/**
+ * The mask entry of `path` for `rt`'s Skeleton, loading it on first use (held in `rt.clips` under a mask key, so it is
+ * released with the clips); null when the Animator has no Skeleton (nothing to mask).
+ */
+function maskEntry(rt: AnimatorRuntime, path: string): ClipEntry | null {
+  const s = rt.skeleton;
+  if (!s?.info || !rt.ns) return null;
+  const key = `\u0000mask\u0000${path}\u0000${s.path}`;
+  let entry = rt.clips.get(key);
+  if (entry) return entry;
+  const e: ClipEntry = { path, handle: undefined, info: null };
+  rt.clips.set(key, e);
+  const ns = rt.ns;
+  void acquireMask(ns, path, { path: s.path, info: s.info, profile: s.component.profile }).then((handle) => {
+    if (rt.detached || rt.clips.get(key) !== e) {
+      if (handle) ns.release(handle);
+      return;
+    }
+    e.handle = handle;
+  });
+  entry = e;
+  return entry;
 }
 
 /** @internal Queues a stop of `layers`, fading out over `fade` seconds. */
@@ -152,6 +185,11 @@ export function flushQueue(frame: AnimationFrame, rt: AnimatorRuntime): void {
         flags,
       });
       rt.layers[play.layer] = play;
+    } else if (cmd.kind === "mask") {
+      const mask = maskEntry(rt, cmd.path);
+      if (mask && mask.handle === undefined) return; // still loading: later commands wait behind it
+      rt.queue.shift();
+      if (mask?.handle) frame.core.commands.put(SET_LAYER, { instance, layer: cmd.layer, mask: mask.handle, mode: 0 });
     } else {
       rt.queue.shift();
       for (const layer of cmd.layers) {
