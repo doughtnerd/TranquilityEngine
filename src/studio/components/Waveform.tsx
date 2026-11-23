@@ -1,4 +1,6 @@
-// The waveform (ADR 0349 `Waveform`): a sample's peaks drawn on a canvas for a view (`waveformModel.ts`), coloured
+// The waveform (ADR 0349 `Waveform`): a sample's peaks drawn on a canvas for a view (`waveformModel.ts`) as the owner's
+// prototype draws them (a filled envelope mirrored about the centre line, redrawn when the box's width or height
+// changes), coloured
 // bands over it (loops, the play scope, deleted snippets hatched), and children laid over it (playhead, cut lines).
 // Ctrl/⌘+wheel zooms at the pointer and a plain or Shift+wheel scrolls (`onView`); a press reports the time under
 // the pointer (`onPress`). With `zoomButtons` it also draws Zoom in, Zoom out and Fit over its top-right corner, so touch
@@ -7,9 +9,9 @@
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef } from "preact/hooks";
 import { Icon } from "./Icon";
-import { useElementWidth } from "./useElementWidth";
+import { useElementSize } from "./useElementSize";
 import type { TimeSpan } from "./timeRulerModel";
-import { bandRect, scrollBy, waveColumns, xToTime, zoomAt, type PeakMips, type WaveBand } from "./waveformModel";
+import { bandRect, envelopeRuns, scrollBy, waveColumns, xToTime, zoomAt, type PeakMips, type WaveBand } from "./waveformModel";
 import "./audioParts.css";
 import "./timelineComponents.css";
 
@@ -19,8 +21,10 @@ export interface WaveformProps {
   /** The sample's length, seconds (zoom and scroll stay inside it). */
   readonly length: number;
   readonly bands?: readonly WaveBand[];
-  /** The waveform's colour token (default `--accent`). */
+  /** The waveform's colour token (default `--badge-text` at half strength, as the prototype draws it). */
   readonly color?: string;
+  /** Its opacity (default 0.5 with the default colour, 1 with a named one). */
+  readonly opacity?: number;
   /** Px; default fills its box. */
   readonly height?: number;
   /** What it says while the peaks load or when there are none. */
@@ -35,9 +39,12 @@ export interface WaveformProps {
   readonly children?: ComponentChildren;
 }
 
-function draw(canvas: HTMLCanvasElement, props: WaveformProps, width: number): void {
+/** The envelope's half-height as a share of half the lane (the prototype draws 46 of 50). */
+const ENVELOPE_SCALE = 0.92;
+
+function draw(canvas: HTMLCanvasElement, props: WaveformProps, width: number, height: number): void {
   const dpr = typeof devicePixelRatio === "number" ? devicePixelRatio : 1;
-  const h = canvas.clientHeight || props.height || 80;
+  const h = height || canvas.clientHeight || props.height || 80;
   canvas.width = Math.max(1, Math.round(width * dpr));
   canvas.height = Math.max(1, Math.round(h * dpr));
   const g = canvas.getContext("2d");
@@ -48,22 +55,32 @@ function draw(canvas: HTMLCanvasElement, props: WaveformProps, width: number): v
   const mid = h / 2;
   g.fillStyle = style.getPropertyValue("--border").trim() || "gray";
   g.fillRect(0, Math.floor(mid), width, 1);
-  const cols = waveColumns(props.mips, props.view, width);
-  g.fillStyle = style.getPropertyValue(props.color ?? "--accent").trim() || "teal";
-  for (let x = 0; x < cols.min.length; x++) {
-    const lo = cols.min[x], hi = cols.max[x];
-    if (Number.isNaN(lo)) continue;
-    const y0 = mid - hi * mid * 0.95, y1 = mid - lo * mid * 0.95;
-    g.fillRect(x, y0, 1, Math.max(1, y1 - y0));
+  // A filled envelope mirrored about the centre line, in --badge-text at half strength (the prototype's look) unless
+  // the owner names a colour.
+  g.fillStyle = style.getPropertyValue(props.color ?? "--badge-text").trim() || "teal";
+  g.globalAlpha = props.opacity ?? (props.color ? 1 : 0.5);
+  const amp = mid * ENVELOPE_SCALE;
+  for (const run of envelopeRuns(waveColumns(props.mips, props.view, width))) {
+    const n = run.amps.length;
+    g.beginPath();
+    g.moveTo(run.x, mid - Math.max(0.5, run.amps[0]! * amp));
+    for (let i = 0; i < n; i++) g.lineTo(run.x + i + 0.5, mid - Math.max(0.5, run.amps[i]! * amp));
+    g.lineTo(run.x + n, mid - Math.max(0.5, run.amps[n - 1]! * amp));
+    g.lineTo(run.x + n, mid + Math.max(0.5, run.amps[n - 1]! * amp));
+    for (let i = n - 1; i >= 0; i--) g.lineTo(run.x + i + 0.5, mid + Math.max(0.5, run.amps[i]! * amp));
+    g.lineTo(run.x, mid + Math.max(0.5, run.amps[0]! * amp));
+    g.closePath();
+    g.fill();
   }
+  g.globalAlpha = 1;
 }
 
 export function Waveform(props: WaveformProps) {
   const box = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLCanvasElement>(null);
-  const width = useElementWidth(box);
+  const { width, height } = useElementSize(box);
   useEffect(() => {
-    if (canvas.current && width > 0) draw(canvas.current, props, width);
+    if (canvas.current && width > 0) draw(canvas.current, props, width, height);
   });
   const timeAt = (clientX: number) => {
     const r = box.current!.getBoundingClientRect();

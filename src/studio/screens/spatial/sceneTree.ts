@@ -5,13 +5,15 @@
 // deleted through the engine's asset operations.
 //
 // Pure: no DOM, no signals.
-import { AUDIO_SCENE_SUFFIX } from "../../../engine/audio/spatial/testSceneTypes";
+import { AUDIO_SCENE_SUFFIX, type AudioTestScene } from "../../../engine/audio/spatial/testSceneTypes";
 import { uniqueName } from "../../../engine/core/uniqueName";
 
 /** A scene file and the folder it says it is in. */
 export interface SceneEntry {
   readonly path: string;
   readonly folder: string;
+  /** What it holds, for its row (`sceneNote`). */
+  readonly note?: string;
 }
 
 export type SceneNode =
@@ -24,6 +26,15 @@ export const isScenePath = (path: string): boolean => path.toLowerCase().endsWit
 export function sceneName(path: string): string {
   const file = path.slice(path.lastIndexOf("/") + 1);
   return isScenePath(file) ? file.slice(0, file.length - AUDIO_SCENE_SUFFIX.length) : file;
+}
+
+/**
+ * A scene as the Move to… dialog takes it: by its name under the folder its `folder` field names (not its file's
+ * folder), so the dialog's title names the scene and its folder shows as the one it's in now.
+ */
+export function sceneMoveItem(entry: SceneEntry): { readonly path: string; readonly folder: false } {
+  const name = sceneName(entry.path);
+  return { path: entry.folder ? `${entry.folder}/${name}` : name, folder: false };
 }
 
 const leaf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
@@ -51,6 +62,42 @@ export function sceneTree(entries: readonly SceneEntry[], extra: readonly string
     ...byName.filter((e) => normFolder(e.folder) === folder).map((e): SceneNode => ({ kind: "scene", path: e.path, name: sceneName(e.path), folder: normFolder(e.folder) })),
   ];
   return build("");
+}
+
+/** The scenes in the tree's order, top to bottom (every folder open). */
+function treeOrder(entries: readonly SceneEntry[]): string[] {
+  const out: string[] = [];
+  const walk = (nodes: readonly SceneNode[]) => {
+    for (const n of nodes) {
+      if (n.kind === "scene") out.push(n.path);
+      else walk(n.children);
+    }
+  };
+  walk(sceneTree(entries));
+  return out;
+}
+
+/** The scene to open after `removed` go (the open one deleted): the next in the tree, else the one before; null when none is left. */
+export function sceneAfter(entries: readonly SceneEntry[], removed: readonly string[]): string | null {
+  const order = treeOrder(entries);
+  const gone = new Set(removed);
+  const at = order.findIndex((p) => gone.has(p));
+  if (at < 0) return null;
+  return order.slice(at + 1).find((p) => !gone.has(p)) ?? [...order.slice(0, at)].reverse().find((p) => !gone.has(p)) ?? null;
+}
+
+const count = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/** A scene row's muted note: "Game scene · canyon" over a game scene, "Blank" with only a listener, else what it holds. */
+export function sceneNote(scene: AudioTestScene): string {
+  if (scene.base) return `Game scene · ${sceneName(scene.base).replace(/\.scene\.json$/i, "")}`;
+  const zones = scene.reverbZones.length + scene.audioZones.length;
+  const parts = [
+    scene.emitters.length ? count(scene.emitters.length, "emitter") : "",
+    scene.obstacles.length ? count(scene.obstacles.length, "obstacle") : "",
+    zones ? count(zones, "zone") : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : "Blank";
 }
 
 /** Scenes matching every word of `query` in their name or folder, with "folder › name" for display. */

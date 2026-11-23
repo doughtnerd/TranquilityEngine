@@ -67,6 +67,10 @@ export interface CurvePlotProps {
   readonly histogram?: readonly number[];
   readonly listenerDensity?: (d: number) => number;
   readonly band?: readonly [number, number];
+  /** Another layer of the lane drawn faint and dashed behind it ("And by": Morph's other curve, a label's base). */
+  readonly ghost?: Curve;
+  /** The lane's value at x with the second input at "Preview at" (a dashed line), in the lane's units. */
+  readonly preview?: (x: number) => number | null;
   readonly editor: DraftEditor;
   onSelect(index: number | null): void;
 }
@@ -241,7 +245,18 @@ export function CurvePlot(props: CurvePlotProps) {
 
   const sel = selected !== null && selected < curve.length ? selected : null;
   const handles = sel !== null && !activeHidden ? handlePoints(lane, curve, sel) : null;
-  const toolbarFor = sel !== null && !props.selectedFromDope ? sel : hover;
+  // The tangent toolbar shows for the key under the pointer, else the selected one (spec §5.1: hover or selection).
+  const toolbarFor = hover !== null && hover < curve.length ? hover : sel !== null && !props.selectedFromDope ? sel : null;
+  let previewPath = "";
+  if (props.preview) {
+    const pts: string[] = [];
+    for (let i = 0; i <= 160; i++) {
+      const x = vx0 + (vs * i) / 160;
+      const v = props.preview(x);
+      if (v !== null) pts.push(`${f1(sx(x))} ${f1(sy(toNorm(lane, v)))}`);
+    }
+    if (pts.length > 1) previewPath = `M${pts.join(" L")}`;
+  }
 
   return (
     <div class="ce-plot">
@@ -285,6 +300,8 @@ export function CurvePlot(props: CurvePlotProps) {
           {others.map(({ l, i, s }) => (
             <path key={l.id} class={`ce-other${s.bypass ? " bypassed" : ""}`} d={path(s.curve, l)} style={{ stroke: laneColor(l, i) }} vector-effect="non-scaling-stroke" />
           ))}
+          {props.ghost && <path class="ce-ghost" d={path(props.ghost)} style={{ stroke: color }} vector-effect="non-scaling-stroke" />}
+          {previewPath && <path class="ce-preview" d={previewPath} vector-effect="non-scaling-stroke" />}
           {marks.map((m, i) => (
             <line key={`m${i}`} class={m.cls} x1={sx(m.x)} y1={0} x2={sx(m.x)} y2={H} vector-effect="non-scaling-stroke" />
           ))}

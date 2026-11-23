@@ -118,17 +118,15 @@ test("Make a Copy writes a sample into a folder and opens the copy for editing",
   const sample = start(page).locator(".sample", { hasText: "Flappy Bird" });
   await nextFolder(page, "MyFlappy");
   await sample.getByRole("button", { name: "Make a Copy…" }).click();
-  // The sample still has an old audio event (ADR 0343): opening the copy offers its migration once.
-  const migrate = page.getByRole("alertdialog");
-  await expect(migrate).toContainText("migrate 1 file to playlists");
-  await migrate.getByRole("button", { name: "Migrate" }).click();
+  // The sample's music is a playlist already (its audio event was migrated in the sample, ADR 0343): no migration is offered.
   await expect(page.locator(".project-name")).toHaveText("flappy");
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
   await expect(treeRow(page, "Bird")).toHaveCount(1);
   await expect(await menuItemOf(page, "File", "Reload Scripts")).toBeVisible(); // a folder project
   await closeMenus(page);
   const files = await listFolder(page, "MyFlappy");
-  expect(files).toEqual(expect.arrayContaining(["project.json", "scenes/main.scene.json", "images/flappyBird.png", "music/town.playlist.json", ".myco/migrated/music/town.audioevent.json"]));
-  expect(files).not.toContain("music/town.audioevent.json");
+  expect(files).toEqual(expect.arrayContaining(["project.json", "scenes/main.scene.json", "images/flappyBird.png", "music/town.playlist.json"]));
+  expect(files.some((f) => f.endsWith(".audioevent.json"))).toBe(false);
   expect(files.some((f) => f.startsWith("scripts/"))).toBe(true);
   expect(errors).toEqual([]);
 });

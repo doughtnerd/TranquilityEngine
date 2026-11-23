@@ -9,6 +9,8 @@
 // Lanes group blocks by bus or by clip; overlapping blocks take rows within a lane (`assignLanes`, the track kit's).
 import { reasonText, type CaptureEventAt, type CaptureEventType, type CaptureNames, type CaptureReason } from "../../../plugins/audio/runtime/capture/reader";
 import { assignLanes } from "../../../plugins/audio/editor/mix/tracks/lanes";
+import type { GeneratorKind } from "../../../engine/audio/generators/types";
+import { generatorKindOfClip } from "../playlists/generator/generatorKinds";
 
 /** The voice events the model reads (`ProfileSource.events`' `types`). */
 export const VOICE_EVENT_TYPES: readonly CaptureEventType[] = ["voiceStart", "voiceStop", "voiceSteal", "voiceRefused"];
@@ -42,6 +44,8 @@ export interface VoiceBlock {
   readonly voice: number | null;
   readonly clip: number;
   readonly clipName: string;
+  /** ADR 0360: a generator voice's kind (its clip is the kind's reserved id), null for a clip or stream voice. */
+  readonly generator: GeneratorKind | null;
   readonly slot: number;
   readonly busName: string;
   /** Viewport seconds (0 = the capture's first record). */
@@ -59,6 +63,8 @@ export interface VoiceBlock {
   readonly thief: number | null;
   /** The gain it started at, linear (null for a refusal or a voice from the keyframe). */
   readonly startGain: number | null;
+  /** The record number of its start (its refusal), which ties it to its playlist instance; null when it was playing before the capture. */
+  readonly seq: number | null;
 }
 
 /** A voice the capture's first keyframe already counted. */
@@ -79,6 +85,7 @@ interface Open {
   start: number;
   fromKeyframe: boolean;
   startGain: number | null;
+  seq: number | null;
 }
 
 /**
@@ -91,17 +98,17 @@ export function buildVoices(events: readonly CaptureEventAt[], names: CaptureNam
   const out: VoiceBlock[] = [];
   const open = new Map<number, Open>();
   const counts = new Map<number, number>();
-  const name = (o: { clip: number; slot: number }, at: number) => ({ clipName: names.clip(o.clip, origin + at), busName: names.bus(o.slot, origin + at) });
-  const begin = (voice: number, clip: number, slot: number, at: number, fromKeyframe: boolean, startGain: number | null) => {
+  const name = (o: { clip: number; slot: number }, at: number) => ({ clipName: names.clip(o.clip, origin + at), busName: names.bus(o.slot, origin + at), generator: generatorKindOfClip(o.clip) });
+  const begin = (voice: number, clip: number, slot: number, at: number, fromKeyframe: boolean, startGain: number | null, seq: number | null) => {
     const n = (counts.get(voice) ?? 0) + 1;
     counts.set(voice, n);
-    open.set(voice, { key: `v${voice}.${n}`, voice, clip, slot, start: at, fromKeyframe, startGain });
+    open.set(voice, { key: `v${voice}.${n}`, voice, clip, slot, start: at, fromKeyframe, startGain, seq });
   };
   const close = (o: Open, at: number, status: VoiceStatus, reason: CaptureReason | null, thief: number | null) => {
     open.delete(o.voice);
-    out.push({ key: o.key, voice: o.voice, clip: o.clip, slot: o.slot, ...name(o, o.start), start: o.start, end: Math.max(o.start, at), open: false, fromKeyframe: o.fromKeyframe, status, reason, thief, startGain: o.startGain });
+    out.push({ key: o.key, voice: o.voice, clip: o.clip, slot: o.slot, ...name(o, o.start), start: o.start, end: Math.max(o.start, at), open: false, fromKeyframe: o.fromKeyframe, status, reason, thief, startGain: o.startGain, seq: o.seq });
   };
-  for (const v of opts.initial ?? []) begin(v.voice, v.clip, v.slot, 0, true, null);
+  for (const v of opts.initial ?? []) begin(v.voice, v.clip, v.slot, 0, true, null, null);
   const sorted = [...events].sort((a, b) => a.seconds - b.seconds || a.seq - b.seq);
   for (const { seq, seconds, event: e } of sorted) {
     const at = seconds - origin;
@@ -109,7 +116,7 @@ export function buildVoices(events: readonly CaptureEventAt[], names: CaptureNam
       case "voiceStart": {
         const prev = open.get(e.voice);
         if (prev) close(prev, at, "played", null, null);
-        begin(e.voice, e.clip, e.slot, at, false, Number.isFinite(e.gain) ? e.gain : null);
+        begin(e.voice, e.clip, e.slot, at, false, Number.isFinite(e.gain) ? e.gain : null, seq);
         break;
       }
       case "voiceStop": {
@@ -124,14 +131,14 @@ export function buildVoices(events: readonly CaptureEventAt[], names: CaptureNam
       }
       case "voiceRefused": {
         const status = (e.reason && REFUSAL_STATUS[e.reason]) ?? "refused";
-        out.push({ key: `r${seq}`, voice: null, clip: e.clip, slot: e.slot, ...name(e, at), start: at, end: at, open: false, fromKeyframe: false, status, reason: e.reason, thief: null, startGain: null });
+        out.push({ key: `r${seq}`, voice: null, clip: e.clip, slot: e.slot, ...name(e, at), start: at, end: at, open: false, fromKeyframe: false, status, reason: e.reason, thief: null, startGain: null, seq });
         break;
       }
       default:
         break;
     }
   }
-  for (const o of open.values()) out.push({ key: o.key, voice: o.voice, clip: o.clip, slot: o.slot, ...name(o, o.start), start: o.start, end: Math.max(o.start, duration), open: true, fromKeyframe: o.fromKeyframe, status: "played", reason: null, thief: null, startGain: o.startGain });
+  for (const o of open.values()) out.push({ key: o.key, voice: o.voice, clip: o.clip, slot: o.slot, ...name(o, o.start), start: o.start, end: Math.max(o.start, duration), open: true, fromKeyframe: o.fromKeyframe, status: "played", reason: null, thief: null, startGain: o.startGain, seq: o.seq });
   return out.sort((a, b) => a.start - b.start || a.key.localeCompare(b.key));
 }
 

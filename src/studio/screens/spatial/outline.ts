@@ -48,7 +48,8 @@ export function outlineGroups(scene: AudioTestScene, filter = ""): OutlineGroup[
     const rows = mine
       .filter((o) => q === "" || groupHit || o.obj.name.toLowerCase().includes(q))
       .map((o): OutlineRow => ({ id: o.obj.id, name: o.obj.name, hidden: o.obj.hidden, locked: o.obj.locked, active: o.obj.id === active, moving: o.kind === "emitter" && o.obj.kind === "moving" }));
-    if (q !== "" && rows.length === 0) continue;
+    // Only kinds the scene has (the prototype lists 2D sounds only when there are some); while filtering, only hits.
+    if (mine.length === 0 || (q !== "" && rows.length === 0)) continue;
     out.push({ kind, title, count: mine.length, rows });
   }
   return out;

@@ -42,7 +42,7 @@ const stems = (b: PlaylistBody): string[] => (b.sequence?.tracks ?? []).map((t) 
 
 describe("the Sound Lab's music playlists", () => {
   for (const name of ["music-world", "music-loop", "music-playlist", "music-stems8", "music-list3"]) {
-    it(`${name}: parses without a problem, every sample clip is as long as its WAV, and the lint finds only stem overlaps`, () => {
+    it(`${name}: parses without a problem, every sample clip is as long as its WAV, and the lint finds nothing (parallel stems are no problem)`, () => {
       const { playlist, problems } = load(name);
       expect(problems).toEqual([]);
       expect(playlist.output).toBe("Music");
@@ -50,7 +50,7 @@ describe("the Sound Lab's music playlists", () => {
         expect(s.sequence!.tempo).toEqual({ bpm: 120, meter: "4/4" });
         for (const t of s.sequence!.tracks) for (const c of t.clips) if (c.sample) expect(seconds(c.sample)).toBeCloseTo(c.length, 2);
       }
-      expect(lintPlaylist(playlist).filter((l) => l.code !== "overlappingSyncLoops")).toEqual([]);
+      expect(lintPlaylist(playlist)).toEqual([]);
     });
   }
 

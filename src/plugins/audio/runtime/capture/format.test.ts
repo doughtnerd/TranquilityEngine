@@ -32,7 +32,7 @@ function roundTrip<T>(bytes: number, enc: (v: DataView, off: number) => number, 
 
 describe("capture format constants", () => {
   it("names this build's ABI and the mix-op code counts", () => {
-    expect(CAPTURE_ABI_VERSION).toBe(CORE_ABI_MAJOR << 8);
+    expect(CAPTURE_ABI_VERSION >> 8).toBe(CORE_ABI_MAJOR); // ABI 6.1 (ADR 0362): the minor is in the low byte
     expect(CAPTURE_ABI_VERSION).toBe(CORE_ABI_VERSION);
     expect(CAPTURE_MIXOP_CODES).toBe(MIX_OP_NAMES.length);
     expect(CAPTURE_MIXOP_CLASSES).toBe(OP_CLASSES.length);
@@ -67,8 +67,33 @@ describe("capture header (§5.1)", () => {
   it("stamps the running core's ABI the writer gives, and this build's without one (ADR 0328)", () => {
     expect(readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION }, SAMPLE_META, [])).abiVersion).toBe(CORE_ABI_VERSION);
     expect(readCaptureHeader(assembleCapture(SAMPLE_HEADER, SAMPLE_META, [])).abiVersion).toBe(CAPTURE_ABI_VERSION);
-    // A core of another ABI under this wire's hash is refused when read.
-    expect(codeOf(() => readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION + 1 }, SAMPLE_META, [])))).toBe("badHeader");
+    // A core of another ABI major under this wire's hash is refused when read; another minor reads.
+    expect(codeOf(() => readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION + 0x100 }, SAMPLE_META, [])))).toBe("badHeader");
+    expect(readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION + 1 }, SAMPLE_META, [])).abiVersion).toBe(CORE_ABI_VERSION + 1);
+  });
+
+  it("opens a file recorded under an older core ABI minor (another wire hash): a minor bump is backward compatible", () => {
+    const older = (CORE_ABI_VERSION & ~0xff) | Math.max(0, (CORE_ABI_VERSION & 0xff) - 1);
+    const c = assembleCapture({ ...SAMPLE_HEADER, abiVersion: older === CORE_ABI_VERSION ? CORE_ABI_VERSION + 1 : older }, SAMPLE_META, []).slice();
+    for (let i = 12; i < 28; i++) c[i] = c[i]! ^ 0x5a; // that build's own wire hash
+    const h = readCaptureHeader(c);
+    expect(h.abiVersion >> 8).toBe(CORE_ABI_VERSION >> 8);
+    expect(h.schemaHash).not.toBe(SCHEMA_HASH);
+    // A different major under another hash is still refused; so is this very version under another hash.
+    const major = c.slice();
+    new DataView(major.buffer).setUint32(28, CORE_ABI_VERSION - 0x100, true);
+    expect(codeOf(() => readCaptureHeader(major))).toBe("wireMismatch");
+    const same = c.slice();
+    new DataView(same.buffer).setUint32(28, CORE_ABI_VERSION, true);
+    expect(codeOf(() => readCaptureHeader(same))).toBe("wireMismatch");
+  });
+
+  it("opens a file under an older envelope minor and refuses a newer one", () => {
+    const c = sampleCapture().slice();
+    new DataView(c.buffer).setUint16(34, 0, true);
+    expect(readCaptureHeader(c).envelopeMinor).toBe(0);
+    new DataView(c.buffer).setUint16(34, 99, true);
+    expect(codeOf(() => readCaptureHeader(c))).toBe("badHeader");
   });
 
   it("names both ABI versions on a wire mismatch", () => {

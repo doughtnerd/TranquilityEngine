@@ -6,7 +6,9 @@ import { MIX_LIMITS } from "../../engine/audio/project/format";
 import type { DuckingRule } from "../../engine/audio/project/types";
 import { SegmentedControl } from "../../editor/ui/SegmentedControl";
 import type { EditResult } from "../../editor/sdk/editResult";
-import { duckSummary, editDuck, type DuckPatch } from "./mixRowsModel";
+import { duckSummary, editDuck, triggerEntries, type DuckPatch } from "./mixRowsModel";
+import { ContextMenu } from "../../editor/ui/ContextMenu";
+import { useRef, useState } from "preact/hooks";
 import { Icon } from "./Icon";
 import { ParameterRow } from "./ParameterRow";
 import type { ParamSpec } from "./parameterRowModel";
@@ -34,6 +36,8 @@ export function DuckRow(props: DuckRowProps) {
   const { rule, open, readOnly } = props;
   const bodyId = `studio-duck-${rule.target}-${rule.trigger}`;
   const edit = (patch: DuckPatch, label: string, drag?: boolean) => props.onEdit(editDuck(rule, patch), label, drag);
+  const [byOpen, setByOpen] = useState(false);
+  const byButton = useRef<HTMLButtonElement>(null);
   return (
     <div class={`studio-row studio-duck${rule.enabled ? "" : " off"}`}>
       <div class="studio-row-head">
@@ -55,16 +59,17 @@ export function DuckRow(props: DuckRowProps) {
       </div>
       {open && (
         <div class="studio-row-body" id={bodyId}>
-          <label class="studio-param">
-            <span>Ducked by</span>
-            <select value={rule.trigger} disabled={readOnly} onChange={(e) => edit({ trigger: (e.currentTarget as HTMLSelectElement).value }, "Change ducking trigger")}>
-              {props.triggers.map((t) => (
-                <option key={t.name} value={t.name} disabled={t.disabled !== null && t.name !== rule.trigger}>
-                  {t.disabled && t.name !== rule.trigger ? `${t.name} (${t.disabled})` : t.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div class="studio-param">
+            <span id={`${bodyId}-by`}>Ducked by</span>
+            {/* MX-33: the in-app dropdown (spec §4.3.8, no native pickers): a button opening a menu of the buses. */}
+            <button ref={byButton} type="button" class="studio-dd" aria-haspopup="menu" aria-expanded={byOpen} aria-labelledby={`${bodyId}-by ${bodyId}-byv`} disabled={readOnly} onClick={() => setByOpen(!byOpen)}>
+              <span id={`${bodyId}-byv`} class="studio-dd-value">{rule.trigger}</span>
+              <Icon name="chevronDown" size={12} />
+            </button>
+            {byOpen && (
+              <ContextMenu label="Ducked by" at={byButton.current ?? { x: 0, y: 0 }} entries={triggerEntries(props.triggers, rule.trigger, (name) => edit({ trigger: name }, "Change ducking trigger"))} onClose={() => setByOpen(false)} />
+            )}
+          </div>
           <div class="studio-param">
             <span>When</span>
             <SegmentedControl

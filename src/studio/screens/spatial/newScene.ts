@@ -11,11 +11,12 @@ import { uniqueName } from "../../../engine/core/uniqueName";
 
 export type NewSceneKind = "blank" | "current" | "game" | "take";
 
-export const NEW_SCENE_MENU: readonly { readonly id: NewSceneKind; readonly label: string; readonly hint: string }[] = [
-  { id: "blank", label: "Blank scene", hint: "A listener and nothing else" },
-  { id: "current", label: "From current test scene", hint: "A copy of the open scene" },
-  { id: "game", label: "From open game scene…", hint: "The game scene's emitters, colliders and zones underneath, read-only" },
-  { id: "take", label: "From take…", hint: "Positions at a moment of a take" },
+/** The New menu: each item with its muted second line (the prototype's); From current test scene says "Copy of <name>". */
+export const NEW_SCENE_MENU: readonly { readonly id: NewSceneKind; readonly label: string; readonly detail: string }[] = [
+  { id: "blank", label: "Blank scene", detail: "One listener, nothing else" },
+  { id: "current", label: "From current test scene", detail: "Copy of the open scene" },
+  { id: "game", label: "From open game scene…", detail: "Emitters, colliders and zones from a game scene" },
+  { id: "take", label: "From take…", detail: "Positions at the take's playhead" },
 ];
 
 /** A blank scene: one listener at the origin, in `folder`. */

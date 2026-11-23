@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { SequenceSettings } from "../../../../engine/audio/playlist/types";
 import type { EditResult } from "../../../../editor/sdk/editResult";
-import { addAutomation, addPoint, addVolumeEnvelope, deletePoints, movePoints, removeAutomation, setAutomation, setPointShape, targetSpecs, writeAutomation } from "./automationEdits";
+import { addAutomation, addPoint, automateLane, addVolumeEnvelope, deletePoints, movePoints, removeAutomation, setAutomation, setPointShape, targetSpecs, writeAutomation } from "./automationEdits";
 import { addLoop, addMarker, clearLoopOverride, deleteLoops, makeHoldPoint, moveLoop, nudgeLoopsAndMarkers, renameMarker, setLoopBehaviour, setLoopEdge, setLoopOverride, setMarkerHidden, setMarkerType } from "./loopMarkerEdits";
 import { copySelection, paste, pasteLabel } from "./sequenceClipboard";
 import {
@@ -191,6 +191,10 @@ describe("automation", () => {
     expect(ts.slice(0, 4)).toEqual(["volume", "pitch", "pan", "enabled"]);
     expect(ts).toContain("fx:fx1:on");
     expect(ts.some((t) => t.startsWith("fx:fx1:") && t !== "fx:fx1:on")).toBe(true);
+  });
+
+  it("opens Automate on an effect's first continuous parameter, not its On switch (J6.5)", () => {
+    expect(automateLane([{ id: "fx1", type: "lowpass", on: true, params: {} }], "fx1")).toBe("fx:fx1:cutoff");
   });
 
   it("automates a target with a flat curve, and adds a volume envelope with the clicked point", () => {

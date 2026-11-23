@@ -6,13 +6,13 @@
 //
 // Panels take the session as a prop, so stories give them one over a plain signal (`createMixerSession` with injected
 // deps); the screen's `index.tsx` makes the real one over the open project.
-import { batch, computed, effect, signal, type ReadonlySignal, type Signal } from "@preact/signals";
+import { computed, effect, signal, type ReadonlySignal, type Signal } from "@preact/signals";
 import type { AudioProject } from "../../../engine/audio/project/types";
 import { addBus, addReturn, addVca, deleteItem, kindOf, masterOf, planDelete, renameItem, type EditResult } from "./busTree";
 import { createLiveMix, type LiveMix, type LiveMixHost, type LiveOrigin } from "./liveMix";
 import { labelOn } from "./mixEdits";
 import { DEFAULT_PINS, livePins, togglePin, type BusReading, type LoudnessReading } from "./boardModel";
-import { deleteSnapshot, newSnapshot } from "./snapshotTree";
+import { addFolder, deleteSnapshot, newSnapshot } from "./snapshotTree";
 import type { TestValues } from "./snapshotBlend";
 
 /** What the session edits: the `audio.json` document (an `AssetDocument`), or a story's stand-in. */
@@ -25,6 +25,9 @@ export interface MixDocument {
    * so a change the session didn't make is told apart as an undo or a redo. Absent (a story): such changes are edits.
    */
   readonly history?: { readonly current: number; readonly states: readonly unknown[] };
+  /** Undo the last step, and its name (absent: a story without a history; a new snapshot is then deleted instead). */
+  undo?(): void;
+  readonly undoLabel?: ReadonlySignal<string | null>;
 }
 
 /** Where the session reaches the world: confirm dialogs, toasts, the status bar, other files, the runtime. */
@@ -48,6 +51,17 @@ export interface MixerDeps {
   auditionSnapshot?(name: string | null, fadeSeconds: number): void;
   /** The loudness target the meters check against (`Audio.loudnessTarget`). */
   setLoudnessTarget?(name: string): void;
+  /** Reset the loudness meters (a whole take's measurement starts from its first second). */
+  resetLoudness?(): void;
+  /** MX-63: the open take's replay (its path, length, playhead and whether it plays), null with none. Subscribes in a render. */
+  takeReplay?(): { readonly take: string; readonly duration: number; readonly time: number; readonly playing: boolean } | null;
+  /**
+   * The game session is live (the player bar's session: the open take's replay until the live game link, owner
+   * decision UI pass #1). Read inside a render, it should subscribe (a signal's value). Absent: never live.
+   */
+  sessionLive?(): boolean;
+  /** Open a project file in its screen (a playlist from the Inspector's Used by). */
+  openFile?(path: string): void;
   /** Per-user preferences (pins, the board's fold, the view); a story passes plain signals. */
   readonly prefs?: { pins: Signal<string[]>; boardOpen: Signal<boolean>; view: Signal<"list" | "strips"> };
 }
@@ -65,8 +79,10 @@ export interface MixerSession {
   readonly testValues: Signal<TestValues>;
   readonly pins: ReadonlySignal<string[]>;
   readonly boardOpen: Signal<boolean>;
-  /** Snapshot folders made in this session that nothing is in yet. */
-  readonly extraFolders: Signal<string[]>;
+  /** Edits made while the game session was live, kept after it stops ("3 edits kept"); 0 again when it next starts. */
+  readonly liveEdits: ReadonlySignal<number>;
+  /** The game session is live now (read in a render, it subscribes); its start sets `liveEdits` back to 0. */
+  sessionLive(): boolean;
   /** Bumped while the runtime runs, so meters re-read. */
   readonly tick: Signal<number>;
   readonly live: LiveMix | null;
@@ -76,12 +92,20 @@ export interface MixerSession {
   /** Apply an edit as one undo step (`coalesce` for drags); a refusal goes to the status bar. Returns whether it applied. */
   commit(result: EditResult<AudioProject>, label: string, coalesce?: boolean): boolean;
   refuse(label: string, reason: string): void;
-  newBus(): void;
-  newReturn(): void;
-  newVca(): void;
+  /** A new bus inside the selected one (selected after); its name, or null when refused. */
+  newBus(): string | null;
+  newReturn(): string | null;
+  newVca(): string | null;
   rename(from: string, to: string): Promise<boolean>;
   remove(name: string): Promise<boolean>;
   newSnapshot(folder: string): string | null;
+  /**
+   * Escape while a just-made snapshot's name is typed: it never happened (its "New snapshot" step is undone; without a
+   * history it's deleted).
+   */
+  cancelNewSnapshot(name: string): void;
+  /** A new empty snapshot folder under `parent` ("New folder"); its path, or null when refused. */
+  newFolder(parent: string): string | null;
   removeSnapshot(name: string): void;
   editSnapshot(name: string | null): void;
   setTestValue(name: string, value: number | null): void;
@@ -105,6 +129,15 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
   const prefs = deps.prefs ?? { pins: signal<string[]>([...DEFAULT_PINS]), boardOpen: signal(false), view: signal<"list" | "strips">("list") };
   const pins = computed(() => livePins(prefs.pins.value, project.value));
   const soloed = signal<string | null>(null);
+  const liveEdits = signal(0);
+  let sessionWasLive = false;
+  /** Whether the session is live now; a new start counts edits from 0 again. */
+  const sessionNow = (): boolean => {
+    const on = deps.sessionLive?.() ?? false;
+    if (on && !sessionWasLive) liveEdits.value = 0;
+    sessionWasLive = on;
+    return on;
+  };
   const live = deps.live ? createLiveMix(deps.live, () => doc.value.peek()) : null;
   const stops: (() => void)[] = [];
 
@@ -155,6 +188,7 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
   // An edited snapshot that's gone (deleted, undone) falls back to the base mix.
   stops.push(effect(() => { const e = editing.value; if (e !== null && !project.value.snapshots.some((s) => s.name === e)) editing.value = null; }));
 
+  let lastCoalesced: string | null = null;
   const refuse = (label: string, reason: string) => deps.report("error", `Can't ${lowerFirst(label)}: ${reason}`);
   const commit = (result: EditResult<AudioProject>, label: string, coalesce = false): boolean => {
     if ("refused" in result) return refuse(label, result.refused), false;
@@ -166,6 +200,9 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
     } finally {
       ownEdit = false;
     }
+    // A drag's moves are one edit: count its first move only.
+    if (sessionNow() && !(coalesce && lastCoalesced === label)) liveEdits.value++;
+    lastCoalesced = coalesce ? label : null;
     return true;
   };
 
@@ -180,7 +217,8 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
     testValues: signal<TestValues>({}),
     pins,
     boardOpen: prefs.boardOpen,
-    extraFolders: signal<string[]>([]),
+    liveEdits,
+    sessionLive: sessionNow,
     tick: signal(0),
     live,
     soloed,
@@ -189,18 +227,24 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
     refuse,
     newBus() {
       const r = addBus(project.peek(), selected.peek());
-      if ("refused" in r) return refuse("New bus", r.refused);
-      if (commit({ next: r.next.project }, labelOn("New bus", r.next.name))) chosen.value = r.next.name;
+      if ("refused" in r) return refuse("New bus", r.refused), null;
+      if (!commit({ next: r.next.project }, "New bus")) return null;
+      chosen.value = r.next.name;
+      return r.next.name;
     },
     newReturn() {
       const r = addReturn(project.peek());
-      if ("refused" in r) return refuse("New return", r.refused);
-      if (commit({ next: r.next.project }, labelOn("New return", r.next.name))) chosen.value = r.next.name;
+      if ("refused" in r) return refuse("New return", r.refused), null;
+      if (!commit({ next: r.next.project }, "New return")) return null;
+      chosen.value = r.next.name;
+      return r.next.name;
     },
     newVca() {
       const r = addVca(project.peek());
-      if ("refused" in r) return refuse("New VCA", r.refused);
-      if (commit({ next: r.next.project }, labelOn("New VCA", r.next.name))) chosen.value = r.next.name;
+      if ("refused" in r) return refuse("New VCA", r.refused), null;
+      if (!commit({ next: r.next.project }, "New VCA")) return null;
+      chosen.value = r.next.name;
+      return r.next.name;
     },
     async rename(from, to) {
       const label = labelOn("Rename", from);
@@ -244,12 +288,22 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
     newSnapshot(folder) {
       const r = newSnapshot(project.peek(), folder);
       if ("refused" in r) return refuse("New snapshot", r.refused), null;
-      if (!commit({ next: r.next.project }, labelOn("New snapshot", r.next.name))) return null;
-      batch(() => {
-        session.extraFolders.value = session.extraFolders.peek().filter((f) => f !== folder);
-        editing.value = r.next.name;
-      });
+      if (!commit({ next: r.next.project }, "New snapshot")) return null;
+      editing.value = r.next.name;
       return r.next.name;
+    },
+    cancelNewSnapshot(name) {
+      if (!project.peek().snapshots.some((s) => s.name === name)) return;
+      if (doc.undo && doc.undoLabel?.peek() === "New snapshot") {
+        doc.undo();
+        return;
+      }
+      commit(deleteSnapshot(project.peek(), name), labelOn("Delete snapshot", name));
+    },
+    newFolder(parent) {
+      const r = addFolder(project.peek(), parent);
+      if ("refused" in r) return refuse("New folder", r.refused), null;
+      return commit({ next: r.next.project }, "New folder") ? r.next.path : null;
     },
     removeSnapshot(name) {
       const label = labelOn("Delete snapshot", name);

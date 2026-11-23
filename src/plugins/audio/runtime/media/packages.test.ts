@@ -12,6 +12,8 @@ import { endAudioSession, makeFakeBackend, type FakeVoice } from "../testing";
 import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
 import { installAudioMedia } from "./mediaTable";
+import { preparePackages } from "./packages";
+import { PendingCoreBackend } from "../pendingBackend";
 
 const fake = makeFakeBackend();
 let warn: MockInstance<typeof console.warn>;
@@ -182,6 +184,20 @@ describe("packages over the sources (editor Play)", () => {
     engine.dispose();
     expect(Audio.package("Core").state).toBe("unloaded");
     engine = await Engine.create({ headless: true });
+  });
+
+  it("starts the core while it is pending when a scene has packages to wait for, and not when it has none", async () => {
+    setAudioBackend(new PendingCoreBackend());
+    const startCore = vi.fn();
+    await preparePackages(engine.world, [], startCore); // the first scene: the preload package Core
+    expect(startCore).toHaveBeenCalledTimes(1);
+    await preparePackages(engine.world, [], startCore); // a later scene with no loader: nothing to wait for
+    expect(startCore).toHaveBeenCalledTimes(1);
+    await preparePackages(engine.world, ["Forest"], startCore);
+    expect(startCore).toHaveBeenCalledTimes(2);
+    setAudioBackend(fake);
+    await preparePackages(engine.world, ["Cave"], startCore); // a running backend: nothing to start
+    expect(startCore).toHaveBeenCalledTimes(2);
   });
 
   it("never loads packages in a headless World", async () => {

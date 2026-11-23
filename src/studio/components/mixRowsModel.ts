@@ -1,6 +1,7 @@
 // The mixer's send and ducking rows (ADR 0349 `SendRow`, `DuckRow`; ADR 0344 sends, ducking): what a collapsed row
 // says, which buses a ducking rule may be triggered by, and each row's edits as `{ next } | { refused }`, held to the
 // limits `audio.json`'s parse declares (`MIX_LIMITS`), so the owner applies them as undo steps.
+import type { MenuEntry } from "../../editor/ui/ContextMenu";
 import { MIX_LIMITS } from "../../engine/audio/project/format";
 import type { DuckingRule, Send } from "../../engine/audio/project/types";
 import type { EditResult } from "../../editor/sdk/editResult";
@@ -79,4 +80,24 @@ export function duckTriggerOptions(
     disabled:
       name === target ? "the ducked bus" : name === master ? "Master can't trigger" : above.has(name) ? `contains ${target}` : name !== current && rules.some((r) => r.target === target && r.trigger === name) ? "already" : null,
   }));
+}
+
+/**
+ * MX-33: the "Ducked by" menu: every bus that may trigger the rule, the current one checked, the others that can't with
+ * their reason as a muted note ("already", "Master can't trigger"); choosing one calls `choose`.
+ */
+export function triggerEntries(triggers: readonly { readonly name: string; readonly disabled: string | null }[], current: string, choose: (name: string) => void): MenuEntry[] {
+  return [
+    { kind: "group", label: "Duck when this plays" },
+    ...triggers.map((t): MenuEntry => ({
+      id: t.name,
+      label: t.name,
+      checked: t.name === current,
+      disabled: t.disabled !== null && t.name !== current,
+      ...(t.disabled !== null && t.name !== current ? { note: t.disabled } : {}),
+      run: () => {
+        if (t.name !== current) choose(t.name);
+      },
+    })),
+  ];
 }

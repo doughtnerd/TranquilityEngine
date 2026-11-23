@@ -4,7 +4,8 @@ import { describe, expect, it } from "vitest";
 import { Take } from "../../engine/audio/take/reader";
 import type { TakeMeta } from "../../engine/audio/take/types";
 import type { ReplayTarget } from "../runtime/takeReplay";
-import { inputHistogram } from "../screens/curveInputs";
+import type { ParameterDef } from "../../engine/audio/parameters";
+import { inputHistogram, parameterInputs } from "../screens/curveInputs";
 import { HISTOGRAM_BINS, ReplayStore } from "./replay";
 
 const META: TakeMeta = { project: "P", engine: "myco", audioHash: "h", seed: 0, seeded: false, device: "ua", started: new Date(0).toISOString(), duration: 4, emitters: {}, frames: false };
@@ -80,5 +81,16 @@ describe("ReplayStore (ADR 0348)", () => {
     expect(store.open.value).toBeNull();
     expect(disposed).toEqual([0]);
     expect(inputHistogram("param:Speed", speedInput)).toBeUndefined();
+  });
+
+  it("gives the curve editor the game's value at the playhead (Game now), until it closes", () => {
+    const { store } = setup();
+    store.openTake("t.mycotake", take);
+    const live = () => parameterInputs([{ name: "Speed", min: 0, max: 200, default: 0 } as unknown as ParameterDef])[0]!.live;
+    expect(live()!()).toBe(0); // the play's start value
+    store.seek(1.5);
+    expect(live()!()).toBe(100);
+    store.close();
+    expect(live()).toBeUndefined();
   });
 });

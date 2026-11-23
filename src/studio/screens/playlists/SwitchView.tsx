@@ -1,23 +1,29 @@
-// A Switch's settings (the prototype's Switch view; ADR 0343 "Switch"): the labelled parameter it follows, what each
-// label plays (an entry, or nothing) and its gain, the default "When it changes", and the change rules (From / To /
-// When / How / Length / Transition) with the lint for rules waiting for a beat, bar or Exit marker with no tempo to
-// wait on. The label playing now (its test value) is marked. A view over props.
-import type { ChangeHow, PlaylistBody } from "../../../engine/audio/playlist/types";
+// A Switch's labels and change rules (the prototype's Switch view; ADR 0343 "Switch"; its parameter and "When it
+// changes" sit in the toolbar row above, `ModeToolbar.tsx`). One row per label: the label, what it plays (a chip that
+// opens the plays menu: Nothing, then every entry with its badge, "also <label>" where another label plays it, ✓ on the
+// current one), its voice (the label's gain, and the curves of the entry it plays), a bar of its live level and Open.
+// The label of the test value is highlighted. Then the change rules: the default row (Any → Any, set by When it
+// changes) that always exists, and one compact row per rule (From, To, When, How, its length or transition playlist,
+// its fades in a popover, Remove), the rule that fired last lit. Entries no label plays are listed under them. A view
+// over props.
+import { useState } from "preact/hooks";
+import type { ChangeHow, ChangeRule, Entry, PlaylistBody } from "../../../engine/audio/playlist/types";
 import type { PlaylistLint } from "../../../engine/audio/playlist/lint";
 import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
 import { defaultEntryUse } from "../../../engine/audio/playlist/format";
-import { NumberBox, SelectBox, Section } from "../../../editor/ui/PanelFields";
-import type { BodyEdit } from "./EntryList";
-import { addRule, changeLength, removeRule, setLabelEntry, setLabelGain, setOnChange, setRule, setSwitchParameter, type EditContext } from "./playlistEdits";
-import { entryName, playlistTitle } from "./playlistPaths";
-import { FadeShapeSelect } from "../../components/FadeShapeSelect";
-import { Fragment } from "preact";
+import { ContextMenu, type MenuEntry } from "../../../editor/ui/ContextMenu";
+import { NumberBox, SelectBox } from "../../../editor/ui/PanelFields";
 import { Icon } from "../../components/Icon";
+import { TypeBadge } from "../../components/TypeBadge";
+import { EntryList, type EntryListProps } from "./EntryList";
+import { dbText, pct } from "./entryRowModel";
+import { CurveGlyph } from "./glyphs";
+import { MiniPopover } from "./MiniPopover";
+import { ChangeExtras, changeText, unitOf } from "./ModeToolbar";
+import { addRule, changeLength, removeRule, setLabelEntry, setLabelGain, setRule } from "./playlistEdits";
+import { entryName, playlistTitle } from "./playlistPaths";
 
-export interface SwitchViewProps {
-  readonly body: PlaylistBody;
-  readonly ctx: EditContext;
-  readonly writable: boolean;
+export interface SwitchViewProps extends EntryListProps {
   /** The parameter's test value (a label's index), when one is set. */
   readonly testValue?: number;
   /** Lints of this body (`where` relative to the file; `rulePrefix` is this body's `switch.rules`). */
@@ -25,11 +31,12 @@ export interface SwitchViewProps {
   readonly rulePrefix: string;
   /** Playlist files a transition can play. */
   readonly playlists: readonly string[];
-  onEdit(label: string, edit: BodyEdit): void;
+  /** The rule that fired at the last label change while auditioning (-1: the default), null for none. */
+  readonly fired?: number | null;
 }
 
 const WHEN: { value: ChangeHow["when"]; label: string }[] = [
-  { value: "now", label: "Immediately" },
+  { value: "now", label: "Now" },
   { value: "beat", label: "Next beat" },
   { value: "bar", label: "Next bar" },
   { value: "exit", label: "Next Exit marker" },
@@ -38,184 +45,162 @@ const WHEN: { value: ChangeHow["when"]; label: string }[] = [
 const HOW: { value: ChangeHow["how"]; label: string }[] = [
   { value: "crossfade", label: "Crossfade" },
   { value: "cut", label: "Cut" },
-  { value: "transition", label: "Transition playlist" },
+  { value: "transition", label: "Transition clip" },
 ];
 
 const lengthOf = (c: ChangeHow) => ("ms" in c.length ? c.length.ms : c.length.beats);
-const unitOf = (c: ChangeHow) => ("ms" in c.length ? "ms" : "beats");
+
+/** Badge props of an entry. */
+function badgeOf(e: Entry, facts: EntryListProps["facts"]) {
+  if (e.kind === "embedded") return <TypeBadge playlist={e.embedded.type} axes={e.embedded.blend?.axes.length === 2 ? 2 : 1} />;
+  const f = e.kind === "linked" ? facts(e) : null;
+  return f ? <TypeBadge playlist={f.type} axes={f.axes} /> : <TypeBadge sample />;
+}
 
 export function SwitchView(props: SwitchViewProps) {
   const { body, writable, onEdit } = props;
+  const [plays, setPlays] = useState<{ label: string; at: Element } | null>(null);
+  const [transition, setTransition] = useState<{ rule: number; at: Element } | null>(null);
   const s = body.switch;
   if (!s) return null;
-  const labelled = props.ctx.parameters.filter(isLabelled);
-  const def = labelled.find((p) => p.name === s.parameter) as (ParameterDef & { labels: string[] }) | undefined;
+  const def = props.ctx.parameters.filter(isLabelled).find((p) => p.name === s.parameter) as (ParameterDef & { labels: string[] }) | undefined;
   const labels = def?.labels ?? Object.keys(s.map);
   const current = def ? (props.testValue !== undefined ? labels[Math.round(props.testValue)] : def.default) : undefined;
-  const entryOptions = [{ value: "-1", label: "plays nothing" }, ...body.entries.map((e, i) => ({ value: String(i), label: entryName(e, i) }))];
   const sideOptions = [{ value: "*", label: "Any" }, ...labels.map((l) => ({ value: l, label: l }))];
-  const transitionOptions = [{ value: "", label: "Choose…" }, ...props.playlists.map((p) => ({ value: p, label: playlistTitle(p) }))];
-  const transitionOf = (c: ChangeHow) => (c.transition?.kind === "linked" ? c.transition.playlist : "");
-  const asTransition = (path: string) => (path ? { kind: "linked" as const, playlist: path, ...defaultEntryUse() } : undefined);
+  const usedBy = (i: number) => labels.filter((l) => s.map[l] === i);
+  const unused = body.entries.map((_, i) => i).filter((i) => usedBy(i).length === 0);
 
-  const changeRow = (c: ChangeHow, set: (patch: Partial<ChangeHow>, label: string) => void, name: string) => (
-    <>
-      <SelectBox label={`${name}: when`} value={c.when} disabled={!writable} options={WHEN} onValue={(v) => set({ when: v }, "Change setting")} />
-      <SelectBox label={`${name}: how`} value={c.how} disabled={!writable} options={HOW} onValue={(v) => set({ how: v }, "Change setting")} />
-      <span class="pl-inline">
-        <NumberBox label={`${name}: length`} value={lengthOf(c)} min={0} max={9999} step={unitOf(c) === "ms" ? 10 : 0.25} digits={unitOf(c) === "ms" ? 0 : 2} disabled={!writable || c.how === "cut"} onValue={(v) => set({ length: changeLength(c, v) }, "Change setting")} />
-        <span class="pl-unit">{unitOf(c)}</span>
-      </span>
-      {c.how === "transition" ? (
-        <SelectBox label={`${name}: transition playlist`} value={transitionOf(c)} disabled={!writable} options={transitionOptions} onValue={(v) => set({ transition: asTransition(v) }, "Change setting")} />
-      ) : (
-        <span class="pl-faint">—</span>
-      )}
-    </>
-  );
-
-  /** ADR 0350: a bridge fade's controls: its length (the rule's unit) and shape; "rule's" when unset. */
-  const bridgeFade = (c: ChangeHow, which: "transitionIn" | "transitionOut", set: (patch: Partial<ChangeHow>, label: string) => void, name: string) => {
-    const f = c[which];
-    const what = which === "transitionIn" ? "fade in" : "fade out";
-    const unit = unitOf(c);
-    return (
-      <span class="pl-inline">
-        <span class="pl-faint">Bridge {what}</span>
-        <input type="checkbox" aria-label={`${name}: bridge ${what} of its own`} checked={!!f} disabled={!writable}
-          title={`Off: the bridge uses the rule's length and ${which === "transitionIn" ? "fade-in" : "fade-out"} shape`}
-          onChange={(e) => set({ [which]: (e.currentTarget as HTMLInputElement).checked ? { length: unit === "ms" ? { ms: lengthOf(c) } : { beats: lengthOf(c) }, shape: (which === "transitionIn" ? c.shapeIn : c.shapeOut) ?? "equalPower" } : undefined }, "Change setting")} />
-        {f && (
-          <>
-            <NumberBox label={`${name}: bridge ${what} length`} value={"ms" in f.length ? f.length.ms : f.length.beats} min={0} max={9999} step={"ms" in f.length ? 10 : 0.25} digits={"ms" in f.length ? 0 : 2} disabled={!writable}
-              onValue={(v) => set({ [which]: { ...f, length: "ms" in f.length ? { ms: Math.round(v) } : { beats: v } } }, "Change setting")} />
-            <span class="pl-unit">{"ms" in f.length ? "ms" : "beats"}</span>
-            <FadeShapeSelect label={`${name}: bridge ${what} shape`} out={which === "transitionOut"} value={f.shape} disabled={!writable} onValue={(v) => set({ [which]: { ...f, shape: v } }, "Change setting")} />
-          </>
-        )}
-      </span>
-    );
+  const playsMenu = (label: string): MenuEntry[] => {
+    const cur = s.map[label] ?? null;
+    return [
+      { kind: "group", label: `${label} plays` },
+      { id: "none", label: "— Nothing", checked: cur === null, disabled: !writable, run: () => onEdit(`${label} plays nothing`, (b) => setLabelEntry(b, label, null)) },
+      ...body.entries.map((e, i): MenuEntry => {
+        const also = usedBy(i).filter((l) => l !== label);
+        return { id: `e${i}`, label: entryName(e, i), checked: cur === i, note: also.length ? `also ${also.join(", ")}` : undefined, disabled: !writable, run: () => onEdit(`${label} plays ${entryName(e, i)}`, (b) => setLabelEntry(b, label, i)) };
+      }),
+    ];
   };
-
-  /** ADR 0350: a change's fade shapes, its post-exit tail and (a transition) the bridge's own fades. */
-  const fadesRow = (c: ChangeHow, set: (patch: Partial<ChangeHow>, label: string) => void, name: string) => (
-    <div class="pl-tr pl-fades" role="row">
-      <span class="pl-fades-cell" role="cell">
-        <span class="pl-inline"><span class="pl-faint">Fade out</span><FadeShapeSelect label={`${name}: fade-out shape`} out value={c.shapeOut ?? "equalPower"} disabled={!writable || c.how === "cut"} onValue={(v) => set({ shapeOut: v === "equalPower" ? undefined : v }, "Change setting")} /></span>
-        <span class="pl-inline"><span class="pl-faint">Fade in</span><FadeShapeSelect label={`${name}: fade-in shape`} value={c.shapeIn ?? "equalPower"} disabled={!writable || c.how === "cut"} onValue={(v) => set({ shapeIn: v === "equalPower" ? undefined : v }, "Change setting")} /></span>
-        <label class="pl-inline" title="When the playing entry has an Exit marker and the change lands on it, the audio after the marker rings on under the next entry instead of being cut (a crossfade still fades it)">
-          <input type="checkbox" aria-label={`${name}: let the tail ring`} checked={c.tail !== false} disabled={!writable || c.when === "now" || c.when === "nextTrigger"} onChange={(e) => set({ tail: (e.currentTarget as HTMLInputElement).checked ? undefined : false }, "Change setting")} />
-          <span class="pl-faint">Let the tail ring</span>
-        </label>
-        {c.how === "transition" && bridgeFade(c, "transitionIn", set, name)}
-        {c.how === "transition" && bridgeFade(c, "transitionOut", set, name)}
-      </span>
-    </div>
-  );
+  const transitionMenu = (rule: number): MenuEntry[] => {
+    const r = s.rules[rule]!;
+    const cur = r.transition?.kind === "linked" ? r.transition.playlist : "";
+    return [
+      { kind: "group", label: "Transition clip" },
+      { id: "none", label: "— None", checked: !cur, disabled: !writable, run: () => onEdit(`Change rule ${rule + 1} transition clip`, (b) => setRule(b, rule, { transition: undefined })) },
+      ...props.playlists.map((p): MenuEntry => ({ id: p, label: playlistTitle(p), checked: p === cur, disabled: !writable, run: () => onEdit(`Change rule ${rule + 1} transition clip`, (b) => setRule(b, rule, { transition: { kind: "linked", playlist: p, ...defaultEntryUse() } })) })),
+    ];
+  };
 
   return (
     <div class="pl-switch">
-      <Section title="Labels" note="A labelled game parameter picks what plays. Several labels may share an entry.">
-        <div class="pl-kv">
-          <span class="pl-field-label">Parameter</span>
-          <SelectBox
-            label="Switch parameter"
-            value={s.parameter}
-            disabled={!writable || labelled.length === 0}
-            title={labelled.length === 0 ? "No labelled parameters yet: add one in the Inspector's Local parameters, or in audio.json" : undefined}
-            options={[...(s.parameter && !def ? [{ value: s.parameter, label: `${s.parameter} (missing)` }] : []), ...(s.parameter ? [] : [{ value: "", label: "Choose a parameter…" }]), ...labelled.map((p) => ({ value: p.name, label: p.name }))]}
-            onValue={(v) => onEdit("Change setting", (b) => setSwitchParameter(b, v, props.ctx))}
-          />
-        </div>
-        <div class="pl-table pl-labels" role="table" aria-label="Labels">
-          <div class="pl-tr pl-th" role="row">
-            <span role="columnheader">Label</span>
-            <span role="columnheader">Plays</span>
-            <span role="columnheader">Gain</span>
-          </div>
-          {labels.map((l) => {
-            const i = s.map[l] ?? null;
-            return (
-              <div key={l} class={`pl-tr${l === current ? " pl-current" : ""}`} role="row">
-                <span role="cell" title={l === current ? "The test value: playing now" : undefined}>{l === current && <Icon name="play" size={10} label="Playing now" />} {l}</span>
-                <SelectBox
-                  label={`${l} plays`}
-                  value={String(i ?? -1)}
-                  disabled={!writable}
-                  options={entryOptions}
-                  onValue={(v) => {
-                    const n = Number(v);
-                    onEdit(n < 0 ? `${l} plays nothing` : `${l} plays ${entryName(body.entries[n]!, n)}`, (b) => setLabelEntry(b, l, n < 0 ? null : n));
-                  }}
-                />
-                <span class="pl-inline">
-                  <NumberBox label={`${l} gain`} value={s.labelGain[l] ?? 0} min={-24} max={12} step={0.5} digits={1} disabled={!writable} onValue={(v) => onEdit("Change setting", (b) => setLabelGain(b, l, v))} />
-                  <span class="pl-unit">dB</span>
-                </span>
-              </div>
-            );
-          })}
-          {labels.length === 0 && <p class="pl-note">Pick a labelled parameter to map its labels.</p>}
-        </div>
-      </Section>
-      <Section title="When it changes" note="What happens when the label changes while the Switch plays, unless a rule below says otherwise.">
-        <div class="pl-table pl-rules" role="table" aria-label="Default change">
-          <div class="pl-tr pl-th" role="row">
-            <span role="columnheader">When</span>
-            <span role="columnheader">How</span>
-            <span role="columnheader">Length</span>
-            <span role="columnheader">Transition</span>
-          </div>
-          <div class="pl-tr" role="row">{changeRow(s.onChange, (patch, label) => onEdit(label, (b) => setOnChange(b, patch)), "Default")}</div>
-          {fadesRow(s.onChange, (patch, label) => onEdit(label, (b) => setOnChange(b, patch)), "Default")}
-        </div>
-      </Section>
-      <Section
-        title="Rules"
-        note="The most specific rule wins (an exact label beats Any); the first listed breaks ties."
-        actions={
-          <button type="button" class="pl-small" aria-label="Add rule" disabled={!writable} onClick={() => onEdit("Change setting", (b) => addRule(b, labels))}>
-            <Icon name="plus" size={12} /> Rule
-          </button>
-        }
-      >
-        {s.rules.length === 0 ? (
-          <p class="pl-note">No rules: every change uses “When it changes”.</p>
-        ) : (
-          <div class="pl-table pl-rules pl-rules-full" role="table" aria-label="Change rules">
-            <div class="pl-tr pl-th" role="row">
-              <span role="columnheader">From</span>
-              <span role="columnheader">To</span>
-              <span role="columnheader">When</span>
-              <span role="columnheader">How</span>
-              <span role="columnheader">Length</span>
-              <span role="columnheader">Transition</span>
-              <span />
+      <div class="pl-lh pl-srow" aria-hidden="true">
+        <span title={s.parameter || undefined}>{s.parameter || "Label"}</span>
+        <span>Plays</span>
+        <span title="The label's gain, and the voice curves of the entry it plays. Gain is relative to the level prepared in Samples (0 dB = unchanged).">Voice</span>
+        <span class="pl-right">Now</span>
+        <span />
+      </div>
+      <div role="table" aria-label="Labels" class="pl-srows">
+        {labels.map((l) => {
+          const i = s.map[l] ?? null;
+          const e = i !== null ? body.entries[i] : undefined;
+          const hot = l === current;
+          const w = hot && i !== null ? Math.max(0, Math.min(1, props.weights?.[i] ?? 0)) : 0;
+          const gain = s.labelGain[l] ?? 0;
+          return (
+            <div key={l} role="row" class={`pl-srow${hot ? " hot" : ""}`} aria-current={hot ? "true" : undefined} title={hot ? "The test value: this label plays now" : undefined}>
+              <span role="cell" class="pl-lbl" title={l}>{l}</span>
+              <span role="cell" class="pl-cell">
+                <button type="button" class={`pl-chip swc${e ? "" : " none"}`} aria-haspopup="menu" aria-expanded={plays?.label === l} aria-label={`${l} plays ${e ? entryName(e, i!) : "nothing"}`} title={`What ${l} plays`} disabled={!writable && !e}
+                  onClick={(ev) => setPlays({ label: l, at: ev.currentTarget as Element })}>
+                  {e ? badgeOf(e, props.facts) : <TypeBadge placeholder />}
+                  <span class="pl-nm">{e ? entryName(e, i!) : "Nothing"}</span>
+                  <Icon name="chevronDown" size={10} />
+                </button>
+              </span>
+              <span role="cell" class="pl-cell">
+                <MiniPopover title={`${l} voice`} buttonClass={`pl-cvw${gain ? " set" : ""}${e && Object.values(e.curves).some((c) => c && !c.bypass) ? " shp" : ""}`} buttonLabel={`${l} voice: ${dbText(gain)}`}
+                  buttonTitle={`${l}: ${dbText(gain)}${e ? `, playing ${entryName(e, i!)}` : ""}. Click for its gain and the entry's curves.`}
+                  button={<><CurveGlyph /><span>{dbText(gain)}</span></>}>
+                  <div class="pl-pop-grid">
+                    <span class="pl-faint">Gain</span>
+                    <span class="pl-inline">
+                      <NumberBox class="pl-n56" label={`${l} gain`} value={gain} min={-24} max={12} step={0.5} digits={1} disabled={!writable} onValue={(v) => onEdit(`${l} gain`, (b) => setLabelGain(b, l, v))} />
+                      <span class="pl-unit">dB</span>
+                    </span>
+                  </div>
+                  {e && <button type="button" class="pl-small" disabled={!writable} onClick={() => props.onEditCurves(i!)}>Edit {entryName(e, i!)} curves…</button>}
+                </MiniPopover>
+              </span>
+              <span role="cell" class="pl-wb" title={`Now ${pct(w)}`}><em style={{ width: `${w * 100}%` }} /></span>
+              <span role="cell" class="pl-entry-actions">
+                {e && e.kind !== "sample" && <button type="button" class="pl-ib" aria-label={`Open ${l} entry`} title="Open" onClick={() => props.onOpen(i!)}><Icon name="chevronRight" size={12} /></button>}
+              </span>
             </div>
-            {s.rules.map((r, i) => {
-              const lint = props.lints.filter((x) => x.where === `${props.rulePrefix}[${i}]` || x.where.startsWith(`${props.rulePrefix}[${i}].`));
-              return (
-                <Fragment key={i}>
-                <div class={`pl-tr${lint.length ? " pl-has-lint" : ""}`} role="row">
-                  <SelectBox label={`Rule ${i + 1}: from`} value={r.from} disabled={!writable} options={sideOptions} onValue={(v) => onEdit("Change setting", (b) => setRule(b, i, { from: v }))} />
-                  <SelectBox label={`Rule ${i + 1}: to`} value={r.to} disabled={!writable} options={sideOptions} onValue={(v) => onEdit("Change setting", (b) => setRule(b, i, { to: v }))} />
-                  {changeRow(r, (patch, label) => onEdit(label, (b) => setRule(b, i, patch)), `Rule ${i + 1}`)}
-                  <button type="button" class="pl-icon" aria-label={`Remove rule ${i + 1}`} title="Remove rule" disabled={!writable} onClick={() => onEdit("Change setting", (b) => removeRule(b, i))}>
-                    <Icon name="close" />
+          );
+        })}
+        {labels.length === 0 && <div class="pl-empty-box">Pick a labelled parameter with By to map its labels.</div>}
+      </div>
+
+      <div class="pl-subcap">Change rules</div>
+      <div class="pl-lh pl-rrow" aria-hidden="true"><span>From</span><span>To</span><span>When</span><span>How</span><span>Fade / clip</span><span /></div>
+      <div role="table" aria-label="Change rules" class="pl-rrows">
+        <div role="row" class={`pl-rrow def${props.fired === -1 ? " hot" : ""}`} title="Set by When it changes above">
+          <span role="cell" class="pl-faint">Any</span>
+          <span role="cell" class="pl-faint">Any</span>
+          <span role="cell" class="pl-faint pl-dt">{changeText(s.onChange)} (default)</span>
+          <span />
+        </div>
+        {s.rules.map((r, i) => {
+          const lint = props.lints.filter((x) => x.where === `${props.rulePrefix}[${i}]` || x.where.startsWith(`${props.rulePrefix}[${i}].`));
+          const set = (patch: Partial<ChangeRule>, label = `Change rule ${i + 1} fades`) => onEdit(label, (b) => setRule(b, i, patch));
+          const tr = r.transition?.kind === "linked" ? r.transition.playlist : "";
+          return (
+            <div key={i} role="row" class={`pl-rrow${props.fired === i ? " hot" : ""}${lint.length ? " pl-has-lint" : ""}`}>
+              <SelectBox label={`Rule ${i + 1}: from`} value={r.from} disabled={!writable} options={sideOptions} onValue={(v) => set({ from: v }, `Change rule ${i + 1} From`)} />
+              <SelectBox label={`Rule ${i + 1}: to`} value={r.to} disabled={!writable} options={sideOptions} onValue={(v) => set({ to: v }, `Change rule ${i + 1} To`)} />
+              <SelectBox label={`Rule ${i + 1}: when`} value={r.when} disabled={!writable} options={WHEN} onValue={(v) => set({ when: v }, `Change rule ${i + 1} When`)} />
+              <SelectBox label={`Rule ${i + 1}: how`} value={r.how} disabled={!writable} options={HOW} onValue={(v) => set({ how: v }, `Change rule ${i + 1} How`)} />
+              <span class="pl-inline pl-fadecell">
+                {r.how === "transition" ? (
+                  <button type="button" class="pl-small pl-menu-btn" aria-haspopup="menu" aria-expanded={transition?.rule === i} aria-label={`Rule ${i + 1}: transition clip`} title="Transition clip" disabled={!writable}
+                    onClick={(ev) => setTransition({ rule: i, at: ev.currentTarget as Element })}>
+                    <span class="pl-nm">{tr ? playlistTitle(tr) : "Choose…"}</span>
+                    <Icon name="chevronDown" size={10} />
                   </button>
-                  {lint.map((l) => (
-                    <p key={l.code} class="pl-lint" role="note">
-                      <Icon name="warning" size={14} /> {l.message}
-                    </p>
-                  ))}
-                </div>
-                {fadesRow(r, (patch, label) => onEdit(label, (b) => setRule(b, i, patch)), `Rule ${i + 1}`)}
-                </Fragment>
-              );
-            })}
-          </div>
-        )}
-      </Section>
+                ) : r.how === "crossfade" ? (
+                  <>
+                    <NumberBox class="pl-n56" label={`Rule ${i + 1}: fade length`} value={lengthOf(r)} min={0} max={9999} step={unitOf(r) === "ms" ? 10 : 0.25} digits={unitOf(r) === "ms" ? 0 : 2} disabled={!writable} onValue={(v) => set({ length: changeLength(r, v) }, `Change rule ${i + 1} fade length`)} />
+                    <span class="pl-unit">{unitOf(r)}</span>
+                  </>
+                ) : null}
+                <ChangeExtras change={r} writable={writable} playlists={props.playlists} name={`Rule ${i + 1}`} set={set} />
+              </span>
+              <button type="button" class="pl-ib" aria-label={`Remove rule ${i + 1}`} title="Remove rule" disabled={!writable} onClick={() => onEdit(`Remove rule ${i + 1}`, (b) => removeRule(b, i))}>
+                <Icon name="trash" size={12} />
+              </button>
+              {lint.map((l) => (
+                <p key={l.code} class="pl-lint" role="note">
+                  <Icon name="warning" size={14} /> {l.message}
+                </p>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+      <div>
+        <button type="button" class="pl-small" aria-label="Add rule" title="A change rule: From one label To another, When and How" disabled={!writable} onClick={() => onEdit("Add rule", (b) => addRule(b, labels))}>
+          <Icon name="plus" size={12} /> Rule
+        </button>
+      </div>
+      {unused.length > 0 && body.entries.length > 0 && (
+        <>
+          <div class="pl-subcap" title="Entries in this Switch that no label plays: pick one in a label's plays menu, or remove it">Not played by any label</div>
+          <EntryList {...props} only={unused} />
+        </>
+      )}
+      {plays && <ContextMenu at={plays.at} label={`${plays.label} plays`} entries={playsMenu(plays.label)} onClose={() => setPlays(null)} />}
+      {transition && <ContextMenu at={transition.at} label="Transition clip" entries={transitionMenu(transition.rule)} onClose={() => setTransition(null)} />}
     </div>
   );
 }

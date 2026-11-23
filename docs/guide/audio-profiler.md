@@ -135,7 +135,7 @@ What a capture holds is decided by the file, not by your open project, so you se
 | Babylon fallback: main-side events and keyframes only | The recording came from the Babylon backend: no CPU, underrun or loudness tracks. |
 | Can't open `<file>`: ... | A refusal, with its code and what to do. See below. |
 
-Refusals you may meet: **badMagic** (not a Myco capture), **newerFormat** (saved by a newer build: update the editor), **olderFormat** (saved by an older build: captures are not migrated, re-record), **wireMismatch** (recorded by a different audio build: the message names both versions, re-record with this build), **tooLarge** and **inflateOverrun** (bigger than 64 MiB once unpacked, or lying about its size), and a family for damaged or cut-short files (`sizeMismatch`, `truncatedRecord`, `badIndex` and others). A damaged file never opens partly: it is refused whole.
+Refusals you may meet: **badMagic** (not a Myco capture), **newerFormat** (saved by a newer build: update the editor), **olderFormat** (saved by an older build: captures are not migrated, re-record), **wireMismatch** (recorded by an audio core of another major version: the message names both versions, re-record with this build; a capture or take from another minor version of the same major opens, since a minor only adds), **tooLarge** and **inflateOverrun** (bigger than 64 MiB once unpacked, or lying about its size), and a family for damaged or cut-short files (`sizeMismatch`, `truncatedRecord`, `badIndex` and others). A damaged file never opens partly: it is refused whole.
 
 ## File size and privacy
 

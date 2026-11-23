@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { audioProjectToJson, parseAudioProject } from "../../../engine/audio/project/format";
 import type { AudioProject } from "../../../engine/audio/project/types";
-import { addBus, addReturn, addVca, busPath, deleteItem, descendantsOf, planDelete, renameItem, reroute, routingRows, whyNotReroute, whyNotRename, type EditResult } from "./busTree";
+import { addBus, addReturn, addVca, busFolders, busPath, deleteItem, descendantsOf, planDelete, renameItem, reroute, routingRows, whyNotReroute, whyNotRename, type EditResult } from "./busTree";
 import { emptyMix, mixerFixture } from "./mixerFixture";
 import { allocateBeds, bedText, seedVoiceLimit, setBed, setVoiceLimit, voiceLimitOf } from "./voicesAndBeds";
 
@@ -26,6 +26,19 @@ describe("routing tree", () => {
     expect(busPath(p, "Engine")).toBe("SFX › Vehicles › Engine");
     expect(busPath(p, "Master")).toBe("Master");
     expect(routingRows(p, new Set(["SFX"])).map((r) => r.name)).toEqual(["Master", "SFX", "Ambience", "Rain", "Dialogue", "Music", "UI"]);
+  });
+
+  it("gives the routing tree as folder paths for Move to… (Master the root; a / in a name can't split a path)", () => {
+    const p = ok(renameItem(mixerFixture(), "Rain", "Rain/Wind"));
+    const t = busFolders(p);
+    expect(t.pathOf("Master")).toBe("");
+    expect(t.pathOf("Engine")).toBe("SFX/Vehicles/Engine");
+    expect(t.pathOf("Rain/Wind")).toBe("Ambience/Rain∕Wind");
+    expect(t.folders).toContain("Ambience/Rain∕Wind");
+    expect(t.folders).not.toContain("");
+    expect(t.busAt("Ambience/Rain∕Wind")).toBe("Rain/Wind");
+    expect(t.busAt("")).toBe("Master");
+    expect(t.busAt("Nope")).toBeNull();
   });
 
   it("refuses re-routing Master, onto itself, under a descendant, onto its current parent", () => {
@@ -132,8 +145,8 @@ describe("beds", () => {
     expect(a.lost).toEqual(["Rain"]);
     expect(a.chip).toBe("Beds 2/2 · 1 sharing");
     expect(bedText(a.state.get("Rain"))).toBe("Lost · shares Ambience");
-    expect(bedText(a.state.get("SFX"))).toBe("Shares Master");
-    expect(bedText(a.state.get("Ambience"))).toBe("Own · 80");
+    expect(bedText(a.state.get("SFX"))).toBe("→ Master");
+    expect(bedText(a.state.get("Ambience"))).toBe("Own · p80");
     const raised = ok(setBed(p, "Rain", "own", 90));
     expect(allocateBeds(raised).hosts).toEqual(["Master", "Rain"]);
     expect(bedText(allocateBeds(raised).state.get("Ambience"))).toBe("Lost · shares Master");

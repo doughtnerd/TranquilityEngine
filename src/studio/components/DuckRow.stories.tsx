@@ -32,7 +32,14 @@ export const WhilePlaying: StoryObj = {
     const c = within(canvasElement);
     await userEvent.click(c.getByRole("radio", { name: "Above level" }));
     await expect(c.getByRole("slider", { name: "Above" })).toBeVisible();
-    await expect(c.getByRole("option", { name: "Weapons (already)" })).toBeDisabled();
+    // MX-33: Ducked by is an in-app menu: the current trigger checked, one another rule uses disabled with "already".
+    await userEvent.click(c.getByRole("button", { name: /Ducked by/ }));
+    const menu = within(document.body).getByRole("menu", { name: "Ducked by" });
+    await expect(within(menu).getByRole("menuitemradio", { name: /Dialogue/ })).toHaveAttribute("aria-checked", "true");
+    await expect(within(menu).getByRole("menuitemradio", { name: /Weapons/ })).toBeDisabled();
+    await expect(within(menu).getByRole("menuitemradio", { name: /Weapons/ })).toHaveTextContent("already");
+    await userEvent.click(within(menu).getByRole("menuitemradio", { name: /Music/ }));
+    await expect(c.getByRole("button", { name: /Ducked by Music/ })).toBeVisible();
   },
 };
 

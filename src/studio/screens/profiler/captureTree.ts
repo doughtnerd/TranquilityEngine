@@ -2,6 +2,8 @@
 // capture files (`*.mycap`, and takes, `*.mycotake`, whose profile the Profiler reads too) by folder, wherever they are,
 // or while searching the matches by path. Saved and imported captures go to `captures/`. Pure.
 
+import { contentFolders } from "../../components/projectFolders";
+
 /** The files the Profiler opens. */
 export const CAPTURE_SUFFIXES = [".mycap", ".mycotake"] as const;
 
@@ -9,7 +11,11 @@ export const CAPTURE_SUFFIXES = [".mycap", ".mycotake"] as const;
 export const CAPTURES_FOLDER = "captures";
 
 /** The empty state's words. */
-export const NO_CAPTURES = "No captures yet — record one from the editor's Play (Record capture), a game build (F9), or the Studio while a take replays.";
+/**
+ * How to get a capture, under "No captures yet" (sentence case, UI pass T4): the Studio's own Record first (it records
+ * while a playlist auditions or a take replays, `whyNotRecord`), then the editor's Play toolbar and a game build.
+ */
+export const NO_CAPTURES = "Record one here while a playlist or a take plays, or with Record capture in the editor's Play toolbar or F9 in a game build.";
 
 export const isCapturePath = (path: string): boolean => {
   const lower = path.toLowerCase();
@@ -17,6 +23,9 @@ export const isCapturePath = (path: string): boolean => {
 };
 
 export const isTakePath = (path: string): boolean => path.toLowerCase().endsWith(".mycotake");
+
+/** A capture file (`*.mycap`): what the Captures tree lists. Takes are the Take screen's (the Profiler still opens one it is sent). */
+export const isCaptureFile = (path: string): boolean => path.toLowerCase().endsWith(".mycap");
 
 const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
 const folderOf = (path: string): string => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
@@ -32,24 +41,27 @@ export type CaptureNode =
   | { readonly kind: "folder"; readonly path: string; readonly name: string; readonly children: readonly CaptureNode[] }
   | { readonly kind: "file"; readonly path: string; readonly name: string; readonly take: boolean };
 
-/** The capture files of `files` as a tree of the folders that hold them: folders first, then files, each by name. */
-export function captureTree(files: readonly string[]): CaptureNode[] {
+/**
+ * The capture files of `files` as a tree of the folders that hold them, plus `folders` (empty ones too: a folder the
+ * user just made shows, so a file can be moved into it): folders first, then files, each by name.
+ */
+export function captureTree(files: readonly string[], folders: readonly string[] = []): CaptureNode[] {
   interface Dir {
     dirs: Map<string, Dir>;
     files: string[];
   }
   const root: Dir = { dirs: new Map(), files: [] };
-  for (const path of files) {
-    if (!isCapturePath(path)) continue;
+  const dirOf = (folder: string): Dir => {
     let d = root;
-    const folder = folderOf(path);
     for (const part of folder ? folder.split("/") : []) {
       let next = d.dirs.get(part);
       if (!next) d.dirs.set(part, (next = { dirs: new Map(), files: [] }));
       d = next;
     }
-    d.files.push(path);
-  }
+    return d;
+  };
+  for (const folder of folders) dirOf(folder);
+  for (const path of files) if (isCapturePath(path)) dirOf(folderOf(path)).files.push(path);
   const build = (d: Dir, prefix: string): CaptureNode[] => [
     ...[...d.dirs.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([name, sub]): CaptureNode => {
       const path = prefix ? `${prefix}/${name}` : name;
@@ -79,6 +91,56 @@ export function treeFolders(nodes: readonly CaptureNode[]): string[] {
   return out;
 }
 
+/**
+ * The folders a Takes or Captures tree shows: of the project's content folders (`contentFolders`: not the game's scenes,
+ * scripts and plugins, nor hidden ones, unless they hold such files), those holding a file the tree lists, at any depth,
+ * and those holding no file at all (a folder the user just made, to move files into). A folder of samples or playlists
+ * stays in the Samples and Playlists trees, and the other tree's own folder (`takes/` for Captures, `captures/` for
+ * Takes: `otherRoots`), empty subfolders included, stays in that tree unless it holds a file this one lists. Move to…
+ * offers every content folder but the other tree's (`runMoveFolders`).
+ */
+export function runTreeFolders(folders: readonly string[], files: readonly string[], isFile: (path: string) => boolean, otherRoots: readonly string[] = []): string[] {
+  const holding = new Set<string>();
+  const used = new Set<string>();
+  for (const f of files) {
+    const parts = f.split("/");
+    for (let i = 1; i < parts.length; i++) {
+      const dir = parts.slice(0, i).join("/");
+      used.add(dir);
+      if (isFile(f)) holding.add(dir);
+    }
+  }
+  return runMoveFolders(folders, files, isFile, otherRoots).filter((f) => holding.has(f) || !used.has(f));
+}
+
+/** The folders a Takes or Captures tree's Move to… offers: the content folders, without the other tree's (`otherRoots`) unless they hold a file this tree lists. */
+export function runMoveFolders(folders: readonly string[], files: readonly string[], isFile: (path: string) => boolean, otherRoots: readonly string[] = []): string[] {
+  const holding = new Set<string>();
+  for (const f of files) {
+    if (!isFile(f)) continue;
+    const parts = f.split("/");
+    for (let i = 1; i < parts.length; i++) holding.add(parts.slice(0, i).join("/"));
+  }
+  const underOther = (f: string): boolean => otherRoots.some((r) => f === r || f.startsWith(`${r}/`));
+  return contentFolders(folders, files, isFile).filter((f) => holding.has(f) || !underOther(f));
+}
+
+/** The folders a search result's meta names: "HoverBike › Canyon" ("" at the top level). */
+export const folderTrail = (path: string): string => folderOf(path).split("/").filter(Boolean).join(" › ");
+
+/** A duration as the trees show it: "32.0 s" under a minute, else "1:05". */
+export function durationText(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return "";
+  if (seconds < 60) return `${seconds.toFixed(1)} s`;
+  const whole = Math.round(seconds);
+  return `${Math.floor(whole / 60)}:${String(whole % 60).padStart(2, "0")}`;
+}
+
+/** A tree row's meta: its duration, and while searching its folders first ("HoverBike › Canyon · 41.0 s"). */
+export function rowMeta(path: string, duration: number | null, searching: boolean): string {
+  return [searching ? folderTrail(path) || "Top level" : "", duration === null ? "" : durationText(duration)].filter(Boolean).join(" · ");
+}
+
 /** The first free `captures/<stem>_NN.mycap` (01, 02…) in `files`. */
 export function nextCapturePath(files: readonly string[], stem = "capture", folder = CAPTURES_FOLDER): string {
   const taken = new Set(files.map((f) => f.toLowerCase()));
@@ -88,7 +150,8 @@ export function nextCapturePath(files: readonly string[], stem = "capture", fold
   }
 }
 
-/** A file name for importing `name` into the captures folder: it must be a capture file. Null when it isn't. */
+/** Why `name` can't be imported into the captures folder (a take goes to the Take screen's Takes), or null. */
 export function whyNotCaptureFile(name: string): string | null {
-  return isCapturePath(name) ? null : `${name} isn't a capture file (.mycap or .mycotake).`;
+  if (isTakePath(name)) return `${name} is a take: open it from the Take screen's Takes panel.`;
+  return isCaptureFile(name) ? null : `${name} isn't a capture file (.mycap).`;
 }

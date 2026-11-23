@@ -5,10 +5,11 @@ import { describe, expect, it } from "vitest";
 import { parsePlaylist, playlistBodyToJson } from "../../../engine/audio/playlist/format";
 import { audioProjectToJson, parseAudioProject } from "../../../engine/audio/project/format";
 import type { AudioProject } from "../../../engine/audio/project/types";
-import { globalParameterList, parameterRenameEdit, parameterUsesInMix, renamedParameter, renameParameterInPlaylist } from "./globalParameters";
+import { addGlobalParameter, globalParameterList, parameterRenameEdit, parameterUsesInMix, renamedParameter, renameParameterInPlaylist } from "./globalParameters";
 import { renameTestValue, sessionParametersHost } from "./globalParametersHost";
+import { createGlobalParameter } from "./newGlobalParameter";
 import { createMixerSession, type MixDocument } from "./mixerScreen";
-import { mixerFixture } from "./mixerFixture";
+import { emptyMix, mixerFixture } from "./mixerFixture";
 
 const ok = <T>(r: { next: T } | { refused: string }): T => {
   if ("refused" in r) throw new Error(`refused: ${r.refused}`);
@@ -30,6 +31,24 @@ describe("global parameters over audio.json", () => {
     expect(refused(globalParameterList.rename(p, "threat", "health"))).toBe('another parameter is named "health"');
     expect(ok(globalParameterList.setRange(p, "depth", { min: 50 })).parameters.find((q) => q.name === "depth")).toMatchObject({ min: 30, max: 50, default: 30 });
     valid(added);
+  });
+
+  it("+ New parameter… adds a whole definition as one undo step, refusing a taken name (J4.1)", () => {
+    const p = emptyMix();
+    const rpm = { name: "rpm", min: 0, max: 8000, default: 1000, seekSpeed: 0 };
+    const surface = { name: "Surface", labels: ["Wood", "Metal", "Water"], default: "Metal" };
+    const next = ok(addGlobalParameter(ok(addGlobalParameter(p, rpm)), surface));
+    expect(next.parameters).toEqual([rpm, surface]);
+    valid(next);
+    expect(refused(addGlobalParameter(next, { ...rpm, max: 1 }))).toBe('another parameter is named "rpm"');
+    // Through a host (the Mixer's session): one commit labelled with the name.
+    const project = signal(p);
+    const labels: string[] = [];
+    const host = { project, readOnly: false, commit: (r: { next: AudioProject } | { refused: string }, label: string) => ("next" in r ? ((project.value = r.next), labels.push(label), true) : false) };
+    expect(createGlobalParameter(host, rpm)).toBe(true);
+    expect(project.value.parameters).toEqual([rpm]);
+    expect(labels).toEqual(["New parameter rpm"]);
+    expect(createGlobalParameter({ ...host, readOnly: true }, surface)).toBe(false);
   });
 
   it("a rename carries the automation and snapshot conditions reading it, in the same edit", () => {

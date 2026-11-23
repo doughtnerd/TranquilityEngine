@@ -42,7 +42,23 @@ export const Kinds: StoryObj = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await userEvent.click(c.getByRole("button", { name: "Save" }));
-    await userEvent.click(c.getByRole("button", { name: "Fail" }));
     await expect(c.getByRole("status")).toHaveTextContent("Saved mix");
+    // One at a time (the prototype): the error takes the note's place.
+    await userEvent.click(c.getByRole("button", { name: "Fail" }));
+    await expect(c.getByText(/Couldn't move Horn.wav/)).toBeInTheDocument();
+    await expect(c.queryByText("Saved mix")).toBeNull();
+  },
+};
+
+/** Journeys walk 2, V15: three deletes in a row are one toast, and its Undo undoes all three. */
+export const ARunMerges: StoryObj = {
+  render: () => <ToastDemo />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    for (let i = 0; i < 3; i++) await userEvent.click(c.getByRole("button", { name: "Delete" }));
+    await expect(c.getByText("Deleted Engine loop · and 2 more")).toBeInTheDocument();
+    await expect(c.getAllByRole("button", { name: "Undo" })).toHaveLength(1);
+    await userEvent.click(c.getByRole("button", { name: "Undo" }));
+    await expect(c.getAllByRole("listitem")).toHaveLength(3);
   },
 };

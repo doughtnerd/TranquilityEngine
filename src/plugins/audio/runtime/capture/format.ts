@@ -71,7 +71,7 @@ export const CAPTURE_TRIGGER_MAX_FILES = 16;
 export const CAPTURE_MIN_SAMPLE_RATE = 8_000;
 export const CAPTURE_MAX_SAMPLE_RATE = 384_000;
 /** The highest `u8 op` code of a MIXOP (`MIX_OP_NAMES.length` in `src/engine/audio/mixOps.ts`; a test keeps them equal). */
-export const CAPTURE_MIXOP_CODES = 24;
+export const CAPTURE_MIXOP_CODES = 25; // 25: setOcclusionCurves (ADR 0362 item 6), appended
 /** `u8 class` codes of a MIXOP (`OP_CLASSES.length`). */
 export const CAPTURE_MIXOP_CLASSES = 5;
 
@@ -175,7 +175,7 @@ export const CAPTURE_ERROR_CODES = [
   "newerFormat",
   /** `format` below this build's (old captures are not migrated). */
   "olderFormat",
-  /** Another wire `SCHEMA_HASH`; the message names both ABI versions and says "re-record with this build". */
+  /** Another wire `SCHEMA_HASH` under another core ABI major (another minor reads); the message names both ABI versions and says "re-record with this build". */
   "wireMismatch",
   /** `uncompressedBytes` past `CAPTURE_MAX_UNCOMPRESSED_BYTES`, or a live view past it. */
   "tooLarge",
@@ -320,7 +320,8 @@ function hex16(bytes: Uint8Array, off: number): string {
 
 /**
  * Reads and checks the header, refusing in §5.1's order: length and magic (`badMagic`), `format` (`newerFormat`,
- * `olderFormat`), `SCHEMA_HASH` (`wireMismatch`), `uncompressedBytes` (`tooLarge`), then every other field
+ * `olderFormat`), `SCHEMA_HASH` (`wireMismatch`, unless the file's core ABI is another minor of this build's major:
+ * minors are backward compatible), `uncompressedBytes` (`tooLarge`), then every other field
  * (`badHeader`, `metaTooLarge`, `tooManyRecords`). Nothing is allocated from a header value.
  */
 export function readCaptureHeader(bytes: Uint8Array): CaptureHeader {
@@ -332,7 +333,7 @@ export function readCaptureHeader(bytes: Uint8Array): CaptureHeader {
   if (format < CAPTURE_FORMAT) throw new CaptureError("olderFormat", 8, `capture format ${format} is older than this build's ${CAPTURE_FORMAT}; old captures are not migrated`);
   const schemaHash = hex16(bytes, 12);
   const abiVersion = v.getUint32(28, true);
-  if (schemaHash !== SCHEMA_HASH) {
+  if (schemaHash !== SCHEMA_HASH && !abiReadable(abiVersion)) {
     throw new CaptureError("wireMismatch", 12, `recorded with audio ABI ${abiText(abiVersion)} (wire ${schemaHash}); this build is ABI ${abiText(CAPTURE_ABI_VERSION)} (wire ${SCHEMA_HASH}): re-record with this build`);
   }
   const uncompressedBytes = v.getUint32(68, true);
@@ -348,8 +349,8 @@ export function readCaptureHeader(bytes: Uint8Array): CaptureHeader {
   };
   const bad = (off: number, what: string): never => { throw new CaptureError("badHeader", off, what); };
   if (h.flags & ~CAPTURE_FLAGS_KNOWN) bad(10, `unknown flag bits 0x${h.flags.toString(16)}`);
-  if (h.abiVersion !== CAPTURE_ABI_VERSION) bad(28, `ABI ${abiText(h.abiVersion)} with this wire's hash (expected ${abiText(CAPTURE_ABI_VERSION)})`);
-  if (h.envelopeMajor !== VERSION_MAJOR || h.envelopeMinor !== VERSION_MINOR) bad(32, `envelope ${h.envelopeMajor}.${h.envelopeMinor}, expected ${VERSION_MAJOR}.${VERSION_MINOR}`);
+  if (h.abiVersion >>> 8 !== CAPTURE_ABI_VERSION >>> 8) bad(28, `ABI ${abiText(h.abiVersion)} with this wire's hash (expected ${abiText(CAPTURE_ABI_VERSION)})`);
+  if (h.envelopeMajor !== VERSION_MAJOR || h.envelopeMinor > VERSION_MINOR) bad(32, `envelope ${h.envelopeMajor}.${h.envelopeMinor}, expected ${VERSION_MAJOR}.${VERSION_MINOR} or an older ${VERSION_MAJOR}.x`);
   if (h.statusBytesMax !== STATUS_BUFFER_BYTES) bad(36, `statusBytesMax ${h.statusBytesMax}, expected ${STATUS_BUFFER_BYTES}`);
   if (h.sampleRate < CAPTURE_MIN_SAMPLE_RATE || h.sampleRate > CAPTURE_MAX_SAMPLE_RATE) bad(40, `sample rate ${h.sampleRate}`);
   if (h.quantumFrames !== QUANTUM_FRAMES) bad(44, `quantumFrames ${h.quantumFrames}`);
@@ -367,6 +368,16 @@ export function readCaptureHeader(bytes: Uint8Array): CaptureHeader {
   if (v.getUint32(84, true) !== 0) bad(84, "reserved is not 0");
   if (!(Number.isFinite(h.firstFrame) && h.firstFrame >= 0)) bad(88, `firstFrame ${h.firstFrame}`);
   return h;
+}
+
+/**
+ * Whether a file stamped with another wire hash can still be read: its core ABI has this build's major and another
+ * minor. A minor only adds (an opcode, a flag bit, an appended word; "no record changes layout", ADR 0328), so a take
+ * or capture recorded under another minor opens. A different major, or this very version under another hash (a schema
+ * edit nobody versioned), is `wireMismatch`.
+ */
+function abiReadable(abi: number): boolean {
+  return abi >>> 8 === CAPTURE_ABI_VERSION >>> 8 && abi !== CAPTURE_ABI_VERSION;
 }
 
 function abiText(abi: number): string {

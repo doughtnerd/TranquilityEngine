@@ -171,11 +171,23 @@ const SCENES = [
   // about 200 a second (`gen-blip-twin`, sample one-shots at 200 a second), and 4,096 virtual silences (`gen-silence-twin`,
   // over `gen-silence-base`'s 16 mixed voices). `GEN_PAIRS` reports each kind's cost against its twin.
   "gen-osc",
+  // D67: the oscillator and the all-features blip at `quality` high (16-tap minBLEP), and the blip per sfxr preset
+  // (each stretched to 1.25 s so it restarts at the twin's rate; `audio-bench`'s `BLIP_PRESETS`).
+  "gen-osc-high",
   "gen-noise",
   "gen-twin-256",
   "gen-synth",
   "gen-twin-128",
   "gen-blip",
+  "gen-blip-high",
+  "gen-blip-coin",
+  "gen-blip-laser",
+  "gen-blip-jump",
+  "gen-blip-explosion",
+  "gen-blip-powerup",
+  "gen-blip-hit",
+  "gen-blip-blip",
+  "gen-blip-sweep",
   "gen-blip-twin",
   "gen-silence",
   "gen-silence-twin",
@@ -192,6 +204,10 @@ const GEN_PAIRS = {
   "gen-noise": { twin: "gen-twin-256", voices: 256, base: null, what: "oscillator (pink noise)", estimate: 1.0 },
   "gen-synth": { twin: "gen-twin-128", voices: 128, base: null, what: "synth (2 PolyBLEP oscillators, SVF, 2 envelopes, LFO on the cut-off)", estimate: 1.15 },
   "gen-blip": { twin: "gen-blip-twin", voices: 256, base: null, what: "blip (sfxr kernel, phaser on)", estimate: 1.1 },
+  // D67: quality high, and the blip per sfxr preset (no estimate in the record).
+  "gen-osc-high": { twin: "gen-twin-256", voices: 256, base: null, what: "oscillator (saw, quality high: minBLEP)", estimate: null },
+  "gen-blip-high": { twin: "gen-blip-twin", voices: 256, base: null, what: "blip (phaser on, quality high: minBLEP)", estimate: null },
+  ...Object.fromEntries(["coin", "laser", "jump", "explosion", "powerup", "hit", "blip", "sweep"].map((p) => [`gen-blip-${p}`, { twin: "gen-blip-twin", voices: 256, base: null, what: `blip (sfxr ${p} preset)`, estimate: null }])),
   "gen-silence": { twin: "gen-silence-twin", voices: 4096, base: "gen-silence-base", what: "silence (virtual)", estimate: null },
 };
 const GEN_TRIPWIRE = 1.5;

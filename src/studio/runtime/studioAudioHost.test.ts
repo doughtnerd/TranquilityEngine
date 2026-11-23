@@ -200,6 +200,30 @@ describe("Studio audio runtime host", () => {
     expect(f.calls).toHaveLength(2);
   });
 
+  it("plays across a seam: the loop's last moment, then its first, stopping before `from` in the second pass", async () => {
+    const f = spanAudio();
+    const { s, tick } = seams(f.audio);
+    const host = createStudioAudioHost(s);
+    await host.open({});
+    f.clock.t = 0;
+    const p = host.playClipSpan("a.wav", { from: 1.9, to: 1.1, loop: { start: 1, end: 2, count: 2, crossfadeMs: 0 } })!;
+    expect(p).not.toBeNull();
+    // The seam at 0.05 + 0.1 = 0.15: the second pass starts there from the loop's start, and stops 0.1 s in (0.25).
+    f.clock.t = 0.1;
+    tick();
+    expect(f.calls).toEqual([{ at: 0.05, offset: 1.9 }, { at: 0.15, offset: 1 }]);
+    f.clock.t = 0.16;
+    tick();
+    expect(f.handles[0].playing).toBe(false);
+    expect(f.handles[1].playing).toBe(true);
+    f.clock.t = 0.26;
+    tick();
+    expect(p.playing).toBe(false);
+    expect(f.calls).toHaveLength(2);
+    // Without a loop, a span that ends before it starts is nothing to play.
+    expect(host.playClipSpan("a.wav", { from: 1.9, to: 1.1 })).toBeNull();
+  });
+
   it("crossfades a seam: the next pass starts a crossfade early, silent, and fades in", async () => {
     const f = spanAudio();
     const { s, tick } = seams(f.audio);

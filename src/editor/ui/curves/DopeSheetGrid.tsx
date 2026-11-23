@@ -185,7 +185,7 @@ export function DopeSheetGrid(props: DopeSheetGridProps) {
           <div key={`${row.id}-n`} class={`ce-dl-cell${row.heading ? " heading" : ""}`} style={{ paddingLeft: `${(row.depth ?? 0) * 12}px` }}>
             <button type="button" class={`ce-dl${on ? " on" : ""}${row.muted ? " off" : ""}`} aria-pressed={on} title={row.title ?? row.label} onClick={() => props.onRow?.(row.id)}>
               {!row.heading && <span class="ce-swatch" style={{ background: color }} aria-hidden="true" />}
-              {row.label}
+              <span class="ce-dl-name">{row.label}</span>
             </button>
             {props.aside?.(row)}
           </div>,

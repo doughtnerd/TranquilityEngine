@@ -555,7 +555,8 @@ function epochOf(c: CaptureContents, i: number): EpochInfo {
 /**
  * The STATUS header scalars `range` can return, by their `StatusHeader` name: `[byte offset in the block, type]`. The
  * generated table (`STATUS_HEADER_COLUMNS`, ADR 0177), so every header field is a column by name, a new one included.
- * The capture's wire hash equals this build's (`wireMismatch` otherwise), so the offsets hold for every capture that opens.
+ * A capture opens only under this build's wire hash or another minor of its core ABI major (`wireMismatch` otherwise),
+ * and a minor never moves a field, so the offsets hold for every capture that opens.
  */
 export const STATUS_COLUMNS = STATUS_HEADER_COLUMNS;
 export type StatusColumn = StatusHeaderField;

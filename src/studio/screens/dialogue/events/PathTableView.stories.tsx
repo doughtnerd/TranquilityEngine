@@ -49,7 +49,7 @@ export const PathTable: StoryObj = {
     // A new path is all *; its first cell set to Captain.
     await userEvent.click(c.getByRole("button", { name: "Add path" }));
     await userEvent.selectOptions(within(table).getByRole("combobox", { name: "Path 4 speaker" }), "Captain");
-    await userEvent.type(within(table).getByRole("textbox", { name: "Add a line to path 4" }), "guard_01{Enter}");
+    await userEvent.type(within(table).getByRole("combobox", { name: "Add a line to path 4" }) /* an input with a list of lines */, "guard_01{Enter}");
     await waitFor(() => expect(within(table).getByRole("row", { name: /Path 4: Captain · \* · \*/ })).toHaveTextContent("guard_01"));
     // Removing the label Rain shows the path it removes before applying.
     const labels = within(table).getByRole("textbox", { name: "Labels of weather" });

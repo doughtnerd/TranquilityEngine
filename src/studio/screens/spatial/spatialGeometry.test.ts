@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { SceneBox, Vec3 } from "../../../engine/audio/spatial/testSceneTypes";
 import { createKeymap } from "../../shell/keymap";
-import { INITIAL_SLAB, dragSlabEdge, heightMarks, heightRange, inRange, inSlab, moveSlab, relativeHeight, shiftSpan, slabRange } from "./elevation";
+import { INITIAL_SLAB, dragSlabEdge, heightMarks, heightRange, heightTicks, inRange, inSlab, moveSlab, relativeHeight, shiftSpan, sideRange, slabRange } from "./elevation";
 import {
-  boundsOf, boxContains, boxCorners, boxSpanX, depthIn, growBox, nearestOnBox, insertWaypoint, moveWaypoint, normalizeDeg, projectOnRoute, removeWaypoint, resizeFromCorner, rotateKnob, rotateToward, routeAt, routeMidpoints, snap, toLocal, toWorld,
+  boundsOf, boxContains, boxCorners, boxEdges, boxSpanX, depthIn, growBox, nearestOnBox, insertWaypoint, moveWaypoint, normalizeDeg, projectOnRoute, removeWaypoint, resizeFromEdge, rotateKnob, rotateToward, routeAt, routeMidpoints, snap, toLocal, toWorld,
 } from "./geometry";
-import { bottomValue, fieldValue, topValue } from "./inspectorFields";
+import { bottomValue, fieldValue, topValue, zoneState } from "./inspectorFields";
 import { outlineGroups } from "./outline";
 import { SCENE_KEYS, type SceneAction } from "./sceneKeys";
 import { fixtureScene } from "./spatialFixture";
@@ -45,12 +45,27 @@ describe("rotated boxes", () => {
     close(rotateKnob(box(), 3), { x: 10, z: 25 });
   });
 
-  it("resizes symmetrically about its centre from a corner, snapped to 0.5 m, never below 0.5 m", () => {
-    const r = resizeFromCorner(box(), { x: 15.2, z: 23.1 });
-    expect(r.width).toBe(10.5);
-    expect(r.depth).toBe(6);
-    expect(r.center).toEqual(box().center);
-    expect(resizeFromCorner(box(), { x: 10, z: 20 })).toMatchObject({ width: 0.5, depth: 0.5 });
+  it("has a handle at the middle of each edge: south, east, north, west", () => {
+    const e = boxEdges(box());
+    close(e[0]!, { x: 10, z: 18 });
+    close(e[1]!, { x: 14, z: 20 });
+    close(e[2]!, { x: 10, z: 22 });
+    close(e[3]!, { x: 6, z: 20 });
+  });
+
+  it("resizes from an edge: the opposite edge stays put, snapped to 0.5 m, never below 0.5 m", () => {
+    const east = resizeFromEdge(box(), 1, { x: 17.2, z: 30 });
+    expect(east.width).toBe(11);
+    expect(east.depth).toBe(4);
+    close(boxEdges(east)[3]!, { x: 6, z: 20 }); // the west edge didn't move
+    const north = resizeFromEdge(box(), 2, { x: 0, z: 25 });
+    expect(north.depth).toBe(7);
+    close(boxEdges(north)[0]!, { x: 10, z: 18 });
+    expect(resizeFromEdge(box(), 3, { x: 30, z: 20 }).width).toBe(0.5);
+    // Turned 90°: the box's east edge faces south on the plan (local x+ is world z−).
+    const turned = resizeFromEdge({ ...box(), yaw: 90 }, 1, { x: 10, z: 12 });
+    expect(turned.width).toBe(12);
+    close(boxEdges(turned)[3]!, { x: 10, z: 24 });
   });
 
   it("rotates toward the pointer in 5° steps within -180..180", () => {
@@ -196,9 +211,24 @@ describe("the elevation slab", () => {
     expect(relativeHeight(2.2, 1.7)).toBe("");
     expect(shiftSpan(4, 20, 6)).toEqual([6, 22]);
   });
+
+  it("ticks the strip every 5 m and scales the side view to what's in the scene", () => {
+    expect(heightTicks([0, 30])).toEqual([0, 5, 10, 15, 20, 25, 30]);
+    expect(heightTicks([0, 12])).toEqual([0, 5, 10]);
+    // The storm front reaches 30 m; a scene of ground-level things gets a short range (not squeezed to the bottom).
+    expect(sideRange(scene, [0, 6])).toEqual([0, 35]);
+    const low = { ...scene, emitters: [], obstacles: [], reverbZones: [], audioZones: [] };
+    expect(sideRange(low, [0, 6])).toEqual([0, 10]);
+    expect(sideRange(low, [0, 14])).toEqual([0, 20]);
+  });
 });
 
 describe("the outline", () => {
+  it("lists only kinds the scene has", () => {
+    const s = { ...fixtureScene(), sounds2d: [] };
+    expect(outlineGroups(s).map((g) => g.kind)).not.toContain("sound2d");
+  });
+
   it("groups alphabetically with counts, filters by name or group", () => {
     const g = outlineGroups(fixtureScene());
     expect(g.map((x) => `${x.title} ${x.count}`)).toEqual(["2D sounds 1", "Audio zones 2", "Emitters 4", "Listeners 2", "Obstacles 3", "Reverb zones 1"]);
@@ -207,6 +237,18 @@ describe("the outline", () => {
     const f = outlineGroups(fixtureScene(), "camp");
     expect(f.map((x) => x.rows.map((r) => r.name))).toEqual([["Campfire"]]);
     expect(outlineGroups(fixtureScene(), "obstacles")[0]!.rows).toHaveLength(3);
+  });
+});
+
+describe("an audio zone's state line", () => {
+  const s = fixtureScene();
+  const wind = s.audioZones[0]!, storm = s.audioZones[1]!;
+  it("says where the listener hears it from", () => {
+    expect(zoneState(wind, { x: 50, y: 1.7, z: 35 })).toBe("Heard from its nearest edge, 20 m away");
+    expect(zoneState(wind, { x: 25, y: 10, z: 12 })).toBe("Listener inside: surrounds you");
+    expect(zoneState(storm, { x: 50, y: 1.7, z: 5 })).toBe("Listener inside: playing at full level");
+    expect(zoneState(storm, { x: 50, y: 1.7, z: 13 })).toBe("In the feather: fading, 50%");
+    expect(zoneState(storm, { x: 50, y: 1.7, z: 35 })).toBe("Listener outside: silent");
   });
 });
 

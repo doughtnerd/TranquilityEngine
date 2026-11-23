@@ -16,9 +16,9 @@ macro_rules! c {
 pub const CONSTANTS: &[Const] = &[
     c!("GEN_CLIP_ID_FIRST", 0xFFFF_0300u32, "reserved clip ids of generator voices: GEN_CLIP_ID_FIRST + kind (ADR 0360; never uploaded)"),
     c!("GEN_CLIP_ID_LAST", 0xFFFF_03FFu32, "the reserved generator range's last id"),
-    c!("GEN_KIND_OSCILLATOR", 1, "generator kind: oscillator (10 parameters)"),
-    c!("GEN_KIND_SYNTH", 2, "generator kind: two-oscillator synth (25 parameters)"),
-    c!("GEN_KIND_BLIP", 3, "generator kind: sfxr blip in sfxr's units (24 parameters)"),
+    c!("GEN_KIND_OSCILLATOR", 1, "generator kind: oscillator (11 parameters; the last, `quality`, D67)"),
+    c!("GEN_KIND_SYNTH", 2, "generator kind: two-oscillator synth (26 parameters; the last, `quality`, D67)"),
+    c!("GEN_KIND_BLIP", 3, "generator kind: sfxr blip in sfxr's units (25 parameters; the last, `quality`, D67)"),
     c!("GEN_KIND_SILENCE", 4, "generator kind: silence (2 parameters), always virtual"),
     c!("GEN_PARAMS_MAX", 32, "parameters a generator kind has at most (GEN mask bits 0-31)"),
     c!("AUTO_TARGET_GEN", 5, "voice binding target kind (AUTOMATE): a generator parameter, its index in bits 8-15, AUTO_TARGET_LOG for a log2 curve; the curve's value replaces it, glided over the quantum (ABI 5.1; buses read kind 5 as AUTO_TARGET_FX)"),

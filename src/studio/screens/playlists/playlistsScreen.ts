@@ -6,27 +6,37 @@
 // call these; the rules are the pure models beside this file.
 import { computed, effect, signal } from "@preact/signals";
 import { currentAudioProject } from "../../../editor/audioProjectFile";
-import { openAssetDocument, readAsset, type AssetDocument } from "../../../editor/assetDocuments";
-import { deleteAssets } from "../../../editor/assetDelete";
+import { assetDocumentsDeleted, openAssetDocument, readAsset, type AssetDocument } from "../../../editor/assetDocuments";
+import { deleteAssets, whyNotDeletable } from "../../../editor/assetDelete";
+import { folderEntry } from "../../../editor/assetEntry";
+import { assetUsers, removeReferences } from "../../../editor/assetReferences";
+import { splitExtension } from "../../../editor/freePath";
+import { errorStatus } from "../../../editor/messages";
 import { createAsset } from "../../../editor/assetKindHost";
 import { duplicateAssets, moveAssets, moveAssetsTo, newFolder, renameAsset } from "../../../editor/assetOps";
 import { currentProject, docVersion, status } from "../../../editor/state";
-import { parseImportSettings, sidecarPath } from "../../../engine/scene/importSettings";
+import { isSidecarPath, parseImportSettings, sidecarAsset, sidecarPath } from "../../../engine/scene/importSettings";
 import { parseDerivedSample } from "../../../engine/audio/sample/format";
 import type { ParameterDef } from "../../../engine/audio/parameters";
 import { emptyPlaylist, emptyPlaylistBody, isPlaylistPath } from "../../../engine/audio/playlist/format";
 import { lintPlaylist, type PlaylistLint } from "../../../engine/audio/playlist/lint";
-import { PLAYLIST_FORMAT, type PlaylistAsset, type PlaylistBody, type SampleEntry } from "../../../engine/audio/playlist/types";
+import { PLAYLIST_FORMAT, type ChangeHow, type PlaylistAsset, type PlaylistBody, type SampleEntry } from "../../../engine/audio/playlist/types";
+import { matchChangeRule } from "../../../engine/audio/playlist/switchRules";
 import { applyEdit, type EditResult } from "../../../editor/sdk/editResult";
-import type { AudioEventHandle, AudioHandle } from "../../../plugins/audio/runtime";
+import type { AudioEventHandle } from "../../../plugins/audio/runtime";
 import { audioHost, openRoute, toasts } from "../../shell/studioServices";
+import { newPlaylistParameter } from "./newParameter";
 import { linkEntry, unlinkEntry, type EditContext } from "./playlistEdits";
-import { bodyAt, canonical, editAt, entryName, filePath, indicesToSelect, pathTarget, playlistTitle, whereOf, type PlaylistPath } from "./playlistPaths";
+import { bodyAt, canonical, editAt, effectiveOutput, entryName, filePath, indicesToSelect, pathTarget, playlistTitle, whereOf, type PlaylistPath } from "./playlistPaths";
+import { ancestorsOf, auditionAsset, auditionPathOf, serveAudition } from "./auditionSource";
 import { linkedByIndex } from "./playlistTree";
 import { clipsPlaylist } from "./clipsPlaylist";
-import { childrenToKeep, deleteEntry, moveAcrossFiles, moveWithinFile, insertEntries, planDelete, replaceLinks, takeEntry, type ChildrenChoice, type DeletePlan, type DeleteTarget, type LinksChoice } from "./structureEdits";
+import { childrenToKeep, deleteEntry, folderContentsUp, moveAcrossFiles, moveWithinFile, insertEntries, planDelete, replaceLinks, takeEntry, type ChildrenChoice, type DeletePlan, type DeleteTarget, type LinksChoice } from "./structureEdits";
 import type { DropPlan } from "./treeDrop";
 import { updateLog, voicesNow, type DebugSnapshot, type LogRow } from "./voiceLog";
+import { busPath } from "../mixer/busTree";
+import { starterTracks } from "./sequence/sequenceEdits";
+import { playback as sequencePlayback, sequenceContext } from "./sequence/sequenceState";
 
 // --- state -----------------------------------------------------------------------------------------------------------
 
@@ -46,6 +56,19 @@ export const audioNow = signal(0);
 export const deleting = signal<DeletePlan | null>(null);
 /** The Add dialog is open. */
 export const adding = signal(false);
+/** The open playlist's name is being edited (a new playlist opens so, W2.5). */
+export const renamingOpen = signal(false);
+/**
+ * The last Switch label change heard while auditioning (W8.5): the playlist, from and to, the rule that applied (its
+ * index, -1 for When it changes) and how it changes. Cleared by a new trigger or another playlist.
+ */
+export const lastChange = signal<{ readonly playlist: string; readonly from: string; readonly to: string; readonly rule: number; readonly change: ChangeHow } | null>(null);
+/**
+ * Pause (W14.2, ADR 0362 §1): the audition's playbacks pause (`AudioPlaylistHandle.pause`: voices, timers, picks and the
+ * sequence clock hold) and Plays now, Voices and the voice log's cursor freeze at that moment; Resume continues the
+ * playbacks from where they held and the views follow them live again.
+ */
+export const frozen = signal<{ readonly log: readonly LogRow[]; readonly now: ReturnType<typeof voicesNow>; readonly time: number } | null>(null);
 
 const project = () => currentProject.value;
 
@@ -79,6 +102,11 @@ export const mix = computed(() => {
   return p ? currentAudioProject(p) : null;
 });
 export const busNames = computed(() => (mix.value?.buses ?? []).map((b) => b.name));
+/** Each bus's routing path ("SFX › Vehicles"), as the Output select names it (J8.2: a flat list of names). */
+export const busPaths = computed<ReadonlyMap<string, string>>(() => {
+  const m = mix.value;
+  return new Map((m?.buses ?? []).map((b) => [b.name, busPath(m!, b.name)]));
+});
 export const globalParameters = computed<readonly ParameterDef[]>(() => mix.value?.parameters ?? []);
 /** The open playlist's local parameters: its file's, then the open body's own (an embedded one may have some). */
 export const localParameters = computed<readonly ParameterDef[]>(() => {
@@ -88,7 +116,7 @@ export const localParameters = computed<readonly ParameterDef[]>(() => {
 });
 /** Every parameter the open playlist can use: local ones over global ones of the same name. */
 export const allParameters = computed<readonly ParameterDef[]>(() => [...localParameters.value, ...globalParameters.value.filter((g) => !localParameters.value.some((l) => l.name === g.name))]);
-export const editContext = computed<EditContext>(() => ({ parameters: allParameters.value }));
+export const editContext = computed<EditContext>(() => ({ parameters: allParameters.value, newParameter: newPlaylistParameter }));
 
 /** Lints of the open file that sit in the open body. */
 export const openLints = computed<readonly PlaylistLint[]>(() => {
@@ -96,7 +124,7 @@ export const openLints = computed<readonly PlaylistLint[]>(() => {
   const t = target.value;
   if (!file || !t) return [];
   const prefix = whereOf(t.indices);
-  const all = lintPlaylist(file, { playlist: (p) => loadPlaylist(p), sampleTempo });
+  const all = lintPlaylist(file, { playlist: (p) => loadPlaylist(p), sampleTempo, globalParameters: () => (mix.value ? mix.value.parameters : undefined) });
   return all.filter((l) => (prefix ? l.where === prefix || l.where.startsWith(`${prefix}.`) : !l.where.startsWith("entries[") || !l.where.includes(".embedded")));
 });
 
@@ -126,6 +154,8 @@ function sampleTempo(path: string): { bpm: number } | null | undefined {
 export function openPlaylist(path: PlaylistPath): void {
   openPath.value = path;
   selectedEntry.value = null;
+  renamingOpen.value = false;
+  lastChange.value = null;
   const t = pathTarget(path);
   openRoute({ screen: "playlists", asset: t.file, select: indicesToSelect(t.indices) });
 }
@@ -176,7 +206,9 @@ export async function newPlaylist(folder: string | null, nested: boolean): Promi
     return;
   }
   const path = await createAsset<PlaylistAsset>("playlist", { folder: folder ?? "", name: "New playlist", value: emptyPlaylist("queue") });
-  if (path) openPlaylist(filePath(path));
+  if (!path) return;
+  openPlaylist(filePath(path));
+  renamingOpen.value = true; // it opens with its name field in rename mode (W2.5)
 }
 
 /**
@@ -204,7 +236,9 @@ export async function newPlaylistFromSamples(samples: readonly string[]): Promis
 
 /** New sequence: a Sequence playlist file in `folder` (its timeline is edited from M5). */
 export async function newSequence(folder: string | null): Promise<void> {
-  const path = await createAsset<PlaylistAsset>("playlist", { folder: folder ?? "", name: "New sequence", value: emptyPlaylist("sequence") });
+  const value = emptyPlaylist("sequence");
+  const seq = value.sequence!;
+  const path = await createAsset<PlaylistAsset>("playlist", { folder: folder ?? "", name: "New sequence", value: { ...value, sequence: { ...seq, tracks: starterTracks(seq) } } });
   if (path) openPlaylist(filePath(path));
 }
 
@@ -309,22 +343,136 @@ export async function confirmDelete(plan: DeletePlan, children: ChildrenChoice, 
     }
     return;
   }
+  const p = currentProject.peek();
+  const doc = docFor(t.path);
   const body = loadPlaylist(t.path);
+  if (!p || !doc || !body) return;
+  const refused = whyNotDeletable(p, [t.path]);
+  if (refused) {
+    status.value = { kind: "info", text: `Can't delete ${plan.name}: ${refused}.` };
+    return;
+  }
+  // What Undo puts back: the file as it is now (edits included) and its sidecar.
+  const text = `${JSON.stringify(canonical(doc.value.peek()), null, 2)}\n`;
+  const side = p.textOf(sidecarPath(t.path));
   // Children up: each embedded one becomes a file of its own beside it.
-  if (children === "up" && body) {
+  const made: string[] = [];
+  if (children === "up") {
     for (const c of childrenToKeep(body)) {
       const e = body.entries[c.index]!;
-      await createAsset<PlaylistAsset>("playlist", { folder: folderOf(t.path), name: entryName(e, c.index), value: { format: PLAYLIST_FORMAT, ...structuredClone(c.body) } });
+      const path = await createAsset<PlaylistAsset>("playlist", { folder: folderOf(t.path), name: entryName(e, c.index), value: { format: PLAYLIST_FORMAT, ...structuredClone(c.body) } });
+      if (path) made.push(path);
     }
   }
-  // Links: unlink every copy (each keeps its own playlist) or remove them from every playlist.
-  for (const f of plan.linkedBy) {
-    editFile(f, links === "unlink" ? `Unlink ${plan.name} in ${playlistTitle(f)}` : `Remove link to ${plan.name} from ${playlistTitle(f)}`, (r) => ({ next: replaceLinks(r, t.path, links, body) }));
+  // Links: unlink every copy (each keeps its own playlist) or remove them from every playlist; each one undo step.
+  const relinked = plan.linkedBy.filter((f) =>
+    editFile(f, links === "unlink" ? `Unlink ${plan.name} in ${playlistTitle(f)}` : `Remove link to ${plan.name} from ${playlistTitle(f)}`, (r) => ({ next: replaceLinks(r, t.path, links, body) })),
+  );
+  // Scenes and settings naming it lose the reference (as the engine's delete does); Undo writes them back.
+  const users = (await assetUsers(p, t.path)).filter((u) => p.files.includes(u) && !plan.linkedBy.includes(u));
+  const before = new Map(users.flatMap((u) => { const s = p.textOf(u); return s === undefined ? [] : [[u, s] as const]; }));
+  try {
+    await p.deleteFile(t.path);
+  } catch (err) {
+    status.value = errorStatus(`Couldn't delete ${plan.name}`, err);
+    return;
   }
-  if (await deleteAssets([t.path])) {
-    const path = openPath.peek();
-    if (path?.some((s) => "file" in s && s.file === t.path)) openPath.value = null;
+  await assetDocumentsDeleted([t.path]);
+  const cleaned = await removeReferences(p, t.path, `Remove references to ${plan.name}`).catch(() => [] as string[]);
+  docVersion.value++;
+  const path = openPath.peek();
+  if (path?.some((s) => "file" in s && s.file === t.path)) openPath.value = null;
+  toasts.show({
+    text: `Deleted ${plan.name}.`,
+    undo: () => void restoreDeleted(t.path, text, side, made, relinked, cleaned.filter((f) => before.has(f)).map((f) => [f, before.get(f)!] as const)),
+  });
+}
+
+/** Undo a playlist delete: the file and its sidecar back, the children kept as files gone, the links and references back. */
+async function restoreDeleted(path: string, text: string, side: string | undefined, made: readonly string[], relinked: readonly string[], cleaned: readonly (readonly [string, string])[]): Promise<void> {
+  const p = currentProject.peek();
+  if (!p) return;
+  try {
+    await p.writeFile(path, text);
+    if (side !== undefined) await p.writeFile(sidecarPath(path), side);
+    for (const [f, s] of cleaned) await p.writeText(f, s);
+    for (const f of made) {
+      if (!p.files.includes(f)) continue;
+      await p.deleteFile(f);
+      await assetDocumentsDeleted([f]);
+    }
+  } catch (err) {
+    status.value = errorStatus(`Couldn't bring ${playlistTitle(path)} back`, err);
   }
+  for (const f of relinked) docFor(f)?.undo();
+  docVersion.value++;
+  status.value = { kind: "info", text: `Brought back ${path}.` };
+}
+
+// --- folders ---------------------------------------------------------------------------------------------------------
+
+/** The folder delete's confirmation: the folder, how many items move up and where to (null: closed). */
+export const deletingFolder = signal<{ readonly path: string; readonly items: number; readonly to: string } | null>(null);
+
+/** What deleting `folder` moves up a level, in the open project. */
+function contentsUp(folder: string): [string, string][] {
+  const p = currentProject.peek();
+  if (!p) return [];
+  return folderContentsUp(folder, { files: [...p.files, ...p.scripts.keys()], folders: p.folders }, splitExtension, (f) => (isSidecarPath(f) ? sidecarAsset(f) : null));
+}
+
+/** Delete folder…: ask first, saying how many items move up and where. */
+export function askDeleteFolder(folder: string): void {
+  deletingFolder.value = { path: folder, items: contentsUp(folder).length, to: folderOf(folder) };
+}
+
+/**
+ * Delete a folder, keeping what's inside: its files and folders move up to its parent (references follow, names taken
+ * there get a number), then the empty folder goes. The toast's Undo puts the folder back and moves them into it again.
+ * Resolves to whether it was deleted.
+ */
+export async function deleteFolderKeepingContents(folder: string): Promise<boolean> {
+  deletingFolder.value = null;
+  const p = currentProject.peek();
+  if (!p) return false;
+  const refused = whyNotDeletable(p, [folderEntry(folder)]);
+  if (refused) {
+    status.value = { kind: "info", text: `Can't delete ${folder}: ${refused}.` };
+    return false;
+  }
+  const moves = contentsUp(folder);
+  if (moves.length && !(await moveAssets(moves))) return false;
+  for (const [from, to] of moves) followMove(from, to);
+  try {
+    await p.deleteFolder(folder);
+  } catch (err) {
+    status.value = errorStatus(`Moved what was in ${folder} up, but couldn't delete the folder`, err);
+    docVersion.value++;
+    return false;
+  }
+  docVersion.value++;
+  const where = folderOf(folder) || "the top level";
+  status.value = { kind: "info", text: `Deleted ${folder}.` };
+  toasts.show({
+    text: `Deleted folder ${folder.slice(folder.lastIndexOf("/") + 1)}${moves.length ? `; ${moves.length === 1 ? "1 item" : `${moves.length} items`} moved to ${where}` : ""}.`,
+    undo: () => void restoreFolder(folder, moves),
+  });
+  return true;
+}
+
+/** Undo a folder delete: the folder back, and what moved up moved into it again. */
+async function restoreFolder(folder: string, moves: readonly (readonly [string, string])[]): Promise<void> {
+  const p = currentProject.peek();
+  if (!p) return;
+  try {
+    await p.createFolder(folder);
+  } catch (err) {
+    status.value = errorStatus(`Couldn't bring ${folder} back`, err);
+    return;
+  }
+  const back = moves.map(([from, to]) => [to, from] as const);
+  if (back.length && (await moveAssets(back, "Moved back"))) for (const [from, to] of back) followMove(from, to);
+  docVersion.value++;
 }
 
 /** Carry out a tree drop's plan (its refusal goes to the status bar). */
@@ -375,8 +523,7 @@ export async function runDrop(plan: DropPlan, label: string): Promise<void> {
 
 // --- audition --------------------------------------------------------------------------------------------------------
 
-type Playing = AudioEventHandle | AudioHandle;
-const handles = new Set<Playing>();
+const handles = new Set<AudioEventHandle>();
 let poller: ReturnType<typeof setInterval> | null = null;
 let idlePolls = 0;
 /** The file the log follows. */
@@ -385,16 +532,35 @@ let logAsset: string | null = null;
 /** Something the audition started still plays. */
 export const auditioning = signal(false);
 
-/** What Trigger plays for the open playlist: the file (an embedded Clip plays its sample directly). */
-export function auditionTarget(): { kind: "file"; path: string } | { kind: "sample"; path: string } | null {
+/** What Trigger plays: a playlist by path (with the value to serve there, for a nested one), or a sample. */
+export type AuditionTarget = { readonly kind: "file"; readonly path: string; readonly nested?: PlaylistAsset } | { readonly kind: "sample"; readonly path: string };
+
+/**
+ * What Trigger plays for the open playlist (UI pass Q7, PB4): the file, or the open nested playlist itself (served
+ * under its audition path, `auditionSource.ts`), an embedded Clip its sample directly. Null when there's nothing to
+ * play: a playlist with no entries yet, or a generator Clip (it auditions in the Generator editor, ADR 0360).
+ */
+export function auditionTarget(): AuditionTarget | null {
   const t = target.peek();
   const b = openBody.peek();
-  if (!t || !b) return null;
+  const path = openPath.peek();
+  if (!t || !b || !path) return null;
+  if (b.type !== "sequence" && b.entries.length === 0) return null;
   if (t.indices.length && b.type === "clip") {
-    const s = b.entries[0] as SampleEntry | undefined;
-    return s ? { kind: "sample", path: s.sample } : null;
+    const s = b.entries[0];
+    return s?.kind === "sample" ? { kind: "sample", path: s.sample } : null;
   }
-  return { kind: "file", path: t.file };
+  if (t.indices.length === 0) return { kind: "file", path: t.file };
+  const out = effectiveOutput(path, loadPlaylist);
+  const root = openFile.peek();
+  return { kind: "file", path: auditionPathOf(t.file, t.indices), nested: auditionAsset(b, out.bus, localParameters.peek(), root ? ancestorsOf(root, t.indices) : []) };
+}
+
+/** Why Trigger is off for the open playlist, or null when it plays (the player bar's tooltip). */
+export function triggerOffReason(): string | null {
+  const b = openBody.peek();
+  if (!b || auditionTarget()) return null;
+  return b.type === "clip" && b.entries.length ? "This Clip plays a generator: audition it in the Generator editor" : b.type === "clip" ? "Choose a sample for this Clip to trigger it" : "Add entries to this playlist to trigger it";
 }
 
 /** Labelled test values as labels (the runtime takes labels by name). */
@@ -413,9 +579,17 @@ export function trigger(): void {
   const what = auditionTarget();
   const host = audioHost();
   if (!what) return;
+  // Trigger while paused starts fresh: the held voices go, the views come back to life.
+  if (frozen.peek()) {
+    stopAudition();
+    frozen.value = null;
+  }
+  lastChange.value = null;
   // Global test values go to the runtime first, so the trigger picks with them.
   for (const [name, value] of Object.entries(parameterOptions(globalParameters.peek()))) host.audio.setParameter(name, value);
-  const h = what.kind === "file" ? host.audition(what.path, { parameters: parameterOptions(localParameters.peek()) }) : host.playClip(what.path);
+  if (what.kind === "file" && what.nested) serveAudition(what.path, what.nested);
+  // A Clip's sample plays through the playlist runtime too (`Audio.play` takes a sample), so Pause holds it as well.
+  const h = what.kind === "file" ? host.audition(what.path, { parameters: parameterOptions(localParameters.peek()) }) : host.audition(what.path);
   if (!h) {
     status.value = { kind: "info", text: host.state.peek().kind === "failed" ? "The audio core isn't running, so nothing plays." : `Nothing played: ${what.path} was refused (Plays now says why).` };
   } else handles.add(h);
@@ -432,15 +606,36 @@ export function stopAudition(): void {
   for (const h of handles) h.stop(0.12);
   handles.clear();
   audioHost().stopAll(0.12);
+  if (frozen.peek()) {
+    frozen.value = null;
+    logCursor.value = null;
+  }
+}
+
+/** Pause (W14.2): pause the audition's playbacks where they are and freeze Plays now, Voices and the log's cursor there. */
+export function pauseAudition(): void {
+  if (frozen.peek()) return;
+  frozen.value = { log: voiceLog.peek(), now: playingNow.peek(), time: audioNow.peek() };
+  logCursor.value = audioNow.peek();
+  for (const h of handles) h.pause();
+}
+
+/** Resume: the playbacks continue from where they held and the views follow them live. */
+export function resumeAudition(): void {
+  if (!frozen.peek()) return;
+  frozen.value = null;
+  logCursor.value = null;
+  for (const h of handles) h.resume();
 }
 
 /** Key-off: held loops end by their exit settings, a Blend's envelope releases. */
 export function releaseAudition(): void {
-  for (const h of handles) if ("release" in h) h.release();
+  for (const h of handles) h.release();
 }
 
 /** A test value changed: globals go to the runtime, locals to the playing instances. */
 export function setTestValue(name: string, value: number | null): void {
+  noteSwitchChange(name, value);
   const next = { ...testValues.peek() };
   if (value === null) delete next[name];
   else next[name] = value;
@@ -449,16 +644,30 @@ export function setTestValue(name: string, value: number | null): void {
   if (!def) return;
   const v = value === null ? def.default : "labels" in def ? (def.labels[Math.round(value)] ?? def.default) : value;
   if (localParameters.peek().some((l) => l.name === name)) {
-    for (const h of handles) if ("setParameter" in h) h.setParameter(name, v);
+    for (const h of handles) h.setParameter(name, v);
   } else audioHost().audio.setParameter(name, v);
+}
+
+/** While auditioning a Switch, its parameter's label changing: which rule applies (W8.5), for the rules table and Plays now. */
+function noteSwitchChange(name: string, value: number | null): void {
+  const b = openBody.peek();
+  const s = b?.type === "switch" ? b.switch : null;
+  if (!s || s.parameter !== name || !auditioning.peek()) return;
+  const def = allParameters.peek().find((d) => d.name === name);
+  if (!def || !("labels" in def)) return;
+  const label = (v: number | undefined) => (v === undefined ? def.default : (def.labels[Math.round(v)] ?? def.default));
+  const from = label(testValues.peek()[name]);
+  const to = label(value ?? undefined);
+  if (from === to) return;
+  const rule = matchChangeRule(s.rules, from, to);
+  lastChange.value = { playlist: entryNameOfOpen(), from, to, rule: rule ? s.rules.indexOf(rule) : -1, change: rule ?? s.onChange };
 }
 
 function startPolling(): void {
   idlePolls = 0;
   auditioning.value = true;
-  if (poller) return;
-  poller = setInterval(poll, 100);
-  poll();
+  poller ??= setInterval(poll, 100);
+  poll(); // read at once, also when already polling (a new play's voices show without waiting for the next poll)
 }
 
 function poll(): void {
@@ -482,6 +691,25 @@ function poll(): void {
     poller = null;
   }
 }
+
+/**
+ * Follow `path`'s voices in Plays now and the Voices log, as Trigger does: a sequence's play is started by its own
+ * transport (`playSequence`), and its voices are logged too (J6.3: Voices said "Trigger to start capturing" while the
+ * sequence played).
+ */
+export function followVoices(path: string): void {
+  if (logAsset !== path) {
+    logAsset = path;
+    voiceLog.value = [];
+    logCursor.value = null;
+  }
+  startPolling();
+}
+effect(() => {
+  if (!sequencePlayback.value) return;
+  const file = sequenceContext.peek()?.file;
+  if (file) followVoices(file);
+});
 
 /** Clear the voice log. */
 export function clearLog(): void {

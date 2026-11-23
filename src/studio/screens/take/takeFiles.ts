@@ -8,7 +8,21 @@ import { captureTree, isTakePath, searchCaptures, type CaptureNode } from "../pr
 export const TAKES_FOLDER = "takes";
 
 /** The empty state's words. */
-export const NO_TAKES = "No takes yet — record one with Record take on the editor's Play toolbar or F10 in a game build with audioTake on.";
+/**
+ * How to get a take, under "No takes yet" (one sentence, sentence case, UI pass T4). The Studio replays takes but can't
+ * record one (no game session yet): takes come from the editor's Play toolbar or a game build.
+ */
+export const NO_TAKES = "Record one with Record take on the editor's Play toolbar, or with F10 in a game build that has audioTake on.";
+
+/**
+ * The Take screen's centre with no take open (spec §1.3: an empty state is one short line saying what to do): the
+ * title, and one line that says how a take is recorded (the Studio can't record one: owner decision 1).
+ */
+export function takeEmptyCopy(hasTakes: boolean): { readonly title: string; readonly line: string } {
+  return hasTakes
+    ? { title: "No take open", line: "Pick one in Takes, or record one with Record take on the editor's Play toolbar." }
+    : { title: "No takes yet", line: "Record one with Record take on the editor's Play toolbar, or F10 in a game build." };
+}
 
 /** The take files of `files`. */
 export const takeFiles = (files: readonly string[]): string[] => files.filter(isTakePath);

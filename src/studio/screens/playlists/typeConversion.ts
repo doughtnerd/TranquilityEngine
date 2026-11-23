@@ -18,6 +18,7 @@ import { accept, refuse, type EditResult } from "../../../editor/sdk/editResult"
 import { axisRange, spreadPositions } from "./blendPlacement";
 import { defaultMap, sampleEntry, type EditContext } from "./playlistEdits";
 import { entryName } from "./playlistPaths";
+import { starterTracks } from "./sequence/sequenceEdits";
 
 /** The samples a Clip would play after a change of type, or why it can't. */
 function clipEntries(b: PlaylistBody): EditResult<SampleEntry[]> {
@@ -137,7 +138,12 @@ export function convertType(b: PlaylistBody, type: PlaylistType, ctx: EditContex
       break;
     }
     case "sequence":
-      if (!b.sequence || b.sequence.tracks.length === 0) next.sequence = { ...(b.sequence ?? defaultSequence()), tracks: tracksFrom(entries) };
+      if (!b.sequence || b.sequence.tracks.length === 0) {
+        const seq = b.sequence ?? defaultSequence();
+        const tracks = tracksFrom(entries);
+        // Nothing to lay out: the empty Audio 1 and Playlist 1 a new sequence starts with.
+        next.sequence = { ...seq, tracks: tracks.length ? tracks : starterTracks(seq) };
+      }
       break;
     case "layer":
       break;

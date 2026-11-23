@@ -1,5 +1,5 @@
 // The Profiler screen's panels (ADR 0348 "The Profiler screen", ADR 0341 "The shell"; the prototype's layout): Captures
-// (left), the Timeline (the fixed panel), At cursor, Voice and Why it played (right), Messages (bottom). The panels read
+// (left), the Timeline (the fixed panel), At cursor and Voice (right), Messages and Why it played (bottom). The panels read
 // the screen's store (`profilerScreen.ts`); the Timeline panel also owns what the screen does while it shows: opening
 // the capture the route names, the cursor keys (← → step, Shift+← → markers) and the player bar's slots (the capture
 // playing and the Record button).
@@ -13,41 +13,65 @@ import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, keymap, openRoute, setPlayerSlots, studioRouter } from "../../shell/studioServices";
 import { CaptureList } from "./CaptureList";
 import { recorderStatus } from "./captureRecorder";
-import { isCapturePath, NO_CAPTURES } from "./captureTree";
+import { durationText, isCaptureFile, isCapturePath, NO_CAPTURES, runMoveFolders, runTreeFolders } from "./captureTree";
+import { TAKES_FOLDER } from "../take/takeFiles";
+import { openMixDocument } from "../mixer/mixerDocument";
 import { CURSOR_KEYS } from "./cursorKeys";
 import { messageCounts } from "./messagesModel";
-import { AtCursor, MessageList, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
-import { deleteCapture, importCaptures, moveCapture, openCapture, profilerRecorder, profilerStore, renameCapture } from "./profilerScreen";
+import { AtCursor, MessageList, OpenInTake, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
+import { captureFileKind, captureFolder, openCapture, openInTake, profilerRecorder, profilerStore } from "./profilerScreen";
+import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "./runFileActions";
+import { durationsVersion, fileDuration } from "./runFileDurations";
+import { takeOfCapture } from "./reviewLink";
 import { ProfilerTimeline } from "./ProfilerTimeline";
 import { PluginHealth } from "./PluginHealth";
 import { resetPluginEffect, usePluginHealth } from "../../components/EffectChainHealth";
 import { Icon } from "../../components/Icon";
 import { RecordButton, whyNotRecord } from "./RecordButton";
+import { replayStore } from "../../shell/replay";
 import { clockText, valueAt } from "./timelineGeometry";
 import type { GroupBy } from "./voiceModel";
 import "./profiler.css";
 
 function CapturesPanel() {
   void docVersion.value; // the project's file list grows and shrinks with it
+  void durationsVersion.value; // a capture's duration arrived
   const project = currentProject.value;
+  const files = project?.files ?? [];
+  const folders = project?.folders ?? [];
   const state = profilerStore().state.value;
   const openPath = state.kind === "open" || state.kind === "opening" || state.kind === "failed" ? state.path : null;
+  const k = captureFileKind;
   return (
     <Panel bodyClass="pf-panel-body">
       <CaptureList
-        files={project?.files ?? []}
-        folders={project?.folders ?? []}
+        files={files}
+        // A new project's scenes/, scripts/ and the sample and playlist folders aren't capture folders (UI pass T5).
+        folders={runTreeFolders(folders, files, isCaptureFile, [TAKES_FOLDER])}
+        moveFolders={runMoveFolders(folders, files, isCaptureFile, [TAKES_FOLDER])}
+        rootName={project?.name}
         openPath={openPath}
         writable={!!project?.canSave && !!project.fileSystem}
+        duration={(p) => fileDuration(project, p)}
+        onFolder={(f) => (captureFolder.value = f)}
         onOpen={openCapture}
-        onImport={(files) => void importCaptures(files)}
-        onRename={(path, name) => void renameCapture(path, name)}
-        onMove={(path, folder) => void moveCapture(path, folder)}
-        onDelete={(path) => void deleteCapture(path)}
+        onImport={(chosen, folder) => void importInto(k, chosen, folder)}
+        onNewFolder={newRunFolder}
+        onRename={(path, name) => void renameFile(k, path, name)}
+        onRenameFolder={(folder, name) => void renameFolder(k, folder, name)}
+        onMove={(items, folder) => void moveItems(k, items, folder)}
+        onDuplicate={(path) => void duplicateFile(k, path)}
+        onDelete={(path) => void deleteFile(k, path)}
+        onDeleteFolder={(folder) => void deleteFolder(k, folder)}
       />
     </Panel>
   );
 }
+
+const FILTERS = [
+  { value: "all" as const, label: "All voices" },
+  { value: "problems" as const, label: "Problems only", title: "Show only voice lanes with a stolen, blocked, missing or refused voice" },
+];
 
 const GROUPS = [
   { value: "bus" as const, label: "By bus" },
@@ -60,7 +84,7 @@ function ProfilerTransport() {
   const host = audioHost();
   const r = recorder.state.value;
   const recording = r.kind === "recording" || r.kind === "starting";
-  return <RecordButton recording={recording} busy={r.kind === "saving"} blocked={whyNotRecord({ playable: host.playable.value, voices: host.stats.value?.voices ?? 0 })} onToggle={() => void recorder.toggle()} />;
+  return <RecordButton recording={recording} busy={r.kind === "saving"} blocked={whyNotRecord({ playable: host.playable.value, voices: host.stats.value?.voices ?? 0, replaying: replayStore().playing.value })} onToggle={() => void recorder.toggle()} />;
 }
 
 /** Bumped twice a second while recording, so the player bar's elapsed time moves. */
@@ -108,18 +132,24 @@ function TimelinePanel() {
   const store = profilerStore();
   const s = store.state.value;
   const data = store.data.value;
+  const take = useCaptureTake();
   const toolbar = (
     <div class="pf-toolbar">
-      <button type="button" class={`pf-toggle${store.problemsOnly.value ? " on" : ""}`} aria-pressed={store.problemsOnly.value} onClick={() => (store.problemsOnly.value = !store.problemsOnly.value)} title="Show only voice lanes with a stolen, blocked, missing or refused voice">
-        <Icon name="filter" size={14} /> Problems only
-      </button>
+      {s.kind === "open" && (
+        <span class="pf-title">
+          <strong title={s.path ?? s.title}>{s.title}</strong>
+          {data && <span class="pf-title-meta">{durationText(data.duration)}</span>}
+        </span>
+      )}
+      <span class="pf-toolbar-gap" />
+      <SegmentedControl<"all" | "problems"> size="small" look="fill" label="Voices shown" options={FILTERS} value={store.problemsOnly.value ? "problems" : "all"} onChange={(v) => (store.problemsOnly.value = v === "problems")} />
       <SegmentedControl<GroupBy> size="small" label="Group voices" options={GROUPS} value={store.groupBy.value} onChange={(v) => (store.groupBy.value = v)} />
-      {s.kind === "open" && s.replayOf && <ReplayOrigin take={s.replayOf} onOpenTake={(path) => openRoute({ screen: "take", asset: path })} />}
+      {s.kind === "open" && s.replayOf ? <ReplayOrigin take={s.replayOf} onOpenTake={take ? openInTake : undefined} /> : take && <OpenInTake take={take} onOpen={openInTake} />}
       {data && <span class="pf-counts" role="status">{countsText(data.messages)}</span>}
     </div>
   );
   let body;
-  if (s.kind === "none") body = <EmptyState title="Profiler" icon={<Icon name="profiler" size={28} />} body={<p>Engine performance captures: voices, CPU, buses and loudness over time, and why each sound played. Open a capture from the Captures panel. {NO_CAPTURES.replace(/^No captures yet — /, "Captures come from: ")}</p>} />;
+  if (s.kind === "none") body = <EmptyState title="Profiler" icon={<Icon name="profiler" size={28} />} body={<p>Engine performance captures: voices, CPU, buses and loudness over time, and why each sound played. Open a capture from the Captures panel, or {NO_CAPTURES.charAt(0).toLowerCase() + NO_CAPTURES.slice(1)}</p>} />;
   else if (s.kind === "opening") body = <p class="pf-note" role="status">Opening {s.path}…</p>;
   else if (s.kind === "failed") body = <p class="pf-error" role="alert">Can't open {s.path}: {s.message}</p>;
   else if (!data || data.tracks.length === 0) body = <EmptyState compact title="Nothing to draw" body="This capture holds no voices, buses, loudness or STATUS samples." />;
@@ -132,6 +162,7 @@ function TimelinePanel() {
         selected={store.selected.value}
         problemsOnly={store.problemsOnly.value}
         groupBy={store.groupBy.value}
+        busChains={busChains()}
         onSeek={(t) => store.seekTo(t)}
         onSelect={(key) => store.select(key, true)}
       />
@@ -161,18 +192,54 @@ function CursorPanel() {
   );
 }
 
+/** "Open in Mixer ›" from a voice or a message: the Mixer with the bus selected (its route's `select`). */
+const openBusInMixer = (bus: string): void => openRoute({ screen: "mixer", select: bus });
+
+/** How many buses run an effect chain in the project's mix (the Effects track's Bus chip). */
+function busChains(): number {
+  return openMixDocument()?.value.value.buses.filter((b) => b.effects.some((e) => e.on)).length ?? 0;
+}
+
 function VoicePanel() {
+  const store = profilerStore();
+  const voice = store.selectedVoice.value;
+  const take = useCaptureTake();
   return (
     <Panel bodyClass="pf-panel-body">
-      <VoiceDetails voice={profilerStore().selectedVoice.value} />
+      <VoiceDetails
+        voice={voice}
+        decision={voice ? (store.data.value?.decisions.get(voice.key) ?? null) : null}
+        bus={voice ? (store.readouts.value.find((r) => r.name === voice.busName) ?? null) : null}
+        onOpenBus={openBusInMixer}
+        onOpenPlaylist={(path) => openRoute({ screen: "playlists", asset: path })}
+        take={take}
+        onOpenTake={openInTake}
+      />
     </Panel>
   );
 }
 
+/** The take the open capture is backed by, when the project has it (`reviewLink.ts`): "Open in Take" is offered for it. */
+function useCaptureTake(): string | null {
+  void docVersion.value; // the project's file list grows and shrinks with it
+  const take = takeOfCapture(profilerStore().state.value);
+  return take && currentProject.value?.files.includes(take) ? take : null;
+}
+
 function WhyPanel() {
+  const take = useCaptureTake();
   return (
     <Panel bodyClass="pf-panel-body">
-      <WhyItPlayed voice={profilerStore().selectedVoice.value} onOpen={(screen, target) => openRoute(screen === "mixer" ? { screen, select: target } : { screen })} />
+      <WhyItPlayed
+        voice={profilerStore().selectedVoice.value}
+        decision={profilerStore().selectedVoice.value ? (profilerStore().data.value?.decisions.get(profilerStore().selectedVoice.value!.key) ?? null) : null}
+        onOpen={(screen, target) => openRoute(screen === "mixer" ? { screen, select: target } : screen === "playlists" ? { screen, asset: target } : { screen })}
+      />
+      {take && (
+        <p class="pf-why-take">
+          <OpenInTake take={take} onOpen={openInTake} />
+        </p>
+      )}
     </Panel>
   );
 }
@@ -190,6 +257,7 @@ function MessagesPanel() {
           if (m.voice) store.select(m.voice);
           store.seekTo(m.time);
         }}
+        onOpenBus={openBusInMixer}
       />
     </Panel>
   );
@@ -211,7 +279,9 @@ export const PROFILER_PANELS: readonly StudioPanel[] = [
   { id: "profiler-timeline", title: "Timeline", dock: "fill", fixed: true, view: () => <TimelinePanel /> },
   { id: "profiler-cursor", title: "At cursor", dock: "right", view: () => <CursorPanel /> },
   { id: "profiler-voice", title: "Voice", dock: "right", view: () => <VoicePanel /> },
-  { id: "profiler-why", title: "Why it played", dock: "right", view: () => <WhyPanel /> },
+  // Spec §4.6.1: Why it played sits below, with Messages, so Voice and Why show together (the right dock keeps At cursor
+  // and Voice, whose tabs fit it).
   { id: "profiler-messages", title: "Messages", dock: "bottom", view: () => <MessagesPanel /> },
+  { id: "profiler-why", title: "Why it played", dock: "bottom", view: () => <WhyPanel /> },
   { id: "profiler-plugins", title: "Plugins", dock: "bottom", view: () => <PluginsPanel /> },
 ];

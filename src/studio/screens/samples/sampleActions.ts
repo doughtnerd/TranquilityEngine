@@ -9,10 +9,12 @@ import { editedLength, trimOf } from "./sampleTime";
 import { landmarks, liveSelection, selectionSpan, SAMPLE_SELECTED, type SampleSelection } from "./sampleView";
 import { lengthOf } from "./sampleSession";
 import { renderPathOf } from "./sampleFlatten";
-import { followPlayhead, playMode, playheadTime, preRoll, razorOn, returnToStart, select, selection, openSession, viewSpan, snapSetting, timeFormat } from "./samplesState";
-import { planPlay, playing, releasePlay, startPlay, stopPlay } from "./sampleTransport";
+import { abSource, followPlayhead, playMode, playheadTime, preRoll, razorOn, returnToStart, seamRepeat, select, selection, openSession, viewSpan, snapSetting, timeFormat } from "./samplesState";
+import { planPlay, planSeam, playing, releasePlay, SEAM_SCOPE, startPlay, stopPlay } from "./sampleTransport";
 import { formatTime } from "../../components/timeRulerModel";
 import { snapSeconds } from "./sampleView";
+import { status } from "../../../editor/state";
+import { nameOf } from "./sampleLibrary";
 
 /** The open sample with its length, or null when there's none (or its length isn't read yet). */
 export function current() {
@@ -172,7 +174,8 @@ export function togglePlay(sel?: SampleSelection): boolean {
   }
   const back = playheadTime.peek();
   // A flattened sample plays its render, which keeps the source's timeline: the plan's source seconds hold.
-  const audio = renderPathOf(c.s.project.files, c.s.source.peek(), c.e) ?? c.s.source.peek();
+  // A/B (spec §4.1.5): the source, every edit bypassed; else a flattened sample plays its render.
+  const audio = (abSource.peek() ? null : renderPathOf(c.s.project.files, c.s.source.peek(), c.e)) ?? c.s.source.peek();
   const begin = () => {
     const why = startPlay(host, c.s.path, audio, plan, preRoll.peek() ? 1 : 0, (t) => movePlayhead(t, followPlayhead.peek()), () => {
       if (returnToStart.peek()) playheadTime.value = back;
@@ -183,6 +186,76 @@ export function togglePlay(sel?: SampleSelection): boolean {
   const hear = studioHearAs();
   if (hear.choice.peek() === "source") begin();
   else void hear.prepare([audio]).then(begin);
+  return true;
+}
+
+/**
+ * Play across the seam (the Loop seam panel): the loop's last moment into its first, through the crossfade, and only
+ * that (`planSeam`); with Repeat on it plays again each time it ends, until stopped. Pressed while it plays: stop.
+ */
+export function playSeam(loopId: string): boolean {
+  const c = current();
+  if (!c) return false;
+  const host = audioHost();
+  const now = playing.peek();
+  if (now && now.path === c.s.path) {
+    stopPlay(host);
+    if (now.plan.scope === SEAM_SCOPE) return true;
+  }
+  const plan = planSeam(c.e, loopId);
+  if (!plan) {
+    toasts.show({ text: "That loop has no seam to play" });
+    return true;
+  }
+  const path = c.s.path;
+  const audio = renderPathOf(c.s.project.files, c.s.source.peek(), c.e) ?? c.s.source.peek();
+  const begin = () => {
+    const why = startPlay(host, path, audio, plan, 0, (t) => movePlayhead(t, false), () => {
+      // Ended by itself (Stop doesn't come here): again, while Repeat is on and the same sample is open, with the
+      // loop as it is now (a crossfade changed meanwhile is heard on the next pass).
+      if (seamRepeat.peek() && openSession.peek()?.path === path) playSeam(loopId);
+    });
+    if (why) toasts.show({ text: `Can't play: ${why}.`, kind: "error" });
+  };
+  const hear = studioHearAs();
+  if (hear.choice.peek() === "source") begin();
+  else void hear.prepare([audio]).then(begin);
+  return true;
+}
+
+// --- save ------------------------------------------------------------------------------------------------------------
+
+/**
+ * Ctrl+S pressed while typing in a field: the field's draft is committed first (its change runs as on leaving it),
+ * then focus goes back to it, so what was typed is in what's saved.
+ */
+function commitTyping(): void {
+  const el = typeof document === "undefined" ? null : document.activeElement;
+  if (!(el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || el instanceof HTMLSelectElement)) return;
+  const at = el instanceof HTMLSelectElement ? null : [el.selectionStart, el.selectionEnd] as const;
+  el.blur();
+  if (!el.isConnected) return;
+  el.focus({ preventScroll: true });
+  if (at && at[0] !== null && el instanceof HTMLInputElement && el.type !== "number") el.setSelectionRange(at[0], at[1]);
+  else if (at && at[0] !== null && el instanceof HTMLTextAreaElement) el.setSelectionRange(at[0], at[1]);
+}
+
+/**
+ * Save (Ctrl+S, the Save split button; owner decision 3): the open sample's project data, its sidecar or derived-sample
+ * file, written now. The audio file isn't touched: that is Write to file…. A field being typed in commits first.
+ */
+export function save(): boolean {
+  const s = openSession.peek();
+  if (!s) return false;
+  commitTyping();
+  if (s.readOnly) {
+    status.value = { kind: "info", text: `Can't save ${nameOf(s.path)}: the project is read-only.` };
+    return true;
+  }
+  void s.flush().then(
+    () => (status.value = { kind: "info", text: `Saved ${nameOf(s.path)}.` }),
+    (err: unknown) => (status.value = { kind: "error", text: `Couldn't save ${nameOf(s.path)}: ${err instanceof Error ? err.message : String(err)}` }),
+  );
   return true;
 }
 

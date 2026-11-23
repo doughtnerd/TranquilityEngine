@@ -343,6 +343,50 @@ describe("a wall (materials, smoothing, wet folding)", () => {
   });
 });
 
+describe("occlusion curves (ADR 0362 item 6)", () => {
+  function behind(walls: number) {
+    const env = new FakeEnv();
+    for (let k = 0; k < walls; k++) env.walls.push({ x: 2 + k, halfWidth: 100, node: node(`Wall ${k}`) });
+    const view = new FakeView(8);
+    view.add(0, 10, 0, 0.5);
+    return { env, view, pass: new OcclusionPass(8, env), f: makeFrame() };
+  }
+  // One concrete wall loses 30 dB: half of the −60 dB floor, so the path is 0.5 blocked.
+  const curves = { volume: [[0, 0], [1, -12]] as const, lowpass: [[0, 20000], [1, 1000]] as const };
+
+  it("maps how blocked the path is to the volume and low-pass curves, in place of the material's", () => {
+    const { view, pass, f } = behind(1);
+    step(f);
+    pass.run(f, view, settings({ curves }));
+    expect(view.lastGain[0]).toBeCloseTo(db(-6), 6);
+    expect(view.lastLp[0]).toBeCloseTo(10500, 1);
+  });
+
+  it("reads a fully blocked path (two concrete walls, −60 dB, followed on the high preset) at the curves' ends", () => {
+    const { view, pass, f } = behind(2);
+    step(f);
+    pass.run(f, view, settings({ curves, budgetMs: 0.5 }));
+    expect(view.lastGain[0]).toBeCloseTo(db(-12), 6);
+    expect(view.lastLp[0]).toBeCloseTo(1000, 1);
+  });
+
+  it("leaves a property without a curve to the materials", () => {
+    const { view, pass, f } = behind(1);
+    step(f);
+    pass.run(f, view, settings({ curves: { lowpass: curves.lowpass } }));
+    expect(view.lastGain[0]).toBeCloseTo(CONCRETE, 6);
+    expect(view.lastLp[0]).toBeCloseTo(10500, 1);
+  });
+
+  it("without curves, the materials' losses apply as before (ADR 0347)", () => {
+    const { view, pass, f } = behind(1);
+    step(f);
+    pass.run(f, view, settings());
+    expect(view.lastGain[0]).toBeCloseTo(CONCRETE, 6);
+    expect(view.lastLp[0]).toBeCloseTo(800, 2);
+  });
+});
+
 describe("rays: exclusion, multi-ray and hits", () => {
   it("excludes the source's subtree and the listener's node (C14)", () => {
     const env = new FakeEnv();

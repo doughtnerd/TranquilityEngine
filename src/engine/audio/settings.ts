@@ -23,12 +23,14 @@
  */
 
 import type { Curve } from "../core/curve";
+import type { CurveBy } from "./curveBy";
 import { detectPlatform, type PlatformEnv } from "../core/graphics";
 import { parseParameters, type ParameterDef } from "./parameters";
 import { audioCurve } from "./audioCurveLimit";
 import { BUS_RULES, MAX_BUSES, MAX_CORE_BUS_EFFECTS, busRuleFindings, coreRuns, findingText, type CoreEffectType } from "./busCapability";
 import type { PluginEffectType } from "./effects/types";
 import { effectSpec, isPluginEffectType, parseEffect as parseCatalogueEffect } from "./effects/catalogue";
+import { parseOcclusionCurves, type OcclusionCurves } from "./occlusionCurves";
 import { DEFAULT_MATERIAL_NAME, builtinMaterials, parseOccluderMaterials, resolveDefaultMaterial, type OccluderMaterial } from "./occlusionMaterials";
 
 export type BusEffect =
@@ -170,6 +172,19 @@ export interface BusAutomation {
   log?: boolean;
   /** `send`: the bus the send feeds (a return). */
   to?: string;
+  /**
+   * ADR 0362 §5: a second global parameter the lane also follows. The runtime binds the slice of `by.lane` (the authored
+   * curve, in the lane's units) at the second parameter's value, mapped as `curve` was (`busAutomationCurve`), in
+   * `curve`'s place, and re-slices when that parameter changes.
+   */
+  by?: BusAutomationBy;
+}
+
+/** A bus automation's second input: the `by` (`curveBy.ts`) with the authored curve and how it maps to `curve`'s units. */
+export interface BusAutomationBy extends CurveBy {
+  readonly lane: Curve;
+  /** `gain`: dB to a linear gain (a volume lane); `log2`: a log-scale effect parameter; absent: as is. */
+  readonly map?: "gain" | "log2";
 }
 
 export interface AudioSettings {
@@ -222,7 +237,7 @@ export interface AudioSettings {
   rhythmMode: boolean;
   /**
    * ADR 0171 §2.1 (types from K0; parse Ld5): the loudness targets, 1..8 entries, the first the default. Absent: the
-   * owner's two defaults (`console`, `mobile`).
+   * defaults (`console`, `pc-web`, `mobile`; `DEFAULT_LOUDNESS_TARGETS`).
    */
   loudnessTargets?: LoudnessTarget[];
   /** ADR 0171 §2.1 (types from K0; parse Ld5): reset the loudness meters at the editor's Play. Absent: true. */
@@ -266,6 +281,11 @@ export interface OcclusionSettings {
   smoothingMs: number;
   /** The effective table: the built-ins, overridden or extended by the authored list (at most 32). */
   materials: OccluderMaterial[];
+  /**
+   * ADR 0362 item 6: how blocked a path is (0..1, from the rays and the materials' losses) mapped to a volume and a
+   * low-pass cutoff (`occlusionCurves.ts`). Absent (the default): the materials' losses apply as they are (ADR 0347).
+   */
+  curves?: OcclusionCurves;
 }
 /** `audio.zones`: reverb zone slots and IR length (§2.1). Slots = `maxActive + standby`. */
 export interface ZoneSettings {
@@ -338,10 +358,15 @@ export const LOUDNESS_TARGET_LIMITS = { integrated: [-70, 0], tolerance: [0, 12]
 /** §2.1: a target's `tolerance` and `truePeak` when absent from an authored entry. */
 export const DEFAULT_TARGET_TOLERANCE = 2;
 export const DEFAULT_TARGET_TRUE_PEAK = -1;
-/** §2.1 (owner decision 4): `loudnessTargets` when absent; the first is the default target. */
+/**
+ * §2.1 (owner decision 4, updated by the Studio UI pass's decisions, 2026-11-23, after the owner's spec §4.3.6):
+ * `loudnessTargets` when absent; the first is the default target. Console −24, PC / web −18, mobile −16 LUFS, each
+ * ±2 LU under a −1 dBTP ceiling. A project that wrote its own list keeps it.
+ */
 export const DEFAULT_LOUDNESS_TARGETS: readonly Readonly<LoudnessTarget>[] = [
   { name: "console", integrated: -24, tolerance: 2, truePeak: -1 },
-  { name: "mobile", integrated: -18, tolerance: 2, truePeak: -1 },
+  { name: "pc-web", integrated: -18, tolerance: 2, truePeak: -1 },
+  { name: "mobile", integrated: -16, tolerance: 2, truePeak: -1 },
 ];
 
 export const defaultBuses = (): BusSettings[] =>
@@ -816,6 +841,8 @@ function parseSpatialKeys(input: Record<string, unknown>, settings: AudioSetting
     o.smoothingMs = rangedNumber(occ.smoothingMs, "audio.occlusion.smoothingMs", ...range("occlusion.smoothingMs"), DEFAULT_OCCLUSION_SMOOTHING_MS, problems);
     if (occ.materials !== undefined) o.materials = parseOccluderMaterials(occ.materials, "audio.occlusion.materials", problems);
     o.defaultMaterial = resolveDefaultMaterial(occ.defaultMaterial, o.materials, "audio.occlusion.defaultMaterial", problems);
+    const curves = parseOcclusionCurves(occ.curves, "audio.occlusion.curves", problems);
+    if (curves) o.curves = curves;
   }
 
   const zones = section(input.zones, "audio.zones", problems);

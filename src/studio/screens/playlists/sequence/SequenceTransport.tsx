@@ -1,34 +1,42 @@
 // The player bar's slots while a sequence is open (proto §2.6 "Transport"): what Play plays (Selection / From playhead
-// / From start), pre-roll, return to start, follow playhead; back to the start, Play/Stop, and Release while a held loop
-// waits; the playhead and why nothing plays. The Playlists screen's player-bar effect calls this (it reads the
+// / From start), pre-roll, return to start, follow playhead; back to the start, Play/Stop, Pause/Resume while it plays
+// (ADR 0362 §1: the play holds where it is and the playhead freezes), and Release while a held loop waits; the playhead
+// and why nothing plays. The Playlists screen's player-bar effect calls this (it reads the
 // transport's signals, so the bar follows them).
 import { TransportButton, type PlayerBarSlots } from "../../../components/PlayerBar";
 import { SegmentedControl } from "../../../../editor/ui/SegmentedControl";
-import { PLAY_MODES, type PlayMode } from "./transportModel";
-import { playback, playSequence, releaseSequence, returnToStart, sequenceContext, sequenceHasHeldLoop, seqPlayhead, seqTransport, stopSequence, transportMessage } from "./sequenceState";
+import { PLAY_MODES, playLabel, type PlayMode } from "./transportModel";
+import { Checkbox } from "../../../components/Checkbox";
+import { playlistBadge } from "../../../components/typeBadgeModel";
+import { pauseSequence, playback, playSequence, releaseSequence, resumeSequence, returnToStart, sequenceContext, sequenceHasHeldLoop, seqPlayhead, seqSelection, seqTransport, stopSequence, transportMessage } from "./sequenceState";
 import "./sequence.css";
 
 export function sequencePlayerSlots(title: string, subtitle: string): PlayerBarSlots {
   const p = playback.value;
   const opts = seqTransport.value;
   const t = seqPlayhead.value;
-  void sequenceContext.value;
   const held = sequenceHasHeldLoop();
   const message = transportMessage.value;
+  const ctx = sequenceContext.value;
+  // Sequence W-2: the Play button names what it will play.
+  const play = ctx ? playLabel(ctx.seq, seqSelection.value, t, opts, ctx.sourceOf) : "Play";
   const toggle = (k: "preRoll" | "returnToStart" | "follow") => (seqTransport.value = { ...seqTransport.peek(), [k]: !seqTransport.peek()[k] });
   return {
-    nowPlaying: { art: "SQ", title, subtitle },
+    nowPlaying: { art: playlistBadge("sequence", 1).code, title, subtitle }, // "SEQ", as the tree badges it (V13)
     transport: (
       <span class="sq-transport">
         <TransportButton icon="skipBack" label="Return to start" title="Playhead to the start" disabled={!!p} onClick={returnToStart} />
-        <TransportButton icon={p ? "stop" : "play"} primary label={p ? "Stop" : "Play"} title={p ? "Stop (Space)" : "Play (Space)"} onClick={() => (p ? stopSequence() : playSequence())} />
+        <TransportButton icon={p ? "stop" : "play"} primary text={!p} label={p ? "Stop" : play} title={p ? (p.pausedAt !== null ? "Stop (Shift+Space)" : "Stop (Space)") : `${play} (Space)`} onClick={() => (p ? stopSequence() : playSequence())} />
+        {p && (p.pausedAt !== null
+          ? <TransportButton icon="play" label="Resume" title="Resume: continue from where it paused (Space)" onClick={resumeSequence} />
+          : <TransportButton icon="pause" label="Pause" title="Pause: hold the sequence and its playhead where they are" onClick={pauseSequence} />)}
         {held && <TransportButton icon="release" text label="Release" title="Release: held loops leave by their exit settings (Space while playing)" disabled={!p || p.released} onClick={releaseSequence} />}
         <SegmentedControl<PlayMode> size="small" label="Play" value={opts.mode} options={PLAY_MODES} onChange={(v) => (seqTransport.value = { ...seqTransport.peek(), mode: v })} />
-        <label title="Start one second early"><input type="checkbox" checked={opts.preRoll} onChange={() => toggle("preRoll")} /> Pre-roll</label>
-        <label title="Put the playhead back where it started when playback ends"><input type="checkbox" checked={opts.returnToStart} onChange={() => toggle("returnToStart")} /> Return</label>
-        <label title="Scroll the timeline with the playhead"><input type="checkbox" checked={opts.follow} onChange={() => toggle("follow")} /> Follow</label>
+        <Checkbox label="Pre-roll" title="Start one second early" checked={opts.preRoll} onChange={() => toggle("preRoll")} />
+        <Checkbox label="Return" title="Put the playhead back where it started when playback ends" checked={opts.returnToStart} onChange={() => toggle("returnToStart")} />
+        <Checkbox label="Follow" title="Scroll the timeline with the playhead" checked={opts.follow} onChange={() => toggle("follow")} />
       </span>
     ),
-    status: message ?? (p ? `Playing ${title} · ${t.toFixed(2)} s${p.released ? " · released" : ""}` : `Playhead ${t.toFixed(2)} s`),
+    status: message ?? (p ? `${p.pausedAt !== null ? "Paused" : "Playing"} ${title} · ${t.toFixed(2)} s${p.released ? " · released" : ""}` : `Playhead ${t.toFixed(2)} s`),
   };
 }

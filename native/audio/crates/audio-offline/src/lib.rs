@@ -7,7 +7,7 @@
 //! evaluator (`audio_core::automation`).
 //!
 //! Like the decoder, it **exports** its memory and owns its allocator: it runs alone (a worker,
-//! the Studio's page, Node). The C ABI ([`ABI_VERSION`] 1.1):
+//! the Studio's page, Node). The C ABI ([`ABI_VERSION`] 1.2):
 //!
 //! 1. `p = myco_offline_alloc(bytes)` for the input (interleaved `f32`) and the spec (`f64`,
 //!    `spec.rs`); copy them in.
@@ -23,7 +23,14 @@
 //! the caller binds to the plugin glue (`effectGlue.ts`) so plugin effects in a spec (version 2,
 //! 16 parameters per effect) run as they do in the core's chains. A caller with no plugins binds
 //! stubs (`acquire` 0): plugin effects then pass through with `render::warn::PLUGIN_DRY`.
+//!
+//! ABI 1.2 (ADR 0360 §6): `h = myco_offline_generate(kind, values, count, seed, rate, frames, spec, specLen)` renders
+//! one generator voice (`generate.rs`: the core's generator voice, bit for bit at pitch 1 with no lanes) to mono `f32`;
+//! its output is read and freed as a render's (one channel), and its `values` and `spec` are the caller's
+//! `myco_offline_alloc` blocks (`f32` parameters in catalogue order, the `f64` generate spec; either may be null with
+//! a count of 0).
 
+pub mod generate;
 pub mod lane;
 pub mod nr;
 pub mod render;
@@ -33,7 +40,7 @@ pub mod timemap;
 use std::alloc::{alloc, dealloc, Layout};
 
 /// `(major << 8) | minor` of this ABI.
-pub const ABI_VERSION: u32 = 0x101;
+pub const ABI_VERSION: u32 = 0x102;
 /// Alignment of every `myco_offline_alloc` block (f32 and f64 views).
 pub const ALLOC_ALIGN: usize = 16;
 
@@ -90,6 +97,28 @@ pub unsafe extern "C" fn myco_offline_render(pcm: *const f32, frames: u32, chann
     let input: &[f32] = if samples == 0 { &[] } else { core::slice::from_raw_parts(pcm, samples) };
     let Some(spec) = spec::parse(core::slice::from_raw_parts(spec, spec_len as usize)) else { return std::ptr::null_mut() };
     Box::into_raw(Box::new(render::render(input, channels as usize, rate, &spec)))
+}
+
+/// Renders a generator of `kind` (1 oscillator, 2 synth, 3 blip, 4 silence) with `count` parameters at `values` (the
+/// generator catalogue's order), noise seed `seed`, at `rate` Hz, for at most `frames` frames, through the generate
+/// spec at `spec` (`generate.rs`; null with `spec_len` 0: pitch 1, no lanes). Returns a mono output's handle, or 0 when
+/// an argument or the spec is malformed.
+///
+/// # Safety
+/// `values` must point at `count` floats and `spec` at `spec_len` doubles, both aligned (or be null with a count of 0).
+#[no_mangle]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn myco_offline_generate(kind: u32, values: *const f32, count: u32, seed: u32, rate: f32, frames: u32, spec: *const f64, spec_len: u32) -> *mut render::Output {
+    if (count > 0 && values.is_null()) || (spec_len > 0 && spec.is_null()) || kind > u8::MAX as u32 {
+        return std::ptr::null_mut();
+    }
+    let values: &[f32] = if count == 0 { &[] } else { core::slice::from_raw_parts(values, count as usize) };
+    let spec: &[f64] = if spec_len == 0 { &[] } else { core::slice::from_raw_parts(spec, spec_len as usize) };
+    let Some(spec) = generate::parse(spec) else { return std::ptr::null_mut() };
+    match generate::generate(kind as u8, values, seed, rate, frames as usize, &spec) {
+        Some(out) => Box::into_raw(Box::new(out)),
+        None => std::ptr::null_mut(),
+    }
 }
 
 /// The output's interleaved samples.
@@ -157,6 +186,31 @@ mod tests {
             myco_offline_free(p as *mut u8, 16);
             myco_offline_free(s as *mut u8, 23 * 8);
         }
-        assert_eq!(myco_offline_abi_version(), 0x101);
+        assert_eq!(myco_offline_abi_version(), 0x102);
+    }
+
+    #[test]
+    fn the_abi_generates_a_mono_render() {
+        // An oscillator at its defaults but a 10 ms length: it keys off there and ends after its 10 ms release.
+        // As many values as the oscillator declares (D67 added `quality` at the end of the list).
+        let specs = audio_dsp::gen::params(1);
+        let n_params = specs.len();
+        let mut values = vec![0.0f32; n_params];
+        for (i, s) in specs.iter().enumerate() {
+            values[i] = s.default;
+        }
+        values[audio_dsp::gen::osc_p::LENGTH] = 0.01;
+        unsafe {
+            let v = myco_offline_alloc(4 * n_params as u32) as *mut f32;
+            core::ptr::copy_nonoverlapping(values.as_ptr(), v, n_params);
+            let h = myco_offline_generate(1, v, n_params as u32, 7, 48_000.0, 48_000, std::ptr::null(), 0);
+            assert!(!h.is_null());
+            let n = myco_offline_output_frames(h);
+            assert!(n > 480 && n < 480 + 1_000, "{n}");
+            myco_offline_output_free(h);
+            assert!(myco_offline_generate(0, v, 10, 7, 48_000.0, 100, std::ptr::null(), 0).is_null(), "no such kind");
+            assert!(myco_offline_generate(1, std::ptr::null(), 10, 7, 48_000.0, 100, std::ptr::null(), 0).is_null(), "no values");
+            myco_offline_free(v as *mut u8, 4 * n_params as u32);
+        }
     }
 }

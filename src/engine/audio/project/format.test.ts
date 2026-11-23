@@ -21,6 +21,8 @@ const FULL = {
   automation: [
     { on: "Music", target: "volume", parameter: "threat", curve: [[0, 0], [1, -6, "easeOut"]], bypass: false },
     { on: "SFX", target: "send:Reverb", parameter: "depth", curve: [[0, -12], [100, 0]], bypass: false },
+    { on: "Music", target: "fx:fx1:cutoff", parameter: "depth", curve: [[0, 20000], [100, 800]], bypass: false, by: { input: "threat", mode: "scale", curve: [[0, 1], [1, 0.5]] } },
+    { on: "SFX", target: "volume", parameter: "depth", curve: [[0, 0], [100, -6]], bypass: false, by: { input: "Area", mode: "labels", labels: { Cave: [[0, -12], [100, -3]] } } },
   ],
   ducking: [{ target: "Music", trigger: "SFX", mode: "presence", detector: "rms", thresholdDb: -30, amountDb: -6, attackMs: 80, releaseMs: 400, enabled: true }],
   snapshots: [{
@@ -313,6 +315,9 @@ describe("coreSectionOf: the old section shape's mapping", () => {
       { bus: "Music", parameter: "threat", target: "volume", curve: [[0, 1], [1, expect.closeTo(Math.pow(10, -6 / 20), 9), "easeOut"]] },
       // ABI 4.8: the core runs send automation (dB, added to the send).
       { bus: "SFX", parameter: "depth", target: "send", to: "Reverb", curve: [[0, -12], [100, 0]] },
+      // ADR 0362 §5: a lane with a second input carries its authored curve and how its slices map (dB to gain on a volume).
+      { bus: "Music", parameter: "depth", target: "lowpass", curve: [[0, 20000], [100, 800]], by: { input: "threat", mode: "scale", curve: [[0, 1], [1, 0.5]], lane: [[0, 20000], [100, 800]] } },
+      { bus: "SFX", parameter: "depth", target: "volume", curve: [[0, 1], [100, expect.closeTo(Math.pow(10, -6 / 20), 9)]], by: { input: "Area", mode: "labels", labels: { Cave: [[0, -12], [100, -3]] }, lane: [[0, 0], [100, -6]], map: "gain" } },
     ]);
     expect(settings.loudnessTargets).toEqual(FULL.loudness.targets);
     expect(settings.loudnessResetOnPlay).toBe(false);
@@ -367,5 +372,26 @@ describe("coreSectionOf: the old section shape's mapping", () => {
     const warnings: string[] = [];
     const s = coreSectionOf(p, warnings);
     expect([s.ducking, s.automation, warnings]).toEqual([[], [], []]);
+  });
+});
+
+describe("automation second inputs (ADR 0362 §5)", () => {
+  const withBy = (by: unknown) => ({ ...FULL, automation: [{ on: "Music", target: "volume", parameter: "threat", curve: [[0, 0]], bypass: false, by }] });
+  it("writes `by` only where set", () => {
+    const { project } = parseAudioProject(FULL);
+    expect((audioProjectToJson(project) as unknown as { automation: Record<string, unknown>[] }).automation.map((a) => "by" in a)).toEqual([false, false, true, true]);
+  });
+  it("drops a second input that can't run, with a problem: unknown, the lane's own parameter, rate, labels on a scalar", () => {
+    for (const [by, text] of [
+      [{ input: "nope", mode: "morph" }, /no game parameter/],
+      [{ input: "threat", mode: "scale" }, /lane's own parameter/],
+      [{ input: "depth", mode: "rate" }, /keyed on time/],
+      [{ input: "depth", mode: "labels" }, /no labels/],
+    ] as const) {
+      const { project, problems } = parseAudioProject(withBy(by));
+      expect(project.automation[0]!.by).toBeUndefined();
+      expect(problems.join("\n")).toMatch(text);
+    }
+    expect(parseAudioProject(withBy({ input: "Area", mode: "labels" })).project.automation[0]!.by).toEqual({ input: "Area", mode: "labels" });
   });
 });

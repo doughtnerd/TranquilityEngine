@@ -123,6 +123,14 @@ describe("fields and routes", () => {
     valid(s);
   });
 
+  it("picks an emitter's output bus, and back to its sound's own", () => {
+    const s = ok(patchEmitter(fixtureScene(), "emitter4", { output: "SFX" }));
+    expect(findObject(s, "emitter4")!.obj).toMatchObject({ output: "SFX" });
+    const back = ok(patchEmitter(s, "emitter4", { output: "" }));
+    expect(findObject(back, "emitter4")!.obj).not.toHaveProperty("output");
+    valid(back);
+  });
+
   it("one level default at a time", () => {
     let s = ok(newPlace(fixtureScene(), "reverbZone"));
     s = ok(patchReverbZone(s, "reverb1", { levelDefault: true }));

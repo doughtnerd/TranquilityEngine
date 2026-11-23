@@ -19,7 +19,7 @@ import type { AudioEncoder } from "./audioEncoder";
 import { withAudioEffects } from "./audioEffects";
 import { processImages, type ImageTranscoder } from "./images";
 import { withRenderedSamples } from "./sampleRenders";
-import { ExportError, copiedPath, withBakedModels, type BakeModel, type WebBuildPlan } from "./webBuild";
+import { ExportError, copiedPath, shipsPlayerFile, withBakedModels, type BakeModel, type WebBuildPlan } from "./webBuild";
 import { withCompiledClips } from "./animationClips";
 import { withMeteredAnimationNodes } from "./animationNodes";
 import { loadAnimationCompiler } from "../plugins/animation/editor/compile/compiler";
@@ -97,7 +97,8 @@ export async function writeWebBuild(plan: WebBuildPlan, options: WriteBuildOptio
   const log = options.log ?? (() => {});
   const listed = await playerFiles(options.player, options.playerWhere);
   // ADR 0376: a release export (no `debug`) leaves out the player's debug link files, so it holds none of the link's code.
-  const player = plan.manifest.debug ? listed.files : listed.files.filter((f) => !listed.debug.has(f));
+  // ADR 0360 §8: the offline render module only goes in when the project may play generators (`shipsPlayerFile`).
+  const player = (plan.manifest.debug ? listed.files : listed.files.filter((f) => !listed.debug.has(f))).filter((file) => shipsPlayerFile(plan, file));
   for (const w of plan.warnings ?? []) log(`warning: ${w}`);
   const entries = (await folder.exists("")) ? await folder.list("") : [];
   if (entries.length > 0 && !(await folder.exists(join(web, MANIFEST_FILE)))) {

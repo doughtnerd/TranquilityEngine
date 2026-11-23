@@ -23,6 +23,7 @@ const PATHS = {
   skipBack: "M6 5v14M18 5v14L9 12z",
   skipForward: "M18 5v14M6 5v14l9-7z",
   loop: "M17 2l3 3-3 3M4 11V9a4 4 0 0 1 4-4h12M7 22l-3-3 3-3M20 13v2a4 4 0 0 1-4 4H4",
+  trigger: "M13.5 2L4.5 13.5h6.5L10 22l9.5-12H13z",
   // Actions
   plus: "M12 5v14M5 12h14",
   minus: "M5 12h14",
@@ -33,6 +34,7 @@ const PATHS = {
   copy: "M9 9h11v11H9zM5 15H4V4h11v1",
   import: "M12 3v12M7 10l5 5 5-5M4 17v3h16v-3",
   export: "M12 15V3M7 8l5-5 5 5M4 17v3h16v-3",
+  save: "M5 4h11l3 3v13H5zM8 4v5h7V4M8 20v-6h8v6",
   undo: "M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11",
   redo: "M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13",
   history: "M3 12a9 9 0 1 0 2.6-6.4M3 4v4h4M12 7v5l3 2",
@@ -58,6 +60,10 @@ const PATHS = {
   zoomIn: "M11 11m-6 0a6 6 0 1 0 12 0a6 6 0 1 0-12 0M20 20l-4.5-4.5M8.5 11h5M11 8.5v5",
   zoomOut: "M11 11m-6 0a6 6 0 1 0 12 0a6 6 0 1 0-12 0M20 20l-4.5-4.5M8.5 11h5",
   fit: "M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5",
+  // Collapse all (a tree's folders): two chevrons pointing together over a rule.
+  collapseAll: "M7 4l5 5 5-5M7 20l5-5 5 5M4 12h16",
+  // Opens elsewhere (another screen): a box with an arrow leaving it.
+  external: "M14 4h6v6M20 4l-9 9M18 14v6H4V6h6",
   panels: "M3 4h18v16H3zM9 4v16",
   // State
   headphones: "M4 15v-3a8 8 0 0 1 16 0v3M4 15h3v5H4zM17 15h3v5h-3z",
@@ -76,9 +82,15 @@ const PATHS = {
   reverbZone: "M4 4h16v16H4zM8 8h8v8H8z",
   audioZone: "M3 9c3-3 6 3 9 0s6-3 9 0M3 15c3-3 6 3 9 0s6-3 9 0",
   note: "M9 18V5l11-2v13M9 18m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0M20 16m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0",
+  // A moving emitter's path (a curve with square ends), attenuation (a source and its waves), a test scene, and
+  // collapse all (two chevrons meeting).
+  path: "M4 17h3v3H4zM17 4h3v3h-3zM5.5 17C6 10 12 13 18.5 7",
+  attenuation: "M6 12m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M11 8a5.5 5.5 0 0 1 0 8M14.5 5a10 10 0 0 1 0 14M18 3a13 13 0 0 1 0 18",
+  scene: "M3 5h18v14H3zM7 15l10-6M7 15m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0M17 9m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0",
   // Playlists
   release: "M3 12h13M12 7l5 5-5 5M20 5v14",
   razor: "M6 6m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 18m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0M8.5 7.8L20 18M8.5 16.2L20 6",
+  collapse: "M7 3l5 5 5-5M7 21l5-5 5 5M4 12h16",
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -97,7 +109,7 @@ export interface IconProps {
 }
 
 /** Shapes drawn filled rather than stroked (the transport's solid glyphs). */
-const FILLED: ReadonlySet<IconName> = new Set<IconName>(["play", "pause", "stop", "record"]);
+const FILLED: ReadonlySet<IconName> = new Set<IconName>(["play", "pause", "stop", "record", "trigger"]);
 /** Icons made of dots, drawn with a heavier stroke so the dots show. */
 const DOTS: ReadonlySet<IconName> = new Set<IconName>(["more", "grip"]);
 

@@ -36,7 +36,7 @@
 // `paramsShaped`) and `seek` are recorded as events, as asked. Whether ramps are sample-exact is the fake's
 // `music.caps.stampedFades`.
 
-import type { AudioEffectPlugins, EffectPluginModule } from "./backend";
+import type { AudioEffectPlugins, AudioGenerators, EffectPluginModule } from "./backend";
 import type { AudioBackend, AudioCaptureSource, AudioClipCache, AudioClock, AudioLiveMix, AudioMixCaps, AudioPanner, Attenuation, AudioVoice, FadeLaw, ListenerPose, MusicAdmitResult, MusicBackend, MusicBackendCaps, MusicGroupEvent, MusicGroupRequest, MusicGroupStamp, MusicLifecycleEvent, AudioOutputDevice, BackendKeyframe, MusicBackendDebug, PlayRequest, RecorderTap, VoiceSpatialOptions, ZoneIrService } from "./backend";
 import type { AudioLatency } from "../../../engine/audio/musicTypes";
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
@@ -114,8 +114,9 @@ export type FakeVoiceEvent =
   | { readonly kind: "attenuation"; readonly value: Attenuation }
   | { readonly kind: "position"; readonly value: Vec3Like }
   | { readonly kind: "bus"; readonly value: string }
-  | { readonly kind: "pause" }
-  | { readonly kind: "resume" }
+  // ADR 0362 §1: `at`, the heard time a stamped pause or resume was asked for.
+  | { readonly kind: "pause"; readonly at?: number }
+  | { readonly kind: "resume"; readonly at?: number }
   | { readonly kind: "stop"; readonly fadeSeconds?: number }
   | { readonly kind: "fade"; readonly to: number; readonly seconds: number }
   // ADR 0166 (G-1, §4.2), ADR 0264: the stamped ramps, as asked.
@@ -128,7 +129,9 @@ export type FakeVoiceEvent =
   | { readonly kind: "velocity"; readonly value: Vec3Like }
   | { readonly kind: "occlusion"; readonly gain: number; readonly lpHz: number }
   | { readonly kind: "doppler"; readonly factor: number }
-  | { readonly kind: "spatialOptions"; readonly options: VoiceSpatialOptions };
+  | { readonly kind: "spatialOptions"; readonly options: VoiceSpatialOptions }
+  // ADR 0360 (G3): `generators.setParams` on this voice (parameters by catalogue index).
+  | { readonly kind: "gen"; readonly params: ReadonlyMap<number, number>; readonly seconds: number };
 
 /** A voice the fake handed out. Fields hold the latest value; `events` the whole history. */
 export interface FakeVoice extends AudioVoice {
@@ -240,6 +243,13 @@ export interface FakeBackend extends AudioBackend, AudioClipCache, AudioClock, A
 
   // ADR 0352 §7: the fake records plugin effect registrations (set `effectPlugins` to undefined for a backend without them).
   effectPlugins: FakeEffectPlugins | undefined;
+
+  /**
+   * ADR 0360 (G3): generator voices. A generator play is recorded in `plays` like any (its `generator` holds the resolved
+   * kind, values and seed); `setParams` is recorded on the voice as a `gen` event. Set it to undefined for a backend
+   * without generators (the Babylon fallback).
+   */
+  generators: AudioGenerators | undefined;
 }
 
 /** ADR 0352 §7: the fake's plugin effect capability: it records each call and loads every module at once. */
@@ -482,6 +492,12 @@ export function makeFakeBackend(): FakeBackend {
     recorderTap: null,
     profileSink: null,
     effectPlugins: makeFakeEffectPlugins(),
+    generators: {
+      setParams(voice, params, seconds) {
+        const v = voices.find((x) => x === voice);
+        if (v) (v.events as FakeVoiceEvent[]).push({ kind: "gen", params: new Map(params), seconds });
+      },
+    },
     mixOpTarget: { liveCaps: CORE_LIVE_CAPS, sendOp(op: MixOp) { backend.ops.push(op); return { ...backend.applyResult }; } },
     flushNow() { backend.flushes++; },
     setProfileSink(sink: ProfileSink | null) { backend.profileSink = sink; },
@@ -579,8 +595,8 @@ function makeFakeVoice(request: PlayRequest): FakeVoice {
       events.push({ kind: "bus", value: bus });
     },
     setLoop(start, end, looping) { events.push({ kind: "loop", start, end, looping }); },
-    pause() { state.paused = true; events.push({ kind: "pause" }); },
-    resume() { state.paused = false; events.push({ kind: "resume" }); },
+    pause(at) { state.paused = true; events.push(at === undefined ? { kind: "pause" } : { kind: "pause", at }); },
+    resume(at) { state.paused = false; events.push(at === undefined ? { kind: "resume" } : { kind: "resume", at }); },
     stop(fadeSeconds) {
       state.stopped = true; state.playing = false;
       events.push(fadeSeconds ? { kind: "stop", fadeSeconds } : { kind: "stop" });

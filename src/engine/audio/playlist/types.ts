@@ -8,6 +8,7 @@
  * Pure; no plugin, no DOM.
  */
 import type { Curve } from "../../core/curve";
+import type { CurveBy } from "../curveBy";
 import type { Attenuation } from "../attenuation/types";
 import type { Effect } from "../effects/types";
 import type { GeneratorBody } from "../generators/types";
@@ -40,6 +41,7 @@ export interface PlaybackRules {
 /** A playlist's spatial block (ADR 0347). `attenuation` is a preset path or inline curves. */
 export interface PlaylistSpatial {
   attenuation: string | Attenuation | null;
+  /** Walls between it and the listener muffle it: on unless the block says `false` (ADR 0162: occlusion is opt-out). */
   occlusion: boolean;
   /** Doppler level, 0..5. */
   doppler: number;
@@ -80,6 +82,8 @@ export interface VoiceCurve {
   bypass: boolean;
   /** A curve keyed on a parameter moves only on this musical boundary (as `Automation.quantize`); absent: continuously. */
   quantize?: Quantize;
+  /** ADR 0362 §5: the curve's second input ("And by", `curveBy.ts`); absent: none. */
+  by?: CurveBy;
 }
 export type VoiceCurveTarget = "gain" | "pitch" | "pan" | "lowpass" | "highpass";
 /**
@@ -103,6 +107,8 @@ export interface Automation {
    * pan and the effect parameters the voice carries (low-pass and high-pass cutoff, a gain effect's gain) take it.
    */
   quantize?: Quantize;
+  /** ADR 0362 §5: the lane's second input ("And by", `curveBy.ts`); absent: none. */
+  by?: CurveBy;
 }
 
 /** A loop's behaviour, shared by sample loops (ADR 0342), clip loop overrides and sequence loops. */
@@ -273,7 +279,16 @@ export interface SequenceLoop extends LoopBehaviour {
  * is the post-exit tail (ADR 0350); `cue` reports to the game; `entry` (ADR 0350, pre-entry) is the point a Switch change
  * lands on its boundary, the audio before it starting early.
  */
-export interface SequenceMarker { id: string; name: string; at: number; type?: "note" | "cue" | "exit" | "entry" }
+export interface SequenceMarker {
+  id: string;
+  name: string;
+  at: number;
+  type?: "note" | "cue" | "exit" | "entry";
+  /** ADR 0362 item 4: the flag's colour, a theme token name or `#rrggbb` (`markColour.ts`); absent: its type's. */
+  colour?: string;
+  /** ADR 0362 item 4: a note for the team (text); absent: none. */
+  note?: string;
+}
 export interface Clip {
   id: string;
   /** Exactly one of `sample` / `playlist` / `generator` (ADR 0360: a generator source, on an audio track). */

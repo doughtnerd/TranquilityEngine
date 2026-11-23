@@ -2,7 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { expect, test, type Page, type Hooks } from "./fixtures";
+import { expect, readAudioDebug, test, type Page, type Hooks } from "./fixtures";
 
 // X1 (ADR 0172 owner decision 7). UNVERIFIED DRAFT: no Chromium in the X1 worktree, so this was never run.
 // A game exported with --audio-capture: F9 records and the second F9 downloads a .mycap; without the option F9 does nothing
@@ -47,6 +47,9 @@ test.describe("a game exported with --audio-capture", { tag: "@slow" }, () => {
     await page.goto(served!.url);
     await expect.poll(() => engineUp(page), { timeout: 20_000 }).toBe(true);
     await page.locator("#game canvas").click(); // the first gesture starts the audio core
+    // A capture records the core: until it runs, F9 says to start the sound first (`Audio.capture.start` rejects while the
+    // core is still loading), so the player presses it once the game's audio runs, as a person would after the music starts.
+    await expect.poll(async () => (await readAudioDebug(page))?.status, { timeout: 30_000 }).toBe("running");
     await page.keyboard.press("F9");
     await expect(toast(page)).toHaveText("Recording audio…");
     await expect.poll(() => page.evaluate(() => (globalThis as unknown as { __myco: { Audio: { capture: { state: string } } } }).__myco.Audio.capture.state), { timeout: 20_000 }).toBe("recording");

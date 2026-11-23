@@ -1,25 +1,29 @@
-// The Take screen's timeline (ADR 0348 "The Take screen"; the prototype's Take, with its fixed 32 s replaced by the
-// take's real duration): a ruler over the whole take (press and drag to scrub), the picture lane (the take's FRAME
-// pictures, when it has them), one instance lane per playlist path (lifetimes, held parts up to the release; click
-// selects, Enter or a double-click opens the playlist), the parameter lanes (a line per parameter, labelled ones as
-// segments) and the notes lane (the game's marks, and the designer's note markers and regions: drag to move, a
+// The Take screen's timeline (ADR 0348 "The Take screen"; spec §4.5.4; the prototype's Take, with its fixed 32 s replaced
+// by the take's real duration): the playhead ruler (its readout, second labels, the triangle; press and drag to scrub),
+// the Gameplay take row (its name and length, and the take's FRAME pictures as a filmstrip), one instance lane per
+// playlist path (how it plays, mute and solo in the replay, lifetimes with held parts up to the release, overlapping
+// ones on one row until the lane's caret stacks them; click selects, Enter or a double-click opens the playlist), the game parameter lanes ("Game · Speed": the value at the playhead, what
+// it drives, a line or labelled segments; hovering one outlines the Inspector cards it drives) and the notes lane (the game's marks, and the designer's note markers and regions: drag to move, a
 // double-click adds a marker; focused, Left and Right pick a note when none is, then nudge it by 0.1 s, 1 s with Shift).
 // The playhead is the replay's time. A view over props.
-import { useMemo, useRef } from "preact/hooks";
+import { useMemo, useRef, useState } from "preact/hooks";
 import type { TakeNotes } from "../../../engine/audio/take/types";
-import { Playhead } from "../../components/Playhead";
+import { Filmstrip } from "../../components/Filmstrip";
 import { SpanLane } from "../../components/SpanLane";
-import { TimeRuler } from "../../components/TimeRuler";
-import { ValueLane, type ValueLaneProps } from "../../components/ValueLane";
+import { packSpans } from "../../components/spanLaneModel";
+import { ValueLane } from "../../components/ValueLane";
 import { linearTimeAxis, type TimeAxis } from "../../components/timeAxis";
 import { useElementWidth } from "../../components/useElementWidth";
 import { noteColourCss } from "./notesEdits";
 import type { TakeSelection } from "./takeScreen";
-import { PictureLane } from "./TakePicture";
-import { parameterText, type ParameterLane, type TakeTimeline } from "./takeTimeline";
+import { RunPlayhead, RunRuler } from "../profiler/RunRuler";
+import { secondsLabel } from "../profiler/runRulerModel";
+import { parameterText, pathLabel, type ParameterLane, type TakeTimeline } from "./takeTimeline";
 
 export interface TakeTimelineViewProps {
   readonly timeline: TakeTimeline;
+  /** The take's name (the Gameplay take row). */
+  readonly name?: string;
   /** The playhead, take seconds. */
   readonly time: number;
   readonly playing: boolean;
@@ -27,6 +31,18 @@ export interface TakeTimelineViewProps {
   readonly notes: TakeNotes;
   /** Notes can be edited (a writable project). */
   readonly notesWritable: boolean;
+  /** How a lane's playlist plays ("until stopped · Layer"); default: its instance count. */
+  readonly plays?: (path: string) => string;
+  /** What a game parameter drives ("Drives pitch on engine"); "" for nothing. */
+  readonly drives?: (parameter: string) => string;
+  /** Lanes muted and soloed (paths). */
+  readonly muted?: ReadonlySet<string>;
+  readonly soloed?: ReadonlySet<string>;
+  onMute?(path: string, on: boolean): void;
+  onSolo?(path: string, on: boolean): void;
+  /** The game parameter under the pointer (here or in the Inspector), outlined in both. */
+  readonly hovered?: string | null;
+  onHover?(parameter: string | null): void;
   /** A scrub: `done` on release. */
   onSeek(t: number, done: boolean): void;
   onSelectInstance(key: string): void;
@@ -37,72 +53,138 @@ export interface TakeTimelineViewProps {
   onAddMarker(at: number): void;
 }
 
-const CONTEXT = { rate: 48000 } as const;
+/** Placeholder tiles of the Gameplay take row when the take has no pictures. */
+const TILES = 8;
 
 export function TakeTimelineView(props: TakeTimelineViewProps) {
   const lane = useRef<HTMLDivElement>(null);
+  // Lanes whose overlapping instances are stacked in rows; the rest draw them on one row, so the game parameter lanes
+  // stay in view (journeys walk 2, V16).
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const width = Math.max(0, useElementWidth(lane));
   const { timeline } = props;
   const duration = Math.max(0.001, timeline.duration);
   const axis = useMemo(() => linearTimeAxis(0, duration, width), [duration, width]);
-  const view = { start: 0, end: duration };
   const selectedKey = props.selected?.kind === "instance" ? props.selected.key : null;
+  const globals = timeline.parameters.filter((p) => p.path === null);
+  const locals = timeline.parameters.filter((p) => p.path !== null);
   return (
     <div class="tk-timeline">
-      <div class="tk-row tk-ruler-row">
-        <div class="tk-head">
-          <span class="tk-head-name">Time</span>
-        </div>
-        <div class="tk-lane" ref={lane}>
-          <TimeRuler view={view} format="timecode" context={CONTEXT} position={props.time} length={duration} label="Take time" onScrub={props.onSeek} />
-        </div>
-      </div>
+      <RunRuler duration={duration} time={props.time} label="Take time" onSeek={props.onSeek} />
       <div class="tk-rows">
-        {timeline.frames.length > 0 && <PictureLane frames={timeline.frames} axis={axis} time={props.time} onSeek={props.onSeek} />}
-        {timeline.lanes.map((l) => (
-          <div class={`tk-row${l.instances.some((i) => i.key === selectedKey) ? " active" : ""}`} key={l.path}>
-            <div class="tk-head" title={l.path}>
-              <span class="tk-head-name">{l.label}</span>
-              <span class="tk-head-sub">{l.instances.length === 1 ? "1 instance" : `${l.instances.length} instances`}</span>
-            </div>
-            <div class="tk-lane">
-              <SpanLane spans={l.spans} toX={axis.toX} width={width} now={duration} label={`${l.label} instances`} selected={selectedKey} onSelect={props.onSelectInstance} onOpen={props.onOpenInstance} />
-            </div>
+        <div class="tk-row tk-gameplay-row">
+          <div class="tk-head">
+            <span class="tk-cap">Gameplay take</span>
+            <span class="tk-head-meta">{props.name ? `${props.name} · ` : ""}{timeline.duration.toFixed(1)} s</span>
           </div>
-        ))}
-        {timeline.parameters.map((p, i) => (
-          <ParameterRow key={p.key} lane={p} axis={axis} time={props.time} series={((i % 8) + 1) as Series} />
+          <div class="tk-lane tk-film" ref={lane}>
+            {timeline.frames.length > 0 ? (
+              <Filmstrip frames={timeline.frames} toX={axis.toX} time={props.time} onSeek={(t) => props.onSeek(t, true)} />
+            ) : (
+              <div class="tk-tiles" title="This take has no pictures of the game view (a take recorded with pictures shows them here)">
+                {Array.from({ length: TILES }, (_, i) => (
+                  <span key={i} class="tk-tile">{secondsLabel(Math.round((duration / TILES) * i * 10) / 10)}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+        <SectionRow label="Playlist instances" />
+        {timeline.lanes.map((l) => {
+          const muted = !!props.muted?.has(l.path);
+          const soloed = !!props.soloed?.has(l.path);
+          const silent = muted || (!!props.soloed?.size && !soloed);
+          const count = l.instances.length === 1 ? "1 instance" : `${l.instances.length} instances`;
+          const stacks = packSpans(l.spans, duration).count > 1;
+          const open = stacks && expanded.has(l.path);
+          return (
+            <div class={`tk-row tk-inst-row${l.instances.some((i) => i.key === selectedKey) ? " active" : ""}${silent ? " silent" : ""}`} key={l.path}>
+              <div class="tk-head" title={`${l.path} · ${count}`}>
+                <span class="tk-head-line">
+                  {stacks ? (
+                    <button
+                      type="button"
+                      class="tk-head-caret"
+                      aria-expanded={open}
+                      aria-label={`${open ? "Collapse" : "Expand"} ${l.label} instances`}
+                      title={open ? "Draw the overlapping instances on one row" : "Stack the overlapping instances in rows"}
+                      onClick={() => setExpanded((was) => {
+                        const next = new Set(was);
+                        if (open) next.delete(l.path);
+                        else next.add(l.path);
+                        return next;
+                      })}
+                    >
+                      {open ? "▾" : "▸"}
+                    </button>
+                  ) : null}
+                  <span class="tk-head-name">{l.label}</span>
+                  {props.onMute && (
+                    <span class="tk-ms" role="group" aria-label={`${l.label} mute and solo`}>
+                      <button type="button" class={`tk-ms-b m${muted ? " on" : ""}`} aria-pressed={muted} aria-label={`Mute ${l.label}`} title={`Mute ${l.label} in the replay`} onClick={() => props.onMute!(l.path, !muted)}>M</button>
+                      <button type="button" class={`tk-ms-b s${soloed ? " on" : ""}`} aria-pressed={soloed} aria-label={`Solo ${l.label}`} title={`Hear only ${l.label} (and other soloed lanes) in the replay`} onClick={() => props.onSolo?.(l.path, !soloed)}>S</button>
+                    </span>
+                  )}
+                </span>
+                <span class="tk-head-sub">{props.plays?.(l.path) || count}</span>
+              </div>
+              <div class="tk-lane tk-inst-lane">
+                <SpanLane spans={l.spans} toX={axis.toX} width={width} rowHeight={32} collapsed={!open} now={duration} label={`${l.label} instances`} selected={selectedKey} onSelect={props.onSelectInstance} onOpen={props.onOpenInstance} />
+              </div>
+            </div>
+          );
+        })}
+        {timeline.parameters.length > 0 && <SectionRow label="Game parameters" />}
+        {[...globals, ...locals].map((p) => (
+          <ParameterRow key={p.key} lane={p} axis={axis} time={props.time} drives={p.path === null ? (props.drives?.(p.name) ?? "") : ""} hovered={props.hovered === p.name && p.path === null} onHover={p.path === null ? props.onHover : undefined} />
         ))}
         <NotesRow {...props} axis={axis} />
         <div class="tk-playhead-layer">
-          <Playhead t={props.time} view={view} playing={props.playing} label="Replay position" />
+          <RunPlayhead time={props.time} duration={duration} />
         </div>
       </div>
     </div>
   );
 }
 
-type Series = NonNullable<ValueLaneProps["series"]>;
-
-function ParameterRow(props: { lane: ParameterLane; axis: TimeAxis; time: number; series: Series }) {
-  const { lane, axis } = props;
+function SectionRow(props: { label: string }) {
   return (
-    <div class="tk-row">
-      <div class="tk-head" title={lane.path ?? "Global parameter"}>
-        <span class="tk-head-name">{lane.label}</span>
-        <span class="tk-head-sub">{parameterText(lane, props.time)}</span>
+    <div class="tk-row tk-section-row">
+      <div class="tk-head">
+        <span class="tk-cap">{props.label}</span>
+      </div>
+      <div class="tk-lane" />
+    </div>
+  );
+}
+
+function ParameterRow(props: { lane: ParameterLane; axis: TimeAxis; time: number; drives: string; hovered: boolean; onHover?(parameter: string | null): void }) {
+  const { lane, axis } = props;
+  const value = parameterText(lane, props.time);
+  const cap = lane.path === null ? `Game · ${lane.name}` : `${pathLabel(lane.path)} · ${lane.name}`;
+  return (
+    <div class={`tk-row tk-param-row${props.hovered ? " linked" : ""}${lane.segments ? " labelled" : ""}`}>
+      <div
+        class="tk-head"
+        title={lane.path === null ? `Game parameter ${lane.name}${props.drives ? `. ${props.drives}` : ""}` : `${lane.name} on ${lane.path}`}
+        onMouseEnter={props.onHover ? () => props.onHover!(lane.name) : undefined}
+        onMouseLeave={props.onHover ? () => props.onHover!(null) : undefined}
+      >
+        <span class="tk-cap tk-cap-game">{cap}</span>
+        <span class="tk-param-value">{value}</span>
+        {props.drives && <span class="tk-head-sub tk-drives">{props.drives}</span>}
       </div>
       <div class="tk-lane">
         {lane.segments ? (
-          <div class="tk-segments" role="group" aria-label={`${lane.label}: ${parameterText(lane, props.time)}`}>
+          <div class="tk-segments" role="group" aria-label={`${lane.label}: ${value}`}>
             {lane.segments.map((s, i) => (
-              <span key={i} class="tk-segment" style={{ left: `${axis.toX(s.from)}px`, width: `${Math.max(1, axis.toX(s.to) - axis.toX(s.from))}px` }} title={s.label}>
+              <span key={i} class="tk-segment" style={{ left: `${axis.toX(s.from)}px`, width: `${Math.max(1, axis.toX(s.to) - axis.toX(s.from) - 2)}px` }} title={s.label}>
                 {s.label}
               </span>
             ))}
           </div>
         ) : (
-          <ValueLane points={lane.points} toX={axis.toX} width={axis.width} height={34} label={lane.label} interp="step" cursor={props.time} series={props.series} />
+          <ValueLane points={lane.points} toX={axis.toX} width={axis.width} height={46} label={lane.label} interp={lane.path === null ? "linear" : "step"} cursor={props.time} />
         )}
       </div>
     </div>

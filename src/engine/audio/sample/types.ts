@@ -112,12 +112,26 @@ export interface SampleEdits {
   /** ADR 0354 §7: lip-sync keys imported from Rhubarb Lip Sync (or written by hand); absent: none. */
   lipsync?: SampleLipsync;
   /**
+   * ADR 0362 item 4: the reserved ranges' look, the same `colour` (a theme token name or `#rrggbb`) and `note` sequence
+   * markers carry: Trim (the kept span), Pickup (trim start to the first loop), Tail (the last loop to the trim end).
+   * The ranges themselves still come from the trim and loops; only how they're drawn and annotated is stored. Absent
+   * (or a range absent): the default look, no note.
+   */
+  ranges?: SampleRanges;
+  /**
    * ADR 0354 §9: the voice-over line this file records and the text hash of the reference subtitle it was recorded
    * against (0357: the string table's reference text), written by batch import; the Dialogue screen flags "script
    * changed" when the current hash differs. Absent: not imported as a line.
    */
   vo?: SampleVo;
 }
+
+/** The reserved ranges of a sample (ADR 0362 item 4). */
+export const RESERVED_RANGES = ["trim", "pickup", "tail"] as const;
+export type ReservedRange = (typeof RESERVED_RANGES)[number];
+/** One reserved range's colour and note (each optional). */
+export interface RangeLook { colour?: string; note?: string }
+export type SampleRanges = Partial<Record<ReservedRange, RangeLook>>;
 
 /**
  * The viseme alphabet of lip-sync keys: `rhubarb` (A–H and X, the Preston Blair set Rhubarb Lip Sync writes) or

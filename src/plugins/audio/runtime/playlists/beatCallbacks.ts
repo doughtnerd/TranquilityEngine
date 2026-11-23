@@ -40,8 +40,11 @@ interface KindState {
 export class PlaylistBeats {
   private readonly kinds: Record<PlaylistBeatKind, KindState>;
 
-  /** `clock`: the heard clock; what it reads now is where a kind subscribed from the start seats. */
-  constructor(handle: MusicEventHandle, private readonly clock: () => number) {
+  /**
+   * `clock`: the playback's clock; what it reads now is where a kind subscribed from the start seats. `heard` turns a
+   * time on it into the heard time events carry (ADR 0362 §1: a paused playback's clock runs behind `Audio.time`).
+   */
+  constructor(handle: MusicEventHandle, private readonly clock: () => number, private readonly heard: (t: number) => number = (t) => t) {
     const kind = (): KindState => ({
       listeners: [], cursor: Number.NaN, seatFrom: clock(),
       event: { handle, segment: "", bar: 1, beat: 1, tempo: 0, beatsPerBar: 0, time: 0, heardIn: 0, missed: 0 },
@@ -90,7 +93,7 @@ export class PlaylistBeats {
       e.beat = kind === "bar" ? 1 : p?.beat ?? 1;
       e.tempo = p?.tempo ?? 0;
       e.beatsPerBar = p?.beatsPerBar ?? 0;
-      e.time = last;
+      e.time = this.heard(last);
       e.heardIn = last - now;
       e.missed = count - 1;
       if (hook) deliver(kind, e);

@@ -11,7 +11,7 @@ const BATCH_FLAGS: &[Bits] = &[
 ];
 
 /// Flag bits of a voice (`flags` of PLAY, bits 0-7 of `flags` of SET_PARAMS). Only `panner` is
-/// read from SET_PARAMS `flags`; `ambisonic` and `fadeZero` only from PLAY. Bits 9-15 are reserved.
+/// read from SET_PARAMS `flags`; `ambisonic`, `fadeZero` and `reverse` only from PLAY. Bits 10-15 are reserved.
 const VOICE_FLAGS: &[Bits] = &[
     Bits::bit("loop", 0, "loop the clip"),
     Bits::bit("stream", 1, "a stream voice (STREAM_OPEN), not a clip"),
@@ -21,6 +21,7 @@ const VOICE_FLAGS: &[Bits] = &[
     Bits::range("panner", 5, 2, "0 equal-power, 1 HRTF, 2 bed (ADR 0162 C1: the bus's bed slot, equal-power without one), 3 reserved; spatial voices only"),
     Bits::bit("ambisonic", 7, "a B-format clip or stream voice of 4, 9 or 16 channels (ADR 0162 C1); spatial, panner and dir are ignored; read from PLAY only"),
     Bits::bit("fadeZero", 8, "the voice starts with its fade ramp at 0, so an incoming stem is silent without touching gain; a stamped FADE to 1 opens it (ADR 0166 M4, API section 4.1); read from PLAY only"),
+    Bits::bit("reverse", 9, "ADR 0362 (ABI 6.1): a PCM clip voice reads its clip backwards; its positions (startOffsetFrames, SET_LOOP and LOOPS regions, SEEK, the playhead) count frames from the clip's end; stream and ADPCM voices ignore it; read from PLAY only"),
 ];
 
 /// The `shape` word appended to FADE, SET_PARAMS and STOP (ADR 0166 M4, API section 4.2): bits 0-2
@@ -340,6 +341,7 @@ pub const OPCODES: &[Opcode] = &[
     super::studio::SUBMIX_AUTOMATE,
     super::spatial::LISTENER,
     super::generator::GEN,
+    super::studio::AMP_ENVELOPE,
     Opcode {
         id: 0x30,
         name: "RESET",
@@ -394,14 +396,14 @@ mod tests {
     fn opcode_ids_are_unique_and_sorted() {
         let ids: Vec<u16> = OPCODES.iter().map(|o| o.id).collect();
         assert!(ids.windows(2).all(|w| w[0] < w[1]), "ids not strictly increasing: {ids:?}");
-        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x30]);
+        assert_eq!(ids, vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x10, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20, 0x21, 0x22, 0x30]);
         assert!(OPCODES.iter().all(|o| o.sent));
         assert!(OPCODES.iter().all(|o| o.id != 0x11), "0x11 stays reserved (BUS_MIX, retired)");
     }
 
     #[test]
     fn fixed_totals_match_the_spec_column() {
-        let expected: [(u16, u32); 16] = [
+        let expected: [(u16, u32); 17] = [
             (0x01, 56),
             (0x02, 24),
             (0x03, 60),
@@ -417,6 +419,7 @@ mod tests {
             (0x1A, 16),
             (0x1D, 24),
             (0x20, 36),
+            (0x22, 44),
             (0x30, 16),
         ];
         for (id, total) in expected {

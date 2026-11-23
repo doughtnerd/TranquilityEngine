@@ -11,7 +11,7 @@ const meta: Meta = { title: "Studio/HearAsControl", component: HearAsControl };
 export default meta;
 
 /** The control with a pretend conversion of 300 ms after each platform choice. */
-function Demo() {
+function Demo(props: { width: number }) {
   const [choice, setChoice] = useState<HearAsChoice>("source");
   const [last, setLast] = useState<HearAsChoice>("web");
   const [busy, setBusy] = useState(0);
@@ -23,14 +23,15 @@ function Demo() {
     setTimeout(() => setBusy(0), 300);
   };
   return (
-    <div style={{ width: "900px" }}>
+    <div style={{ width: `${props.width}px` }}>
       <PlayerBar idleArt="WAV" hearAs={<HearAsControl choice={choice} busy={busy} failure={null} onChoose={choose} onToggle={() => choose(choice === "source" ? last : "source")} />} />
     </div>
   );
 }
 
+/** A wide player bar (over 1700px): the segmented control with its caption. */
 export const InThePlayerBar: StoryObj = {
-  render: () => <Demo />,
+  render: () => <Demo width={1800} />,
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     const group = c.getByRole("radiogroup", { name: "Hear as platform" });
@@ -43,6 +44,22 @@ export const InThePlayerBar: StoryObj = {
     await expect(within(group).getByRole("radio", { name: "Source" })).toHaveAttribute("aria-checked", "true");
     await userEvent.click(c.getByRole("button", { name: "Compare with source" }));
     await expect(within(group).getByRole("radio", { name: "Android" })).toHaveAttribute("aria-checked", "true");
+  },
+};
+
+/** At 1440px the choices are a compact select, so no segment clips beside the game session. */
+export const Narrow: StoryObj = {
+  render: () => <Demo width={1440} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.queryByRole("radiogroup", { name: "Hear as platform" })).toBeNull();
+    const select = c.getByRole("combobox", { name: "Hear as platform" });
+    await expect(select).toBeVisible();
+    await userEvent.selectOptions(select, "desktop");
+    await expect(c.getByRole("status")).toHaveTextContent("Converting for Desktop…");
+    const box = select.getBoundingClientRect();
+    const bar = canvasElement.querySelector(".studio-player")!.getBoundingClientRect();
+    await expect(box.right).toBeLessThanOrEqual(bar.right);
   },
 };
 

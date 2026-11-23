@@ -19,7 +19,7 @@ describe("the effects-cost track", () => {
     const n = 320;
     const source = await open(records(n, steady(0.4)));
     const data = await new ProfilerDataReader(source).refresh();
-    expect(data.tracks.map((t) => t.id).slice(0, 2)).toEqual(["load", "effects"]);
+    expect(data.tracks.map((t) => t.id).slice(0, 3)).toEqual(["load", "fx", "effects"]);
     const cost = data.effects!;
     expect(cost.lanes.map((l) => l.label)).toEqual(["Voices", "Buses", "Spatial", "Music", "Loudness"]);
     expect(cost.peak).toBeGreaterThanOrEqual(1000);

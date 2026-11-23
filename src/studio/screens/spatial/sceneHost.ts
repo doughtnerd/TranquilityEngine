@@ -6,6 +6,7 @@ import type { AudioTestScene } from "../../../engine/audio/spatial/testSceneType
 import type { TestSceneMotionRow, TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";
 import type { Slab } from "./elevation";
 import type { P2 } from "./geometry";
+import type { ListeningSettings } from "./renderModes";
 import type { EditResult } from "./sceneEdits";
 import type { Tool, ToolState } from "./tools";
 import type { Size, View } from "./viewTransform";
@@ -50,6 +51,12 @@ export interface SceneHost {
   soloToggle(id: string): void;
   muteToggle(id: string): void;
   editAttenuation(id: string): void;
+  /** Why Edit attenuation… can't open for emitter `id` (its tooltip), or null when it can (`whyNotEditAttenuation`). */
+  whyNotEditAttenuation(id: string): string | null;
   playAll(listener: string): void;
   listenHere(listener: string): void;
+  /** The project's Listening settings: how emitters are drawn before Play, and the ambisonic bed circle. */
+  readonly listening?: ListeningSettings;
+  /** Emitter `id`'s attenuation Min and Max in metres (its rings while selected), or null when it has none to show. */
+  attenuationRange?(id: string): { readonly min: number; readonly max: number } | null;
 }

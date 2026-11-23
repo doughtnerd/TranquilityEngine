@@ -55,7 +55,8 @@ export const Forest: StoryObj = {
     const c = within(canvasElement);
     const body = within(canvasElement.ownerDocument.body);
     const table = c.getByRole("table", { name: "What Forest holds" });
-    const row = (name: RegExp) => within(table).getByRole("row", { name });
+    // A row by the sound in its first cell (a dependency row names what needs it too).
+    const row = (name: RegExp) => within(table).getAllByRole("row").find((r) => name.test(r.querySelector("td, th")?.textContent ?? "")) as HTMLElement;
     await expect(row(/birds\.ogg/)).toHaveTextContent("needed by day.playlist.json");
     await expect(row(/hit\.wav/)).toHaveTextContent("needed by hit_soft.sample.json");
     await expect(row(/forest_bed\.wav/)).toHaveTextContent("listed");

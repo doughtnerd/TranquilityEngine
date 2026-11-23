@@ -8,7 +8,12 @@ import "./recordToggles.css";
 export function RecordButton(props: { model: RecordToggle; playing: boolean; label: string }) {
   const { model, playing } = props;
   const [, bump] = useState(0);
-  useEffect(() => model.subscribe(() => bump((n) => n + 1)), [model]);
+  // Effects run after paint: a press (or Play stopping) can change the model before this subscribes, so draw once more then.
+  useEffect(() => {
+    const stop = model.subscribe(() => bump((n) => n + 1));
+    bump((n) => n + 1);
+    return stop;
+  }, [model]);
   // While recording, the tooltip's seconds move; once a second is enough.
   useEffect(() => {
     if (!model.recording) return;

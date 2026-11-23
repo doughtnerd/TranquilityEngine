@@ -18,6 +18,11 @@ export interface CurveOverlayProps {
   readonly muted?: boolean;
   readonly interactive?: boolean;
   readonly label?: string;
+  /**
+   * Px at each end of the box that belong to the owner's edge handles (a clip's trim and length edges): keys there
+   * are drawn but leave the press to the edge, so a point at the clip's end never blocks setting its length.
+   */
+  readonly edgeGuard?: number;
   onPointPress?(index: number, e: PointerEvent): void;
   onPointDoubleClick?(index: number, e: MouseEvent): void;
   onPointMenu?(index: number, e: MouseEvent): void;
@@ -48,6 +53,8 @@ export function CurveOverlay(props: CurveOverlayProps) {
   const pts: string[] = [];
   for (let px = 0; px <= width; px += 3) pts.push(`${px.toFixed(1)},${valueToY(evalCurve(curve, props.fromX(px)), spec, height).toFixed(1)}`);
   const sel = new Set(props.selected ?? []);
+  const guard = props.edgeGuard ?? 0;
+  const atEdge = (x: number) => guard > 0 && (x < guard || x > width - guard);
   return (
     <svg class={`sq-curve${props.muted ? " muted" : ""}`} width={width} height={height} aria-label={props.label} role="img">
       <polyline points={pts.join(" ")} />
@@ -55,7 +62,7 @@ export function CurveOverlay(props: CurveOverlayProps) {
         curve.map((k, i) => (
           <circle
             key={i}
-            class={`sq-key${sel.has(i) ? " selected" : ""}`}
+            class={`sq-key${sel.has(i) ? " selected" : ""}${atEdge(props.toX(k[0])) ? " at-edge" : ""}`}
             cx={props.toX(k[0])}
             cy={valueToY(k[1], spec, height)}
             r={4}

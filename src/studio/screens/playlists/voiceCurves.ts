@@ -3,14 +3,15 @@
 // each driven by voice time or by one of the playlist's parameters (local or global), and the dialog's result turned
 // back into the entry's `curves`: only lanes that changed are written, a lane left flat at its plain value and not
 // bypassed has no curve, and the Apply is one undo step labelled "Automate Gain · dirt_02" (one lane) or
-// "Edit dirt_02 curves" (more).
+// "Edit dirt_02 curves" (more). Each lane may also follow a second parameter ("And by", ADR 0362 §5): the dialog offers
+// the playlist's parameters as second inputs and Apply writes the lane's `by` (a lane with one is never "flat").
 // Pure.
 import { TIME_INPUT, withEnds, type CurveEditorResult, type CurveEditorSpec, type CurveInput as DialogInput, type CurveLane } from "../../../editor/ui/curves/curveEditorModel";
 import type { ParameterDef } from "../../../engine/audio/parameters";
 import { VOICE_CURVE_TARGETS } from "../../../engine/audio/playlist/format";
 import type { CurveInput, VoiceCurve, VoiceCurveTarget } from "../../../engine/audio/playlist/types";
 import type { Curve } from "../../../engine/core/curve";
-import { curvesLabel, inputHistogram, parameterInputId, parameterInputs, parameterOfInput } from "../curveInputs";
+import { curveByOf, curvesLabel, inputHistogram, laneByOf, parameterInputId, parameterInputs, parameterOfInput, secondInputsOf } from "../curveInputs";
 
 export type VoiceCurves = Partial<Record<VoiceCurveTarget, VoiceCurve>>;
 
@@ -60,9 +61,12 @@ export function voiceCurveDialog(owner: string, curves: VoiceCurves, parameters:
   }
   const lanes: CurveLane[] = VOICE_CURVE_TARGETS.map((t) => {
     const c = curves[t];
-    return { id: t, ...VOICE_CURVE_LANES[t], curve: c?.curve ?? [], ...(c ? { input: inputId(c.input), bypass: c.bypass } : {}) };
+    const by = laneByOf(c?.by);
+    return { id: t, ...VOICE_CURVE_LANES[t], curve: c?.curve ?? [], ...(c ? { input: inputId(c.input), bypass: c.bypass } : {}), ...(by ? { by } : {}) };
   });
-  const spec: CurveEditorSpec = { kind: "time", timeName: "Voice time", length: lengthOf(curves), lanes, inputs };
+  const seconds = VOICE_CURVE_TARGETS.flatMap((t) => (curves[t]?.by ? [curves[t]!.by!.input] : []));
+  const secondInputs = secondInputsOf(parameters, values, parameterInputId, seconds);
+  const spec: CurveEditorSpec = { kind: "time", timeName: "Voice time", length: lengthOf(curves), lanes, inputs, ...(secondInputs.length ? { secondInputs } : {}) };
   const first = VOICE_CURVE_TARGETS.map((t) => curves[t]).find((c) => c !== undefined);
   const histogram = first ? inputHistogram(inputId(first.input), inputs) : undefined;
   return { spec, owner, curves, ...(histogram ? { histogram } : {}) };
@@ -91,10 +95,12 @@ export function applyVoiceCurveResult(dialog: VoiceCurveDialog, result: CurveEdi
     const was = dialog.curves[t];
     const parameter = parameterOfInput(r.input);
     const input: CurveInput = parameter !== null ? { parameter } : was && typeof was.input === "string" ? was.input : "voiceTime";
-    const none = !r.bypass && flatAt(r.curve, lane.base);
+    const by = curveByOf(r.by, parameter === null);
+    const withBy = by ? { by } : {};
+    const none = !r.bypass && flatAt(r.curve, lane.base) && !by;
     if (!was) {
       if (none) continue;
-      next[t] = { input, curve: r.curve, bypass: r.bypass };
+      next[t] = { input, curve: r.curve, bypass: r.bypass, ...withBy };
       changed.push(lane.name);
       continue;
     }
@@ -107,10 +113,11 @@ export function applyVoiceCurveResult(dialog: VoiceCurveDialog, result: CurveEdi
     const same =
       inputId(was.input) === r.input &&
       was.bypass === r.bypass &&
+      JSON.stringify(was.by ?? null) === JSON.stringify(by ?? null) &&
       (JSON.stringify(was.curve) === JSON.stringify(r.curve) || JSON.stringify(withEnds(was.curve, a, b, lane)) === JSON.stringify(r.curve));
     if (same) continue;
     // A quantised curve stays quantised while it is still keyed on a parameter (quantize means nothing on time).
-    next[t] = { input, curve: r.curve, bypass: r.bypass, ...(was.quantize !== undefined && parameter !== null ? { quantize: was.quantize } : {}) };
+    next[t] = { input, curve: r.curve, bypass: r.bypass, ...(was.quantize !== undefined && parameter !== null ? { quantize: was.quantize } : {}), ...withBy };
     changed.push(lane.name);
   }
   const label = curvesLabel(dialog.owner, changed);

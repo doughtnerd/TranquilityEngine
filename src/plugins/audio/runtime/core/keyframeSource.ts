@@ -157,7 +157,9 @@ export class KeyframeSource {
       if (!row) continue; // past the cap: the rest are counted by the ring's GAP, not written
       const automated = host.automation?.voiceAutomation?.(i, auto) === true;
       row.id = ((table.gen[i]! << 16) | i) >>> 0;
-      row.clip = clip?.path ? nameId("clips", clip.path) : noName;
+      // ADR 0360 (G3): a generator voice is named by its generator (`*.generator.json`, or where it is embedded).
+      const genPath = table.genKind[i] !== 0 ? table.genPath[i] : null;
+      row.clip = genPath ? nameId("clips", genPath) : clip?.path ? nameId("clips", clip.path) : noName;
       row.slot = table.bus[i]! & 0xff;
       row.state = stateOf(table, i);
       row.priority = table.priority[i]!;

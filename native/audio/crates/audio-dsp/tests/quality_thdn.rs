@@ -31,7 +31,7 @@ fn render_with(kernel: Kernel, k: usize, pitch: f64) -> Vec<f32> {
     let src_len = (N as f64 * pitch).ceil() as usize + 8;
     let cycles_per_src_frame = k as f64 / (N as f64 * pitch);
     let src: Vec<f32> = (0..src_len).map(|i| (0.5 * (2.0 * std::f64::consts::PI * cycles_per_src_frame * i as f64).sin()) as f32).collect();
-    let source = Source { samples: Samples::F32(&src), channels: 1, frames: src_len as u32 };
+    let source = Source { samples: Samples::F32(&src), channels: 1, frames: src_len as u32, reversed: false };
     let steps = vec![pitch as f32; N];
     let (mut l, mut r) = (vec![0.0f32; N], vec![0.0f32; N]);
     let mut pos = 0.0;

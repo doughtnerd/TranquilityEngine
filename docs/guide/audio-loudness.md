@@ -38,7 +38,7 @@ A **target** is a goal your mix is judged against, an entry of `audio.loudnessTa
 | `tolerance` | how far I may stray, LU (plus or minus) | 0 to 12, default 2 |
 | `truePeak` | the ceiling, dBTP | -20 to 0, default -1 |
 
-Without `loudnessTargets` the project has two: **`console`** (-24 LUFS, 2 LU, -1 dBTP) and **`mobile`** (-18 LUFS, 2 LU, -1 dBTP). They are published guidance for each kind of device, not a rule of any store; check your platform's current numbers and edit the table. The first entry is the default. Edit them in Project Settings > Audio > **Loudness targets**; the table is only written when it differs from the default.
+Without `loudnessTargets` the project has three (ADR 0362): **`console`** (-24 LUFS, 2 LU, -1 dBTP), **`pc-web`** (-18 LUFS, 2 LU, -1 dBTP) and **`mobile`** (-16 LUFS, 2 LU, -1 dBTP). They are published guidance for each kind of device, not a rule of any store; check your platform's current numbers and edit the table. The first entry is the default. Edit them in Project Settings > Audio > **Loudness targets**; the table is only written when it differs from the default.
 
 The target in force is `Audio.loudnessTarget` (a name; the Mixer's **Target** picker sets it too). Changing it is not a reset. An unknown name warns and keeps the current one.
 
@@ -91,6 +91,11 @@ A monitor mute of a bus also **taints** that bus, its ancestors and Master; a mo
 - **Mixer panel**: metered buses show M, S and I as numbers (`-inf` while empty) and a short-term bar with the target's line and tolerance band, coloured by `state`. The bar is for a bus you are judging live; the target picker, **Reset**, **Pause** (stops all meters) and the elapsed time sit above the strips.
 - **Play** resets every meter when it starts (`audio.loudnessResetOnPlay`, default true; untick **Reset loudness meters on Play** to keep readings across runs). An exported game's integrated measure starts when the engine starts.
 - **Audio Profiler**: the Loudness and Loudness target tracks, with a line at the target and ticks where the mix went over or under it. A reopened capture and the live meter agree because both use the same statistics. See [Loudness in the profiler](audio-profiler.md#loudness). A game exported with the Audio capture option records the same tracks on a tester's machine or phone: [Capturing from a game script](audio-profiler.md#capturing-from-a-game-script), [Captures on Android](audio-profiler.md#captures-on-android).
+
+## In the Audio Studio
+
+- **Mixer > Loudness**: the gear beside **Platform target** opens **Project settings · Loudness targets**, the project's own list (saved in `audio.json`'s `loudness.targets`): a name, the integrated level, the tolerance and the true-peak ceiling of each, which one is the default, **+ Target** (up to 8) and **Defaults**.
+- **Whole take**: with a take open, replay it from its start and the panel measures the Master's integrated loudness over the whole take (the meters reset as the replay starts). When it reaches the end it shows the reading and whether it is within the chosen target's tolerance. A seek or a jump breaks the run; replay from the start to measure again.
 
 ## Under load
 

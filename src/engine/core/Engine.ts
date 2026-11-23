@@ -37,6 +37,11 @@ export interface EngineOptions {
    * Worlds play sound as the World with the view does, so the audio plugin listens to and mixes them.
    */
   audioOnly?: boolean;
+  /**
+   * @internal The game launch (`launchGame`, ADR 0236) fills the default World with the entry scene after the Engine is
+   * made: its autoloads wait for that scene (they start after its preparation, ADR 0351 §9), not the World's creation.
+   */
+  autoloadsWithFirstScene?: boolean;
   /** Storage backend for saves/settings (ADR 0024). Defaults to files under Tauri, IndexedDB in browsers, memory when headless. */
   storage?: StorageBackend;
   /**
@@ -241,12 +246,24 @@ export class Engine implements BootstrapEngine, WorldOwner {
     // A server World doesn't want the view unless it asks; any other World does unless it says no.
     this.views.add(world, { renders: c.renders ?? !tags.includes("server"), input: c.input });
 
-    // Autoloads are game-wide nodes (a GameManager, say): they go in the default World only.
-    if (first) World._runIn(world, () => SceneManager.loadAutoloads(world));
+    // Autoloads are game-wide nodes (a GameManager, say): they go in the default World only. With a first scene they
+    // start with it, after its preparation (its services, the audio's preload packages: a music prefab's sounds in a
+    // preloaded package played before it loaded, and were refused); without one, now.
+    const scenes = c.scenes ?? [];
+    const waitForScene = scenes.length > 0 || (c.scenes === undefined && this.options.autoloadsWithFirstScene === true);
+    if (first && !waitForScene) World._runIn(world, () => SceneManager.loadAutoloads(world));
+    else if (first) world._autoloadsPending = true;
     let loading = Promise.resolve();
-    (c.scenes ?? []).forEach((path, i) => {
+    scenes.forEach((path, i) => {
       loading = loading.then(() => (handle.alive ? handle.loadScene(path, { additive: i > 0 }) : undefined));
     });
+    if (first && scenes.length > 0) {
+      // The first scene failed to load: the autoloads still come.
+      loading = loading.catch((err: unknown) => {
+        if (world._autoloadsPending && handle.alive) World._runIn(world, () => SceneManager.loadAutoloads(world));
+        throw err;
+      });
+    }
     if (this.starting) this.starting.push(loading);
     else loading.catch((err) => console.error(`[myco] World "${c.name}" couldn't load its scenes:`, err));
     // Links this World completes (ADR 0062); the start-up Worlds' are applied by `Engine.create`, once they all exist.

@@ -22,6 +22,7 @@
  *
  * Pure; no plugin, no DOM.
  */
+import { colourNoteJson, readColourNote } from "../markColour";
 import { attenuationToJson, parseAttenuation } from "../attenuation/format";
 import { effectSpec, effectsToJson, parseEffects } from "../effects/catalogue";
 import { curveToJson, IdScope, isFiniteNumber, isRecord, LenientReader, CURVE_KEY_LIMIT, type JsonRecord } from "../lenientRead";
@@ -36,11 +37,15 @@ import {
   FADE_SHAPES, type BlendRegion, type Fade, type FadeShape, type Quantize, type TimeLength,
 } from "./types";
 import { isFadeShape } from "./fadeShapes";
+import { curveByToJson, parseCurveBy, type CurveBy } from "../curveBy";
 import { isStringKey } from "../../localisation/strings/format";
 import { isLineKey } from "../localisation/lines/format";
 import { isEventName } from "../dialogue/format";
 import { generatorBodyToJson, parseGeneratorBody } from "../generators/format";
 import type { GeneratorBody } from "../generators/types";
+
+/** Voice-level types a sequence clip's chain runs although the instance level doesn't list them (ADR 0345, 0362). */
+const CLIP_VOICE_TYPES = ["gain", "envelope"] as const;
 
 /** Limits of a playlist, declared once (ADR 0306; the first five are ADR 0343's). */
 export const PLAYLIST_LIMITS = Object.freeze({
@@ -209,12 +214,14 @@ class PlaylistReader {
   /**
    * A sequence clip's chain (ADR 0345 levels, the audio core's ABI 4.9): it runs on a submix of the clip's own, so it
    * takes the instance level's types (a delay or reverb rings past the clip), and a gain, which the catalogue lists at
-   * the voice level only, runs there too (the core's submixes run it).
+   * the voice level only, runs there too (the core's submixes run it). ADR 0362: so does the Amp envelope, which the
+   * clip's voices run (the core's AMP_ENVELOPE, ABI 6.1) over the clip's own time.
    */
   clipEffects(raw: unknown, where: string) {
     const scratch: string[] = [];
     const out = parseEffects(raw, "instance", where, scratch, PLAYLIST_LIMITS.effects);
-    for (const p of scratch) if (!p.includes(`${effectSpec("gain").label} can't run at the instance level`)) this.problems.push(p);
+    const runs = CLIP_VOICE_TYPES.map((t) => `${effectSpec(t).label} can't run at the instance level`);
+    for (const p of scratch) if (!runs.some((r) => p.includes(r))) this.problems.push(p);
     return out;
   }
 
@@ -229,7 +236,7 @@ class PlaylistReader {
     else if (o.attenuation !== undefined && o.attenuation !== null) r.problem(`${where}.attenuation`, "must be a preset path, an attenuation object or null; using none.");
     let spread: number | null = null;
     if (o.spread !== undefined && o.spread !== null) spread = r.num(o.spread, `${where}.spread`, 0, 0, 360);
-    return { attenuation, occlusion: r.bool(o.occlusion, `${where}.occlusion`, false), doppler: r.num(o.doppler, `${where}.doppler`, 0, 0, 5), spread };
+    return { attenuation, occlusion: r.bool(o.occlusion, `${where}.occlusion`, true), doppler: r.num(o.doppler, `${where}.doppler`, 0, 0, 5), spread };
   }
 
   /** The per-use fields of an entry. */
@@ -334,7 +341,15 @@ class PlaylistReader {
     const out: VoiceCurve = { input: this.input(raw.input, `${where}.input`, "voiceTime"), curve, bypass: r.bool(raw.bypass, `${where}.bypass`, false) };
     const quantize = this.quantize(raw.quantize, `${where}.quantize`);
     if (quantize !== undefined) out.quantize = quantize;
+    const by = this.by(raw.by, `${where}.by`, out.input);
+    if (by) out.by = by;
     return out;
+  }
+
+  /** ADR 0362 §5: a lane's second input; rate only on a lane keyed on time. */
+  by(raw: unknown, where: string, input: CurveInput): CurveBy | undefined {
+    const r = this.r;
+    return parseCurveBy(raw, where, { time: typeof input === "string" }, (c, w) => r.curve(c, w), (w, m) => r.problem(w, m));
   }
 
   /** Automation lanes; `instance` (a playlist's own lanes) takes voice time or a parameter only. */
@@ -360,6 +375,8 @@ class PlaylistReader {
       const lane: Automation = { id: ids.take(a.id, w, "a"), target: target as Automation["target"], input, curve, bypass: r.bool(a.bypass, `${w}.bypass`, false) };
       const quantize = this.quantize(a.quantize, `${w}.quantize`);
       if (quantize !== undefined) lane.quantize = quantize;
+      const by = this.by(a.by, `${w}.by`, input);
+      if (by) lane.by = by;
       out.push(lane);
     });
     return out;
@@ -649,6 +666,7 @@ class PlaylistReader {
       const marker: SequenceMarker = { id: markerIds.take(raw.id, w, "m"), name: r.str(raw.name, `${w}.name`, "Marker"), at: r.num(raw.at, `${w}.at`, 0, 0) };
       if (raw.type === "cue" || raw.type === "exit" || raw.type === "entry") marker.type = raw.type;
       else if (raw.type !== undefined && raw.type !== "note") r.problem(`${w}.type`, `"${String(raw.type)}" isn't note, cue, exit or entry; using note.`);
+      readColourNote(raw, w, marker, this.problems);
       out.markers.push(marker);
     });
     return out;
@@ -767,6 +785,7 @@ function useToJson(e: EntryUse, out: JsonRecord): void {
     const json: JsonRecord = { input: inputToJson(c.input), curve: curveToJson(c.curve) };
     if (c.bypass) json.bypass = true;
     if (c.quantize !== undefined) json.quantize = typeof c.quantize === "string" ? c.quantize : { beats: c.quantize.beats };
+    if (c.by) json.by = curveByToJson(c.by);
     curves[t] = json;
   }
   if (Object.keys(curves).length) out.curves = curves;
@@ -806,6 +825,7 @@ function automationToJson(list: readonly Automation[]): JsonRecord[] {
     const out: JsonRecord = { id: a.id, target: a.target, input: inputToJson(a.input), curve: curveToJson(a.curve) };
     if (a.bypass) out.bypass = true;
     if (a.quantize !== undefined) out.quantize = typeof a.quantize === "string" ? a.quantize : { beats: a.quantize.beats };
+    if (a.by) out.by = curveByToJson(a.by);
     return out;
   });
 }
@@ -863,7 +883,7 @@ function sequenceToJson(s: SequenceSettings): JsonRecord {
   if (s.tempo) out.tempo = { bpm: s.tempo.bpm, meter: s.tempo.meter };
   out.tracks = s.tracks.map(trackToJson);
   if (s.loops.length) out.loops = s.loops.map((l) => ({ id: l.id, start: l.start, end: l.end, ...loopBehaviourToJson(l), ...(l.tail ? { tail: true } : {}), ...(l.exitShape && l.exitShape !== "equalPower" ? { exitShape: l.exitShape } : {}) }));
-  if (s.markers.length) out.markers = s.markers.map((m) => ({ id: m.id, name: m.name, at: m.at, ...(m.type && m.type !== "note" ? { type: m.type } : {}) }));
+  if (s.markers.length) out.markers = s.markers.map((m) => ({ id: m.id, name: m.name, at: m.at, ...(m.type && m.type !== "note" ? { type: m.type } : {}), ...colourNoteJson(m) }));
   return out;
 }
 

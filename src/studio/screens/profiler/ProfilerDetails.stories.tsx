@@ -2,8 +2,13 @@
 // keyframe (Music ducked), the Voice panel for a stolen and a missing voice, Why it played with its note, Messages in
 // time order with a click picking a row, the empty states, and Record offered, blocked and recording.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
-import { expect, fn, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { DockLayout } from "../../../editor/layout/DockLayout";
+import { screenDock } from "../../shell/studioPanels";
+import { PROFILER_PANELS } from ".";
+import "../../studio.css";
 import { namesFromStart } from "../../../plugins/audio/runtime/capture/testSupport";
+import { GEN_CLIP_ID_FIRST } from "../../../plugins/audio/runtime/wire.generated";
 import { buildMessages } from "./messagesModel";
 import { AtCursor, MessageList, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
 import { RecordButton } from "./RecordButton";
@@ -41,9 +46,12 @@ export const AtCursorDucked: Story = {
   ),
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByRole("table", { name: "Buses at the cursor" })).toBeVisible();
-    await expect(canvasElement.querySelector('[data-bus="Music"]')!.textContent).toContain("ducked");
-    await expect(c.getByText(/above target -24/)).toBeVisible();
+    await expect(c.getByRole("table", { name: /^Buses at the cursor/ })).toBeVisible();
+    // The reason follows the bus's name; values are the level you hear, the loudness over its target is flagged.
+    await expect(canvasElement.querySelector('[data-bus="Music"]')!.textContent).toMatch(/^Music ducked[-−]12\.0$/);
+    await expect(c.getByText(/^[-−]21\.4$/)).toHaveClass("over");
+    // The keys' hint lives in the tooltip, not on screen.
+    await expect(c.queryByText(/step/)).toBeNull();
   },
 };
 
@@ -64,6 +72,26 @@ export const StolenVoice: Story = {
 };
 
 export const MissingFile: Story = { render: () => <VoiceDetails voice={missing} /> };
+
+/** ADR 0360: a generator voice (its clip is the blip's reserved id) shows its kind. */
+const blipClip = GEN_CLIP_ID_FIRST + 3;
+const blipVoice = buildVoices(
+  [{ seq: 1, seconds: 1, event: { perfMs: 0, type: "voiceStart", voice: 9, clip: blipClip, slot: 1, busGen: 0, flags: 0, atFrameLo: 0, gain: 0.5 } }],
+  namesFromStart({ clips: [[blipClip, "audio/ui/coin.generator.json"]], buses: [[1, "UI"]] }),
+  { start: 0, duration: 2 },
+)[0]!;
+export const GeneratorVoice: Story = {
+  render: () => (
+    <div style={{ width: "320px" }}>
+      <VoiceDetails voice={blipVoice} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByRole("img", { name: "Blip generator" })).toHaveTextContent("BLP");
+    await expect(c.getByText("audio/ui/coin.generator.json", { exact: false })).toBeVisible();
+  },
+};
 export const NoVoice: Story = { render: () => <VoiceDetails voice={null} /> };
 
 const openStep = fn();
@@ -75,9 +103,20 @@ export const WhyItPlayedNote: Story = {
   ),
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getByRole("button", { name: "Vehicles" }));
+    // The chain is a graph of typed nodes; the bus node opens the Mixer on that bus.
+    const graph = c.getByRole("list", { name: `Why ${stolen.clipName} played` });
+    await expect(within(graph).getAllByRole("listitem").map((n) => n.querySelector(".pf-wn-kind")?.textContent)).toEqual(["SAMPLE", "BUS"]);
+    await userEvent.click(within(graph).getByRole("button", { name: /^BUS Vehicles/ }));
     await expect(openStep).toHaveBeenCalledWith("mixer", "Vehicles");
-    await expect(c.getByText(/no decision path/)).toBeVisible();
+    // Without the request in the capture the chain is partial, and the tip says why.
+    await expect(c.getByText(/Partial chain/)).toBeVisible();
+    // The zoom toolbar: + zooms in from the fitted scale.
+    const pct = c.getByRole("button", { name: /%$/ });
+    const before = pct.textContent;
+    await userEvent.click(c.getByRole("button", { name: "Zoom in" }));
+    await expect(pct.textContent).not.toBe(before);
+    await userEvent.click(pct);
+    await expect(pct.textContent).toBe("100%");
   },
 };
 
@@ -95,6 +134,36 @@ export const Messages: Story = {
     await expect(rows[0]).toHaveClass("selected");
     await userEvent.click(rows[3]!);
     await expect(pick).toHaveBeenCalledWith(expect.objectContaining({ kind: "error", text: "Missing file vo_rider_07.wav" }));
+  },
+};
+
+/** J10.4: a warning about a bus links to the Mixer with that bus selected; notes and markers don't. */
+const openBus = fn();
+export const MessagesOpenInMixer: Story = {
+  render: () => (
+    <div style={{ width: "520px" }}>
+      <MessageList open selected={null} onPick={() => {}} onOpenBus={openBus} messages={buildMessages({ voices, markers: [{ time: 5, text: "Boss spawned" }] })} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const links = c.getAllByRole("button", { name: "Open in Mixer ›" });
+    await expect(links.length).toBe(buildMessages({ voices }).filter((m) => m.bus).length);
+    await userEvent.click(links[0]!);
+    await expect(openBus).toHaveBeenCalledWith(stolen.busName);
+  },
+};
+
+const openVoiceBus = fn();
+export const StolenVoiceOpenInMixer: Story = {
+  render: () => (
+    <div style={{ width: "320px" }}>
+      <VoiceDetails voice={stolen} onOpenBus={openVoiceBus} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Open in Mixer ›" }));
+    await expect(openVoiceBus).toHaveBeenCalledWith(stolen.busName);
   },
 };
 
@@ -122,7 +191,46 @@ export const ReplayCapture: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByText("canyon_run_01.mycotake")).toBeVisible();
-    await userEvent.click(c.getByRole("button", { name: "Open in Take" }));
+    const open = c.getByRole("button", { name: "Open in Take" });
+    await expect(open).toHaveAttribute("title", "Open canyon_run_01 in Take at the same playhead");
+    await userEvent.click(open);
     await expect(openTake).toHaveBeenCalledWith("takes/HoverBike/canyon_run_01.mycotake");
+  },
+};
+
+/** The project doesn't have the take the replay capture names: no "Open in Take" to a take that isn't there. */
+export const ReplayOfAMissingTake: Story = {
+  render: () => <ReplayOrigin take={{ path: "takes/gone.mycotake", audioHash: "5f3a90c1" }} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByText("gone.mycotake")).toBeVisible();
+    await expect(c.queryByRole("button", { name: "Open in Take" })).toBeNull();
+  },
+};
+
+export const DefaultDock: Story = {
+  render: () => {
+    // The screen's real panel list and default layout, each panel's view a stand-in (the views need the running app).
+    const dock = screenDock("profiler", PROFILER_PANELS.map((p) => ({ ...p, view: () => <p>{p.title}</p> })));
+    dock.store.reset();
+    return (
+      <div class="studio" style={{ width: "1400px", height: "800px", gridTemplateRows: "1fr", gridTemplateAreas: '"main"' }}>
+        <main class="studio-dock">
+          <DockLayout host={dock.host} view={(type) => dock.panels.get(type)?.view() ?? null} />
+        </main>
+      </div>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await waitFor(() => expect(c.getByRole("tab", { name: "At cursor" }).closest<HTMLElement>(".dock-tabs")!.clientWidth).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 200));
+    // Spec §4.6.1: At cursor and Voice on the right, Why it played below beside Messages; every tab shows whole.
+    const dockOf = (title: string) => c.getByRole("tab", { name: title }).closest(".dock-group")?.className;
+    await expect(dockOf("Voice")).toBe(dockOf("At cursor"));
+    await expect(dockOf("Why it played")).toBe(dockOf("Messages"));
+    await expect(dockOf("Why it played")).not.toBe(dockOf("Voice"));
+    for (const p of PROFILER_PANELS) await expect(c.getByRole("tab", { name: p.title })).toBeVisible();
+    await expect(c.queryByRole("button", { name: "More tabs" })).toBeNull();
   },
 };

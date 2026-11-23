@@ -1575,7 +1575,7 @@ mod voice_tests {
         let mut pos = 0.0f64;
         let steps = vec![44_100.0f32 / 48_000.0; l.len()];
         let (mut want_l, mut want_r) = (vec![0.0; l.len()], vec![0.0; l.len()]);
-        let src = audio_dsp::resample::Source { samples: audio_dsp::resample::Samples::F32(&data), channels: 1, frames: 8_192 };
+        let src = audio_dsp::resample::Source { samples: audio_dsp::resample::Samples::F32(&data), channels: 1, frames: 8_192, reversed: false };
         let n = audio_dsp::resample::lagrange(&src, &mut pos, &steps, false, &mut want_l, &mut want_r);
         for k in 0..n {
             assert!((l[k] - want_l[k]).abs() < 1e-6 && (r[k] - want_r[k]).abs() < 1e-6, "frame {k}: {} vs {}", l[k], want_l[k]);

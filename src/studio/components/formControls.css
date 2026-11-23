@@ -1,0 +1,171 @@
+/* The Studio's form controls (owner's prototype `File.dc.html`: `select,.inp,.num`, `input[type=search]`,
+ * `textarea.inp`, `.num`, `.tcin`, `.cbx`; shell-gaps S1/S2/S8). Scoped to the Studio (`.studio`, and `.studio-forms`,
+ * which the Studio page puts on <html> so dialogs and popovers drawn outside the shell match too). The scope sits in
+ * `:where()`, so these weigh as bare element rules: a screen's own class still wins. Theme tokens only. */
+
+/* Text, search, number and timecode inputs, text areas and selects */
+:where(.studio :is(input:not([type]), input[type="text"], input[type="search"], input[type="number"], input[type="email"], input[type="url"], input[type="password"], textarea, select), .studio-forms :is(input:not([type]), input[type="text"], input[type="search"], input[type="number"], input[type="email"], input[type="url"], input[type="password"], textarea, select)) {
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: calc(12px * var(--ui-scale));
+  line-height: 16px;
+}
+:where(.studio input[type="search"], .studio-forms input[type="search"]) { padding: 3px 6px; }
+:where(.studio textarea, .studio-forms textarea) { resize: vertical; min-height: 44px; }
+:where(.studio select:not([multiple]):not([size]), .studio-forms select:not([multiple]):not([size])) {
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 20px;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 10px) 52%, calc(100% - 6px) 52%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+:where(.studio select option, .studio-forms select option) { background: var(--surface); color: var(--text); }
+:where(.studio :is(input, textarea, select), .studio-forms :is(input, textarea, select))::placeholder { color: var(--faint); opacity: 1; }
+:where(.studio :is(input, textarea, select):focus-visible, .studio-forms :is(input, textarea, select):focus-visible) { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+:where(.studio :is(input, textarea, select):disabled, .studio-forms :is(input, textarea, select):disabled) { opacity: 0.45; cursor: default; }
+:where(.studio :is(input, textarea, select):hover:not(:disabled):not(:focus), .studio-forms :is(input, textarea, select):hover:not(:disabled):not(:focus)) { border-color: var(--border-strong); }
+
+/* Number fields: right-aligned tabular figures, no spin buttons, 76 px (spec §3.4: at least 46 px). */
+:where(.studio :is(input[type="number"], .studio-num, .kit-num), .studio-forms :is(input[type="number"], .studio-num, .kit-num)) { width: 76px; text-align: right; font-variant-numeric: tabular-nums; appearance: textfield; -moz-appearance: textfield; }
+:where(.studio input[type="number"], .studio-forms input[type="number"])::-webkit-inner-spin-button,
+:where(.studio input[type="number"], .studio-forms input[type="number"])::-webkit-outer-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
+:where(.studio .studio-num.narrow, .studio-forms .studio-num.narrow) { width: 56px; }
+/* Timecode fields (spec §3.14): 11 px monospace, at least 74 px. */
+:where(.studio .studio-timecode, .studio-forms .studio-timecode) { width: 96px; min-width: 74px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: calc(11px * var(--ui-scale)); }
+
+/* Checkboxes: the prototype's `.cbx` (16 px, 1.5 px border, a ✓ on the accent when on). */
+:where(.studio input[type="checkbox"], .studio-forms input[type="checkbox"]) {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: none;
+  position: relative;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 1.5px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--input-bg);
+  vertical-align: -3px;
+  cursor: pointer;
+}
+:where(.studio input[type="checkbox"]:is(:checked, :indeterminate), .studio-forms input[type="checkbox"]:is(:checked, :indeterminate)) { background: var(--accent); border-color: var(--accent); }
+:where(.studio input[type="checkbox"], .studio-forms input[type="checkbox"])::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--accent-text);
+  -webkit-mask: no-repeat center / 11px 11px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.4 6.3 5 8.8 9.8 3.4' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  mask: no-repeat center / 11px 11px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.4 6.3 5 8.8 9.8 3.4' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  opacity: 0;
+}
+:where(.studio input[type="checkbox"]:checked, .studio-forms input[type="checkbox"]:checked)::before { opacity: 1; }
+:where(.studio input[type="checkbox"]:indeterminate, .studio-forms input[type="checkbox"]:indeterminate)::before {
+  opacity: 1;
+  -webkit-mask: no-repeat center / 11px 11px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 6h6' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
+  mask: no-repeat center / 11px 11px url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 6h6' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+:where(.studio input[type="checkbox"]:focus-visible, .studio-forms input[type="checkbox"]:focus-visible) { outline: 2px solid var(--accent); outline-offset: 1px; }
+:where(.studio input[type="checkbox"]:disabled, .studio-forms input[type="checkbox"]:disabled) { opacity: 0.45; cursor: default; }
+
+/* Ranges: the native track in the accent (always paired with a typed field: `SliderField`). */
+:where(.studio input[type="range"], .studio-forms input[type="range"]) { accent-color: var(--accent); min-width: 0; margin: 0; }
+
+/* A field pair (`NumberField`, `SliderField`): label, then the box with its unit (prototype `.nv`). */
+.studio-nv { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
+.studio-nv-unit { flex: none; min-width: 28px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); white-space: nowrap; }
+.studio-nv-unit:empty { display: none; }
+.studio-field-label { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.studio-field-label.scrub { cursor: ew-resize; user-select: none; touch-action: none; }
+.studio-field-label.scrub:hover { color: var(--text); }
+.studio-field-label.disabled { color: var(--faint); }
+/* A standalone row: label | box (prototype `.fld`). */
+.studio-fieldrow { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px 8px; align-items: center; font-size: calc(12px * var(--ui-scale)); }
+.studio-fieldrow > .studio-nv { justify-self: start; }
+/* A slider row: label | range | box + unit (prototype `.tv`). */
+.studio-slider { display: grid; grid-template-columns: minmax(70px, 110px) minmax(60px, 1fr) auto; gap: 6px; align-items: center; font-size: calc(12px * var(--ui-scale)); min-width: 0; }
+.studio-slider > .studio-field-label { font-size: calc(11px * var(--ui-scale)); }
+.studio-slider input[type="range"] { width: 100%; }
+.studio-slider .studio-num { width: 64px; }
+.studio-slider-note { max-width: 120px; color: var(--accent); font-size: calc(11px * var(--ui-scale)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-slider.disabled > .studio-field-label { color: var(--faint); }
+
+
+/* The rules below restyle the editor kit's own classes inside the Studio, so they weigh one class more than the
+ * editor's (`:is(.studio, .studio-forms)` instead of `:where`). */
+
+/* Dialogs drawn with the editor's `.dialog` (no header markup of their own): the title becomes the header band
+ * (prototype `.dlg .dh`), the buttons row the footer (`.df`), Cancel before the primary. `KitDialog` draws both
+ * properly, with × close. */
+:is(.studio, .studio-forms) .dialog:not(.kit-dialog) { padding: 0; background: var(--panel); border-color: var(--border-strong); overflow: hidden; }
+:is(.studio, .studio-forms) .dialog:not(.kit-dialog) > :not(h2:first-child, .dialog-buttons) { margin-left: 12px; margin-right: 12px; }
+:is(.studio, .studio-forms) .dialog:not(.kit-dialog):not(:has(> h2:first-child)) { padding-top: 12px; }
+:is(.studio, .studio-forms) .dialog:not(.kit-dialog):not(:has(> .dialog-buttons)) { padding-bottom: 12px; }
+:is(.studio, .studio-forms) .dialog:not(.kit-dialog) > h2:first-child { margin: 0 0 10px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--border); color: var(--text-strong); font-size: calc(13px * var(--ui-scale)); font-weight: 600; letter-spacing: 0; text-transform: none; }
+:is(.studio, .studio-forms) .dialog:not(.kit-dialog) > .dialog-buttons { margin: 10px 0 0; padding: 8px 12px; border-top: 1px solid var(--border); align-items: center; }
+/* The positive primary of a Studio dialog: the prototype's `.btn.play` (moss). A danger primary keeps its red. */
+:is(.studio, .studio-forms) :is(.dialog-buttons, .kit-dialog-foot) button.primary:not(:disabled) { background: var(--accent2-soft); border-color: var(--accent2); color: var(--text-strong); font-weight: 600; box-shadow: none; }
+:is(.studio, .studio-forms) :is(.dialog-buttons, .kit-dialog-foot) button.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--accent2) 32%, transparent); }
+
+
+/* The kit's number box and select (PanelFields) in the prototype's sizes. */
+:is(.studio, .studio-forms) .kit-num { width: 76px; padding: 2px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); line-height: 16px; text-align: right; }
+:is(.studio, .studio-forms) .kit-select { padding: 2px 20px 2px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); line-height: 16px; }
+/* The editor kit's `.kit-select` sets the `background` shorthand, which drops the Studio select's chevron: put it back
+ * (J5.3/V8: the Switch's By and rule selects looked like text fields). */
+:is(.studio, .studio-forms) .kit-select:not([multiple]):not([size]) {
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 10px) 52%, calc(100% - 6px) 52%;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+}
+
+@media (pointer: coarse) {
+  :where(.studio :is(input:not([type]), input[type="text"], input[type="search"], input[type="number"], select), .studio-forms :is(input:not([type]), input[type="text"], input[type="search"], input[type="number"], select)) { min-height: 32px; }
+  :where(.studio input[type="checkbox"], .studio-forms input[type="checkbox"]) { width: 20px; height: 20px; }
+}
+
+/* Checkbox with its label (Checkbox.tsx). */
+.studio-check { display: inline-flex; align-items: center; gap: 6px; font-size: calc(12px * var(--ui-scale)); color: var(--text); cursor: pointer; }
+.studio-check.disabled { cursor: default; color: var(--muted); }
+
+/* Colour picker (ColourPicker.tsx; prototype `.sw`, `.sw.add`, `.cpk`). The square's white and black overlays and the
+ * hue strip's rainbow are the colour space itself, not theme colours. */
+.studio-colours { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.studio-swatch { flex: none; width: 20px; height: 20px; padding: 0; border: 1px solid var(--border-strong); border-radius: 4px; cursor: pointer; box-shadow: none; }
+.studio-swatch[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
+.studio-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.studio-swatch:disabled { opacity: 0.45; cursor: default; }
+.studio-swatch.add { background: var(--button); color: var(--muted); font: inherit; font-size: calc(14px * var(--ui-scale)); line-height: 18px; border-style: dashed; }
+.studio-swatch.add:hover:not(:disabled) { color: var(--text); background: var(--button-hover); }
+.studio-cpk { position: fixed; z-index: 70; width: 250px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 5px; box-shadow: 0 8px 24px var(--shadow); }
+.studio-cpk-head { display: flex; align-items: center; gap: 6px; }
+.studio-cpk-title { flex: 1; font-size: calc(11px * var(--ui-scale)); line-height: 14px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.studio-cpk-close, .studio-cpk-btn { flex: none; display: inline-grid; place-items: center; width: 26px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--button); color: var(--text); box-shadow: none; }
+.studio-cpk-close { width: 24px; height: 22px; }
+.studio-cpk-close:hover, .studio-cpk-btn:hover:not(:disabled) { background: var(--button-hover); }
+.studio-cpk-btn:disabled { opacity: 0.45; cursor: default; }
+.studio-cpk-btn.apply { width: 56px; background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+.studio-cpk-sv { position: relative; height: 140px; border-radius: 4px; cursor: crosshair; touch-action: none; outline-offset: 2px; }
+.studio-cpk-white, .studio-cpk-black { position: absolute; inset: 0; border-radius: 4px; pointer-events: none; }
+.studio-cpk-white { background: linear-gradient(to right, #fff, rgba(255, 255, 255, 0)); }
+.studio-cpk-black { background: linear-gradient(to top, #000, rgba(0, 0, 0, 0)); }
+.studio-cpk-dot { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; box-sizing: border-box; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); pointer-events: none; }
+.studio-cpk-hue { position: relative; height: 12px; margin: 2px 6px; border-radius: 6px; background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); cursor: ew-resize; touch-action: none; outline-offset: 2px; }
+.studio-cpk-hue-thumb { position: absolute; top: 50%; width: 12px; height: 16px; margin: -8px 0 0 -6px; box-sizing: border-box; border-radius: 3px; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6); pointer-events: none; }
+:is(.studio-cpk-sv, .studio-cpk-hue):focus-visible { outline: 2px solid var(--accent); }
+.studio-cpk-row { display: flex; align-items: center; gap: 6px; }
+.studio-cpk-row.end { justify-content: flex-end; }
+.studio-cpk .studio-cpk-hex { width: 80px; }
+.studio-cpk-preview { flex: 1; height: 22px; border-radius: 3px; }

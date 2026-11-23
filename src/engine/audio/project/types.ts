@@ -11,6 +11,7 @@
  * Pure; no plugin, no DOM.
  */
 import type { Curve } from "../../core/curve";
+import type { CurveBy } from "../curveBy";
 import type { Effect } from "../effects/types";
 import type { ParameterDef } from "../parameters";
 import type { AudioSettings, DuckingDetector, DuckingMode, LoudnessTarget } from "../settings";
@@ -52,6 +53,11 @@ export interface Bus {
   meter: boolean;
   effects: Effect[];
   sends: Send[];
+  /**
+   * Its colour in the Studio's Mixer (spec §2.9 "colour"): a CSS colour, a theme token (`var(--warning)`) or "#rrggbb".
+   * Absent: the colour of its top-level branch. Display only; the runtime ignores it.
+   */
+  colour?: string;
 }
 
 export interface Return {
@@ -75,6 +81,8 @@ export interface MixAutomation {
   parameter: string;
   curve: Curve;
   bypass: boolean;
+  /** ADR 0362 §5: a second global parameter the lane also follows ("And by", `curveBy.ts`; no rate); absent: none. */
+  by?: CurveBy;
 }
 
 export interface DuckingRule {
@@ -89,7 +97,8 @@ export interface DuckingRule {
   enabled: boolean;
 }
 
-export type ConditionOp = "lt" | "le" | "eq" | "ne" | "ge" | "gt" | "between" | "is" | "not";
+/** `contains` and `starts` read a text parameter's value as text (case-insensitive). */
+export type ConditionOp = "lt" | "le" | "eq" | "ne" | "ge" | "gt" | "between" | "is" | "not" | "contains" | "starts";
 export interface SnapshotCondition {
   parameter: string;
   op: ConditionOp;
@@ -130,6 +139,16 @@ export interface AudioProject {
   automation: MixAutomation[];
   ducking: DuckingRule[];
   snapshots: Snapshot[];
+  /**
+   * Snapshot folders with nothing in them yet (the Snapshots tree's empty folders), so they are saved and undone like
+   * any edit. A folder holding a snapshot is named by the snapshot's `folder` and isn't listed. Absent when none.
+   */
+  snapshotFolders?: string[];
+  /**
+   * ADR 0362 item 4: the Studio's own project settings, kept with the project rather than in any audio asset: folder
+   * colours by project folder path (a theme token name or `#rrggbb`, `markColour.ts`). Absent when there are none.
+   */
+  studio?: StudioSettings;
   loudness: { targets: LoudnessTarget[]; resetOnPlay: boolean };
   /**
    * ADR 0351 §2: encoding profiles, folder rules and budgets (`encoding/format.ts`). Absent when the file has none (every
@@ -151,4 +170,10 @@ export interface AudioProjectParse {
   project: AudioProject;
   problems: string[];
   warnings: string[];
+}
+
+/** ADR 0362 item 4: `audio.json`'s `studio` block. */
+export interface StudioSettings {
+  /** Project folder path → colour (the Samples tree's folder rows). */
+  folderColours?: Record<string, string>;
 }

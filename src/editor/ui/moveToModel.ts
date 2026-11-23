@@ -48,12 +48,15 @@ export function folderTree(folders: Iterable<string>, rootName = "Project"): Fol
   return build("", rootName);
 }
 
-/** The folders whose path contains `query` (any case), in order; every folder when the query is blank. */
+/** The folders whose path contains `query` (any case), in order, always after the top level (""), which can't be typed; every folder when the query is blank. */
 export function searchFolders(folders: Iterable<string>, query: string): string[] {
   const q = query.trim().toLowerCase();
   const all = allFolders(folders);
-  return q === "" ? all : all.filter((p) => p !== "" && p.toLowerCase().includes(q));
+  return q === "" ? all : all.filter((p) => p === "" || p.toLowerCase().includes(q));
 }
+
+/** Every item is already in `folder` (the dialog marks it "here now"). */
+export const isCurrentFolder = (folder: string, items: readonly MovingItem[]): boolean => items.length > 0 && items.every((i) => parentFolder(i.path) === folder);
 
 /** The folder to start on: the first item's folder when it can take nothing (it's where they are), so the user picks another. */
 export const startFolder = (items: readonly MovingItem[]): string => (items.length > 0 ? parentFolder(items[0].path) : "");

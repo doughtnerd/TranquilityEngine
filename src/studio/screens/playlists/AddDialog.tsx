@@ -1,11 +1,13 @@
 // The Add dialog (the prototype's, PL:1365–1402): search, a filter (All / Samples / Playlists / Sequences, with
-// counts), several picked at once (Ctrl/⌘ or the checkboxes; a Clip picks one sample), "Link existing" or "Copy" for
+// counts), several picked at once (a click toggles a row, as its checkbox shows; Shift-click picks a range; a Clip
+// picks one sample and its rows have no checkboxes), "Link existing" or "Copy" for
 // playlists, items that would make a cycle listed but disabled with why. Double-click adds one at once; Enter adds the
 // picked ones (arrow keys move through the list, Space picks); Escape closes. A view over the list model (`addDialogModel.ts`).
 import { useEffect, useRef, useState } from "preact/hooks";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { TypeBadge } from "../../components/TypeBadge";
-import { filterCounts, filterItems, togglePick, type AddFilter, type AddItem } from "./addDialogModel";
+import { filterCounts, filterItems, pickRange, togglePick, type AddFilter, type AddItem } from "./addDialogModel";
+import { GeneratorBadge } from "./generator/GeneratorParts";
 
 export interface AddDialogProps {
   readonly items: readonly AddItem[];
@@ -60,7 +62,12 @@ export function AddDialog(props: AddDialogProps) {
               { value: "samples", label: `Samples ${counts.samples}` },
               { value: "playlists", label: `Playlists ${counts.playlists}` },
               { value: "sequences", label: `Sequences ${counts.sequences}` },
+              ...(props.items.some((i) => i.kind === "generator") ? [{ value: "generators" as const, label: `Generators ${counts.generators}` }] : []),
             ]} />
+        )}
+        {props.single && props.items.some((i) => i.kind === "generator") && (
+          <SegmentedControl<AddFilter> size="small" label="Show" value={filter} onChange={setFilter}
+            options={[{ value: "samples", label: `Samples ${counts.samples}` }, { value: "generators", label: `Generators ${counts.generators}` }]} />
         )}
         <div ref={list} class="pl-add-list" role="listbox" aria-multiselectable={!props.single} aria-label="Samples and playlists" tabIndex={0}
           aria-activedescendant={shown[at] ? `pl-add-opt-${at}` : undefined} onKeyDown={listKeys}>
@@ -68,10 +75,15 @@ export function AddDialog(props: AddDialogProps) {
           {shown.map((i, n) => (
             <div key={i.path} id={`pl-add-opt-${n}`} role="option" aria-selected={picked.includes(i.path)} aria-disabled={!!i.disabled} title={i.disabled ?? i.path}
               class={`pl-add-row${picked.includes(i.path) ? " selected" : ""}${i.disabled ? " disabled" : ""}${n === at ? " active" : ""}`}
-              onClick={(e) => { setActive(n); setPicked(togglePick(picked, i, e.ctrlKey || e.metaKey, props.single)); }}
+              onClick={(e) => {
+                // Multi-pick: a click toggles the row (J3.2: the checkbox is the affordance), Shift adds the range from
+                // the active row; a single pick (a Clip) picks this one.
+                setPicked(e.shiftKey && !props.single ? pickRange(picked, shown, at, n) : togglePick(picked, i, !props.single, props.single));
+                setActive(n);
+              }}
               onDblClick={() => !i.disabled && add([i.path])}>
               {!props.single && <input type="checkbox" tabIndex={-1} aria-hidden="true" checked={picked.includes(i.path)} disabled={!!i.disabled} onClick={(e) => { e.stopPropagation(); setPicked(togglePick(picked, i, true, false)); }} />}
-              {i.kind === "sample" ? <TypeBadge sample /> : <TypeBadge code={i.badge} />}
+              {i.kind === "sample" ? <TypeBadge sample /> : i.kind === "generator" ? <GeneratorBadge kind={i.generatorKind ?? null} /> : <TypeBadge code={i.badge} />}
               <span class="pl-add-name">{i.name}</span>
               <span class="pl-row-meta">{i.disabled ?? i.folder}</span>
             </div>

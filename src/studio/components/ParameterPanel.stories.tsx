@@ -4,6 +4,7 @@ import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, userEvent, within } from "storybook/test";
 import type { ParameterDef } from "../../engine/audio/parameters";
+import { NewParameterDialog } from "./NewParameterDialog";
 import { ParameterPanel } from "./ParameterPanel";
 import { withTestValue } from "./parameterPanelModel";
 
@@ -39,3 +40,29 @@ export const TestValues: StoryObj = {
 };
 
 export const Empty: StoryObj = { render: () => <Demo parameters={[]} /> };
+
+/** J4.1: with `onNewParameter`, a project with none offers "+ New parameter…" under the empty line, and under the rows. */
+function NewProjectDemo() {
+  const [list, setList] = useState<ParameterDef[]>([]);
+  const [open, setOpen] = useState(false);
+  return (
+    <div style={{ width: "340px" }}>
+      <ParameterPanel parameters={list} values={{}} onValue={() => {}} onNewParameter={() => setOpen(true)} />
+      {open && <NewParameterDialog existing={list.map((p) => p.name)} onCancel={() => setOpen(false)} onCreate={(d) => { setList([...list, d]); setOpen(false); }} />}
+    </div>
+  );
+}
+
+export const EmptyWithNewParameter: StoryObj = {
+  render: () => <NewProjectDemo />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByText("No game parameters yet.")).toBeVisible();
+    await userEvent.click(c.getByRole("button", { name: "New parameter…" }));
+    const dialog = within(within(canvasElement.ownerDocument.body).getByRole("dialog", { name: "New parameter" }));
+    await userEvent.click(dialog.getByRole("button", { name: "Create" }));
+    await expect(c.getByLabelText("Parameter value")).toBeVisible();
+    await expect(c.getByText("Parameter")).toBeVisible();
+    await expect(c.getByRole("button", { name: "New parameter…" })).toBeVisible();
+  },
+};

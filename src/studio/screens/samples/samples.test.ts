@@ -7,20 +7,20 @@ import type { SampleEdits, SampleLoop, SampleMarker } from "../../../engine/audi
 import type { WavMetadata } from "../../../engine/audio/sample/wavChunks";
 import { destinationFolder, destinationPath, guessKind, importedMessage, kindOn, kindsFound, sampleBlockFor } from "./importPlan";
 import {
-  addLoop, addMarker, clipAfterGain, closeGap, convertMarker, deleteMarker, loopGaps, moveLoop, moveMarker, normalizeGain, refusalOf, removeLoop, setNormalize,
+  addLoop, addMarker, clipAfterGain, closeGap, convertMarker, deleteMarker, loopGaps, moveLoop, moveMarker, normalizeGain, normalizeGainText, normalizeTargetText, refusalOf, removeLoop, setNormalize,
   setRoot, setTempo, setTrim, slideLoop, snip, snippets, tapeSnippet, toggleSnippet, updateLoop, updateMarker, type SampleEdit,
 } from "./sampleEditing";
-import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, revertLoop, revertMarker, summarizeMerge, writeSummary } from "./sampleFile";
-import { allSamples, cleanFolderName, fileChip, libraryTree, metaLine, moveUpPlan, searchSamples, shortLength, usesOf } from "./sampleLibrary";
+import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, revertLoop, revertMarker, summarizeMerge, writeSummary, wroteText } from "./sampleFile";
+import { allSamples, audioFolders, cleanFolderName, cleanPath, fileChip, folderChoices, libraryTree, metaLine, moveUpPlan, sampleName, searchSamples, shortLength, usesOf } from "./sampleLibrary";
 import { editedLength, inClosedGap, toSource, toView } from "./sampleTime";
 import {
-  fitToSource, landmarks, liveSelection, loopRegions, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
-  snapTime, trimHoldingMarkers,
+  colourCss, colourValue, fitToSource, landmarks, liveSelection, loopLabel, loopRegions, MARKER_PRESETS, markerColour, nextMarker, shortSeconds, musicalSpans, outlineGroups, packMarkerRows, parseSelection, parseSnapStep, regionAt, sampleWarnings, selectionKey, selectionSpan,
+  snapTime, snippetMenu, snippetUnder, trimHoldingMarkers,
 } from "./sampleView";
 import { nearestZeroCrossing, seamJump, seamStrip, seamWindow } from "./seam";
-import { addTap, tapResult } from "./tapTempo";
-import { effectEdits } from "./sampleEffects";
-import { planPlay } from "./sampleTransport";
+import { addTap, tapDots, tapResult } from "./tapTempo";
+import { effectCategories, effectEdits, effectSummary, freezeEdit, searchEffects } from "./sampleEffects";
+import { planPlay, planSeam, PLAY_MODES, playModeInfo, playModeRefusal, showsMusicModes } from "./sampleTransport";
 
 const LEN = 2.6;
 const next = (r: SampleEdit): SampleEdits => {
@@ -147,6 +147,10 @@ describe("tempo, root, normalize", () => {
     const measured = { integrated: -19.5, peak: -2 };
     expect(normalizeGain("loudness", -16, measured)).toBe(3.5);
     expect(normalizeGain("peak", -1, measured)).toBe(1);
+    // Written with a true minus, as every other number (journeys walk 2, J2.6).
+    expect(normalizeTargetText({ mode: "loudness", target: -16 })).toBe("−16 LUFS");
+    expect(normalizeTargetText({ mode: "peak", target: -1 })).toBe("−1 dBFS");
+    expect([normalizeGainText(7), normalizeGainText(-3.5)]).toEqual(["+7.0 dB", "−3.5 dB"]);
     expect(next(setNormalize(skid(), "loudness", -16, measured)).normalize).toEqual({ mode: "loudness", target: -16, gainDb: 3.5 });
     expect(refusalOf(setNormalize(skid(), "loudness", -16, null))).toMatch(/measured/);
     expect(refusalOf(setNormalize(skid(), "peak", 3, measured))).toMatch(/-12 to 0/);
@@ -164,6 +168,31 @@ describe("razor and closed gaps", () => {
     expect(snippets(e, 2).map((s) => [s.start, s.end])).toEqual([[0, 1], [1, 1.5], [1.5, 2]]);
     expect(refusalOf(snip(e, 1.001, 2))).toBe("Already snipped at 1.000 s");
     expect(refusalOf(snip(e, 0.002, 2))).toMatch(/too close/);
+  });
+
+  it("finds the snippet under a click and builds its menu", () => {
+    const e = next(snip(next(snip(defaultSampleEdits(), 1, 2)), 1.5, 2));
+    expect(snippetUnder(defaultSampleEdits(), 2, 0.5)).toBeNull(); // no cuts: no snippets
+    expect(snippetUnder(e, 2, 0.5)?.index).toBe(1);
+    expect(snippetUnder(e, 2, 1.2)?.index).toBe(2);
+    expect(snippetUnder(e, 2, 2)?.index).toBe(3); // the very end belongs to the last
+    const menu = (x: SampleEdits, i: number) => snippetMenu(x, 2, i).map((m) => [m.label, m.refused]);
+    expect(menu(e, 1)).toEqual([
+      ["Save as sample…", null],
+      ["Tape to the left", "there's no snippet on that side"],
+      ["Tape to the right", null],
+      ["Delete", null],
+      ["Delete and close gap", null],
+    ]);
+    const deleted = next(toggleSnippet(e, 2, 2));
+    expect(menu(deleted, 2)).toEqual([
+      ["Save as sample…", null],
+      ["Tape to the left", "Restore the deleted snippet before taping it"],
+      ["Tape to the right", "Restore the deleted snippet before taping it"],
+      ["Restore", null],
+      ["Close gap", null],
+    ]);
+    expect(snippetMenu(e, 2, 9)).toEqual([]);
   });
 
   it("deletes, restores and tapes snippets; a cut in a deleted one keeps both halves deleted", () => {
@@ -223,6 +252,13 @@ describe("file diff, revert, detach, write and merge", () => {
     expect(s.keptInSidecar).toBe(1);
   });
 
+  it("says it removes loops or a tempo only when the file has them, and counts in the singular (journeys walk 2, J2.7)", () => {
+    const none = { ...skid(), loops: [], tempo: null };
+    expect(writeSummary(none, { loops: 0, tempo: false }).rows.slice(2, 4).map((r) => r.what)).toEqual(["No loops", "No tempo"]);
+    expect(writeSummary(none, { loops: 2, tempo: true }).rows.slice(2, 4).map((r) => r.what)).toEqual(["No loops (removes the file's 2 loops)", "No tempo (removes the file's tempo)"]);
+    expect(wroteText("brake_skid.wav", { cues: 1, regions: 0, loops: 1 })).toBe("Wrote brake_skid.wav · 1 cue, 0 regions and 1 loop (backup kept)");
+  });
+
   it("builds the merge review and applies choices", () => {
     const now: WavMetadata = {
       sampleRate: 1000, frames: 2600, channels: 1, root: null, tempo: null, bext: null, regions: [],
@@ -242,6 +278,20 @@ describe("file diff, revert, detach, write and merge", () => {
     expect(merged.markers.some((m) => m.name === "Stop")).toBe(true);
     expect(merged.loops[0]).toMatchObject({ end: 1.5, file: { end: 1.5 } });
   });
+
+  it("matches a moved file loop to a project loop that has no file snapshot", () => {
+    const untracked: SampleEdits = { ...defaultSampleEdits("sustain"), loops: [loop("l1", 0.45, 1.55)] };
+    const meta = (end: number): WavMetadata => ({
+      sampleRate: 1000, frames: 2600, channels: 1, root: null, tempo: null, bext: null, regions: [], cues: [],
+      loops: [{ cueId: 0, type: 0, start: 450, end, fraction: 0, playCount: 0 }],
+    });
+    expect(mergeRows(untracked, meta(1550))).toEqual([]); // the file says what the project has: nothing to review
+    const rows = mergeRows(untracked, meta(1600));
+    expect(rows.map((r) => [r.title, r.detail, r.conflict, r.choice, r.id])).toEqual([["Loop end moved", "0.450 s – 1.550 s → 0.450 s – 1.600 s", false, "file", "l1"]]);
+    const merged = next(applyMerge(untracked, rows, "engine-idle.wav"));
+    expect(merged.loops).toHaveLength(1);
+    expect(merged.loops[0]).toMatchObject({ id: "l1", end: 1.6, file: { index: 0, end: 1.6 } });
+  });
 });
 
 describe("timeline structure", () => {
@@ -250,6 +300,10 @@ describe("timeline structure", () => {
     expect(loopRegions(e, 2).map((r) => r.label)).toEqual(["Pickup", "Loop 1 · while held", "Link", "Loop 2", "Tail"]);
     expect(regionAt(e, 2, 0.3)).toBe("loop 1 (while held)");
     expect(regionAt(e, 2, 0.8)).toBe("link");
+    // The next marker is by time, whatever order the markers were added in (journeys walk 2, V4).
+    const late = { ...e, markers: [{ ...e.markers[0]!, id: "late", at: 1.5 }, { ...e.markers[0]!, id: "soon", at: 0.9 }] };
+    expect(nextMarker(late, 0.5)?.id).toBe("soon");
+    expect(nextMarker(late, 1.6)).toBeNull();
     expect(selectionSpan({ kind: "tail" }, e, 2)).toEqual({ start: 1.4, end: 2 });
     expect(selectionSpan({ kind: "marker", id: "m1" }, e, 2)).toEqual({ start: 0.3, end: 2 });
     expect(landmarks(e, 2)).toContain(1.4);
@@ -281,9 +335,20 @@ describe("timeline structure", () => {
 
   it("groups the outline and filters it", () => {
     const g = outlineGroups(skid(), LEN);
-    expect(g.map((x) => x.title)).toEqual(["Cues", "Entries", "Exits", "Hit points", "Loops", "Notes", "Ranges", "Snippets"]);
+    // Spec §4.1.4: markers by type, Loops with the pickup, links and tail, Snippets, and the Trim.
+    expect(g.map((x) => x.title)).toEqual(["Cues", "Entries", "Exits", "Hit points", "Loops", "Notes", "Snippets", "Trim"]);
     expect(g.find((x) => x.id === "notes")!.items.map((i) => i.name)).toEqual(["Lock-up", "Release"]);
-    expect(outlineGroups(skid(), LEN, "rel").find((x) => x.id === "notes")!.items.map((i) => i.name)).toEqual(["Release"]);
+    expect(g.find((x) => x.id === "loops")!.items.map((i) => [i.name, i.at, i.end])).toEqual([["Pickup", 0, 0.45], ["Loop 1", 0.45, 1.55], ["Tail", 1.55, LEN]]);
+    expect(g.find((x) => x.id === "loops")!.items[1]).toMatchObject({ fromFile: true, active: "held", color: "var(--range-loop)" });
+    expect(g.find((x) => x.id === "cues")!.items[0]).toMatchObject({ name: "brake_lockup", at: 0.3, color: "var(--marker-cue)", outside: false });
+    expect(g.find((x) => x.id === "trim")!.items[0]).toMatchObject({ at: 0, end: LEN });
+    const filtered = outlineGroups(skid(), LEN, "rel").find((x) => x.id === "notes")!;
+    expect(filtered.items.map((i) => i.name)).toEqual(["Release"]);
+    expect(filtered.total).toBe(2);
+    // Outside the trim is flagged.
+    const trimmed = outlineGroups({ ...skid(), trim: [0.3, 2] }, LEN).find((x) => x.id === "notes")!;
+    expect(trimmed.items.map((i) => i.outside)).toEqual([false, false]);
+    expect(outlineGroups({ ...skid(), trim: [0.4, 1.6] }, LEN).find((x) => x.id === "notes")!.items.map((i) => [i.name, i.outside])).toEqual([["Lock-up", true], ["Release", true]]);
   });
 
   it("makes a marker an Entry (fixed name), and shades the post-exit tail and the pre-entry inside the trim", () => {
@@ -310,15 +375,44 @@ describe("timeline structure", () => {
   });
 });
 
+describe("marker colours, ruler labels and loop labels", () => {
+  it("stores presets as theme series and custom colours as hex, and draws a note in its own colour", () => {
+    expect(colourValue("var(--series-3)")).toBe(3);
+    expect(colourValue("#6AA8FF")).toBe("#6aa8ff");
+    expect(colourValue("var(--accent)")).toBeNull();
+    expect(colourCss(6)).toBe("var(--series-6)");
+    expect(markerColour({ type: "note", color: 2 })).toBe("var(--series-2)");
+    expect(markerColour({ type: "note" })).toBe("var(--marker-note)");
+    expect(markerColour({ type: "exit", color: 2 })).toBe("var(--marker-exit)");
+    expect(MARKER_PRESETS.map((p) => p.name)).toEqual(["Amber", "Cyan", "Green", "Violet"]);
+  });
+
+  it("labels ruler ticks in short seconds and loops with their direction, count and file mark", () => {
+    expect([0, 0.3, 2.6, 12, 75, 90.5].map(shortSeconds)).toEqual(["0", "0.3 s", "2.6 s", "12 s", "1:15", "1:30.5"]);
+    const e = skid();
+    expect(loopLabel(e, e.loops[0])).toBe("▪ ↻ Loop 1");
+    expect(loopLabel(e, { ...e.loops[0], file: null, direction: "pingPong", count: 2 })).toBe("↔ Loop 1 ×2");
+    expect(loopLabel(e, { ...e.loops[0], end: e.loops[0].start })).toBe("Hold 1");
+  });
+});
+
 describe("tap tempo", () => {
-  it("averages the last 8 intervals and resets after a 2 s pause", () => {
+  it("averages the last 8 intervals and resets after a pause over 2.5 s (spec §4.1.5)", () => {
     let taps: number[] = [];
     for (let i = 0; i < 12; i++) taps = addTap(taps, i * 500);
     expect(taps).toHaveLength(9);
     expect(tapResult(taps)).toEqual({ bpm: 120, steadiness: "steady", taps: 9, usable: true });
-    expect(addTap(taps, 5500 + 2500)).toEqual([8000]);
+    expect(addTap(taps, 5500 + 2400)).toHaveLength(9);
+    expect(addTap(taps, 5500 + 2600)).toEqual([8100]);
     expect(tapResult([0])).toBeNull();
     expect(tapResult([0, 500, 1100, 1500])!.steadiness).toBe("uneven");
+    // The dot strip: each gap against the average, ±15 % at the ends.
+    expect(tapDots([0, 500])).toEqual([]);
+    expect(tapDots([0, 500, 1000, 1500])).toEqual([0.5, 0.5, 0.5]);
+    const dots = tapDots([0, 460, 1000, 1500]); // gaps 460, 540, 500 around a 500 ms mean
+    expect(dots[0]).toBeCloseTo(0.5 - 0.08 / 0.3, 6);
+    expect(dots[1]).toBeCloseTo(0.5 + 0.08 / 0.3, 6);
+    expect(tapDots([0, 100, 1000])).toEqual([0, 1]);
   });
 });
 
@@ -376,9 +470,28 @@ describe("library", () => {
     expect(t.samples).toEqual(["a.wav"]);
     expect(t.folders.map((f) => f.name)).toEqual(["audio", "empty"]);
     expect(t.folders[0].folders.map((f) => f.name)).toEqual(["music", "sfx"]);
-    expect(t.folders[0].folders[1].samples).toEqual(["audio/sfx/door_fork.sample.json", "audio/sfx/door.wav"]); // natural order ignores punctuation
+    // By name without the extension: a fork after what it came from (journeys walk 2, J11.3), named without `.sample.json`.
+    expect(t.folders[0].folders[1].samples).toEqual(["audio/sfx/door.wav", "audio/sfx/door_fork.sample.json"]);
+    expect(t.folders[0].folders[1].samples.map(sampleName)).toEqual(["door.wav", "door_fork"]);
     expect(allSamples(t)).toHaveLength(4);
     expect(searchSamples(files, "DOOR")).toEqual(["audio/sfx/door.wav", "audio/sfx/door_fork.sample.json"]);
+  });
+
+  it("leaves flattened renders out (they are source versions) and the game's own folders out of the pickers", () => {
+    const withRender = [...files, "audio/sfx/door.flat1.wav"];
+    expect(allSamples(libraryTree(withRender, folders))).not.toContain("audio/sfx/door.flat1.wav");
+    expect(searchSamples(withRender, "door")).not.toContain("audio/sfx/door.flat1.wav");
+    expect(audioFolders(["audio", "audio/sfx", "scenes", "scripts", ".myco", "mine"], ["audio/sfx/door.wav", "scenes/a.scene.json"])).toEqual(["audio", "audio/sfx", "mine"]);
+    expect(audioFolders(["scripts", "scripts/vo"], ["scripts/vo/line.wav"])).toEqual(["scripts", "scripts/vo"]);
+  });
+
+  it("lists folders for the folder combo, filtered by path, with a new folder to make", () => {
+    const fs = ["Vehicles", "Vehicles/HoverBike", "Props"];
+    expect(folderChoices(fs, "")).toEqual({ folders: ["", "Props", "Vehicles", "Vehicles/HoverBike"], create: null });
+    expect(folderChoices(fs, "hover")).toEqual({ folders: ["Vehicles/HoverBike"], create: "hover" });
+    expect(folderChoices(fs, "Vehicles › Hover")).toEqual({ folders: ["Vehicles/HoverBike"], create: "Vehicles/Hover" });
+    expect(folderChoices(fs, "props")).toEqual({ folders: ["Props"], create: null });
+    expect(cleanPath(" Props / Doors /")).toBe("Props/Doors");
   });
 
   it("writes meta lines and the file chip", () => {
@@ -422,15 +535,61 @@ describe("baked effects chain", () => {
   });
 });
 
+describe("effects menu, summaries and Freeze", () => {
+  it("groups the sample-level effects by category, searches them, and summarises a row", () => {
+    const cats = effectCategories(["eq", "compressor", "fades", "noiseReduction", "reverse", "gain"]);
+    expect(cats.map((c) => [c.name, c.types])).toEqual([["Dynamics", ["compressor", "gain"]], ["EQ & filter", ["eq"]], ["Envelope", ["fades"]], ["Pitch & time", ["reverse"]], ["Restoration", ["noiseReduction"]]]);
+    expect(effectCategories(["eq", "chorus"]).map((c) => c.name)).toEqual(["EQ & filter", "Other"]);
+    expect(searchEffects(["eq", "compressor", "noiseReduction"], "re")).toEqual([{ type: "compressor", category: "Dynamics" }, { type: "noiseReduction", category: "Restoration" }]);
+    expect(effectSummary({ type: "compressor", params: { threshold: -18, ratio: 3, attack: 10 } })).toBe("Threshold −18 dB · Ratio 3:1 · Attack 10 ms");
+    expect(effectSummary({ type: "reverse", params: {} })).toBe("whole sample");
+  });
+
+  it("freezes and unfreezes the chain, one step each", () => {
+    const f = freezeEdit(defaultSampleEdits());
+    expect(f).toMatchObject({ label: "Freeze", next: { frozen: true } });
+    expect(freezeEdit(f.next)).toMatchObject({ label: "Unfreeze", next: { frozen: false } });
+  });
+});
+
 describe("play plans", () => {
   it("plays the selection by its kind and the whole-sample modes", () => {
     const e = skid();
-    expect(planPlay(e, LEN, { kind: "loop", id: "l1" }, "selection", 0)).toMatchObject({ from: 0.45, to: 1.55, loop: { count: 0, crossfadeMs: 35 }, scope: "Loop" });
-    expect(planPlay(e, LEN, { kind: "marker", id: "m1" }, "selection", 0)).toMatchObject({ from: 0.3, to: LEN, loop: null });
-    expect(planPlay(e, LEN, { kind: "sample" }, "whole", 1)).toMatchObject({ from: 0, to: LEN, scope: "Whole sample" });
+    expect(planPlay(e, LEN, { kind: "loop", id: "l1" }, "selection", 0)).toMatchObject({ from: 0.45, to: 1.55, loop: { count: 0, crossfadeMs: 35 }, scope: "Loop 1" });
+    expect(planPlay(e, LEN, { kind: "marker", id: "m1" }, "selection", 0)).toMatchObject({ from: 0.3, to: LEN, loop: null, scope: "brake_lockup → end" });
+    expect(planPlay({ ...e, loops: [] }, LEN, { kind: "sample" }, "whole", 1)).toMatchObject({ from: 0, to: LEN, scope: "Whole" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "whole", 0)).toMatchObject({ from: 0, to: LEN, held: true, loop: { start: 0.45 }, scope: "Whole" });
     expect(planPlay(e, LEN, { kind: "sample" }, "through", 0)).toMatchObject({ from: 0, to: LEN, held: true, loop: { start: 0.45 } });
     expect(planPlay(e, LEN, { kind: "sample" }, "toNextMarker", 0.31)).toMatchObject({ from: 0.31, to: 0.32, scope: "To Lock-up" });
     expect(planPlay(e, LEN, { kind: "sample" }, "selection", 1)).toMatchObject({ from: 1, scope: "From the playhead" });
     expect(planPlay(e, LEN, { kind: "tail" }, "selection", 0)).toMatchObject({ from: 1.55, to: LEN });
+  });
+
+  it("names the modes as the spec does and plays the music modes, to next exit and from the selection", () => {
+    const e = { ...skid(), markers: [marker("m1", 0.3), { ...marker("x", 2, { type: "exit" as const }) }] };
+    expect(PLAY_MODES.map((m) => m.label)).toEqual(["Selection", "Whole", "Cycle loop", "Pickup → loop", "Loop", "Loop → exit", "To next marker", "To next exit", "To trim end"]);
+    expect(playModeInfo("through").label).toBe("Whole");
+    expect(planPlay(e, LEN, { kind: "sample" }, "loop", 0)).toMatchObject({ from: 0.45, to: 1.55, held: false, scope: "Cycle loop" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "pickupLoop", 0)).toMatchObject({ from: 0, to: 1.55, loop: null, scope: "Pickup → loop" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "heldLoop", 0)).toMatchObject({ from: 0.45, to: 1.55, held: true, scope: "Loop" });
+    expect(planPlay(e, LEN, { kind: "sample" }, "loopExit", 0)).toMatchObject({ from: 0.45, to: LEN, held: true, scope: "Loop → exit" });
+    expect(planPlay(e, LEN, { kind: "marker", id: "m1" }, "toNextExit", 0)).toMatchObject({ from: 0.3, to: 2, scope: "To next exit" });
+    expect(planPlay(e, LEN, { kind: "marker", id: "m1" }, "toEnd", 0)).toMatchObject({ from: 0.3, to: LEN, scope: "To trim end" });
+    expect(playModeRefusal(skid(), "toNextExit")).toBe("no exits");
+    expect(playModeRefusal({ ...skid(), loops: [] }, "loop")).toBe("no loops");
+    expect(playModeRefusal(e, "toNextExit")).toBeNull();
+    expect(showsMusicModes(skid())).toBe(false);
+    expect(showsMusicModes({ ...skid(), kind: "music" })).toBe(true);
+  });
+
+  it("plays across a seam: the window before the loop's end, then the window after its start, and no more", () => {
+    const e = skid(); // loop l1 0.45–1.55 s: the window is 1.1 / 6 s, clamped to 120 ms
+    const p = planSeam(e, "l1")!;
+    expect(p.from).toBeCloseTo(1.43, 9);
+    expect(p.to).toBeCloseTo(0.57, 9);
+    expect(p).toMatchObject({ loop: { start: 0.45, end: 1.55, count: 2, crossfadeMs: 35 }, held: false });
+    expect(planSeam(e, "gone")).toBeNull();
+    const short = { ...e, loops: [loop("s", 1, 1.06)] }; // 60 ms: the window can't pass the middle
+    expect(planSeam(short, "s")).toMatchObject({ from: 1.03, to: 1.03 });
   });
 });

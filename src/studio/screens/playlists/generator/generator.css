@@ -1,0 +1,53 @@
+/* The Generator editor (ADR 0360 §9, 0349): theme tokens only, so Settings > Appearance themes it. */
+.gen-editor { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; min-height: 0; overflow: auto; outline: none; }
+.gen-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gen-title { margin: 0; font-size: calc(15px * var(--ui-scale, 1)); color: var(--text-strong); flex: 1; min-width: 8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gen-where { color: var(--muted); }
+.gen-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gen-tools label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
+.gen-tools select, .gen-tools input[type="text"] { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; }
+.gen-seed { width: 8.5em; font-variant-numeric: tabular-nums; }
+.gen-seed.invalid { border-color: var(--danger); }
+.gen-tools button, .gen-audition button { background: var(--button); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 3px 10px; cursor: pointer; }
+.gen-tools button:hover:not(:disabled), .gen-audition button:hover:not(:disabled) { background: var(--button-hover); }
+.gen-tools button:disabled, .gen-audition button:disabled { opacity: 0.55; cursor: not-allowed; }
+.gen-play.on { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+
+.gen-badge { display: inline-flex; align-items: center; gap: 3px; }
+.gen-icon { width: 1.1em; height: 1.1em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+
+.gen-preview { margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.gen-preview.busy .tl-wave { opacity: 0.6; }
+.gen-envelope { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.gen-envelope polyline { fill: none; stroke: var(--accent2); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.gen-keyoff { stroke: var(--muted); stroke-dasharray: 3 3; stroke-width: 1; vector-effect: non-scaling-stroke; }
+
+.gen-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; align-items: start; }
+.gen-group { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin: 0; min-width: 0; }
+.gen-group legend { color: var(--muted); padding: 0 4px; font-size: calc(12px * var(--ui-scale, 1)); text-transform: uppercase; letter-spacing: 0.04em; }
+.gen-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 4px; }
+.gen-row.no-lock { grid-template-columns: minmax(0, 1fr) auto; }
+.gen-readout { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 5.5em; text-align: right; font-size: calc(12px * var(--ui-scale, 1)); }
+.gen-lock { background: none; border: 1px solid transparent; border-radius: 4px; color: var(--faint); cursor: pointer; padding: 0; width: 22px; height: 22px; line-height: 1; }
+.gen-lock:hover:not(:disabled) { color: var(--text); border-color: var(--border); }
+.gen-lock.on { color: var(--accent); }
+.gen-lock:disabled { cursor: not-allowed; opacity: 0.5; }
+.gen-row .studio-param { min-width: 0; }
+
+.gen-audition { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.gen-keys { display: inline-flex; position: relative; height: 64px; user-select: none; }
+.gen-keys.disabled { opacity: 0.55; }
+.gen-key { position: relative; width: 26px; height: 64px; margin-right: 1px; background: var(--text); color: var(--bg); border: 1px solid var(--border-strong); border-radius: 0 0 4px 4px; padding: 0; display: flex; align-items: flex-end; justify-content: center; cursor: pointer; z-index: 1; }
+.gen-key.black { width: 18px; height: 40px; margin: 0 -9px 0 -10px; background: var(--bg); color: var(--muted); z-index: 2; }
+.gen-key.on { background: var(--accent); color: var(--accent-text); }
+.gen-key:disabled { cursor: not-allowed; }
+.gen-key-label { font-size: calc(10px * var(--ui-scale, 1)); padding-bottom: 3px; pointer-events: none; }
+
+.gen-provenance { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gen-provenance .smp-link:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.gen-lib-row { display: flex; align-items: center; gap: 6px; }
+.gen-new { position: relative; }
+.gen-fields { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; }
+.gen-fields input[type="number"], .gen-fields input[type="text"] { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; width: 8em; }
+.gen-off-reason { color: var(--warning); }

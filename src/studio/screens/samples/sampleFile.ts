@@ -118,20 +118,31 @@ export function changedCount(e: SampleEdits): number {
 
 // --- Write to file… -------------------------------------------------------------------------------------------------
 
+/** "1 cue", "2 cues", "0 loops". */
+const count = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+/** The toast after Write to file: "Wrote brake_skid.wav · 2 cues, 0 regions and 1 loop (backup kept)". */
+export function wroteText(file: string, r: { readonly cues: number; readonly regions: number; readonly loops: number }): string {
+  return `Wrote ${file} · ${count(r.cues, "cue")}, ${count(r.regions, "region")} and ${count(r.loops, "loop")} (backup kept)`;
+}
+
 export interface WriteSummaryRow {
   readonly what: string;
   readonly chunks: string;
 }
 
-/** What "Write to file…" will write (its review lists it). Exit, Hit point and Cue markers stay in the sidecar. */
-export function writeSummary(e: SampleEdits): { rows: WriteSummaryRow[]; keptInSidecar: number } {
+/**
+ * What "Write to file…" will write (its review lists it). Exit, Hit point and Cue markers stay in the sidecar. `file` is
+ * what the WAV holds now, when known: a row says it removes a chunk's content only when the file has some.
+ */
+export function writeSummary(e: SampleEdits, file?: { readonly loops: number; readonly tempo: boolean }): { rows: WriteSummaryRow[]; keptInSidecar: number } {
   const points = e.markers.filter((m) => m.type === "note" && m.end === undefined).length;
   const ranges = e.markers.filter((m) => m.type === "note" && m.end !== undefined).length;
   const rows: WriteSummaryRow[] = [
     { what: `${points} cue point${points === 1 ? "" : "s"}`, chunks: "cue + labl + note" },
     { what: `${ranges} region${ranges === 1 ? "" : "s"}`, chunks: "ltxt" },
-    { what: e.loops.length ? `${e.loops.length} loop${e.loops.length === 1 ? "" : "s"}` : "Removes the smpl loops", chunks: "smpl" },
-    { what: e.tempo ? `Tempo ${e.tempo.bpm} BPM ${e.tempo.meter}` : "No tempo (removes acid)", chunks: "acid" },
+    { what: e.loops.length ? `${e.loops.length} loop${e.loops.length === 1 ? "" : "s"}` : file?.loops === 0 ? "No loops" : `No loops (removes the file's ${file ? count(file.loops, "loop") : "loops"})`, chunks: "smpl" },
+    { what: e.tempo ? `Tempo ${e.tempo.bpm} BPM ${e.tempo.meter}` : file && !file.tempo ? "No tempo" : "No tempo (removes the file's tempo)", chunks: "acid" },
     { what: e.root ? `Root note ${e.root.note}${e.root.cents ? ` ${e.root.cents > 0 ? "+" : ""}${e.root.cents} ct` : ""}` : "No root note", chunks: "smpl" },
   ];
   return { rows, keptInSidecar: e.markers.filter((m) => m.type !== "note").length };
@@ -193,15 +204,27 @@ export function mergeRows(e: SampleEdits, now: WavMetadata): MergeRow[] {
     rows.push({ key, kind: "marker", title: `Removed from the file`, detail: `${pm.name} at ${fmtS(pm.at)}`, conflict: markerDiff(pm).length > 0, options: ["project", "file"], choice: "project", id: pm.id });
   }
   const projectLoops = new Map(e.loops.filter((l) => l.file).map((l) => [l.file!.index, l]));
+  // Loops a sidecar holds without a file snapshot (written before snapshots were kept): a file loop overlapping one
+  // is that loop, its own bounds standing in for what the file last said, rather than a new loop.
+  const untracked = e.loops.filter((l) => !l.file);
+  const overlap = (a: { start: number; end: number }, b: { start: number; end: number }) => Math.min(a.end, b.end) - Math.max(a.start, b.start);
   for (const fl of file.loops) {
     const idx = fl.file!.index;
-    const pl = projectLoops.get(idx);
+    let pl = projectLoops.get(idx);
+    let was: { start: number; end: number; direction: string; count: number } | undefined = pl?.file ?? undefined;
     if (!pl) {
+      const twin = untracked.filter((l) => overlap(l, fl) > 0).sort((a, b) => overlap(b, fl) - overlap(a, fl))[0];
+      if (twin) {
+        untracked.splice(untracked.indexOf(twin), 1);
+        pl = twin;
+        was = { start: twin.start, end: twin.end, direction: twin.direction, count: twin.count };
+      }
+    }
+    if (!pl || !was) {
       rows.push({ key: `smpl:${idx}`, kind: "loop", title: "New loop", detail: `${fmtS(fl.start)} – ${fmtS(fl.end)}`, conflict: false, options: ["add", "skip"], choice: "add", fileLoop: fl });
       continue;
     }
     projectLoops.delete(idx);
-    const was = pl.file!;
     const startMoved = !near(was.start, fl.start), endMoved = !near(was.end, fl.end);
     if (!startMoved && !endMoved && was.direction === fl.direction && was.count === fl.count) continue;
     const edited = loopDiff(pl).length > 0;

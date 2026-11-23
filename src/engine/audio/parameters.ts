@@ -18,12 +18,28 @@ export interface NumericParameter {
   seekSpeed: number;
 }
 
-/** A labelled parameter (a "state"): one of `labels`; it always jumps. Its numeric value is the label's index. */
+/**
+ * A labelled parameter (a "state"): one of `labels`; it always jumps. Its numeric value is the label's index. Two
+ * typed forms read the same way (the core sees the index), so every reader of labels handles them unchanged:
+ * - `type: "bool"` (true / false): its labels are always `["false", "true"]` (index 0 / 1);
+ * - `type: "text"`: a value the game sends as text; `labels` are the values known so far (the Studio tests with them),
+ *   and conditions may also match part of the text (contains, starts with).
+ */
 export interface LabelledParameter {
   name: string;
   labels: string[];
   default: string;
+  type?: "bool" | "text";
 }
+
+/** The labels of a true / false parameter, false first (its value is 0 or 1). */
+export const BOOL_LABELS: readonly ["false", "true"] = ["false", "true"];
+
+/** What kind of value a parameter holds, as the Studio names it beside each parameter it lists. */
+export type ParameterKind = "number" | "state" | "bool" | "text";
+export const parameterKind = (p: ParameterDef): ParameterKind => (!isLabelled(p) ? "number" : p.type === "bool" ? "bool" : p.type === "text" ? "text" : "state");
+/** The kind in words ("number", "state", "true / false", "text"). */
+export const parameterKindText = (p: ParameterDef): string => ({ number: "number", state: "state", bool: "true / false", text: "text" })[parameterKind(p)];
 
 export type ParameterDef = NumericParameter | LabelledParameter;
 
@@ -67,12 +83,19 @@ export function parseParameters(raw: unknown, where: string, problems: string[],
     if (!isRecord(p) || typeof p.name !== "string" || p.name.trim() === "") return void problems.push(`${w}: name must be a non-empty string; dropped.`);
     if (out.some((o) => o.name === p.name)) return void problems.push(`${w}: another parameter is already named "${p.name}"; dropped.`);
     if (out.length >= limit) return void problems.push(`${w}: at most ${limit} parameters; dropped.`);
-    if (p.labels !== undefined) {
-      const labels = Array.isArray(p.labels) ? [...new Set(p.labels.filter((l): l is string => typeof l === "string" && l !== ""))] : [];
+    if (p.type !== undefined && p.type !== "bool" && p.type !== "text") problems.push(`${w}.type: must be "bool" or "text"; ignored.`);
+    if (p.type === "bool") {
+      const def = p.default === true || p.default === "true" ? "true" : "false";
+      return void out.push({ name: p.name, labels: [...BOOL_LABELS], default: def, type: "bool" });
+    }
+    if (p.labels !== undefined || p.type === "text") {
+      const text = p.type === "text";
+      const labels = Array.isArray(p.labels) ? [...new Set(p.labels.filter((l): l is string => typeof l === "string" && (text || l !== "")))] : [];
+      if (text && labels.length === 0) labels.push(typeof p.default === "string" ? p.default : "");
       if (labels.length === 0) return void problems.push(`${w}: labels must be a list of names; dropped.`);
       let def = typeof p.default === "string" ? p.default : labels[0]!;
       if (!labels.includes(def)) { problems.push(`${w}: default "${def}" is not one of its labels; using "${labels[0]}".`); def = labels[0]!; }
-      return void out.push({ name: p.name, labels, default: def });
+      return void out.push(text ? { name: p.name, labels, default: def, type: "text" } : { name: p.name, labels, default: def });
     }
     let min = num(p.min, `${w}.min`, 0, problems), max = num(p.max, `${w}.max`, 1, problems);
     if (min > max) { problems.push(`${w}: min was above max; swapped.`); [min, max] = [max, min]; }

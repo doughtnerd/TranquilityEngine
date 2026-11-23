@@ -74,9 +74,10 @@ export const Brake: Story = {
     await expect(c.getByRole("toolbar", { name: "Sequence tools" })).toBeVisible();
     await expect(c.getByRole("button", { name: "Clip brake_skid" })).toBeVisible();
     await expect(c.getByText("P brake > 0.10")).toBeVisible();
-    await expect(c.getByText("follows")).toBeVisible();
+    // Music B overlaps Music on a parallel track: both are Sync to the sequence clock, so neither follows (decision 4).
+    await expect(c.queryByText("follows")).toBeNull();
     await expect(c.getByRole("button", { name: "Marker Drop" })).toBeVisible();
-    await expect(c.getByRole("button", { name: /Hold point at 1\.60/ })).toBeVisible();
+    await expect(c.getByRole("button", { name: /Hold 1 at 1\.60/ })).toBeVisible();
   },
 };
 
@@ -87,7 +88,7 @@ export const AddTrackAndLoop: Story = {
     await userEvent.click(within(canvasElement.ownerDocument.body).getByRole("menuitem", { name: /Playlist track/ }));
     await expect(c.getByText("Playlist 2")).toBeVisible();
     await userEvent.click(c.getByRole("button", { name: "Add loop" }));
-    await expect(c.getByRole("button", { name: /Loop 0\.00–2\.00 s/ })).toBeVisible();
+    await expect(c.getByRole("button", { name: /Loop 1 0\.00–2\.00 s/ })).toBeVisible();
   },
 };
 
@@ -96,27 +97,57 @@ export const WithInspector: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await userEvent.click(c.getByRole("button", { name: "Clip brake_skid" }));
-    await expect(c.getByText("Override")).toBeVisible();
-    await expect(c.getByRole("button", { name: "Use sample loop settings" })).toBeVisible();
-    await userEvent.click(c.getByRole("button", { name: "Use sample loop settings" }));
-    await expect(c.getByText("Inherited")).toBeVisible();
+    await expect(c.getAllByText("Override")[0]!).toBeVisible();
+    await expect(c.getByRole("button", { name: "Use the sample's settings" })).toBeVisible();
+    await userEvent.click(c.getByRole("button", { name: "Use the sample's settings" }));
+    await expect(c.getAllByText("Inherited")[0]!).toBeVisible();
   },
 };
 
+/** A Sync clip chained over the end of another on its own track (Music B's clip moved onto Music): the only case that follows (decision 4). */
+const chained = (() => {
+  const s = fixtureSequence();
+  const [skid, music, musicB, stingers] = s.tracks;
+  return fixtureBody({ ...s, tracks: [skid!, { ...music!, clips: [...music!.clips, { ...musicB!.clips[0]!, at: 4, length: 2 }] }, stingers!] });
+})();
+
 export const FollowsAndMakeAsync: Story = {
+  args: { inspector: true, body: chained },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByText("follows")).toBeVisible();
+    await userEvent.click(c.getAllByRole("button", { name: "Clip music_loop" })[1]!);
+    await expect(await c.findByText(/Follows Music · music_loop/)).toBeVisible();
+    await userEvent.click(c.getByRole("button", { name: "Make Async" }));
+    await expect(c.queryByText("⚠ follows")).toBeNull();
+  },
+};
+
+/** W-7: the skid's volume envelope ends on a key at the clip's right edge; dragging that edge still sets the length. */
+export const TrimEndOverCurveKey: Story = {
   args: { inspector: true },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getAllByRole("button", { name: "Clip music_loop" })[1]!);
-    await userEvent.click(c.getByRole("button", { name: "Make Async" }));
-    await expect(c.queryByText("⚠ follows")).toBeNull();
+    const clip = c.getByRole("button", { name: "Clip brake_skid" });
+    const box = clip.getBoundingClientRect();
+    const end = clip.querySelectorAll(".sq-key")[3]!.getBoundingClientRect(); // [3, -24] at the clip's end
+    const x = box.right - 3, y = end.top + end.height / 2;
+    const target = canvasElement.ownerDocument.elementFromPoint(x, y)!;
+    await expect(target).toHaveClass("sq-edge");
+    const at = (dx: number) => ({ bubbles: true, cancelable: true, button: 0, pointerId: 1, clientX: x + dx, clientY: y });
+    target.dispatchEvent(new PointerEvent("pointerdown", at(0)));
+    target.dispatchEvent(new PointerEvent("pointermove", at(-40)));
+    target.dispatchEvent(new PointerEvent("pointerup", at(-40)));
+    await userEvent.click(clip);
+    const length = (await c.findByLabelText("Clip length")) as HTMLInputElement;
+    await expect(length.value).not.toBe("00:03.000");
   },
 };
 
 export const Empty: Story = {
   args: { body: fixtureBody({ length: 0, tempo: null, tracks: [], loops: [], markers: [] }) },
   play: async ({ canvasElement }) => {
-    await expect(within(canvasElement).getByText(/Drop a sample from the Library here/)).toBeVisible();
+    await expect(within(canvasElement).getByText(/No tracks/)).toBeVisible();
   },
 };
 
@@ -128,5 +159,40 @@ export const ReadOnly: Story = {
   args: { writable: false },
   play: async ({ canvasElement }) => {
     await expect(within(canvasElement).getByRole("button", { name: "Add loop" })).toBeDisabled();
+  },
+};
+
+
+/** Right-click on a clip opens the clip's menu, not the lane's under it (the lane's menu is for its empty space). */
+export const ClipMenu: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const page = within(canvasElement.ownerDocument.body);
+    await userEvent.pointer({ keys: "[MouseRight]", target: c.getByRole("button", { name: "Clip brake_skid" }) });
+    await expect(page.getByRole("menu", { name: "Clip" })).toBeVisible();
+    await expect(page.queryByRole("menu", { name: "Lane" })).toBeNull();
+    await expect(page.getByRole("menuitem", { name: /^Copy/ })).toBeVisible();
+    await userEvent.keyboard("{Escape}");
+    await expect(page.queryByRole("menu", { name: "Clip" })).toBeNull();
+  },
+};
+
+/** ADR 0362: the Amp envelope's defaults (Hold 0, a short decay to a full sustain) keep Attack, Hold and Decay apart, so each can be grabbed. */
+const withEnvelope = (() => {
+  const s = fixtureSequence();
+  const [skid, ...rest] = s.tracks;
+  const clips = skid!.clips.map((c, i) => (i === 0 ? { ...c, effects: [...c.effects, { id: "env1", type: "envelope" as const, on: true, params: { attack: 5, hold: 0, decay: 100, sustain: 100, release: 200 } }] } : c));
+  return fixtureBody({ ...s, tracks: [{ ...skid!, clips }, ...rest] });
+})();
+
+export const EnvelopeHoldAtZero: Story = {
+  args: { body: withEnvelope },
+  play: async ({ canvasElement }) => {
+    const handle = (name: string) => [...canvasElement.querySelectorAll<HTMLElement>(".sq-adsr-handle")].find((h) => h.title.startsWith(name))!;
+    for (const name of ["Attack", "Hold", "Decay"]) {
+      const box = handle(name).getBoundingClientRect();
+      // What a press at the handle's centre lands on: the handle itself.
+      await expect(canvasElement.ownerDocument.elementFromPoint(box.left + box.width / 2, box.top + box.height / 2)).toBe(handle(name));
+    }
   },
 };

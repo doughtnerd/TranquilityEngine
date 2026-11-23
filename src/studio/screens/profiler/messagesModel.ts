@@ -22,6 +22,8 @@ export interface ProfilerMessage {
   readonly voice: string | null;
   /** Where it came from (a voice, a loudness mark, a marker, a note, the capture itself). */
   readonly source: "voice" | "loudness" | "marker" | "note" | "capture";
+  /** The bus it is about (a voice's bus, a loudness mark's), for "Open in Mixer ›" (spec §3.2: links carry the object); else null. */
+  readonly bus: string | null;
 }
 
 /** A loudness mark on the viewport axis (`LoudnessSource.marks`) with its bus named. */
@@ -54,6 +56,16 @@ const METRIC_TEXT: Readonly<Record<LoudnessWarning["metric"], string>> = { integ
 
 const RANK: Readonly<Record<MessageKind, number>> = { error: 0, warning: 1, info: 2 };
 
+/** The messages whose text or kind holds every word of `query` (case-insensitive); all of them for an empty query. */
+export function searchMessages(messages: readonly ProfilerMessage[], query: string): ProfilerMessage[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [...messages];
+  return messages.filter((m) => {
+    const hay = `${m.text} ${KIND_TEXT[m.kind]}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+}
+
 /** The loudness mark as a sentence: `Master over the target (short-term) for 2.400 s`. */
 export function loudnessText(w: LoudnessWarning): string {
   const length = w.to > w.from ? ` for ${formatSeconds(w.to - w.from)}` : "";
@@ -63,14 +75,14 @@ export function loudnessText(w: LoudnessWarning): string {
 /** Every message, sorted by time, then kind (errors first), then text. */
 export function buildMessages(input: MessageInput): ProfilerMessage[] {
   const out: ProfilerMessage[] = [];
-  if (input.truncated) out.push({ key: "capture.truncated", kind: "info", time: 0, text: "The ring wrapped: this capture starts at a later keyframe, not at the start of the run.", voice: null, source: "capture" });
+  if (input.truncated) out.push({ key: "capture.truncated", kind: "info", time: 0, text: "The ring wrapped: this capture starts at a later keyframe, not at the start of the run.", voice: null, source: "capture", bus: null });
   for (const b of input.voices) {
     if (!isProblem(b)) continue;
-    out.push({ key: `voice.${b.key}`, kind: STATUS_SEVERITY[b.status] === "error" ? "error" : "warning", time: b.status === "stolen" || b.status === "failed" ? b.end : b.start, text: voiceSummary(b), voice: b.key, source: "voice" });
+    out.push({ key: `voice.${b.key}`, kind: STATUS_SEVERITY[b.status] === "error" ? "error" : "warning", time: b.status === "stolen" || b.status === "failed" ? b.end : b.start, text: voiceSummary(b), voice: b.key, source: "voice", bus: b.busName || null });
   }
-  (input.loudness ?? []).forEach((w, i) => out.push({ key: `loudness.${i}`, kind: "warning", time: w.from, text: loudnessText(w), voice: null, source: "loudness" }));
-  (input.markers ?? []).forEach((m, i) => out.push({ key: `marker.${i}`, kind: "info", time: m.time, text: `Marker: ${m.text}`, voice: null, source: "marker" }));
-  (input.notes ?? []).forEach((n, i) => out.push({ key: `note.${i}`, kind: n.kind ?? "info", time: n.time, text: n.text, voice: null, source: "note" }));
+  (input.loudness ?? []).forEach((w, i) => out.push({ key: `loudness.${i}`, kind: "warning", time: w.from, text: loudnessText(w), voice: null, source: "loudness", bus: w.busName || null }));
+  (input.markers ?? []).forEach((m, i) => out.push({ key: `marker.${i}`, kind: "info", time: m.time, text: `Marker: ${m.text}`, voice: null, source: "marker", bus: null }));
+  (input.notes ?? []).forEach((n, i) => out.push({ key: `note.${i}`, kind: n.kind ?? "info", time: n.time, text: n.text, voice: null, source: "note", bus: null }));
   return out.sort((a, b) => a.time - b.time || RANK[a.kind] - RANK[b.kind] || a.text.localeCompare(b.text));
 }
 

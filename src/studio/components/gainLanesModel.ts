@@ -14,15 +14,16 @@ export type GainLaneKey = "authored" | "runtime" | "snapshot" | "vca" | "monitor
 
 export const GAIN_LANE_ORDER: readonly GainLaneKey[] = ["authored", "runtime", "snapshot", "vca", "monitor", "dip", "duck", "automation"];
 
+/** The stages as the spec names them (§4.3.5: "authored", then each lane by its kind). */
 const LABEL: Record<GainLaneKey, string> = {
-  authored: "Fader",
-  runtime: "Runtime",
-  snapshot: "Snapshot",
-  vca: "VCA",
-  monitor: "Monitor",
-  dip: "Dip",
-  duck: "Duck",
-  automation: "Automation",
+  authored: "authored",
+  runtime: "runtime",
+  snapshot: "snapshot",
+  vca: "vca",
+  monitor: "monitor",
+  dip: "dip",
+  duck: "duck",
+  automation: "automation",
 };
 
 const HINT: Record<GainLaneKey, string> = {
@@ -61,6 +62,8 @@ export interface GainLane {
   readonly neutral: boolean;
   /** What it is ("Gameplay SFX, All voice", "muted", "solo on Dialogue"). */
   readonly note: string;
+  /** Who sets it, appended to its label ("snapshot · Underwater", "vca · Gameplay SFX"); absent when none is named. */
+  readonly source?: string;
 }
 
 export interface GainBreakdown {
@@ -118,17 +121,19 @@ const sum = (xs: readonly number[]) => xs.reduce(add, 0);
 function lanesOf(inputs: GainInputs, nodes: ReadonlyMap<string, Node>, name: string, withVca: boolean): GainLane[] {
   const node = nodes.get(name)!;
   const live = inputs.live?.[name] ?? {};
-  const lane = (key: GainLaneKey, db: number, note = ""): GainLane => ({ key, label: LABEL[key], db, neutral: db === 0, note: note || (db === 0 ? "neutral" : HINT[key]) });
+  const lane = (key: GainLaneKey, db: number, note = "", source?: string): GainLane => ({ key, label: LABEL[key], db, neutral: db === 0, note: note || (db === 0 ? "neutral" : HINT[key]), ...(source && db !== 0 ? { source } : {}) });
   const silent = node.mute || node.volumeDb <= MIN_DB;
   const lanes: GainLane[] = [lane("authored", silent ? -Infinity : node.volumeDb, node.mute ? "muted" : silent ? "at the floor" : HINT.authored)];
   lanes.push(lane("runtime", live.runtime ?? 0));
   const snap = live.snapshot ?? inputs.snapshot?.buses[name] ?? 0;
-  lanes.push(lane("snapshot", snap, snap !== 0 && inputs.snapshot && live.snapshot === undefined ? inputs.snapshot.name : ""));
+  const snapName = snap !== 0 && inputs.snapshot && live.snapshot === undefined ? inputs.snapshot.name : "";
+  lanes.push(lane("snapshot", snap, snapName, snapName || undefined));
   if (withVca) {
     const line = new Set([name, ...ancestorsOf(nodes, name)]);
     const vcas = (inputs.vcas ?? []).filter((v) => v.members.some((m) => line.has(m)));
     const db = sum(vcas.map((v) => (v.volumeDb <= MIN_DB ? -Infinity : v.volumeDb)));
-    lanes.push(lane("vca", db, vcas.length > 0 ? vcas.map((v) => v.name).join(", ") : ""));
+    const names = vcas.map((v) => v.name).join(", ");
+    lanes.push(lane("vca", db, names, names || undefined));
   }
   const soloSilenced = !audibleUnderSolo(inputs, name, inputs.solo);
   const monitor = soloSilenced ? -Infinity : (live.monitor ?? 0);
@@ -172,3 +177,12 @@ export function dbText(db: number): string {
 
 /** A linear gain as text ("× 0.158"). */
 export const gainText = (gain: number): string => `× ${gain === 0 ? "0" : gain.toFixed(3)}`;
+
+/** What you hear, as the total reads it: "−10.0 dB · 0.32×", or "−∞ (monitor)" when a solo silences it. */
+export function totalText(b: Pick<GainBreakdown, "totalDb" | "gain" | "lanes">): string {
+  if (b.totalDb === -Infinity) return b.lanes.some((l) => l.key === "monitor" && l.db === -Infinity) ? "−∞ (monitor)" : "−∞";
+  return `${dbText(b.totalDb)} · ${b.gain.toFixed(2)}×`;
+}
+
+/** The levels above as a chain ("SFX −2.0 · Master 0.0"), nearest first. */
+export const parentsText = (b: Pick<GainBreakdown, "parents">): string => b.parents.map((p) => `${p.name} ${p.db === -Infinity ? "−∞" : `${p.db < 0 ? "−" : p.db > 0 ? "+" : ""}${Math.abs(Math.round(p.db * 10) / 10).toFixed(1)}`}`).join(" · ");

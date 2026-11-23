@@ -32,7 +32,9 @@ export const Caption: StoryObj = {
   render: () => <Demo />,
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    const key = c.getByRole("textbox", { name: "Caption key" });
+    // The Caption section starts closed while the playlist has no caption: open it.
+    await userEvent.click(c.getByText("Caption", { selector: ".kit-section-title" }));
+    const key = c.getByRole("combobox", { name: "Caption key" }) /* an input with a list of keys */;
     await userEvent.type(key, "cc.engine_starts{Enter}");
     await waitFor(() => expect(c.getByLabelText("Caption")).toHaveTextContent("cc.engine_starts / 0"));
     const gap = c.getByRole("textbox", { name: "Caption gap" });

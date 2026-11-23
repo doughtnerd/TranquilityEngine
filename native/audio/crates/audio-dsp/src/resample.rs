@@ -52,6 +52,12 @@ pub struct Source<'a> {
     pub channels: u32,
     /// Frames in the clip; `samples` holds at least `frames * channels` values.
     pub frames: u32,
+    /// ADR 0362 (reverse clips): the clip is read backwards. Every position, region and edge is then counted from the
+    /// clip's **end** (position 0 reads its last frame, `frames - 1` its first), so the position arithmetic, loop
+    /// regions and edges are unchanged and only the reads are mirrored: a reversed read of frame `j` is the forward
+    /// read of frame `frames - 1 - j`, the four neighbours taken in that mirrored order. At whole positions a reversed
+    /// read is the clip's frames in reverse, bit for bit.
+    pub reversed: bool,
 }
 
 #[inline]
@@ -185,11 +191,15 @@ pub fn lagrange(src: &Source<'_>, pos: &mut f64, steps: &[f32], looping: bool, o
         out_r.copy_from_slice(out_l);
         return n;
     }
-    match (src.samples, src.channels == 2) {
-        (Samples::F32(d), false) => render4::<f32, false>(d, src.frames, pos, steps, looping, out_l, out_r),
-        (Samples::F32(d), true) => render4::<f32, true>(d, src.frames, pos, steps, looping, out_l, out_r),
-        (Samples::I16(d), false) => render4::<i16, false>(d, src.frames, pos, steps, looping, out_l, out_r),
-        (Samples::I16(d), true) => render4::<i16, true>(d, src.frames, pos, steps, looping, out_l, out_r),
+    match (src.samples, src.channels == 2, src.reversed) {
+        (Samples::F32(d), false, false) => render4::<f32, false, false>(d, src.frames, pos, steps, looping, out_l, out_r),
+        (Samples::F32(d), true, false) => render4::<f32, true, false>(d, src.frames, pos, steps, looping, out_l, out_r),
+        (Samples::I16(d), false, false) => render4::<i16, false, false>(d, src.frames, pos, steps, looping, out_l, out_r),
+        (Samples::I16(d), true, false) => render4::<i16, true, false>(d, src.frames, pos, steps, looping, out_l, out_r),
+        (Samples::F32(d), false, true) => render4::<f32, false, true>(d, src.frames, pos, steps, looping, out_l, out_r),
+        (Samples::F32(d), true, true) => render4::<f32, true, true>(d, src.frames, pos, steps, looping, out_l, out_r),
+        (Samples::I16(d), false, true) => render4::<i16, false, true>(d, src.frames, pos, steps, looping, out_l, out_r),
+        (Samples::I16(d), true, true) => render4::<i16, true, true>(d, src.frames, pos, steps, looping, out_l, out_r),
     }
 }
 
@@ -231,7 +241,7 @@ fn clamp_edge(j: isize, last: isize) -> usize {
 }
 
 #[inline(always)]
-fn render4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64, steps: &[f32], looping: bool, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
+fn render4<S: Sample, const STEREO: bool, const REV: bool>(data: &[S], frames: u32, pos: &mut f64, steps: &[f32], looping: bool, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
     let len = out_l.len();
     debug_assert!(out_r.len() == len && steps.len() == len);
     let ch = if STEREO { 2 } else { 1 };
@@ -268,14 +278,17 @@ fn render4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64
         let t = (*pos - idx as f64) as f32;
         // The four neighbours: one contiguous window inside the clip (the usual case), else frame by
         // frame through `edge`.
-        let start = idx.wrapping_sub(1).wrapping_mul(ch);
+        // Reversed (ADR 0362): the window is the data's frames `last - idx - 2 ..= last - idx + 1`, read in reverse.
+        let start = if REV { (last - idx).wrapping_sub(2).wrapping_mul(ch) } else { idx.wrapping_sub(1).wrapping_mul(ch) };
         let inside = idx >= 1 && idx + 2 < frames;
+        let dj = |j: usize| if REV { last - j } else { j };
         if STEREO {
             let window: Option<&[S; 8]> = if inside { data.get(start..start + 8).and_then(|s| s.try_into().ok()) } else { None };
             let (xl, xr) = match window {
+                Some(x) if REV => ([x[6].get(), x[4].get(), x[2].get(), x[0].get()], [x[7].get(), x[5].get(), x[3].get(), x[1].get()]),
                 Some(x) => ([x[0].get(), x[2].get(), x[4].get(), x[6].get()], [x[1].get(), x[3].get(), x[5].get(), x[7].get()]),
                 None => {
-                    let j = [edge(idx, -1), idx, edge(idx, 1), edge(idx, 2)];
+                    let j = [edge(idx, -1), idx, edge(idx, 1), edge(idx, 2)].map(dj);
                     (j.map(|j| data[2 * j].get()), j.map(|j| data[2 * j + 1].get()))
                 }
             };
@@ -286,8 +299,9 @@ fn render4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64
         } else {
             let window: Option<&[S; 4]> = if inside { data.get(start..start + 4).and_then(|s| s.try_into().ok()) } else { None };
             let x = match window {
+                Some(x) if REV => [x[3].get(), x[2].get(), x[1].get(), x[0].get()],
                 Some(x) => [x[0].get(), x[1].get(), x[2].get(), x[3].get()],
-                None => [edge(idx, -1), idx, edge(idx, 1), edge(idx, 2)].map(|j| data[j].get()),
+                None => [edge(idx, -1), idx, edge(idx, 1), edge(idx, 2)].map(|j| data[dj(j)].get()),
             };
             // Mono: the same cubic in Horner form (fewer operations for one channel).
             let y = horner(x, t);
@@ -348,17 +362,21 @@ pub fn lagrange_region(src: &Source<'_>, pos: &mut f64, steps: &[f32], start: u3
         out_r.copy_from_slice(out_l);
         return n;
     }
-    match (src.samples, src.channels == 2) {
-        (Samples::F32(d), false) => region4::<f32, false>(d, src.frames, pos, steps, start, end, out_l, out_r),
-        (Samples::F32(d), true) => region4::<f32, true>(d, src.frames, pos, steps, start, end, out_l, out_r),
-        (Samples::I16(d), false) => region4::<i16, false>(d, src.frames, pos, steps, start, end, out_l, out_r),
-        (Samples::I16(d), true) => region4::<i16, true>(d, src.frames, pos, steps, start, end, out_l, out_r),
+    match (src.samples, src.channels == 2, src.reversed) {
+        (Samples::F32(d), false, false) => region4::<f32, false, false>(d, src.frames, pos, steps, start, end, out_l, out_r),
+        (Samples::F32(d), true, false) => region4::<f32, true, false>(d, src.frames, pos, steps, start, end, out_l, out_r),
+        (Samples::I16(d), false, false) => region4::<i16, false, false>(d, src.frames, pos, steps, start, end, out_l, out_r),
+        (Samples::I16(d), true, false) => region4::<i16, true, false>(d, src.frames, pos, steps, start, end, out_l, out_r),
+        (Samples::F32(d), false, true) => region4::<f32, false, true>(d, src.frames, pos, steps, start, end, out_l, out_r),
+        (Samples::F32(d), true, true) => region4::<f32, true, true>(d, src.frames, pos, steps, start, end, out_l, out_r),
+        (Samples::I16(d), false, true) => region4::<i16, false, true>(d, src.frames, pos, steps, start, end, out_l, out_r),
+        (Samples::I16(d), true, true) => region4::<i16, true, true>(d, src.frames, pos, steps, start, end, out_l, out_r),
     }
 }
 
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-fn region4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64, steps: &[f32], start: u32, end: u32, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
+fn region4<S: Sample, const STEREO: bool, const REV: bool>(data: &[S], frames: u32, pos: &mut f64, steps: &[f32], start: u32, end: u32, out_l: &mut [f32], out_r: &mut [f32]) -> usize {
     let len = out_l.len();
     debug_assert!(out_r.len() == len && steps.len() == len);
     let ch = if STEREO { 2 } else { 1 };
@@ -389,7 +407,7 @@ fn region4<S: Sample, const STEREO: bool>(data: &[S], frames: u32, pos: &mut f64
                 clamp_edge(j, last as isize)
             }
         };
-        let j = [at(-1), idx, at(1), at(2)];
+        let j = [at(-1), idx, at(1), at(2)].map(|j| if REV { last - j } else { j });
         if STEREO {
             let w = weights(t);
             let xl = j.map(|j| data[2 * j].get());
@@ -430,11 +448,15 @@ pub fn lagrange_n(src: &Source<'_>, pos: &mut f64, steps: &[f32], looping: bool,
     }
     let out = &mut out[..channels * steps.len()];
     let stride = src.channels as usize;
-    match (src.samples, stride == 1) {
-        (Samples::F32(d), false) => render_n::<f32, false>(d, stride, src.frames, pos, steps, looping, channels, out),
-        (Samples::F32(d), true) => render_n::<f32, true>(d, stride, src.frames, pos, steps, looping, channels, out),
-        (Samples::I16(d), false) => render_n::<i16, false>(d, stride, src.frames, pos, steps, looping, channels, out),
-        (Samples::I16(d), true) => render_n::<i16, true>(d, stride, src.frames, pos, steps, looping, channels, out),
+    match (src.samples, stride == 1, src.reversed) {
+        (Samples::F32(d), false, false) => render_n::<f32, false, false>(d, stride, src.frames, pos, steps, looping, channels, out),
+        (Samples::F32(d), true, false) => render_n::<f32, true, false>(d, stride, src.frames, pos, steps, looping, channels, out),
+        (Samples::I16(d), false, false) => render_n::<i16, false, false>(d, stride, src.frames, pos, steps, looping, channels, out),
+        (Samples::I16(d), true, false) => render_n::<i16, true, false>(d, stride, src.frames, pos, steps, looping, channels, out),
+        (Samples::F32(d), false, true) => render_n::<f32, false, true>(d, stride, src.frames, pos, steps, looping, channels, out),
+        (Samples::F32(d), true, true) => render_n::<f32, true, true>(d, stride, src.frames, pos, steps, looping, channels, out),
+        (Samples::I16(d), false, true) => render_n::<i16, false, true>(d, stride, src.frames, pos, steps, looping, channels, out),
+        (Samples::I16(d), true, true) => render_n::<i16, true, true>(d, stride, src.frames, pos, steps, looping, channels, out),
     }
 }
 
@@ -458,7 +480,7 @@ fn zero_rows_from(out: &mut [f32], len: usize, channels: usize, from: usize) {
 /// channel count (the interleave), `out` is exactly `channels * steps.len()` long.
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-fn render_n<S: Sample, const MONO: bool>(data: &[S], stride: usize, frames: u32, pos: &mut f64, steps: &[f32], looping: bool, channels: usize, out: &mut [f32]) -> usize {
+fn render_n<S: Sample, const MONO: bool, const REV: bool>(data: &[S], stride: usize, frames: u32, pos: &mut f64, steps: &[f32], looping: bool, channels: usize, out: &mut [f32]) -> usize {
     let len = steps.len();
     debug_assert!(out.len() == channels * len);
     // Never read past the samples, whatever `frames` claims.
@@ -490,7 +512,7 @@ fn render_n<S: Sample, const MONO: bool>(data: &[S], stride: usize, frames: u32,
         }
         let idx = (*pos as usize).min(last);
         let t = (*pos - idx as f64) as f32;
-        let j = [edge(idx, -1), idx, edge(idx, 1), edge(idx, 2)];
+        let j = [edge(idx, -1), idx, edge(idx, 1), edge(idx, 2)].map(|j| if REV { last - j } else { j });
         if MONO {
             out[i] = horner(j.map(|j| data[j].get()), t);
         } else {
@@ -522,18 +544,22 @@ pub fn lagrange_region_n(src: &Source<'_>, pos: &mut f64, steps: &[f32], start: 
     }
     let out = &mut out[..channels * steps.len()];
     let stride = src.channels as usize;
-    match (src.samples, stride == 1) {
-        (Samples::F32(d), false) => region_n::<f32, false>(d, stride, src.frames, pos, steps, start, end, channels, out),
-        (Samples::F32(d), true) => region_n::<f32, true>(d, stride, src.frames, pos, steps, start, end, channels, out),
-        (Samples::I16(d), false) => region_n::<i16, false>(d, stride, src.frames, pos, steps, start, end, channels, out),
-        (Samples::I16(d), true) => region_n::<i16, true>(d, stride, src.frames, pos, steps, start, end, channels, out),
+    match (src.samples, stride == 1, src.reversed) {
+        (Samples::F32(d), false, false) => region_n::<f32, false, false>(d, stride, src.frames, pos, steps, start, end, channels, out),
+        (Samples::F32(d), true, false) => region_n::<f32, true, false>(d, stride, src.frames, pos, steps, start, end, channels, out),
+        (Samples::I16(d), false, false) => region_n::<i16, false, false>(d, stride, src.frames, pos, steps, start, end, channels, out),
+        (Samples::I16(d), true, false) => region_n::<i16, true, false>(d, stride, src.frames, pos, steps, start, end, channels, out),
+        (Samples::F32(d), false, true) => region_n::<f32, false, true>(d, stride, src.frames, pos, steps, start, end, channels, out),
+        (Samples::F32(d), true, true) => region_n::<f32, true, true>(d, stride, src.frames, pos, steps, start, end, channels, out),
+        (Samples::I16(d), false, true) => region_n::<i16, false, true>(d, stride, src.frames, pos, steps, start, end, channels, out),
+        (Samples::I16(d), true, true) => region_n::<i16, true, true>(d, stride, src.frames, pos, steps, start, end, channels, out),
     }
 }
 
 /// [`region4`] for `channels` planar rows (see [`render_n`] for the layout and the kernel).
 #[inline(always)]
 #[allow(clippy::too_many_arguments)]
-fn region_n<S: Sample, const MONO: bool>(data: &[S], stride: usize, frames: u32, pos: &mut f64, steps: &[f32], start: u32, end: u32, channels: usize, out: &mut [f32]) -> usize {
+fn region_n<S: Sample, const MONO: bool, const REV: bool>(data: &[S], stride: usize, frames: u32, pos: &mut f64, steps: &[f32], start: u32, end: u32, channels: usize, out: &mut [f32]) -> usize {
     let len = steps.len();
     debug_assert!(out.len() == channels * len);
     let frames = (frames as usize).min(data.len() / stride);
@@ -561,7 +587,7 @@ fn region_n<S: Sample, const MONO: bool>(data: &[S], stride: usize, frames: u32,
                 clamp_edge(j, last as isize)
             }
         };
-        let j = [at(-1), idx, at(1), at(2)];
+        let j = [at(-1), idx, at(1), at(2)].map(|j| if REV { last - j } else { j });
         if MONO {
             out[i] = horner(j.map(|j| data[j].get()), t);
         } else {
@@ -693,7 +719,7 @@ mod tests {
     #[test]
     fn a_region_loop_wraps_at_its_end_and_reads_across_the_seam() {
         let data = ramp_clip(16);
-        let src = Source { samples: Samples::F32(&data), channels: 1, frames: 16 };
+        let src = Source { samples: Samples::F32(&data), channels: 1, frames: 16, reversed: false };
         let mut pos = 2.0;
         let (mut l, mut r) = ([0.0f32; 12], [0.0f32; 12]);
         assert_eq!(lagrange_region(&src, &mut pos, &[1.0; 12], 4, 8, &mut l, &mut r), 12);
@@ -711,7 +737,7 @@ mod tests {
     #[test]
     fn a_region_position_past_its_end_plays_on_to_the_clip_end() {
         let data = ramp_clip(10);
-        let src = Source { samples: Samples::F32(&data), channels: 1, frames: 10 };
+        let src = Source { samples: Samples::F32(&data), channels: 1, frames: 10, reversed: false };
         let mut pos = 8.0;
         let (mut l, mut r) = ([9.0f32; 4], [9.0f32; 4]);
         assert_eq!(lagrange_region(&src, &mut pos, &[1.0; 4], 2, 6, &mut l, &mut r), 2);
@@ -724,7 +750,7 @@ mod tests {
     #[test]
     fn advance_region_keeps_time_with_lagrange_region() {
         let data = ramp_clip(64);
-        let src = Source { samples: Samples::F32(&data), channels: 1, frames: 64 };
+        let src = Source { samples: Samples::F32(&data), channels: 1, frames: 64, reversed: false };
         let steps: Vec<f32> = (0..128).map(|i| 0.7 + (i % 5) as f32 * 0.3).collect();
         let (mut a, mut b) = (1.25, 1.25);
         let (mut l, mut r) = ([0.0f32; 128], [0.0f32; 128]);
@@ -779,11 +805,11 @@ mod tests {
     }
 
     fn mono(data: &[f32]) -> Source<'_> {
-        Source { samples: Samples::F32(data), channels: 1, frames: data.len() as u32 }
+        Source { samples: Samples::F32(data), channels: 1, frames: data.len() as u32, reversed: false }
     }
 
     fn stereo(data: &[f32]) -> Source<'_> {
-        Source { samples: Samples::F32(data), channels: 2, frames: (data.len() / 2) as u32 }
+        Source { samples: Samples::F32(data), channels: 2, frames: (data.len() / 2) as u32, reversed: false }
     }
 
     fn close(a: &[f32], b: &[f32]) {
@@ -867,7 +893,7 @@ mod tests {
     #[test]
     fn int16_samples_are_scaled_by_1_over_32768() {
         let x: [i16; 4] = [16384, -16384, 0, 32767];
-        let src = Source { samples: Samples::I16(&x[..]), channels: 1, frames: 4 };
+        let src = Source { samples: Samples::I16(&x[..]), channels: 1, frames: 4, reversed: false };
         let mut pos = 0.0;
         let (mut l, mut r) = ([0.0f32; 4], [0.0f32; 4]);
         linear(&src, &mut pos, &[1.0f32; 4], false, &mut l, &mut r);
@@ -956,7 +982,7 @@ mod tests {
     #[test]
     fn an_empty_clip_renders_nothing() {
         let empty: &[f32] = &[];
-        let src = Source { samples: Samples::F32(empty), channels: 1, frames: 0 };
+        let src = Source { samples: Samples::F32(empty), channels: 1, frames: 0, reversed: false };
         for &looping in &[false, true] {
             let mut pos = 1.5;
             let (mut l, mut r) = ([1.0f32; 3], [1.0f32; 3]);
@@ -997,10 +1023,10 @@ mod tests {
         let x = noise(64, 7);
         let xi: Vec<i16> = x.iter().map(|&v| (v * 32767.0) as i16).collect();
         let sources = [
-            Source { samples: Samples::F32(&x), channels: 1, frames: 64 },
-            Source { samples: Samples::F32(&x), channels: 2, frames: 32 },
-            Source { samples: Samples::I16(&xi), channels: 1, frames: 64 },
-            Source { samples: Samples::I16(&xi), channels: 2, frames: 32 },
+            Source { samples: Samples::F32(&x), channels: 1, frames: 64, reversed: false },
+            Source { samples: Samples::F32(&x), channels: 2, frames: 32, reversed: false },
+            Source { samples: Samples::I16(&xi), channels: 1, frames: 64, reversed: false },
+            Source { samples: Samples::I16(&xi), channels: 2, frames: 32, reversed: false },
         ];
         for src in &sources {
             for &step in &[1.0f32, 2.0, 3.0] {
@@ -1022,6 +1048,64 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// ADR 0362: a reversed read of a clip is the forward read of the clip with its frames reversed, bit for bit, at
+    /// every pitch, mono, stereo and wide, f32 and int16, plain, looping and over a loop region.
+    #[test]
+    fn a_reversed_read_is_the_forward_read_of_the_reversed_clip() {
+        fn rev_frames<T: Copy>(x: &[T], ch: usize) -> Vec<T> {
+            x.chunks(ch).rev().flatten().copied().collect()
+        }
+        let x = noise(96, 11);
+        let xi: Vec<i16> = x.iter().map(|&v| (v * 32767.0) as i16).collect();
+        for ch in [1usize, 2, 4] {
+            let frames = (96 / ch) as u32;
+            let (rx, rxi) = (rev_frames(&x, ch), rev_frames(&xi, ch));
+            let pairs = [
+                (Samples::F32(&x[..]), Samples::F32(&rx[..])),
+                (Samples::I16(&xi[..]), Samples::I16(&rxi[..])),
+            ];
+            for (fwd, back) in pairs {
+                let reversed = Source { samples: fwd, channels: ch as u32, frames, reversed: true };
+                let flipped = Source { samples: back, channels: ch as u32, frames, reversed: false };
+                for &step in &[1.0f32, 0.75, 1.5, 2.0] {
+                    for &start in &[0.0f64, 3.25, 10.0] {
+                        let steps = [step; 40];
+                        for mode in 0..3 {
+                            let (mut pa, mut pb) = (start, start);
+                            let (mut la, mut ra, mut lb, mut rb) = ([0.0f32; 40], [0.0f32; 40], [0.0f32; 40], [0.0f32; 40]);
+                            let (na, nb) = match mode {
+                                0 => (lagrange(&reversed, &mut pa, &steps, false, &mut la, &mut ra), lagrange(&flipped, &mut pb, &steps, false, &mut lb, &mut rb)),
+                                1 => (lagrange(&reversed, &mut pa, &steps, true, &mut la, &mut ra), lagrange(&flipped, &mut pb, &steps, true, &mut lb, &mut rb)),
+                                _ => (lagrange_region(&reversed, &mut pa, &steps, 4, 13, &mut la, &mut ra), lagrange_region(&flipped, &mut pb, &steps, 4, 13, &mut lb, &mut rb)),
+                            };
+                            assert_eq!((na, pa), (nb, pb));
+                            for k in 0..40 {
+                                assert_eq!((la[k].to_bits(), ra[k].to_bits()), (lb[k].to_bits(), rb[k].to_bits()), "ch {ch} step {step} start {start} mode {mode} frame {k}");
+                            }
+                            if ch > 2 {
+                                let (mut pa, mut pb) = (start, start);
+                                let (mut oa, mut ob) = ([0.0f32; 160], [0.0f32; 160]);
+                                if mode == 2 {
+                                    lagrange_region_n(&reversed, &mut pa, &steps, 4, 13, ch, &mut oa);
+                                    lagrange_region_n(&flipped, &mut pb, &steps, 4, 13, ch, &mut ob);
+                                } else {
+                                    lagrange_n(&reversed, &mut pa, &steps, mode == 1, ch, &mut oa);
+                                    lagrange_n(&flipped, &mut pb, &steps, mode == 1, ch, &mut ob);
+                                }
+                                assert!(oa.iter().zip(ob.iter()).all(|(a, b)| a.to_bits() == b.to_bits()), "wide ch {ch} mode {mode}");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // At pitch 1 from 0 a reversed mono read is the clip's frames in reverse.
+        let src = Source { samples: Samples::F32(&x), channels: 1, frames: 96, reversed: true };
+        let (mut pos, mut l, mut r) = (0.0, [0.0f32; 96], [0.0f32; 96]);
+        lagrange(&src, &mut pos, &[1.0; 96], false, &mut l, &mut r);
+        assert!(l.iter().zip(x.iter().rev()).all(|(a, b)| a.to_bits() == b.to_bits()));
     }
 
     #[test]
@@ -1062,7 +1146,7 @@ mod tests {
             data.push((v * 32768.0).round() as i16);
             data.push((-v * 32768.0).round() as i16);
         }
-        let src = Source { samples: Samples::I16(&data), channels: 2, frames: 16 };
+        let src = Source { samples: Samples::I16(&data), channels: 2, frames: 16, reversed: false };
         let mut pos = 2.25;
         let (mut l, mut r) = ([0.0f32; 8], [0.0f32; 8]);
         lagrange(&src, &mut pos, &[1.0f32; 8], false, &mut l, &mut r);
@@ -1115,7 +1199,7 @@ mod tests {
             let x = noise(2 * n, n as u32);
             for &channels in &[1u32, 2] {
                 let frames = if channels == 2 { n } else { 2 * n };
-                let src = Source { samples: Samples::F32(&x), channels, frames: frames as u32 };
+                let src = Source { samples: Samples::F32(&x), channels, frames: frames as u32, reversed: false };
                 for &looping in &[false, true] {
                     let mut pos = 0.0;
                     let (mut l, mut r) = ([0.0f32; 32], [0.0f32; 32]);
@@ -1126,7 +1210,7 @@ mod tests {
                     assert!(l.iter().chain(r.iter()).all(|v| v.is_finite() && v.abs() < 2.0));
                     // A constant clip stays constant at every fraction and edge.
                     let k = [0.25f32; 6];
-                    let src_k = Source { samples: Samples::F32(&k), channels, frames: frames as u32 };
+                    let src_k = Source { samples: Samples::F32(&k), channels, frames: frames as u32, reversed: false };
                     let mut pos = 0.1;
                     let got = lagrange(&src_k, &mut pos, &[0.37f32; 32], looping, &mut l, &mut r);
                     assert!(l[..got].iter().all(|&v| (v - 0.25).abs() < 1e-6), "n {n} ch {channels} loop {looping}");
@@ -1155,7 +1239,7 @@ mod tests {
     fn lagrange_never_reads_past_the_samples() {
         // `frames` claims more than the slice holds: only the 4 frames there are read.
         let x = [0.5f32; 4];
-        let src = Source { samples: Samples::F32(&x), channels: 1, frames: 100 };
+        let src = Source { samples: Samples::F32(&x), channels: 1, frames: 100, reversed: false };
         for &looping in &[false, true] {
             let mut pos = 2.5;
             let (mut l, mut r) = ([0.0f32; 16], [0.0f32; 16]);
@@ -1163,7 +1247,7 @@ mod tests {
             assert!(l[..n].iter().all(|&v| (v - 0.5).abs() < 1e-6));
         }
         let empty: &[f32] = &[];
-        let src = Source { samples: Samples::F32(empty), channels: 2, frames: 0 };
+        let src = Source { samples: Samples::F32(empty), channels: 2, frames: 0, reversed: false };
         let mut pos = 1.5;
         let (mut l, mut r) = ([1.0f32; 3], [1.0f32; 3]);
         assert_eq!(lagrange(&src, &mut pos, &[1.0f32; 3], true, &mut l, &mut r), 0);
@@ -1180,10 +1264,10 @@ mod tests {
         let x = noise(64, 21);
         let xi: Vec<i16> = x.iter().map(|&v| (v * 32767.0) as i16).collect();
         let sources = [
-            Source { samples: Samples::F32(&x), channels: 1, frames: 64 },
-            Source { samples: Samples::F32(&x), channels: 2, frames: 32 },
-            Source { samples: Samples::I16(&xi), channels: 1, frames: 64 },
-            Source { samples: Samples::I16(&xi), channels: 2, frames: 32 },
+            Source { samples: Samples::F32(&x), channels: 1, frames: 64, reversed: false },
+            Source { samples: Samples::F32(&x), channels: 2, frames: 32, reversed: false },
+            Source { samples: Samples::I16(&xi), channels: 1, frames: 64, reversed: false },
+            Source { samples: Samples::I16(&xi), channels: 2, frames: 32, reversed: false },
         ];
         let unit = [1.0f32; 40];
         let fractional = [0.43f32; 40];
@@ -1226,10 +1310,10 @@ mod tests {
         let x = noise(64, 22);
         let xi: Vec<i16> = x.iter().map(|&v| (v * 32767.0) as i16).collect();
         let sources = [
-            Source { samples: Samples::F32(&x), channels: 1, frames: 64 },
-            Source { samples: Samples::F32(&x), channels: 2, frames: 32 },
-            Source { samples: Samples::I16(&xi), channels: 1, frames: 64 },
-            Source { samples: Samples::I16(&xi), channels: 2, frames: 32 },
+            Source { samples: Samples::F32(&x), channels: 1, frames: 64, reversed: false },
+            Source { samples: Samples::F32(&x), channels: 2, frames: 32, reversed: false },
+            Source { samples: Samples::I16(&xi), channels: 1, frames: 64, reversed: false },
+            Source { samples: Samples::I16(&xi), channels: 2, frames: 32, reversed: false },
         ];
         let unit = [1.0f32; 40];
         let fractional = [0.43f32; 40];
@@ -1272,7 +1356,7 @@ mod tests {
         let steps: Vec<f32> = (0..N).map(|i| 0.4 + (i % 5) as f32 * 0.35).collect();
         for &ch in &[4usize, 9, 16] {
             let data = noise(FRAMES * ch, 40 + ch as u32);
-            let clip = Source { samples: Samples::F32(&data), channels: ch as u32, frames: FRAMES as u32 };
+            let clip = Source { samples: Samples::F32(&data), channels: ch as u32, frames: FRAMES as u32, reversed: false };
             for &looping in &[false, true] {
                 // Starts inside, and near the end, so the non-looping clip runs out mid-block.
                 for &start in &[0.0f64, 3.7, 23.5] {
@@ -1287,7 +1371,7 @@ mod tests {
                             pair.push(data[j * ch + c]);
                             pair.push(data[j * ch + c2]);
                         }
-                        let pair_src = Source { samples: Samples::F32(&pair), channels: 2, frames: FRAMES as u32 };
+                        let pair_src = Source { samples: Samples::F32(&pair), channels: 2, frames: FRAMES as u32, reversed: false };
                         let mut pp = start;
                         let (mut l, mut r) = ([0.0f32; N], [0.0f32; N]);
                         assert_eq!(lagrange(&pair_src, &mut pp, &steps, looping, &mut l, &mut r), got, "ch {ch} pair {c}");
@@ -1308,7 +1392,7 @@ mod tests {
     fn lagrange_n_renders_the_channels_asked_and_refuses_bad_arguments() {
         const N: usize = 8;
         let data = noise(16 * 9, 9);
-        let nine = Source { samples: Samples::F32(&data), channels: 9, frames: 16 };
+        let nine = Source { samples: Samples::F32(&data), channels: 9, frames: 16, reversed: false };
         let steps = [0.6f32, 1.0, 1.3, 0.8, 1.0, 0.5, 1.1, 0.9];
         let mut full = [0.0f32; PLANAR_SCRATCH_FLOATS];
         let mut p_full = 2.5;
@@ -1338,7 +1422,7 @@ mod tests {
         refused(&mut |p, out| lagrange_region_n(&nine, p, &steps, 2, 12, 4, &mut out[..4 * N - 1]));
         // A 17-channel clip is above MAX_CHANNELS.
         let big = noise(4 * 17, 17);
-        let seventeen = Source { samples: Samples::F32(&big), channels: 17, frames: 4 };
+        let seventeen = Source { samples: Samples::F32(&big), channels: 17, frames: 4, reversed: false };
         refused(&mut |p, out| lagrange_n(&seventeen, p, &steps, true, 17, out));
         refused(&mut |p, out| lagrange_region_n(&seventeen, p, &steps, 0, 4, 17, out));
         // Exactly `channels * len` is enough.
@@ -1354,10 +1438,10 @@ mod tests {
         const N: usize = 16;
         const FRAMES: usize = 10;
         let data = noise(FRAMES * 9, 31);
-        let nine = Source { samples: Samples::F32(&data), channels: 9, frames: FRAMES as u32 };
+        let nine = Source { samples: Samples::F32(&data), channels: 9, frames: FRAMES as u32, reversed: false };
         // Channels 0 and 1 as a stereo clip.
         let pair: Vec<f32> = (0..FRAMES).flat_map(|j| [data[j * 9], data[j * 9 + 1]]).collect();
-        let stereo = Source { samples: Samples::F32(&pair), channels: 2, frames: FRAMES as u32 };
+        let stereo = Source { samples: Samples::F32(&pair), channels: 2, frames: FRAMES as u32, reversed: false };
         let steps = [0.8f32, 0.9, 1.1, 0.6, 0.7, 1.3, 1.0, 0.9, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
 
         // Non-looping, starting at 6.5: the reads at 6.5, 7.3, 8.2, 9.3 and 9.9 are inside; the next
@@ -1408,7 +1492,7 @@ mod tests {
         let steps: Vec<f32> = (0..N).map(|i| 0.45 + (i % 4) as f32 * 0.3).collect();
         for &ch in &[4usize, 9, 16] {
             let data = noise(20 * ch, 50 + ch as u32);
-            let clip = Source { samples: Samples::F32(&data), channels: ch as u32, frames: 20 };
+            let clip = Source { samples: Samples::F32(&data), channels: ch as u32, frames: 20, reversed: false };
             for &looping in &[false, true] {
                 let (mut pa, mut pb) = (1.2, 1.2);
                 let (mut l, mut r) = ([0.0f32; N], [0.0f32; N]);

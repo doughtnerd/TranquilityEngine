@@ -6,8 +6,9 @@
 // through the Mixer's document; "Edit attenuation…" edits the playlist's attenuation on its owning document. The panels
 // read these signals and call these actions; the rules are the pure models beside this file.
 import { computed, effect, signal } from "@preact/signals";
-import { openAssetDocument, readAsset, type AssetDocument } from "../../../editor/assetDocuments";
-import { deleteAssets } from "../../../editor/assetDelete";
+import { assetDocumentsDeleted, openAssetDocument, readAsset, type AssetDocument } from "../../../editor/assetDocuments";
+import { whyNotDeletable } from "../../../editor/assetDelete";
+import { errorStatus } from "../../../editor/messages";
 import { createAsset } from "../../../editor/assetKindHost";
 import { duplicateAssets, renameAsset } from "../../../editor/assetOps";
 import { assetKinds } from "../../../editor/sdk/contributions";
@@ -30,7 +31,7 @@ import { audioHost, openRoute, toasts } from "../../shell/studioServices";
 import { openMixDocument } from "../mixer/mixerDocument";
 import { setSpatial } from "../playlists/playlistEdits";
 import { baseFramePoints } from "./baseLayer";
-import { attenuationDialog, attenuationFromResult, attenuationOwner, newAttenuation, presetNameFor, PRESET_FOLDER, type AttenuationOwner } from "./attenuationModel";
+import { attenuationDialog, attenuationFromResult, attenuationOwner, NEW_SPATIAL, newAttenuation, occlusionOn, presetNameFor, PRESET_FOLDER, whyNotEditAttenuation, type AttenuationOwner } from "./attenuationModel";
 import { NO_AUDITION, auditionScene, isSilenced, liveUpdate, toggleMute, toggleSolo, type AuditionState } from "./audition";
 import { INITIAL_SLAB, type Slab } from "./elevation";
 import { sameMotion, startFrameLoop } from "./liveMotion";
@@ -38,10 +39,13 @@ import { boundsOf, type P2 } from "./geometry";
 import { baseSoundRefs } from "./voicesTable";
 import { blankScene, copyScene, gameScene, sceneFromTake, type NewSceneKind } from "./newScene";
 import { activeListener, deleteObject, framePoints, duplicateObject, findObject, KIND_NOUN, pasteObject, positionOf, type EditResult, type SceneObject } from "./sceneEdits";
-import { isScenePath, sceneName, type FolderChange, type SceneEntry } from "./sceneTree";
+import { isScenePath, sceneAfter, sceneName, sceneNote, type FolderChange, type SceneEntry } from "./sceneTree";
 import { escape as escapeTool, INITIAL_TOOLS, afterPlace, place, placeLabel, type Tool, type ToolState } from "./tools";
 import { DEFAULT_VIEW, fitView, type Size, type View } from "./viewTransform";
 import { isSamplePath } from "../playlists/libraryModel";
+import { setRuntimeOcclusionCurves } from "../mixer/mixerRuntime";
+import { sameOcclusionCurves, type OcclusionCurves } from "../../../engine/audio/occlusionCurves";
+import { effectiveOcclusionCurves, OCCLUSION_CONTEXT, OCCLUSION_TARGET, occlusionDialog, occlusionFromResult, setProjectOcclusionCurves, setSceneOcclusionCurves } from "./occlusionCurvesModel";
 
 // --- the scene asset kind --------------------------------------------------------------------------------------------
 
@@ -160,7 +164,10 @@ export const sceneEntries = computed<SceneEntry[]>(() => {
   const p = project();
   void docVersion.value;
   if (!p) return [];
-  return p.files.filter(isScenePath).map((path) => ({ path, folder: loadScene(path)?.folder ?? "" }));
+  return p.files.filter(isScenePath).map((path) => {
+    const s = loadScene(path);
+    return { path, folder: s?.folder ?? "", ...(s ? { note: sceneNote(s) } : {}) };
+  });
 });
 
 /** The project's mix (`audio.json`), through the Mixer's document. Tracks. */
@@ -343,7 +350,8 @@ export function escapeKey(): void {
 /** Frame the open scene. */
 export function fit(): void {
   const s = scene.peek();
-  const b = s ? boundsOf([...framePoints(s), ...baseFramePoints(baseImport.peek())], 20) : null;
+  // At least 60 m across: a new scene (one listener) opens framed like a scene, not zoomed onto the listener.
+  const b = s ? boundsOf([...framePoints(s), ...baseFramePoints(baseImport.peek())], 60) : null;
   view.value = b ? fitView(b, viewportSize.peek()) : DEFAULT_VIEW;
 }
 
@@ -355,6 +363,16 @@ let played: AudioTestScene | null = null;
 let poll: ReturnType<typeof setInterval> | null = null;
 let follow: (() => void) | null = null;
 let stopFrames: (() => void) | null = null;
+/** ADR 0362 item 6: keeps the runtime's occlusion curves on the ones the playing scene hears (its own, else the project's). */
+let curvesFollow: (() => void) | null = null;
+/** The curves last handed to the runtime (undefined: none). */
+let runtimeCurves: OcclusionCurves | undefined = undefined;
+
+/** Hand `curves` to the running runtime when they differ from what it has (the live op `setOcclusionCurves`). */
+function syncRuntimeCurves(curves: OcclusionCurves | undefined): void {
+  if (sameOcclusionCurves(runtimeCurves, curves)) return;
+  if (setRuntimeOcclusionCurves(curves ?? null)) runtimeCurves = curves;
+}
 /** How often the Voices table and the rays are read, ms. */
 export const VOICES_POLL_MS = 250;
 
@@ -469,6 +487,9 @@ export function playScene(): void {
     }
     if (!sameMotion(motion.peek(), next)) motion.value = next;
   });
+  // The scene's own occlusion curves stand in for the project's while it plays, and follow edits of either.
+  runtimeCurves = mix.peek()?.settings.occlusion.curves;
+  curvesFollow = effect(() => syncRuntimeCurves(effectiveOcclusionCurves(mix.value, scene.value)));
   // Edits reach the running player: moves as poses, anything else rebuilds it.
   follow = effect(() => {
     const next = scene.value;
@@ -502,6 +523,10 @@ export function playScene(): void {
 export function stopAudition(): void {
   follow?.();
   follow = null;
+  curvesFollow?.();
+  curvesFollow = null;
+  syncRuntimeCurves(mix.peek()?.settings.occlusion.curves); // back to the project's
+  runtimeCurves = undefined;
   if (poll) clearInterval(poll);
   poll = null;
   stopFrames?.();
@@ -624,19 +649,43 @@ export async function duplicateScene(path: string): Promise<void> {
 }
 
 /** Delete scene files (the engine asks first); an undo toast writes them back. */
+/**
+ * Delete test scenes at once, without asking: the toast that follows undoes it by writing them back (D27; the
+ * prototype's "Deleted <name> · Undo"), so a "can't be undone" question would be untrue. Nothing refers to a test scene,
+ * so there are no references to clean. Refused (read-only, play, gone) with the reason in the status bar.
+ */
 export async function deleteScenes(paths: readonly string[]): Promise<void> {
+  const p = currentProject.peek();
+  if (!p || paths.length === 0) return;
+  const name = paths.length === 1 ? sceneName(paths[0]!) : `${paths.length} scenes`;
+  const refused = whyNotDeletable(p, paths);
+  if (refused) return void (status.value = { kind: "info", text: `Can't delete ${name}: ${refused}.` });
   const saved = paths.map((path) => ({ path, value: loadScene(path) })).filter((x): x is { path: string; value: AudioTestScene } => x.value !== null);
-  if (!(await deleteAssets(paths))) return;
+  // Deleting the open scene opens the next one in the tree (the prototype's), once the files are gone.
+  const next = paths.includes(openPath.peek() ?? "") ? sceneAfter(sceneEntries.peek(), paths) : null;
   if (paths.includes(openPath.peek() ?? "")) {
     stopAudition();
     openPath.value = null;
     selected.value = null;
   }
-  const name = paths.length === 1 ? sceneName(paths[0]!) : `${paths.length} scenes`;
+  const gone: string[] = [];
+  try {
+    for (const path of paths) {
+      await p.deleteFile(path);
+      gone.push(path);
+    }
+  } catch (err) {
+    status.value = errorStatus(`Couldn't delete ${name}`, err);
+  }
+  await assetDocumentsDeleted(gone); // their open documents go, with their undo (the toast brings the scene back)
+  docVersion.value++;
+  if (gone.length === 0) return;
+  if (next && !gone.includes(next) && openPath.peek() === null) openScene(next);
+  const back = saved.filter((s) => gone.includes(s.path));
   toasts.show({
-    text: `Deleted ${name}.`,
+    text: `Deleted ${gone.length === 1 ? sceneName(gone[0]!) : `${gone.length} scenes`}.`,
     undo: () => {
-      for (const s of saved) void createAsset<AudioTestScene>(SCENE_KIND, { folder: folderOfFile(s.path), name: sceneName(s.path), value: s.value });
+      for (const s of back) void createAsset<AudioTestScene>(SCENE_KIND, { folder: folderOfFile(s.path), name: sceneName(s.path), value: s.value });
     },
   });
 }
@@ -659,6 +708,31 @@ export function ownerOf(id: string): AttenuationOwner | null {
   const o = s ? findObject(s, id) : null;
   if (!o || o.kind !== "emitter") return null;
   return attenuationOwner(o.obj.sound, loadPlaylist, loadPreset);
+}
+
+/** Whether emitter `id`'s sound is traced for occlusion (false: its playlist's spatial block turns it off). */
+export function occlusionOnFor(id: string): boolean {
+  const s = scene.value;
+  const o = s ? findObject(s, id) : null;
+  return !o || o.kind !== "emitter" || occlusionOn(o.obj.sound, loadPlaylist);
+}
+
+/**
+ * "Make it 3D" (J9.2): give the flat playlist emitter `id` plays a spatial block (`NEW_SPATIAL`), one step on the
+ * playlist, so it is heard in place and Edit attenuation… opens. False when it isn't a flat playlist or can't change.
+ */
+export function makeSpatial(id: string): boolean {
+  const owner = ownerOf(id);
+  if (owner?.kind !== "flat") return false;
+  const doc = playlistDoc(owner.playlist);
+  if (!doc) return false;
+  const name = owner.playlist.slice(owner.playlist.lastIndexOf("/") + 1);
+  if (!writable() || doc.readOnly) {
+    status.value = { kind: "info", text: `Can't make ${name} 3D: the project is read-only.` };
+    return false;
+  }
+  const before = doc.value.peek();
+  return applyEdit(setSpatial(before, { ...NEW_SPATIAL }) as EditResult<PlaylistAsset>, "Make it 3D", (next) => doc.edit(next, { label: "Make it 3D" }), before);
 }
 
 /** The emitter's distance from the active listener now (the readout's, else from the plan). */
@@ -699,14 +773,14 @@ export function editAttenuation(id: string, doc: Document = document): void {
   const open = (att: Attenuation, target: string, apply: (next: Attenuation) => void) => {
     openCurveEditorDialog(doc, {
       ...attenuationDialog(att, distanceNow(id)),
-      title: "Attenuation",
       target,
-      context: name ? `Heard by ${name}` : undefined,
+      // "Distance curves · footstep · Campfire · Attenuation · metres from the listening player" (the prototype's title).
+      context: `${name ? `${name} · ` : ""}Attenuation · metres from the listening player`,
       onCancel: () => {},
       onApply: (result) => apply(attenuationFromResult(att, result)),
     });
   };
-  const fileName = (p: string) => p.slice(p.lastIndexOf("/") + 1);
+  const fileName = (p: string) => p.slice(p.lastIndexOf("/") + 1).replace(/\.(playlist|attenuation)\.json$/i, "");
   if (owner.kind === "preset" && owner.attenuation) {
     const preset = owner.preset;
     open(owner.attenuation, fileName(preset), (next) => {
@@ -720,7 +794,7 @@ export function editAttenuation(id: string, doc: Document = document): void {
   } else if (owner.kind === "none") {
     attenuationChoice.value = { emitter: id, playlist: owner.playlist };
   } else {
-    status.value = { kind: "info", text: owner.kind === "preset" ? `The attenuation preset ${fileName(owner.preset)} isn't in the project.` : "This emitter's sound has no attenuation to edit." };
+    status.value = { kind: "info", text: `Can't edit attenuation: ${whyNotEditAttenuation(owner) ?? "there's none to edit"}.` };
   }
 }
 
@@ -751,3 +825,28 @@ export function applyRolloff(id: string, next: (a: Attenuation) => Attenuation):
 
 /** Open a playlist on the Playlists screen. */
 export const openPlaylist = (path: string): void => openRoute({ screen: "playlists", asset: path });
+
+// --- occlusion curves (ADR 0362 item 6) -------------------------------------------------------------------------------
+
+/**
+ * The Scene settings' Curves chip: the Curves window in its Occlusion mode on the curves the open scene hears (its own
+ * when it keeps them, else the project's; none yet: a starting point). Apply writes them back where they came from, one
+ * undo step on that document (`audio.json` or the scene file); a playing scene hears them at once.
+ */
+export function editOcclusionCurves(doc: Document = document): void {
+  const s = scene.peek();
+  const m = mix.peek();
+  if (!m) return;
+  const own = !!s?.settings?.occlusion?.curves;
+  openCurveEditorDialog(doc, {
+    ...occlusionDialog(effectiveOcclusionCurves(m, s)),
+    target: OCCLUSION_TARGET,
+    context: own ? `${OCCLUSION_CONTEXT} · this scene's own` : OCCLUSION_CONTEXT,
+    onCancel: () => {},
+    onApply: (result) => {
+      const curves = occlusionFromResult(result);
+      if (own) editScene("Occlusion curves", (sc) => setSceneOcclusionCurves(sc, curves));
+      else editMix("Occlusion curves", (p) => setProjectOcclusionCurves(p, curves));
+    },
+  });
+}

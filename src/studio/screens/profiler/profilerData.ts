@@ -19,6 +19,7 @@ import {
   CAPTURE_OUTPUT_SLOT, captureNames, type CaptureEventAt, type CaptureEventType, type CaptureLoudnessMark, type CaptureLoudnessTarget, type CaptureNames,
 } from "../../../plugins/audio/runtime/capture/reader";
 import { effectsCost, type EffectsCost } from "./effectsCostModel";
+import { instanceDecisions, instanceOf, type InstanceDecisions } from "./decisionModel";
 import { buildMemory, type MemoryData } from "./memoryModel";
 import { buildMessages, rulerMarks, type LoudnessWarning, type ProfilerMessage, type ProfilerNote, type RulerMark } from "./messagesModel";
 import { profilerTargets } from "./cursorKeys";
@@ -57,6 +58,13 @@ export interface ProfilerData {
   readonly load: LoadData | null;
   /** DSP cost by section (where effects run), estimated from the CPU meter (`effectsCostModel.ts`); null before it is fitted. */
   readonly effects: EffectsCost | null;
+  /**
+   * Effect instances by level over time (spec §4.6.3 "instances by level"): voices whose clip chain ran (STATUS
+   * `fxVoices`) and playlist instances playing (each runs its playlist's chain); null without either.
+   */
+  readonly fxInstances: { readonly clips: Series | null; readonly playlists: Series | null } | null;
+  /** Each voice's playlist instance and its decisions, by voice key (`decisionModel.ts`); absent for an untied voice. */
+  readonly decisions: ReadonlyMap<string, InstanceDecisions>;
   /** ADR 0351 §6: the clip arena and the loaded packages' memory over time (`memoryModel.ts`); null without either. */
   readonly memory: MemoryData | null;
   /** Each bus's effective gain, dB, by slot. */
@@ -78,7 +86,7 @@ export interface ProfilerData {
 }
 
 /** The events the screen reads beside the voices. */
-const OTHER_EVENT_TYPES: readonly CaptureEventType[] = ["parameter", "snapshot", "musicTransition", "audioPackage"];
+const OTHER_EVENT_TYPES: readonly CaptureEventType[] = ["parameter", "snapshot", "musicTransition", "audioPackage", "eventStart", "eventStop", "pick"];
 /** ADR 0351 §6: the STATUS column the memory track reads. */
 const MEMORY_COLUMN = "arenaUsedKB";
 
@@ -102,6 +110,21 @@ function parameterSeries(events: readonly CaptureEventAt[], names: CaptureNames,
     s.v.push(e.value);
   }
   return new Map([...by].map(([k, s]) => [k, { times: Float64Array.from(s.t), values: Float64Array.from(s.v) }]));
+}
+
+/** How many playlist instances play over time: a step at each eventStart and eventStop (null with none). */
+function instanceSeries(events: readonly CaptureEventAt[], origin: number): Series | null {
+  const t: number[] = [];
+  const v: number[] = [];
+  const open = new Set<number>();
+  for (const { seconds, event: e } of [...events].sort((a, b) => a.seconds - b.seconds || a.seq - b.seq)) {
+    if (e.type === "eventStart") open.add(e.instance);
+    else if (e.type === "eventStop") open.delete(e.instance);
+    else continue;
+    t.push(seconds - origin);
+    v.push(open.size);
+  }
+  return t.length ? { times: Float64Array.from(t), values: Float64Array.from(v) } : null;
 }
 
 /** Music transitions and snapshots as notes. */
@@ -205,6 +228,16 @@ export class ProfilerDataReader {
     const cpuLines = this.cpu?.data()?.lines ?? [];
     const load: LoadData | null = vs ? { voices: { times: vs.times, values: vs.mixed }, cap: { times: vs.times, values: vs.cap }, cpu: cpuLines } : null;
     const effects = effectsCost(this.sections?.data()?.lines);
+    const fxColumn = feed.length && !src.summary.mainSideOnly ? feed.column("fxVoices") : null;
+    const clips = fxColumn ? { times: feed.times, values: fxColumn } : null;
+    const playlists = instanceSeries(this.events, origin);
+    const fxInstances = clips || playlists ? { clips, playlists } : null;
+    const instances = instanceDecisions(this.events, names, origin);
+    const decisions = new Map<string, InstanceDecisions>();
+    for (const v of voices) {
+      const d = v.seq === null ? null : instanceOf(instances, v.seq, v.start);
+      if (d) decisions.set(v.key, d);
+    }
     const memory = buildMemory(feed.times, feed.length && !src.summary.mainSideOnly ? feed.column(MEMORY_COLUMN) : null, this.events, names, origin);
 
     const contents: CaptureContents = {
@@ -212,6 +245,7 @@ export class ProfilerDataReader {
       status: feed.length > 0 && !src.summary.mainSideOnly,
       cpu: cpuLines.length > 0,
       effects: effects !== null,
+      fxInstances: fxInstances !== null,
       memory: memory !== null,
       buses: [...buses.keys()].sort((a, b) => a - b).map((slot) => ({ slot, name: names.bus(slot) })),
       loudness: loudness !== null && loudness.shortTerm.times.length > 0,
@@ -223,7 +257,7 @@ export class ProfilerDataReader {
     const marks = rulerMarks(messages);
     const cursorCols = feed.length ? feed.columns() : emptyCursorColumns();
     return {
-      duration, contents, tracks: planTracks(contents), load, effects, memory, buses, loudness, voices, parameters, messages, marks,
+      duration, contents, tracks: planTracks(contents), load, effects, fxInstances, decisions, memory, buses, loudness, voices, parameters, messages, marks,
       targets: profilerTargets(cursorCols, src.markers, origin, marks), target: this.target, frames: this.frames,
     };
   }

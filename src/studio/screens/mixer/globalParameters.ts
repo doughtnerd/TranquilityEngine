@@ -10,13 +10,14 @@
 //   name is left alone: its references read the local one (the runtime's rule). A remove leaves playlists alone
 //   (their lints say what's missing), as an event parameter's remove keeps its uses.
 // Pure.
-import { MAX_PARAMETERS, type ParameterDef } from "../../../engine/audio/parameters";
+import { isLabelled, MAX_PARAMETERS, type ParameterDef } from "../../../engine/audio/parameters";
 import { AUDIO_EVENT_SUFFIX } from "../../../engine/audio/retiredAudioEvent";
 import { renameEventName } from "../../../engine/audio/migrate/legacy/eventReferences";
 import { renamePlaylistParameter } from "../../../engine/audio/playlist/references";
 import { PLAYLIST_SUFFIX } from "../../../engine/audio/playlist/types";
 import { AUDIO_PROJECT_FILE, type AudioProject, type Snapshot } from "../../../engine/audio/project/types";
 import type { ProjectFileEdit } from "../../../editor/projectFileEdits";
+import type { EditResult } from "../../../editor/sdk/editResult";
 import { parameterList, type ParameterList } from "../../../editor/sdk/parameterList";
 
 const mapConditions = (s: Snapshot, fn: (c: Extract<Snapshot["start"], { kind: "conditions" }>["conditions"]) => Extract<Snapshot["start"], { kind: "conditions" }>["conditions"]): Snapshot =>
@@ -28,7 +29,7 @@ export function renameParameterInMix(p: AudioProject, from: string, to: string):
   return {
     ...p,
     parameters: p.parameters.map((q) => (q.name === from ? { ...q, name: to } : q)),
-    automation: p.automation.map((a) => (a.parameter === from ? { ...a, parameter: to } : a)),
+    automation: p.automation.map((a) => (a.parameter === from || a.by?.input === from ? { ...a, parameter: n(a.parameter), ...(a.by ? { by: { ...a.by, input: n(a.by.input) } } : {}) } : a)),
     snapshots: p.snapshots.map((s) => (s.start.kind === "conditions" && s.start.conditions.some((c) => c.parameter === from) ? mapConditions(s, (cs) => cs.map((c) => ({ ...c, parameter: n(c.parameter) }))) : s)),
   };
 }
@@ -38,7 +39,8 @@ export function removeParameterFromMix(p: AudioProject, name: string): AudioProj
   return {
     ...p,
     parameters: p.parameters.filter((q) => q.name !== name),
-    automation: p.automation.filter((a) => a.parameter !== name),
+    // A lane that also followed it (ADR 0362 §5) keeps its own parameter and follows nothing else.
+    automation: p.automation.filter((a) => a.parameter !== name).map((a) => (a.by?.input === name ? (({ by: _, ...rest }) => rest)(a) : a)),
     snapshots: p.snapshots.map((s) => (s.start.kind === "conditions" && s.start.conditions.some((c) => c.parameter === name) ? mapConditions(s, (cs) => cs.filter((c) => c.parameter !== name)) : s)),
   };
 }
@@ -51,6 +53,32 @@ export const globalParameterList: ParameterList<AudioProject> = parameterList<Au
   rename: renameParameterInMix,
   remove: removeParameterFromMix,
 });
+
+/**
+ * `p` with global parameter `def` added last ("+ New parameter…", UI pass J4.1/J5.1/J6.5): refused past the limit or on a
+ * name taken. Made through the list's own edits (add, rename, then the kind's range or labels), so it is valid as
+ * `parseParameters` reads it back.
+ */
+export function addGlobalParameter(p: AudioProject, def: ParameterDef): EditResult<AudioProject> {
+  const list = globalParameterList;
+  const name = def.name.trim();
+  if (list.parameters(p).some((q) => q.name === name)) return { refused: `another parameter is named "${name}"` };
+  const added = list.add(p, isLabelled(def) ? "labelled" : "numeric");
+  if ("refused" in added) return added;
+  const placeholder = list.parameters(added.next).at(-1)!.name;
+  const steps: ((h: AudioProject) => EditResult<AudioProject>)[] = [
+    (h) => list.rename(h, placeholder, name),
+    (h) => (isLabelled(def) ? list.setLabels(h, name, def.labels.join(", ")) : list.setRange(h, name, { min: def.min, max: def.max, default: def.default, seekSpeed: def.seekSpeed })),
+    (h) => (isLabelled(def) ? list.setDefaultLabel(h, name, def.default) : { next: h }),
+  ];
+  let h = added.next;
+  for (const step of steps) {
+    const r = step(h);
+    if ("refused" in r) return r;
+    h = r.next;
+  }
+  return { next: h };
+}
 
 /** What in `p` reads parameter `name`: its automation lanes and snapshot conditions, counted (for the remove button's tooltip). */
 export function parameterUsesInMix(p: AudioProject, name: string): { automation: number; conditions: number } {

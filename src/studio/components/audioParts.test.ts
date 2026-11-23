@@ -6,17 +6,17 @@ import { defaultEffect } from "../../engine/audio/effects/catalogue";
 import type { Effect } from "../../engine/audio/effects/types";
 import type { DuckingRule } from "../../engine/audio/project/types";
 import { START_VIEW, chainKey, chainText, chainWheel, fitView, shouldStack, worstSeverity, zoomAt, type CausalStep } from "./causalChainModel";
-import { addEffect, effectMenu, effectSummary, keyBusOptions, levelWarning, moveEffect, nextEffectId, removeEffect, setEffectKey, setEffectOn, setEffectParam, type EditResult } from "./effectChainModel";
+import { addEffect, effectMenu, effectSummary, keyBusOptions, levelWarning, moveEffect, nextEffectId, removeEffect, setEffectKey, setEffectOn, setEffectParam, SUMMARY_MIN_PX, summaryFits, type EditResult } from "./effectChainModel";
 import { FADER_MAX_DB, FADER_MIN_DB, dbToPosition, faderGhosts, faderKey, formatDb, parseDb, pointerToDb, positionToDb, snapFaderDb } from "./faderModel";
-import { audibleUnderSolo, dbText, gainBreakdown, gainText, laneBar, laneText, type GainInputs } from "./gainLanesModel";
+import { audibleUnderSolo, dbText, gainBreakdown, gainText, laneBar, laneText, parentsText, totalText, type GainInputs } from "./gainLanesModel";
 import { EMPTY_HOLD, clearClip, meterFill, meterText, meterZone, nextHold } from "./meterModel";
-import { duckSummary, duckTriggerOptions, editDuck, editSendLevel, sendSummary, sendTargets } from "./mixRowsModel";
+import { duckSummary, duckTriggerOptions, editDuck, editSendLevel, sendSummary, sendTargets, triggerEntries } from "./mixRowsModel";
 import { numericSpec, parameterRows, withTestValue } from "./parameterPanelModel";
 import { formatParam, paramKey, paramToFraction, paramToSlider, parseParam, scrubParam, sliderToParam, snapParam, stepDecimals, type ParamSpec } from "./parameterRowModel";
 import { flatItems, soundFolder, soundName, soundSections, stepActive, type SoundItem } from "./soundPickerModel";
 import { isDimmed, packSpans, spanAt, spanBoxes, stepSpan, type Span } from "./spanLaneModel";
 import { formatTime, linearTimeAxis, spanBox, zoomTimeAxis } from "./timeAxis";
-import { playlistBadge, sampleBadge } from "./typeBadgeModel";
+import { placeholderBadge, playlistBadge, sampleBadge } from "./typeBadgeModel";
 import { formatValue, lanePolyline, valueAt, valueRange, valueToY } from "./valueLaneModel";
 
 const next = <T>(r: EditResult<T>): T => {
@@ -249,6 +249,9 @@ describe("effect chain", () => {
     expect(effectSummary(defaultEffect("sidechainCompressor", "fx9"))).toBe("−24.0 dB · 3.0 :1 · no key");
     expect(levelWarning(defaultEffect("gain", "fx1"), "bus")).toMatch(/doesn't run on a bus/);
     expect(levelWarning(chain[0]!, "bus")).toBeNull();
+    // ADR 0362: a chain whose owner runs a type the level doesn't list (a sequence clip's Amp envelope) doesn't warn.
+    expect(levelWarning(defaultEffect("envelope", "fx2"), "instance")).toMatch(/doesn't run/);
+    expect(levelWarning(defaultEffect("envelope", "fx2"), "instance", ["envelope", "gain"])).toBeNull();
   });
 });
 
@@ -322,7 +325,12 @@ describe("sound picker and badges", () => {
     expect(playlistBadge("blend").code).toBe("1D");
     expect(playlistBadge("blend", 2)).toMatchObject({ code: "2D", name: "Blend playlist, two axes" });
     expect(sampleBadge().code).toBe("SMP");
-    expect(new Set([...["queue", "switch", "layer", "clip", "sequence"].map((t) => playlistBadge(t as "queue").series), playlistBadge("blend").series, playlistBadge("blend", 2).series, sampleBadge().series]).size).toBe(8);
+    expect(new Set([...["queue", "switch", "layer", "clip", "sequence"].map((t) => playlistBadge(t as "queue").tone), playlistBadge("blend").tone, playlistBadge("blend", 2).tone, sampleBadge().tone]).size).toBe(8);
+  });
+  it("colours the badges as the ui-pass decisions say, and has a placeholder for an empty chip", () => {
+    const tone = (t: Parameters<typeof playlistBadge>[0], axes?: 1 | 2) => playlistBadge(t, axes).tone;
+    expect([tone("clip"), tone("queue"), tone("switch"), tone("blend"), tone("blend", 2), tone("sequence"), tone("layer")]).toEqual(["clip", "queue", "switch", "blend1", "blend2", "sequence", "layer"]);
+    expect(placeholderBadge()).toMatchObject({ code: "—", name: "No sound", tone: "none" });
   });
 });
 
@@ -441,6 +449,11 @@ describe("gain lanes", () => {
     expect(["Master", "SFX", "Vehicles", "Engine", "Reverb"].map((n) => audibleUnderSolo(solo, n, "Vehicles"))).toEqual([true, true, true, true, true]);
     expect(audibleUnderSolo(solo, "Dialogue", "Vehicles")).toBe(false);
     expect(gainBreakdown(solo, "Reverb")!.totalDb).toBe(-3);
+    // The spec's words (§4.3.5): stage names, who sets a lane, the chain above, the total with its linear gain.
+    expect(gainBreakdown(mix, "Music")!.lanes.map((l) => l.label)).toEqual(["authored", "runtime", "snapshot", "vca", "monitor", "dip", "duck", "automation"]);
+    expect(totalText(gainBreakdown(solo, "Music")!)).toBe("−∞ (monitor)");
+    expect(totalText({ totalDb: -10, gain: Math.pow(10, -0.5), lanes: [] })).toBe("−10.0 dB · 0.32×");
+    expect(parentsText({ parents: [{ name: "SFX", db: -2 }, { name: "Master", db: 0 }] })).toBe("SFX −2.0 · Master 0.0");
   });
 
   it("writes lanes and bars", () => {
@@ -489,5 +502,26 @@ describe("why it played", () => {
     expect(worstSeverity(steps)).toBe("error");
     expect(worstSeverity(steps.slice(0, 2))).toBe("ok");
     expect(chainText(steps.slice(0, 2))).toBe("game Land (Velocity 118), then playlist Bike impacts (Surface → Metal)");
+  });
+});
+
+describe("Mixer rows (UI pass MX-30, MX-33)", () => {
+  it("a collapsed card's summary is drawn only with room for it (otherwise it's on the tooltip, not cut to a letter)", () => {
+    expect(SUMMARY_MIN_PX).toBe(60);
+    expect(summaryFits(59)).toBe(false);
+    expect(summaryFits(60)).toBe(true);
+  });
+
+  it("Ducked by is a menu: captioned, the current trigger checked, the ones that can't trigger disabled with why", () => {
+    const chosen: string[] = [];
+    const entries = triggerEntries([{ name: "Dialogue", disabled: null }, { name: "Weapons", disabled: "already" }, { name: "Music", disabled: null }], "Dialogue", (n) => chosen.push(n));
+    expect(entries[0]).toEqual({ kind: "group", label: "Duck when this plays" });
+    expect(entries.slice(1).map((e) => ("id" in e ? [e.id, e.checked, !!e.disabled, e.note ?? null] : null))).toEqual([
+      ["Dialogue", true, false, null],
+      ["Weapons", false, true, "already"],
+      ["Music", false, false, null],
+    ]);
+    for (const e of entries) if ("run" in e && !e.disabled) e.run();
+    expect(chosen).toEqual(["Music"]); // choosing the current one changes nothing
   });
 });

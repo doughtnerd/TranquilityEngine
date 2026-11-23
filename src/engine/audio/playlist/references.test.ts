@@ -175,3 +175,20 @@ describe("playlist parameter references", () => {
     expect(next.entries[0]).toBe(p.entries[0]);
   });
 });
+
+describe("second inputs (ADR 0362 §5)", () => {
+  it("lists and renames a lane's second input like its own input", () => {
+    const json = {
+      format: "myco.playlist@1", type: "clip",
+      entries: [{ sample: "a.wav", curves: { gain: { input: "speed", curve: [[0, 0]], by: { input: "load", mode: "scale" } } } }],
+      automation: [{ id: "a", target: "volume", input: "voiceTime", curve: [[0, 0]], by: { input: "load", mode: "morph" } }],
+    };
+    expect(playlistParameterReferences(json).filter((r) => r.name === "load").map((r) => [r.use, r.where.join(".")])).toEqual([
+      ["automation", "automation.0.by.input"],
+      ["curve", "entries.0.curves.gain.by.input"],
+    ]);
+    const next = renamePlaylistParameter(json, "load", "weight", "global");
+    expect(next.entries[0]!.curves.gain.by.input).toBe("weight");
+    expect(next.automation[0]!.by.input).toBe("weight");
+  });
+});
