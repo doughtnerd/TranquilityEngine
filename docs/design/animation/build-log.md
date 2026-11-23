@@ -65,3 +65,4 @@ Wave results, measurements (marked measured or estimated) and gate changes.
 - **T01 merged** (B-W2): plugin skeleton and API contract; 28 tests; agent time about 39 minutes. Coordinator added the animation systems to `systemCatalog.test.ts` and the components to `componentCategories.ts`. `piratesSample.test.ts` passed 3/3 on the merged result (its earlier failures are load and `Math.random` sensitivity).
 - **T13t merged** (B-W3): core host, loader, World service; 84 animation tests pass. Agent time about 30 minutes.
 - **T03t merged** (B-W3): formats and asset kinds; 294 tests in the touched folders pass. Agent time about 40 minutes. Found: the shell's generic JSON reference walk (0314) rewrites any string equal to a moved path, including node paths or bone names that look like file paths (suggested as a separate task).
+- **T17 merged** (B-W4): ECS integration; 134 targeted tests and the 326-file engine suite pass. Agent time about 45 minutes.
