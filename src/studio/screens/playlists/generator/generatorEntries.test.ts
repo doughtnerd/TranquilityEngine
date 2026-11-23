@@ -6,7 +6,8 @@ import { applyBlipPreset } from "../../../../engine/audio/generators/blipPresets
 import { emptyGeneratorBody, formatGenerator } from "../../../../engine/audio/generators/format";
 import { emptyPlaylistBody } from "../../../../engine/audio/playlist/format";
 import type { PlaylistBody, SequenceSettings } from "../../../../engine/audio/playlist/types";
-import { addGenerator, addGeneratorClip, clipGenerator, generatorClipLength, generatorFromDrag, generatorDragText, libraryGenerators, setClipGenerator } from "./generatorEntries";
+import { addItems, entriesFor, filterCounts, filterItems } from "../addDialogModel";
+import { addGenerator,addGeneratorClip, clipGenerator, generatorClipLength, generatorFromDrag, generatorDragText, libraryGenerators, setClipGenerator } from "./generatorEntries";
 
 const ctx = { parameters: [] };
 const ok = <T>(r: { next: T } | { refused: string }): T => {
@@ -59,6 +60,21 @@ describe("generator clips in sequences", () => {
     expect(generatorClipLength({ ...emptyGeneratorBody("silence"), params: { length: 0.75, lengthRandom: 0 } })).toBe(0.75);
     const coin = applyBlipPreset(emptyGeneratorBody("blip"), "coin", 3);
     expect(generatorClipLength(coin)).toBeGreaterThan(0.05);
+  });
+});
+
+describe("the Add dialog's generators", () => {
+  it("lists generators as sources a Clip can take, and adds them wrapped in a Clip elsewhere", () => {
+    const files = ["audio/a.wav", "audio/ui/coin.generator.json", "audio/q.playlist.json"];
+    const gens = (p: string) => (p === "audio/ui/coin.generator.json" ? emptyGeneratorBody("blip") : null);
+    const forClip = addItems(files, "audio/c.playlist.json", "clip", () => emptyPlaylistBody("queue"), gens);
+    expect(forClip.map((i) => [i.kind, i.disabled, i.generatorKind])).toEqual([["sample", null, undefined], ["playlist", "A Clip plays a sample", undefined], ["generator", null, "blip"]]);
+    expect(filterCounts(forClip, "").generators).toBe(1);
+    expect(filterItems(forClip, "", "generators").map((i) => i.name)).toEqual(["coin"]);
+    const [e] = entriesFor(["audio/ui/coin.generator.json"], forClip, "link", () => null);
+    expect(e!.kind === "embedded" && clipGenerator(e!.embedded)).toEqual({ index: 0, generator: "audio/ui/coin.generator.json" });
+    // Callers that don't read generators list none.
+    expect(addItems(files, "audio/c.playlist.json", "queue", () => emptyPlaylistBody("queue")).some((i) => i.kind === "generator")).toBe(false);
   });
 });
 

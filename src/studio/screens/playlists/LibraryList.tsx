@@ -2,6 +2,7 @@
 // ▶ preview each through the Studio's runtime, and rows that drag onto the open playlist (adding an entry) or add from
 // their menu. Click selects, Ctrl/⌘-click toggles, Shift-click selects a range; the menu's "Create playlist from…" makes
 // a new playlist of the selected samples (a Clip for one, a Queue for several). A view over props.
+import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
 import { ContextMenu } from "../../../editor/ui/ContextMenu";
 import { EmptyState } from "../../../editor/ui/EmptyState";
@@ -20,6 +21,8 @@ export interface LibraryListProps {
   /** Create a playlist of these samples (absent or `writable` false: the menu entry is disabled). */
   onCreatePlaylist?(paths: readonly string[]): void;
   readonly writable?: boolean;
+  /** ADR 0360 §9: what the Library lists above the samples (the generators), given the search. */
+  extra?(query: string): ComponentChildren;
 }
 
 export function LibraryList(props: LibraryListProps) {
@@ -32,8 +35,9 @@ export function LibraryList(props: LibraryListProps) {
   return (
     <div class="pl-library">
       <div class="pl-tree-tools">
-        <input type="search" class="pl-search" placeholder="Search samples" aria-label="Search samples" value={query} onInput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)} />
+        <input type="search" class="pl-search" placeholder={props.extra ? "Search generators and samples" : "Search samples"} aria-label="Search samples" value={query} onInput={(e) => setQuery((e.currentTarget as HTMLInputElement).value)} />
       </div>
+      {props.extra && <div class="pl-lib-groups" role="list" aria-label="Generators">{props.extra(query)}</div>}
       {none ? (
         <EmptyState compact title="No samples yet" body="Samples are the project's audio files and the samples made from them." action={{ label: "Import some in Samples", run: props.onOpenSamples }} />
       ) : (

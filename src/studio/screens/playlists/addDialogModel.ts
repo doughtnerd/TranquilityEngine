@@ -2,24 +2,29 @@
 // filtered (All / Samples / Playlists / Sequences, with counts), several picked at once. A playlist that would make the
 // open one contain itself is listed but can't be picked, with why ("Not allowed: it would contain itself", "X already
 // contains Y"). A Clip takes one sample ("Choose sample…" / "Replace sample…"). What it adds: a sample as an entry
-// (wrapped in an embedded Clip), a playlist as a link ("Link existing", the default) or as an embedded copy ("Copy").
-// Pure.
+// (wrapped in an embedded Clip), a playlist as a link ("Link existing", the default) or as an embedded copy ("Copy"),
+// and, when the caller reads generators (ADR 0360 §9), a generator as a source like a sample (wrapped in a Clip). Pure.
 import { isPlaylistPath } from "../../../engine/audio/playlist/format";
 import { wouldContain } from "../../../engine/audio/playlist/references";
 import type { Entry, PlaylistBody } from "../../../engine/audio/playlist/types";
-import { defaultEntryUse } from "../../../engine/audio/playlist/format";
+import { defaultEntryUse, emptyPlaylistBody } from "../../../engine/audio/playlist/format";
+import { isGeneratorPath } from "../../../engine/audio/generators/format";
+import type { GeneratorBody, GeneratorKind } from "../../../engine/audio/generators/types";
+import { generatorEntry, generatorName } from "./generator/generatorEntries";
 import { playlistBadge, sampleBadge, type BadgeCode } from "../../components/typeBadgeModel";
 import { isSamplePath } from "./libraryModel";
 import { playlistTitle, sampleTitle } from "./playlistPaths";
 
-export type AddFilter = "all" | "samples" | "playlists" | "sequences";
+export type AddFilter = "all" | "samples" | "playlists" | "sequences" | "generators";
 
 export interface AddItem {
   readonly path: string;
-  readonly kind: "sample" | "playlist" | "sequence";
+  readonly kind: "sample" | "playlist" | "sequence" | "generator";
   readonly name: string;
   readonly folder: string;
   readonly badge: BadgeCode;
+  /** ADR 0360: a generator's kind (null when it can't be read); absent for samples and playlists. */
+  readonly generatorKind?: GeneratorKind | null;
   /** Why it can't be added here, or null. */
   readonly disabled: string | null;
 }
@@ -27,10 +32,13 @@ export interface AddItem {
 const folderOf = (path: string): string => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 /** Every sample and playlist of the project as items for adding to the playlist file `target` (of type `targetType`). */
-export function addItems(files: readonly string[], target: string, targetType: PlaylistBody["type"], load: (path: string) => PlaylistBody | null): AddItem[] {
+export function addItems(files: readonly string[], target: string, targetType: PlaylistBody["type"], load: (path: string) => PlaylistBody | null, loadGenerator?: (path: string) => GeneratorBody | null): AddItem[] {
   const out: AddItem[] = [];
   for (const path of files) {
-    if (isSamplePath(path)) {
+    if (loadGenerator && isGeneratorPath(path)) {
+      // ADR 0360: a generator is a source like a sample (a Clip plays it; elsewhere it is wrapped in a Clip).
+      out.push({ path, kind: "generator", name: generatorName(path), folder: folderOf(path), badge: "CLP", generatorKind: loadGenerator(path)?.kind ?? null, disabled: null });
+    } else if (isSamplePath(path)) {
       out.push({ path, kind: "sample", name: sampleTitle(path), folder: folderOf(path), badge: sampleBadge().code, disabled: null });
     } else if (isPlaylistPath(path)) {
       const b = load(path);
@@ -47,7 +55,7 @@ export function addItems(files: readonly string[], target: string, targetType: P
 }
 
 const matches = (item: AddItem, filter: AddFilter): boolean =>
-  filter === "all" || (filter === "samples" && item.kind === "sample") || (filter === "playlists" && item.kind === "playlist") || (filter === "sequences" && item.kind === "sequence");
+  filter === "all" || (filter === "samples" && item.kind === "sample") || (filter === "playlists" && item.kind === "playlist") || (filter === "sequences" && item.kind === "sequence") || (filter === "generators" && item.kind === "generator");
 
 /** The items a query and filter show (words matched against name and folder). */
 export function filterItems(items: readonly AddItem[], query: string, filter: AddFilter): AddItem[] {
@@ -63,6 +71,7 @@ export function filterCounts(items: readonly AddItem[], query: string): Record<A
     samples: shown.filter((i) => i.kind === "sample").length,
     playlists: shown.filter((i) => i.kind === "playlist").length,
     sequences: shown.filter((i) => i.kind === "sequence").length,
+    generators: shown.filter((i) => i.kind === "generator").length,
   };
 }
 
@@ -80,6 +89,7 @@ export function entriesFor(paths: readonly string[], items: readonly AddItem[], 
     const item = items.find((i) => i.path === path);
     if (!item || item.disabled) continue;
     if (item.kind === "sample") out.push({ kind: "sample", sample: path, trim: null, loop: "inherit", ...defaultEntryUse() });
+    else if (item.kind === "generator") out.push({ kind: "embedded", embedded: { ...emptyPlaylistBody("clip"), entries: [generatorEntry(path)] }, ...defaultEntryUse() });
     else if (mode === "link") out.push({ kind: "linked", playlist: path, ...defaultEntryUse() });
     else {
       const b = load(path);

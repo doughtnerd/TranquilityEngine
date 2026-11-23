@@ -1,7 +1,7 @@
 // The Inspector on the Samples screen (the prototype's): the selected marker, loop, trim, snippet or the sample itself.
 // Markers: type, name, time or range, colour (notes), note, and the Source block (file vs project per field with a
 // revert each, Detach). Loops: Repeats, Active, Exit and its fade, Re-entry, Direction, Crossfade. The sample: Load,
-// kind, Stinger, measured loudness, lineage, the whole sample's Source block, its Encoding per platform (ADR 0351 §6:
+// kind, Stinger, measured loudness, lineage, a baked sample's generator (ADR 0360 §6), the whole sample's Source block, its Encoding per platform (ADR 0351 §6:
 // where each setting comes from, overrides, sizes and memory) and the playlists that use it.
 import { useState } from "preact/hooks";
 import type { SampleEdits, SampleLoop, SampleMarker, SampleKind } from "../../../engine/audio/sample/types";
@@ -12,6 +12,7 @@ import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { SampleEncoding } from "./SampleEncoding";
+import { SampleProvenance } from "../playlists/generator/GeneratedProvenance";
 import { sidecarPath, type ImportSettings } from "../../../engine/scene/importSettings";
 import { formatTime, parseTime, type TimeContext } from "../../components/timeRulerModel";
 import { openRoute, toasts } from "../../shell/studioServices";
@@ -346,6 +347,7 @@ function SampleInspector(props: Part & { session: SampleSession }) {
           {forks.length > 0 && ` · ${forks.length} fork${forks.length === 1 ? "" : "s"}`}
         </span>
       </div>
+      <SampleProvenance project={project} generated={session.settings.value?.generated} writable={!ro} />
       {parentChanged && derived && (
         <p class="smp-warning">
           Parent changed{" "}
