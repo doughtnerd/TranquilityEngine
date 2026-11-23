@@ -40,8 +40,15 @@ describe("the sidecar animation section", () => {
 
   it("writes only non-default values, and nothing for an all-default section", () => {
     expect(modelAnimationToJson(defaultModelAnimationSettings())).toBeUndefined();
-    const a = parseModelAnimation({ influences: 4, clips: { T: [{ name: "A", from: 0, loop: false, compression: { error: 0.1 }, rootMotion: { bone: "Root", axes: ["x", "z", "yaw"] } }] } }, "animation", []);
+    const a = parseModelAnimation({ influences: 4, clips: { T: [{ name: "A", from: 0, loop: false, compression: {}, rootMotion: { bone: "Root", axes: ["x", "z", "yaw"] } }] } }, "animation", []);
     expect(modelAnimationToJson(a)).toEqual({ clips: { T: [{ name: "A", rootMotion: { bone: "Root" } }] } });
+  });
+
+  it("keeps only the compression values an entry sets, so the rest inherits (T19)", () => {
+    const a = parseModelAnimation({ clips: { T: [{ name: "A", compression: { error: 0.1, platforms: { web: { maxRate: 15 } } } }, { name: "B" }] } }, "animation", []);
+    expect(a.clips.T[0].compression).toEqual({ error: 0.1, platforms: { web: { maxRate: 15 } } });
+    expect(a.clips.T[1].compression).toEqual({});
+    expect(modelAnimationToJson(a)).toEqual({ clips: { T: [{ name: "A", compression: { error: 0.1, platforms: { web: { maxRate: 15 } } } }, { name: "B" }] } });
   });
 
   it("falls back leniently, one problem per bad value", () => {

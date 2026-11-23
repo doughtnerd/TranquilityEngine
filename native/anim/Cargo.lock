@@ -57,6 +57,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "anim-editor-wasm"
+version = "0.1.0"
+dependencies = [
+ "anim-compress",
+ "anim-format",
+ "anim-match",
+ "anim-math",
+ "anim-offline",
+ "anim-retarget",
+ "anim-sample",
+ "sha2",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "anim-format"
 version = "0.1.0"
 
