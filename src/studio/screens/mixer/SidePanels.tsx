@@ -3,9 +3,10 @@
 // test values of the game parameters (they drive snapshot conditions, automation display and the Studio's runtime),
 // and Master's loudness against a platform target ("—" until the Studio's audio plays).
 import { useState } from "preact/hooks";
+import { formatDb } from "../../components/faderModel";
 import { GainLanes } from "../../components/GainLanes";
 import { ParameterPanel } from "../../components/ParameterPanel";
-import { gainInputs, loudnessRows } from "./boardModel";
+import { gainInputs, loudnessRows, targetOptionText } from "./boardModel";
 import { kindOf, masterOf } from "./busTree";
 import type { MixerSession } from "./mixerScreen";
 import { MixFrame } from "./mixerViewParts";
@@ -18,7 +19,7 @@ export function GainLanesPanel(props: { session: MixerSession }) {
   if (kindOf(p, name) === "vca") {
     return (
       <MixFrame session={session} label="Gain lanes">
-        <p class="mx-note">{name} is a VCA: it adds {p.vcas.find((v) => v.name === name)!.volumeDb} dB to the VCA lane of each member and everything under it. Select a bus to see its lanes.</p>
+        <p class="mx-note">{name} is a VCA: it adds {formatDb(p.vcas.find((v) => v.name === name)!.volumeDb)} dB to the VCA lane of each member and everything under it. Select a bus to see its lanes.</p>
       </MixFrame>
     );
   }
@@ -62,7 +63,7 @@ export function LoudnessPanel(props: { session: MixerSession }) {
         <label class="mx-inline">
           Platform target
           <select value={target} onChange={(e) => { const v = (e.target as HTMLSelectElement).value; setTarget(v); session.deps.setLoudnessTarget?.(v); }} aria-label="Platform target">
-            {targets.map((t) => <option key={t.name} value={t.name}>{t.name} · {t.integrated} LUFS / {t.truePeak} dBTP</option>)}
+            {targets.map((t) => <option key={t.name} value={t.name}>{targetOptionText(t)}</option>)}
           </select>
         </label>
         {reading?.tainted && <span class="mx-chip warn" title="A solo or Compare changed what the meters heard since the last reset">Monitor changed the reading</span>}

@@ -12,6 +12,7 @@ import { BED_PRIORITY_LIMITS } from "../../../engine/audio/settings";
 import { DuckRow } from "../../components/DuckRow";
 import { EffectChain } from "../../components/EffectChain";
 import { Fader } from "../../components/Fader";
+import { formatDb } from "../../components/faderModel";
 import { Icon } from "../../components/Icon";
 import { SendRow } from "../../components/SendRow";
 import { keyBusOptions } from "../../components/effectChainModel";
@@ -64,19 +65,28 @@ function LevelField(props: { session: MixerSession; name: string }) {
   const p = session.project.value;
   const editing = session.editing.value;
   const value = shownLevel(p, name, editing);
-  const snap = editedSnapshot(p, editing);
   const hasAuto = p.automation.some((a) => a.on === name && a.target === "volume");
   const commit = (db: number, drag?: boolean) => session.commit(setLevel(session.project.peek(), name, db, session.editing.peek()), levelLabel(session.project.peek(), name, session.editing.peek()), drag);
   return (
+    <div class="mx-ilevel">
+      <Fader value={value} label={`${name} level`} ghosts={levelGhosts(p, name, editing)} disabled={session.readOnly} onValue={(db, drag) => commit(db, drag || undefined)} />
+      <DbField value={value} label={`${name} level in dB`} disabled={session.readOnly} onCommit={(db) => commit(db)} />
+      {kindOf(p, name) !== "vca" && <Diamond set={hasAuto} label={`Automate ${name}'s level`} disabled={session.readOnly} onClick={() => automate(session, name, "volume")} />}
+    </div>
+  );
+}
+
+/** The Level row: the level, then (while a snapshot is edited and offsets `name`) the offset on a row of its own, to 0.1 dB. */
+function LevelRows(props: { session: MixerSession; name: string }) {
+  const { session, name } = props;
+  const snap = editedSnapshot(session.project.value, session.editing.value);
+  const offset = snap?.buses[name];
+  return (
     <>
-      <div class="mx-ilevel">
-        <Fader value={value} label={`${name} level`} ghosts={levelGhosts(p, name, editing)} disabled={session.readOnly} onValue={(db, drag) => commit(db, drag || undefined)} />
-        <DbField value={value} label={`${name} level in dB`} disabled={session.readOnly} onCommit={(db) => commit(db)} />
-        {kindOf(p, name) !== "vca" && <Diamond set={hasAuto} label={`Automate ${name}'s level`} disabled={session.readOnly} onClick={() => automate(session, name, "volume")} />}
-      </div>
-      {snap && name in snap.buses && (
+      <Field label="Level"><LevelField session={session} name={name} /></Field>
+      {snap && offset !== undefined && (
         <p class="mx-inote">
-          {snap.name}: {snap.buses[name]! > 0 ? "+" : ""}{snap.buses[name]} dB on the base level.{" "}
+          {snap.name}: {formatDb(offset)} dB on the base level.{" "}
           <button class="mx-link" disabled={session.readOnly} onClick={() => session.commit(clearOffset(session.project.peek(), snap.name, name), labelOn("Clear offset", name))}>Clear offset</button>
         </p>
       )}
@@ -177,7 +187,7 @@ function Effects(props: { session: MixerSession; name: string }) {
             return (
               <div key={`${o.id}.${o.param}`} class="mx-override">
                 <span class="mx-override-mark" aria-hidden="true">●</span>
-                <span>{e ? effectSpec(e.type).label : o.id} · {spec?.label ?? o.param}: {o.value}{spec?.unit ? ` ${spec.unit}` : ""}</span>
+                <span>{e ? effectSpec(e.type).label : o.id} · {spec?.label ?? o.param}: {Math.round(o.value * 100) / 100}{spec?.unit ? ` ${spec.unit}` : ""}</span>
                 <span class="mx-faint">base {e?.params[o.param] ?? spec?.default ?? "—"}</span>
                 <button class="mx-link" disabled={session.readOnly} onClick={() => session.commit(clearOverride(session.project.peek(), snap.name, name, o.id, o.param), labelOn("Clear override", name))}>Clear override</button>
               </div>
@@ -288,7 +298,7 @@ function BusInspector(props: { session: MixerSession; name: string }) {
     <>
       <Field label="Name"><NameField session={session} name={name} locked={bus.parent === null} /></Field>
       <Field label="Parent">{bus.parent === null ? "— (the master bus)" : <span title="Drag the bus in the Buses panel to re-route it">{busPath(p, bus.parent)}</span>}</Field>
-      <Field label="Level"><LevelField session={session} name={name} /></Field>
+      <LevelRows session={session} name={name} />
       <Field label="Mute">
         <button class={`mx-toggle mute${bus.mute ? " on" : ""}`} aria-pressed={bus.mute} disabled={session.readOnly} onClick={() => session.commit(setMute(session.project.peek(), name, !bus.mute), labelOn(bus.mute ? "Unmute" : "Mute", name))}>M</button>
       </Field>
@@ -315,7 +325,7 @@ function ReturnInspector(props: { session: MixerSession; name: string }) {
           {p.buses.map((b) => <option key={b.name} value={b.name}>{busPath(p, b.name)}</option>)}
         </select>
       </Field>
-      <Field label="Level"><LevelField session={session} name={name} /></Field>
+      <LevelRows session={session} name={name} />
       <Field label="Mute">
         <button class={`mx-toggle mute${ret.mute ? " on" : ""}`} aria-pressed={ret.mute} disabled={session.readOnly} onClick={() => session.commit(setMute(session.project.peek(), name, !ret.mute), labelOn(ret.mute ? "Unmute" : "Mute", name))}>M</button>
       </Field>
@@ -334,7 +344,7 @@ function VcaInspector(props: { session: MixerSession; name: string }) {
     <>
       <p class="mx-note">A VCA offsets its member buses and everything under them. No audio passes through it; the members' faders stay where they are.</p>
       <Field label="Name"><NameField session={session} name={name} locked={false} /></Field>
-      <Field label="Level"><LevelField session={session} name={name} /></Field>
+      <LevelRows session={session} name={name} />
       <fieldset class="mx-members-list">
         <legend>Members</legend>
         {p.buses.filter((b) => b.parent !== null).map((b) => (

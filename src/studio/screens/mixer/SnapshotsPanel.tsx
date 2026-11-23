@@ -1,6 +1,7 @@
 // The Snapshots panel (ADR 0344; the prototype's snapshot tree): the base mix, then the snapshots by folder, a search
 // by name and trigger text, + New snapshot (in the selected folder), New folder, Collapse all, and per row a menu with
-// Edit trigger…, Rename (F2), Duplicate, Move to…, Move to top level and Delete (Del; an undo toast brings it back).
+// Edit trigger…, Rename (F2), Duplicate, Move to…, Move to top level, Undo and Delete snapshot (Del; an undo toast brings
+// it back). The selected folder follows a folder rename, move or delete, so + New never brings an old path back.
 // Picking a snapshot makes it the mix you edit ("Editing"): faders then edit its offsets and effect parameters its
 // overrides. A dot says whether it is on with the test values.
 import { useState } from "preact/hooks";
@@ -12,9 +13,9 @@ import type { Snapshot } from "../../../engine/audio/project/types";
 import { Icon } from "../../components/Icon";
 import { labelOn } from "./mixEdits";
 import type { MixerSession } from "./mixerScreen";
-import { MixFrame } from "./mixerViewParts";
+import { MixFrame, undoEntry } from "./mixerViewParts";
 import { startHolds } from "./snapshotBlend";
-import { deleteFolder, duplicateSnapshot, moveFolder, moveSnapshot, newFolderPath, renameFolder, renameSnapshot, searchSnapshots, snapshotFolders, snapshotTree, type SnapshotNode } from "./snapshotTree";
+import { deleteFolder, duplicateSnapshot, followFolder, moveFolder, movedFolderPath, moveSnapshot, newFolderPath, renameFolderIn, renameSnapshot, searchSnapshots, snapshotFolders, snapshotTree, type SnapshotNode } from "./snapshotTree";
 import { openTriggerDialog } from "./TriggerDialog";
 
 const TREE = "mixer-snapshots";
@@ -41,9 +42,21 @@ export function SnapshotsPanel(props: { session: MixerSession }) {
     session.editSnapshot(name);
   };
   const remove = (name: string) => session.removeSnapshot(name);
+  /** Folder `from` is now `to`: the selected folder and the folded ones follow it. */
+  const followSelection = (from: string, to: string) => {
+    setFolder((f) => followFolder(f, from, to));
+    setClosed((c) => new Set([...c].map((f) => followFolder(f, from, to))));
+  };
   const removeFolder = (path: string) => {
     session.extraFolders.value = session.extraFolders.peek().filter((f) => f !== path && !f.startsWith(`${path}/`));
     session.commit(deleteFolder(session.project.peek(), path), "Snapshot folders");
+    followSelection(path, path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
+  };
+  const moveFolderTo = (path: string, into: string) => {
+    if (!session.commit(moveFolder(session.project.peek(), path, into), "Move folder")) return;
+    const to = movedFolderPath(path, into);
+    session.extraFolders.value = session.extraFolders.peek().map((f) => followFolder(f, path, to));
+    followSelection(path, to);
   };
   const newSnap = (inFolder: string) => {
     const name = session.newSnapshot(inFolder);
@@ -105,15 +118,13 @@ export function SnapshotsPanel(props: { session: MixerSession }) {
         label: "Folder name",
         commit: (v) => {
           if (v === n.name) return;
-          const isExtra = session.extraFolders.peek().includes(n.path);
-          const parent = n.path.includes("/") ? n.path.slice(0, n.path.lastIndexOf("/")) : "";
-          const to = parent ? `${parent}/${v.trim()}` : v.trim();
-          if (isExtra && !p.snapshots.some((s) => s.folder === n.path || s.folder.startsWith(`${n.path}/`))) {
-            if (v.trim() === "" || v.includes("/")) return session.refuse("Rename folder", "a folder name can't be empty or hold a /");
-            session.extraFolders.value = session.extraFolders.peek().map((f) => (f === n.path ? to : f));
-            return;
-          }
-          session.commit(renameFolder(session.project.peek(), n.path, v, session.extraFolders.peek()), "Snapshot folders");
+          // One rename for a folder with snapshots in it and one the panel only keeps: the kept folders follow, and so
+          // does the selection, so + New files into the renamed folder rather than bringing the old path back.
+          const r = renameFolderIn(session.project.peek(), session.extraFolders.peek(), n.path, v);
+          if ("refused" in r) return session.refuse("Rename folder", r.refused);
+          if (!session.commit({ next: r.next.project }, "Snapshot folders")) return;
+          session.extraFolders.value = r.next.extra;
+          followSelection(n.path, r.next.path);
         },
       },
       remove: ro ? undefined : () => removeFolder(n.path),
@@ -140,6 +151,9 @@ export function SnapshotsPanel(props: { session: MixerSession }) {
         { id: "folder", label: "New folder", disabled: ro, run: () => newFolder(path) },
         { id: "rename", label: "Rename", hint: "F2", disabled: ro, run: () => renameRow(TREE, key) },
         { id: "move", label: "Move to…", disabled: ro, run: () => setMoving({ path, folder: true, name: path }) },
+        { id: "top", label: "Move to top level", disabled: ro || !path.includes("/"), run: () => moveFolderTo(path, "") },
+        SEPARATOR,
+        undoEntry(),
         SEPARATOR,
         { id: "delete", label: "Delete folder", hint: "Del", danger: true, disabled: ro, title: "What's in it moves up a level", run: () => removeFolder(path) },
       ];
@@ -155,7 +169,9 @@ export function SnapshotsPanel(props: { session: MixerSession }) {
       { id: "move", label: "Move to…", disabled: ro, run: () => setMoving({ path, folder: false, name }) },
       { id: "top", label: "Move to top level", disabled: ro || s.folder === "", run: () => session.commit(moveSnapshot(session.project.peek(), name, ""), labelOn("Move snapshot", name)) },
       SEPARATOR,
-      { id: "delete", label: "Delete", hint: "Del", danger: true, disabled: ro, run: () => remove(name) },
+      undoEntry(),
+      SEPARATOR,
+      { id: "delete", label: "Delete snapshot", hint: "Del", danger: true, disabled: ro, run: () => remove(name) },
     ];
   };
 
@@ -186,7 +202,7 @@ export function SnapshotsPanel(props: { session: MixerSession }) {
           rootName="Snapshots"
           onMove={(to) => {
             setMoving(null);
-            if (moving.folder) session.commit(moveFolder(session.project.peek(), moving.path, to), "Move snapshot");
+            if (moving.folder) moveFolderTo(moving.path, to);
             else {
               session.commit(moveSnapshot(session.project.peek(), moving.name, to), labelOn("Move snapshot", moving.name));
               session.extraFolders.value = session.extraFolders.peek().filter((f) => f !== to);

@@ -30,6 +30,10 @@
 /* The list follows its own width (ADR 0361): Voices and Bed go first, then the dB field (the fader and the Inspector
  * still set the level), so the rows fit a side dock or a phone; anything still too wide scrolls inside the list. */
 .mx-list { display: flex; flex-direction: column; min-width: 0; container-type: inline-size; overflow-x: auto; }
+/* Rows and strips are controls, not text: a re-route drag or a fader drag doesn't leave a text selection across the
+ * page (MX-05, MX-15). The rename and dB fields stay selectable. */
+.mx-list, .mx-strips, .mx-board, .mx-toolbar { user-select: none; -webkit-user-select: none; }
+.mx-list input, .mx-strips input, .mx-board input { user-select: text; -webkit-user-select: text; }
 .mx-head, .mx-row { display: grid; grid-template-columns: minmax(150px, 1.2fr) minmax(120px, 2fr) 60px 56px minmax(90px, 0.8fr) 56px; align-items: center; gap: 8px; }
 .mx-head { color: var(--faint); font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.05em; padding: 2px 4px; }
 .mx-row { position: relative; padding: 1px 4px; border-radius: 4px; min-height: 28px; outline: none; }
@@ -78,8 +82,15 @@
 
 /* Inspector */
 .mx-ititle { margin: 0 0 4px; font-size: calc(14px * var(--ui-scale)); color: var(--text-strong); }
-.mx-ifield { display: grid; grid-template-columns: 84px 1fr; gap: 8px; align-items: center; min-height: 26px; }
+/* The Inspector grows with its rows and its dock scrolls: a row never shrinks under its content (MX-26), and a row
+ * that wraps (Bed, Voice limit) keeps its label on its first line. */
+.mx-frame.mx-inspector { flex: none; }
+.mx-inspector > * { flex-shrink: 0; }
+.mx-ifield { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 8px; align-items: start; min-height: 26px; }
 .mx-ilabel { color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.mx-ifield > .mx-ilabel { display: flex; align-items: center; min-height: 26px; }
+.mx-ifield > .mx-ivalue { display: flex; flex-direction: column; justify-content: center; min-height: 26px; }
+.mx-inspector > .mx-inote { margin: 0 0 0 92px; }
 .mx-ivalue { min-width: 0; }
 .mx-iname { width: 100%; }
 .mx-ilevel { display: flex; align-items: center; gap: 6px; min-width: 0; }

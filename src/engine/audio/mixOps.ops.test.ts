@@ -155,7 +155,7 @@ describe("refusals: what the parse would drop (§2.1, §2.2)", () => {
   it("writes targets equal to the defaults as absent, and resetOnPlay true as absent", () => {
     const a = defaultAudioSettings();
     const b = applyOpToSettings(a, { op: "setTarget", index: 1, target: null });
-    expect(b.loudnessTargets).toEqual([{ name: "console", integrated: -24, tolerance: 2, truePeak: -1 }]);
+    expect(b.loudnessTargets).toEqual([{ name: "console", integrated: -24, tolerance: 2, truePeak: -1 }, { name: "mobile", integrated: -16, tolerance: 2, truePeak: -1 }]);
     expect("loudnessTargets" in applyOpToSettings(b, invert({ op: "setTarget", index: 1, target: null }, a)[0])).toBe(false);
     const off = applyOpToSettings(a, { op: "setOption", key: "loudnessResetOnPlay", value: false });
     expect(off.loudnessResetOnPlay).toBe(false);
