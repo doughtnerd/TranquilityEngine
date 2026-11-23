@@ -12,8 +12,7 @@
 import type { AnimSource } from "../../../../engine/animation/animSource";
 import { accept, type EditResult } from "../../../../editor/sdk/editResult";
 import { keyField } from "./clipEditLogic";
-import { animatableSubPaths, subValue } from "./fieldTracksLogic";
-import { getComponentClass, isFieldAnimatable } from "../../../../engine/core/registry";
+import { animatableSubPaths, isAnimatablePath, subValue } from "./fieldTracksLogic";
 
 /** One field write as record mode sees it. */
 export interface RecordedWrite {
@@ -49,10 +48,8 @@ const within = (path: string, subs: readonly string[]) => subs.some((s) => path 
  */
 export function recordWrite(clip: AnimSource, write: RecordedWrite, t: number): RecordedKey | null {
   if (write.nodePath === null) return null;
-  const cls = getComponentClass(write.type);
-  if (!cls) return null;
   const binding = { nodePath: write.nodePath, component: write.type, field: write.field };
-  if (isFieldAnimatable(cls, write.field)) return { label: `Record ${write.field}`, result: keyField(clip, binding, write.value, t) };
+  if (isAnimatablePath(write.type, write.field)) return { label: `Record ${write.field}`, result: keyField(clip, binding, write.value, t) };
   const subs = animatableSubPaths(write.type, write.field);
   if (!subs.length) return null;
   const changed = [...new Set([...leafPaths(write.value), ...leafPaths(write.stored)])].filter((p) => !same(subValue(write.value, p), subValue(write.stored, p)));

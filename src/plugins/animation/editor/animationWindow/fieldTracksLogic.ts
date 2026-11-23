@@ -22,6 +22,17 @@ export type FieldKeyValue = { readonly kind: "numbers"; readonly values: readonl
 
 const title = (type: string) => type.replace(/^[^.]*\./, "");
 
+/** `engine.Transform` isn't a registered component class: its local pose is what the binding table writes (T20t). */
+const TRANSFORM = "engine.Transform";
+const TRANSFORM_FIELDS = { position: { kind: "vec3", width: 3 }, rotation: { kind: "quat" }, scale: { kind: "vec3", width: 3 } } as const satisfies Record<string, FieldTrackShape>;
+
+/** Whether a track may drive `path` of component `type` (a field, or a dotted sub-path, D86). */
+export function isAnimatablePath(type: string, path: string): boolean {
+  if (type === TRANSFORM) return path in TRANSFORM_FIELDS;
+  const cls = getComponentClass(type);
+  return !!cls && isFieldAnimatable(cls, path);
+}
+
 /** The declared field `name` of `type` (a subclass's redeclaration wins). */
 function fieldInfo(type: string, name: string): FieldInfo | null {
   const cls = getComponentClass(type);
@@ -51,6 +62,7 @@ function shapeOfValue(value: unknown): FieldTrackShape | null {
  * animated. A sub-path's kind is read from `value` (its value now, in scene-file JSON).
  */
 export function fieldTrackShape(type: string, path: string, value?: unknown): EditResult<FieldTrackShape> {
+  if (type === TRANSFORM) return path in TRANSFORM_FIELDS ? accept(TRANSFORM_FIELDS[path as keyof typeof TRANSFORM_FIELDS]) : refuse(`Transform.${path} isn't animatable`);
   const cls = getComponentClass(type);
   if (!cls) return refuse(`${type} isn't a registered component`);
   if (!isFieldAnimatable(cls, path)) return refuse(`${title(type)}.${path} isn't animatable`);
@@ -94,9 +106,7 @@ export function animatableSubPaths(type: string, field: string): string[] {
  * sub-paths (`spring.targetPosition`); empty when it can't be animated.
  */
 export function animatedPaths(type: string, field: string): string[] {
-  const cls = getComponentClass(type);
-  if (!cls) return [];
-  if (isFieldAnimatable(cls, field)) return [field];
+  if (isAnimatablePath(type, field)) return [field];
   return animatableSubPaths(type, field).map((s) => `${field}.${s}`);
 }
 
