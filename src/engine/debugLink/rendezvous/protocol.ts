@@ -9,13 +9,15 @@
 // `error` (and closes). A room has two seats: the side that shows the room code (`waiting`, it creates the room) and
 // the side that typed it (`joining`). Once both sit, each hears `peer-joined`; the joining side then sends the offer
 // (it is the `webrtc` transport's connecting side) and the waiting side answers, candidates flowing both ways. Signals
-// are relayed to the other seat as they are, never read. When either side sends `connected`, or both leave, or the
-// room has lived `ROOM_EXPIRY_MS`, the server forgets it (an `expired` tells whoever is still there, then closes).
+// are relayed to the other seat as they are, never read. When both sides have sent `connected`, or both have left, or
+// the room has lived `ROOM_EXPIRY_MS`, the server forgets it (an `expired` tells whoever is still there, then closes).
+// A side that already sent `connected` and leaves is not announced (`peer-left`) to the other, which may still be
+// finishing its connection.
 //
 // Limits (plan §7a, a tripwire against abuse of a hosted instance): `RENDEZVOUS_MAX_ROOMS` rooms, each relaying at most
 // `ROOM_MAX_BYTES` in all; past either the server answers `error` (`full`, `too-big`). Five joins with a wrong token
 // to one room lock that room's joins for a minute (`locked`), as the token gate does (0380 "Pairing code").
-import type { EndpointKind } from "../protocol";
+import { ENDPOINT_KINDS, type EndpointKind } from "../protocol";
 
 /** The rendezvous protocol's version: a `join` with another is refused (`version`). */
 export const RENDEZVOUS_VERSION = 1;
@@ -71,7 +73,7 @@ export type RendezvousClientMessage =
   | { readonly t: "join"; readonly v: number; readonly room: number; readonly token: number; readonly seat: RoomSeat; readonly kind: EndpointKind }
   /** A signal for the other seat. */
   | RendezvousSignal
-  /** The peer connection opened: forget the room. */
+  /** The peer connection opened here; the room is forgotten once both seats have said so. */
   | { readonly t: "connected" }
   /** Leave the room (the connection may close instead). */
   | { readonly t: "leave" };
@@ -91,20 +93,107 @@ export type RendezvousServerMessage =
   /** The room lived `ROOM_EXPIRY_MS` (or was forgotten after `connected`); the server closes the connection. */
   | { readonly t: "expired" };
 
+const encoder = new TextEncoder();
+const MAX_ROOM = 0x7fff;
+const MAX_TOKEN = 0x3fffffff;
+
 /** `m` as one transport message (UTF-8 JSON). Throws for a message past `RENDEZVOUS_MAX_MESSAGE_BYTES`. */
 export function encodeRendezvousMessage(m: RendezvousClientMessage | RendezvousServerMessage): Uint8Array {
-  void m;
-  throw new Error("R1: not implemented");
+  const bytes = encoder.encode(JSON.stringify(m));
+  if (bytes.byteLength > RENDEZVOUS_MAX_MESSAGE_BYTES) {
+    throw new RangeError(`A rendezvous message is at most ${RENDEZVOUS_MAX_MESSAGE_BYTES} bytes; this "${m.t}" is ${bytes.byteLength}.`);
+  }
+  return bytes;
+}
+
+type Fields = Record<string, unknown>;
+
+function parse(bytes: Uint8Array): { fields: Fields } | { refused: string } {
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return { refused: "The message isn't UTF-8 text." };
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { refused: "The message isn't JSON." };
+  }
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return { refused: "The message isn't a JSON object." };
+  return { fields: value as Fields };
+}
+
+function isInt(v: unknown, max: number): v is number {
+  return typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= max;
+}
+
+function isKind(v: unknown): v is EndpointKind {
+  return typeof v === "string" && (ENDPOINT_KINDS as readonly string[]).includes(v);
+}
+
+const ERROR_REASONS: readonly string[] = ["version", "bad-message", "no-room", "room-taken", "seat-taken", "bad-token", "locked", "full", "too-big"];
+
+/** A signal's fields, or null if `f` isn't one. Only the known fields are kept: the rest is never relayed. */
+function readSignal(f: Fields): RendezvousSignal | null {
+  if ((f.t === "offer" || f.t === "answer") && typeof f.sdp === "string") return { t: f.t, sdp: f.sdp };
+  if (f.t === "candidate" && typeof f.candidate === "string" && (typeof f.mid === "string" || f.mid === null)) {
+    return { t: "candidate", candidate: f.candidate, mid: f.mid };
+  }
+  return null;
 }
 
 /** A client's message as the server reads it, or why it isn't one (answered with `error` `bad-message` or `too-big`). Never throws. */
 export function decodeClientMessage(bytes: Uint8Array): { message: RendezvousClientMessage } | { refused: string; reason: "bad-message" | "too-big" } {
-  void bytes;
-  throw new Error("R1: not implemented");
+  if (bytes.byteLength > RENDEZVOUS_MAX_MESSAGE_BYTES) {
+    return { refused: `A rendezvous message is at most ${RENDEZVOUS_MAX_MESSAGE_BYTES} bytes.`, reason: "too-big" };
+  }
+  const parsed = parse(bytes);
+  if ("refused" in parsed) return { refused: parsed.refused, reason: "bad-message" };
+  const f = parsed.fields;
+  const bad = (what: string): { refused: string; reason: "bad-message" } => ({ refused: what, reason: "bad-message" });
+  switch (f.t) {
+    case "join":
+      if (typeof f.v !== "number") return bad("A join names a protocol version.");
+      if (!isInt(f.room, MAX_ROOM) || !isInt(f.token, MAX_TOKEN)) return bad("A join names a room and a token, whole numbers in range.");
+      if (f.seat !== "waiting" && f.seat !== "joining") return bad('A join takes the seat "waiting" or "joining".');
+      if (!isKind(f.kind)) return bad("A join names the endpoint kind.");
+      return { message: { t: "join", v: f.v, room: f.room, token: f.token, seat: f.seat, kind: f.kind } };
+    case "connected":
+      return { message: { t: "connected" } };
+    case "leave":
+      return { message: { t: "leave" } };
+    default: {
+      const signal = readSignal(f);
+      return signal ? { message: signal } : bad("That isn't a rendezvous message.");
+    }
+  }
 }
 
 /** The server's message as a client reads it, or why it isn't one. Never throws. */
 export function decodeServerMessage(bytes: Uint8Array): { message: RendezvousServerMessage } | { refused: string } {
-  void bytes;
-  throw new Error("R1: not implemented");
+  if (bytes.byteLength > RENDEZVOUS_MAX_MESSAGE_BYTES) return { refused: `A rendezvous message is at most ${RENDEZVOUS_MAX_MESSAGE_BYTES} bytes.` };
+  const parsed = parse(bytes);
+  if ("refused" in parsed) return parsed;
+  const f = parsed.fields;
+  const bad = { refused: "That isn't a rendezvous message." };
+  switch (f.t) {
+    case "joined":
+      if (!isInt(f.room, MAX_ROOM) || (f.seat !== "waiting" && f.seat !== "joining") || typeof f.expiresIn !== "number" || !Number.isFinite(f.expiresIn)) return bad;
+      return { message: { t: "joined", room: f.room, seat: f.seat, expiresIn: f.expiresIn } };
+    case "peer-joined":
+      return isKind(f.kind) ? { message: { t: "peer-joined", kind: f.kind } } : bad;
+    case "peer-left":
+      return { message: { t: "peer-left" } };
+    case "expired":
+      return { message: { t: "expired" } };
+    case "error":
+      if (typeof f.reason !== "string" || !ERROR_REASONS.includes(f.reason) || typeof f.message !== "string") return bad;
+      return { message: { t: "error", reason: f.reason as RendezvousErrorReason, message: f.message } };
+    default: {
+      const signal = readSignal(f);
+      return signal ? { message: signal } : bad;
+    }
+  }
 }
