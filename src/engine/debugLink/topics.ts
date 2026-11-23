@@ -16,7 +16,9 @@ export interface DebugTopicHost {
 export interface DebugSubscription {
   /**
    * Writes the records due since the last call into `out` (nothing: no sample this time). Called after a frame, at most
-   * at the topic's `rate`; `frame` is the build's frame number, for the records' heads.
+   * at the topic's `rate`; `frame` is the build's frame number, for the records' heads. A reliable topic's subscription
+   * is sampled again, up to `RELIABLE_SAMPLES_PER_FRAME` times a due frame, while each call writes records; each call
+   * is one message.
    */
   sample(out: RecordWriter, frame: number): void;
   /** The subscription ended (unsubscribed, or the tool went away). */

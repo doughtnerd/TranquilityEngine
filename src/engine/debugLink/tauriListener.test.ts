@@ -9,6 +9,9 @@ import { DebugLinkSession } from "./session";
 import { DebugLinkListener, type DebugLinkPeer } from "./client";
 import { DEBUG_LINK_PATH } from "./config";
 import { registerTauriWebSocketTransport, tauriListenerPort } from "./tauriListener";
+import { Engine } from "../../myco";
+import { startBuildListener } from "./host";
+import { decodePairCode } from "./pairing/code";
 
 type Record_ = { op: "send"; connection: number; data: number[] } | { op: "close"; connection: number; code: number; reason: string };
 
@@ -154,6 +157,25 @@ describe("the desktop listening transport", () => {
     expect(native.listens).toEqual([{ host: "127.0.0.1", port: 7790, path: "/myco-debug", count: 10 }]);
     expect(tauriListenerPort(t)).toBe(7792);
     expect(tauri.calls).toEqual(["myco_debuglink_listen_range"]);
+  });
+
+  it("a listening build's code names the port the native listener really bound (ADR 0380)", async () => {
+    memoryBackend({ taken: [7790, 7791] });
+    const engine = await Engine.create({ headless: true });
+    const build = await startBuildListener(engine, {
+      debug: { listen: true, lan: true },
+      name: "Desktop game",
+      interfaces: () => [{ address: "192.168.1.20", family: "IPv4" }],
+      log: () => {},
+    });
+    try {
+      expect(build?.port).toBe(7792);
+      const decoded = decodePairCode(build!.code!);
+      expect("code" in decoded && decoded.code.kind === "address" && decoded.code.portOffset).toBe(2);
+    } finally {
+      build?.close();
+      engine.dispose();
+    }
   });
 
   it("asks for exactly port 0 (any free port) without a range", async () => {

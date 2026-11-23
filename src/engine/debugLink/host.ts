@@ -39,6 +39,7 @@ import {
   type PairRefusalReason,
 } from "./protocol";
 import { DebugLinkSession, sameMachineRemote, type BuildSessionState } from "./session";
+import { tauriListenerPort } from "./tauriListener";
 import { debugTopics, type DebugTopic } from "./topics";
 
 /** Seconds of frames between connection attempts while the tool can't be reached. */
@@ -314,8 +315,10 @@ export async function startBuildListener(engine: Engine, options: BuildListenerO
     const at = `ws://${lan ? "0.0.0.0" : "127.0.0.1"}:${base + offset}${DEBUG_LINK_PATH}`;
     try {
       await transport.listen(at);
-      address = at;
-      port = base + offset;
+      // The desktop's native listener scans the range itself (ADR 0380, L8) and may have bound a later port than asked;
+      // the code must name the port it really got.
+      port = tauriListenerPort(transport) ?? base + offset;
+      address = `ws://${lan ? "0.0.0.0" : "127.0.0.1"}:${port}${DEBUG_LINK_PATH}`;
     } catch {
       // taken: try the next port
     }
