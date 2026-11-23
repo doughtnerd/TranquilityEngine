@@ -20,7 +20,7 @@
 //!
 //! The PLAY loop flag re-triggers the blip at its end (sfxr's repeat, endless) until the key-off.
 
-use super::osc::{dt_of, pulse_at, saw_at, sine_cycles, triangle_at, Held, MAX_DT};
+use super::osc::{pulse_at, saw_at, sine_cycles, triangle_at, Held, MAX_DT};
 use super::svf::{OnePole, Svf, LOWPASS};
 
 /// sfxr's control rate (its per-sample loop).
@@ -103,17 +103,21 @@ pub struct Blip {
     arp_mod: f64,
     tick_acc: f64,
     period: f64,
+    /// `1 / period`, kept with it (the oscillator reads `phase / period` every sample).
+    inv_period: f64,
     square_duty: f32,
     square_slide: f32,
     arp_time: u32,
     arp_limit: u32,
-    vib_phase: f32,
-    vib_speed: f32,
+    vib_phase: f64,
+    vib_speed: f64,
     vib_amp: f32,
     pub env_vol: f32,
     pub env_stage: u32,
     env_time: u32,
     env_length: [u32; 3],
+    /// `1 / env_length` per stage (0 for a stage of no length), so a tick multiplies rather than divides.
+    env_inv: [f32; 3],
     fphase: f32,
     fdphase: f32,
     iphase: u32,
@@ -163,7 +167,7 @@ impl Blip {
         let cube = |x: f32| x as f64 * x as f64 * x as f64;
         self.wave = p[p::WAVEFORM].clamp(0.0, 4.0) as u8;
         self.fperiod = 100.0 / (sq(p[p::BASE_FREQUENCY]) as f64 + 0.001);
-        self.period = (self.fperiod as i64).max(8) as f64;
+        self.set_period((self.fperiod as i64).max(8) as f64);
         self.fmaxperiod = 100.0 / (sq(p[p::FREQUENCY_LIMIT]) as f64 + 0.001);
         self.fslide = 1.0 - cube(p[p::SLIDE]) * 0.01;
         self.fdslide = -cube(p[p::DELTA_SLIDE]) * 0.000_001;
@@ -188,12 +192,13 @@ impl Blip {
         self.lp_w_set = -1.0;
         self.hp_set = -1.0;
         self.vib_phase = 0.0;
-        self.vib_speed = sq(p[p::VIBRATO_SPEED]) * 0.01;
+        self.vib_speed = (sq(p[p::VIBRATO_SPEED]) * 0.01) as f64;
         self.vib_amp = p[p::VIBRATO_DEPTH] * 0.5;
         self.env_vol = 0.0;
         self.env_stage = 0;
         self.env_time = 0;
         self.env_length = envelope_ticks(p[p::ATTACK], p[p::SUSTAIN], p[p::DECAY]);
+        self.env_inv = self.env_length.map(|l| if l == 0 { 0.0 } else { 1.0 / l as f32 });
         self.fphase = sq(p[p::PHASER_OFFSET]) * 1_020.0;
         if p[p::PHASER_OFFSET] < 0.0 {
             self.fphase = -self.fphase;
@@ -235,9 +240,10 @@ impl Blip {
         let mut rfperiod = self.fperiod;
         if self.vib_amp > 0.0 {
             self.vib_phase += self.vib_speed;
-            rfperiod = self.fperiod * (1.0 + libm::sinf(self.vib_phase) as f64 * self.vib_amp as f64);
+            // sfxr's sin(vib_phase), through the oscillators' polynomial sine (within 4e-6).
+            rfperiod = self.fperiod * (1.0 + sine_cycles(self.vib_phase * (1.0 / core::f64::consts::TAU)) as f64 * self.vib_amp as f64);
         }
-        self.period = (rfperiod as i64).max(8) as f64;
+        self.set_period((rfperiod as i64).max(8) as f64);
         self.square_duty = (self.square_duty + self.square_slide).clamp(0.0, 0.5);
         self.env_time += 1;
         if self.env_time > self.env_length[self.env_stage.min(2) as usize] {
@@ -248,11 +254,11 @@ impl Blip {
                 self.playing = 0;
             }
         }
-        let frac = |t: u32, len: u32| if len == 0 { 0.0 } else { t as f32 / len as f32 };
+        let t = self.env_time as f32;
         match self.env_stage {
-            0 => self.env_vol = frac(self.env_time, self.env_length[0]),
-            1 => self.env_vol = 1.0 + (1.0 - frac(self.env_time, self.env_length[1])) * 2.0 * self.p[p::PUNCH],
-            2 => self.env_vol = 1.0 - frac(self.env_time, self.env_length[2]),
+            0 => self.env_vol = t * self.env_inv[0],
+            1 => self.env_vol = 1.0 + (1.0 - t * self.env_inv[1]) * 2.0 * self.p[p::PUNCH],
+            2 => self.env_vol = 1.0 - t * self.env_inv[2],
             _ => self.env_vol = 0.0,
         }
         self.fphase += self.fdphase;
@@ -262,6 +268,15 @@ impl Blip {
         }
         // sfxr sweeps its low-pass once per supersample: eight times a tick.
         self.fltw = (self.fltw * self.fltw_d8).clamp(0.0, 0.1);
+    }
+
+    /// The oscillator's period (supersampled steps, an integer of at least 8) and its reciprocal.
+    #[inline]
+    fn set_period(&mut self, period: f64) {
+        if period != self.period {
+            self.period = period;
+            self.inv_period = 1.0 / period;
+        }
     }
 
     /// Sets the filters' coefficients when sfxr's values moved (at most once per control block).
@@ -288,7 +303,11 @@ impl Blip {
         let n = out.len();
         self.coefficients(rate);
         let dg = (g1 - g0) / n as f32;
+        // The phaser's delay for the block, `whole + 1 - frac` samples back: read `a` one further back than `b` and take
+        // `a + (b - a) × frac` (frac 1 reads `b`, the delay a whole number of samples).
         let delay = self.iphase as f32 * (rate / SFXR_SUPER as f32);
+        let whole = libm::floorf(delay);
+        let (back, frac) = (whole as usize % LINE, 1.0 - (delay - whole));
         for j in 0..n {
             self.tick_acc += tick_step;
             while self.tick_acc >= 1.0 {
@@ -306,15 +325,21 @@ impl Blip {
             // sfxr's phase moves 8 steps a tick (352,800 a second), times the pitch.
             let adv = SFXR_SUPER * inv * steps[j] as f64;
             if self.phase >= self.period {
-                self.phase %= self.period;
+                // sfxr's `phase %= period`: one subtraction unless the period just shrank below half the phase.
+                self.phase -= self.period;
+                if self.phase >= self.period {
+                    self.phase %= self.period;
+                }
             }
-            let t = self.phase / self.period;
-            let dt = (adv / self.period).min(MAX_DT);
+            let t = self.phase * self.inv_period;
+            let cycles = adv * self.inv_period;
+            let dt = cycles.min(MAX_DT);
             self.phase += adv;
             let mut x = match self.wave {
                 wave::SAW => -saw_at(t, dt) as f32,
                 wave::SINE => sine_cycles(t),
-                wave::NOISE => self.held.next(dt_of(32.0 * adv / self.period * rate as f64, inv), || super::noise::uniform(noise)),
+                // sfxr's 32 held values a period.
+                wave::NOISE => self.held.next(32.0 * cycles, || super::noise::uniform(noise)),
                 wave::TRIANGLE => triangle_at(t, dt) as f32,
                 _ => pulse_at(t, dt, self.square_duty as f64, 0.5) as f32,
             };
@@ -325,12 +350,9 @@ impl Blip {
             if self.phaser_on != 0 {
                 let w = self.write as usize;
                 self.line[w] = x;
-                let pos = w as f32 - delay;
-                let base = libm::floorf(pos);
-                let f = pos - base;
-                let i0 = (base as i32).rem_euclid(LINE as i32) as usize;
-                let i1 = (i0 + 1) % LINE;
-                x += self.line[i0] + (self.line[i1] - self.line[i0]) * f;
+                let b = self.line[(w + LINE - back) % LINE];
+                let a = self.line[(w + 2 * LINE - back - 1) % LINE];
+                x += a + (b - a) * frac;
                 self.write = ((w + 1) % LINE) as u32;
             } else {
                 x += x;

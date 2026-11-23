@@ -45,8 +45,12 @@ const WASI_SDK_VERSION = "25.0";
  * effect catalogue DSP still to come.
  * W12 (2026-11-22): ADR 0337's ADPCM voices (4.12) and ADR 0338's plugin effects (5.0: 16-parameter records, `ext.rs`,
  * the plugin slot path, +3.6 KB) take it to 501,602 B; still under, so the gate stays (raise it with a reason when it bites).
+ * 576 KB since W14 G2 (2026-11-22; ADR 0346 §3 foresaw the raise): the sound generators (5.1: `audio_dsp::gen`'s PolyBLEP
+ * and PolyBLAMP oscillators, noise colours, TPT SVF, ADSRs, LFO and the sfxr blip kernel, each oscillator and synth loop
+ * monomorphised per waveform, plus `generator.rs` and the render branch) take the mixer to 538,902 B, +37,300 B (the
+ * record estimated 10-15 KB). Not traded for speed or quality: the per-waveform loops keep the per-sample dispatch out.
  */
-const MIXER_LIMIT = 512 * 1024;
+const MIXER_LIMIT = 576 * 1024;
 /** ADR 0162 (api-and-models §5.2): M3's mixer warning, under the gate: a build past it warns but passes. */
 const MIXER_WARN = 300 * 1024;
 /** The decoder's size tripwire (M1b: 900 KB). 1,000 KB since ADR 0345 §4 (2026-11-22, A7): libopus (fixed point, no

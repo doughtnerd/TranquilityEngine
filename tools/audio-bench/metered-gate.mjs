@@ -166,7 +166,35 @@ const SCENES = [
   "adpcm",
   "adpcm-pitch4",
   "adpcm-default",
+  // ADR 0346 (G2): generator voices beside sample twins with the same voices and `max_mixed`: 256 PolyBLEP saws and 256
+  // pink noises (twin `gen-twin-256`), 128 synths with an LFO on the cut-off (`gen-twin-128`), 256 sfxr blips retriggered at
+  // about 200 a second (`gen-blip-twin`, sample one-shots at 200 a second), and 4,096 virtual silences (`gen-silence-twin`,
+  // over `gen-silence-base`'s 16 mixed voices). `GEN_PAIRS` reports each kind's cost against its twin.
+  "gen-osc",
+  "gen-noise",
+  "gen-twin-256",
+  "gen-synth",
+  "gen-twin-128",
+  "gen-blip",
+  "gen-blip-twin",
+  "gen-silence",
+  "gen-silence-twin",
+  "gen-silence-base",
 ];
+
+/** ADR 0346 (G2): each generator scene -> its sample twin, the voices it plays, and the scene both stand on (`base`, null: the
+ *  whole count). Reported: the kind's cost per voice per quantum against its twin's (with `base`, both less the base first:
+ *  the silences are virtual, beside 16 mixed voices that would dwarf them), and against the record's estimate. **Tripwire**
+ *  (0346 §3): a kind costing more than `GEN_TRIPWIRE` × its twin is logged for the owner (CLAUDE.md: a tripwire, not a design
+ *  limit; it doesn't fail the gate, the 10 % rise on the baseline does). */
+const GEN_PAIRS = {
+  "gen-osc": { twin: "gen-twin-256", voices: 256, base: null, what: "oscillator (PolyBLEP saw)", estimate: 1.0 },
+  "gen-noise": { twin: "gen-twin-256", voices: 256, base: null, what: "oscillator (pink noise)", estimate: 1.0 },
+  "gen-synth": { twin: "gen-twin-128", voices: 128, base: null, what: "synth (2 PolyBLEP oscillators, SVF, 2 envelopes, LFO on the cut-off)", estimate: 1.15 },
+  "gen-blip": { twin: "gen-blip-twin", voices: 256, base: null, what: "blip (sfxr kernel, phaser on)", estimate: 1.1 },
+  "gen-silence": { twin: "gen-silence-twin", voices: 4096, base: "gen-silence-base", what: "silence (virtual)", estimate: null },
+};
+const GEN_TRIPWIRE = 1.5;
 
 /** ADR 0337 A4 (0345 §5): each ADPCM scene -> its int16 twin and the voices it decodes. Reported: the decode's cost per voice
  *  per quantum (the A0 spike measured +23.0k at pitch 1, +34.3k at 1.5, in its stripped-down bench) and the worst quantum
@@ -366,6 +394,19 @@ function main() {
     const perVoice = b ? `, ${Math.round((a.perQuantum - b.perQuantum) / voices).toLocaleString("en-US")} per voice over ${twin} (${(a.perQuantum / b.perQuantum).toFixed(2)}×; A0: +23.0k at pitch 1)` : "";
     console.log(`[metered] ${scene}: worst quantum ${peak.toFixed(3)}× its mean${perVoice}`);
     if (flat && peak > ADPCM_FLAT_MAX) twinFailures.push(`${scene}'s worst quantum is ${peak.toFixed(2)}× its mean (limit ${ADPCM_FLAT_MAX}×): the ADPCM decode must spread over quanta (0345 §5)`);
+  }
+  // ADR 0346 (G2): each generator kind's cost per voice against its sample twin's.
+  for (const [scene, { twin, voices, base, what, estimate }] of Object.entries(GEN_PAIRS)) {
+    const a = results[scene];
+    const b = results[twin];
+    const z = base ? results[base] : { perQuantum: 0 };
+    if (!a || !b || !z) continue;
+    const ours = (a.perQuantum - z.perQuantum) / voices;
+    const theirs = (b.perQuantum - z.perQuantum) / voices;
+    const ratio = ours / theirs;
+    const est = estimate === null ? "" : `; 0346 estimated ${estimate.toFixed(2)}×`;
+    console.log(`[metered] ${scene} (${what}): ${Math.round(ours).toLocaleString("en-US")} instructions per voice per quantum against ${twin}'s ${Math.round(theirs).toLocaleString("en-US")}: ${ratio.toFixed(2)}×${est}`);
+    if (ratio > GEN_TRIPWIRE) console.warn(`[metered] TRIPWIRE ${scene}: ${ratio.toFixed(2)}× its twin per voice, over ADR 0346's ${GEN_TRIPWIRE}× (log it and raise it with the owner; not a gate failure)`);
   }
   // M4b: each music scene's own cost against its S7 allowance.
 

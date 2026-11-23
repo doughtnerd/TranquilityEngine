@@ -288,7 +288,11 @@ pub struct GenVoice {
     lfo: Lfo,
     /// The synth's filter needs a coefficient update at the next control block.
     filter_moving: u8,
-    _pad: [u8; 3],
+    _pad2: [u8; 3],
+    /// The synth's oscillator 2 ratio (`osc2Semitones` + `detune`) and filter Q (from `resonance`), worked out with the
+    /// envelopes when parameters change.
+    ratio2: f64,
+    q: f32,
     pub blip: blip::Blip,
 }
 
@@ -429,6 +433,8 @@ impl GenVoice {
                 self.amp.configure(a, d, s, rel, r);
                 self.fenv.configure(fa, fd, fs, frel, r);
                 self.filter_moving = 1;
+                self.ratio2 = libm::exp2((v(OSC2_SEMITONES) as f64 + v(DETUNE) as f64 * 0.01) / 12.0);
+                self.q = core::f32::consts::FRAC_1_SQRT_2 * libm::powf(25.0, v(RESONANCE));
             }
             _ => {}
         }
@@ -551,7 +557,7 @@ impl GenVoice {
             let k = (n - i).min(CONTROL_FRAMES);
             let (w1, w2, kind) = (self.choice(OSC1_WAVE), self.choice(OSC2_WAVE), self.choice(FILTER_TYPE));
             let hz = self.value(FREQUENCY) as f64;
-            let ratio2 = libm::exp2((self.value(OSC2_SEMITONES) as f64 + self.value(DETUNE) as f64 * 0.01) / 12.0);
+            let ratio2 = self.ratio2;
             let mix = self.value(OSC_MIX) * 0.01;
             let mut width = self.value(PULSE_WIDTH) * 0.01;
             // The LFO, read at the block's start.
@@ -575,7 +581,7 @@ impl GenVoice {
             if self.filter_moving != 0 || !self.fenv.settled() {
                 let semis = self.value(FILTER_ENV_AMOUNT) * self.fenv.value;
                 let cut = self.value(CUTOFF) * libm::exp2f(semis * (1.0 / 12.0) + octaves);
-                let q = core::f32::consts::FRAC_1_SQRT_2 * libm::powf(25.0, self.value(RESONANCE));
+                let q = self.q;
                 self.svf.set(cut, q, self.rate);
                 self.filter_moving = 0;
             }
