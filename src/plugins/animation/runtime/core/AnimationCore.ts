@@ -13,6 +13,7 @@
 // - **The frame:** `writeInputs` (through a World's command writer), then `evaluate(world, pass, dtScaled, dtUnscaled)`,
 //   then read the output views and the state-change records before the next `writeInputs` (which clears them).
 import {
+  HANDLE_INDEX_MASK,
   INIT,
   INPUT_STRIDE,
   MATRIX_FLOATS,
@@ -103,7 +104,10 @@ interface AssetEntry {
 }
 
 /** The handle's row in every view. */
-export const instanceRow = (handle: number): number => handle & 0xffff;
+const instanceRow = (handle: number): number => handle & HANDLE_INDEX_MASK;
+
+/** The arena key of `key` as `kind` (a key names one asset per kind). */
+const assetKey = (key: string, kind: AnimationAssetKind): string => `${kind}\u0000${key}`;
 
 /** @internal Thrown by {@link AnimationCore.start} when the core refuses its limits and the defaults alike. */
 export class AnimationCoreInitError extends Error {}
@@ -168,25 +172,21 @@ export class AnimationCore {
    * caller's to hold.
    */
   acquire(key: string, kind: AnimationAssetKind, source: AnimationAssetSource | (() => AnimationAssetSource)): number {
-    const full = `${kind}\u0000${key}`;
-    const known = this.byKey.get(full);
-    if (known) {
-      known.refs++;
-      return known.handle;
-    }
+    const known = this.acquireLoaded(key, kind);
+    if (known !== 0) return known;
     const s = typeof source === "function" ? source() : source;
     if (s.kind !== kind) return 0;
     const handle = this.load(s);
     if (handle === 0) return 0;
-    const entry: AssetEntry = { key: full, handle, refs: 1 };
-    this.byKey.set(full, entry);
+    const entry: AssetEntry = { key: assetKey(key, kind), handle, refs: 1 };
+    this.byKey.set(entry.key, entry);
     this.byHandle.set(handle, entry);
     return handle;
   }
 
   /** One more reference to the asset `key` when it is loaded (in use or idle): its handle; else 0, taking none. */
   acquireLoaded(key: string, kind: AnimationAssetKind): number {
-    const known = this.byKey.get(`${kind}\u0000${key}`);
+    const known = this.byKey.get(assetKey(key, kind));
     if (!known) return 0;
     known.refs++;
     return known.handle;
