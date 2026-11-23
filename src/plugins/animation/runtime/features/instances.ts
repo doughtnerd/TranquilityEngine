@@ -1,16 +1,381 @@
-// Per-instance runtime state of Animators, Skeletons and BoneAttachments (ADR 0370; T13t gives Animators their core
-// instance, T17 the rest): what their lifecycle does. Empty until then, so the components attach, activate and detach
-// as plain data.
+// Per-instance runtime state of Animators, Skeletons and BoneAttachments (ADR 0370, 0372; T17): what their lifecycle
+// does, and each World's registry of them that the stages walk.
+//
+// - **Skeleton:** on activation it starts the World's core and acquires its skeleton asset (`skeleton`, a project path
+//   to a `myco.skel@1` file; `model.glb#Skeleton` references come with the import, T14) through `acquireFile`, and reads
+//   the file's bones, rest pose and bind matrices on the host (`../assetInfo.ts`). Released on detach.
+// - **Animator:** bound to the first Skeleton on its node or below it (Unity's Animator drives the hierarchy under it,
+//   its Avatar's bones in that subtree), it owns one implicit-graph core instance (4 layers × 2 players and a
+//   crossfade, D31) while active and bound. Deactivation or losing the Skeleton destroys the instance and ends its
+//   plays with `stopped`; reactivation makes a new one (Unity resets an Animator's state on re-enable) and plays
+//   `defaultClip` again. Clips are acquired once per Animator and path, and released on detach.
+// - **BoneAttachment:** joins its World's follow list (`attachments/follow.ts`) while active.
+import type { World } from "../../../../engine/core/World";
+import type { GameObject } from "../../../../engine/scene/GameObject";
+import { Assets, fetchAssetBytes } from "../../../../engine/scene/Assets";
+import { readClipInfo, readSkeletonInfo, type ClipInfo, type SkeletonInfo } from "../assetInfo";
 import type { Animator } from "../components/Animator";
 import type { BoneAttachment } from "../components/BoneAttachment";
 import type { Skeleton } from "../components/Skeleton";
+import type { AnimationFileKind, AnimationWorldCore } from "../core/AnimationWorldCore";
+import { startAnimationCore } from "../core/service";
 import type { LifecycleHooks } from "../lifecycle";
+import { INPUT_LAYER_WEIGHTS, INPUT_STRIDE, HANDLE_INDEX_MASK, MAX_LAYERS } from "../wasm/wire/core";
+import { joinFollowList, leaveFollowList } from "./attachments/follow";
+import { endAllPlays, queueDefaultClip, type PlayCommand, type PlayRecord } from "./playback/plays";
 
-/** @internal An Animator's lifecycle (T13t, T17: create its core instance on activation, release it on detach; plays resolve `stopped`). */
-export const animatorHooks: LifecycleHooks<Animator> = {};
+// ------------------------------------------------------------------------------------------------ state
 
-/** @internal A Skeleton's lifecycle (T17: load its skeleton asset into the core's arena while used). */
-export const skeletonHooks: LifecycleHooks<Skeleton> = {};
+/** @internal A clip an Animator holds: loading (`handle` undefined), loaded, or missing (0). */
+export interface ClipEntry {
+  readonly path: string;
+  handle: number | undefined;
+  info: ClipInfo | null;
+}
 
-/** @internal A BoneAttachment's lifecycle (T17: join and leave the post-propagation follow list). */
-export const boneAttachmentHooks: LifecycleHooks<BoneAttachment> = {};
+/** @internal A Skeleton's runtime state. */
+export interface SkeletonRuntime {
+  readonly component: Skeleton;
+  readonly world: World;
+  ns: AnimationWorldCore | null;
+  /** The skeleton asset's handle; 0 until loaded (or when it couldn't load). */
+  handle: number;
+  info: SkeletonInfo | null;
+  /** The path being (or last) loaded, and the load in flight. */
+  path: string;
+  loading: Promise<void> | null;
+  /** The Animator animating it, if any. */
+  animator: AnimatorRuntime | null;
+  detached: boolean;
+}
+
+/** @internal An Animator's runtime state. */
+export interface AnimatorRuntime {
+  readonly animator: Animator;
+  readonly world: World;
+  ns: AnimationWorldCore | null;
+  active: boolean;
+  /** Bumped on each activation and deactivation, so a stale async activation gives up. */
+  epoch: number;
+  skeleton: SkeletonRuntime | null;
+  /** The core instance (0: none). */
+  instance: number;
+  /** The instance's matrix row holds an evaluated pose. */
+  evaluated: boolean;
+  /** Bumps each time the instance's matrices may have changed (`skinningVersion`). */
+  version: number;
+  /** This frame's visibility and whether the culling mode froze the pose (gather). */
+  visible: boolean;
+  frozen: boolean;
+  /** Layer weights written to the input row each frame (seeded from the core's defaults). */
+  readonly layerWeights: Float32Array;
+  /** Plays, stops and layer settings waiting for the gather stage, in call order. */
+  readonly queue: PlayCommand[];
+  /** The play showing on each layer (null: none). */
+  readonly layers: (PlayRecord | null)[];
+  /** The latest play (`onFinished`). */
+  latest: PlayRecord | null;
+  readonly clips: Map<string, ClipEntry>;
+  detached: boolean;
+}
+
+/** One World's animation components. */
+interface WorldAnimation {
+  readonly animators: Set<AnimatorRuntime>;
+  /** Skeletons by node entity. */
+  readonly skeletons: Map<number, SkeletonRuntime>;
+  /** Plays sent to the core, by play id. */
+  readonly plays: Map<number, PlayRecord>;
+}
+
+const worlds = new WeakMap<World, WorldAnimation>();
+const animators = new WeakMap<Animator, AnimatorRuntime>();
+const skeletons = new WeakMap<Skeleton, SkeletonRuntime>();
+
+function worldState(world: World): WorldAnimation {
+  let w = worlds.get(world);
+  if (!w) worlds.set(world, (w = { animators: new Set(), skeletons: new Map(), plays: new Map() }));
+  return w;
+}
+
+/** @internal The Animators of `world` that have runtime state (attached, not detached). */
+export function animatorsOf(world: World): ReadonlySet<AnimatorRuntime> {
+  return worldState(world).animators;
+}
+
+/** @internal Plays sent to `world`'s core instances, by play id. */
+export function playsOf(world: World): Map<number, PlayRecord> {
+  return worldState(world).plays;
+}
+
+/** @internal An Animator's runtime state, or null once detached. */
+export function animatorRuntime(animator: Animator): AnimatorRuntime | null {
+  return animators.get(animator) ?? null;
+}
+
+/** @internal The runtime state of the Skeleton on `node` (directly), or null. */
+export function skeletonOnNode(world: World, node: GameObject): SkeletonRuntime | null {
+  return worlds.get(world)?.skeletons.get(node.entity) ?? null;
+}
+
+/** @internal The Skeleton runtime of a Skeleton component. */
+export function skeletonRuntime(skeleton: Skeleton): SkeletonRuntime | null {
+  return skeletons.get(skeleton) ?? null;
+}
+
+// ------------------------------------------------------------------------------------------------ files
+
+/** Parsed file headers by URL (small, kept for the page): the core holds the bytes, the host only reads these. */
+const infos = new Map<string, Promise<SkeletonInfo | ClipInfo | null>>();
+
+function fileInfo(url: string, kind: "skeleton" | "clip"): Promise<SkeletonInfo | ClipInfo | null> {
+  const key = `${kind}\u0000${url}`;
+  let p = infos.get(key);
+  if (!p) {
+    p = fetchAssetBytes(url).then(
+      (bytes) => (kind === "skeleton" ? readSkeletonInfo(bytes) : readClipInfo(bytes)),
+      () => null,
+    );
+    infos.set(key, p);
+    void p.then((v) => v ?? infos.delete(key)); // a missing file may appear later
+  }
+  return p;
+}
+
+/**
+ * One reference to `path` loaded as `kind` in `ns` (`acquireFile`: shared and counted across Worlds), with the file's
+ * header read on the host. The handle is 0 when the file is missing or the core refused it (one error is logged).
+ */
+async function acquireWithInfo<I>(ns: AnimationWorldCore, path: string, kind: AnimationFileKind & ("skeleton" | "clip")): Promise<{ handle: number; info: I | null }> {
+  let url: string;
+  try {
+    url = Assets.url(path);
+  } catch (err) {
+    console.error(`[myco] animation: couldn't load "${path}":`, err);
+    return { handle: 0, info: null };
+  }
+  const [handle, info] = await Promise.all([ns.acquireFile(path, kind), fileInfo(url, kind)]);
+  return { handle, info: (info as I | null) ?? null };
+}
+
+/** @internal The clip `path` for an Animator: acquired on first use (once per Animator and path), released on detach. */
+export function clipEntry(rt: AnimatorRuntime, path: string): ClipEntry {
+  let entry = rt.clips.get(path);
+  if (entry) return entry;
+  const e: ClipEntry = { path, handle: undefined, info: null };
+  rt.clips.set(path, e);
+  void (async () => {
+    const ns = rt.ns ?? (await startAnimationCore(rt.world).catch(() => null));
+    if (!ns) {
+      e.handle = 0;
+      return;
+    }
+    const { handle, info } = await acquireWithInfo<ClipInfo>(ns, path, "clip");
+    if (rt.detached || rt.clips.get(path) !== e) {
+      if (handle) ns.release(handle);
+      return;
+    }
+    e.handle = handle;
+    e.info = info;
+    if (!handle) console.warn(`[myco] ${rt.animator.node.name}: Animator couldn't load the clip "${path}"; its plays end at once.`);
+  })();
+  return e;
+}
+
+function releaseClips(rt: AnimatorRuntime): void {
+  for (const e of rt.clips.values()) if (e.handle && rt.ns) rt.ns.release(e.handle);
+  rt.clips.clear();
+}
+
+// ------------------------------------------------------------------------------------------------ Skeleton
+
+function loadSkeleton(s: SkeletonRuntime): Promise<void> {
+  const path = s.component.skeleton;
+  if (s.loading && s.path === path) return s.loading;
+  if (s.handle && s.ns) s.ns.release(s.handle);
+  s.handle = 0;
+  s.info = null;
+  s.path = path;
+  if (!path) return (s.loading = Promise.resolve());
+  const loading = (async () => {
+    const ns = await startAnimationCore(s.world).catch(() => null);
+    if (!ns || s.detached || s.path !== path) return;
+    s.ns = ns;
+    const { handle, info } = await acquireWithInfo<SkeletonInfo>(ns, path, "skeleton");
+    if (s.detached || s.path !== path) {
+      if (handle) ns.release(handle);
+      return;
+    }
+    if (!handle) console.warn(`[myco] ${s.component.node.name}: Skeleton couldn't load "${path}".`);
+    s.handle = handle;
+    s.info = handle ? info : null;
+    if (handle) bindAnimatorsAbove(s);
+  })();
+  s.loading = loading;
+  return loading;
+}
+
+/** Animators on the Skeleton's node or above it that have no Skeleton yet bind to it. */
+function bindAnimatorsAbove(s: SkeletonRuntime): void {
+  for (let n: GameObject | null = s.component.node; n; n = n.parent) {
+    for (const rt of worldState(s.world).animators) {
+      if (rt.animator.node === n && rt.active && !rt.skeleton && !rt.instance) void activateAnimator(rt);
+    }
+  }
+}
+
+/** @internal A Skeleton's lifecycle: load its skeleton asset into the core's arena while used. */
+export const skeletonHooks: LifecycleHooks<Skeleton> = {
+  attach(component) {
+    const world = component.node.world;
+    const s: SkeletonRuntime = { component, world, ns: null, handle: 0, info: null, path: "", loading: null, animator: null, detached: false };
+    skeletons.set(component, s);
+    worldState(world).skeletons.set(component.node.entity, s);
+  },
+  activate(component) {
+    const s = skeletons.get(component);
+    if (s) void loadSkeleton(s);
+  },
+  detach(component) {
+    const s = skeletons.get(component);
+    if (!s) return;
+    s.detached = true;
+    skeletons.delete(component);
+    const w = worldState(s.world);
+    if (w.skeletons.get(component.node.entity) === s) w.skeletons.delete(component.node.entity);
+    if (s.animator) unbindAnimator(s.animator);
+    if (s.handle && s.ns) s.ns.release(s.handle);
+    s.handle = 0;
+  },
+};
+
+// ------------------------------------------------------------------------------------------------ Animator
+
+/** The first Skeleton on `node` or below it, depth-first (Unity's Animator binds the hierarchy under it). */
+function findSkeleton(world: World, node: GameObject): SkeletonRuntime | null {
+  const own = worldState(world).skeletons.get(node.entity);
+  if (own && !own.detached) return own;
+  for (const child of node.children) {
+    const found = findSkeleton(world, child);
+    if (found) return found;
+  }
+  return null;
+}
+
+let warnedGraph = false;
+
+async function activateAnimator(rt: AnimatorRuntime): Promise<void> {
+  const epoch = rt.epoch;
+  const ns = await startAnimationCore(rt.world).catch(() => null);
+  if (!ns || rt.epoch !== epoch || !rt.active) return;
+  rt.ns = ns;
+  if (rt.animator.graph) {
+    // Graph-asset instances are T32's (`graph.ts`); the implicit graph serves only Animators without one (D94).
+    if (!warnedGraph) {
+      warnedGraph = true;
+      console.warn(`[myco] ${rt.animator.node.name}: Animator graphs aren't built yet (T32); it stays at its bind pose.`);
+    }
+    return;
+  }
+  const s = findSkeleton(rt.world, rt.animator.node);
+  if (!s) return; // binds when a Skeleton below it loads
+  if (s.animator && s.animator !== rt) {
+    console.warn(`[myco] ${rt.animator.node.name}: its Skeleton ("${s.component.node.name}") is already animated by another Animator.`);
+    return;
+  }
+  if (s.loading) await s.loading;
+  if (rt.epoch !== epoch || !rt.active || s.detached || !s.handle || rt.instance) return;
+  if (s.animator && s.animator !== rt) return;
+  const instance = ns.createInstance(s.handle);
+  if (!instance) {
+    console.warn(`[myco] ${rt.animator.node.name}: Animator couldn't get a core instance (status ${ns.core.lastStatus()}).`);
+    return;
+  }
+  rt.instance = instance;
+  rt.skeleton = s;
+  rt.evaluated = false;
+  s.animator = rt;
+  const row = (instance & HANDLE_INDEX_MASK) * INPUT_STRIDE;
+  const inputs = ns.core.views().inputs;
+  for (let l = 0; l < MAX_LAYERS; l++) if (Number.isNaN(rt.layerWeights[l]!)) rt.layerWeights[l] = inputs.getFloat32(row + INPUT_LAYER_WEIGHTS + 4 * l, true);
+}
+
+/** Destroys the Animator's instance (its plays end `stopped`) and frees its Skeleton. */
+function unbindAnimator(rt: AnimatorRuntime): void {
+  endAllPlays(rt, "stopped");
+  if (rt.instance && rt.ns) rt.ns.destroyInstance(rt.instance);
+  rt.instance = 0;
+  rt.evaluated = false;
+  rt.version++;
+  if (rt.skeleton?.animator === rt) rt.skeleton.animator = null;
+  rt.skeleton = null;
+}
+
+/** @internal An Animator's lifecycle: an implicit-graph instance while active and bound; plays resolve `stopped` when it goes. */
+export const animatorHooks: LifecycleHooks<Animator> = {
+  attach(animator) {
+    const world = animator.node.world;
+    const rt: AnimatorRuntime = {
+      animator,
+      world,
+      ns: null,
+      active: false,
+      epoch: 0,
+      skeleton: null,
+      instance: 0,
+      evaluated: false,
+      version: 0,
+      visible: true,
+      frozen: false,
+      layerWeights: new Float32Array(MAX_LAYERS).fill(Number.NaN),
+      queue: [],
+      layers: new Array<PlayRecord | null>(MAX_LAYERS).fill(null),
+      latest: null,
+      clips: new Map(),
+      detached: false,
+    };
+    animators.set(animator, rt);
+    worldState(world).animators.add(rt);
+  },
+  activate(animator) {
+    const rt = animators.get(animator);
+    if (!rt) return;
+    rt.active = true;
+    rt.epoch++;
+    if (!animator.graph && animator.defaultClip) queueDefaultClip(rt, animator.defaultClip);
+    void activateAnimator(rt);
+  },
+  deactivate(animator) {
+    const rt = animators.get(animator);
+    if (!rt) return;
+    rt.active = false;
+    rt.epoch++;
+    unbindAnimator(rt);
+  },
+  detach(animator) {
+    const rt = animators.get(animator);
+    if (!rt) return;
+    rt.active = false;
+    rt.epoch++;
+    unbindAnimator(rt);
+    rt.detached = true;
+    releaseClips(rt);
+    animators.delete(animator);
+    worldState(rt.world).animators.delete(rt);
+  },
+};
+
+// ------------------------------------------------------------------------------------------------ BoneAttachment
+
+/** @internal A BoneAttachment's lifecycle: join and leave its World's post-propagation follow list. */
+export const boneAttachmentHooks: LifecycleHooks<BoneAttachment> = {
+  activate(attachment) {
+    joinFollowList(attachment);
+  },
+  deactivate(attachment) {
+    leaveFollowList(attachment);
+  },
+  detach(attachment) {
+    leaveFollowList(attachment);
+  },
+};
