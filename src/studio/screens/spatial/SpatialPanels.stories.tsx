@@ -169,4 +169,28 @@ export const FromTake: Story = {
   },
 };
 
+/**
+ * UI pass SC10: the dialog opens inside a panel, yet its title is a dialog title (not the panel's caps heading); with no
+ * takes the only button is a disabled Create, yet focus is in the dialog and Escape closes it.
+ */
+const cancelNoTakes = fn();
+export const FromTakeNoTakes: Story = {
+  render: () => (
+    <div class="panel">
+      <TakeDialog takes={[]} open={async () => ({ duration: 0, at: () => fixtureScene() })} onCreate={fn()} onCancel={cancelNoTakes} />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement.ownerDocument.body);
+    const dialog = c.getByRole("dialog", { name: "New test scene from a take" });
+    await expect(dialog).toHaveFocus();
+    const title = within(dialog).getByRole("heading", { name: "New test scene from a take" });
+    await expect(getComputedStyle(title).textTransform).toBe("none");
+    await expect(getComputedStyle(title).fontWeight).toBe("600");
+    cancelNoTakes.mockClear();
+    await userEvent.keyboard("{Escape}");
+    await expect(cancelNoTakes).toHaveBeenCalledOnce();
+  },
+};
+
 export const AttenuationChoice: Story = { render: () => <AttenuationChoiceDialog playlist="audio/sfx/drone.playlist.json" onChoose={fn()} onCancel={fn()} /> };
