@@ -22,6 +22,8 @@ export function ExportDialog() {
   const [audioTake, setAudioTake] = useState(false);
   const [takePictures, setTakePictures] = useState(true);
   const [debugLink, setDebugLink] = useState(false);
+  const [debugListen, setDebugListen] = useState(false);
+  const [debugLan, setDebugLan] = useState(false);
   const [fs, setFs] = useState<FileSystem | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<{ kind: "info" | "error"; text: string; folder?: string } | null>(null);
@@ -46,7 +48,7 @@ export function ExportDialog() {
     setBusy(true);
     setMessage({ kind: "info", text: "Compiling scripts…" });
     try {
-      const plan = await exportProjectBuild(project, fs, out, (done, total) => setMessage({ kind: "info", text: `Writing files… ${done} of ${total}` }), { audioCapture, audioTake, audioTakeFrames: takePictures, ...(debugLink && { debugLink: true as const }) });
+      const plan = await exportProjectBuild(project, fs, out, (done, total) => setMessage({ kind: "info", text: `Writing files… ${done} of ${total}` }), { audioCapture, audioTake, audioTakeFrames: takePictures, ...(debugLink && { debugLink: true as const, ...(debugListen && { debugListen: true as const }), ...(debugListen && debugLan && { debugLan: true as const }) }) });
       const text = `Exported ${plan.manifest.name} to ${out}. Put the folder on any web host, or run node serve.mjs in it to play locally.`;
       setMessage({ kind: "info", text, folder: out });
       status.value = { kind: "info", text };
@@ -58,7 +60,7 @@ export function ExportDialog() {
       setBusy(false);
     }
   };
-  const command = desktopExportCommand(project, audioCapture, audioTake, takePictures, debugLink);
+  const command = desktopExportCommand(project, audioCapture, audioTake, takePictures, debugLink, debugListen, debugLan);
 
   return (
     <div class="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && close()}>
@@ -105,6 +107,14 @@ export function ExportDialog() {
         <label class="export-debug-link" title="The game connects to this editor's debug link, so the live debuggers (such as the animation graph's) can inspect it while it runs. Builds without it hold none of the link's code.">
           <input type="checkbox" name="export-debug-link" checked={debugLink} disabled={busy} onChange={(e) => setDebugLink(e.currentTarget.checked)} />
           Debugging on: connect to this editor's debug link
+        </label>
+        <label class="export-debug-listen" style={{ marginLeft: "20px" }} title="The build listens for debugging tools as well as connecting to this editor, so a tool can connect to it (a native build only: a web build can't listen)">
+          <input type="checkbox" name="export-debug-listen" checked={debugListen} disabled={busy || !debugLink} onChange={(e) => { setDebugListen(e.currentTarget.checked); if (!e.currentTarget.checked) setDebugLan(false); }} />
+          Listen for tools
+        </label>
+        <label class="export-debug-lan" style={{ marginLeft: "40px" }} title="A listening build accepts connections from other machines on its network, each paired by code. Off: only tools on this machine can connect">
+          <input type="checkbox" name="export-debug-lan" checked={debugLan} disabled={busy || !debugLink || !debugListen} onChange={(e) => setDebugLan(e.currentTarget.checked)} />
+          On the network (LAN)
         </label>
         {target === "web" ? (
           <>

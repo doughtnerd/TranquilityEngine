@@ -18,8 +18,8 @@ import { jsonFiles, type EditorProject } from "./projects";
 import { DEFAULT_DEBUG_LINK_PORT } from "../engine/debugLink/config";
 
 /** The command-line export, for what the editor can't do (desktop packages need Rust and a shell). */
-export const desktopExportCommand = (project: EditorProject, audioCapture = false, audioTake = false, takePictures = true, debugLink = false) =>
-  `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop${audioCapture ? " --audio-capture" : ""}${audioTake ? " --audio-take" : ""}${audioTake && !takePictures ? " --no-take-pictures" : ""}${debugLink ? ` --debug-link ${DEFAULT_DEBUG_LINK_PORT}` : ""}`;
+export const desktopExportCommand = (project: EditorProject, audioCapture = false, audioTake = false, takePictures = true, debugLink = false, debugListen = false, debugLan = false) =>
+  `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop${audioCapture ? " --audio-capture" : ""}${audioTake ? " --audio-take" : ""}${audioTake && !takePictures ? " --no-take-pictures" : ""}${debugLink ? ` --debug-link ${DEFAULT_DEBUG_LINK_PORT}` : ""}${debugLink && debugListen ? " --debug-listen" : ""}${debugLink && debugListen && debugLan ? " --debug-lan" : ""}`;
 
 async function fetchBytes(url: string): Promise<Uint8Array> {
   const res = await fetch(url);
