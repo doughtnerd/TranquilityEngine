@@ -50,11 +50,11 @@ function worldPoint(node: GameObject, p: { x: number; y: number; z: number }): V
 export abstract class Joint extends Component {
   /** The other body's node; empty joins the body to the world. */
   @field(GameObject) connectedBody: GameObject | null = null;
-  @field(Vector3) anchor = new Vector3(0, 0, 0);
-  @field(Boolean) autoConfigureConnectedAnchor = true;
-  @field(Vector3) connectedAnchor = new Vector3(0, 0, 0);
+  @field(Vector3, { animatable: false }) anchor = new Vector3(0, 0, 0);
+  @field(Boolean, { animatable: false }) autoConfigureConnectedAnchor = true;
+  @field(Vector3, { animatable: false }) connectedAnchor = new Vector3(0, 0, 0);
   /** Let the two bodies' colliders collide with each other. */
-  @field(Boolean) enableCollision = false;
+  @field(Boolean, { animatable: false }) enableCollision = false;
   /**
    * The force (newtons) that breaks the joint; 0, the default, never breaks it. When it breaks,
    * `onJointBreak(joint, force, torque)` runs on the node's behaviors and the joint is destroyed.
@@ -127,8 +127,8 @@ export class FixedJoint extends Joint {
 /** Shared by hinges and sliders: one axis of movement, with optional limits, a motor or a spring. */
 export abstract class AxisJoint extends Joint {
   /** The axis it turns around (hinge) or slides along (slider), in this node's local space. */
-  @field(Vector3) axis = new Vector3(1, 0, 0);
-  @field(Boolean) useLimits = false;
+  @field(Vector3, { animatable: false }) axis = new Vector3(1, 0, 0);
+  @field(Boolean, { animatable: false }) useLimits = false;
   @field(PlainObject) limits: JointLimits = { min: 0, max: 0 };
   @field(Boolean) useMotor = false;
   @field(PlainObject) motor: JointMotor = { targetVelocity: 0, force: 10 };
@@ -179,8 +179,8 @@ export class SliderJoint extends AxisJoint {
 @component("engine.BallJoint")
 export class BallJoint extends Joint {
   /** The twist axis, in this node's local space. */
-  @field(Vector3) axis = new Vector3(1, 0, 0);
-  @field(Boolean) useLimits = false;
+  @field(Vector3, { animatable: false }) axis = new Vector3(1, 0, 0);
+  @field(Boolean, { animatable: false }) useLimits = false;
   @field(PlainObject) twistLimits: JointLimits = { min: -45, max: 45 };
   @field(Number) swingLimit = 45;
 
@@ -201,8 +201,8 @@ export class BallJoint extends Joint {
 @component("engine.RopeJoint")
 export class RopeJoint extends Joint {
   /** Use the anchors' distance when the joint is made as `maxDistance`. */
-  @field(Boolean) autoConfigureDistance = true;
-  @field(Number) maxDistance = 1;
+  @field(Boolean, { animatable: false }) autoConfigureDistance = true;
+  @field(Number, { animatable: false }) maxDistance = 1;
 
   override _jointFields(): JointFields3D {
     return { kind: "rope", length: this.autoConfigureDistance ? null : Math.max(this.maxDistance, 0) };
@@ -217,10 +217,10 @@ export class RopeJoint extends Joint {
 @component("engine.SpringJoint")
 export class SpringJoint extends Joint {
   /** Use the anchors' distance when the joint is made as `restLength`. */
-  @field(Boolean) autoConfigureDistance = true;
-  @field(Number) restLength = 1;
-  @field(Number) spring = 10;
-  @field(Number) damper = 0.2;
+  @field(Boolean, { animatable: false }) autoConfigureDistance = true;
+  @field(Number, { animatable: false }) restLength = 1;
+  @field(Number, { animatable: false }) spring = 10;
+  @field(Number, { animatable: false }) damper = 0.2;
 
   override _jointFields(): JointFields3D {
     return { kind: "spring", length: this.autoConfigureDistance ? null : Math.max(this.restLength, 0), stiffness: this.spring, damping: this.damper };

@@ -18,7 +18,7 @@ import type { RigidBody2D } from "./RigidBody2D";
  */
 @component("engine.TilemapCollider2D")
 export class TilemapCollider2D extends Collider2D {
-  @field(String, { choices: ["rectangles", "outline"] }) mode: ShapeMerge2D = "rectangles";
+  @field(String, { choices: ["rectangles", "outline"], animatable: false }) mode: ShapeMerge2D = "rectangles";
 
   /** @internal */ _tileState: TilemapColliderState<Dim2, RigidBody2D> | null = null;
 
