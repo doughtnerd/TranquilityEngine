@@ -200,6 +200,8 @@ function resolveTrack(r: Resolution, root: GameObject, track: ClipTrack, kind: n
 /** The write for `field` (a path) of the component `c` of class `type`, or why it can't bind. */
 function componentWrite(world: World, c: Component, type: ComponentClass<Component>, field: string, kind: number, width: number, subtype: number, strings: ClipTracks): Write | string {
   if (c instanceof MeshRenderer && field.startsWith("material.")) return materialWrite(c, field.slice(9), kind, subtype, strings);
+  const slotted = c instanceof MeshRenderer ? SLOT_PROPERTY.exec(field) : null;
+  if (slotted) return materialWrite(c as MeshRenderer, slotted[2]!, kind, subtype, strings, Number(slotted[1]));
   if (!isFieldAnimatable(type, field)) return "not an animatable field";
   const dot = field.indexOf(".");
   const head = dot < 0 ? field : field.slice(0, dot);
@@ -409,19 +411,26 @@ function transformWrite(node: GameObject, field: string, kind: number): Write | 
   return field === "position" || field === "rotation" || field === "scale" ? mismatch(kind, `Transform.${field}`) : "not an animatable field";
 }
 
-/** A MeshRenderer's material property override (`material.color` → `setMaterialProperty("color", …)`). */
-function materialWrite(c: MeshRenderer, name: string, kind: number, subtype: number, strings: ClipTracks): Write | string {
+/** `materials[1].roughness`: one material slot's property (T14's pointer tracks, ADR 0371): group 1 the slot, group 2 the property. */
+const SLOT_PROPERTY = /^materials\[(\d+)\]\.(.+)$/;
+
+/**
+ * A MeshRenderer's material property override (`material.color` → `setMaterialProperty("color", …)`), or with a `slot`
+ * (`materials[1].color` → `setMaterialProperty("color", …, 1)`) one material slot's.
+ */
+function materialWrite(c: MeshRenderer, name: string, kind: number, subtype: number, strings: ClipTracks, slot?: number): Write | string {
   if (!name) return "no material property named";
-  const set = (v: MaterialPropertyValue) => c.setMaterialProperty(name, v);
+  const set = (v: MaterialPropertyValue) => c.setMaterialProperty(name, v, slot);
+  const get = () => c.getMaterialProperty(name, slot);
   switch (kind) {
     case FLOAT:
       return (f, _u, at) => {
-        if (c.getMaterialProperty(name) !== f[at]) set(f[at]!);
+        if (get() !== f[at]) set(f[at]!);
       };
     case COLOR: {
       const color = new Color();
       return (f, _u, at) => {
-        const cur = c.getMaterialProperty(name);
+        const cur = get();
         if (cur instanceof Color && cur.r === f[at] && cur.g === f[at + 1] && cur.b === f[at + 2] && cur.a === f[at + 3]) return;
         color.r = f[at]!;
         color.g = f[at + 1]!;
@@ -435,7 +444,7 @@ function materialWrite(c: MeshRenderer, name: string, kind: number, subtype: num
     case VEC4: {
       const n = kind - VEC2 + 2;
       return (f, _u, at) => {
-        const cur = c.getMaterialProperty(name);
+        const cur = get();
         const parts = cur instanceof Vector2 ? [cur.x, cur.y] : cur instanceof Vector3 ? [cur.x, cur.y, cur.z] : Array.isArray(cur) ? cur : null;
         if (parts && parts.length === n && parts.every((p, i) => p === f[at + i])) return;
         set(n === 2 ? new Vector2(f[at], f[at + 1]) : n === 3 ? new Vector3(f[at], f[at + 1], f[at + 2]) : [f[at]!, f[at + 1]!, f[at + 2]!, f[at + 3]!]);
@@ -445,7 +454,7 @@ function materialWrite(c: MeshRenderer, name: string, kind: number, subtype: num
       if (subtype !== ASSET) return mismatch(kind, "a material property without an asset");
       return (_f, u, at) => {
         const v = assetPath(strings, u[at]!);
-        if (c.getMaterialProperty(name) !== v) set(v);
+        if (get() !== v) set(v);
       };
     default:
       return mismatch(kind, "a material property");
