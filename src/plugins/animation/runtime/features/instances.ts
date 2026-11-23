@@ -335,6 +335,8 @@ export const skeletonHooks: LifecycleHooks<Skeleton> = skeletonHooksFor<Skeleton
 
 /** The first Skeleton on `node` or below it, depth-first (Unity's Animator binds the hierarchy under it). */
 function findSkeleton(world: World, node: GameObject): SkeletonRuntime | null {
+  // A load that finishes after its Animator was destroyed asks about a destroyed node: it has no skeleton.
+  if (!node.isValid) return null;
   const own = worldState(world).skeletons.get(node.entity);
   if (own && !own.detached) return own;
   for (const child of node.children) {

@@ -288,6 +288,9 @@ export {
   type TweenOptions,
   type Tween,
 } from "./plugins/animation/runtime";
+
+// The Ragdoll plugin (ADR 0375).
+export { Ragdoll, type RagdollBone, type RagdollMode, type RagdollShape } from "./plugins/ragdoll/runtime";
 // The engine curve (ADR 0158, 0346), which a tween's `ease` may be (D95): `[[x, y], [x, y, "smooth"], …]` over 0–1.
 export type { Curve } from "./engine/core/curve";
 
