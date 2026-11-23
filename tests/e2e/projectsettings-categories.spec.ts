@@ -5,7 +5,8 @@ import { showTab } from "./tabs";
 // (right); a narrow panel swaps the list for a dropdown.
 test.describe.configure({ timeout: 60_000 });
 
-const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Navigation", "Audio", "Plugins", "Autoloads", "Build"];
+// The built-in categories, then the plugins' (localisation's Languages, subtitles', animation's compression settings).
+const CATEGORIES = ["Project", "Display", "Time", "Physics", "Rendering", "Graphics", "Navigation", "Audio", "Plugins", "Autoloads", "Build", "Languages", "Subtitles", "Animation"];
 
 async function openProject(page: Page): Promise<void> {
   await openEditor(page, { files: {} });
