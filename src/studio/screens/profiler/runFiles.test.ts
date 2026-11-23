@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { joinPath, openFolderProject, type EditorProject } from "../../../editor/projects";
 import { currentProject } from "../../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../../editor/testing";
-import { captureTree, durationText, isCapturePath, isTakePath, rowMeta, runTreeFolders } from "./captureTree";
+import { captureTree, durationText, isCaptureFile, isTakePath, rowMeta, runMoveFolders, runTreeFolders, whyNotCaptureFile } from "./captureTree";
 import { moveIntoPlan, movedTo } from "./runFileActions";
 import { restoreFiles, trashFiles } from "./runFileTrash";
 import { takeDeletion } from "../take/takeFiles";
@@ -16,7 +16,18 @@ describe("the trees' folders", () => {
 
   it("Takes shows the folders holding takes and empty folders, not the game's or the samples'", () => {
     expect(runTreeFolders(folders, files, isTakePath)).toEqual(["takes", "takes/HoverBike", "takes/Empty", "New Folder"]);
-    expect(runTreeFolders(folders, files, isCapturePath)).toEqual(["takes", "takes/HoverBike", "takes/Empty", "captures", "New Folder"]);
+  });
+
+  it("Captures lists capture files only and leaves out the takes folder, empty subfolders included (journeys walk 2, J10.3)", () => {
+    expect(runTreeFolders(folders, files, isCaptureFile, ["takes"])).toEqual(["captures", "New Folder"]);
+    expect(runMoveFolders(folders, files, isCaptureFile, ["takes"])).toEqual(["audio", "captures", "Mixes", "New Folder"]);
+    // A capture someone put under takes/ keeps its folder in reach.
+    expect(runTreeFolders(folders, [...files, "takes/HoverBike/x.mycap"], isCaptureFile, ["takes"])).toEqual(["takes", "takes/HoverBike", "captures", "New Folder"]);
+    // And Takes leaves an empty captures/ out.
+    expect(runTreeFolders(["takes", "captures"], ["takes/a.mycotake"], isTakePath, ["captures"])).toEqual(["takes"]);
+    expect(isCaptureFile("captures/a.MYCAP")).toBe(true);
+    expect(isCaptureFile("takes/run.mycotake")).toBe(false);
+    expect(whyNotCaptureFile("run.mycotake")).toMatch(/is a take: open it from the Take screen/);
   });
 
   it("an empty folder is a tree node, so a file can be moved into it", () => {

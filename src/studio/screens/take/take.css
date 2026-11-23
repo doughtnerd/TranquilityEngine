@@ -42,6 +42,8 @@
 
 /* Timeline (the prototype's .trk rows: a 168px head column, caps for sections and game lanes) */
 .tk-timeline-body { display: flex; flex-direction: column; }
+/* The empty centre's one line (how to record a take) is wide enough to stay one line: spec §1.3. */
+.tk-timeline-body > .kit-empty { max-width: 640px; }
 .tk-timeline { --tk-head: 168px; --run-head: var(--tk-head); display: flex; flex-direction: column; min-width: 0; padding-bottom: 8px; }
 .tk-rows { position: relative; }
 .tk-row { display: grid; grid-template-columns: var(--tk-head) minmax(0, 1fr); border-bottom: 1px solid var(--border); min-height: 24px; }

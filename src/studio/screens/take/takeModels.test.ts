@@ -7,7 +7,7 @@ import { TAKE_NOTES_LIMITS } from "../../../engine/audio/take/notes";
 import { formatClock } from "../../components/replayControlsModel";
 import { addMarker, addRegion, deleteNote, editNote, moveNote, noteColourCss, setRegionSpan } from "./notesEdits";
 import { FIXTURE_DURATION, FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
-import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
+import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeEmptyCopy, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
 import { busStrip, instanceParametersAt, parameterRows, valueText } from "./takeInspectorModel";
 import { findInstance, labelSegments, parameterText, pathLabel, pathTitle, playlistsInTake, takeInstances, takeTimeline } from "./takeTimeline";
 import { frameIndexAt, pictureStrip, visibleFrames } from "../../components/filmstripModel";
@@ -160,6 +160,16 @@ describe("the takes' files", () => {
     expect(TAKES_FOLDER).toBe("takes");
     expect(NO_TAKES).toContain("F10");
     expect(NO_TAKES).toMatch(/^Record one with Record take on the editor/); // a sentence of its own under "No takes yet" (T4)
+  });
+
+  it("the empty centre says how to record a take in one short line (spec §1.3; journeys walk 2, J1.5)", () => {
+    for (const has of [false, true]) {
+      const { title, line } = takeEmptyCopy(has);
+      expect(line).toContain("Record take on the editor's Play toolbar");
+      expect(line.length).toBeLessThanOrEqual(90); // one line at the centre's width
+      expect(line.split(". ").length).toBe(1);
+      expect(title).toBe(has ? "No take open" : "No takes yet");
+    }
   });
 
   it("moves and deletes a take's notes with it", () => {
