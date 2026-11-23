@@ -19,7 +19,7 @@ export type PreviewMesh = Extract<BuiltinMesh, "sphere" | "cube" | "capsule" | "
 
 /**
  * A live, orbitable preview drawn into a canvas (the Inspector's): it redraws when the view changes,
- * and continuously while the asset animates. One at a time; while one is open, tiles show stills.
+ * and continuously while the asset animates. Several can be open at once (the Inspector's and a panel's); while any is, tiles show stills.
  */
 export interface ThumbnailPreview {
   /** Resolves true once the asset is drawn, false if it can't be (or the preview stopped first). */

@@ -39,7 +39,8 @@ const MAX_PREVIEW_PIXELS = 768;
 export class ThumbnailRenderer implements ThumbnailRendererApi {
   private readonly scenes: ThumbnailScenes;
   private animation: { stop(): void } | null = null;
-  private live: { stop(): void } | null = null;
+  /** The open orbitable previews (the Inspector's, the Sky panel's…): several at once, each drawing its own scene in turn. */
+  private readonly live = new Set<{ stop(): void }>();
   /** A `size` x `size` 2D canvas thumbnails are copied into for encoding. */
   private still: HTMLCanvasElement | null = null;
   /** Where particle thumbnails are drawn twice and combined. */
@@ -68,7 +69,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
     this.scenes = new ThumbnailScenes(this.engine, size, options);
     stage.onContextLost(() => {
       this.lost = true;
-      this.live?.stop();
+      for (const preview of [...this.live]) preview.stop();
       this.animation?.stop();
     });
   }
@@ -175,7 +176,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
    * `onFrame` runs after the first frame is drawn (nothing is drawn while a preview is open).
    */
   animate(kind: ThumbnailKind, path: string, target: HTMLCanvasElement, onFrame?: () => void): () => void {
-    if (this.live || this.lost) return () => undefined; // the Inspector's preview has the renderer: tiles stay stills
+    if (this.live.size || this.lost) return () => undefined; // a live preview has the renderer: tiles stay stills
     this.animation?.stop();
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -218,7 +219,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
 
   /**
    * An orbitable preview of the asset in `target` (a 2D canvas, sized by the caller to its pixels).
-   * It takes the renderer from any hover animation, and replaces another preview.
+   * It takes the renderer from any hover animation; other open previews keep drawing beside it.
    */
   preview(kind: ThumbnailKind, path: string, target: HTMLCanvasElement): ThumbnailPreview {
     return this.startPreview(() => this.scenes.prepare(kind, path, true), this.canAnimate(kind, path), target);
@@ -230,7 +231,8 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
   }
 
   private startPreview(prepare: () => Promise<ThumbnailScene | null>, animates: boolean, target: HTMLCanvasElement): ThumbnailPreview {
-    this.live?.stop();
+    // Other open previews keep going (the Inspector's and the Sky panel's of the same sky, say): each one
+    // draws its own scene into the shared engine and copies it out in the same task, so they take turns.
     this.animation?.stop();
     let stopped = false;
     let prepared: ThumbnailScene | null = null;
@@ -246,13 +248,10 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
       if (timer !== null) clearTimeout(timer);
       prepared?.dispose();
       prepared = null;
-      if (this.live === handle) {
-        this.live = null;
-        if (!this.lost) ensureCanvasSize(this.engine, this.size, this.size); // back to the tiles' size
-      }
+      if (this.live.delete(handle) && this.live.size === 0 && !this.lost) ensureCanvasSize(this.engine, this.size, this.size); // back to the tiles' size
     };
     const handle = { stop };
-    this.live = handle;
+    this.live.add(handle);
     const draw = () => {
       queued = false;
       if (timer !== null) clearTimeout(timer); // one chain of redraws, whoever asked
@@ -318,7 +317,7 @@ export class ThumbnailRenderer implements ThumbnailRendererApi {
 
   dispose(): void {
     this.disposed = true;
-    this.live?.stop();
+    for (const preview of [...this.live]) preview.stop();
     this.animation?.stop();
     this.scenes.dispose();
     this.stage.dispose();
