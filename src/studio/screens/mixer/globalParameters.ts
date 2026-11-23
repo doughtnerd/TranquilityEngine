@@ -29,7 +29,7 @@ export function renameParameterInMix(p: AudioProject, from: string, to: string):
   return {
     ...p,
     parameters: p.parameters.map((q) => (q.name === from ? { ...q, name: to } : q)),
-    automation: p.automation.map((a) => (a.parameter === from ? { ...a, parameter: to } : a)),
+    automation: p.automation.map((a) => (a.parameter === from || a.by?.input === from ? { ...a, parameter: n(a.parameter), ...(a.by ? { by: { ...a.by, input: n(a.by.input) } } : {}) } : a)),
     snapshots: p.snapshots.map((s) => (s.start.kind === "conditions" && s.start.conditions.some((c) => c.parameter === from) ? mapConditions(s, (cs) => cs.map((c) => ({ ...c, parameter: n(c.parameter) }))) : s)),
   };
 }
@@ -39,7 +39,8 @@ export function removeParameterFromMix(p: AudioProject, name: string): AudioProj
   return {
     ...p,
     parameters: p.parameters.filter((q) => q.name !== name),
-    automation: p.automation.filter((a) => a.parameter !== name),
+    // A lane that also followed it (ADR 0362 §5) keeps its own parameter and follows nothing else.
+    automation: p.automation.filter((a) => a.parameter !== name).map((a) => (a.by?.input === name ? (({ by: _, ...rest }) => rest)(a) : a)),
     snapshots: p.snapshots.map((s) => (s.start.kind === "conditions" && s.start.conditions.some((c) => c.parameter === name) ? mapConditions(s, (cs) => cs.filter((c) => c.parameter !== name)) : s)),
   };
 }

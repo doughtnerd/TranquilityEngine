@@ -36,6 +36,7 @@ import {
   FADE_SHAPES, type BlendRegion, type Fade, type FadeShape, type Quantize, type TimeLength,
 } from "./types";
 import { isFadeShape } from "./fadeShapes";
+import { curveByToJson, parseCurveBy, type CurveBy } from "../curveBy";
 import { isStringKey } from "../../localisation/strings/format";
 import { isLineKey } from "../localisation/lines/format";
 import { isEventName } from "../dialogue/format";
@@ -334,7 +335,15 @@ class PlaylistReader {
     const out: VoiceCurve = { input: this.input(raw.input, `${where}.input`, "voiceTime"), curve, bypass: r.bool(raw.bypass, `${where}.bypass`, false) };
     const quantize = this.quantize(raw.quantize, `${where}.quantize`);
     if (quantize !== undefined) out.quantize = quantize;
+    const by = this.by(raw.by, `${where}.by`, out.input);
+    if (by) out.by = by;
     return out;
+  }
+
+  /** ADR 0362 §5: a lane's second input; rate only on a lane keyed on time. */
+  by(raw: unknown, where: string, input: CurveInput): CurveBy | undefined {
+    const r = this.r;
+    return parseCurveBy(raw, where, { time: typeof input === "string" }, (c, w) => r.curve(c, w), (w, m) => r.problem(w, m));
   }
 
   /** Automation lanes; `instance` (a playlist's own lanes) takes voice time or a parameter only. */
@@ -360,6 +369,8 @@ class PlaylistReader {
       const lane: Automation = { id: ids.take(a.id, w, "a"), target: target as Automation["target"], input, curve, bypass: r.bool(a.bypass, `${w}.bypass`, false) };
       const quantize = this.quantize(a.quantize, `${w}.quantize`);
       if (quantize !== undefined) lane.quantize = quantize;
+      const by = this.by(a.by, `${w}.by`, input);
+      if (by) lane.by = by;
       out.push(lane);
     });
     return out;
@@ -767,6 +778,7 @@ function useToJson(e: EntryUse, out: JsonRecord): void {
     const json: JsonRecord = { input: inputToJson(c.input), curve: curveToJson(c.curve) };
     if (c.bypass) json.bypass = true;
     if (c.quantize !== undefined) json.quantize = typeof c.quantize === "string" ? c.quantize : { beats: c.quantize.beats };
+    if (c.by) json.by = curveByToJson(c.by);
     curves[t] = json;
   }
   if (Object.keys(curves).length) out.curves = curves;
@@ -806,6 +818,7 @@ function automationToJson(list: readonly Automation[]): JsonRecord[] {
     const out: JsonRecord = { id: a.id, target: a.target, input: inputToJson(a.input), curve: curveToJson(a.curve) };
     if (a.bypass) out.bypass = true;
     if (a.quantize !== undefined) out.quantize = typeof a.quantize === "string" ? a.quantize : { beats: a.quantize.beats };
+    if (a.by) out.by = curveByToJson(a.by);
     return out;
   });
 }

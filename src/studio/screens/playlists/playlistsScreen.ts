@@ -116,7 +116,7 @@ export const openLints = computed<readonly PlaylistLint[]>(() => {
   const t = target.value;
   if (!file || !t) return [];
   const prefix = whereOf(t.indices);
-  const all = lintPlaylist(file, { playlist: (p) => loadPlaylist(p), sampleTempo });
+  const all = lintPlaylist(file, { playlist: (p) => loadPlaylist(p), sampleTempo, globalParameters: () => (mix.value ? mix.value.parameters : undefined) });
   return all.filter((l) => (prefix ? l.where === prefix || l.where.startsWith(`${prefix}.`) : !l.where.startsWith("entries[") || !l.where.includes(".embedded")));
 });
 

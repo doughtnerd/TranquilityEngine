@@ -127,6 +127,17 @@ describe("sends, ducking, automation, triggers", () => {
     expect(levelAutomationDb(p, "Music", { threat: 1 })).toBe(-3);
     expect(automatedParams(p, "Ambience", { depth: 30 })).toEqual({ fx1: { cutoff: "800 Hz" } });
   });
+  it("automation with a second input (ADR 0362 §5): kept when flat, refused when it can't run, valued at both test parameters", () => {
+    const p = mixerFixture();
+    const by = { input: "gameState", mode: "labels" as const, labels: { Paused: [[0, -30], [1, -30]] as [number, number][] } };
+    const next = ok(setAutomation(p, { on: "Music", target: "volume" }, { parameter: "threat", curve: [[0, -2], [1, -2]], bypass: false, by }));
+    expect(next.automation.find((a) => a.on === "Music")!.by).toEqual(by);
+    expect(levelAutomationDb(next, "Music", { threat: 1 })).toBe(-2);
+    expect(levelAutomationDb(next, "Music", { threat: 1, gameState: 1 })).toBe(-30);
+    expect(refused(setAutomation(p, { on: "Music", target: "volume" }, { parameter: "threat", curve: [[0, 0]], bypass: false, by: { input: "health", mode: "labels" } }))).toMatch(/no labels/);
+    expect(refused(setAutomation(p, { on: "Music", target: "volume" }, { parameter: "threat", curve: [[0, 0]], bypass: false, by: { input: "threat", mode: "scale" } }))).toMatch(/own parameter/);
+    valid(next);
+  });
   it("triggers: clamped, unknown parameters refused", () => {
     const p = mixerFixture();
     const next = ok(setTrigger(p, "Underwater", { priority: 250.4, fadeInMs: -5, combine: "add" }));

@@ -2,6 +2,7 @@
 // driven by voice time or a parameter) and its result written back as the entry's curves with one undo label.
 import { describe, expect, it } from "vitest";
 import { createDraft, draftResult, setLaneInput, withLane, type CurveDraft } from "../../../editor/ui/curves/curveEditorModel";
+import { setBy, setByMode, writeLayer } from "../../../editor/ui/curves/andByModel";
 import type { ParameterDef } from "../../../engine/audio/parameters";
 import { curvesLabel, parameterInputs, parameterOfInput, setParameterHistogramSource } from "../curveInputs";
 import { applyVoiceCurveResult, voiceCurveDialog, type VoiceCurves } from "./voiceCurves";
@@ -111,5 +112,36 @@ describe("curve inputs", () => {
     expect(curvesLabel("Music", [])).toBeNull();
     expect(curvesLabel("Music", ["Low-pass cutoff"])).toBe("Automate Low-pass cutoff · Music");
     expect(curvesLabel("Music", ["Level", "Send to Reverb"])).toBe("Edit Music curves");
+  });
+});
+
+describe("And by on voice curves (ADR 0362 §5)", () => {
+  it("offers the playlist's parameters as second inputs, labelled ones with their labels", () => {
+    const d = voiceCurveDialog("dirt_02", curves, params, { speed: 20 });
+    expect(d.spec.secondInputs!.map((s) => [s.id, s.labels ?? null])).toEqual([["param:speed", null], ["param:surface", ["Dirt", "Grass", "Metal"]]]);
+  });
+
+  it("Apply writes a lane's second input (rate on a time lane), reopens with it, and an untouched Apply changes nothing", () => {
+    const d = voiceCurveDialog("dirt_02", curves, params);
+    let draft: CurveDraft = setByMode(d.spec, setBy(d.spec, createDraft(d.spec), "gain", "param:speed"), "gain", "rate");
+    draft = writeLayer(draft, "gain", "rate", [[0, 1], [50, 2]]);
+    const r = applyVoiceCurveResult(d, draftResult(d.spec, draft))!;
+    expect(r.label).toBe("Automate Gain · dirt_02");
+    expect(r.curves.gain).toEqual({ input: "voiceTime", curve: [[0, 0], [3, -12, "easeOut"]], bypass: false, by: { input: "speed", mode: "rate", curve: [[0, 1], [50, 2]] } });
+    expect(r.curves.lowpass).toBe(curves.lowpass);
+    const again = voiceCurveDialog("dirt_02", r.curves, params);
+    expect(again.spec.lanes.find((l) => l.id === "gain")!.by).toEqual({ input: "param:speed", mode: "rate", curve: [[0, 1], [50, 2]] });
+    expect(applyVoiceCurveResult(again, draftResult(again.spec, createDraft(again.spec)))).toBeNull();
+  });
+
+  it("a lane flat at its plain value is kept while it follows a second input; one on an unknown parameter opens as it is", () => {
+    const d = voiceCurveDialog("dirt_02", {}, params);
+    let draft = setBy(d.spec, createDraft(d.spec), "pitch", "param:surface");
+    draft = writeLayer(draft, "pitch", "label:Metal", [[0, 5], [2, 5]]);
+    const r = applyVoiceCurveResult(d, draftResult(d.spec, draft))!;
+    expect(r.curves.pitch!.by).toEqual({ input: "surface", mode: "labels", labels: { Metal: [[0, 5], [2, 5]] } });
+    const lost: VoiceCurves = { gain: { input: "voiceTime", curve: [[0, -3]], bypass: false, by: { input: "gone", mode: "scale", curve: [[0, 2]] } } };
+    const opened = voiceCurveDialog("x", lost, params);
+    expect(applyVoiceCurveResult(opened, draftResult(opened.spec, createDraft(opened.spec)))).toBeNull();
   });
 });

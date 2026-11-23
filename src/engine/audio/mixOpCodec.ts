@@ -8,7 +8,7 @@ import { CORE_EFFECT_TYPES } from "./busCapability";
 import { effectSpec } from "./effects/catalogue";
 import { EFFECT_KEYS, MIX_OP_NAMES, OP_CLASSES, OP_CLASS_CODES, isProjectOp, type MixOp, type OpClass } from "./mixOps";
 import { isProjectOp as isProjectOpName } from "./projectOps";
-import { EFFECT_TYPES, type BusAutomation, type BusEffect, type DuckingRule, type LoudnessTarget } from "./settings";
+import { EFFECT_TYPES, type BusAutomation, type BusAutomationBy, type BusEffect, type DuckingRule, type LoudnessTarget } from "./settings";
 
 /** The byte form of one op (the capture's MIXOP record): `u8 op`, `u8 class`, `u16 argc`, `argc` u32 words (§6.2). */
 export interface MixOpBytes { op: number; class: number; words: Uint32Array }
@@ -30,7 +30,7 @@ const BUS_AUTOMATION_TARGETS = ["volume", "lowpass", "fx", "send"] as const;
 /** Value tags of a nullable value word. */
 const Tag = { Null: 0, False: 1, True: 2, Number: 3, String: 4 } as const;
 /** Flag bits of a list op (`setDucking`, `setAutomation`, `setTarget`) and of an optional field. */
-const Flag = { Item: 1, HasInsert: 2, Insert: 4 } as const;
+const Flag = { Item: 1, HasInsert: 2, Insert: 4, By: 8 } as const;
 
 const f64 = new DataView(new ArrayBuffer(8));
 
@@ -48,8 +48,8 @@ class Writer {
     else if (typeof v === "number") { this.u(Tag.Number); this.f(v); }
     else { this.u(Tag.String); this.s(v); }
   }
-  listFlags(item: unknown, insert: boolean | undefined): void {
-    this.u((item !== null ? Flag.Item : 0) | (insert !== undefined ? Flag.HasInsert : 0) | (insert ? Flag.Insert : 0));
+  listFlags(item: unknown, insert: boolean | undefined, by = false): void {
+    this.u((item !== null ? Flag.Item : 0) | (insert !== undefined ? Flag.HasInsert : 0) | (insert ? Flag.Insert : 0) | (by ? Flag.By : 0));
   }
   effect(e: BusEffect): void {
     this.code(EFFECT_TYPES, e.type);
@@ -82,9 +82,9 @@ class Reader {
       default: throw new Error("decodeMixOp: bad value tag");
     }
   }
-  listFlags(): { item: boolean; insert?: boolean } {
+  listFlags(): { item: boolean; insert?: boolean; by: boolean } {
     const fl = this.u();
-    return { item: (fl & Flag.Item) !== 0, ...(fl & Flag.HasInsert ? { insert: (fl & Flag.Insert) !== 0 } : {}) };
+    return { item: (fl & Flag.Item) !== 0, by: (fl & Flag.By) !== 0, ...(fl & Flag.HasInsert ? { insert: (fl & Flag.Insert) !== 0 } : {}) };
   }
   effect(): BusEffect {
     const type = this.code(EFFECT_TYPES);
@@ -112,7 +112,7 @@ class Reader {
  * fields) · removeEffect bus, index · moveEffect bus, from, to · setEffect bus, index, key, f64 · add/remove/renameSnapshot
  * index, hasName[, name] · setSnapshot index, bus, key, value · setDucking index, flags[, target, trigger, mode, detector,
  * hasThreshold[, threshold], amount, attack, release] · setAutomation index, flags[, bus, parameter, target, keys, (x, y,
- * interp[, f64 inDx, inDy, outDx, outDy, u32 free when interp is 6, bezier])…] · setTarget index, flags[, name, integrated, tolerance, truePeak] · setOption key, value.
+ * interp[, f64 inDx, inDy, outDx, outDy, u32 free when interp is 6, bezier])…[, by as JSON when flags has 8]] · setTarget index, flags[, name, integrated, tolerance, truePeak] · setOption key, value.
  * The mix model's own ops (ADR 0344: setMute, setReturn, setSend, setVca, setSnapshotDef, setSnapshotLevel,
  * setSnapshotEffect; `projectOps.ts`) are one word: the op as JSON, interned like a name (returns and VCAs have no bus
  * slot, so no `busRef` applies; JSON keeps their nested definitions exact).
@@ -144,7 +144,7 @@ export function encodeMixOp(op: MixOp, cls: OpClass, names: MixOpNameTable): Mix
       break;
     }
     case "setAutomation": {
-      w.u(op.index); w.listFlags(op.rule, op.insert);
+      w.u(op.index); w.listFlags(op.rule, op.insert, op.rule?.by !== undefined);
       const r = op.rule;
       if (r) {
         w.b(r.bus); w.s(r.parameter); w.code(BUS_AUTOMATION_TARGETS, r.target);
@@ -156,6 +156,8 @@ export function encodeMixOp(op: MixOp, cls: OpClass, names: MixOpNameTable): Mix
           const h = curveKeyHandles(k);
           if (h) { w.f(h.in[0]); w.f(h.in[1]); w.f(h.out[0]); w.f(h.out[1]); w.u(h.free ? 1 : 0); }
         }
+        // ADR 0362 §5: the second input (flag By), as JSON interned like a name (its curves stay exact).
+        if (r.by) w.s(JSON.stringify(r.by));
       }
       break;
     }
@@ -229,7 +231,7 @@ export function decodeMixOp(bytes: MixOpBytes, names: { name(id: number): string
             curve.push([x, y, "bezier", { in: inH, out, ...(free ? { free } : {}) }]);
           } else curve.push(name ? [x, y, name] : [x, y]);
         }
-        rule = { bus, parameter, target, ...extra, curve: curve as Curve };
+        rule = { bus, parameter, target, ...extra, curve: curve as Curve, ...(fl.by ? { by: JSON.parse(r.s()) as BusAutomationBy } : {}) };
       }
       op = { op: name, index, rule, ...withInsert(fl) };
       break;

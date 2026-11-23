@@ -15,6 +15,8 @@
  *   on main; pan and high-pass ones become core bindings on the voice's time when the voice starts
  *   (`coreTimeBindings`, ABI 4.4).
  * - On the Babylon fallback pan and high-pass curves are ignored (`TsAutomation` warns once).
+ * - ADR 0362 §5: a curve with a second input (`by`) binds its instance's slice of it (`byCurves.ts`), a curve id the
+ *   slice redefines when the second parameter moves; a main-thread time curve reads the slice (`TimeCurve.live`).
  */
 import { evalCurve, type Curve, type CurveKey } from "../../../../engine/core/curve";
 import type { CurveInput, GenTarget, VoiceCurve, VoiceCurveTarget } from "../../../../engine/audio/playlist/types";
@@ -22,6 +24,8 @@ import { warnOnce } from "../core/handle";
 import { AutoTarget, MAX_BINDINGS, TimeParam, timeParam, type Binding, type ParamRef } from "../automation";
 import { QuantLane } from "./quantizedLanes";
 import type { GenCurve } from "./liveNode";
+import type { CurveBy } from "../../../../engine/audio/curveBy";
+import type { LiveSlice } from "./byCurves";
 
 /** The core target of each voice curve target. */
 const TARGETS: Record<VoiceCurveTarget, AutoTarget> = {
@@ -50,12 +54,14 @@ export interface TimeCurve {
    * its start (long instances can't fill the core's curve table with shifted copies).
    */
   offset?: number;
+  /** ADR 0362 §5: the lane follows a second parameter: its slice now (`curve` is the lane's own, unsliced). */
+  live?: LiveSlice;
 }
 
 /** `curves` for a voice starting at heard `start`: curves with an `origin` read from the voice's start (an `offset`). */
 export function anchorTimeCurves(curves: readonly TimeCurve[], start: number): readonly TimeCurve[] {
   if (!curves.some((c) => c.origin !== undefined)) return curves;
-  return curves.map((c) => (c.origin === undefined ? c : { target: c.target, curve: c.curve, offset: (c.offset ?? 0) + start - c.origin }));
+  return curves.map((c) => (c.origin === undefined ? c : { target: c.target, curve: c.curve, offset: (c.offset ?? 0) + start - c.origin, ...(c.live ? { live: c.live } : {}) }));
 }
 
 /** The most keys a resampled core curve gets (the core's curve key cap). */
@@ -105,7 +111,8 @@ export interface CurveParts {
 
 /**
  * The bindings and voice-time curves of `curves`, added after the parent's. `paramRef` resolves a parameter name (null:
- * unknown, already warned); `curveId` gives a curve's id on the backend (null: the table is full).
+ * unknown, already warned); `curveId` gives a curve's id on the backend (null: the table is full); `slice` gives the
+ * instance's slice of a curve with a second input (ADR 0362 §5; absent: `by` is ignored).
  */
 export function curveParts(
   curves: Partial<Record<VoiceCurveTarget | GenTarget, VoiceCurve>>,
@@ -113,6 +120,7 @@ export function curveParts(
   paramRef: (name: string) => ParamRef | null,
   curveId: (curve: Curve) => number | null,
   where: string,
+  slice?: (main: Curve, by: CurveBy) => LiveSlice,
 ): CurveParts {
   let bindings = parent.bindings as Binding[];
   const timeCurves = parent.timeCurves as TimeCurve[];
@@ -127,14 +135,15 @@ export function curveParts(
     if (vc.quantize !== undefined) {
       // A curve on a parameter that moves only on the musical clock's boundaries: a quantised lane, not a binding.
       if (typeof input !== "string") {
-        if (paramRef(input.parameter)) (quantized ??= [...(parent.quantized ?? [])]).push(new QuantLane(input.parameter, vc.curve, vc.quantize, where, target));
+        if (paramRef(input.parameter)) (quantized ??= [...(parent.quantized ?? [])]).push(new QuantLane(input.parameter, vc.curve, vc.quantize, where, target, vc.by));
         continue;
       }
       warnOnce(`playlist:quantize-time:${where}:${target}`, `[myco] ${where}: the ${target} curve is keyed on ${input}; quantize applies to curves keyed on a parameter and is ignored.`);
     }
     const p = typeof input === "string" ? timeParam(TIME_INPUTS[input] ?? TimeParam.Voice) : paramRef(input.parameter);
     if (!p) continue;
-    const id = curveId(target === "gain" || target === "pitch" ? toCoreCurve(vc.curve, target) : vc.curve);
+    const toCore = (c: Curve) => (target === "gain" || target === "pitch" ? toCoreCurve(c, target) : c);
+    const id = vc.by && slice ? slice(vc.curve, vc.by).curveId(target, toCore) : curveId(toCore(vc.curve));
     if (id === null) continue;
     if (bindings.length >= MAX_BINDINGS) {
       warnOnce(`playlist:bindings:${where}`, `[myco] ${where}: more than ${MAX_BINDINGS} parameter and time curves reach one voice; the rest are ignored.`);
@@ -181,7 +190,9 @@ export function coreTimeBindings(
     if (c.target !== "pan" && c.target !== "highpass") continue;
     const vc: VoiceCurve = { input: "voiceTime", curve: c.curve, bypass: false };
     const before = out;
-    out = curveParts({ [c.target]: vc }, { bindings: out, timeCurves: [] }, () => null, curveId, where).bindings;
+    // ADR 0362 §5: a lane with a second input binds its slice's curve.
+    const id = c.live ? (): number | null => c.live!.curveId(c.target) : curveId;
+    out = curveParts({ [c.target]: vc }, { bindings: out, timeCurves: [] }, () => null, id, where).bindings;
     // ABI 4.9: the lane's offset rides on the binding (its time origin), not on a shifted copy of the curve.
     const offset = c.offset ?? 0;
     if (out !== before && offset !== 0 && Number.isFinite(offset)) out = [...out.slice(0, -1), { ...out[out.length - 1]!, offset }];
@@ -210,7 +221,7 @@ export function evalTimeCurves(curves: readonly TimeCurve[], t: number): { gain:
   let gain = 1, pitch = 1;
   let lowpass: number | null = null;
   for (const c of curves) {
-    const y = evalCurve(c.curve, t + (c.offset ?? 0));
+    const y = evalCurve(c.live?.curve ?? c.curve, t + (c.offset ?? 0));
     if (c.target === "gain") gain *= dbToGain(y);
     else if (c.target === "pitch") pitch *= stToRatio(y);
     else if (c.target === "lowpass") lowpass = lowpass === null ? y : Math.min(lowpass, y);

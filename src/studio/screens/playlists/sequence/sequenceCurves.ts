@@ -2,7 +2,9 @@
 // group mode). The dialog gets one lane per automatable target of the owner (its curve, or the plain value when not
 // automated), each driven by time ("Clip time" on a clip, "Timeline" on a track) or a scalar parameter; Apply writes
 // the lanes back as one edit: a changed lane's curve, input and bypass; a newly shaped lane becomes automation; a lane
-// flattened to one value goes back to the plain value (proto: "Flat lanes collapse back to plain values"). Pure.
+// flattened to one value goes back to the plain value (proto: "Flat lanes collapse back to plain values"). A lane may also
+// follow a second parameter ("And by", ADR 0362 §5; rate only on time lanes): the dialog offers every parameter, labelled
+// ones per label, and Apply writes the lane's `by` (a lane with one never collapses). Pure.
 import { isLabelled, type ParameterDef } from "../../../../engine/audio/parameters";
 import type { CurveKey } from "../../../../engine/core/curve";
 import type { Automation, CurveInput as PlaylistCurveInput, SequenceSettings } from "../../../../engine/audio/playlist/types";
@@ -10,6 +12,10 @@ import { TIME_INPUT, type CurveEditorResult, type CurveEditorSpec, type CurveInp
 import { accept, refuse, type EditResult } from "../../../../plugins/audio/editor/editResult";
 import { isTimeInput, MAX_AUTOMATION, ownerOf, targetSpecs, type AutomationOwner } from "./automationEdits";
 import { findClip, mapClips, mapTrack, nextId } from "./sequenceModel";
+import { curveByOf, laneByOf, secondInputsOf } from "../../curveInputs";
+
+/** Sequence lanes name a parameter by its bare name (`curveSpec`'s inputs), second inputs too. */
+const bare = (name: string): string => name;
 
 /** The dialog's spec for an owner: kind time, its targets as lanes, scalar parameters as inputs. */
 export function curveSpec(s: SequenceSettings, owner: AutomationOwner, length: number, parameters: readonly ParameterDef[]): CurveEditorSpec | null {
@@ -22,10 +28,12 @@ export function curveSpec(s: SequenceSettings, owner: AutomationOwner, length: n
       curve: a?.curve ?? [[0, t.base]],
       input: a ? (isTimeInput(a.input) ? TIME_INPUT : (a.input as { parameter: string }).parameter) : TIME_INPUT,
       bypass: a?.bypass ?? false,
+      ...(a?.by ? { by: laneByOf(a.by, bare) } : {}),
     };
   });
   const inputs: CurveInput[] = parameters.filter((p) => !isLabelled(p)).map((p) => ({ id: p.name, name: p.name, min: (p as { min: number }).min, max: (p as { max: number }).max }));
-  return { kind: "time", lanes, inputs, length: Math.max(0.01, length), timeName: "clip" in owner ? "Clip time" : "Timeline" };
+  const secondInputs = secondInputsOf(parameters, {}, bare, view.automation.flatMap((a) => (a.by ? [a.by.input] : [])));
+  return { kind: "time", lanes, inputs, length: Math.max(0.01, length), timeName: "clip" in owner ? "Clip time" : "Timeline", ...(secondInputs.length ? { secondInputs } : {}) };
 }
 
 const flat = (curve: readonly CurveKey[]): boolean => curve.every((k) => Math.abs(k[1] - curve[0]![1]) < 1e-9);
@@ -38,15 +46,18 @@ export function applyCurveResult(s: SequenceSettings, owner: AutomationOwner, re
   const list: Automation[] = [...view.automation];
   for (const lane of result.lanes) {
     const input: PlaylistCurveInput = lane.input === TIME_INPUT ? timeInput : { parameter: lane.input };
+    const by = curveByOf(lane.by, lane.input === TIME_INPUT, bare);
     const i = list.findIndex((a) => a.target === lane.id);
-    if (lane.curve.length === 0 || flat(lane.curve)) {
+    if (lane.curve.length === 0 || (flat(lane.curve) && !by)) {
       if (i >= 0) list.splice(i, 1);
       continue;
     }
-    if (i >= 0) list[i] = { ...list[i]!, curve: lane.curve, input, bypass: lane.bypass };
-    else {
+    if (i >= 0) {
+      const { by: _was, ...rest } = list[i]!;
+      list[i] = { ...rest, curve: lane.curve, input, bypass: lane.bypass, ...(by ? { by } : {}) };
+    } else {
       if (list.length >= MAX_AUTOMATION) return refuse(`at most ${MAX_AUTOMATION} automation lanes`);
-      list.push({ id: nextId("a", list.map((a) => a.id)), target: lane.id as Automation["target"], input, curve: lane.curve, bypass: lane.bypass });
+      list.push({ id: nextId("a", list.map((a) => a.id)), target: lane.id as Automation["target"], input, curve: lane.curve, bypass: lane.bypass, ...(by ? { by } : {}) });
     }
   }
   if ("clip" in owner) return findClip(s, owner.clip) ? accept(mapClips(s, (c) => (c.id === owner.clip ? { ...c, automation: list } : c))) : refuse("that clip isn't there any more");

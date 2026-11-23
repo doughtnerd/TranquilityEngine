@@ -544,7 +544,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     const out = c.ctx.timeCurves.slice();
     for (const t of c.time) {
       const offset = t.input === "clipTime" ? u : t.input === "sequenceTime" ? c.start + u : 0;
-      out.push(offset !== 0 ? { target: t.target, curve: t.curve, offset } : { target: t.target, curve: t.curve });
+      out.push({ target: t.target, curve: t.curve, ...(offset !== 0 ? { offset } : {}), ...(t.live ? { live: t.live } : {}) });
     }
     return out;
   }

@@ -59,7 +59,7 @@ const lerp = ([lo, hi]: readonly [number, number], t: number): number => (lo ===
 export function useCtx(host: NodeHost, ctx: Ctx, use: EntryUse): Ctx {
   const hasCurves = Object.keys(use.curves).length > 0;
   if (use.volume === 0 && use.pitch === 0 && !hasCurves) return ctx;
-  const parts = hasCurves ? curveParts(use.curves, ctx, (n) => host.paramRef(n), (c) => host.curveId(c), ctx.where) : ctx;
+  const parts = hasCurves ? curveParts(use.curves, ctx, (n) => host.paramRef(n), (c) => host.curveId(c), ctx.where, (m, by) => host.byCurve(m, by)) : ctx;
   const quantized = "quantized" in parts && parts.quantized ? { quantized: parts.quantized } : {};
   const genCurves = hasCurves ? genCurvesOf(use.curves, ctx.genCurves) : ctx.genCurves;
   const gen = genCurves !== ctx.genCurves && genCurves ? { genCurves } : {};
@@ -97,7 +97,7 @@ function instanceAutomation(host: NodeHost, ctx: Ctx, body: PlaylistBody, where:
   const next = automationParts(host, body.automation, body.effects, ctx, time, where);
   if (time.length === 0) return next;
   const origin = host.startOf(ctx.at);
-  return { ...next, timeCurves: [...next.timeCurves, ...time.map((t) => ({ target: t.target, curve: t.curve, origin }))] };
+  return { ...next, timeCurves: [...next.timeCurves, ...time.map((t) => ({ target: t.target, curve: t.curve, origin, ...(t.live ? { live: t.live } : {}) }))] };
 }
 
 /**

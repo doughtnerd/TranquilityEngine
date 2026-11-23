@@ -3,6 +3,7 @@
 // (authored values, with the runtime's public `Bus` readings when it runs), meter readings, loudness readouts, and the
 // live board's pins (a per-user preference, at most 8). Pure.
 import { evalCurve } from "../../../engine/core/curve";
+import { evalCurveBy, secondValueOf } from "../../../engine/audio/curveBy";
 import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
 import type { AudioProject, MixAutomation } from "../../../engine/audio/project/types";
 import type { GainInputs, LiveLanes } from "../../components/gainLanesModel";
@@ -13,10 +14,15 @@ import { editedSnapshot } from "./mixEdits";
 
 // --- automation at the test values ---------------------------------------------------------------------------------------
 
-/** A lane's value at the test value of its parameter (dB for volume and sends; the parameter's units for fx). */
-export function automationValue(a: Pick<MixAutomation, "parameter" | "curve">, params: readonly ParameterDef[], values: TestValues): number | null {
+/**
+ * A lane's value at the test value of its parameter (dB for volume and sends; the parameter's units for fx), and of its
+ * second parameter when it follows one (ADR 0362 §5, as the runtime evaluates it).
+ */
+export function automationValue(a: Pick<MixAutomation, "parameter" | "curve" | "by">, params: readonly ParameterDef[], values: TestValues): number | null {
   const def = params.find((p) => p.name === a.parameter);
   if (!def || a.curve.length === 0) return null;
+  const second = a.by ? params.find((p) => p.name === a.by!.input) : undefined;
+  if (a.by && second) return evalCurveBy(a.curve, a.by, testValueOf(def, values), secondValueOf(second, testValueOf(second, values)));
   return evalCurve(a.curve, testValueOf(def, values));
 }
 
@@ -200,7 +206,7 @@ export interface AutomatableLane {
   readonly step: number;
   readonly scale: "linear" | "log";
   readonly plain: number;
-  readonly current: { readonly parameter: string; readonly curve: MixAutomation["curve"]; readonly bypass: boolean } | null;
+  readonly current: { readonly parameter: string; readonly curve: MixAutomation["curve"]; readonly bypass: boolean; readonly by?: MixAutomation["by"] } | null;
 }
 
 /**
@@ -213,7 +219,7 @@ export function automatableLanes(p: AudioProject, name: string, only?: string): 
   if (!owner) return [];
   const current = (target: string) => {
     const a = p.automation.find((x) => x.on === name && x.target === target);
-    return a ? { parameter: a.parameter, curve: a.curve, bypass: a.bypass } : null;
+    return a ? { parameter: a.parameter, curve: a.curve, bypass: a.bypass, ...(a.by ? { by: a.by } : {}) } : null;
   };
   const out: AutomatableLane[] = [{ target: "volume", label: "Level", min: -60, max: 6, unit: "dB", step: 0.5, scale: "linear", plain: 0, current: current("volume") }];
   for (const s of bus?.sends ?? []) out.push({ target: `send:${s.to}`, label: `Send to ${s.to}`, min: -60, max: 6, unit: "dB", step: 0.5, scale: "linear", plain: 0, current: current(`send:${s.to}`) });

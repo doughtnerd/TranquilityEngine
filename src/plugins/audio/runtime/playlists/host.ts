@@ -24,6 +24,9 @@ import { taps } from "../mix/profileTaps";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { onAudioSessionReleased } from "../audioSession";
 import { busAutomationBinding, MAX_BUS_BINDINGS, MAX_CURVES, MAX_GROUPS, TsAutomation, type AutomationSink, type Binding } from "../automation";
+import { secondValueOf, sliceCurveBy } from "../../../../engine/audio/curveBy";
+import { busAutomationCurve } from "../../../../engine/audio/project/runtimeView";
+import type { BusAutomation } from "../../../../engine/audio/settings";
 
 /** mulberry32: small, fast and seedable, so tests and goldens reproduce picks. */
 export function mulberry32(seed: number): () => number {
@@ -102,6 +105,8 @@ export class PlaylistHost {
   private globals = new Map<string, GlobalParam>();
   private globalsOf: unknown = null;
   private busOf: unknown = null;
+  /** ADR 0362 §5: bus automation that also follows a second global parameter: its own curve id, re-sliced as that moves. */
+  private busBy: { readonly a: BusAutomation & { by: NonNullable<BusAutomation["by"]> }; readonly id: number }[] = [];
   private seed: number | undefined | null = null;
   /** For tests: the clock in seconds used for cooldowns (wall time; the audio clock is 0 while locked). */
   now: () => number = () => performance.now() / 1000;
@@ -122,6 +127,7 @@ export class PlaylistHost {
     g.value = v;
     if (taps.sink !== NULL_PROFILE_SINK) noteParameter(name, g.def, v);
     this.sink!.setParam(0, g.slot, v, isLabelled(g.def) ? 0 : g.def.seekSpeed);
+    this.resliceBuses(name);
     for (const h of this.hosted) h.onGlobal(name);
   }
 
@@ -181,7 +187,7 @@ export class PlaylistHost {
     this.stopAll();
     this.sink = null; this.sinkOf = null; this.ts = null;
     this.curvesById.length = 0;
-    this.leases.clear(); this.freeCurves.length = 0;
+    this.leases.clear(); this.freeCurves.length = 0; this.busBy = [];
     this.curveIds = new WeakMap(); // a parsed asset's curves outlive a reset (the asset cache), so their ids must go too
     this.freeGroups.length = 0; this.freeHead = 0; this.nextGroup = 1;
     this.globals.clear(); this.globalsOf = null; this.busOf = null;
@@ -362,19 +368,39 @@ export class PlaylistHost {
         this.globals.set(def.name, { slot, def, value });
         this.sink!.setParam(0, slot, value, 0);
       });
+      this.resliceBuses(null);
     }
     if (settings.automation !== this.busOf) {
-      this.busOf = settings.automation;
+      const list = settings.automation;
+      this.busOf = list;
+      this.busBy = [];
       const byBus = new Map<string, Binding[]>();
-      for (const a of settings.automation) {
+      for (const a of list) {
         const g = this.globals.get(a.parameter);
-        const id = g ? this.curveId(a.curve) : null;
+        const second = a.by ? this.globals.get(a.by.input) : undefined;
+        // A lane that follows a second parameter gets a curve of its own: its slice at that parameter (`resliceBuses`).
+        const id = !g ? null : a.by && second ? this.leaseCurve(this.busSlice(a.by, second), () => this.busOf === list) : this.curveId(a.curve);
+        if (id !== null && a.by && second) this.busBy.push({ a: a as BusAutomation & { by: NonNullable<BusAutomation["by"]> }, id });
         if (!g || id === null) continue;
         const list = byBus.get(a.bus) ?? [];
         list.push(busAutomationBinding(a, g.slot, id));
         byBus.set(a.bus, list);
       }
       for (const b of settings.buses) this.sink!.bindBus(b.name, (byBus.get(b.name) ?? []).slice(0, MAX_BUS_BINDINGS));
+    }
+  }
+
+  /** ADR 0362 §5: a bus lane's slice at its second parameter's value now, in its entry's units. */
+  private busSlice(by: NonNullable<BusAutomation["by"]>, second: GlobalParam): Curve {
+    return busAutomationCurve(sliceCurveBy(by.lane, by, secondValueOf(second.def, second.value)), by.map);
+  }
+
+  /** Re-slice the bus lanes that follow global parameter `name` (null: every one). */
+  private resliceBuses(name: string | null): void {
+    for (const { a, id } of this.busBy) {
+      if (name !== null && a.by.input !== name) continue;
+      const second = this.globals.get(a.by.input);
+      if (second) this.redefineCurve(id, this.busSlice(a.by, second));
     }
   }
 }

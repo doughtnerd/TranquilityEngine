@@ -54,6 +54,8 @@ import { decideStinger } from "../music/stingerPolicy";
 import { resolveBody, resolveEntry, type Ctx, type DynGain, type LiveNode, type LoopRun, type NodeHost, type PendingSwitchChange, type PVoice, type SpatialPlan } from "./nodes";
 import { shapedFade } from "./liveNode";
 import { QuantizedLanes } from "./quantizedLanes";
+import { ByCurves, type LiveSlice } from "./byCurves";
+import type { CurveBy } from "../../../../engine/audio/curveBy";
 import type { LineEntry } from "../../../../engine/audio/playlist/types";
 import { argumentNames } from "../../../../engine/audio/dialogue/format";
 import { localiseClip } from "../clipResolver";
@@ -667,6 +669,7 @@ export class PlaylistInstance implements NodeHost {
     if (this.holdAt !== null) { this.heldParameters.add(name); return; }
     this.root?.onParameter(name);
     this.quant.onParameter(name);
+    this.byCurves.onParameter(name);
   }
 
   /** ADR 0350: the instance's beat-quantised automation lanes (`quantizedLanes.ts`). */
@@ -729,6 +732,15 @@ export class PlaylistInstance implements NodeHost {
     return h !== null ? this.localTime(h) : this.clock();
   }
   curveId(curve: Curve): number | null { return playlistHost().curveId(curve); }
+  byCurve(main: Curve, by: CurveBy, key?: string, pre?: (c: Curve) => Curve): LiveSlice { return this.byCurves.slice(main, by, key, pre); }
+
+  /** ADR 0362 §5: the slices of the lanes that follow a second parameter (`byCurves.ts`). */
+  private readonly byCurves = new ByCurves({
+    path: () => this.path,
+    param: (name) => this.param(name),
+    // Its lent curves stay while any voice of the instance may still sound (a faded stop rings on).
+    alive: () => !this.stopped || this.voices.some((v) => v.voice.alive ?? v.voice.playing),
+  });
 
   param(name: string): { value: number; def: ParameterDef } | null {
     const l = this.localDefs.get(name);
