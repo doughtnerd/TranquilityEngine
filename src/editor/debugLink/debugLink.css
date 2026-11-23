@@ -62,3 +62,8 @@
 .debug-link-status { min-height: 1.4em; margin-bottom: 8px; }
 .debug-link-status p { margin: 0; }
 .debug-link-failure { color: var(--danger); }
+
+.debug-link-offer { max-width: 460px; }
+.debug-link-offer-code-row { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.debug-link-offer-code { flex: 1; font-family: var(--font-code); font-size: calc(26px * var(--ui-scale)); letter-spacing: 0.1em; color: var(--text); user-select: all; }
+.debug-link-offer-notice { margin-top: 6px; color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
