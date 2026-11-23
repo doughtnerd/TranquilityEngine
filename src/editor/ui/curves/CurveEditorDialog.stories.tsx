@@ -2,11 +2,13 @@
 // parameter curves over a histogram of the game's values, distance curves with Min/Max handles, an on/off lane, a
 // Bézier key to edit, and the inline field that opens the dialog. Apply shows the result in units.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
-import { useState } from "preact/hooks";
-import { expect, userEvent, within } from "storybook/test";
+import { useRef, useState } from "preact/hooks";
+import { expect, userEvent, waitFor, within } from "storybook/test";
 import type { Curve } from "../../../engine/core/curve";
 import { CurveEditorDialog, type CurveEditorDialogProps } from "./CurveEditorDialog";
 import { CurveField } from "./CurveField";
+import { openCurveEditorDialog } from "./openCurveEditorDialog";
+import { activeHistory, usePanelHistory, type UndoHistory } from "../../activeHistory";
 import type { CurveLane } from "./curveEditorModel";
 
 const gain: CurveLane = { id: "gain", name: "Gain", unit: "dB", min: -48, max: 12, step: 0.5, color: 1, base: 0, curve: [[0, -48], [0.1, 0], [1.2, -3, "bezier", { in: [-0.3, 1], out: [0.3, -1] }], [2.4, -48]] };
@@ -233,5 +235,48 @@ export const AndByPerLabel: StoryObj = {
     await userEvent.click(within(dialog).getByRole("button", { name: "Table" }));
     await expect(within(dialog).getByRole("columnheader", { name: "Surface" })).toBeVisible();
     await expect(within(dialog).getAllByRole("button", { name: "Edit curve" })).toHaveLength(5);
+  },
+};
+
+/**
+ * Apply from a popover of fields (it closes when the dialog opens): focus goes back to what opened the popover, in the
+ * panel, so Ctrl+Z right after Apply undoes in that panel's history (ADR 0145).
+ */
+function PopoverOpenerDemo() {
+  const panel = useRef<HTMLDivElement>(null);
+  const [popover, setPopover] = useState(false);
+  const [applied, setApplied] = useState(0);
+  usePanelHistory(panel, PANEL_HISTORY);
+  const edit = () => {
+    setPopover(false);
+    openCurveEditorDialog(document, { kind: "time", target: "dirt_02", length: 2.4, lanes: [gain], onCancel: () => {}, onApply: () => setApplied((n) => n + 1) });
+  };
+  return (
+    <div ref={panel} aria-label="Entries">
+      <button type="button" onClick={() => setPopover(!popover)}>dirt_02 voice</button>
+      <output aria-label="Applied">{applied}</output>
+      {popover && (
+        <div role="dialog" aria-label="dirt_02 voice" data-keeps-history-focus="">
+          <button type="button" onClick={edit}>Edit dirt_02 curves…</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const PANEL_HISTORY: UndoHistory = { name: "Entries panel", canUndo: false, canRedo: false, undo: () => {}, redo: () => {} };
+
+export const FocusBackAfterApply: StoryObj = {
+  render: () => <PopoverOpenerDemo />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const page = within(canvasElement.ownerDocument.body);
+    await userEvent.click(c.getByRole("button", { name: "dirt_02 voice" }));
+    await userEvent.click(c.getByRole("button", { name: "Edit dirt_02 curves…" }));
+    const dialog = await page.findByRole("dialog", { name: /curve/i });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Apply" }));
+    await expect(c.getByLabelText("Applied").textContent).toBe("1");
+    await waitFor(() => expect(canvasElement.ownerDocument.activeElement).toBe(c.getByRole("button", { name: "dirt_02 voice" })));
+    await expect(activeHistory.peek()?.history.name).toBe("Entries panel");
   },
 };

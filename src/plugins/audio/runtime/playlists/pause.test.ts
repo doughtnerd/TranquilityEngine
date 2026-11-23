@@ -65,7 +65,7 @@ describe("pause and resume a playback (ADR 0362 §1)", () => {
     expect(plays()).toEqual([["a.wav", undefined], ["b.wav", 2.6]]);
   });
 
-  it("holds after a start already stamped: the voice waits with the rest and starts when the playback continues", async () => {
+  it("holds at once, before a start already stamped: that voice waits with the rest and starts as late as the pause lasted", async () => {
     await kit.boot({ "c.playlist.json": pla("queue", [sample("a.wav"), sample("b.wav")], { queue: { pick: "roundRobin", continuous: { gapMs: 100 } } }) });
     fake.durations.set("a.wav", 1);
     fake.durations.set("b.wav", 2);
@@ -74,16 +74,18 @@ describe("pause and resume a playback (ADR 0362 §1)", () => {
     at(0.9); // b.wav stamped at 1.1
     expect(plays()).toEqual([["a.wav", undefined], ["b.wav", 1.1]]);
     h.pause();
-    // No stamp lies past the hold: both voices hold at 1.1 (a.wav plays on to it, b.wav hasn't started).
-    expect(holds(0)).toEqual([{ kind: "pause", at: 1.1 }]);
-    expect(holds(1)).toEqual([{ kind: "pause", at: 1.1 }]);
+    // The earliest stampable time, not after the stamps already sent: both voices hold at 0.9 (b.wav, which hasn't
+    // started, holds from its own start).
+    expect(holds(0)).toEqual([{ kind: "pause", at: 0.9 }]);
+    expect(holds(1)).toEqual([{ kind: "pause", at: 0.9 }]);
     at(2);
-    h.resume();
+    h.resume(); // held 1.1 s
     expect(holds(0).at(-1)).toEqual({ kind: "resume", at: 2 });
-    expect(holds(1).at(-1)).toEqual({ kind: "resume", at: 2 });
-    // b.wav (2 s) then ends at 4 and the next pick lands 0.1 s later.
-    at(3.9);
-    expect(plays().at(-1)).toEqual(["a.wav", 4.1]);
+    // b.wav was 0.2 s from its start when the playback held: it starts 0.2 s after the resume.
+    expect(holds(1).at(-1)).toEqual({ kind: "resume", at: 2.2 });
+    // b.wav (2 s) then ends at 4.2 and the next pick lands 0.1 s later.
+    at(4.1);
+    expect(plays().at(-1)).toEqual(["a.wav", 4.3]);
   });
 
   it("holds voice time: a voice-time curve reads the same value after the pause as before it", async () => {

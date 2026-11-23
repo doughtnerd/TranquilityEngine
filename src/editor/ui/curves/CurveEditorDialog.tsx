@@ -6,6 +6,7 @@ import type { Signal } from "@preact/signals";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { CurveKey } from "../../../engine/core/curve";
 import { usePanelHistory, type UndoHistory } from "../../activeHistory";
+import { editorFocus } from "../../windows/editorFocus";
 import { EditHistory } from "../../editHistory";
 import { persisted } from "../../preferences";
 import { ContextMenu, SEPARATOR } from "../ContextMenu";
@@ -175,6 +176,23 @@ function LabelTable(props: { spec: CurveEditorSpec; draft: CurveDraft; laneId: s
   );
 }
 
+const FOCUSABLE = 'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]';
+
+/** `el` and its ancestors as they are now (kept, since `el` may be taken off the page while the dialog is open). */
+function focusTrail(el: Element | null): Element[] {
+  const out: Element[] = [];
+  for (let n = el; n && n.tagName !== "BODY"; n = n.parentElement) out.push(n);
+  return out;
+}
+
+/** Focus the first element of `trail` still on the page that takes focus; whether one did. */
+function focusFirst(trail: readonly Element[]): boolean {
+  const target = trail.find((el) => el.isConnected && el.matches(FOCUSABLE)) as HTMLElement | undefined;
+  if (!target) return false;
+  target.focus();
+  return target.ownerDocument.activeElement === target;
+}
+
 /** How often live inputs (a take replaying) are read while the window is open, ms (the prototype's 120). */
 const LIVE_MS = 120;
 
@@ -211,11 +229,16 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
   const store = userPresetStore();
   const userPresets: UserPreset[] = parseUserPresets(store.value);
 
-  // Focus moves into the window when it opens and back to where it was when it closes.
+  // Focus moves into the window when it opens and back to where it was when it closes. When that element is gone (a
+  // button in a popover or menu that closed, a row drawn anew by the Apply), it goes back to where the editor focus was
+  // (a popover of fields keeps it on what opened the popover), or the nearest focusable panel around it, so Ctrl+Z
+  // right after Apply undoes in the history of the panel the dialog was opened from (ADR 0145).
   useEffect(() => {
-    const before = root.current?.ownerDocument.activeElement as HTMLElement | null;
+    const back = [root.current?.ownerDocument.activeElement ?? null, editorFocus.peek()].map(focusTrail);
     root.current?.focus();
-    return () => before?.focus?.();
+    return () => {
+      for (const trail of back) if (focusFirst(trail)) return;
+    };
   }, []);
 
   const editor: DraftEditor = {

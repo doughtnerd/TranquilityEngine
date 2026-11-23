@@ -59,6 +59,17 @@ export function voicePosition(c: Parameters<typeof clipPlan>[0], src: Parameters
   const plan = clipPlan(c, src);
   const band = loopBand(plan);
   const span = plan.loop ? plan.loop.end - plan.loop.start : 0;
+  if (c.reverse && Number.isFinite(plan.length)) {
+    // ADR 0362: reversed, the voice reads down from the clip's end: through the tail (drawn first), into the loop's last
+    // pass (drawn mirrored, the first after the tail), which it cycles backwards while the loop is active.
+    if (looping && band && span > 0) {
+      const enter = plan.length - band.end;
+      const pass = Math.min(span, band.end - band.start);
+      if (elapsed >= enter + pass) return enter + ((elapsed - enter) % (pass || span));
+    }
+    if (looping && band && span <= 0 && elapsed >= plan.length - band.start) return plan.length - band.start;
+    return elapsed < plan.length ? elapsed : null;
+  }
   if (looping && band && span > 0 && elapsed >= band.end) {
     const lastPass = Math.max(band.start, band.end - span);
     return lastPass + ((elapsed - lastPass) % (band.end - lastPass || span));

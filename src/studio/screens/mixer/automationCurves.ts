@@ -7,6 +7,7 @@
 // Morph, Scale or per label: bus lanes aren't on time, so no Rate); Apply writes it as the lane's `by`.
 // Pure.
 import { withEnds, type CurveEditorResult, type CurveEditorSpec, type CurveLane } from "../../../editor/ui/curves/curveEditorModel";
+import { isLabelled } from "../../../engine/audio/parameters";
 import type { AudioProject, MixAutomation } from "../../../engine/audio/project/types";
 import type { Curve } from "../../../engine/core/curve";
 import { curveByOf, curvesLabel, inputHistogram, laneByOf, parameterInputId, parameterInputs, parameterOfInput, secondInputsOf } from "../curveInputs";
@@ -27,8 +28,11 @@ export interface AutomationDialog {
   readonly lanes: readonly AutomatableLane[];
 }
 
-/** The curve editor's lane for an automatable property. */
-const laneOf = (l: AutomatableLane): CurveLane => ({
+/**
+ * The curve editor's lane for an automatable property; one not automated yet starts on `driver` (the first numeric
+ * parameter: a level or a cutoff over a labelled parameter's few steps is rarely what's meant).
+ */
+const laneOf = (l: AutomatableLane, driver: string): CurveLane => ({
   id: l.target,
   name: l.label,
   unit: l.unit,
@@ -38,7 +42,7 @@ const laneOf = (l: AutomatableLane): CurveLane => ({
   scale: l.scale,
   base: l.plain,
   curve: l.current?.curve ?? [],
-  ...(l.current ? { input: parameterInputId(l.current.parameter), bypass: l.current.bypass } : {}),
+  ...(l.current ? { input: parameterInputId(l.current.parameter), bypass: l.current.bypass } : { input: driver }),
   ...(l.current?.by ? { by: laneByOf(l.current.by) } : {}),
 });
 
@@ -54,9 +58,10 @@ export function automationDialog(p: AudioProject, name: string, only: string | u
   const first = only === undefined ? undefined : lanes.find((l) => l.target === only || (only.startsWith("fx:") && l.target.startsWith(`${only}:`)));
   const inputs = parameterInputs(p.parameters, values);
   const secondInputs = secondInputsOf(p.parameters, values);
-  const spec: CurveEditorSpec = { kind: "parameter", lanes: lanes.map(laneOf), inputs, ...(secondInputs.length > 1 ? { secondInputs } : {}) };
+  const driver = parameterInputId((p.parameters.find((d) => !isLabelled(d)) ?? p.parameters[0]!).name);
+  const spec: CurveEditorSpec = { kind: "parameter", lanes: lanes.map((l) => laneOf(l, driver)), inputs, ...(secondInputs.length > 1 ? { secondInputs } : {}) };
   const initial = first ?? lanes[0]!;
-  const histogram = inputHistogram(initial.current ? parameterInputId(initial.current.parameter) : inputs[0]?.id, inputs);
+  const histogram = inputHistogram(initial.current ? parameterInputId(initial.current.parameter) : driver, inputs);
   return { next: { spec, title: p.returns.some((r) => r.name === name) ? "Return curves" : "Bus curves", target: name, initialLane: first?.target, lanes, ...(histogram ? { histogram } : {}) } };
 }
 

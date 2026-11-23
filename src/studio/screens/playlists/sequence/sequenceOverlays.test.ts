@@ -2,7 +2,8 @@
 // zones, the Async voice cursor), the Amp envelope's handles, the spectrogram's bands, the Parameters panel's uses and
 // the Snap split button, through each module's own interface.
 import { describe, expect, it } from "vitest";
-import { adsrShape, adsrTip, clipAdsr, dragAdsr } from "./adsrModel";
+import { adsrHandleSpots, adsrShape, adsrTip, clipAdsr, dragAdsr, ADSR_HANDLE_GAP } from "./adsrModel";
+import { clipPlan, drawnLoopBand } from "./clipGeometry";
 import { pasteCurves, setDrivenBy } from "./automationEdits";
 import { moveEffectToTrack, sharedClipEffect } from "./sequenceEdits";
 import { sequenceReadout } from "./readoutModel";
@@ -63,6 +64,20 @@ describe("overlays", () => {
     expect(voicePosition(music, fixtureSource(music), 3.5, false)).toBe(3.5);
     expect(voicePosition(music, fixtureSource(music), 4.2, false)).toBeNull();
   });
+
+  it("ADR 0362: places a reversed Async voice from the clip's start through the mirrored tail, cycling the pass after it", () => {
+    // brake_skid: a 3 s clip, its loop 0.4–0.9 s filling 0.4–1.9 (passes of 0.5 s), the tail 1.9–3; reversed, the tail
+    // is drawn over 0–1.1 and the band over 1.1–2.6, the voice reading down from the sample's end.
+    const skid = { ...c("c1"), sync: false, reverse: true };
+    const src = fixtureSource(skid);
+    expect(drawnLoopBand(clipPlan(skid, src), true)).toMatchObject({ start: 1.1, end: 2.6 });
+    // Through the tail (drawn first), the voice is where the playhead is.
+    expect(voicePosition(skid, src, 0.25, true)).toBe(0.25);
+    // Past the first pass after the tail (1.1–1.6), it cycles that pass while the loop is active.
+    expect(voicePosition(skid, src, 1.7, true)).toBeCloseTo(1.2);
+    expect(voicePosition(skid, src, 1.7, false)).toBeCloseTo(1.7);
+    expect(voicePosition(skid, src, 3.1, false)).toBeNull();
+  });
 });
 
 describe("the Amp envelope's handles", () => {
@@ -87,6 +102,21 @@ describe("the Amp envelope's handles", () => {
     expect(dragAdsr(a, "hold", 5, 1, 2)).toEqual({ hold: 1400 }); // never past the decay and release
     expect(dragAdsr(a, "decaySustain", 0.75, 0.5, 2)).toEqual({ decay: 500, sustain: 50 });
     expect(adsrTip(a, "hold")).toBe("Hold 150 ms · drag");
+  });
+
+  it("draws the Hold handle clear of Attack's at Hold 0, and on the plateau's end once the hold is wider than the gap", () => {
+    const a = { attack: 100, hold: 0, decay: 200, sustain: 50, release: 300 };
+    const spots = adsrHandleSpots(a, 2, 200); // 100 px a second
+    expect(spots.attack).toEqual([10, 1]);
+    expect(spots.hold).toEqual([10 + ADSR_HANDLE_GAP, 1]);
+    expect(spots.release).toEqual([170, 0.5]);
+    expect(adsrHandleSpots({ ...a, hold: 150 }, 2, 200).hold).toEqual([25, 1]);
+    // The effect's defaults: a 5 ms attack, Hold 0, a 100 ms decay to a full sustain: three corners within a few px.
+    const d = adsrHandleSpots({ attack: 5, hold: 0, decay: 100, sustain: 100, release: 200 }, 6, 600);
+    expect(d.hold[0] - d.attack[0]).toBe(ADSR_HANDLE_GAP);
+    expect(d.decaySustain[0] - d.hold[0]).toBeGreaterThanOrEqual(ADSR_HANDLE_GAP);
+    // Release stays inside the clip, even when the stages crowd its end.
+    expect(adsrHandleSpots({ attack: 5, hold: 0, decay: 100, sustain: 100, release: 0 }, 0.1, 12).release[0]).toBeLessThanOrEqual(12);
   });
 
   it("ADR 0362: a clip shorter than the stages squeezes them as the voices play them (the release first)", () => {

@@ -18,7 +18,7 @@ export interface Adsr {
 
 export type AdsrHandle = "attack" | "hold" | "decaySustain" | "release";
 
-/** The handles in drawing order: Attack after Hold, so it stays on top while the hold is 0 (they sit together). */
+/** The handles in drawing order (Attack after Hold: on a very short clip they can still meet). */
 export const ADSR_HANDLES: readonly AdsrHandle[] = ["hold", "attack", "decaySustain", "release"];
 
 const param = (fx: Effect, name: keyof Adsr): number => {
@@ -41,6 +41,26 @@ export function adsrShape(a: Adsr, length: number): { readonly points: readonly 
   const att = e.attack, hold = att + e.hold, dec = hold + e.decay, off = e.keyOff ?? L;
   const pts: [number, number][] = [[0, 0], [att, 1], [hold, 1], [dec, e.sustain], [off, e.sustain], [L, 0]];
   return { points: pts, handles: { attack: [att, 1], hold: [hold, 1], decaySustain: [dec, e.sustain], release: [off, e.sustain] } };
+}
+
+/** How far right of Attack the Hold handle is drawn at least, px: at Hold 0 they'd sit on one spot and only one could be grabbed. */
+export const ADSR_HANDLE_GAP = 9;
+
+/**
+ * Where each handle is drawn on a clip `width` px wide: (px across, level 0..1). As the shape, except that each handle
+ * after Attack is kept `ADSR_HANDLE_GAP` px right of the one before (at Hold 0 Hold would sit on Attack's corner, and a
+ * short decay to a full sustain puts Decay there too); Release stays inside the clip. A drag starts from where the handle
+ * is drawn, so once dragged past the gap it follows the pointer.
+ */
+export function adsrHandleSpots(a: Adsr, length: number, width: number): Readonly<Record<AdsrHandle, readonly [number, number]>> {
+  const { handles } = adsrShape(a, length);
+  const px = width / Math.max(1e-6, length);
+  const spot = (h: AdsrHandle, after?: readonly [number, number]): [number, number] => [after ? Math.max(handles[h][0] * px, after[0] + ADSR_HANDLE_GAP) : handles[h][0] * px, handles[h][1]];
+  const attack = spot("attack");
+  const hold = spot("hold", attack);
+  const decaySustain = spot("decaySustain", hold);
+  const release = spot("release", decaySustain);
+  return { attack, hold, decaySustain, release: [Math.min(release[0], Math.max(handles.release[0] * px, width)), release[1]] };
 }
 
 const range = (name: keyof Adsr) => effectSpec("envelope").params.find((p) => p.name === name)!;

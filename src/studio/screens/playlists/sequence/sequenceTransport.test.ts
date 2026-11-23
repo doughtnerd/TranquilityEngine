@@ -12,7 +12,7 @@ import type { SourceFacts } from "./sequenceModel";
 import { bindSequence, pauseSequence, playback, playSequence, releaseSequence, resumeSequence, seqPlayhead, seqTransport, sequenceSpace, stopSequence } from "./sequenceState";
 import { sequencePlayerSlots } from "./SequenceTransport";
 import type { VNode } from "preact";
-import { DEFAULT_TRANSPORT } from "./transportModel";
+import { DEFAULT_TRANSPORT, heldRegions } from "./transportModel";
 
 /** a.wav: 4 s, loop 1..2 "while held". */
 const A: SourceFacts = { length: 4, loops: [{ id: "l1", start: 1, end: 2, active: "held", exit: "finish", exitFadeMs: 0, reentry: "ignore" }], markers: [] };
@@ -86,6 +86,19 @@ function transportButtons(): Map<string, { onClick: () => void; title?: string }
   return out;
 }
 
+describe("a reversed Sync clip's held loop (ADR 0362)", () => {
+  it("holds the playhead in the mirrored pass the runtime wraps on: after the tail, before the first pass and pickup", () => {
+    // b.wav: 5 s, loop 1..2 held. A 7 s clip: forward 0..2 (pickup, first pass), 1..2 twice, the tail 2..5 (3 s);
+    // reversed the tail comes first (clip 0..3), then the passes (3..5), and it wraps on 4..5.
+    const B: SourceFacts = { ...A, length: 5 };
+    const c = clip({ sync: true, length: 7, reverse: true });
+    expect(heldRegions(sequence(c), () => B)).toEqual([{ start: 4, end: 5 }]);
+    expect(heldRegions(sequence(clip({ sync: true, length: 7 })), () => B)).toEqual([{ start: 3, end: 4 }]);
+    // No pass to repeat besides the first (a 5 s clip): it follows.
+    expect(heldRegions(sequence(clip({ sync: true, length: 5, reverse: true })), () => B)).toEqual([]);
+  });
+});
+
 describe("Pause in the sequence transport (ADR 0362 §1)", () => {
   it("pauses the play and freezes the playhead; Resume continues both from there; Stop works while paused", () => {
     play(clip({ sync: true, loops: {} }));
@@ -110,6 +123,26 @@ describe("Pause in the sequence transport (ADR 0362 §1)", () => {
     stopSequence();
     expect(handle.stop).toHaveBeenCalled();
     expect(playback.value).toBeNull();
+  });
+
+  it("reads the playback's own clock when it reports one: the playhead holds where the audio holds, not when Pause was pressed", () => {
+    // 120 bpm 4/4: a beat is 0.5 s. The handle's musical position is the sequence's playhead as heard.
+    const music = { segment: "audio/music.playlist.json", bar: 1, beat: 1, beatFraction: 0 };
+    (handle as unknown as { music: typeof music }).music = music;
+    bindSequence(`test:${Math.random()}`, { file: "audio/music.playlist.json", title: "music", seq: { ...sequence(clip({ sync: true, loops: {} })), tempo: { bpm: 120, meter: "4/4" } }, plays: "oneShot", sourceOf: () => A });
+    playSequence();
+    Object.assign(music, { beat: 3, beatFraction: 0.5 }); // 1.25 s into the sequence, whatever the wall clock says
+    vi.advanceTimersByTime(30);
+    expect(seqPlayhead.value).toBeCloseTo(1.25, 6);
+    pauseSequence();
+    // The audio holds a little after the press (the earliest stampable time): the playhead follows it there and stays.
+    Object.assign(music, { beat: 3, beatFraction: 0.6 });
+    vi.advanceTimersByTime(2_000);
+    expect(seqPlayhead.value).toBeCloseTo(1.3, 6);
+    resumeSequence();
+    Object.assign(music, { bar: 2, beat: 1, beatFraction: 0 });
+    vi.advanceTimersByTime(30);
+    expect(seqPlayhead.value).toBeCloseTo(2, 6);
   });
 
   it("Space resumes a paused play", () => {

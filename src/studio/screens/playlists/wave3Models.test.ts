@@ -6,6 +6,8 @@ import { describe, expect, it } from "vitest";
 import { defaultEntryUse, emptyPlaylistBody } from "../../../engine/audio/playlist/format";
 import type { ParameterDef } from "../../../engine/audio/parameters";
 import type { Entry, PlaylistBody } from "../../../engine/audio/playlist/types";
+import { createDraft, draftResult } from "../../../editor/ui/curves/curveEditorModel";
+import { setBy, setByMode, writeLayer } from "../../../editor/ui/curves/andByModel";
 import { applyEffectAutomationResult, automatedNow, bypassLanes, clearLanes, effectAutomationDialog, pasteLanes } from "./effectAutomation";
 import { entryMeta, shares, voiceSummary } from "./entryRowModel";
 import { hoistEffect, sharedClipEffects } from "./hoistModel";
@@ -109,6 +111,29 @@ describe("a playlist effect's automation", () => {
     const again = effectAutomationDialog(fx, added!.automation, params, {});
     const flat = applyEffectAutomationResult(again, added!.automation, { kind: "time", lanes: [{ id: "fx:fx1:cutoff", curve: [[0, 800]], input: "param:Speed", bypass: false }] });
     expect(flat?.automation).toEqual([]);
+  });
+
+  it("offers And by: Apply writes the lane's second input, reopens with it, and an untouched Apply changes nothing", () => {
+    const dialog = effectAutomationDialog(fx, [], params, { Speed: 0.2 });
+    expect(dialog.spec.secondInputs!.map((s) => [s.id, s.labels ?? null])).toEqual([["param:Speed", null], ["param:Surface", ["Dirt", "Metal"]]]);
+    // A lane flat at the effect's value is kept while it follows a second input (here: Metal closes the filter).
+    let draft = setBy(dialog.spec, createDraft(dialog.spec), "fx:fx1:cutoff", "param:Surface");
+    draft = writeLayer(draft, "fx:fx1:cutoff", "label:Metal", [[0, 300], [2, 300]]);
+    const r = applyEffectAutomationResult(dialog, [], draftResult(dialog.spec, draft))!;
+    expect(r.label).toBe("Automate Cutoff · Low-pass");
+    expect(r.automation).toHaveLength(1);
+    expect(r.automation[0]).toMatchObject({ target: "fx:fx1:cutoff", input: "voiceTime", by: { input: "Surface", mode: "labels", labels: { Metal: [[0, 300], [2, 300]] } } });
+    const again = effectAutomationDialog(fx, r.automation, params);
+    expect(again.spec.lanes.find((l) => l.id === "fx:fx1:cutoff")!.by).toEqual({ input: "param:Surface", mode: "labels", labels: { Metal: [[0, 300], [2, 300]] } });
+    expect(applyEffectAutomationResult(again, r.automation, draftResult(again.spec, createDraft(again.spec)))).toBeNull();
+    // The card's "automated now" follows the second input's test value.
+    expect(automatedNow([fx], r.automation, { Surface: 1 }, params)).toEqual({ fx1: { cutoff: "300 Hz" } });
+    expect(automatedNow([fx], r.automation, { Surface: 0 }, params)).toEqual({ fx1: { cutoff: "800 Hz" } });
+    // Changing only the second input is a change; Nothing leaves a flat lane, which goes.
+    const scaled = writeLayer(setByMode(again.spec, setBy(again.spec, createDraft(again.spec), "fx:fx1:cutoff", "param:Speed"), "fx:fx1:cutoff", "scale"), "fx:fx1:cutoff", "scale", [[0, 1], [1, 0.5]]);
+    expect(applyEffectAutomationResult(again, r.automation, draftResult(again.spec, scaled))!.automation[0]!.by).toEqual({ input: "Speed", mode: "scale", curve: [[0, 1], [1, 0.5]] });
+    const nothing = setBy(again.spec, createDraft(again.spec), "fx:fx1:cutoff", null);
+    expect(applyEffectAutomationResult(again, r.automation, draftResult(again.spec, nothing))!.automation).toEqual([]); // flat at the effect's value again
   });
 
   it("turns lanes off and on, clears them, and pastes another effect's onto the parameters it has", () => {

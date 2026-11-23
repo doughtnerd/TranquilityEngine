@@ -1,6 +1,7 @@
 // A small floating panel opened from a toolbar button (the prototype's `.cmenu` dialogs: Variation per trigger, a
 // change's fades): placed beside its button and dismissed by `usePopover` (a press outside, Escape), drawn at the
-// page's floating root so a container-query toolbar doesn't trap it. Its button toggles it.
+// page's floating root so a container-query toolbar doesn't trap it; a press in it keeps the editor focus (and so Ctrl+Z's
+// history) on the panel it was opened from (`data-keeps-history-focus`). Its button toggles it.
 import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
 import { FloatingPortal } from "../../../editor/ui/FloatingPortal";
@@ -29,7 +30,7 @@ export function MiniPopover(props: {
       </button>
       {open && (
         <FloatingPortal>
-          <div ref={pop} class="pl-popover" role="dialog" aria-label={props.title}>
+          <div ref={pop} class="pl-popover" role="dialog" aria-label={props.title} data-keeps-history-focus="">
             <span class="pl-cap">{props.title}</span>
             {props.children}
           </div>
