@@ -54,7 +54,7 @@ const LOOPS = [
 ];
 
 /** The Variation button's text: "±1.5 dB · ±0.5 st" when symmetric, the ranges otherwise, "No variation" for none. */
-export function variationText(volume: readonly [number, number], pitch: readonly [number, number]): string {
+function variationText(volume: readonly [number, number], pitch: readonly [number, number]): string {
   const one = (r: readonly [number, number], unit: string) => {
     if (r[0] === 0 && r[1] === 0) return null;
     if (r[0] === -r[1]) return `±${Math.abs(r[1])} ${unit}`;

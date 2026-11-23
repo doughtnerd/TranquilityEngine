@@ -39,7 +39,7 @@ const MODE_TIPS: Record<PlaylistType, string> = {
   sequence: "Sequence: tracks of clips on a timeline, with loops, markers and automation",
 };
 
-export function modeOptions(b: PlaylistBody): IconOption<PlaylistType>[] {
+function modeOptions(b: PlaylistBody): IconOption<PlaylistType>[] {
   return typeOptions(b).map((o) => ({ value: o.value, label: o.label, glyph: MODE_GLYPHS[o.value], disabled: o.disabled, title: o.disabled ? `${o.label}: ${o.title}` : MODE_TIPS[o.value] }));
 }
 

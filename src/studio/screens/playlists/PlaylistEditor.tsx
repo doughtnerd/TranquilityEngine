@@ -72,7 +72,7 @@ export interface PlaylistEditorProps extends EntryActions {
 }
 
 /** The type pill's words ("Blend 1D", "Queue"). */
-export function typePill(b: PlaylistBody): string {
+function typePill(b: PlaylistBody): string {
   if (b.type === "blend") return `Blend ${b.blend?.axes.length === 2 ? "2D" : "1D"}`;
   return b.type.charAt(0).toUpperCase() + b.type.slice(1);
 }
@@ -153,10 +153,10 @@ export function PlaylistEditor(props: PlaylistEditorProps) {
         {renaming && props.renamable ? (
           <RenameField value={props.title} label="Playlist name" onCommit={(v) => { setRenaming(false); if (v.trim() && v !== props.title) props.onRename(v.trim()); }} onCancel={() => setRenaming(false)} />
         ) : (
-          <h2 class="pl-pname" title={body.note ?? (props.renamable ? "Double-click or F2 to rename" : "An embedded playlist is named by what it plays; Make shared gives it a file and a name")}
+          <b class="pl-pname" role="heading" aria-level={2} title={body.note ?? (props.renamable ? "Double-click or F2 to rename" : "An embedded playlist is named by what it plays; Make shared gives it a file and a name")}
             tabIndex={0} onDblClick={() => props.renamable && writable && setRenaming(true)} onKeyDown={(e) => e.key === "F2" && props.renamable && writable && (e.preventDefault(), setRenaming(true))}>
             {props.title}
-          </h2>
+          </b>
         )}
         {props.linkedIn && props.linkedIn.length > 0 && (
           <span class="pl-lnk" title={`Original (solid): linked in ${props.linkedIn.join(", ")}`}><Glyph paths={LINK_GLYPH} size={12} width={1.4} /></span>

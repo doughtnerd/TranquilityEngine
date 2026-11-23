@@ -2,7 +2,7 @@
 // entries"), a random Queue's share of the picks ("50%"), and the Voice button's summary (the use's gain, "set" when
 // the use changes anything, "shaped" when it has curves) with its tooltip; and the curve menu's edits of an entry's
 // curves (copy, paste, turn off or on, clear). Pure.
-import type { Entry, EntryUse, PlaylistBody } from "../../../engine/audio/playlist/types";
+import type { Entry, EntryUse, PlaylistBody, SequenceSettings } from "../../../engine/audio/playlist/types";
 
 /** dB as the prototype writes it: "0 dB", "−4 dB", "+2.5 dB" (a real minus sign). */
 export function dbText(db: number): string {
@@ -58,9 +58,21 @@ export function entryMeta(e: Entry, body: PlaylistBody | null, length: (sample: 
     const s = body.entries[0];
     const l = s?.kind === "sample" ? length(s.sample) : null;
     if (l !== null) parts.push(secondsText(s?.kind === "sample" && s.trim ? Math.max(0, s.trim[1] - s.trim[0]) : l));
+  } else if (body.type === "sequence" && body.sequence) {
+    parts.push(plural(body.sequence.tracks.length, "track"));
+    const len = sequenceLength(body.sequence);
+    if (len > 0) parts.push(secondsText(len));
   } else parts.push(plural(body.entries.length, "entry", "entries"));
   if (body.effects.length) parts.push(plural(body.effects.length, "effect"));
   return parts.join(" · ");
+}
+
+/** A sequence's length in seconds: its own, else to the end of its last clip (a clip without a length counts 1 s). */
+export function sequenceLength(s: SequenceSettings): number {
+  if (s.length > 0) return s.length;
+  let end = 0;
+  for (const t of s.tracks) for (const c of t.clips) end = Math.max(end, c.at + (c.length > 0 ? c.length : 1));
+  return end;
 }
 
 export type VoiceCurveMap = EntryUse["curves"];

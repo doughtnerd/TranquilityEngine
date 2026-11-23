@@ -6,13 +6,13 @@
 // voice curves…, Move up / down, Duplicate, Make shared or Unlink, and Remove. A view over props: every change is a
 // labelled edit handed to the owner.
 import { useRef, useState } from "preact/hooks";
-import type { Entry, PlaylistBody } from "../../../engine/audio/playlist/types";
+import type { Entry, PlaylistBody, SequenceSettings } from "../../../engine/audio/playlist/types";
 import { ContextMenu, SEPARATOR, tidyEntries } from "../../../editor/ui/ContextMenu";
 import { NumberBox } from "../../../editor/ui/PanelFields";
 import type { EditResult } from "../../../plugins/audio/editor/editResult";
 import { Icon } from "../../components/Icon";
 import { TypeBadge } from "../../components/TypeBadge";
-import { entryMeta, pct, shares } from "./entryRowModel";
+import { entryMeta, pct, sequenceLength, shares } from "./entryRowModel";
 import { AT_ZERO_GLYPHS, IconSegments } from "./glyphs";
 import { duplicateEntry, moveEntry, setEntryUse, USE_LIMITS, type EditContext } from "./playlistEdits";
 import { entryName } from "./playlistPaths";
@@ -46,6 +46,21 @@ export interface EntryListProps extends EntryActions {
   readonly weights?: readonly number[];
   /** Only these entries (a Switch's entries no label plays); all when absent. */
   readonly only?: readonly number[];
+}
+
+/** A sequence entry's mini timeline (the prototype's `.mtl`): a bar per clip, one row per track, in the track's colour. */
+function MiniTimeline(props: { readonly seq: SequenceSettings }) {
+  const tracks = props.seq.tracks.slice(0, 4);
+  const len = sequenceLength(props.seq) || 1;
+  const h = 22 / Math.max(1, tracks.length);
+  return (
+    <svg class="pl-mtl" viewBox="0 0 1000 22" preserveAspectRatio="none" aria-hidden="true">
+      {tracks.flatMap((t, k) => t.clips.map((c) => (
+        <rect key={`${t.id}:${c.id}`} class={typeof t.color === "number" ? `studio-series-${((t.color - 1) % 8) + 1}` : undefined} style={typeof t.color === "string" ? { fill: t.color } : undefined}
+          x={(c.at / len) * 1000} y={k * h + 1} width={Math.max(8, ((c.length > 0 ? c.length : 1) / len) * 1000 - 6)} height={Math.max(2, h - 2)} rx="2" />
+      )))}
+    </svg>
+  );
 }
 
 const AT_ZERO = [
@@ -178,6 +193,7 @@ export function EntryList(props: EntryListProps) {
             <span class="pl-entry-name" title={e.kind === "linked" ? `Linked: ${e.playlist}` : e.kind === "sample" ? e.sample : name}>
               <span class="pl-entry-label">{name}</span>
               {meta && <span class="pl-row-meta"> · {meta}</span>}
+              {inner?.type === "sequence" && inner.sequence && <MiniTimeline seq={inner.sequence} />}
               {e.kind === "linked" && <span class="pl-link-mark" title={`Linked copy of ${e.playlist}: edits to it change every playlist that links it`}><Icon name="link" size={12} label="Linked copy" /></span>}
             </span>
             {colA && (

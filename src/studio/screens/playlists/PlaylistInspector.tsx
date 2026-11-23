@@ -18,7 +18,6 @@ import { EffectChain } from "../../components/EffectChain";
 import { Icon } from "../../components/Icon";
 import { SliderField } from "../../components/SliderField";
 import { TypeBadge } from "../../components/TypeBadge";
-import { playlistBadge } from "../../components/typeBadgeModel";
 import { chainNote } from "./chainCost";
 import { setCaption } from "./captionEdit";
 import { automatedNow } from "./effectAutomation";
@@ -26,7 +25,7 @@ import type { BodyEdit } from "./EntryList";
 import { dbText, entryMeta, voiceSummary } from "./entryRowModel";
 import { AT_ZERO_GLYPHS, CurveGlyph, IconSegments } from "./glyphs";
 import { hoistEffect, hoistText, sharedClipEffects } from "./hoistModel";
-import type { VoiceCard } from "./liveModel";
+import { typeSummary, type VoiceCard } from "./liveModel";
 import { axisRange } from "./blendPlacement";
 import { editAt, entryName, playlistTitle, sampleTitle } from "./playlistPaths";
 import { setEffects, setEntryUse, setLevels, setOutput, setParameters, setPlayback, setSpatial, USE_LIMITS, type EditContext } from "./playlistEdits";
@@ -111,7 +110,7 @@ const WHEN_FULL: { value: PlaybackRules["whenFull"]; label: string }[] = [
 ];
 
 /** Playback's one-line summary ("Every trigger plays", "→ Music · Max 4 · steal oldest · cooldown 0.2 s"). */
-export function playbackSummary(p: PlaybackRules, ownBus: string | null): string {
+function playbackSummary(p: PlaybackRules, ownBus: string | null): string {
   const parts: string[] = [];
   if (ownBus) parts.push(`→ ${ownBus}`);
   if (p.maxInstances > 0) parts.push(`Max ${p.maxInstances} · ${WHEN_FULL.find((w) => w.value === p.whenFull)!.label.toLowerCase()}`);
@@ -139,7 +138,6 @@ export function PlaylistInspector(props: PlaylistInspectorProps) {
   const pb = (label: string, patch: Partial<PlaybackRules>, drag = false) => onEdit(label, (b) => setPlayback(b, patch), drag);
   const spatial = body.spatial;
   const presetValue = typeof spatial?.attenuation === "string" ? spatial.attenuation : spatial?.attenuation ? "__inline" : "";
-  const badge = playlistBadge(body.type, body.blend?.axes.length === 2 ? 2 : 1);
   const isClip = body.type === "clip";
   const shared = sharedClipEffects(body);
   const values = props.values ?? {};
@@ -159,7 +157,7 @@ export function PlaylistInspector(props: PlaylistInspectorProps) {
       <div class="pl-ph">
         <TypeBadge playlist={body.type} axes={body.blend?.axes.length === 2 ? 2 : 1} />
         <b class="pl-nm">{props.name ?? ""}</b>
-        <span class="pl-u pl-nm">{summaryOf(body, badge.name)}</span>
+        <span class="pl-u pl-nm">{typeSummary(body)}</span>
       </div>
       {props.cards && props.cards.length > 0 && (
         <div class="pl-axrs">
@@ -335,16 +333,6 @@ export function PlaylistInspector(props: PlaylistInspectorProps) {
       )}
     </div>
   );
-}
-
-function summaryOf(body: PlaylistBody, badgeName: string): string {
-  if (body.type === "switch") return `Switch · ${body.switch?.parameter || "no parameter"}`;
-  if (body.type === "blend") return `${body.blend?.axes.length === 2 ? "2D" : "1D"} blend · ${(body.blend?.axes ?? []).map((a) => ("voiceTime" in a ? "Voice time" : a.parameter)).join(" × ")}`;
-  if (body.type === "clip") {
-    const s = body.entries[0];
-    return `Clip · ${s?.kind === "sample" ? sampleTitle(s.sample) : "no sample"}`;
-  }
-  return `${badgeName} · ${body.entries.length === 1 ? "1 entry" : `${body.entries.length} entries`}`;
 }
 
 /** An entry's curves in words ("None", "Gain, Pitch", with "off" for bypassed ones). */

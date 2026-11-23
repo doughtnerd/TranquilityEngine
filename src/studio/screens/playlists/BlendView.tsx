@@ -84,7 +84,7 @@ function dragOn(e: PointerEvent, el: Element, move: (f: { x: number; y: number }
 }
 
 /** A value on an axis as the prototype writes it: a 0..1 parameter in %, voice time in seconds, else the number. */
-export function axisText(axis: BlendAxis, range: readonly [number, number], v: number): string {
+function axisText(axis: BlendAxis, range: readonly [number, number], v: number): string {
   if ("voiceTime" in axis) return `${v.toFixed(2)} s`;
   if (range[0] === 0 && range[1] === 1) return `${Math.round(v * 100)}%`;
   const span = Math.abs(range[1] - range[0]);
@@ -194,7 +194,7 @@ export function BlendView(props: BlendViewProps) {
               <span>{Math.round((weights[i] ?? 0) * 100)}%</span>
             </button>
           ))}
-          <div class="pl-cur" style={{ left: `${input[0]! * 100}%` }} aria-hidden="true"><span class="pl-curt">{fmtAt(0, denormalise(input[0]!, ranges[0]!))}</span></div>
+          <div class="pl-cur" style={{ left: `${input[0]! * 100}%` }} aria-hidden="true"><span class="pl-curt" style={input[0]! > 0.85 ? { transform: "translateX(calc(-100% - 6px))" } : undefined}>{fmtAt(0, denormalise(input[0]!, ranges[0]!))}</span></div>
         </div>
         <div class="pl-bh-row">
           {pts.map((p, i) => (
@@ -365,13 +365,13 @@ const ADSR_FIELDS: { key: keyof Adsr; label: string; unit: string }[] = [
 const HOLD_MS = 300;
 
 /** The span an envelope preview shows, ms: the longer end's attack, decay, the hold and its release. */
-export function envelopeSpan(low: Adsr, high: Adsr): number {
+function envelopeSpan(low: Adsr, high: Adsr): number {
   const one = (e: Adsr) => e.attackMs + e.decayMs + HOLD_MS + e.releaseMs;
   return Math.max(200, one(low), one(high));
 }
 
 /** An envelope's level along `span` ms, released after its attack, decay and the hold, as SVG points over 1000 × 100. */
-export function envelopePoints(e: Adsr, span: number, n = 120): string {
+function envelopePoints(e: Adsr, span: number, n = 120): string {
   const release = e.attackMs + e.decayMs + HOLD_MS;
   const pts: string[] = [];
   for (let k = 0; k <= n; k++) {

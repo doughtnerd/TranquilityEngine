@@ -141,7 +141,7 @@ export function previewCards(rootName: string, body: PlaylistBody, defs: readonl
     case "layer":
       return body.entries.map((e, i) => at(e, i, 1, path));
     case "sequence":
-      return body.entries.length || body.sequence ? [{ name: rootName, kind: "sequence", weight: 1, gainDb: body.volume, path: [] }] : [];
+      return body.entries.length || body.sequence ? [{ name: rootName, kind: "sequence", weight: 1, gainDb: body.volume, path: [rootName] }] : [];
   }
 }
 
