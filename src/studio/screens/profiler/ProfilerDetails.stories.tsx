@@ -46,9 +46,12 @@ export const AtCursorDucked: Story = {
   ),
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByRole("table", { name: "Buses at the cursor" })).toBeVisible();
-    await expect(canvasElement.querySelector('[data-bus="Music"]')!.textContent).toContain("ducked");
-    await expect(c.getByText(/above target -24/)).toBeVisible();
+    await expect(c.getByRole("table", { name: /^Buses at the cursor/ })).toBeVisible();
+    // The reason follows the bus's name; values are the level you hear, the loudness over its target is flagged.
+    await expect(canvasElement.querySelector('[data-bus="Music"]')!.textContent).toMatch(/^Music ducked[-−]12\.0$/);
+    await expect(c.getByText(/^[-−]21\.4$/)).toHaveClass("over");
+    // The keys' hint lives in the tooltip, not on screen.
+    await expect(c.queryByText(/step/)).toBeNull();
   },
 };
 
@@ -100,9 +103,20 @@ export const WhyItPlayedNote: Story = {
   ),
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getByRole("button", { name: "Vehicles" }));
+    // The chain is a graph of typed nodes; the bus node opens the Mixer on that bus.
+    const graph = c.getByRole("list", { name: `Why ${stolen.clipName} played` });
+    await expect(within(graph).getAllByRole("listitem").map((n) => n.querySelector(".pf-wn-kind")?.textContent)).toEqual(["SAMPLE", "BUS"]);
+    await userEvent.click(within(graph).getByRole("button", { name: /^BUS Vehicles/ }));
     await expect(openStep).toHaveBeenCalledWith("mixer", "Vehicles");
-    await expect(c.getByText(/no decision path/)).toBeVisible();
+    // Without the request in the capture the chain is partial, and the tip says why.
+    await expect(c.getByText(/Partial chain/)).toBeVisible();
+    // The zoom toolbar: + zooms in from the fitted scale.
+    const pct = c.getByRole("button", { name: /%$/ });
+    const before = pct.textContent;
+    await userEvent.click(c.getByRole("button", { name: "Zoom in" }));
+    await expect(pct.textContent).not.toBe(before);
+    await userEvent.click(pct);
+    await expect(pct.textContent).toBe("100%");
   },
 };
 

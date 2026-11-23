@@ -13,7 +13,8 @@ import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, keymap, openRoute, setPlayerSlots, studioRouter } from "../../shell/studioServices";
 import { CaptureList } from "./CaptureList";
 import { recorderStatus } from "./captureRecorder";
-import { isCapturePath, NO_CAPTURES, runTreeFolders } from "./captureTree";
+import { durationText, isCapturePath, NO_CAPTURES, runTreeFolders } from "./captureTree";
+import { openMixDocument } from "../mixer/mixerDocument";
 import { CURSOR_KEYS } from "./cursorKeys";
 import { messageCounts } from "./messagesModel";
 import { AtCursor, MessageList, OpenInTake, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
@@ -65,6 +66,11 @@ function CapturesPanel() {
     </Panel>
   );
 }
+
+const FILTERS = [
+  { value: "all" as const, label: "All voices" },
+  { value: "problems" as const, label: "Problems only", title: "Show only voice lanes with a stolen, blocked, missing or refused voice" },
+];
 
 const GROUPS = [
   { value: "bus" as const, label: "By bus" },
@@ -128,9 +134,14 @@ function TimelinePanel() {
   const take = useCaptureTake();
   const toolbar = (
     <div class="pf-toolbar">
-      <button type="button" class={`pf-toggle${store.problemsOnly.value ? " on" : ""}`} aria-pressed={store.problemsOnly.value} onClick={() => (store.problemsOnly.value = !store.problemsOnly.value)} title="Show only voice lanes with a stolen, blocked, missing or refused voice">
-        <Icon name="filter" size={14} /> Problems only
-      </button>
+      {s.kind === "open" && (
+        <span class="pf-title">
+          <strong title={s.path ?? s.title}>{s.title}</strong>
+          {data && <span class="pf-title-meta">{durationText(data.duration)}</span>}
+        </span>
+      )}
+      <span class="pf-toolbar-gap" />
+      <SegmentedControl<"all" | "problems"> size="small" look="fill" label="Voices shown" options={FILTERS} value={store.problemsOnly.value ? "problems" : "all"} onChange={(v) => (store.problemsOnly.value = v === "problems")} />
       <SegmentedControl<GroupBy> size="small" label="Group voices" options={GROUPS} value={store.groupBy.value} onChange={(v) => (store.groupBy.value = v)} />
       {s.kind === "open" && s.replayOf ? <ReplayOrigin take={s.replayOf} onOpenTake={take ? openInTake : undefined} /> : take && <OpenInTake take={take} onOpen={openInTake} />}
       {data && <span class="pf-counts" role="status">{countsText(data.messages)}</span>}
@@ -150,6 +161,7 @@ function TimelinePanel() {
         selected={store.selected.value}
         problemsOnly={store.problemsOnly.value}
         groupBy={store.groupBy.value}
+        busChains={busChains()}
         onSeek={(t) => store.seekTo(t)}
         onSelect={(key) => store.select(key, true)}
       />
@@ -182,10 +194,26 @@ function CursorPanel() {
 /** "Open in Mixer ›" from a voice or a message: the Mixer with the bus selected (its route's `select`). */
 const openBusInMixer = (bus: string): void => openRoute({ screen: "mixer", select: bus });
 
+/** How many buses run an effect chain in the project's mix (the Effects track's Bus chip). */
+function busChains(): number {
+  return openMixDocument()?.value.value.buses.filter((b) => b.effects.some((e) => e.on)).length ?? 0;
+}
+
 function VoicePanel() {
+  const store = profilerStore();
+  const voice = store.selectedVoice.value;
+  const take = useCaptureTake();
   return (
     <Panel bodyClass="pf-panel-body">
-      <VoiceDetails voice={profilerStore().selectedVoice.value} onOpenBus={openBusInMixer} />
+      <VoiceDetails
+        voice={voice}
+        decision={voice ? (store.data.value?.decisions.get(voice.key) ?? null) : null}
+        bus={voice ? (store.readouts.value.find((r) => r.name === voice.busName) ?? null) : null}
+        onOpenBus={openBusInMixer}
+        onOpenPlaylist={(path) => openRoute({ screen: "playlists", asset: path })}
+        take={take}
+        onOpenTake={openInTake}
+      />
     </Panel>
   );
 }
@@ -201,7 +229,11 @@ function WhyPanel() {
   const take = useCaptureTake();
   return (
     <Panel bodyClass="pf-panel-body">
-      <WhyItPlayed voice={profilerStore().selectedVoice.value} onOpen={(screen, target) => openRoute(screen === "mixer" ? { screen, select: target } : { screen })} />
+      <WhyItPlayed
+        voice={profilerStore().selectedVoice.value}
+        decision={profilerStore().selectedVoice.value ? (profilerStore().data.value?.decisions.get(profilerStore().selectedVoice.value!.key) ?? null) : null}
+        onOpen={(screen, target) => openRoute(screen === "mixer" ? { screen, select: target } : screen === "playlists" ? { screen, asset: target } : { screen })}
+      />
       {take && (
         <p class="pf-why-take">
           <OpenInTake take={take} onOpen={openInTake} />

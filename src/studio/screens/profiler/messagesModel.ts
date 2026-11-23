@@ -56,6 +56,16 @@ const METRIC_TEXT: Readonly<Record<LoudnessWarning["metric"], string>> = { integ
 
 const RANK: Readonly<Record<MessageKind, number>> = { error: 0, warning: 1, info: 2 };
 
+/** The messages whose text or kind holds every word of `query` (case-insensitive); all of them for an empty query. */
+export function searchMessages(messages: readonly ProfilerMessage[], query: string): ProfilerMessage[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return [...messages];
+  return messages.filter((m) => {
+    const hay = `${m.text} ${KIND_TEXT[m.kind]}`.toLowerCase();
+    return words.every((w) => hay.includes(w));
+  });
+}
+
 /** The loudness mark as a sentence: `Master over the target (short-term) for 2.400 s`. */
 export function loudnessText(w: LoudnessWarning): string {
   const length = w.to > w.from ? ` for ${formatSeconds(w.to - w.from)}` : "";

@@ -1,5 +1,6 @@
 // Which tracks the Profiler's timeline shows for a capture, in the prototype's order (ADR 0348 "The Profiler screen"):
-// Picture (a take's frames), Load (voices and CPU against the voice cap), Effects cost (the DSP's estimated share per
+// Picture (a take's frames), Load (voices and CPU against the voice cap), Effects (instances by level: clip chains
+// running, playlist instances, bus chains), Effects cost (the DSP's estimated share per
 // section, where the levels' effects run: `effectsCostModel.ts`; per-effect cost needs the core to report it), Memory (the
 // clip arena and the loaded packages, with package load and unload marks: ADR 0351 §6), one Bus
 // track per bus the keyframes carry, Loudness (short-term against the target), the voice lanes, then one track per game
@@ -16,6 +17,8 @@ export interface CaptureContents {
   readonly cpu: boolean;
   /** The CPU meter's per-section shares were fitted in at least one sample (the effects-cost track). */
   readonly effects: boolean;
+  /** Effect instances by level can be counted (STATUS `fxVoices`, or playlist instances started). */
+  readonly fxInstances?: boolean;
   /** ADR 0351 §6: the clip arena was in use in a STATUS sample, or a package event exists (the memory track). */
   readonly memory?: boolean;
   /** Bus slots any keyframe carries a row for, with their names, in slot order. */
@@ -31,6 +34,7 @@ export interface CaptureContents {
 export type PlannedTrack =
   | { readonly id: "picture"; readonly kind: "picture"; readonly label: string }
   | { readonly id: "load"; readonly kind: "load"; readonly label: string; readonly cpu: boolean }
+  | { readonly id: "fx"; readonly kind: "fx"; readonly label: string }
   | { readonly id: "effects"; readonly kind: "effects"; readonly label: string }
   | { readonly id: "memory"; readonly kind: "memory"; readonly label: string }
   | { readonly id: `bus:${number}`; readonly kind: "bus"; readonly label: string; readonly slot: number }
@@ -42,6 +46,7 @@ export function planTracks(c: CaptureContents): PlannedTrack[] {
   const out: PlannedTrack[] = [];
   if (c.frames) out.push({ id: "picture", kind: "picture", label: "Picture" });
   if (c.status) out.push({ id: "load", kind: "load", label: "Load", cpu: c.cpu });
+  if (c.fxInstances) out.push({ id: "fx", kind: "fx", label: "Effects" });
   if (c.status && c.effects) out.push({ id: "effects", kind: "effects", label: "Effects cost · estimated" });
   if (c.memory) out.push({ id: "memory", kind: "memory", label: "Memory" });
   for (const b of c.buses) out.push({ id: `bus:${b.slot}`, kind: "bus", label: `Bus · ${b.name}`, slot: b.slot });
