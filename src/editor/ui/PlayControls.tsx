@@ -1,6 +1,8 @@
 import { playPaused, stepFrame, togglePause } from "../playDebug";
 import { choosePlayLanguage, playLanguageChoices, playLanguageOf, previewLanguage, projectLanguages, subtitlesOverlay } from "../playLanguage";
-import { currentProject, docVersion, playState } from "../state";
+import { useEffect } from "preact/hooks";
+import { subtitlesOverlayUnavailable, syncSubtitlesOverlay } from "../playSubtitles";
+import { currentProject, docVersion, playing, playState } from "../state";
 import { PlayLanguageMenu, SubtitlesOverlayToggle } from "./PlayLanguageMenu";
 import { playToolbarItems, type PlayToolbarItemContribution } from "../sdk/contributions";
 import { lazyComponent, type LazyComponent } from "./lazy";
@@ -19,6 +21,7 @@ export function PlayControls() {
   const playing = playState.value === "playing";
   const paused = playing && playPaused.value;
   playToolbarItems.version.value; // re-render when a plugin registers a control
+  useSubtitlesOverlay();
   return (
     <div class="group play-controls" role="group" aria-label="Play controls">
       <button
@@ -34,19 +37,21 @@ export function PlayControls() {
         Step
       </button>
       <PlayLanguage playing={playing} />
-      <SubtitlesOverlayToggle on={subtitlesOverlay.value} unavailable={SUBTITLES_UNAVAILABLE} onToggle={(on) => (subtitlesOverlay.value = on)} />
+      <SubtitlesOverlayToggle on={subtitlesOverlay.value} unavailable={subtitlesOverlayUnavailable()} onToggle={(on) => (subtitlesOverlay.value = on)} />
       {playToolbarItems.list().map((item) => <span key={item.id} class="play-toolbar-item">{lazyItem(item)()}</span>)}
     </div>
   );
 }
 
 /**
- * The subtitle overlay (ADR 0343 §6) overlays the subtitles plugin's display (0343 S3), built on `Audio.onLine` and
- * `Audio.onCaption`. Neither exists yet, so the toggle only keeps the preference and says why it shows nothing.
- * TODO(0343 S3/S5): when `myco.subtitles` lands, mount its `SubtitleDisplay` (editor-only, never saved) on the play
- * session while this is on and the scene has no display.
+ * The subtitle overlay (ADR 0343 §6): while the toggle is on, the play session gets the subtitles plugin's
+ * `SubtitleDisplay` (editor-only, never saved), which stands aside while the scene has a display of its own.
  */
-const SUBTITLES_UNAVAILABLE = "Subtitle overlay: not available yet. It needs the subtitles display (ADR 0343), which isn't built; the setting is kept for when it is.";
+function useSubtitlesOverlay(): void {
+  const session = playing.value;
+  const on = subtitlesOverlay.value;
+  useEffect(() => syncSubtitlesOverlay(session?.engine ?? null, on), [session, on]);
+}
 
 /** The preview language menu (ADR 0340 §1, 0342 §9): shipped languages and pseudo-languages; a pick while playing switches the game. */
 function PlayLanguage(props: { playing: boolean }) {
