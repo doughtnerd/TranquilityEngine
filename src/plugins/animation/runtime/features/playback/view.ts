@@ -60,13 +60,13 @@ function inView(camera: Camera, b: Sphere): boolean {
   return Math.abs(y) - ty * z <= b.r * Math.hypot(1, ty) && Math.abs(x) - tx * z <= b.r * Math.hypot(1, tx);
 }
 
-function cameras(world: World): readonly Camera[] {
+/** @internal The enabled Cameras of `world` (read once per gather pass). */
+export function enabledCameras(world: World): readonly Camera[] {
   return world._componentsOfType(Camera).filter((c) => c.isActiveAndEnabled);
 }
 
-/** @internal Whether any enabled Camera of `world` sees `rt`'s skeleton (true without cameras or bounds). */
-export function isVisible(world: World, rt: AnimatorRuntime): boolean {
-  const cams = cameras(world);
+/** @internal Whether any of `cams` sees `rt`'s skeleton (true without cameras or bounds). */
+export function isVisible(cams: readonly Camera[], rt: AnimatorRuntime): boolean {
   if (!cams.length) return true;
   const b = boundsOf(rt);
   if (!b) return true;
@@ -74,11 +74,10 @@ export function isVisible(world: World, rt: AnimatorRuntime): boolean {
   return false;
 }
 
-/** @internal The update-rate LOD step (1, 2 or 4) for `rt` this frame. */
-export function lodStep(world: World, rt: AnimatorRuntime): number {
+/** @internal The update-rate LOD step (1, 2 or 4) for `rt` this frame, measured against the main one of `cams`. */
+export function lodStep(cams: readonly Camera[], rt: AnimatorRuntime): number {
   const a = rt.animator;
   if (a.lodMetric === "off") return 1;
-  const cams = cameras(world);
   if (!cams.length) return 1;
   const main = cams.reduce((best, c) => (c.depth < best.depth ? c : best));
   const b = boundsOf(rt);

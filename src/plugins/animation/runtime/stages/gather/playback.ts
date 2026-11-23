@@ -20,7 +20,8 @@ import {
 } from "../../wasm/wire/core";
 import { animatorsOf, type AnimatorRuntime } from "../../features/instances";
 import { flushQueue } from "../../features/playback/plays";
-import { isVisible, lodStep } from "../../features/playback/view";
+import { enabledCameras, isVisible, lodStep } from "../../features/playback/view";
+import type { Camera } from "../../../../../engine/render/components";
 import type { AnimationFrame } from "../frame";
 
 const CULL = { always: CULL_ALWAYS, whenVisible: CULL_WHEN_VISIBLE, rootMotionOnly: CULL_ROOT_MOTION_ONLY } as const;
@@ -30,9 +31,9 @@ export function inPass(frame: AnimationFrame, rt: AnimatorRuntime): boolean {
   return rt.instance !== 0 && rt.ns === frame.core && (rt.animator.updateMode === "fixed") === frame.fixed;
 }
 
-function writeRow(frame: AnimationFrame, rt: AnimatorRuntime): void {
+function writeRow(frame: AnimationFrame, rt: AnimatorRuntime, cams: readonly Camera[]): void {
   const a = rt.animator;
-  const visible = isVisible(frame.world, rt);
+  const visible = isVisible(cams, rt);
   const cull = CULL[a.cullingMode] ?? CULL_ALWAYS;
   rt.visible = visible;
   rt.frozen = !visible && cull !== CULL_ALWAYS;
@@ -44,7 +45,7 @@ function writeRow(frame: AnimationFrame, rt: AnimatorRuntime): void {
   const inputs = frame.core.core.views().inputs;
   const row = (rt.instance & HANDLE_INDEX_MASK) * INPUT_STRIDE;
   inputs.setFloat32(row + INPUT_TIME_SCALE, 1, true);
-  inputs.setUint32(row + INPUT_LOD_STEP, lodStep(frame.world, rt), true);
+  inputs.setUint32(row + INPUT_LOD_STEP, lodStep(cams, rt), true);
   inputs.setUint32(row + INPUT_FLAGS, flags, true);
   for (let l = 0; l < MAX_LAYERS; l++) {
     const w = rt.layerWeights[l]!;
@@ -54,9 +55,11 @@ function writeRow(frame: AnimationFrame, rt: AnimatorRuntime): void {
 
 /** @internal */
 export function gatherPlayback(frame: AnimationFrame): void {
+  let cams: readonly Camera[] | null = null;
   for (const rt of animatorsOf(frame.world)) {
     if (!inPass(frame, rt)) continue;
-    writeRow(frame, rt);
+    cams ??= enabledCameras(frame.world);
+    writeRow(frame, rt, cams);
     flushQueue(frame, rt);
   }
 }
