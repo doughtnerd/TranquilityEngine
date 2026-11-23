@@ -30,6 +30,7 @@ import {
   type Pixels,
   type Rect,
 } from "../spriteSlicing";
+import { applyToolChange, renameInFlipbooks } from "../spriteToolEdits";
 import { currentProject, docVersion, status } from "../state";
 import { PivotRow } from "./ImageImportSettings";
 import { confirmInEditor } from "./ConfirmDialog";
@@ -123,14 +124,7 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
     setHistory((h) => pushHistory(h, { ...h.present, slices: typeof next === "function" ? next(h.present.slices) : next }, { key, equal: (a, b) => stateKey(a) === stateKey(b) }));
   /** A tool's change (its skins by slice name, its flipbooks) as one undo step. */
   const editFromTool = (change: SpriteEditorChange, key?: string) =>
-    setHistory((h) => {
-      const skins = change.skins;
-      const next: EditState = {
-        slices: skins ? h.present.slices.map((s) => (s.name in skins ? { ...s, skin: skins[s.name] ?? undefined } : s)) : h.present.slices,
-        flipbooks: change.flipbooks ?? h.present.flipbooks,
-      };
-      return pushHistory(h, next, { key, equal: (a, b) => stateKey(a) === stateKey(b) });
-    });
+    setHistory((h) => pushHistory(h, applyToolChange(h.present, change), { key, equal: (a, b) => stateKey(a) === stateKey(b) }));
   const gesture = useRef(0);
   const newGesture = () => `gesture:${++gesture.current}`;
   const [selected, setSelected] = useState<number | null>(null);
@@ -237,8 +231,7 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
     setBusy(true);
     try {
       // A renamed slice is renamed in the flipbooks that show it, as it is in other references.
-      const renamed = new Map(sliceRenames(slices));
-      const flipbooksSaved = Object.fromEntries(Object.entries(flipbooks).map(([name, f]) => [name, { ...f, slices: f.slices.map((n) => renamed.get(n) ?? n) }]));
+      const flipbooksSaved = renameInFlipbooks(flipbooks, sliceRenames(slices));
       const settings = { ...readImportSettings(project, image).settings, sprites: asSaved(slices), flipbooks: flipbooksSaved };
       await writeImportSettings(project, image, settings);
       const cleaned = await renameSliceReferences(project, image, sliceRenames(slices));

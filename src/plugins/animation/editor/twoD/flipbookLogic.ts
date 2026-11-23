@@ -205,3 +205,9 @@ export function sliceAt(flipbook: SpriteFlipbook, seconds: number): string | nul
   const i = Math.floor(Math.max(0, seconds) * flipbook.fps + 1e-9);
   return flipbook.slices[flipbook.loop ? i % n : Math.min(i, n - 1)] ?? null;
 }
+
+/** A slice drawn as a CSS background crop of the image in a `box` × `box` preview: its size and where the image sits behind it. */
+export function frameCrop(rect: readonly [number, number, number, number], image: readonly [number, number], box: number): { width: number; height: number; backgroundSize: string; backgroundPosition: string } {
+  const scale = box / Math.max(1, rect[2], rect[3]);
+  return { width: rect[2] * scale, height: rect[3] * scale, backgroundSize: `${image[0] * scale}px ${image[1] * scale}px`, backgroundPosition: `${-rect[0] * scale}px ${-rect[1] * scale}px` };
+}

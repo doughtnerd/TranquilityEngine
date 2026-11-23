@@ -1,0 +1,52 @@
+/* The Animation plugin's 2D tools (ADR 0373; T56): the flipbook editor and the bone editor. Theme tokens only (src/editor/theme.ts). */
+.flip-editor { display: flex; flex-direction: column; gap: 8px; min-width: 0; font-size: calc(12px * var(--ui-scale)); }
+.flip-tool { padding: 12px; overflow: auto; }
+.flip-section h4 { margin: 8px 0 4px; font-size: calc(11px * var(--ui-scale)); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.flip-note { margin: 4px 0; font-size: calc(11px * var(--ui-scale)); color: var(--muted); }
+.flip-row { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 4px 0; min-width: 0; }
+.flip-row input[type="text"], .flip-row select { min-width: 6em; flex: 1; }
+.flip-grid { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 8px; align-items: center; margin: 4px 0; }
+.flip-grid > span:nth-child(odd) { color: var(--muted); }
+.flip-check { display: flex; align-items: center; gap: 4px; }
+.flip-slices { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 2px 8px; max-height: 160px; overflow: auto; }
+.flip-slices label { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.flip-slice-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flip-thumb { display: inline-block; flex: none; background-repeat: no-repeat; image-rendering: pixelated; border: 1px solid var(--border); background-color: var(--bg); box-sizing: content-box; }
+.flip-thumb-empty { background: var(--input-bg); }
+.flip-preview { display: flex; align-items: center; gap: 8px; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--bg); }
+.flip-preview-stage { display: grid; place-items: center; width: 100px; height: 100px; flex: none; background: var(--input-bg); }
+.flip-preview-controls { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+.flip-preview-time { color: var(--muted); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flip-frames { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.flip-frame { display: grid; grid-template-columns: auto minmax(0, 1fr) 6em auto auto auto auto; gap: 6px; align-items: center; padding: 2px 4px; border-bottom: 1px solid var(--border); }
+.flip-frame-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flip-frame-seconds { color: var(--muted); font-variant-numeric: tabular-nums; }
+
+/* The bone editor */
+.bone-editor { display: flex; gap: 0; flex: 1; min-height: 0; min-width: 0; }
+.bone-stage-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.bone-stage-bar { display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-bottom: 1px solid var(--border); font-size: calc(12px * var(--ui-scale)); }
+.bone-zoom { min-width: 3em; text-align: center; color: var(--muted); }
+.bone-stage-view { flex: 1; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 12px; background-color: var(--bg); background-image: linear-gradient(45deg, var(--border) 25%, transparent 25%, transparent 75%, var(--border) 75%), linear-gradient(45deg, var(--border) 25%, transparent 25%, transparent 75%, var(--border) 75%); background-size: 16px 16px; background-position: 0 0, 8px 8px; }
+.bone-stage { position: relative; flex: none; background-repeat: no-repeat; image-rendering: pixelated; box-shadow: 0 0 0 1px var(--border); user-select: none; touch-action: none; }
+.bone-stage.tool-create, .bone-stage.tool-paint { cursor: crosshair; }
+.bone-stage.tool-move, .bone-stage.tool-mesh { cursor: default; }
+.bone-overlay { position: absolute; left: 0; top: 0; overflow: visible; }
+.bone-line { stroke: var(--text); stroke-width: 3; stroke-linecap: round; opacity: 0.85; cursor: move; }
+.bone-head { fill: var(--panel); stroke: var(--text); stroke-width: 1.5; cursor: move; }
+.bone-tip { fill: var(--text); stroke: var(--panel); stroke-width: 1; cursor: crosshair; }
+.bone.selected .bone-line { stroke: var(--accent); stroke-width: 4; }
+.bone.selected .bone-head { stroke: var(--accent); }
+.bone.selected .bone-tip { fill: var(--accent); }
+.bone-draft { stroke: var(--accent); stroke-width: 3; stroke-dasharray: 5 4; stroke-linecap: round; pointer-events: none; }
+.bone-edge { stroke: var(--text); stroke-width: 1; opacity: 0.35; pointer-events: none; }
+.bone-vertex { fill: var(--accent); stroke: var(--text); stroke-width: 1; cursor: move; }
+.bone-brush { fill: var(--accent-soft); stroke: var(--accent); stroke-width: 1; pointer-events: none; }
+.bone-side { width: 280px; flex: none; overflow: auto; padding: 8px 12px; border-left: 1px solid var(--border); display: flex; flex-direction: column; gap: 4px; font-size: calc(12px * var(--ui-scale)); }
+.bone-side h4 { margin: 8px 0 4px; font-size: calc(11px * var(--ui-scale)); font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.bone-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; max-height: 160px; overflow: auto; }
+.bone-list button { width: 100%; text-align: left; }
+.bone-list button.active { background: var(--accent-soft); border-color: var(--accent); }
+.bone-note { margin: 4px 0; font-size: calc(11px * var(--ui-scale)); color: var(--muted); }
+.bone-readout { color: var(--muted); font-variant-numeric: tabular-nums; }
+.bone-problem { margin: 6px 0; color: var(--danger); }

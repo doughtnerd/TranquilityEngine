@@ -9,6 +9,7 @@ import {
   createFlipbook,
   editFlipbook,
   flipbookDuration,
+  frameCrop,
   frameSeconds,
   framesOf,
   moveFrame,
@@ -138,6 +139,13 @@ describe("the preview plays as the runtime does", () => {
     expect([0.25, 0.3, 5].map((t) => sliceAt({ ...f, loop: false }, t))).toEqual(["c", "c", "c"]);
     expect(sliceAt({ ...f, slices: [] }, 1)).toBeNull();
     expect(sliceAt(f, 0.3)).toBe("a"); // 0.3 × 10 is 3.0000000000000004 or 2.9999…: still entry 3
+  });
+});
+
+describe("the preview's crop", () => {
+  it("scales the longer side of the slice to the box and offsets the image behind it", () => {
+    expect(frameCrop([16, 8, 32, 16], [128, 64], 64)).toEqual({ width: 64, height: 32, backgroundSize: "256px 128px", backgroundPosition: "-32px -16px" });
+    expect(frameCrop([0, 0, 1, 1], [4, 4], 8).width).toBe(8);
   });
 });
 
