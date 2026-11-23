@@ -9,7 +9,6 @@ import { errorStatus } from "./messages";
 import type { EditorProject } from "./projects";
 import { currentProject, status } from "./state";
 import { studioScreenFor, studioUrl, type StudioOpenRequest, type StudioScreen } from "./studioAssets";
-import { linkToStudio } from "./studioHandoff";
 
 /** The browser tab the Studio opens in: one, reused by later opens. */
 const BROWSER_TARGET = "myco-audio-studio";
@@ -24,15 +23,16 @@ export function whyNotOpenInStudio(project: EditorProject, entries: readonly str
   return null;
 }
 
-/** The request opening the Studio on `project` (null: its start screen), on `asset` or a `screen`. */
+/** The request opening the Studio on `project` (its folder, or the sample it is; null: the Studio's start screen), on `asset` or a `screen`. */
 export function studioRequest(project: EditorProject | null, target: { asset?: string; screen?: StudioScreen } = {}): StudioOpenRequest {
-  return { project: project?.root ?? null, ...(target.asset !== undefined ? { asset: target.asset } : {}), ...(target.screen ? { screen: target.screen } : {}) };
+  const sample = project && project.root === null ? project.sample : null;
+  return { project: project?.root ?? null, ...(sample ? { sample } : {}), ...(target.asset !== undefined ? { asset: target.asset } : {}), ...(target.screen ? { screen: target.screen } : {}) };
 }
 
 /** Open the Studio on `request`: its desktop window, or a browser tab. Failures go to the status bar. */
 export async function openAudioStudio(request: StudioOpenRequest): Promise<void> {
   try {
-    if (isTauri()) await openStudioWindow(request);
+    if (isTauri()) await (await import("./launcher/studioWindow")).openInStudioWindow(request);
     else openStudioTab(request);
   } catch (err) {
     status.value = errorStatus("Couldn't open the Audio Studio", err);
@@ -41,18 +41,6 @@ export async function openAudioStudio(request: StudioOpenRequest): Promise<void>
 
 /** The Studio on the open project (Window > Audio Studio). */
 export const openAudioStudioOnProject = (): Promise<void> => openAudioStudio(studioRequest(currentProject.peek()));
-
-async function openStudioWindow(request: StudioOpenRequest): Promise<void> {
-  const [{ invoke }, { tauriBus }] = await Promise.all([import("@tauri-apps/api/core"), import("./launcher/handoff")]);
-  // Listening before the window exists, so a window created now is heard saying it's ready.
-  const link = linkToStudio(await tauriBus());
-  try {
-    await invoke("create_studio_window");
-    await link.open(request);
-  } finally {
-    link.dispose();
-  }
-}
 
 function openStudioTab(request: StudioOpenRequest): void {
   const url = new URL(studioUrl(request), location.href).href;

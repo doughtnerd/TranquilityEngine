@@ -1,0 +1,54 @@
+/* The launcher's Foxfire Studios stage (ADR 0380). The brand column and info are the brand black in every theme. */
+.ff-root { position: relative; height: 100vh; overflow-y: auto; box-sizing: border-box; display: grid; grid-template-columns: minmax(380px, 40%) minmax(0, 1fr); grid-template-rows: auto 1fr; grid-template-areas: "brand main" "info main"; background: var(--bg); color: var(--text); font-size: calc(13px * var(--ui-scale)); line-height: 1.4; }
+.ff-brand { grid-area: brand; min-width: 0; display: flex; flex-direction: column; padding: 16px 32px 0; background: var(--brand-bg); border-right: 1px solid var(--border); user-select: none; }
+.ff-logo { display: block; width: min(100%, 440px); margin: 0 auto; aspect-ratio: 1 / 1; height: auto; object-fit: cover; }
+.ff-info { grid-area: info; min-width: 0; display: flex; flex-direction: column; gap: 20px; padding: 24px 32px 20px; background: var(--brand-bg); border-right: 1px solid var(--border); color: var(--brand-text); }
+.ff-heading { margin: 0; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.ff-info .ff-heading { color: var(--brand-text); }
+.ff-news { display: flex; flex-direction: column; gap: 8px; }
+.ff-news-card { display: flex; flex-direction: column; gap: 4px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; background: var(--panel); }
+.ff-news-title { margin: 0; color: var(--text-strong); font-weight: 600; }
+.ff-news-text { margin: 0; color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.ff-resources { display: flex; flex-direction: column; gap: 4px; }
+.ff-resources .ff-heading { margin-bottom: 4px; }
+.ff-res { display: flex; justify-content: space-between; align-items: center; min-height: 32px; padding: 0 10px; border-radius: 4px; color: var(--brand-text); }
+.ff-res > span { color: var(--muted); }
+.ff-copy { margin: auto 0 0; color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.ff-main { grid-area: main; min-width: 0; display: flex; flex-direction: column; background: var(--panel); }
+.ff-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 24px 24px 12px; border-bottom: 1px solid var(--border); }
+.ff-count { color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.ff-grid { box-sizing: border-box; width: 100%; max-width: 1400px; padding: 24px; display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 24px; align-content: start; }
+.ff-card { display: flex; flex-direction: column; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.ff-card:hover { border-color: var(--accent); box-shadow: 0 10px 30px var(--shadow), 0 0 0 1px var(--accent-faint); }
+.ff-thumb { display: flex; align-items: center; justify-content: center; aspect-ratio: 3 / 2; overflow: hidden; background: var(--brand-bg); border-bottom: 1px solid var(--border); }
+.ff-thumb img { display: block; width: 100%; height: 86%; object-fit: contain; }
+.ff-thumb img.wide { height: 100%; }
+.ff-card-body { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; padding: 16px 18px 18px; }
+.ff-card-name { margin: 0; color: var(--text-strong); font-size: calc(18px * var(--ui-scale)); font-weight: 600; }
+.ff-card-text { margin: 0; color: var(--muted); }
+.ff-card-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 8px; }
+.ff-open { min-height: 36px; padding: 6px 18px; border: 1px solid var(--accent); border-radius: 4px; background: var(--accent); color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
+.ff-open:hover { background: var(--accent-hover); box-shadow: var(--glow); }
+.ff-open:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; box-shadow: var(--glow); }
+.ff-footer { margin-top: auto; display: flex; justify-content: flex-end; padding: 6px 10px; border-top: 1px solid var(--border); color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+@media (max-width: 900px) {
+  .ff-root { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto auto; grid-template-areas: "brand" "main" "info"; }
+  .ff-brand { padding: 16px 24px 8px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .ff-logo { width: min(100%, 380px); }
+  .ff-info { flex-direction: row; flex-wrap: wrap; align-items: flex-start; border-right: 0; border-top: 1px solid var(--border); }
+  .ff-info > * { flex: 1 1 280px; min-width: 0; }
+  .ff-info > .ff-copy { flex-basis: 100%; }
+}
+@media (max-width: 560px) {
+  .ff-brand { padding: 8px 16px 4px; }
+  .ff-logo { width: min(100%, 300px); }
+  .ff-info { padding: 20px 16px 16px; }
+  .ff-head { padding: 16px 16px 10px; }
+  .ff-grid { padding: 16px; gap: 16px; grid-template-columns: minmax(0, 1fr); }
+  .ff-open { flex: 1 1 auto; }
+}
+@media (min-width: 1800px) {
+  .ff-root { grid-template-columns: minmax(380px, 36%) minmax(0, 1fr); }
+  .ff-logo { width: min(100%, 560px); }
+}
+@media (pointer: coarse) { .ff-open { min-height: 44px; } }

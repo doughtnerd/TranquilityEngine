@@ -47,6 +47,8 @@ export const opensInAudioStudio = (path: string): boolean => studioScreenFor(pat
 export interface StudioOpenRequest {
   /** The project folder's path (as the file system names it), or null to show the Studio's start screen. */
   readonly project: string | null;
+  /** A sample to open read-only instead of a folder (the editor has a sample open; ADR 0380), by its id. */
+  readonly sample?: string;
   /** A project-relative asset to open; its screen is `studioScreenFor(asset)` unless `screen` says otherwise. */
   readonly asset?: string;
   readonly screen?: StudioScreen;
@@ -62,7 +64,7 @@ export function requestScreen(request: StudioOpenRequest): StudioScreen | null {
  * `studio.html?project=<path>#/<screen>/<asset>`. The asset's path segments are encoded one by one, so its slashes stay.
  */
 export function studioUrl(request: StudioOpenRequest, page = "studio.html"): string {
-  const query = request.project !== null ? `?project=${encodeURIComponent(request.project)}` : "";
+  const query = request.project !== null ? `?project=${encodeURIComponent(request.project)}` : request.sample ? `?sample=${encodeURIComponent(request.sample)}` : "";
   return `${page}${query}${studioHash(request)}`;
 }
 

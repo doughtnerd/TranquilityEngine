@@ -7,7 +7,8 @@ import { KeyboardShortcutsDialog } from "../../editor/ui/KeyboardShortcutsDialog
 import { UndoToasts } from "../../editor/ui/UndoToast";
 import { AboutDialog } from "../../editor/ui/AboutDialog";
 import { NewProjectDialog } from "../../editor/ui/NewProjectDialog";
-import { StartScreen } from "../../editor/ui/StartScreen";
+import { BiosonicProjectsScreen } from "../start/BiosonicProjectsScreen";
+import type { RecentTake } from "../start/recentTakes";
 import { HistoryIcons, type HistoryIconSet } from "../../editor/ui/HistoryPopover";
 import { currentProject } from "../../editor/state";
 import { useEffect, useRef } from "preact/hooks";
@@ -26,6 +27,8 @@ import { audioRuntime, keymap, playerSlots, shortcutsOpen, singleKeyShortcuts, s
 export interface StudioAppProps {
   /** Close the open project (back to the start screen). */
   onCloseProject(): void;
+  /** Open a recorded take from the start screen (its project, on the Take screen). */
+  onOpenTake(take: RecentTake): Promise<void>;
 }
 
 /** The Studio's glyphs for every Undo / Redo / History cluster (header, toolbars). */
@@ -63,13 +66,7 @@ export function StudioApp(props: StudioAppProps) {
   if (!project) {
     return (
       <div class="studio studio-starting" data-floating-root="">
-        <StartScreen
-          chrome={
-            <p class="studio-start-title" aria-hidden="true">
-              Audio Studio
-            </p>
-          }
-        />
+        <BiosonicProjectsScreen onOpenTake={props.onOpenTake} />
         <NewProjectDialog />
         <AboutDialog />
         <UndoToasts queue={toasts} />

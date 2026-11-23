@@ -53,13 +53,3 @@ export function fitWindowToWorkArea(
       };
   return { size, position };
 }
-
-/** The width of a classic (space-taking) scrollbar in this page: 0 for overlay scrollbars. */
-export function measureScrollbar(doc: Document): number {
-  const probe = doc.createElement("div");
-  probe.style.cssText = "position:absolute;top:-9999px;width:100px;height:100px;overflow:scroll";
-  doc.body.appendChild(probe);
-  const width = probe.offsetWidth - probe.clientWidth;
-  probe.remove();
-  return width;
-}
