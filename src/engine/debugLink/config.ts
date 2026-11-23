@@ -106,6 +106,89 @@ export function readDebugManifest(debug: unknown, override?: string | null): { c
   if (d.webrtc === false) webrtc = false;
   else if (d.webrtc && typeof d.webrtc === "object" && !Array.isArray(d.webrtc)) webrtc = d.webrtc as Record<string, unknown>;
   else if (d.webrtc !== undefined) problems.push("game.json's debug.webrtc should be false or the WebSocket transport's webrtc options; ignored.");
-  // L6: parse debug.listen, debug.lan, debug.port, debug.rendezvous and debug.iceServers here (a problem line per bad value).
-  return { config: webrtc === undefined ? { link } : { link, webrtc }, problems };
+  const config: { link: string; webrtc?: DebugManifest["webrtc"]; listen?: boolean; lan?: boolean; port?: number; rendezvous?: string; iceServers?: readonly DebugIceServer[] } = { link };
+  if (webrtc !== undefined) config.webrtc = webrtc;
+  const listen = readBoolean(d, "listen", problems);
+  if (listen !== undefined) config.listen = listen;
+  const lan = readBoolean(d, "lan", problems);
+  if (lan !== undefined) config.lan = lan;
+  const port = readPort(d, problems);
+  if (port !== undefined) config.port = port;
+  const rendezvous = readRendezvous(d, problems);
+  if (rendezvous !== undefined) config.rendezvous = rendezvous;
+  const iceServers = readIceServers(d, problems);
+  if (iceServers !== undefined) config.iceServers = iceServers;
+  return { config, problems };
+}
+
+/** A `true` or `false` key; anything else is ignored with a problem line. Omitted: undefined. */
+function readBoolean(d: Record<string, unknown>, key: "listen" | "lan", problems: string[]): boolean | undefined {
+  const v = d[key];
+  if (v === undefined || typeof v === "boolean") return v;
+  problems.push(`game.json's debug.${key} should be true or false; ignored.`);
+  return undefined;
+}
+
+/** A whole number from 1 to 65526; anything else is ignored with a problem line. Omitted: undefined. */
+function readPort(d: Record<string, unknown>, problems: string[]): number | undefined {
+  const v = d.port;
+  if (v === undefined) return undefined;
+  if (typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 65526) return v;
+  problems.push("game.json's debug.port should be a whole number from 1 to 65526; ignored.");
+  return undefined;
+}
+
+/** A `ws://` or `wss://` URL string; anything else is ignored with a problem line. Omitted: undefined. */
+function readRendezvous(d: Record<string, unknown>, problems: string[]): string | undefined {
+  const v = d.rendezvous;
+  if (v === undefined) return undefined;
+  if (typeof v === "string") {
+    const url = v.trim();
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "ws:" || parsed.protocol === "wss:") return url;
+    } catch {
+      // not a URL: reported below
+    }
+  }
+  problems.push("game.json's debug.rendezvous should be a ws:// or wss:// URL; ignored.");
+  return undefined;
+}
+
+/** `stun:`, `turn:` or `turns:` followed by a host and optional port, no spaces. */
+const ICE_URL = /^(stun|turns?):\S+$/i;
+
+/**
+ * `debug.iceServers`: an array of entries. An entry that isn't a valid server (bad `urls`, a non-string `username` or
+ * `credential`) is dropped with a problem line each. A value that isn't an array is ignored with one problem line.
+ */
+function readIceServers(d: Record<string, unknown>, problems: string[]): DebugIceServer[] | undefined {
+  const v = d.iceServers;
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v)) {
+    problems.push("game.json's debug.iceServers should be an array of { urls, username?, credential? } entries; ignored.");
+    return undefined;
+  }
+  const servers: DebugIceServer[] = [];
+  for (const entry of v) {
+    const server = readIceServer(entry);
+    if (server) servers.push(server);
+    else problems.push("game.json's debug.iceServers has an entry that isn't a STUN or TURN server (urls of stun:, turn: or turns: addresses, optional username and credential as text); dropped.");
+  }
+  return servers;
+}
+
+function readIceServer(entry: unknown): DebugIceServer | null {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  const e = entry as Record<string, unknown>;
+  const list = typeof e.urls === "string" ? [e.urls] : Array.isArray(e.urls) ? e.urls : null;
+  if (!list || list.length === 0 || !list.every((u) => typeof u === "string" && ICE_URL.test(u))) return null;
+  if (e.username !== undefined && typeof e.username !== "string") return null;
+  if (e.credential !== undefined && typeof e.credential !== "string") return null;
+  const server: { urls: string | string[]; username?: string; credential?: string } = {
+    urls: typeof e.urls === "string" ? e.urls : [...(list as string[])],
+  };
+  if (typeof e.username === "string") server.username = e.username;
+  if (typeof e.credential === "string") server.credential = e.credential;
+  return server;
 }
