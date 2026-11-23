@@ -27,7 +27,8 @@ use anim_wire::core::{
     STATUS_WRONG_KIND,
 };
 use anim_wire::r#match::{
-    MatchHeader, MatchNode, MatchSample, MATCH_DEBUG_BYTES, SAMPLE_MATCHED, SAMPLE_PREDICTED,
+    MatchHeader, MatchNode, MatchSample, MATCH_DEBUG_BYTES, MATCH_MIRRORED, SAMPLE_MATCHED,
+    SAMPLE_PREDICTED,
 };
 use anim_wire::WireRecord;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -189,6 +190,10 @@ impl Core {
                 let Some(v) = matching::view(program.node_state(&mut inst.state, groups, n)) else {
                     continue;
                 };
+                let m = match_ref(&self.arena, v.database);
+                let db_clip = m
+                    .and_then(|m| m.db.frame(v.frame as usize))
+                    .map_or(anim_format::NONE, |f| f.clip);
                 let rec = MatchNode {
                     node: n,
                     database: v.database,
@@ -198,7 +203,8 @@ impl Core {
                     cost: v.cost,
                     updates: v.updates,
                     last_search: v.last_search,
-                    flags: v.flags,
+                    flags: v.flags | if v.mirrored { MATCH_MIRRORED } else { 0 },
+                    db_clip,
                 };
                 if w.put(&rec) {
                     header.nodes += 1;
@@ -206,7 +212,7 @@ impl Core {
                     header.dropped += 1;
                 }
                 // T70: the predicted trajectory, then the playing frame's.
-                let Some(m) = match_ref(&self.arena, v.database) else {
+                let Some(m) = m else {
                     continue;
                 };
                 let mut t = Trajectory::default();

@@ -342,6 +342,8 @@ fn the_report_carries_the_predicted_and_matched_trajectories() {
         at += MatchSample::STRIDE as usize;
     }
     let view = PoseDbView::parse(&fx.db).unwrap();
+    assert_eq!(last.db_clip, view.frame(last.frame as usize).unwrap().clip);
+    assert_eq!(last.flags & anim_wire::r#match::MATCH_MIRRORED, 0);
     let mut offsets: Vec<f32> = (0..view.feature_count())
         .filter_map(|i| view.feature(i))
         .filter(|f| f.bone == NONE)
@@ -490,6 +492,11 @@ fn a_mirrored_copy_plays_mirrored() {
             max_diff(&got, &mirrored)
         );
         assert!(max_diff(&got, &plain) > 1e-3, "not the clip as it is");
+        assert_eq!(
+            rep.flags & anim_wire::r#match::MATCH_MIRRORED,
+            anim_wire::r#match::MATCH_MIRRORED
+        );
+        assert_eq!(rep.db_clip, 2);
         checked = true;
         break;
     }

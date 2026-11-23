@@ -131,8 +131,10 @@ export interface MatchNodeReport {
   readonly cost: number;
   readonly updates: number;
   readonly lastSearch: number;
-  /** `MATCH_*` flags of the last update. */
+  /** `MATCH_*` flags of the last update (`MATCH_MIRRORED` while a mirrored copy plays). */
   readonly flags: number;
+  /** The playing frame's clip entry in the database (`poseDbClip` names it; `0xFFFFFFFF`: none). */
+  readonly dbClip: number;
   /** The trajectory the node predicted at its last update, in time order. */
   readonly predicted: readonly MatchSampleReport[];
   /** The playing frame's trajectory features (empty with no frame). */
@@ -668,7 +670,7 @@ export class AnimationCore {
       const op = recordOpcode(view, at);
       if (op === MATCH_NODE.opcode) {
         const r = getRecord(view, at, MATCH_NODE);
-        nodes.push({ node: r.node, database: r.database, clip: r.clip, time: r.time, frame: r.frame, cost: r.cost, updates: r.updates, lastSearch: r.lastSearch, flags: r.flags, predicted: [], matched: [] });
+        nodes.push({ node: r.node, database: r.database, clip: r.clip, time: r.time, frame: r.frame, cost: r.cost, updates: r.updates, lastSearch: r.lastSearch, flags: r.flags, dbClip: r.dbClip, predicted: [], matched: [] });
         at += MATCH_NODE.stride;
       } else if (op === MATCH_SAMPLE.opcode) {
         const s = getRecord(view, at, MATCH_SAMPLE);

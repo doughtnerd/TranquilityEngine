@@ -4,15 +4,16 @@
 // with a tick for each sample's facing), the **matched frame's trajectory** (what the chosen frame did over the same
 // times) and a cross at the character.
 //
-// **Where the data comes from.** The core writes a graph's pose-database node state into the match buffer
-// (`match_debug_write`, wire family `match`: the playing frame, its cost and clip), but the animation host reads none of
-// it yet: `AnimationCore` has no `matchDebugWrite`, nothing flags an instance for debug output, and the predicted
-// trajectory is not in the match report. So this side is written against `MatchDebugSource`: the debugger (T52) or a core
-// change gives it by `setMatchDebugSource`, and the view draws what the source reads. Without one the tool says so.
+// **Where the data comes from.** The view draws what a `MatchDebugSource` reads (`setMatchDebugSource`). The play
+// session's source (`poseDbDebug.ts`, T70) reads the core's match report: the core writes a graph's pose-database node
+// state, the trajectory it predicted and the playing frame's trajectory into the match buffer (`match_debug_write`, wire
+// family `match`), and the host reads it after each evaluate for the Animators the view watches
+// (`runtime/features/matching/debug.ts`); `matchDebugStateOf` turns that into what the view draws.
 //
 // Samples are in the character's frame (D60): `x` to its right, `z` ahead, metres; the character stands at its node's
 // position facing `yaw` radians about +Y (0 faces +Z). A pure library.
 import type { GameObject } from "../../../../engine/scene/GameObject";
+import type { AnimatorMatchDebug } from "../../runtime/features/matching/debug";
 
 type V3 = [number, number, number];
 
@@ -122,4 +123,14 @@ export function describeMatch(state: MatchDebugState | null): string {
   if (!state.matched) return "no frame matched yet";
   const m = state.matched;
   return `frame ${m.frame} of ${m.clip || "a clip"} at ${m.time.toFixed(2)} s, cost ${m.cost.toFixed(2)}`;
+}
+
+/** What the view draws for an Animator's match report (`matchDebugOf`), or null without one; a mirrored copy says so in its clip. */
+export function matchDebugStateOf(d: AnimatorMatchDebug | null): MatchDebugState | null {
+  if (!d) return null;
+  const m = d.matched;
+  return {
+    predicted: d.predicted,
+    matched: m ? { frame: m.frame, clip: m.mirrored ? `${m.clip} (mirrored)` : m.clip, time: m.time, cost: m.cost, trajectory: m.trajectory } : null,
+  };
 }

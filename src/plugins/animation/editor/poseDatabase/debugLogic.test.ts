@@ -1,7 +1,7 @@
 // The pose database debug view's geometry (ADR 0373; T55): where character-frame trajectory samples land in the world for a
 // character at a position and yaw, the lines that draw the predicted and matched trajectories, and the description of a match.
 import { describe, expect, it } from "vitest";
-import { describeMatch, matchDebugWires, toWorld, type CharacterPose, type MatchDebugState } from "./debugLogic";
+import { describeMatch, matchDebugStateOf, matchDebugWires, toWorld, type CharacterPose, type MatchDebugState } from "./debugLogic";
 
 const LIFT = 0.02;
 const close = (a: readonly number[], b: readonly number[]) => a.forEach((v, i) => expect(v).toBeCloseTo(b[i]!, 6));
@@ -78,5 +78,22 @@ describe("describeMatch", () => {
     expect(describeMatch({ ...s, matched: { ...s.matched!, clip: "" } })).toBe("frame 128 of a clip at 1.20 s, cost 0.42");
     expect(describeMatch({ predicted: [], matched: null })).toBe("no frame matched yet");
     expect(describeMatch(null)).toBe("no pose database node");
+  });
+});
+
+// T70: the play session's source turns the core's match report (`matchDebugOf`) into what the view draws.
+describe("matchDebugStateOf", () => {
+  const sample = (time: number, z: number) => ({ time, position: [0, z] as const, direction: [0, 1] as const });
+  it("passes the predicted trajectory and the matched frame through, naming a mirrored copy", () => {
+    const predicted = [sample(0.33, 0.5), sample(0.66, 1)];
+    const trajectory = [sample(0.33, 0.4), sample(0.66, 0.9)];
+    const matched = { frame: 12, clip: "clips/run.anim", time: 0.4, cost: 0.25, mirrored: false, trajectory };
+    expect(matchDebugStateOf({ predicted, matched })).toEqual({ predicted, matched: { frame: 12, clip: "clips/run.anim", time: 0.4, cost: 0.25, trajectory } });
+    expect(matchDebugStateOf({ predicted, matched: { ...matched, mirrored: true } })!.matched!.clip).toBe("clips/run.anim (mirrored)");
+  });
+
+  it("has no matched frame before one plays, and no state without a report", () => {
+    expect(matchDebugStateOf({ predicted: [], matched: null })).toEqual({ predicted: [], matched: null });
+    expect(matchDebugStateOf(null)).toBeNull();
   });
 });

@@ -191,6 +191,8 @@ pub struct MatchView {
     pub last_search: u32,
     /// The last update's `MATCH_*` flags.
     pub flags: u32,
+    /// T70: a mirrored copy plays.
+    pub mirrored: bool,
 }
 
 /// The view of a `POSE_DATABASE` node's state words (`None` for a block too short).
@@ -207,6 +209,7 @@ pub fn view(s: &[u32]) -> Option<MatchView> {
         updates: s[state::UPDATES],
         last_search: s[state::LAST_SEARCH],
         flags: s[state::FLAGS],
+        mirrored: s[state::MIRRORED] != 0,
     })
 }
 

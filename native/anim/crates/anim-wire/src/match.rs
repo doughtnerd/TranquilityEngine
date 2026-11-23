@@ -22,7 +22,7 @@ use crate::wire_record;
 /// The family id (the opcodes' high byte).
 pub const ID: u8 = 5;
 /// The family version. Bump it when a record's layout changes.
-pub const VERSION: u16 = 1;
+pub const VERSION: u16 = 2;
 
 /// The match buffer's size in bytes.
 pub const MATCH_DEBUG_BYTES: u32 = 4096;
@@ -30,6 +30,8 @@ pub const MATCH_DEBUG_BYTES: u32 = 4096;
 pub const MATCH_SWITCHED: u32 = 1;
 /// [`MatchNode::flags`]: the last update searched.
 pub const MATCH_SEARCHED: u32 = 2;
+/// [`MatchNode::flags`]: the playing clip entry is a mirrored copy (T70; played mirrored).
+pub const MATCH_MIRRORED: u32 = 4;
 
 wire_record! {
     /// The head of a match report.
@@ -62,8 +64,11 @@ wire_record! {
         updates: u32,
         /// The update count at the last search (`0xFFFFFFFF`: never).
         last_search: u32,
-        /// `MATCH_*` flags of the last update.
+        /// `MATCH_*` flags of the last update (and `MATCH_MIRRORED` while a mirrored copy plays).
         flags: u32,
+        /// T70 (version 2): the playing frame's clip entry in the database (`posedb_clip` names it;
+        /// `0xFFFFFFFF`: none).
+        db_clip: u32,
     }
 }
 
@@ -115,6 +120,7 @@ fn vectors() -> Vec<Vector> {
                 updates: 120,
                 last_search: 114,
                 flags: MATCH_SEARCHED | MATCH_SWITCHED,
+                db_clip: 1,
             },
         ),
         Vector::of(
@@ -149,6 +155,7 @@ pub const FAMILY: FamilyDesc = FamilyDesc {
         MATCH_DEBUG_BYTES: "The match buffer's size in bytes.",
         MATCH_SWITCHED: "`MATCH_NODE.flags`: the last update switched.",
         MATCH_SEARCHED: "`MATCH_NODE.flags`: the last update searched.",
+        MATCH_MIRRORED: "`MATCH_NODE.flags`: a mirrored copy plays.",
         SAMPLE_PREDICTED: "`MATCH_SAMPLE.kind`: the predicted trajectory.",
         SAMPLE_MATCHED: "`MATCH_SAMPLE.kind`: the playing frame's trajectory.",
     ],
