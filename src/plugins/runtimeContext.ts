@@ -8,7 +8,7 @@ import { _undefineBuiltinSystem, _undefineSystem, defineBuiltinSystem, defineSys
 import { _registerWorldService, type WorldServiceDef } from "../engine/core/worldServices";
 import { _registerRenderFeature, type RenderFeatureRegistration, type RenderFeatureSpec } from "../engine/render/renderFeatures";
 import type { PluginManifest } from "./manifest";
-import type { HalfActivator } from "./pluginSet";
+import type { HalfActivator, PluginsView } from "./pluginSet";
 
 /** A render feature a first-party plugin contributes (ADR 0135). */
 export interface RenderFeatureContribution {
@@ -34,6 +34,12 @@ export interface ContributionPoint<T> {
 }
 
 export interface RuntimePluginContext {
+  /**
+   * The other plugins, as this one sees them (ADR 0374). `plugins.isActive(name)` is read at activation: true when the
+   * plugin is active for this host (and, for a named optional dependency, inside its version range), so the plugin
+   * registers its integration code only then. It activates again when an optional dependency is turned on or off.
+   */
+  readonly plugins: PluginsView;
   /**
    * Claim Components for the plugin. They keep their decorators (`@component`); deactivating the plugin
    * unregisters them, so scene entries for them load as missing Components (ADR 0133).
@@ -113,6 +119,7 @@ function disableRuntimePlugin(plugin: RuntimePlugin): void {
   const undo: Array<() => void> = [];
   disabled.set(name, undo);
   plugin.activate({
+    plugins: { isActive: () => false },
     registerComponents: (classes) => void classes.forEach((cls) => undo.push(unclaim(cls, idOf(cls, name)))),
     registerSystems: () => {},
     registerEngineSystems: () => {},
@@ -126,7 +133,7 @@ function disableRuntimePlugin(plugin: RuntimePlugin): void {
  * Activate one runtime half (its dependencies must be active). Nothing happens when it already is. A
  * half that throws is rolled back and the error rethrown.
  */
-function activateRuntimePlugin(plugin: RuntimePlugin): void {
+function activateRuntimePlugin(plugin: RuntimePlugin, plugins: PluginsView = { isActive: isRuntimePluginActive }): void {
   const name = plugin.manifest.name;
   if (active.has(name)) return;
   manifests.set(name, plugin.manifest);
@@ -135,6 +142,7 @@ function activateRuntimePlugin(plugin: RuntimePlugin): void {
   const undo: Array<() => void> = [];
   active.set(name, undo);
   const context: RuntimePluginContext = {
+    plugins,
     registerComponents: (classes) => {
       for (const cls of classes) undo.push(claim(cls, idOf(cls, name)));
     },

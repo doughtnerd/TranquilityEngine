@@ -12,6 +12,7 @@ import type { EditorPlugin } from "../editor/sdk/plugins";
 import { status } from "../editor/state";
 import { EDITOR_PLUGINS } from "./editor";
 import { editorActivator } from "./editorActivator";
+import { pluginNotices } from "./pluginNotices";
 import { createPluginSet, type ApplyResult, type PluginSetProblem, type SetPlugin } from "./pluginSet";
 import { RUNTIME_PLUGINS } from "./runtime";
 import { runtimeActivator, type RuntimePlugin } from "./runtimeContext";
@@ -51,6 +52,7 @@ export function applyEditorPlugins(disabled: Iterable<string> | undefined, optio
   if (options.thirdParty) thirdParty = options.thirdParty;
   const result = editorPlugins.apply({ plugins: [...firstPartyPlugins(), ...thirdParty], disabled, host: { editor: true }, keepRuntime: options.keepRuntime });
   for (const p of result.problems) console.error(`[editor] ${p.message}`);
+  pluginNotices.value = result.notices;
   if (options.layout === "live") layout.value = parseLayout(layout.value, registeredPanels()) ?? layout.value;
   return result;
 }
