@@ -2,7 +2,11 @@
 // keyframe (Music ducked), the Voice panel for a stolen and a missing voice, Why it played with its note, Messages in
 // time order with a click picking a row, the empty states, and Record offered, blocked and recording.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
-import { expect, fn, userEvent, within } from "storybook/test";
+import { expect, fn, userEvent, waitFor, within } from "storybook/test";
+import { DockLayout } from "../../../editor/layout/DockLayout";
+import { screenDock } from "../../shell/studioPanels";
+import { PROFILER_PANELS } from ".";
+import "../../studio.css";
 import { namesFromStart } from "../../../plugins/audio/runtime/capture/testSupport";
 import { GEN_CLIP_ID_FIRST } from "../../../plugins/audio/runtime/wire.generated";
 import { buildMessages } from "./messagesModel";
@@ -143,7 +147,46 @@ export const ReplayCapture: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByText("canyon_run_01.mycotake")).toBeVisible();
-    await userEvent.click(c.getByRole("button", { name: "Open in Take" }));
+    const open = c.getByRole("button", { name: "Open in Take" });
+    await expect(open).toHaveAttribute("title", "Open canyon_run_01 in Take at the same playhead");
+    await userEvent.click(open);
     await expect(openTake).toHaveBeenCalledWith("takes/HoverBike/canyon_run_01.mycotake");
+  },
+};
+
+/** The project doesn't have the take the replay capture names: no "Open in Take" to a take that isn't there. */
+export const ReplayOfAMissingTake: Story = {
+  render: () => <ReplayOrigin take={{ path: "takes/gone.mycotake", audioHash: "5f3a90c1" }} />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByText("gone.mycotake")).toBeVisible();
+    await expect(c.queryByRole("button", { name: "Open in Take" })).toBeNull();
+  },
+};
+
+export const DefaultDock: Story = {
+  render: () => {
+    // The screen's real panel list and default layout, each panel's view a stand-in (the views need the running app).
+    const dock = screenDock("profiler", PROFILER_PANELS.map((p) => ({ ...p, view: () => <p>{p.title}</p> })));
+    dock.store.reset();
+    return (
+      <div class="studio" style={{ width: "1400px", height: "800px", gridTemplateRows: "1fr", gridTemplateAreas: '"main"' }}>
+        <main class="studio-dock">
+          <DockLayout host={dock.host} view={(type) => dock.panels.get(type)?.view() ?? null} />
+        </main>
+      </div>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await waitFor(() => expect(c.getByRole("tab", { name: "At cursor" }).closest<HTMLElement>(".dock-tabs")!.clientWidth).toBeGreaterThan(0));
+    await new Promise((r) => setTimeout(r, 200));
+    // Spec §4.6.1: At cursor and Voice on the right, Why it played below beside Messages; every tab shows whole.
+    const dockOf = (title: string) => c.getByRole("tab", { name: title }).closest(".dock-group")?.className;
+    await expect(dockOf("Voice")).toBe(dockOf("At cursor"));
+    await expect(dockOf("Why it played")).toBe(dockOf("Messages"));
+    await expect(dockOf("Why it played")).not.toBe(dockOf("Voice"));
+    for (const p of PROFILER_PANELS) await expect(c.getByRole("tab", { name: p.title })).toBeVisible();
+    await expect(c.queryByRole("button", { name: "More tabs" })).toBeNull();
   },
 };

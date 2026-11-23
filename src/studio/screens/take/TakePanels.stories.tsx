@@ -251,12 +251,13 @@ export const InThisTake: Story = {
   },
 };
 
+const openPlaylist = fn();
+
 export const InThisTakeOpens: Story = {
-  args: { onOpen: fn() },
-  render: (args) => <div style={{ width: "240px" }}><PlaylistsInTake rows={[{ path: "audio/events/boost.playlist.json", label: "events / boost", count: 2 }]} onOpen={args.onOpen as (p: string) => void} /></div>,
-  play: async ({ canvasElement, args }) => {
+  render: () => <div style={{ width: "240px" }}><PlaylistsInTake rows={[{ path: "audio/events/boost.playlist.json", label: "events / boost", count: 2 }]} onOpen={openPlaylist} /></div>,
+  play: async ({ canvasElement }) => {
     await userEvent.click(within(canvasElement).getByRole("button", { name: /events \/ boost/ }));
-    await expect(args.onOpen).toHaveBeenCalledWith("audio/events/boost.playlist.json");
+    await expect(openPlaylist).toHaveBeenCalledWith("audio/events/boost.playlist.json");
   },
 };
 

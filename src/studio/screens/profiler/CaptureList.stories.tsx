@@ -34,6 +34,9 @@ export const ByFolder: Story = {
 export const Search: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
+    // The search field uses the editor's field tokens, not the browser's inset default.
+    const field = getComputedStyle(c.getByRole("searchbox", { name: "Search captures" }));
+    await expect([field.borderTopWidth, field.borderTopStyle, field.fontSize]).toEqual(["1px", "solid", "12px"]);
     await userEvent.type(c.getByRole("searchbox", { name: "Search captures" }), "slot");
     const tree = c.getByRole("tree", { name: "Matching captures" });
     await expect(within(tree).getAllByRole("treeitem").map((r) => r.textContent?.trim())).toEqual(["captures/Tablet/slot 06.mycap", "captures/Test PC/slot 07.mycap"]);

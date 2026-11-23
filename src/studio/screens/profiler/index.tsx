@@ -1,5 +1,5 @@
 // The Profiler screen's panels (ADR 0348 "The Profiler screen", ADR 0341 "The shell"; the prototype's layout): Captures
-// (left), the Timeline (the fixed panel), At cursor, Voice and Why it played (right), Messages (bottom). The panels read
+// (left), the Timeline (the fixed panel), At cursor and Voice (right), Messages and Why it played (bottom). The panels read
 // the screen's store (`profilerScreen.ts`); the Timeline panel also owns what the screen does while it shows: opening
 // the capture the route names, the cursor keys (← → step, Shift+← → markers) and the player bar's slots (the capture
 // playing and the Record button).
@@ -16,8 +16,9 @@ import { recorderStatus } from "./captureRecorder";
 import { isCapturePath, NO_CAPTURES } from "./captureTree";
 import { CURSOR_KEYS } from "./cursorKeys";
 import { messageCounts } from "./messagesModel";
-import { AtCursor, MessageList, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
-import { deleteCapture, importCaptures, moveCapture, openCapture, profilerRecorder, profilerStore, renameCapture } from "./profilerScreen";
+import { AtCursor, MessageList, OpenInTake, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
+import { deleteCapture, importCaptures, moveCapture, openCapture, openInTake, profilerRecorder, profilerStore, renameCapture } from "./profilerScreen";
+import { takeOfCapture } from "./reviewLink";
 import { ProfilerTimeline } from "./ProfilerTimeline";
 import { PluginHealth } from "./PluginHealth";
 import { resetPluginEffect, usePluginHealth } from "../../components/EffectChainHealth";
@@ -108,13 +109,14 @@ function TimelinePanel() {
   const store = profilerStore();
   const s = store.state.value;
   const data = store.data.value;
+  const take = useCaptureTake();
   const toolbar = (
     <div class="pf-toolbar">
       <button type="button" class={`pf-toggle${store.problemsOnly.value ? " on" : ""}`} aria-pressed={store.problemsOnly.value} onClick={() => (store.problemsOnly.value = !store.problemsOnly.value)} title="Show only voice lanes with a stolen, blocked, missing or refused voice">
         <Icon name="filter" size={14} /> Problems only
       </button>
       <SegmentedControl<GroupBy> size="small" label="Group voices" options={GROUPS} value={store.groupBy.value} onChange={(v) => (store.groupBy.value = v)} />
-      {s.kind === "open" && s.replayOf && <ReplayOrigin take={s.replayOf} onOpenTake={(path) => openRoute({ screen: "take", asset: path })} />}
+      {s.kind === "open" && s.replayOf ? <ReplayOrigin take={s.replayOf} onOpenTake={take ? openInTake : undefined} /> : take && <OpenInTake take={take} onOpen={openInTake} />}
       {data && <span class="pf-counts" role="status">{countsText(data.messages)}</span>}
     </div>
   );
@@ -169,10 +171,23 @@ function VoicePanel() {
   );
 }
 
+/** The take the open capture is backed by, when the project has it (`reviewLink.ts`): "Open in Take" is offered for it. */
+function useCaptureTake(): string | null {
+  void docVersion.value; // the project's file list grows and shrinks with it
+  const take = takeOfCapture(profilerStore().state.value);
+  return take && currentProject.value?.files.includes(take) ? take : null;
+}
+
 function WhyPanel() {
+  const take = useCaptureTake();
   return (
     <Panel bodyClass="pf-panel-body">
       <WhyItPlayed voice={profilerStore().selectedVoice.value} onOpen={(screen, target) => openRoute(screen === "mixer" ? { screen, select: target } : { screen })} />
+      {take && (
+        <p class="pf-why-take">
+          <OpenInTake take={take} onOpen={openInTake} />
+        </p>
+      )}
     </Panel>
   );
 }
@@ -211,7 +226,9 @@ export const PROFILER_PANELS: readonly StudioPanel[] = [
   { id: "profiler-timeline", title: "Timeline", dock: "fill", fixed: true, view: () => <TimelinePanel /> },
   { id: "profiler-cursor", title: "At cursor", dock: "right", view: () => <CursorPanel /> },
   { id: "profiler-voice", title: "Voice", dock: "right", view: () => <VoicePanel /> },
-  { id: "profiler-why", title: "Why it played", dock: "right", view: () => <WhyPanel /> },
+  // Spec §4.6.1: Why it played sits below, with Messages, so Voice and Why show together (the right dock keeps At cursor
+  // and Voice, whose tabs fit it).
   { id: "profiler-messages", title: "Messages", dock: "bottom", view: () => <MessagesPanel /> },
+  { id: "profiler-why", title: "Why it played", dock: "bottom", view: () => <WhyPanel /> },
   { id: "profiler-plugins", title: "Plugins", dock: "bottom", view: () => <PluginsPanel /> },
 ];

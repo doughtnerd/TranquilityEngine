@@ -142,10 +142,16 @@ class TakeScreen {
     return true;
   }
 
-  /** "Profile this replay": the Profiler records the Studio's runtime while the take replays (ADR 0348). */
+  /**
+   * "Profile this replay": the Profiler records the Studio's runtime while the take replays (ADR 0348), from the take's
+   * start, so the replay capture's clock is the take's and the two screens share one review position (`reviewLink.ts`).
+   */
   profileReplay(): void {
     const open = replayStore().open.peek();
-    if (open && !open.replay.playing.peek()) open.replay.play();
+    if (open) {
+      open.replay.seek(0);
+      if (!open.replay.playing.peek()) open.replay.play();
+    }
     openRoute({ screen: "profiler" });
     void profilerRecorder().start();
   }

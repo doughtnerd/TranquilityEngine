@@ -14,6 +14,7 @@ import { audioHost, openRoute } from "../../shell/studioServices";
 import { CaptureRecorder } from "./captureRecorder";
 import { CAPTURES_FOLDER, whyNotCaptureFile } from "./captureTree";
 import { ProfilerStore } from "./profilerStore";
+import { linkReview } from "./reviewLink";
 
 let store: ProfilerStore | null = null;
 let recorder: CaptureRecorder | null = null;
@@ -28,10 +29,16 @@ async function readProjectFile(path: string): Promise<ArrayBuffer> {
   return res.arrayBuffer();
 }
 
-/** The screen's store. */
+/** The screen's store; its cursor and the open take's replay are one review position (`reviewLink.ts`) for the page's life. */
 export function profilerStore(): ProfilerStore {
-  return (store ??= new ProfilerStore({ open: (bytes) => CaptureSource.openFile(bytes), readFile: readProjectFile }));
+  if (store) return store;
+  store = new ProfilerStore({ open: (bytes) => CaptureSource.openFile(bytes), readFile: readProjectFile });
+  linkReview(store, replayStore());
+  return store;
 }
+
+/** Open in Take: the take on the Take screen at the Profiler's position (the review link seeks it once it is open). */
+export const openInTake = (path: string): void => openRoute({ screen: "take", asset: path });
 
 /** Write capture bytes into the project's captures folder (never over a file); resolves with the path written. */
 async function writeCapture(path: string, bytes: Uint8Array): Promise<string> {
