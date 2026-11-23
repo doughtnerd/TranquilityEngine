@@ -51,3 +51,8 @@ Wave results, measurements (marked measured or estimated) and gate changes.
 - **Memory:** "memory needed" for 128 instances × 64 bones is 7.2 → 15.8 MB (frame caches, about 9 KB per slot at 80 bones).
 - **Remaining profile of the budget scene:** decoding about 35%, graph dispatch about 10%, tracks 4%, model space 4%. Next candidates: decode only bones a masked slot uses, a cheaper `ClipRef`, threads (0370 says to reconsider them if budgets fail; owner decision).
 - **Phase R totals:** 530 Rust tests, 37 Vitest tests in the animation plugin, all green. The 0370 machine (Ryzen AI Max+ 395) hasn't been used for these measurements; the shared container is slower and noisy.
+
+## Phase B
+
+- **Gate A (2026-11-23):** master merged with the Audio Studio at `22410cbb`; records renumbered to 0370–0377 (D84). B0 findings are in plan.md.
+- **T07 merged** (B-W1): the refused-or-next module (`src/editor/sdk/editResult.ts`, the union of the audio and localisation copies), `parameterList.ts` and `ParameterCard.tsx` moved into the editor SDK and exported from its barrel; 53 imports rewritten; 1,031 tests in the touched folders pass. The 0326 profiler table kit no longer exists in the tree (its README and status rows cite a removed path); T34 decides where the Animation profiler table goes. Agent time about 6 minutes.
