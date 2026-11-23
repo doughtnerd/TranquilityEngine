@@ -10,6 +10,12 @@ const ENGINE_CATEGORIES = ["Rendering", "Physics 2D", "Physics 3D", "Navigation"
 
 /** The category of each built-in component, by its short name (`engine.` stripped). Navigation is by the `Nav` prefix. */
 const BY_NAME: Readonly<Record<string, string>> = {
+  Animator: "Animation",
+  BoneAttachment: "Animation",
+  Skeleton: "Animation",
+  Skeleton2D: "Animation",
+  SkinnedMeshRenderer: "Rendering",
+  TimelineDirector: "Animation",
   Camera: "Rendering",
   InputContext: "Input",
   MeshRenderer: "Rendering",
