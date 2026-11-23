@@ -72,3 +72,4 @@ Wave results, measurements (marked measured or estimated) and gate changes.
 - **Coordinator fix:** T30 found an automatic slot blend-out cleared the play without `SlotFinished`; fixed in `anim-graph/src/slots.rs` with a test (`a_slot_that_blends_out_on_its_own_reports_finished_once`). 533 Rust tests pass.
 - **T14 merged:** import; agent time about 48 minutes.
 - **Coordinator fix:** T43's scene-format bump to 5 left the samples at format 4, so `editor/document/document.test.ts` (14 tests) failed after B-W2: every sample project was rewritten with `npm run rewrite` (55 files, reformatted to the editor layout).
+- **T18 merged** (B-W6): editor M1; 335 tests in the touched folders pass after wiring the drop to T14's `ModelData.animation.clips` and updating `scenePreload.test.ts` for format 5. Agent time about 35 minutes.
