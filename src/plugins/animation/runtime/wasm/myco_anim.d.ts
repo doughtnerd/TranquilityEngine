@@ -298,6 +298,11 @@ export function snapshot_bytes(handle: number): number;
 export function source_hash(): string;
 
 /**
+ * The last `evaluate`'s counters' byte offset in memory (`STATS_WORDS` u32 words, profiler).
+ */
+export function stats_ptr(): number;
+
+/**
  * Timeline instances evaluated this frame.
  */
 export function timeline_active_count(): number;
@@ -510,6 +515,7 @@ export interface InitOutput {
     readonly snapshot: (a: number, b: number, c: number, d: any) => number;
     readonly snapshot_bytes: (a: number) => number;
     readonly source_hash: () => [number, number];
+    readonly stats_ptr: () => number;
     readonly timeline_active_count: () => number;
     readonly timeline_active_ptr: () => number;
     readonly timeline_bind: (a: number, b: number, c: number, d: number) => number;

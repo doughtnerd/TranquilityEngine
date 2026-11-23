@@ -7,7 +7,7 @@ import type { Engine } from "../engine";
 import type { World } from "../engine/core/World";
 import { type EngineTiming, engineWorld, nodeCount, renderDiagnostics, type RenderStats } from "../engine/editor";
 import { FrameWindow, type FrameSummary } from "./frameWindow";
-import { playStatsCounters } from "./sdk/contributions";
+import { playStatsCounters, playStatsTables, type PlayStatsRow } from "./sdk/contributions";
 
 /** One World's phase times (ms), averaged over the frames since the last read. */
 export interface PhaseTimes {
@@ -69,6 +69,8 @@ export interface WorldStats {
   readonly nodes: number;
   /** Plugins' counts for the World (ADR 0146), in registration order; a counter with nothing to show (null) is left out. */
   readonly counters: readonly { readonly label: string; readonly value: number }[];
+  /** Plugins' tables for the World (T34), in registration order; a table with nothing to show (null) is left out. */
+  readonly tables: readonly { readonly title: string; readonly rows: readonly PlayStatsRow[] }[];
 }
 
 export interface StatsSnapshot {
@@ -96,6 +98,16 @@ function counters(world: World): { label: string; value: number }[] {
   return out;
 }
 
+/** The registered play stats tables' rows for `world`. */
+function tables(world: World): { title: string; rows: readonly PlayStatsRow[] }[] {
+  const out: { title: string; rows: readonly PlayStatsRow[] }[] = [];
+  for (const t of playStatsTables.list()) {
+    const rows = t.rows(world);
+    if (rows && rows.length) out.push({ title: t.title, rows });
+  }
+  return out;
+}
+
 /** Read everything the panel shows, now. */
 export function takeSnapshot(engine: Engine, collector: StatsCollector): StatsSnapshot {
   const { step, worlds: phases } = collector.takePhases();
@@ -103,7 +115,7 @@ export function takeSnapshot(engine: Engine, collector: StatsCollector): StatsSn
   for (const h of engine.worlds()) {
     const world = engineWorld(engine, h.name);
     if (!world) continue;
-    worlds.push({ name: h.name, paused: h.paused, phases: phases.get(h.name) ?? null, render: renderDiagnostics(world)?.stats ?? null, nodes: nodeCount(world), counters: counters(world) });
+    worlds.push({ name: h.name, paused: h.paused, phases: phases.get(h.name) ?? null, render: renderDiagnostics(world)?.stats ?? null, nodes: nodeCount(world), counters: counters(world), tables: tables(world) });
   }
   return { frame: collector.frames.summary(collector.now()), stepMs: step, heap: jsHeap(), worlds };
 }

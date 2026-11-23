@@ -52,3 +52,4 @@
 .play-stats td.sub { color: var(--muted); text-align: left; }
 .play-stats td[colspan] { text-align: left; }
 .play-stats .world-head th { padding-top: 4px; color: var(--text); font-weight: 600; }
+.play-stats .plugin-table-head th { padding-top: 3px; color: var(--text); font-weight: 600; }

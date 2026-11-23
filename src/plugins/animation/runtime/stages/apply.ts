@@ -33,7 +33,9 @@ const APPLY: readonly StageStep[] = [
 
 /** @internal Run the apply sub-steps for `frame`. */
 export function runApply(frame: AnimationFrame): void {
-  for (const step of APPLY) step(frame);
+  frame.core.meter.time("apply", () => {
+    for (const step of APPLY) step(frame);
+  });
 }
 
 /** @internal The `animation.Apply` system. */

@@ -599,6 +599,26 @@ export interface PlayStatsCounterContribution {
   count(world: World): number | null;
 }
 
+/** One row of a plugin's Play Stats table: a label, a value (already formatted) and an optional muted detail after it. */
+export interface PlayStatsRow {
+  readonly label: string;
+  readonly value: string;
+  readonly detail?: string;
+}
+
+/**
+ * A titled table a plugin adds under a World's rows in the Play Stats panel (T34): the Animation plugin's per-frame
+ * stage times and instance counts, where a one-number counter is too little. Read at the panel's refresh rate (about
+ * 4 Hz) only while the panel shows, so reading may reset the plugin's own averaging period.
+ */
+export interface PlayStatsTableContribution {
+  readonly id: string;
+  /** The table's heading ("Animation"). */
+  readonly title: string;
+  /** The World's rows, or null when it has none to show (no animation in the World, or no frame since the last read). Internal tier: it is given the World. */
+  rows(world: World): readonly PlayStatsRow[] | null;
+}
+
 /**
  * Work done on a scene when the editor opens it, after its nodes are in the scene view (ADR 0146): the
  * Particles plugin moves embedded effects into assets. Run in registration order, one at a time.
@@ -835,6 +855,7 @@ export const componentHeaderActions = createRegistry<ComponentHeaderActionContri
 export const hierarchyCreateEntries = createRegistry<HierarchyCreateContribution>("Hierarchy create entry");
 export const assetActions = createRegistry<AssetActionContribution>("Asset action");
 export const playStatsCounters = createRegistry<PlayStatsCounterContribution>("Play stats counter");
+export const playStatsTables = createRegistry<PlayStatsTableContribution>("Play stats table");
 export const sceneOpenMigrations = createRegistry<SceneOpenMigrationContribution>("Scene open migration");
 export const idlePrefetches = createRegistry<IdlePrefetchContribution>("Idle prefetch");
 export const fieldChoices = createRegistry<FieldChoicesContribution>("Field choices");
