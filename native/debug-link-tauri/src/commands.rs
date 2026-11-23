@@ -1,9 +1,15 @@
-//! The desktop editor's debug link listener (ADR 0376, 0379): a page can't open a server socket, so
-//! the editor's listening `websocket` transport (`src/editor/debugLink/tauriListener.ts`) asks this
-//! module to listen for it. The WebSocket server is `native/ws-listener` (tungstenite on std
+//! The debug link's listener commands (ADR 0376, 0379, 0380), shared by the editor's and the Studio's
+//! Tauri shells: a page can't open a server socket, so the listening `websocket` transport
+//! (`src/engine/debugLink/tauriListener.ts`) asks these commands to listen for it. A shell calls
+//! `.manage(DebugLinkListeners::default())` and lists `myco_debuglink_listen_range`,
+//! `myco_debuglink_listen`, `myco_debuglink_send` and `myco_debuglink_close` in `generate_handler!`
+//! (as `debug_link_tauri::...`). The WebSocket server is `native/ws-listener` (tungstenite on std
 //! threads), which builds and tests without Tauri; this file only turns it into commands.
 //!
-//! - `myco_debuglink_listen(host, port, path, events)` binds and resolves to `{ id, port }`, or
+//! - `myco_debuglink_listen_range(host, firstPort, count, path, events)` binds the first free port of
+//!   `firstPort .. firstPort + count - 1` (a `firstPort` of 0 means any free port, `count` 1) and
+//!   resolves to `{ id, port }` with the port it got, or rejects with why.
+//! - `myco_debuglink_listen(host, port, path, events)` is the single-port form: it binds and resolves to `{ id, port }`, or
 //!   rejects with why ("port 7790 is already in use"). Events (accept, message, close, error) come
 //!   on the `events` channel as raw bytes (`myco_ws_listener::wire`).
 //! - `myco_debuglink_send` takes a raw outbox body (sends and closes, in order) and the listener id
@@ -16,7 +22,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use myco_ws_listener::{Limits, Listener, wire};
+use myco_ws_listener::{Limits, Listener, Sink, wire};
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody, Request};
 use tauri::{State, Webview};
@@ -62,21 +68,73 @@ pub fn myco_debuglink_listen(
             .collect()
     };
     drop(replaced); // dropping closes them and frees the port before binding
-    let sink = Arc::new(move |event: wire::Event| {
+    let listener = Listener::bind(&host, port, &path, Limits::default(), event_sink(events))?;
+    Ok(register(&state, window, listener.port(), listener))
+}
+
+#[tauri::command]
+pub fn myco_debuglink_listen_range(
+    webview: Webview,
+    state: State<'_, DebugLinkListeners>,
+    host: String,
+    first_port: u16,
+    count: u16,
+    path: String,
+    events: Channel<InvokeResponseBody>,
+) -> Result<Listening, String> {
+    let window = webview.label().to_string();
+    let count = if first_port == 0 { 1 } else { count };
+    let last = (first_port as u32 + count.max(1) as u32 - 1).min(u16::MAX as u32);
+    let replaced: Vec<Owned> = {
+        // A reloaded page listens on its old range again: drop its own listeners in the range first.
+        let mut listeners = state.listeners.lock().unwrap();
+        let ids: Vec<u32> = listeners
+            .iter()
+            .filter(|(_, o)| {
+                first_port != 0
+                    && o.window == window
+                    && (first_port as u32..=last).contains(&(o.port as u32))
+            })
+            .map(|(id, _)| *id)
+            .collect();
+        ids.into_iter()
+            .filter_map(|id| listeners.remove(&id))
+            .collect()
+    };
+    drop(replaced);
+    let (listener, port) = Listener::bind_range(
+        &host,
+        first_port,
+        count,
+        &path,
+        Limits::default(),
+        event_sink(events),
+    )?;
+    Ok(register(&state, window, port, listener))
+}
+
+fn event_sink(events: Channel<InvokeResponseBody>) -> Sink {
+    Arc::new(move |event: wire::Event| {
         let _ = events.send(InvokeResponseBody::Raw(wire::encode_event(&event)));
-    });
-    let listener = Listener::bind(&host, port, &path, Limits::default(), sink)?;
-    let bound = listener.port();
+    })
+}
+
+fn register(
+    state: &DebugLinkListeners,
+    window: String,
+    port: u16,
+    listener: Listener,
+) -> Listening {
     let id = state.next_id.fetch_add(1, Ordering::Relaxed) + 1;
     state.listeners.lock().unwrap().insert(
         id,
         Owned {
             window,
-            port: bound,
+            port,
             listener,
         },
     );
-    Ok(Listening { id, port: bound })
+    Listening { id, port }
 }
 
 #[tauri::command]
