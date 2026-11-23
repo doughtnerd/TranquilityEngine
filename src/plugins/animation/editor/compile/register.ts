@@ -5,9 +5,7 @@
 import { effect } from "@preact/signals";
 import { animationSettingsOf } from "../../../../engine/animation/compile/settings";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { EditorPluginContext } from "../../../../editor/sdk";
-import type { EditorProject } from "../../../../editor/projects";
-import { currentProject } from "../../../../editor/state";
+import { editor, type EditorPluginContext, type EditorProject } from "../../../../editor/sdk";
 import { setCompiledClipSource } from "../../runtime/features/clipSources";
 import type { AnimationEditorIntegrations } from "../registration";
 import { ClipCompileCache, memoryClipStore, projectClipStore } from "./cache";
@@ -44,10 +42,10 @@ export function registerCompile(context: EditorPluginContext, _on: AnimationEdit
     view: () => import("./CompressionSettingsSection").then((m) => m.CompressionSettingsSection),
   });
   if (watching) return;
-  // Page-wide, once: the open project's service follows `currentProject` (editor plugins have no deactivation hook).
+  // Page-wide, once: the open project's service follows the open project (editor plugins have no deactivation hook).
   watching = true;
   effect(() => {
-    const project = currentProject.value;
+    const project = editor.project.current;
     if (current?.project === project) return;
     current = project ? { project, service: serviceFor(project) } : null;
     setCompiledClipSource(current?.service ?? null);

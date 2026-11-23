@@ -9,7 +9,7 @@
 //   no request names and requests whose clip is gone (as the thumbnail cache prunes keys no asset uses).
 // - **Store:** `.myco/anim/` in a writable project folder, memory otherwise (the samples, a read-only browser project).
 import type { FileSystem } from "../../../../engine/platform/FileSystem";
-import { joinPath } from "../../../../editor/projectPaths";
+import { editor } from "../../../../editor/sdk";
 import { keyOfCacheFile } from "../../../../engine/animation/compile/keys";
 import type { ClipReport, CompileOutcome } from "./compiler";
 
@@ -28,8 +28,8 @@ export const CLIP_CACHE_FOLDER = ".myco/anim";
 
 /** @internal The project folder's `.myco/anim/`. */
 export function projectClipStore(fs: FileSystem, root: string): ClipStore {
-  const dir = joinPath(root, CLIP_CACHE_FOLDER);
-  const file = (name: string) => joinPath(dir, name);
+  const dir = editor.project.joinPath(root, CLIP_CACHE_FOLDER);
+  const file = (name: string) => editor.project.joinPath(dir, name);
   let made = false;
   return {
     where: dir,
