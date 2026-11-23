@@ -9,6 +9,7 @@
 // an edit plays the new version. Only the latest versions are kept in the source.
 import type { AnimSource } from "../../../../engine/animation/animSource";
 import { animSourceToJson } from "../../../../engine/animation/animSource";
+import { timelineToJson, TIMELINE_FORMAT, TIMELINE_SUFFIX, type Timeline } from "../../../../engine/animation/timeline";
 import { Assets, type AssetSource } from "../../../../engine/scene/Assets";
 import type { Animator } from "../../runtime/components/Animator";
 
@@ -21,14 +22,19 @@ export class ClipPreviewPlayer {
   private readonly files = new Map<string, unknown>();
   private readonly source: AssetSource = { has: (p) => this.files.has(p), get: (p) => this.files.get(p), paths: () => this.files.keys() };
   private version = 0;
-  private last: { clip: AnimSource; path: string } | null = null;
+  private last: { clip: AnimSource | Timeline; path: string } | null = null;
 
-  /** The path the current version of `clip` is served at (a new one when `clip` is a new value). */
-  pathOf(clip: AnimSource, file = "clip.anim.json"): string {
+  /**
+   * The path the current version of `clip` is served at (a new one when `clip` is a new value). A timeline (the Timeline
+   * window, T53) is served the same way under its own ending.
+   */
+  pathOf(clip: AnimSource | Timeline, file = "clip.anim.json"): string {
     if (this.last?.clip === clip) return this.last.path;
-    const name = file.slice(file.lastIndexOf("/") + 1) || "clip.anim.json";
-    const path = `${ROOT}/${++this.version}/${name.toLowerCase().endsWith(".anim.json") ? name : `${name}.anim.json`}`;
-    this.files.set(path, animSourceToJson(clip));
+    const timeline = clip.format === TIMELINE_FORMAT;
+    const suffix = timeline ? TIMELINE_SUFFIX : ".anim.json";
+    const name = file.slice(file.lastIndexOf("/") + 1) || `clip${suffix}`;
+    const path = `${ROOT}/${++this.version}/${name.toLowerCase().endsWith(suffix) ? name : `${name}${suffix}`}`;
+    this.files.set(path, clip.format === TIMELINE_FORMAT ? timelineToJson(clip) : animSourceToJson(clip));
     while (this.files.size > KEPT) this.files.delete(this.files.keys().next().value!);
     this.last = { clip, path };
     if (!Assets.has(path)) Assets.addSource(this.source); // first use, or the sources were cleared

@@ -29,7 +29,23 @@ export interface DopeSpan {
   readonly from: number;
   readonly to: number;
   readonly label: string;
+  /** Drawn as a blend region (clips overlapping): over the bars, hatched, instead of a faint span in the row's colour. */
+  readonly blend?: boolean;
 }
+
+/** A range drawn on a row as a bar that can be selected, moved, trimmed at its ends and opened (the Timeline window's clips). */
+export interface DopeBar {
+  readonly id: string;
+  readonly from: number;
+  readonly to: number;
+  readonly label: string;
+  /** Ease-in and ease-out lengths in seconds, drawn as handles inside the bar's ends (a clip's blend in and out). */
+  readonly easeIn?: number;
+  readonly easeOut?: number;
+}
+
+/** Which part of a bar a drag holds: its body (move), an end (trim), or an ease handle. */
+export type DopeBarPart = "move" | "start" | "end" | "easeIn" | "easeOut";
 
 /** One row of the grid. */
 export interface DopeRow {
@@ -46,6 +62,8 @@ export interface DopeRow {
   readonly title?: string;
   readonly keys: readonly DopeKey[];
   readonly spans?: readonly DopeSpan[];
+  /** Selectable bars (clips); their ids join the key ids in the selection and the box select. */
+  readonly bars?: readonly DopeBar[];
 }
 
 /** How a selection click combines with what is selected. */
@@ -77,6 +95,13 @@ export interface DopeSheetGridProps {
    */
   onDrag?(phase: "start" | "move" | "end" | "cancel", dx: number, alt: boolean, key: string): void;
   onKeyMenu?(id: string, at: { x: number; y: number }): void;
+  /**
+   * Bar `id`'s `part` is dragged by `dx` seconds from where the drag began (`alt`: no snapping). Pressing a bar selects it
+   * first (as for keys); `onSelect` reports it. At "start" the bar is in the selection.
+   */
+  onBarDrag?(phase: "start" | "move" | "end" | "cancel", part: DopeBarPart, dx: number, alt: boolean, id: string): void;
+  /** A bar is double-clicked (a nested timeline opens). */
+  onBarOpen?(id: string): void;
   /** Something after a row's name (a remove button). */
   aside?(row: DopeRow): ComponentChildren;
 }
@@ -90,6 +115,7 @@ export function DopeSheetGrid(props: DopeSheetGridProps) {
   const grid = useRef<HTMLDivElement>(null);
   const ruler = useRef<{ rect: DOMRect; x0: number; px: number; dragged: boolean } | null>(null);
   const drag = useRef<{ rect: DOMRect; x0: number; moved: boolean } | null>(null);
+  const barDrag = useRef<{ rect: DOMRect; x0: number; moved: boolean; part: DopeBarPart } | null>(null);
   const box = useRef<{ x: number; y: number; row: string; mode: DopeSelectMode } | null>(null);
   const [marquee, setMarquee] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
   const timeAt = (clientX: number, rect: DOMRect) => ((clientX - rect.left) / (rect.width || 1)) * len;
@@ -199,7 +225,57 @@ export function DopeSheetGrid(props: DopeSheetGridProps) {
             }}
           >
             {range && <div class="ce-range-faint" style={{ left: pc(range[0]), width: pc(range[1] - range[0]) }} />}
-            {row.spans?.map((s) => <div key={s.id} class="ce-span" style={{ left: pc(s.from), width: pc(s.to - s.from), background: color }} title={s.label} />)}
+            {row.spans?.map((s) => <div key={s.id} class={`ce-span${s.blend ? " blend" : ""}`} style={{ left: pc(s.from), width: pc(s.to - s.from), ...(s.blend ? {} : { background: color }) }} title={s.label} />)}
+            {row.bars?.map((b) => {
+              const on = props.selected.has(b.id);
+              const len = b.to - b.from || 1;
+              /** Pointer handlers of one part: pressing selects the bar (a body press as a key press does), then the drag reports offsets. */
+              const part = (p: DopeBarPart) => ({
+                onPointerDown: (e: PointerEvent) => {
+                  if (e.button !== 0) return;
+                  e.stopPropagation();
+                  e.preventDefault();
+                  const mode = p === "move" ? modeOf(e) : "replace";
+                  if (mode !== "replace" || !on) props.onSelect([b.id], mode);
+                  if (mode === "toggle" && on) return;
+                  const rect = (e.currentTarget as HTMLElement).closest<HTMLElement>(".ce-drow")!.getBoundingClientRect();
+                  (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+                  barDrag.current = { rect, x0: timeAt(e.clientX, rect), moved: false, part: p };
+                  props.onBarDrag?.("start", p, 0, e.altKey, b.id);
+                },
+                onPointerMove: (e: PointerEvent) => {
+                  const d = barDrag.current;
+                  if (!d || d.part !== p) return;
+                  d.moved = true;
+                  props.onBarDrag?.("move", p, timeAt(e.clientX, d.rect) - d.x0, e.altKey, b.id);
+                },
+                onPointerUp: (e: PointerEvent) => {
+                  const d = barDrag.current;
+                  if (!d || d.part !== p) return;
+                  barDrag.current = null;
+                  props.onBarDrag?.(d.moved ? "end" : "cancel", p, d.moved ? timeAt(e.clientX, d.rect) - d.x0 : 0, e.altKey, b.id);
+                },
+                onPointerCancel: () => {
+                  const d = barDrag.current;
+                  if (!d || d.part !== p) return;
+                  barDrag.current = null;
+                  props.onBarDrag?.("cancel", p, 0, false, b.id);
+                },
+              });
+              return (
+                <div key={b.id} class={`ce-bar${on ? " on" : ""}`} style={{ left: pc(b.from), width: pc(b.to - b.from), borderColor: color, background: on ? color : undefined }}>
+                  {b.easeIn ? <div class="ce-bar-ease in" style={{ width: `${Math.min(100, (b.easeIn / len) * 100)}%` }} aria-hidden="true" /> : null}
+                  {b.easeOut ? <div class="ce-bar-ease out" style={{ width: `${Math.min(100, (b.easeOut / len) * 100)}%` }} aria-hidden="true" /> : null}
+                  <button type="button" data-key={b.id} class="ce-bar-body" aria-label={b.label} aria-pressed={on} title={b.label} onDblClick={() => props.onBarOpen?.(b.id)} {...part("move")}>
+                    <span class="ce-bar-label">{b.label}</span>
+                  </button>
+                  <span class="ce-bar-trim start" title="Drag to trim the start" {...part("start")} />
+                  <span class="ce-bar-trim end" title="Drag to trim the end" {...part("end")} />
+                  <span class="ce-bar-handle in" style={{ left: `${Math.min(100, ((b.easeIn ?? 0) / len) * 100)}%` }} title="Drag to set the ease-in" {...part("easeIn")} />
+                  <span class="ce-bar-handle out" style={{ right: `${Math.min(100, ((b.easeOut ?? 0) / len) * 100)}%` }} title="Drag to set the ease-out" {...part("easeOut")} />
+                </div>
+              );
+            })}
             {props.ghosts?.map((g, i) => <div key={`g${i}`} class="ce-drow-ghost" style={{ left: pc(g) }} aria-hidden="true" />)}
             <div class="ce-drow-playhead" style={{ left: pc(playhead) }} />
             {row.keys.map((k) => {

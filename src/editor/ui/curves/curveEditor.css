@@ -137,6 +137,22 @@
 .ce-dia { position: absolute; top: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; padding: 0; transform: rotate(45deg); border: 2px solid; border-radius: 0; background: var(--panel); cursor: ew-resize; touch-action: none; z-index: 2; }
 .ce-drow.heading { background: var(--surface); }
 .ce-span { position: absolute; top: 7px; bottom: 7px; opacity: 0.35; border-radius: 2px; pointer-events: none; }
+.ce-span.blend { top: 2px; bottom: 2px; opacity: 1; z-index: 1; border: 1px dashed var(--text); background: repeating-linear-gradient(135deg, var(--accent-soft) 0 4px, transparent 4px 8px); }
+/* Bars (clips): a body that moves, trim zones at the ends and ease handles inside them. */
+.ce-bar { position: absolute; top: 3px; bottom: 3px; min-width: 6px; box-sizing: border-box; border: 1px solid; border-radius: 3px; background: var(--panel); z-index: 1; }
+.ce-bar.on { color: var(--accent-text); }
+.ce-bar-body { position: absolute; inset: 0; display: block; padding: 0 8px; border: 0; border-radius: 2px; background: none; color: inherit; text-align: left; cursor: grab; touch-action: none; overflow: hidden; }
+.ce-bar-body:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.ce-bar-label { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: calc(11px * var(--ui-scale)); line-height: 16px; color: var(--text); pointer-events: none; }
+.ce-bar.on .ce-bar-label { color: var(--accent-text); }
+.ce-bar-trim { position: absolute; top: 0; bottom: 0; width: 6px; cursor: ew-resize; touch-action: none; z-index: 2; }
+.ce-bar-trim.start { left: -3px; }
+.ce-bar-trim.end { right: -3px; }
+.ce-bar-ease { position: absolute; top: 0; bottom: 0; background: var(--accent-soft); pointer-events: none; }
+.ce-bar-ease.in { left: 0; clip-path: polygon(0 100%, 100% 0, 100% 100%); }
+.ce-bar-ease.out { right: 0; clip-path: polygon(0 0, 100% 100%, 0 100%); }
+.ce-bar-handle { position: absolute; top: -3px; width: 8px; height: 8px; margin-left: -4px; border: 1px solid var(--accent); border-radius: 50%; background: var(--panel); cursor: ew-resize; touch-action: none; z-index: 3; }
+.ce-bar-handle.out { margin-left: 0; margin-right: -4px; }
 .ce-ghost-flag { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--muted); pointer-events: none; }
 .ce-drow-ghost { position: absolute; top: 0; bottom: 0; border-left: 1px dashed var(--border); pointer-events: none; }
 .ce-marquee { position: absolute; z-index: 3; border: 1px solid var(--accent); background: var(--accent-faint); pointer-events: none; }
