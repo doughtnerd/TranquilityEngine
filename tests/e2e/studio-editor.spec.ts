@@ -1,6 +1,6 @@
 import { expect, play, test } from "./fixtures";
 import { installFakeFolders, listFolder, nextFolder, readFileBytes } from "./fakeFolders";
-import { openStudioFolder, startStudioAudio, studioScreen, studioStatus, trackErrors, type StudioFiles } from "./studio";
+import { openStudioFolder, showPanel, startStudioAudio, studioScreen, studioStatus, trackErrors, type StudioFiles } from "./studio";
 
 // The editor and the Audio Studio together (ADR 0341, 0348): the editor's Record take and Record capture on the Play
 // toolbar save a take and a capture into the project folder; the Assets panel's Open in Audio Studio opens the Studio's
@@ -13,25 +13,25 @@ test("Record take and capture from Play, Open in Audio Studio, then the Studio r
   const errors = trackErrors(page);
   await installFakeFolders(page);
   await page.goto("/editor.html");
-  // A writable copy of the Flappy sample (its music prefab plays the town playlist on awake).
-  await nextFolder(page, "MyFlappy");
-  await page.getByRole("dialog", { name: "Start" }).locator(".sample", { hasText: "Flappy Bird" }).getByRole("button", { name: "Make a Copy…" }).click();
+  // A writable copy of the Sound Lab sample (its key 1 plays two one-shots).
+  await nextFolder(page, "MyLab");
+  await page.getByRole("dialog", { name: "Start" }).locator(".sample", { hasText: "Sound Lab" }).getByRole("button", { name: "Make a Copy…" }).click();
   const migrate = page.getByRole("alertdialog");
-  const opened = page.locator(".project-name", { hasText: "flappy" });
+  const opened = page.locator(".project-name", { hasText: "sound-lab" });
   await expect(migrate.or(opened).first()).toBeVisible({ timeout: 30_000 });
   if (await migrate.isVisible()) await migrate.getByRole("button", { name: "Migrate" }).click();
   await expect(opened).toBeVisible({ timeout: 30_000 });
 
-  // Open in Audio Studio on the playlist: the Studio's page opens on the project, the Playlists screen and the file.
+  // Open in Audio Studio on a sound: the Studio's page opens on the project, the Samples screen and the file.
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   const assets = page.locator(".panel.assets");
-  await assets.locator(".asset-folder", { hasText: /^music$/ }).click();
-  await assets.locator(".asset-item", { has: page.locator(".asset-name", { hasText: /^town\.playlist\.json$/ }) }).click({ button: "right" });
+  await assets.locator(".asset-folder", { hasText: /^audio$/ }).first().click();
+  await assets.locator(".asset-item", { has: page.locator(".asset-name", { hasText: /^click\.wav$/ }) }).click({ button: "right" });
   const popup = context.waitForEvent("page");
   await page.getByRole("menuitem", { name: "Open in Audio Studio" }).click();
   const studioTab = await popup;
   await studioTab.waitForLoadState();
-  expect(decodeURIComponent(studioTab.url())).toMatch(/\/studio\.html\?project=\/MyFlappy.*#\/playlists.*music\/town\.playlist\.json/);
+  expect(decodeURIComponent(studioTab.url())).toMatch(/\/studio\.html\?project=\/MyLab#\/samples.*audio\/click\.wav/);
   await studioTab.close();
 
   // Play, start the audio with a click in the game view, record a take and a capture for a few seconds, then stop both.
@@ -43,23 +43,29 @@ test("Record take and capture from Play, Open in Audio Studio, then the Studio r
   await take.click();
   await capture.click();
   await expect(take).toHaveAttribute("aria-pressed", "true");
-  await page.waitForTimeout(3_000); // the recording's length: the music plays meanwhile
+  // A take records what the game asks while it runs: key 1 plays the click and the beep (playOneShot) on the UI bus.
+  // Pressed every quarter second, the beeps (0.25 s each) cover the take, so the replay's voices show in the Studio's
+  // status bar, which reads the voice count twice a second.
+  for (let i = 0; i < 12; i++) {
+    await page.keyboard.press("1");
+    await page.waitForTimeout(250);
+  }
   await take.click();
   await capture.click();
-  await expect.poll(async () => (await listFolder(page, "MyFlappy")).filter((f) => /^takes\/.+\.mycotake$/.test(f) || /^captures\/.+\.mycap$/.test(f)).length, { timeout: 30_000 }).toBe(2);
-  const files = await listFolder(page, "MyFlappy");
+  await expect.poll(async () => (await listFolder(page, "MyLab")).filter((f) => /^takes\/.+\.mycotake$/.test(f) || /^captures\/.+\.mycap$/.test(f)).length, { timeout: 30_000 }).toBe(2);
+  const files = await listFolder(page, "MyLab");
   const takePath = files.find((f) => f.startsWith("takes/") && f.endsWith(".mycotake"))!;
   const capturePath = files.find((f) => f.startsWith("captures/") && f.endsWith(".mycap"))!;
   const project: StudioFiles = {};
-  for (const f of files) if (!f.startsWith(".myco/") && !f.startsWith("takes/") && !f.startsWith("captures/")) project[f] = (await readFileBytes(page, `MyFlappy/${f}`))!;
-  const takeBytes = (await readFileBytes(page, `MyFlappy/${takePath}`))!;
-  const captureBytes = (await readFileBytes(page, `MyFlappy/${capturePath}`))!;
+  for (const f of files) if (!f.startsWith(".myco/") && !f.startsWith("takes/") && !f.startsWith("captures/")) project[f] = (await readFileBytes(page, `MyLab/${f}`))!;
+  const takeBytes = (await readFileBytes(page, `MyLab/${takePath}`))!;
+  const captureBytes = (await readFileBytes(page, `MyLab/${capturePath}`))!;
   expect(errors).toEqual([]);
 
   // The Studio on the same project, in a page of its own: Open take file… copies the take in; it opens and replays.
   const studio = await context.newPage();
   const studioErrors = trackErrors(studio);
-  await openStudioFolder(studio, "MyFlappy", project);
+  await openStudioFolder(studio, "MyLab", project);
   await startStudioAudio(studio);
   await studioScreen(studio, "Take");
   const takeName = takePath.split("/").pop()!;
@@ -67,7 +73,8 @@ test("Record take and capture from Play, Open in Audio Studio, then the Studio r
   await studio.getByRole("button", { name: "Open take file…" }).click();
   await (await chooser).setFiles({ name: takeName, mimeType: "application/octet-stream", buffer: Buffer.from(takeBytes) });
   await studio.getByRole("treeitem", { name: new RegExp(takeName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).click();
-  await expect(studio.getByRole("list", { name: "Playlists in this take" })).toContainText("town");
+  await showPanel(studio, "Playlists in this take");
+  await expect(studio.getByRole("list", { name: "Playlists in this take" })).toContainText("click");
   await studio.getByRole("button", { name: "Replay", exact: true }).click();
   await expect(studio.getByRole("button", { name: "Pause", exact: true })).toHaveAttribute("aria-pressed", "true");
   await expect(studioStatus(studio)).toContainText(/Voices [1-9]/, { timeout: 15_000 });

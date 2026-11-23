@@ -62,6 +62,20 @@ export async function studioScreen(page: Page, title: string): Promise<void> {
   await expect(tab).toHaveAttribute("aria-current", "page");
 }
 
+/** Bring a dock panel to the front by its tab, or through a header's "More tabs" menu when its tab doesn't fit. */
+export async function showPanel(page: Page, title: string): Promise<void> {
+  const tab = page.getByRole("tab", { name: title, exact: true });
+  if ((await tab.count()) > 0) return void (await tab.first().click());
+  const more = page.getByRole("button", { name: "More tabs" });
+  for (let i = 0; i < (await more.count()); i++) {
+    await more.nth(i).click();
+    const item = page.getByRole("menu", { name: "Hidden tabs" }).getByRole("menuitem", { name: title, exact: true });
+    if ((await item.count()) > 0) return void (await item.click());
+    await page.keyboard.press("Escape");
+  }
+  throw new Error(`no panel tab "${title}"`);
+}
+
 /** Start the Studio's audio (browsers start it after a gesture) and wait until the core runs (its voice count shows). */
 export async function startStudioAudio(page: Page): Promise<void> {
   await page.locator(".studio-status").click();
