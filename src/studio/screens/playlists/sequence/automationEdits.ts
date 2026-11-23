@@ -235,6 +235,42 @@ export const quantizeChoice = (q: Automation["quantize"]): string => (q === unde
 /** "Remove automation". */
 export const removeAutomation = (s: SequenceSettings, o: AutomationOwner, id: string): R => mapAutomation(s, o, id, () => null);
 
+/**
+ * "Paste curves" (proto: the Automate button's menu): each copied lane replaces this owner's lane of the same target,
+ * or is added; a time curve reads this owner's time, a parameter curve keeps its parameter. Lanes of targets this owner
+ * can't automate (another clip's effect) are skipped; refused when none fits.
+ */
+export function pasteCurves(s: SequenceSettings, o: AutomationOwner, lanes: readonly Automation[]): R {
+  const view = ownerOf(s, o);
+  if (!view) return refuse("that clip or track isn't there any more");
+  const fits = lanes.filter((a) => targetSpec(a.target, view.effects));
+  if (!fits.length) return refuse("those curves are for something this one doesn't have");
+  return accept(setOwnerAutomation(s, o, (list) => {
+    const out = [...list];
+    for (const a of fits) {
+      const input = isTimeInput(a.input) ? view.timeInput : a.input;
+      const i = out.findIndex((x) => x.target === a.target);
+      if (i >= 0) out[i] = { ...out[i]!, input, curve: a.curve.map((k) => [...k] as CurveKey), bypass: a.bypass };
+      else if (out.length < MAX_AUTOMATION) out.push({ ...a, id: nextId("a", out.map((x) => x.id)), input, curve: a.curve.map((k) => [...k] as CurveKey) });
+    }
+    return out;
+  }));
+}
+
+/**
+ * A lane's "Driven by" (proto A5): the timeline or a game parameter. Changing it reseeds the curve flat at the target's
+ * plain value over the new axis (`[from, to]`: the clip's or sequence's length, or the parameter's range).
+ */
+export function setDrivenBy(s: SequenceSettings, o: AutomationOwner, id: string, input: CurveInput, from: number, to: number): R {
+  const view = ownerOf(s, o);
+  const a = view?.automation.find((x) => x.id === id);
+  if (!view || !a) return refuse("that automation isn't there any more");
+  const spec = targetSpec(a.target, view.effects);
+  const base = spec?.base ?? a.curve[0]?.[1] ?? 0;
+  const next = isTimeInput(input) ? view.timeInput : input;
+  return mapAutomation(s, o, id, (x) => ({ ...x, input: next, curve: [[tidy(from), base], [tidy(Math.max(from + 0.01, to)), base]] }));
+}
+
 /** Touch writing keeps a key every this many seconds (proto: the control writes every 60 ms while held). */
 export const WRITE_INTERVAL = 0.06;
 

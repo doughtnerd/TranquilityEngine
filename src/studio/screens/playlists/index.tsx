@@ -50,7 +50,7 @@ import { VoicesView } from "./VoicesView";
 import { isGeneratorPath } from "../../../engine/audio/generators/format";
 import { GeneratorLibraryPanel, GeneratorPanel } from "./generator/GeneratorPanel";
 import { addGeneratorToOpen, followGeneratorRoute, generatorSpace, generatorTarget, loadGenerator } from "./generator/generatorScreen";
-import { SequenceInspectorPanel } from "./sequence/SequencePanel";
+import { SequenceInspectorPanel, SequenceParametersPanel } from "./sequence/SequencePanel";
 import { sequenceSpace, stopSequence } from "./sequence/sequenceState";
 import { sequencePlayerSlots } from "./sequence/SequenceTransport";
 import "./playlists.css";
@@ -444,6 +444,9 @@ function VoicesPanel() {
 
 /** The test values of the open playlist's parameters, inside the panel's gutter (I3). */
 function TestValues() {
+  // A sequence lists only the parameters it uses, with use chips and Held (spec §4.2.9).
+  const body = openBody.value;
+  if (body?.type === "sequence" && body.sequence) return <div class="pl-test-values"><SequenceParametersPanel body={body} writable={writable()} /></div>;
   return (
     <div class="pl-test-values">
       <ParameterPanel parameters={allParameters.value} values={testValues.value} empty="No game parameters yet." onValue={(name, v) => setTestValue(name, v)} onNewParameter={writable() ? () => void newPlaylistParameter() : undefined} />

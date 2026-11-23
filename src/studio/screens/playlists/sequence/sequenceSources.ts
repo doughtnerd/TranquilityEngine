@@ -9,7 +9,8 @@ import { parseImportSettings, sidecarPath } from "../../../../engine/scene/impor
 import { parseDerivedSample } from "../../../../engine/audio/sample/format";
 import type { SampleEdits } from "../../../../engine/audio/sample/types";
 import type { PeakMips } from "../../../../plugins/audio/editor/music/peaksMip";
-import { lengthOf, peaksOf } from "../../samples/sampleSession";
+import { lengthOf, pcmNow, peaksOf } from "../../samples/sampleSession";
+import type { Pcm } from "../../samples/seam";
 import type { SourceFacts, SourceOf } from "./sequenceModel";
 
 /** The audio file a sample path plays, where its playable part starts in that file, and its sample block. */
@@ -56,6 +57,13 @@ export function projectSources(): SourceOf {
     if (!cache.has(c.sample)) cache.set(c.sample, sampleFacts(p, c.sample));
     return cache.get(c.sample)!;
   };
+}
+
+/** A sample's decoded audio (its audio file's), for the spectrogram; null while it decodes (decoding starts on the first ask). */
+export function projectPcm(path: string): Pcm | null {
+  const p = currentProject.value;
+  if (!p) return null;
+  return pcmNow(p, resolveSample(p, path).file);
 }
 
 /** The peaks to draw for a sample (its audio file's), null while they load. */

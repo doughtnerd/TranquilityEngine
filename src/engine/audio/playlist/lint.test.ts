@@ -56,15 +56,15 @@ describe("lintPlaylist", () => {
     expect(codes(SEQUENCE, { sampleTempo: () => ({ bpm: 96 }) })).toEqual(["tempoClash"]);
   });
 
-  it("warns about overlapping sync clips on two tracks, naming the one that drives", () => {
+  it("warns about a sync clip chained over another on its own track, never about stems on parallel tracks (decision 4)", () => {
     const clip = (id: string, at: number) => ({ id, sample: `${id}.wav`, sync: true, at, length: 2 });
     const raw = { ...P, type: "sequence", entries: [], sequence: { length: 8, tracks: [
       { id: "a", name: "Drums", kind: "audio", clips: [clip("c1", 0)] },
-      { id: "b", name: "Bass", kind: "audio", clips: [clip("c2", 1), clip("c3", 4)] },
-      { id: "c", name: "Muted", kind: "audio", enabled: false, clips: [clip("c4", 0)] },
+      { id: "b", name: "Bass", kind: "audio", clips: [clip("c2", 1), clip("c3", 4), clip("c5", 5)] },
+      { id: "c", name: "Muted", kind: "audio", enabled: false, clips: [clip("c4", 0), clip("c6", 1)] },
     ] } };
     const lints = lintPlaylist(parsed(raw));
-    expect(lints).toEqual([{ code: "overlappingSyncLoops", where: "sequence.tracks[1]", message: 'Sync clips "c1" (Drums) and "c2" (Bass) overlap; "Drums" drives the playhead and "Bass" follows.' }]);
+    expect(lints).toEqual([{ code: "overlappingSyncLoops", where: "sequence.tracks[1]", message: 'Sync clip "c5" starts before sync clip "c3" ends on track "Bass"; "c3" drives the playhead and "c5" follows.' }]);
   });
 
   it("warns when every weight of a random Queue is zero", () => {

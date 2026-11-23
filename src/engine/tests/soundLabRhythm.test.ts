@@ -35,7 +35,7 @@ function seconds(path: string): number {
 
 describe("the rhythm page's data", () => {
   for (const [name, stems] of [["rhythm-click", ["click-track"]], ["rhythm-game", ["combat-drums", "combat-bass"]]] as const) {
-    it(`${name}: parses without a problem, one sequence looping its whole length on a 120 bpm grid, and the lint finds only the stems' overlap`, () => {
+    it(`${name}: parses without a problem, one sequence looping its whole length on a 120 bpm grid, and the lint finds nothing (parallel stems are no problem)`, () => {
       const { playlist, problems } = parsePlaylist(json(`audio/music/${name}.playlist.json`), name);
       expect(problems).toEqual([]);
       expect(playlist.type).toBe("sequence");
@@ -50,8 +50,8 @@ describe("the rhythm page's data", () => {
         expect([c.at, c.length, c.sync]).toEqual([0, seq.length, true]);
         expect(seconds(c.sample!)).toBeCloseTo(seq.length, 6);
       }
-      // Stems are sync clips on parallel tracks (ADR 0343 migration): the first drives the playhead, the others follow.
-      expect(lintPlaylist(playlist).map((l) => l.code)).toEqual(stems.slice(1).map(() => "overlappingSyncLoops"));
+      // Stems are sync clips on parallel tracks, all on the sequence clock (UI pass decision 4): no warning.
+      expect(lintPlaylist(playlist)).toEqual([]);
     });
   }
 

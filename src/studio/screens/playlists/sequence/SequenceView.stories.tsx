@@ -77,7 +77,7 @@ export const Brake: Story = {
     // Music B overlaps Music on a parallel track: both are Sync to the sequence clock, so neither follows (decision 4).
     await expect(c.queryByText("follows")).toBeNull();
     await expect(c.getByRole("button", { name: "Marker Drop" })).toBeVisible();
-    await expect(c.getByRole("button", { name: /Hold point at 1\.60/ })).toBeVisible();
+    await expect(c.getByRole("button", { name: /Hold 1 at 1\.60/ })).toBeVisible();
   },
 };
 
@@ -88,7 +88,7 @@ export const AddTrackAndLoop: Story = {
     await userEvent.click(within(canvasElement.ownerDocument.body).getByRole("menuitem", { name: /Playlist track/ }));
     await expect(c.getByText("Playlist 2")).toBeVisible();
     await userEvent.click(c.getByRole("button", { name: "Add loop" }));
-    await expect(c.getByRole("button", { name: /Loop 0\.00–2\.00 s/ })).toBeVisible();
+    await expect(c.getByRole("button", { name: /Loop 1 0\.00–2\.00 s/ })).toBeVisible();
   },
 };
 
@@ -97,10 +97,10 @@ export const WithInspector: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await userEvent.click(c.getByRole("button", { name: "Clip brake_skid" }));
-    await expect(c.getByText("Override")).toBeVisible();
-    await expect(c.getByRole("button", { name: "Use sample loop settings" })).toBeVisible();
-    await userEvent.click(c.getByRole("button", { name: "Use sample loop settings" }));
-    await expect(c.getByText("Inherited")).toBeVisible();
+    await expect(c.getAllByText("Override")[0]!).toBeVisible();
+    await expect(c.getByRole("button", { name: "Use the sample's settings" })).toBeVisible();
+    await userEvent.click(c.getByRole("button", { name: "Use the sample's settings" }));
+    await expect(c.getAllByText("Inherited")[0]!).toBeVisible();
   },
 };
 
@@ -117,7 +117,7 @@ export const FollowsAndMakeAsync: Story = {
     const c = within(canvasElement);
     await expect(c.getByText("follows")).toBeVisible();
     await userEvent.click(c.getAllByRole("button", { name: "Clip music_loop" })[1]!);
-    await expect(await c.findByText(/Follows music_loop/)).toBeVisible();
+    await expect(await c.findByText(/Follows Music · music_loop/)).toBeVisible();
     await userEvent.click(c.getByRole("button", { name: "Make Async" }));
     await expect(c.queryByText("⚠ follows")).toBeNull();
   },
@@ -140,14 +140,14 @@ export const TrimEndOverCurveKey: Story = {
     target.dispatchEvent(new PointerEvent("pointerup", at(-40)));
     await userEvent.click(clip);
     const length = (await c.findByLabelText("Clip length")) as HTMLInputElement;
-    await expect(Number(length.value)).toBeLessThan(3);
+    await expect(length.value).not.toBe("00:03.000");
   },
 };
 
 export const Empty: Story = {
   args: { body: fixtureBody({ length: 0, tempo: null, tracks: [], loops: [], markers: [] }) },
   play: async ({ canvasElement }) => {
-    await expect(within(canvasElement).getByText(/Drop a sample from the Library here/)).toBeVisible();
+    await expect(within(canvasElement).getByText(/No tracks/)).toBeVisible();
   },
 };
 
@@ -161,3 +161,4 @@ export const ReadOnly: Story = {
     await expect(within(canvasElement).getByRole("button", { name: "Add loop" })).toBeDisabled();
   },
 };
+
