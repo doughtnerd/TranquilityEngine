@@ -1,10 +1,23 @@
 // The desktop editor's listening `websocket` transport (ADR 0379). A page can't open a server socket, so under Tauri
 // the WebSocket server is native (`src-tauri/src/debug_link.rs` over `native/ws-listener`) and this transport drives it
-// over Tauri's IPC: `myco_debuglink_listen` binds and streams events (accept, message, close, error) to a channel as
-// raw bytes; `myco_debuglink_send` takes an outbox of sends and closes; `myco_debuglink_close` stops it. The native side
+// over Tauri's IPC: `myco_debuglink_listen_range` binds and streams events (accept, message, close, error) to a channel
+// as raw bytes; `myco_debuglink_send` takes an outbox of sends and closes; `myco_debuglink_close` stops it. The native side
 // moves whole binary messages only; framing, limits and close rules stay in `WebSocketConnection` (websocket.ts), the
 // same code the Node server uses, so the debug link (`EditorDebugLink`) runs on it unchanged. Connecting is the plain
 // client's (the page's own `WebSocket`).
+//
+// The IPC commands (C8 of the pairing plan; the Rust side is `src-tauri/src/debug_link.rs`, moving to
+// `native/debug-link-tauri`):
+// - `myco_debuglink_listen_range` { host: string, firstPort: number, count: number, path: string, events: Channel }
+//   -> { id: number, port: number }. Binds the first free port of `firstPort .. firstPort + count - 1` (ADR 0380: 7790
+//   .. 7799, so the editor, the Studio and a game share a machine; "port in use" moves to the next port, any other
+//   error fails at once). `port` is the one it got. Rejects with the reason (a string) when all are taken or the bind
+//   fails. A `firstPort` of 0 means "any free port" and `count` is then 1.
+// - `myco_debuglink_listen` { host, port, path, events } -> { id, port }: the single-port command that exists today.
+//   Until the Rust side has `myco_debuglink_listen_range` ("Command ... not found"), the transport falls back to it with
+//   `port` = `firstPort` (no range), (each transport tries the range command once).
+// - `myco_debuglink_send` (raw body = the outbox, header `myco-listener: <id>`) and `myco_debuglink_close` { id }.
+// The port a listening transport got: `tauriListenerPort(transport)`.
 //
 // Wire format (`native/ws-listener/src/wire.rs` is the other side; big-endian, UTF-8):
 // - events, one per channel message: [kind u8][connection u32][rest]; 1 accept (rest: the peer's address), 2 message
@@ -16,9 +29,16 @@
 // IPC calls go one at a time, in order (listen, then each outbox, then close), so sends and closes reach the native
 // side in the order the page made them.
 import { Channel, invoke } from "@tauri-apps/api/core";
-import { parseListenAddress } from "../../engine/net/listenTarget";
-import { registerTransport } from "../../engine/net/Transport";
-import { WebSocketTransport, type SocketLike } from "../../engine/net/transport/websocket";
+import { parseListenAddress } from "../net/listenTarget";
+import { registerTransport, type Transport } from "../net/Transport";
+import { WebSocketTransport, type SocketLike } from "../net/transport/websocket";
+
+/** How many ports from the requested one the native listener may try (ADR 0380: 7790..7799). */
+const PORT_RANGE = 10;
+
+function isMissingCommand(err: unknown): boolean {
+  return /not found|not allowed|unknown command/i.test(err instanceof Error ? err.message : String(err));
+}
 
 const ACCEPT = 1;
 const MESSAGE = 2;
@@ -70,6 +90,10 @@ class TauriWebSocketTransport extends WebSocketTransport {
   /** The native listener's id once `listen` resolved; null before, and after `close`. */
   private listenerId: number | null = null;
   private listening = false;
+  /** Set once the native side turned out not to have `myco_debuglink_listen_range`. */
+  private rangeUnsupported = false;
+  /** The port the native listener bound; null before `listen` resolved. */
+  boundPort: number | null = null;
   private closed = false;
   /** Native connection id → its connection here. */
   private readonly accepted = new Map<number, Accepted>();
@@ -85,7 +109,19 @@ class TauriWebSocketTransport extends WebSocketTransport {
     this.listening = true;
     const { host, port, path } = parseListenAddress(address);
     const events = new Channel<ArrayBuffer>((message) => this.handleEvent(message));
-    const call = this.ipc.then(() => invoke<{ id: number; port: number }>("myco_debuglink_listen", { host: host ?? "0.0.0.0", port, path, events }));
+    const bindHost = host ?? "0.0.0.0";
+    const call = this.ipc.then(async () => {
+      if (!this.rangeUnsupported) {
+        try {
+          const count = Math.max(1, Math.min(port === 0 ? 1 : PORT_RANGE, 65536 - port));
+          return await invoke<{ id: number; port: number }>("myco_debuglink_listen_range", { host: bindHost, firstPort: port, count, path, events });
+        } catch (err) {
+          if (!isMissingCommand(err)) throw err;
+          this.rangeUnsupported = true;
+        }
+      }
+      return invoke<{ id: number; port: number }>("myco_debuglink_listen", { host: bindHost, port, path, events });
+    });
     this.ipc = call.catch(() => undefined);
     let bound: { id: number; port: number };
     try {
@@ -99,6 +135,7 @@ class TauriWebSocketTransport extends WebSocketTransport {
       return;
     }
     this.listenerId = bound.id;
+    this.boundPort = bound.port;
     this.scheduleFlush(); // anything accepted connections queued while the listen call was returning
   }
 
@@ -192,6 +229,11 @@ class TauriWebSocketTransport extends WebSocketTransport {
       .then(() => invoke(cmd, args, options))
       .catch((err: unknown) => console.warn(`[myco] The debug link listener (${cmd}): ${err instanceof Error ? err.message : String(err)}`));
   }
+}
+
+/** The port a transport from `registerTauriWebSocketTransport` got from the native listener (null before it is listening, or for another transport). */
+export function tauriListenerPort(transport: Transport): number | null {
+  return transport instanceof TauriWebSocketTransport ? transport.boundPort : null;
 }
 
 /** Registers "websocket" as the transport above, which can listen: called once by the desktop editor before its debug link starts. */

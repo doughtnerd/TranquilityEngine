@@ -67,7 +67,7 @@ async function main(): Promise<void> {
   forEachChildWindow((win) => installShortcuts(win)); // and in each detached panel window (ADR 0174)
   installCloseGuard();
   // ADR 0376: builds exported with debugging on connect here. The desktop editor listens through its native server (ADR 0379).
-  const desktopListener = isTauri() ? import("./debugLink/tauriListener").then((m) => m.registerTauriWebSocketTransport()) : Promise.resolve();
+  const desktopListener = isTauri() ? import("../engine/debugLink/tauriListener").then((m) => m.registerTauriWebSocketTransport()) : Promise.resolve();
   void desktopListener.then(() => import("./debugLink/link")).then((m) => m.startEditorDebugLink());
   if (isTauri()) await (await import("./launcher/editorWindow")).serveDesktopProjectsWindow();
   // A sample to open goes first; the background loading waits for it so as not to compete.
