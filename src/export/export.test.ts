@@ -182,6 +182,38 @@ describe("the audio take option (ADR 0348)", () => {
   });
 });
 
+describe("the debug link option (ADR 0376)", () => {
+  it("planWebBuild writes game.json's debug only when asked: the editor on this machine, or the address given", async () => {
+    expect((await planWebBuild(source())).manifest).not.toHaveProperty("debug");
+    const local = await planWebBuild(source(), { debugLink: true });
+    expect(JSON.parse(local.generated.get("game.json")!)).toMatchObject({ debug: { link: "ws://localhost:7790/myco-debug" } });
+    expect((await planWebBuild(source(), { debugLink: "192.168.1.4:7790" })).manifest.debug).toEqual({ link: "ws://192.168.1.4:7790/myco-debug" });
+    await expect(planWebBuild(source(), { debugLink: "nope://" })).rejects.toThrow(/isn't a WebSocket address/);
+  });
+
+  it("the command line: --debug-link takes the editor's address, and the help says what it does", () => {
+    expect(parseArgs(["proj", "--debug-link", "7790"])).toEqual({ projectDir: "proj", debugLink: "7790" });
+    expect(parseArgs(["proj", "--debug-link=ws://10.0.0.2:7790/myco-debug"])).toEqual({ projectDir: "proj", debugLink: "ws://10.0.0.2:7790/myco-debug" });
+    expect(() => parseArgs(["proj", "--debug-link", "http://x"])).toThrow(/WebSocket address/);
+    expect(() => parseArgs(["proj", "--debug-link"])).toThrow(/needs/);
+    expect(USAGE).toMatch(/--debug-link[\s\S]*hold none of the link's code/);
+  });
+
+  it("a desktop package with debugging on takes --debug-link at launch; a release one has no such flag", () => {
+    const release = desktopProjectFiles({ name: "x", settings: {}, gamepadModule: "" });
+    expect(release.get("src/lib.rs")).not.toContain("debug-link");
+    expect(release.get("src/lib.rs")).toContain("    tauri::Builder::default()\n        .plugin(tauri_plugin_fs::init())");
+    expect(release.get("Cargo.toml")!.split("[dependencies]")[1]!.split("[dev-dependencies]")[0]).not.toContain("serde_json"); // only the dev one
+    const debug = desktopProjectFiles({ name: "x", settings: {}, gamepadModule: "", debug: true });
+    const lib = debug.get("src/lib.rs")!;
+    expect(lib).toContain('a == "--debug-link"');
+    expect(lib).toContain('strip_prefix("--debug-link=")');
+    expect(lib).toContain("builder = builder.append_invoke_initialization_script(format!(\"globalThis.__mycoDebugLink = {literal};\"));");
+    expect(lib).toContain("    builder\n        .plugin(tauri_plugin_fs::init())");
+    expect(debug.get("Cargo.toml")).toMatch(/^\[dependencies\][\s\S]*^serde_json = "1"$[\s\S]*^\[dev-dependencies\]/m);
+  });
+});
+
 describe("desktop project", () => {
   it("names the app after the project and points the window at the web build", () => {
     const files = desktopProjectFiles({ name: "Flappy Bird", settings: { display: { width: 720, height: 680 } }, gamepadModule: "// gamepads\n" });

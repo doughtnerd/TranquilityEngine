@@ -298,7 +298,7 @@ function debugOnlyChunks(bundle: Rollup.OutputBundle, rule: LazyOnlyRule): { deb
     if (!chunk) return;
     shipped.add(file);
     for (const next of chunk.imports) {
-      if (roots.has(next)) problems.push(`${from} statically imports ${next}: ${rule.why}`);
+      if (roots.has(next)) problems.push(`${file} statically imports ${next} (the entry ${from} loads it): ${rule.why}`);
       else walk(next, from);
     }
     for (const next of chunk.dynamicImports) if (!roots.has(next)) walk(next, from);
