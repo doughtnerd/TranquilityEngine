@@ -40,6 +40,8 @@ export interface AttenuationInfo {
   readonly whyNotEdit: string | null;
   /** A rolloff preset can be applied (there's an attenuation to apply it to). */
   readonly rolloff: boolean;
+  /** "Make it 3D" is offered: the emitter plays a playlist that plays flat (J9.2). */
+  readonly makeSpatial?: boolean;
 }
 
 export interface InspectorProps {
@@ -62,6 +64,10 @@ export interface InspectorProps {
   onMute(id: string): void;
   onEditAttenuation(id: string): void;
   onRolloff(id: string, preset: AttenuationPreset): void;
+  /** Give the flat playlist the emitter plays a spatial block (J9.2). */
+  onMakeSpatial?(id: string): void;
+  /** Whether the emitter's sound is traced for occlusion (false: its playlist turns occlusion off); default true. */
+  occlusionOn?(id: string): boolean;
   onListenHere(id: string): void;
   onEditPath(id: string): void;
   onDelete(id: string): void;
@@ -187,7 +193,7 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
             <dt>Distance</dt>
             <dd>{live ? liveDistanceText(live.position, listener.position) : row ? distanceText(row) : pos ? `${Math.hypot(pos.x - listener.position.x, pos.y - listener.position.y, pos.z - listener.position.z).toFixed(1)} m` : "—"}</dd>
             <dt>Occlusion</dt>
-            <dd>{row ? occlusionText(row) : "—"}</dd>
+            <dd>{row ? occlusionText(row, props.occlusionOn?.(id) ?? true) : "—"}</dd>
             {live && <dt>Speed</dt>}
             {live && <dd>{speedText(live.speed)}</dd>}
             {o.kind === "emitter" && <dt>Doppler</dt>}
@@ -201,6 +207,9 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
           {props.attenuation.summary && <p class="sp-summary">{props.attenuation.summary}</p>}
           <p class="sp-note">{props.attenuation.owner}</p>
           <div class="sp-row-actions">
+            {props.attenuation.makeSpatial && (
+              <button type="button" class="sp-small" disabled={ro} title="Give the playlist a spatial block: heard in place, with distance, occlusion and Doppler" onClick={() => props.onMakeSpatial?.(id)}>Make it 3D</button>
+            )}
             <button type="button" class="sp-small" disabled={props.attenuation.whyNotEdit !== null} title={props.attenuation.whyNotEdit ?? undefined} onClick={() => props.onEditAttenuation(id)}>Edit attenuation…</button>
             {props.attenuation.rolloff && (
               <select class="pl-select" aria-label="Rolloff preset" value="" disabled={ro} onChange={(e) => {

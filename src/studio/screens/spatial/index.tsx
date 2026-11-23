@@ -15,7 +15,7 @@ import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, keymap, setPlayerSlots, studioRouter } from "../../shell/studioServices";
 import { ensureAudioProjectKind } from "../mixer/mixerDocument";
 import { historyPanel } from "../placeholder";
-import { attenuationSummary, ownedAttenuation, ownerText, whyNotEditAttenuation } from "./attenuationModel";
+import { attenuationSummary, canMakeSpatial, ownedAttenuation, ownerText, whyNotEditAttenuation } from "./attenuationModel";
 import { InspectorPanel } from "./InspectorPanel";
 import { gameScenePaths } from "./newScene";
 import { OutlinePanel } from "./OutlinePanel";
@@ -27,7 +27,7 @@ import { setHidden, setLocked } from "./sceneEdits";
 import { SettingsPanel } from "./SettingsPanel";
 import { AttenuationChoiceDialog, GameSceneDialog, TakeDialog } from "./SpatialDialogs";
 import {
-  applyFolderChanges, applyRolloff, attenuationChoice, audition, auditionStatus, chooseAttenuation, copySelection, deleteScenes, deleteSelected, duplicateScene, duplicateSelection, editAttenuation, editMix, editScene, endDrag,
+  applyFolderChanges, applyRolloff, attenuationChoice, audition, auditionStatus, chooseAttenuation, copySelection, deleteScenes, deleteSelected, duplicateScene, duplicateSelection, editAttenuation, editMix, editScene, endDrag, makeSpatial, occlusionOnFor,
   ensureSceneKind, escapeKey, extraFolders, fit, followRoute, hover, listenHere, mix, mixDoc, materials, mute, newDialog, newFromGameScene, newFromTake, newScene, openDoc, openPath, openPlaylist, openScene, openTake, ownerOf, pasteClipboard,
   baseImport, placeAt, playAllFrom, playing, playScene, readOnly, renameScene, renaming, scene, sceneEntries, selected, sideView, silenced, slab, solo, soundItems, stopAudition, togglePlay, tools, busNames, view, viewportSize, voices, motion,
 } from "./spatialScreen";
@@ -254,7 +254,7 @@ function InspectorListPanel() {
           playing={playing.value}
           buses={busNames.value}
           materials={materials.value.map((m) => m.name)}
-          attenuation={owner ? { summary: att ? attenuationSummary(att) : null, owner: ownerText(owner), whyNotEdit: whyNotEditAttenuation(owner), rolloff: !!att && !readOnly.value } : null}
+          attenuation={owner ? { summary: att ? attenuationSummary(att) : null, owner: ownerText(owner), whyNotEdit: whyNotEditAttenuation(owner), rolloff: !!att && !readOnly.value, makeSpatial: canMakeSpatial(owner) } : null}
           solo={audition.value.solo}
           silenced={silenced}
           sounds={soundItems}
@@ -264,6 +264,8 @@ function InspectorListPanel() {
           onMute={mute}
           onEditAttenuation={(id) => editAttenuation(id)}
           onRolloff={(id, preset) => applyRolloff(id, (a) => applyAttenuationPreset(a, preset))}
+          onMakeSpatial={(id) => void makeSpatial(id)}
+          occlusionOn={occlusionOnFor}
           onListenHere={listenHere}
           onEditPath={(id) => (tools.value = { tool: "select", pathEdit: id })}
           onDelete={(id) => void deleteSelected(id)}
@@ -300,7 +302,7 @@ function VoicesListPanel() {
 
 function VoicesTable(props: { blocked?: string }) {
   const s = scene.value;
-  const rows = s ? voiceTable(s, voices.value, silenced, { base: baseImport.value, motion: playing.value ? motion.value : [] }) : [];
+  const rows = s ? voiceTable(s, voices.value, silenced, { base: baseImport.value, motion: playing.value ? motion.value : [], occlusionOn: occlusionOnFor }) : [];
   return <VoicesPanel rows={rows} playing={playing.value} blocked={props.blocked} selected={selected.value} onSelect={(id) => (selected.value = id)} onPlay={playScene} />;
 }
 

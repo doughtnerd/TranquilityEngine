@@ -31,7 +31,7 @@ import { audioHost, openRoute, toasts } from "../../shell/studioServices";
 import { openMixDocument } from "../mixer/mixerDocument";
 import { setSpatial } from "../playlists/playlistEdits";
 import { baseFramePoints } from "./baseLayer";
-import { attenuationDialog, attenuationFromResult, attenuationOwner, newAttenuation, presetNameFor, PRESET_FOLDER, whyNotEditAttenuation, type AttenuationOwner } from "./attenuationModel";
+import { attenuationDialog, attenuationFromResult, attenuationOwner, NEW_SPATIAL, newAttenuation, occlusionOn, presetNameFor, PRESET_FOLDER, whyNotEditAttenuation, type AttenuationOwner } from "./attenuationModel";
 import { NO_AUDITION, auditionScene, isSilenced, liveUpdate, toggleMute, toggleSolo, type AuditionState } from "./audition";
 import { INITIAL_SLAB, type Slab } from "./elevation";
 import { sameMotion, startFrameLoop } from "./liveMotion";
@@ -681,6 +681,31 @@ export function ownerOf(id: string): AttenuationOwner | null {
   const o = s ? findObject(s, id) : null;
   if (!o || o.kind !== "emitter") return null;
   return attenuationOwner(o.obj.sound, loadPlaylist, loadPreset);
+}
+
+/** Whether emitter `id`'s sound is traced for occlusion (false: its playlist's spatial block turns it off). */
+export function occlusionOnFor(id: string): boolean {
+  const s = scene.value;
+  const o = s ? findObject(s, id) : null;
+  return !o || o.kind !== "emitter" || occlusionOn(o.obj.sound, loadPlaylist);
+}
+
+/**
+ * "Make it 3D" (J9.2): give the flat playlist emitter `id` plays a spatial block (`NEW_SPATIAL`), one step on the
+ * playlist, so it is heard in place and Edit attenuation… opens. False when it isn't a flat playlist or can't change.
+ */
+export function makeSpatial(id: string): boolean {
+  const owner = ownerOf(id);
+  if (owner?.kind !== "flat") return false;
+  const doc = playlistDoc(owner.playlist);
+  if (!doc) return false;
+  const name = owner.playlist.slice(owner.playlist.lastIndexOf("/") + 1);
+  if (!writable() || doc.readOnly) {
+    status.value = { kind: "info", text: `Can't make ${name} 3D: the project is read-only.` };
+    return false;
+  }
+  const before = doc.value.peek();
+  return applyEdit(setSpatial(before, { ...NEW_SPATIAL }) as EditResult<PlaylistAsset>, "Make it 3D", (next) => doc.edit(next, { label: "Make it 3D" }), before);
 }
 
 /** The emitter's distance from the active listener now (the readout's, else from the plan). */

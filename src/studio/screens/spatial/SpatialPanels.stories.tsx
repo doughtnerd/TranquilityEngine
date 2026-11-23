@@ -108,6 +108,38 @@ export const InspectorEmitter: Story = {
   },
 };
 
+/** J9.2: an emitter playing a playlist that plays flat offers Make it 3D right here, not a trip to Playlists. */
+const onMakeSpatial = fn();
+export const InspectorFlatPlaylist: Story = {
+  render: () => {
+    return frame(320, 720, (
+      <InspectorPanel
+        {...inspector("emitter2", {
+          attenuation: { summary: null, owner: "generator.playlist.json plays flat (2D). Make it 3D to hear it in place.", whyNotEdit: "generator.playlist.json plays flat (2D): make it 3D first", rolloff: false, makeSpatial: true },
+          onMakeSpatial,
+        })}
+      />
+    ));
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByRole("button", { name: "Edit attenuation…" })).toBeDisabled();
+    const make = c.getByRole("button", { name: "Make it 3D" });
+    await expect(make).toBeEnabled();
+    await userEvent.click(make);
+    await expect(onMakeSpatial).toHaveBeenCalledWith("emitter2");
+    await expect(c.queryByText(/in Playlists/)).toBeNull();
+  },
+};
+
+/** J9.3: a sound whose own setting turns occlusion off reads Off, never Clear through a wall. */
+export const InspectorOcclusionOff: Story = {
+  render: () => frame(320, 720, <InspectorPanel {...inspector("emitter1", { occlusionOn: () => false })} />),
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).getByText("Off (this sound)")).toBeVisible();
+  },
+};
+
 /** UI pass IN2: in the default 300px dock the sound chip, › and × stay on one line; a long name gives way with an ellipsis. */
 export const InspectorSoundNarrow: Story = {
   render: () => {

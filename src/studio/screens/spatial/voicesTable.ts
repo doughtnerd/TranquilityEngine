@@ -68,11 +68,15 @@ export interface VoiceTableRow {
 const dbOf = (gain: number) => (gain <= 0 ? -Infinity : 20 * Math.log10(gain));
 const hz = (v: number) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10000 ? 0 : 1)} kHz` : `${Math.round(v)} Hz`);
 
-/** The Occlusion column: "Clear", "−9 dB · low-pass 1.2 kHz · wood", or why it isn't traced. */
-export function occlusionText(row: TestSceneVoiceRow): string {
+/**
+ * The Occlusion column: "Clear", "−9 dB · low-pass 1.2 kHz · wood", or why it isn't traced. `on` false: the sound's own
+ * setting turns occlusion off (a playlist's spatial block), so it reads "Off", never "Clear" through a wall.
+ */
+export function occlusionText(row: TestSceneVoiceRow, on = true): string {
   if (row.kind === "sound2d") return "not traced (2D)";
   if (!row.playing) return "—";
   if (row.rendered === "bed" || row.rendered === "ambisonic") return "not traced (bed)";
+  if (!on && row.kind === "emitter") return "Off (this sound)";
   const o = row.occlusion;
   if (!o) return "—";
   if (o.gain >= CLEAR_GAIN) return "Clear";
@@ -96,6 +100,8 @@ export const distanceText = (row: TestSceneVoiceRow): string => (row.distance ==
 export interface VoiceTableContext {
   readonly base?: BaseSceneImport | null;
   readonly motion?: readonly TestSceneMotionRow[];
+  /** Whether an emitter's sound is traced for occlusion (false: its playlist turns it off); default true. */
+  readonly occlusionOn?: (id: string) => boolean;
 }
 
 /**
@@ -117,7 +123,7 @@ export function voiceTable(scene: AudioTestScene, rows: readonly TestSceneVoiceR
       rendered: r.rendered,
       renderedText: quiet ? "Muted" : !r.playing ? "Not playing" : r.rendered ? RENDERED_LABEL[r.rendered] : "—",
       distanceText: moving && o ? liveDistanceText(placeNow(o, ctx.motion!)!, listener) : distanceText(r),
-      occlusionText: occlusionText(r),
+      occlusionText: occlusionText(r, ctx.occlusionOn?.(r.id) ?? true),
       dopplerText: dopplerText(r),
       silenced: quiet,
       base: b !== null,

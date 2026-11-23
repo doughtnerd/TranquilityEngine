@@ -3,7 +3,8 @@ import { audioTestSceneToJson, parseAudioTestScene } from "../../../engine/audio
 import type { Attenuation } from "../../../engine/audio/attenuation/types";
 import type { PlaylistAsset } from "../../../engine/audio/playlist/types";
 import type { TakeRequest } from "../../../engine/audio/take/types";
-import { attenuationDialog, attenuationFromResult, attenuationOwner, attenuationSummary, newAttenuation, ownerText, presetNameFor, ROLLOFF_PRESETS, whyNotEditAttenuation } from "./attenuationModel";
+import { attenuationDialog, attenuationFromResult, attenuationOwner, attenuationSummary, canMakeSpatial, NEW_SPATIAL, newAttenuation, occlusionOn, ownerText, presetNameFor, ROLLOFF_PRESETS, whyNotEditAttenuation } from "./attenuationModel";
+import { setSpatial } from "../playlists/playlistEdits";
 import { blankScene, copyScene, gameScene, gameScenePaths, sceneFromTake, takeClock } from "./newScene";
 import { deleteSceneFolder, moveSceneFolder, newSceneFolder, renameSceneFolder, sceneFolders, sceneMoveItem, sceneName, sceneTree, searchScenes, whyNotRenameScene } from "./sceneTree";
 import { whyNotMoveTo } from "../../../editor/ui/moveToModel";
@@ -111,12 +112,37 @@ describe("attenuation", () => {
     expect(ownerText(attenuationOwner("x.wav", read, presets))).toMatch(/sample: attenuation lives on playlists/);
   });
 
+  it("offers Make it 3D in Spatial for a flat playlist, after which Edit attenuation… opens (J9.2)", () => {
+    const flat = attenuationOwner("d.playlist.json", read, presets);
+    expect(canMakeSpatial(flat)).toBe(true);
+    expect(ownerText(flat)).toBe("d.playlist.json plays flat (2D). Make it 3D to hear it in place.");
+    for (const p of ["", "x.wav", "a.playlist.json", "b.playlist.json", "c.playlist.json"]) expect(canMakeSpatial(attenuationOwner(p, read, presets))).toBe(false);
+    // The block it gets (through the playlist's own edit) hears it in place, occluded (ADR 0162) with Doppler, as a game's AudioSource.
+    const made = setSpatial({ ...files["d.playlist.json"]!, spatial: null } as never, { ...NEW_SPATIAL });
+    const after = "next" in made ? (made.next as unknown as PlaylistAsset) : null;
+    expect(after?.spatial).toEqual({ attenuation: null, occlusion: true, doppler: 1, spread: null });
+    const owner = attenuationOwner("d.playlist.json", (p) => (p === "d.playlist.json" ? after : read(p)), presets);
+    expect(owner.kind).toBe("none");
+    expect(whyNotEditAttenuation(owner)).toBeNull(); // Create preset / Inline, then the curves
+  });
+
+  it("knows when a sound's own setting turns occlusion off, and the readout says Off, not Clear (J9.3)", () => {
+    expect(occlusionOn("a.playlist.json", read)).toBe(true);
+    expect(occlusionOn("c.playlist.json", read)).toBe(false);
+    expect(occlusionOn("d.playlist.json", read)).toBe(true); // flat: not traced anyway
+    expect(occlusionOn("x.wav", read)).toBe(true); // an AudioSource's own default
+    const open = { ...fixtureVoices()[0]! };
+    expect(occlusionText(open)).toBe("Clear");
+    expect(occlusionText(open, false)).toBe("Off (this sound)");
+  });
+
   it("says why Edit attenuation… can't open, the same for the Inspector and the plan's toolbar (UI pass SV12)", () => {
     const why = (sound: string) => whyNotEditAttenuation(attenuationOwner(sound, read, presets));
     expect(why("")).toBe("Pick a sound first: attenuation lives on the playlist it plays");
     expect(why("x.wav")).toBe("x.wav is a sample: attenuation lives on playlists");
     expect(why("z.playlist.json")).toBe("z.playlist.json isn't in the project");
     expect(why("d.playlist.json")).toMatch(/plays flat/);
+    expect(why("d.playlist.json")).toBe("d.playlist.json plays flat (2D): make it 3D first"); // not "in Playlists" (J9.2)
     expect(why("a.playlist.json")).toBeNull(); // opens the preset's curves
     expect(why("b.playlist.json")).toBeNull(); // the inline curves
     expect(why("c.playlist.json")).toBeNull(); // offers Create preset / Inline
