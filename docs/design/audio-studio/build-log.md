@@ -179,3 +179,6 @@ the 4 audio failures above (product follow-ups); stories 365/367. Typecheck clea
   a paused voice's stamped records wait on the core (`park_pending`/`unpark_pending`). Mixer 609,528 → 611,423 B;
   metered +0.09% overall, worst +0.56% (gen-silence-twin). Journeys re-walk after waves 1–4: 42 work, 5 partly, 1 fails
   (J10.1, no Studio take recording by owner decision); defects in scratchpad audit2/journeys.md → wave 6.
+- 2026-11-23 (UI pass wave 6): journey defects fixed (w6-a, w6-b). Capture/take readers accept another minor of the
+  core ABI major (6.0 files open in 6.1); refuse only a major mismatch or an unversioned schema change. Full Vitest on
+  the merge: 981 files, 10,460 passed.
