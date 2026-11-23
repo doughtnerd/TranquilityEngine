@@ -709,6 +709,22 @@ export interface AssetNodesAugmentContribution {
   augment(path: string, templates: NodeTemplate[]): NodeTemplate[];
 }
 
+/**
+ * A card another plugin adds to the Inspector's import settings of an asset kind (ADR 0143, 0373): the Animation plugin's
+ * bone map and clip import settings are cards of a model's Import Settings, though the `model` kind is the Meshes plugin's.
+ * It edits the same draft as the kind's own rows, so the shell's one Apply and Revert write them together. Cards show
+ * after the kind's own, in registration order.
+ */
+export interface ImportSettingsSectionContribution {
+  readonly id: string;
+  /** The asset kind whose Import Settings it joins, e.g. "model". */
+  readonly kind: string;
+  /** The card's heading. */
+  readonly title: string;
+  /** The card's rows, loaded on first use. */
+  readonly view: LoadComponent<ImportSettingsViewProps>;
+}
+
 export const componentNotes = createRegistry<ComponentNoteContribution>("Component note");
 export const assetKinds = createRegistry<AssetKindContribution>("Asset kind");
 export const panels = createRegistry<PanelContribution>("Panel");
@@ -729,6 +745,7 @@ export const componentWireframes = createRegistry<ComponentWireframeContribution
 export const skeletonBones = createRegistry<SkeletonBonesContribution>("Skeleton bones");
 export const nodeAssetDrops = createRegistry<NodeAssetDropContribution>("Node asset drop");
 export const assetNodesAugments = createRegistry<AssetNodesAugmentContribution>("Asset nodes augment");
+export const importSettingsSections = createRegistry<ImportSettingsSectionContribution>("Import settings section");
 
 /** The wireframe a registered contribution draws for `component` (by its Component type id), or null when none draws it or it can't be drawn now. */
 export function componentWireframe(component: Component): Wire | null {

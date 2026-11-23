@@ -1,8 +1,8 @@
 import { useEffect, useState } from "preact/hooks";
 import type { ImportSettings } from "../../engine/scene/importSettings";
 import { fileName } from "../assetBrowser";
-import { assetKind, kindImportSettings, kindInspector, kindLabel } from "../assetKindLookup";
-import type { ImportSettingsContribution, ImportSettingsViewProps, LoadComponent } from "../sdk/contributions";
+import { assetKind, kindImportSections, kindImportSettings, kindInspector, kindLabel } from "../assetKindLookup";
+import type { ImportSettingsContribution, ImportSettingsSectionContribution, ImportSettingsViewProps, LoadComponent } from "../sdk/contributions";
 import { lazyComponent, type LazyComponent } from "./lazy";
 import { readImportSettings, sameSettings, writeImportSettings } from "../assetImport";
 import { errorStatus } from "../messages";
@@ -34,6 +34,17 @@ export function AssetInspector(props: { path: string }) {
   return <ImportInspector path={path} />;
 }
 
+/** A card another plugin added to the kind's Import Settings (ADR 0373): its rows edit the same draft, so Apply and Revert cover them. */
+function ImportSection(props: { section: ImportSettingsSectionContribution; viewProps: ImportSettingsViewProps }) {
+  const View = lazyView(props.section.view);
+  return (
+    <div class="component asset-import-card" data-import-section={props.section.id}>
+      <h3>{props.section.title}</h3>
+      <View {...props.viewProps} />
+    </div>
+  );
+}
+
 /**
  * The selected file's import settings (ADR 0040, 0044), stored in its sidecar `<file>.meta.json`.
  * Edits are a draft until Apply writes the sidecar; Revert drops them, as does selecting something
@@ -53,6 +64,7 @@ function ImportInspector(props: { path: string }) {
   const views = importViews(kindImportSettings(kind));
   const Preview = views?.preview ?? null;
   const Rows = views?.view ?? null;
+  const sections = kindImportSections(kind);
   const dirty = !sameSettings(draft, saved.settings);
   const set = (patch: Partial<ImportSettings>) => setDraft({ ...draft, ...patch });
   const readOnly = project.canSave ? null : "This project is read-only.";
@@ -87,6 +99,9 @@ function ImportInspector(props: { path: string }) {
         <h3>Import Settings</h3>
         {Rows && <Rows path={path} project={project} draft={draft} set={set} replace={setDraft} dirty={dirty} readOnly={readOnly} />}
       </div>
+      {sections.map((s) => (
+        <ImportSection key={s.id} section={s} viewProps={{ path, project, draft, set, replace: setDraft, dirty, readOnly }} />
+      ))}
       <div class="asset-inspector-actions">
         <button disabled={!dirty} onClick={() => setDraft(structuredClone(saved.settings))}>
           Revert
