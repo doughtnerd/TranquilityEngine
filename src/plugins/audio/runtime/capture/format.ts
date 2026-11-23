@@ -71,7 +71,7 @@ export const CAPTURE_TRIGGER_MAX_FILES = 16;
 export const CAPTURE_MIN_SAMPLE_RATE = 8_000;
 export const CAPTURE_MAX_SAMPLE_RATE = 384_000;
 /** The highest `u8 op` code of a MIXOP (`MIX_OP_NAMES.length` in `src/engine/audio/mixOps.ts`; a test keeps them equal). */
-export const CAPTURE_MIXOP_CODES = 24;
+export const CAPTURE_MIXOP_CODES = 25; // 25: setOcclusionCurves (ADR 0362 item 6), appended
 /** `u8 class` codes of a MIXOP (`OP_CLASSES.length`). */
 export const CAPTURE_MIXOP_CLASSES = 5;
 

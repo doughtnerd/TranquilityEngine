@@ -6,11 +6,11 @@ import { defaultEffect } from "../../engine/audio/effects/catalogue";
 import type { Effect } from "../../engine/audio/effects/types";
 import type { DuckingRule } from "../../engine/audio/project/types";
 import { START_VIEW, chainKey, chainText, chainWheel, fitView, shouldStack, worstSeverity, zoomAt, type CausalStep } from "./causalChainModel";
-import { addEffect, effectMenu, effectSummary, keyBusOptions, levelWarning, moveEffect, nextEffectId, removeEffect, setEffectKey, setEffectOn, setEffectParam, type EditResult } from "./effectChainModel";
+import { addEffect, effectMenu, effectSummary, keyBusOptions, levelWarning, moveEffect, nextEffectId, removeEffect, setEffectKey, setEffectOn, setEffectParam, SUMMARY_MIN_PX, summaryFits, type EditResult } from "./effectChainModel";
 import { FADER_MAX_DB, FADER_MIN_DB, dbToPosition, faderGhosts, faderKey, formatDb, parseDb, pointerToDb, positionToDb, snapFaderDb } from "./faderModel";
 import { audibleUnderSolo, dbText, gainBreakdown, gainText, laneBar, laneText, parentsText, totalText, type GainInputs } from "./gainLanesModel";
 import { EMPTY_HOLD, clearClip, meterFill, meterText, meterZone, nextHold } from "./meterModel";
-import { duckSummary, duckTriggerOptions, editDuck, editSendLevel, sendSummary, sendTargets } from "./mixRowsModel";
+import { duckSummary, duckTriggerOptions, editDuck, editSendLevel, sendSummary, sendTargets, triggerEntries } from "./mixRowsModel";
 import { numericSpec, parameterRows, withTestValue } from "./parameterPanelModel";
 import { formatParam, paramKey, paramToFraction, paramToSlider, parseParam, scrubParam, sliderToParam, snapParam, stepDecimals, type ParamSpec } from "./parameterRowModel";
 import { flatItems, soundFolder, soundName, soundSections, stepActive, type SoundItem } from "./soundPickerModel";
@@ -502,5 +502,26 @@ describe("why it played", () => {
     expect(worstSeverity(steps)).toBe("error");
     expect(worstSeverity(steps.slice(0, 2))).toBe("ok");
     expect(chainText(steps.slice(0, 2))).toBe("game Land (Velocity 118), then playlist Bike impacts (Surface → Metal)");
+  });
+});
+
+describe("Mixer rows (UI pass MX-30, MX-33)", () => {
+  it("a collapsed card's summary is drawn only with room for it (otherwise it's on the tooltip, not cut to a letter)", () => {
+    expect(SUMMARY_MIN_PX).toBe(60);
+    expect(summaryFits(59)).toBe(false);
+    expect(summaryFits(60)).toBe(true);
+  });
+
+  it("Ducked by is a menu: captioned, the current trigger checked, the ones that can't trigger disabled with why", () => {
+    const chosen: string[] = [];
+    const entries = triggerEntries([{ name: "Dialogue", disabled: null }, { name: "Weapons", disabled: "already" }, { name: "Music", disabled: null }], "Dialogue", (n) => chosen.push(n));
+    expect(entries[0]).toEqual({ kind: "group", label: "Duck when this plays" });
+    expect(entries.slice(1).map((e) => ("id" in e ? [e.id, e.checked, !!e.disabled, e.note ?? null] : null))).toEqual([
+      ["Dialogue", true, false, null],
+      ["Weapons", false, true, "already"],
+      ["Music", false, false, null],
+    ]);
+    for (const e of entries) if ("run" in e && !e.disabled) e.run();
+    expect(chosen).toEqual(["Music"]); // choosing the current one changes nothing
   });
 });

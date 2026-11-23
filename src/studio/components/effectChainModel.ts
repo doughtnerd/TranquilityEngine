@@ -109,6 +109,14 @@ export function effectSummary(effect: Effect, count = 2): string {
   return parts.join(" · ");
 }
 
+/**
+ * MX-30: the narrowest room (px) a collapsed card's summary is drawn in; with less it is left out (its text is on the
+ * card name's tooltip) rather than cut to an ellipsis and a letter.
+ */
+export const SUMMARY_MIN_PX = 60;
+/** Whether a summary with `room` px (what the name and tools leave) is drawn. */
+export const summaryFits = (room: number): boolean => room >= SUMMARY_MIN_PX;
+
 /** Why an effect in the chain won't play at `level` (it was moved from a level it can run at), or null. */
 export function levelWarning(effect: Effect, level: EffectLevel, runs?: readonly EffectType[]): string | null {
   // `runs`: the types the chain's owner runs whatever the level lists (a sequence clip's Gain and Amp envelope, ADR 0362).

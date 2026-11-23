@@ -8,6 +8,7 @@
  *
  * Pure; no plugin, no DOM.
  */
+import { isMarkColour } from "../markColour";
 import type { Curve, CurveKey } from "../../core/curve";
 import { effectsToJson, parseEffects as parseEffectChain } from "../effects/catalogue";
 import type { Effect } from "../effects/types";
@@ -288,6 +289,8 @@ export function parseAudioProject(raw: unknown, options: AudioParseOptions = {})
   project.snapshots = parseSnapshots(raw.snapshots, project, problems);
   const folders = parseSnapshotFolders(raw.snapshotFolders, project.snapshots, problems);
   if (folders.length > 0) project.snapshotFolders = folders;
+  const studio = parseStudioSettings(raw.studio, problems);
+  if (studio) project.studio = studio;
   project.loudness = parseLoudness(raw.loudness, problems);
   // ADR 0351: encoding and packages, set only when the file holds something (absent keys read as their defaults).
   const encoding = parseEncodingConfig(raw.encoding, problems);
@@ -569,6 +572,7 @@ export function audioProjectToJson(project: AudioProject): Record<string, unknow
     ducking: project.ducking.map((d) => ({ ...d })),
     snapshots: project.snapshots.map((s) => clone(s)),
     ...optional("snapshotFolders", project.snapshotFolders && project.snapshotFolders.length > 0 ? [...project.snapshotFolders] : null),
+    ...optional("studio", studioSettingsToJson(project.studio)),
     loudness: { targets: project.loudness.targets.map((t) => ({ ...t })), resetOnPlay: project.loudness.resetOnPlay },
     ...optional("encoding", project.encoding && encodingConfigToJson(project.encoding)),
     ...optional("packages", project.packages && packagesToJson(project.packages)),
@@ -606,3 +610,29 @@ function settingsToJson(s: AudioEngineSettings): Record<string, unknown> {
   return out;
 }
 
+/** ADR 0362 item 4: `studio`, `{ folderColours: { <folder>: colour } }`; bad entries are dropped with a problem. */
+function parseStudioSettings(raw: unknown, problems: string[]): AudioProject["studio"] | null {
+  if (raw === undefined || raw === null) return null;
+  if (!isRecord(raw)) return void problems.push("studio: must be an object; ignored."), null;
+  const out: NonNullable<AudioProject["studio"]> = {};
+  if (raw.folderColours !== undefined) {
+    if (!isRecord(raw.folderColours)) problems.push("studio.folderColours: must map folder paths to colours; ignored.");
+    else {
+      const colours: Record<string, string> = {};
+      for (const [folder, colour] of Object.entries(raw.folderColours)) {
+        const path = folder.replace(/^\/+|\/+$/g, "");
+        if (path === "") problems.push("studio.folderColours: a key must be a folder path; dropped.");
+        else if (!isMarkColour(colour)) problems.push(`studio.folderColours.${folder}: must be a theme colour name or #rrggbb; dropped.`);
+        else colours[path] = colour.toLowerCase();
+      }
+      if (Object.keys(colours).length) out.folderColours = colours;
+    }
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function studioSettingsToJson(studio: AudioProject["studio"]): Record<string, unknown> | null {
+  const colours = studio?.folderColours;
+  if (!colours || Object.keys(colours).length === 0) return null;
+  return { folderColours: Object.fromEntries(Object.keys(colours).sort().map((k) => [k, colours[k]!])) };
+}

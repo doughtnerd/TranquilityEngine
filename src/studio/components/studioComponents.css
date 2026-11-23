@@ -40,6 +40,7 @@
 .studio-transport-button.primary { width: 32px; min-width: 32px; height: 32px; background: var(--text-strong); color: var(--bg); box-shadow: 0 2px 8px var(--shadow); }
 .studio-transport-button.primary:hover:not(:disabled) { background: var(--text-strong); filter: brightness(1.08); }
 .studio-transport-button.primary:disabled { opacity: 0.4; box-shadow: none; }
+.studio-transport-button.primary.with-text { width: auto; padding: 0 14px 0 10px; border: none; border-radius: 16px; } /* a Play that names what it plays (sequence W-2) */
 .studio-transport-button.trigger { width: auto; height: 32px; padding: 0 16px 0 12px; border: none; border-radius: 16px; background: var(--accent); color: var(--accent-text); font-size: calc(12px * var(--ui-scale)); font-weight: 700; box-shadow: 0 2px 8px var(--shadow); }
 .studio-transport-button.trigger:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
 .studio-transport-button.trigger:disabled { opacity: 0.4; box-shadow: none; }

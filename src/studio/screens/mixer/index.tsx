@@ -22,7 +22,7 @@ import { BusesPanel } from "./BusesPanel";
 import { DEFAULT_PINS } from "./boardModel";
 import { MixerInspector } from "./MixerInspector";
 import { openMixDocument } from "./mixerDocument";
-import { auditionSnapshot, liveMixHost, readBus, readLoudness, setLoudnessTarget, setRuntimeParameter } from "./mixerRuntime";
+import { auditionSnapshot, liveMixHost, readBus, readLoudness, resetLoudness, setLoudnessTarget, setRuntimeParameter } from "./mixerRuntime";
 import { createMixerSession, type MixerSession } from "./mixerScreen";
 import { busRenameEdit } from "./renameReferences";
 import { GainLanesPanel, LoudnessPanel, ParametersPanel } from "./SidePanels";
@@ -67,6 +67,12 @@ function mixerSession(): MixerSession | null {
     setParameter: setRuntimeParameter,
     auditionSnapshot,
     setLoudnessTarget,
+    resetLoudness,
+    takeReplay: () => {
+      const store = replayStore();
+      const open = store.open.value;
+      return open ? { take: open.path, duration: open.take.duration, time: store.time.value, playing: store.playing.value } : null;
+    },
     sessionLive: () => replayStore().playing.value,
     openFile: (path) => studioRouter().open({ screen: "playlists", asset: path }),
     prefs,

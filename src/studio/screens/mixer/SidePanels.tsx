@@ -4,6 +4,8 @@
 // dropdown for a state or a text value; they drive snapshot conditions, automation display and the Studio's runtime),
 // and Master's loudness against a platform target: the BS.1770 readouts with their units and verdicts, and the
 // short-term loudness of the last 60 s against the target line ("—" until the Studio's audio plays).
+import { LoudnessTargetsDialog } from "./LoudnessTargetsDialog";
+import { NO_TAKE_LOUDNESS, takeLoudnessStep, takeLoudnessText, type TakeLoudness } from "./loudnessTargetsModel";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { InfoTip } from "../../../editor/ui/InfoTip";
 import { isLabelled, parameterKind } from "../../../engine/audio/parameters";
@@ -130,6 +132,14 @@ export function LoudnessPanel(props: { session: MixerSession }) {
   const rows = loudnessRows(reading, chosen);
   const history = useShortTermHistory(reading && Number.isFinite(reading.shortTerm) ? reading.shortTerm : null, tick);
   const line = sparkline(history, performance.now() / 1000, chosen?.integrated ?? null);
+  // MX-63: the whole take's integrated loudness, measured over a replay from its start to its end.
+  const replay = session.deps.takeReplay?.() ?? null;
+  const take = useRef<TakeLoudness>(NO_TAKE_LOUDNESS);
+  const step = takeLoudnessStep(take.current, replay && { ...replay, integrated: reading?.integrated ?? Number.NEGATIVE_INFINITY });
+  if (step.reset) session.deps.resetLoudness?.();
+  take.current = step.next;
+  const whole = takeLoudnessText(step.next, chosen);
+  const [editingTargets, setEditingTargets] = useState(false);
   return (
     <MixFrame session={session} class="mx-loudness" label={`Loudness of ${master}`}>
       <div class="mx-loud-tools">
@@ -138,7 +148,11 @@ export function LoudnessPanel(props: { session: MixerSession }) {
         <span class="mx-spacer" />
         <span class="mx-trlabel">Platform target</span>
         <MixDropdown label="Platform target" value={target} options={targets.map((t) => ({ value: t.name, label: targetOptionText(t) }))} onChange={(v) => { setTarget(v); session.deps.setLoudnessTarget?.(v); }} />
+        <button type="button" class="studio-icon-button" aria-label="Loudness targets" title="Project settings · Loudness targets: this project's own list (saved in audio.json)" onClick={() => setEditingTargets(true)}>
+          <Icon name="settings" size={14} />
+        </button>
       </div>
+      {editingTargets && <LoudnessTargetsDialog project={p} readOnly={session.readOnly} commit={session.commit} onClose={() => setEditingTargets(false)} />}
       <dl class="mx-loud" aria-label="Readings">
         {rows.map((r) => (
           <div key={r.key} class={`mx-loud-cell${r.verdict === "warn" ? " warn" : r.verdict === "ok" ? " ok" : ""}`} title={r.warn ?? undefined}>
@@ -155,6 +169,7 @@ export function LoudnessPanel(props: { session: MixerSession }) {
           {line.points.length > 1 && <polyline class="mx-spark-line" points={line.points.map(([x, y]) => `${x},${y}`).join(" ")} />}
         </svg>
       </div>
+      {whole && <p class={`mx-loud-take${whole.verdict ? ` ${whole.verdict}` : ""}`} role="status">{whole.text}</p>}
       {!reading && <p class="mx-note">Readings show while the Studio's audio plays: audition a playlist or replay a take.</p>}
     </MixFrame>
   );

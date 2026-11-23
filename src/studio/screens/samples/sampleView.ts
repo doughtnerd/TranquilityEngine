@@ -1,6 +1,8 @@
 // What the Samples timeline, Outline and readout derive from a sample block (the prototype's rules): the loop row's
 // regions (Pickup, Loop N, Link, Tail), the selection model, marker rows packed by label width, the warnings stack,
 // the Outline's groups, snapping and the region under the playhead. Times are source seconds. Pure.
+import { markColourCss } from "../../../engine/audio/markColour";
+import type { ReservedRange } from "../../../engine/audio/sample/types";
 import type { SampleEdits, SampleLoop, SampleMarker } from "../../../engine/audio/sample/types";
 import { effectiveFormat, type TimeContext } from "../../components/timeRulerModel";
 import { closeGap, isHold, loopName, MARKER_TYPE_NAMES, refusalOf, snippets, tapeSnippet, type Snippet } from "./sampleEditing";
@@ -276,7 +278,7 @@ export function outlineGroups(e: SampleEdits, sourceLength: number, query = ""):
   const loopItems: OutlineItem[] = loopRegions(e, sourceLength).map((r) =>
     r.kind === "loop" && r.loop
       ? { key: `l:${r.loop.id}`, name: loopName(e, r.loop.id), at: r.start, end: r.end, selection: r.selection, fromFile: r.loop.file !== null, color: `var(${r.token})`, active: r.loop.active, outside: false }
-      : { key: `${r.kind}:${r.start}`, name: r.kind === "link" ? `Link ${e.loops.findIndex((l) => r.selection.kind === "link" && l.id === r.selection.after) + 1}` : r.label, at: r.start, end: r.end, selection: r.selection, fromFile: false, color: `var(${r.kind === "link" ? "--range-pickup" : r.token})`, outside: false },
+      : { key: `${r.kind}:${r.start}`, name: r.kind === "link" ? `Link ${e.loops.findIndex((l) => r.selection.kind === "link" && l.id === r.selection.after) + 1}` : r.label, at: r.start, end: r.end, selection: r.selection, fromFile: false, color: r.kind === "pickup" || r.kind === "tail" ? rangeLook(e, r.kind).css : `var(${r.kind === "link" ? "--range-pickup" : r.token})`, outside: false },
   );
   const order = (i: OutlineItem) => (i.selection.kind === "pickup" ? 0 : i.selection.kind === "tail" ? 2 : 1);
   const groups: Omit<OutlineGroup, "total">[] = [
@@ -287,7 +289,7 @@ export function outlineGroups(e: SampleEdits, sourceLength: number, query = ""):
     { id: "loops", title: "Loops", empty: "No loops · Add loop, or L at the playhead", items: loopItems },
     { id: "notes", title: "Notes", empty: "None · double-click a marker row to add one", items: m((x) => x.type === "note") },
     { id: "snippets", title: "Snippets", empty: "None · snip with the razor (C)", items: snippets(e, sourceLength).map((s: Snippet) => ({ key: `s:${s.index}`, name: s.deleted ? `${s.name} · deleted` : s.name, at: s.start, end: s.end, selection: { kind: "snippet", index: s.index }, fromFile: false, color: "var(--text-strong)", outside: out(s.start, s.end), deleted: s.deleted })) },
-    { id: "trim", title: "Trim", empty: "", items: [{ key: "trim", name: "Trim", at: ta, end: tb, selection: { kind: "trim" }, fromFile: false, color: "var(--range-trim)", outside: false }] },
+    { id: "trim", title: "Trim", empty: "", items: [{ key: "trim", name: "Trim", at: ta, end: tb, selection: { kind: "trim" }, fromFile: false, color: rangeLook(e, "trim").css, outside: false }] },
   ];
   return groups
     .map((g) => ({
@@ -361,6 +363,21 @@ export function colourValue(css: string): number | string | null {
 export function markerColour(m: Pick<SampleMarker, "type" | "color">): string {
   return m.type === "note" && m.color !== undefined ? colourCss(m.color) : `var(${MARKER_TYPE_TOKENS[m.type]})`;
 }
+
+/** ADR 0362 item 4: a reserved range's colour as CSS (its own, else its theme token) and its note (absent: none). */
+export function rangeLook(e: Pick<SampleEdits, "ranges">, range: ReservedRange): { readonly css: string; readonly own: boolean; readonly note?: string } {
+  const look = e.ranges?.[range];
+  return { css: look?.colour ? markColourCss(look.colour) : `var(${RANGE_TOKENS[range]})`, own: !!look?.colour, ...(look?.note ? { note: look.note } : {}) };
+}
+/** A note as a tooltip's last line ("" without one). */
+export const noteLine = (note: string | undefined): string => (note ? `\n${note}` : "");
+const RANGE_TOKENS: Readonly<Record<ReservedRange, string>> = { trim: "--range-trim", pickup: "--range-pickup", tail: "--range-tail" };
+
+/** The swatches a reserved range offers after its default colour (theme tokens). */
+export const RANGE_PRESETS: readonly { readonly name: string; readonly color: string }[] = [
+  { name: "Amber", color: "var(--warning)" }, { name: "Cyan", color: "var(--accent)" }, { name: "Green", color: "var(--accent2)" },
+  { name: "Red", color: "var(--danger)" }, { name: "Violet", color: "var(--series-6)" },
+];
 
 const MARKER_TYPE_TOKENS: Readonly<Record<SampleMarker["type"], string>> = { note: "--marker-note", exit: "--marker-exit", entry: "--marker-exit", hit: "--marker-hit", cue: "--marker-cue" };
 

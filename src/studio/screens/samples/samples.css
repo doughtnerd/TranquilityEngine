@@ -421,3 +421,7 @@ span.smp-tcin.ro { display: inline-block; padding: 2px 6px; border: 1px solid va
   .smp-menu button { min-height: 40px; align-items: center; }
   /* The handles' hit areas reach past their thin marks. */
 }
+
+/* ADR 0362 item 4: a folder's colour (the project's Studio settings) tints its icon and edge */
+.smp-folder-colour { display: inline-flex; }
+.smp-folder-colour .studio-glyph { color: inherit; }

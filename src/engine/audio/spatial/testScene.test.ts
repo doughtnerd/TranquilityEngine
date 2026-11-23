@@ -150,3 +150,18 @@ describe("references", () => {
     expect(rewriteTestSceneReferences(scene, new Map([["nope", "x"]]))).toBe(scene);
   });
 });
+
+describe("a scene's own occlusion curves (ADR 0362 item 6)", () => {
+  it("parse and write back; absent stays absent; bad curves are dropped with a problem", () => {
+    const curves = { volume: [[0, 0], [1, -9]], lowpass: [[0, 20000], [1, 1200]] };
+    const { scene, problems } = parseAudioTestScene({ ...full, settings: { occlusion: { curves } } });
+    expect(problems).toEqual([]);
+    expect(scene.settings?.occlusion?.curves).toEqual(curves);
+    expect(audioTestSceneToJson(scene).settings).toEqual({ occlusion: { curves } });
+    expect(parseAudioTestScene(full).scene.settings).toBeUndefined();
+    expect(audioTestSceneToJson(parseAudioTestScene(full).scene)).not.toHaveProperty("settings");
+    const bad = parseAudioTestScene({ ...full, settings: { occlusion: { curves: { volume: 3 } } } });
+    expect(bad.scene.settings).toBeUndefined();
+    expect(bad.problems).toEqual([expect.stringContaining("settings.occlusion.curves.volume")]);
+  });
+});

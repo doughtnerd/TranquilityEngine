@@ -5,10 +5,12 @@
 // chip; while its plugin is off or missing the card is greyed with the reason (`pluginEffectNote`); with a health row
 // it shows a status line when the effect isn't healthy (faulted, off after faults, no free instance, loading) with
 // Reset plugin, and the row (state, instructions per frame against the budget, memory, faults) when open.
+import { useRef } from "preact/hooks";
 import { clampEffectParam, effectSpec } from "../../engine/audio/effects/catalogue";
 import type { Effect, EffectLevel, EffectParamSpec, EffectType } from "../../engine/audio/effects/types";
 import type { AudioPluginDebug } from "../../plugins/audio/runtime/debugTypes";
-import { effectSummary, levelWarning, pluginCardView } from "./effectChainModel";
+import { effectSummary, levelWarning, pluginCardView, summaryFits } from "./effectChainModel";
+import { useElementWidth } from "./useElementWidth";
 import { formatParam } from "./parameterRowModel";
 import { Icon } from "./Icon";
 import { ParameterRow } from "./ParameterRow";
@@ -76,13 +78,16 @@ export function EffectCard(props: EffectCardProps) {
   const warning = levelWarning(effect, props.level, props.runs);
   const bodyId = `studio-fx-${effect.id}-body`;
   const plugin = pluginCardView(effect, props.pluginHealth);
+  const summary = effectSummary(effect);
+  const summaryRef = useRef<HTMLSpanElement>(null);
+  const summaryRoom = useElementWidth(summaryRef);
   return (
     <div class={`studio-row studio-fx${effect.on ? "" : " off"}${warning ? " warn" : ""}${plugin?.greyed ? " greyed" : ""}`} data-effect={effect.id} aria-disabled={plugin?.greyed ? true : undefined}>
       <div class="studio-row-head">
         <button type="button" class="studio-row-caret" aria-expanded={open} aria-controls={bodyId} aria-label={`${open ? "Collapse" : "Expand"} ${spec.label}`} onClick={() => props.onOpen(!open)}>
           <Icon name={open ? "chevronDown" : "chevronRight"} size={14} />
         </button>
-        <span class="studio-row-name" title={warning ?? spec.label}>
+        <span class="studio-row-name" title={warning ?? (open ? spec.label : `${spec.label} · ${summary}`)}>
           {warning && <Icon name="warning" size={12} label="Warning" class="studio-row-warn" />}
           {spec.label}
         </span>
@@ -91,7 +96,7 @@ export function EffectCard(props: EffectCardProps) {
             {plugin.chip}
           </span>
         )}
-        {!open && <span class="studio-row-summary">{effectSummary(effect)}</span>}
+        {!open && <span ref={summaryRef} class={`studio-row-summary${summaryRoom > 0 && !summaryFits(summaryRoom) ? " cramped" : ""}`} title={summary}>{summary}</span>}
         <span class="studio-row-tools">
           {props.onAutomate && (
             <button

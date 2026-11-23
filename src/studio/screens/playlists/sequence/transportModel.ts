@@ -62,6 +62,28 @@ export function playRange(s: SequenceSettings, sel: SeqSelection, playhead: numb
   return { start, from, to: Math.max(from, to), selection };
 }
 
+/**
+ * The Play button's words: what Play will play now (sequence W-2, proto W53): "Play clip" / "Play 3 clips", "Play loop",
+ * "Play from the hold point", "Play from <marker>", "Play from the playhead", "Play from the start"; a pre-roll adds
+ * "with pre-roll". Follows `playRange`'s rules (a marker or playhead at the end plays from the start).
+ */
+export function playLabel(s: SequenceSettings, sel: SeqSelection, playhead: number, opts: TransportOptions, sourceOf: SourceOf): string {
+  const length = sequenceLength(s, sourceOf);
+  const range = playRange(s, sel, playhead, opts, sourceOf);
+  const pre = opts.preRoll && range.start < range.from ? " with pre-roll" : "";
+  const fromStart = `Play from the start${pre}`;
+  if (opts.mode === "start") return fromStart;
+  if (opts.mode === "selection") {
+    const picked = allClips(s).filter((c) => sel.clips.includes(c.clip.id)).length;
+    const loop = sel.loop ? s.loops.find((l) => l.id === sel.loop) : undefined;
+    const marker = sel.marker ? s.markers.find((m) => m.id === sel.marker) : undefined;
+    if (sel.focus === "clips" && picked) return `Play ${picked === 1 ? "clip" : `${picked} clips`}${pre}`;
+    if (sel.focus === "loop" && loop) return loop.end > loop.start ? `Play loop${pre}` : range.from === 0 && loop.start >= length ? fromStart : `Play from the hold point${pre}`;
+    if (sel.focus === "marker" && marker) return range.from === 0 && marker.at > 0 ? fromStart : `Play from ${marker.name}${pre}`;
+  }
+  return range.from === 0 ? fromStart : `Play from the playhead${pre}`;
+}
+
 /** Does the sequence hold a loop that waits for release (a sequence loop or a clip's loop "while held")? */
 export function hasHeldLoop(s: SequenceSettings, sourceOf: SourceOf): boolean {
   if (s.loops.some((l) => l.active === "held")) return true;

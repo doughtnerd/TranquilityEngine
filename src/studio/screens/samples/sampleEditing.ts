@@ -5,7 +5,8 @@
 // Pure.
 import { DEFAULT_CROSSFADE_MS, DEFAULT_LOUDNESS_TARGET, DEFAULT_PEAK_TARGET, MARKER_DEFAULT_NAMES, SAMPLE_LIMITS } from "../../../engine/audio/sample/format";
 import { NOTE_NAME_PATTERN } from "../../../engine/audio/sample/noteNames";
-import type { LoopDirection, MarkerType, SampleEdits, SampleLoop, SampleMarker, SampleNormalize } from "../../../engine/audio/sample/types";
+import type { LoopDirection, MarkerType, RangeLook, ReservedRange, SampleEdits, SampleLoop, SampleMarker, SampleNormalize } from "../../../engine/audio/sample/types";
+import { isMarkColour, MARK_NOTE_MAX } from "../../../engine/audio/markColour";
 import { editedLength, inClosedGap, toSource, toView, trimOf } from "./sampleTime";
 
 export type SampleEdit = { readonly next: SampleEdits; readonly label: string } | { readonly refused: string };
@@ -421,3 +422,33 @@ export const DIRECTION_NAMES: Readonly<Record<LoopDirection, string>> = { forwar
 
 export const setSnapToZero = (e: SampleEdits, on: boolean): SampleEdit => ok({ ...e, snapToZero: on }, `Snap to zero crossings ${on ? "on" : "off"}`);
 export const setStinger = (e: SampleEdits, on: boolean): SampleEdit => ok({ ...e, stinger: on }, `Sting ${on ? "on" : "off"}`);
+
+// --- reserved ranges' look (ADR 0362 item 4) ------------------------------------------------------------------------
+
+const RANGE_NAMES: Readonly<Record<ReservedRange, string>> = { trim: "Trim", pickup: "Pickup", tail: "Tail" };
+
+/**
+ * A reserved range's colour (a theme token name or `#rrggbb`; null: the default) and note (blank: none), stored in the
+ * sidecar's `ranges`. Only how the range is drawn and annotated: where it lies still comes from the trim and loops.
+ */
+export function setRangeLook(e: SampleEdits, range: ReservedRange, patch: { readonly colour?: string | null; readonly note?: string }): SampleEdit {
+  const name = RANGE_NAMES[range];
+  const look: RangeLook = { ...e.ranges?.[range] };
+  let label = `${name} note`;
+  if (patch.colour !== undefined) {
+    if (patch.colour === null) delete look.colour;
+    else if (!isMarkColour(patch.colour)) return no("a range colour is a theme colour or #rrggbb");
+    else look.colour = patch.colour.toLowerCase();
+    label = `${name} colour`;
+  }
+  if (patch.note !== undefined) {
+    if (patch.note.length > MARK_NOTE_MAX) return no(`a note holds at most ${MARK_NOTE_MAX} characters`);
+    if (patch.note.trim() === "") delete look.note;
+    else look.note = patch.note;
+  }
+  const ranges = { ...e.ranges };
+  if (look.colour || look.note) ranges[range] = look;
+  else delete ranges[range];
+  const { ranges: _old, ...rest } = e;
+  return ok(Object.keys(ranges).length ? { ...rest, ranges } : (rest as SampleEdits), label);
+}

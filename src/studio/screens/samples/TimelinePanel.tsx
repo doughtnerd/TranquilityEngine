@@ -8,7 +8,8 @@
 // drawn in timeline time (closed gaps removed, `sampleTime.ts`); edits store source time. Drags are one coalesced step.
 import { Fragment, type ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
-import type { SampleEdits, SampleLoop, SampleMarker } from "../../../engine/audio/sample/types";
+import type { ReservedRange, SampleEdits, SampleLoop, SampleMarker } from "../../../engine/audio/sample/types";
+import { markColourOf } from "../../../engine/audio/markColour";
 import { currentProject } from "../../../editor/state";
 import { ContextMenu, SEPARATOR, tidyEntries, type MenuEntry } from "../../../editor/ui/ContextMenu";
 import { EmptyState } from "../../../editor/ui/EmptyState";
@@ -26,7 +27,7 @@ import { useElementWidth } from "../../components/useElementWidth";
 import * as act from "./sampleActions";
 import {
   addLoop, addMarker, closeGap, convertMarker, deleteMarker, hasFixedName, isHold, loopName, MARKER_TYPE_NAMES, MARKER_TYPE_ORDER, moveLoop, moveMarker, nextMarkerName, refusalOf, removeLoop, resetTrim,
-  setSnapToZero, setTrim, slideLoop, snippets, sourceTime, tapeSnippet, toggleSnippet, updateLoop, updateMarker, viewTime, type SampleEdit,
+  setRangeLook, setSnapToZero, setTrim, slideLoop, snippets, sourceTime, tapeSnippet, toggleSnippet, updateLoop, updateMarker, viewTime, type SampleEdit,
 } from "./sampleEditing";
 import { effectSpec } from "../../../engine/audio/effects/catalogue";
 import { detachMarker, fileOrigin, markerDiff, revertLoop, revertMarker } from "./sampleFile";
@@ -36,7 +37,7 @@ import { detectInto } from "./sampleDetect";
 import { editedLength, trimOf } from "./sampleTime";
 import {
   estimateLabelWidth, liveSelection, loopLabel, loopRegions, MARKER_PRESETS, MARKER_ROWS_SHOWN, markerColour, musicalSpans, nextMarker, packMarkerRows, regionAt, sampleWarnings, selectionSpan,
-  shortSeconds, snapTime, snippetMenu, snippetUnder, trimHoldingMarkers, fitToSource, type SampleSelection, type SnippetAction,
+  shortSeconds, snapTime, snippetMenu, snippetUnder, trimHoldingMarkers, fitToSource, noteLine, RANGE_PRESETS, rangeLook, type SampleSelection, type SnippetAction,
 } from "./sampleView";
 import { nearestZeroCrossing, seamJump } from "./seam";
 import { NormalizePopover, RootPopover, SnapSplit, TempoPopover, TimeDisplayCaret } from "./SampleTools";
@@ -280,6 +281,29 @@ function Timeline(props: { session: SampleSession }) {
     });
   };
 
+  /** Select a reserved range and put the caret in its Inspector note. */
+  const focusRangeNote = (range: ReservedRange) => {
+    select({ kind: range });
+    const name = { trim: "Trim", pickup: "Pickup", tail: "Tail" }[range];
+    requestAnimationFrame(() => (lanes.current?.ownerDocument ?? document).querySelector<HTMLElement>(`[aria-label="${name} note"]`)?.focus());
+  };
+
+  /** ADR 0362 item 4: a reserved range's Colour submenu (its default first) and its note, in the Inspector. */
+  const rangeLookEntries = (range: ReservedRange): (MenuEntry | false)[] => {
+    const look = rangeLook(e, range);
+    const defaultCss = rangeLook({}, range).css;
+    const swatches = [{ name: "Default", color: defaultCss }, ...RANGE_PRESETS];
+    return [
+      SEPARATOR,
+      {
+        id: "colour", label: "Colour", disabled: ro, run: () => {},
+        submenu: swatches.map((p) => ({ id: `colour-${p.name}`, label: p.name, checked: look.css === p.color, run: () => void commit(setRangeLook(session.edits.peek(), range, { colour: p.color === defaultCss ? null : markColourOf(p.color) })) })),
+      },
+      { id: "note", label: look.note ? "Edit note…" : "Add note…", disabled: ro, run: () => focusRangeNote(range) },
+      look.note !== undefined && { id: "clearNote", label: "Clear note", disabled: ro, run: () => commit(setRangeLook(session.edits.peek(), range, { note: "" })) },
+    ];
+  };
+
   /** Trim, Pickup, Link and Tail (reserved ranges): what they can do. */
   const reservedMenu = (s: SampleSelection, at: { x: number; y: number }) => {
     select(s);
@@ -294,6 +318,7 @@ function Timeline(props: { session: SampleSession }) {
         { id: "zoom", label: `Zoom to the ${name.toLowerCase()}`, hint: "Z", run: () => act.zoomToSelection() },
         s.kind === "trim" && { id: "reset", label: "Reset to the whole file", disabled: ro || !e.trim, run: () => commit(resetTrim(e)) },
         s.kind !== "trim" && span && { id: "loop", label: "Add a loop here", disabled: ro, run: () => act.addLoopHere((span.start + span.end) / 2) },
+        ...(s.kind === "trim" || s.kind === "pickup" || s.kind === "tail" ? rangeLookEntries(s.kind) : []),
       ]),
     });
   };
@@ -474,17 +499,18 @@ function Timeline(props: { session: SampleSession }) {
         else commit(moveLoop(now, l.id, cur.start, toSrc(vt, true), length), true);
       });
     };
-    const token = r.kind === "link" ? "--range-pickup" : r.token;
+    const colour = r.kind === "pickup" || r.kind === "tail" ? rangeLook(e, r.kind) : null;
+    const mc = colour ? colour.css : `var(${r.kind === "link" ? "--range-pickup" : r.token})`;
     return (
       <div
         key={`${r.kind}${r.start}`}
         class={`smp-mr smp-rg ${r.kind}${ro2 ? " ro" : ""}${on ? " on" : ""}${hold ? " z" : ""}`}
-        style={{ left: `${rx}px`, width: `${rw}px`, top: "2px", "--mc": `var(${token})` }}
+        style={{ left: `${rx}px`, width: `${rw}px`, top: "2px", "--mc": mc }}
         role="button"
         tabIndex={0}
         aria-pressed={on}
         aria-label={`${r.kind === "loop" && r.loop ? loopName(e, r.loop.id) : r.label} ${formatTime(v(r.start), fmt, ctx)} to ${formatTime(v(r.end), fmt, ctx)}`}
-        title={`${tips[r.kind]}\n${formatTime(v(r.start), fmt, ctx)} – ${formatTime(v(r.end), fmt, ctx)}`}
+        title={`${tips[r.kind]}\n${formatTime(v(r.start), fmt, ctx)} – ${formatTime(v(r.end), fmt, ctx)}${noteLine(colour?.note)}`}
         onPointerDown={(ev) => grab(ev, "body")}
         onFocus={() => !on && select(r.selection)}
         onKeyDown={(ev) => {
@@ -535,12 +561,12 @@ function Timeline(props: { session: SampleSession }) {
   const trimRow = (
     <div
       class={`smp-mr smp-rg trim${trimOn ? " on" : ""}`}
-      style={{ left: `${x(ta)}px`, width: `${Math.max(14, x(tb) - x(ta))}px`, top: "2px", "--mc": "var(--range-trim)" }}
+      style={{ left: `${x(ta)}px`, width: `${Math.max(14, x(tb) - x(ta))}px`, top: "2px", "--mc": rangeLook(e, "trim").css }}
       role="button"
       tabIndex={0}
       aria-pressed={trimOn}
       aria-label={`Trim ${formatTime(v(ta), fmt, ctx)} to ${formatTime(v(tb), fmt, ctx)}`}
-      title={`Trim: audio outside never plays · drag the ends to trim, the body to slide · double-click to reset to the full file\n${formatTime(v(ta), fmt, ctx)} – ${formatTime(v(tb), fmt, ctx)}`}
+      title={`Trim: audio outside never plays · drag the ends to trim, the body to slide · double-click to reset to the full file\n${formatTime(v(ta), fmt, ctx)} – ${formatTime(v(tb), fmt, ctx)}${noteLine(rangeLook(e, "trim").note)}`}
       onDblClick={() => commit(resetTrim(e))}
       onFocus={() => !trimOn && select({ kind: "trim" })}
       onContextMenu={(ev) => (ev.preventDefault(), reservedMenu({ kind: "trim" }, point(ev)))}

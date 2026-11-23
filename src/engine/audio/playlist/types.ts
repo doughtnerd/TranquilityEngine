@@ -279,7 +279,16 @@ export interface SequenceLoop extends LoopBehaviour {
  * is the post-exit tail (ADR 0350); `cue` reports to the game; `entry` (ADR 0350, pre-entry) is the point a Switch change
  * lands on its boundary, the audio before it starting early.
  */
-export interface SequenceMarker { id: string; name: string; at: number; type?: "note" | "cue" | "exit" | "entry" }
+export interface SequenceMarker {
+  id: string;
+  name: string;
+  at: number;
+  type?: "note" | "cue" | "exit" | "entry";
+  /** ADR 0362 item 4: the flag's colour, a theme token name or `#rrggbb` (`markColour.ts`); absent: its type's. */
+  colour?: string;
+  /** ADR 0362 item 4: a note for the team (text); absent: none. */
+  note?: string;
+}
 export interface Clip {
   id: string;
   /** Exactly one of `sample` / `playlist` / `generator` (ADR 0360: a generator source, on an audio track). */

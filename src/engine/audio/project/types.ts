@@ -144,6 +144,11 @@ export interface AudioProject {
    * any edit. A folder holding a snapshot is named by the snapshot's `folder` and isn't listed. Absent when none.
    */
   snapshotFolders?: string[];
+  /**
+   * ADR 0362 item 4: the Studio's own project settings, kept with the project rather than in any audio asset: folder
+   * colours by project folder path (a theme token name or `#rrggbb`, `markColour.ts`). Absent when there are none.
+   */
+  studio?: StudioSettings;
   loudness: { targets: LoudnessTarget[]; resetOnPlay: boolean };
   /**
    * ADR 0351 §2: encoding profiles, folder rules and budgets (`encoding/format.ts`). Absent when the file has none (every
@@ -165,4 +170,10 @@ export interface AudioProjectParse {
   project: AudioProject;
   problems: string[];
   warnings: string[];
+}
+
+/** ADR 0362 item 4: `audio.json`'s `studio` block. */
+export interface StudioSettings {
+  /** Project folder path → colour (the Samples tree's folder rows). */
+  folderColours?: Record<string, string>;
 }

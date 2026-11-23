@@ -5,6 +5,7 @@
 // Everything the Mixer does to the runtime goes through here, so the live link can stand in for it later.
 import type { ApplyResult, MixOp } from "../../../engine/audio/mixOps";
 import { mixer } from "../../../engine/audio/mixer";
+import type { OcclusionCurves } from "../../../engine/audio/occlusionCurves";
 import { Audio } from "../../../plugins/audio/runtime/Audio";
 import { audioBackend } from "../../../plugins/audio/runtime/backend";
 import { loudnessHub } from "../../../plugins/audio/runtime/mix/loudnessHub";
@@ -64,6 +65,15 @@ export function auditionSnapshot(name: string | null, fadeSeconds: number): void
   if (!runtimeRunning()) return;
   if (name === null) audioHost().audio.clearSnapshot(fadeSeconds);
   else audioHost().audio.snapshot(name, fadeSeconds);
+}
+
+/**
+ * ADR 0362 item 6: the occlusion curves the running occlusion pass uses (null: none, the materials' losses as they are),
+ * through the live op `setOcclusionCurves`. False when the runtime isn't up or refused them.
+ */
+export function setRuntimeOcclusionCurves(curves: OcclusionCurves | null): boolean {
+  if (!runtimeRunning()) return false;
+  return mixer.apply({ op: "setOcclusionCurves", curves }).ok;
 }
 
 /** The live-mix host over the running mixer. */

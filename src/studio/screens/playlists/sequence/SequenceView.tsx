@@ -9,6 +9,7 @@
 // Each gesture is one labelled edit through `onEdit` (a drag previews locally and commits once on release); a refusal
 // shows as a toast. The selection, playhead and modes live in `sequenceState.ts`, shared with the Inspector and the
 // transport.
+import { markerColourCss, markerFlagStyle, markerTitle } from "./markerLook";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { ParameterDef } from "../../../../engine/audio/parameters";
 import type { PlaylistLint } from "../../../../engine/audio/playlist/lint";
@@ -951,8 +952,8 @@ export function SequenceView(props: SequenceViewProps) {
                 if (!visible(m.at, m.at)) return null;
                 const kind = m.type ?? "note";
                 return (
-                  <div key={m.id} class={`sq-marker ${kind}${sel.marker === m.id ? " selected" : ""}`} style={{ left: `${toPx(m.at)}px` }} role="button" aria-label={`Marker ${m.name}`}
-                    title={`${m.name} · ${fmt(m.at)} · ${kind === "exit" ? "Exit: music may leave here" : kind === "cue" ? "Cue: the game is told when the playhead passes it" : kind === "entry" ? "Entry: a Switch lands here on its beat or bar" : "Marker"}`}
+                  <div key={m.id} class={`sq-marker ${kind}${m.note ? " has-note" : ""}${sel.marker === m.id ? " selected" : ""}`} style={{ left: `${toPx(m.at)}px`, ...markerFlagStyle(m) }} role="button" aria-label={`Marker ${m.name}`}
+                    title={markerTitle(m, fmt(m.at))}
                     tabIndex={0} aria-pressed={sel.marker === m.id} onKeyDown={(e) => e.target === e.currentTarget && !keyboardMenu(e, (ev) => markerMenu(ev, m.id)) && (e.key === "Enter" || e.key === " ") && (e.preventDefault(), e.stopPropagation(), select(selectMarker(sel, m.id)))}
                     onPointerDown={(e) => pressMarker(e, m.id)} onDblClick={(e) => { e.stopPropagation(); select(selectMarker(sel, m.id)); }} onContextMenu={(e) => { e.preventDefault(); markerMenu(e, m.id); }}>
                     {renamingMarker === m.id ? (
@@ -1160,7 +1161,7 @@ export function SequenceView(props: SequenceViewProps) {
             {s.loops.map((l) => visible(l.start, l.end) && (l.start === l.end
               ? <div key={l.id} class={`sq-g-hold${sel.loop === l.id ? " on" : ""}`} style={{ left: `${toPx(l.start)}px` }} />
               : <div key={l.id} class={`sq-g-loop${sel.loop === l.id ? " on" : ""}`} style={{ left: `${toPx(l.start)}px`, width: `${toPx(l.end) - toPx(l.start)}px` }} />))}
-            {s.markers.map((m) => visible(m.at, m.at) && <div key={m.id} class={`sq-g-marker ${m.type ?? "note"}`} style={{ left: `${toPx(m.at)}px` }} />)}
+            {s.markers.map((m) => visible(m.at, m.at) && <div key={m.id} class={`sq-g-marker ${m.type ?? "note"}`} style={{ left: `${toPx(m.at)}px`, ...(m.colour ? { borderColor: markerColourCss(m) } : {}) }} />)}
             {endX <= width && <div class="sq-pastend" style={{ left: `${Math.max(0, endX)}px` }} />}
             {playhead >= view.start && playhead <= view.end && <div class={`sq-ph-line${playing ? " playing" : ""}`} style={{ left: `${toPx(playhead)}px` }} />}
             {seqRazor.value && razorAt !== null && <div class="sq-razor-line" style={{ left: `${toPx(razorAt)}px` }} />}

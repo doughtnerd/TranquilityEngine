@@ -39,7 +39,9 @@ import { chainNote } from "../chainCost";
 import { AutomateButton } from "./AutomateButton";
 import { deletePoints as deletePointsOf, isTimeInput, ownerOf, pasteCurves, QUANTIZE_CHOICES, quantizeChoice, removeAutomation, setAutomation, setPointShape, SHAPES, targetSpec, writeAutomation, type AutomationOwner } from "./automationEdits";
 import { clipFollows, clipLoops } from "./clipGeometry";
-import { clearLoopOverride, makeHoldPoint, moveLoop, moveMarker, renameMarker, setLoopBehaviour, setLoopEdge, setLoopMusic, setLoopOverride, setMarkerHidden, setMarkerType } from "./loopMarkerEdits";
+import { clearLoopOverride, makeHoldPoint, moveLoop, moveMarker, renameMarker, setLoopBehaviour, setLoopEdge, setLoopMusic, setLoopOverride, setMarkerColour, setMarkerHidden, setMarkerNote, setMarkerType } from "./loopMarkerEdits";
+import { markColourCss, markColourOf } from "../../../../engine/audio/markColour";
+import { markerTypeCss } from "./markerLook";
 import { FadeShapeSelect } from "../../../components/FadeShapeSelect";
 import { openSequenceCurves } from "./openSequenceCurves";
 import { keepTaps, METERS, tapTempo } from "./sequenceGrid";
@@ -92,6 +94,11 @@ const ACTIVE_NAME: Record<LoopBehaviour["active"], string> = { always: "Always",
 const TRACK_COLOURS: readonly ColourPreset[] = [
   { name: "Teal", color: "var(--series-1)" }, { name: "Green", color: "var(--series-2)" }, { name: "Amber", color: "var(--series-3)" },
   { name: "Blue", color: "var(--series-4)" }, { name: "Pink", color: "var(--series-5)" }, { name: "Violet", color: "var(--series-6)" },
+];
+/** ADR 0362 item 4: marker flag swatches after its type's colour (theme tokens). */
+const MARKER_COLOURS: readonly ColourPreset[] = [
+  { name: "Amber", color: "var(--warning)" }, { name: "Cyan", color: "var(--accent)" }, { name: "Green", color: "var(--accent2)" },
+  { name: "Red", color: "var(--danger)" }, { name: "Violet", color: "var(--series-6)" },
 ];
 /** Spec B.2: a clip's Add effect list is the sequencer's minus Delay and Reverb, with the Amp envelope first. */
 const CLIP_EFFECT_TYPES: readonly EffectType[] = ["envelope", ...effectTypesAt("instance").filter((t) => t !== "delay" && t !== "reverb" && t !== "envelope")];
@@ -532,7 +539,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
     if (m) {
       return (
         <div class="sq-inspector">
-          <Header color={m.type === "exit" || m.type === "entry" ? "var(--marker-exit)" : m.type === "cue" ? "var(--marker-cue)" : "var(--marker-note)"} kind="Marker" title={m.name} />
+          <Header color={m.colour ? markColourCss(m.colour) : markerTypeCss(m.type)} kind="Marker" title={m.name} />
           <div class="sq-isec">
             <Fld label="Name"><NameField value={m.name} label="Marker name" disabled={!writable} onValue={(v) => runSeq("Rename marker", (q) => renameMarker(q, m.id, v))} /></Fld>
             <Fld label="At">{tc("Marker time", m.at, (v) => runSeq("Move marker", (q) => moveMarker(q, m.id, v)))}</Fld>
@@ -543,6 +550,14 @@ export function SequenceInspector(props: SequenceInspectorProps) {
                   { value: "exit", label: "Exit", title: "Music may leave here; what follows the first Exit marker is the tail that rings on" },
                   { value: "entry", label: "Entry", title: "A Switch lands this point on its beat or bar; the audio before it starts early" },
                 ]} />
+            </Fld>
+            <Fld label="Colour" title="The flag's colour on the timeline (the first swatch: its type's colour)">
+              <ColourPicker label="Marker colour" value={m.colour ? markColourCss(m.colour) : markerTypeCss(m.type)} presets={[{ name: "Its type's colour", color: markerTypeCss(m.type) }, ...MARKER_COLOURS]} saved={savedColours.value} disabled={!writable}
+                onChange={(css) => runSeq("Marker colour", (q) => setMarkerColour(q, m.id, css === markerTypeCss(m.type) ? null : markColourOf(css)))} onSavedChange={saveColours} />
+            </Fld>
+            <Fld label="Note" title="A note for the team; the runtime ignores it">
+              <textarea class="sq-note" aria-label="Marker note" rows={3} placeholder="Add a note" value={m.note ?? ""} disabled={!writable}
+                onChange={(e) => { const v = (e.currentTarget as HTMLTextAreaElement).value; if (v !== (m.note ?? "")) runSeq("Marker note", (q) => setMarkerNote(q, m.id, v)); }} />
             </Fld>
           </div>
         </div>

@@ -19,7 +19,7 @@
  */
 import { CORE_EFFECT_TYPES, coreRuns, ruleRefusal, type ApplyReason } from "./busCapability";
 import { effectParamSpec, effectSpec } from "./effects/catalogue";
-import { PROJECT_OP_NAMES, diffProjectOps, isProjectOp, type ProjectMixOp } from "./projectOps";
+import { PROJECT_OP_NAMES, diffProjectOps, isProjectOp, withOcclusionCurves, type ProjectMixOp } from "./projectOps";
 import { audioProjectToJson, parseAudioProject } from "./project/format";
 import { coreSectionOf } from "./project/runtimeView";
 import type { AudioProject } from "./project/types";
@@ -714,8 +714,9 @@ export function diffOps(before: AudioSettings, after: AudioSettings): { ops: Mix
 export function diffProjectMix(before: AudioProject, after: AudioProject): { ops: MixOp[]; restartRequired: string[] } {
   if (before === after) return { ops: [], restartRequired: [] };
   const held = (name: string) => before.buses.find((b) => b.name === name)?.sends ?? [];
+  // ADR 0362 item 6: the occlusion curves are held at `before`'s too: their own op (`setOcclusionCurves`) moves them live.
   const mid = parseAudioProject(audioProjectToJson({
-    ...after, returns: before.returns, vcas: before.vcas, snapshots: before.snapshots,
+    ...withOcclusionCurves(after, before.settings.occlusion.curves ?? null), returns: before.returns, vcas: before.vcas, snapshots: before.snapshots,
     buses: after.buses.map((b) => ({ ...b, sends: held(b.name) })),
   })).project;
   const old = diffOps(coreSectionOf(before), coreSectionOf(mid));

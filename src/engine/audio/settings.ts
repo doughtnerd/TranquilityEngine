@@ -30,6 +30,7 @@ import { audioCurve } from "./audioCurveLimit";
 import { BUS_RULES, MAX_BUSES, MAX_CORE_BUS_EFFECTS, busRuleFindings, coreRuns, findingText, type CoreEffectType } from "./busCapability";
 import type { PluginEffectType } from "./effects/types";
 import { effectSpec, isPluginEffectType, parseEffect as parseCatalogueEffect } from "./effects/catalogue";
+import { parseOcclusionCurves, type OcclusionCurves } from "./occlusionCurves";
 import { DEFAULT_MATERIAL_NAME, builtinMaterials, parseOccluderMaterials, resolveDefaultMaterial, type OccluderMaterial } from "./occlusionMaterials";
 
 export type BusEffect =
@@ -280,6 +281,11 @@ export interface OcclusionSettings {
   smoothingMs: number;
   /** The effective table: the built-ins, overridden or extended by the authored list (at most 32). */
   materials: OccluderMaterial[];
+  /**
+   * ADR 0362 item 6: how blocked a path is (0..1, from the rays and the materials' losses) mapped to a volume and a
+   * low-pass cutoff (`occlusionCurves.ts`). Absent (the default): the materials' losses apply as they are (ADR 0347).
+   */
+  curves?: OcclusionCurves;
 }
 /** `audio.zones`: reverb zone slots and IR length (§2.1). Slots = `maxActive + standby`. */
 export interface ZoneSettings {
@@ -835,6 +841,8 @@ function parseSpatialKeys(input: Record<string, unknown>, settings: AudioSetting
     o.smoothingMs = rangedNumber(occ.smoothingMs, "audio.occlusion.smoothingMs", ...range("occlusion.smoothingMs"), DEFAULT_OCCLUSION_SMOOTHING_MS, problems);
     if (occ.materials !== undefined) o.materials = parseOccluderMaterials(occ.materials, "audio.occlusion.materials", problems);
     o.defaultMaterial = resolveDefaultMaterial(occ.defaultMaterial, o.materials, "audio.occlusion.defaultMaterial", problems);
+    const curves = parseOcclusionCurves(occ.curves, "audio.occlusion.curves", problems);
+    if (curves) o.curves = curves;
   }
 
   const zones = section(input.zones, "audio.zones", problems);

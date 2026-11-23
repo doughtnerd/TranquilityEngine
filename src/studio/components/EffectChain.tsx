@@ -55,7 +55,8 @@ export interface EffectChainProps {
 /** The Add effect menu's entries: the built-ins, then each plugin's effects under its title (ADR 0352 §9). */
 function menuEntries(level: EffectLevel, add: (item: EffectMenuItem) => void, exclude: readonly string[] = []): MenuEntry[] {
   const groups = effectMenuGroups(level);
-  const entries: MenuEntry[] = groups.builtins.filter((item) => !exclude.includes(item.type)).map((item) => ({ id: item.type, label: item.label, run: () => add(item) }));
+  // MX-31: the menu is captioned "Add effect", as the prototype's.
+  const entries: MenuEntry[] = [{ kind: "group", label: "Add effect" }, ...groups.builtins.filter((item) => !exclude.includes(item.type)).map((item): MenuEntry => ({ id: item.type, label: item.label, run: () => add(item) }))];
   for (const g of groups.plugins) {
     entries.push(SEPARATOR, { id: `plugin:${g.plugin}`, label: g.title, disabled: true, title: `Effects of the plugin ${g.title} ${g.version}`.trim(), run: () => {} });
     for (const item of g.items) entries.push({ id: item.type, label: item.label, hint: g.title, title: `${item.label} (${g.title})`, run: () => add(item) });
@@ -133,7 +134,7 @@ export function EffectChain(props: EffectChainProps) {
           label="Add effect"
           at={addButton.current ?? { x: 0, y: 0 }}
           entries={(props.types
-            ? props.types.map((type): MenuEntry => ({ id: type, label: effectSpec(type).label, run: () => {} }))
+            ? [{ kind: "group", label: "Add effect" } as MenuEntry, ...props.types.map((type): MenuEntry => ({ id: type, label: effectSpec(type).label, run: () => {} }))]
             : menuEntries(level, () => {}, props.exclude)
           ).map((entry) => {
             if (entry.kind === "separator" || entry.kind === "group" || entry.disabled) return entry;
