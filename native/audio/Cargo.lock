@@ -76,6 +76,7 @@ version = "0.1.0"
 dependencies = [
  "audio-core",
  "audio-dsp",
+ "audio-wire",
  "libm",
  "sha2",
 ]

@@ -17,6 +17,10 @@ audio-dsp.workspace = true
 audio-core.workspace = true
 libm.workspace = true
 
+[dev-dependencies]
+# tests/golden_core.rs writes the core's PLAY and GEN records (the offline generate against the core voice).
+audio-wire.workspace = true
+
 [build-dependencies]
 # build.rs includes audio-wasm's source_hash.rs.
 sha2.workspace = true
