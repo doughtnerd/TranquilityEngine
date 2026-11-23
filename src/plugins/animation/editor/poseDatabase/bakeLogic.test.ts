@@ -1,6 +1,7 @@
 // The pose database bake's inputs and run (ADR 0373; T55), with a fake bake in place of the editor module: what `posedb_bake` is
 // given for a source (features in schema order with their bone indices, weights and time offsets; ranges clamped into the
-// clip; the settings record; the warnings for what the bake can't do), where the file is written, the progress stages, and
+// clip; the settings record; mirrored clips with the mirror table and custom features (T70); the warnings for what the bake
+// can't do), where the file is written, the progress stages, and
 // every failure as a message. The real module's result is `bake.node.test.ts`.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -32,9 +33,12 @@ function source(): PoseDatabaseSource {
   return ok(addClip(db, "asset:clips/walk.anim"));
 }
 
+/** The fake mirror table: axis x, then each bone its own partner. */
+const MIRROR = Uint32Array.from([0, ...Array.from({ length: BONES.bones }, (_, b) => b)]);
+
 /** A fake bake environment: records the job and what is written, answers with the bytes given. */
-function fake(options: { bake?: Uint8Array; fail?: string } = {}) {
-  const seen = { jobs: [] as PoseDbBakeJob[], written: new Map<string, Uint8Array>(), clipRequests: [] as [string, string | null][], skeletonRequests: [] as string[] };
+function fake(options: { bake?: Uint8Array; fail?: string; mirror?: string } = {}) {
+  const seen = { jobs: [] as PoseDbBakeJob[], written: new Map<string, Uint8Array>(), clipRequests: [] as [string, string | null][], skeletonRequests: [] as string[], mirrorRequests: [] as string[] };
   const env: PoseDbBakeEnv = {
     clipSkeleton: async () => "asset:rigs/small.skel",
     skeleton: async (ref) => {
@@ -44,6 +48,10 @@ function fake(options: { bake?: Uint8Array; fail?: string } = {}) {
     clip: async (ref, skeletonRef) => {
       seen.clipRequests.push([ref, skeletonRef]);
       return ref === "asset:clips/walk.anim" ? { bytes: WALK } : { error: `${ref}: the clip can't be read.` };
+    },
+    mirrorTable: async (ref) => {
+      seen.mirrorRequests.push(ref);
+      return options.mirror ? { error: options.mirror } : MIRROR;
     },
     run: async (job) => {
       seen.jobs.push(job);
@@ -114,16 +122,34 @@ describe("buildBakeJob", () => {
     expect(buildBakeJob(source(), new Uint8Array(4), null, [{ ref: "asset:clips/walk.anim", bytes: WALK }])).toEqual({ error: "the skeleton file can't be read." });
   });
 
-  it("warns for what the bake can't do: mirrored copies, custom features, normalisation none", () => {
-    let db = ok(setMirror(source(), 0, true));
-    db = ok(addCustomFeature(db, "speed"));
-    db = ok(setNormalisation(db, "none"));
+  it("hands a mirrored clip over flagged, with the mirror table (T70)", () => {
+    const db = ok(setMirror(source(), 0, true));
+    const out = buildBakeJob(db, SKELETON, db.skeleton, [{ ref: "asset:clips/walk.anim", bytes: WALK }], MIRROR);
+    if ("error" in out) throw new Error(out.error);
+    expect(out.warnings).toEqual([]);
+    expect(out.job.clips[0]!.mirror).toBe(true);
+    expect(out.job.settings.mirror).toBe(MIRROR);
+    // Without one: refused. Without a mirrored clip: no table goes to the bake.
+    expect(buildBakeJob(db, SKELETON, db.skeleton, [{ ref: "asset:clips/walk.anim", bytes: WALK }])).toEqual({ error: expect.stringMatching(/mirror table/) });
+    const plain = buildBakeJob(source(), SKELETON, null, [{ ref: "asset:clips/walk.anim", bytes: WALK }], MIRROR);
+    if ("error" in plain) throw new Error(plain.error);
+    expect(plain.job.settings.mirror).toBeUndefined();
+    expect(plain.job.clips[0]!.mirror).toBeUndefined();
+  });
+
+  it("hands custom features over after the schema's, and leaves out one of more dims than a curve has (T70)", () => {
+    let db = ok(addCustomFeature(source(), "speed"));
+    db = ok(addCustomFeature(db, "phase"));
+    db = { ...db, schema: { ...db.schema, custom: [{ name: "speed", dims: 1, weight: 2 }, { name: "phase", dims: 2, weight: 1 }, { name: "wide", dims: 6, weight: 1 }] } };
     const { warnings, job } = built(db);
-    expect(warnings).toHaveLength(3);
-    expect(warnings.join("\n")).toMatch(/custom features \(speed\)/);
-    expect(warnings.join("\n")).toMatch(/normalisation none/);
-    expect(warnings.join("\n")).toMatch(/mirrored copies/);
-    expect(job.schema.some((f) => f.kind === 4)).toBe(false); // no custom feature reaches the bake
+    expect(job.settings.custom).toEqual([{ name: "speed", dims: 1, weight: 2 }, { name: "phase", dims: 2, weight: 1 }]);
+    expect(job.schema.some((f) => f.kind === 4)).toBe(false); // custom features aren't schema records
+    expect(warnings).toEqual([expect.stringMatching(/"wide" has 6 dims/)]);
+  });
+
+  it("warns for normalisation none", () => {
+    const { warnings } = built(ok(setNormalisation(source(), "none")));
+    expect(warnings).toEqual([expect.stringMatching(/normalisation none/)]);
   });
 
   it("writes the settings record: rate, deviation floor, normalisation, KD-tree, leaf size", () => {
@@ -187,7 +213,20 @@ describe("bakePoseDatabaseSource", () => {
   });
 
   it("returns the buildBakeJob warnings with a successful bake", async () => {
-    const out = await bakePoseDatabaseSource(fake().env, "loco.posedb.json", ok(setMirror(source(), 0, true)));
-    expect(out).toMatchObject({ ok: true, warnings: [expect.stringMatching(/mirrored copies/)] });
+    const out = await bakePoseDatabaseSource(fake().env, "loco.posedb.json", ok(setNormalisation(source(), "none")));
+    expect(out).toMatchObject({ ok: true, warnings: [expect.stringMatching(/normalisation none/)] });
+  });
+
+  it("asks for the skeleton's mirror table only when a clip is mirrored, and reports when there is none (T70)", async () => {
+    const plain = fake();
+    await bakePoseDatabaseSource(plain.env, "loco.posedb.json", source());
+    expect(plain.seen.mirrorRequests).toEqual([]);
+    const mirrored = fake();
+    expect(await bakePoseDatabaseSource(mirrored.env, "loco.posedb.json", ok(setMirror(source(), 0, true)))).toMatchObject({ ok: true, warnings: [] });
+    expect(mirrored.seen.mirrorRequests).toEqual(["asset:rigs/small.skel"]);
+    expect(mirrored.seen.jobs[0]!.settings.mirror).toEqual(MIRROR);
+    const refused = fake({ mirror: "the bones can't be mapped" });
+    expect(await bakePoseDatabaseSource(refused.env, "loco.posedb.json", ok(setMirror(source(), 0, true)))).toEqual({ ok: false, error: "mirrored clips can't be baked: the bones can't be mapped" });
+    expect(refused.seen.written.size).toBe(0);
   });
 });

@@ -113,7 +113,7 @@ interface TravelWait {
 type Intent =
   | { readonly kind: "request"; readonly name: string; readonly within: number }
   | { readonly kind: "travel"; readonly state: string; readonly layer: AnimatorLayer | undefined; readonly wait: TravelWait }
-  | { readonly kind: "jump"; readonly state: string; readonly layer: AnimatorLayer | undefined }
+  | { readonly kind: "jump"; readonly state: string; readonly layer: AnimatorLayer | undefined; readonly normalizedTime: number; readonly time: number }
   | { readonly kind: "slot"; readonly play: SlotPlayRecord }
   | { readonly kind: "stop"; readonly slot: string | null; readonly fade: number }
   | { readonly kind: "link"; readonly node: string; readonly path: string | null; loaded?: LoadedGraph | null; loading?: boolean; dropped?: boolean }
@@ -399,9 +399,13 @@ export function queueTravel(animator: Animator, state: string, layer: AnimatorLa
   return promise;
 }
 
-/** @internal `Animator.jump`. */
-export function queueJump(animator: Animator, state: string, layer: AnimatorLayer | undefined): void {
-  queue(animator, { kind: "jump", state, layer }, "jump()");
+/**
+ * @internal `Animator.jump`: the state is entered `normalizedTime` cycles of its clips plus `time` seconds in (T70: the
+ * core's `JUMP` offsets; the network client passes the server's seconds since the state's entry tick).
+ */
+export function queueJump(animator: Animator, state: string, layer: AnimatorLayer | undefined, normalizedTime = 0, time = 0): void {
+  const clean = (v: number) => (Number.isFinite(v) && v > 0 ? v : 0);
+  queue(animator, { kind: "jump", state, layer, normalizedTime: clean(normalizedTime), time: clean(time) }, "jump()");
 }
 
 /** @internal `Animator.link`. */
@@ -580,7 +584,7 @@ function flushIntent(frame: AnimationFrame, g: GraphRuntime, intent: Intent): bo
       // A later travel or jump on the machine replaces a travel still on its way.
       for (const w of g.travels) if (w.machine === m) endTravel(w, "interrupted");
       if (intent.kind === "jump") {
-        cmds.put(JUMP, { instance, machine: m, state: s });
+        cmds.put(JUMP, { instance, machine: m, state: s, normalizedTime: intent.normalizedTime, time: intent.time });
         return true;
       }
       if (g.machines[m]!.current === s) {

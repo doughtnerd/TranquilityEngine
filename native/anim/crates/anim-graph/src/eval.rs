@@ -1421,6 +1421,9 @@ pub struct EvalContext<'a> {
     /// The first transform of slot 0 in the pose stack (0 at top level; inside a skeleton scope,
     /// where the scope's region starts: T41).
     slot_base: usize,
+    /// T70: while a context initialises for a `jump` with an offset, the offset (normalised
+    /// cycles, seconds) clip players start at (`init_context_at`); (0, 0) otherwise.
+    init_at: (f32, f32),
 }
 
 const EMPTY_SKELETON: SkeletonPose<'static> = SkeletonPose {
@@ -1466,6 +1469,7 @@ impl<'a> EvalContext<'a> {
             collected_len: 0,
             outer: None,
             slot_base: 0,
+            init_at: (0.0, 0.0),
             player_headers: &mut [],
             player_frames: &mut [],
             player_header_len: 0,
@@ -1911,6 +1915,19 @@ impl<'a> EvalContext<'a> {
         self.phase = phase;
     }
 
+    /// [`init_context`](Self::init_context) with clip players starting `norm` cycles plus `secs`
+    /// seconds into their clips (a `jump` with an offset, T70; see `sources::clip_player`).
+    pub fn init_context_at(&mut self, ctx: u32, norm: f32, secs: f32) {
+        let saved = core::mem::replace(&mut self.init_at, (norm, secs));
+        self.init_context(ctx);
+        self.init_at = saved;
+    }
+
+    /// The offset a clip player initialising now starts at: (normalised cycles, seconds).
+    pub fn init_offset(&self) -> (f32, f32) {
+        self.init_at
+    }
+
     /// The update context input `k` of the current node opens (`NONE`: not gated).
     pub fn input_context(&self, node: &NodeData<'_>, k: usize) -> u32 {
         self.program
@@ -2054,6 +2071,19 @@ impl<'a> EvalContext<'a> {
         let s = self.scratch.as_mut()?;
         let [pa, pb, po] = split_slots(&mut s.poses[sb..], g, [a, b, out])?;
         Some((pa, pb, po))
+    }
+
+    /// An input slot and an output slot (different); `None` without scratch or for equal slots.
+    pub fn poses2(
+        &mut self,
+        a: usize,
+        out: usize,
+    ) -> Option<(&[SoaTransform], &mut [SoaTransform])> {
+        let g = self.groups;
+        let sb = self.stack_base();
+        let s = self.scratch.as_mut()?;
+        let [pa, po] = split_slots(&mut s.poses[sb..], g, [a, out])?;
+        Some((pa, po))
     }
 
     /// `out ← lerp(out, from, t)` for two distinct slots (an accumulating blend).

@@ -319,6 +319,190 @@ fn the_database_loads_and_binds_its_clips() {
     assert_eq!(core.last_status(), anim_wire::core::STATUS_BAD_ASSET);
 }
 
+/// T70: each node's report carries the trajectory it predicted (one sample per database offset)
+/// and the playing frame's trajectory features, de-normalised; within 1e-5 of the baked values
+/// (the core keeps rows times √weight in f32, so dividing back costs an ulp or two).
+#[test]
+fn the_report_carries_the_predicted_and_matched_trajectories() {
+    use anim_wire::r#match::{MatchSample, SAMPLE_MATCHED, SAMPLE_PREDICTED};
+    let fx = fixture();
+    let mut sim = Sim::new(&fx, Options::default());
+    let mut last = sim.step([0.0; 2], &[]);
+    for _ in 0..40 {
+        last = sim.step([0.0, 1.4], &[]);
+    }
+    let n = sim.core.match_debug_write(sim.h) as usize;
+    let bytes = sim.core.match_debug()[..n].to_vec();
+    let header = MatchHeader::decode(&bytes).unwrap();
+    assert_eq!((header.nodes, header.dropped), (1, 0));
+    let mut at = (MatchHeader::STRIDE + MatchNode::STRIDE) as usize;
+    let mut samples = Vec::new();
+    while at < n {
+        samples.push(MatchSample::decode(&bytes[at..]).unwrap());
+        at += MatchSample::STRIDE as usize;
+    }
+    let view = PoseDbView::parse(&fx.db).unwrap();
+    assert_eq!(last.db_clip, view.frame(last.frame as usize).unwrap().clip);
+    assert_eq!(last.flags & anim_wire::r#match::MATCH_MIRRORED, 0);
+    let mut offsets: Vec<f32> = (0..view.feature_count())
+        .filter_map(|i| view.feature(i))
+        .filter(|f| f.bone == NONE)
+        .map(|f| f.time_offset)
+        .collect();
+    offsets.sort_by(f32::total_cmp);
+    offsets.dedup();
+    let predicted: Vec<_> = samples
+        .iter()
+        .filter(|s| s.kind == SAMPLE_PREDICTED)
+        .collect();
+    let matched: Vec<_> = samples
+        .iter()
+        .filter(|s| s.kind == SAMPLE_MATCHED)
+        .collect();
+    assert_eq!(predicted.len(), offsets.len());
+    assert_eq!(matched.len(), offsets.len());
+    assert!(samples.iter().all(|s| s.node == sim.node));
+    // Walking ahead (+Z, facing +Z): the future samples lie ahead, further for later times.
+    let future: Vec<_> = predicted.iter().filter(|s| s.time > 0.0).collect();
+    assert!(!future.is_empty());
+    assert!(future.windows(2).all(|w| w[1].z > w[0].z && w[0].z > 0.0));
+    assert!(future.iter().all(|s| (s.dx.hypot(s.dz) - 1.0).abs() < 1e-4));
+    // The matched samples are the playing frame's baked features.
+    let (mean, std, matrix) = (view.mean(), view.std(), view.matrix());
+    let stride = view.row_stride();
+    for i in 0..view.feature_count() {
+        let f = view.feature(i).unwrap();
+        if f.bone != NONE {
+            continue;
+        }
+        let s = matched.iter().find(|s| s.time == f.time_offset).unwrap();
+        let got = if f.kind == anim_format::posedb::FeatureKind::TrajectoryPosition {
+            [s.x, s.z]
+        } else {
+            [s.dx, s.dz]
+        };
+        for k in 0..2 {
+            let d = f.first_dim as usize + k;
+            let raw = matrix.get(last.frame as usize * stride + d).unwrap() * std.get(d).unwrap()
+                + mean.get(d).unwrap();
+            assert!((got[k] - raw).abs() < 1e-5, "{} vs {raw}", got[k]);
+        }
+    }
+}
+
+/// T70: a mirrored copy plays mirrored. The database keeps idle and only walk's mirrored copy
+/// (the original's frames are taken out), so walking can only match the copy; once settled the
+/// pose is the clip's mirrored through the table (the f64 reference mirror, 1e-4 as above).
+#[test]
+fn a_mirrored_copy_plays_mirrored() {
+    use anim_offline::pose::{mirror, Axis as RefAxis};
+    let mut fx = fixture();
+    let m = mcommon::fixture();
+    let keep = ["idle.anim", "walk.anim"];
+    let pick = |name: &str| m.names.iter().position(|n| *n == name).unwrap();
+    let small = mcommon::Fixture {
+        skel: m.skel.clone(),
+        clips: keep.iter().map(|n| m.clips[pick(n)].clone()).collect(),
+        names: keep.to_vec(),
+        ranges: keep.iter().map(|n| m.ranges[pick(n)].clone()).collect(),
+        durations: keep.iter().map(|n| m.durations[pick(n)]).collect(),
+    };
+    let (skel, views) = small.views();
+    let bones = skel.bone_count();
+    let table: Vec<u32> = std::iter::once(0).chain(0..bones as u32).collect();
+    let ranges: Vec<Vec<anim_match::TaggedRange<'_>>> = small
+        .ranges
+        .iter()
+        .map(|rs| {
+            rs.iter()
+                .map(|&(start, end, tags)| anim_match::TaggedRange { start, end, tags })
+                .collect()
+        })
+        .collect();
+    let clips: Vec<anim_match::BakeClip<'_>> = views
+        .iter()
+        .zip(&small.names)
+        .zip(&ranges)
+        .map(|((v, n), r)| anim_match::BakeClip {
+            view: *v,
+            form: anim_sample::Form::Raw,
+            asset: n,
+            ranges: r,
+            mirror: *n == "walk.anim",
+        })
+        .collect();
+    let settings = BakeSettings {
+        normalization: anim_match::Normalization::PerFeature,
+        mirror: &table,
+        ..BakeSettings::default()
+    };
+    let mut db = anim_match::bake(&skel, &clips, &mcommon::schema(), &settings)
+        .unwrap()
+        .db;
+    assert_eq!(
+        db.clip_flags,
+        vec![0, 0, anim_format::posedb::CLIP_MIRRORED]
+    );
+    // Take walk's original frames (entry 1) out.
+    let dims = db.dims as usize;
+    let wpf = anim_format::posedb::words_per_frame(db.tag_names.len());
+    let keep: Vec<usize> = (0..db.frames.len())
+        .filter(|&i| db.frames[i].clip != 1)
+        .collect();
+    db.matrix = keep
+        .iter()
+        .flat_map(|&i| db.matrix[i * dims..(i + 1) * dims].to_vec())
+        .collect();
+    db.tags = keep
+        .iter()
+        .flat_map(|&i| db.tags[i * wpf..(i + 1) * wpf].to_vec())
+        .collect();
+    db.frames = keep.iter().map(|&i| db.frames[i]).collect();
+    db.kd_tree = None;
+    fx.db = db.write().unwrap();
+
+    let mut sim = Sim::new(&fx, Options::default());
+    assert_eq!(sim.core.posedb_clip(sim.db, 2), "walk.anim");
+    assert_eq!(sim.core.posedb_bind(sim.db, 2, sim.clips[1]), STATUS_OK);
+    for _ in 0..20 {
+        sim.step([0.0; 2], &[]);
+    }
+    let partner: Vec<u16> = (0..bones as u16).collect();
+    let r = Reference::new(&fx.skel);
+    let view = ClipView::parse(&fx.walk).unwrap();
+    let mut quiet = 0;
+    let mut checked = false;
+    for _ in 0..90 {
+        let rep = sim.step([0.0, 1.4], &[]);
+        quiet = if rep.flags & MATCH_SWITCHED != 0 {
+            0
+        } else {
+            quiet + 1
+        };
+        if rep.clip != sim.clips[1] || quiet < 8 {
+            continue;
+        }
+        let local = anim_offline::sample::sample_raw_pose(&view, &r.rest, rep.time as f64);
+        let mirrored = r.matrices(&mirror(&local, &partner, RefAxis::X));
+        let plain = r.matrices(&local);
+        let got = sim.matrices();
+        assert!(
+            max_diff(&got, &mirrored) < 1e-4,
+            "{}",
+            max_diff(&got, &mirrored)
+        );
+        assert!(max_diff(&got, &plain) > 1e-3, "not the clip as it is");
+        assert_eq!(
+            rep.flags & anim_wire::r#match::MATCH_MIRRORED,
+            anim_wire::r#match::MATCH_MIRRORED
+        );
+        assert_eq!(rep.db_clip, 2);
+        checked = true;
+        break;
+    }
+    assert!(checked, "walk settled on its mirrored copy");
+}
+
 #[test]
 fn idle_then_walk_switches_through_inertialization() {
     let fx = fixture();

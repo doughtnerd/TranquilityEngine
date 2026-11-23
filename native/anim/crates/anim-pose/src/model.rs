@@ -40,6 +40,41 @@ pub fn skinning_from_model(model: &[AosTransform], inverse_bind: &[AosMat3x4], o
     }
 }
 
+/// [`model_space`] then [`skinning_from_model`] for the bones `needed` marks only (T70: a server
+/// World's gameplay bones). A needed bone's ancestors must be marked too; the model transforms and
+/// matrix rows of other bones are left as they are. The needed bones get bit-identical results to
+/// the full functions. Panics on the lengths [`skinning_matrices`] checks, or unless
+/// `needed.len() == parents.len()`. Never allocates.
+pub fn skinning_matrices_subset(
+    parents: &[u16],
+    local: &[SoaTransform],
+    inverse_bind: &[AosMat3x4],
+    needed: &[bool],
+    model: &mut [AosTransform],
+    out: &mut [f32],
+) {
+    let n = parents.len();
+    assert_eq!(local.len(), soa_len(n), "SoA pose length");
+    assert_eq!(needed.len(), n, "one flag per bone");
+    assert_eq!(model.len(), n, "model pose length");
+    assert_eq!(inverse_bind.len(), n, "bone count");
+    assert_eq!(out.len(), 12 * n, "12 floats per bone");
+    for (i, &want) in needed.iter().enumerate() {
+        if !want {
+            continue;
+        }
+        let lt = local[i / 4].lane(i % 4);
+        let p = parents[i];
+        model[i] = if p == anim_math::layout::NO_PARENT || p as usize >= i {
+            lt
+        } else {
+            model[p as usize].compose(lt)
+        };
+        let o: &mut [f32; 12] = (&mut out[12 * i..12 * i + 12]).try_into().unwrap();
+        *o = (AosMat3x4::from_transform(model[i]) * inverse_bind[i]).m;
+    }
+}
+
 /// Local pose to skinning matrices: [`model_space`] into the scratch `model` (which holds the
 /// model-space transforms afterwards), then [`skinning_from_model`] into `out`.
 ///

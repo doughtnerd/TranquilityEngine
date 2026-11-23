@@ -123,6 +123,9 @@ pub struct MatchDb {
     pub(crate) runs: Vec<Run>,
     pub(crate) offsets: [f32; MAX_TRAJECTORY],
     pub(crate) offset_count: usize,
+    /// T70: each clip entry's `CLIP_*` flags (empty: none) and the mirror table.
+    pub(crate) clip_flags: Vec<u32>,
+    pub(crate) mirror: Vec<u32>,
 }
 
 impl MatchDb {
@@ -244,6 +247,10 @@ impl MatchDb {
             runs,
             offsets,
             offset_count,
+            clip_flags: (0..view.clips().len())
+                .map(|i| view.clip_flags(i))
+                .collect(),
+            mirror: view.mirror().to_vec(),
         };
         if !db.nodes.is_empty() {
             db.check_tree(view)?;
@@ -419,6 +426,58 @@ impl MatchDb {
         }
         any || !p.need_any
     }
+    /// T70: whether clip entry `clip` is a mirrored copy (`CLIP_MIRRORED`; played mirrored
+    /// through [`mirror_table`](Self::mirror_table)).
+    pub fn clip_mirrored(&self, clip: u32) -> bool {
+        self.clip_flags
+            .get(clip as usize)
+            .is_some_and(|f| f & anim_format::posedb::CLIP_MIRRORED != 0)
+    }
+
+    /// T70: the mirror table (the axis, then a `MIRROR`-node word per bone; empty: none).
+    pub fn mirror_table(&self) -> &[u32] {
+        &self.mirror
+    }
+
+    /// Frame `frame`'s trajectory features in the character's frame (T70, the live debugger's
+    /// matched trajectory): one sample per distinct trajectory offset, de-normalised (`row / √weight
+    /// · std + mean`). A feature of weight 0 can't be recovered and reads as its mean. `false`
+    /// for a frame out of range. Never allocates.
+    pub fn frame_trajectory(&self, frame: usize, out: &mut crate::trajectory::Trajectory) -> bool {
+        if frame >= self.frames.len() {
+            return false;
+        }
+        let row = if self.slots.is_empty() {
+            frame
+        } else {
+            self.slots[frame] as usize
+        };
+        let lanes = &self.rows[row * self.lanes..(row + 1) * self.lanes];
+        let value = |d: usize| {
+            let r = lanes[d / 4].to_array()[d % 4];
+            let s = self.scale[d];
+            let n = if s > 0.0 { r / s } else { 0.0 };
+            n * self.std[d] + self.mean[d]
+        };
+        *out = crate::trajectory::Trajectory::default();
+        out.count = self.offset_count;
+        out.offsets[..self.offset_count].copy_from_slice(&self.offsets[..self.offset_count]);
+        for f in &self.features {
+            let at = (0..self.offset_count)
+                .find(|&i| self.offsets[i].to_bits() == f.time_offset.to_bits());
+            let (Some(i), d) = (at, f.first_dim as usize) else {
+                continue;
+            };
+            let v = [value(d), value(d + 1)];
+            match f.kind {
+                FeatureKind::TrajectoryPosition => out.positions[i] = v,
+                FeatureKind::TrajectoryDirection => out.directions[i] = v,
+                _ => {}
+            }
+        }
+        true
+    }
+
     /// The frame playing clip `clip` at `time` follows: the nearest frame of a run of that clip
     /// holding `time` (within half a frame of its ends), or `None`.
     pub fn frame_at(&self, clip: u32, time: f32) -> Option<u32> {

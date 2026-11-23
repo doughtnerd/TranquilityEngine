@@ -298,10 +298,23 @@ fn clip_player(cx: &mut EvalContext<'_>, node: NodeData<'_>) {
         Phase::Init => {
             let clip = cx.binding(node.word(0));
             let speed = node.f32_or(1, 1.0);
-            let start = node.f32_or(3, 0.0);
+            let mut start = node.f32_or(3, 0.0);
             let layer = node.params.get(4).copied().unwrap_or(NONE);
+            let flags = node.word(2);
+            // T70: a `jump` with an offset starts the play that far in (a seek: nothing fires).
+            let (norm, secs) = cx.init_offset();
+            if norm > 0.0 || secs > 0.0 {
+                if let Some(c) = cx.assets().clip(clip) {
+                    start = offset_start(
+                        start,
+                        norm * c.duration + secs,
+                        c.duration,
+                        loops(&c, flags),
+                    );
+                }
+            }
             let s = cx.state();
-            start_play(s, clip, start, speed, node.word(2), 0);
+            start_play(s, clip, start, speed, flags, 0);
             s[player::LAYER] = layer;
         }
         Phase::Weights => cx.collect_player(),
@@ -421,6 +434,25 @@ fn tracks(cx: &mut EvalContext<'_>, at: usize, weight: f32) {
         );
     }
     cx.state()[at..at + player::WORDS as usize].copy_from_slice(&state);
+}
+
+/// A play's start `start` moved `by` seconds on: wrapped into `[0, duration)` for a looping clip,
+/// clamped to `duration` for a one-shot (T70's `jump` offsets).
+fn offset_start(start: f32, by: f32, duration: f32, looping: bool) -> f32 {
+    let t = start + by;
+    if !t.is_finite() || duration <= 0.0 {
+        return start;
+    }
+    if looping {
+        let w = t - (t / duration).floor() * duration;
+        if w >= duration {
+            0.0
+        } else {
+            w.max(0.0)
+        }
+    } else {
+        t.clamp(0.0, duration)
+    }
 }
 
 pub(crate) fn loops(clip: &ClipRef<'_>, flags: u32) -> bool {

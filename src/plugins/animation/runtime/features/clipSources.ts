@@ -8,8 +8,9 @@
 //    when that clip has been compiled already. Asking starts the compile in the editor's worker otherwise.
 // 3. **The raw form, made here** (`compileRawClip`; a model's skeleton through `encodeSkeleton`): a `myco.anim@1` raw
 //    clip plays directly in the core, so the clip plays raw until its compile is ready (ADR 0371: "the raw clip plays
-//    until it finishes"). A play uses what was ready when its clip was first acquired; the next acquisition (another
-//    play session, another Animator) picks up the compiled clip.
+//    until it finishes"). When the compile finishes, the loaded raw clip switches to the compiled bytes in place
+//    (`AnimationCore.replaceClip`, T70): same handle, its plays keep going from where they are, the Animator doesn't
+//    restart (this replaced D119's "a play keeps the clip it acquired").
 //
 // Authored clips with bone tracks bind to the Animator's skeleton by name (ADR 0371), so they resolve per skeleton; a
 // model's clip binds its own model's skeleton. Never throws: what can't be read resolves to null (the caller warns).
@@ -22,8 +23,14 @@ import { encodeSkeleton } from "../../../../engine/animation/import/skeletonBina
 import { Assets, normalizeAssetPath } from "../../../../engine/scene/Assets";
 import { loadModel } from "../../../../engine/scene/models";
 
-/** @internal A clip or skeleton to load: a file by project path, or bytes made here (`key` names them in the core). */
-export type ResolvedAsset = { readonly path: string } | { readonly key: string; readonly bytes: Uint8Array };
+/**
+ * @internal A clip or skeleton to load: a file by project path, or bytes made here (`key` names them in the core). A raw
+ * clip whose editor compile is under way has `compiled`: it settles with the compiled bytes (and their key) when the
+ * compile finishes, for the loaded handle to switch to in place (T70), or null.
+ */
+export type ResolvedAsset =
+  | { readonly path: string }
+  | { readonly key: string; readonly bytes: Uint8Array; readonly compiled?: Promise<{ readonly key: string; readonly bytes: Uint8Array } | null> };
 
 /** @internal A compile request: a clip source and, for an authored clip with bone tracks, the skeleton it binds to. */
 export interface CompiledClipRequest {
@@ -33,8 +40,11 @@ export interface CompiledClipRequest {
 
 /** @internal Where compiled clips come from in the editor (its compile cache). */
 export interface CompiledClipSource {
-  /** The compiled clip's bytes if it is compiled already, else null (and its compile starts). Never rejects. */
-  compiled(request: CompiledClipRequest): Promise<Uint8Array | null>;
+  /**
+   * The compiled clip's bytes if it is compiled already, else null (and its compile starts; `onCompiled` gets the bytes
+   * when it finishes, T70). Never rejects.
+   */
+  compiled(request: CompiledClipRequest, onCompiled?: (bytes: Uint8Array) => void): Promise<Uint8Array | null>;
 }
 
 let compiledSource: CompiledClipSource | null = null;
@@ -129,15 +139,18 @@ export async function resolveClip(clipRef: string, skeleton: AnimatorSkeleton | 
   const skeletonRef = skeletonFor(data, skeleton?.ref ?? null);
   const built = compiledClipPath(clipRef, data.ownSkeleton ? null : skeletonRef);
   if (Assets.has(built)) return { path: built };
+  let compiled: Promise<{ key: string; bytes: Uint8Array } | null> | undefined;
   if (compiledSource) {
-    const bytes = await compiledSource.compiled({ clip: clipRef, skeleton: data.ownSkeleton ? null : skeletonRef }).catch(() => null);
+    let ready: (bytes: Uint8Array) => void = () => {};
+    compiled = new Promise<{ key: string; bytes: Uint8Array }>((resolve) => (ready = (b) => resolve({ key: `clip:${keyOf(b)}`, bytes: b })));
+    const bytes = await compiledSource.compiled({ clip: clipRef, skeleton: data.ownSkeleton ? null : skeletonRef }, ready).catch(() => null);
     if (bytes) return { key: `clip:${keyOf(bytes)}`, bytes };
   }
   try {
     const bones = data.ownSkeleton ? await modelBones(modelClipOf(clipRef)!.model) : skeletonRef ? skeleton?.bones ?? null : null;
     const raw = compileRawClip(data.source, bones);
     for (const p of raw.problems) console.warn(`[myco] ${clipRef}: ${p}`);
-    return { key: `clip:${keyOf(raw.bytes)}`, bytes: raw.bytes };
+    return { key: `clip:${keyOf(raw.bytes)}`, bytes: raw.bytes, compiled };
   } catch (err) {
     console.warn(`[myco] ${clipRef}: couldn't make its raw form:`, err);
     return null;

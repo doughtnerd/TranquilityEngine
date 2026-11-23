@@ -96,6 +96,10 @@ pub struct Instance {
     /// it was visible showed `last` itself, not an LOD blend), so a frame showing a `last` with
     /// the same bits skips rebuilding them. Not part of snapshots (a restore clears it).
     pub shown_last: bool,
+    /// T70: the bones whose model-space and skinning matrices `evaluate` writes (`set_eval_mask`:
+    /// a mask's bones with weight above 0 and their ancestors); empty: every bone. A server World
+    /// sets it to the bones gameplay reads. Not part of snapshots (host state, like the input row).
+    pub eval_bones: Vec<bool>,
 }
 
 struct Slot {
@@ -145,6 +149,7 @@ impl Table {
             stale: false,
             debug: false,
             shown_last: false,
+            eval_bones: Vec::new(),
             player_headers: vec![0; player_slots(program) * FrameCache::header_len(groups * LANES)],
             player_frames: vec![
                 SoaTransform::identity();

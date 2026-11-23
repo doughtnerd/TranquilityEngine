@@ -199,6 +199,7 @@ fn the_pose_database_bake_reads_its_records() {
         "walk",
         &schema,
         &[30.0],
+        &PosedbExtras::default(),
     )
     .unwrap();
     let v = PoseDbView::parse(&bytes).unwrap();
@@ -213,6 +214,7 @@ fn the_pose_database_bake_reads_its_records() {
         "walk",
         &schema,
         &[30.0],
+        &PosedbExtras::default(),
     )
     .unwrap();
     assert_eq!(bytes, again);
@@ -225,7 +227,8 @@ fn the_pose_database_bake_reads_its_records() {
         &[],
         "",
         &schema,
-        &[]
+        &[],
+        &PosedbExtras::default(),
     )
     .is_err());
     assert!(compile_posedb(
@@ -237,9 +240,126 @@ fn the_pose_database_bake_reads_its_records() {
         &[],
         "",
         &schema,
-        &[]
+        &[],
+        &PosedbExtras::default(),
     )
     .is_err());
+}
+
+/// T70: mirrored copies bake as flagged clip entries of their own (with the mirror table stored),
+/// measured on the mirrored pose; custom features read the clip's curve of their name.
+#[test]
+fn the_pose_database_bake_takes_mirrored_copies_and_custom_features() {
+    use anim_format::clip::{Binding, Track, TrackKind};
+    use anim_format::posedb::CLIP_MIRRORED;
+    use anim_format::NONE;
+    let mut rng = Rng::new(11);
+    let skel = synth::skeleton(Shape::Chain(4), &mut rng);
+    let skel_bytes = skel.write().unwrap();
+    let mut clip = synth::clip(&skel, 1.0, true, &mut rng);
+    // A curve "speed" rising 0 → 2 over the clip.
+    let field = clip.strings.len() as u32;
+    clip.strings.push("speed".into());
+    let n = clip.frame_count as usize;
+    clip.tracks.push(Track {
+        kind: TrackKind::Curve,
+        flags: 0,
+        subtype: 0,
+        binding: Binding {
+            bone: NONE,
+            node_path: NONE,
+            component: NONE,
+            field,
+        },
+        raw: (0..n).map(|f| 2.0 * f as f32 / (n - 1) as f32).collect(),
+        keys: Vec::new(),
+    });
+    let bytes = clip.write().unwrap();
+    let schema = [FeatureKind::BonePosition as u8 as f32, 3.0, 1.0, 0.0];
+    let bones = skel.bones.len();
+    // Every bone its own partner, no flips, across X: a reflection of the whole pose.
+    let mirror: Vec<u32> = std::iter::once(0)
+        .chain((0..bones as u32).map(|b| b))
+        .collect();
+    let bake = |flags: &[u32], custom: &[f32], names: &str| {
+        compile_posedb(
+            &skel_bytes,
+            "",
+            &bytes,
+            &[bytes.len() as u32],
+            "asset:walk.anim.json",
+            &[],
+            "",
+            &schema,
+            &[30.0, 0.01, 0.0, 0.0],
+            &PosedbExtras {
+                clip_flags: flags,
+                mirror: &mirror,
+                custom,
+                custom_names: names,
+            },
+        )
+    };
+    let plain = bake(&[], &[], "").unwrap();
+    let both = bake(&[1], &[1.0, 1.0], "speed").unwrap();
+    let (p, b) = (
+        PoseDbView::parse(&plain).unwrap(),
+        PoseDbView::parse(&both).unwrap(),
+    );
+    assert_eq!(p.clips().len(), 1);
+    assert_eq!(
+        b.clips().len(),
+        2,
+        "the mirrored copy is an entry of its own"
+    );
+    assert_eq!(b.clips().get(0), b.clips().get(1), "of the same clip");
+    assert_eq!((b.clip_flags(0), b.clip_flags(1)), (0, CLIP_MIRRORED));
+    assert_eq!(b.mirror().to_vec(), mirror);
+    assert_eq!(b.frame_count(), 2 * p.frame_count());
+    // The bone position (raw = row · std + mean) of a mirrored frame: a reflection across X keeps
+    // its height (the character frame lies on the ground) and moves it on the ground.
+    let raw = |v: &PoseDbView<'_>, f: usize, d: usize| {
+        v.row(f).unwrap().get(d).unwrap() * v.std().get(d).unwrap() + v.mean().get(d).unwrap()
+    };
+    let half = p.frame_count();
+    for f in [0, half / 2] {
+        assert_eq!(b.frame(half + f).unwrap().clip, 1);
+        let (o, m) = (raw(&b, f, 1), raw(&b, half + f, 1));
+        assert!((m - o).abs() < 1e-4, "frame {f} height: {m} vs {o}");
+        let ground = (raw(&b, f, 0) - raw(&b, half + f, 0)).abs()
+            + (raw(&b, f, 2) - raw(&b, half + f, 2)).abs();
+        assert!(
+            ground > 1e-3,
+            "frame {f}: the mirrored copy is another pose"
+        );
+        // The custom feature (dim 3) is the curve at the frame's time.
+        let t = b.frame(f).unwrap().time;
+        assert!((raw(&b, f, 3) - 2.0 * t).abs() < 1e-3, "speed at {t}");
+    }
+    let f = b.feature(1).unwrap();
+    assert_eq!((f.kind, f.dims, f.first_dim), (FeatureKind::Custom, 1, 3));
+    assert_eq!(b.strings().get(f.name), Some("speed"));
+    // Refused: a mirrored clip without a table of the skeleton's bones, a custom feature of 5 dims
+    // or without its name.
+    assert!(compile_posedb(
+        &skel_bytes,
+        "",
+        &bytes,
+        &[bytes.len() as u32],
+        "a",
+        &[],
+        "",
+        &schema,
+        &[],
+        &PosedbExtras {
+            clip_flags: &[1],
+            mirror: &mirror[..2],
+            ..PosedbExtras::default()
+        },
+    )
+    .is_err());
+    assert!(bake(&[], &[5.0, 1.0], "speed").is_err());
+    assert!(bake(&[], &[1.0, 1.0], "").is_err());
 }
 
 #[test]

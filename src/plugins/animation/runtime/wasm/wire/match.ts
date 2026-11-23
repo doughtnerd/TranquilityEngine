@@ -6,7 +6,7 @@
  * Wire family `match`: motion matching (ADR 0370, 0372): the live debugger's records of the graph's pose-database
  * nodes (native/anim/crates/anim-wire/src/match.rs).
  */
-export const MATCH_FAMILY = { name: "match", id: 5, version: 1 } as const;
+export const MATCH_FAMILY = { name: "match", id: 5, version: 2 } as const;
 
 /** The match buffer's size in bytes. */
 export const MATCH_DEBUG_BYTES = 4096;
@@ -17,10 +17,19 @@ export const MATCH_SWITCHED = 1;
 /** `MATCH_NODE.flags`: the last update searched. */
 export const MATCH_SEARCHED = 2;
 
+/** `MATCH_NODE.flags`: a mirrored copy plays. */
+export const MATCH_MIRRORED = 4;
+
+/** `MATCH_SAMPLE.kind`: the predicted trajectory. */
+export const SAMPLE_PREDICTED = 0;
+
+/** `MATCH_SAMPLE.kind`: the playing frame's trajectory. */
+export const SAMPLE_MATCHED = 1;
+
 /** The head of a match report. */
 export const MATCH_HEADER = {
   opcode: 0x0501,
-  version: 1,
+  version: 2,
   stride: 16,
   fields: {
     /** The instance handle. */
@@ -35,8 +44,8 @@ export const MATCH_HEADER = {
 /** A `POSE_DATABASE` node's state. */
 export const MATCH_NODE = {
   opcode: 0x0502,
-  version: 1,
-  stride: 40,
+  version: 2,
+  stride: 44,
   fields: {
     /** The node index. */
     node: { offset: 4, type: "u32" },
@@ -54,7 +63,37 @@ export const MATCH_NODE = {
     updates: { offset: 28, type: "u32" },
     /** The update count at the last search (`0xFFFFFFFF`: never). */
     lastSearch: { offset: 32, type: "u32" },
-    /** `MATCH_*` flags of the last update. */
+    /** `MATCH_*` flags of the last update (and `MATCH_MIRRORED` while a mirrored copy plays). */
     flags: { offset: 36, type: "u32" },
+    /**
+     * T70 (version 2): the playing frame's clip entry in the database (`posedb_clip` names it;
+     * `0xFFFFFFFF`: none).
+     */
+    dbClip: { offset: 40, type: "u32" },
+  },
+} as const;
+
+/**
+ * T70: a trajectory sample of a `POSE_DATABASE` node, after its `MatchNode`: in the
+ * character's frame (`x` right, `z` ahead, metres; D60), one per trajectory offset of the
+ * database, predicted ones first.
+ */
+export const MATCH_SAMPLE = {
+  opcode: 0x0503,
+  version: 2,
+  stride: 32,
+  fields: {
+    /** The node index. */
+    node: { offset: 4, type: "u32" },
+    /** `SAMPLE_PREDICTED` or `SAMPLE_MATCHED`. */
+    kind: { offset: 8, type: "u32" },
+    /** Seconds from now (past < 0). */
+    time: { offset: 12, type: "f32" },
+    /** Ground position. */
+    x: { offset: 16, type: "f32" },
+    z: { offset: 20, type: "f32" },
+    /** Unit facing. */
+    dx: { offset: 24, type: "f32" },
+    dz: { offset: 28, type: "f32" },
   },
 } as const;

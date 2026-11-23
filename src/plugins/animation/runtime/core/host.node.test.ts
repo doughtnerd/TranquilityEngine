@@ -148,6 +148,50 @@ describe("the animation core host", () => {
     expect(core.snapshot(h)).toBeNull();
   });
 
+  // T70: a clip replaced in place keeps its handle, references and plays, is known by its new key from then on, and
+  // counts a version; refused bytes change nothing.
+  it("replaces a clip's file in place under its new key", () => {
+    const skel = a.acquire("small.skel", "skeleton", () => ({ kind: "skeleton", bytes: fixture("small.skel") }));
+    const raw = a.acquire("swap-raw", "clip", { kind: "clip", bytes: fixture("walk.anim") });
+    const h = a.createInstance(skel);
+    play(a, h, raw, 7);
+    for (let i = 0; i < 3; i++) a.evaluate(PASS_NORMAL, dt, dt);
+    const refs = core.references(raw);
+    expect(core.assetVersion(raw)).toBe(0);
+    expect(core.replaceClip(raw, "swap-compiled", new Uint8Array([1, 2, 3]))).not.toBe(STATUS_OK);
+    expect(core.assetVersion(raw)).toBe(0);
+    expect(core.replaceClip(raw, "swap-compiled", fixture("run.anim"))).toBe(STATUS_OK);
+    expect(core.assetVersion(raw)).toBe(1);
+    expect(core.references(raw)).toBe(refs);
+    expect(a.acquire("swap-compiled", "clip", () => ({ kind: "clip", bytes: new Uint8Array(0) }))).toBe(raw); // shared by its new key
+    expect(core.replaceClip(raw, "swap-compiled", fixture("run.anim"))).toBe(STATUS_OK); // already that one: nothing to do
+    expect(core.assetVersion(raw)).toBe(1);
+    const waiting = a.evaluate(PASS_NORMAL, dt, dt);
+    expect(Array.from({ length: waiting }, (_, i) => core.stateChange(i)).filter((c) => c.instance === h)).toEqual([]); // the play goes on
+    expect(core.replaceClip(0x7fff_0001, "x", fixture("run.anim"))).toBe(STATUS_STALE_HANDLE);
+    a.destroyInstance(h);
+  });
+
+  // T70: match reports are read after each evaluate only for flagged instances, and stop with the flag or the instance.
+  it("reads match reports for flagged instances only", () => {
+    const skel = a.acquire("small.skel", "skeleton", () => ({ kind: "skeleton", bytes: fixture("small.skel") }));
+    const h = a.createInstance(skel);
+    a.evaluate(PASS_NORMAL, dt, dt);
+    expect(core.matchDebug(h)).toBeNull();
+    core.setMatchDebug(h, true);
+    expect(core.matchDebug(h)).toBeNull(); // not evaluated since
+    a.evaluate(PASS_NORMAL, dt, dt);
+    expect(core.matchDebug(h)).toEqual({ instance: h, nodes: [] }); // the implicit graph has no pose-database node
+    core.setMatchDebug(h, false);
+    expect(core.matchDebug(h)).toBeNull();
+    core.setMatchDebug(h, true);
+    a.destroyInstance(h);
+    a.evaluate(PASS_NORMAL, dt, dt);
+    expect(core.matchDebug(h)).toBeNull();
+    core.setMatchDebug(h, true); // a destroyed instance can't be flagged
+    expect(core.matchDebug(h)).toBeNull();
+  });
+
   it("keeps its views readable when loads grow the memory", () => {
     const f = assets(a);
     const h = a.createInstance(f.skel);

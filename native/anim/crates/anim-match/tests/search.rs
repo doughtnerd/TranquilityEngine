@@ -153,6 +153,8 @@ fn kd_tree_and_brute_force_agree_with_ties_and_depth() {
             tag_names: vec![1, 2],
             tags: (0..n).map(|i| (i % 4) as u32).collect(),
             kd_tree: Some(kdtree::build(&matrix, dims, &scale, leaf)),
+            clip_flags: Vec::new(),
+            mirror: Vec::new(),
         };
         let bytes = db.write().unwrap();
         let db = MatchDb::new(&PoseDbView::parse(&bytes).unwrap()).unwrap();

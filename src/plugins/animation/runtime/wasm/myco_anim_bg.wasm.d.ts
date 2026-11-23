@@ -48,6 +48,7 @@ export const profile_decode: (a: number, b: number) => number;
 export const ragdoll_build: (a: number, b: number, c: number) => [number, number];
 export const ragdoll_create: (a: number, b: number, c: number) => number;
 export const release: (a: number) => number;
+export const replace_clip: (a: number, b: number, c: number) => number;
 export const restore: (a: number, b: number, c: number) => number;
 export const retarget_bake: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number];
 export const retarget_goal_count: (a: number) => number;
@@ -56,6 +57,7 @@ export const retarget_mirror_table: (a: number, b: number, c: number, d: number,
 export const rig_inputs_ptr: () => number;
 export const rig_rays_ptr: () => number;
 export const roots_ptr: () => number;
+export const set_eval_mask: (a: number, b: number) => number;
 export const snapshot: (a: number, b: number, c: number, d: any) => number;
 export const snapshot_bytes: (a: number) => number;
 export const source_hash: () => [number, number];

@@ -151,6 +151,54 @@ pub fn mirror_flipped(
     }
 }
 
+/// A mirror table word as the graph's `MIRROR` node takes it: the partner in bits 0–15 and the
+/// [`Flip`] in bits 16–17 (`anim_graph::mixing::mirror_word`). Any higher bit set reads as the
+/// bone itself without a flip.
+#[inline]
+pub fn mirror_word_entry(word: u32) -> (Option<usize>, Flip) {
+    if word >> 18 != 0 {
+        return (None, Flip::None);
+    }
+    let flip = Flip::from_u8((word >> 16) as u8 & 3).unwrap_or_default();
+    (Some((word & 0xFFFF) as usize), flip)
+}
+
+/// [`mirror_flipped`] from a table of mirror words (T70: a pose database's `MIRROR` section, as
+/// the graph's `MIRROR` node reads its words): bone `i` takes the mirror of its partner's local,
+/// corrected by its own flip and its parent's. A word missing, or a partner out of range, is the
+/// bone itself. The same per-bone operations as the `MIRROR` node, so the results are identical.
+///
+/// Panics unless `pose.len() == out.len() == soa_len(parents.len())`. Never allocates.
+pub fn mirror_by_words(
+    pose: &[SoaTransform],
+    words: &[u32],
+    parents: &[u16],
+    axis: Axis,
+    out: &mut [SoaTransform],
+) {
+    let n = parents.len();
+    assert_eq!(pose.len(), soa_len(n), "SoA pose length");
+    assert_eq!(out.len(), soa_len(n), "SoA pose length");
+    let entry = |b: usize| mirror_word_entry(words.get(b).copied().unwrap_or(u32::MAX));
+    for (g, o) in out.iter_mut().enumerate() {
+        let lanes: [AosTransform; LANES] = core::array::from_fn(|l| {
+            let b = g * LANES + l;
+            if b >= n {
+                return AosTransform::identity();
+            }
+            let (p, own) = entry(b);
+            let p = p.filter(|&p| p < n).unwrap_or(b);
+            let m = mirror_transform(pose[p / LANES].lane(p % LANES), axis);
+            let parent = match parents.get(b) {
+                Some(&pb) if (pb as usize) < n => entry(pb as usize).1,
+                _ => Flip::None,
+            };
+            correct_flip(m, own, parent)
+        });
+        *o = SoaTransform::from_aos(&lanes);
+    }
+}
+
 /// Applies bone `i`'s flip correction to its mirrored local `m`.
 #[inline]
 fn correct(m: AosTransform, i: usize, f: FlipTable<'_>) -> AosTransform {

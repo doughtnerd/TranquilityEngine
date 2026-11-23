@@ -306,6 +306,99 @@ fn matrices_stay_exact_while_a_still_pose_skips_rebuilding_them() {
     }
 }
 
+/// T70: an eval mask writes the masked bones' matrices (and their ancestors') exactly as without
+/// one, and leaves the other rows as they were.
+#[test]
+fn an_eval_mask_writes_only_the_masked_bones_and_their_ancestors() {
+    let mut f = fixture();
+    let (model, _) = skeleton(Shape::Tree(12), 7);
+    let full = f.core.create_instance(0, f.skel, 0);
+    let part = f.core.create_instance(0, f.skel, 0);
+    let leaf = f.bones - 1;
+    let mut weights = vec![0.0f32; f.bones];
+    weights[leaf] = 0.5;
+    let mask = f.core.load_mask(&weights);
+    assert_eq!(f.core.set_eval_mask(part, mask), STATUS_OK);
+    // Ancestors of the leaf.
+    let mut needed = vec![false; f.bones];
+    let mut b = leaf;
+    loop {
+        needed[b] = true;
+        match model.bones[b].parent {
+            NO_PARENT_BONE => break,
+            p => b = p as usize,
+        }
+    }
+    assert!(
+        needed.iter().any(|n| !n),
+        "the tree has bones off the leaf's chain"
+    );
+    send(
+        &mut f.core,
+        &[play(full, f.a, 0, 0.0, 1, 0), play(part, f.a, 0, 0.0, 2, 0)],
+    );
+    step(&mut f, 7);
+    let (a, p) = (mats(&f, full), mats(&f, part));
+    for (bone, &n) in needed.iter().enumerate() {
+        let r = 12 * bone..12 * bone + 12;
+        if n {
+            assert_eq!(a[r.clone()], p[r], "bone {bone} is computed exactly");
+        } else {
+            assert!(
+                p[r].iter().all(|v| *v == 0.0),
+                "bone {bone} is never written"
+            );
+        }
+    }
+    // Mask 0: every bone again; a mask of another bone count is refused.
+    assert_eq!(f.core.set_eval_mask(part, 0), STATUS_OK);
+    step(&mut f, 1);
+    assert_eq!(mats(&f, full), mats(&f, part));
+    let short = f.core.load_mask(&[1.0, 1.0]);
+    assert_eq!(f.core.set_eval_mask(part, short), STATUS_MISMATCH);
+    assert_eq!(f.core.set_eval_mask(part, f.a), STATUS_WRONG_KIND);
+    assert_eq!(f.core.set_eval_mask(0x00ff_00ff, 0), STATUS_STALE_HANDLE);
+}
+
+/// T70: replacing a clip in place keeps its handle and its plays: the playhead goes on, and the
+/// next frame samples the new file.
+#[test]
+fn a_clip_replaced_in_place_keeps_its_plays_and_samples_the_new_file() {
+    let mut f = fixture();
+    let h = f.core.create_instance(0, f.skel, 0);
+    let other = f.core.create_instance(0, f.skel, 0);
+    send(
+        &mut f.core,
+        &[play(h, f.a, 0, 0.0, 1, 0), play(other, f.b, 0, 0.0, 2, 0)],
+    );
+    step(&mut f, 9);
+    assert_eq!(f.core.replace_clip(f.a, &f.b_bytes.clone()), STATUS_OK);
+    step(&mut f, 3);
+    // Both played 12 frames from 0 and now sample the same file at the same time.
+    assert_eq!(mats(&f, h), mats(&f, other));
+    assert!(
+        changes(&f.core)
+            .iter()
+            .all(|c| c.kind != CHANGE_INTERRUPTED),
+        "no play restarted"
+    );
+    let expected = f
+        .reference
+        .matrices(&f.reference.sample(&f.b_bytes, 12.0 / 30.0));
+    assert!(max_diff(&mats(&f, h), &expected) < TOL);
+    // Refused: bytes that don't parse, a clip of another bone count, a handle of another kind.
+    assert_eq!(f.core.replace_clip(f.a, &[1, 2, 3]), STATUS_BAD_ASSET);
+    let (small, _) = skeleton(Shape::Chain(3), 1);
+    let few = clip(&small, 1.0, true, 5);
+    assert_eq!(f.core.replace_clip(f.a, &few), STATUS_MISMATCH);
+    assert_eq!(
+        f.core.replace_clip(f.skel, &f.b_bytes.clone()),
+        STATUS_WRONG_KIND
+    );
+}
+
+const NO_PARENT_BONE: u16 = 0xFFFF;
+
 #[test]
 fn stale_handles_do_nothing() {
     let mut f = fixture();

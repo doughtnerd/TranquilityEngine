@@ -52,6 +52,11 @@
 //! of what already plays keeps playing. Root motion is the matched clip's root curve; on a switch
 //! update it is the old clip's last step. Notifies and timing are the player's.
 //!
+//! **Mirrored copies** (T70): a database clip entry flagged `CLIP_MIRRORED` names the same clip as
+//! its original; while one plays, the pose is mirrored through the database's mirror table (the
+//! `MIRROR` node's per-bone operations, through one scratch slot) and the root motion across its
+//! axis, so the character shows what the bake measured.
+//!
 //! State ([`state`]): the clip player ([`crate::sources::player`] layout), the database handle,
 //! the update counter and the last search's update, the last update's flags
 //! ([`MATCH_SWITCHED`], [`MATCH_SEARCHED`]), frame and cost, the inputs' world position and yaw,
@@ -72,6 +77,7 @@ use anim_match::{
 use anim_math::trig::sin_cos;
 use anim_math::{AosQuat, AosTransform, AosVec3, F32x4, SoaTransform};
 use anim_pose::root::RootDelta;
+use anim_pose::Axis;
 
 use crate::dispatch::{Family, NodeStatus};
 use crate::eval::{EvalContext, NodeData, Phase, Program};
@@ -162,8 +168,11 @@ pub mod state {
     pub const CONTROLLER: usize = DB + 24;
     /// The predictor's words.
     pub const PREDICTOR: usize = CONTROLLER + super::MatchController::WORDS;
+    /// T70: 1 while the playing clip entry is a mirrored copy (played through the database's
+    /// mirror table).
+    pub const MIRRORED: usize = PREDICTOR + super::TrajectoryPredictor::WORDS;
     /// Words of state.
-    pub const WORDS: usize = PREDICTOR + super::TrajectoryPredictor::WORDS;
+    pub const WORDS: usize = MIRRORED + 1;
 }
 
 /// What a `POSE_DATABASE` node's state shows (the live debugger's `match` family records).
@@ -182,6 +191,8 @@ pub struct MatchView {
     pub last_search: u32,
     /// The last update's `MATCH_*` flags.
     pub flags: u32,
+    /// T70: a mirrored copy plays.
+    pub mirrored: bool,
 }
 
 /// The view of a `POSE_DATABASE` node's state words (`None` for a block too short).
@@ -198,6 +209,7 @@ pub fn view(s: &[u32]) -> Option<MatchView> {
         updates: s[state::UPDATES],
         last_search: s[state::LAST_SEARCH],
         flags: s[state::FLAGS],
+        mirrored: s[state::MIRRORED] != 0,
     })
 }
 
@@ -268,6 +280,9 @@ fn database(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
         Phase::Update => update(cx, node),
         Phase::Pose => {
             sources::player_pose_at(cx, state::PLAYER, 0);
+            if cx.state()[state::MIRRORED] != 0 {
+                mirror_out(cx);
+            }
             // The world position this pose was taken at (the query's root delta, next update).
             let s = cx.state();
             s.copy_within(state::POSE_LAST..state::POSE_LAST + 3, state::POSE_PREV);
@@ -283,6 +298,10 @@ fn database(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
                     rotation: AosQuat::new(w(3), w(4), w(5), w(6)),
                 };
                 cx.set_root(delta);
+            } else if s[state::MIRRORED] != 0 {
+                let r = sources::player_root_at(cx, state::PLAYER);
+                let axis = node_db(cx).map_or(Axis::X, mirror_axis);
+                cx.set_root(mirror_root(r, axis));
             } else {
                 sources::player_phase(cx, state::PLAYER, 1.0);
             }
@@ -292,12 +311,68 @@ fn database(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
     }
 }
 
-/// The ground `x z` of a vec2 (`x y`) or vec3 (`x y z`) parameter, `None` for `NONE`.
-fn ground(cx: &EvalContext<'_>, param: u32) -> Option<[f32; 2]> {
-    if param == NONE || param as usize >= cx.program().param_count() {
+/// The node's database (its state's handle), if bound and loaded.
+fn node_db<'d>(cx: &mut EvalContext<'d>) -> Option<&'d MatchDb> {
+    let h = cx.state()[state::DB];
+    if h == 0 {
         return None;
     }
-    let w = cx.param_words(param);
+    cx.assets().match_db(h).map(|m| m.db)
+}
+
+/// The axis of a database's mirror table (X without one).
+fn mirror_axis(db: &MatchDb) -> Axis {
+    match db.mirror_table().first() {
+        Some(1) => Axis::Y,
+        Some(2) => Axis::Z,
+        _ => Axis::X,
+    }
+}
+
+/// A root delta mirrored across the plane with normal `axis` (as the `MIRROR` node mirrors it).
+fn mirror_root(r: RootDelta, axis: Axis) -> RootDelta {
+    let m = anim_pose::mirror::mirror_transform(
+        AosTransform::new(r.translation, r.rotation, AosVec3::splat(1.0)),
+        axis,
+    );
+    RootDelta {
+        translation: m.translation,
+        rotation: m.rotation,
+    }
+}
+
+/// T70: mirrors the current out slot through the database's mirror table (a mirrored copy
+/// playing), through a scratch slot; without a slot or a table the pose stays as it is.
+fn mirror_out(cx: &mut EvalContext<'_>) {
+    let Some(db) = node_db(cx) else {
+        return;
+    };
+    let table = db.mirror_table();
+    if table.is_empty() {
+        return;
+    }
+    let axis = mirror_axis(db);
+    let out = cx.out();
+    let Some(tmp) = cx.push_slot() else {
+        return;
+    };
+    cx.copy_slot(out, tmp);
+    let parents = cx.skeleton().parents;
+    if let Some((src, dst)) = cx.poses2(tmp, out) {
+        if src.len() == anim_math::layout::soa_len(parents.len()) && dst.len() == src.len() {
+            anim_pose::mirror::mirror_by_words(src, &table[1..], parents, axis, dst);
+        }
+    }
+    cx.pop_slot();
+}
+
+/// The ground `x z` of a vec2 (`x y`) or vec3 (`x y z`) parameter, `None` for `NONE`. `words`
+/// reads a parameter's four words.
+fn ground(program: &Program, words: &dyn Fn(u32) -> [u32; 4], param: u32) -> Option<[f32; 2]> {
+    if param == NONE || param as usize >= program.param_count() {
+        return None;
+    }
+    let w = words(param);
     let f = |i: usize| {
         let v = f32::from_bits(w[i]);
         if v.is_finite() {
@@ -306,27 +381,109 @@ fn ground(cx: &EvalContext<'_>, param: u32) -> Option<[f32; 2]> {
             0.0
         }
     };
-    Some(match cx.program().param_type(param as usize) {
+    Some(match program.param_type(param as usize) {
         Some(anim_format::graph::ParamType::Vec3) => [f(0), f(2)],
         _ => [f(0), f(1)],
     })
 }
 
-fn trajectory_input(cx: &EvalContext<'_>, node: &NodeData<'_>) -> TrajectoryInput {
-    let scalar = |i: usize| match node.word_or_none(i) {
+/// A float parameter's value from its words (ints and bools as their value; not finite: 0), as
+/// `EvalContext::param_f32` reads it.
+fn scalar_of(program: &Program, index: u32, w: [u32; 4]) -> f32 {
+    if index as usize >= program.param_count() {
+        return 0.0;
+    }
+    match program.param_type(index as usize) {
+        Some(anim_format::graph::ParamType::Int) => w[0] as i32 as f32,
+        Some(anim_format::graph::ParamType::Bool) => (w[0] != 0) as u32 as f32,
+        _ => {
+            let v = f32::from_bits(w[0]);
+            if v.is_finite() {
+                v
+            } else {
+                0.0
+            }
+        }
+    }
+}
+
+/// The trajectory input of a node with parameter words `params`; `words` reads a graph
+/// parameter's four words.
+fn trajectory_input_from(
+    program: &Program,
+    params: &[u32],
+    words: &dyn Fn(u32) -> [u32; 4],
+) -> TrajectoryInput {
+    let at = |i: usize| params.get(i).copied().unwrap_or(NONE);
+    let scalar = |i: usize| match at(i) {
         NONE => None,
-        p => Some(cx.param_f32(p)),
+        p => Some(scalar_of(program, p, words(p))),
     };
-    let position = ground(cx, node.word_or_none(word::POSITION)).unwrap_or([0.0; 2]);
-    let velocity = ground(cx, node.word_or_none(word::VELOCITY)).unwrap_or([0.0; 2]);
+    let position = ground(program, words, at(word::POSITION)).unwrap_or([0.0; 2]);
+    let velocity = ground(program, words, at(word::VELOCITY)).unwrap_or([0.0; 2]);
     let yaw = scalar(word::YAW).unwrap_or(0.0);
     TrajectoryInput {
         position,
         yaw,
         velocity,
-        desired_velocity: ground(cx, node.word_or_none(word::DESIRED_VELOCITY)).unwrap_or(velocity),
+        desired_velocity: ground(program, words, at(word::DESIRED_VELOCITY)).unwrap_or(velocity),
         desired_yaw: scalar(word::DESIRED_YAW).unwrap_or(yaw),
     }
+}
+
+fn trajectory_input(cx: &EvalContext<'_>, node: &NodeData<'_>) -> TrajectoryInput {
+    trajectory_input_from(cx.program(), node.params, &|p| cx.param_words(p))
+}
+
+fn trajectory_settings(params: &[u32]) -> TrajectorySettings {
+    let f = |i: usize, d: f32| match params.get(i) {
+        Some(w) if f32::from_bits(*w).is_finite() => f32::from_bits(*w),
+        _ => d,
+    };
+    TrajectorySettings {
+        velocity_half_life: f(word::VELOCITY_HALF_LIFE, 0.3),
+        facing_half_life: f(word::FACING_HALF_LIFE, 0.2),
+    }
+}
+
+/// T70, the live debugger: the trajectory top-level `POSE_DATABASE` node `node` of an instance
+/// predicted at its last update, at `db`'s offsets, in the character's frame (`state` the
+/// instance's blob, `groups` its bone groups). The prediction is a pure function of the node's
+/// predictor words and the parameters that update read, both still in the blob until the next
+/// `write_inputs`. `false` when the node isn't a pose-database node. Never allocates.
+pub fn predicted_trajectory(
+    program: &Program,
+    state: &mut [u32],
+    groups: usize,
+    node: u32,
+    db: &MatchDb,
+    out: &mut Trajectory,
+) -> bool {
+    if program.node_kind(node) != Some((Family::Matching, kind::POSE_DATABASE)) {
+        return false;
+    }
+    let params = program.node_params(node).unwrap_or(&[]);
+    let input = {
+        let blob: &[u32] = state;
+        let words = |p: u32| {
+            let at = 4 * p as usize;
+            blob.get(at..at + 4)
+                .map_or([0; 4], |w| [w[0], w[1], w[2], w[3]])
+        };
+        trajectory_input_from(program, params, &words)
+    };
+    let s = program.node_state(state, groups, node);
+    if s.len() < state::WORDS {
+        return false;
+    }
+    let predictor = TrajectoryPredictor::read_words(&s[state::PREDICTOR..]);
+    predictor.predict(
+        &input,
+        &trajectory_settings(params),
+        db.trajectory_offsets(),
+        out,
+    );
+    true
 }
 
 /// ORs three masks of four words (required, excluded, any) from `words` into `f`.
@@ -496,10 +653,7 @@ fn update(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
     let db = m.db;
     let lanes = db.lanes();
     let input = trajectory_input(cx, node);
-    let ts = TrajectorySettings {
-        velocity_half_life: node.f32_or(word::VELOCITY_HALF_LIFE, 0.3),
-        facing_half_life: node.f32_or(word::FACING_HALF_LIFE, 0.2),
-    };
+    let ts = trajectory_settings(node.params);
     let mut predictor = TrajectoryPredictor::read_words(&cx.state()[state::PREDICTOR..]);
     predictor.update(dt, &input, &ts);
     let mut trajectory = Trajectory::default();
@@ -553,16 +707,24 @@ fn update(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
     let mut started = false;
     if let Some(o) = out.filter(|o| o.switched) {
         let target = m.clips.get(o.clip as usize).copied().unwrap_or(0);
+        let want_mirror = db.clip_mirrored(o.clip) as u32;
         let rate = db.sample_rate();
         let s = cx.state();
         let current = sources::clip_of(s);
-        let near =
-            current == target && target != 0 && (sources::time_of(s) - o.time).abs() <= 1.0 / rate;
+        let was_mirrored = s[state::MIRRORED];
+        let near = current == target
+            && target != 0
+            && was_mirrored == want_mirror
+            && (sources::time_of(s) - o.time).abs() <= 1.0 / rate;
         if !near {
             // The old clip's last step is this update's root motion.
             sources::player_phase(cx, state::PLAYER, 1.0);
-            let r = sources::player_root_at(cx, state::PLAYER);
+            let mut r = sources::player_root_at(cx, state::PLAYER);
+            if was_mirrored != 0 {
+                r = mirror_root(r, mirror_axis(db));
+            }
             let s = cx.state();
+            s[state::MIRRORED] = want_mirror;
             let words = [
                 r.translation.x,
                 r.translation.y,

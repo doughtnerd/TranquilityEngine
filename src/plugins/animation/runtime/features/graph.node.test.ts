@@ -10,7 +10,7 @@ import { Animator, AnimatorStateChanges, Assets, BoneAttachment, Engine, GameBeh
 import type { World } from "../../../../engine/core/World";
 import { ByteWriter, encodeStringTable, writeContainer } from "../../../../engine/animation/binaryWriter";
 import { invert34, multiply34, toMat4 } from "../affine";
-import { readSkeletonInfo } from "../assetInfo";
+import { readClipInfo, readSkeletonInfo } from "../assetInfo";
 import { instanceForSkeleton, skinningMatrices } from "../skeletonInstances";
 import { Mat4 } from "../../../../engine/core/math";
 import type { AnimationPlayResult } from "../types";
@@ -388,6 +388,33 @@ describe("the state machine from code", () => {
     steps(1);
     expect(anim.state()).toMatchObject({ name: "Dead", transitioningTo: null });
     expect(entered(anim).at(-1)).toBe("Dead");
+    destroyAll();
+  });
+
+  // T70: `jump(state, { normalizedTime })` enters the state that far into its clip (Unity's `Play(state, layer,
+  // normalizedTime)`): one Animator jumps to Jump's start and plays 10 frames; 9 frames after it, another jumps 9 frames
+  // into the one-shot clip and plays one. Same playhead, so the same pose of the bones outside the upper-body layer (whose
+  // linked graph ran longer on the first): within 1e-4 (one f32 multiply against ten f32 adds of dt).
+  it("jumps into a state at a normalised time", async () => {
+    const run = readClipInfo(new Uint8Array(readFileSync(fixtureUrl("graph_run.anim"))))!;
+    const a = await heroInIdle("Into");
+    const b = await heroInIdle("FromStart");
+    const n = (9 * dt) / run.duration;
+    b.anim.jump("Jump");
+    steps(9);
+    a.anim.jump("Jump", { normalizedTime: n });
+    steps(1);
+    expect(a.anim.state()).toMatchObject({ name: "Jump", transitioningTo: null });
+    expect(a.anim.state().normalizedTime).toBeCloseTo((10 * dt) / run.duration, 4);
+    expect(a.anim.state().time).toBeCloseTo(10 * dt, 4);
+    expect(b.anim.state().time).toBeCloseTo(10 * dt, 4);
+    const ma = skinningMatrices(world, a.node)!, mb = skinningMatrices(world, b.node)!;
+    for (const bone of UNMASKED) for (let k = 0; k < 12; k++) expect(Math.abs(ma[bone * 12 + k]! - mb[bone * 12 + k]!)).toBeLessThan(1e-4);
+    // Past the end of the one-shot: it holds its end; no offset is its start.
+    a.anim.jump("Jump", { normalizedTime: 3 });
+    steps(1);
+    expect(a.anim.state().normalizedTime).toBeCloseTo(1, 4); // a one-shot holds its end
+    expect(entered(a.anim).filter((s) => s === "Jump")).toHaveLength(2);
     destroyAll();
   });
 

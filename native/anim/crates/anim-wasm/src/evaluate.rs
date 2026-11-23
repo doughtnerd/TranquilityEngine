@@ -29,7 +29,9 @@
 //! 6. **Matrices:** local to model space, times the skeleton's inverse bind matrices, into the
 //!    instance's row of the matrix view. Skipped (T82r) when the row already holds them: the
 //!    frame shows `last` itself, as the last visible frame did, and `last` kept its bits (not
-//!    due, or evaluated to the same pose: paused, a still pose).
+//!    due, or evaluated to the same pose: paused, a still pose). With an eval mask
+//!    (`set_eval_mask`, T70: a server World's gameplay bones) only the masked bones and their
+//!    ancestors are computed; the other rows keep what they held.
 
 use anim_graph::eval::{
     Events, History, Inputs, Program, Scratch, SkeletonPose, StateEvent, StateEventKind,
@@ -746,10 +748,22 @@ pub fn evaluate(
         stats[5] += 1;
         let bones = skel.bones();
         let model = &mut frame.model[..bones];
-        anim_pose::model::model_space(&skel.parents, display, model);
         let at = index * max_bones * MATRIX_FLOATS as usize;
         let out = &mut frame.matrices[at..at + bones * MATRIX_FLOATS as usize];
-        anim_pose::model::skinning_from_model(model, &skel.inverse_bind, out);
+        if inst.eval_bones.len() == bones {
+            // T70: only the bones gameplay reads (`set_eval_mask`).
+            anim_pose::model::skinning_matrices_subset(
+                &skel.parents,
+                display,
+                &skel.inverse_bind,
+                &inst.eval_bones,
+                model,
+                out,
+            );
+        } else {
+            anim_pose::model::model_space(&skel.parents, display, model);
+            anim_pose::model::skinning_from_model(model, &skel.inverse_bind, out);
+        }
     }
     frame.stats = stats;
     frame.change_count as u32

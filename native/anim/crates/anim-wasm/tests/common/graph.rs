@@ -522,10 +522,23 @@ pub fn travel(instance: u32, machine: u32, state: u32) -> Vec<u8> {
 }
 
 pub fn jump(instance: u32, machine: u32, state: u32) -> Vec<u8> {
+    jump_at(instance, machine, state, 0.0, 0.0)
+}
+
+/// `jump` entering the state `normalized_time` cycles plus `time` seconds in.
+pub fn jump_at(
+    instance: u32,
+    machine: u32,
+    state: u32,
+    normalized_time: f32,
+    time: f32,
+) -> Vec<u8> {
     wg::Jump {
         instance,
         machine,
         state,
+        normalized_time,
+        time,
     }
     .encode()
 }

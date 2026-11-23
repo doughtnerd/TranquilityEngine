@@ -31,6 +31,7 @@ function fakeEnv(options: { fail?: string; written?: Map<string, Uint8Array> } =
     clipSkeleton: async () => null,
     skeleton: async () => small,
     clip: async () => ({ bytes: new Uint8Array([1]) }),
+    mirrorTable: async () => ({ error: "the story has no mirror table" }),
     run: async () => (options.fail ? { ok: false, error: options.fail } : { ok: true, bytes: new Uint8Array([1, 2, 3]) }),
     writeBytes: async (path, bytes) => void options.written?.set(path, bytes),
   };

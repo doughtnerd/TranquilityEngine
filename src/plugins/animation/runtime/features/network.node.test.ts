@@ -286,9 +286,19 @@ function animatorIn(world: World, name: string): Animator | null {
 }
 
 const pose = (world: World, node: GameObject) => skinningMatrices(world, node)?.slice() ?? null;
+/**
+ * The bones a server computes for the heroes' hit volume (T70: a server writes matrices only for the bones BoneAttachments
+ * follow and their ancestors): bone4 and its chain to the root.
+ */
+const SERVER_BONES: readonly number[] = (() => {
+  const chain: number[] = [];
+  for (let b = 4; b >= 0; b = skel.parents[b]!) chain.push(b);
+  return chain;
+})();
+/** The largest difference between two poses over the bones the server computes. */
 function diff(a: Float32Array, b: Float32Array): number {
   let w = 0;
-  for (let i = 0; i < skel.bones * 12; i++) w = Math.max(w, Math.abs(a[i]! - b[i]!));
+  for (const bone of SERVER_BONES) for (let k = 0; k < 12; k++) w = Math.max(w, Math.abs(a[bone * 12 + k]! - b[bone * 12 + k]!));
   return w;
 }
 
@@ -348,7 +358,7 @@ describe("server to client replication (interpolated ghosts)", { timeout: 60_000
     step(engine, 90, log.sample);
     expect(hero.state().name).toBe("Locomotion");
     expect(g.state().name).toBe("Locomotion");
-    expect(g.netParameters).not.toContain("3"); // "local" isn't among the replicated values
+    expect((JSON.parse(g.netParameters) as [number, [number, unknown][]])[1].map(([, v]) => v)).not.toContain(3); // "local" isn't among the replicated values (the wire starts with a tick, so the string is no test)
     expect(changes.map((c) => c.to)).toEqual(["Locomotion"]); // its own transition, no jump
     log.expectMatch(changedAt + 0.5 * 60); // past the 0.2 s crossfade out of the (unsynchronised) Idle
 
@@ -436,6 +446,9 @@ describe("server to client replication (interpolated ghosts)", { timeout: 60_000
     expect(g.state().name).toBe("Locomotion");
     // One reconciling jump, then it stays: no snapping every tick.
     expect(changes).toEqual(["Locomotion>Crouch", "Crouch>Locomotion"]);
+    // T70: it jumped back as far into Locomotion as the server is (its time since the replicated entry tick, about 2 s
+    // minus the interpolation delay), not to the state's start (which would be under 1 s by now).
+    expect(g.state().time).toBeGreaterThan(1.5);
   });
 
   it("servers evaluate only what gameplay reads: no pose without a BoneAttachment, the graph still runs", async () => {
@@ -460,6 +473,18 @@ describe("server to client replication (interpolated ghosts)", { timeout: 60_000
     const hand = heroNode.children.find((c) => c.name === "Hand")!;
     const bone4 = skel.restModel.subarray(4 * 12, 5 * 12);
     expect(Vector3.distance(hand.transform!.worldPosition, new Vector3(bone4[3]!, bone4[7]!, bone4[11]!))).toBeGreaterThan(1e-4); // animated, not the rest pose
+    // T70: of the followed skeleton, only bone4 and its ancestors get matrices on the server: their rows move with the
+    // walk, the other bones' rows are never written (they keep what the row held).
+    const chain = new Set<number>();
+    for (let b = 4; b >= 0; b = skel.parents[b]!) chain.add(b);
+    const others = Array.from({ length: skel.bones }, (_, b) => b).filter((b) => !chain.has(b));
+    expect(others.length).toBeGreaterThan(0);
+    const before = pose(server, heroNode)!;
+    step(engine, 7);
+    const after = pose(server, heroNode)!;
+    const row = (m: Float32Array, b: number) => Array.from(m.subarray(b * 12, b * 12 + 12));
+    expect(row(after, 4)).not.toEqual(row(before, 4));
+    for (const b of others) expect(row(after, b), `bone ${b}`).toEqual(row(before, b));
   });
 });
 

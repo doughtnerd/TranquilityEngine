@@ -13,8 +13,8 @@ use std::cell::RefCell;
 use anim_graph::eval::{Inputs, Program, SkeletonPose};
 use anim_math::layout::soa_len;
 use anim_wire::core::{
-    Init, MemoryNeeded, HANDLE_INDEX_MASK, STATUS_BAD_RECORD, STATUS_NOT_INITIALIZED, STATUS_OK,
-    STATUS_TOO_LARGE,
+    Init, MemoryNeeded, HANDLE_INDEX_MASK, STATUS_BAD_RECORD, STATUS_MISMATCH,
+    STATUS_NOT_INITIALIZED, STATUS_OK, STATUS_TOO_LARGE,
 };
 use anim_wire::WireRecord;
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -220,6 +220,61 @@ impl Core {
         }
         let r = self.arena.load_mask(weights);
         self.handle(r)
+    }
+
+    /// T70: replaces clip `handle`'s file with `bytes` in place (an editor's raw clip by its
+    /// compiled form when the compile finishes): the handle, its graph bindings and the plays on
+    /// it stay; playheads keep their times, and the next sample reads the new file. Refused
+    /// (`STATUS_MISMATCH`) when the new clip has another bone count; `STATUS_BAD_ASSET` when it
+    /// doesn't parse. Returns a status.
+    pub fn replace_clip(&mut self, handle: u32, bytes: &[u8]) -> u32 {
+        if !self.started {
+            return STATUS_NOT_INITIALIZED;
+        }
+        match self.arena.replace_clip(handle, bytes) {
+            Ok(()) => STATUS_OK,
+            Err(e) => e,
+        }
+    }
+
+    /// T70: limits instance `handle`'s bone matrices to the bones mask `mask` weighs above 0 and
+    /// their ancestors (mask 0: every bone again). `evaluate` writes only those bones' rows of the
+    /// matrix view; the others keep what they held. A server World sets it to what gameplay reads
+    /// (bones BoneAttachments follow). `STATUS_MISMATCH` for a mask of another bone count.
+    /// Returns a status.
+    pub fn set_eval_mask(&mut self, handle: u32, mask: u32) -> u32 {
+        if !self.started {
+            return STATUS_NOT_INITIALIZED;
+        }
+        let r = (|| {
+            let skeleton = self.table.get_mut(handle)?.skeleton;
+            let skel = self.arena.skeleton(skeleton)?;
+            let mut needed = Vec::new();
+            if mask != 0 {
+                let m = self.arena.mask_asset(mask)?;
+                if m.bones != skel.bones() {
+                    return Err(STATUS_MISMATCH);
+                }
+                needed = (0..m.bones)
+                    .map(|b| m.packed[b / 4].to_array()[b % 4] > 0.0)
+                    .collect();
+                for b in (0..needed.len()).rev() {
+                    let p = skel.parents[b] as usize;
+                    if needed[b] && p < b {
+                        needed[p] = true;
+                    }
+                }
+            }
+            let inst = self.table.get_mut(handle)?;
+            inst.eval_bones = needed;
+            // The rows of newly needed bones may be stale: rebuild them on the next evaluate.
+            inst.shown_last = false;
+            Ok(())
+        })();
+        match r {
+            Ok(()) => STATUS_OK,
+            Err(e) => e,
+        }
     }
 
     /// Releases an asset. Instances using it stop evaluating (a skeleton or graph) or show nothing
@@ -626,6 +681,19 @@ pub fn load_graph(bytes: &[u8]) -> u32 {
 #[wasm_bindgen]
 pub fn load_mask(weights: &[f32]) -> u32 {
     with(|c| c.load_mask(weights))
+}
+
+/// Replaces a clip's file in place (T70; the handle and its plays stay); returns a status.
+#[wasm_bindgen]
+pub fn replace_clip(handle: u32, bytes: &[u8]) -> u32 {
+    with(|c| c.replace_clip(handle, bytes))
+}
+
+/// Limits an instance's bone matrices to a mask's bones and their ancestors (T70; mask 0: every
+/// bone); returns a status.
+#[wasm_bindgen]
+pub fn set_eval_mask(instance: u32, mask: u32) -> u32 {
+    with(|c| c.set_eval_mask(instance, mask))
 }
 
 /// Releases an asset; returns a status.

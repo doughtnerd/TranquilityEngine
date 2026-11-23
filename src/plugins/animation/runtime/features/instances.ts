@@ -39,7 +39,7 @@ import type { Skeleton } from "../components/Skeleton";
 import type { AnimationFileKind, AnimationWorldCore } from "../core/AnimationWorldCore";
 import { startAnimationCore } from "../core/service";
 import type { LifecycleHooks } from "../lifecycle";
-import { INPUT_LAYER_WEIGHTS, INPUT_STRIDE, HANDLE_INDEX_MASK, MAX_LAYERS } from "../wasm/wire/core";
+import { INPUT_LAYER_WEIGHTS, INPUT_STRIDE, HANDLE_INDEX_MASK, MAX_LAYERS, STATUS_OK } from "../wasm/wire/core";
 import { joinFollowList, leaveFollowList } from "./attachments/follow";
 import { resolveClip, resolveSkeleton, type AnimatorSkeleton, type ResolvedAsset } from "./clipSources";
 import { endAllPlays, queueDefaultClip, type PlayCommand, type PlayRecord } from "./playback/plays";
@@ -230,9 +230,10 @@ export function clipEntry(rt: AnimatorRuntime, path: string): ClipEntry {
       return;
     }
     const made = subAssetClip(path);
+    const resolved = made === undefined ? await resolveClip(path, await animatorSkeleton(rt)) : null;
     const { handle, info } =
       made === undefined
-        ? await acquireResolved<ClipInfo>(ns, await resolveClip(path, await animatorSkeleton(rt)), "clip")
+        ? await acquireResolved<ClipInfo>(ns, resolved, "clip")
         : made
           ? { handle: ns.acquire(made.key, "clip", { kind: "clip", bytes: made.bytes }), info: readClipInfo(made.bytes) }
           : { handle: 0, info: null };
@@ -243,6 +244,14 @@ export function clipEntry(rt: AnimatorRuntime, path: string): ClipEntry {
     e.handle = handle;
     e.info = info;
     if (!handle) console.warn(`[myco] ${rt.animator.node.name}: Animator couldn't load the clip "${path}"; its plays end at once.`);
+    // T70: a raw clip whose editor compile finishes switches to the compiled bytes in place (plays go on).
+    const compiled = resolved && "compiled" in resolved ? resolved.compiled : undefined;
+    if (handle && compiled) {
+      void compiled.then((c) => {
+        if (!c || rt.detached || rt.clips.get(path) !== e || e.handle !== handle || !ns.open) return;
+        if (ns.core.replaceClip(handle, c.key, c.bytes) === STATUS_OK) e.info = readClipInfo(c.bytes) ?? e.info;
+      });
+    }
   })();
   return e;
 }

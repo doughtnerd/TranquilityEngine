@@ -32,7 +32,7 @@ export interface ClipData {
 const NONE = 0xffffffff;
 const NO_JSON = { value: undefined, bad: false } as const;
 const BAD_JSON = { value: undefined, bad: true } as const;
-const caches = new WeakMap<AnimationCore, Map<number, ClipData>>();
+const caches = new WeakMap<AnimationCore, Map<number, { readonly version: number; readonly data: ClipData }>>();
 
 function load(core: AnimationCore, handle: number): ClipData {
   const bytes = core.assetBytes(handle);
@@ -73,7 +73,9 @@ function load(core: AnimationCore, handle: number): ClipData {
 export function clipData(core: AnimationCore, handle: number): ClipData {
   let cache = caches.get(core);
   if (!cache) caches.set(core, (cache = new Map()));
+  // A clip replaced in place (`replaceClip`, T70: raw → compiled) is read again.
+  const version = core.assetVersion(handle);
   let d = cache.get(handle);
-  if (!d) cache.set(handle, (d = load(core, handle)));
-  return d;
+  if (!d || d.version !== version) cache.set(handle, (d = { version, data: load(core, handle) }));
+  return d.data;
 }

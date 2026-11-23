@@ -230,12 +230,18 @@ pub fn apply(
             *w = life.to_bits();
         }
         Travel::OPCODE | Jump::OPCODE => {
-            let (instance, machine, state, travel) = if opcode == Travel::OPCODE {
+            let (instance, machine, state, travel, at) = if opcode == Travel::OPCODE {
                 let c = Travel::decode(bytes).map_err(|_| bad(0))?;
-                (c.instance, c.machine, c.state, true)
+                (c.instance, c.machine, c.state, true, (0.0, 0.0))
             } else {
                 let c = Jump::decode(bytes).map_err(|_| bad(0))?;
-                (c.instance, c.machine, c.state, false)
+                (
+                    c.instance,
+                    c.machine,
+                    c.state,
+                    false,
+                    (c.normalized_time, c.time),
+                )
             };
             let r = |s: u32| (s, instance, machine, 0);
             let (program, inst) = graph_instance(arena, table, instance).map_err(r)?;
@@ -248,8 +254,15 @@ pub fn apply(
                 logic::travel(program, &mut inst.state, groups, machine as usize, state)
                     .map_err(|_| r(STATUS_UNREACHABLE))?;
             } else {
-                logic::jump(program, &mut inst.state, groups, machine as usize, state)
-                    .map_err(|_| r(STATUS_NO_SUCH))?;
+                logic::jump(
+                    program,
+                    &mut inst.state,
+                    groups,
+                    machine as usize,
+                    state,
+                    at,
+                )
+                .map_err(|_| r(STATUS_NO_SUCH))?;
             }
         }
         SlotPlay::OPCODE => {

@@ -724,6 +724,59 @@ fn travel_takes_the_shortest_path_with_a_deterministic_tie_break() {
     assert!(refused(&r.core).iter().all(|c| c.status == STATUS_NO_SUCH));
 }
 
+/// T70: a jump with an offset enters its state that far in. State B plays a 2 s looping clip,
+/// state C a 1 s one-shot.
+#[test]
+fn a_jump_with_a_normalised_time_enters_the_state_that_far_in() {
+    let mut r = rig();
+    let mut b = Builder::new();
+    let m = three_state_machine(&mut b, &[]);
+    let ca = r.clip(ClipSpec::new(1.0, true, 1));
+    let cb = r.clip(ClipSpec::new(2.0, true, 2));
+    let cc = r.clip(ClipSpec::new(1.0, false, 3));
+    let binds = vec![(b.s("a"), ca), (b.s("b"), cb), (b.s("c"), cc)];
+    let bytes = b.build(m.node);
+    let (_, h) = instance(&mut r.core, &bytes, r.skel, &binds);
+    send(&mut r.core, &[debug_on(h)]);
+    frame(&mut r.core, DT);
+
+    // Normalised 0.25 of 2 s plus 0.1 s: B's player starts at 0.6 s and advances dt this update.
+    send(&mut r.core, &[jump_at(h, 0, 1, 0.25, 0.1)]);
+    r.core.evaluate(0, 0, DT, DT);
+    assert!(entered(&graph_changes(&r.core), 0, 1));
+    let want = r.reference(cb, 0.6 + DT);
+    assert!(diff(&r.mats(h), &want) < 1e-5);
+    let rep = report(&mut r.core, h);
+    let mr = &rep.machines[0];
+    assert!(
+        (mr.normalized - (0.3 + DT / 2.0)).abs() < 1e-5,
+        "{}",
+        mr.normalized
+    );
+    assert!(
+        (mr.state_time - (0.6 + DT)).abs() < 1e-5,
+        "{}",
+        mr.state_time
+    );
+
+    // Past the end: a looping clip wraps (1.25 cycles = 0.5 s in), a one-shot clamps at its end.
+    send(&mut r.core, &[jump_at(h, 0, 1, 1.25, 0.0)]);
+    r.core.evaluate(0, 0, 0.0, 0.0);
+    assert!(diff(&r.mats(h), &r.reference(cb, 0.5)) < 1e-5);
+    send(&mut r.core, &[jump_at(h, 0, 2, 1.5, 0.0)]);
+    r.core.evaluate(0, 0, 0.0, 0.0);
+    assert!(diff(&r.mats(h), &r.reference(cc, 1.0)) < 1e-5);
+
+    // No offset, or a bad one: the state's start.
+    for (n, t) in [(0.0, 0.0), (-1.0, f32::NAN)] {
+        send(&mut r.core, &[jump_at(h, 0, 1, n, t)]);
+        r.core.evaluate(0, 0, 0.0, 0.0);
+        assert!(diff(&r.mats(h), &r.reference(cb, 0.0)) < 1e-6);
+        let rep = report(&mut r.core, h);
+        assert_eq!(rep.machines[0].state_time, 0.0);
+    }
+}
+
 fn bs_params(x: u32, y: u32, speed: u32, glide_ms: f32, flags: u32, coords: &[f32]) -> Vec<u32> {
     let mut p = vec![
         x,

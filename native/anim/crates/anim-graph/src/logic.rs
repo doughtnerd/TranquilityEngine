@@ -46,7 +46,15 @@
 //! State words ([`machine`]): current state, target (mid-transition), the transition in progress,
 //! state time, normalised time, travel target, pending jump, entry count, the last transition
 //! fired, the entries retired this update (walked once at weight 0 in Tracks so their notify
-//! states end), then the entries (state or bridge, elapsed, duration, shape, root node).
+//! states end), then the entries (state or bridge, elapsed, duration, shape, root node), then the
+//! pending jump's offsets.
+//!
+//! **A jump with an offset** (T70: the `graph` family's `JUMP` with `normalized_time` and `time`,
+//! Unity's `Play(state, layer, normalizedTime)`) enters its state that far in: the state's context
+//! is initialised with the offset (each clip player starts `normalized_time` cycles plus `time`
+//! seconds into its clip; a looping clip wraps, a one-shot clamps at its end; see
+//! `EvalContext::init_context_at`), and the state time and normalised time start at the offset
+//! measured on the state's main clip. No keys fire for the skipped part (a seek).
 //!
 //! Timing is the newest entry's, with `exit` set while the current state is an exit state.
 //!
@@ -123,7 +131,9 @@ pub mod machine {
     pub const ENTRIES: usize = 14;
     /// Words per entry: kind (state, or `BRIDGE | transition`), elapsed, duration, shape, root.
     pub const ENTRY_WORDS: usize = 5;
-    pub const WORDS: u32 = (ENTRIES + super::MAX_ENTRIES * ENTRY_WORDS) as u32;
+    /// The pending jump's offsets (T70: normalised time, then seconds; f32 bits).
+    pub const JUMP_AT: usize = ENTRIES + super::MAX_ENTRIES * ENTRY_WORDS;
+    pub const WORDS: u32 = (JUMP_AT + 2) as u32;
 }
 
 /// Evaluates a node of this family. Called only by [`crate::dispatch`].
@@ -910,11 +920,39 @@ fn update_machine(cx: &mut EvalContext<'_>, mi: usize, m: &MachineInfo) {
     // A pending jump cuts first.
     let jump = cx.state()[machine::JUMP];
     if jump != NONE {
-        cx.state()[machine::JUMP] = NONE;
+        let (norm, secs) = {
+            let s = cx.state();
+            s[machine::JUMP] = NONE;
+            let at = (
+                f32::from_bits(s[machine::JUMP_AT]),
+                f32::from_bits(s[machine::JUMP_AT + 1]),
+            );
+            s[machine::JUMP_AT] = 0;
+            s[machine::JUMP_AT + 1] = 0;
+            at
+        };
         if jump < m.states.1 {
             cx.state()[machine::ACTIVE] = NONE;
-            let e = enter(cx, mi, m, jump, 0.0, 0);
+            let ctx = state_ctx(cx.program(), m, jump).1;
+            cx.init_context_at(ctx, norm, secs);
+            let e = entered(cx, mi, m, jump, 0.0, 0);
             cut_to(cx, mi, e);
+            if norm > 0.0 || secs > 0.0 {
+                // The state's own clocks start at the offset, measured on its main clip.
+                let t = if e.root != NONE {
+                    cx.eval_timing(e.root)
+                } else {
+                    Timing::default()
+                };
+                let s = cx.state();
+                if t.duration > 0.0 {
+                    let n = norm + secs / t.duration;
+                    s[machine::NORM] = n.to_bits();
+                    s[machine::STATE_TIME] = (n * t.duration).to_bits();
+                } else {
+                    s[machine::STATE_TIME] = secs.to_bits();
+                }
+            }
         }
     }
     // Advance the entries and their contexts (a state twice in the stack advances once).
@@ -1022,7 +1060,8 @@ pub fn travel(
     Ok(true)
 }
 
-/// Asks machine `machine` to cut to local state `target` at its next update.
+/// Asks machine `machine` to cut to local state `target` at its next update, entering it
+/// `at.0` cycles plus `at.1` seconds in (module docs; not finite or negative counts as 0).
 #[allow(clippy::result_unit_err)]
 pub fn jump(
     program: &Program,
@@ -1030,13 +1069,17 @@ pub fn jump(
     groups: usize,
     machine: usize,
     target: u32,
+    at: (f32, f32),
 ) -> Result<(), ()> {
     let m = *program.machines.get(machine).ok_or(())?;
     if target >= m.states.1 {
         return Err(());
     }
+    let clean = |v: f32| if v.is_finite() && v > 0.0 { v } else { 0.0 };
     let s = program.node_state(state, groups, m.node);
     s[self::machine::JUMP] = target;
+    s[self::machine::JUMP_AT] = clean(at.0).to_bits();
+    s[self::machine::JUMP_AT + 1] = clean(at.1).to_bits();
     s[self::machine::TRAVEL] = NONE;
     Ok(())
 }

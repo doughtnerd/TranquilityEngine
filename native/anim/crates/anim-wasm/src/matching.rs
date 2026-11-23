@@ -21,11 +21,15 @@ use anim_format::posedb::PoseDbView;
 use anim_graph::dispatch::Family;
 use anim_graph::matching::{self, MatchRef, MAX_QUERY_LANES};
 use anim_match::MatchDb;
+use anim_match::Trajectory;
 use anim_wire::core::{
     Init, STATUS_BAD_ASSET, STATUS_MISMATCH, STATUS_NOT_INITIALIZED, STATUS_OK, STATUS_TOO_LARGE,
     STATUS_WRONG_KIND,
 };
-use anim_wire::r#match::{MatchHeader, MatchNode, MATCH_DEBUG_BYTES};
+use anim_wire::r#match::{
+    MatchHeader, MatchNode, MatchSample, MATCH_DEBUG_BYTES, MATCH_MIRRORED, SAMPLE_MATCHED,
+    SAMPLE_PREDICTED,
+};
 use anim_wire::WireRecord;
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -186,6 +190,10 @@ impl Core {
                 let Some(v) = matching::view(program.node_state(&mut inst.state, groups, n)) else {
                     continue;
                 };
+                let m = match_ref(&self.arena, v.database);
+                let db_clip = m
+                    .and_then(|m| m.db.frame(v.frame as usize))
+                    .map_or(anim_format::NONE, |f| f.clip);
                 let rec = MatchNode {
                     node: n,
                     database: v.database,
@@ -195,12 +203,41 @@ impl Core {
                     cost: v.cost,
                     updates: v.updates,
                     last_search: v.last_search,
-                    flags: v.flags,
+                    flags: v.flags | if v.mirrored { MATCH_MIRRORED } else { 0 },
+                    db_clip,
                 };
                 if w.put(&rec) {
                     header.nodes += 1;
                 } else {
                     header.dropped += 1;
+                }
+                // T70: the predicted trajectory, then the playing frame's.
+                let Some(m) = m else {
+                    continue;
+                };
+                let mut t = Trajectory::default();
+                let mut put = |kind: u32, t: &Trajectory, header: &mut MatchHeader| {
+                    for i in 0..t.count {
+                        let s = MatchSample {
+                            node: n,
+                            kind,
+                            time: t.offsets[i],
+                            x: t.positions[i][0],
+                            z: t.positions[i][1],
+                            dx: t.directions[i][0],
+                            dz: t.directions[i][1],
+                        };
+                        if !w.put(&s) {
+                            header.dropped += 1;
+                        }
+                    }
+                };
+                if matching::predicted_trajectory(program, &mut inst.state, groups, n, m.db, &mut t)
+                {
+                    put(SAMPLE_PREDICTED, &t, &mut header);
+                }
+                if v.frame != anim_format::NONE && m.db.frame_trajectory(v.frame as usize, &mut t) {
+                    put(SAMPLE_MATCHED, &t, &mut header);
                 }
             }
         }

@@ -20,6 +20,7 @@ import { compileRawClip, rootMotionAxes } from "../../engine/animation/compile/r
 import type { World } from "../../engine/core/World";
 import { loadAnimationCompiler } from "./editor/compile/compiler";
 import { readSkeletonInfo } from "./runtime/assetInfo";
+import { matchDebugOf, watchMatchDebug } from "./runtime/features/matching/debug";
 import { skinningMatrices } from "./runtime/skeletonInstances";
 
 const fixtureUrl = (name: string) => new URL(`./runtime/wasm/fixtures/${name}`, import.meta.url);
@@ -148,6 +149,29 @@ describe("a pose-database node on the ECS", () => {
     anim.set("desired", new Vector3(0, 0, 0));
     speedOver(node, 1.5);
     expect(speedOver(node, 0.5)).toBeLessThan(0.2);
+    GameObject.destroy(node);
+  });
+
+  // T70: the core's match report, read for an Animator while it's watched (the editor's match debug view asks so): the
+  // trajectory the node predicted (the database's three offsets, ahead of a character running along +Z), the playing
+  // frame's clip by the name the database lists, and that frame's trajectory.
+  it("reports the predicted trajectory and the matched frame while watched", async () => {
+    const { node, anim } = hero("Watched", "loco.animgraph.json");
+    await ready(node);
+    expect(matchDebugOf(anim)).toBeNull(); // not watched: nothing read
+    watchMatchDebug(anim, true);
+    anim.set("desired", new Vector3(0, 0, 3.5));
+    speedOver(node, 1.5);
+    const d = matchDebugOf(anim)!;
+    expect(d.predicted.map((s) => s.time)).toEqual([1 / 3, 2 / 3, 1].map(Math.fround));
+    expect(d.predicted.every((s) => s.position[1] > 0.5 && Math.abs(s.position[0]) < 0.1)).toBe(true);
+    expect(d.predicted[2]!.position[1]).toBeGreaterThan(d.predicted[0]!.position[1]);
+    expect(d.matched).toMatchObject({ clip: "clips/run.anim", mirrored: false });
+    expect(d.matched!.trajectory.map((s) => s.time)).toEqual(d.predicted.map((s) => s.time));
+    // The run clip's own trajectory: 3.5 m/s ahead.
+    expect(d.matched!.trajectory[2]!.position[1]).toBeCloseTo(3.5, 1);
+    watchMatchDebug(anim, false);
+    expect(matchDebugOf(anim)).toBeNull();
     GameObject.destroy(node);
   });
 

@@ -7,14 +7,17 @@
 // run over a `PoseDbBakeEnv` (so the tests give it fakes and the view wires the real project, `poseDbEnv.ts`), with
 // progress by stage and every failure as a message, never a throw.
 //
+// T70: `mirror: true` bakes a mirrored copy of the clip too, through the skeleton's mirror table (its profile's mirror
+// roles, `PoseDbBakeEnv.mirrorTable`), as a clip entry the runtime plays mirrored. Custom features are filled from each
+// clip's curve track of the feature's name (its first 1–4 components; a clip without the curve reads 0), the bake hook
+// the editor has.
+//
 // What the source has that the bake cannot do (each is one warning on the result, not an error):
-// - `mirror: true`: `posedb_bake` has no mirrored-clip input (a clip is sampled as it is), so only the original bakes;
-// - custom features: the bake's feature kinds have fixed dimensions, and custom ones are filled by a bake hook the editor
-//   does not have, so they are left out of the bake;
+// - a custom feature of more than 4 dims (a curve has at most 4 components): left out;
 // - `normalisation: "none"`: the bake has the two standard-deviation modes only; "none" bakes per dimension with a
 //   deviation floor of 1, which leaves features measured in metres (deviation below 1) unscaled.
 import type { PoseDatabaseSource } from "../../../../engine/animation/poseDatabase";
-import type { AnimationCompiler, PoseDbClipInput, PoseDbFeatureInput } from "../compile/compiler";
+import type { AnimationCompiler, PoseDbClipInput, PoseDbCustomInput, PoseDbFeatureInput } from "../compile/compiler";
 import { readClipInfo, readSkeletonInfo } from "../../runtime/assetInfo";
 import { readPoseDbSummary, type PoseDbSummary } from "./summaryLogic";
 import { bakedPathOf } from "./poseDbLogic";
@@ -27,7 +30,14 @@ export interface PoseDbBakeJob {
   readonly skeleton: Uint8Array;
   readonly clips: readonly PoseDbClipInput[];
   readonly schema: readonly PoseDbFeatureInput[];
-  readonly settings: { readonly skeletonName?: string; readonly values: readonly number[] };
+  readonly settings: {
+    readonly skeletonName?: string;
+    readonly values: readonly number[];
+    /** T70: the mirror table mirrored clips bake through (axis, then a word per bone); absent with no mirrored clip. */
+    readonly mirror?: Uint32Array;
+    /** T70: custom features, filled from the clips' curves of their names. */
+    readonly custom?: readonly PoseDbCustomInput[];
+  };
 }
 
 /** A bake's outcome. */
@@ -38,7 +48,7 @@ export type PoseDbBakeRunner = (job: PoseDbBakeJob) => Promise<PoseDbBakeResult>
 
 /** The bake over a loaded compile module (the worker's and this thread's). */
 export function bakeWith(compiler: AnimationCompiler, job: PoseDbBakeJob): PoseDbBakeResult {
-  const out = compiler.bakePoseDatabase(job.skeleton, job.clips, job.schema, { skeletonName: job.settings.skeletonName, values: job.settings.values });
+  const out = compiler.bakePoseDatabase(job.skeleton, job.clips, job.schema, job.settings);
   return "bytes" in out ? { ok: true, bytes: out.bytes } : { ok: false, error: out.error };
 }
 
@@ -47,6 +57,9 @@ export interface BakeClip {
   readonly ref: string;
   readonly bytes: Uint8Array;
 }
+
+/** The most dims a custom feature bakes with (a curve's components). */
+export const CUSTOM_BAKE_DIMS = 4;
 
 /** The deviation floor the bake uses (its default), and the one that stands for `"none"`. */
 const STD_FLOOR = 0.01;
@@ -61,9 +74,16 @@ export function bakeSettingsValues(db: PoseDatabaseSource): number[] {
 /**
  * The bake's inputs for `db`: features by schema order (each bone's position then velocity, then each trajectory sample's
  * position and direction), ranges clamped into each clip's duration, and the warnings above. Returns why not when the
- * schema names a bone the skeleton lacks, a clip can't be read, or no frame would be baked.
+ * schema names a bone the skeleton lacks, a clip can't be read, no frame would be baked, or a clip is mirrored without a
+ * `mirror` table.
  */
-export function buildBakeJob(db: PoseDatabaseSource, skeleton: Uint8Array, skeletonRef: string | null, clips: readonly BakeClip[]): { readonly job: PoseDbBakeJob; readonly warnings: string[] } | { readonly error: string } {
+export function buildBakeJob(
+  db: PoseDatabaseSource,
+  skeleton: Uint8Array,
+  skeletonRef: string | null,
+  clips: readonly BakeClip[],
+  mirror: Uint32Array | null = null,
+): { readonly job: PoseDbBakeJob; readonly warnings: string[] } | { readonly error: string } {
   const info = readSkeletonInfo(skeleton);
   if (!info) return { error: "the skeleton file can't be read." };
   const warnings: string[] = [];
@@ -85,9 +105,14 @@ export function buildBakeJob(db: PoseDatabaseSource, skeleton: Uint8Array, skele
     schema.push({ kind: FEATURE_KIND.trajectoryDirection, bone: -1, weight: t.direction, timeOffset: time });
   }
   if (schema.length === 0) return { error: "the schema has no features." };
-  if (db.schema.custom.length) warnings.push(`custom features (${db.schema.custom.map((c) => c.name).join(", ")}) are filled by a bake hook, which the editor's bake has none of; they are left out.`);
+  const custom: PoseDbCustomInput[] = [];
+  for (const c of db.schema.custom) {
+    if (c.dims > CUSTOM_BAKE_DIMS) warnings.push(`the custom feature "${c.name}" has ${c.dims} dims: the bake fills custom features from a curve, which has at most ${CUSTOM_BAKE_DIMS} components; it is left out.`);
+    else custom.push({ name: c.name, dims: c.dims, weight: c.weight });
+  }
   if (db.normalisation === "none") warnings.push("normalisation none: the bake scales by deviation only, so it baked per dimension with a deviation floor of 1, which leaves features in metres unscaled.");
-  if (db.sources.some((s) => s.mirror)) warnings.push("mirrored copies aren't baked: the bake samples a clip as it is, so only the original clips are in the database.");
+  const mirrors = db.sources.some((s) => s.mirror);
+  if (mirrors && !mirror) return { error: "a clip is mirrored, but the skeleton has no mirror table." };
 
   const inputs: PoseDbClipInput[] = [];
   let ranges = 0;
@@ -106,11 +131,16 @@ export function buildBakeJob(db: PoseDatabaseSource, skeleton: Uint8Array, skele
     // A source with ranges that all fell away would bake as the whole clip: leave the clip out instead.
     if (s.ranges.length > 0 && kept.length === 0) return;
     ranges += kept.length;
-    inputs.push({ bytes: clip.bytes, asset: clip.ref, ranges: kept });
+    inputs.push({ bytes: clip.bytes, asset: clip.ref, ranges: kept, mirror: s.mirror || undefined });
   });
   if (inputs.length === 0) return { error: db.sources.length === 0 ? "the database has no clips: add some first." : "none of the clips has a range left to bake." };
   return {
-    job: { skeleton, clips: inputs, schema, settings: { skeletonName: skeletonRef ?? undefined, values: bakeSettingsValues(db) } },
+    job: {
+      skeleton,
+      clips: inputs,
+      schema,
+      settings: { skeletonName: skeletonRef ?? undefined, values: bakeSettingsValues(db), mirror: mirrors && mirror ? mirror : undefined, custom: custom.length ? custom : undefined },
+    },
     warnings,
   };
 }
@@ -131,6 +161,11 @@ export interface PoseDbBakeEnv {
   skeleton(ref: string): Promise<Uint8Array | null>;
   /** The clip compiled for `skeletonRef`, or why not. */
   clip(ref: string, skeletonRef: string | null): Promise<{ readonly bytes: Uint8Array } | { readonly error: string }>;
+  /**
+   * T70: the mirror table of a skeleton (its mirror axis, then the graph `MIRROR` node's word per bone, from its profile's
+   * mirror roles), or why not. Asked only when a clip is mirrored.
+   */
+  mirrorTable(skeletonRef: string, skeleton: Uint8Array): Promise<Uint32Array | { readonly error: string }>;
   /** Runs `posedb_bake` (the bake worker, or this thread where there are none). */
   run: PoseDbBakeRunner;
   writeBytes(path: string, bytes: Uint8Array): Promise<void>;
@@ -154,7 +189,13 @@ export async function bakePoseDatabaseSource(env: PoseDbBakeEnv, sourcePath: str
       if ("error" in read) return { ok: false, error: read.error };
       clips.push({ ref: s.clip, bytes: read.bytes });
     }
-    const built = buildBakeJob(db, skeleton, skeletonRef, clips);
+    let mirror: Uint32Array | null = null;
+    if (db.sources.some((s) => s.mirror)) {
+      const table = await env.mirrorTable(skeletonRef, skeleton);
+      if (!(table instanceof Uint32Array)) return { ok: false, error: `mirrored clips can't be baked: ${table.error}` };
+      mirror = table;
+    }
+    const built = buildBakeJob(db, skeleton, skeletonRef, clips, mirror);
     if ("error" in built) return { ok: false, error: built.error };
     onProgress({ stage: "bake", done: 0, total: 1, label: "Baking the frames" });
     const out = await env.run(built.job);

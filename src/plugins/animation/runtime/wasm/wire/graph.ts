@@ -7,7 +7,7 @@
  * travel and jump, slot plays with sections, linked graphs, layer weights, the seed, pose captures, the debug flag,
  * and graph state-change records (native/anim/crates/anim-wire/src/graph.rs documents them).
  */
-export const GRAPH_FAMILY = { name: "graph", id: 3, version: 1 } as const;
+export const GRAPH_FAMILY = { name: "graph", id: 3, version: 2 } as const;
 
 /** Status: the target state can't be reached from the current one (`TRAVEL`). */
 export const STATUS_UNREACHABLE = 769;
@@ -66,7 +66,7 @@ export const DEBUG_ON = 1;
  */
 export const SET_PARAM = {
   opcode: 0x0301,
-  version: 1,
+  version: 2,
   stride: 32,
   fields: {
     /** The instance handle. */
@@ -89,7 +89,7 @@ export const SET_PARAM = {
  */
 export const REQUEST = {
   opcode: 0x0302,
-  version: 1,
+  version: 2,
   stride: 16,
   fields: {
     /** The instance handle. */
@@ -104,22 +104,7 @@ export const REQUEST = {
 /** Command: travel to a state along the shortest path through the machine (Godot's `travel`). */
 export const TRAVEL = {
   opcode: 0x0303,
-  version: 1,
-  stride: 16,
-  fields: {
-    /** The instance handle. */
-    instance: { offset: 4, type: "u32" },
-    /** The machine index. */
-    machine: { offset: 8, type: "u32" },
-    /** The target state (local index). */
-    state: { offset: 12, type: "u32" },
-  },
-} as const;
-
-/** Command: cut to a state at the next update, no path (`jump`). */
-export const JUMP = {
-  opcode: 0x0304,
-  version: 1,
+  version: 2,
   stride: 16,
   fields: {
     /** The instance handle. */
@@ -132,12 +117,37 @@ export const JUMP = {
 } as const;
 
 /**
+ * Command: cut to a state at the next update, no path (`jump`), entering it
+ * `normalized_time` cycles plus `time` seconds in (Unity's `Play(state, layer,
+ * normalizedTime)` and `PlayInFixedTime`): its clip players start that far into their clips
+ * (a looping clip wraps, a one-shot clamps at its end), and its state time and normalised
+ * time begin there. Version 2 of the family added both offsets.
+ */
+export const JUMP = {
+  opcode: 0x0304,
+  version: 2,
+  stride: 24,
+  fields: {
+    /** The instance handle. */
+    instance: { offset: 4, type: "u32" },
+    /** The machine index. */
+    machine: { offset: 8, type: "u32" },
+    /** The target state (local index). */
+    state: { offset: 12, type: "u32" },
+    /** Cycles of each clip player's clip (0: the start; not finite or negative counts as 0). */
+    normalizedTime: { offset: 16, type: "f32" },
+    /** Seconds, added after `normalized_time` (not finite or negative counts as 0). */
+    time: { offset: 20, type: "f32" },
+  },
+} as const;
+
+/**
  * Command: plays a clip in a slot (a one-shot over the graph, Unreal's montage), from
  * section `[start, end)`.
  */
 export const SLOT_PLAY = {
   opcode: 0x0305,
-  version: 1,
+  version: 2,
   stride: 44,
   fields: {
     /** The instance handle. */
@@ -166,7 +176,7 @@ export const SLOT_PLAY = {
 /** Command: the section a slot's play continues with when its current section ends. */
 export const SLOT_NEXT_SECTION = {
   opcode: 0x0306,
-  version: 1,
+  version: 2,
   stride: 28,
   fields: {
     /** The instance handle. */
@@ -187,7 +197,7 @@ export const SLOT_NEXT_SECTION = {
 /** Command: blends a slot's play out. */
 export const SLOT_STOP = {
   opcode: 0x0307,
-  version: 1,
+  version: 2,
   stride: 20,
   fields: {
     /** The instance handle. */
@@ -204,7 +214,7 @@ export const SLOT_STOP = {
 /** Command: runs a graph in a linked-graph slot from the next update (0 unlinks). */
 export const LINK = {
   opcode: 0x0308,
-  version: 1,
+  version: 2,
   stride: 16,
   fields: {
     /** The instance handle. */
@@ -219,7 +229,7 @@ export const LINK = {
 /** Command: a layer's weight (writes the input view's weight for layers below `MAX_LAYERS`). */
 export const LAYER_WEIGHT = {
   opcode: 0x0309,
-  version: 1,
+  version: 2,
   stride: 16,
   fields: {
     /** The instance handle. */
@@ -234,7 +244,7 @@ export const LAYER_WEIGHT = {
 /** Command: reseeds the instance's random generator (from the World's seeded generator). */
 export const SET_SEED = {
   opcode: 0x030a,
-  version: 1,
+  version: 2,
   stride: 12,
   fields: {
     /** The instance handle. */
@@ -247,7 +257,7 @@ export const SET_SEED = {
 /** Command: captures the instance's last output pose into a pose-snapshot node. */
 export const CAPTURE_POSE = {
   opcode: 0x030b,
-  version: 1,
+  version: 2,
   stride: 12,
   fields: {
     /** The instance handle. */
@@ -263,7 +273,7 @@ export const CAPTURE_POSE = {
  */
 export const DEBUG = {
   opcode: 0x030c,
-  version: 1,
+  version: 2,
   stride: 12,
   fields: {
     /** The instance handle. */
@@ -276,7 +286,7 @@ export const DEBUG = {
 /** Output: a graph state change. */
 export const GRAPH_CHANGE = {
   opcode: 0x030d,
-  version: 1,
+  version: 2,
   stride: 24,
   fields: {
     /** The instance handle. */
