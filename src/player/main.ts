@@ -112,9 +112,12 @@ async function boot(): Promise<void> {
     // A desktop game can listen: the native WebSocket server stands in for the transport a page lacks.
     // Its network addresses go in the pairing code (a code holds the machine's private IPv4 octets).
     let interfaces: NetworkInterfaceAddress[] = [];
+    // The desktop game's listener also hosts the rendezvous on its port (ADR 0380), so pages on its LAN can meet there.
+    let listenTransport: string | undefined;
     if (desktop) {
       const native = await import("../engine/debugLink/tauriListener");
       native.registerTauriWebSocketTransport();
+      listenTransport = native.TAURI_HOSTING_TRANSPORT;
       if ((manifest.debug as { listen?: boolean }).listen === true) interfaces = await native.nativeInterfaces();
     }
     const { startDebugLink, startBuildListener } = await import("../engine/debugLink/host");
@@ -127,7 +130,7 @@ async function boot(): Promise<void> {
     // A desktop game listens on its native WebSocket; a page can't, so it offers a rendezvous room on its own server
     // (or the hosted rendezvous) and the overlay shows the room code (`host.ts`, `rooms.ts`).
     if (d.listen === true) {
-      const listener = await startBuildListener(runtime, { debug: manifest.debug, name: manifest.name, platform, interfaces: () => interfaces });
+      const listener = await startBuildListener(runtime, { debug: manifest.debug, name: manifest.name, platform, interfaces: () => interfaces, transport: listenTransport });
       if (listener) (await import("./debugOverlay")).installDebugOverlay(listener);
     }
   }

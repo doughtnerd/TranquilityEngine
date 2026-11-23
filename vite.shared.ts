@@ -424,6 +424,32 @@ export function playerFiles(): Plugin {
   };
 }
 
+/**
+ * Ship the rendezvous bundle beside the editor (ADR 0380, plan R4), as the player is: the dev server serves
+ * dist/rendezvous/rendezvous.mjs at /rendezvous/rendezvous.mjs (once `npm run build:rendezvous` has run), and the editor
+ * build copies it to `rendezvous/`, so the editor's Export can write it beside a debug web build's `serve.mjs`.
+ */
+export function rendezvousFile(): Plugin {
+  const file = fileURLToPath(new URL("./dist/rendezvous/rendezvous.mjs", import.meta.url));
+  return {
+    name: "myco:rendezvous-file",
+    configureServer(server) {
+      server.middlewares.use("/rendezvous/rendezvous.mjs", (_req, res, next) => {
+        if (!existsSync(file)) return next();
+        res.setHeader("Content-Type", "text/javascript");
+        res.end(readFileSync(file));
+      });
+    },
+    generateBundle() {
+      if (!existsSync(file)) {
+        this.warn("dist/rendezvous/ isn't built, so the editor's debug web exports get no rendezvous. Run `npm run build:rendezvous` first.");
+        return;
+      }
+      this.emitFile({ type: "asset", fileName: "rendezvous/rendezvous.mjs", source: readFileSync(file) });
+    },
+  };
+}
+
 /** `"myco"` (and its old name) as project scripts and samples import the engine (ADR 0031): the engine's public module. */
 export const MYCO_ALIASES: Record<string, string> = {
   myco: fileURLToPath(new URL("./src/myco.ts", import.meta.url)),

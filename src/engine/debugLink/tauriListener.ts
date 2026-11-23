@@ -336,7 +336,27 @@ export function hostRendezvous(transport: Transport, path: string = RENDEZVOUS_P
   };
 }
 
-/** Registers "websocket" as the transport above, which can listen: called once by the desktop editor before its debug link starts. */
+/**
+ * The transport name whose listeners also host the rendezvous (`hostRendezvous`): a listening desktop game passes it to
+ * `startBuildListener`, which makes its own transport, so the game can host rooms for pages on its LAN as the editor
+ * and the Studio do (they wrap theirs with `listeningTransport`).
+ */
+export const TAURI_HOSTING_TRANSPORT = "websocket-hosting";
+
+/**
+ * Registers "websocket" as the transport above, which can listen: called once by the desktop editor, the Studio and a
+ * debug desktop game before their debug link starts. It also registers `TAURI_HOSTING_TRANSPORT`, the same transport
+ * with the rendezvous on its port.
+ */
 export function registerTauriWebSocketTransport(): void {
   registerTransport("websocket", (options) => new TauriWebSocketTransport(options), { listen: true });
+  registerTransport(
+    TAURI_HOSTING_TRANSPORT,
+    (options) => {
+      const transport = new TauriWebSocketTransport(options);
+      hostRendezvous(transport);
+      return transport;
+    },
+    { listen: true },
+  );
 }

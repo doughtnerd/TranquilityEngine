@@ -8,7 +8,7 @@ import { createTransport, transportCanListen, type Transport, type TransportConn
 import { DebugLinkSession } from "./session";
 import { DebugLinkListener, type DebugLinkPeer } from "./client";
 import { DEBUG_LINK_PATH } from "./config";
-import { hostRendezvous, nativeInterfaces, registerTauriWebSocketTransport, tauriListenerPort } from "./tauriListener";
+import { TAURI_HOSTING_TRANSPORT, hostRendezvous, nativeInterfaces, registerTauriWebSocketTransport, tauriListenerPort } from "./tauriListener";
 import { encodeRendezvousMessage, decodeServerMessage, RENDEZVOUS_PATH, type RendezvousClientMessage } from "./rendezvous/protocol";
 import "../net/transport/loopback";
 import { Engine } from "../../myco";
@@ -501,6 +501,20 @@ describe("one native listener serving the rendezvous beside the debug link (ADR 
     await settle();
     expect(t.poll()).toEqual([]);
     expect(native.records).toEqual([{ op: "close", connection: 5, code: 1008, reason: "Not found." }]);
+  });
+
+  it("the hosting transport a listening desktop game uses carries the rendezvous on its port", async () => {
+    const native = memoryBackend();
+    const t = createTransport(TAURI_HOSTING_TRANSPORT);
+    transports.push(t);
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    expect(native.listens[0]).toMatchObject({ path: "/" }); // routes the rendezvous path and the debug path itself
+    native.emit(accept(31, "10.0.0.1:1", RENDEZVOUS_PATH));
+    native.emit(accept(32, "10.0.0.2:2", RENDEZVOUS_PATH));
+    native.emit(message(31, frame(join(78, "waiting"))));
+    native.emit(message(32, frame(join(78, "joining"))));
+    await new Promise((r) => setTimeout(r, 120)); // the hosted rendezvous polls on its own timer
+    expect(sentTo(native, 31).map((m) => ("message" in m ? m.message.t : "refused"))).toEqual(["joined", "peer-joined"]);
   });
 
   it("without a rendezvous the native side keeps the debug path (no filtering)", async () => {
