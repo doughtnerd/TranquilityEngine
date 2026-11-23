@@ -97,10 +97,10 @@ export function parseFlipbooks(raw: unknown, where: string, problems: string[]):
       if (typeof s === "string" && s !== "") slices.push(s);
       else r.problem(`${at}.slices[${i}]`, "must be a slice name; dropped.");
     });
-    let fps = r.num(f.fps, `${at}.fps`, DEFAULT_FLIPBOOK_FPS, 0, SPRITE_2D_LIMITS.maxFps);
-    if (fps <= 0) {
-      r.problem(`${at}.fps`, `must be above 0; using ${DEFAULT_FLIPBOOK_FPS}.`);
-      fps = DEFAULT_FLIPBOOK_FPS;
+    let fps = DEFAULT_FLIPBOOK_FPS;
+    if (f.fps !== undefined) {
+      if (isFiniteNumber(f.fps) && f.fps > 0 && f.fps <= SPRITE_2D_LIMITS.maxFps) fps = f.fps;
+      else r.problem(`${at}.fps`, `must be above 0 and at most ${SPRITE_2D_LIMITS.maxFps}; using ${DEFAULT_FLIPBOOK_FPS}.`);
     }
     out[name] = { slices, fps, loop: r.bool(f.loop, `${at}.loop`, true) };
   }
@@ -119,19 +119,23 @@ function resolveParents(r: LenientReader, bones: Bone2D[], where: string): Bone2
   const byName = new Map(bones.map((b) => [b.name, b]));
   return bones.map((b, i) => {
     if (b.parent === null) return b;
+    let fixed: Bone2D | null = null;
     if (!byName.has(b.parent) || b.parent === b.name) {
       r.problem(`${where}[${i}].parent`, `no bone named "${b.parent}"; it's a root.`);
-      return { ...b, parent: null };
-    }
-    const seen = new Set([b.name]);
-    for (let p: string | null = b.parent; p !== null; p = byName.get(p)?.parent ?? null) {
-      if (seen.has(p)) {
-        r.problem(`${where}[${i}].parent`, "makes a cycle; it's a root.");
-        return { ...b, parent: null };
+      fixed = { ...b, parent: null };
+    } else {
+      const seen = new Set([b.name]);
+      for (let p: string | null = b.parent; p !== null && !fixed; p = byName.get(p)?.parent ?? null) {
+        if (seen.has(p)) {
+          r.problem(`${where}[${i}].parent`, "makes a cycle; it's a root.");
+          fixed = { ...b, parent: null };
+        }
+        seen.add(p);
       }
-      seen.add(p);
     }
-    return b;
+    if (!fixed) return b;
+    byName.set(b.name, fixed); // later bones see the cycle broken
+    return fixed;
   });
 }
 

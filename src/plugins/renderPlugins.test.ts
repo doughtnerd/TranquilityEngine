@@ -39,8 +39,8 @@ const names = (specs: readonly RenderFeatureSpec[]) => byPhase(specs).map((i) =>
  * the `lighting` phase, whose features (fog, sky) only contribute to it, in either order (ADR 0252).
  */
 const TODAY = ["sprites", "tilemaps", "meshes", "fog", "sky", "particles", "probes", "water", "ui"];
-/** With the Animation plugin's skinned meshes (ADR 0370), right after the meshes. */
-const TODAY_ALL = ["sprites", "tilemaps", "meshes", "skinning", "fog", "sky", "particles", "probes", "water", "ui"];
+/** With the Animation plugin's skinned meshes (ADR 0370), right after the meshes, and its skinned sprites (ADR 0371) after them. */
+const TODAY_ALL = ["sprites", "tilemaps", "meshes", "skinning", "skinnedSprites", "fog", "sky", "particles", "probes", "water", "ui"];
 
 afterEach(() => applyTestPlugins()); // as Vitest's setup file leaves it
 

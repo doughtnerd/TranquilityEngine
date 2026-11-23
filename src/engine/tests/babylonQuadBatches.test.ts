@@ -70,3 +70,29 @@ describe("Babylon quad batches drawing tilemaps (ADR 0103, 0136)", () => {
     quads.dispose();
   });
 });
+
+describe("Babylon quad batches drawing triangles (ADR 0370, 0371: skinned sprites)", () => {
+  it("builds a mesh of any triangles, then only moves its vertices while the indices stay the same", () => {
+    const scene = new Scene(new NullEngine());
+    const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false } as unknown as Texture;
+    const quads = new BabylonQuadBatches({ scene, texture: () => tex, sortOrder: (_layer, order) => order });
+    const batch = quads.createBatch("skinned");
+    batch.setVisible(true);
+    const indices = new Uint32Array([0, 1, 2]);
+    const uvs = new Float32Array([0, 0, 1, 0, 0, 1]);
+    batch.setTriangles("t.png", new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), uvs, indices);
+    const mesh = quads.meshOf(batch)!;
+    expect(mesh.getTotalVertices()).toBe(3);
+    expect(mesh.getTotalIndices()).toBe(3);
+    // Same indices: the same mesh, its positions moved.
+    batch.setTriangles("t.png", new Float32Array([0, 0, 0, 2, 0, 0, 0, 2, 0]), uvs, indices);
+    expect(quads.meshOf(batch)).toBe(mesh);
+    expect(Array.from(mesh.getVerticesData("position")!)).toEqual([0, 0, 0, 2, 0, 0, 0, 2, 0]);
+    // New indices (another mesh): rebuilt.
+    batch.setTriangles("t.png", new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]), new Float32Array(8), new Uint32Array([0, 1, 2, 0, 2, 3]));
+    expect(quads.meshOf(batch)).not.toBe(mesh);
+    expect(mesh.isDisposed()).toBe(true);
+    expect(quads.meshOf(batch)!.getTotalIndices()).toBe(6);
+    quads.dispose();
+  });
+});
