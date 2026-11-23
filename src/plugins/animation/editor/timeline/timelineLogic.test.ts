@@ -6,7 +6,7 @@ import "../../../../myco"; // registers the engine's components (Transform, Ligh
 import { emptyTimeline, formatTimeline, parseTimeline, type Timeline } from "../../../../engine/animation/timeline";
 import type { Track } from "../../../../engine/animation/tracks";
 import {
-  addCameraCut, addItem, addPropertyTrack, addTrack, asClip, blendToOverlap, contentEnd, deleteItems, duplicateItems, keyProperty, moveItems, moveTrack, patchItem, rebindGroup, removeTrack, setBinding,
+  addCameraCut, addItem, assetDropKind, dragEdit, dragLabel, dropAssets, addPropertyTrack, addTrack, asClip, blendToOverlap, contentEnd, deleteItems, duplicateItems, keyProperty, moveItems, moveTrack, patchItem, rebindGroup, removeTrack, setBinding,
   setDuration, setEase, splitItem, trimItem,
 } from "./timelineEditLogic";
 import {
@@ -429,5 +429,36 @@ describe("item ids", () => {
     expect(itemSpan(timeline(), "1#1")).toEqual([2, 6]);
     expect(itemSpan(timeline(), "0~2")).toEqual([4, 4]);
     expect(itemSpan(timeline(), "9#0")).toBeNull();
+  });
+});
+
+describe("drags and drops", () => {
+  it("a drag of each part makes the matching edit, from where the drag began", () => {
+    const t = timeline();
+    expect(subclips(ok(dragEdit(t, ["1#1"], "move", "1#1", 1)).timeline)[1]).toMatchObject({ time: 3, end: 7 });
+    expect(subclips(ok(dragEdit(t, ["1#1"], "end", "1#1", -1)).timeline)[1]!.end).toBe(5);
+    expect(subclips(ok(dragEdit(t, ["1#1"], "start", "1#1", 1)).timeline)[1]).toMatchObject({ time: 3, offset: 1 });
+    expect(subclips(ok(dragEdit(t, ["1#0"], "easeIn", "1#0", 0.5)).timeline)[0]!.blendIn).toBe(0.5);
+    expect(subclips(ok(dragEdit(t, ["1#0"], "easeOut", "1#0", 0.5)).timeline)[0]!.blendOut).toBe(0.5); // dragging the end handle later shortens the ease-out
+    expect(why(dragEdit(t, ["9#0"], "end", "9#0", 1))).toMatch(/gone/);
+    expect([dragLabel("move", 1), dragLabel("move", 3), dragLabel("start", 1), dragLabel("easeOut", 1)]).toEqual(["Move item", "Move items", "Trim start", "Set ease-out"]);
+  });
+
+  it("drops clips one after another on a clip track, audio on an audio track, and makes a track when none fits", () => {
+    const t = timeline();
+    expect([assetDropKind("a/b.anim.json"), assetDropKind("x.timeline.json"), assetDropKind("s.wav"), assetDropKind("s.playlist.json"), assetDropKind("m.png")]).toEqual(["subclip", "subclip", "audio", "audio", null]);
+    const clips = ok(dropAssets(t, ["clips/a.anim.json", "clips/b.anim.json"], 2, "", 4, "animation/intro.timeline.json", () => 1.5));
+    expect(subclips(clips.timeline, 2).slice(-2).map((k) => [k.time, k.end, k.clip])).toEqual([[4, 5.5, "asset:clips/a.anim.json"], [5.5, 7, "asset:clips/b.anim.json"]]);
+    const onAudio = ok(dropAssets(t, ["sfx/x.wav"], 1, "Hero", 1));
+    expect(onAudio.timeline.tracks).toHaveLength(9); // the picked track holds clips: a new audio track on Hero
+    expect(onAudio.timeline.tracks[8]).toMatchObject({ kind: "audio", target: { nodePath: "Hero" } });
+    expect(roundTrip(clips.timeline)).toEqual(clips.timeline);
+  });
+
+  it("refuses mixed kinds, other files and a clip dropped on its own timeline", () => {
+    const t = timeline();
+    expect(why(dropAssets(t, ["a.anim.json", "s.wav"], 1, "", 1))).toMatch(/not both/);
+    expect(why(dropAssets(t, ["tex.png"], 1, "", 1))).toMatch(/only animation clips/);
+    expect(why(dropAssets(t, ["animation/intro.timeline.json"], 1, "", 1, "animation/intro.timeline.json"))).toMatch(/contain itself/);
   });
 });

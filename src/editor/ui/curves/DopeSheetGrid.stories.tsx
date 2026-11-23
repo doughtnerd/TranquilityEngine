@@ -101,3 +101,30 @@ export const PlayheadAndGhosts: Story = {
     expect(canvasElement.querySelectorAll(".ce-ghost-flag")).toHaveLength(2);
   },
 };
+
+/** Bars (the Timeline window's clips): a blend region over two overlapping bars, the bar selected by a click, and its handles. */
+export const Bars: Story = {
+  render: () => {
+    const [sel, setSel] = useState<ReadonlySet<string>>(new Set());
+    const rows: DopeRow[] = [
+      {
+        id: "clips", label: "Animation", color: "var(--series-1)", keys: [],
+        bars: [{ id: "a", from: 0, to: 0.6, label: "wave · 0.00 – 0.60 s", easeOut: 0.2 }, { id: "b", from: 0.4, to: 1, label: "run · 0.40 – 1.00 s", easeIn: 0.2 }],
+        spans: [{ id: "blend", from: 0.4, to: 0.6, label: "Blend 0.40 s – 0.60 s", blend: true }],
+      },
+    ];
+    return (
+      <div style={{ width: "640px" }}>
+        <DopeSheetGrid length={1} rows={rows} selected={sel} playhead={0} onPlayhead={() => {}} onSelect={(ids) => setSel(new Set(ids))} />
+        <output aria-label="Selected">{[...sel].join(",") || "none"}</output>
+      </div>
+    );
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    expect(c.getByTitle("Blend 0.40 s – 0.60 s")).toBeTruthy();
+    await userEvent.click(c.getByRole("button", { name: "run · 0.40 – 1.00 s" }));
+    expect(c.getByLabelText("Selected")).toHaveTextContent("b");
+    expect(c.getByRole("button", { name: "run · 0.40 – 1.00 s" })).toHaveAttribute("aria-pressed", "true");
+  },
+};
