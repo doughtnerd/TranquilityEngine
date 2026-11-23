@@ -112,6 +112,26 @@ describe("Pause in the sequence transport (ADR 0362 §1)", () => {
     expect(playback.value).toBeNull();
   });
 
+  it("reads the playback's own clock when it reports one: the playhead holds where the audio holds, not when Pause was pressed", () => {
+    // 120 bpm 4/4: a beat is 0.5 s. The handle's musical position is the sequence's playhead as heard.
+    const music = { segment: "audio/music.playlist.json", bar: 1, beat: 1, beatFraction: 0 };
+    (handle as unknown as { music: typeof music }).music = music;
+    bindSequence(`test:${Math.random()}`, { file: "audio/music.playlist.json", title: "music", seq: { ...sequence(clip({ sync: true, loops: {} })), tempo: { bpm: 120, meter: "4/4" } }, plays: "oneShot", sourceOf: () => A });
+    playSequence();
+    Object.assign(music, { beat: 3, beatFraction: 0.5 }); // 1.25 s into the sequence, whatever the wall clock says
+    vi.advanceTimersByTime(30);
+    expect(seqPlayhead.value).toBeCloseTo(1.25, 6);
+    pauseSequence();
+    // The audio holds a little after the press (the earliest stampable time): the playhead follows it there and stays.
+    Object.assign(music, { beat: 3, beatFraction: 0.6 });
+    vi.advanceTimersByTime(2_000);
+    expect(seqPlayhead.value).toBeCloseTo(1.3, 6);
+    resumeSequence();
+    Object.assign(music, { bar: 2, beat: 1, beatFraction: 0 });
+    vi.advanceTimersByTime(30);
+    expect(seqPlayhead.value).toBeCloseTo(2, 6);
+  });
+
   it("Space resumes a paused play", () => {
     play(clip({ sync: true, loops: {} }));
     vi.advanceTimersByTime(500);

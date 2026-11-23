@@ -12,7 +12,7 @@ import type { SeqClipboard } from "./sequenceClipboard";
 import { DEFAULT_SNAP, type SnapSetting } from "./sequenceGrid";
 import type { SourceOf } from "./sequenceModel";
 import { EMPTY_SELECTION, pruneSelection, type SeqSelection } from "./sequenceSelection";
-import { DEFAULT_TRANSPORT, estimatePlayhead, hasHeldLoop, heldRegions, playRange, restingPlayhead, spaceAction, type HeldRegion, type PlayRange, type ReleasePoint, type TransportOptions } from "./transportModel";
+import { DEFAULT_TRANSPORT, estimatePlayhead, hasHeldLoop, heldRegions, playheadFromMusic, playRange, restingPlayhead, spaceAction, type HeldRegion, type PlayRange, type ReleasePoint, type TransportOptions } from "./transportModel";
 
 export const seqSelection = signal<SeqSelection>(EMPTY_SELECTION);
 export const seqPlayhead = signal(0);
@@ -110,7 +110,6 @@ export function playSequence(): void {
     transportMessage.value = h ? NO_RUNTIME_TEXT : "The audio core isn't running, so nothing plays.";
     return;
   }
-  // TODO(W3-E sequence runtime): read the runtime's playhead instead of the estimate.
   transportMessage.value = null;
   handle = h;
   // The Parameters panel's Held toggle off: the key is already up, so While-held loops leave at once.
@@ -126,12 +125,26 @@ function elapsedOf(p: Playback): number {
   return ((p.pausedAt ?? now()) - p.startedAt) / 1000;
 }
 
+/** Where the playback's own clock is (a sequence with a tempo reports its playhead as a musical position), or null. */
+function heardPlayhead(p: Playback, ctx: SequenceContext): number | null {
+  const m = handle?.music;
+  const s = m && m.segment !== null ? playheadFromMusic(ctx.seq.tempo, m) : null;
+  if (s === null) return null;
+  return ctx.plays === "untilStopped" && !p.range.selection ? s : Math.min(p.range.to, s);
+}
+
 function tick(): void {
   const p = playback.peek();
   const ctx = sequenceContext.peek();
   if (!p || !ctx) return stopSequence();
-  if (p.pausedAt !== null) return; // paused: the playhead and the play hold
-  const t = estimatePlayhead(p.range, elapsedOf(p), ctx.plays, p.held, p.releasePoint);
+  // ADR 0362 §1: the playback's own clock when it has one (it holds where the audio holds, also while paused), else an
+  // estimate from the time since Play (frozen while paused).
+  const heard = heardPlayhead(p, ctx);
+  if (p.pausedAt !== null) {
+    if (heard !== null) seqPlayhead.value = heard;
+    return; // paused: the play holds
+  }
+  const t = heard ?? estimatePlayhead(p.range, elapsedOf(p), ctx.plays, p.held, p.releasePoint);
   seqPlayhead.value = t;
   // A loop waiting for release keeps the play going (J6.3): only the runtime ending it (after Release) or Stop ends it.
   const waiting = p.holds && !p.released;

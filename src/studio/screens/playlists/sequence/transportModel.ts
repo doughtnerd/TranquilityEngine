@@ -1,8 +1,11 @@
 // The Sequence transport (proto §2.6 "Transport"): what Play plays (Selection: the selected clips, the loop, or from a
 // hold point or marker to the end; From playhead; From start), a one-second pre-roll, return to start at the end,
 // follow playhead; Space plays, stops, or releases while a held loop exists ("⇥ Release"). The playhead while playing
-// is estimated from the audio clock since the start (the runtime's own position replaces it when it reports one).
+// is the playback's own position when it reports one (a sequence with a tempo, `playheadFromMusic`), else estimated
+// from the time since the start.
 // Pure.
+import { compileTempoMap, positionToTicks, ticksToSeconds } from "../../../../engine/audio/musicGrid";
+import { MUSIC_TICKS_PER_BEAT } from "../../../../engine/audio/musicPosition";
 import type { PlaybackRules, SequenceSettings } from "../../../../engine/audio/playlist/types";
 import { clipLoops, clipPlan, loopBand } from "./clipGeometry";
 import type { SeqSelection } from "./sequenceSelection";
@@ -141,6 +144,27 @@ export function estimatePlayhead(range: PlayRange, elapsed: number, plays: Playb
     if (r) t = r.end > r.start ? r.start + ((t - r.start) % (r.end - r.start)) : r.start;
   }
   return plays === "untilStopped" && !range.selection ? t : Math.min(range.to, t);
+}
+
+/** A playback's musical position, as its handle's `music` reads it (1-based bar and beat). */
+export interface HeardPosition {
+  readonly bar: number;
+  readonly beat: number;
+  readonly beatFraction: number;
+}
+
+/**
+ * ADR 0362 §1: the playhead on the playback's own clock: a sequence with a tempo reports its playhead as a musical
+ * position (`handle.music`), heard as it plays, through loops, holds and pauses (it holds with a pause); this turns it
+ * back into sequence seconds on the sequence's tempo. Null without a tempo or a position (then `estimatePlayhead`).
+ */
+export function playheadFromMusic(tempo: SequenceSettings["tempo"], at: HeardPosition | null | undefined): number | null {
+  if (!tempo || !at || !(tempo.bpm > 0) || !Number.isFinite(at.bar) || !Number.isFinite(at.beat)) return null;
+  const [bpb, unit] = tempo.meter.split("/").map(Number);
+  if (!(bpb! > 0) || !(unit! > 0)) return null;
+  const map = compileTempoMap([{ at: "1:1:0", bpm: tempo.bpm, beatsPerBar: bpb!, beatUnit: unit! }], 0);
+  const s = ticksToSeconds(map, positionToTicks(map, at.bar, at.beat, 0) + Math.max(0, at.beatFraction) * MUSIC_TICKS_PER_BEAT);
+  return Number.isFinite(s) ? Math.max(0, s) : null;
 }
 
 /** Where the playhead rests when playback ends. */
