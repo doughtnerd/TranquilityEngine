@@ -91,6 +91,8 @@ export const ANIMATION_ASSET_KINDS: readonly AssetKindContribution[] = [
     // `Animator.clip`, subclip keys (ADR 0372).
     referencedAs: ["animclip"],
     references: reader(ANIM_SOURCE_SUFFIX, parseAnimSource, animSourceReferences),
+    // The clip preview (T18, `scene/ClipPreview.tsx`).
+    inspector: () => import("../scene/ClipPreview").then((m) => m.ClipPreview),
   },
   {
     id: "animgraph", extensions: [ANIM_GRAPH_SUFFIX], label: "Animation Graph", icon: GRAPH_ICON, format: animGraphFormat, folder: "animation",
@@ -130,7 +132,7 @@ export const ANIMATION_ASSET_KINDS: readonly AssetKindContribution[] = [
   // compile and bake steps (or brought in), never edited. A compiled skeleton is what a `skeleton` field takes when no
   // model holds it; the others are listed so they don't show as unknown files.
   { id: "compiledskeleton", extensions: [".skel.bin"], label: "Skeleton (compiled)", icon: COMPILED_ICON, referencedAs: ["skeleton"] },
-  { id: "compiledclip", extensions: [".anim.bin"], label: "Animation Clip (compiled)", icon: COMPILED_ICON },
+  { id: "compiledclip", extensions: [".anim.bin"], label: "Animation Clip (compiled)", icon: COMPILED_ICON, inspector: () => import("../scene/ClipPreview").then((m) => m.ClipPreview) },
   { id: "compiledgraph", extensions: [".animgraph.bin"], label: "Animation Graph (compiled)", icon: COMPILED_ICON },
   { id: "posedbbake", extensions: [".posedb.bin"], label: "Pose Database (baked)", icon: COMPILED_ICON },
 ];
