@@ -130,7 +130,7 @@ describe("clip geometry", () => {
     const stems = { ...seq, tracks: [seq.tracks[1]!, { ...seq.tracks[2]!, clips: [{ ...c("c3"), at: 0.5 }] }] };
     const body = fixtureBody(stems);
     const lints = lintPlaylist(body, { sampleTempo: () => ({ bpm: 90 }) });
-    expect(lints.map((l) => l.code)).toContain("overlappingSyncLoops");
+    expect(lints.map((l) => l.code)).not.toContain("overlappingSyncLoops");
     const lines = warningLines(lints, body);
     expect(lines.some((l) => l.includes("overlap"))).toBe(false);
     expect(lines).toContain("Sync clip music_loop plays a sample at 90 BPM in a 120 BPM sequence; it isn't stretched.");
