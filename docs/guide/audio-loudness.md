@@ -38,7 +38,7 @@ A **target** is a goal your mix is judged against, an entry of `audio.loudnessTa
 | `tolerance` | how far I may stray, LU (plus or minus) | 0 to 12, default 2 |
 | `truePeak` | the ceiling, dBTP | -20 to 0, default -1 |
 
-Without `loudnessTargets` the project has two: **`console`** (-24 LUFS, 2 LU, -1 dBTP) and **`mobile`** (-18 LUFS, 2 LU, -1 dBTP). They are published guidance for each kind of device, not a rule of any store; check your platform's current numbers and edit the table. The first entry is the default. Edit them in Project Settings > Audio > **Loudness targets**; the table is only written when it differs from the default.
+Without `loudnessTargets` the project has three (ADR 0362): **`console`** (-24 LUFS, 2 LU, -1 dBTP), **`pc-web`** (-18 LUFS, 2 LU, -1 dBTP) and **`mobile`** (-16 LUFS, 2 LU, -1 dBTP). They are published guidance for each kind of device, not a rule of any store; check your platform's current numbers and edit the table. The first entry is the default. Edit them in Project Settings > Audio > **Loudness targets**; the table is only written when it differs from the default.
 
 The target in force is `Audio.loudnessTarget` (a name; the Mixer's **Target** picker sets it too). Changing it is not a reset. An unknown name warns and keeps the current one.
 
