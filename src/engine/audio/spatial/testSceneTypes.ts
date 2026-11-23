@@ -28,6 +28,8 @@ export interface StaticEmitter extends SceneObjectBase {
   sound: string;
   /** dB. */
   volume: number;
+  /** The Mixer bus it plays on (picked here, routed in the Mixer); absent plays on its sound's own (a playlist's output, else Master). */
+  output?: string;
 }
 export interface MovingEmitter extends SceneObjectBase {
   kind: "moving";
@@ -42,6 +44,8 @@ export interface MovingEmitter extends SceneObjectBase {
   loop: boolean;
   sound: string;
   volume: number;
+  /** As `StaticEmitter.output`. */
+  output?: string;
 }
 export type TestEmitter = StaticEmitter | MovingEmitter;
 

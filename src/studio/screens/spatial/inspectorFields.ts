@@ -5,6 +5,8 @@
 //
 // Pure: no DOM, no signals.
 import { AUDIO_SCENE_LIMITS } from "../../../engine/audio/spatial/testScene";
+import type { TestAudioZone, Vec3 } from "../../../engine/audio/spatial/testSceneTypes";
+import { nearestOnBox } from "./geometry";
 import type { EditResult } from "./sceneEdits";
 
 export interface FieldSpec {
@@ -39,7 +41,7 @@ export const FIELDS = {
   feather: { label: "Feather", unit: "m", min: L.feather[0], max: L.feather[1], step: 0.5, digits: 1, slider: [0, 20] },
   // Prototype: Priority ≥ 1 (the implicit level default is 1); the format allows 0..100.
   priority: { label: "Priority", unit: "", min: Math.max(1, L.priority[0]), max: L.priority[1], step: 1, digits: 0, whole: true },
-  wet: { label: "Wet", unit: "dB", min: L.wet[0], max: L.wet[1], step: 0.5, digits: 1, slider: [-30, 6] },
+  wet: { label: "Send", unit: "dB", min: L.wet[0], max: L.wet[1], step: 0.5, digits: 1, slider: [-30, 6] },
   listenerYaw: { label: "Facing", unit: "°", min: -180, max: 180, step: 5, digits: 0 },
   // audio.json settings shown on this screen (ADR 0347): `voices.hrtf` and `bedBeyond`, `dopplerAmount` in percent.
   hrtf: { label: "HRTF for the nearest", unit: "voices", min: 0, max: 32, step: 1, digits: 0, whole: true },
@@ -73,6 +75,22 @@ export const bottomValue = (raw: string | number, top: number): EditResult<numbe
   const h = heightsValue(r.next, top);
   return "refused" in h ? h : { next: r.next };
 };
+
+/**
+ * The audio zone's state line for the listener at `at` (the prototype's state box): heard from its edge and how far,
+ * inside it, fading in its feather, or silent outside.
+ */
+export function zoneState(zone: Pick<TestAudioZone, "box" | "heard" | "feather">, at: Vec3): string {
+  const b = zone.box;
+  const near = nearestOnBox(b, at);
+  const across = Math.hypot(near.x - at.x, near.z - at.z);
+  const up = at.y < b.bottom ? b.bottom - at.y : at.y > b.top ? at.y - b.top : 0;
+  const d = Math.hypot(across, up);
+  if (d < 1e-6) return zone.heard === "edge" ? "Listener inside: surrounds you" : "Listener inside: playing at full level";
+  if (zone.heard === "edge") return `Heard from its nearest edge, ${Math.round(d)} m away`;
+  if (zone.feather > 0 && d < zone.feather) return `In the feather: fading, ${Math.round((1 - d / zone.feather) * 100)}%`;
+  return "Listener outside: silent";
+}
 
 /** The top field typed: refused when it would reach the bottom. */
 export const topValue = (raw: string | number, bottom: number): EditResult<number> => {

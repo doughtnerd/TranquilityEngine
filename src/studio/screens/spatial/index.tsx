@@ -25,6 +25,7 @@ import { ScenesPanel } from "./ScenesPanel";
 import { SceneView } from "./SceneView";
 import { findObject, renameObject, setHidden, setLocked } from "./sceneEdits";
 import { SettingsPanel } from "./SettingsPanel";
+import { materialText } from "./settingsEdits";
 import { AttenuationChoiceDialog, GameSceneDialog, TakeDialog } from "./SpatialDialogs";
 import {
   applyFolderChanges, applyRolloff, attenuationChoice, audition, auditionStatus, chooseAttenuation, copySelection, deleteScenes, deleteSelected, duplicateScene, duplicateSelection, editAttenuation, editMix, editScene, endDrag, makeSpatial, occlusionOnFor,
@@ -272,6 +273,10 @@ function InspectorListPanel() {
           playing={playing.value}
           buses={busNames.value}
           materials={materials.value.map((m) => m.name)}
+          blocks={(name) => {
+            const m = materials.value.find((x) => x.name === name);
+            return m ? materialText(m) : null;
+          }}
           attenuation={owner ? { summary: att ? attenuationSummary(att) : null, owner: ownerText(owner), whyNotEdit: whyNotEditAttenuation(owner), rolloff: !!att && !readOnly.value, makeSpatial: canMakeSpatial(owner) } : null}
           solo={audition.value.solo}
           silenced={silenced}

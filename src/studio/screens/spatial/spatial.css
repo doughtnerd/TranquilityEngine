@@ -256,6 +256,13 @@
 .sp-inspector { display: flex; flex-direction: column; padding-bottom: 8px; }
 .sp-insp-head { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .sp-kind { color: var(--muted); font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; letter-spacing: 0.04em; }
+/* The header's type chip ("Emitter", "Moving emitter"…), as the prototype's `.badge`. */
+.sp-kind-badge { flex: none; padding: 1px 6px; border-radius: 3px; background: var(--badge); color: var(--badge-text); font-size: calc(11px * var(--ui-scale)); line-height: 16px; white-space: nowrap; }
+/* A state box (the prototype's info box): what the selection is doing now. */
+.sp-state { margin: 4px 8px; padding: 6px 8px; border-radius: 3px; background: var(--bg); color: var(--text); font-size: calc(12px * var(--ui-scale)); display: flex; flex-direction: column; gap: 3px; }
+.sp-state b { font-weight: 600; }
+.sp-depth { color: var(--accent2); font-variant-numeric: tabular-nums; }
+.sp-owner { margin: 2px 8px 4px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .sp-name { flex: 1; min-width: 0; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 5px; font-weight: 600; }
 .sp-range { flex: 1; min-width: 60px; accent-color: var(--accent); }
 .sp-row-actions { display: flex; gap: 6px; padding: 4px 8px; flex-wrap: wrap; align-items: center; }
@@ -275,6 +282,17 @@
 /* Settings */
 .sp-settings { display: flex; flex-direction: column; padding-bottom: 8px; }
 .sp-table-scroll { overflow-x: auto; margin: 4px 8px; }
+/* Key/value rows (the occlusion summary): muted keys, values right-aligned and strong. */
+.sp-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 8px; margin: 4px 8px 6px; font-size: calc(12px * var(--ui-scale)); align-items: center; }
+.sp-kv dt { color: var(--text); }
+.sp-kv dd { margin: 0; text-align: right; font-weight: 600; color: var(--text-strong); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-occb { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-sunken); color: var(--text); font-size: calc(11px * var(--ui-scale)); font-weight: 400; cursor: pointer; }
+.sp-occb .studio-glyph { color: var(--accent); }
+.sp-occb:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.sp-occb:disabled { opacity: 0.55; cursor: default; }
+.sp-mat-head { display: flex; align-items: center; justify-content: space-between; margin: 6px 8px 0; }
+.sp-cap { font-size: calc(11px * var(--ui-scale)); line-height: 14px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.sp-off { min-width: 40px; }
 /* Fits the default 300px dock: fixed columns, headers wrap, fields fill their cells (the name takes what's left). */
 .sp-materials { width: 100%; margin: 0; border-collapse: collapse; table-layout: fixed; font-size: calc(12px * var(--ui-scale)); }
 .sp-materials th { color: var(--muted); font-weight: 400; font-size: calc(11px * var(--ui-scale)); line-height: 1.2; text-align: left; vertical-align: bottom; padding: 2px; overflow-wrap: anywhere; }

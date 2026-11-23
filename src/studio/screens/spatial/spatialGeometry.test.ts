@@ -5,7 +5,7 @@ import { INITIAL_SLAB, dragSlabEdge, heightMarks, heightRange, heightTicks, inRa
 import {
   boundsOf, boxContains, boxCorners, boxEdges, boxSpanX, depthIn, growBox, nearestOnBox, insertWaypoint, moveWaypoint, normalizeDeg, projectOnRoute, removeWaypoint, resizeFromEdge, rotateKnob, rotateToward, routeAt, routeMidpoints, snap, toLocal, toWorld,
 } from "./geometry";
-import { bottomValue, fieldValue, topValue } from "./inspectorFields";
+import { bottomValue, fieldValue, topValue, zoneState } from "./inspectorFields";
 import { outlineGroups } from "./outline";
 import { SCENE_KEYS, type SceneAction } from "./sceneKeys";
 import { fixtureScene } from "./spatialFixture";
@@ -237,6 +237,18 @@ describe("the outline", () => {
     const f = outlineGroups(fixtureScene(), "camp");
     expect(f.map((x) => x.rows.map((r) => r.name))).toEqual([["Campfire"]]);
     expect(outlineGroups(fixtureScene(), "obstacles")[0]!.rows).toHaveLength(3);
+  });
+});
+
+describe("an audio zone's state line", () => {
+  const s = fixtureScene();
+  const wind = s.audioZones[0]!, storm = s.audioZones[1]!;
+  it("says where the listener hears it from", () => {
+    expect(zoneState(wind, { x: 50, y: 1.7, z: 35 })).toBe("Heard from its nearest edge, 20 m away");
+    expect(zoneState(wind, { x: 25, y: 10, z: 12 })).toBe("Listener inside: surrounds you");
+    expect(zoneState(storm, { x: 50, y: 1.7, z: 5 })).toBe("Listener inside: playing at full level");
+    expect(zoneState(storm, { x: 50, y: 1.7, z: 13 })).toBe("In the feather: fading, 50%");
+    expect(zoneState(storm, { x: 50, y: 1.7, z: 35 })).toBe("Listener outside: silent");
   });
 });
 

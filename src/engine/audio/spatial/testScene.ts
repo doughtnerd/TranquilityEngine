@@ -129,8 +129,10 @@ export function parseAudioTestScene(raw: unknown, path = "audioscene"): AudioTes
     const kind = r.pick(o.kind, `${where}.kind`, ["static", "moving"] as const, Array.isArray(o.route) ? "moving" : "static");
     const sound = r.str(o.sound, `${where}.sound`, "");
     const volume = r.num(o.volume, `${where}.volume`, 0, ...AUDIO_SCENE_LIMITS.volume);
+    // The mixer bus it plays on; absent or "" plays on its sound's own (a playlist's output, else Master).
+    const output = r.str(o.output, `${where}.output`, "");
     if (kind === "static") {
-      const e: StaticEmitter = { ...base, kind, position: vec(r, o.position, `${where}.position`, { x: 0, y: DEFAULT_EMITTER_HEIGHT, z: 0 }), sound, volume };
+      const e: StaticEmitter = { ...base, kind, position: vec(r, o.position, `${where}.position`, { x: 0, y: DEFAULT_EMITTER_HEIGHT, z: 0 }), sound, volume, ...(output ? { output } : {}) };
       return e;
     }
     const e: MovingEmitter = {
@@ -143,6 +145,7 @@ export function parseAudioTestScene(raw: unknown, path = "audioscene"): AudioTes
       loop: r.bool(o.loop, `${where}.loop`, true),
       sound,
       volume,
+      ...(output ? { output } : {}),
     };
     return e;
   });
@@ -305,8 +308,8 @@ export function audioTestSceneToJson(scene: AudioTestScene): JsonRecord {
     listeners: scene.listeners.map((l) => ({ ...baseJson(l), position: vecJson(l.position), yaw: l.yaw })),
     activeListener: scene.activeListener,
     emitters: scene.emitters.map((e) => e.kind === "static"
-      ? { ...baseJson(e), kind: e.kind, position: vecJson(e.position), sound: e.sound, volume: e.volume }
-      : { ...baseJson(e), kind: e.kind, route: e.route.map((p) => ({ x: p.x, z: p.z })), height: e.height, speed: e.speed, start: e.start, loop: e.loop, sound: e.sound, volume: e.volume }),
+      ? { ...baseJson(e), kind: e.kind, position: vecJson(e.position), sound: e.sound, volume: e.volume, ...(e.output ? { output: e.output } : {}) }
+      : { ...baseJson(e), kind: e.kind, route: e.route.map((p) => ({ x: p.x, z: p.z })), height: e.height, speed: e.speed, start: e.start, loop: e.loop, sound: e.sound, volume: e.volume, ...(e.output ? { output: e.output } : {}) }),
     obstacles: scene.obstacles.map((o) => ({ ...baseJson(o), box: boxJson(o.box), material: o.material })),
     reverbZones: scene.reverbZones.map((z) => ({ ...baseJson(z), box: boxJson(z.box), preset: z.preset, wet: z.wet, priority: z.priority, ...(z.levelDefault ? { levelDefault: true } : {}) })),
     audioZones: scene.audioZones.map((z) => ({ ...baseJson(z), box: boxJson(z.box), sound: z.sound, heard: z.heard, feather: z.feather, volume: z.volume })),

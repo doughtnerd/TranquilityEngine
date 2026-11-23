@@ -17,13 +17,17 @@ import { FieldRow, NumberBox, Section, SelectBox } from "../../../editor/ui/Pane
 import { ROLLOFF_PRESETS } from "./attenuationModel";
 import type { AttenuationPreset } from "../../../engine/audio/attenuation/types";
 import { depthIn } from "./geometry";
-import { FIELDS, bottomValue, fieldValue, topValue, type FieldId } from "./inspectorFields";
+import { FIELDS, bottomValue, fieldValue, topValue, zoneState, type FieldId } from "./inspectorFields";
+import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { editLabel } from "./pointerModel";
 import {
-  activeListener, aKind, findObject, KIND_NOUN, moveObjectTo, patchAudioZone, patchEmitter, patchListener, patchObstacle, patchReverbZone, patchSound2d, positionOf, renameObject, setBox, setBoxHeights, setHeight, type EditResult, type SceneObject,
+  activeListener, aKind, findObject, moveObjectTo, patchAudioZone, patchEmitter, patchListener, patchObstacle, patchReverbZone, patchSound2d, positionOf, renameObject, setBox, setBoxHeights, setHeight, type EditResult, type SceneObject,
 } from "./sceneEdits";
 import { dopplerRatioText, liveDistanceText, livePlace, speedText } from "./liveMotion";
 import { distanceText, occlusionText, RENDERED_LABEL } from "./voicesTable";
+
+/** The Inspector header's badge for each kind. */
+const KIND_TITLE: Readonly<Record<SceneObject["kind"], string>> = { listener: "Listener", emitter: "Emitter", obstacle: "Obstacle", reverbZone: "Reverb zone", audioZone: "Audio zone", sound2d: "2D sound" };
 
 /** "smallStone" → "Small stone". */
 export const presetLabel = (id: string): string => {
@@ -54,6 +58,8 @@ export interface InspectorProps {
   readonly playing: boolean;
   readonly buses: readonly string[];
   readonly materials: readonly string[];
+  /** What a material does to sound through it ("−12 dB · low-pass 800 Hz"), or null when it isn't in audio.json. */
+  blocks?(material: string): string | null;
   readonly attenuation: AttenuationInfo | null;
   readonly solo: string | null;
   silenced(id: string): boolean;
@@ -79,7 +85,7 @@ export function InspectorPanel(props: InspectorProps) {
   if (!o) {
     return (
       <div class="sp-inspector">
-        <p class="sp-note">Select something in the scene or the Outline to edit it. Tools on the left of the scene place new objects.</p>
+        <p class="sp-note" title="Tools on the left of the scene place new objects.">Select something in the scene or outline to edit it here.</p>
       </div>
     );
   }
@@ -127,7 +133,7 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
   return (
     <div class="sp-inspector">
       <div class="sp-insp-head">
-        <span class="sp-kind">{KIND_NOUN[o.kind]}</span>
+        <span class="sp-kind-badge">{o.kind === "emitter" && o.obj.kind === "moving" ? "Moving emitter" : KIND_TITLE[o.kind]}</span>
         <input class="sp-name" aria-label="Name" value={o.obj.name} disabled={ro}
           onChange={(e) => {
             const v = (e.currentTarget as HTMLInputElement).value;
@@ -142,10 +148,20 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
           <SoundField value={sound} disabled={ro} sounds={props.sounds} onPick={(path) => props.onEdit(`${editLabel(o.kind)}`, (s) => patchSound(s, o, { sound: path }))} onOpen={props.onOpenSound} />
           {slider("volume", (o.obj as { volume: number }).volume, (s, v) => patchSound(s, o, { volume: v }))}
           {o.kind === "sound2d" && (
-            <FieldRow label="Output bus">
+            <FieldRow label="Output" title="The Mixer bus it plays into, so ducking and snapshots apply (routing is edited in the Mixer)">
               <SelectBox label="Output bus" value={o.obj.output} disabled={ro}
                 options={[...new Set([...props.buses, o.obj.output])].map((b) => ({ value: b, label: props.buses.includes(b) ? b : `${b} (missing)` }))}
                 onValue={(b) => props.onEdit("Edit 2D sound", (s) => patchSound2d(s, id, { output: b }))} />
+            </FieldRow>
+          )}
+          {o.kind === "emitter" && (
+            <FieldRow label="Output" title="The Mixer bus it plays into, so ducking and snapshots apply (routing is edited in the Mixer)">
+              <SelectBox label="Output bus" value={o.obj.output ?? ""} disabled={ro}
+                options={[
+                  { value: "", label: "Its sound's own" },
+                  ...[...new Set([...props.buses, ...(o.obj.output ? [o.obj.output] : [])])].map((b) => ({ value: b, label: props.buses.includes(b) ? b : `${b} (missing)` })),
+                ]}
+                onValue={(b) => props.onEdit("Edit emitter", (s) => patchEmitter(s, id, { output: b }))} />
             </FieldRow>
           )}
           <div class="sp-row-actions">
@@ -177,8 +193,8 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
       )}
 
       {o.kind === "listener" && (
-        <Section title="Listening">
-          <p class="sp-note">{listener.id === id ? "This listener hears the scene. During a take replay the listener follows the game's camera instead." : "Only one listener hears the scene at a time."}</p>
+        <Section title="Listening" hint="Only one listener hears the scene at a time. During a take replay, the listening player follows the game's camera instead.">
+          <div class="sp-state">{listener.id === id ? "Listening: the whole scene is heard from here." : "Not listening."}</div>
           <div class="sp-row-actions">
             <button type="button" class="sp-small" disabled={ro || listener.id === id} onClick={() => props.onListenHere(id)}>Listen here</button>
           </div>
@@ -205,7 +221,7 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
       {o.kind === "emitter" && props.attenuation && (
         <Section title="Attenuation">
           {props.attenuation.summary && <p class="sp-summary">{props.attenuation.summary}</p>}
-          <p class="sp-note">{props.attenuation.owner}</p>
+          <p class="sp-owner">{props.attenuation.owner}</p>
           <div class="sp-row-actions">
             {props.attenuation.makeSpatial && (
               <button type="button" class="sp-small" disabled={ro} title="Give the playlist a spatial block: heard in place, with distance, occlusion and Doppler" onClick={() => props.onMakeSpatial?.(id)}>Make it 3D</button>
@@ -226,37 +242,37 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
       )}
 
       {o.kind === "obstacle" && (
-        <Section title="Blocks">
+        <Section title="Blocks" hint="Sound through it loses the material's level and highs (the materials are in Scene settings). Several obstacles on one ray add up.">
           <FieldRow label="Material">
             <SelectBox label="Material" value={o.obj.material} disabled={ro}
               options={[...new Set([...props.materials, o.obj.material])].map((m) => ({ value: m, label: props.materials.includes(m) ? m : `${m} (not in audio.json)` }))}
               onValue={(m) => props.onEdit("Edit obstacle", (s) => patchObstacle(s, id, { material: m }))} />
           </FieldRow>
-          <p class="sp-note">Sound through it loses the material's level and highs (Scene settings). Several obstacles on one ray add up.</p>
+          {(() => {
+            const text = props.blocks?.(o.obj.material);
+            return <div class="sp-state">{text ? <>Blocks <b>{text}</b></> : `${o.obj.material} isn't in audio.json: it blocks as the default material`}</div>;
+          })()}
         </Section>
       )}
 
       {o.kind === "audioZone" && (
         <Section title="Zone">
-          <FieldRow label="Heard">
-            <SelectBox label="Heard" value={o.obj.heard} disabled={ro} options={[{ value: "edge", label: "From its edge" }, { value: "inside", label: "Inside only" }]}
-              onValue={(h) => props.onEdit("Edit audio zone", (s) => patchAudioZone(s, id, { heard: h }))} />
+          <FieldRow label="Heard" title={o.obj.heard === "edge" ? "Outside, it plays from the nearest point of the box, wider the closer you are; inside, it surrounds you." : "Inside, it plays around you; outside, it fades out over the feather."}>
+            <SegmentedControl label="Heard" look="fill" size="small" value={o.obj.heard} options={[{ value: "edge", label: "From its edge" }, { value: "inside", label: "Inside only" }]}
+              onChange={(h) => !ro && props.onEdit("Edit audio zone", (s) => patchAudioZone(s, id, { heard: h }))} />
           </FieldRow>
           {slider("feather", o.obj.feather, (s, v) => patchAudioZone(s, id, { feather: v }))}
-          <p class="sp-note">
-            {o.obj.heard === "edge"
-              ? "Outside, it plays from the nearest point of the box, wider the closer you are; inside, it surrounds you."
-              : "Inside, it plays around you; outside, it fades out over the feather."}
-          </p>
-          <dl class="sp-readout">
-            <dt>Zone depth</dt>
-            <dd title="The playlist's built-in zoneDepth parameter at the listener: 0 at the edge, 1 at the centre">{depthIn(o.obj.box, listener.position).toFixed(2)}</dd>
-          </dl>
+          <div class="sp-state">
+            <div>{zoneState(o.obj, listener.position)}</div>
+            <div title="The playlist's built-in zoneDepth parameter at the listener: 0 at the edge, 1 at the centre. Drag it onto any knob in the Mixer.">
+              Zone depth (local parameter): <b class="sp-depth">{depthIn(o.obj.box, listener.position).toFixed(2)}</b>
+            </div>
+          </div>
         </Section>
       )}
 
       {o.kind === "reverbZone" && (
-        <Section title="Reverb">
+        <Section title="Reverb" hint="Where zones overlap, the higher priority wins; zones blend as the engine does. Send is how loud the zone's reverb is.">
           <FieldRow label="Preset">
             <SelectBox label="Reverb preset" value={o.obj.preset} disabled={ro}
               options={[...new Set<string>([...ZONE_PRESETS, o.obj.preset])].map((p) => ({ value: p, label: presetLabel(p) }))}
@@ -267,7 +283,6 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
           <FieldRow label="Level default" title="The reverb wherever no other zone holds the listener">
             <input type="checkbox" aria-label="The level's default reverb" checked={o.obj.levelDefault} disabled={ro} onChange={(e) => props.onEdit("Edit reverb zone", (s) => patchReverbZone(s, id, { levelDefault: (e.currentTarget as HTMLInputElement).checked }))} />
           </FieldRow>
-          <p class="sp-note">The highest priority zone holding a sound wins; zones blend as the engine does.</p>
         </Section>
       )}
 
@@ -282,7 +297,7 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
       )}
 
       {o.kind !== "sound2d" && (
-        <Section title="Height">
+        <Section title="Height" hint={!box && o.kind === "emitter" && o.obj.kind === "moving" ? "The path height: the emitter travels at this height above its route." : undefined}>
           {box ? (
             <>
               <FieldRow label="Bottom" unit="m">
@@ -297,7 +312,6 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
           ) : (
             pos && numberRow("height", pos.y, (s, v) => setHeight(s, id, v), ro || locked)
           )}
-          {!box && o.kind === "emitter" && o.obj.kind === "moving" && <p class="sp-note">The path height: the emitter travels at this height above its route.</p>}
         </Section>
       )}
 
