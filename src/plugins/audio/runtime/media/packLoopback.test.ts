@@ -204,8 +204,10 @@ describe("packages on the core (W12)", () => {
     const from = r.left.length;
     const h = Audio.playOneShot("audio/ui/click.wav");
     expect(h.reason).toBeNull();
+    // The sound renders within its length plus a few frames, but `playing` turns false when the voice's end reaches
+    // main through the link, whose delivery waits for real-time turns: under load that is frames later, so wait for it.
     await r.step(Math.ceil(RATE / 2 / (QPF * 128)) + 6);
-    expect(h.playing).toBe(false);
+    await stepUntil(r, () => !h.playing);
     const out = r.left.slice(from);
     const start = out.findIndex((s) => s !== 0);
     expect(start).toBeGreaterThanOrEqual(0);

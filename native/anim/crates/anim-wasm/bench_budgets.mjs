@@ -20,6 +20,9 @@
 // frames (default 300; matching 600). Printed: the median of the rounds and their range. The 80-bone and matching files
 // are generated (never committed) by `cargo run --release -p anim-bench --example fixtures` into native/anim/target/
 // bench-fixtures/ the first time (or with --regen), so this needs the Rust toolchain once.
+//
+// Records are encoded from the generated wire definitions (src/plugins/animation/runtime/wasm/wire/*.ts, imported with
+// Node's type stripping, Node 22.18+), so a family's version or layout change reaches the bench with the core.
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -83,19 +86,34 @@ function parent() {
 
 async function child(name, frames) {
   const glue = await import(new URL("myco_anim.js", wasmDir).href);
+  const wire = async (family) => import(new URL(`wire/${family}.ts`, wasmDir).href);
+  const { INIT, PLAY } = await wire("core");
+  const { SET_PARAM, SLOT_PLAY, SECTION_LOOP } = await wire("graph");
+  const { TWEEN_CREATE, KIND_VALUE, KIND_QUAT_SLERP, FLAG_YOYO, LOOPS_INFINITE, TIME_SCALED } = await wire("tween");
   const exports = glue.initSync({ module: readFileSync(opt("wasm", fileURLToPath(new URL("myco_anim_bg.wasm", wasmDir)))) });
   const committed = (n) => new Uint8Array(readFileSync(new URL(`fixtures/${n}`, wasmDir)));
   const generated = (n) => new Uint8Array(readFileSync(new URL(n, genDir)));
   const view = () => new DataView(exports.memory.buffer);
   const f32bits = (x) => new Uint32Array(new Float32Array([x]).buffer)[0];
-  const record = (opcode, words) => {
-    const v = new DataView(new ArrayBuffer(4 + words.length * 4));
-    v.setUint16(0, opcode, true);
-    v.setUint16(2, 1, true);
-    words.forEach((w, i) => (typeof w === "number" ? v.setUint32(4 + i * 4, w >>> 0, true) : v.setFloat32(4 + i * 4, w.f, true)));
-    return new Uint8Array(v.buffer);
+  /** Writes record `def` (a generated wire definition) at `at` in `v`: its header, then `values` by field name (unnamed fields 0). */
+  const put = (v, at, def, values) => {
+    v.setUint16(at, def.opcode, true);
+    v.setUint16(at + 2, def.version, true);
+    for (const [field, { offset, type }] of Object.entries(def.fields)) {
+      const x = values[field] ?? 0;
+      if (type === "f32") v.setFloat32(at + offset, x, true);
+      else if (type === "u32") v.setUint32(at + offset, x >>> 0, true);
+      else if (type === "i32") v.setInt32(at + offset, x, true);
+      else throw new Error(`${def.opcode.toString(16)}.${field}: field type ${type} not handled`);
+    }
+    return at + def.stride;
   };
-  const init = (maxInstances, maxBones) => glue.init(record(0x0101, [maxInstances, maxBones, 1 << 22]));
+  const record = (def, values) => {
+    const bytes = new Uint8Array(def.stride);
+    put(new DataView(bytes.buffer), 0, def, values);
+    return bytes;
+  };
+  const init = (maxInstances, maxBones) => glue.init(record(INIT, { maxInstances, maxBones, arenaInitialBytes: 1 << 22 }));
   // Writes records into the command buffer and applies them.
   const send = (records) => {
     const mem = new Uint8Array(exports.memory.buffer);
@@ -107,7 +125,7 @@ async function child(name, frames) {
     }
     return glue.write_inputs(at - start);
   };
-  const setParam = (h, param, type, w0, w1 = 0) => record(0x0301, [h, param, type, w0, w1, 0, 0]);
+  const setParam = (instance, param, paramType, w0, w1 = 0) => record(SET_PARAM, { instance, param, paramType, w0, w1 });
   const dt = 1 / 60;
   let step = () => {
     glue.write_inputs(0);
@@ -120,9 +138,20 @@ async function child(name, frames) {
     init(8, 64);
     glue.tweens_configure(2048);
     for (let i = 0; i < 1000; i++) {
-      const [kind, width, ease, flags] =
-        name === "tweens_linear" ? [0, 1, 0, 0] : name === "tweens_eased" ? [0, 1, i % 31, i % 2 ? 2 : 0] : i % 2 ? [2, 4, 15, 0] : [0, 3, 6, 0];
-      glue.tween_create(record(0x0601, [0, i, i, kind, width, ease, flags, 0, 0xffffffff, { f: 1.5 }, { f: 0 }, { f: 1 }, { f: 0 }, { f: 0 }, { f: 0 }, { f: 1 }, { f: 1 }, { f: 2 }, { f: 3 }, { f: 1 }]));
+      const [valueKind, width, ease, flags] =
+        name === "tweens_linear"
+          ? [KIND_VALUE, 1, 0, 0]
+          : name === "tweens_eased"
+            ? [KIND_VALUE, 1, i % 31, i % 2 ? FLAG_YOYO : 0]
+            : i % 2
+              ? [KIND_QUAT_SLERP, 4, 15, 0]
+              : [KIND_VALUE, 3, 6, 0];
+      glue.tween_create(
+        record(TWEEN_CREATE, {
+          world: 0, hostId: i, column: i, valueKind, width, ease, flags, timeMode: TIME_SCALED, loops: LOOPS_INFINITE,
+          duration: 1.5, delay: 0, speed: 1, from0: 0, from1: 0, from2: 0, from3: 1, to0: 1, to1: 2, to2: 3, to3: 1,
+        }),
+      );
     }
     warm = 200;
   } else if (name.startsWith("match")) {
@@ -153,20 +182,12 @@ async function child(name, frames) {
     };
     step = () => {
       const k = Math.min(dt * 4, 1);
-      // SET_PARAM records (32 bytes) written straight into the command buffer, as a host does.
+      // SET_PARAM records written straight into the command buffer, as a host does.
       const v = view();
       const start = glue.commands_ptr();
       let at = start;
-      const put = (h, param, type, x, y) => {
-        v.setUint32(at, 0x0301 | (1 << 16), true);
-        v.setUint32(at + 4, h, true);
-        v.setUint32(at + 8, param, true);
-        v.setUint32(at + 12, type, true);
-        v.setFloat32(at + 16, x, true);
-        v.setFloat32(at + 20, y, true);
-        v.setUint32(at + 24, 0, true);
-        v.setUint32(at + 28, 0, true);
-        at += 32;
+      const param = (instance, p, paramType, x, y) => {
+        at = put(v, at, SET_PARAM, { instance, param: p, paramType, w0: f32bits(x), w1: f32bits(y) });
       };
       hs.forEach((h, i) => {
         const d = desired(i, frame);
@@ -181,13 +202,14 @@ async function child(name, frames) {
           yaw[i] += Math.max(-4 * dt, Math.min(4 * dt, turn));
         }
         if (d[0] !== 0 || d[1] !== 0) desiredYaw[i] = Math.atan2(d[0], d[1]);
-        put(h, ids.position, 3, pos[i][0], pos[i][1]);
-        put(h, ids.yaw, 0, yaw[i], 0);
-        put(h, ids.velocity, 3, vel[i][0], vel[i][1]);
-        put(h, ids.desired, 3, d[0], d[1]);
-        put(h, ids.desiredYaw, 0, desiredYaw[i], 0);
+        param(h, ids.position, 3, pos[i][0], pos[i][1]);
+        param(h, ids.yaw, 0, yaw[i], 0);
+        param(h, ids.velocity, 3, vel[i][0], vel[i][1]);
+        param(h, ids.desired, 3, d[0], d[1]);
+        param(h, ids.desiredYaw, 0, desiredYaw[i], 0);
       });
-      glue.write_inputs(at - start);
+      const applied = glue.write_inputs(at - start);
+      if (applied !== hs.length * 5) throw new Error(`${applied} of ${hs.length * 5} parameter commands applied`);
       glue.evaluate(0, 0, dt, dt);
       frame++;
     };
@@ -213,7 +235,7 @@ async function child(name, frames) {
       for (const [id, asset] of [[b.idle, idle], [b.walk, walk], [b.run, run], [b.upper, mask]]) glue.graph_bind(graph, id, asset);
     }
     const hs = Array.from({ length: 100 }, () => glue.create_instance(0, skel, graph));
-    const play = (clip, fade) => send(hs.map((h) => record(0x0103, [h, clip, 0, 0, { f: fade }, { f: 1 }, { f: 0 }, 0])));
+    const play = (clip, fade) => send(hs.map((instance) => record(PLAY, { instance, clip, playId: 0, layer: 0, fade, speed: 1, start: 0, flags: 0 })));
     if (kind === "one_clip" || kind === "crossfade") {
       play(walk, 0);
       if (kind === "crossfade") {
@@ -228,31 +250,33 @@ async function child(name, frames) {
           setParam(h, 0, 0, f32bits((i % 10) / 10)),
           setParam(h, 1, 0, f32bits(0.5 + (i % 5) / 10)),
           setParam(h, 2, 0, f32bits(1 + (i % 3))),
-          record(0x0305, [h, 0, run, 0, { f: 0.1 }, { f: 0.1 }, { f: 1 }, { f: 0 }, { f: 0.5 }, 1]),
+          record(SLOT_PLAY, { instance: h, slot: 0, clip: run, playId: 0, blendIn: 0.1, blendOut: 0.1, speed: 1, start: 0, end: 0.5, flags: SECTION_LOOP }),
         ]),
       );
       if (applied !== 500) throw new Error(`${applied} of 500 graph commands applied`);
     }
     if (kind === "locomotion_rig") {
       // Target slot 0 (the look-at's), then each frame the hits for last frame's rays: flat ground at y = 0.
-      const RIG_STRIDE = 1088, TARGETS = 64, HITS = 832, RAY_ROW = 256;
+      const r = await wire("rig");
       for (const h of hs) {
-        const row = glue.rig_inputs_ptr() + (h & 0xffff) * RIG_STRIDE + TARGETS;
-        for (const [o, x] of [[0, 1.5], [4, 1.6], [8, 2.0], [28, 1], [32, 1]]) view().setFloat32(row + o, x, true);
+        const row = glue.rig_inputs_ptr() + (h & 0xffff) * r.RIG_INPUT_STRIDE + r.RIG_TARGETS + r.TARGET_STRIDE * 0;
+        const at = [[r.TARGET_POSITION, 1.5], [r.TARGET_POSITION + 4, 1.6], [r.TARGET_POSITION + 8, 2.0], [r.TARGET_POSITION_WEIGHT, 1], [r.TARGET_ROTATION_WEIGHT, 1]];
+        for (const [o, x] of at) view().setFloat32(row + o, x, true);
       }
       step = () => {
         const v = view();
         for (const h of hs) {
           const i = h & 0xffff;
-          const rays = glue.rig_rays_ptr() + i * RAY_ROW;
-          const hits = glue.rig_inputs_ptr() + i * RIG_STRIDE + HITS;
+          const rays = glue.rig_rays_ptr() + i * r.RAY_ROW_STRIDE;
+          const hits = glue.rig_inputs_ptr() + i * r.RIG_INPUT_STRIDE + r.RIG_HITS;
           for (let k = 0; k < 2; k++) {
-            const r = rays + k * 32;
-            v.setFloat32(hits + k * 32, v.getFloat32(r, true), true);
-            v.setFloat32(hits + k * 32 + 4, 0, true);
-            v.setFloat32(hits + k * 32 + 8, v.getFloat32(r + 8, true), true);
-            v.setFloat32(hits + k * 32 + 16, 1, true);
-            v.setUint32(hits + k * 32 + 24, v.getUint32(r + 28, true) & 1, true);
+            const ray = rays + k * r.RAY_STRIDE + r.RAY_ORIGIN;
+            const hit = hits + k * r.HIT_STRIDE;
+            v.setFloat32(hit + r.HIT_POINT, v.getFloat32(ray, true), true);
+            v.setFloat32(hit + r.HIT_POINT + 4, 0, true);
+            v.setFloat32(hit + r.HIT_POINT + 8, v.getFloat32(ray + 8, true), true);
+            v.setFloat32(hit + r.HIT_NORMAL + 4, 1, true);
+            v.setUint32(hit + r.HIT_FLAGS, v.getUint32(rays + k * r.RAY_STRIDE + r.RAY_FLAGS, true) & r.RAY_VALID ? r.HIT_VALID : 0, true);
           }
         }
         glue.write_inputs(0);
