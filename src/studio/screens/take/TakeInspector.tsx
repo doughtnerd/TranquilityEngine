@@ -1,12 +1,15 @@
-// The Take screen's Inspector (ADR 0348; the prototype's Inspector): the selected instance (its playlist, time range,
-// emitter, and its parameters at the playhead as recorded beside the replaying instance's live values), or the selected
-// note (its text, colour and time, editable; Delete), or with nothing selected the global parameters at the playhead.
+// The Take screen's Inspector (ADR 0348; spec §4.5.5; the prototype's Inspector): the selected instance (its playlist's
+// property cards, authored value against live value with the game parameter driving each, its parameters at the playhead
+// as recorded beside the replaying instance's live values, its emitter), or the selected note (its text, colour and time,
+// editable; Delete), or with nothing selected the focused track's cards and the game's values at the playhead.
 // And the Mixer strip: each bus's authored and live level with its meter while the take replays. Views over props.
 import { Fragment } from "preact";
 import { useEffect, useState } from "preact/hooks";
 import { TAKE_NOTE_COLOURS, type TakeNoteMarker, type TakeNoteRegion } from "../../../engine/audio/take/notes";
 import { EmptyState } from "../../../editor/ui/EmptyState";
+import { InfoTip } from "../../../editor/ui/InfoTip";
 import { Fader } from "../../components/Fader";
+import { Icon } from "../../components/Icon";
 import { Meter } from "../../components/Meter";
 import { formatTime } from "../../components/timeAxis";
 import type { ReplayPose } from "../../runtime/takeReplay";
@@ -15,74 +18,137 @@ import { noteColourCss } from "./notesEdits";
 import { PlayheadPicture } from "./TakePicture";
 import { valueText, type BusStrip, type ParameterRow } from "./takeInspectorModel";
 import { pathLabel, type TakeInstance } from "./takeTimeline";
+import { unitText, type PropertyCard } from "./takePlaylists";
+import { playheadText } from "../profiler/RunRuler";
+
+/** The cards of driven and static properties (spec §4.5.5): authored tick, live fill, and the mapping from its parameter. */
+export function PropertyCards(props: { readonly cards: readonly PropertyCard[]; readonly hovered?: string | null; onHover?(parameter: string | null): void }) {
+  if (props.cards.length === 0) return null;
+  return (
+    <div class="tk-cards" role="list" aria-label="Values at the playhead">
+      {props.cards.map((c) => (
+        <div key={c.key} role="listitem" class={`tk-card${c.driver ? " driven" : ""}`} aria-label={`${c.label} ${c.text}, authored ${unitText(c.authored, c.unit)}`}>
+          <div class="tk-card-top">
+            <span class="tk-card-label">{c.label}</span>
+            <span class="tk-card-value">{c.text}</span>
+          </div>
+          <div class="tk-card-bar" aria-hidden="true">
+            <span class="tk-card-fill" style={{ width: `${c.liveAt * 100}%` }} />
+            <span class="tk-card-tick" style={{ left: `${c.authoredAt * 100}%` }} title={`Authored value: ${unitText(c.authored, c.unit)}`} />
+          </div>
+          {c.driver ? (
+            <div class="tk-card-map">
+              <span
+                class={`tk-chip${props.hovered === c.driver.parameter ? " linked" : ""}`}
+                title={`Driven by the game parameter ${c.driver.parameter}`}
+                onMouseEnter={props.onHover ? () => props.onHover!(c.driver!.parameter) : undefined}
+                onMouseLeave={props.onHover ? () => props.onHover!(null) : undefined}
+              >
+                ← {c.driver.parameter}
+              </span>
+              <span> · {c.driver.mapping}</span>
+            </div>
+          ) : (
+            c.note && <div class="tk-card-map">{c.note}</div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export interface InstanceDetailsProps {
   readonly instance: TakeInstance;
+  /** The playlist's type as the badge says it ("Switch"), or null when the path isn't a playlist. */
+  readonly kind: string | null;
   readonly emitterName: string | null;
   readonly emitterPose: ReplayPose | null;
+  readonly cards: readonly PropertyCard[];
   readonly rows: readonly ParameterRow[];
   /** The replaying instance is sounding now. */
   readonly live: boolean;
-  onGoToStart(): void;
+  readonly hovered?: string | null;
+  onHover?(parameter: string | null): void;
   onOpenSource(): void;
 }
 
 const vec = (v: { x: number; y: number; z: number }) => `${v.x.toFixed(1)}, ${v.y.toFixed(1)}, ${v.z.toFixed(1)}`;
 
+/** The Inspector's header: badge, name, sub line and the link to the playlist. */
+function InspectorHead(props: { badge: string; name: string; title: string; sub: string; tip?: string; onOpen?(): void }) {
+  return (
+    <div class="tk-ins-head">
+      <span class="tk-badge">{props.badge}</span>
+      <strong class="tk-ins-title" title={props.title}>{props.name}</strong>
+      <span class="tk-ins-subline">{props.sub}</span>
+      {props.tip && <InfoTip text={props.tip} />}
+      {props.onOpen && (
+        <button type="button" class="tk-ins-open" aria-label={`Open ${props.name} in Playlists`} title={`Open ${props.name} in Playlists`} onClick={props.onOpen}>
+          <Icon name="external" size={14} />
+        </button>
+      )}
+    </div>
+  );
+}
+
 export function InstanceDetails(props: InstanceDetailsProps) {
   const { instance: i } = props;
   const o = i.options;
+  const options = [o.volume !== undefined && `volume ${valueText(o.volume)}`, o.pitch !== undefined && `pitch ${valueText(o.pitch)}`, o.bus && `bus ${o.bus}`, o.priority !== undefined && `priority ${o.priority}`].filter(Boolean).join(" · ");
   return (
     <div class="tk-inspector">
-      <div class="tk-ins-head">
-        <span class="tk-badge">Playlist</span>
-        <strong class="tk-ins-title" title={i.path}>{pathLabel(i.path)}</strong>
-        <button type="button" class="tk-link" onClick={props.onOpenSource} title={`Open ${i.path}`}>Open playlist ›</button>
-      </div>
+      <InspectorHead
+        badge={props.kind ?? "Sound"}
+        name={pathLabel(i.path)}
+        title={i.path}
+        sub={`Instance ${playheadText(i.start)} – ${i.end === null ? "end" : playheadText(i.end)}`}
+        tip="Values show this playlist as it sounds here: the game's values at the playhead through your current curves. The tick is the authored value."
+        onOpen={props.onOpenSource}
+      />
+      <PropertyCards cards={props.cards} hovered={props.hovered} onHover={props.onHover} />
+      {props.rows.length > 0 && (
+        <>
+          <h4 class="tk-ins-sub">Parameters at the playhead</h4>
+          <div class="tk-scroll">
+            <table class="tk-params">
+              <thead>
+                <tr>
+                  <th scope="col">Parameter</th>
+                  <th scope="col">Recorded</th>
+                  <th scope="col" title="What the replaying instance reports now, in the current project (replay the take through this instance to see it)">Live</th>
+                </tr>
+              </thead>
+              <tbody>
+                {props.rows.map((r) => (
+                  <tr key={r.name} class={r.differs ? "differs" : undefined}>
+                    <th scope="row">{r.name}</th>
+                    <td>{valueText(r.recorded)}</td>
+                    <td>{props.live ? valueText(r.live) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
       <dl class="tk-facts">
-        <dt>Path</dt>
-        <dd title={i.path}>{i.path}</dd>
-        <dt>Instance</dt>
-        <dd>
-          {formatTime(i.start)} – {i.end === null ? "end of take" : formatTime(i.end)}
-          {i.release !== null && <> · released {formatTime(i.release)}</>}
-        </dd>
+        {i.release !== null && (
+          <>
+            <dt>Held</dt>
+            <dd>
+              {formatTime(i.start)} – {formatTime(i.release)}
+            </dd>
+          </>
+        )}
         <dt>Emitter</dt>
         <dd>{i.emitter === null ? "None (flat)" : `${props.emitterName ?? `#${i.emitter}`}${props.emitterPose ? ` at ${vec(props.emitterPose.position)}` : ""}`}</dd>
-        {(o.volume !== undefined || o.pitch !== undefined || o.bus !== undefined || o.priority !== undefined) && (
+        {options && (
           <>
             <dt>Options</dt>
-            <dd>{[o.volume !== undefined && `volume ${valueText(o.volume)}`, o.pitch !== undefined && `pitch ${valueText(o.pitch)}`, o.bus && `bus ${o.bus}`, o.priority !== undefined && `priority ${o.priority}`].filter(Boolean).join(" · ")}</dd>
+            <dd>{options}</dd>
           </>
         )}
       </dl>
-      <button type="button" onClick={props.onGoToStart}>Go to start</button>
-      <h4 class="tk-ins-sub">Parameters at the playhead</h4>
-      {props.rows.length === 0 ? (
-        <p class="tk-note">The game set no parameters on this instance.</p>
-      ) : (
-        <div class="tk-scroll">
-          <table class="tk-params">
-            <thead>
-              <tr>
-                <th scope="col">Parameter</th>
-                <th scope="col">Recorded</th>
-                <th scope="col" title="What the replaying instance reports now, in the current project">Live</th>
-              </tr>
-            </thead>
-            <tbody>
-              {props.rows.map((r) => (
-                <tr key={r.name} class={r.differs ? "differs" : undefined}>
-                  <th scope="row">{r.name}</th>
-                  <td>{valueText(r.recorded)}</td>
-                  <td>{props.live ? valueText(r.live) : "—"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      {!props.live && <p class="tk-note">Replay the take through this instance to see its live values.</p>}
     </div>
   );
 }
@@ -158,34 +224,50 @@ export function NoteDetails(props: NoteDetailsProps) {
   );
 }
 
-/** Nothing selected: the picture on screen and the global parameters at the playhead. */
-export function PlayheadValues(props: { readonly open: boolean; readonly time: number; readonly picture?: TakeFrame | null; readonly values: readonly { name: string; text: string }[] }) {
+/** Nothing selected: the focused lane's cards ("Track values at the playhead"), the picture on screen and the game's values. */
+export function PlayheadValues(props: {
+  readonly open: boolean;
+  readonly time: number;
+  readonly picture?: TakeFrame | null;
+  readonly values: readonly { name: string; text: string }[];
+  /** The lane the cards are for (the last one picked, else the first): its path, badge and cards. */
+  readonly track?: { readonly path: string; readonly kind: string | null; readonly cards: readonly PropertyCard[] } | null;
+  readonly hovered?: string | null;
+  onHover?(parameter: string | null): void;
+  onOpenSource?(path: string): void;
+}) {
   if (!props.open) return <EmptyState compact title="Nothing selected" body="Open a take, then select an instance or a note on its timeline." />;
+  const t = props.track;
   return (
     <div class="tk-inspector">
-      <div class="tk-ins-head">
-        <span class="tk-badge">Take</span>
-        <strong class="tk-ins-title">Values at {formatTime(props.time)}</strong>
-      </div>
-      <PlayheadPicture frame={props.picture ?? null} />
-      {props.values.length === 0 ? (
-        <p class="tk-note">The game set no global parameters in this take. Select an instance to see its own.</p>
+      {t ? (
+        <InspectorHead badge={t.kind ?? "Sound"} name={pathLabel(t.path)} title={t.path} sub="Track values at the playhead" tip="Select a playlist instance to inspect it. Values below: this track at the playhead." onOpen={props.onOpenSource ? () => props.onOpenSource!(t.path) : undefined} />
       ) : (
-        <dl class="tk-facts">
-          {props.values.map((v) => (
-            <Fragment key={v.name}>
-              <dt>{v.name}</dt>
-              <dd>{v.text}</dd>
-            </Fragment>
-          ))}
-        </dl>
+        <InspectorHead badge="Take" name={`Values at ${formatTime(props.time)}`} title="" sub="" tip="Select a playlist instance to inspect it." />
+      )}
+      {t && <PropertyCards cards={t.cards} hovered={props.hovered} onHover={props.onHover} />}
+      <PlayheadPicture frame={props.picture ?? null} />
+      {props.values.length > 0 && (
+        <>
+          <h4 class="tk-ins-sub">Game values</h4>
+          <dl class="tk-facts">
+            {props.values.map((v) => (
+              <Fragment key={v.name}>
+                <dt>{v.name}</dt>
+                <dd>{v.text}</dd>
+              </Fragment>
+            ))}
+          </dl>
+        </>
       )}
     </div>
   );
 }
 
 export interface MixerStripProps {
-  readonly strips: readonly BusStrip[];
+  readonly strips: readonly (BusStrip & { readonly fx?: string })[];
+  /** The snapshot in force, for the link's tooltip. */
+  readonly snapshot?: string | null;
   /** The runtime is up (readings are live). */
   readonly running: boolean;
   onOpenMixer(): void;
@@ -197,16 +279,18 @@ export function MixerStrip(props: MixerStripProps) {
   return (
     <div class="tk-mixer">
       <div class="tk-mixer-tools">
-        <span class="tk-note">Authored level (handle) and live level (tick) of each bus while the take replays.</span>
-        <button type="button" class="tk-link" onClick={props.onOpenMixer}>Open Mixer ›</button>
+        <InfoTip text="Each bus's authored level (the handle) and live level (the tick) while the take replays. Levels are edited on the Mixer." />
+        <span class="tk-toolbar-gap" />
+        <button type="button" class="tk-btn" title={`Open the Mixer${props.snapshot ? ` (snapshot: ${props.snapshot})` : ""}`} onClick={props.onOpenMixer}>Open Mixer</button>
       </div>
       <div class="tk-strips" role="list" aria-label="Buses">
         {props.strips.map((s) => (
-          <div class="tk-strip" role="listitem" key={s.name}>
+          <div class="tk-strip" role="listitem" key={s.name} title={s.fx ? `${s.name}: ${s.fx}` : s.name}>
             <Fader orientation="vertical" label={`${s.name} level`} value={s.authoredDb} ghostDb={s.liveDb} ghostTitle={`Live: ${s.text}`} disabled title="Levels are edited on the Mixer" onValue={() => {}}>
               <Meter orientation="vertical" label={`${s.name} meter`} peakDb={s.peakDb} />
             </Fader>
             <span class="tk-strip-name" title={s.name}>{s.name}</span>
+            <span class="tk-strip-fx">{s.fx || "—"}</span>
             <span class="tk-strip-db">{s.text}</span>
           </div>
         ))}

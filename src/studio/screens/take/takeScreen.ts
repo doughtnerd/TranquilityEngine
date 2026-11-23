@@ -9,9 +9,12 @@ import { emptyTakeNotes, formatTakeNotes, parseTakeNotes, takeNotesPath } from "
 import type { Take } from "../../../engine/audio/take/reader";
 import type { TakeNotes } from "../../../engine/audio/take/types";
 import { isLabelled } from "../../../engine/audio/parameters";
-import { openAssetDocument, type AssetDocument } from "../../../editor/assetDocuments";
+import { openAssetDocument, readAsset, type AssetDocument } from "../../../editor/assetDocuments";
+import { isPlaylistPath } from "../../../engine/audio/playlist/format";
+import type { PlaylistAsset } from "../../../engine/audio/playlist/types";
+import type { ParameterDef } from "../../../engine/audio/parameters";
 import { assetKinds } from "../../../editor/sdk/contributions";
-import { currentProject, status } from "../../../editor/state";
+import { currentProject, docVersion, status } from "../../../editor/state";
 import { studioScreenFor } from "../../../editor/studioAssets";
 import { captureErrorMessage } from "../../../plugins/audio/editor/mix/openSaveFlow";
 import { CaptureError } from "../../../plugins/audio/runtime/capture/format";
@@ -79,6 +82,10 @@ class TakeScreen {
   readonly selected = signal<TakeSelection>(null);
   /** The Takes tree's selected folder (where Open take file… and New folder go), null for none. */
   readonly folder = signal<string | null>(null);
+  /** The game parameter under the pointer, on a lane or an Inspector card: both outline it (the prototype's hover link). */
+  readonly hovered = signal<string | null>(null);
+  /** The lane the Inspector shows with nothing selected: the last instance's path picked (else the first lane). */
+  readonly focusPath = signal<string | null>(null);
   private run = 0;
 
   /** The open take (the replay store's). */
@@ -162,6 +169,23 @@ let screen: TakeScreen | null = null;
 /** The screen's store. */
 export function takeScreen(): TakeScreen {
   return (screen ??= new TakeScreen());
+}
+
+/** The playlist at `path` as the project has it now (an open document's edits included), or null when it isn't one. */
+export function takePlaylist(path: string): PlaylistAsset | null {
+  const project = currentProject.value;
+  void docVersion.value;
+  if (!project || !isPlaylistPath(path) || !project.files.includes(path)) return null;
+  try {
+    return readAsset<PlaylistAsset>(project, path, "playlist").value;
+  } catch {
+    return null;
+  }
+}
+
+/** The project's global parameter definitions (`audio.json`). */
+export function globalParameters(): readonly ParameterDef[] {
+  return openMixDocument()?.value.value.parameters ?? [];
 }
 
 /** Open a take on the Take screen (the route says which, so a reload or a hand-off opens the same one). */

@@ -10,6 +10,7 @@ import { currentProject, docVersion, status } from "../../../editor/state";
 import { moveStudioAssets, renameStudioAsset } from "../../boot/studioAssetMoves";
 import { toasts } from "../../shell/studioServices";
 import { moveUpPlan } from "../samples/sampleLibrary";
+import { captureTitle } from "./captureTree";
 import { restoreFiles, trashFiles } from "./runFileTrash";
 
 /** What one screen's files need beyond the common actions. */
@@ -160,7 +161,7 @@ export async function deleteFile(kind: RunFileKind, path: string): Promise<boole
   if ("refused" in r) return (fail(`Can't delete ${nameOf(path)}: ${r.refused}.`), false);
   if (wasOpen) kind.closed();
   toasts.show({
-    text: `Deleted ${nameOf(path)}`,
+    text: `Deleted ${captureTitle(path)}`,
     undo: () =>
       void restoreFiles(project, r.trashed).then((back) => {
         if ("refused" in back) fail(`Can't bring ${nameOf(path)} back: ${back.refused}.`);

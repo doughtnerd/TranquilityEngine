@@ -340,3 +340,37 @@ describe("TakeReplay: lines, languages and dialogue says (ADR 0354 §10, 0355 §
     expect(replay.pickDifferences.value.size).toBe(0);
   });
 });
+
+describe("lane mute and solo (spec 4.5.4)", () => {
+  const records = [
+    req({ kind: "play", t: 0, instance: 1, path: "engine", emitter: null, options: {} }),
+    req({ kind: "play", t: 0, instance: 2, path: "music", emitter: null, options: {} }),
+    req({ kind: "play", t: 2, instance: 3, path: "boost", emitter: null, options: {} }),
+  ];
+
+  it("a muted path's playing instance stops at once and its later instances don't start; unmuting starts it where it is", () => {
+    const { replay, at, alive } = setup(records);
+    replay.play();
+    at(0.5);
+    expect(alive().map((h) => h.path).sort()).toEqual(["engine", "music"]);
+    replay.setMuted("music", true);
+    expect(alive().map((h) => h.path)).toEqual(["engine"]);
+    replay.setMuted("boost", true);
+    at(2.5);
+    expect(alive().map((h) => h.path)).toEqual(["engine"]);
+    replay.setMuted("music", false);
+    const music = alive().find((h) => h.path === "music");
+    expect(music?.options.offset).toBeCloseTo(2.5, 5);
+  });
+
+  it("while a path is soloed only soloed paths sound", () => {
+    const { replay, at, alive } = setup(records);
+    replay.play();
+    at(0.5);
+    replay.setSoloed("engine", true);
+    expect(alive().map((h) => h.path)).toEqual(["engine"]);
+    expect(replay.audible("music")).toBe(false);
+    replay.setSoloed("engine", false);
+    expect(alive().map((h) => h.path).sort()).toEqual(["engine", "music"]);
+  });
+});
