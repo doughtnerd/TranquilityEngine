@@ -19,10 +19,11 @@ import { useState } from "preact/hooks";
 import { effectSpec, effectTypesAt } from "../../../../engine/audio/effects/catalogue";
 import type { EffectType } from "../../../../engine/audio/effects/types";
 import type { ParameterDef } from "../../../../engine/audio/parameters";
-import { isLabelled, parameterRange } from "../../../../engine/audio/parameters";
+import { isLabelled, parameterDefault, parameterRange } from "../../../../engine/audio/parameters";
 import type { PlaylistLint } from "../../../../engine/audio/playlist/lint";
 import type { Automation, LoopBehaviour, PlaylistBody, SequenceSettings } from "../../../../engine/audio/playlist/types";
 import { evalCurve } from "../../../../engine/core/curve";
+import { evalCurveBy, secondValueOf } from "../../../../engine/audio/curveBy";
 import { SegmentedControl } from "../../../../editor/ui/SegmentedControl";
 import { FieldRow, SelectBox, Section } from "../../../../editor/ui/PanelFields";
 import { accept, type EditResult } from "../../../../plugins/audio/editor/editResult";
@@ -196,7 +197,17 @@ export function SequenceInspector(props: SequenceInspectorProps) {
   /** The lanes of a property (a base target, or every lane of an effect `fx:<id>:`). */
   const lanesFor = (list: readonly Automation[], target: string) => list.filter((a) => (target.endsWith(":") ? a.target.startsWith(target) : a.target === target));
   /** A live value: the curve at the playhead (time) or at the parameter's test value. */
-  const liveValue = (a: Automation, origin = 0) => evalCurve(a.curve, isTimeInput(a.input) ? Math.max(0, playhead - origin) : (values[(a.input as { parameter: string }).parameter] ?? props.parameters.find((p) => p.name === (a.input as { parameter: string }).parameter)?.default ?? 0));
+  const testValue = (name: string): number => {
+    const v = values[name];
+    const def = props.parameters.find((p) => p.name === name);
+    return typeof v === "number" ? v : def ? parameterDefault(def) : 0;
+  };
+  const liveValue = (a: Automation, origin = 0) => {
+    const x = isTimeInput(a.input) ? Math.max(0, playhead - origin) : testValue((a.input as { parameter: string }).parameter);
+    // ADR 0362 §5: a lane that follows a second parameter, at its test value (as the runtime plays it).
+    const second = a.by ? props.parameters.find((p) => p.name === a.by!.input) : undefined;
+    return a.by && second ? evalCurveBy(a.curve, a.by, x, secondValueOf(second, testValue(second.name))) : evalCurve(a.curve, x);
+  };
 
   const aButton = (owner: AutomationOwner, list: readonly Automation[], target: string, name: string, ownerName: string, length: number) => {
     const lanes = lanesFor(list, target);

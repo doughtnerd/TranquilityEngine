@@ -110,7 +110,7 @@ describe("And by in the document's history (ADR 0362 §5)", () => {
     await doc.flush();
     expect(doc.history.states.length).toBe(steps + 1);
     expect(doc.undoLabel.peek()).toBe("Automate Level · Music");
-    const saved = JSON.parse(fs.files.get(joinPath(ROOT, AUDIO_PROJECT_FILE))!) as { automation: { on: string; target: string; by?: unknown }[] };
+    const saved = JSON.parse(String(fs.files.get(joinPath(ROOT, AUDIO_PROJECT_FILE)))) as { automation: { on: string; target: string; by?: unknown }[] };
     expect(saved.automation.find((a) => a.on === "Music" && a.target === "volume")!.by).toEqual({ input: "health", mode: "morph", curve: [[0, -12], [1, 0]] });
     const sent = () => applied.filter((a) => a.op.op === "setAutomation").map((a) => [a.origin, (a.op as { rule: { by?: { input: string } } | null }).rule?.by?.input ?? null]);
     expect(sent()).toEqual([["editor", "health"]]);
