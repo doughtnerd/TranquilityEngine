@@ -67,11 +67,99 @@ describe("Sequence: clips on the timeline", () => {
     expect(fake.plays[0]!.bus).toBe("SFX");
   });
 
-  it("reverse plays forward with one warning", async () => {
-    await kit.boot({ "s.playlist.json": seq({ length: 1, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 1, reverse: true }])] }) });
+});
+
+describe("Sequence: reverse and the Amp envelope (ADR 0362)", () => {
+  it("a reversed clip reads its span backwards: from its end down to its offset, decoded whole, stopping there", async () => {
+    await kit.boot({
+      "a.wav.meta.json": { format: "myco.import@1", stream: true },
+      "s.playlist.json": seq({ length: 2, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 0.5, offset: 0.25, reverse: true }, { id: "c2", sample: "a.wav", at: 1, length: 0, reverse: true }])] }),
+    });
+    fake.durations.set("a.wav", 1);
     Audio.play("s.playlist.json");
-    expect(plays()).toEqual([["a.wav", 0]]);
-    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("reverse playback isn't supported"));
+    expect(fake.plays[0]).toMatchObject({ path: "a.wav", reverse: true, stream: false, offset: 0.75 });
+    // It stops where it reaches its offset (0.5 s of audio later), as a forward trim stops at its end.
+    at(0.6);
+    expect(fake.voices[0]!.events.some((e) => e.kind === "stop")).toBe(true);
+    // A clip over the whole sample starts at the file's end (no offset).
+    at(0.95);
+    expect(fake.plays[1]).toMatchObject({ reverse: true, stream: false });
+    expect(fake.plays[1]!.offset).toBeUndefined();
+    expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining("reverse"));
+  });
+
+  it("a reversed sync clip plays its map mirrored: the tail first, the loop's passes backwards, the pickup last", async () => {
+    // a.wav: 4 s, loop 1..2. Forward the 6 s clip is 0..2 (pickup and first pass), 1..2, 1..2, then the tail 2..4.
+    await kit.boot({
+      "a.wav.meta.json": meta({ loops: [{ id: "l1", start: 1, end: 2, active: "always" }] }),
+      "s.playlist.json": seq({ length: 0, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 6, sync: true, reverse: true }])] }),
+    });
+    fake.durations.set("a.wav", 4);
+    Audio.play("s.playlist.json");
+    at(1.95); at(2.95); at(3.95); at(5.95);
+    expect(plays()).toEqual([["a.wav", 0], ["a.wav", 2], ["a.wav", 3], ["a.wav", 4]]);
+    // Each piece starts at its stretch's end and reads down: 4 → 2 (the file's end: no offset), 2 → 1 twice, 2 → 0.
+    expect(seeks()).toEqual([null, 2, 2, 2]);
+    expect(fake.plays.every((p) => p.reverse === true)).toBe(true);
+    expect(lastFade(0)).toEqual({ kind: "fadeShaped", to: 0, seconds: 0.002, law: "linear", at: 2, stopAtEnd: true });
+    // Its loop can't drive the playhead backwards: it follows (one warning).
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("a reversed clip's loop can't drive the playhead"));
+  });
+
+  it("an async reversed clip loops its region backwards while the loop is active", async () => {
+    await kit.boot({
+      "a.wav.meta.json": meta({ loops: [{ id: "l1", start: 1, end: 2, active: "held" }] }),
+      "s.playlist.json": seq({ length: 6, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 6, reverse: true }])] }),
+    });
+    fake.durations.set("a.wav", 4);
+    Audio.play("s.playlist.json");
+    expect(fake.plays[0]).toMatchObject({ reverse: true });
+    expect(fake.plays[0]!.offset).toBeUndefined();
+    // The region is in source seconds, as every loop (the core mirrors it for the reversed voice).
+    expect(fake.voices[0]!.events.find((e) => e.kind === "loop")).toMatchObject({ start: 1, end: 2, looping: true });
+  });
+
+  it("reverse on a playlist clip does nothing, with one warning", async () => {
+    await kit.boot({
+      "c.playlist.json": pla("clip", [sample("a.wav")]),
+      "s.playlist.json": seq({ length: 1, tracks: [{ id: "t", kind: "playlist", clips: [{ id: "c1", playlist: "c.playlist.json", at: 0, length: 1, reverse: true }] }] }),
+    });
+    Audio.play("s.playlist.json");
+    expect(fake.plays[0]!.reverse).toBeUndefined();
+    expect(console.warn).toHaveBeenCalledWith(expect.stringContaining("a playlist or generator clip plays forward"));
+  });
+
+  it("a clip's Amp envelope goes to each of its voices from where it starts in the clip; not to the clip's submix", async () => {
+    const envelope = { id: "env", type: "envelope", params: { attack: 10, hold: 5, decay: 20, sustain: 50, release: 300 } };
+    await kit.boot({
+      "a.wav.meta.json": meta({ loops: [{ id: "l1", start: 1, end: 2, active: "always" }] }),
+      "s.playlist.json": seq({ length: 0, tracks: [track([{ id: "c1", sample: "a.wav", at: 0, length: 6, sync: true, effects: [envelope] }])] }),
+    });
+    fake.durations.set("a.wav", 4);
+    const h = Audio.play("s.playlist.json");
+    const stages = { attack: 0.01, hold: 0.005, decay: 0.02, sustain: 0.5, release: 0.3 };
+    expect(fake.plays[0]!.envelope).toEqual({ stages, length: 6, offset: 0 });
+    // The next piece (the loop's second pass) starts 2 s into the clip, so 2 s into its envelope.
+    at(1.95);
+    expect(fake.plays[1]!.envelope).toEqual({ stages, length: 6, offset: 2 });
+    h.stop();
+    // Nothing tried to run the envelope as a playlist effect (it isn't the submix's).
+    expect(console.warn).not.toHaveBeenCalledWith(expect.stringContaining("envelope"));
+  });
+
+  it("a bypassed Amp envelope plays nothing; a playlist clip's voices take the clip's envelope", async () => {
+    await kit.boot({
+      "c.playlist.json": pla("clip", [sample("b.wav")]),
+      "s.playlist.json": seq({ length: 2, tracks: [
+        track([{ id: "c1", sample: "a.wav", at: 0, length: 1, effects: [{ id: "e", type: "envelope", on: false }] }]),
+        { id: "t2", kind: "playlist", clips: [{ id: "c2", playlist: "c.playlist.json", at: 0, length: 1.5, effects: [{ id: "e2", type: "envelope", params: { attack: 100 } }] }] },
+      ] }),
+    });
+    Audio.play("s.playlist.json");
+    const a = fake.plays.find((p) => p.path === "a.wav")!;
+    const b = fake.plays.find((p) => p.path === "b.wav")!;
+    expect(a.envelope).toBeUndefined();
+    expect(b.envelope).toMatchObject({ stages: { attack: 0.1 }, length: 1.5, offset: 0 });
   });
 });
 

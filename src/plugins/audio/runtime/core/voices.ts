@@ -25,12 +25,13 @@
 //   makes per start (`eventBench`'s start+stop heap gate).
 import type { Vec3Like } from "../../../../engine/core/math";
 import type { Mixer } from "../../../../engine/audio/mixer";
-import type { Attenuation, AudioPanner, FadeLaw, ListenerPose, PlayRequest, ShapedFade, VoiceSpatialOptions } from "../backend";
+import type { Attenuation, AudioPanner, FadeLaw, ListenerPose, PlayRequest, ShapedFade, VoiceEnvelope, VoiceSpatialOptions } from "../backend";
+import { fitAmpEnvelope } from "../../../../engine/audio/effects/ampEnvelope";
 import { generatorKindIndex } from "../../../../engine/audio/generators/catalogue";
 import { GEN_MASK_ALL } from "./commandWriter";
-import { BUS_LP_OFF_HZ, GEN_CLIP_ID_FIRST, PLAY_FLAGS_AMBISONIC, PLAY_FLAGS_LOOP, PLAY_FLAGS_MIXED, PLAY_FLAGS_SPATIAL, PLAY_FLAGS_STREAM, PLAY_FLAGS_WANTS_PLAYHEAD, SET_PARAMS_MASK_BUS, SET_PARAMS_MASK_DIR, SET_PARAMS_MASK_GAIN, SET_PARAMS_MASK_PITCH } from "../wire.generated";
+import { AMP_ENV_KEY_OFF_NONE, BUS_LP_OFF_HZ, ClipFormat, GEN_CLIP_ID_FIRST, PLAY_FLAGS_AMBISONIC, PLAY_FLAGS_LOOP, PLAY_FLAGS_MIXED, PLAY_FLAGS_REVERSE, PLAY_FLAGS_SPATIAL, PLAY_FLAGS_STREAM, PLAY_FLAGS_WANTS_PLAYHEAD, SET_PARAMS_MASK_BUS, SET_PARAMS_MASK_DIR, SET_PARAMS_MASK_GAIN, SET_PARAMS_MASK_PITCH } from "../wire.generated";
 import type { ClockMap } from "./clock";
-import type { CommandWriter, PlayArgs } from "./commandWriter";
+import type { CommandWriter, FramesEnvelope, PlayArgs } from "./commandWriter";
 import { ambisonicImportGain, type ClipInfo, type ClipRegistry } from "./clipRegistry";
 import { aacRefusal, unsupportedFormat, type WarnOnce } from "./codecs";
 import type { CoreAutomation } from "./coreAutomation";
@@ -147,6 +148,17 @@ export interface CoreVoicesHost {
   holdStemResends(): boolean;
 }
 
+/**
+ * ADR 0362 item 2: a voice's Amp envelope in frames at `rate` (the context's: the envelope moves one frame per output
+ * frame), fitted to its span as `fitAmpEnvelope` (and the core's `Adsr::fit`) fit it, from frames rounded once.
+ */
+export function envelopeFrames(env: VoiceEnvelope, rate: number): FramesEnvelope {
+  const f = (s: number): number => Math.max(0, Math.min(0xfffffffe, Math.round((Number.isFinite(s) ? s : 0) * rate)));
+  const s = env.stages;
+  const fit = fitAmpEnvelope({ attack: f(s.attack), hold: f(s.hold), decay: f(s.decay), sustain: s.sustain, release: f(s.release) }, env.length === null ? null : f(env.length));
+  return { attack: fit.attack, hold: fit.hold, decay: fit.decay, sustain: fit.sustain, release: fit.release, keyOff: fit.keyOff === null ? AMP_ENV_KEY_OFF_NONE : fit.keyOff };
+}
+
 /** The core voice (see the header). */
 export class CoreVoices {
   /** @internal Each slot's `PlayRequest.owner` (the playing node's name), for `debug()`'s voice rows; null for none. */
@@ -171,6 +183,10 @@ export class CoreVoices {
   private readonly startOffset: Float64Array;
   /** W12: per slot, the stream frame a stream voice opens at (`CorePlayRequest.streamStartFrame`: after a head clip), else 0. */
   private readonly streamStart: Uint32Array;
+  /** ADR 0362: per slot, the voice's Amp envelope (`PlayRequest.envelope`), or null. */
+  private readonly envelopes: (VoiceEnvelope | null)[] = [];
+  /** ADR 0362: per slot, the context frame its PLAY went out for (its envelope's offset counts from there). */
+  private readonly envelopeFrom: Float64Array;
   private stemStaleCount = 0;
   /**
    * F-24: per slot, the id of the voice whose PLAY went out flat (non-spatial, not ambisonic), else 0. The core reads
@@ -194,6 +210,7 @@ export class CoreVoices {
     this.stemStaleTo = new Float64Array(t.capacity);
     this.startOffset = new Float64Array(t.capacity);
     this.streamStart = new Uint32Array(t.capacity);
+    this.envelopeFrom = new Float64Array(t.capacity);
     this.flatPlayId = new Uint32Array(t.capacity);
     this.gainApplied = new Float32Array(t.capacity).fill(1);
     this.basis.set(this.listenerPos, this.listenerFwd, this.listenerUp);
@@ -288,6 +305,9 @@ export class CoreVoices {
     if (req.attenuation) this.applyAttenuation(i, req.attenuation);
     if (req.position) this.applyPosition(i, req.position);
     this.applyM3Request(i, req);
+    // ADR 0362: a clip voice read backwards, and a voice's Amp envelope (both behind its PLAY).
+    if (req.reverse === true && !stream && !gen) t.flags2[i] = t.flags2[i]! | VoiceFlag2.REVERSE;
+    this.envelopes[i] = req.envelope ?? null;
     this.refreshGain(i);
     // `at` is ignored while locked (API §1); the stamp-or-asap choice is made when the PLAY is sent (`sendPlay`).
     t.startFrame[i] = running ? host.clockMap.frameOfTime(req.at) : 0;
@@ -407,6 +427,13 @@ export class CoreVoices {
     }
     const clip = t.clip[i]!;
     const state = host.clips.state(clip);
+    if (state === "ready" && (t.flags2[i]! & VoiceFlag2.REVERSE) !== 0 && host.clips.info(clip)?.format === ClipFormat.AdpcmIma) {
+      // ADR 0362: an ADPCM clip's reader moves forward only; a reversed play of it would play the wrong audio.
+      const path = host.clips.info(clip)?.path ?? "";
+      host.warnOnce(`${path}#reverse-adpcm`, `audio: "${path}" ships compressed (ADPCM, load "compressed"), which the audio core reads forwards only; a reversed clip of it is silent. Set its load mode to decode to play it backwards (ADR 0362).`);
+      t.free(id, VoiceReason.FAILED);
+      return;
+    }
     if (state === "ready") {
       this.applyImportGain(i, clip);
       // A3.1: mixed when there is room under the cap; otherwise virtual, and this frame's selection may promote it.
@@ -438,7 +465,9 @@ export class CoreVoices {
     if (!(offset > 0)) return 0;
     const info = this.host.clips.info(clip);
     if (!info || !(info.sampleRate > 0)) return 0;
-    const frame = Math.round(offset * info.sampleRate);
+    let frame = Math.round(offset * info.sampleRate);
+    // ADR 0362: a reversed voice counts its positions from the clip's end (it starts at source second `offset`).
+    if ((this.t.flags2[i]! & VoiceFlag2.REVERSE) !== 0 && info.frames > 0) frame = Math.max(0, info.frames - frame);
     if (info.frames <= 0) return frame;
     return (this.t.flags[i]! & VoiceFlag.LOOP) !== 0 ? frame % info.frames : Math.min(frame, info.frames);
   }
@@ -561,7 +590,8 @@ export class CoreVoices {
       (f & VoiceFlag.LOOP ? PLAY_FLAGS_LOOP : 0) |
       (f & VoiceFlag.SPATIAL ? PLAY_FLAGS_SPATIAL : 0) |
       (f & VoiceFlag.STREAM ? PLAY_FLAGS_STREAM | PLAY_FLAGS_WANTS_PLAYHEAD : 0) |
-      (t.flags2[i]! & VoiceFlag2.AMBISONIC ? PLAY_FLAGS_AMBISONIC : 0);
+      (t.flags2[i]! & VoiceFlag2.AMBISONIC ? PLAY_FLAGS_AMBISONIC : 0) |
+      ((t.flags2[i]! & VoiceFlag2.REVERSE) !== 0 && (f & VoiceFlag.STREAM) === 0 ? PLAY_FLAGS_REVERSE : 0);
     a.startOffsetFrames = startOffsetFrames;
     // ADR 0162 (K4): the dry gain with occlusion, the pitch with Doppler, and main's lpHz (`voiceFx`), all M2's values at the defaults.
     a.gain = this.dryGain(i);
@@ -586,6 +616,12 @@ export class CoreVoices {
     host.playheads.start(i, stamp ?? clockMap.framesNow(), a.startOffsetFrames);
     // ADR 0158: the voice's bindings and loop, right behind its PLAY.
     host.automation.onPlaySent(id, i, stamp);
+    // ADR 0362 (ABI 6.1): its Amp envelope, on arrival like the bindings, stamped as its PLAY to stay behind it.
+    const env = this.envelopes[i];
+    if (env) {
+      this.envelopeFrom[i] = stamp ?? clockMap.framesNow();
+      host.writer.ampEnvelope(id, envelopeFrames(env, clockMap.sampleRate), env.offset * clockMap.sampleRate, stamp);
+    }
     // ADR 0345 levels (ABI 4.9): into its playlist level's submix (applies on arrival, like the bindings), stamped as
     // its PLAY so the frame-ordered batch keeps it after the PLAY (which would otherwise clear it).
     if (t.submix[i]! > 0) host.writer.route(id, t.submix[i]! - 1, stamp);
@@ -595,6 +631,17 @@ export class CoreVoices {
     if (f & VoiceFlag.PAUSED) host.writer.setPaused(id, true);
     if (start > 0) t.startFrame[i] = 0;
     this.spatialDirty[i] = 0;
+  }
+
+  /**
+   * ADR 0362: slot `i`'s Amp envelope for a hard rebuild's REPLAY applying at context frame `frame`: its frames and the
+   * envelope frame it has reached there (its offset plus the frames since its PLAY), or null without one.
+   */
+  replayEnvelope(i: number, frame: number): { readonly env: FramesEnvelope; readonly offsetFrames: number } | null {
+    const env = this.envelopes[i];
+    if (!env) return null;
+    const rate = this.host.clockMap.sampleRate;
+    return { env: envelopeFrames(env, rate), offsetFrames: env.offset * rate + Math.max(0, frame - this.envelopeFrom[i]!) };
   }
 
   // --- The setters (by id; each does nothing for a stale id) ---

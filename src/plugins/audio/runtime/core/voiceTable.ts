@@ -85,6 +85,8 @@ export const VoiceFlag2 = {
   AUX: 1 << 3,
   /** ADR 0347: the voice asks for its bus's bed whatever its rank (an audio zone's interior, `PlayRequest.bed`). */
   BED: 1 << 4,
+  /** ADR 0362: a clip voice read backwards (`PlayRequest.reverse`; PLAY flag `reverse`): its positions count from the clip's end. */
+  REVERSE: 1 << 5,
 } as const;
 
 /**

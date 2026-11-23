@@ -4,6 +4,7 @@
  *
  * Lives in the audio plugin (ADR 0157 §6); the engine imports the mixer from `engine/audio/mixer`.
  */
+import type { AmpStages } from "../../../engine/audio/effects/ampEnvelope";
 import type { Vec3Like } from "../../../engine/core/math";
 import type { Effect, PluginEffectDecl } from "../../../engine/audio/effects/types";
 import { mixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../engine/audio/mixer";
@@ -353,6 +354,28 @@ export interface PlayRequest {
    * backend without `generators` plays nothing for it.
    */
   generator?: GeneratorSource;
+
+  // ADR 0362 (the core's ABI 6.1). Optional; a backend without them plays the clip forward with no envelope.
+  /**
+   * Item 3: the voice reads its clip backwards (a reversed sequence clip). It starts at `offset` seconds into the source
+   * (0 or omitted: the clip's end) and plays down to the clip's start, where it ends; its loops (`setLoop`, `setLoops`,
+   * in source seconds as always) run backwards inside their regions. Decoded clips only: the caller decodes a streamed
+   * source whole for it (`stream: false`).
+   */
+  reverse?: boolean;
+  /** Item 2: the voice's Amp envelope (a sequence clip's `envelope` effect), per sample on the core. */
+  envelope?: VoiceEnvelope;
+}
+
+/**
+ * ADR 0362 item 2: a voice's Amp envelope. `stages` are seconds (`ampEnvelope.ts`); the envelope spans `length` seconds
+ * (its stages fitted to it, the release ending at its end; null: unbounded, never released) and the voice starts at
+ * `offset` seconds into it (a voice that starts inside its clip). It runs on the voice's own time (not its pitch).
+ */
+export interface VoiceEnvelope {
+  readonly stages: AmpStages;
+  readonly length: number | null;
+  readonly offset: number;
 }
 
 /**

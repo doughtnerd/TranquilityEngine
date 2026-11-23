@@ -26,7 +26,7 @@ import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CUR
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/parameters";
 import { mediaPlay } from "../media/packages";
 import { generatorsNeedTheCore, isPendingCoreBackend, audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest, type SubmixLevel, type VoiceSpatialOptions } from "../backend";
-import { clipRequest, SAMPLE_END_FADE, sampleEdits, samplePass, samplePlan } from "../clipResolver";
+import { clipDuration, clipRequest, SAMPLE_END_FADE, sampleEdits, samplePass, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
 import { playlistHost } from "./host";
 import { startOffsetOf, type EventOptions } from "./options";
@@ -845,15 +845,21 @@ export class PlaylistInstance implements NodeHost {
       return null;
     }
     const d = this.dress(req, ctx);
-    // `EventOptions.offset` (only while the instance starts): begin that far into the (trimmed) sound, wrapped into the
-    // loop when it loops; a one-pass sample it would already have finished doesn't play.
-    const from = trim ? trim[0] : 0;
-    const skip = this.startOffset > 0 ? this.offsetInto(this.startOffset, from, trim, loop, path) : 0;
-    if (skip === null) return null;
-    // ADR 0342: the pass every play of a sample makes (`samplePass`): a trimmed start, sample-exact (a start offset, not a seek).
-    const pass = samplePass(path, trim, skip);
-    if (pass.offset > 0) req.offset = pass.offset;
-    else delete req.offset;
+    // ADR 0362 item 3: a reversed play reads its trim backwards, from its end down to its start (the sequence offsets it
+    // itself, so `EventOptions.offset` never applies), decoded whole when the sample streams.
+    const pass = ctx.reverse ? this.reversePass(req, path, trim) : (() => {
+      // `EventOptions.offset` (only while the instance starts): begin that far into the (trimmed) sound, wrapped into the
+      // loop when it loops; a one-pass sample it would already have finished doesn't play.
+      const from = trim ? trim[0] : 0;
+      const skip = this.startOffset > 0 ? this.offsetInto(this.startOffset, from, trim, loop, path) : 0;
+      if (skip === null) return null;
+      // ADR 0342: the pass every play of a sample makes (`samplePass`): a trimmed start, sample-exact (a start offset, not a seek).
+      const forward = samplePass(path, trim, skip);
+      if (forward.offset > 0) req.offset = forward.offset;
+      else delete req.offset;
+      return forward;
+    })();
+    if (pass === null) return null;
     let voice: AudioVoice | null;
     // ADR 0351 §7: through the package registry (the strict rule; an unload stops the voice).
     try { voice = mediaPlay(req); } catch { voice = null; }
@@ -872,6 +878,22 @@ export class PlaylistInstance implements NodeHost {
       this.schedule(end, () => { if (!v.leaving && !v.loop?.looping) { v.leaving = true; voice!.stop(SAMPLE_END_FADE); } });
     }
     return v;
+  }
+
+  /**
+   * ADR 0362 item 3: the pass of a reversed play of `path` over `trim` (null: the whole file): the request reads
+   * backwards from the trim's end (its `offset`; 0 is the file's end) and, decoded whole, never streams. Its length is
+   * the trim's; `early` when it must stop before the file's start (the trim starts after 0).
+   */
+  private reversePass(req: PlayRequest, path: string, trim: [number, number] | null): { offset: number; length: number | null; early: boolean } {
+    const fileLength = clipDuration(path);
+    const from = trim ? Math.max(0, trim[0]) : 0;
+    const to = trim ? Math.min(trim[1], fileLength ?? Infinity) : (fileLength ?? Infinity);
+    req.reverse = true;
+    req.stream = false;
+    if (Number.isFinite(to) && (fileLength === null || to < fileLength - 1e-6)) req.offset = to;
+    else delete req.offset;
+    return { offset: Number.isFinite(to) ? to : 0, length: Number.isFinite(to) ? Math.max(0, to - from) : null, early: from > 1e-6 };
   }
 
   /**
@@ -968,6 +990,8 @@ export class PlaylistInstance implements NodeHost {
       }
     }
     if (ctx.fadeIn > 0) req.fadeZero = true;
+    // ADR 0362 item 2: a clip's Amp envelope, from where this voice starts in the clip's time.
+    if (ctx.envelope) req.envelope = { stages: ctx.envelope.stages, length: ctx.envelope.length, offset: Math.max(0, start - ctx.envelope.origin) };
     return { c, staticVolume, staticPitch, start, timed, timeCurves, t, curved, dynList, dyn, base, lowpass };
   }
 

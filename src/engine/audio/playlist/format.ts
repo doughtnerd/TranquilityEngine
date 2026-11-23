@@ -42,6 +42,9 @@ import { isEventName } from "../dialogue/format";
 import { generatorBodyToJson, parseGeneratorBody } from "../generators/format";
 import type { GeneratorBody } from "../generators/types";
 
+/** Voice-level types a sequence clip's chain runs although the instance level doesn't list them (ADR 0345, 0362). */
+const CLIP_VOICE_TYPES = ["gain", "envelope"] as const;
+
 /** Limits of a playlist, declared once (ADR 0306; the first five are ADR 0343's). */
 export const PLAYLIST_LIMITS = Object.freeze({
   /** Entries of one playlist. */
@@ -209,12 +212,14 @@ class PlaylistReader {
   /**
    * A sequence clip's chain (ADR 0345 levels, the audio core's ABI 4.9): it runs on a submix of the clip's own, so it
    * takes the instance level's types (a delay or reverb rings past the clip), and a gain, which the catalogue lists at
-   * the voice level only, runs there too (the core's submixes run it).
+   * the voice level only, runs there too (the core's submixes run it). ADR 0362: so does the Amp envelope, which the
+   * clip's voices run (the core's AMP_ENVELOPE, ABI 6.1) over the clip's own time.
    */
   clipEffects(raw: unknown, where: string) {
     const scratch: string[] = [];
     const out = parseEffects(raw, "instance", where, scratch, PLAYLIST_LIMITS.effects);
-    for (const p of scratch) if (!p.includes(`${effectSpec("gain").label} can't run at the instance level`)) this.problems.push(p);
+    const runs = CLIP_VOICE_TYPES.map((t) => `${effectSpec(t).label} can't run at the instance level`);
+    for (const p of scratch) if (!runs.some((r) => p.includes(r))) this.problems.push(p);
     return out;
   }
 
