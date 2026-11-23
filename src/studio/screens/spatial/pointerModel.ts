@@ -127,3 +127,26 @@ export function dragTo(scene: AudioTestScene, drag: Drag, p: P2): { result: Edit
       return { result: moveRoutePoint(scene, drag.id, drag.index, p), label: "Edit path" };
   }
 }
+
+/** What has the keyboard focus, as far as the plan's hover cares (an `Element` fits it). */
+export interface FocusHolder {
+  readonly tagName: string;
+  readonly isContentEditable?: boolean;
+  readonly type?: string;
+  closest?(selector: string): unknown;
+}
+
+const TYPING_INPUTS = new Set(["", "text", "search", "number", "email", "password", "tel", "url"]);
+
+/**
+ * Whether the pointer entering the plan takes the keyboard focus to it (D27, the prototype's S:1524), so Space pans,
+ * +/−/0 zoom and the arrows pan while the pointer is over the plan, rather than Space playing the scene. It doesn't take
+ * focus from a field being typed in, an open menu or a dialog.
+ */
+export function hoverTakesFocus(active: FocusHolder | null): boolean {
+  if (!active) return true;
+  const tag = active.tagName.toUpperCase();
+  if (tag === "TEXTAREA" || tag === "SELECT" || active.isContentEditable) return false;
+  if (tag === "INPUT" && TYPING_INPUTS.has((active.type ?? "").toLowerCase())) return false;
+  return !active.closest?.('[role="dialog"], [role="menu"], [role="listbox"]');
+}

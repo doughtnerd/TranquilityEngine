@@ -4,7 +4,7 @@ import type { AudioProject } from "../../../engine/audio/project/types";
 import type { MovingEmitter, SceneBox } from "../../../engine/audio/spatial/testSceneTypes";
 import { emptyMix } from "../mixer/mixerFixture";
 import { boxCorners, rotateKnob } from "./geometry";
-import { KNOB_PX, beginDrag, dragTo, hitTest, type HitContext } from "./pointerModel";
+import { KNOB_PX, beginDrag, dragTo, hitTest, hoverTakesFocus, type HitContext } from "./pointerModel";
 import { findObject, positionOf, type EditResult } from "./sceneEdits";
 import { addMaterial, dopplerPercent, editMaterial, materialText, removeMaterial, setBedBeyond, setDefaultMaterial, setDopplerPercent, setHrtfVoices } from "./settingsEdits";
 import { fixtureScene } from "./spatialFixture";
@@ -119,5 +119,34 @@ describe("scene settings on audio.json", () => {
     expect(p.settings.occlusion.materials.some((m) => m.name === "Rock")).toBe(false);
     valid(p);
     expect(materialText({ name: "x", transmissionDb: -30, cutoffHz: 800, wetOcclusion: 0.5 })).toBe("−30 dB · low-pass 800 Hz");
+  });
+});
+
+describe("the pointer over the plan takes the keyboard (UI pass SV13, D27)", () => {
+  const el = (tagName: string, more: { type?: string; isContentEditable?: boolean; inside?: string } = {}) => ({
+    tagName,
+    type: more.type,
+    isContentEditable: more.isContentEditable ?? false,
+    closest: (sel: string) => (more.inside && sel.includes(more.inside) ? {} : null),
+  });
+
+  it("from the page, a button or another panel, so Space pans and +/−/arrows work there rather than Space playing", () => {
+    expect(hoverTakesFocus(null)).toBe(true);
+    expect(hoverTakesFocus(el("BODY"))).toBe(true);
+    expect(hoverTakesFocus(el("BUTTON"))).toBe(true);
+    expect(hoverTakesFocus(el("DIV"))).toBe(true); // the Scenes tree, the Outline
+    expect(hoverTakesFocus(el("INPUT", { type: "checkbox" }))).toBe(true);
+    expect(hoverTakesFocus(el("INPUT", { type: "range" }))).toBe(true);
+  });
+
+  it("but not from a field being typed in, an open menu or a dialog", () => {
+    expect(hoverTakesFocus(el("INPUT", { type: "text" }))).toBe(false);
+    expect(hoverTakesFocus(el("INPUT", { type: "search" }))).toBe(false);
+    expect(hoverTakesFocus(el("INPUT", { type: "" }))).toBe(false);
+    expect(hoverTakesFocus(el("TEXTAREA"))).toBe(false);
+    expect(hoverTakesFocus(el("SELECT"))).toBe(false);
+    expect(hoverTakesFocus(el("DIV", { isContentEditable: true }))).toBe(false);
+    expect(hoverTakesFocus(el("BUTTON", { inside: '[role="menu"]' }))).toBe(false);
+    expect(hoverTakesFocus(el("BUTTON", { inside: '[role="dialog"]' }))).toBe(false);
   });
 });

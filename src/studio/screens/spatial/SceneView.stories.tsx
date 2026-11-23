@@ -129,6 +129,7 @@ function StoryScene(props: Args) {
     soloToggle: (id) => setAudition(toggleSolo(audition, id)),
     muteToggle: (id) => setAudition(toggleMute(audition, id)),
     editAttenuation: () => {},
+    whyNotEditAttenuation: (id) => (scene.emitters.find((e) => e.id === id)?.sound ? null : "Pick a sound first: attenuation lives on the playlist it plays"),
     playAll: () => setAudition({ ...audition, solo: null }),
     listenHere: (id) => {
       const r = setActiveListener(scene, id);
@@ -206,6 +207,35 @@ export const LockedEmitter: Story = {
   play: async ({ canvasElement }) => {
     const bar = within(canvasElement).getByRole("toolbar", { name: "Campfire actions" });
     await expect(within(bar).getByRole("button", { name: "Edit attenuation…" })).toBeVisible();
+  },
+};
+
+/** UI pass SV12: an emitter with no sound has no attenuation to edit, so its toolbar's Edit attenuation… is disabled, saying why. */
+export const EmitterWithoutSound: Story = {
+  args: { scene: { ...fixtureScene(), emitters: fixtureScene().emitters.map((e) => (e.id === "emitter3" ? { ...e, sound: "" } : e)) }, selected: "emitter3" },
+  play: async ({ canvasElement }) => {
+    const bar = within(canvasElement).getByRole("toolbar", { name: "Campfire actions" });
+    const edit = within(bar).getByRole("button", { name: "Edit attenuation…" });
+    await expect(edit).toBeDisabled();
+    await expect(edit).toHaveAttribute("title", "Pick a sound first: attenuation lives on the playlist it plays");
+  },
+};
+
+/**
+ * UI pass SV13 (D27): with focus elsewhere, the pointer over the plan brings the keyboard to it (so the screen's keymap
+ * gives the Scene panel's keys, + − 0 and the arrows, and Space pans rather than plays), and holding Space says it pans.
+ */
+export const KeysUnderThePointer: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    c.getByRole("button", { name: "Select" }).focus();
+    const plan = c.getByLabelText(/^Scene plan:/);
+    await userEvent.hover(plan);
+    await expect(plan).toHaveFocus();
+    await userEvent.keyboard("[Space>]");
+    await expect(c.getByText("Panning · release Space to edit")).toBeVisible();
+    await userEvent.keyboard("[/Space]");
+    await expect(c.queryByText("Panning · release Space to edit")).toBeNull();
   },
 };
 

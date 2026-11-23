@@ -15,7 +15,7 @@ import { dragSlabEdge, heightMarks, heightRange, inRange, inSlab, LISTENER_STEP,
 import { boxCorners, boxSpanX, growBox, nearestOnBox, rotateKnob, routeMidpoints, type P2 } from "./geometry";
 import { livePlace, placeNow, speedText } from "./liveMotion";
 import { shownInPlan } from "./outline";
-import { beginDrag, dragTo, editLabel, hitTest, KNOB_PX, type Drag } from "./pointerModel";
+import { beginDrag, dragTo, editLabel, hitTest, hoverTakesFocus, KNOB_PX, type Drag } from "./pointerModel";
 import type { SceneHost } from "./sceneHost";
 import { BASE_CLASS, baseBanner, basePlanItems } from "./baseLayer";
 import { activeListener, allObjects, boxOf, findObject, insertRoutePoint, moveObjectTo, positionOf, removeRoutePoint, renameObject, setBoxHeights, setHeight, type SceneObject } from "./sceneEdits";
@@ -136,6 +136,7 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
   const gesture = useRef<Gesture | null>(null);
   const touches = useRef(new Map<number, Px>());
   const space = useRef(false);
+  const [panning, setPanning] = useState(false);
   const hostRef = useRef(host);
   hostRef.current = host;
   const s = host.scene;
@@ -170,11 +171,22 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key === " " && !(e.target instanceof HTMLInputElement)) {
       space.current = true;
+      setPanning(true);
       e.preventDefault();
     }
   };
+  const endSpace = () => {
+    space.current = false;
+    setPanning(false);
+  };
   const onKeyUp = (e: KeyboardEvent) => {
-    if (e.key === " ") space.current = false;
+    if (e.key === " ") endSpace();
+  };
+  // The pointer over the plan brings the keyboard with it (D27): Space pans, +/−/0 zoom, the arrows pan.
+  const onPointerEnter = (e: PointerEvent) => {
+    const el = ref.current;
+    if (!el || e.pointerType === "touch" || document.activeElement === el) return;
+    if (hoverTakesFocus(document.activeElement)) el.focus({ preventScroll: true });
   };
 
   const onPointerDown = (e: PointerEvent) => {
@@ -281,6 +293,8 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
       aria-label="Scene plan: drag to move, wheel or pinch to zoom, arrow keys to pan"
       onKeyDown={onKeyDown}
       onKeyUp={onKeyUp}
+      onBlur={endSpace}
+      onPointerEnter={onPointerEnter}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
@@ -305,6 +319,7 @@ function Viewport(props: { host: SceneHost; slab: [number, number] }) {
         <button type="button" aria-label="Fit" title="Frame the scene (0)" onClick={host.fit}><Icon name="fit" size={14} /></button>
         <button type="button" aria-pressed={host.sideView} class={host.sideView ? "on" : ""} title="Show the scene from the south, looking north" onClick={() => host.setSideView(!host.sideView)}>Side view</button>
       </div>
+      {panning && <div class="sp-panhint" aria-live="polite">Panning · release Space to edit</div>}
       {host.tools.pathEdit && (
         <div class="sp-pathbar" role="status" onPointerDown={(e) => e.stopPropagation()}>
           Editing the path: drag waypoints, + adds one, Shift-click removes one.
@@ -528,7 +543,10 @@ function NodeToolbar(props: { host: SceneHost; o: SceneObject; S: (p: P2) => Px;
           <button type="button" aria-pressed={host.silenced(id) && host.solo !== null ? false : host.silenced(id)} class={host.silenced(id) && host.solo === null ? "on" : ""} title="Mute or unmute it in the audition" onClick={() => host.muteToggle(id)}>Mute</button>
         </>
       ) : null}
-      {o.kind === "emitter" && <button type="button" title="The curves of the playlist it plays" onClick={() => host.editAttenuation(id)}>Edit attenuation…</button>}
+      {o.kind === "emitter" && (() => {
+        const why = host.whyNotEditAttenuation(id);
+        return <button type="button" disabled={why !== null} title={why ?? "The curves of the playlist it plays"} onClick={() => host.editAttenuation(id)}>Edit attenuation…</button>;
+      })()}
       {o.kind === "emitter" && o.obj.kind === "moving" && (
         <button type="button" disabled={ro || o.obj.locked} aria-pressed={host.tools.pathEdit === id} class={host.tools.pathEdit === id ? "on" : ""} title="Drag waypoints, add and remove them" onClick={() => host.setTools({ tool: "select", pathEdit: host.tools.pathEdit === id ? null : id })}>
           Edit path

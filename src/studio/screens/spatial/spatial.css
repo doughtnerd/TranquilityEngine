@@ -112,6 +112,7 @@
 .sp-zoom-readout { min-width: 40px; text-align: center; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
 .sp-pathbar { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); max-width: calc(100% - 16px); box-sizing: border-box; flex-wrap: wrap; display: flex; gap: 8px; align-items: center; background: var(--surface); border: 1px solid var(--accent); border-radius: 5px; padding: 4px 8px; font-size: calc(12px * var(--ui-scale)); }
 .sp-pathbar .primary { background: var(--accent); color: var(--accent-text); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 10px; cursor: pointer; }
+.sp-panhint { position: absolute; left: 8px; top: 8px; max-width: calc(100% - 16px); overflow: hidden; text-overflow: ellipsis; pointer-events: none; background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 5px; padding: 3px 8px; font-size: calc(12px * var(--ui-scale)); white-space: nowrap; }
 
 /* Elevation strip */
 .sp-elevation { width: 58px; display: flex; flex-direction: column; border-left: 1px solid var(--border); background: var(--panel); }
@@ -174,18 +175,27 @@
 .sp-readout dt { color: var(--muted); }
 .sp-readout dd { margin: 0; font-variant-numeric: tabular-nums; }
 .sp-summary { margin: 4px 8px; font-variant-numeric: tabular-nums; }
-.sp-sound { display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; cursor: pointer; text-align: left; }
+/* The sound chip, then its › and ×, on one line however narrow the dock: the name gives way (ellipsis). */
+.sp-sound-row { display: flex; flex-wrap: nowrap; align-items: center; gap: 2px; width: 100%; min-width: 0; }
+.sp-sound-row > .sp-icon { flex: none; }
+.sp-sound { flex: 1 1 auto; display: inline-flex; align-items: center; gap: 6px; min-width: 0; max-width: 100%; overflow: hidden; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; cursor: pointer; text-align: left; }
 .sp-sound:disabled { cursor: default; opacity: 0.7; }
-.sp-sound span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-sound > * { flex: none; }
+.sp-sound .sp-sound-name { flex: 1 1 0; width: 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Settings */
 .sp-settings { display: flex; flex-direction: column; padding-bottom: 8px; }
 .sp-table-scroll { overflow-x: auto; margin: 4px 8px; }
-.sp-materials { width: 100%; margin: 0; border-collapse: collapse; font-size: calc(12px * var(--ui-scale)); }
-.sp-materials th { color: var(--muted); font-weight: 400; text-align: left; padding: 2px 3px; }
-.sp-materials td { padding: 1px 3px; }
-.sp-materials .kit-num { width: 56px; }
-.sp-mat-name { width: 90px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; }
+/* Fits the default 300px dock: fixed columns, headers wrap, fields fill their cells (the name takes what's left). */
+.sp-materials { width: 100%; margin: 0; border-collapse: collapse; table-layout: fixed; font-size: calc(12px * var(--ui-scale)); }
+.sp-materials th { color: var(--muted); font-weight: 400; font-size: calc(11px * var(--ui-scale)); line-height: 1.2; text-align: left; vertical-align: bottom; padding: 2px; overflow-wrap: anywhere; }
+.sp-materials td { padding: 1px 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-materials .sp-mat-default { width: calc(44px * var(--ui-scale)); }
+.sp-materials .sp-mat-num { width: calc(44px * var(--ui-scale)); }
+.sp-materials .sp-mat-hz { width: calc(56px * var(--ui-scale)); }
+.sp-materials .sp-mat-remove { width: calc(30px * var(--ui-scale)); }
+.sp-materials .kit-num { width: 100%; min-width: 0; box-sizing: border-box; }
+.sp-mat-name { width: 100%; min-width: 0; box-sizing: border-box; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; }
 
 /* Voices */
 .sp-voices { overflow: auto; flex: 1; }
@@ -201,7 +211,9 @@
 /* Dialogs */
 .sp-dialog-scrim { position: fixed; inset: 0; background: var(--backdrop); display: flex; align-items: center; justify-content: center; z-index: 50; }
 .sp-dialog { background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); border-radius: 8px; box-shadow: var(--shadow); padding: 14px 16px; width: min(440px, calc(100vw - 16px)); max-height: calc(100dvh - 16px); overflow: auto; box-sizing: border-box; }
-.sp-dialog-title { margin: 0 0 8px; font-size: calc(15px * var(--ui-scale)); }
+/* The dialog opens inside a panel: outrank the panel's caps heading (`.panel h2`) so it reads as a dialog title. */
+.sp-dialog .sp-dialog-title { margin: 0 0 8px; padding: 0; border: 0; font-size: calc(15px * var(--ui-scale)); line-height: calc(20px * var(--ui-scale)); font-weight: 600; letter-spacing: normal; text-transform: none; color: var(--text-strong); }
+.sp-dialog:focus { outline: none; }
 .sp-dialog-field { display: flex; flex-direction: column; gap: 4px; margin: 8px 0; color: var(--muted); }
 .sp-dialog-field select, .sp-dialog-field input[type="range"] { color: var(--text); background: var(--input-bg); border: 1px solid var(--border); border-radius: 3px; padding: 2px 4px; accent-color: var(--accent); }
 .sp-dialog-footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; margin-top: 12px; }

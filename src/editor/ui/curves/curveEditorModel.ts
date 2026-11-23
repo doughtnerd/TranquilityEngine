@@ -189,9 +189,13 @@ export function inputChoices(spec: CurveEditorSpec): { id: string; name: string 
   return out;
 }
 
-/** Axis labels: `n` positions (`[min, max]` ends included) inside `range`. */
+/**
+ * Axis labels: `n` positions (`[min, max]` ends included) inside `range`. An inner tick closer than 8% of the span to
+ * an end is left out, so its label never runs into the end's ("70.0 m75.0 m" on a 0–75 m distance axis).
+ */
 export function xTicks(axis: CurveAxis, range: readonly [number, number]): number[] {
-  const inner = axisTicks(range, axis.kind === "distance" ? 7 : 5);
+  const gap = (range[1] - range[0]) * 0.08;
+  const inner = axisTicks(range, axis.kind === "distance" ? 7 : 5).filter((t) => t - range[0] >= gap && range[1] - t >= gap);
   return [range[0], ...inner, range[1]];
 }
 

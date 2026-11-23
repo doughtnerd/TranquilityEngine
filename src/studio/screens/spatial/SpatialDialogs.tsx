@@ -6,14 +6,32 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import type { AudioTestScene } from "../../../engine/audio/spatial/testSceneTypes";
 import { takeClock } from "./newScene";
 
+/**
+ * A dialog: focus goes to its first field (or its primary button); with nothing focusable (no takes yet: only a disabled
+ * Create) it goes to the dialog itself, so Escape still closes it. A click on the scrim cancels too.
+ */
 function Dialog(props: { title: string; onCancel(): void; children: ComponentChildren; footer: ComponentChildren }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    ref.current?.querySelector<HTMLElement>("select, input, button.primary")?.focus();
+    const first = ref.current?.querySelector<HTMLElement>("select:not(:disabled), input:not(:disabled), button.primary:not(:disabled)");
+    (first ?? ref.current)?.focus();
   }, []);
   return (
     <div class="sp-dialog-scrim" onPointerDown={(e) => e.target === e.currentTarget && props.onCancel()}>
-      <div ref={ref} class="sp-dialog" role="dialog" aria-modal="true" aria-label={props.title} onKeyDown={(e) => e.key === "Escape" && props.onCancel()}>
+      <div
+        ref={ref}
+        class="sp-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-label={props.title}
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          if (e.key !== "Escape") return;
+          e.preventDefault();
+          e.stopPropagation();
+          props.onCancel();
+        }}
+      >
         <h2 class="sp-dialog-title">{props.title}</h2>
         {props.children}
         <div class="sp-dialog-footer">{props.footer}</div>
@@ -45,8 +63,7 @@ export function GameSceneDialog(props: GameSceneDialogProps) {
         <p class="sp-note">The project has no game scenes (*.scene.json).</p>
       ) : (
         <>
-          <p class="sp-note">The game scene's emitters, colliders and zones play underneath, read-only; replacing a sound for A/B never changes the game scene.</p>
-          <label class="sp-dialog-field">
+          <label class="sp-dialog-field" title="The game scene's emitters, colliders and zones play underneath, read-only; replacing a sound for A/B never changes the game scene.">
             Game scene
             <select value={pick} onChange={(e) => setPick((e.currentTarget as HTMLSelectElement).value)}>
               {props.scenes.map((s) => <option key={s} value={s}>{s}</option>)}
@@ -99,8 +116,7 @@ export function TakeDialog(props: TakeDialogProps) {
         <p class="sp-note">The project has no takes yet: record one while playing the game (Take screen).</p>
       ) : (
         <>
-          <p class="sp-note">The listener and every emitter where they were at that moment, each playing what the take last started on it.</p>
-          <label class="sp-dialog-field">
+          <label class="sp-dialog-field" title="The listener and every emitter where they were at that moment, each playing what the take last started on it.">
             Take
             <select value={path} onChange={(e) => setPath((e.currentTarget as HTMLSelectElement).value)}>
               {props.takes.map((s) => <option key={s} value={s}>{s}</option>)}

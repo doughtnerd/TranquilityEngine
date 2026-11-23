@@ -9,7 +9,7 @@ import { Icon } from "../../components/Icon";
 import { MoveToDialog } from "../../../editor/ui/MoveToDialog";
 import { TreeView, renameRow, type TreeRow } from "../../../editor/ui/TreeView";
 import { NEW_SCENE_MENU, type NewSceneKind } from "./newScene";
-import { deleteSceneFolder, moveSceneFolder, newSceneFolder, renameSceneFolder, sceneFolders, sceneTree, searchScenes, type FolderChange, type SceneEntry, type SceneNode } from "./sceneTree";
+import { deleteSceneFolder, moveSceneFolder, newSceneFolder, renameSceneFolder, sceneFolders, sceneMoveItem, sceneTree, searchScenes, type FolderChange, type SceneEntry, type SceneNode } from "./sceneTree";
 
 const TREE = "spatial-scenes";
 const folderKey = (path: string) => `folder:${path}`;
@@ -177,7 +177,7 @@ export function ScenesPanel(props: ScenesPanelProps) {
       {menu && <ContextMenu entries={entriesFor(menu.key)} at={"at" in menu ? menu.at : { x: menu.x, y: menu.y }} label={menu.key === "new" ? "New test scene" : "Scene menu"} onClose={() => setMenu(null)} />}
       {moving && (
         <MoveToDialog
-          items={[{ path: moving.folder ? moving.path : `${entryOf(moving.path)?.folder ? `${entryOf(moving.path)!.folder}/` : ""}${moving.path.slice(moving.path.lastIndexOf("/") + 1)}`, folder: moving.folder }]}
+          items={[moving.folder ? { path: moving.path, folder: true } : sceneMoveItem(entryOf(moving.path) ?? { path: moving.path, folder: "" })]}
           folders={folders}
           noun={moving.folder ? "folder" : "test scene"}
           rootName="Test scenes"

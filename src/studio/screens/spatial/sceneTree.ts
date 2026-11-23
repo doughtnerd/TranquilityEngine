@@ -26,6 +26,15 @@ export function sceneName(path: string): string {
   return isScenePath(file) ? file.slice(0, file.length - AUDIO_SCENE_SUFFIX.length) : file;
 }
 
+/**
+ * A scene as the Move to… dialog takes it: by its name under the folder its `folder` field names (not its file's
+ * folder), so the dialog's title names the scene and its folder shows as the one it's in now.
+ */
+export function sceneMoveItem(entry: SceneEntry): { readonly path: string; readonly folder: false } {
+  const name = sceneName(entry.path);
+  return { path: entry.folder ? `${entry.folder}/${name}` : name, folder: false };
+}
+
 const leaf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
 const parentOf = (path: string) => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 /** A folder path tidied: no empty parts, no spaces round them. */

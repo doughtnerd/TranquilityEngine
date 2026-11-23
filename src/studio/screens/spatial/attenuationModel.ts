@@ -79,6 +79,30 @@ export function ownerText(o: AttenuationOwner): string {
   }
 }
 
+/**
+ * Why "Edit attenuation…" can't open for this owner (the disabled button's tooltip), or null when it can: it opens the
+ * curves of an inline or preset attenuation, and offers Create preset / Inline for a spatial playlist with none. The
+ * Inspector's button and the plan's emitter toolbar both follow it.
+ */
+export function whyNotEditAttenuation(o: AttenuationOwner): string | null {
+  const name = (p: string) => p.slice(p.lastIndexOf("/") + 1);
+  switch (o.kind) {
+    case "inline":
+    case "none":
+      return null;
+    case "preset":
+      return o.attenuation ? null : `The preset ${name(o.preset)} isn't in the project`;
+    case "silent":
+      return "Pick a sound first: attenuation lives on the playlist it plays";
+    case "notPlaylist":
+      return `${name(o.sound)} is a sample: attenuation lives on playlists`;
+    case "missing":
+      return `${name(o.playlist)} isn't in the project`;
+    case "flat":
+      return `${name(o.playlist)} plays flat (2D): give it a spatial block in Playlists first`;
+  }
+}
+
 /** Each lane's range, unit and plain value (what a missing curve means). */
 const LANES: Readonly<Record<keyof AttenuationCurves, Omit<CurveLane, "id" | "curve" | "name">>> = {
   volume: { unit: "dB", min: ATTENUATION_FLOOR_DB, max: 6, step: 0.5, base: 0, color: 1 },

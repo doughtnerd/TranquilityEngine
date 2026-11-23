@@ -6,8 +6,9 @@
 // through the Mixer's document; "Edit attenuation…" edits the playlist's attenuation on its owning document. The panels
 // read these signals and call these actions; the rules are the pure models beside this file.
 import { computed, effect, signal } from "@preact/signals";
-import { openAssetDocument, readAsset, type AssetDocument } from "../../../editor/assetDocuments";
-import { deleteAssets } from "../../../editor/assetDelete";
+import { assetDocumentsDeleted, openAssetDocument, readAsset, type AssetDocument } from "../../../editor/assetDocuments";
+import { whyNotDeletable } from "../../../editor/assetDelete";
+import { errorStatus } from "../../../editor/messages";
 import { createAsset } from "../../../editor/assetKindHost";
 import { duplicateAssets, renameAsset } from "../../../editor/assetOps";
 import { assetKinds } from "../../../editor/sdk/contributions";
@@ -30,7 +31,7 @@ import { audioHost, openRoute, toasts } from "../../shell/studioServices";
 import { openMixDocument } from "../mixer/mixerDocument";
 import { setSpatial } from "../playlists/playlistEdits";
 import { baseFramePoints } from "./baseLayer";
-import { attenuationDialog, attenuationFromResult, attenuationOwner, newAttenuation, presetNameFor, PRESET_FOLDER, type AttenuationOwner } from "./attenuationModel";
+import { attenuationDialog, attenuationFromResult, attenuationOwner, newAttenuation, presetNameFor, PRESET_FOLDER, whyNotEditAttenuation, type AttenuationOwner } from "./attenuationModel";
 import { NO_AUDITION, auditionScene, isSilenced, liveUpdate, toggleMute, toggleSolo, type AuditionState } from "./audition";
 import { INITIAL_SLAB, type Slab } from "./elevation";
 import { sameMotion, startFrameLoop } from "./liveMotion";
@@ -624,19 +625,40 @@ export async function duplicateScene(path: string): Promise<void> {
 }
 
 /** Delete scene files (the engine asks first); an undo toast writes them back. */
+/**
+ * Delete test scenes at once, without asking: the toast that follows undoes it by writing them back (D27; the
+ * prototype's "Deleted <name> · Undo"), so a "can't be undone" question would be untrue. Nothing refers to a test scene,
+ * so there are no references to clean. Refused (read-only, play, gone) with the reason in the status bar.
+ */
 export async function deleteScenes(paths: readonly string[]): Promise<void> {
+  const p = currentProject.peek();
+  if (!p || paths.length === 0) return;
+  const name = paths.length === 1 ? sceneName(paths[0]!) : `${paths.length} scenes`;
+  const refused = whyNotDeletable(p, paths);
+  if (refused) return void (status.value = { kind: "info", text: `Can't delete ${name}: ${refused}.` });
   const saved = paths.map((path) => ({ path, value: loadScene(path) })).filter((x): x is { path: string; value: AudioTestScene } => x.value !== null);
-  if (!(await deleteAssets(paths))) return;
   if (paths.includes(openPath.peek() ?? "")) {
     stopAudition();
     openPath.value = null;
     selected.value = null;
   }
-  const name = paths.length === 1 ? sceneName(paths[0]!) : `${paths.length} scenes`;
+  const gone: string[] = [];
+  try {
+    for (const path of paths) {
+      await p.deleteFile(path);
+      gone.push(path);
+    }
+  } catch (err) {
+    status.value = errorStatus(`Couldn't delete ${name}`, err);
+  }
+  await assetDocumentsDeleted(gone); // their open documents go, with their undo (the toast brings the scene back)
+  docVersion.value++;
+  if (gone.length === 0) return;
+  const back = saved.filter((s) => gone.includes(s.path));
   toasts.show({
-    text: `Deleted ${name}.`,
+    text: `Deleted ${gone.length === 1 ? sceneName(gone[0]!) : `${gone.length} scenes`}.`,
     undo: () => {
-      for (const s of saved) void createAsset<AudioTestScene>(SCENE_KIND, { folder: folderOfFile(s.path), name: sceneName(s.path), value: s.value });
+      for (const s of back) void createAsset<AudioTestScene>(SCENE_KIND, { folder: folderOfFile(s.path), name: sceneName(s.path), value: s.value });
     },
   });
 }
@@ -720,7 +742,7 @@ export function editAttenuation(id: string, doc: Document = document): void {
   } else if (owner.kind === "none") {
     attenuationChoice.value = { emitter: id, playlist: owner.playlist };
   } else {
-    status.value = { kind: "info", text: owner.kind === "preset" ? `The attenuation preset ${fileName(owner.preset)} isn't in the project.` : "This emitter's sound has no attenuation to edit." };
+    status.value = { kind: "info", text: `Can't edit attenuation: ${whyNotEditAttenuation(owner) ?? "there's none to edit"}.` };
   }
 }
 

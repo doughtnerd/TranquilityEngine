@@ -52,8 +52,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
         <p class="sp-note">Obstacles block sound with their material: losses of several on one ray add up. Rays hit colliders on: {layers}.</p>
         <div class="sp-table-scroll">
         <table class="sp-materials">
+          <colgroup><col class="sp-mat-default" /><col /><col class="sp-mat-num" /><col class="sp-mat-hz" /><col class="sp-mat-num" /><col class="sp-mat-remove" /></colgroup>
           <thead>
-            <tr><th scope="col">Default</th><th scope="col">Material</th><th scope="col">Loss dB</th><th scope="col">Low-pass Hz</th><th scope="col">Wet cut</th><th scope="col"><span class="sp-sr">Remove</span></th></tr>
+            <tr><th scope="col" title="The material obstacles use when they name none">Default</th><th scope="col">Material</th><th scope="col" title="Loss through it, dB">Loss dB</th><th scope="col" title="Low-pass through it, Hz">Low-pass Hz</th><th scope="col" title="How much of the reverb send it cuts, 0 to 1">Wet cut</th><th scope="col"><span class="sp-sr">Remove</span></th></tr>
           </thead>
           <tbody>
             {occ.materials.map((m) => (

@@ -50,6 +50,8 @@ export interface SceneHost {
   soloToggle(id: string): void;
   muteToggle(id: string): void;
   editAttenuation(id: string): void;
+  /** Why Edit attenuation… can't open for emitter `id` (its tooltip), or null when it can (`whyNotEditAttenuation`). */
+  whyNotEditAttenuation(id: string): string | null;
   playAll(listener: string): void;
   listenHere(listener: string): void;
 }
