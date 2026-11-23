@@ -33,11 +33,21 @@ engine.playing; engine.reason; engine.position; engine.panner; engine.occlusion;
 engine.trigger("hit");             // a stinger (Interactive music)
 engine.onMarker("cue", (e) => {}); // Cue, Exit and Hit markers passing: { type, name, sample, time }
 engine.music;                      // the musical clock, when the playing entry has a tempo (Interactive music)
+engine.pause();                    // hold it where it is; engine.paused is true until resume() or stop()
+engine.resume();                   // continue from exactly where it held
 ```
+
+`pause()` holds the whole playback: its voices, the sequence playhead and musical clock, its pending picks and the
+starts and fades it has planned. `resume()` continues it from the same position, sample-exact on the audio core;
+everything it had planned plays as much later as the pause lasted, and `music`, markers and beat callbacks hold with it.
+A pause lands at the next exact point (just after whatever the playlist has already scheduled, a fraction of a second at
+most), and the sound fades out over 5 ms into it and back in over 5 ms when it continues. Pausing twice or resuming a
+playlist that isn't paused does nothing; `stop()` stops a paused playlist at once. Parameter changes made while it is
+paused take effect when it resumes.
 
 `AudioEventHandle` is still exported as a deprecated alias of `AudioPlaylistHandle` for one release.
 
-An `AudioSource` whose `clip` is a playlist plays it as an instance: `volume` and `pitch` apply on top, a spatial playlist follows the node, `minDistance`/`maxDistance` stretch its attenuation, and `play()`, `stop()`, `pause()`, `resume()`, `release()`, `setParameter` and `getParameter` reach the instance. A behaviour on the node hears the playlist's markers in `onAudioMarker(e)` and its beats in `onMusicBeat`/`onMusicBar`.
+An `AudioSource` whose `clip` is a playlist plays it as an instance: `volume` and `pitch` apply on top, a spatial playlist follows the node, `minDistance`/`maxDistance` stretch its attenuation, and `play()`, `stop()`, `pause()` (the playback pause above; a deactivated node pauses it), `resume()`, `release()`, `setParameter` and `getParameter` reach the instance. A behaviour on the node hears the playlist's markers in `onAudioMarker(e)` and its beats in `onMusicBeat`/`onMusicBar`.
 
 ## Global parameters
 
