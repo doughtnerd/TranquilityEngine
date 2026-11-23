@@ -309,7 +309,8 @@ export const Audio = {
   },
 
   /**
-   * Play a playlist (`*.playlist.json`, ADR 0329) or a sample (as a one-sample Clip playlist). Always returns a handle (an
+   * Play a playlist (`*.playlist.json`, ADR 0329), a sample or a sound generator (`*.generator.json`, ADR 0346; each as a
+   * one-entry Clip playlist). Always returns a handle (an
    * inert one when nothing played: no World with the view, a missing asset, a trigger the playback rules refused, or an
    * old audio event file, which is refused with a message naming the migration; `Audio.debug().playlistTotals` says
    * why); never throws.

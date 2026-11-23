@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import { generatorWireValues } from "../../../../engine/audio/generators/catalogue";
 import { GENERATOR_VOICE_COST, generatorVoiceCost, Selection, type SelectionSink } from "./selection";
 import { VoiceFlag, VoiceReason, VoiceState, VoiceTable } from "./voiceTable";
+import { recordingSink } from "../mix/recordingSink";
 
 const sink: SelectionSink = { setMixed: () => {}, steal: () => {} };
 
@@ -60,6 +61,25 @@ describe("selection with generator voices (ADR 0346)", () => {
     for (let k = 0; k < 14; k++) admit(t2, s2, 1 - k * 0.01, 8, 1, GENERATOR_VOICE_COST.oscillator);
     for (let f = 0; f < 6; f++) s2.run(8, sink);
     expect(mixed(t2)).toHaveLength(8);
+  });
+
+  it("the capture's voiceStart names a generator voice by its generator, not its reserved clip id", () => {
+    const table = new VoiceTable(8);
+    const stub = recordingSink();
+    table.setProfile(stub.sink, { clip: (id) => `clip${id}`, busRef: (b) => b });
+    const sel = new Selection(table);
+    const id = table.allocate(0, 128, 0, VoiceState.WAITING_FOR_DATA);
+    const i = id & 0xffff;
+    table.clip[i] = 0xffff0303;
+    table.gain[i] = 1;
+    table.setGenerator(i, 3, generatorWireValues("blip", {}), 5, "ui/coin.generator.json", GENERATOR_VOICE_COST.blip);
+    sel.admit(i, 8);
+    expect(stub.of("voiceStart")[0]![1]).toBe("ui/coin.generator.json");
+    // Freed, the slot forgets it: the next voice there is a clip voice again.
+    table.free(id, VoiceReason.NONE);
+    expect(table.genKind[i]).toBe(0);
+    expect(table.capWeight[i]).toBe(1);
+    expect(table.genLive).toBe(0);
   });
 
   it("without generator voices, selection counts voices as before", () => {
