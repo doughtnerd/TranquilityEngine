@@ -394,6 +394,15 @@ onAudioBackendAttached((b) => {
   for (const w of attachWaiters.splice(0)) w(b);
 });
 /** At once when a backend is installed (so a load's fetch starts in the same turn), else once the core has loaded. */
+/** Whether the backend is the pending stand-in of a core still loading (what `packHostFor` would wait on). */
+function corePending(): boolean {
+  try {
+    return isPendingCoreBackend(audioBackend());
+  } catch {
+    return false;
+  }
+}
+
 function packHostFor(): AudioPacks | null | Promise<AudioPacks | null> {
   let b: AudioBackend;
   try {
@@ -849,7 +858,7 @@ export async function preparePackages(world: World, names: readonly string[], st
   preloadedWorlds.add(world);
   // A package loads into the core, which may not be loading yet (nothing in the World has asked for sound before its first
   // scene): the scene would wait for a load nobody began. `startCore` begins it.
-  if ((preload.length > 0 || names.length > 0) && startCore && hasAudioBackend() && isPendingCoreBackend(audioBackend())) startCore();
+  if ((preload.length > 0 || names.length > 0) && startCore && corePending()) startCore();
   for (const d of preload) waits.push(acquire(d.name, world, world));
   for (const n of new Set(names)) waits.push(acquire(n, preparedOf(world), world));
   await Promise.all(waits.map((w) => w.catch(() => undefined)));
