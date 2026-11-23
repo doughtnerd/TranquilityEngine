@@ -6,6 +6,7 @@ import { createTransport, transportCanListen } from "../../engine/net/Transport"
 import "../../engine/net/transport/websocket";
 import { persisted } from "../preferences";
 import { DEFAULT_DEBUG_LINK_PREFERENCES, cleanPreferences, type DebugLinkPreferences } from "./debugLinkLogic";
+import { currentProject, playing } from "../state";
 import { EditorDebugLink } from "./editorLink";
 
 /** The debug link preferences (per user). */
@@ -18,14 +19,27 @@ export function editorDebugLink(): EditorDebugLink {
   // The WebSocket transport listens where this host can open a server socket: Node, and the desktop editor, whose
   // `main.tsx` registers the native-backed transport (`tauriListener.ts`, ADR 0379) first. A plain browser page can't,
   // and Preferences say so.
-  return (link ??= new EditorDebugLink({ transport: () => (transportCanListen("websocket") ? createTransport("websocket") : null) }));
+  return (link ??= new EditorDebugLink({
+    transport: () => (transportCanListen("websocket") ? createTransport("websocket") : null),
+    playTransport: transportCanListen("websocket") ? "websocket" : null,
+  }));
 }
 
-/** Listens as the preferences say, and again whenever they change; returns the stop. */
+/**
+ * Listens as the preferences say, and again whenever they change; serves the editor's Play as a build while it runs
+ * (ADR 0380, U3: a tool pairs with Play as with a game); returns the stop.
+ */
 export function startEditorDebugLink(): () => void {
   const l = editorDebugLink();
   const dispose = effect(() => void l.apply(cleanPreferences(debugLinkPreferences.value)));
+  const disposePlay = effect(() => {
+    const play = playing.value;
+    if (!play) return;
+    const served = l.servePlay(play.engine, `${currentProject.peek()?.name ?? "Game"} (editor Play)`);
+    return () => served.stop();
+  });
   return () => {
+    disposePlay();
     dispose();
     l.stop();
   };
