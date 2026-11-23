@@ -7,7 +7,7 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { emptyPoseDatabase, type PoseDatabaseSource } from "../../../../engine/animation/poseDatabase";
 import { readClipInfo, readSkeletonInfo } from "../../runtime/assetInfo";
-import { FEATURE_KIND, bakePoseDatabaseSource, bakeSettingsValues, buildBakeJob, progressFraction, type BakeProgress, type PoseDbBakeEnv, type PoseDbBakeJob } from "./bakeLogic";
+import { FEATURE_KIND, bakedPathOf, bakePoseDatabaseSource, bakeSettingsValues, buildBakeJob, progressFraction, type BakeProgress, type PoseDbBakeEnv, type PoseDbBakeJob } from "./bakeLogic";
 import { addBoneFeature, addClip, addCustomFeature, addRange, removeBoneFeature, setBoneFeature, setMirror, setNormalisation, setRate, setSkeleton, setTrajectoryTimes, setTrajectoryWeights } from "./poseDbLogic";
 
 const fixture = (name: string) => new Uint8Array(readFileSync(new URL(`../../runtime/wasm/fixtures/${name}`, import.meta.url)));
@@ -228,5 +228,12 @@ describe("bakePoseDatabaseSource", () => {
     const refused = fake({ mirror: "the bones can't be mapped" });
     expect(await bakePoseDatabaseSource(refused.env, "loco.posedb.json", ok(setMirror(source(), 0, true)))).toEqual({ ok: false, error: "mirrored clips can't be baked: the bones can't be mapped" });
     expect(refused.seen.written.size).toBe(0);
+  });
+});
+
+describe("the baked file's path", () => {
+  it("sits beside the source with the extension swapped", () => {
+    expect(bakedPathOf("animation/loco.posedb.json")).toBe("animation/loco.posedb.bin");
+    expect(bakedPathOf("loco.posedb.JSON")).toBe("loco.posedb.bin");
   });
 });

@@ -5,8 +5,7 @@
 import { useState } from "preact/hooks";
 import { editor, type EditorProject } from "../../../../editor/sdk";
 import type { PoseDatabaseSource } from "../../../../engine/animation/poseDatabase";
-import { bakePoseDatabaseSource, progressFraction, type BakeProgress, type PoseDbBakeEnv, type PoseDbBakeOutcome } from "./bakeLogic";
-import { bakedPathOf } from "./poseDbLogic";
+import { bakedPathOf, bakePoseDatabaseSource, progressFraction, type BakeProgress, type PoseDbBakeEnv, type PoseDbBakeOutcome } from "./bakeLogic";
 import { matchDebugSource, matchDebugView } from "./poseDbDebug";
 import { projectPoseDbEnv } from "./poseDbEnv";
 import { useBakedSummary } from "./poseDbHooks";

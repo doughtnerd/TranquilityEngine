@@ -20,7 +20,11 @@ import type { PoseDatabaseSource } from "../../../../engine/animation/poseDataba
 import type { AnimationCompiler, PoseDbClipInput, PoseDbCustomInput, PoseDbFeatureInput } from "../compile/compiler";
 import { readClipInfo, readSkeletonInfo } from "../../runtime/assetInfo";
 import { readPoseDbSummary, type PoseDbSummary } from "./summaryLogic";
-import { bakedPathOf } from "./poseDbLogic";
+
+// Not imported from `poseDbLogic.ts`: that module imports the editor SDK, and this one runs in the bake worker
+// (`poseDbBake.worker.ts`), whose bundle can't take the editor (its Code panel's virtual modules don't exist there).
+/** The path of the baked file beside a source: `x.posedb.json` → `x.posedb.bin`. */
+export const bakedPathOf = (sourcePath: string): string => sourcePath.replace(/\.posedb\.json$/i, ".posedb.bin");
 
 /** The `FeatureKind` ids `posedb_bake`'s schema record takes (`anim-format`'s `FeatureKind`). */
 export const FEATURE_KIND = { bonePosition: 0, boneVelocity: 1, trajectoryPosition: 2, trajectoryDirection: 3 } as const;

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { refusalOf } from "../../../../editor/sdk";
 import { emptyPoseDatabase, formatPoseDatabase, parsePoseDatabase, POSE_DATABASE_LIMITS, type PoseDatabaseSource } from "../../../../engine/animation/poseDatabase";
 import {
-  addBoneFeature, addClip, addCustomFeature, addRange, bakedPathOf, featureDimensions, missingBones, parseTagList, removeBoneFeature, removeClip, removeCustomFeature, removeRange, setBoneFeature, setCustomFeature, setMirror, setNormalisation, setRange, setRangeTags, setRate,
+  addBoneFeature, addClip, addCustomFeature, addRange, featureDimensions, missingBones, parseTagList, removeBoneFeature, removeClip, removeCustomFeature, removeRange, setBoneFeature, setCustomFeature, setMirror, setNormalisation, setRange, setRangeTags, setRate,
   setSkeleton, setTrajectoryTimes, setTrajectoryWeights, tagStats,
 } from "./poseDbLogic";
 
@@ -187,12 +187,5 @@ describe("the feature schema", () => {
   it("lists the bone features a skeleton lacks", () => {
     expect(missingBones(emptyPoseDatabase(), ["Hips", "LeftFoot"])).toEqual(["RightFoot"]);
     expect(missingBones(emptyPoseDatabase(), ["Hips", "LeftFoot", "RightFoot"])).toEqual([]);
-  });
-});
-
-describe("the baked file's path", () => {
-  it("sits beside the source with the extension swapped", () => {
-    expect(bakedPathOf("animation/loco.posedb.json")).toBe("animation/loco.posedb.bin");
-    expect(bakedPathOf("loco.posedb.JSON")).toBe("loco.posedb.bin");
   });
 });

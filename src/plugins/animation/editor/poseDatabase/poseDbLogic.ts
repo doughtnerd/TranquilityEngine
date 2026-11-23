@@ -232,6 +232,3 @@ export function featureDimensions(db: PoseDb): number {
 
 /** The names of the bones a `skeleton` lacks of the schema's bone features. */
 export const missingBones = (db: PoseDb, skeletonBones: readonly string[]): string[] => db.schema.bones.map((b) => b.bone).filter((b) => !skeletonBones.includes(b));
-
-/** The path of the baked file beside a source: `x.posedb.json` → `x.posedb.bin`. */
-export const bakedPathOf = (sourcePath: string): string => sourcePath.replace(/\.posedb\.json$/i, ".posedb.bin");
