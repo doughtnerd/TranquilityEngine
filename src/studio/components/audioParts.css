@@ -120,7 +120,9 @@
 /* An icon-only button (ADR 0361: its name is its aria-label, its tooltip the title). */
 .studio-icon-button { flex: none; width: 22px; height: 20px; padding: 0; border: 1px solid transparent; border-radius: 3px; background: none; color: var(--muted); line-height: 18px; display: inline-grid; place-items: center; }
 .studio-icon-button:hover:not(:disabled) { background: var(--hover); color: var(--text); }
-.studio-icon-button:disabled { opacity: 0.35; cursor: default; }
+.studio-icon-button:disabled { opacity: 0.3; cursor: default; }
+/* MX-30: a summary with less room than SUMMARY_MIN_PX keeps its place but isn't drawn (its text is on the tooltip) */
+.studio-row-summary.cramped { visibility: hidden; }
 .studio-icon-button.set { color: var(--accent); }
 :is(.studio-icon-button, .studio-row-caret, .studio-onoff, .studio-chain-add, .studio-chainview-zoom, .studio-chainview-name.link, .studio-fx-reset):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .studio-onoff { flex: none; padding: 0 6px; border-radius: 3px; border: 1px solid var(--accent2); color: var(--accent2); background: none; font-size: calc(10px * var(--ui-scale)); font-weight: 700; line-height: 16px; }
@@ -270,3 +272,11 @@
 /* Fade shape picker (FadeShapeSelect.tsx, ADR 0350): the curve's glyph beside its select */
 .studio-shape { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .studio-shape-glyph path { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+
+/* MX-33: the in-app dropdown button (a menu, not a native picker) */
+.studio-dd { display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; height: 22px; padding: 0 6px 0 8px; border: 1px solid var(--border); border-radius: 3px; background: var(--input-bg); color: var(--text); font-size: calc(11px * var(--ui-scale)); cursor: pointer; grid-column: 2 / 4; }
+.studio-dd:hover:not(:disabled) { border-color: var(--border-strong); }
+.studio-dd:disabled { opacity: 0.55; cursor: default; }
+.studio-dd:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.studio-dd-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-dd .studio-glyph { color: var(--muted); flex: none; }

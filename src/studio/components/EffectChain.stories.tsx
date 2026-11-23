@@ -53,6 +53,8 @@ export const BusChain: StoryObj = {
     const c = within(canvasElement);
     await userEvent.click(c.getByRole("button", { name: "Add effect" }));
     const menu = within(document.body).getByRole("menu", { name: "Add effect" });
+    // MX-31: captioned "Add effect", as the prototype's menu.
+    await expect(menu.textContent?.startsWith("Add effect")).toBe(true);
     // The built-ins (before any plugin group) are alphabetical.
     const children = [...menu.querySelectorAll('[role="menuitem"], [role="separator"]')];
     const sep = children.findIndex((e) => e.getAttribute("role") === "separator");
