@@ -96,3 +96,10 @@
 .sprite-guide:not(.set)::after { pointer-events: auto; }
 .guide-L:not(.set)::after, .guide-R:not(.set)::after { top: 10%; bottom: 70%; }
 .guide-T:not(.set)::after, .guide-B:not(.set)::after { left: 10%; right: 70%; }
+
+/* Tools (ADR 0373): tabs beside Slices; a tool's view replaces the body while open. */
+.sprite-tabs { display: flex; gap: 2px; }
+.sprite-tabs button { padding: 2px 10px; }
+.sprite-tabs button.active { background: var(--accent-soft); border-color: var(--accent); color: var(--text); }
+.sprite-tool-body { flex-direction: column; overflow: auto; }
+.sprite-editor-body[hidden] { display: none; }

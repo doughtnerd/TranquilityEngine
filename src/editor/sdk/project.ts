@@ -4,7 +4,7 @@
 // tracks it, as reading the signal would.
 import { computed, untracked } from "@preact/signals";
 import type { ImportSettings } from "../../engine/scene/importSettings";
-import { readImportSettings } from "../assetImport";
+import { readImportSettings, writeImportSettings } from "../assetImport";
 import { showAsset } from "../inspectorTarget";
 import { assetKind, type AssetKind } from "../assetKindLookup";
 import { freePath } from "../freePath";
@@ -162,6 +162,8 @@ export interface AssetsSurface {
   isScene(path: string): boolean;
   /** An asset's import settings (ADR 0040). */
   importSettings(project: EditorProject, path: string): AssetImportSettings;
+  /** Write an asset's import settings to its sidecar (ADR 0040) and tell the Inspector and pickers it changed. Throws for a read-only project. */
+  writeImportSettings(project: EditorProject, path: string, settings: ImportSettings): Promise<void>;
   /** Reveal `path` in the Assets panel, select it and show it in the Inspector. */
   reveal(path: string): void;
   /** Open a script in the Code panel, optionally at a 1-based line and column. */
@@ -190,6 +192,10 @@ export const assets: AssetsSurface = {
   listed: listedFiles,
   isScene: isScenePath,
   importSettings: readImportSettings,
+  async writeImportSettings(project, path, settings) {
+    await writeImportSettings(project, path, settings);
+    docVersion.value++;
+  },
   reveal: showAsset,
   openScript,
   create: createAsset,

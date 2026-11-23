@@ -7,6 +7,7 @@
 // Scenes and render textures declare their New… entries here, as plugins' kinds do (ADR 0149).
 import { openSpriteEditor } from "./assetImport";
 import type { SceneDocument } from "./document";
+import { IMAGE_SUB_ASSETS } from "./imageSubAssets";
 import { inputContextKind } from "./inputContextKind";
 import { wouldNest } from "./prefabs";
 import { assetKinds, type AssetKindContribution, type AssetSceneNodes } from "./sdk/contributions";
@@ -65,6 +66,8 @@ const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
     open: (path) => openSpriteEditor(path),
     referencedAs: ["texture", "sprite"],
     slices: true,
+    // Its slices (`sprite`) and flipbooks (`animclip`) are what asset fields take on their own (ADR 0371, 0373).
+    subAssets: IMAGE_SUB_ASSETS,
     // A sprite showing the image, or a slice of it (`images/sheet.png#walk_0`, named after the slice).
     addToScene: { nodes: assetNode("engine.SpriteRenderer", "sprite") },
     importSettings: {

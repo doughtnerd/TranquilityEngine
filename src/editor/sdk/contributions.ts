@@ -14,7 +14,9 @@ import type { OpenScene } from "../state";
 import type { ComponentEntry, NodeEntry, NodePath, SceneDocument } from "../document";
 import type { GameObject } from "../../engine/scene/GameObject";
 import type { ComponentInfo } from "../../engine/editor";
-import type { ImportSettings } from "../../engine/scene/importSettings";
+import type { ImportSettings, SpriteSlice } from "../../engine/scene/importSettings";
+import type { Pixels } from "../../engine/animation/sprites/islands";
+import type { SliceSkin, SpriteFlipbook } from "../../engine/animation/sprites/sidecar";
 import { getComponentId, type ComponentClass, type FieldChoice } from "../../engine/core/registry";
 import type { Component } from "../../engine/core/Component";
 import type { Wire } from "../shapeKit3d";
@@ -725,6 +727,44 @@ export interface ImportSettingsSectionContribution {
   readonly view: LoadComponent<ImportSettingsViewProps>;
 }
 
+/**
+ * What a Sprite Editor tool changes (ADR 0373 "2D tools"): slice skins by slice name (null drops a skin) and, as a whole,
+ * the image's flipbooks. Slices themselves (names, rectangles, pivots) are the Sprite Editor's own.
+ */
+export interface SpriteEditorChange {
+  readonly skins?: Readonly<Record<string, SliceSkin | null>>;
+  readonly flipbooks?: Readonly<Record<string, SpriteFlipbook>>;
+}
+
+/** What the Sprite Editor gives a tool's view: the image's slices and flipbooks as edited so far, and the one way to change them. */
+export interface SpriteEditorToolProps {
+  /** The image's project path. */
+  readonly image: string;
+  /** The image's URL, for drawing it. */
+  readonly url: string;
+  readonly slices: readonly SpriteSlice[];
+  readonly flipbooks: Readonly<Record<string, SpriteFlipbook>>;
+  /** The selected slice's name, or null. Shared with the Slices view. */
+  readonly selected: string | null;
+  select(name: string | null): void;
+  /** Make a change as one undo step of the Sprite Editor's history; steps sharing `key` in a row (one drag) are one step. */
+  edit(change: SpriteEditorChange, key?: string): void;
+  /** Why nothing can be changed (a read-only project), or null. */
+  readonly readOnly: string | null;
+  /** The image's pixels (meshes follow the opaque outline). */
+  pixels(): Promise<Pixels>;
+}
+
+/**
+ * A tool of the Sprite Editor (ADR 0373): a tab beside Slices whose view replaces the editor's body while it is open. The
+ * Animation plugin's Flipbooks and Bones tools. Edits go on the editor's one history and are written by its Apply.
+ */
+export interface SpriteEditorToolContribution {
+  readonly id: string;
+  readonly label: string;
+  readonly view: LoadComponent<SpriteEditorToolProps>;
+}
+
 /** A component field of a scene document, as the field adornments and field write interceptors see it (ADR 0373). */
 export interface DocumentField {
   readonly scene: OpenScene;
@@ -804,6 +844,7 @@ export const skeletonBones = createRegistry<SkeletonBonesContribution>("Skeleton
 export const nodeAssetDrops = createRegistry<NodeAssetDropContribution>("Node asset drop");
 export const assetNodesAugments = createRegistry<AssetNodesAugmentContribution>("Asset nodes augment");
 export const importSettingsSections = createRegistry<ImportSettingsSectionContribution>("Import settings section");
+export const spriteEditorTools = createRegistry<SpriteEditorToolContribution>("Sprite Editor tool");
 
 /** The wireframe a registered contribution draws for `component` (by its Component type id), or null when none draws it or it can't be drawn now. */
 export function componentWireframe(component: Component): Wire | null {
