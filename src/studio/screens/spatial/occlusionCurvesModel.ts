@@ -18,10 +18,10 @@ import { materialText } from "./settingsEdits";
 export const OCCLUSION_TARGET = "Occlusion";
 export const OCCLUSION_CONTEXT = "Scene settings · how blocked the path from emitter to listener is";
 
-/** Each lane's range, unit and plain value (a missing curve is flat at it: the materials decide). */
+/** Each lane's range (the prototype's window: −24..0 dB, 0.5..20 kHz), unit and plain value (a missing curve is flat at it: the materials decide). */
 const LANES: Readonly<Record<keyof OcclusionCurves, Omit<CurveLane, "id" | "curve">>> = {
-  volume: { name: "Volume", unit: "dB", min: -60, max: OCCLUSION_CURVE_LIMITS.volume[1], step: 0.5, base: 0, color: 1 },
-  lowpass: { name: "Low-pass", unit: "Hz", min: OCCLUSION_CURVE_LIMITS.lowpass[0], max: 20000, step: 10, scale: "log", base: 20000, color: 2 },
+  volume: { name: "Volume", unit: "dB", min: -24, max: OCCLUSION_CURVE_LIMITS.volume[1], step: 0.5, base: 0, color: 1 },
+  lowpass: { name: "Low-pass", unit: "Hz", min: 500, max: 20000, step: 10, scale: "log", base: 20000, color: 2 },
 };
 
 /** A new set (the prototype's starting point): −9 dB and a 1.2 kHz low-pass when fully blocked. */
