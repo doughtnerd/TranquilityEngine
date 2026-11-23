@@ -5,7 +5,7 @@
 // header, a toolbar) becomes the containing block of its fixed backdrop. Escape or a click on the backdrop cancels;
 // Enter creates.
 import { useEffect, useRef, useState } from "preact/hooks";
-import { createPortal } from "preact/compat";
+import { createPortal } from "preact";
 import type { ParameterDef } from "../../engine/audio/parameters";
 import { newDraft, parameterFromDraft, whyNotCreate, type NewParameterKind, type ParameterDraft } from "./newParameterModel";
 import "./newParameterDialog.css";

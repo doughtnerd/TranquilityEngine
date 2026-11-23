@@ -4,8 +4,7 @@
 // it: a dialog drawn inside one is placed and clipped inside that bar instead of the window. So floating content is
 // drawn here instead, at the page's floating root: the element marked `data-floating-root` (the Studio's page, so its
 // own scoped rules still apply), else the document's body. Content keeps its component's signals and context.
-import type { ComponentChildren } from "preact";
-import { createPortal } from "preact/compat";
+import { createPortal, type ComponentChildren } from "preact";
 
 /** The element floating content is drawn into on `doc`'s page. */
 export function floatingRoot(doc: Document = document): HTMLElement {
