@@ -50,17 +50,26 @@ export const sequenceContext = signal<SequenceContext | null>(null);
 
 /** Which sequence the state belongs to: opening another resets the selection, view and playhead. */
 let openKey: string | null = null;
+/** The sequence the selection was last pruned against. */
+let prunedFor: SequenceSettings | null = null;
 export function bindSequence(key: string, ctx: SequenceContext): void {
   if (openKey !== key) {
     openKey = key;
+    prunedFor = null;
     seqSelection.value = EMPTY_SELECTION;
     seqView.value = null;
     seqPlayhead.value = 0;
     seqShownCurve.value = {};
     if (playback.peek()) stopSequence();
   }
-  const pruned = pruneSelection(ctx.seq, seqSelection.peek());
-  if (pruned !== seqSelection.peek()) seqSelection.value = pruned;
+  // Prune only against a sequence not seen yet (an edit, an undo): a redraw with the same sequence can be the view
+  // drawing before its document has the edit that made the clip it just selected (J6.2: a dropped clip lost its
+  // selection to that redraw).
+  if (ctx.seq !== prunedFor) {
+    prunedFor = ctx.seq;
+    const pruned = pruneSelection(ctx.seq, seqSelection.peek());
+    if (pruned !== seqSelection.peek()) seqSelection.value = pruned;
+  }
   sequenceContext.value = ctx;
 }
 

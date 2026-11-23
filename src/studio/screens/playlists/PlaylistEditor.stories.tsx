@@ -18,6 +18,8 @@ function Harness(props: { readonly path: string; readonly values?: Record<string
   const [body, setBody] = useState<PlaylistBody>(FIXTURE_PLAYLISTS[props.path]!);
   const [selected, setSelected] = useState<number | null>(null);
   const [values, setValues] = useState<Record<string, number>>(props.values ?? {});
+  // The undo steps the edits make (the screen records them in the playlist document's history).
+  const [steps, setSteps] = useState<{ label: string; before: PlaylistBody }[]>([]);
   // Parameters "+ New parameter…" made (the screen reads them back from audio.json).
   const [made, setMade] = useState<ParameterDef[]>([]);
   const ask = props.newParameter;
@@ -28,6 +30,9 @@ function Harness(props: { readonly path: string; readonly values?: Record<string
   });
   return (
     <div style={{ width: "760px", height: "640px", overflow: "auto" }}>
+      <button type="button" disabled={steps.length === 0} onClick={() => { setBody(steps.at(-1)!.before); setSteps(steps.slice(0, -1)); }}>
+        {steps.length ? `Undo ${steps.at(-1)!.label}` : "Undo"}
+      </button>
       <PlaylistEditor
         body={body}
         crumbs={breadcrumb(filePath(props.path), loadFixture)}
@@ -41,9 +46,11 @@ function Harness(props: { readonly path: string; readonly values?: Record<string
         values={values}
         playlists={Object.keys(FIXTURE_PLAYLISTS)}
         facts={(e) => (e.kind === "linked" && loadFixture(e.playlist) ? factsOf(loadFixture(e.playlist)!) : null)}
-        onEdit={(_label, edit) => {
+        onEdit={(label, edit) => {
           const r = edit(body);
-          if ("next" in r) setBody(r.next);
+          if (!("next" in r)) return;
+          setSteps([...steps, { label, before: body }]);
+          setBody(r.next);
         }}
         onSelect={setSelected}
         onOpen={fn()}
@@ -85,6 +92,24 @@ export const Switch: Story = {
     await expect(c.getAllByText(/beat or bar|tempo/i).length).toBeGreaterThan(0);
     await userEvent.click(c.getByRole("button", { name: "Add rule" }));
     await expect(c.getByRole("combobox", { name: "Rule 2: from" })).toBeVisible();
+  },
+};
+
+/** J5.3: each change-rule edit (From, To, When, How) is an undo step named after the rule and the field. */
+export const SwitchRuleUndo: Story = {
+  args: { path: "audio/footsteps/footsteps.playlist.json" },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const to = c.getByRole("combobox", { name: "Rule 1: to" }) as HTMLSelectElement;
+    const was = to.value;
+    const other = [...to.options].find((o) => o.value !== was)!.value;
+    await userEvent.selectOptions(to, other);
+    await expect(c.getByRole("button", { name: "Undo Change rule 1 To" })).toBeEnabled();
+    await userEvent.selectOptions(c.getByRole("combobox", { name: "Rule 1: how" }), "cut");
+    await expect(c.getByRole("button", { name: "Undo Change rule 1 How" })).toBeEnabled();
+    await userEvent.click(c.getByRole("button", { name: "Undo Change rule 1 How" }));
+    await userEvent.click(c.getByRole("button", { name: "Undo Change rule 1 To" }));
+    await expect(c.getByRole("combobox", { name: "Rule 1: to" })).toHaveValue(was);
   },
 };
 

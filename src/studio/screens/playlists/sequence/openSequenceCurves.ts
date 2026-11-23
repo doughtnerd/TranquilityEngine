@@ -33,7 +33,7 @@ export function openSequenceCurves(r: CurveOpenRequest): void {
   if (!spec) return;
   openCurveEditorDialog(r.doc, {
     ...spec,
-    title: `Automation · ${r.name}`,
+    title: "Automation", // the window adds "· <target>": the name once (J6.5: "Automation · brake_skid · brake_skid")
     target: r.name,
     context: r.context,
     initialLane: r.lane,

@@ -21,7 +21,8 @@ import { provideStudio } from "../../shell/studioServices";
 import { sampleEntry } from "./playlistEdits";
 import { filePath } from "./playlistPaths";
 import { playlistPlayerSlots } from "./playlistPlayer";
-import { auditionTarget, frozen, lastChange, openPlaylist, pauseAudition, resumeAudition, setTestValue, stopAudition, trigger, triggerOffReason } from "./playlistsScreen";
+import { auditionTarget, frozen, lastChange, openPlaylist, pauseAudition, resumeAudition, setTestValue, stopAudition, trigger, triggerOffReason, voiceLog } from "./playlistsScreen";
+import { bindSequence, playSequence, stopSequence } from "./sequence/sequenceState";
 
 const plugin: EditorPlugin = { manifest: { name: "studio-playlist-audition-test", version: "1.0.0" } as EditorPlugin["manifest"], activate: registerStudioAssetKinds };
 beforeAll(() => activatePlugins([plugin]));
@@ -67,6 +68,8 @@ function footsteps(): PlaylistAsset {
 }
 
 let played: string[];
+/** What `Audio.debug()` answers (null: nothing to read). */
+let debug: () => unknown = () => null;
 /** What the audition's handles were asked to do: pause, resume, stop. */
 let calls: string[];
 
@@ -85,7 +88,7 @@ beforeEach(async () => {
   const runtime = {
     playable: signal(true),
     state: signal({ kind: "running" }),
-    audio: { setParameter: () => {}, debug: () => null },
+    audio: { setParameter: () => {}, debug: () => debug() },
     audition: (path: string) => (played.push(path), { playing: true, stop: () => calls.push("stop"), pause: () => calls.push("pause"), resume: () => calls.push("resume"), setParameter: () => {} }),
     playClip: (path: string) => (played.push(path), { playing: false, stop: () => {} }),
     stopAll: () => {},
@@ -94,6 +97,7 @@ beforeEach(async () => {
 });
 
 afterEach(() => {
+  debug = () => null;
   stopAudition();
   currentProject.value = null;
   status.value = null;
@@ -187,6 +191,18 @@ describe("Pause on the Playlists screen", () => {
     expect(labels(true).status).toMatch(/^Paused at/);
   });
 
+});
+
+describe("A sequence's play in the Voices log (J6.3)", () => {
+  it("logs the voices the sequence's transport plays, as Trigger's are", () => {
+    const SEQ = "audio/brake.playlist.json";
+    debug = () => ({ time: 1, events: [{ id: 7, asset: SEQ, voices: 1 }], voices: [{ id: 3, clip: "audio/brake_skid.wav", bus: "SFX", state: "playing", gain: 1, playheadSeconds: 0.5, event: 7 }] });
+    bindSequence("audition-test", { file: SEQ, title: "brake", seq: { length: 2, tempo: null, tracks: [], loops: [], markers: [] }, plays: "oneShot", sourceOf: () => null });
+    playSequence();
+    expect(played).toEqual([SEQ]);
+    expect(voiceLog.value.map((r) => [r.clip, r.status])).toEqual([["audio/brake_skid.wav", "playing"]]);
+    stopSequence();
+  });
 });
 
 describe("A Switch's label change while it plays", () => {

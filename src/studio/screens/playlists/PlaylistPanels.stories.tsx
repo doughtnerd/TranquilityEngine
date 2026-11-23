@@ -31,6 +31,7 @@ export const Inspector: Story = {
         writable
         ctx={{ parameters: FIXTURE_PARAMETERS }}
         buses={["Master", "SFX", "Vehicles", "Music"]}
+        busPath={(b) => (b === "Vehicles" ? "SFX › Vehicles" : b)}
         output={{ bus: "Vehicles", own: false, from: "car" }}
         presets={["audio/attenuation/near.attenuation.json"]}
         usedBy={["audio/vehicles/car.playlist.json"]}
@@ -54,6 +55,13 @@ export const Inspector: Story = {
     await expect(c.getByRole("combobox", { name: "Output bus" })).not.toBeVisible();
     await userEvent.click(c.getByText("Playback"));
     await expect(c.getByRole("combobox", { name: "Output bus" })).toHaveValue("");
+    // J8.2: the buses by their routing paths, in tree order (Master, then each branch).
+    const output = c.getByRole("combobox", { name: "Output bus" }) as HTMLSelectElement;
+    await expect([...output.options].map((o) => o.textContent)).toEqual(["Inherit · SFX › Vehicles", "Master", "Music", "SFX", "SFX › Vehicles"]);
+    // V9: Priority and When full line up with the slider rows (Cooldown).
+    const left = (name: string) => c.getByText(name, { selector: ".kit-field-label, .studio-field-label" }).getBoundingClientRect().left;
+    await expect(left("Priority")).toBe(left("Cooldown"));
+    await expect(left("When full")).toBe(left("Cooldown"));
     // The effects chain keeps the 8px gutter every field row has (I6): its caption doesn't touch the panel's edge.
     const chain = c.getByRole("region", { name: "Playlist effects" });
     const panel = canvasElement.querySelector(".pl-inspector")!;
@@ -77,8 +85,33 @@ export const Add: Story = {
   },
 };
 
+/** J3.2: in a multi-pick a click toggles a row, as its checkbox shows (three clicks: three picked; again: two). */
+const addMany = fn();
+export const AddClicksToggle: Story = {
+  render: () => <AddDialog items={addItems(FIXTURE_FILES, "audio/footsteps/dirt.playlist.json", "queue", loadFixture)} title="Add to dirt" single={false} onAdd={addMany} onClose={fn()} />,
+  play: async ({ canvasElement }) => {
+    const dialog = within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Add to dirt" }));
+    const rows = dialog.getAllByRole("option").filter((o) => o.getAttribute("aria-disabled") !== "true").slice(0, 3);
+    for (const r of rows) await userEvent.click(r);
+    await expect(dialog.getByText("3 picked")).toBeVisible();
+    for (const r of rows) await expect(r.querySelector("input[type=checkbox]")).toBeChecked();
+    await userEvent.click(rows[1]!);
+    await expect(dialog.getByText("2 picked")).toBeVisible();
+    await expect(rows[1]!.querySelector("input[type=checkbox]")).not.toBeChecked();
+  },
+};
+
+/** A single pick (a Clip's sample) shows no checkboxes: a click picks that one. */
 export const ChooseSample: Story = {
   render: () => <AddDialog items={addItems(FIXTURE_FILES, "audio/ui/boom.playlist.json", "clip", loadFixture)} title="Replace sample…" single onAdd={fn()} onClose={fn()} />,
+  play: async ({ canvasElement }) => {
+    const dialog = within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Replace sample…" }));
+    await expect(canvasElement.ownerDocument.body.querySelectorAll(".pl-add input[type=checkbox]")).toHaveLength(0);
+    const rows = dialog.getAllByRole("option").filter((o) => o.getAttribute("aria-disabled") !== "true");
+    await userEvent.click(rows[0]!);
+    await userEvent.click(rows[1]!);
+    await expect(dialog.getByText("1 picked")).toBeVisible();
+  },
 };
 
 export const Library: Story = {
@@ -87,6 +120,22 @@ export const Library: Story = {
       <LibraryList files={FIXTURE_FILES} addTo="dirt" previewing="audio/footsteps/dirt_02.wav" onPreview={fn()} onAdd={fn()} onOpenSamples={fn()} onCreatePlaylist={fn()} writable />
     </div>
   ),
+};
+
+/** J6.2: a search result is named by its name; its folder sits on the meta line, not before the name. */
+export const LibrarySearch: Story = {
+  render: () => (
+    <div style={{ width: "280px", height: "420px" }}>
+      <LibraryList files={FIXTURE_FILES} addTo="dirt" previewing={null} onPreview={fn()} onAdd={fn()} onOpenSamples={fn()} onCreatePlaylist={fn()} writable />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.type(c.getByRole("searchbox", { name: "Search samples" }), "dirt_0");
+    const names = [...canvasElement.querySelectorAll(".pl-lib-name")].map((n) => n.textContent);
+    await expect(names).toEqual(["dirt_01", "dirt_02", "dirt_03"]);
+    await expect(canvasElement.querySelector(".pl-lib-meta")!.textContent).toMatch(/^audio\/footsteps/);
+  },
 };
 
 const t0 = 10;

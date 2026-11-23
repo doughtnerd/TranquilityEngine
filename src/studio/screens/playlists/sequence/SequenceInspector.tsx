@@ -37,7 +37,7 @@ import type { TimeFormat } from "../../../components/timeRulerModel";
 import { effectiveFormat, formatTime } from "../../../components/timeRulerModel";
 import { chainNote } from "../chainCost";
 import { AutomateButton } from "./AutomateButton";
-import { deletePoints as deletePointsOf, isTimeInput, ownerOf, pasteCurves, QUANTIZE_CHOICES, quantizeChoice, removeAutomation, setAutomation, setPointShape, SHAPES, targetSpec, writeAutomation, type AutomationOwner } from "./automationEdits";
+import { automateLane, deletePoints as deletePointsOf, isTimeInput, ownerOf, pasteCurves, QUANTIZE_CHOICES, quantizeChoice, removeAutomation, setAutomation, setPointShape, SHAPES, targetSpec, writeAutomation, type AutomationOwner } from "./automationEdits";
 import { clipFollows, clipLoops } from "./clipGeometry";
 import { clearLoopOverride, makeHoldPoint, moveLoop, moveMarker, renameMarker, setLoopBehaviour, setLoopEdge, setLoopMusic, setLoopOverride, setMarkerColour, setMarkerHidden, setMarkerNote, setMarkerType } from "./loopMarkerEdits";
 import { markColourCss, markColourOf } from "../../../../engine/audio/markColour";
@@ -406,7 +406,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
           <div class="sq-isec">
             <EffectChain effects={c.effects} level="instance" types={CLIP_EFFECT_TYPES} readOnly={!writable} title="Clip effects" note={chainNote("clip", c.effects)}
               onEdit={(r, label) => run(label, (q) => ("refused" in r ? r : setClipEffects(q, c.id, r.next)), (x) => x)}
-              onAutomate={(fxId) => curves(owner, len, name, `fx:${fxId}:on`)} />
+              onAutomate={(fxId) => curves(owner, len, name, automateLane(c.effects, fxId))} />
           </div>
           {c.sample !== undefined && (
             <Section title={`Loops${loops.length ? ` · ${loops.length}` : ""}`} hint="The sample's loops. Changing one here overrides it in this clip only; reset goes back to the sample's settings.">
@@ -476,7 +476,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
           <div class="sq-isec">
             <EffectChain effects={t.effects} level="instance" readOnly={!writable} title="Track effects" note={chainNote("track", t.effects)}
               onEdit={(r, label) => run(label, (q) => ("refused" in r ? r : setTrackEffects(q, t.id, r.next)), (x) => x)}
-              onAutomate={(fxId) => curves(owner, length, t.name, `fx:${fxId}:on`)} />
+              onAutomate={(fxId) => curves(owner, length, t.name, automateLane(t.effects, fxId))} />
             {shared && (
               <div class="sq-fxmv">
                 <span>Every clip on this track has {effectSpec(shared).label}. Moving it here runs it once on the track mix instead of on each voice.</span>

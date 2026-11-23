@@ -3,7 +3,7 @@
 // right, Loudness (bottom) and History on demand. They
 // share one session over `audio.json`'s document (`mixerScreen.ts`), made here for the open project with the real
 // confirm dialog, toasts, status bar, project-wide renames and the Studio's runtime (`mixerRuntime.ts`).
-import { effect } from "@preact/signals";
+import { effect, signal, type Signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { AssetDocument } from "../../../editor/assetDocuments";
 import { persisted } from "../../../editor/preferences";
@@ -34,12 +34,26 @@ import { TriggerDialogHost } from "./TriggerDialog";
 import { NewGlobalParameterHost } from "./newGlobalParameter";
 import "./mixer.css";
 
-/** Per user: the live board's pins, whether it's open, and List or Strips. */
+/** Per user: whether the live board is open, and List or Strips. */
 const prefs = {
-  pins: persisted<string[]>("myco.studio.mixer.pins", [...DEFAULT_PINS]),
   boardOpen: persisted<boolean>("myco.studio.mixer.board", false),
   view: persisted<"list" | "strips">("myco.studio.mixer.view", "list"),
 };
+/** Per user and project (its folder, else its name): the live board's pins, which name that project's buses. */
+const pinsByProject = persisted<Record<string, string[]>>("myco.studio.mixer.pinsByProject", {});
+
+/** The pins of the project keyed `key`, as a signal that writes back to the preference (until `stop`). */
+function projectPins(key: string): { pins: Signal<string[]>; stop: () => void } {
+  const pins = signal<string[]>(pinsByProject.peek()[key] ?? [...DEFAULT_PINS]);
+  const stop = effect(() => {
+    const now = pins.value;
+    const all = pinsByProject.peek();
+    if (all[key] === now) return;
+    if (now.length === 0 && !(key in all)) return;
+    pinsByProject.value = { ...all, [key]: now };
+  });
+  return { pins, stop };
+}
 
 let cached: { doc: AssetDocument<AudioProject>; session: MixerSession; stopRoute: () => void } | null = null;
 
@@ -53,6 +67,7 @@ function mixerSession(): MixerSession | null {
   }
   if (cached?.doc === doc) return cached.session;
   if (cached) { cached.stopRoute(); cached.session.dispose(); }
+  const pinned = projectPins(project.root ?? project.name);
   const session = createMixerSession({
     doc,
     path: AUDIO_PROJECT_FILE,
@@ -75,15 +90,16 @@ function mixerSession(): MixerSession | null {
     },
     sessionLive: () => replayStore().playing.value,
     openFile: (path) => studioRouter().open({ screen: "playlists", asset: path }),
-    prefs,
+    prefs: { ...prefs, pins: pinned.pins },
   });
   // The route's selection (a hand-off from Playlists, "#/mixer?select=Music") picks the bus.
-  let stopRoute = () => {};
+  let stopRoute = pinned.stop;
   try {
-    stopRoute = effect(() => {
+    const stopSelect = effect(() => {
       const r = studioRouter().route.value;
       if (r.screen === "mixer" && r.select) session.select(r.select);
     });
+    stopRoute = () => { stopSelect(); pinned.stop(); };
   } catch {
     // no router (a story)
   }

@@ -7,6 +7,7 @@ import { TransportButton, type PlayerBarSlots } from "../../../components/Player
 import { SegmentedControl } from "../../../../editor/ui/SegmentedControl";
 import { PLAY_MODES, playLabel, type PlayMode } from "./transportModel";
 import { Checkbox } from "../../../components/Checkbox";
+import { playlistBadge } from "../../../components/typeBadgeModel";
 import { pauseSequence, playback, playSequence, releaseSequence, resumeSequence, returnToStart, sequenceContext, sequenceHasHeldLoop, seqPlayhead, seqSelection, seqTransport, stopSequence, transportMessage } from "./sequenceState";
 import "./sequence.css";
 
@@ -21,7 +22,7 @@ export function sequencePlayerSlots(title: string, subtitle: string): PlayerBarS
   const play = ctx ? playLabel(ctx.seq, seqSelection.value, t, opts, ctx.sourceOf) : "Play";
   const toggle = (k: "preRoll" | "returnToStart" | "follow") => (seqTransport.value = { ...seqTransport.peek(), [k]: !seqTransport.peek()[k] });
   return {
-    nowPlaying: { art: "SQ", title, subtitle },
+    nowPlaying: { art: playlistBadge("sequence", 1).code, title, subtitle }, // "SEQ", as the tree badges it (V13)
     transport: (
       <span class="sq-transport">
         <TransportButton icon="skipBack" label="Return to start" title="Playhead to the start" disabled={!!p} onClick={returnToStart} />

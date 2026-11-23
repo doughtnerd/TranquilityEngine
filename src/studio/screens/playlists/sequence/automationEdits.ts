@@ -55,6 +55,15 @@ export function targetSpecs(effects: readonly Effect[]): TargetSpec[] {
   return out;
 }
 
+/**
+ * The lane Automate on effect `fxId` opens on: its first continuous parameter (a Low-pass's Cutoff), else its On
+ * switch (J6.5: it opened on "Low-pass · On").
+ */
+export function automateLane(effects: readonly Effect[], fxId: string): string {
+  const prefix = `fx:${fxId}:`;
+  return targetSpecs(effects).find((t) => t.target.startsWith(prefix) && !t.bool)?.target ?? `${prefix}on`;
+}
+
 export function targetSpec(target: string, effects: readonly Effect[]): TargetSpec | null {
   return targetSpecs(effects).find((t) => t.target === target) ?? null;
 }
