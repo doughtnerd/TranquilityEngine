@@ -94,6 +94,20 @@ export interface PVoice {
   appliedLowpass: number | null;
   /** Played with a position (it follows the handle's `position`). */
   readonly positioned: boolean;
+  /**
+   * A stream voice (the sample's `stream` import setting): it reads `waitingForData` from its play until its first chunk
+   * sounds, whenever it starts, so starting it again later never finds its data there (`waitsForClipData`).
+   */
+  readonly streamed: boolean;
+}
+
+/**
+ * The voice waits for its clip's data to reach the core (D44: a start that can't sound where it was stamped yet, worth
+ * starting again once the clip is resident). A stream voice's wait is its stream opening, which a new start only begins
+ * again: it isn't counted, or a sequence of a streamed sample would restart every frame and never sound.
+ */
+export function waitsForClipData(v: PVoice): boolean {
+  return !v.leaving && !v.streamed && v.voice.reason === "waitingForData";
 }
 
 /** Where a voice plays from, resolved from the playlist's `spatial` block. */
@@ -370,7 +384,7 @@ export abstract class LiveNode {
 
   /** A voice below still waits for its clip's data (it hasn't reached the core, so it can't start where it was stamped). */
   waitingForData(): boolean {
-    for (const v of this.voices) if (!v.leaving && v.voice.reason === "waitingForData") return true;
+    for (const v of this.voices) if (waitsForClipData(v)) return true;
     for (const c of this.children) if (!c.stopped && c.waitingForData()) return true;
     return false;
   }

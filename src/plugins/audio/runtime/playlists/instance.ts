@@ -1139,6 +1139,7 @@ export class PlaylistInstance implements NodeHost {
     const v: PVoice = {
       voice, path, base, staticVolume, staticPitch, bindings, dyn: dynList, timeCurves,
       start, length, loop, leaving: false, appliedGain: dyn, appliedPitch: t.pitch, appliedLowpass: curved ? lowpass : t.lowpass, positioned: req.position !== undefined,
+      streamed: req.stream === true,
     };
     this.voices.push(v);
     // ADR 0362 §1: a voice started while paused (a stinger) holds with the others until the resume.
