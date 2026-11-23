@@ -17,7 +17,7 @@
 //! control block of [`CONTROL_FRAMES`] samples, recomputing the filter only while something moves it.
 //!
 //! **Quality** (D67, owner: "Make it a setting"): the oscillator, synth and blip each end their parameters with
-//! `quality`, a choice: [`quality::STANDARD`] (two-sample PolyBLEP, as ADR 0346 built) or [`quality::HIGH`] (the minBLEP
+//! `quality`, a choice: [`quality::STANDARD`] (two-sample PolyBLEP, as ADR 0360 built) or [`quality::HIGH`] (the minBLEP
 //! of `blep.rs`, for saw, pulse and triangle, and the blip's held noise, read [`blep::DELAY`] samples late). A blip
 //! latches it at its trigger like its other parameters; the oscillator and synth follow it per control block (a switch to
 //! `high` holds the last value over the delay; it is meant to be set per sound, not swept).
@@ -81,7 +81,7 @@ const fn log(min: f32, max: f32, default: f32) -> ParamSpec {
 
 /// The `quality` choice (every kind with oscillators has it, last).
 pub mod quality {
-    /// Two-sample PolyBLEP (ADR 0346).
+    /// Two-sample PolyBLEP (ADR 0360).
     pub const STANDARD: u8 = 0;
     /// A 16-tap minBLEP (`blep.rs`, D67).
     pub const HIGH: u8 = 1;

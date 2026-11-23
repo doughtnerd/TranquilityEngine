@@ -289,7 +289,7 @@ impl GenScene {
     }
 }
 
-/// ADR 0346 (blip cost, D67): the key parameters of sfxr's presets (one fixed draw of each generator function, as
+/// ADR 0360 (blip cost, D67): the key parameters of sfxr's presets (one fixed draw of each generator function, as
 /// `audio-dsp`'s sfxr reference tests use), for the per-preset `gen-blip-<name>` scenes. Each scene stretches its preset
 /// to the all-features blip's 1.25 s (attack 0, sustain 0.5, decay 0.55) and drops a frequency limit, so every scene
 /// restarts its voices at the twin's rate and measures the preset's per-sample kernel, not its start cost.

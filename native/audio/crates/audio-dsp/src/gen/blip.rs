@@ -18,9 +18,11 @@
 //! - sfxr's master and sound volumes (× 0.05) are replaced by the `level` parameter (dB), which glides live; the other
 //!   parameters are read when the blip starts and at each re-trigger (as sfxr reads them at its reset).
 //!
-//! **How a block runs** (D67, the blip's cost; the output is sample for sample the same as running sfxr's tick in full).
-//! A render call is one control block (at most [`BLOCK`] samples), one loop per waveform with the ticks, the oscillator,
-//! the filters, the phaser and the envelope fused, every value in locals.
+//! **How a block runs** (D67, the blip's cost: 2.38× a sample voice to 1.47× with every stage on; the output matches the
+//! full per-tick form to the bit, or within an ulp, except the vibrato, below). A render call is one control block (at
+//! most [`BLOCK`] samples): one loop per waveform and low-pass (`run`) with the ticks, the oscillator and the filters
+//! fused, every value in locals, then a shared second pass (`finish_block`, four lanes at a time with simd128) for the
+//! phaser, the envelope and the gain.
 //! - sfxr's three tick counters (repeat, arpeggio, envelope stage) only matter when one of them fires: a tick counts down
 //!   to the next of the three events, and the counters are brought up to date when it fires (`events`).
 //! - Each tick does only what moves every tick: the slide and its limit, the vibrato's phase and the duty sweep, each
@@ -31,6 +33,8 @@
 //! - The control values the audio reads only through a filter's coefficients or the phaser's delay, which the render reads
 //!   once a block (the phaser's offset, the low- and high-pass sweeps), are swept once a block by the block's tick count,
 //!   multiplication by multiplication as sfxr does.
+//! - The vibrato's `sin(vib_phase)` is a phasor turned each tick (f64), closer to sfxr's `sin` than ADR 0360's
+//!   polynomial (which differed by up to 4e-6): an integer period can now and then round the other way.
 //!
 //! **Quality** (D67): at `quality` `high` the oscillator's discontinuities (the saw's and square's jumps, the triangle's
 //! corners, the held noise's steps) take a minBLEP residual (`blep.rs`) instead of PolyBLEP, the blip reading its

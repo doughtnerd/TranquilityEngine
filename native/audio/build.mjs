@@ -53,7 +53,7 @@ const WASI_SDK_VERSION = "25.0";
 // 640 KB since the blip-cost and quality task (2026-11-23, owner decision D67, ADR 0360): from 542,629 B (ABI 6.0) to
 // ≈ 589 KB, ≈ +46 KB: the blip kernel monomorphised per waveform and low-pass (its fused loop took it from 2.38× to
 // 1.47× a sample voice), the `quality` parameter's `high` loops (16-tap minBLEP) for the oscillator, synth and blip, and
-// the minBLEP tables (4.2 KB). Not traded for CPU: the per-waveform loops are what keep the blip under 0346's 1.5×.
+// the minBLEP tables (4.2 KB). Not traded for CPU: the per-waveform loops are what keep the blip under 0360's 1.5×.
 const MIXER_LIMIT = 640 * 1024;
 /** ADR 0162 (api-and-models §5.2): M3's mixer warning, under the gate: a build past it warns but passes. */
 const MIXER_WARN = 300 * 1024;
