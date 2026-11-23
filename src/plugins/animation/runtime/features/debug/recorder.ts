@@ -46,6 +46,8 @@ export interface RecorderOptions {
   readonly seconds?: number;
   /** Seconds between keyframes (default 1). */
   readonly keyframeEvery?: number;
+  /** Called with each entry as it is recorded (before the ring trims): a take writes it out (ADR 0348, `takeRecord.ts`). */
+  readonly onEntry?: (entry: RecordedEntry) => void;
 }
 
 /** The command records a World's buffer holds (every one names its instance at byte 4). */
@@ -54,7 +56,7 @@ const LAYOUTS = new Map(COMMANDS.map((l) => [l.opcode, l]));
 const INSTANCE_AT = 4;
 
 /** What one evaluate applied to the instance. */
-interface RawFrame {
+export interface RawFrame {
   readonly pass: number;
   readonly dt: number;
   readonly du: number;
@@ -68,7 +70,8 @@ interface RawFrame {
   readonly complete: boolean;
 }
 
-interface Entry {
+/** @internal One recorded frame with what re-evaluating it takes (a take writes these, ADR 0348). */
+export interface RecordedEntry {
   readonly frame: AnimatorDebugFrame;
   readonly raw: RawFrame;
   /** Evaluates of the other pass since the last frame that applied something to the instance (replayed first). */
@@ -76,6 +79,9 @@ interface Entry {
   /** The instance's snapshot before `raw` applied (a keyframe), or null. */
   readonly key: Uint8Array | null;
 }
+
+/** @internal The entries the recorder keeps. */
+type Entry = RecordedEntry;
 
 const copyOf = (buffer: ArrayBuffer, at: number, n: number): Uint8Array => new Uint8Array(buffer, at, n).slice();
 
@@ -90,6 +96,7 @@ export class AnimatorRecorder {
   private next = 0;
   private keep: number;
   private readonly every: number;
+  private readonly onEntry: ((entry: RecordedEntry) => void) | undefined;
   private scratch: { world: number; instance: number; at: { key: number; index: number } | null } | null = null;
   private shown: { index: number; saved: Float32Array } | null = null;
   private disposed = false;
@@ -104,6 +111,7 @@ export class AnimatorRecorder {
   ) {
     this.keep = Math.max(1, options.seconds ?? 10);
     this.every = Math.max(1e-3, options.keyframeEvery ?? 1);
+    this.onEntry = options.onEntry;
     this.attach();
   }
 
@@ -272,8 +280,10 @@ export class AnimatorRecorder {
     const root = Array.from(core.views().roots.subarray(rootAt, rootAt + ROOT_STRIDE / 4));
     const frame: AnimatorDebugFrame = { index: this.next++, time: this.clock, report, parameters, inputs: p.inputs, root };
     if (p.key) this.lastKey = start;
-    this.entries.push({ frame, raw: p.raw, before: this.carry, key: p.key });
+    const entry: Entry = { frame, raw: p.raw, before: this.carry, key: p.key };
+    this.entries.push(entry);
     this.carry = [];
+    this.onEntry?.(entry);
     this.trim();
   }
 
@@ -385,18 +395,7 @@ export class AnimatorRecorder {
 
   /** Applies one recorded evaluate to the scratch instance: its rows, its commands (renamed to it), then the evaluate. */
   private replay(world: number, instance: number, raw: RawFrame): void {
-    const core = this.target!.ns.core;
-    const row = instance & HANDLE_INDEX_MASK;
-    const v = core.views();
-    new Uint8Array(v.buffer, v.inputs.byteOffset + row * INPUT_STRIDE, INPUT_STRIDE).set(raw.input);
-    new Uint8Array(v.buffer, v.blackboard.byteOffset + row * BLACKBOARD_STRIDE, BLACKBOARD_STRIDE).set(raw.blackboard);
-    new Uint8Array(v.buffer, v.rigInputs.byteOffset + row * RIG_INPUT_STRIDE, RIG_INPUT_STRIDE).set(raw.rig);
-    const commands = raw.commands.slice();
-    const view = new DataView(commands.buffer);
-    for (const at of raw.starts) view.setUint32(at + INSTANCE_AT, instance, true);
-    new Uint8Array(core.buffer(), core.commandsPtr(), commands.length).set(commands);
-    core.writeInputs(commands.length);
-    core.evaluate(world, raw.pass, raw.dt, raw.du);
+    replayRows(this.target!.ns.core, world, instance, raw);
   }
 
   private unshow(): void {
@@ -424,6 +423,25 @@ export class AnimatorRecorder {
   private entryAt(index: number): Entry | undefined {
     return this.entries.find((e) => e.frame.index === index);
   }
+}
+
+/**
+ * @internal Applies one recorded evaluate to `instance` of `world` in `core`: its input, blackboard and rig rows, its
+ * command records renamed to the instance, then the evaluate with the recorded pass and steps (the recorder's replay, and
+ * a take's, ADR 0348).
+ */
+export function replayRows(core: AnimationWorldCore["core"], world: number, instance: number, raw: RawFrame): void {
+  const row = instance & HANDLE_INDEX_MASK;
+  const v = core.views();
+  new Uint8Array(v.buffer, v.inputs.byteOffset + row * INPUT_STRIDE, INPUT_STRIDE).set(raw.input);
+  new Uint8Array(v.buffer, v.blackboard.byteOffset + row * BLACKBOARD_STRIDE, BLACKBOARD_STRIDE).set(raw.blackboard);
+  new Uint8Array(v.buffer, v.rigInputs.byteOffset + row * RIG_INPUT_STRIDE, RIG_INPUT_STRIDE).set(raw.rig);
+  const commands = raw.commands.slice();
+  const view = new DataView(commands.buffer);
+  for (const at of raw.starts) view.setUint32(at + INSTANCE_AT, instance, true);
+  new Uint8Array(core.buffer(), core.commandsPtr(), commands.length).set(commands);
+  core.writeInputs(commands.length);
+  core.evaluate(world, raw.pass, raw.dt, raw.du);
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

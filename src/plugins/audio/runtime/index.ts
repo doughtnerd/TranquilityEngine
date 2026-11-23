@@ -26,6 +26,18 @@ export type { AudioBedDebug, AudioDebugInfo, AudioEventHandle, AudioPlaylistHand
 export type { AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioRecorderDebug } from "./backend";
 export type { AudioCapture, AudioCaptureState } from "./capture/capture";
 export type { AudioTake, AudioTakeState } from "./capture/take";
+export type { TakeExtensionRecord } from "../../../engine/audio/take/extensions";
+
+/**
+ * @internal ADR 0348: what a plugin needs of a take file to decode its own records (types 0x40..0x7e): the project and
+ * duration META names, and the records in file order. Loads the capture reader only when called. Rejects with the reader's
+ * message when the file isn't a take it can read.
+ */
+export async function readTakeExtensions(file: Uint8Array): Promise<{ project: string; duration: number; extensions: import("../../../engine/audio/take/extensions").TakeExtensionRecord[] }> {
+  const { openTakeFile } = await import("./capture/takeFile");
+  const opened = await openTakeFile(file);
+  return { project: opened.take.meta.project, duration: opened.take.duration, extensions: opened.extensions };
+}
 export { DEFAULT_SEND_CURVE } from "./backend";
 export type { EventOptions } from "./playlists/options";
 export { AudioSource, type Rolloff } from "./AudioSource";

@@ -3,6 +3,7 @@
 // profile records as `Audio.capture` would have them) and collects the request records the reader checks, then builds the
 // replay's view (`engine/audio/take/reader.ts` `Take`). The Profiler opens the same file as a capture (`openCapture`),
 // passing over the requests.
+import type { TakeExtensionRecord } from "../../../../engine/audio/take/extensions";
 import { Take, readTakeMeta } from "../../../../engine/audio/take/reader";
 import type { TakeRecord } from "../../../../engine/audio/take/records";
 import { CAPTURE_FLAG_TAKE, CaptureError, readCaptureHeader } from "./format";
@@ -12,6 +13,8 @@ import { openCapture, type CaptureContents, type ReaderOptions } from "./reader"
 export interface OpenedTake {
   take: Take;
   profile: CaptureContents;
+  /** The plugin records the take holds (types 0x40..0x7e), in file order; the plugin that wrote them decodes them. */
+  extensions: TakeExtensionRecord[];
 }
 
 /**
@@ -22,14 +25,19 @@ export async function openTakeFile(file: Uint8Array, opts: ReaderOptions = {}): 
   const header = readCaptureHeader(file);
   if ((header.flags & CAPTURE_FLAG_TAKE) === 0) throw new CaptureError("badHeader", 10, "a capture, not a take (no take flag): open it in the Profiler");
   const records: TakeRecord[] = [];
+  const extensions: TakeExtensionRecord[] = [];
   const profile = await openCapture(file, {
     ...opts,
     onRequestRecord: (r, seq) => {
       records.push(r);
       opts.onRequestRecord?.(r, seq);
     },
+    onExtensionRecord: (r) => {
+      extensions.push(r);
+      opts.onExtensionRecord?.(r);
+    },
   });
   const meta = readTakeMeta(profile.meta, header.startDateMs, profile.meta.take);
   if (typeof meta === "string") throw new CaptureError("badMeta", 0, meta);
-  return { take: new Take(meta, records), profile };
+  return { take: new Take(meta, records), profile, extensions };
 }

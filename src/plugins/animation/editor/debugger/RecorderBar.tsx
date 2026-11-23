@@ -14,7 +14,8 @@ export interface RecorderBarProps {
   scrub: number | null;
   onScrub(index: number | null): void;
   seconds: number;
-  onSeconds(seconds: number): void;
+  /** Changes the seconds kept (absent: the recording keeps everything, as a take does, and the control is left out). */
+  onSeconds?(seconds: number): void;
   paused: boolean;
   /** The scrubbed frame's pose shows on the character. */
   poseShown: boolean;
@@ -65,12 +66,14 @@ export function RecorderBar(props: RecorderBarProps) {
         </span>
       </span>
       <output class="dbg-when" aria-label="Scrubbed time">{props.scrub === null ? "live" : `−${ago.toFixed(2)} s`}</output>
-      <label class="dbg-keep" title="Seconds the recorder keeps">
-        <span>Keep</span>
-        <select aria-label="Seconds kept" value={String(props.seconds)} onChange={(e) => props.onSeconds(Number((e.currentTarget as HTMLSelectElement).value))}>
-          {RECORD_SECONDS.map((s) => <option key={s} value={String(s)}>{s} s</option>)}
-        </select>
-      </label>
+      {props.onSeconds && (
+        <label class="dbg-keep" title="Seconds the recorder keeps">
+          <span>Keep</span>
+          <select aria-label="Seconds kept" value={String(props.seconds)} onChange={(e) => props.onSeconds!(Number((e.currentTarget as HTMLSelectElement).value))}>
+            {RECORD_SECONDS.map((s) => <option key={s} value={String(s)}>{s} s</option>)}
+          </select>
+        </label>
+      )}
       {props.scrub !== null && (
         <span class="dbg-muted dbg-hint" role="status">
           {props.poseShown ? "Showing this frame's pose" : props.paused ? "This frame's pose can't be re-evaluated" : "Pause to see this frame's pose"}
