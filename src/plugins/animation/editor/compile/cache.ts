@@ -133,10 +133,10 @@ export class ClipCompileCache {
   }
 
   /** The compiled clip for `job`: cached, or compiled now (null when the compile failed: `onError` hears why). */
-  get(job: CacheJob, onError?: (message: string) => void): Promise<CompiledClip | null> {
-    void this.remember(job.request, job.key);
+  async get(job: CacheJob, onError?: (message: string) => void): Promise<CompiledClip | null> {
+    await this.remember(job.request, job.key);
     const have = this.memory.get(job.key);
-    if (have) return Promise.resolve(have);
+    if (have) return have;
     let p = this.pending.get(job.key);
     if (!p) {
       p = (async () => {
