@@ -20,7 +20,7 @@ import {
 import { nearestZeroCrossing, seamJump, seamStrip, seamWindow } from "./seam";
 import { addTap, tapResult } from "./tapTempo";
 import { effectEdits } from "./sampleEffects";
-import { planPlay } from "./sampleTransport";
+import { planPlay, planSeam } from "./sampleTransport";
 
 const LEN = 2.6;
 const next = (r: SampleEdit): SampleEdits => {
@@ -471,5 +471,16 @@ describe("play plans", () => {
     expect(planPlay(e, LEN, { kind: "sample" }, "toNextMarker", 0.31)).toMatchObject({ from: 0.31, to: 0.32, scope: "To Lock-up" });
     expect(planPlay(e, LEN, { kind: "sample" }, "selection", 1)).toMatchObject({ from: 1, scope: "From the playhead" });
     expect(planPlay(e, LEN, { kind: "tail" }, "selection", 0)).toMatchObject({ from: 1.55, to: LEN });
+  });
+
+  it("plays across a seam: the window before the loop's end, then the window after its start, and no more", () => {
+    const e = skid(); // loop l1 0.45–1.55 s: the window is 1.1 / 6 s, clamped to 120 ms
+    const p = planSeam(e, "l1")!;
+    expect(p.from).toBeCloseTo(1.43, 9);
+    expect(p.to).toBeCloseTo(0.57, 9);
+    expect(p).toMatchObject({ loop: { start: 0.45, end: 1.55, count: 2, crossfadeMs: 35 }, held: false });
+    expect(planSeam(e, "gone")).toBeNull();
+    const short = { ...e, loops: [loop("s", 1, 1.06)] }; // 60 ms: the window can't pass the middle
+    expect(planSeam(short, "s")).toMatchObject({ from: 1.03, to: 1.03 });
   });
 });

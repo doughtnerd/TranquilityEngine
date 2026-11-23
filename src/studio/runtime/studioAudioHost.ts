@@ -57,6 +57,7 @@ export interface StudioAudioHost {
 /** What `playClipSpan` plays, source seconds. */
 export interface ClipSpan {
   readonly from: number;
+  /** Where the run stops; with a loop of a set count it may lie before `from`, in the last pass (across a seam: end − W to start + W). */
   readonly to: number;
   readonly loop?: { readonly start: number; readonly end: number; readonly count: number; readonly crossfadeMs: number } | null;
   /** Silent seconds before `from` is heard (a count-in). */
@@ -264,7 +265,7 @@ export function createStudioAudioHost(seams: HostSeams): StudioAudioRuntime {
       return track(audio.playOneShot(path, options));
     },
     playClipSpan(path, span, options) {
-      if (!playable.peek() || !(span.to > span.from)) return null;
+      if (!playable.peek() || !(span.to > span.from || (span.loop && span.loop.count !== 1 && span.from < span.loop.end))) return null;
       return playSpan(path, span, options ?? {});
     },
     stopAll(fadeSeconds = 0) {

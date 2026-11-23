@@ -9,8 +9,8 @@ import { editedLength, trimOf } from "./sampleTime";
 import { landmarks, liveSelection, selectionSpan, SAMPLE_SELECTED, type SampleSelection } from "./sampleView";
 import { lengthOf } from "./sampleSession";
 import { renderPathOf } from "./sampleFlatten";
-import { followPlayhead, playMode, playheadTime, preRoll, razorOn, returnToStart, select, selection, openSession, viewSpan, snapSetting, timeFormat } from "./samplesState";
-import { planPlay, playing, releasePlay, startPlay, stopPlay } from "./sampleTransport";
+import { followPlayhead, playMode, playheadTime, preRoll, razorOn, returnToStart, seamRepeat, select, selection, openSession, viewSpan, snapSetting, timeFormat } from "./samplesState";
+import { planPlay, planSeam, playing, releasePlay, SEAM_SCOPE, startPlay, stopPlay } from "./sampleTransport";
 import { formatTime } from "../../components/timeRulerModel";
 import { snapSeconds } from "./sampleView";
 import { status } from "../../../editor/state";
@@ -182,6 +182,40 @@ export function togglePlay(sel?: SampleSelection): boolean {
     if (why) toasts.show({ text: `Can't play: ${why}.`, kind: "error" });
   };
   // ADR 0351 §6: Hear as a platform converts the sound first (cached), then plays what that platform ships.
+  const hear = studioHearAs();
+  if (hear.choice.peek() === "source") begin();
+  else void hear.prepare([audio]).then(begin);
+  return true;
+}
+
+/**
+ * Play across the seam (the Loop seam panel): the loop's last moment into its first, through the crossfade, and only
+ * that (`planSeam`); with Repeat on it plays again each time it ends, until stopped. Pressed while it plays: stop.
+ */
+export function playSeam(loopId: string): boolean {
+  const c = current();
+  if (!c) return false;
+  const host = audioHost();
+  const now = playing.peek();
+  if (now && now.path === c.s.path) {
+    stopPlay(host);
+    if (now.plan.scope === SEAM_SCOPE) return true;
+  }
+  const plan = planSeam(c.e, loopId);
+  if (!plan) {
+    toasts.show({ text: "That loop has no seam to play" });
+    return true;
+  }
+  const path = c.s.path;
+  const audio = renderPathOf(c.s.project.files, c.s.source.peek(), c.e) ?? c.s.source.peek();
+  const begin = () => {
+    const why = startPlay(host, path, audio, plan, 0, (t) => movePlayhead(t, false), () => {
+      // Ended by itself (Stop doesn't come here): again, while Repeat is on and the same sample is open, with the
+      // loop as it is now (a crossfade changed meanwhile is heard on the next pass).
+      if (seamRepeat.peek() && openSession.peek()?.path === path) playSeam(loopId);
+    });
+    if (why) toasts.show({ text: `Can't play: ${why}.`, kind: "error" });
+  };
   const hear = studioHearAs();
   if (hear.choice.peek() === "source") begin();
   else void hear.prepare([audio]).then(begin);

@@ -1,6 +1,6 @@
 // The Loop seam panel (the prototype's): the selected (or first) loop's end followed by its start, with the
 // equal-power crossfade applied (`seam.ts`), the level jump across the seam (amber above 3 dB), the crossfade length,
-// and Play across the seam (the loop cycling, through the audio host).
+// and Play across the seam (the loop's last moment into its first, `planSeam`; Repeat keeps cycling it).
 import { useEffect, useRef } from "preact/hooks";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
@@ -10,7 +10,8 @@ import { isHold, loopName, updateLoop } from "./sampleEditing";
 import { lengthOf, pcmNow } from "./sampleSession";
 import { SEAM_WARN_DB, liveSelection } from "./sampleView";
 import { seamJump, seamStrip } from "./seam";
-import { openSession, selection } from "./samplesState";
+import { openSession, seamRepeat, selection } from "./samplesState";
+import { playing, SEAM_SCOPE } from "./sampleTransport";
 
 const POINTS = 480;
 
@@ -52,6 +53,8 @@ export function SeamPanel() {
     );
   }
   const jump = pcm ? seamJump(pcm, loop.start, loop.end) : null;
+  const p = playing.value;
+  const seamPlaying = !!p && p.path === session.path && p.plan.scope === SEAM_SCOPE;
   const warn = jump !== null && Math.abs(jump) > SEAM_WARN_DB && loop.direction !== "pingPong";
   return (
     <Panel class="smp-seam">
@@ -65,10 +68,14 @@ export function SeamPanel() {
           Crossfade{" "}
           <input type="number" min={0} max={500} value={loop.crossfadeMs} aria-label="Crossfade in ms" disabled={session.readOnly} onChange={(ev) => session.commit(updateLoop(e, loop.id, { crossfadeMs: Number((ev.currentTarget as HTMLInputElement).value) }))} /> ms
         </label>
-        <button class="smp-tool-icon" onClick={() => act.togglePlay({ kind: "loop", id: loop.id })}>
-          <Icon name="play" />
-          Play across the seam
+        <button class="smp-tool-icon" aria-pressed={seamPlaying} title="Play the end of the loop into its start, through the crossfade" onClick={() => act.playSeam(loop.id)}>
+          <Icon name={seamPlaying ? "stop" : "play"} />
+          {seamPlaying ? "Stop" : "Play across the seam"}
         </button>
+        <label class="smp-check" title="Keep cycling through the seam">
+          <input type="checkbox" checked={seamRepeat.value} onChange={(ev) => (seamRepeat.value = (ev.currentTarget as HTMLInputElement).checked)} />
+          Repeat
+        </label>
       </div>
       <canvas ref={canvas} class="smp-seam-strip" role="img" aria-label={`The end of ${loopName(e, loop.id)} then its start, ${strip ? Math.round(strip.window * 1000) : 0} ms each side`} />
       <div class="smp-seam-scale smp-muted">
