@@ -9,6 +9,11 @@
 //   crossfade, D31) while active and bound. Deactivation or losing the Skeleton destroys the instance and ends its
 //   plays with `stopped`; reactivation makes a new one (Unity resets an Animator's state on re-enable) and plays
 //   `defaultClip` again. Clips are acquired once per Animator and path, and released on detach.
+//   An Animator with no Skeleton on its node or below gets a zero-bone instance (skeleton handle 0, T17b): clips play
+//   and their property tracks, events, notify states and root curves run, with no pose or matrices (Unity's Animator
+//   animates any property without a rig). When a Skeleton appears later it recreates the instance bound to it, as a
+//   re-enable would (plays end `stopped`, `defaultClip` plays again); a Skeleton that goes away rebinds the Animator
+//   to a zero-bone instance.
 // - **BoneAttachment:** joins its World's follow list (`attachments/follow.ts`) while active.
 import type { World } from "../../../../engine/core/World";
 import type { GameObject } from "../../../../engine/scene/GameObject";
@@ -219,9 +224,19 @@ function loadSkeleton(s: SkeletonRuntime): Promise<void> {
 function bindAnimatorsAbove(s: SkeletonRuntime): void {
   for (let n: GameObject | null = s.component.node; n; n = n.parent) {
     for (const rt of worldState(s.world).animators) {
-      if (rt.animator.node === n && rt.active && !rt.skeleton && !rt.instance) void activateAnimator(rt);
+      if (rt.animator.node === n && rt.active && !rt.skeleton) rebindToSkeleton(rt);
     }
   }
+}
+
+/** A Skeleton showed up for an Animator: drops its zero-bone instance (if any) and binds a new one to the Skeleton. */
+function rebindToSkeleton(rt: AnimatorRuntime): void {
+  if (rt.instance) {
+    rt.epoch++;
+    unbindAnimator(rt);
+    if (!rt.animator.graph && rt.animator.defaultClip) queueDefaultClip(rt, rt.animator.defaultClip);
+  }
+  void activateAnimator(rt);
 }
 
 /** @internal A Skeleton's lifecycle: load its skeleton asset into the core's arena while used. */
@@ -243,9 +258,12 @@ export const skeletonHooks: LifecycleHooks<Skeleton> = {
     skeletons.delete(component);
     const w = worldState(s.world);
     if (w.skeletons.get(component.node.entity) === s) w.skeletons.delete(component.node.entity);
-    if (s.animator) unbindAnimator(s.animator);
+    const animator = s.animator;
+    if (animator) unbindAnimator(animator);
     if (s.handle && s.ns) s.ns.release(s.handle);
     s.handle = 0;
+    // The Animator keeps running on whatever rig is left, or none (T17b).
+    if (animator?.active && !animator.detached) void activateAnimator(animator);
   },
 };
 
@@ -278,7 +296,17 @@ async function activateAnimator(rt: AnimatorRuntime): Promise<void> {
     return;
   }
   const s = findSkeleton(rt.world, rt.animator.node);
-  if (!s) return; // binds when a Skeleton below it loads
+  if (!s) {
+    // No rig: a zero-bone instance, so property tracks, events and notifies still run (T17b).
+    if (rt.instance) return;
+    const instance = ns.createInstance(0);
+    if (!instance) {
+      console.warn(`[myco] ${rt.animator.node.name}: Animator couldn't get a core instance (status ${ns.core.lastStatus()}).`);
+      return;
+    }
+    adoptInstance(rt, ns, instance);
+    return;
+  }
   if (s.animator && s.animator !== rt) {
     console.warn(`[myco] ${rt.animator.node.name}: its Skeleton ("${s.component.node.name}") is already animated by another Animator.`);
     return;
@@ -291,10 +319,15 @@ async function activateAnimator(rt: AnimatorRuntime): Promise<void> {
     console.warn(`[myco] ${rt.animator.node.name}: Animator couldn't get a core instance (status ${ns.core.lastStatus()}).`);
     return;
   }
-  rt.instance = instance;
+  adoptInstance(rt, ns, instance);
   rt.skeleton = s;
-  rt.evaluated = false;
   s.animator = rt;
+}
+
+/** Makes `instance` the Animator's and seeds its layer weights from the core's defaults. */
+function adoptInstance(rt: AnimatorRuntime, ns: AnimationWorldCore, instance: number): void {
+  rt.instance = instance;
+  rt.evaluated = false;
   const row = (instance & HANDLE_INDEX_MASK) * INPUT_STRIDE;
   const inputs = ns.core.views().inputs;
   for (let l = 0; l < MAX_LAYERS; l++) if (Number.isNaN(rt.layerWeights[l]!)) rt.layerWeights[l] = inputs.getFloat32(row + INPUT_LAYER_WEIGHTS + 4 * l, true);

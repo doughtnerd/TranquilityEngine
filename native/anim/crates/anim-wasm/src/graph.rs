@@ -258,7 +258,7 @@ pub fn apply(
             let skeleton = table.get_mut(c.instance).map_err(r)?.skeleton;
             let bones = arena.skeleton(skeleton).map_err(r)?.bones();
             let clip = arena.clip_asset(c.clip).map_err(r)?;
-            if clip.bone_count != 0 && clip.bone_count as usize != bones {
+            if bones != 0 && clip.bone_count != 0 && clip.bone_count as usize != bones {
                 return Err(r(STATUS_MISMATCH));
             }
             let (program, inst) = graph_instance(arena, table, c.instance).map_err(r)?;
