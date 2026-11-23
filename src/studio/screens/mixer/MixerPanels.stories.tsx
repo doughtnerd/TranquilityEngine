@@ -19,6 +19,7 @@ import { GlobalParametersPanel } from "./GlobalParametersPanel";
 import { sessionParametersHost } from "./globalParametersHost";
 import { SnapshotsPanel } from "./SnapshotsPanel";
 import { TriggerDialog, TriggerDialogHost } from "./TriggerDialog";
+import { NewGlobalParameterHost } from "./newGlobalParameter";
 import "../../components/audioParts.css";
 import "../../components/studioComponents.css";
 import "./mixer.css";
@@ -53,6 +54,7 @@ function Screen(props: ScreenArgs) {
       {props.which === "globalParameters" && <GlobalParametersPanel host={sessionParametersHost(session)} />}
       {props.which === "loudness" && <LoudnessPanel session={session} />}
       <TriggerDialogHost />
+      <NewGlobalParameterHost />
       <UndoToasts queue={toasts} />
     </div>
   );
@@ -262,11 +264,50 @@ export const Trigger: Story = {
     const c = within(canvasElement.ownerDocument.body);
     await expect(c.getByText(/True now with the test values/)).toBeVisible();
     await expect(c.getByRole("list", { name: "Overlapping snapshots" })).toHaveTextContent("Pause menu wins (priority 40 over 20).");
+    // Every parameter select ends with "+ New parameter…" (J4.1).
+    const select = c.getAllByRole("combobox", { name: "Parameter" })[0]! as HTMLSelectElement;
+    await expect([...select.options].at(-1)!.textContent).toBe("+ New parameter…");
   },
 };
 
 export const GainLanesOfABus: Story = { args: { which: "gain", width: 300, setup: (s) => { s.select("Music"); s.editSnapshot("Underwater"); s.setTestValue("threat", 1); } } };
 export const GameParameters: Story = { args: { which: "parameters", width: 320 } };
+
+/** J4.1: a new project has no game parameters; "+ New parameter…" makes one right here (one undo step of audio.json). */
+export const GameParametersNewProject: Story = {
+  args: { which: "parameters", width: 320, project: emptyMix },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole("button", { name: "New parameter…" }));
+    const dialog = within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "New parameter" }));
+    const name = dialog.getByRole("textbox", { name: "Name" });
+    await userEvent.clear(name);
+    await userEvent.type(name, "rpm");
+    await userEvent.clear(dialog.getByRole("spinbutton", { name: "Max" }));
+    await userEvent.type(dialog.getByRole("spinbutton", { name: "Max" }), "8000");
+    await userEvent.click(dialog.getByRole("button", { name: "Create" }));
+    await expect(c.getByText("rpm")).toBeVisible();
+    await expect(within(canvasElement.ownerDocument.body).queryByRole("dialog", { name: "New parameter" })).toBeNull();
+  },
+};
+
+/** J6.5: Automate ◆ on a project with no game parameters asks for one, then opens the curves driven by it. */
+export const AutomateNewProject: Story = {
+  args: { which: "inspector", width: 360, project: emptyMix, setup: (s) => s.select("Master") },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body);
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Automate Master's level" }));
+    // (Earlier stories' screens stay mounted in the test page, each with its host: they all show the one request.)
+    const ask = within((await body.findAllByRole("dialog", { name: "New parameter" })).at(-1)!);
+    await userEvent.click(ask.getByRole("radio", { name: /Labels/ }));
+    await expect(ask.getByRole("textbox", { name: "Labels" })).toBeVisible();
+    await userEvent.click(ask.getByRole("radio", { name: /Number/ }));
+    await userEvent.click(ask.getByRole("button", { name: "Create" }));
+    const curves = await body.findByRole("dialog");
+    await expect(curves).toHaveTextContent("Parameter");
+    await userEvent.click(within(curves).getByRole("button", { name: "Cancel" }));
+  },
+};
 
 export const GlobalParameters: Story = {
   args: { which: "globalParameters", width: 340 },

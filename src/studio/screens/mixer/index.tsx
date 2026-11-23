@@ -30,6 +30,7 @@ import { sessionParametersHost } from "./globalParametersHost";
 import { renameParameterOutside } from "./globalParametersPanels";
 import { SnapshotsPanel } from "./SnapshotsPanel";
 import { TriggerDialogHost } from "./TriggerDialog";
+import { NewGlobalParameterHost } from "./newGlobalParameter";
 import "./mixer.css";
 
 /** Per user: the live board's pins, whether it's open, and List or Strips. */
@@ -104,6 +105,7 @@ function BoardView(props: { session: MixerSession }) {
     <>
       <BusesPanel session={props.session} />
       <TriggerDialogHost />
+      <NewGlobalParameterHost />
     </>
   );
 }

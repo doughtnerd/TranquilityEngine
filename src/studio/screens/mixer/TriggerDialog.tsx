@@ -6,10 +6,13 @@
 import { signal } from "@preact/signals";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
-import { isLabelled } from "../../../engine/audio/parameters";
+import { isLabelled, type ParameterDef } from "../../../engine/audio/parameters";
 import { MIX_LIMITS } from "../../../engine/audio/project/format";
 import type { Snapshot, SnapshotCondition, SnapshotStart } from "../../../engine/audio/project/types";
 import { Icon } from "../../components/Icon";
+import { isNewParameter, NEW_PARAMETER, NEW_PARAMETER_LABEL } from "../../components/newParameterModel";
+import { sessionParametersHost } from "./globalParametersHost";
+import { askNewGlobalParameter } from "./newGlobalParameter";
 import { parameterNote } from "./boardModel";
 import { labelOn, setTrigger, type TriggerPatch } from "./mixEdits";
 import type { MixerSession } from "./mixerScreen";
@@ -51,6 +54,11 @@ export function TriggerDialog(props: { session: MixerSession; snapshot: Snapshot
   const set = (patch: Partial<Draft>) => setDraft({ ...draft, ...patch });
   const conds = draft.start.kind === "conditions" ? draft.start : null;
   const setConds = (conditions: SnapshotCondition[], match = conds?.match ?? "all") => set({ start: { kind: "conditions", match, conditions } });
+  /** After "+ New parameter…": use the parameter just added (read from the mix, which has it now). */
+  const withParameter = (name: string, use: (d: ParameterDef) => void) => {
+    const d = session.project.peek().parameters.find((q) => q.name === name);
+    if (d) use(d);
+  };
   const setKind = (kind: Kind) => set({ start: kind === "conditions" ? { kind, match: conds?.match ?? "all", conditions: conds?.conditions ?? (p.parameters[0] ? [defaultCondition(p.parameters[0])] : []) } : { kind } });
   const on = startHolds(draft.start, p.parameters, values);
   const overlaps = overlapsOf(p.snapshots, snapshot.name, p.parameters, values, { ...snapshot, ...draft });
@@ -96,7 +104,7 @@ export function TriggerDialog(props: { session: MixerSession; snapshot: Snapshot
               <SegmentedControl label="Match" size="small" value={conds.match} options={[{ value: "all", label: "all" }, { value: "any", label: "any" }]} onChange={(m) => setConds(conds.conditions, m)} />
               <span>of these are true</span>
             </div>
-            {p.parameters.length === 0 && <p class="mx-note">The project has no game parameters yet, so there's nothing to test.</p>}
+            {p.parameters.length === 0 && <p class="mx-note">The project has no game parameters yet. Add one to test it.</p>}
             {conds.conditions.map((c, i) => {
               const def = p.parameters.find((q) => q.name === c.parameter);
               const holds = conditionHolds(c, p.parameters, values);
@@ -104,9 +112,18 @@ export function TriggerDialog(props: { session: MixerSession; snapshot: Snapshot
               return (
                 <div key={i} class="mx-cond" role="group" aria-label={`Condition ${i + 1}`}>
                   <span class="mx-faint">{i === 0 ? "If" : conds.match === "all" ? "and" : "or"}</span>
-                  <select aria-label="Parameter" value={c.parameter} onChange={(e) => { const d = p.parameters.find((q) => q.name === (e.target as HTMLSelectElement).value); if (d) replace(retarget(c, d)); }}>
+                  <select aria-label="Parameter" value={c.parameter} onChange={(e) => {
+                    const sel = e.target as HTMLSelectElement;
+                    if (isNewParameter(sel.value)) {
+                      sel.value = c.parameter;
+                      return askNewGlobalParameter(sessionParametersHost(session), (name) => withParameter(name, (d) => replace(retarget(c, d))));
+                    }
+                    const d = p.parameters.find((q) => q.name === sel.value);
+                    if (d) replace(retarget(c, d));
+                  }}>
                     {!def && <option value={c.parameter}>{c.parameter} (missing)</option>}
                     {p.parameters.map((q) => <option key={q.name} value={q.name}>{q.name}</option>)}
+                    <option value={NEW_PARAMETER}>{NEW_PARAMETER_LABEL}</option>
                   </select>
                   <select aria-label="Comparison" value={c.op} onChange={(e) => replace({ ...c, op: (e.target as HTMLSelectElement).value as SnapshotCondition["op"] })}>
                     {opsFor(def).map((o) => <option key={o.op} value={o.op}>{o.label}</option>)}
@@ -127,7 +144,11 @@ export function TriggerDialog(props: { session: MixerSession; snapshot: Snapshot
                 </div>
               );
             })}
-            <button class="mx-tool" disabled={p.parameters.length === 0} onClick={() => setConds([...conds.conditions, defaultCondition(p.parameters[0]!)])}><Icon name="plus" /> Condition</button>
+            {p.parameters.length > 0 ? (
+              <button class="mx-tool" onClick={() => setConds([...conds.conditions, defaultCondition(p.parameters[0]!)])}><Icon name="plus" /> Condition</button>
+            ) : (
+              <button class="mx-tool" disabled={session.readOnly} onClick={() => askNewGlobalParameter(sessionParametersHost(session), (name) => withParameter(name, (d) => setConds([...conds.conditions, defaultCondition(d)])))}><Icon name="plus" /> New parameter…</button>
+            )}
           </div>
         )}
         <fieldset class="mx-fieldset">
