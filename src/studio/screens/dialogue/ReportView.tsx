@@ -3,6 +3,8 @@
 // normalised to the setting and duplicate keys; Export CSV of the report; and the script CSV (export, and import shown
 // as a diff — added, changed, removed — before it is applied, one undo step per document). A view over props.
 import { useState } from "preact/hooks";
+import { Icon } from "../../components/Icon";
+import { FileButton } from "./FileButton";
 import type { DialogueReport } from "./reportModel";
 import type { ScriptDiff } from "./scriptCsv";
 
@@ -27,7 +29,7 @@ function Keys(props: { label: string; keys: readonly string[] }) {
   return (
     <details>
       <summary>{props.label} ({props.keys.length})</summary>
-      <p class="dl-key dl-muted">{props.keys.join(", ")}</p>
+      <p class="dl-key dl-muted dl-wrap">{props.keys.join(", ")}</p>
     </details>
   );
 }
@@ -40,6 +42,7 @@ export function ScriptDiffView(props: { diff: ScriptDiff; readOnly?: boolean; on
     <section class="dl-impact" aria-label="Script import">
       <h3>Script import</h3>
       {none ? <p class="dl-note">The CSV matches the project: nothing to change.</p> : (
+        <div class="dl-scroll">
         <table class="dl-table" aria-label="Script changes">
           <thead><tr><th scope="col">Key</th><th scope="col">Change</th></tr></thead>
           <tbody>
@@ -48,6 +51,7 @@ export function ScriptDiffView(props: { diff: ScriptDiff; readOnly?: boolean; on
             {d.removed.map((k) => <tr key={`r${k}`}><th scope="row" class="dl-key">{k}</th><td><span class="dl-status removed">not in the CSV</span></td></tr>)}
           </tbody>
         </table>
+        </div>
       )}
       {d.problems.length > 0 && <ul class="dl-list dl-warn" aria-label="Skipped">{d.problems.map((p) => <li key={p}>{p}</li>)}</ul>}
       {d.removed.length > 0 && (
@@ -66,18 +70,10 @@ export function ReportView(props: ReportViewProps) {
   return (
     <div class="dl-report">
       <div class="dl-toolbar">
-        <button onClick={props.onExportReport}>Export report CSV</button>
-        <button onClick={props.onExportScript} title="Keys, table, speaker, notes and one text column per language">Export script CSV</button>
-        <label class="smp-link" style={{ cursor: "pointer" }}>
-          Import script CSV…
-          <input type="file" accept=".csv,text/csv" hidden aria-label="Import script CSV" disabled={props.readOnly}
-            onChange={async (e) => {
-              const input = e.currentTarget as HTMLInputElement;
-              const file = input.files?.[0];
-              input.value = "";
-              if (file) props.onImportScript(await file.text(), file.name);
-            }} />
-        </label>
+        <button onClick={props.onExportReport}><Icon name="export" /> Export report CSV</button>
+        <button onClick={props.onExportScript} title="Keys, table, speaker, notes and one text column per language"><Icon name="export" /> Export script CSV</button>
+        <FileButton icon="import" label="Import script CSV" accept=".csv,text/csv" disabled={props.readOnly} title="Shows what changes before anything is applied"
+          onFiles={async ([file]) => { if (file) props.onImportScript(await file.text(), file.name); }}>Import script CSV…</FileButton>
       </div>
       {!!props.oldText && (
         <div class="dl-banner" role="note" aria-label="Subtitles in line tables">
@@ -86,6 +82,7 @@ export function ReportView(props: ReportViewProps) {
         </div>
       )}
       {props.pending && <ScriptDiffView diff={props.pending} readOnly={props.readOnly} onApply={props.onApplyScript} onCancel={props.onCancelScript} />}
+      <div class="dl-scroll">
       <table class="dl-table" aria-label="Lines per language">
         <thead><tr><th scope="col">Language</th><th scope="col">Recorded</th><th scope="col">Fallback</th><th scope="col">Missing</th><th scope="col">Mismatch</th><th scope="col">Script changed</th><th scope="col">Reading speed</th></tr></thead>
         <tbody>
@@ -102,6 +99,7 @@ export function ReportView(props: ReportViewProps) {
           ))}
         </tbody>
       </table>
+      </div>
       {r.languages.map((l) => {
         const any = l.missingKeys.length + l.fallbackKeys.length + l.mismatches.length + l.scriptChanged.length + l.readingSpeed.length > 0;
         if (!any) return null;

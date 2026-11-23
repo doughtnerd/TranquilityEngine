@@ -2,7 +2,9 @@
 // transform, its systems on the JavaScript kernel executor, headless on Babylon's NullEngine. A World's
 // ParticleSystems (babylonParticles.test.ts), the particle graph editor's preview and the asset
 // thumbnails (babylonPreviews.test.ts) all play through it.
+import { FreeCamera } from "@babylonjs/core/Cameras/freeCamera.js";
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
+import { Vector3 } from "@babylonjs/core/Maths/math.vector.js";
 import { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import type { ShaderMaterial } from "@babylonjs/core/Materials/shaderMaterial.js";
 import { RawTexture } from "@babylonjs/core/Materials/Textures/rawTexture.js";
@@ -83,6 +85,23 @@ describe("the effect player (ADR 0153)", () => {
     for (let i = 0; i < 30; i++) player.step(1 / 60);
     expect(player.count).toBe(15);
     player.dispose();
+  });
+
+  it("binds a sorted output's draw order from its first step, with or without a camera in the scene", () => {
+    // A sorted draw's shader reads the pairs (`kidx`) on every draw; on WebGPU an unbound one fails the bind group.
+    // The scene's active camera is null before the frame graph's first frame and after a scene change.
+    const textures = () => {
+      const player = new EffectPlayer(make(), program({ emitters: [steady("A", 30, { blending: "alpha" })] }), { name: "fx" });
+      player.build();
+      player.step(1 / 60);
+      const n = (player.draws[0].meshes[0].material as ShaderMaterial).getActiveTextures().length;
+      player.dispose();
+      return n;
+    };
+    const withoutCamera = textures();
+    new FreeCamera("cam", new Vector3(0, 0, -10), scene);
+    expect(withoutCamera).toBe(textures());
+    expect(withoutCamera).toBeGreaterThan(1); // the output's texture and the pairs
   });
 
   it("starts stopped when asked, plays from the start on play(), and stops with or without clearing", () => {

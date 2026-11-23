@@ -73,7 +73,7 @@ export const Switch: Story = {
     const c = within(canvasElement);
     await expect(c.getByRole("table", { name: "Labels" })).toBeVisible();
     await expect(c.getAllByText(/beat or bar|tempo/i).length).toBeGreaterThan(0);
-    await userEvent.click(c.getByRole("button", { name: "+ Rule" }));
+    await userEvent.click(c.getByRole("button", { name: "Add rule" }));
     await expect(c.getByRole("combobox", { name: "Rule 2: from" })).toBeVisible();
   },
 };

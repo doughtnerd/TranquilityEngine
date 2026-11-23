@@ -63,8 +63,8 @@ test("the keyboard moves through the menus: Alt, arrows, Enter, Escape", async (
   await page.keyboard.press("ArrowDown");
   await expect(page.getByRole("menuitemcheckbox", { name: "Hierarchy", exact: true })).toBeFocused();
   await page.keyboard.press("ArrowUp");
-  await page.keyboard.press("ArrowUp"); // wraps to the last item
-  await expect(page.getByRole("menuitem", { name: "Reset Layout", exact: true })).toBeFocused();
+  await page.keyboard.press("ArrowUp"); // wraps to the last item (the Audio Studio, after the layout items)
+  await expect(page.getByRole("menuitem", { name: "Audio Studio", exact: true })).toBeFocused();
   await page.keyboard.press("ArrowRight"); // the next menu, opened (Layouts: Default first)
   await expect(menuTitle(page, "Layouts")).toHaveAttribute("aria-expanded", "true");
   await expect(page.getByRole("menuitemcheckbox", { name: "Default", exact: true })).toBeFocused();

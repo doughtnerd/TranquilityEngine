@@ -4,6 +4,7 @@
 // the built-in default), and the folder rules in order (first match wins) with what each catches. A view over props.
 import { useState } from "preact/hooks";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
+import { Icon } from "../../components/Icon";
 import type { EncodingConfig, EncodingKey, EncodingSettings } from "../../../engine/audio/encoding/types";
 import type { ImportPlatform } from "../../../engine/scene/importSettings";
 import { KEY_LABELS, keyChoices, parseChoice, PLATFORM_LABELS, PLATFORM_OPTIONS } from "../samples/encodingModel";
@@ -77,17 +78,32 @@ export function ProfilesView(props: ProfilesViewProps) {
     <div class="pk-profiles">
       <section class="pk-profile-list" aria-label="Profiles">
         <div class="pk-toolbar">
-          <button disabled={ro} onClick={props.onAdd}>New profile</button>
+          <button class="pk-icon-text" disabled={ro} onClick={props.onAdd}>
+            <Icon name="plus" />
+            New profile
+          </button>
         </div>
         <ul role="listbox" aria-label="Encoding profiles">
           {names.map((n) => (
-            <li key={n} role="option" aria-selected={n === sel} class={`pk-row${n === sel ? " selected" : ""}`} tabIndex={n === sel ? 0 : -1} onClick={() => props.onSelect(n)} onDblClick={() => !ro && setRenaming(n)}>
+            <li key={n} role="option" aria-selected={n === sel} class={`pk-row${n === sel ? " selected" : ""}`} tabIndex={n === sel ? 0 : -1} onClick={() => props.onSelect(n)} onDblClick={() => !ro && setRenaming(n)}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return; // keys typed in the rename field
+                if (e.key === "F2" && !ro) setRenaming(n);
+                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                  // Arrows select the next or previous profile and take the focus with it.
+                  e.preventDefault();
+                  const next = names[names.indexOf(n) + (e.key === "ArrowDown" ? 1 : -1)];
+                  if (!next) return;
+                  props.onSelect(next);
+                  ((e.currentTarget as HTMLElement)[e.key === "ArrowDown" ? "nextElementSibling" : "previousElementSibling"] as HTMLElement | null)?.focus();
+                }
+              }}>
               {renaming === n ? (
                 <input aria-label={`Rename profile ${n}`} value={n} ref={(el) => el?.focus()} onClick={(e) => e.stopPropagation()}
                   onKeyDown={(e) => { if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur(); if (e.key === "Escape") setRenaming(null); }}
                   onBlur={(e) => { const to = (e.currentTarget as HTMLInputElement).value; setRenaming(null); if (to !== n) props.onRename(n, to); }} />
               ) : (
-                <span class="pk-name">{n}</span>
+                <span class="pk-name" title={n}>{n}</span>
               )}
               {config.default === n && <span class="pk-badge">Default</span>}
             </li>
@@ -126,6 +142,7 @@ export function ProfilesView(props: ProfilesViewProps) {
       )}
       <section class="pk-rules" aria-label="Folder rules">
         <h4 class="smp-insp-section">Folder rules · first match wins</h4>
+        <div class="pk-scroll">
         <table class="pk-table" aria-label="Rules">
           <thead><tr><th scope="col">Path or glob</th><th scope="col">Profile</th><th scope="col">Catches</th><th scope="col" aria-label="Order and delete" /></tr></thead>
           <tbody>
@@ -142,15 +159,16 @@ export function ProfilesView(props: ProfilesViewProps) {
                   </td>
                   <td title={pv?.catches.join("\n")}>{pv ? `${pv.catches.length} file${pv.catches.length === 1 ? "" : "s"}${pv.shadowed ? ` · ${pv.shadowed} taken by an earlier rule` : ""}` : ""}</td>
                   <td class="pk-rule-actions">
-                    <button aria-label={`Move rule ${i + 1} up`} disabled={ro || i === 0} onClick={() => props.onMoveRule(i, -1)}>↑</button>
-                    <button aria-label={`Move rule ${i + 1} down`} disabled={ro || i === config.rules.length - 1} onClick={() => props.onMoveRule(i, 1)}>↓</button>
-                    <button aria-label={`Delete rule ${i + 1}`} disabled={ro} onClick={() => props.onRemoveRule(i)}>×</button>
+                    <button class="pk-icon-button" aria-label={`Move rule ${i + 1} up`} title="Move up" disabled={ro || i === 0} onClick={() => props.onMoveRule(i, -1)}><Icon name="chevronUp" /></button>
+                    <button class="pk-icon-button" aria-label={`Move rule ${i + 1} down`} title="Move down" disabled={ro || i === config.rules.length - 1} onClick={() => props.onMoveRule(i, 1)}><Icon name="chevronDown" /></button>
+                    <button class="pk-icon-button" aria-label={`Delete rule ${i + 1}`} title="Delete rule" disabled={ro} onClick={() => props.onRemoveRule(i)}><Icon name="trash" /></button>
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+        </div>
         <form class="pk-add-rule" onSubmit={(e) => { e.preventDefault(); if (sel && newRule.trim()) { props.onAddRule(newRule, sel); setNewRule(""); } }}>
           <input aria-label="New rule path" placeholder="audio/music/**" value={newRule} disabled={ro || !sel} onInput={(e) => setNewRule((e.currentTarget as HTMLInputElement).value)} />
           <button type="submit" disabled={ro || !sel || newRule.trim() === ""}>Add rule{sel ? ` for ${sel}` : ""}</button>

@@ -4,6 +4,7 @@
 // audio step for the platform into `.myco/cache/audio/`, with progress, after which the figures are exact. A view over props.
 import { Chip } from "../../../editor/ui/Chip";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
+import { Icon } from "../../components/Icon";
 import type { AudioBudget } from "../../../engine/audio/encoding/types";
 import type { ImportPlatform } from "../../../engine/scene/importSettings";
 import { figureText, formatBytes } from "../../encoding/estimate";
@@ -27,9 +28,13 @@ function Bar(props: { label: string; bytes: number; mb: number | undefined; exac
   return (
     <div class="pk-bar-row">
       <span class="pk-bar-label">{props.label}</span>
-      <span class="pk-bar-value">{figureText(props.bytes, props.exact)}{bar ? ` of ${props.mb} MB` : ""}</span>
+      <span class="pk-bar-value">
+        {figureText(props.bytes, props.exact)}{bar ? ` of ${props.mb} MB` : ""}
+        {bar?.over && <> <Icon name="warning" label="Over budget" class="pk-over" /></>}
+      </span>
       {bar && (
-        <span class={`pk-bar${bar.over ? " over" : ""}`} role="meter" aria-label={`${props.label} against its budget`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(bar.share, 9.99) * 100)}>
+        <span class={`pk-bar${bar.over ? " over" : ""}`} role="meter" aria-label={`${props.label} against its budget`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(Math.min(bar.share, 9.99) * 100)}
+          aria-valuetext={`${Math.round(bar.share * 100)} % of the budget${bar.over ? ", over" : ""}`}>
           <span class="pk-bar-fill" style={{ width: `${Math.min(100, bar.share * 100)}%` }} />
         </span>
       )}
@@ -85,6 +90,7 @@ export function ReportView(props: ReportViewProps) {
           {r.warnings.map((w) => <li key={w} class="pk-warning">{w}</li>)}
         </ul>
       )}
+      <div class="pk-scroll">
       <table class="pk-table" aria-label="Packages">
         <thead><tr><th scope="col">Package</th><th scope="col">Sounds</th><th scope="col">Size</th><th scope="col">Memory</th></tr></thead>
         <tbody>
@@ -99,6 +105,8 @@ export function ReportView(props: ReportViewProps) {
           ))}
         </tbody>
       </table>
+      </div>
+      <div class="pk-scroll">
       <table class="pk-table" aria-label="Largest sounds">
         <thead><tr><th scope="col">Sound</th><th scope="col">Codec</th><th scope="col">Load</th><th scope="col">Size</th><th scope="col">Memory</th></tr></thead>
         <tbody>
@@ -113,6 +121,7 @@ export function ReportView(props: ReportViewProps) {
           ))}
         </tbody>
       </table>
+      </div>
       {r.problems.length > 0 && (
         <details class="pk-problems">
           <summary>{r.problems.length} problem{r.problems.length === 1 ? "" : "s"}</summary>

@@ -10,6 +10,7 @@ import { ContextMenu, SEPARATOR, tidyEntries, type MenuEntry } from "../../../ed
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import type { LoadMode } from "../../../engine/audio/encoding/types";
 import type { PackCodec } from "../../../engine/audio/packaging/format";
+import { Icon } from "../../components/Icon";
 import { figureText } from "../../encoding/estimate";
 import type { PackageView } from "./packagesModel";
 import { SOUND_DRAG_TYPE } from "./PackageListView";
@@ -82,7 +83,7 @@ export function ContentsView(props: ContentsViewProps) {
   return (
     <div class="pk-contents">
       {!v ? (
-        <EmptyState compact title="No package selected" body="Choose a package on the left, or make one, to see what it holds." />
+        <EmptyState compact title="No package selected" icon={<Icon name="packages" size={28} />} body="Choose a package on the left, or make one, to see what it holds." />
       ) : (
         <section aria-label={`${v.def.name} contents`}>
           <div class="pk-includes" aria-label="Include entries" role="list">
@@ -90,7 +91,9 @@ export function ContentsView(props: ContentsViewProps) {
             {v.def.include.map((inc) => (
               <span key={inc} role="listitem" class={`pk-include${v.unmatched.includes(inc) ? " unmatched" : ""}`} title={v.unmatched.includes(inc) ? "Matches no file" : undefined}>
                 {inc}
-                <button class="pk-x" aria-label={`Remove entry ${inc}`} disabled={ro} onClick={() => props.onRemoveInclude(v.def.name, inc)}>×</button>
+                <button class="pk-x" aria-label={`Remove entry ${inc}`} title="Remove entry" disabled={ro} onClick={() => props.onRemoveInclude(v.def.name, inc)}>
+                  <Icon name="close" size={12} />
+                </button>
               </span>
             ))}
           </div>
@@ -125,7 +128,11 @@ export function ContentsView(props: ContentsViewProps) {
                     </th>
                     <td class="smp-muted">{r.include !== null ? (r.include === r.path ? "listed" : r.include) : `needed by ${base(r.via ?? "")}`}</td>
                     <Figures f={props.figures(r.path)} />
-                    <td><button class="pk-more" aria-label={`${base(r.path)} menu`} onClick={(e) => open(e, rowMenu(r.path), `${base(r.path)} menu`, e.currentTarget as Element)}>⋯</button></td>
+                    <td>
+                      <button class="pk-more" aria-label={`${base(r.path)} menu`} aria-haspopup="menu" title="More" onClick={(e) => open(e, rowMenu(r.path), `${base(r.path)} menu`, e.currentTarget as Element)}>
+                        <Icon name="more" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -148,7 +155,9 @@ export function ContentsView(props: ContentsViewProps) {
                 onContextMenu={(e) => open(e, looseMenu(p), `${base(p)} menu`)}>
                 <span>{p}</span>
                 {v && <button class="smp-link" disabled={ro} onClick={() => props.onAdd(v.def.name, p)}>Add to {v.def.name}</button>}
-                <button class="pk-more" aria-label={`${base(p)} menu`} onClick={(e) => open(e, looseMenu(p), `${base(p)} menu`, e.currentTarget as Element)}>⋯</button>
+                <button class="pk-more" aria-label={`${base(p)} menu`} aria-haspopup="menu" title="More" onClick={(e) => open(e, looseMenu(p), `${base(p)} menu`, e.currentTarget as Element)}>
+                  <Icon name="more" />
+                </button>
               </li>
             ))}
           </ul>

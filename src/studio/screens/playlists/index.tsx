@@ -11,7 +11,9 @@ import { currentProject, docVersion } from "../../../editor/state";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import type { Entry } from "../../../engine/audio/playlist/types";
+import { Icon } from "../../components/Icon";
 import { ParameterPanel } from "../../components/ParameterPanel";
+import { TransportButton } from "../../components/PlayerBar";
 import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, keymap, openRoute, setPlayerSlots, studioRouter, toasts } from "../../shell/studioServices";
 import { historyPanel } from "../placeholder";
@@ -243,10 +245,10 @@ function useScreen(): void {
           nowPlaying: { art: "PL", title: lastCrumbName(), subtitle: `${body.type === "clip" ? "Clip" : body.type.charAt(0).toUpperCase() + body.type.slice(1)} · ${t.file}` },
           transport: (
             <>
-              <button type="button" class="pl-transport" aria-label="Previous voice event" title="Previous voice start or end" disabled={times.length === 0} onClick={() => (logCursor.value = stepEvent(times, logCursor.peek(), -1) ?? logCursor.peek())}>⏮</button>
-              <button type="button" class="pl-transport pl-trigger" aria-label={busy ? "Stop" : "Trigger"} title={busy ? "Stop (Shift+Space)" : "Trigger (Space)"} onClick={() => (busy ? stopAudition() : trigger())}>{busy ? "■" : "▶"}</button>
-              {release && <button type="button" class="pl-transport" title="Release: held loops end by their exit settings" disabled={!busy} onClick={releaseAudition}>⇥ Release</button>}
-              <button type="button" class="pl-transport" aria-label="Next voice event" title="Next voice start or end" disabled={times.length === 0} onClick={() => (logCursor.value = stepEvent(times, logCursor.peek(), 1) ?? logCursor.peek())}>⏭</button>
+              <TransportButton icon="skipBack" label="Previous voice event" title="Previous voice start or end" disabled={times.length === 0} onClick={() => (logCursor.value = stepEvent(times, logCursor.peek(), -1) ?? logCursor.peek())} />
+              <TransportButton icon={busy ? "stop" : "play"} primary label={busy ? "Stop" : "Trigger"} title={busy ? "Stop (Shift+Space)" : "Trigger (Space)"} onClick={() => (busy ? stopAudition() : trigger())} />
+              {release && <TransportButton icon="release" text label="Release" title="Release: held loops end by their exit settings" disabled={!busy} onClick={releaseAudition} />}
+              <TransportButton icon="skipForward" label="Next voice event" title="Next voice start or end" disabled={times.length === 0} onClick={() => (logCursor.value = stepEvent(times, logCursor.peek(), 1) ?? logCursor.peek())} />
             </>
           ),
           scrub: span ? (
@@ -274,7 +276,7 @@ function EditorPanel() {
   if (!path || !t || !body || !doc) {
     return (
       <Panel bodyClass="pl-panel-body">
-        <EmptyState title="Playlists" icon="≡" body={<p>What the game plays: clips, queues, switches, blends, layers and sequences, auditioned with test parameters. Pick a playlist in the Playlists panel, or make one with +.</p>}
+        <EmptyState title="Playlists" icon={<Icon name="playlists" size={28} />} body={<p>What the game plays: clips, queues, switches, blends, layers and sequences, auditioned with test parameters. Pick a playlist in the Playlists panel, or make one with its New button.</p>}
           action={{ label: "New playlist", disabled: !writable(), run: () => void newPlaylist("", false) }} />
       </Panel>
     );

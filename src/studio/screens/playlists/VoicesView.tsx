@@ -52,15 +52,15 @@ export function VoicesView(props: VoicesViewProps) {
           <EmptyState compact title="No voices yet" body="Each voice an audition plays is listed here: when it started, how it ended, its level and its instance." />
         ) : (
           <div class="pl-table pl-log" role="table" aria-label="Voices">
-            <div class="pl-tr pl-th" role="row"><span>Start</span><span>Voice</span><span>Status</span><span>Gain</span><span>#</span><span>Length</span></div>
+            <div class="pl-tr pl-th" role="row"><span role="columnheader">Start</span><span role="columnheader">Voice</span><span role="columnheader">Status</span><span role="columnheader">Gain</span><span role="columnheader" aria-label="Instance" title="Instance">#</span><span role="columnheader">Length</span></div>
             {props.log.map((r) => (
               <div key={r.key} role="row" class={`pl-tr pl-log-${r.status}${alive?.has(r.key) ? " pl-alive" : ""}`} onClick={() => props.onSeek(r.start)}>
-                <span class="pl-num-text">{(r.start - start).toFixed(2)} s</span>
-                <span title={r.clip}>{r.kind === "refused" ? `Trigger not played: ${REFUSAL_TEXT[r.clip] ?? r.clip}` : sampleTitle(r.clip)}</span>
-                <span>{STATUS_TEXT[r.status]}</span>
-                <span class="pl-num-text">{r.kind === "refused" ? "" : db(r.gainDb)}</span>
-                <span class="pl-num-text">{r.instance || ""}</span>
-                <span class="pl-num-text">{r.kind === "refused" ? "" : `${((r.end ?? props.time) - r.start).toFixed(2)} s`}</span>
+                <span role="cell"><button type="button" class="pl-link pl-num-text" title="Move the voice log cursor here" onClick={(e) => (e.stopPropagation(), props.onSeek(r.start))}>{(r.start - start).toFixed(2)} s</button></span>
+                <span role="cell" class="pl-log-voice" title={r.clip}>{r.kind === "refused" ? `Trigger not played: ${REFUSAL_TEXT[r.clip] ?? r.clip}` : sampleTitle(r.clip)}</span>
+                <span role="cell">{STATUS_TEXT[r.status]}</span>
+                <span role="cell" class="pl-num-text">{r.kind === "refused" ? "" : db(r.gainDb)}</span>
+                <span role="cell" class="pl-num-text">{r.instance || ""}</span>
+                <span role="cell" class="pl-num-text">{r.kind === "refused" ? "" : `${((r.end ?? props.time) - r.start).toFixed(2)} s`}</span>
               </div>
             ))}
           </div>

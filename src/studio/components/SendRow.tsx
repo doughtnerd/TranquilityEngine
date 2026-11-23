@@ -1,10 +1,11 @@
 // A send row (ADR 0349 `SendRow`, ADR 0344 returns): one post-fader send from a bus to a return, collapsible like an
-// effect card: caret, "→ Reverb" with its level while closed, Automate ◆ and × remove; open, the level as a row
+// effect card: caret, "→ Reverb" with its level while closed, Automate and Remove; open, the level as a row
 // (−60..+6 dB, 0.5 dB steps). Edits come back as `{ next } | { refused }` for the owner to apply as undo steps.
 import type { Send } from "../../engine/audio/project/types";
 import type { EditResult } from "../../editor/sdk/editResult";
 import { FADER_MAX_DB, FADER_MIN_DB, FADER_STEP_DB } from "./faderModel";
 import { editSendLevel, sendSummary } from "./mixRowsModel";
+import { Icon } from "./Icon";
 import { ParameterRow } from "./ParameterRow";
 import type { ParamSpec } from "./parameterRowModel";
 import "./audioParts.css";
@@ -30,7 +31,7 @@ export function SendRow(props: SendRowProps) {
     <div class="studio-row studio-send">
       <div class="studio-row-head">
         <button type="button" class="studio-row-caret" aria-expanded={open} aria-controls={bodyId} aria-label={`${open ? "Collapse" : "Expand"} send to ${send.to}`} onClick={() => props.onOpen(!open)}>
-          {open ? "▾" : "▸"}
+          <Icon name={open ? "chevronDown" : "chevronRight"} size={14} />
         </button>
         <span class="studio-row-name" title="Post-fader send">
           → {send.to}
@@ -38,14 +39,12 @@ export function SendRow(props: SendRowProps) {
         {!open && <span class="studio-row-summary">{props.automated !== undefined ? `auto · ${props.automated}` : sendSummary(send).replace(`→ ${send.to} · `, "")}</span>}
         <span class="studio-row-tools">
           {props.onAutomate && (
-            <button type="button" class={`studio-icon${props.automated !== undefined ? " set" : ""}`} aria-label={`Automate send to ${send.to}`} title={`Automate the send to ${send.to} by a game parameter`} disabled={props.readOnly} onClick={props.onAutomate}>
-              <svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true">
-                <path d="M3 19C8 19 9 5 14 5S19 12 21 12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-              </svg>
+            <button type="button" class={`studio-icon-button${props.automated !== undefined ? " set" : ""}`} aria-label={`Automate send to ${send.to}`} title={`Automate the send to ${send.to} by a game parameter`} disabled={props.readOnly} onClick={props.onAutomate}>
+              <Icon name="automate" size={14} />
             </button>
           )}
-          <button type="button" class="studio-icon" aria-label={`Remove send to ${send.to}`} title="Remove (its automation goes too)" disabled={props.readOnly} onClick={props.onRemove}>
-            ×
+          <button type="button" class="studio-icon-button" aria-label={`Remove send to ${send.to}`} title={`Remove the send to ${send.to} (its automation goes too)`} disabled={props.readOnly} onClick={props.onRemove}>
+            <Icon name="close" size={14} />
           </button>
         </span>
       </div>

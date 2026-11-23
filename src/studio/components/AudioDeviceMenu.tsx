@@ -9,6 +9,7 @@ import { OFFSET_LIMIT_MS, clampOffset, formatOffset } from "./calibrationModel";
 import type { DeviceOffsets } from "./deviceOffsets";
 import { LatencyCalibrationDialog } from "./LatencyCalibrationDialog";
 import type { ClickTrack } from "./clickTrack";
+import { Icon } from "./Icon";
 import "./studioComponents.css";
 
 export interface AudioDeviceMenuProps {
@@ -32,16 +33,6 @@ const KIND_HINT: Record<keyof DeviceOffsets, string> = {
   visual: "How late the screen shows a beat; playheads and beat lights are drawn this much earlier.",
 };
 
-function Headphones() {
-  return (
-    <svg class="studio-device-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-      <path d="M2.5 10V8a5.5 5.5 0 0 1 11 0v2" fill="none" stroke="currentColor" stroke-width="1.4" />
-      <rect x="1.5" y="9.5" width="3" height="5" rx="1" fill="currentColor" />
-      <rect x="11.5" y="9.5" width="3" height="5" rx="1" fill="currentColor" />
-    </svg>
-  );
-}
-
 export function AudioDeviceMenu(props: AudioDeviceMenuProps) {
   const [open, setOpen] = useState(false);
   const [calibrating, setCalibrating] = useState<keyof DeviceOffsets | null>(null);
@@ -60,9 +51,17 @@ export function AudioDeviceMenu(props: AudioDeviceMenuProps) {
         title={`Output: ${props.deviceName}${warn ? (props.stale ? " · the output changed: calibrate again" : " · not calibrated") : ` · audio offset ${formatOffset(props.offsets.audio)}`}`}
         onClick={() => setOpen(!open)}
       >
-        <Headphones />
+        <Icon name="headphones" class="studio-device-icon" />
         <span class="studio-device-name">{short}</span>
-        <span class="studio-device-offset">{warn ? (props.stale ? "⚠ Calibrate again" : "⚠ Not calibrated") : formatOffset(props.offsets.audio)}</span>
+        {warn ? (
+          <span class="studio-device-offset">
+            <Icon name="warning" size={14} />
+            <span class="studio-device-offset-text">{props.stale ? "Calibrate again" : "Not calibrated"}</span>
+          </span>
+        ) : (
+          <span class="studio-device-offset">{formatOffset(props.offsets.audio)}</span>
+        )}
+        <Icon name="chevronDown" size={12} class="studio-device-chevron" />
       </button>
       {open && calibrating === null && (
         <div ref={pop} class="studio-device-menu" role="dialog" aria-label="Output device">

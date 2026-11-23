@@ -4,6 +4,7 @@
 import type { AudioProject } from "../../../engine/audio/project/types";
 import { MATERIAL_LIMITS } from "../../../engine/audio/occlusionMaterials";
 import { FieldRow, NumberBox, Section } from "../../../editor/ui/PanelFields";
+import { Icon } from "../../components/Icon";
 import { FIELDS } from "./inspectorFields";
 import { addMaterial, dopplerPercent, editMaterial, isBuiltinMaterial, removeMaterial, setBedBeyond, setDefaultMaterial, setDopplerPercent, setHrtfVoices } from "./settingsEdits";
 import type { EditResult } from "./sceneEdits";
@@ -46,9 +47,10 @@ export function SettingsPanel(props: SettingsPanelProps) {
       </Section>
       <Section
         title="Occlusion"
-        actions={<button type="button" class="sp-small" disabled={ro} onClick={() => onEdit("Add material", (p) => { const r = addMaterial(p); return "refused" in r ? r : { next: r.next.project }; })}>+ Material</button>}
+        actions={<button type="button" class="sp-small" disabled={ro} onClick={() => onEdit("Add material", (p) => { const r = addMaterial(p); return "refused" in r ? r : { next: r.next.project }; })}><Icon name="plus" size={14} /> Material</button>}
       >
         <p class="sp-note">Obstacles block sound with their material: losses of several on one ray add up. Rays hit colliders on: {layers}.</p>
+        <div class="sp-table-scroll">
         <table class="sp-materials">
           <thead>
             <tr><th scope="col">Default</th><th scope="col">Material</th><th scope="col">Loss dB</th><th scope="col">Low-pass Hz</th><th scope="col">Wet cut</th><th scope="col"><span class="sp-sr">Remove</span></th></tr>
@@ -68,13 +70,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 <td><NumberBox label={`${m.name} wet cut`} value={m.wetOcclusion} min={0} max={1} step={0.05} digits={2} disabled={ro} onValue={(v) => onEdit("Edit material", (p) => editMaterial(p, m.name, { wetOcclusion: v }))} /></td>
                 <td>
                   {!isBuiltinMaterial(m.name) && (
-                    <button type="button" class="sp-icon" aria-label={`Remove ${m.name}`} disabled={ro || occ.defaultMaterial === m.name} title={occ.defaultMaterial === m.name ? "The default material stays" : "Remove it (obstacles naming it use the default)"} onClick={() => onEdit("Remove material", (p) => removeMaterial(p, m.name))}>×</button>
+                    <button type="button" class="sp-icon" aria-label={`Remove ${m.name}`} disabled={ro || occ.defaultMaterial === m.name} title={occ.defaultMaterial === m.name ? "The default material stays" : "Remove it (obstacles naming it use the default)"} onClick={() => onEdit("Remove material", (p) => removeMaterial(p, m.name))}><Icon name="close" size={14} /></button>
                   )}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       </Section>
       <Section title="Reverb zones">
         <p class="sp-note">The highest priority zone holding a sound wins; a zone marked Level default is used where none does.</p>

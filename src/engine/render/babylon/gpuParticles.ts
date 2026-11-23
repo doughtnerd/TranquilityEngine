@@ -91,14 +91,23 @@ class CpuTextures {
   }
 }
 
-/** Sort a run once a frame for the active camera (several sorted outputs of a system share it). */
+/**
+ * Sort a run once a frame for the active camera (several sorted outputs of a system share it).
+ *
+ * A sorted draw's shader reads the pairs (`kidx`) on every draw, so it must have them from its first
+ * draw on: WebGPU fails the whole bind group when a storage buffer the shader declares isn't bound.
+ * `scene.activeCamera` is set by the frame graph while it renders, and is null before the first frame
+ * and after a scene change disposes the camera, so this falls back to the scene's cameras, and with
+ * none at all sorts by a flat row (every key equal: slot order) so the pairs exist.
+ */
 export function sortRunOnce(scene: Scene, src: BabylonRun): void {
-  const cam = scene.activeCamera;
-  if (!cam) return;
   const frame = scene.getFrameId();
   if (sortedAt.get(src) === frame) return;
+  const cam = scene.activeCamera ?? scene.activeCameras?.[0] ?? scene.cameras[0] ?? null;
+  // Without a camera, a run already sorted keeps its last order; one never sorted is sorted flat.
+  if (!cam && sortedAt.has(src)) return;
   sortedAt.set(src, frame);
-  src.sort(depthRow(viewZRow(cam), src.lastUniforms, scene.useRightHandedSystem));
+  src.sort(cam ? depthRow(viewZRow(cam), src.lastUniforms, scene.useRightHandedSystem) : [0, 0, 0, 0]);
 }
 
 export type BabylonRun = KernelRun & DrawSource;
@@ -791,9 +800,9 @@ export class KernelDraw implements Draw {
     const src = this.source as BabylonRun;
     src.bind(this.material);
     const cam = this.scene.activeCamera;
-    if (this.sorted && cam) {
+    if (this.sorted) {
       sortRunOnce(this.scene, src); // once a frame per system, for the active camera (split-screen views share its order)
-      src.bindSort(this.material);
+      src.bindSort(this.material); // always: the shader reads the pairs on every draw
     }
     if (this.trail) {
       src.bindTrail(this.material);

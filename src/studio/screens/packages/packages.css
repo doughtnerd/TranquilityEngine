@@ -59,3 +59,28 @@
 .pk-warnings { margin: 0 0 8px; padding-left: 16px; }
 .pk-platforms { border: 1px solid var(--border); border-radius: 4px; display: flex; gap: 8px; padding: 4px 8px; margin: 6px 0; }
 .pk-lint { margin: 0; padding-left: 16px; }
+
+/* ADR 0361: icons, keyboard focus, touch and small widths (the panels work from about 280px wide). */
+.pk-icon-text { display: inline-flex; align-items: center; gap: 4px; }
+.pk-more, .pk-x, .pk-icon-button { display: inline-flex; align-items: center; justify-content: center; }
+.pk-more:hover:not(:disabled), .pk-x:hover:not(:disabled) { color: var(--text); }
+.pk-row:focus-visible, .pk-scroll:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
+.pk-over { color: var(--danger); }
+.pk-tabs { overflow-x: auto; scrollbar-width: none; }
+.pk-tabs [role="tab"] { flex: none; white-space: nowrap; }
+.pk-tabpanel { container-type: inline-size; min-width: 0; }
+.pk-toolbar, .pk-report-head, .pk-add-rule, .pk-profile-head, .pk-platforms { flex-wrap: wrap; }
+.pk-add-rule input { flex: 1; min-width: 0; }
+.pk-meta { flex-wrap: wrap; justify-content: flex-end; min-width: 0; }
+.pk-scroll, .pk-table-wrap { overflow-x: auto; max-width: 100%; }
+.pk-profile, .pk-profile-list, .pk-rules { min-width: 0; }
+.pk-loose-rows li { flex-wrap: wrap; }
+@container (max-width: 520px) {
+  .pk-profiles { grid-template-columns: minmax(0, 1fr); }
+  .pk-bar-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .pk-bar-row .pk-bar { grid-column: 1 / -1; }
+}
+@media (pointer: coarse) {
+  .pk-more, .pk-x, .pk-icon-button { min-width: 36px; min-height: 36px; }
+  .pk-row { min-height: 40px; }
+}

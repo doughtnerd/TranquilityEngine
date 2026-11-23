@@ -9,6 +9,8 @@ import { currentProject, docVersion, status } from "../../../editor/state";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { applyAttenuationPreset } from "../../../engine/audio/attenuation/format";
+import { Icon } from "../../components/Icon";
+import { TransportButton } from "../../components/PlayerBar";
 import type { StudioPanel } from "../../shell/studioPanels";
 import { audioHost, keymap, setPlayerSlots, studioRouter } from "../../shell/studioServices";
 import { ensureAudioProjectKind } from "../mixer/mixerDocument";
@@ -170,9 +172,7 @@ function useScreen(): void {
         setPlayerSlots("spatial", {
           nowPlaying: { art: "3D", title: sceneName(path), subtitle: "Test scene · plays the scene from the active listener" },
           transport: (
-            <button type="button" class="sp-transport" aria-label={on ? "Stop" : "Play scene"} title={blocked ?? (on ? "Stop (Space)" : "Play the scene from the active listener (Space)")} disabled={!on && !!blocked} onClick={togglePlay}>
-              {on ? "■ Stop" : "▶ Play scene"}
-            </button>
+            <TransportButton icon={on ? "stop" : "play"} label={on ? "Stop" : "Play scene"} title={blocked ?? (on ? "Stop (Space)" : "Play the scene from the active listener (Space)")} primary disabled={!on && !!blocked} onClick={togglePlay} />
           ),
           status: auditionStatus() ?? (blocked ? undefined : "Plays the scene from the active listener"),
         });
@@ -195,7 +195,7 @@ function ScenePanel() {
       <Panel bodyClass="sp-panel-body">
         <EmptyState
           title="Spatial"
-          icon="◎"
+          icon={<Icon name="spatial" size={28} />}
           body={<p>Test scenes place emitters, listeners, obstacles and zones to hear how distance, occlusion, reverb zones and Doppler sound, through the engine's own spatial audio. Pick one in the Scenes panel, or make one.</p>}
           action={{ label: "New test scene", disabled: !writable(), run: () => newScene("blank", "") }}
         />
@@ -213,7 +213,7 @@ function ScenePanel() {
 function OutlineListPanel() {
   void docVersion.value;
   const s = scene.value;
-  if (!s) return <Panel bodyClass="sp-panel-body"><EmptyState compact title="No scene open" body="The open scene's objects, by kind." /></Panel>;
+  if (!s) return <Panel bodyClass="sp-panel-body"><EmptyState compact icon={<Icon name="spatial" size={28} />} title="No scene open" body="The open scene's objects, by kind." /></Panel>;
   return (
     <Panel bodyClass="sp-panel-body">
       <div class="sp-doc" data-asset-document={openDoc.value?.path} tabIndex={-1}>

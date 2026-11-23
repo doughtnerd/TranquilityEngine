@@ -1,10 +1,11 @@
 // The Library panel's view (the prototype's library): the project's samples by folder, a search (at most 300 rows), a
-// ▶ preview each through the Studio's runtime, and rows that drag onto the open playlist (adding an entry) or add from
+// preview button each through the Studio's runtime, and rows that drag onto the open playlist (adding an entry) or add from
 // their menu. Click selects, Ctrl/⌘-click toggles, Shift-click selects a range; the menu's "Create playlist from…" makes
 // a new playlist of the selected samples (a Clip for one, a Queue for several). A view over props.
 import { useState } from "preact/hooks";
 import { ContextMenu } from "../../../editor/ui/ContextMenu";
 import { EmptyState } from "../../../editor/ui/EmptyState";
+import { Icon } from "../../components/Icon";
 import { TypeBadge } from "../../components/TypeBadge";
 import { createPlaylistLabel, libraryClick, libraryGroups, menuTargets, sampleDragText, type LibrarySelection } from "./libraryModel";
 
@@ -47,9 +48,7 @@ export function LibraryList(props: LibraryListProps) {
                   key={s.path}
                   role="listitem"
                   class={`pl-lib-row${sel.selected.includes(s.path) ? " selected" : ""}`}
-                  aria-selected={sel.selected.includes(s.path)}
                   draggable
-                  onClick={(e) => setSel(libraryClick(sel, order, s.path, { toggle: e.ctrlKey || e.metaKey, range: e.shiftKey }))}
                   title={`${s.path}${props.addTo ? ` · drag onto the playlist, or double-click, to add it to ${props.addTo}` : ""}`}
                   onDragStart={(e) => {
                     e.dataTransfer?.setData("text/plain", sampleDragText(s.path));
@@ -63,10 +62,24 @@ export function LibraryList(props: LibraryListProps) {
                   }}
                 >
                   <button type="button" class={`pl-play${props.previewing === s.path ? " on" : ""}`} aria-label={`Preview ${s.name}`} title="Preview (up to 30 s)" onClick={() => props.onPreview(s.path)}>
-                    {props.previewing === s.path ? "■" : "▶"}
+                    <Icon name={props.previewing === s.path ? "stop" : "play"} size={10} />
                   </button>
-                  <TypeBadge sample />
-                  <span class="pl-lib-name">{s.name}</span>
+                  {/* The name is the row's select button (pressed: picked for "Create playlist from"); Enter adds the sample. */}
+                  <button
+                    type="button"
+                    class="pl-lib-pick"
+                    aria-pressed={sel.selected.includes(s.path)}
+                    aria-keyshortcuts={props.addTo ? "Enter" : undefined}
+                    onClick={(e) => setSel(libraryClick(sel, order, s.path, { toggle: e.ctrlKey || e.metaKey || e.detail === 0, range: e.shiftKey }))}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter" || !props.addTo) return;
+                      e.preventDefault();
+                      props.onAdd(s.path);
+                    }}
+                  >
+                    <TypeBadge sample />
+                    <span class="pl-lib-name">{s.name}</span>
+                  </button>
                   {s.derived && <span class="pl-row-meta">sample</span>}
                 </div>
               ))}

@@ -8,6 +8,7 @@ import { useRef, useState } from "preact/hooks";
 import type { AudioTestScene, SceneBox } from "../../../engine/audio/spatial/testSceneTypes";
 import type { TestSceneMotionRow, TestSceneVoiceRow } from "../../../plugins/audio/runtime/testScene/player";
 import { ZONE_PRESETS } from "../../../plugins/audio/runtime/reverbPresets";
+import { Icon } from "../../components/Icon";
 import { SoundPicker } from "../../components/SoundPicker";
 import type { SoundItem } from "../../components/soundPickerModel";
 import { soundName } from "../../components/soundPickerModel";
@@ -142,7 +143,7 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
             </FieldRow>
           )}
           <div class="sp-row-actions">
-            <button type="button" class={`sp-small${props.solo === id ? " on" : ""}`} aria-pressed={props.solo === id} onClick={() => props.onSolo(id)}>▶ {props.solo === id ? "Hear all" : "Play solo"}</button>
+            <button type="button" class={`sp-small${props.solo === id ? " on" : ""}`} aria-pressed={props.solo === id} onClick={() => props.onSolo(id)}><Icon name="play" size={12} /> {props.solo === id ? "Hear all" : "Play solo"}</button>
             <button type="button" class={`sp-small${props.silenced(id) && props.solo === null ? " on" : ""}`} onClick={() => props.onMute(id)}>{props.silenced(id) && props.solo === null ? "Unmute" : "Mute"}</button>
           </div>
         </Section>
@@ -293,7 +294,7 @@ function ObjectInspector(props: InspectorProps & { o: SceneObject }) {
 
       <div class="sp-row-actions end">
         <button type="button" class="sp-small danger" disabled={ro || (o.kind === "listener" && scene.listeners.length <= 1)} title={o.kind === "listener" && scene.listeners.length <= 1 ? "A scene needs a listener" : undefined} onClick={() => props.onDelete(id)}>
-          Delete {aKind(o.kind).replace(/^an? /, "")}
+          <Icon name="trash" size={14} /> Delete {aKind(o.kind).replace(/^an? /, "")}
         </button>
       </div>
     </div>
@@ -320,10 +321,10 @@ function SoundField(props: { value: string; disabled: boolean; sounds(): readonl
         {props.value && !item && <span class="sp-warn" title="Not in the project">missing</span>}
       </button>
       {props.value.toLowerCase().endsWith(".playlist.json") && (
-        <button type="button" class="sp-icon" aria-label="Open in Playlists" title="Open in Playlists" onClick={() => props.onOpen(props.value)}>›</button>
+        <button type="button" class="sp-icon" aria-label="Open in Playlists" title="Open in Playlists" onClick={() => props.onOpen(props.value)}><Icon name="chevronRight" size={14} /></button>
       )}
       {props.value && !props.disabled && (
-        <button type="button" class="sp-icon" aria-label="Clear the sound" title="Play nothing" onClick={() => props.onPick("")}>×</button>
+        <button type="button" class="sp-icon" aria-label="Clear the sound" title="Play nothing" onClick={() => props.onPick("")}><Icon name="close" size={14} /></button>
       )}
       {open && ref.current && <SoundPicker at={ref.current} list={props.sounds} title="Pick a sound" onPick={props.onPick} onClose={() => setOpen(false)} />}
     </FieldRow>
