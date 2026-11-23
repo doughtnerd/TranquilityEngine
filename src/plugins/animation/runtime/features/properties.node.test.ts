@@ -215,8 +215,8 @@ describe("notifies (ADR 0372)", () => {
     expect(phases.filter((p) => p === "begin")).toHaveLength(1);
     expect(phases.filter((p) => p === "end")).toHaveLength(1);
     expect(buffered.filter((e) => e.method === "swing")).toHaveLength(phases.length);
-    // The control key (0.6 s) has no handler yet: one warning, skipped.
-    expect(warn.mock.calls.filter((c) => String(c[0]).includes('"particlePlay" control keys'))).toHaveLength(1);
+    // The control key (0.6 s) reaches the particlePlay handler (T22t); its target "Sparks" isn't there: one warning, skipped.
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes('"particlePlay" key of') && String(c[0]).includes('"Sparks"'))).toHaveLength(1);
     warn.mockRestore();
     destroyAll();
   });

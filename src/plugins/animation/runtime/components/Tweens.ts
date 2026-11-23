@@ -5,5 +5,8 @@
  */
 import { defineComponent, i32 } from "../../../../engine/core/data";
 
-/** `count`: tweens running on the entity; `head`: the core handle (index and generation) of its newest tween, which links to the rest. */
+/**
+ * `count`: tweens running on the entity (group members included); `head`: the core handle (index and generation) of its
+ * newest tween, or of the group program a newest member runs in.
+ */
 export const Tweens = defineComponent("animation.Tweens", { count: i32, head: i32 });

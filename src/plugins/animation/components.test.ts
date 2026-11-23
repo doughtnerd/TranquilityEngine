@@ -22,10 +22,6 @@ import {
   Vector3,
   animatorParams,
   getFields,
-  parallel,
-  sequence,
-  tween,
-  type Tween,
 } from "../../myco";
 import { getDataComponentDef } from "../../engine/core/data";
 import { isFieldAnimatable, type ComponentClass } from "../../engine/core/registry";
@@ -280,21 +276,5 @@ describe("declared methods name the task that builds them", () => {
     ];
     for (const [what, task, call] of cases) expect(call, what).toThrow(notBuilt(what, task));
   });
-
-  it("TimelineDirector", async () => {
-    await load(EMPTY);
-    const dir = GameObject.create("Cutscene").addComponent(TimelineDirector);
-    expect(() => dir.play()).toThrow(notBuilt("TimelineDirector.play", "T22t"));
-    expect(() => dir.pause()).toThrow(notBuilt("TimelineDirector.pause", "T22t"));
-    expect(() => dir.stop()).toThrow(notBuilt("TimelineDirector.stop", "T22t"));
-  });
-
-  it("tween, sequence and parallel", async () => {
-    await load(EMPTY);
-    const node = GameObject.create("Box");
-    expect(() => tween(node.transform!, "position", [0, 2, 0], { duration: 0.4, ease: "outBack" })).toThrow(notBuilt("tween", "T22t"));
-    const fake = {} as Tween;
-    expect(() => sequence(fake, fake)).toThrow(notBuilt("sequence", "T22t"));
-    expect(() => parallel(fake, fake)).toThrow(notBuilt("parallel", "T22t"));
-  });
+  // TimelineDirector, tween, sequence and parallel are built (T22t): features/timeline.node.test.ts, features/tweens.node.test.ts.
 });
