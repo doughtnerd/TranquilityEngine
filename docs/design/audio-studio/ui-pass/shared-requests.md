@@ -65,3 +65,9 @@
   pause should feel immediate: pause at the earliest schedulable frame and retract/reschedule commands already sent
   that fall after it. Resume is heard from the main-thread promote (≤1 frame + 5 ms fade) — a core-side resume would
   remove it. Sequence playhead in the Studio is wall-clock estimated (drifts by the pause lead).
+
+## Follow-ups from wave 4 (And by)
+- Ctrl+Z after Apply in Playlists does nothing when no panel has focus (panel undo button works; Mixer works).
+- Right-click on a Sequence clip opens the track lane menu instead of the clip menu (Shift+F10 works).
+- Mixer bus curves: default driver is the first parameter even when labelled ("by Surface (labels)").
+- Playlists effect-automation dialog (effectAutomation.ts) doesn't offer And by.
