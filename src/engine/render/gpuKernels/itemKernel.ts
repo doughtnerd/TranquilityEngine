@@ -11,6 +11,8 @@
  * - **GLSL ES 3.0** (`itemKernelGlsl`): a full-screen fragment pass, one fragment per item; inputs are
  *   RGBA32F textures (`kin_<name>`, `kin_<name>_w` texels wide), outputs are render targets 0.. (up to
  *   four), item i at texel (i % kgridw, i / kgridw); a draw samples them by vertex index.
+ * - **GLSL ES 3.0, transform feedback** (`itemKernelGlslFeedback`): a vertex shader, one vertex per item,
+ *   inputs as above, outputs captured interleaved into one vertex buffer laid out like WebGPU's `kout`.
  * - **JavaScript** (`JsItemKernel`): the same KSL compiled to closures (`ShaderSource.js`), so tests and
  *   the CPU run the very maths the GPU compiles.
  *
@@ -100,6 +102,52 @@ ${spec.outputs.map((o) => `  out_${o} = vec4(0.0);`).join("\n")}
 ${spec.outputs.map((o, k) => `  kout${k} = out_${o};`).join("\n")}
 }
 `;
+}
+
+/**
+ * The GLSL ES 3.0 vertex shader of an item kernel run through transform feedback (`GlFeedbackItemKernel`):
+ * one vertex per item (`gl_VertexID`), drawn as points with the rasterizer off; inputs are float textures
+ * as in `itemKernelGlsl`, and the outputs are the varyings `kout0..` (`itemKernelFeedbackVaryings`),
+ * captured interleaved into one buffer laid out like WebGPU's `kout` (item i's output k at
+ * `(i * outputs + k) * 16` bytes), so a draw binds it as a vertex buffer with the same stride.
+ */
+export function itemKernelGlslFeedback(spec: ItemKernelSpec): string {
+  checkItemKernel(spec);
+  const lines = ["#version 300 es", "precision highp float;", "precision highp int;", "precision highp sampler2D;", `// Item kernel "${spec.name}" (render/gpuKernels, transform feedback).`];
+  for (const name of spec.inputs) {
+    lines.push(`uniform sampler2D kin_${name};`, `uniform int kin_${name}_w;`);
+    lines.push(`vec4 in_${name}(int j) { return texelFetch(kin_${name}, ivec2(j % kin_${name}_w, j / kin_${name}_w), 0); }`);
+  }
+  for (const name of spec.outputs) lines.push(`vec4 out_${name};`);
+  spec.outputs.forEach((_, k) => lines.push(`out vec4 kout${k};`));
+  return `${lines.join("\n")}
+${spec.body.text("glsl")}
+void main() {
+${spec.outputs.map((o) => `  out_${o} = vec4(0.0);`).join("\n")}
+  kernelItem(gl_VertexID);
+${spec.outputs.map((o, k) => `  kout${k} = out_${o};`).join("\n")}
+  gl_Position = vec4(0.0, 0.0, 0.0, 1.0);
+}
+`;
+}
+
+/** The fragment shader a transform feedback pass links with (never runs: the rasterizer is off). */
+export const FEEDBACK_FRAGMENT = `#version 300 es
+precision highp float;
+out vec4 kfrag;
+void main() {
+  kfrag = vec4(0.0);
+}
+`;
+
+/** The varyings a transform feedback pass captures, in output order. */
+export function itemKernelFeedbackVaryings(spec: ItemKernelSpec): string[] {
+  return spec.outputs.map((_, k) => `kout${k}`);
+}
+
+/** The uniform names the transform feedback pass sets. */
+export function itemKernelFeedbackUniforms(spec: ItemKernelSpec): string[] {
+  return spec.inputs.flatMap((n) => [`kin_${n}`, `kin_${n}_w`]);
 }
 
 /** The uniform names the GLSL pass sets. */

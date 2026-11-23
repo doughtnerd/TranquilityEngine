@@ -271,6 +271,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - dropping a clip on an Animator adds it or offers a state;
   - bones in the Hierarchy with a bone target in `inspectorTarget.ts` and a bone gizmo;
   - clip preview in the Asset Inspector.
+  - editor picking of GPU-skinned meshes (scene-view clicks): pick by bounds or keep rest positions for picking (T16 follow-up).
 - **T21, sprites:**
   - flipbooks and slice `skin` in `importSettings.ts`;
   - `SpriteRenderer.sprite` animatable;

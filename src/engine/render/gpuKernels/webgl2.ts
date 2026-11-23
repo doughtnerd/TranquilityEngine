@@ -3,8 +3,9 @@
  * so a kernel runs as a full-screen fragment pass: one fragment per item, its inputs in float textures
  * (read with `texelFetch`), its outputs written to up to four RGBA32F render targets (`FloatTargets`),
  * one texel per item, row by row in a grid (`gridLayout`). A draw then samples those textures by item
- * index (vertex pulling). Transform feedback is the other mechanism a later kernel may need; it would
- * be a second pass kind here, behind the same owner-facing interface.
+ * index (vertex pulling). Transform feedback is the second pass kind (`GlFeedbackItemKernel`,
+ * `itemKernelFeedback.ts`): a vertex program with the rasterizer off writes every item's outputs into
+ * one vertex buffer, which skinning draws from (T16's spike).
  *
  * Renderer-neutral: it takes a raw WebGL2 context. It changes GL state (framebuffer, viewport, program,
  * texture units, blend/depth/cull/scissor/stencil off), so the caller restores its own afterwards (the
@@ -192,8 +193,11 @@ export class GlKernel {
   }
 }
 
-/** Compiles and links a program, pushing compile and link logs to `errors`. */
-export function linkProgram(gl: WebGL2RenderingContext, vs: string, fs: string, errors: string[]): WebGLProgram {
+/**
+ * Compiles and links a program, pushing compile and link logs to `errors`. `beforeLink` runs on the
+ * program before it links (a transform feedback pass names its captured varyings there).
+ */
+export function linkProgram(gl: WebGL2RenderingContext, vs: string, fs: string, errors: string[], beforeLink?: (program: WebGLProgram) => void): WebGLProgram {
   const compile = (type: number, src: string) => {
     const sh = gl.createShader(type)!;
     gl.shaderSource(sh, src);
@@ -206,6 +210,7 @@ export function linkProgram(gl: WebGL2RenderingContext, vs: string, fs: string, 
   const f = compile(gl.FRAGMENT_SHADER, fs);
   gl.attachShader(p, v);
   gl.attachShader(p, f);
+  beforeLink?.(p);
   gl.linkProgram(p);
   if (!gl.getProgramParameter(p, gl.LINK_STATUS)) errors.push(gl.getProgramInfoLog(p) ?? "link failed");
   gl.deleteShader(v);
