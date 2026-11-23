@@ -20,14 +20,15 @@ import { parseDerivedSample } from "../../../engine/audio/sample/format";
 import type { ParameterDef } from "../../../engine/audio/parameters";
 import { emptyPlaylist, emptyPlaylistBody, isPlaylistPath } from "../../../engine/audio/playlist/format";
 import { lintPlaylist, type PlaylistLint } from "../../../engine/audio/playlist/lint";
-import { PLAYLIST_FORMAT, type PlaylistAsset, type PlaylistBody, type SampleEntry } from "../../../engine/audio/playlist/types";
+import { PLAYLIST_FORMAT, type ChangeHow, type PlaylistAsset, type PlaylistBody, type SampleEntry } from "../../../engine/audio/playlist/types";
+import { matchChangeRule } from "../../../engine/audio/playlist/switchRules";
 import { applyEdit, type EditResult } from "../../../plugins/audio/editor/editResult";
 import type { AudioEventHandle, AudioHandle } from "../../../plugins/audio/runtime";
 import { audioHost, openRoute, toasts } from "../../shell/studioServices";
 import { newPlaylistParameter } from "./newParameter";
 import { linkEntry, unlinkEntry, type EditContext } from "./playlistEdits";
 import { bodyAt, canonical, editAt, effectiveOutput, entryName, filePath, indicesToSelect, pathTarget, playlistTitle, whereOf, type PlaylistPath } from "./playlistPaths";
-import { auditionAsset, auditionPathOf, serveAudition } from "./auditionSource";
+import { ancestorsOf, auditionAsset, auditionPathOf, serveAudition } from "./auditionSource";
 import { linkedByIndex } from "./playlistTree";
 import { clipsPlaylist } from "./clipsPlaylist";
 import { childrenToKeep, deleteEntry, folderContentsUp, moveAcrossFiles, moveWithinFile, insertEntries, planDelete, replaceLinks, takeEntry, type ChildrenChoice, type DeletePlan, type DeleteTarget, type LinksChoice } from "./structureEdits";
@@ -52,6 +53,19 @@ export const audioNow = signal(0);
 export const deleting = signal<DeletePlan | null>(null);
 /** The Add dialog is open. */
 export const adding = signal(false);
+/** The open playlist's name is being edited (a new playlist opens so, W2.5). */
+export const renamingOpen = signal(false);
+/**
+ * The last Switch label change heard while auditioning (W8.5): the playlist, from and to, the rule that applied (its
+ * index, -1 for When it changes) and how it changes. Cleared by a new trigger or another playlist.
+ */
+export const lastChange = signal<{ readonly playlist: string; readonly from: string; readonly to: string; readonly rule: number; readonly change: ChangeHow } | null>(null);
+/**
+ * Pause (W14.2): Plays now, Voices and the voice log's cursor freeze at the moment it was pressed, and the audition is
+ * held silent; Resume brings both back. The public playlist handle has no transport pause, so the voices keep time
+ * underneath (see the build log).
+ */
+export const frozen = signal<{ readonly log: readonly LogRow[]; readonly now: ReturnType<typeof voicesNow>; readonly time: number } | null>(null);
 
 const project = () => currentProject.value;
 
@@ -132,6 +146,8 @@ function sampleTempo(path: string): { bpm: number } | null | undefined {
 export function openPlaylist(path: PlaylistPath): void {
   openPath.value = path;
   selectedEntry.value = null;
+  renamingOpen.value = false;
+  lastChange.value = null;
   const t = pathTarget(path);
   openRoute({ screen: "playlists", asset: t.file, select: indicesToSelect(t.indices) });
 }
@@ -182,7 +198,9 @@ export async function newPlaylist(folder: string | null, nested: boolean): Promi
     return;
   }
   const path = await createAsset<PlaylistAsset>("playlist", { folder: folder ?? "", name: "New playlist", value: emptyPlaylist("queue") });
-  if (path) openPlaylist(filePath(path));
+  if (!path) return;
+  openPlaylist(filePath(path));
+  renamingOpen.value = true; // it opens with its name field in rename mode (W2.5)
 }
 
 /**
@@ -525,7 +543,8 @@ export function auditionTarget(): AuditionTarget | null {
   }
   if (t.indices.length === 0) return { kind: "file", path: t.file };
   const out = effectiveOutput(path, loadPlaylist);
-  return { kind: "file", path: auditionPathOf(t.file, t.indices), nested: auditionAsset(b, out.bus, localParameters.peek()) };
+  const root = openFile.peek();
+  return { kind: "file", path: auditionPathOf(t.file, t.indices), nested: auditionAsset(b, out.bus, localParameters.peek(), root ? ancestorsOf(root, t.indices) : []) };
 }
 
 /** Why Trigger is off for the open playlist, or null when it plays (the player bar's tooltip). */
@@ -551,6 +570,12 @@ export function trigger(): void {
   const what = auditionTarget();
   const host = audioHost();
   if (!what) return;
+  // Trigger while paused starts fresh: the held voices go, the views come back to life.
+  if (frozen.peek()) {
+    stopAudition();
+    frozen.value = null;
+  }
+  lastChange.value = null;
   // Global test values go to the runtime first, so the trigger picks with them.
   for (const [name, value] of Object.entries(parameterOptions(globalParameters.peek()))) host.audio.setParameter(name, value);
   if (what.kind === "file" && what.nested) serveAudition(what.path, what.nested);
@@ -571,6 +596,26 @@ export function stopAudition(): void {
   for (const h of handles) h.stop(0.12);
   handles.clear();
   audioHost().stopAll(0.12);
+  if (frozen.peek()) {
+    frozen.value = null;
+    logCursor.value = null;
+  }
+}
+
+/** Pause (W14.2): freeze Plays now, Voices and the log's cursor at this moment, and hold the audition silent. */
+export function pauseAudition(): void {
+  if (frozen.peek()) return;
+  frozen.value = { log: voiceLog.peek(), now: playingNow.peek(), time: audioNow.peek() };
+  logCursor.value = audioNow.peek();
+  for (const h of handles) h.fade(0, 0.08);
+}
+
+/** Resume: the audition is heard again and the views follow it live. */
+export function resumeAudition(): void {
+  if (!frozen.peek()) return;
+  frozen.value = null;
+  logCursor.value = null;
+  for (const h of handles) h.fade(1, 0.08);
 }
 
 /** Key-off: held loops end by their exit settings, a Blend's envelope releases. */
@@ -580,6 +625,7 @@ export function releaseAudition(): void {
 
 /** A test value changed: globals go to the runtime, locals to the playing instances. */
 export function setTestValue(name: string, value: number | null): void {
+  noteSwitchChange(name, value);
   const next = { ...testValues.peek() };
   if (value === null) delete next[name];
   else next[name] = value;
@@ -590,6 +636,21 @@ export function setTestValue(name: string, value: number | null): void {
   if (localParameters.peek().some((l) => l.name === name)) {
     for (const h of handles) if ("setParameter" in h) h.setParameter(name, v);
   } else audioHost().audio.setParameter(name, v);
+}
+
+/** While auditioning a Switch, its parameter's label changing: which rule applies (W8.5), for the rules table and Plays now. */
+function noteSwitchChange(name: string, value: number | null): void {
+  const b = openBody.peek();
+  const s = b?.type === "switch" ? b.switch : null;
+  if (!s || s.parameter !== name || !auditioning.peek()) return;
+  const def = allParameters.peek().find((d) => d.name === name);
+  if (!def || !("labels" in def)) return;
+  const label = (v: number | undefined) => (v === undefined ? def.default : (def.labels[Math.round(v)] ?? def.default));
+  const from = label(testValues.peek()[name]);
+  const to = label(value ?? undefined);
+  if (from === to) return;
+  const rule = matchChangeRule(s.rules, from, to);
+  lastChange.value = { playlist: entryNameOfOpen(), from, to, rule: rule ? s.rules.indexOf(rule) : -1, change: rule ?? s.onChange };
 }
 
 function startPolling(): void {

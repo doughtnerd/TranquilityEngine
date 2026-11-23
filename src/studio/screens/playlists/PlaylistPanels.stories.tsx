@@ -1,6 +1,7 @@
 // Stories (ADR 0219, 0349) for the Playlists screen's other panels and dialogs: the Inspector (an entry, playback,
 // output, effects, spatial, local parameters, used by), the Add dialog (filters with counts, cycles disabled), the
-// Library, Plays now / Voices with a log, and the delete confirmation with its choices.
+// Library, Plays now (the next trigger's preview, then live cards with paths), Voices (newest first, status chips), and
+// the delete confirmation with its choices.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { signal } from "@preact/signals";
@@ -13,7 +14,7 @@ import { LibraryList } from "./LibraryList";
 import { DeleteDialog } from "./PlaylistDialogs";
 import { PlaylistInspector } from "./PlaylistInspector";
 import { FIXTURE_FILES, FIXTURE_PARAMETERS, FIXTURE_PLAYLISTS, loadFixture } from "./playlistFixture";
-import { VoicesView } from "./VoicesView";
+import { PlaysNowView, VoicesLogView } from "./VoicesView";
 import "../../components/audioParts.css";
 import "./playlists.css";
 
@@ -33,6 +34,8 @@ export const Inspector: Story = {
         output={{ bus: "Vehicles", own: false, from: "car" }}
         presets={["audio/attenuation/near.attenuation.json"]}
         usedBy={["audio/vehicles/car.playlist.json"]}
+        name="engine"
+        cards={[{ badge: "S", label: "rpm", value: "0.4", rows: [{ name: "engine_idle", weight: 0.2 }, { name: "engine_mid", weight: 0.8 }] }, { badge: "T", label: "Voice time", value: "—", sub: "Trigger to run it" }]}
         onEdit={fn()}
         onEditCurves={fn()}
         onOpenBus={fn()}
@@ -42,13 +45,20 @@ export const Inspector: Story = {
   ),
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByText(/Entry · engine_mid/)).toBeVisible();
+    // The header names it once with its type summary (I1); the "this voice" cards show the blend's weights (I2).
+    await expect(c.getByText("engine", { selector: ".pl-ph b" })).toBeVisible();
+    await expect(c.getByText("engine_mid", { selector: ".pl-wr .pl-nm" })).toBeVisible();
+    await expect(c.getByRole("group", { name: "Entry engine_mid" })).toBeVisible();
+    // Playback is collapsed to its summary (I5); opening it shows Output inside it.
+    await expect(canvasElement.querySelector(".pl-pbh .pl-u")!.textContent).toMatch(/\S/);
+    await expect(c.getByRole("combobox", { name: "Output bus" })).not.toBeVisible();
+    await userEvent.click(c.getByText("Playback"));
     await expect(c.getByRole("combobox", { name: "Output bus" })).toHaveValue("");
-    // The effects section keeps the 8px gutter every field row has (I6): its caption and empty line don't touch the edge.
-    const chain = c.getByRole("region", { name: "Effects" });
-    const section = chain.closest(".kit-section")!;
-    const caption = within(chain).getByText(/Effects/i, { selector: ".studio-chain-title" });
-    await expect(caption.getBoundingClientRect().left - section.getBoundingClientRect().left).toBeGreaterThanOrEqual(8);
+    // The effects chain keeps the 8px gutter every field row has (I6): its caption doesn't touch the panel's edge.
+    const chain = c.getByRole("region", { name: "Playlist effects" });
+    const panel = canvasElement.querySelector(".pl-inspector")!;
+    const caption = within(chain).getByText(/Playlist effects/i, { selector: ".studio-chain-title" });
+    await expect(caption.getBoundingClientRect().left - panel.getBoundingClientRect().left).toBeGreaterThanOrEqual(8);
   },
 };
 
@@ -80,24 +90,50 @@ export const Library: Story = {
 };
 
 const t0 = 10;
+export const PlaysNow: Story = {
+  render: () => (
+    <div style={{ width: "320px", height: "260px" }}>
+      <PlaysNowView
+        now={[]}
+        preview={[{ name: "Random pick · 1 of 5", kind: "queue", weight: 1, gainDb: -1, path: ["Bike impact", "Metal impact"] }, { name: "metal_thud", kind: "sample", weight: 0.53, gainDb: -5, path: ["Bike impact", "Metal impact", "metal_thud"] }]}
+      />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByText(/next trigger · current parameters/)).toBeVisible();
+    await expect(c.getByText("Bike impact › Metal impact › metal_thud")).toBeVisible();
+  },
+};
+
 export const Voices: Story = {
   render: () => (
-    <div style={{ width: "760px", height: "260px" }}>
-      <VoicesView
-        now={[{ id: 3, instance: 7, clip: "audio/vehicles/engine_mid.wav", bus: "Vehicles", status: "playing", gain: 0.7, gainDb: -3.1 }, { id: 4, instance: 7, clip: "audio/vehicles/engine_high.wav", bus: "Vehicles", status: "playing", gain: 0.3, gainDb: -10.5 }]}
+    <div style={{ width: "320px", height: "360px" }}>
+      <VoicesLogView
         log={[
           { key: "v1:6", kind: "voice", instance: 6, clip: "audio/vehicles/engine_idle.wav", bus: "Vehicles", start: t0, end: t0 + 1.2, status: "finished", gainDb: -6 },
           { key: "r11.1", kind: "refused", instance: 0, clip: "cooldown", bus: "", start: t0 + 1.1, end: t0 + 1.1, status: "refused", gainDb: -120 },
           { key: "v3:7", kind: "voice", instance: 7, clip: "audio/vehicles/engine_mid.wav", bus: "Vehicles", start: t0 + 1.4, end: null, status: "playing", gainDb: -3.1 },
-          { key: "v4:7", kind: "voice", instance: 7, clip: "audio/vehicles/engine_high.wav", bus: "Vehicles", start: t0 + 1.4, end: null, status: "playing", gainDb: -10.5 },
         ]}
         cursor={t0 + 1.5}
         time={t0 + 3}
+        lengthOf={() => 4}
+        pathOf={(clip) => ["engine", clip.slice(clip.lastIndexOf("/") + 1, -4)]}
         onClear={fn()}
         onSeek={fn()}
+        onRule={fn()}
       />
     </div>
   ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    // Newest first (P3): the playing voice heads the list; status chips carry an icon and a word, not colour only.
+    const items = c.getAllByRole("listitem");
+    await expect(items[0]).toHaveTextContent(/Playing.*engine_mid/);
+    await expect(items[items.length - 1]).toHaveTextContent(/Ended.*engine_idle/);
+    await expect(c.getByText("2.40 s left")).toBeVisible();
+    await expect(c.getByRole("button", { name: "Rule ›" })).toBeVisible();
+  },
 };
 
 /** H3: a click anywhere in a Playlists panel (here a tree row) makes Undo, Redo and History act on the open playlist. */

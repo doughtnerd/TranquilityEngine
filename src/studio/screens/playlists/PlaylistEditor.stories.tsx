@@ -119,12 +119,18 @@ export const Blend1D: Story = { args: { path: "audio/vehicles/engine.playlist.js
 export const Blend2D: Story = {
   args: { path: "audio/ambience/wind.playlist.json" },
   play: async ({ canvasElement }) => {
-    const plane = within(canvasElement).getByRole("group", { name: "Blend plane" });
+    const c = within(canvasElement);
+    const plane = c.getByRole("group", { name: "Blend plane" });
     const texts = [...plane.querySelectorAll("text")].map((t) => t.textContent ?? "");
     for (const name of ["wind_soft", "wind_gust", "wind_storm", "wind_howl"]) await expect(texts.some((t) => t.startsWith(name))).toBe(true);
-    await expect(texts.some((t) => t.startsWith("wind "))).toBe(true);
-    await expect(texts.some((t) => t.startsWith("rain "))).toBe(true);
+    // The axes are named beside the plane (X under it, Y up its side), with their ranges.
+    await expect(canvasElement.querySelector(".pl-xname")!.textContent).toBe("wind");
+    await expect(canvasElement.querySelector(".pl-ym")!.textContent).toBe("rain");
     await expect(plane.querySelector(".pl-influence-field")!.getAttribute("filter")).toMatch(/^url\(#/);
+    // The Nodes list beside it: each node Playing or Silent with its weight.
+    const nodes = c.getByRole("group", { name: "Nodes" });
+    await expect(within(nodes).getAllByRole("button")).toHaveLength(4);
+    await expect(nodes.textContent).toMatch(/Playing|Silent/);
   },
 };
 
@@ -163,12 +169,15 @@ export const SwitchFades: Story = {
   args: { path: "audio/footsteps/footsteps.playlist.json" },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.selectOptions(c.getByRole("combobox", { name: "Rule 1: fade-out shape" }), "log2");
-    await expect(c.getByRole("combobox", { name: "Rule 1: fade-out shape" })).toHaveValue("log2");
-    const tail = c.getByRole("checkbox", { name: "Rule 1: let the tail ring" });
+    // A rule's fades sit in a popover off its row.
+    await userEvent.click(c.getByRole("button", { name: "Rule 1: fades and transition" }));
+    const pop = within(await within(canvasElement.ownerDocument.body).findByRole("dialog", { name: "Rule 1: fades" }));
+    await userEvent.selectOptions(pop.getByRole("combobox", { name: "Rule 1: fade-out shape" }), "log2");
+    await expect(pop.getByRole("combobox", { name: "Rule 1: fade-out shape" })).toHaveValue("log2");
+    const tail = pop.getByRole("checkbox", { name: "Let the tail ring" });
     await expect(tail).toBeChecked();
     await userEvent.click(tail);
-    await expect(c.getByRole("checkbox", { name: "Rule 1: let the tail ring" })).not.toBeChecked();
+    await expect(pop.getByRole("checkbox", { name: "Let the tail ring" })).not.toBeChecked();
   },
 };
 
@@ -177,8 +186,11 @@ export const ClipPlaylist: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByRole("heading", { name: "boom" })).toBeVisible();
-    await expect(c.getByTitle("audio/ui/boom.wav")).toBeVisible();
+    await expect(c.getByTitle(/audio\/ui\/boom\.wav/)).toBeVisible();
     await expect(c.getByRole("button", { name: "Replace sample…" })).toBeVisible();
+    // C1: the clip lanes: the Trim bar and the waveform with both edges draggable.
+    await expect(c.getByText(/^Trim · /)).toBeVisible();
+    await expect(c.getAllByRole("slider", { name: "Trim start" }).length).toBeGreaterThan(0);
   },
 };
 

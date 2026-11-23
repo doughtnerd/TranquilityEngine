@@ -195,7 +195,7 @@ describe("screen docks", () => {
   it("start each screen in the prototype's arrangement: side panels stacked, the bottom dock under the middle (G70)", () => {
     const expected: Record<string, Record<string, string[][]>> = {
       samples: { left: [["samples-library"], ["samples-outline"]], right: [["samples-inspector"]], bottom: [["samples-edits"], ["samples-seam"]] },
-      playlists: { left: [["playlists-library"], ["playlists-samples"]], right: [["playlists-inspector"], ["playlists-voices", "playlists-parameters"]] },
+      playlists: { left: [["playlists-library"], ["playlists-samples"]], right: [["playlists-inspector"], ["playlists-voices", "playlists-voice-log"]] },
       spatial: { left: [["spatial-scenes"], ["spatial-outline"]], right: [["spatial-inspector"], ["spatial-settings"]], bottom: [["spatial-voices"]] },
       take: { left: [["take-list"], ["take-playlists"]], right: [["take-inspector"]], bottom: [["take-mixer"]] },
       profiler: { left: [["profiler-captures"]], right: [["profiler-cursor"], ["profiler-voice"]], bottom: [["profiler-messages"], ["profiler-why", "profiler-plugins"]] },

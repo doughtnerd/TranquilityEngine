@@ -33,6 +33,8 @@ export interface EffectCardProps {
   onKey?(bus: string): void;
   /** Automate ◆: absent hides the button. */
   onAutomate?(): void;
+  /** A right-click (or the context-menu key) on Automate: the owner's curve menu at `at`. */
+  onAutomateMenu?(at: { x: number; y: number }): void;
   /** ADR 0352 §9: a plugin effect's health row (`Audio.debug().plugins`), when the runtime has one. */
   readonly pluginHealth?: AudioPluginDebug | null;
   /** Reset plugin (a plugin effect that faulted): absent hides the button. */
@@ -97,6 +99,8 @@ export function EffectCard(props: EffectCardProps) {
               title={`Automate ${spec.label}: ${spec.params.map((q) => q.label.toLowerCase()).join(", ")}, driven by a game parameter${anyAuto ? ` · ${Object.keys(automated).join(", ")} automated` : ""}`}
               disabled={readOnly || spec.params.length === 0}
               onClick={props.onAutomate}
+              onContextMenu={props.onAutomateMenu ? (e) => { e.preventDefault(); props.onAutomateMenu!({ x: e.clientX, y: e.clientY }); } : undefined}
+              onKeyDown={props.onAutomateMenu ? (e) => { if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return; e.preventDefault(); const r = (e.currentTarget as HTMLElement).getBoundingClientRect(); props.onAutomateMenu!({ x: r.left, y: r.bottom }); } : undefined}
             >
               <CurveIcon />
             </button>

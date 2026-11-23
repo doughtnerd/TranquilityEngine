@@ -1,7 +1,9 @@
 // What Trigger plays on the Playlists screen, through the screen's actions over a project in memory and a runtime that
 // records what it's asked to play (UI pass Q7, PB4, L2): the open nested playlist itself (served under its audition
 // path, where the runtime reads it through `Assets`), not its file's root; nothing on an empty playlist, Trigger off
-// with the reason; the player bar's scrub row there before the first trigger.
+// with the reason; the player bar's scrub row there before the first trigger. Wave 3: a nested audition keeps its
+// parents' playlist effects; Pause freezes the views and holds the audition silent; a Switch's label change while it
+// plays notes the rule that applies.
 import { signal } from "@preact/signals";
 import type { VNode } from "preact";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
@@ -19,7 +21,7 @@ import { provideStudio } from "../../shell/studioServices";
 import { sampleEntry } from "./playlistEdits";
 import { filePath } from "./playlistPaths";
 import { playlistPlayerSlots } from "./playlistPlayer";
-import { auditionTarget, openPlaylist, stopAudition, trigger, triggerOffReason } from "./playlistsScreen";
+import { auditionTarget, frozen, lastChange, openPlaylist, pauseAudition, resumeAudition, setTestValue, stopAudition, trigger, triggerOffReason } from "./playlistsScreen";
 
 const plugin: EditorPlugin = { manifest: { name: "studio-playlist-audition-test", version: "1.0.0" } as EditorPlugin["manifest"], activate: registerStudioAssetKinds };
 beforeAll(() => activatePlugins([plugin]));
@@ -27,6 +29,35 @@ afterAll(() => deactivatePlugin(plugin.manifest.name));
 
 const FILE = "audio/footsteps.playlist.json";
 const EMPTY = "audio/empty.playlist.json";
+const WET = "audio/wet.playlist.json";
+const OWN = "audio/own.playlist.json";
+const SWITCH = "audio/surface.playlist.json";
+
+const LOWPASS = { id: "fx1", type: "lowpass" as const, on: true, params: { cutoff: 800 } };
+
+/** footsteps with a Low-pass on its root (the nested gravel plays through it inside the file). */
+function wet(): PlaylistAsset {
+  return { ...footsteps(), effects: [LOWPASS] };
+}
+
+/** wet whose nested gravel has an output of its own: it leaves the root's mix, so the root's Low-pass doesn't apply. */
+function own(): PlaylistAsset {
+  const f = wet();
+  const e = f.entries[0]!;
+  return { ...f, entries: [e.kind === "embedded" ? { ...e, embedded: { ...e.embedded, output: "UI" } } : e, ...f.entries.slice(1)] };
+}
+
+/** A Switch over a local labelled parameter, with a rule Grass → Metal. */
+function surface(): PlaylistAsset {
+  const root = emptyPlaylist("switch");
+  const a = sampleEntry(root, "audio/step-grass-1.wav"), b = sampleEntry(root, "audio/step-metal-1.wav");
+  return {
+    ...root,
+    parameters: [{ name: "Surface", labels: ["Grass", "Metal"], default: "Grass" }],
+    entries: [a, b],
+    switch: { ...root.switch!, parameter: "Surface", map: { Grass: 0, Metal: 1 }, rules: [{ from: "Grass", to: "Metal", when: "bar", how: "crossfade", length: { beats: 2 } }] },
+  };
+}
 
 /** footsteps: a Switch-like root whose first entry is an embedded Queue "gravel" of two samples, then a grass sample. */
 function footsteps(): PlaylistAsset {
@@ -36,20 +67,26 @@ function footsteps(): PlaylistAsset {
 }
 
 let played: string[];
+/** The gains the audition's handles were faded to. */
+let fades: number[];
 
 beforeEach(async () => {
   const fs = new MemoryFileSystem();
   fs.files.set(joinPath(ROOT, "project.json"), "{}");
   fs.files.set(joinPath(ROOT, FILE), JSON.stringify(footsteps()));
   fs.files.set(joinPath(ROOT, EMPTY), JSON.stringify(emptyPlaylist("queue")));
+  fs.files.set(joinPath(ROOT, WET), JSON.stringify(wet()));
+  fs.files.set(joinPath(ROOT, OWN), JSON.stringify(own()));
+  fs.files.set(joinPath(ROOT, SWITCH), JSON.stringify(surface()));
   currentProject.value = await openFolderProject(fs, ROOT);
   played = [];
+  fades = [];
   const hash: HashLocation = { get: () => "#/playlists", set: () => {}, listen: () => () => {} };
   const runtime = {
     playable: signal(true),
     state: signal({ kind: "running" }),
     audio: { setParameter: () => {}, debug: () => null },
-    audition: (path: string) => (played.push(path), { playing: false, stop: () => {} }),
+    audition: (path: string) => (played.push(path), { playing: true, stop: () => {}, fade: (to: number) => fades.push(to), setParameter: () => {} }),
     playClip: (path: string) => (played.push(path), { playing: false, stop: () => {} }),
     stopAll: () => {},
   } as unknown as StudioAudioRuntime;
@@ -93,5 +130,56 @@ describe("Trigger on the Playlists screen", () => {
     expect(triggerButton.props.title).toBe("Add entries to this playlist to trigger it");
     // The scrub row is there before the first trigger (an idle track), so the bar doesn't grow when the log starts.
     expect(slots.scrub).toBeTruthy();
+  });
+
+  it("keeps the parents' playlist effects on a nested audition (it sounds as it does inside them)", () => {
+    openPlaylist([...filePath(WET), { entry: 0 }]);
+    trigger();
+    const served = Assets.get(played[0]!) as PlaylistAsset;
+    // A one-entry Layer carrying the root's Low-pass, playing the nested gravel Queue.
+    expect(served.effects.map((e) => [e.type, e.params.cutoff])).toEqual([["lowpass", 800]]);
+    expect(served.type).toBe("layer");
+    const inner = served.entries[0]!;
+    expect(inner.kind === "embedded" && inner.embedded.type).toBe("queue");
+    expect(inner.kind === "embedded" && inner.embedded.entries).toHaveLength(2);
+    expect(served.output).toBe("Foley");
+  });
+
+  it("leaves the parents' effects off a nested playlist with an output of its own", () => {
+    openPlaylist([...filePath(OWN), { entry: 0 }]);
+    trigger();
+    const served = Assets.get(played[0]!) as PlaylistAsset;
+    expect(served.effects).toEqual([]);
+    expect(served.type).toBe("queue");
+    expect(served.output).toBe("UI");
+  });
+});
+
+describe("Pause on the Playlists screen", () => {
+  it("freezes the views and holds the audition silent; Resume brings it back; Trigger while paused starts fresh", () => {
+    openPlaylist(filePath(FILE));
+    trigger();
+    pauseAudition();
+    expect(frozen.value).not.toBeNull();
+    expect(fades).toEqual([0]);
+    resumeAudition();
+    expect(frozen.value).toBeNull();
+    expect(fades).toEqual([0, 1]);
+    pauseAudition();
+    trigger();
+    expect(frozen.value).toBeNull();
+    expect(played).toEqual([FILE, FILE]);
+  });
+});
+
+describe("A Switch's label change while it plays", () => {
+  it("notes the change rule that applies (the rules table lights it, Plays now shows the transition)", () => {
+    openPlaylist(filePath(SWITCH));
+    trigger();
+    setTestValue("Surface", 1);
+    expect(lastChange.value).toMatchObject({ from: "Grass", to: "Metal", rule: 0 });
+    setTestValue("Surface", 0);
+    // Metal → Grass has no rule of its own: When it changes (-1) applies.
+    expect(lastChange.value).toMatchObject({ from: "Metal", to: "Grass", rule: -1 });
   });
 });
