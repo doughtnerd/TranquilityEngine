@@ -28,7 +28,7 @@ export const All: StoryObj = {
   },
 };
 
-export const Transport: StoryObj = {
+export const Transport: StoryObj<{ onPlay: () => void; onLoop: () => void }> = {
   args: { onPlay: fn(), onLoop: fn() },
   render: (args) => (
     <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
