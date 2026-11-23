@@ -173,10 +173,10 @@ export class DebugLinkSession {
     } catch (err) {
       return this.error(e, (err as Error)?.message ?? String(err));
     }
-    Promise.resolve(result).then(
-      (value) => this.reply(e, EnvelopeKind.reply, value === undefined ? null : value),
-      (err: unknown) => this.error(e, (err as Error)?.message ?? String(err)),
-    );
+    const answer = (value: unknown) => this.reply(e, EnvelopeKind.reply, value === undefined ? null : value);
+    // A plain result is answered in this frame; a promise when it settles.
+    if (result && typeof (result as PromiseLike<unknown>).then === "function") (result as PromiseLike<unknown>).then(answer, (err: unknown) => this.error(e, (err as Error)?.message ?? String(err)));
+    else answer(result);
   }
 
   private applyCommand(e: Envelope): void {

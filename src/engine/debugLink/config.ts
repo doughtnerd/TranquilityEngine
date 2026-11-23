@@ -34,7 +34,9 @@ export function debugLinkAddress(raw: string): string | null {
     const port = Number(s);
     return port > 0 && port < 65536 ? `ws://localhost:${port}${DEBUG_LINK_PATH}` : null;
   }
-  const url = /^wss?:\/\//i.test(s) ? s : `ws://${s}${DEBUG_LINK_PATH}`;
+  const hostPort = /^(\[[0-9a-fA-F:.]+\]|[A-Za-z0-9.-]+):(\d{1,5})$/.exec(s);
+  if (!/^wss?:\/\//i.test(s) && !(hostPort && Number(hostPort[2]) > 0 && Number(hostPort[2]) < 65536)) return null;
+  const url = hostPort ? `ws://${s}${DEBUG_LINK_PATH}` : s;
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== "ws:" && parsed.protocol !== "wss:") return null;
