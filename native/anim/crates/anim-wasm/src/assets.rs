@@ -377,6 +377,33 @@ impl Arena {
 
     /// Loads a `myco.anim@1` file.
     pub fn load_clip(&mut self, bytes: &[u8]) -> Result<u32, u32> {
+        let asset = Self::make_clip(bytes)?;
+        let held = asset.bytes.len;
+        let h = self.insert(Asset::Clip(asset))?;
+        self.held += held;
+        Ok(h)
+    }
+
+    /// T70: replaces clip `handle`'s file with `bytes` (same handle; see `Core::replace_clip`).
+    /// The epoch moves on, so no frame cache keeps samples of the old file.
+    pub fn replace_clip(&mut self, handle: u32, bytes: &[u8]) -> Result<(), u32> {
+        let bones = self.clip_asset(handle)?.bone_count;
+        let asset = Self::make_clip(bytes)?;
+        if asset.bone_count != bones {
+            return Err(STATUS_MISMATCH);
+        }
+        let held = asset.bytes.len;
+        let Asset::Clip(old) = self.get_mut(handle)? else {
+            return Err(STATUS_WRONG_KIND);
+        };
+        let old_held = old.bytes.len;
+        *old = asset;
+        self.held = self.held - old_held + held;
+        self.epoch = self.epoch.wrapping_add(1);
+        Ok(())
+    }
+
+    fn make_clip(bytes: &[u8]) -> Result<ClipAsset, u32> {
         let block = AlignedBytes::copy(bytes);
         let data = block.as_static();
         let view = ClipView::parse(data).map_err(|_| STATUS_BAD_ASSET)?;
@@ -388,11 +415,10 @@ impl Arena {
         let sampler = ClipSampler::new(view, form).map_err(|_| STATUS_BAD_ASSET)?;
         let bindings = ClipBindings::new(&sampler);
         bindings.bind(sampler).map_err(|_| STATUS_BAD_ASSET)?;
-        let held = block.len;
         let (sync, exits, curves) = marker_tables(&view);
         let cues = cue_table(&view);
         let distance = travel(&view);
-        let asset = ClipAsset {
+        Ok(ClipAsset {
             sampler,
             bindings,
             root_curve: view.root_curve(),
@@ -408,10 +434,7 @@ impl Arena {
             cues,
             distance,
             bytes: block,
-        };
-        let h = self.insert(Asset::Clip(asset))?;
-        self.held += held;
-        Ok(h)
+        })
     }
 
     /// Loads a `myco.animgraph@1` file. `Ok` carries the handle and `STATUS_OK` or
