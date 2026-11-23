@@ -10,10 +10,19 @@ import { Meter } from "../../components/Meter";
 import { formatDb, parseDb } from "../../components/faderModel";
 import { peakDb } from "./boardModel";
 import { openAutomationCurves } from "./curveEditor";
+import { sessionParametersHost } from "./globalParametersHost";
 import type { MixerSession } from "./mixerScreen";
+import { askNewGlobalParameter } from "./newGlobalParameter";
 
-/** Open the curve editor on `name`'s automation (`only`: "volume", "send:<return>", "fx:<id>" is selected first); Apply is one undo step. */
+/**
+ * Open the curve editor on `name`'s automation (`only`: "volume", "send:<return>", "fx:<id>" is selected first); Apply is
+ * one undo step. A project with no game parameter to drive it asks for one first (New parameter), then opens (J6.5).
+ */
 export function automate(session: MixerSession, name: string, only?: string): void {
+  if (session.project.peek().parameters.length === 0 && !session.readOnly) {
+    askNewGlobalParameter(sessionParametersHost(session), () => openAutomationCurves(session, name, only));
+    return;
+  }
   openAutomationCurves(session, name, only);
 }
 

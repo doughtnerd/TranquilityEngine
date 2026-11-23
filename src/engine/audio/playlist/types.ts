@@ -40,6 +40,7 @@ export interface PlaybackRules {
 /** A playlist's spatial block (ADR 0347). `attenuation` is a preset path or inline curves. */
 export interface PlaylistSpatial {
   attenuation: string | Attenuation | null;
+  /** Walls between it and the listener muffle it: on unless the block says `false` (ADR 0162: occlusion is opt-out). */
   occlusion: boolean;
   /** Doppler level, 0..5. */
   doppler: number;

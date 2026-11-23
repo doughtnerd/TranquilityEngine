@@ -36,6 +36,10 @@ import {
   linkedBy, loadPlaylist, logCursor, makeShared, moveToFolder, newPlaylist, newPlaylistFolder, newPlaylistFromSamples, newSequence, openBody, openDoc, openFile, openLints, openPath, openPlaylist,
   playingNow, releaseAudition, renameFolder, renamePlaylistFile, removeLinkEntry, runDrop, selectedEntry, setTestValue, stopAudition, target, testValues, trigger, triggerOffReason, unlink, voiceLog, clearLog,
 } from "./playlistsScreen";
+import { newPlaylistParameter } from "./newParameter";
+import { contentFolders } from "../../components/projectFolders";
+import { isPlaylistPath } from "../../../engine/audio/playlist/format";
+import { NewGlobalParameterHost } from "../mixer/newGlobalParameter";
 import { PlaylistTreeView, type TreeActions } from "./PlaylistTreeView";
 import { entryKey, factsOf, fileKey, playlistTree, type PlaylistNode } from "./playlistTree";
 import { dropLabel, planDrop } from "./treeDrop";
@@ -124,13 +128,15 @@ function TreePanel() {
   void docVersion.value;
   const project = currentProject.value;
   const files = project?.files ?? [];
-  const nodes = playlistTree(files, project?.folders ?? [], loadPlaylist);
+  // A new project's scenes/ and scripts/ aren't playlist folders (T5).
+  const folders = contentFolders(project?.folders ?? [], files, isPlaylistPath);
+  const nodes = playlistTree(files, folders, loadPlaylist);
   const open = openBody.value;
   const nestInto = open && open.type !== "clip" && open.type !== "sequence" ? lastCrumbName() : null;
   return (
     <Panel bodyClass="pl-panel-body">
       <PlaylistHistoryScope doc={openDoc.value}>
-      <PlaylistTreeView nodes={nodes} folders={project?.folders ?? []} openKey={openKey()} writable={writable()} hasSamples={files.some(isSamplePath)} nestInto={nestInto} actions={treeActions} />
+      <PlaylistTreeView nodes={nodes} folders={folders} openKey={openKey()} writable={writable()} hasSamples={files.some(isSamplePath)} nestInto={nestInto} actions={treeActions} />
       {deletingFolder.value && <FolderDeleteDialog folder={deletingFolder.value} onCancel={() => (deletingFolder.value = null)} onConfirm={() => void deleteFolderKeepingContents(deletingFolder.value!.path)} />}
       </PlaylistHistoryScope>
     </Panel>
@@ -204,6 +210,7 @@ function editCurves(i: number): void {
     curves: e.curves,
     parameters: allParameters.peek(),
     values: testValues.peek(),
+    newParameter: newPlaylistParameter,
     apply: (curves, label) => editOpen(label, (b) => setEntryUse(b, i, { curves })),
   });
 }
@@ -439,7 +446,7 @@ function VoicesPanel() {
 function TestValues() {
   return (
     <div class="pl-test-values">
-      <ParameterPanel parameters={allParameters.value} values={testValues.value} empty="No game parameters yet: add global ones in the Global parameters panel, or local ones in the Inspector." onValue={(name, v) => setTestValue(name, v)} />
+      <ParameterPanel parameters={allParameters.value} values={testValues.value} empty="No game parameters yet." onValue={(name, v) => setTestValue(name, v)} onNewParameter={writable() ? () => void newPlaylistParameter() : undefined} />
     </div>
   );
 }
@@ -459,7 +466,8 @@ function ParametersPanel() {
 export const PLAYLISTS_PANELS: readonly StudioPanel[] = [
   { id: "playlists-library", title: "Playlists", dock: "left", view: () => <TreePanel /> },
   { id: "playlists-samples", title: "Library", dock: "left", view: () => <LibraryPanel /> },
-  { id: "playlists-editor", title: "Playlist", dock: "fill", fixed: true, view: () => <EditorPanel /> },
+  // The New parameter dialog ("+ New parameter…" in this screen's parameter selects) renders into the body from here.
+  { id: "playlists-editor", title: "Playlist", dock: "fill", fixed: true, view: () => <><EditorPanel /><NewGlobalParameterHost /></> },
   { id: "playlists-inspector", title: "Inspector", dock: "right", view: () => <InspectorPanel /> },
   { id: "playlists-voices", title: "Plays now", dock: "bottom", view: () => <VoicesPanel /> },
   { id: "playlists-parameters", title: "Parameters", dock: "bottom", view: () => <ParametersPanel /> },

@@ -8,7 +8,11 @@ import { captureTree, isTakePath, searchCaptures, type CaptureNode } from "../pr
 export const TAKES_FOLDER = "takes";
 
 /** The empty state's words. */
-export const NO_TAKES = "No takes yet — record one with Record take on the editor's Play toolbar or F10 in a game build with audioTake on.";
+/**
+ * How to get a take, under "No takes yet" (one sentence, sentence case, UI pass T4). The Studio replays takes but can't
+ * record one (no game session yet): takes come from the editor's Play toolbar or a game build.
+ */
+export const NO_TAKES = "Record one with Record take on the editor's Play toolbar, or with F10 in a game build that has audioTake on.";
 
 /** The take files of `files`. */
 export const takeFiles = (files: readonly string[]): string[] => files.filter(isTakePath);

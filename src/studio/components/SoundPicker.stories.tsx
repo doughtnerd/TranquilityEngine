@@ -19,12 +19,12 @@ const SOUNDS: SoundItem[] = [
   { path: "audio/vehicles/engine_loop.ogg", kind: "sample", badge: "SMP" },
 ];
 
-function Demo(props: { list?: () => readonly SoundItem[] | Promise<readonly SoundItem[]>; only?: "sample" }) {
+function Demo(props: { list?: () => readonly SoundItem[] | Promise<readonly SoundItem[]>; only?: "sample"; focusableParent?: boolean }) {
   const [open, setOpen] = useState(true);
   const [picked, setPicked] = useState<string | null>(null);
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   return (
-    <div style={{ height: "460px" }}>
+    <div style={{ height: "460px" }} tabIndex={props.focusableParent ? -1 : undefined}>
       <button ref={setAnchor} onClick={() => setOpen(!open)}>
         Add…
       </button>
@@ -53,3 +53,18 @@ export const SamplesOnly: StoryObj = { render: () => <Demo only="sample" /> };
 export const Loading: StoryObj = { render: () => <Demo list={() => new Promise(() => {})} /> };
 
 export const EmptyProject: StoryObj = { render: () => <Demo list={() => []} /> };
+
+/**
+ * J9.1: a mouse click picks, also inside a focusable panel (the Spatial Inspector's document wrapper has tabIndex -1, so a
+ * press on an option moved focus there and the popover closed on that focus move before the click landed).
+ */
+export const ClickToPick: StoryObj = {
+  render: () => <Demo focusableParent />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await c.findByRole("searchbox", { name: "Search sounds" });
+    await userEvent.click(await c.findByRole("option", { name: /engine_loop/ }));
+    await expect(c.getByTestId("picked")).toHaveTextContent("audio/vehicles/engine_loop.ogg");
+    await expect(c.queryByRole("dialog", { name: "Add to Footsteps" })).toBeNull();
+  },
+};

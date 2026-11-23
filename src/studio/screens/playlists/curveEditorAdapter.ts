@@ -3,6 +3,7 @@
 // a parameter) and applies its result through `apply`, one labelled undo step on the playlist.
 import { openCurveEditorDialog } from "../../../editor/ui/curves/openCurveEditorDialog";
 import type { ParameterDef } from "../../../engine/audio/parameters";
+import { parameterInputs } from "../curveInputs";
 import { applyVoiceCurveResult, voiceCurveDialog, type VoiceCurves } from "./voiceCurves";
 import { applyWeightCurveResult, weightCurveDialog } from "./weightCurves";
 import type { Curve } from "../../../engine/core/curve";
@@ -21,6 +22,8 @@ export interface CurveEditorRequest {
   readonly values?: Readonly<Record<string, number>>;
   /** Write the edited curves back (one undo step on the playlist). */
   apply(curves: VoiceCurves, label: string): void;
+  /** "+ New parameter…" in Driven by (J6.5): make a game parameter; null when cancelled. */
+  newParameter?(): Promise<ParameterDef | null>;
 }
 
 /** ADR 0350: open the curve editor on a Blend entry's weight curve; `apply` gets the new curve (undefined: cleared). */
@@ -47,6 +50,12 @@ export function openCurveEditor(request: CurveEditorRequest, doc: Document = doc
     target: request.entry,
     context: request.context,
     histogram: dialog.histogram,
+    newInput: request.newParameter
+      ? async () => {
+          const def = await request.newParameter!();
+          return def ? parameterInputs([def], request.values)[0]! : null;
+        }
+      : undefined,
     onCancel: () => {},
     onApply(result) {
       const r = applyVoiceCurveResult(dialog, result);

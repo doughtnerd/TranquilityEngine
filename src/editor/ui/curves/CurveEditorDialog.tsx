@@ -37,6 +37,7 @@ import {
   type CurveDraft,
   type CurveEditorResult,
   type CurveEditorSpec,
+  type CurveInput,
   type UserPreset,
 } from "./curveEditorModel";
 import { CurvePlot, Icon, type DraftEditor, type WaveformFn } from "./CurvePlot";
@@ -62,6 +63,11 @@ export interface CurveEditorDialogProps extends CurveEditorSpec {
   readonly listenerDensity?: (d: number) => number;
   /** A shaded band on a parameter plot ("This zone"). */
   readonly band?: readonly [number, number];
+  /**
+   * "Driven by" ends with "+ New parameter…" (the Studio's game parameters, UI pass J6.5): it asks the owner for a new
+   * input (the owner makes the parameter), which the dialog adds to its inputs and drives the curve by; null: cancelled.
+   */
+  readonly newInput?: () => Promise<CurveInput | null>;
   onApply(result: CurveEditorResult): void;
   onCancel(): void;
 }
@@ -125,8 +131,13 @@ function useDraftHistory(initial: CurveDraft) {
   };
 }
 
+/** The "Driven by" option value of "+ New parameter…" (no input id holds a control character). */
+const NEW_INPUT = "\u0001new-input";
+
 export function CurveEditorDialog(props: CurveEditorDialogProps) {
-  const spec: CurveEditorSpec = props;
+  // Inputs made with "+ New parameter…" while it is open join the owner's.
+  const [added, setAdded] = useState<readonly CurveInput[]>([]);
+  const spec: CurveEditorSpec = added.length ? { ...props, inputs: [...(props.inputs ?? []), ...added] } : props;
   const initial = useMemo(() => createDraft(spec), []);
   const h = useDraftHistory(initial);
   const { draft } = h;
@@ -339,7 +350,7 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
               <span class="ce-cap">Curve editor</span>
             </div>
             <div class="ce-bar" role="toolbar" aria-label="Curve tools">
-              {choices.length > 1 && (
+              {(choices.length > 1 || props.newInput) && (
                 <label class="ce-drv">
                   <span class="ce-muted">Driven by</span>
                   <select
@@ -347,6 +358,20 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
                     value={state.input}
                     title="What X is for this curve: time, or a game parameter (the curve then maps that parameter to the value)"
                     onChange={(e) => {
+                      const select = e.currentTarget as HTMLSelectElement;
+                      if (select.value === NEW_INPUT && props.newInput) {
+                        select.value = state.input;
+                        const lane = active;
+                        void props.newInput().then((input) => {
+                          if (!input) return;
+                          const next: CurveEditorSpec = { ...spec, inputs: [...(spec.inputs ?? []).filter((i) => i.id !== input.id), input] };
+                          setAdded((list) => [...list.filter((i) => i.id !== input.id), input]);
+                          const r = setLaneInput(next, h.live(), lane, input.id);
+                          if ("refused" in r) return editor.refused("Change what drives the curve", r.refused);
+                          editor.commit(`Drive ${laneOf(next, h.live(), lane)?.lane.name ?? "curve"} by ${input.name}`, r.next);
+                        });
+                        return;
+                      }
                       const r = setLaneInput(spec, h.live(), active, (e.currentTarget as HTMLSelectElement).value);
                       if ("refused" in r) return editor.refused("Change what drives the curve", r.refused);
                       editor.commit(`Drive ${lane.name} by ${axisOf(spec, (e.currentTarget as HTMLSelectElement).value).name}`, r.next);
@@ -359,6 +384,7 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
                         {c.name}
                       </option>
                     ))}
+                    {props.newInput && <option value={NEW_INPUT}>+ New parameter…</option>}
                   </select>
                   <span class="ce-vsep" aria-hidden="true" />
                 </label>

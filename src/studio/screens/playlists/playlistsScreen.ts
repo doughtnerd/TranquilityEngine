@@ -24,6 +24,7 @@ import { PLAYLIST_FORMAT, type PlaylistAsset, type PlaylistBody, type SampleEntr
 import { applyEdit, type EditResult } from "../../../plugins/audio/editor/editResult";
 import type { AudioEventHandle, AudioHandle } from "../../../plugins/audio/runtime";
 import { audioHost, openRoute, toasts } from "../../shell/studioServices";
+import { newPlaylistParameter } from "./newParameter";
 import { linkEntry, unlinkEntry, type EditContext } from "./playlistEdits";
 import { bodyAt, canonical, editAt, effectiveOutput, entryName, filePath, indicesToSelect, pathTarget, playlistTitle, whereOf, type PlaylistPath } from "./playlistPaths";
 import { auditionAsset, auditionPathOf, serveAudition } from "./auditionSource";
@@ -93,7 +94,7 @@ export const localParameters = computed<readonly ParameterDef[]>(() => {
 });
 /** Every parameter the open playlist can use: local ones over global ones of the same name. */
 export const allParameters = computed<readonly ParameterDef[]>(() => [...localParameters.value, ...globalParameters.value.filter((g) => !localParameters.value.some((l) => l.name === g.name))]);
-export const editContext = computed<EditContext>(() => ({ parameters: allParameters.value }));
+export const editContext = computed<EditContext>(() => ({ parameters: allParameters.value, newParameter: newPlaylistParameter }));
 
 /** Lints of the open file that sit in the open body. */
 export const openLints = computed<readonly PlaylistLint[]>(() => {

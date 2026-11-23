@@ -121,7 +121,7 @@ function TimelinePanel() {
     </div>
   );
   let body;
-  if (s.kind === "none") body = <EmptyState title="Profiler" icon={<Icon name="profiler" size={28} />} body={<p>Engine performance captures: voices, CPU, buses and loudness over time, and why each sound played. Open a capture from the Captures panel. {NO_CAPTURES.replace(/^No captures yet — /, "Captures come from: ")}</p>} />;
+  if (s.kind === "none") body = <EmptyState title="Profiler" icon={<Icon name="profiler" size={28} />} body={<p>Engine performance captures: voices, CPU, buses and loudness over time, and why each sound played. Open a capture from the Captures panel, or {NO_CAPTURES.charAt(0).toLowerCase() + NO_CAPTURES.slice(1)}</p>} />;
   else if (s.kind === "opening") body = <p class="pf-note" role="status">Opening {s.path}…</p>;
   else if (s.kind === "failed") body = <p class="pf-error" role="alert">Can't open {s.path}: {s.message}</p>;
   else if (!data || data.tracks.length === 0) body = <EmptyState compact title="Nothing to draw" body="This capture holds no voices, buses, loudness or STATUS samples." />;
@@ -163,10 +163,13 @@ function CursorPanel() {
   );
 }
 
+/** "Open in Mixer ›" from a voice or a message: the Mixer with the bus selected (its route's `select`). */
+const openBusInMixer = (bus: string): void => openRoute({ screen: "mixer", select: bus });
+
 function VoicePanel() {
   return (
     <Panel bodyClass="pf-panel-body">
-      <VoiceDetails voice={profilerStore().selectedVoice.value} />
+      <VoiceDetails voice={profilerStore().selectedVoice.value} onOpenBus={openBusInMixer} />
     </Panel>
   );
 }
@@ -205,6 +208,7 @@ function MessagesPanel() {
           if (m.voice) store.select(m.voice);
           store.seekTo(m.time);
         }}
+        onOpenBus={openBusInMixer}
       />
     </Panel>
   );

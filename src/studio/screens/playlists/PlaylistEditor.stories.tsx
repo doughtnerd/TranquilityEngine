@@ -5,6 +5,8 @@ import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, fn, userEvent, within } from "storybook/test";
 import type { PlaylistBody } from "../../../engine/audio/playlist/types";
+import type { ParameterDef } from "../../../engine/audio/parameters";
+import type { EditContext } from "./playlistEdits";
 import { PlaylistEditor } from "./PlaylistEditor";
 import { FIXTURE_PARAMETERS, FIXTURE_PLAYLISTS, fixtureLints, loadFixture } from "./playlistFixture";
 import { breadcrumb, filePath, playlistTitle } from "./playlistPaths";
@@ -12,10 +14,18 @@ import { factsOf } from "./playlistTree";
 import "../../components/audioParts.css";
 import "./playlists.css";
 
-function Harness(props: { readonly path: string; readonly values?: Record<string, number> }) {
+function Harness(props: { readonly path: string; readonly values?: Record<string, number>; readonly newParameter?: EditContext["newParameter"] }) {
   const [body, setBody] = useState<PlaylistBody>(FIXTURE_PLAYLISTS[props.path]!);
   const [selected, setSelected] = useState<number | null>(null);
   const [values, setValues] = useState<Record<string, number>>(props.values ?? {});
+  // Parameters "+ New parameter…" made (the screen reads them back from audio.json).
+  const [made, setMade] = useState<ParameterDef[]>([]);
+  const ask = props.newParameter;
+  const newParameter: EditContext["newParameter"] = ask && (async (kind) => {
+    const d = await ask(kind);
+    if (d) setMade((m) => [...m, d]);
+    return d;
+  });
   return (
     <div style={{ width: "760px", height: "640px", overflow: "auto" }}>
       <PlaylistEditor
@@ -24,7 +34,7 @@ function Harness(props: { readonly path: string; readonly values?: Record<string
         title={playlistTitle(props.path)}
         renamable
         writable
-        ctx={{ parameters: FIXTURE_PARAMETERS }}
+        ctx={{ parameters: [...FIXTURE_PARAMETERS, ...made], newParameter }}
         lints={fixtureLints(props.path)}
         where=""
         selected={selected}
@@ -75,6 +85,31 @@ export const Switch: Story = {
     await expect(c.getAllByText(/beat or bar|tempo/i).length).toBeGreaterThan(0);
     await userEvent.click(c.getByRole("button", { name: "Add rule" }));
     await expect(c.getByRole("combobox", { name: "Rule 2: from" })).toBeVisible();
+  },
+};
+
+/** J5.1: "+ New parameter…" ends the Switch's parameter select; the new labelled parameter is followed at once. */
+export const SwitchNewParameter: Story = {
+  args: { path: "audio/footsteps/footsteps.playlist.json", newParameter: fn(async () => ({ name: "Surface", labels: ["Wood", "Metal", "Water"], default: "Wood" })) },
+  play: async ({ canvasElement, args }) => {
+    const c = within(canvasElement);
+    const select = c.getByRole("combobox", { name: "Switch parameter" }) as HTMLSelectElement;
+    await expect([...select.options].at(-1)!.textContent).toBe("+ New parameter…");
+    await userEvent.selectOptions(select, "+ New parameter…");
+    await expect(args.newParameter).toHaveBeenCalledWith("labelled");
+    await expect(c.getByRole("combobox", { name: "Switch parameter" })).toHaveDisplayValue("Surface");
+    await expect(within(c.getByRole("table", { name: "Labels" })).getByText("Metal")).toBeVisible();
+  },
+};
+
+/** J4.1: a Blend axis offers "+ New parameter…" (numeric) besides Voice time, and the axis follows the new one. */
+export const Blend1DNewParameter: Story = {
+  args: { path: "audio/vehicles/engine.playlist.json", newParameter: fn(async () => ({ name: "speed", min: 0, max: 300, default: 0, seekSpeed: 0 })) },
+  play: async ({ canvasElement, args }) => {
+    const c = within(canvasElement);
+    await userEvent.selectOptions(c.getByRole("combobox", { name: "Blend X axis" }), "+ New parameter…");
+    await expect(args.newParameter).toHaveBeenCalledWith("numeric");
+    await expect(c.getByRole("combobox", { name: "Blend X axis" })).toHaveDisplayValue("speed");
   },
 };
 

@@ -2,7 +2,10 @@
 // on a level, a send or an effect opens the dialog on every automatable property of that bus or return
 // (`automationCurves.ts`), with the asked-for lane selected; Apply is one labelled undo step of `audio.json`.
 import { openCurveEditorDialog } from "../../../editor/ui/curves/openCurveEditorDialog";
+import { parameterInputs } from "../curveInputs";
 import { applyAutomationResult, automationDialog } from "./automationCurves";
+import { sessionParametersHost } from "./globalParametersHost";
+import { newGlobalParameter } from "./newGlobalParameter";
 import { labelOn } from "./mixEdits";
 import type { MixerSession } from "./mixerScreen";
 
@@ -19,6 +22,11 @@ export function openAutomationCurves(session: MixerSession, name: string, only?:
     context: "Driven by game parameters",
     initialLane: d.initialLane,
     histogram: d.histogram,
+    // "+ New parameter…" in Driven by: a new global parameter (one undo step of audio.json), then the curve follows it.
+    newInput: session.readOnly ? undefined : async () => {
+      const def = await newGlobalParameter(sessionParametersHost(session));
+      return def ? parameterInputs([def], session.testValues.peek())[0]! : null;
+    },
     onCancel: () => {},
     onApply(result) {
       if (session.readOnly) return session.refuse(label, "the mix is read-only");

@@ -10,7 +10,7 @@ import type { CurveEditorResult, CurveEditorSpec, CurveLane } from "../../../edi
 import { ATTENUATION_CURVES, ATTENUATION_FLOOR_DB, ATTENUATION_PRESETS, applyAttenuationPreset, defaultAttenuation } from "../../../engine/audio/attenuation/format";
 import type { Attenuation, AttenuationCurves, AttenuationPreset } from "../../../engine/audio/attenuation/types";
 import { ATTENUATION_SUFFIX } from "../../../engine/audio/attenuation/types";
-import type { PlaylistAsset } from "../../../engine/audio/playlist/types";
+import type { PlaylistAsset, PlaylistSpatial } from "../../../engine/audio/playlist/types";
 import { evalCurve, type Curve } from "../../../engine/core/curve";
 
 /** Whose attenuation an emitter's sound uses. */
@@ -69,7 +69,7 @@ export function ownerText(o: AttenuationOwner): string {
     case "missing":
       return `${name(o.playlist)} isn't in the project.`;
     case "flat":
-      return `${name(o.playlist)} plays flat (2D): give it a spatial block in Playlists to hear it in place.`;
+      return `${name(o.playlist)} plays flat (2D). Make it 3D to hear it in place.`;
     case "none":
       return `${name(o.playlist)} uses the engine's default (inverse law).`;
     case "inline":
@@ -99,8 +99,25 @@ export function whyNotEditAttenuation(o: AttenuationOwner): string | null {
     case "missing":
       return `${name(o.playlist)} isn't in the project`;
     case "flat":
-      return `${name(o.playlist)} plays flat (2D): give it a spatial block in Playlists first`;
+      return `${name(o.playlist)} plays flat (2D): make it 3D first`;
   }
+}
+
+/**
+ * "Make it 3D" (J9.2): a playlist placed in a test scene that plays flat gets a spatial block right from the Spatial
+ * Inspector, as a game's `AudioSource` hears it by default: the engine's default attenuation (inverse law, until Edit
+ * attenuation… gives it curves), occluded by walls (ADR 0162: occlusion is opt-out) and Doppler at 1.
+ */
+export const NEW_SPATIAL: Readonly<PlaylistSpatial> = { attenuation: null, occlusion: true, doppler: 1, spread: null };
+
+/** Whether the Inspector offers "Make it 3D" for this owner: a playlist that plays flat. */
+export const canMakeSpatial = (o: AttenuationOwner): boolean => o.kind === "flat";
+
+/** Whether the owner's sound is traced for occlusion: false for a spatial playlist whose block turns it off. */
+export function occlusionOn(sound: string, playlist: (path: string) => PlaylistAsset | null): boolean {
+  if (!isPlaylist(sound)) return true;
+  const p = playlist(sound);
+  return !p?.spatial || p.spatial.occlusion;
 }
 
 /** Each lane's range, unit and plain value (what a missing curve means). */

@@ -127,6 +127,9 @@ button.pf-step-name:hover { text-decoration: underline; }
 
 /* Messages */
 .pf-messages { list-style: none; margin: 0; padding: 0; }
+.pf-message-row { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
+.pf-message-row > .pf-message { flex: 1 1 auto; min-width: 0; border-bottom: none; }
+.pf-open-mixer { flex: none; padding: 0 8px; white-space: nowrap; }
 .pf-message { display: grid; grid-template-columns: 56px 64px 1fr; gap: 8px; width: 100%; padding: 3px 8px; background: none; border: none; border-bottom: 1px solid var(--border); color: var(--text); text-align: left; cursor: pointer; }
 .pf-message:hover { background: var(--hover); }
 .pf-message.selected { background: var(--selection); color: var(--selection-text); }

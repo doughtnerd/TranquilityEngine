@@ -1,7 +1,7 @@
 // Open the shared curve editor (ADR 0346) on a clip's or a track's automation: the spec and the Apply mapping are
 // `sequenceCurves.ts`'s; Apply commits one edit labelled "Edit <name> curves". Used by the timeline's menus and lanes
 // and by the Inspector's automation list.
-import type { ParameterDef } from "../../../../engine/audio/parameters";
+import { isLabelled, type ParameterDef } from "../../../../engine/audio/parameters";
 import type { SequenceSettings } from "../../../../engine/audio/playlist/types";
 import { openCurveEditorDialog } from "../../../../editor/ui/curves/openCurveEditorDialog";
 import type { AutomationOwner } from "./automationEdits";
@@ -24,6 +24,8 @@ export interface CurveOpenRequest {
   /** The lane selected when it opens (a target). */
   readonly lane?: string;
   commit(label: string, edit: SeqEdit): void;
+  /** "+ New parameter…" in Driven by (J6.5): make a numeric game parameter; null when cancelled. */
+  newParameter?(kind: "numeric"): Promise<ParameterDef | null>;
 }
 
 export function openSequenceCurves(r: CurveOpenRequest): void {
@@ -36,6 +38,13 @@ export function openSequenceCurves(r: CurveOpenRequest): void {
     context: r.context,
     initialLane: r.lane,
     playhead: r.playhead,
+    // Sequence lanes name a parameter by its bare name (`curveSpec`'s inputs), numeric ones only.
+    newInput: r.newParameter
+      ? async () => {
+          const def = await r.newParameter!("numeric");
+          return def && !isLabelled(def) ? { id: def.name, name: def.name, min: def.min, max: def.max } : null;
+        }
+      : undefined,
     onApply: (result) => r.commit(`Edit ${r.name} curves`, (q) => applyCurveResult(q, r.owner, result)),
     onCancel: () => {},
   });

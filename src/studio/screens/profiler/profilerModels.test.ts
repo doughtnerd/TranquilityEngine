@@ -98,6 +98,10 @@ describe("messages", () => {
       [4, "info", "Marker: Boss"],
     ]);
     expect(m.find((x) => x.text.startsWith("Missing"))!.voice).toBe(voices[4]!.key);
+    // Each warning about a bus carries it, for "Open in Mixer ›" (J10.4; spec §3.2: links carry the object).
+    expect(m.find((x) => x.text.startsWith("Vehicles stole"))!.bus).toBe(voices.find((v) => v.status === "stolen")!.busName);
+    expect(m.find((x) => x.source === "loudness")!.bus).toBe("Master");
+    expect(m.filter((x) => x.source === "marker" || x.source === "note" || x.source === "capture").map((x) => x.bus)).toEqual([null, null, null]);
     expect(messageCounts(m)).toEqual({ error: 1, warning: 3, info: 3 });
     expect(filterMessages(m, new Set(["error"])).length).toBe(1);
     expect(rulerMarks(m).map((r) => [r.time, r.kind])).toEqual([[2.5, "warning"], [3, "warning"], [3, "warning"], [4, "error"], [4, "info"]]);

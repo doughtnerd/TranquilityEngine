@@ -229,7 +229,7 @@ class PlaylistReader {
     else if (o.attenuation !== undefined && o.attenuation !== null) r.problem(`${where}.attenuation`, "must be a preset path, an attenuation object or null; using none.");
     let spread: number | null = null;
     if (o.spread !== undefined && o.spread !== null) spread = r.num(o.spread, `${where}.spread`, 0, 0, 360);
-    return { attenuation, occlusion: r.bool(o.occlusion, `${where}.occlusion`, false), doppler: r.num(o.doppler, `${where}.doppler`, 0, 0, 5), spread };
+    return { attenuation, occlusion: r.bool(o.occlusion, `${where}.occlusion`, true), doppler: r.num(o.doppler, `${where}.doppler`, 0, 0, 5), spread };
   }
 
   /** The per-use fields of an entry. */

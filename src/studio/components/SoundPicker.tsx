@@ -79,7 +79,9 @@ export function SoundPicker(props: SoundPickerProps) {
           setActive(next);
         }}
       />
-      <div class="studio-picker-list" id={listId} role="listbox" aria-label="Sounds">
+      {/* A press in the list keeps focus in the search box: otherwise it moves to the nearest focusable ancestor (a
+          panel's document wrapper), the popover closes on that focus move, and the click never lands (J9.1). */}
+      <div class="studio-picker-list" id={listId} role="listbox" aria-label="Sounds" onMouseDown={(e) => e.preventDefault()}>
         {items === null && !failed && <p class="studio-row-empty">Loading…</p>}
         {failed && <p class="studio-row-empty error">Couldn't list sounds: {failed}</p>}
         {items !== null && sections.length === 0 && <p class="studio-row-empty">{query ? `No sounds match "${query}".` : "No sounds in this project yet."}</p>}

@@ -8,7 +8,9 @@ import { GainLanes } from "../../components/GainLanes";
 import { ParameterPanel } from "../../components/ParameterPanel";
 import { gainInputs, loudnessRows, targetOptionText } from "./boardModel";
 import { kindOf, masterOf } from "./busTree";
+import { sessionParametersHost } from "./globalParametersHost";
 import type { MixerSession } from "./mixerScreen";
+import { NewGlobalParameterDialog } from "./newGlobalParameter";
 import { MixFrame } from "./mixerViewParts";
 
 export function GainLanesPanel(props: { session: MixerSession }) {
@@ -35,14 +37,17 @@ export function GainLanesPanel(props: { session: MixerSession }) {
 export function ParametersPanel(props: { session: MixerSession }) {
   const { session } = props;
   const p = session.project.value;
+  const [adding, setAdding] = useState(false);
   return (
     <MixFrame session={session} label="Game parameters">
       <ParameterPanel
         parameters={p.parameters}
         values={session.testValues.value}
-        empty="No game parameters yet: add them in the Global parameters panel. Snapshot conditions and automation are driven by them."
+        empty="No game parameters yet."
         onValue={(name, value) => session.setTestValue(name, value)}
+        onNewParameter={session.readOnly ? undefined : () => setAdding(true)}
       />
+      {adding && <NewGlobalParameterDialog host={sessionParametersHost(session)} onCancel={() => setAdding(false)} onCreated={() => setAdding(false)} />}
     </MixFrame>
   );
 }
