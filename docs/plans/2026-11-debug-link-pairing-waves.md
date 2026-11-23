@@ -292,6 +292,8 @@ M1 exit: §4.
   Rust need for debug builds, but is a new record and CI). **Decided (owner, 2026-11-23): write the sources in, as
   with `gamepad.rs`.**
 - **O3** Who hosts a public rendezvous (0380 open question). R3 ships the deployable service only. Deadline: none.
+  The owner confirmed (2026-11-23) that M2 stays as planned: without a rendezvous, browser ↔ browser pairs and
+  https pages could only exchange takes as files.
 - **O4** Hardware. **Decided (owner, 2026-11-23): desktop, laptop, Android phone.**
 - **O5** 64 KiB bulk messages. **Decided (owner, 2026-11-23):** 64 KiB is the existing ceiling of the WebRTC lane
   (`websocket.ts`: `maxDatagramBytes` up to 65,536, a 64 KiB unreliable backlog); A2 cuts take uploads to it and R2
