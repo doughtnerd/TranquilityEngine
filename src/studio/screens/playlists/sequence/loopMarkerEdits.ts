@@ -2,6 +2,7 @@
 // from the Sequencer's history list). A sequence loop is `{ start, end }` plus its behaviour; start == end is a hold
 // point (the playhead parks there while it is active). A clip's override changes some of a sample loop's behaviour
 // for that clip only ("Override" vs "Inherited"); "Use sample loop settings" drops it. Pure.
+import { isMarkColour, MARK_NOTE_MAX } from "../../../../engine/audio/markColour";
 import type { Clip, FadeShape, LoopBehaviour, SequenceLoop, SequenceMarker, SequenceSettings } from "../../../../engine/audio/playlist/types";
 import { DEFAULT_EXIT_FADE_MS, MAX_EXIT_FADE_MS } from "../../../../engine/audio/playlist/loopBehaviour";
 import { accept, refuse, type EditResult } from "../../../../plugins/audio/editor/editResult";
@@ -110,6 +111,24 @@ export const setMarkerType = (s: SequenceSettings, id: string, type: NonNullable
     const { type: _old, ...rest } = m;
     return type === "note" ? rest : { ...rest, type };
   });
+
+/** ADR 0362 item 4: the flag's colour (a theme token name or `#rrggbb`; null: its type's colour). */
+export function setMarkerColour(s: SequenceSettings, id: string, colour: string | null): R {
+  if (colour !== null && !isMarkColour(colour)) return refuse("a marker colour is a theme colour or #rrggbb");
+  return mapMarker(s, id, (m) => {
+    const { colour: _old, ...rest } = m;
+    return colour === null ? rest : { ...rest, colour: colour.toLowerCase() };
+  });
+}
+
+/** ADR 0362 item 4: the marker's note (blank: none). */
+export function setMarkerNote(s: SequenceSettings, id: string, note: string): R {
+  if (note.length > MARK_NOTE_MAX) return refuse(`a note holds at most ${MARK_NOTE_MAX} characters`);
+  return mapMarker(s, id, (m) => {
+    const { note: _old, ...rest } = m;
+    return note.trim() === "" ? rest : { ...rest, note };
+  });
+}
 
 export function deleteMarkers(s: SequenceSettings, ids: readonly string[]): R {
   const markers = s.markers.filter((m) => !ids.includes(m.id));

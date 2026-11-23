@@ -295,6 +295,20 @@ describe("sequence markers", () => {
     expect(again.problems).toEqual([]);
     expect(again.playlist.sequence!.markers).toEqual(playlist.sequence!.markers);
   });
+
+  it("keep a colour (theme token or #rrggbb) and a note through write and parse; bad ones are dropped (ADR 0362 item 4)", () => {
+    const raw = { format: "myco.playlist@1", type: "sequence", sequence: { length: 4, markers: [
+      { id: "a", name: "Drop", at: 1, colour: "warning", note: "Hit lands here" }, { id: "b", name: "Out", at: 2, colour: "#6AA8FF" },
+      { id: "c", name: "Bad", at: 3, colour: "rgb(1,2,3)", note: 5 }, { id: "d", name: "Plain", at: 3.5, note: "  " },
+    ] } };
+    const { playlist, problems } = parsePlaylist(raw);
+    expect(playlist.sequence!.markers.map((m) => [m.colour, m.note])).toEqual([["warning", "Hit lands here"], ["#6aa8ff", undefined], [undefined, undefined], [undefined, undefined]]);
+    expect(problems.filter((p) => p.includes("markers[2]"))).toHaveLength(2);
+    const json = playlistToJson(playlist) as { sequence: { markers: Record<string, unknown>[] } };
+    expect(json.sequence.markers[0]).toEqual({ id: "a", name: "Drop", at: 1, colour: "warning", note: "Hit lands here" });
+    expect(json.sequence.markers[3]).toEqual({ id: "d", name: "Plain", at: 3.5 });
+    expect(parsePlaylist(json).playlist.sequence!.markers).toEqual(playlist.sequence!.markers);
+  });
 });
 
 describe("ADR 0357 §4: captions; ADR 0354 §5: line entries", () => {

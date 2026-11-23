@@ -22,6 +22,7 @@
  *
  * Pure; no plugin, no DOM.
  */
+import { colourNoteJson, readColourNote } from "../markColour";
 import { attenuationToJson, parseAttenuation } from "../attenuation/format";
 import { effectSpec, effectsToJson, parseEffects } from "../effects/catalogue";
 import { curveToJson, IdScope, isFiniteNumber, isRecord, LenientReader, CURVE_KEY_LIMIT, type JsonRecord } from "../lenientRead";
@@ -649,6 +650,7 @@ class PlaylistReader {
       const marker: SequenceMarker = { id: markerIds.take(raw.id, w, "m"), name: r.str(raw.name, `${w}.name`, "Marker"), at: r.num(raw.at, `${w}.at`, 0, 0) };
       if (raw.type === "cue" || raw.type === "exit" || raw.type === "entry") marker.type = raw.type;
       else if (raw.type !== undefined && raw.type !== "note") r.problem(`${w}.type`, `"${String(raw.type)}" isn't note, cue, exit or entry; using note.`);
+      readColourNote(raw, w, marker, this.problems);
       out.markers.push(marker);
     });
     return out;
@@ -863,7 +865,7 @@ function sequenceToJson(s: SequenceSettings): JsonRecord {
   if (s.tempo) out.tempo = { bpm: s.tempo.bpm, meter: s.tempo.meter };
   out.tracks = s.tracks.map(trackToJson);
   if (s.loops.length) out.loops = s.loops.map((l) => ({ id: l.id, start: l.start, end: l.end, ...loopBehaviourToJson(l), ...(l.tail ? { tail: true } : {}), ...(l.exitShape && l.exitShape !== "equalPower" ? { exitShape: l.exitShape } : {}) }));
-  if (s.markers.length) out.markers = s.markers.map((m) => ({ id: m.id, name: m.name, at: m.at, ...(m.type && m.type !== "note" ? { type: m.type } : {}) }));
+  if (s.markers.length) out.markers = s.markers.map((m) => ({ id: m.id, name: m.name, at: m.at, ...(m.type && m.type !== "note" ? { type: m.type } : {}), ...colourNoteJson(m) }));
   return out;
 }
 
