@@ -15,6 +15,7 @@
 // A wrong token, an expired one and a used one are all failures (the reason differs only for the message). Time comes
 // only from the injected clock, so tests step it.
 import type { PairRefusalReason } from "../protocol";
+import { PAIR_TOKEN_BITS } from "./code";
 
 /** How long a token works unused, ms (0380: "expiring after 5 minutes"). */
 export const TOKEN_EXPIRY_MS = 5 * 60_000;
@@ -65,25 +66,73 @@ export type GateVerdict =
 
 /** A listener's token gate. */
 export class TokenGate {
+  private readonly options: TokenGateOptions;
+  private readonly bits: number;
+  /** Tokens that stopped working, and why: a refused one says `used` or `expired`, anything else is `bad-token`. */
+  private readonly retired = new Map<number, "used" | "expired">();
+  private issued!: IssuedToken;
+  private serial = 0;
+  private failures = 0;
+  /** The clock time the lock ends at, or null when LAN connections are not locked. */
+  private lockEnd: number | null = null;
+
   constructor(options: TokenGateOptions) {
-    void options;
-    throw new Error("L3: not implemented");
+    this.options = options;
+    this.bits = options.tokenBits ?? PAIR_TOKEN_BITS;
+    this.issue(options.now());
   }
 
   /** The token to show now; a token that expired is replaced (and `onIssued` hears the new one) before it is returned. */
   current(): IssuedToken {
-    throw new Error("L3: not implemented");
+    this.refresh(this.options.now());
+    return this.issued;
   }
 
   /** Whether LAN connections are locked now, and until when (clock ms); null when not locked. */
   lockedUntil(): number | null {
-    throw new Error("L3: not implemented");
+    return this.lockState(this.options.now());
   }
 
   /** Checks a connection's token (undefined: it sent none), applying the rules above. */
   check(token: number | undefined, from: GateCaller): GateVerdict {
-    void token;
-    void from;
-    throw new Error("L3: not implemented");
+    const now = this.options.now();
+    if (from.sameMachine) return { verdict: "admit", via: "same-machine" };
+    this.refresh(now);
+    if (this.lockState(now) !== null) return { verdict: "refuse", reason: "locked" };
+    if (token === undefined) return { verdict: "prompt" };
+    if (token === this.issued.token) {
+      this.retired.set(token, "used");
+      this.failures = 0;
+      this.issue(now);
+      return { verdict: "admit", via: "token" };
+    }
+    const reason = this.retired.get(token) ?? "bad-token";
+    this.failures += 1;
+    if (this.failures >= MAX_FAILURES) this.lockEnd = now + LOCK_MS;
+    return { verdict: "refuse", reason };
+  }
+
+  /** Issues the next token once the current one has expired; the expired one is remembered so it is refused as expired. */
+  private refresh(now: number): void {
+    if (now < this.issued.expiresAt) return;
+    this.retired.set(this.issued.token, "expired");
+    this.issue(now);
+  }
+
+  /** The lock's end, or null when not locked; a lock that has ended starts the failure count again from zero. */
+  private lockState(now: number): number | null {
+    if (this.lockEnd === null) return null;
+    if (now < this.lockEnd) return this.lockEnd;
+    this.lockEnd = null;
+    this.failures = 0;
+    return null;
+  }
+
+  private issue(now: number): void {
+    const token = this.options.randomToken(this.bits);
+    this.retired.delete(token);
+    this.serial += 1;
+    this.issued = { token, issuedAt: now, expiresAt: now + TOKEN_EXPIRY_MS, serial: this.serial };
+    this.options.onIssued?.(this.issued);
   }
 }
