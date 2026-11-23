@@ -118,8 +118,8 @@ export const ImportDetect: Story = {
   name: "Import review · Detect what's missing",
   render: () => <Review />,
   play: async () => {
-    const c = within(document.body);
-    const detect = c.getByRole("checkbox", { name: /Detect what's missing/ });
+    // Dialogs float at the page root; the newest is this story's.
+    const detect = (await within(document.body).findAllByRole("checkbox", { name: /Detect what's missing/ })).at(-1)!;
     await expect(detect).toBeEnabled();
     await expect(detect).toBeChecked();
     await userEvent.click(detect);

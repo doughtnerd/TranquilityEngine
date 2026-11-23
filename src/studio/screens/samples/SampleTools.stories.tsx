@@ -71,7 +71,7 @@ export const TimeDisplay: Story = {
     const c = within(canvasElement);
     const page = within(document.body);
     await userEvent.click(c.getByRole("button", { name: "Time display…" }));
-    await expect(page.getByRole("menuitemradio", { name: /Samples/ })).toHaveTextContent("22,464");
+    await expect(page.getByRole("menuitemradio", { name: /Samples/ })).toHaveTextContent(/22.464/); // the locale's thousands separator
     await userEvent.click(page.getByRole("menuitemradio", { name: /Samples/ }));
     await expect(c.getByText("samples")).toBeVisible();
   },
