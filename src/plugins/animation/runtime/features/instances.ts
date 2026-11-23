@@ -362,7 +362,7 @@ function adoptInstance(rt: AnimatorRuntime, ns: AnimationWorldCore, instance: nu
 /** Destroys the Animator's instance (its plays end `stopped`) and frees its Skeleton. */
 function unbindAnimator(rt: AnimatorRuntime): void {
   endAllPlays(rt, "stopped");
-  if (rt.instance) graphInstanceHooks.unbound?.(rt, rt.instance);
+  graphInstanceHooks.unbound?.(rt, rt.instance);
   if (rt.instance && rt.ns) rt.ns.destroyInstance(rt.instance);
   rt.instance = 0;
   rt.evaluated = false;

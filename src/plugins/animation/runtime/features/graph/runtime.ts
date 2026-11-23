@@ -95,7 +95,7 @@ type Intent =
   | { readonly kind: "jump"; readonly state: string; readonly layer: AnimatorLayer | undefined }
   | { readonly kind: "slot"; readonly play: SlotPlayRecord }
   | { readonly kind: "stop"; readonly slot: string | null; readonly fade: number }
-  | { readonly kind: "link"; readonly node: string; readonly path: string | null; loaded?: LoadedGraph | null; loading?: boolean }
+  | { readonly kind: "link"; readonly node: string; readonly path: string | null; loaded?: LoadedGraph | null; loading?: boolean; dropped?: boolean }
   | { readonly kind: "weight"; readonly layer: AnimatorLayer; readonly weight: number };
 
 interface MachineClock {
@@ -239,11 +239,15 @@ function endTravel(w: TravelWait, reason: AnimatorTravelResult["reason"]): void 
 /** @internal `graphInstanceHooks.unbound`: the Animator's `instance` is going; its plays end, its graph is released. */
 export function graphInstanceUnbound(rt: AnimatorRuntime, instance: number): void {
   const ag = animatorGraphs.get(rt.animator);
-  if (!ag || ag.runtime?.instance !== instance) return;
+  // A stale instance (one given back before adoption) leaves the live one alone; 0: none was made yet.
+  if (!ag || (instance !== 0 && ag.runtime?.instance !== instance)) return;
   for (const i of ag.queue.splice(0)) {
     if (i.kind === "slot") endPlay(i.play, "stopped");
     else if (i.kind === "travel") endTravel(i.wait, "interrupted");
-    else if (i.kind === "link" && i.loaded && rt.ns) releaseGraph(rt.ns, i.loaded);
+    else if (i.kind === "link") {
+      i.dropped = true;
+      if (i.loaded && rt.ns) releaseGraph(rt.ns, i.loaded);
+    }
   }
   const g = ag.runtime;
   if (!g) return;
@@ -544,7 +548,12 @@ function flushIntent(frame: AnimationFrame, g: GraphRuntime, intent: Intent): bo
           if (!intent.loading) {
             intent.loading = true;
             const rig = g.rt.skeleton?.info ? { path: g.rt.skeleton.path, info: g.rt.skeleton.info, profile: g.rt.skeleton.component.profile } : null;
-            void acquireGraph(g.ns, intent.path, rig).then((l) => (intent.loaded = l));
+            const ns = g.ns;
+            void acquireGraph(ns, intent.path, rig).then((l) => {
+              if (intent.dropped) {
+                if (l) releaseGraph(ns, l); // the instance went while it loaded
+              } else intent.loaded = l;
+            });
           }
           return false;
         }

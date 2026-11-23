@@ -496,6 +496,14 @@ describe("slots", () => {
     GameObject.destroy(node);
     engine.step(0);
     expect(await p).toEqual({ reason: "stopped" });
+    // Queued before the graph loaded, then destroyed: the play and the travel end too.
+    const early = makeHero("Early", { graph: "hero.animgraph.json" });
+    const play = early.anim.play(SHOT, { slot: "UpperBody" });
+    const travel = early.anim.travel("Crouch");
+    GameObject.destroy(early.node);
+    engine.step(0);
+    expect(await play).toEqual({ reason: "stopped" });
+    expect(await travel).toEqual({ reason: "interrupted" });
     destroyAll();
   });
 });
