@@ -23,6 +23,9 @@ npm run export -- samples/flappy --target desktop --debug-listen --debug-lan
 | `--debug-listen` | `debug.listen` | The game listens for tools (desktop and Android games; a browser page can't listen). |
 | `--debug-lan` | `debug.lan` | It listens on the network, not only this machine. Off by default. |
 | `--debug-port N` | `debug.port` | The first port it tries (default 7790); when one is taken it tries the next nine. |
+| `--debug-rendezvous <url>` | `debug.rendezvous` | A rendezvous you run yourself (`ws://` or `wss://`), for room codes when nothing on your network hosts one. No public one exists. |
+
+A listen-only export (listening flags without `--debug-link`) doesn't also dial the default address.
 
 A desktop debug export writes the listener's Rust sources into its generated Tauri project, so `tauri build` compiles
 them in. Players never need Rust; release exports get none of it.
@@ -47,6 +50,25 @@ In the Studio or the editor, open the builds menu in the status bar and choose *
 
 The editor's Play is a build too: while Play runs, its code shows at the top of the editor's builds menu, so the Studio
 can record takes from Play.
+
+### Room codes: browser pages
+
+A browser page can't listen, so a listening web build opens a **room** on a rendezvous instead and shows a **room
+code** (ADR 0381). The rendezvous only passes the handshake between the two sides; the link itself then runs
+directly between them over WebRTC.
+
+- A debug web export's `serve.mjs` hosts the rendezvous on its own port (the export copies `rendezvous.mjs` beside
+  it); so do `npm run dev`, the desktop editor, the Studio and listening desktop games. A room code names a
+  rendezvous on one of a fixed set of ports: 7790–7799, 3000 or 8080. Serve the build on one of them
+  (`node serve.mjs 7790`).
+- Open the page by its **network address** (`http://192.168.1.20:7790/`) so its code works from other machines. From
+  `localhost` the code pairs only with tools on the same machine, and the box says so.
+- A tool types the room code in **Connect to a build…** as it would any code.
+- The other way round: in a browser Studio or editor, **Offer a room…** in the builds menu shows a room code; open
+  the game with `?debug-code=<code>` (or launch a desktop game with `--debug-code <code>`).
+- `npm run build:rendezvous` builds the rendezvous as one file, `dist/rendezvous/rendezvous.mjs`, which you can run
+  yourself (`node rendezvous.mjs --port 7790`) and name in Preferences > Debug link > Rendezvous URL and in an export's
+  `--debug-rendezvous`. A page served over https can only pair through a `wss://` rendezvous like that.
 
 ## In the Studio
 
@@ -95,5 +117,28 @@ headless walker for these steps is `src/plugins/audio/editor/debugLink/op1.walk.
 9. **Network profile.** If step 4 failed: check the desktop's Wi-Fi uses the Private profile and that the app is
    allowed on Private networks (Windows Security > Firewall & network protection > Allow an app through firewall),
    then repeat from step 2.
+
+Record pass or what you saw for each step. Steps 4 and 7 are the milestone's pass/fail.
+
+## OP2: a web build and a browser tool by room code (owner procedure)
+
+You need two machines on one Wi-Fi (a third tab works for the tool). The headless check for these steps is
+`tests/e2e/debuglink-webrtc.spec.ts`.
+
+1. **Export.** On machine A: `npm run export -- samples/flappy --debug-listen --debug-lan`. The export folder holds
+   `serve.mjs` and `rendezvous.mjs`.
+2. **Serve.** In the export folder on A: `node serve.mjs 7790`. It prints the game's address, its network addresses,
+   and "Pairing rendezvous at ws://…/myco-rendezvous". Allow Node through the firewall on Private networks if asked.
+3. **Open the game.** On machine B, open `http://<A's address>:7790/`. The game runs, and a box in a corner shows a
+   code (`XXXXX-XXXXX`) with no note about localhost.
+4. **Connect.** On machine A (or a third machine), open the browser editor or Studio from `npm run dev`. In the
+   builds menu choose **Connect to a build…**, type the code, press Connect. "Connecting…" shows for a few seconds,
+   the dialog closes, and the button reads "1 build". On B the code box hides.
+5. **List.** The builds menu shows the game as "flappy (web, <address>, through a room)". The room's token never
+   shows.
+6. **Wrong code.** Disconnect, press F8 on B for the new code, and type it with one character changed: the dialog
+   shows a red line and stays open. Type the right code: it pairs.
+7. **Take (browser Studio).** In the Studio's Take screen: **Start take**, play a few seconds on B, **Stop**, **Save
+   into takes/**. The take opens.
 
 Record pass or what you saw for each step. Steps 4 and 7 are the milestone's pass/fail.
