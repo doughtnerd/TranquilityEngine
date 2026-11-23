@@ -89,7 +89,7 @@
 /* Plot */
 .ce-plot { flex: 1 0 200px; min-height: 200px; display: grid; grid-template-columns: 64px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) 20px; padding: 12px 12px 0 0; user-select: none; }
 .ce-ylabels, .ce-xlabels { position: relative; }
-.ce-ylabels span { position: absolute; right: 6px; max-width: 60px; overflow: visible; font-size: calc(10px * var(--ui-scale)); line-height: 12px; color: var(--muted); white-space: nowrap; }
+.ce-ylabels span { position: absolute; left: 0; right: 8px; text-align: right; font-size: calc(10px * var(--ui-scale)); line-height: 12px; color: var(--muted); white-space: nowrap; }
 .ce-xlabels span { position: absolute; top: 4px; font-size: calc(10px * var(--ui-scale)); line-height: 12px; color: var(--muted); white-space: nowrap; }
 .ce-plot-box { position: relative; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 3px; cursor: crosshair; touch-action: none; }
 .ce-plot-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }

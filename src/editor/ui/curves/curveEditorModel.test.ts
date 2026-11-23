@@ -43,6 +43,7 @@ import {
   DISTANCE_INPUT,
   withLane,
   withLiveInputs,
+  yLabels,
   type CurveEditorSpec,
   type CurveLane,
   type LaneContext,
@@ -86,6 +87,12 @@ describe("live inputs", () => {
     expect(withLiveInputs(s).inputs![0]!.now).toBe(0.5);
     const plain: CurveEditorSpec = { kind: "time", lanes: [gain], length: 2 };
     expect(withLiveInputs(plain)).toBe(plain);
+  });
+});
+
+describe("the y axis labels", () => {
+  it("say the sign of a level above 0 dB and keep the unit", () => {
+    expect(yLabels(gain)).toEqual(["+6.0 dB", "−27.0 dB", "−∞ dB"]);
   });
 });
 

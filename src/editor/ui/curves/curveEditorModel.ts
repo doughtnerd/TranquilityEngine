@@ -315,7 +315,9 @@ export function typedValue(lane: CurveLane, v: number): number {
 
 /** The top, middle and bottom labels of the y axis (the middle is the geometric middle on a log lane). */
 export function yLabels(lane: CurveLane): [string, string, string] {
-  return [formatValue(lane, lane.max), lane.bool ? "" : formatValue(lane, fromNorm(lane, 0.5)), formatValue(lane, lane.min)];
+  // A level above 0 dB says so ("+6.0 dB", the prototype's axis).
+  const label = (v: number) => (lane.unit === "dB" && v > 0 ? `+${formatValue(lane, v)}` : formatValue(lane, v));
+  return [label(lane.max), lane.bool ? "" : label(fromNorm(lane, 0.5)), label(lane.min)];
 }
 
 /** The lane's colour token. */
