@@ -15,8 +15,9 @@ let link: EditorDebugLink | null = null;
 
 /** The editor's debug link: the connected builds, the pending ones, the build the debuggers read. */
 export function editorDebugLink(): EditorDebugLink {
-  // The WebSocket transport listens where this host can open a server socket (Node; a desktop shell that registers a
-  // listening transport under the name). A plain browser page can't, and Preferences say so.
+  // The WebSocket transport listens where this host can open a server socket: Node, and the desktop editor, whose
+  // `main.tsx` registers the native-backed transport (`tauriListener.ts`, ADR 0378) first. A plain browser page can't,
+  // and Preferences say so.
   return (link ??= new EditorDebugLink({ transport: () => (transportCanListen("websocket") ? createTransport("websocket") : null) }));
 }
 

@@ -9,7 +9,7 @@ import type { ListenState } from "./editorLink";
 
 function Demo(props: { unavailable?: boolean }) {
   const [value, setValue] = useState<DebugLinkPreferences>(DEFAULT_DEBUG_LINK_PREFERENCES);
-  const listen: ListenState = !value.listen ? { kind: "off" } : props.unavailable ? { kind: "unavailable", why: "This editor can't listen for builds here: listening needs a host that can open a server socket." } : { kind: "listening", address: listenAddress(value) };
+  const listen: ListenState = !value.listen ? { kind: "off" } : props.unavailable ? { kind: "unavailable", why: "This editor can't listen for builds here: a browser page can't open a server socket. The desktop editor can." } : { kind: "listening", address: listenAddress(value) };
   return (
     <div class="settings-dialog" style={{ width: "520px" }}>
       <DebugLinkFields value={value} listen={listen} onChange={setValue} />
