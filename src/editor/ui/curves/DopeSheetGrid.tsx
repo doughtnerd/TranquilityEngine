@@ -13,6 +13,7 @@ import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
 import { playheadAt, rulerRange } from "./curveEditorModel";
 import { axisTicks } from "./keyList";
+import "./curveEditor.css";
 
 /** One key on a row. */
 export interface DopeKey {

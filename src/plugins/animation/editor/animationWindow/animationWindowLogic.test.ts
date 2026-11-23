@@ -10,6 +10,8 @@ import { addKeyedTrack, addPropertyTrack, copyKeys, deleteKeys, keyField, keySta
 import { applyCurveLanes, curveLanes } from "./curveLanesLogic";
 import { fieldTrackShape, keyValueOf } from "./fieldTracksLogic";
 import { discreteAt, onionFrames, onionSprites } from "./onionSkinLogic";
+import { keyButtonState, toggleKey } from "./keyButtonLogic";
+import { propertyChoices } from "./addTrackLogic";
 import { recordWrite } from "./recordLogic";
 import { addRowKey, setActivationRange, setAudioKey, setEventKey, setMarkerKey } from "./rowEditorsLogic";
 import { keyId, leafKeysOf, rowId, summarySelected, trackRows } from "./trackRowsLogic";
@@ -89,7 +91,7 @@ describe("key edits round-trip through the clip format", () => {
     expect(r.selection).toEqual(sel);
     // Clamped: the lamp key stops at the clip's end, so the position key moves by as much.
     const far = next(moveKeys(clip(), sel, 5));
-    expect((far.clip.tracks[1] as { curves: number[][][] }).curves[0]![1]![0]).toBe(1);
+    expect((far.clip.tracks[1] as unknown as { curves: number[][][] }).curves[0]![1]![0]).toBe(1);
     expect(refusal(moveKeys(clip(), [], 0.1))).toBe("no keys are selected");
   });
   it("moves ranged keys with their ends and bone keys with their values", () => {
@@ -152,8 +154,8 @@ describe("tracks and keys at the playhead", () => {
     expect(keyState(k, POS, 0.5)).toBe("key");
     expect(keyState(k, POS, 0.25)).toBe("animated");
     // Keying again at the same time replaces the value and keeps the key's shape.
-    const smooth: AnimSource = { ...k, tracks: [{ ...(k.tracks[0] as Extract<Track, { kind: "vec3" }>), curves: [[[0.5, 1, "smooth"]], [[0.5, 2]], [[0.5, 3]]] }] };
-    expect((next(keyField(smooth, POS, [4, 2, 3], 0.5)).tracks[0] as { curves: unknown[][] }).curves[0]).toEqual([[0.5, 4, "smooth"]]);
+    const smooth: AnimSource = { ...k, tracks: [{ kind: "vec3", target: POS, name: "", curves: [[[0.5, 1, "smooth"]], [[0.5, 2]], [[0.5, 3]]] }] };
+    expect((next(keyField(smooth, POS, [4, 2, 3], 0.5)).tracks[0] as unknown as { curves: unknown[][] }).curves[0]).toEqual([[0.5, 4, "smooth"]]);
     expect(next(unkeyField(k, POS, 0.5)).tracks[0]).toMatchObject({ curves: [[], [], []] });
     expect(refusal(unkeyField(k, POS, 0.25))).toBe("position has no key at 0.25 s");
   });
@@ -171,6 +173,44 @@ describe("tracks and keys at the playhead", () => {
     expect(refusal(keyField(emptyAnimSource(), LAMP, 2, 1.5))).toBe("the playhead (1.5 s) is outside the clip (0 – 1 s)");
     expect(refusal(keyValueOf({ kind: "discrete", valueType: "enum", choices: ["a"] }, "b"))).toBe('"b" isn\'t one of the choices');
     expect(refusal(fieldTrackShape("engine.Transform", "parent"))).toBe("Transform.parent isn't animatable");
+  });
+});
+
+describe("the Inspector's key buttons", () => {
+  const door = { nodePath: "Door", component: "engine.HingeJoint" };
+  it("show nothing on a field a track can't drive, empty, outlined (animated elsewhere) and filled (a key at the playhead)", () => {
+    expect(keyButtonState(emptyAnimSource(), { ...door, field: "axis" }, 0)).toBeNull();
+    expect(keyButtonState(emptyAnimSource(), LAMP, 0.5)).toBe("none");
+    const keyed = next(keyField(emptyAnimSource(), LAMP, 2, 0.5));
+    expect(keyButtonState(keyed, LAMP, 0.25)).toBe("animated");
+    expect(keyButtonState(keyed, LAMP, 0.5)).toBe("key");
+    // A plain object's button stands for its animatable sub-paths (D86).
+    const spring = next(keyField(emptyAnimSource(), { ...door, field: "spring.targetPosition" }, 0.3, 0.5));
+    expect(keyButtonState(spring, { ...door, field: "spring" }, 0.5)).toBe("key");
+  });
+  it("add a key of the field's value at the playhead, and remove it when there is one", () => {
+    const add = toggleKey(emptyAnimSource(), { ...door, field: "spring" }, { spring: 10, damper: 1, targetPosition: 0.3 }, 0.5);
+    expect(add.label).toBe("Add key: spring");
+    const added = next(add.result);
+    expect(added.tracks[0]).toEqual({ kind: "float", target: { ...door, field: "spring.targetPosition" }, name: "", curves: [[[0.5, 0.3]]] });
+    const remove = toggleKey(added, { ...door, field: "spring" }, {}, 0.5);
+    expect(remove.label).toBe("Remove key: spring");
+    expect(next(remove.result).tracks[0]).toMatchObject({ curves: [[]] });
+    expect(refusal(toggleKey(emptyAnimSource(), { ...door, field: "axis" }, [1, 0, 0], 0).result)).toBe("HingeJoint.axis isn't animatable");
+    expect(refusal(toggleKey(emptyAnimSource(), LAMP, 1, 2).result)).toBe("the playhead (2 s) is outside the clip (0 – 1 s)");
+  });
+});
+
+describe("the Add Property list", () => {
+  it("offers the animatable fields of the nodes under the Animator that the clip doesn't animate yet, sub-paths included", () => {
+    const nodes = [
+      { path: "", components: [{ type: "engine.Transform", fields: [{ name: "position" }, { name: "rotation" }, { name: "scale" }] }] },
+      { path: "Door", components: [{ type: "engine.HingeJoint", fields: [{ name: "axis" }, { name: "spring", value: { spring: 1, damper: 1, targetPosition: 0 } }] }] },
+    ];
+    const c = next(keyField(emptyAnimSource(), { nodePath: "", component: "engine.Transform", field: "rotation" }, [0, 0, 0, 1], 0));
+    const choices = propertyChoices(c, nodes, "Hero");
+    expect(choices.map((x) => x.label)).toEqual(["Hero › Transform.position", "Hero › Transform.scale", "Door › HingeJoint.spring.targetPosition"]);
+    expect(choices[2]!.value).toBe(0);
   });
 });
 
