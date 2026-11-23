@@ -123,6 +123,27 @@ export const FollowsAndMakeAsync: Story = {
   },
 };
 
+/** W-7: the skid's volume envelope ends on a key at the clip's right edge; dragging that edge still sets the length. */
+export const TrimEndOverCurveKey: Story = {
+  args: { inspector: true },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const clip = c.getByRole("button", { name: "Clip brake_skid" });
+    const box = clip.getBoundingClientRect();
+    const end = clip.querySelectorAll(".sq-key")[3]!.getBoundingClientRect(); // [3, -24] at the clip's end
+    const x = box.right - 3, y = end.top + end.height / 2;
+    const target = canvasElement.ownerDocument.elementFromPoint(x, y)!;
+    await expect(target).toHaveClass("sq-edge");
+    const at = (dx: number) => ({ bubbles: true, cancelable: true, button: 0, pointerId: 1, clientX: x + dx, clientY: y });
+    target.dispatchEvent(new PointerEvent("pointerdown", at(0)));
+    target.dispatchEvent(new PointerEvent("pointermove", at(-40)));
+    target.dispatchEvent(new PointerEvent("pointerup", at(-40)));
+    await userEvent.click(clip);
+    const length = (await c.findByLabelText("Clip length")) as HTMLInputElement;
+    await expect(Number(length.value)).toBeLessThan(3);
+  },
+};
+
 export const Empty: Story = {
   args: { body: fixtureBody({ length: 0, tempo: null, tracks: [], loops: [], markers: [] }) },
   play: async ({ canvasElement }) => {
