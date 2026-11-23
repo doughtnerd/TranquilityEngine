@@ -5,8 +5,8 @@
 // - Each skeleton (the `skeleton` node, else the nearest ancestor with a `Skeleton`) gets one palette, shared by its draws:
 //   its skinning matrices are uploaded once a frame, only when `version` changed since the last upload (or a draw needs
 //   more joints). No pose yet (or no skeleton): identities, the bind pose.
-// - A draw dispatches the kernel only when its palette was uploaded this frame, its morph weights changed, or it is new:
-//   an idle character costs nothing on the GPU. Inactive renderers are hidden and skip both.
+// - A draw dispatches the kernel only when its palette was uploaded since it last skinned, its morph weights changed, or it
+//   is new: an idle character costs nothing on the GPU. Inactive renderers are hidden and skip both (catching up when shown).
 // - Bounds follow `boundsMode`: `bones` unites the used joints' transformed (morphed) rest boxes when the draw dispatches
 //   (`skinBounds.ts`), `fixed` takes `boundsCenter`/`boundsSize` around the renderer's node.
 // - Draws sit in the skeleton's model space, placed by the skeleton node's world matrix (glTF: a skinned mesh's own node
@@ -75,6 +75,8 @@ interface DrawState<M> {
   readonly reach: Float32Array;
   /** Dispatch at the next visible sync whatever changed (new, or its palette was swapped). */
   dirty: boolean;
+  /** The palette upload (its frame) it last skinned with: a draw hidden through an upload catches up when shown. */
+  skinnedWith: number;
 }
 
 interface Entry<M> {
@@ -115,7 +117,7 @@ export class SkinningSync<M> {
     let dispatched = false;
     for (const r of renderers) {
       const e = this.entries.get(r);
-      if (e?.visible && this.update(world, r, e, frame)) dispatched = true;
+      if (e?.visible && this.update(world, r, e)) dispatched = true;
     }
     if (dispatched) this.draws.endDispatches();
   }
@@ -178,7 +180,7 @@ export class SkinningSync<M> {
       d.draw.setShadows(r.castShadows, r.receiveShadows);
       d.draw.setMaterials({ mesh: r.mesh, material: r.material, materials: r.materials });
     }
-    if (!e.visible) return;
+    if (!e.visible || !e.draws.length) return;
     p.seenAt = frame;
     for (const d of e.draws) p.want = Math.max(p.want, d.needed);
   }
@@ -198,18 +200,18 @@ export class SkinningSync<M> {
   }
 
   /** Dispatch, place and bound a visible renderer's draws. Returns whether any dispatched. */
-  private update(world: World, r: SkinnedMeshRenderer, e: Entry<M>, frame: number): boolean {
+  private update(world: World, r: SkinnedMeshRenderer, e: Entry<M>): boolean {
     const p = e.palette!;
     const weights = r.morphWeights;
     const weightsChanged = !sameWeights(e.weights, weights);
     if (weightsChanged) e.weights = [...weights];
-    const fresh = p.uploadedAt === frame;
     let dispatched = false;
     for (const d of e.draws) {
       if (weightsChanged) d.draw.setMorphWeights(e.weights);
-      if (!(fresh || weightsChanged || d.dirty)) continue;
+      if (!(d.skinnedWith !== p.uploadedAt || weightsChanged || d.dirty)) continue;
       d.draw.dispatch();
       d.dirty = false;
+      d.skinnedWith = p.uploadedAt;
       dispatched = true;
       if (r.boundsMode !== "fixed") d.draw.setBounds(skinnedBox(morphedBox(d.rest, d.reach, e.weights), p.data!, d.joints));
     }
@@ -250,7 +252,7 @@ export class SkinningSync<M> {
 
   private createDraw(s: SkinnedMeshSource, name: string): DrawState<M> {
     const g = s.geometry;
-    return { draw: this.draws.create(s, name), joints: usedJoints(g), needed: jointsNeeded(g), rest: restBox(g), reach: morphReach(g), dirty: true };
+    return { draw: this.draws.create(s, name), joints: usedJoints(g), needed: jointsNeeded(g), rest: restBox(g), reach: morphReach(g), dirty: true, skinnedWith: -1 };
   }
 
   private disposeDraws(e: Entry<M>): void {

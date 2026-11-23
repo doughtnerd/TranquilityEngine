@@ -4,7 +4,8 @@
 import { describe, expect, it } from "vitest";
 import { shaderSource } from "../render/shaderSource/shaderSource";
 import { dispatchGroups, gridLayout, padToGrid, PingPong, texelOf } from "../render/gpuKernels/layout";
-import { JsItemKernel, checkItemKernel, itemKernelGlsl, itemKernelWgsl, itemStride, type ItemKernelSpec } from "../render/gpuKernels/itemKernel";
+import { JsItemKernel, checkItemKernel, itemKernelFeedbackVaryings, itemKernelGlsl, itemKernelGlslFeedback, itemKernelWgsl, itemStride, type ItemKernelSpec } from "../render/gpuKernels/itemKernel";
+import { GlFeedbackItemKernel } from "../render/gpuKernels/itemKernelFeedback";
 import { GpuItemKernel } from "../render/gpuKernels/itemKernelWebgpu";
 import { GlItemKernel } from "../render/gpuKernels/itemKernelWebgl2";
 import { BUFFER, type GpuDevice } from "../render/gpuKernels/webgpu";
@@ -272,6 +273,68 @@ describe("GPU kernel executor: item kernels", () => {
     lose();
     k.dispatch();
     expect(named("drawArrays")).toHaveLength(1);
+  });
+});
+
+describe("GPU kernel executor: shared inputs and transform feedback (T16)", () => {
+  it("reads a WebGPU input from another owner's buffer, never destroying it, until setInput owns one again", () => {
+    const { device, rec } = recordingDevice();
+    const k = new GpuItemKernel(device, MOVE, 4);
+    const ownParams = rec.buffers.find((b) => b.label === "kernel move params")!;
+    const shared = device.createBuffer({ size: 64, usage: BUFFER.STORAGE, label: "shared" });
+    k.bindInput("params", shared);
+    expect(ownParams.destroyed).toBe(true);
+    k.dispatch();
+    expect(rec.groups[0][2].resource).toEqual({ buffer: shared });
+    k.bindInput("params", shared); // the same buffer: the cached bind group stays
+    k.dispatch();
+    expect(rec.groups).toHaveLength(1);
+    k.dispose();
+    expect(rec.buffers.find((b) => b.label === "shared")!.destroyed).toBe(false);
+    expect(() => k.bindInput("nope", shared)).toThrow(/no input/);
+  });
+
+  it("wraps the body in a transform-feedback vertex shader capturing kout0.. interleaved", () => {
+    const vs = itemKernelGlslFeedback(MOVE);
+    expect(vs).toContain("out vec4 kout0;\nout vec4 kout1;");
+    expect(vs).toContain("kernelItem(gl_VertexID);");
+    expect(vs).toContain("vec4 in_params(int j) { return texelFetch(kin_params, ivec2(j % kin_params_w, j / kin_params_w), 0); }");
+    expect(vs).not.toMatch(/gl_FragCoord|kgridw|layout\(location/);
+    expect(itemKernelFeedbackVaryings(MOVE)).toEqual(["kout0", "kout1"]);
+  });
+
+  it("runs on WebGL2 through transform feedback into one vertex buffer, inputs owned or shared", () => {
+    const { gl, calls, lose } = recordingGl();
+    const k = new GlFeedbackItemKernel(gl, MOVE, 300);
+    expect(k.errors).toEqual([]);
+    expect(k.stride).toBe(32);
+    const named = (n: string) => calls.filter(([c]) => c === n).map(([, a]) => a);
+    expect(named("transformFeedbackVaryings")).toEqual([[{ object: "createProgram" }, ["kout0", "kout1"], gl.INTERLEAVED_ATTRIBS]]);
+    expect(named("bufferData")).toContainEqual([gl.ARRAY_BUFFER, 300 * 32, gl.DYNAMIC_COPY]);
+    k.setInput("pos", new Float32Array(300 * 4));
+    const shared = { texture: "palette" } as unknown as WebGLTexture;
+    k.bindInput("params", shared, 7);
+    calls.length = 0;
+    k.dispatch();
+    expect(named("enable")).toEqual([[gl.RASTERIZER_DISCARD]]);
+    expect(named("disable")).toEqual([[gl.RASTERIZER_DISCARD]]);
+    expect(named("beginTransformFeedback")).toEqual([[gl.POINTS]]);
+    expect(named("drawArrays")).toEqual([[gl.POINTS, 0, 300]]);
+    expect(named("bindBufferBase")).toEqual([[gl.TRANSFORM_FEEDBACK_BUFFER, 0, k.output], [gl.TRANSFORM_FEEDBACK_BUFFER, 0, null]]);
+    expect(named("bindBuffer")).toContainEqual([gl.ARRAY_BUFFER, null]); // never bound elsewhere while captured into
+    expect(named("bindTexture")).toContainEqual([gl.TEXTURE_2D, shared]);
+    expect(named("uniform1i")).toContainEqual([{ uniform: "kin_params_w" }, 7]);
+    expect(named("uniform1i")).toContainEqual([{ uniform: "kin_pos_w" }, 300]);
+    const first = k.output;
+    k.resize(10);
+    expect(named("deleteBuffer")).toEqual([[first]]);
+    calls.length = 0;
+    k.dispose();
+    expect(named("deleteTexture")).toHaveLength(1); // its own input, not the shared one
+    lose();
+    calls.length = 0;
+    k.dispatch();
+    expect(named("drawArrays")).toHaveLength(0);
   });
 });
 

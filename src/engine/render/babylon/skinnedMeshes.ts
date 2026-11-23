@@ -35,6 +35,9 @@ import type { SkinnedDraw, SkinnedDraws } from "../skinning/skinnedDraws";
 import { FeedbackSkinRuns, JsSkinRuns, WebGpuSkinRuns, type SkinExecutor, type SkinPalette, type SkinRun, type SkinRuns } from "../skinning/skinRuns";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 
+/** @internal The mesh a skinned draw is (so a plugin's feature names no Babylon type). */
+export type BabylonSkinnedMesh = Mesh;
+
 /** @internal What the skinned-mesh backend takes from the renderer. */
 export interface BabylonSkinnedHost {
   readonly scene: Scene;

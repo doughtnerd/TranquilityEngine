@@ -2,18 +2,18 @@
 // `BabylonSkinnedMeshes`. Loaded on demand (`register.ts` names it only in a dynamic import), so Babylon stays out of
 // `myco` and games without SkinnedMeshRenderers never download it. Skinned meshes cast shadows through `casters` and are
 // picked, framed and outlined through `drawn` like MeshRenderers' (ADR 0276).
-import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
-import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import type { Component } from "../../../../../engine/core/Component";
 import type { World } from "../../../../../engine/core/World";
 import { PICK_ORDER, type BabylonFeature, type BabylonFeatureFactory, type DrawnDescription, type DrawnNode } from "../../../../../engine/render/babylon/feature";
-import { BabylonSkinnedMeshes } from "../../../../../engine/render/babylon/skinnedMeshes";
+import { BabylonSkinnedMeshes, type BabylonSkinnedMesh } from "../../../../../engine/render/babylon/skinnedMeshes";
 import { SkinnedMeshRenderer } from "../../components/SkinnedMeshRenderer";
 import { SkinningSync } from "./sync";
 
+type Casters = Parameters<NonNullable<BabylonFeature["casters"]>>[0];
+
 /** The feature: the sync, plus the hooks the renderer asks (casters, drawn, loaded, describe). */
 class SkinningFeature implements BabylonFeature {
-  constructor(private readonly skinning: SkinningSync<Mesh>) {}
+  constructor(private readonly skinning: SkinningSync<BabylonSkinnedMesh>) {}
 
   sync(world: World): void {
     this.skinning.sync(world);
@@ -23,7 +23,7 @@ class SkinningFeature implements BabylonFeature {
     if (c instanceof SkinnedMeshRenderer) this.skinning.release(c);
   }
 
-  casters(out: AbstractMesh[]): void {
+  casters(out: Casters): void {
     for (const r of this.skinning.renderers()) if (r.visible && r.renderer.castShadows) out.push(...r.meshes);
   }
 
@@ -32,7 +32,7 @@ class SkinningFeature implements BabylonFeature {
   }
 
   describe(drawn: object): DrawnDescription | null {
-    for (const r of this.skinning.renderers()) if (r.meshes.includes(drawn as Mesh)) return { node: r.renderer.node, what: `"${r.renderer.node.name}" (skinned)` };
+    for (const r of this.skinning.renderers()) if (r.meshes.includes(drawn as BabylonSkinnedMesh)) return { node: r.renderer.node, what: `"${r.renderer.node.name}" (skinned)` };
     return null;
   }
 
