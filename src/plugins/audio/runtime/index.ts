@@ -8,33 +8,56 @@ import { AudioListener } from "./AudioListener";
 import { AudioSource } from "./AudioSource";
 import { AudioOccluder } from "./AudioOccluder";
 import { AudioReverbZone } from "./AudioReverbZone";
+import { AudioZone, AUDIO_ZONE_SYSTEM } from "./AudioZone";
 import { AUDIO_SERVICE } from "./core/service";
 import { AUDIO_SYSTEMS } from "./audioSystem";
+import { AudioPackageLoader } from "./media/AudioPackageLoader";
+import { AUDIO_PACKAGES_SERVICE } from "./media/service";
+import { AudioSpeaker } from "./dialogue/AudioSpeaker";
 
 export { Audio, type OneShotOptions } from "./Audio";
+// ADR 0344: `Audio.snapshot(name)`'s handle.
+export type { AudioSnapshot } from "./Audio";
 // ADR 0166 §1 (Q2): the interactive music types (the engine's `musicTypes.ts`) and the `Calibration` namespace.
 export { Calibration } from "./music/calibration";
 export type { AudioLatency, CalibrationResult, GridPoint, GridSpec, MusicEvent, MusicHandle, MusicKind, MusicPositionAt, MusicSeekResult } from "../../../engine/audio/musicTypes";
-export type { AudioBedDebug, AudioDebugInfo, AudioEventHandle, AudioHandle, AudioM3Counters, AudioMemoryDebug, AudioOcclusionDebug, AudioPanner, AudioReason, AudioStatus, AudioVoiceM3Debug, AudioZoneDebug, MusicDebugPending, MusicDebugRow, MusicDebugState, MusicDebugTotals, SendCurve } from "./backend";
+export type { AudioBedDebug, AudioDebugInfo, AudioEventHandle, AudioPlaylistHandle, AudioMarkerEvent, AudioMarkerType, AudioHandle, AudioM3Counters, AudioMemoryDebug, AudioOcclusionDebug, AudioPanner, AudioReason, AudioStatus, AudioVoiceM3Debug, AudioZoneDebug, MusicDebugPending, MusicDebugRow, MusicDebugState, MusicDebugTotals, SendCurve } from "./backend";
 // ADR 0171 §1.2, §1.3 (K0): the capture surface and the M5 debug shapes.
 export type { AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioRecorderDebug } from "./backend";
 export type { AudioCapture, AudioCaptureState } from "./capture/capture";
+export type { AudioTake, AudioTakeState } from "./capture/take";
 export { DEFAULT_SEND_CURVE } from "./backend";
-export type { EventOptions } from "./events/eventRuntime";
+export type { EventOptions } from "./playlists/options";
 export { AudioSource, type Rolloff } from "./AudioSource";
 export { AudioOccluder } from "./AudioOccluder";
 export { AudioReverbZone, ZONE_PRESETS } from "./AudioReverbZone";
+// ADR 0347: audio zones.
+export { AudioZone, AUDIO_ZONE_HEARD, type AudioZoneHeard } from "./AudioZone";
 export { AudioListener } from "./AudioListener";
 export type { Bus } from "../../../engine/audio/mixer";
 /** @internal B2: the decoder worker's client (B5 wires the clip registry to it). Not part of the public API (`src/myco.ts` does not export it). */
 export { createDecoderClient, type DecoderClient, type DecodedClip } from "./decoder/decoderClient";
 export { hintFromName } from "./decoder/protocol";
 
+// ADR 0351 §9: audio packages (`Audio.package(name)`) and the component that loads them with a scene.
+export { AudioPackageLoader } from "./media/AudioPackageLoader";
+export type { AudioPackage } from "./media/packages";
+
+// ADR 0354, 0355, 0357: localised audio, voice-over lines, captions and dynamic dialogue.
+export type { AudioLanguage, SetLanguageOptions, AudioLanguageDebug } from "./localisation/languageState";
+export type { AudioLineHandle, AudioLineEvent, LineOptions, LineEnd } from "./localisation/lines";
+export type { AudioViseme } from "./localisation/viseme";
+export type { AudioCaptionEvent } from "./localisation/captions";
+export type { SayOptions, AudioDialogue, AudioDialogueDebug } from "./dialogue/dialogueSystem";
+export type { DialogueMemory } from "./dialogue/memory";
+export { AudioSpeaker };
+
 export const audioRuntimePlugin: RuntimePlugin = {
   manifest: audioManifest,
   activate(context) {
-    context.registerComponents([AudioSource, AudioListener, AudioOccluder, AudioReverbZone]);
-    context.registerEngineSystems(AUDIO_SYSTEMS);
+    context.registerComponents([AudioSource, AudioListener, AudioOccluder, AudioReverbZone, AudioZone, AudioPackageLoader, AudioSpeaker]);
+    context.registerEngineSystems([...AUDIO_SYSTEMS, AUDIO_ZONE_SYSTEM]);
     context.registerWorldService(AUDIO_SERVICE);
+    context.registerWorldService(AUDIO_PACKAGES_SERVICE);
   },
 };

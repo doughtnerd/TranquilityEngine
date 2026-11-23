@@ -6,7 +6,7 @@
  * its seed.
  */
 import { describe, it } from "vitest";
-import type { TempoMarker } from "./musicFormat";
+import type { TempoMarker } from "./musicGrid";
 import {
   compileTempoMap, framesToTicks, positionInMetre, positionToTicks, secondsToTicks, ticksToFrames, ticksToPosition,
   ticksToSeconds, type TempoMap,

@@ -6,51 +6,17 @@ import { copySelection, cutSelection, duplicateSelection, pasteClipboardText } f
 import { closeScene, save, togglePlaying } from "./session";
 import { stepFrame, togglePause } from "./playDebug";
 import { openScene, pickTool, snapping, type Tool } from "./state";
+import { HISTORY_SHORTCUTS, shortcutFor, type Shortcut } from "./shortcutKeys";
 
 import { isEditable } from "./editable";
 import { insideKeyOwner } from "./graph/keyOwner";
 import { dialogOpenAnywhere } from "./windows/editorWindows";
 export { isEditable };
 
-export type Shortcut = "undo" | "redo" | "back" | "forward" | "save" | "play" | "pause" | "step" | "delete" | "copy" | "cut" | "paste" | "paste-child" | "duplicate" | "close-tab" | `tool:${Tool}`;
-
-/** Undo, redo and stepping through history: they act on the active history (ADR 0145), whichever editor has the focus. */
-const HISTORY_SHORTCUTS: readonly Shortcut[] = ["undo", "redo", "back", "forward"];
+export type { Shortcut };
 
 /** Node clipboard shortcuts: the Assets panel and text fields keep their own Ctrl/Cmd+C/X/V/D. */
 const CLIPBOARD_SHORTCUTS: readonly Shortcut[] = ["copy", "cut", "paste", "paste-child", "duplicate"];
-
-const TOOL_KEYS: Record<string, Tool> = { q: "select", w: "move", e: "rotate", r: "scale" };
-
-/** What a keydown means to the editor, if anything. */
-function shortcutFor(e: Pick<KeyboardEvent, "key" | "ctrlKey" | "metaKey" | "shiftKey"> & { altKey?: boolean; code?: string }): Shortcut | null {
-  const key = (e.key ?? "").toLowerCase(); // Chromium's autofill sends key events with no key
-  // Ctrl/Cmd + Alt (+ Shift) + Z: step through history in creation order (Vim's g- / g+). Checked
-  // before plain Ctrl + Z, and by key code too, since Alt changes `key` on some layouts.
-  if ((e.ctrlKey || e.metaKey) && e.altKey && (key === "z" || e.code === "KeyZ")) return e.shiftKey ? "forward" : "back";
-  // Play mode debugging: Ctrl/Cmd + Shift + P pauses or resumes, F10 or Ctrl/Cmd + Alt + P steps one frame.
-  if (key === "f10" && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) return "step";
-  if ((e.ctrlKey || e.metaKey) && (key === "p" || e.code === "KeyP")) {
-    if (e.altKey && !e.shiftKey) return "step";
-    if (e.shiftKey && !e.altKey) return "pause";
-  }
-  if (e.ctrlKey || e.metaKey) {
-    if (key === "z") return e.shiftKey ? "redo" : "undo";
-    if (key === "y") return "redo";
-    if (key === "s") return "save";
-    if (key === "p") return "play";
-    if (key === "w" && !e.shiftKey && !e.altKey) return "close-tab";
-    if (e.altKey) return null;
-    if (key === "c" && !e.shiftKey) return "copy";
-    if (key === "x" && !e.shiftKey) return "cut";
-    if (key === "v") return e.shiftKey ? "paste-child" : "paste";
-    if (key === "d" && !e.shiftKey) return "duplicate";
-    return null;
-  }
-  if (!e.shiftKey && !e.altKey && (key === "delete" || key === "backspace")) return "delete";
-  if (!e.shiftKey && !e.altKey && TOOL_KEYS[key]) return `tool:${TOOL_KEYS[key]}`;
-  return null;
-}
 
 /**
  * Ctrl/Cmd + C/X/V/D copy, cut, paste and duplicate the selected nodes (+ Shift + V pastes as a child);

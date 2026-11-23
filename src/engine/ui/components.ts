@@ -25,7 +25,11 @@ export type UIPositionType = "relative" | "absolute";
 /** `none` takes an element and its children out of layout, drawing and the pointer. */
 export type UIDisplay = "flex" | "none";
 export type UICanvasMode = "screen" | "world";
-export type UITextAlign = "left" | "center" | "right" | "justify";
+/**
+ * `start` and `end` follow the text direction of the current language (ADR 0356 §5): `start` is the left edge in
+ * left-to-right languages and the right edge in right-to-left ones.
+ */
+export type UITextAlign = "start" | "end" | "left" | "center" | "right" | "justify";
 export type UIWordBreak = "break-word" | "break-all" | "keep-all";
 export type UIImageFit = "cover" | "contain" | "fill";
 /**
@@ -143,7 +147,8 @@ export class UIText extends UIElement {
   @field(Color) color = Color.white;
   /** `"light"` (300), `"normal"` (400), `"medium"` (500), `"semi-bold"` (600), `"bold"` (700), or a whole number 1–1000 (anything else is 400). */
   @field(String, { choices: ["light", "normal", "medium", "semi-bold", "bold"] }) fontWeight = "normal";
-  @field(String, { choices: ["left", "center", "right", "justify"] }) textAlign: UITextAlign = "left";
+  /** `start` (the default) and `end` follow the language's direction: `start` is left in English, right in Arabic. */
+  @field(String, { choices: ["start", "end", "left", "center", "right", "justify"] }) textAlign: UITextAlign = "start";
   /** How lines wrap: at word boundaries, anywhere, or never. */
   @field(String, { choices: ["break-word", "break-all", "keep-all"] }) wordBreak: UIWordBreak = "break-word";
 }

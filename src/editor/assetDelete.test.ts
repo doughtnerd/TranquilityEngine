@@ -45,9 +45,9 @@ describe("what uses an asset", () => {
     expect(await assetUsers(project, "prefabs/music.prefab.json")).toEqual(["project.json"]);
     expect(await assetUsers(project, "prefabs/pipe-pair.prefab.json")).toEqual(["scripts/Spawner2.ts"]);
     expect(await assetUsers(project, "prefabs/background.prefab.json")).toEqual(["scenes/main.scene.json"]);
-    // Since SM1 the prefab plays the town music event, and the event uses the clip.
-    expect(await assetUsers(project, "music/town.mp3")).toEqual(["music/town.audioevent.json"]);
-    expect(await assetUsers(project, "music/town.audioevent.json")).toEqual(["prefabs/music.prefab.json"]);
+    // Since SM1 the prefab plays the town music (a playlist since ADR 0343), and the playlist uses the clip.
+    expect(await assetUsers(project, "music/town.mp3")).toEqual(["music/town.playlist.json"]);
+    expect(await assetUsers(project, "music/town.playlist.json")).toEqual(["prefabs/music.prefab.json"]);
   });
 });
 

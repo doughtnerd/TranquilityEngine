@@ -58,10 +58,10 @@
 import type { Vec3Like } from "../../../../engine/core/math";
 import { mixer as defaultMixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../../engine/audio/mixer";
 import { Assets } from "../../../../engine/scene/Assets";
-import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioOutputDevice, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
+import type { Attenuation, AudioBackend, AudioBackground, AudioCaptureSource, AudioCodecs, AudioOutputDevice, AudioPacks, BackendKeyframe, AudioClipCache, AudioClock, AudioCpuDebug, AudioFrameMap, AudioLiveMix, AudioMixCaps, AudioMixDebug, AudioPanner, AudioStatus, AudioVoice, ClipSpanHold, ListenerPose, MusicBackend, PlayRequest, RecorderTap, ShapedFade, ShapedParams, VoiceSpatialOptions, ZoneIrService } from "../backend";
 import type { AudioLatency } from "../../../../engine/audio/musicTypes";
 import { MAX_BUSES } from "../../../../engine/audio/settings";
-import { BUS_LP_OFF_HZ, readStatus, type BusConfigBuses } from "../wire.generated";
+import { BUS_LP_OFF_HZ, FX_MEMORY_SECONDS, readStatus, type BusConfigBuses } from "../wire.generated";
 import { AudioHandle, type AudioReason } from "./handle";
 import { limiterLatencyFrames } from "./limiterLatency";
 import { ClockMap } from "./clock";
@@ -72,7 +72,7 @@ import { DEFAULT_CLIP_CEILING_MB, type AudioHost, type CoreLink, type HostHealth
 import { PlayheadTracker, Replayer, replayBusConfig, replayMaster, type ReplaySource } from "./replay";
 import { CoreSession } from "./session";
 import { CoreLoudness } from "./coreLoudness";
-import { buildDebugInfo, mixDebugInfo, type AudioDebugInfo, type DebugSource } from "./debug";
+import { buildDebugInfo, fxStarvedOwnerName, mixDebugInfo, type AudioDebugInfo, type DebugSource } from "./debug";
 import { BackgroundController } from "./background";
 import { browserHostClock, type HostClock } from "./hostClock";
 import { StatusMirror } from "./mirror";
@@ -82,6 +82,9 @@ import { connectVoiceTable, VoiceFlag, VoiceFlag2, VoiceState, VoiceTable } from
 import { reopenStamp, StreamManager, type StreamDecoderLike, type StreamManagerDeps } from "./streams";
 import { WorkletChannel } from "./workletChannel";
 import { sharedDecoderClient, type DecoderClient } from "../decoder/decoderClient";
+import { createPackHost } from "./packHost";
+import { packedMediaUrl, packedSound } from "./packMedia";
+import { headedVoice } from "./headedVoice";
 import { createWarnOnce, type WarnOnce } from "./codecs";
 import { effectiveMixedCap, Selection } from "./selection";
 import { PannerKind, PannerPick, type PannerKindCode, type PannerSink } from "./pannerPick";
@@ -102,8 +105,10 @@ import { StructuralDip } from "./structuralDip";
 import { DeferredAdds } from "./deferredAdds";
 import { setRecoveryProfileSink } from "./recovery";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
+import { EffectPluginHost } from "../effectPlugins/host";
 import { wireProfileTaps } from "../mix/profileTaps";
 import { CoreAutomation } from "./coreAutomation";
+import { CoreSubmixes } from "./submixes";
 import { CoreMusicOps, type MusicMemberTag } from "./musicOps";
 import { CoreVoices } from "./voices";
 
@@ -114,6 +119,8 @@ export interface CorePlayRequest extends PlayRequest {
   music?: MusicMemberTag;
   /** The World key of the playing World (0 or omitted: none). */
   world?: number;
+  /** W12: a stream voice opens its stream at this frame of the file (after a prefetch head that plays frames before it). */
+  streamStartFrame?: number;
 }
 
 /** One voice as `AudioVoice`, with §6's optional members required, plus the handle. */
@@ -131,7 +138,7 @@ export interface CoreVoice extends AudioVoice {
  * value: a backend is made only by `createCoreBackend`, which only `assembleCore` calls (ADR 0221, 0234).
  */
 interface CoreBackendHost {
-  readonly link: Pick<CoreLink, "batchPool" | "nextSeq" | "post" | "onStatus"> & { statusDecoder: CoreLink["statusDecoder"] } & Partial<Pick<CoreLink, "connectStreamPort">>;
+  readonly link: Pick<CoreLink, "batchPool" | "nextSeq" | "post" | "onStatus"> & { statusDecoder: CoreLink["statusDecoder"] } & Partial<Pick<CoreLink, "connectStreamPort" | "postControl" | "onShellEvent">>;
   readonly status: "locked" | "running" | "failed";
   /**
    * `maxMixed` is `voices.mixed` (selection's configured cap; absent: every logical voice may be mixed).
@@ -179,7 +186,7 @@ export interface CoreBackendDeps {
    * B3: stream plumbing. Defaults: the page's decoder client, `host.link.connectStreamPort`, a `MessageChannel`, and a
    * fetch of the asset's URL. Tests pass an in-process decoder and channel.
    */
-  streams?: Partial<Pick<StreamManagerDeps, "decoder" | "connectWorklet" | "channel" | "fetchBytes">>;
+  streams?: Partial<Pick<StreamManagerDeps, "decoder" | "connectWorklet" | "channel" | "fetchBytes" | "packRef">>;
   /** B4: warns once per asset the core can't decode (shared with the clip registry); default: the backend's own over `console.warn`. */
   warnOnce?: WarnOnce;
   /** ADR 0162 (K0, C9): zone IR preparation; default `createZoneIrService` (`zoneIr.ts`). Tests inject a fake. */
@@ -200,8 +207,12 @@ const mixerOwners = new WeakMap<Mixer, CoreBackend>();
  * (`core/assembly.ts`) through `createCoreBackend`, so no caller builds it over a hand-made host or without its clip
  * registry and background controller.
  */
-class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLiveMix, AudioCaptureSource, AudioOutputDevice, StagedFrameHost {
+class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLiveMix, AudioCaptureSource, AudioOutputDevice, AudioCodecs, StagedFrameHost {
   readonly name = "core";
+  /** ADR 0351 A4 (`AudioCodecs`): IMA ADPCM clips held compressed in the arena, decoded per voice (clip format 6, ABI 4.12). */
+  readonly adpcmCompressed = true;
+  /** ADR 0351 A7 (`AudioCodecs`): Ogg Opus in the decoder worker (libopus, decoder ABI 1.5). */
+  readonly opus = true;
 
   // ADR 0179: the core has every capability, and each is the backend itself (its own members are the capability's: no
   // object, no allocation). `music` and `automation` are its music ops and automation tables.
@@ -219,6 +230,19 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   }
   get device(): AudioOutputDevice {
     return this;
+  }
+  get codecs(): AudioCodecs {
+    return this;
+  }
+  /** ADR 0351 §7 (W12): packages in the decoder, their sounds committed to the arena at load (`packHost.ts`). */
+  get packs(): AudioPacks {
+    return (this.packHost ??= createPackHost({ decoder: () => this.decoderOf(), clips: this.clips, locked: () => this.status === "locked" }));
+  }
+  private packHost: AudioPacks | null = null;
+
+  /** ADR 0352 §7: plugin effects (the core runs them inside its chains; `effectPlugins/host.ts`). */
+  get effectPlugins(): EffectPluginHost {
+    return this.plugins;
   }
   /** ADR 0248: the output device's sink (`AudioOutputDevice`), from the host. */
   get outputSink(): string | null {
@@ -268,8 +292,14 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   private readonly voices: CoreVoices;
   /** B3: the stream voices' main side (`streams.ts`). */
   readonly streams: StreamManager;
+  /** The decoder client clips and streams use (W12: packages load into it). */
+  private readonly decoderOf: () => StreamDecoderLike;
   /** ADR 0158 (E3.1): the event runtime's automation sink on the core, and its mirror for a rebuild (`coreAutomation.ts`). */
   readonly automation: CoreAutomation;
+  /** ADR 0345: the instance submix pool (`submixes.ts`). */
+  readonly submixes: CoreSubmixes;
+  /** ADR 0352: the plugin effect registry and its worklet messages. */
+  private readonly plugins: EffectPluginHost;
   /** ADR 0166 (Q2): the music group operations (`music`); P1 and P9 fill them in `musicOps.ts`. */
   readonly musicOps: CoreMusicOps;
 
@@ -379,6 +409,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     const streamDeps = deps.streams ?? {};
     // B4: the AAC build's worker when the project decodes AAC, else the default one.
     const decoder = streamDeps.decoder ?? (() => sharedDecoderClient(this.aac ? "aac" : "default"));
+    this.decoderOf = decoder;
     // ADR 0331: the HRIR table and the MagLS filters are prepared for the context rate on that same worker.
     const prepare: SpatialPrepare = (kind, asset, rate) => {
       const worker = decoder() as StreamDecoderLike & Partial<Pick<DecoderClient, "prepareSpatial">>;
@@ -425,7 +456,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     const fetchBytes =
       streamDeps.fetchBytes ??
       (async (path: string) => {
-        const response = await fetch(Assets.url(path));
+        // ADR 0351 §7 (W12): a packaged `stream` sound's loose media (music stems read it through here).
+        const response = await fetch(packedMediaUrl(path) ?? Assets.url(path));
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return response.arrayBuffer();
       });
@@ -435,6 +467,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
       connectWorklet: () => {},
       worklet,
       fetchBytes,
+      // ADR 0351 A4: entries of packages the worker holds stream from its copy.
+      ...(streamDeps.packRef ? { packRef: streamDeps.packRef } : {}),
       onError: (id, asset, message, code) => this.voices.streamFailed(id, asset, message, code),
       sendSeek: (id, frame, epoch) => this.writer.seek(id, frame, epoch),
       // ADR 0162 B4: a FuMa stream's headroom scale multiplies its volume, as a FuMa clip's import volume.
@@ -503,6 +537,22 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
         this.lanes.refreshBusGain();
       },
     });
+    this.submixes = new CoreSubmixes({
+      writer: this.writer,
+      session: this.session,
+      poolSize: () => this.mixer.audioSettings.voices.submixes,
+      busIndex: (name) => this.busIndexByName.get(name) ?? -1,
+      profile: () => this.profile,
+      warnOnce: (key, message) => this.warnOnce(key, message),
+    });
+    this.plugins = new EffectPluginHost({
+      post: (message, transfer) => host.link.postControl?.(message, transfer),
+      warnOnce: (key, message) => this.warnOnce(key, message),
+      profile: () => this.profile,
+      kindsChanged: () => {
+        if (!this.session.disposed) this.configureBuses(this.mixer);
+      },
+    });
     this.replayer = new Replayer(this.view, host.link);
     // ADR 0176: the core voice, over the parts above (closures read the backend lazily: the buses come next).
     this.voices = new CoreVoices({
@@ -566,6 +616,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     // STATUS: decode into one block, apply in onmessage.
     host.link.statusDecoder = (_buffer, view) => this.reader.readView(view);
     this.cleanups.push(this.mirror.attach(host.link));
+    const unlisten = host.link.onShellEvent?.((event) => this.plugins.onShellEvent(event));
+    if (unlisten) this.cleanups.push(unlisten);
     // B3, after the mirror: a stream voice that moves again is no longer waiting for data.
     this.cleanups.push(this.streams.attach(host.link));
     this.streamSink = { event: (id, code) => this.streams.streamEvent(id, code) };
@@ -715,6 +767,23 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     this.clockMap.reanchor();
   }
 
+  /** ABI 4.8: STATUS `fxStarved` as last seen (a new core starts again from its own count). */
+  private fxStarvedSeen = 0;
+
+  /**
+   * ADR 0345 (ABI 4.8): the core's effect memory ran out for an effect (it passes its signal through): one warning per
+   * owner (a bus, a return, an instance submix), and `Audio.debug().mix.fxStarved` counts them.
+   */
+  private noteFxStarved(): void {
+    const h = this.mirror.header;
+    if (h.fxStarved === this.fxStarvedSeen) return;
+    const grew = h.fxStarved > this.fxStarvedSeen;
+    this.fxStarvedSeen = h.fxStarved;
+    if (!grew) return;
+    const who = fxStarvedOwnerName(h.fxStarvedOwner, this.names) ?? "an effect chain";
+    this.warnOnce(`fx-starved:${who}`, `[myco] audio: an effect of ${who} got no effect memory (the audio core holds ${FX_MEMORY_SECONDS} s of stereo for delays, reverbs, chorus and pitch shifters) and passes its signal through; shorten delay times or run fewer of those effects (ADR 0345).`);
+  }
+
   /** The bus names by index (root first), as last configured. */
   get busNames(): readonly string[] {
     return this.names;
@@ -723,12 +792,47 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
   /** Starts a clip. Returns null only when the backend can't play at all (the host failed). */
   play(req: CorePlayRequest): CoreVoice | null {
     if (this.disposed || this.host.status === "failed") return null;
+    const head = this.prefetchHead(req);
+    if (head) return this.playHeaded(req, head);
     // A3.4a: while locked or a hard rebuild runs, new plays wait in the locked queue (`voices.start` asks `maySend`).
     const id = this.voices.start(req);
     if (id === 0) return null;
     const voice = new Voice(this.voices, this.table, id, this.automation);
     this.automation.onPlay(voice, req);
     return voice;
+  }
+
+  /**
+   * ADR 0351 §3 (W12): the resident prefetch head a stream play of a packaged `stream` sound starts on (frames and rate),
+   * or null to stream as usual: no head, not resident, a stamp can't be exact (locked, a rebuild, no clock yet), or the
+   * play asks for what a head can't give (a start offset, a span, a music member).
+   */
+  private prefetchHead(req: CorePlayRequest): { frames: number; rate: number } | null {
+    if (!req.stream || req.music || req.span || (req.offset ?? 0) > 0 || !this.session.maySend || !this.clips.acquireSpan) return null;
+    const packed = packedSound(req.path);
+    if (!packed || packed.load !== "stream" || packed.headFrames <= 0) return null;
+    // A peek: the package holds the head, so this reference changes nothing.
+    const id = this.clips.acquireSpan(req.path, 0, packed.headFrames);
+    const info = this.clips.info(id);
+    this.clips.release(id);
+    if (!info || info.state !== "ready" || !(info.sampleRate > 0) || info.frames <= 0) return null;
+    const now = this.clockMap.framesNow();
+    if (!(now > 0)) return null;
+    return { frames: info.frames, rate: info.sampleRate };
+  }
+
+  /** W12: the head as a clip voice at T0 and the stream from the head's end at T0 + its length, as one voice (`headedVoice.ts`). */
+  private playHeaded(req: CorePlayRequest, head: { frames: number; rate: number }): CoreVoice | null {
+    const horizon = this.horizon();
+    const at = req.at !== undefined && Number.isFinite(req.at) && req.at > horizon ? req.at : horizon;
+    const pitch = req.pitch !== undefined && Number.isFinite(req.pitch) && req.pitch > 0 ? req.pitch : 1;
+    const bodyId = this.voices.start({ ...req, at: at + head.frames / (head.rate * pitch), streamStartFrame: head.frames });
+    if (bodyId === 0) return null;
+    const body = new Voice(this.voices, this.table, bodyId, this.automation);
+    this.automation.onPlay(body, req);
+    const headId = this.voices.start({ ...req, stream: false, loop: false, at, span: { startFrame: 0, endFrame: head.frames } });
+    if (headId === 0) return body;
+    return headedVoice(new Voice(this.voices, this.table, headId, this.automation), body);
   }
 
   /** The listener pose the spatial voices' distance gains and directions come from (`voices.setListener`). */
@@ -804,6 +908,7 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     if (this.mirror.blocks > this.staleBlocks) clockMap.noteStatus(this.mirror.frameAudio, this.mirror.frameDateMs);
     this.syncMixerClock();
     this.mirror.beginFrame();
+    this.noteFxStarved();
     // F-9b: stem levels whose stamps come before this frame's asap records land (selection and dry-gain writes read them).
     // Asap records apply on arrival, about `framesNow`; a stamp after that is still pending (`ClockMap.stampFor`'s rule).
     this.table.resolveStems(clockMap.framesNow());
@@ -879,7 +984,14 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     // Ma3: a reconfigure starts from the settings, and a failed or disposed backend applies nothing: no queued live add survives.
     const clearAdds = () => this.deferredAdds.clear();
     s.join("deferredAdds", { reconfigure: clearAdds, recoveryFailed: clearAdds, dispose: clearAdds });
-    s.join("buses", { reconfigure: (mixer) => this.buses.configureBuses(mixer), replayHeader: (b) => replayBusConfig(b, this.busConfigWire()) });
+    s.join("buses", {
+      reconfigure: (mixer) => this.buses.configureBuses(mixer),
+      // ADR 0344: the sends into returns after the tree (they name bus slots).
+      replayHeader: (b) => {
+        replayBusConfig(b, this.busConfigWire());
+        this.buses.replaySends(b);
+      },
+    });
     s.join("loudness", this.loudness);
     s.join("voices", {
       busesReset: () => voices.busesReset(),
@@ -921,6 +1033,8 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     s.join("master", { replayHeader: (b) => replayMaster(b, this.master, this.isMuted || this.hiddenMuteOn) });
     s.join("listener", { replayHeader: (b) => this.listener.replay(b) });
     s.join("automation", { replayHeader: (b) => this.automation.replayHeader(b), replayVoice: (b, v) => this.automation.replayVoice(b, v.id, v.i) });
+    s.join("effectPlugins", { endRecovery: () => this.plugins.replay(), dispose: () => this.plugins.dispose() });
+    s.join("submixes", { replayHeader: (b) => this.submixes.replayHeader(b), busesReset: () => this.submixes.busesReset(), dispose: () => this.submixes.clear() });
     s.join("voiceFx", { replayVoice: (b, v) => (v.mixed ? this.voiceFx.replayVoice(b, v.id, v.i) : undefined) });
     s.join("musicOps", {
       beginRecovery: () => this.musicOps.rebuilding(true),
@@ -1011,6 +1125,9 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     info.cpu = this.cpu();
     info.mix = this.mixDebug();
     info.recorder = null;
+    // ADR 0352 §6: the registered plugin effects (none: no section).
+    const plugins = this.plugins.health();
+    if (plugins.length > 0) info.plugins = plugins.map((p) => ({ ...p, faults: { ...p.faults } }));
     return info;
   }
 
@@ -1337,10 +1454,29 @@ class CoreBackend implements AudioBackend, AudioClipCache, AudioClock, AudioLive
     limits.hrtf = limit;
     limits.nowMs = this.gameMs;
     limits.bedSlot = this.beds.bedSlot;
+    limits.bedOnly = beds ? this.markBedOnly(settings.bed.beyond) : undefined;
     if (this.panners.run(limits, this.pannerSink) > 0) this.hrir.ensure();
   }
   /** ADR 0162 (K4): the panner pick's inputs, reused (`bedSlot` is the bed planner's live map). */
-  private readonly pannerLimits: { hrtf: number; nowMs: number; bedSlot: ArrayLike<number> } = { hrtf: 0, nowMs: 0, bedSlot: new Uint8Array(0) };
+  private readonly pannerLimits: { hrtf: number; nowMs: number; bedSlot: ArrayLike<number>; bedOnly: ArrayLike<number> | undefined } = { hrtf: 0, nowMs: 0, bedSlot: new Uint8Array(0), bedOnly: undefined };
+  /** ADR 0347: per slot, 1 for a voice the pick sends to its bus's bed whatever its rank (reused). */
+  private bedOnly = new Uint8Array(0);
+
+  /**
+   * ADR 0347: marks the spatial voices that go to their bus's bed whatever their rank: those asking for it (an audio
+   * zone's interior, `PlayRequest.bed`) and those farther from the listener than `beyond` metres (`audio.bed.beyond`,
+   * the project's `settings.bedBeyond`; absent or 0: none by distance).
+   */
+  private markBedOnly(beyond: number | undefined): Uint8Array {
+    const t = this.table;
+    if (this.bedOnly.length !== t.capacity) this.bedOnly = new Uint8Array(t.capacity);
+    const out = this.bedOnly;
+    const far = beyond !== undefined && Number.isFinite(beyond) && beyond > 0 ? beyond : Infinity;
+    for (let i = 0; i < t.capacity; i++) {
+      out[i] = (t.flags[i]! & VoiceFlag.SPATIAL) !== 0 && t.state[i] !== VoiceState.FREE && ((t.flags2[i]! & VoiceFlag2.BED) !== 0 || this.voices.distanceOf(i) > far) ? 1 : 0;
+    }
+    return out;
+  }
 
   /** H3, ADR 0162 C1: SET_PARAMS `flags` for slot `i`'s panner kind (0 equal-power, 1 HRTF, 2 bed). */
   private sendPanner(i: number, kind: PannerKindCode): void {

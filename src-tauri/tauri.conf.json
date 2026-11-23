@@ -33,6 +33,18 @@
         "fullscreen": false,
         "visible": false,
         "create": false
+      },
+      {
+        "label": "studio",
+        "title": "Myco Audio Studio",
+        "url": "studio.html",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 600,
+        "resizable": true,
+        "fullscreen": false,
+        "create": false
       }
     ],
     "security": {

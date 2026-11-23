@@ -1,10 +1,38 @@
 import { effect } from "@preact/signals";
-import { describe, expect, it } from "vitest";
-import type { FsaDirectoryHandle } from "./fsaFileSystem";
+import { describe, expect, it, vi } from "vitest";
+import { FsaFileSystem, type FsaDirectoryHandle } from "./fsaFileSystem";
 import { MemoryDirectoryHandle } from "./fsaMemory";
 import { joinPath } from "./projects";
 import { locationOf, RecentProjects, type HandleStore, type ListStore } from "./recentProjectList";
+import { rememberProject } from "./recentProjects";
 import { MemoryFileSystem } from "./testing";
+
+describe("rememberProject (the editor's and the Studio's)", () => {
+  it("adds a desktop folder by its path, a browser folder by its handle, and skips a project in memory", async () => {
+    const s = stores();
+    const recent = new RecentProjects(s.list, s.handles);
+    await rememberProject({ name: "Desk", fileSystem: new MemoryFileSystem(), root: "/games/desk" }, "studio", recent);
+    const fsa = new FsaFileSystem(null);
+    const handle = new MemoryDirectoryHandle("Web Game");
+    const root = await fsa.mount(handle);
+    await rememberProject({ name: "Web", fileSystem: fsa, root }, "studio", recent);
+    await rememberProject({ name: "Sample", fileSystem: null, root: null }, "studio", recent);
+    expect(recent.list().map((e) => [e.name, e.kind, e.path])).toEqual([
+      ["Web", "handle", "Web Game"],
+      ["Desk", "path", "/games/desk"],
+    ]);
+    expect(await recent.handle(recent.list()[0]!.id)).toBe(handle);
+  });
+
+  it("warns, never throws, when the folder can't be remembered", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const recent = new RecentProjects(stores().list, null);
+    await expect(rememberProject({ name: "A", fileSystem: new FsaFileSystem(null), root: "/gone" }, "studio", recent)).resolves.toBeUndefined();
+    expect(warn.mock.calls[0]?.[0]).toMatch(/^\[studio\] couldn't add \/gone to the recent projects: /);
+    expect(recent.list()).toEqual([]);
+    warn.mockRestore();
+  });
+});
 
 function stores() {
   let text: string | null = null;

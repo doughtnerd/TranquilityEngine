@@ -13,7 +13,7 @@ import { releaseCapture } from "./capture";
 import { CAPTURE_TRIGGER_MAX_FILES } from "./format";
 import { defaultSaveEnv, webSaveCount, type SaveEnv } from "./save";
 import { keyframeCodecForTests, statusBytes, type CaptureChunkControl } from "./testSupport";
-import { installCaptureTrigger, type TriggerEnv } from "./trigger";
+import { installCaptureTrigger, installTakeTrigger, type TriggerEnv } from "./trigger";
 
 /** The recorder and save chunks are the real ones, wrapped: a 4 MiB ring, each save through the rig's fakes. */
 const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
@@ -170,6 +170,29 @@ describe("F9", () => {
     release();
     await vi.waitFor(() => expect(r.cap.state).toBe("recording"));
     expect(r.calls).toEqual(["start"]);
+  });
+});
+
+describe("F10: the take trigger (ADR 0348)", () => {
+  it("F10 starts a take and the next F10 stops and saves it; F9 and touches do nothing to it", async () => {
+    const target = fakeTarget();
+    const { cap, calls } = fakeCapture();
+    const toasts: string[] = [];
+    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: true, schedule: manualSchedule().schedule });
+    const press = async (k: string) => {
+      target.fire("keydown", key(k));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    expect(target.listeners.get("touchstart")?.size ?? 0).toBe(0);
+    await press("F9");
+    expect(calls).toEqual([]);
+    await press("F10");
+    await vi.waitFor(() => expect(calls).toEqual(["start"]));
+    expect(toasts).toEqual(["Recording a take…"]);
+    await press("F10");
+    await vi.waitFor(() => expect(calls).toEqual(["start", "stop", "save"]));
+    uninstall();
+    expect(target.count()).toBe(0);
   });
 });
 

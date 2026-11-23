@@ -1,0 +1,28 @@
+# The reference audio effect plugin (ADR 0352 §10): a tremolo on the myco-fx SDK. Its own workspace (not a member of
+# native/fx-sdk), as a plugin author's crate would be. Built by `node native/fx-sdk/build.mjs` into ../dsp/tremolo.wasm.
+[workspace]
+resolver = "2"
+
+[package]
+name = "tremolo"
+version = "1.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+myco-fx = { path = "../../../../../native/fx-sdk/myco-fx" }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+strip = true
+
+[profile.dev]
+panic = "abort"

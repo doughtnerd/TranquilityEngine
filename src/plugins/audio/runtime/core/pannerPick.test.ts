@@ -252,3 +252,39 @@ describe("PannerPick, beds (ADR 0162 A5)", () => {
     expect(kinds(s)).toEqual([PannerKind.HRTF, PannerKind.EQUAL_POWER, PannerKind.EQUAL_POWER]);
   });
 });
+
+describe("PannerPick, bed-only voices (ADR 0347: bedBeyond, audio zone interiors)", () => {
+  it("a bed-only voice is never HRTF: the bed where its bus has one, equal-power without; the rest keep their rank", () => {
+    const { pick, bedSlot, sink, flagged, log } = setup([0.9, 0.8, 0.7]);
+    bedSlot[0] = 0;
+    const bedOnly = new Uint8Array(64);
+    bedOnly[0] = 1; // the loudest, but past bedBeyond (or inside a zone)
+    pick.run({ hrtf: 4, bedSlot, nowMs: 0, bedOnly }, sink);
+    expect(flagged()).toEqual([1, 2]);
+    expect(pick.kindOf(0)).toBe(PannerKind.BED);
+    expect(log.sort()).toEqual(["+1", "+2", "b0"]);
+    // Its bus loses its bed: equal-power, still not HRTF.
+    bedSlot[0] = 0xff;
+    log.length = 0;
+    pick.run({ hrtf: 4, bedSlot, nowMs: 1000, bedOnly }, sink);
+    expect(pick.kindOf(0)).toBe(PannerKind.EQUAL_POWER);
+    expect(flagged()).toEqual([1, 2]);
+  });
+
+  it("an HRTF voice that becomes bed-only leaves HRTF for the bed after the kind dwell; back near, it takes a slot again", () => {
+    const { pick, bedSlot, sink, flagged } = setup([0.9]);
+    bedSlot[0] = 0;
+    const bedOnly = new Uint8Array(64);
+    pick.run({ hrtf: 2, bedSlot, nowMs: 0, bedOnly }, sink);
+    expect(flagged()).toEqual([0]);
+    bedOnly[0] = 1;
+    pick.run({ hrtf: 2, bedSlot, nowMs: 100, bedOnly }, sink); // within the 500 ms dwell: held
+    expect(flagged()).toEqual([0]);
+    pick.run({ hrtf: 2, bedSlot, nowMs: 700, bedOnly }, sink);
+    expect(flagged()).toEqual([]);
+    expect(pick.kindOf(0)).toBe(PannerKind.BED);
+    bedOnly[0] = 0;
+    pick.run({ hrtf: 2, bedSlot, nowMs: 800, bedOnly }, sink);
+    expect(flagged()).toEqual([0]);
+  });
+});

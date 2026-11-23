@@ -1,6 +1,6 @@
 # 0158. Audio events are data assets; main picks their voices when something happens, and the core runs everything continuous: parameters, curves, blends and sustain loops
 
-- **Status:** Accepted, amended by 0166 and 0167 (`myco.audioevent@1` gains music nodes: segment, playlist, musicSwitch, transition rules, stingers; its handle gains `music`, `onMusic` and `trigger`); amended by 0172 (automation is a gain lane); amended by 0268 (§7 Audition is a view over the editor's one audition module, which owns its lifetime)
+- **Status:** Accepted, amended by 0166 and 0167 (`myco.audioevent@1` gains music nodes: segment, playlist, musicSwitch, transition rules, stingers; its handle gains `music`, `onMusic` and `trigger`); amended by 0172 (automation is a gain lane); amended by 0268 (§7 Audition is a view over the editor's one audition module, which owns its lifetime); partly superseded by 0343 (the `*.audioevent.json` format and node types are replaced by playlists; old files migrate) and amended by 0346 (curves gain Bézier keys and may be keyed on time)
 - **Date:** 2026-11-10
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

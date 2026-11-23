@@ -2,7 +2,7 @@
 // with a recording stub sink. A busRamp is the lane's name, its frames (a 0-second write is `BUS_MIN_RAMP_MS` long on the
 // wire) and its target; a write that changes nothing taps nothing; a mixer with no tap pays one null check.
 import { describe, expect, it } from "vitest";
-import { BUS_MIN_RAMP_MS, DRAG_RAMP_MS, Mixer } from "../../../../engine/audio/mixer";
+import { BUS_MIN_RAMP_MS, DRAG_RAMP_MS, Mixer, SNAPSHOT_SEGMENT_MS } from "../../../../engine/audio/mixer";
 import { parseAudioSettings } from "../../../../engine/audio/settings";
 import { NULL_PROFILE_SINK } from "./profileSink";
 import { mixerTapFor, taps, wireProfileTaps } from "./profileTaps";
@@ -54,11 +54,15 @@ describe("the mixer's setter taps (§5.6 kinds 11, 14, 15)", () => {
     expect(stub.calls.every((c) => c[0] === "busRamp" && c[2] === "runtime" && c[3] === Math.round((BUS_MIN_RAMP_MS / 1000) * RATE))).toBe(true);
   });
 
-  it("a snapshot taps one snapshot record and a snapshot-lane ramp per bus that moves; clearing it is the empty name", () => {
+  // ADR 0344 (ABI 4.8): a snapshot fade is linear in dB, and its lane is one ramp of the core's dB law to the fade's end.
+  it("a snapshot taps one snapshot record and one snapshot-lane ramp per bus that moves; clearing it is the empty name", () => {
     const { mixer, stub } = rig();
     mixer.snapshot("Paused", 0.5);
     expect(stub.of("snapshot")).toEqual([["Paused", 0.5]]);
-    expect(stub.of("busRamp")).toEqual([[ref("Music"), "snapshot", Math.round(0.5 * RATE), 0.5]]);
+    expect(stub.of("busRamp")).toEqual([[ref("Music"), "snapshot", Math.round(0.5 * RATE), expect.closeTo(0.5, 6)]]);
+    mixer.update(0.1);
+    expect(stub.of("busRamp")).toHaveLength(1); // the next segments find the lane already heading there
+    mixer.update(0.4);
     stub.clear();
     mixer.clearSnapshot(0.25);
     expect(stub.of("snapshot")).toEqual([["", 0.25]]);

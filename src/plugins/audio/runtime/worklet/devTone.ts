@@ -25,7 +25,7 @@ export async function main(root: HTMLElement): Promise<void> {
   link.debugTone(440, 0.1);
   let lastPing = 0;
   let errors = "";
-  link.onShellEvent((e) => (errors += `${e.type}: ${e.message}\n`));
+  link.onShellEvent((e) => (errors += `${e.type}: ${"message" in e ? e.message : ""}\n`));
   const toneButton = root.querySelector<HTMLButtonElement>("#tone")!;
   toneButton.onclick = () => {
     toneOn = !toneOn;

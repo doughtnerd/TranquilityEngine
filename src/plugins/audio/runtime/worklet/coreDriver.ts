@@ -50,8 +50,9 @@ import {
   writeStreamClose,
   writeStreamCredit,
 } from "../wire.generated";
-import { askCoreMemory, clipSampleBytes, CoreLoadError, EXPECTED, initRecord, initRefusal, MEMORY_INITIAL_PAGES, openCore, writeInitRecord, type CoreExpectations } from "./coreMemory";
+import { askCoreMemory, clipChunkBytes, CoreLoadError, EXPECTED, initRecord, initRefusal, MEMORY_INITIAL_PAGES, openCore, writeInitRecord, type CoreExpectations } from "./coreMemory";
 import { UnderrunProbe } from "./underrunProbe";
+import { EffectGlue, type FxControlMessage, type FxShellEvent } from "./effectGlue";
 import { peekKind } from "../wireEnvelope";
 
 /** @internal The name `processor.ts` registers and the host creates its node with. */
@@ -88,10 +89,12 @@ export type CoreControlMessage =
   | { readonly type: "debugTone"; readonly hz: number; readonly gain: number }
   | { readonly type: "retire" }
   /** B3: the worklet's end of the channel to the decoder worker (transferred); a later one replaces it. */
-  | { readonly type: "streamPort"; readonly port: MessagePort };
+  | { readonly type: "streamPort"; readonly port: MessagePort }
+  /** ADR 0352 (B4): plugin effect modules for the glue (`effectGlue.ts`). */
+  | FxControlMessage;
 
 /** @internal What the shell posts that isn't a wire buffer. */
-export type CoreShellEvent = { readonly type: "error"; readonly message: string } | { readonly type: "trap"; readonly message: string };
+export type CoreShellEvent = { readonly type: "error"; readonly message: string } | { readonly type: "trap"; readonly message: string } | FxShellEvent;
 
 /** @internal The exports the shell calls (api-and-models §5). Pointers and sizes are numbers. */
 export interface CoreExports {
@@ -129,6 +132,8 @@ export interface CoreInstance {
   readonly exports: CoreExports;
   readonly memory: WebAssembly.Memory;
   readonly sampleRate: number;
+  /** ADR 0352 (ABI 5.0): the plugin effect glue bound to the core's `myco_ext` import. */
+  readonly plugins: EffectGlue;
 }
 
 /**
@@ -147,7 +152,10 @@ export function instantiateCore(wasm: BufferSource | WebAssembly.Module, preset:
   }
   const { maximumPages } = askCoreMemory(module, preset, sampleRate, expected);
   const memory = new WebAssembly.Memory({ initial: MEMORY_INITIAL_PAGES, maximum: maximumPages });
-  const exports = openCore(module, memory, expected);
+  // ADR 0352: the core calls plugin effects through `myco_ext`, which the glue answers (pass-through until a module is
+  // loaded).
+  const plugins = new EffectGlue(sampleRate);
+  const exports = openCore(module, memory, plugins.imports, expected);
   // Init first: it's the one call that grows memory, and it must land on the same pages every time.
   const record = initRecord(preset, sampleRate);
   writeInitRecord(exports, memory, record);
@@ -157,7 +165,8 @@ export function instantiateCore(wasm: BufferSource | WebAssembly.Module, preset:
   if (typeof exports.myco_audio_set_limiter_lookahead !== "function") throw new CoreLoadError("audio core: the module lacks myco_audio_set_limiter_lookahead (1.1)");
   const lookahead = exports.myco_audio_set_limiter_lookahead(preset.limiterLookaheadMs);
   if (lookahead !== 0) throw new CoreLoadError(`audio core: myco_audio_set_limiter_lookahead refused (code ${lookahead})`);
-  return { exports, memory, sampleRate };
+  plugins.attach(memory);
+  return { exports, memory, sampleRate, plugins };
 }
 
 /** @internal Where the shell's own STATUS fields sit (api-and-models §4.3): the generated header columns' offsets. */
@@ -188,9 +197,10 @@ export type CorePost = (message: ArrayBuffer | CoreShellEvent, transfer?: Transf
 /** @internal Most clip bytes the shell copies per quantum (architecture §3.5, api-and-models §5: 256 KB). */
 export const CLIP_BYTES_PER_QUANTUM = 256 * 1024;
 
-/** What the shell remembers of a reserved clip: enough to size its chunks. */
+/** What the shell remembers of a reserved clip: enough to size its chunks (`clipChunkBytes`). */
 interface ClipShape {
-  readonly frameBytes: number;
+  readonly format: number;
+  readonly channels: number;
 }
 
 /** What the shell keeps per open stream (B3): its shape, the credit due, and the chunk buffers to hand back. */
@@ -274,6 +284,7 @@ export class CoreDriver {
     this.lastBatchDate = dateNow;
     this.u8 = new Uint8Array(core.memory.buffer);
     this.f32 = new Float32Array(core.memory.buffer);
+    core.plugins.setPost((event) => this.post(event));
   }
 
   /** Re-creates the memory views when memory grew (growth detaches them; api-and-models §5 "Ownership"). */
@@ -366,12 +377,12 @@ export class CoreDriver {
     }
   }
 
-  /** A chunk's sample bytes: `frames * channels * bytesPerSample`, never the (padded) body size; 0 when unusable. */
+  /** A chunk's bytes (`clipChunkBytes`: its samples, or its ADPCM blocks), never the (padded) body size; 0 when unusable. */
   private chunkBytes(view: DataView): number {
     if (view.byteLength < CLIP_CHUNK_FIXED_END) return 0;
     const chunk = readClipChunk(view, 0);
     const shape = this.clips.get(chunk.clipId);
-    return shape ? chunk.frames * shape.frameBytes : 0;
+    return shape ? clipChunkBytes(shape.format, shape.channels, chunk.frames) : 0;
   }
 
   /** CLIP_BEGIN → `myco_audio_clip_reserve` (may grow memory: the views are re-created before the next copy). */
@@ -382,7 +393,8 @@ export class CoreDriver {
     this.views();
     // A refusal is reported by the core as a STATUS clip event (refusedCeiling / refusedGrow).
     // ADR 0162 C6: formats 3-5 are f32 (a format 3 kernel is `channels` 1, `frames` = bytes / 4).
-    if (code === 0) this.clips.set(begin.clipId, { frameBytes: begin.channels * clipSampleBytes(begin.format) });
+    // ADR 0351 A4: format 6 chunks carry whole IMA ADPCM blocks.
+    if (code === 0) this.clips.set(begin.clipId, { format: begin.format, channels: begin.channels });
   }
 
   /** CLIP_CHUNK → `clip_chunk_ptr`, one copy from the message, `clip_commit`; the last range makes the clip resident. */
@@ -573,8 +585,12 @@ export class CoreDriver {
     post(buffers, buffers);
   }
 
-  /** A dev-only control (`debugTone`). */
-  onControl(message: CoreControlMessage): void {
+  /**
+   * A control message: the dev-only `debugTone`, or ADR 0352's plugin effect modules (`fxLoad`, `fxUnload`, `fxReset`),
+   * which go to the glue; an `fxLoad` compiles asynchronously and the returned promise settles once it has.
+   */
+  onControl(message: CoreControlMessage): Promise<void> | void {
+    if (message.type === "fxLoad" || message.type === "fxUnload" || message.type === "fxReset") return this.dead ? undefined : this.core.plugins.onControl(message);
     if (message.type !== "debugTone") return;
     const on = message.hz > 0 && message.gain > 0;
     this.toneStep = on ? (TWO_PI * message.hz) / this.core.sampleRate : 0;
@@ -629,6 +645,8 @@ export class CoreDriver {
     }
     this.clipBudget = CLIP_BYTES_PER_QUANTUM;
     if (this.clipQueue.length > 0) this.drainClips();
+    // ADR 0352: plugin recoveries run here, never inside the core's call; nothing before a module is loaded.
+    if (this.core.plugins.active) this.core.plugins.beginQuantum(currentFrame);
     let ptr = 0;
     try {
       ptr = this.core.exports.myco_audio_process(currentFrame % 4_294_967_296 >>> 0, Math.floor(currentFrame / 4_294_967_296));

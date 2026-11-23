@@ -6,6 +6,7 @@
 import { Text } from "../../../engine/render/components";
 import type { RenderFeatureSpec } from "../../../engine/render/renderFeatures";
 import { isUIComponent, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../../../engine/ui/components";
+import { LocalizedText } from "../../../engine/ui/LocalizedText";
 import { UIDocument } from "../../../engine/ui/UIDocument";
 import { UIControlMapper } from "../../../engine/ui/controlMapper";
 import type { RuntimePlugin } from "../../runtimeContext";
@@ -16,6 +17,8 @@ export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlig
 export { UIActions, UI_CONTEXT_PRIORITY } from "../../../engine/ui/navigation";
 export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, type UIControlMapperRow, type UIControlMapperSetting, type UIControlMapperSettingKind, type UIControlMapperText } from "../../../engine/ui/controlMapper";
 export { UIClassList, UIDocument, UIDocumentElement, UIEvents, type UIEvent, type UIEventHandler, type UIEventType, type UIListOptions, type UITag } from "../../../engine/ui/UIDocument";
+// ADR 0356 §4: localised text for hand-built scene UI.
+export { LocalizedText } from "../../../engine/ui/LocalizedText";
 
 /**
  * Screen and world UI canvases and their elements, and `Text`; loaded the first time a World
@@ -35,7 +38,7 @@ const UI_SPEC: RenderFeatureSpec = {
 export const uiRuntimePlugin: RuntimePlugin = {
   manifest: uiManifest,
   activate(context) {
-    context.registerComponents([UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UIDocument, UIControlMapper, Text]);
+    context.registerComponents([UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UIDocument, UIControlMapper, Text, LocalizedText]);
     context.registerRenderFeature({
       spec: UI_SPEC,
       load: () => import("./uiFeature").then((m) => m.loadUIFeature()),

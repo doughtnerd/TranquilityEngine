@@ -94,7 +94,7 @@ export class KeyframeSource {
   private meteredFlags = new Uint8Array(KEYFRAME_MAX_BUSES);
   /** Each event instance's live voices (`BackendKeyframe.eventVoices`), refilled per keyframe. */
   private readonly listed = new Map<number, number>();
-  private readonly auto = { gain: 1, pitch: 1, lowpass: 0 };
+  private readonly auto = { gain: 1, pitch: 1, lowpass: 0, highpass: 0, pan: 0 };
   private readonly payload: { -readonly [K in keyof BackendKeyframe]: BackendKeyframe[K] } = {
     voices: this.voices, buses: this.buses, metered: this.meteredOut, eventVoices: this.listed,
     mix: { slotTableVersion: 0, monitorActive: 0, loudnessPausedMask: 0, targetIndex: 0, snapshotName: 0, masterVolume: 1, hiddenMute: 0 },

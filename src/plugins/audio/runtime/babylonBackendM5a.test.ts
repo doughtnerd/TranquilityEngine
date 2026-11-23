@@ -112,7 +112,8 @@ describe("BabylonBackend events, main-side (§9 Profiler and capture, §5.6)", (
     mixer.snapshot("Quiet", 1);
     mixer.setMonitor("SFX", { mute: true });
     expect(rec.of("busRamp").some((c) => c[0] === SLOT.Music && c[1] === "runtime" && c[3] === 0.5)).toBe(true);
-    expect(rec.of("busRamp").some((c) => c[0] === SLOT.Music && c[1] === "snapshot" && c[3] === 0.5)).toBe(true);
+    // ADR 0344 (ABI 4.8): the snapshot lane's one ramp, linear in dB, to 0.5 at the fade's end.
+    expect(rec.of("busRamp").some((c) => c[0] === SLOT.Music && c[1] === "snapshot" && Math.abs((c[3] as number) - 0.5) < 1e-6)).toBe(true);
     expect(rec.of("snapshot")).toEqual([["Quiet", 1]]);
     expect(rec.of("monitor")).toEqual([[1 << SLOT.SFX]]);
   });

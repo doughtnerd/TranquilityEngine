@@ -14,7 +14,8 @@
  *
  * Renderer-neutral and nothing here is public API (ADR 0010).
  */
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType, type UIWordBreak } from "./components";
+import { Locale } from "../localisation/Locale";
+import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType, type UITextAlign, type UIWordBreak } from "./components";
 import type { UIPseudo, UITag } from "./document/types";
 import { fontFamilyOf } from "./fonts";
 import type { UIKind, UITextRun, UITextWrap } from "./uiCoreTypes";
@@ -130,6 +131,13 @@ export function cssFontWeight(w: string): string {
 
 const WRAPS: Readonly<Record<UIWordBreak, UITextWrap>> = { "break-word": "word", "break-all": "anywhere", "keep-all": "none" };
 
+/** A `textAlign` value as an edge: `start` and `end` resolved for the direction (ADR 0356 §5). */
+function textAlignEdge(align: UITextAlign, direction: "ltr" | "rtl"): UITextRun["align"] {
+  if (align === "start") return direction === "rtl" ? "right" : "left";
+  if (align === "end") return direction === "rtl" ? "left" : "right";
+  return align === "center" || align === "right" || align === "justify" ? align : "left";
+}
+
 /**
  * The text an element shows, resolved: a `UIText`'s text, or an input field's value (its placeholder
  * while empty) on one line. Null for kinds without text. A fresh object each call.
@@ -138,10 +146,13 @@ export function textRunOf(c: UIComponentType): UITextRun | null {
   if (c instanceof UIInputField) {
     // One line: a line break a script put in the value shows as a space (one for one, so caret indices still match).
     const text = (c.value || c.placeholder).replace(/[\r\n]/g, " ");
-    return { text, fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: "none" };
+    // Drawn from the language's start edge (ADR 0356 §5).
+    const direction = Locale.direction;
+    return { text, fontSize: c.fontSize, fontWeight: "400", fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: "none", direction, align: textAlignEdge("start", direction) };
   }
   if (c instanceof UIText) {
-    return { text: c.text, fontSize: c.fontSize, fontWeight: cssFontWeight(c.fontWeight), fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: WRAPS[c.wordBreak] ?? "word" };
+    const direction = Locale.direction;
+    return { text: c.text, fontSize: c.fontSize, fontWeight: cssFontWeight(c.fontWeight), fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: WRAPS[c.wordBreak] ?? "word", direction, align: textAlignEdge(c.textAlign, direction) };
   }
   return null;
 }
@@ -150,5 +161,5 @@ export function textRunOf(c: UIComponentType): UITextRun | null {
 export function sameTextRun(a: UITextRun | null, b: UITextRun | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  return a.text === b.text && a.fontSize === b.fontSize && a.fontWeight === b.fontWeight && a.fontFamily === b.fontFamily && a.lineHeight === b.lineHeight && a.wrap === b.wrap;
+  return a.text === b.text && a.fontSize === b.fontSize && a.fontWeight === b.fontWeight && a.fontFamily === b.fontFamily && a.lineHeight === b.lineHeight && a.wrap === b.wrap && a.direction === b.direction && a.align === b.align;
 }

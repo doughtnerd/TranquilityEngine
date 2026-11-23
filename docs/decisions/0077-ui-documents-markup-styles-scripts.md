@@ -128,7 +128,7 @@ We considered JSX or htm with Preact as the main authoring language. Preact outp
 
 - Animations and transitions in stylesheets, and how they meet the polled-state model.
 - Keyboard and gamepad navigation between elements (from 0020 and 0069), possibly through `tab-index`-like attributes in markup.
-- Localisation: whether `{name}` bindings or a separate `t:` key form carry translated strings.
+- Localisation: whether `{name}` bindings or a separate `t:` key form carry translated strings. *Resolved by 0356: `t:<field>="key"` attributes, with arguments from the binding scope.*
 - A visual stylesheet editor in the editor, beyond "Move to class".
 
 ## References

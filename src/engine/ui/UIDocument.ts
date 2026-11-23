@@ -4,6 +4,11 @@
  * web-like API over them: `query`, `queryAll`, `data` for `{name}` bindings, `list()` for repeated
  * rows, and element handlers (`on("click", …)`) over the polled state and the `UIEvents` buffer.
  *
+ * Localised text (ADR 0356 §4): `t:<field>="key"` sets a text field to the key's message in the
+ * current language, its arguments read like `{name}` bindings (the row's item, then `data`) and the key
+ * itself may hold bindings (`t:text="weapon.{id}.name"`); `translate="no"` marks text as deliberately
+ * unlocalised; stylesheets match the language with `:lang()`. All of it follows `Locale.epoch`.
+ *
  * The nodes it builds belong to the document: they aren't in the scene file, and they're rebuilt when
  * the document, a document it uses or a stylesheet changes. The parsers (`htmlparser2`, `css-tree`)
  * load the first time a World has a document (`loadUIDocumentSupport`, which scene loading awaits
@@ -22,7 +27,8 @@ import { UIButton, UICanvas, UIInputField, type UIComponentType } from "./compon
 import { uiPseudoState, uiTypeOfTag } from "./elementKinds";
 import { uiInteractions, type UIInteractionType } from "./interactions";
 import { childPaths, labelPath } from "./documentSource";
-import type { BindingPart, MarkupElement, ResolvedValue, Selector, SourceProblem, StyleTarget, UIPseudo, UIStylesheet, UITag } from "./document/types";
+import type { BindingPart, MarkupAttribute, MarkupElement, ResolvedValue, Selector, SourceProblem, StyleTarget, UIPseudo, UIStylesheet, UITag } from "./document/types";
+import { Locale, localeMessageNames, type MessageArg } from "../localisation/Locale";
 
 export type { SourceProblem, UITag } from "./document/types";
 
@@ -132,6 +138,12 @@ interface Binding {
   readonly field: string;
   readonly info: FieldInfo;
   readonly parts: readonly BindingPart[];
+  /** A key attribute (`t:text="weapon.{id}.name"`, ADR 0356 §4): the key, with `{name}` bindings picking it per row. */
+  readonly key?: readonly BindingPart[];
+  /** A key binding's text content: shown while the key resolves nowhere. */
+  fallback?: readonly BindingPart[] | null;
+  /** A key binding's last message: reused while the epoch, the key and its arguments are unchanged. */
+  cache?: { epoch: number; key: string; names: readonly string[] | null; args: readonly unknown[]; value: string };
   /** The last value written, to write only changes (so typing in a bound field isn't overwritten). */
   last: unknown;
   written: boolean;
@@ -141,6 +153,7 @@ interface MutableTarget extends StyleTarget {
   classes: string[];
   state: Record<UIPseudo, boolean>;
   parent: MutableTarget | null;
+  lang: string;
 }
 
 /** A list row's data: `{field}` bindings inside it read the item first. */
@@ -396,6 +409,10 @@ export class UIDocument extends Component {
   private rootElement: UIDocumentElement | null = null;
   private sheets: UIStylesheet[] = [];
   private pseudo = false;
+  /** The sheets use `:lang()`: a language change restyles the tree (ADR 0356 §4). */
+  private langRules = false;
+  /** `Locale.epoch` the tree was last brought up to date with. */
+  private localeEpoch = -1;
   private problemList: SourceProblem[] = [];
   /** The text of each file the build read, to rebuild when one changes. */
   private sources = new Map<string, unknown>();
@@ -611,6 +628,8 @@ export class UIDocument extends Component {
           this.sheets.push(sheet);
         }
         this.pseudo = P.usesPseudo(this.sheets);
+        this.langRules = P.usesLang(this.sheets);
+        this.localeEpoch = Locale.epoch;
         for (const p of this.problemList) warn(p.message);
         if (markup.root) {
           const root = markup.root;
@@ -678,6 +697,7 @@ export class UIDocument extends Component {
       classes: classAttr.split(/\s+/).filter(Boolean),
       state: { hover: false, pressed: false, focus: false, disabled: false },
       parent: parent?._target ?? null,
+      lang: Locale.language,
     };
     const parentNode = parent ? parent._node : this.node;
     const node = world._createNode(idAttr ?? markup.tag, parentNode.entity);
@@ -686,10 +706,23 @@ export class UIDocument extends Component {
     el._path = scope || parent?._path === null ? null : path; // list rows and what's inside them have none
     elementByComponent.set(el._comp, el);
 
-    // Bindings: bound attributes, and the text content (a Text's text, an InputField's value).
+    // Bindings: key attributes (`t:text`, ADR 0356 §4), bound attributes, and the text content (a Text's text, an
+    // InputField's value). A button's `t:text` is its label's.
     const fields = P.fieldsOf(type);
     el._bindings = [];
+    let labelKey: MarkupAttribute | null = null;
     for (const a of markup.attributes) {
+      const keyField = P.keyAttributeField(a);
+      if (keyField !== null) {
+        if (markup.tag === "Button" && keyField === "text") {
+          labelKey = a;
+          continue;
+        }
+        const info = fields.get(keyField);
+        if (info && P.isTextField(info)) el._bindings.push({ field: keyField, info, parts: [], key: P.parseBindings(a.value), fallback: null, last: undefined, written: false });
+        else warn(`${markup.file}: <${markup.tag} ${a.name}>: <${markup.tag}> has no text field "${keyField}" to localise; ignored.`);
+        continue;
+      }
       const name = P.attributeField(a);
       if (!name || !P.hasBinding(a.value)) continue;
       const info = fields.get(name);
@@ -697,13 +730,18 @@ export class UIDocument extends Component {
       else warn(`${markup.file}: <${markup.tag}> has no field "${a.name}".`);
     }
     const textField = markup.tag === "Text" ? "text" : markup.tag === "InputField" ? "value" : null;
-    if (textField && markup.text !== null) el._bindings.push({ field: textField, info: fields.get(textField)!, parts: P.parseBindings(markup.text), last: undefined, written: false });
+    if (textField && markup.text !== null) {
+      // With a key attribute on the same field, the content shows only while the key resolves nowhere.
+      const keyed = el._bindings.find((b) => b.key && b.field === textField);
+      if (keyed) keyed.fallback = P.parseBindings(markup.text);
+      else el._bindings.push({ field: textField, info: fields.get(textField)!, parts: P.parseBindings(markup.text), last: undefined, written: false });
+    }
 
     this.restyle(el);
 
-    // A button's text content is its label: a Text child.
-    if (markup.tag === "Button" && markup.text !== null) {
-      const label: MarkupElement = { kind: "element", tag: "Text", attributes: [], children: [], text: markup.text, template: null, span: markup.span, openTagSpan: markup.openTagSpan, file: markup.file };
+    // A button's text content (or its `t:text`) is its label: a Text child.
+    if (markup.tag === "Button" && (markup.text !== null || labelKey)) {
+      const label: MarkupElement = { kind: "element", tag: "Text", attributes: labelKey ? [labelKey] : [], children: [], text: markup.text, template: null, span: markup.span, openTagSpan: markup.openTagSpan, file: markup.file };
       const child = this.build(label, el, null, reuse, labelPath(path));
       child._synthetic = true;
       el._children.push(child);
@@ -809,22 +847,57 @@ export class UIDocument extends Component {
     for (const child of el._children) this.updateBindings(child);
   }
 
-  private bindingValue(el: UIDocumentElement, b: Binding, P: Parsers): unknown {
-    const lookup = (name: string): unknown => {
-      const [head, ...rest] = name.split(".");
-      let base: unknown = undefined;
-      for (let e: UIDocumentElement | null = el; e; e = e._parent) {
-        const item = e._scope?.item;
-        if (item !== null && typeof item === "object" && head in (item as object)) {
-          base = (item as Record<string, unknown>)[head];
-          break;
-        }
-        if (e._scope) break; // the innermost row decides; then data
+  /** A binding name's value in an element's scope: the innermost row's item, then `data`; dotted names read fields. */
+  private lookup(el: UIDocumentElement, name: string): unknown {
+    const [head, ...rest] = name.split(".");
+    let base: unknown = undefined;
+    for (let e: UIDocumentElement | null = el; e; e = e._parent) {
+      const item = e._scope?.item;
+      if (item !== null && typeof item === "object" && head in (item as object)) {
+        base = (item as Record<string, unknown>)[head];
+        break;
       }
-      if (base === undefined) base = this.data?.[head];
-      for (const key of rest) base = base !== null && typeof base === "object" ? (base as Record<string, unknown>)[key] : undefined;
-      return base;
-    };
+      if (e._scope) break; // the innermost row decides; then data
+    }
+    if (base === undefined) base = this.data?.[head];
+    for (const key of rest) base = base !== null && typeof base === "object" ? (base as Record<string, unknown>)[key] : undefined;
+    return base;
+  }
+
+  /** Literal parts with `{name}` bindings filled in (left as written while there's no value). */
+  private fill(el: UIDocumentElement, parts: readonly BindingPart[]): string {
+    let text = "";
+    for (const part of parts) {
+      if ("text" in part) text += part.text;
+      else {
+        const v = this.lookup(el, part.binding);
+        text += v === undefined ? `{${part.binding}}` : String(v);
+      }
+    }
+    return text;
+  }
+
+  /**
+   * A key attribute's value (ADR 0356 §4): the message of the key (its `{name}` parts filled from the row, then `data`)
+   * in the current language, with the arguments the message uses looked up in the same scope; the element's text
+   * content while the key resolves nowhere. Formatted again only when `Locale.epoch`, the key or an argument changed.
+   */
+  private keyValue(el: UIDocumentElement, b: Binding & { key: readonly BindingPart[] }): string {
+    const key = this.fill(el, b.key);
+    const epoch = Locale.epoch;
+    const c = b.cache;
+    const names = c && c.epoch === epoch && c.key === key ? c.names : localeMessageNames(key);
+    if (names === null && b.fallback) return this.fill(el, b.fallback);
+    const args = names?.map((n) => this.lookup(el, n)) ?? [];
+    if (c && c.epoch === epoch && c.key === key && c.args.length === args.length && c.args.every((v, i) => v === args[i])) return c.value;
+    const value = names === null ? Locale.t(key) : Locale.t(key, Object.fromEntries(names.map((n, i) => [n, args[i] as MessageArg])));
+    b.cache = { epoch, key, names, args, value };
+    return value;
+  }
+
+  private bindingValue(el: UIDocumentElement, b: Binding, P: Parsers): unknown {
+    if (b.key) return this.keyValue(el, b as Binding & { key: readonly BindingPart[] });
+    const lookup = (name: string): unknown => this.lookup(el, name);
     // A whole-value binding of a non-text field passes values of the right type straight through.
     if (b.parts.length === 1 && "binding" in b.parts[0]) {
       const v = lookup(b.parts[0].binding);
@@ -832,15 +905,7 @@ export class UIDocument extends Component {
       if ((b.info.type === Number && typeof v === "number") || (b.info.type === Boolean && typeof v === "boolean") || (b.info.type === Color && v instanceof Color) || (b.info.type === Vector2 && v instanceof Vector2)) return v;
       return P.boundValue(String(v), b.info, el._markup.file);
     }
-    let text = "";
-    for (const part of b.parts) {
-      if ("text" in part) text += part.text;
-      else {
-        const v = lookup(part.binding);
-        text += v === undefined ? `{${part.binding}}` : String(v); // left as written while there's no value
-      }
-    }
-    return P.boundValue(text, b.info, el._markup.file);
+    return P.boundValue(this.fill(el, b.parts), b.info, el._markup.file);
   }
 
   private removeElement(el: UIDocumentElement): void {
@@ -939,6 +1004,15 @@ export class UIDocument extends Component {
     }
     const root = this.rootElement;
     if (!root) return;
+    // A language change (ADR 0356 §4): `:lang()` rules match again; key bindings format again below.
+    if (this.localeEpoch !== Locale.epoch) {
+      this.localeEpoch = Locale.epoch;
+      const language = Locale.language;
+      walk(root, (el) => {
+        el._target.lang = language;
+      });
+      if (this.langRules) this._styleDirty.add(root);
+    }
     this.updateBindings(root);
     walk(root, (el) => {
       const state = uiPseudoState(el._comp);

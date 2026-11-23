@@ -206,18 +206,18 @@ describe("deferred live adds on the loopback host (Ma3)", () => {
     r.backend.dispose();
   });
 
-  it("the fifth effect on a bus answers that it applies at the next Play, and is not queued", { timeout: 60_000 }, async (ctx) => {
+  it("ADR 0345 (ABI 4.6): a bus takes eight effects live; the ninth is refused by the insert cap, and nothing is queued", { timeout: 60_000 }, async (ctx) => {
     const fx = (i: number) => ({ type: "lowpass", frequency: 4000 + i * 100, q: 0.7 });
     const r = await rig(project(4, { effects: [fx(0), fx(1), fx(2), fx(3)] }));
     if (!r) return ctx.skip();
     await r.step(4);
     expect(mixer.audioSettings.buses[1]!.effects).toHaveLength(4);
-    const res = mixer.apply({ op: "addEffect", bus: "B1", index: 4, effect: { type: "lowpass", frequency: 9000, q: 0.7 } });
+    for (let i = 4; i < 8; i++) expect(mixer.apply({ op: "addEffect", bus: "B1", index: i, effect: { type: "lowpass", frequency: 9000, q: 0.7 } }).ok, `effect ${i + 1}`).toBe(true);
+    expect(mixer.audioSettings.buses[1]!.effects).toHaveLength(8);
+    const res = mixer.apply({ op: "addEffect", bus: "B1", index: 8, effect: { type: "lowpass", frequency: 9000, q: 0.7 } });
     expect(res.ok).toBe(false);
-    expect(res).toMatchObject({ ok: false, reason: "effectsPerBus" });
-    expect(mixer.audioSettings.buses[1]!.effects).toHaveLength(4);
+    expect(mixer.audioSettings.buses[1]!.effects).toHaveLength(8);
     expect(live(r).pending).toBe(0);
-    expect(live(r).count).toBe(0);
     r.backend.dispose();
   });
 

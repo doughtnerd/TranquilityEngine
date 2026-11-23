@@ -82,11 +82,94 @@ Code from these projects is compiled into Myco Engine's own modules. Libraries u
 
 ## Audio decoder (`native/audio/crates/audio-decode`, compiled to `src/plugins/audio/runtime/wasm/myco_audio_decode.wasm`; ADR 0157)
 
-- **Symphonia** (audio container and codec decoding) — MPL-2.0. Version 0.6.1: crates `symphonia`, `symphonia-core`, `symphonia-common`, `symphonia-metadata`, `symphonia-bundle-flac`, `symphonia-bundle-mp3`, `symphonia-codec-pcm`, `symphonia-codec-vorbis`, `symphonia-format-ogg`, `symphonia-format-riff`; with the `aac` build also `symphonia-codec-aac` and `symphonia-format-isomp4` (these two ship only in `myco_audio_decode_aac.wasm`, which a game downloads only when it sets `audio.codecs.aac`; the default `myco_audio_decode.wasm` doesn't contain them). Copyright Philip Deljanov and the Symphonia contributors. Unmodified; the Source Code Form is available at https://github.com/pdeljanov/Symphonia and https://crates.io/crates/symphonia (MPL-2.0 §3.2). https://www.mozilla.org/MPL/2.0/
+- **Symphonia** (audio container and codec decoding) — MPL-2.0. Version 0.6.1: crates `symphonia`, `symphonia-core`, `symphonia-common`, `symphonia-metadata`, `symphonia-bundle-flac`, `symphonia-bundle-mp3`, `symphonia-codec-pcm`, `symphonia-codec-adpcm` (IMA and Microsoft ADPCM in WAV, ADR 0359 §5), `symphonia-codec-vorbis`, `symphonia-format-ogg`, `symphonia-format-riff`; with the `aac` build also `symphonia-codec-aac` and `symphonia-format-isomp4` (these two ship only in `myco_audio_decode_aac.wasm`, which a game downloads only when it sets `audio.codecs.aac`; the default `myco_audio_decode.wasm` doesn't contain them). Copyright Philip Deljanov and the Symphonia contributors. Unmodified; the Source Code Form is available at https://github.com/pdeljanov/Symphonia and https://crates.io/crates/symphonia (MPL-2.0 §3.2). https://www.mozilla.org/MPL/2.0/
 - **lazy_static** 1.5.1, **log** 0.4.35, **bitflags** 2.13.2, **num-complex** 0.4.6, **num-traits** 0.2.19, **smallvec** 1.16.5, **regex-lite** 0.1.9 — MIT or Apache-2.0.
 - **bytemuck** 1.25.2 — Zlib or Apache-2.0 or MIT.
 - **extended** 0.1.0 (80-bit float parsing for AIFF and WAV headers) — MIT, Copyright 2022 Dietrich Epp.
+- **libopus** 1.5.2 (Opus decoding, fixed-point build, in both decoder builds and so in every game; ADR 0351 A7, 0359 §4) — BSD-3-Clause. https://opus-codec.org/ — the same vendored, unmodified source as the encoder's (`native/audio/third_party/opus/`, `PROVENANCE.md`); its licence and patent-licence paragraph are reproduced in full under "Audio encoder" below and apply to this binary too.
 
 ## HRIR data (`src/plugins/audio/runtime/wasm/myco_hrir.bin`; ADR 0157)
 
 - **HRIR data (HRTF panner)** - the head-related impulse responses are the IRC_Composite_C set from the Listen HRTF database, Copyright 2002 IRCAM (Institut de Recherche et Coordination Acoustique/Musique), http://recherche.ircam.fr/equipes/salles/listen/. IRCAM states: "The Listen database is public and available for any use." The data is shipped as format 2 (blob `src/plugins/audio/runtime/wasm/myco_hrir.bin`), converted to 16-bit integers and resampled at load. It was taken from Chromium's copy of the set at commit `cbba46fd94646232cfd2318ac962138c2a98c1f9`; the licence is IRCAM's, not Chromium's. We acknowledge the database as IRCAM requests.
+
+## Audio encoder (`native/audio/crates/audio-encode`, compiled to `src/export/wasm/myco_audio_encode.wasm`; editor, Studio and export CLI only, never in a game build; ADR 0351, 0359)
+
+- **libogg** 1.3.5 — BSD-3-Clause, Copyright (c) 2002, Xiph.org Foundation. **libvorbis** 1.3.7 (with vorbisenc) — BSD-3-Clause, Copyright (c) 2002-2020 Xiph.org Foundation. https://xiph.org/ — sources vendored unmodified in `native/audio/third_party/libogg/` and `native/audio/third_party/libvorbis/` (only the files the encoder compiles; `PROVENANCE.md` in each). Both carry this licence, each under its own copyright line:
+
+  > Redistribution and use in source and binary forms, with or without
+  > modification, are permitted provided that the following conditions
+  > are met:
+  >
+  > - Redistributions of source code must retain the above copyright
+  > notice, this list of conditions and the following disclaimer.
+  >
+  > - Redistributions in binary form must reproduce the above copyright
+  > notice, this list of conditions and the following disclaimer in the
+  > documentation and/or other materials provided with the distribution.
+  >
+  > - Neither the name of the Xiph.org Foundation nor the names of its
+  > contributors may be used to endorse or promote products derived from
+  > this software without specific prior written permission.
+  >
+  > THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+  > \`\`AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+  > LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+  > A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE FOUNDATION
+  > OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+  > SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+  > LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+  > DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+  > THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+  > (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+  > OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+- **libopus** 1.5.2 (Opus encoding, float build without DNN) — BSD-3-Clause. https://opus-codec.org/ — source vendored unmodified in `native/audio/third_party/opus/` (no `dnn/`, tests or platform assembly; `PROVENANCE.md`). Its licence (`COPYING`):
+
+  > Copyright 2001-2023 Xiph.Org, Skype Limited, Octasic,
+  > Jean-Marc Valin, Timothy B. Terriberry,
+  > CSIRO, Gregory Maxwell, Mark Borgerding,
+  > Erik de Castro Lopo, Mozilla, Amazon
+  >
+  > Redistribution and use in source and binary forms, with or without
+  > modification, are permitted provided that the following conditions
+  > are met:
+  >
+  > - Redistributions of source code must retain the above copyright
+  > notice, this list of conditions and the following disclaimer.
+  >
+  > - Redistributions in binary form must reproduce the above copyright
+  > notice, this list of conditions and the following disclaimer in the
+  > documentation and/or other materials provided with the distribution.
+  >
+  > - Neither the name of Internet Society, IETF or IETF Trust, nor the
+  > names of specific contributors, may be used to endorse or promote
+  > products derived from this software without specific prior written
+  > permission.
+  >
+  > THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+  > \`\`AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+  > LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+  > A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER
+  > OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+  > EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+  > PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR
+  > PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+  > LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+  > NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+  > SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  >
+  > Opus is subject to the royalty-free patent licenses which are
+  > specified at:
+  >
+  > Xiph.Org Foundation:
+  > https://datatracker.ietf.org/ipr/1524/
+  >
+  > Microsoft Corporation:
+  > https://datatracker.ietf.org/ipr/1914/
+  >
+  > Broadcom Corporation:
+  > https://datatracker.ietf.org/ipr/1526/
+
+- **wasi-libc** (the C library Rust's `wasm32-wasip1` target links: libvorbis needs libm, qsort and stdio) — Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT; it includes **musl**, MIT, Copyright © 2005-2020 Rich Felker, et al., and dlmalloc (CC0). https://github.com/WebAssembly/wasi-libc
+- **rubato** 5.1.0 (resampling), **rustfft** 6.4.1, **transpose** 0.2.3, **strength_reduce** 0.2.4, **primal-check** 0.3.4, **num-complex** 0.4.6, **num-integer** 0.1.47, **num-traits** 0.2.19, **audioadapter** 5.0.0, **audioadapter-buffers** 5.2.0, **audioadapter-sample** 5.2.0 — MIT or Apache-2.0. **realfft** 3.5.1, **windowfunctions** 0.1.1 — MIT. **audio-codec-algorithms** 0.8.1 — 0BSD or Apache-2.0. (rubato's build-time proc macro and its parser crates aren't linked.)
+- The encoder's own code (`audio-encode`, including its IMA ADPCM encoder of the public IMA/DVI algorithm) is Myco code: Apache-2.0 OR MIT.

@@ -14,10 +14,11 @@ import { notifyEngineLifecycle } from "../../../../engine/core/engineLifecycle";
 import { setAudioBackend } from "../backend";
 import { NULL_PROFILE_SINK } from "../mix/profileSink";
 import { makeFakeBackend, type FakeBackend } from "../testing";
-import { captureDebug, captureLiveHost, releaseCapture, setCaptureProject, type CaptureLiveHost } from "./capture";
+import { captureDebug, captureFileBytes, captureLiveHost, releaseCapture, setCaptureProject, setCaptureReplayOf, type CaptureLiveHost } from "./capture";
 import {
-  CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_MAIN_SIDE_ONLY, CAPTURE_MARKER_MAX_BYTES, EpochReason, GapReason, RecordType, assembleCapture, readCaptureHeader,
+  CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_MAIN_SIDE_ONLY, CAPTURE_MARKER_MAX_BYTES, EpochReason, GapReason, MixOpOrigin, RecordType, assembleCapture, readCaptureHeader,
 } from "./format";
+import { withMixOpOrigin } from "./mixOpOrigin";
 import { CaptureNames } from "./names";
 import { CaptureTimeIndex, decodeRecordAt, openCapture, openLiveCapture, summarizeCapture, type CaptureContents } from "./reader";
 import { defaultSaveEnv, type SaveEnv } from "./save";
@@ -341,6 +342,29 @@ function decodeMarker_(c: CaptureContents, i: number): string {
   return rec.kind === "marker" ? rec.payload.text : "";
 }
 
+describe("captureFileBytes: the take's file for the Audio Studio (ADR 0348, D13)", () => {
+  it("hands back the bytes save would write, compressed, without downloading or storing anything", async () => {
+    const r = rig();
+    await Audio.capture.start();
+    r.feed(2 * SECOND);
+    Audio.capture.stop();
+    const bytes = await captureFileBytes();
+    expect(r.downloads).toEqual([]);
+    expect(r.saved).toEqual([]);
+    expect(readCaptureHeader(bytes).flags & CAPTURE_FLAG_COMPRESSED).toBeTruthy();
+    const c = await r.open(bytes);
+    expect(c.warnings).toEqual([]);
+    expect(framesOf(c).length).toBe(2 * SECOND);
+    await Audio.capture.save("same");
+    expect(r.downloads[0]!.bytes).toEqual(bytes);
+  });
+
+  it("rejects as save does when nothing was recorded", async () => {
+    rig();
+    await expect(captureFileBytes()).rejects.toThrow("nothing recorded: call Audio.capture.start() first");
+  });
+});
+
 describe("save: the web Blob and the Tauri Storage paths, deflate-raw or stored", () => {
   it("on the web it downloads a deflate-raw file named from the sanitised name and resolves with the file name", async () => {
     const r = rig();
@@ -420,6 +444,24 @@ describe("save: the web Blob and the Tauri Storage paths, deflate-raw or stored"
     expect(c.meta.audio).toBeTypeOf("object");
     expect([...c.meta.names.clips.values()]).toContain("audio/jump.wav");
     expect(r.types(c)).toContain(RecordType.NAMES);
+  });
+
+  it("a capture started while the Studio replays a take names the take in META; one started after doesn't", async () => {
+    const r = rig();
+    setCaptureReplayOf({ path: "takes/canyon_run_01.mycotake", audioHash: "5f3a90c1" });
+    try {
+      await Audio.capture.start();
+      r.feed(5);
+      Audio.capture.stop();
+      await Audio.capture.save();
+    } finally {
+      setCaptureReplayOf(null);
+    }
+    expect((await r.open(r.downloads[0]!.bytes)).meta.replayOf).toEqual({ path: "takes/canyon_run_01.mycotake", audioHash: "5f3a90c1" });
+    await Audio.capture.start();
+    r.feed(5);
+    await Audio.capture.save();
+    expect((await r.open(r.downloads[1]!.bytes)).meta.replayOf).toBeNull();
   });
 });
 
@@ -727,6 +769,44 @@ describe("ADR 0260: a bus added or renamed during the take is named from then on
     const names = new CaptureNames(summarizeCapture(c, idx).names);
     expect(names.bus(1, renamedAt - 0.001)).toBe("Music");
     expect(names.bus(1, renamedAt)).toBe("Score");
+    mixer.configure(parseAudioSettings({}).settings);
+  });
+
+  it("ADR 0348: an op the live mix sends is written as a MIXOP record (origin editor), the bus as its slot", async () => {
+    const r = rig();
+    mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] }).settings);
+    withSlots(r, [{ slot: 0, name: "Master", state: "live" }, { slot: 1, name: "Music", state: "live" }]);
+    await Audio.capture.start();
+    r.feed(SECOND / 2);
+    expect(mixer.apply({ op: "setBus", bus: "Music", key: "volume", value: 0.5 }).ok).toBe(true);
+    r.feed(2);
+    await Audio.capture.save();
+    const c = await r.open(r.downloads[0]!.bytes);
+    const ops = Array.from({ length: c.records.count }, (_, i) => decodeRecordAt(c, i)).filter((d) => d.kind === "mixop");
+    expect(ops).toHaveLength(1);
+    const op = ops[0]!;
+    if (op.kind !== "mixop") throw new Error("unreachable");
+    expect(op.payload.origin).toBe(0); // editor
+    expect(op.payload.words[0]).toBe(1); // the bus word: Music's slot
+    mixer.configure(parseAudioSettings({}).settings);
+  });
+
+  it("D22: a MIXOP record carries the origin its caller named around mixer.apply (undo, redo, compare)", async () => {
+    const r = rig();
+    mixer.configure(parseAudioSettings({ buses: [{ name: "Master" }, { name: "Music", parent: "Master" }] }).settings);
+    withSlots(r, [{ slot: 0, name: "Master", state: "live" }, { slot: 1, name: "Music", state: "live" }]);
+    await Audio.capture.start();
+    r.feed(SECOND / 2);
+    const set = (value: number) => mixer.apply({ op: "setBus", bus: "Music", key: "volume", value });
+    withMixOpOrigin("undo", () => set(0.4));
+    withMixOpOrigin("redo", () => set(0.5));
+    withMixOpOrigin("compare", () => { withMixOpOrigin("undo", () => set(0.6)); set(0.7); }); // nesting restores the outer one
+    set(0.8);
+    r.feed(2);
+    await Audio.capture.save();
+    const c = await r.open(r.downloads[0]!.bytes);
+    const origins = Array.from({ length: c.records.count }, (_, i) => decodeRecordAt(c, i)).flatMap((d) => (d.kind === "mixop" ? [d.payload.origin] : []));
+    expect(origins).toEqual([MixOpOrigin.undo, MixOpOrigin.redo, MixOpOrigin.undo, MixOpOrigin.compare, MixOpOrigin.editor]);
     mixer.configure(parseAudioSettings({}).settings);
   });
 });

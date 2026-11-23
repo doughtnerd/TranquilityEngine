@@ -13,10 +13,11 @@ const VOICE_FX_MASK: &[Bits] = &[
     Bits::bit("sends", 1, "send[0..3]"),
     Bits::bit("yaw", 2, "yaw (ambisonic voices)"),
     Bits::bit("aux", 3, "auxLevel and auxBus"),
+    Bits::bit("spread", 4, "spread (ADR 0347, ABI 4.11)"),
 ];
 
-/// 0x0A SET_VOICE_FX, 52 B (C3, §4.2): a mixed voice's high-pass, zone sends, ambisonic yaw and aux
-/// send. Stamped like SET_PARAMS. The state lives in the core's mixed-voice pool; virtual voices hold
+/// 0x0A SET_VOICE_FX, 52 B (C3, §4.2): a mixed voice's high-pass, zone sends, ambisonic yaw, aux
+/// send and (ABI 4.11, ADR 0347, in what was `reserved`) spread. Stamped like SET_PARAMS. The state lives in the core's mixed-voice pool; virtual voices hold
 /// none, so main re-sends it with SET_MIXED on promotion.
 pub const SET_VOICE_FX: Opcode = Opcode {
     id: 0x0A,
@@ -31,11 +32,12 @@ pub const SET_VOICE_FX: Opcode = Opcode {
         Field::new("yaw", Ty::F32).doc("radians, ambisonic voices only"), // 40
         Field::new("auxLevel", Ty::F32).doc("linear level of the one aux send"), // 44
         Field::new("auxBus", Ty::U16).doc("aux send's bus; 0xFFFF (AUX_BUS_NONE) is none"), // 48
-        Field::new("reserved", Ty::U16), // 50
+        Field::new("spread", Ty::U16)
+            .doc("ADR 0347 (ABI 4.11): a spatial voice's spread in hundredths of a degree, 0..36000 (0 a point source, 36000 all round); ramped over rampFrames"), // 50
     ]),
     total_bytes: Some(52),
     sent: true,
-    doc: "a mixed voice's high-pass, zone sends, ambisonic yaw and aux send (ADR 0162 C3); stamped like SET_PARAMS",
+    doc: "a mixed voice's high-pass, zone sends, ambisonic yaw, aux send and spread (ADR 0162 C3, ADR 0347); stamped like SET_PARAMS",
 };
 
 /// BED_CONFIG's two arrays (C2, §4.2): `u8 bedSlot[busCount]` from offset 20, padded to 4 B, then
@@ -196,7 +198,7 @@ mod tests {
     fn set_voice_fx_is_52_bytes_at_the_c3_offsets() {
         let it = opcode_item(&SET_VOICE_FX).unwrap();
         let at: Vec<(&str, u32)> = it.fields.iter().map(|p| (p.field.name, p.offset)).collect();
-        assert_eq!(at, vec![("mask", 12), ("rampFrames", 16), ("hpHz", 20), ("send", 24), ("yaw", 40), ("auxLevel", 44), ("auxBus", 48), ("reserved", 50)]);
+        assert_eq!(at, vec![("mask", 12), ("rampFrames", 16), ("hpHz", 20), ("send", 24), ("yaw", 40), ("auxLevel", 44), ("auxBus", 48), ("spread", 50)]);
         assert_eq!(it.fixed_end, 52);
     }
 

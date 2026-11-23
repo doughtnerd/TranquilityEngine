@@ -27,6 +27,8 @@ import {
   readBusPresence,
   readBusRamp,
   readBusSlot,
+  readBusSends,
+  BUS_SEND_MUTED,
   readLoudConfig,
   readRecordHead,
   STATUS_BUFFER_BYTES,
@@ -99,29 +101,41 @@ describe("CommandWriter, the M5 records", () => {
     expect(readBusRamp(view, recs[0]!.off).frames).toBe(123);
   });
 
-  it("busSlot: 28 B plus 32 B per effect, zero-padded parameters, flags and sequence tag; at most four effects", () => {
+  it("busSlot: 28 B plus 68 B per effect (ABI 5.0), zero-padded parameters, flags and sequence tag; at most eight effects (ADR 0345)", () => {
     const { writer, posted } = writerRig();
     const fx = (type: number, ...p: number[]) => ({ type, p });
     writer.busSlot({ slot: 4, parent: BUS_ROOT, effects: [fx(0, 1500, 6), fx(3, 0.5)], structural: true, sequenceId: 9 }, 5000);
     writer.busSlot({ slot: 5, parent: 4, effects: [], fresh: true });
-    writer.busSlot({ slot: 6, parent: 4, effects: [fx(0), fx(1), fx(2), fx(3), fx(0)] });
+    writer.busSlot({ slot: 6, parent: 4, effects: [fx(0), fx(1), fx(2), fx(3), fx(0), fx(1), fx(2), fx(3), fx(0)] });
     writer.flush(0);
     const { view, records: recs } = records(posted[0]!);
     // The asap records sort first, the stamped one (at 5000) last.
-    expect(recs.map((r) => [r.op, r.bytes])).toEqual([[Op.BUS_SLOT, 28], [Op.BUS_SLOT, 28 + 128], [Op.BUS_SLOT, 28 + 64]]);
+    expect(recs.map((r) => [r.op, r.bytes])).toEqual([[Op.BUS_SLOT, 28], [Op.BUS_SLOT, 28 + 8 * 68], [Op.BUS_SLOT, 28 + 2 * 68]]);
     const a = readBusSlot(view, recs[2]!.off);
     expect(a).toMatchObject({ slot: 4, parent: BUS_ROOT, flags: BUS_SLOT_FLAGS_STRUCTURAL, sequenceId: 9 });
-    expect(a.effects[0]!.p).toEqual([1500, 6, 0, 0, 0, 0, 0]);
-    expect(a.effects[1]).toMatchObject({ type: 3, p: [0.5, 0, 0, 0, 0, 0, 0] });
+    expect(a.effects[0]!.p).toEqual([1500, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(a.effects[1]).toMatchObject({ type: 3, p: [0.5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
     expect(readBusSlot(view, recs[0]!.off)).toMatchObject({ slot: 5, parent: 4, flags: BUS_SLOT_FLAGS_FRESH, effects: [] });
-    expect(readBusSlot(view, recs[1]!.off).effects).toHaveLength(4);
+    expect(readBusSlot(view, recs[1]!.off).effects).toHaveLength(8);
     // A later record never sees the earlier one's parameters.
     const { writer: w2, posted: p2 } = writerRig();
     w2.busSlot({ slot: 1, parent: 0, effects: [fx(0, 9, 9, 9, 9, 9, 9, 9)] });
     w2.busSlot({ slot: 2, parent: 0, effects: [fx(1)] });
     w2.flush(0);
     const r2 = records(p2[0]!);
-    expect(readBusSlot(r2.view, r2.records[1]!.off).effects[0]!.p).toEqual([0, 0, 0, 0, 0, 0, 0]);
+    expect(readBusSlot(r2.view, r2.records[1]!.off).effects[0]!.p).toEqual(new Array(16).fill(0));
+  });
+
+  it("busSends (ADR 0344, ABI 4.7): 16 B plus 12 B per send, at most MAX_BUS_SENDS", () => {
+    const { writer, posted } = writerRig();
+    const send = (to: number, level: number, flags = 0, frames = 0) => ({ to, flags, level, frames });
+    writer.busSends(3, [send(1, 0.5), send(2, 1, BUS_SEND_MUTED, 480), send(4, 1), send(5, 1), send(6, 1)]);
+    writer.flush(0);
+    const { view, records: recs } = records(posted[0]!);
+    expect(recs.map((r) => [r.op, r.bytes])).toEqual([[Op.BUS_SENDS, 16 + 4 * 12]]);
+    const rec = readBusSends(view, recs[0]!.off);
+    expect(rec.voiceId).toBe(3);
+    expect(rec.sends.map((x) => [x.to, x.flags, x.level, x.frames])).toEqual([[1, 0, 0.5, 0], [2, BUS_SEND_MUTED, 1, 480], [4, 0, 1, 0], [5, 0, 1, 0]]);
   });
 
   it("busDuck: replace-all, asap, 16 B plus 24 B per rule; more than MAX_DUCK_RULES is a WireError OVERSIZE and nothing is staged", () => {
@@ -199,6 +213,7 @@ const m5Header = () => ({
   loudShed: 1,
   busRecordsEarly: 17,
   sidechainLate: 19,
+  genStarved: 0,
   reserved2: 0,
 });
 

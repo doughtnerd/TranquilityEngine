@@ -4,6 +4,7 @@ import { useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } fro
 import {
   HEADER_HEIGHT,
   activatePanel,
+  addPanel,
   closePanel,
   instanceTitle,
   typeOf,
@@ -27,11 +28,10 @@ import {
   type Rect,
   type Side,
 } from "./model";
-import { canClosePanel, canDetach } from "./catalog";
-import { registeredPanels } from "./registeredPanels";
-import { layout, requestAddPanel } from "./store";
+import { canClosePanel, canDetach, panelTitle } from "./catalog";
+import { DockHostContext, type DockHost } from "./dockHost";
+import { editorDockHost } from "./editorDockHost";
 import { PanelHeader } from "./PanelHeader";
-import { detachToWindow, windowTitle } from "./detached";
 import { PanelInstanceContext, type PanelInstance } from "../ui/panel/Panel";
 import { usePopover } from "../ui/popover";
 
@@ -46,6 +46,8 @@ const RESIZE_THRESHOLD = 3;
  * its own measured size and drag.
  */
 export interface DockScope {
+  /** Whose layout it is: the editor's, or an Audio Studio screen's (ADR 0341). */
+  readonly host: DockHost;
   /** `MAIN_WINDOW`, or the detached window's id. */
   readonly windowId: string;
   /** This window's view of the layout (its docks as `docks`). Reads the signal, so callers re-render. */
@@ -58,9 +60,11 @@ export interface DockScope {
   readonly drag: Signal<{ panel: PanelId; x: number; y: number; hit: DropHit | null } | null>;
 }
 
-/** The scope for `windowId`'s dock layout. */
-function dockScope(windowId: string): DockScope {
+/** The scope for `windowId`'s dock layout in `host`'s layout. */
+function dockScope(host: DockHost, windowId: string): DockScope {
+  const layout = host.store.layout;
   return {
+    host,
     windowId,
     get: () => (windowId === MAIN_WINDOW ? layout.value : (windowView(layout.value, windowId) ?? { ...layout.value, docks: [], windows: [] })),
     set: (next) => (layout.value = fromWindowView(next, windowId, layout.peek())),
@@ -69,18 +73,28 @@ function dockScope(windowId: string): DockScope {
   };
 }
 
-const mainScope = dockScope(MAIN_WINDOW);
-const ScopeContext = createContext<DockScope>(mainScope);
-const useScope = () => useContext(ScopeContext);
+/** Each host's main-window scope, made once. */
+const mainScopes = new WeakMap<DockHost, DockScope>();
+function mainScope(host: DockHost): DockScope {
+  let scope = mainScopes.get(host);
+  if (!scope) mainScopes.set(host, (scope = dockScope(host, MAIN_WINDOW)));
+  return scope;
+}
+
+const ScopeContext = createContext<DockScope | null>(null);
+const useScope = () => useContext(ScopeContext)!;
 
 /** The open "» N" menu's strip, so opening one closes any other; null when none is open. */
 const openMenu = signal<object | null>(null);
 
-/** The open header menu (right-click on a tab or a header): the window, where, which group, and the tab under the pointer. */
-const headerMenu = signal<{ windowId: string; x: number; y: number; group: string; panel?: PanelId } | null>(null);
+/** The open header menu (right-click on a tab or a header): the dock layout, where, which group, and the tab under the pointer. */
+const headerMenu = signal<{ scope: DockScope; x: number; y: number; group: string; panel?: PanelId } | null>(null);
 
-/** A panel instance's title in the current layout. */
-const titleOf = (id: PanelId) => instanceTitle(layout.value, id, registeredPanels());
+/** The scope's whole layout (every window's) and its catalog. */
+const fullLayout = (scope: DockScope) => scope.host.store.layout.value;
+const catalogOf = (scope: DockScope) => scope.host.store.catalog();
+/** A panel instance's title in the scope's layout. */
+const titleOf = (scope: DockScope, id: PanelId) => instanceTitle(fullLayout(scope), id, catalogOf(scope));
 
 /**
  * A header's height at the current UI scale (the CSS draws `.dock-header` at 28px × `--ui-scale`,
@@ -103,10 +117,12 @@ type Root = { current: HTMLDivElement | null };
  * header) to collapse it to its edge. Tabs that don't fit a header go behind a "» N" button. (The
  * Scene panel keeps the engine's canvas alive across moves: see ScenePanel.tsx.)
  */
-export function DockLayout(props: { view: (type: PanelId) => ComponentChildren; windowId?: string }) {
+export function DockLayout(props: { view: (type: PanelId) => ComponentChildren; windowId?: string; host?: DockHost }) {
   const root = useRef<HTMLDivElement>(null);
   const windowId = props.windowId ?? MAIN_WINDOW;
-  const scope = useMemo(() => (windowId === MAIN_WINDOW ? mainScope : dockScope(windowId)), [windowId]);
+  const fromContext = useContext(DockHostContext);
+  const host = props.host ?? fromContext ?? editorDockHost;
+  const scope = useMemo(() => (windowId === MAIN_WINDOW ? mainScope(host) : dockScope(host, windowId)), [windowId, host]);
   const { size, drag } = scope;
   useEffect(() => {
     const el = root.current!;
@@ -130,10 +146,10 @@ export function DockLayout(props: { view: (type: PanelId) => ComponentChildren; 
         {dragging?.hit && <div class="drop-preview" style={box(dragging.hit.preview)} />}
         {dragging && (
           <div class="drag-ghost" style={{ left: `${dragging.x + 12}px`, top: `${dragging.y + 12}px` }}>
-            {titleOf(dragging.panel)}
+            {titleOf(scope, dragging.panel)}
           </div>
         )}
-        {headerMenu.value?.windowId === windowId && <HeaderMenu />}
+        {headerMenu.value?.scope === scope && <HeaderMenu />}
       </div>
     </ScopeContext.Provider>
   );
@@ -143,13 +159,13 @@ export function DockLayout(props: { view: (type: PanelId) => ComponentChildren; 
 const CHEVRON: Record<Side, [collapse: string, expand: string]> = { bottom: ["▾", "▴"], left: ["◂", "▸"], right: ["▸", "◂"] };
 
 /** A dock's name for labels: its first group's visible panel ("Assets dock"). */
-const dockName = (d: DockRect) => `${titleOf(d.dock.groups[0].active)} dock`;
+const dockName = (scope: DockScope, d: DockRect) => `${titleOf(scope, d.dock.groups[0].active)} dock`;
 
 function CollapseButton(props: { dock: DockRect }) {
   const { dock } = props;
   const scope = useScope();
   const collapsed = dock.collapsed;
-  const label = `${collapsed ? "Expand" : "Collapse"} ${dockName(dock)}`;
+  const label = `${collapsed ? "Expand" : "Collapse"} ${dockName(scope, dock)}`;
   return (
     <button
       class="dock-collapse"
@@ -212,7 +228,7 @@ function DockView(props: { dock: DockRect; root: Root; view: (type: PanelId) => 
             <TabStrip panels={g.group.panels} active={g.group.active} vertical={false} root={root} group={g.group.id} />
             {collapsible && i === chevronGroup && <CollapseButton dock={dock} />}
           </div>
-          <PanelInstanceContext.Provider key={g.group.active} value={instanceOf(scope, g.group.active)}>{view(typeOf(layout.value, g.group.active))}</PanelInstanceContext.Provider>
+          <PanelInstanceContext.Provider key={g.group.active} value={instanceOf(scope, g.group.active)}>{view(typeOf(fullLayout(scope), g.group.active))}</PanelInstanceContext.Provider>
 
         </div>
       ))}
@@ -257,7 +273,8 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
     openMenu.value = at ? self : openMenu.peek() === self ? null : openMenu.peek();
   };
   useEffect(() => () => void (openMenu.peek() === self && (openMenu.value = null)), []);
-  const key = `${panels.map(titleOf).join("|")}|${!!props.collapsedStrip}`;
+  const title = (p: PanelId) => titleOf(scope, p);
+  const key = `${panels.map(title).join("|")}|${!!props.collapsedStrip}`;
 
   useLayoutEffect(() => {
     const read = () => {
@@ -278,7 +295,7 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
 
   const solo = panels.length === 1 && !props.collapsedStrip;
   // No × in a collapsed strip (ADR 0174): the panel isn't showing there.
-  const closable = (p: PanelId) => !props.collapsedStrip && canClosePanel(registeredPanels(), typeOf(layout.value, p));
+  const closable = (p: PanelId) => !props.collapsedStrip && canClosePanel(catalogOf(scope), typeOf(fullLayout(scope), p));
   const activeIndex = Math.max(0, panels.indexOf(active));
   const measured = sizes.length === panels.length && available > 0;
   const fit = measured && !solo ? fitTabs(sizes, available, activeIndex, undefined, moreSize || undefined) : { visible: panels.map((_, i) => i), hidden: [] as number[], scale: 1 };
@@ -293,13 +310,13 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
           <PanelHeader
             key={p}
             id={p}
-            title={titleOf(p)}
+            title={title(p)}
             selected={selected.includes(p)}
             solo={solo}
             closable={closable(p)}
             style={length ? (vertical ? { height: length } : { width: length }) : undefined}
             onPress={(e) => startDrag(scope, e, p, root)}
-            onClose={() => scope.set(closePanel(scope.get(), p, registeredPanels()))}
+            onClose={() => scope.set(closePanel(scope.get(), p, catalogOf(scope)))}
             onMenu={(e) => openHeaderMenu(scope, e, props.group, p)}
           />
         );
@@ -311,7 +328,7 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
           aria-label="More tabs"
           aria-haspopup="menu"
           aria-expanded={!!menu}
-          title={hidden.map((p) => titleOf(p)).join(", ")}
+          title={hidden.map(title).join(", ")}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -325,7 +342,7 @@ function TabStrip(props: { panels: PanelId[]; active: PanelId; selected?: readon
       <div ref={measure} class={`dock-tabs-measure${vertical ? " vertical" : ""}`} aria-hidden="true">
         {panels.map((p) => (
           <div key={p} class={`dock-tab-measure${closable(p) ? " closable" : ""}`}>
-            <span class="dock-tab-label">{titleOf(p)}</span>
+            <span class="dock-tab-label">{title(p)}</span>
             {closable(p) && <span class="dock-tab-close">×</span>}
           </div>
         ))}
@@ -349,8 +366,8 @@ function OverflowMenu(props: { panels: PanelId[]; at: { x: number; y: number }; 
   return (
     <div ref={ref} class="context-menu dock-more-menu" role="menu" aria-label="Hidden tabs">
       {panels.map((p) => (
-        <button key={p} role="menuitem" title={`Show ${titleOf(p)} (drag to move it)`} onPointerDown={(e) => startDrag(scope, e, p, root, onClose)}>
-          {titleOf(p)}
+        <button key={p} role="menuitem" title={`Show ${titleOf(scope, p)} (drag to move it)`} onPointerDown={(e) => startDrag(scope, e, p, root, onClose)}>
+          {titleOf(scope, p)}
         </button>
       ))}
     </div>
@@ -435,7 +452,7 @@ function startDrag(scope: DockScope, e: PointerEvent, panel: PanelId, root: Root
     win.removeEventListener("keydown", key, true);
     const hit = drag.value?.hit;
     drag.value = null;
-    if (!active) scope.set(activatePanel(scope.get(), panel, registeredPanels())); // a click: show this tab
+    if (!active) scope.set(activatePanel(scope.get(), panel, catalogOf(scope))); // a click: show this tab
     else if (apply && hit) scope.set(movePanel(scope.get(), panel, hit.target));
     done?.();
   };
@@ -458,18 +475,23 @@ function startDrag(scope: DockScope, e: PointerEvent, panel: PanelId, root: Root
 
 /** The `PanelInstance` a group's showing panel is drawn as. */
 function instanceOf(scope: DockScope, id: PanelId): PanelInstance {
-  return { id, type: typeOf(layout.value, id), title: titleOf(id), close: () => scope.set(closePanel(scope.get(), id, registeredPanels())) };
+  return { id, type: typeOf(fullLayout(scope), id), title: titleOf(scope, id), close: () => scope.set(closePanel(scope.get(), id, catalogOf(scope))) };
 }
 
 function openHeaderMenu(scope: DockScope, e: MouseEvent, group: string, panel?: PanelId): void {
   e.preventDefault();
-  headerMenu.value = { windowId: scope.windowId, x: e.clientX, y: e.clientY, group, panel };
+  headerMenu.value = { scope, x: e.clientX, y: e.clientY, group, panel };
 }
 
-/** Right-click on a tab or a group's header (ADR 0174): Add Panel… (into this group) and Close. */
+/**
+ * Right-click on a tab or a group's header (ADR 0174): Add Panel… (into this group; or, for a host without an Add
+ * Panel dialog, "Add <panel>" for each panel type not open), Close, then what the host offers: Detach and Move to
+ * (detached windows) and Reset layout (ADR 0341).
+ */
 function HeaderMenu() {
   const m = headerMenu.value!;
   const scope = useScope();
+  const { host } = scope;
   const ref = useRef<HTMLDivElement>(null);
   const close = () => (headerMenu.value = null);
   usePopover(ref, true, { anchor: m, onDismiss: close });
@@ -477,62 +499,102 @@ function HeaderMenu() {
   const view = scope.get();
   const group = view.docks.flatMap((d) => d.groups).find((g) => g.id === m.group);
   const target = m.panel ?? group?.active;
-  const catalog = registeredPanels();
+  const catalog = catalogOf(scope);
+  const title = (id: PanelId) => titleOf(scope, id);
   const closable = target !== undefined && canClosePanel(catalog, typeOf(view, target));
   // Detach and Move to (ADR 0174): a panel that can't be detached (the Scene view) stays in the main window.
-  const full = layout.value;
-  const detachable = target !== undefined && canDetach(catalog, typeOf(full, target));
+  const full = fullLayout(scope);
+  const windows = host.windows;
+  const detachable = windows !== undefined && target !== undefined && canDetach(catalog, typeOf(full, target));
   const here = target !== undefined ? (windowOf(full, target)?.id ?? MAIN_WINDOW) : MAIN_WINDOW;
-  const destinations = detachable ? [...(here !== MAIN_WINDOW ? [{ id: MAIN_WINDOW, title: "Main Window" }] : []), ...(full.windows ?? []).filter((w) => w.id !== here).map((w) => ({ id: w.id, title: windowTitle(full, w).replace(/ · Myco Engine$/, "") }))] : [];
+  const destinations = detachable ? [...(here !== MAIN_WINDOW ? [{ id: MAIN_WINDOW, title: "Main Window" }] : []), ...(full.windows ?? []).filter((w) => w.id !== here).map((w) => ({ id: w.id, title: windows.title(full, w).replace(/ · Myco Engine$/, "") }))] : [];
+  // Without an Add Panel dialog: the panel types not open now, each added to this group.
+  const open = new Set(Object.values(full.instances).map((i) => i.type));
+  const addable = host.requestAddPanel ? [] : [...catalog.keys()].filter((type) => !open.has(type));
   return (
     <div ref={ref} class="context-menu dock-header-menu" role="menu" aria-label="Panel menu">
-      <button
-        role="menuitem"
-        title="Choose panels to add to this group"
-        onClick={() => {
-          close();
-          requestAddPanel(m.group, scope.windowId === MAIN_WINDOW ? undefined : scope.windowId);
-        }}
-      >
-        Add Panel…
-      </button>
+      {host.requestAddPanel ? (
+        <button
+          role="menuitem"
+          title="Choose panels to add to this group"
+          onClick={() => {
+            close();
+            host.requestAddPanel!(m.group, scope.windowId === MAIN_WINDOW ? undefined : scope.windowId);
+          }}
+        >
+          Add Panel…
+        </button>
+      ) : (
+        addable.map((type) => (
+          <button
+            key={type}
+            role="menuitem"
+            title={`Add ${panelTitle(catalog, type)} to this group`}
+            onClick={() => {
+              close();
+              scope.set(addPanel(scope.get(), type, catalog, m.group).layout);
+            }}
+          >
+            Add {panelTitle(catalog, type)}
+          </button>
+        ))
+      )}
       <button
         role="menuitem"
         disabled={!closable}
-        title={closable || target === undefined ? undefined : `${titleOf(target)} can't be closed`}
+        title={closable || target === undefined ? undefined : `${title(target)} can't be closed`}
         onClick={() => {
           close();
           if (target !== undefined) scope.set(closePanel(scope.get(), target, catalog));
         }}
       >
-        {target !== undefined ? `Close ${titleOf(target)}` : "Close"}
+        {target !== undefined ? `Close ${title(target)}` : "Close"}
       </button>
-      <div class="context-sep" role="separator" />
-      <button
-        role="menuitem"
-        disabled={!detachable}
-        title={detachable ? "Open this panel in a window of its own" : target !== undefined ? `${titleOf(target)} stays in the main window` : undefined}
-        onClick={() => {
-          close();
-          if (target !== undefined) detachToWindow(target, ref.current?.ownerDocument.defaultView ?? undefined);
-        }}
-      >
-        Detach
-      </button>
-      {destinations.map((d) => (
-        <button
-          key={d.id}
-          role="menuitem"
-          title={`Move this panel to ${d.id === MAIN_WINDOW ? "the main window" : `the window with ${d.title}`}`}
-          onClick={() => {
-            close();
-            if (target !== undefined) layout.value = movePanelToWindow(layout.peek(), target, d.id, catalog);
-
-          }}
-        >
-          Move to {d.id === MAIN_WINDOW ? "Main Window" : d.title}
-        </button>
-      ))}
+      {windows && (
+        <>
+          <div class="context-sep" role="separator" />
+          <button
+            role="menuitem"
+            disabled={!detachable}
+            title={detachable ? "Open this panel in a window of its own" : target !== undefined ? `${title(target)} stays in the main window` : undefined}
+            onClick={() => {
+              close();
+              if (target !== undefined) windows.detach(target, ref.current?.ownerDocument.defaultView ?? undefined);
+            }}
+          >
+            Detach
+          </button>
+          {destinations.map((d) => (
+            <button
+              key={d.id}
+              role="menuitem"
+              title={`Move this panel to ${d.id === MAIN_WINDOW ? "the main window" : `the window with ${d.title}`}`}
+              onClick={() => {
+                close();
+                const store = host.store.layout;
+                if (target !== undefined) store.value = movePanelToWindow(store.peek(), target, d.id, catalog);
+              }}
+            >
+              Move to {d.id === MAIN_WINDOW ? "Main Window" : d.title}
+            </button>
+          ))}
+        </>
+      )}
+      {host.reset && (
+        <>
+          <div class="context-sep" role="separator" />
+          <button
+            role="menuitem"
+            title="Put every panel back where it starts"
+            onClick={() => {
+              close();
+              host.reset!();
+            }}
+          >
+            Reset layout
+          </button>
+        </>
+      )}
     </div>
   );
 }

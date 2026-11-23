@@ -1,5 +1,5 @@
 // ADR 0171 amended by 0172 (M5, contract K0; api-and-models §5.3, §5.6, architecture §3.5): the event taps behind one
-// `ProfileSink`. The voice table, selection, the core backend, the event runtime, music and the mixer's setters call it;
+// `ProfileSink`. The voice table, selection, the core backend, the playlist runtime, music and the mixer's setters call it;
 // the recorder (Rc3's `capture/events.ts`) implements it. With no recorder the sink is `NULL_PROFILE_SINK`, and a tap
 // costs a pointer comparison (`sink !== NULL_PROFILE_SINK`) or a call into an empty method; nothing allocates.
 //
@@ -57,6 +57,43 @@ export interface ProfileSink {
   gap(reason: ProfileGapReason): void;
   /** §5.3 MARKER: `text` cut to `CAPTURE_MARK_BYTES` by the recorder. */
   marker(text: string): void;
+  /** ADR 0348: one playlist decision of instance `pick.instance` (the "Why it played" chain); optional, the recorder's. */
+  pick?(pick: ProfilePick): void;
+  /** ADR 0348: metered bus `bus` (null: the output) moved against its loudness target to `state`; optional, the recorder's. */
+  loudnessWarning?(bus: string | null, state: ProfileLoudnessState): void;
+  /**
+   * ADR 0351 §9: package `name` (`bytes` its download size) started loading, loaded, failed or was unloaded; optional, the
+   * recorder's. `memoryBytes` (loaded and unload): the memory it holds resident (clip arena and decoder bytes), for the
+   * Studio Profiler's memory track (ADR 0351 §6).
+   */
+  audioPackage?(name: string, event: ProfilePackageEvent, bytes: number, memoryBytes?: number): void;
+  /** ADR 0352 §6: plugin effect `type`'s instance `instance` faulted for `reason` (its block passed dry); optional, the recorder's. */
+  pluginFault?(type: string, reason: ProfilePluginFault, instance: number): void;
+}
+
+/** ADR 0352 §6: why a plugin effect faulted (the glue's reasons). */
+export type ProfilePluginFault = "trap" | "budget" | "grow" | "nonFinite" | "range";
+
+/** ADR 0351 §9: what happened to a package (`PKG` capture events). */
+export type ProfilePackageEvent = "loadStart" | "loaded" | "failed" | "unload";
+
+/** ADR 0348: a loudness target state a warning names (`high` and `low` warn, `ok` clears). */
+export type ProfileLoudnessState = "high" | "low" | "ok";
+
+/**
+ * ADR 0348: one decision of a playlist instance: at nesting `depth`, the playlist at `playlist` (a path) of `type` chose
+ * entry `choice` (-1 none) and why: a Switch's `label`, a Blend's two heaviest entries with their weights, a Queue's pick
+ * (the choice itself), a Sequence's clip (the choice).
+ */
+export interface ProfilePick {
+  instance: number;
+  depth: number;
+  playlist: string;
+  type: "clip" | "queue" | "switch" | "blend" | "layer" | "sequence";
+  choice: number;
+  label: string | null;
+  /** A Blend's two heaviest entries, heaviest first: `[entry, weight]`. */
+  weights: readonly (readonly [number, number])[] | null;
 }
 
 const noop = (): void => {};

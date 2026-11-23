@@ -3,8 +3,11 @@
  * its MIXOP record: `u8 op`, `u8 class`, `u16 argc`, then `argc` u32 words (floats as f64 bit patterns, strings as name
  * ids, buses as `busRef`, §6.3). `encodeMixOp` and `decodeMixOp` are exact inverses for every `MixOp`.
  */
-import { CURVE_INTERPS, type Curve, type CurveKey } from "../core/curve";
-import { EFFECT_KEYS, MIX_OP_NAMES, OP_CLASSES, OP_CLASS_CODES, type MixOp, type OpClass } from "./mixOps";
+import { CURVE_KEY_INTERPS, curveKeyHandles, curveKeyInterpCode, type Curve, type CurveKey } from "../core/curve";
+import { CORE_EFFECT_TYPES } from "./busCapability";
+import { effectSpec } from "./effects/catalogue";
+import { EFFECT_KEYS, MIX_OP_NAMES, OP_CLASSES, OP_CLASS_CODES, isProjectOp, type MixOp, type OpClass } from "./mixOps";
+import { isProjectOp as isProjectOpName } from "./projectOps";
 import { EFFECT_TYPES, type BusAutomation, type BusEffect, type DuckingRule, type LoudnessTarget } from "./settings";
 
 /** The byte form of one op (the capture's MIXOP record): `u8 op`, `u8 class`, `u16 argc`, `argc` u32 words (§6.2). */
@@ -22,6 +25,8 @@ const SET_BUS_KEYS = ["volume", "mute", "maxVoices", "bed", "bedPriority", "mete
 const DUCK_MODES = [undefined, "presence", "level"] as const;
 const DUCK_DETECTORS = [undefined, "peak", "rms"] as const;
 const AUTOMATION_TARGETS = ["volume", "lowpass"] as const;
+/** A bus automation's targets (ABI 4.8 appends `fx` and `send`, which carry their arguments after the target code). */
+const BUS_AUTOMATION_TARGETS = ["volume", "lowpass", "fx", "send"] as const;
 /** Value tags of a nullable value word. */
 const Tag = { Null: 0, False: 1, True: 2, Number: 3, String: 4 } as const;
 /** Flag bits of a list op (`setDucking`, `setAutomation`, `setTarget`) and of an optional field. */
@@ -48,6 +53,13 @@ class Writer {
   }
   effect(e: BusEffect): void {
     this.code(EFFECT_TYPES, e.type);
+    if (e.type === "fx") {
+      // ADR 0345: the catalogue type, its parameters in the catalogue's order, then the key bus (a nullable name).
+      this.code(CORE_EFFECT_TYPES, e.fx);
+      for (const q of effectSpec(e.fx).params) this.f(e.params[q.name] ?? q.default);
+      this.value(e.key ?? null);
+      return;
+    }
     for (const k of EFFECT_KEYS[e.type]) this.f((e as unknown as Record<string, number>)[k]);
   }
 }
@@ -76,6 +88,13 @@ class Reader {
   }
   effect(): BusEffect {
     const type = this.code(EFFECT_TYPES);
+    if (type === "fx") {
+      const fx = this.code(CORE_EFFECT_TYPES);
+      const params: Record<string, number> = {};
+      for (const q of effectSpec(fx).params) params[q.name] = this.f();
+      const key = this.value();
+      return { type, fx, params, ...(typeof key === "string" ? { key } : {}) };
+    }
     const e: Record<string, unknown> = { type };
     for (const k of EFFECT_KEYS[type]) e[k] = this.f();
     return e as unknown as BusEffect;
@@ -93,11 +112,15 @@ class Reader {
  * fields) · removeEffect bus, index · moveEffect bus, from, to · setEffect bus, index, key, f64 · add/remove/renameSnapshot
  * index, hasName[, name] · setSnapshot index, bus, key, value · setDucking index, flags[, target, trigger, mode, detector,
  * hasThreshold[, threshold], amount, attack, release] · setAutomation index, flags[, bus, parameter, target, keys, (x, y,
- * interp)…] · setTarget index, flags[, name, integrated, tolerance, truePeak] · setOption key, value.
+ * interp[, f64 inDx, inDy, outDx, outDy, u32 free when interp is 6, bezier])…] · setTarget index, flags[, name, integrated, tolerance, truePeak] · setOption key, value.
+ * The mix model's own ops (ADR 0344: setMute, setReturn, setSend, setVca, setSnapshotDef, setSnapshotLevel,
+ * setSnapshotEffect; `projectOps.ts`) are one word: the op as JSON, interned like a name (returns and VCAs have no bus
+ * slot, so no `busRef` applies; JSON keeps their nested definitions exact).
  */
 export function encodeMixOp(op: MixOp, cls: OpClass, names: MixOpNameTable): MixOpBytes {
   const w = new Writer(names);
-  switch (op.op) {
+  if (isProjectOp(op)) w.s(JSON.stringify(op));
+  else switch (op.op) {
     case "setBus": w.b(op.bus); w.code(SET_BUS_KEYS, op.key); w.value(op.value); break;
     case "addBus": w.s(op.name); w.b(op.parent); w.u(op.index !== undefined ? 1 : 0); if (op.index !== undefined) w.u(op.index); break;
     case "removeBus": w.b(op.bus); break;
@@ -124,8 +147,15 @@ export function encodeMixOp(op: MixOp, cls: OpClass, names: MixOpNameTable): Mix
       w.u(op.index); w.listFlags(op.rule, op.insert);
       const r = op.rule;
       if (r) {
-        w.b(r.bus); w.s(r.parameter); w.code(AUTOMATION_TARGETS, r.target); w.u(r.curve.length);
-        for (const k of r.curve) { w.f(k[0]); w.f(k[1]); w.u(k.length > 2 ? CURVE_INTERPS.indexOf(k[2]!) + 1 : 0); }
+        w.b(r.bus); w.s(r.parameter); w.code(BUS_AUTOMATION_TARGETS, r.target);
+        if (r.target === "fx") { w.u(r.effect ?? 0); w.u(r.param ?? 0); w.u(r.log ? 1 : 0); }
+        else if (r.target === "send") w.b(r.to ?? "");
+        w.u(r.curve.length);
+        for (const k of r.curve) {
+          w.f(k[0]); w.f(k[1]); w.u(k.length > 2 ? curveKeyInterpCode(k) + 1 : 0);
+          const h = curveKeyHandles(k);
+          if (h) { w.f(h.in[0]); w.f(h.in[1]); w.f(h.out[0]); w.f(h.out[1]); w.u(h.free ? 1 : 0); }
+        }
       }
       break;
     }
@@ -150,7 +180,11 @@ export function decodeMixOp(bytes: MixOpBytes, names: { name(id: number): string
   const r = new Reader(bytes.words, names);
   const withInsert = (fl: { insert?: boolean }) => (fl.insert !== undefined ? { insert: fl.insert } : {});
   let op: MixOp;
-  switch (name) {
+  if (isProjectOpName({ op: name })) {
+    const parsed = JSON.parse(r.s()) as MixOp;
+    if (parsed.op !== name) throw new Error(`decodeMixOp: the record says ${name} but holds ${parsed.op}`);
+    op = parsed;
+  } else switch (name) {
     case "setBus": { const bus = r.b(); const key = r.code(SET_BUS_KEYS); op = { op: name, bus, key, value: r.value() }; break; }
     case "addBus": { const n = r.s(); const parent = r.b(); op = r.u() ? { op: name, name: n, parent, index: r.u() } : { op: name, name: n, parent }; break; }
     case "removeBus": op = { op: name, bus: r.b() }; break;
@@ -182,14 +216,20 @@ export function decodeMixOp(bytes: MixOpBytes, names: { name(id: number): string
       const index = r.u(), fl = r.listFlags();
       let rule: BusAutomation | null = null;
       if (fl.item) {
-        const bus = r.b(), parameter = r.s(), target = r.code(AUTOMATION_TARGETS), n = r.u();
+        const bus = r.b(), parameter = r.s(), target = r.code(BUS_AUTOMATION_TARGETS);
+        const extra: Partial<BusAutomation> = target === "fx" ? { effect: r.u(), param: r.u(), ...(r.u() === 1 ? { log: true } : {}) } : target === "send" ? { to: r.b() } : {};
+        const n = r.u();
         const curve: CurveKey[] = [];
         for (let i = 0; i < n; i++) {
           const x = r.f(), y = r.f(), interp = r.u();
-          if (interp > CURVE_INTERPS.length) throw new Error("decodeMixOp: bad curve interpolation");
-          curve.push(interp ? [x, y, CURVE_INTERPS[interp - 1]] : [x, y]);
+          if (interp > CURVE_KEY_INTERPS.length) throw new Error("decodeMixOp: bad curve interpolation");
+          const name = interp ? CURVE_KEY_INTERPS[interp - 1]! : undefined;
+          if (name === "bezier") {
+            const inH: [number, number] = [r.f(), r.f()], out: [number, number] = [r.f(), r.f()], free = r.u() === 1;
+            curve.push([x, y, "bezier", { in: inH, out, ...(free ? { free } : {}) }]);
+          } else curve.push(name ? [x, y, name] : [x, y]);
         }
-        rule = { bus, parameter, target, curve: curve as Curve };
+        rule = { bus, parameter, target, ...extra, curve: curve as Curve };
       }
       op = { op: name, index, rule, ...withInsert(fl) };
       break;
@@ -202,6 +242,7 @@ export function decodeMixOp(bytes: MixOpBytes, names: { name(id: number): string
       break;
     }
     case "setOption": r.u(); op = { op: name, key: "loudnessResetOnPlay", value: r.u() !== 0 }; break;
+    default: throw new Error(`decodeMixOp: unknown op ${name}`);
   }
   if (!r.done) throw new Error("decodeMixOp: trailing words");
   return { op, class: cls };

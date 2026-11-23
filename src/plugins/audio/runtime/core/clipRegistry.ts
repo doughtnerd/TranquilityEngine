@@ -3,17 +3,18 @@
 // signatures without the coordinator. H2 later loads the HRIR through it under the reserved ids 0xFFFF0000..0xFFFF00FF
 // (so A3.4a's rebuild re-sends it with every other clip).
 
-import { ClipEvent, ClipFormat, CLIP_BEGIN_FIXED_END, CLIP_CHUNK_FIXED_END, CLIP_UNLOAD_FIXED_END, Kind, MAGLS_CLIP_ID, writeClipBegin, writeClipChunk, writeClipUnload, writeEnvelope } from "../wire.generated";
+import { ADPCM_BLOCK_FRAMES, ADPCM_CHANNEL_BYTES, ClipEvent, ClipFormat, CLIP_BEGIN_FIXED_END, CLIP_CHUNK_FIXED_END, CLIP_UNLOAD_FIXED_END, Kind, MAGLS_CLIP_ID, writeClipBegin, writeClipChunk, writeClipUnload, writeEnvelope } from "../wire.generated";
 import { CLIP_BYTES_PER_QUANTUM, createChunkPacer, planChunks } from "./chunker";
 import { createEncodedCache } from "./encodedCache";
 import { createDecoderClient, DecodeFailedError, type DecoderClient } from "../decoder/decoderClient";
-import { hintFromName } from "../decoder/protocol";
+import { hintFromName, type PackRef } from "../decoder/protocol";
 import { Assets } from "../../../../engine/scene/Assets";
 import type { AmbisonicImport } from "../../../../engine/scene/importSettings";
 import { setFileLoopFrames, setFileLoopPoints } from "../loopPoints";
 import { aacRefusal, createWarnOnce, unsupportedFormat, type WarnOnce } from "./codecs";
 import { i16ToF32 } from "./pcm";
 import { CLIP_INDEX_LIMIT, makeClipId } from "./clipIds";
+import { clipPackRef } from "./packMedia";
 
 /** A clip's lifecycle (`copying -> ready` on the core's `resident` clip event, wire §4.3). */
 export type ClipState = "idle" | "fetching" | "decoding" | "copying" | "ready" | "failed" | "unloading";
@@ -38,7 +39,7 @@ export interface ClipInfo {
   readonly frames: number;
   readonly channels: number;
   readonly sampleRate: number;
-  /** Wire `ClipFormat`: 0 f32, 1 i16, 2 HRIR, 4 MagLS filters (ADR 0162). */
+  /** Wire `ClipFormat`: 0 f32, 1 i16, 2 HRIR, 4 MagLS filters (ADR 0162), 6 IMA ADPCM held compressed (ADR 0351 A4). */
   readonly format: number;
   /** Bytes in the core's arena, for the `clipMemoryMB` ceiling. */
   readonly bytes: number;
@@ -185,7 +186,18 @@ export interface ClipRegistryDeps {
    * however often the clip is reloaded. The host shares one with its streams; default: the registry's own over `warn`.
    */
   warnOnce?: WarnOnce;
+  /**
+   * ADR 0351 §7, A4: where a path's audio is in a package the decoder worker holds (`DecoderClient.loadPack`), or null to
+   * fetch the path's file as before. A held entry isn't fetched or kept in the encoded cache: the worker decodes it from
+   * the package, and an ADPCM entry with load `compressed` arrives as whole blocks that go to the core as clip format 6
+   * (the core decodes them per voice). Default: the package registry's answer (`packMedia.ts` `clipPackRef`), null while
+   * no package holds the path.
+   */
+  packRef?: (path: string) => PackRef | null;
 }
+
+/** ADR 0351 A4: the bytes of a format 6 clip of `frames` frames of `channels` (whole blocks). */
+const adpcmBytes = (frames: number, channels: number): number => Math.ceil(frames / ADPCM_BLOCK_FRAMES) * channels * ADPCM_CHANNEL_BYTES;
 
 /** ADR 0162 §2.4 (B2): the import gain a FuMa clip's decode reported, by clip path (absent: 1). */
 const importGains = new Map<string, number>();
@@ -268,7 +280,7 @@ interface Slot {
   loads: number;
   /** Freed: async work for this slot stops. */
   dead: boolean;
-  /** Interleaved int16 awaiting its paced chunks, by the frame offset of each chunk. */
+  /** Interleaved int16 awaiting its paced chunks, by the frame offset of each chunk (format 6: whole ADPCM blocks, as int16 words). */
   parts: Map<number, Int16Array> | null;
   /** The worker decode in flight; aborted when the load goes stale (unload, a resend) or the clip fails. */
   abort: AbortController | null;
@@ -323,6 +335,8 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
   const warn = deps.warn ?? ((m: string) => console.warn(m));
   const warnOnce = deps.warnOnce ?? createWarnOnce(warn);
   const aac = deps.aac === true;
+  // ADR 0351 §7 (W12): by default the package registry answers (`packMedia.ts`); nothing loaded, nothing packaged.
+  const packRef = deps.packRef ?? clipPackRef;
   const nextFrame = deps.nextFrame ?? defaultNextFrame;
   const nextQuantum = deps.nextQuantum ?? ((cb: () => void) => void setTimeout(cb, 0));
   const send = deps.send ?? (() => {});
@@ -447,6 +461,19 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       }
       const slot = byId.get(chunk.clipId);
       if (!slot || slot.dead) continue;
+      if (slot.format === ClipFormat.AdpcmIma) {
+        // ADR 0351 A4: whole IMA ADPCM blocks, unchanged (an even byte count; padded to 4 on the wire).
+        const blocks = slot.parts?.get(chunk.frameOffset);
+        if (!blocks) continue;
+        slot.parts!.delete(chunk.frameOffset);
+        const total = CLIP_CHUNK_FIXED_END + ((blocks.byteLength + 3) & ~3);
+        post(total, (view) => {
+          envelope(view, Kind.CLIP_CHUNK, total);
+          writeClipChunk(view, 0, { clipId: chunk.clipId, frameOffset: chunk.frameOffset, frames: chunk.frames, reserved: 0 });
+          new Uint8Array(view.buffer, CLIP_CHUNK_FIXED_END, blocks.byteLength).set(new Uint8Array(blocks.buffer, blocks.byteOffset, blocks.byteLength));
+        });
+        continue;
+      }
       const samples = chunk.frames * slot.channels;
       // Word aligned (api-and-models 4.1): an odd int16 sample count is padded with two zero bytes.
       const total = CLIP_CHUNK_FIXED_END + ((chunk.bytes + 3) & ~3);
@@ -475,17 +502,19 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     readonly channels: number;
     readonly sampleRate: number;
     readonly pieces: readonly Int16Array[];
+    /** ADR 0351 A4: the pieces are whole IMA ADPCM blocks (as int16 words) of a format 6 clip. */
+    readonly adpcm?: boolean;
   }
 
   const message = (err: unknown): string => (err instanceof Error ? err.message : String(err));
 
   /** CLIP_BEGIN for a clip about to upload (or a failure past the ceiling); false when it failed. */
-  const startClip = (slot: Slot, frames: number, channels: number, sampleRate: number): boolean => {
+  const startClip = (slot: Slot, frames: number, channels: number, sampleRate: number, clipFormat: number = format): boolean => {
     slot.frames = frames;
     slot.channels = channels;
     slot.sampleRate = sampleRate;
-    slot.format = format;
-    slot.bytes = frames * channels * bytesPerSample;
+    slot.format = clipFormat;
+    slot.bytes = clipFormat === ClipFormat.AdpcmIma ? adpcmBytes(frames, channels) : frames * channels * bytesPerSample;
     if (frames === 0 || channels === 0) {
       fail(slot, "decode", "empty clip");
       return false;
@@ -498,9 +527,34 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     slot.begun = true;
     post(CLIP_BEGIN_FIXED_END, (view) => {
       envelope(view, Kind.CLIP_BEGIN, CLIP_BEGIN_FIXED_END);
-      writeClipBegin(view, 0, { clipId: idOf(slot), frames, channels, sampleRate, format });
+      writeClipBegin(view, 0, { clipId: idOf(slot), frames, channels, sampleRate, format: clipFormat });
     });
     return true;
+  };
+
+  /**
+   * ADR 0351 A4: queues whole IMA ADPCM blocks (`words`, int16 words, starting at frame `offset`, a block start) as paced
+   * chunks of a format 6 clip: whole blocks within the per-quantum copy budget, the last chunk ending at the clip's frames.
+   * Returns the frames the blocks cover.
+   */
+  const enqueueAdpcm = (slot: Slot, words: Int16Array, offset: number): number => {
+    const blockWords = (slot.channels * ADPCM_CHANNEL_BYTES) / 2;
+    const blocks = Math.floor(words.length / blockWords);
+    const perChunk = Math.max(1, Math.floor(CLIP_BYTES_PER_QUANTUM / (blockWords * 2)));
+    const parts = (slot.parts ??= new Map());
+    const plan: { frameOffset: number; frames: number }[] = [];
+    for (let b = 0; b < blocks; b += perChunk) {
+      const n = Math.min(perChunk, blocks - b);
+      const frameOffset = offset + b * ADPCM_BLOCK_FRAMES;
+      const frames = Math.min(n * ADPCM_BLOCK_FRAMES, slot.frames - frameOffset);
+      if (frames <= 0) break;
+      plan.push({ frameOffset, frames });
+      parts.set(frameOffset, words.subarray(b * blockWords, (b + n) * blockWords));
+    }
+    // The pacer budgets by bytes per frame: a block's bytes over its frames.
+    pacer.enqueue(idOf(slot), plan, slot.channels, ADPCM_CHANNEL_BYTES / ADPCM_BLOCK_FRAMES);
+    schedulePump();
+    return Math.min(blocks * ADPCM_BLOCK_FRAMES, Math.max(0, slot.frames - offset));
   };
 
   /** Takes back a CLIP_BEGIN whose decode failed or must start over: the core drops the partial clip. */
@@ -545,16 +599,32 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     const kept: Int16Array[] = [];
     let keptFrames = 0;
     const ambisonic = Assets.importSettings(slot.path).ambisonic;
+    // ADR 0351 A4: a package entry the worker holds, and whether it arrives as format 6 blocks.
+    const pack = packRef?.(slot.path) ?? null;
+    let adpcm = false;
     try {
       const result = await worker().decodeClip(encoded, hintFromName(slot.path), {
         signal: controller.signal,
         asset: slot.path,
         collect: false,
+        ...(pack ? { pack } : {}),
         // ADR 0162 §2.4 (B1): the decoder (B2) converts FuMa while decoding; it ignores this for a clip of 1-2 channels.
         convention: ambisonic?.convention,
         onInfo: (info) => {
           channels = info.channels;
           rate = info.rate;
+          if (info.clipFormat === ClipFormat.AdpcmIma) {
+            // ADR 0351 A4: held compressed; the length is the package's, exact, so it uploads as it arrives.
+            adpcm = true;
+            if (span) {
+              fail(slot, "refusedSpan", "an ADPCM sound held compressed has no span clips");
+              return;
+            }
+            if (!early || stale()) return;
+            if (startClip(slot, info.frames, info.channels, info.rate, ClipFormat.AdpcmIma)) streamedFrames = info.frames;
+            else controller.abort();
+            return;
+          }
           if (span && (span.end - span.start) / info.rate > MAX_SPAN_SECONDS) {
             fail(slot, "refusedSpan", `a span clip is at most ${MAX_SPAN_SECONDS} s`);
             return;
@@ -581,6 +651,11 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
         },
         onChunk: (pcm) => {
           if (stale() || slot.state === "failed") return;
+          if (adpcm) {
+            if (streamedFrames === 0) pieces.push(pcm);
+            else received += enqueueAdpcm(slot, pcm, received);
+            return;
+          }
           const frames = pcm.length / channels;
           if (span) {
             // Whole-file decode keeping `[start, end)`: this chunk covers frames [received, received + frames).
@@ -604,6 +679,7 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
       });
       if (stale() || slot.state === "failed") return null;
       if (span) return { frames: keptFrames, channels: result.channels, sampleRate: result.rate, pieces: kept };
+      if (adpcm) return streamedFrames > 0 ? "streamed" : { frames: result.frames, channels: result.channels, sampleRate: result.rate, pieces, adpcm: true };
       // ADR 0158 §4 (C2): the file's own loop region, in frames; clips without one report null so waiters resolve.
       const { loopStartFrame: ls, loopEndFrame: le } = result.info;
       setFileLoopFrames(slot.path, ls !== undefined && le !== undefined ? { start: ls, end: le } : null, result.rate);
@@ -641,7 +717,9 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
     try {
       slot.state = "fetching";
       const cached = cache.get(slot.path);
-      if (cached) encoded = cached;
+      // ADR 0351 A4: an entry of a package the worker holds is decoded there, not fetched.
+      if (packRef?.(slot.path)) encoded = new ArrayBuffer(0);
+      else if (cached) encoded = cached;
       else {
         encoded = await fetchBytes(slot.path);
         if (stale()) return null;
@@ -661,8 +739,15 @@ export function createClipRegistry(deps: ClipRegistryDeps = {}): ClipRegistry {
 
   /** CLIP_BEGIN and the paced chunks of a decoded clip (or a failure past the ceiling). */
   const beginCopy = (slot: Slot, loaded: Loaded): void => {
+    if (loaded.adpcm) {
+      if (!startClip(slot, loaded.frames, loaded.channels, loaded.sampleRate, ClipFormat.AdpcmIma)) return;
+      let at = 0;
+      for (const piece of loaded.pieces) at += enqueueAdpcm(slot, piece, at);
+      return;
+    }
     if (!startClip(slot, loaded.frames, loaded.channels, loaded.sampleRate)) return;
     let offset = 0;
+
     for (const piece of loaded.pieces) {
       enqueuePiece(slot, piece, offset);
       offset += piece.length / loaded.channels;

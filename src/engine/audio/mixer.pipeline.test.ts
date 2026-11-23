@@ -56,12 +56,17 @@ describe("Mixer.apply's pipeline (ADR 0175)", () => {
     expect(sent).toEqual([[op, "dip"]]);
   });
 
-  it("a core-only rule is checked against the target's capabilities: kept for the next Play on the core, sent on the fallback", () => {
+  it("ADR 0345 (ABI 4.6): the core runs eight effects a bus and any number of compressors; the insert cap refuses the ninth on every target", () => {
     const fifth: MixOp = { op: "addEffect", bus: "Music", index: 4, effect: lp };
+    const comp: MixOp = { op: "addEffect", bus: "Music", index: 5, effect: { type: "compressor", threshold: -20, knee: 6, ratio: 4, attack: 0.003, release: 0.25 } };
     const core = rig(CORE_LIVE_CAPS);
-    expect(core.m.apply(fifth)).toEqual({ ok: false, class: "direct", reason: "effectsPerBus" });
-    expect(core.sent).toEqual([]);
-    expect(core.notSent).toHaveLength(1);
+    expect(core.m.apply(fifth)).toEqual({ ok: true, class: "direct" });
+    expect(core.m.apply(comp)).toEqual({ ok: true, class: "direct" });
+    expect(core.m.apply({ ...comp, index: 6 })).toEqual({ ok: true, class: "direct" });
+    expect(core.m.apply({ ...fifth, index: 7 })).toEqual({ ok: true, class: "direct" });
+    expect(core.m.audioSettings.buses[1]!.effects).toHaveLength(8);
+    expect(core.m.apply({ ...fifth, index: 8 })).toMatchObject({ ok: false });
+    expect(core.m.audioSettings.buses[1]!.effects).toHaveLength(8);
     const fallback = rig(FALLBACK_LIVE_CAPS);
     expect(fallback.m.apply(fifth)).toEqual({ ok: true, class: "direct" });
     expect(fallback.m.audioSettings.buses[1]!.effects).toHaveLength(5);

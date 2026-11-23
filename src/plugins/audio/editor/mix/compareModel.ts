@@ -15,15 +15,19 @@
 //
 // Across Play (§3.8): a new Play builds a new Engine from the project, i.e. from the edited mix, so a Compare in force
 // simply ends (`begin` tells the hub `setCompare(false)`, applies nothing, writes no marker) and the snapshot is replaced by
-// the new Play's start. Stop drops the snapshot (`end`), and Compare with it. Taint marks follow the meters' rule: they stay
+// the new Play's start. Stop drops the snapshot (`end`), and Compare with it.
+//
+// The mix is the editor's `audio` section (`AudioSettings`, diffed by `diffOps`) by default; the Studio hands it the
+// `AudioProject` and `diffProjectMix` (ADR 0344), so returns, VCAs, sends and snapshots swap too. Taint marks follow the meters' rule: they stay
 // until a reset (`noteReset`; the mixer session, ADR 0292, also sends one for a Play that resets the meters).
 import { diffOps, type ApplyResult, type MixOp } from "../../../../engine/audio/mixOps";
 import type { AudioSettings } from "../../../../engine/audio/settings";
 import type { LoudnessResetWhat } from "../../../../engine/audio/loudnessTypes";
+import { withMixOpOrigin } from "../../runtime/capture/mixOpOrigin";
 
 /** What the model calls: injected, so tests need neither a Mixer nor a hub. */
 export interface CompareHost {
-  /** `mixer.apply(op)`; `origin` is "compare" so a recorder can label the MIXOP record. Never an undo entry, never saved. */
+  /** `mixer.apply(op)`, called inside `withMixOpOrigin("compare")` so a recorder labels the MIXOP record. Never an undo entry, never saved. */
   apply(op: MixOp, origin: "compare"): ApplyResult;
   /** The mixer's asap post: called once after the ops of a swap. */
   flushNow?(): void;
@@ -33,10 +37,12 @@ export interface CompareHost {
   setCompare?(on: boolean): void;
 }
 
-export interface CompareOptions {
+export interface CompareOptions<M = AudioSettings> {
   readonly host: CompareHost;
-  /** The project's current (edited) `audio` section, read at the moment of each toggle. */
-  readonly current: () => AudioSettings;
+  /** The project's current (edited) mix, read at the moment of each toggle. */
+  readonly current: () => M;
+  /** The ops from one mix to another (default `diffOps`, for the `audio` section). */
+  readonly diff?: (from: M, to: M) => { ops: MixOp[]; restartRequired: string[] };
 }
 
 export interface CompareSwap {
@@ -51,9 +57,9 @@ export interface CompareSwap {
   readonly restartRequired: readonly string[];
 }
 
-export interface CompareModel {
+export interface CompareModel<M = AudioSettings> {
   /** Play started: keep a clone of `audio` as the saved mix; an active Compare ends without applying anything. */
-  begin(audio: AudioSettings): void;
+  begin(audio: M): void;
   /** Stop: drop the snapshot; an active Compare ends. */
   end(): void;
   /** A snapshot exists (Play is running). */
@@ -76,28 +82,30 @@ export interface CompareModel {
 
 const clone = <T>(v: T): T => structuredClone(v);
 
-export function createCompareModel(options: CompareOptions): CompareModel {
+export function createCompareModel<M = AudioSettings>(options: CompareOptions<M>): CompareModel<M> {
   const host = options.host;
-  let saved: AudioSettings | null = null;
+  const diff = options.diff ?? (diffOps as unknown as (from: M, to: M) => { ops: MixOp[]; restartRequired: string[] });
+  let saved: M | null = null;
   /** The edited mix, cloned when Compare turned on. */
-  let edited: AudioSettings | null = null;
+  let edited: M | null = null;
   let active = false;
   // Compare taints every meter; a per-bus reset of one meter keeps the mark on the others.
   const cleared = new Set<string>();
   let everTainted = false;
 
-  const swap = (from: AudioSettings, to: AudioSettings, on: boolean, text: string): CompareSwap => {
-    const { ops, restartRequired } = diffOps(from, to);
+  const swap = (from: M, to: M, on: boolean, text: string): CompareSwap => {
+    const { ops, restartRequired } = diff(from, to);
     if (on) host.setCompare?.(true);
     const results: ApplyResult[] = [];
-    for (const op of ops) results.push(host.apply(op, "compare"));
+    // ADR 0348: the capture labels these MIXOP records `compare` (the mixer itself takes no origin).
+    for (const op of ops) results.push(withMixOpOrigin("compare", () => host.apply(op, "compare")));
     host.flushNow?.();
     host.marker?.(text);
     if (!on) host.setCompare?.(false);
     return { active: on, ops, results, failed: results.filter((r) => !r.ok).length, restartRequired };
   };
 
-  const model: CompareModel = {
+  const model: CompareModel<M> = {
     begin(audio) {
       if (active) { active = false; edited = null; host.setCompare?.(false); }
       saved = clone(audio);
@@ -111,7 +119,7 @@ export function createCompareModel(options: CompareOptions): CompareModel {
     differs() {
       if (!saved) return false;
       const base = active && edited ? edited : options.current();
-      const d = diffOps(base, saved);
+      const d = diff(base, saved);
       return d.ops.length > 0 || d.restartRequired.length > 0;
     },
     get active() { return active; },

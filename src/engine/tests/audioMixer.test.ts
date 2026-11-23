@@ -70,7 +70,8 @@ describe("mixer", () => {
     const m = mk({ snapshots: [{ name: "Paused", volumes: { Music: 0.2, SFX: 0 }, lowpass: { Music: 800 } }] });
     m.snapshot("Paused", 1);
     m.update(0.5);
-    expect(m.bus("Music").effectiveGain).toBeCloseTo(0.6);
+    // ADR 0344: linear in dB, so half-way from 1 to 0.2 is their geometric mean.
+    expect(m.bus("Music").effectiveGain).toBeCloseTo(Math.sqrt(0.2));
     m.update(0.5);
     expect(m.bus("Music").effectiveGain).toBeCloseTo(0.2);
     expect(m.bus("SFX").effectiveGain).toBe(0);
@@ -143,14 +144,16 @@ function fakeContext() {
 }
 
 describe("bus graph", () => {
-  it("wires child buses into their parents and master into the destination, with effects and one shared reverb", () => {
+  it("wires child buses into their parents and master into the destination, with effects; the old reverb sends are a return", () => {
     const { ctx, connections, dest } = fakeContext();
     const m = mk({ buses: [{ name: "Master" }, { name: "Music", parent: "Master", effects: [{ type: "lowpass", frequency: 500 }, { type: "compressor" }] }, { name: "SFX", parent: "Master", effects: [{ type: "reverb", send: 0.3 }] }, { name: "UI", parent: "Master", effects: [{ type: "reverb", send: 0.1 }] }] });
     const g = new BusGraph(ctx, dest, m);
     const inputOf = (bus: string) => (g.input(bus) as unknown as { id: string }).id;
-    expect(connections.filter(([, to]) => to === inputOf("Master")).length).toBe(3); // Music, SFX, UI gains
+    // ADR 0344: the migration made the two reverb sends sends into a "Reverb" return, a bus of the view under Master.
+    expect(m.returnNames).toEqual(["Reverb"]);
+    expect(connections.filter(([, to]) => to === inputOf("Master")).length).toBe(4); // Music, SFX, UI and Reverb gains
     expect(connections.some(([, to]) => to === (dest as unknown as { id: string }).id)).toBe(true);
-    expect(connections.filter(([from]) => from.startsWith("conv")).length).toBe(1); // one convolver, one output connection
+    expect(connections.filter(([from]) => from.startsWith("conv")).length).toBe(0); // no shared convolver: the reverb is the return's insert
     expect(g.input("Nope")).toBe(g.input("Master"));
     g.dispose();
   });

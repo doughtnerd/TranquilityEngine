@@ -15,7 +15,11 @@ import { DEFAULT_ICON_SVG, ICON_FILES, desktopProjectFiles, desktopReadme, type 
 import { PLAYER_FILE_LIST } from "./format";
 import { acquireProjectContext } from "../engine/core/projectContext";
 import { bakeModelFile } from "../engine/scene/models";
-import { writeWebBuild, type BuildFolder, type FileSource } from "./buildWriter";
+import { NOTICES_FILE, writeWebBuild, type BuildFolder, type FileSource } from "./buildWriter";
+import type { AudioCacheStore } from "./audio";
+import { DECODER_WASM_URL, createAudioDecoder } from "./audioDecode";
+import { createNodeAudioEncoder } from "./audioEncoderNode";
+import type { ImportPlatform } from "../engine/scene/importSettings";
 import { sharpTranscoder } from "./imagesNode";
 import { ExportError, isOutputInsideProject, planWebBuild, type WebBuildPlan } from "./webBuild";
 
@@ -34,6 +38,23 @@ export interface ExportOptions {
   tauriBuild?: boolean;
   /** Ship the built-in audio capture trigger (F9, a three-finger hold): the game can record its audio mix for the Profiler (default off). */
   audioCapture?: boolean;
+  /** ADR 0348: ship the take trigger (F10): the game can record takes for the Studio (default off). */
+  audioTake?: boolean;
+  /** ADR 0348: with `audioTake`, false keeps pictures of the game view out of takes (default: takes record them). */
+  audioTakeFrames?: boolean;
+  /**
+   * ADR 0351 §1: the platform images and audio are converted for (default: the target's; `android` converts a web build
+   * for Android until its exporter lands, ADR 0155).
+   */
+  platform?: ImportPlatform;
+  /** ADR 0351 §5: `--no-audio-convert`: audio ships as its sources (packages are still built), and the report says so. */
+  audioConvert?: boolean;
+  /** ADR 0354 §6, 0356 §11: `--languages`: ship only these of the project's shipped languages (default: every one). */
+  languages?: string[];
+  /** ADR 0356 §9: `--pseudo`: add the pseudo-languages, for QA builds. */
+  pseudo?: boolean;
+  /** Audio encoder threads (default: cores − 1). */
+  audioWorkers?: number;
   log?: (line: string) => void;
 }
 
@@ -59,16 +80,20 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (isOutputInsideProject(project.root, out)) {
     throw new ExportError(`The output folder "${out}" is inside the project, where the next export would copy it in. Use a folder outside it, or under its dist/ folder.`);
   }
-  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture });
+  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames, languages: options.languages, pseudo: options.pseudo });
   const playerDir = options.playerDir ?? (await ensurePlayer(log));
 
   const folder = nodeFolder(out);
   const desktop = target === "desktop";
   // Models bake through the project's files as the server loads them (ADR 0090).
   const context = acquireProjectContext({ assets: project.assets });
+  const platform = options.platform ?? target;
+  const encoder = options.audioConvert === false ? null : createNodeAudioEncoder({ workers: options.audioWorkers });
   try {
     plan = await writeWebBuild(plan, {
       project: nodeFiles(project.root),
+      audio: { encoder, decode: createAudioDecoder(() => readFile(DECODER_WASM_URL)), cache: nodeCache(project.root) },
+      notices: await readFile(join(REPO, NOTICES_FILE), "utf8").catch(() => undefined),
       player: nodeFiles(playerDir),
       playerWhere: playerDir,
       folder,
@@ -76,12 +101,13 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
       web: desktop ? "web" : "",
       keep: desktop ? ["src-tauri/target"] : [],
       kind: target,
-      platform: target,
+      platform,
       transcode: sharpTranscoder,
       bake: bakeModelFile,
       log,
     });
   } finally {
+    encoder?.close();
     context.release();
   }
   const web = desktop ? join(out, "web") : out;
@@ -132,6 +158,18 @@ const under = (root: string, path: string) => (path ? join(root, ...path.split("
 /** A folder's files read through Node's fs, as bytes. */
 function nodeFiles(root: string): FileSource {
   return { read: async (path) => new Uint8Array(await readFile(under(root, path))) };
+}
+
+/** The audio cache (ADR 0351 §5) in the project folder's `.myco/cache/audio/` (paths relative to the project). */
+function nodeCache(root: string): AudioCacheStore {
+  return {
+    read: (path) => readFile(under(root, path)).then((b) => new Uint8Array(b), () => null),
+    write: async (path, bytes) => {
+      const to = under(root, path);
+      await mkdir(dirname(to), { recursive: true });
+      await writeFile(to, bytes);
+    },
+  };
 }
 
 /** The build folder `root` through Node's fs (the command line's adapter). */

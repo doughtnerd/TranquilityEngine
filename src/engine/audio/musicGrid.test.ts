@@ -3,7 +3,10 @@
  * Next beat, bar and cue lookup are L-G1b's; the property tests against a naive integrator are L-G1a's.
  */
 import { describe, expect, it } from "vitest";
-import { emptySegment, type TempoMarker } from "./musicFormat";
+import type { TempoMarker } from "./musicGrid";
+
+/** A segment as `compileSegmentGrid` reads it (`GridSegment`), mutable for the tests. */
+const emptySegment = (_id: string): { tempo: TempoMarker[]; gridOffset: number; cues: { name: string; at: string }[]; entry?: string; exit?: string } => ({ tempo: [], gridOffset: 0, cues: [] });
 import {
   compileSegmentGrid, compileTempoMap, cueSeconds, cueTicks, entrySeconds, exitSeconds, framesToSeconds, framesToTicks,
   nextBarTicks, nextBeatTicks, nextGridSeconds, nextGridTicks, positionInMetre, positionToTicks, secondsToFrames,

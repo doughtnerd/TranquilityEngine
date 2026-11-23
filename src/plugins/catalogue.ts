@@ -14,6 +14,7 @@ import { physicsRapierManifest } from "./physics-rapier/manifest";
 import { postProcessingManifest } from "./post-processing/manifest";
 import { skyManifest } from "./sky/manifest";
 import { spritesManifest } from "./sprites/manifest";
+import { subtitlesManifest } from "./subtitles/manifest";
 import { tilemapsManifest } from "./tilemaps/manifest";
 import { uiManifest } from "./ui/manifest";
 import { waterManifest } from "./water/manifest";
@@ -38,6 +39,8 @@ export const FIRST_PARTY = {
   environment: environmentManifest,
   "post-processing": postProcessingManifest,
   audio: audioManifest,
+  // After audio and UI, which it needs (ADR 0357 §5).
+  subtitles: subtitlesManifest,
 } as const satisfies Readonly<Record<string, PluginManifest>>;
 
 /** A first-party plugin's catalogue key: its folder under `src/plugins/`. */

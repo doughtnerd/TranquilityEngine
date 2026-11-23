@@ -2,7 +2,8 @@
 // first. The list is a per-user convenience kept in browser storage. The desktop editor
 // remembers folder paths; a Chromium browser remembers folder handles (in IndexedDB, since
 // handles can't be written as JSON) and asks for access again when one is reopened.
-import type { FsaDirectoryHandle } from "./fsaFileSystem";
+import type { FileSystem } from "../engine/platform/FileSystem";
+import { FsaFileSystem, type FsaDirectoryHandle } from "./fsaFileSystem";
 import { RecentProjects, type HandleStore, type ListStore } from "./recentProjectList";
 
 export { locationOf, type RecentProject, type RecentState } from "./recentProjectList";
@@ -12,6 +13,24 @@ let shared: RecentProjects | null = null;
 /** The editor's recent projects (localStorage, plus IndexedDB for browser folder handles). */
 export function recentProjects(): RecentProjects {
   return (shared ??= new RecentProjects(localListStore(), indexedDbHandleStore()));
+}
+
+/**
+ * Add an opened folder project to the recent projects (a browser folder by its handle, a desktop folder by its path),
+ * as the editor and the Audio Studio do when one opens. A project in memory (no folder) is skipped; a failure is
+ * warned about (as `[app]`), never thrown, so opening never fails over the list.
+ */
+export async function rememberProject(project: { readonly name: string; readonly fileSystem: FileSystem | null; readonly root: string | null }, app = "editor", list: RecentProjects = recentProjects()): Promise<void> {
+  const fs = project.fileSystem, root = project.root;
+  if (!fs || !root) return;
+  try {
+    if (fs instanceof FsaFileSystem) {
+      const handle = await fs.directoryHandle(root);
+      await list.add({ name: project.name, path: handle.name, handle });
+    } else await list.add({ name: project.name, path: root });
+  } catch (err) {
+    console.warn(`[${app}] couldn't add ${root} to the recent projects: ${err instanceof Error ? err.message : String(err)}`);
+  }
 }
 
 /**

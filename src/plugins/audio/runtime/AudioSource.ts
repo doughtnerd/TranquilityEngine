@@ -12,34 +12,34 @@ import type { World } from "../../../engine/core/World";
 import { _worldServiceOf } from "../../../engine/core/worldServices";
 import { AUDIO, type AudioWorldService } from "./core/service";
 import { clipRequest, clipVolume, isAmbisonicClip } from "./clipResolver";
+import { playSampleVoice, releaseSampleVoice } from "./sampleVoice";
 import { isSpatialPassHost } from "./core/spatial";
 import { Assets } from "../../../engine/scene/Assets";
 import { audioBackend, hasAudioBackend, DEFAULT_SEND_CURVE, type AudioPanner, type AudioVoice, type PlayRequest, type Rolloff, type SendCurve } from "./backend";
-import { isAudioEventPath } from "../../../engine/audio/eventFormat";
-import { events, loadAudioEvent, type EventInstance, type EventOptions } from "./events/eventRuntime";
-import { noteAssetChanged, setReloadHost } from "./music/reload";
+import { isAudioEventPath } from "../../../engine/audio/retiredAudioEvent";
+import type { EventOptions } from "./playlists/options";
+import { isPlaylistPath } from "../../../engine/audio/playlist/format";
+import { playlists } from "./playlists/playlistSystem";
+import type { PlaylistInstance } from "./playlists/instance";
+import { playlistHandleOf } from "./playlists/handle";
+import { takePlayOptions, takeTap, type TakeEmitter } from "./capture/takeTap";
 
 
 export type { Rolloff } from "./backend";
 
-// ADR 0166 P8: the editor saving an asset reaches the music runtime here. `invalidateClip` drops the decoded clips and the
-// worker's encoded bytes of the file (only when a backend exists: an edit before any sound needs nothing dropped), and
-// `eventRoot` re-reads the saved event asset's music tree; `noteAssetChanged` then marks the playing instances that use
-// the path, and each swaps at its next bar (`music/reload.ts`).
-setReloadHost({
-  invalidateClip: (path) => {
-    if (hasAudioBackend()) audioBackend().clipCache?.invalidateClip(path);
-  },
-  eventRoot: (path) => (isAudioEventPath(path) ? loadAudioEvent(path)?.musicRoot ?? null : null),
+// ADR 0166 P8: the editor saving an asset drops the decoded clips and the worker's encoded bytes of the file (only when a
+// backend exists: an edit before any sound needs nothing dropped). A playing Sequence picks up its edited playlist itself
+// and swaps at its next bar (`playlists/sequence.ts`, the reload rule of `music/reload.ts`).
+Assets.onChanged((path) => {
+  if (hasAudioBackend()) audioBackend().clipCache?.invalidateClip(path);
 });
-Assets.onChanged((path) => noteAssetChanged(path));
 
 const clamp255 = (p: number): number => (Number.isFinite(p) ? Math.min(255, Math.max(0, Math.round(p))) : 128);
 /** Clamps `v` to lo..hi; a non-finite value gives `fallback`. */
 const clampOr = (v: number, lo: number, hi: number, fallback: number): number => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : fallback);
 
-/** Whether the active World has the view: only it plays sound (ADR 0074). */
-export const worldPlays = (world: World | null): boolean => !!world?.render;
+/** Whether the active World has the view, or plays sound without one (ADR 0341's audio-only World): only it plays sound (ADR 0074). */
+export const worldPlays = (world: World | null): boolean => !!world && (!!world.render || world._audioOnly === true);
 
 /** @internal The World's key on the core (its `myco.audio` share, architecture §3.9), or 0 while it has none. A play carries it so selection knows whose voice it is. */
 export function worldKeyOf(world: World | null): number {
@@ -54,11 +54,11 @@ export function worldKeyOf(world: World | null): number {
 @component("engine.AudioSource")
 export class AudioSource extends Component {
   /**
-   * What to play: a clip (an audio file) or an audio event asset (`*.audioevent.json`, ADR 0158); the Inspector offers both.
-   * For an event, `loop`, `spatial` and the distance fields come from the event; `volume` and `pitch` still apply on top.
-   * A music event (a segment, playlist or musicSwitch root, ADR 0166) plays the same way, but `pitch` is ignored (one warning).
+   * What to play: a clip (an audio file) or a playlist (`*.playlist.json`, ADR 0343). For a playlist, `loop` and `spatial`
+   * come from the asset and `minDistance`/`maxDistance` stretch its attenuation; `volume` and `pitch` still apply on top.
+   * An old audio event file (`*.audioevent.json`) is refused with a message naming the migration.
    */
-  @field(AssetRef, { kind: ["audio", "audioEvent"], description: "A sound clip, or an audio event (`*.audioevent.json`) to play as an instance." }) clip = "";
+  @field(AssetRef, { kind: ["audio", "playlist"], description: "A sound clip, or a playlist (`*.playlist.json`) to play as an instance." }) clip = "";
   @field(Number, { description: "Linear gain, 1 is full volume." }) volume = 1;
   @field(Boolean, { description: "Start again when the clip ends." }) loop = false;
   @field(Boolean, { description: "Start playing when the node is enabled in play mode." }) playOnAwake = true;
@@ -90,11 +90,11 @@ export class AudioSource extends Component {
   get _voiceId(): number {
     return this.voice?.id ?? 0;
   }
-  /** ADR 0158: the playing event instance when `clip` is an event. */
-  private instance: EventInstance | null = null;
+  /** ADR 0343: the playing playlist instance when `clip` is a playlist. */
+  private playlist: PlaylistInstance | null = null;
   /** What was last applied to the playing sound, so a frame only touches the backend for changes. */
   private applied = "";
-  /** The pitch last given to the playing event instance. */
+  /** The pitch last given to the playing playlist instance. */
   private appliedPitch = 1;
   /** ADR 0162 (K4): the §1.2 options last applied, and the curve object they carried. */
   private appliedM3 = "";
@@ -117,18 +117,18 @@ export class AudioSource extends Component {
 
   /** ADR 0162 §1.2 (`occlusionGain`: the field `occlusion` holds the switch): the playing sound's smoothed dry occlusion gain, 1 open (and while not playing). */
   get occlusionGain(): number {
-    if (this.instance) return this.instance.playing ? this.instance.occlusion : 1;
+    if (this.playlist) return this.playlist.playing ? this.playlist.occlusion : 1;
     return this.voice !== null && this.voice.playing ? (this.voice.occlusion ?? 1) : 1;
   }
 
   /** ADR 0162 §1.2: the panner the playing sound uses, or null when not playing (or on a backend without panners). */
   get panner(): AudioPanner | null {
-    if (this.instance) return this.instance.playing ? this.instance.panner : null;
+    if (this.playlist) return this.playlist.playing ? this.playlist.panner : null;
     return this.voice !== null && this.voice.playing ? (this.voice.panner ?? null) : null;
   }
 
   get isPlaying(): boolean {
-    if (this.instance) return this.instance.playing;
+    if (this.playlist) return this.playlist.playing;
     return this.voice !== null && this.voice.playing;
   }
 
@@ -136,16 +136,19 @@ export class AudioSource extends Component {
     if (!this.clip || !worldPlays(this._world)) return;
     this.stop();
     const path = this.clip.replace(/^asset:/, "");
-    if (isAudioEventPath(path)) {
-      this.instance = events().play(path, {
+    // An old audio event goes to the playlist runtime too, which refuses it with the migration's message.
+    if (isPlaylistPath(path) || isAudioEventPath(path)) {
+      this.playlist = playlists().play(path, {
         pitch: this.pitch, priority: clamp255(this.priority), bus: this.output || undefined, position: this.node.transform?.worldPosition,
-        ...this.eventSpatialOptions(),
+        ...this.eventSpatialOptions(), ...this.distanceOverrides(), owner: this.node.name,
       }, worldKeyOf(this._world));
       this.applied = "";
       this.appliedPitch = this.pitch;
-      if (this.instance) {
-        this.instance.musicSource = this; // ADR 0166 K2: this node's `onMusicBeat`, `onMusicBar`, `onMusicCue` hear the music
-        this.applyEvent();
+      if (this.playlist) {
+        takeTap.sink?.play(this.playlist, path, this.takeEmitter(), takePlayOptions({ pitch: this.pitch, priority: clamp255(this.priority), bus: this.output || undefined }));
+        // D20 (ADR 0343): this node's `onAudioMarker`, `onMusicBeat` and `onMusicBar` hear the playlist.
+        this.playlist.attachSource(this, playlistHandleOf(this.playlist));
+        this.applyPlaylist();
       }
       return;
     }
@@ -156,8 +159,9 @@ export class AudioSource extends Component {
     const spatial = this.spatial && !this.ambisonicClip && this.node.transform !== null;
     // G9b: the voice starts at its volume and pitch. Set only afterwards (`apply`), the PLAY went out at gain 1 and the
     // volume a frame later, so a quiet source was heard at full scale for that frame (and dipped a level rule's target).
+    // ADR 0342: the sample's trim, normalisation gain and (when `loop`) loop region, as every play of it.
     const req = clipRequest(path, this.loop, this.output);
-    this.voice = audioBackend().play(Object.assign(req, {
+    this.voice = playSampleVoice(path, Object.assign(req, {
       volume: this.volume * req.volume!, pitch: this.pitch,
       priority: clamp255(this.priority), world: worldKeyOf(this._world), owner: this.node.name, ...this.spatialOptions(),
       ...(spatial ? { attenuation: { minDistance: this.minDistance, maxDistance: this.maxDistance, rolloff: this.rolloff }, position: this.node.transform!.worldPosition } : null),
@@ -166,32 +170,47 @@ export class AudioSource extends Component {
     this.appliedM3 = "";
     this.appliedCurve.length = 0;
     this.playedAttenuation = spatial;
-    if (this.voice) this.apply(path);
+    if (this.voice) {
+      takeTap.sink?.play(this.voice, path, spatial ? this.takeEmitter() : null, takePlayOptions({ volume: this.volume, pitch: this.pitch, priority: clamp255(this.priority), bus: this.output || undefined }));
+      this.apply(path);
+    }
+  }
+
+  /** ADR 0348: this node as a take's emitter (its world position each read). */
+  private takeEmitter(): TakeEmitter {
+    const node = this.node;
+    return { key: node, name: node.name, position: () => node.transform?.worldPosition ?? null };
   }
 
   pause(): void {
     this.voice?.pause();
-    this.instance?.pause();
+    this.playlist?.pause();
   }
 
   resume(): void {
     this.voice?.resume();
-    this.instance?.resume();
+    this.playlist?.resume();
   }
 
-  /** ADR 0158: set one of the playing event's own parameters. Does nothing for a clip. */
+  /** Set one of the playing playlist's own parameters. Does nothing for a clip. */
   setParameter(name: string, value: number | string): void {
-    this.instance?.setParameter(name, value);
+    this.playlist?.setParameter(name, value);
   }
 
-  /** ADR 0158: one of the playing event's parameters (else a global one); undefined for a clip or when not playing. */
+  /** One of the playing playlist's parameters (else a global one); undefined for a clip or when not playing. */
   getParameter(name: string): number | string | undefined {
-    return this.instance?.getParameter(name);
+    return this.playlist?.getParameter(name);
   }
 
-  /** ADR 0158: key-off the playing event, so its sustain loops play their tails. Does nothing for a clip. */
+  /**
+   * Key-off: the playing playlist's held loops, or a looping sample's held loop (ADR 0342, its sidecar's first loop),
+   * end by their exit settings. Does nothing for a clip without a held loop.
+   */
   release(): void {
-    this.instance?.release();
+    const sink = takeTap.sink;
+    if (sink && this.playlist) sink.release(this.playlist);
+    this.playlist?.release();
+    if (this.voice) releaseSampleVoice(this.voice);
   }
 
   /**
@@ -206,15 +225,17 @@ export class AudioSource extends Component {
   }
 
   stop(): void {
+    const sink = takeTap.sink;
+    if (sink) for (const p of [this.voice, this.playlist]) if (p) sink.stop(p, p === this.playlist ? 0.12 : 0);
     this.voice?.stop();
     this.voice = null;
-    this.instance?.stop();
-    this.instance = null;
+    this.playlist?.stop();
+    this.playlist = null;
   }
 
   /** @internal Each frame (the audio system): volume, pitch and, for spatial sources, position and falloff. */
   _sync(): void {
-    if (this.instance) return this.applyEvent();
+    if (this.playlist) return this.applyPlaylist();
     if (!this.voice) return;
     this.apply(this.clip.replace(/^asset:/, ""));
   }
@@ -233,15 +254,25 @@ export class AudioSource extends Component {
     };
   }
 
-  /** ADR 0162 §1.2 (D4): the options an event the source plays gets (the event's own `spatial` keys win; a flat event ignores them). */
   /**
-   * ADR 0162 D4: the source's §1.2 options an event it plays inherits where the event leaves them unset. Not
-   * `dopplerLevel`: Doppler is authored on the event (§2.5 default 0, as in Wwise and FMOD), so a source's default 1
+   * ADR 0162 D4: the source's §1.2 options a playlist it plays inherits where the playlist leaves them unset. Not
+   * `dopplerLevel`: Doppler is authored on the playlist (§2.5 default 0, as in Wwise and FMOD), so a source's default 1
    * doesn't override it (coordinator ruling, build log).
    */
   private eventSpatialOptions(): Pick<EventOptions, "occlusion" | "reverbSend" | "reverbSendCurve"> {
     const { occlusion, reverbSend, reverbSendCurve } = this.spatialOptions();
     return { occlusion, reverbSend, reverbSendCurve };
+  }
+
+  /**
+   * ADR 0347: for a playlist, `minDistance` and `maxDistance` are overrides that stretch its attenuation curves. A field
+   * left at its default (1 and 100) is no override, so the playlist's own distances apply.
+   */
+  private distanceOverrides(): { minDistance?: number; maxDistance?: number } {
+    const out: { minDistance?: number; maxDistance?: number } = {};
+    if (this.minDistance !== 1 && Number.isFinite(this.minDistance)) out.minDistance = Math.max(0, this.minDistance);
+    if (this.maxDistance !== 100 && Number.isFinite(this.maxDistance)) out.maxDistance = this.maxDistance;
+    return out;
   }
 
   /**
@@ -255,13 +286,9 @@ export class AudioSource extends Component {
     console.warn(`[myco] audio: AudioSource "${this.node.name}" plays the ambisonic clip "${path}", which ignores spatial, minDistance, maxDistance, rolloff, occlusion and dopplerLevel (ADR 0162)`);
   }
 
-  /**
-   * An event's volume follows `volume` (as the instance's fade multiplier), its pitch follows `pitch`, and a spatial event
-   * follows the node. The rest applies at the next play. ADR 0162 (K4): §1.2's options for events (the event's own
-   * `spatial` additions, §2.5) reach its voices through the event runtime (D4); the source's fields don't apply to an event yet.
-   */
-  private applyEvent(): void {
-    const instance = this.instance!;
+  /** ADR 0343: a playlist follows `volume` (its fade gain), `pitch` and, when spatial, the node. */
+  private applyPlaylist(): void {
+    const instance = this.playlist!;
     const signature = `${this.volume}`;
     if (signature !== this.applied) {
       this.applied = signature;
@@ -271,7 +298,7 @@ export class AudioSource extends Component {
       this.appliedPitch = this.pitch;
       instance.setPitch(this.pitch);
     }
-    if (instance.asset.spatial && this.node.transform) instance.position = this.node.transform.worldPosition;
+    if (instance.spatial && this.node.transform) instance.position = this.node.transform.worldPosition;
   }
 
   private apply(path: string): void {

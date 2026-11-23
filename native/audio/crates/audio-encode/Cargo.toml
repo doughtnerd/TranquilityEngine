@@ -1,0 +1,27 @@
+[package]
+name = "audio-encode"
+description = "Myco's audio encoder (ADR 0351 amended by 0359): PCM, IMA ADPCM, Ogg Vorbis (libvorbis) and Ogg Opus (libopus), with rubato's FFT resampler and a mono downmix, built as a wasm32-wasip1 reactor, myco_audio_encode.wasm. Editor, Studio and export only; never in a game build."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "myco_audio_encode"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# ADR 0359 §2: the synchronous FFT resampler for every fixed-ratio conversion (the rate ceiling, Opus's 48 kHz).
+# Exactly the version the A0 spike measured.
+rubato = { version = "=5.1.0", default-features = true }
+
+[build-dependencies]
+# Compiles the vendored libogg, libvorbis and libopus (native/audio/third_party/) with wasi-sdk's clang for wasm32-wasip1,
+# the system's C compiler natively (cargo test).
+cc = "1.2"
+# The encoder's own source hash (build.rs), its version in caches.
+sha2.workspace = true
+
+[dev-dependencies]
+# The round-trip tests decode the encoder's Ogg Vorbis with the shipped decoder.
+myco_audio_decode = { package = "audio-decode", path = "../audio-decode" }

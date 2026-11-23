@@ -106,6 +106,17 @@ const rows: Row[] = [
   { name: "masterChange live", call: (s) => s.masterChange(1, false), kind: EventKind.masterChange, reason: 0, args: [0], f32: 1 },
   { name: "hiddenTab hidden", call: (s) => s.hiddenTab(true), kind: EventKind.hiddenTab, reason: 0, args: [1] },
   { name: "hiddenTab shown", call: (s) => s.hiddenTab(false), kind: EventKind.hiddenTab, reason: 0, args: [0] },
+  // ADR 0348: pick paths and loudness warnings.
+  { name: "pick of a Switch", call: (s) => s.pick({ instance: 21, depth: 1, playlist: "fx/steps.playlist.json", type: "switch", choice: 2, label: "Gravel", weights: null }), kind: EventKind.pick, reason: 0, args: [21, 1, N("events", "fx/steps.playlist.json"), 2, 2, N("parameters", "Gravel"), NO_NAME, 0, NO_NAME, 0] },
+  { name: "pick of a Blend", call: (s) => s.pick({ instance: 3, depth: 0, playlist: "amb.playlist.json", type: "blend", choice: 1, label: null, weights: [[1, 0.75], [0, 0.25]] }), kind: EventKind.pick, reason: 0, args: [3, 0, N("events", "amb.playlist.json"), 3, 1, NO_NAME, 1, new Uint32Array(new Float32Array([0.75]).buffer)[0]!, 0, new Uint32Array(new Float32Array([0.25]).buffer)[0]!] },
+  { name: "pick of nothing (a Queue with no entry)", call: (s) => s.pick({ instance: 3, depth: 2, playlist: "q.playlist.json", type: "queue", choice: -1, label: null, weights: null }), kind: EventKind.pick, reason: 0, args: [3, 2, N("events", "q.playlist.json"), 1, NO_NAME, NO_NAME, NO_NAME, 0, NO_NAME, 0] },
+  ...(["high", "low", "ok"] as const).map((state, i): Row => ({ name: `loudnessWarning ${state}`, call: (s) => s.loudnessWarning(state === "ok" ? null : "Bgm", state), kind: EventKind.loudnessWarning, reason: i + 1, args: [state === "ok" ? NO_NAME : N("parameters", "Bgm")] })),
+  // ADR 0351 §9: PKG, a package's load start, load, failure and unload with its download bytes.
+  ...(["loadStart", "loaded", "failed", "unload"] as const).map((event, i): Row => ({ name: `audioPackage ${event}`, call: (s) => s.audioPackage("Forest", event, 18_211), kind: EventKind.audioPackage, reason: i + 1, args: [N("parameters", "Forest"), 18_211] })),
+  // ADR 0351 §6: loaded and unload carry the memory held as a third arg.
+  { name: "audioPackage loaded with memory", call: (s) => s.audioPackage("Forest", "loaded", 18_211, 96_000), kind: EventKind.audioPackage, reason: 2, args: [N("parameters", "Forest"), 18_211, 96_000] },
+  // ADR 0352 §6: a plugin fault, the effect type interned in `parameters`, the glue's instance handle.
+  ...(["trap", "budget", "grow", "nonFinite", "range"] as const).map((reason, i): Row => ({ name: `pluginFault ${reason}`, call: (s) => s.pluginFault("example.tremolo", reason, 7), kind: EventKind.pluginFault, reason: i + 1, args: [N("parameters", "example.tremolo"), 7] })),
 ];
 
 describe("EventSink: every §5.6 kind and reason encodes and decodes back (a spec table)", () => {
@@ -128,9 +139,9 @@ describe("EventSink: every §5.6 kind and reason encodes and decodes back (a spe
     expect(ev.payload.perfMs).toBeGreaterThan(1000);
   });
 
-  it("the table covers all 19 kinds and every reason code §5.6 gives", () => {
+  it("the table covers all 23 kinds and every reason code §5.6, ADRs 0348, 0351 and 0352 give", () => {
     const kinds = new Set(rows.map((r) => r.kind));
-    expect(Array.from(kinds).sort((a, b) => a - b)).toEqual(Array.from({ length: 19 }, (_, i) => i + 1).filter((k) => k !== EventKind.parameter));
+    expect(Array.from(kinds).sort((a, b) => a - b)).toEqual(Array.from({ length: 23 }, (_, i) => i + 1).filter((k) => k !== EventKind.parameter));
     for (const [kind, max] of format.EVENT_REASON_MAX) {
       const reasons = new Set(rows.filter((r) => r.kind === kind).map((r) => r.reason));
       for (let reason = kind === EventKind.ladder ? 2 : 1; reason <= max; reason++) expect(reasons.has(reason), `kind ${kind} reason ${reason}`).toBe(true);

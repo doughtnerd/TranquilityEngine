@@ -1,0 +1,4 @@
+# wasi-sdk and the Xiph C sources, fetched by fetch.sh (never committed).
+.toolchain/
+target/
+out/

@@ -162,15 +162,26 @@ export class FsaFileSystem implements FileSystem {
     };
   }
 
+  /**
+   * Every file under folder `path` (full paths) with a stamp of its size and modification time, skipping the
+   * folders `skipFolder` names (by name). Comparing two answers tells what changed between them: the project watch
+   * (projectWatch.ts, ADR 0341) looks on window focus and before Play rather than polling a whole project.
+   */
+  stamps(path: string, skipFolder?: (name: string) => boolean): Promise<Map<string, string>> {
+    return this.snapshot(path, skipFolder);
+  }
+
   // --- internals -------------------------------------------------------------------------------
 
   /** Every file under `path` (full paths) with its size and modification time. */
-  private async snapshot(path: string): Promise<Map<string, string>> {
+  private async snapshot(path: string, skipFolder?: (name: string) => boolean): Promise<Map<string, string>> {
     const out = new Map<string, string>();
     const walk = async (dir: FsaDirectoryHandle, at: string) => {
       for await (const entry of dir.values()) {
         const p = `${at}/${entry.name}`;
-        if (entry.kind === "directory") await walk(entry, p);
+        if (entry.kind === "directory") {
+          if (!skipFolder?.(entry.name)) await walk(entry, p);
+        }
         else {
           const f = await entry.getFile();
           out.set(p, `${f.size}:${f.lastModified}`);

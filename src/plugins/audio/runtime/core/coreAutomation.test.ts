@@ -3,10 +3,10 @@
 // selection's view of automated gain, and the region-aware wrap.
 import { describe, expect, it } from "vitest";
 import type { Curve } from "../../../../engine/core/curve";
-import { AutoTarget, type Binding } from "../events/automation";
-import { Kind, Op, readEnvelope, readRecordHead } from "../wire.generated";
+import { AutoTarget, MAX_BUS_BINDINGS, TimeParam, timeParam, type Binding } from "../automation";
+import { AUTO_TARGET_FX, AUTO_TARGET_LOG, AUTO_TARGET_PARAM_SHIFT, AUTO_TARGET_SEND, AUTO_TARGET_SLOT_SHIFT, Kind, Op, readEnvelope, readRecordHead } from "../wire.generated";
 import type { AudioVoice } from "../backend";
-import { CommandWriter, CORE_CURVE_KEYS, AUTOMATION_GLOBAL } from "./commandWriter";
+import { CommandWriter, CORE_CURVE_KEYS, AUTOMATION_GLOBAL, AUTOMATION_TIME } from "./commandWriter";
 import { BufferPool } from "./bufferPool";
 import { CoreAutomation, wrapPosition, type CoreAutomationDeps } from "./coreAutomation";
 import { ReplayBuilder } from "./replay";
@@ -29,6 +29,7 @@ function rig(options: { mayQueue?: boolean; writer?: CoreAutomationDeps["writer"
     curves: (first, cs) => void calls.push(["curves", first, cs.length]),
     busAutomate: (bus, b) => void calls.push(["busAutomate", bus, b.map((x) => ({ ...x }))]),
     setLoop: (id, at, s, e, l) => void calls.push(["setLoop", id, at, s, e, l]),
+    time: (g, v, r, at) => void calls.push(["time", g, v, r, at]),
   };
   const anchors: [number, number, number][] = [];
   const retimes: number[] = [];
@@ -56,6 +57,87 @@ function rig(options: { mayQueue?: boolean; writer?: CoreAutomationDeps["writer"
 const vol = (slot: number, curve: number, global = false): Binding => ({ param: { global, slot }, curve, target: AutoTarget.Volume });
 const fullCurve = (seed: number): Curve => Array.from({ length: CORE_CURVE_KEYS }, (_, k) => [k, seed + k / 100] as const);
 
+describe("CoreAutomation: time parameters (ADR 0346)", () => {
+  it("sends a time binding as AUTOMATION_TIME | which and a sequence re-anchor as TIME, mirrored for a reset", () => {
+    const { auto, calls, voice, state, table } = rig();
+    auto.defineCurve(1, [[0, 0], [0.5, 1], [1, 0.25]]);
+    const v = voice(4);
+    auto.bindVoice(v, 4, [
+      { param: timeParam(TimeParam.Voice), curve: 1, target: AutoTarget.Volume },
+      { param: timeParam(TimeParam.Sequence), curve: 1, target: AutoTarget.Pitch },
+    ], { volume: 1, pitch: 1 });
+    auto.setSequenceTime(4, 2, 0.5);
+    expect(calls.slice(1)).toEqual([
+      ["automate", v.id, undefined, [{ param: AUTOMATION_TIME | TimeParam.Voice, curve: 1, target: AutoTarget.Volume, offset: 0 }, { param: AUTOMATION_TIME | TimeParam.Sequence, curve: 1, target: AutoTarget.Pitch, offset: 0 }]],
+      ["time", 4, 2, 0.5, undefined],
+    ]);
+    // Selection sees the time-bound volume at its loudest key (1) and the pitch at its first key (0: left alone).
+    expect(table.autoGain[v.id & 0xffff]).toBe(1);
+    expect(table.autoPitch[v.id & 0xffff]).toBe(1);
+    // An idle reset: the clock goes again, from where main estimates it is (1,000 frames of lookahead were its anchor).
+    calls.length = 0;
+    state.now += 1000 + 48_000;
+    auto.afterReset();
+    auto.beginFrame();
+    const time = calls.find((c) => c[0] === "time")!;
+    expect(time[1]).toBe(4);
+    expect(time[2]).toBeCloseTo(2.5, 9);
+    expect(time[3]).toBe(0.5);
+    // A bad group or value is ignored.
+    calls.length = 0;
+    auto.setSequenceTime(1025, 0, 1);
+    auto.setSequenceTime(3, Number.NaN, 1);
+    expect(calls).toEqual([]);
+  });
+
+  it("sends a loop program as LOOPS in clip frames behind its PLAY, its key-off as SET_LOOP, and replays both", () => {
+    const calls: Call[] = [];
+    const { auto, voice } = rig({
+      writer: {
+        automate: () => {}, param: () => {}, curves: () => {}, busAutomate: () => {}, time: () => {},
+        setLoop: (id, at, s, e, l) => void calls.push(["setLoop", id, at, s, e, l]),
+        loops: (id, at, items) => void calls.push(["loops", id, at, items.map((x) => ({ ...x }))]),
+      },
+    });
+    const v = voice(2);
+    auto.onPlaySent(v.id, v.id & 0xffff, 20_000);
+    auto.setLoops(v, 2, [
+      { start: 0.5, end: 1, direction: "pingPong", crossfade: 0.01, count: 3, active: "parameter", param: { global: true, slot: 4 }, op: "<", threshold: 0.25, exit: "crossfade", exitFade: 0.05, reentry: "reenter", crossfadeShape: "linear", exitShape: "sCurve" },
+      { start: 2, end: 2, direction: "forward", crossfade: 0, count: 0, active: "held", exit: "finish", exitFade: 0, reentry: "ignore" },
+    ]);
+    auto.setLoop(v, 0, 0, false);
+    expect(calls).toEqual([
+      ["loops", v.id, 20_000, [
+        { startFrame: 24_000, endFrame: 48_000, crossfadeFrames: 480, exitFadeFrames: 2400, count: 3, flags: 1 | (2 << 2) | (2 << 4) | 0x40 | 0x80, param: AUTOMATION_GLOBAL | 4, shapes: 0x21 /* ABI 4.9: seam linear (1), exit s-curve (2) */, threshold: 0.25 },
+        { startFrame: 96_000, endFrame: 96_000, crossfadeFrames: 0, exitFadeFrames: 0, count: 0, flags: 1 << 2, param: 0, shapes: 0, threshold: 0 },
+      ]],
+      ["setLoop", v.id, 20_000, 0, 0, false],
+    ]);
+    const b = new ReplayBuilder();
+    auto.replayVoice(b, v.id, v.id & 0xffff);
+    const posted: ArrayBuffer[] = [];
+    b.post({ post: (m) => void posted.push(m), nextSeq: () => 0 }, 0, false);
+    const view = new DataView(posted[0]!);
+    const first = readRecordHead(view, 32);
+    expect([first.opcode, readRecordHead(view, 32 + first.words * 4).opcode]).toEqual([Op.LOOPS, Op.SET_LOOP]);
+  });
+
+  it("replays each sequence clock in the header", () => {
+    const { auto, state } = rig();
+    auto.setSequenceTime(0, 1, 1);
+    state.now += 1000 + 24_000;
+    const b = new ReplayBuilder();
+    auto.replayHeader(b);
+    const posted: ArrayBuffer[] = [];
+    b.post({ post: (m) => void posted.push(m), nextSeq: () => 0 }, 0, false);
+    const view = new DataView(posted[0]!);
+    const head = readRecordHead(view, 32);
+    expect(head.opcode).toBe(Op.TIME);
+    expect(view.getFloat32(32 + 16, true)).toBeCloseTo(1.5, 6); // 1 s anchored 1,000 frames ahead, half a second ago
+    expect(view.getFloat32(32 + 20, true)).toBe(1);
+  });
+});
+
 describe("CoreAutomation: the sink over the writer (E3.1)", () => {
   it("sends CURVES, PARAM, AUTOMATE (with the PLAY's stamp) and BUS_AUTOMATE", () => {
     const { auto, calls, voice } = rig();
@@ -68,7 +150,7 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
     expect(calls).toEqual([
       ["curves", 3, 1],
       ["param", 5, 2, 0.5, 4],
-      ["automate", v.id, 12_345, [{ param: 2, curve: 3, target: AutoTarget.Volume }]],
+      ["automate", v.id, 12_345, [{ param: 2, curve: 3, target: AutoTarget.Volume, offset: 0 }]],
       // Local and pitch bindings are not for buses.
       ["busAutomate", 2, [{ param: AUTOMATION_GLOBAL | 1, curve: 3, target: AutoTarget.Volume }]],
     ]);
@@ -84,7 +166,7 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
     t.state[v.id & 0xffff] = VoiceState.PLAYING;
     auto.onPlaySent(v.id, v.id & 0xffff, 20_000);
     expect(calls).toEqual([
-      ["automate", v.id, 20_000, [{ param: 0, curve: 0, target: AutoTarget.Volume }]],
+      ["automate", v.id, 20_000, [{ param: 0, curve: 0, target: AutoTarget.Volume, offset: 0 }]],
       ["setLoop", v.id, 20_000, 24_000, 72_000, true],
     ]);
   });
@@ -94,7 +176,7 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
     const inner = voice(2);
     const wrapper = { get id() { return inner.id; }, playing: true } as unknown as AudioVoice;
     auto.bindVoice(wrapper, 2, [vol(1, 4)], { volume: 1, pitch: 1 });
-    expect(calls).toEqual([["automate", inner.id, undefined, [{ param: 1, curve: 4, target: AutoTarget.Volume }]]]);
+    expect(calls).toEqual([["automate", inner.id, undefined, [{ param: 1, curve: 4, target: AutoTarget.Volume, offset: 0 }]]]);
     table.free(inner.id, 0);
     auto.forget(inner.id & 0xffff);
     calls.length = 0;
@@ -139,7 +221,7 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
     expect(calls).toEqual([
       ["curves", 7, 1],
       ["param", 0, 3, 0.25, 0],
-      ["automate", v.id, undefined, [{ param: AUTOMATION_GLOBAL | 3, curve: 7, target: AutoTarget.Volume }]],
+      ["automate", v.id, undefined, [{ param: AUTOMATION_GLOBAL | 3, curve: 7, target: AutoTarget.Volume, offset: 0 }]],
     ]);
     auto.beginFrame();
     expect(calls).toHaveLength(3); // nothing else was pending
@@ -157,6 +239,35 @@ describe("CoreAutomation: the sink over the writer (E3.1)", () => {
       ["busAutomate", 2, []],
       ["busAutomate", 1, [{ param: AUTOMATION_GLOBAL, curve: 0, target: AutoTarget.Volume }]],
     ]);
+  });
+
+  it("ABI 4.8: an effect binding carries its slot, parameter and log flag; a send binding its return's slot, re-sent when a remap moves the return", () => {
+    const { auto, calls, buses } = rig();
+    auto.defineCurve(0, [[0, 1]]);
+    auto.bindBus("Music", [
+      { param: { global: true, slot: 2 }, curve: 0, target: AutoTarget.Effect, fx: { slot: 1, param: 0, log: true } },
+      { param: { global: true, slot: 3 }, curve: 0, target: AutoTarget.Send, send: "SFX" },
+      { param: { global: true, slot: 3 }, curve: 0, target: AutoTarget.Send, send: "Nowhere" }, // no such bus: left out
+    ]);
+    const fxTarget = (AUTO_TARGET_FX | (1 << AUTO_TARGET_SLOT_SHIFT) | (0 << AUTO_TARGET_PARAM_SHIFT) | AUTO_TARGET_LOG) >>> 0;
+    expect(calls.filter((c) => c[0] === "busAutomate").at(-1)).toEqual(["busAutomate", 2, [
+      { param: AUTOMATION_GLOBAL | 2, curve: 0, target: fxTarget },
+      { param: AUTOMATION_GLOBAL | 3, curve: 0, target: AUTO_TARGET_SEND | (1 << AUTO_TARGET_SLOT_SHIFT) },
+    ]]);
+    calls.length = 0;
+    // The return moves slot, the bus doesn't: its bindings go again with the new slot.
+    buses.set("SFX", 3);
+    auto.onBusesConfigured();
+    expect(calls).toEqual([["busAutomate", 2, [
+      { param: AUTOMATION_GLOBAL | 2, curve: 0, target: fxTarget },
+      { param: AUTOMATION_GLOBAL | 3, curve: 0, target: AUTO_TARGET_SEND | (3 << AUTO_TARGET_SLOT_SHIFT) },
+    ]]]);
+    calls.length = 0;
+    auto.onBusesConfigured();
+    expect(calls).toEqual([]); // nothing moved
+    // Up to 16 bindings a bus (MAX_BUS_BINDINGS).
+    auto.bindBus("Music", Array.from({ length: 20 }, () => ({ param: { global: true, slot: 0 }, curve: 0, target: AutoTarget.Volume })));
+    expect((calls.at(-1)![2] as unknown[]).length).toBe(MAX_BUS_BINDINGS);
   });
 
   it("a live rename moves a bus's bindings to the new name (Ma1): removing them afterwards clears the slot", () => {

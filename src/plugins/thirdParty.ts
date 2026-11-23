@@ -1,9 +1,12 @@
 // Third-party plugins (ADR 0139): their `plugin.json` schema, SDK version ranges, discovery in the
 // project (`plugins/<folder>/plugin.json`) and in its npm packages (`"myco": { "plugin": … }` in a
 // package's package.json), the checks that run before any plugin code does, and which project code a
-// host loads, as one plan (`planPluginCode`, ADR 0275). No file access and no editor or engine
-// imports: the editor, the exporter and the dedicated server each pass what they read and run the same
-// plan against the same first-party catalogue, so all three agree on what loads.
+// host loads, as one plan (`planPluginCode`, ADR 0275). No file access and no editor imports (from
+// the engine only the pure parse of a manifest's `audio` section, ADR 0352): the editor, the exporter
+// and the dedicated server each pass what they read and run the same plan against the same
+// first-party catalogue, so all three agree on what loads.
+import { parsePluginAudio } from "../engine/audio/effects/pluginEffects";
+import type { PluginAudio } from "../engine/audio/effects/types";
 import { FIRST_PARTY_MANIFESTS } from "./catalogue";
 import { resolveEnabledPlugins } from "./enabled";
 import type { PluginManifest } from "./manifest";
@@ -34,6 +37,11 @@ export interface ThirdPartyManifest extends PluginManifest {
   /** The editor half's entry, relative to the plugin folder (or package). Inside `editor/` for a project plugin. */
   readonly editor?: string;
   readonly assetKinds?: readonly PluginAssetKind[];
+  /**
+   * ADR 0352 §3: DSP effects as sandboxed wasm modules, read without running plugin code. With it, `runtime` and
+   * `editor` are optional: a DSP-only plugin runs no JavaScript.
+   */
+  readonly audio?: PluginAudio;
 }
 
 /** Where a plugin was found. */
@@ -205,7 +213,10 @@ function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | nul
   };
   const runtime = entry("runtime");
   const editor = entry("editor");
-  if (r.runtime === undefined && r.editor === undefined) problems.push(`a plugin needs a "runtime" or an "editor" entry (or both)`);
+  if (r.runtime === undefined && r.editor === undefined && r.audio === undefined) problems.push(`a plugin needs a "runtime" or an "editor" entry, or an "audio" section`);
+  // ADR 0352 §3: the `audio` section, once the name and version it is stamped with are known to be good.
+  let audio: PluginAudio | undefined;
+  if (r.audio !== undefined && name !== undefined && NAME_RE.test(name)) audio = parsePluginAudio(r.audio, { name, version: version ?? "", ...(title !== undefined && { title }) }, problems);
   let dependencies: Record<string, string> | undefined;
   if (r.dependencies !== undefined) {
     if (typeof r.dependencies !== "object" || r.dependencies === null || Array.isArray(r.dependencies)) problems.push(`"dependencies" must be an object of plugin names and version ranges`);
@@ -248,6 +259,7 @@ function parsePluginManifest(raw: unknown): { manifest: ThirdPartyManifest | nul
     ...(runtime !== undefined && { runtime }),
     ...(editor !== undefined && { editor }),
     ...(assetKinds && { assetKinds }),
+    ...(audio && { audio }),
   };
   return { manifest, problems };
 }
@@ -264,12 +276,22 @@ interface DiscoverInput {
   readonly json: ReadonlyMap<string, string>;
   /** The project's code paths (scripts and plugin sources, `isScriptPath`), to check entries exist. */
   readonly code: Iterable<string>;
+  /** The project's other file paths, to check a project plugin's audio modules (`.wasm`) exist; absent: not checked. */
+  readonly assets?: Iterable<string>;
   /** The project folder, for npm packages in `node_modules` (absent: no npm plugins). */
   readonly packages?: PluginFiles;
 }
 
 /** A project plugin's folder from a path inside it ("plugins/spinner/runtime/x.ts" → "plugins/spinner"), or null. */
 export const pluginFolderOf = (path: string): string | null => /^(plugins\/[^/]+)\//.exec(path)?.[1] ?? null;
+
+/**
+ * ADR 0352 §8: where a plugin's audio module file (`audio.modules[].wasm`, relative to the plugin) is, project-relative:
+ * `plugins/<folder>/<wasm>` for a project plugin, `node_modules/<package>/<wasm>` for an npm one.
+ */
+export function pluginModulePath(plugin: Pick<FoundPlugin, "source">, wasm: string): string {
+  return plugin.source.kind === "project" ? `${plugin.source.folder}/${wasm}` : `node_modules/${plugin.source.package}/${wasm}`;
+}
 
 /** True for a file of a project plugin's editor half: `plugins/<folder>/editor/…` (ADR 0139). */
 export const isEditorHalfPath = (path: string): boolean => /^plugins\/[^/]+\/editor\//.test(path);
@@ -293,7 +315,8 @@ async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: FoundPl
   const plugins: FoundPlugin[] = [];
   const problems: PluginProblem[] = [];
   const code = new Set(input.code);
-  const refuse = (where: string, message: string, raw?: unknown) => {
+  const assets = input.assets ? new Set(input.assets) : null;
+  const refuse =(where: string, message: string, raw?: unknown) => {
     const name = typeof (raw as { name?: unknown })?.name === "string" ? (raw as { name: string }).name : where;
     problems.push({ plugin: name, where, message });
   };
@@ -323,6 +346,9 @@ async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: FoundPl
     };
     const runtime = entryPath("runtime");
     const editor = entryPath("editor");
+    for (const m of manifest.audio?.modules ?? []) {
+      if (assets && !assets.has(`${folder}/${m.wasm}`)) entryProblems.push(`its audio module ${m.id}'s file ${folder}/${m.wasm} doesn't exist`);
+    }
     if (entryProblems.length > 0) refuse(where, entryProblems.join("; "), manifest);
     else plugins.push({ manifest, source: { kind: "project", folder }, where, ...(runtime && { runtime }), ...(editor && { editor }) });
   }
@@ -368,6 +394,9 @@ async function discoverPlugins(input: DiscoverInput): Promise<{ plugins: FoundPl
       const rel = manifest[key];
       if (rel !== undefined && (await files.read(`${dir}/${rel}`)) === null) missing.push(`its ${key} entry ${dir}/${rel} doesn't exist`);
     }
+    for (const m of manifest.audio?.modules ?? []) {
+      if ((await files.read(`${dir}/${m.wasm}`)) === null) missing.push(`its audio module ${m.id}'s file ${dir}/${m.wasm} doesn't exist`);
+    }
     if (missing.length > 0) refuse(where, missing.join("; "), manifest);
     else
       plugins.push({
@@ -404,8 +433,16 @@ function checkPlugins(found: readonly FoundPlugin[], builtIn: readonly PluginMan
     else if (byName.has(name)) problems.push({ plugin: name, where: p.where, message: `another plugin named ${name} was found first, at ${byName.get(name)!.where}` });
     else byName.set(name, p);
   }
+  // ADR 0352 §3: an audio effect type is unique across the project (the first plugin to declare it keeps it).
+  const effectOwners = new Map<string, string>();
+  for (const p of byName.values()) {
+    const taken = (p.manifest.audio?.effects ?? []).map((e) => e.spec.type).find((t) => effectOwners.has(t));
+    if (taken) refuse(p, `${p.manifest.name} declares the audio effect type ${taken}, which ${effectOwners.get(taken)} declares too`);
+    else for (const e of p.manifest.audio?.effects ?? []) effectOwners.set(e.spec.type, p.manifest.name);
+  }
   for (const p of byName.values()) {
     const { name, sdk } = p.manifest;
+    if (refused.has(name)) continue;
     if (satisfies(SDK_VERSION, sdk) !== true) {
       refuse(p, `${name} needs Myco SDK ${sdk}; this is ${SDK_VERSION}`);
       continue;
@@ -544,12 +581,19 @@ export interface PluginCodePlan {
  * `plugins.disabled`. Never throws: a discovery that fails is a problem.
  */
 export async function planPluginCode(
-  input: { readonly json: ReadonlyMap<string, string>; readonly code: ReadonlyMap<string, string>; readonly packages?: PluginFiles; readonly disabled?: Iterable<string> },
+  input: {
+    readonly json: ReadonlyMap<string, string>;
+    readonly code: ReadonlyMap<string, string>;
+    readonly packages?: PluginFiles;
+    readonly disabled?: Iterable<string>;
+    /** The project's other file paths: a project plugin's audio modules must be among them (absent: not checked). */
+    readonly assets?: Iterable<string>;
+  },
   options: HalfOptions,
 ): Promise<PluginCodePlan> {
   let found: { plugins: FoundPlugin[]; problems: PluginProblem[] };
   try {
-    found = await discoverPlugins({ json: input.json, code: input.code.keys(), packages: input.packages });
+    found = await discoverPlugins({ json: input.json, code: input.code.keys(), packages: input.packages, ...(input.assets && { assets: input.assets }) });
   } catch (err) {
     found = { plugins: [], problems: [{ plugin: "(plugins)", where: "plugins/", message: `couldn't look for plugins: ${err instanceof Error ? err.message : String(err)}` }] };
   }

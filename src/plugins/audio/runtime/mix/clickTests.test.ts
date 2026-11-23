@@ -11,8 +11,10 @@
 //
 // Classes (§4.7): direct and smoothed edits must read <= 0.23 at every phase; a structural edit must arrive as one dip
 // sequence and read <= 0.23 (under S4's click threshold); a rename, an add at the end with nothing on it and a meter
-// change are silent (bit-identical), and a rename posts no bus record at all. The send cases: a bus with a reverb send
-// dips (the post-fader send follows the dip lane), and the last send removed under the dip rings its tail out (Rv1).
+// change are silent (bit-identical), and a rename posts no bus record at all. The send cases (ADR 0344, ABI 4.7: the old
+// section's reverb send is migrated to a send into a "Reverb" return, a core bus): a send's level ramps (`BUS_SENDS`), a
+// new send ramps in, a removed one ramps out (kept muted), a bus with a send dips (the post-fader send follows the dip
+// lane), and the return rings its tail out after the last send into it is removed.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { mixer } from "../../../../engine/audio/mixer";
 import type { MixOp } from "../../../../engine/audio/mixOps";
@@ -53,6 +55,9 @@ interface Case {
    */
   bound?: number;
 }
+
+/** A linear send level in dB (`setSend` takes dB). */
+const dbOf = (gain: number) => 20 * Math.log10(gain);
 
 /** The step-over-peak of a sinusoid at `hz`: the bound for a difference ringing there. */
 const ringBound = (hz: number) => 2 * Math.sin((Math.PI * hz) / 48_000);
@@ -129,11 +134,12 @@ describe("Ck1: every direct and smoothed class of §4.7 is smooth at eight phase
     },
     // A resonance above the tones (3 kHz) rings at 3 kHz: measured 0.245, under that ring's own 0.39 (no step beyond it).
     { name: "filter Q 0.7 -> 12 dB, low-pass at 3 kHz (the difference rings at 3 kHz)", kind: "smooth", bound: ringBound(3000), ops: [{ op: "setEffect", bus: "Voice", index: 0, key: "q", value: 12 }] },
-    { name: "send level 0.4 -> 0.9 (BUS_SLOT in place)", kind: "smooth", ops: [{ op: "setEffect", bus: "SFX", index: 1, key: "send", value: 0.9 }] },
+    { name: "send level 0.4 -> 0.9 (BUS_SENDS, ramped)", kind: "smooth", ops: [{ op: "setSend", bus: "SFX", to: "Reverb", levelDb: dbOf(0.9) }] },
     { name: "compressor threshold -24 -> -50 dB (smoothed)", kind: "smooth", ops: [{ op: "setEffect", bus: "SFX", index: 0, key: "threshold", value: -50 }] },
     { name: "compressor ratio 4 -> 12 (smoothed)", kind: "smooth", ops: [{ op: "setEffect", bus: "SFX", index: 0, key: "ratio", value: 12 }] },
     { name: "append an effect (high-pass 400 Hz at the end)", kind: "smooth", ops: [{ op: "addEffect", bus: "Music", index: 1, effect: { type: "highpass", frequency: 400, q: 0.7 } }] },
-    { name: "append a send (reverb 0.5 at the end of Music)", kind: "smooth", ops: [{ op: "addEffect", bus: "Music", index: 1, effect: { type: "reverb", send: 0.5 } }] },
+    { name: "a new send (Music into the Reverb return at 0.5, ramped in)", kind: "smooth", ops: [{ op: "setSend", bus: "Music", to: "Reverb", levelDb: dbOf(0.5) }] },
+    { name: "a send removed (SFX's, ramped out)", kind: "smooth", ops: [{ op: "setSend", bus: "SFX", to: "Reverb", levelDb: null }] },
     { name: "snapshot definition: the active snapshot's Music volume 0.7 -> 0.3", kind: "smooth", setup: () => mixer.snapshot("Calm", 0), ops: [{ op: "setSnapshot", index: 0, bus: "Music", key: "volume", value: 0.3 }] },
     { name: "snapshot definition: the active snapshot's Voice low-pass off -> 800 Hz", kind: "smooth", setup: () => mixer.snapshot("Calm", 0), ops: [{ op: "setSnapshot", index: 0, bus: "Voice", key: "lowpass", value: 800 }] },
     {
@@ -189,36 +195,35 @@ describe("Ck1: every structural edit dips under the click threshold at eight pha
     { name: "bus removal: Voice (its voice to the root)", kind: "dip", ops: [{ op: "removeBus", bus: "Voice" }] },
     { name: "the send during a dip: SFX (reverb send) re-parented under Music", kind: "dip", ops: [{ op: "moveBus", bus: "SFX", parent: "Music" }] },
     { name: "bus removal with a send: SFX", kind: "dip", ops: [{ op: "removeBus", bus: "SFX" }] },
-    { name: "last-send removal: SFX's reverb send", kind: "dip", ops: [{ op: "removeEffect", bus: "SFX", index: 1 }] },
   ];
   for (const c of cases) it(c.name, T, (ctx) => check(c, ctx));
 });
 
 describe("Ck1: the send run-out and a sound's bus", () => {
-  it("the last send removed under the dip rings its tail out (Rv1): the wet signal goes on after B and decays", T, async (ctx) => {
-    // The dry twin: the same tree with the send at 0 (it feeds the convolver nothing), the same op, so the same dip
-    // sequence; the difference between the two runs is the wet signal alone.
+  it("the last send into a return removed: the return rings its tail out and decays (ADR 0344, as Rv1 had the shared reverb)", T, async (ctx) => {
+    // The dry twin: the same tree with the send at 0 (it feeds the return nothing), the same op; the difference between
+    // the two runs is the return's wet signal alone.
     const dryProject = { ...PROJECT, buses: PROJECT.buses.map((b) => (b.name === "SFX" ? { ...b, effects: [COMP, { type: "reverb", send: 0 }] } : b)) };
-    const op: MixOp = { op: "removeEffect", bus: "SFX", index: 1 };
+    const op: MixOp = { op: "setSend", bus: "SFX", to: "Reverb", levelDb: null };
     const probe = await liveRig(PROJECT);
     if (!probe) return ctx.skip();
     probe.backend.dispose();
     await closeRigs();
-    const wet = await run({ name: "wet", kind: "dip", ops: [op] }, 0, true);
-    const seq = sequencesIn(wet.r.batches).at(-1)!;
-    const start = wet.r.audio.frame - wet.out.length; // the core frame the run's output starts at
+    const wet = await run({ name: "wet", kind: "smooth", ops: [op] }, 0, true);
     wet.r.backend.dispose();
-    const dry = await run({ name: "dry", kind: "dip", project: dryProject, ops: [op] }, 0, true);
-    expect(sequencesIn(dry.r.batches).at(-1)!.b).toBe(seq.b);
+    await closeRigs();
+    const dry = await run({ name: "dry", kind: "smooth", project: dryProject, ops: [op] }, 0, true);
+    expect(dry.from).toBe(wet.from);
     const diff = wet.out.map((x, i) => x - dry.out[i]!);
-    const peakIn = (a: number, b: number) => diff.slice(a - start, b - start).reduce((m, x) => Math.max(m, Math.abs(x)), 0);
-    const beforeF0 = peakIn(seq.f0 - 4 * QUANTUM, seq.f0);
-    const atB = peakIn(seq.b, seq.b + QUANTUM);
-    const later = peakIn(seq.b + 16 * QUANTUM, seq.b + 17 * QUANTUM);
-    console.info(`[Ck1] last-send run-out: wet peak before F0 ${beforeF0.toExponential(2)}, in B's quantum ${atB.toExponential(2)}, 16 quanta on ${later.toExponential(2)}`);
-    expect(beforeF0, "the reverb is heard before the edit").toBeGreaterThan(1e-3);
-    expect(atB, "the tail goes on after the send is gone (no cut at B)").toBeGreaterThan(1e-4);
-    expect(later, "and decays").toBeLessThan(atB);
+    const peakIn = (a: number, b: number) => diff.slice(a, b).reduce((m, x) => Math.max(m, Math.abs(x)), 0);
+    const before = peakIn(wet.from - 4 * QUANTUM, wet.from);
+    // The send ramps out over 10 ms (under four quanta); from then the return holds only its tail.
+    const tail = peakIn(wet.from + 8 * QUANTUM, wet.from + 16 * QUANTUM);
+    const later = peakIn(diff.length - 8 * QUANTUM, diff.length);
+    console.info(`[Ck1] last-send run-out: wet peak before the edit ${before.toExponential(2)}, 8-16 quanta on ${tail.toExponential(2)}, at the end ${later.toExponential(2)}`);
+    expect(before, "the return is heard before the edit").toBeGreaterThan(1e-3);
+    expect(tail, "the tail goes on after the send is gone (no cut)").toBeGreaterThan(1e-4);
+    expect(later, "and decays").toBeLessThan(tail);
     expect(later).toBeGreaterThan(0);
     dry.r.backend.dispose();
   });
@@ -310,7 +315,7 @@ describe("Ck1: the discontinuity check on the Mixer scene (sound-lab's mixer unt
     ["a low-pass inserted first on Music", () => mixer.apply({ op: "addEffect", bus: "Music", index: 0, effect: { type: "lowpass", frequency: 9000, q: 0.7 } })],
     ["Filters' effects reordered", () => mixer.apply({ op: "moveEffect", bus: "Filters", from: 0, to: 1 })],
     ["an effect appended to SFX", () => mixer.apply({ op: "addEffect", bus: "SFX", index: 1, effect: { type: "highpass", frequency: 80, q: 0.7 } })],
-    ["Ambience's (last) reverb send removed", () => mixer.apply({ op: "removeEffect", bus: "Ambience", index: 0 })],
+    ["Ambience's (last) send into the Reverb return removed", () => mixer.apply({ op: "setSend", bus: "Ambience", to: "Reverb", levelDb: null })],
     ["Filters removed (its voice to Master)", () => mixer.apply({ op: "removeBus", bus: "Filters" })],
     ["a presence rule added (Ambience ducks Tape)", () => mixer.apply({ op: "setDucking", index: 1, insert: true, rule: { target: "Tape", trigger: "Ambience", mode: "presence", amount: 0.5, attack: 0.05, release: 0.2 } })],
     ["UI renamed Menu", () => mixer.apply({ op: "renameBus", from: "UI", to: "Menu" })],

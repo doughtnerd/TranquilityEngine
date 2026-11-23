@@ -38,6 +38,13 @@
 //   STREAM_OPEN has `startFrame` = that stream frame and `loopEnd` set, and the core keeps its ring up to that frame and
 //   takes the new epoch from there, gapless. Without a frame the change applies where the worker is decoding (a release
 //   then lands up to a ring late).
+// - **Loop programs** (ADR 0342, loops on stream voices). A region may come with a `StreamLoopProgram`: its seam
+//   crossfade, shape, repeat count and held flag, and the loops after it. At a seam the worker reads the crossfade's
+//   length past the loop's end into the stream's **tail** buffer, seeks back to the start (sample-accurately) and mixes
+//   the tail, fading out, into the frames it reads from there, fading in (`myco_decode_seam`: the core's clip-voice
+//   seam, `audio_dsp::fade_shapes`, so a streamed loop crosses as a decoded one does). After its count the stream plays
+//   on past the region's end, into the next loop of the program, which loops in turn. A release ends the held loops
+//   (the current one at its pass's end, later held ones are skipped); a seek or restart starts the counts again.
 //
 // - **Music group members** (ADR 0166 §4.6, architecture §4.2, C8; D1a). `musicGroups.ts` opens a group's member
 //   streams with `openMember` (STREAM_OPEN carries the `music` flag: the core takes the ring from the music pool) and
@@ -70,7 +77,7 @@ import {
 } from "../wire.generated";
 import { peekKind } from "../wireEnvelope";
 import { CreditWindow, STREAM_CHUNK_FRAMES, STREAM_WINDOW_FRAMES } from "./credit";
-import type { AmbisonicConvention, ClipInfo, DecoderReply, StreamLoopMessage, StreamOpenMessage, StreamPortLike, StreamRequest, StreamSeekMessage } from "./protocol";
+import type { AmbisonicConvention, ClipInfo, DecoderReply, StreamLoopMessage, StreamLoopProgram, StreamLoopStep, StreamOpenMessage, StreamPortLike, StreamRequest, StreamSeekMessage } from "./protocol";
 import { DecoderError, type DecoderWasm, type RawInfo } from "./wasm";
 import { resolveRegion, type StreamRegion } from "./loopRegion";
 
@@ -154,7 +161,19 @@ interface Stream {
   /** Where the stream jumped (a wrap, a seek, a splice): stream frame to file frame, oldest first, kept a few windows back. */
   readonly marks: { stream: number; file: number }[];
   /** E4.4: a loop change waiting for its stream frame. */
-  pending: { at: number; looping: boolean; region: StreamRegion } | null;
+  pending: { at: number; looping: boolean; region: StreamRegion; program: StreamLoopProgram | undefined } | null;
+  /** ADR 0342: the current loop's seam crossfade (frames), shape, count (0 endless) and the passes done (a release ends it whatever it is). */
+  xfade: number;
+  shape: number;
+  count: number;
+  passes: number;
+  /** ADR 0342: the program's loops still to come, in order. */
+  queue: StreamLoopStep[];
+  /** ADR 0342: the tail buffer (wasm memory) and its size, and the seam crossfade in progress: its frame and length (0 none). */
+  tailPtr: number;
+  tailBytes: number;
+  fadePhase: number;
+  fadeLen: number;
   /** The epoch before the last splice: its credits still count (the ring is the same). */
   prevEpoch: number;
   epoch: number;
@@ -351,6 +370,15 @@ export class StreamDecoder {
         pos: start,
         marks: [{ stream: m.startFrame, file: start }],
         pending: null,
+        xfade: 0,
+        shape: 0,
+        count: 0,
+        passes: 0,
+        queue: [],
+        tailPtr: 0,
+        tailBytes: 0,
+        fadePhase: 0,
+        fadeLen: 0,
         prevEpoch: m.epoch,
         epoch: m.epoch,
         chunkSeq: 0,
@@ -363,6 +391,7 @@ export class StreamDecoder {
         held: music,
       };
       this.streams.set(m.streamId, stream);
+      if (loop) this.setProgram(stream, m.program);
       info = importGain !== 1 ? { ...infoOf(raw), importGain } : infoOf(raw);
     } catch (e) {
       if (scratch !== 0) w.free(scratch, scratchBytes);
@@ -408,7 +437,10 @@ export class StreamDecoder {
     // A loop change still waiting for its frame applies now (that frame was on the old timeline).
     if (s.pending) {
       s.loop = s.pending.looping;
-      if (s.pending.looping) s.region = s.pending.region;
+      if (s.pending.looping) {
+        s.region = s.pending.region;
+        this.setProgram(s, s.pending.program);
+      } else this.release(s);
       s.pending = null;
     }
     if (this.restart(s, Math.max(0, m.frame), m.epoch)) this.pump(s);
@@ -426,6 +458,8 @@ export class StreamDecoder {
     s.base = frame;
     s.sent = 0;
     s.pos = frame;
+    s.passes = 0;
+    s.fadeLen = 0;
     s.marks.length = 0;
     s.marks.push({ stream: frame, file: frame });
     s.epoch = epoch;
@@ -451,7 +485,7 @@ export class StreamDecoder {
     // Before this epoch's first frame the ring can't take it: where the worker is.
     if (at <= s.base && next > s.base) at = next;
     if (at >= next) {
-      s.pending = { at, looping: m.looping, region };
+      s.pending = { at, looping: m.looping, region, program: m.program };
       this.pump(s);
       return;
     }
@@ -466,7 +500,8 @@ export class StreamDecoder {
       s.credit.credit(next - at); // those frames are dropped from the ring
       s.sent = at - s.base;
       s.pending = null;
-      this.apply(s, m.looping, region, at);
+      s.fadeLen = 0; // a crossfade in progress was after the splice
+      this.apply(s, m.looping, region, at, m.program);
     } catch (e) {
       return this.failStream(s, e);
     }
@@ -479,15 +514,65 @@ export class StreamDecoder {
   }
 
   /** A loop change lands at stream frame `at` (the next frame read): a release stops wrapping; a region jumps to its start unless the stream is inside it. */
-  private apply(s: Stream, looping: boolean, region: StreamRegion, at: number): void {
+  private apply(s: Stream, looping: boolean, region: StreamRegion, at: number, program?: StreamLoopProgram): void {
     s.loop = looping;
-    if (!looping) return;
+    if (!looping) {
+      this.release(s);
+      return;
+    }
     s.region = region;
+    this.setProgram(s, program);
     const end = region.end > 0 ? region.end : s.frames;
     if (s.pos >= region.start && (!(end > 0) || s.pos < end)) return;
+    // ADR 0342: arriving at the region's end is its seam (the pass that led there counts, and the seam crossfades).
+    if (end > 0 && s.pos === end) {
+      this.wrap(s, at);
+      return;
+    }
     this.decoder!.seek(s.handle, region.start);
     s.pos = region.start;
     this.mark(s, at, region.start);
+  }
+
+  /**
+   * ADR 0342: `s`'s current loop takes `program`'s crossfade, shape and count, and its later loops queue (none:
+   * an endless region with no crossfade, ADR 0158 §4). The passes start again; the tail buffer grows to the longest
+   * crossfade.
+   */
+  private setProgram(s: Stream, program: StreamLoopProgram | undefined): void {
+    s.xfade = program ? Math.max(0, Math.floor(program.crossfadeFrames)) : 0;
+    s.shape = program?.shape ?? 0;
+    s.count = program ? Math.max(0, Math.floor(program.count)) : 0;
+    s.queue = program ? program.then.filter((t) => t.endFrame > t.startFrame) : [];
+    s.passes = 0;
+    this.ensureTail(s, Math.max(s.xfade, ...s.queue.map((t) => t.crossfadeFrames)));
+  }
+
+  /** ADR 0342: a release: the current loop stops wrapping, and the program's later held loops are skipped. */
+  private release(s: Stream): void {
+    s.queue = s.queue.filter((t) => !t.held);
+    if (s.queue.length > 0) this.nextLoop(s);
+  }
+
+  /** ADR 0342: the next loop of the program becomes the current one (looped once the stream reaches its end), if any. */
+  private nextLoop(s: Stream): void {
+    const next = s.queue.shift();
+    if (!next) return;
+    s.loop = true;
+    s.region = { start: next.startFrame, end: next.endFrame };
+    s.xfade = Math.max(0, Math.floor(next.crossfadeFrames));
+    s.shape = next.shape;
+    s.count = Math.max(0, Math.floor(next.count));
+    s.passes = 0;
+  }
+
+  /** ADR 0342: `s`'s tail buffer holds at least `frames` frames. */
+  private ensureTail(s: Stream, frames: number): void {
+    const bytes = frames * s.fileChannels * 4;
+    if (bytes <= s.tailBytes || !this.decoder) return;
+    if (s.tailPtr !== 0) this.decoder.free(s.tailPtr, s.tailBytes);
+    s.tailPtr = this.decoder.alloc(bytes);
+    s.tailBytes = s.tailPtr !== 0 ? bytes : 0;
   }
 
   /** The file frame stream frame `frame` (sent, of this epoch) held, from the marks. */
@@ -529,6 +614,7 @@ export class StreamDecoder {
     const w = this.decoder;
     if (!w) return;
     w.free(s.scratch, s.scratchBytes);
+    if (s.tailPtr !== 0) w.free(s.tailPtr, s.tailBytes);
     w.close(s.handle);
   }
 
@@ -586,7 +672,7 @@ export class StreamDecoder {
         const p = s.pending;
         if (p && at >= p.at) {
           s.pending = null;
-          this.apply(s, p.looping, p.region, at);
+          this.apply(s, p.looping, p.region, at, p.program);
           continue;
         }
         let want = chunkFrames - n;
@@ -598,7 +684,14 @@ export class StreamDecoder {
           flags |= STREAM_CHUNK_FLAGS_WRAPPED;
           continue;
         }
+        if (s.fadeLen > 0) want = Math.min(want, s.fadeLen - s.fadePhase);
         const got = w.readF32(s.handle, s.scratch + n * fc * 4, want);
+        if (s.fadeLen > 0 && got > 0) {
+          // ADR 0342: the seam's crossfade: the tail fades out under the loop's start.
+          w.seam(s.scratch + n * fc * 4, s.tailPtr + s.fadePhase * fc * 4, got, fc, s.fadePhase, s.fadeLen, s.shape);
+          s.fadePhase += got;
+          if (s.fadePhase >= s.fadeLen) s.fadeLen = 0;
+        }
         s.pos += got;
         n += got;
         if (got > 0) empty = 0;
@@ -635,10 +728,31 @@ export class StreamDecoder {
     }
   }
 
-  /** The loop's seam at stream frame `at`: back to the region's start. */
+  /**
+   * The loop's seam at stream frame `at`: back to the region's start, sample-accurately. ADR 0342: a counted loop that
+   * has played its passes doesn't wrap (the stream plays on, into the program's next loop); with a crossfade, the tail
+   * past the region's end is read first and mixed into what follows the seam.
+   */
   private wrap(s: Stream, at: number): void {
+    const w = this.decoder!;
+    s.passes++;
+    if (s.count > 0 && s.passes >= s.count) {
+      s.loop = false;
+      this.nextLoop(s);
+      return;
+    }
+    s.fadeLen = 0;
+    if (s.xfade > 0 && s.tailPtr !== 0) {
+      const fc = s.fileChannels;
+      const n = Math.min(s.xfade, Math.floor(s.tailBytes / (fc * 4)));
+      const got = w.readF32(s.handle, s.tailPtr, n);
+      // Past the file's end the tail is silence.
+      if (got < n) w.f32(s.tailPtr + got * fc * 4, (n - got) * fc).fill(0);
+      s.fadePhase = 0;
+      s.fadeLen = n;
+    }
     const start = s.region.start;
-    this.decoder!.seek(s.handle, start);
+    w.seek(s.handle, start);
     s.pos = start;
     this.mark(s, at, start);
   }

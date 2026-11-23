@@ -1,0 +1,225 @@
+{
+  "format": "myco.playlist@1",
+  "type": "sequence",
+  "output": "Engine",
+  "playback": {
+    "plays": "untilStopped",
+    "maxInstances": 1,
+    "priority": 160
+  },
+  "parameters": [
+    {
+      "name": "RPM",
+      "min": 0,
+      "max": 1,
+      "default": 0,
+      "seekSpeed": 1.5
+    }
+  ],
+  "entries": [],
+  "sequence": {
+    "length": 3.4,
+    "tracks": [
+      {
+        "id": "t1",
+        "name": "Sustain",
+        "kind": "playlist",
+        "color": 1,
+        "automation": [
+          {
+            "id": "t1ra1",
+            "target": "volume",
+            "input": {
+              "parameter": "RPM"
+            },
+            "curve": [
+              [
+                0,
+                -4.437
+              ],
+              [
+                0.25,
+                -3.098
+              ],
+              [
+                0.5,
+                -1.938
+              ],
+              [
+                0.75,
+                -0.915
+              ],
+              [
+                1,
+                0
+              ]
+            ]
+          }
+        ],
+        "clips": [
+          {
+            "id": "t1c1",
+            "playlist": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/engine-start.wav",
+                  "loop": "off"
+                }
+              ]
+            },
+            "at": 0,
+            "length": 0.9
+          },
+          {
+            "id": "t1c2",
+            "playlist": {
+              "type": "blend",
+              "entries": [
+                {
+                  "embedded": {
+                    "type": "clip",
+                    "entries": [
+                      {
+                        "sample": "audio/events/engine-idle.wav"
+                      }
+                    ]
+                  },
+                  "x": 0.05,
+                  "atZeroWeight": "continue",
+                  "region": {
+                    "start": -0.4,
+                    "end": 0.5,
+                    "fadeIn": 0.4,
+                    "fadeOut": 0.4
+                  }
+                },
+                {
+                  "embedded": {
+                    "type": "clip",
+                    "entries": [
+                      {
+                        "sample": "audio/events/engine-mid.wav"
+                      }
+                    ]
+                  },
+                  "x": 0.5,
+                  "atZeroWeight": "continue",
+                  "region": {
+                    "start": 0.05,
+                    "end": 0.95,
+                    "fadeIn": 0.4,
+                    "fadeOut": 0.4
+                  }
+                },
+                {
+                  "embedded": {
+                    "type": "clip",
+                    "entries": [
+                      {
+                        "sample": "audio/events/engine-high.wav"
+                      }
+                    ]
+                  },
+                  "x": 0.95,
+                  "atZeroWeight": "continue",
+                  "region": {
+                    "start": 0.5,
+                    "end": 1.4,
+                    "fadeIn": 0.4,
+                    "fadeOut": 0.4
+                  }
+                }
+              ],
+              "blend": {
+                "axes": [
+                  {
+                    "parameter": "RPM"
+                  }
+                ],
+                "fade": "crossfade",
+                "curve": "equalPower",
+                "follow": {
+                  "glideMs": 0
+                },
+                "envelope": {
+                  "mode": "off",
+                  "low": {
+                    "attackMs": 0,
+                    "decayMs": 0,
+                    "sustain": 1,
+                    "releaseMs": 0
+                  },
+                  "high": {
+                    "attackMs": 0,
+                    "decayMs": 0,
+                    "sustain": 1,
+                    "releaseMs": 0
+                  }
+                }
+              }
+            },
+            "at": 0.9,
+            "length": 1.3,
+            "automation": [
+              {
+                "id": "t1c2a1",
+                "target": "pitch",
+                "input": {
+                  "parameter": "RPM"
+                },
+                "curve": [
+                  [
+                    0,
+                    -1.824
+                  ],
+                  [
+                    0.25,
+                    -0.218
+                  ],
+                  [
+                    0.5,
+                    1.252
+                  ],
+                  [
+                    0.75,
+                    2.607
+                  ],
+                  [
+                    1,
+                    3.863
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "t1c3",
+            "playlist": {
+              "type": "clip",
+              "entries": [
+                {
+                  "sample": "audio/events/engine-off.wav",
+                  "loop": "off"
+                }
+              ]
+            },
+            "at": 2.2,
+            "length": 1.2
+          }
+        ]
+      }
+    ],
+    "loops": [
+      {
+        "id": "l1",
+        "start": 0.9,
+        "end": 2.2,
+        "active": "held",
+        "exit": "crossfade",
+        "exitFadeMs": 120,
+        "reentry": "ignore"
+      }
+    ]
+  }
+}

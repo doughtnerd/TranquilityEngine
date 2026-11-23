@@ -1,0 +1,101 @@
+# Audio Studio: design plan
+
+Builds records [0341](../../decisions/0341-the-audio-studio-is-its-own-app-on-the-editors-frontend-and-replaces-the-editors-audio-panels.md)–[0349](../../decisions/0349-studio-screens-are-built-from-one-component-kit.md).
+Source: the owner's prototype canvas "Audio Design Studio – Prototype UI v2" (Studio page: Samples, Playlists with the
+Sequence view, Mixer, Spatial, Take, Profiler, Curves; Workflow Trials page: 11 journeys). Archived boards are
+superseded and not part of the spec.
+
+## Owner decisions (2026-11-22)
+
+1. The Studio is its own app, launchable from the editor; it **replaces** the editor's audio authoring panels.
+2. The **prototype's data model wins**; existing events, music and the mix migrate one way; engine features the
+   prototype doesn't show (stingers, stems, sustain, beds, Doppler, ambisonics, bus automation) get a home.
+3. **Sample edits live in sidecars**; writing into the WAV is an explicit action.
+4. **Take** (designer review: recorded in the editor or a game build, replayed against current audio, annotated) and
+   **Profiler** (engine performance: editor, game build, or a take as it plays) are separate screens. A take file
+   also carries the profiler's data for its run (one file); `.mycap` remains for profile-only recordings.
+5. **v1 has no live connection**: everything is recorded to files and viewed from files. The live link is a later record.
+6. The **engine is the authority on undo and history** UX; for minor gaps, current engine behaviour wins; for the new
+   audio concepts, the prototype wins.
+
+## How the prototype maps onto the engine
+
+| Prototype | Engine today | Becomes | Record |
+| --- | --- | --- | --- |
+| Sample (markers, loops, tempo, root, trim, normalise, baked effects, forks) | clip + sidecar (`volume`, `stream`, loop points) | sidecar `sample` block; `*.sample.json` for derived samples | 0342 |
+| Playlists: Clip, Queue, Switch, Blend 1D/2D, Layer | event containers `clip random sequence switch blend layer sustain` | `*.playlist.json` | 0343 |
+| Sequence (timeline) | nothing (music `segment` is closest) | playlist `type: "sequence"` | 0343 |
+| Switch change rules (beat, bar, Exit marker, transition) | music transition rules | Switch `rules`, run by the music scheduler | 0343 |
+| Mixer: buses, returns, VCAs, inserts, sends, automation, ducking, snapshots | `project.json` `audio` section | `audio.json` | 0344 |
+| Effects at sample, clip, track/playlist, bus | four bus effect types | one catalogue, four levels | 0345 |
+| Curves window (time, parameter, distance) | `core/curve.ts` (parameter keys), `CurveEditor.tsx` | Bézier keys, time parameters, one curve editor | 0346 |
+| Spatial: attenuation curves, audio zones, test scenes | min/max + rolloff; no zones; Sound Lab sample | attenuation curves and presets, `AudioZone`, `*.audioscene.json` | 0347 |
+| Take | nothing (captures are telemetry) | `*.mycotake` (requests + profile in one file) + notes | 0348 |
+| Profiler | `.mycap` + Profiler panel | `.mycap` extended + Profiler screen | 0348 |
+| Shell, trees, faders, rows, history | editor dock, TreeView, UndoTree, controls | one kit | 0349 |
+
+## Gaps resolved toward the engine (minor; say if any is wrong)
+
+- History: the engine's undo tree and asset-document histories on every screen; tree operations (rename, move, delete
+  of assets) behave as the editor's asset operations do.
+- Occlusion: several obstacles' losses add (prototype: worst wins); materials are the engine's table.
+- Doppler uses listener velocity; reverb-zone membership is per source.
+- Voice stealing and virtual voices follow the engine's priority-based selection.
+- Queue keeps the engine's back-to-back ("continuous") mode; stingers keep the engine's behaviour, with Hit points.
+- Bus identity is the unique name (rename rewrites references), not the display path.
+- Import's Load is the `stream` flag; Format and Sample rate are export settings (0119).
+- The "And by" second input of the Curves window is not built (no live screen uses it).
+- Loudness targets warn and never adjust.
+- Prototype inconsistencies fixed by choosing one: one effect catalogue, one curve format, one parameter list, Clip
+  (not Single/Direct), Playlist track (not Synth track), max instances 0–32 (0 = no limit), weights 0–100, split shifts
+  automation, snapshot editing writes the snapshot's offset, the changed-on-disk review also runs on re-import.
+
+## Owner answers to the plan's questions (2026-11-22)
+
+1. **Snapshots** hold level offsets plus overrides of any bus effect parameter; today's snapshot low-pass migrates into
+   a bus low-pass effect the snapshot overrides (0344).
+2. **Samples are files**: rename and delete act on the file, with reference rewriting, as for every asset (0342).
+3. **v1 without a live link**: take replay stands in for the Game session; Mixer and Spatial changes are heard through
+   the Studio's runtime (0341).
+4. **macOS**: the Studio always uses the Rust core backend and says why if it can't start (0341).
+
+## Milestones
+
+Each milestone ends with typecheck, Vitest, Storybook stories for new components, the relevant Journeys as Playwright
+specs (`tests/e2e/studio-*.spec.ts`), and `implementation-status.md` rows.
+
+| # | Milestone | Contents | Records |
+| --- | --- | --- | --- |
+| M0 | Studio shell | `studio.html`, `src/studio/` boot over a project, headless audio runtime, shell (nav, docks with per-host layout store, device menu and calibration, player bar frame, status bar, router, keymap), generic kit parts, theme tokens, editor Window > Audio Studio and Open in Audio Studio (Tauri window + handoff), standalone Tauri config, project file watching and locks | 0341, 0349 |
+| M1 | Data model and migration | `audio.json` (move the section), playlist parse/write/references/lint, sample block and `*.sample.json`, attenuation format, Bézier curves (TS and Rust parity), migration of events, music and the mix | 0342–0344, 0346, 0347 |
+| M2 | Core | time parameters, loop modes, instance submixes, effect DSP catalogue, returns, VCA lane, mute, snapshot blending; wire and ABI versions, goldens, gates | 0342, 0344–0346 |
+| M3 | Samples screen | import with review, timeline, markers, loops and seam, trim, tempo and root, normalise, outline, inspector with file diff, changed-on-disk merge, source versions, forks and snippets, baked effects and offline render, Write to WAV | 0342 |
+| M4 | Playlists screen and runtime | playlist runtime (Clip, Queue, Switch, Blend, Layer), audition, Plays now and Voices, voice curves, effects, playback rules, output routing | 0343, 0345 |
+| M5 | Sequence and music | Sequence view and runtime (loops, hold points, sync and async clips, automation), musical clock from the scheduler, Switch rules at beat/bar/exit with transitions, stingers | 0343, 0346 |
+| M6 | Mixer screen | buses, returns, VCAs, inserts, sends, automation, ducking, snapshots with triggers, gain lanes, loudness, Compare, live board | 0344 |
+| M7 | Spatial | attenuation curves at runtime, `AudioZone` component (runtime, Inspector, gizmo), test scenes and the Spatial screen | 0347 |
+| M8 | Takes | recorder (requests plus the capture recorder into one file), format and reader, editor Record take, `Audio.take` and the export flag, replay driver, Take screen, annotations | 0348 |
+| M9 | Profiler | capture extensions (pick paths, loudness warnings, MIXOP), Profiler screen, capturing a take replay | 0348 |
+| M10 | Retire and document | remove the editor's audio panels, rewrite the audio guides, Journeys j1–j11 green end to end | 0341 |
+| Later | Live link | connect the Studio to a running game or editor (telemetry plus control) through the host seams | new record |
+
+M2 runs beside M1 and M3; M3 needs only part of M2 (offline render, loop modes) to finish.
+
+## Follow-on scope (owner, 2026-11-22)
+
+The owner approved finishing every unfinished item (the "add now" list) and added new features in this order:
+"I want 2 & 4, then 1 & 3, then 5" — (2) per-platform encoding and packaging, (4) third-party DSP plugins, then
+(1) localisation and voice-over, (3) dynamic dialogue, then (5) built-in sound generators. Each new feature gets an ADR
+(accepted under the standing instruction to implement new records), following Wwise/FMOD norms.
+
+Waves (by file ownership, so parallel tasks don't collide):
+- **W10 (now):** takes gaps (picture frames, World reseed, effects-cost track) + parameter renames rewriting playlist
+  automation inputs; Spatial in the Studio (base game scene loading, 3D physics occlusion); ADRs for (2) and (4).
+- **W11 (after W9-A returns, W9-B render, W9-D playlist features merge):** core effect/send automation + dB ramp law
+  + submix parameter automation + Studio undo/redo of live mixer moves (mixer owner); clip/entry effect chains in the
+  core and playlist runtime + per-level submixes; Samples re-import and source versions + tempo/root detection (owner: "I do have tempo and root note detection UI, make sure to use it" — wire the existing Detect buttons in `SampleTools.tsx` and the import dialog's detect toggle in `ImportDialog.tsx`/`importPlan.ts`, matching the prototype's detection UI; values land with `source: "detected"`) + the render follow-ups (worker, content-hash cache in `.myco/cache/samples/`, exports rendering baked samples, sample automation lane editing); native
+  spatial (per-voice spread, zone-interior beds, `bedBeyond`, preset reverb times); smaller items (starved-memory
+  status flag, music debug rows from playlists, "Create playlist from clips" in the Studio, stream-voice loops, curve
+  table per-binding time origin, lift `fields.tsx` into the kit, migrate CLI wording, the recurring `core/zoneIr.test.ts` load failure, quantise for non-gain targets and entry voice curves, shaped sample-loop crossfades in the core, Entry markers on samples, a Babylon warning for returns, the ~22 ms late first sound of an unstamped sequence, the take export option and Profiler picture track, base-scene emitters in the Spatial Voices table).
+- **W12:** implement (2) and (4). **W13:** ADRs and implementation for (1) and (3). **W14:** (5).
+- **Final:** minimal e2e specs for core workflows, one Playwright run, `test:stories`, handoff.

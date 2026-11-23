@@ -8,11 +8,11 @@
  * - **The core** (`StagedFrameHost`, `core/spatial.ts`): 1. attenuation (`frameAttenuate`: frame start, gain, direction,
  *   `audibility0`), then `collectSpatialVoices`, 2. Doppler, 3. zones, 4. occlusion (main's passes over `spatialVoices`),
  *   5. audibility × smoothed occlusion and selection (`frameSelect`), 6. panner pick, 7. fx staging, 8. listener,
- *   9. music plan (`musicPlanStep`: nothing without music), then the BATCH (`frameCommit`). The stage methods are this
+ *   then the BATCH (`frameCommit`; ADR 0166's music plan step went with the music player, ADR 0343). The stage methods are this
  *   module's contract with the core; nothing else calls them.
- * - **The Babylon fallback** (`SpatialPassHost` only, F1): the same passes (zones inert, F2), the music plan, then the
+ * - **The Babylon fallback** (`SpatialPassHost` only, F1): the same passes (zones inert, F2), then the
  *   backend's own `update(dt)`, which pans and commits.
- * - **A plain backend** (the pending backend, test fakes): the music plan, then its `update(dt)` when it has one.
+ * - **A plain backend** (the pending backend, test fakes): its `update(dt)` when it has one.
  *
  * `frame` is the caller's listener frame, already `set` for this frame (the audio system's has the World with the view; a
  * rig's has none, so the listener-bound passes are inert there, as in a World without a listener). `settings` are the
@@ -21,10 +21,13 @@
 import type { AudioSettings } from "../../../engine/audio/settings";
 import type { AudioBackend } from "./backend";
 import { isSpatialPassHost, isStagedFrameHost, type ListenerFrame } from "./core/spatial";
-import { musicPlanStep } from "./music/musicSystem";
+import { takeTap } from "./capture/takeTap";
 
 /** ADR 0270: runs one backend frame in the production order (see the header). Allocates nothing. */
 export function runAudioFrame(backend: AudioBackend, frame: ListenerFrame, dt: number, settings: AudioSettings): void {
+  // ADR 0348: a recording take reads the listener's and the emitters' poses once per frame (30 Hz, changes only).
+  // and, when it takes pictures, the canvas the World renders into (none headless).
+  if (takeTap.sink) takeTap.sink.frame(frame.node ? frame : null, frame.world?.render?.canvas ?? null);
   if (isStagedFrameHost(backend)) {
     const view = backend.spatialVoices;
     backend.frameAttenuate(dt); // 1. attenuation
@@ -36,7 +39,6 @@ export function runAudioFrame(backend: AudioBackend, frame: ListenerFrame, dt: n
     backend.framePickPanners(); // 6. panner pick
     backend.frameStageFx(); // 7. fx staging
     backend.frameStageListener(frame); // 8. listener
-    musicPlanStep(backend, dt); // 9. music plan (ADR 0166): nothing without music
     backend.frameCommit();
     return;
   }
@@ -47,6 +49,5 @@ export function runAudioFrame(backend: AudioBackend, frame: ListenerFrame, dt: n
     backend.zones.run(frame, view, settings);
     backend.occlusion.run(frame, view, settings);
   }
-  musicPlanStep(backend, dt); // 9. music plan, before the backend's own frame commits
   backend.update?.(dt);
 }

@@ -6,7 +6,7 @@ Start with what the engine says about itself. In a script, or the browser consol
 console.log(Audio.debug());
 ```
 
-In the editor, the **Audio Debug** panel (Window menu) shows the same, four times a second, while the game plays: the status, the backend, the underrun count, every bus with its gain, peak level and voice count, and every sound with its state. The panel says "Not playing" outside Play. Also read the console: the audio code warns once, in words, for most failures, and the warning is usually the answer.
+The editor's Audio Debug panel is gone (ADR 0341): read `Audio.debug()` from a script or the console, or record a capture (**Record capture** on the Play toolbar) and open it on the Audio Studio's Profiler screen. Either shows the status, the backend, the underrun count, every bus with its gain, peak level and voice count, and every sound with its state. Also read the console: the audio code warns once, in words, for most failures, and the warning is usually the answer.
 
 Look at three things, in this order.
 
@@ -36,7 +36,7 @@ A single crash is not a failure: the core rebuilds itself within a moment and re
 
 The Babylon fallback plays when:
 
-- `audio.backend` is `"babylon"` in `project.json` or Project Settings > Audio (the macOS desktop app defaults to it), or
+- `settings.backend` is `"babylon"` in `audio.json` (the macOS desktop app defaults to it), or
 - the engine can't run the audio core. The console shows one warning, for example `Audio core unavailable: this engine lacks WebAssembly simd128 …`, or `audio core couldn't load (…)`, or `audio core couldn't start (…)`. The browser versions the core needs are in [audio-minimum-versions.md](audio-minimum-versions.md): Chrome and Edge 91, Firefox 89, Safari 16.4, Android System WebView 91.
 
 Sound still plays there, but without bus effects, priorities, HRTF, beds or reverb zones, with walls that only lower the volume, and the browser decodes the files. If a sound is missing only on the fallback, check [the limits](audio-mixer.md#limits): a streamed clip plays flat, a snapshot's low-pass does nothing, and `maxVoices` stops the oldest sound. To stay on the core, update the browser or webview.
@@ -61,7 +61,7 @@ Each entry in `Audio.debug().voices` has a `state`; `handle.reason` (from `Audio
 
 Each of these gives one console warning naming the file, and the sound reads `"failed"`:
 
-- **AAC with the setting off.** `"music/theme.m4a" is AAC (.m4a), which the audio core decodes only with audio.codecs.aac set to true`. Turn on **AAC** in Project Settings > Audio (`"codecs": { "aac": true }` under `audio`), or convert the file to MP3, Ogg Vorbis or FLAC. The Babylon fallback plays AAC wherever the browser can.
+- **AAC with the setting off.** `"music/theme.m4a" is AAC (.m4a), which the audio core decodes only with audio.codecs.aac set to true`. Turn on **AAC** in `audio.json` (`"codecs": { "aac": true }` under `settings`), or convert the file to MP3, Ogg Vorbis or FLAC. The Babylon fallback plays AAC wherever the browser can.
 - **An unsupported format.** `can't be decoded: its format (.opus) isn't one the audio core reads. Supported: …`. The core reads WAV, FLAC, MP3, Ogg Vorbis and (opted in) AAC. Opus and AIFF are not supported; re-encode them.
 - **A damaged file, or a wrong path.** `audio: clip "…" failed to load (…)` with the reason, such as a failed fetch or truncated data. Check the path and open the file in a player.
 - **Too much audio loaded.** `failed to load (over the clip memory ceiling)`. Decoded clips are kept in memory (the **Clip memory** setting, 16 to 1024 MB; left blank it follows the voices preset, 64 MB on `low`). Turn on **stream** for long files, or leave **Clip format** at 16-bit, which halves the memory.
@@ -88,6 +88,10 @@ Rule out the plain things: `Audio.muted`, `Audio.volume` (or `masterVolume`), th
 ## 9. A spatial sound that's missing
 
 A spatial sound beyond `maxDistance` is silent, and one far from the listener is very quiet. Check where the `AudioListener` is (without one the main camera listens), `minDistance`, `maxDistance` and `rolloff`. Walls count: a sound behind a thick wall (a `concrete` occluder takes 30 dB) can fall to nothing and read `reason` `"occluded"`. The voice row's `occlusion` shows the gain and cutoff, how many walls it crossed and which collider, and the Occlusion section of the panel shows the rays; the **Beds** and **Zones** sections answer questions about beds and reverb. A World that has no view doesn't play; only the World that renders is heard. If the HRTF data failed to load, the panel says `(HRTF data failed to load)` and spatial sounds stay equal-power; that's a quality change, not silence.
+
+## A playlist that plays nothing
+
+`Audio.play` returns an inert handle (`playing` false) when a trigger played nothing. `debug().playlistTotals.refused` counts why (`cooldown`, `chance`, `maxInstances`, `missing`, `unsupported`) and `recentRefusals` names the playlist; `recentSteals` shows instances a `maxInstances` limit took over. A missing playlist warns once with its path. An old audio event file (`*.audioevent.json`) is refused (`unsupported`) with one warning naming the migration: open the project in the editor or the Audio Studio, or run `npm run audio:migrate -- <project folder>` ([Playlists](playlists.md)). A Switch whose label maps to no entry plays nothing on purpose, and an entry with weight 0 in a random Queue never plays.
 
 ## Crackling instead of silence
 

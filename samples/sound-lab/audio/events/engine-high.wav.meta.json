@@ -1,0 +1,17 @@
+{
+  "format": "myco.import@1",
+  "sample": {
+    "kind": "loop",
+    "loops": [
+      {
+        "id": "run",
+        "start": 0.15,
+        "end": 1.15,
+        "active": "held",
+        "exit": "crossfade",
+        "exitFadeMs": 120,
+        "reentry": "ignore"
+      }
+    ]
+  }
+}

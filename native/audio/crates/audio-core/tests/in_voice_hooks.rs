@@ -248,7 +248,7 @@ fn a_stamped_spatial_play_with_sends_queues_nothing_and_splits_nothing() {
     p.dir_x = 0.6;
     p.dir_z = -0.8;
     let mut fx = vec![0u8; wire::SetVoiceFx::FIXED_END];
-    wire::SetVoiceFx { voice_id: voice(3), frame_offset: 0, mask: wire::SET_VOICE_FX_MASK_SENDS | wire::SET_VOICE_FX_MASK_HP_HZ, ramp_frames: 0, hp_hz: 200.0, send: [0.5, 0.25, 0.0, 0.0], yaw: 0.0, aux_level: 0.0, aux_bus: wire::AUX_BUS_NONE as u16, reserved: 0 }.write(&mut fx, 0).unwrap();
+    wire::SetVoiceFx { voice_id: voice(3), frame_offset: 0, mask: wire::SET_VOICE_FX_MASK_SENDS | wire::SET_VOICE_FX_MASK_HP_HZ, ramp_frames: 0, hp_hz: 200.0, send: [0.5, 0.25, 0.0, 0.0], yaw: 0.0, aux_level: 0.0, aux_bus: wire::AUX_BUS_NONE as u16, spread: 0 }.write(&mut fx, 0).unwrap();
     m.submit(&[stamped(Rec::Play(p), 300), stamped(raw(fx), 300)]);
     assert_eq!(audio_core::scheduler::pending_len(&mut m.core), 0, "nothing waits in the pending queue");
     m.render_n(4);

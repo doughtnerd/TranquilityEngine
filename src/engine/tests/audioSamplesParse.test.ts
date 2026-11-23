@@ -1,18 +1,38 @@
-// ADR 0171 M5-0 (Sa1): every sample project's `audio` section parses with no problem, each ducking rule names its mode,
-// and the samples' `fadeTo` and `mute` calls give the audible levels they gave before `Bus.volume` became a multiplier.
+// ADR 0171 M5-0 (Sa1): every sample project's mix (`audio.json` since ADR 0344) parses with no problem and plays on the
+// runtime with nothing left out, each ducking rule survives, and the samples' `fadeTo` and `mute` calls give the audible
+// levels they gave before `Bus.volume` became a multiplier.
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { Mixer } from "../audio/mixer";
 import { parseAudioSettings } from "../audio/settings";
+import { projectWithAudio } from "../audio/project/load";
+import { parseAudioProject } from "../audio/project/format";
+import { registerPluginEffects } from "../audio/effects/catalogue";
+import { parsePluginAudio } from "../audio/effects/pluginEffects";
 
 const root = "samples";
+const readJson = (path: string): unknown => (existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : undefined);
+// ADR 0352: a sample's own plugins with an `audio` section (fx-tremolo's tremolo) are enabled, as the plugin set enables
+// them before the project loads, so their effects are known to the mix.
+for (const dir of readdirSync(root)) {
+  const plugins = `${root}/${dir}/plugins`;
+  if (!existsSync(plugins)) continue;
+  for (const p of readdirSync(plugins)) {
+    const m = readJson(`${plugins}/${p}/plugin.json`) as { name: string; version: string; title?: string; audio?: unknown } | undefined;
+    if (!m?.audio) continue;
+    const problems: string[] = [];
+    const audio = parsePluginAudio(m.audio, { name: m.name, version: m.version, ...(m.title !== undefined && { title: m.title }) }, problems);
+    if (problems.length === 0) registerPluginEffects({ plugin: m.name, version: m.version, enabled: true, effects: audio.effects });
+  }
+}
 const projects = readdirSync(root)
   .filter((dir) => existsSync(`${root}/${dir}/project.json`))
-  .map((dir) => ({ dir, json: JSON.parse(readFileSync(`${root}/${dir}/project.json`, "utf8")) as { audio?: { ducking?: { mode?: string }[] } } }));
+  .map((dir) => ({ dir, project: readJson(`${root}/${dir}/project.json`), audio: readJson(`${root}/${dir}/audio.json`) }))
+  .map((p) => ({ ...p, read: projectWithAudio(p.project, p.audio) }));
 
 const mixerOf = (dir: string): Mixer => {
   const project = projects.find((p) => p.dir === dir)!;
-  return new Mixer(parseAudioSettings(project.json.audio).settings);
+  return new Mixer(parseAudioSettings(project.read.project.audio).settings);
 };
 
 /** Fades `name` to `v` over `seconds` and runs the mixer clock past the fade. */
@@ -27,14 +47,18 @@ describe("sample audio sections", () => {
     expect(projects.map((p) => p.dir)).toEqual(expect.arrayContaining(["flappy", "sound-lab", "stress"]));
   });
 
-  for (const { dir, json } of projects) {
-    it(`${dir}: parses with no audio problem`, () => {
-      expect(parseAudioSettings(json.audio).problems).toEqual([]);
+  for (const { dir, audio, read } of projects) {
+    it(`${dir}: parses with no audio problem, and project.json holds no audio section`, () => {
+      expect(read.legacyAudio).toBe(false);
+      expect(read.problems).toEqual([]);
+      expect(read.warnings).toEqual([]);
+      expect(parseAudioSettings(read.project.audio).problems).toEqual([]);
     });
     it(`${dir}: every ducking rule names its mode and survives the parse`, () => {
-      const rules = json.audio?.ducking ?? [];
+      const rules = (audio as { ducking?: { mode?: string }[] } | undefined)?.ducking ?? [];
       for (const rule of rules) expect(["presence", "level"]).toContain(rule.mode);
-      expect(parseAudioSettings(json.audio).settings.ducking).toHaveLength(rules.length);
+      expect(parseAudioProject(audio).project.ducking).toHaveLength(rules.length);
+      expect(parseAudioSettings(read.project.audio).settings.ducking).toHaveLength(rules.length);
     });
   }
 

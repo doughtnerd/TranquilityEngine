@@ -85,11 +85,6 @@
       }
     }
   },
-  "audio": {
-    "occlusion": {
-      "layers": []
-    }
-  },
   "navigation": {
     "agentTypes": [
       {

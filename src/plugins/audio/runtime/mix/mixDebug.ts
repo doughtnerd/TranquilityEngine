@@ -15,6 +15,9 @@ export interface MixDebugInput {
   loudShed: number;
   busRecordsEarly: number;
   sidechainLate: number;
+  /** ABI 4.8: STATUS `fxStarved` and the name of its owner (null: none). */
+  fxStarved?: number;
+  fxStarvedOwner?: string | null;
   liveRefused: number;
   liveDeferred: number;
   liveDeferredPending: number;
@@ -38,6 +41,8 @@ export function buildMixDebug(i: MixDebugInput): AudioMixDebug {
     loudnessLadderStep: i.loudShed !== 0 ? 1 : 0,
     busRecordsEarly: i.busRecordsEarly,
     sidechainLate: i.sidechainLate,
+    fxStarved: i.fxStarved ?? 0,
+    fxStarvedOwner: i.fxStarvedOwner ?? null,
     liveRefused: i.liveRefused,
     liveDeferred: i.liveDeferred,
     liveDeferredPending: i.liveDeferredPending,

@@ -1,0 +1,22 @@
+[package]
+name = "audio-offline"
+description = "Myco's offline sample render (ADR 0342, 0345 level \"sample\"): a sample's baked effect chain with its automation, built to myco_audio_offline.wasm."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+name = "myco_audio_offline"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+# The effect kernels (`audio_dsp::fx`), the same the buses and submixes run.
+audio-dsp.workspace = true
+# The curve evaluator (`automation::Curve`, `eval`), so automation reads exactly as the core's.
+audio-core.workspace = true
+libm.workspace = true
+
+[build-dependencies]
+# build.rs includes audio-wasm's source_hash.rs.
+sha2.workspace = true

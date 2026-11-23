@@ -1,6 +1,6 @@
 # 0040. Per-asset import settings live in sidecar files beside each asset
 
-- **Status:** Accepted, extended by 0115 (proposed: 9-slice fill, sprite editor undo, per-platform import settings) and 0119 (proposed: exports apply `maxSize`/`compression`)
+- **Status:** Accepted, extended by 0115 (proposed: 9-slice fill, sprite editor undo, per-platform import settings) and 0119 (proposed: exports apply `maxSize`/`compression`); amended by 0342 (an audio file's sidecar gains an optional `sample` block of non-destructive edits)
 - **Date:** 2026-11-02
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

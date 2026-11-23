@@ -1,6 +1,6 @@
 # Playing sound
 
-Two ways to make sound: an `AudioSource` component on a node, and `Audio.playOneShot` for fire-and-forget sounds. Both play through the project's [mixer buses](audio-mixer.md). For variations, layers, parameters and sustained sounds authored as data, see [Sound events](sound-events.md): `Audio.play` plays an event, and `AudioSource.clip` can name one. Nothing plays until the player has clicked or pressed a key once; see [Why is there no sound?](why-no-sound.md) if something is silent.
+Two ways to make sound: an `AudioSource` component on a node, and `Audio.playOneShot` for fire-and-forget sounds. Both play through the project's [mixer buses](audio-mixer.md). For variations, layers, parameters, held loops and music authored as data, see [Playlists](playlists.md): `Audio.play` plays a playlist (or a sample), and `AudioSource.clip` can name one. Nothing plays until the player has clicked or pressed a key once; see [Why is there no sound?](why-no-sound.md) if something is silent.
 
 ```ts
 import { Audio, AudioSource } from "myco";
@@ -38,7 +38,7 @@ engine.occlusion;          // how much of the dry sound a wall lets through: 1 i
 
 `at` starts a sound at an exact time on the audio clock, for music that has to line up: `Audio.playOneShot("music/hat.wav", { at: Audio.time + 0.5 })`. `Audio.time` is the clock the player hears, in seconds, and doesn't stop when the game pauses.
 
-When a limit is hit (`maxVoices` on a bus, or the voice counts in Project Settings > Audio), `priority` decides which sound gives way; a higher value is kept longer. The default suits most games.
+When a limit is hit (`maxVoices` on a bus, or the voice counts in the Audio Studio's project settings), `priority` decides which sound gives way; a higher value is kept longer. The default suits most games.
 
 ## AudioSource
 
@@ -46,7 +46,7 @@ Add an `AudioSource` component to a node and pick its `clip`, or drag an audio f
 
 | Field | Meaning |
 | --- | --- |
-| `clip` | The audio asset |
+| `clip` | The audio asset, or a playlist (`*.playlist.json`) |
 | `volume`, `pitch` | Gain (linear) and playback rate |
 | `loop` | Start over at the end |
 | `playOnAwake` | Start when the node becomes active (default on) |
@@ -80,7 +80,7 @@ Audio.bus("Music").volume = 0.5;
 
 ## Sound files
 
-WAV, FLAC, MP3 and Ogg Vorbis play everywhere; AAC (`.m4a`, `.mp4`, `.aac`) plays once you turn on **AAC** in Project Settings > Audio (it adds a larger decoder, about 1 MB). Opus and AIFF are not supported. Each clip plays at the sample rate of its file. Details and limits are in [Sound files and decoding](atmosphere-and-sound.md#sound-files-and-decoding).
+WAV, FLAC, MP3 and Ogg Vorbis play everywhere; AAC (`.m4a`, `.mp4`, `.aac`) plays once you turn on **AAC** in `audio.json` (the Audio Studio's project settings; it adds a larger decoder, about 1 MB). Opus and AIFF are not supported. Each clip plays at the sample rate of its file. Details and limits are in [Sound files and decoding](atmosphere-and-sound.md#sound-files-and-decoding).
 
 Per-clip settings are in the asset's import settings (the `<asset>.meta.json` beside it, for example `music/town.mp3.meta.json`: `{ "format": "myco.import@1", "stream": true }`): `volume` scales every playback of the clip, and `stream` is for long files.
 
@@ -96,12 +96,12 @@ Turn on **stream** for music and other long files. The clip is then decoded in s
 
 Turn on `spatial` on an `AudioSource`, or pass `position` to `playOneShot`. Sound then pans and fades with the distance and direction from the World's `AudioListener` (put one on the camera or the player; without one the main camera listens). Volume is full inside `minDistance` and falls to `maxDistance` by the `rolloff` curve (`linear`, `inverse` or `exponential`). Spatial sources follow their node.
 
-On the audio core, the nearest spatial sounds are rendered with **HRTF**: over headphones they seem to come from outside the head, in front or behind, above or below. The rest are panned left to right only (equal power). In Project Settings > Audio > Playback:
+On the audio core, the nearest spatial sounds are rendered with **HRTF**: over headphones they seem to come from outside the head, in front or behind, above or below. The rest are panned left to right only (equal power). In the Audio Studio's project settings (Playback):
 
 - **Spatial** is `hrtf` (default) or `equal power` (no HRTF at all, cheapest).
 - **Voices > HRTF** is how many spatial sounds get HRTF at once (0 to 32, default 8; the presets give 4 / 8 / 8 for low / default / high). 0 means equal power for all. With beds on (the default: **Max beds** 2), 8 is enough, because the rest go to a bed instead of being panned flat.
 
-Sounds beyond the HRTF count are mixed into a shared **bed** instead of being panned flat (the Master bus has one by default; a bus without one uses its parent's) (see [spatial audio](spatial-audio.md#beds)). If the HRTF data can't load, spatial sounds stay equal-power and the Audio Debug panel says so. The Babylon fallback uses the browser's own panner, so 3D sound there differs between browsers. More in [spatial audio](atmosphere-and-sound.md#spatial-audio-0074).
+Sounds beyond the HRTF count are mixed into a shared **bed** instead of being panned flat (the Master bus has one by default; a bus without one uses its parent's) (see [spatial audio](spatial-audio.md#beds)). If the HRTF data can't load, spatial sounds stay equal-power and `Audio.debug()` says so. The Babylon fallback uses the browser's own panner, so 3D sound there differs between browsers. More in [spatial audio](atmosphere-and-sound.md#spatial-audio-0074).
 
 **Walls, rooms and moving sources.** Spatial sounds are also muffled by walls (`AudioOccluder`), can take the echo of a room (`AudioReverbZone`) and shift in pitch as they pass (`dopplerLevel`), and recorded surroundings can be played as ambisonic clips. All of it is in [Spatial audio](spatial-audio.md), with a recipe for doors. A listener that moves quickly (a vehicle) can say so with `AudioListener.setVelocity(v)`; otherwise its speed is read from the node's motion.
 
@@ -111,4 +111,4 @@ The audio core is the default. The Babylon fallback plays instead when you set `
 
 ## Testing and tuning
 
-`Audio.debug()` returns a copy of the audio state: status, buses with their peaks, and every playing sound. In the editor, the **Audio Debug** panel (Window menu) shows the same while the game plays. Its voice table names the node whose AudioSource plays each sound (**Source**; `-` for one-shots and event voices) beside the clip, and shows how each is placed (**Panner**: `hrtf`, `bed`, `ambisonic`, `equalPower` or `flat`). See [Why is there no sound?](why-no-sound.md).
+`Audio.debug()` returns a copy of the audio state: status, buses with their peaks, every playing sound (with the node whose AudioSource plays it and how it is placed: `hrtf`, `bed`, `ambisonic`, `equalPower` or `flat`) and every playing playlist instance. **Record capture** on the editor's Play toolbar records the same over time for the Audio Studio's Profiler. See [Why is there no sound?](why-no-sound.md).

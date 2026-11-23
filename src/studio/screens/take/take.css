@@ -1,0 +1,98 @@
+/* The Studio's Take screen (ADR 0348). Theme tokens only (src/editor/ui/editor.css lists them); a note's colour is the
+   designer's data, passed as `--tk-note`. */
+
+.tk-doc { display: contents; }
+.tk-panel-body { padding: 0; }
+.tk-note { color: var(--muted); margin: 8px; font-size: calc(12px * var(--ui-scale)); }
+.tk-error { color: var(--danger); margin: 8px; }
+.tk-hint { color: var(--muted); background: var(--warning-soft); border-bottom: 1px solid var(--border); margin: 0; padding: 4px 8px; font-size: calc(11px * var(--ui-scale)); }
+.tk-link { background: none; border: none; padding: 0 2px; color: var(--link); cursor: pointer; font: inherit; }
+.tk-link:hover { text-decoration: underline; }
+
+/* Takes */
+.tk-list { display: flex; flex-direction: column; min-height: 100%; }
+.tk-list-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 6px; border-bottom: 1px solid var(--border); }
+.tk-search { flex: 1 1 120px; min-width: 0; }
+.tk-file-icon { color: var(--muted); width: 14px; display: inline-block; text-align: center; }
+
+/* Playlists in this take */
+.tk-playlists { list-style: none; margin: 0; padding: 4px 0; }
+.tk-playlists li { display: flex; align-items: center; gap: 8px; padding: 3px 8px; }
+.tk-playlists li:hover { background: var(--hover); }
+.tk-pl-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.tk-pl-count { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+
+/* Toolbar */
+.tk-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.tk-toolbar-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); }
+.tk-toolbar-gap { flex: 1 1 auto; }
+
+/* Timeline */
+.tk-timeline-body { display: flex; flex-direction: column; }
+.tk-timeline { --tk-head: 160px; display: flex; flex-direction: column; min-width: 0; padding-bottom: 8px; }
+.tk-rows { position: relative; }
+.tk-row { display: grid; grid-template-columns: var(--tk-head) minmax(0, 1fr); border-bottom: 1px solid var(--border); min-height: 24px; }
+.tk-row.active > .tk-head { background: var(--active); }
+.tk-ruler-row { position: sticky; top: 0; z-index: 4; background: var(--panel); }
+.tk-head { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 2px 8px; border-right: 1px solid var(--border); background: var(--panel); min-width: 0; }
+.tk-head-name { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-head-sub { color: var(--muted); font-size: calc(10px * var(--ui-scale)); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-lane { position: relative; min-width: 0; overflow: hidden; }
+.tk-lane .studio-valuelane-head { display: none; }
+.tk-playhead-layer { position: absolute; top: 0; bottom: 0; left: var(--tk-head); right: 0; pointer-events: none; }
+
+/* Picture */
+.tk-picture { height: 40px; background: var(--bg-sunken); }
+.tk-picture-now { margin: 0 0 8px; }
+.tk-picture-now img { display: block; width: 100%; height: auto; border-radius: 3px; border: 1px solid var(--border); background: var(--bg-sunken); }
+.tk-picture-now figcaption { margin-top: 2px; color: var(--muted); font-size: calc(10px * var(--ui-scale)); }
+
+/* Labelled parameters */
+.tk-segments { position: relative; height: 22px; margin: 4px 0; }
+.tk-segment { position: absolute; top: 0; bottom: 0; padding: 0 4px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; background: var(--surface); border: 1px solid var(--border); border-radius: 3px; color: var(--text); font-size: calc(11px * var(--ui-scale)); line-height: 20px; }
+
+/* Notes */
+.tk-notes { height: 34px; background: var(--bg-sunken); cursor: copy; }
+.tk-region { position: absolute; top: 3px; height: 14px; border-radius: 3px; background: color-mix(in srgb, var(--tk-note) 30%, transparent); border: 1px solid var(--tk-note); cursor: grab; overflow: hidden; }
+.tk-marker { position: absolute; top: 2px; bottom: 2px; width: 2px; margin-left: -1px; background: var(--tk-note); cursor: grab; }
+.tk-marker::before { content: ""; position: absolute; top: 0; left: 0; width: 8px; height: 8px; background: var(--tk-note); clip-path: polygon(0 0, 100% 0, 0 100%); }
+.tk-mark { position: absolute; bottom: 2px; width: 1px; height: 14px; background: var(--muted); pointer-events: none; }
+.tk-mark::before { content: ""; position: absolute; bottom: 0; left: -4px; border: 4px solid transparent; border-bottom-color: var(--muted); }
+.tk-note-text { position: absolute; left: 6px; top: 0; white-space: nowrap; color: var(--text); font-size: calc(10px * var(--ui-scale)); pointer-events: none; }
+.tk-mark .tk-note-text { top: auto; bottom: 0; color: var(--muted); }
+.tk-marker .tk-note-text { left: 10px; }
+.tk-region.selected, .tk-marker.selected { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* Inspector */
+.tk-inspector { display: flex; flex-direction: column; gap: 8px; padding: 8px; align-items: flex-start; }
+.tk-inspector > * { max-width: 100%; }
+.tk-ins-head { display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; }
+.tk-ins-title { min-width: 0; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-strong); }
+.tk-badge { flex: none; padding: 1px 6px; border-radius: 3px; background: var(--accent-soft); color: var(--text-strong); font-size: calc(10px * var(--ui-scale)); }
+.tk-ins-sub { margin: 4px 0 0; color: var(--muted); font-weight: normal; font-size: calc(11px * var(--ui-scale)); }
+.tk-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; margin: 0; width: 100%; }
+.tk-facts dt { color: var(--muted); }
+.tk-facts dd { margin: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.tk-params { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.tk-params th, .tk-params td { text-align: left; padding: 2px 6px; border-bottom: 1px solid var(--border); }
+.tk-params thead th { color: var(--muted); font-weight: normal; }
+.tk-params tr.differs td:last-child { color: var(--warning); }
+.tk-field { display: flex; align-items: center; gap: 6px; }
+.tk-field > span:first-child { color: var(--muted); min-width: 36px; }
+.tk-field input { width: 90px; }
+.tk-field-text { flex-direction: column; align-items: stretch; width: 100%; }
+.tk-field-text textarea { width: 100%; resize: vertical; }
+.tk-unit { color: var(--muted); }
+.tk-span-fields { display: flex; gap: 10px; flex-wrap: wrap; }
+.tk-swatches { display: flex; gap: 6px; }
+.tk-swatch { width: 18px; height: 18px; padding: 0; border-radius: 50%; border: 2px solid var(--border); background: var(--tk-note); }
+.tk-swatch.on { border-color: var(--text-strong); }
+
+/* Mixer strip */
+.tk-mixer { display: flex; flex-direction: column; height: 100%; min-height: 0; }
+.tk-mixer-tools { display: flex; align-items: center; gap: 8px; }
+.tk-strips { display: flex; gap: 10px; padding: 6px 8px; overflow-x: auto; flex: 1 1 auto; min-height: 0; }
+.tk-strip { display: flex; flex-direction: column; align-items: center; gap: 3px; width: 72px; flex: none; min-height: 120px; }
+.tk-strip .studio-fader.vertical { flex: 1 1 auto; min-height: 80px; }
+.tk-strip-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.tk-strip-db { color: var(--muted); font-size: calc(10px * var(--ui-scale)); text-align: center; font-variant-numeric: tabular-nums; }

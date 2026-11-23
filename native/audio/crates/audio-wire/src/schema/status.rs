@@ -69,7 +69,8 @@ pub const HEADER_FIELDS: &[Field] = &[
     Field::new("maxSlipFrames", Ty::U32).at(160).doc("largest group slip since init"),
     Field::new("splitQuanta", Ty::U32).at(164).doc("whole-quantum splits (cumulative; R3)"),
     Field::new("voiceSplits", Ty::U32).at(168).doc("voice-local splits (cumulative; R3)"),
-    Field::new("reserved", Ty::U32).at(172).doc("reserved, 0"),
+    Field::new("fxStarved", Ty::U16).at(172).doc("effects that asked for effect memory and got none, so pass their signal through (cumulative, saturating; ABI 4.8)"),
+    Field::new("fxStarvedOwner", Ty::U16).at(174).doc("the owner of the last starved effect: a bus slot, or FX_STARVED_SUBMIX | a submix slot; FX_STARVED_NONE before any (ABI 4.8)"),
     // ADR 0171 M5 (API section 4.3): 176..=255. The layout lands once (task Wa1); the fields read 0 until their tasks fill them.
     Field::new("busyMsTotal", Ty::F64).at(176).doc("sum of Date.now() deltas around process(), ms, since the driver started (shell)"),
     Field::new("quantaTotal", Ty::F64).at(184).doc("quanta processed since the driver started (shell)"),
@@ -87,7 +88,8 @@ pub const HEADER_FIELDS: &[Field] = &[
     Field::new("loudShed", Ty::U16).at(246).doc("the load-shedding ladder's loudness step in force, 0 or 1"),
     Field::new("busRecordsEarly", Ty::U16).at(248).doc("BUS_RAMP records applied at the quantum's start because the due list was full (cumulative, saturating)"),
     Field::new("sidechainLate", Ty::U16).at(250).doc("late sidechain detections (cumulative, saturating)"),
-    Field::new("reserved2", Ty::U32).at(252).doc("reserved, 0"),
+    Field::new("genStarved", Ty::U16).at(252).doc("generator voices that found the generator pool full and play silent (cumulative, saturating; ADR 0360, ABI 5.1)"),
+    Field::new("reserved2", Ty::U16).at(254).doc("reserved, 0"),
 ];
 
 /// Sections in order: ended, demoted, starved, playheads, clipEvents, streamEvents, peaks. A0.2-L3: fill.
@@ -267,7 +269,8 @@ mod tests {
             ("maxSlipFrames", 160, Ty::U32),
             ("splitQuanta", 164, Ty::U32),
             ("voiceSplits", 168, Ty::U32),
-            ("reserved", 172, Ty::U32),
+            ("fxStarved", 172, Ty::U16),
+            ("fxStarvedOwner", 174, Ty::U16),
             ("busyMsTotal", 176, Ty::F64),
             ("quantaTotal", 184, Ty::F64),
             ("wuVoices", 192, Ty::F64),
@@ -284,7 +287,8 @@ mod tests {
             ("loudShed", 246, Ty::U16),
             ("busRecordsEarly", 248, Ty::U16),
             ("sidechainLate", 250, Ty::U16),
-            ("reserved2", 252, Ty::U32),
+            ("genStarved", 252, Ty::U16),
+            ("reserved2", 254, Ty::U16),
         ];
         assert_eq!(HEADER_FIELDS.len(), expected.len());
         let mut end = 16;

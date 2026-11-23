@@ -55,33 +55,33 @@ fn case(name: &'static str, subject: Subject, values: Vec<(&'static str, Value)>
 /// ADR 0162's vectors. The names are checked by `tests/spatial_vectors.rs`.
 pub fn spatial_cases() -> Vec<VectorCase> {
     vec![
-        // SET_VOICE_FX, 52 B = 13 words, stamped at 512. Mask 0xF (every bit), ramp 480 frames, hpHz 120.0,
-        // sends 0.5, 0.25, 0.0, 1.0, yaw pi/2, aux 0.5 into bus 2.
+        // SET_VOICE_FX, 52 B = 13 words, stamped at 512. Mask 0x1F (every bit), ramp 480 frames, hpHz 120.0,
+        // sends 0.5, 0.25, 0.0, 1.0, yaw pi/2, aux 0.5 into bus 2, spread 90 degrees (ABI 4.11).
         case(
             "SET_VOICE_FX_all_bits_stamped",
             Subject::Opcode("SET_VOICE_FX"),
             vec![
                 ("voiceId", vu(7)),
                 ("frameOffset", vu(512)),
-                ("mask", vu(0x0F)),
+                ("mask", vu(0x1F)),
                 ("rampFrames", vu(480)),
                 ("hpHz", vf(120.0)),
                 ("send", va(vec![vf(0.5), vf(0.25), vf(0.0), vf(1.0)])),
                 ("yaw", vf(std::f64::consts::FRAC_PI_2)),
                 ("auxLevel", vf(0.5)),
                 ("auxBus", vu(2)),
-                ("reserved", vu(0)),
+                ("spread", vu(9000)),
             ],
             concat!(
                 "0a00", "0d00", "07000000", "00020000", // head: SET_VOICE_FX, 13 words, voice 7, frame 512
-                "0f000000", // 12 mask: hpHz | sends | yaw | aux
+                "1f000000", // 12 mask: hpHz | sends | yaw | aux | spread
                 "e0010000", // 16 rampFrames 480
                 "0000f042", // 20 hpHz 120.0
                 "0000003f", "0000803e", "00000000", "0000803f", // 24 send[0..3]: 0.5, 0.25, 0.0, 1.0
                 "db0fc93f", // 40 yaw pi/2
                 "0000003f", // 44 auxLevel 0.5
                 "0200", // 48 auxBus 2
-                "0000", // 50 reserved
+                "2823", // 50 spread 9000 (90 degrees)
             ),
         ),
         // SET_VOICE_FX, 52 B = 13 words, asap. Mask 0x1 (hpHz only), hpHz 80.0, aux bus none (0xFFFF).
@@ -98,7 +98,7 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 ("yaw", vf(0.0)),
                 ("auxLevel", vf(0.0)),
                 ("auxBus", vu(0xFFFF)),
-                ("reserved", vu(0)),
+                ("spread", vu(0)),
             ],
             concat!(
                 "0a00", "0d00", "03000000", "ffffffff", // head: SET_VOICE_FX, 13 words, voice 3, asap
@@ -109,7 +109,7 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 "00000000", // 40 yaw
                 "00000000", // 44 auxLevel
                 "ffff", // 48 auxBus none
-                "0000", // 50 reserved
+                "0000", // 50 spread 0
             ),
         ),
         // BED_CONFIG, 36 B = 9 words, asap. 5 buses, 3 slots: bedSlot 0, 1, 0xFF (none), 2, 3, padded to 8 B;
@@ -613,6 +613,7 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 ("loudShed", vu(0)),
                 ("busRecordsEarly", vu(0)),
                 ("sidechainLate", vu(0)),
+                ("genStarved", vu(0)),
                 ("reserved2", vu(0)),
                 ("currentFrame", vf(1000.0)),
                 ("dateMs", vf(1.5)),
@@ -657,6 +658,8 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 ("maxSlipFrames", vu(0)),
                 ("splitQuanta", vu(0)),
                 ("voiceSplits", vu(0)),
+                ("fxStarved", vu(0)),
+                ("fxStarvedOwner", vu(0)),
                 ("ended", va(vec![])),
                 ("demoted", va(vec![])),
                 ("starved", va(vec![])),
@@ -773,14 +776,14 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                             ("op", vs("SET_VOICE_FX")),
                             ("voiceId", vu(7)),
                             ("frameOffset", vu(512)),
-                            ("mask", vu(0x0F)),
+                            ("mask", vu(0x1F)),
                             ("rampFrames", vu(480)),
                             ("hpHz", vf(120.0)),
                             ("send", va(vec![vf(0.5), vf(0.25), vf(0.0), vf(1.0)])),
                             ("yaw", vf(std::f64::consts::FRAC_PI_2)),
                             ("auxLevel", vf(0.5)),
                             ("auxBus", vu(2)),
-                            ("reserved", vu(0)),
+                            ("spread", vu(9000)),
                         ]),
                         vr(vec![
                             ("op", vs("BED_CONFIG")),
@@ -846,9 +849,9 @@ pub fn spatial_cases() -> Vec<VectorCase> {
                 "00000000", // flags 0
                 // record 1: SET_VOICE_FX, stamped at 512
                 "0a00", "0d00", "07000000", "00020000",
-                "0f000000", "e0010000", "0000f042",
+                "1f000000", "e0010000", "0000f042",
                 "0000003f", "0000803e", "00000000", "0000803f",
-                "db0fc93f", "0000003f", "0200", "0000",
+                "db0fc93f", "0000003f", "0200", "2823",
                 // record 2: BED_CONFIG, asap
                 "1600", "0900", "00000000", "ffffffff",
                 "05000000", "03000000", "0001ff0203000000", "0500ffff06000000",

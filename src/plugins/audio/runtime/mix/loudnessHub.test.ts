@@ -576,6 +576,20 @@ describe("the profiler's taps (ProfileSink.ladder, ProfileSink.loudnessControl)"
     expect(rec.of("ladder")).toEqual([[1, true], [2, true], [2, false], [1, false]]);
   });
 
+  it("ADR 0348: a loudness warning when a bus goes high or low against its target, and when it is back to ok", () => {
+    const rec = recordingSink();
+    taps.sink = rec.sink;
+    const hub = makeHub();
+    play(hub, new Map(), 3, -24);
+    expect(rec.of("loudnessWarning")).toEqual([]); // ok from the start: nothing to say
+    hub.target = "mobile"; // the same reading is low against mobile
+    expect(rec.of("loudnessWarning")).toContainEqual(["Voice", "low"]);
+    hub.target = "console";
+    expect(rec.of("loudnessWarning")).toContainEqual(["Voice", "ok"]);
+    const voice = rec.of("loudnessWarning").filter((c) => c[0] === "Voice");
+    expect(voice).toEqual([["Voice", "low"], ["Voice", "ok"]]);
+  });
+
   it("with only master metered the bed and zone steps are reported from step 1", () => {
     const rec = recordingSink();
     taps.sink = rec.sink;

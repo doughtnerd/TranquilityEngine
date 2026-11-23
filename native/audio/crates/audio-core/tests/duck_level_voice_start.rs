@@ -22,7 +22,7 @@ const Q: usize = audio_core::QUANTUM;
 
 /// E3's SFX compressor (`tests/e2e/audioMixLive.ts`): threshold −24, knee 30, ratio 8, attack 3 ms, release 250 ms.
 fn compressed_config() -> Rec {
-    let comp = wire::BusConfigBusesEffects { type_: 2, p: [-24.0, 30.0, 8.0, 0.003, 0.25, 0.0, 0.0] };
+    let comp = wire::BusConfigBusesEffects { type_: 2, p: [-24.0, 30.0, 8.0, 0.003, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] };
     Rec::Config(wire::BusConfig {
         voice_id: 0,
         frame_offset: wire::ASAP,

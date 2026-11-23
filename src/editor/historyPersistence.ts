@@ -9,7 +9,9 @@
 // scene moves; asset histories live in `.myco/asset-history/` (`asset-history-…` keys) and follow their file: a
 // rename or move moves them, a delete removes them, so a new file at an old path starts afresh.
 import { effect, type ReadonlySignal } from "@preact/signals";
-import { hashText, type AgeOptions, type CommandStack, type HistoryFile } from "./document";
+import type { CommandStack } from "./document/CommandStack";
+import type { AgeOptions, HistoryFile } from "./document/HistoryTree";
+import { hashText } from "./document/patch"; // by leaf path: the barrel pulls in the scene loader (ADR 0341)
 import { HistoryStore, projectSlots, type SlotBackend } from "./historyStore";
 import { historyLocation, historyPruneDays } from "./preferences";
 import { editorPlatform, projectFolder, projectKey, type EditorPlatform } from "./projectPlace";

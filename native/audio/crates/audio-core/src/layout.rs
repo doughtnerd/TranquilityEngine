@@ -20,8 +20,9 @@ pub const REGION_ALIGN: usize = 64;
 /// WebAssembly's page size; the arena starts on a page and the block is a whole number of pages.
 pub const PAGE_BYTES: usize = 65_536;
 
-/// Core scalars and per-quantum scratch (architecture §5.1: "core state, 64 KB").
-pub const CORE_STATE_BYTES: usize = 64 * 1024;
+/// Core scalars and per-quantum scratch (architecture §5.1: "core state, 64 KB"; 128 KB from ABI 5.0,
+/// whose 16-parameter effect records more than doubled the stamped configuration queue, ADR 0352).
+pub const CORE_STATE_BYTES: usize = 128 * 1024;
 /// Scheduled records waiting for their frame (architecture §5.1: 8,192 pending × 48 B).
 pub const PENDING_CAPACITY: usize = 8_192;
 pub const PENDING_RECORD_BYTES: usize = 48;
@@ -100,12 +101,24 @@ pub enum RegionKind {
     /// 0171/0172 M5 (K1): the shared bus send scratch and the reverb run-out
     /// (`sends::REGION_BYTES`: 1,024 + 64 = 1,088 B on every preset).
     Sends,
+    /// ADR 0345 (ABI 4.5): the instance submix slots (`submix::REGION_BYTES`, ≈ 320 KB on every
+    /// preset).
+    Submixes,
+    /// ADR 0345 (ABI 4.6): the effect memory of bus chains and submixes (`fxmem::region_bytes`:
+    /// `FX_MEMORY_SECONDS` of stereo audio at the rate, 7.7 MB at 48 kHz).
+    FxMem,
+    /// ADR 0351 A4 (ABI 4.12): the ADPCM voice cursors, one per mixed-voice pool entry
+    /// (`adpcm_voice::region_bytes`: `max_mixed` × `CURSOR_BYTES`).
+    AdpcmCursors,
+    /// ADR 0360 (ABI 5.1): the generator voices' slot records and pool (`generator::region_bytes`: max(16,
+    /// `max_mixed` / 4) entries of `generator::ENTRY_BYTES` and 8 B per voice slot).
+    GenEntries,
     /// The clip arena's initial reserve. Always last.
     Arena,
 }
 
 /// The layout order. Append-only before `Arena` (see the module comment).
-pub const REGION_ORDER: [RegionKind; 24] = [
+pub const REGION_ORDER: [RegionKind; 28] = [
     RegionKind::Output,
     RegionKind::CoreState,
     RegionKind::Pending,
@@ -129,6 +142,10 @@ pub const REGION_ORDER: [RegionKind; 24] = [
     RegionKind::Duck,
     RegionKind::Loudness,
     RegionKind::Sends,
+    RegionKind::Submixes,
+    RegionKind::FxMem,
+    RegionKind::AdpcmCursors,
+    RegionKind::GenEntries,
     RegionKind::Arena,
 ];
 
@@ -206,6 +223,10 @@ fn region_len(kind: RegionKind, p: &InitParams) -> usize {
         RegionKind::Duck => crate::duck::REGION_BYTES,
         RegionKind::Loudness => crate::loudness::REGION_BYTES,
         RegionKind::Sends => crate::sends::REGION_BYTES,
+        RegionKind::Submixes => crate::submix::REGION_BYTES,
+        RegionKind::FxMem => crate::fxmem::region_bytes(p),
+        RegionKind::AdpcmCursors => crate::adpcm_voice::region_bytes(p),
+        RegionKind::GenEntries => crate::generator::region_bytes(p),
         RegionKind::Arena => align_up(p.arena_initial_bytes as usize, PAGE_BYTES),
     }
 }
@@ -349,9 +370,22 @@ mod tests {
         let streams = layout.region(RegionKind::Streams).len;
         assert_eq!(streams, 8 * crate::stream::RING_BYTES, "8 rings at the default preset (architecture §5.3)");
         let automation = layout.region(RegionKind::Automation).len;
-        assert!(automation < 2 << 20, "the automation region (ADR 0158 E2): {automation}");
-        let fixed = fixed - streams - automation;
-        assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF, streams and automation: {fixed}");
+        // ≈ 2.4 MB since ADR 0346 (64-key curves with Bézier control points: the curve table is ≈ 1.6 MB of it).
+        assert!(automation < 3 << 20, "the automation region (ADR 0158 E2, 0346): {automation}");
+        // ADR 0345's effect memory (7.7 MB at 48 kHz) and submix slots are their own budget lines.
+        let fxmem = layout.region(RegionKind::FxMem).len;
+        assert_eq!(fxmem, crate::fxmem::region_bytes(&preset(4_096, 128, 16)));
+        let submixes = layout.region(RegionKind::Submixes).len;
+        // ADR 0351 A4: the ADPCM voice cursors (a 512-frame stereo window each), ≈ 264 KB at 128 mixed voices.
+        let adpcm = layout.region(RegionKind::AdpcmCursors).len;
+        assert_eq!(adpcm, 128 * crate::adpcm_voice::CURSOR_BYTES);
+        assert!(adpcm < 300 * 1024, "ADPCM cursors: {adpcm}");
+        // ADR 0360: the generator pool, 32 entries at 128 mixed voices (≈ 160 KB), and 8 B per voice slot.
+        let gen = layout.region(RegionKind::GenEntries).len;
+        assert_eq!(gen, crate::generator::region_bytes(&preset(4_096, 128, 16)));
+        assert!(gen < 240 * 1024, "generator pool: {gen}");
+        let fixed = fixed - streams - automation - fxmem - submixes - adpcm - gen;
+        assert!(fixed < 2 << 20, "fixed regions stay under 2 MB before reverb, HRTF, streams, automation, effect memory, submixes, ADPCM cursors and the generator pool: {fixed}");
         eprintln!("default preset: automation {automation} B, total {} B", layout.total());
     }
 
@@ -362,7 +396,7 @@ mod tests {
             assert_eq!(m2.region(kind).len, 0, "{kind:?}");
         }
         assert_eq!(m2.region(RegionKind::Zones).len, 32 * 1024 + (64 + 32 * 512) + 64, "the aux accumulator and the sends area (32 buses) and the tail, without slots");
-        assert_eq!(m2.region(RegionKind::Fx).len, 128 * 448, "56 KB at 128 mixed");
+        assert_eq!(m2.region(RegionKind::Fx).len, 128 * 560, "70 KB at 128 mixed (ADR 0347 spread; 56 KB before)");
         assert_eq!(m2.region(RegionKind::Scratch).len, 8 * 1024);
         let p = InitParams { max_beds: 2, max_zone_slots: 3, zone_max_frames: 96_000, max_wide: 1, ..preset(4_096, 128, 16) };
         let m3 = Layout::new(&p);
@@ -404,12 +438,14 @@ mod tests {
     #[test]
     fn a_bus_stays_near_the_memory_table() {
         // architecture §5.1 budgets 3 KB per bus. The stereo quantum buffer (1 KB) and the bus's one
-        // compressor (2.4 KB, most of it the 6 ms pre-delay line) are most of a bus; the four effect
-        // slots hold only a biquad (120 B) or a send (fx.rs). About 4 KB (4,208 B rounded to a cache
-        // line) keeps 32 buses near 132 KB; a compressor per slot made it 10,944 B.
+        // compressor (2.4 KB, most of it the 6 ms pre-delay line) were most of a bus at 4 KB. ADR 0345
+        // (ABI 4.6): eight slots, each with a catalogue effect's small state (≈ 600 B: three biquads,
+        // smoothed parameters, kernel cursors; delay lines live in the effect memory), make it
+        // ≈ 9.5 KB, 32 buses ≈ 305 KB (a compressor per slot inline would have made it 27 KB). ABI 5.0
+        // (ADR 0352): 16 parameters a slot (wire and glide) and a plugin slot's handle make it ≈ 10.3 KB.
         let (slot, fx) = (core::mem::size_of::<crate::bus::BusSlot>(), core::mem::size_of::<crate::fx::FxChain>());
         eprintln!("BusSlot {slot} B, BUS_BYTES {BUS_BYTES} B, FxChain {fx} B, FxSlot {} B", core::mem::size_of::<crate::fx::FxSlot>());
-        assert!(BUS_BYTES <= 4 * 1024 + 2 * REGION_ALIGN, "BUS_BYTES: {BUS_BYTES}");
+        assert!(BUS_BYTES <= 11 * 1024, "BUS_BYTES: {BUS_BYTES}");
         assert_eq!(Layout::new(&preset(4_096, 128, 16)).region(RegionKind::Buses).len, 32 * BUS_BYTES);
     }
 

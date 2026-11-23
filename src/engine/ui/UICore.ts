@@ -556,6 +556,8 @@ export class UICore implements UICoreLike {
     }
     if (wantComp.maxLength > 0) el.maxLength = wantComp.maxLength;
     else el.removeAttribute("maxlength");
+    const dir = want!.run?.direction ?? "ltr"; // the language's direction (ADR 0356 §5): the IME and selection follow it
+    if (el.dir !== dir) el.dir = dir;
     if (el.value !== wantComp.value) el.value = wantComp.value; // a script changed it
   }
 

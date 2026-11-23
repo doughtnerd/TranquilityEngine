@@ -62,7 +62,7 @@ fn patch_u32(bytes: &mut [u8], off: usize, v: u32) {
 fn effect(i: usize) -> BusSlotEffects {
     BusSlotEffects {
         type_: (i % 4) as u32,
-        p: [i as f32 * 0.5, 1.0, -2.0, 0.25, 8.0, 0.0, 1.5],
+        p: [i as f32 * 0.5, 1.0, -2.0, 0.25, 8.0, 0.0, 1.5, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
     }
 }
 

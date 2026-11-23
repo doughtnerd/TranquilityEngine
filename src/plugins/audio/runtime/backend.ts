@@ -5,16 +5,18 @@
  * Lives in the audio plugin (ADR 0157 §6); the engine imports the mixer from `engine/audio/mixer`.
  */
 import type { Vec3Like } from "../../../engine/core/math";
+import type { Effect, PluginEffectDecl } from "../../../engine/audio/effects/types";
 import { mixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../engine/audio/mixer";
-import type { MixOp } from "../../../engine/audio/mixOps";
+import type { MixOp, OpClass } from "../../../engine/audio/mixOps";
 import type { AudioSettings } from "../../../engine/audio/settings";
 import { onAudioConfigured } from "../../../engine/core/audioConfigure";
-import type { AutomationSink } from "./events/automation";
+import type { AutomationSink, ParamRef } from "./automation";
 import type { Curve } from "../../../engine/core/curve";
 import type { AudioLatency, MusicEventHandle } from "../../../engine/audio/musicTypes";
+import type { AudioMarkerEvent, AudioMarkerType } from "../../../engine/audio/markerTypes";
 import type { ProfileSink } from "./mix/profileSink";
 import type { KeyframePayload } from "./capture/format";
-import type { AudioDebugInfo, AudioMixCaps, MusicBackendDebug } from "./debugTypes";
+import type { AudioDebugInfo, AudioMixCaps, AudioPluginDebug, MusicBackendDebug } from "./debugTypes";
 import { PendingCoreBackend } from "./pendingBackend";
 import { onAudioSessionReleased } from "./audioSession";
 
@@ -24,8 +26,19 @@ export { zeroCounters } from "./debugTypes";
 
 export type Rolloff = "linear" | "inverse" | "exponential";
 
-/** Why a sound isn't audible right now; null while it is (api-and-models §1). */
-export type AudioReason = "virtual" | "stolen" | "busMuted" | "locked" | "failed" | "waitingForData";
+/**
+ * Why a sound isn't audible right now; null while it is (api-and-models §1). ADR 0351 §7: `notLoaded`, a refused play of a
+ * packaged sound whose packages are all unloaded (strict packaging).
+ *
+ * ADR 0354 §3, §5: `missingLanguage`, a localised file no language of the chain has; `unknownLine`, a line key no line
+ * table defines. ADR 0355 §5: refused says: `unknownEvent` (no dialogue event by that name), `busy` (the channel was busy
+ * and the say was dropped, or waited past its `maxWait`), `cooldown` and `chance` (the event's or line's), `silence` (an
+ * explicit silence path), `noMatch` (no path matches) and `unavailable` (matches, but no line could play).
+ */
+export type AudioReason =
+  | "virtual" | "stolen" | "busMuted" | "locked" | "failed" | "waitingForData" | "notLoaded"
+  | "missingLanguage" | "unknownLine"
+  | "unknownEvent" | "busy" | "cooldown" | "chance" | "silence" | "noMatch" | "unavailable";
 /** `Audio.status` (§1). */
 export type AudioStatus = "locked" | "running" | "failed";
 /** `audio.background` (§2): what the host does when the page is hidden. */
@@ -212,19 +225,42 @@ export interface MusicBackend {
 }
 
 /**
- * ADR 0158 §5: a playing event. M1's four members keep their meaning across all of the instance's voices. ADR 0166 §1.2
- * adds `music`, `onMusic` and `trigger` (declared in `MusicEventHandle`).
+ * ADR 0343: the sample markers a playlist handle reports as they pass (ADR 0342 marker types), and what `onMarker` and the
+ * component hook `onAudioMarker` pass. Declared in the engine (`engine/audio/markerTypes.ts`) so `LifecycleHooks` can
+ * name it; these are the same types.
  */
-export interface AudioEventHandle extends AudioHandle, MusicEventHandle {
-  /** Set one of the event's own parameters (labelled ones by label). Unknown names warn once. */
+export type { AudioMarkerEvent, AudioMarkerType } from "../../../engine/audio/markerTypes";
+
+/**
+ * ADR 0343: a playing playlist (or sample), what `Audio.play` returns. ADR 0158 §5's members keep their meaning across all
+ * of the instance's voices; ADR 0166 §1.2 adds `music`, `onMusic` and `trigger` (declared in `MusicEventHandle`); ADR 0343
+ * adds `onMarker`.
+ */
+export interface AudioPlaylistHandle extends AudioHandle, MusicEventHandle {
+  /** Set one of the playlist's own parameters (labelled ones by label). Unknown names warn once. */
   setParameter(name: string, value: number | string): void;
-  /** One of the event's parameters, else a global one; undefined if neither. */
+  /** One of the playlist's parameters, else a global one; undefined if neither. */
   getParameter(name: string): number | string | undefined;
-  /** Where a spatial event plays; set it to move it. Null for a flat event. */
+  /** Where a spatial playlist plays; set it to move it. Null for a flat one. */
   position: Vec3Like | null;
-  /** Key-off: sustain loops leave their loops and play their tails; the event ends when they do. A no-op without sustain. */
+  /**
+   * Key-off: held loops end by their exit settings, a Blend's envelope releases, a continuous Queue stops picking; the
+   * instance ends when its voices do (an `untilStopped` playlist too). A no-op without any of those.
+   */
   release(): void;
+  /**
+   * Call `fn` each time a Cue, Exit or Hit marker of a playing sample, or a sequence's `cue` or `exit` marker, passes.
+   * Returns an unsubscribe function. Markers are found on main from the planned playhead or voice position and reported on
+   * the first frame whose heard clock has passed them (`e.time` is the exact heard time).
+   */
+  onMarker(type: AudioMarkerType, fn: (e: AudioMarkerEvent) => void): () => void;
 }
+
+/**
+ * The handle's name before playlists (ADR 0158 §5).
+ * @deprecated ADR 0343: use `AudioPlaylistHandle`; this alias stays for one release.
+ */
+export type AudioEventHandle = AudioPlaylistHandle;
 
 export interface Attenuation {
   minDistance: number;
@@ -259,6 +295,17 @@ export interface PlayRequest {
   position?: Vec3Like;
   /** ADR 0158: the event instance this voice belongs to (1..1024; 0 or omitted: none). The core carries it in PLAY's `group`. */
   group?: number;
+  /**
+   * ADR 0345 levels: the playlist level's submix the voice mixes into (`AudioSubmixes.openLevel`) instead of its
+   * instance's (`group`'s). A backend without submixes ignores it.
+   */
+  submix?: SubmixLevel;
+  /**
+   * Seconds into the source the voice starts at (ADR 0343 and 0348: audition from a point, seek). 0, negative,
+   * non-finite or omitted: the start. A looping voice wraps it into the clip; past the end of a non-looping clip it ends
+   * at once. Clip voices start there sample-exactly; a stream voice seeks its stream before its first chunk.
+   */
+  offset?: number;
 
   // ADR 0162 (contract K0). Every field is optional and means "as 0157/0158" when omitted, so a backend that predates
   // the feature ignores it. Ranges are api-and-models §1.2, §1.3 and §2.5; callers clamp before they get here.
@@ -270,6 +317,16 @@ export interface PlayRequest {
   reverbSend?: number;
   /** §1.2: the send against distance. Omitted: `DEFAULT_SEND_CURVE`. */
   reverbSendCurve?: SendCurve;
+  /**
+   * ADR 0347: spatial voices only, degrees 0..360: the source is heard spread over an arc that wide around its direction
+   * (0 a point, 360 all round). Omitted: 0. The Babylon fallback has no spread (a point source).
+   */
+  spread?: number;
+  /**
+   * ADR 0347 (audio zone interiors): spatial voices only; the voice goes to its bus's ambisonic bed whatever its rank (as
+   * a voice past `audio.bed.beyond` does), or pans as usual without a bed. Omitted: false.
+   */
+  bed?: boolean;
   /** §1.6, §2.4: the clip is ambisonic (its sidecar says so); spatial fields, occlusion and Doppler are ignored. */
   ambisonic?: boolean;
   /** §1.2 `ambisonicYaw` / §1.3 `yaw`: degrees, -180..180, positive to the right (clockwise seen from above, ADR 0164). */
@@ -312,6 +369,10 @@ export interface VoiceSpatialOptions {
   reverbSendCurve?: SendCurve;
   /** Degrees, -180..180, positive to the right (ambisonic clips). */
   yaw?: number;
+  /** ADR 0347: degrees 0..360 (`PlayRequest.spread`). */
+  spread?: number;
+  /** ADR 0347: heard in its bus's bed (`PlayRequest.bed`). */
+  bed?: boolean;
 }
 
 /**
@@ -556,6 +617,18 @@ export interface AudioOutputDevice {
   onOutputDevice: ((sink: string, change: "opened" | "changed") => void) | null;
 }
 
+/**
+ * ADR 0351 A4, A7: the shipped codecs (`.mycopak` entries) the backend plays as the package holds them. The core has it:
+ * IMA ADPCM held compressed in its arena and decoded per voice (clip format 6), and Ogg Opus in its decoder worker. The
+ * Babylon fallback has none (absent): the runtime plays an ADPCM `compressed` sound decoded instead and warns once.
+ */
+export interface AudioCodecs {
+  /** An ADPCM sound with load `compressed` stays compressed (the backend decodes it as it plays). */
+  readonly adpcmCompressed: boolean;
+  /** Ogg Opus entries decode. */
+  readonly opus: boolean;
+}
+
 export interface AudioBackend {
   readonly name: string;
   /** Start a clip. Null if the backend can't (not ready, unknown clip). */
@@ -589,7 +662,7 @@ export interface AudioBackend {
   /** ADR 0166 §4.6, C10: the music operations. Absent: no music (the player plays nothing and warns once). */
   readonly music?: MusicBackend;
   /**
-   * ADR 0158: the backend's own automation (the core's tables). Absent: the event runtime evaluates automation on main
+   * ADR 0158: the backend's own automation (the core's tables). Absent: the playlist runtime evaluates automation on main
    * with `TsAutomation` once per frame and drives voices through their setters.
    */
   readonly automation?: AutomationSink;
@@ -599,6 +672,152 @@ export interface AudioBackend {
   readonly capture?: AudioCaptureSource;
   /** ADR 0248: the output device. Absent (the pending backend, a fake): nothing is kept per device. */
   readonly device?: AudioOutputDevice;
+  /**
+   * ADR 0345: instance submixes (the core's). Absent: instance effects map onto each voice (filters and gain) and the
+   * other effect types are skipped with one warning.
+   */
+  readonly submixes?: AudioSubmixes;
+  /**
+   * ADR 0351 A4, A7: the package codecs the backend plays as they are shipped. Absent: an ADPCM `compressed` sound plays
+   * decoded (the runtime warns once) and Opus isn't assumed.
+   */
+  readonly codecs?: AudioCodecs;
+  /**
+   * ADR 0352 §7 (another capability, 0179): third-party effect modules the core calls inside its chains. The core has
+   * it; the Babylon fallback doesn't (plugin effects pass through there, one warning per type, as built-ins do); the
+   * pending backend doesn't (the core's host registers when the core is ready); the fake records registrations.
+   */
+  readonly effectPlugins?: AudioEffectPlugins;
+  /**
+   * ADR 0351 §7 (W12): packages held by the backend's decoder, whose sounds it commits to its clip memory at load. Absent
+   * (the Babylon fallback): the runtime hands each packaged sound to `play` by an in-memory URL.
+   */
+  readonly packs?: AudioPacks;
+}
+
+/**
+ * Internal (ADR 0352 §7, 0358): one plugin module to run: its bytes already validated and fuel-instrumented
+ * (`effectPlugins/validate.ts`) and the effects it holds, as the manifest declared them (`parsePluginAudio`).
+ */
+export interface EffectPluginModule {
+  readonly plugin: string;
+  readonly version: string;
+  /** The module's id in the manifest's `audio.modules`. */
+  readonly module: string;
+  /** Validated and instrumented (`validateEffectModule(...).bytes`). The backend keeps a copy for its rebuilds. */
+  readonly bytes: Uint8Array;
+  readonly effects: readonly PluginEffectDecl[];
+}
+
+/** Internal (ADR 0352 §7): how a registration ended: each effect's core index, or why the module didn't load. */
+export type EffectPluginLoad =
+  | { readonly ok: true; readonly effects: readonly { readonly type: string; readonly e: number }[] }
+  | { readonly ok: false; readonly error: string };
+
+/**
+ * Internal (ADR 0352 §7, 0358): the plugin effect capability. Registered effects run wherever a chain names their type
+ * (bus, return, instance submix and its levels); an effect whose plugin isn't registered passes through.
+ */
+export interface AudioEffectPlugins {
+  /**
+   * Registers a module's effects (replacing what the plugin's same module registered before: a reload). Resolves once the
+   * worklet compiled it, warmed each effect up and created its instances; the effects are named in configurations from
+   * the call on (they pass through until then). Registrations survive the core's rebuilds.
+   */
+  register(module: EffectPluginModule): Promise<EffectPluginLoad>;
+  /** Removes every module of `plugin`: its effects pass through (data kept). */
+  unregister(plugin: string): void;
+  /** The Studio's Reset plugin: clears effect `type`'s faults and disabled state and re-creates its instances. */
+  reset(type: string): void;
+  /** Per registered effect: state, instances, faults, instructions, memory (`Audio.debug().plugins`). */
+  health(): readonly AudioPluginDebug[];
+}
+
+/**
+ * ADR 0351 §7 (W12): a backend's packages. The package registry (`media/packages.ts`) loads a package's bytes into the
+ * decoder, holds its arena-resident sounds there while it is loaded, and releases both when it unloads. Which loaded
+ * package holds a path the registry answers itself (`core/packMedia.ts`).
+ */
+export interface AudioPacks {
+  /**
+   * Holds `bytes` (a `.mycopak`, transferred) in the decoder as package `pack`. `refetch` fetches the same bytes again,
+   * for a decoder that restarts while the package is loaded. Resolves once it is held; rejects with the reason.
+   */
+  loadPack(pack: number, bytes: ArrayBuffer, refetch: () => Promise<ArrayBuffer>): Promise<void>;
+  /** Drops package `pack` from the decoder (streams already open on it keep their copy). */
+  releasePack(pack: number): void;
+  /**
+   * Commits the sound at `path` (a loaded package's entry) to clip memory now, or its first `frames` frames (a `stream`
+   * sound's prefetch head), and holds it there until `release`.
+   */
+  holdClip(path: string, frames?: number): PackClipHold;
+}
+
+/** A sound `AudioPacks.holdClip` committed (or is committing) to clip memory. */
+export interface PackClipHold {
+  readonly state: "loading" | "ready" | "failed";
+  /** Bytes of clip memory it takes (known once its copy began; 0 before and after a failure). */
+  readonly bytes: number;
+  /**
+   * Resolves once it is resident or failed. While the backend's output is locked (no user gesture yet), once its copy is
+   * queued: the core takes it in as soon as it runs.
+   */
+  settled(): Promise<void>;
+  release(): void;
+}
+
+
+/**
+ * ADR 0345: the instance submix pool. A submix runs an instance's insert chain on the mix of its voices on one bus and
+ * feeds that bus.
+ */
+export interface AudioSubmixes {
+  /**
+   * Gives instance `group` (its voices' `PlayRequest.group`) a submix feeding `bus` that runs `effects` (the catalogue's;
+   * one already held is reconfigured). Call before the instance's first play. False when the pool is full: the
+   * instance plays without its chain (the refusal is warned once and marked in a capture). `where` names the instance.
+   */
+  open(group: number, bus: string, effects: readonly Effect[], where: string): boolean;
+  /** The level instance `group`'s own submix is (`open`), so a nested level can feed it; null when it has none. */
+  levelOf(group: number): SubmixLevel | null;
+  /**
+   * ADR 0345 levels: a submix of instance `group`'s own for one of its levels (a nested playlist, a sequence track or a
+   * clip; `key` names it within the instance, so a level played again reuses its submix and its state), feeding
+   * `parent` (the level above it on the same bus; null: `bus`) and running `effects`. Voices name it in
+   * `PlayRequest.submix`. Null when the pool is full (warned once): the level plays without its chain. Freed with the
+   * group (`close`).
+   */
+  openLevel(group: number, key: string, bus: string, effects: readonly Effect[], parent: SubmixLevel | null, where: string): SubmixLevel | null;
+  /**
+   * Instance `group`'s voices have ended (its group is given back): its submixes stop taking its voices and are freed
+   * once their chains' tails (delay feedback, reverb decay) have rung out.
+   */
+  close(group: number): void;
+  /**
+   * ADR 0345 instance automation (ABI 4.8): replaces instance `group`'s submix parameter automation (empty: none).
+   * Nothing when the instance holds no submix. Absent on a backend without the core's submix automation.
+   */
+  automate?(group: number, lanes: readonly SubmixLane[]): void;
+}
+
+/**
+ * One automated parameter of an instance submix's chain (ABI 4.8): effect `effect` (its id, one of the effects given to
+ * `open`), catalogue parameter index `param` (`fxParamSlot`), read from `input` (a global parameter, one of the
+ * instance's local ones, or its group's `sequenceTime`) through curve id `curve` (defined through the automation sink;
+ * with `log`, a curve of log2 of the value).
+ */
+export interface SubmixLane {
+  effect: string;
+  param: number;
+  log: boolean;
+  input: ParamRef;
+  curve: number;
+}
+
+/** ADR 0345 levels: a playlist level's submix (`AudioSubmixes.openLevel`), as a voice names it (`PlayRequest.submix`). */
+export interface SubmixLevel {
+  /** The backend's slot. */
+  readonly slot: number;
 }
 
 let backend: AudioBackend | null = null;
@@ -631,6 +850,11 @@ export function registerCoreBackend(make: () => AudioBackend): () => void {
 export function noteCoreUnavailable(reason: string): void {
   coreUnavailableReason ??= reason;
   settlePending();
+}
+
+/** @internal Why the core couldn't run here (the probe's refusal, or the load or start failure), or null when nothing said so yet. `Audio.debug().coreUnavailable` (ADR 0341). */
+export function coreUnavailable(): string | null {
+  return coreUnavailableReason;
 }
 
 /** A released session (ADR 0218) forgets why the core couldn't run: the next project's service load probes again, and warns once. */
@@ -680,7 +904,7 @@ export function audioBackend(): AudioBackend {
 // --- Above the seam (ADR 0248): what every installed backend gets once, whichever it is ---------------------------------
 
 const attachHooks: ((b: AudioBackend) => void)[] = [];
-const opSentHooks: ((op: MixOp) => void)[] = [];
+const opSentHooks: ((op: MixOp, cls: OpClass) => void)[] = [];
 
 /**
  * ADR 0248: `fn` runs on every backend the selector installs (`audioBackend()`, `setAudioBackend`; never the pending
@@ -695,9 +919,9 @@ export function onAudioBackendAttached(fn: (b: AudioBackend) => void): void {
 
 /**
  * ADR 0248: `fn` runs after the installed backend's live mix sent an op (`mixer.apply` reached `MixOpTarget.sendOp`), on
- * every backend: the event runtime binds bus automation again after a `setAutomation`.
+ * every backend: the playlist runtime binds bus automation again after a `setAutomation`.
  */
-export function onMixOpSent(fn: (op: MixOp) => void): void {
+export function onMixOpSent(fn: (op: MixOp, cls: OpClass) => void): void {
   opSentHooks.push(fn);
 }
 
@@ -711,7 +935,7 @@ function opTargetOf(b: AudioBackend): MixOpTarget | null {
     },
     sendOp(op, cls) {
       const r = inner.sendOp(op, cls);
-      for (const fn of opSentHooks) fn(op);
+      for (const fn of opSentHooks) fn(op, cls); // ADR 0348: the class too (the capture writes MIXOP records)
       return r;
     },
     notSent: (r) => inner.notSent?.(r),

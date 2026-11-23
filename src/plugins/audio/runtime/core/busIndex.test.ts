@@ -27,7 +27,7 @@ function rig() {
   const table = new VoiceTable(8);
   const host: BusIndexHost = {
     mixer,
-    writer: { busConfig: (b) => void configs.push(b.map((x) => ({ ...x }))), setParams() {}, busSlot: (a) => void slots.push({ ...a }), fadeShaped() {} },
+    writer: { busConfig: (b) => void configs.push(b.map((x) => ({ ...x }))), setParams() {}, busSlot: (a) => void slots.push({ ...a }), fadeShaped() {}, busSends() {}, sampleRate: 48_000 },
     beds: { plan: (_s, names, parents) => void plans.push({ names: [...names], parents: Array.from(parents).slice(0, names.length) }) },
     automation: { onBusesConfigured() {} },
     mirror: { resetPeaks() {} },
@@ -50,7 +50,7 @@ describe("BusIndex on the slot table (Ma1)", () => {
     expect([...index.busIndexByName]).toEqual([["Master", 0], ["Music", 1], ["Stems", 2], ["SFX", 3]]);
     // The K0 body: parent = the parent's position (root: BUS_ROOT), effects in wire form.
     const settings = mixer.audioSettings.buses;
-    const positional = settings.map((b) => ({ parent: b.parent === undefined ? BUS_ROOT : settings.findIndex((x) => x.name === b.parent), effects: b.effects.map(wireEffect) }));
+    const positional = settings.map((b) => ({ parent: b.parent === undefined ? BUS_ROOT : settings.findIndex((x) => x.name === b.parent), effects: b.effects.map((e) => wireEffect(e)) }));
     expect(configs).toEqual([positional]);
     expect(table.busMax[3]).toBe(4);
   });
@@ -80,7 +80,7 @@ describe("BusIndex on the slot table (Ma1)", () => {
     mixer._applyLive({ op: "setEffect", bus: "Music", index: 0, key: "frequency", value: 1200 });
     expect(index.writeSlot("Music")).toBe(1);
     expect(index.writeSlot("Nope")).toBe(-1);
-    expect(slots).toEqual([{ slot: 1, parent: 0, effects: [{ type: 0, p: [1200, 1, 0, 0, 0, 0, 0] }], fresh: false }]);
+    expect(slots).toEqual([{ slot: 1, parent: 0, effects: [{ type: 0, p: [1200, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0] }], fresh: false }]);
   });
 
   it("a live edit that leaves the bed settings alone plans nothing again; a bed edit does", () => {

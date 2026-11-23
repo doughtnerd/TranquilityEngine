@@ -152,10 +152,11 @@ for (const backend of ["core", "babylon"] as const) {
     });
     if (backend === "babylon") {
       await page.addInitScript(tapWebAudio);
-      await page.route("**/samples/sound-lab/project.json", async (route) => {
+      // The backend is an engine setting of the sample's audio.json (ADR 0344).
+      await page.route("**/samples/sound-lab/audio.json", async (route) => {
         const res = await route.fetch();
         const json = await res.json();
-        json.audio.backend = "babylon";
+        json.settings = { ...(json.settings ?? {}), backend: "babylon" };
         await route.fulfill({ response: res, json });
       });
     }

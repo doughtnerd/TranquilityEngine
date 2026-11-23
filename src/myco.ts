@@ -108,6 +108,7 @@ export {
   type UIEventType,
   type UIListOptions,
   type UITag,
+  LocalizedText, // ADR 0356 §4
 } from "./plugins/ui/runtime";
 
 // The Environment plugin (ADR 0140).
@@ -184,23 +185,27 @@ export {
 } from "./plugins/physics/runtime";
 
 // The Audio plugin (ADR 0157). Its settings types (`AudioSettings`…) stay in the core.
-export { Audio, AudioSource, AudioListener, AudioOccluder, AudioReverbZone, DEFAULT_SEND_CURVE, type AudioHandle, type AudioEventHandle, type EventOptions, type AudioStatus, type AudioReason, type AudioPanner, type SendCurve, type AudioDebugInfo, type AudioBedDebug, type AudioZoneDebug, type AudioOcclusionDebug, type AudioMemoryDebug, type AudioVoiceM3Debug, type AudioM3Counters, type OneShotOptions, type Rolloff, type Bus } from "./plugins/audio/runtime";
+export { Audio, AudioSource, AudioListener, AudioOccluder, AudioReverbZone, AudioZone, type AudioZoneHeard, DEFAULT_SEND_CURVE, type AudioHandle, type AudioPlaylistHandle, type AudioMarkerEvent, type AudioMarkerType, type AudioEventHandle, type EventOptions, type AudioStatus, type AudioReason, type AudioPanner, type SendCurve, type AudioDebugInfo, type AudioBedDebug, type AudioZoneDebug, type AudioOcclusionDebug, type AudioMemoryDebug, type AudioVoiceM3Debug, type AudioM3Counters, type OneShotOptions, type Rolloff, type Bus } from "./plugins/audio/runtime";
+// ADR 0351 §9: audio packages (`Audio.package(name)`, `Audio.packages`) and the component that loads them with a scene.
+export { AudioPackageLoader, type AudioPackage } from "./plugins/audio/runtime";
+// ADR 0354, 0357: localised audio (`Audio.language`, `setLanguage`, `languages`), voice-over lines (`Audio.line`,
+// `Audio.onLine`) and captions (`Audio.onCaption`). ADR 0355: dynamic dialogue (`Audio.say`, `Audio.dialogue`, `AudioSpeaker`).
+export { AudioSpeaker, type AudioLanguage, type AudioLineHandle, type AudioLineEvent, type AudioViseme, type LineOptions, type AudioCaptionEvent, type SayOptions, type DialogueMemory } from "./plugins/audio/runtime";
 // Interactive music (ADR 0166 §1, amended by 0167): handle.music, beat callbacks, calibration.
 export { Calibration, type GridSpec, type GridPoint, type MusicEvent, type MusicKind, type MusicHandle, type MusicPositionAt, type MusicSeekResult, type CalibrationResult, type AudioLatency, type MusicDebugRow, type MusicDebugPending, type MusicDebugState, type MusicDebugTotals } from "./plugins/audio/runtime";
 export type { AudioCapture, AudioCaptureState, AudioCpuDebug, AudioMixCaps, AudioMixDebug, AudioMixSlotDebug, AudioRecorderDebug } from "./plugins/audio/runtime";
+// ADR 0348: `Audio.take`.
+export type { AudioTake, AudioTakeState } from "./plugins/audio/runtime";
+// ADR 0344: `Audio.snapshot(name)`'s handle (`start`, `stop`, `active`).
+export type { AudioSnapshot } from "./plugins/audio/runtime";
+
+// The Subtitles plugin (ADR 0357 §5): the optional built-in display and the player's subtitle settings.
+export { SubtitleDisplay, Subtitles, type SubtitleSettings } from "./plugins/subtitles/runtime";
 
 // Interactive-music types, exported as types only (ADR 0168): a script can name them in annotations, and nothing
-// reaches the runtime bundle. The handle and event types, then the music format's node model and rules.
+// reaches the runtime bundle. ADR 0343 retired the music format's node model and rules (`*.audioevent.json`), so only the
+// handle and event types remain; music is authored as playlists.
 export type { MusicEventHandle, CalibrationApi } from "./engine/audio/musicTypes";
-export type {
-  TempoMarker, MusicCue, RegionCondition, MusicRegion, MusicAutomation, MusicTrack, SegmentNode, PlaylistNode,
-  MusicSwitchNode, MusicContainerNode, MusicNode, MusicNodeType, TrackPick, PlaylistMode, MusicAutomationTarget,
-  AutomationQuantize,
-} from "./engine/audio/musicFormat";
-export type {
-  TransitionRule, TransitionFade, TransitionExit, TransitionEnter, TransitionBridge, StingerDef, StingerAt, FadeCurve,
-  IfTooLate,
-} from "./engine/audio/musicRules";
 
 // The Navigation plugin (ADR 0065, 0135). Its settings types (`NavigationSettings`…) are core exports.
 export {

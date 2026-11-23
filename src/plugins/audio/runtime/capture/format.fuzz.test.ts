@@ -155,9 +155,10 @@ function mutateOnce(base: Uint8Array, rnd: () => number): Uint8Array {
 /** One header field set to a value §5.1 refuses, with the code it refuses with. */
 const HEADER_REFUSALS: readonly [name: string, edit: (v: DataView) => void, code: CaptureErrorCode][] = [
   ["magic", (v) => v.setUint8(0, 0), "badMagic"],
-  ["format above this build's", (v) => v.setUint16(8, 2, true), "newerFormat"],
+  ["format above this build's", (v) => v.setUint16(8, 3, true), "newerFormat"],
   ["format below this build's", (v) => v.setUint16(8, 0, true), "olderFormat"],
-  ["flags, an unknown bit", (v) => v.setUint16(10, v.getUint16(10, true) | 0x10, true), "badHeader"],
+  ["format 1 (before ADR 0348's records)", (v) => v.setUint16(8, 1, true), "olderFormat"],
+  ["flags, an unknown bit", (v) => v.setUint16(10, v.getUint16(10, true) | 0x20, true), "badHeader"],
   ["schemaHash", (v) => v.setUint8(12, v.getUint8(12) ^ 0xff), "wireMismatch"],
   ["abiVersion", (v) => v.setUint32(28, 0x300, true), "badHeader"],
   ["envelope major", (v) => v.setUint16(32, 99, true), "badHeader"],
@@ -196,7 +197,7 @@ const PAYLOAD_REFUSALS: readonly [name: string, type: number, nth: number, write
   ["GAP perfTo before perfFrom", RecordType.GAP, 0, (v, p) => v.setFloat64(p + 12, 1000, true), "badValue"],
   ["GAP lastSeq before firstSeq", RecordType.GAP, 0, (v, p) => v.setUint32(p + 20, 5, true), "badValue"],
   ["EVENT kind 0", RecordType.EVENT, 0, (v, p) => v.setUint8(p + 8, 0), "badValue"],
-  ["EVENT kind past 19", RecordType.EVENT, 0, (v, p) => v.setUint8(p + 8, 20), "badValue"],
+  ["EVENT kind past 21", RecordType.EVENT, 0, (v, p) => v.setUint8(p + 8, 22), "badValue"],
   ["EVENT reason 0 for voiceStop", RecordType.EVENT, 1, (v, p) => v.setUint8(p + 9, 0), "badValue"],
   ["EVENT reason past its kind's maximum", RecordType.EVENT, 1, (v, p) => v.setUint8(p + 9, 6), "badValue"],
   ["EVENT argc one short of its len", RecordType.EVENT, 0, (v, p) => v.setUint16(p + 10, 1, true), "badLength"],
@@ -206,7 +207,7 @@ const PAYLOAD_REFUSALS: readonly [name: string, type: number, nth: number, write
   ["NAMES table 6", RecordType.NAMES, 0, (v, p) => v.setUint8(p, 6), "badValue"],
   ["NAMES n past 256", RecordType.NAMES, 0, (v, p) => v.setUint16(p + 8, CAPTURE_NAME_MAX_BYTES + 1, true), "textTooLong"],
   ["NAMES n one short of its len", RecordType.NAMES, 0, (v, p) => v.setUint16(p + 8, 1, true), "badLength"],
-  ["MIXOP op 17", RecordType.MIXOP, 0, (v, p) => v.setUint8(p, 17), "badValue"],
+  ["MIXOP op 24", RecordType.MIXOP, 0, (v, p) => v.setUint8(p, 24), "badValue"],
   ["MIXOP class 5", RecordType.MIXOP, 0, (v, p) => v.setUint8(p + 1, 5), "badValue"],
   ["MIXOP argc one short of its len", RecordType.MIXOP, 0, (v, p) => v.setUint16(p + 2, 4, true), "badLength"],
   ["MIXOP origin 5", RecordType.MIXOP, 0, (v, p) => v.setUint8(p + 32, 5), "badValue"],
@@ -442,8 +443,14 @@ describe("capture decode fuzz (L-Rc1a)", () => {
     wrap[at] = { type: RecordType.WRAP, epoch: 0, seq: wrap[at]!.seq, frame: 1400, payload: new Uint8Array(0) } as CaptureRecordInit;
     expect(await outcome(assembleCapture(SAMPLE_HEADER, SAMPLE_META, wrap))).toBe("badRecord");
 
-    // Types 0x10, 0x40 and 0x7e are skipped by len and read back as unknown records.
-    for (const type of [0x10, 0x40, 0x7e]) {
+    // ADR 0348: a request record type (0x10..0x1d; ADR 0354/0355 added 0x1a..0x1d) in a capture that isn't a take is refused, not skipped.
+    for (const type of [0x10, 0x19, 0x1a, 0x1d]) {
+      const recs = sampleRecords();
+      recs[at] = { type, epoch: 0, seq: recs[at]!.seq, frame: 1400, payload: new Uint8Array([1, 2, 3]) } as CaptureRecordInit;
+      expect(await outcome(assembleCapture(SAMPLE_HEADER, SAMPLE_META, recs)), `type 0x${type.toString(16)}`).toBe("badRecord");
+    }
+    // Types 0x1e, 0x40 and 0x7e are skipped by len and read back as unknown records.
+    for (const type of [0x1e, 0x40, 0x7e]) {
       const recs = sampleRecords();
       recs[at] = { type, epoch: 0, seq: recs[at]!.seq, frame: 1400, payload: new Uint8Array([1, 2, 3]) } as CaptureRecordInit;
       const c = await openCapture(assembleCapture(SAMPLE_HEADER, SAMPLE_META, recs));

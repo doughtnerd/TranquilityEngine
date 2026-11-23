@@ -1,0 +1,42 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+  "productName": "Myco Audio Studio",
+  "version": "0.1.0",
+  "identifier": "com.foxfirestudios.myco.studio",
+  "build": {
+    "frontendDist": "../dist/editor",
+    "devUrl": "http://localhost:3000",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build:editor"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "studio",
+        "title": "Myco Audio Studio",
+        "url": "studio.html",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 960,
+        "minHeight": 600,
+        "center": true,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "../src-tauri/icons/32x32.png",
+      "../src-tauri/icons/128x128.png",
+      "../src-tauri/icons/128x128@2x.png",
+      "../src-tauri/icons/icon.icns",
+      "../src-tauri/icons/icon.ico"
+    ]
+  }
+}

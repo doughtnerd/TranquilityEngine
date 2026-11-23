@@ -15,6 +15,7 @@ import { postProcessingRuntimePlugin } from "./post-processing/runtime";
 import { runtimeActivator, type RuntimePlugin } from "./runtimeContext";
 import { skyRuntimePlugin } from "./sky/runtime";
 import { spritesRuntimePlugin } from "./sprites/runtime";
+import { subtitlesRuntimePlugin } from "./subtitles/runtime";
 import { tilemapsRuntimePlugin } from "./tilemaps/runtime";
 import { uiRuntimePlugin } from "./ui/runtime";
 import { waterRuntimePlugin } from "./water/runtime";
@@ -35,6 +36,7 @@ const RUNTIME_HALVES: { readonly [K in FirstPartyPlugin]: RuntimePlugin } = {
   environment: environmentRuntimePlugin,
   "post-processing": postProcessingRuntimePlugin,
   audio: audioRuntimePlugin,
+  subtitles: subtitlesRuntimePlugin,
 };
 
 /** The first-party runtime halves in catalogue order, the order render features and systems register in (ADR 0135, 0140). */

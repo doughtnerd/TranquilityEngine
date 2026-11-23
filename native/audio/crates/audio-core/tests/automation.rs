@@ -44,8 +44,22 @@ fn curves(first: u32, list: &[&[(f32, f32, u32)]]) -> Rec {
         first_curve: first,
         curves: list
             .iter()
-            .map(|keys| wire::CurvesCurves { reserved: 0, keys: keys.iter().map(|&(x, y, interp)| wire::CurvesCurvesKeys { x, y, interp }).collect() })
+            .map(|keys| wire::CurvesCurves { reserved: 0, keys: keys.iter().map(|&(x, y, interp)| wire::CurvesCurvesKeys { x, y, interp, in_dx: 0.0, in_dy: 0.0, out_dx: 0.0, out_dy: 0.0 }).collect() })
             .collect(),
+    };
+    raw(move |b| c.write(b, 0))
+}
+
+/// CURVES of one curve at `first` from `(x, y, interp, [inDx, inDy, outDx, outDy])` keys (ADR 0346).
+fn bezier_curve(first: u32, keys: &[(f32, f32, u32, [f32; 4])]) -> Rec {
+    let c = wire::Curves {
+        voice_id: 0,
+        frame_offset: wire::ASAP,
+        first_curve: first,
+        curves: vec![wire::CurvesCurves {
+            reserved: 0,
+            keys: keys.iter().map(|&(x, y, interp, h)| wire::CurvesCurvesKeys { x, y, interp, in_dx: h[0], in_dy: h[1], out_dx: h[2], out_dy: h[3] }).collect(),
+        }],
     };
     raw(move |b| c.write(b, 0))
 }
@@ -60,7 +74,7 @@ fn automate(voice: u32, bindings: &[(u16, u16, u32)]) -> Rec {
     let a = wire::Automate {
         voice_id: voice,
         frame_offset: wire::ASAP,
-        bindings: bindings.iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect(),
+        bindings: bindings.iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target, offset: 0.0 }).collect(),
     };
     raw(move |b| a.write(b, 0))
 }
@@ -321,15 +335,40 @@ fn malformed_records_refuse_the_batch() {
 #[test]
 fn extra_bindings_and_keys_are_ignored() {
     let mut m = mixer();
-    let keys: Vec<(f32, f32, u32)> = (0..40).map(|i| (i as f32, 1.0, 0)).collect();
-    m.submit(&[curves(1023, &[&keys, IDENTITY]), dc(V1, 0, 0.0)]);
+    // 70 keys: the first 64 (ADR 0346's limit) are 1, the rest 0; at x = 69 the kept curve holds key 63's 1.
+    let keys: Vec<(f32, f32, u32)> = (0..70).map(|i| (i as f32, if i < automation::CURVE_KEYS { 1.0 } else { 0.0 }, 0)).collect();
+    m.submit(&[curves(1023, &[&keys, IDENTITY]), param(0, 0, 69.0, 0.0), dc(V1, 0, 0.0)]);
     let many: Vec<(u16, u16, u32)> = (0..10).map(|_| (G, 1023, 0)).collect();
     m.submit(&[automate(V1, &many)]);
     assert_eq!(automation::voice_entry(&mut m.core, 1).unwrap().count, 8);
     let (l, _) = m.render();
-    check(&l, TOL, "the 32-key curve is 1 everywhere", |_| 1.0);
+    check(&l, TOL, "the 64-key curve is 1 everywhere", |_| 1.0);
     let s = voices::slots(&m.core)[1];
     assert_eq!(s.state, state::PLAYING);
+}
+
+#[test]
+fn a_bezier_volume_curve_shapes_the_gain() {
+    // ADR 0346: a Bézier key with a flat third-long out handle before a plain key is smoothstep's cubic; a second
+    // Bézier segment with handles on the line is linear. Parameter values off the keys.
+    let mut m = mixer();
+    let third = 1.0 / 3.0;
+    m.submit(&[
+        bezier_curve(0, &[(0.0, 0.0, 5, [0.0, 0.0, third, 0.0]), (1.0, 1.0, 5, [-0.25, -0.25, 0.25, -0.25]), (2.0, 0.0, 5, [-0.25, 0.25, 0.0, 0.0])]),
+        param(0, 0, 0.25, 0.0),
+        dc(V1, 0, 0.0),
+        automate(V1, &[(G, 0, 0)]),
+    ]);
+    let (l, _) = m.render();
+    // Segment 0: out (1/3, 0), next key Bézier with in (-0.25, -0.25): control points (1/3, 0) and (0.75, 0.75).
+    let expected = 0.25f32;
+    let got = l[127];
+    assert!(got > 0.0 && got < expected, "{got}: the cubic sits under the line at 0.25");
+    // Segment 1 runs on the line from (1, 1) to (2, 0): at 1.5 the gain is 0.5.
+    m.submit(&[param(0, 0, 1.5, 0.0)]);
+    m.render();
+    let (l, _) = m.render();
+    check(&l, 1e-4, "on the line", |_| 0.5);
 }
 
 #[test]
@@ -340,4 +379,209 @@ fn a_virtual_voice_keeps_time_at_its_pitch_binding() {
     m.submit(&[curves(0, &[&[(0.0, 2.0, 0)]]), play(V1, 2, 0, 0), automate(V1, &[(G, 0, 1)])]);
     m.render_n(3);
     assert_eq!(voices::slots(&m.core)[1].position, (3 * 2 * 128) as f64);
+}
+
+// --- ADR 0346: time parameters ---
+
+const T_VOICE: u16 = (wire::PARAM_TIME | wire::TIME_VOICE) as u16;
+const T_CLIP: u16 = (wire::PARAM_TIME | wire::TIME_CLIP) as u16;
+const T_SEQ: u16 = (wire::PARAM_TIME | wire::TIME_SEQUENCE) as u16;
+/// 0 at 0 s to 1 at 0.01 s (480 frames at 48 kHz).
+const TEN_MS: &[(f32, f32, u32)] = &[(0.0, 0.0, 0), (0.01, 1.0, 0)];
+
+fn time(group: u16, which: u32, value: f32, rate: f32, frame_offset: u32) -> Rec {
+    let t = wire::Time { voice_id: 0, frame_offset, group, which: which as u16, value, rate };
+    raw(move |b| t.write(b, 0))
+}
+
+/// The curve TEN_MS at `frames` frames (48 kHz).
+fn ten_ms(frames: f32) -> f32 {
+    (frames / 480.0).min(1.0)
+}
+
+#[test]
+fn a_voice_time_binding_follows_the_voice_from_its_start() {
+    let mut m = mixer();
+    m.submit(&[curves(0, &[TEN_MS]), dc(V1, 0, 0.0), automate(V1, &[(T_VOICE, 0, 0)])]);
+    let (l, _) = m.render();
+    check(&l, TOL, "0 s at the start (the first quantum starts at its value)", |_| 0.0);
+    let (l, _) = m.render();
+    check(&l, 1e-5, "128 frames later", |j| ramp(0.0, ten_ms(128.0), j));
+    m.render_n(2);
+    let (l, _) = m.render();
+    check(&l, 1e-5, "512 frames: past the last key", |j| ramp(ten_ms(384.0), 1.0, j));
+    // A stamped voice counts from its stamp, not from its PLAY: silent until frame 1,024, at its curve's start then.
+    let frame = m.frame;
+    let Rec::Play(mut p) = dc(V2, 0, 0.0) else { unreachable!() };
+    p.frame_offset = (1024 - frame) as u32;
+    m.submit(&[raw(|b| wire::Stop { voice_id: V1, frame_offset: wire::ASAP, fade_frames: 0, reason: 0, shape: 0 }.write(b, 0)), Rec::Play(p), automate(V2, &[(T_VOICE, 0, 0)])]);
+    while m.frame < 1024 {
+        m.render();
+    }
+    let (l, _) = m.render();
+    check(&l, TOL, "V2 at its start (V1 stopped)", |_| 0.0);
+    let (l, _) = m.render();
+    check(&l, 1e-5, "V2 128 frames after its stamp", |j| ramp(0.0, ten_ms(128.0), j));
+    assert_eq!(automation::voice_entry(&mut m.core, 2).unwrap().vstart, 1024);
+}
+
+/// ABI 4.9 (ADR 0346 "time origin"): a binding's offset reads its time parameter that many seconds
+/// later, exactly as a copy of the curve shifted by it would (the playlist runtime no longer uploads
+/// shifted copies per voice), and only for time parameters.
+#[test]
+fn a_time_offset_binding_evaluates_like_the_shifted_curve_copy() {
+    let offset = 0.004f32; // 192 frames into TEN_MS
+    let shifted: Vec<(f32, f32, u32)> = TEN_MS.iter().map(|&(x, y, i)| (x - offset, y, i)).collect();
+    let run = |curve: &[(f32, f32, u32)], off: f32| {
+        let mut m = mixer();
+        let a = wire::Automate { voice_id: V1, frame_offset: wire::ASAP, bindings: vec![wire::AutomateBindings { param: T_VOICE, curve: 0, target: 0, offset: off }] };
+        m.submit(&[curves(0, &[curve]), dc(V1, 0, 0.0), raw(move |b| a.write(b, 0))]);
+        (0..4).flat_map(|_| m.render().0).collect::<Vec<f32>>()
+    };
+    let with_offset = run(TEN_MS, offset);
+    let with_copy = run(&shifted, 0.0);
+    assert_eq!(with_offset, with_copy);
+    check(&with_offset[..128], 1e-5, "starts 192 frames into the curve", |_| ten_ms(192.0));
+    // A parameter binding ignores the offset.
+    let mut m = mixer();
+    let a = wire::Automate { voice_id: V1, frame_offset: wire::ASAP, bindings: vec![wire::AutomateBindings { param: 0x8000, curve: 0, target: 0, offset: 0.004 }] };
+    m.submit(&[curves(0, &[TEN_MS]), param(0, 0, 0.002, 0.0), dc(V1, 0, 0.0), raw(move |b| a.write(b, 0))]);
+    let (l, _) = m.render();
+    check(&l, 1e-5, "the parameter's value, unshifted", |_| ten_ms(96.0));
+}
+
+#[test]
+fn a_clip_time_binding_follows_the_playhead() {
+    // Pitch 2: the playhead moves 256 clip frames a quantum, so clip time runs twice as fast as voice time.
+    let mut m = mixer();
+    m.load_clip(2, &[1.0f32; 48_000]);
+    let Rec::Play(mut p) = play(V1, 2, 0, MIXED) else { unreachable!() };
+    p.pitch = 2.0;
+    m.submit(&[curves(0, &[TEN_MS]), Rec::Play(p), automate(V1, &[(T_CLIP, 0, 0)])]);
+    m.render();
+    let (l, _) = m.render();
+    check(&l, 1e-5, "256 clip frames", |j| ramp(0.0, ten_ms(256.0), j));
+    // A seek moves clip time with it (not voice time).
+    m.submit(&[raw(|b| wire::Seek { voice_id: V1, frame_offset: wire::ASAP, clip_frame: 0, epoch: 0 }.write(b, 0))]);
+    m.render_n(3);
+    let pos = voices::slots(&m.core)[1].position as f32;
+    let (l, _) = m.render();
+    assert!(l[127] < ten_ms(pos + 256.0) + 1e-5 && l[127] > 0.0, "{}: clip time follows the seek ({pos})", l[127]);
+}
+
+#[test]
+fn a_sequence_time_binding_follows_its_group_clock_and_time_re_anchors_it() {
+    let mut m = mixer();
+    let Rec::Play(mut p) = dc(V1, 0, 0.0) else { unreachable!() };
+    p.group = 3;
+    // A clock that stays at 0 until TIME: y = x / 2 over 0..2 s.
+    m.submit(&[curves(0, &[&[(0.0, 0.0, 0), (2.0, 1.0, 0)]]), Rec::Play(p), automate(V1, &[(T_SEQ, 0, 0)])]);
+    let (l, _) = m.render();
+    check(&l, TOL, "parked at 0", |_| 0.0);
+    // Stamped at frame 256: 1 s there, running at half speed.
+    let frame = m.frame;
+    m.submit(&[time(3, wire::TIME_SEQUENCE, 1.0, 0.5, (256 - frame) as u32)]);
+    let (l, _) = m.render();
+    check(&l, TOL, "not anchored yet", |_| 0.0);
+    assert_eq!(automation::clock(&mut m.core, 3).unwrap(), automation::GroupClock::default());
+    m.render(); // the quantum holding frame 256 applies it (after its bindings were read)
+    assert_eq!(automation::clock(&mut m.core, 3).unwrap(), automation::GroupClock { value: 1.0, rate: 0.5, anchor: 256 });
+    let at = |frame: f32| (1.0 + 0.5 * (frame - 256.0) / 48_000.0) / 2.0;
+    let (l, _) = m.render();
+    check(&l, 1e-5, "running from its anchor", |j| ramp(0.0, at(384.0), j));
+    let (l, _) = m.render();
+    check(&l, 1e-5, "still running", |j| ramp(at(384.0), at(512.0), j));
+    // Asap, rate 0: parked at 0.5 s from the next quantum on.
+    m.submit(&[time(3, wire::TIME_SEQUENCE, 0.5, 0.0, wire::ASAP)]);
+    let (l, _) = m.render();
+    check(&l, 1e-5, "parked", |j| ramp(at(512.0), 0.25, j));
+    assert_eq!(automation::clock(&mut m.core, 3).unwrap().anchor, 640);
+    // Another clock (`which`), a bad value or a group out of range is ignored.
+    m.submit(&[time(3, wire::TIME_VOICE, 9.0, 1.0, wire::ASAP), time(3, wire::TIME_SEQUENCE, f32::NAN, 1.0, wire::ASAP), time(1025, wire::TIME_SEQUENCE, 9.0, 1.0, wire::ASAP)]);
+    let (l, _) = m.render();
+    check(&l, 1e-5, "unchanged", |_| 0.25);
+    // A voice in another group reads that group's clock (0 here); RESET clears every clock.
+    m.submit(&[reset(true)]);
+    assert_eq!(automation::clock(&mut m.core, 3).unwrap(), automation::GroupClock::default());
+}
+
+#[test]
+fn time_records_never_split_the_quantum() {
+    let mut m = mixer();
+    m.submit(&[curves(0, &[TEN_MS]), dc(V1, 0, 0.0)]);
+    m.render();
+    let frame = m.frame;
+    m.submit(&[time(0, wire::TIME_SEQUENCE, 0.0, 1.0, (frame + 37) as u32 - frame as u32)]);
+    m.render();
+    assert_eq!(audio_core::status::counters(&m.core).music.split_quanta, 0);
+    assert_eq!(automation::clock(&mut m.core, 0).unwrap().anchor, frame + 37);
+}
+
+/// ABI 4.4: a mono voice's equal-power pan gains, normalised so pan 0 is the identity.
+fn mono_pan(p: f32) -> (f32, f32) {
+    let theta = (p + 1.0) * core::f32::consts::FRAC_PI_4;
+    (core::f32::consts::SQRT_2 * theta.cos(), core::f32::consts::SQRT_2 * theta.sin())
+}
+
+/// A looping mixed PLAY of the (mono) DC clip at gain 0.5, so a +3 dB pan stays under the limiter.
+fn dc_half(voice: u32) -> Rec {
+    let Rec::Play(mut p) = dc(voice, 0, 0.0) else { unreachable!() };
+    p.gain = 0.5;
+    Rec::Play(p)
+}
+
+#[test]
+fn a_pan_binding_pans_a_mono_voice_by_equal_power_and_sums_its_curves() {
+    let mut m = mixer();
+    // Curves 0: the identity over -1..1; 1: a constant 0.25.
+    m.submit(&[curves(0, &[&[(-1.0, -1.0, 0), (1.0, 1.0, 0)], &[(0.0, 0.25, 0)]]), param(0, 0, -0.5, 0.0), dc_half(V1)]);
+    let (l, r) = m.render();
+    check(&l, TOL, "unbound", |_| 0.5);
+    check(&r, TOL, "unbound", |_| 0.5);
+    // Two pan curves sum: -0.5 + 0.25 = -0.25, at once on the first quantum.
+    m.submit(&[automate(V1, &[(G, 0, 4), (G, 1, 4)])]);
+    let (gl, gr) = mono_pan(-0.25);
+    let (l, r) = m.render();
+    check(&l, 1e-5, "left", |_| 0.5 * gl);
+    check(&r, 1e-5, "right", |_| 0.5 * gr);
+    // A jump to 1 + 0.25 clamps to 1 (hard right), the gains interpolated across the quantum.
+    m.submit(&[param(0, 0, 1.0, 0.0)]);
+    let (l, r) = m.render();
+    let (el, er) = mono_pan(1.0);
+    assert!((l[127] - 0.5 * el).abs() < 1e-5 && (r[127] - 0.5 * er).abs() < 1e-5, "{} {}", l[127], r[127]);
+    assert!((l[0] - 0.5 * gl).abs() < 0.03 && l[64] < 0.5 * gl && l[64] > 0.5 * el, "ramped: {} {}", l[0], l[64]);
+    let (l, r) = m.render();
+    check(&l, 1e-5, "hard right: left silent", |_| 0.5 * el);
+    check(&r, 1e-5, "hard right: +3 dB right", |_| 0.5 * er);
+}
+
+#[test]
+fn a_spatial_voice_ignores_its_pan_binding() {
+    let mut m = mixer();
+    m.submit(&[curves(0, &[&[(0.0, 1.0, 0)]]), dc(V1, 0, 1.0)]);
+    m.render_n(2);
+    let before = m.render();
+    m.submit(&[automate(V1, &[(G, 0, 4)])]);
+    let after = m.render();
+    check(&after.0, 1e-6, "left", |j| before.0[j]);
+    check(&after.1, 1e-6, "right", |j| before.1[j]);
+}
+
+#[test]
+fn a_highpass_binding_floors_the_voice_highpass_and_zero_passes_it() {
+    let mut m = mixer();
+    m.submit(&[curves(0, &[&[(0.0, 0.0, 0)], &[(0.0, 2_000.0, 0)]]), dc(V1, 0, 0.0)]);
+    // A floor at 0 is no high-pass: DC passes exactly.
+    m.submit(&[automate(V1, &[(G, 0, 3)])]);
+    let (l, _) = m.render();
+    check(&l, 0.0, "a 0 Hz floor passes the voice", |_| 1.0);
+    // 2 kHz (highest wins over 0) removes DC.
+    m.submit(&[automate(V1, &[(G, 0, 3), (G, 1, 3)])]);
+    m.render_n(8);
+    let (l, _) = m.render();
+    let peak = l.iter().fold(0.0f32, |a, x| a.max(x.abs()));
+    assert!(peak < 1e-3, "2 kHz removes DC: peak {peak}");
+    // Buses ignore highpass and pan bindings.
+    m.submit(&[bus_automate(0, &[(G, 1, 3), (G, 1, 4)])]);
+    assert_eq!(automation::bus_entry(&mut m.core, 0).unwrap().count, 0);
 }

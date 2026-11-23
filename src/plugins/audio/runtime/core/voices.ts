@@ -47,7 +47,7 @@ import type { StructuralDip } from "./structuralDip";
 import { UnlockQueue } from "./unlockQueue";
 import { MAX_STEM_PENDING, VoiceFlag, VoiceFlag2, VoiceReason, VoiceRolloff, VoiceState, type VoiceTable } from "./voiceTable";
 import { LowpassBy, type VoiceFx } from "./voiceFx";
-import { MAX_GROUPS } from "../events/automation";
+import { MAX_GROUPS } from "../automation";
 import { NULL_PROFILE_SINK, type ProfileSink } from "../mix/profileSink";
 
 const DIR_EPSILON = 0.005;
@@ -165,6 +165,10 @@ export class CoreVoices {
    */
   private readonly stemStaleAfter: Float64Array;
   private readonly stemStaleTo: Float64Array;
+  /** `PlayRequest.offset` per slot, seconds into the source, until the voice's PLAY carries it (0: the start). */
+  private readonly startOffset: Float64Array;
+  /** W12: per slot, the stream frame a stream voice opens at (`CorePlayRequest.streamStartFrame`: after a head clip), else 0. */
+  private readonly streamStart: Uint32Array;
   private stemStaleCount = 0;
   /**
    * F-24: per slot, the id of the voice whose PLAY went out flat (non-spatial, not ambisonic), else 0. The core reads
@@ -186,6 +190,8 @@ export class CoreVoices {
     this.spatialDirty = new Uint8Array(t.capacity);
     this.stemStaleAfter = new Float64Array(t.capacity);
     this.stemStaleTo = new Float64Array(t.capacity);
+    this.startOffset = new Float64Array(t.capacity);
+    this.streamStart = new Uint32Array(t.capacity);
     this.flatPlayId = new Uint32Array(t.capacity);
     this.gainApplied = new Float32Array(t.capacity).fill(1);
     this.basis.set(this.listenerPos, this.listenerFwd, this.listenerUp);
@@ -254,11 +260,15 @@ export class CoreVoices {
     const i = id & 0xffff;
     t.clip[i] = clip;
     t.group[i] = group;
+    // ADR 0345 levels (ABI 4.9): the voice's playlist level's submix, named by a ROUTE right after its PLAY.
+    t.submix[i] = req.submix && Number.isInteger(req.submix.slot) && req.submix.slot >= 0 && req.submix.slot < 255 ? req.submix.slot + 1 : 0;
     this.owners[i] = req.owner ?? null;
     t.volume[i] = req.volume !== undefined && Number.isFinite(req.volume) ? Math.max(0, req.volume) : 1;
     this.gainApplied[i] = req.ambisonic === true && !stream ? ambisonicImportGain(req.path) : 1;
     t.pitch[i] = req.pitch !== undefined && Number.isFinite(req.pitch) ? clamp(req.pitch, MIN_PITCH, MAX_PITCH) : 1;
     t.flags[i] = (req.loop ? VoiceFlag.LOOP : 0) | (req.oneShot ? VoiceFlag.ONE_SHOT : 0) | (stream ? VoiceFlag.STREAM | VoiceFlag.WANTS_PLAYHEAD : 0);
+    this.startOffset[i] = req.offset !== undefined && Number.isFinite(req.offset) && req.offset > 0 ? req.offset : 0;
+    this.streamStart[i] = stream && req.streamStartFrame !== undefined && Number.isInteger(req.streamStartFrame) && req.streamStartFrame > 0 ? req.streamStartFrame : 0;
     if (member) host.musicOps.adoptMember(id, i, member);
     else if (stream) host.streams.register(clip, id, req.path, req.loop === true);
     t.lpHz[i] = BUS_LP_OFF_HZ;
@@ -367,7 +377,15 @@ export class CoreVoices {
         t.free(id, VoiceReason.FAILED);
         return;
       }
-      return this.launchStream(id, i);
+      // W12: a stream after its head clip opens where the head ends (no seek, no fade-in).
+      const from = this.streamStart[i]!;
+      this.streamStart[i] = 0;
+      this.launchStream(id, i, from);
+      // A start offset: the stream seeks before its first chunk (or, its rate not known yet, once the worker opened it).
+      const offset = this.startOffset[i]!;
+      this.startOffset[i] = 0;
+      if (offset > 0) this.seek(id, offset);
+      return;
     }
     const clip = t.clip[i]!;
     const state = host.clips.state(clip);
@@ -377,7 +395,7 @@ export class CoreVoices {
       const mixed = host.selection.admit(i, host.mixedCap());
       t.state[i] = mixed ? VoiceState.PLAYING : VoiceState.VIRTUAL;
       t.reason[i] = mixed ? VoiceReason.NONE : VoiceReason.VIRTUAL;
-      this.sendPlay(id, i);
+      this.sendPlay(id, i, this.offsetFrames(i, clip));
     } else if (state === "failed") {
       this.clipFailed(id, i);
     } else {
@@ -389,6 +407,22 @@ export class CoreVoices {
         else this.clipFailed(id, i);
       });
     }
+  }
+
+  /**
+   * Slot `i`'s start offset (`PlayRequest.offset`) in frames of its ready clip, taken once: wrapped into the clip for a
+   * looping voice, clamped to its end otherwise (the voice then ends at once). A span clip (C14) counts from the span's
+   * first frame.
+   */
+  private offsetFrames(i: number, clip: number): number {
+    const offset = this.startOffset[i]!;
+    this.startOffset[i] = 0;
+    if (!(offset > 0)) return 0;
+    const info = this.host.clips.info(clip);
+    if (!info || !(info.sampleRate > 0)) return 0;
+    const frame = Math.round(offset * info.sampleRate);
+    if (info.frames <= 0) return frame;
+    return (this.t.flags[i]! & VoiceFlag.LOOP) !== 0 ? frame % info.frames : Math.min(frame, info.frames);
   }
 
   /**
@@ -531,6 +565,9 @@ export class CoreVoices {
     host.playheads.start(i, stamp ?? clockMap.framesNow(), a.startOffsetFrames);
     // ADR 0158: the voice's bindings and loop, right behind its PLAY.
     host.automation.onPlaySent(id, i, stamp);
+    // ADR 0345 levels (ABI 4.9): into its playlist level's submix (applies on arrival, like the bindings), stamped as
+    // its PLAY so the frame-ordered batch keeps it after the PLAY (which would otherwise clear it).
+    if (t.submix[i]! > 0) host.writer.route(id, t.submix[i]! - 1, stamp);
     // ADR 0162 (C3): its SET_VOICE_FX at the same frame, when mixed and non-default.
     host.voiceFx.onPlay(i, stamp);
     // A3.7: paused before it reached the core (locked, or its clip loading): it waits there, paused, until resumed.
@@ -798,6 +835,14 @@ export class CoreVoices {
       this.listenerDirty = true;
       this.basis.set(pos, fwd, up);
     }
+  }
+
+  /** ADR 0347: slot `i`'s distance from the listener, world units (0 for a voice that isn't positioned). */
+  distanceOf(i: number): number {
+    const t = this.t;
+    if ((t.flags[i]! & VoiceFlag.SPATIAL) === 0) return 0;
+    const p = this.listenerPos;
+    return Math.hypot(t.posX[i]! - p[0], t.posY[i]! - p[1], t.posZ[i]! - p[2]);
   }
 
   /** Spatial voices whose source or the listener moved: new gain and direction when they changed beyond epsilon. */
@@ -1093,7 +1138,7 @@ export class CoreVoices {
 
   /**
    * §1.2 options at play (`initial`: omitted fields take K0's defaults: occlusion on, Doppler 0, send 1, the default
-   * curve, yaw 0) or as a Play edit (omitted fields are kept). Callers clamp; this clamps again.
+   * curve, yaw 0, spread 0, no forced bed) or as a Play edit (omitted fields are kept). Callers clamp; this clamps again.
    */
   private applySpatialOptions(i: number, o: VoiceSpatialOptions, initial: boolean): void {
     const t = this.t;
@@ -1109,6 +1154,8 @@ export class CoreVoices {
       t.yaw[i] = 0 - (clamp(o.yaw, -180, 180) * Math.PI) / 180; // 0 - x: a yaw of 0 stays +0
       if ((f2 & VoiceFlag2.AMBISONIC) !== 0) this.host.voiceFx.setYaw(i, t.yaw[i]!);
     }
+    if (o.spread !== undefined) this.host.voiceFx.setSpread(i, Number.isFinite(o.spread) ? clamp(o.spread, 0, 360) : 0);
+    if (initial || o.bed !== undefined) f2 = o.bed === true ? f2 | VoiceFlag2.BED : f2 & ~VoiceFlag2.BED;
     f2 = t.reverbSend[i]! > 0 ? f2 | VoiceFlag2.SENDS : f2 & ~VoiceFlag2.SENDS;
     t.flags2[i] = f2;
   }

@@ -1,0 +1,68 @@
+/* The Studio's shared components (ADR 0349): player bar, status bar, output-device menu, latency calibration.
+ * Theme tokens only (src/editor/ui/editor.css lists them). */
+
+/* Player bar, Layout A */
+.studio-player { display: grid; grid-template-columns: minmax(180px, 1fr) minmax(240px, 2fr) minmax(120px, 1fr); align-items: center; gap: 12px; padding: 6px 12px; background: var(--surface); border-top: 1px solid var(--border); min-height: 52px; container-type: inline-size; }
+.studio-player-now { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.studio-player-art { flex: none; width: 38px; height: 38px; border-radius: 6px; display: grid; place-items: center; background: var(--accent-soft); color: var(--text-strong); font-size: calc(10px * var(--ui-scale)); font-weight: 700; letter-spacing: 0.04em; }
+.studio-player-art.idle { background: var(--button); color: var(--faint); }
+.studio-player-titles { min-width: 0; }
+.studio-player-title { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-player-sub { color: var(--muted); font-size: calc(11px * var(--ui-scale)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-player-centre { display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
+.studio-player-transport { display: flex; align-items: center; justify-content: center; gap: 6px; min-height: 26px; }
+.studio-player-scrub { width: 100%; display: flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.studio-player-right { display: flex; align-items: center; justify-content: flex-end; gap: 8px; min-width: 0; }
+.studio-player-status { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* ADR 0351 §6: Hear as. */
+.studio-hear-as { display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+.studio-hear-as-label { color: var(--muted); }
+.studio-hear-as-ab { padding: 0 6px; }
+@container (max-width: 840px) { .studio-player-status { display: none; } }
+@container (max-width: 620px) { .studio-player { grid-template-columns: auto 1fr; } .studio-player-titles, .studio-player-right { display: none; } }
+
+/* Status bar */
+.studio-status { display: flex; align-items: center; gap: 12px; padding: 2px 12px; min-height: 22px; background: var(--bg); border-top: 1px solid var(--border); color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.studio-status-message { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-status-message.error { color: var(--danger); }
+.studio-status-message.warning { color: var(--warning); }
+.studio-status-parts { display: flex; align-items: center; gap: 0; white-space: nowrap; }
+.studio-status-part + .studio-status-part::before { content: "·"; margin: 0 8px; color: var(--faint); }
+.studio-status-part { color: var(--text); font-variant-numeric: tabular-nums; }
+.studio-status-part.muted { color: var(--muted); }
+.studio-status-part.success { color: var(--success); }
+.studio-status-part.warning { color: var(--warning); }
+.studio-status-part.danger { color: var(--danger); }
+
+/* Output-device menu */
+.studio-device { display: inline-flex; align-items: center; gap: 6px; background: var(--button); border: 1px solid var(--border); color: var(--text); padding: 3px 8px; border-radius: 5px; max-width: 280px; }
+.studio-device:hover { background: var(--button-hover); }
+.studio-device.warn .studio-device-offset { color: var(--warning); }
+.studio-device-icon { flex: none; color: var(--muted); }
+.studio-device-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-device-offset { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.studio-device-menu { position: fixed; z-index: 50; width: 320px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 8px 24px var(--shadow); display: flex; flex-direction: column; gap: 8px; }
+.studio-device-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.studio-device-label { color: var(--muted); }
+.studio-device-field { display: inline-flex; align-items: center; gap: 4px; }
+.studio-device-field input { width: 64px; text-align: right; }
+.studio-device-unit { color: var(--muted); }
+.studio-device-note { margin: 0; color: var(--faint); font-size: calc(11px * var(--ui-scale)); }
+.studio-device-warn { margin: 0; color: var(--warning); font-size: calc(11px * var(--ui-scale)); }
+
+/* Latency calibration */
+.studio-calibrate { width: min(440px, calc(100vw - 32px)); display: flex; flex-direction: column; gap: 10px; }
+.studio-calibrate h2, .studio-calibrate p { margin: 0; }
+.studio-calibrate-device { color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.studio-calibrate-boxes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.studio-calibrate-box { height: 36px; border-radius: 5px; background: var(--button); border: 1px solid var(--border); }
+.studio-calibrate-box.lit { background: var(--accent); border-color: var(--accent); }
+.studio-tap { height: 56px; font-size: calc(16px * var(--ui-scale)); font-weight: 600; }
+.studio-calibrate-strip { position: relative; height: 34px; border-radius: 4px; background: var(--bg-sunken); border: 1px solid var(--border); overflow: hidden; }
+.studio-calibrate-zero { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--border-strong); }
+.studio-calibrate-tap { position: absolute; top: 9px; width: 2px; height: 12px; margin-left: -1px; background: var(--muted); border-radius: 1px; }
+.studio-calibrate-average { position: absolute; top: 4px; width: 3px; height: 22px; margin-left: -1.5px; background: var(--accent); border-radius: 1px; }
+.studio-calibrate-scale { position: absolute; bottom: 1px; left: 4px; color: var(--faint); font-size: calc(10px * var(--ui-scale)); }
+.studio-calibrate-scale.end { left: auto; right: 4px; }
+.studio-calibrate-summary { color: var(--muted); font-variant-numeric: tabular-nums; min-height: 1.4em; }
+@media (prefers-reduced-motion: reduce) { .studio-calibrate-box { transition: none; } }

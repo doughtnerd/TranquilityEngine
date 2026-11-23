@@ -1,5 +1,5 @@
 // Which files the audio core decodes, and the warnings for those it doesn't (B4; ADR 0157, api-and-models §2
-// `codecs.aac`, architecture §7 "Unknown codec"). The decoder worker reads WAV, FLAC, MP3 and Ogg Vorbis always,
+// `codecs.aac`, architecture §7 "Unknown codec"). The decoder worker reads WAV, FLAC, MP3, Ogg Vorbis and (ADR 0351 A7) Ogg Opus always,
 // and AAC (`.m4a`, `.mp4`, `.aac`) only when the project sets `audio.codecs.aac`, which makes the worker load the
 // larger AAC build of the decoder. With the setting off an AAC asset is refused before it is fetched; a file the
 // decoder can't open at all fails with a warning naming its format and the supported list. Each warns once per asset
@@ -26,7 +26,7 @@ function isAacPath(path: string): boolean {
 
 /** @internal The formats the core decodes with `aac` on or off, for messages. */
 export function supportedFormats(aac: boolean): string {
-  return aac ? "WAV, FLAC, MP3, Ogg Vorbis and AAC (.m4a, .mp4, .aac)" : "WAV, FLAC, MP3 and Ogg Vorbis (AAC with audio.codecs.aac on)";
+  return aac ? "WAV, FLAC, MP3, Ogg Vorbis, Ogg Opus and AAC (.m4a, .mp4, .aac)" : "WAV, FLAC, MP3, Ogg Vorbis and Ogg Opus (AAC with audio.codecs.aac on)";
 }
 
 /** @internal The warning for an AAC asset while `audio.codecs.aac` is off; null when `path` may be decoded. */

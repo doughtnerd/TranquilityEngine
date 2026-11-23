@@ -305,6 +305,72 @@ export function setUIElementField(ref: UIElementRef, field: string, raw: string 
   return setUIElementAttributes(ref, { [field]: raw }, `${raw === null ? "Reset" : "Set"} ${kebab(field)}`);
 }
 
+// --- Localised text (ADR 0356 §4, §9) ---------------------------------------------------------------
+
+/** The element a text field's markup belongs to: a button's label edits the button's text content. */
+const textHost = (el: UIDocumentElement): UIDocumentElement => (sourceOf(el).label ? el.parent! : el);
+
+/** The key a text field is bound to (`t:<field>="key"`), or null. */
+export function uiElementKey(el: UIDocumentElement, field: string): string | null {
+  const host = textHost(el);
+  if (!elementSource(host)) return null;
+  const names = aliasesOf(field).map((n) => `t:${n}`);
+  return sourceOf(host).attributes.find((a) => names.includes(a.name))?.value.trim() || null;
+}
+
+/** The literal text a field has in the markup (its attribute, or the text content for the content field), or null. */
+export function uiElementLiteral(el: UIDocumentElement, field: string): string | null {
+  const host = textHost(el);
+  if (!elementSource(host)) return null;
+  const src = sourceOf(host);
+  const attr = src.attributes.find((a) => aliasesOf(field).includes(a.name));
+  if (attr) return attr.value;
+  return field === CONTENT_FIELD[host.tag] ? src.text : null;
+}
+
+/** Write `t:<field>="key"` on `el` and clear the field's literal text (its attribute, or the text content). */
+function writeKey(edits: FileEdits, el: UIDocumentElement, field: string, key: string): void {
+  const own = sourceOf(el).place;
+  const tag = edits.tag(own, el.tag);
+  edits.edit(own.file, (t) => setAttribute(t, own.path, `t:${field}`, key));
+  for (const a of tag.attributes) if (aliasesOf(field).includes(a.name)) edits.edit(own.file, (t) => removeAttribute(t, own.path, a.name));
+  if (field === CONTENT_FIELD[el.tag]) edits.edit(own.file, (t) => setText(t, own.path, ""));
+}
+
+/**
+ * Bind a text field (a Text's or Button's text, an InputField's value or placeholder) to a string key, as one undo
+ * step: `t:<field>="key"` on the element, its literal text removed. `key` null removes the binding instead.
+ */
+export function localiseUIElement(ref: UIElementRef, field: string, key: string | null): boolean {
+  const scene = editableScene();
+  const found = scene && editableElement(scene, ref);
+  if (!scene || !found) return false;
+  const el = textHost(found);
+  if (key === null) {
+    return commit(scene, `Unlink ${field} from its key`, (edits) => {
+      const own = sourceOf(el).place;
+      const tag = edits.tag(own, el.tag);
+      for (const a of tag.attributes) if (aliasesOf(field).map((n) => `t:${n}`).includes(a.name)) edits.edit(own.file, (t) => removeAttribute(t, own.path, a.name));
+    });
+  }
+  return commit(scene, `Localise ${field}`, (edits) => writeKey(edits, el, field, key));
+}
+
+/**
+ * Extract to string table (ADR 0356 §9): write `tableText` (the table with the new key, `localiseModel.ts`'s
+ * `extractToTable`) to `tablePath` and bind the field to `key`, both files in one undo step.
+ */
+export function extractUIElementText(ref: UIElementRef, field: string, key: string, tablePath: string, tableText: string): boolean {
+  const scene = editableScene();
+  const found = scene && editableElement(scene, ref);
+  if (!scene || !found) return false;
+  const el = textHost(found);
+  return commit(scene, `Extract ${field} to ${tablePath.slice(tablePath.lastIndexOf("/") + 1)}`, (edits) => {
+    writeKey(edits, el, field, key);
+    edits.write(tablePath, tableText);
+  });
+}
+
 /** Set or clear (empty) an element's id, keeping it selected. Ids are unique in a file. */
 export function renameUIElement(ref: UIElementRef, id: string): boolean {
   const scene = editableScene();

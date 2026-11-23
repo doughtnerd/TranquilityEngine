@@ -36,7 +36,7 @@ fn voice_fx_masked(mask: u32) -> Rec {
             yaw: 0.0,
             aux_level: 0.5,
             aux_bus: 0,
-            reserved: 0,
+            spread: 0,
         }
         .write(b, 0)
         .unwrap()

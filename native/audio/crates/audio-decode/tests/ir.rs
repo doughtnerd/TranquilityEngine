@@ -114,7 +114,7 @@ fn refuses_wide_silent_and_bad_arguments() {
     assert_eq!(ir::prepare(bytes(ok.clone()), FormatHint::Wav, f32::NAN, 10).unwrap_err().code, ERR_ARG);
     assert_eq!(ir::prepare(bytes(ok), FormatHint::Wav, 48_000.0, 0).unwrap_err().code, ERR_ARG);
     assert_eq!(ir::prepare(bytes(vec![1, 2, 3, 4]), FormatHint::None, 48_000.0, 10).unwrap_err().code, ERR_FORMAT);
-    assert_eq!(ir::generate(5, 48_000.0, 10).unwrap_err().code, ERR_ARG);
+    assert_eq!(ir::generate(presets::PRESETS.len() as u32, 48_000.0, 10).unwrap_err().code, ERR_ARG);
 }
 
 #[test]
@@ -181,7 +181,7 @@ fn a_resampled_file_is_prepared_at_the_target_rate() {
 fn presets_are_prepared_as_files_are() {
     for (i, preset) in presets::PRESETS.iter().enumerate() {
         let n = presets::frames(i as u32, 48_000.0);
-        let p = ir::generate(i as u32, 48_000.0, 192_000).unwrap();
+        let p = ir::generate(i as u32, 48_000.0, 240_000).unwrap(); // canyonHall (ADR 0347) is 4.87 s
         assert!(p.frames <= n && p.frames > n * 9 / 10, "{}: {} of {n}", preset.name, p.frames);
         assert!(!p.truncated, "{}", preset.name);
         let (mut l, mut r) = (vec![0.0; n], vec![0.0; n]);
@@ -196,7 +196,7 @@ fn presets_are_prepared_as_files_are() {
 /// The C ABI, as the worker calls it (one test: the state is process-wide).
 #[test]
 fn the_abi() {
-    assert_eq!(myco_decode_abi_version(), 0x104);
+    assert_eq!(myco_decode_abi_version(), 0x106);
     let file = wav16(48_000, 2, &noise_ir(3_000, 2, 9));
     let p = myco_decode_alloc(file.len() as u32);
     let frames = unsafe {

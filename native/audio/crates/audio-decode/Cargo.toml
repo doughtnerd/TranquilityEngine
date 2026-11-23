@@ -24,12 +24,22 @@ audio-wire.workspace = true
 libm.workspace = true
 # Exactly 0.6.1, the version the decode spike measured. No metadata readers (ID3, APE): the probe
 # skips tags it doesn't read.
-symphonia = { version = "=0.6.1", default-features = false, features = ["wav", "pcm", "flac", "mp3", "ogg", "vorbis"] }
-
-[dev-dependencies]
-# The spatial blobs' pinned digests (tests/spatial.rs).
-sha2 = { workspace = true, features = ["std"] }
+# ADR 0359 §5: `adpcm` (IMA and Microsoft ADPCM in WAV) for imported WAV IMA sources only; the engine's own ADPCM
+# layout is `audio-adpcm`'s. symphonia's Ogg reader also reads Ogg Opus, which `src/opus.rs` decodes with libopus.
+symphonia = { version = "=0.6.1", default-features = false, features = ["wav", "pcm", "adpcm", "flac", "mp3", "ogg", "vorbis"] }
+# ADR 0351 A4: the engine's IMA ADPCM block reader (`.mycopak` entries decoded whole, `myco_decode_adpcm`).
+audio-adpcm.workspace = true
 
 [build-dependencies]
 # build.rs includes audio-wasm's source_hash.rs.
 sha2.workspace = true
+# ADR 0351 A7: compiles the vendored libopus (fixed point) for `src/opus.rs`.
+cc = "1.2"
+
+[dev-dependencies]
+# ADR 0351 A7: the Opus tests decode the shipped encoder's own Ogg Opus (its float libopus is a separate, unrenamed
+# build; `opus/rename.h` keeps the two apart in one test binary).
+myco_audio_encode = { package = "audio-encode", path = "../audio-encode" }
+# The spatial blobs' pinned digests (tests/spatial.rs).
+sha2 = { workspace = true, features = ["std"] }
+

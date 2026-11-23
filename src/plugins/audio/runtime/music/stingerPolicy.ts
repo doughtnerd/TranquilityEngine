@@ -1,9 +1,10 @@
 /**
  * The stinger decision table, pure (ADR 0166 api-and-models §2.5: `ifTooLate`, `dontRepeat`, at most 4 at once).
  *
- * Owner: **R5**'s leaf **L-R5a** (W6). Q2 wrote the skeleton. No engine state: numbers in, a decision out.
+ * No engine state: numbers in, a decision out. The playlist runtime decides its stingers with it (ADR 0343).
  */
-import { MAX_CONCURRENT_STINGERS } from "../../../../engine/audio/musicRules";
+/** At most this many stingers sound at once per instance; a fifth steals the oldest. */
+export const MAX_CONCURRENT_STINGERS = 4;
 
 /** `ifTooLate` (§2.5): default `nextGrid` (with a warning when it fires). */
 export type IfTooLate = "nextGrid" | "playNow" | "skip";

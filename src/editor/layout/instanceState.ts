@@ -25,8 +25,7 @@ export function instanceSignal<T>(instance: string, key: string, initial: T | ((
   return instanceValue(instance, `signal:${key}`, () => signal(typeof initial === "function" ? (initial as () => T)() : initial));
 }
 
-/** Forget every instance's state except those in `keep` (the instances the layouts still hold). */
-export function retainInstances(keep: Iterable<string>): void {
-  const kept = new Set(keep);
-  for (const id of [...store.keys()]) if (!kept.has(id)) store.delete(id);
+/** Forget the state of the instances in `ids` (they left their layout). */
+export function forgetInstances(ids: Iterable<string>): void {
+  for (const id of ids) store.delete(id);
 }

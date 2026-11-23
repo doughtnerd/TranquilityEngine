@@ -11,6 +11,11 @@ import {
   readFade,
   readPlay,
   readAutomate,
+  readGen,
+  AUTO_TARGET_GEN,
+  AUTO_TARGET_LOG,
+  GEN_CLIP_ID_FIRST,
+  GEN_KIND_OSCILLATOR,
   readBusAutomate,
   readCurves,
   readParam,
@@ -24,6 +29,8 @@ import { createBatchPool, type BufferPool } from "./bufferPool";
 import {
   AUTOMATION_GLOBAL,
   CORE_CURVE_KEYS,
+  GEN_MASK_ALL,
+  generatorTarget,
   CommandWriter,
   type AutomationBinding,
   type BatchPort,
@@ -253,9 +260,9 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
 
   it("automate stays after its stamped PLAY and keeps at most 8 bindings; an empty list clears", () => {
     const { writer, posted } = rig();
-    const binding: AutomationBinding = { param: AUTOMATION_GLOBAL | 3, curve: 7, target: 2 /* lowpass */ };
+    const binding: AutomationBinding = { param: AUTOMATION_GLOBAL | 3, curve: 7, target: 2 /* lowpass */, offset: 0 };
     writer.play(play(9), 500);
-    writer.automate(9, 500, [binding, { param: 1, curve: 8, target: 0 /* volume */ }]);
+    writer.automate(9, 500, [binding, { param: 1, curve: 8, target: 0 /* volume */, offset: 0 }]);
     writer.automate(9, 500, Array.from({ length: 12 }, () => binding));
     writer.automate(9, undefined, []);
     writer.flush(400);
@@ -264,8 +271,20 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
     expect(readAutomate(b.view, b.records[0]!.off).bindings).toEqual([]);
     const a = readAutomate(b.view, b.records[2]!.off);
     expect(a.voiceId).toBe(9);
-    expect(a.bindings).toEqual([binding, { param: 1, curve: 8, target: 0 }]);
+    expect(a.bindings).toEqual([binding, { param: 1, curve: 8, target: 0, offset: 0 }]);
     expect(readAutomate(b.view, b.records[3]!.off).bindings).toHaveLength(8) /* the core's bindings per voice */;
+  });
+
+  it("route stamped as its PLAY stays after it (an asap route goes ahead of a stamped PLAY, which would clear it)", () => {
+    const { writer, posted } = rig();
+    writer.play(play(9), 500);
+    writer.route(9, 2, 500);
+    writer.play(play(10), 600);
+    writer.route(10, 3);
+    writer.flush(400);
+    const b = records(posted[0]!);
+    expect(b.records.map((r) => [r.op, r.voiceId])).toEqual([[Op.ROUTE, 10], [Op.PLAY, 9], [Op.ROUTE, 9], [Op.PLAY, 10]]);
+    expect(b.records[2]!.frameOffset).toBe(b.records[1]!.frameOffset);
   });
 
   it("param writes PARAM asap; a bad seek jumps", () => {
@@ -284,6 +303,7 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
       [[0, 0], [1, 1, "smooth"]],
       [[0.5, 0.25, "step"], [2, 3, "easeOut"], [3, 3, "easeIn"]],
       [],
+      [[0, 1, "bezier", { in: [0, 0], out: [0.25, -0.5] }], [1, 0, "bezier", { in: [-0.5, 0.125], out: [0, 0], free: true }]],
     ]);
     writer.flush(0);
     const b = records(posted[0]!);
@@ -293,11 +313,15 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
       [[0, 0, 0], [1, 1, 2]],
       [[0.5, 0.25, 1], [2, 3, 4], [3, 3, 3]],
       [],
+      [[0, 1, 5], [1, 0, 5]],
     ]);
-    // 512 curves of 40 keys (≈ 200 KB): 32 keys each are sent, over several records with consecutive ids.
+    // ADR 0346: a Bézier key carries its handles; other keys carry zeros.
+    expect(c.curves[3]!.keys.map((k) => [k.inDx, k.inDy, k.outDx, k.outDy])).toEqual([[0, 0, 0.25, -0.5], [-0.5, 0.125, 0, 0]]);
+    expect(c.curves[1]!.keys.every((k) => k.inDx === 0 && k.inDy === 0 && k.outDx === 0 && k.outDy === 0)).toBe(true);
+    // 128 curves of 70 keys (≈ 230 KB): 64 keys each are sent, over several records with consecutive ids.
     const big = rig();
-    const long = Array.from({ length: 40 }, (_, i) => [i, i] as const);
-    big.writer.curves(0, Array.from({ length: 1024 / 2 }, () => long));
+    const long = Array.from({ length: CORE_CURVE_KEYS + 6 }, (_, i) => [i, i] as const);
+    big.writer.curves(0, Array.from({ length: 1024 / 8 }, () => long));
     big.writer.flush(0);
     let next = 0;
     for (const buffer of big.posted) {
@@ -309,7 +333,7 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
         next += cc.curves.length;
       }
     }
-    expect(next).toBe(1024 / 2);
+    expect(next).toBe(1024 / 8);
     expect(big.writer.pending).toBe(0);
     expect(big.writer.stats.dropped).toBe(0);
   });
@@ -321,5 +345,66 @@ describe("CommandWriter automation records (ADR 0158 E2)", () => {
     const b = records(posted[0]!);
     const r = readBusAutomate(b.view, b.records[0]!.off);
     expect(r).toEqual({ voiceId: 2, frameOffset: ASAP, bindings: [{ param: 0x8000, curve: 4, target: 2 }] });
+  });
+});
+
+describe("CommandWriter generator records (ADR 0360, ABI 5.1)", () => {
+  const OSC = GEN_CLIP_ID_FIRST + GEN_KIND_OSCILLATOR;
+
+  it("gen writes the masked parameters in bit order after its stamped PLAY", () => {
+    const { writer, posted } = rig();
+    writer.play({ ...play(9), clip: OSC }, 500);
+    // An oscillator's 10 parameters (catalogue order): waveform saw, white, 330 Hz, 50 %, -9 dB, then its envelope.
+    const params = [2, 0, 330, 50, -9, 2, 0, 100, 10, 0.5];
+    writer.gen(9, 500, GEN_MASK_ALL, params, 1734);
+    // A later change: frequency (2) and level (4) gliding over 960 frames, the seed kept.
+    writer.gen(9, undefined, (1 << 2) | (1 << 4), params.map((v, i) => (i === 2 ? 660 : i === 4 ? -3 : v)), 0, 960);
+    writer.flush(400);
+    const b = records(posted[0]!);
+    expect(b.records.map((r) => r.op)).toEqual([Op.GEN, Op.PLAY, Op.GEN]);
+    expect(b.records[2]!.frameOffset).toBe(b.records[1]!.frameOffset);
+    const first = readGen(b.view, b.records[2]!.off);
+    expect(first).toMatchObject({ voiceId: 9, mask: 0x3ff, seed: 1734, rampFrames: 0 });
+    expect(Array.from(first.values)).toEqual(params.map((v) => Math.fround(v)));
+    const change = readGen(b.view, b.records[0]!.off);
+    expect(change).toMatchObject({ frameOffset: ASAP, mask: 0x14, seed: 0, rampFrames: 960 });
+    expect(Array.from(change.values)).toEqual([660, -3]);
+  });
+
+  it("gen sends only the parameters there are: past the list and past GEN_PARAMS_MAX are dropped", () => {
+    const { writer, posted } = rig();
+    writer.gen(3, undefined, GEN_MASK_ALL, [1, 2, 3]);
+    writer.gen(3, undefined, GEN_MASK_ALL, Array.from({ length: 40 }, (_, i) => i));
+    writer.gen(3, undefined, 0, [1, 2, 3]);
+    writer.flush(0);
+    const b = records(posted[0]!);
+    expect(readGen(b.view, b.records[0]!.off)).toMatchObject({ mask: 0b111, values: [1, 2, 3] });
+    const full = readGen(b.view, b.records[1]!.off);
+    expect(full.mask).toBe(0xffffffff);
+    expect(full.values).toHaveLength(32);
+    expect(readGen(b.view, b.records[2]!.off)).toMatchObject({ mask: 0, values: [] });
+  });
+
+  it("gen's bytes match the wire's vector (GEN_oscillator_frequency_and_level)", () => {
+    const { writer, posted } = rig();
+    const params = new Array<number>(10).fill(0);
+    params[2] = 880;
+    params[4] = -6;
+    writer.gen(0x0002_0003, undefined, (1 << 2) | (1 << 4), params, 1734, 960);
+    writer.flush(0);
+    const b = records(posted[0]!);
+    const bytes = new Uint8Array(b.view.buffer, b.records[0]!.off, 36);
+    const hex = Array.from(bytes, (x) => x.toString(16).padStart(2, "0")).join("");
+    expect(hex).toBe("2100" + "0900" + "03000200" + "ffffffff" + "14000000" + "c6060000" + "c0030000" + "02000000" + "00005c44" + "0000c0c0");
+  });
+
+  it("generatorTarget binds a parameter, log2 on request", () => {
+    expect(generatorTarget(2, false)).toBe(AUTO_TARGET_GEN | (2 << 8));
+    expect(generatorTarget(8, true)).toBe((AUTO_TARGET_GEN | (8 << 8) | AUTO_TARGET_LOG) >>> 0);
+    const { writer, posted } = rig();
+    writer.automate(4, undefined, [{ param: AUTOMATION_GLOBAL | 1, curve: 3, target: generatorTarget(2, true), offset: 0 }]);
+    writer.flush(0);
+    const b = records(posted[0]!);
+    expect(readAutomate(b.view, b.records[0]!.off).bindings[0]!.target).toBe(generatorTarget(2, true));
   });
 });

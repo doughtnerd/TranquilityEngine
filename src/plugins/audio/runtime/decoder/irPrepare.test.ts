@@ -62,12 +62,13 @@ describe("IR preparer", () => {
   it("generates every preset and truncates at maxFrames", async () => {
     const { handler, irReplies } = await harness();
     let token = 1;
-    for (const preset of ["room", "corridor", "hall", "cave", "open"]) {
+    // ADR 0347's named presets play the generated five's responses.
+    for (const preset of ["room", "corridor", "hall", "cave", "open", "smallStone", "canyonHall", "metalTunnel", "forest"]) {
       await handler.handle({ type: "generateIr", token, kernelId: ID + token, preset, contextRate: 44100, maxFrames: 4410 });
       token++;
     }
     const r = irReplies();
-    expect(r.map((x) => x.type)).toEqual(Array(5).fill("irPrepared"));
+    expect(r.map((x) => x.type)).toEqual(Array(9).fill("irPrepared"));
     expect(r.some((x) => x.type === "irPrepared" && x.truncated)).toBe(true);
   });
 

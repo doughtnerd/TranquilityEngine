@@ -1,47 +1,45 @@
-import { Audio, GameBehavior, Input, SceneManager, Text, behavior, field, type AudioEventHandle } from "myco";
+import { Audio, GameBehavior, Input, SceneManager, Text, behavior, field, type AudioPlaylistHandle } from "myco";
 import { MusicReadout } from "../musicReadout";
 import { TouchBar } from "../touchBar";
 
 /**
- * The music page (ADR 0166, ADR 0167; the page's key is M on the main scene, B comes back). Every clip is a stem
+ * The music page (ADR 0343 playlists, migrated from ADR 0166 music events; the page's key is M on the main scene, B comes back). Every clip is a stem
  * synthesised by `tools/makeMusic.mjs` at one tempo (120 bpm, 4/4, a bar is 2 s), so any piece can follow any other on
- * the grid. Three music events, one playing at a time (starting one stops the one before it):
+ * the grid. Three music playlists, one playing at a time (starting one stops the one before it):
  *
- * World (starts with the page; `audio/music/music-world.audioevent.json`), a `musicSwitch` on the label parameter State.
- * Keys 1, 2, 3 set State to explore, combat and calm. Each change lands on the next bar, by the transition rule for the pair:
- *   - explore to combat (2): a CUT. The old segment stops and the new one starts on the same sample.
+ * World (starts with the page; `audio/music/music-world.playlist.json`), a Switch on the label parameter State.
+ * Keys 1, 2, 3 set State to explore, combat and calm. Each change lands on the next bar, by the Switch rule for the pair:
+ *   - explore to combat (2): a CUT. The old entry stops and the new one starts on the same sample.
  *   - combat to explore (1): a 2-beat CROSSFADE, equal power (the loudness stays level).
- *   - explore to calm (3): a 4-beat crossfade with the LINEAR curve (it dips in the middle).
- *   - calm to explore (1): a 4-beat crossfade with the S curve (slow at both ends).
- *   - calm to combat (2): a BRIDGE, a one-bar noise riser from the library, between the two (a 1-beat equal-power crossfade
- *     into the riser; combat lands at full level on the riser's last sample).
- *   - combat to calm (3): no rule of its own; the default rule (the next bar, a one-beat equal-power crossfade).
+ *   - explore to calm (3) and calm to explore (1): 4-beat crossfades (their old linear and S curves became the runtime's
+ *     equal-power crossfade in the migration).
+ *   - calm to combat (2): a TRANSITION, a one-bar noise riser, between the two (a 1-beat crossfade into the riser; combat
+ *     enters at the riser's Exit marker, its end).
+ *   - combat to calm (3): no rule of its own; the Switch's change rule (the next bar, a one-beat crossfade).
  * Stingers play over the music without touching its grid: T on the next BEAT ("hit"), Y on the next BAR ("hitBar").
  *
- * Loop (L; `music-loop.audioevent.json`): a 2-bar loop region with a 1-bar TAIL (a crash and a chord) that rings over
- * the start of the next pass. It loops while the local parameter Loop is "hold"; L again sets it to "release", the loop is
- * left, and the segment plays on through its last bar and ends. The condition is read just before each loop end, so a
- * release lands at the end of the pass playing when L is pressed (one pass later when pressed in the last ~60 ms of it).
+ * Loop (L; `music-loop.playlist.json`): a Sequence with a 2-bar loop (the old event's 1-bar tail over the next pass was
+ * not kept by the migration). It loops while the local parameter Loop is "hold"; L again sets it to "release", the loop is
+ * left at the end of the pass playing, and the sequence plays on through its last bar and ends.
  *
- * Playlist (P; `music-playlist.audioevent.json`): explore, calm and combat, two plays of two bars each, forever.
+ * Playlist (P; `music-playlist.playlist.json`): explore, calm and combat, two plays of two bars each, forever.
  *
- * Two more events, both on the lab's own 4 s stems at 120 bpm (the ones the listening pass's M4a items use):
- *   - Eight stems (4; `music-stems8.audioevent.json`): pad, pulse, lead and a STREAMED melody, each twice, one segment
- *     that loops. All eight start on one instant (a group), the two melodies through music rings.
- *   - A, B, C (5; `music-list3.audioevent.json`): a playlist of three one-pass 4 s items, each change on the beat, once through.
+ * Two more playlists, both on the lab's own 4 s stems at 120 bpm (the ones the listening pass's M4a items use):
+ *   - Eight stems (4; `music-stems8.playlist.json`): pad, pulse, lead and a STREAMED melody, each twice, one Sequence
+ *     that loops. All eight start stamped on one instant.
+ *   - A, B, C (5; `music-list3.playlist.json`): a Sequence of three 4 s sections, once through.
  *
- * O stops the music. D shows or hides the music health readout (prime lead and late groups, `Audio.debug().music`).
+ * O stops the music. D shows or hides the music readout (each music playlist's voices and late starts, `Audio.debug().events`).
  *
  * Touch: a row of buttons along the bottom of the view stands in for every key (a phone has none); they go through the same
  * code as the keys. Back (B) is the button for the key that goes back to the tour.
- * The label shows the segment, the position and the change that is waiting; the full story is in the
- * Audio Debug panel's Music section (the Pending column names the rule that was chosen).
+ * The label shows the playlist and the position; the Audio Studio's Profiler shows the rest.
  */
 @behavior("lab.MusicLab")
 export class MusicLab extends GameBehavior {
-  @field(String) worldEvent = "audio/music/music-world.audioevent.json";
-  @field(String) loopEvent = "audio/music/music-loop.audioevent.json";
-  @field(String) playlistEvent = "audio/music/music-playlist.audioevent.json";
+  @field(String) worldEvent = "audio/music/music-world.playlist.json";
+  @field(String) loopEvent = "audio/music/music-loop.playlist.json";
+  @field(String) playlistEvent = "audio/music/music-playlist.playlist.json";
   @field(String) exploreKey = "1";
   @field(String) combatKey = "2";
   @field(String) calmKey = "3";
@@ -50,14 +48,14 @@ export class MusicLab extends GameBehavior {
   @field(String) loopKey = "l";
   @field(String) playlistKey = "p";
   @field(String) stopKey = "o";
-  @field(String) stems8Event = "audio/music/music-stems8.audioevent.json";
-  @field(String) list3Event = "audio/music/music-list3.audioevent.json";
+  @field(String) stems8Event = "audio/music/music-stems8.playlist.json";
+  @field(String) list3Event = "audio/music/music-list3.playlist.json";
   @field(String) stems8Key = "4";
   @field(String) list3Key = "5";
   @field(String) readoutKey = "d";
   @field(String) backScene = "scenes/main.scene.json";
 
-  private handle: AudioEventHandle | null = null;
+  private handle: AudioPlaylistHandle | null = null;
   private mode: "world" | "loop" | "playlist" | "stems8" | "list3" | "" = "";
   private state = "explore";
   private released = false;

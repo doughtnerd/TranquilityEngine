@@ -40,7 +40,30 @@
  * ```
  *
  * A slice is referenced as `asset:<image path>#<slice name>` (`asset:images/hero.png#walk_0`).
+ *
+ * Audio files may also carry a `sample` block (ADR 0342: loops, markers, trim, tempo, root note…), read and written by
+ * `audio/sample/format.ts`; old sidecars without it are unchanged.
+ *
+ * And an `encoding` block (ADR 0351 §2): how the file is converted per platform in a game build, read and written by
+ * `audio/encoding/format.ts` and resolved by `audio/encoding/resolve.ts`. It has its own `platforms`, so image and audio
+ * keys never mix:
+ *
+ * ```jsonc
+ * "encoding": { "profile": "UI", "quality": 0.7, "platforms": { "android": { "channels": "mono" } } }
+ * ```
+ *
+ * And a `generated` block (ADR 0360 §6) on a sample baked from a generator, read and written by
+ * `audio/generators/provenance.ts`:
+ *
+ * ```jsonc
+ * "generated": { "generator": "audio/ui/coin.generator.json", "hash": "…", "seed": 1734, "variation": 0 }
+ * ```
  */
+import { parseSidecarEncoding, sidecarEncodingToJson } from "../audio/encoding/format";
+import type { SidecarEncoding } from "../audio/encoding/types";
+import { generatedProvenanceToJson, parseGeneratedProvenance, type GeneratedProvenance } from "../audio/generators/provenance";
+import { parseSampleEdits, sampleEditsToJson } from "../audio/sample/format";
+import type { SampleEdits } from "../audio/sample/types";
 
 export const IMPORT_FORMAT = "myco.import@1";
 export const SIDECAR_SUFFIX = ".meta.json";
@@ -50,9 +73,9 @@ export type TextureWrap = "clamp" | "repeat" | "mirror";
 /** How hard a texture is compressed on its way to the GPU: `none` keeps it as authored; `high` is smallest and lowest quality (ADR 0115). */
 export type TextureCompression = "none" | "low" | "normal" | "high";
 export const TEXTURE_COMPRESSIONS: readonly TextureCompression[] = ["none", "low", "normal", "high"];
-/** A build target an import setting can differ on (ADR 0115). */
-export type ImportPlatform = "web" | "desktop";
-export const IMPORT_PLATFORMS: readonly ImportPlatform[] = ["web", "desktop"];
+/** A build target an import setting can differ on (ADR 0115; `android` since ADR 0351 §1). */
+export type ImportPlatform = "web" | "desktop" | "android";
+export const IMPORT_PLATFORMS: readonly ImportPlatform[] = ["web", "desktop", "android"];
 /** The image settings a platform can override. */
 export interface PlatformOverrides {
   filter?: TextureFilter;
@@ -124,6 +147,16 @@ export interface ImportSettings {
   loopEnd: number | null;
   /** Audio (ADR 0162 §2.4): the clip is ambisonic; null (absent) for an ordinary clip. */
   ambisonic: AmbisonicImport | null;
+  /**
+   * Audio (ADR 0342): the sample's non-destructive edits (loops, markers, trim, tempo, root, normalisation, baked
+   * effects…), parsed by `audio/sample/format.ts`; null (absent) for a file nobody edited. When present its `loops`
+   * replace `loopStart`/`loopEnd` (`sampleEditsFromSidecar`).
+   */
+  sample: SampleEdits | null;
+  /** Audio (ADR 0351 §2): the file's encoding overrides and profile; null (absent) when it inherits everything. */
+  encoding: SidecarEncoding | null;
+  /** Audio (ADR 0360 §6): where a baked sample came from (generator, patch hash, seed, variation); null (absent) otherwise. */
+  generated: GeneratedProvenance | null;
   /** Models (ADR 0044): multiplies the model's size. */
   scale: number;
   upAxis: ModelUpAxis;
@@ -152,6 +185,9 @@ const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<ImportSe
   loopStart: null,
   loopEnd: null,
   ambisonic: null,
+  sample: null,
+  encoding: null,
+  generated: null,
   scale: 1,
   upAxis: "y",
   normals: "import",
@@ -304,6 +340,9 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
       settings.ambisonic = amb;
     }
   }
+  if (raw.sample !== undefined && raw.sample !== null) settings.sample = parseSampleEdits(raw.sample, `${where}: sample`, problems);
+  settings.encoding = parseSidecarEncoding(raw.encoding, `${where}: encoding`, problems);
+  settings.generated = parseGeneratedProvenance(raw.generated, `${where}: generated`, problems);
   if (raw.scale !== undefined) {
     if (typeof raw.scale === "number" && raw.scale > 0 && Number.isFinite(raw.scale)) settings.scale = raw.scale;
     else bad("scale", "a number > 0");
@@ -449,6 +488,10 @@ function importSettingsJSON(settings: ImportSettings): Record<string, unknown> {
     const a = settings.ambisonic;
     out.ambisonic = { ...(a.order !== null ? { order: a.order } : {}), ...(a.convention !== "ambix" ? { convention: a.convention } : {}) };
   }
+  if (settings.sample) out.sample = sampleEditsToJson(settings.sample);
+  const encoding = sidecarEncodingToJson(settings.encoding ?? null);
+  if (encoding) out.encoding = encoding;
+  if (settings.generated) out.generated = generatedProvenanceToJson(settings.generated);
   if (settings.scale !== d.scale) out.scale = settings.scale;
   if (settings.upAxis !== d.upAxis) out.upAxis = settings.upAxis;
   if (settings.normals !== d.normals) out.normals = settings.normals;

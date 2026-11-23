@@ -10,7 +10,7 @@ import type { Container } from "@babylonjs/gui/2D/controls/container.js";
 import { Control } from "@babylonjs/gui/2D/controls/control.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
-import { Color, Engine, GameObject, Input, Vector2 } from "../index";
+import { Color, Engine, GameObject, Input, Locale, Vector2, type ProjectSettingsInput } from "../index";
 import { Text } from "../render/components";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../ui/components";
 import type { UIComponentType } from "../ui/components";
@@ -590,6 +590,34 @@ describe("measureText", () => {
       expect(measure(req({ text: "unbreakable", maxWidth: 20, wrap: "anywhere" })).height).toBeCloseTo(48);
       expect(measure(req({ maxWidth: 30, wrap: "none" }))).toEqual({ width: 55 * 1.05 + 1, height: 12 }); // one line, not "hello" / "world"
     });
+  });
+
+  it("wraps CJK text between characters, keeping closing punctuation off a line's start (ADR 0356 §5)", async () => {
+    await withCanvas((measure) => {
+      // 5 px a character, 25 px wide: four characters fit 25 / 1.05; "。" can't start the third line, so "ト" goes with it.
+      expect(measure(req({ text: "日本語のテキスト。", maxWidth: 25 })).height).toBeCloseTo(36);
+      expect(measure(req({ text: "日本語のテキスト", maxWidth: 25 })).height).toBeCloseTo(24);
+    });
+  });
+
+  it("draws text aligned start from the language's start edge, in its direction (ADR 0356 §5)", async () => {
+    engine.dispose();
+    engine = await Engine.create({ headless: true, project: { languages: { list: [{ code: "en", name: "English" }, { code: "ar", name: "العربية" }], useSystemLanguage: false } } as ProjectSettingsInput });
+    const canvas = node("C", null, UICanvas);
+    const text = node("T", canvas.node, UIText, { text: "مرحبا" });
+    const field = node("F", canvas.node, UIInputField, { value: "نص" });
+    const core = new FakeCore();
+    core.set([canvasInfo(canvas)], [[text, canvas], [field, canvas]]);
+    sync(core);
+    const t = byName(rootOf(), "T") as TextBlock;
+    const label = (byName(rootOf(), "F") as Rectangle).children[0] as TextBlock;
+    expect([t.textHorizontalAlignment, label.textHorizontalAlignment]).toEqual([Control.HORIZONTAL_ALIGNMENT_LEFT, Control.HORIZONTAL_ALIGNMENT_LEFT]);
+    await Locale.setLanguage("ar");
+    sync(core);
+    expect([t.textHorizontalAlignment, label.textHorizontalAlignment]).toEqual([Control.HORIZONTAL_ALIGNMENT_RIGHT, Control.HORIZONTAL_ALIGNMENT_RIGHT]);
+    text.textAlign = "end";
+    sync(core);
+    expect(t.textHorizontalAlignment).toBe(Control.HORIZONTAL_ALIGNMENT_LEFT);
   });
 
   it("draws the run's CSS weight, the one the core measured", () => {

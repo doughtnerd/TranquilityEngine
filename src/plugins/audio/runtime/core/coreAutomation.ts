@@ -4,7 +4,12 @@
 // - `defineCurve` → CURVES, `setParam` → PARAM, `bindVoice` → AUTOMATE (after the voice's PLAY, with the PLAY's stamp
 //   so it stays behind it in the batch), `bindBus` → BUS_AUTOMATE (by bus name; re-sent when the bus tree is
 //   reconfigured), `setLoop` → SET_LOOP (stamped behind the voice's PLAY while that is still ahead, else asap, like the
-//   other voice commands).
+//   other voice commands), `setLoops` → LOOPS (ADR 0342: a clip voice's loop program, behind its PLAY like AUTOMATE; a
+//   later `setLoop(…, false)` is its key-off), `setSequenceTime` → TIME (ADR 0346: stamped at its heard time, or asap).
+// - **Time parameters** (ADR 0346): a binding on `TimeParam.Voice`, `Clip` or `Sequence` goes out as `AUTOMATION_TIME |
+//   which`; the core advances the times itself. Main can't follow them without a per-frame cost, so selection sees a
+//   time-bound volume curve at its loudest key (a voice fading in by voice time is never culled as silent) and a
+//   time-bound pitch curve at its first key; the playhead estimate is re-anchored by STATUS as usual.
 // - Voices are found by `voice.id` in the voice table, never by class: after the hand-over from the pending backend,
 //   the runtime re-sends voices it holds as `PendingVoice`s, whose `id` is the core voice's (C6).
 // - A voice whose PLAY hasn't gone out yet (its clip still loading, or the context locked) keeps its bindings and loop
@@ -12,13 +17,13 @@
 // - **The mirror.** Everything sent is kept (curves, parameter targets, voice bindings and loops, bus bindings), so a
 //   hard rebuild's REPLAY restores it (`replayHeader` after MASTER: curves, parameters, bus bindings; `replayVoice`
 //   after each voice's replayed PLAY: its bindings and loop), and the idle `RESET 0` (which clears the core's tables)
-//   is followed by a re-send. The writer's staging area is 256 KB (about 660 full curves) while the core takes 1,024
+//   is followed by a re-send. The writer's staging area is 256 KB (about 145 full 64-key curves) while the core takes 1,024
 //   curves, so bulk uploads are spread over frames: at most `RESYNC_BYTES_PER_FRAME` of curves, parameters and bus
 //   bindings a frame; whatever a binding needs (its curves and parameters) goes out at once, ahead of its AUTOMATE.
 //   REPLAY has no staging limit (the builder grows and chunks at the inbox size), so the replay sends it all at once,
 //   CURVES split into records of at most 32 KB.
 // - **Selection** (0158 §3 "Selection still sees it"): when a parameter changes, the affected bound voices' curves are
-//   evaluated once at the target (`events/automation.ts` `evaluate`, over `engine/core/curve.ts`) into the table's
+//   evaluated once at the target (`automation.ts` `evaluate`, over `engine/core/curve.ts`) into the table's
 //   `autoGain` (audibility) and `autoPitch` (the playhead estimate); smoothing in the core trails by at most the seek
 //   time, which selection's hysteresis absorbs. Nothing here runs per frame for a steady instance.
 //
@@ -42,30 +47,62 @@
 // The edge E3.1 left (a stamped PLAY held back by an empty buffer pool, its stamp then behind *F*_now: a later
 // SET_LOOP/AUTOMATE went asap and sorted ahead of it) is fixed: while no batch has gone out since the PLAY was written
 // (`deps.writerBatches`), records keep the PLAY's stamp.
-import { CURVE_INTERPS, type Curve } from "../../../../engine/core/curve";
+import type { Curve } from "../../../../engine/core/curve";
 import {
   ASAP,
+  AUTO_TARGET_FX,
+  AUTO_TARGET_LOG,
+  AUTO_TARGET_PARAM_SHIFT,
+  AUTO_TARGET_SEND,
+  AUTO_TARGET_SLOT_SHIFT,
   AUTOMATE_BINDINGS_FIXED_END,
   CURVES_FIXED_END,
   PARAM_FIXED_END,
   SET_LOOP_FIXED_END,
+  TIME_FIXED_END,
   SET_LOOP_FLAGS_LOOPING,
   writeAutomate,
   writeBusAutomate,
   writeCurves,
   writeParam,
   writeSetLoop,
+  writeTime,
+  writeLoops,
+  writeRoute,
+  ROUTE_FIXED_END,
+  LOOPS_LOOPS_FIXED_END,
+  LOOP_ACTIVE_SHIFT,
+  LOOP_BELOW,
+  LOOP_EXIT_SHIFT,
+  LOOP_REENTER,
+  LOOP_SEAM_SHAPE_SHIFT,
+  LOOP_EXIT_SHAPE_SHIFT,
+  FADE_SHAPE_EQUAL_POWER,
+  FADE_SHAPE_LINEAR,
+  FADE_SHAPE_S_CURVE,
+  FADE_SHAPE_INV_S_CURVE,
+  FADE_SHAPE_LOG1,
+  FADE_SHAPE_LOG2,
+  FADE_SHAPE_LOG3,
+  FADE_SHAPE_EXP1,
+  FADE_SHAPE_EXP2,
+  FADE_SHAPE_EXP3,
+  TIME_SEQUENCE,
+  type LoopsLoops,
   type AutomateBindings,
   type CurvesCurves,
 } from "../wire.generated";
 import type { AudioVoice, PlayRequest } from "../backend";
-import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, type AutomationSink, type AutoResult, type Binding } from "../events/automation";
+import type { FadeShape } from "../../../../engine/audio/playlist/types";
+import { AutoTarget, evaluateInto, MAX_BINDINGS, MAX_BUS_BINDINGS, MAX_CURVES, MAX_GLOBAL_SLOTS, MAX_GROUPS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type AutomationSink, type AutoResult, type Binding, type VoiceLoop } from "../automation";
+import { evalCurve } from "../../../../engine/core/curve";
 import { onLoopPoints } from "../loopPoints";
 import type { ClipInfo } from "./clipRegistry";
 import type { ClockMap } from "./clock";
-import { AUTOMATION_GLOBAL, CORE_CURVE_KEYS, curveBytes, CURVES_RECORD_BUDGET, type AutomationBinding, type CommandWriter } from "./commandWriter";
+import { AUTOMATION_GLOBAL, AUTOMATION_TIME, CORE_CURVE_KEYS, curveBytes, CURVES_RECORD_BUDGET, wireCurveKey, type AutomationBinding, type BusAutomationBinding, type CommandWriter } from "./commandWriter";
 import type { PlayheadTracker, ReplayBuilder } from "./replay";
 import type { SendGate } from "./session";
+import { warnOnce } from "./handle";
 import { VoiceFlag, VoiceState, type VoiceTable } from "./voiceTable";
 
 
@@ -80,6 +117,27 @@ export interface LoopRecord {
   readonly start: number;
   readonly end: number;
   readonly looping: boolean;
+  /**
+   * ADR 0342 (loops on stream voices): a stream voice's loop program beyond the region, seconds. `crossfade` the seam's
+   * crossfade (0 none) in `shape` (`FADE_SHAPE_*`, equal power by default), `count` the passes in all (0 endless; then
+   * the stream plays on), `held` whether a key-off (`looping: false`) ends it, `then` the program's later loops in
+   * order, each looped once the stream reaches it. Absent: an endless region with no crossfade (ADR 0158 §4).
+   */
+  readonly crossfade?: number;
+  readonly shape?: number;
+  readonly count?: number;
+  readonly held?: boolean;
+  readonly then?: readonly StreamLoopPart[];
+}
+
+/** @internal ADR 0342: one later loop of a stream voice's program (`LoopRecord.then`), seconds. */
+export interface StreamLoopPart {
+  readonly start: number;
+  readonly end: number;
+  readonly crossfade: number;
+  readonly shape: number;
+  readonly count: number;
+  readonly held: boolean;
 }
 
 /**
@@ -102,8 +160,9 @@ export function wrapPosition(pos: number, loopStart: number, loopEnd: number, le
 /** What the sink drives and reads of the core backend (`CoreBackend` passes these). */
 export interface CoreAutomationDeps {
   readonly table: VoiceTable;
-  readonly writer: Pick<CommandWriter, "automate" | "param" | "curves" | "busAutomate" | "setLoop">;
-  readonly clockMap: Pick<ClockMap, "framesNow" | "lookaheadFrames"> & Partial<Pick<ClockMap, "sampleRate">>;
+  readonly writer: Pick<CommandWriter, "automate" | "param" | "curves" | "busAutomate" | "setLoop"> & Partial<Pick<CommandWriter, "time" | "loops">>;
+  /** `frameOfTime` and `stampFor` turn a heard time into a stamp (TIME, ADR 0346); without them TIME goes asap. */
+  readonly clockMap: Pick<ClockMap, "framesNow" | "lookaheadFrames"> & Partial<Pick<ClockMap, "sampleRate" | "frameOfTime" | "stampFor">>;
   readonly playheads: Pick<PlayheadTracker, "positionNow" | "start" | "retime">;
   /** A voice's clip (a stream voice's stream) info: frames and rate, null while unknown. */
   clipInfo(i: number): ClipInfo | null;
@@ -136,12 +195,16 @@ interface VoiceEntry {
   n: number;
   /** Per binding: the parameter's index in the core's table for this voice (`paramKey`), or -1 (reads 0). */
   readonly keys: Int32Array;
+  /** Per binding: the `TimeParam` it reads (ADR 0346), or -1 for a parameter slot. */
+  readonly times: Int8Array;
   readonly curveIds: Int32Array;
   readonly targets: Uint8Array;
   /** The first `n` of `wirePool`, as the writer takes them. */
   readonly wire: AutomationBinding[];
   readonly wirePool: AutomationBinding[];
   loop: LoopRecord | null;
+  /** ADR 0342: its loop program (`loop`, when set beside it, is the program's key-off). */
+  program: readonly VoiceLoop[] | null;
 }
 
 const newEntry = (): VoiceEntry => ({
@@ -149,11 +212,13 @@ const newEntry = (): VoiceEntry => ({
   group: 0,
   n: 0,
   keys: new Int32Array(MAX_BINDINGS),
+  times: new Int8Array(MAX_BINDINGS).fill(-1),
   curveIds: new Int32Array(MAX_BINDINGS),
   targets: new Uint8Array(MAX_BINDINGS),
   wire: [],
-  wirePool: Array.from({ length: MAX_BINDINGS }, () => ({ param: 0, curve: 0, target: 0 })),
+  wirePool: Array.from({ length: MAX_BINDINGS }, () => ({ param: 0, curve: 0, target: 0, offset: 0 })),
   loop: null,
+  program: null,
 });
 
 /** Counts for `Audio.debug()` and the tests. */
@@ -164,6 +229,8 @@ export interface CoreAutomationStats {
   automates: number;
   busAutomates: number;
   loops: number;
+  /** ADR 0346: TIME records (sequence clock re-anchors). */
+  times: number;
   /** Hard rebuilds and idle resets whose state was restored. */
   replays: number;
   resyncs: number;
@@ -172,7 +239,7 @@ export interface CoreAutomationStats {
 }
 
 export class CoreAutomation implements AutomationSink {
-  readonly stats: CoreAutomationStats = { curves: 0, params: 0, automates: 0, busAutomates: 0, loops: 0, replays: 0, resyncs: 0, evaluations: 0 };
+  readonly stats: CoreAutomationStats = { curves: 0, params: 0, automates: 0, busAutomates: 0, loops: 0, times: 0, replays: 0, resyncs: 0, evaluations: 0 };
   private readonly curves = new Map<number, Curve>();
   private readonly paramValue = new Float64Array(PARAM_SLOTS);
   private readonly paramSeek = new Float32Array(PARAM_SLOTS);
@@ -210,11 +277,14 @@ export class CoreAutomation implements AutomationSink {
   private listed = 0;
   /** Scratch for `reevaluate`: the bindings' parameter values, and two results. */
   private readonly xs = new Float64Array(MAX_BINDINGS);
-  private readonly atTarget: AutoResult = { gain: 1, pitch: 1, lowpass: 0 };
-  private readonly atNow: AutoResult = { gain: 1, pitch: 1, lowpass: 0 };
+  private readonly atTarget: AutoResult = { gain: 1, pitch: 1, lowpass: 0, highpass: 0, pan: 0 };
+  private readonly atNow: AutoResult = { gain: 1, pitch: 1, lowpass: 0, highpass: 0, pan: 0 };
   /** Per slot: the unsubscribe of a plain looping voice's wait for its clip's loop points (E4.5). */
   private readonly plainUnsub: ((() => void) | null)[];
-  private readonly buses = new Map<string, AutomationBinding[]>();
+  /** Each bound bus's bindings (global volume, low-pass, effect and send; ABI 4.8), as bound: a send names its return, resolved to a slot at each write. */
+  private readonly buses = new Map<string, Binding[]>();
+  /** What each bound bus's bindings were last written as (`wireKey`), so a remap that moves a send's return re-sends them. */
+  private readonly busSentKey = new Map<string, string>();
   /** The bus index each bound bus's bindings were last sent to. */
   private readonly busSentTo = new Map<string, number>();
   private readonly dirtyCurves = new Set<number>();
@@ -226,7 +296,10 @@ export class CoreAutomation implements AutomationSink {
   private readonly selSent = new Map<string, number>();
   private readonly busIds = new Int32Array(MAX_BINDINGS);
   private readonly busTargets = new Uint8Array(MAX_BINDINGS);
-  private readonly busAuto: AutoResult = { gain: 1, pitch: 1, lowpass: 0 };
+  private readonly busAuto: AutoResult = { gain: 1, pitch: 1, lowpass: 0, highpass: 0, pan: 0 };
+  /** ADR 0346: each group's sequence clock as last sent: `value` seconds at context frame `frame`, moving at `rate`. */
+  private readonly clocks = new Map<number, { value: number; rate: number; frame: number }>();
+  private readonly dirtyClocks = new Set<number>();
   private budget = RESYNC_BYTES_PER_FRAME;
 
   constructor(private readonly deps: CoreAutomationDeps) {
@@ -300,15 +373,19 @@ export class CoreAutomation implements AutomationSink {
     for (let j = 0; j < n; j++) {
       const b = bindings[j]!;
       const p = b.param;
-      // As the parameters are read: a global slot, or the group's local one (none without a group).
-      e.keys[j] = p.global ? paramKey(0, p.slot) : group > 0 ? paramKey(group, p.slot) : -1;
+      const time = p.time !== undefined && p.time >= 0 && p.time <= 2 ? p.time : -1;
+      // As the parameters are read: a global slot, or the group's local one (none without a group); a time reads none.
+      e.keys[j] = time >= 0 ? -1 : p.global ? paramKey(0, p.slot) : group > 0 ? paramKey(group, p.slot) : -1;
+      e.times[j] = time;
       e.curveIds[j] = b.curve;
       e.targets[j] = b.target;
       const w = e.wirePool[j]!;
-      w.param = p.global ? AUTOMATION_GLOBAL | p.slot : p.slot;
+      w.param = time >= 0 ? AUTOMATION_TIME | time : p.global ? AUTOMATION_GLOBAL | p.slot : p.slot;
       w.curve = b.curve;
       w.target = b.target;
+      w.offset = time >= 0 && b.offset !== undefined && Number.isFinite(b.offset) ? b.offset : 0;
       wire[j] = w;
+      if (time >= 0) continue;
       if (p.global) global = true;
       else local = true;
     }
@@ -322,7 +399,7 @@ export class CoreAutomation implements AutomationSink {
   }
 
   bindBus(bus: string, bindings: readonly Binding[]): void {
-    const wire = bindings.filter((b) => b.param.global && b.target !== AutoTarget.Pitch).slice(0, MAX_BINDINGS).map(toWire);
+    const wire = bindings.filter((b) => b.param.global && BUS_TARGETS.has(b.target)).slice(0, MAX_BUS_BINDINGS).map((b) => ({ ...b, param: { ...b.param } }));
     const had = this.buses.has(bus);
     if (wire.length === 0) {
       this.buses.delete(bus);
@@ -338,12 +415,46 @@ export class CoreAutomation implements AutomationSink {
     const i = this.resolve(voice);
     if (i < 0) return;
     const e = this.entry(i);
+    if (looping) e.program = null; // a region replaces a program; a release is the program's key-off
     e.loop = { start: Math.max(0, Number.isFinite(start) ? start : 0), end: Math.max(0, Number.isFinite(end) ? end : 0), looping };
     if ((this.deps.table.flags[i]! & VoiceFlag.STREAM) !== 0) {
       this.routeStreamLoop(i, e.loop);
       return;
     }
     if (this.onCore(i)) this.sendLoop(i, e, this.stampBehindPlay(i, e.id), true);
+  }
+
+  setLoops(voice: AudioVoice, group: number, loops: readonly VoiceLoop[]): void {
+    void group; // the core reads the voice's group from its PLAY
+    const i = this.resolve(voice);
+    if (i < 0) return;
+    const e = this.entry(i);
+    e.loop = null;
+    e.program = loops.length > 0 ? loops.slice(0, MAX_VOICE_LOOPS) : null;
+    if ((this.deps.table.flags[i]! & VoiceFlag.STREAM) !== 0) {
+      // ADR 0342: streams loop through the decoder worker (`decoder/streams.ts`): the program's regions forward, in
+      // order, each with its seam crossfade (in its shape) and repeat count; held loops end at the key-off.
+      const record = streamLoopRecord(loops);
+      if (record) {
+        e.loop = record;
+        this.routeStreamLoop(i, e.loop);
+      }
+      return;
+    }
+    if (this.onCore(i)) this.sendProgram(i, e, this.stampBehindPlay(i, e.id));
+    this.dropIfEmpty(i);
+  }
+
+  setSequenceTime(group: number, value: number, rate: number, at?: number): void {
+    if (!Number.isInteger(group) || group < 0 || group > MAX_GROUPS || !Number.isFinite(value) || !Number.isFinite(rate)) return;
+    const clock = this.deps.clockMap;
+    const stamp = at !== undefined && Number.isFinite(at) && clock.frameOfTime && clock.stampFor ? clock.stampFor(clock.frameOfTime(at)) : undefined;
+    this.clocks.set(group, { value, rate, frame: stamp ?? clock.framesNow() + clock.lookaheadFrames() });
+    if (this.deps.session.mayQueue && this.deps.writer.time) {
+      this.dirtyClocks.delete(group);
+      this.deps.writer.time(group, value, rate, stamp);
+      this.stats.times++;
+    } else this.dirtyClocks.add(group);
   }
 
   // --- Seams (C6) -------------------------------------------------------------------------------------------------
@@ -402,6 +513,7 @@ export class CoreAutomation implements AutomationSink {
       return;
     }
     if (e.n > 0) this.sendBindings(i, e, stamp);
+    if (e.program && (this.deps.table.flags[i]! & VoiceFlag.STREAM) === 0) this.sendProgram(i, e, stamp);
     if (e.loop && (this.deps.table.flags[i]! & VoiceFlag.STREAM) === 0) this.sendLoop(i, e, stamp, false);
     else if (e.loop) this.routeStreamLoop(i, e.loop);
   }
@@ -434,7 +546,11 @@ export class CoreAutomation implements AutomationSink {
   beginFrame(): void {
     this.budget = RESYNC_BYTES_PER_FRAME;
     if (this.fading.size > 0) this.stepFades();
-    if (!this.deps.session.mayQueue || (this.dirtyCurves.size === 0 && this.dirtyParams.size === 0 && this.dirtyBuses.size === 0)) return;
+    if (!this.deps.session.mayQueue || (this.dirtyCurves.size === 0 && this.dirtyParams.size === 0 && this.dirtyBuses.size === 0 && this.dirtyClocks.size === 0)) return;
+    for (const g of this.dirtyClocks) {
+      if (this.budget < TIME_FIXED_END) return;
+      this.sendClock(g);
+    }
     if (this.dirtyCurves.size > 0) {
       const ids = [...this.dirtyCurves].sort((a, b) => a - b);
       for (const id of ids) {
@@ -452,7 +568,7 @@ export class CoreAutomation implements AutomationSink {
       this.sendParamKey(k);
     }
     for (const bus of this.dirtyBuses) {
-      if (this.budget < bindingBytes(MAX_BINDINGS)) return;
+      if (this.budget < bindingBytes(MAX_BUS_BINDINGS)) return;
       this.sendBus(bus);
     }
   }
@@ -465,6 +581,7 @@ export class CoreAutomation implements AutomationSink {
     for (let k = 0; k < PARAM_SLOTS; k++) if (this.paramSet[k]) this.dirtyParams.add(k);
     this.busSentTo.clear();
     for (const bus of this.buses.keys()) this.dirtyBuses.add(bus);
+    for (const g of this.clocks.keys()) this.dirtyClocks.add(g);
     this.budget = 0;
     this.publishBuses();
   }
@@ -486,7 +603,8 @@ export class CoreAutomation implements AutomationSink {
         this.busSentTo.delete(bus);
       }
     }
-    for (const bus of this.buses.keys()) if (this.busSentTo.get(bus) !== this.deps.busIndex(bus)) this.sendBus(bus);
+    // ABI 4.8: a send binding names its return by slot, so a remap that moved the return re-sends the bindings too.
+    for (const bus of this.buses.keys()) if (this.busSentTo.get(bus) !== this.deps.busIndex(bus) || this.busSentKey.get(bus) !== wireKey(this.busWire(bus))) this.sendBus(bus);
   }
 
   /**
@@ -505,6 +623,7 @@ export class CoreAutomation implements AutomationSink {
     };
     move(this.buses);
     move(this.busSentTo);
+    move(this.busSentKey);
     move(this.viewSent);
     move(this.selSent);
     if (this.dirtyBuses.delete(from)) this.dirtyBuses.add(to);
@@ -520,7 +639,12 @@ export class CoreAutomation implements AutomationSink {
     this.dirtyCurves.clear();
     this.dirtyParams.clear();
     this.dirtyBuses.clear();
+    this.dirtyClocks.clear();
     this.publishBuses();
+    for (const g of this.clocks.keys()) {
+      const { value, rate } = this.clockNow(g);
+      b.record(TIME_FIXED_END, (view, off) => writeTime(view, off, { voiceId: 0, frameOffset: ASAP, group: g, which: TIME_SEQUENCE, value, rate }));
+    }
     const ids = [...this.curves.keys()].sort((x, y) => x - y);
     let k = 0;
     while (k < ids.length) {
@@ -545,16 +669,21 @@ export class CoreAutomation implements AutomationSink {
       b.record(PARAM_FIXED_END, (view, off) => writeParam(view, off, { voiceId: 0, frameOffset: ASAP, group, slot, value, seekPerSecond: 0 }));
     }
     this.busSentTo.clear();
-    for (const [bus, wire] of this.buses) {
+    for (const bus of this.buses.keys()) {
       const index = this.deps.busIndex(bus);
       if (index < 0) continue;
+      const wire = this.busWire(bus);
       b.record(bindingBytes(wire.length), (view, off) => writeBusAutomate(view, off, { voiceId: index, frameOffset: ASAP, bindings: wire }));
       this.busSentTo.set(bus, index);
+      this.busSentKey.set(bus, wireKey(wire));
     }
   }
 
   /** A hard rebuild replayed slot `i`'s PLAY (voice `id`) into `b`: its bindings and loop follow it (asap, after it). */
   replayVoice(b: ReplayBuilder, id: number, i: number): void {
+    // ADR 0345 levels (ABI 4.9): its playlist level's submix route (the slots themselves replay in the header).
+    const submix = this.deps.table.submix[i]!;
+    if (submix > 0) b.record(ROUTE_FIXED_END, (view, off) => writeRoute(view, off, { voiceId: id, frameOffset: ASAP, submix, reserved: 0 }));
     const e = this.voices[i];
     if (!e || e.id !== id) return;
     this.playIds[i] = id;
@@ -564,6 +693,8 @@ export class CoreAutomation implements AutomationSink {
       const wire = e.wire;
       b.record(bindingBytes(wire.length), (view, off) => writeAutomate(view, off, { voiceId: id, frameOffset: ASAP, bindings: wire }));
     }
+    const items = e.program ? this.programItems(i, e.program) : null;
+    if (items) b.record(16 + LOOPS_LOOPS_FIXED_END * items.length, (view, off) => writeLoops(view, off, { voiceId: id, frameOffset: ASAP, loops: items }));
     const frames = this.loopFrames(i, e);
     if (frames) b.record(SET_LOOP_FIXED_END, (view, off) => writeSetLoop(view, off, { voiceId: id, frameOffset: ASAP, loopStartFrame: frames.start, loopEndFrame: frames.end, flags: frames.looping ? SET_LOOP_FLAGS_LOOPING : 0 }));
   }
@@ -584,7 +715,7 @@ export class CoreAutomation implements AutomationSink {
   get counts(): { curves: number; voices: number; pending: number } {
     let voices = 0;
     for (const e of this.voices) if (e) voices++;
-    return { curves: this.curves.size, voices, pending: this.dirtyCurves.size + this.dirtyParams.size + this.dirtyBuses.size };
+    return { curves: this.curves.size, voices, pending: this.dirtyCurves.size + this.dirtyParams.size + this.dirtyBuses.size + this.dirtyClocks.size };
   }
 
   /**
@@ -633,6 +764,7 @@ export class CoreAutomation implements AutomationSink {
       const wire = e.wire;
       while (wire.length > 0) wire.pop();
       e.loop = null;
+      e.program = null;
       this.voices[i] = e;
     }
     return e;
@@ -652,7 +784,7 @@ export class CoreAutomation implements AutomationSink {
 
   private dropIfEmpty(i: number): void {
     const e = this.voices[i];
-    if (e && e.n === 0 && !e.loop) this.dropMirror(i);
+    if (e && e.n === 0 && !e.loop && !e.program) this.dropMirror(i);
   }
 
   private onCore(i: number): boolean {
@@ -741,13 +873,17 @@ export class CoreAutomation implements AutomationSink {
     }
   }
 
-  /** `e`'s bindings evaluated at the parameters' targets, or (`smoothed`) at the core's smoothed values now. */
+  /**
+   * `e`'s bindings evaluated at the parameters' targets, or (`smoothed`) at the core's smoothed values now. A time-bound
+   * binding (ADR 0346) reads its curve's loudest key (volume) or its first key (pitch, low-pass).
+   */
   private evaluateEntry(e: VoiceEntry, smoothed: boolean, out: AutoResult): AutoResult {
     const xs = this.xs;
     const n = e.n;
     for (let j = 0; j < n; j++) {
       const k = e.keys[j]!;
-      xs[j] = k < 0 ? 0 : smoothed ? this.smoothed(k) : this.paramValue[k]!;
+      if (e.times[j]! >= 0) xs[j] = e.targets[j] === AutoTarget.Volume ? loudestX(this.curves.get(e.curveIds[j]!)) : -Infinity;
+      else xs[j] = k < 0 ? 0 : smoothed ? this.smoothed(k) : this.paramValue[k]!;
     }
     return evaluateInto(n, e.curveIds, e.targets, xs, this.curves, out);
   }
@@ -822,18 +958,43 @@ export class CoreAutomation implements AutomationSink {
 
   /** Bus `name`'s volume curves at the smoothed globals, allocation free; 1 when unbound. */
   private busGainNow(name: string, smoothed = true): number {
-    const wire = this.buses.get(name);
-    if (!wire) return 1;
-    const n = Math.min(wire.length, MAX_BINDINGS);
+    const bound = this.buses.get(name);
+    if (!bound) return 1;
     const xs = this.xs;
-    for (let j = 0; j < n; j++) {
-      const b = wire[j]!;
-      const k = paramKey(0, b.param & 0x7fff);
-      this.busIds[j] = b.curve;
-      this.busTargets[j] = b.target;
-      xs[j] = k < 0 ? 0 : smoothed ? this.smoothed(k) : this.paramValue[k]!;
+    let n = 0;
+    // Only the gain and low-pass bindings shape the bus's gain (effect and send bindings act inside the core).
+    for (let j = 0; j < bound.length && n < MAX_BINDINGS; j++) {
+      const b = bound[j]!;
+      if (b.target !== AutoTarget.Volume && b.target !== AutoTarget.Lowpass) continue;
+      const k = paramKey(0, b.param.slot);
+      this.busIds[n] = b.curve;
+      this.busTargets[n] = b.target;
+      xs[n] = k < 0 ? 0 : smoothed ? this.smoothed(k) : this.paramValue[k]!;
+      n++;
     }
     return evaluateInto(n, this.busIds, this.busTargets, xs, this.curves, this.busAuto).gain;
+  }
+
+  /**
+   * Bus `bus`'s bindings as `BUS_AUTOMATE` takes them (ABI 4.8): an effect binding's slot and parameter, and a send
+   * binding's return as its slot now, in the target's upper bits. A send whose return has no slot is left out.
+   */
+  private busWire(bus: string): BusAutomationBinding[] {
+    const out: BusAutomationBinding[] = [];
+    for (const b of this.buses.get(bus) ?? []) {
+      let target: number = b.target;
+      if (b.target === AutoTarget.Effect) {
+        const fx = b.fx;
+        if (!fx || fx.slot < 0 || fx.slot > 0xff || fx.param < 0 || fx.param > 0xff) continue;
+        target = (AUTO_TARGET_FX | (fx.slot << AUTO_TARGET_SLOT_SHIFT) | (fx.param << AUTO_TARGET_PARAM_SHIFT) | (fx.log ? AUTO_TARGET_LOG : 0)) >>> 0;
+      } else if (b.target === AutoTarget.Send) {
+        const to = b.send === undefined ? -1 : this.deps.busIndex(b.send);
+        if (to < 0) continue;
+        target = (AUTO_TARGET_SEND | (to << AUTO_TARGET_SLOT_SHIFT)) >>> 0;
+      }
+      out.push({ param: AUTOMATION_GLOBAL | b.param.slot, curve: b.curve, target });
+    }
+    return out;
   }
 
   private reevaluateCurve(id: number): void {
@@ -845,7 +1006,7 @@ export class CoreAutomation implements AutomationSink {
   }
 
   /** What `bindings` read goes out first (curves and parameters still waiting in the resync). */
-  private sendNeeds(group: number, bindings: readonly AutomationBinding[]): void {
+  private sendNeeds(group: number, bindings: readonly BusAutomationBinding[]): void {
     if (this.dirtyCurves.size === 0 && this.dirtyParams.size === 0) return;
     for (const b of bindings) {
       if (this.dirtyCurves.has(b.curve)) this.sendCurve(b.curve);
@@ -879,12 +1040,62 @@ export class CoreAutomation implements AutomationSink {
     this.deps.playheads.start(i, at, wrapPosition(pos, frames.start, frames.end, length));
   }
 
+  /** LOOPS for slot `i`'s program (its clip's rate must be known: until then nothing goes, and `onPlaySent` sends it). */
+  private sendProgram(i: number, e: VoiceEntry, stamp: number | undefined): void {
+    const items = e.program && this.deps.writer.loops ? this.programItems(i, e.program) : null;
+    if (!items) return;
+    this.deps.writer.loops!(e.id, stamp, items);
+    this.stats.loops++;
+  }
+
+  /** A program in the clip's frames, as LOOPS carries it; null while the clip's rate isn't known. */
+  private programItems(i: number, program: readonly VoiceLoop[]): LoopsLoops[] | null {
+    const rate = this.deps.clipInfo(i)?.sampleRate ?? 0;
+    if (!(rate > 0)) return null;
+    const frames = (s: number): number => Math.max(0, Math.round((Number.isFinite(s) ? s : 0) * rate));
+    return program.map((l) => {
+      const dir = l.direction === "pingPong" ? 1 : l.direction === "backward" ? 2 : 0;
+      const active = l.active === "held" ? 1 : l.active === "parameter" ? 2 : 0;
+      const exit = l.exit === "jump" ? 1 : l.exit === "crossfade" ? 2 : 0;
+      const p = l.param;
+      return {
+        startFrame: frames(l.start),
+        endFrame: frames(Math.max(l.start, l.end)),
+        crossfadeFrames: frames(l.crossfade),
+        exitFadeFrames: frames(l.exitFade),
+        count: Math.min(0xffff, Math.max(0, Math.round(l.count) || 0)),
+        flags: dir | (active << LOOP_ACTIVE_SHIFT) | (exit << LOOP_EXIT_SHIFT) | (l.reentry === "reenter" ? LOOP_REENTER : 0) | (l.op === "<" ? LOOP_BELOW : 0),
+        param: p && p.time === undefined ? (p.global ? AUTOMATION_GLOBAL | p.slot : p.slot) : 0,
+        shapes: (loopShape(l.crossfadeShape) << LOOP_SEAM_SHAPE_SHIFT) | (loopShape(l.exitShape) << LOOP_EXIT_SHAPE_SHIFT),
+        threshold: Number.isFinite(l.threshold) ? l.threshold! : 0,
+      };
+    });
+  }
+
   private loopFrames(i: number, e: VoiceEntry): { start: number; end: number; looping: boolean } | null {
     if (!e.loop) return null;
     const info = this.deps.clipInfo(i);
     const rate = info?.sampleRate ?? 0;
     if (!(rate > 0)) return null;
     return { start: Math.round(e.loop.start * rate), end: e.loop.end > 0 ? Math.round(e.loop.end * rate) : 0, looping: e.loop.looping };
+  }
+
+  /** Group `g`'s sequence clock extrapolated to now (`frame` may still be ahead: then its anchor value). */
+  private clockNow(g: number): { value: number; rate: number } {
+    const c = this.clocks.get(g)!;
+    const now = this.deps.clockMap.framesNow();
+    const rate = this.deps.clockMap.sampleRate ?? 48000;
+    return { value: now > c.frame ? c.value + (c.rate * (now - c.frame)) / rate : c.value, rate: c.rate };
+  }
+
+  /** A resync of group `g`'s clock: asap, from where main estimates it is now. */
+  private sendClock(g: number): void {
+    this.dirtyClocks.delete(g);
+    if (!this.clocks.has(g) || !this.deps.writer.time) return;
+    const { value, rate } = this.clockNow(g);
+    this.deps.writer.time(g, value, rate);
+    this.budget -= TIME_FIXED_END;
+    this.stats.times++;
   }
 
   private sendCurve(id: number): void {
@@ -911,7 +1122,7 @@ export class CoreAutomation implements AutomationSink {
   private sendBus(bus: string): void {
     this.dirtyBuses.delete(bus);
     const index = this.deps.busIndex(bus);
-    const wire = this.buses.get(bus) ?? [];
+    const wire = this.busWire(bus);
     const old = this.busSentTo.get(bus);
     if (old !== undefined && old !== index) this.deps.writer.busAutomate(old, []);
     if (index < 0) {
@@ -922,6 +1133,7 @@ export class CoreAutomation implements AutomationSink {
     this.deps.writer.busAutomate(index, wire);
     this.budget -= bindingBytes(wire.length);
     this.stats.busAutomates++;
+    this.busSentKey.set(bus, wireKey(wire));
     if (wire.length > 0) this.busSentTo.set(bus, index);
     else this.busSentTo.delete(bus);
   }
@@ -935,17 +1147,51 @@ function paramKey(group: number, slot: number): number {
   return MAX_GLOBAL_SLOTS + (group - 1) * MAX_LOCAL_SLOTS + slot;
 }
 
+/** The x of `curve`'s loudest key (ADR 0346: selection's view of a time-bound volume curve); 0 for an empty one. */
+function loudestX(curve: Curve | undefined): number {
+  if (!curve || curve.length === 0) return 0;
+  let best = 0;
+  for (let k = 1; k < curve.length; k++) if (curve[k]![1] > curve[best]![1]) best = k;
+  // A Bézier segment can overshoot its keys; selection only needs a loud, not the loudest, point.
+  return evalCurve(curve, curve[best]![0]) >= 0 ? curve[best]![0] : 0;
+}
+
+/** The targets a bus binding may have (ABI 4.8 adds effect parameters and sends). */
+const BUS_TARGETS: ReadonlySet<AutoTarget> = new Set([AutoTarget.Volume, AutoTarget.Lowpass, AutoTarget.Effect, AutoTarget.Send]);
+
+/** A comparable form of bindings as written. */
+const wireKey = (wire: readonly BusAutomationBinding[]): string => wire.map((b) => `${b.param}:${b.curve}:${b.target}`).join(",");
+/** ADR 0350 (ABI 4.9): a fade shape's LOOPS `shapes` nibble (absent: equal power, the core's default). */
+const LOOP_SHAPES: Readonly<Record<FadeShape, number>> = {
+  equalPower: FADE_SHAPE_EQUAL_POWER, linear: FADE_SHAPE_LINEAR, sCurve: FADE_SHAPE_S_CURVE, invSCurve: FADE_SHAPE_INV_S_CURVE,
+  log1: FADE_SHAPE_LOG1, log2: FADE_SHAPE_LOG2, log3: FADE_SHAPE_LOG3, exp1: FADE_SHAPE_EXP1, exp2: FADE_SHAPE_EXP2, exp3: FADE_SHAPE_EXP3,
+};
+/**
+ * @internal ADR 0342: a voice loop program as a stream voice plays it (`LoopRecord` with `then`): its regions (hold points
+ * and empty regions left out) forward, in order of start. A stream is read forward by the decoder worker, so ping-pong
+ * and backward loops play forward (warned once); a parameter activation reads as always (the worker can't follow a
+ * parameter; FMOD and Wwise streams loop forward between points too). Null without a region.
+ */
+export function streamLoopRecord(loops: readonly VoiceLoop[]): LoopRecord | null {
+  const parts = loops.filter((l) => l.end > l.start).slice().sort((a, b) => a.start - b.start);
+  if (parts.length === 0) return null;
+  if (parts.some((l) => l.direction !== "forward")) warnOnce("stream:loopDirection", "[myco] a streamed sample's ping-pong or backward loop plays forward (streams are read forward); decode the sample (import setting stream off) to play it as authored.");
+  const part = (l: VoiceLoop): StreamLoopPart => ({ start: l.start, end: l.end, crossfade: Math.max(0, Number.isFinite(l.crossfade) ? l.crossfade : 0), shape: loopShape(l.crossfadeShape), count: Math.max(0, Math.round(l.count) || 0), held: l.active === "held" });
+  const [first, ...rest] = parts.map(part);
+  return { start: first!.start, end: first!.end, looping: true, crossfade: first!.crossfade, shape: first!.shape, count: first!.count, held: first!.held, then: rest };
+}
+
+function loopShape(shape: FadeShape | undefined): number {
+  return shape === undefined ? FADE_SHAPE_EQUAL_POWER : (LOOP_SHAPES[shape] ?? FADE_SHAPE_EQUAL_POWER);
+}
+
 function toWire(b: Binding): AutomateBindings {
-  return { param: b.param.global ? AUTOMATION_GLOBAL | b.param.slot : b.param.slot, curve: b.curve, target: b.target };
+  return { param: b.param.global ? AUTOMATION_GLOBAL | b.param.slot : b.param.slot, curve: b.curve, target: b.target, offset: 0 };
 }
 
 function wireCurve(c: Curve): CurvesCurves {
   const n = Math.min(c.length, CORE_CURVE_KEYS);
   const keys = new Array(n);
-  for (let k = 0; k < n; k++) {
-    const key = c[k]!;
-    const interp = key.length > 2 ? CURVE_INTERPS.indexOf(key[2]!) : 0;
-    keys[k] = { x: key[0], y: key[1], interp: interp < 0 ? 0 : interp };
-  }
+  for (let k = 0; k < n; k++) keys[k] = wireCurveKey(c[k]!);
   return { reserved: 0, keys };
 }

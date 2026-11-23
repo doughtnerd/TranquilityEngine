@@ -5,6 +5,7 @@
 // (no match), and `image` for the panorama field rule below.
 // Light on imports (no editor state), so `assetBrowser.ts` and `thumbnails/keys.ts` can both use it.
 import { isSidecarPath } from "../engine/scene/importSettings";
+import { studioScreenFor } from "./studioAssets";
 import { assetKinds, type AssetKindContribution, type AssetSceneNodes, type ImportSettingsContribution, type LoadComponent } from "./sdk/contributions";
 
 /** The kinds the editor shell registers (ADR 0143) and the ones this module answers itself. */
@@ -86,12 +87,25 @@ export function opensInCodePanel(kind: AssetKind | "folder"): boolean {
 }
 
 /**
+ * True if the file at `path` opens in the Audio Studio when opened (ADR 0341): a file the Studio opens whose kind has no
+ * `open`, panel or Code panel of its own (playlists, samples, audio scenes, legacy audio events, takes, captures). Audio
+ * clips are left out: opening one in the editor does nothing, and Open in Audio Studio is on its menu.
+ */
+export function opensWithAudioStudio(path: string): boolean {
+  const screen = path.includes("#") ? null : studioScreenFor(path);
+  if (screen === null || (screen === "samples" && !path.toLowerCase().endsWith(".sample.json"))) return false; // an audio clip
+  const kind = assetKind(path);
+  const k = registeredKind(kind);
+  return k?.open === undefined && k?.panel === undefined && !opensInCodePanel(kind);
+}
+
+/**
  * True if opening (double-clicking) the file at `path` does something: its kind has `open` or a `panel`, opens in
- * the Code panel, or it is a slice of an image that opens. Opening is the asset kind host's (`assetKindHost.ts`).
+ * the Code panel or the Audio Studio, or it is a slice of an image that opens. Opening is the asset kind host's (`assetKindHost.ts`).
  */
 export function kindOpens(path: string): boolean {
   const k = behaviourAt(path);
-  return k?.open !== undefined || k?.panel !== undefined || (!path.includes("#") && opensInCodePanel(assetKind(path)));
+  return k?.open !== undefined || k?.panel !== undefined || (!path.includes("#") && opensInCodePanel(assetKind(path))) || opensWithAudioStudio(path);
 }
 
 /** What adding the entry at `path` to a scene makes, if anything (a slice adds as its file does). */

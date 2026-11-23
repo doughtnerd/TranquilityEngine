@@ -22,7 +22,7 @@ fn slot_rec(slot: u16, flags: u16, seq: u16, parent: u16, effects: &[(u32, f32)]
         reserved: 0,
         reserved2: 0,
         parent,
-        effects: effects.iter().map(|&(t, p0)| wire::BusSlotEffects { type_: t, p: [p0, 0.7, 0.0, 0.0, 0.0, 0.0, 0.0] }).collect(),
+        effects: effects.iter().map(|&(t, p0)| wire::BusSlotEffects { type_: t, p: [p0, 0.7, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] }).collect(),
     };
     let mut b = vec![0u8; wire::BusSlot::FIXED_END + effects.len() * wire::BusSlotEffects::FIXED_END];
     r.write(&mut b, 0).unwrap();
@@ -191,13 +191,13 @@ fn a_bad_parent_is_repaired_like_bus_config() {
 }
 
 #[test]
-fn effects_past_four_are_dropped_from_a_queued_slot() {
+fn effects_past_eight_are_dropped_from_a_queued_slot() {
     let mut m = rig();
     let dropped = bus::area(&m.core).dropped;
-    let fx: Vec<(u32, f32)> = (0..6).map(|_| (wire::effect_type::LOWPASS, 2_000.0)).collect();
+    let fx: Vec<(u32, f32)> = (0..10).map(|_| (wire::effect_type::LOWPASS, 2_000.0)).collect();
     submit_at(&mut m, 512.0, &[slot_rec(1, 1, 0, 0, &fx, 10)]);
     m.render();
-    assert_eq!(bus::slots(&m.core)[1].fx.count, 4);
+    assert_eq!(bus::slots(&m.core)[1].fx.count, 8);
     assert_eq!(bus::area(&m.core).dropped, dropped + 2);
 }
 

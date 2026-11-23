@@ -49,6 +49,14 @@ pub struct Regions {
     pub loudness: &'static mut [u8],
     /// 0171/0172 M5 (K1): the shared bus send scratch and the reverb run-out (`sends.rs`; 1,088 B).
     pub sends: &'static mut [u8],
+    /// ADR 0345: the instance submix slots (`submix.rs`).
+    pub submixes: &'static mut [u8],
+    /// ADR 0345 (ABI 4.6): the effect memory (`fxmem.rs`).
+    pub fxmem: &'static mut [u8],
+    /// ADR 0351 A4 (ABI 4.12): the ADPCM voice cursors (`adpcm_voice.rs`).
+    pub adpcm: &'static mut [u8],
+    /// ADR 0360 (ABI 5.1): the generator voices' state (`generator.rs`).
+    pub gen: &'static mut [u8],
     /// Empty: the clip store owns the arena region (A1.3b).
     pub arena: &'static mut [u8],
 }
@@ -115,6 +123,10 @@ impl Core {
             duck: bytes(RegionKind::Duck),
             loudness: bytes(RegionKind::Loudness),
             sends: bytes(RegionKind::Sends),
+            submixes: bytes(RegionKind::Submixes),
+            fxmem: bytes(RegionKind::FxMem),
+            adpcm: bytes(RegionKind::AdpcmCursors),
+            gen: bytes(RegionKind::GenEntries),
             arena: bytes(RegionKind::Arena),
         };
         // A1.3b: the clip store owns the directory and arena regions (they stay empty here).
@@ -128,9 +140,12 @@ impl Core {
         let streams = StreamStore::over(core::mem::take(&mut regions.streams), core::mem::take(&mut regions.wide), music_rings);
         let mut core = Core { params, layout, base: base as usize, regions, frame: 0, clips, cap, streams };
         // A2.1: one root bus at unity and MASTER at unity until BUS_CONFIG, BUS_RAMP and MASTER.
+        crate::fxmem::init(&mut core.regions.fxmem[..]);
         crate::bus::init(&mut core);
         // ADR 0158 E2: the automation region's header (its tables are all-zero valid).
         crate::automation::init(&mut core);
+        // ADR 0360 (ABI 5.1): the generator region's header (its slot records and pool are all-zero valid).
+        crate::generator::init(&mut core);
         // 0171/0172 M5 (K1): every lane at unity; the duck and loudness state (no-ops until Dp1, Ld2).
         crate::lanes::init(&mut core);
         crate::duck::init(&mut core);
@@ -215,6 +230,8 @@ impl Core {
     pub fn process(&mut self, frame: u64) -> &[f32] {
         self.frame = frame;
         crate::voices::render(self, frame);
+        // ADR 0345: the instance submixes run their chains into their buses' inputs.
+        crate::submix::render(self);
         crate::bus::mixdown(self);
         crate::cap::after_render(self, frame);
         &self.regions.output[..OUTPUT_CHANNELS * QUANTUM]

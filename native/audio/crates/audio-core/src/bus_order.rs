@@ -44,15 +44,33 @@ pub fn compute(slots: &[BusSlot], out: &mut [u8]) {
 /// ready (its children are deeper, so already out), so taking the deepest ready bus, then the
 /// lowest index, emits every bus by depth descending, ties by index.
 pub fn compute_with(slots: &[BusSlot], rules: &[Rule], out: &mut [u8]) -> u32 {
+    compute_full(slots, &[], rules, out)
+}
+
+/// Most extra edges (ADR 0345: sidechain keys; ADR 0344: sends into returns).
+pub const MAX_EXTRA: usize = 128;
+
+/// [`compute_with`] with `extra` mandatory `(from, to)` edges first (ADR 0345's sidechain keys and
+/// ADR 0344's sends: `from` mixes before `to`), in order, each dropped when it would close a
+/// cycle (that reader then reads `from`'s previous quantum), then the level rules' edges.
+pub fn compute_full(slots: &[BusSlot], extra: &[(u8, u8)], rules: &[Rule], out: &mut [u8]) -> u32 {
     let n = slots.len().min(out.len()).min(MAX_NODES);
     let parent = |b: usize| match slots[b].parent {
         p if (p as usize) < n && p as usize != b => Some(p as usize),
         _ => None,
     };
-    // The kept level edges, in rule order (≤ MAX_LEVEL of them that matter; more are kept too).
-    let mut edges = [(0u8, 0u8); duck::MAX_RULES];
+    // The kept edges: the extra ones, then the level edges in rule order.
+    let mut edges = [(0u8, 0u8); duck::MAX_RULES + MAX_EXTRA];
     let mut kept = 0usize;
     let mut late = 0u32;
+    for &(t, g) in extra.iter().take(MAX_EXTRA) {
+        let (t, g) = (t as usize, g as usize);
+        if t >= n || g >= n || t == g || reaches(g, t, n, &parent, &edges[..kept]) {
+            continue;
+        }
+        edges[kept] = (t as u8, g as u8);
+        kept += 1;
+    }
     for (i, r) in rules.iter().enumerate().take(duck::MAX_RULES) {
         let (t, g) = (r.trigger as usize, r.target as usize);
         if !r.is_level() || r.is_inert() || t >= n || g >= n || t == g {
@@ -167,19 +185,43 @@ pub fn rerun(core: &mut Core) {
     let (inert, dropped) = {
         let v = bus::view(regions);
         let count = (v.area.count as usize).clamp(1, v.slots.len()).min(v.area.order.len());
+        // ADR 0345: each sidechain compressor's key mixes before its bus (an edge key → bus), and
+        // the key buses measure their pre-fader level.
+        let mut extra = [(0u8, 0u8); MAX_EXTRA];
+        let mut ne = 0usize;
+        v.area.is_key = [0; MAX_NODES];
+        for b in 0..count {
+            for key in v.slots[b].fx.sidechain_keys() {
+                let key = key as usize;
+                if key < count && key != b && ne < MAX_EXTRA {
+                    extra[ne] = (key as u8, b as u8);
+                    ne += 1;
+                    v.area.is_key[key] = 1;
+                }
+            }
+        }
+        for b in 0..MAX_NODES {
+            if v.area.is_key[b] == 0 {
+                v.area.key_db[b] = f32::NAN;
+                v.area.key_env[b] = Default::default();
+            }
+        }
+        // ADR 0344: each send orders its return after the sender.
+        ne += crate::bus_sends::edges(&v.slots[..count], &mut extra[ne..]);
+        let extra = &extra[..ne];
         match duck::area(&mut *duck_bytes) {
             Some(d) => {
                 let n = (d.rule_count as usize).min(duck::MAX_RULES);
                 let rules = &mut d.rules[..n];
                 let inert = duck::validate(rules, &v.slots[..count]);
-                let late = compute_with(&v.slots[..count], rules, &mut v.area.order[..count]);
+                let late = compute_full(&v.slots[..count], extra, rules, &mut v.area.order[..count]);
                 for (i, r) in rules.iter_mut().enumerate() {
                     r.set_late(late & (1 << i) != 0);
                 }
                 (inert, late.count_ones())
             }
             None => {
-                compute(&v.slots[..count], &mut v.area.order[..count]);
+                compute_full(&v.slots[..count], extra, &[], &mut v.area.order[..count]);
                 (0, 0)
             }
         }

@@ -18,7 +18,7 @@
 //
 // ADR 0331: `prepareSpatial` has the worker prepare the HRIR table or the MagLS filters for a context rate and resolves with
 // the blob. Like peaks, it is not posted again to a respawned worker: a crash rejects it and the loader reports the failure.
-import type { AmbisonicConvention, ClipInfo, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, IrFailedMessage, IrPreparedMessage, IrRequest, MusicReply, PrimeGroupMessage, SpatialAssetKind, StreamClosedMessage, StreamOpenedMessage, StreamPortLike } from "./protocol";
+import type { AmbisonicConvention, ClipInfo, PackRef, DecodeHint, DecoderReply, DecoderRequest, ErrorMessage, IrFailedMessage, IrPreparedMessage, IrRequest, MusicReply, PrimeGroupMessage, SpatialAssetKind, StreamClosedMessage, StreamLoopProgram, StreamOpenedMessage, StreamPortLike } from "./protocol";
 import type { StreamLoopAt } from "./streams";
 
 /** What the client needs of a worker (a `Worker`, or an in-process stand-in in tests). */
@@ -95,6 +95,12 @@ export interface DecodeClipOptions {
   readonly collect?: boolean;
   /** Called with each chunk as it arrives, before the result resolves (a copy of nothing: the chunk is also part of the result). */
   readonly onChunk?: (pcm: Int16Array, index: number) => void;
+  /**
+   * ADR 0351 A4: decode this entry of a package loaded with `loadPack` instead of `bytes` (pass an empty buffer). An ADPCM
+   * entry with load `compressed` comes back as clip format 6 (`info.clipFormat` 6): each chunk then holds whole ADPCM blocks
+   * viewed as int16 words, not samples, and the result's `pcm` is those words.
+   */
+  readonly pack?: PackRef;
 }
 
 /** Ed1: a clip's base peaks level: `peaks` is int16 `[min, max]` pairs per bin, channel-major (see `PeaksMessage`). */
@@ -128,8 +134,12 @@ export interface StreamOpenOptions {
   /** ADR 0158 §4 (contract C2, sent by E4.4): the loop region in frames (end exclusive, 0 = the end). */
   readonly loopStartFrame?: number;
   readonly loopEndFrame?: number;
+  /** ADR 0342: the region's crossfade, count and the program's later loops. */
+  readonly program?: StreamLoopProgram;
   /** ADR 0162 B4: the sidecar's ambisonic convention, so the worker streams a 4, 9 or 16-channel file (FuMa converted). */
   readonly convention?: AmbisonicConvention;
+  /** ADR 0351 A4: stream this entry of a package loaded with `loadPack` instead of `bytes` (pass an empty buffer). */
+  readonly pack?: PackRef;
 }
 
 /** B3: the replies about streams. */
@@ -153,11 +163,25 @@ export interface DecoderClient {
    * ADR 0158 §4 (E4.4): changes a stream's loop region (`looping`; frames, end exclusive, 0/0 the whole file, both
    * omitted the file's own points) or releases it (`looping: false`), at stream frame `atStreamFrame` (the end of the
    * voice's current pass; omitted: where the worker is decoding). The caller reserves the stream's next epoch for it
-   * (the worker splices with it when that frame was sent already, `decoder/streams.ts`).
+   * (the worker splices with it when that frame was sent already, `decoder/streams.ts`). ADR 0342: `program` adds the
+   * region's crossfade, count and the program's later loops.
    */
-  loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number): void;
+  loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number, program?: StreamLoopProgram): void;
   /** B3: closes a stream (the worker sends STREAM_CLOSE to the worklet). Unknown ids are answered too. */
   closeStream(streamId: number): void;
+  /**
+   * ADR 0351 §7, A4: holds the `.mycopak` `bytes` in the worker as package `pack`, whose entries `decodeClip` and
+   * `openStream` then name with `pack` (a `compressed` Vorbis or Opus entry plays from the worker's copy through a stream
+   * ring). Resolves with its entry count, rejects when the worker can't read it or can't run. A second load under the same
+   * id replaces the first.
+   *
+   * A respawned worker gets every package back before any request reaches it. With `refetch` (W12: the build's package
+   * URL) `bytes` is transferred and no copy stays here: a respawn fetches the package again, and requests wait for it
+   * (a package's memory isn't doubled on main for a rare crash). Without, a copy is kept here for the respawn.
+   */
+  loadPack(pack: number, bytes: ArrayBuffer, options?: { readonly refetch?: () => Promise<ArrayBuffer> }): Promise<{ readonly entries: number; readonly bytes: number }>;
+  /** ADR 0351: drops package `pack` here and in the worker (streams already open on it keep their copy). */
+  releasePack(pack: number): void;
   /**
    * ADR 0162 C2b: posts a zone IR request (`prepareIr`, `generateIr`, `releaseIr`) to the worker, which sends the kernel to
    * the connected worklet itself. A request the worker can't take is answered with `irFailed` through `onIr`.
@@ -243,6 +267,12 @@ class Client implements DecoderClient {
   /** ADR 0166: each music member stream's group, and the music listeners. */
   private readonly memberGroup = new Map<number, number>();
   private readonly musicListeners = new Set<(reply: MusicReply) => void>();
+  /**
+   * ADR 0351: the packages loaded, and how a respawned worker gets each back: its kept bytes, or (W12) a fetch of it again;
+   * and the loads awaiting their answer.
+   */
+  private readonly packs = new Map<number, { readonly kept: ArrayBuffer | null; readonly refetch?: () => Promise<ArrayBuffer> }>();
+  private readonly packWaiters = new Map<number, { resolve(value: { entries: number; bytes: number }): void; reject(reason: unknown): void }[]>();
   /** ADR 0331: spatial preparations awaiting their blob, by request id. */
   private readonly spatialPending = new Map<number, { resolve(bytes: ArrayBuffer): void; reject(reason: unknown): void }>();
   generation = 0;
@@ -257,18 +287,76 @@ class Client implements DecoderClient {
     const now = (this.options.now ?? Date.now)();
     this.crashes = this.crashes.filter((t) => now - t < RESPAWN_WINDOW_MS);
     if (this.crashes.length > MAX_RESPAWNS) throw new DecoderUnavailableError(`audio decoder: the worker crashed ${this.crashes.length} times within ${RESPAWN_WINDOW_MS / 1000} s`);
-    const worker = (this.options.workerFactory ?? spawnWorker)();
+    const raw = (this.options.workerFactory ?? spawnWorker)();
+    if (this.options.wasmBytes) {
+      const bytes = this.options.wasmBytes.slice(0);
+      raw.postMessage({ type: "init", wasmBytes: bytes }, [bytes]);
+    } else {
+      raw.postMessage({ type: "init", wasmUrl: this.options.wasmUrl ?? decoderWasmUrl().href });
+    }
+    // ADR 0351: a respawned worker gets the packages back before any request that names them: kept bytes at once; a
+    // package fetched again (W12) holds every later message back (`gatedWorker`) until it is in, in order.
+    const fetches: Promise<void>[] = [];
+    for (const [pack, held] of this.packs) {
+      if (held.kept) {
+        const bytes = held.kept.slice(0);
+        raw.postMessage({ type: "packLoad", pack, bytes }, [bytes]);
+      } else if (held.refetch) {
+        const refetch = held.refetch;
+        fetches.push(
+          refetch().then(
+            (bytes) => {
+              if (this.packs.get(pack) === held) raw.postMessage({ type: "packLoad", pack, bytes }, [bytes]);
+            },
+            (e: unknown) => console.warn(`[myco] audio decoder: package ${pack} couldn't be fetched again after a decoder restart (${e instanceof Error ? e.message : String(e)}); its sounds fail until it is loaded again`),
+          ),
+        );
+      }
+    }
+    const worker = fetches.length > 0 ? gatedWorker(raw, Promise.all(fetches)) : raw;
     this.generation++;
     worker.onmessage = (e) => this.onReply(worker, e.data);
     worker.onerror = (e) => this.crashed(worker, `audio decoder: the worker failed${e.message ? ` (${e.message})` : ""}`);
     this.worker = worker;
-    if (this.options.wasmBytes) {
-      const bytes = this.options.wasmBytes.slice(0);
-      worker.postMessage({ type: "init", wasmBytes: bytes }, [bytes]);
-    } else {
-      worker.postMessage({ type: "init", wasmUrl: this.options.wasmUrl ?? decoderWasmUrl().href });
-    }
     return worker;
+  }
+
+  loadPack(pack: number, bytes: ArrayBuffer, options?: { readonly refetch?: () => Promise<ArrayBuffer> }): Promise<{ readonly entries: number; readonly bytes: number }> {
+    // The waiter goes in first: an in-process worker may answer within `postMessage`.
+    const answer = new Promise<{ entries: number; bytes: number }>((resolve, reject) => {
+      const waiters = this.packWaiters.get(pack) ?? [];
+      waiters.push({ resolve, reject });
+      this.packWaiters.set(pack, waiters);
+    });
+    const refetch = options?.refetch;
+    try {
+      // Spawned (and given the other packages back) before this one is listed, so it is sent once, below.
+      this.packs.delete(pack);
+      const worker = this.ensureWorker();
+      this.packs.set(pack, refetch ? { kept: null, refetch } : { kept: bytes.slice(0) });
+      const sent = refetch ? bytes : bytes.slice(0);
+      worker.postMessage({ type: "packLoad", pack, bytes: sent }, [sent]);
+    } catch (e) {
+      this.packs.delete(pack);
+      this.settlePack(pack, new DecoderUnavailableError(`audio decoder: no worker (${e instanceof Error ? e.message : String(e)})`));
+    }
+    return answer;
+  }
+
+
+  releasePack(pack: number): void {
+    this.packs.delete(pack);
+    this.worker?.postMessage({ type: "packRelease", pack });
+  }
+
+  /** The first load waiting on `pack` hears its answer (loads under one id are answered in order). */
+  private settlePack(pack: number, outcome: { entries: number; bytes: number } | Error): void {
+    const waiters = this.packWaiters.get(pack);
+    const first = waiters?.shift();
+    if (waiters && waiters.length === 0) this.packWaiters.delete(pack);
+    if (!first) return;
+    if (outcome instanceof Error) first.reject(outcome);
+    else first.resolve(outcome);
   }
 
   decodeClip(bytes: ArrayBuffer | Uint8Array, hint: DecodeHint = 0, options?: DecodeClipOptions): Promise<DecodedClip> {
@@ -297,7 +385,7 @@ class Client implements DecoderClient {
         signal.addEventListener("abort", entry.abort, { once: true });
       }
       this.pending.set(id, entry);
-      worker.postMessage({ type: "decodeClip", id, asset: options?.asset, bytes: buffer, hint, convention: options?.convention }, [buffer]);
+      worker.postMessage({ type: "decodeClip", id, asset: options?.asset, bytes: buffer, hint, convention: options?.convention, pack: options?.pack }, [buffer]);
     });
   }
 
@@ -379,10 +467,10 @@ class Client implements DecoderClient {
     }
     this.streams.set(o.streamId, o.asset);
     const region = o.loopStartFrame !== undefined || o.loopEndFrame !== undefined ? { loopStartFrame: o.loopStartFrame ?? 0, loopEndFrame: o.loopEndFrame ?? 0 } : {};
-    worker.postMessage({ type: "streamOpen", streamId: o.streamId, asset: o.asset, bytes: o.bytes, hint: o.hint, startFrame: o.startFrame, epoch: o.epoch, loop: o.loop, ...region, ...(o.convention ? { convention: o.convention } : {}) }, [o.bytes]);
+    worker.postMessage({ type: "streamOpen", streamId: o.streamId, asset: o.asset, bytes: o.bytes, hint: o.hint, startFrame: o.startFrame, epoch: o.epoch, loop: o.loop, ...region, ...(o.program ? { program: o.program } : {}), ...(o.convention ? { convention: o.convention } : {}), ...(o.pack ? { pack: o.pack } : {}) }, [o.bytes]);
   }
 
-  loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number): void {
+  loopStream(streamId: number, looping: boolean, loopStartFrame?: number, loopEndFrame?: number, atStreamFrame?: number, program?: StreamLoopProgram): void {
     if (!this.worker || !this.streams.has(streamId)) return;
     const message: StreamLoopAt = {
       type: "streamLoop",
@@ -390,6 +478,7 @@ class Client implements DecoderClient {
       looping,
       ...(loopStartFrame !== undefined || loopEndFrame !== undefined ? { loopStartFrame: loopStartFrame ?? 0, loopEndFrame: loopEndFrame ?? 0 } : {}),
       ...(atStreamFrame !== undefined ? { atStreamFrame } : {}),
+      ...(program ? { program } : {}),
     };
     this.worker.postMessage(message);
   }
@@ -558,8 +647,17 @@ class Client implements DecoderClient {
       case "musicWarn":
         for (const listener of [...this.musicListeners]) listener(msg);
         return;
+      case "packLoaded":
+        this.settlePack(msg.pack, { entries: msg.entries, bytes: msg.bytes });
+        return;
       case "error": {
+        if (msg.pack !== undefined) {
+          this.packs.delete(msg.pack);
+          this.settlePack(msg.pack, new DecodeFailedError(msg.message, msg.code));
+          return;
+        }
         if (msg.streamId !== undefined) {
+
           if (this.streams.has(msg.streamId)) this.emitStream({ ...msg, streamId: msg.streamId });
           return;
         }
@@ -601,7 +699,7 @@ class Client implements DecoderClient {
         continue;
       }
       const bytes = entry.bytes.slice(0);
-      next.postMessage({ type: "decodeClip", id, bytes, hint: entry.hint, asset: entry.options?.asset, convention: entry.options?.convention }, [bytes]);
+      next.postMessage({ type: "decodeClip", id, bytes, hint: entry.hint, asset: entry.options?.asset, convention: entry.options?.convention, pack: entry.options?.pack }, [bytes]);
     }
   }
 
@@ -636,6 +734,43 @@ class Client implements DecoderClient {
     if (this.worker) this.failAll(this.worker, new Error("audio decoder: disposed"));
     this.onDispose?.();
   }
+}
+
+/**
+ * W12: `raw` behind a gate: messages posted before `ready` settles are held, then delivered in order once it has (the
+ * packages a respawned worker fetches again go to `raw` directly, ahead of them). Replies and errors pass straight through.
+ */
+function gatedWorker(raw: WorkerLike, ready: Promise<unknown>): WorkerLike {
+  let held: [DecoderRequest, Transferable[] | undefined][] | null = [];
+  let terminated = false;
+  void ready.then(() => {
+    const queue = held ?? [];
+    held = null;
+    if (!terminated) for (const [message, transfer] of queue) raw.postMessage(message, transfer);
+  });
+  return {
+    get onmessage() {
+      return raw.onmessage;
+    },
+    set onmessage(fn) {
+      raw.onmessage = fn;
+    },
+    get onerror() {
+      return raw.onerror;
+    },
+    set onerror(fn) {
+      raw.onerror = fn;
+    },
+    postMessage(message, transfer) {
+      if (held) held.push([message, transfer]);
+      else raw.postMessage(message, transfer);
+    },
+    terminate() {
+      terminated = true;
+      held = null;
+      raw.terminate();
+    },
+  };
 }
 
 function concat(chunks: readonly Int16Array[], total: number): Int16Array {

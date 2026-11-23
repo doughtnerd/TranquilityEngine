@@ -155,13 +155,32 @@ pub struct Scene {
     /// unlimited) and main obeys `mixedCap`.
     pub cap: bool,
     /// ADR 0158 E2: automation bindings per voice (0 to 3: volume on a global parameter, pitch on the voice's
-    /// group's local one, lowpass on a second global), with every batch seeking the globals and 32 groups' locals.
+    /// group's local one, lowpass on a second global; ABI 4.4: 4 adds pan on the first global, 5 a high-pass floor
+    /// on the second), with every batch seeking the globals and 32 groups' locals.
     pub bindings: u32,
+    /// ADR 0346: the bound curves are made of Bézier keys (the same values, each segment a cubic).
+    pub bezier: bool,
+    /// ADR 0346: the bindings read time parameters instead (volume on voiceTime, pitch on clipTime, lowpass on
+    /// sequenceTime), and every batch re-anchors 32 groups' sequence clocks with stamped TIMEs.
+    pub time: bool,
     /// ADR 0158 E2: every bus has a volume and a lowpass binding to the seeking globals.
     pub bus_automation: bool,
     /// ADR 0158 E2: mixed voices are clips looping a SET_LOOP region (no whole-clip loop); each batch releases two,
     /// which play their tails and end, and new ones replace them.
     pub sustain: bool,
+    /// ADR 0342: with `sustain`, each mixed voice plays a LOOPS program instead of a SET_LOOP region: a held forward
+    /// loop with a 256-frame seam crossfade, then a held ping-pong loop; the key-offs let them go by crossfade.
+    pub loop_programs: bool,
+    /// ABI 4.9: with `loop_programs`, the loops' LOOPS `shapes` (seam and exit crossfade shapes; 0 equal power).
+    pub loop_shapes: u16,
+    /// ADR 0345: instance submixes (0 none): the voices spread over this many groups, each with a submix running a
+    /// low-pass and a compressor on bus 0.
+    pub submixes: u32,
+    /// ADR 0345 levels (ABI 4.9): with `submixes`, that many more slots after them, each a nested level (no group,
+    /// the same chain) feeding instance slot `i % submixes`; every other voice is ROUTEd into one.
+    pub submix_levels: u32,
+    /// ADR 0345 (ABI 4.6): the catalogue effects a scene runs ([`Catalogue`]); `None` none.
+    pub catalogue: Option<Catalogue>,
     /// ADR 0158 E2: also time one extra `automation::begin_quantum` before each quantum (outside the timed work;
     /// the parameters then seek twice as fast) and report its percentiles: the control-rate pass on its own.
     pub probe_automation: bool,
@@ -236,6 +255,30 @@ pub struct Scene {
     /// Bn4 (`lanes-7`): every bus's gain lanes all moving: a BUS_AUTOMATE volume binding to a seeking global (the `automation`
     /// lane), beside [`Per::Lanes`]'s five main-written lanes and `duck`'s rules (the `duck` lane).
     pub lanes7: bool,
+    /// ADR 0351 A4 (0359 §5): the stereo clips are IMA ADPCM (format 6), decoded per mixed voice each quantum, instead of
+    /// int16. Their blocks are random codes under a mid-table step index: the decoder is branchless, so its cost doesn't
+    /// depend on the content.
+    pub adpcm: bool,
+    /// ADR 0360 (G2): the voices are generators of this kind instead of clip voices (`GenScene::virtual_only`: only the
+    /// virtual ones), each started with a GEN beside its PLAY.
+    pub gen: Option<GenScene>,
+}
+
+/// ADR 0360 (G2): what a generator scene's voices are ([`Scene::gen`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GenScene {
+    /// The generator kind (`GEN_KIND_*`).
+    pub kind: u32,
+    /// An oscillator plays pink noise (else a PolyBLEP saw).
+    pub noise: bool,
+    /// Only the scene's virtual voices are generators (the mixed ones stay clip voices).
+    pub virtual_only: bool,
+}
+
+impl GenScene {
+    const fn of(kind: u32) -> Option<GenScene> {
+        Some(GenScene { kind, noise: false, virtual_only: false })
+    }
 }
 
 /// ADR 0171/0172 M5 (Bn4): the level rules of a sidechain scene ([`Scene::duck`]), peak or RMS detectors, amount 0.5, attack 20 ms,
@@ -378,8 +421,15 @@ impl Scene {
             ramps: true,
             cap: false,
             bindings: 0,
+            bezier: false,
+            time: false,
             bus_automation: false,
             sustain: false,
+            loop_programs: false,
+            loop_shapes: 0,
+            submixes: 0,
+            submix_levels: 0,
+            catalogue: None,
             probe_automation: false,
             beds: 0,
             bed_voices: 0,
@@ -409,6 +459,8 @@ impl Scene {
             spread: false,
             duck: None,
             lanes7: false,
+            adpcm: false,
+            gen: None,
         }
     }
 
@@ -533,6 +585,26 @@ impl Scene {
     }
 }
 
+/// ADR 0345 (ABI 4.6): the catalogue effect chains of the `fx-*` scenes.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Catalogue {
+    /// Every bus carries an eight-effect chain: EQ, band-pass with drive, saturation, distortion, bit-crush,
+    /// chorus, delay, limiter (bus 0 a reverb instead of the chorus).
+    BusChain,
+    /// Every submix runs this one kind with the given catalogue parameters.
+    Submix(u32, [f32; 3]),
+    /// Buses 4..: a sidechain compressor keyed on bus 1.
+    Sidechain,
+    /// Buses 4..: two post-fader sends each, into buses 1 and 2 (returns; ADR 0344, ABI 4.7).
+    Sends,
+    /// ADR 0352 (ABI 5.0): every bus runs four plugin effects (e 0..3) and every submix two (e 4, 5), each with three
+    /// parameters, through the `myco_ext` import (the metered gate's stub host answers; natively no host: pass-through).
+    Plugins,
+    /// `Plugins`' twin: the same slots running the catalogue's gain at 0 dB (the core's cost of a plugin slot is the
+    /// difference, less the plugin's own work, which runs in its own module).
+    PluginsTwin,
+}
+
 /// The frozen scenes by name.
 pub fn scene(name: &str) -> Option<Scene> {
     let s = match name {
@@ -576,9 +648,39 @@ pub fn scene(name: &str) -> Option<Scene> {
         // (the twin is the `snapshot-true` sweep); sustain loops released and replaced.
         "automation" => Scene { bindings: 3, ..Scene::looping(name, 256) },
         "automation-base" => Scene::looping(name, 256),
+        // ADR 0346: `automation` with every curve's keys Bézier (a bisection per binding per quantum).
+        "automation-bezier" => Scene { bindings: 3, bezier: true, ..Scene::looping(name, 256) },
+        // ADR 0346: `automation` with every binding on a time parameter (voice, clip and sequence time).
+        "automation-time" => Scene { bindings: 3, time: true, ..Scene::looping(name, 256) },
+        // ABI 4.4: `automation` plus a pan and a high-pass binding on every voice.
+        "automation-pan-highpass" => Scene { bindings: 5, ..Scene::looping(name, 256) },
         "automation-virtual" => Scene { bindings: 3, virtual_voices: 256, ..Scene::looping(name, 16) },
         "bus-automation" => Scene { buses: 32, snapshot_lp: true, bus_automation: true, ..Scene::looping(name, 32) },
         "sustain" => Scene { sustain: true, ..Scene::looping(name, 128) },
+        // ADR 0342: `sustain` with loop programs (crossfaded forward and ping-pong held loops, released by crossfade).
+        "loop-programs" => Scene { sustain: true, loop_programs: true, ..Scene::looping(name, 128) },
+        // ABI 4.9: `loop-programs` with shaped crossfades: a log seam (1.41, the one shape with a powf) and an exp exit.
+        "loop-programs-shaped" => Scene { sustain: true, loop_programs: true, loop_shapes: (wire::FADE_SHAPE_LOG1 << wire::LOOP_SEAM_SHAPE_SHIFT | wire::FADE_SHAPE_EXP1 << wire::LOOP_EXIT_SHAPE_SHIFT) as u16, ..Scene::looping(name, 128) },
+        // ADR 0345: 128 voices in 32 instances, each instance's submix running a low-pass and a compressor.
+        "submixes" => Scene { submixes: 32, ..Scene::looping(name, 128) },
+        // ABI 4.9: 16 instance submixes and 16 nested levels feeding them (two levels), half the voices ROUTEd into a level.
+        "submix-levels" => Scene { submixes: 16, submix_levels: 16, ..Scene::looping(name, 128) },
+        // ADR 0345 (ABI 4.6): the catalogue's DSP. `fx-chain-8`: 8 buses, each with an eight-effect chain (EQ, band-pass
+        // with drive, saturation, distortion, bit-crush, chorus or reverb, delay, limiter). `fx-submix-*`: 128 voices in 32
+        // instances, each instance's submix running one heavy kind. `fx-sidechain`: 16 buses, 12 with a sidechain
+        // compressor keyed on bus 1. Their twins are `automation-base`-like plain scenes (`submixes` for the submix ones).
+        "fx-chain-8" => Scene { buses: 8, catalogue: Some(Catalogue::BusChain), ..Scene::looping(name, 32) },
+        "fx-submix-reverb" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_REVERB, [0.6, 2.5, 30.0])), ..Scene::looping(name, 128) },
+        "fx-submix-delay" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_DELAY, [350.0, 40.0, 30.0])), ..Scene::looping(name, 128) },
+        "fx-submix-chorus" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_CHORUS, [0.8, 40.0, 50.0])), ..Scene::looping(name, 128) },
+        "fx-submix-pitch" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_PITCH, [7.0, 0.0, 0.0])), ..Scene::looping(name, 128) },
+        "fx-submix-formant" => Scene { submixes: 32, catalogue: Some(Catalogue::Submix(wire::SUBMIX_FX_FORMANT, [4.0, 0.0, 0.0])), ..Scene::looping(name, 128) },
+        "fx-sidechain" => Scene { buses: 16, catalogue: Some(Catalogue::Sidechain), ..Scene::looping(name, 32) },
+        // ADR 0352 (ABI 5.0): 32 bus plugin slots and 64 submix plugin slots, and their twin on the catalogue's gain.
+        "fx-plugins" => Scene { buses: 8, submixes: 32, catalogue: Some(Catalogue::Plugins), ..Scene::looping(name, 128) },
+        "fx-plugins-twin" => Scene { buses: 8, submixes: 32, catalogue: Some(Catalogue::PluginsTwin), ..Scene::looping(name, 128) },
+        // ADR 0344 (ABI 4.7): 16 buses, 12 sending into two returns (buses 1 and 2).
+        "bus-sends" => Scene { buses: 16, catalogue: Some(Catalogue::Sends), ..Scene::looping(name, 32) },
         // Not gated: the timed control-rate pass of `automation`, and the virtual scene's twin without bindings.
         "automation-probe" => Scene { bindings: 3, probe_automation: true, ..Scene::looping(name, 256) },
         "automation-virtual-base" => Scene { virtual_voices: 256, ..Scene::looping(name, 16) },
@@ -676,6 +778,31 @@ pub fn scene(name: &str) -> Option<Scene> {
         "duck-gate" => Scene::sidechain(name, Some((1, false, false, DUCK_UNDER_DB))),
         "duck-8-gate" => Scene::sidechain(name, Some((8, true, false, DUCK_UNDER_DB))),
         "lanes-7" => Scene::per(Scene { lanes7: true, ..Scene::sidechain(name, Some((8, false, false, DUCK_ENGAGED_DB))) }, Per::Lanes, true),
+        // ADR 0351 A4 (0359 §5): ADPCM clips decoded per voice each quantum, each beside its int16 twin: 256 looping voices
+        // (twin `automation-base`; they start together, so they cross every block in the same quantum), 128 at pitch 4
+        // (twin `pitch4`), and the default preset's one-shots at pitch 0.5-2 (twin `default`; every start decodes from its
+        // block's header). `ADPCM_PAIRS` in the gate reports the cost per voice and the worst quantum against the mean.
+        "adpcm" => Scene { adpcm: true, ..Scene::looping(name, 256) },
+        "adpcm-pitch4" => Scene { adpcm: true, pitch: (4.0, 4.0), ..Scene::looping(name, 128) },
+        "adpcm-default" => Scene { adpcm: true, ..Scene::preset(name, 4_096, 128, 16, 8) },
+        // ADR 0360 (G2): generator voices, each beside a sample twin with the same voices and `max_mixed` (the generator
+        // pool is max(16, max_mixed / 4) entries, so these scenes raise `max_mixed` to hold every voice; the twins match
+        // it, so the pool sizes and per-quantum bookkeeping are the same). `gen-osc`: 256 looping PolyBLEP saws;
+        // `gen-noise`: 256 pink noises; `gen-synth`: 128 two-oscillator synths with a triangle LFO on the cut-off;
+        // `gen-blip`: 256 sfxr blips (square, punch, slide, vibrato, duty sweep, phaser, low-pass sweep, high-pass)
+        // retriggered at about 200 a second as they end, beside 256 sample one-shots at 200 a second; `gen-silence`:
+        // 4,096 looping silences (virtual) beside 4,096 looping virtual sample voices, over 16 mixed sample voices
+        // (`-base`: those alone). `GEN_PAIRS` in the gate reports each kind's cost against its twin.
+        "gen-osc" => Scene { max_mixed: 1_024, gen: GenScene::of(wire::GEN_KIND_OSCILLATOR), ..Scene::looping(name, 256) },
+        "gen-noise" => Scene { max_mixed: 1_024, gen: Some(GenScene { kind: wire::GEN_KIND_OSCILLATOR, noise: true, virtual_only: false }), ..Scene::looping(name, 256) },
+        "gen-twin-256" => Scene { max_mixed: 1_024, ..Scene::looping(name, 256) },
+        "gen-synth" => Scene { max_mixed: 512, gen: GenScene::of(wire::GEN_KIND_SYNTH), ..Scene::looping(name, 128) },
+        "gen-twin-128" => Scene { max_mixed: 512, ..Scene::looping(name, 128) },
+        "gen-blip" => Scene { max_mixed: 1_024, one_shots: true, gen: GenScene::of(wire::GEN_KIND_BLIP), ..Scene::looping(name, 256) },
+        "gen-blip-twin" => Scene { max_mixed: 1_024, one_shots: true, ..Scene::looping(name, 256) },
+        "gen-silence" => Scene { max_logical: 8_192, virtual_voices: 4_096, gen: Some(GenScene { kind: wire::GEN_KIND_SILENCE, noise: false, virtual_only: true }), ..Scene::looping(name, 16) },
+        "gen-silence-twin" => Scene { max_logical: 8_192, virtual_voices: 4_096, ..Scene::looping(name, 16) },
+        "gen-silence-base" => Scene { max_logical: 8_192, ..Scene::looping(name, 16) },
         // ADR 0166 M4b (Bench1): music on the default preset, decoded and streamed, each beside its music-free twin (the
         // twin is shared: music's voices are on top of the same SFX). `MUSIC_PAIRS` in the gate holds the allowances.
         "music-typ-twin" => Scene::music(name, MusicKind::Typical, false, false),
@@ -1309,8 +1436,27 @@ impl Bench {
         let mut buf: Vec<u8> = Vec::new();
         for id in 1..=count as u32 {
             let frames = if scene.one_shots { (mean_frames as f32 * (0.5 + rng.unit())) as u32 } else { mean_frames as u32 };
+            if scene.adpcm {
+                // ADR 0351 A4: whole blocks of random codes, each channel's header a mid-table step index.
+                assert_eq!(clips::reserve(&mut core, id, frames, 2, RATE, wire::clip_format::ADPCM_IMA), wire::ERR_OK, "ADPCM clip reserve");
+                let bytes = audio_adpcm::encoded_bytes(frames as usize, 2);
+                buf.clear();
+                buf.resize(bytes, 0);
+                for (k, b) in buf.iter_mut().enumerate() {
+                    let at = k % audio_adpcm::block_bytes(2);
+                    *b = if at < 2 * audio_adpcm::HEADER_BYTES {
+                        [0, 0, 40, 0][at % audio_adpcm::HEADER_BYTES]
+                    } else {
+                        (rng.next() >> 24) as u8
+                    };
+                }
+                assert_eq!(clips::write(&mut core, id, 0, &buf), wire::ERR_OK, "ADPCM clip write");
+                clip_frames.push(frames);
+                continue;
+            }
             core.clips_mut().reserve(id, frames, 2, RATE, ClipFormat::I16).expect("clip reserve");
             buf.clear();
+
             buf.reserve(frames as usize * 4);
             for _ in 0..frames as usize * 2 {
                 let s = (rng.next() >> 16) as i16 / if scene.hot { 2 } else { 16 };
@@ -1407,7 +1553,7 @@ impl Bench {
                 _ => (1 + i % 3) as u16,
             };
             let mut effects = Vec::new();
-            let fx = |t: u32, p0: f32, p1: f32| wire::BusConfigBusesEffects { type_: t, p: [p0, p1, 0.0, 0.0, 0.0, 0.0, 0.0] };
+            let fx = |t: u32, p0: f32, p1: f32| wire::BusConfigBusesEffects { type_: t, p: pad16(&[p0, p1]) };
             if s.biquads >= 1 {
                 effects.push(fx(wire::effect_type::LOWPASS, 9_000.0 + 50.0 * i as f32, 0.7));
             }
@@ -1419,6 +1565,35 @@ impl Bench {
             }
             if s.reverb && i < s.reverb_sends.max(1) && s.reverb_sends > 0 {
                 effects.push(fx(wire::effect_type::REVERB_SEND, 0.2, 0.0));
+            }
+            let cat = |k: u32, p: [f32; 7]| wire::BusConfigBusesEffects { type_: wire::BUS_FX_CATALOGUE + k, p: pad16(&p) };
+            match s.catalogue {
+                Some(Catalogue::BusChain) => {
+                    effects.push(cat(wire::SUBMIX_FX_EQ, [3.0, -2.0, 4.0, 0.0, 0.0, 0.0, 0.0]));
+                    effects.push(cat(wire::SUBMIX_FX_BANDPASS, [1_500.0, 0.2, 30.0, 0.0, 0.0, 0.0, 0.0]));
+                    effects.push(cat(wire::SUBMIX_FX_SATURATION, [40.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
+                    effects.push(cat(wire::SUBMIX_FX_DISTORTION, [0.3, 50.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
+                    effects.push(cat(wire::SUBMIX_FX_BITCRUSH, [10.0, 2.0, 50.0, 0.0, 0.0, 0.0, 0.0]));
+                    if i == 0 {
+                        effects.push(cat(wire::SUBMIX_FX_REVERB, [0.6, 2.5, 30.0, 0.0, 0.0, 0.0, 0.0]));
+                    } else {
+                        effects.push(cat(wire::SUBMIX_FX_CHORUS, [0.8, 40.0, 50.0, 0.0, 0.0, 0.0, 0.0]));
+                    }
+                    effects.push(cat(wire::SUBMIX_FX_DELAY, [250.0, 30.0, 25.0, 0.0, 0.0, 0.0, 0.0]));
+                    effects.push(cat(wire::SUBMIX_FX_LIMITER, [-1.0, 50.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
+                }
+                Some(Catalogue::Sidechain) if i >= 4 => effects.push(cat(wire::SUBMIX_FX_SIDECHAIN, [-30.0, 4.0, 200.0, 1.0, 0.0, 0.0, 0.0])),
+                Some(Catalogue::Plugins) => {
+                    for e in 0..4 {
+                        effects.push(cat(wire::FX_PLUGIN_BASE + e, [5.0 + e as f32, 50.0, 0.0, 0.0, 0.0, 0.0, 0.0]));
+                    }
+                }
+                Some(Catalogue::PluginsTwin) => {
+                    for _ in 0..4 {
+                        effects.push(cat(wire::SUBMIX_FX_GAIN, [0.0; 7]));
+                    }
+                }
+                _ => {}
             }
             buses.push(wire::BusConfigBuses { parent, effects });
         }
@@ -1460,8 +1635,30 @@ impl Bench {
         if s.zones_active > 0 {
             self.zones_init();
         }
+        if s.catalogue == Some(Catalogue::Sends) {
+            for bus in 4..s.buses {
+                let sends = [1u16, 2].iter().map(|&to| wire::BusSendsSends { to, flags: 0, level: 0.3, frames: 0 }).collect();
+                self.push(&wire::BusSends { voice_id: bus, frame_offset: wire::ASAP, sends });
+            }
+        }
+        let levels = if s.submixes > 0 { s.submix_levels.min(wire::SUBMIXES_MAX as u32 - s.submixes.min(wire::SUBMIXES_MAX as u32)) } else { 0 };
+        for slot in 0..(s.submixes + levels).min(wire::SUBMIXES_MAX as u32) {
+            // ABI 4.9: a level slot (after the instances') has no group and feeds instance slot `slot % submixes`.
+            let (group, parent) = if slot < s.submixes { (slot as u16 + 1, 0) } else { (0, (slot % s.submixes) as u16 + 1) };
+            // ADR 0345: a 1.2 kHz low-pass, then a compressor (catalogue parameters); an `fx-submix-*` scene's one kind.
+            let effects = match s.catalogue {
+                Some(Catalogue::Submix(kind, p)) => vec![wire::SubmixEffects { type_: kind, flags: wire::SUBMIX_FX_ON, p: pad16(&p[..3]) }],
+                Some(Catalogue::Plugins) => (4..6).map(|e| wire::SubmixEffects { type_: wire::FX_PLUGIN_BASE + e, flags: wire::SUBMIX_FX_ON, p: pad16(&[5.0, 50.0, 0.0]) }).collect(),
+                Some(Catalogue::PluginsTwin) => (0..2).map(|_| wire::SubmixEffects { type_: wire::SUBMIX_FX_GAIN, flags: wire::SUBMIX_FX_ON, p: pad16(&[0.0]) }).collect(),
+                _ => vec![
+                    wire::SubmixEffects { type_: wire::SUBMIX_FX_LOWPASS as u32, flags: wire::SUBMIX_FX_ON, p: pad16(&[1_200.0, 0.3]) },
+                    wire::SubmixEffects { type_: wire::SUBMIX_FX_COMPRESSOR as u32, flags: wire::SUBMIX_FX_ON, p: pad16(&[-24.0, 4.0, 10.0, 120.0, 3.0, 6.0]) },
+                ],
+            };
+            self.push(&wire::Submix { voice_id: slot, frame_offset: wire::ASAP, group, bus: 0, parent, reserved: 0, effects });
+        }
         if s.bindings > 0 || s.bus_automation || s.lanes7 {
-            self.push(&bench_curves());
+            self.push(&bench_curves(s.bezier));
             for slot in 0..2u16 {
                 self.push(&wire::Param { voice_id: 0, frame_offset: wire::ASAP, group: 0, slot, value: 0.5, seek_per_second: 0.0 });
             }
@@ -1653,7 +1850,7 @@ impl Bench {
 
     fn push<R: WireRecord>(&mut self, r: &R) {
         let at = self.recs.len();
-        self.recs.resize(at + 4096, 0);
+        self.recs.resize(at + 16_384, 0);
         let n = r.write_to(&mut self.recs, at);
         self.recs.truncate(at + n);
         self.rec_count += 1;
@@ -1692,6 +1889,50 @@ impl Bench {
         }
     }
 
+    /// ADR 0360 (G2): the GEN parameters of a generator scene's voice, `(index, value)` in index order.
+    fn gen_params(&mut self, g: GenScene) -> Vec<(usize, f32)> {
+        use audio_dsp::gen::{blip::p as bp, osc_p as op, synth_p as sp};
+        match g.kind {
+            wire::GEN_KIND_OSCILLATOR if g.noise => vec![(op::WAVEFORM, 4.0), (op::NOISE_COLOUR, 1.0), (op::LEVEL, -18.0)],
+            wire::GEN_KIND_OSCILLATOR => vec![(op::WAVEFORM, 2.0), (op::FREQUENCY, 110.0 * libm::exp2f(4.0 * self.rng.unit())), (op::LEVEL, -18.0)],
+            wire::GEN_KIND_SYNTH => vec![
+                (sp::OSC1_WAVE, 2.0),
+                (sp::OSC2_WAVE, 1.0),
+                (sp::FREQUENCY, 80.0 * libm::exp2f(3.0 * self.rng.unit())),
+                (sp::CUTOFF, 1_200.0),
+                (sp::RESONANCE, 0.4),
+                (sp::FILTER_ENV_AMOUNT, 12.0),
+                (sp::LFO_WAVE, 1.0),
+                (sp::LFO_RATE, 0.5 + 4.0 * self.rng.unit()),
+                (sp::LFO_DEPTH, 60.0),
+                (sp::LFO_TARGET, 1.0),
+                (sp::LEVEL, -18.0),
+            ],
+            // A 1.25 s blip (sustain 0.5, decay 0.55: 55,253 ticks), so 256 of them restart about 204 times a second.
+            wire::GEN_KIND_BLIP => vec![
+                (bp::WAVEFORM, 0.0),
+                (bp::SUSTAIN, 0.5),
+                (bp::PUNCH, 0.3),
+                (bp::DECAY, 0.55),
+                (bp::BASE_FREQUENCY, 0.3 + 0.3 * self.rng.unit()),
+                (bp::SLIDE, 0.05),
+                (bp::VIBRATO_DEPTH, 0.2),
+                (bp::VIBRATO_SPEED, 0.3),
+                (bp::DUTY, 0.3),
+                (bp::DUTY_SWEEP, 0.1),
+                (bp::PHASER_OFFSET, 0.2),
+                (bp::PHASER_SWEEP, 0.05),
+                (bp::LOWPASS_CUTOFF, 0.6),
+                (bp::LOWPASS_SWEEP, 0.1),
+                (bp::LOWPASS_RESONANCE, 0.3),
+                (bp::HIGHPASS_CUTOFF, 0.05),
+                (bp::LEVEL, -18.0),
+            ],
+            // Silence: endless (its PLAY loops) until released.
+            _ => vec![(0, 0.0)],
+        }
+    }
+
     /// Starts a voice: a stream voice (`stream`), a mixed voice (one-shot or looping by the scene)
     /// or a looping virtual one.
     fn start(&mut self, stream: Option<u32>, mixed: bool) -> Option<u32> {
@@ -1726,6 +1967,10 @@ impl Bench {
             None if mixed => self.next_clip(),
             None => 1 + self.rng.below(self.stereo_clips),
         };
+        // ADR 0360 (G2): a generator voice plays its kind's reserved id instead (the draws above still happen, so the other
+        // scenes' streams of random numbers are unchanged).
+        let gen = s.gen.filter(|g| stream.is_none() && !ambi && (!g.virtual_only || !mixed));
+        let clip = gen.map_or(clip, |g| wire::GEN_CLIP_ID_FIRST + g.kind);
         // Bed scenes: with several beds the voices spread over their host buses (1..=beds).
         let bus = if plain {
             3 % s.buses as u16
@@ -1763,7 +2008,7 @@ impl Bench {
         } else if bed {
             flags |= (wire::panner::BED as u16) << wire::PLAY_FLAGS_PANNER_SHIFT;
         }
-        let frames = if stream.is_some() { 0 } else { self.clip_frames[clip as usize] };
+        let frames = if stream.is_some() || gen.is_some() { 0 } else { self.clip_frames[clip as usize] };
         // Looping and first voices start anywhere in their clip, so ends spread out.
         let offset = if s.sustain && mixed {
             self.rng.below(frames / 3 + 1)
@@ -1788,10 +2033,21 @@ impl Bench {
             lp_hz: if lp { LP_START_HZ } else { wire::BUS_LP_OFF_HZ as f32 },
             score,
             start_offset_frames: offset,
-            group: if s.bindings > 0 { 1 + (index % 1_024) as u16 } else { 0 },
+            group: if s.submixes > 0 { 1 + (index % s.submixes) as u16 } else if s.bindings > 0 { 1 + (index % 1_024) as u16 } else { 0 },
             gate: self.gate,
             ..Default::default()
         });
+        if let Some(g) = gen {
+            let values = self.gen_params(g);
+            let seed = self.rng.next() | 1;
+            let mask = values.iter().fold(0u32, |m, &(i, _)| m | 1 << i);
+            self.push(&wire::Gen { voice_id: id, frame_offset: wire::ASAP, mask, seed, ramp_frames: 0, values: values.iter().map(|&(_, v)| v).collect() });
+        }
+        if s.submixes > 0 && s.submix_levels > 0 && index % 2 == 0 {
+            // ABI 4.9: into the level slot that feeds this voice's instance slot.
+            let level = s.submixes + (index % s.submixes.min(s.submix_levels).max(1));
+            self.push(&wire::Route { voice_id: id, frame_offset: wire::ASAP, submix: level as u16 + 1, reserved: 0 });
+        }
         if hp {
             self.push(&wire::SetVoiceFx { voice_id: id, frame_offset: wire::ASAP, mask: wire::SET_VOICE_FX_MASK_HP_HZ, hp_hz: HP_START_HZ, ..Default::default() });
         }
@@ -1816,11 +2072,30 @@ impl Bench {
             });
         }
         if s.bindings > 0 && stream.is_none() {
-            let all = [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2)];
-            let bindings = all[..s.bindings.min(3) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target }).collect();
+            let all = if s.time {
+                let t = wire::PARAM_TIME as u16;
+                [(t | wire::TIME_VOICE as u16, 0u16, 0u32), (t | wire::TIME_CLIP as u16, 1, 1), (t | wire::TIME_SEQUENCE as u16, 2, 2), (t | wire::TIME_VOICE as u16, 0, 4), (t | wire::TIME_CLIP as u16, 2, 3)]
+            } else {
+                [(0x8000u16, 0u16, 0u32), (0, 1, 1), (0x8001, 2, 2), (0x8000, 0, 4), (0x8001, 2, 3)]
+            };
+            let bindings = all[..s.bindings.min(5) as usize].iter().map(|&(param, curve, target)| wire::AutomateBindings { param, curve, target, offset: 0.0 }).collect();
             self.push(&wire::Automate { voice_id: id, frame_offset: wire::ASAP, bindings });
         }
-        if s.sustain && mixed && stream.is_none() {
+        if s.sustain && s.loop_programs && mixed && stream.is_none() {
+            let item = |start: u32, end: u32, dir: u16| wire::LoopsLoops {
+                start_frame: start,
+                end_frame: end,
+                crossfade_frames: 256,
+                exit_fade_frames: 512,
+                count: 0,
+                flags: dir | 1 << wire::LOOP_ACTIVE_SHIFT | 2 << wire::LOOP_EXIT_SHIFT,
+                param: 0,
+                shapes: s.loop_shapes,
+                threshold: 0.0,
+            };
+            let loops = vec![item(frames / 6, frames / 3, 0), item(frames / 2, 2 * frames / 3, 1)];
+            self.push(&wire::Loops { voice_id: id, frame_offset: wire::ASAP, loops });
+        } else if s.sustain && mixed && stream.is_none() {
             // A region in the clip's middle third; the voice starts before it.
             self.push(&wire::SetLoop { voice_id: id, frame_offset: wire::ASAP, loop_start_frame: frames / 3, loop_end_frame: 2 * frames / 3, flags: wire::SET_LOOP_FLAGS_LOOPING });
         }
@@ -2040,7 +2315,12 @@ impl Bench {
                 for k in 0..32u64 {
                     let group = 1 + ((q / BATCH_EVERY * 32 + k) % (s.mixed + s.virtual_voices).max(1) as u64) as u16;
                     let value = self.rng.unit();
-                    self.push(&wire::Param { voice_id: 0, frame_offset: wire::ASAP, group, slot: 0, value, seek_per_second: 2.0 });
+                    if s.time {
+                        // A sequence wrapping its loop: the clock jumps back, stamped like a voice record.
+                        self.push(&wire::Time { voice_id: 0, frame_offset: (k as u32 * 37) % (BATCH_EVERY as u32 * QUANTUM as u32), group, which: wire::TIME_SEQUENCE as u16, value, rate: 1.0 });
+                    } else {
+                        self.push(&wire::Param { voice_id: 0, frame_offset: wire::ASAP, group, slot: 0, value, seek_per_second: 2.0 });
+                    }
                 }
             }
         }
@@ -2317,12 +2597,19 @@ macro_rules! wire_record {
         }
     )*};
 }
-wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck);
+wire_record!(wire::ZoneConfig, wire::BedConfig, wire::Play, wire::SetParams, wire::BusConfig, wire::BusRamp, wire::Master, wire::Automate, wire::BusAutomate, wire::Curves, wire::Param, wire::SetLoop, wire::SetVoiceFx, wire::Listener, wire::Fade, wire::Stop, wire::LoudConfig, wire::BusDuck, wire::Time, wire::Loops, wire::Submix, wire::BusSends, wire::Route, wire::Gen);
 
 /// ADR 0158 E2: the automation scenes' curves. 0 volume over 0..1 (a smooth rise, 8 keys), 1 pitch 0.8..1.25
-/// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps).
-fn bench_curves() -> wire::Curves {
-    let key = |x: f32, y: f32, interp: u32| wire::CurvesCurvesKeys { x, y, interp };
+/// (easeIn), 2 lowpass 800..20,000 Hz (easeOut, 16 keys, so the search takes a few steps). With `bezier` (ADR 0346)
+/// every key is Bézier, with handles 0.02 long either side (inside every segment), tilted a little.
+fn bench_curves(bezier: bool) -> wire::Curves {
+    let key = |x: f32, y: f32, interp: u32| {
+        if bezier {
+            wire::CurvesCurvesKeys { x, y, interp: 5, in_dx: -0.02, in_dy: -0.01 * y, out_dx: 0.02, out_dy: 0.01 * y }
+        } else {
+            wire::CurvesCurvesKeys { x, y, interp, in_dx: 0.0, in_dy: 0.0, out_dx: 0.0, out_dy: 0.0 }
+        }
+    };
     let volume = (0..8).map(|i| key(i as f32 / 7.0, 0.2 + 0.8 * (i as f32 / 7.0), 2)).collect();
     let pitch = vec![key(0.0, 0.8, 3), key(1.0, 1.25, 0)];
     let lowpass = (0..16).map(|i| key(i as f32 / 15.0, 800.0 + 19_200.0 * (i as f32 / 15.0) * (i as f32 / 15.0), 4)).collect();
@@ -2480,7 +2767,7 @@ pub fn run(scene: &Scene, seconds: f64, warmup: f64, seed: u32, pace: bool, hrir
         b.pump_zones();
         if scene.probe_automation {
             let t1 = platform::now_us();
-            audio_core::automation::begin_quantum(&mut b.core);
+            audio_core::automation::begin_quantum(&mut b.core, frame);
             let pt = platform::now_us() - t1;
             if recording {
                 probe.push(pt as f32);
@@ -3201,4 +3488,11 @@ mod tests {
         assert_eq!((twin.music_rings_open, twin.groups_held, twin.groups_abandoned), (0, 0, 0));
         assert!(find("music-worst").mean_mixed - twin.mean_mixed > 15.5, "worst adds its 16 voices to the twin's {}", twin.mean_mixed);
     }
+}
+
+/// An effect record's parameters (ABI 5.0: 16), `v` first and zeros after.
+fn pad16(v: &[f32]) -> [f32; 16] {
+    let mut p = [0.0; 16];
+    p[..v.len()].copy_from_slice(v);
+    p
 }

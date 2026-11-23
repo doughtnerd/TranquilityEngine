@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi, type M
 import { Assets, Engine, GameObject, SceneManager, Time } from "../../../myco";
 import * as myco from "../../../myco";
 import { mixer } from "../../../engine/audio/mixer";
+import { projectWithAudio } from "../../../engine/audio/project/load";
 import { Kind, Op, readFade, readStop } from "./wire.generated";
 import { setAudioBackend } from "./backend";
 import { babylonMock, makeFakeContext } from "../testing/babylonMocks";
@@ -304,13 +305,60 @@ describe("Audio public surface (api-and-models §1)", () => {
       expect(Audio.bus("Music").effectiveGain).toBeCloseTo(0.25);
     });
 
-    it("snapshot and clearSnapshot default to a 0.5 s fade", () => {
+    it("snapshot(name, fade) is the shorthand; snapshot(name) only hands out the handle; clearSnapshot defaults to a 0.5 s fade", () => {
       const snapshot = vi.spyOn(mixer, "snapshot").mockImplementation(() => {});
       const clear = vi.spyOn(mixer, "clearSnapshot").mockImplementation(() => {});
-      Audio.snapshot("Muffled");
+      Audio.snapshot("Muffled", 0.5);
       expect(snapshot).toHaveBeenCalledWith("Muffled", 0.5);
+      expect(Audio.snapshot("Muffled").name).toBe("Muffled");
+      expect(snapshot).toHaveBeenCalledTimes(1);
       Audio.clearSnapshot();
       expect(clear).toHaveBeenCalledWith(0.5);
+    });
+  });
+
+  // ADR 0344: the runtime runs audio.json's mix; game code starts and stops snapshots, which blend, and parameters drive
+  // conditions snapshots, all through the public API.
+  describe("snapshots of the audio.json mix (ADR 0344)", () => {
+    const MIX = {
+      format: "myco.audio@1",
+      parameters: [{ name: "depth", min: 0, max: 10, default: 0 }],
+      buses: [{ name: "Master", parent: null }, { name: "Music", parent: "Master" }, { name: "SFX", parent: "Master" }],
+      vcas: [{ name: "All", volumeDb: -6, members: ["SFX"] }],
+      snapshots: [
+        { name: "Muffle", priority: 10, fadeInMs: 0, fadeOutMs: 0, buses: { Music: -6 } },
+        { name: "Duck", combine: "add", fadeInMs: 0, fadeOutMs: 0, buses: { Music: -6 } },
+        { name: "Deep", fadeInMs: 0, fadeOutMs: 0, start: { kind: "conditions", match: "all", conditions: [{ parameter: "depth", op: "gt", value: 1 }] }, buses: { SFX: -6 } },
+      ],
+    };
+    const db = (g: number) => 20 * Math.log10(g);
+    beforeEach(async () => {
+      engine = await Engine.create({ headless: true, project: projectWithAudio({}, MIX).project });
+      await SceneManager.load("s.json");
+      engine.world.render = {} as never;
+    });
+
+    it("start and stop blend with the snapshots already on; active reads it", () => {
+      const muffle = Audio.snapshot("Muffle");
+      expect(muffle.exists).toBe(true);
+      expect(muffle.active).toBe(false);
+      muffle.start();
+      Audio.snapshot("Duck").start();
+      frame();
+      expect(muffle.active).toBe(true);
+      expect(db(Audio.bus("Music").effectiveGain)).toBeCloseTo(-12, 4);
+      muffle.stop();
+      frame();
+      expect(db(Audio.bus("Music").effectiveGain)).toBeCloseTo(-6, 4);
+      expect(Audio.snapshot("Nope").exists).toBe(false);
+    });
+
+    it("a VCA offsets its members; a parameter starts a conditions snapshot", () => {
+      expect(db(Audio.bus("SFX").effectiveGain)).toBeCloseTo(-6, 4);
+      Audio.setParameter("depth", 3);
+      frame();
+      expect(Audio.snapshot("Deep").active).toBe(true);
+      expect(db(Audio.bus("SFX").effectiveGain)).toBeCloseTo(-12, 4);
     });
   });
 
@@ -381,7 +429,12 @@ describe("Audio public surface (api-and-models §1)", () => {
       const spy = vi.spyOn(r.backend, "debug");
       const info = Audio.debug();
       expect(spy).toHaveBeenCalledTimes(1);
-      expect(info).toEqual({ ...spy.mock.results[0]!.value, events: [], eventTotals: { lateStarts: 0 }, music: [], musicTotals: expect.objectContaining({ poolUsed: 0, groupsLate: 0, refusals: {} }) });
+      // ADR 0351 §9: and the packages (none in this project); ADR 0354 §4, 0355 §5: the languages and the dialogue channels.
+      expect(info).toEqual({
+        ...spy.mock.results[0]!.value, events: [], eventTotals: { lateStarts: 0 }, music: [], musicTotals: expect.objectContaining({ poolUsed: 0, groupsLate: 0, refusals: {} }), packages: [],
+        language: { current: "en", subtitles: "en", pending: null, missing: [] },
+        dialogue: { channels: [], refusals: { busy: 0, cooldown: 0, chance: 0, silence: 0, noMatch: 0, unavailable: 0 } },
+      });
     });
 
     it("the babylon backend gives status running, handle reason null and a debug with an empty voice list", async () => {

@@ -4,6 +4,8 @@ import { parseAudioSettings, type AudioSettings } from "../audio/settings";
 import type { BootstrapSetting } from "./worlds";
 import { lobbyOptionProblems } from "../net/lobby/protocol";
 import { bootstrapTopology } from "./bootstrapTopology";
+import { parseLanguages, type LanguageSettings } from "../localisation/languages";
+import { parseSubtitleSettings, type SubtitleProjectSettings } from "../localisation/subtitleSettings";
 
 /** How the game canvas scales to its container (see `ProjectSettings.display.scaleMode`). */
 export type ScaleMode = "fit" | "stretch" | "pixel-perfect";
@@ -59,7 +61,7 @@ export interface ProjectSettings {
   graphics: GraphicsSettings;
   /** Built-in navigation (ADR 0065): agent types, areas, voxel sizes, runtime budgets. Omitted: one person-sized walker. */
   navigation: NavigationSettings;
-  /** Audio mixer buses, snapshots, ducking and the backend (ADR 0097, 0098). Omitted: Master with Music, SFX, UI and Voice. */
+  /** Audio mixer buses, snapshots, ducking and the backend (ADR 0097, 0098): `audio.json`'s runtime view (ADR 0344), never a `project.json` section. Omitted: Master with Music, SFX, UI and Voice. */
   audio: AudioSettings;
   /**
    * Input players (ADR 0337): how players join, and how many local players there can be. `single` (default):
@@ -76,11 +78,23 @@ export interface ProjectSettings {
    * A plugin is also off when one it depends on is. Names are read by the hosts (`resolveEnabledPlugins`).
    */
   plugins?: PluginSettings;
+  /**
+   * The game's languages for text and audio (ADR 0354 §1, 0356 §3, 0357 §2): codes, reference, default, fallbacks,
+   * shipping, fonts, direction, voice. Omitted: English only (`localisation/languages.ts`).
+   */
+  languages: LanguageSettings;
+  /** Subtitles (ADR 0357 §5): player defaults, reading speed, speakers. Omitted: the defaults (`localisation/subtitleSettings.ts`). */
+  subtitles: SubtitleProjectSettings;
 }
 
 /** `project.json`'s `plugins` section. */
 export interface PluginSettings {
   disabled?: string[];
+  /**
+   * ADR 0358 §6: where plugin audio effects' wasm modules run. "chromium" (absent) runs them on Chromium's engine only
+   * (the only one measured so far); "all" runs them everywhere. Read by the audio plugin.
+   */
+  audioEffectEngines?: "chromium" | "all";
 }
 
 /**
@@ -93,7 +107,9 @@ export function pluginSettingsProblems(input: unknown, known?: readonly string[]
   const warnings: string[] = [];
   if (input === undefined) return { problems, warnings };
   if (!isRecord(input)) return { problems: [`plugins must be an object with a disabled list (got ${describe(input)}).`], warnings };
-  unknownKeys(input, ["disabled"], "plugins", problems);
+  unknownKeys(input, ["disabled", "audioEffectEngines"], "plugins", problems);
+  const engines = input.audioEffectEngines;
+  if (engines !== undefined && engines !== "chromium" && engines !== "all") problems.push(`plugins.audioEffectEngines must be "chromium" or "all" (got ${describe(engines)}); using "chromium".`);
   const list = input.disabled;
   if (list === undefined) return { problems, warnings };
   if (!isStringList(list)) return { problems: [...problems, `plugins.disabled must be a list of plugin names (got ${describe(list)}).`], warnings };
@@ -113,7 +129,7 @@ export type ProjectSettingsInput = {
       ? Partial<ProjectSettings[K]>
       : ProjectSettings[K];
 } & {
-  /** Read leniently by `parseAudioSettings`; bad entries are reported, not fatal. */
+  /** The runtime's audio settings: `audio.json`'s runtime view, which hosts set with `projectWithAudio` (ADR 0344; a `project.json` `audio` section is refused there). Read leniently by `parseAudioSettings`; bad entries are reported, not fatal. */
   audio?: Record<string, unknown>;
 };
 
@@ -330,6 +346,14 @@ export const RUNTIME_SETTINGS: { readonly [K in RuntimeSettingsKey]: RuntimeSett
   input: declare("input", parseInput),
   autoload: declare("autoload", parseAutoload),
   plugins: declare("plugins", parsePlugins),
+  languages: declare("languages", (w) => {
+    const { languages, problems } = parseLanguages(w);
+    return { value: languages, problems: asIssues("languages", problems), warnings: [] };
+  }),
+  subtitles: declare("subtitles", (w) => {
+    const { subtitles, problems } = parseSubtitleSettings(w);
+    return { value: subtitles, problems: asIssues("subtitles", problems), warnings: [] };
+  }),
 };
 
 const SECTIONS = Object.values(RUNTIME_SETTINGS) as RuntimeSettingsSection[];
