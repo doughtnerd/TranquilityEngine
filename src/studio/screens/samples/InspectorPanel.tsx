@@ -8,7 +8,7 @@
 // Encoding per platform (ADR 0351 §6) and Used by. Explanations live in tooltips (§1.3).
 import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
-import type { DerivedSampleAsset, SampleEdits, SampleLoop, SampleMarker, SampleKind } from "../../../engine/audio/sample/types";
+import type { DerivedSampleAsset, SampleEdits, SampleLoop, SampleMarker, SampleKind, ReservedRange } from "../../../engine/audio/sample/types";
 import { parentChangedSincePin, sampleEditsHash, sampleEditsFromSidecar } from "../../../engine/audio/sample/format";
 import { readAsset } from "../../../editor/assetDocuments";
 import { Chip } from "../../../editor/ui/Chip";
@@ -27,13 +27,15 @@ import * as act from "./sampleActions";
 import {
   convertMarker, deleteMarker, hasFixedName, isHold, loopName, MARKER_TYPE_NAMES, MARKER_TYPE_ORDER, moveLoop, moveMarker, removeLoop, resetTrim, setStinger, setTrim, snippets,
   tapeSnippet, toggleSnippet, updateLoop, updateMarker, viewTime, type SampleEdit,
+  setRangeLook,
 } from "./sampleEditing";
 import { changedCount, detachAll, detachMarker, fileOrigin, loopDiff, markerDiff, revertLoop, revertMarker, type DiffRow } from "./sampleFile";
 import { SampleIcon, type SampleIconName } from "./sampleIcons";
 import { nameOf, usesOf } from "./sampleLibrary";
 import { DERIVED_KIND, lengthOf, loudnessOf, SIDECAR_KIND, wavMetadataOf, type SampleSession } from "./sampleSession";
 import { trimOf } from "./sampleTime";
-import { colourCss, colourValue, liveSelection, loopRegions, MARKER_PRESETS, markerColour, trimHoldingMarkers } from "./sampleView";
+import { colourCss, colourValue, liveSelection, loopRegions, MARKER_PRESETS, markerColour, RANGE_PRESETS, rangeLook, trimHoldingMarkers } from "./sampleView";
+import { markColourOf } from "../../../engine/audio/markColour";
 import { dialog, openSample, openSession, savedColours, select, selection, timeFormat } from "./samplesState";
 
 const PRESETS = MARKER_PRESETS.map((p) => ({ name: p.name, color: colourCss(p.series) }));
@@ -197,7 +199,7 @@ export function InspectorPanel() {
     const [a, b] = trimOf(e, length);
     body = (
       <>
-        <TitleBar color="var(--range-trim)" kind="Reserved range" name="Trim" />
+        <TitleBar color={rangeLook(e, "trim").css} kind="Reserved range" name="Trim" />
         <div class="smp-insp-body">
           <Row label="Range" title="Non-destructive: audio outside never plays">
             <span class="smp-range-fields">
@@ -209,6 +211,7 @@ export function InspectorPanel() {
               </button>
             </span>
           </Row>
+          <RangeLookRows e={e} range="trim" commit={commit} ro={ro} />
         </div>
       </>
     );
@@ -239,7 +242,7 @@ export function InspectorPanel() {
     const tip = { pickup: "Plays once, from the trim start to the first loop; it follows the trim and the loops", tail: "Plays once after the last loop, to the trim end", link: "Plays once between two loops" }[sel.kind];
     body = (
       <>
-        <TitleBar color={`var(${sel.kind === "tail" ? "--range-tail" : "--range-pickup"})`} kind="Reserved range" name={name}>
+        <TitleBar color={sel.kind === "link" ? "var(--range-pickup)" : rangeLook(e, sel.kind).css} kind="Reserved range" name={name}>
           <button type="button" class="smp-ibtn smp-plain" aria-label={`Play ${name.toLowerCase()}`} title={`Play the ${name.toLowerCase()}`} onClick={() => act.togglePlay()}>
             <SampleIcon name="play" size={14} />
           </button>
@@ -257,6 +260,7 @@ export function InspectorPanel() {
           <Row label="" title="Double-click it on the loop row to add a loop there">
             <button type="button" class="smp-sm2" disabled={ro || !r} onClick={() => r && act.addLoopHere((r.start + r.end) / 2)}>Add a loop here</button>
           </Row>
+          {sel.kind !== "link" && <RangeLookRows e={e} range={sel.kind} commit={commit} ro={ro} />}
         </div>
       </>
     );
@@ -341,6 +345,32 @@ function MarkerInspector(props: Part & { m: SampleMarker }) {
           <TextField label="Note" multiline value={m.note ?? ""} placeholder="Shown on hover" title="Enter for a new line; Ctrl+Enter keeps it" disabled={ro} onCommit={(v) => commit(updateMarker(e, m.id, { note: v }))} />
         </Row>
       </div>
+    </>
+  );
+}
+
+/** ADR 0362 item 4: a reserved range's Colour (its default first) and Note, kept in the sidecar's `ranges`. */
+function RangeLookRows(props: { e: SampleEdits; range: ReservedRange; commit: (r: SampleEdit) => void; ro: boolean }) {
+  const { e, range, commit, ro } = props;
+  const look = rangeLook(e, range);
+  const name = { trim: "Trim", pickup: "Pickup", tail: "Tail" }[range];
+  const defaultCss = rangeLook({}, range).css;
+  return (
+    <>
+      <Row label="Colour" title={`How the ${name.toLowerCase()} is drawn on the loop row (the first swatch: the default)`}>
+        <ColourPicker
+          label={`${name} colour`}
+          value={look.css}
+          presets={[{ name: "Default", color: defaultCss }, ...RANGE_PRESETS]}
+          saved={savedColours.value}
+          disabled={ro}
+          onChange={(c) => commit(setRangeLook(e, range, { colour: c === defaultCss ? null : markColourOf(c) }))}
+          onSavedChange={(s) => (savedColours.value = s)}
+        />
+      </Row>
+      <Row label="Note">
+        <TextField label={`${name} note`} multiline value={look.note ?? ""} placeholder="Shown on hover" title="Enter for a new line; Ctrl+Enter keeps it" disabled={ro} onCommit={(v) => commit(setRangeLook(e, range, { note: v }))} />
+      </Row>
     </>
   );
 }
