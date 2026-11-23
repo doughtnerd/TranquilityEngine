@@ -28,6 +28,9 @@ import { PluginHealth } from "./PluginHealth";
 import { resetPluginEffect, usePluginHealth } from "../../components/EffectChainHealth";
 import { Icon } from "../../components/Icon";
 import { RecordButton, whyNotRecord } from "./RecordButton";
+import { TransportButton } from "../../components/PlayerBar";
+import { studioBuild } from "../../debugLink/studioLink";
+import { BuildFollow, buildFollowStatus } from "./remoteLiveHost";
 import { replayStore } from "../../shell/replay";
 import { clockText, valueAt } from "./timelineGeometry";
 import type { GroupBy } from "./voiceModel";
@@ -78,8 +81,34 @@ const GROUPS = [
   { value: "clip" as const, label: "By sound" },
 ];
 
-/** The transport slot: Record while the Studio's runtime plays. */
+/** ADR 0380 (plan U5): the live view of the build chosen in `studioBuild`; a build that left keeps it to show why it ended. */
+const buildFollow = signal<BuildFollow | null>(null);
+
+/** Follows `studioBuild`: one `BuildFollow` per chosen build; a build whose link closed ends its follow with why. */
+function watchStudioBuild(): () => void {
+  return effect(() => {
+    const build = studioBuild.value;
+    const current = buildFollow.peek();
+    if (current && current.build.peer === build?.peer) return;
+    if (current && current.build.peer.state === "closed") current.linkClosed(current.build.peer.closedReason);
+    if (build || current?.state.peek().kind !== "ended") current?.dispose();
+    buildFollow.value = build ? new BuildFollow(build, { store: profilerStore() }) : current?.state.peek().kind === "ended" ? current : null;
+  });
+}
+
+/** The transport slot: Follow the connected build's live capture; else Record while the Studio's runtime plays. */
 function ProfilerTransport() {
+  const follow = buildFollow.value;
+  const local = profilerRecorder().state.value.kind;
+  // A recording of the Studio's own runtime keeps its Stop until it is saved.
+  if (follow && studioBuild.value && local !== "recording" && local !== "starting" && local !== "saving") {
+    const on = follow.state.value.kind === "starting" || follow.state.value.kind === "following";
+    return (
+      <span class={`pf-record${on ? " on" : ""}`}>
+        <TransportButton icon="profiler" text label={on ? "Stop following" : "Follow build"} pressed={on} title={on ? `Stop following ${follow.build.name}'s live capture` : `Follow ${follow.build.name}'s live capture on the timeline`} onClick={() => void follow.toggle()} />
+      </span>
+    );
+  }
   const recorder = profilerRecorder();
   const host = audioHost();
   const r = recorder.state.value;
@@ -99,6 +128,7 @@ function useScreen(): void {
     }, 500);
     const stops = [
       () => clearInterval(timer),
+      watchStudioBuild(),
       // The route names the capture to open (a click in Captures, a hand-off, a reload).
       effect(() => {
         void docVersion.value;
@@ -110,12 +140,14 @@ function useScreen(): void {
         const s = store.state.value;
         const data = store.data.value;
         const rec = profilerRecorder().state.value;
+        const follow = buildFollow.value;
+        const followed = follow ? buildFollowStatus(follow.state.value, follow.build.name) : null;
         void tick.value;
         const live = s.kind === "open" && s.origin === "live";
         setPlayerSlots("profiler", {
           nowPlaying: s.kind === "open" ? { art: "CAP", title: s.title, subtitle: `${s.replayOf ? "Replay capture" : "Capture"} · ${clockText(data?.duration ?? 0)}${live ? " · live" : ""}` } : null,
           transport: <ProfilerTransport />,
-          status: recorderStatus(rec, profilerRecorder().seconds, profilerRecorder().replayOf) ?? (s.kind === "open" && data ? `Cursor ${clockText(store.cursor.value)}` : undefined),
+          status: followed ?? recorderStatus(rec, profilerRecorder().seconds, profilerRecorder().replayOf) ?? (s.kind === "open" && data ? `Cursor ${clockText(store.cursor.value)}` : undefined),
         });
       }),
     ];
@@ -123,6 +155,8 @@ function useScreen(): void {
       for (const stop of stops) stop();
       setPlayerSlots("profiler", null);
       profilerRecorder().dispose();
+      // The screen went away: a build follow ends its hold (Follow starts it again).
+      buildFollow.peek()?.stop();
     };
   }, []);
 }
