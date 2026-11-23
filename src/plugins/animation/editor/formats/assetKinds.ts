@@ -22,6 +22,7 @@ import { POSE_DATABASE_SUFFIX, emptyPoseDatabase, formatPoseDatabase, parsePoseD
 import type { FormatParse } from "../../../../engine/animation/shared";
 import { ANIM_GRAPH_PANEL } from "../graphEditor/panelId";
 import { ANIMATION_WINDOW_PANEL } from "../animationWindow/panelId";
+import { TIMELINE_WINDOW_PANEL } from "../timeline/panelId";
 
 /** A play triangle over a key line: a clip. */
 const CLIP_ICON = "M4 18h16M7 15V9M12 15V6M17 15v-4M9 4l6 3.5L9 11z";
@@ -114,6 +115,8 @@ export const ANIMATION_ASSET_KINDS: readonly AssetKindContribution[] = [
     // `TimelineDirector.timeline`.
     referencedAs: ["timeline"],
     references: reader(TIMELINE_SUFFIX, parseTimeline, timelineReferences),
+    // Opening one edits it in the Timeline window (T53).
+    panel: TIMELINE_WINDOW_PANEL,
   },
   {
     id: "avatarmask", extensions: [MASK_SUFFIX], label: "Avatar Mask", icon: MASK_ICON, format: maskFormat, folder: "animation",

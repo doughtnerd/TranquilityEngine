@@ -19,8 +19,8 @@
 import { emptyAnimSource, type AnimSource } from "../../../../engine/animation/animSource";
 import { CONTROL_ACTIONS, DEFAULT_NOTIFY_THRESHOLD, TRACK_LIMITS, type Binding, type ControlAction, type MarkerKind, type Track } from "../../../../engine/animation/tracks";
 import type { Timeline } from "../../../../engine/animation/timeline";
-import { accept, mapEdit, refuse, type EditResult } from "../../../../editor/sdk/editResult";
-import { copyKeysAt, pasteKeys, removeKeys, SAME_X, shiftKeys } from "../../../../editor/ui/curves/keyList";
+import { accept, mapEdit, refuse, type EditResult } from "../../../../editor/sdk";
+import { copyKeysAt, pasteKeys, removeKeys, SAME_X, shiftKeys } from "../../../../editor/sdk";
 import { addKeyedTrack, addPropertyTrack as addPropertyToClip, keyField } from "../animationWindow/clipEditLogic";
 import { channelKeys, channelsOf, withChannelKeys } from "../animationWindow/trackRowsLogic";
 import {
@@ -468,3 +468,66 @@ export function setDuration(tl: Timeline, duration: number): EditResult<Timeline
 
 /** Whether the timeline loops (its own flag; the window's loop button only loops the preview). */
 export const setLoop = (tl: Timeline, loop: boolean): EditResult<Timeline> => accept(loop === tl.loop ? tl : { ...tl, loop });
+
+// --- drags and drops ----------------------------------------------------------------------------------------------------
+
+/** Which part of an item a drag holds (the dope sheet grid's `DopeBarPart`). */
+export type DragPart = "move" | "start" | "end" | "easeIn" | "easeOut";
+
+/** The edit a drag of `part` of item `id` by `dt` seconds (from where it began) makes; `ids` is the selection a move takes along. */
+export function dragEdit(tl: Timeline, ids: readonly string[], part: DragPart, id: string, dt: number): EditResult<ItemsResult> {
+  if (part === "move") return moveItems(tl, ids, dt);
+  const span = itemSpan(tl, id);
+  const ref = parseItemId(id);
+  const key = ref ? keyOf(tl, ref) : undefined;
+  if (!span || !key) return refuse("the item is gone");
+  if (part === "start") return trimItem(tl, id, "start", span[0] + dt);
+  if (part === "end") return trimItem(tl, id, "end", span[1] + dt);
+  return part === "easeIn" ? setEase(tl, id, "in", (key.blendIn as number) + dt) : setEase(tl, id, "out", (key.blendOut as number) - dt);
+}
+
+/** The undo label of a drag. */
+export const dragLabel = (part: DragPart, count: number): string =>
+  part === "move" ? (count > 1 ? "Move items" : "Move item") : part === "start" ? "Trim start" : part === "end" ? "Trim end" : part === "easeIn" ? "Set ease-in" : "Set ease-out";
+
+/** What a dropped project file becomes on a timeline: a clip or nested timeline (`subclip`), audio, or nothing. */
+export function assetDropKind(path: string): "subclip" | "audio" | null {
+  const p = path.toLowerCase();
+  if (p.endsWith(".anim.json") || p.endsWith(".timeline.json")) return "subclip";
+  if (p.endsWith(".playlist.json") || /\.(wav|mp3|ogg|flac|m4a|aac|opus)$/.test(p)) return "audio";
+  return null;
+}
+
+/**
+ * Project files dropped at `at` on track `track` (null: none picked): clips and timelines go one after another on a track
+ * of clips, audio on an audio track. When the picked track is of another kind, or none is picked, a new track of the right
+ * kind is made, bound to `nodePath` (the picked track's node, when it has one). `lengthOf` gives a clip's own length (1 s
+ * when it doesn't know). Refused with the reason when the files are of mixed kinds or aren't clips or audio.
+ */
+export function dropAssets(tl: Timeline, assets: readonly string[], track: number | null, nodePath: string, at: number, self?: string, lengthOf: (path: string) => number | undefined = () => undefined): EditResult<ItemsResult> {
+  const kinds = new Set(assets.map(assetDropKind));
+  if (!assets.length || kinds.has(null)) return refuse("only animation clips, timelines and audio can be dropped on a timeline");
+  if (kinds.size > 1) return refuse("drop clips or audio, not both at once");
+  const kind = [...kinds][0] as "subclip" | "audio";
+  let next = tl;
+  let index = track !== null && tl.tracks[track]?.kind === kind ? track : -1;
+  if (index < 0) {
+    const picked = track !== null ? tl.tracks[track] : undefined;
+    const added = addTrack(tl, { kind, nodePath: picked && hasNodeBinding(picked) ? picked.target.nodePath : nodePath });
+    if ("refused" in added) return added;
+    next = added.next;
+    index = next.tracks.length - 1;
+  }
+  const selection: string[] = [];
+  let t = at;
+  for (const asset of assets) {
+    const len = lengthOf(asset);
+    const r = addItem(next, index, t, kind === "subclip" ? { kind, clip: asset, ...(len ? { length: len } : {}) } : { kind, audio: asset }, self);
+    if ("refused" in r) return r;
+    next = r.next.timeline;
+    selection.push(...r.next.selection);
+    if (kind === "subclip") t += len ?? 1;
+  }
+  // Selection ids shift when a later item sorts before an earlier one; the ids of the last add are the reliable ones: reselect by what was added.
+  return accept({ timeline: next, selection: kind === "subclip" && assets.length > 1 ? selection.slice(-1) : selection });
+}

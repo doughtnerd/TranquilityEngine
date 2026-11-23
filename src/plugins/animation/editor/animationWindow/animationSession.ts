@@ -165,15 +165,23 @@ class AnimationSession {
 /** Put the fields `clip` animates under the Animator back to what the scene holds (after a preview). */
 function restoreFields(t: Extract<WindowTarget, { kind: "animator" }>, clip: AnimSource | null): void {
   if (!clip) return;
-  for (const track of clip.tracks) {
-    if (track.kind === "bone" || track.kind === "marker" || track.kind === "curve" || !track.target.component) continue;
-    const node = nodeAt(t.node, track.target.nodePath);
-    const path = node && t.scene.sync.pathOf(node);
+  restoreBindings(t.scene, t.node, clip.tracks.flatMap((track) => (track.kind === "bone" || track.kind === "marker" || track.kind === "curve" || !track.target.component ? [] : [track.target])));
+}
+
+/**
+ * Put the fields `bindings` name (nodes relative to `root`) back to what the open scene holds, after a preview wrote
+ * them. Shared with the Timeline window (T53), whose director previews the same way.
+ */
+export function restoreBindings(scene: OpenScene, root: GameObject, bindings: readonly Binding[]): void {
+  for (const b of bindings) {
+    if (!b.component) continue;
+    const node = nodeAt(root, b.nodePath);
+    const path = node && scene.sync.pathOf(node);
     if (!node || !path) continue;
-    const field = track.target.field.split(".")[0]!;
+    const field = b.field.split(".")[0]!;
     const [id, ...inner] = path;
-    const stored = inner.length ? t.scene.doc.overrideValue(id!, inner, track.target.component, field) : t.scene.doc.fieldValue(id!, track.target.component, field);
-    if (stored !== undefined) editor.scene.writeField({ node, type: track.target.component }, field, stored);
+    const stored = inner.length ? scene.doc.overrideValue(id!, inner, b.component, field) : scene.doc.fieldValue(id!, b.component, field);
+    if (stored !== undefined) editor.scene.writeField({ node, type: b.component }, field, stored);
   }
 }
 

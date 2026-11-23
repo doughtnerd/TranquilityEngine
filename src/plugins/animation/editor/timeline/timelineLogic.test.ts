@@ -173,7 +173,7 @@ describe("trimming", () => {
 
   it("trims activation spans and refuses points and property keys with the reason", () => {
     const t = timeline();
-    expect((ok(trimItem(t, "5#0", "end", 4)).timeline.tracks[5] as { keys: { end: number }[] }).keys[0]!.end).toBe(4);
+    expect((ok(trimItem(t, "5#0", "end", 4)).timeline.tracks[5] as unknown as { keys: { end: number }[] }).keys[0]!.end).toBe(4);
     expect(why(trimItem(t, "3#0", "end", 2))).toMatch(/no length/);
     expect(why(trimItem(t, "0~0", "end", 2))).toMatch(/point in time/);
     expect(why(trimItem(t, "1#7", "end", 2))).toMatch(/gone/);
@@ -196,7 +196,7 @@ describe("splitting", () => {
 
   it("splits an activation span, and refuses at the ends, outside, and for points", () => {
     const t = timeline();
-    expect((ok(splitItem(t, "5#0", 1.5)).timeline.tracks[5] as { keys: unknown[] }).keys).toEqual([{ time: 1, end: 1.5 }, { time: 1.5, end: 2 }]);
+    expect((ok(splitItem(t, "5#0", 1.5)).timeline.tracks[5] as unknown as { keys: unknown[] }).keys).toEqual([{ time: 1, end: 1.5 }, { time: 1.5, end: 2 }]);
     expect(why(splitItem(t, "1#1", 2))).toMatch(/outside the clip/);
     expect(why(splitItem(t, "1#1", 7))).toMatch(/outside the clip/);
     expect(why(splitItem(t, "1#1", 2 + 0.01))).toMatch(/at least one frame/);
@@ -208,7 +208,7 @@ describe("duplicating and deleting", () => {
   it("copies a clip right after itself and selects the copy; the copy fits or the edit is refused", () => {
     const t = timeline();
     const r = ok(duplicateItems(t, ["5#0"]));
-    expect((r.timeline.tracks[5] as { keys: unknown[] }).keys).toEqual([{ time: 1, end: 2 }, { time: 2, end: 3 }]);
+    expect((r.timeline.tracks[5] as unknown as { keys: unknown[] }).keys).toEqual([{ time: 1, end: 2 }, { time: 2, end: 3 }]);
     expect(r.selection).toEqual(["5#1"]);
     expect(why(duplicateItems(t, ["1#1"]))).toMatch(/no room after the selection/);
     expect(roundTrip(r.timeline)).toEqual(r.timeline);
@@ -265,7 +265,7 @@ describe("adding", () => {
   it("adds camera cuts to the camera-cut track, making it when there is none", () => {
     const t = timeline();
     const r = ok(addCameraCut(t, 2, "Cam3"));
-    expect((r.timeline.tracks[4] as { keys: { time: number }[] }).keys.map((k) => k.time)).toEqual([0, 2, 4]);
+    expect((r.timeline.tracks[4] as unknown as { keys: { time: number }[] }).keys.map((k) => k.time)).toEqual([0, 2, 4]);
     const none = { ...t, tracks: [] };
     const made = ok(addCameraCut(none, 1, "Cam1")).timeline;
     expect(made.tracks).toHaveLength(1);
@@ -336,8 +336,8 @@ describe("item fields and the timeline's length", () => {
 
   it("patches a control's action and target, a camera cut always having a target", () => {
     const t = timeline();
-    expect((ok(patchItem(t, "4#0", { target: "Cam9" })).tracks[4] as { keys: { target: string }[] }).keys[0]!.target).toBe("Cam9");
-    expect((ok(patchItem(t, "4#0", { action: "particlePlay" })).tracks[4] as { keys: { action: string }[] }).keys[0]!.action).toBe("particlePlay");
+    expect((ok(patchItem(t, "4#0", { target: "Cam9" })).tracks[4] as unknown as { keys: { target: string }[] }).keys[0]!.target).toBe("Cam9");
+    expect((ok(patchItem(t, "4#0", { action: "particlePlay" })).tracks[4] as unknown as { keys: { action: string }[] }).keys[0]!.action).toBe("particlePlay");
     expect(why(patchItem(t, "4#0", { target: " " }))).toMatch(/needs a target/);
     expect(why(patchItem(t, "4#0", { action: "explode" as never }))).toMatch(/must be one of/);
     expect(ok(patchItem(t, "4#0", { action: "slotPlay", target: "" })).tracks[4]).toBeDefined();

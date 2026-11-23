@@ -17,8 +17,8 @@
 import type { Binding, SubclipTrack, Track, TrackKind } from "../../../../engine/animation/tracks";
 import type { Timeline } from "../../../../engine/animation/timeline";
 import { TIMELINE_SUFFIX } from "../../../../engine/animation/timeline";
-import { accept, refuse, type EditResult } from "../../../../editor/sdk/editResult";
-import { SAME_X } from "../../../../editor/ui/curves/keyList";
+import { accept, refuse, type EditResult } from "../../../../editor/sdk";
+import { SAME_X } from "../../../../editor/sdk";
 import { MAX_DEPTH } from "../../runtime/wasm/wire/timeline";
 import { channelKeys, channelsOf } from "../animationWindow/trackRowsLogic";
 
@@ -298,7 +298,7 @@ export function nodeChoices<N extends NodeLike<N>>(root: N): { path: string; dep
 }
 
 /** The fields the property tracks write, as the director binds them (to restore after a preview). */
-export function animatedBindings(tl: Timeline): Binding[] {
+export function animatedBindings(tl: { readonly tracks: readonly Track[] }): Binding[] {
   const out: Binding[] = [];
   for (const t of tl.tracks) if (t.kind in PROPERTY_KINDS) out.push((t as { target: Binding }).target);
   return out;
