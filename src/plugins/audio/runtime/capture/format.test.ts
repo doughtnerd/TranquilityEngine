@@ -32,7 +32,7 @@ function roundTrip<T>(bytes: number, enc: (v: DataView, off: number) => number, 
 
 describe("capture format constants", () => {
   it("names this build's ABI and the mix-op code counts", () => {
-    expect(CAPTURE_ABI_VERSION).toBe(CORE_ABI_MAJOR << 8);
+    expect(CAPTURE_ABI_VERSION >> 8).toBe(CORE_ABI_MAJOR); // ABI 6.1 (ADR 0362): the minor is in the low byte
     expect(CAPTURE_ABI_VERSION).toBe(CORE_ABI_VERSION);
     expect(CAPTURE_MIXOP_CODES).toBe(MIX_OP_NAMES.length);
     expect(CAPTURE_MIXOP_CLASSES).toBe(OP_CLASSES.length);

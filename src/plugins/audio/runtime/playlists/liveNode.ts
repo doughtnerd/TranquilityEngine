@@ -2,7 +2,10 @@
  * The live playlist tree's shared shapes and base node (ADR 0343): what every resolver's node (`nodes.ts`,
  * `sequence.ts`) is and what it needs of its instance (`NodeHost`).
  */
+import type { AmpStages } from "../../../../engine/audio/effects/ampEnvelope";
 import type { Curve } from "../../../../engine/core/curve";
+import type { CurveBy } from "../../../../engine/audio/curveBy";
+import type { LiveSlice } from "./byCurves";
 import type { Effect } from "../../../../engine/audio/effects/types";
 import type { VoiceProps } from "../../../../engine/audio/playlist/accumulate";
 import type { PickState } from "../../../../engine/audio/playlist/picks";
@@ -19,19 +22,20 @@ import { fadePieces } from "../../../../engine/audio/playlist/fadeShapes";
 import type { QuantLane } from "./quantizedLanes";
 
 /**
- * ADR 0350: one fade of `voice`'s fade ramp from `from` to `to` over `seconds` in `shape`, starting at heard `at` (null:
- * as soon as possible, or `asap` when a shape needs several stamped pieces). The core's laws are one record; other
- * shapes are `fadePieces`' stamped linear pieces. `stopAtEnd` stops the voice when it ends.
+ * ADR 0350: one fade of `voice`'s fade ramp from `from` to `to` over `seconds` in `shape`, starting at `at` (null: as soon
+ * as possible, or `asap` when a shape needs several stamped pieces). The core's laws are one record; other shapes are
+ * `fadePieces`' stamped linear pieces. `stopAtEnd` stops the voice when it ends. `heard` turns the times (the instance's
+ * clock, ADR 0362 §1) into the heard times the stamps go with (`NodeHost.heard`); omitted, they are heard times already.
  */
-export function shapedFade(voice: AudioVoice, shape: FadeShape, seconds: number, from: number, to: number, at: number | null, asap: () => number, stopAtEnd = false): void {
+export function shapedFade(voice: AudioVoice, shape: FadeShape, seconds: number, from: number, to: number, at: number | null, asap: () => number, stopAtEnd = false, heard: (t: number) => number = (t) => t): void {
   const pieces = fadePieces(shape, seconds, from, to);
   if (pieces.length === 1) {
     const p = pieces[0]!;
-    voice.fadeShaped({ to, seconds: p.seconds, law: p.law, ...(stopAtEnd ? { stopAtEnd } : {}), ...(at !== null ? { at } : {}) });
+    voice.fadeShaped({ to, seconds: p.seconds, law: p.law, ...(stopAtEnd ? { stopAtEnd } : {}), ...(at !== null ? { at: heard(at) } : {}) });
     return;
   }
   const t0 = at ?? asap();
-  pieces.forEach((p, k) => voice.fadeShaped({ to: p.to, seconds: p.seconds, law: p.law, at: t0 + p.at, ...(stopAtEnd && k === pieces.length - 1 ? { stopAtEnd } : {}) }));
+  pieces.forEach((p, k) => voice.fadeShaped({ to: p.to, seconds: p.seconds, law: p.law, at: heard(t0 + p.at), ...(stopAtEnd && k === pieces.length - 1 ? { stopAtEnd } : {}) }));
 }
 
 // --- shared shapes ---------------------------------------------------------------------------------------------------
@@ -132,6 +136,25 @@ export interface Ctx {
    * directly or wrapped in an embedded Clip). Only a generator voice reads them; absent: none.
    */
   genCurves?: readonly GenCurve[];
+  /**
+   * ADR 0362 item 2: a sequence clip's Amp envelope over the clip instance's time: its stages (seconds), the clip's
+   * length (the release ends there; null: unbounded) and the heard time of the clip's time 0. Every voice below takes it
+   * from where it starts (a playlist clip's voices too). Absent: none.
+   */
+  envelope?: CtxEnvelope;
+  /**
+   * ADR 0362 item 3: the sample voice this context starts plays its trim backwards (a reversed sequence clip's piece):
+   * from the trim's end down to its start, its loop running backwards. Set only on a sample play, never inherited.
+   */
+  reverse?: boolean;
+}
+
+/** ADR 0362 item 2: a clip's Amp envelope as the context carries it down (`Ctx.envelope`). */
+export interface CtxEnvelope {
+  readonly stages: AmpStages;
+  readonly length: number | null;
+  /** Heard time of the clip's time 0 (envelope time 0). */
+  readonly origin: number;
 }
 
 /** ADR 0360 §4: one `gen:<param>` curve or lane, still named by parameter (the generator's kind resolves it). */
@@ -178,14 +201,24 @@ export interface NodeHost {
   random(): number;
   /** The persistent pick state of the Queue at `key` (per playlist, per World). */
   pickState(key: string): PickState;
-  /** The heard clock now. */
+  /**
+   * The instance's clock now: the heard clock less the time the playback has been paused (ADR 0362 §1). Every time a
+   * node plans with (`at`, `startOf`, `schedule`, markers) is on this clock.
+   */
   clock(): number;
   /** `at`, else the earliest exact start, else now. */
   startOf(at: number | null): number;
+  /** ADR 0362 §1: the heard time (`Audio.time`) a stamp at instance time `t` goes to the backend with. */
+  heard(t: number): number;
   /** A parameter's value and definition (local, else global); null when there is none. */
   param(name: string): { value: number; def: ParameterDef } | null;
   paramRef(name: string): ParamRef | null;
   curveId(curve: Curve): number | null;
+  /**
+   * ADR 0362 §5: the instance's slice of lane `main` following second input `by` (`byCurves.ts`), mapped by `pre` (named
+   * `key`) as the lane's owner maps its curve.
+   */
+  byCurve(main: Curve, by: CurveBy, key?: string, pre?: (c: Curve) => Curve): LiveSlice;
   /**
    * Plays one sample entry below `ctx`. `loop` (a sequence clip's own loop, or null for none) replaces the loop the entry
    * would get from its sample and settings; omitted, the entry's.
@@ -267,7 +300,7 @@ export abstract class LiveNode {
     for (const v of this.voices) {
       if (v.leaving) continue;
       v.leaving = true;
-      shapedFade(v.voice, shape, seconds, 1, 0, at, () => this.host.startOf(null), true);
+      shapedFade(v.voice, shape, seconds, 1, 0, at, () => this.host.startOf(null), true, (t) => this.host.heard(t));
     }
     for (const c of this.children) c.leave(seconds, at, shape);
   }
@@ -284,7 +317,7 @@ export abstract class LiveNode {
       // An always-active sample loop can't be let go (only a stop ends it): it is cut at the hand-over, as before.
       if (v.loop.behaviour.active === "always") {
         v.leaving = true;
-        v.voice.fadeShaped({ to: 0, seconds: 0.005, law: "linear", stopAtEnd: true, ...(at !== null ? { at } : {}) });
+        v.voice.fadeShaped({ to: 0, seconds: 0.005, law: "linear", stopAtEnd: true, ...(at !== null ? { at: this.host.heard(at) } : {}) });
       } else this.host.endLoop(v);
     }
     for (const c of this.children) c.ringOut(at);

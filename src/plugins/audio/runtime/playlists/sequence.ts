@@ -9,7 +9,19 @@
  * - **Clips** play a sample (audio tracks) or resolve a playlist once when the playhead enters them (playlist tracks).
  *   Clip time maps to sample time as pickup, first pass, further passes of the first loop filling the clip, tail
  *   (`clipMap.ts`); `length` 0 is the rest of the sample (one pass). Gain and pitch add; pan accumulates (no voice pan
- *   control exists yet); `reverse` isn't supported by the audio core (one warning, it plays forward).
+ *   control exists yet).
+ * - **Reverse** (ADR 0362 item 3): a sample clip with `reverse` plays its span backwards: clip time `u` plays the map at
+ *   `length - u`, read backwards (the core voice reads the decoded PCM backwards, ABI 6.1; a streamed sample is decoded
+ *   whole for it), so its tail comes first and its loop's passes run backwards inside the span. A sync clip's pieces are
+ *   the mirrored map's; an async clip's voice loops its region backwards while the loop is active. Its markers are
+ *   reported where they are heard (sync clips; an async reversed clip's voice reports none), and it never drives the
+ *   playhead or the musical clock (its loop follows, one warning). `reverse` on a playlist or generator clip does
+ *   nothing (one warning).
+ * - **Amp envelope** (ADR 0362 item 2): a clip's first enabled `envelope` effect is a gain on every voice the clip
+ *   plays, per sample on the core (AMP_ENVELOPE, ABI 6.1): attack, hold, decay and sustain from the clip's start, the
+ *   release ending on the clip's end (its key-off), over the clip instance's own time (`ampEnvelope.ts`: the shape the
+ *   Studio draws). A voice that starts inside the clip (a later piece, a jump) starts inside the envelope. It runs on the
+ *   voices, not the clip's submix, which runs the rest of the chain.
  * - **Sync clips** are locked to the playhead: each piece of the map is one voice, swapped at the piece's heard time
  *   (sample-exact splices), cut when the playhead leaves the clip or jumps. Their first loop moves the playhead (the
  *   region of its passes): active it wraps back one pass at the tail, inactive `jump`/`crossfade` skip to the tail and
@@ -43,6 +55,8 @@
  *   loops by their exit settings, async voices' through the adapter); `stop` fades everything.
  */
 import { accumulate } from "../../../../engine/audio/playlist/accumulate";
+import { ampStages, firstAmpEnvelope, type AmpStages } from "../../../../engine/audio/effects/ampEnvelope";
+import type { Effect } from "../../../../engine/audio/effects/types";
 import { compileTempoMap, nextGridSeconds, positionToTicks, ticksToSeconds, type SegmentGrid } from "../../../../engine/audio/musicGrid";
 import { isBarBeatTick, parsePosition } from "../../../../engine/audio/musicPosition";
 import type { GridSpec, MusicSeekResult } from "../../../../engine/audio/musicTypes";
@@ -104,6 +118,10 @@ interface ClipRt {
   node: LiveNode | null;
   /** The playhead loop it drives, -1: none. */
   driving: number;
+  /** ADR 0362: a sample clip played backwards. */
+  readonly reversed: boolean;
+  /** ADR 0362: its first enabled Amp envelope's stages, or null. */
+  readonly envelope: AmpStages | null;
 }
 
 interface PhLoop {
@@ -250,14 +268,18 @@ export class SequenceNode extends LiveNode implements MusicalSource {
 
   private clipRt(clip: Clip, index: number, track: Track, level: { ctx: Ctx; time: TimeAuto[] }, audible: boolean): ClipRt | null {
     const where = `${this.ctx.where} clip "${clip.id}"`;
-    if (clip.reverse) warnOnce(`playlist:reverse:${this.ctx.where}:${clip.id}`, `[myco] ${where}: reverse playback isn't supported by the audio core yet; it plays forward.`);
+    const reversed = clip.reverse && clip.sample !== undefined;
+    if (clip.reverse && !reversed) warnOnce(`playlist:reverse:${this.ctx.where}:${clip.id}`, `[myco] ${where}: reverse plays a sample clip backwards; a playlist or generator clip plays forward.`);
+    // ADR 0362: the Amp envelope runs on the clip's voices; the submix (or the voice mapping) takes the rest of the chain.
+    const amp = firstAmpEnvelope(clip.effects);
+    const envelope = amp ? ampStages(amp) : null;
     // ADR 0345 levels (ABI 4.9): the clip's chain on a submix of its own (its delay or reverb rings on after the clip's
     // voice ends), feeding its track's (or the sequence's); else mapped onto its voice.
-    const { fx, submix } = levelEffects(this.host, level.ctx, clip.effects, level.ctx.bus, `${this.levelKey}/clip:${clip.id}`, where);
+    const { fx, submix } = levelEffects(this.host, level.ctx, withoutEnvelopes(clip.effects), level.ctx.bus, `${this.levelKey}/clip:${clip.id}`, where);
     let ctx: Ctx = { ...level.ctx, props: accumulate(level.ctx.props, { gainDb: clip.gain, pitchSt: clip.pitch, pan: clip.pan, ...(fx ? { fx } : {}) }), submix };
     const time = level.time.slice();
     ctx = automationParts(this.host, clip.automation, clip.effects, ctx, time, where);
-    const base = { clip, index, track, start: clip.at, sync: clip.sync, audible, ctx, time, inside: false, voice: null, pieceTo: Number.POSITIVE_INFINITY, node: null, driving: -1 };
+    const base = { clip, index, track, start: clip.at, sync: clip.sync, audible, ctx, time, inside: false, voice: null, pieceTo: Number.POSITIVE_INFINITY, node: null, driving: -1, reversed, envelope };
     if (clip.sample === undefined) {
       return { ...base, end: clip.length > 0 ? clip.at + clip.length : Number.POSITIVE_INFINITY, facts: null, geo: null, loop: null, markers: [] };
     }
@@ -286,6 +308,10 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     for (const c of this.clips) {
       const g = c.geo;
       if (!c.sync || !g || !g.loop || !c.loop) continue;
+      if (c.reversed) {
+        warnOnce(`playlist:sync-reverse:${this.ctx.where}:${c.clip.id}`, `[myco] ${this.ctx.where} clip "${c.clip.id}": a reversed clip's loop can't drive the playhead; it follows.`);
+        continue;
+      }
       const passLen = g.loop.end - g.loop.start;
       const hold = passLen <= 1e-6;
       if (!hold && g.offset > g.loop.start + EPS) {
@@ -428,7 +454,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
         const u0 = winFrom - c.start, u1 = Math.min(to, c.end) - c.start;
         for (const mk of c.markers) {
           this.scratch.length = 0;
-          for (const u of clipTimesOf(c.geo, mk.at, u0, u1, this.scratch)) {
+          for (const u of this.markerTimes(c, mk.at, u0, u1)) {
             this.host.emitMarker({ type: mk.type, name: mk.name, sample: c.facts!.path, time: h(c.start + u) });
           }
         }
@@ -484,19 +510,21 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     if (v && !v.leaving && c.pieceTo > s + EPS) {
       c.voice = null;
       v.leaving = true;
-      v.voice.fadeShaped({ to: 0, seconds: CUT_FADE, law: "linear", at: at + Math.min(seconds, c.pieceTo - s), stopAtEnd: true });
+      v.voice.fadeShaped({ to: 0, seconds: CUT_FADE, law: "linear", at: this.host.heard(at + Math.min(seconds, c.pieceTo - s)), stopAtEnd: true });
       return;
     }
     this.endVoice(c, at, SPLICE_FADE, false);
     if (c.clip.sample === undefined || !c.geo || !c.audible) return;
     const u = s - c.start;
-    const piece = pieceAt(c.geo, u);
-    if (!piece || piece.sample === null) return;
-    const from = piece.sample + (u - piece.from);
-    const to = Math.min(piece.sample + (piece.to - piece.from), from + seconds);
-    if (to <= from + EPS) return;
-    const entry: SampleEntry = { kind: "sample", sample: c.facts!.path, trim: [from, to], loop: "off", volume: 0, pitch: 0, weight: 1, atZeroWeight: "stop", curves: {} };
-    const tv = this.host.playSample(entry, { ...c.ctx, at, fadeIn: 0, timeCurves: this.timeCurves(c, u) }, null);
+    const run = this.pieceRun(c, u);
+    if (!run) return;
+    // The audio after `s` for `seconds`: forward, the run's start onwards; reversed, its start downwards.
+    const trim: [number, number] = c.reversed ? [Math.max(run.trim[0], run.trim[1] - seconds), run.trim[1]] : [run.trim[0], Math.min(run.trim[1], run.trim[0] + seconds)];
+    if (trim[1] <= trim[0] + EPS) return;
+    const entry: SampleEntry = { kind: "sample", sample: c.facts!.path, trim, loop: "off", volume: 0, pitch: 0, weight: 1, atZeroWeight: "stop", curves: {} };
+    const ctx = this.voiceCtx(c, u, at, 0, "equalPower");
+    if (c.reversed) ctx.reverse = true;
+    const tv = this.host.playSample(entry, ctx, null);
     if (tv) this.voices.push(tv);
   }
 
@@ -544,9 +572,57 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     const out = c.ctx.timeCurves.slice();
     for (const t of c.time) {
       const offset = t.input === "clipTime" ? u : t.input === "sequenceTime" ? c.start + u : 0;
-      out.push(offset !== 0 ? { target: t.target, curve: t.curve, offset } : { target: t.target, curve: t.curve });
+      out.push({ target: t.target, curve: t.curve, ...(offset !== 0 ? { offset } : {}), ...(t.live ? { live: t.live } : {}) });
     }
     return out;
+  }
+
+  /**
+   * The stretch of sample a sync clip's voice plays from clip time `u` without a jump: its `trim` (source seconds, read
+   * from `trim[0]` up, or for a reversed clip from `trim[1]` down) and the clip time it ends at; null where the clip
+   * plays nothing there (silence, a hold). A reversed clip mirrors the map: clip time `u` plays the forward map at
+   * `length - u`, backwards (ADR 0362).
+   */
+  private pieceRun(c: ClipRt, u: number): { trim: [number, number]; to: number } | null {
+    const g = c.geo!;
+    if (!c.reversed) {
+      const piece = pieceAt(g, u);
+      if (!piece || piece.sample === null) return null;
+      const from = piece.sample + (u - piece.from);
+      return { trim: [from, piece.sample + (piece.to - piece.from)], to: piece.to };
+    }
+    // The sample's length not known yet (its data still loading): read down from its end.
+    if (!Number.isFinite(g.length)) return { trim: [g.offset, Number.POSITIVE_INFINITY], to: Number.POSITIVE_INFINITY };
+    const v = g.length - u - MIRROR;
+    const piece = pieceAt(g, v);
+    if (!piece || piece.sample === null) return null;
+    return { trim: [piece.sample, piece.sample + (v + MIRROR - piece.from)], to: g.length - piece.from };
+  }
+
+  /** The clip time a sync clip's current piece ends at, from clip time `u` (Infinity outside the clip). */
+  private pieceEnd(c: ClipRt, u: number): number {
+    const g = c.geo!;
+    if (!c.reversed) {
+      const piece = pieceAt(g, u);
+      return piece ? piece.to : Number.POSITIVE_INFINITY;
+    }
+    const piece = Number.isFinite(g.length) ? pieceAt(g, g.length - u - MIRROR) : null;
+    return piece ? g.length - piece.from : Number.POSITIVE_INFINITY;
+  }
+
+  /** The clip times in `[u0, u1)` where sample time `at` of clip `c` is heard (ADR 0362: mirrored for a reversed clip). */
+  private markerTimes(c: ClipRt, at: number, u0: number, u1: number): number[] {
+    this.scratch.length = 0;
+    if (!c.reversed) return clipTimesOf(c.geo!, at, u0, u1, this.scratch);
+    const L = c.geo!.length;
+    return clipTimesOf(c.geo!, at, L - u1, L - u0, this.scratch).map((u) => L - u).filter((u) => u >= u0 - EPS && u < u1 - EPS).sort((x, y) => x - y);
+  }
+
+  /** The context of a voice of clip `c` starting at clip time `u`, heard `at` (its time lanes and Amp envelope from there). */
+  private voiceCtx(c: ClipRt, u: number, at: number, fadeIn: number, fadeInShape: FadeShape): Ctx {
+    const ctx: Ctx = { ...c.ctx, at, fadeIn, fadeInShape, timeCurves: this.timeCurves(c, u) };
+    if (c.envelope) ctx.envelope = { stages: c.envelope, length: Number.isFinite(c.end) ? c.end - c.start : null, origin: at - u };
+    return ctx;
   }
 
   /** Starts clip `c` at clip time `u`, heard `at`, fading in over `fadeIn` seconds (0: none). */
@@ -560,27 +636,45 @@ export class SequenceNode extends LiveNode implements MusicalSource {
       return;
     }
     const g = c.geo!;
-    const piece = pieceAt(g, u);
-    c.pieceTo = piece ? c.start + piece.to : Number.POSITIVE_INFINITY;
-    if (!piece || piece.sample === null || !c.audible) return;
-    const s = piece.sample + (u - piece.from);
-    const pieceEnd = piece.sample + (piece.to - piece.from);
+    c.pieceTo = c.start + this.pieceEnd(c, u);
+    if (!c.audible) return;
     const facts = c.facts!;
+    const ctx = this.voiceCtx(c, u, at, fadeIn, fadeInShape);
+    let trim: [number, number];
     let loop: LoopRun | null = null;
-    if (!c.sync && c.loop && c.loop.end > c.loop.start && s < c.loop.end - EPS) {
-      loop = { start: c.loop.start, end: c.loop.end, behaviour: c.loop.behaviour, looping: this.active(c.loop.behaviour) };
+    if (c.sync) {
+      const run = this.pieceRun(c, u);
+      if (!run) return;
+      trim = run.trim;
+    } else if (!c.reversed) {
+      const piece = pieceAt(g, u);
+      if (!piece || piece.sample === null) return;
+      const s0 = piece.sample + (u - piece.from);
+      if (c.loop && c.loop.end > c.loop.start && s0 < c.loop.end - EPS) {
+        loop = { start: c.loop.start, end: c.loop.end, behaviour: c.loop.behaviour, looping: this.active(c.loop.behaviour) };
+      }
+      trim = [s0, Number.isFinite(g.sampleEnd) ? g.sampleEnd : Number.POSITIVE_INFINITY];
+    } else {
+      // ADR 0362: an async reversed clip reads down from where the mirrored map is, through its loop (backwards, while
+      // active) to the clip's offset.
+      const run = this.pieceRun(c, u);
+      if (!run) return;
+      const s0 = run.trim[1];
+      if (c.loop && c.loop.end > c.loop.start && s0 > c.loop.start + EPS) {
+        loop = { start: c.loop.start, end: c.loop.end, behaviour: c.loop.behaviour, looping: this.active(c.loop.behaviour) };
+      }
+      trim = [g.offset, s0];
     }
-    const end = c.sync ? pieceEnd : (Number.isFinite(g.sampleEnd) ? g.sampleEnd : Number.POSITIVE_INFINITY);
+    if (c.reversed) ctx.reverse = true;
     const entry: SampleEntry = {
-      kind: "sample", sample: facts.path, trim: [s, end], loop: "off",
+      kind: "sample", sample: facts.path, trim, loop: "off",
       volume: 0, pitch: 0, weight: 1, atZeroWeight: "stop", curves: {},
     };
-    const ctx: Ctx = { ...c.ctx, at, fadeIn, fadeInShape, timeCurves: this.timeCurves(c, u) };
     const v = this.host.playSample(entry, ctx, loop);
     if (!v) return;
     c.voice = v;
     this.voices.push(v);
-    if (!c.sync && c.markers.length > 0) this.host.trackMarkers(v, { ...facts, markers: c.markers }, s);
+    if (!c.sync && !c.reversed && c.markers.length > 0) this.host.trackMarkers(v, { ...facts, markers: c.markers }, trim[0]);
   }
 
   /**
@@ -603,7 +697,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
         genCurves = [...(genCurves ?? []), { param, input: "voiceTime", curve: a.curve, ...(offset !== 0 ? { offset } : {}) }];
       }
     }
-    const ctx: Ctx = { ...c.ctx, at, fadeIn, fadeInShape, timeCurves: this.timeCurves(c, u), ...(genCurves ? { genCurves } : {}) };
+    const ctx: Ctx = { ...this.voiceCtx(c, u, at, fadeIn, fadeInShape), ...(genCurves ? { genCurves } : {}) };
     const v = this.host.playGenerator?.({ generator: c.clip.generator!, ...(remaining !== undefined ? { keyOffAfter: remaining } : {}) }, ctx) ?? null;
     if (!v) return;
     c.voice = v;
@@ -612,7 +706,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
 
   private resolveClipPlaylist(c: ClipRt, u: number, at: number, fadeIn: number, fadeInShape: FadeShape): LiveNode | null {
     const src = c.clip.playlist!;
-    const ctx: Ctx = { ...c.ctx, at, fadeIn, fadeInShape, timeCurves: this.timeCurves(c, u), depth: this.ctx.depth + 1 };
+    const ctx: Ctx = { ...this.voiceCtx(c, u, at, fadeIn, fadeInShape), depth: this.ctx.depth + 1 };
     // ADR 0348 (D22): the clip is this sequence's pick, recorded before the picks of the playlist it resolves.
     if (typeof src === "string") {
       const body = linkedPlaylist(src, ctx.chain);
@@ -630,7 +724,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     c.voice = null;
     if (!v || v.leaving) return;
     v.leaving = true;
-    shapedFade(v.voice, crossfade ? shape : "linear", fade, 1, 0, at, () => at, true);
+    shapedFade(v.voice, crossfade ? shape : "linear", fade, 1, 0, at, () => at, true, (t) => this.host.heard(t));
   }
 
   private endClip(c: ClipRt, at: number, fade: number, crossfade = false, shape: FadeShape = "equalPower"): void {
@@ -753,13 +847,13 @@ export class SequenceNode extends LiveNode implements MusicalSource {
 
   get label(): string { return this.ctx.where; }
   /** A tempo: the sequence's own, else a sync clip's sample tempo (ADR 0343: "its sequence's tempo, else its sync sample's"). */
-  get hasGrid(): boolean { return this.grid !== null || this.clips.some((c) => c.sync && c.facts?.grid); }
+  get hasGrid(): boolean { return this.grid !== null || this.clips.some((c) => c.sync && !c.reversed && c.facts?.grid); }
 
   /** The sync clip with a sample tempo holding sequence time `s` (the higher track first), else the next one after `s`. */
   private tempoClip(s: number, after: boolean): ClipRt | null {
     let next: ClipRt | null = null;
     for (const c of this.clips) {
-      if (!c.sync || !c.geo || !c.facts?.grid) continue;
+      if (!c.sync || !c.geo || !c.facts?.grid || c.reversed) continue;
       if (s >= c.start - EPS && s < c.end - EPS) return c;
       if (after && c.start > s && (!next || c.start < next.start)) next = c;
     }
@@ -827,7 +921,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     let best = Number.POSITIVE_INFINITY;
     for (const mk of this.settings.markers) if (mk.type === "exit" && mk.at >= s - EPS && mk.at < best) best = mk.at;
     for (const c of this.clips) {
-      if (!c.sync || !c.geo || c.end < s) continue;
+      if (!c.sync || !c.geo || c.end < s || c.reversed) continue;
       for (const mk of c.markers) {
         if (mk.type !== "exit") continue;
         this.scratch.length = 0;
@@ -839,7 +933,7 @@ export class SequenceNode extends LiveNode implements MusicalSource {
 
   private hasExits(): boolean {
     if (this.settings.markers.some((m) => m.type === "exit")) return true;
-    return this.clips.some((c) => c.sync && c.markers.some((m) => m.type === "exit"));
+    return this.clips.some((c) => c.sync && !c.reversed && c.markers.some((m) => m.type === "exit"));
   }
 
   nextBoundary(kind: MusicalBoundary, from: number): number | null {
@@ -909,6 +1003,18 @@ export class SequenceNode extends LiveNode implements MusicalSource {
     this.pendingSeek = s;
     return { ok: true, time: Math.max(this.playhead.time, this.host.startOf(null)) };
   }
+}
+
+/** ADR 0362: how far before a mirrored clip time a reversed clip looks up its forward piece (the piece it reads down through). */
+const MIRROR = 1e-7;
+
+const envelopeless = new WeakMap<readonly Effect[], readonly Effect[]>();
+/** A clip's chain without its Amp envelopes (they run on its voices), the same list while it holds none (by identity). */
+function withoutEnvelopes(effects: readonly Effect[]): readonly Effect[] {
+  if (!effects.some((e) => e.type === "envelope")) return effects;
+  let hit = envelopeless.get(effects);
+  if (!hit) envelopeless.set(effects, (hit = effects.filter((e) => e.type !== "envelope")));
+  return hit;
 }
 
 function moveEnd(m: PlayheadMove): number {

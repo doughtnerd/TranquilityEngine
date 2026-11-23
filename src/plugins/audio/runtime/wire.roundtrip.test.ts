@@ -64,6 +64,7 @@ const OPCODES: Record<string, Codec> = {
   ZONE_CONFIG: { write: wire.writeZoneConfig, read: wire.readZoneConfig },
   LISTENER: { write: wire.writeListener, read: wire.readListener },
   GEN: { write: wire.writeGen, read: wire.readGen },
+  AMP_ENVELOPE: { write: wire.writeAmpEnvelope, read: wire.readAmpEnvelope },
 };
 
 /** ADR 0162's blob headers (formats 3 and 4). */

@@ -3,12 +3,13 @@
 // effect parameter; log for Hz), each lane driven by its own global parameter, and the dialog's result turned back into
 // automation edits: only lanes that changed are written, a flat lane that isn't bypassed removes the automation (the
 // prototype's rule, `setAutomation`), and the whole Apply is one undo step labelled "Automate Low-pass cutoff · Music"
-// (one lane) or "Edit Music curves" (more).
+// (one lane) or "Edit Music curves" (more). A lane may also follow a second global parameter ("And by", ADR 0362 §5;
+// Morph, Scale or per label: bus lanes aren't on time, so no Rate); Apply writes it as the lane's `by`.
 // Pure.
 import { withEnds, type CurveEditorResult, type CurveEditorSpec, type CurveLane } from "../../../editor/ui/curves/curveEditorModel";
 import type { AudioProject, MixAutomation } from "../../../engine/audio/project/types";
 import type { Curve } from "../../../engine/core/curve";
-import { curvesLabel, inputHistogram, parameterInputId, parameterInputs, parameterOfInput } from "../curveInputs";
+import { curveByOf, curvesLabel, inputHistogram, laneByOf, parameterInputId, parameterInputs, parameterOfInput, secondInputsOf } from "../curveInputs";
 import { automatableLanes, type AutomatableLane } from "./boardModel";
 import type { EditResult } from "./busTree";
 import { setAutomation } from "./mixEdits";
@@ -38,6 +39,7 @@ const laneOf = (l: AutomatableLane): CurveLane => ({
   base: l.plain,
   curve: l.current?.curve ?? [],
   ...(l.current ? { input: parameterInputId(l.current.parameter), bypass: l.current.bypass } : {}),
+  ...(l.current?.by ? { by: laneByOf(l.current.by) } : {}),
 });
 
 /**
@@ -51,7 +53,8 @@ export function automationDialog(p: AudioProject, name: string, only: string | u
   if (lanes.length === 0) return { refused: `"${name}" isn't a bus or return` };
   const first = only === undefined ? undefined : lanes.find((l) => l.target === only || (only.startsWith("fx:") && l.target.startsWith(`${only}:`)));
   const inputs = parameterInputs(p.parameters, values);
-  const spec: CurveEditorSpec = { kind: "parameter", lanes: lanes.map(laneOf), inputs };
+  const secondInputs = secondInputsOf(p.parameters, values);
+  const spec: CurveEditorSpec = { kind: "parameter", lanes: lanes.map(laneOf), inputs, ...(secondInputs.length > 1 ? { secondInputs } : {}) };
   const initial = first ?? lanes[0]!;
   const histogram = inputHistogram(initial.current ? parameterInputId(initial.current.parameter) : inputs[0]?.id, inputs);
   return { next: { spec, title: p.returns.some((r) => r.name === name) ? "Return curves" : "Bus curves", target: name, initialLane: first?.target, lanes, ...(histogram ? { histogram } : {}) } };
@@ -63,10 +66,11 @@ const flat = (c: Curve) => c.length > 0 && c.every((k) => k[1] === c[0]![1]);
  * Whether a dialog lane's result differs from what the lane held: no automation and a flat lane that's on is
  * unchanged, and so is the stored curve with the end keys the dialog gives every curve (it evaluates the same).
  */
-function laneChanged(dialog: AutomationDialog, lane: AutomatableLane, next: { parameter: string; curve: Curve; bypass: boolean }): boolean {
+function laneChanged(dialog: AutomationDialog, lane: AutomatableLane, next: { parameter: string; curve: Curve; bypass: boolean; by?: MixAutomation["by"] }): boolean {
   const was = lane.current;
-  if (!was) return !(flat(next.curve) && !next.bypass);
+  if (!was) return !(flat(next.curve) && !next.bypass && !next.by);
   if (was.parameter !== next.parameter || was.bypass !== next.bypass) return true;
+  if (JSON.stringify(was.by ?? null) !== JSON.stringify(next.by ?? null)) return true;
   const axis = dialog.spec.inputs?.find((i) => i.id === parameterInputId(was.parameter));
   const stored = axis ? withEnds(was.curve, axis.min, axis.max, { base: lane.plain }) : was.curve;
   return JSON.stringify(stored) !== JSON.stringify(next.curve) && JSON.stringify(was.curve) !== JSON.stringify(next.curve);
@@ -84,7 +88,8 @@ export function applyAutomationResult(p: AudioProject, dialog: AutomationDialog,
     if (!lane) continue;
     const parameter = parameterOfInput(r.input);
     if (parameter === null) return { refused: `${lane.label} must be driven by a game parameter` };
-    const value = { parameter, curve: r.curve, bypass: r.bypass };
+    const by = curveByOf(r.by, false);
+    const value = { parameter, curve: r.curve, bypass: r.bypass, ...(by ? { by } : {}) };
     if (!laneChanged(dialog, lane, value)) continue;
     const step = setAutomation(next, { on: dialog.target, target: lane.target as MixAutomation["target"] }, value);
     if ("refused" in step) return step;

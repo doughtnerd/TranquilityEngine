@@ -1304,6 +1304,10 @@ export class BabylonBackend implements AudioBackend, AudioClipCache, AudioLiveMi
       warnOnce("babylon-generators", GENERATOR_RENDER_WARNING);
       return this._playVoice({ ...req, url: "", stream: false, loop: req.loop || generatorLoops(req.generator) });
     }
+    // ADR 0362: reverse and the per-sample Amp envelope are the audio core's (ABI 6.1); here a reversed clip plays forward
+    // and an envelope is left out (one warning each a session).
+    if (req.reverse) warnOnce("babylon-reverse", "[myco] audio: reversed clips play forwards on the Web Audio fallback (reverse needs the audio core).");
+    if (req.envelope) warnOnce("babylon-amp-envelope", "[myco] audio: a clip's Amp envelope isn't applied on the Web Audio fallback (it needs the audio core).");
     return this._playVoice(req);
   }
 

@@ -9,6 +9,14 @@
  * - **Dynamic gains** (Blend weights, envelopes, the handle's `fade`) and voice-time curves are read once per frame and
  *   applied to the voices whose product changed: through the automation sink when the voice has parameter curves (so
  *   the sink keeps multiplying onto the new base), else through the voice's own setters.
+ * - **pause** (ADR 0362 §1) holds the playback: the instance keeps its own clock (`clock()`), the heard clock less the
+ *   time it has spent held, and every time the tree plans with (timers, the sequence playhead, stamps, markers, beats)
+ *   is on it; `heard()` turns one into the heard time a stamp is sent with. A pause holds at the heard time after the
+ *   latest stamp already sent (no stamped start or ramp lies past the hold), so the core holds every voice at that one
+ *   frame (stamped SET_PAUSED); the timers wait, the tree isn't updated, and parameter changes wait for the resume. A
+ *   resume continues every voice at one frame (a voice that hadn't started yet starts as late as the pause lasted),
+ *   moves the timers on by the time held and binds voice-time curves that much later, so the playback continues from
+ *   exactly where it held.
  */
 import type { Curve } from "../../../../engine/core/curve";
 import type { Vec3Like } from "../../../../engine/core/math";
@@ -26,11 +34,11 @@ import { CURVE_DRIVEN_ATTENUATION, curveDbToGain, evalAttenuation, FLAT_SEND_CUR
 import { isLabelled, parameterDefault, type ParameterDef } from "../../../../engine/audio/parameters";
 import { mediaPlay } from "../media/packages";
 import { generatorsNeedTheCore, isPendingCoreBackend, audioBackend, type AudioMarkerEvent, type AudioMarkerType, type AudioPanner, type AudioReason, type AudioVoice, type PlayRequest, type SubmixLevel, type VoiceSpatialOptions } from "../backend";
-import { clipRequest, SAMPLE_END_FADE, sampleEdits, samplePass, samplePlan } from "../clipResolver";
+import { clipDuration, clipRequest, SAMPLE_END_FADE, sampleEdits, samplePass, samplePlan } from "../clipResolver";
 import { warnOnce } from "../core/handle";
 import { playlistHost } from "./host";
 import { startOffsetOf, type EventOptions } from "./options";
-import { MAX_BINDINGS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, type Binding, type ParamRef, type VoiceLoop } from "../automation";
+import { MAX_BINDINGS, MAX_LOCAL_SLOTS, MAX_VOICE_LOOPS, TimeParam, type Binding, type ParamRef, type VoiceLoop } from "../automation";
 import { anchorTimeCurves, coreTimeBindings, evalTimeCurves, staticPanBinding, type TimeCurve } from "./curves";
 import { generatorBindings, resolveGeneratorPlay } from "./generatorVoice";
 import type { GeneratorPlay } from "./liveNode";
@@ -46,6 +54,8 @@ import { decideStinger } from "../music/stingerPolicy";
 import { resolveBody, resolveEntry, type Ctx, type DynGain, type LiveNode, type LoopRun, type NodeHost, type PendingSwitchChange, type PVoice, type SpatialPlan } from "./nodes";
 import { shapedFade } from "./liveNode";
 import { QuantizedLanes } from "./quantizedLanes";
+import { ByCurves, type LiveSlice } from "./byCurves";
+import type { CurveBy } from "../../../../engine/audio/curveBy";
 import type { LineEntry } from "../../../../engine/audio/playlist/types";
 import { argumentNames } from "../../../../engine/audio/dialogue/format";
 import { localiseClip } from "../clipResolver";
@@ -82,6 +92,8 @@ export interface InstanceSystem {
   random(world: number): number;
   pickState(world: number, key: string): PickState;
   schedule(at: number, instance: PlaylistInstance, run: () => void): void;
+  /** ADR 0362 §1: removes and returns `instance`'s timers (it paused; it schedules them again, later, when it resumes). */
+  takeTimers(instance: PlaylistInstance): { at: number; run: () => void }[];
   noteLateStart(instance: PlaylistInstance): void;
   retire(instance: PlaylistInstance): void;
   noteParameter(name: string, def: ParameterDef, value: number, instance: number | null): void;
@@ -94,6 +106,16 @@ export type StingerOutcome = "played" | "late" | "skipped" | "dropped";
 
 /** The stop fade when the game names none (ADR 0343: "stop fades everything over 120 ms"). */
 export const STOP_FADE_SECONDS = 0.12;
+/**
+ * ADR 0362 §1: how far past the earliest stampable time a pause may wait for the stamps already sent (a sequence plans
+ * 0.1 s ahead, a Switch or Queue step 0.25 s). A stamp further out (a play `at` a later time) is a voice that hasn't
+ * started when the playback holds: it starts as much later as the pause lasted.
+ */
+const PAUSE_LEAD_MAX = 0.5;
+/** A paused voice stopped before its hold fades no longer than this short of the hold, so its fade ends first. */
+const PAUSE_STOP_MARGIN = 0.01;
+/** The core's 5 ms fade a mixed voice makes into its hold (`core/voices.ts`). */
+const MIX_HOLD_FADE = 0.005;
 const HELD: LoopBehaviour = Object.freeze({ active: "held", exit: "finish", exitFadeMs: 40, reentry: "ignore" });
 /** ADR 0342: the loop programs of voices playing a sample's loops (the core runs them; `resend` sends them again). */
 const programs = new WeakMap<LoopRun, readonly VoiceLoop[]>();
@@ -277,6 +299,8 @@ export class PlaylistInstance implements NodeHost {
    * every listener for its type (a throwing listener is reported, the rest still run).
    */
   noteMarker(e: AudioMarkerEvent): void {
+    // ADR 0362 §1: planned on the instance's clock; reported at the heard time it passed.
+    if (this.heldFor !== 0) e = { ...e, time: this.heardTime(e.time) };
     const src = this.liveSource();
     if (src) src._world._sendMessage([src.node, src.owner], "onAudioMarker", e);
     const set = this.markerListeners.get(e.type);
@@ -294,7 +318,7 @@ export class PlaylistInstance implements NodeHost {
 
   /** The beat and bar callbacks (`handle.onMusic`), made on first use with the instance's public handle. */
   musicCallbacks(handle: MusicEventHandle): PlaylistBeats {
-    return (this.beats ??= new PlaylistBeats(handle, () => this.clock()));
+    return (this.beats ??= new PlaylistBeats(handle, () => this.clock(), (t) => this.heardTime(t)));
   }
 
   /** An `AudioSource` plays it: its node's behaviours hear the markers, beats and bars (`handle`: what `e.handle` carries). */
@@ -478,6 +502,16 @@ export class PlaylistInstance implements NodeHost {
   stop(fadeSeconds = STOP_FADE_SECONDS): void {
     if (this.stopped) return;
     this.stopped = true;
+    const hold = this.holdAt;
+    if (hold !== null) {
+      // ADR 0362 §1: a paused playback is silent (or about to hold): its voices end at once, or fade out before the hold.
+      this.holdAt = null;
+      this.heldTimers = [];
+      this.heldParameters.clear();
+      const left = hold - playlistHost().clock() - MIX_HOLD_FADE - PAUSE_STOP_MARGIN;
+      fadeSeconds = left > 0 ? Math.min(Math.max(0, fadeSeconds), left) : 0;
+      for (const v of this.voices) if (v.leaving && (v.voice.alive ?? v.voice.playing)) v.voice.stop(0);
+    }
     this.root?.stop(Math.max(0, fadeSeconds));
     for (const s of this.stingers) s.node.stop(Math.max(0, fadeSeconds));
     for (const v of this.voices) if (!v.leaving) { v.leaving = true; v.voice.stop(fadeSeconds); }
@@ -499,8 +533,87 @@ export class PlaylistInstance implements NodeHost {
     this.fadeRamp = { from: this.fadeGain.gain, to: target, t0: this.clock(), seconds };
   }
 
-  pause(): void { for (const v of this.voices) if (v.voice.playing) v.voice.pause(); }
-  resume(): void { for (const v of this.voices) if (v.voice.playing) v.voice.resume(); }
+  // --- pause (ADR 0362 §1) -----------------------------------------------------------------------------------------
+
+  /** Heard seconds the instance has been held: its clock runs this far behind the heard clock. */
+  private heldFor = 0;
+  /** While paused: the heard time its voices hold at; null while it plays. */
+  private holdAt: number | null = null;
+  /** The heard time the last resume continues at: the instance's clock holds until the heard clock reaches it. */
+  private continueAt = Number.NEGATIVE_INFINITY;
+  /** The latest heard time a stamp was sent with (`heard`): a pause holds after it. */
+  private lastStamp = Number.NEGATIVE_INFINITY;
+  /** While paused: its timers (heard times as they were scheduled), moved on by the time held when it resumes. */
+  private heldTimers: { at: number; run: () => void }[] = [];
+  /** While paused: the parameters that changed (the tree hears them when it resumes). */
+  private readonly heldParameters = new Set<string>();
+  /** Voices started while paused (they start held, and their voice time counts from their own start). */
+  private readonly bornHeld = new WeakSet<PVoice>();
+
+  get paused(): boolean { return this.holdAt !== null; }
+
+  /** The instance's time at heard time `t`: held from the pause's hold until the resume continues, then on. */
+  localTime(t: number): number {
+    return (this.holdAt !== null ? Math.min(t, this.holdAt) : Math.max(t, this.continueAt)) - this.heldFor;
+  }
+
+  /** The heard time of instance time `t` (what the public API reports: markers, the musical clock). */
+  heardTime(t: number): number {
+    return t + this.heldFor;
+  }
+
+  /** `NodeHost.heard`: the heard time instance time `t` is sent with (the latest one is where a pause can hold). */
+  heard(t: number): number {
+    const h = t + this.heldFor;
+    if (h > this.lastStamp) this.lastStamp = h;
+    return h;
+  }
+
+  /**
+   * Holds the playback: its voices hold at one heard time (the earliest stampable time, or after the stamps already sent,
+   * up to `PAUSE_LEAD_MAX` further), its timers wait and its tree isn't updated until `resume`.
+   */
+  pause(): void {
+    if (this.stopped || this.holdAt !== null) return;
+    const host = playlistHost();
+    const earliest = Math.max(host.horizon() ?? host.clock(), this.continueAt);
+    const at = Math.max(earliest, Math.min(this.lastStamp, earliest + PAUSE_LEAD_MAX));
+    this.holdAt = at;
+    for (const v of this.voices) if (v.voice.alive ?? v.voice.playing) v.voice.pause(at);
+    this.heldTimers = this.sys.takeTimers(this);
+  }
+
+  /**
+   * Continues a paused playback where it held, at the earliest stampable time: every voice continues there (one that
+   * hadn't started starts as much later as the pause lasted), the timers move on by the time held, voice-time curves are
+   * bound that much later, and the parameters changed meanwhile reach the tree.
+   */
+  resume(): void {
+    const hold = this.holdAt;
+    if (this.stopped || hold === null) return;
+    const host = playlistHost();
+    const at = Math.max(host.horizon() ?? host.clock(), hold);
+    const held = at - hold;
+    this.heldFor += held;
+    this.holdAt = null;
+    this.continueAt = at;
+    const sink = host.automation;
+    for (const v of this.voices) {
+      if (!(v.voice.alive ?? v.voice.playing)) continue;
+      v.voice.resume(Math.max(at, v.start === null ? at : v.start + this.heldFor));
+      if (held > 0 && !this.bornHeld.has(v) && !v.leaving && v.bindings.some(isVoiceTime)) {
+        (v as { bindings: readonly Binding[] }).bindings = v.bindings.map((b) => (isVoiceTime(b) ? { ...b, offset: (b.offset ?? 0) - held } : b));
+        sink.bindVoice(v.voice, this.group, v.bindings, v.base, v.start === null ? undefined : v.start + this.heldFor);
+      }
+    }
+    for (const t of this.heldTimers) this.sys.schedule(t.at + held, this, t.run);
+    this.heldTimers = [];
+    if (this.heldParameters.size > 0) {
+      const names = [...this.heldParameters];
+      this.heldParameters.clear();
+      for (const name of names) this.onParameter(name, false);
+    }
+  }
 
   setPitch(ratio: number): void {
     const next = Math.max(0.0625, Number.isFinite(ratio) ? ratio : 1);
@@ -553,8 +666,10 @@ export class PlaylistInstance implements NodeHost {
   /** A parameter changed (local, or a global one the instance doesn't shadow). */
   onParameter(name: string, global: boolean): void {
     if (this.stopped || (global && this.localDefs.has(name))) return;
+    if (this.holdAt !== null) { this.heldParameters.add(name); return; }
     this.root?.onParameter(name);
     this.quant.onParameter(name);
+    this.byCurves.onParameter(name);
   }
 
   /** ADR 0350: the instance's beat-quantised automation lanes (`quantizedLanes.ts`). */
@@ -570,8 +685,11 @@ export class PlaylistInstance implements NodeHost {
       this.fadeGain.gain = r.from + (r.to - r.from) * u;
       if (u >= 1) this.fadeRamp = null;
     }
-    this.root?.update(now, dt);
-    for (const s of this.stingers) s.node.update(now, dt);
+    // ADR 0362 §1: a paused tree plans nothing more (its stamps would land past the hold).
+    if (this.holdAt === null) {
+      this.root?.update(now, dt);
+      for (const s of this.stingers) s.node.update(now, dt);
+    }
     this.deliverMarkers(now);
     this.dispatchBeats(now, dt);
     this.updateAttenuation();
@@ -593,7 +711,7 @@ export class PlaylistInstance implements NodeHost {
       if (!v.voice.playing || v.leaving) continue;
       v.voice.setVolume(v.base.volume);
       v.voice.setPitch(v.base.pitch);
-      if (v.bindings.length > 0) sink.bindVoice(v.voice, this.group, v.bindings, v.base, v.start ?? undefined);
+      if (v.bindings.length > 0) sink.bindVoice(v.voice, this.group, v.bindings, v.base, v.start === null ? undefined : v.start + this.heldFor);
       const program = v.loop ? programs.get(v.loop) : undefined;
       if (program) {
         sink.setLoops(v.voice, this.group, program);
@@ -606,9 +724,23 @@ export class PlaylistInstance implements NodeHost {
 
   random(): number { return this.sys.random(this.world); }
   pickState(key: string): PickState { return this.sys.pickState(this.world, key); }
-  clock(): number { return playlistHost().clock(); }
-  startOf(at: number | null): number { return at ?? playlistHost().horizon() ?? this.clock(); }
+  /** The instance's clock (ADR 0362 §1): the heard clock less the time it has been held. */
+  clock(): number { return this.localTime(playlistHost().clock()); }
+  startOf(at: number | null): number {
+    if (at !== null) return at;
+    const h = playlistHost().horizon();
+    return h !== null ? this.localTime(h) : this.clock();
+  }
   curveId(curve: Curve): number | null { return playlistHost().curveId(curve); }
+  byCurve(main: Curve, by: CurveBy, key?: string, pre?: (c: Curve) => Curve): LiveSlice { return this.byCurves.slice(main, by, key, pre); }
+
+  /** ADR 0362 §5: the slices of the lanes that follow a second parameter (`byCurves.ts`). */
+  private readonly byCurves = new ByCurves({
+    path: () => this.path,
+    param: (name) => this.param(name),
+    // Its lent curves stay while any voice of the instance may still sound (a faded stop rings on).
+    alive: () => !this.stopped || this.voices.some((v) => v.voice.alive ?? v.voice.playing),
+  });
 
   param(name: string): { value: number; def: ParameterDef } | null {
     const l = this.localDefs.get(name);
@@ -628,10 +760,13 @@ export class PlaylistInstance implements NodeHost {
 
   schedule(at: number, run: () => void): void {
     this.pending++;
-    this.sys.schedule(at, this, () => {
+    const wrapped = (): void => {
       this.pending--;
       if (!this.stopped) run();
-    });
+    };
+    // ADR 0362 §1: a timer set while paused waits with the others.
+    if (this.holdAt !== null) this.heldTimers.push({ at: at + this.heldFor, run: wrapped });
+    else this.sys.schedule(at + this.heldFor, this, wrapped);
   }
 
   noteLateStart(): void { this.sys.noteLateStart(this); }
@@ -845,15 +980,21 @@ export class PlaylistInstance implements NodeHost {
       return null;
     }
     const d = this.dress(req, ctx);
-    // `EventOptions.offset` (only while the instance starts): begin that far into the (trimmed) sound, wrapped into the
-    // loop when it loops; a one-pass sample it would already have finished doesn't play.
-    const from = trim ? trim[0] : 0;
-    const skip = this.startOffset > 0 ? this.offsetInto(this.startOffset, from, trim, loop, path) : 0;
-    if (skip === null) return null;
-    // ADR 0342: the pass every play of a sample makes (`samplePass`): a trimmed start, sample-exact (a start offset, not a seek).
-    const pass = samplePass(path, trim, skip);
-    if (pass.offset > 0) req.offset = pass.offset;
-    else delete req.offset;
+    // ADR 0362 item 3: a reversed play reads its trim backwards, from its end down to its start (the sequence offsets it
+    // itself, so `EventOptions.offset` never applies), decoded whole when the sample streams.
+    const pass = ctx.reverse ? this.reversePass(req, path, trim) : (() => {
+      // `EventOptions.offset` (only while the instance starts): begin that far into the (trimmed) sound, wrapped into the
+      // loop when it loops; a one-pass sample it would already have finished doesn't play.
+      const from = trim ? trim[0] : 0;
+      const skip = this.startOffset > 0 ? this.offsetInto(this.startOffset, from, trim, loop, path) : 0;
+      if (skip === null) return null;
+      // ADR 0342: the pass every play of a sample makes (`samplePass`): a trimmed start, sample-exact (a start offset, not a seek).
+      const forward = samplePass(path, trim, skip);
+      if (forward.offset > 0) req.offset = forward.offset;
+      else delete req.offset;
+      return forward;
+    })();
+    if (pass === null) return null;
     let voice: AudioVoice | null;
     // ADR 0351 §7: through the package registry (the strict rule; an unload stops the voice).
     try { voice = mediaPlay(req); } catch { voice = null; }
@@ -872,6 +1013,22 @@ export class PlaylistInstance implements NodeHost {
       this.schedule(end, () => { if (!v.leaving && !v.loop?.looping) { v.leaving = true; voice!.stop(SAMPLE_END_FADE); } });
     }
     return v;
+  }
+
+  /**
+   * ADR 0362 item 3: the pass of a reversed play of `path` over `trim` (null: the whole file): the request reads
+   * backwards from the trim's end (its `offset`; 0 is the file's end) and, decoded whole, never streams. Its length is
+   * the trim's; `early` when it must stop before the file's start (the trim starts after 0).
+   */
+  private reversePass(req: PlayRequest, path: string, trim: [number, number] | null): { offset: number; length: number | null; early: boolean } {
+    const fileLength = clipDuration(path);
+    const from = trim ? Math.max(0, trim[0]) : 0;
+    const to = trim ? Math.min(trim[1], fileLength ?? Infinity) : (fileLength ?? Infinity);
+    req.reverse = true;
+    req.stream = false;
+    if (Number.isFinite(to) && (fileLength === null || to < fileLength - 1e-6)) req.offset = to;
+    else delete req.offset;
+    return { offset: Number.isFinite(to) ? to : 0, length: Number.isFinite(to) ? Math.max(0, to - from) : null, early: from > 1e-6 };
   }
 
   /**
@@ -925,7 +1082,7 @@ export class PlaylistInstance implements NodeHost {
     const staticVolume = (req.volume ?? 1) * dbToGain(c.gainDb) * Math.max(0, this.options.volume ?? 1);
     const staticPitch = clampPitch(stToRatio(c.pitchSt) * this.pitchOption);
     // When it starts: its stamp, else the earliest exact start, else now (heard; voice time and end estimates count from it).
-    const start = ctx.at ?? playlistHost().horizon() ?? this.clock();
+    const start = this.startOf(ctx.at);
     // Time-keyed lanes read from the voice's start; pan and high-pass ones go to the core as voice-time bindings (ABI 4.4).
     const timed = coreTimeBindings(anchorTimeCurves(ctx.timeCurves, start), ctx.bindings, (curve) => this.curveId(curve), ctx.where);
     const timeCurves = timed.timeCurves;
@@ -942,7 +1099,7 @@ export class PlaylistInstance implements NodeHost {
     req.group = this.group;
     // ADR 0345 levels (ABI 4.9): into its level's submix (the instance's own takes its voices by their group).
     if (ctx.submix && !ctx.submix.root && ctx.submix.bus === req.bus) req.submix = ctx.submix.level;
-    if (ctx.at !== null) req.at = ctx.at;
+    if (ctx.at !== null) req.at = this.heard(ctx.at);
     if (this.options.owner) req.owner = this.options.owner;
     const lowpass = Math.min(c.lowpass, t.lowpass ?? LOWPASS_NONE, curved ? curved.at.lowpassHz : LOWPASS_NONE);
     if (lowpass < 20000 || c.highpass > 20) {
@@ -968,16 +1125,18 @@ export class PlaylistInstance implements NodeHost {
       }
     }
     if (ctx.fadeIn > 0) req.fadeZero = true;
+    // ADR 0362 item 2: a clip's Amp envelope, from where this voice starts in the clip's time.
+    if (ctx.envelope) req.envelope = { stages: ctx.envelope.stages, length: ctx.envelope.length, offset: Math.max(0, start - ctx.envelope.origin) };
     return { c, staticVolume, staticPitch, start, timed, timeCurves, t, curved, dynList, dyn, base, lowpass };
   }
 
   /** A started voice's bindings (`bindings`, its static pan and quantised lanes) and fade-in; returns the bindings it got. */
   private bindStarted(voice: AudioVoice, ctx: Ctx, d: Dressed, bindings: readonly Binding[]): readonly Binding[] {
     const all = this.quant.bindings(this.withStaticPan(bindings, d.c.pan, ctx.where), ctx.quantized, d.start);
-    if (all.length > 0) playlistHost().automation.bindVoice(voice, this.group, all, d.base, ctx.at ?? undefined);
+    if (all.length > 0) playlistHost().automation.bindVoice(voice, this.group, all, d.base, ctx.at === null ? undefined : this.heard(ctx.at));
     if (ctx.fadeIn > 0) {
       voice.fade(0, 0);
-      shapedFade(voice, ctx.fadeInShape ?? "equalPower", ctx.fadeIn, 0, 1, ctx.at, () => d.start);
+      shapedFade(voice, ctx.fadeInShape ?? "equalPower", ctx.fadeIn, 0, 1, ctx.at, () => d.start, false, (t) => this.heard(t));
     }
     return all;
   }
@@ -990,6 +1149,11 @@ export class PlaylistInstance implements NodeHost {
       start, length, loop, leaving: false, appliedGain: dyn, appliedPitch: t.pitch, appliedLowpass: curved ? lowpass : t.lowpass, positioned: req.position !== undefined,
     };
     this.voices.push(v);
+    // ADR 0362 §1: a voice started while paused (a stinger) holds with the others until the resume.
+    if (this.holdAt !== null) {
+      this.bornHeld.add(v);
+      voice.pause(this.holdAt);
+    }
     this.quant.attach(v, ctx.quantized, start);
     if (curved) {
       this.curveVoices.set(v, { plan: curved, staticLowpass: c.lowpass, appliedSend: req.reverbSend ?? 1, appliedSpread: req.spread ?? 0, appliedBed: req.bed === true });
@@ -1112,7 +1276,7 @@ export class PlaylistInstance implements NodeHost {
         v.appliedPitch = pitch;
         v.base.volume = v.staticVolume * gain;
         v.base.pitch = clampPitch(v.staticPitch * pitch);
-        if (v.bindings.length > 0) sink.bindVoice(v.voice, this.group, v.bindings, v.base, v.start ?? undefined);
+        if (v.bindings.length > 0) sink.bindVoice(v.voice, this.group, v.bindings, v.base, v.start === null ? undefined : v.start + this.heldFor);
         else {
           if (gainMoved) v.voice.setVolume(v.base.volume);
           if (pitchMoved) v.voice.setPitch(v.base.pitch);
@@ -1241,6 +1405,11 @@ function firstSample(entry: Entry, chain: readonly string[], depth: number): Sam
     if (s) return s;
   }
   return null;
+}
+
+/** ADR 0362 §1: a binding read on the voice's own time (since it started), which a pause holds. */
+function isVoiceTime(b: Binding): boolean {
+  return b.param.time === TimeParam.Voice;
 }
 
 /** Whether a playlist or any embedded playlist in it has a spatial block (its voices are then positioned). */

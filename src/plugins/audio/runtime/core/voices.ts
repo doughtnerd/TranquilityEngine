@@ -25,12 +25,13 @@
 //   makes per start (`eventBench`'s start+stop heap gate).
 import type { Vec3Like } from "../../../../engine/core/math";
 import type { Mixer } from "../../../../engine/audio/mixer";
-import type { Attenuation, AudioPanner, FadeLaw, ListenerPose, PlayRequest, ShapedFade, VoiceSpatialOptions } from "../backend";
+import type { Attenuation, AudioPanner, FadeLaw, ListenerPose, PlayRequest, ShapedFade, VoiceEnvelope, VoiceSpatialOptions } from "../backend";
+import { fitAmpEnvelope } from "../../../../engine/audio/effects/ampEnvelope";
 import { generatorKindIndex } from "../../../../engine/audio/generators/catalogue";
 import { GEN_MASK_ALL } from "./commandWriter";
-import { BUS_LP_OFF_HZ, GEN_CLIP_ID_FIRST, PLAY_FLAGS_AMBISONIC, PLAY_FLAGS_LOOP, PLAY_FLAGS_MIXED, PLAY_FLAGS_SPATIAL, PLAY_FLAGS_STREAM, PLAY_FLAGS_WANTS_PLAYHEAD, SET_PARAMS_MASK_BUS, SET_PARAMS_MASK_DIR, SET_PARAMS_MASK_GAIN, SET_PARAMS_MASK_PITCH } from "../wire.generated";
+import { AMP_ENV_KEY_OFF_NONE, BUS_LP_OFF_HZ, ClipFormat, GEN_CLIP_ID_FIRST, PLAY_FLAGS_AMBISONIC, PLAY_FLAGS_LOOP, PLAY_FLAGS_MIXED, PLAY_FLAGS_REVERSE, PLAY_FLAGS_SPATIAL, PLAY_FLAGS_STREAM, PLAY_FLAGS_WANTS_PLAYHEAD, SET_PARAMS_MASK_BUS, SET_PARAMS_MASK_DIR, SET_PARAMS_MASK_GAIN, SET_PARAMS_MASK_PITCH } from "../wire.generated";
 import type { ClockMap } from "./clock";
-import type { CommandWriter, PlayArgs } from "./commandWriter";
+import type { CommandWriter, FramesEnvelope, PlayArgs } from "./commandWriter";
 import { ambisonicImportGain, type ClipInfo, type ClipRegistry } from "./clipRegistry";
 import { aacRefusal, unsupportedFormat, type WarnOnce } from "./codecs";
 import type { CoreAutomation } from "./coreAutomation";
@@ -59,6 +60,12 @@ const MIN_PITCH = 0.0625;
 const ROLLOFF_NAMES = ["linear", "inverse", "exponential"] as const;
 /** Architecture §4.7: promote and demote fade 5 ms; a voice stolen while on the core fades out as long. */
 const STEAL_FADE_SECONDS = 0.005;
+/** The core's promote, demote and pause fade (`MIX_FADE_SECONDS` in `voices.rs`): a mixed voice fades out this long before it holds. */
+const MIX_FADE_SECONDS = 0.005;
+/** `flipTo`: the stamped change a slot's mirror takes at `flipAt` (ADR 0362 §1). */
+const FLIP_NONE = 0;
+const FLIP_PAUSE = 1;
+const FLIP_RESUME = 2;
 
 const clamp = (v: number, lo: number, hi: number): number => (v < lo ? lo : v > hi ? hi : v);
 const idAt = (t: VoiceTable, i: number): number => ((t.gen[i]! << 16) | i) >>> 0;
@@ -147,6 +154,17 @@ export interface CoreVoicesHost {
   holdStemResends(): boolean;
 }
 
+/**
+ * ADR 0362 item 2: a voice's Amp envelope in frames at `rate` (the context's: the envelope moves one frame per output
+ * frame), fitted to its span as `fitAmpEnvelope` (and the core's `Adsr::fit`) fit it, from frames rounded once.
+ */
+export function envelopeFrames(env: VoiceEnvelope, rate: number): FramesEnvelope {
+  const f = (s: number): number => Math.max(0, Math.min(0xfffffffe, Math.round((Number.isFinite(s) ? s : 0) * rate)));
+  const s = env.stages;
+  const fit = fitAmpEnvelope({ attack: f(s.attack), hold: f(s.hold), decay: f(s.decay), sustain: s.sustain, release: f(s.release) }, env.length === null ? null : f(env.length));
+  return { attack: fit.attack, hold: fit.hold, decay: fit.decay, sustain: fit.sustain, release: fit.release, keyOff: fit.keyOff === null ? AMP_ENV_KEY_OFF_NONE : fit.keyOff };
+}
+
 /** The core voice (see the header). */
 export class CoreVoices {
   /** @internal Each slot's `PlayRequest.owner` (the playing node's name), for `debug()`'s voice rows; null for none. */
@@ -171,6 +189,10 @@ export class CoreVoices {
   private readonly startOffset: Float64Array;
   /** W12: per slot, the stream frame a stream voice opens at (`CorePlayRequest.streamStartFrame`: after a head clip), else 0. */
   private readonly streamStart: Uint32Array;
+  /** ADR 0362: per slot, the voice's Amp envelope (`PlayRequest.envelope`), or null. */
+  private readonly envelopes: (VoiceEnvelope | null)[] = [];
+  /** ADR 0362: per slot, the context frame its PLAY went out for (its envelope's offset counts from there). */
+  private readonly envelopeFrom: Float64Array;
   private stemStaleCount = 0;
   /**
    * F-24: per slot, the id of the voice whose PLAY went out flat (non-spatial, not ambisonic), else 0. The core reads
@@ -186,6 +208,15 @@ export class CoreVoices {
   private readonly playArgs: PlayArgs = { voiceId: 0, clip: 0, bus: 0, flags: 0, group: 0, gain: 1, pitch: 1, dirX: 0, dirY: 0, dirZ: -1, lpHz: BUS_LP_OFF_HZ, score: 0, startOffsetFrames: 0 };
   private lastBusName: string | null = null;
   private lastBusIndex = 0;
+  /**
+   * ADR 0362 §1: per slot, a stamped pause or resume (`flipTo`) the core applies at a frame, and the context frame the
+   * mirror takes it at (`flipAt`: where the voice holds, or where it continues). Until then the mirror keeps the old
+   * state: main must not force the voice virtual before the core holds it, nor promote it before the core resumes it
+   * (the core drops a promote while paused). `flips` counts the slots with one.
+   */
+  private readonly flipTo: Uint8Array;
+  private readonly flipAt: Float64Array;
+  private flips = 0;
 
   constructor(private readonly host: CoreVoicesHost) {
     const t = (this.t = host.table);
@@ -194,7 +225,10 @@ export class CoreVoices {
     this.stemStaleTo = new Float64Array(t.capacity);
     this.startOffset = new Float64Array(t.capacity);
     this.streamStart = new Uint32Array(t.capacity);
+    this.envelopeFrom = new Float64Array(t.capacity);
     this.flatPlayId = new Uint32Array(t.capacity);
+    this.flipTo = new Uint8Array(t.capacity);
+    this.flipAt = new Float64Array(t.capacity);
     this.gainApplied = new Float32Array(t.capacity).fill(1);
     this.basis.set(this.listenerPos, this.listenerFwd, this.listenerUp);
     this.lockedQueue = new UnlockQueue<number>({
@@ -288,6 +322,9 @@ export class CoreVoices {
     if (req.attenuation) this.applyAttenuation(i, req.attenuation);
     if (req.position) this.applyPosition(i, req.position);
     this.applyM3Request(i, req);
+    // ADR 0362: a clip voice read backwards, and a voice's Amp envelope (both behind its PLAY).
+    if (req.reverse === true && !stream && !gen) t.flags2[i] = t.flags2[i]! | VoiceFlag2.REVERSE;
+    this.envelopes[i] = req.envelope ?? null;
     this.refreshGain(i);
     // `at` is ignored while locked (API §1); the stamp-or-asap choice is made when the PLAY is sent (`sendPlay`).
     t.startFrame[i] = running ? host.clockMap.frameOfTime(req.at) : 0;
@@ -407,6 +444,13 @@ export class CoreVoices {
     }
     const clip = t.clip[i]!;
     const state = host.clips.state(clip);
+    if (state === "ready" && (t.flags2[i]! & VoiceFlag2.REVERSE) !== 0 && host.clips.info(clip)?.format === ClipFormat.AdpcmIma) {
+      // ADR 0362: an ADPCM clip's reader moves forward only; a reversed play of it would play the wrong audio.
+      const path = host.clips.info(clip)?.path ?? "";
+      host.warnOnce(`${path}#reverse-adpcm`, `audio: "${path}" ships compressed (ADPCM, load "compressed"), which the audio core reads forwards only; a reversed clip of it is silent. Set its load mode to decode to play it backwards (ADR 0362).`);
+      t.free(id, VoiceReason.FAILED);
+      return;
+    }
     if (state === "ready") {
       this.applyImportGain(i, clip);
       // A3.1: mixed when there is room under the cap; otherwise virtual, and this frame's selection may promote it.
@@ -438,7 +482,9 @@ export class CoreVoices {
     if (!(offset > 0)) return 0;
     const info = this.host.clips.info(clip);
     if (!info || !(info.sampleRate > 0)) return 0;
-    const frame = Math.round(offset * info.sampleRate);
+    let frame = Math.round(offset * info.sampleRate);
+    // ADR 0362: a reversed voice counts its positions from the clip's end (it starts at source second `offset`).
+    if ((this.t.flags2[i]! & VoiceFlag2.REVERSE) !== 0 && info.frames > 0) frame = Math.max(0, info.frames - frame);
     if (info.frames <= 0) return frame;
     return (this.t.flags[i]! & VoiceFlag.LOOP) !== 0 ? frame % info.frames : Math.min(frame, info.frames);
   }
@@ -561,7 +607,8 @@ export class CoreVoices {
       (f & VoiceFlag.LOOP ? PLAY_FLAGS_LOOP : 0) |
       (f & VoiceFlag.SPATIAL ? PLAY_FLAGS_SPATIAL : 0) |
       (f & VoiceFlag.STREAM ? PLAY_FLAGS_STREAM | PLAY_FLAGS_WANTS_PLAYHEAD : 0) |
-      (t.flags2[i]! & VoiceFlag2.AMBISONIC ? PLAY_FLAGS_AMBISONIC : 0);
+      (t.flags2[i]! & VoiceFlag2.AMBISONIC ? PLAY_FLAGS_AMBISONIC : 0) |
+      ((t.flags2[i]! & VoiceFlag2.REVERSE) !== 0 && (f & VoiceFlag.STREAM) === 0 ? PLAY_FLAGS_REVERSE : 0);
     a.startOffsetFrames = startOffsetFrames;
     // ADR 0162 (K4): the dry gain with occlusion, the pitch with Doppler, and main's lpHz (`voiceFx`), all M2's values at the defaults.
     a.gain = this.dryGain(i);
@@ -586,15 +633,34 @@ export class CoreVoices {
     host.playheads.start(i, stamp ?? clockMap.framesNow(), a.startOffsetFrames);
     // ADR 0158: the voice's bindings and loop, right behind its PLAY.
     host.automation.onPlaySent(id, i, stamp);
+    // ADR 0362 (ABI 6.1): its Amp envelope, on arrival like the bindings, stamped as its PLAY to stay behind it.
+    const env = this.envelopes[i];
+    if (env) {
+      this.envelopeFrom[i] = stamp ?? clockMap.framesNow();
+      host.writer.ampEnvelope(id, envelopeFrames(env, clockMap.sampleRate), env.offset * clockMap.sampleRate, stamp);
+    }
     // ADR 0345 levels (ABI 4.9): into its playlist level's submix (applies on arrival, like the bindings), stamped as
     // its PLAY so the frame-ordered batch keeps it after the PLAY (which would otherwise clear it).
     if (t.submix[i]! > 0) host.writer.route(id, t.submix[i]! - 1, stamp);
     // ADR 0162 (C3): its SET_VOICE_FX at the same frame, when mixed and non-default.
     host.voiceFx.onPlay(i, stamp);
-    // A3.7: paused before it reached the core (locked, or its clip loading): it waits there, paused, until resumed.
-    if (f & VoiceFlag.PAUSED) host.writer.setPaused(id, true);
+    // A3.7: paused before it reached the core (locked, or its clip loading): it waits there, paused, until resumed. At
+    // its PLAY's frame (ADR 0362 §1): the batch goes in frame order, and an asap record would reach the core before a
+    // stamped PLAY does.
+    if (f & VoiceFlag.PAUSED) host.writer.setPaused(id, true, stamp);
     if (start > 0) t.startFrame[i] = 0;
     this.spatialDirty[i] = 0;
+  }
+
+  /**
+   * ADR 0362: slot `i`'s Amp envelope for a hard rebuild's REPLAY applying at context frame `frame`: its frames and the
+   * envelope frame it has reached there (its offset plus the frames since its PLAY), or null without one.
+   */
+  replayEnvelope(i: number, frame: number): { readonly env: FramesEnvelope; readonly offsetFrames: number } | null {
+    const env = this.envelopes[i];
+    if (!env) return null;
+    const rate = this.host.clockMap.sampleRate;
+    return { env: envelopeFrames(env, rate), offsetFrames: env.offset * rate + Math.max(0, frame - this.envelopeFrom[i]!) };
   }
 
   // --- The setters (by id; each does nothing for a stale id) ---
@@ -704,13 +770,66 @@ export class CoreVoices {
     host.presence.voiceStarted(next, i);
   }
 
-  setPaused(id: number, paused: boolean): void {
+  /**
+   * A3.7: pause or resume voice `id`, as soon as possible, or (ADR 0362 §1) at heard time `at` (`Audio.time` seconds), so
+   * every voice of a playback holds at the same frame and continues at the same frame. A stamped pause holds the voice
+   * exactly at `at`: a mixed voice's SET_PAUSED goes the core's 5 ms fade earlier (it renders that fade, then holds), a
+   * virtual one's at `at`. A stamped resume continues it from there at `at`, as a virtual voice keeping time; main's
+   * selection promotes it once the mirror takes the resume (the first frame whose commands arrive after `at`), so the
+   * sound continues sample-exact from where it held and is heard from that promote's 5 ms fade-in. A past `at`, or a
+   * voice not on the core yet, goes as soon as possible (as without `at`).
+   */
+  setPaused(id: number, paused: boolean, at?: number): void {
     const i = this.slot(id);
     if (i < 0) return;
     const t = this.t;
-    t.flags[i] = paused ? t.flags[i]! | VoiceFlag.PAUSED : t.flags[i]! & ~VoiceFlag.PAUSED;
-    if (this.onCore(i)) this.host.playheads.retime(i, this.host.clockMap.framesNow());
-    if (this.onCore(i)) this.host.writer.setPaused(id, paused);
+    const host = this.host;
+    const clock = host.clockMap;
+    this.dropFlip(i);
+    // A stamped start still ahead: its PLAY may be in this frame's batch, which goes in frame order, so nothing for the
+    // voice is stamped before it (it would reach the core before the voice exists there). As `setBus` does.
+    const playAt = this.onCore(i) ? clock.stampFor(host.playheads.anchorFrame[i]!) : undefined;
+    const hold = at !== undefined && Number.isFinite(at) && this.onCore(i) ? clock.stampFor(clock.frameOfTime(at)) : undefined;
+    if (hold === undefined) {
+      t.flags[i] = paused ? t.flags[i]! | VoiceFlag.PAUSED : t.flags[i]! & ~VoiceFlag.PAUSED;
+      if (this.onCore(i)) host.playheads.retime(i, clock.framesNow());
+      if (this.onCore(i)) host.writer.setPaused(id, paused, playAt);
+      return;
+    }
+    let frame = hold;
+    if (paused && t.state[i] === VoiceState.PLAYING) frame = clock.stampFor(hold - Math.round(MIX_FADE_SECONDS * clock.sampleRate)) ?? hold;
+    if (playAt !== undefined && playAt > frame) frame = playAt;
+    host.writer.setPaused(id, paused, frame);
+    this.flipTo[i] = paused ? FLIP_PAUSE : FLIP_RESUME;
+    this.flipAt[i] = Math.max(hold, frame);
+    this.flips++;
+  }
+
+  /**
+   * ADR 0362 §1, once per frame before selection: the mirror takes each stamped pause or resume whose frame the core has
+   * reached by the time this frame's commands arrive (flag, playhead anchored at the hold or resume frame), and sends it
+   * again as soon as possible, a no-op for the core unless a rebuild dropped the stamped one meanwhile.
+   */
+  private landFlips(): void {
+    const now = this.host.clockMap.framesNow();
+    const t = this.t;
+    for (let i = 0; i < this.flipTo.length && this.flips > 0; i++) {
+      const to = this.flipTo[i]!;
+      if (to === FLIP_NONE || this.flipAt[i]! > now) continue;
+      const paused = to === FLIP_PAUSE;
+      const frame = this.flipAt[i]!;
+      this.dropFlip(i);
+      t.flags[i] = paused ? t.flags[i]! | VoiceFlag.PAUSED : t.flags[i]! & ~VoiceFlag.PAUSED;
+      if (!this.onCore(i)) continue;
+      this.host.playheads.retime(i, frame);
+      this.host.writer.setPaused(idAt(t, i), paused);
+    }
+  }
+
+  private dropFlip(i: number): void {
+    if (this.flipTo[i] === FLIP_NONE) return;
+    this.flipTo[i] = FLIP_NONE;
+    this.flips--;
   }
 
   /**
@@ -922,6 +1041,7 @@ export class CoreVoices {
 
   /** A3.1: the frame's selection over every logical voice, at the current mixed cap. */
   select(): void {
+    if (this.flips > 0) this.landFlips();
     if (this.t.liveCount === 0) return;
     this.host.selection.run(this.host.mixedCap(), this.selectionSink);
   }
@@ -1094,6 +1214,7 @@ export class CoreVoices {
     if ((t.flags[i]! & VoiceFlag.STREAM) !== 0) {
       if (!member) host.streams.close(t.clip[i]!);
     } else if (t.genKind[i] === 0) host.clips.release(t.clip[i]!); // ADR 0360: a generator holds no clip
+    this.dropFlip(i);
     host.panners.forget(i);
     host.automation.forget(i);
     // ADR 0162 (K4): the M3 per-slot state goes with the voice.

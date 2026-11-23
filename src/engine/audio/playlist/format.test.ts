@@ -351,3 +351,40 @@ describe("ADR 0357 §4: captions; ADR 0354 §5: line entries", () => {
     ]);
   });
 });
+
+describe("second-input curves (ADR 0362 §5)", () => {
+  const P = { format: "myco.playlist@1" };
+  const raw = {
+    ...P, type: "sequence", parameters: [{ name: "Speed", min: 0, max: 10, default: 0 }],
+    entries: [],
+    automation: [{ id: "a", target: "volume", input: "voiceTime", curve: [[0, 0], [1, -6]], by: { input: "Speed", mode: "rate", curve: [[0, 1], [10, 2]] } }],
+    sequence: { length: 2, tracks: [{ id: "t", kind: "audio", automation: [{ id: "p", target: "pitch", input: "Speed", curve: [[0, 0]], by: { input: "Load", mode: "morph", curve: [[0, 12]] } }], clips: [
+      { id: "c", sample: "a.wav", at: 0, length: 2, automation: [{ id: "v", target: "volume", input: "clipTime", curve: [[0, 0]], by: { input: "Surface", mode: "labels", labels: { Wood: [[0, -3]] } } }] },
+    ] }] },
+  };
+
+  it("reads `by` on entry voice curves and on instance, track and clip lanes, and writes it back only where set", () => {
+    const entryRaw = { ...P, type: "clip", entries: [{ sample: "a.wav", curves: { gain: { input: "Speed", curve: [[0, -6], [10, 0]], by: { input: "Load", mode: "scale", curve: [[0, 1], [1, 0.5]] } }, pan: { input: "voiceTime", curve: [[0, 0]] } } }] };
+    const entry = parsePlaylist(entryRaw);
+    expect(entry.problems).toEqual([]);
+    expect((entry.playlist.entries[0] as SampleEntry).curves.gain!.by).toEqual({ input: "Load", mode: "scale", curve: [[0, 1], [1, 0.5]] });
+    const json = playlistToJson(entry.playlist) as unknown as { entries: { curves: Record<string, Record<string, unknown>> }[] };
+    expect(json.entries[0]!.curves.gain!.by).toEqual({ input: "Load", mode: "scale", curve: [[0, 1], [1, 0.5]] });
+    expect("by" in json.entries[0]!.curves.pan!).toBe(false);
+    expect(roundTrip(entry.playlist).playlist).toEqual(entry.playlist);
+
+    const seq = parsePlaylist(raw);
+    expect(seq.problems).toEqual([]);
+    expect(seq.playlist.automation[0]!.by?.mode).toBe("rate");
+    expect(seq.playlist.sequence!.tracks[0]!.automation[0]!.by?.input).toBe("Load");
+    expect(seq.playlist.sequence!.tracks[0]!.clips[0]!.automation[0]!.by).toEqual({ input: "Surface", mode: "labels", labels: { Wood: [[0, -3]] } });
+    expect(roundTrip(seq.playlist).playlist).toEqual(seq.playlist);
+  });
+
+  it("drops rate on a lane keyed on a parameter, with a problem", () => {
+    const bad = { ...P, type: "clip", entries: [{ sample: "a.wav", curves: { gain: { input: "Speed", curve: [[0, 0]], by: { input: "Load", mode: "rate" } } } }] };
+    const { playlist, problems } = parsePlaylist(bad);
+    expect((playlist.entries[0] as SampleEntry).curves.gain!.by).toBeUndefined();
+    expect(problems.join("\n")).toMatch(/curves\.gain\.by\.mode.*keyed on time/);
+  });
+});

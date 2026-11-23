@@ -6,6 +6,8 @@
 // Pure, apart from the histogram source a take registers.
 import { isLabelled, parameterRange, type ParameterDef } from "../../engine/audio/parameters";
 import type { CurveInput } from "../../editor/ui/curves/curveEditorModel";
+import type { LaneBy, SecondInput } from "../../editor/ui/curves/andByModel";
+import type { CurveBy } from "../../engine/audio/curveBy";
 
 const PREFIX = "param:";
 
@@ -29,6 +31,36 @@ export function parameterInputs(defs: readonly ParameterDef[], values: Readonly<
     const source = nowSource;
     return { ...input, ...(histogram ? { histogram } : {}), ...(source ? { live: () => source(d.name) ?? undefined } : {}) };
   });
+}
+
+/**
+ * ADR 0362 §5: `defs` as the dialog's second inputs ("And by"): as `parameterInputs`, labelled ones with their labels.
+ * `id` names a parameter's dialog input (default `param:<name>`; the Sequencer's lanes use the bare name). A lane's
+ * second input that is none of them (`extra`, names) is offered over 0..1, so it opens as it is.
+ */
+export function secondInputsOf(defs: readonly ParameterDef[], values: Readonly<Record<string, number>> = {}, id: (name: string) => string = parameterInputId, extra: readonly string[] = []): SecondInput[] {
+  const out: SecondInput[] = parameterInputs(defs, values).map((input, i) => {
+    const d = defs[i]!;
+    return { ...input, id: id(d.name), ...(isLabelled(d) ? { labels: d.labels } : {}) };
+  });
+  for (const name of extra) if (!defs.some((d) => d.name === name) && !out.some((s) => s.id === id(name))) out.push({ id: id(name), name: `${name} (unknown)`, min: 0, max: 1 });
+  return out;
+}
+
+/** A stored lane's `by` as the dialog's (`id` names the parameter's dialog input). */
+export function laneByOf(by: CurveBy | undefined, id: (name: string) => string = parameterInputId): LaneBy | undefined {
+  return by ? { ...by, input: id(by.input) } : undefined;
+}
+
+/**
+ * The dialog's `by` for a lane as stored: the parameter its input names (`name`: null when it names none), dropped when
+ * it names none, or is rate on a lane not keyed on time (`time`).
+ */
+export function curveByOf(by: LaneBy | undefined, time: boolean, name: (id: string) => string | null = parameterOfInput): CurveBy | undefined {
+  if (!by || (by.mode === "rate" && !time)) return undefined;
+  const input = name(by.input);
+  if (input === null) return undefined;
+  return { input, mode: by.mode, ...(by.curve && by.curve.length > 0 ? { curve: by.curve } : {}), ...(by.labels && Object.keys(by.labels).length > 0 ? { labels: by.labels } : {}) };
 }
 
 /** The value the game is sending for `parameter` now (the open take at its playhead), or null when it hasn't sent one. */

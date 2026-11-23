@@ -212,6 +212,17 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
     this.timers.splice(i, 0, timer);
   }
 
+  takeTimers(instance: PlaylistInstance): { at: number; run: () => void }[] {
+    const taken: { at: number; run: () => void }[] = [];
+    let w = 0;
+    for (const t of this.timers) {
+      if (t.instance === instance) taken.push({ at: t.at, run: t.run });
+      else this.timers[w++] = t;
+    }
+    this.timers.length = w;
+    return taken;
+  }
+
   noteLateStart(instance: PlaylistInstance): void {
     instance.lateStarts++;
     this.lateStarts++;
@@ -294,11 +305,11 @@ export class PlaylistSystem implements HostedRuntime, InstanceSystem {
    * a tempo, heard now. Fresh objects; debug only.
    */
   musicRows(): MusicDebugRow[] {
-    const now = playlistHost().clock();
     const rows: MusicDebugRow[] = [];
     for (const i of this.live) {
       if (!i.playing) continue;
-      const r = musicRowOf(i, now);
+      // ADR 0362 §1: on the instance's own clock (a paused one holds).
+      const r = musicRowOf(i, i.clock());
       if (r) rows.push(r);
     }
     return rows;

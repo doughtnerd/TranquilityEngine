@@ -249,6 +249,9 @@ describe("effect chain", () => {
     expect(effectSummary(defaultEffect("sidechainCompressor", "fx9"))).toBe("−24.0 dB · 3.0 :1 · no key");
     expect(levelWarning(defaultEffect("gain", "fx1"), "bus")).toMatch(/doesn't run on a bus/);
     expect(levelWarning(chain[0]!, "bus")).toBeNull();
+    // ADR 0362: a chain whose owner runs a type the level doesn't list (a sequence clip's Amp envelope) doesn't warn.
+    expect(levelWarning(defaultEffect("envelope", "fx2"), "instance")).toMatch(/doesn't run/);
+    expect(levelWarning(defaultEffect("envelope", "fx2"), "instance", ["envelope", "gain"])).toBeNull();
   });
 });
 

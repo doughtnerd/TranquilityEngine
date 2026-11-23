@@ -605,6 +605,30 @@ pub fn cases() -> Vec<VectorCase> {
                 "00005c44", "0000c0c0", // values: 880.0, -6.0
             ),
         ),
+        // AMP_ENVELOPE (ADR 0362, ABI 6.1), 44 B = 11 words, asap. Voice 0x00010002: attack 480, hold 0, decay 960
+        // frames to a sustain of 0.5, keyed off at envelope frame 48000 with a 2400-frame release; the voice starts at
+        // envelope frame 96 (it starts inside its clip).
+        case(
+            "AMP_ENVELOPE_clip_inside",
+            Subject::Opcode("AMP_ENVELOPE"),
+            vec![
+                ("voiceId", vu(0x0001_0002)),
+                ("frameOffset", vu(0xFFFF_FFFF)),
+                ("flags", vu(1)),
+                ("attackFrames", vu(480)),
+                ("holdFrames", vu(0)),
+                ("decayFrames", vu(960)),
+                ("sustain", vf(0.5)),
+                ("releaseFrames", vu(2400)),
+                ("keyOffFrame", vu(48000)),
+                ("offsetFrames", vu(96)),
+            ],
+            concat!(
+                "2200", "0b00", "02000100", "ffffffff", // head: AMP_ENVELOPE, 11 words, voice 0x00010002, asap
+                "01000000", "e0010000", "00000000", "c0030000", // flags on, attack 480, hold 0, decay 960
+                "0000003f", "60090000", "80bb0000", "60000000", // sustain 0.5, release 2400, key-off 48000, offset 96
+            ),
+        ),
         // SUBMIX (ADR 0345; parent ABI 4.9), variable length: 24 + 40 = 64 B = 16 words, asap. Slot 2
         // for group 4 on bus 1, feeding slot 5 (parent 6); one effect: a low-pass (kind 1), on,
         // cutoff 800 Hz, resonance 0.5.

@@ -59,3 +59,20 @@
 - Format additions needing an ADR: audio.json `snapshotFolders`, `Bus.colour`, parameter `type: bool|text`, condition
   ops `contains`/`starts`.
 - Dev note: Vite's watcher misses edits with several servers (inotify); use CHOKIDAR_USEPOLLING=1.
+
+## Follow-ups from wave 4 (pause)
+- Pause latency: a pause lands up to ~0.35 s after the click (after anything already scheduled). A Studio/audition
+  pause should feel immediate: pause at the earliest schedulable frame and retract/reschedule commands already sent
+  that fall after it. Resume is heard from the main-thread promote (≤1 frame + 5 ms fade) — a core-side resume would
+  remove it. Sequence playhead in the Studio is wall-clock estimated (drifts by the pause lead).
+
+## Follow-ups from wave 4 (And by)
+- Ctrl+Z after Apply in Playlists does nothing when no panel has focus (panel undo button works; Mixer works).
+- Right-click on a Sequence clip opens the track lane menu instead of the clip menu (Shift+F10 works).
+- Mixer bus curves: default driver is the first parameter even when labelled ("by Surface (labels)").
+- Playlists effect-automation dialog (effectAutomation.ts) doesn't offer And by.
+
+## Follow-ups from wave 4 (reverse/envelope)
+- Hold handle sits under Attack at Hold 0 (can't grab until a hold is typed).
+- Reversed clips draw their waveform forwards in the Sequence view.
+- Reversed clips don't drive the playhead/musical clock; async reversed clips report no markers; ADPCM reversed silent.

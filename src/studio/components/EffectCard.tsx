@@ -7,7 +7,7 @@
 // Reset plugin, and the row (state, instructions per frame against the budget, memory, faults) when open.
 import { useRef } from "preact/hooks";
 import { clampEffectParam, effectSpec } from "../../engine/audio/effects/catalogue";
-import type { Effect, EffectLevel, EffectParamSpec } from "../../engine/audio/effects/types";
+import type { Effect, EffectLevel, EffectParamSpec, EffectType } from "../../engine/audio/effects/types";
 import type { AudioPluginDebug } from "../../plugins/audio/runtime/debugTypes";
 import { effectSummary, levelWarning, pluginCardView, summaryFits } from "./effectChainModel";
 import { useElementWidth } from "./useElementWidth";
@@ -19,6 +19,8 @@ import "./audioParts.css";
 export interface EffectCardProps {
   readonly effect: Effect;
   readonly level: EffectLevel;
+  /** Types the chain's owner runs here although the level doesn't list them (no level warning); absent: the level's. */
+  readonly runs?: readonly EffectType[];
   readonly open: boolean;
   readonly first: boolean;
   readonly last: boolean;
@@ -73,7 +75,7 @@ export function EffectCard(props: EffectCardProps) {
   const spec = effectSpec(effect.type);
   const automated = props.automated ?? {};
   const anyAuto = Object.keys(automated).length > 0;
-  const warning = levelWarning(effect, props.level);
+  const warning = levelWarning(effect, props.level, props.runs);
   const bodyId = `studio-fx-${effect.id}-body`;
   const plugin = pluginCardView(effect, props.pluginHealth);
   const summary = effectSummary(effect);

@@ -4,6 +4,7 @@
  *
  * Lives in the audio plugin (ADR 0157 §6); the engine imports the mixer from `engine/audio/mixer`.
  */
+import type { AmpStages } from "../../../engine/audio/effects/ampEnvelope";
 import type { Vec3Like } from "../../../engine/core/math";
 import type { Effect, PluginEffectDecl } from "../../../engine/audio/effects/types";
 import { mixer, type Mixer, type MixOpTarget, type ResolvedBus } from "../../../engine/audio/mixer";
@@ -255,6 +256,17 @@ export interface AudioPlaylistHandle extends AudioHandle, MusicEventHandle {
    * the first frame whose heard clock has passed them (`e.time` is the exact heard time).
    */
   onMarker(type: AudioMarkerType, fn: (e: AudioMarkerEvent) => void): () => void;
+  /**
+   * ADR 0362 §1: hold the playback where it is: its voices, timers, sequence clock and pending picks wait, and `resume()`
+   * continues it from that same position (the musical clock, markers and beat callbacks hold too). Pausing a paused
+   * playback, or resuming one that isn't paused, does nothing; `stop()` stops a paused one. Changes to its parameters
+   * while paused take effect when it resumes.
+   */
+  pause(): void;
+  /** ADR 0362 §1: continue a paused playback from where it held. A no-op when it isn't paused. */
+  resume(): void;
+  /** ADR 0362 §1: true from `pause()` until `resume()` or `stop()`. */
+  readonly paused: boolean;
 }
 
 /**
@@ -353,6 +365,28 @@ export interface PlayRequest {
    * backend without `generators` plays nothing for it.
    */
   generator?: GeneratorSource;
+
+  // ADR 0362 (the core's ABI 6.1). Optional; a backend without them plays the clip forward with no envelope.
+  /**
+   * Item 3: the voice reads its clip backwards (a reversed sequence clip). It starts at `offset` seconds into the source
+   * (0 or omitted: the clip's end) and plays down to the clip's start, where it ends; its loops (`setLoop`, `setLoops`,
+   * in source seconds as always) run backwards inside their regions. Decoded clips only: the caller decodes a streamed
+   * source whole for it (`stream: false`).
+   */
+  reverse?: boolean;
+  /** Item 2: the voice's Amp envelope (a sequence clip's `envelope` effect), per sample on the core. */
+  envelope?: VoiceEnvelope;
+}
+
+/**
+ * ADR 0362 item 2: a voice's Amp envelope. `stages` are seconds (`ampEnvelope.ts`); the envelope spans `length` seconds
+ * (its stages fitted to it, the release ending at its end; null: unbounded, never released) and the voice starts at
+ * `offset` seconds into it (a voice that starts inside its clip). It runs on the voice's own time (not its pitch).
+ */
+export interface VoiceEnvelope {
+  readonly stages: AmpStages;
+  readonly length: number | null;
+  readonly offset: number;
 }
 
 /**
@@ -442,8 +476,13 @@ export interface AudioVoice {
   setPosition(p: Vec3Like): void;
   /** Move to another bus while playing. */
   setBus(bus: string): void;
-  pause(): void;
-  resume(): void;
+  /**
+   * Hold the voice (it stops rendering and advancing; its position and ramps hold) and continue it from there. `at`
+   * (ADR 0362 §1, heard time) stamps it, so every voice of a playback holds at the same instant and continues at the same
+   * instant; omitted or past, as soon as possible. The core honours the stamp; the Babylon fallback pauses at once.
+   */
+  pause(at?: number): void;
+  resume(at?: number): void;
   /** Stop now, or fade to silence over `fadeSeconds` (default 0) and stop. */
   stop(fadeSeconds?: number): void;
 

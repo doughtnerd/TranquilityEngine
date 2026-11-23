@@ -120,3 +120,33 @@ describe("lintPlaylist", () => {
     expect(lintPlaylist(parsed(raw))).toEqual([{ code: "allWeightsZero", where: "entries[0].embedded.entries", message: "Every entry has weight 0, so this Queue never plays anything." }]);
   });
 });
+
+describe("byIgnored (ADR 0362 §5)", () => {
+  const body = (by: unknown, input: unknown = "voiceTime", target = "gain") => ({
+    ...P, type: "clip", parameters: [{ name: "Speed", min: 0, max: 10, default: 0 }],
+    entries: [{ sample: "a.wav", curves: { [target]: { input, curve: [[0, 0]], by } } }],
+  });
+  const globals = [{ name: "Surface", labels: ["Dirt", "Wood"], default: "Dirt" }, { name: "Rain", min: 0, max: 1, default: 0, seekSpeed: 0 }];
+  const ctx: LintContext = { globalParameters: () => globals };
+
+  it("flags a second input that names no parameter, only when the project's parameters are known", () => {
+    expect(codes(body({ input: "Nope", mode: "morph" }), ctx)).toEqual(["byIgnored"]);
+    expect(codes(body({ input: "Nope", mode: "morph" }))).toEqual([]);
+    expect(codes(body({ input: "Speed", mode: "morph" }), ctx)).toEqual([]);
+    expect(codes(body({ input: "Rain", mode: "rate" }), ctx)).toEqual([]);
+  });
+
+  it("flags labels on a parameter without labels, and a second input on a generator curve", () => {
+    expect(codes(body({ input: "Rain", mode: "labels" }), ctx)).toEqual(["byIgnored"]);
+    expect(codes(body({ input: "Surface", mode: "labels" }), ctx)).toEqual([]);
+    expect(lintPlaylist(parsed(body({ input: "Speed", mode: "labels" })), ctx)[0]!.where).toBe("entries[0].curves.gain.by");
+    expect(codes(body({ input: "Rain", mode: "scale" }, "voiceTime", "gen:freq"), ctx)).toContain("byIgnored");
+  });
+
+  it("checks sequence track and clip lanes too", () => {
+    const seq = { ...P, type: "sequence", entries: [], sequence: { length: 1, tracks: [{ id: "t", kind: "audio", automation: [{ id: "a", target: "volume", curve: [[0, 0]], by: { input: "Rain", mode: "labels" } }], clips: [
+      { id: "c", sample: "a.wav", at: 0, length: 1, automation: [{ id: "b", target: "volume", curve: [[0, 0]], by: { input: "Gone", mode: "scale" } }] },
+    ] }] } };
+    expect(lintPlaylist(parsed(seq), ctx).filter((l) => l.code === "byIgnored").map((l) => l.where)).toEqual(["sequence.tracks[0].automation[0].by", "sequence.tracks[0].clips[0].automation[0].by"]);
+  });
+});

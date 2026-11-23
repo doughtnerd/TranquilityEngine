@@ -8,6 +8,7 @@
  * Pure; no plugin, no DOM.
  */
 import type { Curve } from "../../core/curve";
+import type { CurveBy } from "../curveBy";
 import type { Attenuation } from "../attenuation/types";
 import type { Effect } from "../effects/types";
 import type { GeneratorBody } from "../generators/types";
@@ -81,6 +82,8 @@ export interface VoiceCurve {
   bypass: boolean;
   /** A curve keyed on a parameter moves only on this musical boundary (as `Automation.quantize`); absent: continuously. */
   quantize?: Quantize;
+  /** ADR 0362 §5: the curve's second input ("And by", `curveBy.ts`); absent: none. */
+  by?: CurveBy;
 }
 export type VoiceCurveTarget = "gain" | "pitch" | "pan" | "lowpass" | "highpass";
 /**
@@ -104,6 +107,8 @@ export interface Automation {
    * pan and the effect parameters the voice carries (low-pass and high-pass cutoff, a gain effect's gain) take it.
    */
   quantize?: Quantize;
+  /** ADR 0362 §5: the lane's second input ("And by", `curveBy.ts`); absent: none. */
+  by?: CurveBy;
 }
 
 /** A loop's behaviour, shared by sample loops (ADR 0342), clip loop overrides and sequence loops. */

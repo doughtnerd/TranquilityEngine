@@ -23,6 +23,7 @@
  */
 
 import type { Curve } from "../core/curve";
+import type { CurveBy } from "./curveBy";
 import { detectPlatform, type PlatformEnv } from "../core/graphics";
 import { parseParameters, type ParameterDef } from "./parameters";
 import { audioCurve } from "./audioCurveLimit";
@@ -171,6 +172,19 @@ export interface BusAutomation {
   log?: boolean;
   /** `send`: the bus the send feeds (a return). */
   to?: string;
+  /**
+   * ADR 0362 §5: a second global parameter the lane also follows. The runtime binds the slice of `by.lane` (the authored
+   * curve, in the lane's units) at the second parameter's value, mapped as `curve` was (`busAutomationCurve`), in
+   * `curve`'s place, and re-slices when that parameter changes.
+   */
+  by?: BusAutomationBy;
+}
+
+/** A bus automation's second input: the `by` (`curveBy.ts`) with the authored curve and how it maps to `curve`'s units. */
+export interface BusAutomationBy extends CurveBy {
+  readonly lane: Curve;
+  /** `gain`: dB to a linear gain (a volume lane); `log2`: a log-scale effect parameter; absent: as is. */
+  readonly map?: "gain" | "log2";
 }
 
 export interface AudioSettings {

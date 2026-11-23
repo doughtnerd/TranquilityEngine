@@ -16,7 +16,7 @@ export type ChainLevel = "playlist" | "track" | "clip" | "clipPlaylist";
 const WHERE: Record<ChainLevel, string> = {
   playlist: "Runs on this playlist's submix, once per playing instance, on its own voices after they are mixed (nested in another playlist, then through that one's effects), before the Mixer bus.",
   track: "Runs on the track's submix, once per playing sequence, then through the sequence's effects.",
-  clip: "Runs on the clip's submix, once per playing sequence, then through its track's effects; a delay or reverb rings on after the clip ends.",
+  clip: "Runs on the clip's submix, once per playing sequence, then through its track's effects; a delay or reverb rings on after the clip ends. The Amp envelope shapes the clip's own voices over the clip, its release ending at the clip's end.",
   clipPlaylist: "Runs on this clip's own submix, once per playing instance of the clip, on its voice before the playlist it sits in mixes it. Delay and Reverb belong on the playlist or a bus.",
 };
 

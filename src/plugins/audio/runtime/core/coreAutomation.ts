@@ -103,7 +103,7 @@ import { AUTOMATION_GLOBAL, AUTOMATION_TIME, CORE_CURVE_KEYS, curveBytes, CURVES
 import type { PlayheadTracker, ReplayBuilder } from "./replay";
 import type { SendGate } from "./session";
 import { warnOnce } from "./handle";
-import { VoiceFlag, VoiceState, type VoiceTable } from "./voiceTable";
+import { VoiceFlag, VoiceFlag2, VoiceState, type VoiceTable } from "./voiceTable";
 
 
 /** Most bytes of resync (curves, parameters, bus bindings) written per frame outside what a binding needs at once. */
@@ -1048,11 +1048,33 @@ export class CoreAutomation implements AutomationSink {
     this.stats.loops++;
   }
 
+  /**
+   * ADR 0362: slot `i` reads its clip backwards, so its regions count from the clip's end: the clip's frame count, or
+   * null for a forward voice (and while the clip's length isn't known, when a reversed voice's regions can't go yet).
+   */
+  private reversedFrames(i: number): number | null {
+    if ((this.deps.table.flags2[i]! & VoiceFlag2.REVERSE) === 0) return null;
+    return this.deps.clipInfo(i)?.frames ?? 0;
+  }
+
   /** A program in the clip's frames, as LOOPS carries it; null while the clip's rate isn't known. */
   private programItems(i: number, program: readonly VoiceLoop[]): LoopsLoops[] | null {
     const rate = this.deps.clipInfo(i)?.sampleRate ?? 0;
     if (!(rate > 0)) return null;
     const frames = (s: number): number => Math.max(0, Math.round((Number.isFinite(s) ? s : 0) * rate));
+    const n = this.reversedFrames(i);
+    if (n !== null) {
+      if (!(n > 0)) return null;
+      // ADR 0362: a reversed voice's regions mirror into positions from the clip's end (sorted by start again); each
+      // loop's direction is the same in those positions, so a forward loop runs backwards in the clip.
+      const items = this.forwardItems(program, frames);
+      for (const it of items) [it.startFrame, it.endFrame] = [Math.max(0, n - it.endFrame), Math.max(0, n - it.startFrame)];
+      return items.reverse();
+    }
+    return this.forwardItems(program, frames);
+  }
+
+  private forwardItems(program: readonly VoiceLoop[], frames: (s: number) => number): LoopsLoops[] {
     return program.map((l) => {
       const dir = l.direction === "pingPong" ? 1 : l.direction === "backward" ? 2 : 0;
       const active = l.active === "held" ? 1 : l.active === "parameter" ? 2 : 0;
@@ -1077,7 +1099,15 @@ export class CoreAutomation implements AutomationSink {
     const info = this.deps.clipInfo(i);
     const rate = info?.sampleRate ?? 0;
     if (!(rate > 0)) return null;
-    return { start: Math.round(e.loop.start * rate), end: e.loop.end > 0 ? Math.round(e.loop.end * rate) : 0, looping: e.loop.looping };
+    const start = Math.round(e.loop.start * rate);
+    const n = this.reversedFrames(i);
+    if (n !== null) {
+      // ADR 0362: in a reversed voice's positions (from the clip's end) the region is mirrored.
+      if (!(n > 0)) return null;
+      const end = e.loop.end > 0 ? Math.min(n, Math.round(e.loop.end * rate)) : n;
+      return { start: Math.max(0, n - end), end: Math.max(0, n - start), looping: e.loop.looping };
+    }
+    return { start, end: e.loop.end > 0 ? Math.round(e.loop.end * rate) : 0, looping: e.loop.looping };
   }
 
   /** Group `g`'s sequence clock extrapolated to now (`frame` may still be ahead: then its anchor value). */

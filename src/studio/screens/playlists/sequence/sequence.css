@@ -221,7 +221,7 @@ button.sq-tci:hover:not(:disabled) { background: var(--hover); }
 .sq-adsr { position: absolute; left: 0; top: 0; pointer-events: none; z-index: 2; overflow: visible; }
 .sq-adsr polygon { fill: var(--accent2-soft); stroke: var(--accent2); stroke-width: 1.2; }
 .sq-adsr.bypassed polygon { fill: none; stroke-dasharray: 3 3; }
-.sq-adsr-handle { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 2px; background: var(--accent2); border: 1.5px solid var(--bg); box-sizing: border-box; cursor: grab; z-index: 4; touch-action: none; }
+.sq-adsr-handle { position: absolute; width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; border-radius: 2px; background: var(--accent2); border: 1.5px solid var(--bg); box-sizing: border-box; cursor: grab; z-index: 6; touch-action: none; } /* above the trim edges: a short attack sits on the clip's start edge */
 .sq-adsr-handle:hover { transform: scale(1.25); }
 .sq-edge { position: absolute; top: 0; bottom: 0; width: 6px; cursor: ew-resize; z-index: 5; }
 .sq-edge.start { left: 0; }

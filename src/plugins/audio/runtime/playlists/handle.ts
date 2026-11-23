@@ -25,31 +25,34 @@ class PlaylistMusic implements MusicHandle {
   get tempo(): number { return this.pos()?.tempo ?? 0; }
   get beatsPerBar(): number { return this.pos()?.beatsPerBar ?? 0; }
   get beatUnit(): number { return this.pos()?.beatUnit ?? 0; }
-  get time(): number { return this.now(); }
+  get time(): number { return this.instance.heardTime(this.now()); }
   /** The Switch change waiting for its boundary: the label it changes to and when it lands (heard seconds). */
   get transition(): { to: string; time: number } | null {
     const c = this.instance.pendingChange();
-    return c ? { to: c.to ?? "", time: c.at } : null;
+    return c ? { to: c.to ?? "", time: this.instance.heardTime(c.at) } : null;
   }
   nextGrid(spec: GridSpec): GridPoint | null {
     const s = this.instance.musicalSource();
     const p = s?.nextGrid(spec, this.now());
-    return s && p ? { time: p.time, bar: p.bar, beat: p.beat, segment: s.label } : null;
+    return s && p ? { time: this.instance.heardTime(p.time), bar: p.bar, beat: p.beat, segment: s.label } : null;
   }
   positionAt(performanceTime: number): MusicPositionAt {
     const s = this.instance.musicalSource();
-    const time = audioTimeAt(performanceTime);
+    // ADR 0362 §1: the heard time on the instance's own clock (a paused playback's position holds).
+    const heard = audioTimeAt(performanceTime);
+    const time = Number.isFinite(heard) ? this.instance.localTime(heard) : heard;
     const p = s && Number.isFinite(time) ? s.positionAt(time) : null;
     const spb = s?.secondsPerBeat() ?? null;
     if (!s || !p || spb === null) return { segment: null, bar: 0, beat: 0, beatFraction: 0, nearestBeatTime: 0, offset: 0, judged: 0 };
     const nearest = p.beatFraction < 0.5 ? time - p.beatFraction * spb : time + (1 - p.beatFraction) * spb;
     const offset = time - nearest;
-    return { segment: s.label, bar: p.bar, beat: p.beat, beatFraction: p.beatFraction, nearestBeatTime: nearest, offset, judged: offset - getCalibration() };
+    return { segment: s.label, bar: p.bar, beat: p.beat, beatFraction: p.beatFraction, nearestBeatTime: this.instance.heardTime(nearest), offset, judged: offset - getCalibration() };
   }
   seek(to: string): MusicSeekResult {
     const s = this.instance.musicalSource();
     if (!s) return { ok: false, reason: "notPlaying", permanent: true };
-    return s.seek(String(to));
+    const r = s.seek(String(to));
+    return r.ok ? { ok: true, time: this.instance.heardTime(r.time) } : r;
   }
 }
 
@@ -80,6 +83,9 @@ class PlaylistHandle implements AudioPlaylistHandle {
     return this.instance.musicCallbacks(this).on(kind, fn);
   }
   trigger(name: string): boolean { return this.instance.trigger(String(name)); }
+  pause(): void { this.instance.pause(); }
+  resume(): void { this.instance.resume(); }
+  get paused(): boolean { return this.instance.paused; }
 }
 
 const handles = new WeakMap<PlaylistInstance, PlaylistHandle>();

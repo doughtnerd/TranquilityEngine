@@ -39,6 +39,7 @@ type EffectOverrides = ResolvedMix["effects"];
 import { liveRuleAnswer, unsupportedAnswer, type LiveCaps, type SentClass } from "./busCapability";
 import { LoudnessView, EMPTY_BUS_LOUDNESS, type BusLoudness, type LoudnessSource } from "./loudnessTypes";
 import { parameterDefault } from "./parameters";
+import { evalCurveBy, secondValueOf } from "./curveBy";
 import { engineSettingsOf, projectOfMix } from "./project/format";
 import { dbToGain, levelDbOf, MIN_DB } from "./project/gain";
 import { fromLegacySection, mergeLegacyIntoProject } from "./project/legacy";
@@ -933,7 +934,7 @@ export class Mixer {
     if (this.player.setParameter(name, value, now)) this.planSnapshots(now, 0, true);
     if (this.paramValues[name] !== v) {
       this.paramValues[name] = v;
-      if (this.project.automation.some((a) => a.parameter === name)) {
+      if (this.project.automation.some((a) => a.parameter === name || a.by?.input === name)) {
         this.evaluateAutomation();
         this.effectsDirty = true;
         this._dirty();
@@ -1036,7 +1037,10 @@ export class Mixer {
       if (!e) continue;
       const byId = this.autoFx.get(a.on) ?? new Map<string, Map<string, number>>();
       const ps = byId.get(id) ?? new Map<string, number>();
-      ps.set(p, FREQUENCY_PARAMS.has(p) ? evalLogCurve(a.curve, x) : evalCurve(a.curve, x));
+      const ev = FREQUENCY_PARAMS.has(p) ? evalLogCurve : evalCurve;
+      // ADR 0362 §5: a second parameter the lane also follows.
+      const second = a.by ? this.project.parameters.find((q) => q.name === a.by!.input) : undefined;
+      ps.set(p, a.by && second ? evalCurveBy(a.curve, a.by, x, secondValueOf(second, this.paramValues[second.name] ?? parameterDefault(second)), ev) : ev(a.curve, x));
       byId.set(id, ps);
       this.autoFx.set(a.on, byId);
     }

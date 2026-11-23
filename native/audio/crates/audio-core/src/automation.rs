@@ -280,7 +280,8 @@ pub struct VoiceAuto {
     pub loop_on: u8,
     /// Non-zero when a binding reads a time parameter (ADR 0346).
     pub time: u8,
-    pub _pad: u8,
+    /// ADR 0362 (ABI 6.1): non-zero while an AMP_ENVELOPE applies ([`VoiceAuto::env`]).
+    pub env_on: u8,
     /// ADR 0342: its loop program's pool entry ([`ProgramEntry`]) plus 1; 0 none.
     pub prog: u16,
     /// ABI 4.9 (ROUTE): the submix slot the voice mixes into, plus 1 (its playlist level's); 0 its
@@ -309,13 +310,18 @@ pub struct VoiceAuto {
     pub offsets: [f32; BINDINGS],
     /// The context frame the voice started (or starts) at, or [`UNANCHORED`] (`voiceTime`).
     pub vstart: u64,
+    /// ADR 0362 (ABI 6.1): the voice's Amp envelope (AMP_ENVELOPE), while `env_on`.
+    pub env: audio_dsp::adsr::Adsr,
+    /// The envelope frame of the voice's next rendered frame: AMP_ENVELOPE's `offsetFrames`, then one more for every
+    /// frame the voice renders or keeps time for (`voices.rs`).
+    pub env_pos: u32,
 }
 
 impl VoiceAuto {
     /// `true` when the entry has something for the voice `id`: bindings or a loop region.
     #[inline]
     pub fn active_for(&self, id: u32) -> bool {
-        self.id == id && (self.count != 0 || self.loop_on != 0)
+        self.id == id && (self.count != 0 || self.loop_on != 0 || self.env_on != 0)
     }
 
     /// `gainMul` at frame `j` (0..128) of the quantum.
@@ -1101,8 +1107,39 @@ pub fn on_play(core: &mut Core, index: usize, voice_id: u32, group: u16, start_f
     e.time = 0;
     e.loop_on = 0;
     e.submix = 0;
+    e.env_on = 0;
     free_program(v.programs, e);
     e.vstart = start_frame;
+}
+
+/// AMP_ENVELOPE (ADR 0362, ABI 6.1): voice `voiceId`'s Amp envelope from the record at `msg[off..]` (a fixed 44 B,
+/// checked by the scheduler), or, with `AMP_ENV_ON` clear, none. A stale id is dropped.
+pub fn amp_envelope(core: &mut Core, msg: &[u8], off: usize) {
+    let voice_id = u32_at(msg, off + 4);
+    let Some(index) = crate::voices::live_index(core, voice_id) else { return };
+    let Some(v) = view(&mut core.regions_mut().automation[..]) else { return };
+    let e = &mut v.voices[index];
+    if e.id != voice_id {
+        *e = zeroed_voice();
+        e.id = voice_id;
+        e.vstart = UNANCHORED;
+    }
+    if u32_at(msg, off + 12) & wire::AMP_ENV_ON == 0 {
+        e.env_on = 0;
+        return;
+    }
+    let sustain = f32_at(msg, off + 28);
+    e.env = audio_dsp::adsr::Adsr {
+        attack: u32_at(msg, off + 16),
+        hold: u32_at(msg, off + 20),
+        decay: u32_at(msg, off + 24),
+        sustain: if sustain.is_finite() { sustain.clamp(0.0, 1.0) } else { 1.0 },
+        release: u32_at(msg, off + 32),
+        key_off: u32_at(msg, off + 36),
+    };
+    e.env_pos = u32_at(msg, off + 40);
+    e.env_on = 1;
+    enlist(v.header, v.active, e, index);
 }
 
 /// ROUTE (ABI 4.9): voice `voiceId` mixes into submix slot `submix - 1` (0: its group's route). A
@@ -1221,7 +1258,7 @@ pub fn begin_quantum(core: &mut Core, frame: u64) {
         let e = &mut v.voices[index];
         let slot = voices.get(index).filter(|s| s.id == e.id && crate::voices::is_live_state(s.state));
         let live = slot.is_some();
-        if !live || (e.count == 0 && e.loop_on == 0) {
+        if !live || (e.count == 0 && e.loop_on == 0 && e.env_on == 0) {
             e.list = 0;
             free_program(v.programs, e);
             let last = v.header.active_len as usize - 1;
