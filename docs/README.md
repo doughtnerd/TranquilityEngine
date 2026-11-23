@@ -34,6 +34,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Writing a plugin](guide/plugins.md) | Third-party plugins: the folder layout, `plugin.json`, runtime and editor halves, a physics backend, enabling, reloading, npm packages, what refuses a plugin, trust |
 | [Materials, shaders and batching](guide/materials-and-shaders.md) | Hand-written shader assets (WGSL/GLSL), keywords and variants, changing materials from scripts, GPU instancing and sprite batching, pixel-perfect cameras |
 | [Skies](guide/skies.md) | Procedural sky assets and the Sky panel, presets, time of day and the sun-driven light, the `Sky` component, cubemap environments (`.env`, `.dds`, six images), cost |
+| [Animation](guide/animation.md) | Importing skinned models and clips, the `Animator` (`play`, `crossfade`, layers, masks, `state`), property tracks and notifies, the Animation window (record mode, key buttons), tweens, timelines, graphs (state machines, blend spaces, slots, sync, linked graphs), IK and warping, retargeting, motion matching, root motion and replication, 2D flipbooks and bones, ragdolls, third-party nodes, musical timing, the live debugger, debug link and profiler, glossary |
 
 ## Architecture
 

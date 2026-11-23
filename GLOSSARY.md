@@ -148,6 +148,31 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 - **Core memory answer:** what the audio core says it needs for an INIT record (ADR 0327): the Memory's `maximum` (`myco_audio_memory_pages`, for the clip ceiling) and each `MemoryPart` (`myco_audio_memory_part_bytes`), asked of a throwaway instance (`askCoreMemory`). _Avoid:_ computing region sizes in TypeScript.
 - **Spatial asset preparation:** turning a spatial asset fetched at its own rate (the HRIR table, the MagLS filters) into the clip format the core takes at the context rate (2 or 4), done by the decoder wasm in the decoder worker (`myco_hrir_prepare`, `myco_magls_prepare`; ADR 0331), asked for with `DecoderClient.prepareSpatial`. The loaders in `core/hrir.ts` hand the blob to the clip registry as a reserved clip.
 
+## Animation (ADR 0370–0376)
+
+User-facing guide: [docs/guide/animation.md](docs/guide/animation.md).
+
+- **Clip:** a set of tracks over time: an authored `*.anim.json`, an imported `model.glb#Anim/<name>`, an image flipbook `sheet.png#Flip/<name>`, compiled to `myco.anim@1` (`.anim.bin`). A timeline is a clip used across many nodes (ADR 0371).
+- **Track / key:** a track is one animated thing of one kind (`bone`, `float`…`color`, `quat`, `discrete`, `morph`, `event`, `audio`, `activation`, `subclip`, `control`, `marker`, `curve`); a key is a value (or notify) at a time on it. Clips, timelines and tweens share one track model.
+- **Marker:** a named point on a clip: `sync` (phase sync), `exit` (where a transition may leave), `hit` (an impact a play can align to) or `cue` (a named point scripts and `section`s use).
+- **Notify:** an `event` track key that calls a method on the Animator's node's behaviours and fills `AnimationEvents`; a **notify state** also ticks (`begin`, `tick`, `end`). No event bus (ADR 0017).
+- **Layer / mask:** a graph layer (or an implicit-graph layer index) blended over the base by weight, optionally through an avatar mask (`*.mask.json`: bones or profile roles with weights).
+- **Slot:** a named insertion point in a graph where code plays a one-shot clip over the graph (`anim.play(clip, { slot })`); a **section** is the part of the clip it plays.
+- **Sync group:** a `syncGroup` node; the clip players under it follow the heaviest one's phase by `sync` markers.
+- **Blend space:** a 1D or 2D blend node over float parameters (piecewise-linear, or Delaunay-triangulated with hull projection, as audio's Blend).
+- **Chooser:** a table of condition rows that picks a clip, blend space or pose database.
+- **Request:** `Animator.request(name, { within })`: a live signal a transition reads, consumed by the first transition that reads it or expired. It replaces triggers.
+- **Linked graph:** a `linked` node that runs another `*.animgraph.json` with its own parameters, swappable per Animator (`Animator.link`).
+- **Rig (stack):** the ordered rig nodes (IK, look-at, grounder, spring bones, constraints, warps) that run after a pose. A **goal** is a named IK target slot.
+- **Profile:** a `*.skelprofile.json`: roles (with mirrors and joint ranges) and chains mapped onto a skeleton's bones; the built-in Humanoid is one.
+- **Retarget:** playing clips made for one skeleton on another through the two profiles' chains (`retarget` node, `Skeleton.retargetSource`, or an offline bake).
+- **Pose database:** baked features of tagged clip ranges (`*.posedb.json` → `*.posedb.bin`) that a `poseDatabase` node searches for motion matching.
+- **Root motion:** movement extracted from a clip's root bone and applied to a Transform, `CharacterController` or kinematic `RigidBody`; always in the `RootMotion` buffer.
+- **Inertialization:** removing the pop of a pose switch by decaying the difference (Bollo's quintic) instead of crossfading.
+- **Fuel:** the instruction budget a third-party wasm graph node gets per evaluation (`animationNodes[].budget`); a node that exhausts it faults and passes its input pose through.
+- **Take:** in import, an animation stack of a model file that clip settings cut into clips. A recorded run of what the game asked of animation (`ANIM_*` records) is designed (ADR 0373) and not built.
+- **Debug link:** the versioned connection by which a running build is inspected from the editor (ADR 0376): topics, pulled subscriptions, commands applied at the next frame start.
+
 ## Tilemaps (ADR 0103)
 
 - **Orientation:** one of a tile's 8 flips and turns, its flip flags read as a transform of the cell, diagonal first, then X, then Y (as Tiled). `runtime/tileFlips.ts` is the one place that convention lives: `compose`, `inverse`, `rotateClockwise`, `flipPoint`, `sourceCorner`.
