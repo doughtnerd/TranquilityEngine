@@ -34,7 +34,7 @@ import { previewOf } from "./samplePreview";
 import { bytesOf, lengthOf, pcmOf, peaksOf, type SampleSession } from "./sampleSession";
 import { levelLanes, waveformFromPeaks } from "../../../editor/ui/curves/waveBackdrop";
 import { applyAutomationResult, automatedCount, automationDialog } from "./sampleAutomation";
-import type { SampleEdit } from "./sampleEditing";
+import { normalizeGainText, normalizeTargetText, type SampleEdit } from "./sampleEditing";
 import { abSource, fxFocus, fxPreview, openSession, select, timeFormat } from "./samplesState";
 import { removedSeconds, trimOf } from "./sampleTime";
 
@@ -318,7 +318,7 @@ export function EditsPanel() {
         {n.mode !== "off" && (
           <li class="smp-fxr locked" title="Applied last, after the effects · set it with Normalize in the toolbar">
             <b>Normalize</b>
-            <span class="smp-muted smp-tabular">{n.target} {n.mode === "loudness" ? "LUFS" : "dBFS"} → {n.gainDb > 0 ? "+" : ""}{n.gainDb.toFixed(1)} dB</span>
+            <span class="smp-muted smp-tabular">{normalizeTargetText(n)} → {normalizeGainText(n.gainDb)}</span>
             <span class="smp-flex" />
             <Chip>Toolbar</Chip>
           </li>

@@ -15,6 +15,7 @@ import { ContextMenu, SEPARATOR, tidyEntries, type MenuEntry } from "../../../ed
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { FloatingPortal } from "../../../editor/ui/FloatingPortal";
 import { HistoryPopover } from "../../../editor/ui/HistoryPopover";
+import { assetHistory } from "../../../editor/activeHistory";
 import { formatKeys, isMacPlatform } from "../../../editor/ui/keyCombo";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { usePopover } from "../../../editor/ui/popover";
@@ -26,7 +27,7 @@ import { clampView, fitView, timeToX, waveColumns, xToTime, type WaveBand } from
 import { useElementWidth } from "../../components/useElementWidth";
 import * as act from "./sampleActions";
 import {
-  addLoop, addMarker, closeGap, convertMarker, deleteMarker, hasFixedName, isHold, loopName, MARKER_TYPE_NAMES, MARKER_TYPE_ORDER, moveLoop, moveMarker, nextMarkerName, refusalOf, removeLoop, resetTrim,
+  addLoop, addMarker, closeGap, convertMarker, deleteMarker, hasFixedName, isHold, loopName, MARKER_TYPE_NAMES, MARKER_TYPE_ORDER, moveLoop, moveMarker, nextMarkerName, normalizeGainText, normalizeTargetText, refusalOf, removeLoop, resetTrim,
   setRangeLook, setSnapToZero, setTrim, slideLoop, snippets, sourceTime, tapeSnippet, toggleSnippet, updateLoop, updateMarker, viewTime, type SampleEdit,
 } from "./sampleEditing";
 import { effectSpec } from "../../../engine/audio/effects/catalogue";
@@ -389,7 +390,7 @@ function Timeline(props: { session: SampleSession }) {
         onFork={() => (dialog.value = { kind: "fork", mode: "fork" })}
       />
       <span class="smp-vsep" aria-hidden="true" />
-      <HistoryPopover none="No edits yet" />
+      <HistoryPopover none="No edits yet" of={assetHistory(session.document)} />
       <span class="smp-vsep" aria-hidden="true" />
       <VersionMenu session={session} />
       <button type="button" class={`smp-sbtn smp-ab${ab ? " on" : ""}`} aria-pressed={ab} aria-label="A/B: hear the source without edits"
@@ -626,7 +627,7 @@ function Timeline(props: { session: SampleSession }) {
   const fxChips: FxChip[] = [
     ...(ab ? [{ id: "ab", label: "A/B · source", tip: "Showing the source without edits · click to show the edits", tone: "on" as const, run: () => (abSource.value = false) }] : []),
     ...e.effects.map((f) => ({ id: f.id, label: effectChip(f), tip: `${effectSpec(f.type).label}${f.on ? "" : " · bypassed"} · click to show the waveform after this step`, tone: !f.on ? ("off" as const) : fxFocus.value === f.id ? ("on" as const) : undefined, run: () => (fxFocus.value = fxFocus.value === f.id ? null : f.id) })),
-    ...(e.normalize.mode !== "off" ? [{ id: "norm", label: `Norm ${e.normalize.target} ${e.normalize.mode === "loudness" ? "LUFS" : "dBFS"}`, tip: `Normalize · gain ${e.normalize.gainDb > 0 ? "+" : ""}${e.normalize.gainDb.toFixed(1)} dB, applied last` }] : []),
+    ...(e.normalize.mode !== "off" ? [{ id: "norm", label: `Norm ${normalizeTargetText(e.normalize)}`, tip: `Normalize · gain ${normalizeGainText(e.normalize.gainDb)}, applied last` }] : []),
     ...(e.frozen ? [{ id: "frozen", label: "Frozen", tip: "The render is kept as fixed audio", tone: "info" as const }] : []),
   ];
   const clips = clipRuns(shown, view, width);

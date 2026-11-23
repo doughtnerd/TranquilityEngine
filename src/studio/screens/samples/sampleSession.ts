@@ -54,6 +54,8 @@ export interface SampleSession {
   readonly path: string;
   /** The document holding the edits (the sidecar, or the derived sample); its path marks the editor (`data-asset-document`). */
   readonly documentPath: string;
+  /** That document: the Sample toolbar's Undo, Redo and History act on it from the moment the sample opens. */
+  readonly document: AssetDocument<unknown>;
   /** The audio file it plays. */
   readonly source: ReadonlySignal<string>;
   /** The edits as they play (a following fork's inherited fields resolved). */
@@ -89,7 +91,7 @@ function sidecarSession(project: EditorProject, path: string): SampleSession {
     return true;
   };
   return {
-    project, path, documentPath: doc.path, source: signal(path), edits, derived: signal(null), settings: doc.value, readOnly: doc.readOnly, commit,
+    project, path, documentPath: doc.path, document: doc as AssetDocument<unknown>, source: signal(path), edits, derived: signal(null), settings: doc.value, readOnly: doc.readOnly, commit,
     setSettings: (next, label) => doc.edit(next, { label }),
     editDerived: () => undefined,
     undo: () => doc.undo(),
@@ -123,7 +125,7 @@ function derivedSession(project: EditorProject, path: string): SampleSession {
     return true;
   };
   return {
-    project, path, documentPath: doc.path, source: computed(() => doc.value.value.source), edits, derived: doc.value, settings: signal(null), readOnly: doc.readOnly, commit,
+    project, path, documentPath: doc.path, document: doc as AssetDocument<unknown>, source: computed(() => doc.value.value.source), edits, derived: doc.value, settings: signal(null), readOnly: doc.readOnly, commit,
     setSettings: () => undefined,
     editDerived: (next, label) => doc.edit(next, { label }),
     undo: () => doc.undo(),

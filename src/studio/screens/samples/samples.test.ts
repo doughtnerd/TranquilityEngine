@@ -7,10 +7,10 @@ import type { SampleEdits, SampleLoop, SampleMarker } from "../../../engine/audi
 import type { WavMetadata } from "../../../engine/audio/sample/wavChunks";
 import { destinationFolder, destinationPath, guessKind, importedMessage, kindOn, kindsFound, sampleBlockFor } from "./importPlan";
 import {
-  addLoop, addMarker, clipAfterGain, closeGap, convertMarker, deleteMarker, loopGaps, moveLoop, moveMarker, normalizeGain, refusalOf, removeLoop, setNormalize,
+  addLoop, addMarker, clipAfterGain, closeGap, convertMarker, deleteMarker, loopGaps, moveLoop, moveMarker, normalizeGain, normalizeGainText, normalizeTargetText, refusalOf, removeLoop, setNormalize,
   setRoot, setTempo, setTrim, slideLoop, snip, snippets, tapeSnippet, toggleSnippet, updateLoop, updateMarker, type SampleEdit,
 } from "./sampleEditing";
-import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, revertLoop, revertMarker, summarizeMerge, writeSummary } from "./sampleFile";
+import { applyMerge, changedCount, detachAll, loopDiff, markerDiff, mergeRows, revertLoop, revertMarker, summarizeMerge, writeSummary, wroteText } from "./sampleFile";
 import { allSamples, audioFolders, cleanFolderName, cleanPath, fileChip, folderChoices, libraryTree, metaLine, moveUpPlan, searchSamples, shortLength, usesOf } from "./sampleLibrary";
 import { editedLength, inClosedGap, toSource, toView } from "./sampleTime";
 import {
@@ -147,6 +147,10 @@ describe("tempo, root, normalize", () => {
     const measured = { integrated: -19.5, peak: -2 };
     expect(normalizeGain("loudness", -16, measured)).toBe(3.5);
     expect(normalizeGain("peak", -1, measured)).toBe(1);
+    // Written with a true minus, as every other number (journeys walk 2, J2.6).
+    expect(normalizeTargetText({ mode: "loudness", target: -16 })).toBe("−16 LUFS");
+    expect(normalizeTargetText({ mode: "peak", target: -1 })).toBe("−1 dBFS");
+    expect([normalizeGainText(7), normalizeGainText(-3.5)]).toEqual(["+7.0 dB", "−3.5 dB"]);
     expect(next(setNormalize(skid(), "loudness", -16, measured)).normalize).toEqual({ mode: "loudness", target: -16, gainDb: 3.5 });
     expect(refusalOf(setNormalize(skid(), "loudness", -16, null))).toMatch(/measured/);
     expect(refusalOf(setNormalize(skid(), "peak", 3, measured))).toMatch(/-12 to 0/);
@@ -246,6 +250,13 @@ describe("file diff, revert, detach, write and merge", () => {
     expect(s.rows[0]).toEqual({ what: "2 cue points", chunks: "cue + labl + note" });
     expect(s.rows[2].what).toBe("1 loop");
     expect(s.keptInSidecar).toBe(1);
+  });
+
+  it("says it removes loops or a tempo only when the file has them, and counts in the singular (journeys walk 2, J2.7)", () => {
+    const none = { ...skid(), loops: [], tempo: null };
+    expect(writeSummary(none, { loops: 0, tempo: false }).rows.slice(2, 4).map((r) => r.what)).toEqual(["No loops", "No tempo"]);
+    expect(writeSummary(none, { loops: 2, tempo: true }).rows.slice(2, 4).map((r) => r.what)).toEqual(["No loops (removes the file's 2 loops)", "No tempo (removes the file's tempo)"]);
+    expect(wroteText("brake_skid.wav", { cues: 1, regions: 0, loops: 1 })).toBe("Wrote brake_skid.wav · 1 cue, 0 regions and 1 loop (backup kept)");
   });
 
   it("builds the merge review and applies choices", () => {

@@ -16,9 +16,8 @@ const STATES = [
   { seq: 4, parent: 1, label: "Rename marker", time: T0 + 30_000, hash: "4" },
 ];
 
-function HistoryDemo() {
+function useDemoHistory(): { current: number; history: UndoHistory } {
   const [current, setCurrent] = useState(3);
-  const root = useRef<HTMLDivElement>(null);
   const label = (seq: number) => STATES.find((s) => s.seq === seq)?.label ?? null;
   const parentOf = (seq: number) => Math.max(0, STATES.find((s) => s.seq === seq)?.parent ?? 0);
   const history = useMemo<UndoHistory>(
@@ -34,6 +33,12 @@ function HistoryDemo() {
     }),
     [current],
   );
+  return { current, history };
+}
+
+function HistoryDemo() {
+  const root = useRef<HTMLDivElement>(null);
+  const { current, history } = useDemoHistory();
   usePanelHistory(root, history);
   return (
     <div>
@@ -65,3 +70,30 @@ export const Tree: StoryObj = {
 };
 
 export const NothingFocused: StoryObj = { render: () => <HistoryPopover none="Click into a sample or playlist to undo its edits" /> };
+
+/** A document's own toolbar (the Samples toolbar): the cluster acts on that document's history, with nothing focused. */
+function OneDocumentDemo() {
+  const { current, history } = useDemoHistory();
+  return (
+    <div>
+      <HistoryPopover none="No edits yet" of={{ kind: "asset", history, path: "audio/engine_loop.wav.meta.json" }} />
+      <p>state {current}</p>
+    </div>
+  );
+}
+
+/** Journeys walk 2, J11.2: right after a sample opens its toolbar's Undo and History work, before any click into it. */
+export const OneDocument: StoryObj = {
+  render: () => <OneDocumentDemo />,
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByRole("button", { name: "Undo" })).toBeEnabled();
+    await expect(c.getByRole("button", { name: "Undo" })).toHaveAttribute("title", expect.stringContaining("Undo Set loop"));
+    await userEvent.click(c.getByRole("button", { name: "Undo" }));
+    await expect(c.getByText(/state 2/)).toBeVisible();
+    await userEvent.click(c.getByRole("button", { name: /History/ }));
+    const popover = within(document.body).getByRole("dialog", { name: "History" });
+    await expect(popover).toHaveTextContent("engine_loop.wav.meta.json · every step, with branches");
+    await expect(popover).not.toHaveTextContent("Click into a document");
+  },
+};

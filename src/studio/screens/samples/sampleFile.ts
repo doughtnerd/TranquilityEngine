@@ -118,20 +118,31 @@ export function changedCount(e: SampleEdits): number {
 
 // --- Write to file… -------------------------------------------------------------------------------------------------
 
+/** "1 cue", "2 cues", "0 loops". */
+const count = (n: number, noun: string): string => `${n} ${noun}${n === 1 ? "" : "s"}`;
+
+/** The toast after Write to file: "Wrote brake_skid.wav · 2 cues, 0 regions and 1 loop (backup kept)". */
+export function wroteText(file: string, r: { readonly cues: number; readonly regions: number; readonly loops: number }): string {
+  return `Wrote ${file} · ${count(r.cues, "cue")}, ${count(r.regions, "region")} and ${count(r.loops, "loop")} (backup kept)`;
+}
+
 export interface WriteSummaryRow {
   readonly what: string;
   readonly chunks: string;
 }
 
-/** What "Write to file…" will write (its review lists it). Exit, Hit point and Cue markers stay in the sidecar. */
-export function writeSummary(e: SampleEdits): { rows: WriteSummaryRow[]; keptInSidecar: number } {
+/**
+ * What "Write to file…" will write (its review lists it). Exit, Hit point and Cue markers stay in the sidecar. `file` is
+ * what the WAV holds now, when known: a row says it removes a chunk's content only when the file has some.
+ */
+export function writeSummary(e: SampleEdits, file?: { readonly loops: number; readonly tempo: boolean }): { rows: WriteSummaryRow[]; keptInSidecar: number } {
   const points = e.markers.filter((m) => m.type === "note" && m.end === undefined).length;
   const ranges = e.markers.filter((m) => m.type === "note" && m.end !== undefined).length;
   const rows: WriteSummaryRow[] = [
     { what: `${points} cue point${points === 1 ? "" : "s"}`, chunks: "cue + labl + note" },
     { what: `${ranges} region${ranges === 1 ? "" : "s"}`, chunks: "ltxt" },
-    { what: e.loops.length ? `${e.loops.length} loop${e.loops.length === 1 ? "" : "s"}` : "Removes the smpl loops", chunks: "smpl" },
-    { what: e.tempo ? `Tempo ${e.tempo.bpm} BPM ${e.tempo.meter}` : "No tempo (removes acid)", chunks: "acid" },
+    { what: e.loops.length ? `${e.loops.length} loop${e.loops.length === 1 ? "" : "s"}` : file?.loops === 0 ? "No loops" : `No loops (removes the file's ${file ? count(file.loops, "loop") : "loops"})`, chunks: "smpl" },
+    { what: e.tempo ? `Tempo ${e.tempo.bpm} BPM ${e.tempo.meter}` : file && !file.tempo ? "No tempo" : "No tempo (removes the file's tempo)", chunks: "acid" },
     { what: e.root ? `Root note ${e.root.note}${e.root.cents ? ` ${e.root.cents > 0 ? "+" : ""}${e.root.cents} ct` : ""}` : "No root note", chunks: "smpl" },
   ];
   return { rows, keptInSidecar: e.markers.filter((m) => m.type !== "note").length };
