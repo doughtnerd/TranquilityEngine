@@ -8,6 +8,7 @@ import { animSourceToJson, emptyAnimSource, type AnimSource } from "../../../../
 import { parseAnimationProjectSettings, type AnimationProjectSettings } from "../../../../engine/animation/compile/settings";
 import { ClipCompileCache, memoryClipStore, type ClipCompileRunner } from "./cache";
 import { inThreadRunner } from "./runner";
+import { skinnedGltf } from "../../../../engine/tests/fixtures/gltf/skinnedGltf";
 import { ClipCompileService } from "./service";
 
 const SKEL = "anim/small.skel";
@@ -78,6 +79,21 @@ describe("the editor's compile service", () => {
     expect(calls).toBe(3); // a hit
     await service.refresh("project.json"); // settings may have changed: every known clip is checked; same keys, no compile
     expect(calls).toBe(3);
+  });
+
+  it("compiles a changed clip source nothing asked for when its skeleton is known: a clip without bones, a model's clips", async () => {
+    files["clips/glow.anim.json"] = animSourceToJson({ ...emptyAnimSource(), tracks: [{ kind: "float", target: { nodePath: "", component: "engine.Light", field: "intensity" }, name: "", curves: [[[0, 0], [1, 1]]] }] });
+    await service.refresh("clips/glow.anim.json");
+    expect(calls).toBe(1);
+    expect(await service.clipReport({ clip: "clips/glow.anim.json", skeleton: null })).not.toBeNull();
+    await service.refresh("clips/other.anim.json"); // bone tracks, and no Animator has named its skeleton: nothing to compile against
+    expect(calls).toBe(1);
+    files["models/rig.gltf"] = `data:application/octet-stream;base64,${Buffer.from(skinnedGltf()).toString("base64")}`;
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await service.refresh("models/rig.gltf.meta.json");
+    warn.mockRestore();
+    expect(calls).toBe(4); // the model's three clips (Walk, Wave, Bounce: one per take, no sidecar), against its own skeleton
+    expect(await service.clipReport({ clip: "models/rig.gltf#Anim/Wave", skeleton: null })).toMatchObject({ withinBounds: true });
   });
 
   it("says why a clip can't compile", async () => {

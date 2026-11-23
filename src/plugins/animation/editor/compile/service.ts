@@ -7,11 +7,14 @@
 // (the report of the clip's current compile, if made).
 import { Assets } from "../../../../engine/scene/Assets";
 import type { ImportPlatform } from "../../../../engine/scene/importSettings";
-import { sidecarPath } from "../../../../engine/scene/importSettings";
+import { SIDECAR_SUFFIX, sidecarPath } from "../../../../engine/scene/importSettings";
+import { isModelPath, loadModel } from "../../../../engine/scene/models";
+import { ANIM_SOURCE_SUFFIX } from "../../../../engine/animation/animSource";
+import { usesBones } from "../../../../engine/animation/compile/rawClip";
 import { clipPathOf, modelClipOf } from "../../../../engine/animation/compile/keys";
 import { referencePath } from "../../../../engine/animation/shared";
 import type { AnimationProjectSettings } from "../../../../engine/animation/compile/settings";
-import type { CompiledClipRequest, CompiledClipSource } from "../../runtime/features/clipSources";
+import { loadClipSource, type CompiledClipRequest, type CompiledClipSource } from "../../runtime/features/clipSources";
 import type { ClipCompileCache, CompiledClip } from "./cache";
 import type { ClipReport } from "./compiler";
 import { prepareClipJob } from "./jobs";
@@ -29,6 +32,7 @@ export interface ClipCompileEnv {
 /** @internal A compile's result: the compiled clip with its report, or why it couldn't compile. */
 export type ClipCompileResult = { readonly clip: CompiledClip; readonly problems: readonly string[] } | { readonly error: string };
 
+const CLIP_SUB = "#Anim/";
 const requestId = (platform: ImportPlatform, r: CompiledClipRequest) => `${platform}\n${clipPathOf(r.clip)}\n${r.skeleton ? clipPathOf(r.skeleton) : ""}`;
 
 export class ClipCompileService implements CompiledClipSource {
@@ -75,7 +79,8 @@ export class ClipCompileService implements CompiledClipSource {
 
   /**
    * A project file changed: the clips this session asked for that depend on it (the clip file, its model, the model's
-   * sidecar, the skeleton they bind, `project.json`'s settings) compile again in the background.
+   * sidecar, the skeleton they bind, `project.json`'s settings) compile again in the background, and so does a changed
+   * clip source itself where its skeleton is known (`compileChangedSource`).
    */
   refresh(changed: string): Promise<void> {
     const path = clipPathOf(changed);
@@ -87,7 +92,25 @@ export class ClipCompileService implements CompiledClipSource {
       return path === file || path === sidecarPath(file) || path === skeleton || (skeleton !== null && path === sidecarPath(skeleton));
     };
     const again = [...this.known.values()].filter(touches);
-    return Promise.all(again.map((r) => this.compileClip(r))).then(() => undefined);
+    return Promise.all([...again.map((r) => this.compileClip(r)), this.compileChangedSource(path, again)]).then(() => undefined);
+  }
+
+  /**
+   * A changed clip source nothing has asked for yet compiles too, where its skeleton is known: an authored clip without
+   * bone tracks, and every clip of a changed model (or model sidecar), which binds its model's skeleton.
+   */
+  private async compileChangedSource(path: string, done: readonly CompiledClipRequest[]): Promise<void> {
+    const model = path.endsWith(SIDECAR_SUFFIX) ? path.slice(0, -SIDECAR_SUFFIX.length) : path;
+    const clips: string[] = [];
+    if (path.toLowerCase().endsWith(ANIM_SOURCE_SUFFIX)) {
+      const data = await loadClipSource(path);
+      if (data && !usesBones(data.source)) clips.push(path);
+    } else if (isModelPath(model) && Assets.has(model)) {
+      const a = await loadModel(model).then((m) => m.animation, () => undefined);
+      for (const c of a?.clips ?? []) clips.push(`${model}${CLIP_SUB}${c.name}`);
+    }
+    const fresh = clips.filter((clip) => !done.some((r) => clipPathOf(r.clip) === clip && r.skeleton === null));
+    await Promise.all(fresh.map((clip) => this.compileClip({ clip, skeleton: null })));
   }
 
   /** Removes cached clips no current request names, and requests whose clip file is gone. Returns the files removed. */
