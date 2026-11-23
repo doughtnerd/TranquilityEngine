@@ -55,7 +55,6 @@ const BY_NAME: Readonly<Record<string, string>> = {
   AudioZone: "Audio", // ADR 0333
   AudioSpeaker: "Audio", // ADR 0341
   AudioPackageLoader: "Audio", // ADR 0337
-  AudioSpeaker: "Audio", // ADR 0341
   SubtitleDisplay: "UI", // ADR 0343
   UICanvas: "UI",
   UIPanel: "UI",
