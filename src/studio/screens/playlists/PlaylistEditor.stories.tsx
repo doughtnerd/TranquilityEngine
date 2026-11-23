@@ -80,7 +80,18 @@ export const Switch: Story = {
 
 export const Blend1D: Story = { args: { path: "audio/vehicles/engine.playlist.json", values: { rpm: 4000 } } };
 
-export const Blend2D: Story = { args: { path: "audio/ambience/wind.playlist.json" } };
+/** BL2: the plane names its nodes and its axes (with ranges), and its influence is a smooth (blurred) field, not cells. */
+export const Blend2D: Story = {
+  args: { path: "audio/ambience/wind.playlist.json" },
+  play: async ({ canvasElement }) => {
+    const plane = within(canvasElement).getByRole("group", { name: "Blend plane" });
+    const texts = [...plane.querySelectorAll("text")].map((t) => t.textContent ?? "");
+    for (const name of ["wind_soft", "wind_gust", "wind_storm", "wind_howl"]) await expect(texts.some((t) => t.startsWith(name))).toBe(true);
+    await expect(texts.some((t) => t.startsWith("wind "))).toBe(true);
+    await expect(texts.some((t) => t.startsWith("rain "))).toBe(true);
+    await expect(plane.querySelector(".pl-influence-field")!.getAttribute("filter")).toMatch(/^url\(#/);
+  },
+};
 
 /** ADR 0350: a 1D entry's region: select it, nudge its start handle (making the region custom), shape a fade, reset. */
 export const Blend1DRegion: Story = {
@@ -105,7 +116,7 @@ export const Blend2DWeightCurve: Story = {
   args: { path: "audio/ambience/wind.playlist.json" },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getAllByText("wind_gust")[0]!); // its entry (the blend view names it too)
+    await userEvent.click(c.getAllByText("wind_gust").find((el) => !el.closest("svg"))!); // its entry (the plane names it too)
     await userEvent.selectOptions(c.getByRole("combobox", { name: "wind_gust weight curve" }), "narrow40");
     await expect(c.getByRole("combobox", { name: "wind_gust weight curve" })).toHaveValue("narrow40");
     await expect(c.getByRole("button", { name: "Reset" })).toBeEnabled();

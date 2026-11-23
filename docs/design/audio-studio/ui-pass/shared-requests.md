@@ -35,3 +35,13 @@
 - Icon set: add `save` (Save uses `check` for now).
 - Context menu: `.context-menu button{justify-content:space-between}` pushes labels right; menus should left-align
   labels with a right column for shortcuts/notes (Samples overrides locally with .smp-menu).
+
+## From Playlists (ui/w1-playlists) — forwarded to W2-B (PlayerBar scrub row, editorFocus) and W2-A (ParameterPanel)
+
+## Wave 3 follow-ups noted
+- Nested playlist audition doesn't apply parents' playlist effects (auditionSource.ts).
+- Engine lint `overlappingSyncLoops` still fires for parallel stems (decision 4); UI ignores it. Align the lint
+  (src/engine/audio/playlist/lint.ts) and the Sound Lab tests.
+- Playlists header Undo/Redo/History buttons (H3 rest); Blend 2D Nodes list; Parameters live marker on lanes.
+- Mixer: MX-23 strip right-click menu; snapshot folder renames into History labels; extraFolders not in undo.
+- Load-sensitive test recurring 3×: src/studio/encoding/encoding.test.ts "encode a planned sound once…" — investigate.

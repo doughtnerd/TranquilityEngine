@@ -205,7 +205,7 @@ export function PlaylistTreeView(props: PlaylistTreeViewProps) {
         { id: "move", label: "Move to…", disabled: !writable, run: () => setMoving([n]) },
         { id: "top", label: "Move to top level", disabled: !writable || !n.path.includes("/"), run: () => actions.moveTo([n.path], "") },
         SEPARATOR,
-        { id: "del", label: "Delete folder", hint: "Del", danger: true, disabled: !writable, run: () => actions.deleteFolder(n.path) },
+        { id: "del", label: "Delete folder…", hint: "Del", title: "Delete folder (what's inside moves up a level)", danger: true, disabled: !writable, run: () => actions.deleteFolder(n.path) },
       ];
     }
     const linked = n.kind === "entry" && n.link !== null;
