@@ -3,6 +3,9 @@
 // `data-asset-document`, so the History panel and Ctrl+Z act on `audio.json` while a Mixer panel has the focus).
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
+import { activeHistory } from "../../../editor/activeHistory";
+import type { MenuEntry } from "../../../editor/ui/ContextMenu";
+import { formatKeys, isMacPlatform } from "../../../editor/ui/keyCombo";
 import { Meter } from "../../components/Meter";
 import { formatDb, parseDb } from "../../components/faderModel";
 import { peakDb } from "./boardModel";
@@ -49,6 +52,16 @@ export function LiveMeter(props: { session: MixerSession; name: string; orientat
   const live = session.live;
   const tainted = !!live && (live.monitor.taint(name).length > 0 || live.compare.taintedFor(name));
   return <Meter peakDb={peakDb(reading)} orientation={props.orientation} scale={props.scale} label={`${name} meter`} tainted={tainted} />;
+}
+
+/**
+ * A context menu's "Undo <last step>" (spec §4.3.2/§4.3.3): the history active when the menu opens (the row's
+ * `audio.json`, as Ctrl+Z would act on), held so a press inside the menu doesn't change which history it is.
+ */
+export function undoEntry(): MenuEntry {
+  const history = activeHistory.peek()?.history ?? null;
+  const can = !!history?.canUndo;
+  return { id: "undo", label: can && history!.undoLabel ? `Undo ${history!.undoLabel}` : "Undo", hint: formatKeys("Mod+Z", isMacPlatform()), disabled: !can, title: can ? undefined : "Nothing to undo", run: () => history?.undo() };
 }
 
 /** A Mixer panel's content frame. */

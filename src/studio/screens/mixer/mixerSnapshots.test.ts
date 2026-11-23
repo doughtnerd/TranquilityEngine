@@ -4,7 +4,7 @@ import type { AudioProject, Snapshot } from "../../../engine/audio/project/types
 import type { EditResult } from "./busTree";
 import { mixerFixture } from "./mixerFixture";
 import { conditionHolds, overlapsOf, resolveSnapshots, startHolds, triggerText } from "./snapshotBlend";
-import { deleteFolder, deleteSnapshot, duplicateSnapshot, moveFolder, moveSnapshot, newFolderPath, newSnapshot, renameFolder, renameSnapshot, searchSnapshots, snapshotTree } from "./snapshotTree";
+import { deleteFolder, deleteSnapshot, duplicateSnapshot, followFolder, moveFolder, movedFolderPath, moveSnapshot, newFolderPath, newSnapshot, renameFolder, renameFolderIn, renameSnapshot, searchSnapshots, snapshotTree } from "./snapshotTree";
 
 const ok = <T>(r: EditResult<T>): T => {
   if ("refused" in r) throw new Error(`refused: ${r.refused}`);
@@ -112,5 +112,29 @@ describe("snapshot tree", () => {
     expect(del.snapshots.find((s) => s.name === "Underwater")!.folder).toBe("Water");
     expect(del.snapshots.find((s) => s.name === "Low health")!.folder).toBe("");
     expect(newFolderPath(p, "States")).toBe("States/New folder");
+  });
+  it("a folder only the panel keeps renames in place: no placeholder left, and what's kept inside follows (MX-41)", () => {
+    const p = mixerFixture();
+    const kept = ok(renameFolderIn(p, ["New folder", "New folder/Deep"], "New folder", "Combat"));
+    expect(kept.project).toBe(p);
+    expect(kept.extra).toEqual(["Combat", "Combat/Deep"]);
+    expect(kept.path).toBe("Combat");
+    expect(snapshotTree(p, kept.extra).filter((n) => n.kind === "folder").map((n) => n.name)).toEqual(["Combat", "Cutscenes", "States"]);
+    expect(refused(renameFolderIn(p, ["New folder"], "New folder", "States"))).toMatch(/already/);
+    expect(refused(renameFolderIn(p, ["New folder"], "New folder", "a/b"))).toMatch(/can't/);
+    const full = ok(renameFolderIn(p, ["States/Deep"], "States", " Game states "));
+    expect(full.path).toBe("Game states");
+    expect(full.extra).toEqual(["Game states/Deep"]);
+    expect(full.project.snapshots.find((s) => s.name === "Underwater")!.folder).toBe("Game states");
+  });
+  it("a selected folder follows a rename, a move and a delete", () => {
+    expect(followFolder("States/Water", "States", "Game states")).toBe("Game states/Water");
+    expect(followFolder("Cutscenes", "States", "Game states")).toBe("Cutscenes");
+    expect(followFolder("States/Water", "States", "")).toBe("Water");
+    expect(followFolder("States", "States", "")).toBe("");
+    expect(movedFolderPath("States/Water", "Cutscenes")).toBe("Cutscenes/Water");
+    expect(movedFolderPath("States/Water", "")).toBe("Water");
+    const p = mixerFixture();
+    expect(ok(moveFolder(p, "Empty", "States"))).toBe(p);
   });
 });

@@ -110,15 +110,34 @@ export function renameFolder(p: AudioProject, from: string, name: string, extra:
   const to = parentFolder(from) ? `${parentFolder(from)}/${clean}` : clean;
   if (to === from) return { next: p };
   if (snapshotFolders(p.snapshots, extra).includes(to)) return { refused: `there's already a folder "${to}"` };
+  if (!p.snapshots.some((s) => inFolder(from, norm(s.folder)))) return { next: p };
   return { next: withSnapshots(p, p.snapshots.map((s) => (inFolder(from, norm(s.folder)) ? { ...s, folder: to + norm(s.folder).slice(from.length) } : s))) };
 }
+
+/**
+ * Folder `from` renamed (its last part) to `name`, whether snapshots are in it or the panel only keeps it (`extra`): the
+ * project (snapshots inside follow), the kept folders (those in it follow too), and the folder's new path.
+ */
+export function renameFolderIn(p: AudioProject, extra: readonly string[], from: string, name: string): EditResult<{ project: AudioProject; extra: string[]; path: string }> {
+  const r = renameFolder(p, from, name, extra);
+  if ("refused" in r) return r;
+  const path = parentFolder(from) ? `${parentFolder(from)}/${name.trim()}` : name.trim();
+  return { next: { project: r.next, extra: extra.map((f) => followFolder(f, from, path)), path } };
+}
+
+/** Where folder `path` is after folder `from` became `to` (a rename, a move, or a delete moving its contents up to `to`). */
+export const followFolder = (path: string, from: string, to: string): string => (inFolder(from, path) ? norm(to + path.slice(from.length)) : path);
+
+/** Where folder `folder` lands when it moves into `into` (`moveFolder`). */
+export const movedFolderPath = (folder: string, into: string): string => (norm(into) ? `${norm(into)}/${leaf(folder)}` : leaf(folder));
 
 /** Folder `folder` moved into `into` ("Move snapshot"); refused into itself or a folder inside it. */
 export function moveFolder(p: AudioProject, folder: string, into: string): EditResult<AudioProject> {
   const target = norm(into);
   if (inFolder(folder, target)) return { refused: "a folder can't move into itself" };
   if (parentFolder(folder) === target) return { refused: `${leaf(folder)} is already there` };
-  const to = target ? `${target}/${leaf(folder)}` : leaf(folder);
+  const to = movedFolderPath(folder, target);
+  if (!p.snapshots.some((s) => inFolder(folder, norm(s.folder)))) return { next: p };
   return { next: withSnapshots(p, p.snapshots.map((s) => (inFolder(folder, norm(s.folder)) ? { ...s, folder: to + norm(s.folder).slice(folder.length) } : s))) };
 }
 

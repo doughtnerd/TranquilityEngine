@@ -3,6 +3,7 @@
 // test values of the game parameters (they drive snapshot conditions, automation display and the Studio's runtime),
 // and Master's loudness against a platform target ("—" until the Studio's audio plays).
 import { useState } from "preact/hooks";
+import { formatDb } from "../../components/faderModel";
 import { GainLanes } from "../../components/GainLanes";
 import { ParameterPanel } from "../../components/ParameterPanel";
 import { gainInputs, loudnessRows } from "./boardModel";
@@ -18,7 +19,7 @@ export function GainLanesPanel(props: { session: MixerSession }) {
   if (kindOf(p, name) === "vca") {
     return (
       <MixFrame session={session} label="Gain lanes">
-        <p class="mx-note">{name} is a VCA: it adds {p.vcas.find((v) => v.name === name)!.volumeDb} dB to the VCA lane of each member and everything under it. Select a bus to see its lanes.</p>
+        <p class="mx-note">{name} is a VCA: it adds {formatDb(p.vcas.find((v) => v.name === name)!.volumeDb)} dB to the VCA lane of each member and everything under it. Select a bus to see its lanes.</p>
       </MixFrame>
     );
   }

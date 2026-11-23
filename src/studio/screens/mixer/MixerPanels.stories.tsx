@@ -75,6 +75,26 @@ export const BusesList: Story = {
   },
 };
 
+/** A bus's menu has Move to… (re-route without dragging, for touch) and Undo; the rows don't take a text selection while dragged. */
+export const BusMenuMoveTo: Story = {
+  args: { which: "buses" },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
+    await expect(getComputedStyle(c.getByText("Music", { selector: ".mx-name" })).userSelect).toBe("none");
+    await userEvent.pointer({ keys: "[MouseRight]", target: c.getByText("Music", { selector: ".mx-name" }) });
+    const menu = await body.findByRole("menu", { name: "Music menu" });
+    await expect(within(menu).getByRole("menuitem", { name: /^Undo/ })).toBeTruthy();
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Move to…" }));
+    const dialog = await body.findByRole("dialog", { name: "Move Music to…" });
+    await userEvent.click(within(dialog).getByText("UI"));
+    await userEvent.click(within(dialog).getByRole("button", { name: "Move" }));
+    const list = c.getByRole("listbox", { name: "Buses" });
+    const order = within(list).getAllByRole("option").map((o) => o.getAttribute("data-bus-row"));
+    await expect(order.slice(order.indexOf("UI"), order.indexOf("UI") + 2)).toEqual(["UI", "Music"]);
+  },
+};
+
 export const BusesStrips: Story = { args: { which: "buses", setup: (s) => void (s.view.value = "strips") } };
 
 export const EditingASnapshot: Story = {
@@ -137,6 +157,39 @@ export const InspectorSnapshotOverrides: Story = {
   },
 };
 
+/**
+ * A snapshot offset that isn't a round number (a fader drag), in a short, narrow Inspector: the note reads it to 0.1 dB
+ * on a row of its own, and no field row overlaps the next (the Bed row wraps; MX-26).
+ */
+export const InspectorRowsDontOverlap: Story = {
+  args: {
+    which: "inspector",
+    width: 300,
+    project: () => {
+      const p = mixerFixture();
+      return { ...p, snapshots: p.snapshots.map((s) => (s.name === "Underwater" ? { ...s, buses: { ...s.buses, Ambience: -6.02059991 } } : s)) };
+    },
+    setup: (s) => { s.select("Ambience"); s.editSnapshot("Underwater"); },
+  },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await expect(c.getByText(/Underwater: −6\.0 dB on the base level/)).toBeTruthy();
+    await expect(canvasElement.textContent).not.toContain("6.0205");
+    const rows = [...canvasElement.querySelectorAll<HTMLElement>(".mx-inspector > *")].filter((el) => el.getBoundingClientRect().height > 0);
+    for (let i = 1; i < rows.length; i++) {
+      const above = rows[i - 1]!.getBoundingClientRect();
+      const below = rows[i]!.getBoundingClientRect();
+      await expect(below.top, `${rows[i]!.textContent?.slice(0, 30)} starts below ${rows[i - 1]!.textContent?.slice(0, 30)}`).toBeGreaterThanOrEqual(above.bottom - 0.5);
+    }
+    for (const field of canvasElement.querySelectorAll<HTMLElement>(".mx-ifield")) {
+      const box = field.getBoundingClientRect();
+      for (const part of field.children) {
+        await expect(part.getBoundingClientRect().bottom, `${field.textContent?.slice(0, 30)} holds its content`).toBeLessThanOrEqual(box.bottom + 0.5);
+      }
+    }
+  },
+};
+
 export const InspectorReturn: Story = { args: { which: "inspector", width: 360, setup: (s) => s.select("Reverb") } };
 export const InspectorVca: Story = { args: { which: "inspector", width: 360, setup: (s) => s.select("Gameplay SFX") } };
 
@@ -148,6 +201,58 @@ export const Snapshots: Story = {
     await expect(c.getByRole("treeitem", { name: /Underwater/ })).toHaveAttribute("aria-selected", "true");
     await userEvent.type(c.getByRole("searchbox", { name: "Search snapshots" }), "health");
     await expect(c.getByRole("tree", { name: "Matching snapshots" })).toBeTruthy();
+  },
+};
+
+/** A new folder renamed, then + New: the snapshot goes into the renamed folder and no "New folder" is left behind (MX-41). */
+export const SnapshotsNewFolderRenamed: Story = {
+  args: { which: "snapshots", width: 280 },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole("button", { name: "Folder" }));
+    const input = await c.findByRole("textbox", { name: "Folder name" });
+    await userEvent.clear(input);
+    await userEvent.type(input, "Combat{Enter}");
+    await userEvent.click(c.getByRole("button", { name: "New" }));
+    await userEvent.keyboard("Boss fight{Enter}");
+    const tree = c.getByRole("tree", { name: "Snapshots" });
+    await expect(within(tree).queryByRole("treeitem", { name: "New folder" })).toBeNull();
+    const combat = within(tree).getByRole("treeitem", { name: "Combat" });
+    await expect(within(combat).getByRole("treeitem", { name: /Boss fight/ })).toBeTruthy();
+  },
+};
+
+/** Renaming a folder keeps it the place + New files into, and a refused name (a folder already there) says why. */
+export const SnapshotsRenameKeptFolder: Story = {
+  args: { which: "snapshots", width: 280 },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole("button", { name: "Folder" }));
+    const input = await c.findByRole("textbox", { name: "Folder name" });
+    await userEvent.clear(input);
+    await userEvent.type(input, "States{Enter}");
+    const tree = c.getByRole("tree", { name: "Snapshots" });
+    await expect(within(tree).getByRole("treeitem", { name: "New folder" })).toBeTruthy();
+    await expect(within(tree).getAllByRole("treeitem", { name: "States" })).toHaveLength(1);
+  },
+};
+
+/** The snapshot menu ends with Undo and "Delete snapshot"; a folder's menu has Move to top level (spec §4.3.2, MX-44). */
+export const SnapshotMenus: Story = {
+  args: { which: "snapshots", width: 280, project: () => { const p = mixerFixture(); return { ...p, snapshots: p.snapshots.map((s) => (s.name === "Cinematic" ? { ...s, folder: "States/Cut" } : s)) }; } },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    const body = within(canvasElement.ownerDocument.body);
+    await userEvent.pointer({ keys: "[MouseRight]", target: c.getByText("Underwater") });
+    let menu = await body.findByRole("menu", { name: "Snapshot menu" });
+    await expect(within(menu).getByRole("menuitem", { name: /^Undo/ })).toBeTruthy();
+    await expect(within(menu).getByRole("menuitem", { name: /Delete snapshot/ })).toBeTruthy();
+    await userEvent.keyboard("{Escape}");
+    await userEvent.pointer({ keys: "[MouseRight]", target: c.getByText("Cut") });
+    menu = await body.findByRole("menu", { name: "Snapshot menu" });
+    await userEvent.click(within(menu).getByRole("menuitem", { name: "Move to top level" }));
+    const tree = c.getByRole("tree", { name: "Snapshots" });
+    await expect(within(tree).getByRole("treeitem", { name: "Cut" }).parentElement).toBe(tree);
   },
 };
 

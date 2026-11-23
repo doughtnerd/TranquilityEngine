@@ -6,14 +6,16 @@
 import { useEffect, useRef, useState } from "preact/hooks";
 import { HistoryPopover } from "../../../editor/ui/HistoryPopover";
 import { ContextMenu, SEPARATOR, type MenuEntry } from "../../../editor/ui/ContextMenu";
+import { MoveToDialog } from "../../../editor/ui/MoveToDialog";
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { Fader } from "../../components/Fader";
+import { formatDb } from "../../components/faderModel";
 import { Icon } from "../../components/Icon";
-import { busOf, kindOf, masterOf, reroute, routingRows, whyNotReroute } from "./busTree";
+import { busFolders, busOf, kindOf, masterOf, reroute, routingRows, whyNotReroute } from "./busTree";
 import { compareText } from "./liveMix";
 import { editedSnapshot, labelOn, levelGhosts, levelLabel, setLevel, setMute, shownLevel } from "./mixEdits";
 import type { MixerSession } from "./mixerScreen";
-import { DbField, LiveMeter, MixFrame } from "./mixerViewParts";
+import { DbField, LiveMeter, MixFrame, undoEntry } from "./mixerViewParts";
 import { startHolds, triggerText } from "./snapshotBlend";
 import { openTriggerDialog } from "./TriggerDialog";
 import { allocateBeds, bedText, voiceLimitOf } from "./voicesAndBeds";
@@ -178,7 +180,7 @@ function RenameField(props: { value: string; label: string; onDone(value: string
   );
 }
 
-function menuFor(session: MixerSession, name: string, rename: () => void): MenuEntry[] {
+function menuFor(session: MixerSession, name: string, rename: () => void, moveTo: () => void): MenuEntry[] {
   const p = session.project.peek();
   const kind = kindOf(p, name);
   const master = name === masterOf(p);
@@ -186,7 +188,10 @@ function menuFor(session: MixerSession, name: string, rename: () => void): MenuE
   return [
     ...(kind === "bus" ? [{ id: "child", label: "Add child bus", disabled: session.readOnly, run: () => { session.select(name); session.newBus(); } }] : []),
     { id: "rename", label: "Rename", hint: "F2", disabled: session.readOnly || master, title: master ? "Master keeps its name" : undefined, run: rename },
+    ...(kind === "bus" ? [{ id: "move", label: "Move to…", disabled: session.readOnly || master, title: master ? "Master can't be re-routed" : "Pick the bus it feeds (as dragging it does)", run: moveTo }] : []),
     ...(kind !== "vca" ? [{ id: "pin", label: pinned ? "Unpin from live board" : "Pin to live board", run: () => session.togglePin(name) }] : []),
+    SEPARATOR,
+    undoEntry(),
     SEPARATOR,
     { id: "delete", label: "Delete…", hint: "Del", danger: true, disabled: session.readOnly || master, title: master ? "Master can't be deleted" : undefined, run: () => void session.remove(name) },
   ];
@@ -200,6 +205,7 @@ function ListView(props: { session: MixerSession }) {
   const selected = session.selected.value;
   const [menu, setMenu] = useState<Menu>(null);
   const [renaming, setRenaming] = useState<string | null>(null);
+  const [moving, setMoving] = useState<string | null>(null);
   const { drag, start } = useRerouteDrag(session);
   const doneRename = (from: string, to: string | null) => {
     setRenaming(null);
@@ -296,8 +302,30 @@ function ListView(props: { session: MixerSession }) {
         ))}
         {p.vcas.length === 0 && <p class="mx-note">A VCA offsets its member buses and everything under them, without audio passing through it.</p>}
       </div>
-      {menu && <ContextMenu entries={menuFor(session, menu.name, () => setRenaming(menu.name))} at={menu.at} label={`${menu.name} menu`} onClose={() => setMenu(null)} />}
+      {menu && <ContextMenu entries={menuFor(session, menu.name, () => setRenaming(menu.name), () => setMoving(menu.name))} at={menu.at} label={`${menu.name} menu`} onClose={() => setMenu(null)} />}
+      {moving && <MoveBusDialog session={session} name={moving} onClose={() => setMoving(null)} />}
     </div>
+  );
+}
+
+/** "Move to…" on a bus: the shared Move to… dialog over the routing tree; picking a bus re-routes to it (one undo step). */
+function MoveBusDialog(props: { session: MixerSession; name: string; onClose(): void }) {
+  const { session, name } = props;
+  const p = session.project.value;
+  const tree = busFolders(p);
+  return (
+    <MoveToDialog
+      items={[{ path: tree.pathOf(name), folder: true }]}
+      folders={tree.folders}
+      noun="bus"
+      rootName={masterOf(p)}
+      onMove={(path) => {
+        props.onClose();
+        const parent = tree.busAt(path);
+        if (parent) session.commit(reroute(session.project.peek(), name, parent), labelOn("Re-route", name));
+      }}
+      onCancel={props.onClose}
+    />
   );
 }
 
@@ -309,7 +337,7 @@ function Strip(props: { session: MixerSession; name: string; compact?: boolean }
     <div class={`mx-strip${selected ? " selected" : ""}${props.compact ? " compact" : ""}`} role="group" aria-label={name} onClick={() => session.select(name)} onKeyDown={(e) => { if ((e.key === "Enter" || e.key === " ") && e.target === e.currentTarget) { e.preventDefault(); session.select(name); } }} tabIndex={0}>
       <span class="mx-strip-name" title={name}>{name}</span>
       <div class="mx-strip-fader"><LevelFader session={session} name={name} orientation="vertical" /></div>
-      <span class="mx-strip-db">{shownLevel(p, name, session.editing.value).toFixed(1)}</span>
+      <span class="mx-strip-db">{formatDb(shownLevel(p, name, session.editing.value))}</span>
       {kindOf(p, name) !== "vca" && <MuteSolo session={session} name={name} solo={kindOf(p, name) === "bus"} />}
     </div>
   );
