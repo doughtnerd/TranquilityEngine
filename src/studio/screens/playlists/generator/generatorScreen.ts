@@ -154,6 +154,8 @@ export function toggleGeneratorLock(name: string): void {
 
 export const preview = signal<PreviewPicture | null>(null);
 export const previewBusy = signal(false);
+/** Why the last preview couldn't render (the offline module didn't load), or null. */
+export const previewError = signal<string | null>(null);
 /** How long the preview waits after an edit before it renders again, ms (a drag renders as it settles). */
 const PREVIEW_DELAY = 60;
 
@@ -167,6 +169,7 @@ export function followPreview(): () => void {
     if (timer) clearTimeout(timer);
     if (!t || !body) {
       preview.value = null;
+      previewError.value = null;
       shown = null;
       return;
     }
@@ -177,8 +180,14 @@ export function followPreview(): () => void {
       void requestPreview(key, body).then((pic) => {
         if (!pic) return; // a newer request replaced it
         shown = key;
-        preview.value = pic;
         previewBusy.value = false;
+        if ("failed" in pic) {
+          preview.value = null;
+          previewError.value = pic.failed;
+          return;
+        }
+        preview.value = pic;
+        previewError.value = null;
       });
     }, shown === key ? PREVIEW_DELAY : 0);
   });
@@ -355,7 +364,8 @@ export const baking = signal<"closed" | "open" | "busy">("closed");
 /** The open generator's Bake availability. */
 export const bakeState = computed(() => {
   const t = generatorTarget.value;
-  return bakeAvailability(BAKE, t?.kind === "file" ? t.path : null, !!currentProject.value?.canSave);
+  const p = currentProject.value;
+  return bakeAvailability(BAKE, t?.kind === "file" ? t.path : null, p ? p.canSave : null);
 });
 
 /** The dialog's starting options for the open generator. */
@@ -377,10 +387,4 @@ export async function bake(path: string, options: BakeOptions): Promise<void> {
   } finally {
     baking.value = "closed";
   }
-}
-
-/** Rebake a sample's generator with the dialog's defaults (the Samples inspector's Rebake). */
-export function rebake(path: string): void {
-  const g = loadGenerator(path);
-  if (g) void bake(path, defaultBakeOptions(path, generatorIsEndless(g.kind, g.params)));
 }

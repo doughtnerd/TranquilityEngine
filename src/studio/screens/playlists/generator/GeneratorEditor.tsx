@@ -35,6 +35,8 @@ export interface GeneratorEditorProps {
   readonly locks: readonly string[];
   readonly preview: PreviewPicture | null;
   readonly previewBusy?: boolean;
+  /** Why the preview couldn't render, or null. */
+  readonly previewError?: string | null;
   readonly audition: GeneratorAudition;
   readonly bake: Availability;
   onEdit(label: string, edit: GeneratorEdit, drag?: boolean): void;
@@ -196,7 +198,7 @@ export function GeneratorEditor(props: GeneratorEditorProps) {
         </div>
       )}
 
-      <GeneratorPreview picture={props.preview} busy={props.previewBusy} />
+      <GeneratorPreview picture={props.preview} busy={props.previewBusy} error={props.previewError} />
 
       <div class="gen-audition">
         <button

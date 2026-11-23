@@ -1,17 +1,17 @@
 // Stories (ADR 0219, 0349) for the Generator editor's parts and neighbours (ADR 0360 §9): the kind badges, the
-// keyboard, the preview, the Bake dialog (off until G5's bake, and on), the Library's generators with the New menu,
-// and a baked sample's provenance (out of date, Rebake off until G5).
+// keyboard, the preview (rendered, rendering, failed), the Bake dialog (off with no project, and on), the Library's
+// generators with the New menu, and a baked sample's provenance (out of date with Rebake, and read-only).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { applyBlipPreset } from "../../../../engine/audio/generators/blipPresets";
 import { emptyGeneratorBody } from "../../../../engine/audio/generators/format";
 import { GENERATOR_KINDS } from "../../../../engine/audio/generators/types";
 import { BakeDialog } from "./BakeDialog";
-import { BAKE_PENDING, defaultBakeOptions } from "./bakeModel";
+import { NO_PROJECT, defaultBakeOptions } from "./bakeModel";
 import { GeneratedProvenance } from "./GeneratedProvenance";
 import { GeneratorLibrary } from "./GeneratorLibrary";
 import { GeneratorBadge, GeneratorKeyboard, GeneratorPreview } from "./GeneratorParts";
-import { pictureOf } from "./previewClient";
+import { pictureOf, type PreviewPicture } from "./previewClient";
 import "../../../components/audioParts.css";
 import "../playlists.css";
 
@@ -51,11 +51,19 @@ export const Keyboard: Story = {
 };
 
 export const Preview: Story = {
-  render: () => (
+  // The pictures are the offline render's (the wasm loads first).
+  loaders: [
+    async () => ({
+      laser: await pictureOf(applyBlipPreset(emptyGeneratorBody("blip"), "laser", 9)),
+      saw: await pictureOf({ ...emptyGeneratorBody("oscillator"), params: { ...emptyGeneratorBody("oscillator").params, waveform: 2, frequency: 110 } }),
+    }),
+  ],
+  render: (_args, { loaded }) => (
     <div style={{ width: "640px" }}>
-      <GeneratorPreview picture={pictureOf(applyBlipPreset(emptyGeneratorBody("blip"), "laser", 9))} />
-      <GeneratorPreview picture={pictureOf({ ...emptyGeneratorBody("oscillator"), params: { ...emptyGeneratorBody("oscillator").params, waveform: 2, frequency: 110 } })} />
+      <GeneratorPreview picture={(loaded as { laser: PreviewPicture }).laser} />
+      <GeneratorPreview picture={(loaded as { saw: PreviewPicture }).saw} />
       <GeneratorPreview picture={null} />
+      <GeneratorPreview picture={null} error="the offline module couldn't load" />
     </div>
   ),
   play: async ({ canvasElement }) => {
@@ -63,16 +71,17 @@ export const Preview: Story = {
     await expect(c.getByText(/^Whole sound: \d\.\d\d s$/)).toBeVisible();
     await expect(c.getByText("First 2.00 s (it plays until released)")).toBeVisible();
     await expect(c.getAllByText("Rendering the preview…").length).toBeGreaterThan(0);
+    await expect(c.getByText("No preview: the offline module couldn't load")).toBeVisible();
   },
 };
 
-export const BakePending: Story = {
-  render: () => <BakeDialog name="coin" initial={defaultBakeOptions("audio/ui/coin.generator.json", false)} availability={{ enabled: false, reason: BAKE_PENDING }} onBake={fn()} onClose={fn()} />,
+export const BakeNoProject: Story = {
+  render: () => <BakeDialog name="coin" initial={defaultBakeOptions("audio/ui/coin.generator.json", false)} availability={{ enabled: false, reason: NO_PROJECT }} onBake={fn()} onClose={fn()} />,
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body);
     const dialog = await body.findByRole("dialog", { name: "Bake coin" });
     await expect(within(dialog).getByRole("button", { name: "Bake" })).toBeDisabled();
-    await expect(within(dialog).getByRole("note")).toHaveTextContent(BAKE_PENDING);
+    await expect(within(dialog).getByRole("note")).toHaveTextContent(NO_PROJECT);
     await expect(within(dialog).getByLabelText("Folder")).toHaveValue("audio/ui");
   },
 };
@@ -126,19 +135,35 @@ export const Library: Story = {
   },
 };
 
+const rebakeNow = fn();
 export const ProvenanceOutOfDate: Story = {
   render: () => (
     <GeneratedProvenance
-      view={{ generator: "audio/ui/coin.generator.json", name: "coin.generator.json", state: "outOfDate", text: "Baked from coin.generator.json", note: "out of date", rebake: { enabled: false, reason: BAKE_PENDING } }}
+      view={{ generator: "audio/ui/coin.generator.json", name: "coin.generator.json", state: "outOfDate", text: "Baked from coin.generator.json", note: "out of date", rebake: { enabled: true, reason: null } }}
       onOpenGenerator={fn()}
-      onRebake={fn()}
+      onRebake={rebakeNow}
     />
   ),
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByRole("button", { name: "Baked from coin.generator.json" })).toBeEnabled();
     await expect(c.getByText("out of date")).toBeVisible();
+    await userEvent.click(c.getByRole("button", { name: "Rebake" }));
+    await expect(rebakeNow).toHaveBeenCalledWith("audio/ui/coin.generator.json");
+  },
+};
+
+export const ProvenanceReadOnly: Story = {
+  render: () => (
+    <GeneratedProvenance
+      view={{ generator: "audio/ui/coin.generator.json", name: "coin.generator.json", state: "outOfDate", text: "Baked from coin.generator.json", note: "out of date", rebake: { enabled: false, reason: "This project is read-only." } }}
+      onOpenGenerator={fn()}
+      onRebake={fn()}
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
     await expect(c.getByRole("button", { name: "Rebake" })).toBeDisabled();
-    await expect(c.getByRole("button", { name: "Rebake" })).toHaveAttribute("title", BAKE_PENDING);
+    await expect(c.getByRole("button", { name: "Rebake" })).toHaveAttribute("title", "This project is read-only.");
   },
 };
