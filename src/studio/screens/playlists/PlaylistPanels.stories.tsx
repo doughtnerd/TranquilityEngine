@@ -40,6 +40,11 @@ export const Inspector: Story = {
     const c = within(canvasElement);
     await expect(c.getByText(/Entry · engine_mid/)).toBeVisible();
     await expect(c.getByRole("combobox", { name: "Output bus" })).toHaveValue("");
+    // The effects section keeps the 8px gutter every field row has (I6): its caption and empty line don't touch the edge.
+    const chain = c.getByRole("region", { name: "Effects" });
+    const section = chain.closest(".kit-section")!;
+    const caption = within(chain).getByText(/Effects/i, { selector: ".studio-chain-title" });
+    await expect(caption.getBoundingClientRect().left - section.getBoundingClientRect().left).toBeGreaterThanOrEqual(8);
   },
 };
 

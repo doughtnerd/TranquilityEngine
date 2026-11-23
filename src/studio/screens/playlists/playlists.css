@@ -29,6 +29,8 @@
 .pl-field-label { color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
 .pl-field-control { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
 .kit-section-body > .pl-small { align-self: flex-start; margin: 4px 8px; }
+/* An effect chain sits inside the section's 8px gutter, as every field row does (I6). */
+:is(.pl-inspector, .sq-inspector) .kit-section-body > .studio-chain { padding: 0 8px; }
 
 /* Tree */
 .pl-tree, .pl-library { display: flex; flex-direction: column; min-height: 100%; }
