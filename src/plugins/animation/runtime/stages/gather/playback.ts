@@ -18,7 +18,7 @@ import {
   INPUT_TIME_SCALE,
   MAX_LAYERS,
 } from "../../wasm/wire/core";
-import { animatorsOf, type AnimatorRuntime } from "../../features/instances";
+import { animatorsOf, releaseEarlierClips, type AnimatorRuntime } from "../../features/instances";
 import { gameplayOnly } from "../../features/network/ghosts";
 import { syncServerBones } from "../../features/network/serverBones";
 import { flushQueue } from "../../features/playback/plays";
@@ -66,5 +66,6 @@ export function gatherPlayback(frame: AnimationFrame): void {
     cams ??= enabledCameras(frame.world);
     writeRow(frame, rt, cams);
     flushQueue(frame, rt);
+    if (rt.earlierClips) releaseEarlierClips(rt); // clips of an earlier skeleton whose plays have ended since
   }
 }

@@ -4,11 +4,12 @@
 // it once per activation.
 import type { RuntimePluginContext } from "../../../../runtimeContext";
 import type { AnimationIntegrations } from "../../registration";
-import { graphInstanceHooks } from "../instances";
-import { createGraphInstance, graphInstanceUnbound } from "./runtime";
+import { clipUsers, graphInstanceHooks } from "../instances";
+import { createGraphInstance, graphClipsInUse, graphInstanceUnbound } from "./runtime";
 
 /** @internal */
 export function registerGraph(_context: RuntimePluginContext, _on: AnimationIntegrations): void {
   graphInstanceHooks.create = createGraphInstance;
+  clipUsers.add(graphClipsInUse);
   graphInstanceHooks.unbound = graphInstanceUnbound;
 }
