@@ -182,3 +182,59 @@ its peers join `builds` without a prompt) delegating to `connectFlow.ts`; `serve
 - No UI prompt for a tokenless tool reaching Play from another machine (it's refused with `no-token`).
 - A paused Play answers no tool until it resumes (U3).
 - `captureLost` reason, the capture queue's limit, `plugins.test.ts`' scans on Linux/CI: still open from W1a.
+
+## M2 (waves 3 and 4) and N1
+
+R0 (coordinator): ADR 0381, Accepted under owner decision O7; 0380 marked amended.
+
+| Task | Model | Agent time | Result |
+|---|---|---|---|
+| N1 network interfaces (an M1 fix) | Sonnet | 12.0 min | `myco_debuglink_interfaces` (std only: the default-route adapter plus loopback); wired into the player, `EditorDebugLink` connect and Play, debug desktop exports |
+| R1 rendezvous server and client | Sonnet | 8.7 min | 53 tests; limits as §7a, plus a 10 s join deadline |
+| R3 deployable rendezvous | Sonnet | 5.7 min | `startRendezvous` (attach to an http.Server or standalone), `dist/rendezvous/rendezvous.mjs` 159 KB |
+| R7 settings | Haiku | 6.2 min | Rendezvous URL and ICE servers preferences; Export dialog Listen and LAN |
+| R4 rendezvous on every host | Sonnet | 22.4 min | dev-server plugin; debug `serve.mjs` carries `rendezvous.mjs` and binds 0.0.0.0 with `--debug-lan`; native listeners route `/myco-rendezvous` on their own port (a small Rust change: accept events carry the path); `--debug-rendezvous` |
+| R5 room-code flow | strongest | 20.6 min | `rooms.ts`: a page that can't listen opens a single-use room and shows the room code; tools join by code; one token checked by the rendezvous and again by the build's gate; the reverse (`offerRoom`, `?debug-code=`) |
+| R8 Offer a room (added) | Sonnet | 5.1 min | the builds menu's Offer a room dialog (editor and Studio) |
+| R6 two-browser e2e | Sonnet | 4.5 min | spec written; coordinator fixed and moved it (below); OP2 text |
+
+**Owner-facing fix before OP1.** Nothing passed native endpoints their own network address, so a listening desktop
+game would have shown "type the address" instead of a code (found while starting M2). N1 fixes it. Limit: without a
+new crate only the default-route adapter is seen; a second adapter or a VPN can put the wrong prefix in the code
+(typing the full address always works).
+
+**Coordinator work after the merges.**
+- R7's browser-editor message applied to `editorLink.ts` (it lives there, not in R7's files).
+- `native/debug-link-tauri/.gitignore` (its `target/` showed as untracked).
+- Wiring R4 left to the single-writer files: `vite.config.ts` mounts the rendezvous plugin and serves the bundle;
+  `vite.editor.config.ts` copies it beside the editor (`rendezvousFile()` in `vite.shared.ts`); `build:editor` builds
+  it first; `build:rendezvous` script.
+- Desktop games host the rendezvous: `startBuildListener` makes its own transport, so the player names
+  `TAURI_HOSTING_TRANSPORT` (registered beside "websocket") instead of wrapping one. Test added.
+- R6: its first run timed out in cleanup. The test's own rendezvous stand-in waited on upgraded WebSocket sockets that
+  `closeAllConnections` leaves open; the pairing itself had worked (screenshots: "1 build", the overlay hidden). Then
+  the stand-in was removed and the spec runs on the export's own `serve.mjs` rendezvous on a free port of 7790..7799
+  (`exportAndServe` takes a port).
+- Running it that way found a real bug: a listen-only export wrote the default `debug.link`, so the page dialed
+  `ws://localhost:7790` every 2 s beside its room. Listen-only exports now write no link (the manifest type's `link`
+  is optional); two export tests updated to the intended behaviour.
+- The builds menu showed a room build's address with its token (`…#room=174&token=136029`); labels now say
+  "<host>, through a room". Test added.
+
+**Checks.**
+- Vitest: 6 failed, 12,117 passed (1,165 files): all baseline. Typecheck: the 2 baseline errors.
+- `build:editor` passes and ships `rendezvous/rendezvous.mjs`. `files.json` `debug`: 7 chunks (adds `rooms`).
+- e2e (Chromium): 7 failed, 264 passed: the 4 baseline specs; `statuslog`, `editor` scene-camera icon and `selection`
+  passed or failed a different case on rerun (flaky).
+- `@slow`: `debuglink-webrtc.spec.ts` (two real Chromium pages, a room code over WebRTC through the export's own
+  rendezvous, a wrong code refused) 37.9 s; `debuglink-audio.spec.ts` 7.8 s. Both pass.
+- `cargo check` src-tauri and src-studio-tauri; `cargo test` ws-listener and debug-link-tauri: pass.
+
+**Not verified / open.**
+- OP1 and OP2 on real machines.
+- A take over WebRTC end to end in a browser (S1 covers the upload over a WebSocket; the units cover the WebRTC
+  transport and rooms). WebKit/Safari WebRTC (Playwright's Windows WebKit has none).
+- Stories (U1, U5, R7, R8): `test:stories` can't start here (Windows excluded port range).
+- `captureLost` reason; the capture queue's limit; `plugins.test.ts` scans on Linux/CI; a prompt for tokenless tools
+  reaching Play; a paused Play answers no tool.
+- M3: discovery (D1, D2), Android games (D3), the guide's final pass (D4).
