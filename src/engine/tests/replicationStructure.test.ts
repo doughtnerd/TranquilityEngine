@@ -4,7 +4,7 @@ import { World } from "../core/World";
 import { createBitReader, createBitWriter } from "../net/codec";
 import { netSession } from "../net/session";
 import { serverReplication } from "../net/replication/server";
-import { SNAPSHOT, StringTableIn, StringTableOut } from "../net/replication/wire";
+import { GHOSTS, StringTableIn, StringTableOut } from "../net/replication/wire";
 
 // ADR 0100: replicating node activity and reparenting, and the per-connection string table for
 // spawns. Loopback on a fake clock that advances with `engine.step`, as in replication.test.ts.
@@ -285,7 +285,7 @@ describe("the per-connection string table (ADR 0100)", () => {
     for (let i = 0; i <= MAX_TABLE_STRINGS; i++) expect(into.read(r)).toBe(`s${i}`);
   });
 
-  it("makes a second spawn of the same prefab smaller once the first was acked, under loss", async () => {
+  it("makes a second spawn of the same prefab smaller, under loss", async () => {
     const engine = await create(clientsAndServer(1, { latencyMs: 20, loss: 0.2 }, []));
     const server = world(engine, "Server");
     step(engine, 10);
@@ -293,19 +293,19 @@ describe("the per-connection string table (ADR 0100)", () => {
     const sizes: number[] = [];
     const send = session.send.bind(session);
     vi.spyOn(session, "send").mockImplementation((kind, to, channel, body, tick) => {
-      if (kind === SNAPSHOT && body instanceof Uint8Array) sizes.push(body.byteLength);
+      if (kind === GHOSTS && body instanceof Uint8Array) sizes.push(body.byteLength);
       send(kind, to, channel, body, tick);
     });
+    // Spawns go in reliable lifecycle messages (ADR 0402), so a string is the client's once sent.
     inWorld(server, () => GameObject.instantiate(TANK));
     step(engine, 1);
     const firstSpawn = sizes[sizes.length - 1];
     step(engine, 60);
-    const steady = sizes[sizes.length - 1];
     inWorld(server, () => GameObject.instantiate(TANK));
     step(engine, 1);
     const secondSpawn = sizes[sizes.length - 1];
     // The tank's prefab path alone is over 60 bytes; by index it's one.
-    expect(firstSpawn - steady).toBeGreaterThan(secondSpawn - steady + 60);
+    expect(firstSpawn).toBeGreaterThan(secondSpawn + 60);
     step(engine, 60);
     expect(world(engine, "P1")._componentsOfType(Replicated).filter((r) => r.isGhost)).toHaveLength(4);
     const peer = session.openPeers()[0];
