@@ -11,7 +11,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readProject, ServerError } from "../server/project";
 import { nodePackageSource } from "../server/packages";
-import { DEBUG_LISTENER_CRATES, DEFAULT_ICON_SVG, ICON_FILES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
+import { DEBUG_LISTENER_CRATES, DEBUG_MULTICAST_PLUGIN,DEFAULT_ICON_SVG, ICON_FILES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
 import { PLAYER_FILE_LIST } from "./format";
 import { acquireProjectContext } from "../engine/core/projectContext";
 import { bakeModelFile } from "../engine/scene/models";
@@ -171,6 +171,8 @@ async function readListenerCrates(): Promise<Map<string, string>> {
     crates.set(`${crate}/Cargo.toml`, await readFile(join(root, "Cargo.toml"), "utf8"));
     for (const file of (await readdir(join(root, "src"))).filter((f) => f.endsWith(".rs")).sort()) crates.set(`${crate}/src/${file}`, await readFile(join(root, "src", file), "utf8"));
   }
+  const plugin = join(REPO, "native", DEBUG_MULTICAST_PLUGIN.crate);
+  for (const file of DEBUG_MULTICAST_PLUGIN.files) crates.set(`${DEBUG_MULTICAST_PLUGIN.crate}/${file}`, await readFile(join(plugin, ...file.split("/")), "utf8"));
   return crates;
 }
 

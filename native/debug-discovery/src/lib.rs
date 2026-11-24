@@ -117,9 +117,13 @@ impl Discovery {
         Ok(id)
     }
 
+    /// Withdraws an advert, waiting briefly for the daemon to send its goodbye: browsers drop the build at once, where a
+    /// build that vanished without one stays listed until its PTR record expires (75 minutes in mdns-sd, not settable).
     pub fn unadvertise(&self, id: AdvertId) {
         if let Some(fullname) = self.adverts.lock().unwrap().remove(&id) {
-            let _ = self.daemon.unregister(&fullname);
+            if let Ok(done) = self.daemon.unregister(&fullname) {
+                let _ = done.recv_timeout(std::time::Duration::from_millis(500));
+            }
         }
     }
 

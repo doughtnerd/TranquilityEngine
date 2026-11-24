@@ -238,3 +238,42 @@ new crate only the default-route adapter is seen; a second adapter or a VPN can 
 - `captureLost` reason; the capture queue's limit; `plugins.test.ts` scans on Linux/CI; a prompt for tokenless tools
   reaching Play; a paused Play answers no tool.
 - M3: discovery (D1, D2), Android games (D3), the guide's final pass (D4).
+
+## M3 review (2026-11-23): discovery and Android games
+
+**Run.** A discovery contract (`tauriDiscovery.ts` types and stubs, `949c65c9f`) let D1, D2 and D3 run in parallel on
+Sonnet, each in its own worktree, all merged without conflicts. The coordinator wired D3's plugin into the export
+(D1 owned `desktop.ts` that wave) and wrote D4.
+
+**Built.** D1: `native/debug-discovery` (mdns-sd 0.22), four `myco_debuglink_*` discovery commands, both shells, the
+crate vendored into debug desktop exports, listening desktop games with LAN on advertise. D2: Nearby builds in the
+Connect dialog (`discovery.ts`); a picked build connects to its own address with the typed code's token. D3:
+`native/tauri-plugin-myco-multicast` (Android Wi-Fi multicast lock, no-op on desktop); the listener crates and the
+plugin `cargo check` for `aarch64-linux-android` unchanged. Coordinator: the plugin vendored with its Android files
+(`DEBUG_MULTICAST_PLUGIN`), its Cargo line and `.plugin(...)` in debug exports; the player reports `android` on a
+phone; guide sections for Nearby builds, Android and OP3.
+
+**Found in review.**
+- mdns-sd removes a service on a goodbye or when its PTR record expires (75 minutes; the TTL setter is crate-private),
+  and Tauri doesn't drop managed state on exit, so a closed game would have stayed listed for over an hour. The
+  advertise command now withdraws the advert when its window is destroyed, and `unadvertise` waits up to 500 ms for
+  the goodbye. A crashed game still lingers (noted in the guide).
+- `ConnectDialog.tsx` had a Windows-1252 ellipsis byte (0x85) that broke `build:editor` ("stream did not contain
+  valid UTF-8"). Typecheck and Vitest don't read it that way; only the build caught it. Fixed.
+- D1's guide text said the editor and Studio advertise; only listening games do. Corrected in the guide.
+
+**Checks.**
+- Vitest: baseline failures only (once with cargo running: several timing and hash tests failed and passed when rerun
+  alone; `loudnessSource.test.ts` timed out under load, passes alone twice). Typecheck: the 2 baseline errors.
+- `cargo test`: ws-listener 13, debug-discovery 7 with `--include-ignored` (advertise, browse, goodbye on this
+  machine's multicast: passes on Windows), debug-link-tauri 3. `cargo check` src-tauri, src-studio-tauri, and a
+  generated debug desktop export of `samples/flappy` (vendored crates and plugin compile together, 2 min 27 s).
+- `build:editor` passes; player `files.json` `debug`: 9 chunks (adds `tauriDiscovery`, `config`).
+- No e2e change in M3 (discovery is native-only; the dialog's browser case renders no section).
+
+**Not verified / open.**
+- OP1, OP2, OP3 on real machines. A Gradle build of the plugin (its AGP/Kotlin versions were written from memory),
+  the lock on a phone, and the export's SDL3 gamepad module for Android.
+- Stories for the dialog's new states (`test:stories` can't start here).
+- A reloaded game page advertises again beside its old advert until the window closes.
+

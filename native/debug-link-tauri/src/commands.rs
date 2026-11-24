@@ -256,13 +256,23 @@ pub fn browse_event(event: Event) -> BrowseEvent {
 
 #[tauri::command]
 pub fn myco_debuglink_advertise(
+    window: tauri::Window,
     state: State<'_, DebugDiscovery>,
     name: String,
     platform: String,
     port: u16,
     path: String,
 ) -> Result<u32, String> {
-    state.get()?.advertise(&name, &platform, port, &path)
+    let discovery = state.get()?;
+    let id = discovery.advertise(&name, &platform, port, &path)?;
+    // Tauri doesn't drop managed state when the app exits, so the advert is withdrawn (with its goodbye) when the window
+    // that made it closes; otherwise tools would list a closed game for up to 75 minutes.
+    window.on_window_event(move |event| {
+        if matches!(event, tauri::WindowEvent::Destroyed) {
+            discovery.unadvertise(id);
+        }
+    });
+    Ok(id)
 }
 
 #[tauri::command]

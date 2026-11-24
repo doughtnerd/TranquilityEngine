@@ -342,6 +342,9 @@ describe("the debug link's listening flags (ADR 0380)", () => {
     expect(lib).toContain("builder = builder.manage(debug_link_tauri::DebugDiscovery::default());");
     for (const c of ["listen_range", "listen", "send", "close", "interfaces", "advertise", "unadvertise", "browse", "browse_stop"]) expect(lib).toContain(`debug_link_tauri::commands::myco_debuglink_${c},`);
     expect(lib).toContain("gamepad::myco_gamepad_listen,");
+    // The Android multicast lock (pairing plan D3), so discovery works on a phone.
+    expect(files.get("Cargo.toml")).toMatch(/^tauri-plugin-myco-multicast = \{ path = "vendor\/tauri-plugin-myco-multicast" \}$/m);
+    expect(lib).toContain(".plugin(tauri_plugin_myco_multicast::init())");
     expect(lib).toContain('a == "--debug-code"');
     expect(lib).toContain("globalThis.__mycoDebugCode = {literal};");
   });
@@ -354,6 +357,8 @@ describe("the debug link's listening flags (ADR 0380)", () => {
       expect(files.get("src/lib.rs")).not.toContain("DebugLinkListeners");
       expect(files.get("src/lib.rs")).not.toContain("DebugDiscovery");
       expect(files.get("src/lib.rs")).not.toContain("myco_debuglink");
+      expect(files.get("Cargo.toml")).not.toContain("tauri-plugin-myco-multicast");
+      expect(files.get("src/lib.rs")).not.toContain("myco_multicast");
     }
     expect(desktopProjectFiles({ name: "x", settings: {}, gamepadModule: "" }).get("src/lib.rs")).not.toContain("debug-code");
   });

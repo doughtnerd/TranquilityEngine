@@ -48,6 +48,13 @@ In the Studio or the editor, open the builds menu in the status bar and choose *
   `--debug-link <address> --debug-code <code>`. A game that arrives from another machine without a code waits for you
   to accept it.
 
+**Nearby builds.** In the desktop editor and Studio, the dialog also lists listening games found on your network
+(mDNS, `_myco-debug._tcp`), as "flappy — desktop, 192.168.1.20". Choosing one fills in its address; you still type
+the code it shows, because being listed isn't being trusted, and the code's token is what the game checks. A picked
+build and a room code don't go together (the dialog says so); editing the address clears the pick. Only games with
+**LAN** on advertise themselves (a localhost-only listener isn't reachable from elsewhere). A browser page can't use
+mDNS, so in a browser the list doesn't appear: type the code or the address.
+
 The editor's Play is a build too: while Play runs, its code shows at the top of the editor's builds menu, so the Studio
 can record takes from Play.
 
@@ -86,9 +93,47 @@ With a build connected and chosen in the builds menu:
 - Both machines on the same network, not a guest network with client isolation.
 - Windows: the first time a game listens, Windows Firewall asks; allow it on **Private networks**. The Wi-Fi network
   must use the **Private** profile (Settings > Network & Internet > Wi-Fi > your network); a Public profile blocks it.
-- Android games built through the Tauri CLI: the generated `gen/android/` project needs cleartext traffic to private
-  addresses allowed in debug builds (a network security config), and a multicast lock for discovery. These come with
-  the M3 work; until then use the desktop.
+- Discovery (Nearby builds) uses mDNS: multicast on UDP port 5353. A VPN, a firewall rule against it, or a router that
+  filters multicast between Wi-Fi clients leaves the list empty; the code still pairs.
+- Android games: see the next section.
+
+## Running a debug game on Android
+
+An Android game is built from a debug desktop export with the Tauri CLI or Android Studio.
+
+1. **Export** with debugging on and LAN listening: `npm run export -- <project> --target desktop --debug-listen
+   --debug-lan --no-build`. The Tauri project is in `src-tauri/` of the export folder.
+2. **Toolchain:** Android Studio with the SDK and NDK, `JAVA_HOME` set, and `rustup target add aarch64-linux-android`.
+3. **Build:** in the export folder, `npx @tauri-apps/cli android init`, then `npx @tauri-apps/cli android build
+   --debug` (or open `src-tauri/gen/android` in Android Studio). Install the APK on the phone.
+4. **Network:** the phone and the tool's machine on the same Wi-Fi, without client isolation. The game shows its code
+   as on the desktop and appears in Nearby builds as "android".
+5. **Cleartext:** the link uses plain `ws://`. Tauri's generated manifest sets `android:usesCleartextTraffic` from a
+   placeholder that its debug build type sets to `true`, so a `--debug` build needs nothing more. A release-profile APK
+   with the link on needs a network security config: add `android:networkSecurityConfig="@xml/network_security_config"`
+   to `<application>` in `gen/android/app/src/main/AndroidManifest.xml`, and create
+   `gen/android/app/src/main/res/xml/network_security_config.xml`:
+
+   ```xml
+   <?xml version="1.0" encoding="utf-8"?>
+   <network-security-config>
+       <base-config cleartextTrafficPermitted="false" />
+       <domain-config cleartextTrafficPermitted="true">
+           <domain includeSubdomains="false">localhost</domain>
+           <!-- the tool machine's LAN address: Android matches hosts, not address ranges -->
+           <domain includeSubdomains="false">192.168.1.20</domain>
+       </domain-config>
+   </network-security-config>
+   ```
+
+   Running `tauri android init` again regenerates `gen/android/`: add the file back afterwards.
+6. **Discovery:** Android drops multicast for apps that hold no Wi-Fi multicast lock. A debug export includes the
+   `myco-multicast` plugin (`native/tauri-plugin-myco-multicast`), which takes the lock when the game starts and
+   releases it when it closes; its manifest asks for `CHANGE_WIFI_MULTICAST_STATE` and `ACCESS_WIFI_STATE`. Without
+   the lock, type the code.
+
+The export's gamepad module builds SDL3 from source; it hasn't been tried for Android yet. If `tauri android build`
+fails in `sdl3-sys`, report it.
 
 ## OP1: a desktop game and a laptop Studio on one Wi-Fi (owner procedure)
 
@@ -142,3 +187,24 @@ You need two machines on one Wi-Fi (a third tab works for the tool). The headles
    into takes/**. The take opens.
 
 Record pass or what you saw for each step. Steps 4 and 7 are the milestone's pass/fail.
+
+## OP3: Nearby builds and an Android game (owner procedure)
+
+You need the desktop, the laptop and the phone on one Wi-Fi. The headless checks are `cargo test -- --ignored` in
+`native/debug-discovery` (advertise, then browse, on this machine's multicast) and the dialog's `discovery.test.ts`.
+
+1. **Desktop game.** On the desktop, export and build `samples/flappy` with `--target desktop --debug-listen
+   --debug-lan` and start the app from its build folder.
+2. **List.** On the laptop, start the desktop Studio and open **Connect to a build…**. Within a few seconds "Nearby
+   builds" lists "flappy — desktop, <desktop's address>". Pass: it appears without typing anything.
+3. **Pick and pair.** Choose it, type the code the game shows, press Connect: the build pairs and the code box hides.
+   Then disconnect, pick it again and type a wrong code: the dialog refuses it.
+4. **Gone.** Close the game's window: within a few seconds the row leaves the list. (A game that crashes or is killed
+   sends no goodbye and stays listed for up to 75 minutes; picking it just fails to connect.)
+5. **Android.** Build the same export for Android (the section above) and start it on the phone. In the laptop's
+   Studio, the dialog lists "flappy — android, <phone's address>". Pick it, type its code: it pairs. Record a take
+   from it in the Take screen (as in OP1 step 7).
+6. **Browser.** Open the browser Studio from `npm run dev`: the dialog shows no Nearby builds section.
+
+Record pass or what you saw for each step. Steps 2, 3 and 5 are the milestone's pass/fail; if step 5 fails, note
+whether the phone's game showed a code (listening works) and whether typing the code pairs (only discovery fails).

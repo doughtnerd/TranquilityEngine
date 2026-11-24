@@ -108,7 +108,8 @@ async function boot(): Promise<void> {
     const override = query.get("debug-link") ?? flags.__mycoDebugLink ?? null;
     const code = query.get("debug-code") ?? flags.__mycoDebugCode ?? null;
     const desktop = "__TAURI_INTERNALS__" in window;
-    const platform = desktop ? "desktop" : "web";
+    // A Tauri app on a phone (built from the desktop export, pairing plan D3) says so: tools list it as "android".
+    const platform = desktop ? (/Android/i.test(navigator.userAgent) ? "android" : "desktop") : "web";
     // A desktop game can listen: the native WebSocket server stands in for the transport a page lacks.
     // Its network addresses go in the pairing code (a code holds the machine's private IPv4 octets).
     let interfaces: NetworkInterfaceAddress[] = [];

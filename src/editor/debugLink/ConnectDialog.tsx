@@ -141,7 +141,7 @@ export function ConnectDialog({ onConnect, onClose, discovery: given, failure: i
             </div>
             {found.length === 0 ? (
               <p class="debug-link-discovered-empty" role="status">
-                Looking for builds…
+                Looking for buildsâ€¦
               </p>
             ) : (
               <ul
