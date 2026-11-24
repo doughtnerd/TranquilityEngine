@@ -23,6 +23,7 @@ import type { BufferAttribute, BufferGeometry, Color as ThreeColor, LoadingManag
 import { Assets, fetchAssetBytes, normalizeAssetPath, sidecarValue } from "./Assets";
 import { BAKED_SUFFIX, decodeBakedModel, encodeBakedModel } from "./bakedModel";
 import { BUILTIN_MESHES, builtinMeshData, type BuiltinMesh } from "./builtinMeshes";
+import { isTextureMapStatement, materialLibraryFiles, readTextureMap, wavefrontStatements } from "./wavefront";
 import { Mat4 } from "../core/math";
 import { uniqueName } from "../core/uniqueName";
 import { splitSpriteRef, type ImportSettings } from "./importSettings";
@@ -782,6 +783,40 @@ function manager(modelPath: string): ModelLoadingManager {
   return m;
 }
 
+/**
+ * An `.mtl` as three.js's MTLLoader reads it right. Its map reader takes the rest of the line after `-bm`, `-mm`, and
+ * a three-number `-s`/`-o` as the file name, so every other option (`-clamp on`, `-imfchan r`…) and a shorter `-s`/`-o`
+ * ended up in the name. Each map statement is rewritten as the specifications read it (`wavefront.ts`, ADR 0394): the
+ * options three.js uses, padded to their full arguments with the specification's defaults, then the one file name.
+ * Continued lines are joined; everything else is kept as written.
+ */
+function forMtlLoader(text: string): string {
+  const lines: string[] = [];
+  for (const s of wavefrontStatements(text)) {
+    const keyword = s.keyword.text.toLowerCase();
+    const last = s.args.at(-1) ?? s.keyword;
+    const written = text.slice(s.keyword.start, last.end);
+    if (!isTextureMapStatement(keyword)) {
+      lines.push(written.includes("\n") ? [s.keyword, ...s.args].map((t) => t.text).join(" ") : written);
+      continue;
+    }
+    const map = readTextureMap(s.args);
+    if (!map.file) continue;
+    if (map.extra.length) warnOnce(`A material library's "${written}" names one file, "${map.file.text}"; the rest of the line isn't part of it (Wavefront file names have no spaces).`);
+    const out = [keyword];
+    for (const o of map.options) {
+      const a = o.args.map((t) => t.text);
+      if (o.name === "-bm" && (keyword === "bump" || keyword === "map_bump" || keyword === "norm")) out.push("-bm", a[0]!);
+      else if (o.name === "-mm" && keyword === "disp") out.push("-mm", a[0]!, a[1] ?? "1");
+      else if (o.name === "-s") out.push("-s", a[0]!, a[1] ?? "1", a[2] ?? "1");
+      else if (o.name === "-o") out.push("-o", a[0]!, a[1] ?? "0", a[2] ?? "0");
+    }
+    out.push(map.file.text);
+    lines.push(out.join(" "));
+  }
+  return lines.join("\n");
+}
+
 /** Space between the centres of a material library's swatch spheres (each one unit across). */
 const SWATCH_SPACING = 1.25;
 
@@ -792,7 +827,7 @@ const SWATCH_SPACING = 1.25;
  */
 async function materialLibraryRoot(text: string, loading: LoadingManager): Promise<Object3D> {
   const { MTLLoader } = await import("three/examples/jsm/loaders/MTLLoader.js");
-  const creator = new MTLLoader(loading).parse(text, "");
+  const creator = new MTLLoader(loading).parse(forMtlLoader(text), "");
   creator.preload();
   const names = Object.keys(creator.materialsInfo);
   const root = new (lib().Group)();
@@ -841,18 +876,20 @@ async function parseModel(path: string, url: string, settings: ImportSettings, u
     const text = new TextDecoder().decode(bytes);
     const { OBJLoader } = await import("three/examples/jsm/loaders/OBJLoader.js");
     const loader = new OBJLoader(loading);
-    const lib = /^mtllib\s+(.+?)\s*$/m.exec(text)?.[1];
-    if (lib) {
-      const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
-      const mtl = resolveRelative(folder, lib.replace(/\\/g, "/"));
-      if (mtl && Assets.has(mtl)) {
-        const { MTLLoader } = await import("three/examples/jsm/loaders/MTLLoader.js");
-        const creator = new MTLLoader(loading).parse(new TextDecoder().decode(await fetchBytes(Assets.url(mtl))), "");
-        creator.preload();
-        loader.setMaterials(creator);
-      } else {
-        warnOnce(`${path} uses the material library "${lib}", which isn't in the project; its meshes use the default material.`);
-      }
+    // Every file of every `mtllib` statement is a library, the first named searched first (ADR 0394).
+    const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
+    const libraries: string[] = [];
+    for (const lib of materialLibraryFiles(text)) {
+      const mtl = resolveRelative(folder, lib.text.replace(/\\/g, "/"));
+      if (mtl && Assets.has(mtl)) libraries.push(forMtlLoader(new TextDecoder().decode(await fetchBytes(Assets.url(mtl)))));
+      else warnOnce(`${path} uses the material library "${lib.text}", which isn't in the project; the materials only it defines draw with the default material.`);
+    }
+    if (libraries.length) {
+      const { MTLLoader } = await import("three/examples/jsm/loaders/MTLLoader.js");
+      // MTLLoader keeps the last definition of a name, so the libraries go in last first.
+      const creator = new MTLLoader(loading).parse(libraries.reverse().join("\n"), "");
+      creator.preload();
+      loader.setMaterials(creator);
     }
     root = loader.parse(text);
   }
