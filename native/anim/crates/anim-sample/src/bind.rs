@@ -141,6 +141,11 @@ pub struct ClipBindings {
     pub(crate) keys: Vec<Key>,
     pub(crate) crossings: Vec<Cross>,
     pub(crate) states: Vec<StateKey>,
+    /// The tracks with an output column, the `activation` tracks and the `subclip` tracks, in
+    /// track order (so a window visits only those, not every bone track).
+    pub(crate) column_tracks: Vec<u32>,
+    pub(crate) activation_tracks: Vec<u32>,
+    pub(crate) subclip_tracks: Vec<u32>,
     sync: Vec<SyncMarker>,
     column_words: u32,
 }
@@ -169,6 +174,9 @@ impl ClipBindings {
             keys,
             crossings: Vec::new(),
             states: Vec::new(),
+            column_tracks: Vec::new(),
+            activation_tracks: Vec::new(),
+            subclip_tracks: Vec::new(),
             sync: Vec::new(),
             column_words,
         };
@@ -183,6 +191,16 @@ impl ClipBindings {
             }
         }
         b.read_keys();
+        for (i, t) in b.tracks.iter().enumerate() {
+            if t.column != NONE {
+                b.column_tracks.push(i as u32);
+            }
+            match t.kind {
+                TrackKind::Activation => b.activation_tracks.push(i as u32),
+                TrackKind::Subclip => b.subclip_tracks.push(i as u32),
+                _ => {}
+            }
+        }
         b
     }
 
