@@ -1,6 +1,6 @@
 // Recording a take from a connected build (plan U5) through `BuildTakeRecorder`: a headless build serves the real
 // `audio` topic over the loopback link (as the link smoke does); Start, Mark, Stop and Save drive its take, the upload's
-// chunks are reassembled and the take file lands in the project's `takes/` folder (a project in memory), named from the
+// chunks are reassembled and the take file lands in the project's `recordings/` folder (a project in memory), named from the
 // build and the time. A refusal, the link closing mid-upload and a read-only project each fail with why.
 import { effect } from "@preact/signals";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -20,7 +20,7 @@ vi.mock("../../../plugins/audio/runtime/capture/recorder", async (real) => (awai
 vi.mock("../../../plugins/audio/runtime/capture/save", async (real) => (await import("../../../plugins/audio/runtime/capture/testSupport")).captureSaveModule(await real(), chunk));
 
 const WHEN = new Date(2026, 10, 22, 10, 15, 0);
-const NAME = "takes/smoke-game_2026-11-22_10-15-00.mycotake";
+const NAME = "recordings/smoke-game_2026-11-22_10-15-00.sporesample";
 
 let fs: MemoryFileSystem;
 let project: EditorProject;
@@ -78,10 +78,10 @@ describe("recording a take from a connected build", () => {
     expect(s.kind).toBe("failed");
     expect(s.kind === "failed" && s.message).toMatch(/^Couldn't save the take from Smoke game: nothing recorded/);
     expect(s.kind === "failed" && s.canSave).toBe(false);
-    expect(project.files.some((f) => f.startsWith("takes/"))).toBe(false);
+    expect(project.files.some((f) => f.startsWith("recordings/"))).toBe(false);
   });
 
-  it("Start, Mark, Stop and Save: the take lands in takes/, named from the build and the time, with its marker", async () => {
+  it("Start, Mark, Stop and Save: the take lands in recordings/, named from the build and the time, with its marker", async () => {
     const r = await rig();
     expect(buildTakeStatus(r.rec.state.value, "Smoke game")).toBeNull();
     await r.run(r.rec.start());
@@ -120,7 +120,7 @@ describe("recording a take from a connected build", () => {
     record(r.build, 1000);
     await r.run(r.rec.stop());
     expect(await r.run(r.rec.save())).toBe(NAME);
-    expect(await r.run(r.rec.save())).toBe("takes/smoke-game_2026-11-22_10-15-00 (1).mycotake");
+    expect(await r.run(r.rec.save())).toBe("recordings/smoke-game_2026-11-22_10-15-00 (1).sporesample");
   });
 
   it("the link closing mid-upload fails the save with why", async () => {
@@ -153,9 +153,9 @@ describe("recording a take from a connected build", () => {
 
 describe("a build take's name", () => {
   it("is the build's name made safe, then the date and time", () => {
-    expect(buildTakeName("Smoke game", WHEN)).toBe("smoke-game_2026-11-22_10-15-00.mycotake");
-    expect(buildTakeName("  Flappy: Canyon *Run*!  ", new Date(2026, 0, 5, 7, 8, 9))).toBe("flappy-canyon-run_2026-01-05_07-08-09.mycotake");
-    expect(buildTakeName("???", WHEN)).toBe("build_2026-11-22_10-15-00.mycotake");
+    expect(buildTakeName("Smoke game", WHEN)).toBe("smoke-game_2026-11-22_10-15-00.sporesample");
+    expect(buildTakeName("  Flappy: Canyon *Run*!  ", new Date(2026, 0, 5, 7, 8, 9))).toBe("flappy-canyon-run_2026-01-05_07-08-09.sporesample");
+    expect(buildTakeName("???", WHEN)).toBe("build_2026-11-22_10-15-00.sporesample");
   });
 });
 
@@ -170,7 +170,7 @@ describe("a take the game starts and stops (ADR 0408)", () => {
     return { build, rec, saved };
   }
 
-  it("shows the game's take as recording and saves it into takes/ when the game stops it", async () => {
+  it("shows the game's take as recording and saves it into recordings/ when the game stops it", async () => {
     const { build, rec, saved } = await watched(true);
     await build.until(() => true, 50);
     await Audio.take.start(); // the game (F10, or its script)
@@ -201,20 +201,20 @@ describe("a take saved into a takes folder workspace (ADR 0408)", () => {
     const workspace = await openTakesFolder(fs, folder);
     expect(isTakesFolder(workspace)).toBe(true);
     expect(isTakesFolder(project)).toBe(false);
-    const path = await saveTakeIntoProject(workspace, "a.mycotake", new Uint8Array([1, 2, 3]));
-    expect(path).toBe("a.mycotake");
-    expect(fs.files.get(joinPath(folder, "a.mycotake"))).toEqual(new Uint8Array([1, 2, 3]));
-    expect(workspace.files).toContain("a.mycotake");
+    const path = await saveTakeIntoProject(workspace, "a.sporesample", new Uint8Array([1, 2, 3]));
+    expect(path).toBe("a.sporesample");
+    expect(fs.files.get(joinPath(folder, "a.sporesample"))).toEqual(new Uint8Array([1, 2, 3]));
+    expect(workspace.files).toContain("a.sporesample");
   });
 
   it("opens a folder of takes with no project.json, loading only takes, notes and captures", async () => {
     const folder = joinPath(ROOT, "loose");
-    fs.files.set(joinPath(folder, "run.mycotake"), new Uint8Array([9]));
-    fs.files.set(joinPath(folder, "run.mycotake.notes.json"), "{}");
-    fs.files.set(joinPath(folder, "old/cap.mycap"), new Uint8Array([7]));
+    fs.files.set(joinPath(folder, "run.sporesample"), new Uint8Array([9]));
+    fs.files.set(joinPath(folder, "run.sporesample.notes.json"), "{}");
+    fs.files.set(joinPath(folder, "old/cap.sporesample"), new Uint8Array([7]));
     fs.files.set(joinPath(folder, "readme.txt"), "hi");
     const workspace = await openTakesFolder(fs, folder);
-    expect([...workspace.files].sort()).toEqual(["old/cap.mycap", "run.mycotake", "run.mycotake.notes.json"]);
+    expect([...workspace.files].sort()).toEqual(["old/cap.sporesample", "run.sporesample", "run.sporesample.notes.json"]);
     expect(workspace.name).toBe("loose");
     expect(workspace.canSave).toBe(true);
   });

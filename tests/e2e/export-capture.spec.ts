@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { expect, readAudioDebug, test, type Page, type Hooks } from "./fixtures";
 
 // X1 (ADR 0172 owner decision 7). UNVERIFIED DRAFT: no Chromium in the X1 worktree, so this was never run.
-// A game exported with --audio-capture: F9 records and the second F9 downloads a .mycap; without the option F9 does nothing
+// A game exported with --audio-capture: F9 records and the second F9 downloads a .sporesample; without the option F9 does nothing
 // (no toast, no download, no recorder chunk requested).
 
 test.describe.configure({ mode: "serial" });
@@ -42,7 +42,7 @@ test.describe("a game exported with --audio-capture", { tag: "@slow" }, () => {
   test.beforeAll(async () => void (served = await exportAndServe("flappy", ["--audio-capture"])));
   test.afterAll(() => stop(served));
 
-  test("F9 records, F9 again saves a .mycap download", async ({ page }) => {
+  test("F9 records, F9 again saves a .sporesample download", async ({ page }) => {
     expect(JSON.parse(readFileSync(join(served!.dir, "web", "game.json"), "utf8")).audioCapture).toBe(true);
     await page.goto(served!.url);
     await expect.poll(() => engineUp(page), { timeout: 20_000 }).toBe(true);
@@ -56,7 +56,7 @@ test.describe("a game exported with --audio-capture", { tag: "@slow" }, () => {
     const download = page.waitForEvent("download");
     await page.keyboard.press("F9");
     const file = await download;
-    expect(file.suggestedFilename()).toMatch(/^capture-\d{8}-\d{6}\.mycap$/);
+    expect(file.suggestedFilename()).toMatch(/^capture-\d{8}-\d{6}\.sporesample$/);
     await expect(toast(page)).toContainText("Saved capture-");
   });
 });

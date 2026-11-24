@@ -15,6 +15,8 @@ import { CaptureRecorder } from "./captureRecorder";
 import { CAPTURES_FOLDER, whyNotCaptureFile } from "./captureTree";
 import { ProfilerStore } from "./profilerStore";
 import { linkReview } from "./reviewLink";
+import type { BuildFollow } from "./remoteLiveHost";
+import { studioBuild } from "../../debugLink/studioLink";
 import type { RunFileKind } from "./runFileActions";
 
 let store: ProfilerStore | null = null;
@@ -28,6 +30,36 @@ async function readProjectFile(path: string): Promise<ArrayBuffer> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`couldn't read ${path} (${res.status})`);
   return res.arrayBuffer();
+}
+
+/** ADR 0403 (plan U5): the Profiler's live view of the build chosen in `studioBuild`; a build that left keeps it to show why it ended. */
+export const buildFollow = signal<BuildFollow | null>(null);
+
+/** ADR 0408: follow the connected build as soon as the Profiler has it (connecting opens the Profiler live). */
+let followWhenShown = false;
+
+/** Ask the Profiler to follow the connected build's live capture as soon as it shows (now, if it does). */
+export function followBuildWhenShown(): void {
+  followWhenShown = true;
+  startPendingFollow();
+}
+
+/** Start the follow asked for, once the Profiler has the connected build's `BuildFollow`. */
+export function startPendingFollow(): void {
+  const follow = buildFollow.peek();
+  if (!followWhenShown || !follow || !studioBuild.peek() || follow.build.peer !== studioBuild.peek()?.peer) return;
+  followWhenShown = false;
+  void follow.start();
+}
+
+/**
+ * Stop following the build's live capture, so what the Profiler is asked to show next stays shown (a file, a recording
+ * of a replay; ADR 0408). Follow build starts it again.
+ */
+export function stopFollowingBuild(): void {
+  followWhenShown = false;
+  const follow = buildFollow.peek();
+  if (follow?.following) follow.stop();
 }
 
 /** The screen's store; its cursor and the open take's replay are one review position (`reviewLink.ts`) for the page's life. */
@@ -83,7 +115,7 @@ export function profilerRecorder(): CaptureRecorder {
 /** Open a capture on the Profiler (the route says which, so a reload or a hand-off opens the same one). */
 export const openCapture = (path: string): void => openRoute({ screen: "profiler", asset: path });
 
-/** The Captures tree's selected folder: where Open capture file…, New folder and a new recording go (null: `captures/`). */
+/** The Captures tree's selected folder: where Open capture file…, New folder and a new recording go (null: `recordings/`). */
 export const captureFolder = signal<string | null>(null);
 
 /** Captures for the Captures tree's actions: the open capture follows a move and closes on a delete. */

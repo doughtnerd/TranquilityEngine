@@ -17,7 +17,7 @@ import { expect, type Page, type Hooks } from "./fixtures";
 
 // Helpers of the export round-trip spec (ADR 0171 amended by 0172, task X3; `audio-mix-d.spec.ts`): export a sample with
 // the game build (`src/export/cli.mjs`), serve it with its own `serve.mjs`, drive the exported page's recorder, and read the
-// `.mycap` it saves back in node, so the editor's tables can be checked against what the game was playing.
+// `.sporesample` it saves back in node, so the editor's tables can be checked against what the game was playing.
 
 export interface Served {
   url: string;
@@ -112,7 +112,7 @@ export function audioClockRuns(page: Page, seconds: number): Promise<number> {
 export const captureState = (page: Page): Promise<string> => page.evaluate(() => (globalThis as unknown as { __myco: GameApi }).__myco.Audio.capture.state);
 export const markCapture = (page: Page, text: string): Promise<void> => page.evaluate((t) => (globalThis as unknown as { __myco: GameApi }).__myco.Audio.capture.mark(t), text);
 
-// --- reading a .mycap in node ------------------------------------------------------------------------------------------
+// --- reading a .sporesample in node ------------------------------------------------------------------------------------------
 
 export interface ParsedVoiceEvent {
   frame: number;
@@ -138,7 +138,7 @@ export interface ParsedCapture {
 
 const CLIP_TABLE = NAME_TABLES.indexOf("clips");
 
-/** Reads the header, META and the records of a saved `.mycap` (deflate-raw or stored). Frames are core frames. */
+/** Reads the header, META and the records of a saved `.sporesample` (deflate-raw or stored). Frames are core frames. */
 export function parseMycap(file: Uint8Array | string): ParsedCapture {
   const bytes = typeof file === "string" ? readFileSync(file) : Buffer.from(file);
   const hv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
@@ -192,7 +192,7 @@ export const POSITIONS: readonly Position[] = ["start", "keyframe", "between", "
 
 export interface RecordedScene {
   truths: Record<Position, Truth>;
-  /** The saved `.mycap` (Playwright's download path; it lives until the context closes). */
+  /** The saved `.sporesample` (Playwright's download path; it lives until the context closes). */
   file: string;
   fileName: string;
   parsed: ParsedCapture;

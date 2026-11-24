@@ -10,7 +10,7 @@ import { ProfilerStore } from "./profilerStore";
 import { whyNotRecord } from "./RecordButton";
 import { clockText, extent, linePath, pct, rulerTicks, stepPath, valueAt } from "./timelineGeometry";
 
-function store(files: Record<string, Uint8Array> = { "captures/run.mycap": fixtureCapture() }) {
+function store(files: Record<string, Uint8Array> = { "recordings/run.sporesample": fixtureCapture() }) {
   return new ProfilerStore({
     open: (bytes) => CaptureSource.openFile(bytes, { worker: inProcessWorker() }),
     readFile: async (path) => {
@@ -24,8 +24,8 @@ function store(files: Record<string, Uint8Array> = { "captures/run.mycap": fixtu
 describe("the Profiler store", () => {
   it("opens a project capture, reads its data and the state at the cursor", async () => {
     const s = store();
-    expect(await s.openPath("captures/run.mycap")).toBe(true);
-    expect(s.state.value).toEqual({ kind: "open", origin: "file", path: "captures/run.mycap", title: "run", replayOf: null });
+    expect(await s.openPath("recordings/run.sporesample")).toBe(true);
+    expect(s.state.value).toEqual({ kind: "open", origin: "file", path: "recordings/run.sporesample", title: "run", replayOf: null, take: false });
     expect(s.data.value!.tracks.length).toBeGreaterThan(0);
     s.seekTo(5);
     await vi.waitFor(() => expect(s.readouts.value.map((r) => r.name)).toEqual(["Music", "Vehicles", "Dialogue"]));
@@ -35,7 +35,7 @@ describe("the Profiler store", () => {
 
   it("steps with the arrows and jumps to markers and warnings with Shift", async () => {
     const s = store();
-    await s.openPath("captures/run.mycap");
+    await s.openPath("recordings/run.sporesample");
     expect(s.key("stepBack")).toBe(false);
     expect(s.key("stepForward")).toBe(true);
     expect(s.cursor.value).toBeGreaterThan(0);
@@ -49,13 +49,13 @@ describe("the Profiler store", () => {
   });
 
   it("selects a voice and seeks to its start; a refused file says why and leaves nothing open", async () => {
-    const s = store({ "captures/run.mycap": fixtureCapture(), "captures/bad.mycap": new Uint8Array([1, 2, 3]) });
-    await s.openPath("captures/run.mycap");
+    const s = store({ "recordings/run.sporesample": fixtureCapture(), "recordings/bad.sporesample": new Uint8Array([1, 2, 3]) });
+    await s.openPath("recordings/run.sporesample");
     const stolen = s.data.value!.voices.find((v) => v.status === "stolen")!;
     s.select(stolen.key, true);
     expect(s.selectedVoice.value).toBe(stolen);
     expect(s.cursor.value).toBe(stolen.start);
-    expect(await s.openPath("captures/bad.mycap")).toBe(false);
+    expect(await s.openPath("recordings/bad.sporesample")).toBe(false);
     expect(s.state.value.kind).toBe("failed");
     expect(s.state.value.kind === "failed" && s.state.value.message).toMatch(/Not a Myco capture file/);
     expect(s.data.value).toBeNull();
@@ -63,9 +63,9 @@ describe("the Profiler store", () => {
   });
 
   it("says which take a replay capture came from (META replayOf)", async () => {
-    const take = { path: "takes/canyon_run_01.mycotake", audioHash: "5f3a90c1" };
-    const s = store({ "captures/replay.mycap": fixtureCapture(undefined, take) });
-    await s.openPath("captures/replay.mycap");
+    const take = { path: "recordings/canyon_run_01.sporesample", audioHash: "5f3a90c1" };
+    const s = store({ "recordings/replay.sporesample": fixtureCapture(undefined, take) });
+    await s.openPath("recordings/replay.sporesample");
     expect(s.state.value).toMatchObject({ kind: "open", replayOf: take });
   });
 });
@@ -77,7 +77,7 @@ function recorderSeams(over: Partial<RecorderSeams> = {}) {
     capture,
     liveHost: null,
     store: storeFake,
-    files: () => ["captures/capture_01.mycap"],
+    files: () => ["recordings/capture_01.sporesample"],
     fileBytes: vi.fn(async () => new Uint8Array([9])),
     write: vi.fn(async (path: string) => path),
     ...over,
@@ -96,9 +96,9 @@ describe("the recorder", () => {
     await r.stop();
     expect(capture.stop).toHaveBeenCalled();
     expect(seams.fileBytes).toHaveBeenCalled();
-    expect(seams.write).toHaveBeenCalledWith("captures/capture_02.mycap", new Uint8Array([9]));
-    expect(storeFake.openPath).toHaveBeenCalledWith("captures/capture_02.mycap");
-    expect(r.state.value).toEqual({ kind: "saved", path: "captures/capture_02.mycap" });
+    expect(seams.write).toHaveBeenCalledWith("recordings/capture_02.sporesample", new Uint8Array([9]));
+    expect(storeFake.openPath).toHaveBeenCalledWith("recordings/capture_02.sporesample");
+    expect(r.state.value).toEqual({ kind: "saved", path: "recordings/capture_02.sporesample" });
   });
 
   it("reports a save that failed, and never writes into the project", async () => {
@@ -120,7 +120,7 @@ describe("the recorder", () => {
 
   it("names the take that replays while it records in the capture's META, and stops naming it on Stop", async () => {
     const named: unknown[] = [];
-    const take = { path: "takes/HoverBike/canyon_run_01.mycotake", audioHash: "5f3a90c1" };
+    const take = { path: "recordings/HoverBike/canyon_run_01.sporesample", audioHash: "5f3a90c1" };
     const { seams, capture } = recorderSeams({ replaying: () => take, nameReplay: (t) => named.push(t) });
     capture.start.mockImplementation(async () => {
       expect(named).toEqual([take]); // named before the capture's META is made
@@ -140,10 +140,10 @@ describe("the recorder", () => {
     const r = new CaptureRecorder(seams);
     await r.start();
     expect(named).toEqual([null]);
-    const failing = recorderSeams({ replaying: () => ({ path: "takes/a.mycotake", audioHash: "" }), nameReplay: (t) => named.push(t) });
+    const failing = recorderSeams({ replaying: () => ({ path: "recordings/a.sporesample", audioHash: "" }), nameReplay: (t) => named.push(t) });
     failing.capture.start.mockRejectedValue(new Error("no core"));
     await new CaptureRecorder(failing.seams).start();
-    expect(named.slice(1)).toEqual([{ path: "takes/a.mycotake", audioHash: "" }, null]);
+    expect(named.slice(1)).toEqual([{ path: "recordings/a.sporesample", audioHash: "" }, null]);
   });
 
   it("is offered only while the Studio's runtime plays something", () => {

@@ -19,7 +19,7 @@ import { openMixDocument } from "../mixer/mixerDocument";
 import { CURSOR_KEYS } from "./cursorKeys";
 import { messageCounts } from "./messagesModel";
 import { AtCursor, MessageList, OpenInTake, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
-import { captureFileKind, captureFolder, openCapture, openInTake, profilerRecorder, profilerStore } from "./profilerScreen";
+import { buildFollow, captureFileKind, captureFolder, openCapture, openInTake, profilerRecorder, profilerStore, startPendingFollow, stopFollowingBuild } from "./profilerScreen";
 import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "./runFileActions";
 import { durationsVersion, fileDuration } from "./runFileDurations";
 import { takeOfCapture } from "./reviewLink";
@@ -50,8 +50,8 @@ function CapturesPanel() {
       <CaptureList
         files={files}
         // A new project's scenes/, scripts/ and the sample and playlist folders aren't capture folders (UI pass T5).
-        folders={runTreeFolders(folders, files, isCaptureFile, [TAKES_FOLDER])}
-        moveFolders={runMoveFolders(folders, files, isCaptureFile, [TAKES_FOLDER])}
+        folders={runTreeFolders(folders, files, isCaptureFile, [])}
+        moveFolders={runMoveFolders(folders, files, isCaptureFile, [])}
         rootName={project?.name}
         openPath={openPath}
         writable={!!project?.canSave && !!project.fileSystem}
@@ -80,25 +80,6 @@ const GROUPS = [
   { value: "bus" as const, label: "By bus" },
   { value: "clip" as const, label: "By sound" },
 ];
-
-/** ADR 0403 (plan U5): the live view of the build chosen in `studioBuild`; a build that left keeps it to show why it ended. */
-const buildFollow = signal<BuildFollow | null>(null);
-
-/** ADR 0408: follow the connected build as soon as the Profiler has it (connecting opens the Profiler live). */
-let followWhenShown = false;
-
-/** Ask the Profiler to follow the connected build's live capture as soon as it shows (now, if it does). */
-export function followBuildWhenShown(): void {
-  followWhenShown = true;
-  startPendingFollow();
-}
-
-function startPendingFollow(): void {
-  const follow = buildFollow.peek();
-  if (!followWhenShown || !follow || !studioBuild.peek() || follow.build.peer !== studioBuild.peek()?.peer) return;
-  followWhenShown = false;
-  void follow.start();
-}
 
 /** Follows `studioBuild`: one `BuildFollow` per chosen build; a build whose link closed ends its follow with why. */
 function watchStudioBuild(): () => void {
@@ -150,7 +131,11 @@ function useScreen(): void {
       effect(() => {
         void docVersion.value;
         const asset = studioRouter().route.value.asset;
-        if (asset && isCapturePath(asset) && currentProject.value?.files.includes(asset)) void store.openPath(asset);
+        if (!asset || !isCapturePath(asset) || !currentProject.value?.files.includes(asset)) return;
+        // A file asked for wins over the build's live feed, which would otherwise replace it (ADR 0408).
+        const shown = store.state.peek();
+        if (!(shown.kind === "open" && shown.path === asset)) stopFollowingBuild();
+        void store.openPath(asset);
       }),
       ...CURSOR_KEYS.map((k) => keymap.register({ id: `profiler.${k.action}`, keys: k.keys, label: k.label, scope: { screen: "profiler" }, run: () => store.key(k.action) })),
       effect(() => {

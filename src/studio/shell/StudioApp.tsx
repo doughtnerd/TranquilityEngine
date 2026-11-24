@@ -22,6 +22,7 @@ import { GameSessionSlot, sessionSlots } from "./GameSessionSlot";
 import { StatusBarSlot } from "./StatusBarSlot";
 import { TAKES_FOLDER_SCREENS, screenById } from "./screens";
 import { isTakesFolder } from "../../editor/projects";
+import { studioOpening } from "./opening";
 import { ScreenDock } from "./ScreenDock";
 import { pendingAudioMigration } from "./audioMigration";
 import { MigrationBanner } from "./MigrationBanner";
@@ -67,6 +68,15 @@ export function StudioApp(props: StudioAppProps) {
   const root = useRef<HTMLDivElement>(null);
   useFooterHeight(root);
   const project = currentProject.value;
+  if (!project && studioOpening.value) {
+    return (
+      <div class="studio studio-starting studio-opening" data-floating-root="">
+        <p class="studio-opening-text" role="status">
+          {studioOpening.value}
+        </p>
+      </div>
+    );
+  }
   if (!project) {
     return (
       <div class="studio studio-starting" data-floating-root="">

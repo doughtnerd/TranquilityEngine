@@ -631,7 +631,7 @@ export async function openTake(path: string): Promise<{ duration: number; at(t: 
 /** From take: positions at `t` of take `path`. */
 export function newFromTake(path: string, scene: AudioTestScene, t: number): void {
   newDialog.value = null;
-  const name = `${path.slice(path.lastIndexOf("/") + 1).replace(/\.mycotake$/i, "")} @ ${Math.floor(t / 60)}m${String(Math.floor(t % 60)).padStart(2, "0")}s`;
+  const name = `${path.slice(path.lastIndexOf("/") + 1).replace(/\.sporesample$/i, "")} @ ${Math.floor(t / 60)}m${String(Math.floor(t % 60)).padStart(2, "0")}s`;
   void createScene(name, scene);
 }
 

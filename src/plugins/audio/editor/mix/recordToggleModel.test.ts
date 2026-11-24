@@ -1,4 +1,4 @@
-// ADR 0348: the record toggles' model: start, stop and write into takes/ or captures/ under the first free name; a
+// ADR 0348: the record toggles' model: start, stop and write into recordings/ under the first free name; a
 // failed start, a failed save and a read-only project say so; Play stopping (stop with the recorder already stopped)
 // still saves.
 import { describe, expect, it } from "vitest";
@@ -36,22 +36,22 @@ function rig(kind: RecordKind, opts: { files?: string[]; startFails?: boolean; b
 }
 
 describe("RecordToggle (ADR 0348)", () => {
-  it("names files take_NN.mycotake and capture_NN.mycap, the first free one", () => {
-    expect(nextRecordPath("take", [])).toBe("takes/take_01.mycotake");
-    expect(nextRecordPath("take", ["takes/take_01.mycotake", "takes/TAKE_02.mycotake"])).toBe("takes/take_03.mycotake");
-    expect(nextRecordPath("capture", ["takes/capture_01.mycap"])).toBe("captures/capture_01.mycap");
+  it("names files take_NN.sporesample and capture_NN.sporesample, the first free one", () => {
+    expect(nextRecordPath("take", [])).toBe("recordings/take_01.sporesample");
+    expect(nextRecordPath("take", ["recordings/take_01.sporesample", "recordings/TAKE_02.sporesample"])).toBe("recordings/take_03.sporesample");
+    expect(nextRecordPath("capture", ["recordings/take_01.sporesample"])).toBe("recordings/capture_01.sporesample");
   });
 
   it("records, then writes the file into the project on the next press", async () => {
-    const { toggle, writes, stops } = rig("take", { files: ["takes/take_01.mycotake"] });
+    const { toggle, writes, stops } = rig("take", { files: ["recordings/take_01.sporesample"] });
     const seen: string[] = [];
     toggle.subscribe(() => seen.push(toggle.state.kind));
     await toggle.toggle();
     expect(toggle.recording).toBe(true);
     await toggle.toggle();
     expect(stops()).toBe(1);
-    expect(writes.map(([p]) => p)).toEqual(["takes/take_02.mycotake"]);
-    expect(toggle.state).toEqual({ kind: "saved", path: "takes/take_02.mycotake" });
+    expect(writes.map(([p]) => p)).toEqual(["recordings/take_02.sporesample"]);
+    expect(toggle.state).toEqual({ kind: "saved", path: "recordings/take_02.sporesample" });
     expect(seen).toEqual(["starting", "recording", "saving", "saved"]);
   });
 
@@ -140,13 +140,13 @@ describe("RecordToggle (ADR 0348)", () => {
     await toggle.toggle();
     finish();
     await started;
-    expect(writes).toEqual(["takes/take_01.mycotake"]);
-    expect(toggle.state).toEqual({ kind: "saved", path: "takes/take_01.mycotake" });
+    expect(writes).toEqual(["recordings/take_01.sporesample"]);
+    expect(toggle.state).toEqual({ kind: "saved", path: "recordings/take_01.sporesample" });
   });
 
   it("words the tooltip by state", () => {
     expect(recordToggleTitle("take", { kind: "idle" }, 0, false)).toMatch(/while playing/);
     expect(recordToggleTitle("take", { kind: "recording" }, 2.25, true)).toBe("Recording the take · 2.3 s. Press again to stop and save it.");
-    expect(recordToggleTitle("capture", { kind: "saved", path: "captures/capture_01.mycap" }, 0, true)).toMatch(/^Saved captures\/capture_01\.mycap/);
+    expect(recordToggleTitle("capture", { kind: "saved", path: "recordings/capture_01.sporesample" }, 0, true)).toMatch(/^Saved recordings\/capture_01\.sporesample/);
   });
 });

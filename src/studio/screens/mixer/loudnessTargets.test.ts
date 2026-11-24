@@ -42,7 +42,7 @@ describe("the project's loudness targets", () => {
 });
 
 describe("a whole take's integrated loudness", () => {
-  const at = (time: number, playing: boolean, integrated = -17.4, take = "takes/a.mycotake"): TakeReplayReading => ({ take, duration: 10, time, playing, integrated });
+  const at = (time: number, playing: boolean, integrated = -17.4, take = "takes/a.sporesample"): TakeReplayReading => ({ take, duration: 10, time, playing, integrated });
   const run = (readings: (TakeReplayReading | null)[]) => {
     let t: TakeLoudness = NO_TAKE_LOUDNESS;
     const resets: number[] = [];
@@ -59,7 +59,7 @@ describe("a whole take's integrated loudness", () => {
     const ticks = Array.from({ length: 17 }, (_, i) => at(2 + i * 0.5, true)); // 2 s … 10 s, a tick each half second
     const { t, resets } = run([at(0, false), at(0.05, true), at(1, true), at(1.5, false), at(1.5, true), ...ticks]);
     expect(resets).toEqual([1]);
-    expect(t).toEqual({ state: "done", take: "takes/a.mycotake", duration: 10, integrated: -17.4 });
+    expect(t).toEqual({ state: "done", take: "takes/a.sporesample", duration: 10, integrated: -17.4 });
     expect(takeLoudnessText(t, target)).toEqual({ text: "Whole take: −17.4 LUFS integrated over 0:10 · on target (−18 ±2)", verdict: "ok" });
     expect(takeLoudnessText({ ...t, integrated: -12 } as TakeLoudness, target)?.verdict).toBe("warn");
   });
@@ -67,7 +67,7 @@ describe("a whole take's integrated loudness", () => {
   it("a seek or a jump breaks it; a replay not from the start doesn't begin one; no take is idle", () => {
     expect(run([at(0, true), at(1, true), at(6, true)]).t.state).toBe("broken");
     expect(run([at(0, true), at(3, true), at(2, true)]).t.state).toBe("broken");
-    expect(run([at(4, true), at(4.1, true)]).t).toEqual({ state: "idle", take: "takes/a.mycotake" });
+    expect(run([at(4, true), at(4.1, true)]).t).toEqual({ state: "idle", take: "takes/a.sporesample" });
     expect(run([at(0, true), null]).t).toEqual(NO_TAKE_LOUDNESS);
     expect(takeLoudnessText(NO_TAKE_LOUDNESS, target)).toBeNull();
     expect(takeLoudnessText(run([at(0, true), at(1, true)]).t, target)?.text).toBe("Whole take: measuring… 0:01 of 0:10 · −17.4 LUFS so far");

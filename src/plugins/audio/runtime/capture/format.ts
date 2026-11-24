@@ -87,7 +87,7 @@ export const CAPTURE_FLAG_TRUNCATED = 1 << 0;
 export const CAPTURE_FLAG_MAIN_SIDE_ONLY = 1 << 1;
 export const CAPTURE_FLAG_HAS_INDEX = 1 << 2;
 export const CAPTURE_FLAG_COMPRESSED = 1 << 3;
-/** ADR 0348: a take (`*.mycotake`): request records may follow, META carries a `take` section, the cap is the take's. */
+/** ADR 0348: a take (`*.sporesample`): request records may follow, META carries a `take` section, the cap is the take's. */
 export const CAPTURE_FLAG_TAKE = 1 << 4;
 const CAPTURE_FLAGS_KNOWN = 0x1f;
 

@@ -6,3 +6,9 @@
 .studio-link-settings .dialog { min-width: 360px; max-width: 90vw; padding: 16px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; color: var(--text); }
 .studio .studio-status-slot { grid-area: status; }
 .studio .studio-status-slot > .studio-status { grid-area: auto; }
+
+/* ADR 0410: the Connect dialog's build audio option. Theme tokens only. */
+.studio-build-audio { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.studio-build-audio-option { display: flex; align-items: center; gap: 6px; color: var(--text); }
+.studio-build-audio-note { margin: 0; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.studio-build-audio-warning { margin: 0; color: var(--warning); font-size: calc(11px * var(--ui-scale)); }

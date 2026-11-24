@@ -6,7 +6,7 @@
 /** What the file is, for the dialog's type filter. */
 export interface SaveFileType {
   readonly description: string;
-  /** The file's ending, with its dot (".mycotake"). */
+  /** The file's ending, with its dot (".sporesample"). */
   readonly extension: string;
   readonly mime?: string;
 }

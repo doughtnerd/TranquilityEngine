@@ -1,6 +1,6 @@
 // ADR 0348: the Play toolbar's Record take and Record capture toggles, as a pure model. A toggle starts the recorder
 // (`Audio.take` or `Audio.capture`, the public API), and the next press stops it and writes the file into the project's
-// `takes/` or `captures/` folder under a free name (`take_01.mycotake`, `capture_01.mycap`, ...). Play stopping ends a
+// `recordings/` folder under a free name (`take_01.sporesample`, `capture_01.sporesample`, ...). Play stopping ends a
 // running recording the same way (the recorders keep the last take for a save after Stop). Everything outside is a seam.
 
 /** Which recorder a toggle drives. */
@@ -27,8 +27,9 @@ export interface RecordToggleSeams {
 
 /** Where a kind's files go and how they are named. */
 export const RECORD_FOLDERS: Readonly<Record<RecordKind, { folder: string; stem: string; extension: string }>> = {
-  take: { folder: "takes", stem: "take", extension: ".mycotake" },
-  capture: { folder: "captures", stem: "capture", extension: ".mycap" },
+  // ADR 0409: takes and captures are both recordings, in one folder; their names say which.
+  take: { folder: "recordings", stem: "take", extension: ".sporesample" },
+  capture: { folder: "recordings", stem: "capture", extension: ".sporesample" },
 };
 
 /** The first free `<folder>/<stem>_NN<ext>` (two digits at least) among `files`. */
@@ -118,7 +119,7 @@ export class RecordToggle {
 
 /** The toggle's tooltip and status words. */
 export function recordToggleTitle(kind: RecordKind, state: RecordToggleState, seconds: number, playing: boolean): string {
-  const what = kind === "take" ? "a take (what the game asks of audio, with the engine's profile) into takes/" : "a capture of the engine's profile into captures/";
+  const what = kind === "take" ? "a take (what the game asks of audio, with the engine's profile) into recordings/" : "a capture of the engine's profile into recordings/";
   switch (state.kind) {
     case "starting":
       return `Starting the ${kind}…`;

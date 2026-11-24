@@ -545,7 +545,7 @@ const takesFolderProjects = new WeakSet<EditorProject>();
 /** The files a takes folder workspace loads: takes, their notes, and Profiler captures. */
 const isTakesFolderFile = (path: string): boolean => {
   const lower = path.toLowerCase();
-  return lower.endsWith(".mycotake") || lower.endsWith(".mycotake.notes.json") || lower.endsWith(".mycap");
+  return lower.endsWith(".sporesample") || lower.endsWith(".sporesample.notes.json");
 };
 
 /**

@@ -11,6 +11,7 @@ import { DebugLinkFields } from "../../editor/debugLink/DebugLinkSettings";
 import { cleanPreferences } from "../../editor/debugLink/debugLinkLogic";
 import { studioDebugLinkPreferences, studioLink } from "./studioLink";
 import { goLiveOnConnect } from "../shell/liveConnect";
+import { downloadBuildAudio } from "../runtime/buildAudioSets";
 import "../../editor/debugLink/debugLink.css";
 import "./studioLink.css";
 
@@ -26,7 +27,34 @@ export function openStudioConnect(): void {
 export function StudioConnectDialog() {
   const link = studioLink.value;
   if (!link || !connectOpen.value) return null;
-  return <ConnectDialog onConnect={(target) => link.connect(target)} onClose={() => (connectOpen.value = false)} />;
+  return (
+    <ConnectDialog onConnect={(target) => link.connect(target)} onClose={() => (connectOpen.value = false)}>
+      <BuildAudioOption />
+    </ConnectDialog>
+  );
+}
+
+/**
+ * ADR 0410: Download the build's audio for replays (on by default). Off, it says what that costs: replays of the build's
+ * takes are silent unless the take is moved into the project and opened there.
+ */
+function BuildAudioOption() {
+  const on = downloadBuildAudio.value;
+  return (
+    <div class="studio-build-audio">
+      <label class="studio-build-audio-option">
+        <input type="checkbox" checked={on} onChange={(e) => (downloadBuildAudio.value = e.currentTarget.checked)} />
+        Download the build's audio for replays
+      </label>
+      {on ? (
+        <p class="studio-build-audio-note">Takes from this build replay with its sounds, even without the project. The first connect downloads all of its audio.</p>
+      ) : (
+        <p class="studio-build-audio-warning" role="alert">
+          Replays will be silent unless the take is moved into the project and opened there.
+        </p>
+      )}
+    </div>
+  );
 }
 const offerOpen = signal(false);
 const settingsOpen = signal(false);

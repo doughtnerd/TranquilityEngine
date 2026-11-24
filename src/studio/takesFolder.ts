@@ -1,4 +1,4 @@
-// Where the Studio keeps takes when no project is open (ADR 0408): one folder, by default `<app data>/takes`, which the
+// Where the Studio keeps takes when no project is open (ADR 0408): one folder, by default `<app data>/recordings` (ADR 0409), which the
 // user can change with a folder dialog; and the take files added to the Recorded takes list by dropping them on the
 // launcher. Both are per user preferences (localStorage, shared by the launcher's and the Studio's windows). Light: the
 // launcher imports it, so it loads no engine code.
@@ -16,13 +16,13 @@ export const addedTakes = persisted<string[]>("myco.studio.addedTakes", []);
 const appTakes = signal<string | null>(null);
 let appTakesAsked = false;
 
-/** The default takes folder: `<app data>/takes` in the desktop app; null in a browser (there's no folder to use). */
+/** The default takes folder: `<app data>/recordings` in the desktop app; null in a browser (there's no folder to use). */
 export async function defaultTakesFolder(): Promise<string | null> {
   if (!isTauri()) return null;
   if (appTakes.peek() !== null) return appTakes.peek();
   const { appDataDir } = await import("@tauri-apps/api/path");
   const base = (await appDataDir()).replace(/[\\/]+$/, "");
-  appTakes.value = `${base}${base.includes("\\") ? "\\" : "/"}takes`;
+  appTakes.value = `${base}${base.includes("\\") ? "\\" : "/"}recordings`;
   return appTakes.peek();
 }
 
@@ -70,7 +70,7 @@ export function forgetTake(path: string): void {
   addedTakes.value = addedTakes.peek().filter((p) => p.toLowerCase() !== path.toLowerCase());
 }
 
-/** A path's folder and file name, by either separator: `C:\a\b.mycotake` → `["C:\a", "b.mycotake"]`. */
+/** A path's folder and file name, by either separator: `C:\a\b.sporesample` → `["C:\a", "b.sporesample"]`. */
 export function splitPath(path: string): [folder: string, file: string] {
   const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   return i < 0 ? ["", path] : [path.slice(0, i), path.slice(i + 1)];

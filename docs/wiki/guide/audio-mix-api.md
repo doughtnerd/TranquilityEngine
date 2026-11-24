@@ -116,7 +116,7 @@ if (m.incomplete || m.tainted) console.log("read this number with care");
 
 ## `AudioCapture`
 
-`Audio.capture`. Records the mix into a `.mycap` file the [Audio Profiler](audio-profiler.md) opens. The recorder is a separate chunk loaded by the first `start()`; a game that never calls it loads nothing.
+`Audio.capture`. Records the mix into a `.sporesample` file the [Audio Profiler](audio-profiler.md) opens. The recorder is a separate chunk loaded by the first `start()`; a game that never calls it loads nothing.
 
 | Member | Type | Meaning |
 | --- | --- | --- |
@@ -128,7 +128,7 @@ if (m.incomplete || m.tainted) console.log("read this number with care");
 | `mark(text)` | `void` | A marker on the timeline, cut to 120 UTF-8 bytes. Does nothing while no ring runs |
 | `save(name?)` | `Promise<string>` | Compress and save the latest recording. Resolves with the file name (web) or path (app). Rejects with "nothing recorded: call Audio.capture.start() first" when there is none |
 
-`save` keeps letters, digits, `.`, `_` and `-` of `name`, turns other runs into `_`, cuts to 64 characters and adds `.mycap`. Without a name the file is `capture-YYYYMMDD-HHMMSS.mycap`. On desktop and Android the app saves `<name>.mycap` in its data folder's `captures/` (ADR 0408); auto-named files keep the newest 16. A browser downloads and stops at 16 saves per page session. See [Captures on Android](audio-profiler.md#captures-on-android) for getting a file off a phone.
+`save` keeps letters, digits, `.`, `_` and `-` of `name`, turns other runs into `_`, cuts to 64 characters and adds `.sporesample`. Without a name the file is `capture-YYYYMMDD-HHMMSS.sporesample`. On desktop and Android the app saves `<name>.sporesample` in its data folder's `recordings/` (ADR 0408); auto-named files keep the newest 16. A browser downloads and stops at 16 saves per page session. See [Captures on Android](audio-profiler.md#captures-on-android) for getting a file off a phone.
 
 ```ts
 await Audio.capture.start();

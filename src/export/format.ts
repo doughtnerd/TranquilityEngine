@@ -64,7 +64,7 @@ export interface GameManifest {
   readonly audioCapture?: true;
   /**
    * The Export option "audio takes" (ADR 0348): the player installs the take trigger (F10), so the game can record a take
-   * (what it asked of audio and the engine's profile, `*.mycotake`). Omitted when off.
+   * (what it asked of audio and the engine's profile, `*.sporesample`). Omitted when off.
    */
   readonly audioTake?: true;
   /** ADR 0348: `false` keeps takes from recording pictures of the game view (a small JPEG about once a second). Omitted: they do. */

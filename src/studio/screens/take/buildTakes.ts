@@ -1,6 +1,6 @@
 // The Studio's recorder of the connected build's takes (ADR 0403, 0408): one `BuildTakeRecorder` per chosen build,
 // kept by the page rather than the Take screen, because a take the build stops (F10, its script) is saved whichever
-// screen shows. The Studio decides where takes go: the open project's `takes/`, a takes folder's own folder, or, in a
+// screen shows. The Studio decides where takes go: the open project's `recordings/`, a takes folder's own folder, or, in a
 // browser with no project, a file the user chooses for each take (the save dialog, so it waits for Save there).
 import { effect, signal } from "@preact/signals";
 import { isTauri } from "../../../engine/platform/FileSystem";
@@ -25,7 +25,7 @@ export function asksWhereToSaveTakes(): boolean {
 async function writeTake(name: string, bytes: Uint8Array): Promise<string> {
   const project = currentProject.peek();
   if (!asksWhereToSaveTakes()) return saveTakeIntoProject(project, name, bytes);
-  const file = await saveFileAs(name, bytes, { description: "Myco take", extension: ".mycotake" });
+  const file = await saveFileAs(name, bytes, { description: "Myco take", extension: ".sporesample" });
   if (file === null) throw new Error("saving was cancelled");
   // The browser's live session keeps a copy in its takes folder in memory, so the Take screen can open it.
   if (project?.canSave) return saveTakeIntoProject(project, name, bytes).catch(() => file);

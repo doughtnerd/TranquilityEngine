@@ -43,7 +43,7 @@ const stage = signal<"foxfire" | LauncherApp>("foxfire");
 const droppingTakes = signal(false);
 
 /**
- * Dropping .mycotake files on the window adds them to Recorded takes (ADR 0408): Tauri's webview drag-drop hands over
+ * Dropping .sporesample files on the window adds them to Recorded takes (ADR 0408): Tauri's webview drag-drop hands over
  * the files' paths. Anything else dropped is refused with a note.
  */
 async function listenForTakeDrops(): Promise<void> {
@@ -55,7 +55,7 @@ async function listenForTakeDrops(): Promise<void> {
       droppingTakes.value = false;
       const added = addTakes(p.paths);
       if (added.length === 0) {
-        status.value = { kind: "info", text: "Only .mycotake files can be added to Recorded takes." };
+        status.value = { kind: "info", text: "Only .sporesample files can be added to Recorded takes." };
         return;
       }
       stage.value = "biosonic";

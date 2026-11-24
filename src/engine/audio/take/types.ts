@@ -1,5 +1,5 @@
 /**
- * Contract (ADR 0348): a take, `*.mycotake`. One file per recorded run in the capture file's framing: the engine profile
+ * Contract (ADR 0348): a take, `*.sporesample`. One file per recorded run in the capture file's framing: the engine profile
  * (every capture record) plus the requests the game made of audio. These are the decoded shapes of the request records;
  * the profile records keep the capture reader's types (`plugins/audio/runtime/capture/`).
  *
@@ -7,7 +7,7 @@
  */
 import type { Vec3 } from "../spatial/testSceneTypes";
 
-export const TAKE_SUFFIX = ".mycotake";
+export const TAKE_SUFFIX = ".sporesample";
 export const TAKE_NOTES_SUFFIX = ".notes.json";
 export const TAKE_NOTES_FORMAT = "myco.takenotes@1";
 

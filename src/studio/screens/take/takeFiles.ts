@@ -1,11 +1,11 @@
 // The Takes panel's files (ADR 0348 "The Take screen"; the prototype's takes file system): the project's take files
-// (`*.mycotake`) by folder, through the Profiler's capture tree (a take is a capture file with requests), their notes
+// (`*.sporesample`) by folder, through the Profiler's capture tree (a take is a capture file with requests), their notes
 // files (`<take>.notes.json`), which move and go with them, and where imported takes go. Pure.
 import { takeNotesPath } from "../../../engine/audio/take/notes";
-import { captureTree, isTakePath, searchCaptures, type CaptureNode } from "../profiler/captureTree";
+import { RECORDINGS_FOLDER, captureTree, isTakePath, searchCaptures, type CaptureNode } from "../profiler/captureTree";
 
 /** Where the Studio imports takes (and where the editor's Record take saves them). */
-export const TAKES_FOLDER = "takes";
+export const TAKES_FOLDER = RECORDINGS_FOLDER;
 
 /** The empty state's words. */
 /**
@@ -36,7 +36,7 @@ export const searchTakes = (files: readonly string[], query: string): string[] =
 
 /** Why a chosen file can't be imported as a take, or null. */
 export function whyNotTakeFile(name: string): string | null {
-  return isTakePath(name) ? null : `${name} isn't a take file (.mycotake).`;
+  return isTakePath(name) ? null : `${name} isn't a take file (.sporesample).`;
 }
 
 /** The moves that rename or move take `from` to `to`: the take, and its notes when it has some. */

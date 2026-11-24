@@ -2,7 +2,7 @@
 // bar): Record starts a capture (`Audio.capture.start()`, the public API) and follows the recorder's live ring through the
 // editor profiler's `LiveFollow` (the `LiveHost` seam), so the timeline grows while it records; Stop ends the capture,
 // takes the take's file bytes (the capture module's internal `captureFileBytes`, the same file `Audio.capture.save()`
-// writes; decision log D13) and writes them into the project's `captures/` folder (`capture_NN.mycap`) on every
+// writes; decision log D13) and writes them into the project's `recordings/` folder (`capture_NN.sporesample`) on every
 // platform, the browser included, then opens the saved file. Everything outside is a seam, so the flow is tested
 // without a recorder.
 import { signal } from "@preact/signals";
@@ -23,7 +23,7 @@ export type RecorderState =
 
 export interface RecorderSeams {
   readonly capture: Pick<AudioCapture, "state" | "seconds" | "start" | "stop">;
-  /** The latest take as a `.mycap` file's bytes (rejects when nothing was recorded). */
+  /** The latest take as a `.sporesample` file's bytes (rejects when nothing was recorded). */
   fileBytes(): Promise<Uint8Array>;
   /** The recorder's live ring; null where there is none (no live view while recording). */
   readonly liveHost: LiveHost | null;
@@ -141,7 +141,7 @@ export function recorderStatus(state: RecorderState, seconds: number, replayOf: 
     case "starting":
       return "Starting a capture…";
     case "recording":
-      return `● ${replayOf ? `Recording the replay of ${takeName(replayOf.path).replace(/\.mycotake$/i, "")}` : "Recording a new capture"} · ${seconds.toFixed(1)} s`;
+      return `● ${replayOf ? `Recording the replay of ${takeName(replayOf.path).replace(/\.sporesample$/i, "")}` : "Recording a new capture"} · ${seconds.toFixed(1)} s`;
     case "saving":
       return "Saving the capture…";
     case "saved":

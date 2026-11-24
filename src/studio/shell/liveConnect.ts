@@ -6,7 +6,7 @@ import { effect } from "@preact/signals";
 import { currentProject, status } from "../../editor/state";
 import { errorStatus } from "../../editor/messages";
 import { studioBuild } from "../debugLink/studioLink";
-import { followBuildWhenShown } from "../screens/profiler";
+import { followBuildWhenShown } from "../screens/profiler/profilerScreen";
 import { chooseTakesFolder, defaultTakesFolder, takesFolderChoice } from "../takesFolder";
 import type { FileSystem } from "../../engine/platform/FileSystem";
 import type { RouteRequest } from "./route";
@@ -45,6 +45,14 @@ export function goLiveOnConnect(): void {
 
 /** Open the Studio live on the connected build: the takes workspace when no project is open, the Profiler following. */
 export async function goLive(host: LiveConnectHost): Promise<void> {
+  if (await openLiveSession(host)) followBuildWhenShown();
+}
+
+/**
+ * The live session without a build yet (the launcher's Connect to Game…, so the app opens rather than its start
+ * screen): the takes workspace when no project is open, on the Profiler. Resolves false when it couldn't open.
+ */
+export async function openLiveSession(host: LiveConnectHost): Promise<boolean> {
   if (!currentProject.peek()) {
     const folder = takesFolderChoice.peek() ?? (await defaultTakesFolder());
     try {
@@ -53,11 +61,11 @@ export async function goLive(host: LiveConnectHost): Promise<void> {
       else await host.openTakes(LIVE_SESSION, new (await import("../../editor/memoryFs")).MemoryFileSystem());
     } catch (err) {
       status.value = errorStatus(`Couldn't open the takes folder ${folder ?? "for the live session"}`, err);
-      return;
+      return false;
     }
   }
-  followBuildWhenShown();
   host.openRoute({ screen: "profiler" });
+  return true;
 }
 
 /** Watch the link: each newly connected build opens live as the header says. Returns the stop. */

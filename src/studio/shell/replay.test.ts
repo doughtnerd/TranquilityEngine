@@ -44,18 +44,18 @@ const speedInput = [{ id: "param:Speed", name: "Speed", min: 0, max: 200 }];
 describe("ReplayStore (ADR 0348)", () => {
   it("opens one take at a time, titled by its file name", () => {
     const { store, disposed } = setup();
-    store.openTake("takes/canyon_run_03.mycotake", take);
+    store.openTake("takes/canyon_run_03.sporesample", take);
     expect(store.open.value?.title).toBe("canyon_run_03");
-    store.openTake("takes/b.mycotake", take);
+    store.openTake("takes/b.sporesample", take);
     expect(disposed).toEqual([0]);
-    expect(store.open.value?.path).toBe("takes/b.mycotake");
-    store.moved("takes/b.mycotake", "old/c.mycotake");
+    expect(store.open.value?.path).toBe("takes/b.sporesample");
+    store.moved("takes/b.sporesample", "old/c.sporesample");
     expect(store.open.value?.title).toBe("c");
   });
 
   it("runs the frame loop only while the take plays, and moves the playhead with the clock", () => {
     const { store, clock, frames } = setup();
-    store.openTake("t.mycotake", take);
+    store.openTake("t.sporesample", take);
     expect(frames).toHaveLength(0);
     store.toggle();
     expect(store.playing.value).toBe(true);
@@ -71,7 +71,7 @@ describe("ReplayStore (ADR 0348)", () => {
 
   it("gives the curve editor a histogram of the values the take sent, until it closes", () => {
     const { store, disposed } = setup();
-    store.openTake("t.mycotake", take);
+    store.openTake("t.sporesample", take);
     const bins = inputHistogram("param:Speed", speedInput)!;
     expect(bins).toHaveLength(HISTOGRAM_BINS);
     expect(bins[0]).toBe(1); // the play's start value
@@ -85,7 +85,7 @@ describe("ReplayStore (ADR 0348)", () => {
 
   it("gives the curve editor the game's value at the playhead (Game now), until it closes", () => {
     const { store } = setup();
-    store.openTake("t.mycotake", take);
+    store.openTake("t.sporesample", take);
     const live = () => parameterInputs([{ name: "Speed", min: 0, max: 200, default: 0 } as unknown as ParameterDef])[0]!.live;
     expect(live()!()).toBe(0); // the play's start value
     store.seek(1.5);
