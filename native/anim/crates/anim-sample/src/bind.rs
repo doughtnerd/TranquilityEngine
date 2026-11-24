@@ -672,7 +672,11 @@ impl ClipBindings {
             )
         };
         if self.group_ops.is_empty() {
-            for (ch, o) in self.animated_channels.iter().zip(out.chunks_exact_mut(8)) {
+            for (ch, o) in self
+                .animated_channels
+                .iter()
+                .zip(out.as_chunks_mut::<8>().0)
+            {
                 o.fill(0);
                 for k in 0..(ch.width as usize).min(4) {
                     let (min, ext) = range(ch, k);
@@ -774,10 +778,7 @@ impl ClipBindings {
     #[inline(always)]
     fn decode_grouped(&self, s: &Seg<'_>, out: &mut [SoaTransform], rg: &[u32]) {
         let (zero, one) = (F32x4::splat(0.0), F32x4::splat(1.0));
-        for (op, w) in self.group_ops.iter().zip(rg.chunks_exact(GROUP_WORDS)) {
-            let Ok(w) = <&[u32; GROUP_WORDS]>::try_from(w) else {
-                continue;
-            };
+        for (op, w) in self.group_ops.iter().zip(rg.as_chunks::<GROUP_WORDS>().0) {
             let Some(g) = out.get_mut(op.group as usize) else {
                 continue;
             };
@@ -873,7 +874,7 @@ impl ClipBindings {
         format: RotationFormat,
     ) {
         let mut pos = s.frame_pos;
-        for (ch, w8) in self.animated_channels.iter().zip(rg.chunks_exact(8)) {
+        for (ch, w8) in self.animated_channels.iter().zip(rg.as_chunks::<8>().0) {
             let r = s
                 .rates
                 .get(ch.animated_index as usize)
