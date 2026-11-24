@@ -18,8 +18,9 @@ import { openedWhen, searchRows } from "../../editor/ui/appProjects/appProjectsL
 import { ProjectsTab } from "../../editor/ui/appProjects/ProjectsTab";
 import { ProjectTabs, TabPanel } from "../../editor/ui/appProjects/ProjectTabs";
 import { ContextMenu, type MenuEntry } from "../../editor/ui/ContextMenu";
-import { addedTakes, chooseTakesFolder, forgetTake, resetTakesFolder, takesFolder, takesFolderIsDefault } from "../takesFolder";
+import { addedTakes, forgetTake, takesFolder } from "../takesFolder";
 import { formatTakeLength, listAllTakes, readTakeSummary, type RecentTake } from "./recentTakes";
+import { TakesFolderLine } from "./TakesFolderLine";
 import "./biosonic.css";
 
 type Tab = "projects" | "takes";
@@ -169,32 +170,6 @@ function TakesTab(props: { readonly onOpenTake?: (take: RecentTake) => void }) {
       </div>
       {menu && <ContextMenu entries={menuEntries(menu.take)} at={menu.at} label={`${menu.take.name} menu`} class="bs-take-menu" onClose={() => setMenu(null)} />}
     </div>
-  );
-}
-
-/** "Takes save to <folder>" with Change… and Use default; hidden where there's no takes folder (a browser). */
-function TakesFolderLine() {
-  const folder = takesFolder.value;
-  if (folder === null) return null;
-  const change = () =>
-    void projectFileSystem()
-      .then((fs) => (fs ? chooseTakesFolder(fs) : null))
-      .catch((err) => console.warn("[biosonic] couldn't choose the takes folder:", err));
-  return (
-    <p class="bs-folder">
-      <span class="bs-folder-label">Takes save to</span>
-      <span class="bs-folder-path ap-mono" title={folder}>
-        {folder}
-      </span>
-      <button type="button" class="bs-folder-button" onClick={change}>
-        Change…
-      </button>
-      {!takesFolderIsDefault.value && (
-        <button type="button" class="bs-folder-button" onClick={resetTakesFolder}>
-          Use default
-        </button>
-      )}
-    </p>
   );
 }
 

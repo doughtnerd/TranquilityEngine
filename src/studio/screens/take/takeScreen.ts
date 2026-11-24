@@ -22,9 +22,10 @@ import { isTakesFolder } from "../../../editor/projects";
 import { mountBuildAudioFor, unmountBuildAudio } from "../../runtime/buildAudioSets";
 import { openTakeFile } from "../../../plugins/audio/runtime/capture/takeFile";
 import { replayStore } from "../../shell/replay";
+import { audioProject } from "../../shell/audioProject";
 import { openRoute } from "../../shell/studioServices";
 import { openMixDocument } from "../mixer/mixerDocument";
-import { profilerRecorder, stopFollowingBuild } from "../profiler/profilerScreen";
+import { profilerRecorder, profilerStore, refuseWhileLive, stopFollowingBuild } from "../profiler/profilerScreen";
 import type { NotesEdit } from "./notesEdits";
 import type { RunFileKind } from "../profiler/runFileActions";
 import { TAKES_FOLDER, takeDeletion, whyNotTakeFile } from "./takeFiles";
@@ -121,6 +122,8 @@ class TakeScreen {
     const run = ++this.run;
     this.state.value = { kind: "opening", path };
     try {
+      // One recording for both screens (ADR 0408): the Profiler opens its profile too, so switching tabs keeps it.
+      void profilerStore().openPath(path);
       const bytes = new Uint8Array(await readProjectFile(path));
       if ((readCaptureHeader(bytes).flags & CAPTURE_FLAG_TAKE) === 0) {
         if (run !== this.run) return;
@@ -228,7 +231,8 @@ export function takeScreen(): TakeScreen {
 
 /** The playlist at `path` as the project has it now (an open document's edits included), or null when it isn't one. */
 export function takePlaylist(path: string): PlaylistAsset | null {
-  const project = currentProject.value;
+  // ADR 0410: in a takes folder, the build's downloaded audio (read-only).
+  const project = audioProject.value;
   void docVersion.value;
   if (!project || !isPlaylistPath(path) || !project.files.includes(path)) return null;
   try {
@@ -243,8 +247,15 @@ export function globalParameters(): readonly ParameterDef[] {
   return openMixDocument()?.value.value.parameters ?? [];
 }
 
-/** Open a take on the Take screen (the route says which, so a reload or a hand-off opens the same one). */
-export const openTake = (path: string): void => openRoute({ screen: "take", asset: path });
+/**
+ * Open a recording on the Take screen (the route says which, so a reload or a hand-off opens the same one); the Profiler
+ * opens it too (ADR 0408: one recording for both screens). While a game is connected both screens show it live, so a
+ * saved recording waits until it disconnects.
+ */
+export const openTake = (path: string): void => {
+  if (refuseWhileLive(path)) return;
+  openRoute({ screen: "take", asset: path });
+};
 
 /** Open the asset behind an instance on its screen ("fix it at the source"): a playlist on Playlists, a sample on Samples. */
 export const openSource = (path: string): void => openRoute({ screen: studioScreenFor(path) ?? "playlists", asset: path });

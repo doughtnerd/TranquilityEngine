@@ -5,7 +5,7 @@
 // below. Views over props.
 import type { ComponentChildren } from "preact";
 import { useRef } from "preact/hooks";
-import { formatTime } from "../../components/timeRulerModel";
+import { formatTime, type TimeSpan } from "../../components/timeRulerModel";
 import { useElementWidth } from "../../components/useElementWidth";
 import { rulerMarks } from "./runRulerModel";
 import "./runRuler.css";
@@ -22,20 +22,31 @@ export interface RunRulerProps {
   /** The slider's accessible name ("Take time"). */
   readonly label: string;
   onSeek(t: number, done: boolean): void;
-  /** Marks over the lane (positioned by the caller, in percent). */
+  /** The seconds the lane shows (a zoomed timeline); default the whole `duration`. */
+  readonly view?: TimeSpan;
+  /** Marks over the lane (positioned by the caller, in percent of the view). */
   readonly children?: ComponentChildren;
 }
 
-const pct = (t: number, d: number) => (d > 0 ? (Math.min(Math.max(t, 0), d) / d) * 100 : 0);
+const pct = (t: number, view: TimeSpan) => {
+  const d = view.end - view.start;
+  return d > 0 ? ((t - view.start) / d) * 100 : 0;
+};
+/** The whole `[0, duration]`, or the view. */
+const within = (t: number, duration: number) => Math.min(Math.max(t, 0), Math.max(0, duration));
+const spanOf = (duration: number, view?: TimeSpan): TimeSpan => view ?? { start: 0, end: Math.max(0.001, duration) };
 
 export function RunRuler(props: RunRulerProps) {
   const lane = useRef<HTMLDivElement>(null);
   const width = useElementWidth(lane);
   const d = Math.max(0.001, props.duration);
-  const marks = rulerMarks(d, width);
+  const v = spanOf(props.duration, props.view);
+  const span = v.end - v.start;
+  const marks = rulerMarks(span, width, v.start);
+  const head = within(props.time, props.duration);
   const at = (e: PointerEvent) => {
     const r = lane.current!.getBoundingClientRect();
-    return r.width > 0 ? (Math.min(Math.max(e.clientX - r.left, 0), r.width) / r.width) * d : 0;
+    return r.width > 0 ? v.start + (Math.min(Math.max(e.clientX - r.left, 0), r.width) / r.width) * span : 0;
   };
   return (
     <div class="run-ruler-row">
@@ -77,19 +88,22 @@ export function RunRuler(props: RunRulerProps) {
         }}
       >
         {marks.labels.map((m, i) => (
-          <span key={m.t} class={`run-label${i === 0 ? " first" : ""}${pct(m.t, d) > 96 ? " last" : ""}`} style={{ left: `${pct(m.t, d)}%` }}>
+          <span key={m.t} class={`run-label${i === 0 && m.t <= v.start + span * 0.02 ? " first" : ""}${pct(m.t, v) > 96 ? " last" : ""}`} style={{ left: `${pct(m.t, v)}%` }}>
             {m.text}
           </span>
         ))}
-        <span class="run-ticks" style={{ backgroundSize: `${Math.max(2, (marks.tick / d) * 100)}% 100%` }} aria-hidden="true" />
+        <span class="run-ticks" style={{ backgroundSize: `${Math.max(2, (marks.tick / span) * 100)}% 100%`, backgroundPosition: `${-((v.start % marks.tick) / span) * width}px 0` }} aria-hidden="true" />
         {props.children}
-        <span class="run-head" style={{ left: `${pct(props.time, d)}%` }} aria-hidden="true" />
+        {head >= v.start - 1e-9 && head <= v.end + 1e-9 && <span class="run-head" style={{ left: `${pct(head, v)}%` }} aria-hidden="true" />}
       </div>
     </div>
   );
 }
 
 /** The playhead line through the lanes under the ruler (1px accent, glowing). */
-export function RunPlayhead(props: { readonly time: number; readonly duration: number }) {
-  return <div class="run-playhead" style={{ left: `${pct(props.time, props.duration)}%` }} aria-hidden="true" />;
+export function RunPlayhead(props: { readonly time: number; readonly duration: number; readonly view?: TimeSpan }) {
+  const v = spanOf(props.duration, props.view);
+  const t = within(props.time, props.duration);
+  if (t < v.start - 1e-9 || t > v.end + 1e-9) return null;
+  return <div class="run-playhead" style={{ left: `${pct(t, v)}%` }} aria-hidden="true" />;
 }

@@ -6,7 +6,7 @@
 // The panels call these; the models are elsewhere.
 import { signal } from "@preact/signals";
 import { importFiles, whyNotImportable } from "../../../editor/assetImportFiles";
-import { currentProject } from "../../../editor/state";
+import { currentProject, status } from "../../../editor/state";
 import { CaptureSource } from "../../../plugins/audio/editor/mix/profilerSource";
 import { captureFileBytes, captureLiveHost, setCaptureReplayOf } from "../../../plugins/audio/runtime/capture/capture";
 import { replayStore } from "../../shell/replay";
@@ -71,7 +71,22 @@ export function profilerStore(): ProfilerStore {
 }
 
 /** Open in Take: the take on the Take screen at the Profiler's position (the review link seeks it once it is open). */
-export const openInTake = (path: string): void => openRoute({ screen: "take", asset: path });
+export const openInTake = (path: string): void => {
+  if (refuseWhileLive(path)) return;
+  openRoute({ screen: "take", asset: path });
+};
+
+/**
+ * ADR 0408: while a game build is connected, Take and the Profiler always show it live, so a saved recording can't be
+ * opened: says so in the status line and answers true. False when nothing is connected.
+ */
+export function refuseWhileLive(path: string): boolean {
+  const build = studioBuild.peek();
+  if (!build) return false;
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  status.value = { kind: "info", text: `Showing ${build.name} live: disconnect from it to open ${name}.` };
+  return true;
+}
 
 /** Write capture bytes into the selected Captures folder (else the project's captures folder) (never over a file); resolves with the path written. */
 async function writeCapture(path: string, bytes: Uint8Array): Promise<string> {
@@ -113,7 +128,10 @@ export function profilerRecorder(): CaptureRecorder {
 }
 
 /** Open a capture on the Profiler (the route says which, so a reload or a hand-off opens the same one). */
-export const openCapture = (path: string): void => openRoute({ screen: "profiler", asset: path });
+export const openCapture = (path: string): void => {
+  if (refuseWhileLive(path)) return;
+  openRoute({ screen: "profiler", asset: path });
+};
 
 /** The Captures tree's selected folder: where Open capture file…, New folder and a new recording go (null: `recordings/`). */
 export const captureFolder = signal<string | null>(null);

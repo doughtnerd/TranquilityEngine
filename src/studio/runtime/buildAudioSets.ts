@@ -9,7 +9,8 @@ import { effect, signal } from "@preact/signals";
 import type { ConnectedBuild } from "../../editor/debugLink/editorLink";
 import { settingsWithAudio } from "../../editor/audioProjectFile";
 import { persisted } from "../../editor/preferences";
-import { editorSettings, isTakesFolder, joinPath, type EditorProject } from "../../editor/projects";
+import { editorSettings, isTakesFolder, joinPath, readOnlyProject, type EditorProject } from "../../editor/projects";
+import { mountedAudioProject } from "../shell/audioProject";
 import { currentProject, status } from "../../editor/state";
 import type { AssetSource } from "../../engine/scene/Assets";
 import { acquireProjectContext, type ProjectContext } from "../../engine/core/projectContext";
@@ -113,6 +114,11 @@ export interface DownloadProgress {
  * file whose hash changed), then `set.json`. Resolves with the set's folder. `onProgress` follows the files.
  */
 export async function downloadBuildAudioSet(build: Pick<ConnectedBuild, "peer">, place: SetsPlace, onProgress?: (p: DownloadProgress) => void): Promise<string> {
+  return (await fetchBuildAudio(build, place, onProgress)).dir;
+}
+
+/** `downloadBuildAudioSet`, with the index it downloaded (the set's project and `audioHash`). */
+export async function fetchBuildAudio(build: Pick<ConnectedBuild, "peer">, place: SetsPlace, onProgress?: (p: DownloadProgress) => void): Promise<{ dir: string; index: BuildAudioIndex }> {
   const index = JSON.parse(new TextDecoder().decode(await ask(build, AudioRequest.buildAudio))) as BuildAudioIndex;
   const dir = joinPath(joinPath(place.root, BUILD_AUDIO_FOLDER), buildAudioSetName(index.project, index.audioHash));
   const before = await readJson<BuildAudioIndex>(place.fs, joinPath(dir, "set.json"));
@@ -128,13 +134,15 @@ export async function downloadBuildAudioSet(build: Pick<ConnectedBuild, "peer">,
     onProgress?.({ done: ++done, total: index.files.length });
   }
   await place.fs.writeText(joinPath(dir, "set.json"), JSON.stringify(index));
-  return dir;
+  return { dir, index };
 }
 
-/** Where sets go now: the open takes folder; else, in the desktop app, the user's takes folder; null in a browser with neither. */
+/** Where sets go now: the open takes folder; else, with no project open, the desktop app's takes folder; null otherwise. */
 async function setsPlace(): Promise<SetsPlace | null> {
   const project = currentProject.peek();
   if (isTakesFolder(project) && project?.fileSystem && project.root) return { fs: project.fileSystem, root: project.root };
+  // A project is open: its takes replay against its own audio, so nothing needs downloading.
+  if (project) return null;
   if (!isTauri()) return null;
   const root = takesFolderChoice.peek() ?? (await defaultTakesFolder());
   return root ? { fs: await getFileSystem(), root } : null;
@@ -164,11 +172,13 @@ export function installBuildAudioDownloads(): () => void {
       buildAudioDownload.value = { build: build.name, progress: null };
       status.value = { kind: "info", text: `Downloading ${build.name}'s audio for replays…` };
       try {
-        const dir = await downloadBuildAudioSet(build, place, (progress) => {
+        const { dir, index } = await fetchBuildAudio(build, place, (progress) => {
           buildAudioDownload.value = { build: build.name, progress };
           status.value = { kind: "info", text: `Downloading ${build.name}'s audio for replays · ${progress.done} of ${progress.total} files` };
         });
         status.value = { kind: "info", text: `${build.name}'s audio is ready for replays (${dir})` };
+        // The live session's takes folder shows the connected build's audio on Playlists and the Mixer, read-only.
+        if (isTakesFolder(currentProject.peek()) && studioBuild.peek()?.peer === peer) await mountBuildAudioFor(index);
       } catch (err) {
         status.value = { kind: "error", text: `Couldn't download ${build.name}'s audio: ${messageOf(err)}` };
       } finally {
@@ -242,6 +252,10 @@ export async function mountBuildAudioFor(meta: { readonly project: string; reado
     return null;
   }
   unmountBuildAudio();
+  const texts = new Map<string, string>();
+  for (const [path, value] of values) if (extensionOf(path) === "json") texts.set(path, JSON.stringify(value, null, 2));
+  // Playlists, the Mixer and the Take Inspector show the build's audio, read-only (`audioProject`).
+  mountedAudioProject.value = readOnlyProject(`${meta.project || "Build"} (build audio)`, { values: new Map(values), texts });
   const source: AssetSource = { has: (p) => values.has(p), get: (p) => values.get(p), paths: () => values.keys() };
   const context = acquireProjectContext({ assets: source });
   installAudioMedia((index.manifest as AudioManifest | null) ?? null, (p) => buildUrls.get(p) ?? p);
@@ -259,6 +273,7 @@ export function unmountBuildAudio(): void {
   if (!m) return;
   mounted = null;
   mountedBuildAudio.value = null;
+  mountedAudioProject.value = null;
   m.context.release();
   installAudioMedia(null);
   for (const u of m.urls) URL.revokeObjectURL(u);

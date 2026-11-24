@@ -62,6 +62,9 @@ button.studio-session:hover { background: var(--hover); }
 .studio-session-text { display: flex; flex-direction: column; line-height: 13px; text-align: left; }
 .studio-session-text small { font-size: calc(10px * var(--ui-scale)); color: var(--muted); font-variant-numeric: tabular-nums; }
 .studio-linked { padding: 1px 8px; border-radius: 10px; color: var(--success); background: var(--success-soft); font-size: calc(11px * var(--ui-scale)); white-space: nowrap; }
+.studio-linked.off { color: var(--muted); background: var(--bg-sunken); border: 1px solid var(--border); }
+button.studio-session:disabled { opacity: 0.5; cursor: default; }
+button.studio-session:disabled:hover { background: var(--bg-sunken); }
 
 /* The Playlists screen's voice strip. */
 .studio-vbar { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }

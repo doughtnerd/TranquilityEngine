@@ -8,13 +8,13 @@
 //
 // Part of the take recorder's lazy chunk.
 import { TAKE_FRAME_MAX_BYTES, TAKE_FRAME_MAX_SIDE } from "../../../../engine/audio/take/records";
-import type { TakeFrame } from "../../../../engine/audio/take/types";
+import { TAKE_PICTURE_DEFAULT_WIDTH, TAKE_PICTURE_MAX_WIDTH, TAKE_PICTURE_MIN_WIDTH, type TakeFrame } from "../../../../engine/audio/take/types";
 import type { TakePictureSource } from "./takeTap";
 
 export type { TakePictureSource };
 
-/** A picture's width, pixels (its height keeps the view's aspect). */
-export const TAKE_FRAME_WIDTH = 320;
+/** A picture's width, pixels, unless the take asks for another (`TakeFrameGrabberOptions.width`); its height keeps the view's aspect. */
+export const TAKE_FRAME_WIDTH = TAKE_PICTURE_DEFAULT_WIDTH;
 /** JPEG quality, 0..1. */
 export const TAKE_FRAME_QUALITY = 0.6;
 /** Seconds between pictures, at least. */
@@ -25,10 +25,13 @@ const MAX_FAILURES = 3;
 /** Scales `source` to `width` x `height` and encodes it as a JPEG; null when the platform can't. Must snapshot `source` synchronously. */
 export type EncodeTakeFrame = (source: TakePictureSource, width: number, height: number) => Promise<Uint8Array | null>;
 
-/** The size a picture of a `w` x `h` view is taken at: `TAKE_FRAME_WIDTH` wide (never wider than the view), the aspect kept. Null for an empty view. */
-function takeFrameSize(w: number, h: number): { width: number; height: number } | null {
+/** What a picture past `TAKE_FRAME_MAX_BYTES` scales the next ones' width by (a busy view at a large width). */
+const OVERSIZE_STEP = 0.75;
+
+/** The size a picture of a `w` x `h` view is taken at: `maxWidth` wide (never wider than the view), the aspect kept. Null for an empty view. */
+function takeFrameSize(w: number, h: number, maxWidth: number): { width: number; height: number } | null {
   if (!(w >= 1 && h >= 1) || !Number.isFinite(w) || !Number.isFinite(h)) return null;
-  const width = Math.min(TAKE_FRAME_WIDTH, Math.round(w));
+  const width = Math.min(maxWidth, Math.round(w));
   const height = Math.min(TAKE_FRAME_MAX_SIDE, Math.max(1, Math.round((h * width) / w)));
   return { width, height };
 }
@@ -62,6 +65,12 @@ export const encodeTakeFrame: EncodeTakeFrame = async (source, width, height) =>
 };
 
 export interface TakeFrameGrabberOptions {
+  /**
+   * The pictures' width, pixels (`TAKE_PICTURE_MIN_WIDTH`..`TAKE_PICTURE_MAX_WIDTH`, clamped); default `TAKE_FRAME_WIDTH`.
+   * A picture that encodes past `TAKE_FRAME_MAX_BYTES` is dropped and the next ones are taken narrower (a busy view at a
+   * large width), down to the minimum.
+   */
+  width?: number;
   /** The encoder (tests pass a fake); default the browser's. */
   encode?: EncodeTakeFrame;
   /** Runs the grab once the frame has rendered; default `queueMicrotask` (the end of the current task, before the page is composited). */
@@ -76,8 +85,11 @@ export class TakeFrameGrabber {
   private busy = false;
   private failures = 0;
   private written = 0;
+  private width: number;
 
   constructor(private readonly write: (frame: TakeFrame) => void, opts: TakeFrameGrabberOptions = {}) {
+    const width = opts.width ?? TAKE_FRAME_WIDTH;
+    this.width = Number.isFinite(width) ? Math.max(TAKE_PICTURE_MIN_WIDTH, Math.min(TAKE_PICTURE_MAX_WIDTH, Math.round(width))) : TAKE_FRAME_WIDTH;
     this.encode = opts.encode ?? encodeTakeFrame;
     this.defer = opts.defer ?? ((fn) => queueMicrotask(fn));
   }
@@ -90,7 +102,7 @@ export class TakeFrameGrabber {
   /** An audio frame at take time `t`: a picture of `source` when a second has passed and none is encoding. */
   offer(source: TakePictureSource | null, t: number): void {
     if (!source || this.busy || this.failures >= MAX_FAILURES || t - this.last < TAKE_FRAME_INTERVAL) return;
-    const size = takeFrameSize(source.width, source.height);
+    const size = takeFrameSize(source.width, source.height, this.width);
     if (!size) return;
     this.busy = true;
     this.last = t;
@@ -104,6 +116,11 @@ export class TakeFrameGrabber {
       pending.then(
         (jpeg) => {
           this.busy = false;
+          if (jpeg && jpeg.byteLength > TAKE_FRAME_MAX_BYTES && size.width > TAKE_PICTURE_MIN_WIDTH) {
+            // Too big for a FRAME record: not the encoder's failure, the width's. Take the next ones narrower.
+            this.width = Math.max(TAKE_PICTURE_MIN_WIDTH, Math.floor(size.width * OVERSIZE_STEP));
+            return;
+          }
           if (!jpeg || jpeg.byteLength === 0 || jpeg.byteLength > TAKE_FRAME_MAX_BYTES) {
             this.failures++;
             return;

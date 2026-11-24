@@ -246,8 +246,8 @@ export class BuildTakeRecorder {
             if ("refused" in chunk) return finish(chunk.refused);
             const step = rx.push(chunk);
             if (step.status === "error") return finish(step.error);
-            received++;
             if (step.status === "done") return finish(null, step.bytes);
+            received = Math.ceil(step.received / reply.chunkBytes); // a chunk delivered again is skipped, not counted
             this.state.value = { kind: "uploading", received, chunks: reply.chunks, bytes: step.received, total: reply.bytes };
           }
         },

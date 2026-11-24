@@ -6,7 +6,8 @@ import { RECORD_HEAD_BYTES, RecordWriter } from "../../../../engine/debugLink/re
 import { EnvelopeKind, encodeEnvelope } from "../../../../engine/debugLink/protocol";
 import {
   AUDIO_MESSAGE_BYTES, AUDIO_TOPIC, AudioLinkRecord, CAPTURE_PIECE_BYTES, TAKE_CHUNK_BYTES, decodeCapturePiece, decodeTakeChunk, encodeCapturePiece, encodeTakeChunk, mixOpCommand,
-  readAudioSubscription, readMixOpCommand,
+  readAudioSubscription, readMixOpCommand, TAKE_LIVE_LOG_BYTES, decodeTakeLiveEmitters, decodeTakeLiveEnd, decodeTakeLiveLog, decodeTakeLiveStart,
+  encodeTakeLiveEmitters, encodeTakeLiveEnd, encodeTakeLiveLog, encodeTakeLiveStart,
 } from "./schema";
 
 describe("the audio topic's schema", () => {
@@ -63,5 +64,27 @@ describe("the audio topic's schema", () => {
     const good = mixOpCommand({ op: "setBus", bus: "Music", key: "volume", value: 0.5 });
     expect(readMixOpCommand({ ...good, buses: [] })).toEqual({ refused: expect.stringContaining("bus 0") });
     expect(readMixOpCommand({ ...good, op: 250 })).toEqual({ refused: expect.stringContaining("unknown op") });
+  });
+
+  it("round-trips the live take feed's records, a full log piece within the message size, and refuses malformed ones", () => {
+    const start = { take: 3, project: "Canyon", engine: "myco", device: "ua", started: 1_700_000_000_000, audioHash: "0badf00d", seed: 9, seeded: false, pictures: true, pictureWidth: 960 };
+    expect(decodeTakeLiveStart(encodeTakeLiveStart(start))).toEqual(start);
+    expect(decodeTakeLiveStart(new TextEncoder().encode('{"take":3}'))).toEqual({ refused: expect.any(String) });
+
+    const bytes = new Uint8Array(TAKE_LIVE_LOG_BYTES).fill(7);
+    const payload = encodeTakeLiveLog({ take: 3, offset: 4096, seconds: 1.5, bytes });
+    const w = new RecordWriter();
+    w.write(AudioLinkRecord.takeLiveLog, 0, 0, payload);
+    expect(encodeEnvelope({ kind: EnvelopeKind.sample, topic: AUDIO_TOPIC, id: 0xffffffff, payload: w.take() }).byteLength).toBeLessThanOrEqual(AUDIO_MESSAGE_BYTES);
+    expect(decodeTakeLiveLog(payload)).toEqual({ take: 3, offset: 4096, seconds: 1.5, bytes });
+    expect(() => encodeTakeLiveLog({ take: 3, offset: 0, seconds: 0, bytes: new Uint8Array(TAKE_LIVE_LOG_BYTES + 1) })).toThrow(RangeError);
+    expect(decodeTakeLiveLog(new Uint8Array(15))).toEqual({ refused: expect.stringContaining("shorter") });
+
+    expect(decodeTakeLiveEmitters(encodeTakeLiveEmitters({ take: 3, emitters: { 0: "Listener", 12: "Car" } }))).toEqual({ take: 3, emitters: { 0: "Listener", 12: "Car" } });
+    expect(decodeTakeLiveEmitters(new TextEncoder().encode('{"take":3,"emitters":{"x":"a"}}'))).toEqual({ refused: expect.any(String) });
+
+    const end = { take: 3, section: { audioHash: "0badf00d", seed: 9, seeded: false, duration: 12.5, frames: true }, message: null };
+    expect(decodeTakeLiveEnd(encodeTakeLiveEnd(end))).toEqual(end);
+    expect(decodeTakeLiveEnd(new TextEncoder().encode("nope"))).toEqual({ refused: expect.any(String) });
   });
 });

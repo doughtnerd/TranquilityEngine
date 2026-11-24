@@ -12,3 +12,5 @@
 .studio-build-audio-option { display: flex; align-items: center; gap: 6px; color: var(--text); }
 .studio-build-audio-note { margin: 0; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .studio-build-audio-warning { margin: 0; color: var(--warning); font-size: calc(11px * var(--ui-scale)); }
+.studio-picture-width { margin-top: 6px; }
+.studio-picture-width select { margin-left: auto; }

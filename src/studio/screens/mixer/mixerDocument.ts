@@ -7,11 +7,11 @@
 // `audio.json` sits at the project root and has no file-name ending of its own, so the kind is registered without
 // extensions and opened by id. A project not migrated yet (its `project.json` still holds the old `audio` section)
 // reads that section as its mix (`currentAudioProject`), so the first edit writes `audio.json` without losing it.
+import { audioProject } from "../../shell/audioProject";
 import { currentAudioProject, audioProjectText } from "../../../editor/audioProjectFile";
 import { openAssetDocument, type AssetDocument } from "../../../editor/assetDocuments";
 import type { EditorProject } from "../../../editor/projects";
 import { assetKinds, type AssetFormat } from "../../../editor/sdk/contributions";
-import { currentProject } from "../../../editor/state";
 import { parseAudioProject } from "../../../engine/audio/project/format";
 import { AUDIO_PROJECT_FILE, type AudioProject } from "../../../engine/audio/project/types";
 
@@ -20,7 +20,7 @@ export const AUDIO_PROJECT_KIND = "audioProject";
 
 /** The mix a project holds when `audio.json` is missing: its old section, else the default. */
 const fallback = (): AudioProject => {
-  const project = currentProject.peek();
+  const project = audioProject.peek();
   return project ? currentAudioProject(project) : parseAudioProject(undefined).project;
 };
 
@@ -44,7 +44,7 @@ export function ensureAudioProjectKind(): void {
 }
 
 /** The open project's `audio.json` document, or null with no project. */
-export function openMixDocument(project: EditorProject | null = currentProject.value): AssetDocument<AudioProject> | null {
+export function openMixDocument(project: EditorProject | null = audioProject.value): AssetDocument<AudioProject> | null {
   if (!project) return null;
   ensureAudioProjectKind();
   return openAssetDocument<AudioProject>(project, AUDIO_PROJECT_FILE, AUDIO_PROJECT_KIND);

@@ -11,6 +11,19 @@ export const TAKE_SUFFIX = ".sporesample";
 export const TAKE_NOTES_SUFFIX = ".notes.json";
 export const TAKE_NOTES_FORMAT = "myco.takenotes@1";
 
+/**
+ * A take picture's width, pixels (`FRAME`; its height keeps the view's aspect), settable per build at run time
+ * (`setTakeFrameWidth`, the audio topic's `take.frames`): at least this...
+ */
+export const TAKE_PICTURE_MIN_WIDTH = 64;
+/**
+ * ...and at most this (well inside `TAKE_FRAME_MAX_SIDE`; a picture that encodes past `TAKE_FRAME_MAX_BYTES` makes the
+ * take step its width down rather than lose pictures, `takeFrames.ts`).
+ */
+export const TAKE_PICTURE_MAX_WIDTH = 1920;
+/** The width a build takes pictures at until told otherwise. */
+export const TAKE_PICTURE_DEFAULT_WIDTH = 320;
+
 /** Play options that matter for replay (a subset of `EventOptions` / one-shot options). */
 export interface TakePlayOptions {
   volume?: number;

@@ -10,8 +10,13 @@ import { OfferRoomDialog } from "../../editor/debugLink/OfferRoomDialog";
 import { DebugLinkFields } from "../../editor/debugLink/DebugLinkSettings";
 import { cleanPreferences } from "../../editor/debugLink/debugLinkLogic";
 import { studioDebugLinkPreferences, studioLink } from "./studioLink";
-import { goLiveOnConnect } from "../shell/liveConnect";
+import { changeTakesFolder, goLiveOnConnect } from "../shell/liveConnect";
+import { TakesFolderLine } from "../start/TakesFolderLine";
+import { chooseTakesFolder } from "../takesFolder";
+import { isTakesFolder } from "../../editor/projects";
+import { currentProject } from "../../editor/state";
 import { downloadBuildAudio } from "../runtime/buildAudioSets";
+import { TAKE_PICTURE_WIDTHS, takePictureWidth, takePictureWidthOf } from "../runtime/takePictures";
 import "../../editor/debugLink/debugLink.css";
 import "./studioLink.css";
 
@@ -29,8 +34,30 @@ export function StudioConnectDialog() {
   if (!link || !connectOpen.value) return null;
   return (
     <ConnectDialog onConnect={(target) => link.connect(target)} onClose={() => (connectOpen.value = false)}>
+      {/* ADR 0408: with no project open, recordings from the build go to the takes folder (a project keeps its own). */}
+      {(!currentProject.value || isTakesFolder(currentProject.value)) && (
+        <TakesFolderLine label="Recordings save to" onChange={(fs) => (isTakesFolder(currentProject.peek()) ? changeTakesFolder(fs) : chooseTakesFolder(fs))} />
+      )}
       <BuildAudioOption />
+      <PictureWidthOption />
     </ConnectDialog>
+  );
+}
+
+/** ADR 0408: how wide the take's pictures of the game view are (sent to the build; the next take uses it). */
+function PictureWidthOption() {
+  const width = takePictureWidthOf(takePictureWidth.value);
+  return (
+    <label class="studio-build-audio-option studio-picture-width">
+      Take pictures
+      <select value={String(width)} onChange={(e) => (takePictureWidth.value = Number(e.currentTarget.value))}>
+        {TAKE_PICTURE_WIDTHS.map((w) => (
+          <option key={w} value={String(w)}>
+            {w} px wide
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 

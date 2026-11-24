@@ -3,7 +3,8 @@
 // `*.sample.json`, ADR 0342), the peaks to draw, and a linked playlist (none has a natural length the Studio can know
 // before it plays, so playlist clips use their own length). Peaks come from the Samples screen's shared reader, so
 // a file is decoded once for both screens. Tracks the project's signals.
-import { currentProject, docVersion } from "../../../../editor/state";
+import { audioProject } from "../../../shell/audioProject";
+import { docVersion } from "../../../../editor/state";
 import type { EditorProject } from "../../../../editor/projects";
 import { parseImportSettings, sidecarPath } from "../../../../engine/scene/importSettings";
 import { parseDerivedSample } from "../../../../engine/audio/sample/format";
@@ -49,7 +50,7 @@ function sampleFacts(p: EditorProject, path: string): SourceFacts {
 
 /** The project's `SourceOf` (tracks the project). */
 export function projectSources(): SourceOf {
-  const p = currentProject.value;
+  const p = audioProject.value;
   void docVersion.value;
   const cache = new Map<string, SourceFacts | null>();
   return (c) => {
@@ -61,14 +62,14 @@ export function projectSources(): SourceOf {
 
 /** A sample's decoded audio (its audio file's), for the spectrogram; null while it decodes (decoding starts on the first ask). */
 export function projectPcm(path: string): Pcm | null {
-  const p = currentProject.value;
+  const p = audioProject.value;
   if (!p) return null;
   return pcmNow(p, resolveSample(p, path).file);
 }
 
 /** The peaks to draw for a sample (its audio file's), null while they load. */
 export function projectPeaks(path: string): PeakMips | null {
-  const p = currentProject.value;
+  const p = audioProject.value;
   if (!p) return null;
   return peaksOf(p, resolveSample(p, path).file);
 }
