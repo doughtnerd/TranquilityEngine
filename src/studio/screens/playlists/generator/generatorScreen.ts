@@ -7,10 +7,11 @@
 // serves the document's value and the runtime's hot reload, which sends `generators.setParams` with a 20 ms glide),
 // the Library's New and Add, and Bake. The panels read the signals and
 // call these; the rules are the pure models beside this file.
+import { audioProject } from "../../../shell/audioProject";
 import { computed, effect, signal } from "@preact/signals";
 import { openAssetDocument, readAsset, type AssetDocument } from "../../../../editor/assetDocuments";
 import { createAsset } from "../../../../editor/assetKindHost";
-import { currentProject, docVersion } from "../../../../editor/state";
+import { docVersion } from "../../../../editor/state";
 import { emptyGenerator, emptyGeneratorBody, generatorToJson, isGeneratorPath } from "../../../../engine/audio/generators/format";
 import { Assets, type AssetSource } from "../../../../engine/scene/Assets";
 import { generatorSpec, generatorIsEndless } from "../../../../engine/audio/generators/catalogue";
@@ -56,7 +57,7 @@ export const targetKey = (t: GeneratorTarget): string => (t.kind === "file" ? t.
 
 /** A generator file's current value (an open document's, edits included), or null. Tracks. */
 export function loadGenerator(path: string): GeneratorAsset | null {
-  const p = currentProject.value;
+  const p = audioProject.value;
   void docVersion.value;
   if (!p || !isGeneratorPath(path) || !p.files.includes(path)) return null;
   try {
@@ -69,7 +70,7 @@ export function loadGenerator(path: string): GeneratorAsset | null {
 /** The document that holds the open generator (its file's, or the playlist file's for an embedded one). */
 export const generatorDoc = computed<AssetDocument<unknown> | null>(() => {
   const t = generatorTarget.value;
-  const p = currentProject.value;
+  const p = audioProject.value;
   void docVersion.value;
   if (!t || !p || !p.files.includes(t.kind === "file" ? t.path : t.file)) return null;
   try {
@@ -124,7 +125,7 @@ export function followGeneratorRoute(route: { readonly value: { asset?: string }
 export function editGenerator(label: string, edit: GeneratorEdit, drag = false): boolean {
   const t = generatorTarget.peek();
   const current = generatorBody.peek();
-  const p = currentProject.peek();
+  const p = audioProject.peek();
   if (!t || !current || !p) return false;
   const options = drag ? { label, coalesce: true } : { label };
   if (t.kind === "file") {
@@ -364,7 +365,7 @@ export const baking = signal<"closed" | "open" | "busy">("closed");
 /** The open generator's Bake availability. */
 export const bakeState = computed(() => {
   const t = generatorTarget.value;
-  const p = currentProject.value;
+  const p = audioProject.value;
   return bakeAvailability(BAKE, t?.kind === "file" ? t.path : null, p ? p.canSave : null);
 });
 

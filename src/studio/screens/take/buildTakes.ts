@@ -14,6 +14,12 @@ import { openTake } from "./takeScreen";
 /** The recorder of the connected build's takes; a build that left keeps it while it shows a failure. */
 export const buildTake = signal<BuildTakeRecorder | null>(null);
 
+/** The game link as the player bar's badge shows it: linked, ended (after a build was linked), or never made. */
+export const gameLink = signal<"linked" | "disconnected" | "none">("none");
+
+/** When the running recording started (`Date.now()`), for Record session's clock; null while none records. */
+export const recordingSince = signal<number | null>(null);
+
 /** True where each take is saved as a file the user chooses: a browser page with no project (a takes folder in memory). */
 export function asksWhereToSaveTakes(): boolean {
   if (isTauri()) return false;
@@ -36,6 +42,8 @@ async function writeTake(name: string, bytes: Uint8Array): Promise<string> {
 export function installBuildTakes(): () => void {
   const stop = effect(() => {
     const build = studioBuild.value;
+    if (build) gameLink.value = "linked";
+    else if (gameLink.peek() === "linked") gameLink.value = "disconnected";
     const current = buildTake.peek();
     if (current && current.build.peer === build?.peer) return;
     if (current && current.build.peer.state === "closed") current.linkClosed(current.build.peer.closedReason);

@@ -17,11 +17,24 @@
 //   each time it changes, however it changed (F10, the game's script, a request). While a tool holds it the tool owns
 //   the build's takes: the build's F10 trigger only starts and stops them and saves nothing itself; the tool uploads a
 //   stopped take and decides where it's saved.
+// - `{ kind: "takeLive" }`: the live take feed, a picture of what the game asks while a take records (however it was
+//   started). For the running take, else the last one kept (nothing while there is none): first one `AUDIO_TAKE_LIVE_START`
+//   record (`TakeLiveStart` as JSON: the facts META gets when the take starts), then, in order, the emitters it names as
+//   `AUDIO_TAKE_LIVE_EMITTERS` records (only the new ones each time) and its log as `AUDIO_TAKE_LIVE_LOG` pieces: the take
+//   recorder's log bytes, the request records, take keyframes and pictures (`FRAME`) in the capture framing (20 B heads,
+//   payloads as `engine/audio/take/records.ts` encodes them; plugin records 0x40..0x7e too), cut at any byte into pieces
+//   of at most `TAKE_LIVE_LOG_BYTES`, each saying its byte offset and the take's seconds (an empty piece just moves the
+//   clock, a few times a second); once the take stops, one `AUDIO_TAKE_LIVE_END` record (`TakeLiveEnd`: META's take
+//   section less the emitters, and why it stopped by itself). A new take starts over with a new start record (its `take`
+//   id differs). Reading it neither claims the build's takes nor plays anything.
 //
 // **Requests** (`{ method, params }`, answered by a JSON reply or an error with the message):
 // - `take.start` (no params) → `TakeStateReply` once recording (`Audio.take.start()`); an error if the core can't record.
 // - `take.stop` (no params) → `TakeStateReply` (`Audio.take.stop()`; the take is kept for an upload).
 // - `take.mark` `TakeMarkParams` → `TakeStateReply` (`Audio.take.mark(text)`; a no-op while no take records).
+// - `take.frames` `TakeFramesParams` → `TakeFramesReply`: the width, pixels, of the pictures takes started from now on
+//   record (`TAKE_PICTURE_MIN_WIDTH`..`TAKE_PICTURE_MAX_WIDTH`; a running take keeps its own); an error with the message
+//   for a width outside that.
 // - `take.upload` `TakeUploadParams` → `TakeUploadReply`: stops a running take, makes the take's file bytes (what
 //   `Audio.take.save()` writes) and keeps them as upload `upload` until the next `take.upload` or the link closes; an
 //   error "nothing recorded: call Audio.take.start() first" when there is no take.
@@ -44,8 +57,9 @@
 // failed (unsubscribe and say so).
 import { decodeMixOp, encodeMixOp } from "../../../../engine/audio/mixOpCodec";
 import type { MixOp } from "../../../../engine/audio/mixOps";
+import type { TakeMetaSection } from "../../../../engine/audio/take/reader";
 import { RECORD_HEAD_BYTES } from "../../../../engine/debugLink/records";
-import type { AudioTakeState } from "../capture/take";
+import type { AudioTakeState, TakeLiveFacts } from "../capture/take";
 
 /** The topic's name. */
 export const AUDIO_TOPIC = "audio";
@@ -77,7 +91,20 @@ export const AudioLinkRecord = {
   takeChunk: 0x53,
   /** ADR 0408: the take's state now. Payload: `TakeStateReply` as UTF-8 JSON. */
   takeState: 0x54,
+  /** The live take feed: a take began (or is the one followed). Payload: `TakeLiveStart` as UTF-8 JSON. */
+  takeLiveStart: 0x55,
+  /** The live take feed: a piece of the take's log. Payload: `TakeLiveLogPiece`. */
+  takeLiveLog: 0x56,
+  /** The live take feed: emitters the take named since the last such record. Payload: `TakeLiveEmitters` as UTF-8 JSON. */
+  takeLiveEmitters: 0x57,
+  /** The live take feed: the take stopped. Payload: `TakeLiveEnd` as UTF-8 JSON. */
+  takeLiveEnd: 0x58,
 } as const;
+
+/** A live take log piece's head: u32 take, u32 byte offset, f64 seconds. */
+export const TAKE_LIVE_LOG_HEAD_BYTES = 16;
+/** The most log bytes one live take log piece carries. */
+export const TAKE_LIVE_LOG_BYTES = AUDIO_SAMPLE_BYTES - RECORD_HEAD_BYTES - TAKE_LIVE_LOG_HEAD_BYTES;
 
 /** A subscription's parameters. */
 export type AudioSubscriptionParams =
@@ -86,10 +113,12 @@ export type AudioSubscriptionParams =
   /** Upload `upload`'s chunks (`TakeUploadReply.upload`). */
   | { readonly kind: "upload"; readonly upload: number }
   /** ADR 0408: the take's state as it changes (the tool owns the build's takes while it holds this). */
-  | { readonly kind: "take" };
+  | { readonly kind: "take" }
+  /** The live take feed: the running (else last) take's facts, emitters and log as it grows. */
+  | { readonly kind: "takeLive" };
 
 /** The requests' method names. */
-export const AudioRequest = { start: "take.start", stop: "take.stop", mark: "take.mark", upload: "take.upload", buildAudio: "build.audio", buildFile: "build.file" } as const;
+export const AudioRequest = { start: "take.start", stop: "take.stop", mark: "take.mark", frames: "take.frames", upload: "take.upload", buildAudio: "build.audio", buildFile: "build.file" } as const;
 
 /** ADR 0410: build file uploads' ids start here, apart from take uploads' (both use the `upload` subscription). */
 export const BUILD_FILE_UPLOAD_FIRST_ID = 0x4000_0000;
@@ -132,6 +161,45 @@ export interface TakeStateReply {
 export interface TakeMarkParams {
   /** The marker's text (cut to the capture's 120 UTF-8 bytes by the take). */
   readonly text: string;
+}
+
+/** `take.frames`'s params. */
+export interface TakeFramesParams {
+  /** The pictures' width, pixels (their height keeps the view's aspect; a smaller view isn't scaled up). */
+  readonly width: number;
+}
+
+/** `take.frames`'s reply: the width in force for the next take. */
+export interface TakeFramesReply {
+  readonly width: number;
+}
+
+/** The live take feed's first record for a take: its id and the facts META gets when it starts. */
+export interface TakeLiveStart extends TakeLiveFacts {
+  /** The take's id on this build: a new take, a new id. */
+  readonly take: number;
+}
+
+/** A piece of a live take's log: `bytes` from byte `offset` of take `take`'s log, sent when the take had run `seconds`. */
+export interface TakeLiveLogPiece {
+  readonly take: number;
+  readonly offset: number;
+  readonly seconds: number;
+  readonly bytes: Uint8Array;
+}
+
+/** Emitters a live take named since the last such record: names by id ("0" is the listener). */
+export interface TakeLiveEmitters {
+  readonly take: number;
+  readonly emitters: Readonly<Record<string, string>>;
+}
+
+/** A live take stopped: META's take section (its emitters were sent as `TakeLiveEmitters`) and why it stopped by itself. */
+export interface TakeLiveEnd {
+  readonly take: number;
+  readonly section: Omit<TakeMetaSection, "emitters">;
+  /** Why it stopped by itself (the cap, the recorder released); null when it was stopped. */
+  readonly message: string | null;
 }
 
 /** `take.upload`'s params (none yet: the build's one take). */
@@ -185,11 +253,12 @@ export function readAudioSubscription(params: unknown): AudioSubscriptionParams 
   const p = (params && typeof params === "object" ? params : {}) as Record<string, unknown>;
   if (p.kind === "capture") return { kind: "capture" };
   if (p.kind === "take") return { kind: "take" };
+  if (p.kind === "takeLive") return { kind: "takeLive" };
   if (p.kind === "upload") {
     if (typeof p.upload === "number" && Number.isInteger(p.upload) && p.upload >= 0) return { kind: "upload", upload: p.upload };
     return { refused: "an upload subscription needs the upload's id (take.upload's reply)" };
   }
-  return { refused: `the audio topic has no "${String(p.kind)}" subscription (capture, upload or take)` };
+  return { refused: `the audio topic has no "${String(p.kind)}" subscription (capture, upload, take or takeLive)` };
 }
 
 /** A capture piece's record payload. */
@@ -229,6 +298,99 @@ export function decodeTakeState(payload: Uint8Array): TakeStateReply | { refused
     // below
   }
   return { refused: "a take state record isn't a take's state" };
+}
+
+const json = (v: unknown): Uint8Array => new TextEncoder().encode(JSON.stringify(v));
+const parsed = (payload: Uint8Array): Record<string, unknown> | null => {
+  try {
+    const v: unknown = JSON.parse(new TextDecoder().decode(payload));
+    return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+};
+const isId = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= 0xffff_ffff;
+const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+
+/** A live take start record's payload. */
+export function encodeTakeLiveStart(start: TakeLiveStart): Uint8Array {
+  const { take, project, engine, device, started, audioHash, seed, seeded, pictures, pictureWidth } = start;
+  return json({ take, project, engine, device, started, audioHash, seed, seeded, pictures, pictureWidth });
+}
+
+/** A live take start from its record payload, or why it isn't one. */
+export function decodeTakeLiveStart(payload: Uint8Array): TakeLiveStart | { refused: string } {
+  const v = parsed(payload);
+  if (
+    v && isId(v.take) && typeof v.project === "string" && typeof v.engine === "string" && typeof v.device === "string" && isNum(v.started)
+    && typeof v.audioHash === "string" && isId(v.seed) && typeof v.seeded === "boolean" && typeof v.pictures === "boolean" && isNum(v.pictureWidth)
+  ) {
+    return {
+      take: v.take, project: v.project, engine: v.engine, device: v.device, started: v.started, audioHash: v.audioHash, seed: v.seed, seeded: v.seeded,
+      pictures: v.pictures, pictureWidth: v.pictureWidth,
+    };
+  }
+  return { refused: "a live take start record isn't a take's facts" };
+}
+
+/** A live take log piece's record payload. */
+export function encodeTakeLiveLog(piece: TakeLiveLogPiece): Uint8Array {
+  if (piece.bytes.byteLength > TAKE_LIVE_LOG_BYTES) throw new RangeError(`a live take log piece carries at most ${TAKE_LIVE_LOG_BYTES} bytes`);
+  const out = new Uint8Array(TAKE_LIVE_LOG_HEAD_BYTES + piece.bytes.byteLength);
+  const view = new DataView(out.buffer);
+  view.setUint32(0, piece.take >>> 0, true);
+  view.setUint32(4, piece.offset >>> 0, true);
+  view.setFloat64(8, piece.seconds, true);
+  out.set(piece.bytes, TAKE_LIVE_LOG_HEAD_BYTES);
+  return out;
+}
+
+/** A live take log piece from its record payload, or why it isn't one. `bytes` is a view of `payload`. */
+export function decodeTakeLiveLog(payload: Uint8Array): TakeLiveLogPiece | { refused: string } {
+  if (payload.byteLength < TAKE_LIVE_LOG_HEAD_BYTES) return { refused: "a live take log piece is shorter than its head" };
+  const view = new DataView(payload.buffer, payload.byteOffset, payload.byteLength);
+  const seconds = view.getFloat64(8, true);
+  if (!(Number.isFinite(seconds) && seconds >= 0)) return { refused: `a live take log piece's seconds ${seconds} aren't a time` };
+  return { take: view.getUint32(0, true), offset: view.getUint32(4, true), seconds, bytes: payload.subarray(TAKE_LIVE_LOG_HEAD_BYTES) };
+}
+
+/** A live take emitters record's payload. */
+export function encodeTakeLiveEmitters(e: TakeLiveEmitters): Uint8Array {
+  return json({ take: e.take, emitters: e.emitters });
+}
+
+/** Live take emitters from their record payload, or why they aren't. */
+export function decodeTakeLiveEmitters(payload: Uint8Array): TakeLiveEmitters | { refused: string } {
+  const v = parsed(payload);
+  const e = v?.emitters;
+  if (v && isId(v.take) && e && typeof e === "object" && !Array.isArray(e)) {
+    const emitters: Record<string, string> = {};
+    for (const [k, name] of Object.entries(e as Record<string, unknown>)) {
+      if (!/^(0|[1-9][0-9]{0,9})$/.test(k) || typeof name !== "string") return { refused: "a live take emitters record names an emitter oddly" };
+      emitters[k] = name;
+    }
+    return { take: v.take, emitters };
+  }
+  return { refused: "a live take emitters record isn't a take's emitters" };
+}
+
+/** A live take end record's payload. */
+export function encodeTakeLiveEnd(end: TakeLiveEnd): Uint8Array {
+  const { audioHash, seed, seeded, duration, frames } = end.section;
+  return json({ take: end.take, section: { audioHash, seed, seeded, duration, frames }, message: end.message });
+}
+
+/** A live take end from its record payload, or why it isn't one. */
+export function decodeTakeLiveEnd(payload: Uint8Array): TakeLiveEnd | { refused: string } {
+  const v = parsed(payload);
+  const s = v?.section as Record<string, unknown> | undefined;
+  if (
+    v && isId(v.take) && s && typeof s === "object" && typeof s.audioHash === "string" && isId(s.seed) && typeof s.seeded === "boolean"
+    && isNum(s.duration) && s.duration >= 0 && typeof s.frames === "boolean" && (v.message === null || typeof v.message === "string")
+  ) {
+    return { take: v.take, section: { audioHash: s.audioHash, seed: s.seed, seeded: s.seeded, duration: s.duration, frames: s.frames }, message: v.message };
+  }
+  return { refused: "a live take end record isn't a take's end" };
 }
 
 /** An upload chunk's record payload. */

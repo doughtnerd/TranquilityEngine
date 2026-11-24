@@ -30,6 +30,10 @@ import { installLiveConnect, openLiveSession } from "./shell/liveConnect";
 import { OPENING_TIMEOUT_MS, studioOpening } from "./shell/opening";
 import type { RouteRequest } from "./shell/route";
 import { installBuildTakes } from "./screens/take/buildTakes";
+import { installRecordingClock } from "./shell/GameSessionSlot";
+import { installProfilerLive } from "./screens/profiler";
+import { installLiveTake } from "./runtime/liveTake";
+import { installTakePictureWidth } from "./runtime/takePictures";
 import { installBuildAudioDownloads, installBuildAudioMounts } from "./runtime/buildAudioSets";
 import { followBuildWhenShown } from "./screens/profiler/profilerScreen";
 import { installCalibration } from "./shell/applyCalibration";
@@ -83,6 +87,10 @@ async function main(): Promise<void> {
   // a request with `follow` has the Profiler follow the connected build.
   installBuildAudioDownloads(); // ADR 0410: a connected build's audio, for replays without the project
   installBuildAudioMounts();
+  installRecordingClock(); // Record session's clock (ADR 0408)
+  installProfilerLive(); // the Profiler is live while a build is connected, on every screen (ADR 0408)
+  installLiveTake(); // the take recording on the connected build, live on the Take screen (ADR 0408)
+  installTakePictureWidth(); // the Connect dialog's picture width, sent to the build (ADR 0408)
   installBuildTakes(); // the connected build's takes, saved where the Studio keeps takes whichever screen shows (ADR 0408)
   installLiveConnect({ openTakes: projects.openTakes, openRoute: (request) => router.open(request) });
   const live = { openTakes: projects.openTakes, openRoute: (request: RouteRequest) => router.open(request) };

@@ -20,7 +20,8 @@ import { PlayerBar } from "../components/PlayerBar";
 import { HearAsSlot } from "./HearAsSlot";
 import { GameSessionSlot, sessionSlots } from "./GameSessionSlot";
 import { StatusBarSlot } from "./StatusBarSlot";
-import { TAKES_FOLDER_SCREENS, screenById } from "./screens";
+import { TAKES_FOLDER_AUDIO_SCREENS, TAKES_FOLDER_SCREENS, screenById } from "./screens";
+import { mountedAudioProject } from "./audioProject";
 import { isTakesFolder } from "../../editor/projects";
 import { studioOpening } from "./opening";
 import { ScreenDock } from "./ScreenDock";
@@ -93,7 +94,8 @@ export function StudioApp(props: StudioAppProps) {
   // ADR 0408: a takes folder workspace (no project) offers only Take and Profiler; another screen's route shows the Profiler.
   const takesOnly = isTakesFolder(project);
   const asked = studioRouter().route.value;
-  const route = takesOnly && !TAKES_FOLDER_SCREENS.has(asked.screen) ? { ...asked, screen: "profiler" as const } : asked;
+  const offered = mountedAudioProject.value ? TAKES_FOLDER_AUDIO_SCREENS : TAKES_FOLDER_SCREENS;
+  const route = takesOnly && !offered.has(asked.screen) ? { ...asked, screen: "profiler" as const } : asked;
   const screen = screenById(route.screen)!;
   const host = audioRuntime();
   const state = host.state.value;
@@ -107,7 +109,7 @@ export function StudioApp(props: StudioAppProps) {
         screen={route.screen}
         projectName={takesOnly ? `${build ? `Live · ${build.name} · ` : ""}Takes: ${project.name}` : project.name}
         readOnly={!project.canSave}
-        onlyScreens={takesOnly ? TAKES_FOLDER_SCREENS : undefined}
+        onlyScreens={takesOnly ? offered : undefined}
         closeNoun={takesOnly ? "the takes folder" : undefined}
         onScreen={(s) => studioRouter().open({ screen: s })}
         onCloseProject={props.onCloseProject}

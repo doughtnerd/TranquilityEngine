@@ -89,6 +89,10 @@ const PATHS = {
   scene: "M3 5h18v14H3zM7 15l10-6M7 15m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0M17 9m-1.5 0a1.5 1.5 0 1 0 3 0a1.5 1.5 0 1 0-3 0",
   // Playlists
   release: "M3 12h13M12 7l5 5-5 5M20 5v14",
+  // A note marker on a timeline: a flag on its pole.
+  marker: "M6 21V4M6 4h11l-2.5 4L17 12H6",
+  // A note region on a timeline: a span between two brackets.
+  region: "M4 5v14M20 5v14M4 12h16M8 9l-4 3 4 3M16 9l4 3-4 3",
   razor: "M6 6m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0M6 18m-3 0a3 3 0 1 0 6 0a3 3 0 1 0-6 0M8.5 7.8L20 18M8.5 16.2L20 6",
   collapse: "M7 3l5 5 5-5M7 21l5-5 5 5M4 12h16",
 } as const;

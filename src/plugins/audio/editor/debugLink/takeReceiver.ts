@@ -40,7 +40,13 @@ export function createTakeReceiver(reply: TakeUploadReply): TakeReceiver {
       if (done) return fail("the upload already finished");
       if (chunk.upload !== reply.upload) return fail(`chunk of upload ${chunk.upload}, expected upload ${reply.upload}`);
       if (chunk.total !== reply.chunks) return fail(`chunk says ${chunk.total} chunks in all, the upload has ${reply.chunks}`);
-      if (chunk.index < next) return fail(`chunk ${chunk.index} arrived twice`);
+      // A chunk delivered again (a repeated message) holds the bytes already kept: it is skipped. Different bytes under
+      // an index already taken would corrupt the file, so that fails.
+      if (chunk.index < next) {
+        const at = chunk.index * reply.chunkBytes;
+        const same = at + chunk.bytes.byteLength <= received && chunk.bytes.every((b, i) => out[at + i] === b);
+        return same ? { status: "more", received, bytes: reply.bytes } : fail(`chunk ${chunk.index} arrived twice with different bytes`);
+      }
       if (chunk.index > next) return fail(`chunk ${next} is missing (got ${chunk.index})`);
       const n = chunk.bytes.byteLength;
       const last = chunk.index === reply.chunks - 1;

@@ -67,6 +67,34 @@ describe("TakeFrameGrabber (ADR 0348)", () => {
     expect(asked).toHaveLength(0);
   });
 
+  it("takes pictures at the width asked for (clamped to the allowed range), never wider than the view", async () => {
+    const { encode, asked } = manualEncoder();
+    new TakeFrameGrabber(() => {}, { encode, defer: (fn) => fn(), width: 1280 }).offer(canvas(1920, 1080), 0);
+    new TakeFrameGrabber(() => {}, { encode, defer: (fn) => fn(), width: 1280 }).offer(canvas(800, 600), 0);
+    new TakeFrameGrabber(() => {}, { encode, defer: (fn) => fn(), width: 10_000 }).offer(canvas(4000, 2000), 0);
+    new TakeFrameGrabber(() => {}, { encode, defer: (fn) => fn(), width: 1 }).offer(canvas(), 0);
+    expect(asked.map(({ width, height }) => [width, height])).toEqual([[1280, 720], [800, 600], [1920, 960], [64, 36]]);
+  });
+
+  it("drops a picture past the record cap and takes the next ones narrower", async () => {
+    const asked: number[] = [];
+    const frames: TakeFrame[] = [];
+    const g = new TakeFrameGrabber((f) => frames.push(f), {
+      width: 1280,
+      encode: async (_s, width) => {
+        asked.push(width);
+        return width > 800 ? new Uint8Array(300 * 1024) : JPEG;
+      },
+      defer: (fn) => fn(),
+    });
+    for (let t = 0; t < 4; t++) {
+      g.offer(canvas(), t);
+      await flush();
+    }
+    expect(asked).toEqual([1280, 960, 720, 720]);
+    expect(frames.map((f) => [f.t, f.width, f.height])).toEqual([[2, 720, 405], [3, 720, 405]]);
+  });
+
   it("stops asking an encoder that keeps failing; a picture past the record cap is dropped", async () => {
     let calls = 0;
     const frames: TakeFrame[] = [];
@@ -83,7 +111,7 @@ describe("TakeFrameGrabber (ADR 0348)", () => {
       g.offer(canvas(), t);
       await flush();
     }
-    expect(calls).toBe(3);
+    expect(calls).toBe(4); // the oversized picture only narrowed the next ones; three failures in a row stop it
     expect(frames).toEqual([]);
   });
 });

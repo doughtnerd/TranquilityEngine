@@ -6,14 +6,16 @@
 // it drives, a line or labelled segments; hovering one outlines the Inspector cards it drives) and the notes lane (the game's marks, and the designer's note markers and regions: drag to move, a
 // double-click adds a marker; focused, Left and Right pick a note when none is, then nudge it by 0.1 s, 1 s with Shift).
 // The playhead is the replay's time. A view over props.
-import { useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { TakeNotes } from "../../../engine/audio/take/types";
 import { Filmstrip } from "../../components/Filmstrip";
 import { SpanLane } from "../../components/SpanLane";
 import { packSpans } from "../../components/spanLaneModel";
 import { ValueLane } from "../../components/ValueLane";
 import { linearTimeAxis, type TimeAxis } from "../../components/timeAxis";
+import { TimelineZoomStrip } from "../../components/TimelineZoomStrip";
 import { useElementWidth } from "../../components/useElementWidth";
+import { useTimelineView } from "../../components/useTimelineView";
 import { noteColourCss } from "./notesEdits";
 import type { TakeSelection } from "./takeScreen";
 import { RunPlayhead, RunRuler } from "../profiler/RunRuler";
@@ -64,13 +66,25 @@ export function TakeTimelineView(props: TakeTimelineViewProps) {
   const width = Math.max(0, useElementWidth(lane));
   const { timeline } = props;
   const duration = Math.max(0.001, timeline.duration);
-  const axis = useMemo(() => linearTimeAxis(0, duration, width), [duration, width]);
+  // The view: the whole take until zoomed (Ctrl/⌘ + wheel or pinch, Shift + wheel or a sideways swipe, the strip below).
+  const zoom = useTimelineView(duration);
+  const { start, end } = zoom.view;
+  const axis = useMemo(() => linearTimeAxis(start, end, width), [start, end, width]);
+  // Replaying: page the view to keep the playhead in it.
+  useEffect(() => {
+    if (props.playing) zoom.follow(props.time);
+  }, [props.time, props.playing]);
+  const onWheel = (e: WheelEvent) => {
+    const r = lane.current?.getBoundingClientRect();
+    const x = r ? Math.min(Math.max(e.clientX - r.left, 0), r.width) : 0;
+    if (zoom.wheel(e, axis.toTime(x), width)) e.preventDefault();
+  };
   const selectedKey = props.selected?.kind === "instance" ? props.selected.key : null;
   const globals = timeline.parameters.filter((p) => p.path === null);
   const locals = timeline.parameters.filter((p) => p.path !== null);
   return (
-    <div class="tk-timeline">
-      <RunRuler duration={duration} time={props.time} label="Take time" onSeek={props.onSeek} />
+    <div class="tk-timeline" onWheel={onWheel}>
+      <RunRuler duration={duration} view={zoom.view} time={props.time} label="Take time" onSeek={props.onSeek} />
       <div class="tk-rows">
         <div class="tk-row tk-gameplay-row">
           <div class="tk-head">
@@ -140,9 +154,10 @@ export function TakeTimelineView(props: TakeTimelineViewProps) {
         ))}
         <NotesRow {...props} axis={axis} />
         <div class="tk-playhead-layer">
-          <RunPlayhead time={props.time} duration={duration} />
+          <RunPlayhead time={props.time} duration={duration} view={zoom.view} />
         </div>
       </div>
+      <TimelineZoomStrip timeline={zoom} anchor={props.time} />
     </div>
   );
 }

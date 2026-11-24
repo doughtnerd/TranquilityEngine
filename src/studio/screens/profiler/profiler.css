@@ -34,7 +34,7 @@
 .pf-title-meta { color: var(--muted); font-size: calc(12px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
 
 /* Timeline */
-.pf-timeline { --pf-head: 168px; --run-head: var(--pf-head); display: flex; flex-direction: column; min-width: 0; padding-bottom: 8px; }
+.pf-timeline { --pf-head: 168px; --run-head: var(--pf-head); --tz-head: var(--pf-head); display: flex; flex-direction: column; min-width: 0; padding-bottom: 8px; }
 .pf-tracks { position: relative; }
 .pf-track { display: grid; grid-template-columns: var(--pf-head) 1fr; border-bottom: 1px solid var(--border); min-height: 22px; }
 .pf-track-head { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 2px 8px; background: var(--panel); border-right: 1px solid var(--border); min-width: 0; }
@@ -45,6 +45,10 @@
 .pf-track-value { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pf-plot { position: relative; min-width: 0; background: var(--bg-sunken); cursor: crosshair; overflow: hidden; }
 .pf-lines { display: block; width: 100%; }
+/* The zoom: plots are drawn over the whole capture, in a box stretched to the zoom and slid by the view (ProfilerTimeline). */
+.pf-clip { position: absolute; inset: 0; overflow: hidden; }
+.pf-zoom { position: absolute; top: 0; bottom: 0; }
+.pf-timeline .tz-strip { position: sticky; bottom: 0; z-index: 5; }
 .pf-line { fill: none; stroke-width: 1.5; }
 .pf-voices { stroke: var(--accent); }
 .pf-cpu { stroke: var(--muted); stroke-width: 1; }

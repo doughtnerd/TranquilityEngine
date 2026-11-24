@@ -105,6 +105,11 @@ export function InstanceDetails(props: InstanceDetailsProps) {
         tip="Values show this playlist as it sounds here: the game's values at the playhead through your current curves. The tick is the authored value."
         onOpen={props.onOpenSource}
       />
+      {props.onOpenSource && (
+        <button type="button" class="tk-btn tk-ins-open-text" title={`Open ${i.path} on the Playlists screen`} onClick={props.onOpenSource}>
+          Open {props.kind === "Sequence" ? "sequence" : "playlist"} ›
+        </button>
+      )}
       <PropertyCards cards={props.cards} hovered={props.hovered} onHover={props.onHover} />
       {props.rows.length > 0 && (
         <>

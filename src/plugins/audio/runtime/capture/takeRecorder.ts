@@ -40,7 +40,7 @@ export interface TakeRecorderOptions {
   capBytes?: number;
   /** The pick generator state of the World plays go to (`takeSeed.ts`), for each keyframe; null while unseeded. */
   randomState?: () => number | null;
-  /** Take pictures of the game view (`FRAME`, about once a second; `takeFrames.ts`); absent or null: none. */
+  /** Take pictures of the game view (`FRAME`, about once a second, `frames.width` px wide; `takeFrames.ts`); absent or null: none. */
   frames?: TakeFrameGrabberOptions | null;
 }
 
@@ -124,6 +124,32 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
   /** Request bytes logged so far. */
   get bytes(): number {
     return this.logBytes;
+  }
+
+  /**
+   * The log from byte `from` (0 = its first record), at most `max` bytes, as a view (not a copy): the records in the
+   * capture framing, in seq order, as `finish` will hand them over. A read stops at the end of one of the log's chunks
+   * and may end inside a record (read on from where it stopped); empty past what is logged. The live take feed reads it
+   * as the take records (`debugLink/takeLive.ts`); it stays readable after `finish`.
+   */
+  readLog(from: number, max: number): Uint8Array {
+    if (!(from >= 0 && from < this.logBytes && max > 0)) return EMPTY;
+    let base = 0;
+    for (const c of this.chunks) {
+      if (from < base + c.byteLength) return c.subarray(from - base, Math.min(c.byteLength, from - base + max));
+      base += c.byteLength;
+    }
+    return this.chunk.subarray(from - base, Math.min(this.chunkUsed, from - base + max));
+  }
+
+  /** Emitters named so far, the listener included (they are only ever added). */
+  get emitterCount(): number {
+    return this.nextEmitter;
+  }
+
+  /** The emitters' names by id so far (the listener is "0"): what META's `take.emitters` will say. A copy. */
+  namedEmitters(): Record<string, string> {
+    return { ...this.emitterNames };
   }
 
   // --- TakeRequestSink ------------------------------------------------------------------------------------------------
@@ -385,6 +411,7 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
   }
 }
 
+const EMPTY = new Uint8Array(0);
 const ZERO: Vec3 = Object.freeze({ x: 0, y: 0, z: 0 }) as Vec3;
 const changed = (a: number, b: number): boolean => !(Math.abs(a - b) <= POSE_EPSILON);
 

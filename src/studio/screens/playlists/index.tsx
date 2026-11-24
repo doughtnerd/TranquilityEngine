@@ -4,6 +4,7 @@
 // `audio.json`) on demand. The panels read the screen's state (`playlistsScreen.ts`) and call its actions; the Playlist
 // panel also owns what the screen does while it shows: following the route, the Space key and the player bar's slots
 // (Trigger / Release, Pause / Resume, Stop, previous and next voice event, the voice log's scrub).
+import { audioProject } from "../../shell/audioProject";
 import { effect, signal } from "@preact/signals";
 import { openCurveEditorDialog } from "../../../editor/ui/curves/openCurveEditorDialog";
 import { ContextMenu, SEPARATOR } from "../../../editor/ui/ContextMenu";
@@ -19,7 +20,7 @@ import { changeText } from "./ModeToolbar";
 import { replaceLinks } from "./structureEdits";
 import { useEffect } from "preact/hooks";
 import { deleteAssets } from "../../../editor/assetDelete";
-import { currentProject, docVersion, status } from "../../../editor/state";
+import { docVersion, status } from "../../../editor/state";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { Section } from "../../../editor/ui/PanelFields";
@@ -68,7 +69,7 @@ import { sequenceSpace, stopSequence } from "./sequence/sequenceState";
 import { sequencePlayerSlots } from "./sequence/SequenceTransport";
 import "./playlists.css";
 
-const writable = () => !!currentProject.value?.canSave;
+const writable = () => !!audioProject.value?.canSave;
 
 /** The path a tree row opens: a file alone, an embedded entry down its indices, a linked entry through its parent into its file. */
 function pathOf(n: PlaylistNode): PlaylistPath | null {
@@ -139,7 +140,7 @@ const treeActions: TreeActions = {
 
 function TreePanel() {
   void docVersion.value;
-  const project = currentProject.value;
+  const project = audioProject.value;
   const files = project?.files ?? [];
   // A new project's scenes/ and scripts/ aren't playlist folders (T5).
   const folders = contentFolders(project?.folders ?? [], files, isPlaylistPath);
@@ -182,7 +183,7 @@ function addSample(path: string): void {
 
 function LibraryPanel() {
   void docVersion.value;
-  const files = currentProject.value?.files ?? [];
+  const files = audioProject.value?.files ?? [];
   const sources = projectSources();
   const body = openBody.value;
   const addTo = body && body.type !== "sequence" ? lastCrumbName() : null;
@@ -388,7 +389,7 @@ function useScreen(): void {
 
 /** The centre with nothing open: the spec's card (New playlist / New sequence / New folder), and the no-samples line. */
 function NothingOpen() {
-  const project = currentProject.value;
+  const project = audioProject.value;
   const files = project?.files ?? [];
   const none = !files.some(isPlaylistPath);
   const w = writable();
@@ -434,7 +435,7 @@ function EditorPanel() {
     );
   }
   const crumbs = breadcrumb(path, loadPlaylist);
-  const files = currentProject.value?.files ?? [];
+  const files = audioProject.value?.files ?? [];
   const title = crumbs[crumbs.length - 1]?.name ?? "";
   const linkedIn = t.indices.length ? [] : (linkedBy.value.get(t.file) ?? []);
   const levels = body.type === "blend" ? liveWeights(body, ctx.parameters, testValues.value, voiceTime() ?? 0) : entryLevels(body, shownNow(), loadPlaylist);
@@ -527,7 +528,7 @@ function InspectorPanel() {
   const body = openBody.value;
   const t = target.value;
   const doc = openDoc.value;
-  const project = currentProject.value;
+  const project = audioProject.value;
   if (!path || !body || !t || !doc) {
     return (
       <Panel bodyClass="pl-panel-body">
