@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evalCurve, type Curve } from "../core/curve";
+import { evalCurve, type Curve, type CurveKey } from "../core/curve";
 import { curveByProblem, curveByToJson, evalCurveBy, parseCurveBy, secondValueOf, sliceCurveBy, MAX_SLICE_KEYS, type CurveBy } from "./curveBy";
 import type { ParameterDef } from "./parameters";
 
@@ -73,6 +73,47 @@ describe("sliceCurveBy", () => {
     expect(slice.length).toBeLessThanOrEqual(MAX_SLICE_KEYS);
     for (const x of [0, 0.2, 0.5, 0.9, 1.5, 2.2, 3, 4]) expect(evalCurve(slice, x)).toBeCloseTo(evalCurveBy(main, by, x, at(speed, 40)), 1);
     expect(evalCurve(slice, 0.999)).toBeCloseTo(evalCurveBy(main, by, 0.999, at(speed, 40)), 1);
+  });
+
+  it("a morph of two full curves keyed apart is thinned evenly over the whole span, its tail kept", () => {
+    // 64 keys each, at different x: 128 distinct x, twice the slice's limit.
+    const main: Curve = Array.from({ length: 64 }, (_, i): CurveKey => [i, Math.sin(i / 5) * 10]);
+    const high: Curve = Array.from({ length: 64 }, (_, i): CurveKey => [i + 0.5, Math.cos(i / 5) * 10]);
+    const by: CurveBy = { input: "Speed", mode: "morph", curve: high };
+    const s = at(speed, 50);
+    const slice = sliceCurveBy(main, by, s);
+    expect(slice.length).toBe(MAX_SLICE_KEYS);
+    expect(slice[slice.length - 1]![0]).toBe(63.5);
+    // No gap between kept keys wider than a few of the original spacing (0.5): the tail isn't one long line.
+    for (let i = 1; i < slice.length; i++) expect(slice[i]![0] - slice[i - 1]![0]).toBeLessThanOrEqual(1.5);
+    for (const x of [10, 40, 50, 60]) expect(evalCurve(slice, x)).toBeCloseTo(evalCurveBy(main, by, x, s), 0);
+  });
+
+  it("thinning keeps or drops a step's jump whole: every jump kept is still a jump", () => {
+    // Low steps between 0 and 10 at each whole x; High is linear between them: far more keys than the limit.
+    const main: Curve = Array.from({ length: 64 }, (_, i): CurveKey => [i, i % 2 === 0 ? 0 : 10, "step"]);
+    const high: Curve = Array.from({ length: 64 }, (_, i): CurveKey => [i + 0.5, i]);
+    const by: CurveBy = { input: "Speed", mode: "morph", curve: high };
+    const s = at(speed, 50);
+    const f = (x: number) => evalCurveBy(main, by, x, s);
+    const slice = sliceCurveBy(main, by, s);
+    expect(slice.length).toBeLessThanOrEqual(MAX_SLICE_KEYS);
+    expect(slice[0]![0]).toBe(0);
+    expect(slice[slice.length - 1]![0]).toBe(63.5);
+    let jumps = 0;
+    for (let i = 1; i < slice.length; i++) {
+      const x = slice[i]![0];
+      if (!Number.isInteger(x)) continue;
+      // A whole x past 0 is where Low jumps: the key before it is its left limit, just below it.
+      const before = slice[i - 1]!;
+      expect(x - before[0]).toBeGreaterThan(0);
+      expect(x - before[0]).toBeLessThan(1e-3);
+      expect(before[1]).toBeCloseTo(f(before[0]), 9);
+      expect(slice[i]![1]).toBeCloseTo(f(x), 9);
+      expect(Math.abs(slice[i]![1] - before[1])).toBeGreaterThan(4); // still a jump (half of Low's 10 at the midpoint)
+      jumps++;
+    }
+    expect(jumps).toBeGreaterThan(5);
   });
 });
 

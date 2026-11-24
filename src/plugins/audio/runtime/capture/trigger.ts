@@ -144,13 +144,20 @@ function installTrigger(env: Partial<TriggerEnv>, spec: TriggerSpec): () => void
 
   /** A press is being handled (the chunk loading, the file compressing): another press waits for it. */
   let busy = false;
+  /**
+   * This trigger started the recording and hasn't saved it. A recording that stopped by itself (ADR 0348: the take cap,
+   * the recorder released) reads "stopped", not "recording": the next press saves it instead of starting over it.
+   */
+  let unsaved = false;
 
   const toggle = async (): Promise<void> => {
     if (busy) return;
     busy = true;
     try {
-      if (capture.state === "recording") {
-        capture.stop();
+      const state = capture.state;
+      if (state === "recording" || (unsaved && state === "stopped")) {
+        unsaved = false;
+        if (state === "recording") capture.stop();
         try {
           toast(toastSaved(savedName(await capture.save())));
         } catch (err) {
@@ -168,6 +175,7 @@ function installTrigger(env: Partial<TriggerEnv>, spec: TriggerSpec): () => void
       toast(spec.recording);
       try {
         await capture.start();
+        unsaved = true;
       } catch (err) {
         toast(message(err));
       }

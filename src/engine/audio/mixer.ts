@@ -83,6 +83,8 @@ export const SNAPSHOT_EDIT_MS = 20;
 export const SNAPSHOT_SEGMENT_MS = 50;
 /** Seconds before a fade's break where the gain lane's ramp aims (the blend's value as the break is reached, not after it). */
 const BREAK_EPSILON = 1e-9;
+/** A presence duck this close to its goal (gain; about 1e-6 dB at full scale) is there. */
+const DUCK_SETTLE = 1e-7;
 
 /**
  * Lane ids: the wire's `LANE_*` constants (api-and-models §4.1), and `vca` (ADR 0344), a main-side lane the wire
@@ -1183,7 +1185,9 @@ export class Mixer {
       if (goal === 1) time = rules.filter((r) => r.target === name).reduce((m, r) => Math.max(m, r.release), 0);
       if (s.duck !== goal) {
         const step = time > 0 ? Math.min(1, dt / time) : 1;
-        s.duck = step >= 1 ? goal : s.duck + (goal - s.duck) * step;
+        const next = step >= 1 ? goal : s.duck + (goal - s.duck) * step;
+        // The ease only nears its goal, and rounding stalls it a few ulps short: snap once the rest is inaudible.
+        s.duck = Math.abs(goal - next) < DUCK_SETTLE ? goal : next;
         this._dirty();
       }
     }

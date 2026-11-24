@@ -194,6 +194,26 @@ describe("F10: the take trigger (ADR 0348)", () => {
     uninstall();
     expect(target.count()).toBe(0);
   });
+
+  it("a take that stopped itself (the cap) is saved by the next F10, not thrown away by a new start", async () => {
+    const target = fakeTarget();
+    const { cap, calls } = fakeCapture();
+    const toasts: string[] = [];
+    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: true, schedule: manualSchedule().schedule });
+    const press = async () => {
+      target.fire("keydown", key("F10"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    await press();
+    await vi.waitFor(() => expect(calls).toEqual(["start"]));
+    cap.state = "stopped"; // the take reached its cap and stopped recording
+    await press();
+    await vi.waitFor(() => expect(calls).toEqual(["start", "save"]));
+    expect(toasts.at(-1)).toBe(toastSaved("capture-20261113-101500.mycap"));
+    await press(); // saved: the next F10 begins a new take
+    await vi.waitFor(() => expect(calls).toEqual(["start", "save", "start"]));
+    uninstall();
+  });
 });
 
 describe("the three-finger hold", () => {
@@ -260,12 +280,13 @@ describe("the web's cap of 16", () => {
     const r = rigFake({ webSaves: async () => ({ count, max: CAPTURE_TRIGGER_MAX_FILES }) });
     await r.press();
     await vi.waitFor(() => expect(r.calls).toEqual(["start"]));
-    r.cap.state = "stopped";
+    await r.press(); // stops and saves the 16th
+    await vi.waitFor(() => expect(r.calls).toEqual(["start", "stop", "save"]));
     count = CAPTURE_TRIGGER_MAX_FILES;
     r.toasts.length = 0;
     await r.press();
     await vi.waitFor(() => expect(r.toasts).toEqual([TOAST_CAP]));
-    expect(r.calls).toEqual(["start"]);
+    expect(r.calls).toEqual(["start", "stop", "save"]);
   });
 
   it("a Tauri trigger has no cap: files rotate instead", async () => {
