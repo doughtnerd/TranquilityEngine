@@ -45,6 +45,7 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [Glossary](../GLOSSARY.md) | Plugin and SDK terms (0133) and newer domain terms; core terms are in the overview |
 | [Open questions](architecture/open-questions.md) | Design decisions not yet made, with leanings |
 | [Implementation status](architecture/implementation-status.md) | What `src/engine/` implements today versus each decision record |
+| [Known security limitations](architecture/security.md) | What the editor and its desktop shell trust today (the debug link's loopback connections, `opener` on any path, no CSP), the risk and the likely mitigations |
 | [Worlds and netcode plan](architecture/worlds-and-netcode-plan.md) | Task breakdown, waves and agent roles for 0032 and 0033 |
 | [Tilemap research](architecture/tilemap-research.md) | Tiled, LDtk, Unity and Godot tilemaps compared; what Myco borrows (0103) |
 | [Legacy codebase](architecture/legacy-codebase.md) | The 2021 prototype (removed 2026-10-31), its known problems, and what replaced each part |

@@ -1,15 +1,15 @@
 //! `NavRuntime`: a World's navigation runtime ([`nav_crowd::Crowd`]) behind `wasm-bindgen`, plus one-shot queries
 //! and debug geometry on its loaded chunks. See `src/engine/nav/runtime.ts` for the TypeScript side.
 //!
-//! Handles (agents, obstacles) cross as `f64`: `index + generation * 2^32` (exact while generations stay under
-//! 2^21). The low 32 bits (`handle >>> 0` in JS) are the agent's row in the boundary buffers.
+//! Handles (agents, obstacles) cross as `f64`: `index + generation * 2^32`, exact because generations stay under
+//! 2^21 ([`GENERATION_LIMIT`]: they wrap back to 1). The low 32 bits (`handle >>> 0` in JS) are the agent's row in the boundary buffers.
 use crate::debug;
 use crate::dto::{parse_id, AgentDescDto, AreaCostDto, CostVolumeDto, NavigationSettingsDto, ObstacleDto, SurroundDto};
 use crate::queries::{self, chunk_parts};
 use nav_crowd::boundary::{AGENT_IN_STRIDE, AGENT_OUT_STRIDE, AGENT_STATE_STRIDE, OBSTACLE_IN_STRIDE};
 use nav_crowd::commands::Command;
 use nav_crowd::components::{NavFlowGoal, NavMeshAgentAreaCost};
-use nav_crowd::ids::{AgentId, Handle, ObstacleId, TargetId, TargetRef};
+use nav_crowd::ids::{AgentId, Handle, ObstacleId, TargetId, TargetRef, GENERATION_LIMIT};
 use nav_crowd::settings::AgentTypeSettings;
 use nav_crowd::world::{TargetInput, WorldInput};
 use nav_crowd::Crowd;
@@ -30,6 +30,9 @@ pub fn unpack(v: f64) -> Handle {
         return Handle::NONE;
     }
     let g = (v / TWO_32).floor();
+    if g >= GENERATION_LIMIT as f64 {
+        return Handle::NONE;
+    }
     Handle::new((v - g * TWO_32) as u32, g as u32)
 }
 
@@ -562,10 +565,11 @@ mod tests {
 
     #[test]
     fn handles_round_trip_through_f64() {
-        for h in [Handle::new(0, 1), Handle::new(7, 3), Handle::new(u32::MAX - 1, 1 << 20)] {
+        for h in [Handle::new(0, 1), Handle::new(7, 3), Handle::new(u32::MAX - 1, GENERATION_LIMIT - 1)] {
             assert_eq!(unpack(pack(h)), h);
         }
         assert_eq!(unpack(-1.0), Handle::NONE);
         assert_eq!(unpack(f64::NAN), Handle::NONE);
+        assert_eq!(unpack(GENERATION_LIMIT as f64 * TWO_32), Handle::NONE, "no generation that big is handed out");
     }
 }

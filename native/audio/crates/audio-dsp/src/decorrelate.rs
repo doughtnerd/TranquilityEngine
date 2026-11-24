@@ -87,6 +87,17 @@ impl Decorrelator {
         self.s = [0.0; STATES];
     }
 
+    /// Zeroes the states below `f32::MIN_POSITIVE` (`DenormalDisabler::FlushDenormalFloatToZero`, as
+    /// the biquads do): an all-pass rings down into subnormals after its input stops, and arithmetic on
+    /// them is many times slower on most CPUs (WebAssembly doesn't flush them). Call once a block.
+    pub fn flush_denormals(&mut self) {
+        for v in &mut self.s {
+            if v.abs() < f32::MIN_POSITIVE {
+                *v = 0.0;
+            }
+        }
+    }
+
     /// True when every state is finite (a NaN fed in is flushed by the caller with [`clear`](Self::clear)).
     pub fn is_finite(&self) -> bool {
         self.s.iter().all(|v| v.is_finite())
@@ -102,6 +113,25 @@ mod tests {
         let a = libm::sin(w) / (2.0 * 0.4);
         let a0 = 1.0 + a;
         [(-2.0 * libm::cos(w) / a0) as f32, ((1.0 - a) / a0) as f32]
+    }
+
+    #[test]
+    fn a_ring_down_into_subnormals_is_flushed_to_zero() {
+        let mut d = Decorrelator::default();
+        d.left(1.0);
+        d.right(1.0);
+        let mut subnormal = false;
+        for _ in 0..200 {
+            for _ in 0..128 {
+                d.left(0.0);
+                d.right(0.0);
+            }
+            subnormal |= d.s.iter().any(|v| v.is_subnormal());
+            d.flush_denormals();
+            assert!(d.s.iter().all(|v| !v.is_subnormal()), "{:?}", d.s);
+        }
+        assert!(subnormal, "the ring-down reaches subnormals");
+        assert_eq!(d, Decorrelator::default(), "and ends at silence");
     }
 
     #[test]

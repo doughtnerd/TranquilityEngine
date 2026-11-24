@@ -585,16 +585,22 @@ pub struct MeshEntryDto {
     pub walkable_for: Vec<String>,
 }
 
+/// `count` items of `stride` values from item `start`, as a range of values; None when it doesn't fit a `usize`.
+/// Worked out in `u64`: on wasm32 `usize` is 32 bits, and a wrapped product could land back inside the arrays.
+fn span(start: u32, count: u32, stride: u64) -> Option<std::ops::Range<usize>> {
+    let from = start as u64 * stride;
+    let to = from + count as u64 * stride;
+    Some(usize::try_from(from).ok()?..usize::try_from(to).ok()?)
+}
+
 /// The meshes of a bake from the flat arrays and their table.
 pub fn bake_meshes(positions: &[f32], indices: &[u32], table_json: &str) -> Result<Vec<BakeMesh>, String> {
     let table: Vec<MeshEntryDto> = serde_json::from_str(table_json).map_err(|e| format!("mesh table: {e}"))?;
     let mut out = Vec::with_capacity(table.len());
     for (i, m) in table.iter().enumerate() {
-        let v0 = m.vertex_start as usize * 3;
-        let v1 = v0 + m.vertex_count as usize * 3;
-        let i0 = m.index_start as usize;
-        let i1 = i0 + m.index_count as usize;
-        let (Some(vs), Some(is)) = (positions.get(v0..v1), indices.get(i0..i1)) else {
+        let vs = span(m.vertex_start, m.vertex_count, 3).and_then(|r| positions.get(r));
+        let is = span(m.index_start, m.index_count, 1).and_then(|r| indices.get(r));
+        let (Some(vs), Some(is)) = (vs, is) else {
             return Err(format!("mesh {i}: its vertex or index range is outside the arrays"));
         };
         let positions: Vec<Float3> = vs.as_chunks::<3>().0.iter().map(|p| Float3::new(p[0], p[1], p[2])).collect();
@@ -904,6 +910,9 @@ mod tests {
         assert_eq!(meshes[1].kind, MeshKind::Obstacle);
         assert_eq!(meshes[1].area_id, Some(parse_id("mud")));
         assert!(bake_meshes(&positions, &indices, r#"[{ "vertexStart": 3, "vertexCount": 2 }]"#).is_err());
+        // Starts whose offsets pass 2^32 are refused, not wrapped back into the arrays (wasm32's usize is 32 bits).
+        assert!(bake_meshes(&positions, &indices, r#"[{ "vertexStart": 1431655766, "vertexCount": 1 }]"#).is_err());
+        assert!(bake_meshes(&positions, &indices, r#"[{ "indexStart": 4294967295, "indexCount": 3 }]"#).is_err());
     }
 
     #[test]
