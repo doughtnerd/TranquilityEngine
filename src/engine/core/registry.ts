@@ -297,7 +297,12 @@ export function field(type: FieldType, options?: FieldOptions) {
     if (!Object.prototype.hasOwnProperty.call(meta, FIELDS)) {
       meta[FIELDS] = [...(meta[FIELDS] ?? [])];
     }
-    meta[FIELDS]!.push(options ? { name: String(context.name), type, options } : { name: String(context.name), type });
+    const info: FieldInfo = options ? { name: String(context.name), type, options } : { name: String(context.name), type };
+    // A subclass redeclaring an inherited field replaces it, in its place: one entry per name, the subclass's.
+    const list = meta[FIELDS]!;
+    const inherited = list.findIndex((f) => f.name === info.name);
+    if (inherited >= 0) list[inherited] = info;
+    else list.push(info);
   };
 }
 
@@ -318,7 +323,7 @@ export function isFieldAnimatable(type: ComponentClass, name: string): boolean {
   const dot = name.indexOf(".");
   const head = dot < 0 ? name : name.slice(0, dot);
   let info: FieldInfo | undefined;
-  for (let i = fields.length - 1; i >= 0 && !info; i--) if (fields[i]!.name === head) info = fields[i]; // a subclass's redeclaration wins
+  for (let i = fields.length - 1; i >= 0 && !info; i--) if (fields[i]!.name === head) info = fields[i];
   if (!info) return false;
   const declared = info.options?.animatable;
   if (dot >= 0) return Array.isArray(declared) && declared.includes(name.slice(dot + 1));

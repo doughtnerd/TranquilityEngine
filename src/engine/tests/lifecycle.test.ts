@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { Engine, GameBehavior, GameObject, Time, Vector3 } from "../index";
+import { Assets, Engine, GameBehavior, GameObject, Time, Vector3 } from "../index";
 
 const log: string[] = [];
 
@@ -75,6 +75,33 @@ describe("lifecycle (ADR 0007, 0011)", () => {
     expect(tail).toEqual(["c:onDisable", "c:onDestroy", "p:onDisable", "p:onDestroy"]);
   });
 
+  it("destroys what an onDestroy adds to the node going away, children and components (B43)", () => {
+    class Leftover extends GameBehavior {
+      update() { log.push("leftover:update"); }
+      onDestroy() { log.push("leftover:onDestroy"); }
+    }
+    class Spawner extends GameBehavior {
+      leftover: GameObject | null = null;
+      onDestroy() {
+        this.leftover = GameObject.create("Late", { parent: this.node });
+        this.leftover.addBehavior(Leftover);
+        this.node.addBehavior(Leftover);
+      }
+    }
+    const node = GameObject.create("N");
+    const spawner = node.addBehavior(Spawner);
+    engine.step(frame);
+    GameObject.destroy(node);
+    engine.step(frame);
+    expect(node.isValid).toBe(false);
+    expect(spawner.leftover!.isValid).toBe(false);
+    expect(GameObject.findObjectsOfType(Leftover)).toEqual([]);
+    expect(log.filter((l) => l === "leftover:onDestroy")).toHaveLength(2);
+    log.length = 0;
+    engine.step(frame);
+    expect(log).toEqual([]);
+  });
+
   it("runs parents before children within a hook", () => {
     const parent = GameObject.create("P");
     const child = GameObject.create("C", { parent });
@@ -95,6 +122,39 @@ describe("lifecycle (ADR 0007, 0011)", () => {
     expect(Time.time).toBeGreaterThan(0.5);
     expect(w1.done).toBe(true);
     expect(w2.done).toBe(false);
+  });
+});
+
+describe("spawning a prefab during a frame", () => {
+  it("removes a prefab's removeNode target without applying the frame's other destroys early (B1)", async () => {
+    const files = {
+      "inner.prefab.json": { format: "myco.scene@5", nodes: [{ id: "r" }, { id: "x", parent: "r", name: "X" }] },
+      "outer.prefab.json": { format: "myco.scene@5", nodes: [{ id: "o", name: "Outer" }, { id: "i", parent: "o", prefab: "inner.prefab.json", overrides: [{ target: ["x"], removeNode: true }] }] },
+    };
+    engine = await Engine.create({ headless: true, assets: Assets.fromObject(files) });
+    let spawned: GameObject | null = null;
+    class Spawner extends GameBehavior {
+      victim: GameObject | null = null;
+      update() {
+        log.push("spawner:update");
+        if (!this.victim) return;
+        GameObject.destroy(this.victim);
+        spawned = GameObject.instantiate("outer.prefab.json");
+        this.victim = null;
+      }
+    }
+    const spawner = GameObject.create("S").addBehavior(Spawner);
+    const victim = GameObject.create("V");
+    victim.addBehavior(Logger, { label: "v" });
+    GameObject.create("W").addBehavior(Logger, { label: "w" });
+    engine.step(frame);
+    log.length = 0;
+    spawner.victim = victim;
+    engine.step(frame);
+    // The victim goes at the end of the frame, after its own update and the next behaviour's.
+    expect(log.filter((l) => l.endsWith(":update"))).toEqual(["spawner:update", "v:update", "w:update"]);
+    expect(victim.isValid).toBe(false);
+    expect(spawned!.children[0].children.map((c) => c.name)).toEqual([]);
   });
 });
 

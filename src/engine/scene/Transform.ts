@@ -126,10 +126,10 @@ export class Transform {
   /** The local Z rotation that gives the node world angle `angle` (its 2D frame's) and keeps its world scale and mirroring. */
   private localAngleFor2D(angle: number): number {
     const frame = frame2DFromMatrix(this.world.worldMatrix(this.e), this.e * 16);
+    // A parent without a Transform still has a world matrix (its own parent's), which this node's local frame is in.
     const parent = this.world.parentEntity(this.e);
-    const hasParent = parent >= 0 && !!this.world.hasTransform[parent];
     const s = this._scale;
-    return localAngle2D(angle, frame.scale, hasParent ? this.world.worldMatrix(parent) : null, parent * 16, [s.x, s.y]);
+    return localAngle2D(angle, frame.scale, parent >= 0 ? this.world.worldMatrix(parent) : null, parent * 16, [s.x, s.y]);
   }
 
   /** World-space rotation. Returns a copy; assigning turns the node. */
@@ -139,10 +139,11 @@ export class Transform {
   }
   set worldRotation(q: Quaternion) {
     const parent = this.world.parentEntity(this.e);
-    if (parent < 0 || !this.world.hasTransform[parent]) {
+    if (parent < 0) {
       this._rotation.copy(q);
       return;
     }
+    // A parent without a Transform has its own parent's world matrix: the rotation is relative to that.
     Mat4.decompose(this.world.worldMatrix(parent), parent * 16, tmpP, 0, tmpQ, 0, tmpS, 0);
     // local = inverse(parent) * world
     this._rotation.copy(new Quaternion(-tmpQ[0], -tmpQ[1], -tmpQ[2], tmpQ[3]).multiply(q).normalize());

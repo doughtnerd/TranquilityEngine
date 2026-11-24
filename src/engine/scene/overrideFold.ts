@@ -104,6 +104,8 @@ export interface FoldAdapter<N, C> {
 
 interface Inst<N> {
   readonly node: N;
+  /** The node it was created under (set by `file`), so removing a node can drop its descendants from the id map too. */
+  parent?: N;
   /** The instance's id map (an instance only). */
   nested?: Map<string, Inst<N>>;
   /** Set on a folded instance entry (see `FoldAdapter.expand`). */
@@ -243,6 +245,7 @@ class Fold<N, C> {
         const step: NodeStep<N> = { entry, parent: parentId !== undefined ? ids.get(parentId)!.node : parent, at: [...this.prefix, entry.id], source: path, added };
         const inst = this.node(step, ids);
         if (!inst) continue;
+        inst.parent = step.parent;
         ids.set(entry.id, inst);
         this.a.placed?.(inst.node, step.at, step);
         if (parentId === undefined) roots.push(inst.node);
@@ -364,7 +367,7 @@ class Fold<N, C> {
     if (!next || (rest.length > 0 && !next.nested && !next.folded)) return this.problem(`${source}: override target "${target.join("/")}" not found in prefab instance.`, at);
     if (rest.length === 0 && o.removeNode === true) {
       this.a.removeNode?.(next.node);
-      inst.nested!.delete(first);
+      dropSubtree(inst.nested!, first);
       return;
     }
     // Into a nested instance (or at its root): that instance's override, after its own.
@@ -429,6 +432,21 @@ class Fold<N, C> {
       for (const [id, inst] of ids) container.nested.set(id, inst);
     } finally {
       this.prefix = previous;
+    }
+  }
+}
+
+/** Remove `id` and every entry under it (by `parent`, an added node's included) from an instance's id map. */
+function dropSubtree<N>(ids: Map<string, Inst<N>>, id: string): void {
+  const gone = new Set<N>([ids.get(id)!.node]);
+  ids.delete(id);
+  for (let more = true; more; ) {
+    more = false;
+    for (const [key, inst] of ids) {
+      if (inst.parent === undefined || !gone.has(inst.parent)) continue;
+      gone.add(inst.node);
+      ids.delete(key);
+      more = true;
     }
   }
 }
