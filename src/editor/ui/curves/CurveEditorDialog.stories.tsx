@@ -73,7 +73,7 @@ export const LaneMenuInTheDialog: StoryObj = {
   render: () => <Demo kind="time" target="riser" length={2.4} lanes={[gain, pitch]} />,
   play: async ({ canvasElement }) => {
     const dialog = await within(canvasElement).findByRole("dialog");
-    const row = within(dialog).getByRole("button", { name: /Pitch/ }).closest("li")!;
+    const row = within(dialog).getByText("Pitch", { selector: ".ce-pnn" }).closest("li")!;
     row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 160 }));
     const menu = await within(dialog).findByRole("menu", { name: "Curve menu" });
     await expect(dialog.contains(menu)).toBe(true);
