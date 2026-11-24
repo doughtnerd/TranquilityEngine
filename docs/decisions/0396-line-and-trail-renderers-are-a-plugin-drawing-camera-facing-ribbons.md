@@ -221,6 +221,30 @@ Where the build differs from the text above:
 - **The gradient widget** is `GradientField` in the editor SDK (`src/editor/ui/gradients/`), with the gradient key helpers;
   the Particles plugin uses it from there.
 
+### Path to a high-end pipeline
+
+A constraint on this design, not a plan: the renderer is to reach HDRP-class quality later through screen-space and
+probe-based effects. Nothing here closes that door:
+
+- **HDR colour and emission.** Cameras already render into linear HDR targets that the finish pass tone maps, and a
+  3D ribbon takes any material asset or shader graph, so an emissive material over 1 already feeds bloom. What's missing
+  is an HDR intensity on the built-in line material (a `color` above 1, or an `emission` multiplier): an additive,
+  optional field, not a change of shape.
+- **Motion vectors for TAA and motion blur.** A ribbon's vertices are rebuilt each frame, so a motion-vector pass needs
+  each vertex's previous position. `DynamicGeometry` can gain an optional `previousPositions` (the builder keeps last
+  frame's strip, or the trail's history already holds it) and `DynamicMesh` writes velocity from it; a trail's points
+  are fixed in the world, so only its head moves. Additive to the host, with no Component change.
+- **Lighting.** 3D ribbons are lit by the 3D rig through their material today. 2D ribbons draw as layered quads
+  (ADR 0186); when 2D lights land (being designed separately), they will light layered quads, and ribbons get that by
+  drawing through the same quad batches. A `receive2DLights` style opt-out would be a field on `RibbonRenderer`, like
+  `receiveShadows`.
+- **Batching.** Each ribbon is one draw today. GPU-driven culling and indirect draws (WebGPU, with the WebGL2 path as it
+  is) would pack many ribbons' strips into shared buffers behind `DynamicMeshHost`; the Components and the builder's
+  output (flat arrays) don't change.
+- **Quality tiers (ADR 0050).** The knob that scales this: on the Android floor (ADR 0169) tiers can cap corner and cap
+  vertices and the trail point limit and skip velocity; higher tiers add motion vectors and HDR emission. Tiers would
+  set these, not the line and trail Components.
+
 ## Alternatives considered
 
 - **Rebuild camera-facing geometry on the CPU per view** (what Unity does): simplest shader side, exact joins and caps

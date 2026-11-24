@@ -213,6 +213,29 @@ Where the build differs from the text above:
 - **The Inspector section** greys `texture` while `material` is set and warns about a flat box.
 - **`render.maxDecals`** is in `ProjectSettings.render` (default 1000 of each kind).
 
+### Path to a high-end pipeline
+
+A constraint on this design, not a plan: the renderer is to reach HDRP-class quality later through screen-space and
+probe-based effects (no hardware ray tracing on WebGPU). Nothing here closes that door:
+
+- **Screen-space / G-buffer decals.** The public API names *what* a decal is (box, material, blend, order, fades), not
+  *how* it draws. A later DBuffer technique (decals write albedo, normal and mask targets that opaque materials read
+  before lighting, fixing shadowed lit decals) replaces `BabylonDecals` behind the same `DecalHost`; the per-decal
+  `affectsAlbedo` / `affectsNormal` / `affectsMask` flags HDRP has would be new optional `DecalProjector` fields and
+  `DecalLook` members, defaulting to today's behaviour. The pass plan (ADR 0274) is where the DBuffer pass and its
+  targets would be planned.
+- **Culling with lights.** Decals are boxes in world space with matrices on the host, so they can be binned into the
+  same clusters as point and spot lights (ADR 0079) for a clustered or tiled decal pass; nothing in the API assumes one
+  draw per batch.
+- **TAA and motion vectors.** A screen-space decal lands on what the depth shows, so it inherits the surface's motion:
+  with a motion-vector pass, decals need no vectors of their own (they don't write depth), and under TAA they resolve
+  with the surface. Decals on moving receivers are already correct, so no API change is needed.
+- **Batching.** `DecalBatch.setInstances` hands over flat arrays; moving to GPU-driven culling and indirect draws
+  (WebGPU, with today's CPU path as the WebGL2 fallback) is an adapter change.
+- **Quality tiers (ADR 0050).** The knob that scales this: the Android floor (ADR 0169) keeps today's forward box
+  decals with `render.maxDecals` lowered per tier and fewer lit decals; higher tiers add the DBuffer, normal blending and
+  larger pools. Tiers would set these, not the decal Components.
+
 ## Alternatives considered
 
 - **Mesh decals (`MeshBuilder.CreateDecal`)**: clips the target's triangles into a new mesh on the CPU. Correctly lit
