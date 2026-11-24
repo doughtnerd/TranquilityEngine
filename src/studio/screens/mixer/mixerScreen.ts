@@ -11,6 +11,7 @@ import type { AudioProject } from "../../../engine/audio/project/types";
 import { addBus, addReturn, addVca, deleteItem, kindOf, masterOf, planDelete, renameItem, type EditResult } from "./busTree";
 import { createLiveMix, type LiveMix, type LiveMixHost, type LiveOrigin } from "./liveMix";
 import { labelOn } from "./mixEdits";
+import type { RemoteMix } from "./remoteMix";
 import { DEFAULT_PINS, livePins, togglePin, type BusReading, type LoudnessReading } from "./boardModel";
 import { addFolder, deleteSnapshot, newSnapshot } from "./snapshotTree";
 import type { TestValues } from "./snapshotBlend";
@@ -45,6 +46,8 @@ export interface MixerDeps {
   renameOutside?(from: string, to: string): Promise<string[]>;
   /** The runtime, when there is one. */
   readonly live?: LiveMixHost;
+  /** A connected build's mix (U8): each edit is also sent to it (`remoteMix.ts`). Absent, or with no build: nothing is sent. */
+  readonly remote?: RemoteMix;
   readBus?(name: string): BusReading | null;
   readLoudness?(name: string): LoudnessReading | null;
   setParameter?(name: string, value: number | string): void;
@@ -140,6 +143,21 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
   };
   const live = deps.live ? createLiveMix(deps.live, () => doc.value.peek()) : null;
   const stops: (() => void)[] = [];
+  // With a build connected (`studioBuild`), every change of the document is also sent to it as `mix.op` commands; the
+  // Studio's own runtime below still gets it, and a refusal from the build shows in the status bar (`deps.report`).
+  if (deps.remote) {
+    const remote = deps.remote;
+    let sentFrom = doc.value.peek();
+    stops.push(
+      effect(() => {
+        const after = doc.value.value;
+        const prev = sentFrom;
+        sentFrom = after;
+        if (prev !== after) remote.changed(prev, after);
+      }),
+      () => remote.dispose(),
+    );
+  }
 
   // Every change of the document (an edit, undo, redo, an outside write) reaches the running mixer, named by who made
   // it: the session's own edits (a drag's coalesced moves too, one step of the history) are the editor's; a change the

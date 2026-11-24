@@ -125,8 +125,8 @@ export const GAP_REASON_MAX = 5;
 export const NAME_TABLES = ["clips", "buses", "events", "parameters", "snapshots", "targets"] as const;
 export type NameTable = (typeof NAME_TABLES)[number];
 /** MIXOP `origin`. */
-export const MixOpOrigin = { editor: 0, script: 1, undo: 2, redo: 3, compare: 4 } as const;
-export const MIXOP_ORIGIN_MAX = 4;
+export const MixOpOrigin = { editor: 0, script: 1, undo: 2, redo: 3, compare: 4, debugLink: 5 } as const;
+export const MIXOP_ORIGIN_MAX = 5;
 
 /** EVENT `kind` (§5.6). */
 export const EventKind = {

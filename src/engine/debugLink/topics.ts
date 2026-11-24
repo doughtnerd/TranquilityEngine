@@ -16,7 +16,9 @@ export interface DebugTopicHost {
 export interface DebugSubscription {
   /**
    * Writes the records due since the last call into `out` (nothing: no sample this time). Called after a frame, at most
-   * at the topic's `rate`; `frame` is the build's frame number, for the records' heads.
+   * at the topic's `rate`; `frame` is the build's frame number, for the records' heads. A reliable topic's subscription
+   * is sampled again, up to `RELIABLE_SAMPLES_PER_FRAME` times a due frame, while each call writes records; each call
+   * is one message.
    */
   sample(out: RecordWriter, frame: number): void;
   /** The subscription ended (unsubscribed, or the tool went away). */
@@ -27,6 +29,13 @@ export interface DebugSubscription {
 export interface DebugTopic {
   /** Samples per second each subscription sends at most (default 30). */
   readonly rate?: number;
+  /**
+   * The channel its samples travel on (ADR 0403 plan, C3). `unreliable` (the default): a lost or late sample is dropped,
+   * which suits a picture of now (the animation topic's frames). `reliable`: every sample arrives, in order, which a
+   * stream that can't have holes needs (the audio topic's `capture` segments, its take upload). Requests, replies,
+   * commands and errors always travel reliably, whatever this says.
+   */
+  readonly channel?: "reliable" | "unreliable";
   /** Starts a subscription for `params` (what the tool shows), or refuses it with a reason. */
   subscribe(params: unknown): DebugSubscription | { readonly refused: string };
   /** Answers a request (a promise may resolve later). Throwing sends the tool an error with the message. */

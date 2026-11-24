@@ -4,21 +4,26 @@
 // WebSocket server (`ws`), where a build's session connects with the engine's client transport.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocketServer, type WebSocket as WsSocket } from "ws";
-import { createTransport, transportCanListen, type Transport, type TransportConnection, type TransportEvent } from "../../engine/net/Transport";
-import { DebugLinkSession } from "../../engine/debugLink/session";
-import { connectAddress, type DebugLinkPreferences } from "./debugLinkLogic";
-import { EditorDebugLink } from "./editorLink";
-import { registerTauriWebSocketTransport } from "./tauriListener";
+import { createTransport, transportCanListen, type Transport, type TransportConnection, type TransportEvent } from "../net/Transport";
+import { DebugLinkSession } from "./session";
+import { DebugLinkListener, type DebugLinkPeer } from "./client";
+import { DEBUG_LINK_PATH } from "./config";
+import { TAURI_HOSTING_TRANSPORT, hostRendezvous, nativeInterfaces, registerTauriWebSocketTransport, tauriListenerPort } from "./tauriListener";
+import { encodeRendezvousMessage, decodeServerMessage, RENDEZVOUS_PATH, type RendezvousClientMessage } from "./rendezvous/protocol";
+import "../net/transport/loopback";
+import { Engine } from "../../myco";
+import { startBuildListener } from "./host";
+import { decodePairCode } from "./pairing/code";
 
 type Record_ = { op: "send"; connection: number; data: number[] } | { op: "close"; connection: number; code: number; reason: string };
 
 interface Backend {
-  listen(args: { host: string; port: number; path: string }, emit: (event: ArrayBuffer) => void): Promise<{ id: number; port: number }>;
+  listen(args: { host: string; port: number; path: string; count?: number }, emit: (event: ArrayBuffer) => void): Promise<{ id: number; port: number }>;
   send(listener: number, records: Record_[]): Promise<void>;
   close(listener: number): Promise<void>;
 }
 
-const tauri = vi.hoisted(() => ({ backend: null as unknown as Backend, calls: [] as string[] }));
+const tauri = vi.hoisted(() => ({ backend: null as unknown as Backend, calls: [] as string[], noRange: false, interfaces: [] as unknown }));
 
 vi.mock("@tauri-apps/api/core", () => ({
   Channel: class {
@@ -27,6 +32,11 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: async (cmd: string, args: Record<string, unknown> | Uint8Array, options?: { headers: Record<string, string> }) => {
     tauri.calls.push(cmd);
     switch (cmd) {
+      case "myco_debuglink_listen_range": {
+        if (tauri.noRange) throw new Error("Command myco_debuglink_listen_range not found");
+        const { host, firstPort, count, path, events } = args as { host: string; firstPort: number; count: number; path: string; events: { onmessage: (m: ArrayBuffer) => void } };
+        return tauri.backend.listen({ host, port: firstPort, path, count }, (m) => events.onmessage(m));
+      }
       case "myco_debuglink_listen": {
         const { host, port, path, events } = args as { host: string; port: number; path: string; events: { onmessage: (m: ArrayBuffer) => void } };
         return tauri.backend.listen({ host, port, path }, (m) => events.onmessage(m));
@@ -35,6 +45,9 @@ vi.mock("@tauri-apps/api/core", () => ({
         return tauri.backend.send(Number(options!.headers["myco-listener"]), decodeOutbox(args as Uint8Array));
       case "myco_debuglink_close":
         return tauri.backend.close((args as { id: number }).id);
+      case "myco_debuglink_interfaces":
+        if (tauri.interfaces instanceof Error) throw tauri.interfaces;
+        return tauri.interfaces;
     }
     throw new Error(`unknown command ${cmd}`);
   },
@@ -50,7 +63,8 @@ function event(kind: number, connection: number, rest: Uint8Array = new Uint8Arr
   out.set(rest, 5);
   return out.buffer;
 }
-const accept = (c: number, remote: string) => event(1, c, text.encode(remote));
+const accept = (c: number, remote: string, path?: string) => event(1, c, text.encode(path === undefined ? remote : `${remote}
+${path}`));
 const message = (c: number, bytes: number[]) => event(2, c, Uint8Array.from(bytes));
 function closed(c: number, code: number, reason: string): ArrayBuffer {
   const r = text.encode(reason);
@@ -74,10 +88,11 @@ function decodeOutbox(body: Uint8Array): Record_[] {
 }
 
 /** The native server played by the test: what it was asked, and a way to emit events. */
-function memoryBackend(options: { refuse?: string } = {}) {
+function memoryBackend(options: { refuse?: string; taken?: number[] } = {}) {
   tauri.calls = [];
+  tauri.noRange = false;
   const state = {
-    listens: [] as { host: string; port: number; path: string }[],
+    listens: [] as { host: string; port: number; path: string; count?: number }[],
     records: [] as Record_[],
     closed: [] as number[],
     emit: (_e: ArrayBuffer) => {},
@@ -89,7 +104,11 @@ function memoryBackend(options: { refuse?: string } = {}) {
       if (options.refuse) throw options.refuse; // Tauri rejects with the command's error string
       state.listens.push(args);
       state.emit = emit;
-      return { id: 7, port: args.port };
+      // A range: the first `count` ports from the one asked for, the ones in `options.taken` skipped.
+      let port = args.port;
+      while (options.taken?.includes(port) && port < args.port + (args.count ?? 1)) port++;
+      if (options.taken?.includes(port)) throw `ports ${args.port}-${args.port + (args.count ?? 1) - 1} are all in use`;
+      return { id: 7, port };
     },
     async send(listener, records) {
       expect(listener).toBe(7);
@@ -130,10 +149,55 @@ describe("the desktop listening transport", () => {
     await transport().listen("ws://0.0.0.0:7791/myco-debug");
     await transport().listen("7792");
     expect(native.listens).toEqual([
-      { host: "127.0.0.1", port: 7790, path: "/myco-debug" },
-      { host: "0.0.0.0", port: 7791, path: "/myco-debug" },
-      { host: "0.0.0.0", port: 7792, path: "/" },
+      { host: "127.0.0.1", port: 7790, path: "/myco-debug", count: 10 },
+      { host: "0.0.0.0", port: 7791, path: "/myco-debug", count: 10 },
+      { host: "0.0.0.0", port: 7792, path: "/", count: 10 },
     ]);
+  });
+
+  it("asks for a range of ports and reports the one it got", async () => {
+    const native = memoryBackend({ taken: [7790, 7791] });
+    const t = transport();
+    expect(tauriListenerPort(t)).toBeNull();
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    expect(native.listens).toEqual([{ host: "127.0.0.1", port: 7790, path: "/myco-debug", count: 10 }]);
+    expect(tauriListenerPort(t)).toBe(7792);
+    expect(tauri.calls).toEqual(["myco_debuglink_listen_range"]);
+  });
+
+  it("a listening build's code names the port the native listener really bound (ADR 0403)", async () => {
+    memoryBackend({ taken: [7790, 7791] });
+    const engine = await Engine.create({ headless: true });
+    const build = await startBuildListener(engine, {
+      debug: { listen: true, lan: true },
+      name: "Desktop game",
+      interfaces: () => [{ address: "192.168.1.20", family: "IPv4" }],
+      log: () => {},
+    });
+    try {
+      expect(build?.port).toBe(7792);
+      const decoded = decodePairCode(build!.code!);
+      expect("code" in decoded && decoded.code.kind === "address" && decoded.code.portOffset).toBe(2);
+    } finally {
+      build?.close();
+      engine.dispose();
+    }
+  });
+
+  it("asks for exactly port 0 (any free port) without a range", async () => {
+    const native = memoryBackend();
+    await transport().listen("ws://127.0.0.1:0/myco-debug");
+    expect(native.listens[0]!.count).toBe(1);
+  });
+
+  it("falls back to the single-port command while the native side has no range command", async () => {
+    const native = memoryBackend();
+    tauri.noRange = true;
+    const t = transport();
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    expect(tauri.calls).toEqual(["myco_debuglink_listen_range", "myco_debuglink_listen"]);
+    expect(native.listens).toEqual([{ host: "127.0.0.1", port: 7790, path: "/myco-debug" }]);
+    expect(tauriListenerPort(t)).toBe(7790);
   });
 
   it("opens a connection per accept and moves framed binary messages both ways", async () => {
@@ -229,7 +293,7 @@ describe("the desktop listening transport", () => {
     t.close();
     await settle();
     expect(native.records).toEqual([{ op: "close", connection: 1, code: 1000, reason: "transport closed" }]);
-    expect(tauri.calls).toEqual(["myco_debuglink_listen", "myco_debuglink_send", "myco_debuglink_close"]);
+    expect(tauri.calls).toEqual(["myco_debuglink_listen_range", "myco_debuglink_send", "myco_debuglink_close"]);
     expect(native.closed).toEqual([7]);
 
     const binding = createTransport("websocket");
@@ -299,30 +363,28 @@ async function until(done: () => boolean, pump: () => void): Promise<void> {
   expect(done()).toBe(true);
 }
 
-describe("the editor's debug link on the desktop transport", () => {
+describe("the debug link listener on the desktop transport", () => {
   it("listens, accepts a build from this machine, and disconnects it", async () => {
     const native = wsBackend();
-    const link = new EditorDebugLink({ transport: () => createTransport("websocket"), autoPoll: false });
-    const prefs: DebugLinkPreferences = { listen: true, lan: false, port: 0 };
-    await link.apply(prefs);
-    expect(link.state.value).toEqual({ kind: "listening", address: "ws://127.0.0.1:0/myco-debug" });
+    const peers: DebugLinkPeer[] = [];
+    const listener = new DebugLinkListener(createTransport("websocket"), { onPeer: (p) => (p.accept(), peers.push(p)) });
+    await listener.listen(`ws://127.0.0.1:0${DEBUG_LINK_PATH}`);
     try {
       // The build connects with the engine's client transport (the page's own WebSocket), to the port the server bound.
       const port = native.ports[0]!;
       const client = transport();
-      const build = new DebugLinkSession({ transport: client, connection: client.connect(connectAddress({ ...prefs, port })), hello: { name: "Game", platform: "desktop", topics: [] }, topics: new Map() });
+      const build = new DebugLinkSession({ transport: client, connection: client.connect(`ws://localhost:${port}${DEBUG_LINK_PATH}`), hello: { name: "Game", platform: "desktop", topics: [] }, topics: new Map() });
       const pump = () => {
         build.frameStart();
-        link.poll();
+        listener.poll();
       };
       await until(() => build.state === "accepted", pump);
-      expect(link.builds.value.map((b) => [b.name, b.platform])).toEqual([["Game", "desktop"]]);
-      expect(link.active.value?.name).toBe("Game");
-      link.disconnect(link.builds.value[0]!.id);
+      expect(listener.peers.map((p) => [p.hello.name, p.hello.platform])).toEqual([["Game", "desktop"]]);
+      peers[0]!.close();
       await until(() => build.state === "closed", pump);
-      expect(link.builds.value).toEqual([]);
+      expect(listener.peers).toEqual([]);
     } finally {
-      link.stop();
+      listener.close();
     }
   });
 
@@ -331,13 +393,152 @@ describe("the editor's debug link on the desktop transport", () => {
     const taken = new WebSocketServer({ host: "127.0.0.1", port: 0 });
     await new Promise((r) => taken.once("listening", r));
     const port = (taken.address() as { port: number }).port;
-    const link = new EditorDebugLink({ transport: () => createTransport("websocket"), autoPoll: false });
+    const listener = new DebugLinkListener(createTransport("websocket"));
     try {
-      await link.apply({ listen: true, lan: false, port });
-      expect(link.state.value).toEqual({ kind: "unavailable", why: expect.stringMatching(new RegExp(`^Couldn't listen at ws://127\\.0\\.0\\.1:${port}/myco-debug: .*EADDRINUSE`)) });
+      await expect(listener.listen(`ws://127.0.0.1:${port}${DEBUG_LINK_PATH}`)).rejects.toThrow(/EADDRINUSE/);
     } finally {
-      link.stop();
+      listener.close();
       taken.close();
     }
+  });
+});
+
+describe("this machine's network addresses from the shell (nativeInterfaces)", () => {
+  const withTauri = (on: boolean) => {
+    const g = globalThis as { __TAURI_INTERNALS__?: unknown };
+    if (on) g.__TAURI_INTERNALS__ = {};
+    else delete g.__TAURI_INTERNALS__;
+  };
+  afterEach(() => {
+    withTauri(false);
+    tauri.interfaces = [];
+  });
+
+  it("is empty outside Tauri, without asking", async () => {
+    tauri.calls.length = 0;
+    expect(await nativeInterfaces()).toEqual([]);
+    expect(tauri.calls).toEqual([]);
+  });
+
+  it("is the shell's list under Tauri, and empty when the command fails (an older shell)", async () => {
+    withTauri(true);
+    tauri.interfaces = [{ address: "192.168.1.20", family: "IPv4", internal: false }, { address: "127.0.0.1", family: "IPv4", internal: true }];
+    expect(await nativeInterfaces()).toEqual(tauri.interfaces);
+    tauri.interfaces = new Error("Command myco_debuglink_interfaces not found");
+    expect(await nativeInterfaces()).toEqual([]);
+  });
+
+  it("gives a listening build a pairing code for the machine's private address, and none without them", async () => {
+    withTauri(true);
+    tauri.interfaces = [{ address: "192.168.7.31", family: "IPv4", internal: false }, { address: "127.0.0.1", family: "IPv4", internal: true }];
+    const engine = await Engine.create({ headless: true });
+    try {
+      const list = await nativeInterfaces();
+      const build = await startBuildListener(engine, { debug: { listen: true, lan: true, port: 7794 }, name: "Game", platform: "loopback-test", transport: "loopback", interfaces: () => list, log: () => {} });
+      try {
+        expect(decodePairCode(build!.code!)).toMatchObject({ code: { kind: "address", octets: [7, 31], portOffset: 4 } });
+      } finally {
+        build!.close();
+      }
+      tauri.interfaces = new Error("nope");
+      const none = await nativeInterfaces();
+      const bare = await startBuildListener(engine, { debug: { listen: true, lan: true, port: 7795 }, name: "Game", platform: "loopback-test", transport: "loopback", interfaces: () => none, log: () => {} });
+      try {
+        expect(bare!.code).toBeNull();
+      } finally {
+        bare!.close();
+      }
+    } finally {
+      engine.dispose();
+    }
+  });
+});
+
+describe("one native listener serving the rendezvous beside the debug link (ADR 0403)", () => {
+  const frame = (m: RendezvousClientMessage) => [0, ...encodeRendezvousMessage(m)];
+  const join = (room: number, seat: "waiting" | "joining"): RendezvousClientMessage => ({ t: "join", v: 1, room, token: 5, seat, kind: "page-http" });
+  /** What the native side was asked to send to `connection`, decoded as rendezvous messages. */
+  const sentTo = (native: ReturnType<typeof memoryBackend>, connection: number) =>
+    native.records.flatMap((r) => (r.op === "send" && r.connection === connection ? [decodeServerMessage(Uint8Array.from(r.data.slice(1)))] : []));
+
+  it("listens natively at / and routes by the path each accept reports", async () => {
+    const native = memoryBackend();
+    const t = transport();
+    expect(hostRendezvous(t)).toBeTypeOf("function");
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    expect(native.listens[0]).toMatchObject({ path: "/" });
+
+    native.emit(accept(1, "10.0.0.1:1", "/myco-debug")); // a debug-link peer reaches the transport itself
+    native.emit(accept(2, "10.0.0.2:2", RENDEZVOUS_PATH)); // a rendezvous seat does not
+    const events = t.poll();
+    expect(events.map((e) => e.kind)).toEqual(["open"]);
+    expect((events[0] as Extract<TransportEvent, { kind: "open" }>).connection.remote).toBe("10.0.0.1:1");
+  });
+
+  it("serves a signalling exchange between two seats over the rendezvous path", async () => {
+    const native = memoryBackend();
+    const t = transport();
+    hostRendezvous(t);
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    native.emit(accept(21, "10.0.0.1:1", RENDEZVOUS_PATH));
+    native.emit(accept(22, "10.0.0.2:2", `${RENDEZVOUS_PATH}`));
+    native.emit(message(21, frame(join(77, "waiting"))));
+    native.emit(message(22, frame(join(77, "joining"))));
+    await new Promise((r) => setTimeout(r, 120)); // the hosted rendezvous polls on its own timer
+    expect(sentTo(native, 21).map((m) => ("message" in m ? m.message.t : "refused"))).toEqual(["joined", "peer-joined"]);
+    expect(sentTo(native, 22).map((m) => ("message" in m ? m.message.t : "refused"))).toEqual(["joined", "peer-joined"]);
+    native.emit(message(21, frame({ t: "offer", sdp: "v=0" } as RendezvousClientMessage)));
+    await new Promise((r) => setTimeout(r, 120));
+    expect(sentTo(native, 22).map((m) => ("message" in m ? m.message.t : "refused"))).toContain("offer");
+  });
+
+  it("closes a path that is neither the listen path nor a route", async () => {
+    const native = memoryBackend();
+    const t = transport();
+    hostRendezvous(t);
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    native.emit(accept(5, "10.0.0.5:5", "/elsewhere"));
+    await settle();
+    expect(t.poll()).toEqual([]);
+    expect(native.records).toEqual([{ op: "close", connection: 5, code: 1008, reason: "Not found." }]);
+  });
+
+  it("the hosting transport a listening desktop game uses carries the rendezvous on its port", async () => {
+    const native = memoryBackend();
+    const t = createTransport(TAURI_HOSTING_TRANSPORT);
+    transports.push(t);
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    expect(native.listens[0]).toMatchObject({ path: "/" }); // routes the rendezvous path and the debug path itself
+    native.emit(accept(31, "10.0.0.1:1", RENDEZVOUS_PATH));
+    native.emit(accept(32, "10.0.0.2:2", RENDEZVOUS_PATH));
+    native.emit(message(31, frame(join(78, "waiting"))));
+    native.emit(message(32, frame(join(78, "joining"))));
+    await new Promise((r) => setTimeout(r, 120)); // the hosted rendezvous polls on its own timer
+    expect(sentTo(native, 31).map((m) => ("message" in m ? m.message.t : "refused"))).toEqual(["joined", "peer-joined"]);
+  });
+
+  it("without a rendezvous the native side keeps the debug path (no filtering)", async () => {
+    const native = memoryBackend();
+    await transport().listen("ws://127.0.0.1:7790/myco-debug");
+    expect(native.listens[0]).toMatchObject({ path: "/myco-debug" });
+  });
+
+  it("does nothing for another transport or after listening", async () => {
+    memoryBackend();
+    expect(hostRendezvous(createTransport("loopback"))).toBeNull();
+    const t = transport();
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    expect(hostRendezvous(t)).toBeNull();
+  });
+
+  it("stops the rendezvous with the transport", async () => {
+    const native = memoryBackend();
+    const t = transport();
+    hostRendezvous(t);
+    await t.listen("ws://127.0.0.1:7790/myco-debug");
+    native.emit(accept(9, "10.0.0.9:9", RENDEZVOUS_PATH));
+    t.close();
+    await settle();
+    expect(native.closed).toEqual([7]);
   });
 });

@@ -371,7 +371,7 @@ Canonical order is (epoch, frame, seq); **within one epoch no record's frame is 
 | 0x05 | EVENT | `f64 perfMs`, `u8 kind`, `u8 reason`, `u16 argc`, `argc` x `u32`, an optional trailing `f32` per kind (§5.6) |
 | 0x06 | MARKER | `f64 perfMs`, `u16 n`, `n` UTF-8 bytes (<= 120): owner joins and Compare swaps write one |
 | 0x07 | NAMES | `u8 table` (0 clip, 1 bus, 2 event, 3 parameter, 4 snapshot, 5 target), `u8[3]`, `u32 id`, `u16 n`, `n` bytes: a name first used after the META chunk |
-| 0x08 | MIXOP | one `MixOp` (§6.2's byte form), `f64 perfMs`, origin (0 editor, 1 script, 2 undo, 3 redo, 4 compare) |
+| 0x08 | MIXOP | one `MixOp` (§6.2's byte form), `f64 perfMs`, origin (0 editor, 1 script, 2 undo, 3 redo, 4 compare, 5 debugLink: a tool's `mix.op` over the debug link, ADR 0403) |
 | 0x09 | WRAP | the writer jumped to offset 0; ring only, stripped by the saver |
 | 0x7F | INDEX | §5.4 |
 

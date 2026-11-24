@@ -2,7 +2,9 @@
 //! messages reach the page without a JSON round trip. Numbers are big-endian; text is UTF-8.
 //!
 //! **Events** (listener → page), one per channel message: `[kind u8][connection u32][rest]`.
-//! - `1` accept: `rest` is the peer's address (`127.0.0.1:51234`, `[::1]:51234`).
+//! - `1` accept: `rest` is the peer's address (`127.0.0.1:51234`, `[::1]:51234`), then a newline and the path
+//!   the upgrade asked for (`/myco-rendezvous`; the query is dropped), so a page that listens at "/" can
+//!   route each connection by path. A page may meet a listener that sends the address alone.
 //! - `2` message: `rest` is one binary WebSocket message.
 //! - `3` close: `rest` is `[code u16][reason]`. Sent when the peer or the network ends the
 //!   connection, never for a close the page asked for.
@@ -18,8 +20,12 @@
 /// Something that happened on the listener.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Event {
-    /// A WebSocket handshake finished; `remote` is the peer's address.
-    Accept { connection: u32, remote: String },
+    /// A WebSocket handshake finished; `remote` is the peer's address, `path` the one the upgrade asked for.
+    Accept {
+        connection: u32,
+        remote: String,
+        path: String,
+    },
     /// One binary message from the peer.
     Message { connection: u32, data: Vec<u8> },
     /// The peer or the network ended the connection.
@@ -40,7 +46,11 @@ const ERROR: u8 = 4;
 /// The bytes the page receives for `event`.
 pub fn encode_event(event: &Event) -> Vec<u8> {
     let (kind, connection, rest): (u8, u32, Vec<u8>) = match event {
-        Event::Accept { connection, remote } => (ACCEPT, *connection, remote.as_bytes().to_vec()),
+        Event::Accept {
+            connection,
+            remote,
+            path,
+        } => (ACCEPT, *connection, format!("{remote}\n{path}").into_bytes()),
         Event::Message { connection, data } => (MESSAGE, *connection, data.clone()),
         Event::Close {
             connection,
@@ -152,9 +162,10 @@ mod tests {
         assert_eq!(
             encode_event(&Event::Accept {
                 connection: 2,
-                remote: "a".into()
+                remote: "a".into(),
+                path: "/p".into()
             }),
-            vec![1, 0, 0, 0, 2, b'a']
+            vec![1, 0, 0, 0, 2, b'a', b'\n', b'/', b'p']
         );
         assert_eq!(
             encode_event(&Event::Message {

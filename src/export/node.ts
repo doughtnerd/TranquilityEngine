@@ -11,7 +11,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readProject, ServerError } from "../server/project";
 import { nodePackageSource } from "../server/packages";
-import { DEFAULT_ICON_SVG, ICON_FILES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
+import { DEBUG_LISTENER_CRATES, DEBUG_MULTICAST_PLUGIN,DEFAULT_ICON_SVG, ICON_FILES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
 import { PLAYER_FILE_LIST } from "./format";
 import { acquireProjectContext } from "../engine/core/projectContext";
 import { bakeModelFile } from "../engine/scene/models";
@@ -61,6 +61,19 @@ export interface ExportOptions {
    * of the link's code.
    */
   debugLink?: string;
+  /** ADR 0403: `--debug-listen`: the build listens for tools (`debug.listen`); a desktop one gets the native listener crates. Implies debugging on. */
+  debugListen?: boolean;
+  /** ADR 0403: `--debug-lan`: with listening, bind `0.0.0.0`, paired by code (`debug.lan`). Implies debugging on. */
+  debugLan?: boolean;
+  /** ADR 0403: `--debug-port N`: the first port a listening build tries (`debug.port`). Implies debugging on. */
+  debugPort?: number;
+  /** ADR 0403 "Rendezvous" 3: `--debug-rendezvous <url>`: the hosted rendezvous, written as `debug.rendezvous`. Implies debugging on. */
+  debugRendezvous?: string;
+  /**
+   * The rendezvous bundle a debug web build ships beside `serve.mjs`; default this checkout's `dist/rendezvous/rendezvous.mjs`,
+   * built now (`npm run build:rendezvous`) if it's missing, as the player is.
+   */
+  rendezvousFile?: string;
   log?: (line: string) => void;
 }
 
@@ -86,7 +99,10 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (isOutputInsideProject(project.root, out)) {
     throw new ExportError(`The output folder "${out}" is inside the project, where the next export would copy it in. Use a folder outside it, or under its dist/ folder.`);
   }
-  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames, languages: options.languages, pseudo: options.pseudo, ...(options.debugLink !== undefined && { debugLink: options.debugLink }) });
+  // ADR 0403 "Rendezvous" 2: a debug web build's serve.mjs hosts the rendezvous, so the build carries its bundle.
+  const debugOn = options.debugLink !== undefined || options.debugListen || options.debugLan || options.debugPort !== undefined || options.debugRendezvous !== undefined;
+  const rendezvousBundle = debugOn && target === "web" ? await readFile(options.rendezvousFile ?? (await ensureRendezvous(log)), "utf8") : undefined;
+  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames, languages: options.languages, pseudo: options.pseudo, ...(options.debugLink !== undefined && { debugLink: options.debugLink }), ...(options.debugListen && { debugListen: true }), ...(options.debugLan && { debugLan: true }), ...(options.debugPort !== undefined && { debugPort: options.debugPort }), ...(options.debugRendezvous !== undefined && { debugRendezvous: options.debugRendezvous }), ...(rendezvousBundle !== undefined && { rendezvousBundle }) });
   const playerDir = options.playerDir ?? (await ensurePlayer(log));
 
   const folder = nodeFolder(out);
@@ -122,7 +138,10 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
 
   const settings = project.settings as typeof project.settings & { build?: BuildSettings };
   const gamepadModule = await readFile(join(REPO, "src-tauri", "src", "gamepad.rs"), "utf8");
-  const files = desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule, debug: plan.manifest.debug !== undefined });
+  const debug = plan.manifest.debug !== undefined;
+  // ADR 0403: a debug package carries the listener crates' sources, compiled by its own `tauri build` (a release one carries none).
+  const debugListener = debug ? await readListenerCrates() : undefined;
+  const files = desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule, debug, ...(debugListener && { debugListener }) });
   const tauriDir = join(out, "src-tauri");
   for (const [path, text] of files) await folder.writeText(`src-tauri/${path}`, text);
   await makeIcons(project.root, settings.build?.icon, folder, tauriDir, log);
@@ -144,6 +163,19 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   return { out, web, plan, built };
 }
 
+/** native/ws-listener and native/debug-link-tauri's Cargo.toml and src/*.rs, by path under `vendor/` (their relative path dependency keeps working there). */
+async function readListenerCrates(): Promise<Map<string, string>> {
+  const crates = new Map<string, string>();
+  for (const crate of DEBUG_LISTENER_CRATES) {
+    const root = join(REPO, "native", crate);
+    crates.set(`${crate}/Cargo.toml`, await readFile(join(root, "Cargo.toml"), "utf8"));
+    for (const file of (await readdir(join(root, "src"))).filter((f) => f.endsWith(".rs")).sort()) crates.set(`${crate}/src/${file}`, await readFile(join(root, "src", file), "utf8"));
+  }
+  const plugin = join(REPO, "native", DEBUG_MULTICAST_PLUGIN.crate);
+  for (const file of DEBUG_MULTICAST_PLUGIN.files) crates.set(`${DEBUG_MULTICAST_PLUGIN.crate}/${file}`, await readFile(join(plugin, ...file.split("/")), "utf8"));
+  return crates;
+}
+
 const basename = (path: string) => path.split(/[\\/]/).filter(Boolean).pop() ?? "game";
 
 /** The player folder: this checkout's dist/player/, built now if it isn't. The build writer checks it's a complete one. */
@@ -157,6 +189,20 @@ async function ensurePlayer(log: (line: string) => void): Promise<string> {
   const code = await run(process.execPath, [vite, "build", "--config", "vite.player.config.ts", "--logLevel", "warn"], REPO);
   if (code !== 0 || !existsSync(join(DEFAULT_PLAYER, PLAYER_FILE_LIST))) throw new ExportError("Couldn't build the player (npm run build:player).");
   return DEFAULT_PLAYER;
+}
+
+const DEFAULT_RENDEZVOUS = join(REPO, "dist", "rendezvous", "rendezvous.mjs");
+
+/** The rendezvous bundle (`npm run build:rendezvous`): this checkout's dist/rendezvous/rendezvous.mjs, built now if it isn't. */
+async function ensureRendezvous(log: (line: string) => void): Promise<string> {
+  if (existsSync(DEFAULT_RENDEZVOUS)) return DEFAULT_RENDEZVOUS;
+  log("The rendezvous isn't built yet: building it (npm run build:rendezvous)…");
+  const vitePackage = createRequire(join(REPO, "package.json")).resolve("vite/package.json");
+  const { bin } = JSON.parse(await readFile(vitePackage, "utf8")) as { bin: string | Record<string, string> };
+  const vite = join(dirname(vitePackage), typeof bin === "string" ? bin : bin.vite);
+  const code = await run(process.execPath, [vite, "build", "--config", "tools/rendezvous/vite.config.ts", "--logLevel", "warn"], REPO);
+  if (code !== 0 || !existsSync(DEFAULT_RENDEZVOUS)) throw new ExportError("Couldn't build the rendezvous for the debug build's serve.mjs. Run: npm run build:rendezvous");
+  return DEFAULT_RENDEZVOUS;
 }
 
 const under = (root: string, path: string) => (path ? join(root, ...path.split("/")) : root);

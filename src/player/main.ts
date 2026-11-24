@@ -20,6 +20,7 @@ import { LEGACY_AUDIO_MESSAGE, projectWithAudio } from "../engine/audio/project/
 import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
 import { installAudioMedia } from "../plugins/audio/runtime/media/mediaTable";
 import { installBuildStrings } from "../engine/localisation/runtime/boot";
+import type { NetworkInterfaceAddress } from "../engine/debugLink/pairing/address";
 
 /** A build file's URL, from its "/"-separated path. */
 const urlOf = (path: string) => new URL(path.split("/").map(encodeURIComponent).join("/"), document.baseURI).href;
@@ -96,13 +97,49 @@ async function boot(): Promise<void> {
     entryScene: manifest.mainScene || null,
     container,
   });
-  // ADR 0376: a build exported with debugging on (`game.json` `debug`) connects to the editor or the Studio. Its address
-  // can be overridden at launch: a desktop build's `--debug-link <address>` (its shell sets `__mycoDebugLink`), a web
-  // build's `?debug-link=`. Without `debug` nothing is imported, and a release export holds none of the link's files.
+  // ADR 0376 / 0403: a build exported with debugging on (`game.json` `debug`) connects out to the editor or the Studio
+  // (`debug.link`, or an address given at launch), listens for tools (`debug.listen`), or both. Launch flags: a desktop
+  // build's `--debug-link <address>` and `--debug-code <code>` (its shell sets `__mycoDebugLink` / `__mycoDebugCode`), a
+  // web build's `?debug-link=` and `?debug-code=` (the tool's pairing code; plan decision O6, no entry field). Without
+  // `debug` nothing is imported, and a release export holds none of the link's files or the pairing overlay.
   if (manifest.debug) {
-    const override = new URLSearchParams(location.search).get("debug-link") ?? (globalThis as { __mycoDebugLink?: string }).__mycoDebugLink ?? null;
-    const { startDebugLink } = await import("../engine/debugLink/host");
-    await startDebugLink(runtime, { debug: manifest.debug, override, name: manifest.name, platform: "__TAURI_INTERNALS__" in window ? "desktop" : "web" });
+    const query = new URLSearchParams(location.search);
+    const flags = globalThis as { __mycoDebugLink?: string; __mycoDebugCode?: string };
+    const override = query.get("debug-link") ?? flags.__mycoDebugLink ?? null;
+    const code = query.get("debug-code") ?? flags.__mycoDebugCode ?? null;
+    const desktop = "__TAURI_INTERNALS__" in window;
+    // A Tauri app on a phone (built from the desktop export, pairing plan D3) says so: tools list it as "android".
+    const platform = desktop ? (/Android/i.test(navigator.userAgent) ? "android" : "desktop") : "web";
+    // A desktop game can listen: the native WebSocket server stands in for the transport a page lacks.
+    // Its network addresses go in the pairing code (a code holds the machine's private IPv4 octets).
+    let interfaces: NetworkInterfaceAddress[] = [];
+    // The desktop game's listener also hosts the rendezvous on its port (ADR 0403), so pages on its LAN can meet there.
+    let listenTransport: string | undefined;
+    if (desktop) {
+      const native = await import("../engine/debugLink/tauriListener");
+      native.registerTauriWebSocketTransport();
+      listenTransport = native.TAURI_HOSTING_TRANSPORT;
+      if ((manifest.debug as { listen?: boolean }).listen === true) interfaces = await native.nativeInterfaces();
+    }
+    const { startDebugLink, startBuildListener } = await import("../engine/debugLink/host");
+    const d = manifest.debug as Partial<typeof manifest.debug>;
+    // A listening-only build (`listen` without a `link`) doesn't also dial the default address, unless it was given a
+    // tool's code: a room code (ADR 0404) joins the tool's rendezvous room over WebRTC (a browser Studio offers one).
+    if (d.listen !== true || d.link !== undefined || override !== null || code !== null) {
+      await startDebugLink(runtime, { debug: manifest.debug, override, name: manifest.name, platform, code, interfaces: () => interfaces });
+    }
+    // A desktop game listens on its native WebSocket; a page can't, so it offers a rendezvous room on its own server
+    // (or the hosted rendezvous) and the overlay shows the room code (`host.ts`, `rooms.ts`).
+    if (d.listen === true) {
+      const listener = await startBuildListener(runtime, { debug: manifest.debug, name: manifest.name, platform, interfaces: () => interfaces, transport: listenTransport });
+      if (listener) (await import("./debugOverlay")).installDebugOverlay(listener);
+      // ADR 0403 "Discovery": a native listener reachable from the LAN (port 0 is a page's room, which has no socket)
+      // is advertised by mDNS so tools list it; the advert ends when the app does.
+      if (listener && desktop && listener.lan && listener.port > 0) {
+        const [{ advertiseBuild }, { DEBUG_LINK_PATH }] = await Promise.all([import("../engine/debugLink/tauriDiscovery"), import("../engine/debugLink/config")]);
+        void advertiseBuild({ name: manifest.name, platform, port: listener.port, path: DEBUG_LINK_PATH });
+      }
+    }
   }
   runtime.start();
   (window as { engine?: Engine }).engine = runtime;
