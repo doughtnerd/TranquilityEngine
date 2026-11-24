@@ -440,7 +440,12 @@ impl Not for M32x4 {
         M32x4::v_not(self)
     }
 }
-impl LaneMask for M32x4 {}
+impl LaneMask for M32x4 {
+    #[inline(always)]
+    fn any(self) -> bool {
+        M32x4::any(self)
+    }
+}
 
 impl Lane for F32x4 {
     type Mask = M32x4;
