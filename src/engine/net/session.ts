@@ -120,7 +120,7 @@ import "./transport/websocket";
  * replication, ADR 0100. 5: relevancy leaves, relayouts, sibling order and disabled components,
  * ADR 0121. 6: ghost spawns, despawns, leaves, relayouts and structure changes in a reliable
  * lifecycle message, snapshots carry states only, ADR 0402. 7: acks name late snapshot parts of
- * older ticks, which the client reads, ADR 0403.)
+ * older ticks, which the client reads, ADR 0405.)
  */
 const NET_PROTOCOL_VERSION = 7;
 

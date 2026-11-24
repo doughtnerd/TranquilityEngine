@@ -23,7 +23,7 @@ export const ACK = registerNetMessage("net.snapshotAck");
 /** Parts an ack may name at most (a tick has at most `maxSnapshotBytes` / the datagram size). */
 export const MAX_SNAPSHOT_PARTS = 1024;
 
-/** Snapshot ticks an ack names at most: the newest, then older ones that got a late part (ADR 0403). */
+/** Snapshot ticks an ack names at most: the newest, then older ones that got a late part (ADR 0405). */
 export const MAX_ACK_TICKS = 16;
 
 /**

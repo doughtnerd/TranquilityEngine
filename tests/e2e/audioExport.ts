@@ -27,17 +27,20 @@ export interface Served {
 }
 
 /** Exports `samples/<sample>` into a temp directory (`extra` are the CLI's flags) and serves it on a free port. */
-export function exportAndServe(sample: string, extra: string[]): Promise<Served> {
-  return exportProjectAndServe(`samples/${sample}`, extra, sample);
+export function exportAndServe(sample: string, extra: string[], port = 0): Promise<Served> {
+  return exportProjectAndServe(`samples/${sample}`, extra, sample, port);
 }
 
-/** Exports the project folder `project` (a sample, or a copy a spec made) into a temp directory and serves it on a free port. */
-export function exportProjectAndServe(project: string, extra: string[], label = "project"): Promise<Served> {
+/**
+ * Exports the project folder `project` (a sample, or a copy a spec made) into a temp directory and serves it on `port`
+ * (0: a free one).
+ */
+export function exportProjectAndServe(project: string, extra: string[], label = "project", port = 0): Promise<Served> {
   const dir = mkdtempSync(join(tmpdir(), `myco-export-x3-${label}-`));
   const out = join(dir, "web");
   const result = spawnSync(process.execPath, ["src/export/cli.mjs", project, "--out", out, ...extra], { encoding: "utf8" });
   if (result.status !== 0) throw new Error(`export of ${project} failed:\n${result.stdout}\n${result.stderr}`);
-  const server = spawn(process.execPath, [join(out, "serve.mjs"), "0"], { stdio: ["ignore", "pipe", "inherit"] });
+  const server = spawn(process.execPath, [join(out, "serve.mjs"), String(port)], { stdio: ["ignore", "pipe", "inherit"] });
   return new Promise((resolve, reject) => {
     let text = "";
     server.stdout!.on("data", (chunk: Buffer) => {

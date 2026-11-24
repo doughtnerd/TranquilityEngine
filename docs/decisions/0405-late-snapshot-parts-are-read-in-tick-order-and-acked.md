@@ -1,4 +1,4 @@
-# 0403. Late snapshot parts are read in tick order and acked
+# 0405. Late snapshot parts are read in tick order and acked
 
 - **Status:** Accepted
 - **Date:** 2026-11-24
@@ -66,4 +66,4 @@ We will read a late part, file its states in tick order, and ack it.
 ## References
 
 - `src/engine/net/replication/client.ts` (`receive`, `read`, `fileState`, `ClientGhost.layoutTick`), `server.ts` (`run`'s ack reading, `acked`), `wire.ts` (`MAX_ACK_TICKS`), `net/session.ts` (protocol version 7)
-- `src/engine/tests/replicationParts.test.ts`, "late state parts are read in tick order (ADR 0403)": a ghost whose every change is over a datagram keeps updating and never goes back; lifecycle messages every tick don't starve it; late parts from before a relayout are dropped and it converges after.
+- `src/engine/tests/replicationParts.test.ts`, "late state parts are read in tick order (ADR 0405)": a ghost whose every change is over a datagram keeps updating and never goes back; lifecycle messages every tick don't starve it; late parts from before a relayout are dropped and it converges after.

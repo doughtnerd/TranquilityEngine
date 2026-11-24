@@ -108,7 +108,7 @@
  * part is written once. Otherwise parts are filled first-fit with ghosts by priority (the ghosts
  * unsent longest, times their `importance`); what doesn't fit goes next tick. A ghost whose state
  * alone is bigger than a datagram still goes, alone, by the transport's slower reliable path. When
- * the next tick's datagrams overtake it, the client still reads it (ADR 0403): its states are filed
+ * the next tick's datagrams overtake it, the client still reads it (ADR 0405): its states are filed
  * in tick order, and it's acked like any part, so a ghost whose state is always that big keeps
  * updating, a little behind, instead of starving.
  *
@@ -116,7 +116,7 @@
  *
  * A client that read lifecycle messages or snapshot parts in a frame sends, at the end of it, the
  * newest lifecycle tick it applied, the newest snapshot tick it read and every part of that tick it
- * has read, then older ticks it read a late part of lately, each repeated by a few acks (ADR 0403):
+ * has read, then older ticks it read a late part of lately, each repeated by a few acks (ADR 0405):
  * `varuint lifecycle tick, varuint tick count`, then per tick (the newest, then each older one as the
  * gap back from the one before) `varuint part count`, the first part index and the gaps between the
  * rest. Lifecycle messages arrive in order, so the first tick
@@ -312,7 +312,7 @@ export class ServerReplication {
         const ticks = r.readVarUint();
         if (ticks > MAX_ACK_TICKS) continue;
         const acks: { tick: number; parts: number[] }[] = [];
-        // The newest tick, then each older one as the gap back from the one before (ADR 0403); per tick
+        // The newest tick, then each older one as the gap back from the one before (ADR 0405); per tick
         // its part count, the first index, then each as the gap from the one before.
         for (let t = 0, tick = 0; t < ticks; t++) {
           tick = t === 0 ? r.readVarUint() : tick - r.readVarUint();
@@ -613,7 +613,7 @@ export class ServerReplication {
   /**
    * The client read these parts of `tick` (ADR 0334): their states become baselines, once, where
    * they're newer than the ghost's baseline. The tick may be older than the newest acked: a part
-   * that came late by the reliable path (ADR 0403), which the client kept whole. Records are kept
+   * that came late by the reliable path (ADR 0405), which the client kept whole. Records are kept
    * for `BASELINE_WINDOW` ticks (pruned when snapshots are written), each part's until it's acked.
    */
   private acked(peer: NetPeer, tick: number, parts: readonly number[]): void {

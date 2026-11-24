@@ -107,7 +107,7 @@ class Mover extends GameBehavior {
 const Big = defineComponent("test.parts.Big", Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`f${i}`, f32])));
 replicate(Big);
 
-/** A small component added to a big ghost mid-run, to relayout it (ADR 0121, 0403). */
+/** A small component added to a big ghost mid-run, to relayout it (ADR 0121, 0405). */
 const Badge = defineComponent("test.parts.Badge", { level: f32 });
 replicate(Badge);
 
@@ -363,7 +363,7 @@ describe("spawns go reliably, apart from states (ADR 0402)", () => {
   });
 });
 
-describe("late state parts are read in tick order (ADR 0403)", () => {
+describe("late state parts are read in tick order (ADR 0405)", () => {
   // A state part too big for a datagram goes by the stream, which lags the datagrams by 150 ms: every
   // tick, the next ticks' datagrams overtake it. Balls moving every tick keep datagrams going.
   const laggyStream = { socketDelayMs: 150, loss: 0.1 };

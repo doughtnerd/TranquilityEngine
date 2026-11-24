@@ -82,7 +82,7 @@ export interface ClientGhost {
   layout: Layout;
   /** The server's version of `layout`. */
   layoutVersion: number;
-  /** The tick of the lifecycle message that gave it `layout` (its spawn or last relayout): states from before it are stale (ADR 0403). */
+  /** The tick of the lifecycle message that gave it `layout` (its spawn or last relayout): states from before it are stale (ADR 0405). */
   layoutTick: number;
   readonly spawn: SpawnInfo;
   /** Its node once found or made; null while waiting (a scene not loaded yet, a parent ghost not there yet). */
@@ -107,15 +107,15 @@ export class ClientReplication {
   readonly ghosts = new Map<number, ClientGhost>();
   /** The newest snapshot tick read. */
   newestTick = -1;
-  /** The tick of the newest lifecycle message applied (ADR 0402); a snapshot part older than it is late, and may be stale for its ghosts (ADR 0403). */
+  /** The tick of the newest lifecycle message applied (ADR 0402); a snapshot part older than it is late, and may be stale for its ghosts (ADR 0405). */
   private lifecycleTick = -1;
   /**
-   * The parts read of each recent snapshot tick (ADR 0334, 0403): the newest, and older ones whose
+   * The parts read of each recent snapshot tick (ADR 0334, 0405): the newest, and older ones whose
    * parts came late (a part too big for a datagram goes by the slower reliable path). Kept for
    * `BASELINE_WINDOW` ticks, the server's history.
    */
   private readonly partsRead = new Map<number, Set<number>>();
-  /** Older ticks that got a part lately, newest last, with how many more acks repeat them (ADR 0403). */
+  /** Older ticks that got a part lately, newest last, with how many more acks repeat them (ADR 0405). */
   private readonly lateAcks = new Map<number, number>();
   private peer: NetPeer | null = null;
   private readonly despawned = new Set<number>();
@@ -159,7 +159,7 @@ export class ClientReplication {
       received = true;
     }
     for (const m of session.drain(SNAPSHOT)) {
-      // Each part once (ADR 0334), a late one too (ADR 0403): a part older than the newest tick read
+      // Each part once (ADR 0334), a late one too (ADR 0405): a part older than the newest tick read
       // (it came by the slower reliable path, being too big for a datagram) is read while the server
       // still keeps that tick's record, its states filed in tick order. Whether it's stale is decided
       // ghost by ghost (`read`); a stale part is dropped whole and not acked.
@@ -200,7 +200,7 @@ export class ClientReplication {
     for (const t of this.partsRead.keys()) if (t < this.newestTick - BASELINE_WINDOW) this.partsRead.delete(t);
     if (received && peer?.state === "open") {
       // The newest lifecycle tick applied, then the newest snapshot tick and every part of it read so
-      // far, then older ticks that got a late part (ADR 0403), each repeated by the next few acks so a
+      // far, then older ticks that got a late part (ADR 0405), each repeated by the next few acks so a
       // lost ack is made good (a tick of 0: none yet).
       const lifecycle = Math.max(0, this.lifecycleTick);
       const ticks = this.newestTick > 0 ? [this.newestTick] : [];
@@ -353,7 +353,7 @@ export class ClientReplication {
 
   /**
    * Read one snapshot part after its index (layout at the top of `server.ts`): ghost states. The
-   * part is taken whole or not at all (ADR 0403), so everything an ack names is kept: it returns
+   * part is taken whole or not at all (ADR 0405), so everything an ack names is kept: it returns
    * false, keeping nothing, when the part is stale for one of its ghosts (gone, spawned or
    * relayouted again, or restructured, after the part's tick: it came late) or names a baseline
    * already dropped (a late part's). A part that can't be stale (not older than the newest
@@ -732,10 +732,10 @@ export function clientReplication(world: World): ClientReplication | null {
   return r;
 }
 
-/** How many acks repeat an older tick that got a late part (ADR 0403), so one lost ack doesn't lose it. */
+/** How many acks repeat an older tick that got a late part (ADR 0405), so one lost ack doesn't lose it. */
 const LATE_ACK_REPEATS = 4;
 
-/** File a state in a ghost's states, kept oldest first (ADR 0403: a late part's goes before newer ones); a tick already there is kept. */
+/** File a state in a ghost's states, kept oldest first (ADR 0405: a late part's goes before newer ones); a tick already there is kept. */
 function fileState(states: ReceivedState[], tick: number, values: GhostState): void {
   let i = states.length;
   while (i > 0 && states[i - 1].tick > tick) i--;
