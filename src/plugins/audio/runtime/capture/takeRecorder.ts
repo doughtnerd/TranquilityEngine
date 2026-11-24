@@ -148,6 +148,26 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
     this.write({ type: TakeRecordType.RELEASE, payload: { kind: "release", t: this.seconds, instance: id } });
   }
 
+  pause(instance: object): void {
+    const id = this.ids.get(instance);
+    if (id === undefined) return;
+    this.write({ type: TakeRecordType.PAUSE, payload: { kind: "pause", t: this.seconds, instance: id } });
+  }
+
+  resume(instance: object): void {
+    const id = this.ids.get(instance);
+    if (id === undefined) return;
+    this.write({ type: TakeRecordType.RESUME, payload: { kind: "resume", t: this.seconds, instance: id } });
+  }
+
+  fade(instance: object, to: number, seconds: number): void {
+    const id = this.ids.get(instance);
+    // A non-finite `to` is ignored by the handle (it warns), so it isn't played and isn't recorded; the handle clamps the
+    // rest, and the replay's handle clamps the same way.
+    if (id === undefined || !Number.isFinite(to)) return;
+    this.write({ type: TakeRecordType.FADE, payload: { kind: "fade", t: this.seconds, instance: id, to: Math.max(0, to), seconds: Number.isFinite(seconds) ? Math.max(0, seconds) : 0 } });
+  }
+
   trigger(instance: object, name: string): void {
     const id = this.ids.get(instance);
     if (id === undefined) return;

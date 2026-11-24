@@ -448,13 +448,14 @@ describe("capture decode fuzz (L-Rc1a)", () => {
     expect(await outcome(assembleCapture(SAMPLE_HEADER, SAMPLE_META, wrap))).toBe("badRecord");
 
     // ADR 0348: a request record type (0x10..0x1d; ADR 0354/0355 added 0x1a..0x1d) in a capture that isn't a take is refused, not skipped.
-    for (const type of [0x10, 0x19, 0x1a, 0x1d]) {
+    // ADR 0386 added 0x1e..0x20.
+    for (const type of [0x10, 0x19, 0x1a, 0x1d, 0x1e, 0x20]) {
       const recs = sampleRecords();
       recs[at] = { type, epoch: 0, seq: recs[at]!.seq, frame: 1400, payload: new Uint8Array([1, 2, 3]) } as CaptureRecordInit;
       expect(await outcome(assembleCapture(SAMPLE_HEADER, SAMPLE_META, recs)), `type 0x${type.toString(16)}`).toBe("badRecord");
     }
-    // Types 0x1e, 0x40 and 0x7e are skipped by len and read back as unknown records.
-    for (const type of [0x1e, 0x40, 0x7e]) {
+    // Types 0x21, 0x40 and 0x7e are skipped by len and read back as unknown records.
+    for (const type of [0x21, 0x40, 0x7e]) {
       const recs = sampleRecords();
       recs[at] = { type, epoch: 0, seq: recs[at]!.seq, frame: 1400, payload: new Uint8Array([1, 2, 3]) } as CaptureRecordInit;
       const c = await openCapture(assembleCapture(SAMPLE_HEADER, SAMPLE_META, recs));
