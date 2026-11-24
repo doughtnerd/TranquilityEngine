@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import type { SystemCatalogEntry } from "../engine/core/systems";
 import {
+  linkIds,
+  linkIndexOf,
   addLink,
   addTemplate,
   addWorld,
@@ -325,5 +327,24 @@ describe("replication settings (ADR 0101)", () => {
     expect(both).toEqual({ sendRate: 20, maxSnapshotBytes: 1200 });
     expect(withReplicationSetting(both, "sendRate", undefined)).toEqual({ maxSnapshotBytes: 1200 });
     expect(withReplicationSetting({ sendRate: 20 }, "sendRate", undefined)).toBeUndefined();
+  });
+});
+
+describe("link identities", () => {
+  const a = { from: "Client", to: "Server", transport: "loopback" };
+  const b = { from: "Bot", to: "Server", transport: "loopback" };
+  it("follow a link when links before it are removed or restored, and are gone with it", () => {
+    const [, idB] = linkIds([a, b]);
+    expect(linkIndexOf([a, b], idB)).toBe(1);
+    expect(linkIndexOf([b], idB)).toBe(0); // the link before it removed
+    expect(linkIndexOf([a], idB)).toBe(-1); // it was removed
+    expect(linkIndexOf([a, { ...b, transport: "websocket" }], idB)).toBe(-1); // it changed
+    expect(linkIndexOf([a, b], null)).toBe(-1);
+  });
+
+  it("tell apart the same link listed twice", () => {
+    const ids = linkIds([a, b, a]);
+    expect(new Set(ids).size).toBe(3);
+    expect(linkIndexOf([a, b, a], ids[2])).toBe(2);
   });
 });

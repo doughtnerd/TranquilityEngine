@@ -245,10 +245,11 @@ function SceneSettings(props: { scene: OpenScene }) {
 /** A top-level node's id, editable: commits on Enter or blur, reverts on Escape; a refused id shows why under the field. */
 function NodeIdField(props: { scene: OpenScene; id: string }) {
   const { scene, id } = props;
-  const [error, setError] = useState<string | null>(null);
+  // The refusal belongs to the node it was made on: selecting another node (another id, or another scene) drops it.
+  const [refusal, setRefusal] = useState<{ scene: OpenScene; id: string; error: string | null } | null>(null);
+  const error = refusal && refusal.scene === scene && refusal.id === id ? refusal.error : null;
   const { input } = useDraftText(id, (draft) => {
-    if (draft === id) return setError(null);
-    setError(renameNodeId(scene, id, draft));
+    setRefusal({ scene, id, error: draft === id ? null : renameNodeId(scene, id, draft) });
   });
   return (
     <>
@@ -591,13 +592,13 @@ function ComponentMenu(props: { scene: OpenScene; title: string; worlds: { targe
   // The button and its menu, closing in the window they're in (a detached panel window, ADR 0174); CSS places the menu.
   usePopover(ref, open, { onDismiss: () => setOpen(false) });
   const active = worlds[worlds.length - 1].setting;
-  const current = effectiveWorlds(active);
   const all = worlds.map((w) => effectiveWorlds(w.setting));
   const tags = knownWorldTags(currentProject.value?.settings, all.flatMap((w) => w ?? []));
   const targets = worlds.map((w) => w.target);
   const anyOwn = worlds.some((w) => w.setting.own !== undefined);
   const set = (next: readonly string[]) => setComponentWorlds(scene, targets, next, `Set Worlds of ${title}`);
-  const toggle = (tag: string, on: boolean) => set(withWorldTag(current, tag, on));
+  // Per node, like NodeTags: ticking a tag adds it to each node's own Worlds, unticking removes it from each.
+  const toggle = (tag: string, on: boolean) => setComponentWorlds(scene, targets, (cur) => withWorldTag(cur, tag, on), `Set Worlds of ${title}`);
   const everyAll = all.every(isEveryWorld);
   const everySome = all.some(isEveryWorld);
   const describe = (w: readonly string[] | undefined) => (isEveryWorld(w) ? "every World" : w!.length === 0 ? "no Worlds" : w!.join(", "));

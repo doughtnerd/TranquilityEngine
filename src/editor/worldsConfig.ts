@@ -336,6 +336,26 @@ export function removeLink(model: WorldsModel, index: number): WorldsModel {
   return { ...model, links: model.links.filter((_, i) => i !== index) };
 }
 
+/**
+ * A stable identity for each link, by what it is rather than where it sits: its ends and transport, plus which
+ * occurrence it is when the same link is listed more than once. A link keeps its identity when links before it are
+ * removed or an undo restores them, so a picked link or a row's state follows the link, not its index.
+ */
+export function linkIds(links: readonly LinkConfig[]): string[] {
+  const seen = new Map<string, number>();
+  return links.map((l) => {
+    const base = JSON.stringify([l.from, l.to, l.transport]);
+    const n = seen.get(base) ?? 0;
+    seen.set(base, n + 1);
+    return `${base}#${n}`;
+  });
+}
+
+/** The index of the link with identity `id` (see `linkIds`), or -1 when no link has it (it was removed or changed). */
+export function linkIndexOf(links: readonly LinkConfig[], id: string | null): number {
+  return id === null ? -1 : linkIds(links).indexOf(id);
+}
+
 // --- link options -------------------------------------------------------------------------------
 
 /** One link option the panel knows how to edit; see `LinkConfig.options`. */

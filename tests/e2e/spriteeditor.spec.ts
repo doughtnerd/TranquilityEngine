@@ -94,6 +94,14 @@ test("the Sprite Editor slices by grid, renames a slice, and the slice drags int
   await expect(dlg.getByLabel("W", { exact: true })).toHaveValue("250");
   await dlg.getByLabel("Slice name").fill("wing");
   await dlg.getByLabel("Slice name").press("Enter");
+  // Escape drops a typed name, and a name that can't be used is refused, saying why.
+  await dlg.getByLabel("Slice name").fill("dropped");
+  await dlg.getByLabel("Slice name").press("Escape");
+  await expect(dlg.getByLabel("Slice name")).toHaveValue("wing");
+  await dlg.getByLabel("Slice name").fill("flappyBird_1");
+  await dlg.getByLabel("Slice name").press("Enter");
+  await expect(dlg.getByLabel("Slice name")).toHaveValue("wing");
+  await expect(dlg.locator(".sprite-problem")).toHaveCount(1);
   await dlg.getByRole("button", { name: "Apply" }).click();
   await expect(page.locator(".status-text")).toHaveText("Saved 2 slices of flappyBird.png.");
   const saved = await sidecar(page, "images/flappyBird.png.meta.json");
