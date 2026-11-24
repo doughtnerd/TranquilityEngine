@@ -1,9 +1,10 @@
 // Importing files from outside the editor into the project's assets (dragging them from the
 // file manager onto the Assets panel, ADR 0085). The source is either the browser's drop
 // (DataTransfer entries, folders walked recursively) or the desktop's drag-drop event, which
-// gives absolute paths read through the file system. Names that are taken get " (1)", " (2)"…
-// (a dropped folder is renamed as a whole, so its contents never merge into another folder); an
-// import settings sidecar dropped beside its file follows the file's new name.
+// gives absolute paths read through the file system. Names that are taken (ignoring case, in the
+// project or on disk) or dropped twice get " (1)", " (2)"… (a dropped folder is renamed as a whole,
+// so its contents never merge into another folder); an import settings sidecar dropped beside its
+// file follows the file's new name. An import never writes over a file.
 import type { FileSystem } from "../engine/platform/FileSystem";
 import { isSidecarPath, sidecarAsset, sidecarPath } from "../engine/scene/importSettings";
 import { whyNotValidName } from "./assetOps";
@@ -31,39 +32,62 @@ export function whyNotImportable(project: EditorProject | null): string | null {
 }
 
 /**
- * Where each incoming file goes in `folder`: a map from its incoming path to a project path.
- * `isTaken` says whether a project path is a file or folder already. Top-level names that are taken
- * are numbered; so is a file's sidecar when its file is, and files inside a dropped folder follow the folder.
+ * Where each incoming file goes in `folder`: one project path per incoming file, in order. `isTaken`
+ * says whether a project path is a file or folder already, ignoring case (Windows and macOS folders
+ * can't hold two names that differ only in case). Top-level names that are taken are numbered; so is
+ * a file's sidecar when its file is, and files inside a dropped folder follow the folder. Dropped
+ * items with the same name (files from different folders, folders holding the same file) get names of
+ * their own, so no file of an import lands on another.
  */
-function planImport(isTaken: (path: string) => boolean, folder: string, incoming: readonly string[]): Map<string, string> {
-  const tops = new Set(incoming.map((p) => p.split("/")[0]));
-  const renamed = new Map<string, string>();
-  const claimed = new Set<string>();
-  const free = (name: string) => {
-    for (let n = 0; ; n++) {
-      const candidate = numberedName(name, n);
-      if (!isTaken(join(folder, candidate)) && !claimed.has(candidate)) return candidate;
-    }
-  };
-  // Assets and folders first, so their sidecars can follow.
-  for (const top of [...tops].sort()) {
-    if (isSidecarPath(top) && tops.has(sidecarAsset(top))) continue;
-    const name = free(top);
-    claimed.add(name);
-    renamed.set(top, name);
-  }
-  for (const top of tops) {
-    if (renamed.has(top)) continue;
-    const asset = renamed.get(sidecarAsset(top));
-    renamed.set(top, asset !== undefined ? sidecarPath(asset) : top);
-  }
-  const out = new Map<string, string>();
-  for (const p of incoming) {
+async function planImport(isTaken: (path: string) => Promise<boolean>, folder: string, incoming: readonly string[]): Promise<string[]> {
+  const fold = (s: string) => s.toLowerCase();
+  // Each top-level name's instances, each with the paths it holds (case-folded): a path an instance
+  // already holds goes to the next instance of that name, or starts one.
+  const instances = new Map<string, Set<string>[]>();
+  const placed = incoming.map((p) => {
     const slash = p.indexOf("/");
     const top = slash < 0 ? p : p.slice(0, slash);
-    out.set(p, join(folder, renamed.get(top)! + (slash < 0 ? "" : p.slice(slash))));
+    const list = instances.get(top) ?? [];
+    instances.set(top, list);
+    let index = list.findIndex((held) => !held.has(fold(p)));
+    if (index < 0) index = list.push(new Set()) - 1;
+    list[index]!.add(fold(p));
+    return { top, index, rest: slash < 0 ? "" : p.slice(slash) };
+  });
+  const claimed = new Set<string>();
+  const free = async (name: string) => !claimed.has(fold(name)) && !(await isTaken(join(folder, name)));
+  const claim = async (name: string, alsoFree: (candidate: string) => string | null = () => null) => {
+    for (let n = 0; ; n++) {
+      const candidate = numberedName(name, n);
+      const also = alsoFree(candidate);
+      if ((await free(candidate)) && (also === null || (await free(also)))) {
+        claimed.add(fold(candidate));
+        return candidate;
+      }
+    }
+  };
+  const renamed = new Map<string, string[]>();
+  // Assets and folders first (a name free for the asset and its dropped sidecar), so sidecars can follow.
+  for (const top of [...instances.keys()].sort()) {
+    if (isSidecarPath(top) && instances.has(sidecarAsset(top))) continue;
+    const sidecars = instances.get(sidecarPath(top))?.length ?? 0;
+    const names: string[] = [];
+    for (let i = 0; i < instances.get(top)!.length; i++) names.push(await claim(top, (c) => (i < sidecars ? sidecarPath(c) : null)));
+    renamed.set(top, names);
   }
-  return out;
+  for (const [top, list] of instances) {
+    if (renamed.has(top)) continue;
+    const assets = renamed.get(sidecarAsset(top))!;
+    const names: string[] = [];
+    // The i-th sidecar follows the i-th file of its name; any beyond those are numbered on their own.
+    for (let i = 0; i < list.length; i++) {
+      const name = i < assets.length ? sidecarPath(assets[i]!) : await claim(top);
+      claimed.add(fold(name));
+      names.push(name);
+    }
+    renamed.set(top, names);
+  }
+  return placed.map(({ top, index, rest }) => join(folder, renamed.get(top)![index]! + rest));
 }
 
 export interface ImportResult {
@@ -84,11 +108,14 @@ export async function importFiles(project: EditorProject, folder: string, incomi
     if (bad) result.failed.push({ path: f.path, error: bad });
     else valid.push(f);
   }
-  const taken = (p: string) => project.files.includes(p) || project.scripts.has(p) || project.folders.includes(p);
-  const plan = planImport(taken, folder, valid.map((f) => f.path));
+  // Taken ignoring case, in the project and on disk (a file added outside since the project was read).
+  const known = new Set([...project.files, ...project.scripts.keys(), ...project.folders].map((p) => p.toLowerCase()));
+  const fs = project.fileSystem, root = project.root;
+  const taken = async (p: string) => known.has(p.toLowerCase()) || (!!fs && !!root && (await fs.exists(joinPath(root, p)).catch(() => false)));
+  const plan = await planImport(taken, folder, valid.map((f) => f.path));
   let scripts = false;
-  for (const f of valid) {
-    const to = plan.get(f.path)!;
+  for (const [i, f] of valid.entries()) {
+    const to = plan[i]!;
     try {
       await ensureFolders(project, to.includes("/") ? to.slice(0, to.lastIndexOf("/")) : "");
       const bytes = await f.read();

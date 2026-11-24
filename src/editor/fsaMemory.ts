@@ -37,35 +37,43 @@ class MemoryFileHandle implements FsaFileHandle {
 
 export class MemoryDirectoryHandle implements FsaDirectoryHandle {
   readonly kind = "directory";
+  /** The entries by name (by lower-case name in a case-insensitive folder); each keeps its name as written. */
   readonly entries = new Map<string, MemoryDirectoryHandle | MemoryFileHandle>();
   permission: PermissionState = "granted";
   /** What `requestPermission` answers (the user's choice). */
   grant: PermissionState = "granted";
-  constructor(readonly name: string) {}
+  /** `caseInsensitive`: names that differ only in case are one entry, as on Windows and macOS (subfolders too). */
+  constructor(
+    readonly name: string,
+    readonly caseInsensitive = false,
+  ) {}
+  private key(name: string): string {
+    return this.caseInsensitive ? name.toLowerCase() : name;
+  }
 
   async getDirectoryHandle(name: string, options?: { create?: boolean }) {
-    const e = this.entries.get(name);
+    const e = this.entries.get(this.key(name));
     if (e instanceof MemoryDirectoryHandle) return e;
     if (e) throw mismatch(name);
     if (!options?.create) throw notFound(name);
-    const dir = new MemoryDirectoryHandle(name);
-    this.entries.set(name, dir);
+    const dir = new MemoryDirectoryHandle(name, this.caseInsensitive);
+    this.entries.set(this.key(name), dir);
     return dir;
   }
   async getFileHandle(name: string, options?: { create?: boolean }) {
-    const e = this.entries.get(name);
+    const e = this.entries.get(this.key(name));
     if (e instanceof MemoryFileHandle) return e;
     if (e) throw mismatch(name);
     if (!options?.create) throw notFound(name);
     const file = new MemoryFileHandle(name);
-    this.entries.set(name, file);
+    this.entries.set(this.key(name), file);
     return file;
   }
   async removeEntry(name: string, options?: { recursive?: boolean }) {
-    const e = this.entries.get(name);
+    const e = this.entries.get(this.key(name));
     if (!e) throw notFound(name);
     if (e instanceof MemoryDirectoryHandle && e.entries.size > 0 && !options?.recursive) throw Object.assign(new Error(`${name} isn't empty`), { name: "InvalidModificationError" });
-    this.entries.delete(name);
+    this.entries.delete(this.key(name));
   }
   async *values() {
     yield* [...this.entries.values()];
@@ -86,11 +94,11 @@ export class MemoryDirectoryHandle implements FsaDirectoryHandle {
     const parts = path.split("/");
     let dir: MemoryDirectoryHandle = this;
     for (const part of parts.slice(0, -1)) {
-      const next = dir.entries.get(part);
+      const next = dir.entries.get(dir.key(part));
       if (!(next instanceof MemoryDirectoryHandle)) return undefined;
       dir = next;
     }
-    const file = dir.entries.get(parts.at(-1)!);
+    const file = dir.entries.get(dir.key(parts.at(-1)!));
     return file instanceof MemoryFileHandle ? file.text : undefined;
   }
 
@@ -99,13 +107,13 @@ export class MemoryDirectoryHandle implements FsaDirectoryHandle {
     const parts = path.split("/");
     let dir: MemoryDirectoryHandle = this;
     for (const part of parts.slice(0, -1)) {
-      let next = dir.entries.get(part);
-      if (!(next instanceof MemoryDirectoryHandle)) dir.entries.set(part, (next = new MemoryDirectoryHandle(part)));
+      let next = dir.entries.get(dir.key(part));
+      if (!(next instanceof MemoryDirectoryHandle)) dir.entries.set(dir.key(part), (next = new MemoryDirectoryHandle(part, this.caseInsensitive)));
       dir = next;
     }
     const file = new MemoryFileHandle(parts.at(-1)!);
     file.data = new TextEncoder().encode(text);
-    dir.entries.set(file.name, file);
+    dir.entries.set(dir.key(file.name), file);
     return this;
   }
 }
