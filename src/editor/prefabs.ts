@@ -281,7 +281,7 @@ export interface CreatedPrefab {
   readonly path: string;
   /** References from inside the new prefab to scene nodes outside it, kept as overrides on the instance (ADR 0396). */
   readonly instanceOverrides: number;
-  /** List items naming nodes inside the prefab that those overrides had to leave out (a list mixing inside and outside references). */
+  /** List items naming nodes inside the prefab that those overrides had to clear (a list mixing inside and outside references). */
   readonly droppedListItems: number;
 }
 
@@ -294,7 +294,7 @@ export interface CreatedPrefab {
  * empty target); `kept` is an inside id that still names the same node in the scene afterwards
  * (the instance keeps the root's id), so a list may hold it beside outside references. A list that
  * holds outside references beside other inside ones keeps the inside ones in the file, but the
- * override (read in the scene, where those inside nodes no longer are) drops them; `dropped`
+ * override (read in the scene, where those inside nodes no longer are) clears them to null; `dropped`
  * counts those list items.
  */
 function outsideReferences(doc: SceneDocument, inside: ReadonlySet<string>, copies: NodeEntry[], root: string, kept: string | null): { nodes: NodeEntry[]; overrides: OverrideEntry[]; dropped: number } {
@@ -311,12 +311,12 @@ function outsideReferences(doc: SceneDocument, inside: ReadonlySet<string>, copi
     if (refs.every((r) => inside.has(r.to))) continue;
     const r = refs[0];
     let value = structuredClone(r.value);
-    // Owner decision (ADR 0396): a list mixing outside references with inside ones keeps only the outside ones (and
-    // the kept root) in the instance's override; the prefab file still holds the inside ones.
+    // Owner decision (ADR 0396): in a list mixing outside references with inside ones, the instance's override clears
+    // the inside items (null, as a cleared reference); the prefab file still holds them.
     if (Array.isArray(value) && value.some((item) => lost(nodeRefId(item)))) {
-      const kept: unknown[] = value.filter((item) => !lost(nodeRefId(item)));
-      dropped += value.length - kept.length;
-      value = kept;
+      const cleared: unknown[] = value.map((item) => (lost(nodeRefId(item)) ? null : item));
+      dropped += value.filter((item) => lost(nodeRefId(item))).length;
+      value = cleared;
     }
     const target = r.path[0] === root ? r.path.slice(1) : [...r.path];
     overrides.push({ ...(target.length ? { target } : {}), component: r.type, index: r.index, field: r.field, value });

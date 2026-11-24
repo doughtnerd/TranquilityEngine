@@ -266,7 +266,7 @@ describe("Create Prefab with references out of the new prefab (ADR 0396)", () =>
     expect(dataAt(`${instance.id}/bg-a`)).toEqual(before);
   });
 
-  it("keeps a list mixing references into the prefab with ones out of it in the file, and only the outside ones (and the root) in the override", async () => {
+  it("keeps a list mixing references into the prefab with ones out of it in the file, and clears the inside ones in the override", async () => {
     const scene = openScene.value!;
     scene.stack.execute(new SetField("bird-sprite", "engine.SpriteRenderer", "follow", [{ $node: "bird-sprite" }, { $node: "score" }, { $node: "bird" }]));
     const made = await createPrefab(scene, project, "bird");
@@ -274,7 +274,7 @@ describe("Create Prefab with references out of the new prefab (ADR 0396)", () =>
     const file = fileOf(made.path).nodes.find((n) => n.id === "bird-sprite")!;
     expect(file.components!.find((c) => c.type === "engine.SpriteRenderer")!.data!.follow).toEqual([{ $node: "bird-sprite" }, null, { $node: "bird" }]);
     const override = scene.doc.node("bird").overrides!.find((o) => o.field === "follow")!;
-    expect(override.value).toEqual([{ $node: "score" }, { $node: "bird" }]);
+    expect(override.value).toEqual([null, { $node: "score" }, { $node: "bird" }]);
   });
 });
 

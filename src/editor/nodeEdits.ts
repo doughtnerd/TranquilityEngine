@@ -229,7 +229,7 @@ export async function createPrefabFrom(scene: OpenScene, project: EditorProject 
     const kept =
       n === 0 ? "" : ` ${n} reference${n === 1 ? "" : "s"} to nodes outside the prefab became instance override${n === 1 ? "" : "s"}; the prefab file leaves ${n === 1 ? "it" : "them"} empty.`;
     const left =
-      d === 0 ? "" : ` ${d} list item${d === 1 ? "" : "s"} naming nodes inside the prefab ${d === 1 ? "was" : "were"} left out of ${d === 1 ? "its" : "their"} override (the prefab file keeps ${d === 1 ? "it" : "them"}).`;
+      d === 0 ? "" : ` ${d} list item${d === 1 ? "" : "s"} naming nodes inside the prefab ${d === 1 ? "was" : "were"} cleared in the instance's override${d === 1 ? "" : "s"} (the prefab file keeps ${d === 1 ? "it" : "them"}).`;
     status.value = { kind: "info", text: `Created ${path}.${kept}${left} Undo turns the node${ids.length === 1 ? "" : "s"} back; the file stays on disk.` };
     return path;
   } catch (err) {
