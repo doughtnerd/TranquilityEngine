@@ -173,7 +173,7 @@ describe("LiveFollow over Rc4's LiveHost", () => {
     expect(Audio.capture.state).toBe("stopped");
     r.follow.stop();
     expect(captureDebug()).toMatchObject({ state: "held", owners: 0 });
-    await expect(Audio.capture.save("after-panel")).resolves.toBe("after-panel.mycap");
+    await expect(Audio.capture.save("after-panel")).resolves.toBe("after-panel.sporesample");
   });
 });
 

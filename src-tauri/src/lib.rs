@@ -225,7 +225,7 @@ pub fn run() {
                 // the dropped file, so its folder (not below it) is allowed too; persisted-scope keeps it.
                 ("projects", WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. })) => {
                     for path in paths {
-                        let is_take = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mycotake"));
+                        let is_take = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("sporesample"));
                         if let (true, Some(folder)) = (is_take && path.is_file(), path.parent()) {
                             let _ = window.app_handle().fs_scope().allow_directory(folder, false);
                         }

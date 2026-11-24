@@ -1,4 +1,4 @@
-// The take controls of the graph editor's debugger (ADR 0348, 0373; T73): open a recorded take from the project's `takes/`
+// The take controls of the graph editor's debugger (ADR 0348, 0373; T73): open a recorded take from the project's `recordings/`
 // folder to debug this graph against it, and, while one is open, say what changed in the project since it was recorded.
 // `TakePicker` is the menu (files, Open, Close, why a file wouldn't open); `TakeNotes` lists what the take or the project
 // differs by. Both are views of their props; `TakeBar` (`takeControl.ts` state) wires them.
@@ -17,9 +17,9 @@ export interface TakePickerProps {
   onClose(): void;
 }
 
-/** A take path as a short label (`takes/run_01.mycotake` -> `run_01`). */
+/** A take path as a short label (`recordings/run_01.sporesample` -> `run_01`). */
 export function takeLabel(path: string): string {
-  return path.replace(/^.*\//, "").replace(/\.mycotake$/i, "");
+  return path.replace(/^.*\//, "").replace(/\.sporesample$/i, "");
 }
 
 export function TakePicker(props: TakePickerProps) {

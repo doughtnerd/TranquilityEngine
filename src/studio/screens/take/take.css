@@ -93,7 +93,12 @@
 /* Picture */
 .tk-picture { height: 40px; background: var(--bg-sunken); }
 .tk-picture-now { margin: 0 0 8px; }
+.tk-picture-open { display: block; width: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.tk-picture-open:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 .tk-picture-now img { display: block; width: 100%; height: auto; border-radius: 3px; border: 1px solid var(--border); background: var(--bg-sunken); }
+.tk-picture-big { position: fixed; inset: 0; z-index: 1000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 24px; background: var(--backdrop); cursor: zoom-out; }
+.tk-picture-big img { max-width: 100%; max-height: calc(100% - 40px); width: auto; height: auto; object-fit: contain; border: 1px solid var(--border); border-radius: 4px; background: var(--bg-sunken); image-rendering: auto; }
+.tk-picture-big-bar { display: flex; align-items: center; gap: 12px; color: var(--text); font-size: calc(12px * var(--ui-scale)); cursor: default; }
 .tk-picture-now figcaption { margin-top: 2px; color: var(--muted); font-size: calc(10px * var(--ui-scale)); }
 
 /* Labelled parameters: accent2-soft segments */
@@ -190,3 +195,13 @@
   .tk-swatch { width: 32px; height: 32px; }
   .studio .tk-swatch { min-height: 0; }
 }
+
+/* ADR 0408: the Inspector's take at the playhead. */
+.tk-playing { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; width: 100%; }
+.tk-playing-row { display: flex; flex-direction: column; align-items: flex-start; width: 100%; padding: 3px 6px; border: 1px solid transparent; border-radius: 3px; background: var(--bg-sunken); color: var(--text); text-align: left; font: inherit; cursor: pointer; }
+.tk-playing-row:hover { border-color: var(--border); background: var(--hover); }
+.tk-playing-row:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.tk-playing-name { font-weight: 600; }
+.tk-playing-sub { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.tk-link { padding: 0; border: 0; background: none; color: var(--accent); font: inherit; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.tk-link:hover { text-decoration: underline; }

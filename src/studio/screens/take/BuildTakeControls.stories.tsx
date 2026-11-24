@@ -47,7 +47,7 @@ export const Stopped: StoryObj = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByRole("status")).toHaveTextContent("42.5 s");
-    await userEvent.click(c.getByRole("button", { name: "Save into takes/" }));
+    await userEvent.click(c.getByRole("button", { name: "Save into recordings/" }));
     await expect(handlers.onSave).toHaveBeenCalled();
   },
 };
@@ -55,7 +55,7 @@ export const Stopped: StoryObj = {
 export const SaveBlocked: StoryObj = {
   render: () => view({ kind: "stopped", seconds: 12 }, { whyNotSave: "Flappy is read-only; open a project folder to import files" }),
   play: async ({ canvasElement }) => {
-    await expect(within(canvasElement).getByRole("button", { name: "Save into takes/" })).toBeDisabled();
+    await expect(within(canvasElement).getByRole("button", { name: "Save into recordings/" })).toBeDisabled();
   },
 };
 
@@ -69,7 +69,7 @@ export const Uploading: StoryObj = {
 };
 
 export const Saved: StoryObj = {
-  render: () => view({ kind: "saved", path: "takes/canyon-run_2026-11-22_10-15-00.mycotake" }),
+  render: () => view({ kind: "saved", path: "recordings/canyon-run_2026-11-22_10-15-00.sporesample" }),
 };
 
 export const Failed: StoryObj = {
@@ -77,7 +77,7 @@ export const Failed: StoryObj = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByRole("alert")).toHaveTextContent("the upload ended");
-    await expect(c.getByRole("button", { name: "Save into takes/" })).toBeEnabled();
+    await expect(c.getByRole("button", { name: "Save into recordings/" })).toBeEnabled();
     await userEvent.click(c.getByRole("button", { name: "Dismiss" }));
     await expect(handlers.onDismiss).toHaveBeenCalled();
   },

@@ -1,6 +1,6 @@
 // ADR 0171/0172 (Rc1, leaf L-Rc1c; api-and-models §5.3, §5.4, §6.2): golden byte vectors per record type, in
 // `capture/__fixtures__/records.json` (head and payload hex, hand-assembled from the spec table, and the decoded fields).
-// Each vector decodes to its fields and encodes back to its bytes; the whole-file vector (`__fixtures__/sample.mycap`,
+// Each vector decodes to its fields and encodes back to its bytes; the whole-file vector (`__fixtures__/sample.sporesample`,
 // stored, with INDEX) opens, every record round-trips, and `assembleCapture` rebuilds it byte-equal.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -243,7 +243,7 @@ describe("capture record vectors (L-Rc1c)", () => {
   });
 
   it("L-Rc1c: the whole-file vector opens, every record round-trips, and assembleCapture rebuilds it byte-equal", async () => {
-    const file = new Uint8Array(readFileSync(new URL("./__fixtures__/sample.mycap", import.meta.url)));
+    const file = new Uint8Array(readFileSync(new URL("./__fixtures__/sample.sporesample", import.meta.url)));
     // The fixture's header carries the wire SCHEMA_HASH and the ABI version it was assembled under; a schema or ABI
     // change elsewhere must not break this vector, so the current hash and ABI are stamped over them (header bytes
     // 12..28 and 28..32, §5.1) before anything reads it.

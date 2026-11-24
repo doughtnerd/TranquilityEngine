@@ -22,4 +22,4 @@
 .bs-badge.recording { background: var(--accent2-soft); color: var(--accent2); }
 .ap-hero > .ap-more { align-self: center; }
 .bs-take-menu .kit-menu-group { max-width: 420px; font-family: var(--font-code); text-transform: none; letter-spacing: 0; white-space: normal; overflow-wrap: anywhere; user-select: text; color: var(--text); }
-.launcher.bs-dropping::after { content: "Drop .mycotake files to add them to Recorded takes"; position: fixed; inset: 8px; display: flex; align-items: center; justify-content: center; border: 2px dashed var(--accent2); border-radius: 8px; background: var(--playing-bar); color: var(--text); font-weight: 600; pointer-events: none; z-index: 50; }
+.launcher.bs-dropping::after { content: "Drop .sporesample files to add them to Recorded takes"; position: fixed; inset: 8px; display: flex; align-items: center; justify-content: center; border: 2px dashed var(--accent2); border-radius: 8px; background: var(--playing-bar); color: var(--text); font-weight: 600; pointer-events: none; z-index: 50; }

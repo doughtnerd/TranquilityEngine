@@ -188,12 +188,12 @@ describe("META (§5.2)", () => {
   });
   it("ADR 0348: a replay capture's replayOf round-trips; absent or malformed it reads as null, never a refusal", () => {
     expect(decodeCaptureMeta(encodeCaptureMeta(SAMPLE_META)).replayOf).toBeNull();
-    const replayOf = { path: "takes/canyon_run_01.mycotake", audioHash: "5f3a90c1" };
+    const replayOf = { path: "takes/canyon_run_01.sporesample", audioHash: "5f3a90c1" };
     expect(decodeCaptureMeta(encodeCaptureMeta({ ...SAMPLE_META, replayOf })).replayOf).toEqual(replayOf);
     const base = { project: {}, device: { preset: 1, sampleRate: 48000 }, names: {} };
     const read = (v: unknown) => decodeCaptureMeta(new TextEncoder().encode(JSON.stringify({ ...base, replayOf: v }))).replayOf;
     expect(read({ path: 3, audioHash: "x" })).toBeNull();
-    expect(read("takes/a.mycotake")).toBeNull();
+    expect(read("takes/a.sporesample")).toBeNull();
     expect(read({ path: "a".repeat(2000), audioHash: "h" })!.path).toHaveLength(1024);
   });
   it("refuses what isn't the shape", () => {

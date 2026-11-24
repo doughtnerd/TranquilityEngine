@@ -1,6 +1,6 @@
 // The Take screen's "Record from a build" controls (ADR 0348, ADR 0403, plan U5): shown above the Takes list while a
 // build is connected. Start records a take on the build; while it records, a marker text and Mark, and Stop; once
-// stopped, Save uploads the take into the project's takes/ folder (a takes folder workspace's own folder, shown with
+// stopped, Save uploads the take into the project's recordings/ folder (a takes folder workspace's own folder, shown with
 // Change…, ADR 0408), with the chunks received as it comes. A failure says
 // why (with Save again when the build still holds the take). A view over props (`recordFromBuild.ts` is the flow).
 import { useState } from "preact/hooks";
@@ -13,7 +13,7 @@ export interface BuildTakeControlsProps {
   readonly state: BuildTakeState;
   /** Writing into the project is possible (a writable project is open); Save says why not otherwise. */
   readonly whyNotSave: string | null;
-  /** Where Save writes the take, as shown (default "takes/", the project's folder; a takes folder's path, ADR 0408). */
+  /** Where Save writes the take, as shown (default "recordings/", the project's folder; a takes folder's path, ADR 0408). */
   readonly into?: string;
   /** Change… the folder takes save to (offered only for a takes folder, ADR 0408). */
   onChangeFolder?(): void;
@@ -27,12 +27,12 @@ export interface BuildTakeControlsProps {
 export function BuildTakeControls(props: BuildTakeControlsProps) {
   const [text, setText] = useState("");
   const s = props.state;
-  const into = props.into ?? "takes/";
+  const into = props.into ?? "recordings/";
   const status = buildTakeStatus(s, props.build, into);
   const canSave = s.kind === "stopped" || s.kind === "recording" || (s.kind === "failed" && s.canSave);
   const saveButton = (
     <button type="button" class="tk-btn bt-primary" disabled={props.whyNotSave !== null} title={props.whyNotSave ?? `Upload the take from ${props.build} into ${into}`} onClick={() => props.onSave()}>
-      {props.into ? "Save take" : "Save into takes/"}
+      {props.into ? "Save take" : "Save into recordings/"}
     </button>
   );
   let actions;

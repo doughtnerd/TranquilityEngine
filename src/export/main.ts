@@ -40,9 +40,9 @@ Options:
                    localised files and its part of each audio package
   --pseudo         Add the pseudo-languages (qps-ploc, qps-plocm), for testing text expansion and right-to-left
   --audio-capture  Ship the audio capture trigger: F9 (or a one-second three-finger hold) records the game's audio mix and
-                   saves a .mycap file for the editor's Profiler. The file names the project's clips, buses and events.
+                   saves a .sporesample file for the editor's Profiler. The file names the project's clips, buses and events.
   --audio-take     Ship the audio take trigger: F10 records a take (what the game asked of audio, and the profile) and
-                   saves a .mycotake file for the Studio. The file names the project's playlists, parameters and nodes.
+                   saves a .sporesample file for the Studio. The file names the project's playlists, parameters and nodes.
   --no-take-pictures
                    With --audio-take: takes record no pictures of the game view (by default a small JPEG about
                    once a second, which the Studio shows beside the take)

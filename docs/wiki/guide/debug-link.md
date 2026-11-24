@@ -81,7 +81,7 @@ directly between them over WebRTC.
 
 With a build connected and chosen in the builds menu:
 
-- **Take:** **Start take**, type a marker text and **Mark**, **Stop**, then **Save into takes/**. The take uploads
+- **Take:** **Start take**, type a marker text and **Mark**, **Stop**, then **Save into recordings/**. The take uploads
   ("Chunks received") and opens; it is named after the build and the time.
 - **Profiler:** **Follow build** shows the build's live capture on the timeline. If nothing arrives for 3 seconds the
   status says the build's Play may have stopped.
@@ -155,7 +155,7 @@ headless walker for these steps is `src/plugins/audio/editor/debugLink/op1.walk.
    `<app>.exe --debug-link ws://<laptop-address>:7790/myco-debug`. The Studio asks whether to accept it; accept. Then
    launch it again with `--debug-code` and a code the Studio shows (if it shows one) to check it arrives without asking.
 7. **Record a take.** In the Studio's Take screen: **Start take**, play for about 10 seconds, type `OP1` and **Mark**,
-   **Stop**, **Save into takes/**. The progress fills and the take opens with the mark `OP1`. For a byte check, save the
+   **Stop**, **Save into recordings/**. The progress fills and the take opens with the mark `OP1`. For a byte check, save the
    same take on the desktop too (F10 if the export has `audioTake` on) and compare the two files (`fc /b`).
 8. **Move a bus.** In the Studio's Mixer, drag the Music fader. The desktop game's music level follows within a frame
    or two. Move it back.
@@ -184,7 +184,7 @@ You need two machines on one Wi-Fi (a third tab works for the tool). The headles
 6. **Wrong code.** Disconnect, press F8 on B for the new code, and type it with one character changed: the dialog
    shows a red line and stays open. Type the right code: it pairs.
 7. **Take (browser Studio).** In the Studio's Take screen: **Start take**, play a few seconds on B, **Stop**, **Save
-   into takes/**. The take opens.
+   into recordings/**. The take opens.
 
 Record pass or what you saw for each step. Steps 4 and 7 are the milestone's pass/fail.
 

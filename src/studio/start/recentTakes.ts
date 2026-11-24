@@ -1,5 +1,5 @@
-// The Audio Studio's start screen lists recorded takes (`*.mycotake`, ADR 0348) found in the user's recent folder
-// projects, newest first. This is the data: a walk of each project's `takes/` folder, a header read of each file.
+// The Audio Studio's start screen lists recorded takes (`*.sporesample`, ADR 0348) found in the user's recent folder
+// projects, newest first. This is the data: a walk of each project's `recordings/` folder, a header read of each file.
 import type { FileSystem } from "../../engine/platform/FileSystem";
 import type { RecentProject } from "../../editor/recentProjects";
 import { joinPath } from "../../editor/projectPaths";
@@ -9,7 +9,7 @@ import { splitPath } from "../takesFolder";
 
 /** What every listed take has: its name, length and date, and its file's absolute path. */
 interface TakeEntry {
-  /** File name without the .mycotake suffix, e.g. "canyon_run_01". */
+  /** File name without the .sporesample suffix, e.g. "canyon_run_01". */
   readonly name: string;
   /** The file's absolute path (as the file system names it). */
   readonly file: string;
@@ -19,10 +19,10 @@ interface TakeEntry {
   readonly recordedMs: number | null;
 }
 
-/** A take in a recent project's `takes/` folder (badge "Project"): it opens in its project. */
+/** A take in a recent project's `recordings/` folder (badge "Project"): it opens in its project. */
 export interface ProjectTake extends TakeEntry {
   readonly kind: "project";
-  /** Project-relative path, e.g. "takes/HoverBike/canyon_run_01.mycotake". */
+  /** Project-relative path, e.g. "recordings/HoverBike/canyon_run_01.sporesample". */
   readonly path: string;
   /** The recent project it is in. */
   readonly project: RecentProject;
@@ -53,7 +53,7 @@ export interface TakeReader {
   (bytes: Uint8Array): Promise<{ seconds: number | null; recordedMs: number | null }>;
 }
 
-const TAKES_FOLDER = "takes";
+const TAKES_FOLDER = "recordings";
 const MAX_DEPTH = 8;
 
 /** Take files under `dir` (project-relative), recursively. A folder that can't be listed is skipped. */
@@ -75,7 +75,7 @@ async function walk(fs: FileSystem, root: string, dir: string, depth: number, ou
 }
 
 /**
- * Lists takes under each folder project's `takes/` folder (recursively; `*.notes.json` and other files skipped), reads
+ * Lists takes under each folder project's `recordings/` folder (recursively; `*.notes.json` and other files skipped), reads
  * each with `read`, sorts newest first (unknown dates last, then by name). Only desktop path entries are listed; a
  * project whose folder is missing or unreadable is skipped, a take that fails to read keeps seconds/recordedMs null.
  * `limit` caps the number of takes read.

@@ -117,9 +117,9 @@ describe("the take source", () => {
     const { file } = await record(node, anim, 90);
     const take = await readTake(file);
     if ("refused" in take) throw new Error(take.refused);
-    const source = createTakeSource(take, { animator: () => anim, redraw: () => {} }, "run_01.mycotake");
-    expect(takeLabel("takes/run_01.mycotake")).toBe("run_01");
-    expect(source.name).toBe("Take run_01.mycotake");
+    const source = createTakeSource(take, { animator: () => anim, redraw: () => {} }, "run_01.sporesample");
+    expect(takeLabel("takes/run_01.sporesample")).toBe("run_01");
+    expect(source.name).toBe("Take run_01.sporesample");
     expect(source.live && source.paused && source.readOnly).toBe(true);
     const targets = source.targets("hero.animgraph.json");
     expect(targets.map((t) => t.label)).toEqual(["Hero"]);
@@ -155,7 +155,7 @@ describe("the take source", () => {
     const take = await readTake(file);
     if ("refused" in take) throw new Error(take.refused);
     const redraw = vi.fn();
-    const source = createTakeSource(take, { animator: () => anim, redraw }, "t.mycotake");
+    const source = createTakeSource(take, { animator: () => anim, redraw }, "t.sporesample");
     const rec = source.recording(source.targets()[0]!.id)!;
     const live = skinningMatrices(world, node)!.slice();
     for (const i of [0, 29, 30, 45, 89, 10]) {
@@ -180,7 +180,7 @@ describe("the take source", () => {
     if ("refused" in take) throw new Error(take.refused);
     const other = await character("Retuned", "retuned.animgraph.json"); // same names, another threshold
     const session: TakeSession = { animator: () => other.anim, redraw: () => {} };
-    const source = createTakeSource(take, session, "t.mycotake");
+    const source = createTakeSource(take, session, "t.sporesample");
     const id = source.targets()[0]!.id;
     expect(source.compat(id).poses).toBe(false);
     expect(source.notes?.(id)?.[0]).toContain("logic changed");
@@ -191,7 +191,7 @@ describe("the take source", () => {
     // The recorded graph states still show.
     expect(overlayModel(parseAnimGraph(GRAPH).value, source.targets()[0]!.tables, rec.frames[10]!.report).machines.get("machine")?.current).toBe("Idle");
     // No Animator running the graph: the notes say to play and pause; nothing shows.
-    const idle = createTakeSource(take, { animator: () => null, redraw: () => {} }, "t.mycotake");
+    const idle = createTakeSource(take, { animator: () => null, redraw: () => {} }, "t.sporesample");
     expect(idle.notes?.(id)?.[0]).toContain("play the scene and pause it");
     expect(idle.recording(id)!.show(rec.frames[10]!.index)).toBe(false);
     idle.dispose();

@@ -17,8 +17,8 @@ interface StudioFile {
 /**
  * The files the Studio opens, first match wins (so a compound suffix comes before a plain one). Audio files and
  * `*.sample.json` (0342) open on Samples; `*.playlist.json` (0343) and the legacy `*.audioevent.json` it replaces on
- * Playlists; `audio.json` (0344) on the Mixer; `*.audioscene.json` (0347) on Spatial; takes (`*.mycotake`) on Take and
- * captures (`*.mycap`) on the Profiler (0348).
+ * Playlists; `audio.json` (0344) on the Mixer; `*.audioscene.json` (0347) on Spatial; recordings (`*.sporesample`,
+ * 0348, 0409) on Take, which offers the Profiler for one without take data.
  */
 const STUDIO_FILES: readonly StudioFile[] = [
   { suffix: ".sample.json", screen: "samples" },
@@ -26,8 +26,8 @@ const STUDIO_FILES: readonly StudioFile[] = [
   { suffix: ".audioevent.json", screen: "playlists" },
   { suffix: ".audioscene.json", screen: "spatial" },
   { path: "audio.json", screen: "mixer" },
-  { suffix: ".mycotake", screen: "take" },
-  { suffix: ".mycap", screen: "profiler" },
+  // ADR 0409: one recording type; the Take screen opens it, and one without take data offers the Profiler.
+  { suffix: ".sporesample", screen: "take" },
   ...[".mp3", ".ogg", ".wav", ".flac", ".m4a"].map((suffix) => ({ suffix, screen: "samples" as const })),
 ];
 

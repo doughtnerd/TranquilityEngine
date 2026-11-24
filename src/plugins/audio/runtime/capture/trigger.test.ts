@@ -77,7 +77,7 @@ function fakeCapture() {
     state: "idle" as "idle" | "loading" | "recording" | "stopped",
     startError: null as Error | null,
     saveError: null as Error | null,
-    saved: "capture-20261113-101500.mycap",
+    saved: "capture-20261113-101500.sporesample",
     async start() {
       calls.push("start");
       if (cap.startError) throw cap.startError;
@@ -120,7 +120,7 @@ describe("F9", () => {
     expect(r.toasts).toEqual([TOAST_RECORDING]);
     await r.press();
     await vi.waitFor(() => expect(r.calls).toEqual(["start", "stop", "save"]));
-    expect(r.toasts).toEqual([TOAST_RECORDING, toastSaved("capture-20261113-101500.mycap")]);
+    expect(r.toasts).toEqual([TOAST_RECORDING, toastSaved("capture-20261113-101500.sporesample")]);
     expect(r.cap.state).toBe("stopped");
     await r.press(); // a stopped take: F9 begins the next one
     await vi.waitFor(() => expect(r.calls).toEqual(["start", "stop", "save", "start"]));
@@ -212,7 +212,7 @@ describe("F10: the take trigger (ADR 0348)", () => {
     cap.state = "stopped"; // the take reached its cap and stopped recording
     await press();
     await vi.waitFor(() => expect(calls).toEqual(["start", "save"]));
-    expect(toasts.at(-1)).toBe(toastSaved("capture-20261113-101500.mycap"));
+    expect(toasts.at(-1)).toBe(toastSaved("capture-20261113-101500.sporesample"));
     await press(); // saved: the next F10 begins a new take
     await vi.waitFor(() => expect(calls).toEqual(["start", "save", "start"]));
     uninstall();
@@ -321,7 +321,7 @@ describe("the three-finger hold", () => {
     r.target.fire("touchstart", touches(3));
     r.clock.run();
     await vi.waitFor(() => expect(r.calls).toEqual(["start", "stop", "save"]));
-    expect(r.toasts.at(-1)).toBe(toastSaved("capture-20261113-101500.mycap"));
+    expect(r.toasts.at(-1)).toBe(toastSaved("capture-20261113-101500.sporesample"));
   });
 
   it("a two-finger hold does nothing, however long", () => {
@@ -386,9 +386,9 @@ describe("the web's cap of 16", () => {
 
   it("the toast shows a Tauri path as the capture's own file name", async () => {
     for (const [saved, shown] of [
-      ["capture-20261113-101500.mycap", "capture-20261113-101500.mycap"],
-      ["/data/app/captures/capture-20261113-101500.mycap", "capture-20261113-101500.mycap"],
-      ["C:\\Users\\a\\AppData\\captures\\capture-20261113-101500-2.mycap", "capture-20261113-101500-2.mycap"],
+      ["capture-20261113-101500.sporesample", "capture-20261113-101500.sporesample"],
+      ["/data/app/captures/capture-20261113-101500.sporesample", "capture-20261113-101500.sporesample"],
+      ["C:\\Users\\a\\AppData\\captures\\capture-20261113-101500-2.sporesample", "capture-20261113-101500-2.sporesample"],
     ]) {
       const r = rigFake({ tauri: true });
       r.cap.saved = saved;
@@ -506,8 +506,8 @@ describe("against the real Audio.capture", () => {
     expect(r.recorders.length).toBe(1);
     r.feed(Math.ceil(RATE / BLOCK));
     target.fire("keydown", key("F9"));
-    await vi.waitFor(() => expect(r.downloads).toEqual(["capture-20261113-101500.mycap"]));
-    await vi.waitFor(() => expect(toasts).toEqual([TOAST_RECORDING, "Saved capture-20261113-101500.mycap"]));
+    await vi.waitFor(() => expect(r.downloads).toEqual(["capture-20261113-101500.sporesample"]));
+    await vi.waitFor(() => expect(toasts).toEqual([TOAST_RECORDING, "Saved capture-20261113-101500.sporesample"]));
     off();
   });
 
@@ -537,7 +537,7 @@ describe("against the real Audio.capture", () => {
   });
 
   it("on Tauri a save keeps the newest 16 auto-named files, through Rc4's rotateCaptures", async () => {
-    const old = Array.from({ length: 17 }, (_, i) => `capture-20261101-1000${String(i).padStart(2, "0")}.mycap`);
+    const old = Array.from({ length: 17 }, (_, i) => `capture-20261101-1000${String(i).padStart(2, "0")}.sporesample`);
     const r = realRig({ tauri: true, existing: old });
     const target = fakeTarget();
     const toasts: string[] = [];
@@ -546,7 +546,7 @@ describe("against the real Audio.capture", () => {
     await vi.waitFor(() => expect(Audio.capture.state).toBe("recording"));
     r.feed(4);
     target.fire("keydown", key("F9"));
-    await vi.waitFor(() => expect(toasts.at(-1)).toMatch(/^Saved capture-20261113-101500(-\d+)?\.mycap$/)); // -n after an earlier auto name in this second
+    await vi.waitFor(() => expect(toasts.at(-1)).toMatch(/^Saved capture-20261113-101500(-\d+)?\.sporesample$/)); // -n after an earlier auto name in this second
     expect(r.stored.size).toBe(CAPTURE_TRIGGER_MAX_FILES);
     expect(r.deleted, "the two oldest, oldest first").toEqual([old[0], old[1]]);
     expect(r.stored.has(toasts.at(-1)!.slice("Saved ".length))).toBe(true);

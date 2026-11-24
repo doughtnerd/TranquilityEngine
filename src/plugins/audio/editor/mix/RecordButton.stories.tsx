@@ -1,6 +1,6 @@
 // Stories (ADR 0219) for the Play toolbar's record toggles (ADR 0348): idle outside Play (disabled), idle while playing,
 // recording, saved and failed, each through a real `RecordToggle` over stub seams. The play presses the toggle and
-// checks it records, then saves into `takes/`.
+// checks it records, then saves into `recordings/`.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 import { RecordButton } from "./RecordButton";
@@ -19,7 +19,7 @@ function model(kind: RecordKind, opts: { fail?: boolean } = {}): RecordToggle {
       stop: () => void (state = "stopped"),
     },
     bytes: async () => new Uint8Array(8),
-    files: () => ["takes/take_01.mycotake"],
+    files: () => ["recordings/take_01.sporesample"],
     write: async (path) => path,
   });
 }
@@ -50,7 +50,7 @@ export const RecordAndSave: Story = {
     await userEvent.click(b);
     await waitFor(() => expect(b).toHaveAttribute("aria-pressed", "true"));
     await userEvent.click(b);
-    await waitFor(() => expect(b.title).toMatch(/Saved takes\/take_02\.mycotake/));
+    await waitFor(() => expect(b.title).toMatch(/Saved takes\/take_02\.sporesample/));
   },
 };
 

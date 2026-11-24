@@ -1,5 +1,5 @@
 // ADR 0348: `Audio.take`, one recording of a game run for the audio designer: what the game asked of audio (the request
-// records) and the engine's profile of how it played (the capture ring's records), saved as one `*.mycotake` file. It
+// records) and the engine's profile of how it played (the capture ring's records), saved as one `*.sporesample` file. It
 // mirrors `Audio.capture` (`capture.ts`): `start()` loads the recorder chunk and joins the shared ring as an owner,
 // `stop()` ends the take (the ring's span is copied then, so the file ends where the take did), `save()` writes it.
 //
@@ -32,7 +32,7 @@ export interface AudioTake {
   stop(): void;
   /** A marker on the take's timeline (and the profile's) at now. No-op while no take records. */
   mark(text: string): void;
-  /** Compress and save the take (`*.mycotake`); resolves with the web file name or the app-data path. Stops a running take first. Rejects with "nothing recorded: call Audio.take.start() first" when there is no take. */
+  /** Compress and save the take (`*.sporesample`); resolves with the web file name or the app-data path. Stops a running take first. Rejects with "nothing recorded: call Audio.take.start() first" when there is no take. */
   save(name?: string): Promise<string>;
 }
 
@@ -56,14 +56,31 @@ export function setTakeFrames(on: boolean): void {
 type TakeRecorderModule = typeof import("./takeRecorder");
 type TakeRecorder = ReturnType<TakeRecorderModule["createTakeRecorder"]>;
 
-/** 32-bit FNV-1a of `text`, as 8 hex digits (META `take.audioHash`: which `audio.json` the take was recorded against). */
-function fnv1a(text: string): string {
+/**
+ * @internal 32-bit FNV-1a of `text`, as 8 hex digits: a take's `audioHash`, and the build audio index's JSON file hashes
+ * (ADR 0410). Kept here, in the module the player loads anyway, so the lazy recorder chunks stay lazy (ADR 0230).
+ */
+export function fnv1a(text: string): string {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) {
     h ^= text.charCodeAt(i);
     h = Math.imul(h, 0x01000193);
   }
   return (h >>> 0).toString(16).padStart(8, "0");
+}
+
+/**
+ * The hash of the mix settings in force now, as a take records it in META `take.audioHash` (which `audio.json` it was
+ * recorded against). ADR 0410: the build audio index names it, so the Studio matches takes to the audio it downloads.
+ */
+export function currentAudioHash(): string {
+  let json = "";
+  try {
+    json = JSON.stringify(mixer.audioSettings);
+  } catch {
+    // Data only: an unserialisable section leaves the hash of what remains.
+  }
+  return fnv1a(json);
 }
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -111,15 +128,9 @@ class Take implements AudioTake {
       return;
     }
     const settings = mixer.audioSettings;
-    let json = "";
-    try {
-      json = JSON.stringify(settings);
-    } catch {
-      // Data only: an unserialisable section leaves the hash of what remains.
-    }
     // ADR 0348: the World's pick generator state now, so replay restarts from where the game's picks were (`takeSeed.ts`).
     const random = activeWorldRandomState();
-    this.seedFacts = { seed: random ?? 0, seeded: random !== null, audioHash: fnv1a(json) };
+    this.seedFacts = { seed: random ?? 0, seeded: random !== null, audioHash: currentAudioHash() };
     rec = mod.createTakeRecorder(ring, {
       randomState: activeWorldRandomState,
       frames: takePictures ? {} : null,
@@ -240,7 +251,7 @@ export const audioTake: AudioTake = {
   save: (name) => take.save(name),
 };
 
-/** @internal The editor's Record take toggle: the stopped take's bytes, to write into the project's `takes/` folder itself. */
+/** @internal The editor's Record take toggle: the stopped take's bytes, to write into the project's `recordings/` folder itself. */
 export function takeFileBytes(): Promise<Uint8Array> {
   return take.bytes();
 }

@@ -11,31 +11,29 @@ import { restoreFiles, trashFiles } from "./runFileTrash";
 import { takeDeletion } from "../take/takeFiles";
 
 describe("the trees' folders", () => {
-  const files = ["project.json", "scenes/main.scene.json", "audio/boom.wav", "takes/HoverBike/run.mycotake", "captures/a.mycap", "Mixes/old.playlist.json"];
-  const folders = ["scenes", "scripts", ".myco", "audio", "takes", "takes/HoverBike", "takes/Empty", "captures", "Mixes", "New Folder"];
+  const files = ["project.json", "scenes/main.scene.json", "audio/boom.wav", "recordings/HoverBike/run.sporesample", "recordings/a.sporesample", "Mixes/old.playlist.json"];
+  const folders = ["scenes", "scripts", ".myco", "audio", "recordings", "recordings/HoverBike", "recordings/Empty", "Mixes", "New Folder"];
 
-  it("Takes shows the folders holding takes and empty folders, not the game's or the samples'", () => {
-    expect(runTreeFolders(folders, files, isTakePath)).toEqual(["takes", "takes/HoverBike", "takes/Empty", "New Folder"]);
+  it("Takes shows the folders holding recordings and empty folders, not the game's or the samples'", () => {
+    expect(runTreeFolders(folders, files, isTakePath)).toEqual(["recordings", "recordings/HoverBike", "recordings/Empty", "New Folder"]);
   });
 
-  it("Captures lists capture files only and leaves out the takes folder, empty subfolders included (journeys walk 2, J10.3)", () => {
-    expect(runTreeFolders(folders, files, isCaptureFile, ["takes"])).toEqual(["captures", "New Folder"]);
-    expect(runMoveFolders(folders, files, isCaptureFile, ["takes"])).toEqual(["audio", "captures", "Mixes", "New Folder"]);
-    // A capture someone put under takes/ keeps its folder in reach.
-    expect(runTreeFolders(folders, [...files, "takes/HoverBike/x.mycap"], isCaptureFile, ["takes"])).toEqual(["takes", "takes/HoverBike", "captures", "New Folder"]);
-    // And Takes leaves an empty captures/ out.
-    expect(runTreeFolders(["takes", "captures"], ["takes/a.mycotake"], isTakePath, ["captures"])).toEqual(["takes"]);
-    expect(isCaptureFile("captures/a.MYCAP")).toBe(true);
-    expect(isCaptureFile("takes/run.mycotake")).toBe(false);
-    expect(whyNotCaptureFile("run.mycotake")).toMatch(/is a take: open it from the Take screen/);
+  it("Captures lists the same recordings: one folder holds takes and captures alike (ADR 0409), empty subfolders included (journeys walk 2, J10.3)", () => {
+    expect(runTreeFolders(folders, files, isCaptureFile)).toEqual(["recordings", "recordings/HoverBike", "recordings/Empty", "New Folder"]);
+    expect(runMoveFolders(folders, files, isCaptureFile)).toEqual(["audio", "recordings", "recordings/HoverBike", "recordings/Empty", "Mixes", "New Folder"]);
+    expect(isCaptureFile("recordings/a.SPORESAMPLE")).toBe(true);
+    expect(isCaptureFile("recordings/a.mycap")).toBe(false); // the old extensions aren't recognised
+    expect(isCaptureFile("recordings/run.mycotake")).toBe(false);
+    expect(isTakePath("recordings/run.sporesample")).toBe(true);
+    expect(whyNotCaptureFile("run.sporesample")).toBeNull();
   });
 
   it("an empty folder is a tree node, so a file can be moved into it", () => {
-    const tree = captureTree(["takes/HoverBike/run.mycotake"], ["takes", "takes/HoverBike", "takes/Empty"]);
+    const tree = captureTree(["recordings/HoverBike/run.sporesample"], ["recordings", "recordings/HoverBike", "recordings/Empty"]);
     expect(tree).toEqual([
-      { kind: "folder", path: "takes", name: "takes", children: [
-        { kind: "folder", path: "takes/Empty", name: "Empty", children: [] },
-        { kind: "folder", path: "takes/HoverBike", name: "HoverBike", children: [{ kind: "file", path: "takes/HoverBike/run.mycotake", name: "run.mycotake", take: true }] },
+      { kind: "folder", path: "recordings", name: "recordings", children: [
+        { kind: "folder", path: "recordings/Empty", name: "Empty", children: [] },
+        { kind: "folder", path: "recordings/HoverBike", name: "HoverBike", children: [{ kind: "file", path: "recordings/HoverBike/run.sporesample", name: "run.sporesample", take: true }] },
       ] },
     ]);
   });
@@ -45,43 +43,43 @@ describe("row meta", () => {
   it("is the duration, in seconds under a minute", () => {
     expect(durationText(32)).toBe("32.0 s");
     expect(durationText(65)).toBe("1:05");
-    expect(rowMeta("takes/a.mycotake", 19, false)).toBe("19.0 s");
-    expect(rowMeta("takes/a.mycotake", null, false)).toBe("");
+    expect(rowMeta("recordings/a.sporesample", 19, false)).toBe("19.0 s");
+    expect(rowMeta("recordings/a.sporesample", null, false)).toBe("");
   });
 
   it("names the folders while searching", () => {
-    expect(rowMeta("HoverBike/Canyon/run.mycotake", 41, true)).toBe("HoverBike › Canyon · 41.0 s");
-    expect(rowMeta("run.mycotake", null, true)).toBe("Top level");
+    expect(rowMeta("HoverBike/Canyon/run.sporesample", 41, true)).toBe("HoverBike › Canyon · 41.0 s");
+    expect(rowMeta("run.sporesample", null, true)).toBe("Top level");
   });
 });
 
 describe("moves", () => {
   const kind = { companions: takeDeletion };
-  const files = ["takes/a.mycotake", "takes/a.mycotake.notes.json", "takes/b.mycotake", "takes/Boss/c.mycotake"];
-  const folders = ["takes", "takes/Boss"];
+  const files = ["recordings/a.sporesample", "recordings/a.sporesample.notes.json", "recordings/b.sporesample", "recordings/Boss/c.sporesample"];
+  const folders = ["recordings", "recordings/Boss"];
 
   it("a take moves with its notes; a folder moves whole; nothing moves into where it is or into itself", () => {
-    expect(moveIntoPlan(kind, files, folders, ["takes/a.mycotake"], "takes/Boss")).toEqual([
-      ["takes/a.mycotake", "takes/Boss/a.mycotake"],
-      ["takes/a.mycotake.notes.json", "takes/Boss/a.mycotake.notes.json"],
+    expect(moveIntoPlan(kind, files, folders, ["recordings/a.sporesample"], "recordings/Boss")).toEqual([
+      ["recordings/a.sporesample", "recordings/Boss/a.sporesample"],
+      ["recordings/a.sporesample.notes.json", "recordings/Boss/a.sporesample.notes.json"],
     ]);
-    expect(moveIntoPlan(kind, files, folders, ["takes/Boss"], "")).toEqual([["takes/Boss", "Boss"]]);
-    expect(moveIntoPlan(kind, files, folders, ["takes/b.mycotake"], "takes")).toEqual([]);
-    expect(moveIntoPlan(kind, files, folders, ["takes"], "takes/Boss")).toEqual([]);
+    expect(moveIntoPlan(kind, files, folders, ["recordings/Boss"], "")).toEqual([["recordings/Boss", "Boss"]]);
+    expect(moveIntoPlan(kind, files, folders, ["recordings/b.sporesample"], "recordings")).toEqual([]);
+    expect(moveIntoPlan(kind, files, folders, ["recordings"], "recordings/Boss")).toEqual([]);
   });
 
   it("the open file follows a move of its folder", () => {
-    expect(movedTo("takes/Boss/c.mycotake", [["takes/Boss", "Boss"]])).toBe("Boss/c.mycotake");
-    expect(movedTo("takes/a.mycotake", [["takes/a.mycotake", "x/a.mycotake"]])).toBe("x/a.mycotake");
-    expect(movedTo("takes/b.mycotake", [["takes/Boss", "Boss"]])).toBe("takes/b.mycotake");
+    expect(movedTo("recordings/Boss/c.sporesample", [["recordings/Boss", "Boss"]])).toBe("Boss/c.sporesample");
+    expect(movedTo("recordings/a.sporesample", [["recordings/a.sporesample", "x/a.sporesample"]])).toBe("x/a.sporesample");
+    expect(movedTo("recordings/b.sporesample", [["recordings/Boss", "Boss"]])).toBe("recordings/b.sporesample");
   });
 });
 
 describe("delete through the trash", () => {
   let fs: MemoryFileSystem;
   let project: EditorProject;
-  const TAKE = "takes/run.mycotake";
-  const NOTES = "takes/run.mycotake.notes.json";
+  const TAKE = "recordings/run.sporesample";
+  const NOTES = "recordings/run.sporesample.notes.json";
   const BYTES = new Uint8Array([1, 2, 3]);
 
   beforeEach(async () => {
@@ -112,6 +110,6 @@ describe("delete through the trash", () => {
     if ("refused" in r) throw new Error(r.refused);
     fs.files.set(joinPath(ROOT, TAKE), new Uint8Array([9]));
     await project.rereadFiles([TAKE]);
-    expect(await restoreFiles(project, r.trashed)).toEqual({ refused: "run.mycotake is there again" });
+    expect(await restoreFiles(project, r.trashed)).toEqual({ refused: "run.sporesample is there again" });
   });
 });

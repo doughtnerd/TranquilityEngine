@@ -328,7 +328,7 @@ describe("uploads and mix ops", () => {
     Audio.take.mark("upload me");
     Audio.take.stop();
     expect(source.seconds()).toBe(Audio.take.seconds);
-    const { take } = await openTakeFile(await source.bytes());
+    const { take } = await openTakeFile(await source.bytes({}));
     expect(take.requests.filter((q) => q.kind === "mark")).toHaveLength(1);
     r.topic.dispose!();
     expect(seen.disposed).toBe(1);

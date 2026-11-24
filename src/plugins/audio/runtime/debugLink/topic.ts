@@ -6,7 +6,8 @@
 // - subscription `{ kind: "take" }`: the take's state as it changes, the tool owning the build's takes, and a backup copy
 //   of each stopped take kept in app data on desktop and Android (`takeState.ts`, ADR 0408);
 // - requests `take.start`, `take.stop`, `take.mark` `{ text }`: drive `Audio.take`, answered by the take's state and
-//   seconds after it; `take.upload`: makes the take's file bytes into an upload (`upload.ts`);
+//   seconds after it; `take.upload`: makes the take's file bytes into an upload (`upload.ts`); `build.audio` and
+//   `build.file`: the build's audio index and files as uploads, for replays without the project (`buildAudio.ts`, ADR 0410);
 // - command `mix.op`: one live mix op, applied through the mixer at the build's next frame start (`mixCommands.ts`).
 //
 // Loaded only by `import()` from the plugin's registration (`../index.ts`), so release exports hold none of it.
@@ -18,12 +19,13 @@ import { audioTake, takeFileBytes } from "../capture/take";
 import { captureSubscription } from "./capture";
 import { applyMixOpCommand } from "./mixCommands";
 import { takeStateSubscription } from "./takeState";
-import { AUDIO_TOPIC_CHANNEL, AudioRequest, MIX_OP_COMMAND, readAudioSubscription, type TakeStateReply, type TakeUploadParams } from "./schema";
+import { buildAudioIndexBytes, buildFileBytes } from "./buildAudio";
+import { AUDIO_TOPIC_CHANNEL, AudioRequest, BUILD_FILE_UPLOAD_FIRST_ID, MIX_OP_COMMAND, readAudioSubscription, type TakeStateReply, type TakeUploadParams } from "./schema";
 import { createTakeUploads, type TakeUploads } from "./upload";
 
 /**
  * ADR 0408: the build's own copy of a take it handed to the tool, in case the stream is interrupted: an auto-named
- * `<app data>/takes/*.mycotake`, in the newest-16 rotation. Desktop and Android only (a browser would download it).
+ * `<app data>/recordings/*.sporesample`, in the newest-16 rotation. Desktop and Android only (a browser would download it).
  */
 function backupTake(): void {
   audioTake.save().catch((err: unknown) => console.warn(`[myco] couldn't keep a copy of the take: ${err instanceof Error ? err.message : String(err)}`));
@@ -38,6 +40,10 @@ function takeState(): TakeStateReply {
 export function audioTopic(_host: DebugTopicHost): DebugTopic {
   let uploads: TakeUploads | null = null;
   const theUploads = (): TakeUploads => (uploads ??= createTakeUploads({ bytes: takeFileBytes, seconds: () => audioTake.seconds }));
+  // ADR 0410: the build's audio index and files, one upload at a time, ids apart from the take's.
+  let fileUploads: TakeUploads | null = null;
+  let nextFile: () => Promise<Uint8Array> = () => Promise.reject(new Error("no build file asked for"));
+  const theFileUploads = (): TakeUploads => (fileUploads ??= createTakeUploads({ bytes: () => nextFile(), seconds: () => 0 }, BUILD_FILE_UPLOAD_FIRST_ID));
 
   return {
     channel: AUDIO_TOPIC_CHANNEL,
@@ -46,7 +52,7 @@ export function audioTopic(_host: DebugTopicHost): DebugTopic {
       if ("refused" in p) return p;
       if (p.kind === "capture") return captureSubscription(captureLiveHost);
       if (p.kind === "take") return takeStateSubscription(takeState, isTauri() ? backupTake : undefined);
-      return theUploads().subscribe(p.upload);
+      return p.upload >= BUILD_FILE_UPLOAD_FIRST_ID ? theFileUploads().subscribe(p.upload) : theUploads().subscribe(p.upload);
     },
     async request(method, params) {
       switch (method) {
@@ -64,6 +70,12 @@ export function audioTopic(_host: DebugTopicHost): DebugTopic {
         }
         case AudioRequest.upload:
           return theUploads().begin((params && typeof params === "object" ? params : {}) as TakeUploadParams);
+        case AudioRequest.buildAudio:
+          nextFile = () => buildAudioIndexBytes();
+          return theFileUploads().begin({});
+        case AudioRequest.buildFile:
+          nextFile = () => buildFileBytes(params);
+          return theFileUploads().begin(params);
         default:
           throw new Error(`The audio topic has no "${method}" request.`);
       }
@@ -75,6 +87,8 @@ export function audioTopic(_host: DebugTopicHost): DebugTopic {
     dispose() {
       uploads?.dispose();
       uploads = null;
+      fileUploads?.dispose();
+      fileUploads = null;
     },
   };
 }
