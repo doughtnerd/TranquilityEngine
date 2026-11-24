@@ -46,6 +46,8 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
 export class RecordToggle {
   private s: RecordToggleState = { kind: "idle" };
   private readonly subs = new Set<() => void>();
+  /** Bumped by each start and by a stop: a start that resolves after a stop leaves the state alone. */
+  private gen = 0;
 
   constructor(readonly kind: RecordKind, private readonly seams: RecordToggleSeams) {}
 
@@ -73,20 +75,31 @@ export class RecordToggle {
 
   async start(): Promise<void> {
     if (this.recording || this.s.kind === "saving") return;
+    const gen = ++this.gen;
     this.set({ kind: "starting" });
     try {
       await this.seams.recorder.start();
     } catch (e) {
-      this.set({ kind: "failed", message: `Couldn't start the ${this.kind}: ${messageOf(e)}` });
+      if (gen === this.gen) this.set({ kind: "failed", message: `Couldn't start the ${this.kind}: ${messageOf(e)}` });
       return;
     }
-    this.set({ kind: "recording" });
+    if (gen === this.gen) this.set({ kind: "recording" });
   }
 
-  /** Stop and write the file. Also what Play stopping calls: a recording the recorder already ended is saved too. */
+  /**
+   * Stop and write the file. Also what Play stopping calls: a recording the recorder already ended is saved too. A stop
+   * while the recorder is still loading abandons the start: nothing was recorded, so nothing is written (the recorder's
+   * previous take is not written again) and the toggle goes back to idle.
+   */
   async stop(): Promise<void> {
     if (!this.recording) return;
+    this.gen++;
+    const loading = this.s.kind === "starting" && this.seams.recorder.state !== "recording";
     this.seams.recorder.stop();
+    if (loading) {
+      this.set({ kind: "idle" });
+      return;
+    }
     this.set({ kind: "saving" });
     try {
       const bytes = await this.seams.bytes();

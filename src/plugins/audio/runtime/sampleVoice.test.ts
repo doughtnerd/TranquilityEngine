@@ -111,6 +111,63 @@ describe("an AudioSource playing a sample (ADR 0342)", () => {
     expect(src.isPlaying).toBe(false);
   });
 
+  it("a pause holds the trim's end: the voice isn't cut while paused and stops where its playback reaches the end", async () => {
+    await kit.boot({ "x.sample.json": snippet("a.wav", [0.2, 0.7]) });
+    fake.durations.set("a.wav", 3);
+    const src = source({ clip: "x.sample.json" });
+    src.play();
+    const v = fake.voices[0]!;
+    at(0.3); // 0.5 s into the file: 0.2 s of the trim left
+    src.pause();
+    at(1);
+    expect(v.stopped).toBe(false);
+    src.resume();
+    at(1.15);
+    expect(v.stopped).toBe(false);
+    at(1.25);
+    expect(v.stopped).toBe(true);
+  });
+
+  it("a pitch change after the play moves the trim's end", async () => {
+    await kit.boot({ "x.sample.json": snippet("a.wav", [0.2, 1.2]) });
+    fake.durations.set("a.wav", 3);
+    const src = source({ clip: "x.sample.json" });
+    src.play();
+    const v = fake.voices[0]!;
+    at(0.2); // 0.4 s into the file: 0.8 s of the trim left, 0.4 s at pitch 2
+    src.pitch = 2;
+    kit.frame();
+    expect(v.pitch).toBe(2);
+    at(0.55);
+    expect(v.stopped).toBe(false);
+    at(0.65);
+    expect(v.stopped).toBe(true);
+  });
+
+  it("a released held loop plays out to the trim's end and stops there, not at the file's end", async () => {
+    const loops = (exit: string) => ({ format: IMPORT, sample: { trim: [0.2, 2], loops: [{ id: "l1", start: 0.5, end: 1.5, active: "held", exit }] } });
+    await kit.boot({ "f.wav": "data:,", "f.wav.meta.json": loops("finish"), "j.wav": "data:,", "j.wav.meta.json": loops("jump") });
+    fake.durations.set("f.wav", 3);
+    fake.durations.set("j.wav", 3);
+    const finish = source({ clip: "f.wav", loop: true });
+    const jump = source({ clip: "j.wav", loop: true });
+    finish.play();
+    jump.play();
+    const [fv, jv] = [fake.voices[0]!, fake.voices[1]!];
+    at(1.7); // 1.9 s played: in the loop at 0.9
+    expect(fv.stopped).toBe(false);
+    finish.release(); // 1.1 s to the trim's end
+    jump.release(); // jumps to 1.5: 0.5 s to the trim's end
+    at(2.15);
+    expect(jv.stopped).toBe(false);
+    at(2.25);
+    expect(jv.stopped).toBe(true);
+    at(2.75);
+    expect(fv.stopped).toBe(false);
+    at(2.85);
+    expect(fv.stopped).toBe(true);
+  });
+
   it("`loop` loops the sidecar's loop region, from the trimmed start, and never stops at the trim's end", async () => {
     await kit.boot({ "a.wav.meta.json": { format: IMPORT, sample: { trim: [0.2, 2], loops: [{ id: "l1", start: 0.5, end: 1.5 }] } } });
     fake.durations.set("a.wav", 3);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evalCurve, type Curve } from "../core/curve";
+import { evalCurve, type Curve, type CurveKey } from "../core/curve";
 import { curveByProblem, curveByToJson, evalCurveBy, parseCurveBy, secondValueOf, sliceCurveBy, MAX_SLICE_KEYS, type CurveBy } from "./curveBy";
 import type { ParameterDef } from "./parameters";
 
@@ -73,6 +73,20 @@ describe("sliceCurveBy", () => {
     expect(slice.length).toBeLessThanOrEqual(MAX_SLICE_KEYS);
     for (const x of [0, 0.2, 0.5, 0.9, 1.5, 2.2, 3, 4]) expect(evalCurve(slice, x)).toBeCloseTo(evalCurveBy(main, by, x, at(speed, 40)), 1);
     expect(evalCurve(slice, 0.999)).toBeCloseTo(evalCurveBy(main, by, 0.999, at(speed, 40)), 1);
+  });
+
+  it("a morph of two full curves keyed apart is thinned evenly over the whole span, its tail kept", () => {
+    // 64 keys each, at different x: 128 distinct x, twice the slice's limit.
+    const main: Curve = Array.from({ length: 64 }, (_, i): CurveKey => [i, Math.sin(i / 5) * 10]);
+    const high: Curve = Array.from({ length: 64 }, (_, i): CurveKey => [i + 0.5, Math.cos(i / 5) * 10]);
+    const by: CurveBy = { input: "Speed", mode: "morph", curve: high };
+    const s = at(speed, 50);
+    const slice = sliceCurveBy(main, by, s);
+    expect(slice.length).toBe(MAX_SLICE_KEYS);
+    expect(slice[slice.length - 1]![0]).toBe(63.5);
+    // No gap between kept keys wider than a few of the original spacing (0.5): the tail isn't one long line.
+    for (let i = 1; i < slice.length; i++) expect(slice[i]![0] - slice[i - 1]![0]).toBeLessThanOrEqual(1.5);
+    for (const x of [10, 40, 50, 60]) expect(evalCurve(slice, x)).toBeCloseTo(evalCurveBy(main, by, x, s), 0);
   });
 });
 

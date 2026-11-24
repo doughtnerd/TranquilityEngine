@@ -173,7 +173,11 @@ function resample(f: (x: number) => number, keys: Curve): Curve {
   }
   const last = xs[xs.length - 1]!;
   out.push([last, f(last)]);
-  return out.length > MAX_SLICE_KEYS ? out.slice(0, MAX_SLICE_KEYS - 1).concat([out[out.length - 1]!]) : out;
+  if (out.length <= MAX_SLICE_KEYS) return out;
+  // More distinct x than the limit (one key each): keep keys spread evenly over the whole span, the first and the last
+  // among them, rather than a line from the 63rd key to the end.
+  const n = out.length;
+  return Array.from({ length: MAX_SLICE_KEYS }, (_, j) => out[Math.round((j * (n - 1)) / (MAX_SLICE_KEYS - 1))]!);
 }
 
 /**
