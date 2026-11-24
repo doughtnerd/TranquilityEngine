@@ -44,6 +44,9 @@ export { addKey as addCurveKey, moveKey as moveCurveKey, removeKey as removeCurv
 export { DopeSheetGrid, type DopeBar, type DopeBarPart, type DopeKey, type DopeRow, type DopeSelectMode, type DopeSheetGridProps, type DopeSpan } from "../ui/curves/DopeSheetGrid";
 export { copyKeysAt, fitYRange, pasteKeys, removeKeys, rippleKeys, scaleKeys, shiftKeys, SAME_X, type CopiedKeys, type KeysEdit } from "../ui/curves/keyList";
 export { withEnds as withCurveEnds } from "../ui/curves/curveEditorModel";
+// ADR 0396: the shared gradient field (colour stops under the bar, alpha stops above) and its pure key edits (particles, lines).
+export { GradientField, GradientPreview, type GradientFieldProps } from "../ui/gradients/GradientField";
+export { addAlphaKey as addGradientAlphaKey, addColorKey as addGradientColorKey, moveAlphaKey as moveGradientAlphaKey, moveColorKey as moveGradientColorKey, removeAlphaKey as removeGradientAlphaKey, removeColorKey as removeGradientColorKey, setColorKey as setGradientColorKey } from "../ui/gradients/gradientKeys";
 /** What a component field holds in its scene document (or on the live node), in scene-file JSON (ADR 0373: the Animation window's record mode). */
 export { storedFieldValue } from "../componentField";
 /** @deprecated ADR 0346: use `CurveField` (the inline field) or `CurveEditorDialog`. Kept for one release. */

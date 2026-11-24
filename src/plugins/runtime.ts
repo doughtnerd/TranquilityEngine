@@ -4,7 +4,9 @@
 import { animationRuntimePlugin } from "./animation/runtime";
 import { audioRuntimePlugin } from "./audio/runtime";
 import { FIRST_PARTY_KEYS, type FirstPartyPlugin } from "./catalogue";
+import { decalsRuntimePlugin } from "./decals/runtime";
 import { environmentRuntimePlugin } from "./environment/runtime";
+import { linesRuntimePlugin } from "./lines/runtime";
 import { materialsRuntimePlugin } from "./materials/runtime";
 import { meshesRuntimePlugin } from "./meshes/runtime";
 import { navigationRuntimePlugin } from "./navigation/runtime";
@@ -34,6 +36,8 @@ const RUNTIME_HALVES: { readonly [K in FirstPartyPlugin]: RuntimePlugin } = {
   navigation: navigationRuntimePlugin,
   tilemaps: tilemapsRuntimePlugin,
   water: waterRuntimePlugin,
+  lines: linesRuntimePlugin,
+  decals: decalsRuntimePlugin,
   ui: uiRuntimePlugin,
   environment: environmentRuntimePlugin,
   "post-processing": postProcessingRuntimePlugin,

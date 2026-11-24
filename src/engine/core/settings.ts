@@ -56,6 +56,11 @@ export interface ProjectSettings {
     sortingLayers: string[];
     /** Default sprite pixels per world unit (ADR 0014). */
     pixelsPerUnit: number;
+    /**
+     * How many decals each World's `Decals` pool holds of each kind, 3D and 2D (ADR 0395); spawning past it fades out
+     * the oldest. Placed decal Components don't count. Optional in `project.json`: 1000.
+     */
+    maxDecals: number;
   };
   /** Graphics quality tiers (ADR 0050). Omitted: Low, Medium, High and Ultra, defaulting to High. */
   graphics: GraphicsSettings;
@@ -206,7 +211,7 @@ const nameListValue = (list: unknown, fallback: string[]): string[] => (isString
 const DEFAULT_DISPLAY: ProjectSettings["display"] = { width: 1280, height: 720, backgroundColor: "#000000", scaleMode: "fit" };
 const DEFAULT_TIME: ProjectSettings["time"] = { fixedDeltaTime: 1 / 60, maxSubSteps: 5, maxFrameTime: 0.25 };
 const DEFAULT_PHYSICS: ProjectSettings["physics"] = { gravity: [0, -9.81], layers: ["Default"] };
-const DEFAULT_RENDER: ProjectSettings["render"] = { sortingLayers: ["Default"], pixelsPerUnit: 100 };
+const DEFAULT_RENDER: ProjectSettings["render"] = { sortingLayers: ["Default"], pixelsPerUnit: 100, maxDecals: 1000 };
 const DEFAULT_INPUT: ProjectSettings["input"] = { join: "single", maxPlayers: 4 };
 
 function parseName(written: unknown): Parsed<"name"> {
@@ -277,7 +282,7 @@ function parsePhysics(written: unknown): Parsed<"physics"> {
 
 function parseRender(written: unknown): Parsed<"render"> {
   const problems: SettingsIssue[] = [];
-  const value = fieldsOver("render", written, DEFAULT_RENDER, { pixelsPerUnit: [isPositive, "Pixels per unit must be above 0."] }, problems);
+  const value = fieldsOver("render", written, DEFAULT_RENDER, { pixelsPerUnit: [isPositive, "Pixels per unit must be above 0."], maxDecals: [isPositiveInt, "Max decals must be a whole number above 0."] }, problems);
   const layers = isRecord(written) ? written.sortingLayers : undefined;
   if (layers !== undefined) {
     nameListProblems(layers, "render.sortingLayers", "Sorting layers", problems);

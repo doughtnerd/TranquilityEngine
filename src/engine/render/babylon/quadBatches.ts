@@ -15,8 +15,8 @@ import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../scene/Assets";
 import { authoredSize } from "../../scene/importSettings";
-import type { QuadBatch, QuadBatchHost } from "../quadBatches";
-import { layeredQuadMaterial, placeInLayer } from "./layeredQuads";
+import type { QuadBatch, QuadBatchHost, QuadMask } from "../quadBatches";
+import { layeredQuadMaterial, placeInLayer, QuadMaskPlugin } from "./layeredQuads";
 
 /** What the quad batches borrow from the renderer. */
 export interface BabylonQuadBatchDeps {
@@ -82,12 +82,35 @@ export class BabylonQuadBatches implements QuadBatchHost {
         tex.hasAlpha = true;
         m.albedoTexture = tex;
       };
-      apply(this.deps.texture(texture, () => apply(this.deps.texture(texture, () => {}))));
+      if (texture) apply(this.deps.texture(texture, () => apply(this.deps.texture(texture, () => {})))); // "": plain (a 2D line without a texture)
       shared = { material: m, users: 0 };
       this.materials.set(key, shared);
     }
     shared.users++;
     return { key, material: shared.material };
+  }
+
+  /**
+   * @internal An unshared material for a masked batch (ADR 0395): `texture` tinted, with the mask plugin; the caller
+   * disposes it. The mask's texture is applied once it has loaded (nothing draws until then).
+   */
+  maskedMaterial(name: string, texture: string, color: string, opacity: number, mask: QuadMask): { material: PBRMaterial; plugin: QuadMaskPlugin } {
+    const hex = HEX.test(color) ? color.toLowerCase() : "#ffffff";
+    const m = layeredQuadMaterial(`quads:mask:${name}`, this.deps.scene, null);
+    Color3.FromHexString(hex).toLinearSpaceToRef(m.albedoColor);
+    m.alpha = Math.max(0, Math.min(1, opacity));
+    const apply = (tex: Texture | null): void => {
+      if (!tex || m.albedoTexture === tex) return;
+      tex.hasAlpha = true;
+      m.albedoTexture = tex;
+    };
+    if (texture) apply(this.deps.texture(texture, () => apply(this.deps.texture(texture, () => {})))); // "": plain (a 2D line without a texture)
+    const plugin = new QuadMaskPlugin(m, { texture: null, uv: Array.from(mask.uv) });
+    const applyMask = (tex: Texture | null): void => {
+      if (tex) plugin.mask.texture = tex;
+    };
+    applyMask(this.deps.texture(mask.texture, () => applyMask(this.deps.texture(mask.texture, () => {}))));
+    return { material: m, plugin };
   }
 
   /** @internal */
@@ -120,6 +143,11 @@ class BabylonQuadBatch implements QuadBatch {
   private color = "#ffffff";
   private opacity = 1;
   private materialKey: string | null = null;
+  /** Per-vertex RGBA (sRGB) as given, or null. */
+  private colors: Float32Array | null = null;
+  private mask: QuadMask | null = null;
+  /** The masked batch's own material (`mask` set), else null. */
+  private masked: { material: PBRMaterial; plugin: QuadMaskPlugin; key: string } | null = null;
   private readonly matrix = Matrix.Identity();
   private order = 0;
   private visible = false;
@@ -137,6 +165,7 @@ class BabylonQuadBatch implements QuadBatch {
   setTriangles(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array): void {
     if (this.mesh && this.updatable && texture === this.texture && indices === this.indices && positions.length === this.vertexFloats) {
       this.mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
+      this.mesh.updateVerticesData(VertexBuffer.UVKind, uvs); // a 2D ribbon's texture moves along it (ADR 0396)
       return;
     }
     this.build(texture, positions, uvs, indices, true);
@@ -158,6 +187,8 @@ class BabylonQuadBatch implements QuadBatch {
       data.indices = indices;
       data.normals = new Float32Array(positions.length).map((_, i) => (i % 3 === 2 ? 1 : 0));
       data.applyToMesh(mesh, updatable);
+      if (this.colors && this.colors.length === (positions.length / 3) * 4) this.applyColors(mesh, this.colors, false);
+      else this.colors = null;
       mesh.alwaysSelectAsActiveMesh = true;
       placeInLayer(mesh, this.order);
       mesh.freezeWorldMatrix(this.matrix);
@@ -186,6 +217,46 @@ class BabylonQuadBatch implements QuadBatch {
     this.updateMaterial();
   }
 
+  setColors(rgba: Float32Array | null): void {
+    if (this.disposed) return;
+    const mesh = this.mesh;
+    if (!rgba) {
+      if (this.colors && mesh) {
+        mesh.removeVerticesData(VertexBuffer.ColorKind);
+        mesh.hasVertexAlpha = false;
+      }
+      this.colors = null;
+      return;
+    }
+    this.colors = rgba;
+    if (mesh && rgba.length === (this.vertexFloats / 3) * 4) this.applyColors(mesh, rgba, mesh.isVerticesDataPresent(VertexBuffer.ColorKind));
+  }
+
+  /** Vertex colours to the mesh: sRGB to linear (what the PBR albedo multiplies), alpha as it is. */
+  private applyColors(mesh: Mesh, rgba: Float32Array, update: boolean): void {
+    const linear = new Float32Array(rgba.length);
+    for (let i = 0; i < rgba.length; i += 4) {
+      linear[i] = Math.pow(rgba[i]!, 2.2);
+      linear[i + 1] = Math.pow(rgba[i + 1]!, 2.2);
+      linear[i + 2] = Math.pow(rgba[i + 2]!, 2.2);
+      linear[i + 3] = rgba[i + 3]!;
+    }
+    if (update) mesh.updateVerticesData(VertexBuffer.ColorKind, linear);
+    else mesh.setVerticesData(VertexBuffer.ColorKind, linear, true, 4);
+    mesh.hasVertexAlpha = true;
+  }
+
+  setMask(mask: QuadMask | null): void {
+    if (this.disposed) return;
+    const same = mask && this.mask && mask.texture === this.mask.texture;
+    this.mask = mask;
+    if (same && this.masked) {
+      this.masked.plugin.mask.uv = Array.from(mask!.uv);
+      return;
+    }
+    this.updateMaterial();
+  }
+
   setVisible(visible: boolean): void {
     this.visible = visible;
     this.mesh?.setEnabled(visible);
@@ -194,12 +265,33 @@ class BabylonQuadBatch implements QuadBatch {
   private updateMaterial(): void {
     if (!this.mesh) {
       this.releaseMaterial();
+      this.releaseMasked();
       return;
     }
+    if (this.mask) {
+      const key = `${this.texture}|${this.color}|${this.opacity}|${this.mask.texture}`;
+      if (this.masked?.key === key) {
+        this.masked.plugin.mask.uv = Array.from(this.mask.uv);
+      } else {
+        this.releaseMasked();
+        const made = this.owner.maskedMaterial(this.name, this.texture, this.color, this.opacity, this.mask);
+        this.masked = { ...made, key };
+      }
+      this.releaseMaterial();
+      this.mesh.material = this.masked.material;
+      return;
+    }
+    this.releaseMasked();
     const { key, material } = this.owner.acquireMaterial(this.texture, this.color, this.opacity);
     this.releaseMaterial(); // after acquiring, so an unchanged key keeps its material alive
     this.materialKey = key;
     this.mesh.material = material;
+  }
+
+  private releaseMasked(): void {
+    if (!this.masked) return;
+    this.masked.material.dispose();
+    this.masked = null;
   }
 
   private releaseMaterial(): void {
@@ -214,6 +306,7 @@ class BabylonQuadBatch implements QuadBatch {
     this.mesh?.dispose();
     this.mesh = null;
     this.releaseMaterial();
+    this.releaseMasked();
     this.owner.forget(this);
   }
 }

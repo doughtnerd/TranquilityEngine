@@ -59,39 +59,6 @@
 .pe-fold:hover { color: var(--text); }
 .pe-add-behavior { width: 100%; margin-top: 4px; }
 
-/* --- collapsed curve / gradient previews --- */
-.gradient-bar {
-  background-image: var(--gradient), repeating-conic-gradient(var(--border) 0% 25%, var(--bg-sunken) 0% 50%);
-  background-size: 100% 100%, 8px 8px;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-}
-.gradient-preview { flex: 1; min-width: 0; height: 14px; display: block; }
-
-/* --- gradient editor readout (the curve widget's rules are in src/editor/ui/curveEditor.css) --- */
-.gradient-editor { margin: 3px 0 6px; padding: 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); }
-.gradient-readout { display: flex; align-items: center; gap: 6px; min-height: 22px; margin-top: 4px; }
-.gradient-readout label { display: flex; align-items: center; gap: 3px; flex: 1; min-width: 0; }
-.gradient-readout em { color: var(--muted); font-style: normal; font-size: 10px; }
-
-/* --- gradient editor --- */
-.gradient-stops { position: relative; height: 14px; margin: 0 6px; }
-.gradient-main { height: 22px; margin: 0 6px; cursor: copy; }
-.gradient-stop {
-  position: absolute;
-  width: 10px;
-  height: 12px;
-  margin-left: -5px;
-  padding: 0;
-  border: 1px solid var(--text);
-  background: var(--stop);
-  cursor: grab;
-  touch-action: none;
-}
-.gradient-stop.color { top: 1px; clip-path: polygon(50% 0, 100% 35%, 100% 100%, 0 100%, 0 35%); }
-.gradient-stop.alpha { bottom: 1px; clip-path: polygon(0 0, 100% 0, 100% 65%, 50% 100%, 0 65%); }
-.gradient-stop.selected { border-color: var(--accent); box-shadow: var(--glow); z-index: 1; }
-
 /* A ParticleSystem's exposed property overrides in the Inspector (ADR 0060). */
 .particle-property { display: grid; grid-template-columns: 90px 1fr auto; align-items: center; gap: 6px; margin: 3px 0; }
 .particle-property-name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

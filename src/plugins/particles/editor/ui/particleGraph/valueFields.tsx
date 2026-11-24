@@ -8,9 +8,8 @@ import type { GraphInputValue } from "../../../../../engine/scene/particleGraph"
 import { colorKind, numberKind, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../../engine/scene/particles";
 import { convertColor, convertNumber } from "../../particles/curveEdit";
 import { CurveEditor, CurvePreview } from "../particles/ParticleCurve";
-import { GradientEditor, GradientPreview } from "../particles/GradientEditor";
 import { NumField } from "../particles/valueInputs";
-import { AssetPicker, ColorField, NO_DRAG, NO_PAN, NO_WHEEL, usePopover } from "../../../../../editor/sdk";
+import { AssetPicker, ColorField, GradientField, GradientPreview, NO_DRAG, NO_PAN, NO_WHEEL, usePopover } from "../../../../../editor/sdk";
 import "./valueFields.css";
 
 const CTRL = `${NO_DRAG} ${NO_WHEEL}`;
@@ -152,15 +151,15 @@ function ColorValue(props: { value: unknown; fallback?: ParticleColor; forms?: r
   } else if ("gradient" in value) {
     body = (
       <PopoverButton label={`${label} gradient`} preview={<GradientPreview gradient={value.gradient} />} wide>
-        <GradientEditor gradient={value.gradient} label={label} readOnly={readOnly} onChange={(g) => onChange({ gradient: g })} />
+        <GradientField gradient={value.gradient} label={label} readOnly={readOnly} onChange={(g) => onChange({ gradient: g })} />
       </PopoverButton>
     );
   } else {
     const [ga, gb] = value.randomGradients;
     body = (
       <PopoverButton label={`${label} gradients`} preview={<><GradientPreview gradient={ga} /><GradientPreview gradient={gb} /></>} wide>
-        <GradientEditor gradient={ga} label={`${label} min`} readOnly={readOnly} onChange={(g) => onChange({ randomGradients: [g, gb] })} />
-        <GradientEditor gradient={gb} label={`${label} max`} readOnly={readOnly} onChange={(g) => onChange({ randomGradients: [ga, g] })} />
+        <GradientField gradient={ga} label={`${label} min`} readOnly={readOnly} onChange={(g) => onChange({ randomGradients: [g, gb] })} />
+        <GradientField gradient={gb} label={`${label} max`} readOnly={readOnly} onChange={(g) => onChange({ randomGradients: [ga, g] })} />
       </PopoverButton>
     );
   }
@@ -204,7 +203,7 @@ export function GradientValue(props: { gradient: ParticleGradient; label: string
   return (
     <span class="pg-value">
       <PopoverButton label={`${props.label} gradient`} preview={<GradientPreview gradient={props.gradient} />} wide>
-        <GradientEditor gradient={props.gradient} label={props.label} readOnly={props.readOnly} onChange={props.onChange} />
+        <GradientField gradient={props.gradient} label={props.label} readOnly={props.readOnly} onChange={props.onChange} />
       </PopoverButton>
     </span>
   );
