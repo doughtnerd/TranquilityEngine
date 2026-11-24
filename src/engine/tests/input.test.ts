@@ -269,6 +269,105 @@ describe("input streams (T12)", () => {
     // x changes every tick: 3 × (3 bits + 32) more bits. Without delta encoding it would be 3 + 1 + 4 × 9 = 40.
     expect(moving.at(-1)).toBe(3 + 1 + 9 + 14);
   });
+
+  it("gives the client's own reads the values the server applies: f32-rounded and quantized, through write and local", async () => {
+    const Aim = defineInput("test.input.Aim", { x: f32, y: f32, n: i32 }, { encoding: { y: { quantize: 1 / 100 } } });
+    const engine = await create(layout("wire", { latencyMs: 20 }));
+    const client = world(engine, "Client");
+    const seen = new Map<number, Record<string, number>>(); // the client's own of(), by server tick
+    const applied = new Map<number, Record<string, number> | null>();
+    defineSystem({
+      name: "test.input.wire.write",
+      phase: "fixedUpdate",
+      worlds: ["wire-client"],
+      run(_rows, ctx) {
+        const tick = ctx.time.network!.serverTick;
+        Aim.write({ x: 0.1 + tick * 1e-3 });
+        Aim.local.y = 0.123 + tick * 1e-4; // written directly, unquantized
+        Aim.local.n = 2.7;
+        const node = netSession(ctx.world)!.serverPeer?.node;
+        const mine = node && Aim.of(node);
+        if (mine) seen.set(tick, { ...mine });
+      },
+    });
+    defineSystem({
+      name: "test.input.wire.apply",
+      phase: "fixedUpdate",
+      worlds: ["wire-server"],
+      run(_rows, ctx) {
+        const session = netSession(ctx.world)!;
+        const peer = session.openPeers()[0];
+        const input = peer && Aim.of(peer.node!);
+        applied.set(session.tick, input && { ...input });
+      },
+    });
+    step(engine, 120);
+    const session = netSession(world(engine, "Server"))!;
+    let compared = 0;
+    for (let t = session.tick - 60; t <= session.tick; t++) {
+      if (!seen.has(t)) continue;
+      expect(seen.get(t), `tick ${t}`).toEqual(applied.get(t));
+      compared++;
+    }
+    expect(compared).toBeGreaterThan(50);
+    const last = seen.get(session.tick)!;
+    expect(last.x).toBe(Math.fround(last.x));
+    expect(last.y).toBe(Math.fround(Math.round(last.y * 100) / 100));
+    expect(last.n).toBe(2);
+    // Replayed ticks (prediction) read the same values.
+    const clientSession = netSession(client)!;
+    const t = client.time.network!.serverTick - 1;
+    expect(clientSession.replay(t, () => World._runIn(client, () => ({ ...Aim.of(clientSession.serverPeer!.node!) })))).toEqual(seen.get(t));
+  });
+
+  it("sends one input per tick when two fixed steps land on the same server tick", async () => {
+    const engine = await create(layout("held", { latencyMs: 150 }));
+    const client = world(engine, "Client");
+    const first = new Map<number, Input>(); // the first input written for each server tick
+    let steps = 0;
+    defineSystem({
+      name: "test.input.held.write",
+      phase: "fixedUpdate",
+      worlds: ["held-client"],
+      run(_rows, ctx) {
+        const tick = ctx.time.network!.serverTick;
+        const values = { x: Math.fround(++steps * 0.25), y: steps, jump: steps % 2 };
+        Move.write(values);
+        if (!first.has(tick)) first.set(tick, values);
+      },
+    });
+    const applied = new Map<number, Input | null>();
+    defineSystem({
+      name: "test.input.held.apply",
+      phase: "fixedUpdate",
+      worlds: ["held-server"],
+      run(_rows, ctx) {
+        const session = netSession(ctx.world)!;
+        const peer = session.openPeers()[0];
+        const input = peer && Move.of(peer.node!);
+        applied.set(session.tick, input && { ...input });
+      },
+    });
+    step(engine, 240);
+    const server = netSession(world(engine, "Server"))!;
+    const clientSession = netSession(client)!;
+    const links = [clientSession.serverPeer!.link, server.openPeers()[0].link] as unknown as LoopbackConnection[];
+    // The round trip drops: serverTick holds while the estimate comes back, so fixed steps share ticks.
+    const stepsBefore = steps;
+    const from = client.time.network!.serverTick;
+    for (const link of links) link.setConditions({ latencyMs: 10 });
+    step(engine, 60);
+    const to = client.time.network!.serverTick;
+    expect(steps - stepsBefore - (to - from)).toBeGreaterThan(3); // several steps held their tick
+    step(engine, 30); // the server simulates them
+    for (let t = from; t <= Math.min(to, server.tick); t++) {
+      if (!first.has(t)) continue;
+      // The server applies the tick's first input, and prediction replays that same one.
+      expect(applied.get(t), `tick ${t}`).toEqual(first.get(t));
+      const replayed = clientSession.replay(t, () => World._runIn(client, () => ({ ...Move.of(clientSession.serverPeer!.node!) })));
+      expect(replayed, `replayed tick ${t}`).toEqual(first.get(t));
+    }
+  });
 });
 
 function deepEqual(a: unknown, b: unknown): boolean {
