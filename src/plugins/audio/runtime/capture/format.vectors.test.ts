@@ -9,6 +9,7 @@ import { CORE_ABI_VERSION, MAGIC, SCHEMA_HASH, STATUS_BUFFER_BYTES, STATUS_HEADE
 import {
   CAPTURE_ABI_VERSION,
   CAPTURE_FLAG_COMPRESSED,
+  CAPTURE_FORMAT_MINOR,
   CAPTURE_FLAG_HAS_INDEX,
   CAPTURE_RECORD_HEAD_BYTES,
   DEFERRED_STAMP_BYTES,
@@ -249,6 +250,8 @@ describe("capture record vectors (L-Rc1c)", () => {
     for (let i = 0; i < 16; i++) file[12 + i] = parseInt(SCHEMA_HASH.slice(2 * i, 2 * i + 2), 16);
     // Likewise the core ABI it names (header bytes 28..32): an ABI bump must not break it either (ADR 0328).
     new DataView(file.buffer, file.byteOffset).setUint32(28, CORE_ABI_VERSION, true);
+    // And the format minor (header bytes 84..86, ADR 0386: written 0 before it): a minor bump must not break it.
+    new DataView(file.buffer, file.byteOffset).setUint16(84, CAPTURE_FORMAT_MINOR, true);
     const c = await openCapture(file);
     expect(c.header.recordCount).toBe(16);
     expect(c.header.flags & CAPTURE_FLAG_COMPRESSED).toBe(0);

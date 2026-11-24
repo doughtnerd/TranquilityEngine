@@ -337,7 +337,8 @@ The header is **not** compressed, so a wire mismatch or a size bomb is refused b
 | 72 | 4 | `recordCount` u32 |
 | 76 | 4 | `indexBytes` u32: the INDEX record's length (0 when `hasIndex` is clear) |
 | 80 | 4 | `ringBytes` u32 |
-| 84 | 4 | reserved, 0 |
+| 84 | 2 | formatMinor (ADR 0386; 0 in files written before it): a newer one than the build reads is refused (`newerFormat`) |
+| 86 | 2 | reserved, 0 |
 | 88 | 8 | `firstFrame` f64: the oldest kept frame |
 
 **Reading, each step refusing with a `CaptureError` and its code before the next:** length >= 96 and magic (`badMagic`); `format` 1 (`newerFormat`/`olderFormat`); `SCHEMA_HASH` equal to this build's (`wireMismatch`, whose message names both ABI versions and says "re-record with this build"); `uncompressedBytes <= CAPTURE_MAX_UNCOMPRESSED_BYTES` (64 MiB, R16) (`tooLarge`); inflate with a hard stop at `uncompressedBytes + 1` (`inflateOverrun`); then META, then records. No header count sizes an allocation; arrays grow by the records read, up to the caps.

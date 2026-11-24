@@ -1,5 +1,5 @@
 // ADR 0348: the take's hook points. The runtime's entry points above the backend seam (`Audio.play` and `playOneShot`,
-// the handles' stop, release and trigger, buses, snapshots, master volume, `AudioSource`, and the audio frame's pose read)
+// the handles' stop, release and trigger (and, ADR 0386, pause, resume and fade), buses, snapshots, master volume, `AudioSource`, and the audio frame's pose read)
 // call `takeTap.sink` when it is set; while no take records it is null and a hook costs one comparison. Parameters reach
 // the take through the profile taps instead (`capture.ts` `CaptureTee`: every effective change passes there once).
 //
@@ -51,6 +51,10 @@ export interface TakeRequestSink {
   play(instance: object, path: string, emitter: TakeEmitter | null, options: TakePlayOptions): void;
   stop(instance: object, fade: number): void;
   release(instance: object): void;
+  /** ADR 0386: a handle's `pause()`, `resume()` and `fade(to, seconds)`, as the game asked them. */
+  pause(instance: object): void;
+  resume(instance: object): void;
+  fade(instance: object, to: number, seconds: number): void;
   trigger(instance: object, name: string): void;
   mix(op: TakeMixOp, target: string, value: number, seconds: number): void;
   /** ADR 0354 §10: `Audio.line(key)` played in `language` (null: nothing heard). `instance` is the line's handle. */

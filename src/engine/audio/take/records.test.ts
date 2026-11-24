@@ -91,7 +91,30 @@ describe("take request records (ADR 0348)", () => {
 
   it("names the request record types and only those", () => {
     for (const t of Object.values(TakeRecordType)) expect(isTakeRecordType(t)).toBe(true);
-    for (const t of [0x01, 0x08, 0x0f, 0x1e, 0x7f, 0x80]) expect(isTakeRecordType(t)).toBe(false);
+    for (const t of [0x01, 0x08, 0x0f, 0x21, 0x7f, 0x80]) expect(isTakeRecordType(t)).toBe(false);
+  });
+
+  it("ADR 0386: PAUSE, RESUME and FADE round-trip; a negative fade is refused", () => {
+    const requests: TakeRecordInit[] = [
+      { type: TakeRecordType.PAUSE, payload: { kind: "pause", t: 1.5, instance: 7 } },
+      { type: TakeRecordType.RESUME, payload: { kind: "resume", t: 2.25, instance: 7 } },
+      { type: TakeRecordType.FADE, payload: { kind: "fade", t: 3, instance: 0x4000_0002, to: 0.25, seconds: 1.5 } },
+    ];
+    for (const r of requests) expect(decode(r)).toEqual({ type: "request", requests: [r.payload] });
+    const fade = encodeTakeRecordBytes(requests[2]!);
+    const bad = (off: number, x: number) => {
+      const b = fade.slice();
+      new DataView(b.buffer).setFloat32(off, x, true);
+      try {
+        decodeTakeRecord(TakeRecordType.FADE, new DataView(b.buffer), 0, b.byteLength);
+        return "decoded";
+      } catch (e) {
+        return e instanceof TakeRecordError ? e.code : "other";
+      }
+    };
+    expect(bad(12, -1)).toBe("badValue");
+    expect(bad(16, -1)).toBe("badValue");
+    expect(bad(12, NaN)).toBe("badValue");
   });
 
   it("ADR 0354 §10, 0355 §6: LINE, LANGUAGE, SAY and SAYSTATE round-trip", () => {

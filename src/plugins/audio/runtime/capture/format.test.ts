@@ -5,7 +5,7 @@ import { MIX_OP_NAMES, OP_CLASSES } from "../../../../engine/audio/mixOps";
 import { CORE_ABI_MAJOR } from "../worklet/coreDriver";
 import { CORE_ABI_VERSION, SCHEMA_HASH } from "../wire.generated";
 import {
-  assembleCapture, CAPTURE_ABI_VERSION, CAPTURE_HEADER_BYTES, CAPTURE_MIXOP_CLASSES, CAPTURE_MIXOP_CODES, CaptureError, RecordType,
+  assembleCapture, CAPTURE_ABI_VERSION, CAPTURE_FORMAT_MINOR, CAPTURE_HEADER_BYTES, CAPTURE_MIXOP_CLASSES, CAPTURE_MIXOP_CODES, CaptureError, RecordType,
   cutUtf8, decodeCaptureMeta, decodeEpoch, decodeEvent, decodeGap, decodeIndex, decodeMarker, decodeMixOpRecord, decodeNames,
   encodeCaptureMeta, encodeEpoch, encodeEvent, encodeGap, encodeIndex, encodeMarker, encodeMixOpRecord, encodeNames,
   eventBytes, indexBytes, markerBytes, mixOpBytes, namesBytes, readCaptureHeader, readRecordHead, writeRecordHead,
@@ -61,14 +61,19 @@ describe("capture header (§5.1)", () => {
     const all = v((d) => { d.setUint8(12, d.getUint8(12) ^ 1); d.setUint32(68, 0xffffffff, true); });
     expect(codeOf(() => readCaptureHeader(all))).toBe("wireMismatch");
     expect(codeOf(() => readCaptureHeader(v((d) => d.setUint32(68, 64 * 1024 * 1024 + 1, true))))).toBe("tooLarge");
-    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint32(84, 1, true))))).toBe("badHeader");
+    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(86, 1, true))))).toBe("badHeader");
+    // ADR 0386: header bytes 84..86 are the format's minor; a newer one is refused up front, an older one reads.
+    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(84, CAPTURE_FORMAT_MINOR + 1, true))))).toBe("newerFormat");
+    expect(readCaptureHeader(v((d) => d.setUint16(84, 0, true))).formatMinor).toBe(0);
+    expect(readCaptureHeader(file).formatMinor).toBe(CAPTURE_FORMAT_MINOR);
   });
 
   it("stamps the running core's ABI the writer gives, and this build's without one (ADR 0328)", () => {
     expect(readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION }, SAMPLE_META, [])).abiVersion).toBe(CORE_ABI_VERSION);
     expect(readCaptureHeader(assembleCapture(SAMPLE_HEADER, SAMPLE_META, [])).abiVersion).toBe(CAPTURE_ABI_VERSION);
-    // A core of another ABI major under this wire's hash is refused when read; another minor reads.
-    expect(codeOf(() => readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION + 0x100 }, SAMPLE_META, [])))).toBe("badHeader");
+    // A core of another ABI major is refused as a version (ADR 0386), whatever its hash; another minor under this hash reads.
+    expect(codeOf(() => readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION + 0x100 }, SAMPLE_META, [])))).toBe("newerFormat");
+    expect(codeOf(() => readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION - 0x100 }, SAMPLE_META, [])))).toBe("olderFormat");
     expect(readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION + 1 }, SAMPLE_META, [])).abiVersion).toBe(CORE_ABI_VERSION + 1);
   });
 
@@ -79,10 +84,10 @@ describe("capture header (§5.1)", () => {
     const h = readCaptureHeader(c);
     expect(h.abiVersion >> 8).toBe(CORE_ABI_VERSION >> 8);
     expect(h.schemaHash).not.toBe(SCHEMA_HASH);
-    // A different major under another hash is still refused; so is this very version under another hash.
+    // An older major under another hash is refused as a version (ADR 0386); this very version under another hash is a wire mismatch.
     const major = c.slice();
     new DataView(major.buffer).setUint32(28, CORE_ABI_VERSION - 0x100, true);
-    expect(codeOf(() => readCaptureHeader(major))).toBe("wireMismatch");
+    expect(codeOf(() => readCaptureHeader(major))).toBe("olderFormat");
     const same = c.slice();
     new DataView(same.buffer).setUint32(28, CORE_ABI_VERSION, true);
     expect(codeOf(() => readCaptureHeader(same))).toBe("wireMismatch");
@@ -93,7 +98,18 @@ describe("capture header (§5.1)", () => {
     new DataView(c.buffer).setUint16(34, 0, true);
     expect(readCaptureHeader(c).envelopeMinor).toBe(0);
     new DataView(c.buffer).setUint16(34, 99, true);
-    expect(codeOf(() => readCaptureHeader(c))).toBe("badHeader");
+    expect(codeOf(() => readCaptureHeader(c))).toBe("newerFormat"); // ADR 0386: newer, not damaged
+    expect(() => readCaptureHeader(c)).toThrow(/incompatible version: file is status envelope \d+\.99, this build reads \d+\.0\u2013\d+\.\d+/);
+  });
+
+  it("refuses a file from a newer core ABI minor under another wire hash as newerFormat, naming both versions (ADR 0386)", () => {
+    const newer = CORE_ABI_VERSION + 1;
+    const c = assembleCapture({ ...SAMPLE_HEADER, abiVersion: newer }, SAMPLE_META, []).slice();
+    for (let i = 12; i < 28; i++) c[i] = c[i]! ^ 0x5a; // the newer build's own wire hash
+    expect(codeOf(() => readCaptureHeader(c))).toBe("newerFormat");
+    const reads = `${CORE_ABI_VERSION >> 8}\\.0\u2013${CORE_ABI_VERSION >> 8}\\.${CORE_ABI_VERSION & 0xff}`;
+    const theirs = `${newer >> 8}\\.${newer & 0xff}`;
+    expect(() => readCaptureHeader(c)).toThrow(new RegExp(`incompatible version: file is audio core ABI ${theirs}, this build reads ${reads}`));
   });
 
   it("names both ABI versions on a wire mismatch", () => {
