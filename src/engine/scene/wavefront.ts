@@ -83,8 +83,9 @@ export function isTextureMapStatement(keyword: string): boolean {
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
 
 /**
- * How many arguments each option takes: [fewest, most]. Options with a range take numbers (`-o u [v [w]]`,
- * `-mm base [gain]`); the rest take one word (`on`/`off`, a channel, a value, a `refl -type`).
+ * How many arguments each option takes: [fewest, most]. Options with a range take numbers: `-o`/`-s`/`-t u [v [w]]`
+ * (the specification marks v and w optional) and `-mm base gain` (both given by the specification; a file that leaves
+ * out gain still reads its file name). The rest take one word (`on`/`off`, a channel, a value, a `refl -type`).
  */
 const OPTION_ARGS: Readonly<Record<string, readonly [number, number]>> = {
   "-blendu": [1, 1],

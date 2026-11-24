@@ -51,7 +51,7 @@ We will read Wavefront file names exactly as the specification defines them, in 
 - `wavefrontStatements(text)`: statements with word positions, continuation lines joined, comment lines skipped.
 - `materialLibraryFiles(text)`: every argument of every `mtllib` statement, in order.
 - `readTextureMap(args)`: a map statement's options, each taking the specification's arguments (one word for the
-  on/off, channel and value options; one to three numbers for `-o`, `-s`, `-t`; one or two for `-mm`), always leaving
+  on/off, channel and value options; one to three numbers for `-o`, `-s`, `-t`, whose `v` and `w` the specification marks optional; two for `-mm base gain`, which it doesn't, though a file that leaves out `gain` still reads its file name), always leaving
   a word for the file; then the **file name, the word after the options**, and `extra` (whatever follows it).
   `isTextureMapStatement` names the statements that take a file: the specification's, plus the common `map_*` and
   `norm` extensions, never `map_aat`.
@@ -106,3 +106,5 @@ The loader's single-`mtllib` regular expression and the reference reader's last-
 - Wavefront Technologies, *Advanced Visualizer* manual, Appendix B1 "Object Files (.obj)", B2 "Material Library File
   (.mtl)"; mirrors at paulbourke.net/dataformats/obj/ and paulbourke.net/dataformats/mtl/.
 - ADR 0314; review item Q3.
+
+**Checked against the published text** (paulbourke.net/dataformats/obj/ and /mtl/, fetched after this record was written): `mtllib filename1 filename2 . . .` (several files, searched in order); map options `-blendu`/`-blendv`/`-cc`/`-clamp on | off`, `-imfchan r | g | b | m | l | z`, `-mm base gain`, `-o`/`-s`/`-t u v w` with `v` and `w` "an optional argument", `-texres resolution`, `-bm mult`, `-boost value`, `refl -type …`; `map_aat on`; backslash continuation (the `bmat` examples). The specification says nothing about spaces in file names. `norm` is not in it; it is read as a common extension.
