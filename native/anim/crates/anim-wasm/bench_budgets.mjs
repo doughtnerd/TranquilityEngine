@@ -2,6 +2,12 @@
 // ADR 0370's budget scenarios on the committed wasm in Node (T82r). The budgets are tripwires; this prints, asserts nothing.
 //
 //   node native/anim/crates/anim-wasm/bench_budgets.mjs [--rounds N] [--frames N] [--only substring] [--regen] [--compare FILE]
+//     [--characters N] [--max-instances N] [--max-bones N]
+//
+// `--characters N` (default 100) sets the character scenarios' instance count, and `--max-instances`/`--max-bones` the
+// core's INIT limits (defaults 128 and the skeleton's bones rounded up): the shipped player starts the core with 512
+// instances and 256 bones (DEFAULT_CORE_LIMITS), so `--characters 300 --max-instances 512 --max-bones 256` measures the
+// player's 300-clip scene's core work alone.
 //
 // `--compare FILE` also runs another build of the module (same exports, e.g. the committed one saved before a change)
 // in alternate rounds and prints both medians and their ratio: an A/B on a shared, noisy machine.
@@ -71,7 +77,8 @@ function parent() {
     let note = "";
     for (let r = 0; r < rounds; r++) {
       builds.forEach((wasm, b) => {
-        const out = execFileSync(process.execPath, [fileURLToPath(import.meta.url), "--child", name, "--frames", String(frames), "--wasm", wasm], { encoding: "utf8" });
+        const pass = ["characters", "max-instances", "max-bones"].flatMap((k) => (opt(k, null) === null ? [] : [`--${k}`, opt(k)]));
+        const out = execFileSync(process.execPath, [fileURLToPath(import.meta.url), "--child", name, "--frames", String(frames), "--wasm", wasm, ...pass], { encoding: "utf8" });
         const line = JSON.parse(out.trim().split("\n").pop());
         ms[b].push(line.ms);
         note = line.note ?? "";
@@ -220,7 +227,8 @@ async function child(name, frames) {
     const bones = Number(name.slice(-2));
     const kind = name.slice(0, -3);
     const file = bones === 60 ? (n) => committed(`humanoid${n}`) : (n) => generated(`humanoid80${n}`);
-    init(128, bones === 60 ? 64 : 80);
+    const count = Number(opt("characters", 100));
+    init(Number(opt("max-instances", Math.max(128, count))), Number(opt("max-bones", bones === 60 ? 64 : 80)));
     const skel = glue.load_skeleton(file(".skel"));
     const idle = glue.load_clip(file("_idle.anim"));
     const walk = glue.load_clip(file("_walk.anim"));
@@ -234,7 +242,7 @@ async function child(name, frames) {
       const b = bones === 60 ? JSON.parse(readFileSync(new URL("fixtures/graph_expected.json", wasmDir), "utf8")).binds : JSON.parse(readFileSync(new URL("bench.json", genDir), "utf8")).loco;
       for (const [id, asset] of [[b.idle, idle], [b.walk, walk], [b.run, run], [b.upper, mask]]) glue.graph_bind(graph, id, asset);
     }
-    const hs = Array.from({ length: 100 }, () => glue.create_instance(0, skel, graph));
+    const hs = Array.from({ length: count }, () => glue.create_instance(0, skel, graph));
     const play = (clip, fade) => send(hs.map((instance) => record(PLAY, { instance, clip, playId: 0, layer: 0, fade, speed: 1, start: 0, flags: 0 })));
     if (kind === "one_clip" || kind === "crossfade") {
       play(walk, 0);
@@ -253,7 +261,7 @@ async function child(name, frames) {
           record(SLOT_PLAY, { instance: h, slot: 0, clip: run, playId: 0, blendIn: 0.1, blendOut: 0.1, speed: 1, start: 0, end: 0.5, flags: SECTION_LOOP }),
         ]),
       );
-      if (applied !== 500) throw new Error(`${applied} of 500 graph commands applied`);
+      if (applied !== count * 5) throw new Error(`${applied} of ${count * 5} graph commands applied`);
     }
     if (kind === "locomotion_rig") {
       // Target slot 0 (the look-at's), then each frame the hits for last frame's rays: flat ground at y = 0.

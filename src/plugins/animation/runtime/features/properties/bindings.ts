@@ -389,26 +389,39 @@ function dataWrite(r: Resolution, node: GameObject, def: DataComponentDef, field
   return mismatch(kind, "a data component's number");
 }
 
-const scratchV3: [number, number, number] = [0, 0, 0];
-const scratchQ = new Quaternion();
-
-/** `engine.Transform`'s local `position`, `rotation` and `scale`. */
+/**
+ * `engine.Transform`'s local `position`, `rotation` and `scale`, written straight into the World's transform columns
+ * (`tPos`/`tRot`/`tScl`, the storage the Transform's live views sit on, read again each write since the World may grow
+ * them), then marked dirty once: the same bits and the same dirty mark as `transform.position = …`, without the
+ * Transform facade's calls (1,000 tweens write here every frame).
+ */
 function transformWrite(node: GameObject, field: string, kind: number): Write | string {
-  const t = node.transform;
-  if (!t) return "the node has no Transform";
-  if ((field === "position" || field === "scale") && kind === VEC3) return (f, _u, at) => {
-    const v = field === "position" ? t.position : t.scale;
-    if (v.x === f[at] && v.y === f[at + 1] && v.z === f[at + 2]) return;
-    scratchV3[0] = f[at]!;
-    scratchV3[1] = f[at + 1]!;
-    scratchV3[2] = f[at + 2]!;
-    if (field === "position") t.position = scratchV3;
-    else t.scale = scratchV3;
-  };
+  if (!node.transform) return "the node has no Transform";
+  const world = node.world;
+  const e = node.entity;
+  if ((field === "position" || field === "scale") && kind === VEC3) {
+    const position = field === "position";
+    return (f, _u, at) => {
+      const a = position ? world.tPos : world.tScl;
+      const o = e * 3;
+      const x = f[at]!, y = f[at + 1]!, z = f[at + 2]!;
+      if (a[o] === x && a[o + 1] === y && a[o + 2] === z) return;
+      a[o] = x;
+      a[o + 1] = y;
+      a[o + 2] = z;
+      world.markTransformDirty(e);
+    };
+  }
   if (field === "rotation" && kind === QUAT) return (f, _u, at) => {
-    const q = t.rotation;
-    if (q.x === f[at] && q.y === f[at + 1] && q.z === f[at + 2] && q.w === f[at + 3]) return;
-    t.rotation = scratchQ.set(f[at]!, f[at + 1]!, f[at + 2]!, f[at + 3]!);
+    const a = world.tRot;
+    const o = e * 4;
+    const x = f[at]!, y = f[at + 1]!, z = f[at + 2]!, w = f[at + 3]!;
+    if (a[o] === x && a[o + 1] === y && a[o + 2] === z && a[o + 3] === w) return;
+    a[o] = x;
+    a[o + 1] = y;
+    a[o + 2] = z;
+    a[o + 3] = w;
+    world.markTransformDirty(e);
   };
   return field === "position" || field === "rotation" || field === "scale" ? mismatch(kind, `Transform.${field}`) : "not an animatable field";
 }

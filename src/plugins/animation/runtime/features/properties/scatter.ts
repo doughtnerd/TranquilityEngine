@@ -8,7 +8,7 @@ import { inPass } from "../../stages/gather/playback";
 import { TRACK_COLUMNS } from "../../wasm/wire/core";
 import { animatorsOf, type AnimatorRuntime } from "../instances";
 import { bindClip, bindingsValid, type BindingTable } from "./bindings";
-import { clipData } from "./clipData";
+import { clipData, type ClipData } from "./clipData";
 import { columnClip, trackRow, trackWords } from "./trackRegion";
 
 const tables = new WeakMap<AnimatorRuntime, Map<number, BindingTable>>();
@@ -21,11 +21,10 @@ export function clipPathOf(rt: AnimatorRuntime, handle: number): string {
   return `clip #${handle}`;
 }
 
-function tableFor(frame: AnimationFrame, rt: AnimatorRuntime, clip: number): BindingTable {
+function tableFor(frame: AnimationFrame, rt: AnimatorRuntime, clip: number, data: ClipData): BindingTable {
   let byClip = tables.get(rt);
   if (!byClip) tables.set(rt, (byClip = new Map()));
   let t = byClip.get(clip);
-  const data = clipData(frame.core.core, clip);
   if (!t || !bindingsValid(frame.world, t) || madeFrom.get(t) !== data) {
     t = bindClip(frame.world, rt.animator.node, clipPathOf(rt, clip), data);
     madeFrom.set(t, data);
@@ -36,13 +35,16 @@ function tableFor(frame: AnimationFrame, rt: AnimatorRuntime, clip: number): Bin
 
 /** @internal Writes each Animator's bound property columns (see the file header). */
 export function scatterProperties(frame: AnimationFrame): void {
+  const core = frame.core.core;
   for (const rt of animatorsOf(frame.world)) {
     if (!inPass(frame, rt) || rt.frozen) continue;
     const row = trackRow(rt.instance);
-    const clip = columnClip(trackWords(frame.core.core), row);
+    const clip = columnClip(trackWords(core), row);
     if (!clip) continue;
-    const table = tableFor(frame, rt, clip);
-    const { f32, u32 } = trackWords(frame.core.core); // binding may read the core (asset bytes): views again
+    const data = clipData(core, clip);
+    if (data.columns.length === 0) continue; // no property tracks: nothing to bind or write (most skeletal clips)
+    const table = tableFor(frame, rt, clip, data);
+    const { f32, u32 } = trackWords(core); // binding may read the core (asset bytes): views again
     const at = (row + TRACK_COLUMNS) / 4;
     for (const e of table.entries) e.write(f32, u32, at + e.offset);
   }
