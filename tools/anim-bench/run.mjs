@@ -109,13 +109,43 @@ if (flag("sizes")) {
 
 // --- Build and project ----------------------------------------------------------------------------------------------
 
-const run = (cmd, argv, cwd = root) => execFileSync(cmd, argv, { cwd, stdio: "inherit" });
+// npm is npm.cmd on Windows, which execFileSync only finds through a shell.
+const run = (cmd, argv, cwd = root) => execFileSync(cmd, argv, { cwd, stdio: "inherit", shell: process.platform === "win32" });
 
+/** The newest modification time under `dir` (files only; node_modules, dist and target skipped). */
+function newestMtime(dir) {
+  let newest = 0;
+  const walk = (d) => {
+    for (const e of readdirSync(d, { withFileTypes: true })) {
+      if (e.name === "node_modules" || e.name === "dist" || e.name === "target" || e.name.startsWith(".")) continue;
+      const p = join(d, e.name);
+      if (e.isDirectory()) walk(p);
+      else newest = Math.max(newest, statSync(p).mtimeMs);
+    }
+  };
+  walk(dir);
+  return newest;
+}
+
+// The bench measures the engine in dist/player, so a player older than the sources would measure old code (a pull
+// doesn't rebuild it): rebuild when it's missing or any engine source, plugin or the player config is newer.
 const playerDir = join(root, "dist/player");
-const builtPlayer = !existsSync(join(playerDir, "player.html"));
+const playerPage = join(playerDir, "player.html");
+const playerAge = existsSync(playerPage) ? statSync(playerPage).mtimeMs : 0;
+const sourcesAge = Math.max(newestMtime(join(root, "src")), ...["vite.player.config.ts", "vite.shared.ts", "package.json"].map((f) => (existsSync(join(root, f)) ? statSync(join(root, f)).mtimeMs : 0)));
+const builtPlayer = playerAge === 0 || sourcesAge > playerAge;
 if (builtPlayer) {
-  console.log("building the player (dist/player/)...");
+  console.log(playerAge === 0 ? "building the player (dist/player/)..." : "the player is older than the sources: rebuilding dist/player/...");
   run("npm", ["run", "build:player"]);
+}
+/** The commit the measured player was built from (and whether the tree had changes), for the JSON. */
+let commit = null;
+try {
+  const head = execFileSync("git", ["rev-parse", "--short", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  const dirty = execFileSync("git", ["status", "--porcelain", "--", "src"], { cwd: root, encoding: "utf8" }).trim() !== "";
+  commit = `${head}${dirty ? "+changes" : ""}`;
+} catch {
+  commit = null;
 }
 
 const fixtures = join(root, "native/anim/target/bench-fixtures");
@@ -202,7 +232,7 @@ const SOFTWARE = /swiftshader|llvmpipe|softpipe|software|basic render/i;
 const softwareGL = !adapter.webgl || SOFTWARE.test(adapter.webgl);
 const softwareGPU = adapter.webgpu !== null && SOFTWARE.test(adapter.webgpu);
 const adapterText = `WebGL2 ${adapter.webgl ?? "unavailable"}${softwareGL ? " (software)" : ""}; WebGPU ${adapter.webgpu ?? "none"}${softwareGPU ? " (software)" : ""}`;
-console.log(`[anim-bench] ${headed ? "headed" : "headless"}, ANGLE ${angle}: ${adapterText}`);
+console.log(`[anim-bench] player built from ${commit ?? "an unknown commit"}; ${headed ? "headed" : "headless"}, ANGLE ${angle}: ${adapterText}`);
 if (gpu && softwareGL && !flag("allow-software")) {
   await browser.close();
   server.kill();
@@ -408,6 +438,7 @@ const outFile = opt("out", join(root, "test-results/anim-bench/latest.json"));
 mkdirSync(dirname(outFile), { recursive: true });
 writeFileSync(outFile, `${JSON.stringify({
   when: new Date().toISOString(),
+  commit,
   machine: { cpus: cpus().length, model: cpus()[0]?.model, node: process.version, browser: `Chromium ${browserVersion} (${headed ? "headed" : "headless"}, ANGLE ${angle})`, gpu: { requested: gpu, angle, webgl: adapter.webgl, webgpu: adapter.webgpu, software: softwareGL, softwareWebGPU: softwareGPU }, note: softwareGL ? "software rendering: render and skinning times don't reflect a GPU" : "hardware GPU" },
   options: { rounds, frames, warm, viewport: `${vw}x${vh}`, renderer, count: flag("count"), profile: flag("profile") },
   scenarios: table,
@@ -419,8 +450,9 @@ writeFileSync(outFile, `${JSON.stringify({
 }, null, 2)}\n`);
 console.log(`\nJSON: ${relative(root, outFile)}`);
 
-if (flag("keep")) console.log(`kept: ${work}${builtPlayer ? " and dist/player/" : ""}`);
+// A player this run built from nothing is removed again (unless --keep); one that existed, rebuilt or not, stays.
+if (flag("keep")) console.log(`kept: ${work}${builtPlayer && playerAge === 0 ? " and dist/player/" : ""}`);
 else {
   rmSync(work, { recursive: true, force: true });
-  if (builtPlayer) rmSync(playerDir, { recursive: true, force: true });
+  if (builtPlayer && playerAge === 0) rmSync(playerDir, { recursive: true, force: true });
 }
