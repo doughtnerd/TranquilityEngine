@@ -155,6 +155,13 @@ export class BabylonMaterialLibrary {
   private readonly modelMaterials = new WeakMap<object, BabylonMaterial>();
   private readonly slotMultis = new WeakMap<object, Map<string, MultiMaterial>>();
   private readonly probeCopies = new WeakMap<BabylonMaterial, Map<string, PBRMaterial>>();
+  /**
+   * The blended probe copies a sync made (keyed by weight, so a mesh crossing a blend zone makes one per
+   * step), each with whether a renderer drew it this sync: {@link endSync} frees the rest. Copies asked for
+   * outside a sync (the warm-up's) aren't here, so they stay.
+   */
+  private readonly syncedBlends = new Map<PBRMaterial, boolean>();
+  private syncing = false;
   /** How to free each clone it made: with the texture copies Babylon's `clone` made for it (`cloneMaterial`). */
   private readonly clones = new WeakMap<BabylonMaterial, () => void>();
   private readonly textures = new Map<string, Texture>();
@@ -230,12 +237,16 @@ export class BabylonMaterialLibrary {
 
   /** Start a sync of a World's renderers: script instances not drawn by its end are freed ({@link endSync}). */
   beginSync(): void {
+    this.syncing = true;
     for (const e of this.instances.values()) e.seen = false;
+    for (const m of this.syncedBlends.keys()) this.syncedBlends.set(m, false);
   }
 
-  /** Free the script Material instances no renderer drew since {@link beginSync}. */
+  /** Free the script Material instances and blended probe copies no renderer drew since {@link beginSync}. */
   endSync(): void {
+    this.syncing = false;
     for (const [m, e] of this.instances) if (!e.seen) this.disposeInstance(m);
+    for (const [m, seen] of [...this.syncedBlends]) if (!seen) this.disposeClone(m);
   }
 
   /** A renderer went: free its override copies. */
@@ -335,7 +346,9 @@ export class BabylonMaterialLibrary {
 
   /**
    * A copy of a built-in material reflecting a probe's map (ADR 0054), one per material, probe and blend
-   * (a neighbour's map and the primary's share, ADR 0110), kept for reuse.
+   * (a neighbour's map and the primary's share, ADR 0110), kept for reuse. A blended copy a sync made is
+   * freed at the end of the first sync that doesn't draw it, so a mesh moving through a blend zone keeps
+   * only the copies drawn now.
    */
   probeCopy(base: PBRMaterial, hit: ProbeHit): PBRMaterial {
     let byProbe = this.probeCopies.get(base);
@@ -360,8 +373,15 @@ export class BabylonMaterialLibrary {
       if (this.noFog.has(base)) this.noFog.add(made);
       // A probe's map freed (the probe gone, recaptured at another size, baked): nothing finds this copy again.
       const copies = byProbe;
-      made.onDisposeObservable.addOnce(() => copies.get(key) === made && copies.delete(key));
+      made.onDisposeObservable.addOnce(() => {
+        this.syncedBlends.delete(made);
+        if (copies.get(key) === made) copies.delete(key);
+      });
       onOwnerDisposed(made, b ? [hit.texture, b.texture] : [hit.texture], () => this.disposeClone(made));
+      if (b && this.syncing) this.syncedBlends.set(made, true);
+    } else if (this.syncedBlends.has(m)) {
+      if (this.syncing) this.syncedBlends.set(m, true);
+      else this.syncedBlends.delete(m); // the warm-up's too now: kept
     }
     m.environmentIntensity = hit.intensity;
     if (b) {
@@ -531,7 +551,7 @@ export class BabylonMaterialLibrary {
   /**
    * A render texture handed out was disposed (its asset's format changed, ADR 0109): forget it, so the next
    * ask gets the asset's new texture, and rebuild what sampled it: the material assets that loaded it, and
-   * the script instance and renderer copies that set it as a value (made again on their next draw).
+   * the script instance, renderer and slot copies that set it as a value (made again on their next draw).
    */
   private renderTextureGone(path: string, key: string, rt: Texture): void {
     if (this.textures.get(key) === rt) this.textures.delete(key);
@@ -543,6 +563,8 @@ export class BabylonMaterialLibrary {
         : m instanceof PBRMaterial && this.wantedTextures.get(m) === image;
     for (const e of this.assets.values()) if (e.uses.has(image) || (e.material && names(e.material, e.graph))) e.rebuild = true;
     for (const [r, e] of [...this.renderers]) if (e.material !== e.base && names(e.material, e.graph)) this.releaseOverrides(r);
+    // A slot copy taking it as a slot override only (its base doesn't): the renderer's slot copies go.
+    for (const [r, held] of [...this.slotEntries]) if ([...held.slots.values()].some((e) => e.material !== e.base && names(e.material, e.graph))) this.releaseSlots(r);
     for (const [m, e] of [...this.instances]) if (e.material !== e.base && names(e.material, e.graph)) this.disposeInstance(m);
   }
 

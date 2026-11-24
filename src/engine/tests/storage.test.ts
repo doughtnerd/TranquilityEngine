@@ -206,6 +206,64 @@ describe("files (Tauri): keys as file names (ADR 0384)", () => {
   });
 });
 
+describe("files (Tauri): long keys (ADR 0387)", () => {
+  const names = (fs: { files: Map<string, unknown> }) => [...fs.files.keys()].map((f) => f.slice("/data/saves/".length));
+  const long = (tail: string) => `${"level-".repeat(60)}${tail}`; // 360 characters
+
+  it("names a long key's file within the limits, readable and listed under its full key", async () => {
+    const fs = memoryFiles();
+    const storage = new EncodedStorage(new TauriRecords(fs, "/data"));
+    const keys = [long("a"), long("b"), `${"Ä".repeat(200)}`, "short"];
+    for (const key of keys) await storage.save("saves", key, key.length);
+    await storage.save("saves", long("bytes"), new Uint8Array([1, 2, 10, 3]));
+    for (const name of names(fs)) {
+      expect(name.length).toBeLessThanOrEqual(110);
+      expect(name).toMatch(/^([a-z0-9._-]|%[0-9A-F]{2})+(~[0-9a-f]{32})?\.(json|bin)$/);
+    }
+    expect(names(fs).filter((n) => n.startsWith("level-")).length).toBe(3); // a readable prefix, one file per key
+    expect(fs.files.has("/data/saves/short.json")).toBe(true);
+    for (const key of keys) expect(await storage.load("saves", key)).toBe(key.length);
+    expect([...new Uint8Array((await storage.load("saves", long("bytes"))) as ArrayBuffer)]).toEqual([1, 2, 10, 3]);
+    expect((await storage.list("saves")).sort()).toEqual([...keys, long("bytes")].sort());
+    await storage.delete("saves", long("a"));
+    expect(await storage.load("saves", long("a"))).toBeUndefined();
+    expect((await storage.list("saves")).sort()).toEqual([long("b"), "short", "Ä".repeat(200), long("bytes")].sort());
+  });
+
+  it("gives long keys that differ only in case their own files on a case-insensitive disk", async () => {
+    const fs = memoryFiles();
+    const real = (p: string) => [...fs.files.keys()].find((k) => k.toLowerCase() === p.toLowerCase()) ?? p;
+    const ci = { ...fs, readText: (p: string) => fs.readText(real(p)), writeText: (p: string, t: string) => fs.writeText(real(p), t), exists: async (p: string) => fs.files.has(real(p)) };
+    const storage = new EncodedStorage(new TauriRecords(ci, "/data"));
+    await storage.save("saves", long("Slot"), 1);
+    await storage.save("saves", long("slot"), 2);
+    expect(await storage.load("saves", long("Slot"))).toBe(1);
+    expect(await storage.load("saves", long("slot"))).toBe(2);
+    expect(fs.files.size).toBe(2);
+  });
+
+  it("still reads a long key's file an earlier build named in full, moving it to the short name", async () => {
+    const fs = memoryFiles();
+    const key = long("old");
+    fs.files.set(`/data/saves/${key}.json`, "7"); // ADR 0384's name: 365 bytes, where the disk allowed it
+    fs.files.set(`/data/saves/${"x".repeat(150)}.bin`, new Uint8Array([4, 5]));
+    const storage = new EncodedStorage(new TauriRecords(fs, "/data"));
+    expect((await storage.list("saves")).sort()).toEqual([key, "x".repeat(150)].sort());
+    expect(await storage.load("saves", key)).toBe(7);
+    expect([...new Uint8Array((await storage.load("saves", "x".repeat(150))) as ArrayBuffer)]).toEqual([4, 5]);
+    for (const name of names(fs)) expect(name.length).toBeLessThanOrEqual(110);
+  });
+
+  it("reads a file under a short name only for the key it holds", async () => {
+    const fs = memoryFiles();
+    const storage = new EncodedStorage(new TauriRecords(fs, "/data"));
+    await storage.save("saves", long("a"), 1);
+    const [file] = [...fs.files.keys()];
+    fs.files.set(file, `${JSON.stringify(long("z"))}\n2`); // another key's record under this name
+    expect(await storage.load("saves", long("a"))).toBeUndefined();
+  });
+});
+
 // --- scopes: where each one's data lives (Tauri) ---------------------------------------------------------------
 
 const disk = memoryFiles();
