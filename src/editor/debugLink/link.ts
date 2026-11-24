@@ -4,6 +4,7 @@
 import { effect } from "@preact/signals";
 import { createTransport, transportCanListen } from "../../engine/net/Transport";
 import "../../engine/net/transport/websocket";
+import { logMessage } from "../messages";
 import { persisted } from "../preferences";
 import { DEFAULT_DEBUG_LINK_PREFERENCES, cleanPreferences, type DebugLinkPreferences } from "./debugLinkLogic";
 import { EditorDebugLink } from "./editorLink";
@@ -18,7 +19,7 @@ export function editorDebugLink(): EditorDebugLink {
   // The WebSocket transport listens where this host can open a server socket: Node, and the desktop editor, whose
   // `main.tsx` registers the native-backed transport (`tauriListener.ts`, ADR 0379) first. A plain browser page can't,
   // and Preferences say so.
-  return (link ??= new EditorDebugLink({ transport: () => (transportCanListen("websocket") ? createTransport("websocket") : null) }));
+  return (link ??= new EditorDebugLink({ transport: () => (transportCanListen("websocket") ? createTransport("websocket") : null), log: logMessage }));
 }
 
 /** Listens as the preferences say, and again whenever they change; returns the stop. */

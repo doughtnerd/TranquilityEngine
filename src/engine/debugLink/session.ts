@@ -73,8 +73,11 @@ export class DebugLinkSession {
       else {
         const decoded = decodeEnvelope(event.data);
         if ("refused" in decoded) {
+          // Not this protocol (a malformed envelope, another version): say so, then close (ADR 0376).
           this.send("reliable", { kind: EnvelopeKind.error, topic: "", id: 0, payload: jsonPayload({ message: decoded.refused }) });
-          continue;
+          this.log(`closing: ${decoded.refused}`);
+          this.close(`The build closed the debug link: ${decoded.refused}`);
+          return;
         }
         const e = decoded.envelope;
         if (e.kind === EnvelopeKind.command) commands.push(e);

@@ -2,10 +2,11 @@
 // the hello and the tool's accept, pulled subscriptions (nothing sent without one, rate-limited, stopped by
 // unsubscribing), requests and errors, commands applied at the frame start after they arrive, and closing.
 import { afterEach, describe, expect, it } from "vitest";
-import { createTransport, type Transport } from "../net/Transport";
+import { createTransport, type Transport, type TransportConnection } from "../net/Transport";
 import "../net/transport/loopback";
 import { DebugLinkListener, type DebugLinkPeer } from "./client";
 import type { LinkRecord } from "./records";
+import { DEBUG_LINK_VERSION, EnvelopeKind, decodeEnvelope, encodeEnvelope, jsonPayload, readJsonPayload } from "./protocol";
 import { DebugLinkSession } from "./session";
 import type { DebugTopic } from "./topics";
 
@@ -200,5 +201,109 @@ describe("the build's session and the tool's peer", () => {
     frame();
     expect(peers[0]!.state).toBe("closed");
     expect(logged).toEqual([]);
+  });
+});
+
+describe("a message that isn't the protocol closes the link (ADR 0376)", () => {
+  type Heard = { kind: "open" } | { kind: "data"; data: Uint8Array } | { kind: "close"; reason: string };
+  /** A raw end of the loopback, so a test can send any bytes and see what arrives. */
+  function rawEnd(transport: Transport) {
+    const heard: Heard[] = [];
+    let conn: TransportConnection | null = null;
+    const poll = () => {
+      for (const e of transport.poll()) {
+        conn ??= e.connection;
+        heard.push(e.kind === "data" ? { kind: "data", data: e.data } : e.kind === "close" ? { kind: "close", reason: e.reason } : { kind: "open" });
+      }
+    };
+    const errors = () =>
+      heard.flatMap((h) => {
+        if (h.kind !== "data") return [];
+        const d = decodeEnvelope(h.data);
+        if (!("envelope" in d) || d.envelope.kind !== EnvelopeKind.error) return [];
+        const read = readJsonPayload(d.envelope.payload);
+        return ["value" in read ? (read.value as { message: string }).message : "?"];
+      });
+    return { heard, poll, errors, send: (bytes: Uint8Array) => conn!.send("reliable", bytes), use: (c: TransportConnection) => (conn = c) };
+  }
+  const wrongVersion = () => {
+    const bytes = encodeEnvelope({ kind: EnvelopeKind.welcome, topic: "", id: 0, payload: new Uint8Array(0) });
+    bytes[0] = DEBUG_LINK_VERSION + 1;
+    return bytes;
+  };
+
+  async function buildAgainstRawTool() {
+    let t = 0;
+    const now = () => t;
+    const toolTransport: Transport = createTransport("loopback", { now });
+    const at = `debug-raw-${++address}`;
+    await toolTransport.listen(at);
+    const build: Transport = createTransport("loopback", { now });
+    const logged: string[] = [];
+    const session = new DebugLinkSession({ transport: build, connection: build.connect(at), hello: { name: "Game", platform: "web", topics: [] }, topics: new Map(), log: (l) => logged.push(l) });
+    open.push(toolTransport, build);
+    const tool = rawEnd(toolTransport);
+    const frame = () => {
+      t += 16;
+      session.frameStart();
+      tool.poll();
+    };
+    frame();
+    frame();
+    return { session, logged, tool, frame };
+  }
+
+  it("the build answers a wrong protocol version with an error, then closes", async () => {
+    const { session, logged, tool, frame } = await buildAgainstRawTool();
+    tool.send(wrongVersion());
+    frame();
+    frame();
+    expect(session.state).toBe("closed");
+    expect(session.closedReason).toMatch(/version 2/);
+    expect(tool.errors()).toEqual([expect.stringMatching(/version 2/)]);
+    expect(tool.heard.at(-1)).toEqual({ kind: "close", reason: expect.stringMatching(/version 2/) }); // the error went first
+    expect(logged).toEqual([expect.stringMatching(/version 2/)]);
+  });
+
+  it("the build answers a malformed envelope with an error, then closes", async () => {
+    const { session, tool, frame } = await buildAgainstRawTool();
+    tool.send(new Uint8Array([1, 2]));
+    frame();
+    frame();
+    expect(session.state).toBe("closed");
+    expect(tool.errors()).toEqual([expect.stringMatching(/at least 8 bytes/)]);
+    expect(tool.heard.at(-1)?.kind).toBe("close");
+  });
+
+  it("the tool's listener does the same to a build, and its peer closes", async () => {
+    let t = 0;
+    const now = () => t;
+    const tool: Transport = createTransport("loopback", { now });
+    const peers: DebugLinkPeer[] = [];
+    const closed: DebugLinkPeer[] = [];
+    const listener = new DebugLinkListener(tool, { onPeer: (p) => peers.push(p), onClose: (p) => closed.push(p) });
+    const at = `debug-raw-${++address}`;
+    await listener.listen(at);
+    const buildTransport: Transport = createTransport("loopback", { now });
+    open.push(listener, buildTransport);
+    const build = rawEnd(buildTransport);
+    build.use(buildTransport.connect(at));
+    const step = () => {
+      t += 16;
+      build.poll();
+      listener.poll();
+    };
+    step();
+    build.send(encodeEnvelope({ kind: EnvelopeKind.hello, topic: "", id: 0, payload: jsonPayload({ name: "Game", platform: "web", topics: [] }) }));
+    step();
+    expect(peers).toHaveLength(1);
+    build.send(new Uint8Array([9, 9, 9, 9, 9, 9, 9, 9]));
+    step();
+    step();
+    expect(peers[0]!.state).toBe("closed");
+    expect(peers[0]!.closedReason).toMatch(/version 9/);
+    expect(closed).toEqual([peers[0]]);
+    expect(build.errors()).toEqual([expect.stringMatching(/version 9/)]);
+    expect(build.heard.at(-1)?.kind).toBe("close");
   });
 });

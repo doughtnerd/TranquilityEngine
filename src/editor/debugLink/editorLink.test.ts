@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createTransport, type Transport, type TransportConnection } from "../../engine/net/Transport";
 import "../../engine/net/transport/loopback";
+import { EnvelopeKind, encodeEnvelope, jsonPayload } from "../../engine/debugLink/protocol";
 import { DebugLinkSession } from "../../engine/debugLink/session";
 import { listenAddress, type DebugLinkPreferences } from "./debugLinkLogic";
 import { EditorDebugLink } from "./editorLink";
@@ -131,5 +132,26 @@ describe("the editor's debug link", () => {
     expect(link.active.value).toBeNull();
     pump();
     expect(a.state).toBe("closed");
+  });
+
+  it("says why when a build refuses what the editor sent and closes the link", async () => {
+    const prefs: DebugLinkPreferences = { listen: true, lan: false, port: port++ };
+    const logged: [string, string][] = [];
+    const link = new EditorDebugLink({ transport: () => createTransport("loopback"), autoPoll: false, log: (kind, text) => logged.push([kind, text]) });
+    stops.push(() => link.stop());
+    await link.apply(prefs);
+    // A build that speaks another protocol version, as a session answers one: an error for the link, then the close.
+    const t = createTransport("loopback");
+    stops.push(() => t.close());
+    const c = t.connect(listenAddress(prefs));
+    t.poll();
+    c.send("reliable", encodeEnvelope({ kind: EnvelopeKind.hello, topic: "", id: 0, payload: jsonPayload({ name: "Old game", platform: "web", topics: [] }) }));
+    link.poll();
+    expect(link.builds.value.map((b) => b.name)).toEqual(["Old game"]);
+    c.send("reliable", encodeEnvelope({ kind: EnvelopeKind.error, topic: "", id: 0, payload: jsonPayload({ message: "the other end speaks debug link version 2; this one speaks 1" }) }));
+    c.close("The build closed the debug link: the other end speaks debug link version 2; this one speaks 1");
+    link.poll();
+    expect(link.builds.value).toEqual([]);
+    expect(logged).toEqual([["error", 'Debug link: "Old game" closed the link: the other end speaks debug link version 2; this one speaks 1']]);
   });
 });
