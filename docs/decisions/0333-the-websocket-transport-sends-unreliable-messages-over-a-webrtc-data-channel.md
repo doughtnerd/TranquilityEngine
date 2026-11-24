@@ -1,6 +1,6 @@
 # 0333. The WebSocket transport sends unreliable messages over a WebRTC data channel when both ends can
 
-- **Status:** Accepted, amended by [0334](0334-snapshots-split-into-datagram-sized-parts-each-acked-on-its-own.md) (a tick's snapshot is split into datagram-sized parts instead of being capped at one)
+- **Status:** Accepted, amended by [0334](0334-snapshots-split-into-datagram-sized-parts-each-acked-on-its-own.md) (a tick's snapshot is split into datagram-sized parts instead of being capped at one), [0398](0398-each-websocket-path-numbers-its-unreliable-messages-on-its-own.md) (each path numbers its unreliable messages on its own, so a message too big for a datagram isn't dropped as stale)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
