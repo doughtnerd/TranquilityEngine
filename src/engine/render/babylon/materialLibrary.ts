@@ -551,7 +551,7 @@ export class BabylonMaterialLibrary {
   /**
    * A render texture handed out was disposed (its asset's format changed, ADR 0109): forget it, so the next
    * ask gets the asset's new texture, and rebuild what sampled it: the material assets that loaded it, and
-   * the script instance and renderer copies that set it as a value (made again on their next draw).
+   * the script instance, renderer and slot copies that set it as a value (made again on their next draw).
    */
   private renderTextureGone(path: string, key: string, rt: Texture): void {
     if (this.textures.get(key) === rt) this.textures.delete(key);
@@ -563,6 +563,8 @@ export class BabylonMaterialLibrary {
         : m instanceof PBRMaterial && this.wantedTextures.get(m) === image;
     for (const e of this.assets.values()) if (e.uses.has(image) || (e.material && names(e.material, e.graph))) e.rebuild = true;
     for (const [r, e] of [...this.renderers]) if (e.material !== e.base && names(e.material, e.graph)) this.releaseOverrides(r);
+    // A slot copy taking it as a slot override only (its base doesn't): the renderer's slot copies go.
+    for (const [r, held] of [...this.slotEntries]) if ([...held.slots.values()].some((e) => e.material !== e.base && names(e.material, e.graph))) this.releaseSlots(r);
     for (const [m, e] of [...this.instances]) if (e.material !== e.base && names(e.material, e.graph)) this.disposeInstance(m);
   }
 

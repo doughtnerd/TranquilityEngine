@@ -474,6 +474,32 @@ describe("the Babylon material library (ADR 0127)", () => {
       await lib.settled();
       expect(after.albedoTexture).toBe(rt);
     });
+
+    it("rebuilds a graph material's slot copy that takes the render texture only as a slot override", async () => {
+      let rt = new Texture(null, scene);
+      lib.dispose();
+      lib = new BabylonMaterialLibrary(scene, { renderTexture: () => rt });
+      const screen = { ...rimShader, properties: [...rimShader.properties, { name: "Screen", type: "texture", value: "" }] };
+      useProject({
+        "shaders/screen.shader.json": screen,
+        "materials/screen.material.json": { format: "myco.material@1", shader: "asset:shaders/screen.shader.json" },
+      });
+      const sources = await loadMeshes("asset:models/lamp.glb#Base"); // Stone, then Metal
+      const slots = materialSlots(sources);
+      const r = GameObject.create("tv").addBehavior(MeshRenderer, { mesh: "asset:models/lamp.glb#Base", material: "asset:materials/screen.material.json" });
+      r.setMaterialProperty("Screen", "asset:rt/screen.rendertexture.json", 0);
+      const subs = (m: BabylonMaterial) => (m instanceof MultiMaterial ? m.subMaterials.map((s) => s!) : [m]);
+      const before = subs(lib.meshMaterials(r, slots).of(sources[0]))[0];
+      expect(before.name).toMatch(/:tv:0$/); // slot 0's own copy
+      await lib.settled();
+      const old = rt;
+      rt = new Texture(null, scene); // the format changed: a new texture, the old disposed
+      old.dispose();
+      expect(scene.materials).not.toContain(before);
+      const after = subs(lib.meshMaterials(r, slots).of(sources[0]))[0];
+      expect(after).not.toBe(before);
+      expect(after.name).toMatch(/:tv:0$/);
+    });
   });
 
   describe("warm-up variants and instancing", () => {
