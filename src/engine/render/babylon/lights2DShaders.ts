@@ -12,7 +12,10 @@
  * - `l2dShape` (vec4): inner and outer radius, half inner and half outer cone angle (degrees);
  * - `l2dMisc` (vec4): kind (0 global, 1 point, 2 freeform, 3 sprite), falloff exponent, directional (0/1), shadow slot (-1: none);
  * - `l2dLight` (vec4): the light's world X, Y, height, and shadow strength;
- * - `l2dExtra` (vec2): shadow softness, and the light's world Z.
+ * - `l2dExtra` (vec4): shadow softness, the light's world Z, overlap (0 additive, 1 alpha blend, ADR 0409), unused.
+ *
+ * Blending is premultiplied (`ONE, ONE_MINUS_SRC_ALPHA`): an additive light writes alpha 0 (so it adds), an alpha blend
+ * light writes its brightness as alpha (so it covers the light below it by as much).
  *
  * Shadow vertex attributes: `position` (vec2, an edge end in world XY), `s2dExtrude` (vec2: 1 for the far ends, the
  * caster's world Z), `s2dLight` (vec4: light X, Y, reach, -), `s2dChannel` (vec4: the slot's channel as a mask).
@@ -27,7 +30,7 @@ export const SHADOW2D_PASS = "myco2DShadow";
 
 export const LIGHT2D_ATTRIBUTES = ["position", "l2dLocal", "l2dColor", "l2dShape", "l2dMisc", "l2dLight", "l2dExtra"] as const;
 /** Floats per vertex of each light attribute, in `LIGHT2D_ATTRIBUTES` order. */
-export const LIGHT2D_SIZES = [2, 2, 4, 4, 4, 4, 2] as const;
+export const LIGHT2D_SIZES = [2, 2, 4, 4, 4, 4, 4] as const;
 export const LIGHT2D_UNIFORMS = ["viewProjection", "l2dScreen"];
 export const LIGHT2D_SAMPLERS = ["l2dShadow0", "l2dShadow1", "l2dShadow2", "l2dShadow3", "l2dSprite"];
 
@@ -35,8 +38,8 @@ export const SHADOW2D_ATTRIBUTES = ["position", "s2dExtrude", "s2dLight", "s2dCh
 export const SHADOW2D_SIZES = [2, 2, 4, 4] as const;
 export const SHADOW2D_UNIFORMS = ["viewProjection"];
 
-/** The shadow lookup (KSL): slot → texture and channel, with a few taps for soft edges. */
-const SHADOW_LOOKUP = shaderSource(/* KSL */ `
+/** The shadow lookup (KSL): slot → texture and channel, with a few taps for soft edges. The lit 2D material reads it too, for accurate lights (ADR 0409). */
+export const SHADOW2D_LOOKUP = shaderSource(/* KSL */ `
 TEXTURE2D(l2dShadow0);
 TEXTURE2D(l2dShadow1);
 TEXTURE2D(l2dShadow2);
@@ -80,7 +83,7 @@ FN(KF, myco2DShadow, KV2 uv, KF slot, KV2 texel, KF soft) {
 const LIGHT_VALUE = shaderSource(/* KSL */ `
 TEXTURE2D(l2dSprite);
 
-FN(KV3, myco2DLightValue, KV2 local, KV4 color, KV4 shape, KV4 misc, KV4 light, KV2 extra, KV2 screenUv, KV2 texel) {
+FN(KV4, myco2DLightValue, KV2 local, KV4 color, KV4 shape, KV4 misc, KV4 light, KV4 extra, KV2 screenUv, KV2 texel) {
   VAR(KF, k) = 1.0;
   VAR(KV3, c) = KV3(color.x, color.y, color.z);
   if (misc.x > 0.5 && misc.x < 1.5) {
@@ -97,11 +100,11 @@ FN(KV3, myco2DLightValue, KV2 local, KV4 color, KV4 shape, KV4 misc, KV4 light, 
   if (misc.w > -0.5) {
     k = k * (1.0 - clamp(light.w, 0.0, 1.0) * myco2DShadow(screenUv, misc.w, texel, extra.x));
   }
-  return c * max(k, 0.0);
+  return KV4(c * max(k, 0.0), clamp(k, 0.0, 1.0));
 }
 `);
 
-const FRAG = shaderSource(LIGHT2D_SHADER, SHADOW_LOOKUP, LIGHT_VALUE);
+const FRAG = shaderSource(LIGHT2D_SHADER, SHADOW2D_LOOKUP, LIGHT_VALUE);
 
 const VARYINGS: [string, string][] = [
   ["vWorld", "vec2"],
@@ -110,7 +113,7 @@ const VARYINGS: [string, string][] = [
   ["vShape", "vec4"],
   ["vMisc", "vec4"],
   ["vLight", "vec4"],
-  ["vExtra", "vec2"],
+  ["vExtra", "vec4"],
 ];
 
 const wgslType = (t: string) => `${t}f`;
@@ -120,7 +123,7 @@ function lightVertex(dialect: ShaderDialect): string {
   if (dialect === "glsl") {
     return [
       "precision highp float;",
-      ...src.map((a, i) => `attribute ${["vec2", "vec2", "vec4", "vec4", "vec4", "vec4", "vec2"][i]} ${a};`),
+      ...src.map((a, i) => `attribute ${["vec2", "vec2", "vec4", "vec4", "vec4", "vec4", "vec4"][i]} ${a};`),
       "uniform mat4 viewProjection;",
       ...VARYINGS.map(([n, t]) => `varying ${t} ${n};`),
       "void main(void) {",
@@ -130,7 +133,7 @@ function lightVertex(dialect: ShaderDialect): string {
     ].join("\n");
   }
   return [
-    ...src.map((a, i) => `attribute ${a}: ${wgslType(["vec2", "vec2", "vec4", "vec4", "vec4", "vec4", "vec2"][i])};`),
+    ...src.map((a, i) => `attribute ${a}: ${wgslType(["vec2", "vec2", "vec4", "vec4", "vec4", "vec4", "vec4"][i])};`),
     "uniform viewProjection: mat4x4f;",
     ...VARYINGS.map(([n, t]) => `varying ${n}: ${wgslType(t)};`),
     "@vertex",
@@ -149,15 +152,17 @@ function lightFragment(dialect: ShaderDialect, directional: boolean): string {
     const body = [
       "  vec2 texel = l2dScreen.xy;",
       "  vec2 uv = gl_FragCoord.xy * texel;",
-      "  vec3 light = myco2DLightValue(vLocal, vColor, vShape, vMisc, vLight, vExtra, uv, texel) * l2dScreen.z;",
+      "  vec4 lv = myco2DLightValue(vLocal, vColor, vShape, vMisc, vLight, vExtra, uv, texel);",
+      "  vec3 light = lv.xyz * l2dScreen.z;",
+      "  float a = vExtra.z > 0.5 ? lv.w : 0.0;",
     ];
     const out = directional
       ? [
           "  if (vMisc.z > 0.5) {",
-          `    mycoOut0 = vec4(0.0); mycoOut1 = vec4(light, 1.0); mycoOut2 = vec4(myco2DLightDir(vLight.xy, vLight.z, vWorld) * dot(light, ${lum.replace("KV3", "vec3")}), 1.0);`,
-          "  } else { mycoOut0 = vec4(light, 1.0); mycoOut1 = vec4(0.0); mycoOut2 = vec4(0.0); }",
+          `    mycoOut0 = vec4(0.0, 0.0, 0.0, a); mycoOut1 = vec4(light, a); mycoOut2 = vec4(myco2DLightDir(vLight.xy, vLight.z, vWorld) * dot(light, ${lum.replace("KV3", "vec3")}), a);`,
+          "  } else { mycoOut0 = vec4(light, a); mycoOut1 = vec4(0.0, 0.0, 0.0, a); mycoOut2 = vec4(0.0, 0.0, 0.0, a); }",
         ]
-      : ["  gl_FragColor = vec4(light, 1.0);"];
+      : ["  gl_FragColor = vec4(light, a);"];
     return [
       "precision highp float;",
       ...(directional ? ["layout(location = 0) out vec4 mycoOut0;", "layout(location = 1) out vec4 mycoOut1;", "layout(location = 2) out vec4 mycoOut2;"] : []),
@@ -173,10 +178,10 @@ function lightFragment(dialect: ShaderDialect, directional: boolean): string {
   const out = directional
     ? [
         "  if (fragmentInputs.vMisc.z > 0.5) {",
-        `    fragmentOutputs.fragData0 = vec4f(0.0); fragmentOutputs.fragData1 = vec4f(light, 1.0); fragmentOutputs.fragData2 = vec4f(myco2DLightDir(fragmentInputs.vLight.xy, fragmentInputs.vLight.z, fragmentInputs.vWorld) * dot(light, ${lum.replace("KV3", "vec3f")}), 1.0);`,
-        "  } else { fragmentOutputs.fragData0 = vec4f(light, 1.0); fragmentOutputs.fragData1 = vec4f(0.0); fragmentOutputs.fragData2 = vec4f(0.0); }",
+        `    fragmentOutputs.fragData0 = vec4f(0.0, 0.0, 0.0, a); fragmentOutputs.fragData1 = vec4f(light, a); fragmentOutputs.fragData2 = vec4f(myco2DLightDir(fragmentInputs.vLight.xy, fragmentInputs.vLight.z, fragmentInputs.vWorld) * dot(light, ${lum.replace("KV3", "vec3f")}), a);`,
+        "  } else { fragmentOutputs.fragData0 = vec4f(light, a); fragmentOutputs.fragData1 = vec4f(0.0, 0.0, 0.0, a); fragmentOutputs.fragData2 = vec4f(0.0, 0.0, 0.0, a); }",
       ]
-    : ["  fragmentOutputs.color = vec4f(light, 1.0);"];
+    : ["  fragmentOutputs.color = vec4f(light, a);"];
   return [
     "uniform l2dScreen: vec4f;",
     ...VARYINGS.map(([n, t]) => `varying ${n}: ${wgslType(t)};`),
@@ -185,7 +190,9 @@ function lightFragment(dialect: ShaderDialect, directional: boolean): string {
     "fn main(input: FragmentInputs) -> FragmentOutputs {",
     "  let texel = uniforms.l2dScreen.xy;",
     "  let uv = fragmentInputs.position.xy * texel;",
-    "  let light = myco2DLightValue(fragmentInputs.vLocal, fragmentInputs.vColor, fragmentInputs.vShape, fragmentInputs.vMisc, fragmentInputs.vLight, fragmentInputs.vExtra, uv, texel) * uniforms.l2dScreen.z;",
+    "  let lv = myco2DLightValue(fragmentInputs.vLocal, fragmentInputs.vColor, fragmentInputs.vShape, fragmentInputs.vMisc, fragmentInputs.vLight, fragmentInputs.vExtra, uv, texel);",
+    "  let light = lv.xyz * uniforms.l2dScreen.z;",
+    "  let a = select(0.0, lv.w, fragmentInputs.vExtra.z > 0.5);",
     ...out,
     "}",
   ].join("\n");

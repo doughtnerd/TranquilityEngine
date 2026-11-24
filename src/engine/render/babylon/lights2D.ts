@@ -143,6 +143,10 @@ interface CasterNow {
   mask: readonly string[];
 }
 
+/** Floats per accurate light in a batch's `accurate` uniforms (six vec4s; see `accurateUniforms`). */
+export const ACCURATE_FLOATS = 24;
+const MASK_CHANNEL = { none: -1, r: 0, g: 1, b: 2, a: 3 } as const;
+
 /** One light this frame, with what shadows need. */
 interface LightNow {
   light: Light2D;
@@ -198,6 +202,10 @@ export class BabylonLights2D {
   private layers: readonly string[] = [];
   private layerBatch: Int32Array = new Int32Array(0);
   private batches: LayerBatch[] = [];
+  /** Per layer batch: its accurate lights (ADR 0409), packed `ACCURATE_FLOATS` each, rebuilt every frame. */
+  private accurate: Float32Array[] = [];
+  /** The lights lighting accurately in each batch (left out of its light textures). */
+  private accurateSets: Set<Light2D>[] = [];
   private styleList: readonly LightBlendStyle[] = [];
   private currentLayout: Light2DLayout | null = null;
   private layoutKey = "";
@@ -227,17 +235,28 @@ export class BabylonLights2D {
     const layers = world.settings.render.sortingLayers;
     const styles = world.settings.lighting2D.blendStyles;
     const lights = this.enabled ? world._componentsOfType(Light2D).filter((l) => l.isActiveAndEnabled && l.intensity > 0) : [];
-    const batching = layerBatches(
-      layers.length,
-      lights.map((l) => ({
-        layers: l.targetSortingLayers.length ? l.targetSortingLayers.map((n) => layers.indexOf(n)).filter((i) => i >= 0) : null,
-        style: blendStyleIndex(world.settings.lighting2D, l.blendStyle),
-        directional: limits.normalMaps && l.normalMaps,
-      })),
-      limits.layerBatches,
-    );
-    // Shadowed lights, ranked by intensity × reach² (bigger, brighter lights keep their shadows), capped by the tier.
     const now: LightNow[] = lights.map((light) => this.lightNow(world, light));
+    // Accurate normal maps (ADR 0409): point lights asking for it on a tier that allows it. A batch takes the tier's cap
+    // of them (brightest and biggest first); the rest light as fast, so batching runs again when any is over.
+    const accurate = new Set(limits.normalMaps && limits.accurateLights > 0 ? lights.filter((l) => l.normalMaps === "accurate" && l.type === "point") : []);
+    const batch = () =>
+      layerBatches(
+        layers.length,
+        lights.map((l) => ({
+          layers: l.targetSortingLayers.length ? l.targetSortingLayers.map((n) => layers.indexOf(n)).filter((i) => i >= 0) : null,
+          style: blendStyleIndex(world.settings.lighting2D, l.blendStyle),
+          directional: limits.normalMaps && l.normalMaps !== "off" && !accurate.has(l),
+        })),
+        limits.layerBatches,
+      );
+    let batching = batch();
+    const rank = (n: LightNow) => n.light.intensity * n.reach * n.reach;
+    const accurateIn = (b: LayerBatch) => b.lights.map((i) => now[i]!).filter((n) => accurate.has(n.light)).sort((p, q) => rank(q) - rank(p));
+    let over = false;
+    for (const b of batching.batches) for (const n of accurateIn(b).slice(limits.accurateLights)) over = accurate.delete(n.light) || over;
+    if (over) batching = batch();
+    this.accurateSets = batching.batches.map((b) => new Set(accurateIn(b).map((n) => n.light)));
+    // Shadowed lights, ranked by intensity × reach² (bigger, brighter lights keep their shadows), capped by the tier.
     const shadowed = now.filter((n) => n.light.shadows && n.light.type !== "global" && n.light.shadowStrength > 0);
     shadowed.sort((a, b) => b.light.intensity * b.reach * b.reach - a.light.intensity * a.reach * a.reach);
     const kept = shadowed.slice(0, limits.shadowedLights);
@@ -245,7 +264,7 @@ export class BabylonLights2D {
     const layout: Light2DLayout | null = batching.batches.length
       ? { batches: batching.batches.map((b) => ({ styles: b.styles.length, directional: b.directional })), scale: limits.textureScale, shadowTextures: Math.ceil(kept.length / 4), lowPrecision: this.range !== 1 }
       : null;
-    const key = `${JSON.stringify(layout)}|${[...batching.layerBatch].join(",")}|${batching.batches.map((b) => b.styles.join(".")).join(",")}`;
+    const key = `${JSON.stringify(layout)}|${[...batching.layerBatch].join(",")}|${batching.batches.map((b) => b.styles.join(".")).join(",")}|${this.accurateSets.map((s) => s.size).join(",")}`;
     if (key !== this.layoutKey) {
       this.layoutKey = key;
       this.version++;
@@ -258,6 +277,7 @@ export class BabylonLights2D {
 
     const casters = kept.length ? this.castersNow(world) : [];
     this.buildLights(world, now, limits);
+    this.buildAccurate(world, now, limits);
     this.buildShadows(now.filter((n) => n.slot >= 0), casters);
     this.stateNow = {
       lights: lights.length,
@@ -283,10 +303,13 @@ export class BabylonLights2D {
     return i < 0 ? (this.layerBatch[0] ?? -1) : (this.layerBatch[i] ?? -1);
   }
 
-  /** A layer batch's blend styles (indices into the project's) and whether it has the directional textures. */
-  batch(i: number): { styles: readonly number[]; directional: boolean } | null {
+  /**
+   * A layer batch's blend styles (indices into the project's), whether it has the directional textures, and its accurate
+   * lights this frame (ADR 0409; `accurateUniforms` packs them; their count changes only with `version`).
+   */
+  batch(i: number): { styles: readonly number[]; directional: boolean; accurate: Float32Array } | null {
     const b = this.batches[i];
-    return b ? { styles: b.styles, directional: b.directional } : null;
+    return b ? { styles: b.styles, directional: b.directional, accurate: this.accurate[i] ?? new Float32Array(0) } : null;
   }
 
   /** A blend style by index (the first when out of range). */
@@ -336,9 +359,12 @@ export class BabylonLights2D {
     this.batches.forEach((b, bi) => {
       b.styles.forEach((style, si) => {
         const draw = draws[bi]![si]!;
-        for (const li of b.lights) {
+        const skip = this.accurateSets[bi];
+        // Additive lights first, then alpha blend ones in scene order, each covering what's drawn before it (ADR 0409).
+        const ordered = [...b.lights].sort((p, q) => Number(now[p]?.light.overlap === "alphaBlend") - Number(now[q]?.light.overlap === "alphaBlend"));
+        for (const li of ordered) {
           const n = now[li];
-          if (!n || blendStyleIndex(settings, n.light.blendStyle) !== style) continue;
+          if (!n || skip?.has(n.light) || blendStyleIndex(settings, n.light.blendStyle) !== style) continue;
           this.appendLight(world, draw, byLight.get(n.light)!, limits);
         }
         draw.gpu.upload(draw.cpu);
@@ -356,10 +382,10 @@ export class BabylonLights2D {
     const z = m[e * 16 + 14]!;
     const i = Math.max(l.intensity, 0);
     const color = [srgbToLinear(l.color.r) * i, srgbToLinear(l.color.g) * i, srgbToLinear(l.color.b) * i, 1];
-    const directional = limits.normalMaps && l.normalMaps ? 1 : 0;
+    const directional = limits.normalMaps && l.normalMaps !== "off" ? 1 : 0;
     const misc = (kind: number) => [kind, falloffExponent(l.falloff), directional, n.slot];
     const light = [n.x, n.y, l.height, l.shadowStrength];
-    const extra = [limits.softShadows ? Math.max(0, Math.min(1, l.shadowSoftness)) : 0, z];
+    const extra = [limits.softShadows ? Math.max(0, Math.min(1, l.shadowSoftness)) : 0, z, l.overlap === "alphaBlend" ? 1 : 0, 0];
     const place = (x: number, y: number) => [t[0] * x + t[2] * y + t[4], t[1] * x + t[3] * y + t[5]];
     const quad = (cpu: CpuStream, corners: number[][], locals: number[][], shape: number[], kind: number) => {
       const base = cpu.vertices;
@@ -395,6 +421,43 @@ export class BabylonLights2D {
       const [u0, v0, u1, v1] = q.uv;
       quad(s.cpu, [place(x0, y0), place(x1, y0), place(x1, y1), place(x0, y1)], [[u0, v0], [u1, v0], [u1, v1], [u0, v1]], [0, 0, 0, 0], 3);
     }
+  }
+
+  /**
+   * Each batch's accurate lights packed for the lit material (ADR 0409), per light six vec4s:
+   * position X, Y, height, shadow slot; world→local 2×2 (local = (m0·dx + m2·dy, m1·dx + m3·dy)); falloff exponent,
+   * shadow strength, softness, mask channel; inner radius, outer radius, half inner and half outer angle; linear colour ×
+   * intensity; the blend style's multiply and add.
+   */
+  private buildAccurate(world: World, now: readonly LightNow[], limits: Lights2DLimits): void {
+    const byLight = new Map<Light2D, LightNow>(now.map((n) => [n.light, n]));
+    this.accurate = this.accurateSets.map((set) => {
+      const out = new Float32Array(set.size * ACCURATE_FLOATS);
+      let k = 0;
+      for (const l of set) {
+        const n = byLight.get(l)!;
+        const e = l.node.entity;
+        const t = affineOf(world.worldMatrix(e), e * 16);
+        const det = t[0] * t[3] - t[1] * t[2];
+        const inv = Math.abs(det) < 1e-12 ? [0, 0, 0, 0] : [t[3] / det, -t[1] / det, -t[2] / det, t[0] / det];
+        const outer = Math.min(Math.max(l.outerAngle, 0), 360);
+        const style = this.style(blendStyleIndex(world.settings.lighting2D, l.blendStyle));
+        const i = Math.max(l.intensity, 0);
+        out.set(
+          [
+            n.x, n.y, l.height, n.slot,
+            ...inv,
+            falloffExponent(l.falloff), Math.max(0, Math.min(1, l.shadowStrength)), limits.softShadows ? Math.max(0, Math.min(1, l.shadowSoftness)) : 0, MASK_CHANNEL[style.mask],
+            l.innerRadius, l.outerRadius, outer >= 360 ? 180 : Math.min(Math.max(l.innerAngle, 0), outer) / 2, outer >= 360 ? 180 : outer / 2,
+            srgbToLinear(l.color.r) * i, srgbToLinear(l.color.g) * i, srgbToLinear(l.color.b) * i, 0,
+            style.multiply, style.add, 0, 0,
+          ],
+          k,
+        );
+        k += ACCURATE_FLOATS;
+      }
+      return out;
+    });
   }
 
   /** A sprite light's quad in its node's XY (by its sprite's frame), its UVs and texture, or null while it loads. */
@@ -549,7 +612,7 @@ export class BabylonLights2D {
     if (!w.isReady()) return;
     const engine = this.engine;
     const targets = directional ? 3 : 1;
-    this.beginDraw(Constants.ALPHA_ONEONE, targets);
+    this.beginDraw(Constants.ALPHA_PREMULTIPLIED_PORTERDUFF, targets); // additive lights write alpha 0 (see `lights2DShaders.ts`)
     const bind = (sprite: ThinTexture) => {
       engine.enableEffect(w.drawWrapper);
       const effect = w.effect;

@@ -62,12 +62,12 @@ describe("the 2D lighting rig", () => {
     const w = await world();
     const rig = rigOn(new Scene(nullEngine("glsl")));
     light({ type: "global", targetSortingLayers: ["Default", "Front"] });
-    const torch = light({ type: "point", blendStyle: "Rim", normalMaps: true, targetSortingLayers: ["Front"] }, 1, 1);
+    const torch = light({ type: "point", blendStyle: "Rim", normalMaps: "fast", targetSortingLayers: ["Front"] }, 1, 1);
     rig.sync(w, LIGHTS_2D_QUALITY.high);
     expect(rig.batchOfLayer("Back")).toBe(-1);
     expect(rig.batchOfLayer("Default")).toBe(0);
     expect(rig.batchOfLayer("Front")).toBe(1);
-    expect(rig.batch(1)).toEqual({ styles: [0, 1], directional: true });
+    expect(rig.batch(1)).toEqual({ styles: [0, 1], directional: true, accurate: new Float32Array(0) });
     expect(rig.layout()).toEqual({ batches: [{ styles: 1, directional: false }, { styles: 2, directional: true }], scale: 0.5, shadowTextures: 0, lowPrecision: rig.range !== 1 });
     const v = rig.version;
     torch.node.transform!.position.set(4, 4, 0); // moving or dimming a light is draw data
@@ -94,6 +94,39 @@ describe("the 2D lighting rig", () => {
   });
 });
 
+describe("accurate normal maps (ADR 0409)", () => {
+  it("light point lights per light, up to the tier's cap a batch (the rest as fast), out of the light textures", async () => {
+    const w = await world();
+    const rig = rigOn(new Scene(nullEngine("glsl")));
+    const lamps = Array.from({ length: 10 }, (_, i) => light({ type: "point", normalMaps: "accurate", outerRadius: 1 + i, height: 2 }, i, 0));
+    rig.sync(w, LIGHTS_2D_QUALITY.high);
+    const b = rig.batch(0)!;
+    expect(b.accurate.length / 24).toBe(8); // the high tier's cap
+    expect(b.directional).toBe(true); // the two left over light as fast
+    // Packed brightest × widest first: the light at x = 9, radius 10, height 2.
+    expect(Array.from(b.accurate.slice(0, 4))).toEqual([9, 0, 2, -1]);
+    expect(Array.from(b.accurate.slice(12, 14))).toEqual([0, 10]); // its radii
+    const v = rig.version;
+    for (const l of lamps.slice(2)) l.enabled = false;
+    rig.sync(w, LIGHTS_2D_QUALITY.high);
+    expect(rig.version).not.toBe(v); // the material's light count changed
+    expect(rig.batch(0)).toMatchObject({ directional: false });
+    expect(rig.batch(0)!.accurate.length / 24).toBe(2);
+    rig.sync(w, LIGHTS_2D_QUALITY.medium); // no accurate lights on medium: fast
+    expect(rig.batch(0)).toMatchObject({ directional: true, accurate: new Float32Array(0) });
+  });
+
+  it("packs the light's world-to-local map, so a turned or scaled light falls off in its own space", async () => {
+    const w = await world();
+    const rig = rigOn(new Scene(nullEngine("glsl")));
+    const l = light({ type: "point", normalMaps: "accurate" }, 1, 2);
+    l.node.transform!.scale.set(2, 2, 1);
+    rig.sync(w, LIGHTS_2D_QUALITY.high);
+    const a = rig.batch(0)!.accurate;
+    expect(Array.from(a.slice(4, 8)).map((x) => Math.round(x * 1e6) / 1e6 + 0)).toEqual([0.5, 0, 0, 0.5]);
+  });
+});
+
 describe("the light pass's shaders", () => {
   it("are registered in GLSL and WGSL with the KSL light maths", () => {
     for (const name of [LIGHT2D_PASS, LIGHT2D_PASS_DIR, SHADOW2D_PASS]) {
@@ -107,6 +140,9 @@ describe("the light pass's shaders", () => {
     // The directional pass writes three targets.
     expect(ShaderStore.ShadersStore[`${LIGHT2D_PASS_DIR}PixelShader`]).toContain("layout(location = 2) out vec4 mycoOut2;");
     expect(ShaderStore.ShadersStoreWGSL[`${LIGHT2D_PASS_DIR}PixelShader`]).toContain("fragmentOutputs.fragData2");
+    // Overlap (ADR 0409): an alpha blend light writes its brightness as alpha (premultiplied blending), an additive one 0.
+    expect(ShaderStore.ShadersStore[`${LIGHT2D_PASS}PixelShader`]).toContain("float a = vExtra.z > 0.5 ? lv.w : 0.0;");
+    expect(ShaderStore.ShadersStoreWGSL[`${LIGHT2D_PASS}PixelShader`]).toContain("let a = select(0.0, lv.w, fragmentInputs.vExtra.z > 0.5);");
   });
 });
 
@@ -117,7 +153,7 @@ describe("the lit layered-quad material (ADR 0225: the text Babylon compiles)", 
       const scene = new Scene(nullEngine(language));
       const rig = rigOn(scene);
       light({ type: "global" });
-      light({ type: "point", blendStyle: "Rim", normalMaps: true });
+      light({ type: "point", blendStyle: "Rim", normalMaps: "fast" });
       rig.sync(w, LIGHTS_2D_QUALITY.high);
       // Loaded maps (a NullEngine's raw textures never finish loading; the plugin only asks whether they're ready).
       const map = { isReady: () => true } as unknown as Texture;
@@ -132,6 +168,31 @@ describe("the lit layered-quad material (ADR 0225: the text Babylon compiles)", 
       // Before the colour is composed from the diffuse and ambient terms.
       expect(text.fragment.indexOf("myco2DCompose(mycoBase")).toBeLessThan(text.fragment.lastIndexOf("finalAmbient +"));
       expect(text.vertex).toContain("vMycoL2DFrame");
+    });
+  }
+
+  for (const language of ["wgsl", "glsl"] as const) {
+    it(`lights a normal-mapped draw by each accurate light, with its shadow (${language})`, async () => {
+      const w = await world();
+      const scene = new Scene(nullEngine(language));
+      const rig = rigOn(scene);
+      light({ type: "point", normalMaps: "accurate", shadows: true });
+      light({ type: "point", normalMaps: "accurate" }, 3, 0);
+      rig.sync(w, LIGHTS_2D_QUALITY.high);
+      const map = { isReady: () => true } as unknown as Texture;
+      const lit = layeredQuadMaterial("lit", scene, null);
+      lightLayeredQuads(lit, { batch: 0, normal: map, mask: null, greenDown: false });
+      const text = await shaderText(lit);
+      expect(text.defines).toContain("#define MYCO_L2D_ACC 2");
+      expect(text.defines).toContain("#define MYCO_L2D_NORMAL\n");
+      expect(text.fragment).toContain("mycoL2DAcc1_5");
+      expect(text.fragment).toContain("myco2DShadow(mycoUv");
+      // Without a normal map they still light it (they're in no light texture), as if it faced the viewer.
+      const flat = layeredQuadMaterial("flat", scene, null);
+      lightLayeredQuads(flat, { batch: 0, normal: null, mask: null, greenDown: false });
+      const flatText = await shaderText(flat);
+      expect(flatText.defines).toContain("#define MYCO_L2D_ACC 2");
+      expect(flatText.defines).not.toContain("#define MYCO_L2D_NORMAL\n");
     });
   }
 

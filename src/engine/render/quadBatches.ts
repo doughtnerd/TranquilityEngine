@@ -60,9 +60,17 @@ export interface QuadBatch {
    * Call it after the geometry; a new geometry with another vertex count drops it.
    */
   setTangents(tangents: Float32Array | null): void;
+  /**
+   * How its fragments meet what's drawn below (ADR 0409): `"alpha"` (the default) blends over it, `"additive"` adds
+   * colour × alpha to it (a 2D light's volume glow).
+   */
+  setBlend(blend: QuadBlend): void;
   setVisible(visible: boolean): void;
   dispose(): void;
 }
+
+/** A quad batch's blending (`QuadBatch.setBlend`). */
+export type QuadBlend = "alpha" | "additive";
 
 /** A lit batch's lighting (`QuadBatch.setLighting`, ADR 0399). */
 export interface QuadLighting {

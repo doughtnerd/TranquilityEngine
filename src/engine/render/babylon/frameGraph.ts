@@ -208,6 +208,8 @@ interface ViewLights2D {
   shadows: FrameGraphTextureHandle[];
   /** The camera's colour target size (what lit fragments' screen positions divide by). */
   size: [number, number];
+  /** The light and shadow textures' size. */
+  lightSize: [number, number];
   wrapped: Lights2DTextures | null;
 }
 
@@ -217,6 +219,10 @@ export interface Lights2DTextures {
   size: [number, number];
   /** Per layer batch, per style slot: the flat light texture, and the directional colour and direction textures (empty without). */
   batches: { flat: ThinTexture[]; dirColor: ThinTexture[]; dirVec: ThinTexture[] }[];
+  /** The shadow textures (a channel per shadowed light), for accurate lights in the lit material (ADR 0409). */
+  shadows: ThinTexture[];
+  /** The light and shadow textures' size in pixels. */
+  lightSize: [number, number];
 }
 
 /** The frame graph task drawing a camera's 2D shadow and light textures (ADR 0399, 0407) through the rig. */
@@ -432,7 +438,9 @@ export class BabylonFrame {
         if ([...flat, ...dirColor, ...dirVec].some((x) => !x)) return null;
         batches.push({ flat: flat as ThinTexture[], dirColor: dirColor as ThinTexture[], dirVec: dirVec as ThinTexture[] });
       }
-      l.wrapped = { size: l.size, batches };
+      const shadows = l.shadows.map(wrap);
+      if (shadows.some((x) => !x)) return null;
+      l.wrapped = { size: l.size, batches, shadows: shadows as ThinTexture[], lightSize: l.lightSize };
     }
     return l.wrapped;
   }
@@ -623,6 +631,7 @@ export class BabylonFrame {
         dirVec: l.batches.map((b, bi) => (b.directional ? Array.from({ length: b.styles }, (_, s) => make(`light2dDirVec_${bi}_${s}_`, lightType)) : [])),
         shadows: Array.from({ length: l.shadowTextures }, (_, k) => make(`shadow2d_${k}_`, Constants.TEXTURETYPE_UNSIGNED_BYTE)),
         size: [size.width, size.height],
+        lightSize,
         wrapped: null,
       };
       graph.addTask(new FrameGraphLights2DTask(`lights2d${i}`, graph, this.lights2D, v.camera, lights2D, lightSize));

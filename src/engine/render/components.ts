@@ -39,6 +39,10 @@ export class SpriteRenderer extends Component {
 }
 
 export type Light2DType = "global" | "point" | "freeform" | "sprite";
+/** How a 2D light lights normal maps (ADR 0409): not at all, by its batch's averaged direction, or per light (point lights, high tier). */
+export type Light2DNormals = "off" | "fast" | "accurate";
+/** How a 2D light meets the light below it in its light texture (ADR 0409, Unity's overlap operation). */
+export type Light2DOverlap = "additive" | "alphaBlend";
 
 /**
  * A 2D light (ADR 0399): lights the layered 2D draws (sprites, tiles, 2D decals, 2D lines, skinned sprites) whose
@@ -70,10 +74,24 @@ export class Light2D extends Component {
   @field(Number) falloffSize = 0.5;
   /** Sprite: the sprite whose colour and alpha shape the light, at its size (like a SpriteRenderer's). */
   @field(AssetRef, { kind: "sprite" }) sprite = "";
-  /** Light lit sprites' normal maps (their sidecar's `normalMap`, ADR 0401) by direction. Off: flat. */
-  @field(Boolean) normalMaps = false;
+  /**
+   * How it lights lit sprites' normal maps (their sidecar's `normalMap`, ADR 0408). Off: flat. Fast: by the direction of
+   * its layer batch's lights, averaged. Accurate (ADR 0409): per light, for point lights on tiers that allow it (high);
+   * elsewhere as fast.
+   */
+  @field(String, { choices: ["off", "fast", "accurate"] }) normalMaps: Light2DNormals = "off";
   /** With `normalMaps`: the light's height above the sprites' plane, in world units (low: grazing light). */
   @field(Number) height = 1;
+  /**
+   * How it meets the lights below it (ADR 0409): added to them, or blended over them by its own falloff (an alpha blend
+   * light replaces what's under its core). Lights in a texture draw additive first, then alpha blend in scene order.
+   */
+  @field(String, { choices: ["additive", "alphaBlend"] }) overlap: Light2DOverlap = "additive";
+  /**
+   * A visible glow of the light itself (ADR 0409; 0: none): its shape drawn additively over its target layers' sprites,
+   * at this share of its intensity. Not for global lights; unshadowed.
+   */
+  @field(Number) volumeIntensity = 0;
   /** Shadows from ShadowCaster2Ds (ADR 0407). */
   @field(Boolean) shadows = false;
   /** How dark its shadows are, 0 (none) to 1 (no light). */

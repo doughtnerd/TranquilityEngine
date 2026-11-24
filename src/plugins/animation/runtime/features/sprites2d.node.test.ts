@@ -151,6 +151,7 @@ function fakeHost() {
         positions: [], texture: "", matrix: [], visible: false, disposed: false,
         setLighting(l) { (b as { lighting?: unknown }).lighting = l; },
         setTangents(t) { (b as { tangents?: unknown }).tangents = t; },
+        setBlend(m) { (b as { blend?: unknown }).blend = m; },
         setQuads() {},
         setTriangles(texture, positions) { b.texture = texture; b.positions = Array.from(positions); },
         setMatrix(m, offset = 0) { b.matrix = Array.from(m).slice(offset, offset + 16); },

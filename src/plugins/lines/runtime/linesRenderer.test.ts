@@ -32,6 +32,7 @@ function fakeHosts() {
         positions: null, colors: null, texture: "", order: 0, visible: false, disposed: false, matrix: [],
         setLighting(l) { (b as { lighting?: unknown }).lighting = l; },
         setTangents(t) { (b as { tangents?: unknown }).tangents = t; },
+        setBlend(m) { (b as { blend?: unknown }).blend = m; },
         setQuads() {},
         setTriangles(t, p) { b.texture = t; b.positions = p; },
         setColors(c) { b.colors = c; },

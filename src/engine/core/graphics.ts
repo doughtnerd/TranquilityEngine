@@ -65,11 +65,16 @@ export interface Lights2DLimits {
   readonly normalMaps: boolean;
   /** Layer batches per camera before the highest merge with the one below. */
   readonly layerBatches: number;
+  /**
+   * Point lights per layer batch whose normal maps light accurately (ADR 0409: per light N·L in the lit material);
+   * further accurate lights, and every one where this is 0, light as `"fast"`.
+   */
+  readonly accurateLights: number;
 }
 export const LIGHTS_2D_QUALITY: Record<Lights2DQuality, Lights2DLimits> = {
-  low: { textureScale: 0.25, shadowedLights: 4, softShadows: false, normalMaps: false, layerBatches: 2 },
-  medium: { textureScale: 0.5, shadowedLights: 8, softShadows: true, normalMaps: true, layerBatches: 4 },
-  high: { textureScale: 0.5, shadowedLights: 16, softShadows: true, normalMaps: true, layerBatches: 8 },
+  low: { textureScale: 0.25, shadowedLights: 4, softShadows: false, normalMaps: false, layerBatches: 2, accurateLights: 0 },
+  medium: { textureScale: 0.5, shadowedLights: 8, softShadows: true, normalMaps: true, layerBatches: 4, accurateLights: 0 },
+  high: { textureScale: 0.5, shadowedLights: 16, softShadows: true, normalMaps: true, layerBatches: 8, accurateLights: 8 },
 };
 
 /** One quality tier. */

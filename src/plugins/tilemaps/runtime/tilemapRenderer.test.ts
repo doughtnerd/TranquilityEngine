@@ -29,6 +29,7 @@ function fakeHost() {
         name, texture: "", quads: 0, extent: [0, 0], order: 0, tint: ["", 0], visible: false, matrix: [], disposed: false,
         setLighting(l) { (b as { lighting?: unknown }).lighting = l; },
         setTangents(t) { (b as { tangents?: unknown }).tangents = t; },
+        setBlend(m) { (b as { blend?: unknown }).blend = m; },
         setQuads(texture, positions, _uv, indices) {
           b.texture = texture;
           b.quads = indices.length / 6;

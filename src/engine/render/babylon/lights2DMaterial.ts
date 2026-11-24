@@ -19,7 +19,8 @@ import type { SubMesh } from "@babylonjs/core/Meshes/subMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { LIGHT2D_SHADER } from "../lights2D/lightShader";
 import { lights2DTextures } from "./frameGraph";
-import { lights2DOf } from "./lights2D";
+import { ACCURATE_FLOATS, lights2DOf } from "./lights2D";
+import { SHADOW2D_LOOKUP } from "./lights2DShaders";
 import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 
 /** A lit 2D draw's setup: its layer batch, and its sprite texture's normal and mask maps. */
@@ -35,6 +36,11 @@ export interface LitQuadSetup {
 export const TANGENT_2D_ATTRIBUTE = "mycoTangent";
 
 const SLOTS = [0, 1, 2, 3] as const;
+/** At most this many accurate lights per batch (the high tier's cap, `LIGHTS_2D_QUALITY.high.accurateLights`). */
+const MAX_ACCURATE = 8;
+const ACCURATE = Array.from({ length: MAX_ACCURATE }, (_, i) => i);
+const ACC_VECS = ACCURATE_FLOATS / 4;
+const accName = (i: number, k: number) => `mycoL2DAcc${i}_${k}`;
 const MASK_CHANNEL = { none: -1, r: 0, g: 1, b: 2, a: 3 } as const;
 
 function vertexCode(wgsl: boolean): { [point: string]: string } {
@@ -89,6 +95,27 @@ function fragmentCode(wgsl: boolean): { [point: string]: string } {
       "}",
       "#endif",
     ].join("\n");
+  const world = wgsl ? "fragmentInputs.vPositionW.xy" : "vPositionW.xy";
+  const f32 = wgsl ? "f32" : "float";
+  // An accurate light (ADR 0409): its attenuation, shadow and N·L at this fragment, into its blend style's sums.
+  const accurate = (i: number) =>
+    [
+      `#if MYCO_L2D_ACC > ${i}`,
+      "{",
+      decl("vec4", "mycoA", u(accName(i, 0))),
+      decl("vec4", "mycoB", u(accName(i, 1))),
+      decl("vec4", "mycoC", u(accName(i, 2))),
+      decl("vec2", "mycoD", `${world} - mycoA.xy`),
+      decl("vec2", "mycoLocal", `${wgsl ? "vec2f" : "vec2"}(mycoB.x * mycoD.x + mycoB.z * mycoD.y, mycoB.y * mycoD.x + mycoB.w * mycoD.y)`),
+      decl("float", "mycoK", `myco2DPointAtten(mycoLocal, ${u(accName(i, 3))}, mycoC.x)`).replace("float", f32),
+      `if (mycoA.w > -0.5) { mycoK = mycoK * (1.0 - mycoC.y * myco2DShadow(mycoUv, mycoA.w, ${u("mycoL2DShadowTexel")}.xy, mycoC.z)); }`,
+      decl("vec3", "mycoLa", `${u(accName(i, 4))}.rgb * (max(mycoK, 0.0) * max(dot(mycoN, myco2DLightDir(mycoA.xy, mycoA.z, ${world})), 0.0))`),
+      decl("float", "mycoMa", `myco2DMask(mycoMask, mycoC.w)`).replace("float", f32),
+      `mycoMul = mycoMul + mycoLa * (mycoMa * ${u(accName(i, 5))}.x);`,
+      `mycoAdd = mycoAdd + mycoLa * (mycoMa * ${u(accName(i, 5))}.y);`,
+      "}",
+      "#endif",
+    ].join("\n");
   return {
     CUSTOM_FRAGMENT_DEFINITIONS: [
       "#ifdef MYCO_L2D",
@@ -101,6 +128,9 @@ function fragmentCode(wgsl: boolean): { [point: string]: string } {
       sampler("mycoL2DMask"),
       "#endif",
       LIGHT2D_SHADER.text(wgsl ? "wgsl" : "glsl"),
+      "#if MYCO_L2D_ACC > 0",
+      SHADOW2D_LOOKUP.text(wgsl ? "wgsl" : "glsl"),
+      "#endif",
       "#endif",
     ].join("\n"),
     CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION: [
@@ -121,6 +151,7 @@ function fragmentCode(wgsl: boolean): { [point: string]: string } {
       decl("vec3", "mycoMul", wgsl ? "vec3f(0.0)" : "vec3(0.0)"),
       decl("vec3", "mycoAdd", wgsl ? "vec3f(0.0)" : "vec3(0.0)"),
       ...SLOTS.map(style),
+      ...ACCURATE.map(accurate),
       decl("vec3", "mycoBase", "finalAmbient + finalDiffuse"),
       `finalAmbient = ${wgsl ? "vec3f(0.0)" : "vec3(0.0)"};`,
       "finalDiffuse = myco2DCompose(mycoBase, mycoMul, mycoAdd);",
@@ -138,7 +169,7 @@ export class Light2DPlugin extends MycoMaterialPlugin {
     material: PBRMaterial,
     readonly setup: LitQuadSetup,
   ) {
-    super(material, "MycoLight2D", 220, { MYCO_L2D: false, MYCO_L2D_STYLES: 1, MYCO_L2D_DIR: false, MYCO_L2D_NORMAL: false, MYCO_L2D_MASK: false, MYCO_L2D_TANGENT: false });
+    super(material, "MycoLight2D", 220, { MYCO_L2D: false, MYCO_L2D_STYLES: 1, MYCO_L2D_DIR: false, MYCO_L2D_NORMAL: false, MYCO_L2D_MASK: false, MYCO_L2D_TANGENT: false, MYCO_L2D_ACC: 0 });
     this.register();
   }
 
@@ -152,10 +183,14 @@ export class Light2DPlugin extends MycoMaterialPlugin {
     defines.MYCO_L2D = this.lit;
     defines.MYCO_L2D_STYLES = b ? Math.min(4, Math.max(1, b.styles.length)) : 1;
     defines.MYCO_L2D_DIR = !!b?.directional;
-    defines.MYCO_L2D_NORMAL = !!b?.directional && !!this.setup.normal;
+    // Accurate lights (ADR 0409) are in no light texture: every lit draw adds them, a draw without a normal map facing the viewer.
+    const acc = b ? Math.min(MAX_ACCURATE, b.accurate.length / ACCURATE_FLOATS) : 0;
+    defines.MYCO_L2D_ACC = acc;
+    const normals = (!!b?.directional || acc > 0) && !!this.setup.normal;
+    defines.MYCO_L2D_NORMAL = normals;
     const rig = lights2DOf(scene);
     defines.MYCO_L2D_MASK = !!this.setup.mask && !!b?.styles.some((s) => rig?.style(s).mask !== "none");
-    defines.MYCO_L2D_TANGENT = !!b?.directional && !!this.setup.normal && !!mesh?.isVerticesDataPresent(TANGENT_2D_ATTRIBUTE);
+    defines.MYCO_L2D_TANGENT = normals && !!mesh?.isVerticesDataPresent(TANGENT_2D_ATTRIBUTE);
   }
 
   override getAttributes(attributes: string[], _scene: Scene, mesh: AbstractMesh): void {
@@ -164,11 +199,19 @@ export class Light2DPlugin extends MycoMaterialPlugin {
 
   override getSamplers(samplers: string[]): void {
     for (const i of SLOTS) samplers.push(`mycoL2DFlat${i}`, `mycoL2DDirColor${i}`, `mycoL2DDirVec${i}`);
-    samplers.push("mycoL2DNormal", "mycoL2DMask");
+    samplers.push("mycoL2DNormal", "mycoL2DMask", "l2dShadow0", "l2dShadow1", "l2dShadow2", "l2dShadow3");
   }
 
   override getUniforms(): { ubo: { name: string; size: number; type: string }[]; fragment: string } {
-    return { ubo: [{ name: "mycoL2DScreen", size: 4, type: "vec4" }, ...SLOTS.map((i) => ({ name: `mycoL2DStyle${i}`, size: 4, type: "vec4" }))], fragment: "" };
+    return {
+      ubo: [
+        { name: "mycoL2DScreen", size: 4, type: "vec4" },
+        ...SLOTS.map((i) => ({ name: `mycoL2DStyle${i}`, size: 4, type: "vec4" })),
+        { name: "mycoL2DShadowTexel", size: 4, type: "vec4" },
+        ...ACCURATE.flatMap((i) => Array.from({ length: ACC_VECS }, (_, k) => ({ name: accName(i, k), size: 4, type: "vec4" }))),
+      ],
+      fragment: "",
+    };
   }
 
   override isReadyForSubMesh(): boolean {
@@ -215,6 +258,19 @@ export class Light2DPlugin extends MycoMaterialPlugin {
         setTexture(`mycoL2DDirColor${i}`, views?.dirColor[i] ?? black);
         setTexture(`mycoL2DDirVec${i}`, views?.dirVec[i] ?? black);
       }
+    }
+    // Accurate lights (ADR 0409): their uniforms, and the shadow textures their slots read.
+    const acc = Math.min(MAX_ACCURATE, b.accurate.length / ACCURATE_FLOATS);
+    if (acc > 0) {
+      const ls = textures?.lightSize ?? [w, h];
+      ubo.updateFloat4("mycoL2DShadowTexel", 1 / Math.max(1, ls[0]), 1 / Math.max(1, ls[1]), 0, 0);
+      for (let i = 0; i < acc; i++)
+        for (let k = 0; k < ACC_VECS; k++) {
+          const o = i * ACCURATE_FLOATS + k * 4;
+          const a = b.accurate;
+          ubo.updateFloat4(accName(i, k), a[o]!, a[o + 1]!, a[o + 2]!, a[o + 3]!);
+        }
+      for (let k = 0; k < 4; k++) setTexture(`l2dShadow${k}`, textures?.shadows[k] ?? black);
     }
     if (this.setup.normal) setTexture("mycoL2DNormal", this.setup.normal);
     if (this.setup.mask) setTexture("mycoL2DMask", this.setup.mask);

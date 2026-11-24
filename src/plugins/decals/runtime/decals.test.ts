@@ -34,6 +34,7 @@ function fakeHosts() {
         texture: "", positions: new Float32Array(), colors: null, mask: null, order: 0, disposed: false,
         setLighting(l) { (b as { lighting?: unknown }).lighting = l; },
         setTangents(t) { (b as { tangents?: unknown }).tangents = t; },
+        setBlend(m) { (b as { blend?: unknown }).blend = m; },
         setQuads() {},
         setTriangles(t, p) { b.texture = t; b.positions = p; },
         setColors(c) { b.colors = c; },
