@@ -1,6 +1,6 @@
 # 0400. 2D shadow casters extrude outline edges away from each shadowed light into a shadow texture channel; outlines come from colliders, tilemaps or sprite outlines
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-24
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -1,6 +1,6 @@
 # 0399. 2D lights draw into screen-space light textures per blend style and sorting-layer batch, which one lit layered-quad material reads for every 2D draw
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-24
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

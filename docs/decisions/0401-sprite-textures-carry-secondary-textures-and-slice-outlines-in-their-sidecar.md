@@ -1,6 +1,6 @@
 # 0401. Sprite textures carry secondary textures (normal map, mask map) and per-slice outlines in their sidecar, edited in the Sprite Editor
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-24
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
