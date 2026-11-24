@@ -4,7 +4,8 @@ mod gamepad;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WindowEvent};
+use tauri::{AppHandle, DragDropEvent, Manager, WebviewUrl, WebviewWindow, WindowEvent};
+use tauri_plugin_fs::FsExt;
 
 /// The editor window's label (tauri.conf.json, the capabilities, `EDITOR_WINDOW` in editorWindowStart.ts).
 const EDITOR_WINDOW: &str = "main";
@@ -216,6 +217,17 @@ pub fn run() {
                         if !editor_showing {
                             let _ = projects.show();
                             let _ = projects.set_focus();
+                        }
+                    }
+                }
+                // ADR 0407: a take file dropped on the launcher joins Recorded takes and opens as a takes workspace of
+                // its folder, which lists the folder and writes the take's notes beside it. The fs plugin scopes only
+                // the dropped file, so its folder (not below it) is allowed too; persisted-scope keeps it.
+                ("projects", WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. })) => {
+                    for path in paths {
+                        let is_take = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("mycotake"));
+                        if let (true, Some(folder)) = (is_take && path.is_file(), path.parent()) {
+                            let _ = window.app_handle().fs_scope().allow_directory(folder, false);
                         }
                     }
                 }

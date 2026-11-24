@@ -17,13 +17,21 @@ import { AppProjectsLayout } from "../../editor/ui/appProjects/AppProjectsLayout
 import { openedWhen, searchRows } from "../../editor/ui/appProjects/appProjectsLogic";
 import { ProjectsTab } from "../../editor/ui/appProjects/ProjectsTab";
 import { ProjectTabs, TabPanel } from "../../editor/ui/appProjects/ProjectTabs";
-import { formatTakeLength, listRecentTakes, readTakeSummary, type RecentTake } from "./recentTakes";
+import { ContextMenu, type MenuEntry } from "../../editor/ui/ContextMenu";
+import { addedTakes, chooseTakesFolder, forgetTake, resetTakesFolder, takesFolder, takesFolderIsDefault } from "../takesFolder";
+import { formatTakeLength, listAllTakes, readTakeSummary, type RecentTake } from "./recentTakes";
 import "./biosonic.css";
 
 type Tab = "projects" | "takes";
 
 const tab = signal<Tab>("projects");
-/** The takes found in the recent projects (null until listed; listed again when the list of projects changes). */
+
+/** Shows the Recorded takes tab (the launcher does it after take files are dropped on it). */
+export function showRecordedTakes(): void {
+  tab.value = "takes";
+}
+
+/** The takes found in the recent projects, the takes folder and the added files (null until listed; listed again when any of them changes). */
 const takes = signal<RecentTake[] | null>(null);
 let listedFor = "";
 
@@ -32,39 +40,66 @@ async function listTakes(key: string): Promise<void> {
   listedFor = key;
   takes.value = null;
   const fs = await projectFileSystem();
-  const list = fs ? await listRecentTakes(recentProjects().list(), fs, readTakeSummary) : [];
+  const list = fs ? await listAllTakes(recentProjects().list(), takesFolder.peek(), addedTakes.peek(), fs, readTakeSummary) : [];
   if (listedFor === key) takes.value = list;
+}
+
+const takeKey = (t: RecentTake) => t.file.toLowerCase();
+
+/** The take's badge: "Project" (beside its project's name) or "Recording" (a take outside any project). */
+function TakeBadge(props: { readonly take: RecentTake }) {
+  return <span class={`bs-badge ${props.take.kind}`}>{props.take.kind === "project" ? "Project" : "Recording"}</span>;
 }
 
 const recorded = (t: RecentTake) => (t.recordedMs === null ? "date unknown" : openedWhen(t.recordedMs));
 
 function TakesTab(props: { readonly onOpenTake?: (take: RecentTake) => void }) {
   const version = recentProjects().version.value;
-  const key = `${version}:${recentProjects().list().map((e) => e.id).join()}`;
+  const folder = takesFolder.value;
+  const key = `${version}:${recentProjects().list().map((e) => e.id).join()}:${folder ?? ""}:${addedTakes.value.join("|")}`;
   useEffect(() => void listTakes(key).catch((err) => (console.warn("[biosonic] couldn't list the recorded takes:", err), (takes.value = []))), [key]);
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ take: RecentTake; at: Element } | null>(null);
   const list = takes.value;
   const open = props.onOpenTake;
   const openTake = (t: RecentTake) => {
     if (!open) return;
-    setBusy(t.path + t.project.id);
+    setBusy(takeKey(t));
     Promise.resolve(open(t)).finally(() => setBusy(null));
   };
-  const found = list ? searchRows(list, query, (t) => ({ name: t.name, where: `${t.project.name} ${t.path}` })) : [];
+  const found = list ? searchRows(list, query, (t) => ({ name: t.name, where: `${t.kind === "project" ? t.project.name : "recording"} ${t.file}` })) : [];
   const searching = query.trim() !== "";
   const [latest, ...rest] = found;
   const listed = searching ? found : rest;
-  const openButton = (t: RecentTake, cls: string) => (
-    <button type="button" class={cls} aria-label={`Open take ${t.name}`} disabled={!open || busy !== null} title={open ? `Open ${t.path} in ${t.project.name}` : "Takes open in the desktop app"} onClick={() => openTake(t)}>
-      {busy === t.path + t.project.id ? "Opening…" : "Open Take"}
+  const moreButton = (t: RecentTake) => (
+    <button type="button" class="ap-more" aria-label={`More actions for ${t.name}`} aria-haspopup="menu" onClick={(ev) => setMenu({ take: t, at: ev.currentTarget })}>
+      ⋯
     </button>
   );
+  const openButton = (t: RecentTake, cls: string) => (
+    <button type="button" class={cls} aria-label={`Open take ${t.name}`} disabled={!open || busy !== null} title={open ? (t.kind === "project" ? `Open ${t.path} in ${t.project.name}` : `Open ${t.file}`) : "Takes open in the desktop app"} onClick={() => openTake(t)}>
+      {busy === takeKey(t) ? "Opening…" : "Open Take"}
+    </button>
+  );
+
+  const menuEntries = (t: RecentTake): MenuEntry[] => [
+    { kind: "group", label: t.file },
+    {
+      id: "reveal",
+      label: "Open Folder Location",
+      run: () =>
+        void projectFileSystem()
+          .then((fs) => fs?.reveal?.(t.file))
+          .catch((err) => console.warn("[biosonic] couldn't reveal the take:", err)),
+    },
+    ...(t.kind === "recording" && addedTakes.value.some((p) => p.toLowerCase() === t.file.toLowerCase()) ? [{ id: "forget", label: "Remove from list", title: "The file stays where it is", run: () => forgetTake(t.file) }] : []),
+  ];
 
   return (
     <div class="ap-stack">
       <div class="ap-toolbar">
-        <p class="ap-note">Open a take straight from any of your recent projects.</p>
+        <p class="ap-note">Open a take from your recent projects or the takes folder. Drop a .mycotake file here to add it.</p>
         <div class="ap-searchwrap">
           <input class="ap-search" type="search" placeholder="Search takes" aria-label="Search takes" value={query} disabled={!list || list.length === 0} onInput={(e) => setQuery(e.currentTarget.value)} />
         </div>
@@ -75,7 +110,7 @@ function TakesTab(props: { readonly onOpenTake?: (take: RecentTake) => void }) {
         ) : list === null ? (
           <p class="ap-note">Looking for takes…</p>
         ) : list.length === 0 ? (
-          <p class="ap-note">No takes yet. Record one from the editor's Play toolbar (Record take), and it shows here.</p>
+          <p class="ap-note">No takes yet. Record one from the editor's Play toolbar (Record take) or a live session, or drop a .mycotake file on this window.</p>
         ) : (
           <>
             {!searching && latest && (
@@ -86,12 +121,15 @@ function TakesTab(props: { readonly onOpenTake?: (take: RecentTake) => void }) {
                 <div class="ap-hero">
                   <div class="ap-hero-text">
                     <p class="ap-hero-name">{latest.name}</p>
-                    <p class="ap-meta">From {latest.project.name}</p>
+                    <p class="ap-meta">
+                      <TakeBadge take={latest} /> {latest.kind === "project" ? `From ${latest.project.name}` : "Not in a project"}
+                    </p>
                     <p class="ap-meta">
                       <span class="ap-mono">{formatTakeLength(latest.seconds)}</span> · Recorded {recorded(latest)}
                     </p>
                   </div>
                   {openButton(latest, "ap-primary ap-big")}
+                  {moreButton(latest)}
                 </div>
               </section>
             )}
@@ -108,17 +146,18 @@ function TakesTab(props: { readonly onOpenTake?: (take: RecentTake) => void }) {
                 ) : (
                   <ul class="ap-rows" aria-label="Recorded takes">
                     {listed.map((t) => (
-                      <li key={t.project.id + t.path} class="ap-row">
+                      <li key={takeKey(t)} class="ap-row">
                         <div class="ap-row-text">
                           <span class="ap-row-name">{t.name}</span>
-                          <span class="ap-meta ap-ellipsis" title={t.path}>
-                            {t.project.name}
+                          <span class="ap-meta ap-ellipsis" title={t.file}>
+                            <TakeBadge take={t} /> {t.kind === "project" ? t.project.name : t.path}
                           </span>
                         </div>
                         <span class="ap-row-meta">
                           <span class="ap-mono">{formatTakeLength(t.seconds)}</span> · {recorded(t)}
                         </span>
                         {openButton(t, "ap-button")}
+                        {moreButton(t)}
                       </li>
                     ))}
                   </ul>
@@ -128,7 +167,34 @@ function TakesTab(props: { readonly onOpenTake?: (take: RecentTake) => void }) {
           </>
         )}
       </div>
+      {menu && <ContextMenu entries={menuEntries(menu.take)} at={menu.at} label={`${menu.take.name} menu`} class="bs-take-menu" onClose={() => setMenu(null)} />}
     </div>
+  );
+}
+
+/** "Takes save to <folder>" with Change… and Use default; hidden where there's no takes folder (a browser). */
+function TakesFolderLine() {
+  const folder = takesFolder.value;
+  if (folder === null) return null;
+  const change = () =>
+    void projectFileSystem()
+      .then((fs) => (fs ? chooseTakesFolder(fs) : null))
+      .catch((err) => console.warn("[biosonic] couldn't choose the takes folder:", err));
+  return (
+    <p class="bs-folder">
+      <span class="bs-folder-label">Takes save to</span>
+      <span class="bs-folder-path ap-mono" title={folder}>
+        {folder}
+      </span>
+      <button type="button" class="bs-folder-button" onClick={change}>
+        Change…
+      </button>
+      {!takesFolderIsDefault.value && (
+        <button type="button" class="bs-folder-button" onClick={resetTakesFolder}>
+          Use default
+        </button>
+      )}
+    </p>
   );
 }
 
@@ -159,8 +225,9 @@ export function BiosonicProjectsScreen(props: BiosonicProjectsScreenProps) {
             Live session
           </h2>
           <p class="bs-live-copy" role="status">
-            {props.connected ? `Connected to ${props.connected}. Open a project to record takes from it.` : "Connect to a running debug build of your game to record takes and profile its audio."}
+            {props.connected ? `Connected to ${props.connected}.` : "Connect to a running debug build of your game to record takes and profile its audio."}
           </p>
+          <TakesFolderLine />
         </div>
         <button type="button" class="bs-live-button" disabled={!props.onConnect} title={props.onConnect ? "Connect by the code the game shows, its address, or a build found on your network" : "Connecting needs the Audio Studio"} onClick={props.onConnect}>
           {props.connected ? "Connect Another…" : "Connect to Game…"}

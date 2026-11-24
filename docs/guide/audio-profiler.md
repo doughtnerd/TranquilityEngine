@@ -53,7 +53,7 @@ Loudness tracks (the meters themselves, targets and the verdicts are in [Loudnes
 
 A recording survives Stop of Play once, so you can press Stop and then Save. Save with nothing recorded fails with "nothing recorded: call Audio.capture.start() first".
 
-Where the file goes: on the web a download (`<name>.mycap`); in the desktop and Android apps the app-data `cache` folder as `<name>.mycap.bin` (the desktop's path is shown in the bar when it is saved). The Profiler opens either as it is, with no rename.
+Where the file goes: on the web a download (`<name>.mycap`); in the desktop and Android apps the app data folder's `captures/` as `<name>.mycap` (the desktop's path is shown in the bar when it is saved). Builds before ADR 0407 saved `cache/<name>.mycap.bin`, which the Profiler still opens as it is.
 
 ## Capturing from a game script
 
@@ -104,14 +104,14 @@ There is no Android export target yet (ADR 0155's `--target android` is not impl
 
 A browser stops at 16 saves per page session (a toast says so); reload the page to record again, since a browser can't delete its own downloads.
 
-**A Tauri app** (the desktop export's Tauri project, or an Android Tauri build) saves into its private data folder instead, as `cache/capture-YYYYMMDD-HHMMSS.mycap.bin`, and keeps the newest 16 auto-named files, deleting the oldest (a file you named yourself is never deleted). On a debuggable build, find the file and pull it:
+**A Tauri app** (the desktop export's Tauri project, or an Android Tauri build) saves into its private data folder instead, as `captures/capture-YYYYMMDD-HHMMSS.mycap`, and keeps the newest 16 auto-named files, deleting the oldest (a file you named yourself is never deleted). On a debuggable build, find the file and pull it:
 
 ```sh
-adb shell run-as <package id> find . -name "*.mycap.bin"
-adb exec-out run-as <package id> cat files/cache/<name>.mycap.bin > <name>.mycap.bin
+adb shell run-as <package id> find . -name "*.mycap"
+adb exec-out run-as <package id> cat files/captures/<name>.mycap > <name>.mycap
 ```
 
-The exact data folder depends on the build, which is why the first command looks for it. Open the pulled file as it is: the Profiler accepts `.mycap.bin`.
+The exact data folder depends on the build, which is why the first command looks for it. Open the pulled file as it is.
 
 What a phone can and can't tell you: an emulator's audio runs through your computer and its timing is not a device's, so use it for the trigger, the file and the load, and use a real phone for CPU figures and for how much recording costs.
 

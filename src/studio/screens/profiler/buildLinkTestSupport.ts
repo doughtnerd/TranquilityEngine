@@ -56,7 +56,7 @@ export async function linkedBuild(chunk: CaptureChunkControl, name = "Smoke game
   chunk.options = { ringBytes: 8 * MiB, codec: keyframeCodecForTests() };
   const env: SaveEnv = {
     tauri: false,
-    storage: { save: async () => {}, list: async () => [], delete: async () => {} },
+    fs: { mkdir: async () => {}, write: async () => {}, list: async () => [], remove: async () => {} },
     storageRoot: async () => "/data/app",
     download: () => {},
     compress: defaultSaveEnv().compress,

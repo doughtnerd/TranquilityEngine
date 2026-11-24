@@ -4,7 +4,7 @@
 // build and the time. A refusal, the link closing mid-upload and a read-only project each fail with why.
 import { effect } from "@preact/signals";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { joinPath, openFolderProject, type EditorProject } from "../../../editor/projects";
+import { isTakesFolder, joinPath, openFolderProject, openTakesFolder, type EditorProject } from "../../../editor/projects";
 import { currentProject } from "../../../editor/state";
 import { MemoryFileSystem, ROOT } from "../../../editor/testing";
 import { Audio } from "../../../plugins/audio/runtime/Audio";
@@ -156,5 +156,66 @@ describe("a build take's name", () => {
     expect(buildTakeName("Smoke game", WHEN)).toBe("smoke-game_2026-11-22_10-15-00.mycotake");
     expect(buildTakeName("  Flappy: Canyon *Run*!  ", new Date(2026, 0, 5, 7, 8, 9))).toBe("flappy-canyon-run_2026-01-05_07-08-09.mycotake");
     expect(buildTakeName("???", WHEN)).toBe("build_2026-11-22_10-15-00.mycotake");
+  });
+});
+
+describe("a take the game starts and stops (ADR 0407)", () => {
+  async function watched(autoSave: boolean) {
+    const build: LinkedBuild = await linkedBuild(chunk);
+    undo.push(() => build.dispose());
+    const saved: [string, boolean][] = [];
+    const rec = new BuildTakeRecorder({ name: "Smoke game", peer: build.peer }, { write: (name, bytes) => saveTakeIntoProject(project, name, bytes), now: () => WHEN, autoSave: () => autoSave, saved: (p, auto) => void saved.push([p, auto]) });
+    undo.push(() => rec.dispose());
+    rec.watch();
+    return { build, rec, saved };
+  }
+
+  it("shows the game's take as recording and saves it into takes/ when the game stops it", async () => {
+    const { build, rec, saved } = await watched(true);
+    await build.until(() => true, 50);
+    await Audio.take.start(); // the game (F10, or its script)
+    await build.until(() => rec.state.value.kind === "recording", 2000);
+    record(build, 6_000);
+    Audio.take.stop();
+    await build.until(() => rec.state.value.kind === "saved" || rec.state.value.kind === "failed", 4000);
+    expect(rec.state.value).toEqual({ kind: "saved", path: NAME });
+    expect(saved).toEqual([[NAME, true]]);
+    expect(project.files).toContain(NAME);
+  });
+
+  it("waits, stopped, for Save where saving needs a press (a browser's save dialog)", async () => {
+    const { build, rec, saved } = await watched(false);
+    await Audio.take.start();
+    await build.until(() => rec.state.value.kind === "recording", 2000);
+    record(build, 3_000);
+    Audio.take.stop();
+    await build.until(() => rec.state.value.kind === "stopped", 2000);
+    expect(saved).toEqual([]);
+    expect(project.files).not.toContain(NAME);
+  });
+});
+
+describe("a take saved into a takes folder workspace (ADR 0407)", () => {
+  it("goes into the folder itself, not a takes/ inside it, and the workspace lists it", async () => {
+    const folder = joinPath(ROOT, "my-takes");
+    const workspace = await openTakesFolder(fs, folder);
+    expect(isTakesFolder(workspace)).toBe(true);
+    expect(isTakesFolder(project)).toBe(false);
+    const path = await saveTakeIntoProject(workspace, "a.mycotake", new Uint8Array([1, 2, 3]));
+    expect(path).toBe("a.mycotake");
+    expect(fs.files.get(joinPath(folder, "a.mycotake"))).toEqual(new Uint8Array([1, 2, 3]));
+    expect(workspace.files).toContain("a.mycotake");
+  });
+
+  it("opens a folder of takes with no project.json, loading only takes, notes and captures", async () => {
+    const folder = joinPath(ROOT, "loose");
+    fs.files.set(joinPath(folder, "run.mycotake"), new Uint8Array([9]));
+    fs.files.set(joinPath(folder, "run.mycotake.notes.json"), "{}");
+    fs.files.set(joinPath(folder, "old/cap.mycap"), new Uint8Array([7]));
+    fs.files.set(joinPath(folder, "readme.txt"), "hi");
+    const workspace = await openTakesFolder(fs, folder);
+    expect([...workspace.files].sort()).toEqual(["old/cap.mycap", "run.mycotake", "run.mycotake.notes.json"]);
+    expect(workspace.name).toBe("loose");
+    expect(workspace.canSave).toBe(true);
   });
 });

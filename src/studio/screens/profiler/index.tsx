@@ -84,15 +84,32 @@ const GROUPS = [
 /** ADR 0403 (plan U5): the live view of the build chosen in `studioBuild`; a build that left keeps it to show why it ended. */
 const buildFollow = signal<BuildFollow | null>(null);
 
+/** ADR 0407: follow the connected build as soon as the Profiler has it (connecting opens the Profiler live). */
+let followWhenShown = false;
+
+/** Ask the Profiler to follow the connected build's live capture as soon as it shows (now, if it does). */
+export function followBuildWhenShown(): void {
+  followWhenShown = true;
+  startPendingFollow();
+}
+
+function startPendingFollow(): void {
+  const follow = buildFollow.peek();
+  if (!followWhenShown || !follow || !studioBuild.peek() || follow.build.peer !== studioBuild.peek()?.peer) return;
+  followWhenShown = false;
+  void follow.start();
+}
+
 /** Follows `studioBuild`: one `BuildFollow` per chosen build; a build whose link closed ends its follow with why. */
 function watchStudioBuild(): () => void {
   return effect(() => {
     const build = studioBuild.value;
     const current = buildFollow.peek();
-    if (current && current.build.peer === build?.peer) return;
+    if (current && current.build.peer === build?.peer) return startPendingFollow();
     if (current && current.build.peer.state === "closed") current.linkClosed(current.build.peer.closedReason);
     if (build || current?.state.peek().kind !== "ended") current?.dispose();
     buildFollow.value = build ? new BuildFollow(build, { store: profilerStore() }) : current?.state.peek().kind === "ended" ? current : null;
+    startPendingFollow();
   });
 }
 

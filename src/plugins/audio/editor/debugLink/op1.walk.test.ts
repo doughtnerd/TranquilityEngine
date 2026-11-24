@@ -66,7 +66,7 @@ async function build() {
   const downloads: { bytes: Uint8Array; fileName: string }[] = [];
   const env: SaveEnv = {
     tauri: false,
-    storage: { save: async () => {}, list: async () => [], delete: async () => {} },
+    fs: { mkdir: async () => {}, write: async () => {}, list: async () => [], remove: async () => {} },
     storageRoot: async () => "/data/app",
     download: (bytes, fileName) => void downloads.push({ bytes, fileName }),
     compress: defaultSaveEnv().compress,
