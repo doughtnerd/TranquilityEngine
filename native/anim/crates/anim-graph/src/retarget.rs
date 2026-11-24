@@ -48,7 +48,9 @@ use anim_pose::root::RootDelta;
 use anim_retarget::{RetargetMap, RetargetOptions, RetargetScratch, RootAxis};
 
 use crate::dispatch::NodeStatus;
-use crate::eval::{lerp_into, EvalContext, GraphRef, NodeData, Phase, Program, SkeletonPose};
+use crate::eval::{
+    lerp_into, Assets, EvalContext, GraphRef, NodeData, Phase, Program, SkeletonPose,
+};
 
 /// The family's node kinds.
 pub mod kind {
@@ -148,6 +150,51 @@ fn fits(words: &[u32], graph: &Program, groups: usize) -> bool {
     graph.state_words(groups) <= cap as usize
         && graph.pose_slots() <= 4 + 3 * depth as usize
         && graph.param_count() <= params as usize
+}
+
+/// Whether node `node`'s state words (a restored snapshot's) hold only what the evaluator can run:
+/// the parameter map, and a source graph that fits the node, whose own blob is checked in turn.
+pub(crate) fn check_state(
+    program: &Program,
+    node: u32,
+    kind: u16,
+    s: &[u32],
+    assets: &dyn Assets,
+) -> bool {
+    if kind != kind::RETARGET {
+        return true;
+    }
+    let Some(words) = program.node_params(node) else {
+        return false;
+    };
+    let (_, _, pcap) = caps(words);
+    let blob = state::PARAM_MAP + pcap as usize;
+    if s.len() < blob {
+        return false;
+    }
+    let map_count = s[state::MAP_COUNT] as usize;
+    if map_count > pcap as usize
+        || s[state::PARAM_MAP..state::PARAM_MAP + map_count]
+            .iter()
+            .any(|&o| o != NONE && o as usize >= program.param_count())
+    {
+        return false;
+    }
+    if s[state::GRAPH] == 0 {
+        return true;
+    }
+    // Nothing runs unless both resolve; when they do, the graph must be one the node could run.
+    let (Some(graph), Some(r)) = (
+        assets.graph(s[state::GRAPH]),
+        assets.retarget(s[state::MAP]),
+    ) else {
+        return true;
+    };
+    let (inner, groups) = (graph.program, r.source.groups());
+    map_count <= inner.param_count()
+        && fits(words, inner, groups)
+        && s.get(blob..blob + inner.state_words(groups))
+            .is_some_and(|blob| inner.check_state(blob, groups, assets))
 }
 
 /// Evaluates a node of this family. Called only by [`crate::dispatch`].

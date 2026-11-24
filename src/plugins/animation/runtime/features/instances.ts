@@ -107,6 +107,7 @@ export interface AnimatorRuntime {
   readonly layers: (PlayRecord | null)[];
   /** The latest play (`onFinished`). */
   latest: PlayRecord | null;
+  /** Clips by the skeleton they were bound to and path (`clipKey`). */
   readonly clips: Map<string, ClipEntry>;
   detached: boolean;
 }
@@ -202,10 +203,17 @@ async function acquireResolved<I>(ns: AnimationWorldCore, resolved: ResolvedAsse
   return { handle, info: (info as I | null) ?? null };
 }
 
-/** The skeleton an Animator's clips bind to (ADR 0371: bone tracks by name): the first Skeleton on its node or below, once loaded. */
-async function animatorSkeleton(rt: AnimatorRuntime): Promise<AnimatorSkeleton | null> {
+/**
+ * The skeleton an Animator's clips bind to now (ADR 0371: bone tracks by name): the first Skeleton on its node or below,
+ * and what it names ("" for none).
+ */
+function clipSkeleton(rt: AnimatorRuntime): { s: SkeletonRuntime | null; ref: string } {
   const s = rt.skeleton ?? findSkeleton(rt.world, rt.animator.node);
-  const ref = s ? s.source.key(s.component) : "";
+  return { s, ref: s ? s.source.key(s.component) : "" };
+}
+
+/** `clipSkeleton`'s skeleton once loaded, for `resolveClip`; null for none. */
+async function animatorSkeleton(s: SkeletonRuntime | null, ref: string): Promise<AnimatorSkeleton | null> {
   if (!s || !ref) return null;
   if (s.loading) await s.loading;
   return { ref, bones: s.info };
@@ -217,12 +225,17 @@ export function skeletonProfileOf(s: SkeletonRuntime): string {
   return typeof profile === "string" ? profile : "";
 }
 
-/** @internal The clip `path` for an Animator: acquired on first use (once per Animator and path), released on detach. */
+/**
+ * @internal The clip `path` for an Animator: acquired on first use (once per Animator, path and the skeleton its bones
+ * bind to, so a Skeleton that appears or changes later gets the clip bound to its bones), released on detach.
+ */
 export function clipEntry(rt: AnimatorRuntime, path: string): ClipEntry {
-  let entry = rt.clips.get(path);
+  const { s, ref } = clipSkeleton(rt);
+  const key = `${ref}\u0000${path}`;
+  const entry = rt.clips.get(key);
   if (entry) return entry;
   const e: ClipEntry = { path, handle: undefined, info: null };
-  rt.clips.set(path, e);
+  rt.clips.set(key, e);
   void (async () => {
     const ns = rt.ns ?? (await startAnimationCore(rt.world).catch(() => null));
     if (!ns) {
@@ -230,14 +243,14 @@ export function clipEntry(rt: AnimatorRuntime, path: string): ClipEntry {
       return;
     }
     const made = subAssetClip(path);
-    const resolved = made === undefined ? await resolveClip(path, await animatorSkeleton(rt)) : null;
+    const resolved = made === undefined ? await resolveClip(path, await animatorSkeleton(s, ref)) : null;
     const { handle, info } =
       made === undefined
         ? await acquireResolved<ClipInfo>(ns, resolved, "clip")
         : made
           ? { handle: ns.acquire(made.key, "clip", { kind: "clip", bytes: made.bytes }), info: readClipInfo(made.bytes) }
           : { handle: 0, info: null };
-    if (rt.detached || rt.clips.get(path) !== e) {
+    if (rt.detached || rt.clips.get(key) !== e) {
       if (handle) ns.release(handle);
       return;
     }
@@ -248,7 +261,7 @@ export function clipEntry(rt: AnimatorRuntime, path: string): ClipEntry {
     const compiled = resolved && "compiled" in resolved ? resolved.compiled : undefined;
     if (handle && compiled) {
       void compiled.then((c) => {
-        if (!c || rt.detached || rt.clips.get(path) !== e || e.handle !== handle || !ns.open) return;
+        if (!c || rt.detached || rt.clips.get(key) !== e || e.handle !== handle || !ns.open) return;
         if (ns.core.replaceClip(handle, c.key, c.bytes) === STATUS_OK) e.info = readClipInfo(c.bytes) ?? e.info;
       });
     }

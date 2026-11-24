@@ -163,4 +163,23 @@ describe("clip sources (T19)", () => {
     warn.mockRestore();
     expect(asked).toEqual([{ clip: LAMP, skeleton: null }]);
   });
+
+  it("bind an authored clip again to a skeleton that appears after the Animator played it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const a = await hero();
+    const late = GameObject.create("Late");
+    made.push(late);
+    const anim = late.addComponent(Animator);
+    // Played with no skeleton: the raw form binds no bones.
+    anim.play(WAVE);
+    await vi.waitFor(() => {
+      engine.step(0);
+      expect(anim.state().name).toBe(WAVE);
+    });
+    late.addComponent(Skeleton, { skeleton: SKEL });
+    await vi.waitFor(() => expect(instanceForSkeleton(world, late)).not.toBe(0));
+    await play([a.anim, WAVE], [anim, WAVE]);
+    warn.mockRestore();
+    expect(skinningMatrices(world, late)!.slice()).toEqual(skinningMatrices(world, a.node)!.slice());
+  });
 });
