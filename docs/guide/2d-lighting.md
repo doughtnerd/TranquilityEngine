@@ -142,6 +142,63 @@ You can then edit the outline by hand:
 
 **Generate All** traces every slice. Apply saves the outlines into the image's sidecar.
 
+## Volumes and overlap
+
+`volumeIntensity` (0 by default) draws a visible glow of the light: its own shape, added over the sprites of its highest
+target sorting layer. Its strength is `intensity × volumeIntensity`, capped at full. A global light has none.
+
+`overlap` sets how a light meets the lights below it in the same light texture:
+- **`additive`** (the default) adds to them.
+- **`alphaBlend`** covers them by its own brightness. Its core replaces what's under it, and its falloff blends.
+
+Lights in one texture draw additive first, then alpha blend in scene order.
+
+## Accurate normal maps
+
+`normalMaps` is `off`, `fast` or `accurate`:
+- **`fast`** shades by the mean direction of the batch's normal-mapped lights.
+- **`accurate`** shades each point light by its own direction, on the high tier (up to 8 per layer batch). Elsewhere,
+  and for freeform and sprite lights, it lights as fast.
+
+## Light masks
+
+Project > 2D Lighting lists **shadow layers** (`lighting2D.shadowLayers`). A Light2D's and a ShadowCaster2D's
+`shadowMask` name some of them. A caster shadows a light only when their masks share a layer. An empty mask means every
+layer, so with no masks every caster shadows every light.
+
+## Composite casters and deforming sprites
+
+- **Composite casters.** A `CompositeShadowCaster2D` on a parent merges its child casters into one outline, so the edges
+  where they touch cast no shadow (a wall built from pieces). Its own settings replace the children's.
+- **Skinned sprites.** A skinned sprite's caster (shape `sprite` or `auto`) follows the bones: its slice outline deforms
+  with the mesh.
+
+## Colliders from sprite outlines
+
+Tick **From Sprite** on a PolygonCollider2D to collide along the node's sprite outline: the same one the Sprite Editor's
+Outline tab traces, else the sprite's rectangle. It follows the sprite, its size and flips.
+
+## Shader graphs for sprites
+
+A shader graph with a **Sprite Lit**, **Sprite Unlit** or **Sprite Custom Lit** target makes a 2D material. Name the
+graph, or a material using it, in a SpriteRenderer's, Tilemap's, 2D decal's or 2D line's `material`.
+
+The graph has these nodes:
+- **Sprite Texture**: the drawn sprite's texture.
+- **Secondary Texture**: one of its secondary textures by name, including custom ones you add in the Sprite Editor's
+  Secondary Textures tab with Add Texture.
+- **2D Light Color** and **2D Light Direction**: the light where the fragment is, for Custom Lit graphs.
+
+What each target does:
+- **Sprite Lit** graphs can output a tangent-space Normal and a Mask, used in place of the texture's maps.
+- **Custom Lit** graphs compose the final colour themselves.
+
+## Lit 2D particles
+
+Give a ParticleSystem a `sortingLayer` to draw its particles among the sprites at `orderInLayer`. They're then lit by 2D
+lights like sprites: by the flat light, without normal maps. Set its `material` to a Sprite Unlit material to leave them
+unlit.
+
 ## Editing lights in the scene view
 
 Every light shows its shape in its own colour, and every caster shows its outline. Select a light and press
@@ -181,8 +238,12 @@ It reads the lights' fields on the CPU by the same rules the GPU draws by. It di
 | Sprite-Lit-Default / Sprite-Unlit-Default | The default 2D material / a `"sprite-unlit"` material asset |
 | Secondary Textures `_NormalMap`, `_MaskTex` | `normalMap`, `maskMap` (Sprite Editor > Secondary Textures) |
 | Shadow Caster 2D (and from Tilemap / Collider) | `ShadowCaster2D` with `shape` `auto`, `collider`, `sprite` or `custom` |
-| Normal Map Quality (Fast / Accurate) | `normalMaps` on the light. One mean light direction per pixel, like Fast (see Known limits). |
+| Normal Map Quality (Fast / Accurate) | `normalMaps` on the light: `fast` or `accurate` (point lights, high tier) |
 | Light Render Texture Scale | The quality tier's `lights2D` |
+| Light 2D Volume Opacity, Overlap Operation | `volumeIntensity`, `overlap` (`additive` / `alphaBlend`) |
+| Composite Shadow Caster 2D | `CompositeShadowCaster2D` |
+| Shader Graph Sprite Lit / Unlit / Custom Lit targets | The same targets, with Sprite Texture, Secondary Texture and 2D Light nodes |
+| Custom Physics Shape | `PolygonCollider2D.fromSprite` |
 
 ## Performance and quality tiers
 
@@ -210,12 +271,13 @@ are drawn, shadowed and over the cap.
 
 ## Known limits
 
-- **Normal maps under overlapping lights.** Several coloured normal-mapped lights on one spot are shaded by their mean
-  direction, close to but not exactly per-light shading. It's exact for one light.
+- **Normal maps under overlapping lights.** Under `fast`, several coloured normal-mapped lights on one spot are shaded
+  by their mean direction. That's close to per-light shading, and exact for one light. Use `accurate` on point lights
+  where it matters (high tier).
 - **Sorting layers past the cap.** Past the tier's cap on layer batches, the highest ones merge and those layers get
   both sets of lights. Diagnostics reports `merged`.
-- **Skinned sprites' shadows.** They cast from their rest outline, not the deformed one.
-- **Not yet lit by 2D lights:** 2D particles; custom sprite shader graphs (there's no Sprite Lit graph target yet).
-- **Not yet built:** volumetric light and a composite shadow caster.
+- **Sprite shader graphs need WebGPU.** Graphs compile to WGSL, so on WebGL a sprite graph's material draws as the
+  default Sprite Lit.
+- **Volumes are unshadowed.** A light's glow passes through shadow casters.
 - **Perspective cameras.** 2D lights assume the sprites lie near each light's z plane. Under a perspective camera,
   sprites far from it read the light where it lands on screen.

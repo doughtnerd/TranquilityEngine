@@ -76,6 +76,73 @@ Outline**.
 **9. Custom secondary texture names.** ADR 0408 already keeps unknown names. This record makes them first class: the
 Secondary Textures tab lists any number of named rows, and shader graphs read them by name (item 1).
 
+### As built (2026-11-24)
+
+All nine are built. Where the build differs from the decision above:
+
+1. **Sprite graph targets.**
+   - `sprite-lit`, `sprite-unlit` and `sprite-custom-lit` parse, show in the graph editor's Target menu, and limit the
+     output node's ports: colour and alpha; Sprite Lit adds Normal (tangent) and Mask. Vertex Offset isn't offered.
+   - New nodes, in a Sprite category:
+     - **Sprite Texture**: the draw's own texture.
+     - **Secondary Texture**: a named secondary texture.
+     - **2D Light Color** and **2D Light Direction**: Custom Lit only.
+   - `NodeDef.targets` lists the targets a node works in. Elsewhere the compiler reports the node and it reads zero, and
+     the node menu leaves it out.
+   - The draw's textures are reserved texture properties (`@sprite`, `@secondary:<name>`) that each draw overrides on its
+     own copy of the graph's material.
+   - A **Shadow** node isn't built. A light's shadows are already in the light texture the Light Color node reads, and
+     the textures hold no per-batch shadow.
+   - The graph's colour is multiplied by the draw's tint and vertex colours.
+   - Graphs are WGSL (ADR 0081), so sprite graphs draw on WebGPU only. Elsewhere the 2D draw takes the default Sprite
+     Lit material and the library warns.
+   - A graph-shaded SpriteRenderer draws on its own mesh, not batched.
+   - A masked quad batch (a 2D decal clipped by a mask) keeps its mask's material and ignores the graph.
+   - Custom Lit's light reads leave out accurate lights (item 4), which aren't in the light textures.
+2. **Lit 2D particles.**
+   - An empty `sortingLayer` (the default) keeps 3D particles as before.
+   - The component's `material` only says lit or unlit. Each output keeps its own texture, blending and material.
+   - A lit output without a material asset draws with the 2D quad material through the material draw path, because the
+     instanced shader draw can't take the light plugin.
+   - A change of lighting makes the draws again but keeps the simulation; a new order only moves them.
+3. **Volume and overlap.**
+   - The volume is the Lights 2D plugin's lazy render feature `lights2dVolumes`. It draws an additive quad batch
+     (`QuadBatch.setBlend`, new) per light at order 9999 of the light's highest target layer.
+   - The volume's strength is `min(1, intensity × volumeIntensity)`. Volumes are unshadowed and hidden when the scene
+     view's 2D Lights is off.
+   - Overlap is premultiplied blending in the one draw per light texture. Additive lights write alpha 0, and alpha blend
+     lights write their brightness. Additive lights draw first, then alpha blend lights in scene order.
+4. **Accurate normal maps.** Built forward, not as a screen normals pass:
+   - The lit material does N·L per light for up to `Lights2DLimits.accurateLights` point lights per layer batch: 8 on
+     high, 0 on medium and low. This is a tier field, not a `lights2DAccurate` flag.
+   - The lights are uniforms, rebuilt every frame (`BabylonLights2D.batch(i).accurate`), and left out of the light
+     textures. So every lit draw adds them, and a draw without a normal map faces the viewer.
+   - Past the cap, the brightest and widest lights keep accurate shading and the rest light as fast. Freeform and sprite
+     lights asking for accurate light as fast.
+   - The pass plan doesn't change. The material's light count is part of the rig's `version`.
+   - `normalMaps` was a boolean only on this branch, so no saved boolean exists to read (the Deprecates note is moot).
+5. **CompositeShadowCaster2D.**
+   - The union drops edges that lie inside another member's loop (`unionSegments`, and in the light pass
+     `insidePolygon`). It doesn't use `ShapeMerge2D`.
+   - The component's settings (cast, self shadows, layers, mask) replace its members'.
+6. **Deforming outlines.**
+   - The Animation plugin claims its skinned sprites' outlines (`render/lights2D/outlineClaims.ts`,
+     `claimSpriteOutlines`), instead of a `QuadBatch.setOutline`.
+   - Each outline point follows its nearest rest vertex plus an offset. A ShadowCaster2D with shape `sprite` or `auto`
+     reads the claimed outline.
+7. **Light masks:** as decided. The Project panel's 2D Lighting section lists the shadow layers, and renaming a layer
+   renames it in every mask (ADR 0262).
+8. **`PolygonCollider2D.fromSprite`.**
+   - A field; the Inspector shows it as a checkbox, with no separate button.
+   - It collides along the largest loop of the slice's outline, else the sprite's rectangle, following size and flips.
+   - `render/sprites/spriteOutline.ts` is shared with the shadow casters. A slice needs only its rect, so a server
+     without textures places it too.
+   - The collider gizmo hides the point handles while it's on.
+9. **Custom secondary textures.**
+   - The Secondary Textures tab lists custom rows with Add Texture, Rename and Remove. A row without a texture stays
+     on screen only.
+   - Names must be identifiers. The sidecar parser now warns only about names that aren't.
+
 ## Alternatives considered
 
 - **Build only the industry-standard set (1–6, 8, 9) and leave light masks out.** URP has no per-light caster masks.

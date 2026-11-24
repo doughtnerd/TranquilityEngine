@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { expect, type Hooks, openEditor, type Page, play, test } from "./fixtures";
 import { inLiveWorld, type LiveNode } from "./liveWorld";
 import { pickCategory } from "./projectCategory";
@@ -9,6 +10,7 @@ import { captureView, steadyView, type ViewCapture } from "./viewCapture";
 // a ShadowCaster2D between a light and part of the quad darkens what lies behind it; Light2D.sampleAt agrees through
 // the public myco API. In the editor: the Create menu's Point Light 2D, its Edit Shape outer-radius handle (saved), the
 // fields its type doesn't use hidden, the scene view's 2D Lights toggle, and a blend style added in Project > 2D Lighting.
+// ADR 0409 in Play: a light's volume, an alpha blend light's overlap, and light masks.
 test.describe.configure({ timeout: 90_000 });
 
 const gameView = (page: Page) => page.locator("#game-view canvas").first();
@@ -91,6 +93,74 @@ test("2D lights light a sprite in Play: unlit without lights, a dim global light
     .toBeGreaterThan(50);
   const shadowed = await inLiveWorld(page, null, (_w, { myco }) => myco.Light2D.sampleAt(new myco.Vector2(6, 0)).r as number);
   expect(shadowed).toBeLessThan(0.2); // only the global light reaches behind the wall
+  expect(errors).toEqual([]);
+});
+
+test("ADR 0409 in Play: a light's volume glows over the sprite, an alpha blend light covers the light below, light masks pick casters", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", (err) => errors.push(err.message));
+  // The sample's project with a "Walls" shadow layer (ADR 0409: shadow masks name the project's shadow layers).
+  const project = { ...JSON.parse(readFileSync("samples/flappy/project.json", "utf8")), lighting2D: { shadowLayers: ["Default", "Walls"] } };
+  await openEditor(page, { files: { "project.json": JSON.stringify(project), "scenes/main.scene.json": scene([node("global", "Global", [0, 0, 0], [{ type: "engine.Light2D", data: { type: "global", intensity: 0.1 } }])]) } });
+  await play(page);
+  const view = gameView(page);
+  await expect.poll(async () => mean(await captureView(view), 3, ALL), { timeout: 30_000, message: "the dim global light darkens the quad" }).toBeLessThan(110);
+  const CENTRE: [number, number, number, number] = [0.45, 0.4, 0.55, 0.6];
+
+  // A dim point light in the middle, then its volume: the glow adds over the lit sprite.
+  await inLiveWorld(page, null, (_w, { myco }) => {
+    myco.GameObject.create("Lamp").addBehavior(myco.Light2D, { type: "point", intensity: 0.3, innerRadius: 1, outerRadius: 3 });
+  });
+  await expect.poll(async () => mean(await captureView(view), 3, CENTRE), { timeout: 30_000, message: "the lamp lights the middle" }).toBeGreaterThan(40);
+  const before = mean(await steadyView(view), 3, CENTRE);
+  await inLiveWorld(page, null, (w, { myco }) => {
+    const lamp = (function find(n: LiveNode): LiveNode | null { return n.name === "Lamp" ? n : n.children.reduce<LiveNode | null>((hit, c) => hit ?? find(c), null); })(w!.root)!;
+    (lamp.getComponents(myco.Light2D)[0] as { volumeIntensity: number }).volumeIntensity = 1;
+  });
+  await expect.poll(async () => mean(await captureView(view), 3, CENTRE), { timeout: 30_000, message: "the volume glows over the sprite" }).toBeGreaterThan(before + 30);
+
+  // A bright white global light, then a red alpha blend light over the middle: its core replaces the white there.
+  await inLiveWorld(page, null, (w, { myco }) => {
+    const lamp = (function find(n: LiveNode): LiveNode | null { return n.name === "Lamp" ? n : n.children.reduce<LiveNode | null>((hit, c) => hit ?? find(c), null); })(w!.root)!;
+    (lamp.getComponents(myco.Light2D)[0] as { enabled: boolean }).enabled = false;
+    const global = (function find(n: LiveNode): LiveNode | null { return n.name === "Global" ? n : n.children.reduce<LiveNode | null>((hit, c) => hit ?? find(c), null); })(w!.root)!;
+    (global.getComponents(myco.Light2D)[0] as { intensity: number }).intensity = 1;
+    myco.GameObject.create("Red").addBehavior(myco.Light2D, { type: "point", color: new myco.Color(1, 0, 0, 1), overlap: "alphaBlend", innerRadius: 2, outerRadius: 3 });
+  });
+  await expect
+    .poll(async () => {
+      const c = await captureView(view);
+      return mean(c, 0, CENTRE) > 200 && mean(c, 1, CENTRE) < 60 && mean(c, 1, LEFT) > 200;
+    }, { timeout: 30_000, message: "the middle is red (the white below is covered), the left still white" })
+    .toBe(true);
+
+  // Light masks: a wall on the "Walls" shadow layer shadows a light whose mask has it, not one whose mask doesn't.
+  // (Sampled a frame after each change, once the new nodes' world matrices are in.)
+  await inLiveWorld(page, null, (w, { myco }) => {
+    // Only the probe light lights: the others would add to what's sampled.
+    const all = (n: LiveNode): LiveNode[] => [n, ...n.children.flatMap(all)];
+    for (const n of all(w!.root)) for (const l of n.getComponents(myco.Light2D)) (l as { enabled: boolean }).enabled = false;
+    const wall = myco.GameObject.create("Wall");
+    wall.transform.position.set(3, 0, 0);
+    wall.addBehavior(myco.ShadowCaster2D, { shape: "custom", shadowMask: ["Walls"], path: [new myco.Vector2(-0.3, -2), new myco.Vector2(0.3, -2), new myco.Vector2(0.3, 2), new myco.Vector2(-0.3, 2)] });
+    myco.GameObject.create("Probe").addBehavior(myco.Light2D, { type: "point", innerRadius: 8, outerRadius: 9, shadows: true, shadowMask: ["Walls"], targetSortingLayers: ["Probe"] });
+  });
+  // Sample the probe light behind the wall; with `mask`, give it that shadow mask afterwards.
+  const probe = (mask: string[] | null) =>
+    inLiveWorld(
+      page,
+      null,
+      (w, { myco }, m: string[] | null) => {
+        const find = (n: LiveNode): LiveNode | null => (n.name === "Probe" ? n : n.children.reduce<LiveNode | null>((hit, c) => hit ?? find(c), null));
+        const r = myco.Light2D.sampleAt(new myco.Vector2(6, 0), "Probe").r as number;
+        if (m) (find(w!.root)!.getComponents(myco.Light2D)[0] as { shadowMask: string[] }).shadowMask = m;
+        return r;
+      },
+      mask,
+    );
+  await expect.poll(() => probe(null), { timeout: 10_000, message: "a light masked to Walls is shadowed by the wall on Walls" }).toBeLessThan(0.1);
+  await probe(["Default"]);
+  await expect.poll(() => probe(null), { timeout: 10_000, message: "a light masked to Default isn't: the wall isn't on its layers" }).toBeGreaterThan(0.9);
   expect(errors).toEqual([]);
 });
 
