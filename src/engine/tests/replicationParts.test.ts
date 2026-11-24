@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, GameObject, GameBehavior, Replicated, behavior, field, type BootstrapConfig } from "../index";
+import { Assets, Engine, GameObject, GameBehavior, Interest, Replicated, behavior, defineComponent, f32, field, replicate, type BootstrapConfig } from "../index";
 import { World } from "../core/World";
 import { netSession } from "../net/session";
 import { serverReplication } from "../net/replication/server";
@@ -8,7 +8,9 @@ import { createTransport, registerTransport, type Channel, type Transport, type 
 // ADR 0334: snapshots split into datagram-sized parts, each acked on its own. The link runs over a
 // datagram transport registered here: the loopback (fake clock, seeded loss) with `maxDatagramBytes`
 // set, as the WebSocket transport has while its WebRTC data channel is open (ADR 0333). It records
-// the size of every unreliable message the server sends.
+// the size of every unreliable message the server sends. With `socketDelayMs`, what the server
+// sends by the socket's stream (reliable messages, and unreliable ones over a datagram, ADR 0333) is
+// held that much longer than datagrams, in order: a laggy stream the next ticks' datagrams overtake.
 
 let clock = 0;
 const now = () => clock;
@@ -28,9 +30,13 @@ class DatagramLoopback implements Transport {
   private readonly inner: Transport;
   private readonly wrapped = new WeakMap<TransportConnection, TransportConnection>();
   private listening = false;
+  private readonly socketDelayMs: number;
+  /** Stream sends held back (`socketDelayMs`), oldest first. */
+  private readonly held: { at: number; connection: TransportConnection; data: Uint8Array }[] = [];
 
   constructor(options: Record<string, unknown>) {
     this.inner = createTransport("loopback", options);
+    this.socketDelayMs = typeof options.socketDelayMs === "number" ? options.socketDelayMs : 0;
   }
 
   async listen(address: string): Promise<void> {
@@ -43,6 +49,10 @@ class DatagramLoopback implements Transport {
   }
 
   poll(): TransportEvent[] {
+    while (this.held.length > 0 && this.held[0].at <= clock) {
+      const { connection, data } = this.held.shift()!;
+      if (connection.state !== "closed") connection.send("reliable", data);
+    }
     return this.inner.poll().map((e) => ({ ...e, connection: this.wrap(e.connection) }));
   }
 
@@ -54,6 +64,8 @@ class DatagramLoopback implements Transport {
     let w = this.wrapped.get(c);
     if (!w) {
       const server = this.listening;
+      const held = this.held;
+      const delay = this.socketDelayMs;
       w = {
         id: c.id,
         remote: c.remote,
@@ -63,7 +75,8 @@ class DatagramLoopback implements Transport {
         maxDatagramBytes: DATAGRAM,
         send(channel: Channel, data: Uint8Array) {
           if (server && channel === "unreliable") serverSends.push(data.byteLength);
-          c.send(channel, data);
+          if (server && delay > 0 && (channel === "reliable" || data.byteLength > DATAGRAM)) held.push({ at: clock + delay, connection: c, data: data.slice() });
+          else c.send(channel, data);
         },
         close: (reason?: string) => c.close(reason),
       };
@@ -90,8 +103,19 @@ class Mover extends GameBehavior {
   }
 }
 
+/** 300 floats: a full state of 1200 bytes, twice a datagram. */
+const Big = defineComponent("test.parts.Big", Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`f${i}`, f32])));
+replicate(Big);
+
+/** Sets every `Big` field from a seed (the server's values to look for on clients). */
+function fillBig(node: GameObject, seed: number): void {
+  const big = node.getData(Big)! as unknown as Record<string, number>;
+  for (let i = 0; i < 300; i++) big[`f${i}`] = seed + i * 0.25;
+}
+
 Assets.addSource(
   Assets.fromObject({
+    "prefabs/partsBig.json": { format: "myco.scene@1", nodes: [{ id: "big", name: "Big", components: [{ type: "net.Replicated" }, { type: "test.parts.Big" }] }] },
     "prefabs/partsCrate.json": { format: "myco.scene@1", nodes: [{ id: "crate", name: "Crate", components: [{ type: "net.Replicated" }] }] },
     "prefabs/partsBall.json": { format: "myco.scene@1", nodes: [{ id: "ball", name: "Ball", components: [{ type: "net.Replicated" }, { type: "test.parts.Score" }, { type: "test.parts.Mover" }] }] },
   }),
@@ -151,10 +175,18 @@ describe("snapshot parts (ADR 0334)", () => {
     step(engine, 10);
     serverSends = [];
     spawn(engine, "prefabs/partsCrate.json", 300);
-    step(engine, 2);
+    // The spawns go in one reliable lifecycle message, however big (ADR 0402); once it's acked, the
+    // crates' states (delta-coded against their spawns' states) are a snapshot of several parts.
     const ps = peerState(engine);
-    expect(ps.lastParts).toBeGreaterThan(1);
-    expect(ps.lastBytes).toBeGreaterThan(3 * DATAGRAM);
+    let lifecycle = 0;
+    let split = 0;
+    for (let i = 0; i < 20 && split === 0; i++) {
+      step(engine);
+      lifecycle = Math.max(lifecycle, ps.lastLifecycleBytes);
+      if (ps.lastParts > 1) split = ps.lastBytes;
+    }
+    expect(lifecycle).toBeGreaterThan(3 * DATAGRAM);
+    expect(split).toBeGreaterThan(DATAGRAM);
     expect(Math.max(...serverSends)).toBeLessThanOrEqual(DATAGRAM);
     step(engine, 30);
     expect(ghosts(world(engine, "P1")).size).toBe(300);
@@ -214,5 +246,115 @@ describe("snapshot parts (ADR 0334)", () => {
     const client = ghosts(world(engine, "P1"));
     expect(client.size).toBe(150);
     for (const [id, node] of client) expect(node.active).toBe(id % 2 !== 0);
+  });
+});
+
+describe("spawns go reliably, apart from states (ADR 0402)", () => {
+  // The server's stream (reliable messages, and parts over a datagram) lags its datagrams by 150 ms,
+  // so the next ticks' datagrams overtake it every tick; balls moving every tick keep datagrams going.
+  const laggyStream = { socketDelayMs: 150, loss: 0.2 };
+  const bigOn = (w: World) => [...ghosts(w).values()].filter((n) => n.getData(Big));
+
+  it("spawns a ghost bigger than a datagram on a client whose datagrams overtake the stream every tick, with its values", async () => {
+    const error = vi.spyOn(console, "error");
+    const engine = await create(laggyStream);
+    step(engine, 10);
+    spawn(engine, "prefabs/partsBall.json", 40);
+    const server = world(engine, "Server");
+    const big = inWorld(server, () => GameObject.instantiate("prefabs/partsBig.json"));
+    fillBig(big, 3);
+    step(engine, 120);
+    const [clientBig] = bigOn(world(engine, "P1"));
+    expect(clientBig).toBeDefined();
+    expect(clientBig.getData(Big)!.f0).toBe(3);
+    expect(clientBig.getData(Big)!.f299).toBe(3 + 299 * 0.25);
+    expect(ghosts(world(engine, "P1")).size).toBe(41);
+    // Its state changes since are small (a few fields): they go by datagram and arrive.
+    inWorld(server, () => {
+      (big.getData(Big)! as unknown as Record<string, number>).f7 = 99;
+    });
+    step(engine, 60);
+    expect(clientBig.getData(Big)!.f7).toBe(99);
+    expect(error).not.toHaveBeenCalled(); // no state for a ghost not spawned yet, no baseline it lacks
+  });
+
+  it("sends a ghost's state only after its spawn: spawns and despawns under reordering and loss never leave the client reading a state it can't place", async () => {
+    const error = vi.spyOn(console, "error");
+    const engine = await create({ socketDelayMs: 120, loss: 0.3, jitterMs: 10 });
+    step(engine, 10);
+    const server = world(engine, "Server");
+    const balls: GameObject[] = [];
+    // A wave of spawns every few ticks, and some destroyed again, some before their spawn can have arrived.
+    for (let wave = 0; wave < 10; wave++) {
+      inWorld(server, () => {
+        for (let i = 0; i < 15; i++) balls.push(GameObject.instantiate("prefabs/partsBall.json", { position: [i, wave, 0] }));
+      });
+      step(engine, 3);
+      inWorld(server, () => GameObject.destroy(balls[balls.length - 1 - (wave % 15)]));
+    }
+    step(engine, 180);
+    expect(error).not.toHaveBeenCalled();
+    const live = ghosts(server);
+    const client = ghosts(world(engine, "P1"));
+    expect([...client.keys()].sort((a, b) => a - b)).toEqual([...live.keys()].sort((a, b) => a - b));
+    // Stopped, every ghost settles on its server value.
+    inWorld(server, () => {
+      for (const node of live.values()) node.getBehavior(Mover)!.enabled = false;
+    });
+    step(engine, 120);
+    for (const [id, node] of live) expect(client.get(id)!.transform!.position.y).toBeCloseTo(node.transform!.position.y, 3);
+  });
+
+  it("destroys a big ghost destroyed while its spawn is in flight, leaving nothing on the client", async () => {
+    const error = vi.spyOn(console, "error");
+    const engine = await create(laggyStream);
+    step(engine, 10);
+    spawn(engine, "prefabs/partsBall.json", 10);
+    step(engine, 30);
+    const server = world(engine, "Server");
+    const big = inWorld(server, () => GameObject.instantiate("prefabs/partsBig.json"));
+    step(engine, 1); // its spawn is on its way, 150 ms behind
+    inWorld(server, () => GameObject.destroy(big));
+    step(engine, 60);
+    const p1 = world(engine, "P1");
+    expect(bigOn(p1)).toEqual([]);
+    expect(p1._componentsOfType(Replicated).filter((r) => r.node.isValid && r.node.getData(Big))).toEqual([]);
+    expect(ghosts(p1).size).toBe(10);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("takes a big ghost away when it leaves relevancy and spawns it afresh, up to date, when it comes back", async () => {
+    const error = vi.spyOn(console, "error");
+    const engine = await create(laggyStream);
+    step(engine, 10);
+    spawn(engine, "prefabs/partsBall.json", 10);
+    const server = world(engine, "Server");
+    const connection = netSession(server)!.openPeers()[0].node!;
+    const big = inWorld(server, () => GameObject.instantiate("prefabs/partsBig.json"));
+    inWorld(server, () => {
+      big.getBehavior(Replicated)!.group = "g";
+      Interest.join(connection, "g");
+    });
+    fillBig(big, 1);
+    step(engine, 90);
+    const p1 = world(engine, "P1");
+    expect(bigOn(p1)).toHaveLength(1);
+    // Out, then back within a round trip of the laggy stream, its values changed meanwhile.
+    inWorld(server, () => Interest.leave(connection, "g"));
+    step(engine, 2);
+    fillBig(big, 50);
+    inWorld(server, () => Interest.join(connection, "g"));
+    step(engine, 90);
+    const back = bigOn(p1);
+    expect(back).toHaveLength(1);
+    expect(back[0].getData(Big)!.f0).toBe(50);
+    expect(back[0].getData(Big)!.f299).toBe(50 + 299 * 0.25);
+    // Out for good, then destroyed: gone from the client.
+    inWorld(server, () => Interest.leave(connection, "g"));
+    step(engine, 2);
+    inWorld(server, () => GameObject.destroy(big));
+    step(engine, 60);
+    expect(bigOn(p1)).toEqual([]);
+    expect(error).not.toHaveBeenCalled();
   });
 });

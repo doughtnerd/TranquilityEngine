@@ -45,6 +45,7 @@ import {
   ACK,
   AFTER_UNSPECIFIED,
   BASELINE_WINDOW,
+  GHOSTS,
   PARENT_GHOST,
   PARENT_NODE,
   PARENT_ROOT,
@@ -103,6 +104,8 @@ export class ClientReplication {
   readonly ghosts = new Map<number, ClientGhost>();
   /** The newest snapshot tick read. */
   newestTick = -1;
+  /** The tick of the newest lifecycle message applied (ADR 0402); snapshot parts older than it are stale. */
+  private lifecycleTick = -1;
   /** The parts of `newestTick` read (ADR 0334). */
   private readonly partsRead = new Set<number>();
   private peer: NetPeer | null = null;
@@ -134,9 +137,23 @@ export class ClientReplication {
       this.peer = peer;
     }
     let received = false;
+    // Lifecycle messages first (ADR 0402): reliable and in order, so every spawn comes before the
+    // states of its ghost, which the server sends only once the client acked the spawn.
+    for (const m of session.drain(GHOSTS)) {
+      if (m.peer !== peer) continue;
+      try {
+        this.readLifecycle(m.tick, m.reader());
+      } catch (err) {
+        console.error(`[myco] World "${this.world.name}" can't read ghost spawns from its server (do both run the same game code?): ${(err as Error).message}`);
+      }
+      this.lifecycleTick = Math.max(this.lifecycleTick, m.tick);
+      received = true;
+    }
     for (const m of session.drain(SNAPSHOT)) {
-      // Each part of the newest tick once, and every part of a newer one (ADR 0334).
-      if (m.peer !== peer || m.tick < this.newestTick) continue;
+      // Each part of the newest tick once, and every part of a newer one (ADR 0334). A part older
+      // than a lifecycle message applied may hold a ghost that message despawned, took away or
+      // relayouted: stale (ADR 0402).
+      if (m.peer !== peer || m.tick < this.newestTick || m.tick < this.lifecycleTick) continue;
       try {
         const r = m.reader();
         const part = r.readVarUint();
@@ -167,10 +184,13 @@ export class ClientReplication {
     this.applyOrder();
     this.strings.apply(this.world, (id) => this.ghosts.get(id)?.node ?? null);
     if (received && peer?.state === "open") {
-      // The newest tick and every part of it read so far, so a lost ack is repeated by the next one.
-      const tick = this.newestTick;
+      // The newest lifecycle tick applied, then the newest snapshot tick and every part of it read
+      // so far, so a lost ack is repeated by the next one (0: none yet).
+      const lifecycle = Math.max(0, this.lifecycleTick);
+      const tick = Math.max(0, this.newestTick);
       const parts = [...this.partsRead].sort((a, b) => a - b);
       session.send(ACK, "server", "unreliable", (w) => {
+        w.writeVarUint(lifecycle);
         w.writeVarUint(tick);
         w.writeVarUint(parts.length);
         parts.forEach((part, i) => w.writeVarUint(i === 0 ? part : part - parts[i - 1]));
@@ -235,11 +255,13 @@ export class ClientReplication {
     if (keepFrom > 0) s.splice(0, keepFrom);
   }
 
-  /** Read one snapshot part after its index (layout at the top of `server.ts`). */
-  private read(tick: number, r: BitReader): void {
-    const ackGap = r.readVarUint();
-    const snapshotBaseline = ackGap ? tick - ackGap : -1;
-
+  /**
+   * Read one lifecycle message (ADR 0402; layout at the top of `server.ts`): despawns, leaves,
+   * relayouts and structure changes, then spawns. A spawn's and a relayout's full state is the
+   * ghost's first state in that layout, and the baseline the server delta-codes against once this
+   * message is acked.
+   */
+  private readLifecycle(tick: number, r: BitReader): void {
     let count = r.readVarUint();
     let id = 0;
     for (let i = 0; i < count; i++) {
@@ -258,27 +280,15 @@ export class ClientReplication {
     id = 0;
     for (let i = 0; i < count; i++) {
       id += r.readVarUint();
-      const { spawn, spec } = readSpawn(r, this.table.read);
-      const layoutVersion = r.readVarUint();
-      const structure = readStructure(r, tick, this.table.read);
-      const known = this.ghosts.get(id);
-      if (known) {
-        // A repeat, maybe with a newer layout or structure.
-        if (layoutVersion > known.layoutVersion) this.relayout(known, spec, layoutVersion);
-        this.restructure(known, structure);
-      }
-      if (known || this.despawned.has(id)) continue;
-      this.ghosts.set(id, { id, layout: layoutOf(spec), layoutVersion, spawn, node: null, binding: null, states: [], baselineTick: 0, instantiated: false, failed: null, structure, applied: null });
-    }
-
-    count = r.readVarUint();
-    id = 0;
-    for (let i = 0; i < count; i++) {
-      id += r.readVarUint();
       const version = r.readVarUint();
       const spec = readSpec(r, this.table.read);
       const g = this.ghosts.get(id);
-      if (g && version > g.layoutVersion) this.relayout(g, spec, version);
+      if (g && version > g.layoutVersion) {
+        this.relayout(g, spec, version);
+        g.states.push({ tick, values: toState(g.layout, g.layout.codec.read(r)) });
+      } else {
+        layoutOf(spec).codec.read(r); // a ghost this client doesn't have (it failed to spawn, say)
+      }
     }
 
     count = r.readVarUint();
@@ -290,11 +300,39 @@ export class ClientReplication {
       if (g) this.restructure(g, structure);
     }
 
-    count = r.readVarUint();
     id = 0;
+    while (r.readBits(1)) {
+      id += r.readVarUint();
+      const { spawn, spec } = readSpawn(r, this.table.read);
+      const layoutVersion = r.readVarUint();
+      const structure = readStructure(r, tick, this.table.read);
+      const known = this.ghosts.get(id);
+      const layout = known && layoutVersion <= known.layoutVersion ? known.layout : layoutOf(spec);
+      const values = toState(layout, layout.codec.read(r));
+      if (known) {
+        // Spawned again without a leave between (not something the server does): take what's newer.
+        if (layoutVersion > known.layoutVersion) {
+          this.relayout(known, spec, layoutVersion);
+          known.states.push({ tick, values });
+        }
+        this.restructure(known, structure);
+        continue;
+      }
+      if (this.despawned.has(id)) continue;
+      this.ghosts.set(id, { id, layout, layoutVersion, spawn, node: null, binding: null, states: [{ tick, values }], baselineTick: 0, instantiated: false, failed: null, structure, applied: null });
+    }
+  }
+
+  /** Read one snapshot part after its index (layout at the top of `server.ts`): ghost states. */
+  private read(tick: number, r: BitReader): void {
+    const ackGap = r.readVarUint();
+    const snapshotBaseline = ackGap ? tick - ackGap : -1;
+    const count = r.readVarUint();
+    let id = 0;
     for (let i = 0; i < count; i++) {
       id += r.readVarUint();
       const g = this.ghosts.get(id);
+      // The server sends a ghost's state only once this client acked its spawn (ADR 0402).
       if (!g) throw new Error(`state for ghost ${id}, which was never spawned`);
       let baselineTick = -1;
       if (r.readBits(1)) baselineTick = snapshotBaseline;
@@ -573,6 +611,7 @@ export class ClientReplication {
     this.strings.clear();
     this.table.clear();
     this.newestTick = -1;
+    this.lifecycleTick = -1;
     this.partsRead.clear();
     this.errorLogged = false;
   }
