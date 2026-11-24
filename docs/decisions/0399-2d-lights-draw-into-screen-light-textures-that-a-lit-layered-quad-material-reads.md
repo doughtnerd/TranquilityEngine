@@ -210,6 +210,43 @@ itself is checked by hand on the owner's emulator and recorded in the build log.
 - **Diagnostics:** `RenderDiagnostics.features.lights2D: { lights, culled, shadowed, batches, styles, textures, passMs? }`.
 - Editor CSS uses the theme tokens. The Material inspector lists Sprite Lit and Sprite Unlit.
 
+### As built (2026-11-24)
+
+Built as decided, with these differences:
+
+- **Blend styles are a top-level `lighting2D` section** (`lighting2D.blendStyles`), not `render.lightBlendStyles`: a
+  plugin's Project settings category owns whole top-level keys (ADR 0151), and `render` is the shell's. Parsed by
+  `render/lights2D/settings.ts`, declared in `RUNTIME_SETTINGS` (ADR 0272).
+- **`targetSortingLayers` is a list where empty means every layer** (not `null`), as list fields have no null.
+- **A sorting layer no 2D light targets draws unlit** (batch -1): with nothing to light it, it keeps its plain colours,
+  so a sky or UI layer isn't blacked out by lights meant for the play layers.
+- **Layer batches are worked out per World per frame** from every enabled light, not per camera from the lights in its
+  view: the layout (and so the frame graph) is the same for every camera, and light geometry is built once, in world
+  space. Lights aren't culled per camera on the CPU (the GPU clips them).
+- **The 2D rig sits beside `BabylonLighting`** in the renderer (`render/babylon/lights2D.ts`, `BabylonLights2D`), not
+  inside it: it reads the material library's textures (sprite lights, sprite outlines), which the lighting module is
+  built before. It syncs before the content phase, so sprite and quad features pick this frame's batches.
+- **The light pass is one `FrameGraphLights2DTask` per camera** whose passes draw through Babylon's engine directly:
+  every light of a texture is one draw (per-light values are vertex attributes), each sprite light's texture one more,
+  each shadow texture one. The frame graph's texture aliasing is off while 2D lights are planned, as the lit material
+  samples the light textures in the render pass behind the graph's back.
+- **The lit material** (`render/babylon/lights2DMaterial.ts`) is keyed per layer batch and the rig's `version`, and
+  binds the camera's light textures on every draw (`hardBindForSubMesh` as well as `bindForSubMesh`), since a cached
+  material skips the ordinary bind. It reads white for a frame while the frame graph rebuilds.
+- **2D ribbons and skinned sprites get tangents from their UVs** (`render/lights2D/tangents.ts`), so a normal map follows
+  a line or a bone.
+- **`Light2D.sampleAt(point, sortingLayer?, blendStyle?)`** (open question 4, built) reads the current World on the CPU
+  (`render/lights2D/sample.ts`); its falloff maths is the light shader's KSL, tested against it.
+- **A tier written without `lights2D` follows its `shaderLevel`** (low, medium or high), rather than High's value.
+- **Editor:** the Inspector hides the rows a light type doesn't use (`Light2DSection.tsx`, as the Decals plugin greys
+  rows); the scene view's toggle is a **2D Lights** button on the Scene toolbar (core: the policy is
+  `RenderPolicy.lighting2D`); the Create menu's category is **2D Lights**; the drag-and-drop suggestion of a
+  `_n.png` normal map wasn't built.
+- **Diagnostics** report `features.lights2D` once a World has 2D lights or casters.
+- **Budget:** `bench/lights2D.bench.ts` measures the rig's CPU work at 0.24 ms mean (0.93 ms p99) per frame for the
+  budget scene in this record, on the development container. The Android floor and the GPU time weren't measured
+  (the e2e specs run SwiftShader WebGL2).
+
 ### Path to a high-end pipeline
 
 This is a constraint on this design, not a plan. The renderer should later be able to reach HDRP-class
@@ -288,7 +325,7 @@ Nothing. ADR 0108's open question "lit sprites" is answered here.
 - Shader graph "Sprite Lit" and "Sprite Unlit" targets, so custom sprite shaders read the light textures.
 - Lit 2D particles (particles use `placeParticles`, not the layered material).
 - Volumetric light (a light also drawn additively over its layers) and URP's alpha-blend overlap mode.
-- A CPU query of the 2D light at a point for gameplay (stealth), e.g. `Light2D.sampleAt(world, point)`.
+- ~~A CPU query of the 2D light at a point for gameplay~~: built as `Light2D.sampleAt(point, sortingLayer?, blendStyle?)` (see As built).
 - An "accurate" normal map mode (per-light N·L) for higher tiers.
 
 ## References

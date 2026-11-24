@@ -81,6 +81,19 @@ class ShadowCaster2D extends Component {
 - **Create:** Add Component > Rendering 2D > Shadow Caster 2D. The context menu on a Tilemap node offers "Add Shadow
   Caster".
 
+### As built (2026-11-24)
+
+- **Self shadows** are chosen by which edges extrude, not by clearing the caster's fill: with `selfShadows` off only the
+  edges facing away from the light extrude (the shadow starts at the caster's far side, so its own face stays lit); on,
+  every edge does. Open chains (edge colliders) always extrude every edge.
+- **Shadow geometry is built on the CPU each frame** for each shadowed light and each caster whose bounds overlap it
+  (world-space edge quads, the light in each vertex); the GPU only extrudes. One draw per shadow texture (four lights).
+- **Soft edges** are a five-tap filter of the shadow channel, scaled by `shadowSoftness`, rather than penumbra wedges.
+- **Target sorting layers** decide whether a caster shadows a light at all: when both name layers and none are shared.
+  There's one channel per light, not one per layer batch group.
+- **Ranking** for the cap is intensity × reach², not screen coverage (the layout is the same for every camera).
+- `Light2D.sampleAt` uses the same edges on the CPU (`render/lights2D/shadowGeometry.ts` `shadowFactor`), hard-edged.
+
 ## Alternatives considered
 
 - **1D polar shadow maps** (render occluders per light into a row of distances, then sample by angle). It's cheap to

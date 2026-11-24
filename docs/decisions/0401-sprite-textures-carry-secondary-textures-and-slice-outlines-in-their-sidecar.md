@@ -72,6 +72,19 @@ is no runtime generation: outlines are authored data, so a game never traces at 
   normal map. This is a suggestion; nothing is set automatically.
 - Editor CSS uses theme tokens.
 
+### As built (2026-11-24)
+
+- The sidecar is the image's `*.meta.json` (ADR 0040); outlines are on each entry of its `sprites` list. Both keys are
+  read leniently and written only when set (`scene/importSettings.ts`).
+- Normal and mask maps load as data textures (linear, the material library's `graphData` use).
+- The Sprite Editor's tabs are the Lights 2D plugin's Sprite Editor tools (ADR 0373's contribution point, which gains
+  `outlines`, `secondaryTextures` and `normalMapGreen` in `SpriteEditorChange`), on the editor's one history and Apply.
+  The image Import Settings card is the plugin's too.
+- **Lit preview** is drawn on the CPU on a canvas (`litPreview.ts`, one test light, the normal map's N·L), not with the
+  0399 material.
+- Not built: game exports don't yet tie a secondary texture's size to its main texture's (each follows its own
+  sidecar's `maxSize`); the drag-and-drop normal map suggestion.
+
 ## Alternatives considered
 
 - **Normal and mask maps on the SpriteRenderer or the material asset.** Every sprite, tile, decal and skinned sprite
