@@ -963,6 +963,23 @@ describe("UICore typing (DOM)", () => {
     expect(c.caretOf(field)).toBeNull();
   });
 
+  it("leaves Enter and Escape to the IME while it composes (ADR 0356)", async () => {
+    const canvas = node("Canvas", null, UICanvas);
+    const field = node("Name", canvas.node, UIInputField, { width: 300, height: 40 } as Partial<UIInputField>);
+    const c = await core();
+    field.focused = true;
+    sync(c);
+    fake.emit("keydown", { key: "Enter", isComposing: true }); // picks the IME's candidate
+    fake.emit("keydown", { key: "Process", keyCode: 229 });
+    fake.emit("keydown", { key: "Escape", keyCode: 229 }); // drops the composition
+    engine.step(DT);
+    expect(field.submitted).toBe(false);
+    expect(field.typing).toBe(true);
+    fake.emit("keydown", { key: "Enter" });
+    engine.step(DT);
+    expect(field.submitted).toBe(true);
+  });
+
   it("reports a submit for the frame after Enter in a field focused by a click", async () => {
     const canvas = node("Canvas", null, UICanvas);
     const field = node("Name", canvas.node, UIInputField, { width: 300, height: 40 } as Partial<UIInputField>);

@@ -19,7 +19,7 @@
  * true in exactly one tick, and read in `update` in exactly one frame.
  */
 import { Vector2, Vector3 } from "../core/math";
-import { defineBuffer, defineComponent, f32, i32, type DataComponentDef, type DataView, type Schema } from "../core/data";
+import { _onComponentUndefined, defineBuffer, defineComponent, f32, i32, type DataComponentDef, type DataView, type Schema } from "../core/data";
 import type { GameObject } from "../scene/GameObject";
 import type { ModifierSpec, TriggerSpec, MappingSpec } from "./contextTypes";
 
@@ -193,6 +193,15 @@ export function actionSets(): readonly ActionSetDef[] {
 export function actionSetsVersion(): number {
   return setsVersion;
 }
+
+// A script's set goes with its data component (the editor unregisters a deleted script's, or the
+// old project's, ADR 0030), so a leftover set can't keep winning bare action names.
+_onComponentUndefined((id, restored) => {
+  if (!sets.has(id)) return;
+  if (restored && isActionSet(restored)) sets.set(id, restored);
+  else sets.delete(id);
+  setsVersion++;
+});
 
 /** Listeners told when a networked set is defined (the net bridge defines its stream). */
 const definedListeners: ((def: ActionSetDef) => void)[] = [];

@@ -140,10 +140,10 @@ function pair(world: World): void {
   const max = world.settings.input.maxPlayers;
   const all = groups(world);
   if (policy === "onePerDevice") {
-    // A gamepad's player leaves with it.
+    // A gamepad's player leaves with it, player 0 too when a pad (not the keyboard) was its device.
     for (const [index] of [...s.nodes]) {
       const owns = all.some((g) => pairedTo(g) === index);
-      if (!owns && index !== 0) removePlayer(world, index);
+      if (!owns) removePlayer(world, index);
     }
     for (const group of all) {
       const owner = pairedTo(group);

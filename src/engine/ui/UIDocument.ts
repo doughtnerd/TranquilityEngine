@@ -473,18 +473,30 @@ export class UIDocument extends Component {
       return (item as Record<PropertyKey, unknown>)[k as PropertyKey];
     };
     const state = (host._list ??= { rows: [], keys: [] });
-    const old = new Map<unknown, UIDocumentElement>();
-    state.rows.forEach((row, i) => old.set(state.keys[i], row));
+    // Rows by key, in order: a repeated (or missing) key keeps every row it had, so none is orphaned.
+    const old = new Map<unknown, UIDocumentElement[]>();
+    state.rows.forEach((row, i) => {
+      const same = old.get(state.keys[i]);
+      if (same) same.push(row);
+      else old.set(state.keys[i], [row]);
+    });
     const rows: UIDocumentElement[] = [];
     const keys: unknown[] = [];
     const fresh: [UIDocumentElement, T][] = [];
+    const seen = new Set<unknown>();
+    let repeated: unknown = undefined;
+    let repeats = false;
     const world = this._world;
     world._batch(() => {
       items.forEach((item, index) => {
         const key = keyOf(item, index);
-        let row = old.get(key);
+        if (seen.has(key) && !repeats) {
+          repeats = true;
+          repeated = key;
+        }
+        seen.add(key);
+        let row = old.get(key)?.shift();
         if (row && row.isValid) {
-          old.delete(key);
           row._scope!.item = item;
           row._scope!.index = index;
         } else {
@@ -495,7 +507,12 @@ export class UIDocument extends Component {
         keys.push(key);
       });
     });
-    for (const row of old.values()) this.removeElement(row);
+    for (const same of old.values()) for (const row of same) this.removeElement(row);
+    if (repeats && !this.warnedRepeats.has(selector)) {
+      this.warnedRepeats.add(selector);
+      const what = repeated === undefined ? "items have no key" : `key ${typeof repeated === "string" ? JSON.stringify(repeated) : String(repeated)} repeats`;
+      warn(`${this.document}: list("${selector}"): ${what}; give each item its own key, or rows are matched by order among the repeats.`);
+    }
     // Rows go after the host's own children, in item order.
     const own = host._children.filter((c) => !state.rows.includes(c) && !rows.includes(c));
     host._children = [...own, ...rows];
@@ -790,6 +807,8 @@ export class UIDocument extends Component {
   }
 
   private readonly warned = new Set<string>();
+  /** Lists already warned about repeated keys (once per selector). */
+  private readonly warnedRepeats = new Set<string>();
 
   private warnOnce(message: string): void {
     if (this.warned.has(message)) return;
