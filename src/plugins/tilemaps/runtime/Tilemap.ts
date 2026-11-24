@@ -260,11 +260,13 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
     return this.setCell(x, y, 0, layer);
   }
 
-  /** Set a cell's raw value (tile id plus flip flags). Returns whether the cell changed. */
+  /** Set a cell's raw value (tile id plus flip flags). Returns whether the cell changed. Throws for a missing layer or a
+   * coordinate that isn't a finite number. */
   setCell(x: number, y: number, value: number, layer: number | string = 0): boolean {
     const li = this.indexOf(layer);
     const l = this._layers()[li];
     if (!l) throw new Error(`Tilemap "${this.node.name}" has no layer ${JSON.stringify(layer)}.`);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new RangeError(`Tilemap "${this.node.name}": (${x}, ${y}) isn't a cell; cell coordinates are finite numbers.`);
     x = Math.floor(x);
     y = Math.floor(y);
     const { cx, cy, index } = cellToChunk(x, y);

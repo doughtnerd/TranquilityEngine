@@ -136,6 +136,12 @@ describe("tile collision shapes (ADR 0105)", () => {
     expect(loops.every((l) => l.length === 4)).toBe(true);
     // Cells touching at a corner get separate loops.
     expect(traceOutlines([[0, 0], [1, 1]])).toHaveLength(2);
+    // ...whichever order the cells come in (the trace may start at the shared corner).
+    for (const cells of [[[1, 1], [0, 0]], [[1, 0], [0, 1]], [[0, 1], [1, 0]]] as [number, number][][]) {
+      const split = traceOutlines(cells);
+      expect(split).toHaveLength(2);
+      expect(split.every((l) => l.length === 4)).toBe(true);
+    }
   });
 
   it("splits one-way runs per row and flips polygons with their cell", () => {
@@ -242,6 +248,9 @@ describe("Tilemap component (ADR 0103)", () => {
     map.layers = data;
     expect(map.getCell(-20, 0)).toBe(cellValue(4, FLIP_Y));
     expect(() => map.setTile(0, 0, 1, "nope")).toThrow();
+    // A coordinate that isn't a finite number names no cell: refused, adding no chunk and reporting no change.
+    for (const [x, y] of [[NaN, 0], [0, Infinity], [-Infinity, NaN]]) expect(() => map.setTile(x!, y!, 1)).toThrow(/cell/);
+    expect(Object.keys(map.toLayerData()[0].chunks)).toEqual(["-2,0"]);
     map.layers = [...data, newLayer("Top")];
     map.fillRect(0, 0, 2, 2, 1, "Top");
     expect(map.getTile(1, 1, 1)).toBe(1);
