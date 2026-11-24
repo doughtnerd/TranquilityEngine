@@ -109,10 +109,16 @@ const builtinSystems: BuiltinSystem[] = [];
 const userSystems: SystemDef[] = [];
 /** Bumped whenever the catalog changes, so schedulers recompute their members. */
 let catalogVersion = 0;
+/** When each defined system was (re)defined: the latest constraint on a loop is the one broken (ADR 0397). */
+const definedAt = new WeakMap<SystemDef, number>();
+let definitions = 0;
 
 /**
  * Register a user system in the catalog (ADR 0032). It runs in the Worlds whose tags its `worlds`
  * filter matches (by default, the default World) and in any World it's added to by name.
+ *
+ * If its `after`/`before` close an ordering loop, the loop is logged once and broken at the most
+ * recently added constraint on it, so the game keeps running (ADR 0397).
  */
 export function defineSystem(def: SystemDef): SystemDef {
   if (def.predicted && def.phase !== "fixedUpdate") throw new Error(`System "${def.name}": predicted systems run in fixedUpdate (got "${def.phase}").`);
@@ -126,16 +132,23 @@ export function defineSystem(def: SystemDef): SystemDef {
   }
   if (existing >= 0) userSystems.splice(existing, 1, def);
   else userSystems.push(def);
-  catalogVersion++;
+  definedAt.set(def, ++definitions);
+  catalogChanged();
   return def;
 }
 
-/** @internal Add an engine built-in to the catalog, at module level. A module evaluated again (hot reload) replaces its entries. */
+/**
+ * @internal Add an engine built-in to the catalog, at module level. A module evaluated again (hot reload) replaces its entries.
+ * Throws, adding nothing, if its `after`/`before` close an ordering loop among the built-ins (ADR 0397).
+ */
 export function defineBuiltinSystem(system: BuiltinSystem): void {
   const existing = builtinSystems.findIndex((s) => s.name === system.name);
+  const candidate = existing >= 0 ? builtinSystems.map((s, i) => (i === existing ? system : s)) : [...builtinSystems, system];
+  const loop = findLoop(constraintEdges(candidate.filter((s) => s.phase === system.phase).map(builtinConstraints)));
+  if (loop) throw new Error(`Engine system "${system.name}" closes a system ordering cycle (each runs before the next): ${loop.names.join(" → ")}.`);
   if (existing >= 0) builtinSystems.splice(existing, 1, system);
   else builtinSystems.push(system);
-  catalogVersion++;
+  catalogChanged();
 }
 
 /** Systems the editor build defined that a script's replaced, and names scripts defined. */
@@ -152,7 +165,7 @@ export function _undefineSystem(name: string): void {
   }
   buildSystems.delete(name);
   scriptSystems.delete(name);
-  catalogVersion++;
+  catalogChanged();
 }
 
 /** @internal Remove an engine system a first-party plugin added (`registerEngineSystems`, ADR 0135). */
@@ -160,7 +173,7 @@ export function _undefineBuiltinSystem(system: BuiltinSystem): void {
   const at = builtinSystems.indexOf(system);
   if (at < 0) return;
   builtinSystems.splice(at, 1);
-  catalogVersion++;
+  catalogChanged();
 }
 
 /** A system in the catalog: what can be added to a World (ADR 0032). */
@@ -263,10 +276,10 @@ export class Scheduler {
     for (const phase of PHASES) {
       // Default order: built-ins in registration order, then user systems in definition order.
       const items: (Scheduled & { after: readonly string[]; before: readonly string[] })[] = [
-        ...builtins.filter((b) => b.phase === phase).map((b) => ({ name: b.name, builtin: b, after: b.after ?? [], before: b.before ?? [] })),
-        ...users.filter((u) => u.phase === phase).map((u) => ({ name: u.name, user: u, after: u.predicted ? [...(u.after ?? []), PREDICTION_SYSTEM] : (u.after ?? []), before: u.before ?? [] })),
+        ...builtins.filter((b) => b.phase === phase).map((b) => ({ ...builtinConstraints(b), builtin: b })),
+        ...users.filter((u) => u.phase === phase).map((u) => ({ ...userConstraints(u), user: u })),
       ];
-      this.ordered[phase] = topoSort(items);
+      this.ordered[phase] = topoSort(items, brokenEdges);
     }
     this.builtCatalogVersion = catalogVersion;
     this.builtMembershipVersion = this.membershipVersion;
@@ -288,20 +301,148 @@ export class Scheduler {
   }
 }
 
-/** Stable topological sort honoring `after`/`before` constraints; unknown names are ignored. */
-function topoSort<T extends { name: string; after: readonly string[]; before: readonly string[] }>(items: T[]): T[] {
+// --- Ordering loops (ADR 0397) ------------------------------------------------------------------
+
+/** A system and its ordering constraints; `owner` is the defined system that declared them (none: a built-in). */
+type Constrained = { name: string; after: readonly string[]; before: readonly string[]; owner?: SystemDef };
+
+const builtinConstraints = (b: BuiltinSystem): Constrained => ({ name: b.name, after: b.after ?? [], before: b.before ?? [] });
+
+/** A defined system's constraints; predicted systems also run after the prediction tick. */
+const userConstraints = (u: SystemDef): Constrained => ({
+  name: u.name,
+  after: u.predicted ? [...(u.after ?? []), PREDICTION_SYSTEM] : (u.after ?? []),
+  before: u.before ?? [],
+  owner: u,
+});
+
+/** The key of the edge "`first` runs before `then`". */
+const edgeKey = (first: string, then: string) => `${first}\u0000${then}`;
+
+/** An edge "`first` runs before `then`", and who declared it. */
+interface Edge {
+  readonly first: string;
+  readonly then: string;
+  /** Declared by an engine built-in: never broken. */
+  builtin: boolean;
+  /** The latest definition (`definedAt`) of a defined system that declared it. */
+  latest: number;
+  /** That system's name. */
+  by: string;
+}
+
+/** The edges among `items` (one phase), keyed by `edgeKey`; names outside `items` are ignored. */
+function constraintEdges(items: readonly Constrained[]): Map<string, Edge> {
+  const names = new Set(items.map((it) => it.name));
+  const edges = new Map<string, Edge>();
+  const add = (first: string, then: string, it: Constrained) => {
+    if (!names.has(first) || !names.has(then)) return;
+    const key = edgeKey(first, then);
+    const edge = edges.get(key) ?? { first, then, builtin: false, latest: -1, by: it.name };
+    const at = it.owner ? (definedAt.get(it.owner) ?? 0) : -1;
+    if (!it.owner) edge.builtin = true;
+    else if (at > edge.latest) {
+      edge.latest = at;
+      edge.by = it.name;
+    }
+    edges.set(key, edge);
+  };
+  for (const it of items) {
+    for (const a of it.after) add(a, it.name, it);
+    for (const b of it.before) add(it.name, b, it);
+  }
+  return edges;
+}
+
+/** A loop in `edges`: the names in run order with the first repeated at the end, and its edges; null if there's none. */
+function findLoop(edges: ReadonlyMap<string, Edge>): { names: string[]; edges: Edge[] } | null {
+  const next = new Map<string, Edge[]>();
+  for (const e of edges.values()) {
+    const out = next.get(e.first);
+    if (out) out.push(e);
+    else next.set(e.first, [e]);
+  }
+  const state = new Map<string, 1 | 2>(); // 1 = on the path, 2 = done
+  const path: Edge[] = [];
+  const visit = (name: string): { names: string[]; edges: Edge[] } | null => {
+    state.set(name, 1);
+    for (const e of next.get(name) ?? []) {
+      const s = state.get(e.then);
+      if (s === 2) continue;
+      path.push(e);
+      if (s === 1) {
+        const loop = path.slice(path.findIndex((p) => p.first === e.then));
+        return { names: [...loop.map((p) => p.first), e.then], edges: loop };
+      }
+      const found = visit(e.then);
+      if (found) return found;
+      path.pop();
+    }
+    state.set(name, 2);
+    return null;
+  };
+  for (const name of next.keys()) {
+    if (state.has(name)) continue;
+    const found = visit(name);
+    if (found) return found;
+  }
+  return null;
+}
+
+/** Constraints left out of every World's order to break loops that defined systems closed (keys from `edgeKey`). */
+let brokenEdges = new Set<string>();
+/** The loops broken and logged, so each is logged once while it stands. */
+let loggedLoops = new Set<string>();
+
+/**
+ * The catalog changed: schedulers rebuild, and loops are broken again, each at its most recently
+ * added constraint (ADR 0397). Built-in loops never get here (`defineBuiltinSystem` refuses them).
+ */
+function catalogChanged(): void {
+  catalogVersion++;
+  const broken = new Set<string>();
+  const logged = new Set<string>();
+  for (const phase of PHASES) {
+    const edges = constraintEdges([
+      ...builtinSystems.filter((b) => b.phase === phase).map(builtinConstraints),
+      ...userSystems.filter((u) => u.phase === phase).map(userConstraints),
+    ]);
+    for (let loop = findLoop(edges); loop; loop = findLoop(edges)) {
+      const breakable = loop.edges.filter((e) => !e.builtin);
+      const cut = breakable.length ? breakable.reduce((a, b) => (b.latest > a.latest ? b : a)) : loop.edges[loop.edges.length - 1];
+      const key = edgeKey(cut.first, cut.then);
+      edges.delete(key);
+      broken.add(key);
+      const text = loop.names.join(" → ");
+      logged.add(text);
+      if (!loggedLoops.has(text)) {
+        console.error(
+          `[myco] System ordering cycle (each runs before the next): ${text}. Ignoring "${cut.first}" before "${cut.then}" (from system "${cut.by}", the most recently added constraint) so the game keeps running.`,
+        );
+      }
+    }
+  }
+  brokenEdges = broken;
+  loggedLoops = logged;
+}
+
+/**
+ * Stable topological sort honoring `after`/`before` constraints except the `broken` ones (`edgeKey`); unknown
+ * names are ignored. Never throws: a loop left over (there should be none) is cut where the walk meets it.
+ */
+function topoSort<T extends { name: string; after: readonly string[]; before: readonly string[] }>(items: T[], broken: ReadonlySet<string>): T[] {
   const index = new Map(items.map((it, i) => [it.name, i]));
   const deps: Set<number>[] = items.map(() => new Set());
   items.forEach((it, i) => {
-    for (const a of it.after) if (index.has(a)) deps[i].add(index.get(a)!);
-    for (const b of it.before) if (index.has(b)) deps[index.get(b)!].add(i);
+    for (const a of it.after) if (index.has(a) && !broken.has(edgeKey(a, it.name))) deps[i].add(index.get(a)!);
+    for (const b of it.before) if (index.has(b) && !broken.has(edgeKey(it.name, b))) deps[index.get(b)!].add(i);
   });
   // Implicit default: keep original order unless a constraint says otherwise.
   const result: T[] = [];
   const state = new Uint8Array(items.length); // 0 = new, 1 = visiting, 2 = done
   const visit = (i: number) => {
     if (state[i] === 2) return;
-    if (state[i] === 1) throw new Error(`System ordering cycle involving "${items[i].name}".`);
+    if (state[i] === 1) return;
     state[i] = 1;
     for (const d of [...deps[i]].sort((a, b) => a - b)) visit(d);
     state[i] = 2;

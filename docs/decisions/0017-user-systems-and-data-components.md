@@ -1,6 +1,6 @@
 # 0017. User systems and data components in v1; no engine event system
 
-- **Status:** Accepted, amended by 0032 (several Worlds, each with its own loop, clock and tick rate)
+- **Status:** Accepted, amended by 0032 (several Worlds, each with its own loop, clock and tick rate); amended by [0397](0397-system-ordering-loops-fail-at-definition-for-the-engine-and-are-broken-for-scripts.md) (ordering loops)
 - **Date:** 2026-10-31
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0007)
