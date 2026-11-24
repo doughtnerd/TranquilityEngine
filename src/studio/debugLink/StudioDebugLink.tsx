@@ -10,6 +10,7 @@ import { OfferRoomDialog } from "../../editor/debugLink/OfferRoomDialog";
 import { DebugLinkFields } from "../../editor/debugLink/DebugLinkSettings";
 import { cleanPreferences } from "../../editor/debugLink/debugLinkLogic";
 import { studioDebugLinkPreferences, studioLink } from "./studioLink";
+import { goLiveOnConnect } from "../shell/liveConnect";
 import "../../editor/debugLink/debugLink.css";
 import "./studioLink.css";
 
@@ -17,6 +18,7 @@ const connectOpen = signal(false);
 
 /** Opens the Connect dialog (the builds menu's Connect…, the start screen's Connect to Game…, the launcher's hand-off). */
 export function openStudioConnect(): void {
+  goLiveOnConnect(); // ADR 0408: the build connected from here opens the Studio live on the Profiler
   connectOpen.value = true;
 }
 

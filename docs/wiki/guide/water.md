@@ -2,7 +2,7 @@
 
 A `WaterSurface` draws a moving sea: a grid pushed around by up to eight Gerstner waves, with foam on the crests, ripples, and reflections of the sky. `Buoyancy` floats nodes on it. The waves you see and the waves scripts sample come from the same numbers, so a ship sits on the crest that is drawn under it.
 
-The design is in [ADR 0072](../decisions/0072-water-surfaces-and-buoyancy.md). This guide is about using it.
+The design is in [ADR 0072](../../decisions/0072-water-surfaces-and-buoyancy.md). This guide is about using it.
 
 ## Adding water
 

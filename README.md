@@ -21,7 +21,7 @@ The editor is at http://localhost:3000/editor.html (`/` goes there). Run the eng
 
 In a browser the editor opens samples read-only. Run `npm run tauri:dev` for the desktop editor, where **Open Project…** opens a project folder (one with a `project.json`), **Make a Copy…** copies a sample into a folder to edit it, and **Save** / Ctrl+S writes scenes back to disk. Desktop builds need [Tauri](https://v2.tauri.app/): install Rust ([rustup](https://rustup.rs/)) first. `npm run tauri:build` produces installers.
 
-An Engine can run several Worlds at once, for example a client and a server, and multiplayer is built on that: server-authoritative, with replication, inputs and client prediction. The [Worlds guide](docs/guide/worlds.md) and the [Multiplayer guide](docs/guide/multiplayer.md) explain how to set them up. `npm run server -- <projectDir>` runs a project's server Worlds headless in Node over WebSocket (`--help` lists the options).
+An Engine can run several Worlds at once, for example a client and a server, and multiplayer is built on that: server-authoritative, with replication, inputs and client prediction. The [Worlds guide](https://github.com/doughtnerd/TranquilityEngine/wiki/Worlds) and the [Multiplayer guide](https://github.com/doughtnerd/TranquilityEngine/wiki/Multiplayer) explain how to set them up. `npm run server -- <projectDir>` runs a project's server Worlds headless in Node over WebSocket (`--help` lists the options).
 ## Current Features
 Again, these might be subject to change throughout development but the features that currently exist are described below.
 

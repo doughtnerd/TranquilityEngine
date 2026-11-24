@@ -157,7 +157,7 @@ describe("the audio topic", () => {
   it("serves on the reliable channel and refuses what it doesn't serve", () => {
     const { topic } = rig();
     expect(topic.channel).toBe("reliable");
-    expect(topic.subscribe({ kind: "frames" })).toEqual({ refused: 'the audio topic has no "frames" subscription (capture or upload)' });
+    expect(topic.subscribe({ kind: "frames" })).toEqual({ refused: 'the audio topic has no "frames" subscription (capture, upload or take)' });
     expect(topic.subscribe({ kind: "upload" })).toMatchObject({ refused: expect.stringContaining("upload's id") });
     expect(() => topic.command!("mute", {})).toThrow('The audio topic has no "mute" command.');
     return expect(topic.request!("take.pause", {})).rejects.toThrow('The audio topic has no "take.pause" request.');

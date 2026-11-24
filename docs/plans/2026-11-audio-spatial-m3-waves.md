@@ -29,7 +29,7 @@ Checked in the repository rather than taken from the handoff ([2026-11-audio-m3-
   - STREAM_OPEN is written in `decoder/streams.ts:282`, which clamps streams to 2 channels (`MAX_CHANNELS`, line 106).
 - **Things the design names that don't exist yet:**
   - `native/audio/tools/` (A3 creates it for `bake-magls`).
-  - `docs/guide/spatial-audio.md` (E8).
+  - `docs/wiki/guide/spatial-audio.md` (E8).
   - `core/listener.ts`, `core/voiceFx.ts`, `core/occlusion.ts`, `core/doppler.ts`, `core/zones.ts`, `core/beds.ts`, `core/pannerPick.ts`.
   - The `bench:audio-spatial` script (D6, added to `package.json` by the coordinator).
 - **One inconsistency in the design, settled here (owner, O1):** FuMa conversion goes in **Rust**, `audio-decode/src/ambisonic.rs` as api-and-models §5.1 lists, not in B1's `decoder/ambisonic.ts`. The decoder rounds to int16 inside `read_i16` (`audio-decode/src/decoder.rs:334`), and the FuMa scaling into int16 headroom (§2.4) has to happen before that rounding. In TypeScript it would either run on rounded samples (losing precision) or need an f32 decode and a second rounding pass. In Rust it's one pass inside the decode loop, still in the worker per chunk (architecture §3). The work moves from B1 to B2, which owns `audio-decode` in W1; the table's days stay on their rows.
@@ -309,7 +309,7 @@ After every wave, before its files change owner, the coordinator:
 |---|---|---|
 | D5 | mid | fills K4's handle stubs; edits: `AudioSource.ts`, `Audio.ts`, `core/debug.ts` (zones, occlusion, `m3Shed`, ladder state); new `audioApiM3.test.ts`; export list to the coordinator |
 | F1 | mid | edits: `runtime/babylonBackend.ts`, `babylonMapping.ts` + tests; implements K0's `setOcclusion?` (gain only) and `setDopplerRate?` (`playbackRate`, decoded clips only) on Babylon voices; `audioSystem.ts` already runs occlusion and Doppler for both backends (K4) |
-| E8 | mid | `samples/sound-lab` spatial scene and scripts (the door moving `openness`, a Doppler pass-by), `samples/*` settings, `docs/guide/spatial-audio.md`, edits to `audio-mixer.md`, `sound-events.md`; the `implementation-status.md` text to the coordinator |
+| E8 | mid | `samples/sound-lab` spatial scene and scripts (the door moving `openness`, a Doppler pass-by), `samples/*` settings, `docs/wiki/guide/spatial-audio.md`, edits to `audio-mixer.md`, `sound-events.md`; the `implementation-status.md` text to the coordinator |
 
 **Exit (M3d, F):** the shippable checks plus both milestones' exit checks and owner listening, then the merge to master with approval.
 

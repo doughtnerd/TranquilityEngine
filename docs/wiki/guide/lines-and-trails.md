@@ -2,7 +2,7 @@
 
 A `LineRenderer` draws a ribbon through points you give it: a laser beam, an aim guide, a rope preview, a path. A `TrailRenderer` draws a ribbon behind a moving node: a bullet streak, a sword swipe, a skid mark. Both work in 3D (depth-tested, with any material) and in 2D (sorted with sprites in a sorting layer), and both come from the **Lines and Trails** plugin (`myco.lines`), which is on by default.
 
-The design is in [ADR 0396](../decisions/0396-line-and-trail-renderers-are-a-plugin-drawing-camera-facing-ribbons.md). This guide is about using them. If you know Unity's components, the fields are the same, with three differences listed [at the end](#coming-from-unity).
+The design is in [ADR 0396](../../decisions/0396-line-and-trail-renderers-are-a-plugin-drawing-camera-facing-ribbons.md). This guide is about using them. If you know Unity's components, the fields are the same, with three differences listed [at the end](#coming-from-unity).
 
 ## Adding a line or a trail
 

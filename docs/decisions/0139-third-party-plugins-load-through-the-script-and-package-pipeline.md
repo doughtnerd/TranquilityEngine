@@ -136,5 +136,5 @@ Nothing. This settles ADR 0133's open questions on the `plugin.json` schema, the
 
 - `src/plugins/thirdParty.ts` (manifest parsing, semver ranges, discovery, checks, code selection), `src/plugins/thirdPartyEditor.ts` (the editor's sync), `src/editor/scriptLoader.ts`, `src/editor/packages.ts`, `src/export/webBuild.ts`, `src/player/main.ts`, `src/server/project.ts`, `src/server/run.ts`, `vite.shared.ts` (`engineTypes`), `src/editor/scriptingSetup.ts`.
 - Example plugin: `src/plugins/fixtures/spinner-project/` (a project with a `plugins/spinner/` plugin: a Component, an editor note and a static asset kind).
-- Guide: [docs/guide/plugins.md](../guide/plugins.md).
+- Guide: [docs/wiki/guide/plugins.md](../wiki/guide/plugins.md).
 - npm semver ranges: https://docs.npmjs.com/cli/v10/configuring-npm/package-json#dependencies

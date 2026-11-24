@@ -2,7 +2,7 @@
 
 An Engine runs one or more **Worlds**. Each World is a separate game: its own nodes and scenes, its own systems, its own clock and physics. A single-player game has one World and never has to think about this. Multiplayer games, split-screen, a menu that starts a match, or a background simulation use several.
 
-The design is in [ADR 0032](../decisions/0032-worlds-systems-and-bootstraps.md) and [ADR 0034](../decisions/0034-current-world-view-and-async.md). This guide is about using it. For networking between Worlds, see [Multiplayer](multiplayer.md).
+The design is in [ADR 0032](../../decisions/0032-worlds-systems-and-bootstraps.md) and [ADR 0034](../../decisions/0034-current-world-view-and-async.md). This guide is about using it. For networking between Worlds, see [Multiplayer](multiplayer.md).
 
 ## The default World
 

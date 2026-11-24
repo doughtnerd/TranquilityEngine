@@ -115,7 +115,7 @@ M3:  W5 (D1) ──► W5b (D2, D3) ──► D4
 | `src/editor/debugLink/editorLink.ts` | U3 in W2 (U1 fills `connectFlow.ts`, which `connect()` delegates to); R5 in W4 |
 | `src/editor/debugLink/BuildsMenu.tsx` | U1 in W2 (with a slot U3 fills from `playBuild.ts`) |
 | `src/export/webBuild.ts`, `node.ts`, `main.ts`, `format.ts` | U6 in W2; R4 in W4 |
-| `docs/architecture/implementation-status.md`, `docs/README.md`, `docs/decisions/*`, `docs/guide/*` | coordinator (tasks supply text) |
+| `docs/architecture/implementation-status.md`, `docs/README.md`, `docs/decisions/*`, `docs/wiki/guide/*` | coordinator (tasks supply text) |
 
 ## 7a. Budgets
 
@@ -222,7 +222,7 @@ and capabilities file.
 | U5 Studio Profiler and Take on the link | S | 3 | A1, A2, U4 (C7 signal) | new `screens/profiler/remoteLiveHost.ts`, `screens/profiler/index.tsx`, `screens/take/recordFromBuild.ts` + its button | Profiler follows a connected build live; Take records, marks and uploads into `takes/` |
 | U8 Studio Mixer on the link | M | 1.5 | A3, U4 (C7 signal) | new `screens/mixer/remoteMix.ts`, `screens/mixer/` entry wiring | with a build connected, mixer edits send `mix.op` to it; a refusal shows |
 | U6 Desktop game listens, export flags | M | 2.5 | L6, L9 | `src/export/desktop.ts`, `webBuild.ts`, `node.ts`, `main.ts`, `format.ts`, `export.test.ts` | `--debug-listen`, `--debug-lan` write `debug.listen`/`debug.lan`; a debug desktop export vendors `ws-listener` + glue crate (O2) and listens, on `0.0.0.0` only with `debug.lan`; `--debug-link` kept |
-| U7 OP1 procedure + walker | M | 1 | L7, A2 | text for `docs/guide/debug-link.md` (coordinator applies), `op1.walk.test.ts` | walker passes headless and with paced, late, repeated requests |
+| U7 OP1 procedure + walker | M | 1 | L7, A2 | text for `docs/wiki/guide/debug-link.md` (coordinator applies), `op1.walk.test.ts` | walker passes headless and with paced, late, repeated requests |
 | S1 Browser smoke | M | 1.5 | A1, A2, L7, U6 | `tests/e2e/debuglink-audio.spec.ts` (`@slow`), `tests/e2e/debugLinkFixture.ts` | exported Flappy (http page) connects to a Node tool listener, take uploaded, bytes equal |
 
 M1 exit: §4.
@@ -259,8 +259,8 @@ M1 exit: §4.
 |---|---|---|---|---|---|
 | D1 Discovery crate | M | 2.5 | L9 | new `native/debug-discovery/` (`mdns-sd`), `debug-link-tauri` `discover_*` commands, both shells' `lib.rs`, `desktop.ts` (games advertise) | advertise and browse `_myco-debug._tcp`; cargo test (§7c) |
 | D2 Discovery in the dialog | M | 1 | D1, U1 | new `editor/debugLink/discovery.ts`, `ConnectDialog.tsx` slot | discovered builds listed; selecting one fills the address, the token is still typed |
-| D4 Guide, status, OP3 | M | 1 | all | text for `docs/guide/debug-link.md`, status rows 0376/0403 | coordinator applies |
-| D3 Android games (W5b) | M | 3 | U6, L9, D1 | `cargo check --target aarch64-linux-android` of `ws-listener` and `debug-link-tauri`; a Tauri mobile plugin for the multicast lock (D1's discovery uses it on Android); text for `docs/guide/debug-link.md` on the `gen/android/` network security config (cleartext to private ranges in debug builds) | a real phone running a debug export (built with `tauri android build`) pairs with the Tauri Studio by code (OP1) and appears in its discovery list (OP3) |
+| D4 Guide, status, OP3 | M | 1 | all | text for `docs/wiki/guide/debug-link.md`, status rows 0376/0403 | coordinator applies |
+| D3 Android games (W5b) | M | 3 | U6, L9, D1 | `cargo check --target aarch64-linux-android` of `ws-listener` and `debug-link-tauri`; a Tauri mobile plugin for the multicast lock (D1's discovery uses it on Android); text for `docs/wiki/guide/debug-link.md` on the `gen/android/` network security config (cleartext to private ranges in debug builds) | a real phone running a debug export (built with `tauri android build`) pairs with the Tauri Studio by code (OP1) and appears in its discovery list (OP3) |
 
 ## 11. Risks, plan decisions and owner items
 

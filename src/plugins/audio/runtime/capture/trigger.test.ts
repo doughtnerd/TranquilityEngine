@@ -14,6 +14,9 @@ import { CAPTURE_TRIGGER_MAX_FILES } from "./format";
 import { defaultSaveEnv, webSaveCount, type SaveEnv } from "./save";
 import { keyframeCodecForTests, statusBytes, type CaptureChunkControl } from "./testSupport";
 import { installCaptureTrigger, installTakeTrigger, type TriggerEnv } from "./trigger";
+import { takeStateSubscription } from "../debugLink/takeState";
+import { decodeTakeState } from "../debugLink/schema";
+import { RecordWriter, readRecords } from "../../../../engine/debugLink/records";
 
 /** The recorder and save chunks are the real ones, wrapped: a 4 MiB ring, each save through the rig's fakes. */
 const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
@@ -216,6 +219,92 @@ describe("F10: the take trigger (ADR 0348)", () => {
   });
 });
 
+describe("F10 while the Audio Studio owns the takes (ADR 0408)", () => {
+  it("only starts and stops while a take subscription is open, and saves again once it closes", async () => {
+    const target = fakeTarget();
+    const { cap, calls } = fakeCapture();
+    const toasts: string[] = [];
+    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: false, webSaves: async () => ({ count: 99, max: 16 }), schedule: manualSchedule().schedule });
+    const press = async () => {
+      target.fire("keydown", key("F10"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    const sub = takeStateSubscription(() => ({ state: cap.state, seconds: 0 }));
+    await press(); // the web's save cap doesn't apply: nothing is saved here
+    await vi.waitFor(() => expect(calls).toEqual(["start"]));
+    await press();
+    await vi.waitFor(() => expect(calls).toEqual(["start", "stop"]));
+    expect(toasts.at(-1)).toBe("Take stopped: the Audio Studio saves it");
+    sub.close();
+    cap.state = "idle";
+    await press();
+    expect(toasts.at(-1)).toMatch(/Capture limit reached/);
+    uninstall();
+  });
+
+  it("the take subscription sends the state now and each change, not every sample", () => {
+    let state: "idle" | "recording" | "stopped" = "idle";
+    const sub = takeStateSubscription(() => ({ state, seconds: state === "stopped" ? 4.5 : 0 }));
+    const sent: unknown[] = [];
+    const sample = () => {
+      const out = new RecordWriter();
+      sub.sample(out, 1);
+      for (const r of readRecords(out.take()).records) sent.push(decodeTakeState(r.payload));
+    };
+    sample();
+    sample();
+    state = "recording";
+    sample();
+    state = "stopped";
+    sample();
+    sample();
+    expect(sent).toEqual([{ state: "idle", seconds: 0 }, { state: "recording", seconds: 0 }, { state: "stopped", seconds: 4.5 }]);
+    sub.close();
+  });
+
+  it("keeps a backup copy of each take that stops while the Studio holds it, however it stopped", () => {
+    let state: "idle" | "recording" | "stopped" = "idle";
+    let backups = 0;
+    const sub = takeStateSubscription(() => ({ state, seconds: 0 }), () => void backups++);
+    const sample = () => sub.sample(new RecordWriter(), 1);
+    sample();
+    state = "stopped"; // a take that never recorded under this subscription
+    sample();
+    expect(backups).toBe(0);
+    state = "recording";
+    sample();
+    state = "stopped";
+    sample();
+    sample();
+    expect(backups).toBe(1);
+    state = "recording";
+    sample();
+    state = "stopped";
+    sample();
+    expect(backups).toBe(2);
+    sub.close();
+  });
+
+  it("on desktop and Android, F10 says a copy is kept", async () => {
+    const target = fakeTarget();
+    const { cap, calls } = fakeCapture();
+    const toasts: string[] = [];
+    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: true, schedule: manualSchedule().schedule });
+    const press = async () => {
+      target.fire("keydown", key("F10"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    const sub = takeStateSubscription(() => ({ state: cap.state, seconds: 0 }));
+    await press();
+    await vi.waitFor(() => expect(calls).toEqual(["start"]));
+    await press();
+    await vi.waitFor(() => expect(calls).toEqual(["start", "stop"]));
+    expect(toasts.at(-1)).toBe("Take sent to the Audio Studio (a copy is kept in app data)");
+    sub.close();
+    uninstall();
+  });
+});
+
 describe("the three-finger hold", () => {
   it("starts and then stops and saves, after exactly TRIGGER_HOLD_MS with three fingers down", async () => {
     const r = rigFake();
@@ -298,8 +387,8 @@ describe("the web's cap of 16", () => {
   it("the toast shows a Tauri path as the capture's own file name", async () => {
     for (const [saved, shown] of [
       ["capture-20261113-101500.mycap", "capture-20261113-101500.mycap"],
-      ["/data/app/cache/capture-20261113-101500.mycap.bin", "capture-20261113-101500.mycap"],
-      ["C:\\Users\\a\\AppData\\cache\\capture-20261113-101500-2.mycap.bin", "capture-20261113-101500-2.mycap"],
+      ["/data/app/captures/capture-20261113-101500.mycap", "capture-20261113-101500.mycap"],
+      ["C:\\Users\\a\\AppData\\captures\\capture-20261113-101500-2.mycap", "capture-20261113-101500-2.mycap"],
     ]) {
       const r = rigFake({ tauri: true });
       r.cap.saved = saved;
@@ -361,10 +450,12 @@ function realRig(opts: { tauri?: boolean; existing?: string[] } = {}) {
   const deleted: string[] = [];
   const env: SaveEnv = {
     tauri: opts.tauri ?? false,
-    storage: {
-      save: async (key) => void stored.add(key),
+    fs: {
+      mkdir: async () => {},
+      write: async (path) => void stored.add(path.slice(path.lastIndexOf("/") + 1)),
       list: async () => [...stored],
-      delete: async (key) => {
+      remove: async (path) => {
+        const key = path.slice(path.lastIndexOf("/") + 1);
         stored.delete(key);
         deleted.push(key);
       },

@@ -106,7 +106,7 @@ Gaps the SDK still has: **no start-play call** (Test Drop needs one) and **no no
 ## Consequences
 
 **Positive**
-- 0370–0376 plus this record describe what is built; the guide (`docs/guide/animation.md`) and the records agree.
+- 0370–0376 plus this record describe what is built; the guide (`docs/wiki/guide/animation.md`) and the records agree.
 - The SDK additions are named public surface, so third-party editor plugins can rely on them.
 
 **Negative / costs**
@@ -123,4 +123,4 @@ Nothing. 0373's "Bake retargeted clip writes an `*.anim.json`" and "The Profiler
 
 ## References
 
-`docs/design/animation/decision-log.md` (D107–D139), `docs/design/animation/build-log.md` (T44–T80), `docs/guide/animation.md`, `src/myco.ts`, `src/plugins/animation/runtime/types.ts`, `src/editor/sdk/index.ts`, `src/editor/sdk/plugins.ts`, `src/editor/sdk/scene.ts`.
+`docs/design/animation/decision-log.md` (D107–D139), `docs/design/animation/build-log.md` (T44–T80), `docs/wiki/guide/animation.md`, `src/myco.ts`, `src/plugins/animation/runtime/types.ts`, `src/editor/sdk/index.ts`, `src/editor/sdk/plugins.ts`, `src/editor/sdk/scene.ts`.

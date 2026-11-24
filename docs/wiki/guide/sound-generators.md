@@ -1,6 +1,6 @@
 # Sound generators
 
-A **sound generator** (`*.generator.json`, [ADR 0360](../decisions/0360-sound-generators-are-a-playlist-entry-played-by-a-core-generator-voice-and-baked-to-samples-on-demand.md)) makes a sound from parameters instead of a recording: a test tone, a UI beep pitched by a slider, an engine drone on a parameter, an sfxr-style coin or laser, or a stretch of silence. It plays like a sample: from a script, in a playlist, on a sequence clip, through buses and effects. When you want files instead (to hand to a sound designer, or for a build with no generator cost), **Bake** renders it to samples.
+A **sound generator** (`*.generator.json`, [ADR 0360](../../decisions/0360-sound-generators-are-a-playlist-entry-played-by-a-core-generator-voice-and-baked-to-samples-on-demand.md)) makes a sound from parameters instead of a recording: a test tone, a UI beep pitched by a slider, an engine drone on a parameter, an sfxr-style coin or laser, or a stretch of silence. It plays like a sample: from a script, in a playlist, on a sequence clip, through buses and effects. When you want files instead (to hand to a sound designer, or for a build with no generator cost), **Bake** renders it to samples.
 
 You make and edit generators in the **Audio Studio**, on the **Playlists** screen: generators sit in the library beside playlists.
 

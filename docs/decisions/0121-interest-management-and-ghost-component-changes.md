@@ -85,4 +85,4 @@ Also left out: per-connection send rates (0101's open question).
 
 ## References
 
-`src/engine/net/interest.ts`, `net/replication/server.ts`, `client.ts`, `wire.ts`, `strings.ts`, `net/Replicated.ts`; tests `src/engine/tests/replicationInterest.test.ts`; guide `docs/guide/multiplayer.md`.
+`src/engine/net/interest.ts`, `net/replication/server.ts`, `client.ts`, `wire.ts`, `strings.ts`, `net/Replicated.ts`; tests `src/engine/tests/replicationInterest.test.ts`; guide `docs/wiki/guide/multiplayer.md`.

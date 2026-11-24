@@ -1,6 +1,6 @@
 # Input: actions, contexts and players
 
-Myco's input system (ADR [0335](../decisions/0335-gamepads-come-from-a-native-sdl3-adapter-on-desktop-and-device-state-reaches-worlds-as-entities-in-an-input-phase.md), [0336](../decisions/0336-input-actions-are-data-components-and-contexts-are-node-components-evaluated-by-input-systems.md), [0337](../decisions/0337-input-players-are-entities-networked-actions-are-input-streams-and-rebinding-is-data.md)) turns keyboards, mice and gamepads into **actions**: "move", "jump", "aim". Your game reads the actions and never needs to know which key or button was pressed. `Input.getKey("space")` still works when you want raw keys.
+Myco's input system (ADR [0335](../../decisions/0335-gamepads-come-from-a-native-sdl3-adapter-on-desktop-and-device-state-reaches-worlds-as-entities-in-an-input-phase.md), [0336](../../decisions/0336-input-actions-are-data-components-and-contexts-are-node-components-evaluated-by-input-systems.md), [0337](../../decisions/0337-input-players-are-entities-networked-actions-are-input-streams-and-rebinding-is-data.md)) turns keyboards, mice and gamepads into **actions**: "move", "jump", "aim". Your game reads the actions and never needs to know which key or button was pressed. `Input.getKey("space")` still works when you want raw keys.
 
 ## Declare actions
 
@@ -310,7 +310,7 @@ Load saved bindings with `player.loadBindings()` when the game starts.
   - rebinds in progress;
   - a log of recent action, device, join and rebind events.
 - **Overlay** (in the Input Debugger's bar): while playing, a compact block per player over the game view, opposite Stats: the player and the device family it last used, its active contexts by priority, each action's value bar and phase badges, and its last few presses. It follows the World the debugger shows. Its × or the toggle hides it; the editor remembers the setting.
-- **Record** (in the Input Debugger's bar, while editing or playing): records your controllers' raw input as it reaches the engine (WebHID reports, SDL batches in the desktop editor, Gamepad API readings) until **Stop**, which saves it as `recordings/input-<date>-<time>.input-recording.json` (downloaded from a read-only project). A test can replay the file through the same adapter code without the controller: see "Recording" in [the hardware checklist](../plans/2026-11-input-hardware-checklist.md).
+- **Record** (in the Input Debugger's bar, while editing or playing): records your controllers' raw input as it reaches the engine (WebHID reports, SDL batches in the desktop editor, Gamepad API readings) until **Stop**, which saves it as `recordings/input-<date>-<time>.input-recording.json` (downloaded from a read-only project). A test can replay the file through the same adapter code without the controller: see "Recording" in [the hardware checklist](../../plans/2026-11-input-hardware-checklist.md).
 
 ## Enhanced gamepads in Chrome (WebHID)
 

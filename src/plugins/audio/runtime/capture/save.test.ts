@@ -1,8 +1,7 @@
 // ADR 0171 amended by 0172 (M5a, task Rc4, leaf L-Rc4a; api-and-models §1.2, §5.1, §5.7): saving a take. A real recorder's
 // span becomes a file Rc1's reader opens whole (stored and deflate-raw), the web path hands a Blob-backed download a
-// sanitised name, the Tauri path saves through `Storage` into `cache` and rotates to 16, and every environment is a fake.
+// sanitised name, the Tauri path writes plain files under `takes/` and `captures/` and rotates to 16, and every environment is a fake.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryStorage, Storage } from "../../../../engine/platform/Storage";
 import { CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_HAS_INDEX, CAPTURE_FLAG_TRUNCATED, CAPTURE_HEADER_BYTES, CAPTURE_TRIGGER_MAX_FILES, RecordType, readCaptureHeader } from "./format";
 import { openCapture } from "./reader";
 import { createRecorder, type EpochContext, type Recorder } from "./recorder";
@@ -39,23 +38,27 @@ function takeOf(r: Recorder, over: Partial<SaveTake> = {}): SaveTake {
 /** The real platform's deflate-raw (`CompressionStream`), as `saveCapture` uses by default. */
 const deflateRawCompress = (payload: Uint8Array): Promise<Uint8Array | null> => defaultSaveEnv().compress(payload);
 
-/** A fake environment: records the download and the `Storage` calls; compression is the real one unless told. */
+/** A fake environment: records the download and the file operations (an in-memory file tree); compression is the real one unless told. */
 function fakeEnv(over: Partial<SaveEnv> = {}) {
   const downloads: { bytes: Uint8Array; fileName: string }[] = [];
-  const storage = new MemoryStorage();
-  const saved: { key: string; bytes: Uint8Array; namespace: string }[] = [];
+  /** Absolute file path -> bytes. */
+  const files = new Map<string, Uint8Array>();
+  const folders: string[] = [];
+  const saved: { path: string; bytes: Uint8Array }[] = [];
   const deleted: string[] = [];
+  const parent = (path: string): string => path.slice(0, path.lastIndexOf("/"));
   const env: SaveEnv = {
     tauri: false,
-    storage: {
-      save: async (key, value, namespace) => {
-        saved.push({ key, bytes: value as Uint8Array, namespace });
-        await storage.save(namespace, key, value);
+    fs: {
+      mkdir: async (path) => void folders.push(path),
+      write: async (path, bytes) => {
+        saved.push({ path, bytes });
+        files.set(path, bytes);
       },
-      list: (namespace) => storage.list(namespace),
-      delete: async (key, namespace) => {
-        deleted.push(key);
-        await storage.delete(namespace, key);
+      list: async (path) => [...files.keys()].filter((k) => parent(k) === path.replace(/\/+$/, "")).map((k) => k.slice(k.lastIndexOf("/") + 1)),
+      remove: async (path) => {
+        deleted.push(path);
+        files.delete(path);
       },
     },
     storageRoot: async () => "/data/app/",
@@ -64,7 +67,7 @@ function fakeEnv(over: Partial<SaveEnv> = {}) {
     now: () => at(10, 15, 0),
     ...over,
   };
-  return { env, downloads, saved, deleted, storage };
+  return { env, downloads, saved, deleted, files, folders };
 }
 
 let smallTake: SaveTake | undefined;
@@ -270,98 +273,113 @@ describe("the web path: a download named from the sanitised name", () => {
   });
 });
 
-describe("the Tauri path: Storage.save(key, bytes, \"cache\"), resolving with the app-data path", () => {
-  it("saves the bytes in the cache namespace and resolves <storage root>/cache/<key>.bin", async () => {
-    const { env, downloads, saved, storage } = fakeEnv({ tauri: true });
+describe("the Tauri path: plain files under <storage root>/takes and /captures", () => {
+  it("makes the folder, writes <storage root>/captures/<name>.mycap and resolves with that path", async () => {
+    const { env, downloads, saved, folders, files } = fakeEnv({ tauri: true });
     const before = webSaveCount();
     const path = await saveCapture(takeOf(recorded(3)), "arena-2", env);
-    expect(path).toBe("/data/app/cache/arena-2.mycap.bin");
+    expect(path).toBe("/data/app/captures/arena-2.mycap");
     expect(downloads).toEqual([]);
-    expect(saved.map((s) => [s.key, s.namespace])).toEqual([["arena-2.mycap", "cache"]]);
-    expect(await storage.list("cache")).toEqual(["arena-2.mycap"]);
+    expect(folders).toEqual(["/data/app/captures"]);
+    expect(saved.map((s) => s.path)).toEqual(["/data/app/captures/arena-2.mycap"]);
+    expect([...files.keys()]).toEqual([path]);
     expect(webSaveCount()).toBe(before);
     const c = await openCapture(saved[0]!.bytes);
     expect(c.warnings).toEqual([]);
   });
 
-  it("works through the real Storage facade over its memory backend", async () => {
-    const memory = new MemoryStorage();
-    Storage.use(memory);
-    try {
-      const { env } = fakeEnv({ tauri: true });
-      const real: SaveEnv = { ...env, storage: { save: (k, v, n) => Storage.save(k, v, n), list: (n) => Storage.list(n), delete: (k, n) => Storage.delete(k, n) } };
-      await saveCapture(takeOf(recorded(2)), "via-facade", real);
-      // Bytes load back as an ArrayBuffer on every backend (ADR 0317), as they always did under Tauri.
-      const back = new Uint8Array((await Storage.load<ArrayBuffer>("via-facade.mycap", "cache"))!);
-      expect(readCaptureHeader(back).flags & CAPTURE_FLAG_COMPRESSED).toBeTruthy();
-    } finally {
-      Storage.use(new MemoryStorage());
-    }
+  it("a take goes to takes/ with .mycotake", async () => {
+    const { env, saved } = fakeEnv({ tauri: true });
+    const take = takeOf(recorded(2), { requests: { bytes: new Uint8Array(0), recordCount: 0 } });
+    expect(await saveCapture(take, "duel", env)).toBe("/data/app/takes/duel.mycotake");
+    expect(saved.map((s) => s.path)).toEqual(["/data/app/takes/duel.mycotake"]);
   });
 
-  it("the path mirrors TauriStorage: a trailing slash goes, the key is URI-encoded", async () => {
+  it("a name saved twice is overwritten", async () => {
+    const { env, files } = fakeEnv({ tauri: true });
+    const take = takeOf(recorded(1));
+    await saveCapture(take, "same", env);
+    await saveCapture(take, "same", env);
+    expect([...files.keys()]).toEqual(["/data/app/captures/same.mycap"]);
+  });
+
+  it("a trailing slash on the root goes, and a Windows root keeps its own separators", async () => {
     const take = takeOf(recorded(1));
     const windows = fakeEnv({ tauri: true, storageRoot: async () => "C:\\Users\\me\\AppData\\" }).env;
-    expect(await saveCapture(take, "a.b", windows)).toBe("C:\\Users\\me\\AppData/cache/a.b.mycap.bin");
-    expect(await saveCapture(take, "k", fakeEnv({ tauri: true, storageRoot: async () => "/d" }).env)).toBe("/d/cache/k.mycap.bin");
+    expect(await saveCapture(take, "a.b", windows)).toBe("C:\\Users\\me\\AppData/captures/a.b.mycap");
+    expect(await saveCapture(take, "k", fakeEnv({ tauri: true, storageRoot: async () => "/d" }).env)).toBe("/d/captures/k.mycap");
   });
 
-  it("still resolves when the app-data folder can't be read", async () => {
+  it("rejects, writing nothing, when the storage folder can't be resolved", async () => {
     const { env, saved } = fakeEnv({ tauri: true, storageRoot: () => Promise.reject(new Error("no path api")) });
-    await expect(saveCapture(takeOf(recorded(2)), "x", env)).resolves.toBe("cache/x.mycap.bin");
-    expect(saved.length).toBe(1);
+    await expect(saveCapture(takeOf(recorded(2)), "x", env)).rejects.toThrow("no path api");
+    expect(saved.length).toBe(0);
   });
 });
 
-describe("rotation: the newest 16 auto-named captures stay (Storage.list, delete)", () => {
+describe("rotation: the newest 16 auto-named files of a folder stay (list, remove)", () => {
+  const DIR = "/data/app/captures";
   const stems = (n: number): string[] => Array.from({ length: n }, (_, i) => `capture-20261113-1${String(i).padStart(5, "0")}.mycap`);
+  const put = (files: Map<string, Uint8Array>, name: string, dir = DIR): void => void files.set(`${dir}/${name}`, new Uint8Array(1));
+  const names = (files: Map<string, Uint8Array>, dir = DIR): string[] => [...files.keys()].filter((k) => k.startsWith(dir + "/")).map((k) => k.slice(dir.length + 1));
 
-  it("deletes the oldest first and keeps 16; user-named files and other cache entries are never touched", async () => {
-    const { env, storage, deleted } = fakeEnv({ tauri: true });
+  it("deletes the oldest first and keeps 16; user-named files and other files are never touched", async () => {
+    const { env, files, deleted } = fakeEnv({ tauri: true });
     const auto = stems(20);
-    for (const k of [...auto].reverse()) await storage.save("cache", k, new Uint8Array(1)); // listed in any order
-    await storage.save("cache", "my-best-run.mycap", new Uint8Array(1));
-    await storage.save("cache", "audio.calibration", new Uint8Array(1));
-    await storage.save("saves", "capture-20200101-000000.mycap", new Uint8Array(1)); // another namespace
-    const gone = await rotateCaptures(env.storage);
+    for (const k of [...auto].reverse()) put(files, k); // listed in any order
+    put(files, "my-best-run.mycap");
+    put(files, "audio.calibration");
+    put(files, "capture-20200101-000000.mycap", "/data/app/takes"); // another folder
+    const gone = await rotateCaptures(env.fs, DIR);
     expect(gone).toEqual(auto.slice(0, 4));
-    expect(deleted).toEqual(auto.slice(0, 4));
-    const left = await storage.list("cache");
+    expect(deleted).toEqual(auto.slice(0, 4).map((k) => `${DIR}/${k}`));
+    const left = names(files);
     expect(left.filter((k) => k.startsWith("capture-")).sort()).toEqual(auto.slice(4));
     expect(left).toContain("my-best-run.mycap");
     expect(left).toContain("audio.calibration");
-    expect(await storage.list("saves")).toEqual(["capture-20200101-000000.mycap"]);
+    expect(names(files, "/data/app/takes")).toEqual(["capture-20200101-000000.mycap"]);
     expect(CAPTURE_TRIGGER_MAX_FILES).toBe(16);
   });
 
   it("a repeat suffix orders after its second: -2 is newer than the bare stem", async () => {
-    const { env, storage } = fakeEnv({ tauri: true });
-    const names = ["capture-20261113-101500-3.mycap", "capture-20261113-101500.mycap", "capture-20261113-101500-2.mycap"];
-    for (const k of names) await storage.save("cache", k, new Uint8Array(1));
-    expect(await rotateCaptures(env.storage, 1)).toEqual(["capture-20261113-101500.mycap", "capture-20261113-101500-2.mycap"]);
+    const { env, files } = fakeEnv({ tauri: true });
+    for (const k of ["capture-20261113-101500-3.mycap", "capture-20261113-101500.mycap", "capture-20261113-101500-2.mycap"]) put(files, k);
+    expect(await rotateCaptures(env.fs, DIR, 1)).toEqual(["capture-20261113-101500.mycap", "capture-20261113-101500-2.mycap"]);
   });
 
   it("saving an auto-named capture on Tauri rotates to 16; a named save doesn't", async () => {
-    const { env, storage } = fakeEnv({ tauri: true, now: () => at(10, 15, 0, 20) });
-    for (const k of stems(16)) await storage.save("cache", k, new Uint8Array(1));
+    const { env, files } = fakeEnv({ tauri: true, now: () => at(10, 15, 0, 20) });
+    for (const k of stems(16)) put(files, k);
     const take = takeOf(recorded(2));
     await saveCapture(take, "keeper", env);
-    expect((await storage.list("cache")).length, "17 files: a named save leaves the rotation alone").toBe(17);
+    expect(names(files).length, "17 files: a named save leaves the rotation alone").toBe(17);
     await saveCapture(take, undefined, env); // capture-20261120-101500.mycap: the 17th auto file, so the oldest goes
-    const left = await storage.list("cache");
+    const left = names(files);
     expect(left.filter((k) => k.startsWith("capture-")).length).toBe(16);
     expect(left).toContain("keeper.mycap");
     expect(left).toContain("capture-20261120-101500.mycap");
     expect(left).not.toContain(stems(16)[0]);
   });
 
-  it("a delete that fails leaves the file and the rotation goes on", async () => {
-    const { env, storage } = fakeEnv({ tauri: true });
-    const names = stems(4);
-    for (const k of names) await storage.save("cache", k, new Uint8Array(1));
-    const flaky = { ...env.storage, delete: vi.fn(async (key: string, ns: "cache") => { if (key === names[0]) throw new Error("locked"); return env.storage.delete(key, ns); }) };
-    expect(await rotateCaptures(flaky, 2)).toEqual([names[1]]);
-    expect(flaky.delete).toHaveBeenCalledTimes(2);
+  it("takes rotate over their own folder and extension", async () => {
+    const { env, files } = fakeEnv({ tauri: true });
+    const old = Array.from({ length: 16 }, (_, i) => `take-20261101-1000${String(i).padStart(2, "0")}.mycotake`);
+    for (const k of old) put(files, k, "/data/app/takes");
+    put(files, "capture-20261101-100000.mycap", "/data/app/captures");
+    const take = takeOf(recorded(2), { requests: { bytes: new Uint8Array(0), recordCount: 0 } });
+    await saveCapture(take, undefined, env);
+    expect(names(files, "/data/app/takes").length).toBe(16);
+    expect(names(files, "/data/app/takes")).not.toContain(old[0]);
+    expect(names(files, "/data/app/captures")).toEqual(["capture-20261101-100000.mycap"]);
+  });
+
+  it("a remove that fails leaves the file and the rotation goes on", async () => {
+    const { env, files } = fakeEnv({ tauri: true });
+    const auto = stems(4);
+    for (const k of auto) put(files, k);
+    const flaky = { ...env.fs, remove: vi.fn(async (path: string) => { if (path.endsWith(auto[0]!)) throw new Error("locked"); return env.fs.remove(path); }) };
+    expect(await rotateCaptures(flaky, DIR, 2)).toEqual([auto[1]]);
+    expect(flaky.remove).toHaveBeenCalledTimes(2);
   });
 });
 

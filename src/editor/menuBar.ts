@@ -122,7 +122,7 @@ export interface MenuActions {
   openAbout(): void;
 }
 
-export const DOCS_URL = "https://github.com/doughtnerd/tranquilityengine/tree/master/docs/guide";
+export const DOCS_URL = "https://github.com/doughtnerd/TranquilityEngine/wiki";
 
 const NO_SCENE = "open a scene first";
 export const NO_PROJECT = "open a project first";
@@ -272,7 +272,7 @@ function helpMenu(a: MenuActions): Menu {
     id: "help",
     label: "Help",
     items: [
-      { label: "Documentation", run: a.openDocs, title: "Open the guide in your browser" },
+      { label: "Documentation", run: a.openDocs, title: "Open the wiki in your browser" },
       { label: "Log", run: a.openLog, title: "Open the message log" },
       SEPARATOR,
       { label: "About Myco Engine", run: a.openAbout },

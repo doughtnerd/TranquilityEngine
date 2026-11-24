@@ -1,4 +1,5 @@
-// The Studio's page (ADR 0341 "The shell"): the start screen with no project open, else the shell: header, the
+// The Studio's page (ADR 0341 "The shell"): the start screen with no project open, else the shell (for a takes folder
+// workspace, ADR 0408, only Take and Profiler): header, the
 // screen's dock (the engine's `DockLayout` over the screen's own layout store), the player bar with the screen's
 // slots, the Hear as control (ADR 0351 §6) and the game session (driving take replay, UI pass #1), the status bar, toasts and the shortcut list. A banner says why when the audio core can't run, and one over
 // the Playlists screen offers to migrate a read-only project's old audio events (ADR 0343).
@@ -19,7 +20,8 @@ import { PlayerBar } from "../components/PlayerBar";
 import { HearAsSlot } from "./HearAsSlot";
 import { GameSessionSlot, sessionSlots } from "./GameSessionSlot";
 import { StatusBarSlot } from "./StatusBarSlot";
-import { screenById } from "./screens";
+import { TAKES_FOLDER_SCREENS, screenById } from "./screens";
+import { isTakesFolder } from "../../editor/projects";
 import { ScreenDock } from "./ScreenDock";
 import { pendingAudioMigration } from "./audioMigration";
 import { MigrationBanner } from "./MigrationBanner";
@@ -78,16 +80,28 @@ export function StudioApp(props: StudioAppProps) {
       </div>
     );
   }
-  const route = studioRouter().route.value;
+  // ADR 0408: a takes folder workspace (no project) offers only Take and Profiler; another screen's route shows the Profiler.
+  const takesOnly = isTakesFolder(project);
+  const asked = studioRouter().route.value;
+  const route = takesOnly && !TAKES_FOLDER_SCREENS.has(asked.screen) ? { ...asked, screen: "profiler" as const } : asked;
   const screen = screenById(route.screen)!;
   const host = audioRuntime();
   const state = host.state.value;
+  const build = studioBuild.value;
   const own = playerSlots.value[route.screen] ?? {};
   const slots = SESSION_SCREENS.has(route.screen) && !own.transport ? { ...sessionSlots(screen.art), ...own } : own;
   return (
     <HistoryIcons.Provider value={HISTORY_ICONS}>
     <div ref={root} class="studio" data-floating-root="">
-      <StudioHeader screen={route.screen} projectName={project.name} readOnly={!project.canSave} onScreen={(s) => studioRouter().open({ screen: s })} onCloseProject={props.onCloseProject} />
+      <StudioHeader
+        screen={route.screen}
+        projectName={takesOnly ? `${build ? `Live · ${build.name} · ` : ""}Takes: ${project.name}` : project.name}
+        readOnly={!project.canSave}
+        onlyScreens={takesOnly ? TAKES_FOLDER_SCREENS : undefined}
+        closeNoun={takesOnly ? "the takes folder" : undefined}
+        onScreen={(s) => studioRouter().open({ screen: s })}
+        onCloseProject={props.onCloseProject}
+      />
       <div class="studio-banners">
         {state.kind === "failed" && (
           <div class="studio-banner" role="alert">

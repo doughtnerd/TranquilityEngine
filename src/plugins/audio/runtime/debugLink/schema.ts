@@ -13,6 +13,10 @@
 //   (`liveLost`), one `AUDIO_CAPTURE_LOST` record and nothing after it. Unsubscribing ends the build's hold.
 // - `{ kind: "upload", upload }`: the bytes of an upload prepared by `take.upload` as `AUDIO_TAKE_CHUNK` records, in
 //   order, one chunk per sample. The tool unsubscribes once complete (below); closing early abandons it.
+// - `{ kind: "take" }` (ADR 0408): the take's state, one `AUDIO_TAKE_STATE` record (`TakeStateReply` as JSON) now and
+//   each time it changes, however it changed (F10, the game's script, a request). While a tool holds it the tool owns
+//   the build's takes: the build's F10 trigger only starts and stops them and saves nothing itself; the tool uploads a
+//   stopped take and decides where it's saved.
 //
 // **Requests** (`{ method, params }`, answered by a JSON reply or an error with the message):
 // - `take.start` (no params) → `TakeStateReply` once recording (`Audio.take.start()`); an error if the core can't record.
@@ -67,6 +71,8 @@ export const AudioLinkRecord = {
   captureLost: 0x52,
   /** One chunk of an upload. Payload: `TakeChunk`. */
   takeChunk: 0x53,
+  /** ADR 0408: the take's state now. Payload: `TakeStateReply` as UTF-8 JSON. */
+  takeState: 0x54,
 } as const;
 
 /** A subscription's parameters. */
@@ -74,7 +80,9 @@ export type AudioSubscriptionParams =
   /** The live capture feed. */
   | { readonly kind: "capture" }
   /** Upload `upload`'s chunks (`TakeUploadReply.upload`). */
-  | { readonly kind: "upload"; readonly upload: number };
+  | { readonly kind: "upload"; readonly upload: number }
+  /** ADR 0408: the take's state as it changes (the tool owns the build's takes while it holds this). */
+  | { readonly kind: "take" };
 
 /** The requests' method names. */
 export const AudioRequest = { start: "take.start", stop: "take.stop", mark: "take.mark", upload: "take.upload" } as const;
@@ -144,11 +152,12 @@ export interface MixOpCommand {
 export function readAudioSubscription(params: unknown): AudioSubscriptionParams | { refused: string } {
   const p = (params && typeof params === "object" ? params : {}) as Record<string, unknown>;
   if (p.kind === "capture") return { kind: "capture" };
+  if (p.kind === "take") return { kind: "take" };
   if (p.kind === "upload") {
     if (typeof p.upload === "number" && Number.isInteger(p.upload) && p.upload >= 0) return { kind: "upload", upload: p.upload };
     return { refused: "an upload subscription needs the upload's id (take.upload's reply)" };
   }
-  return { refused: `the audio topic has no "${String(p.kind)}" subscription (capture or upload)` };
+  return { refused: `the audio topic has no "${String(p.kind)}" subscription (capture, upload or take)` };
 }
 
 /** A capture piece's record payload. */
@@ -170,6 +179,24 @@ export function decodeCapturePiece(payload: Uint8Array): CapturePiece | { refuse
   const piece = { part: view.getUint32(0, true), index: view.getUint16(4, true), count: view.getUint16(6, true), bytes: payload.subarray(CAPTURE_PIECE_HEAD_BYTES) };
   if (piece.count === 0 || piece.index >= piece.count) return { refused: `capture piece ${piece.index} of ${piece.count} doesn't exist` };
   return piece;
+}
+
+/** A take state record's payload. */
+export function encodeTakeState(state: TakeStateReply): Uint8Array {
+  return new TextEncoder().encode(JSON.stringify({ state: state.state, seconds: state.seconds }));
+}
+
+const TAKE_STATES: readonly AudioTakeState[] = ["idle", "loading", "recording", "stopped"];
+
+/** A take state from its record payload, or why it isn't one. */
+export function decodeTakeState(payload: Uint8Array): TakeStateReply | { refused: string } {
+  try {
+    const v = JSON.parse(new TextDecoder().decode(payload)) as Record<string, unknown>;
+    if (TAKE_STATES.includes(v.state as AudioTakeState) && typeof v.seconds === "number") return { state: v.state as AudioTakeState, seconds: v.seconds };
+  } catch {
+    // below
+  }
+  return { refused: "a take state record isn't a take's state" };
 }
 
 /** An upload chunk's record payload. */

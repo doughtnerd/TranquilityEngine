@@ -3,19 +3,31 @@
 //
 // - subscription `{ kind: "capture" }`: the live capture feed (`capture.ts`);
 // - subscription `{ kind: "upload", upload }`: an upload's chunks (`upload.ts`);
+// - subscription `{ kind: "take" }`: the take's state as it changes, the tool owning the build's takes, and a backup copy
+//   of each stopped take kept in app data on desktop and Android (`takeState.ts`, ADR 0408);
 // - requests `take.start`, `take.stop`, `take.mark` `{ text }`: drive `Audio.take`, answered by the take's state and
 //   seconds after it; `take.upload`: makes the take's file bytes into an upload (`upload.ts`);
 // - command `mix.op`: one live mix op, applied through the mixer at the build's next frame start (`mixCommands.ts`).
 //
 // Loaded only by `import()` from the plugin's registration (`../index.ts`), so release exports hold none of it.
 import { mixer } from "../../../../engine/audio/mixer";
+import { isTauri } from "../../../../engine/platform/FileSystem";
 import type { DebugSubscription, DebugTopic, DebugTopicHost } from "../../../../engine/debugLink/topics";
 import { captureLiveHost } from "../capture/capture";
 import { audioTake, takeFileBytes } from "../capture/take";
 import { captureSubscription } from "./capture";
 import { applyMixOpCommand } from "./mixCommands";
+import { takeStateSubscription } from "./takeState";
 import { AUDIO_TOPIC_CHANNEL, AudioRequest, MIX_OP_COMMAND, readAudioSubscription, type TakeStateReply, type TakeUploadParams } from "./schema";
 import { createTakeUploads, type TakeUploads } from "./upload";
+
+/**
+ * ADR 0408: the build's own copy of a take it handed to the tool, in case the stream is interrupted: an auto-named
+ * `<app data>/takes/*.mycotake`, in the newest-16 rotation. Desktop and Android only (a browser would download it).
+ */
+function backupTake(): void {
+  audioTake.save().catch((err: unknown) => console.warn(`[myco] couldn't keep a copy of the take: ${err instanceof Error ? err.message : String(err)}`));
+}
 
 /** The take after a request. */
 function takeState(): TakeStateReply {
@@ -33,6 +45,7 @@ export function audioTopic(_host: DebugTopicHost): DebugTopic {
       const p = readAudioSubscription(params);
       if ("refused" in p) return p;
       if (p.kind === "capture") return captureSubscription(captureLiveHost);
+      if (p.kind === "take") return takeStateSubscription(takeState, isTauri() ? backupTake : undefined);
       return theUploads().subscribe(p.upload);
     },
     async request(method, params) {

@@ -2,16 +2,17 @@
 // Save drive the build's `audio` topic (schema in `plugins/audio/runtime/debugLink/schema.ts`): `take.start`,
 // `take.mark` `{ text }` and `take.stop` run `Audio.take` on the build; Save asks `take.upload`, subscribes to the upload,
 // reassembles its 64 KiB chunks with `createTakeReceiver` and writes the take file into the project's `takes/` folder
-// through the Studio's import (`importFiles`, as Open take file… does; never over a file), named from the build and the
+// through the Studio's import (`importFiles`, as Open take file… does; never over a file; a takes folder workspace's
+// root, ADR 0408), named from the build and the
 // time (`smoke-game_2026-11-22_10-15-00.mycotake`). Progress is the chunks received; any refusal, a broken upload or the
 // link closing (`linkClosed`) fails with the message, and a take the build still holds can be saved again.
 import { signal } from "@preact/signals";
 import type { ConnectedBuild } from "../../../editor/debugLink/editorLink";
 import { importFiles, whyNotImportable } from "../../../editor/assetImportFiles";
-import type { EditorProject } from "../../../editor/projects";
+import { isTakesFolder, type EditorProject } from "../../../editor/projects";
 import { createTakeReceiver } from "../../../plugins/audio/editor/debugLink/takeReceiver";
 import {
-  AUDIO_TOPIC, AudioRequest, decodeTakeChunk, type AudioSubscriptionParams, type TakeMarkParams, type TakeStateReply, type TakeUploadReply,
+  AUDIO_TOPIC, AudioLinkRecord, AudioRequest, decodeTakeChunk, decodeTakeState, type AudioSubscriptionParams, type TakeMarkParams, type TakeStateReply, type TakeUploadReply,
 } from "../../../plugins/audio/runtime/debugLink/schema";
 import { TAKES_FOLDER } from "./takeFiles";
 
@@ -38,8 +39,16 @@ export interface BuildTakeSeams {
   write(name: string, bytes: Uint8Array): Promise<string>;
   /** The time the take's name carries (default: now). */
   now?(): Date;
-  /** The saved take was written (the Take screen opens it). */
-  saved?(path: string): void;
+  /**
+   * The saved take was written (the Take screen opens it). `auto`: the build stopped the take and it was saved without
+   * a press (ADR 0408), so nothing should take the user off their screen.
+   */
+  saved?(path: string, auto: boolean): void;
+  /**
+   * ADR 0408: save a take the build stops by itself (F10, its script) at once (default true). False where saving needs
+   * the user's press (a browser's save dialog): the take then waits, stopped, for Save.
+   */
+  autoSave?(): boolean;
 }
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -53,12 +62,19 @@ export function buildTakeName(build: string, when: Date): string {
   return `${slug}_${day}_${time}.mycotake`;
 }
 
-/** Writes take bytes into `project`'s `takes/` folder as `name` (numbered if taken, never over a file); resolves with the path. */
+/** Where a take saved into `project` goes: its `takes/` folder, or a takes folder workspace's own root (ADR 0408). */
+export const takeSaveFolder = (project: EditorProject | null): string => (isTakesFolder(project) ? "" : TAKES_FOLDER);
+
+/**
+ * Writes take bytes into `project`'s `takes/` folder (a takes folder workspace: its root) as `name` (numbered if taken,
+ * never over a file); resolves with the path.
+ */
 export async function saveTakeIntoProject(project: EditorProject | null, name: string, bytes: Uint8Array): Promise<string> {
   const refused = whyNotImportable(project);
   if (refused || !project) throw new Error(refused ?? "no project is open");
-  const r = await importFiles(project, TAKES_FOLDER, [{ path: name, read: async () => bytes }]);
-  if (r.imported.length === 0) throw new Error(r.failed[0]?.error ?? `couldn't write ${TAKES_FOLDER}/${name}`);
+  const folder = takeSaveFolder(project);
+  const r = await importFiles(project, folder, [{ path: name, read: async () => bytes }]);
+  if (r.imported.length === 0) throw new Error(r.failed[0]?.error ?? `couldn't write ${folder ? `${folder}/` : ""}${name}`);
   return r.imported[0]!;
 }
 
@@ -70,6 +86,8 @@ export class BuildTakeRecorder {
   private gone: string | null = null;
   /** The build holds a take (recorded, or stopped and not yet replaced). */
   private holds = false;
+  /** The build's `take` subscription (ADR 0408): its take's state as it changes, however it changed. */
+  private watching: { unsubscribe(): void } | null = null;
 
   constructor(
     readonly build: TakeBuild,
@@ -120,8 +138,48 @@ export class BuildTakeRecorder {
     }
   }
 
+  /**
+   * ADR 0408: follow the build's take as the build changes it (F10, its script): a take it starts shows as recording,
+   * and one it stops is saved at once (`autoSave`), since the Studio, not the build, decides where takes go. While this
+   * watches, the build's F10 saves nothing itself. A build too old for it refuses, and nothing changes.
+   */
+  watch(): void {
+    if (this.watching || this.gone) return;
+    const params: AudioSubscriptionParams = { kind: "take" };
+    this.watching = this.build.peer.subscribe(
+      AUDIO_TOPIC,
+      params,
+      (records) => {
+        for (const r of records) {
+          if (r.type !== AudioLinkRecord.takeState) continue;
+          const t = decodeTakeState(r.payload);
+          if (!("refused" in t)) this.buildSays(t);
+        }
+      },
+      () => (this.watching = null),
+    );
+  }
+
+  /** Stop watching the build's take (the recorder is replaced or the Studio goes). */
+  dispose(): void {
+    this.watching?.unsubscribe();
+    this.watching = null;
+  }
+
+  private buildSays(t: TakeStateReply): void {
+    const k = this.state.peek().kind;
+    if (t.state === "recording" && (k === "idle" || k === "stopped" || k === "saved" || k === "failed")) {
+      this.holds = true;
+      this.state.value = { kind: "recording", marks: 0 };
+    } else if (t.state === "stopped" && k === "recording") {
+      // The build stopped its take (a Studio Stop shows "stopping" first, so this is the game's).
+      this.state.value = { kind: "stopped", seconds: t.seconds };
+      if (this.seams.autoSave?.() ?? true) void this.save(true);
+    }
+  }
+
   /** Save: upload the build's take (stopping it if it still records) and write it into the project's takes folder. */
-  async save(): Promise<string | null> {
+  async save(auto = false): Promise<string | null> {
     if (this.busy) return null;
     try {
       const reply = await this.ask<TakeUploadReply>(AudioRequest.upload, {});
@@ -129,7 +187,7 @@ export class BuildTakeRecorder {
       this.state.value = { kind: "saving" };
       const path = await this.seams.write(buildTakeName(this.build.name, this.seams.now?.() ?? new Date()), bytes);
       this.state.value = { kind: "saved", path };
-      this.seams.saved?.(path);
+      this.seams.saved?.(path, auto);
       return path;
     } catch (e) {
       this.fail(`Couldn't save the take from ${this.build.name}: ${messageOf(e)}`);
@@ -141,6 +199,7 @@ export class BuildTakeRecorder {
   linkClosed(reason?: string): void {
     this.gone = `the link to ${this.build.name} closed${reason ? ` (${reason})` : ""}`;
     this.holds = false;
+    this.watching = null;
     this.abortUpload?.(this.gone);
     const k = this.state.peek().kind;
     if (k !== "idle" && k !== "saved" && k !== "failed" && k !== "saving") this.state.value = { kind: "failed", message: `The take stopped: ${this.gone}.`, canSave: false };
@@ -199,8 +258,8 @@ export class BuildTakeRecorder {
   }
 }
 
-/** What the Take screen says of a build's take (null: nothing). */
-export function buildTakeStatus(state: BuildTakeState, build: string): string | null {
+/** What the Take screen says of a build's take (null: nothing); `into` names where Save writes it. */
+export function buildTakeStatus(state: BuildTakeState, build: string, into = `${TAKES_FOLDER}/`): string | null {
   switch (state.kind) {
     case "idle":
       return null;
@@ -211,7 +270,7 @@ export function buildTakeStatus(state: BuildTakeState, build: string): string | 
     case "stopping":
       return `Stopping the take on ${build}…`;
     case "stopped":
-      return `Take stopped on ${build} · ${state.seconds.toFixed(1)} s · save it into ${TAKES_FOLDER}/`;
+      return `Take stopped on ${build} · ${state.seconds.toFixed(1)} s · save it into ${into}`;
     case "uploading":
       return `Uploading the take · ${state.received} of ${state.chunks} chunk${state.chunks === 1 ? "" : "s"}`;
     case "saving":

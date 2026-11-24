@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MemoryFileSystem } from "../../editor/memoryFs";
 import type { RecentProject } from "../../editor/recentProjects";
-import { formatTakeLength, listRecentTakes, type TakeReader } from "./recentTakes";
+import { formatTakeLength, listAllTakes, listLooseTakes, listRecentTakes, takeOpenRequest, type TakeReader } from "./recentTakes";
 
 const project = (id: string, path: string, kind: "path" | "handle" = "path"): RecentProject => ({ id, name: id, path, lastOpened: 1, kind });
 
@@ -32,7 +32,9 @@ describe("listRecentTakes", () => {
       ["two", "takes/HoverBike/two.mycotake", 20, 3000],
       ["one", "takes/one.mycotake", 10, 1000],
     ]);
-    expect(out[0].project.id).toBe("a");
+    expect(out[0].kind).toBe("project");
+    expect(out[0].file).toBe("C:/g/a/takes/HoverBike/two.mycotake");
+    if (out[0].kind === "project") expect(out[0].project.id).toBe("a");
   });
 
   it("skips a project with no folder, and browser handle entries", async () => {
@@ -66,6 +68,47 @@ describe("listRecentTakes", () => {
     put("C:/g/a/takes/broken.mycotake", "bad");
     const out = await listRecentTakes([project("a", "C:/g/a")], fs, read);
     expect(out.map((t) => [t.name, t.seconds, t.recordedMs])).toEqual([["ok", 3, 50], ["broken", null, null]]);
+  });
+});
+
+describe("listLooseTakes", () => {
+  it("lists the takes folder recursively (notes skipped) and added files, as recordings", async () => {
+    const { fs, put } = rig();
+    put("C:/app/takes/one.mycotake", "10@1000");
+    put("C:/app/takes/sub/two.mycotake", "20@3000");
+    put("C:/app/takes/sub/two.mycotake.notes.json", "{}");
+    put("D:/sessions/three.mycotake", "5@2000");
+    const out = await listLooseTakes("C:/app/takes", ["D:/sessions/three.mycotake"], fs, read);
+    expect(out.map((t) => [t.kind, t.name, t.folder, t.path, t.file, t.seconds])).toEqual([
+      ["recording", "two", "C:/app/takes", "sub/two.mycotake", "C:/app/takes/sub/two.mycotake", 20],
+      ["recording", "three", "D:/sessions", "three.mycotake", "D:/sessions/three.mycotake", 5],
+      ["recording", "one", "C:/app/takes", "one.mycotake", "C:/app/takes/one.mycotake", 10],
+    ]);
+  });
+
+  it("skips a missing added file, a missing takes folder and a null takes folder", async () => {
+    const { fs, put } = rig();
+    put("D:/s/here.mycotake", "1@1");
+    expect((await listLooseTakes("C:/nope", ["D:/s/gone.mycotake", "D:/s/here.mycotake"], fs, read)).map((t) => t.name)).toEqual(["here"]);
+    expect(await listLooseTakes(null, [], fs, read)).toEqual([]);
+  });
+
+  it("opens in the takes workspace of its folder", async () => {
+    const { fs, put } = rig();
+    put("D:/s/here.mycotake", "1@1");
+    const [t] = await listLooseTakes(null, ["D:/s/here.mycotake"], fs, read);
+    expect(takeOpenRequest(t)).toEqual({ project: null, takesFolder: "D:/s", asset: "here.mycotake", screen: "take" });
+  });
+});
+
+describe("listAllTakes", () => {
+  it("merges project and loose takes newest first and keeps one row per file, the project's winning", async () => {
+    const { fs, put } = rig();
+    put("C:/g/a/takes/p.mycotake", "1@100");
+    put("C:/app/takes/l.mycotake", "1@300");
+    put("C:/g/a/takes/p.mycotake", "1@100");
+    const out = await listAllTakes([project("a", "C:/g/a")], "C:/app/takes", ["c:\G\a\takes\p.mycotake", "C:/app/takes/l.mycotake"], fs, read);
+    expect(out.map((t) => [t.kind, t.name])).toEqual([["recording", "l"], ["project", "p"]]);
   });
 });
 

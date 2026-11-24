@@ -21,11 +21,14 @@ import "../editor/ui/fonts";
 import { activateStudioPlugins } from "./boot/studioPlugins";
 import { studioProjects } from "./boot/studioProject";
 import { startRequest } from "./boot/startQuery";
-import type { RecentTake } from "./start/recentTakes";
+import { takeOpenRequest, type RecentTake } from "./start/recentTakes";
 import { engineRuntime } from "./runtime/engineRuntime";
 import { createStudioAudioHost } from "./runtime/studioAudioHost";
 import { startStudioDebugLink } from "./debugLink/studioLink";
 import { openStudioConnect } from "./debugLink/StudioDebugLink";
+import { installLiveConnect } from "./shell/liveConnect";
+import { installBuildTakes } from "./screens/take/buildTakes";
+import { followBuildWhenShown } from "./screens/profiler";
 import { installCalibration } from "./shell/applyCalibration";
 import { installStudioKeys } from "./shell/installKeys";
 import { installLongPress } from "./shell/longPress";
@@ -67,14 +70,23 @@ async function main(): Promise<void> {
 
   render(<StudioApp onCloseProject={projects.close} onOpenTake={(take) => openTake(projects.handOff, take)} />, document.getElementById("app")!);
   // A request with `connect` (the launcher's Connect to Game…, ADR 0380) opens the Connect dialog once it's handled.
-  if (isTauri()) await serveHandoff((request) => projects.handOff(request).then(() => request.connect && openStudioConnect()));
+  // ADR 0408: a build that connects opens the Studio live (the takes folder with no project, the Profiler following);
+  // a request with `follow` has the Profiler follow the connected build.
+  installBuildTakes(); // the connected build's takes, saved where the Studio keeps takes whichever screen shows (ADR 0408)
+  installLiveConnect({ openTakes: projects.openTakes, openRoute: (request) => router.open(request) });
+  const handle = (request: StudioOpenRequest) =>
+    projects.handOff(request).then(() => {
+      if (request.follow) followBuildWhenShown();
+      if (request.connect) openStudioConnect();
+    });
+  if (isTauri()) await serveHandoff(handle);
   await projects.openRequest(startRequest(location.search));
 }
 
-/** A take picked on the start screen (ADR 0380): its project, on the Take screen with the take. Failures are in the status line. */
+/** A take picked on the start screen (ADR 0380): its project, or its folder as a takes workspace (ADR 0408), on the Take screen. Failures are in the status line. */
 async function openTake(open: (request: StudioOpenRequest) => Promise<void>, take: RecentTake): Promise<void> {
   try {
-    await open({ project: take.project.path, asset: take.path });
+    await open(takeOpenRequest(take));
   } catch (err) {
     status.value = errorStatus("Couldn't open the take", err);
   }

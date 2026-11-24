@@ -53,7 +53,7 @@ Loudness tracks (the meters themselves, targets and the verdicts are in [Loudnes
 
 A recording survives Stop of Play once, so you can press Stop and then Save. Save with nothing recorded fails with "nothing recorded: call Audio.capture.start() first".
 
-Where the file goes: on the web a download (`<name>.mycap`); in the desktop and Android apps the app-data `cache` folder as `<name>.mycap.bin` (the desktop's path is shown in the bar when it is saved). The Profiler opens either as it is, with no rename.
+Where the file goes: on the web a download (`<name>.mycap`); in the desktop and Android apps the app data folder's `captures/` as `<name>.mycap` (the desktop's path is shown in the bar when it is saved).
 
 ## Capturing from a game script
 
@@ -75,7 +75,7 @@ const where = await Audio.capture.save("boss-fight");   // "boss-fight.mycap"; a
 
 ## Captures on Android
 
-There is no Android export target yet (ADR 0155's `--target android` is not implemented: `--target` is `web` or `desktop`). To record on a phone, export the **web** build with capture on, serve it from your computer and open it in the phone's Chrome. Android 14 with Chrome 113 is the supported floor ([ADR 0169](../decisions/0169-the-supported-mobile-floor-is-android-14-with-chrome-113.md)).
+There is no Android export target yet (ADR 0155's `--target android` is not implemented: `--target` is `web` or `desktop`). To record on a phone, export the **web** build with capture on, serve it from your computer and open it in the phone's Chrome. Android 14 with Chrome 113 is the supported floor ([ADR 0169](../../decisions/0169-the-supported-mobile-floor-is-android-14-with-chrome-113.md)).
 
 1. Build and export with the option, then serve the folder:
 
@@ -104,14 +104,14 @@ There is no Android export target yet (ADR 0155's `--target android` is not impl
 
 A browser stops at 16 saves per page session (a toast says so); reload the page to record again, since a browser can't delete its own downloads.
 
-**A Tauri app** (the desktop export's Tauri project, or an Android Tauri build) saves into its private data folder instead, as `cache/capture-YYYYMMDD-HHMMSS.mycap.bin`, and keeps the newest 16 auto-named files, deleting the oldest (a file you named yourself is never deleted). On a debuggable build, find the file and pull it:
+**A Tauri app** (the desktop export's Tauri project, or an Android Tauri build) saves into its private data folder instead, as `captures/capture-YYYYMMDD-HHMMSS.mycap`, and keeps the newest 16 auto-named files, deleting the oldest (a file you named yourself is never deleted). On a debuggable build, find the file and pull it:
 
 ```sh
-adb shell run-as <package id> find . -name "*.mycap.bin"
-adb exec-out run-as <package id> cat files/cache/<name>.mycap.bin > <name>.mycap.bin
+adb shell run-as <package id> find . -name "*.mycap"
+adb exec-out run-as <package id> cat files/captures/<name>.mycap > <name>.mycap
 ```
 
-The exact data folder depends on the build, which is why the first command looks for it. Open the pulled file as it is: the Profiler accepts `.mycap.bin`.
+The exact data folder depends on the build, which is why the first command looks for it. Open the pulled file as it is.
 
 What a phone can and can't tell you: an emulator's audio runs through your computer and its timing is not a device's, so use it for the trigger, the file and the load, and use a real phone for CPU figures and for how much recording costs.
 
@@ -121,7 +121,7 @@ A capture records how the engine played. A **take** (`.mycotake`) records that p
 
 ## Opening a capture
 
-Press **Open** and choose a `.mycap` or a `.mycotake`, or drop the file on the panel. Only those files, and the `.mycap.bin` and `.mycotake.bin` files the desktop and Android apps save, are accepted; anything else, or a file larger than any capture (or take) can be, is turned away with a banner before it is read. Opening decodes in a worker, with a progress bar and a **Cancel**. A refusal leaves the capture you had open.
+Press **Open** and choose a `.mycap` or a `.mycotake`, or drop the file on the panel. Only those files are accepted; anything else, or a file larger than any capture (or take) can be, is turned away with a banner before it is read. Opening decodes in a worker, with a progress bar and a **Cancel**. A refusal leaves the capture you had open.
 
 What a capture holds is decided by the file, not by your open project, so you see what the recorder saw. Opening never replays sound and never changes your project.
 
@@ -149,4 +149,4 @@ A saved minute of recording is roughly **0.27 MB at 64 live voices, 0.84 MB at 2
 - [Audio mixer](audio-mixer.md), [Live mixing and ducking](audio-mixing.md), [Loudness](audio-loudness.md) and [Playing sound](playing-sound.md)
 - [Audio mix: API reference](audio-mix-api.md)
 - [Editor](editor.md) for panels and docks
-- [ADR 0171](../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md) and [ADR 0172](../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md)
+- [ADR 0171](../../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md) and [ADR 0172](../../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md)
