@@ -110,6 +110,15 @@ function lightRange(range: number): number {
   return range > 0 ? range : Number.MAX_VALUE;
 }
 
+/**
+ * How bright a Light looks, to pick the sun (ADR 0393): intensity × the luminance (Rec. 709) of its colour
+ * in linear space, converted as `syncLight` converts it (Babylon's `toLinearSpace`, gamma 2.2).
+ */
+function brightness(l: Light): number {
+  const { r, g, b } = l.color;
+  return Math.max(0, l.intensity) * (0.2126 * r ** 2.2 + 0.7152 * g ** 2.2 + 0.0722 * b ** 2.2);
+}
+
 let clustering = true;
 
 /**
@@ -327,20 +336,18 @@ export class BabylonLighting implements LightingContributions {
     this.cascadedCount = 0;
     const shadows: ShadowRequest[] = [];
     let main: BabylonLight | null = null;
-    let mainCasts = false;
-    const sunTarget = this.resolved.sun ? this.sunLight(world) : null;
+    const sun = this.sunLight(world);
     for (const l of world._componentsOfType(Light)) {
       const on = this.syncLight(world, l);
-      if (on && l === sunTarget) this.applySun(this.lights.get(l)!.light);
       const entry = this.lights.get(l)!;
+      if (on && l === sun) {
+        if (this.resolved.sun) this.applySun(entry.light);
+        main = entry.light;
+      }
       const casts = on && l.castShadows && l.type !== "ambient" && !!mapSize;
       setShadowEnabled(entry.light, casts);
       if (!on) continue;
       any = true;
-      if (l.type === "directional" && (!main || (casts && !mainCasts))) {
-        main = entry.light;
-        mainCasts = casts;
-      }
       if (!casts) continue;
       const light = entry.light as BabylonLight & IShadowLight;
       const cascaded = cascadeLights.has(l);
@@ -362,15 +369,26 @@ export class BabylonLighting implements LightingContributions {
     return shadows;
   }
 
-  /** The Light the sky drives: the first enabled shadow-casting directional light, else the first directional one. */
+  /**
+   * The World's sun (ADR 0393), which the sky drives and shader graphs' Main Light reads, whatever the
+   * shadow tier: the enabled directional Light flagged `sun`, else the brightest enabled directional one.
+   * Several flagged: the brightest of them, with a warning once. Ties go to the first.
+   */
   private sunLight(world: World): Light | null {
-    let first: Light | null = null;
+    let flagged: Light | null = null;
+    let flaggedCount = 0;
+    let brightest: Light | null = null;
     for (const l of world._componentsOfType(Light)) {
       if (l.type !== "directional" || !l.isActiveAndEnabled) continue;
-      if (l.castShadows) return l;
-      first ??= l;
+      if (!brightest || brightness(l) > brightness(brightest)) brightest = l;
+      if (!l.sun) continue;
+      flaggedCount++;
+      if (!flagged || brightness(l) > brightness(flagged)) flagged = l;
     }
-    return first;
+    if (flagged && flaggedCount > 1) {
+      this.warnOnce("sun|several", `${flaggedCount} directional lights are flagged sun; using the brightest, "${flagged.node.name}". Flag only one.`);
+    }
+    return flagged ?? brightest;
   }
 
   private applySun(light: BabylonLight): void {

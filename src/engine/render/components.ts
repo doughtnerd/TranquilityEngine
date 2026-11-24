@@ -478,6 +478,13 @@ export class Light extends Component {
   /** Spot: how soft the cone's edge is, 0 (hard) to 1. */
   @field(Number) spotSoftness = 0.2;
   /**
+   * Directional: this is the World's sun (ADR 0393), the light a sky drives and shader graphs' Main Light
+   * nodes read. Without one flagged, the brightest directional light is the sun; with several, the
+   * brightest of them.
+   */
+  @field(Boolean, { description: "The World's sun: the directional light the sky drives and shader graphs' Main Light reads. Unflagged: the brightest directional light." })
+  sun = false;
+  /**
    * Directional, point and spot: cast shadows from meshes with `castShadows`. A directional
    * light's shadows cover `shadowArea` metres around its node.
    */
