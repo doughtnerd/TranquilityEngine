@@ -109,12 +109,13 @@ export class Camera extends Component {
 
   /**
    * The half-height the camera's maths uses: with `pixelPerfect` on (orthographic) the integer-zoom
-   * size for the viewport's height in device pixels, else `orthographicSize`.
+   * size for a view `heightPx` device pixels tall (by default its viewport's height on the view's grid;
+   * the editor's camera preview passes the inset's), else `orthographicSize`.
    * @internal
    */
-  _effectiveOrthographicSize(): number {
+  _effectiveOrthographicSize(heightPx?: number): number {
     if (!this.pixelPerfect || this.projection !== "orthographic") return this.orthographicSize;
-    return pixelPerfectView(this._devicePixelSize().height, this.orthographicSize, this._world.settings.render.pixelsPerUnit).orthographicSize;
+    return pixelPerfectView(heightPx ?? this._devicePixelSize().height, this.orthographicSize, this._world.settings.render.pixelsPerUnit).orthographicSize;
   }
 
   /**

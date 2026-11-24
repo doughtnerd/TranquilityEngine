@@ -540,11 +540,15 @@ export class BabylonRenderer {
       target = t;
     } else {
       viewport = out.rect;
-      // The inset's aspect until the next sync recomputes the camera's own.
+      // The inset's aspect and size until the next sync recomputes the camera's own: a pixel-perfect camera
+      // zooms by a whole number of the inset's device pixels (ADR 0108, 0154), as it would drawing a view that size.
       if (v.camera.projection === "orthographic") {
-        const s = v.camera.orthographicSize;
+        const grid = this.pixelGrid();
+        const s = v.camera._effectiveOrthographicSize(Math.round(out.rect.height * grid.height * grid.pixelRatio));
         camera.orthoLeft = -s * out.aspect;
         camera.orthoRight = s * out.aspect;
+        camera.orthoTop = s;
+        camera.orthoBottom = -s;
       }
     }
     return {

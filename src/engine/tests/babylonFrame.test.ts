@@ -82,6 +82,41 @@ describe("the geometry pass's depth (ADR 0075)", () => {
   });
 });
 
+describe("a frame graph build that outlives its frame", () => {
+  it("is freed, not installed, when it finishes after the frame was disposed", async () => {
+    const { NullEngine } = await import("@babylonjs/core/Engines/nullEngine.js");
+    const { Scene } = await import("@babylonjs/core/scene.js");
+    const { TargetCamera } = await import("@babylonjs/core/Cameras/targetCamera.js");
+    const { Color4 } = await import("@babylonjs/core/Maths/math.color.js");
+    const { Vector3 } = await import("@babylonjs/core/Maths/math.vector.js");
+    const { BabylonFrame } = await import("../render/babylon/frameGraph");
+    const engine = new NullEngine();
+    (engine as unknown as { buildTextureLayout(): number[] }).buildTextureLayout = () => [];
+    const scene = new Scene(engine);
+    const camera = new TargetCamera("c", Vector3.Zero(), scene);
+    const frame = new BabylonFrame(scene);
+    let finish!: () => void;
+    const build = vi.spyOn(FrameGraph.prototype, "buildAsync").mockImplementation(() => new Promise<void>((r) => (finish = r)));
+    const disposed = vi.spyOn(FrameGraph.prototype, "dispose");
+    try {
+      frame.render([{ camera, viewport: { x: 0, y: 0, width: 1, height: 1 }, clear: new Color4(0, 0, 0, 1), effects: null, toneMapping: "none", exposure: 1 }], [], [], 1);
+      expect(build).toHaveBeenCalledTimes(1);
+      frame.dispose(); // the renderer went while the graph was building
+      disposed.mockClear();
+      finish();
+      await new Promise((r) => setTimeout(r, 0));
+      expect(scene.frameGraph).toBeNull();
+      expect(frame.ready).toBe(false);
+      expect(disposed).toHaveBeenCalledTimes(1);
+    } finally {
+      build.mockRestore();
+      disposed.mockRestore();
+      scene.dispose();
+      engine.dispose();
+    }
+  });
+});
+
 describe("rebuilding the frame graph (ADR 0274)", () => {
   // A rebuilding frame shows the clear colour, so a change the finish pass's uniforms carry must not rebuild.
   it("rebuilds when a camera's pass plan changes, not when only finish-pass values do", async () => {
