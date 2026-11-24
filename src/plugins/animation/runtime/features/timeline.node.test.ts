@@ -5,6 +5,7 @@
 // values are compared at 1e-4.
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { Animator, Assets, Camera, Engine, GameObject, Light, ParticleSystem, TimelineDirector, type AnimationPlayResult } from "../../../../myco";
+import { previewTimeline } from "./timeline";
 
 const TOL = 4;
 let engine: Engine;
@@ -181,6 +182,44 @@ describe("TimelineDirector", () => {
     });
     steps(2);
     expect(lamp.intensity).toBeCloseTo(0.5, TOL);
+  });
+});
+
+describe("editor preview (Q2)", () => {
+  it("reloads a timeline whose file changed under the same path, nested files included", async () => {
+    ASSETS["tl/edited.timeline.json"] = timeline(2, [light("A", [[0, 5]])]);
+    ASSETS["tl/outer.timeline.json"] = timeline(2, [{ kind: "subclip", keys: [{ time: 0, end: 2, clip: "asset:tl/edited.timeline.json" }] }]);
+    const { dir, a } = await rig("tl/edited.timeline.json");
+    expect(a.intensity).toBeCloseTo(5, TOL);
+    // Unchanged: a preview keeps what it loaded (no new content to show).
+    a.intensity = 99;
+    previewTimeline(dir);
+    await vi.waitFor(() => {
+      engine.step(0);
+      expect(a.intensity).toBeCloseTo(5, TOL);
+    });
+    // The editor saves the file at the same path and says so: the preview shows the new content.
+    ASSETS["tl/edited.timeline.json"] = timeline(2, [light("A", [[0, 7]])]);
+    Assets.notifyChanged("tl/edited.timeline.json");
+    previewTimeline(dir);
+    await vi.waitFor(() => {
+      engine.step(0);
+      expect(a.intensity).toBeCloseTo(7, TOL);
+    });
+    // A file nested as a subclip changing reloads the timeline that uses it too.
+    dir.timeline = "tl/outer.timeline.json";
+    previewTimeline(dir);
+    await vi.waitFor(() => {
+      engine.step(0);
+      expect(a.intensity).toBeCloseTo(7, TOL);
+    });
+    ASSETS["tl/edited.timeline.json"] = timeline(2, [light("A", [[0, 9]])]);
+    Assets.notifyChanged("tl/edited.timeline.json");
+    previewTimeline(dir);
+    await vi.waitFor(() => {
+      engine.step(0);
+      expect(a.intensity).toBeCloseTo(9, TOL);
+    });
   });
 });
 
