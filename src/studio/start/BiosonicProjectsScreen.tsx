@@ -3,8 +3,10 @@
 // takes in the recent project folders, `recentTakes.ts`). The desktop launcher shows it after Open on the Biosonic
 // card; the Studio shows it when no project is open (the standalone app, `studio.html` in a browser).
 //
-// Live session is a placeholder: Connect to Game… stays disabled until a page passes `onConnect` (the live connection
-// is being built separately).
+// Live session: Connect to Game… opens the debug link's Connect dialog (ADR 0403) through `onConnect`: the Studio's own
+// start screen opens it over the Studio's link, the launcher hands it to the Studio window (which holds the link, so the
+// connection outlives the launcher). It stays disabled where a page passes none. `connected` names the build the
+// Studio is connected to; its screens (Take, Profiler, Mixer) work with it once a project is open.
 import { signal } from "@preact/signals";
 import type { ComponentChildren } from "preact";
 import { useEffect, useState } from "preact/hooks";
@@ -138,8 +140,10 @@ export interface BiosonicProjectsScreenProps {
   readonly note?: string;
   /** Open a recorded take (its project, on the Take screen); absent where takes can't be opened. */
   readonly onOpenTake?: (take: RecentTake) => void | Promise<void>;
-  /** Connect to a running game; absent until the live connection is built (the button stays disabled). */
+  /** Open the Connect dialog for a running debug build; absent where the page can't (the button stays disabled). */
   readonly onConnect?: () => void;
+  /** The connected build's name, shown in the Live session bar (absent or null: none, or the page can't tell). */
+  readonly connected?: string | null;
 }
 
 export function BiosonicProjectsScreen(props: BiosonicProjectsScreenProps) {
@@ -154,10 +158,12 @@ export function BiosonicProjectsScreen(props: BiosonicProjectsScreenProps) {
           <h2 id="bs-live-heading" class="bs-live-heading">
             Live session
           </h2>
-          <p class="bs-live-copy">Connect to a running game and record a new take. No project needed.</p>
+          <p class="bs-live-copy" role="status">
+            {props.connected ? `Connected to ${props.connected}. Open a project to record takes from it.` : "Connect to a running debug build of your game to record takes and profile its audio."}
+          </p>
         </div>
-        <button type="button" class="bs-live-button" disabled={!props.onConnect} title={props.onConnect ? undefined : "Coming soon"} onClick={props.onConnect}>
-          Connect to Game…
+        <button type="button" class="bs-live-button" disabled={!props.onConnect} title={props.onConnect ? "Connect by the code the game shows, its address, or a build found on your network" : "Connecting needs the Audio Studio"} onClick={props.onConnect}>
+          {props.connected ? "Connect Another…" : "Connect to Game…"}
         </button>
       </section>
       <ProjectTabs tabs={tabs} selected={tab.value} onSelect={(id) => (tab.value = id)} label="Project screen" idPrefix="biosonic" />

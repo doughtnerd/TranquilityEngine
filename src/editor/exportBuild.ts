@@ -16,7 +16,7 @@ import { packageSourceFor } from "./projectPackages";
 import { ExportError, isOutputInsideProject, planWebBuild, type BuildOptions, type WebBuildPlan } from "../export/webBuild";
 import { jsonFiles, type EditorProject } from "./projects";
 import { DEFAULT_DEBUG_LINK_PORT } from "../engine/debugLink/config";
-import { DEBUG_LISTENER_CRATES, DEBUG_MULTICAST_PLUGIN, DEFAULT_ICON_SVG, desktopProjectFiles, desktopReadme, type BuildSettings } from "../export/desktop";
+import { DEBUG_LISTENER_CRATES, DEBUG_MULTICAST_PLUGIN, DEFAULT_ICON_SVG, ICON_SOURCES, desktopProjectFiles, desktopReadme, type BuildSettings } from "../export/desktop";
 // ADR 0335: exported games' gamepad module is the editor shell's, copied verbatim (as the command line's exporter does).
 import GAMEPAD_MODULE from "../../src-tauri/src/gamepad.rs?raw";
 
@@ -97,7 +97,7 @@ export async function exportDesktopProject(project: EditorProject, fs: FileSyste
     await folder.writeText(`src-tauri/${path}`, text);
   }
   const iconFile = `src-tauri/app-icon.${icon?.toLowerCase().endsWith(".png") ? "png" : "svg"}`;
-  for (const stale of ["src-tauri/app-icon.png", "src-tauri/app-icon.svg"]) if (stale !== iconFile && (await folder.exists(stale))) await folder.remove(stale, false);
+  for (const stale of ICON_SOURCES.map((name) => `src-tauri/${name}`)) if (stale !== iconFile && (await folder.exists(stale))) await folder.remove(stale, false);
   await (typeof iconSource === "string" ? folder.writeText(iconFile, iconSource) : folder.writeBytes(iconFile, iconSource));
   await writeDesktopReadme(fs, out, plan.manifest.name, false);
   return plan;
@@ -134,8 +134,11 @@ async function listenerCrates(): Promise<Map<string, string>> {
 }
 
 /** README.txt of the desktop package in `out`; `built` once its installers are in src-tauri/target/release/bundle/. */
-export function writeDesktopReadme(fs: FileSystem, out: string, name: string, built: boolean): Promise<void> {
-  return fileSystemFolder(fs, out).writeText("README.txt", desktopReadme(name, built ? "src-tauri/target/release/bundle/" : null));
+export async function writeDesktopReadme(fs: FileSystem, out: string, name: string, built: boolean): Promise<void> {
+  const folder = fileSystemFolder(fs, out);
+  // The README's icon step names the icon source the package holds.
+  const icon = (await folder.exists("src-tauri/app-icon.png")) ? "app-icon.png" : "app-icon.svg";
+  await folder.writeText("README.txt", desktopReadme(name, built ? "src-tauri/target/release/bundle/" : null, icon));
 }
 
 async function writeBuild(project: EditorProject, fs: FileSystem, out: string, target: "web" | "desktop", progress: ((done: number, total: number) => void) | undefined, options: BuildOptions): Promise<WebBuildPlan> {

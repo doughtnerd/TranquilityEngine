@@ -1,6 +1,7 @@
 // The Studio's debug link UI (ADR 0403, plan U4): the status bar's builds menu over the Studio's link, the Connect
 // dialog it opens, the Debug link settings (the Studio has no settings page, so a small dialog), and the accept prompt
-// for builds from other machines. The editor's own components, over `studioLink` instead of the editor's link.
+// for builds from other machines. The editor's own components, over `studioLink` instead of the editor's link. The
+// Connect dialog also opens from the start screen's Connect to Game… (ADR 0380), so it's mounted apart from the menu.
 import { signal } from "@preact/signals";
 import { AcceptPrompt } from "../../editor/debugLink/AcceptPrompt";
 import { BuildsMenu } from "../../editor/debugLink/BuildsMenu";
@@ -13,6 +14,18 @@ import "../../editor/debugLink/debugLink.css";
 import "./studioLink.css";
 
 const connectOpen = signal(false);
+
+/** Opens the Connect dialog (the builds menu's Connect…, the start screen's Connect to Game…, the launcher's hand-off). */
+export function openStudioConnect(): void {
+  connectOpen.value = true;
+}
+
+/** The Connect dialog over the Studio's link, while it's open (mounted by the shell and the start screen alike). */
+export function StudioConnectDialog() {
+  const link = studioLink.value;
+  if (!link || !connectOpen.value) return null;
+  return <ConnectDialog onConnect={(target) => link.connect(target)} onClose={() => (connectOpen.value = false)} />;
+}
 const offerOpen = signal(false);
 const settingsOpen = signal(false);
 
@@ -29,10 +42,9 @@ export function StudioBuildsMenu() {
         onChoose={(id) => link.choose(id)}
         onDisconnect={(id) => link.disconnect(id)}
         onSettings={() => (settingsOpen.value = true)}
-        onConnect={() => (connectOpen.value = true)}
+        onConnect={openStudioConnect}
         onOfferRoom={() => (offerOpen.value = true)}
       />
-      {connectOpen.value && <ConnectDialog onConnect={(target) => link.connect(target)} onClose={() => (connectOpen.value = false)} />}
       {offerOpen.value && <OfferRoomDialog offer={() => link.offerRoom()} onClose={() => (offerOpen.value = false)} />}
       {settingsOpen.value && (
         <div class="studio-link-settings" onPointerDown={(e) => e.target === e.currentTarget && (settingsOpen.value = false)}>

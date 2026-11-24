@@ -11,7 +11,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readProject, ServerError } from "../server/project";
 import { nodePackageSource } from "../server/packages";
-import { DEBUG_LISTENER_CRATES, DEBUG_MULTICAST_PLUGIN,DEFAULT_ICON_SVG, ICON_FILES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
+import { DEBUG_LISTENER_CRATES, DEBUG_MULTICAST_PLUGIN, DEFAULT_ICON_SVG, ICON_FILES, ICON_SOURCES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
 import { PLAYER_FILE_LIST } from "./format";
 import { acquireProjectContext } from "../engine/core/projectContext";
 import { bakeModelFile } from "../engine/scene/models";
@@ -144,10 +144,10 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   const files = desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule, debug, ...(debugListener && { debugListener }) });
   const tauriDir = join(out, "src-tauri");
   for (const [path, text] of files) await folder.writeText(`src-tauri/${path}`, text);
-  await makeIcons(project.root, settings.build?.icon, folder, tauriDir, log);
+  const wantBuild = options.tauriBuild ?? hasCargo();
+  const icon = await makeIcons(project.root, settings.build?.icon, folder, tauriDir, wantBuild, log);
   log(`Wrote the Tauri project to ${tauriDir}.`);
 
-  const wantBuild = options.tauriBuild ?? hasCargo();
   let built = false;
   if (wantBuild) {
     if (!hasCargo()) throw new ExportError("`tauri build` needs the Rust toolchain (cargo), which isn't installed: see https://rustup.rs. Leave out --build to write the Tauri project only.");
@@ -159,7 +159,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   } else {
     log("Rust (cargo) isn't installed, so the app wasn't built. README.txt in the output folder says how to build it.");
   }
-  await folder.writeText("README.txt", desktopReadme(plan.manifest.name, built ? "src-tauri/target/release/bundle/" : null));
+  await folder.writeText("README.txt", desktopReadme(plan.manifest.name, built ? "src-tauri/target/release/bundle/" : null, icon));
   return { out, web, plan, built };
 }
 
@@ -241,20 +241,32 @@ function nodeFolder(root: string): BuildFolder {
   };
 }
 
-/** The app icons, from the project's `build.icon` or the default, through `tauri icon` (no Rust needed). */
-async function makeIcons(projectRoot: string, icon: string | undefined, folder: BuildFolder, tauriDir: string, log: (line: string) => void): Promise<void> {
-  let source: string;
-  if (icon) {
-    source = join(projectRoot, ...icon.replace(/^\.?\//, "").split("/"));
-    if (!existsSync(source)) throw new ExportError(`project.json's build.icon "${icon}" isn't in the project.`);
+/**
+ * The app icons, from the project's `build.icon` or the default, through `tauri icon` (no Rust needed). The source is
+ * kept as `src-tauri/app-icon.png` or `.svg`, as the editor's package keeps it, for README.txt's icon step. Without
+ * icons `tauri build` fails (on Windows: "icons/icon.ico not found"), so when the app is to be built a failure stops
+ * the export here, with `tauri icon`'s own message; otherwise it's a warning. Resolves to the source's name.
+ */
+async function makeIcons(projectRoot: string, icon: string | undefined, folder: BuildFolder, tauriDir: string, building: boolean, log: (line: string) => void): Promise<(typeof ICON_SOURCES)[number]> {
+  const path = icon?.replace(/^\.?\//, "");
+  if (path && !/\.(png|svg)$/i.test(path)) throw new ExportError(`project.json's build.icon "${icon}" must be a square PNG or SVG.`);
+  const name = path?.toLowerCase().endsWith(".png") ? "app-icon.png" : "app-icon.svg";
+  if (path) {
+    const from = join(projectRoot, ...path.split("/"));
+    if (!existsSync(from)) throw new ExportError(`project.json's build.icon "${icon}" isn't in the project.`);
+    await folder.writeBytes(`src-tauri/${name}`, new Uint8Array(await readFile(from)));
   } else {
-    source = join(tauriDir, "app-icon.svg");
-    await folder.writeText("src-tauri/app-icon.svg", DEFAULT_ICON_SVG);
+    await folder.writeText(`src-tauri/${name}`, DEFAULT_ICON_SVG);
   }
-  const code = await run(process.execPath, [tauriCli(), "icon", source, "--output", join(tauriDir, "icons")], tauriDir, true);
+  for (const stale of ICON_SOURCES) if (stale !== name) await rm(join(tauriDir, stale), { force: true });
+  const source = join(tauriDir, name);
+  const { code, output } = await runCaptured(process.execPath, [tauriCli(), "icon", source, "--output", join(tauriDir, "icons")], tauriDir);
   if (code !== 0 || !ICON_FILES.every((f) => existsSync(join(tauriDir, f)))) {
-    log(`Couldn't make the app icons from ${source} (it should be a square PNG or SVG). Run \`npx @tauri-apps/cli icon <image>\` in ${tauriDir}.`);
+    const message = `Couldn't make the app icons from ${path ?? "the default icon"} (it should be a square PNG or SVG)${output.trim() ? `: ${output.trim()}` : "."}`;
+    if (building) throw new ExportError(`${message}\nWithout them tauri build can't make the app.`);
+    log(`${message} README.txt in the output folder says how to make them.`);
   }
+  return name;
 }
 
 function tauriCli(): string {
@@ -267,11 +279,23 @@ export function hasCargo(): boolean {
   return (cargo ??= spawnSync("cargo", ["--version"], { stdio: "ignore", shell: process.platform === "win32" }).status === 0);
 }
 
-function run(command: string, args: string[], cwd: string, quiet = false): Promise<number> {
+function run(command: string, args: string[], cwd: string): Promise<number> {
   return new Promise((done) => {
-    const child = spawn(command, args, { cwd, stdio: quiet ? "ignore" : "inherit" });
+    const child = spawn(command, args, { cwd, stdio: "inherit" });
     child.on("error", () => done(1));
     child.on("exit", (code) => done(code ?? 1));
+  });
+}
+
+/** Run a command quietly, keeping what it printed for an error message. */
+function runCaptured(command: string, args: string[], cwd: string): Promise<{ code: number; output: string }> {
+  return new Promise((done) => {
+    const child = spawn(command, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    child.stdout.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    child.stderr.on("data", (chunk: Buffer) => (output += chunk.toString()));
+    child.on("error", (err) => done({ code: 1, output: `${output}${err.message}` }));
+    child.on("close", (code) => done({ code: code ?? 1, output }));
   });
 }
 

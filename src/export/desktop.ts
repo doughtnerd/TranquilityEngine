@@ -246,8 +246,15 @@ export const DEFAULT_ICON_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="
 </svg>
 `;
 
-/** README.txt beside the generated Tauri project. */
-export function desktopReadme(name: string, built: string | null): string {
+/** The icon sources a desktop package keeps in `src-tauri/` for `tauri icon` to make `icons/` from (`build.icon`, else the default SVG). */
+export const ICON_SOURCES = ["app-icon.png", "app-icon.svg"] as const;
+
+/**
+ * README.txt beside the generated Tauri project. `icon` is the icon source in src-tauri/ (one of `ICON_SOURCES`): the
+ * package may have no `icons/` yet (the editor writes the package without the host toolchain, and an export replaces the
+ * folder), and `tauri build` fails without them (on Windows: "icons/icon.ico not found"), so the steps make them first.
+ */
+export function desktopReadme(name: string, built: string | null, icon: (typeof ICON_SOURCES)[number] = "app-icon.svg"): string {
   return `${name}: a desktop package made with Myco Engine.
 
   web/         the web build the app's window shows (it also runs on its own: see web/README.txt)
@@ -257,8 +264,9 @@ ${built ? `Installers: ${built}\n` : ""}Building the app needs Rust (https://rus
 (https://tauri.app/start/prerequisites/), plus CMake (https://cmake.org): gamepad support builds
 SDL3 from source. Then, in this folder:
 
-  npx @tauri-apps/cli build      installers in src-tauri/target/release/bundle/
-  npx @tauri-apps/cli dev        (or run it without installing)
+  npx @tauri-apps/cli@2 icon src-tauri/${icon}    the app icons, in src-tauri/icons/ (needed before the first build)
+  npx @tauri-apps/cli@2 build      installers in src-tauri/target/release/bundle/
+  npx @tauri-apps/cli@2 dev        (or run it without installing)
 
 On Windows, keep this folder's path short: the Rust linker fails on paths past 260 characters.
 

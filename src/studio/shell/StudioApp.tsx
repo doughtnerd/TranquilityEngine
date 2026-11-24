@@ -8,6 +8,8 @@ import { UndoToasts } from "../../editor/ui/UndoToast";
 import { AboutDialog } from "../../editor/ui/AboutDialog";
 import { NewProjectDialog } from "../../editor/ui/NewProjectDialog";
 import { BiosonicProjectsScreen } from "../start/BiosonicProjectsScreen";
+import { StudioConnectDialog, StudioDebugLinkPrompt, openStudioConnect } from "../debugLink/StudioDebugLink";
+import { studioBuild, studioLink } from "../debugLink/studioLink";
 import type { RecentTake } from "../start/recentTakes";
 import { HistoryIcons, type HistoryIconSet } from "../../editor/ui/HistoryPopover";
 import { currentProject } from "../../editor/state";
@@ -66,7 +68,9 @@ export function StudioApp(props: StudioAppProps) {
   if (!project) {
     return (
       <div class="studio studio-starting" data-floating-root="">
-        <BiosonicProjectsScreen onOpenTake={props.onOpenTake} />
+        <BiosonicProjectsScreen onOpenTake={props.onOpenTake} onConnect={studioLink.value ? openStudioConnect : undefined} connected={studioBuild.value?.name ?? null} />
+        <StudioConnectDialog />
+        <StudioDebugLinkPrompt />
         <NewProjectDialog />
         <AboutDialog />
         <UndoToasts queue={toasts} />
@@ -97,6 +101,7 @@ export function StudioApp(props: StudioAppProps) {
       <StatusBarSlot screen={route.screen} />
       <UndoToasts queue={toasts} />
       <ConfirmDialog />
+      <StudioConnectDialog />
       {shortcutsOpen.value && (
         <KeyboardShortcutsDialog
           groups={keymap.list(route.screen, singleKeyShortcuts.value, (id) => screenById(id)?.title ?? id)}
