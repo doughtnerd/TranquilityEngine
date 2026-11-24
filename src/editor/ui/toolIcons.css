@@ -1,0 +1,6 @@
+/* Icon buttons (toolIcons.tsx): a button holding one currentColor SVG, so it follows the theme and the button's state.
+   It is exactly as tall as a text button beside it: a zero-width space sets the height from the font's line box, as a
+   label would, and the icon's negative block margins keep it from growing the button (it may draw into the padding). */
+button.icon-button { display: inline-flex; align-items: center; justify-content: center; min-width: 0; padding: 3px 7px; }
+button.icon-button::before { content: "\200b"; width: 0; overflow: hidden; }
+button.icon-button .tool-icon { width: calc(16px * var(--ui-scale)); height: calc(16px * var(--ui-scale)); margin-block: calc(-3px * var(--ui-scale)); flex: none; }

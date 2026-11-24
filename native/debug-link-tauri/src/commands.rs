@@ -1,4 +1,4 @@
-//! The debug link's listener commands (ADR 0376, 0379, 0380), shared by the editor's and the Studio's
+//! The debug link's listener commands (ADR 0376, 0379, 0403), shared by the editor's and the Studio's
 //! Tauri shells: a page can't open a server socket, so the listening `websocket` transport
 //! (`src/engine/debugLink/tauriListener.ts`) asks these commands to listen for it. A shell calls
 //! `.manage(DebugLinkListeners::default())` and lists `myco_debuglink_listen_range`,
@@ -203,7 +203,7 @@ fn primary_ipv4() -> Option<std::net::Ipv4Addr> {
     }
 }
 
-/// This machine's IPv4 addresses for the pairing code (ADR 0380 "Address code"): the primary address, which is the
+/// This machine's IPv4 addresses for the pairing code (ADR 0403 "Address code"): the primary address, which is the
 /// adapter the OS routes outward through, and loopback (internal). Std offers no adapter list, so a second adapter
 /// (Wi-Fi beside Ethernet) or a VPN that isn't the default route doesn't appear; a person can type the full address.
 #[tauri::command]

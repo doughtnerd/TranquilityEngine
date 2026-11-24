@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameBehavior, GameObject, SceneManager, behavior, defineComponent, f32, field, registerSceneMigration } from "../index";
+import { listComponents } from "../editor";
 
 @behavior("test.Holder")
 class Holder extends GameBehavior {
@@ -168,6 +169,54 @@ describe("scene format (ADR 0013, 0016)", () => {
     Assets.addSource(Assets.fromObject({ "prefabs/old.prefab.json": { ...prefab, nodes: [{ id: "p", title: "New" }] } }));
     expect(GameObject.instantiate("prefabs/old.prefab.json").name).toBe("New");
     expect(runs).toBe(2);
+  });
+});
+
+describe("a load that fails half way (B4)", () => {
+  const awoken: string[] = [];
+  @behavior("test.failedLoad.Waker")
+  class Waker extends GameBehavior {
+    awake() { awoken.push(this.node.name); }
+  }
+  const broken = { format: "myco.scene@5", nodes: [{ id: "n1", name: "Partial", components: [{ type: "test.failedLoad.Waker" }] }, { id: "n2", components: [{ type: "nope.Missing" }] }] };
+  const fine = { format: "myco.scene@5", nodes: [{ id: "r", name: "Fine", components: [{ type: "test.failedLoad.Waker" }] }] };
+
+  it("leaves nothing of a scene behind, and the next instantiate wakes only its own nodes", async () => {
+    awoken.length = 0;
+    const engine = await Engine.create({ headless: true, assets: Assets.fromObject({ "bad.scene.json": broken, "fine.prefab.json": fine }) });
+    await expect(SceneManager.load("bad.scene.json")).rejects.toThrow(/unknown component type "nope.Missing"/);
+    expect(engine.world.root.children.map((c) => c.name)).toEqual([]);
+    expect(SceneManager.scenes).toEqual([]);
+    GameObject.instantiate("fine.prefab.json");
+    expect(awoken).toEqual(["Fine"]);
+    expect(GameObject.findObjectsOfType(Waker).map((w) => w.node.name)).toEqual(["Fine"]);
+  });
+
+  it("takes back a prefab instantiated half way", async () => {
+    awoken.length = 0;
+    const engine = await Engine.create({ headless: true, assets: Assets.fromObject({ "bad.prefab.json": { format: "myco.scene@5", nodes: [{ id: "r", name: "Root", components: [{ type: "test.failedLoad.Waker" }] }, { id: "c", parent: "r", components: [{ type: "nope.Missing" }] }] } }) });
+    expect(() => GameObject.instantiate("bad.prefab.json")).toThrow(/nope.Missing/);
+    expect(engine.world.root.children.map((c) => c.name)).toEqual([]);
+    expect(awoken).toEqual([]);
+  });
+});
+
+describe("a subclass redeclaring a field (B42)", () => {
+  @behavior("test.redeclare.Base")
+  class Base extends GameBehavior {
+    @field(Number) value: unknown = 0;
+  }
+  @behavior("test.redeclare.Derived")
+  class Derived extends Base {
+    @field(String) override value: unknown = "";
+  }
+
+  it("loads the field as the subclass declares it", async () => {
+    const scene = { format: "myco.scene@5", nodes: [{ id: "n", name: "N", components: [{ type: "test.redeclare.Derived", data: { value: "text" } }] }] };
+    await Engine.create({ headless: true, assets: Assets.fromObject({ "s.scene.json": scene }) });
+    const loaded = await SceneManager.load("s.scene.json");
+    expect(loaded.find("N")!.getBehavior(Derived)!.value).toBe("text");
+    expect(listComponents(loaded.find("N")!).find((c) => c.type === "test.redeclare.Derived")!.fields.map((f) => [f.name, f.type])).toEqual([["value", String]]);
   });
 });
 

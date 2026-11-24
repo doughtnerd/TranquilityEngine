@@ -81,7 +81,7 @@ const GROUPS = [
   { value: "clip" as const, label: "By sound" },
 ];
 
-/** ADR 0380 (plan U5): the live view of the build chosen in `studioBuild`; a build that left keeps it to show why it ended. */
+/** ADR 0403 (plan U5): the live view of the build chosen in `studioBuild`; a build that left keeps it to show why it ended. */
 const buildFollow = signal<BuildFollow | null>(null);
 
 /** Follows `studioBuild`: one `BuildFollow` per chosen build; a build whose link closed ends its follow with why. */

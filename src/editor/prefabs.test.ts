@@ -152,15 +152,15 @@ describe("Apply (ADR 0022)", () => {
 describe("Create Prefab (ADR 0022)", () => {
   it("names files safely and avoids existing ones", async () => {
     const scene = openScene.value!;
-    expect(await createPrefabFromNodes(scene, project, ["ceiling", "ground-collider"], "GroundCollider")).toBe("prefabs/ground-collider.prefab.json");
-    expect(await createPrefabFromNodes(scene, project, ["bg-a", "bg-b"], "  My Pipe #2 ")).toBe("prefabs/my-pipe-2.prefab.json");
-    expect(await createPrefabFromNodes(scene, project, ["ground-a", "ground-b"], "Ground")).toBe("prefabs/ground-2.prefab.json"); // ground.prefab.json exists
+    expect((await createPrefabFromNodes(scene, project, ["ceiling", "ground-collider"], "GroundCollider")).path).toBe("prefabs/ground-collider.prefab.json");
+    expect((await createPrefabFromNodes(scene, project, ["bg-a", "bg-b"], "  My Pipe #2 ")).path).toBe("prefabs/my-pipe-2.prefab.json");
+    expect((await createPrefabFromNodes(scene, project, ["ground-a", "ground-b"], "Ground")).path).toBe("prefabs/ground-2.prefab.json"); // ground.prefab.json exists
   });
 
   it("turns a node into a prefab file plus an instance in the same place", async () => {
     const scene = openScene.value!;
     const before = scene.sync.nodeFor("bird")!.transform!.position.toArray();
-    const path = await createPrefab(scene, project, "bird");
+    const { path } = await createPrefab(scene, project, "bird");
     expect(path).toBe("prefabs/bird.prefab.json");
 
     const file = fileOf(path);
@@ -181,6 +181,100 @@ describe("Create Prefab (ADR 0022)", () => {
     const scene = openScene.value!;
     scene.stack.execute(new SetField("game", "game.GameManager", "bird", { $node: "bird-sprite" }));
     await expect(createPrefab(scene, project, "bird")).rejects.toThrow(/references "bird-sprite"/);
+  });
+});
+
+describe("Create Prefab with references out of the new prefab (ADR 0401)", () => {
+  const OUT = ["spawner", "score", "message", "music-readout"];
+  /** The resolved component data of the node at `path` (slash-joined) in the scene. */
+  const dataAt = (path: string) => openScene.value!.doc.resolve().nodes.find((n) => n.path.join("/") === path)!.components.map((c) => c.data ?? null);
+
+  it("leaves outside references empty in the file and keeps them on the instance as overrides; one undo step", async () => {
+    const scene = openScene.value!;
+    const before = dataAt("game");
+    const made = await createPrefab(scene, project, "game");
+    expect(made.instanceOverrides).toBe(5);
+    const manager = fileOf(made.path).nodes[0].components!.find((c) => c.type === "game.GameManager")!;
+    expect(manager.data).toEqual({ bird: null, spawner: null, scoreLabel: null, messageLabel: null, musicLabel: null });
+    expect(scene.doc.node("game").overrides).toEqual([
+      { component: "game.GameManager", index: 0, field: "bird", value: { $node: "bird" } },
+      { component: "game.GameManager", index: 0, field: "spawner", value: { $node: "spawner" } },
+      { component: "game.GameManager", index: 0, field: "scoreLabel", value: { $node: "score" } },
+      { component: "game.GameManager", index: 0, field: "messageLabel", value: { $node: "message" } },
+      { component: "game.GameManager", index: 0, field: "musicLabel", value: { $node: "music-readout" } },
+    ]);
+    expect(dataAt("game")).toEqual(before); // the scene is as it was
+    expect(scene.doc.references().filter((r) => r.path[0] === "game").map((r) => r.to)).toEqual(["bird", ...OUT]);
+
+    scene.stack.undo();
+    expect(scene.doc.node("game").prefab).toBeUndefined();
+    expect(scene.doc.node("game").overrides).toBeUndefined();
+  });
+
+  it("keeps references inside the new prefab, the root included, and makes no overrides for them", async () => {
+    const scene = openScene.value!;
+    scene.stack.execute(new SetField("bird-sprite", "engine.SpriteRenderer", "follow", [{ $node: "bird" }, null, { $node: "bird-sprite" }]));
+    const made = await createPrefab(scene, project, "bird");
+    expect(made.instanceOverrides).toBe(0);
+    const [bird, sprite] = fileOf(made.path).nodes;
+    expect(bird.components!.find((c) => c.type === "game.Bird")!.data).toEqual({ visual: { $node: "bird-sprite" } });
+    expect(sprite.components![0].data!.follow).toEqual([{ $node: "bird" }, null, { $node: "bird-sprite" }]);
+    expect(scene.doc.node("bird").overrides).toBeUndefined();
+  });
+
+  it("several nodes: references between them stay in the file, the rest become overrides aimed at their node", async () => {
+    const scene = openScene.value!;
+    const before = dataAt("game");
+    const path = (await createPrefabFromNodes(scene, project, ["bird", "game"], "Group")).path;
+    const file = fileOf(path);
+    const manager = file.nodes.find((n) => n.id === "game")!.components!.find((c) => c.type === "game.GameManager")!;
+    expect(manager.data).toEqual({ bird: { $node: "bird" }, spawner: null, scoreLabel: null, messageLabel: null, musicLabel: null });
+    expect(file.nodes.find((n) => n.id === "bird")!.components!.find((c) => c.type === "game.Bird")!.data).toEqual({ visual: { $node: "bird-sprite" } });
+    const instance = scene.doc.nodes.find((n) => n.prefab === path)!;
+    expect(instance.overrides).toEqual([
+      { target: ["game"], component: "game.GameManager", index: 0, field: "spawner", value: { $node: "spawner" } },
+      { target: ["game"], component: "game.GameManager", index: 0, field: "scoreLabel", value: { $node: "score" } },
+      { target: ["game"], component: "game.GameManager", index: 0, field: "messageLabel", value: { $node: "message" } },
+      { target: ["game"], component: "game.GameManager", index: 0, field: "musicLabel", value: { $node: "music-readout" } },
+    ]);
+    expect(dataAt(`${instance.id}/game`)).toEqual(before);
+    scene.stack.undo();
+    expect(scene.doc.has("game") && scene.doc.has("bird")).toBe(true);
+    expect(scene.doc.nodes.some((n) => n.prefab === path)).toBe(false);
+  });
+
+  it("nested prefab instances: their overrides and added components that point out move to the new instance", async () => {
+    const scene = openScene.value!;
+    scene.stack.execute(
+      new SetOverrides("bg-a", "Set", [
+        ...scene.doc.overrides("bg-a"),
+        { component: "engine.SpriteRenderer", field: "follow", value: { $node: "score" } },
+        { addComponent: { type: "engine.SpriteRenderer", data: { sprite: "x", path: [{ $node: "message" }, null] } } },
+      ]),
+    );
+    const before = dataAt("bg-a");
+    const made = await createPrefabFromNodes(scene, project, ["bg-a", "camera"], "Group");
+    expect(made.instanceOverrides).toBe(2);
+    const nested = fileOf(made.path).nodes.find((n) => n.id === "bg-a")!;
+    expect(nested.overrides).toContainEqual({ component: "engine.SpriteRenderer", field: "follow", value: null });
+    expect(nested.overrides).toContainEqual({ addComponent: { type: "engine.SpriteRenderer", data: { sprite: "x", path: [null, null] } } });
+    const instance = scene.doc.nodes.find((n) => n.prefab === made.path)!;
+    expect(instance.overrides).toEqual([
+      { target: ["bg-a"], component: "engine.SpriteRenderer", index: 0, field: "follow", value: { $node: "score" } },
+      { target: ["bg-a"], component: "engine.SpriteRenderer", index: 1, field: "path", value: [{ $node: "message" }, null] },
+    ]);
+    expect(dataAt(`${instance.id}/bg-a`)).toEqual(before);
+  });
+
+  it("keeps a list mixing references into the prefab with ones out of it in the file, and clears the inside ones in the override", async () => {
+    const scene = openScene.value!;
+    scene.stack.execute(new SetField("bird-sprite", "engine.SpriteRenderer", "follow", [{ $node: "bird-sprite" }, { $node: "score" }, { $node: "bird" }]));
+    const made = await createPrefab(scene, project, "bird");
+    expect(made.droppedListItems).toBe(1);
+    const file = fileOf(made.path).nodes.find((n) => n.id === "bird-sprite")!;
+    expect(file.components!.find((c) => c.type === "engine.SpriteRenderer")!.data!.follow).toEqual([{ $node: "bird-sprite" }, null, { $node: "bird" }]);
+    const override = scene.doc.node("bird").overrides!.find((o) => o.field === "follow")!;
+    expect(override.value).toEqual([null, { $node: "score" }, { $node: "bird" }]);
   });
 });
 
@@ -228,7 +322,7 @@ describe("multi-node prefabs (ADR 0087)", () => {
   it("turns sibling nodes into one prefab under a Group root", async () => {
     const { doc } = openScene.value!;
     const roots = doc.roots().slice(0, 2);
-    const path = await createPrefabFromNodes(openScene.value!, project, roots, "Pair");
+    const { path } = await createPrefabFromNodes(openScene.value!, project, roots, "Pair");
     const file = fileOf(path);
     expect(file.nodes[0]).toMatchObject({ name: "Pair" });
     expect(file.nodes.filter((n) => n.parent === file.nodes[0].id).map((n) => n.id)).toEqual(roots);

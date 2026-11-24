@@ -21,6 +21,8 @@ export interface EditorProject {
   readonly name: string;
   /** The folder on disk, or null for a read-only project in memory (a sample). */
   readonly root: string | null;
+  /** The sample's id when this is a sample opened read-only (ADR 0031), so another app can open the same one (ADR 0380); else null. */
+  readonly sample: string | null;
   /** The folder's file system (for watching scripts and opening files externally), or null for a project in memory. */
   readonly fileSystem: FileSystem | null;
   readonly canSave: boolean;
@@ -135,6 +137,7 @@ class MapProject implements EditorProject {
   private sortedFiles: string[] | null = null;
   /** The bytes this project last wrote or re-read for a binary file (`bytesStamp`), so `rereadFiles` knows them. */
   private readonly binaryStamps = new Map<string, string>();
+  sample: string | null = null;
 
   constructor(
     private readonly baseName: string,
@@ -476,8 +479,11 @@ class MapProject implements EditorProject {
 export function readOnlyProject(
   name: string,
   files: { values: Map<string, unknown>; texts: Map<string, string>; scripts?: Map<string, string>; sizes?: Map<string, number> },
+  sample: string | null = null,
 ): EditorProject {
-  return new MapProject(name, null, files.values, files.texts, null, null, null, files.scripts ?? new Map(), new Set(), files.sizes ?? new Map());
+  const project = new MapProject(name, null, files.values, files.texts, null, null, null, files.scripts ?? new Map(), new Set(), files.sizes ?? new Map());
+  project.sample = sample;
+  return project;
 }
 
 /** Every file under `root` that `accept` takes, as project-relative paths. Skips hidden, dependency and build folders (ADR 0254). */

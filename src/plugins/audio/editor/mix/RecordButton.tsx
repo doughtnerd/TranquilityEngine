@@ -28,13 +28,19 @@ export function RecordButton(props: { model: RecordToggle; playing: boolean; lab
   const busy = s.kind === "starting" || s.kind === "saving";
   return (
     <button
-      class={`record-toggle record-${model.kind}${model.recording ? " active" : ""}`}
+      class={`icon-button record-toggle record-${model.kind}${model.recording ? " active" : ""}`}
+      aria-label={props.label}
       aria-pressed={model.recording}
       disabled={busy || (!playing && !model.recording)}
       title={recordToggleTitle(model.kind, s, model.seconds, playing)}
       onClick={() => void model.toggle()}
     >
-      <span class="record-dot" aria-hidden="true">●</span> {props.label}
+      <span class="record-dot"><RecordIcon /></span>
     </button>
   );
 }
+
+/** The Record icon (a filled dot), in `currentColor`; drawn like the editor's tool icons (class `tool-icon`). */
+const RecordIcon = () => (
+  <svg class="tool-icon" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" focusable="false" fill="currentColor"><circle cx="8" cy="8" r="4.5" /></svg>
+);

@@ -4,7 +4,7 @@
 // requests (answered by promises) and commands (applied at the build's next frame start). Nothing reaches a build before
 // the tool accepts it (`accept()`): the tool decides, asking first for a non-local one.
 //
-// ADR 0380 adds the other direction: a `ToolConnector` connects out to a listening build (`host.ts`'s
+// ADR 0403 adds the other direction: a `ToolConnector` connects out to a listening build (`host.ts`'s
 // `BuildListener`), pairing with the code the build shows; its peers are the same `DebugLinkPeer`s.
 //
 // **The tool listener's accept rule (version 2, C1).** A build that connects sends `pair` (role build) and then `hello`.
@@ -195,7 +195,7 @@ export interface ListenerEvents {
   onClose?(peer: DebugLinkPeer): void;
 }
 
-/** How a tool listener checks connecting builds (version 2, ADR 0380). */
+/** How a tool listener checks connecting builds (version 2, ADR 0403). */
 export interface ListenerOptions {
   /**
    * The gate behind the code the tool shows (the Studio's, the editor's). Absent: the tool shows no code, and every
@@ -253,10 +253,17 @@ export class DebugLinkListener {
         }
       } else {
         const entry = this.connections.get(c);
-        if (!entry) continue; // refused and closed: what it sent behind its pair is never read
+        if (!entry) continue; // refused or closed by this end: what it sent behind that is never read
         const decoded = decodeEnvelope(event.data);
         if ("refused" in decoded) {
+          // Not this protocol (a malformed envelope, another version): say so, then close (ADR 0376).
           if (c.state === "open") c.send("reliable", encodeEnvelope({ kind: EnvelopeKind.error, topic: "", id: 0, payload: jsonPayload({ message: decoded.refused }) }));
+          const reason = `The tool closed the debug link: ${decoded.refused}`;
+          this.connections.delete(c);
+          if (entry instanceof DebugLinkPeer) {
+            entry.close(reason);
+            this.events.onClose?.(entry);
+          } else if (c.state !== "closed") c.close(reason);
           continue;
         }
         const e = decoded.envelope;
@@ -314,7 +321,7 @@ export class DebugLinkListener {
   }
 }
 
-// --- the tool connects out (ADR 0380 "Roles"; plan contract C3) ------------------------------------------------------------
+// --- the tool connects out (ADR 0403 "Roles"; plan contract C3) ------------------------------------------------------------
 
 /**
  * Where one connection attempt to a listening build stands:
@@ -389,7 +396,7 @@ class Attempt implements ConnectAttempt {
 }
 
 /**
- * A tool that connects out to listening builds (ADR 0380: a native build listens and the tool connects). Each
+ * A tool that connects out to listening builds (ADR 0403: a native build listens and the tool connects). Each
  * `connect` opens one connection on the transport, sends `pair` (role `tool`, this tool's kind and name, the token from
  * the build's code) as its first message, and on `paired` (accepted) waits for the build's `hello`; the peer it makes is
  * accepted at once (the tool chose to connect, so there is nothing to ask: it sends `welcome`), and `events.onPeer`

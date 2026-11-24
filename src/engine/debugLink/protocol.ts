@@ -12,7 +12,7 @@
 // one encoding. Requests and replies travel on the reliable channel; samples on the topic's channel (`DebugTopic.channel`,
 // unreliable by default; the session picks).
 //
-// **Connecting (version 2, ADR 0380).** Whichever side can listen does; the other connects. The connecting side's first
+// **Connecting (version 2, ADR 0403).** Whichever side can listen does; the other connects. The connecting side's first
 // message is `pair` (`DebugPair`: its role, its endpoint kind, the token from the code the listening side shows, and its
 // name for a prompt), and the listening side answers with `paired` (`DebugPairReply`: accepted, or refused with a reason,
 // after which it closes). Then the build says `hello` and the tool `welcome`s it, as in version 1, whichever side
@@ -27,8 +27,8 @@
 // `pair` (so a build that says hello first is still understood). Version 1 peers are refused: the envelope's version byte
 // differs, and each side says so in its own log.
 //
-// Decoding is lenient and never throws: a message that doesn't parse decodes to null with the reason, and the session
-// answers it with an `error`.
+// Decoding is lenient and never throws: a message that doesn't parse decodes to a refusal with the reason, and either end
+// answers it with an `error` and closes the link.
 
 /** The protocol version both ends must speak. */
 export const DEBUG_LINK_VERSION = 2;
@@ -57,7 +57,7 @@ export const EnvelopeKind = {
   command: 8,
   /** Either way: what went wrong with message `id` (`{ message }`); id 0 for the link itself. */
   error: 9,
-  /** Connecting side → listening side, first message (version 2, ADR 0380): who connects and its token (`DebugPair`). */
+  /** Connecting side → listening side, first message (version 2, ADR 0403): who connects and its token (`DebugPair`). */
   pair: 10,
   /** Listening side → connecting side: the answer to `pair` (`DebugPairReply`); a refusal is followed by the close. */
   paired: 11,
@@ -83,9 +83,9 @@ export interface DebugHello {
   readonly topics: readonly string[];
 }
 
-/** What a debug-link endpoint can do on a network (ADR 0380's three kinds): a Tauri desktop or Android app, a page on http, a page on https. */
+/** What a debug-link endpoint can do on a network (ADR 0403's three kinds): a Tauri desktop or Android app, a page on http, a page on https. */
 export type EndpointKind = "native" | "page-http" | "page-https";
-/** The endpoint kinds, in 0380's order. */
+/** The endpoint kinds, in 0403's order. */
 export const ENDPOINT_KINDS: readonly EndpointKind[] = ["native", "page-http", "page-https"];
 
 /** Which topic role a side plays (ADR 0376): the build serves topics, the tool subscribes and commands. */
@@ -96,7 +96,7 @@ export const DEBUG_PAIR_NAME_MAX = 200;
 /** The largest token a pairing code carries (30 bits, `pairing/code.ts`). */
 export const DEBUG_PAIR_TOKEN_MAX = 0x3fffffff;
 
-/** The connecting side's first message (version 2, ADR 0380). */
+/** The connecting side's first message (version 2, ADR 0403). */
 export interface DebugPair {
   /** The connecting side's topic role. */
   readonly role: DebugRole;
@@ -109,7 +109,7 @@ export interface DebugPair {
 }
 
 /**
- * Why a listening side refused a `pair` (ADR 0380 "Pairing code"):
+ * Why a listening side refused a `pair` (ADR 0403 "Pairing code"):
  * - `bad-token`: not the token of the code shown now;
  * - `expired`: the token of a code that expired (5 minutes);
  * - `used`: the token of a code already used (single use);

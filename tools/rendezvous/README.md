@@ -1,6 +1,6 @@
 # Myco rendezvous
 
-The small service two debug peers use to find each other when neither can reach a listener on the other (a room code, ADR 0380 "Rendezvous", 0381). It relays the WebRTC handshake (an offer, an answer and a few candidates: a few hundred bytes per pairing) and then both sides leave. It never carries debug traffic, and it never reads what it relays.
+The small service two debug peers use to find each other when neither can reach a listener on the other (a room code, ADR 0403 "Rendezvous", 0404). It relays the WebRTC handshake (an offer, an answer and a few candidates: a few hundred bytes per pairing) and then both sides leave. It never carries debug traffic, and it never reads what it relays.
 
 **No public rendezvous is run** (owner decision). Run your own, on a machine both peers can reach.
 

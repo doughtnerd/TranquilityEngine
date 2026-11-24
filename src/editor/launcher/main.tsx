@@ -1,7 +1,9 @@
-// The desktop editor's Projects window (ADR 0059): the start screen on its own, shown at start-up;
-// once it has painted it creates the hidden editor window, which loads in the background (ADR 0082). Picking a project hands it to the editor window, and this
-// window hides until the editor closes the project. It loads no engine code, so it shows at once.
-// Outside the desktop app there's no second window, so it goes to the editor page instead.
+// The desktop app's launcher (ADR 0059, 0380): the Projects window, opening on the Foxfire Studios stage. Open on an
+// application's card moves to that app's projects screen in the same page (Myco Engine, or Biosonic, the Audio
+// Studio); its "‹ Foxfire launcher" goes back. A Myco project is handed to the editor window, which is created hidden
+// once this window has painted and loads in the background (ADR 0082); a Biosonic project or take is handed to the
+// Studio's window. This window then hides until the editor closes its project or the Studio window closes. It loads
+// no engine code, so it shows at once. Outside the desktop app there's no second window, so it goes to the editor page.
 import type { Window } from "@tauri-apps/api/window";
 import { signal } from "@preact/signals";
 import { render } from "preact";
@@ -9,29 +11,42 @@ import { useEffect } from "preact/hooks";
 import { isTauri } from "../../engine/platform/FileSystem";
 import { projectFileSystem } from "../projectFs";
 import { recentProjects } from "../recentProjects";
-import { setStartActions } from "../startActions";
+import { setStartActions, type StartActions } from "../startActions";
+import { errorStatus } from "../messages";
 import { status } from "../state";
 import { installTheme } from "../theme";
 import "../ui/fonts";
 import { AboutDialog } from "../ui/AboutDialog";
+import { MycoProjectsScreen } from "../ui/appProjects/MycoProjectsScreen";
 import { NewProjectDialog } from "../ui/NewProjectDialog";
-import { StartScreen } from "../ui/StartScreen";
 import "../ui/editor.css";
+import { BiosonicProjectsScreen } from "../../studio/start/BiosonicProjectsScreen";
+import type { RecentTake } from "../../studio/start/recentTakes";
 import { launcherActions } from "./actions";
 import { startEditorWindow, startEditorWindowWhenIdle } from "./editorWindowStart";
+import { FoxfireScreen, type LauncherApp } from "./FoxfireScreen";
 import { linkToEditor, tauriBus, type EditorLink } from "./handoff";
 import "./launcher.css";
-import { fitWindowToWorkArea, measureScrollbar } from "./windowSize";
+import { openInStudioWindow, studioRequestFor } from "./studioWindow";
+import { fitWindowToWorkArea } from "./windowSize";
 
-/** False until the editor window has loaded (a project picked before then waits for it). */
+/** The design's window size (logical px), fitted to a smaller work area at start. */
+const WINDOW_SIZE = { width: 1280, height: 818 };
+
+/** False until the editor window has loaded (a Myco project picked before then waits for it). */
 const editorReady = signal(false);
+/** Which stage shows. */
+const stage = signal<"foxfire" | LauncherApp>("foxfire");
 
-/** Minimise and close, laid over the banner (the window has no title bar). Close takes the usual route: the Rust side hides this window or quits. */
+/** Minimise, maximise and close, laid over the top right (the window has no title bar). Close takes the usual route: the Rust side hides this window or quits. */
 function WindowControls({ window }: { window: Window }) {
   return (
     <div class="window-controls">
       <button aria-label="Minimize" title="Minimize" onClick={() => void window.minimize()}>
         <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 6h10" /></svg>
+      </button>
+      <button aria-label="Maximize" title="Maximize" onClick={() => void window.toggleMaximize()}>
+        <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1.5 1.5h9v9h-9z" /></svg>
       </button>
       <button class="close" aria-label="Close" title="Close" onClick={() => void window.close()}>
         <svg viewBox="0 0 12 12" aria-hidden="true"><path d="M1 1l10 10M11 1L1 11" /></svg>
@@ -40,70 +55,57 @@ function WindowControls({ window }: { window: Window }) {
   );
 }
 
-/**
- * Keeps the window the size of the start panel and the status line under it, capped to the work
- * area of the monitor it is on (scale factor and taskbar included; the page scrolls when capped),
- * and drags it by the banner. The first fit centres the window on that monitor; later fits (the
- * panel grows for New Project, the status line appears) keep where the user put it but nudge it
- * back inside the work area, since a window grows down from its top edge.
- */
-function useCardWindow(window: Window): void {
+/** Fits the window to the monitor's work area once (a small screen), and drags it by the brand column (and the title-bar row over the projects list); a double-click there maximises. */
+function useLauncherWindow(window: Window): void {
   useEffect(() => {
-    const card = document.querySelector<HTMLElement>(".start-card");
-    const statusLine = document.querySelector<HTMLElement>(".projects-status");
-    if (!card) return;
-    const scrollbar = measureScrollbar(document);
-    let frame = 0;
-    let centred = false;
-    const fit = async () => {
-      frame = 0;
+    void (async () => {
       const { LogicalSize, PhysicalPosition, currentMonitor, primaryMonitor } = await import("@tauri-apps/api/window");
-      const { width, height } = card.getBoundingClientRect();
-      const content = { width, height: height + (statusLine?.offsetHeight ?? 0) };
       const monitor = (await currentMonitor()) ?? (await primaryMonitor());
-      if (!monitor) {
-        await window.setSize(new LogicalSize(Math.ceil(content.width), Math.ceil(Math.min(content.height, screen.availHeight - 48))));
-        if (!centred) await window.center();
-        centred = true;
-        return;
-      }
+      if (!monitor) return;
       const area = { ...monitor.workArea.position, ...monitor.workArea.size };
-      const current = centred ? await window.outerPosition() : undefined;
-      const fitted = fitWindowToWorkArea(content, area, monitor.scaleFactor, scrollbar, current);
+      const fitted = fitWindowToWorkArea(WINDOW_SIZE, area, monitor.scaleFactor);
       await window.setSize(new LogicalSize(fitted.size.width, fitted.size.height));
       await window.setPosition(new PhysicalPosition(fitted.position.x, fitted.position.y));
-      centred = true;
-    };
-    const schedule = () => {
-      if (!frame) frame = requestAnimationFrame(() => void fit().catch(console.error));
-    };
-    const observer = new ResizeObserver(schedule);
-    observer.observe(card);
-    if (statusLine) observer.observe(statusLine);
+    })().catch(console.error);
+    const onBrand = (e: MouseEvent) => e.target instanceof Element && !!e.target.closest(".ff-brand, .ap-brand, .ap-titlebar") && !e.target.closest("button");
     const drag = (e: MouseEvent) => {
-      if (e.button === 0 && e.target instanceof Element && e.target.closest(".start-brand") && !e.target.closest("button")) void window.startDragging();
+      if (e.button !== 0 || !onBrand(e)) return;
+      if (e.detail === 2) void window.toggleMaximize();
+      else void window.startDragging();
     };
     document.addEventListener("mousedown", drag);
-    return () => {
-      observer.disconnect();
-      cancelAnimationFrame(frame);
-      document.removeEventListener("mousedown", drag);
-    };
+    return () => document.removeEventListener("mousedown", drag);
   }, []);
 }
 
-function ProjectsWindow({ window }: { window: Window }) {
-  useCardWindow(window);
-  const s = status.value;
+interface LauncherProps {
+  readonly window: Window;
+  readonly actions: Record<LauncherApp, StartActions>;
+  openTake(take: RecentTake): Promise<void>;
+}
+
+function Launcher({ window, actions, openTake }: LauncherProps) {
+  useLauncherWindow(window);
+  const chrome = <WindowControls window={window} />;
+  const show = (next: "foxfire" | LauncherApp) => {
+    if (next !== "foxfire") setStartActions(actions[next]); // the New Project dialog and the projects tab open through these
+    status.value = null;
+    stage.value = next;
+  };
+  const back = () => show("foxfire");
+  const s = stage.value;
   return (
-    <>
-      <StartScreen chrome={<WindowControls window={window} />} />
-      <p class={`projects-status${s?.kind === "error" ? " error" : ""}`} role="status">
-        {s?.text ?? (editorReady.value ? "" : "Starting the editor…")}
-      </p>
+    <div class="launcher" data-floating-root="">
+      {s === "foxfire" ? (
+        <FoxfireScreen chrome={chrome} onOpen={show} />
+      ) : s === "myco" ? (
+        <MycoProjectsScreen chrome={chrome} back={back} note={editorReady.value ? undefined : "Starting the editor…"} />
+      ) : (
+        <BiosonicProjectsScreen chrome={chrome} back={back} onOpenTake={openTake} />
+      )}
       <NewProjectDialog />
       <AboutDialog />
-    </>
+    </div>
   );
 }
 
@@ -115,16 +117,32 @@ async function main(): Promise<void> {
   installTheme();
   const [bus, { getCurrentWindow }] = await Promise.all([tauriBus(), import("@tauri-apps/api/window")]);
   const window = getCurrentWindow();
-  // The recent projects list hears the editor window add the project it opened (storage events), so it needn't be told here.
+  // The recent projects list hears the editor or Studio window add the project it opened (storage events), so it needn't be told here.
   const link = linkToEditor(bus, () => {
     status.value = null;
     void window.show().then(() => window.setFocus());
   });
   void link.ready.then(() => (editorReady.value = true));
   // The editor window is created once this one shows (ADR 0082), or at once if a project is picked first.
-  const handOff: EditorLink = { ready: link.ready, dispose: () => link.dispose(), open: (request) => startEditorWindow().then(() => link.open(request)) };
-  setStartActions(launcherActions({ link: handOff, opened: () => void window.hide(), folders: projectFileSystem, recent: recentProjects() }));
-  render(<ProjectsWindow window={window} />, document.getElementById("app")!);
+  const editor: EditorLink = { ready: link.ready, dispose: () => link.dispose(), open: (request) => startEditorWindow().then(() => link.open(request)) };
+  const hide = () => void window.hide();
+  const common = { opened: hide, folders: projectFileSystem, recent: recentProjects() };
+  const actions: Record<LauncherApp, StartActions> = {
+    myco: launcherActions({ ...common, link: editor }),
+    biosonic: launcherActions({ ...common, link: { open: (request) => openInStudioWindow(studioRequestFor(request)) } }),
+  };
+  setStartActions(actions.myco);
+  const openTake = async (take: RecentTake) => {
+    status.value = { kind: "info", text: `Opening ${take.name}…` };
+    try {
+      await openInStudioWindow({ project: take.project.path, asset: take.path });
+      status.value = null;
+      hide();
+    } catch (err) {
+      status.value = errorStatus(`Couldn't open ${take.name}`, err);
+    }
+  };
+  render(<Launcher window={window} actions={actions} openTake={openTake} />, document.getElementById("app")!);
   startEditorWindowWhenIdle();
 }
 

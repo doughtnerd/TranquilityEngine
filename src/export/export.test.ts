@@ -218,7 +218,7 @@ describe("the debug link option (ADR 0376)", () => {
 /** This machine's non-loopback IPv4 addresses (a machine without any prints no "On your network" line). */
 const networkInterfaces4 = () => Object.values(networkInterfaces()).flatMap((list) => (list ?? []).filter((a) => a.family === "IPv4" && !a.internal));
 
-describe("a debug web build hosts the rendezvous (ADR 0380 'Rendezvous' 2 and 3)", () => {
+describe("a debug web build hosts the rendezvous (ADR 0403 'Rendezvous' 2 and 3)", () => {
   const BUNDLE = "export async function startRendezvous() {}\n";
   const files = async (o: object) => (await planWebBuild(source(), o)).generated;
 
@@ -307,7 +307,7 @@ describe("a debug web build hosts the rendezvous (ADR 0380 'Rendezvous' 2 and 3)
   });
 });
 
-describe("the debug link's listening flags (ADR 0380)", () => {
+describe("the debug link's listening flags (ADR 0403)", () => {
   it("--debug-listen, --debug-lan and --debug-port parse, imply debugging on, and the help says so", () => {
     expect(parseArgs(["proj", "--debug-listen"])).toEqual({ projectDir: "proj", debugListen: true });
     expect(parseArgs(["proj", "--debug-listen", "--debug-lan", "--debug-port", "7800"])).toEqual({ projectDir: "proj", debugListen: true, debugLan: true, debugPort: 7800 });

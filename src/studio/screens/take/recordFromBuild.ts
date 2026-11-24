@@ -1,4 +1,4 @@
-// Recording a take from a connected build (ADR 0348 takes, ADR 0380, plan U5): the Take screen's Start, Mark, Stop and
+// Recording a take from a connected build (ADR 0348 takes, ADR 0403, plan U5): the Take screen's Start, Mark, Stop and
 // Save drive the build's `audio` topic (schema in `plugins/audio/runtime/debugLink/schema.ts`): `take.start`,
 // `take.mark` `{ text }` and `take.stop` run `Audio.take` on the build; Save asks `take.upload`, subscribes to the upload,
 // reassembles its 64 KiB chunks with `createTakeReceiver` and writes the take file into the project's `takes/` folder

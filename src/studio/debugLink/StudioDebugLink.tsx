@@ -1,4 +1,4 @@
-// The Studio's debug link UI (ADR 0380, plan U4): the status bar's builds menu over the Studio's link, the Connect
+// The Studio's debug link UI (ADR 0403, plan U4): the status bar's builds menu over the Studio's link, the Connect
 // dialog it opens, the Debug link settings (the Studio has no settings page, so a small dialog), and the accept prompt
 // for builds from other machines. The editor's own components, over `studioLink` instead of the editor's link.
 import { signal } from "@preact/signals";

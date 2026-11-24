@@ -1,4 +1,4 @@
-// The editor's Play as a build on the debug link (ADR 0380, plan U3): while the editor plays, a tool (the Audio Studio,
+// The editor's Play as a build on the debug link (ADR 0403, plan U3): while the editor plays, a tool (the Audio Studio,
 // another editor) can pair with it and read its topics (audio takes and captures, animation) as it would a running
 // game. The builds menu shows the code to type and the paired tools (its `playSlot`: `PlayBuildSlot`).
 //

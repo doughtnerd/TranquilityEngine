@@ -1,4 +1,4 @@
-//! Network discovery for the debug link (ADR 0380 "Discovery"): a listening build advertises
+//! Network discovery for the debug link (ADR 0403 "Discovery"): a listening build advertises
 //! `_myco-debug._tcp.local.` and a tool browses for those. The TXT record holds `name`, `platform`, `path` and the
 //! protocol version `v`; never a token (being listed is not being trusted).
 //!

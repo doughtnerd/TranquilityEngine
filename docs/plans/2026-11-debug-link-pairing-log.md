@@ -35,7 +35,7 @@ Failures that exist before any task of this build; wave reviews compare against 
   45 skipped (the stubs' named cases for W1a), 0 failed.
 - **Interpretation to note (code layout):** a whole first character can't hold the kind in 10 characters
   (16 + 3.3 + 30 bits for an address code), so the first character's *value range* is the kind: `0`–`K` address,
-  `M`–`Y` LAN room, `Z` hosted room. 0380's "the first character says what the rest holds" still holds. A LAN room
+  `M`–`Y` LAN room, `Z` hosted room. 0403's "the first character says what the rest holds" still holds. A LAN room
   code's token is 20 bits (rendezvous address, port index and room take the rest); with single use, 5-minute expiry
   and the 5-tries-a-minute lockout, a guesser gets about 25 tries at a million values.
 - **For L7 and A2:** upload throughput is the topic rate × 64 KiB (about 1.9 MB/s at 30 Hz) unless a sample may go out
@@ -185,7 +185,7 @@ its peers join `builds` without a prompt) delegating to `connectFlow.ts`; `serve
 
 ## M2 (waves 3 and 4) and N1
 
-R0 (coordinator): ADR 0381, Accepted under owner decision O7; 0380 marked amended.
+R0 (coordinator): ADR 0404, Accepted under owner decision O7; 0403 marked amended.
 
 | Task | Model | Agent time | Result |
 |---|---|---|---|

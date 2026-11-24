@@ -4,7 +4,7 @@ Every lead and leaf brief points here. Plan: [waves](2026-11-debug-link-pairing-
 
 ## Before you start
 
-- Read `CLAUDE.md`, ADR 0380 (and 0376, 0379, 0348 where your brief names them), then the files your brief names.
+- Read `CLAUDE.md`, ADR 0403 (and 0376, 0379, 0348 where your brief names them), then the files your brief names.
 - **Your base is the commit your brief names** (the integration branch `feat/debug-link-pairing`), not master. Check with `git log -1`.
 - Work in your own git worktree. Commit there; the coordinator merges. Run `git status` before every commit so build output stays out of it.
 - Never use bare `git stash`; the stash is shared across worktrees. Use a WIP commit instead.

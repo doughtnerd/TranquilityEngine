@@ -386,7 +386,8 @@ export class AnimationCore {
     if (entry.key === next) return STATUS_OK;
     const status = this.wasm.replace_clip(handle, bytes);
     if (status !== STATUS_OK) return status;
-    this.byKey.delete(entry.key);
+    // Its old key, unless another asset holds that key (as `releaseIdle` checks).
+    if (this.byKey.get(entry.key) === entry) this.byKey.delete(entry.key);
     const moved: AssetEntry = { key: next, handle, refs: entry.refs };
     this.byHandle.set(handle, moved);
     // Another asset already known by `key` keeps it; this one is then found by handle only.

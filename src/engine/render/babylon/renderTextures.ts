@@ -8,7 +8,8 @@
  * GPU texture and the camera's finish pass writes into it (`frameGraph.ts`, `CameraView.target`).
  *
  * A changed asset (the editor's inspector) resizes the texture in place; a changed format makes a new
- * one under the same path, which materials pick up when they're rebuilt (`version` changes).
+ * one under the same path and disposes the old: the material library hears of that and rebuilds the
+ * materials that sampled it (`materialLibrary.ts`).
  */
 import { Constants } from "@babylonjs/core/Engines/constants.js";
 import type { InternalTexture } from "@babylonjs/core/Materials/Textures/internalTexture.js";

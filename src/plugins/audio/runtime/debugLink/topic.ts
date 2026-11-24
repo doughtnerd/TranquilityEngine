@@ -1,4 +1,4 @@
-// The debug link's `audio` topic (ADR 0376's audio topics, 0348, ADR 0380 plan C4; schema in `schema.ts`), served by a
+// The debug link's `audio` topic (ADR 0376's audio topics, 0348, ADR 0403 plan C4; schema in `schema.ts`), served by a
 // build with debugging on to the Audio Studio and the editor, on the reliable channel:
 //
 // - subscription `{ kind: "capture" }`: the live capture feed (`capture.ts`);

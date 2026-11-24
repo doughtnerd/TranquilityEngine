@@ -20,6 +20,7 @@ import { MATERIAL_MAPS as MATERIAL_MAPS_LIST } from "../../scene/material";
 import { DEFAULT_SLOT, type ModelMesh, type SurfaceInfo, type TextureInfo } from "../../scene/models";
 import type { GraphValue } from "../../scene/shaderGraph";
 import type { MaterialPropertyValue } from "../components";
+import { onOwnerDisposed } from "./materialClone";
 import { babylonUv, type BabylonUv, type TextureTransform } from "./textureTransform";
 
 /**
@@ -379,9 +380,13 @@ export function modelBaseMaterial(
   const key = subs.map((m) => m.uniqueId).join(",");
   let multi = byTuple.get(key);
   if (!multi) {
-    multi = new MultiMaterial(`model:${src.name}`, scene);
-    multi.subMaterials = subs;
-    byTuple.set(key, multi);
+    const made = (multi = new MultiMaterial(`model:${src.name}`, scene));
+    made.subMaterials = subs;
+    byTuple.set(key, made);
+    // A slot material disposed (an asset rebuilt, a copy freed): no renderer draws this tuple again, so free it.
+    const tuples = byTuple;
+    made.onDisposeObservable.addOnce(() => tuples.get(key) === made && tuples.delete(key));
+    onOwnerDisposed(made, subs, () => made.dispose());
   }
   return multi;
 }

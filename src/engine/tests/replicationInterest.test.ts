@@ -17,6 +17,10 @@ import {
 import { World } from "../core/World";
 import { netSession } from "../net/session";
 import { serverReplication } from "../net/replication/server";
+import type { LinkConditions, TransportConnection } from "../net/Transport";
+
+/** A loopback connection: it simulates link conditions for what its end sends. */
+type LoopbackConnection = TransportConnection & { setConditions(conditions: LinkConditions | undefined): void };
 
 // ADR 0121: interest management (relevancy by distance and group), components' enabled state,
 // sibling order and components added or removed after a ghost was first seen. Loopback on a fake
@@ -343,6 +347,76 @@ describe("relevancy by distance (ADR 0121)", () => {
     const ps = serverReplication(server)!.peerState(peer)!;
     expect(ps.known.size).toBe(0); // the scene's lamp is distance-limited and the connection has no viewpoint
     expect(ps.lastBytes).toBeLessThan(12);
+  });
+});
+
+describe("leaving and coming back under latency and loss (ADR 0121)", () => {
+  it("spawns a ghost that leaves and comes back within a round trip afresh, ignoring late acks of its earlier stay", async () => {
+    const errors = vi.spyOn(console, "error");
+    const engine = await create(clientsAndServer(1, { latencyMs: 50 }));
+    const server = world(engine, "Server");
+    step(engine, 30);
+    const crate = spawn(server, CRATE, 1, (r) => (r.group = "g"));
+    inWorld(server, () => Interest.join(connectionOf(engine, 0), "g"));
+    step(engine, 60);
+    const p1 = world(engine, "P1");
+    expect(ghostIn(p1, crate)).not.toBeNull();
+
+    // Out and back in before the acks of the snapshots before the leave come back.
+    inWorld(server, () => Interest.leave(connectionOf(engine, 0), "g"));
+    step(engine, 1);
+    inWorld(server, () => Interest.join(connectionOf(engine, 0), "g"));
+    step(engine, 30);
+    moveTo(server, crate, 5);
+    step(engine, 30);
+    expect(ghostIn(p1, crate)!.transform!.position.x).toBeCloseTo(5, 2);
+    expect(errors).not.toHaveBeenCalled(); // no snapshot part dropped for a baseline the client never had
+  });
+
+  it("spawns a returning ghost again when the spawns after its return are lost, though its first spawn is acked late", async () => {
+    const errors = vi.spyOn(console, "error");
+    const engine = await create(clientsAndServer(1, { latencyMs: 50 }));
+    const server = world(engine, "Server");
+    step(engine, 30);
+    const toClient = netSession(server)!.openPeers()[0].link as unknown as LoopbackConnection;
+    const crate = spawn(server, CRATE, 1, (r) => (r.group = "g"));
+    inWorld(server, () => Interest.join(connectionOf(engine, 0), "g"));
+    step(engine, 2); // spawned in two snapshots, neither acked yet
+    inWorld(server, () => Interest.leave(connectionOf(engine, 0), "g"));
+    step(engine, 1); // the leave
+    inWorld(server, () => Interest.join(connectionOf(engine, 0), "g"));
+    // The client reads the first spawn and the leave, but no snapshot after the return; meanwhile
+    // its acks of the first spawn reach the server.
+    // (Lifecycle messages are reliable, ADR 0402: the return's spawn is retransmitted, so it's late, not lost.)
+    toClient.setConditions({ loss: 1 });
+    step(engine, 8);
+    toClient.setConditions(undefined);
+    step(engine, 150);
+    const p1 = world(engine, "P1");
+    expect(ghostIn(p1, crate)).not.toBeNull();
+    expect(errors).not.toHaveBeenCalled();
+  });
+
+  it("destroys a prefab ghost on the client that's destroyed on the server before its leave arrived", async () => {
+    const engine = await create(clientsAndServer(1, { latencyMs: 20 }));
+    const server = world(engine, "Server");
+    step(engine, 10);
+    const toClient = netSession(server)!.openPeers()[0].link as unknown as LoopbackConnection;
+    const lantern = spawn(server, LANTERN, 0, (r) => (r.group = "g"));
+    inWorld(server, () => Interest.join(connectionOf(engine, 0), "g"));
+    step(engine, 40);
+    const p1 = world(engine, "P1");
+    const clientLantern = ghostIn(p1, lantern)!;
+    expect(clientLantern).not.toBeNull();
+
+    toClient.setConditions({ loss: 1 }); // the leave is lost
+    inWorld(server, () => Interest.leave(connectionOf(engine, 0), "g"));
+    step(engine, 3);
+    inWorld(server, () => GameObject.destroy(lantern));
+    step(engine, 3);
+    toClient.setConditions(undefined);
+    step(engine, 40);
+    expect(clientLantern.isValid).toBe(false);
   });
 });
 

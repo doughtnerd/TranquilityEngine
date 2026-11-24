@@ -1,9 +1,9 @@
-// Connecting a tool (the editor, the Studio) to a listening build (ADR 0380 "Pairing code"): the person types the code
+// Connecting a tool (the editor, the Studio) to a listening build (ADR 0403 "Pairing code"): the person types the code
 // the build shows (`3F9QK-7KD2X`) or a full address; this module turns it into attempts on the tool's `ToolConnector`.
 // An address code's candidates (`pairing/address.ts`) are tried in turn until one pairs; a refusal (bad, used or expired
 // token, locked) ends the flow with its message, since another candidate can't fix it.
 //
-// A room code (ADR 0381; plan task R5) names a rendezvous room the build waits in (a page can't listen). The flow
+// A room code (ADR 0404; plan task R5) names a rendezvous room the build waits in (a page can't listen). The flow
 // checks the path first (`rooms.ts` `joinPath`, i.e. `choosePath`: a hosted code needs a hosted rendezvous in Settings,
 // a page on https can't reach a LAN one), completes the rendezvous's address as an address code's is, and joins the
 // room through each candidate on the link's room connector (the `webrtc` transport, signalled through the room). The

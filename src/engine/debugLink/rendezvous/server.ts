@@ -1,4 +1,4 @@
-// The rendezvous server (ADR 0380 "Rendezvous", 0381; plan task R1): rooms over any listening `Transport`. See
+// The rendezvous server (ADR 0403 "Rendezvous", 0404; plan task R1): rooms over any listening `Transport`. See
 // `protocol.ts` for the messages and the limits. It relays offer, answer and candidates between a room's two seats
 // without reading them, and never carries debug traffic: a connection that isn't in a seated room has nothing to relay
 // to, and a message that isn't a signal is never forwarded.
@@ -19,7 +19,7 @@ import {
   type RoomSeat,
 } from "./protocol";
 
-/** Wrong tokens, within `JOIN_FAILURE_WINDOW_MS`, that lock a room's joins (0380: "Five wrong tokens"). */
+/** Wrong tokens, within `JOIN_FAILURE_WINDOW_MS`, that lock a room's joins (0403: "Five wrong tokens"). */
 export const MAX_JOIN_FAILURES = 5;
 /** The window the wrong tokens are counted in, ms ("a minute"). */
 export const JOIN_FAILURE_WINDOW_MS = 60_000;

@@ -33,6 +33,7 @@
  */
 
 import { evalCurve } from "../core/curve";
+import type { Gradient } from "../core/gradient";
 
 export const PARTICLES_FORMAT = "myco.particles@1";
 export const PARTICLES_SUFFIX = ".particles.json";
@@ -46,11 +47,8 @@ export type CurveKey = [number, number];
 /** A number that can vary: a constant, a random range, a curve, or a random value between two curves. */
 export type ParticleNumber = number | { random: [number, number] } | { curve: CurveKey[] } | { randomCurves: [CurveKey[], CurveKey[]] };
 
-/** A gradient: colour keys (`#rrggbb`) and alpha keys, each at `t` from 0 to 1. */
-export interface ParticleGradient {
-  colors: [number, string][];
-  alphas: [number, number][];
-}
+/** A gradient: colour keys (`#rrggbb`) and alpha keys, each at `t` from 0 to 1. The engine's `Gradient` (`core/gradient.ts`, ADR 0396). */
+export type ParticleGradient = Gradient;
 
 /** A colour that can vary: `#rrggbb[aa]`, a random range, a gradient, or a random colour between two gradients. */
 export type ParticleColor = string | { random: [string, string] } | { gradient: ParticleGradient } | { randomGradients: [ParticleGradient, ParticleGradient] };

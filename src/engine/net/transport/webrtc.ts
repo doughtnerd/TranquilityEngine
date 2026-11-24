@@ -1,5 +1,5 @@
 /**
- * The `webrtc` transport (ADR 0380 "Transports"): a connection that is a peer-to-peer `RTCPeerConnection` alone, for
+ * The `webrtc` transport (ADR 0403 "Transports"): a connection that is a peer-to-peer `RTCPeerConnection` alone, for
  * pairs where neither side can reach a listener on the other (a page on http ↔ a page on http, a page on https ↔
  * anything). "Two data channels, one reliable and ordered (`myco-r`) and 0333's unreliable one (`myco-u`), on the page's
  * own `RTCPeerConnection`. On one network it uses host candidates only (browsers' `.local` names included): no STUN or
@@ -105,7 +105,7 @@ export interface WebRtcTransportOptions {
    * Required: without one the transport can't connect.
    */
   readonly signaller: (address: string, role: "offer" | "answer") => WebRtcSignaller;
-  /** STUN/TURN servers. Default none: host candidates only (0380: "On one network it uses host candidates only"). */
+  /** STUN/TURN servers. Default none: host candidates only (0403: "On one network it uses host candidates only"). */
   readonly iceServers?: readonly WebRtcIceServer[];
   /** The largest message a connection reassembles, bytes (default `DEFAULT_WEBRTC_MAX_MESSAGE_BYTES`); a bigger one closes it. */
   readonly maxMessageBytes?: number;

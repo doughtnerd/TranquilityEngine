@@ -31,6 +31,8 @@ export function diffText(a: string, b: string): { start: number; before: string;
  */
 export function applyFilePatch(text: string, patch: FilePatch, direction: "undo" | "redo"): string | null {
   const [from, to] = direction === "undo" ? [patch.after, patch.before] : [patch.before, patch.after];
+  // Past the end, an empty stretch would still "match" (slice gives ""): an insertion there is refused, not appended.
+  if (!Number.isInteger(patch.start) || patch.start < 0 || patch.start + from.length > text.length) return null;
   if (text.slice(patch.start, patch.start + from.length) !== from) return null;
   return text.slice(0, patch.start) + to + text.slice(patch.start + from.length);
 }

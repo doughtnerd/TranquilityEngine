@@ -1,4 +1,4 @@
-// The token gate (ADR 0380; plan task L3): single use, the next code issued after a use or an expiry, 5-minute expiry,
+// The token gate (ADR 0403; plan task L3): single use, the next code issued after a use or an expiry, 5-minute expiry,
 // 5 failures lock LAN connections for 60 s, same-machine bypass, all on an injected clock.
 import { describe, expect, it } from "vitest";
 import { LOCK_MS, TOKEN_EXPIRY_MS, TokenGate, type GateCaller, type IssuedToken } from "./gate";

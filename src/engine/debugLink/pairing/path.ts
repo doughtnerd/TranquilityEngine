@@ -1,5 +1,5 @@
-// Path choice (ADR 0380 "Which path each pair takes"): from the two endpoints' kinds and what can listen or signal, the
-// transport a pairing uses. 0380's table, row by row, as this function answers it:
+// Path choice (ADR 0403 "Which path each pair takes"): from the two endpoints' kinds and what can listen or signal, the
+// transport a pairing uses. 0403's table, row by row, as this function answers it:
 //
 //   | Pair                        | Path                                                                                   | Needs                |
 //   | Native ↔ native             | WebSocket, either side listening                                                       | Nothing else         |

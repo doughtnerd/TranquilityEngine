@@ -173,6 +173,16 @@ describe("the animation core host", () => {
     a.destroyInstance(h);
   });
 
+  it("keeps another clip's key when a clip that only shared that key is replaced again", () => {
+    const owner = a.acquire("dup-compiled", "clip", { kind: "clip", bytes: fixture("run.anim") });
+    const raw = a.acquire("dup-raw", "clip", { kind: "clip", bytes: fixture("walk.anim") });
+    // `owner` already has the key: `raw` takes the new bytes but is known by handle only.
+    expect(core.replaceClip(raw, "dup-compiled", fixture("run.anim"))).toBe(STATUS_OK);
+    expect(core.replaceClip(raw, "dup-again", fixture("walk.anim"))).toBe(STATUS_OK);
+    expect(a.acquire("dup-compiled", "clip", () => ({ kind: "clip", bytes: new Uint8Array(0) }))).toBe(owner);
+    expect(a.acquire("dup-again", "clip", () => ({ kind: "clip", bytes: new Uint8Array(0) }))).toBe(raw);
+  });
+
   // T70: match reports are read after each evaluate only for flagged instances, and stop with the flag or the instance.
   it("reads match reports for flagged instances only", () => {
     const skel = a.acquire("small.skel", "skeleton", () => ({ kind: "skeleton", bytes: fixture("small.skel") }));

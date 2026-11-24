@@ -147,6 +147,67 @@ pub(crate) fn evaluate(cx: &mut EvalContext<'_>, kind: u16, node: NodeData<'_>) 
     NodeStatus::Done
 }
 
+/// Whether node `node`'s state words (a restored snapshot's) name only states, transitions,
+/// nodes and picks its program has (the evaluator indexes with them).
+pub(crate) fn check_state(program: &Program, node: u32, kind: u16, s: &[u32]) -> bool {
+    match kind {
+        kind::STATE_MACHINE => check_machine(program, node, s),
+        kind::RANDOM => s
+            .get(rnd::HISTORY_COUNT)
+            .is_some_and(|&n| n as usize <= rnd::HISTORY_LEN),
+        kind::CHOOSER => {
+            let Some(c) = program.choosers.get(program.side(node) as usize) else {
+                return true;
+            };
+            let picks = c.rows.1 + (c.fallback != NONE) as u32;
+            [ch::PICK, ch::PREV]
+                .iter()
+                .all(|&w| s.get(w).is_some_and(|&p| p == NONE || p < picks))
+        }
+        _ => true,
+    }
+}
+
+fn check_machine(program: &Program, node: u32, s: &[u32]) -> bool {
+    if s.len() < machine::WORDS as usize {
+        return false;
+    }
+    let Some(m) = program.machines.get(program.side(node) as usize) else {
+        return true;
+    };
+    let states = m.states.1;
+    let count = s[machine::COUNT] as usize;
+    if states == 0 {
+        return count == 0;
+    }
+    let state_or_none = |w: usize| s[w] == NONE || s[w] < states;
+    let transition_or_none = |w: usize| s[w] == NONE || (s[w] as usize) < program.transitions.len();
+    let nodes = program.node_count() as u32;
+    let retired = s[machine::RETIRED_COUNT] as usize;
+    s[machine::CURRENT] < states
+        && state_or_none(machine::TARGET)
+        && state_or_none(machine::TRAVEL)
+        && state_or_none(machine::JUMP)
+        && transition_or_none(machine::ACTIVE)
+        && transition_or_none(machine::LAST_FIRED)
+        && (1..=MAX_ENTRIES).contains(&count)
+        && retired <= MAX_RETIRED
+        && s[machine::RETIRED..machine::RETIRED + retired]
+            .iter()
+            .all(|&r| r < nodes)
+        && (0..count).all(|i| {
+            let e = Entry::read(s, i);
+            if e.kind & BRIDGE != 0 {
+                matches!(
+                    program.transitions.get((e.kind & !BRIDGE) as usize),
+                    Some(t) if matches!(t.how, How::Bridge { node, .. } if node == e.root)
+                )
+            } else {
+                e.kind < states && state_ctx(program, m, e.kind).0 == e.root
+            }
+        })
+}
+
 // -------------------------------------------------------------------------------------------------
 // Conditions
 // -------------------------------------------------------------------------------------------------

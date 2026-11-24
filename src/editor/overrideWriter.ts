@@ -364,8 +364,14 @@ export function writeRemoveNode(doc: SceneDocument, path: NodePath, label = "Rem
   const [instance, ...target] = path;
   if (target.length === 0) throw new Error("Remove the instance itself, not a node inside it.");
   const id = target[target.length - 1];
+  // Ids are unique per instance level only (ADR 0086): the node's level is the nested instances its target passes.
+  const scope = target.slice(0, -1);
+  const inScope = (path: readonly string[]) => path.length >= scope.length && scope.every((s, i) => path[i] === s);
   const list = doc.overrides(instance);
-  const addedHere = list.findIndex((o) => o.addNodes?.some((n) => n.id === id));
+  // Nodes added at target T join the level of T's node: T without its last id, or T itself when T ends at a nested
+  // instance's root. Only one of the two can name a level holding the node.
+  const addsToScope = (t: readonly string[]) => sameTarget(t.slice(0, -1), scope) || (t.length > 0 && sameTarget(t, scope));
+  const addedHere = list.findIndex((o) => addsToScope(o.target ?? []) && o.addNodes?.some((n) => n.id === id));
   const doomed = new Set<string>([id]);
   if (addedHere >= 0) {
     const nodes = list[addedHere].addNodes!;
@@ -384,7 +390,11 @@ export function writeRemoveNode(doc: SceneDocument, path: NodePath, label = "Rem
         delete rest.addNodes;
         if (!setsNothing(rest)) next.push(rest);
       }
-    } else if (!(o.target ?? []).some((t) => doomed.has(t))) next.push(structuredClone(o));
+    } else {
+      // Aimed at a removed node or into it (a removed nested instance): its id at the removed node's level.
+      const t = o.target ?? [];
+      if (!(inScope(t) && t.length > scope.length && doomed.has(t[scope.length]))) next.push(structuredClone(o));
+    }
   });
   if (addedHere < 0) next.push({ target: [...target], removeNode: true });
   return new SetOverrides(instance, label, next);

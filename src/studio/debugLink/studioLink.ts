@@ -1,4 +1,4 @@
-// The Audio Studio's debug link (ADR 0380, plan U4): the Studio listens (the desktop app, through the shared Tauri
+// The Audio Studio's debug link (ADR 0403, plan U4): the Studio listens (the desktop app, through the shared Tauri
 // commands crate) and connects out by code (everywhere), with the editor's link class (`EditorDebugLink`), accept
 // prompt, builds menu and Connect dialog. The Profiler (U5), Take (U5) and Mixer (U8) screens read the build chosen
 // here and talk to it through its `DebugLinkPeer` (the `audio` topic).
@@ -37,7 +37,7 @@ export function startStudioDebugLink(): () => void {
       if (stopped) return;
       const link = new EditorDebugLink({
         name: "Audio Studio",
-        // The desktop Studio's listener also answers the rendezvous at `/myco-rendezvous` (ADR 0380).
+        // The desktop Studio's listener also answers the rendezvous at `/myco-rendezvous` (ADR 0403).
         transport: () => (transportCanListen("websocket") ? listeningTransport(createTransport("websocket")) : null),
       });
       linkSignal.value = link;

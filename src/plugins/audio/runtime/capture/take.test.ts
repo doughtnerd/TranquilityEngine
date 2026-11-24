@@ -5,7 +5,7 @@
 // keyframes each second, the cap stops it with a message rather than dropping requests.
 import { describe, expect, it } from "vitest";
 import {
-  CAPTURE_FLAG_TAKE, CAPTURE_HEADER_BYTES, CAPTURE_MAX_UNCOMPRESSED_BYTES, CAPTURE_RECORD_HEAD_BYTES, CaptureError, RecordType,
+  CAPTURE_FLAG_TAKE, CAPTURE_FORMAT_MINOR, CAPTURE_HEADER_BYTES, CAPTURE_MAX_UNCOMPRESSED_BYTES, CAPTURE_RECORD_HEAD_BYTES, CaptureError, RecordType,
   TAKE_MAX_UNCOMPRESSED_BYTES, assembleCapture, encodeRecords, readCaptureHeader, recordPayloadBytes, type CaptureMetaInit, type CaptureRecordInit, type IndexEntry,
 } from "./format";
 import { decodeRecordAt, openCapture } from "./reader";
@@ -181,6 +181,61 @@ describe("a take file (ADR 0348)", () => {
     const { take: t } = await openTakeFile(assembleTakeFile(take));
     expect(t.requests).toEqual([{ kind: "play", t: 0, instance: 0x4000_0000, path: "ui/click.wav", emitter: null, options: {} }]);
     expect(t.meta.seeded).toBe(false);
+  });
+
+  it("ADR 0386: a handle's pause, resume and fade are recorded as the game asked them; a pre-take instance's are left out", async () => {
+    clock = 0;
+    const ring = new FakeRing();
+    const prof = profile(ring, [768]);
+    const rec = new TakeRecorder(ring, { now });
+    const inst = { group: 4, playing: true };
+    rec.play(inst, "music/theme.playlist.json", null, {});
+    clock = 250;
+    rec.pause(inst);
+    clock = 1250;
+    rec.resume(inst);
+    rec.fade(inst, 0.5, 2);
+    rec.fade(inst, Number.NaN, 1); // ignored by the handle: not played, not recorded
+    rec.fade(inst, -3, -1); // clamped as the handle clamps
+    rec.pause({ group: 9 }); // from before the take
+    const { requests, section } = rec.finish({ seed: 0, seeded: false, audioHash: "" });
+    const take: SaveTake = { header: SAMPLE_HEADER, meta: { ...SAMPLE_META, take: section }, span: spanOf(prof), truncatedFromSeq: 0, requests };
+    const { take: t } = await openTakeFile(assembleTakeFile(take));
+    expect(t.requests.slice(1)).toEqual([
+      { kind: "pause", t: 0.25, instance: 4 },
+      { kind: "resume", t: 1.25, instance: 4 },
+      { kind: "fade", t: 1.25, instance: 4, to: 0.5, seconds: 2 },
+      { kind: "fade", t: 1.25, instance: 4, to: 0, seconds: 0 },
+    ]);
+  });
+
+  it("a take of a newer format minor is refused up front, naming the versions (ADR 0386)", async () => {
+    const { file } = recordTake();
+    const c = file.slice();
+    new DataView(c.buffer).setUint16(84, CAPTURE_FORMAT_MINOR + 1, true);
+    await expect(openTakeFile(c)).rejects.toMatchObject({ code: "newerFormat" });
+    await expect(openTakeFile(c)).rejects.toThrow(/incompatible version: file is capture format 2\.3, this build reads 2\.0\u20132\.2/);
+  });
+
+  it("a group the runtime recycled names a new instance apart: a late stop of the ended one doesn't stop it on replay", async () => {
+    clock = 0;
+    const ring = new FakeRing();
+    const prof = profile(ring, [768]);
+    const rec = new TakeRecorder(ring, { now });
+    const first = { group: 5, playing: true };
+    rec.play(first, "a.playlist.json", null, {});
+    first.playing = false; // it ended, and the runtime hands its group to the next instance
+    const second = { group: 5, playing: true };
+    rec.play(second, "b.playlist.json", null, {});
+    rec.stop(first, 0); // a late stop of the ended one
+    const { requests, section } = rec.finish({ seed: 0, seeded: false, audioHash: "" });
+    const take: SaveTake = { header: SAMPLE_HEADER, meta: { ...SAMPLE_META, take: section }, span: spanOf(prof), truncatedFromSeq: 0, requests };
+    const { take: t } = await openTakeFile(assembleTakeFile(take));
+    const plays = t.requests.filter((r) => r.kind === "play") as { instance: number; path: string }[];
+    const stops = t.requests.filter((r) => r.kind === "stop") as { instance: number }[];
+    expect(plays.map((p) => p.instance)).toEqual([5, expect.any(Number)]);
+    expect(plays[1]!.instance).not.toBe(5);
+    expect(stops.every((s) => s.instance !== plays[1]!.instance)).toBe(true);
   });
 
   it("stops with a message at the take cap rather than drop a request, and when the ring is gone", () => {

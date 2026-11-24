@@ -153,6 +153,8 @@ function fakeHost() {
         setMatrix(m, offset = 0) { b.matrix = Array.from(m).slice(offset, offset + 16); },
         setOrder() {},
         setTint() {},
+        setColors() {},
+        setMask() {},
         setVisible(v) { b.visible = v; },
         dispose() { b.disposed = true; },
       };

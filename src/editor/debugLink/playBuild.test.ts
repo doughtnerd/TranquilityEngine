@@ -1,4 +1,4 @@
-// The editor's Play as a build (ADR 0380, plan U3) over loopback: a headless Engine stands in for the play Engine, a
+// The editor's Play as a build (ADR 0403, plan U3) over loopback: a headless Engine stands in for the play Engine, a
 // `ToolConnector` (the Audio Studio) pairs with it by its code, asks one of its topics something, and sees it go when
 // Play stops (or the Engine ends). The code changes after a pairing; the slot shows the code and the paired tools.
 import { afterEach, describe, expect, it, vi } from "vitest";

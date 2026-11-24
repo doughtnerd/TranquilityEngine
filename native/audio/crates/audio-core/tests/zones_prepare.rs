@@ -180,6 +180,23 @@ fn a_response_freed_mid_preparation_is_dropped_and_a_new_one_prepares_from_the_s
 }
 
 #[test]
+fn a_refused_second_reserve_of_the_same_id_leaves_the_preparation_running() {
+    let frames = 20_000;
+    let mut z = Zones::over(core_with(zone_params(1, frames)));
+    z.config(1.0, 0, &[(K1, 0, zone_slot_state::ACTIVE as u8, 1.0, frames)]);
+    let pcm = response(frames, 5);
+    upload_pcm(&mut z.core, K1, &pcm);
+    z.run(steps(frames) / 2, |_| None);
+    let running = zones::preparing(&z.core);
+    assert!(running.is_some());
+    assert_eq!(clips::reserve(&mut z.core, K1, frames, 2, RATE, wire::clip_format::ZONE_IR_PCM), wire::ERR_BAD_ARG, "the id is held");
+    assert_eq!(zones::preparing(&z.core), running, "the preparation goes on");
+    z.run(steps(frames), |_| None);
+    assert_ne!(z.state(0), zone_state::WAITING_KERNEL, "the slot started");
+    assert!(z.core.clips().zone_kernel(K1).unwrap() == decoder_kernel(&pcm).as_slice());
+}
+
+#[test]
 fn reset_keeping_clips_lets_the_preparation_finish() {
     let frames = 20_000;
     let mut z = Zones::over(core_with(zone_params(1, frames)));

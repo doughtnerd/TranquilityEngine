@@ -9,7 +9,7 @@
 //
 // Until the tool welcomes the build (after its accept prompt), the build only says hello and waits.
 //
-// **Either direction (ADR 0380).** A build that connects out sends `pair` (role build, its kind, the token of the code it
+// **Either direction (ADR 0403).** A build that connects out sends `pair` (role build, its kind, the token of the code it
 // was given) and then `hello` at once, without waiting for `paired` (`BuildSessionOptions.pair`): the tool answers the
 // pair before it reads the hello, so the order the tool acts in is C1's, and a build reaches a tool in the same number
 // of frames as before. A `paired` refusal closes the session with its sentence (`refusal`). A build that listens
@@ -58,7 +58,7 @@ export interface BuildSessionOptions {
   /** Hears what the link wants to say (refusals, the tool going away). */
   readonly log?: (line: string) => void;
   /**
-   * The `pair` a connecting build sends right before its hello (ADR 0380, C1). Absent: the session says hello only, as a
+   * The `pair` a connecting build sends right before its hello (ADR 0403, C1). Absent: the session says hello only, as a
    * version 1 build did (a listening tool reads that as a tokenless build), or as a listening build does once it has
    * answered the tool's pair.
    */
@@ -126,8 +126,11 @@ export class DebugLinkSession {
       else {
         const decoded = decodeEnvelope(event.data);
         if ("refused" in decoded) {
+          // Not this protocol (a malformed envelope, another version): say so, then close (ADR 0376).
           this.send("reliable", { kind: EnvelopeKind.error, topic: "", id: 0, payload: jsonPayload({ message: decoded.refused }) });
-          continue;
+          this.log(`closing: ${decoded.refused}`);
+          this.close(`The build closed the debug link: ${decoded.refused}`);
+          return;
         }
         const e = decoded.envelope;
         if (e.kind === EnvelopeKind.command) commands.push(e);
@@ -302,7 +305,7 @@ function remoteHost(remote: string): string {
 }
 
 /**
- * @internal Whether a connection whose transport names its far end `remote` comes from this machine (ADR 0380: "Connections
+ * @internal Whether a connection whose transport names its far end `remote` comes from this machine (ADR 0403: "Connections
  * from the same machine need no code"): a loopback address, an in-process loopback link, or one of `ownAddresses` (the
  * machine's interface addresses). Both listening sides (`host.ts`'s build listener, `client.ts`'s tool listener) decide
  * the accept rule with it.

@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0381) for the Offer a room dialog: one per state of the offer, the copy button, and Stop, Escape and
+// Stories (ADR 0219, 0404) for the Offer a room dialog: one per state of the offer, the copy button, and Stop, Escape and
 // a joined build closing it.
 import { signal } from "@preact/signals";
 import type { Meta, StoryObj } from "@storybook/preact-vite";

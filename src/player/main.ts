@@ -97,7 +97,7 @@ async function boot(): Promise<void> {
     entryScene: manifest.mainScene || null,
     container,
   });
-  // ADR 0376 / 0380: a build exported with debugging on (`game.json` `debug`) connects out to the editor or the Studio
+  // ADR 0376 / 0403: a build exported with debugging on (`game.json` `debug`) connects out to the editor or the Studio
   // (`debug.link`, or an address given at launch), listens for tools (`debug.listen`), or both. Launch flags: a desktop
   // build's `--debug-link <address>` and `--debug-code <code>` (its shell sets `__mycoDebugLink` / `__mycoDebugCode`), a
   // web build's `?debug-link=` and `?debug-code=` (the tool's pairing code; plan decision O6, no entry field). Without
@@ -113,7 +113,7 @@ async function boot(): Promise<void> {
     // A desktop game can listen: the native WebSocket server stands in for the transport a page lacks.
     // Its network addresses go in the pairing code (a code holds the machine's private IPv4 octets).
     let interfaces: NetworkInterfaceAddress[] = [];
-    // The desktop game's listener also hosts the rendezvous on its port (ADR 0380), so pages on its LAN can meet there.
+    // The desktop game's listener also hosts the rendezvous on its port (ADR 0403), so pages on its LAN can meet there.
     let listenTransport: string | undefined;
     if (desktop) {
       const native = await import("../engine/debugLink/tauriListener");
@@ -124,7 +124,7 @@ async function boot(): Promise<void> {
     const { startDebugLink, startBuildListener } = await import("../engine/debugLink/host");
     const d = manifest.debug as Partial<typeof manifest.debug>;
     // A listening-only build (`listen` without a `link`) doesn't also dial the default address, unless it was given a
-    // tool's code: a room code (ADR 0381) joins the tool's rendezvous room over WebRTC (a browser Studio offers one).
+    // tool's code: a room code (ADR 0404) joins the tool's rendezvous room over WebRTC (a browser Studio offers one).
     if (d.listen !== true || d.link !== undefined || override !== null || code !== null) {
       await startDebugLink(runtime, { debug: manifest.debug, override, name: manifest.name, platform, code, interfaces: () => interfaces });
     }
@@ -133,7 +133,7 @@ async function boot(): Promise<void> {
     if (d.listen === true) {
       const listener = await startBuildListener(runtime, { debug: manifest.debug, name: manifest.name, platform, interfaces: () => interfaces, transport: listenTransport });
       if (listener) (await import("./debugOverlay")).installDebugOverlay(listener);
-      // ADR 0380 "Discovery": a native listener reachable from the LAN (port 0 is a page's room, which has no socket)
+      // ADR 0403 "Discovery": a native listener reachable from the LAN (port 0 is a page's room, which has no socket)
       // is advertised by mDNS so tools list it; the advert ends when the app does.
       if (listener && desktop && listener.lan && listener.port > 0) {
         const [{ advertiseBuild }, { DEBUG_LINK_PATH }] = await Promise.all([import("../engine/debugLink/tauriDiscovery"), import("../engine/debugLink/config")]);

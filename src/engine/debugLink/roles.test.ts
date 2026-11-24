@@ -1,4 +1,4 @@
-// Either side of the debug link listens (ADR 0380 "Roles", plan task L7), over the loopback transport on one clock:
+// Either side of the debug link listens (ADR 0403 "Roles", plan task L7), over the loopback transport on one clock:
 // a build that listens (`startBuildListener`) and a tool that connects to it (`ToolConnector`); a build that connects out
 // to a listening tool (`startDebugLink` with a code, `DebugLinkListener` with a gate). The accept rules: a valid token
 // skips the prompt, a tokenless connection from another machine gets the prompt (or `no-token` on a build with nobody

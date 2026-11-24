@@ -1,4 +1,4 @@
-// The Profiler following a connected build (ADR 0380, plan U5): a `LiveHost` whose recording is the build's `capture`
+// The Profiler following a connected build (ADR 0403, plan U5): a `LiveHost` whose recording is the build's `capture`
 // subscription on the `audio` topic (schema in `plugins/audio/runtime/debugLink/schema.ts`). The build joins its own ring
 // as an owner and sends the ring's head, then each sealed segment, cut into pieces; here the pieces are put back together,
 // `join()` resolves once the head is whole, and each segment is posted to the live view as an `appendSegment`, exactly

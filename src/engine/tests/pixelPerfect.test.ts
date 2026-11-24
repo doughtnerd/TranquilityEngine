@@ -73,6 +73,13 @@ describe("Camera pixelPerfect", () => {
     expect(halfHeight(cam)).toBeCloseTo(400 / (2 * 16 * 2));
   });
 
+  it("zooms for another view's height when given one (the editor's camera preview inset)", () => {
+    const cam = camera({ pixelPerfect: true, orthographicSize: 5 });
+    expect(cam._effectiveOrthographicSize(200)).toBeCloseTo(200 / (2 * 16 * 1)); // zoom 1 for a 200px inset
+    expect(cam._effectiveOrthographicSize(480)).toBeCloseTo(480 / (2 * 16 * 3)); // zoom 3
+    expect(camera({ orthographicSize: 5 })._effectiveOrthographicSize(200)).toBe(5); // not pixel-perfect: the plain size
+  });
+
   it("worldToScreenPoint and screenPointToRay agree with the effective size", () => {
     const cam = camera({ pixelPerfect: true, orthographicSize: 5 });
     const size = 400 / (2 * 16 * 2); // 6.25

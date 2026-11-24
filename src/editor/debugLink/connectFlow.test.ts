@@ -1,4 +1,4 @@
-// The connect flow (ADR 0380 "Pairing code") through `connectToBuild`: a real `ToolConnector` on the loopback transport
+// The connect flow (ADR 0403 "Pairing code") through `connectToBuild`: a real `ToolConnector` on the loopback transport
 // against a listening build on a headless Engine, on one injected clock (`waitFor` polls by hand, never wall time).
 import { afterEach, describe, expect, it } from "vitest";
 import { Engine } from "../../myco";
@@ -212,7 +212,7 @@ describe("connectToBuild", () => {
   });
 });
 
-// Room codes (ADR 0381, R5): a page build waits in a room on its own server's rendezvous (loopback here); the flow joins
+// Room codes (ADR 0404, R5): a page build waits in a room on its own server's rendezvous (loopback here); the flow joins
 // it through the room connector, over the fake peer pair.
 describe("connectToBuild with a room code", () => {
   async function roomSetup() {

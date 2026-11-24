@@ -28,7 +28,7 @@ export const navigationEditorPlugin: EditorPlugin = {
       format: formationFormat,
       folder: "navigation",
       inspector: () => import("./FormationInspector").then((m) => m.NavFormationInspector),
-      create: { label: "New Navigation Formation", name: "New Formation", what: "formations" },
+      create: { label: "New Navigation Formation", category: "Navigation", name: "New Formation", what: "formations" },
       referencedAs: ["formation"],
     });
     // Project settings > Navigation, after Graphics as it has always been; it owns project.json's `navigation` (ADR 0151).

@@ -2,14 +2,14 @@
 
 ## 1. Purpose and authority
 
-This plan builds [ADR 0380](../decisions/0380-debug-link-pairing-reaches-every-native-and-browser-endpoint-on-one-network.md)
+This plan builds [ADR 0403](../decisions/0403-debug-link-pairing-reaches-every-native-and-browser-endpoint-on-one-network.md)
 (either side listens, short-code pairing, mDNS, a `webrtc` transport, rendezvous) and the audio debug-link topic the
 Audio Studio needs to record takes from running games and the editor (0376's "audio topics" gap, 0348's open question).
 
-There is no separate design or task table: **ADR 0380, 0376 and 0348 own behaviour**; this plan owns the task table
+There is no separate design or task table: **ADR 0403, 0376 and 0348 own behaviour**; this plan owns the task table
 below (IDs, estimates, dependencies, acceptance), order, file ownership and gates. Where this plan names files beyond
-0380's **Code** list, the plan's list is the build's (accepted records aren't rewritten; the implementation-status row
-records the final files). Where the plan has to settle something 0380 leaves unsaid, it says so (§11, "plan
+0403's **Code** list, the plan's list is the build's (accepted records aren't rewritten; the implementation-status row
+records the final files). Where the plan has to settle something 0403 leaves unsaid, it says so (§11, "plan
 decisions") and the owner confirms. Companion files: [tree](2026-11-debug-link-pairing-tree.md),
 [ground rules](2026-11-debug-link-pairing-ground-rules.md), [handoff](2026-11-debug-link-pairing-handoff.md).
 An independent review (2026-11-23, 13 findings) is folded in; §12 lists each finding and its fix.
@@ -17,7 +17,7 @@ An independent review (2026-11-23, 13 findings) is folded in; §12 lists each fi
 ## 2. State at planning (checked 2026-11-23)
 
 - Base: `master` at `4caf082db` (animation merge, PR 189). Planning branch `claude/live-game-connection-2fad35`.
-- 0380 Accepted; 0376 partly superseded by it; 0379 amended by it. Highest record 0380.
+- 0403 Accepted; 0376 partly superseded by it; 0379 amended by it. Highest record 0403.
 - **Exists:** `src/engine/debugLink/` (`session.ts` build side, `client.ts` tool side `DebugLinkListener`/`DebugLinkPeer`,
   `host.ts` connects out and reconnects every 2 s, `protocol.ts` `DEBUG_LINK_VERSION = 1`, `DebugHello { name, platform,
   topics }`, `topics.ts` registry, `config.ts` parses `debug.link`/`debug.webrtc`); `src/editor/debugLink/` (listener,
@@ -169,7 +169,7 @@ listening.
 ## 9. Wave reviews
 
 After each wave the coordinator: merges in dependency order; runs the wave-end cadence; reads every diff against
-0380/0376/0348 and this plan's file ownership; checks a release export still holds no debug chunks; logs findings,
+0403/0376/0348 and this plan's file ownership; checks a release export still holds no debug chunks; logs findings,
 numbers and estimate drift in `docs/plans/2026-11-debug-link-pairing-log.md` (created at the first review).
 
 ## 10. Task table and waves
@@ -192,7 +192,7 @@ Days are estimates. Level: S senior (strongest), M mid (Sonnet), L leaf (Haiku),
 | L2 Code format | L | 0.75 | L1 | `pairing/code.ts`, `code.test.ts` | Crockford base32, two groups, kind char, address code (2 octets, port offset 0–9, 30-bit token), room code; round-trips; rejects bad characters |
 | L3 Token gate | L | 0.5 | L1 | `pairing/gate.ts`, `gate.test.ts` | single use, next code issued after use or expiry, 5-minute expiry, 5 failures lock LAN for 60 s, same-machine bypass; injected clock |
 | L4 Address completion | L | 0.5 | L1 | `pairing/address.ts`, `address.test.ts` | candidates from interface list or page host; private ranges only; full address passthrough |
-| L5 Path choice | L | 0.5 | L1 | `pairing/path.ts`, `path.test.ts` | 0380's pair table, one case per row |
+| L5 Path choice | L | 0.5 | L1 | `pairing/path.ts`, `path.test.ts` | 0403's pair table, one case per row |
 | L6 Config parse (C6) | L | 0.5 | L1 | `config.ts`, `config.test.ts` | each key parsed with problems for bad values |
 | L7 Either side listens | S | 3 | L1 | `host.ts`, `client.ts`, `session.ts`, `host.test.ts`, new `roles.test.ts` | build listens and accepts a tool; tool connects to a build; `pair` first, token through `TokenGate`, prompt for tokenless non-local; reliable-channel topics; both directions over loopback; the existing direction unchanged |
 | L8 Port range + listener move | M | 1.5 | L1 | `native/ws-listener/src/lib.rs` (`bind_range`), `tauriListener.ts` moved to `src/engine/debugLink/` (+ test), `src/editor/debugLink/*` imports | 7790–7799 fallback, chosen port reported; command names and arguments per C8; cargo test; listener test |
@@ -233,7 +233,7 @@ M1 exit: §4.
 
 | Task | Lvl | Days | Files | Acceptance |
 |---|---|---|---|---|
-| R0 Amend 0380: where the rendezvous is | C | 0.5 | a new amendment record (next free number) | owner accepts |
+| R0 Amend 0403: where the rendezvous is | C | 0.5 | a new amendment record (next free number) | owner accepts |
 
 **W3**
 
@@ -259,7 +259,7 @@ M1 exit: §4.
 |---|---|---|---|---|---|
 | D1 Discovery crate | M | 2.5 | L9 | new `native/debug-discovery/` (`mdns-sd`), `debug-link-tauri` `discover_*` commands, both shells' `lib.rs`, `desktop.ts` (games advertise) | advertise and browse `_myco-debug._tcp`; cargo test (§7c) |
 | D2 Discovery in the dialog | M | 1 | D1, U1 | new `editor/debugLink/discovery.ts`, `ConnectDialog.tsx` slot | discovered builds listed; selecting one fills the address, the token is still typed |
-| D4 Guide, status, OP3 | M | 1 | all | text for `docs/guide/debug-link.md`, status rows 0376/0380 | coordinator applies |
+| D4 Guide, status, OP3 | M | 1 | all | text for `docs/guide/debug-link.md`, status rows 0376/0403 | coordinator applies |
 | D3 Android games (W5b) | M | 3 | U6, L9, D1 | `cargo check --target aarch64-linux-android` of `ws-listener` and `debug-link-tauri`; a Tauri mobile plugin for the multicast lock (D1's discovery uses it on Android); text for `docs/guide/debug-link.md` on the `gen/android/` network security config (cleartext to private ranges in debug builds) | a real phone running a debug export (built with `tauri android build`) pairs with the Tauri Studio by code (OP1) and appears in its discovery list (OP3) |
 
 ## 11. Risks, plan decisions and owner items
@@ -272,10 +272,10 @@ M1 exit: §4.
 | Browsers changing `.local` candidate handling | R2/R6 | host candidates plus configurable ICE servers |
 | Android's network security config blocks `ws://` to LAN addresses | D3 on the phone | the guide's `gen/android/` snippet; folded into the exporter when 0155's `--target android` lands |
 
-**Plan decisions** (0380 is silent; the owner confirms):
+**Plan decisions** (0403 is silent; the owner confirms):
 - A build connecting to a tool takes the tool's code by launch flag or query (`--debug-code`, `?debug-code=`); the game
   has no code entry field. Without a code, 0376's accept prompt applies (O6).
-- `debug.webrtc` (0333's lane beside a WebSocket) stays as it is: still useful for samples on a WebSocket link; 0380
+- `debug.webrtc` (0333's lane beside a WebSocket) stays as it is: still useful for samples on a WebSocket link; 0403
   only stops relying on it for remote devices.
 - Bulk transfers use 64 KiB messages on every transport (O5).
 
@@ -291,7 +291,7 @@ M1 exit: §4.
   generated `Cargo.toml` names a version), or a prebuilt debug shell binary per platform (removes the developer's
   Rust need for debug builds, but is a new record and CI). **Decided (owner, 2026-11-23): write the sources in, as
   with `gamepad.rs`.**
-- **O3** Who hosts a public rendezvous (0380 open question). **Decided (owner, 2026-11-23): no public rendezvous.** R3
+- **O3** Who hosts a public rendezvous (0403 open question). **Decided (owner, 2026-11-23): no public rendezvous.** R3
   ships the deployable service for anyone who runs their own; https pages pair only through one.
   The owner confirmed (2026-11-23) that M2 stays as planned: without a rendezvous, browser ↔ browser pairs and
   https pages could only exchange takes as files.
@@ -301,7 +301,7 @@ M1 exit: §4.
   keeps the same ceiling. (The WebSocket's own message cap is 1 MiB, so 64 KiB pieces fit both.)
 - **O6** Code entry on the build side by flag or query only. **Decided (owner, 2026-11-23): accepted.**
 - **O7** **Where the rendezvous is.** A room code holds a room and a token, not a server, so two pages served by
-  different servers (OP2) can't find a shared rendezvous. Recommendation: amend 0380 (R0) so a room code also carries
+  different servers (OP2) can't find a shared rendezvous. Recommendation: amend 0403 (R0) so a room code also carries
   the rendezvous's LAN address in the address code's form (two octets and a port from a fixed list), and without one
   falls back to the configured hosted rendezvous. **Decided (owner, 2026-11-23): accepted;** R0 writes the amendment
   record before W4.

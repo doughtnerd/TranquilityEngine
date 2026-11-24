@@ -22,12 +22,12 @@ export interface DebugManifest {
    */
   readonly webrtc?: false | Readonly<Record<string, unknown>>;
   /**
-   * `debug.listen` (ADR 0380 "Roles"): the build listens for tools as well as (or instead of) connecting out, on a native
+   * `debug.listen` (ADR 0403 "Roles"): the build listens for tools as well as (or instead of) connecting out, on a native
    * build only (a page can't listen). Written by an export with `--debug-listen`. Omitted: false (connect out only).
    */
   readonly listen?: boolean;
   /**
-   * `debug.lan` (ADR 0380, 0376 "Security"): a listening build accepts connections from other machines on its network
+   * `debug.lan` (ADR 0403, 0376 "Security"): a listening build accepts connections from other machines on its network
    * (binds `0.0.0.0`), each paired by code; without it, it binds loopback and only same-machine tools connect. Written by
    * `--debug-lan` (the export dialog's Debugging section, off by default). Omitted: false.
    */
@@ -39,12 +39,12 @@ export interface DebugManifest {
   readonly port?: number;
   /**
    * `debug.rendezvous`: the hosted rendezvous's WebSocket URL (`ws://` or `wss://`, path `/myco-rendezvous`), which a
-   * room code without a LAN rendezvous falls back to (ADR 0380 "Rendezvous" 3; plan O7). Omitted: none configured (no
+   * room code without a LAN rendezvous falls back to (ADR 0403 "Rendezvous" 3; plan O7). Omitted: none configured (no
    * public rendezvous exists, plan O3).
    */
   readonly rendezvous?: string;
   /**
-   * `debug.iceServers`: STUN/TURN servers for the `webrtc` transport beyond one network (ADR 0380 "Transports": host
+   * `debug.iceServers`: STUN/TURN servers for the `webrtc` transport beyond one network (ADR 0403 "Transports": host
    * candidates only on one network, ICE servers a setting for later). Omitted: none.
    */
   readonly iceServers?: readonly DebugIceServer[];

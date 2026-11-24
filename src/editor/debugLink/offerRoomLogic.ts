@@ -1,4 +1,4 @@
-// The Offer a room dialog without its view (ADR 0381): the line each state of an offer shows, the sentence telling the
+// The Offer a room dialog without its view (ADR 0404): the line each state of an offer shows, the sentence telling the
 // person where the code goes, and how long the dialog stays after a build joined.
 import type { OfferedRoom } from "./editorLink";
 

@@ -88,7 +88,7 @@ export interface GameManifest {
   /**
    * ADR 0376: debugging on (`--debug-link`): the player starts the debug link, which connects to the tool at `link`. Only
    * such a build ships the link's code (the player's `debug` files). Omitted in a release export. A listen-only build
-   * (ADR 0380: listening flags without `--debug-link`) has no `link`, so it doesn't dial the default address; the player
+   * (ADR 0403: listening flags without `--debug-link`) has no `link`, so it doesn't dial the default address; the player
    * reads a missing link as the default (`readDebugManifest`) for anything that needs one.
    */
   readonly debug?: Omit<DebugManifest, "link"> & { readonly link?: string };

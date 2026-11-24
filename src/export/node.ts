@@ -61,13 +61,13 @@ export interface ExportOptions {
    * of the link's code.
    */
   debugLink?: string;
-  /** ADR 0380: `--debug-listen`: the build listens for tools (`debug.listen`); a desktop one gets the native listener crates. Implies debugging on. */
+  /** ADR 0403: `--debug-listen`: the build listens for tools (`debug.listen`); a desktop one gets the native listener crates. Implies debugging on. */
   debugListen?: boolean;
-  /** ADR 0380: `--debug-lan`: with listening, bind `0.0.0.0`, paired by code (`debug.lan`). Implies debugging on. */
+  /** ADR 0403: `--debug-lan`: with listening, bind `0.0.0.0`, paired by code (`debug.lan`). Implies debugging on. */
   debugLan?: boolean;
-  /** ADR 0380: `--debug-port N`: the first port a listening build tries (`debug.port`). Implies debugging on. */
+  /** ADR 0403: `--debug-port N`: the first port a listening build tries (`debug.port`). Implies debugging on. */
   debugPort?: number;
-  /** ADR 0380 "Rendezvous" 3: `--debug-rendezvous <url>`: the hosted rendezvous, written as `debug.rendezvous`. Implies debugging on. */
+  /** ADR 0403 "Rendezvous" 3: `--debug-rendezvous <url>`: the hosted rendezvous, written as `debug.rendezvous`. Implies debugging on. */
   debugRendezvous?: string;
   /**
    * The rendezvous bundle a debug web build ships beside `serve.mjs`; default this checkout's `dist/rendezvous/rendezvous.mjs`,
@@ -99,7 +99,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   if (isOutputInsideProject(project.root, out)) {
     throw new ExportError(`The output folder "${out}" is inside the project, where the next export would copy it in. Use a folder outside it, or under its dist/ folder.`);
   }
-  // ADR 0380 "Rendezvous" 2: a debug web build's serve.mjs hosts the rendezvous, so the build carries its bundle.
+  // ADR 0403 "Rendezvous" 2: a debug web build's serve.mjs hosts the rendezvous, so the build carries its bundle.
   const debugOn = options.debugLink !== undefined || options.debugListen || options.debugLan || options.debugPort !== undefined || options.debugRendezvous !== undefined;
   const rendezvousBundle = debugOn && target === "web" ? await readFile(options.rendezvousFile ?? (await ensureRendezvous(log)), "utf8") : undefined;
   let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, packages: nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames, languages: options.languages, pseudo: options.pseudo, ...(options.debugLink !== undefined && { debugLink: options.debugLink }), ...(options.debugListen && { debugListen: true }), ...(options.debugLan && { debugLan: true }), ...(options.debugPort !== undefined && { debugPort: options.debugPort }), ...(options.debugRendezvous !== undefined && { debugRendezvous: options.debugRendezvous }), ...(rendezvousBundle !== undefined && { rendezvousBundle }) });
@@ -139,7 +139,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   const settings = project.settings as typeof project.settings & { build?: BuildSettings };
   const gamepadModule = await readFile(join(REPO, "src-tauri", "src", "gamepad.rs"), "utf8");
   const debug = plan.manifest.debug !== undefined;
-  // ADR 0380: a debug package carries the listener crates' sources, compiled by its own `tauri build` (a release one carries none).
+  // ADR 0403: a debug package carries the listener crates' sources, compiled by its own `tauri build` (a release one carries none).
   const debugListener = debug ? await readListenerCrates() : undefined;
   const files = desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule, debug, ...(debugListener && { debugListener }) });
   const tauriDir = join(out, "src-tauri");

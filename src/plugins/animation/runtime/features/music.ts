@@ -24,7 +24,7 @@ import type { Animator } from "../components/Animator";
 import type { AnimationFrame } from "../stages/frame";
 import type { AnimationPlayResult, AnimatorMusicTiming, AnimatorTravelResult } from "../types";
 import { readClipCues, readClipHits, sectionRange } from "./graph/clipCues";
-import { animatorRuntime, type AnimatorRuntime, type ClipEntry } from "./instances";
+import { animatorRuntime, clipUsers, type AnimatorRuntime, type ClipEntry } from "./instances";
 import { boundaryAtOrAfter, boundaryPeriod, hitLead, isDue, startShift } from "./music/musicTimingLogic";
 
 // Audio is an optional dependency (ADR 0374), so its module is loaded with `import()` when it's active, never statically
@@ -94,6 +94,10 @@ interface Held {
 }
 
 const heldByWorld = new WeakMap<World, Held[]>();
+// A held play's hit clip is read until its lead is known: an Animator rebinding to another skeleton keeps it till then.
+clipUsers.add(function* (rt) {
+  for (const h of heldByWorld.get(rt.world) ?? []) if (h.rt === rt && !h.done && h.hit) yield h.hit.clip;
+});
 /** The latest held play per Animator (`onFinished`), until a later play replaces it. */
 const latestHeld = new WeakMap<Animator, Promise<AnimationPlayResult>>();
 

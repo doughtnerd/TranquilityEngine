@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AddNode, CommandStack, ReparentNode, SceneDocument, SetField, WriteFiles, applyPatch, changesBetween, diffFiles, diffText, hashFile, type SceneFile } from "./index";
+import { AddNode, CommandStack, ReparentNode, SceneDocument, SetField, WriteFiles, applyFilePatch, applyPatch, changesBetween, diffFiles, diffText, hashFile, type SceneFile } from "./index";
 
 const file = (): SceneFile => ({
   format: "myco.scene@1",
@@ -314,5 +314,13 @@ describe("text files in the history (ADR 0077)", () => {
     expect(diffText("abcXdef", "abcYYdef")).toEqual({ start: 3, before: "X", after: "YY" });
     expect(diffText("aaa", "aaaa")).toEqual({ start: 3, before: "", after: "a" });
     expect(diffText("same", "same")).toEqual({ start: 4, before: "", after: "" });
+  });
+
+  it("refuses a patch whose stretch lies past the end of the text, even an insertion", () => {
+    const insert = { path: "a.txt", start: 5, before: "", after: "!" };
+    expect(applyFilePatch("hello", insert, "redo")).toBe("hello!");
+    expect(applyFilePatch("hi", insert, "redo")).toBeNull();
+    expect(applyFilePatch("hi", { ...insert, start: -1 }, "redo")).toBeNull();
+    expect(applyFilePatch("hi!", { path: "a.txt", start: 5, before: "!", after: "" }, "undo")).toBeNull();
   });
 });

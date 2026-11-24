@@ -1,4 +1,4 @@
-// The Connect dialog (ADR 0380): connect a tool (the editor, the Studio) to a listening build by the code it shows
+// The Connect dialog (ADR 0403): connect a tool (the editor, the Studio) to a listening build by the code it shows
 // (`3F9QK-7KD2X`), by a typed address, or (M3, D2) by picking one the network lists. It shows the attempt's progress and
 // why it failed (a bad or expired code, a locked build, nothing answering, a room code that needs a rendezvous).
 //

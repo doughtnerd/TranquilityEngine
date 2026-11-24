@@ -135,12 +135,18 @@ export function settingsWithoutAsset(settings: Record<string, unknown>, path: st
  * null if it didn't move. Prefixes (`asset:`, `./`) are kept. A slice reference
  * (`images/sheet.png#walk_0`, ADR 0040) is offered to `rename` whole first (so renaming a slice is a
  * move of `sheet.png#walk_0`), then as its image, keeping the `#name`.
+ *
+ * `bareFolders`, if given, lists moved folders whose path written bare (no prefix, no slice: `enemies`)
+ * isn't taken for a reference: in formats where such a string is a name, an id or a tag rather than a
+ * folder path (scenes, prefabs, project settings), so only `asset:enemies`, `./enemies` and paths
+ * inside the folder follow the move.
  */
-export function withMovedAssets<T>(value: T, rename: (path: string) => string | null): { value: T; changed: boolean } {
+export function withMovedAssets<T>(value: T, rename: (path: string) => string | null, bareFolders?: readonly string[]): { value: T; changed: boolean } {
   let changed = false;
   const walk = (v: unknown): unknown => {
     if (typeof v === "string") {
       const ref = parseAssetRef(v);
+      if (bareFolders && ref.prefix === "" && ref.slice === null && bareFolders.includes(ref.path)) return v;
       const target = ref.slice === null ? ref.path : `${ref.path}#${ref.slice}`;
       let to = rename(target);
       if (to === null && ref.slice !== null) {

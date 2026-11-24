@@ -6,6 +6,7 @@ import { Engine } from "../../myco";
 import { ToolConnector } from "../../engine/debugLink/client";
 import { createTransport, type Transport, type TransportConnection } from "../../engine/net/Transport";
 import "../../engine/net/transport/loopback";
+import { EnvelopeKind, encodeEnvelope, jsonPayload } from "../../engine/debugLink/protocol";
 import { DebugLinkSession } from "../../engine/debugLink/session";
 import { listenAddress, type DebugLinkPreferences } from "./debugLinkLogic";
 import { EditorDebugLink } from "./editorLink";
@@ -140,6 +141,27 @@ describe("the editor's debug link", () => {
     pump();
     expect(a.state).toBe("closed");
   });
+
+  it("says why when a build refuses what the editor sent and closes the link", async () => {
+    const prefs: DebugLinkPreferences = { listen: true, lan: false, port: port++ };
+    const logged: [string, string][] = [];
+    const link = new EditorDebugLink({ transport: () => createTransport("loopback"), autoPoll: false, log: (kind, text) => logged.push([kind, text]) });
+    stops.push(() => link.stop());
+    await link.apply(prefs);
+    // A build that speaks another protocol version, as a session answers one: an error for the link, then the close.
+    const t = createTransport("loopback");
+    stops.push(() => t.close());
+    const c = t.connect(listenAddress(prefs));
+    t.poll();
+    c.send("reliable", encodeEnvelope({ kind: EnvelopeKind.hello, topic: "", id: 0, payload: jsonPayload({ name: "Old game", platform: "web", topics: [] }) }));
+    link.poll();
+    expect(link.builds.value.map((b) => b.name)).toEqual(["Old game"]);
+    c.send("reliable", encodeEnvelope({ kind: EnvelopeKind.error, topic: "", id: 0, payload: jsonPayload({ message: "the other end speaks debug link version 2; this one speaks 1" }) }));
+    c.close("The build closed the debug link: the other end speaks debug link version 2; this one speaks 1");
+    link.poll();
+    expect(link.builds.value).toEqual([]);
+    expect(logged).toEqual([["error", 'Debug link: "Old game" closed the link: the other end speaks debug link version 2; this one speaks 1']]);
+  });
 });
 
 describe("the editor's Play on its link (servePlay)", () => {
@@ -257,7 +279,7 @@ describe("the editor's own network addresses (the desktop shell's interface list
   });
 });
 
-// Rooms (ADR 0381, R5) through the editor's link: the reverse direction (the link offers a room, a build given its code
+// Rooms (ADR 0404, R5) through the editor's link: the reverse direction (the link offers a room, a build given its code
 // joins and is admitted without a prompt), and room codes typed into connect.
 describe("the editor link's rooms", () => {
   const PAGE = { protocol: "http:", hostname: "192.168.1.20", port: "3000" };

@@ -1,4 +1,4 @@
-// The rendezvous's messages (ADR 0380 "Rendezvous"; plan task R1).
+// The rendezvous's messages (ADR 0403 "Rendezvous"; plan task R1).
 import { describe, expect, it } from "vitest";
 import {
   RENDEZVOUS_MAX_MESSAGE_BYTES,

@@ -9,7 +9,7 @@
 // The IPC commands (C8 of the pairing plan; the Rust side is `src-tauri/src/debug_link.rs`, moving to
 // `native/debug-link-tauri`):
 // - `myco_debuglink_listen_range` { host: string, firstPort: number, count: number, path: string, events: Channel }
-//   -> { id: number, port: number }. Binds the first free port of `firstPort .. firstPort + count - 1` (ADR 0380: 7790
+//   -> { id: number, port: number }. Binds the first free port of `firstPort .. firstPort + count - 1` (ADR 0403: 7790
 //   .. 7799, so the editor, the Studio and a game share a machine; "port in use" moves to the next port, any other
 //   error fails at once). `port` is the one it got. Rejects with the reason (a string) when all are taken or the bind
 //   fails. A `firstPort` of 0 means "any free port" and `count` is then 1.
@@ -27,7 +27,7 @@
 // - an outbox body: records [op u8][connection u32][length u32][bytes]; 1 send (bytes: the payload), 2 close (bytes:
 //   [code u16][reason]).
 //
-// One native listener serves more than one path (ADR 0380 "Rendezvous", ADR 0067): the native side takes one listen
+// One native listener serves more than one path (ADR 0403 "Rendezvous", ADR 0067): the native side takes one listen
 // path, and "/" accepts every path and reports each accept's path, so this transport routes by it. `routePath` (before
 // `listen`) hands a path's connections to a second transport (`RoutedTransport`); `hostRendezvous` runs a
 // `RendezvousServer` over one at `/myco-rendezvous`. With routes, the listen path moves to "/" natively and any path
@@ -43,7 +43,7 @@ import { WebSocketTransport, type SocketLike } from "../net/transport/websocket"
 import { RENDEZVOUS_PATH } from "./rendezvous/protocol";
 import { RendezvousServer } from "./rendezvous/server";
 
-/** How many ports from the requested one the native listener may try (ADR 0380: 7790..7799). */
+/** How many ports from the requested one the native listener may try (ADR 0403: 7790..7799). */
 const PORT_RANGE = 10;
 
 function isMissingCommand(err: unknown): boolean {
@@ -317,7 +317,7 @@ export function tauriListenerPort(transport: Transport): number | null {
 const RENDEZVOUS_POLL_MS = 33;
 
 /**
- * Runs a rendezvous (ADR 0380 "Rendezvous") on the native listener `transport` is, at `/myco-rendezvous` on the same
+ * Runs a rendezvous (ADR 0403 "Rendezvous") on the native listener `transport` is, at `/myco-rendezvous` on the same
  * port, so a native Myco app hosts rooms for pages and tools on its LAN. Call it before `transport.listen`. Returns the
  * stop, or null when `transport` isn't the native listener or has started listening. The rendezvous stops with the
  * transport. It carries only signalling.

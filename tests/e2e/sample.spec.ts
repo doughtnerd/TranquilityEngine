@@ -52,7 +52,7 @@ test("the start screen lists the sample; Open loads it read-only with its script
 test("Play runs the game: a flap starts it, falling ends it", async ({ page }) => {
   const errors = trackErrors(page);
   await openEditor(page, { sample: "flappy" });
-  await page.getByRole("button", { name: "▶ Play" }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   await expect.poll(() => gameState(page), { timeout: 20_000 }).toBe("ready");
 
   // The game draws a real picture (a blank or failed render has a color or two). Read what's on
@@ -79,7 +79,7 @@ test("Play runs the game: a flap starts it, falling ends it", async ({ page }) =
   await canvas.click();
   await expect.poll(() => gameState(page)).toBe("playing");
   await expect.poll(() => gameState(page), { timeout: 20_000 }).toBe("dead");
-  await page.getByRole("button", { name: "■ Stop" }).click();
-  await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();
+  await page.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });

@@ -63,7 +63,7 @@ export interface BuildOptions {
    */
   readonly debugLink?: string | true;
   /**
-   * ADR 0380: `--debug-listen`, `--debug-lan`, `--debug-port`: written as `game.json`'s `debug.listen`, `debug.lan` and
+   * ADR 0403: `--debug-listen`, `--debug-lan`, `--debug-port`: written as `game.json`'s `debug.listen`, `debug.lan` and
    * `debug.port`, and each implies debugging on (the default link when `debugLink` is absent). A native build then listens
    * for tools (on `0.0.0.0` only with `lan`); a web build can't listen, so there the keys are harmless.
    */
@@ -71,14 +71,14 @@ export interface BuildOptions {
   readonly debugLan?: boolean;
   readonly debugPort?: number;
   /**
-   * ADR 0380 "Rendezvous" 3: `--debug-rendezvous <url>`: written as `game.json`'s `debug.rendezvous`, the hosted rendezvous
+   * ADR 0403 "Rendezvous" 3: `--debug-rendezvous <url>`: written as `game.json`'s `debug.rendezvous`, the hosted rendezvous
    * (a `ws://` or `wss://` URL) a room code without a LAN rendezvous falls back to. Implies debugging on.
    */
   readonly debugRendezvous?: string;
   /**
    * The rendezvous bundle's text (`dist/rendezvous/rendezvous.mjs`, `npm run build:rendezvous`). A debug build that is
    * given it writes it as `rendezvous.mjs` beside `serve.mjs`, and `serve.mjs` mounts it on its own port at
-   * `/myco-rendezvous`, so pages it serves pair by room code through it (ADR 0380 "Rendezvous" 2). Without it (or without
+   * `/myco-rendezvous`, so pages it serves pair by room code through it (ADR 0403 "Rendezvous" 2). Without it (or without
    * debugging) `serve.mjs` serves files only, and a debug build says so in the plan's warnings.
    */
   readonly rendezvousBundle?: string;
@@ -262,7 +262,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   const serveWarnings: string[] = [];
   if (!debugLink) generated.set("serve.mjs", SERVE_SCRIPT);
   else {
-    // ADR 0380 "Rendezvous" 2: a debug build's serve.mjs answers the rendezvous (when given its bundle) and, with `debugLan`, serves the LAN.
+    // ADR 0403 "Rendezvous" 2: a debug build's serve.mjs answers the rendezvous (when given its bundle) and, with `debugLan`, serves the LAN.
     const rendezvous = options.rendezvousBundle !== undefined;
     generated.set("serve.mjs", debugServeScript({ lan: options.debugLan === true, rendezvous }));
     if (rendezvous) generated.set(RENDEZVOUS_FILE, options.rendezvousBundle!);
@@ -410,7 +410,7 @@ export const SERVE_SCRIPT = `${SERVE_HEAD}server.listen(port, "127.0.0.1", () =>
 `;
 
 /**
- * serve.mjs in a debug web build (ADR 0380 "Rendezvous" 2): the same static server. With `lan` it listens on every
+ * serve.mjs in a debug web build (ADR 0403 "Rendezvous" 2): the same static server. With `lan` it listens on every
  * interface (`0.0.0.0`) and prints this machine's network addresses; with `rendezvous` it imports `./rendezvous.mjs` (the
  * bundle, `npm run build:rendezvous`) and mounts it on its own port at `/myco-rendezvous`, beside the pages (ADR 0067).
  * The rendezvous carries only the pairing handshake, never debug traffic.

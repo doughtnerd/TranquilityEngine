@@ -360,6 +360,26 @@ pub enum ProgramError {
     Range,
     /// The state blob would pass `u32` words.
     TooLarge,
+    /// A machine, chooser, slot or linked-graph table entry names a node of another kind, or a
+    /// node another entry already names (the evaluator reads that node's state as the entry's).
+    Kind,
+}
+
+/// Records that table entry `index` owns `node`, which must be a `(family, kind)` node no other
+/// entry owns.
+fn claim(
+    side: &mut [u32],
+    nodes: &[ProgNode],
+    node: u32,
+    want: (Family, u16),
+    index: usize,
+) -> Result<(), ProgramError> {
+    let n = nodes.get(node as usize).ok_or(ProgramError::Range)?;
+    if (n.family, n.kind) != want || side[node as usize] != NONE {
+        return Err(ProgramError::Kind);
+    }
+    side[node as usize] = index as u32;
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -590,7 +610,13 @@ impl Program {
             .collect();
         let mut machines = Vec::new();
         for (mi, m) in machines_v.iter().enumerate() {
-            side[m.node as usize] = mi as u32;
+            claim(
+                &mut side,
+                &nodes,
+                m.node,
+                (Family::Logic, crate::logic::kind::STATE_MACHINE),
+                mi,
+            )?;
             machines.push(MachineInfo {
                 node: m.node,
                 name: m.name,
@@ -615,7 +641,13 @@ impl Program {
             .filter_map(|i| view.chooser(i))
             .enumerate()
         {
-            side[c.node as usize] = ci as u32;
+            claim(
+                &mut side,
+                &nodes,
+                c.node,
+                (Family::Logic, crate::logic::kind::CHOOSER),
+                ci,
+            )?;
             choosers.push(ChooserInfo {
                 node: c.node,
                 rows: (c.rows_first, c.rows_count),
@@ -636,7 +668,13 @@ impl Program {
             .filter_map(|i| view.slot(i))
             .enumerate()
         {
-            side[s.node as usize] = si as u32;
+            claim(
+                &mut side,
+                &nodes,
+                s.node,
+                (Family::Slots, crate::slots::kind::SLOT),
+                si,
+            )?;
             slots.push(NamedNode {
                 name: s.name,
                 node: s.node,
@@ -648,7 +686,13 @@ impl Program {
             .filter_map(|i| view.linked(i))
             .enumerate()
         {
-            side[l.node as usize] = li as u32;
+            claim(
+                &mut side,
+                &nodes,
+                l.node,
+                (Family::Slots, crate::slots::kind::LINKED),
+                li,
+            )?;
             linked.push(NamedNode {
                 name: l.name,
                 node: l.node,
@@ -1120,6 +1164,30 @@ impl Program {
     pub fn node_state<'s>(&self, state: &'s mut [u32], groups: usize, node: u32) -> &'s mut [u32] {
         let (at, len) = self.node_range(groups, node);
         &mut state[at..at + len]
+    }
+
+    /// Whether `state`, a blob of this program for a skeleton of `groups` bone groups (a restored
+    /// snapshot's), holds only what the evaluator can run: the words that name a state,
+    /// transition, node, pick or linked graph, or count entries, are in range. The evaluator
+    /// indexes with those words unchecked, so a host refuses a blob that fails this.
+    pub fn check_state(&self, state: &[u32], groups: usize, assets: &dyn Assets) -> bool {
+        if state.len() != self.state_words(groups) {
+            return false;
+        }
+        (0..self.nodes.len() as u32).all(|i| {
+            let n = self.nodes[i as usize];
+            let (at, len) = self.node_range(groups, i);
+            let Some(s) = state.get(at..at + len) else {
+                return false;
+            };
+            match n.family {
+                Family::Logic => crate::logic::check_state(self, i, n.kind, s),
+                Family::Slots => crate::slots::check_state(self, i, n.kind, s, groups, assets),
+                Family::Physics => crate::physics::check_state(n.kind, s),
+                Family::Retarget => crate::retarget::check_state(self, i, n.kind, s, assets),
+                _ => true,
+            }
+        })
     }
 
     fn node_range(&self, groups: usize, node: u32) -> (usize, usize) {

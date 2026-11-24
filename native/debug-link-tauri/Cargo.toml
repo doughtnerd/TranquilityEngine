@@ -1,4 +1,4 @@
-# The debug link's Tauri commands (ADR 0376, 0379, 0380), shared by the editor's shell (src-tauri) and the
+# The debug link's Tauri commands (ADR 0376, 0379, 0403), shared by the editor's shell (src-tauri) and the
 # Studio's (src-studio-tauri). Plain commands, not a plugin (pairing plan C8): each shell lists them in its own
 # `generate_handler!` and calls `.manage(DebugLinkListeners::default())`. The WebSocket server is
 # `native/ws-listener`, which builds and tests without Tauri; discovery (mDNS) is `native/debug-discovery`.

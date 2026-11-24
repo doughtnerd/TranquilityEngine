@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { createSocket } from "node:dgram";
 import { createTransport, type Transport, type TransportConnection, type TransportEvent } from "../net/Transport";
-import { hostCandidateRewriter } from "../net/transport/datagramLane";
+import { hostCandidateRewriter, type PeerConnectionConstructor } from "../net/transport/datagramLane";
 import { DEFAULT_MAX_DATAGRAM_BYTES, WebSocketTransport, type RtcSetup, type SocketLike } from "../net/transport/websocket";
 import "../../server/websocketServer"; // registers the Node "websocket" transport: it listens, and its connections get node-datachannel's WebRTC
 import type { ListenAddress } from "../../server/websocketServer";
@@ -107,7 +107,7 @@ describe("the WebSocket transport's datagram lane (ADR 0333)", () => {
     expect(payloads(ce, "reliable")).toEqual([[1, 2, 3]]);
     expect(payloads(ce, "unreliable")[0]).toHaveLength(5000);
 
-    // And datagrams after it still arrive (sequence numbers are shared by both paths).
+    // And datagrams after it still arrive (each path has its own sequence numbers, ADR 0398).
     toClient.send("unreliable", new Uint8Array([42]));
     [, se] = await pollUntil([s, c], ([, ce2]) => payloads(ce2, "unreliable").some((p) => p[0] === 42));
   });
@@ -268,5 +268,117 @@ describe("datagram lane framing (ADR 0333)", () => {
     const got = f.events.flatMap((e) => (e.kind === "data" ? [[...e.data]] : []));
     expect(got).toEqual([[10], [11], [14]]);
     expect(f.c.maxDatagramBytes).toBeUndefined(); // no peer connection here, so no lane
+  });
+});
+
+/** A data channel that records what it's sent; the test hands it incoming datagrams. */
+class FakeChannel {
+  readonly label = "myco-u";
+  binaryType = "arraybuffer";
+  bufferedAmount = 0;
+  onopen: (() => void) | null = null;
+  onclose: (() => void) | null = null;
+  onmessage: ((event: { data: unknown }) => void) | null = null;
+  readonly sent: Uint8Array[] = [];
+  send(data: Uint8Array): void {
+    this.sent.push(new Uint8Array(data));
+  }
+  close(): void {}
+}
+
+/** An `RTCPeerConnection` that opens its one data channel as soon as it reads the other end's offer. */
+class FakePeerConnection {
+  static readonly made: FakePeerConnection[] = [];
+  readonly channel = new FakeChannel();
+  connectionState = "new";
+  localDescription: { type: string; sdp: string } | null = null;
+  onicecandidate: unknown = null;
+  onconnectionstatechange: unknown = null;
+  ondatachannel: ((event: { channel: FakeChannel }) => void) | null = null;
+  constructor() {
+    FakePeerConnection.made.push(this);
+  }
+  createDataChannel(): FakeChannel {
+    return this.channel;
+  }
+  async createOffer() {
+    return { type: "offer", sdp: "v=0" };
+  }
+  async createAnswer() {
+    return { type: "answer", sdp: "v=0" };
+  }
+  async setLocalDescription(description: { type: string; sdp: string }) {
+    this.localDescription = description;
+  }
+  async setRemoteDescription() {
+    this.ondatachannel?.({ channel: this.channel });
+    this.channel.onopen?.();
+  }
+  async addIceCandidate() {}
+  close(): void {}
+}
+
+/** A client transport over a fake socket whose lane opens on a fake peer connection, with no network. */
+class FakeLaneTransport extends WebSocketTransport {
+  protected override rtcSetup(role: RtcSetup["role"]): RtcSetup | null {
+    return { role, load: async () => FakePeerConnection as unknown as PeerConnectionConstructor, config: {}, maxDatagramBytes: 1100, connectTimeoutMs: 1000 };
+  }
+  connectOver(socket: SocketLike) {
+    return this.addConnection("fake", socket, this.rtcSetup("answer"));
+  }
+}
+
+/** A negotiated connection whose lane is open: what it sent on its socket and as datagrams, and what it delivered. */
+async function laned() {
+  const sent: Uint8Array[] = [];
+  const transport = new FakeLaneTransport();
+  const c = transport.connectOver({ send: (d) => void sent.push(new Uint8Array(d)), close: () => {} });
+  c.handleOpen();
+  c.handleMessage(signal({ t: "offer", sdp: "v=0" }));
+  for (let i = 0; i < 10 && c.maxDatagramBytes === undefined; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(c.maxDatagramBytes).toBe(1096);
+  const pc = FakePeerConnection.made.at(-1)!;
+  sent.splice(0); // the answer
+  const events: TransportEvent[] = [];
+  return {
+    c,
+    sent,
+    datagrams: pc.channel.sent,
+    receiveDatagram: (datagram: Uint8Array) => pc.channel.onmessage!({ data: datagram.slice().buffer }),
+    get delivered() {
+      events.push(...transport.poll());
+      return events.flatMap((e) => (e.kind === "data" && e.channel === "unreliable" ? [[...e.data]] : []));
+    },
+  };
+}
+
+describe("unreliable messages too big for a datagram (ADR 0398)", () => {
+  it("go over the socket in the socket's own sequence; datagrams around them keep theirs", async () => {
+    const a = await laned();
+    a.c.send("unreliable", new Uint8Array([1]));
+    a.c.send("unreliable", new Uint8Array(2000).fill(2));
+    a.c.send("unreliable", new Uint8Array([3]));
+    expect(a.datagrams.map((d) => [...d])).toEqual([
+      [0, 0, 0, 0, 1],
+      [0, 0, 0, 1, 3],
+    ]);
+    expect(a.sent).toHaveLength(1);
+    expect([...a.sent[0].subarray(0, 6)]).toEqual([0x05, 0, 0, 0, 0, 2]);
+  });
+
+  it("still arrive when datagrams sent after them overtake them; each path still drops its own stale messages", async () => {
+    const a = await laned();
+    const b = await laned();
+    a.c.send("unreliable", new Uint8Array([1]));
+    a.c.send("unreliable", new Uint8Array(2000).fill(2));
+    a.c.send("unreliable", new Uint8Array([3]));
+    // The datagrams arrive first (the socket's copy is held up behind a lost TCP segment).
+    for (const datagram of a.datagrams) b.receiveDatagram(datagram);
+    b.c.handleMessage(a.sent[0]);
+    expect(b.delivered.map((p) => (p.length > 1 ? `big ${p.length}` : p[0]))).toEqual([1, 3, "big 2000"]);
+    // A repeat on either path is still stale.
+    b.receiveDatagram(a.datagrams[0]);
+    b.c.handleMessage(a.sent[0]);
+    expect(b.delivered).toHaveLength(3);
   });
 });

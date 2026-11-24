@@ -1,4 +1,4 @@
-// The pairing code (ADR 0380 "Pairing code"): "One format everywhere: 10 characters of Crockford base32 in two groups
+// The pairing code (ADR 0403 "Pairing code"): "One format everywhere: 10 characters of Crockford base32 in two groups
 // (`3F9QK-7KD2X`), single use, expiring after 5 minutes. [...] The first character says what the rest holds":
 //
 // - **Address code**: "the listener's private IPv4 address (its last two octets), its port offset (0–9) and a 30-bit
@@ -15,7 +15,7 @@
 // than 10 once those are dropped.
 //
 // **Bit layout.** The 10 characters are one 50-bit number N, most significant character first: N = c0 * 2^45 + R, where
-// c0 is the first character's value and R the 45 bits of the other nine. 0380's address code needs 16 + log2(10) + 30
+// c0 is the first character's value and R the 45 bits of the other nine. 0403's address code needs 16 + log2(10) + 30
 // = 49.3 bits, so a whole first character can't be spent on the kind; instead **the first character's value range is
 // the kind**: `0`..`K` (0..19) address, `M`..`Z` (20..31) room. (A person still reads the kind from the first
 // character: a digit or A..K is an address code, M..Z a room code.)
@@ -48,11 +48,11 @@ export const PAIR_CODE_GROUP = 5;
 /** Crockford base32's alphabet, value order. */
 export const CROCKFORD_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
-/** The port a listener tries first (0380: "The default port is 7790"). An address code carries `port - this`. */
+/** The port a listener tries first (0403: "The default port is 7790"). An address code carries `port - this`. */
 export const PAIR_BASE_PORT = 7790;
-/** Port offsets an address code carries: 0..9 (0380: "when it's taken the listener tries 7791–7799"). */
+/** Port offsets an address code carries: 0..9 (0403: "when it's taken the listener tries 7791–7799"). */
 export const PAIR_PORT_OFFSETS = 10;
-/** Bits of an address code's token, and of a hosted room code's (0380: "a 30-bit token"). */
+/** Bits of an address code's token, and of a hosted room code's (0403: "a 30-bit token"). */
 export const PAIR_TOKEN_BITS = 30;
 /** Bits of a LAN room code's token. */
 export const LAN_ROOM_TOKEN_BITS = 20;
@@ -67,8 +67,8 @@ export const HOSTED_ROOM_FIRST = 31;
 
 /**
  * The fixed list of ports a LAN room code's rendezvous may be on (plan O7), by index: 0..9 the native listeners' range
- * 7790..7799 (0380 "Rendezvous" 1: any native Myco app), 10 the Vite dev server's 3000 and 11 an export's `serve.mjs`
- * default 8080 (0380 "Rendezvous" 2). Indexes 12..21 are reserved: a code naming one is refused. A rendezvous on another
+ * 7790..7799 (0403 "Rendezvous" 1: any native Myco app), 10 the Vite dev server's 3000 and 11 an export's `serve.mjs`
+ * default 8080 (0403 "Rendezvous" 2). Indexes 12..21 are reserved: a code naming one is refused. A rendezvous on another
  * port can't be named by a code; the person types its full address instead.
  */
 export const RENDEZVOUS_PORTS: readonly number[] = [7790, 7791, 7792, 7793, 7794, 7795, 7796, 7797, 7798, 7799, 3000, 8080];

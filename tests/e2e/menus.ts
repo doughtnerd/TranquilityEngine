@@ -55,6 +55,26 @@ export async function menuItemOf(page: Page, menuName: string, item: string | Re
   return root.getByRole("menuitem", { name: item }).or(root.getByRole("menuitemcheckbox", { name: item }));
 }
 
+/**
+ * In an open context menu named `menuName` ("Hierarchy menu", "Assets menu"), click through `path`: each name but the
+ * last opens the submenu of that name (ADR 0383: Create › 3D Object › Cube), the last runs. Names are item labels,
+ * matched whole, without the shortcut beside them.
+ */
+export async function contextMenu(page: Page, menuName: string, ...path: string[]): Promise<void> {
+  let scope = page.getByRole("menu", { name: menuName, exact: true });
+  for (const name of path) {
+    const item = scope.locator(":scope > [role^=menuitem]").filter({ has: page.locator(".kit-menu-label", { hasText: new RegExp(`^${escape(name)}$`) }) });
+    await item.click();
+    scope = page.getByRole("menu", { name, exact: true });
+  }
+}
+
+/** Click through the Hierarchy's open menu (its "+" or right-click menu): `contextMenu` on "Hierarchy menu". */
+export const hierarchyMenu = (page: Page, ...path: string[]): Promise<void> => contextMenu(page, "Hierarchy menu", ...path);
+
+/** Click through the Assets panel's open right-click menu: `contextMenu` on "Assets menu". */
+export const assetsMenu = (page: Page, ...path: string[]): Promise<void> => contextMenu(page, "Assets menu", ...path);
+
 export async function closeMenus(page: Page): Promise<void> {
   if (await barMenus(page).count()) await page.keyboard.press("Escape");
   await expect(barMenus(page)).toHaveCount(0);

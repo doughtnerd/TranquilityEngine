@@ -30,7 +30,7 @@ export interface DebugTopic {
   /** Samples per second each subscription sends at most (default 30). */
   readonly rate?: number;
   /**
-   * The channel its samples travel on (ADR 0380 plan, C3). `unreliable` (the default): a lost or late sample is dropped,
+   * The channel its samples travel on (ADR 0403 plan, C3). `unreliable` (the default): a lost or late sample is dropped,
    * which suits a picture of now (the animation topic's frames). `reliable`: every sample arrives, in order, which a
    * stream that can't have holes needs (the audio topic's `capture` segments, its take upload). Requests, replies,
    * commands and errors always travel reliably, whatever this says.

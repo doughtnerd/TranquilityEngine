@@ -102,6 +102,15 @@ export function _undefineComponent(id: string): void {
   else dataById.delete(id);
   buildDefs.delete(id);
   scriptData.delete(id);
+  for (const listener of undefinedListeners) listener(id, original);
+}
+
+/** Told when a script's data component is forgotten, with the editor build's it put back (if any). */
+const undefinedListeners: ((id: string, restored: DataComponentDef | undefined) => void)[] = [];
+
+/** @internal Modules that index data components by id (action sets) forget theirs here too. */
+export function _onComponentUndefined(listener: (id: string, restored: DataComponentDef | undefined) => void): void {
+  undefinedListeners.push(listener);
 }
 
 export function getDataComponentDef(id: string): DataComponentDef | undefined {

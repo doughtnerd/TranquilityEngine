@@ -1,4 +1,4 @@
-// Address completion (ADR 0380 "Pairing code"): an address code holds only "the listener's private IPv4 address (its
+// Address completion (ADR 0403 "Pairing code"): an address code holds only "the listener's private IPv4 address (its
 // last two octets)" and its port offset. "The connecting side completes the address from its own private networks (a
 // native endpoint's interfaces, an http page's own host) and tries each candidate; it can always type a full address
 // instead." This module turns a code (or a typed address) into the WebSocket URLs to try, in order; trying them is the

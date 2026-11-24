@@ -1,0 +1,134 @@
+/* An application's projects screen (ADR 0380): AppProjectsLayout, ProjectTabs, ProjectsTab, the Myco and Biosonic screens.
+   The brand column is the brand black in every theme (the logos are drawn on black, brand.css); the rest uses the theme tokens. */
+.ap-root {
+  position: relative;
+  height: 100vh;
+  overflow: hidden;
+  box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(340px, 34%) minmax(0, 1fr);
+  grid-template-rows: auto 1fr;
+  grid-template-areas: "brand main" "info main";
+  background: var(--bg);
+  color: var(--text);
+  font-size: calc(13px * var(--ui-scale));
+  line-height: 1.4;
+}
+.ap-brand { grid-area: brand; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 32px 32px 0; background: var(--brand-bg); border-right: 1px solid var(--border); user-select: none; }
+.ap-logo { display: block; width: min(100%, 420px); aspect-ratio: 1 / 1; height: auto; object-fit: cover; }
+.ap-tagline { margin: 0; color: var(--brand-text); font-size: calc(12px * var(--ui-scale)); letter-spacing: 0.12em; text-transform: uppercase; text-align: center; }
+.ap-info { grid-area: info; min-width: 0; display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px; padding: 24px 32px 20px; background: var(--brand-bg); border-right: 1px solid var(--border); }
+.ap-back { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; margin-left: -10px; padding: 0 10px; border: 0; border-radius: 4px; background: transparent; color: var(--brand-text); font: inherit; cursor: pointer; }
+.ap-back:hover { background: var(--brand-hover); color: var(--brand-text-strong); }
+.ap-credit { color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.ap-main { grid-area: main; min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; background: var(--panel); }
+/* The row under the borderless window's controls (launcher.css: 32px tall), so nothing sits beneath them; it drags the window like the brand column. */
+.ap-titlebar { flex: 0 0 32px; }
+.ap-status { min-width: 0; overflow-wrap: anywhere; }
+.ap-status.error { color: var(--danger); }
+.ap-footer { flex: 0 0 auto; display: flex; justify-content: space-between; gap: 12px; padding: 6px 10px; border-top: 1px solid var(--border); color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.ap-pad { --ap-pad: 24px; padding-left: var(--ap-pad); padding-right: var(--ap-pad); }
+
+/* Tabs */
+.ap-tabs { flex: 0 0 auto; display: flex; align-items: flex-end; gap: 4px; padding-top: 16px; border-bottom: 1px solid var(--border); }
+.ap-tab { display: inline-flex; align-items: center; min-height: 36px; padding: 8px 14px; border: 0; border-radius: 4px 4px 0 0; background: transparent; color: var(--muted); font: inherit; font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; cursor: pointer; }
+.ap-tab:hover { background: var(--hover); }
+.ap-tab[aria-selected="true"] { background: var(--active); color: var(--text-strong); box-shadow: inset 0 -2px 0 var(--accent); }
+.ap-badge { margin-left: 6px; padding: 0 6px; border-radius: 999px; background: var(--badge); color: var(--badge-text); font-size: calc(11px * var(--ui-scale)); line-height: 16px; letter-spacing: 0; }
+.ap-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.ap-panel-body { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; box-sizing: border-box; width: 100%; max-width: 1200px; padding-top: 24px; }
+.ap-panel-body > * { flex: 1 1 auto; min-height: 0; }
+.ap-panel-body > .ap-note { flex: 0 0 auto; }
+/* A tab's toolbar and intro stay put; its lists scroll. Reaching out over the side padding puts the scrollbar at the column's edge and leaves room for focus rings and shadows. */
+.ap-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 24px; margin: 0 calc(-1 * var(--ap-pad)); padding: 0 var(--ap-pad) 24px; }
+
+/* Content */
+.ap-stack { display: flex; flex-direction: column; gap: 24px; }
+.ap-stack.ap-tight { gap: 12px; }
+.ap-section { display: flex; flex-direction: column; gap: 8px; }
+.ap-heading { margin: 0; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.ap-heading-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.ap-note, .ap-muted { margin: 0; color: var(--muted); }
+.ap-meta { margin: 0; color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.ap-path { margin: 0; color: var(--muted); font-family: var(--font-code); font-size: calc(12px * var(--ui-scale)); }
+.ap-wrap { overflow-wrap: anywhere; }
+.ap-ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-mono { font-family: var(--font-code); }
+.ap-clamp { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.ap-state { color: var(--warning); }
+.ap-state.missing { color: var(--danger); }
+
+/* Buttons and the search field */
+.ap-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ap-toolbar > .ap-note { flex: 1 1 260px; }
+.ap-primary, .ap-button { min-height: 32px; padding: 4px 14px; border-radius: 4px; font: inherit; cursor: pointer; }
+.ap-primary { border: 1px solid var(--accent); background: var(--accent); color: var(--accent-text); font-weight: 600; }
+.ap-primary:hover:not(:disabled) { background: var(--accent-hover); box-shadow: var(--glow); }
+.ap-button { border: 1px solid var(--border); background: var(--button); color: var(--text); }
+.ap-button:hover:not(:disabled) { background: var(--button-hover); }
+.ap-button:active:not(:disabled) { background: var(--button-active); }
+.ap-big { min-height: 36px; padding: 6px 18px; }
+.ap-primary:disabled, .ap-button:disabled { opacity: 0.5; cursor: default; }
+.ap-more { flex: 0 0 auto; min-width: 30px; min-height: 30px; padding: 0; border: 1px solid transparent; border-radius: 4px; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+.ap-more:hover { background: var(--button-hover); color: var(--text); }
+.ap-primary:focus-visible, .ap-button:focus-visible, .ap-tab:focus-visible, .ap-back:focus-visible, .ap-more:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; box-shadow: var(--glow); }
+.ap-searchwrap { flex: 1 1 200px; display: flex; justify-content: flex-end; }
+.ap-search { box-sizing: border-box; width: 100%; max-width: 260px; min-height: 32px; padding: 4px 10px; border: 1px solid var(--border); border-radius: 3px; background: var(--input-bg); color: var(--text); font: inherit; }
+.ap-search:focus { outline: none; border-color: var(--accent); box-shadow: var(--glow); }
+
+/* Continue where you left off (and Biosonic's latest take) */
+.ap-hero { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 18px; background: var(--surface); border: 1px solid var(--accent); border-radius: 8px; box-shadow: 0 10px 30px var(--shadow), 0 0 0 1px var(--accent-faint); }
+.ap-hero[data-state="missing"] { border-color: var(--border); }
+.ap-hero-text { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.ap-hero-name { margin: 0; color: var(--text-strong); font-size: calc(18px * var(--ui-scale)); line-height: 1.35; font-weight: 600; }
+
+/* Rows */
+.ap-rows { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--border); }
+.ap-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px; border-bottom: 1px solid var(--border); }
+.ap-row:hover { background: var(--hover); }
+.ap-row.missing .ap-row-name { color: var(--muted); }
+.ap-row-text { flex: 1 1 240px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ap-row-name { color: var(--text); font-weight: 600; }
+.ap-row-meta { flex: 0 0 auto; color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.ap-row > .ap-button { flex: 0 0 auto; min-height: 30px; padding: 3px 12px; }
+.ap-label-input { flex: 1 0 100%; box-sizing: border-box; min-height: 28px; padding: 3px 8px; border: 1px solid var(--border); border-radius: 3px; background: var(--input-bg); color: var(--text); font: inherit; }
+
+/* Samples */
+.ap-samples { margin: 0; padding: 0; list-style: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.ap-sample { display: flex; flex-direction: column; gap: 8px; padding: 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; }
+.ap-sample:hover { border-color: var(--accent); }
+.ap-sample-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.ap-sample-name { margin: 0; color: var(--text-strong); font-size: calc(14px * var(--ui-scale)); font-weight: 600; }
+.ap-sample-actions { display: flex; gap: 8px; margin-top: auto; padding-top: 4px; }
+.ap-sample-actions .ap-button { min-height: 30px; padding: 3px 12px; }
+
+@media (max-width: 900px) {
+  .ap-root { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto; grid-template-areas: "brand" "main" "info"; }
+  /* The window controls sit over the brand row here, so it makes the room and the main column needs no title bar. */
+  .ap-titlebar { display: none; }
+  .ap-root.has-chrome .ap-brand { padding-top: 32px; }
+  .ap-brand { flex-direction: row; justify-content: center; gap: 20px; padding: 12px 24px 16px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .ap-logo { width: min(40%, 220px); }
+  .ap-tagline { max-width: 220px; text-align: left; }
+  .ap-info { align-items: center; padding: 12px 24px; border-right: 0; border-top: 1px solid var(--border); }
+}
+@media (max-width: 560px) {
+  .ap-brand { flex-direction: column; gap: 8px; padding: 8px 16px 12px; }
+  .ap-root.has-chrome .ap-brand { padding-top: 32px; }
+  .ap-logo { width: min(70%, 200px); }
+  .ap-tagline { max-width: none; text-align: center; }
+  .ap-info { padding: 12px 16px; }
+  .ap-pad { --ap-pad: 16px; }
+  .ap-toolbar > button { flex: 1 1 140px; }
+  .ap-searchwrap { flex-basis: 100%; }
+  .ap-search { max-width: none; }
+  .ap-row-meta { flex-basis: 100%; order: 3; }
+  .ap-samples { grid-template-columns: minmax(0, 1fr); }
+}
+@media (min-width: 1800px) {
+  .ap-logo { width: min(100%, 520px); }
+  .ap-pad { --ap-pad: 40px; }
+}
+@media (pointer: coarse) {
+  .ap-primary, .ap-button, .ap-tab, .ap-more { min-height: 44px; }
+}

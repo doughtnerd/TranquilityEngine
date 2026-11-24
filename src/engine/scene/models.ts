@@ -13,6 +13,9 @@
  *
  * Models load once per path and are shared by every World, and by rendering and physics alike; a
  * changed file or sidecar loads again. Works headless (Node), where textures are left blank.
+ *
+ * An `.mtl` material library on its own loads as a sphere per material (`materialLibraryRoot`): what the
+ * editor's preview of the library draws (ADR 0061).
  */
 // Types only: three.js loads with the first model file parsed (`parseModel`), so it stays out of the
 // start-up bundle of the editor and of games (ADR 0082); the built-in meshes need none of it.
@@ -20,6 +23,7 @@ import type { BufferAttribute, BufferGeometry, Color as ThreeColor, LoadingManag
 import { Assets, fetchAssetBytes, normalizeAssetPath, sidecarValue } from "./Assets";
 import { BAKED_SUFFIX, decodeBakedModel, encodeBakedModel } from "./bakedModel";
 import { BUILTIN_MESHES, builtinMeshData, type BuiltinMesh } from "./builtinMeshes";
+import { isTextureMapStatement, materialLibraryFiles, readTextureMap, wavefrontStatements } from "./wavefront";
 import { Mat4 } from "../core/math";
 import { uniqueName } from "../core/uniqueName";
 import { splitSpriteRef, type ImportSettings } from "./importSettings";
@@ -541,9 +545,13 @@ export function loadModel(ref: string): Promise<ModelData> {
   entry.promise.catch(() => {}); // reported by whoever awaits it, or by `meshesIfLoaded`
   cache.set(path, entry);
   // The old meshes go once the new ones have loaded: by then every renderer has let go of them,
-  // since `meshesIfLoaded` reports the model as loading from now on (physics copies triangles).
-  const old = cached?.data;
-  if (old) entry.promise.finally(() => disposeModel(old)).catch(() => {});
+  // since `meshesIfLoaded` reports the model as loading from now on (physics copies triangles). A replaced load
+  // that hasn't finished yet goes too, once both have settled, or its meshes would never be disposed.
+  if (cached) {
+    void Promise.allSettled([cached.promise, entry.promise]).then(() => {
+      if (cached.data) disposeModel(cached.data);
+    });
+  }
   return entry.promise;
 }
 
@@ -775,6 +783,65 @@ function manager(modelPath: string): ModelLoadingManager {
   return m;
 }
 
+/**
+ * An `.mtl` as three.js's MTLLoader reads it right. Its map reader takes the rest of the line after `-bm`, `-mm`, and
+ * a three-number `-s`/`-o` as the file name, so every other option (`-clamp on`, `-imfchan r`…) and a shorter `-s`/`-o`
+ * ended up in the name. Each map statement is rewritten as the specifications read it (`wavefront.ts`, ADR 0394): the
+ * options three.js uses, padded to their full arguments with the specification's defaults, then the one file name.
+ * Continued lines are joined; everything else is kept as written.
+ */
+function forMtlLoader(text: string): string {
+  const lines: string[] = [];
+  for (const s of wavefrontStatements(text)) {
+    const keyword = s.keyword.text.toLowerCase();
+    const last = s.args.at(-1) ?? s.keyword;
+    const written = text.slice(s.keyword.start, last.end);
+    if (!isTextureMapStatement(keyword)) {
+      lines.push(written.includes("\n") ? [s.keyword, ...s.args].map((t) => t.text).join(" ") : written);
+      continue;
+    }
+    const map = readTextureMap(s.args);
+    if (!map.file) continue;
+    if (map.extra.length) warnOnce(`A material library's "${written}" names one file, "${map.file.text}"; the rest of the line isn't part of it (Wavefront file names have no spaces).`);
+    const out = [keyword];
+    for (const o of map.options) {
+      const a = o.args.map((t) => t.text);
+      if (o.name === "-bm" && (keyword === "bump" || keyword === "map_bump" || keyword === "norm")) out.push("-bm", a[0]!);
+      else if (o.name === "-mm" && keyword === "disp") out.push("-mm", a[0]!, a[1] ?? "1");
+      else if (o.name === "-s") out.push("-s", a[0]!, a[1] ?? "1", a[2] ?? "1");
+      else if (o.name === "-o") out.push("-o", a[0]!, a[1] ?? "0", a[2] ?? "0");
+    }
+    out.push(map.file.text);
+    lines.push(out.join(" "));
+  }
+  return lines.join("\n");
+}
+
+/** Space between the centres of a material library's swatch spheres (each one unit across). */
+const SWATCH_SPACING = 1.25;
+
+/**
+ * A material library (`.mtl`) as a model to look at: one unit sphere per material, named after it and drawing it
+ * (textures found as an .obj's are), in rows of a square grid. It's what the library's preview shows; an .obj
+ * that uses the library still loads it itself.
+ */
+async function materialLibraryRoot(text: string, loading: LoadingManager): Promise<Object3D> {
+  const { MTLLoader } = await import("three/examples/jsm/loaders/MTLLoader.js");
+  const creator = new MTLLoader(loading).parse(forMtlLoader(text), "");
+  creator.preload();
+  const names = Object.keys(creator.materialsInfo);
+  const root = new (lib().Group)();
+  const sphere = new (lib().SphereGeometry)(0.5, 48, 24);
+  const columns = Math.max(1, Math.ceil(Math.sqrt(names.length)));
+  names.forEach((name, i) => {
+    const mesh = new (lib().Mesh)(sphere, creator.create(name));
+    mesh.name = name;
+    mesh.position.set((i % columns) * SWATCH_SPACING, -Math.floor(i / columns) * SWATCH_SPACING, 0);
+    root.add(mesh);
+  });
+  return root;
+}
+
 async function parseModel(path: string, url: string, settings: ImportSettings, useBaked = true): Promise<ModelData> {
   // A game build's baked copy (ADR 0090), when it was baked with these import settings.
   if (useBaked && Assets.has(path + BAKED_SUFFIX)) {
@@ -803,22 +870,26 @@ async function parseModel(path: string, url: string, settings: ImportSettings, u
   if (/\.fbx$/i.test(path)) {
     const { FBXLoader } = await import("three/examples/jsm/loaders/FBXLoader.js");
     root = new FBXLoader(loading).parse(bytes, "");
+  } else if (/\.mtl$/i.test(path)) {
+    root = await materialLibraryRoot(new TextDecoder().decode(bytes), loading);
   } else {
     const text = new TextDecoder().decode(bytes);
     const { OBJLoader } = await import("three/examples/jsm/loaders/OBJLoader.js");
     const loader = new OBJLoader(loading);
-    const lib = /^mtllib\s+(.+?)\s*$/m.exec(text)?.[1];
-    if (lib) {
-      const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
-      const mtl = resolveRelative(folder, lib.replace(/\\/g, "/"));
-      if (mtl && Assets.has(mtl)) {
-        const { MTLLoader } = await import("three/examples/jsm/loaders/MTLLoader.js");
-        const creator = new MTLLoader(loading).parse(new TextDecoder().decode(await fetchBytes(Assets.url(mtl))), "");
-        creator.preload();
-        loader.setMaterials(creator);
-      } else {
-        warnOnce(`${path} uses the material library "${lib}", which isn't in the project; its meshes use the default material.`);
-      }
+    // Every file of every `mtllib` statement is a library, the first named searched first (ADR 0394).
+    const folder = path.includes("/") ? path.slice(0, path.lastIndexOf("/") + 1) : "";
+    const libraries: string[] = [];
+    for (const lib of materialLibraryFiles(text)) {
+      const mtl = resolveRelative(folder, lib.text.replace(/\\/g, "/"));
+      if (mtl && Assets.has(mtl)) libraries.push(forMtlLoader(new TextDecoder().decode(await fetchBytes(Assets.url(mtl)))));
+      else warnOnce(`${path} uses the material library "${lib.text}", which isn't in the project; the materials only it defines draw with the default material.`);
+    }
+    if (libraries.length) {
+      const { MTLLoader } = await import("three/examples/jsm/loaders/MTLLoader.js");
+      // MTLLoader keeps the last definition of a name, so the libraries go in last first.
+      const creator = new MTLLoader(loading).parse(libraries.reverse().join("\n"), "");
+      creator.preload();
+      loader.setMaterials(creator);
     }
     root = loader.parse(text);
   }

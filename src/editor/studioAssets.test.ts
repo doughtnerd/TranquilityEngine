@@ -28,6 +28,7 @@ describe("the Studio page's URL", () => {
     );
     expect(studioUrl({ project: "/home/me/game", screen: "mixer" })).toBe("studio.html?project=%2Fhome%2Fme%2Fgame#/mixer");
     expect(studioUrl({ project: null })).toBe("studio.html");
+    expect(studioUrl({ project: null, sample: "sound-lab", screen: "mixer" })).toBe("studio.html?sample=sound-lab#/mixer");
   });
 
   it("an explicit screen wins over the asset's", () => {

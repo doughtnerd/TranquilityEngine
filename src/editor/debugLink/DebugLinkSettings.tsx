@@ -1,6 +1,6 @@
 // The debug link's preferences (ADR 0376), in Settings > General: whether the editor listens for builds, whether builds
 // on other machines may connect (the LAN toggle, off by default; the editor asks before accepting each), the port, and
-// for networks beyond this one, a rendezvous URL and ICE servers (ADR 0380). `DebugLinkFields` is the view;
+// for networks beyond this one, a rendezvous URL and ICE servers (ADR 0403). `DebugLinkFields` is the view;
 // `DebugLinkSettings` connects it to the stored preferences and the link's state.
 import { useState } from "preact/hooks";
 import { cleanIceServers, cleanPort, cleanPreferences, cleanRendezvous, connectAddress, type DebugLinkPreferences } from "./debugLinkLogic";

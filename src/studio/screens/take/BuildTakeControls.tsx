@@ -1,4 +1,4 @@
-// The Take screen's "Record from a build" controls (ADR 0348, ADR 0380, plan U5): shown above the Takes list while a
+// The Take screen's "Record from a build" controls (ADR 0348, ADR 0403, plan U5): shown above the Takes list while a
 // build is connected. Start records a take on the build; while it records, a marker text and Mark, and Stop; once
 // stopped, Save uploads the take into the project's takes/ folder, with the chunks received as it comes. A failure says
 // why (with Save again when the build still holds the take). A view over props (`recordFromBuild.ts` is the flow).

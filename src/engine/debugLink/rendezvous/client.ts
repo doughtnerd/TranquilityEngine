@@ -1,4 +1,4 @@
-// The rendezvous client (ADR 0380 "Rendezvous"; plan task R1): connects out to a rendezvous and is the `webrtc`
+// The rendezvous client (ADR 0403 "Rendezvous"; plan task R1): connects out to a rendezvous and is the `webrtc`
 // transport's `WebRtcSignaller` for one seat of one room. The waiting side (it shows the room code) opens a room;
 // the joining side (it typed the code) joins it. Polled like transports are (ADR 0033): `poll()` reads the connection.
 //

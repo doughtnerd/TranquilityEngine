@@ -1,4 +1,4 @@
-// The dev server answers the rendezvous (ADR 0380 "Rendezvous", 0381; plan task R4): `/myco-rendezvous` on the port the
+// The dev server answers the rendezvous (ADR 0403 "Rendezvous", 0404; plan task R4): `/myco-rendezvous` on the port the
 // pages come from (3000), so two pages opened from one dev server pair by room code through it. The coordinator mounts
 // it in vite.config.ts: `plugins: [..., rendezvous()]`. It attaches to the dev server's own http server by `upgrade`,
 // at its path only, so Vite's HMR socket (which upgrades its own path) is left alone.

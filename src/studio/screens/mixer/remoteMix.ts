@@ -1,4 +1,4 @@
-// The Mixer editing a connected build's mix (ADR 0380, plan U8): while the Studio's `studioBuild` names a build, each
+// The Mixer editing a connected build's mix (ADR 0403, plan U8): while the Studio's `studioBuild` names a build, each
 // edit of `audio.json` is also encoded as `mix.op` commands (`mixOpCommand`: the op plus the name and bus tables it
 // references) and sent to the build with the peer's `command`; the build applies them at its next frame start through
 // its live mixer. The Studio's own runtime still gets the edit (the file stays the source of truth, and the build's mix

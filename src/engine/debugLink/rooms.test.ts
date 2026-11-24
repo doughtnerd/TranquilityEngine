@@ -1,4 +1,4 @@
-// Room codes (ADR 0381; plan task R5) over a loopback rendezvous and the fake peer pair, on one injected clock: a page
+// Room codes (ADR 0404; plan task R5) over a loopback rendezvous and the fake peer pair, on one injected clock: a page
 // build offers a room and shows its code, a tool joins by the code and pairs (the rendezvous checks the token, then the
 // build's gate); a wrong token is refused; a room expires and the next code replaces it; the reverse direction (a tool
 // offers, a build given `?debug-code=` joins); a hosted code with no hosted rendezvous is refused; where a page opens

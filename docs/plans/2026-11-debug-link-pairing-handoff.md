@@ -2,7 +2,7 @@
 
 ## 1. Where things are
 
-- Records: ADR 0380 (Accepted 2026-11-23), 0376 (partly superseded), 0379 (amended), 0348 (takes).
+- Records: ADR 0403 (Accepted 2026-11-23), 0376 (partly superseded), 0379 (amended), 0348 (takes).
 - Plan files: [waves](2026-11-debug-link-pairing-waves.md) (task table, milestones, contracts, ownership, review
   fixes in §12), [tree](2026-11-debug-link-pairing-tree.md), [ground rules](2026-11-debug-link-pairing-ground-rules.md).
 - Base: `master` at `4caf082db`. Nothing of the build is started; no integration branch exists yet; the plan files
@@ -10,7 +10,7 @@
 
 ## 2. Read in this order
 
-1. ADR 0380, then 0376 and 0348's **Decision** sections.
+1. ADR 0403, then 0376 and 0348's **Decision** sections.
 2. The waves plan §2 (state), §8 (contracts), §10 (tasks), §11 (decisions and owner items).
 3. The tree's collision audit.
 4. The ground rules.
@@ -33,7 +33,7 @@
 | O4 Hardware for OP1–OP3 | **decided 2026-11-23: desktop, laptop, Android phone** | — |
 | O5 64 KiB bulk messages | **decided 2026-11-23: the WebRTC lane's existing ceiling** | — |
 | O6 Build-side code entry by `--debug-code` / `?debug-code=` only | **decided 2026-11-23: accepted** | — |
-| O7 A room code also carries the rendezvous's LAN address (amend 0380, R0) | **decided 2026-11-23: accepted**; R0 writes the record | before W4 |
+| O7 A room code also carries the rendezvous's LAN address (amend 0403, R0) | **decided 2026-11-23: accepted**; R0 writes the record | before W4 |
 | O8 Commit the plan files | **decided 2026-11-23: committed** | — |
 
 Owner-only: OP1–OP3 on real machines.

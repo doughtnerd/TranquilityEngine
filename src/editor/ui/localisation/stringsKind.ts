@@ -37,5 +37,5 @@ export const STRINGS_ASSET_KIND: AssetKindContribution<StringsFile> = {
   panel: "localisation",
   format: stringsFormat,
   folder: "strings",
-  create: { label: "New String Table", name: "new-table", what: "string tables" }, // a stem without spaces or dots (0356 §1)
+  create: { label: "New String Table", category: "Localisation", name: "new-table", what: "string tables" }, // a stem without spaces or dots (0356 §1)
 };

@@ -96,7 +96,7 @@ const CORE_ASSET_KINDS: readonly AssetKindContribution[] = [
     icon: "M4 5h16v14H4zM8 9h8v6H8zM4 5l4 4M20 5l-4 4M4 19l4-4M20 19l-4-4",
     inspector: () => import("./ui/RenderTextureInspector").then((m) => m.RenderTextureInspector),
     referencedAs: ["rendertexture"],
-    create: { label: "New Render Texture", create: (folder) => import("./renderTextureAssets").then((m) => m.createRenderTexture(folder)) },
+    create: { label: "New Render Texture", category: "Rendering", create: (folder) => import("./renderTextureAssets").then((m) => m.createRenderTexture(folder)) },
   },
   // String tables and translations (ADR 0356 §1): asset documents the Localisation panel edits.
   STRINGS_ASSET_KIND,

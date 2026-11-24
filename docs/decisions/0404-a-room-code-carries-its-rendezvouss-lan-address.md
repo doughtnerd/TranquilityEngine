@@ -1,14 +1,14 @@
-# 0381. A room code carries its rendezvous's LAN address; without one it uses the configured hosted rendezvous
+# 0404. A room code carries its rendezvous's LAN address; without one it uses the configured hosted rendezvous
 
 - **Status:** Accepted (owner decision O7, 2026-11-23)
 - **Date:** 2026-11-23
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0380 (amended: "Pairing code" and "Rendezvous"), 0067 (paths on one port)
+- **Related:** 0403 (amended: "Pairing code" and "Rendezvous"), 0067 (paths on one port)
 
 ## Context
 
-0380 has two kinds of pairing code. An address code names a listener. A room code names "a rendezvous room and a
+0403 has two kinds of pairing code. An address code names a listener. A room code names "a rendezvous room and a
 token, for pairs where neither side can reach a listener on the other". It doesn't say **which rendezvous**. Two pages
 served by different servers, such as a web export on `serve.mjs` on one machine and the browser Studio from
 `npm run dev` on another, each know only their own server, so they can't meet in a room. The plan's review found this
@@ -41,7 +41,7 @@ We will have a room code name its rendezvous.
 
 - **Room and token only, with each side's rendezvous configured.** Simple codes, but two pages from different servers
   never meet unless someone configures a shared rendezvous by hand.
-- **A longer code with a full address and port.** About 15 characters; 0380 settled on 10.
+- **A longer code with a full address and port.** About 15 characters; 0403 settled on 10.
 - **Always the hosted rendezvous for room codes.** No public one is run (O3), so LAN pairs between pages would need
   the owner to run one.
 

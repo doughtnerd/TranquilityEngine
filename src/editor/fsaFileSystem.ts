@@ -118,6 +118,17 @@ export class FsaFileSystem implements FileSystem {
 
   /** Copy, then delete the original: the API has no portable move for local folders. */
   async rename(from: string, to: string): Promise<void> {
+    if (from !== to && from.toLowerCase() === to.toLowerCase()) {
+      // A change of case only: on a case-insensitive folder (Windows, macOS) `to` *is* `from`, so `exists` can't tell
+      // whether another entry has that name (only its exact name in the listing can), and copying onto it then
+      // deleting `from` would delete the file. Go through a temporary name instead.
+      const slash = to.lastIndexOf("/");
+      if ((await this.list(to.slice(0, slash))).some((e) => e.name === to.slice(slash + 1))) throw new Error(`"${to}" already exists.`);
+      const tmp = `${from}.rename-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+      await this.rename(from, tmp);
+      await this.rename(tmp, to);
+      return;
+    }
     if (await this.exists(to)) throw new Error(`"${to}" already exists.`);
     const source = await this.entry(from);
     await this.copy(source, to);

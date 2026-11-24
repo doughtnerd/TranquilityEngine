@@ -1,4 +1,4 @@
-// The Offer a room dialog (ADR 0381, the reverse direction): a tool that can't listen (the browser Studio, the browser
+// The Offer a room dialog (ADR 0404, the reverse direction): a tool that can't listen (the browser Studio, the browser
 // editor) opens a rendezvous room and shows its code; a browser game opened with `?debug-code=` joins it. The dialog
 // starts the offer when it opens, shows the code (copyable), the state and the notice, and stops the offer on Stop or
 // Escape. It closes itself shortly after a build joined (the pairing carries on; it isn't cut off).

@@ -530,6 +530,16 @@ pub fn settle(lanes: &mut BusLanes, slot: &mut BusSlot) {
     settle_lanes(lanes);
 }
 
+/// MASTER: points the output's runtime lane (`master`) at `gain` over `frames`, linearly in gain, and clears
+/// that lane's dB flag in `lanes` (the output's entry, [`master_entry`]): a `Decibel` BUS_RAMP on
+/// `BUS_MASTER_OUT` may have left it set, and a stale flag would advance this linear ramp as a dB one.
+pub fn set_master(lanes: Option<&mut BusLanes>, master: &mut Ramp, gain: f32, frames: u32) {
+    master.set_target(gain, frames);
+    if let Some(lanes) = lanes {
+        set_bit(&mut lanes.db, RUNTIME, false);
+    }
+}
+
 /// RESET: settles the output gain on its target (MASTER's ramp and the output's lanes).
 pub fn settle_master(lanes: &mut BusLanes, master: &mut Ramp) {
     *master = Ramp::at(master.target);

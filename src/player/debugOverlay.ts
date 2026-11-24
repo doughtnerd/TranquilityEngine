@@ -1,6 +1,6 @@
-// The pairing overlay of a build with debugging on (ADR 0380 "Pairing code"): a small corner box showing the listener's
+// The pairing overlay of a build with debugging on (ADR 0403 "Pairing code"): a small corner box showing the listener's
 // current code (or the address to type when it has none) while no tool is connected, hidden once one pairs, shown again
-// when the last one leaves; F8 toggles it at any time. A page's code is a room code (ADR 0381), with the listener's
+// when the last one leaves; F8 toggles it at any time. A page's code is a room code (ADR 0404), with the listener's
 // notice under it or in its place (opening the room, why it can't, or that a page opened from `localhost` pairs only on
 // this machine). The player imports this module only by `import()` and only when
 // `game.json` has `debug` (vite.shared.ts `DEBUG_LINK` matches it), so a release export holds none of it.

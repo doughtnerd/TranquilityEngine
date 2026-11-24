@@ -77,7 +77,7 @@ describe("the player's debug link files", () => {
     expect("debug" in out && out.debug).toEqual(["h.js"]);
   });
 
-  it("the rule covers ADR 0380's pairing code: subfolders of the link, the webrtc transport, the player's overlay", () => {
+  it("the rule covers ADR 0403's pairing code: subfolders of the link, the webrtc transport, the player's overlay", () => {
     expect(DEBUG_LINK.matches(`${ROOT}/engine/debugLink/pairing/code.ts`)).toBe(true);
     expect(DEBUG_LINK.matches(`${ROOT}/engine/debugLink/rendezvous/client.ts`)).toBe(true);
     expect(DEBUG_LINK.matches(`${ROOT}/engine/debugLink/tauriListener.ts`)).toBe(true);

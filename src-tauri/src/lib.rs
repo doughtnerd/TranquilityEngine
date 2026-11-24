@@ -204,6 +204,17 @@ pub fn run() {
                         }
                     }
                 }
+                // The launcher (ADR 0380) handed a project to the Studio and hid: it shows again when the Studio
+                // window closes while the editor isn't showing, so the app never runs with no window to see.
+                (STUDIO_WINDOW, WindowEvent::Destroyed) => {
+                    let editor_showing = other(EDITOR_WINDOW).is_some_and(|w| w.is_visible().unwrap_or(false));
+                    if let Some(projects) = other("projects") {
+                        if !editor_showing {
+                            let _ = projects.show();
+                            let _ = projects.set_focus();
+                        }
+                    }
+                }
                 ("projects", WindowEvent::CloseRequested { api, .. }) => match other("main") {
                     Some(editor) if editor.is_visible().unwrap_or(false) => {
                         api.prevent_close();

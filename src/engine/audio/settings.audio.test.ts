@@ -233,3 +233,17 @@ describe("audio.ducking parse (L-Sa1a)", () => {
     });
   });
 });
+
+describe("audio.buses past the bus cap", () => {
+  it("a kept bus whose parent was cut off hangs off the root, so every kept parent is a kept bus", () => {
+    // 40 buses; bus 5 names bus 35 (cut by the 32-bus cap) as its parent.
+    const buses: Record<string, unknown>[] = [{ name: "Master" }];
+    for (let i = 1; i < 40; i++) buses.push({ name: `B${i}`, parent: i === 5 ? "B35" : "Master" });
+    const { settings, problems } = parseAudioSettings({ buses });
+    expect(settings.buses).toHaveLength(32);
+    const names = new Set(settings.buses.map((b) => b.name));
+    for (const b of settings.buses.slice(1)) expect(names.has(b.parent!)).toBe(true);
+    expect(settings.buses.find((b) => b.name === "B5")!.parent).toBe("Master");
+    expect(problems.some((p) => p.includes('"B5"') && p.includes('"B35"'))).toBe(true);
+  });
+});

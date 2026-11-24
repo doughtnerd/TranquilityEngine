@@ -56,7 +56,7 @@ test("the World picker shows the running game; live edits; Keep values writes th
   await expect(inspector.locator(".live-badge")).toContainText(`live · ${worldName}`);
 
   // A live edit moves the game's bird only.
-  await page.getByRole("button", { name: "❚❚ Pause", exact: true }).click(); // hold it still while editing
+  await page.getByRole("button", { name: "Pause", exact: true }).click(); // hold it still while editing
   const transform = inspector.locator(".component", { hasText: "Transform" }).first();
   const x = transform.getByRole("textbox", { name: "position x" });
   await x.fill("-3.5");
@@ -80,7 +80,7 @@ test("the World picker shows the running game; live edits; Keep values writes th
   await expect(inspector.locator(".kept-list summary")).toContainText("1 kept for Stop");
 
   // A node made at runtime can't keep values, and says why: Flappy's pipes are instantiated by the spawner.
-  await page.getByRole("button", { name: "▶ Resume", exact: true }).click();
+  await page.getByRole("button", { name: "Resume", exact: true }).click();
   await page.locator("#game-view").click(); // start the game so pipes spawn
   await page.keyboard.press("Space");
   const pipe = tree.locator('.row.live-instance[data-name="PipePair"]').first();
@@ -119,7 +119,7 @@ test("the live Hierarchy creates, renames, reparents and deletes nodes; the live
   await play(page);
   const worldName = await page.evaluate(() => (window as unknown as Hooks).playEngine!.world.name);
   await hierarchy.getByRole("combobox", { name: "Inspect World" }).selectOption(worldName);
-  await page.getByRole("button", { name: "❚❚ Pause", exact: true }).click(); // edits apply while paused too
+  await page.getByRole("button", { name: "Pause", exact: true }).click(); // edits apply while paused too
   const tree = hierarchy.getByRole("tree", { name: "Live nodes" });
   const row = (name: string) => tree.locator(`.row[data-name="${name}"]`);
 
@@ -188,13 +188,13 @@ test("the live Hierarchy creates, renames, reparents and deletes nodes; the live
 test("Pause, Step and the shortcuts hold and advance the whole game; a World steps alone from the strip", async ({ page }) => {
   const errors = trackErrors(page);
   await openEditor(page, { sample: "flappy" });
-  const pause = page.getByRole("button", { name: "❚❚ Pause", exact: true });
+  const pause = page.getByRole("button", { name: "Pause", exact: true });
   await expect(pause).toBeDisabled(); // editing
   await play(page);
   await expect.poll(() => frames(page), { timeout: PLAY_START }).toBeGreaterThan(5); // the game's renderer starts after the button shows
 
   await pause.click();
-  const resume = page.getByRole("button", { name: "▶ Resume", exact: true });
+  const resume = page.getByRole("button", { name: "Resume", exact: true });
   await expect(resume).toHaveAttribute("aria-pressed", "true");
   // A frame already under way when Pause was pressed may still finish: read the count once it holds.
   let held = -1;
@@ -240,7 +240,7 @@ test("Host pattern: Arena plays with 2 clients and a thin client on a server mad
   await expect(panel.locator(".network-note")).toContainText('creates the server World "Server" from its template');
   await expect(panel.locator(".network-note")).toContainText("scenes/arena.scene.json");
 
-  await page.getByRole("button", { name: "▶ Play" }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   // Arena has scripts: Play type-checks them first (ADR 0125), loading Monaco's TypeScript worker the first time.
   await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: 20_000 });
   expect(await page.evaluate(() => (window as unknown as Hooks).playEngine!.worlds().map((w) => w.name))).toEqual(["Client 1", "Client 2", "Thin 1", "Server"]);

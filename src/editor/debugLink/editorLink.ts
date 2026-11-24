@@ -57,8 +57,10 @@ export interface EditorDebugLinkOptions {
   readonly interfaces?: () => Promise<readonly NetworkInterfaceAddress[]>;
   /** Everything else about how Play listens (tests: the loopback's clock, the gate's clock, this machine's addresses). */
   readonly playOptions?: Omit<PlayBuildOptions, "transport" | "lan" | "port">;
-  /** How room codes travel (ADR 0381): joining a build's room by its code, and offering a room (`offerRoom`). */
+  /** How room codes travel (ADR 0404): joining a build's room by its code, and offering a room (`offerRoom`). */
   readonly rooms?: EditorRoomOptions;
+  /** Hears what the link wants the user to read (the editor's message log). */
+  readonly log?: (kind: "info" | "warning" | "error", text: string) => void;
 }
 
 /** How the link's rooms are reached (defaults: a page's WebSocket and `RTCPeerConnection`, the page's own location). */
@@ -104,6 +106,8 @@ export class EditorDebugLink {
   /** Builds refused this session (host and name): their reconnection attempts are closed without asking again. */
   private readonly refused = new Set<string>();
   private generation = 0;
+  /** The last error each build sent for the link itself: a build says why before it closes the link (ADR 0376). */
+  private readonly linkErrors = new WeakMap<DebugLinkPeer, string>();
 
   constructor(private readonly options: EditorDebugLinkOptions) {
     if (!options.interfaces && !("__TAURI_INTERNALS__" in globalThis)) this.interfaceList = [];
@@ -144,7 +148,11 @@ export class EditorDebugLink {
     }
     const listener = new DebugLinkListener(transport, {
       onPeer: (peer) => this.arrived(peer),
-      onClose: (peer) => this.left(peer),
+      onClose: (peer) => {
+        const error = this.linkErrors.get(peer);
+        if (error !== undefined) this.options.log?.("error", `Debug link: "${peer.hello.name}" closed the link: ${error}`);
+        this.left(peer);
+      },
     });
     const address = listenAddress(prefs);
     try {
@@ -184,7 +192,7 @@ export class EditorDebugLink {
   }
 
   /**
-   * Offers a rendezvous room (ADR 0381, the reverse direction): where this tool can't be reached by a build (a browser
+   * Offers a rendezvous room (ADR 0404, the reverse direction): where this tool can't be reached by a build (a browser
    * Studio or editor), it opens a room on its own server's rendezvous, or the hosted one in Settings, and shows the room
    * code; a build launched with it (`?debug-code=`, `--debug-code`) joins the room and connects over WebRTC, and joins
    * `builds` without a prompt once its token passes this room's gate (the rendezvous checked it too). A later call
@@ -267,7 +275,7 @@ export class EditorDebugLink {
   }
 
   /**
-   * Connects to a listening build (ADR 0380): by the code it shows, or a typed address. Resolves once it paired (it
+   * Connects to a listening build (ADR 0403): by the code it shows, or a typed address. Resolves once it paired (it
    * joins `builds` at once: the tool chose to connect, so there is no prompt); rejects with the reason
    * (`connectFlow.ts`). C7: the flow is U1's.
    */
@@ -294,7 +302,7 @@ export class EditorDebugLink {
   }
 
   /**
-   * Serves the play Engine as a build on this link while the editor plays (ADR 0380, U3), so a tool can pair with
+   * Serves the play Engine as a build on this link while the editor plays (ADR 0403, U3), so a tool can pair with
    * Play: on a listener of its own from the editor's port + 1, on the LAN when the preferences listen there, not at all
    * while they turn the link off (`playBuild.ts` says why it is a listener of its own). A later call replaces an earlier
    * one; the returned build's `stop` (Play stopped) ends it. Its signals follow the build across preference changes.
@@ -457,6 +465,7 @@ export class EditorDebugLink {
   }
 
   private arrived(peer: DebugLinkPeer): void {
+    peer.onError = (message) => this.linkErrors.set(peer, message);
     const b: ConnectedBuild = { id: this.nextId++, name: peer.hello.name, platform: peer.hello.platform, remote: peer.remote, peer };
     // A build whose pair carried the shown code's token (a room's, `offerRoom`) needs no prompt: the person gave it the code.
     if (peer.admission === "token" || isLocalRemote(peer.remote)) return this.admit(b);

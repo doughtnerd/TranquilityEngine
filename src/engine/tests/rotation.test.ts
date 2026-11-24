@@ -4,6 +4,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Engine, GameObject, Quaternion, SceneManager, Vector3, type RotationOrder } from "../index";
 import { migrateSceneFile, type SceneFile } from "../scene/SceneLoader";
+import { localPositionFor } from "../editor";
 import { migrateRotationsToQuaternions } from "../scene/rotationMigration";
 import { migrateToUnityCoordinates } from "../scene/handednessMigration";
 
@@ -168,6 +169,38 @@ describe("Transform turns (ADR 0163)", () => {
     expectVec(l2w.transformDirection([0, 0, 1]), 2, 0, 0);
     expectVec(l2w.inverseTransformDirection([2, 0, 0]), 0, 0, 1);
     expect(l2w.value).toHaveLength(16);
+  });
+});
+
+describe("world rotation under a parent without a Transform (B6)", () => {
+  /** A child under a Transform-less node under a grandparent turned `turn` (which the child inherits). */
+  async function underBareParent(turn: Quaternion) {
+    await Engine.create({ headless: true });
+    const grandparent = GameObject.create("gp");
+    grandparent.transform!.position = [5, 0, 0];
+    grandparent.transform!.rotation = turn;
+    const bare = GameObject.create("bare", { parent: grandparent, transform: false });
+    return GameObject.create("child", { parent: bare });
+  }
+
+  it("worldRotation takes the inherited turn into account", async () => {
+    const child = await underBareParent(Quaternion.rotateY(Math.PI / 2));
+    child.transform!.worldRotation = Quaternion.identity;
+    expectSameRotation(child.transform!.worldRotation, Quaternion.identity);
+    expectSameRotation(child.transform!.rotation, Quaternion.rotateY(-Math.PI / 2));
+  });
+
+  it("worldRotation2D takes the inherited turn into account", async () => {
+    const child = await underBareParent(Quaternion.rotateZ(Math.PI / 2));
+    child.transform!.worldRotation2D = Math.PI / 4;
+    expect(child.transform!.worldRotation2D).toBeCloseTo(Math.PI / 4, 5);
+    expect(child.transform!.rotation2D).toBeCloseTo(-Math.PI / 4, 5);
+  });
+
+  it("the editor's localPositionFor goes through the inherited transform", async () => {
+    const child = await underBareParent(Quaternion.rotateY(Math.PI / 2));
+    child.transform!.position = localPositionFor(child, [5, 0, 2]);
+    expectVec(child.transform!.worldPosition, 5, 0, 2);
   });
 });
 

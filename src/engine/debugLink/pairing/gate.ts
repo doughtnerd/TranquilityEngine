@@ -1,5 +1,5 @@
-// The token gate (ADR 0380 "Pairing code"): the listening (or waiting) side's check of the token in a connection's
-// first message. 0380's rules, each one this gate implements:
+// The token gate (ADR 0403 "Pairing code"): the listening (or waiting) side's check of the token in a connection's
+// first message. 0403's rules, each one this gate implements:
 //
 // - "single use, expiring after 5 minutes": a token admits one connection; the code shown changes after it is used,
 //   and after 5 minutes unused (`TOKEN_EXPIRY_MS`). The plan adds: the gate issues the next code itself after a use or
@@ -17,11 +17,11 @@
 import type { PairRefusalReason } from "../protocol";
 import { PAIR_TOKEN_BITS } from "./code";
 
-/** How long a token works unused, ms (0380: "expiring after 5 minutes"). */
+/** How long a token works unused, ms (0403: "expiring after 5 minutes"). */
 export const TOKEN_EXPIRY_MS = 5 * 60_000;
-/** Wrong tokens that lock LAN connections (0380: "Five wrong tokens"). */
+/** Wrong tokens that lock LAN connections (0403: "Five wrong tokens"). */
 export const MAX_FAILURES = 5;
-/** How long the lock lasts, ms (0380: "for a minute"). */
+/** How long the lock lasts, ms (0403: "for a minute"). */
 export const LOCK_MS = 60_000;
 
 /** One issued token. */

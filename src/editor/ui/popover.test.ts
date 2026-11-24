@@ -87,6 +87,15 @@ describe("popovers (menus and floating panels), in the window they're in (ADR 01
     expect(menu.style).toMatchObject({ left: "50px", top: "40px" });
   });
 
+  it("at a point with no room to its right, open to the left of `flipX` instead of over what they opened beside", () => {
+    const child = fakeWindow(320, 240);
+    const menu = element(child.doc, { size: MENU });
+    openPopover(menu, { anchor: { x: 260, y: 40 }, flipX: 150, onDismiss: () => {} }).close();
+    expect(menu.style).toMatchObject({ left: "50px", top: "40px" });
+    openPopover(menu, { anchor: { x: 100, y: 40 }, flipX: 20, onDismiss: () => {} }).close();
+    expect(menu.style).toMatchObject({ left: "100px" }); // it fits to the right: flipX is unused
+  });
+
   it("open beside an anchor element, flipping to the other side when only that one has room", () => {
     const child = fakeWindow(320, 240);
     const menu = element(child.doc, { size: MENU });

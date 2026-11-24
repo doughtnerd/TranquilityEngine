@@ -2,7 +2,7 @@ import { expect, test, openEditor } from "./fixtures";
 import { exportAndServe, stopServed, type Served } from "./audioExport";
 import { createServer } from "node:net";
 
-// Room codes over WebRTC in real browsers (ADR 0380 "Pairing code", 0381; plan task R6). Page A is a debug web export of
+// Room codes over WebRTC in real browsers (ADR 0403 "Pairing code", 0404; plan task R6). Page A is a debug web export of
 // samples/flappy that listens (`--debug-listen`): a page can't listen, so it opens a rendezvous room on its own origin and shows the
 // room code in its overlay. Page B is the browser editor from the e2e server, which can't listen either: Studio's
 // builds menu > "Connect to a build…" takes the code, joins the room, and the two pages connect over a WebRTC data channel.
@@ -32,7 +32,7 @@ test.describe("room codes over WebRTC in real browsers", { tag: "@slow" }, () =>
     const errors: string[] = [];
     game.on("pageerror", (err) => errors.push(err.message));
 
-    // The export's own serve.mjs hosts the rendezvous at /myco-rendezvous (R4), on a port a room code can name (0381).
+    // The export's own serve.mjs hosts the rendezvous at /myco-rendezvous (R4), on a port a room code can name (0404).
     served = await exportAndServe("flappy", ["--debug-listen"], await freeRoomPort());
     await game.goto(served.url);
 
@@ -78,7 +78,7 @@ test.describe("room codes over WebRTC in real browsers", { tag: "@slow" }, () =>
   });
 });
 
-/** The first free port of 7790..7799, the native range a room code can name (`RENDEZVOUS_PORTS`, ADR 0381). */
+/** The first free port of 7790..7799, the native range a room code can name (`RENDEZVOUS_PORTS`, ADR 0404). */
 async function freeRoomPort(): Promise<number> {
   for (let port = 7790; port <= 7799; port++) {
     const free = await new Promise<boolean>((resolve) => {

@@ -165,7 +165,7 @@ describe("the desktop listening transport", () => {
     expect(tauri.calls).toEqual(["myco_debuglink_listen_range"]);
   });
 
-  it("a listening build's code names the port the native listener really bound (ADR 0380)", async () => {
+  it("a listening build's code names the port the native listener really bound (ADR 0403)", async () => {
     memoryBackend({ taken: [7790, 7791] });
     const engine = await Engine.create({ headless: true });
     const build = await startBuildListener(engine, {
@@ -454,7 +454,7 @@ describe("this machine's network addresses from the shell (nativeInterfaces)", (
   });
 });
 
-describe("one native listener serving the rendezvous beside the debug link (ADR 0380)", () => {
+describe("one native listener serving the rendezvous beside the debug link (ADR 0403)", () => {
   const frame = (m: RendezvousClientMessage) => [0, ...encodeRendezvousMessage(m)];
   const join = (room: number, seat: "waiting" | "joining"): RendezvousClientMessage => ({ t: "join", v: 1, room, token: 5, seat, kind: "page-http" });
   /** What the native side was asked to send to `connection`, decoded as rendezvous messages. */

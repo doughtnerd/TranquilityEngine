@@ -1,6 +1,6 @@
-// The rendezvous service's entry (ADR 0380 "Rendezvous", 0381; plan task R3). Built to one file, dist/rendezvous/rendezvous.mjs:
+// The rendezvous service's entry (ADR 0403 "Rendezvous", 0404; plan task R3). Built to one file, dist/rendezvous/rendezvous.mjs:
 //   node rendezvous.mjs [--host 0.0.0.0] [--port 7790] [--path /myco-rendezvous]
-// Ports (0381): 7790 here; 3000 is the dev server's and 8080 `serve.mjs`'s, which mount the rendezvous on their own port.
+// Ports (0404): 7790 here; 3000 is the dev server's and 8080 `serve.mjs`'s, which mount the rendezvous on their own port.
 // The bundle also exports `startRendezvous(httpServer | { port, host }, path)` for those two to mount it.
 import { fileURLToPath } from "node:url";
 import { RENDEZVOUS_PATH } from "../../src/engine/debugLink/rendezvous/protocol";

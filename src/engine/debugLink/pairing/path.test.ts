@@ -1,4 +1,4 @@
-// Path choice (ADR 0380 "Which path each pair takes"; plan task L5): one case per row of the pair table, in both
+// Path choice (ADR 0403 "Which path each pair takes"; plan task L5): one case per row of the pair table, in both
 // directions, and the rules around it.
 import { describe, expect, it } from "vitest";
 import { ENDPOINT_KINDS, type EndpointKind } from "../protocol";

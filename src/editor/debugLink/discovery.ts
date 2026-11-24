@@ -1,4 +1,4 @@
-// The Connect dialog's model of network discovery (ADR 0380 "Discovery"): browsing starts when the dialog opens and stops
+// The Connect dialog's model of network discovery (ADR 0403 "Discovery"): browsing starts when the dialog opens and stops
 // when it closes, the list is what `browseBuilds` last reported (sorted by name), and `available` says whether this tool
 // can browse at all (a page can't: `browseBuilds` resolves to null, and the dialog then shows no discovery section).
 import { signal, type ReadonlySignal } from "@preact/signals";

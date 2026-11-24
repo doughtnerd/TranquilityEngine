@@ -129,7 +129,15 @@ export function studioProjects({ runtime, openRoute, confirm = (q) => confirmInE
       }
     },
     async handOff(request) {
-      if (request.project === null) {
+      if (request.project === null && request.sample) {
+        // The editor has a sample open (ADR 0380): open the same sample here, read-only.
+        const current = currentProject.peek();
+        if (!(current && current.root === null && current.sample === request.sample)) {
+          const outcome = show(await opening.openResolved({ kind: "sample", sample: await findSample(request.sample) }));
+          if (outcome.kind === "refused") throw new Error(outcome.reason.text);
+          if (outcome.kind === "cancelled") throw new Error(`Opening the ${request.sample} sample was cancelled.`);
+        }
+      } else if (request.project === null) {
         if (currentProject.peek()) close();
       } else if (currentProject.peek()?.root !== request.project) {
         const outcome = show(await openFolder(request.project));

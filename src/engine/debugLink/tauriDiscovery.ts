@@ -1,4 +1,4 @@
-// Network discovery for the debug link (ADR 0380 "Discovery", pairing plan D1): a listening native build advertises
+// Network discovery for the debug link (ADR 0403 "Discovery", pairing plan D1): a listening native build advertises
 // itself on the LAN by mDNS (`_myco-debug._tcp.local.`), and a native tool (the Tauri editor and Studio) browses for
 // them, so the Connect dialog lists nearby builds without a typed address. Pages can't use mDNS: outside Tauri both
 // calls resolve to null and nothing is advertised or listed.

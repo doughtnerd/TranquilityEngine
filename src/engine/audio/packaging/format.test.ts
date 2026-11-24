@@ -49,6 +49,11 @@ describe(".mycopak", () => {
       return out;
     };
     expect(readAudioPack(toc({ format: "other" }))).toEqual({ error: "the table of contents isn't myco.audiopack@1" });
+    // ADR 0386: a package from a newer build says so, naming both versions.
+    expect(readAudioPack(toc({ format: "myco.audiopack@2" }))).toEqual({ error: "incompatible version: file is myco.audiopack@2, this build reads myco.audiopack@1: update Myco to open it" });
+    const v2 = toc({ format: "myco.audiopack@1" });
+    v2.set(new TextEncoder().encode("MYCOPAK2"));
+    expect(readAudioPack(v2)).toEqual({ error: "incompatible version: file is MYCOPAK2, this build reads MYCOPAK1: update Myco to open it" });
     expect(readAudioPack(toc({ format: "myco.audiopack@1", name: "x", platform: "ios", entries: [] }))).toHaveProperty("error");
     const bad = readAudioPack(toc({ format: "myco.audiopack@1", name: "x", platform: "web", entries: [{ path: "a", offset: 1_000_000, bytes: 1, codec: "pcm", rate: 1, channels: 1, frames: 1, load: "decode", hash: "", prefetch: null }] }));
     expect(bad).toEqual({ error: 'entry 0: "a" lies outside the file or off the 16-byte grid' });

@@ -27,8 +27,16 @@ export function quaternionJSON(q: QuatLike): number[] {
 const eulerHints = new Map<string, number[]>();
 const EULER_HINT_LIMIT = 512;
 
-/** A key for a rotation: the same for q and -q, and for float32 copies of it. */
-const rotationKey = (q: QuatLike): string => quaternionJSON(q).map((n) => n.toFixed(5)).join(",");
+/**
+ * A key for a rotation: the same for q and -q, and for float32 copies of it. The sign is chosen after rounding, by
+ * the first of w, x, y, z that isn't 0, so a half turn (w = 0, or float noise either side of it) keys q and -q alike.
+ */
+function rotationKey(q: QuatLike): string {
+  const l = Math.hypot(q.x, q.y, q.z, q.w) || 1;
+  const rounded = [q.w, q.x, q.y, q.z].map((n) => Math.round((n / l) * 1e5));
+  const lead = rounded.find((n) => n !== 0) ?? 1;
+  return rounded.map((n) => (lead < 0 ? -n : n) + 0).join(",");
+}
 
 /** Remember that `angles` (radians, order ZXY) were typed for the rotation `q`. */
 function rememberEulerRadians(angles: readonly number[], q: QuatLike): void {

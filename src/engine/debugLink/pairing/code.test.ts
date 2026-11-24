@@ -1,4 +1,4 @@
-// The pairing code (ADR 0380; plan task L2): Crockford base32, two groups, the first character's range says the kind,
+// The pairing code (ADR 0403; plan task L2): Crockford base32, two groups, the first character's range says the kind,
 // address codes and room codes round-trip, bad text is refused.
 import { describe, expect, it } from "vitest";
 import {

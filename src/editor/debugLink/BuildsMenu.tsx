@@ -21,12 +21,12 @@ export interface BuildsMenuProps {
   onDisconnect(id: number): void;
   onSettings(): void;
   /**
-   * Opens the Connect dialog (ADR 0380: connect to a listening build by its code or address). C7: U1 adds the menu item
+   * Opens the Connect dialog (ADR 0403: connect to a listening build by its code or address). C7: U1 adds the menu item
    * and the dialog; absent, no item.
    */
   onConnect?(): void;
   /**
-   * Opens the Offer a room dialog (ADR 0381: a tool that can't listen shows a room code a browser game joins with
+   * Opens the Offer a room dialog (ADR 0404: a tool that can't listen shows a room code a browser game joins with
    * `?debug-code=`); absent, no item.
    */
   onOfferRoom?(): void;

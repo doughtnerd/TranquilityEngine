@@ -373,7 +373,7 @@ export const CAPTURE_CODEC: LazyOnlyRule = {
 };
 
 /**
- * The debug link (ADR 0376, 0380): everything under `src/engine/debugLink/` (subfolders too: pairing, rendezvous, the
+ * The debug link (ADR 0376, 0403): everything under `src/engine/debugLink/` (subfolders too: pairing, rendezvous, the
  * listener transport) but the topic registry plugins register through (`topics.ts`, a map of `import()` functions with
  * type-only imports); the `webrtc` transport only the link uses (`src/engine/net/transport/webrtc.ts`); the player's
  * pairing overlay (`src/player/debugOverlay*.ts`); and the plugins' topics (`runtime/**\/debugLink/`). The player loads
@@ -425,7 +425,7 @@ export function playerFiles(): Plugin {
 }
 
 /**
- * Ship the rendezvous bundle beside the editor (ADR 0380, plan R4), as the player is: the dev server serves
+ * Ship the rendezvous bundle beside the editor (ADR 0403, plan R4), as the player is: the dev server serves
  * dist/rendezvous/rendezvous.mjs at /rendezvous/rendezvous.mjs (once `npm run build:rendezvous` has run), and the editor
  * build copies it to `rendezvous/`, so the editor's Export can write it beside a debug web build's `serve.mjs`.
  */

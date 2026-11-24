@@ -1,4 +1,4 @@
-// A native Myco app's listener also hosts the rendezvous (ADR 0380 "Rendezvous", plan task R4). The desktop shell's
+// A native Myco app's listener also hosts the rendezvous (ADR 0403 "Rendezvous", plan task R4). The desktop shell's
 // listening transport (`tauriListener.ts`) serves `/myco-rendezvous` beside the debug path on one port; `listeningTransport`
 // is how the editor, the Studio and a game's player turn it on for the transport they are about to listen on.
 //

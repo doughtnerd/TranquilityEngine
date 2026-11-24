@@ -5,6 +5,7 @@ import { effect } from "@preact/signals";
 import { createTransport, transportCanListen } from "../../engine/net/Transport";
 import "../../engine/net/transport/websocket";
 import { listeningTransport } from "../../engine/debugLink/rendezvous/nativeHost";
+import { logMessage } from "../messages";
 import { persisted } from "../preferences";
 import { DEFAULT_DEBUG_LINK_PREFERENCES, cleanPreferences, type DebugLinkPreferences } from "./debugLinkLogic";
 import { currentProject, playing } from "../state";
@@ -21,16 +22,17 @@ export function editorDebugLink(): EditorDebugLink {
   // `main.tsx` registers the native-backed transport (`tauriListener.ts`, ADR 0379) first. A plain browser page can't,
   // and Preferences say so.
   return (link ??= new EditorDebugLink({
-    // The desktop editor's listener also answers the rendezvous at `/myco-rendezvous` (ADR 0380), so pages and tools on
+    // The desktop editor's listener also answers the rendezvous at `/myco-rendezvous` (ADR 0403), so pages and tools on
     // the LAN can pair through it.
     transport: () => (transportCanListen("websocket") ? listeningTransport(createTransport("websocket")) : null),
     playTransport: transportCanListen("websocket") ? "websocket" : null,
+    log: logMessage,
   }));
 }
 
 /**
  * Listens as the preferences say, and again whenever they change; serves the editor's Play as a build while it runs
- * (ADR 0380, U3: a tool pairs with Play as with a game); returns the stop.
+ * (ADR 0403, U3: a tool pairs with Play as with a game); returns the stop.
  */
 export function startEditorDebugLink(): () => void {
   const l = editorDebugLink();

@@ -37,7 +37,7 @@ describe("the Studio's debug link", () => {
     platform.tauri = true;
     const { link, prefs } = await start();
     expect(platform.registered).toBe(1);
-    expect(platform.hosted).toBe(1); // the listening transport also hosts the rendezvous (ADR 0380)
+    expect(platform.hosted).toBe(1); // the listening transport also hosts the rendezvous (ADR 0403)
     expect(link.state.value).toEqual({ kind: "listening", address: expect.stringContaining(String(prefs.port)) });
   });
 

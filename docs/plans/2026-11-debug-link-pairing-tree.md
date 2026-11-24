@@ -54,10 +54,10 @@ Leaf brief: the template in the plan-milestone-build skill's `task-tree.md`, wit
 |---|---|---|---|---|
 | L0 (0.5) | C | all | — | — |
 | L1 (1.5) | S | every contract | none: interfaces are judgement | — |
-| L2 (0.75) | — | — | single leaf L2: `code.ts`, `code.test.ts`; 0380 "Pairing code" + C2 | 0.75 |
-| L3 (0.5) | — | — | single leaf L3: `gate.ts`, `gate.test.ts`; 0380 token rules + C2 | 0.5 |
-| L4 (0.5) | — | — | single leaf L4: `address.ts`, `address.test.ts`; 0380 address completion | 0.5 |
-| L5 (0.5) | — | — | single leaf L5: `path.ts`, `path.test.ts`; 0380 pair table | 0.5 |
+| L2 (0.75) | — | — | single leaf L2: `code.ts`, `code.test.ts`; 0403 "Pairing code" + C2 | 0.75 |
+| L3 (0.5) | — | — | single leaf L3: `gate.ts`, `gate.test.ts`; 0403 token rules + C2 | 0.5 |
+| L4 (0.5) | — | — | single leaf L4: `address.ts`, `address.test.ts`; 0403 address completion | 0.5 |
+| L5 (0.5) | — | — | single leaf L5: `path.ts`, `path.test.ts`; 0403 pair table | 0.5 |
 | L6 (0.5) | — | — | single leaf L6: `config.ts`, `config.test.ts`; C6 key list | 0.5 |
 | L7 (3) | S | lifecycle, reconnect, `pair`, token, prompt rules, both directions | L7a: `roles.test.ts` from the acceptance list | 0.5 |
 | L8 (1.5) | M | all | unsplit: Rust socket code and a cross-module move | — |
@@ -87,7 +87,7 @@ Leaf brief: the template in the plan-milestone-build skill's `task-tree.md`, wit
 | R4 (2) | M | all | unsplit: four hosts, one routing rule | — |
 | R5 (2) | M | all | unsplit: wiring across modules | — |
 | R6 (1.5) | M | all | unsplit | — |
-| R7 (1.5) | — | — | single leaf R7: two dialogs' fields, `debugLinkLogic.ts` preferences, stories; C6 and 0380 | 1.5 |
+| R7 (1.5) | — | — | single leaf R7: two dialogs' fields, `debugLinkLogic.ts` preferences, stories; C6 and 0403 | 1.5 |
 
 ### M3
 

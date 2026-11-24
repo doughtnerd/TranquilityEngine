@@ -49,6 +49,21 @@ describe("take request records (ADR 0348)", () => {
     expect(decode(r)).toEqual({ type: "request", requests: r.payload.poses.map((p) => ({ kind: "pose", t: 1, ...p })) });
   });
 
+  it("a finite value past the f32 range is written at the range's edge, so the record stays readable", () => {
+    const F32_MAX = 3.4028234663852886e38;
+    const records: TakeRecordInit[] = [
+      { type: TakeRecordType.PLAY, payload: { kind: "play", t: 0, instance: 1, path: "a.wav", emitter: null, options: { volume: 1e39, pitch: -1e300 } } },
+      { type: TakeRecordType.STOP, payload: { kind: "stop", t: 0, instance: 1, fade: 1e300 } },
+      { type: TakeRecordType.MIX, payload: { kind: "mix", t: 0, op: "busFade", target: "Music", value: 0.5, seconds: 1e40 } },
+      { type: TakeRecordType.POSE, payload: { t: 0, poses: [{ emitter: 2, position: { x: 1e39, y: -1e39, z: 0 }, velocity: { x: 0, y: 0, z: 0 } }] } },
+    ];
+    for (const r of records) expect(codeOf(() => decode(r))).toBe("none");
+    const play = decode(records[0]!) as { requests: { options: { volume: number; pitch: number } }[] };
+    expect(play.requests[0]!.options).toMatchObject({ volume: F32_MAX, pitch: -F32_MAX });
+    const pose = decode(records[3]!) as { requests: { position: { x: number; y: number } }[] };
+    expect(pose.requests[0]!.position).toMatchObject({ x: F32_MAX, y: -F32_MAX });
+  });
+
   it("a FRAME and a take KEYFRAME round-trip", () => {
     const frame: TakeRecordInit = { type: TakeRecordType.FRAME, payload: { t: 1, width: 160, height: 90, jpeg: new Uint8Array([0xff, 0xd8, 1, 2, 3, 0xff, 0xd9]) } };
     expect(decode(frame)).toEqual({ type: "frame", frame: frame.payload });
@@ -76,7 +91,30 @@ describe("take request records (ADR 0348)", () => {
 
   it("names the request record types and only those", () => {
     for (const t of Object.values(TakeRecordType)) expect(isTakeRecordType(t)).toBe(true);
-    for (const t of [0x01, 0x08, 0x0f, 0x1e, 0x7f, 0x80]) expect(isTakeRecordType(t)).toBe(false);
+    for (const t of [0x01, 0x08, 0x0f, 0x21, 0x7f, 0x80]) expect(isTakeRecordType(t)).toBe(false);
+  });
+
+  it("ADR 0386: PAUSE, RESUME and FADE round-trip; a negative fade is refused", () => {
+    const requests: TakeRecordInit[] = [
+      { type: TakeRecordType.PAUSE, payload: { kind: "pause", t: 1.5, instance: 7 } },
+      { type: TakeRecordType.RESUME, payload: { kind: "resume", t: 2.25, instance: 7 } },
+      { type: TakeRecordType.FADE, payload: { kind: "fade", t: 3, instance: 0x4000_0002, to: 0.25, seconds: 1.5 } },
+    ];
+    for (const r of requests) expect(decode(r)).toEqual({ type: "request", requests: [r.payload] });
+    const fade = encodeTakeRecordBytes(requests[2]!);
+    const bad = (off: number, x: number) => {
+      const b = fade.slice();
+      new DataView(b.buffer).setFloat32(off, x, true);
+      try {
+        decodeTakeRecord(TakeRecordType.FADE, new DataView(b.buffer), 0, b.byteLength);
+        return "decoded";
+      } catch (e) {
+        return e instanceof TakeRecordError ? e.code : "other";
+      }
+    };
+    expect(bad(12, -1)).toBe("badValue");
+    expect(bad(16, -1)).toBe("badValue");
+    expect(bad(12, NaN)).toBe("badValue");
   });
 
   it("ADR 0354 §10, 0355 §6: LINE, LANGUAGE, SAY and SAYSTATE round-trip", () => {

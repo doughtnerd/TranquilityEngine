@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0376, 0380) for the debug link's preferences: listening on this machine (the default), the LAN toggle
+// Stories (ADR 0219, 0376, 0403) for the debug link's preferences: listening on this machine (the default), the LAN toggle
 // (off by default), the port (a bad one falls back), the rendezvous URL and ICE servers (empty, filled, invalid), listening
 // off (the fields rest disabled), and a host that can't listen.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

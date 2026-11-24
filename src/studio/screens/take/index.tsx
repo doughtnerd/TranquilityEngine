@@ -52,7 +52,7 @@ function DocScope(props: { children: ComponentChildren }) {
   );
 }
 
-/** ADR 0380 (plan U5): the recorder of the connected build's takes; a build that left keeps it while it shows a failure. */
+/** ADR 0403 (plan U5): the recorder of the connected build's takes; a build that left keeps it while it shows a failure. */
 const buildTake = signal<BuildTakeRecorder | null>(null);
 
 /** Follows `studioBuild`: a recorder per chosen build; a build whose link closed fails what its recorder was doing. */

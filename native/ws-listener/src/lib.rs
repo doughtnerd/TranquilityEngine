@@ -37,6 +37,9 @@ const ACCEPT_POLL: Duration = Duration::from_millis(10);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 /// After a local close, how long to wait for the peer's close frame.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
+/// A peer that takes none of what's been sent for this long is closed as too slow, even under the
+/// backlog limit (the page may have stopped sending, or closed it and be waiting for nothing).
+const STALL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Close codes (RFC 6455).
 const GOING_AWAY: u16 = 1001;
@@ -321,7 +324,9 @@ fn run_connection(stream: TcpStream, remote: SocketAddr, shared: Arc<Shared>) {
         return;
     }
     let _ = ws.get_mut().set_read_timeout(Some(POLL));
-    let _ = ws.get_mut().set_write_timeout(None);
+    // Writes never block for long either: a peer that stops reading must not hold this thread,
+    // or the backlog limit could never close it (see `pump`).
+    let _ = ws.get_mut().set_write_timeout(Some(POLL));
 
     let id = shared.next_id.fetch_add(1, Ordering::Relaxed);
     let (commands, inbox) = mpsc::channel();
@@ -362,14 +367,47 @@ fn pump(
 ) -> Option<(u16, String)> {
     // Set once this end has sent its close frame: wait for the peer's, then stop. The report, if any, goes with it.
     let mut closing: Option<(Instant, Option<(u16, String)>)> = None;
+    // Set while tungstenite holds output the peer hasn't taken: since when. Nothing more is taken
+    // from the inbox meanwhile, so `queued` keeps counting what waits and the backlog limit applies.
+    let mut stalled: Option<Instant> = None;
     loop {
         if closing.is_none() {
+            if let Some(since) = stalled {
+                match ws.flush() {
+                    Ok(()) => stalled = None,
+                    Err(WsError::Io(e)) if would_block(&e) => {
+                        let waiting = queued.load(Ordering::Acquire);
+                        if waiting > shared.limits.max_backlog_bytes
+                            || since.elapsed() > STALL_TIMEOUT
+                        {
+                            // Sending a close frame would stall too: just drop the connection.
+                            return Some((
+                                TOO_BIG,
+                                format!("too slow: {waiting} bytes waiting to send"),
+                            ));
+                        }
+                    }
+                    Err(e) => return Some((ABNORMAL, format!("connection lost: {e}"))),
+                }
+            }
+        }
+        if closing.is_none() && stalled.is_none() {
             loop {
                 match inbox.try_recv() {
                     Ok(Command::Send(data)) => {
                         queued.fetch_sub(data.len(), Ordering::AcqRel);
-                        if let Err(e) = ws.send(Message::Binary(Bytes::from(data))) {
-                            return Some((ABNORMAL, format!("connection lost: {e}")));
+                        // `write` buffers the frame before it flushes, and a flush that would block
+                        // keeps what it couldn't write, so a stall loses nothing.
+                        let sent = ws
+                            .write(Message::Binary(Bytes::from(data)))
+                            .and_then(|()| ws.flush());
+                        match sent {
+                            Ok(()) => {}
+                            Err(WsError::Io(e)) if would_block(&e) => {
+                                stalled = Some(Instant::now());
+                                break;
+                            }
+                            Err(e) => return Some((ABNORMAL, format!("connection lost: {e}"))),
                         }
                     }
                     Ok(Command::Close {
@@ -428,8 +466,7 @@ fn pump(
                 }
             }
             Ok(_) => {} // ping, pong: tungstenite answers pings itself
-            Err(WsError::Io(e))
-                if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {}
+            Err(WsError::Io(e)) if would_block(&e) => {}
             Err(WsError::ConnectionClosed) | Err(WsError::AlreadyClosed) => {
                 return match closing {
                     Some((_, report)) => report,
@@ -453,6 +490,11 @@ fn pump(
             closing = Some((Instant::now(), None));
         }
     }
+}
+
+/// Whether an I/O error is a socket timeout (WouldBlock on Unix, TimedOut on Windows), not a failure.
+fn would_block(e: &io::Error) -> bool {
+    e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut
 }
 
 /// A close frame; the reason is cut to the 123 bytes a close frame allows.
@@ -736,6 +778,30 @@ mod tests {
                 code,
                 ..
             } => assert_eq!((c, code), (connection, TOO_BIG)),
+            other => panic!("expected a close, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_peer_that_stops_reading_is_closed_once_the_backlog_is_over_the_limit() {
+        let (listener, rx) = listen("127.0.0.1", 0, "/");
+        let _client = connect(listener.port(), "/").unwrap(); // never reads
+        let Event::Accept { connection, .. } = next(&rx) else {
+            panic!("accept first")
+        };
+        // Far more than the peer's socket buffers hold, so the writes stall and the queue grows.
+        for _ in 0..32 {
+            listener.send(connection, vec![0u8; 1024 * 1024]);
+        }
+        match next(&rx) {
+            Event::Close {
+                connection: c,
+                code,
+                reason,
+            } => {
+                assert_eq!((c, code), (connection, TOO_BIG));
+                assert!(reason.starts_with("too slow"), "{reason}");
+            }
             other => panic!("expected a close, got {other:?}"),
         }
     }

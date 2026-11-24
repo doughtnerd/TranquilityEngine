@@ -1,7 +1,7 @@
-// Room codes (ADR 0380 "Pairing code", 0381; plan task R5): pairs where neither side can reach a listener on the other
+// Room codes (ADR 0403 "Pairing code", 0404; plan task R5): pairs where neither side can reach a listener on the other
 // meet in a rendezvous room and connect over the `webrtc` transport, signalled through that room.
 //
-// **Who makes the room (0381).** The waiting side, the one that shows the code, opens a room on a rendezvous it can
+// **Who makes the room (0404).** The waiting side, the one that shows the code, opens a room on a rendezvous it can
 // reach (`roomPlace`) and shows its code; the joining side reads the rendezvous from the code (`joinCandidates`), joins
 // with the code's room and token, and makes the WebRTC offer. A room is single use: once the two peers connect, or after
 // 5 minutes, the rendezvous forgets it, so the waiting side opens the next room for the next code (`RoomOffer`).
@@ -18,7 +18,7 @@
 //   says what to do.
 // - Otherwise (a page on https, an http page on a port no code names, a page by a host name) the hosted rendezvous
 //   (`debug.rendezvous`, Preferences) when one is configured, else no room, with a sentence saying why.
-// Which of LAN and hosted is chosen is `choosePath`'s rule 3 and 4 (0380's pair table), so the rules live in one place.
+// Which of LAN and hosted is chosen is `choosePath`'s rule 3 and 4 (0403's pair table), so the rules live in one place.
 //
 // **One token, checked twice.** The code's token is the waiting side's `TokenGate`'s current token (20 bits for a LAN
 // room, 30 for a hosted one). The rendezvous checks it when the joining side takes its seat (a wrong one never gets an

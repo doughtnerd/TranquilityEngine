@@ -5,7 +5,7 @@ import { openTakeFile } from "../../src/plugins/audio/runtime/capture/takeFile";
 import { createTakeReceiver, type TakeReceiveResult } from "../../src/plugins/audio/editor/debugLink/takeReceiver";
 import { AudioRequest, decodeTakeChunk, type TakeStateReply, type TakeUploadReply } from "../../src/plugins/audio/runtime/debugLink/schema";
 
-// The debug link in a real exported game (plan task S1, ADR 0376, 0380): samples/flappy is exported for the web with debugging
+// The debug link in a real exported game (plan task S1, ADR 0376, 0403): samples/flappy is exported for the web with debugging
 // on, pointing at a Node tool listener (`debugLinkFixture.ts`); Chromium opens it, the build connects and says hello, and the
 // tool records a take over the link (`take.start`, `take.mark`, `take.stop`), uploads it (`take.upload`, the `upload`
 // subscription, `createTakeReceiver`) and opens the bytes as a take file. The game's own save isn't reachable without internals,

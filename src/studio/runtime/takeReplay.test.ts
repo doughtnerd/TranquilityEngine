@@ -36,6 +36,9 @@ function fakeTarget(opts: { seeds?: boolean } = {}) {
         release() { h.released = true; log.push(`release ${path}`); },
         setParameter(n, value) { h.params[n] = value; log.push(`param ${path} ${n}=${value}`); },
         trigger(n) { h.triggers.push(n); log.push(`trigger ${path} ${n}`); },
+        pause() { log.push(`pause ${path}`); },
+        resume() { log.push(`resume ${path}`); },
+        fade(to, s) { log.push(`fade ${path} ${to}/${s}`); },
       };
       handles.push(h);
       log.push(`play ${path}`);
@@ -90,6 +93,46 @@ describe("TakeReplay (ADR 0348)", () => {
     expect(handles[0]!.stopped).toBe(0.2);
     expect(replay.time.value).toBe(5);
     expect(replay.instances.value.map((i) => i.path)).toEqual(["brake"]);
+  });
+
+  it("ADR 0386: re-issues a handle's pause, resume and fade at their times", () => {
+    const { replay, log, at } = setup([
+      req({ kind: "play", t: 0.5, instance: 1, path: "music", emitter: null, options: {} }),
+      req({ kind: "pause", t: 1, instance: 1 }),
+      req({ kind: "pause", t: 1.2, instance: 1 }), // already paused: nothing
+      req({ kind: "resume", t: 2, instance: 1 }),
+      req({ kind: "fade", t: 3, instance: 1, to: 0.5, seconds: 2 }),
+    ]);
+    replay.play();
+    log.length = 0;
+    at(4);
+    expect(log).toEqual(["play music", "pause music", "resume music", "fade music 0.5/2"]);
+  });
+
+  it("ADR 0386: a seek starts an instance where its pauses left it, paused if it was, at its fade gain with the rest of its fade", () => {
+    const records = [
+      req({ kind: "play", t: 0, instance: 1, path: "music", emitter: null, options: {} }),
+      req({ kind: "pause", t: 1, instance: 1 }),
+      req({ kind: "resume", t: 3, instance: 1 }),
+      req({ kind: "fade", t: 4, instance: 1, to: 0, seconds: 2 }),
+      req({ kind: "pause", t: 6, instance: 1 }),
+    ];
+    const a = setup(records);
+    a.replay.play();
+    a.replay.seek(5);
+    const h = a.alive()[0]!;
+    // 5 s into the take, 2 of them paused: 3 s into the music; halfway down a 1 -> 0 fade with 1 s of it left.
+    expect(h.options.offset).toBeCloseTo(3, 9);
+    expect(a.log.slice(-2)).toEqual(["fade music 0.5/0", "fade music 0/1"]);
+    const b = setup(records);
+    b.replay.play();
+    b.replay.seek(2);
+    // Paused at 1 (1 s in): it starts there, paused, and the resume at 3 is still to come.
+    expect(b.alive()[0]!.options.offset).toBeCloseTo(1, 9);
+    expect(b.log.at(-1)).toBe("pause music");
+    b.log.length = 0;
+    b.at(1.5);
+    expect(b.log).toEqual(["resume music"]);
   });
 
   it("stops at the end of the take and plays again from the start", () => {

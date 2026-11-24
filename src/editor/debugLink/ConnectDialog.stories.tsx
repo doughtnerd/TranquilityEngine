@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0380) for the Connect dialog: empty, typing, connecting, each failure kind, the discovered list, and
+// Stories (ADR 0219, 0403) for the Connect dialog: empty, typing, connecting, each failure kind, the discovered list, and
 // Enter, Escape and a successful connect closing it.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

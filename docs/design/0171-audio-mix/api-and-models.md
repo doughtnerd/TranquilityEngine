@@ -337,7 +337,8 @@ The header is **not** compressed, so a wire mismatch or a size bomb is refused b
 | 72 | 4 | `recordCount` u32 |
 | 76 | 4 | `indexBytes` u32: the INDEX record's length (0 when `hasIndex` is clear) |
 | 80 | 4 | `ringBytes` u32 |
-| 84 | 4 | reserved, 0 |
+| 84 | 2 | formatMinor (ADR 0386; 0 in files written before it): a newer one than the build reads is refused (`newerFormat`) |
+| 86 | 2 | reserved, 0 |
 | 88 | 8 | `firstFrame` f64: the oldest kept frame |
 
 **Reading, each step refusing with a `CaptureError` and its code before the next:** length >= 96 and magic (`badMagic`); `format` 1 (`newerFormat`/`olderFormat`); `SCHEMA_HASH` equal to this build's (`wireMismatch`, whose message names both ABI versions and says "re-record with this build"); `uncompressedBytes <= CAPTURE_MAX_UNCOMPRESSED_BYTES` (64 MiB, R16) (`tooLarge`); inflate with a hard stop at `uncompressedBytes + 1` (`inflateOverrun`); then META, then records. No header count sizes an allocation; arrays grow by the records read, up to the caps.
@@ -370,7 +371,7 @@ Canonical order is (epoch, frame, seq); **within one epoch no record's frame is 
 | 0x05 | EVENT | `f64 perfMs`, `u8 kind`, `u8 reason`, `u16 argc`, `argc` x `u32`, an optional trailing `f32` per kind (§5.6) |
 | 0x06 | MARKER | `f64 perfMs`, `u16 n`, `n` UTF-8 bytes (<= 120): owner joins and Compare swaps write one |
 | 0x07 | NAMES | `u8 table` (0 clip, 1 bus, 2 event, 3 parameter, 4 snapshot, 5 target), `u8[3]`, `u32 id`, `u16 n`, `n` bytes: a name first used after the META chunk |
-| 0x08 | MIXOP | one `MixOp` (§6.2's byte form), `f64 perfMs`, origin (0 editor, 1 script, 2 undo, 3 redo, 4 compare, 5 debugLink: a tool's `mix.op` over the debug link, ADR 0380) |
+| 0x08 | MIXOP | one `MixOp` (§6.2's byte form), `f64 perfMs`, origin (0 editor, 1 script, 2 undo, 3 redo, 4 compare, 5 debugLink: a tool's `mix.op` over the debug link, ADR 0403) |
 | 0x09 | WRAP | the writer jumped to offset 0; ring only, stripped by the saver |
 | 0x7F | INDEX | §5.4 |
 

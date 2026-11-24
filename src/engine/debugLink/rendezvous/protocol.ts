@@ -1,4 +1,4 @@
-// The rendezvous's messages (ADR 0380 "Rendezvous"): "both sides connect out with the room code, the rendezvous passes
+// The rendezvous's messages (ADR 0403 "Rendezvous"): "both sides connect out with the room code, the rendezvous passes
 // the offer, answer and candidates between them, and forgets the room once they connect or after 5 minutes. It never
 // carries debug traffic." One TypeScript implementation (`server.ts`, `client.ts`, task R1) speaks this over any
 // listening `websocket` transport at path `/myco-rendezvous` (0067): a native Myco app, the dev server, a debug
@@ -16,16 +16,16 @@
 //
 // Limits (plan §7a, a tripwire against abuse of a hosted instance): `RENDEZVOUS_MAX_ROOMS` rooms, each relaying at most
 // `ROOM_MAX_BYTES` in all; past either the server answers `error` (`full`, `too-big`). Five joins with a wrong token
-// to one room lock that room's joins for a minute (`locked`), as the token gate does (0380 "Pairing code").
+// to one room lock that room's joins for a minute (`locked`), as the token gate does (0403 "Pairing code").
 import { ENDPOINT_KINDS, type EndpointKind } from "../protocol";
 
 /** The rendezvous protocol's version: a `join` with another is refused (`version`). */
 export const RENDEZVOUS_VERSION = 1;
-/** The path a rendezvous answers on (0380, 0067). */
+/** The path a rendezvous answers on (0403, 0067). */
 export const RENDEZVOUS_PATH = "/myco-rendezvous";
 /** The largest message, bytes (an SDP offer is a few KB). */
 export const RENDEZVOUS_MAX_MESSAGE_BYTES = 16 * 1024;
-/** How long a room lives, ms (0380: "or after 5 minutes"). */
+/** How long a room lives, ms (0403: "or after 5 minutes"). */
 export const ROOM_EXPIRY_MS = 5 * 60_000;
 /** Rooms at once (plan §7a). */
 export const RENDEZVOUS_MAX_ROOMS = 64;

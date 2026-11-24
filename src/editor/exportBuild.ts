@@ -71,7 +71,7 @@ const playerFiles: FileSource = { read: (path) => fetchBytes(new URL(`player/${p
 export async function exportProjectBuild(project: EditorProject, fs: FileSystem, out: string, progress?: (done: number, total: number) => void, options: BuildOptions = {}): Promise<WebBuildPlan> {
   if (project.root && isOutputInsideProject(project.root, out)) throw new ExportError("That folder is inside the project, where the next export would copy it in. Choose a folder outside it (or its dist/ folder).");
   const name = project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name;
-  // ADR 0380 "Rendezvous" 2: a debug build's serve.mjs hosts the rendezvous from a bundle served beside the editor (rendezvous/rendezvous.mjs); without it the build says so.
+  // ADR 0403 "Rendezvous" 2: a debug build's serve.mjs hosts the rendezvous from a bundle served beside the editor (rendezvous/rendezvous.mjs); without it the build says so.
   const debugOn = options.debugLink !== undefined || options.debugListen === true || options.debugLan === true || options.debugPort !== undefined || options.debugRendezvous !== undefined;
   const rendezvousBundle = debugOn && options.rendezvousBundle === undefined ? await fetchText(new URL("rendezvous/rendezvous.mjs", document.baseURI).href) : undefined;
   const plan = await planWebBuild({ name, settings: project.settings, files: project.files, scripts: project.scripts, json: jsonFiles(project), packages: packageSourceFor(project, "production") }, { ...options, ...(rendezvousBundle !== undefined && { rendezvousBundle }) });

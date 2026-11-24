@@ -4,11 +4,11 @@
 // commands at the frame start, samples at the frame end. When the tool isn't listening yet, or goes away, it tries again
 // every few seconds of frames, so a build started before the editor still connects.
 //
-// ADR 0380 adds the other direction: a native build with `debug.listen` listens (`startBuildListener`, a
+// ADR 0403 adds the other direction: a native build with `debug.listen` listens (`startBuildListener`, a
 // `BuildListener`) and tools connect to it, pairing with the code the build shows. Both directions run the same session.
-// ADR 0381 adds rooms (`rooms.ts`, loaded by `import()`): a page with `debug.listen`, which can't listen, offers a
+// ADR 0404 adds rooms (`rooms.ts`, loaded by `import()`): a page with `debug.listen`, which can't listen, offers a
 // rendezvous room and shows its room code; a build given a tool's room code (`?debug-code=`) joins the tool's room. Both
-// connect over the `webrtc` transport; which path a build takes is `choosePath`'s (0380's pair table).
+// connect over the `webrtc` transport; which path a build takes is `choosePath`'s (0403's pair table).
 //
 // **Connecting out (version 2).** Every connection's first messages are `pair` (role build, the build's kind, the token
 // of the tool's code given at launch, its name) and `hello`, sent together (`DebugLinkSession`'s `pair`). A token is
@@ -68,7 +68,7 @@ export interface DebugLinkOptions {
   readonly log?: (line: string) => void;
   /**
    * The tool's pairing code, typed into the build's launch (`--debug-code <code>`, `?debug-code=`; plan decision O6),
-   * or null. Version 2 (ADR 0380): on every connection the build sends `pair` (role `build`, its `kind`, this code's
+   * or null. Version 2 (ADR 0403): on every connection the build sends `pair` (role `build`, its `kind`, this code's
    * token) and then `hello`; without a code the `pair` carries no token and a tool on another machine asks a person
    * (0376's accept prompt). A code that doesn't read as one is logged and left out.
    */
@@ -76,7 +76,7 @@ export interface DebugLinkOptions {
   /** The build's endpoint kind, sent in `pair` (default `native` under Tauri, else `page-http` or `page-https` by the page's scheme). */
   readonly kind?: EndpointKind;
   /**
-   * For a room code (ADR 0381: the tool waits in a rendezvous room and the build joins it over `webrtc`): the page's own
+   * For a room code (ADR 0404: the tool waits in a rendezvous room and the build joins it over `webrtc`): the page's own
    * location, whose host completes a LAN room code's address (default the global `location`; null for none).
    */
   readonly page?: PageLocation | null;
@@ -109,7 +109,7 @@ async function loadTopics(engine: Engine, log: (line: string) => void): Promise<
   return topics;
 }
 
-/** This endpoint's kind (ADR 0380): a Tauri app is native, a page by its scheme; anything else (Node) can listen too. */
+/** This endpoint's kind (ADR 0403): a Tauri app is native, a page by its scheme; anything else (Node) can listen too. */
 function ownKind(): EndpointKind {
   const g = globalThis as { __TAURI_INTERNALS__?: unknown; location?: { protocol?: string } };
   if (g.__TAURI_INTERNALS__ !== undefined) return "native";
@@ -139,7 +139,7 @@ export async function startDebugLink(engine: Engine, options: DebugLinkOptions):
   }
   const kind = options.kind ?? ownKind();
 
-  // A room code (ADR 0381): the tool waits in a rendezvous room; the build joins it and connects over `webrtc`, trying
+  // A room code (ADR 0404): the tool waits in a rendezvous room; the build joins it and connects over `webrtc`, trying
   // the code's rendezvous candidates in turn. Anything else connects to the tool's listener (`debug.link`).
   let addresses = [config.link];
   let shown = [config.link];
@@ -259,7 +259,7 @@ export async function startDebugLink(engine: Engine, options: DebugLinkOptions):
   };
 }
 
-// --- the build listens (ADR 0380 "Roles"; plan contract C3) -----------------------------------------------------------
+// --- the build listens (ADR 0403 "Roles"; plan contract C3) -----------------------------------------------------------
 
 /** A tool that connects to a listening build, as the build's prompt sees it. */
 export interface ToolAtTheDoor extends DebugPair {
@@ -316,7 +316,7 @@ export interface BuildListenerOptions {
   readonly log?: (line: string) => void;
   /**
    * The build's endpoint kind (default: `native` under Tauri, else `page-http` or `page-https` by the page's scheme). A
-   * native build listens on a WebSocket; a page offers a rendezvous room (ADR 0381).
+   * native build listens on a WebSocket; a page offers a rendezvous room (ADR 0404).
    */
   readonly kind?: EndpointKind;
   /** A page's own location, for where its rooms open (`rooms.ts` `roomPlace`); default the global `location`, null for none. */
@@ -326,7 +326,7 @@ export interface BuildListenerOptions {
 }
 
 /**
- * A listening build (ADR 0380: "whichever side can listen does"): it listens on the first free port of
+ * A listening build (ADR 0403: "whichever side can listen does"): it listens on the first free port of
  * `debug.port`..`debug.port + 9` (7790..7799), on `0.0.0.0` with `debug.lan` and loopback otherwise, and accepts tools.
  * Each connecting tool's first message is `pair` (role `tool`): the token goes through a `TokenGate`
  * (`pairing/gate.ts`), a same-machine tool needs none, a tokenless one from another machine goes to `prompt` (or is
@@ -388,8 +388,8 @@ function privateOctets(interfaces: readonly NetworkInterfaceAddress[]): PairOcte
  * or false) or nothing could listen (every port of the range taken: logged). Topics load as in `startDebugLink`. The
  * listener closes with the Engine.
  *
- * Which way tools reach it is `choosePath`'s (0380's pair table): a native build listens on a WebSocket; a page, which
- * can't listen, offers a rendezvous room instead (ADR 0381, `rooms.ts`): its code is a room code, tools join the room
+ * Which way tools reach it is `choosePath`'s (0403's pair table): a native build listens on a WebSocket; a page, which
+ * can't listen, offers a rendezvous room instead (ADR 0404, `rooms.ts`): its code is a room code, tools join the room
  * and connect over `webrtc`, and the same tool door (`pair` through the gate, then the session) runs on that
  * connection. `options.transport` is then the transport the room's rendezvous connections use. A page that can make no
  * room (on https with no hosted rendezvous, say) still gets a listener, with no code and `notice` saying why, so its
@@ -413,7 +413,7 @@ export async function startBuildListener(engine: Engine, options: BuildListenerO
     const at = `ws://${lan ? "0.0.0.0" : "127.0.0.1"}:${base + offset}${DEBUG_LINK_PATH}`;
     try {
       await transport.listen(at);
-      // The desktop's native listener scans the range itself (ADR 0380, L8) and may have bound a later port than asked;
+      // The desktop's native listener scans the range itself (ADR 0403, L8) and may have bound a later port than asked;
       // the code must name the port it really got.
       port = tauriListenerPort(transport) ?? base + offset;
       address = `ws://${lan ? "0.0.0.0" : "127.0.0.1"}:${port}${DEBUG_LINK_PATH}`;

@@ -1,4 +1,4 @@
-// Address completion (ADR 0380; plan task L4): candidates from a native interface list or a page's own host, private
+// Address completion (ADR 0403; plan task L4): candidates from a native interface list or a page's own host, private
 // ranges only, a typed full address passed through.
 import { describe, expect, it } from "vitest";
 import { addressCandidates, isPrivateIpv4 } from "./address";

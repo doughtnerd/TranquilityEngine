@@ -58,6 +58,17 @@ export class TauriFileSystem implements FileSystem {
 
   async rename(from: string, to: string): Promise<void> {
     const fs = await import("@tauri-apps/plugin-fs");
+    if (from !== to && from.toLowerCase() === to.toLowerCase()) {
+      // A change of case only: on a case-insensitive file system (Windows, macOS) `exists(to)` finds `from` itself, so
+      // only `to`'s exact name in its folder's listing means another entry has it. Go through a temporary name, which
+      // every file system renames reliably.
+      const sep = Math.max(to.lastIndexOf("/"), to.lastIndexOf("\\"));
+      if ((await fs.readDir(to.slice(0, sep) || to.slice(0, sep + 1))).some((e) => e.name === to.slice(sep + 1))) throw new Error(`"${to}" already exists.`);
+      const tmp = tempPath(from);
+      await fs.rename(from, tmp);
+      await fs.rename(tmp, to);
+      return;
+    }
     if (await fs.exists(to)) throw new Error(`"${to}" already exists.`);
     await fs.rename(from, to);
   }

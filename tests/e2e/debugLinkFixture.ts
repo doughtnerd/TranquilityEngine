@@ -2,7 +2,7 @@ import { DebugLinkListener, type DebugLinkPeer } from "../../src/engine/debugLin
 import { DEBUG_LINK_PATH } from "../../src/engine/debugLink/config";
 import { createWebSocketServerTransport } from "../../src/server/websocketServer";
 
-// The debug-link spec's tool: a Node process playing the editor or the Studio (ADR 0376, 0380). It listens with the engine's
+// The debug-link spec's tool: a Node process playing the editor or the Studio (ADR 0376, 0403). It listens with the engine's
 // `DebugLinkListener` over the Node WebSocket transport on a free loopback port, polls it on a timer (the listener is polled by
 // its owner, as the editor's clock does), and hands the test the first build that says hello.
 

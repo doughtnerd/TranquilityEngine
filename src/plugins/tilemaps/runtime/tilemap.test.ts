@@ -8,7 +8,7 @@ import { CHUNK_CELLS, cellToChunk, cellValue, decodeChunk, encodeChunk, migrateL
 import { buildChunkMeshes, type TileFrame } from "./mesh";
 import { blobMasks, canonicalBlob, maskToPattern, neighbourMask, patternScore, pickTerrainTile, sidesPattern } from "./neighbourPatterns";
 import { flipPoint, rotateClockwise, sourceCorner } from "./tileFlips";
-import { Tileset, newTileset, parseTileset, pickWeighted, tileAnchor, type TileDef } from "./tileset";
+import { Tileset, legacyTileUuid, newTileset, parseTileset, pickWeighted, tileAnchor, type TileDef } from "./tileset";
 
 const TILESET = {
   format: "myco.tileset@1",
@@ -44,8 +44,9 @@ describe("tilemap format (ADR 0103)", () => {
 
   it("migrates layers: defaults for missing values, older versions without an upgrade and newer versions refused", () => {
     const l = migrateLayer({ name: "A", chunks: { "0,0": "1", bad: "2" } });
-    expect(l).toMatchObject({ v: 1, name: "A", sortingLayer: "Default", visible: true, collision: true, opacity: 1 });
+    expect(l).toMatchObject({ v: 2, palette: { 1: legacyTileUuid(1) }, name: "A", sortingLayer: "Default", visible: true, collision: true, opacity: 1 });
     expect(Object.keys(l.chunks)).toEqual(["0,0"]);
+    expect(l.palette).toEqual({ 1: legacyTileUuid(1) });
     expect(() => migrateLayer({ v: 99 })).toThrow(/newer/);
     expect(() => migrateLayer({ v: 0 })).toThrow(/no migration from layer version 0/);
   });
@@ -79,7 +80,7 @@ describe("tilesets (ADR 0103)", () => {
 });
 
 describe("auto-tiling (ADR 0103)", () => {
-  const terrainTiles = (patterns: string[]): TileDef[] => patterns.map((pattern, i) => ({ id: 10 + i, sprite: "", collision: "none", terrain: "G", pattern }));
+  const terrainTiles = (patterns: string[]): TileDef[] => patterns.map((pattern, i) => ({ id: 10 + i, uuid: legacyTileUuid(10 + i), sprite: "", collision: "none", terrain: "G", pattern }));
 
   it("scores patterns: fixed positions must agree, wildcards are free", () => {
     expect(patternScore("1*1*1*1*", 0b01010101)).toBe(4);
@@ -136,6 +137,12 @@ describe("tile collision shapes (ADR 0105)", () => {
     expect(loops.every((l) => l.length === 4)).toBe(true);
     // Cells touching at a corner get separate loops.
     expect(traceOutlines([[0, 0], [1, 1]])).toHaveLength(2);
+    // ...whichever order the cells come in (the trace may start at the shared corner).
+    for (const cells of [[[1, 1], [0, 0]], [[1, 0], [0, 1]], [[0, 1], [1, 0]]] as [number, number][][]) {
+      const split = traceOutlines(cells);
+      expect(split).toHaveLength(2);
+      expect(split.every((l) => l.length === 4)).toBe(true);
+    }
   });
 
   it("splits one-way runs per row and flips polygons with their cell", () => {
@@ -242,6 +249,9 @@ describe("Tilemap component (ADR 0103)", () => {
     map.layers = data;
     expect(map.getCell(-20, 0)).toBe(cellValue(4, FLIP_Y));
     expect(() => map.setTile(0, 0, 1, "nope")).toThrow();
+    // A coordinate that isn't a finite number names no cell: refused, adding no chunk and reporting no change.
+    for (const [x, y] of [[NaN, 0], [0, Infinity], [-Infinity, NaN]]) expect(() => map.setTile(x!, y!, 1)).toThrow(/cell/);
+    expect(Object.keys(map.toLayerData()[0].chunks)).toEqual(["-2,0"]);
     map.layers = [...data, newLayer("Top")];
     map.fillRect(0, 0, 2, 2, 1, "Top");
     expect(map.getTile(1, 1, 1)).toBe(1);
@@ -336,6 +346,6 @@ describe("tile anchors (ADR 0119)", () => {
     expect(problems.join()).toMatch(/tile 3 "anchor"/);
     expect(tileAnchor(tileset, tileset.tiles[0])).toEqual([0, 1]);
     expect(tileAnchor(tileset, tileset.tiles[1])).toEqual([0.5, 0]);
-    expect(tileAnchor(newTileset(), { id: 1, sprite: "", collision: "none" })).toEqual([0, 0]);
+    expect(tileAnchor(newTileset(), { id: 1, uuid: legacyTileUuid(1), sprite: "", collision: "none" })).toEqual([0, 0]);
   });
 });

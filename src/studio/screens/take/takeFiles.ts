@@ -16,7 +16,7 @@ export const NO_TAKES = "Record one with Record take on the editor's Play toolba
 
 /**
  * The Take screen's centre with no take open (spec §1.3: an empty state is one short line saying what to do): the
- * title, and one line that says how a take is recorded (the Studio records only from a connected build, ADR 0380; it
+ * title, and one line that says how a take is recorded (the Studio records only from a connected build, ADR 0403; it
  * can't record its own: owner decision 1).
  */
 export function takeEmptyCopy(hasTakes: boolean): { readonly title: string; readonly line: string } {

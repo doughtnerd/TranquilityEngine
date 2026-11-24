@@ -1,4 +1,4 @@
-// The pairing overlay (ADR 0380 "Pairing code"), through its module's interface, with a minimal stand-in page (the unit
+// The pairing overlay (ADR 0403 "Pairing code"), through its module's interface, with a minimal stand-in page (the unit
 // tests run without a DOM): shown while no tool is connected, hidden once one pairs, shown again when the last leaves,
 // F8 toggling, and the code updating. The player's release safety is checked below with the build's lazy-only rule.
 import { describe, expect, it } from "vitest";

@@ -68,7 +68,7 @@ describe("the Export dialog's audio capture checkbox (its option reaches the bui
   });
 });
 
-describe("the Export dialog's Rendezvous URL (ADR 0380)", () => {
+describe("the Export dialog's Rendezvous URL (ADR 0403)", () => {
   it("the desktop command adds --debug-rendezvous only with debugging on and a URL given", async () => {
     const project = await folderProject(demoFolder());
     expect(desktopExportCommand(project, false, false, true, true, false, false, "")).not.toContain("--debug-rendezvous");

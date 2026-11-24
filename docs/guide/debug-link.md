@@ -6,7 +6,7 @@ another one on the same network, and with the editor's own Play. Release exports
 
 Records: [0376](../decisions/0376-a-debug-link-connects-running-builds-to-the-editor-and-the-studio.md) (the link),
 [0379](../decisions/0379-the-desktop-editor-listens-for-the-debug-link-through-a-native-websocket-server.md) (the
-desktop listener), [0380](../decisions/0380-debug-link-pairing-reaches-every-native-and-browser-endpoint-on-one-network.md)
+desktop listener), [0403](../decisions/0403-debug-link-pairing-reaches-every-native-and-browser-endpoint-on-one-network.md)
 (pairing). Takes: [audio-takes.md](audio-takes.md).
 
 ## Turning it on in a game
@@ -61,7 +61,7 @@ can record takes from Play.
 ### Room codes: browser pages
 
 A browser page can't listen, so a listening web build opens a **room** on a rendezvous instead and shows a **room
-code** (ADR 0381). The rendezvous only passes the handshake between the two sides; the link itself then runs
+code** (ADR 0404). The rendezvous only passes the handshake between the two sides; the link itself then runs
 directly between them over WebRTC.
 
 - A debug web export's `serve.mjs` hosts the rendezvous on its own port (the export copies `rendezvous.mjs` beside
