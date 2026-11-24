@@ -1,6 +1,6 @@
 # 0069. Game UI components on pmndrs uikit: canvases, panels, text, images, buttons, inputs, and UI-first pointer routing
 
-- **Status:** Accepted; partly superseded by 0076 (uikit for layout and drawing; the components stay), extended by 0077 (UI documents)
+- **Status:** Accepted; partly superseded by 0076 (uikit for layout and drawing; the components stay), extended by 0077 (UI documents), amended by 0385 (raycast targets: text, images and panels with a background or border block the pointer too)
 - **Date:** 2026-11-04
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

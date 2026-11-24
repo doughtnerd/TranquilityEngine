@@ -37,27 +37,34 @@ interface KindSpec<C extends UIComponentType = UIComponentType> {
   pseudo?(c: C): Partial<Record<UIPseudo, boolean>>;
   /** Draws something of its own (a fill, border, text or image), opacity aside. */
   paints(c: C): boolean;
+  /** Is a graphic in Unity's sense, which stops the pointer while its `raycastTarget` is on (ADR 0385). */
+  graphic(c: C): boolean;
 }
 
 const visible = (c: { a: number } | null | undefined): boolean => !!c && c.a > 0;
 const panelPaints = (c: UIPanel): boolean => visible(c.backgroundColor) || (c.borderWidth > 0 && visible(c.borderColor));
+/** A panel with a background (a transparent one too: Unity's invisible blocker) or a border; without either it's a layout box. */
+const panelIsGraphic = (c: UIPanel): boolean => c.backgroundColor !== null || c.borderWidth > 0;
+const always = () => true;
 
 /** The kinds, subclasses before the classes they extend (the first whose type matches wins). */
 const KINDS: readonly KindSpec[] = [
-  { kind: "canvas", type: UICanvas, tag: "Canvas", leaf: false, interactive: false, flexShrink: 0, paints: () => false },
+  { kind: "canvas", type: UICanvas, tag: "Canvas", leaf: false, interactive: false, flexShrink: 0, paints: () => false, graphic: () => false },
   {
     kind: "button", type: UIButton, tag: "Button", leaf: false, interactive: true, flexShrink: 0,
     pseudo: (c: UIButton) => ({ hover: c.hovered, pressed: c.pressed, disabled: !c.interactable }),
     paints: panelPaints,
+    graphic: always,
   } as KindSpec<UIButton> as KindSpec,
   {
     kind: "input", type: UIInputField, tag: "InputField", leaf: true, interactive: true, flexShrink: 0,
     pseudo: (c: UIInputField) => ({ focus: c.focused }),
     paints: (c: UIInputField) => panelPaints(c) || textRunOf(c)!.text !== "",
+    graphic: always,
   } as KindSpec<UIInputField> as KindSpec,
-  { kind: "text", type: UIText, tag: "Text", leaf: true, interactive: false, flexShrink: 1, paints: (c: UIText) => textRunOf(c)!.text.trim() !== "" } as KindSpec<UIText> as KindSpec,
-  { kind: "image", type: UIImage, tag: "Image", leaf: true, interactive: false, flexShrink: 0, paints: (c: UIImage) => c.image !== "" } as KindSpec<UIImage> as KindSpec,
-  { kind: "panel", type: UIPanel, tag: "Panel", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints } as KindSpec<UIPanel> as KindSpec,
+  { kind: "text", type: UIText, tag: "Text", leaf: true, interactive: false, flexShrink: 1, paints: (c: UIText) => textRunOf(c)!.text.trim() !== "", graphic: always } as KindSpec<UIText> as KindSpec,
+  { kind: "image", type: UIImage, tag: "Image", leaf: true, interactive: false, flexShrink: 0, paints: (c: UIImage) => c.image !== "", graphic: always } as KindSpec<UIImage> as KindSpec,
+  { kind: "panel", type: UIPanel, tag: "Panel", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: panelIsGraphic } as KindSpec<UIPanel> as KindSpec,
 ];
 
 const BY_KIND = new Map(KINDS.map((k) => [k.kind, k]));
@@ -109,6 +116,16 @@ export function uiPseudoState(c: UIComponentType): Record<UIPseudo, boolean> {
 export function isPaintedUI(c: UIComponentType): boolean {
   if (!(c instanceof UICanvas) && c.opacity <= 0) return false;
   return specOf(c).paints(c);
+}
+
+/**
+ * True when the pointer stops at the element (ADR 0385, Unity's `Graphic.raycastTarget`): its `raycastTarget` is on
+ * and it is a graphic (text, an image, a button, an input field, or a panel with a background or a border). Whether
+ * it is shown and active is the caller's to check. A canvas never is.
+ */
+export function isRaycastTarget(c: UIComponentType): boolean {
+  if (c instanceof UICanvas || !c.raycastTarget) return false;
+  return specOf(c).graphic(c);
 }
 
 /**

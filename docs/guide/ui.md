@@ -51,6 +51,7 @@ Every element has flexbox fields (Yoga's, with web defaults). Lengths are UI pix
 | `opacity` | 0–1, multiplied into its children's |
 | `visible` | `false` hides it and its children, keeping its space |
 | `display` | `flex` (default), or `none` to take it and its children out of layout, drawing and the pointer |
+| `raycastTarget` | `true` (default): the pointer stops at it, if it's a graphic ([below](#the-pointer-goes-to-ui-first)); `false`: it passes through |
 
 Children shrink to fit a parent that's too small (flexbox's `flex-shrink: 1`).
 
@@ -94,13 +95,15 @@ A button's or field's `focused` is true while it has focus; set it to focus or u
 
 ## The pointer goes to UI first
 
-Each frame, before any script runs, the pointer is tested against the UI's buttons and input fields: screen canvases from the highest `sortOrder`, the topmost element first (later siblings draw over earlier ones), then world canvases, nearest first. When it's over one:
+Each frame, before any script runs, the pointer is tested against the UI's raycast targets (below): screen canvases from the highest `sortOrder`, the topmost element first (later siblings draw over earlier ones), then world canvases, nearest first. When it's over one:
 
 - `Input.pointerOverUI` is true.
 - That frame's mouse presses go to the UI: `Input.getMouseButtonDown` reports false for them. A press that began on UI stays the UI's until it's released: `getMouseButton` and `getMouseButtonUp` report false for it too.
 - A press that began in the game stays the game's, even when it's released over a button (which then isn't clicked).
 
-A button with `interactable` off still blocks the pointer from the game, but isn't hovered, pressed or clicked. Panels, text and images don't block it.
+**Raycast targets** ([ADR 0385](../decisions/0385-ui-elements-stop-the-pointer-by-their-raycast-target-field-as-in-unity.md)). Every element has `raycastTarget`, like Unity's `Graphic.raycastTarget`, on by default. Text, images, buttons and input fields stop the pointer, and so does a panel with a `backgroundColor` (a transparent one too: an invisible click blocker) or a border; a panel with neither is a layout box and the pointer passes it. A press on text, an image or a panel goes to the UI and does nothing; inside a button, it presses the button (a button's label passes its clicks to the button). Turn `raycastTarget` off for decoration over the game, such as a HUD's markers or a hint line, so clicks reach the game through it (`raycastTarget="false"` in a UI document, or `raycast-target: false` in its stylesheet). It's per element: children keep their own. A button with `raycastTarget` off is pressed only through a child that stops the pointer.
+
+A button with `interactable` off still blocks the pointer from the game, but isn't hovered, pressed or clicked.
 
 Pressing a button or an input field focuses it (a field starts typing); pressing anywhere else unfocuses it. Escape stops typing, keeping the field focused. Typing goes through a hidden DOM `<input>`, so IME, paste and the OS's text tools work. While a field is typing, `Input.keyboardOverUI` is true and `Input.getKey`, `getKeyDown`, `getKeyUp` and `anyKeyDown` report false for keys, so typing a name doesn't move the ship.
 
