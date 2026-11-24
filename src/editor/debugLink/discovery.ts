@@ -16,7 +16,7 @@ export interface DiscoveryModel {
   stop(): void;
 }
 
-/** "desktop" -> "Desktop"? No: platforms read as the build reports them, so "Racer — desktop, 192.168.1.20". */
+/** A list row: the name, the platform as the build reports it, and the host ("Racer — desktop, 192.168.1.20"). */
 export function buildLabel(build: DiscoveredBuild): string {
   return `${build.name} — ${build.platform}, ${hostOf(build.address)}`;
 }
