@@ -16,6 +16,12 @@
 // Options: --rounds N (3), --frames N (300 measured), --warm N (120), --only a,b (scenario names), --port N
 // (ANIM_BENCH_PORT, else E2E_PORT, else 3791), --out FILE, --keep (keep the temp project and a player this run built),
 // --regen (regenerate the fixtures), --sizes (only the size review; needs nothing built).
+// GPU: by default the page draws with SwiftShader (software WebGL2, no WebGPU), so stage times compare across machines
+// and the container. --gpu asks for the machine's real adapter: Chromium's full browser in its new headless mode (the
+// headless shell has no GPU) with the platform's ANGLE backend (d3d11 on Windows, metal on macOS, vulkan on Linux) and
+// WebGPU on; --headed opens a visible window instead (the surest way to get the GPU, and implies --gpu); --angle NAME
+// overrides the backend. The adapter actually used is probed and recorded; a --gpu run that still lands on a software
+// renderer stops, unless --allow-software.
 //
 // Budgets are tripwires (CLAUDE.md, ADR 0370): this prints and records, and exits 0 whatever the numbers say.
 import { execFileSync, spawn } from "node:child_process";
@@ -134,8 +140,58 @@ const base = `http://localhost:${port}/`;
 const { chromium } = await import("playwright");
 // The project's Playwright browser, else the container's (as tools/audio-startup does), else CHROMIUM_PATH.
 const executablePath = process.env.CHROMIUM_PATH ?? (!existsSync(chromium.executablePath()) && existsSync("/opt/pw-browsers/chromium") ? "/opt/pw-browsers/chromium" : undefined);
-const browser = await chromium.launch({ executablePath, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--autoplay-policy=no-user-gesture-required"] });
+const headed = flag("headed");
+const gpu = flag("gpu") || headed;
+const PLATFORM_ANGLE = { win32: "d3d11", darwin: "metal" };
+const angle = opt("angle", gpu ? (PLATFORM_ANGLE[process.platform] ?? "vulkan") : "swiftshader");
+const launchArgs = ["--autoplay-policy=no-user-gesture-required", `--use-angle=${angle}`];
+if (angle === "swiftshader") launchArgs.push("--enable-unsafe-swiftshader");
+else {
+  launchArgs.push("--enable-gpu", "--ignore-gpu-blocklist", "--enable-unsafe-webgpu");
+  if (angle === "vulkan") launchArgs.push("--enable-features=Vulkan,VulkanFromANGLE,DefaultANGLEVulkan");
+}
+// The headless shell (Playwright's default headless browser) draws in software only; the full browser's new headless
+// mode (channel "chromium") can use the GPU. A CHROMIUM_PATH or the container's browser is used as it is.
+const browser = await chromium.launch({ executablePath, headless: !headed, ...(gpu && !executablePath && { channel: "chromium" }), args: launchArgs });
 const browserVersion = browser.version();
+
+/** The WebGL2 renderer and WebGPU adapter a page gets, read through the browser's own APIs on a served page. */
+async function probeAdapter() {
+  const page = await browser.newPage();
+  try {
+    await page.goto(`${base}anim-bench-gpu-probe`); // any page on the server (a 404 too): localhost is a secure context, so navigator.gpu exists
+    return await page.evaluate(async () => {
+      const gl = document.createElement("canvas").getContext("webgl2");
+      const info = gl?.getExtension("WEBGL_debug_renderer_info");
+      const webgl = gl ? String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER)) : null;
+      let webgpu = null;
+      try {
+        const adapter = await navigator.gpu?.requestAdapter();
+        if (adapter) {
+          const i = adapter.info ?? {};
+          webgpu = [i.vendor, i.architecture, i.device, i.description].filter(Boolean).join(" ") || "available";
+        }
+      } catch {
+        webgpu = null;
+      }
+      return { webgl, webgpu };
+    });
+  } finally {
+    await page.close();
+  }
+}
+const adapter = await probeAdapter();
+const SOFTWARE = /swiftshader|llvmpipe|softpipe|software|basic render/i;
+const softwareGL = !adapter.webgl || SOFTWARE.test(adapter.webgl);
+const softwareGPU = adapter.webgpu !== null && SOFTWARE.test(adapter.webgpu);
+const adapterText = `WebGL2 ${adapter.webgl ?? "unavailable"}${softwareGL ? " (software)" : ""}; WebGPU ${adapter.webgpu ?? "none"}${softwareGPU ? " (software)" : ""}`;
+console.log(`[anim-bench] ${headed ? "headed" : "headless"}, ANGLE ${angle}: ${adapterText}`);
+if (gpu && softwareGL && !flag("allow-software")) {
+  await browser.close();
+  server.kill();
+  console.error("[anim-bench] --gpu asked for the hardware adapter but the page got a software renderer. Try --headed, another --angle (d3d11, d3d12, vulkan, gl, metal), or update the GPU driver; --allow-software runs anyway.");
+  process.exit(1);
+}
 
 const rounds = Number(opt("rounds", 3));
 const frames = Number(opt("frames", 300));
@@ -205,7 +261,7 @@ for (const r of table) {
   const verdict = r.budget ? `${r.budget.ms} ms: evaluate ${r.evaluate.median <= r.budget.ms ? "under" : "OVER"}, total ${r.animation.median <= r.budget.ms ? "under" : "OVER"}` : "";
   console.log(`  ${r.scenario.padEnd(18)} ${[r.timeline, r.gather, r.evaluate, r.apply, r.animation, r.rest, r.step].map((x) => f(x.median).padStart(10)).join(" ")}  ${verdict}`);
 }
-console.log("  * rest: lateUpdate scripts, propagation, render sync and the Babylon render (WebGL2 on SwiftShader here).");
+console.log(`  * rest: lateUpdate scripts, propagation, render sync and the Babylon render (${adapterText}).`);
 if (skinning !== null) console.log(`  GPU skinning (characters rest - characters_noskin rest: palette upload, mycoSkin dispatch and drawing 100 meshes): ${f(skinning)} ms`);
 console.log("  CPU skinning matrices are written inside the core's evaluate (FrameMeter: not separable).");
 for (const r of table) {
@@ -231,7 +287,7 @@ const outFile = opt("out", join(root, "test-results/anim-bench/latest.json"));
 mkdirSync(dirname(outFile), { recursive: true });
 writeFileSync(outFile, `${JSON.stringify({
   when: new Date().toISOString(),
-  machine: { cpus: cpus().length, model: cpus()[0]?.model, node: process.version, browser: `Chromium ${browserVersion} (headless, WebGL2 on SwiftShader)`, note: "container measurements unless stated otherwise" },
+  machine: { cpus: cpus().length, model: cpus()[0]?.model, node: process.version, browser: `Chromium ${browserVersion} (${headed ? "headed" : "headless"}, ANGLE ${angle})`, gpu: { requested: gpu, angle, webgl: adapter.webgl, webgpu: adapter.webgpu, software: softwareGL, softwareWebGPU: softwareGPU }, note: softwareGL ? "software rendering: render and skinning times don't reflect a GPU" : "hardware GPU" },
   options: { rounds, frames, warm },
   scenarios: table,
   skinningMs: skinning,
