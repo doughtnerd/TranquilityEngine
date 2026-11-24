@@ -1,0 +1,9 @@
+/* The Lights 2D plugin's Inspector notes and settings rows (ADR 0399). Theme tokens only (src/editor/theme.ts). */
+.lights2d-section { margin: 4px 0; }
+.lights2d-note { margin: 4px 0; color: var(--muted); font-size: 11px; }
+.lights2d-note-warning { color: var(--danger); }
+[data-lights2d-hidden] { display: none; }
+.lights2d-styles { display: flex; flex-direction: column; gap: 4px; }
+.lights2d-style { display: grid; grid-template-columns: minmax(80px, 1fr) auto auto auto auto auto auto; gap: 4px; align-items: center; }
+.lights2d-style input[type="number"] { width: 56px; }
+.lights2d-style .lights2d-weight { color: var(--muted); font-size: 11px; }

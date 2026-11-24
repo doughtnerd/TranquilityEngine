@@ -805,7 +805,9 @@ export class BabylonRenderer {
       }
     }
     const post = this.lastPost;
-    const features: RenderFeatureDiagnostics = { lights2D: this.lights2D.state() };
+    const lights2D = this.lights2D.state();
+    // The 2D lighting rig reports once a World has 2D lights or shadow casters (ADR 0399).
+    const features: RenderFeatureDiagnostics = lights2D.lights || lights2D.casters ? { lights2D } : {};
     const out: Omit<RenderDiagnostics, "started" | "quality"> = {
       lighting: this.lighting.state(),
       // Composed only once the frame graph with the composer's passes has built: until then it hasn't drawn.

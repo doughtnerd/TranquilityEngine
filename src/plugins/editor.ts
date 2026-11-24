@@ -15,6 +15,7 @@ import { subtitlesEditorPlugin } from "./subtitles/editor";
 import { tilemapsEditorPlugin } from "./tilemaps/editor";
 import { meshesEditorPlugin } from "./meshes/editor";
 import { environmentEditorPlugin } from "./environment/editor";
+import { lights2dEditorPlugin } from "./lights2d/editor";
 import { postProcessingEditorPlugin } from "./post-processing/editor";
 import { ragdollEditorPlugin } from "./ragdoll/editor";
 import { uiEditorPlugin } from "./ui/editor";
@@ -33,6 +34,7 @@ const EDITOR_HALVES: { readonly [K in FirstPartyPlugin]?: EditorPlugin } = {
   physics: physicsEditorPlugin,
   meshes: meshesEditorPlugin,
   environment: environmentEditorPlugin,
+  lights2d: lights2dEditorPlugin,
   "post-processing": postProcessingEditorPlugin,
   ui: uiEditorPlugin,
   lines: linesEditorPlugin,
