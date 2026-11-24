@@ -314,9 +314,9 @@ function outsideReferences(doc: SceneDocument, inside: ReadonlySet<string>, copi
     // Owner decision (ADR 0396): a list mixing outside references with inside ones keeps only the outside ones (and
     // the kept root) in the instance's override; the prefab file still holds the inside ones.
     if (Array.isArray(value) && value.some((item) => lost(nodeRefId(item)))) {
-      const before = value.length;
-      value = value.filter((item) => !lost(nodeRefId(item)));
-      dropped += before - value.length;
+      const kept: unknown[] = value.filter((item) => !lost(nodeRefId(item)));
+      dropped += value.length - kept.length;
+      value = kept;
     }
     const target = r.path[0] === root ? r.path.slice(1) : [...r.path];
     overrides.push({ ...(target.length ? { target } : {}), component: r.type, index: r.index, field: r.field, value });
