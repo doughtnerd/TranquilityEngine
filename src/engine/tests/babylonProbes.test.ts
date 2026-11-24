@@ -128,4 +128,16 @@ describe("reflection probes on the Babylon backend (ADR 0075 stage 6)", () => {
     sync();
     expect(probes.state(0).probes).toBe(0);
   });
+
+  it("frees a baked map with its probe when the component is gone", () => {
+    Assets.addSource(Assets.fromObject({ "probes/room.env": "data:application/octet-stream;base64,AAAA" }));
+    const p = probe([0, 0, 0], [10, 10, 10], { refresh: "baked", bakedMap: "probes/room.env" });
+    const before = new Set(scene.textures);
+    sync();
+    const baked = scene.textures.filter((t) => !before.has(t));
+    expect(baked.length).toBeGreaterThan(0); // the baked map, loading
+    GameObject.destroy(p.node);
+    sync();
+    expect(scene.textures.filter((t) => baked.includes(t))).toEqual([]);
+  });
 });

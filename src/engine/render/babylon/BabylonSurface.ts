@@ -187,7 +187,9 @@ export class BabylonSurface implements RenderSurface {
   }
 
   async warmUp(set: WarmContent): Promise<void> {
-    while (!this.renderer && !this.disposed) await new Promise((r) => setTimeout(r, 16));
+    // Wait for the renderer to start; if it couldn't (the error is logged) or the surface was disposed,
+    // there is nothing to warm, and the scene load carries on rather than waiting forever.
+    await this.started;
     await this.renderer?.warmUp(set);
   }
 
@@ -198,7 +200,8 @@ export class BabylonSurface implements RenderSurface {
 
   async preloadTextures(paths: string[], onProgress?: (p: number) => void): Promise<void> {
     // Textures load into the renderer's scene, so wait for it (it's quick next to the textures).
-    while (!this.renderer && !this.disposed) await new Promise((r) => setTimeout(r, 16));
+    // A renderer that failed to start (logged) or a disposed surface has nothing to load into.
+    await this.started;
     await this.renderer?.preloadTextures(paths, onProgress);
   }
 }
