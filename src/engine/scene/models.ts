@@ -544,9 +544,13 @@ export function loadModel(ref: string): Promise<ModelData> {
   entry.promise.catch(() => {}); // reported by whoever awaits it, or by `meshesIfLoaded`
   cache.set(path, entry);
   // The old meshes go once the new ones have loaded: by then every renderer has let go of them,
-  // since `meshesIfLoaded` reports the model as loading from now on (physics copies triangles).
-  const old = cached?.data;
-  if (old) entry.promise.finally(() => disposeModel(old)).catch(() => {});
+  // since `meshesIfLoaded` reports the model as loading from now on (physics copies triangles). A replaced load
+  // that hasn't finished yet goes too, once both have settled, or its meshes would never be disposed.
+  if (cached) {
+    void Promise.allSettled([cached.promise, entry.promise]).then(() => {
+      if (cached.data) disposeModel(cached.data);
+    });
+  }
   return entry.promise;
 }
 
