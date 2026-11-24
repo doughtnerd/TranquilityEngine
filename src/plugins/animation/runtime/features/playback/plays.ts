@@ -115,7 +115,7 @@ function maskEntry(rt: AnimatorRuntime, path: string): ClipEntry | null {
   const key = `\u0000mask\u0000${path}\u0000${s.path}`;
   let entry = rt.clips.get(key);
   if (entry) return entry;
-  const e: ClipEntry = { path, handle: undefined, info: null };
+  const e: ClipEntry = { path, skeleton: s.path, handle: undefined, info: null };
   rt.clips.set(key, e);
   const ns = rt.ns;
   void acquireMask(ns, path, { path: s.path, info: s.info, profile: skeletonProfileOf(s) }).then((handle) => {
