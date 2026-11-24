@@ -90,6 +90,9 @@ const newId = (): number => {
 interface Run {
   readonly root: Group;
   readonly ns: AnimationWorldCore;
+  /** The program's host id (its key in `Store.runs`, and the id its change records carry). */
+  readonly hostId: number;
+  /** The core timeline. */
   readonly handle: number;
   readonly valueOffset: number;
   readonly weightOffset: number;
@@ -410,7 +413,7 @@ class Group extends Item {
     }
     const run = this.run;
     if (run && run.root === this) {
-      if (store) store.runs.delete(run.handle);
+      if (store) store.runs.delete(run.hostId);
       run.ns.core.timelineControl(run.handle, TL_KILL);
       run.ns.forgetTimeline(run.handle);
     }
@@ -629,7 +632,7 @@ function startGroup(store: Store, ns: AnimationWorldCore, g: Group): void {
     .timelineBlocks(handle)
     .map((b) => ({ index: b.index, offset: b.offset, words: b.words, leaf: byHost.get(b.hostId)! }))
     .filter((b) => b.leaf);
-  const run: Run = { root: g, ns, handle, valueOffset: info.valueOffset, weightOffset: info.weightOffset, blocks };
+  const run: Run = { root: g, ns, hostId: id, handle, valueOffset: info.valueOffset, weightOffset: info.weightOffset, blocks };
   store.runs.set(id, run);
   markRunning(g, run);
   for (const m of compiled) {
