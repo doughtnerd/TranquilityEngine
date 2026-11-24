@@ -19,6 +19,6 @@ Rules this wave:
 - Typecheck always; `npx vitest related` on changed files; the Studio, engine-audio and plugins-audio suites for your
   area; story play tests for the stories you touch. No Playwright e2e.
 - Don't edit coordinator files (docs/README.md, implementation-status, decision log, build-log, ADRs); put doc text
-  in your report. Update `docs/guide/*` user docs for what you add if a guide covers it.
+  in your report. Update `docs/wiki/guide/*` user docs for what you add if a guide covers it.
 - Report: branch, commits, ADR 0362 items done, tests (fail-before checked), sizes/gates changed, screenshots, doc
   text, anything for the owner.

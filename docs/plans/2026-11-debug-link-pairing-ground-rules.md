@@ -19,7 +19,7 @@ Only the coordinator writes these; ask in your report:
 - `src/engine/debugLink/protocol.ts` and `topics.ts` after W0; `src/engine/debugLink/config.ts` after W1a;
 - `src/plugins/audio/runtime/index.ts` after W1a; `src/player/main.ts` except U2; `src/editor/main.tsx`; `src/studio/main.tsx` except U4;
 - `src/export/{webBuild,node,main,format}.ts` except U6 (W2) and R4 (W4);
-- `docs/architecture/implementation-status.md`, `docs/README.md`, `docs/decisions/*`, `docs/guide/*` (supply text in your report).
+- `docs/architecture/implementation-status.md`, `docs/README.md`, `docs/decisions/*`, `docs/wiki/guide/*` (supply text in your report).
 
 ## Rules of the engine and this build
 

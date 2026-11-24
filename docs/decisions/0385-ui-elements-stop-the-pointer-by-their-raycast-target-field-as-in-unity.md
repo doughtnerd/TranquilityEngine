@@ -87,4 +87,4 @@ it". Both now read as this record says.
   `src/engine/ui/UICore.ts` (`hit`, `route`).
 - Tests: `src/engine/tests/uiCore.test.ts` ("UICore raycast targets"), `src/engine/tests/uiDocument.test.ts`
   (attribute and stylesheet property).
-- Guide: `docs/guide/ui.md`, "The pointer goes to UI first".
+- Guide: `docs/wiki/guide/ui.md`, "The pointer goes to UI first".

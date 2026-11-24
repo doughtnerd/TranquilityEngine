@@ -47,7 +47,7 @@ npm run test:e2e:slow -- audio-mix-listening --project chromium-slow --workers 1
 
 If a check fails in the terminal, the step did not run as built: note it as an issue with the message, and carry on with the next step.
 
-**Reading the numbers while you listen.** **Window > Audio Debug** shows the bus rows (effective gain and a peak meter per bus). The Sound Lab's own readouts are on keys: **D** (loudness readout on the main page; the duck lanes on the Mixer page). Words you will see in the guide chapters: [Audio mixing](../../guide/audio-mixing.md), [Loudness](../../guide/audio-loudness.md), [Audio profiler](../../guide/audio-profiler.md).
+**Reading the numbers while you listen.** **Window > Audio Debug** shows the bus rows (effective gain and a peak meter per bus). The Sound Lab's own readouts are on keys: **D** (loudness readout on the main page; the duck lanes on the Mixer page). Words you will see in the guide chapters: [Audio mixing](../../wiki/guide/audio-mixing.md), [Loudness](../../wiki/guide/audio-loudness.md), [Audio profiler](../../wiki/guide/audio-profiler.md).
 
 ## Part 1. M5-0: the stamped bus path
 
@@ -312,7 +312,7 @@ The walker cannot show a dip (a few meter readings per 40 ms), cannot open the r
 
 ## Part 4. Capture from an exported game
 
-A game exported with the capture option records its own audio mix on a key press (or a three-finger touch), saves a `.mycap` file, and the editor's **Audio Profiler** opens that file. This is the whole loop a tester would use. **Automated check pending (X3):** the round-trip test has not run yet; the steps below are written from [the profiler guide](../../guide/audio-profiler.md) and the trigger's source, and nobody has run them end to end. Report anything that differs from what they say.
+A game exported with the capture option records its own audio mix on a key press (or a three-finger touch), saves a `.mycap` file, and the editor's **Audio Profiler** opens that file. This is the whole loop a tester would use. **Automated check pending (X3):** the round-trip test has not run yet; the steps below are written from [the profiler guide](../../wiki/guide/audio-profiler.md) and the trigger's source, and nobody has run them end to end. Report anything that differs from what they say.
 
 ### CAP1. Export with capture and record. Desktop browser
 

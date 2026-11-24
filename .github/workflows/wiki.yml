@@ -1,0 +1,82 @@
+# ADR 0407: the GitHub wiki is built from docs/wiki/ and a TypeDoc API reference of the `myco` module
+# (tools/build-wiki.mjs). Pull requests check that it builds with no broken links; pushes to master publish it.
+# Nobody edits the wiki by hand: if it was edited on the web since the last sync, the publish job stops and lists
+# those commits instead of overwriting them. Move the edits into docs/wiki/ (or decide to drop them), then re-run
+# this workflow from the Actions tab with "overwrite" ticked.
+name: Wiki
+
+on:
+  push:
+    branches: [ master ]
+    paths: [ 'docs/wiki/**', 'src/**', 'typedoc.json', 'tools/build-wiki.mjs', 'tools/wiki-pages.mjs', 'package-lock.json', '.github/workflows/wiki.yml' ]
+  pull_request:
+    branches: [ master ]
+    paths: [ 'docs/wiki/**', 'src/**', 'typedoc.json', 'tools/build-wiki.mjs', 'tools/wiki-pages.mjs', 'package-lock.json', '.github/workflows/wiki.yml' ]
+  workflow_dispatch:
+    inputs:
+      overwrite:
+        description: Publish even if the wiki was edited by hand since the last sync (those edits are lost)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: wiki-${{ github.event_name == 'pull_request' && github.ref || 'publish' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  wiki:
+    name: ${{ github.event_name == 'pull_request' && 'Check the wiki build' || 'Publish the wiki' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Unit tests
+        run: node --test tools/wiki-pages.test.mjs
+
+      - name: Check the build
+        if: github.event_name == 'pull_request'
+        run: npm run docs:wiki -- --out "$RUNNER_TEMP/wiki"
+
+      - name: Clone the wiki
+        if: github.event_name != 'pull_request'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: git clone "https://x-access-token:${TOKEN}@github.com/${{ github.repository }}.wiki.git" "$RUNNER_TEMP/wiki"
+
+      - name: Refuse to overwrite hand edits
+        if: github.event_name != 'pull_request' && !inputs.overwrite
+        working-directory: ${{ runner.temp }}/wiki
+        run: |
+          last=$(git log -n1 --format=%H --grep='^Sync from ')
+          # No sync commit yet: the first publish replaces GitHub's starter Home page.
+          [ -z "$last" ] && exit 0
+          edits=$(git log --format='%h %an %ad %s' --date=short "$last"..HEAD)
+          if [ -n "$edits" ]; then
+            echo "::error::The wiki was edited by hand since the last sync. Move these edits into docs/wiki/ (or drop them), then re-run this workflow with 'overwrite' ticked."
+            echo "$edits"
+            exit 1
+          fi
+
+      - name: Build into the wiki
+        if: github.event_name != 'pull_request'
+        run: npm run docs:wiki -- --out "$RUNNER_TEMP/wiki"
+
+      - name: Publish
+        if: github.event_name != 'pull_request'
+        working-directory: ${{ runner.temp }}/wiki
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "The wiki is already up to date."
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
+            commit -q -m "Sync from ${GITHUB_SHA::12}" -m "${{ github.server_url }}/${{ github.repository }}/commit/${GITHUB_SHA}"
+          git push origin HEAD

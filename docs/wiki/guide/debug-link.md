@@ -4,9 +4,9 @@ The debug link lets the Audio Studio and the editor reach a game while it runs: 
 audio profile live, change its mix, and inspect its animation. It works with an exported game on this machine or
 another one on the same network, and with the editor's own Play. Release exports carry none of it.
 
-Records: [0376](../decisions/0376-a-debug-link-connects-running-builds-to-the-editor-and-the-studio.md) (the link),
-[0379](../decisions/0379-the-desktop-editor-listens-for-the-debug-link-through-a-native-websocket-server.md) (the
-desktop listener), [0403](../decisions/0403-debug-link-pairing-reaches-every-native-and-browser-endpoint-on-one-network.md)
+Records: [0376](../../decisions/0376-a-debug-link-connects-running-builds-to-the-editor-and-the-studio.md) (the link),
+[0379](../../decisions/0379-the-desktop-editor-listens-for-the-debug-link-through-a-native-websocket-server.md) (the
+desktop listener), [0403](../../decisions/0403-debug-link-pairing-reaches-every-native-and-browser-endpoint-on-one-network.md)
 (pairing). Takes: [audio-takes.md](audio-takes.md).
 
 ## Turning it on in a game

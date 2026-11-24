@@ -112,4 +112,4 @@ Numbers measure the final mix, not your content: a mix is only as comparable to 
 - [Audio mixer](audio-mixer.md), [Live mixing and ducking](audio-mixing.md) and [Audio profiler and capture files](audio-profiler.md)
 - [Audio mix: API reference](audio-mix-api.md)
 - [Why is there no sound?](why-no-sound.md)
-- [ADR 0171](../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md) and [ADR 0172](../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md)
+- [ADR 0171](../../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md) and [ADR 0172](../../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md)

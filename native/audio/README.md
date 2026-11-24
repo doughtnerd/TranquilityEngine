@@ -1,6 +1,6 @@
 # Myco's audio core (`native/audio`)
 
-The Rust half of ADR 0157: a mixer that runs in an `AudioWorklet` as WebAssembly, and a decoder that runs on a worker. The TypeScript half is the audio plugin, `src/plugins/audio/` (the host, the backends, the worklet processor, the editor panels). The design is in [docs/design/0157-audio-core/](../../docs/design/0157-audio-core/README.md); user-facing pages are [Playing sound](../../docs/guide/playing-sound.md) and [Why is there no sound?](../../docs/guide/why-no-sound.md). This file is for people changing the core.
+The Rust half of ADR 0157: a mixer that runs in an `AudioWorklet` as WebAssembly, and a decoder that runs on a worker. The TypeScript half is the audio plugin, `src/plugins/audio/` (the host, the backends, the worklet processor, the editor panels). The design is in [docs/design/0157-audio-core/](../../docs/design/0157-audio-core/README.md); user-facing pages are [Playing sound](../../docs/wiki/guide/playing-sound.md) and [Why is there no sound?](../../docs/wiki/guide/why-no-sound.md). This file is for people changing the core.
 
 ## Layout
 

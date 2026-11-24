@@ -1,0 +1,20 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/myco.ts"],
+  "tsconfig": "tsconfig.json",
+  "plugin": ["typedoc-plugin-markdown"],
+  "name": "myco",
+  "readme": "none",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "skipErrorChecking": true,
+  "disableGit": true,
+  "displayBasePath": ".",
+  "sourceLinkTemplate": "https://github.com/doughtnerd/TranquilityEngine/blob/master/{path}#L{line}",
+  "validation": { "notExported": false },
+  "logLevel": "Warn",
+  "router": "member",
+  "hidePageHeader": true,
+  "hideBreadcrumbs": true,
+  "useCodeBlocks": true
+}

@@ -1,0 +1,1 @@
+This wiki is generated from [`docs/wiki/`](https://github.com/doughtnerd/TranquilityEngine/tree/master/docs/wiki) and the `myco` module's source on every push to `master`. Change pages there in a pull request: edits made here are not kept.

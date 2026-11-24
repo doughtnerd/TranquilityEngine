@@ -55,4 +55,4 @@ Everything a capture reveals (the project's name, its `audio` section, and the n
 
 - [Audio profiler](audio-profiler.md) for captures and the Profiler panel
 - [Audio mix: API reference](audio-mix-api.md)
-- [ADR 0348](../decisions/0348-takes-record-what-the-game-asked-of-audio-and-replay-it-profiler-captures-stay-telemetry.md)
+- [ADR 0348](../../decisions/0348-takes-record-what-the-game-asked-of-audio-and-replay-it-profiler-captures-stay-telemetry.md)
