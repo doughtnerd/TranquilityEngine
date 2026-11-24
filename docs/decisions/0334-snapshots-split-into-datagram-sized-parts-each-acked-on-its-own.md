@@ -1,6 +1,6 @@
 # 0334. Snapshots split into datagram-sized parts, each acked on its own
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by [0402](0402-ghost-creation-goes-reliably-apart-from-per-tick-state.md) and [0405](0405-late-snapshot-parts-are-read-in-tick-order-and-acked.md) (late parts are read and acked)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

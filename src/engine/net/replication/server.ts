@@ -107,19 +107,23 @@
  * as many as the budget allows; losing one loses only its ghosts' states. A snapshot that fits one
  * part is written once. Otherwise parts are filled first-fit with ghosts by priority (the ghosts
  * unsent longest, times their `importance`); what doesn't fit goes next tick. A ghost whose state
- * alone is bigger than a datagram still goes, alone, by the transport's slower reliable path; if
- * the next tick's datagrams overtake it, the client drops it as stale and the next tick sends the
- * ghost again (its spawn isn't in it, so nothing but one state update is lost).
+ * alone is bigger than a datagram still goes, alone, by the transport's slower reliable path. When
+ * the next tick's datagrams overtake it, the client still reads it (ADR 0405): its states are filed
+ * in tick order, and it's acked like any part, so a ghost whose state is always that big keeps
+ * updating, a little behind, instead of starving.
  *
  * ## Acks (unreliable, `net.snapshotAck`)
  *
  * A client that read lifecycle messages or snapshot parts in a frame sends, at the end of it, the
  * newest lifecycle tick it applied, the newest snapshot tick it read and every part of that tick it
- * has read (`varuint lifecycle tick, varuint tick, varuint count`, then the first part index and the
- * gaps between the rest; a tick of 0 is none). Lifecycle messages arrive in order, so the first tick
+ * has read, then older ticks it read a late part of lately, each repeated by a few acks (ADR 0405):
+ * `varuint lifecycle tick, varuint tick count`, then per tick (the newest, then each older one as the
+ * gap back from the one before) `varuint part count`, the first part index and the gaps between the
+ * rest. Lifecycle messages arrive in order, so the first tick
  * acks every one up to it: their spawns and relayouts' full states become baselines and their
  * ghosts' states may go in snapshots. For each snapshot part not acked before, the server makes its
- * states the baselines. It sets the connection's `lastAckedTick` (which shows on its `Connection`
+ * states the baselines where they're newer than the ghost's (a late part's may not be: a baseline
+ * never goes back). It sets the connection's `lastAckedTick` (which shows on its `Connection`
  * node) to the newest snapshot tick acked.
  */
 import type { Component } from "../../core/Component";
@@ -138,6 +142,7 @@ import {
   AFTER_UNSPECIFIED,
   BASELINE_WINDOW,
   DEFAULT_MAX_SNAPSHOT_BYTES,
+  MAX_ACK_TICKS,
   MAX_SNAPSHOT_PARTS,
   PARENT_GHOST,
   PARENT_NODE,
@@ -304,14 +309,21 @@ export class ServerReplication {
       try {
         const r = m.reader();
         const lifecycleTick = r.readVarUint();
-        const tick = r.readVarUint();
-        const count = r.readVarUint();
-        if (count > MAX_SNAPSHOT_PARTS) continue;
-        const parts: number[] = [];
-        // The first index, then each as the gap from the one before.
-        for (let i = 0, part = 0; i < count; i++) parts.push((part = i === 0 ? r.readVarUint() : part + r.readVarUint()));
+        const ticks = r.readVarUint();
+        if (ticks > MAX_ACK_TICKS) continue;
+        const acks: { tick: number; parts: number[] }[] = [];
+        // The newest tick, then each older one as the gap back from the one before (ADR 0405); per tick
+        // its part count, the first index, then each as the gap from the one before.
+        for (let t = 0, tick = 0; t < ticks; t++) {
+          tick = t === 0 ? r.readVarUint() : tick - r.readVarUint();
+          const count = r.readVarUint();
+          if (count > MAX_SNAPSHOT_PARTS) throw new Error("too many parts");
+          const parts: number[] = [];
+          for (let i = 0, part = 0; i < count; i++) parts.push((part = i === 0 ? r.readVarUint() : part + r.readVarUint()));
+          acks.push({ tick, parts });
+        }
         this.lifecycleAcked(m.peer, lifecycleTick);
-        this.acked(m.peer, tick, parts);
+        for (const { tick, parts } of acks) this.acked(m.peer, tick, parts);
       } catch {
         // A malformed ack is ignored; the next one will do.
       }
@@ -599,11 +611,13 @@ export class ServerReplication {
   }
 
   /**
-   * The client read these parts of `tick` (ADR 0334): their states become baselines, once. A
-   * tick's unacked parts are kept for a later ack of the same tick; older ticks' records are dropped.
+   * The client read these parts of `tick` (ADR 0334): their states become baselines, once, where
+   * they're newer than the ghost's baseline. The tick may be older than the newest acked: a part
+   * that came late by the reliable path (ADR 0405), which the client kept whole. Records are kept
+   * for `BASELINE_WINDOW` ticks (pruned when snapshots are written), each part's until it's acked.
    */
   private acked(peer: NetPeer, tick: number, parts: readonly number[]): void {
-    if (!(tick > 0 && tick >= peer.lastAckedTick && tick <= this.session.tick)) return;
+    if (!(tick > 0 && tick <= this.session.tick)) return;
     const ps = this.peers.get(peer);
     if (!ps) return;
     if (tick > peer.lastAckedTick) peer.lastAckedTick = tick;
@@ -622,7 +636,6 @@ export class ServerReplication {
         }
       }
     }
-    for (const t of ps.history.keys()) if (t < tick) ps.history.delete(t);
   }
 
   /**
