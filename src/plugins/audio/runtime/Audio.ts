@@ -462,7 +462,7 @@ export const Audio = {
 
   /**
    * ADR 0348: record a take of the game run for the audio designer: what the game asked of audio and the engine's profile,
-   * in one `*.mycotake` file. `await Audio.take.start()`, `Audio.take.mark("boss")`, then `Audio.take.save()`. The recorder
+   * in one `*.sporesample` file. `await Audio.take.start()`, `Audio.take.mark("boss")`, then `Audio.take.save()`. The recorder
    * loads on the first `start()`; a game that never calls it loads nothing.
    */
   get take(): AudioTake {

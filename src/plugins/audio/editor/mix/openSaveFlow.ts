@@ -5,7 +5,7 @@
 // them. Pure.
 import type { CaptureErrorCode } from "../../runtime/capture/reader";
 
-/** Codes an open adds beside the reader's: a file that isn't a capture (not `.mycap`), and any other failure. */
+/** Codes an open adds beside the reader's: a file that isn't a capture (not `.sporesample`), and any other failure. */
 export type OpenRouteCode = "notCapture" | "open";
 
 /** One headline per code. The reader's detail follows it (`captureErrorMessage`), so a headline says what it means and what to do. */

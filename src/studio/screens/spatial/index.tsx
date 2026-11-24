@@ -71,7 +71,7 @@ function ScenesListPanel() {
       )}
       {newDialog.value?.kind === "take" && (
         <TakeDialog
-          takes={(currentProject.value?.files ?? []).filter((f) => f.toLowerCase().endsWith(".mycotake"))}
+          takes={(currentProject.value?.files ?? []).filter((f) => f.toLowerCase().endsWith(".sporesample"))}
           open={async (p) => {
             const t = await openTake(p);
             const folder = newDialog.peek()?.folder ?? "";

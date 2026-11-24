@@ -26,6 +26,10 @@
 //   `Audio.take.save()` writes) and keeps them as upload `upload` until the next `take.upload` or the link closes; an
 //   error "nothing recorded: call Audio.take.start() first" when there is no take.
 //
+// - `build.audio` (no params) → `TakeUploadReply` (ADR 0410): an upload of the build's audio index (`BuildAudioIndex` as
+//   UTF-8 JSON). `build.file` `BuildFileParams` → `TakeUploadReply`: an upload of that file's bytes. Their uploads are
+//   sent by the same `upload` subscription, with ids from `BUILD_FILE_UPLOAD_FIRST_ID`.
+//
 // **Command** `mix.op` `MixOpCommand`: one live mix op in the capture's MIXOP byte form (`mixOpCodec.ts`, §6.2) with the
 // names and buses it interns carried beside it, applied at the build's next frame start through `mixer.apply`; a
 // refused op (or one this build can't decode) answers an error with the message.
@@ -85,7 +89,35 @@ export type AudioSubscriptionParams =
   | { readonly kind: "take" };
 
 /** The requests' method names. */
-export const AudioRequest = { start: "take.start", stop: "take.stop", mark: "take.mark", upload: "take.upload" } as const;
+export const AudioRequest = { start: "take.start", stop: "take.stop", mark: "take.mark", upload: "take.upload", buildAudio: "build.audio", buildFile: "build.file" } as const;
+
+/** ADR 0410: build file uploads' ids start here, apart from take uploads' (both use the `upload` subscription). */
+export const BUILD_FILE_UPLOAD_FIRST_ID = 0x4000_0000;
+
+/** ADR 0410: a file of the build's audio: a project path (`project`) or a build path such as a package (`build`). */
+export interface BuildAudioFile {
+  readonly kind: "project" | "build";
+  readonly path: string;
+  /** A JSON file's text hash (`fnv1a`), so a changed file downloads again; null for a sound or a build file. */
+  readonly hash: string | null;
+}
+
+/** ADR 0410: `build.audio`'s index (the upload's bytes, as UTF-8 JSON): the build's audio, file by file. */
+export interface BuildAudioIndex {
+  /** The project's name, as a take's META names it. */
+  readonly project: string;
+  /** The mix settings' hash, as a take records it (`take.audioHash`). */
+  readonly audioHash: string;
+  /** The build's media table (`game.json`'s `audio`), or null where it has none. */
+  readonly manifest: unknown;
+  readonly files: readonly BuildAudioFile[];
+}
+
+/** ADR 0410: `build.file`'s params: which file to upload. */
+export interface BuildFileParams {
+  readonly kind: "project" | "build";
+  readonly path: string;
+}
 /** The command's name. */
 export const MIX_OP_COMMAND = "mix.op";
 

@@ -151,9 +151,9 @@ describe("opening in the Audio Studio (ADR 0341)", () => {
     const opened = vi.fn(() => ({ focus() {} }));
     vi.stubGlobal("window", { open: opened });
     vi.stubGlobal("location", { href: "http://localhost/editor.html" });
-    await openTestProject({ "music/a.playlist.json": "{}", "takes/t.mycotake": new Uint8Array(4), "a.pair.json": "{}" });
+    await openTestProject({ "music/a.playlist.json": "{}", "takes/t.sporesample": new Uint8Array(4), "a.pair.json": "{}" });
     expect(kindOpens("music/a.playlist.json")).toBe(true);
-    expect(kindOpens("takes/t.mycotake")).toBe(true);
+    expect(kindOpens("takes/t.sporesample")).toBe(true);
     expect(editor.assets.open("music/a.playlist.json")).toBe(true);
     await vi.waitFor(() => expect(opened).toHaveBeenCalledTimes(1));
     expect(String((opened.mock.calls[0] as unknown[])[0])).toMatch(/studio\.html\?project=.*#\/playlists\/music\/a\.playlist\.json$/);

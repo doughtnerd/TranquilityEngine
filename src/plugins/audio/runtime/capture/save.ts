@@ -2,8 +2,8 @@
 // take's records, WRAP stripped, Rc2's `copyRecords`) becomes a file: the 96 B plain header, META, the records and an INDEX
 // record, the part after the header deflate-raw compressed with `CompressionStream` (or stored raw, `compressed` clear,
 // where the runtime has none). The web saves a `Blob` through `a[download]`; Tauri (desktop and Android) saves through
-// the engine's `FileSystem`: a plain file with its real extension, `<storage root>/takes/<name>.mycotake` or
-// `<storage root>/captures/<name>.mycap`, and keeps the newest 16 auto-named files of each folder
+// the engine's `FileSystem`: a plain file with its real extension, `<storage root>/recordings/<name>.sporesample` or
+// `<storage root>/recordings/<name>.sporesample`, and keeps the newest 16 auto-named files of each folder
 // (`CAPTURE_TRIGGER_MAX_FILES`: oldest deleted first through `list` and `remove`).
 //
 // This file is part of the lazy chunk: `capture/capture.ts` loads it by `import()` on the first `save`, never statically,
@@ -19,11 +19,11 @@ import {
 import type { RingSpan } from "./ring";
 
 /** The file extension every capture carries. */
-export const CAPTURE_EXTENSION = ".mycap";
+export const CAPTURE_EXTENSION = ".sporesample";
 /** ADR 0348: a take's (`TAKE_SUFFIX` of `engine/audio/take/types.ts`). */
-export const TAKE_EXTENSION = ".mycotake";
+export const TAKE_EXTENSION = ".sporesample";
 
-/** What is saved: a capture (`.mycap`, auto names `capture-…`) or a take (`.mycotake`, auto names `take-…`). */
+/** What is saved: a capture (`.sporesample`, auto names `capture-…`) or a take (`.sporesample`, auto names `take-…`). */
 export type SaveKind = "capture" | "take";
 const EXTENSION: Readonly<Record<SaveKind, string>> = { capture: CAPTURE_EXTENSION, take: TAKE_EXTENSION };
 /** A file name's stem is cut to this many characters (§1.2); the extension is added after. */
@@ -46,7 +46,7 @@ export interface SaveEnv {
   tauri: boolean;
   /** The file operations the saver needs (Tauri: the engine's `FileSystem`). */
   fs: SaveFiles;
-  /** The folder the `takes/` and `captures/` folders live in (Tauri: the storage scope's folder, ADR 0317). */
+  /** The folder the `recordings/` folder lives in (Tauri: the storage scope's folder, ADR 0317). */
   storageRoot(): Promise<string>;
   /** Hands the bytes to the browser as a download named `fileName`. */
   download(bytes: Uint8Array, fileName: string): void;
@@ -103,8 +103,8 @@ export function mergeRequests(span: RingSpan, requests: { bytes: Uint8Array; rec
 // --- names ----------------------------------------------------------------------------------------------------------
 
 const AUTO_NAME: Readonly<Record<SaveKind, RegExp>> = {
-  capture: /^capture-(\d{8})-(\d{6})(?:-(\d+))?\.mycap$/,
-  take: /^take-(\d{8})-(\d{6})(?:-(\d+))?\.mycotake$/,
+  capture: /^capture-(\d{8})-(\d{6})(?:-(\d+))?\.sporesample$/,
+  take: /^take-(\d{8})-(\d{6})(?:-(\d+))?\.sporesample$/,
 };
 const pad = (n: number, w = 2): string => String(n).padStart(w, "0");
 
@@ -125,7 +125,7 @@ function autoCaptureStem(now: Date, kind: SaveKind = "capture"): string {
 
 /**
  * The file name for `name` (§1.2): every character outside `[A-Za-z0-9._-]` becomes `_`, leading dots go (no hidden file,
- * no `..`), a `.mycap` the caller already wrote isn't doubled, the stem is cut to 64 characters and `.mycap` is appended.
+ * no `..`), a `.sporesample` the caller already wrote isn't doubled, the stem is cut to 64 characters and `.sporesample` is appended.
  * An absent name, or one with nothing left, is the auto name. `auto` says which, since only auto-named files rotate.
  */
 function captureFileName(name: string | undefined, now: Date, kind: SaveKind = "capture"): { file: string; auto: boolean } {
@@ -237,7 +237,7 @@ export function captureFileBytes(take: SaveTake, compress: SaveEnv["compress"] =
 // --- where it goes --------------------------------------------------------------------------------------------------
 
 /** The folder a kind is saved in, under the storage root. */
-const FOLDER: Readonly<Record<SaveKind, string>> = { capture: "captures", take: "takes" };
+const FOLDER: Readonly<Record<SaveKind, string>> = { capture: "recordings", take: "recordings" };
 
 function folderPath(root: string, kind: SaveKind): string {
   return `${root.replace(/[\\/]+$/, "")}/${FOLDER[kind]}`;

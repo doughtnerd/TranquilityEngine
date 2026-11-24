@@ -1,5 +1,5 @@
 /**
- * ADR 0348: the byte form of a take's request records (`*.mycotake`). A take is a capture file (ADR 0171/0172 framing: a
+ * ADR 0348: the byte form of a take's request records (`*.sporesample`). A take is a capture file (ADR 0171/0172 framing: a
  * plain header, a JSON META block, typed records with a 20 B head, an INDEX, deflate) whose stream carries, beside the
  * profile records, the requests the game made of audio. This module is the request records' payload codecs, pure and
  * shared by the writer (the runtime's take recorder) and the readers (the capture reader passes over them, the take reader

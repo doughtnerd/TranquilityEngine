@@ -58,8 +58,8 @@ describe("take notes (ADR 0348)", () => {
   });
 
   it("names the notes file beside the take and hands out free ids", () => {
-    expect(takeNotesPath("takes/run_01.mycotake")).toBe("takes/run_01.mycotake.notes.json");
-    expect(isTakeNotesPath("takes/run_01.mycotake.notes.json")).toBe(true);
+    expect(takeNotesPath("takes/run_01.sporesample")).toBe("takes/run_01.sporesample.notes.json");
+    expect(isTakeNotesPath("takes/run_01.sporesample.notes.json")).toBe(true);
     expect(isTakeNotesPath("takes/notes.json")).toBe(false);
     expect(freeNoteId(NOTES, "m")).toBe("m3");
     expect(freeNoteId(NOTES, "r")).toBe("r2");

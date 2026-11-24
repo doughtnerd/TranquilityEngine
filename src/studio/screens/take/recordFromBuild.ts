@@ -1,10 +1,10 @@
 // Recording a take from a connected build (ADR 0348 takes, ADR 0403, plan U5): the Take screen's Start, Mark, Stop and
 // Save drive the build's `audio` topic (schema in `plugins/audio/runtime/debugLink/schema.ts`): `take.start`,
 // `take.mark` `{ text }` and `take.stop` run `Audio.take` on the build; Save asks `take.upload`, subscribes to the upload,
-// reassembles its 64 KiB chunks with `createTakeReceiver` and writes the take file into the project's `takes/` folder
+// reassembles its 64 KiB chunks with `createTakeReceiver` and writes the take file into the project's `recordings/` folder
 // through the Studio's import (`importFiles`, as Open take file… does; never over a file; a takes folder workspace's
 // root, ADR 0408), named from the build and the
-// time (`smoke-game_2026-11-22_10-15-00.mycotake`). Progress is the chunks received; any refusal, a broken upload or the
+// time (`smoke-game_2026-11-22_10-15-00.sporesample`). Progress is the chunks received; any refusal, a broken upload or the
 // link closing (`linkClosed`) fails with the message, and a take the build still holds can be saved again.
 import { signal } from "@preact/signals";
 import type { ConnectedBuild } from "../../../editor/debugLink/editorLink";
@@ -54,19 +54,19 @@ export interface BuildTakeSeams {
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 const two = (n: number) => String(n).padStart(2, "0");
 
-/** A take file's name from the build's name and `when`: `smoke-game_2026-11-22_10-15-00.mycotake`. */
+/** A take file's name from the build's name and `when`: `smoke-game_2026-11-22_10-15-00.sporesample`. */
 export function buildTakeName(build: string, when: Date): string {
   const slug = build.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "build";
   const day = `${when.getFullYear()}-${two(when.getMonth() + 1)}-${two(when.getDate())}`;
   const time = `${two(when.getHours())}-${two(when.getMinutes())}-${two(when.getSeconds())}`;
-  return `${slug}_${day}_${time}.mycotake`;
+  return `${slug}_${day}_${time}.sporesample`;
 }
 
-/** Where a take saved into `project` goes: its `takes/` folder, or a takes folder workspace's own root (ADR 0408). */
+/** Where a take saved into `project` goes: its `recordings/` folder, or a takes folder workspace's own root (ADR 0408). */
 export const takeSaveFolder = (project: EditorProject | null): string => (isTakesFolder(project) ? "" : TAKES_FOLDER);
 
 /**
- * Writes take bytes into `project`'s `takes/` folder (a takes folder workspace: its root) as `name` (numbered if taken,
+ * Writes take bytes into `project`'s `recordings/` folder (a takes folder workspace: its root) as `name` (numbered if taken,
  * never over a file); resolves with the path.
  */
 export async function saveTakeIntoProject(project: EditorProject | null, name: string, bytes: Uint8Array): Promise<string> {

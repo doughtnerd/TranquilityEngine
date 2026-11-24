@@ -16,7 +16,7 @@ import type { ReplayPose } from "../../runtime/takeReplay";
 import type { TakeFrame } from "../../../engine/audio/take/types";
 import { noteColourCss } from "./notesEdits";
 import { PlayheadPicture } from "./TakePicture";
-import { valueText, type BusStrip, type ParameterRow } from "./takeInspectorModel";
+import { valueText, type BusStrip, type ParameterRow, type PlayheadSummary } from "./takeInspectorModel";
 import { pathLabel, type TakeInstance } from "./takeTimeline";
 import { unitText, type PropertyCard } from "./takePlaylists";
 import { playheadText } from "../profiler/RunRuler";
@@ -233,11 +233,20 @@ export function PlayheadValues(props: {
   /** The lane the cards are for (the last one picked, else the first): its path, badge and cards. */
   readonly track?: { readonly path: string; readonly kind: string | null; readonly cards: readonly PropertyCard[] } | null;
   readonly hovered?: string | null;
+  /** ADR 0408: the take at the playhead (what sounds, the markers either side, the time of day). */
+  readonly summary?: PlayheadSummary | null;
+  /** Where the take was recorded: its project, engine and device. */
+  readonly recorded?: { readonly project: string; readonly engine: string; readonly device: string } | null;
   onHover?(parameter: string | null): void;
   onOpenSource?(path: string): void;
+  /** Select an instance sounding now (its timeline key). */
+  onSelectInstance?(key: string): void;
+  /** Move the playhead (a marker's time). */
+  onSeek?(t: number): void;
 }) {
   if (!props.open) return <EmptyState compact title="Nothing selected" body="Open a take, then select an instance or a note on its timeline." />;
   const t = props.track;
+  const sum = props.summary;
   return (
     <div class="tk-inspector">
       {t ? (
@@ -245,8 +254,64 @@ export function PlayheadValues(props: {
       ) : (
         <InspectorHead badge="Take" name={`Values at ${formatTime(props.time)}`} title="" sub="" tip="Select a playlist instance to inspect it." />
       )}
-      {t && <PropertyCards cards={t.cards} hovered={props.hovered} onHover={props.onHover} />}
       <PlayheadPicture frame={props.picture ?? null} />
+      {sum && (
+        <>
+          <h4 class="tk-ins-sub">At the playhead</h4>
+          <dl class="tk-facts">
+            <dt>Take time</dt>
+            <dd>{formatTime(props.time)}</dd>
+            {sum.wallClock && (
+              <>
+                <dt>In the game</dt>
+                <dd title={sum.wallClock.toLocaleString()}>{sum.wallClock.toLocaleTimeString()}</dd>
+              </>
+            )}
+            <dt>Sounding</dt>
+            <dd>{sum.playing.length === 1 ? "1 instance" : `${sum.playing.length} instances`}</dd>
+            <dt>Started so far</dt>
+            <dd>
+              {sum.started} of {sum.total}
+            </dd>
+            {sum.lastMark && (
+              <>
+                <dt>Last marker</dt>
+                <dd>
+                  <MarkLink mark={sum.lastMark} onSeek={props.onSeek} />
+                </dd>
+              </>
+            )}
+            {sum.nextMark && (
+              <>
+                <dt>Next marker</dt>
+                <dd>
+                  <MarkLink mark={sum.nextMark} onSeek={props.onSeek} />
+                </dd>
+              </>
+            )}
+          </dl>
+          {sum.playing.length > 0 && (
+            <>
+              <h4 class="tk-ins-sub">Playing now</h4>
+              <ul class="tk-playing" aria-label="Playing now">
+                {sum.playing.map((p) => (
+                  <li key={p.key}>
+                    <button type="button" class="tk-playing-row" title={`${p.path}: select this instance`} onClick={() => props.onSelectInstance?.(p.key)}>
+                      <span class="tk-playing-name">{p.label}</span>
+                      <span class="tk-playing-sub">
+                        {p.emitter ? `${p.emitter} · ` : ""}
+                        {formatTime(p.playingFor)}
+                        {p.releasing ? " · releasing" : ""}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </>
+      )}
+      {t && <PropertyCards cards={t.cards} hovered={props.hovered} onHover={props.onHover} />}
       {props.values.length > 0 && (
         <>
           <h4 class="tk-ins-sub">Game values</h4>
@@ -260,7 +325,30 @@ export function PlayheadValues(props: {
           </dl>
         </>
       )}
+      {props.recorded && (
+        <>
+          <h4 class="tk-ins-sub">Recorded</h4>
+          <dl class="tk-facts">
+            <dt>Project</dt>
+            <dd title={props.recorded.project}>{props.recorded.project}</dd>
+            <dt>Engine</dt>
+            <dd title={props.recorded.engine}>{props.recorded.engine}</dd>
+            <dt>Device</dt>
+            <dd title={props.recorded.device}>{props.recorded.device}</dd>
+          </dl>
+        </>
+      )}
     </div>
+  );
+}
+
+/** A marker's time and text; a click moves the playhead there. */
+function MarkLink(props: { readonly mark: { readonly t: number; readonly text: string }; onSeek?(t: number): void }) {
+  const m = props.mark;
+  return (
+    <button type="button" class="tk-link" title={`Move the playhead to ${formatTime(m.t)}`} onClick={() => props.onSeek?.(m.t)}>
+      {formatTime(m.t)} {m.text}
+    </button>
   );
 }
 

@@ -1,6 +1,6 @@
 // ADR 0348: Record take and Record capture on the Play toolbar (the Audio plugin's `registerPlayToolbarItem`). Each is
 // a toggle over `RecordToggle` (`recordToggleModel.ts`): enabled while playing, it records through `Audio.take` or
-// `Audio.capture` and writes the file into the project's `takes/` or `captures/` folder when pressed again or when Play
+// `Audio.capture` and writes the file into the project's `recordings/` folder when pressed again or when Play
 // stops.
 import { editor } from "../../../../editor/sdk";
 import { audioTake, takeFileBytes } from "../../runtime/capture/take";

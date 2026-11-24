@@ -99,7 +99,7 @@ function TakesTab(props: { readonly onOpenTake?: (take: RecentTake) => void }) {
   return (
     <div class="ap-stack">
       <div class="ap-toolbar">
-        <p class="ap-note">Open a take from your recent projects or the takes folder. Drop a .mycotake file here to add it.</p>
+        <p class="ap-note">Open a take from your recent projects or the takes folder. Drop a .sporesample file here to add it.</p>
         <div class="ap-searchwrap">
           <input class="ap-search" type="search" placeholder="Search takes" aria-label="Search takes" value={query} disabled={!list || list.length === 0} onInput={(e) => setQuery(e.currentTarget.value)} />
         </div>
@@ -110,7 +110,7 @@ function TakesTab(props: { readonly onOpenTake?: (take: RecentTake) => void }) {
         ) : list === null ? (
           <p class="ap-note">Looking for takes…</p>
         ) : list.length === 0 ? (
-          <p class="ap-note">No takes yet. Record one from the editor's Play toolbar (Record take) or a live session, or drop a .mycotake file on this window.</p>
+          <p class="ap-note">No takes yet. Record one from the editor's Play toolbar (Record take) or a live session, or drop a .sporesample file on this window.</p>
         ) : (
           <>
             {!searching && latest && (

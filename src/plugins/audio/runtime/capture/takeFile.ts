@@ -1,4 +1,4 @@
-// ADR 0348: opening a take file (`*.mycotake`). A take is a capture file with the `take` header flag, META's `take`
+// ADR 0348: opening a take file (`*.sporesample`). A take is a capture file with the `take` header flag, META's `take`
 // section and request records in its stream; this opens it with the capture reader (every check, every refusal, the
 // profile records as `Audio.capture` would have them) and collects the request records the reader checks, then builds the
 // replay's view (`engine/audio/take/reader.ts` `Take`). The Profiler opens the same file as a capture (`openCapture`),

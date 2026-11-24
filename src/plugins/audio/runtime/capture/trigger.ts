@@ -8,12 +8,12 @@
 // first press, so a game that exports with the option but never presses F9 loads neither.
 //
 // **Rotation is Rc4's.** `Audio.capture.save()` with no name is an auto-named file; on Tauri and Android `saveCapture` keeps
-// the newest 16 of those through `rotateCaptures` (`list`, `remove` over the `captures/` folder). The trigger saves unnamed and does not copy it.
+// the newest 16 of those through `rotateCaptures` (`list`, `remove` over the `recordings/` folder). The trigger saves unnamed and does not copy it.
 // A browser cannot delete a download, so the web trigger stops at `CAPTURE_TRIGGER_MAX_FILES` saves per page session and says
 // so (R16, `webSaveCount`).
 //
 // **Takes (ADR 0348).** `installTakeTrigger()` is the same trigger for `Audio.take` on **F10** (game.json `audioTake`): a
-// take records what the game asked of audio beside the profile, and saves a `*.mycotake`. It has no touch gesture (three
+// take records what the game asked of audio beside the profile, and saves a `*.sporesample`. It has no touch gesture (three
 // fingers are the capture's; more fingers collide with the platforms' own gestures). While the Audio Studio is connected
 // and owns the build's takes (ADR 0408, `takeClaims.ts`), F10 only starts and stops: the Studio uploads and saves, and
 // the audio topic keeps a backup copy in app data on desktop and Android (`debugLink/takeState.ts`).

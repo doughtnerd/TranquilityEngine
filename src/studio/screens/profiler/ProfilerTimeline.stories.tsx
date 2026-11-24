@@ -14,10 +14,10 @@ import { ProfilerTimeline } from "./ProfilerTimeline";
 import type { GroupBy } from "./voiceModel";
 import "./profiler.css";
 
-/** A store with the fixture open, as the screen's store opens `captures/run.mycap`. */
+/** A store with the fixture open, as the screen's store opens `recordings/run.sporesample`. */
 async function fixtureStore(): Promise<ProfilerStore> {
   const store = new ProfilerStore({ open: (bytes) => CaptureSource.openFile(bytes), readFile: async () => fixtureCapture().slice().buffer });
-  await store.openPath("captures/run.mycap");
+  await store.openPath("recordings/run.sporesample");
   return store;
 }
 
@@ -117,7 +117,7 @@ export const EffectsCost: Story = {
   loaders: [
     async () => {
       const store = new ProfilerStore({ open: (bytes) => CaptureSource.openFile(bytes), readFile: async () => cpuCapture() });
-      await store.openPath("captures/cpu.mycap");
+      await store.openPath("recordings/cpu.sporesample");
       return { store };
     },
   ],

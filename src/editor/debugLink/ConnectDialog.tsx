@@ -3,6 +3,7 @@
 // why it failed (a bad or expired code, a locked build, nothing answering, a room code that needs a rendezvous).
 //
 // C7 (plan §8): the props are the contract the editor (U1) and the Studio (U4) mount it with.
+import type { ComponentChildren } from "preact";
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { ConnectFailure, ConnectTarget } from "./connectFlow";
 import { buildLabel, chosenAddress, createDiscovery, type DiscoveredBuild, type DiscoveryModel } from "./discovery";
@@ -17,6 +18,8 @@ export interface ConnectDialogProps {
   readonly discovery?: DiscoveryModel;
   /** A failure to show when the dialog opens (rarely needed; the dialog shows its own attempts' failures). */
   readonly failure?: ConnectFailure | null;
+  /** A tool's own connection options, under the ways to connect (the Audio Studio's build audio download, ADR 0410). */
+  readonly children?: ComponentChildren;
 }
 
 /** A thrown error as the failure line shows it: the flow's `ConnectFailure` (the `cause`), else the error's own message. */
@@ -31,7 +34,7 @@ function failureOf(err: unknown): ConnectFailure {
  * Escape closes; it closes itself when the build paired. The code is read forgivingly (lower case, spaces and a dash
  * or none are fine), so the field keeps what was typed.
  */
-export function ConnectDialog({ onConnect, onClose, discovery: given, failure: initialFailure }: ConnectDialogProps) {
+export function ConnectDialog({ onConnect, onClose, discovery: given, failure: initialFailure, children }: ConnectDialogProps) {
   const [code, setCode] = useState("");
   const [address, setAddress] = useState("");
   const [busy, setBusy] = useState(false);
@@ -187,6 +190,7 @@ export function ConnectDialog({ onConnect, onClose, discovery: given, failure: i
           </div>
         )}
         <div class="debug-link-status">
+          {children}
           {busy && (
             <p role="status" class="debug-link-progress">
               Connecting…

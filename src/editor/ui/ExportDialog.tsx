@@ -158,14 +158,14 @@ export function ExportDialog() {
             Desktop app
           </label>
         </fieldset>
-        <label class="export-audio-capture" title="Press F9 (or hold three fingers for a second) in the exported game to record its audio mix, then again to save a .mycap file the Profiler opens">
+        <label class="export-audio-capture" title="Press F9 (or hold three fingers for a second) in the exported game to record its audio mix, then again to save a .sporesample file the Profiler opens">
           <input type="checkbox" name="export-audio-capture" checked={audioCapture} disabled={busy} onChange={(e) => setAudioCapture(e.currentTarget.checked)} />
           Let the game record its audio mix (F9)
         </label>
         <p class="export-audio-capture-note" style={{ color: "var(--muted)", fontSize: "12px", margin: "4px 0 10px" }}>
-          Players press F9, or hold three fingers for a second, to start recording and again to save a .mycap file for the Profiler. A capture is labelled: it holds the project's audio settings, name and version, the names of its clips, buses, events and parameters, and part of the browser's user-agent.
+          Players press F9, or hold three fingers for a second, to start recording and again to save a .sporesample file for the Profiler. A capture is labelled: it holds the project's audio settings, name and version, the names of its clips, buses, events and parameters, and part of the browser's user-agent.
         </p>
-        <label class="export-audio-take" title="Press F10 in the exported game to record a take (what the game asked of audio, with its profile), then again to save a .mycotake file the Studio replays">
+        <label class="export-audio-take" title="Press F10 in the exported game to record a take (what the game asked of audio, with its profile), then again to save a .sporesample file the Studio replays">
           <input type="checkbox" name="export-audio-take" checked={audioTake} disabled={busy} onChange={(e) => setAudioTake(e.currentTarget.checked)} />
           Let the game record audio takes (F10)
         </label>

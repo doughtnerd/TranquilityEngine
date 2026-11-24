@@ -46,7 +46,7 @@ The Audio Studio is a second app, opened from the editor or shipped on its own, 
 
 ## 2026-11-13 — Profiler, loudness and live mixing
 
-The Audio Profiler records a session and saves it as a `.mycap` file. Loudness meters measure M, S, I, LRA and true peak against targets that warn and never adjust. You can mix while Play runs. See [Audio profiler](guide/audio-profiler.md), [Loudness](guide/audio-loudness.md) and [Live mixing and ducking](guide/audio-mixing.md).
+The Audio Profiler records a session and saves it as a `.sporesample` file. Loudness meters measure M, S, I, LRA and true peak against targets that warn and never adjust. You can mix while Play runs. See [Audio profiler](guide/audio-profiler.md), [Loudness](guide/audio-loudness.md) and [Live mixing and ducking](guide/audio-mixing.md).
 
 ## 2026-11-12 — Interactive music
 
