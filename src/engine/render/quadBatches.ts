@@ -28,7 +28,7 @@ export interface QuadBatch {
   /**
    * Replace the geometry with any triangles: xyz `positions` and uv (`uvs`, v up) per vertex, three `indices` per
    * triangle (a skinned sprite's mesh, ADR 0370, 0371). A call with the same texture, vertex count and `indices` array
-   * only moves the vertices, so a deforming mesh can be updated every frame.
+   * only moves the vertices (and their UVs), so a deforming mesh can be updated every frame.
    */
   setTriangles(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array): void;
   /** The column-major 4×4 node-to-world matrix at `offset` (the layout `World.worldMatrix` gives). */
@@ -37,6 +37,25 @@ export interface QuadBatch {
   setOrder(order: number): void;
   /** `#rrggbb` (sRGB; anything else reads as white) and opacity 0..1. */
   setTint(color: string, opacity: number): void;
+  /**
+   * A colour per vertex (ADR 0381, 0382): RGBA, 0..1 sRGB and alpha, four floats per vertex of the current geometry,
+   * multiplying the tint (per-decal fades and a 2D line's gradient in one batch). Null: none (white). Call it after the
+   * geometry; a new geometry with another vertex count drops it.
+   */
+  setColors(rgba: Float32Array | null): void;
+  /**
+   * A mask (ADR 0381): the texture's alpha multiplies the fragment's, sampled at `uv`, a 2×3 affine map
+   * `[a, b, c, d, e, f]` from the batch's local position (x, y) to the mask's UV (v up): `u = a·x + b·y + c`,
+   * `v = d·x + e·y + f`. Outside 0..1 the mask reads as transparent. Null: no mask.
+   */
+  setMask(mask: QuadMask | null): void;
   setVisible(visible: boolean): void;
   dispose(): void;
+}
+
+/** A batch's mask (`QuadBatch.setMask`): a texture whose alpha clips the quads, and the map from local position to its UV. */
+export interface QuadMask {
+  readonly texture: string;
+  /** `[a, b, c, d, e, f]`: `u = a·x + b·y + c`, `v = d·x + e·y + f` (v up). */
+  readonly uv: ArrayLike<number>;
 }

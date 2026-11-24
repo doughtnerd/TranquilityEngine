@@ -2,7 +2,7 @@
  * Pure helpers behind the particle value inputs and gradient editor (ADR 0057): values convert between a number's or colour's kinds without losing what they
  * show. The generic key helpers live in `src/editor/ui/curves/keyList.ts`. No DOM here, so they're tested headless.
  */
-import { addCurveKey as addKey, moveCurveKey as moveKey, removeCurveKey as removeKey, type CurveEditKey as Key } from "../../../../editor/sdk";
+import type { CurveEditKey as Key } from "../../../../editor/sdk";
 import { colorKind, evalGradient, hexColor, numberKind, parseHexColor, type CurveKey, type ParticleColor, type ParticleColorKind, type ParticleGradient, type ParticleNumber, type ParticleNumberKind } from "../../../../engine/scene/particles";
 
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
@@ -77,23 +77,5 @@ export function convertColor(value: ParticleColor, kind: ParticleColorKind): Par
 
 // --- gradient keys ---------------------------------------------------------------------------------
 
-/** A colour key added at `t`, coloured as the gradient is there. */
-export function addColorKey(g: ParticleGradient, t: number): { gradient: ParticleGradient; index: number } {
-  const [r, gr, b] = evalGradient(g, clamp01(t));
-  const { keys, index } = addKey(g.colors, t, hexColor(r, gr, b));
-  return { gradient: { ...g, colors: keys }, index };
-}
-
-/** An alpha key added at `t`, valued as the gradient is there. */
-export function addAlphaKey(g: ParticleGradient, t: number): { gradient: ParticleGradient; index: number } {
-  const { keys, index } = addKey(g.alphas, t, evalGradient(g, clamp01(t))[3]);
-  return { gradient: { ...g, alphas: keys }, index };
-}
-
-export const moveColorKey = (g: ParticleGradient, index: number, t: number): ParticleGradient => ({ ...g, colors: moveKey(g.colors, index, t, g.colors[index]?.[1] ?? "#ffffff") });
-export const moveAlphaKey = (g: ParticleGradient, index: number, t: number, value?: number): ParticleGradient => ({ ...g, alphas: moveKey(g.alphas, index, t, value ?? g.alphas[index]?.[1] ?? 1) });
-export const setColorKey = (g: ParticleGradient, index: number, hex: string): ParticleGradient => ({ ...g, colors: g.colors.map((k, i) => (i === index ? ([k[0], rgb(hex)] as [number, string]) : [k[0], k[1]])) });
-/** Removing a colour key never leaves fewer than one. */
-export const removeColorKey = (g: ParticleGradient, index: number): ParticleGradient => ({ ...g, colors: removeKey(g.colors, index) });
-/** Alpha keys can all go: no alpha keys reads as opaque. */
-export const removeAlphaKey = (g: ParticleGradient, index: number): ParticleGradient => ({ ...g, alphas: copyKeys(g.alphas.filter((_, i) => i !== index)) });
+// The gradient key helpers live in the editor SDK (ADR 0382); re-exported here for the particle editor and its tests.
+export { addGradientAlphaKey as addAlphaKey, addGradientColorKey as addColorKey, moveGradientAlphaKey as moveAlphaKey, moveGradientColorKey as moveColorKey, removeGradientAlphaKey as removeAlphaKey, removeGradientColorKey as removeColorKey, setGradientColorKey as setColorKey } from "../../../../editor/sdk";

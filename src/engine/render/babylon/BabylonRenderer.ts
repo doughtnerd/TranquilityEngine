@@ -62,6 +62,8 @@ import { BabylonMaterialLibrary } from "./materialLibrary";
 import { describeDrawn, eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext } from "./feature";
 import { _registeredRenderFeatures, byPhase, ownerOf, specNeeded, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonQuadBatches } from "./quadBatches";
+import { BabylonDecals } from "./decals";
+import { BabylonDynamicMeshes } from "./dynamicMeshes";
 import { PROBES_SPEC, ProbesFeature } from "./features";
 import { FOG_SPEC, FogFeature } from "./fog";
 import { sortingOrder, unknownLayerMessage } from "../sortOrder";
@@ -115,6 +117,10 @@ export class BabylonRenderer {
   readonly scene: Scene;
   /** Quad batches for plugin features (the Tilemaps plugin's tiles, ADR 0136). */
   private readonly quads: BabylonQuadBatches;
+  /** Decal volumes for plugin features (the Decals plugin's 3D decals, ADR 0381). */
+  private readonly decals: BabylonDecals;
+  /** Dynamic meshes for plugin features (the Lines plugin's 3D lines and trails, ADR 0382). */
+  private readonly dynamicMeshes: BabylonDynamicMeshes;
   private readonly cameras = new Map<Camera, CameraEntry>();
   /** Materials and textures (ADR 0127): every material and texture the scene draws is built and cached there. */
   private readonly materials: BabylonMaterialLibrary;
@@ -212,6 +218,8 @@ export class BabylonRenderer {
       },
       sortOrder: (layer, order) => sortingOrder(this.settings.render.sortingLayers, layer, order, (l) => this.warnOnce(`layer|${l}`, unknownLayerMessage(l))),
     });
+    this.decals = new BabylonDecals({ scene, materials: this.materials, warnOnce: (key, message) => this.warnOnce(key, message) });
+    this.dynamicMeshes = new BabylonDynamicMeshes({ scene, materials: this.materials, warnOnce: (key, message) => this.warnOnce(key, message) });
     this.fog = new FogFeature({ scene, lighting: this.lighting });
     // Order inside a phase is registration order adjusted by the specs' `after` constraints (ADR 0130,
     // 0135, 0140): sprites, tilemaps, then meshes. The `lighting` phase's features (the fog, the Sky
@@ -403,6 +411,7 @@ export class BabylonRenderer {
       ctx.viewCamera = view ? this.cameras.get(view)!.camera : null;
       this.casters.length = 0;
       for (const slot of this.slots) slot.feature?.casters?.(this.casters); // ADR 0276: only the meshes feature casts
+      this.dynamicMeshes.casters(this.casters); // lines and trails with castShadows (ADR 0382): the host owns their meshes
     } else if (phase === "effects") {
       ctx.ready = this.contentLoaded = !this.materials.loading() && this.slots.every((slot) => slot.feature?.loaded?.() ?? true);
       this.probeMeshes.length = 0;
@@ -469,6 +478,8 @@ export class BabylonRenderer {
       setScreenLayer: (draw) => (this.frame.ui = draw),
       setPreviewLayer: (draw) => (this.frame.previewUI = draw),
       quads: this.quads,
+      decals: this.decals,
+      dynamicMeshes: this.dynamicMeshes,
       warnOnce: (key, message) => this.warnOnce(key, message),
     };
   }
@@ -618,6 +629,8 @@ export class BabylonRenderer {
     for (let i = this.slots.length - 1; i >= 0; i--) this.slots[i].dispose(); // reverse registration order (ADR 0130)
     this.lighting.dispose(); // after the features that contributed to it (the sky owns its bake)
     this.quads.dispose(); // after the features that drew with them
+    this.decals.dispose();
+    this.dynamicMeshes.dispose();
     this.frame.ui = null;
     this.frame.previewUI = null;
     this.materials.dispose();

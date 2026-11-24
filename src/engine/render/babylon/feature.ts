@@ -25,6 +25,8 @@ import type { UICore } from "../../ui/UICore";
 import type { DrawnMaterial, PixelGrid, RenderDiagnostics } from "../RenderSurface";
 import type { RenderPolicy } from "../renderPolicy";
 import type { QuadBatch, QuadBatchHost } from "../quadBatches";
+import type { DecalHost } from "../decals";
+import type { DynamicMeshHost } from "../dynamicMeshes";
 import type { ScreenRect } from "../editorViewport";
 import { specNeeded, type RenderFeatureSpec } from "../renderFeatures";
 import { _instantiatedPrefabOf } from "../../scene/SceneLoader";
@@ -87,13 +89,20 @@ export function describeDrawn(features: Iterable<BabylonFeature | null>, drawn: 
  * - `quads`: quad batches it drew through the renderer's `QuadBatchHost` (a tile layer's chunks, ADR 0136):
  *   the renderer resolves them to its meshes, so a renderer-neutral feature names no Babylon type.
  * - `rect`: a rectangle on the canvas in CSS pixels, origin top-left (screen-space Text): picked inside it.
+ * - `box`: a box with no mesh of its own (a decal projector's volume, ADR 0381): `matrix` is the column-major
+ *   world matrix of the unit cube (-0.5..0.5). Framed and outlined by it; a feature reports it `pickable: false`.
+ * - `polyline`: a line through world-space `points` (xyz, `closed` joining the last to the first), `halfWidth`
+ *   wide on each side (a line or trail ribbon, ADR 0382, whose camera-facing triangles have no CPU shape): picked
+ *   by screen distance to its segments, framed and outlined by the box around its points grown by `halfWidth`.
  * - null: drawn inside a batch with no geometry of its own (a batched sprite): counted, not picked or framed.
  */
 export type DrawnShape =
   | { readonly kind: "quad"; readonly mesh: AbstractMesh }
   | { readonly kind: "meshes"; readonly meshes: readonly AbstractMesh[] }
   | { readonly kind: "quads"; readonly batches: readonly QuadBatch[] }
-  | { readonly kind: "rect"; readonly rect: ScreenRect };
+  | { readonly kind: "rect"; readonly rect: ScreenRect }
+  | { readonly kind: "box"; readonly matrix: ArrayLike<number> }
+  | { readonly kind: "polyline"; readonly points: ArrayLike<number>; readonly halfWidth: number; readonly closed?: boolean };
 
 /** @internal Pick orders (ADR 0276 `DrawnNode.order`) beside layered 2D content's (sorting layer × 10000 + order in layer, ADR 0014). */
 export const PICK_ORDER = {
@@ -211,6 +220,10 @@ export interface BabylonFeatureHost {
   setPreviewLayer(draw: (() => Layer | null) | null): void;
   /** Sorted, unlit textured quad batches (ADR 0136): what the Tilemaps plugin draws its tiles with. */
   readonly quads: QuadBatchHost;
+  /** Decal volumes (ADR 0381): what the Decals plugin draws 3D decals with. */
+  readonly decals: DecalHost;
+  /** Depth-tested meshes a feature rewrites, camera-facing ribbons included (ADR 0382): what the Lines plugin draws 3D lines and trails with. */
+  readonly dynamicMeshes: DynamicMeshHost;
   warnOnce(key: string, message: string): void;
 }
 
@@ -314,4 +327,33 @@ export function lazyFeature<F extends BabylonFeature>(
       feature = null;
     },
   };
+}
+
+/**
+ * @internal The world-space box around a `box` or `polyline` shape (ADR 0381, 0382): a box's eight corners, a
+ * polyline's points grown by its half width. Null for other shapes or an empty polyline.
+ */
+export function shapeWorldBox(shape: DrawnShape): { min: [number, number, number]; max: [number, number, number] } | null {
+  const min: [number, number, number] = [Infinity, Infinity, Infinity], max: [number, number, number] = [-Infinity, -Infinity, -Infinity];
+  const grow = (x: number, y: number, z: number, r: number): void => {
+    min[0] = Math.min(min[0], x - r); min[1] = Math.min(min[1], y - r); min[2] = Math.min(min[2], z - r);
+    max[0] = Math.max(max[0], x + r); max[1] = Math.max(max[1], y + r); max[2] = Math.max(max[2], z + r);
+  };
+  if (shape.kind === "box") {
+    for (const c of boxCorners(shape.matrix)) grow(c[0], c[1], c[2], 0);
+  } else if (shape.kind === "polyline") {
+    const p = shape.points;
+    for (let i = 0; i + 2 < p.length; i += 3) grow(p[i]!, p[i + 1]!, p[i + 2]!, shape.halfWidth);
+  } else return null;
+  return min[0] <= max[0] ? { min, max } : null;
+}
+
+/** @internal The eight world corners of the unit cube (-0.5..0.5) under a column-major world matrix. */
+export function boxCorners(m: ArrayLike<number>): [number, number, number][] {
+  const out: [number, number, number][] = [];
+  for (let i = 0; i < 8; i++) {
+    const x = i & 1 ? 0.5 : -0.5, y = i & 2 ? 0.5 : -0.5, z = i & 4 ? 0.5 : -0.5;
+    out.push([m[0]! * x + m[4]! * y + m[8]! * z + m[12]!, m[1]! * x + m[5]! * y + m[9]! * z + m[13]!, m[2]! * x + m[6]! * y + m[10]! * z + m[14]!]);
+  }
+  return out;
 }

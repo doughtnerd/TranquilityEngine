@@ -1,0 +1,4 @@
+/* The Lines plugin's Inspector section (ADR 0382). Theme tokens only (src/editor/theme.ts). */
+.lines-section { margin: 4px 0; }
+.lines-field h4 { margin: 6px 0 2px; color: var(--muted); font-size: 11px; font-weight: normal; }
+[data-lines-greyed] { opacity: 0.45; pointer-events: none; }

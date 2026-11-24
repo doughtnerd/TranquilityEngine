@@ -1,6 +1,6 @@
 # 0381. Decals are a plugin: 3D decal projectors shade what the scene depth shows inside a box, and 2D decals are layered quads masked by the sprite they sit on
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-24
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -186,6 +186,32 @@ interface DecalHandle { readonly alive: boolean; opacity: number; remove(fadeOut
 - **Create.** Hierarchy entries "3D Object > Decal Projector" (facing the scene camera's view direction when created
   from the scene view) and "2D Object > Decal". Dropping a material asset onto a projector sets `material`.
 - **Thumbnails** need nothing new: decals draw through the real feature (ADR 0153).
+
+### As built (2026-11-24)
+
+Where the build differs from the text above:
+
+- **Normals come from depth derivatives only.** The plugin builds the surface normal from the screen derivatives of the
+  rebuilt position; `requestSceneNormals` and the pass plan's normals request were not added (the geometry pass's
+  normals are view-space and AO-only today). Silhouette edges of a surface can show a one-pixel seam. Moving to the
+  geometry pass's normals is left open.
+- **The decal's reads.** The plugin declares its own varyings for the box (`vMycoBox`, the inverse's rows, UV transform,
+  angle fade) and replaces every read of the PBR shader's `vPositionW`, `vNormalW` and UV varyings (`vMainUV1` and each
+  texture's `v…UV`) with the surface's: WGSL reads of `fragmentInputs.*`, GLSL reads outside declarations. The begin
+  code runs at `CUSTOM_FRAGMENT_MAIN_BEGIN`; the GLSL globals are declared at `CUSTOM_FRAGMENT_BEGIN`.
+- **A decal material is always ready.** While the camera drawing has no scene depth yet (the first frames, a graph
+  rebuild) it binds a 1×1 stand-in and discards every fragment. An earlier build reported the material not ready
+  instead, and a World's first-frame hold (ADR 0120) then waited on the depth that only drawn frames make: the e2e spec
+  caught it as a frame covered by the clear colour.
+- **`multiply` and `additive` are both unlit.** Only `alpha` decals are lit.
+- **`pivot` is in node units, not scaled by `size`** (as Unity's): the default puts the node on the back face of a box 1
+  deep. The Edit Bounds handles keep `size` and `pivot` consistent.
+- **Editor drawing.** The projector boxes, arrows and node crosses are the `myco.decals.bounds` tool's overlay (always on,
+  like the reverb zone gizmo), not a `componentWireframes` contribution. A `Decal2D` is outlined by the selection outline
+  of its quad batch (each placed `Decal2D` draws in a batch of its own, so it's picked and framed alone); spawned 2D decals
+  share batches by texture, order and receiver. `angleFade` shows in radians, with its description.
+- **The Inspector section** greys `texture` while `material` is set and warns about a flat box.
+- **`render.maxDecals`** is in `ProjectSettings.render` (default 1000 of each kind).
 
 ## Alternatives considered
 

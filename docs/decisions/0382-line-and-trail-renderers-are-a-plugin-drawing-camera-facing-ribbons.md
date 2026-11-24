@@ -1,6 +1,6 @@
 # 0382. Line and trail renderers are a plugin that builds ribbons on the CPU; 3D ribbons face each camera in the vertex shader and 2D ribbons are layered quads
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-24
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -93,7 +93,7 @@ abstract class RibbonRenderer extends Component {
 @component("engine.LineRenderer")
 class LineRenderer extends RibbonRenderer {
   @field([Vector3]) positions: Vector3[] = [new Vector3(0, 0, 0), new Vector3(0, 0, 1)];
-  @field(Boolean) useWorldSpace = false;  // false: points in the node's space, so the line moves with it
+  @field(Boolean) useWorldSpace = true;   // true: points in world space (Unity's default); false: in the node's space, moving with it
   @field(Boolean) loop = false;
 
   get positionCount(): number;
@@ -102,8 +102,9 @@ class LineRenderer extends RibbonRenderer {
 }
 ```
 
-`useWorldSpace` defaults to false, unlike Unity's true: a line in a prefab should move with the prefab, and its
-editor handles edit node-space points. The guide page says so for Unity users.
+`useWorldSpace` defaults to true, as in Unity (amended on acceptance: the proposal defaulted to false). A line in a
+prefab that should move with the prefab turns it off; the editor's point handles edit points in whichever space the
+line uses.
 
 ### `TrailRenderer`
 
@@ -195,6 +196,31 @@ sprites, tiles and 2D decals as ADR 0186 requires. No new 2D material.
   (`src/editor/ui/gradients/`, with a story, ADR 0219); the Particles plugin then imports it from the SDK.
 - **Create.** Hierarchy entries "Effects > Line", "Effects > Trail" (3D) and "2D Object > Line", "2D Object > Trail".
 
+### As built (2026-11-24)
+
+Where the build differs from the text above:
+
+- **`TrailRenderer.lifetime`, not `time`.** `Component.time` is the World clock, so Unity's name is taken; `lifetime` is
+  seconds a point lives. A trail's curve and gradient run over each point's age over `lifetime` (0 at the head), not its
+  distance.
+- **The ribbon plugin uses Babylon's `CUSTOM_VERTEX_UPDATE_WORLDPOS`** (just after the world position and its varyings,
+  before the clip position), not `pbrInjection.ts`'s `worldPosition` point: a named point composes with a shader graph's
+  own vertex offset, which takes `worldPosition`. It rewrites `vPositionW` and `vNormalW` there too.
+- **Shadows.** `castShadows` works for ribbons facing their node's +Z (`transformZ`) and 2D ribbons don't cast. A
+  camera-facing ribbon has no width in the shadow map's own shader (its vertices sit on the centre line), so it casts
+  nothing; that is open. The dynamic-mesh host, not a feature hook, adds its casting meshes to the casters.
+- **Widths.** A camera-facing ribbon's width is in world units (the turn happens after the node's matrix); a flat ribbon
+  in node space scales with its node.
+- **Script Material values** (ADR 0049) are not applied to line materials: the material library's script-instance copies
+  are keyed by MeshRenderer. Open.
+- **The Hierarchy's entries** are Line, Trail, Line 2D and Trail 2D; the lines they create are in node space
+  (`useWorldSpace: false`) so they move with their node, while a LineRenderer added any other way defaults to world space.
+- **`QuadBatch.setTriangles`' fast path updates UVs too** (a 2D ribbon's texture moves along it).
+- **Editor drawing.** The point tool's overlay shows the edited line's centre line and points; the selection outline of a
+  ribbon is the box around its centre line.
+- **The gradient widget** is `GradientField` in the editor SDK (`src/editor/ui/gradients/`), with the gradient key helpers;
+  the Particles plugin uses it from there.
+
 ## Alternatives considered
 
 - **Rebuild camera-facing geometry on the CPU per view** (what Unity does): simplest shader side, exact joins and caps
@@ -229,7 +255,6 @@ sprites, tiles and 2D decals as ADR 0186 requires. No new 2D material.
 - View-aligned ribbons use five more floats per vertex than a plain strip.
 - `DrawnShape` gains `polyline`; `BabylonFeatureHost` gains `dynamicMeshes`; `QuadBatch` gains `setColors` (shared
   with 0381).
-- `useWorldSpace` defaults differently from Unity.
 - Transparent ribbons sort as whole meshes.
 
 ## Deprecates
