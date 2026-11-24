@@ -59,23 +59,23 @@ pub(crate) struct ChanBind {
 }
 
 /// The animated channels of one kind (translation, rotation or scale) on the four bones of one SoA
-/// group, decoded together (`ClipBindings::decode_grouped`).
+/// group, decoded together (`ClipBindings::decode_grouped`). Each has three components.
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct GroupOp {
     group: u32,
     kind: ChannelKind,
-    /// Components per channel (3, or 4 for a full rotation).
-    width: u8,
     /// Bit `l` set: lane `l` has a channel (its rank in `ranks[l]`).
     lanes: u8,
     ranks: [u32; 4],
 }
 
 /// Words per [`GroupOp`] in a frame cache's range block: per lane its rate and bit offset in the
-/// frame, then four minimums and four extents per component (x, y, z, w).
-const GROUP_WORDS: usize = 8 + 32;
+/// frame, then four minimums per component (x, y, z), then four extents per component.
+const GROUP_WORDS: usize = 8 + 24;
+/// Where a range block's extents start.
+const GROUP_EXT: usize = 8 + 12;
 
-/// Lane `l` of a group op whose range block is `w`: its `m` codes and `2^rate − 1`, or `slow`
+/// Lane `l` of a group op whose range block is `w`: its three codes and `2^rate − 1`, or `slow`
 /// when its codes don't fit one 64-bit read or its rate is 0, 32 or unsupported (no channel:
 /// zero codes).
 #[inline(always)]
@@ -84,22 +84,20 @@ fn lane_codes(
     frame_pos: u64,
     w: &[u32; GROUP_WORDS],
     lanes: u8,
-    m: usize,
     l: usize,
-) -> ([u32; 4], f32, bool) {
+) -> ([u32; 3], f32, bool) {
     if lanes & (1 << l) == 0 {
-        return ([0; 4], 1.0, false);
+        return ([0; 3], 1.0, false);
     }
     let r = w[l];
     let pos = frame_pos + w[4 + l] as u64;
-    if r != 0 && is_supported_bits(r) && (pos & 7) + m as u64 * r as u64 <= 64 {
+    if r != 0 && is_supported_bits(r) && (pos & 7) + 3 * r as u64 <= 64 {
         let word = read_word(data, pos);
         let mask = (1u64 << r) - 1;
         let c = |k: u32| ((word >> (k * r)) & mask) as u32;
-        let last = if m > 3 { c(3) } else { 0 };
-        ([c(0), c(1), c(2), last], unorm_max(r) as f32, false)
+        ([c(0), c(1), c(2)], unorm_max(r) as f32, false)
     } else {
-        ([0; 4], 1.0, true)
+        ([0; 3], 1.0, true)
     }
 }
 
@@ -181,9 +179,9 @@ pub struct ClipBindings {
     /// over another frame of the same clip rewrites only the animated ones.
     animated_channels: Vec<ChanBind>,
     exclusive: bool,
-    /// With `exclusive`, when every animated bone channel is a translation or scale of width 3
-    /// or a rotation of the stored format's width: the channels by group and kind, decoded four
-    /// lanes at a time (empty otherwise).
+    /// With `exclusive`, when every animated bone channel is a translation, scale or (w-dropped)
+    /// rotation of width 3: the channels by group and kind, decoded four lanes at a time (empty
+    /// otherwise; a clip storing full rotations decodes channel by channel).
     group_ops: Vec<GroupOp>,
     /// Per animated channel (rank order) of a grouped clip: `4 × op + lane`, or `NONE`.
     group_slots: Vec<u32>,
@@ -348,13 +346,9 @@ impl ClipBindings {
 
     /// Fills `group_ops` when the clip's animated bone channels allow it (see the field).
     fn build_group_ops(&mut self, format: RotationFormat, bones: usize) {
-        if !self.exclusive {
+        if !self.exclusive || format != RotationFormat::QuatDropW {
             return;
         }
-        let rot_width = match format {
-            RotationFormat::QuatDropW => 3,
-            RotationFormat::QuatFull => 4,
-        };
         // (group, kind) -> op index.
         let mut index = vec![[NONE; 3]; bones.div_ceil(4)];
         let mut ops: Vec<GroupOp> = Vec::new();
@@ -362,13 +356,13 @@ impl ClipBindings {
             if ch.bone == NONE {
                 continue;
             }
-            let (slot, width) = match ch.kind {
-                ChannelKind::Translation => (0, 3),
-                ChannelKind::Rotation => (1, rot_width),
-                ChannelKind::Scale => (2, 3),
+            let slot = match ch.kind {
+                ChannelKind::Translation => 0,
+                ChannelKind::Rotation => 1,
+                ChannelKind::Scale => 2,
                 ChannelKind::Value => return,
             };
-            if ch.width != width {
+            if ch.width != 3 {
                 return;
             }
             let (g, l) = (ch.bone as usize / 4, ch.bone as usize % 4);
@@ -378,7 +372,6 @@ impl ClipBindings {
                 ops.push(GroupOp {
                     group: g as u32,
                     kind: ch.kind,
-                    width,
                     lanes: 0,
                     ranks: [NONE; 4],
                 });
@@ -701,10 +694,10 @@ impl ClipBindings {
             if let Some(Some(o)) = o {
                 o[l] = r;
                 o[4 + l] = off as u32;
-                for k in 0..(ch.width as usize).min(4) {
+                for k in 0..3 {
                     let (min, ext) = range(ch, k);
                     o[8 + 4 * k + l] = min.to_bits();
-                    o[24 + 4 * k + l] = ext.to_bits();
+                    o[GROUP_EXT + 4 * k + l] = ext.to_bits();
                 }
             }
             off += r as u64 * (ch.width as u64).min(4);
@@ -782,8 +775,7 @@ impl ClipBindings {
             let Some(g) = out.get_mut(op.group as usize) else {
                 continue;
             };
-            let m = op.width as usize;
-            let read = |l: usize| lane_codes(s.data, s.frame_pos, w, op.lanes, m, l);
+            let read = |l: usize| lane_codes(s.data, s.frame_pos, w, op.lanes, l);
             let ((c0, m0, s0), (c1, m1, s1)) = (read(0), read(1));
             let ((c2, m2, s2), (c3, m3, s3)) = (read(2), read(3));
             let slow = s0 as u8 | (s1 as u8) << 1 | (s2 as u8) << 2 | (s3 as u8) << 3;
@@ -798,27 +790,22 @@ impl ClipBindings {
             let max = F32x4::new(m0, m1, m2, m3);
             let comp = |k: usize| {
                 let c = F32x4::from_u32_array([c0[k], c1[k], c2[k], c3[k]]);
-                lanes(8 + 4 * k) + c / max * lanes(24 + 4 * k)
+                lanes(8 + 4 * k) + c / max * lanes(GROUP_EXT + 4 * k)
             };
-            let mut v = [
-                comp(0),
-                comp(1),
-                comp(2),
-                if m > 3 { comp(3) } else { zero },
-            ];
+            let mut v = [comp(0), comp(1), comp(2)];
             if slow != 0 {
                 for l in 0..4 {
                     if slow & (1 << l) == 0 {
                         continue;
                     }
                     let (r, pos) = (w[l], s.frame_pos + w[4 + l] as u64);
-                    for (k, vk) in v.iter_mut().enumerate().take(m) {
+                    for (k, vk) in v.iter_mut().enumerate() {
                         let x = decode(
                             s.data,
                             pos + (k as u32 * r) as u64,
                             r,
                             f32::from_bits(w[8 + 4 * k + l]),
-                            f32::from_bits(w[24 + 4 * k + l]),
+                            f32::from_bits(w[GROUP_EXT + 4 * k + l]),
                         );
                         *vk = vk.with_lane(l, x);
                     }
@@ -835,12 +822,9 @@ impl ClipBindings {
             };
             match op.kind {
                 ChannelKind::Rotation => {
-                    let rw = if m == 3 {
-                        let d = one - (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-                        d.max(zero).sqrt()
-                    } else {
-                        v[3]
-                    };
+                    // `apply`'s w for a w-dropped rotation.
+                    let d = one - (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+                    let rw = d.max(zero).sqrt();
                     let q = &mut g.rotation;
                     q.x = sel(v[0], q.x);
                     q.y = sel(v[1], q.y);
