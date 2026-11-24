@@ -77,6 +77,20 @@ describe("shader graph edits", () => {
     expect(d.graph.edges.filter((e) => e.to === "output.baseColor")).toHaveLength(1); // the copy doesn't feed the output
   });
 
+  it("pastes a property node into a graph with a same-named property of another type as a new property under a free name", () => {
+    const from = edits.addProperty(defaultShaderGraph(), "color").graph;
+    const name = from.properties[0].name;
+    const prop = addNode(from, "property", [0, 0], { property: name });
+    const clip = edits.copy(prop.graph, [prop.id])!;
+    const sameType = edits.paste(from, clip, [0, 0]);
+    expect(sameType.graph.properties).toEqual(from.properties);
+    let into = edits.addProperty(defaultShaderGraph(), "float").graph;
+    into = edits.renameProperty(into, into.properties[0].name, name);
+    const pasted = edits.paste(into, clip, [0, 0]);
+    expect(pasted.graph.properties.map((p) => [p.name, p.type])).toEqual([[name, "float"], [`${name} 2`, "color"]]);
+    expect(pasted.graph.nodes.find((n) => n.id === pasted.ids[0])!.settings?.property).toBe(`${name} 2`);
+  });
+
   it("pastes nodes into another graph from their clipboard text, and reads none from malformed text (ADR 0226)", () => {
     let g = connect(sample(), "time1.time", "add1.a");
     g = edits.addProperty(g, "color").graph;
