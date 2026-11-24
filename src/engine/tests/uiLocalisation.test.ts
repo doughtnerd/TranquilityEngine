@@ -209,6 +209,31 @@ describe("LocalizedText", () => {
     expect(text.text).toBe("1 pièce");
   });
 
+  it("follows arguments changed in place, as well as replaced (Q13)", async () => {
+    await boot();
+    const label = GameObject.create("Label");
+    const text = label.addBehavior(UIText);
+    const loc = label.addBehavior(LocalizedText, { key: "hud.coins" });
+    const args: Record<string, number> = { count: 1 };
+    loc.args = args;
+    engine!.step(DT);
+    expect(text.text).toBe("1 coin");
+    args.count++;
+    engine!.step(DT);
+    expect(text.text).toBe("2 coins");
+    // A name removed in place: the message shows its placeholder; added back: its value again.
+    delete args.count;
+    engine!.step(DT);
+    expect(text.text).not.toBe("2 coins");
+    args.count = 0;
+    engine!.step(DT);
+    expect(text.text).toBe("0 coins");
+    // Unchanged values: the text isn't written again (a script's own edit to it stays until something changes).
+    text.text = "edited";
+    engine!.step(DT);
+    expect(text.text).toBe("edited");
+  });
+
   it("writes into the Text component, an input's placeholder, or a named field", async () => {
     await boot();
     const banner = GameObject.create("Banner");
