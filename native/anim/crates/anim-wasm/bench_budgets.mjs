@@ -105,12 +105,18 @@ async function child(name, frames) {
   const committed = (n) => new Uint8Array(readFileSync(new URL(`fixtures/${n}`, wasmDir)));
   const generated = (n) => new Uint8Array(readFileSync(new URL(n, genDir)));
   const view = () => new DataView(exports.memory.buffer);
-  const f32bits = (x) => new Uint32Array(new Float32Array([x]).buffer)[0];
+  // Allocation-free, as the shipped host encodes (so the bench's own JS doesn't inflate the per-frame time).
+  const bitsF32 = new Float32Array(1);
+  const bitsU32 = new Uint32Array(bitsF32.buffer);
+  const f32bits = (x) => ((bitsF32[0] = x), bitsU32[0]);
+  const fieldLists = new Map();
   /** Writes record `def` (a generated wire definition) at `at` in `v`: its header, then `values` by field name (unnamed fields 0). */
   const put = (v, at, def, values) => {
     v.setUint16(at, def.opcode, true);
     v.setUint16(at + 2, def.version, true);
-    for (const [field, { offset, type }] of Object.entries(def.fields)) {
+    let fields = fieldLists.get(def);
+    if (!fields) fieldLists.set(def, (fields = Object.entries(def.fields)));
+    for (const [field, { offset, type }] of fields) {
       const x = values[field] ?? 0;
       if (type === "f32") v.setFloat32(at + offset, x, true);
       else if (type === "u32") v.setUint32(at + offset, x >>> 0, true);
