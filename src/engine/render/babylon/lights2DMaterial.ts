@@ -176,8 +176,26 @@ export class Light2DPlugin extends MycoMaterialPlugin {
     return (!normal || normal.isReady()) && (!mask || mask.isReady());
   }
 
-  override bindForSubMesh(ubo: UniformBuffer, scene: Scene, _engine: AbstractEngine, _subMesh: SubMesh): void {
+  /**
+   * Every draw, even when Babylon skips rebinding a cached material (`hardBindForSubMesh` runs before its `mustRebind`
+   * check): the light textures are the camera's this frame, and a material drawn by two cameras, or first drawn while the
+   * frame graph was still building, would otherwise keep what it bound then.
+   */
+  override bindForSubMesh(ubo: UniformBuffer, scene: Scene, engine: AbstractEngine, subMesh: SubMesh): void {
+    this.bindLights(ubo, scene, engine, subMesh);
+  }
+
+  override hardBindForSubMesh(ubo: UniformBuffer, scene: Scene, engine: AbstractEngine, subMesh: SubMesh): void {
+    this.bindLights(ubo, scene, engine, subMesh);
+  }
+
+  private bindLights(ubo: UniformBuffer, scene: Scene, _engine: AbstractEngine, subMesh: SubMesh): void {
     if (!this.lit) return;
+    // Textures straight to the effect being drawn: here, before the material binds its uniform buffer to the effect,
+    // the buffer may still point at another effect's.
+    const effect = subMesh.effect;
+    if (!effect) return;
+    const setTexture = (name: string, texture: Parameters<typeof effect.setTexture>[1]) => effect.setTexture(name, texture);
     const rig = lights2DOf(scene);
     const b = rig?.batch(this.setup.batch);
     if (!rig || !b) return;
@@ -192,14 +210,14 @@ export class Light2DPlugin extends MycoMaterialPlugin {
       const style = rig.style(b.styles[i] ?? 0);
       ubo.updateFloat4(`mycoL2DStyle${i}`, MASK_CHANNEL[style.mask], views ? style.multiply : 1, views ? style.add : 0, 0);
       if (i >= b.styles.length) continue;
-      ubo.setTexture(`mycoL2DFlat${i}`, views?.flat[i] ?? white);
+      setTexture(`mycoL2DFlat${i}`, views?.flat[i] ?? white);
       if (b.directional) {
-        ubo.setTexture(`mycoL2DDirColor${i}`, views?.dirColor[i] ?? black);
-        ubo.setTexture(`mycoL2DDirVec${i}`, views?.dirVec[i] ?? black);
+        setTexture(`mycoL2DDirColor${i}`, views?.dirColor[i] ?? black);
+        setTexture(`mycoL2DDirVec${i}`, views?.dirVec[i] ?? black);
       }
     }
-    if (this.setup.normal) ubo.setTexture("mycoL2DNormal", this.setup.normal);
-    if (this.setup.mask) ubo.setTexture("mycoL2DMask", this.setup.mask);
+    if (this.setup.normal) setTexture("mycoL2DNormal", this.setup.normal);
+    if (this.setup.mask) setTexture("mycoL2DMask", this.setup.mask);
   }
 
   override getCustomCode(shaderType: string, shaderLanguage?: ShaderLanguage): { [point: string]: string } | null {

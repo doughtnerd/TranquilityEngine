@@ -247,7 +247,7 @@ class FrameGraphLights2DTask extends FrameGraphTask {
     const prepare = (context: { _applyRenderTarget(): void; clear(color: typeof zero, backBuffer: boolean, depth: boolean): void }) => {
       context._applyRenderTarget();
       engine.setViewport(FULL_VIEWPORT);
-      context.clear(zero, false, false);
+      context.clear(zero, true, false); // `true`: the colour buffer (Babylon calls it the back buffer)
     };
     l.shadows.forEach((handle, k) => {
       const pass = this._frameGraph.addRenderPass(`${this.name}_shadow${k}`);
@@ -473,6 +473,9 @@ export class BabylonFrame {
     this.overlayTask = null;
     if (!views.length) return;
     const graph = new FrameGraph(this.scene, false);
+    // The lit 2D material samples the 2D light textures in the render pass, behind the graph's back (ADR 0399): don't
+    // let the graph reuse their memory for a texture made after the light pass.
+    if (plans.some((p) => p.lights2D)) graph.optimizeTextureAllocation = false;
     // Every camera's clear runs before the shadow maps: a shadow map renders through Babylon's own render
     // target, behind the frame graph's back, and a clear right after it lands on the wrong target.
     const targets = views.map((v, i) => this.viewTargets(graph, v, plans[i], i, samples));
