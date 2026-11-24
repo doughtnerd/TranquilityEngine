@@ -6,6 +6,10 @@
 //! lowest index first, which keeps the boundary buffers dense.
 use std::fmt;
 
+/// Generations stay below this (they wrap back to 1), so `index + generation * 2^32` is under 2^53 and a handle
+/// crosses the wasm boundary exactly as one JS number (see `nav-wasm`'s `runtime.rs`).
+pub const GENERATION_LIMIT: u32 = 1 << 21;
+
 /// A slot index and its generation. Generation 0 is never handed out, so `Handle::default()` is never valid.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Handle {
@@ -173,7 +177,8 @@ impl SlotTable {
         }
         let i = h.row();
         self.states[i] = SlotState::Free;
-        self.generations[i] = self.generations[i].wrapping_add(1).max(1);
+        let next = self.generations[i] + 1;
+        self.generations[i] = if next >= GENERATION_LIMIT { 1 } else { next };
         let pos = self.free.partition_point(|&f| f > h.index);
         self.free.insert(pos, h.index);
         true
@@ -238,5 +243,22 @@ mod tests {
         assert_eq!(t.live_rows().collect::<Vec<_>>(), vec![0, 1]);
         assert_eq!(Handle::from_bits(d.to_bits()), d);
         assert_eq!(t.state(Handle::default()), None);
+    }
+
+    #[test]
+    fn generations_wrap_below_the_boundary_limit_and_skip_zero() {
+        let mut t = SlotTable::new();
+        let (mut h, _) = t.reserve();
+        let mut wrapped = false;
+        for _ in 0..GENERATION_LIMIT as u64 + 2 {
+            assert!(t.free(h));
+            let (next, grew) = t.reserve();
+            assert!(!grew);
+            assert!(next.generation >= 1 && next.generation < GENERATION_LIMIT, "{next:?}");
+            assert_eq!(t.state(h), None, "the old handle is stale");
+            wrapped |= next.generation < h.generation;
+            h = next;
+        }
+        assert!(wrapped);
     }
 }
