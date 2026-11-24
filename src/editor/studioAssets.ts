@@ -52,6 +52,11 @@ export interface StudioOpenRequest {
   /** A project-relative asset to open; its screen is `studioScreenFor(asset)` unless `screen` says otherwise. */
   readonly asset?: string;
   readonly screen?: StudioScreen;
+  /**
+   * Open the debug link's Connect dialog (ADR 0403) once the request is handled: the launcher's Connect to Game…
+   * (ADR 0380). With `project` null it leaves whatever the Studio has open as it is, rather than closing it.
+   */
+  readonly connect?: true;
 }
 
 /** The screen a request opens: its own, else its asset's, else none (the Studio's last). */

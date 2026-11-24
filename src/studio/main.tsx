@@ -25,6 +25,7 @@ import type { RecentTake } from "./start/recentTakes";
 import { engineRuntime } from "./runtime/engineRuntime";
 import { createStudioAudioHost } from "./runtime/studioAudioHost";
 import { startStudioDebugLink } from "./debugLink/studioLink";
+import { openStudioConnect } from "./debugLink/StudioDebugLink";
 import { installCalibration } from "./shell/applyCalibration";
 import { installStudioKeys } from "./shell/installKeys";
 import { installLongPress } from "./shell/longPress";
@@ -65,7 +66,8 @@ async function main(): Promise<void> {
   startStudioDebugLink(); // listens (desktop) and connects out by code; its menu and prompt sit in the status bar
 
   render(<StudioApp onCloseProject={projects.close} onOpenTake={(take) => openTake(projects.handOff, take)} />, document.getElementById("app")!);
-  if (isTauri()) await serveHandoff(projects.handOff);
+  // A request with `connect` (the launcher's Connect to Game…, ADR 0380) opens the Connect dialog once it's handled.
+  if (isTauri()) await serveHandoff((request) => projects.handOff(request).then(() => request.connect && openStudioConnect()));
   await projects.openRequest(startRequest(location.search));
 }
 

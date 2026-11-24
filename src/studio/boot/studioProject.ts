@@ -138,7 +138,8 @@ export function studioProjects({ runtime, openRoute, confirm = (q) => confirmInE
           if (outcome.kind === "cancelled") throw new Error(`Opening the ${request.sample} sample was cancelled.`);
         }
       } else if (request.project === null) {
-        if (currentProject.peek()) close();
+        // A connect request (the launcher's Connect to Game…) keeps the open project: the dialog opens over it.
+        if (currentProject.peek() && !request.connect) close();
       } else if (currentProject.peek()?.root !== request.project) {
         const outcome = show(await openFolder(request.project));
         if (outcome.kind === "refused") throw new Error(outcome.reason.text);

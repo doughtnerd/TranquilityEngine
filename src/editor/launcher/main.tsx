@@ -1,7 +1,7 @@
 // The desktop app's launcher (ADR 0059, 0380): the Projects window, opening on the Foxfire Studios stage. Open on an
 // application's card moves to that app's projects screen in the same page (Myco Engine, or Biosonic, the Audio
 // Studio); its "‹ Foxfire launcher" goes back. A Myco project is handed to the editor window, which is created hidden
-// once this window has painted and loads in the background (ADR 0082); a Biosonic project or take is handed to the
+// once this window has painted and loads in the background (ADR 0082); a Biosonic project or take, and Connect to Game…, is handed to the
 // Studio's window. This window then hides until the editor closes its project or the Studio window closes. It loads
 // no engine code, so it shows at once. Outside the desktop app there's no second window, so it goes to the editor page.
 import type { Window } from "@tauri-apps/api/window";
@@ -82,9 +82,11 @@ interface LauncherProps {
   readonly window: Window;
   readonly actions: Record<LauncherApp, StartActions>;
   openTake(take: RecentTake): Promise<void>;
+  /** Connect to Game…: the Studio window, with its Connect dialog open. */
+  connect(): Promise<void>;
 }
 
-function Launcher({ window, actions, openTake }: LauncherProps) {
+function Launcher({ window, actions, openTake, connect }: LauncherProps) {
   useLauncherWindow(window);
   const chrome = <WindowControls window={window} />;
   const show = (next: "foxfire" | LauncherApp) => {
@@ -101,7 +103,7 @@ function Launcher({ window, actions, openTake }: LauncherProps) {
       ) : s === "myco" ? (
         <MycoProjectsScreen chrome={chrome} back={back} note={editorReady.value ? undefined : "Starting the editor…"} />
       ) : (
-        <BiosonicProjectsScreen chrome={chrome} back={back} onOpenTake={openTake} />
+        <BiosonicProjectsScreen chrome={chrome} back={back} onOpenTake={openTake} onConnect={() => void connect()} />
       )}
       <NewProjectDialog />
       <AboutDialog />
@@ -142,7 +144,19 @@ async function main(): Promise<void> {
       status.value = errorStatus(`Couldn't open ${take.name}`, err);
     }
   };
-  render(<Launcher window={window} actions={actions} openTake={openTake} />, document.getElementById("app")!);
+  // The Studio window holds the debug link (its Take, Profiler and Mixer screens use the build), so the launcher hands
+  // Connect to Game… to it rather than connecting itself; whatever the Studio has open stays open.
+  const connect = async () => {
+    status.value = { kind: "info", text: "Opening the Audio Studio…" };
+    try {
+      await openInStudioWindow({ project: null, connect: true });
+      status.value = null;
+      hide();
+    } catch (err) {
+      status.value = errorStatus("Couldn't open the Audio Studio to connect", err);
+    }
+  };
+  render(<Launcher window={window} actions={actions} openTake={openTake} connect={connect} />, document.getElementById("app")!);
   startEditorWindowWhenIdle();
 }
 
