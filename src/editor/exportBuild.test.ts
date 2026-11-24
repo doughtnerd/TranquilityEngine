@@ -167,7 +167,9 @@ describe("exportDesktopProject (ADR 0406)", () => {
     expect(config).toMatchObject({ productName: plan.manifest.name, build: { frontendDist: "../web" } });
     expect(file(fs, "src-tauri/src/gamepad.rs")).toContain("myco_gamepad_listen");
     expect(file(fs, "src-tauri/app-icon.svg")).toContain("<svg");
-    expect(file(fs, "README.txt")).toContain("npx @tauri-apps/cli build");
+    // The package has no icons/ until `tauri icon` runs, so the README makes them before the build.
+    expect(file(fs, "README.txt")).toContain("npx @tauri-apps/cli@2 icon src-tauri/app-icon.svg");
+    expect(file(fs, "README.txt")).toContain("npx @tauri-apps/cli@2 build");
     expect(file(fs, "README.txt")).not.toContain("Installers:");
   });
 
@@ -182,6 +184,7 @@ describe("exportDesktopProject (ADR 0406)", () => {
     expect(file(fs, "src-tauri/target/release/cached.rlib")).toEqual(new Uint8Array([7]));
     expect(file(fs, "src-tauri/app-icon.png")).toEqual(new Uint8Array([137, 80, 78, 71]));
     expect(file(fs, "src-tauri/app-icon.svg")).toBeUndefined();
+    expect(file(fs, "README.txt")).toContain("npx @tauri-apps/cli@2 icon src-tauri/app-icon.png");
   });
 
   it("refuses an icon that isn't a PNG or SVG, before writing anything", async () => {

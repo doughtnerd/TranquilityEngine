@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -515,6 +515,15 @@ describe("exportProject (Node)", () => {
     expect(lines.filter((l) => /couldn't be baked/.test(l))).toEqual([]);
   });
 
+  it("refuses a desktop build.icon that isn't a PNG or SVG", async () => {
+    const project = temp();
+    cpSync(join(SAMPLES, "arena"), project, { recursive: true });
+    const settings = JSON.parse(readFileSync(join(project, "project.json"), "utf8")) as Record<string, unknown>;
+    writeFileSync(join(project, "project.json"), JSON.stringify({ ...settings, build: { icon: "icon.jpg" } }));
+    writeFileSync(join(project, "icon.jpg"), "not a png");
+    await expect(exportProject({ projectDir: project, out: temp(), target: "desktop", tauriBuild: false, playerDir: fakePlayer() })).rejects.toThrow(/PNG or SVG/);
+  }, 60_000);
+
   it("refuses to write into the project", async () => {
     await expect(exportProject({ projectDir: join(SAMPLES, "flappy"), out: join(SAMPLES, "flappy", "build"), playerDir: fakePlayer() })).rejects.toThrow(/inside the project/);
   });
@@ -527,7 +536,10 @@ describe("exportProject (Node)", () => {
     expect(existsSync(join(out, "web", "code", "scripts", "behaviors", "Menu.js"))).toBe(true);
     expect(JSON.parse(readFileSync(join(out, "src-tauri", "tauri.conf.json"), "utf8"))).toMatchObject({ productName: "arena", app: { windows: [{ width: 800, height: 600 }] } });
     for (const icon of ["icons/icon.ico", "icons/icon.icns", "icons/32x32.png"]) expect(existsSync(join(out, "src-tauri", icon)), icon).toBe(true);
-    expect(readFileSync(join(out, "README.txt"), "utf8")).toContain("npx @tauri-apps/cli build");
+    expect(existsSync(join(out, "src-tauri", "app-icon.svg"))).toBe(true);
+    const readme = readFileSync(join(out, "README.txt"), "utf8");
+    expect(readme).toContain("npx @tauri-apps/cli@2 icon src-tauri/app-icon.svg");
+    expect(readme).toContain("npx @tauri-apps/cli@2 build");
     expect(readFileSync(join(out, "src-tauri", "src", "gamepad.rs"), "utf8")).toBe(readFileSync(join(SRC_TAURI, "src", "gamepad.rs"), "utf8"));
   }, 60_000);
 });
