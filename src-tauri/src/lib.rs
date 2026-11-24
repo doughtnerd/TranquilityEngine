@@ -1,3 +1,4 @@
+mod game_build;
 mod gamepad;
 
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -188,7 +189,10 @@ pub fn run() {
             debug_link_tauri::commands::myco_debuglink_advertise,
             debug_link_tauri::commands::myco_debuglink_unadvertise,
             debug_link_tauri::commands::myco_debuglink_browse,
-            debug_link_tauri::commands::myco_debuglink_browse_stop
+            debug_link_tauri::commands::myco_debuglink_browse_stop,
+            // Desktop game builds from the editor with the host's toolchain (ADR 0406).
+            game_build::myco_build_toolchain,
+            game_build::myco_build_desktop_app
         ])
         .on_window_event(|window, event| {
             let other = |label: &str| window.app_handle().get_webview_window(label);

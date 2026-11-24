@@ -16,8 +16,11 @@ import { packageSourceFor } from "./projectPackages";
 import { ExportError, isOutputInsideProject, planWebBuild, type BuildOptions, type WebBuildPlan } from "../export/webBuild";
 import { jsonFiles, type EditorProject } from "./projects";
 import { DEFAULT_DEBUG_LINK_PORT } from "../engine/debugLink/config";
+import { DEBUG_LISTENER_CRATES, DEBUG_MULTICAST_PLUGIN, DEFAULT_ICON_SVG, desktopProjectFiles, desktopReadme, type BuildSettings } from "../export/desktop";
+// ADR 0335: exported games' gamepad module is the editor shell's, copied verbatim (as the command line's exporter does).
+import GAMEPAD_MODULE from "../../src-tauri/src/gamepad.rs?raw";
 
-/** The command-line export, for what the editor can't do (desktop packages need Rust and a shell). */
+/** The command-line export of a desktop package, for the browser editor, which can't run the host's toolchain (ADR 0406). */
 export const desktopExportCommand = (project: EditorProject, audioCapture = false, audioTake = false, takePictures = true, debugLink = false, debugListen = false, debugLan = false, debugRendezvous = "") =>
   `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop${audioCapture ? " --audio-capture" : ""}${audioTake ? " --audio-take" : ""}${audioTake && !takePictures ? " --no-take-pictures" : ""}${debugLink ? ` --debug-link ${DEFAULT_DEBUG_LINK_PORT}` : ""}${debugLink && debugListen ? " --debug-listen" : ""}${debugLink && debugListen && debugLan ? " --debug-lan" : ""}${debugLink && debugRendezvous.trim() ? ` --debug-rendezvous "${debugRendezvous.trim()}"` : ""}`;
 
@@ -68,7 +71,74 @@ const playerFiles: FileSource = { read: (path) => fetchBytes(new URL(`player/${p
  * build (replaced). `progress` hears how many files are written out of how many. Throws an
  * `ExportError` if the project can't be built or the folder can't take it.
  */
-export async function exportProjectBuild(project: EditorProject, fs: FileSystem, out: string, progress?: (done: number, total: number) => void, options: BuildOptions = {}): Promise<WebBuildPlan> {
+export function exportProjectBuild(project: EditorProject, fs: FileSystem, out: string, progress?: (done: number, total: number) => void, options: BuildOptions = {}): Promise<WebBuildPlan> {
+  return writeBuild(project, fs, out, "web", progress, options);
+}
+
+/**
+ * ADR 0406: write a desktop package of `project` into `out` (ADR 0041's layout): the web build in
+ * `web/`, the generated Tauri project in `src-tauri/` with its icon's source as
+ * `src-tauri/app-icon.png` or `.svg` (`build.icon`, else the neutral default) for `tauri icon` to
+ * make the icons from, and README.txt. `out` must be empty or hold an earlier desktop package
+ * (replaced, keeping `src-tauri/target/`, the Rust build cache). Building it is the host's job
+ * (`hostToolchain.ts`); `built` says where its installers are, for the README.
+ */
+export async function exportDesktopProject(project: EditorProject, fs: FileSystem, out: string, progress?: (done: number, total: number) => void, options: BuildOptions = {}): Promise<WebBuildPlan> {
+  const settings = project.settings as typeof project.settings & { build?: BuildSettings };
+  const icon = settings.build?.icon?.replace(/^\.?\//, "");
+  if (icon && !/\.(png|svg)$/i.test(icon)) throw new ExportError(`project.json's build.icon "${icon}" must be a square PNG or SVG.`);
+  const iconSource = icon ? await projectFiles(project).read(icon).catch(() => { throw new ExportError(`project.json's build.icon "${icon}" isn't in the project.`); }) : DEFAULT_ICON_SVG;
+  const plan = await writeBuild(project, fs, out, "desktop", progress, options);
+  const folder = fileSystemFolder(fs, out);
+  const debug = plan.manifest.debug !== undefined;
+  // ADR 0403: a debug package carries the listener crates' sources, compiled by its own `tauri build` (a release one carries none).
+  const debugListener = debug ? await listenerCrates() : undefined;
+  for (const [path, text] of desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule: GAMEPAD_MODULE, debug, ...(debugListener && { debugListener }) })) {
+    await folder.writeText(`src-tauri/${path}`, text);
+  }
+  const iconFile = `src-tauri/app-icon.${icon?.toLowerCase().endsWith(".png") ? "png" : "svg"}`;
+  for (const stale of ["src-tauri/app-icon.png", "src-tauri/app-icon.svg"]) if (stale !== iconFile && (await folder.exists(stale))) await folder.remove(stale, false);
+  await (typeof iconSource === "string" ? folder.writeText(iconFile, iconSource) : folder.writeBytes(iconFile, iconSource));
+  await writeDesktopReadme(fs, out, plan.manifest.name, false);
+  return plan;
+}
+
+/**
+ * ADR 0403: the debug link's listener crates and the Android multicast plugin, by path under `src-tauri/vendor/`, as the
+ * command line's exporter reads them from native/ (`readListenerCrates` in src/export/node.ts): each crate's Cargo.toml
+ * and src/*.rs, and the plugin's listed files. The editor bundles them, loaded only for a debug package.
+ */
+const NATIVE_SOURCES = import.meta.glob(
+  [
+    "../../native/{ws-listener,debug-discovery,debug-link-tauri}/Cargo.toml",
+    "../../native/{ws-listener,debug-discovery,debug-link-tauri}/src/*.rs",
+    "../../native/tauri-plugin-myco-multicast/{Cargo.toml,build.rs,src/lib.rs,permissions/default.toml}",
+    "../../native/tauri-plugin-myco-multicast/android/{build.gradle.kts,settings.gradle,src/main/AndroidManifest.xml,src/main/java/com/myco/multicast/MulticastPlugin.kt}",
+  ],
+  { query: "?raw", import: "default" },
+) as Record<string, () => Promise<string>>;
+
+async function listenerCrates(): Promise<Map<string, string>> {
+  const byPath = new Map(Object.entries(NATIVE_SOURCES).map(([key, load]) => [key.replace(/^(\.\.\/)+native\//, ""), load]));
+  const wanted = [
+    ...[...byPath.keys()].filter((path) => (DEBUG_LISTENER_CRATES as readonly string[]).some((crate) => path === `${crate}/Cargo.toml` || new RegExp(`^${crate}/src/[^/]+\\.rs$`).test(path))).sort(),
+    ...DEBUG_MULTICAST_PLUGIN.files.map((file) => `${DEBUG_MULTICAST_PLUGIN.crate}/${file}`),
+  ];
+  const crates = new Map<string, string>();
+  for (const path of wanted) {
+    const load = byPath.get(path);
+    if (!load) throw new ExportError(`The debug link's native source ${path} isn't bundled with this editor.`);
+    crates.set(path, await load());
+  }
+  return crates;
+}
+
+/** README.txt of the desktop package in `out`; `built` once its installers are in src-tauri/target/release/bundle/. */
+export function writeDesktopReadme(fs: FileSystem, out: string, name: string, built: boolean): Promise<void> {
+  return fileSystemFolder(fs, out).writeText("README.txt", desktopReadme(name, built ? "src-tauri/target/release/bundle/" : null));
+}
+
+async function writeBuild(project: EditorProject, fs: FileSystem, out: string, target: "web" | "desktop", progress: ((done: number, total: number) => void) | undefined, options: BuildOptions): Promise<WebBuildPlan> {
   if (project.root && isOutputInsideProject(project.root, out)) throw new ExportError("That folder is inside the project, where the next export would copy it in. Choose a folder outside it (or its dist/ folder).");
   const name = project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name;
   // ADR 0403 "Rendezvous" 2: a debug build's serve.mjs hosts the rendezvous from a bundle served beside the editor (rendezvous/rendezvous.mjs); without it the build says so.
@@ -81,8 +151,10 @@ export async function exportProjectBuild(project: EditorProject, fs: FileSystem,
     player: playerFiles,
     playerWhere: "player/ beside the editor",
     folder: fileSystemFolder(fs, out),
-    // The editor builds web games; models bake through the project's assets the editor already serves (ADR 0090).
-    platform: "web",
+    // A desktop package's web build sits in web/; its Rust build cache survives (rebuilding Tauri from scratch takes minutes).
+    ...(target === "desktop" && { web: "web", keep: ["src-tauri/target"], kind: "desktop" }),
+    // Models bake through the project's assets the editor already serves (ADR 0090).
+    platform: target,
     transcode: browserTranscoder,
     bake: bakeModelFile,
     // ADR 0351: audio converted in Web Workers (at most two at once, ADR 0359 §3), cached in the project's .myco/cache/audio/ when it is a folder.
