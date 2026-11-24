@@ -146,7 +146,7 @@ test("the graph draws and deletes links, and keeps where Worlds are moved out of
   await expect(p.locator('[data-label-for="Default>Server"] text')).toHaveText("loopback");
 
   // Pick the link by its label and delete it.
-  await p.locator('[data-label-for="Default>Server"] rect').click();
+  await p.locator('[data-label-for="Default>Server"] text').click();
   await expect(p.locator('.worlds-link.selected[data-link-arrow="Default>Server"]')).toHaveCount(1);
   await page.keyboard.press("Delete");
   await expect.poll(async () => (await bootstrap(page)).links ?? []).toEqual([]);

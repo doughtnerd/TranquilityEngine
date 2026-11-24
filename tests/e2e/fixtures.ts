@@ -129,7 +129,7 @@ export const PLAY_START = 20_000;
 
 /** Press Play and wait until the game runs (the Stop button shows). */
 export async function play(page: Page): Promise<void> {
-  await page.getByRole("button", { name: "Play", exact: true }).click();
+  await page.getByRole("button", { name: "Play", exact: true, description: /^Play the open scene/ }).click();
   await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: PLAY_START });
 }
 

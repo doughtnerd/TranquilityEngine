@@ -45,15 +45,18 @@ interface MenuListProps extends Omit<ContextMenuProps, "inline"> {
   onBack?(): void;
   /** Focus its first item when it opens (default true; a submenu opened by hover leaves focus where it is). */
   readonly focusFirst?: boolean;
+  /** A submenu: where its right edge goes if it doesn't fit to the right of its item (its parent menu's left edge). */
+  readonly flipX?: number;
 }
 
 function MenuList(props: MenuListProps) {
   const { entries, onClose } = props;
   const ref = useRef<HTMLDivElement>(null);
-  const [sub, setSub] = useState<{ index: number; at: PopoverPoint; focus: boolean } | null>(null);
+  const [sub, setSub] = useState<{ index: number; at: PopoverPoint; flipX: number; focus: boolean } | null>(null);
   const sub_ = props.onBack !== undefined;
   usePopover(ref, true, {
     anchor: props.at,
+    flipX: props.flipX,
     focusFirst: props.focusFirst ?? true,
     // A submenu handles Escape itself (back to its item); its parent leaves Escape to it while it is open.
     escape: !sub_ && sub === null,
@@ -65,7 +68,8 @@ function MenuList(props: MenuListProps) {
   const focused = () => Number((ref.current?.ownerDocument.activeElement as HTMLElement | null)?.dataset?.entry ?? -1);
   const openSub = (i: number, el: HTMLElement, focus: boolean) => {
     const r = el.getBoundingClientRect();
-    setSub({ index: i, at: { x: Math.round(r.right + 2), y: Math.round(r.top - 5) }, focus });
+    const menuLeft = ref.current?.getBoundingClientRect().left ?? r.left;
+    setSub({ index: i, at: { x: Math.round(r.right + 2), y: Math.round(r.top - 5) }, flipX: Math.round(menuLeft - 2), focus });
   };
   const check = hasCheckColumn(entries);
   const onKeyDown = (e: KeyboardEvent) => {
@@ -172,6 +176,7 @@ function MenuList(props: MenuListProps) {
           focusFirst={sub.focus}
           entries={subEntry.submenu}
           at={sub.at}
+          flipX={sub.flipX}
           label={subEntry.label}
           onClose={onClose}
           onBack={() => {

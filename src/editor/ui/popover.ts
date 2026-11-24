@@ -36,6 +36,11 @@ export interface PopoverOptions {
   readonly align?: "start" | "end";
   /** Pixels between an anchor element and the popover (default 4; 0 for a point). */
   readonly gap?: number;
+  /**
+   * For a point anchor: when the popover doesn't fit to the right of the point, its right edge goes at this x instead
+   * of being pushed back over what it opened beside (a submenu flips to the left of its menu).
+   */
+  readonly flipX?: number;
   /** Pixels kept between the popover and its window's edges (default 4). */
   readonly margin?: number;
   /** Elements a press in (or focus moving to) doesn't dismiss it: its toggle button, which toggles it itself. */
@@ -135,6 +140,7 @@ export function openPopover(el: HTMLElement, options: PopoverOptions): Popover {
     const r = point ? { left: anchor.x, right: anchor.x, top: anchor.y, bottom: anchor.y } : anchor.getBoundingClientRect();
     const gap = options.gap ?? (point ? 0 : 4);
     let left = options.align === "end" ? r.right - w : r.left;
+    if (point && options.flipX !== undefined && left + w > vw - margin) left = options.flipX - w;
     let top: number;
     if (point) top = r.top;
     else {
