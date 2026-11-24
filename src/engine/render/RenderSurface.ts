@@ -163,6 +163,8 @@ export interface RenderSurface {
   dispose(): void;
   /** Load textures ahead of time so sprites don't pop in. */
   preloadTextures(paths: string[], onProgress?: (p: number) => void): Promise<void>;
+  /** A loaded texture asset's authored size in pixels (ADR 0119), or null while it isn't loaded (2D shadow casters' sprite outlines, ADR 0400). */
+  textureSize?(path: string): readonly [number, number] | null;
   /**
    * Draw a warm set's meshes, particle effects and world-space UI once, hidden, in every pass the frame
    * would put them in, so their shader pipelines exist before they're shown (ADR 0080). Resolves once

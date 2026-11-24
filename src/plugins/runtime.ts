@@ -6,6 +6,7 @@ import { audioRuntimePlugin } from "./audio/runtime";
 import { FIRST_PARTY_KEYS, type FirstPartyPlugin } from "./catalogue";
 import { decalsRuntimePlugin } from "./decals/runtime";
 import { environmentRuntimePlugin } from "./environment/runtime";
+import { lights2dRuntimePlugin } from "./lights2d/runtime";
 import { linesRuntimePlugin } from "./lines/runtime";
 import { materialsRuntimePlugin } from "./materials/runtime";
 import { meshesRuntimePlugin } from "./meshes/runtime";
@@ -40,6 +41,7 @@ const RUNTIME_HALVES: { readonly [K in FirstPartyPlugin]: RuntimePlugin } = {
   decals: decalsRuntimePlugin,
   ui: uiRuntimePlugin,
   environment: environmentRuntimePlugin,
+  lights2d: lights2dRuntimePlugin,
   "post-processing": postProcessingRuntimePlugin,
   audio: audioRuntimePlugin,
   subtitles: subtitlesRuntimePlugin,

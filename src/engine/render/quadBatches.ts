@@ -49,8 +49,31 @@ export interface QuadBatch {
    * `v = d·x + e·y + f`. Outside 0..1 the mask reads as transparent. Null: no mask.
    */
   setMask(mask: QuadMask | null): void;
+  /**
+   * How the batch is lit by 2D lights (ADR 0399): lit (its sorting layer's light textures, with the sprite texture's
+   * normal and mask maps when given) or null for unlit. A lit batch draws unlit while its layer has no 2D light.
+   */
+  setLighting(lighting: QuadLighting | null): void;
+  /**
+   * A 2D tangent per vertex (x, y: where the normal map's +X points, in the batch's local XY), turning the normal map
+   * with a deforming mesh (a skinned sprite's bones, a 2D ribbon's direction). Null: the batch's matrix turns it.
+   * Call it after the geometry; a new geometry with another vertex count drops it.
+   */
+  setTangents(tangents: Float32Array | null): void;
   setVisible(visible: boolean): void;
   dispose(): void;
+}
+
+/** A lit batch's lighting (`QuadBatch.setLighting`, ADR 0399). */
+export interface QuadLighting {
+  /** The sorting layer whose light textures it reads (the one its order came from). */
+  readonly sortingLayer: string;
+  /** The sprite texture's normal map (ADR 0401), or null. */
+  readonly normalMap?: string | null;
+  /** Its normal map's green channel points down (DirectX). */
+  readonly normalMapGreenDown?: boolean;
+  /** The sprite texture's mask map (ADR 0401), or null. */
+  readonly maskMap?: string | null;
 }
 
 /** A batch's mask (`QuadBatch.setMask`): a texture whose alpha clips the quads, and the map from local position to its UV. */

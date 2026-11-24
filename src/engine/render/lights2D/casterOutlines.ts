@@ -1,0 +1,147 @@
+/**
+ * Where a ShadowCaster2D's outline comes from (ADR 0400), renderer-neutral: the node's 2D collision shapes (a shape
+ * source such as a Tilemap, merged as outlines; or any 2D collider, through the backend-neutral `_shapeFields()` every
+ * 2D collider class gives, ADR 0305), its SpriteRenderer's slice outline (ADR 0401) or rectangle, or a custom path.
+ * Outlines are in the node's local XY; the light pass places them with the node's world matrix.
+ */
+import type { Component } from "../../core/Component";
+import type { World } from "../../core/World";
+import { findShapeSource2D } from "../../physics/shapeSource2D";
+import type { ShapeFields2D } from "../../physics/shape2d";
+import type { Point2 } from "../../physics/polygon";
+import { Assets } from "../../scene/Assets";
+import { findSlice, splitSpriteRef, type ImportSettings } from "../../scene/importSettings";
+import type { ShadowCaster2D } from "../components";
+import { SpriteRenderer } from "../components";
+import { spriteFrame } from "../spriteFrame";
+
+/** A caster's outline in its node's local XY: closed `loops` and open `chains`. */
+export interface CasterOutline {
+  loops: Point2[][];
+  chains: Point2[][];
+  /** Changes whenever the outline does. */
+  signature: string;
+  /** Where it came from (`"rect"` when nothing better than a sprite's rectangle was found). */
+  from: "collider" | "source" | "sprite" | "rect" | "custom" | "none";
+}
+
+const NONE: CasterOutline = { loops: [], chains: [], signature: "none", from: "none" };
+
+/** A 2D collider as far as outlines go: a Component with backend-neutral shape fields and a `center` (ADR 0305). */
+interface ShapedCollider {
+  center?: { x: number; y: number };
+  _shapeFields(): ShapeFields2D;
+}
+const isShaped = (c: unknown): c is Component & ShapedCollider => typeof (c as Partial<ShapedCollider> | null)?._shapeFields === "function";
+
+const CIRCLE_SIDES = 16;
+
+/** A loaded texture's authored size in pixels (ADR 0119), or null while it isn't loaded. */
+export type TextureSizeOf = (path: string) => readonly [number, number] | null;
+
+/** The outline `caster` casts from now; `textureSize` gives sprite textures' sizes (a sprite outline needs its frame). */
+export function casterOutline(world: World, caster: ShadowCaster2D, textureSize: TextureSizeOf): CasterOutline {
+  const mode = caster.shape;
+  if (mode === "custom") {
+    const loop = caster.path.map((p): Point2 => [p.x, p.y]);
+    return loop.length >= 2 ? { loops: loop.length >= 3 ? [loop] : [], chains: loop.length === 2 ? [loop] : [], signature: `custom:${JSON.stringify(loop)}`, from: "custom" } : NONE;
+  }
+  if (mode === "collider" || mode === "auto") {
+    const c = colliderOutline(world, caster);
+    if (c) return c;
+    if (mode === "collider") return NONE;
+  }
+  return spriteOutline(world, caster, textureSize) ?? NONE;
+}
+
+function colliderOutline(world: World, caster: ShadowCaster2D): CasterOutline | null {
+  const node = caster.node;
+  const source = findShapeSource2D(node);
+  if (source) {
+    const shapes = source.collisionShapes("outline");
+    if (!shapes) return { ...NONE, signature: `source:pending:${source.collisionSignature()}`, from: "source" };
+    const ux = shapes.unit.x, uy = shapes.unit.y;
+    const loops: Point2[][] = [];
+    for (const loop of shapes.loops) loops.push(loop.map(([x, y]): Point2 => [x * ux, y * uy]));
+    for (const p of shapes.polygons) loops.push(p.map(([x, y]): Point2 => [x * ux, y * uy]));
+    for (const b of shapes.boxes) loops.push(rect(b.x * ux, b.y * uy, (b.x + b.w) * ux, (b.y + b.h) * uy));
+    return { loops, chains: [], signature: `source:${source.collisionSignature()}`, from: "source" };
+  }
+  const loops: Point2[][] = [];
+  const chains: Point2[][] = [];
+  const sig: unknown[] = [];
+  for (const c of world._componentsOf(node.entity)) {
+    if (!isShaped(c) || !c.enabled) continue;
+    const f = c._shapeFields();
+    const cx = c.center?.x ?? 0, cy = c.center?.y ?? 0;
+    sig.push(f, cx, cy);
+    if (f.kind === "box") loops.push(rect(cx - f.size[0]! / 2, cy - f.size[1]! / 2, cx + f.size[0]! / 2, cy + f.size[1]! / 2));
+    else if (f.kind === "circle") loops.push(circle(cx, cy, f.radius));
+    else if (f.kind === "capsule") loops.push(capsule(cx, cy, f.radius, f.height));
+    else if (f.kind === "polygon" || f.kind === "edge") {
+      const pts = (f.points as unknown[]).filter((p): p is number[] => Array.isArray(p) && Number.isFinite(p[0]) && Number.isFinite(p[1])).map((p): Point2 => [p[0]! + cx, p[1]! + cy]);
+      if (f.kind === "polygon" && pts.length >= 3) loops.push(pts);
+      else if (f.kind === "edge" && pts.length >= 2) chains.push(pts);
+    }
+  }
+  if (sig.length === 0) return null;
+  return { loops, chains, signature: `collider:${JSON.stringify(sig)}`, from: "collider" };
+}
+
+function spriteOutline(world: World, caster: ShadowCaster2D, textureSize: TextureSizeOf): CasterOutline | null {
+  const r = world._componentsOf(caster.node.entity).find((c): c is SpriteRenderer => c instanceof SpriteRenderer);
+  if (!r) return null;
+  const { path, slice } = splitSpriteRef(r.sprite);
+  const settings: ImportSettings | null = path ? Assets.importSettings(path) : null;
+  const size = path ? textureSize(path) : null;
+  const ppu = { component: r.pixelsPerUnit, project: world.settings.render.pixelsPerUnit };
+  if (!settings || !size) {
+    // Without a texture: a unit (or `size`) quad about the centre, as an empty sprite draws.
+    const w = r.size?.x ?? 1, h = r.size?.y ?? 1;
+    return { loops: [rect(-w / 2, -h / 2, w / 2, h / 2)], chains: [], signature: `rect:${w},${h}`, from: "rect" };
+  }
+  const frame = spriteFrame(settings, slice, size[0], size[1], ppu, r.size);
+  const [w, h] = frame.size;
+  const [px, py] = frame.pivot;
+  const sx = r.flipX ? -1 : 1, sy = r.flipY ? -1 : 1;
+  const place = (u: number, v: number): Point2 => [sx * (u - px) * w, sy * (v - py) * h];
+  const s = slice !== null ? findSlice(settings, slice) : undefined;
+  const sig = `${r.sprite}:${w},${h},${px},${py},${sx},${sy}`;
+  if (s?.outline && s.outline.length) {
+    const [pw, ph] = frame.pixelSize;
+    const loops = s.outline.map((poly) => poly.map(([x, y]) => place(x / pw, y / ph)));
+    return { loops, chains: [], signature: `sprite:${sig}:${JSON.stringify(s.outline)}`, from: "sprite" };
+  }
+  return { loops: [[place(0, 0), place(1, 0), place(1, 1), place(0, 1)]], chains: [], signature: `rect:${sig}`, from: "rect" };
+}
+
+const rect = (x0: number, y0: number, x1: number, y1: number): Point2[] => [
+  [x0, y0],
+  [x1, y0],
+  [x1, y1],
+  [x0, y1],
+];
+
+function circle(cx: number, cy: number, r: number): Point2[] {
+  const out: Point2[] = [];
+  for (let i = 0; i < CIRCLE_SIDES; i++) {
+    const a = (i / CIRCLE_SIDES) * Math.PI * 2;
+    out.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
+  }
+  return out;
+}
+
+function capsule(cx: number, cy: number, r: number, height: number): Point2[] {
+  const half = Math.max(height / 2 - r, 0);
+  const out: Point2[] = [];
+  const n = CIRCLE_SIDES / 2;
+  for (let i = 0; i <= n; i++) {
+    const a = (i / n) * Math.PI;
+    out.push([cx + Math.cos(a) * r, cy + half + Math.sin(a) * r]);
+  }
+  for (let i = 0; i <= n; i++) {
+    const a = Math.PI + (i / n) * Math.PI;
+    out.push([cx + Math.cos(a) * r, cy - half + Math.sin(a) * r]);
+  }
+  return out;
+}
