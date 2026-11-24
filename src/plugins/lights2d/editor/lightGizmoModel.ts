@@ -102,8 +102,9 @@ export function dragLight(f: LightGizmoFields, handle: string, p: V2): Record<st
     case "innerRadius":
       return { innerRadius: Math.min(d, f.outerRadius) };
     case "outerAngle": {
-      const a = Math.max(cone(), f.innerAngle);
-      return { outerAngle: a };
+      // Narrowing the cone past the inner one narrows the inner one with it.
+      const a = cone();
+      return a < f.innerAngle ? { outerAngle: a, innerAngle: a } : { outerAngle: a };
     }
     case "innerAngle":
       return { innerAngle: Math.min(cone(), f.outerAngle) };
