@@ -9,7 +9,7 @@
 ## Context
 
 - **There is no public way for a behaviour to get its World.** `Component.world` (`src/engine/core/Component.ts`) has been `@internal` since the first engine commit (9477536). `tsconfig.engine.json` sets `stripInternal`, so the getter is missing from the engine types that project scripts are checked against. It returns the engine's `World` class, whose public members include ECS entity ids and storage access (`handle(e)`, `worldMatrix(e)`, `transformOf(e)`): the hidden ECS of ADR 0007.
-- **Scripts used it anyway.** The Arena sample's `Hud` and `Menu` called `Engine.findWorld(this.world.name)` to get a handle on their own World, so they could load a scene into it, destroy it, or connect it. `docs/guide/skies.md` shows users `this.world.time.time`. Both ran because the getter exists at runtime and nothing type-checked scripts.
+- **Scripts used it anyway.** The Arena sample's `Hud` and `Menu` called `Engine.findWorld(this.world.name)` to get a handle on their own World, so they could load a scene into it, destroy it, or connect it. `docs/wiki/guide/skies.md` shows users `this.world.time.time`. Both ran because the getter exists at runtime and nothing type-checked scripts.
 - **ADR 0125 broke them.** Play now type-checks project scripts first (4949188). For the Arena sample it stopped with "Property 'world' does not exist on type 'Hud'", so Play never started, and three e2e specs failed. As a stopgap, the sample now finds its World by looking up its clock (`this.time`) in a WeakMap that one of its systems fills in.
 - **The handle already exists.** ADR 0032 made `WorldHandle` the API for a World's lifetime and setup: name, tags, `loadScene`, systems, `connect`, `listen`, pause, `destroy`. It never exposes nodes. Each World has one handle, made by its Engine (`Engine.handles`), and `Engine.findWorld` returns it. Behaviours already have `this.time` (the World's clock) and `this.instantiate` (spawn into their own World, ADR 0034).
 
@@ -44,7 +44,7 @@ We will make `this.world` on every component the public way to reach its own Wor
 ## Deprecates
 
 - The Arena sample's `clientWorlds` lookup keyed by the clock: removed. `samples/arena/scripts/data.ts` keeps only the connection state.
-- `this.world.time` in `docs/guide/skies.md`: replaced by `this.time`.
+- `this.world.time` in `docs/wiki/guide/skies.md`: replaced by `this.time`.
 
 ## Open questions
 
@@ -53,5 +53,5 @@ We will make `this.world` on every component the public way to reach its own Wor
 ## References
 
 - `src/engine/core/Component.ts`, `src/engine/core/Engine.ts` (`handles`, `findWorld`), `src/engine/core/WorldHandle.ts`, `src/engine/core/worlds.ts` (`WorldHandle`)
-- `samples/arena/scripts/behaviors/Hud.ts`, `Menu.ts`; `docs/guide/skies.md`
+- `samples/arena/scripts/behaviors/Hud.ts`, `Menu.ts`; `docs/wiki/guide/skies.md`
 - ADR 0125 (type check before Play), which exposed the gap

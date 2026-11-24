@@ -13,7 +13,7 @@ ADR 0155 set the Android export's `minSdk` to 24 (Tauri's floor) and named an An
 - An emulated **Pixel 8, Android 14 (API 34), Chrome 113.0.5672.136, 2 GB RAM, 4 cores** runs the exported Flappy and Sound Lab with the audio core and the interactive music. Start-up under load clicks before settling (build log F-37, being fixed).
 - An emulated **Pixel 4** on an older system image, also with 2 GB (the real phone has 6 GB), doesn't load the page at all (F-38). The likely causes are its system-image browser and the memory, not the engine; no engine change was made for it.
 
-Chrome 113 is above every minimum the engine already documents (the audio core needs Chrome or WebView 91 for AudioWorklet and WebAssembly SIMD, `docs/guide/audio-minimum-versions.md`; the build targets ES2022, Chrome 94).
+Chrome 113 is above every minimum the engine already documents (the audio core needs Chrome or WebView 91 for AudioWorklet and WebAssembly SIMD, `docs/wiki/guide/audio-minimum-versions.md`; the build targets ES2022, Chrome 94).
 
 ## Decision
 
@@ -54,5 +54,5 @@ The Android export's `minSdk` stays 24: installing on an older phone isn't block
 ## References
 
 - `docs/design/0166-audio-music/build-log.md`: the owner's phone results, F-35, F-37, F-38.
-- `docs/guide/audio-minimum-versions.md`: the audio core's own minimums (Chrome and WebView 91).
+- `docs/wiki/guide/audio-minimum-versions.md`: the audio core's own minimums (Chrome and WebView 91).
 - ADR 0155: Android export through Tauri 2 mobile.

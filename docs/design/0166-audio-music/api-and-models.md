@@ -402,7 +402,7 @@ Level S (senior), M (mid), J (junior). Days are focused human effort, not agent 
 | B2 | Babylon M4b: switches at bar boundaries, stingers on decoded clips | `babylonBackend.ts` | R5 | M | 2.5 | §8 rows against the mocks |
 | SM2 | Samples: `makeMusic.mjs` stems, sound-lab music scene (explore and combat, a bridge, a stinger, intensity) | `samples/sound-lab`, `tools/` | R5 | M | 4 | scene loads warning-free; every rule audible |
 | E2 | Playwright: a switch change lands on the bar; a stinger fires; the debug rule row | `tests/e2e/audio-music-b.spec.ts` | SM2 | M | 3 | 3 of 3 repeats at wave end |
-| D3 | Docs: guide chapters on transitions, bridges, stingers | `docs/guide` | SM2 | J | 2 | `check:links` clean |
+| D3 | Docs: guide chapters on transitions, bridges, stingers | `docs/wiki/guide` | SM2 | J | 2 | `check:links` clean |
 
 ### M4c beat callbacks and rhythm mode (34.5 days, 6.9 person-weeks)
 
@@ -418,7 +418,7 @@ Level S (senior), M (mid), J (junior). Days are focused human effort, not agent 
 | Rh3 | Calibration and tap-game sample scene | `samples/sound-lab` | Rh2 | M | 4 | the offset persists across a reload |
 | B3 | Babylon M4c: callbacks from the main-side clock, rhythm-mode warning | `babylonBackend.ts` | K2 | M | 2 | §8 rows against the mocks |
 | E3 | Playwright and loopback: callbacks reach a script; the calibration flow | `tests/e2e/audio-music-c.spec.ts` | Rh3, K2 | M | 3.5 | 3 of 3 repeats at wave end |
-| D4 | Docs: guide chapter on callbacks and rhythm mode | `docs/guide` | Rh3 | J | 2 | `check:links` clean |
+| D4 | Docs: guide chapter on callbacks and rhythm mode | `docs/wiki/guide` | Rh3 | J | 2 | `check:links` clean |
 
 ### M4d editor, samples, listening pass (63 days, 12.6 person-weeks)
 

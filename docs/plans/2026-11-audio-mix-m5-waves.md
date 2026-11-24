@@ -165,7 +165,7 @@ Computed by script (plan est.):
 | `tests/e2e/audio-mix-listening.spec.ts` (plan seam, the walker) | LS0 (W4), LSb (W8), LSc (W9) |
 | `audio-bench` scene registry, `tools/audio-bench/*` | Bn1 (W3), Bn2 (W7), Bn3 (W8), Bn4 (W9), So1 (W10) |
 | `samples/*` | Sa1 (W1), Sa2 (W9) |
-| `docs/guide/*` audio chapters | Dc1 (W4), Dc2 (W8), Dc3 and Dc4 (W9, different files), Dc5 (W10) |
+| `docs/wiki/guide/*` audio chapters | Dc1 (W4), Dc2 (W8), Dc3 and Dc4 (W9, different files), Dc5 (W10) |
 | `package.json`, `vite*.ts`, `playwright.config.ts` (the capture Worker's build entry if Vite needs one) | coordinator (Rc5 asks) |
 | `docs/architecture/implementation-status.md`, `docs/README.md`, `docs/decisions/*` (0097, 0147, 0157, 0158, 0162, 0170 amendments), `docs/design/0171-audio-mix/build-log.md` | coordinator (Dc1–Dc5 and Hk1 supply text; no task rewrites 0171 or 0172; deviations go in the build log). **The 0147 amendment's one author is Hk1**; Dc4 and Dc5 link to it |
 | `runtime/golden/maxStep.ts` (the discontinuity detector, extracted from the private `maxStep` in `audioGolden.test.ts:644`) | DS0 (W4, extracts it and edits `audioGolden.test.ts` to import it); DSd (W9) uses it |
@@ -336,7 +336,7 @@ Five strongest tasks for three slots: B1b, B3 and B4 start at once; Rv1 takes th
 | Rc5 | strongest | edits `capture/reader.ts`; new `capture/worker.ts`, `editor/mix/profilerSource.ts` (H3's `appendSegment`) |
 | Rc2 | strongest | `capture/ring.ts`, `capture/recorder.ts` (fills K0's recorder hook from its own module) |
 | Dbg1 | mid | edits `core/debug.ts`, `editor/AudioDebugPanel.tsx`, `editor/audioDebugRows.ts` (the slot-table rows read Sm1's table through K0's debug member; they show the identity layout until Ma1 wires the table in W5) |
-| Dc1 | mid lead (J row, after G1) | guide note in `docs/guide/` (the audio buses chapter); amendment text for 0097, 0157 §4.7, 0158 to the coordinator |
+| Dc1 | mid lead (J row, after G1) | guide note in `docs/wiki/guide/` (the audio buses chapter); amendment text for 0097, 0157 §4.7, 0158 to the coordinator |
 | SX0 + LS0 (plan, 1.5 d) | mid (one lead) | a Sound Lab case in `tests/e2e/export.spec.ts`; `listening-notes/m5-0.md`; the walker `tests/e2e/audio-mix-listening.spec.ts` case M5-0 |
 
 **Hotspots checked:** `duck.rs`: Dp1 alone (B3 merged). `mixer.ts`: Dp1 alone. `capture/`: Rc5 (`reader.ts`, `worker.ts`) and Rc2 (`ring.ts`, `recorder.ts`) disjoint; `format.ts` nobody (Rc1 merged). `core/debug.ts`: Dbg1 alone (Cp2 merged). SX0 and LS0 share one lead.
@@ -410,7 +410,7 @@ Eight mid tasks for six slots: Rc4, Pf4, Pf3b–d and Mp2a start; Pf6 and Mp1b t
 | E2 + SXb + LSb | mid (one lead) | `tests/e2e/audio-mix-b.spec.ts`; the smoke spec's M5b case; the export case; `listening-notes/m5b.md`; walker case M5b |
 | Bn3 | mid | `audio-bench`, `tools/audio-bench` (master + 3 gated, master + 8 full, a hot signal, the ladder step) |
 | X2 | mid (after Pf4's merge) | `editor/mix/openCapture.ts`; edits `ProfilerPanel.tsx` (File > Open if the SDK offers it; the drop path is H5's) |
-| Dc2 | mid lead (J row) | `docs/guide/audio-profiler.md` |
+| Dc2 | mid lead (J row) | `docs/wiki/guide/audio-profiler.md` |
 
 Ten mid tasks for six slots: **start order** Pf5 and Mp2b (the profiler's and the pure chain), Dk1 (E3 needs it), E2, Ma3, X2; then Pf8, Bn3, Ld8, Dc2 as slots free (plan est. +2 d on the wave). **Hotspots checked:** `editor/mix/`: Pf5, Pf8, Mp2b, X2, Dk1 own their files; `ProfilerPanel.tsx` X2 alone; `index.ts` Mp2b alone. `mixer.ts`: Ma3 alone. Settings files: Dk1 alone (Ld5 merged in W2). Bench registry: Bn3 alone. `export.spec.ts`, the smoke spec, the walker: E2's lead alone.
 **Heavy:** E2's specs and Bn3 (two).
@@ -425,7 +425,7 @@ Ten mid tasks for six slots: **start order** Pf5 and Mp2b (the profiler's and th
 | Bn4 | mid (queued under the heavy cap) | `audio-bench`, `tools/audio-bench` (2 and 8 level rules, the lane product) |
 | **X1** | mid | edits `src/export/{node,main,format,webBuild}.ts`, `src/editor/ui/ExportDialog.tsx`, the player entry in `src/player/`; new `capture/trigger.ts` (F9, the three-finger hold, the toast; rotation of 16 calls Rc4's in `save.ts`, not a second copy) |
 | Sa2 | mid | `samples/sound-lab` (the Mixer scene), `samples/stress`, `samples/flappy`, READMEs |
-| Dc3, Dc4 | mid leads (J rows) | `docs/guide/audio-loudness.md` · `docs/guide/audio-mixing.md` (live mixing and ducking, linking Hk1's 0147 amendment); the 0097 amendment text |
+| Dc3, Dc4 | mid leads (J rows) | `docs/wiki/guide/audio-loudness.md` · `docs/wiki/guide/audio-mixing.md` (live mixing and ducking, linking Hk1's 0147 amendment); the 0097 amendment text |
 | DSd (plan, 0.5 d) | mid (Sa2's lead, after Sa2) | `maxStep` (`runtime/golden/maxStep.ts`) on Sa2's Mixer scene, in `runtime/golden/audioGoldenM5.test.ts`: Ck1's Mixer-scene item |
 
 Seven mid tasks for six slots (eight with DSd, which follows Sa2): **start order** E1, E3, X1, Sa2, Dc3, Dc4; Bn4 waits for the heavy cap anyway. **Hotspots checked:** spec files each have one owner; the smoke spec and `export.spec.ts` are E3's lead's alone this wave. `samples/`: Sa2 alone. `src/export/`, `src/player/`: X1 alone. Guide files: different chapters.

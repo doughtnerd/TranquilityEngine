@@ -177,4 +177,4 @@ An exported game records and saves captures when exported with the **Audio captu
 ## See also
 
 - [Audio mixer](audio-mixer.md), [Live mixing and ducking](audio-mixing.md), [Loudness](audio-loudness.md), [Audio profiler](audio-profiler.md), [Audio takes](audio-takes.md)
-- [ADR 0171](../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md), [0172](../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md), [0173](../decisions/0173-the-editor-sdk-lets-a-panel-edit-project-settings-through-the-shared-section.md)
+- [ADR 0171](../../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md), [0172](../../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md), [0173](../../decisions/0173-the-editor-sdk-lets-a-panel-edit-project-settings-through-the-shared-section.md)

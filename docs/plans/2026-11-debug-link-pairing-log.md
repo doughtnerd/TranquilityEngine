@@ -160,7 +160,7 @@ its peers join `builds` without a prompt) delegating to `connectFlow.ts`; `serve
   `withMixOpOrigin("debugLink")`. The out-of-range fuzz case moves to 6; the 0171 design's record table names the
   value. Test fails before.
 - The Take screen's empty copy mentions recording from a connected build (within its 90-character line).
-- `docs/guide/debug-link.md`: flags, pairing, the Studio's use, the network checklist and OP1 with the real labels.
+- `docs/wiki/guide/debug-link.md`: flags, pairing, the Studio's use, the network checklist and OP1 with the real labels.
 
 **Wave-end checks** (against the baseline).
 - Vitest: 6 failed, 12,038 passed, 16 skipped (1,159 files): all baseline.

@@ -24,7 +24,7 @@ What the page does, and what to listen for, is in the comments of `scripts/behav
 
 ## Music page clips
 
-`../audio/music/` (9 clips, about 1.46 MB, mono 16-bit, 22.05 kHz) holds the stems of the music page (key M on the tour page, `scenes/music.scene.json`, `scripts/behaviors/MusicLab.ts`). They are written by `tools/makeMusic.mjs` at the repository root, not by `makeTones.mjs` (`node tools/makeMusic.mjs`; `--check` tells whether the files are current; `node --test tools/makeMusic.test.mjs` tests it). Every clip is on one grid, 120 bpm in 4/4 (a bar is 2 s), so any segment can follow any other. The `*.playlist.json` files beside them were migrated from hand-written audio events (ADR 0343; see `docs/guide/interactive-music.md`): `music-world` (a Switch on State with a rule for every pair, a transition and two stingers), `music-loop` (a loop that loops while Loop is hold) and `music-playlist`.
+`../audio/music/` (9 clips, about 1.46 MB, mono 16-bit, 22.05 kHz) holds the stems of the music page (key M on the tour page, `scenes/music.scene.json`, `scripts/behaviors/MusicLab.ts`). They are written by `tools/makeMusic.mjs` at the repository root, not by `makeTones.mjs` (`node tools/makeMusic.mjs`; `--check` tells whether the files are current; `node --test tools/makeMusic.test.mjs` tests it). Every clip is on one grid, 120 bpm in 4/4 (a bar is 2 s), so any segment can follow any other. The `*.playlist.json` files beside them were migrated from hand-written audio events (ADR 0343; see `docs/wiki/guide/interactive-music.md`): `music-world` (a Switch on State with a rule for every pair, a transition and two stingers), `music-loop` (a loop that loops while Loop is hold) and `music-playlist`.
 
 ## Rhythm page clips
 

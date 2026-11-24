@@ -27,7 +27,7 @@ The line is simple: a change to the project is kept; a change to what is happeni
 
 ### Undo
 
-An edit in Play is one step in the same undo history as Project Settings. A fader drag is **one** step, taken when you let go; the moving fader in between is a preview that never enters the history. A key press on a fader is one step each. Undo and redo reach the running game too: undoing a fader move brings the sound back. **Ctrl+Z** and **Ctrl+Shift+Z** work while the Mixer panel has focus, and the same steps are in Project Settings, so an undo in either place undoes it. This is the shared history of [ADR 0173](../decisions/0173-the-editor-sdk-lets-a-panel-edit-project-settings-through-the-shared-section.md).
+An edit in Play is one step in the same undo history as Project Settings. A fader drag is **one** step, taken when you let go; the moving fader in between is a preview that never enters the history. A key press on a fader is one step each. Undo and redo reach the running game too: undoing a fader move brings the sound back. **Ctrl+Z** and **Ctrl+Shift+Z** work while the Mixer panel has focus, and the same steps are in Project Settings, so an undo in either place undoes it. This is the shared history of [ADR 0173](../../decisions/0173-the-editor-sdk-lets-a-panel-edit-project-settings-through-the-shared-section.md).
 
 ### Structural edits dip
 
@@ -168,4 +168,4 @@ The edit is never lost: it is already in `project.json`. If the banner is more t
 - [Loudness](audio-loudness.md): the meters, targets and when the check is suspended.
 - [Audio mix: API reference](audio-mix-api.md)
 - [Playing sound](playing-sound.md)
-- [ADR 0171](../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md), [0172](../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md), [0173](../decisions/0173-the-editor-sdk-lets-a-panel-edit-project-settings-through-the-shared-section.md), and [0147](../decisions/0147-the-editor-sdk-gives-plugins-the-project-status-and-scene-through-one-editor-object.md) for the `editor.project.onSectionChanged` hook the audio plugin uses.
+- [ADR 0171](../../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md), [0172](../../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md), [0173](../../decisions/0173-the-editor-sdk-lets-a-panel-edit-project-settings-through-the-shared-section.md), and [0147](../../decisions/0147-the-editor-sdk-gives-plugins-the-project-status-and-scene-through-one-editor-object.md) for the `editor.project.onSectionChanged` hook the audio plugin uses.

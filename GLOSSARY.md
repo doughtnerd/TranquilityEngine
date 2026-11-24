@@ -150,7 +150,7 @@ The domain terms used in Myco Engine's code, decision records and reviews. Add a
 
 ## Animation (ADR 0370–0376)
 
-User-facing guide: [docs/guide/animation.md](docs/guide/animation.md).
+User-facing guide: [docs/wiki/guide/animation.md](docs/wiki/guide/animation.md).
 
 - **Clip:** a set of tracks over time: an authored `*.anim.json`, an imported `model.glb#Anim/<name>`, an image flipbook `sheet.png#Flip/<name>`, compiled to `myco.anim@1` (`.anim.bin`). A timeline is a clip used across many nodes (ADR 0371).
 - **Track / key:** a track is one animated thing of one kind (`bone`, `float`…`color`, `quat`, `discrete`, `morph`, `event`, `audio`, `activation`, `subclip`, `control`, `marker`, `curve`); a key is a value (or notify) at a time on it. Clips, timelines and tweens share one track model.

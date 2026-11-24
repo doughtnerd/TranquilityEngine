@@ -1,4 +1,4 @@
-// OP1's headless walker (plan task U7): the owner's hands-on procedure (docs/guide/debug-link.md, "OP1"), step for step,
+// OP1's headless walker (plan task U7): the owner's hands-on procedure (docs/wiki/guide/debug-link.md, "OP1"), step for step,
 // over the real WebSocket transport on 127.0.0.1 (Node's `ws`), not loopback: a listening build; a tool pairing with its
 // code; a second tool with the next code; the reverse direction (the tool listens, the build connects out with a code);
 // a take recorded over the link (start, mark, stop), uploaded, its bytes equal to `Audio.take.save()`'s; a mix op.

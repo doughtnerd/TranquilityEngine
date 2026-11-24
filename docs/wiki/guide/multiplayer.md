@@ -2,7 +2,7 @@
 
 Multiplayer in Myco Engine is a layout of [Worlds](worlds.md). The server simulates the game in a World tagged `server`. Each player runs a World tagged `client` that sends its input and draws what the server sends back. A **link** joins a client World to a server World over a **transport**. The same project runs hosted (server and client in one page), as a dedicated server in Node, or in the editor with several clients.
 
-The model follows Unity's Netcode for Entities: the server is authoritative, it simulates at fixed ticks, nodes it replicates are called **ghosts**, clients interpolate other players and predict their own. The design is in [ADR 0033](../decisions/0033-server-authoritative-netcode.md). This guide is about using it.
+The model follows Unity's Netcode for Entities: the server is authoritative, it simulates at fixed ticks, nodes it replicates are called **ghosts**, clients interpolate other players and predict their own. The design is in [ADR 0033](../../decisions/0033-server-authoritative-netcode.md). This guide is about using it.
 
 > **Sample.** `samples/arena/` is a small multiplayer game that uses everything below. Open it from the editor's start screen and use **Host**, **Add local player** or **Join**, or run its dedicated server with `npm run server -- samples/arena`.
 
@@ -516,7 +516,7 @@ While playing, the Network tab shows each networked World with its role, tick, s
 
 ## Limits and known gaps
 
-From [implementation status](../architecture/implementation-status.md) and [open questions](../architecture/open-questions.md):
+From [implementation status](../../architecture/implementation-status.md) and [open questions](../../architecture/open-questions.md):
 
 - **Bootstrap links to a server elsewhere.** A link names two Worlds of the project (start-up or Spawnable, ADR 0062); a server in another process is joined at runtime with `connect(address, transport)`.
 - **Lobbies:** one lobby process; no skill rating, regions, parties, spectators, joining a match in progress, or reconnecting to a match after a disconnect (the player goes back to the room). Tickets stop casual joins; they aren't authentication. In a page with a canvas the match World is drawn over the paused menu on a surface of its own; that hand-over is checked by hand in a browser, not by headless or end-to-end tests.

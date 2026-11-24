@@ -50,4 +50,4 @@ The query filter (`native/nav/crates/nav-query/src/filter.rs`) already carries p
 ## References
 
 - `native/nav/crates/nav-query/src/filter.rs`, `pathfinding.rs`; `native/nav/crates/nav-crowd/src/filters.rs`, `routes.rs`, `flow_agents.rs`
-- `src/engine/nav/components.ts`, `NavigationWorld.ts`, `runtime.ts`; `docs/guide/navigation.md`
+- `src/engine/nav/components.ts`, `NavigationWorld.ts`, `runtime.ts`; `docs/wiki/guide/navigation.md`

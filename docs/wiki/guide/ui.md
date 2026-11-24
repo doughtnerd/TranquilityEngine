@@ -1,6 +1,6 @@
 # Game UI
 
-Menus, HUDs, lobbies and world-space panels are built from **UI components** on nodes. They lay out with flexbox, draw inside the game canvas with crisp text at any size, and take the pointer before the game does. The components are [ADR 0069](../decisions/0069-ui-components-on-uikit.md)'s; they lay out with Yoga and draw with Babylon GUI ([ADR 0076](../decisions/0076-ui-yoga-layout-babylon-gui-drawing.md)), which replaced the pmndrs uikit of [ADR 0020](../decisions/0020-in-canvas-ui-with-uikit.md). This guide is about using them.
+Menus, HUDs, lobbies and world-space panels are built from **UI components** on nodes. They lay out with flexbox, draw inside the game canvas with crisp text at any size, and take the pointer before the game does. The components are [ADR 0069](../../decisions/0069-ui-components-on-uikit.md)'s; they lay out with Yoga and draw with Babylon GUI ([ADR 0076](../../decisions/0076-ui-yoga-layout-babylon-gui-drawing.md)), which replaced the pmndrs uikit of [ADR 0020](../../decisions/0020-in-canvas-ui-with-uikit.md). This guide is about using them.
 
 ## The UI tree
 
@@ -101,7 +101,7 @@ Each frame, before any script runs, the pointer is tested against the UI's rayca
 - That frame's mouse presses go to the UI: `Input.getMouseButtonDown` reports false for them. A press that began on UI stays the UI's until it's released: `getMouseButton` and `getMouseButtonUp` report false for it too.
 - A press that began in the game stays the game's, even when it's released over a button (which then isn't clicked).
 
-**Raycast targets** ([ADR 0385](../decisions/0385-ui-elements-stop-the-pointer-by-their-raycast-target-field-as-in-unity.md)). Every element has `raycastTarget`, like Unity's `Graphic.raycastTarget`, on by default. Text, images, buttons and input fields stop the pointer, and so does a panel with a `backgroundColor` (a transparent one too: an invisible click blocker) or a border; a panel with neither is a layout box and the pointer passes it. A press on text, an image or a panel goes to the UI and does nothing; inside a button, it presses the button (a button's label passes its clicks to the button). Turn `raycastTarget` off for decoration over the game, such as a HUD's markers or a hint line, so clicks reach the game through it (`raycastTarget="false"` in a UI document, or `raycast-target: false` in its stylesheet). It's per element: children keep their own. A button with `raycastTarget` off is pressed only through a child that stops the pointer.
+**Raycast targets** ([ADR 0385](../../decisions/0385-ui-elements-stop-the-pointer-by-their-raycast-target-field-as-in-unity.md)). Every element has `raycastTarget`, like Unity's `Graphic.raycastTarget`, on by default. Text, images, buttons and input fields stop the pointer, and so does a panel with a `backgroundColor` (a transparent one too: an invisible click blocker) or a border; a panel with neither is a layout box and the pointer passes it. A press on text, an image or a panel goes to the UI and does nothing; inside a button, it presses the button (a button's label passes its clicks to the button). Turn `raycastTarget` off for decoration over the game, such as a HUD's markers or a hint line, so clicks reach the game through it (`raycastTarget="false"` in a UI document, or `raycast-target: false` in its stylesheet). It's per element: children keep their own. A button with `raycastTarget` off is pressed only through a child that stops the pointer.
 
 A button with `interactable` off still blocks the pointer from the game, but isn't hovered, pressed or clicked.
 
@@ -111,7 +111,7 @@ Only a World that takes local input routes the pointer. The editor's scene view 
 
 ## Keyboard and gamepad navigation
 
-Menus work with the arrow keys, Tab, Enter and Escape, and with a gamepad's d-pad, left stick, A and B, with no game code ([ADR 0340](../decisions/0340-game-ui-has-keyboard-and-gamepad-focus-navigation-driven-by-ui-actions.md)). It's Unity's selectable navigation and Godot's focus neighbours.
+Menus work with the arrow keys, Tab, Enter and Escape, and with a gamepad's d-pad, left stick, A and B, with no game code ([ADR 0340](../../decisions/0340-game-ui-has-keyboard-and-gamepad-focus-navigation-driven-by-ui-actions.md)). It's Unity's selectable navigation and Godot's focus neighbours.
 
 **Focus.** A World's UI has at most one focused element: a `UIButton` or `UIInputField` that is active, visible, `focusable` (default true) and, for a button, `interactable`. A press focuses what it hit, a script sets `focused`, and navigation moves it. Losing what made it focusable (hidden, disabled, made non-interactable) loses focus.
 

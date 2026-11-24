@@ -50,7 +50,7 @@ Every file two tasks in one wave would have touched (*hotspot*), and every later
 | A33 | Q1's `Groups` region needs `MAX_GROUPS`, a gate-family constant | W1 | the wire lead emits every §4.5 constant in merge 1 |
 | A24 | `samples/sound-lab`: SM1, SM2, Rh3, L2 | W5, W7, W9, W10 | one per wave |
 | A25 | `babylonBackend.ts`: B1, B2, B3 | W5, W7, W9 | one per wave, additive |
-| A26 | `docs/guide/interactive-music.md`: D2–D5; Z6's guide note | W4–W10 | one per wave; Z6 writes in the existing audio events guide |
+| A26 | `docs/wiki/guide/interactive-music.md`: D2–D5; Z6's guide note | W4–W10 | one per wave; Z6 writes in the existing audio events guide |
 
 **Overlaps checked and left as they were:** sequential edits in different waves that are additive (`status.rs` Q1 → C1 → C2b; `groups.rs` C2a → C2b; `transition.ts` R3a → R3b; `stems.ts` P5 → R6; `musicSystem.ts` P7 → K2 → K5; `musicFormat.ts` F1a → F1b → F2; `core/context.ts` W1's headroom → Rh1). Read-only uses across a wave (F3 and G1 read `musicFormat.ts` while F1b writes it: they import F1a's merged types, and F1b only adds node kinds). **Changed from the table:** Ed11 moves to W9, after Ed10, because its row tests the settings that Ed10 builds and its dependency list omits Ed10 (logged as a plan ordering, not a change of acceptance).
 

@@ -2,7 +2,7 @@
 
 Navigation gives nodes a way to find paths through a level and walk, climb or fly along them. You bake a navmesh from your level's geometry in the editor, add a `NavAgent` to a node, and tell it where to go. The agent plans the path, follows it, steers around other agents and moves the node.
 
-The design is in [ADR 0065](../decisions/0065-built-in-navigation-foxfire-port.md): a port of the owner's Foxfire.Navigation (a Unity DOTS package) to Rust, run as WebAssembly. This guide is about using it. The component contract is in `src/engine/nav/CONTRACT.md`.
+The design is in [ADR 0065](../../decisions/0065-built-in-navigation-foxfire-port.md): a port of the owner's Foxfire.Navigation (a Unity DOTS package) to Rust, run as WebAssembly. This guide is about using it. The component contract is in `src/engine/nav/CONTRACT.md`.
 
 ## What it does
 
@@ -253,7 +253,7 @@ function hunt(player: GameObject, monsters: NavAgent[], crowd: boolean): void {
 
 ### Cost volumes
 
-A `NavCostVolume` ([ADR 0070](../decisions/0070-runtime-navigation-cost-volumes.md)) makes one spot of the map cost more during play, with no bake: a fog cloud a player drops, a fire, a danger zone. Planners route round it if there's a cheaper way, and go through it if there isn't.
+A `NavCostVolume` ([ADR 0070](../../decisions/0070-runtime-navigation-cost-volumes.md)) makes one spot of the map cost more during play, with no bake: a fog cloud a player drops, a fire, a danger zone. Planners route round it if there's a cheaper way, and go through it if there isn't.
 
 | Field | Default | What it does |
 | --- | --- | --- |
@@ -359,7 +359,7 @@ Measured with `bench/nav.bench.ts` (`npm run bench -- bench/nav.bench.ts`). Mach
 
 ## Limits and known issues
 
-From [implementation status](../architecture/implementation-status.md):
+From [implementation status](../../architecture/implementation-status.md):
 
 - **No threads.** The runtime is single-threaded, so thousands of agents with avoidance are the practical limit.
 - **No 2D navigation** and no terrain source.
