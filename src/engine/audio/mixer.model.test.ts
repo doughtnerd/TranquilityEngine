@@ -159,6 +159,23 @@ describe("the mixer runs the audio.json model (ADR 0344)", () => {
     expect(m.laneGain("Music", Lane.snapshot)).toBe(1);
   });
 
+  it("an unknown label is ignored, with one warning naming it and the labels (Q21, ADR 0386)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const { m, run } = rig();
+      m.setParameter("state", "Paused");
+      m.update(0);
+      m.setParameter("state", "Pasued");
+      m.setParameter("state", "Pasued");
+      run(1); // past the 500 ms hold: the parameter still reads "Paused", so the snapshot stays on
+      expect(db(m.laneGain("Music", Lane.snapshot))).toBeCloseTo(-20, 6);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(String(warn.mock.calls[0]![0])).toMatch(/"state" has no label "Pasued".*"Play", "Paused"/);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("the base snapshot is on from the start and can't be stopped; the shorthand fades the code snapshots only", () => {
     const { m, run } = rig();
     expect(db(m.laneGain("SFX", Lane.snapshot))).toBeCloseTo(-1, 6);
