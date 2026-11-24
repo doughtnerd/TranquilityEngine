@@ -17,6 +17,7 @@ import type { GameObject } from "../../scene/GameObject";
 import type { EditorColors, EditorOverlay } from "../editorViewport";
 import { b8, g8, LineBatch, OVERLAY_GROUP, overlayMaterial, partOfMesh, r8, srgbToLinear, type View } from "./editorBatches";
 import { EDITOR_LAYER_MASK, type BabylonEditorContext } from "./editorContext";
+import { shapeWorldBox } from "./feature";
 import type { IconStyle } from "./editorIcons";
 
 const DEFAULT_EDITOR_COLORS: EditorColors = { background: 0x24272d, grid: 0x3a3f47, gridCenter: 0x5a606b, outline: 0x4c8dff, cameraGizmo: 0xc9ccd1 };
@@ -266,6 +267,23 @@ export class BabylonEditorGuides implements IconStyle {
       for (const d of this.ctx.drawn()) {
         const shape = d.shape;
         if (!shape || shape.kind === "rect" || !this.isOutlined(d.component.node)) continue;
+        if (shape.kind === "box" || shape.kind === "polyline") {
+          // A decal's volume is outlined by itself; a line by the box around it (ADR 0395, 0396).
+          if (shape.kind === "box") Matrix.FromArrayToRef(shape.matrix as number[], 0, tmpB);
+          else {
+            const b = shapeWorldBox(shape);
+            if (!b) continue;
+            Matrix.ScalingToRef(Math.max(b.max[0] - b.min[0], 1e-4), Math.max(b.max[1] - b.min[1], 1e-4), Math.max(b.max[2] - b.min[2], 1e-4), tmpB);
+            tmpB.setTranslationFromFloats((b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, (b.min[2] + b.max[2]) / 2);
+          }
+          const outline = this.boxOutlines[boxes] ?? this.makeOutline(true);
+          const m = outline.batch.mesh;
+          tmpB.decompose(tmpScale, m.rotationQuaternion!, m.position);
+          m.scaling.copyFrom(tmpScale);
+          outline.batch.visible = true;
+          boxes++;
+          continue;
+        }
         if (shape.kind === "quad") {
           if (!shape.mesh.isEnabled() || !shape.mesh.isVisible) continue;
           this.placeOutline(this.spriteOutlines[used] ?? this.makeOutline(false), shape.mesh, true);

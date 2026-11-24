@@ -141,7 +141,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
   /** The layers, back to front within the same sorting layer and order. Scene data; see `format.ts`. */
   @field(PlainObject, { hidden: true }) layers: TilemapLayerData[] = [newLayer("Ground")];
   /**
-   * Chooses among equally fitting variants (ADR 0395): auto-tiling's pick between terrain tiles that fit a cell alike,
+   * Chooses among equally fitting variants (ADR 0400): auto-tiling's pick between terrain tiles that fit a cell alike,
    * and `fillRect`'s pick among several tiles, are a hash of the cell and this seed, so the same strokes always paint
    * the same map. Changing it affects later painting; `retileTerrain()` re-picks the terrain cells already painted.
    * The editor's Re-roll button does both. Shown under the Tilemap's fields rather than as one.
@@ -403,7 +403,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
 
   /**
    * Fill a rectangle of cells with tile `id` (0 clears). With several ids, each cell picks one by the tiles' weights,
-   * the pick drawn from the cell and `variantSeed` (ADR 0395), so the same call fills the same way; change the seed
+   * the pick drawn from the cell and `variantSeed` (ADR 0400), so the same call fills the same way; change the seed
    * for another arrangement.
    */
   fillRect(x: number, y: number, width: number, height: number, id: number | readonly number[], layer: number | string = 0): void {
@@ -438,7 +438,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
 
   /**
    * Re-pick every terrain cell of a layer (or every layer) for its neighbours, with `variantSeed` choosing among
-   * equally fitting variants (ADR 0395): after changing the seed, to re-roll the variants, or after the tileset's
+   * equally fitting variants (ADR 0400): after changing the seed, to re-roll the variants, or after the tileset's
    * terrain tiles changed. Cells of tiles without a terrain are left alone. Returns the cells that changed (of every
    * layer re-tiled).
    */

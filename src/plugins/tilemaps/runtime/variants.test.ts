@@ -42,7 +42,7 @@ async function newMap(seed?: number): Promise<Tilemap> {
 }
 const row = (map: Tilemap, x0: number, x1: number, y = 0) => Array.from({ length: x1 - x0 + 1 }, (_, i) => map.getTile(x0 + i, y));
 
-describe("deterministic tile variants (ADR 0395)", () => {
+describe("deterministic tile variants (ADR 0400)", () => {
   it("leaves a neighbour's variant alone when painting doesn't change the shape it needs", async () => {
     const map = await newMap(7);
     map.paintTerrain(rectCells(0, 0, 30, 0), "Row");
@@ -116,7 +116,7 @@ describe("deterministic tile variants (ADR 0395)", () => {
   });
 });
 
-describe("cell randomness (ADR 0395)", () => {
+describe("cell randomness (ADR 0400)", () => {
   it("is the same for the same cell and seed and spreads evenly", () => {
     expect(cellRandom(3, -5, 8)).toBe(cellRandom(3, -5, 8));
     expect(cellRandom(3, -5, 8)).not.toBe(cellRandom(4, -5, 8));

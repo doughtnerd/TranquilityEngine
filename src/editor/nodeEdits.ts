@@ -225,7 +225,7 @@ export async function createPrefabFrom(scene: OpenScene, project: EditorProject 
   try {
     const { path, instanceOverrides: n, droppedListItems: d } = ids.length === 1 ? await createPrefab(scene, project, ids[0]) : await createPrefabFromNodes(scene, project, ids);
     if (ids.length === 1) select([ids[0]]);
-    // ADR 0396: a prefab file can't reference scene nodes, so those references stay on the instance.
+    // ADR 0401: a prefab file can't reference scene nodes, so those references stay on the instance.
     const kept =
       n === 0 ? "" : ` ${n} reference${n === 1 ? "" : "s"} to nodes outside the prefab became instance override${n === 1 ? "" : "s"}; the prefab file leaves ${n === 1 ? "it" : "them"} empty.`;
     const left =

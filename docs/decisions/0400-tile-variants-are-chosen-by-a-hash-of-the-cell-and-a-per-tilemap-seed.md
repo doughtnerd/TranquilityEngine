@@ -1,4 +1,4 @@
-# 0395. Tile variants are chosen by a hash of the cell and a per-Tilemap seed
+# 0400. Tile variants are chosen by a hash of the cell and a per-Tilemap seed
 
 - **Status:** Accepted
 - **Date:** 2026-11-24

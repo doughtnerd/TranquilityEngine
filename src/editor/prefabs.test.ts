@@ -184,7 +184,7 @@ describe("Create Prefab (ADR 0022)", () => {
   });
 });
 
-describe("Create Prefab with references out of the new prefab (ADR 0396)", () => {
+describe("Create Prefab with references out of the new prefab (ADR 0401)", () => {
   const OUT = ["spawner", "score", "message", "music-readout"];
   /** The resolved component data of the node at `path` (slash-joined) in the scene. */
   const dataAt = (path: string) => openScene.value!.doc.resolve().nodes.find((n) => n.path.join("/") === path)!.components.map((c) => c.data ?? null);

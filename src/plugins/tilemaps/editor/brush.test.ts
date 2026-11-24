@@ -151,7 +151,7 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     expect(footprintAt("erase", [1, 1])).toEqual({ x0: 1, y0: 1, x1: 2, y1: 2 });
   });
 
-  it("paints the same random-brush cells again from the same strokes, by the map's seed (ADR 0395)", () => {
+  it("paints the same random-brush cells again from the same strokes, by the map's seed (ADR 0400)", () => {
     const { map } = newMap();
     brushStamp.value = { width: 2, height: 1, values: [1, 2] };
     brushRandom.value = true;
@@ -163,7 +163,7 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     expect(Array.from({ length: 40 }, (_, x) => map.getTile(x, 0))).toEqual(first);
   });
 
-  it("re-rolls a map's terrain variants as one undoable step (ADR 0395)", () => {
+  it("re-rolls a map's terrain variants as one undoable step (ADR 0400)", () => {
     const { scene, id, map } = newMap();
     brushTerrain.value = "V";
     stroke(map, "rect", [0, 0], [19, 0]);

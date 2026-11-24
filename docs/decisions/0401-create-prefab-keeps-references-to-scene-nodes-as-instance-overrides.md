@@ -1,4 +1,4 @@
-# 0396. Create Prefab keeps references to scene nodes outside the prefab as overrides on the new instance
+# 0401. Create Prefab keeps references to scene nodes outside the prefab as overrides on the new instance
 
 - **Status:** Accepted
 - **Date:** 2026-11-24

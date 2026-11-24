@@ -1,5 +1,5 @@
 /**
- * Deterministic per-cell randomness for tilemaps (ADR 0395): a number in [0, 1) from a seed, a cell and a stream,
+ * Deterministic per-cell randomness for tilemaps (ADR 0400): a number in [0, 1) from a seed, a cell and a stream,
  * the same on every call and every machine. Auto-tiling's variant choice and the random brush draw from it, so a
  * cell keeps its variant until what it must look like changes, and the same strokes always paint the same map.
  * Pure: integers in, a number out.

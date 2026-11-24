@@ -1,0 +1,5 @@
+/* The Decals plugin's Inspector notes (ADR 0395). Theme tokens only (src/editor/theme.ts). */
+.decals-section { margin: 4px 0; }
+.decals-note { margin: 4px 0; color: var(--muted); font-size: 11px; }
+.decals-note-warning { color: var(--danger); }
+[data-decals-greyed] { opacity: 0.45; }

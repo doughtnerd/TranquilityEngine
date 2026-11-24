@@ -31,7 +31,7 @@ export const brushTool: ReadonlySignal<BrushTool | null> = editor.viewport.mode<
 export const brushStamp = signal<Stamp>({ width: 1, height: 1, values: [1] });
 /**
  * Paint each cell with one of the stamp's tiles at random (by the tiles' weights) instead of the block. The pick is a
- * hash of the cell and the map's `variantSeed` (ADR 0395), as auto-tiling's variants are, so the same strokes paint the
+ * hash of the cell and the map's `variantSeed` (ADR 0400), as auto-tiling's variants are, so the same strokes paint the
  * same map; Re-roll gives the map a new seed.
  */
 export const brushRandom = signal(false);
@@ -277,7 +277,7 @@ export function tilemapOf(node: GameObject | null): Tilemap | null {
 }
 
 /**
- * Re-roll a map's variants (ADR 0395): a new `variantSeed`, and every terrain cell re-picked with it (each keeps its
+ * Re-roll a map's variants (ADR 0400): a new `variantSeed`, and every terrain cell re-picked with it (each keeps its
  * shape; equally fitting variants are drawn again), as one undoable step. Cells painted with the random brush keep
  * their tiles: the map doesn't know which they were. Nothing changes when the scene can't be edited now.
  */

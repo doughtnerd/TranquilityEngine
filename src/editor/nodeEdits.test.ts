@@ -176,7 +176,7 @@ describe("running the prefab actions", () => {
     expect(doc.node("ceiling").prefab).toBeUndefined();
   });
 
-  it("Create Prefab says how many references out of the prefab became instance overrides (ADR 0396)", async () => {
+  it("Create Prefab says how many references out of the prefab became instance overrides (ADR 0401)", async () => {
     const path = await createPrefabFrom(scene(), project, [["game"]]);
     expect(status.value).toEqual({
       kind: "info",

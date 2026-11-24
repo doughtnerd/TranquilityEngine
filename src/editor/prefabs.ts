@@ -279,7 +279,7 @@ function newPrefabPath(project: EditorProject, name: string): string {
 /** What Create Prefab made: the prefab file, and how many references out of it became overrides on the new instance. */
 export interface CreatedPrefab {
   readonly path: string;
-  /** References from inside the new prefab to scene nodes outside it, kept as overrides on the instance (ADR 0396). */
+  /** References from inside the new prefab to scene nodes outside it, kept as overrides on the instance (ADR 0401). */
   readonly instanceOverrides: number;
   /** List items naming nodes inside the prefab that those overrides had to clear (a list mixing inside and outside references). */
   readonly droppedListItems: number;
@@ -287,7 +287,7 @@ export interface CreatedPrefab {
 
 /**
  * References from the nodes `inside` to scene nodes outside them, treated the way Unity treats
- * scene references in a new prefab (ADR 0396): the prefab file can't name scene nodes, so it holds
+ * scene references in a new prefab (ADR 0401): the prefab file can't name scene nodes, so it holds
  * null for them, and the instance that replaces the nodes keeps each field's original value as an
  * override. Returns `copies` (the subtree entries as the file gets them) with those references
  * nulled, and the overrides. `root` is the file's root id (the instance root's own fields have an
@@ -311,7 +311,7 @@ function outsideReferences(doc: SceneDocument, inside: ReadonlySet<string>, copi
     if (refs.every((r) => inside.has(r.to))) continue;
     const r = refs[0];
     let value = structuredClone(r.value);
-    // Owner decision (ADR 0396): in a list mixing outside references with inside ones, the instance's override clears
+    // Owner decision (ADR 0401): in a list mixing outside references with inside ones, the instance's override clears
     // the inside items (null, as a cleared reference); the prefab file still holds them.
     if (Array.isArray(value) && value.some((item) => lost(nodeRefId(item)))) {
       const cleared: unknown[] = value.map((item) => (lost(nodeRefId(item)) ? null : item));
@@ -330,7 +330,7 @@ function outsideReferences(doc: SceneDocument, inside: ReadonlySet<string>, copi
  * the same place (same id, so references to it keep working). Refuses when nodes outside the
  * subtree reference nodes inside it other than its root, since those references would break.
  * References from inside to nodes outside are left empty in the file and kept as overrides on the
- * instance (ADR 0396), so the scene behaves as before. The scene change is one undo step; the new
+ * instance (ADR 0401), so the scene behaves as before. The scene change is one undo step; the new
  * file stays on disk.
  */
 export async function createPrefab(scene: OpenScene, project: EditorProject, id: string): Promise<CreatedPrefab> {
@@ -368,7 +368,7 @@ export async function createPrefab(scene: OpenScene, project: EditorProject, id:
  * (just a Transform) holding copies of them, and one instance of it replaces them where the
  * first stood. The nodes must share a parent, and none may be a prefab instance's inner node.
  * With one id this is `createPrefab`. References from the nodes to scene nodes outside them become
- * overrides on the instance, as there (ADR 0396). One undo step.
+ * overrides on the instance, as there (ADR 0401). One undo step.
  */
 export async function createPrefabFromNodes(scene: OpenScene, project: EditorProject, ids: readonly string[], name = "Group"): Promise<CreatedPrefab> {
   if (ids.length === 1) return createPrefab(scene, project, ids[0]);

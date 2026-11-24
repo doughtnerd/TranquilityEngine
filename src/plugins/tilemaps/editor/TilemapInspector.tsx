@@ -1,6 +1,6 @@
 // Under a Tilemap's fields in the Inspector (ADR 0103, 0131): its layer and tile counts, the way to the Tile Palette,
 // where its layers are painted (the `layers` field itself is hidden), and Re-roll, which draws its terrain variants
-// again with a new seed (ADR 0395; the `variantSeed` field is hidden too).
+// again with a new seed (ADR 0400; the `variantSeed` field is hidden too).
 import { rerollVariants, tilemapOf } from "./brush";
 import { editor, type InspectorSectionProps } from "../../../editor/sdk";
 

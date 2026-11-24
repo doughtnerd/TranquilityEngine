@@ -1,33 +1,79 @@
-import { useRef, useState } from "preact/hooks";
-import { evalGradient, type ParticleGradient } from "../../../../../engine/scene/particles";
-import { addAlphaKey, addColorKey, moveAlphaKey, moveColorKey, removeAlphaKey, removeColorKey, setColorKey } from "../../particles/curveEdit";
-import { NumField } from "./valueInputs";
-import "./particles.css";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { evaluateGradient, type Gradient } from "../../../engine/core/gradient";
+import { addAlphaKey, addColorKey, moveAlphaKey, moveColorKey, removeAlphaKey, removeColorKey, setColorKey } from "./gradientKeys";
+import "./gradientField.css";
+
+const formatNumber = (n: number) => String(+n.toFixed(4));
+
+/** A number input that commits as it is typed whenever the text reads as a number (a half-typed "0." waits), and shows the committed value on blur. */
+function GradientNum(props: { value: number; onCommit: (v: number) => void; label: string; disabled?: boolean }) {
+  const shown = formatNumber(props.value);
+  const [draft, setDraft] = useState(shown);
+  const focused = useRef(false);
+  useEffect(() => {
+    if (!focused.current) setDraft(shown);
+  }, [shown]);
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      class="num-input gradient-num"
+      aria-label={props.label}
+      disabled={props.disabled}
+      value={draft}
+      onFocus={() => (focused.current = true)}
+      onInput={(e) => {
+        const text = (e.currentTarget as HTMLInputElement).value;
+        setDraft(text);
+        const n = text.trim() === "" ? NaN : Number(text);
+        if (Number.isFinite(n) && n !== props.value) props.onCommit(n);
+      }}
+      onBlur={() => {
+        focused.current = false;
+        setDraft(shown);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") (e.currentTarget as HTMLInputElement).blur();
+        if (e.key === "Escape") {
+          setDraft(shown);
+          (e.currentTarget as HTMLInputElement).blur();
+        }
+      }}
+    />
+  );
+}
 
 /** A CSS `linear-gradient` of the gradient, with alpha (shown over a checkerboard by `.gradient-bar`). */
-function gradientCss(g: ParticleGradient): string {
+function gradientCss(g: Gradient): string {
   const stops = Array.from({ length: 17 }, (_, i) => {
     const t = i / 16;
-    const [r, gr, b, a] = evalGradient(g, t);
+    const [r, gr, b, a] = evaluateGradient(g, t);
     return `rgb(${Math.round(r * 255)} ${Math.round(gr * 255)} ${Math.round(b * 255)} / ${+a.toFixed(3)}) ${(t * 100).toFixed(1)}%`;
   });
   return `linear-gradient(to right, ${stops.join(", ")})`;
 }
 
 /** A read-only strip of a gradient, for when it is collapsed. */
-export function GradientPreview(props: { gradient: ParticleGradient }) {
+export function GradientPreview(props: { gradient: Gradient }) {
   return <span class="gradient-preview gradient-bar" aria-hidden="true" style={{ "--gradient": gradientCss(props.gradient) } as never} />;
 }
 
 type Selection = { kind: "color" | "alpha"; index: number };
 
+export interface GradientFieldProps {
+  gradient: Gradient;
+  onChange: (g: Gradient) => void;
+  label: string;
+  readOnly?: boolean;
+}
+
 /**
- * A particle gradient (ADR 0057): colour stops under the bar, alpha stops above it. Click the bar's
+ * A colour gradient (ADR 0057, 0396): colour stops under the bar, alpha stops above it. Click the bar's
  * lower half to add a colour stop, its upper half for an alpha stop; drag stops to move them, drag
  * one away from the bar (or press Delete, or use Remove) to remove it. A gradient keeps at least one
  * colour stop.
  */
-export function GradientEditor(props: { gradient: ParticleGradient; onChange: (g: ParticleGradient) => void; label: string; readOnly?: boolean }) {
+export function GradientField(props: GradientFieldProps) {
   const { gradient, onChange, label, readOnly } = props;
   const [selected, setSelected] = useState<Selection | null>(null);
   const bar = useRef<HTMLDivElement>(null);
@@ -61,7 +107,11 @@ export function GradientEditor(props: { gradient: ParticleGradient; onChange: (g
         onPointerDown={(e) => {
           e.stopPropagation();
           setSelected({ kind, index });
-          (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+          try {
+            (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+          } catch {
+            // a pointer the browser doesn't know (a synthetic event): the drag still works while it stays over the stop
+          }
           drag.current = { kind, index };
         }}
         onPointerMove={(e) => {
@@ -118,7 +168,7 @@ export function GradientEditor(props: { gradient: ParticleGradient; onChange: (g
             {sel.kind === "color" ? (
               <input
                 type="color"
-                class="pe-color"
+                class="gradient-color"
                 aria-label={`${label} stop colour`}
                 disabled={readOnly}
                 value={gradient.colors[sel.index][1]}
@@ -127,7 +177,7 @@ export function GradientEditor(props: { gradient: ParticleGradient; onChange: (g
             ) : (
               <label>
                 <em>alpha</em>
-                <NumField
+                <GradientNum
                   value={gradient.alphas[sel.index][1]}
                   label={`${label} stop alpha`}
                   disabled={readOnly}
@@ -137,19 +187,19 @@ export function GradientEditor(props: { gradient: ParticleGradient; onChange: (g
             )}
             <label>
               <em>t</em>
-              <NumField
+              <GradientNum
                 value={(sel.kind === "color" ? gradient.colors : gradient.alphas)[sel.index][0]}
                 label={`${label} stop position`}
                 disabled={readOnly}
                 onCommit={(t) => onChange(sel.kind === "color" ? moveColorKey(gradient, sel.index, t) : moveAlphaKey(gradient, sel.index, t))}
               />
             </label>
-            <button type="button" class="pe-mini" aria-label={`${label} remove stop`} disabled={readOnly || (sel.kind === "color" && gradient.colors.length <= 1)} onClick={() => remove(sel)}>
+            <button type="button" class="gradient-remove" aria-label={`${label} remove stop`} disabled={readOnly || (sel.kind === "color" && gradient.colors.length <= 1)} onClick={() => remove(sel)}>
               Remove
             </button>
           </>
         ) : (
-          <span class="curve-hint">Click the bar to add a stop</span>
+          <span class="gradient-hint">Click the bar to add a stop</span>
         )}
       </div>
     </div>

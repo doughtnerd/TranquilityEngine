@@ -9,7 +9,7 @@
  * tiles that match, the most specific one (fewest `*`) wins, ties broken by weight. If none
  * matches, the tile with the most agreeing positions is used, so a partial tile set still paints.
  *
- * The tie between equally fitting variants is not rolled afresh on each paint (ADR 0395): it is drawn from a hash
+ * The tie between equally fitting variants is not rolled afresh on each paint (ADR 0400): it is drawn from a hash
  * of the cell and the map's seed (`cellRandom`), as Unity's rule tiles and LDtk do. So a cell keeps its variant
  * until the shape it needs changes, and the same strokes always paint the same map.
  */
@@ -50,7 +50,7 @@ function repick(tileset: Tileset, access: CellAccess, cells: Iterable<readonly [
 /**
  * Paint `terrain` (or erase it, with `terrain` null) into the given cells, then re-pick the tiles of
  * those cells and their neighbours that belong to a terrain, equally fitting variants chosen by `seed`
- * (ADR 0395). Returns the cells whose value changed.
+ * (ADR 0400). Returns the cells whose value changed.
  */
 export function paintTerrain(
   tileset: Tileset,
@@ -75,7 +75,7 @@ export function paintTerrain(
 }
 
 /**
- * Re-pick the tile of every terrain cell in `cells` for its neighbourhood as it is, by `seed` (ADR 0395): after the
+ * Re-pick the tile of every terrain cell in `cells` for its neighbourhood as it is, by `seed` (ADR 0400): after the
  * seed changed (a re-roll) or the tileset's terrain tiles did. Other cells are left alone. Returns the cells whose
  * value changed.
  */
