@@ -21,7 +21,9 @@ import { spriteClaimed } from "../spriteClaims";
 import { sortingOrder, unknownLayerMessage } from "../sortOrder";
 import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import type { BabylonFeature, DrawnNode, FeatureSyncContext } from "./feature";
-import { layeredQuadMaterial, placeInLayer, SpriteBatcher, type SpriteItem } from "./layeredQuads";
+import { layeredQuadMaterial, lightLayeredQuads, placeInLayer, SpriteBatcher, type SpriteItem } from "./layeredQuads";
+import { lights2DOf } from "./lights2D";
+import { spriteMaterialLit, spriteMaterialProblem } from "../lights2D/spriteMaterial";
 
 
 /** @internal What the sprite feature needs from the renderer. */
@@ -36,6 +38,8 @@ export interface BabylonSpriteHost {
   texture(path: string): Promise<Texture>;
   /** A colour texture asset if already loaded, else null (the material library's `loadedTexture(path)`). */
   loadedTexture(path: string): Texture | null;
+  /** A data texture (a normal or mask map, read linear, ADR 0401) if loaded, else null, starting it loading. */
+  dataTexture(path: string): Texture | null;
   /**
    * `perObject`: a mesh per sprite, for the editor's scene view and editor play mode (picking and
    * outlines use them). `batched`: plain sprites batch (ADR 0108, 0129). Read each sync.
@@ -61,6 +65,8 @@ interface SpriteEntry {
   size: [number, number] | null;
   /** The world matrix the quad is frozen at (Babylon keeps it), or null before the first sync. */
   matrix: Matrix | null;
+  /** The lit material key its own mesh's material was made with ("" unlit). */
+  litKey: string;
 }
 
 const tmpMatrix = new Matrix();
@@ -78,6 +84,8 @@ export class BabylonSprites implements BabylonFeature {
   private readonly batcher: SpriteBatcher;
   /** A sprite changed since the batcher was last given them. */
   private spritesDirty = true;
+  /** The 2D lighting rig's version the lit materials were picked at (ADR 0399). */
+  private lightingVersion = -1;
 
   constructor(private readonly host: BabylonSpriteHost) {
     this.batcher = new SpriteBatcher(host.scene);
@@ -85,6 +93,12 @@ export class BabylonSprites implements BabylonFeature {
 
   /** Step 8: mirror the World's sprites into Babylon. */
   sync(world: World, _ctx?: FeatureSyncContext): void {
+    const version = lights2DOf(this.host.scene)?.version ?? -1;
+    if (version !== this.lightingVersion) {
+      this.lightingVersion = version;
+      this.spritesDirty = true;
+      this.batcher.forgetLitMaterials((key) => key.includes(`@${version}|`));
+    }
     const snap = this.spriteSnap(world);
     for (const s of world._componentsOfType(SpriteRenderer)) this.syncSprite(world, s, snap);
     this.flushSprites();
@@ -130,7 +144,7 @@ export class BabylonSprites implements BabylonFeature {
   private syncSprite(world: World, s: SpriteRenderer, snap: number): void {
     let entry = this.sprites.get(s);
     if (!entry) {
-      entry = { mesh: null, material: null, item: null, spritePath: null, texture: null, uvKey: "", vertexCount: 16, size: null, matrix: null };
+      entry = { mesh: null, material: null, item: null, spritePath: null, texture: null, uvKey: "", vertexCount: 16, size: null, matrix: null, litKey: "" };
       this.sprites.set(s, entry);
       this.spritesDirty = true;
     }
@@ -202,13 +216,27 @@ export class BabylonSprites implements BabylonFeature {
 
     const order = this.sortOrder(s.sortingLayer, s.orderInLayer);
     const c = s.color;
-    if (material) {
+    const lit = this.litSetup(s, image);
+    if (material && (lit?.key ?? "") !== entry.litKey) {
+      // A lit material's plugin can't be taken off: a new material for a new lighting (ADR 0399).
+      material.dispose();
+      entry.material = layeredQuadMaterial(`sprite:${s.node.name}`, this.host.scene, entry.texture);
+      if (lit) lightLayeredQuads(entry.material, lit.setup);
+      entry.litKey = lit?.key ?? "";
+      mesh!.material = entry.material;
+    }
+    if (entry.material) {
+      const material = entry.material;
       material.albedoColor.set(c.r, c.g, c.b).toLinearSpaceToRef(material.albedoColor);
       material.alpha = c.a;
       placeInLayer(mesh!, order);
       if (frame && texSize) this.setSpriteGeometry(entry, frame, texSize.width, texSize.height);
     } else {
-      const item = (entry.item ??= { texture: null, order, matrix: new Float32Array(16), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1] });
+      const item = (entry.item ??= { texture: null, order, matrix: new Float32Array(16), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1], lit: null });
+      if ((item.lit?.key ?? "") !== (lit?.key ?? "")) {
+        item.lit = lit;
+        this.spritesDirty = true;
+      }
       // The batch's instance colour multiplies the (white) albedo: linear, like the albedo colour.
       tmpColor.set(c.r, c.g, c.b).toLinearSpaceToRef(tmpColor);
       if (item.color[0] !== tmpColor.r || item.color[1] !== tmpColor.g || item.color[2] !== tmpColor.b || item.color[3] !== c.a || item.order !== order || item.texture !== entry.texture) {
@@ -254,6 +282,26 @@ export class BabylonSprites implements BabylonFeature {
     }
   }
 
+  /**
+   * The lit setup of a sprite this frame (ADR 0399): its sorting layer's layer batch, its texture's normal and mask maps
+   * (ADR 0401), or null when it's unlit (an unlit material, or no 2D light on its layer).
+   */
+  private litSetup(s: SpriteRenderer, image: string): SpriteItem["lit"] {
+    const problem = spriteMaterialProblem(s.material);
+    if (problem) this.host.warnOnce(`spritematerial|${s.material}`, problem);
+    if (!spriteMaterialLit(s.material)) return null;
+    const rig = lights2DOf(this.host.scene);
+    const batch = rig?.batchOfLayer(s.sortingLayer) ?? -1;
+    if (!rig || batch < 0) return null;
+    const settings = image ? Assets.importSettings(image) : null;
+    const normalPath = settings?.secondaryTextures.normalMap?.replace(/^asset:/, "") ?? "";
+    const maskPath = settings?.secondaryTextures.maskMap?.replace(/^asset:/, "") ?? "";
+    const normal = normalPath ? this.host.dataTexture(normalPath) : null;
+    const mask = maskPath ? this.host.dataTexture(maskPath) : null;
+    const greenDown = settings?.normalMapGreen === "down";
+    return { key: `lit${batch}@${rig.version}|${normal ? normalPath : ""}|${mask ? maskPath : ""}|${greenDown}`, setup: { batch, normal, mask, greenDown } };
+  }
+
   /** A sprite's own quad and material: a 4 × 4 vertex grid, so a slice's 9-slice border can move the inner lines (ADR 0115). */
   private makeSpriteMesh(s: SpriteRenderer, entry: SpriteEntry): void {
     const scene = this.host.scene;
@@ -270,6 +318,7 @@ export class BabylonSprites implements BabylonFeature {
     mesh.alwaysSelectAsActiveMesh = true;
     entry.mesh = mesh;
     entry.material = material;
+    entry.litKey = "";
     entry.uvKey = "";
     entry.vertexCount = 16;
     entry.matrix = null;

@@ -4,6 +4,10 @@
  * layered 2D quads: `layeredQuads.ts` gives them their material and their place in the draw order
  * (ADR 0014, 0186). Knows nothing of tiles or bones: the Tilemaps plugin's tile renderer and the Animation plugin's
  * skinned sprites (`setTriangles`, updated in place each frame) decide what the quads are.
+ *
+ * A lit batch (`setLighting`, ADR 0399) draws with the lit layered-quad material of its sorting layer's layer batch;
+ * materials are shared per texture, tint, opacity and lighting (layer batch, the rig's version, normal and mask maps),
+ * and every lit batch picks its material again when the 2D lighting's batching changes (`refreshLighting`).
  */
 import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
@@ -15,14 +19,18 @@ import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import { Assets } from "../../scene/Assets";
 import { authoredSize } from "../../scene/importSettings";
-import type { QuadBatch, QuadBatchHost, QuadMask } from "../quadBatches";
-import { layeredQuadMaterial, placeInLayer, QuadMaskPlugin } from "./layeredQuads";
+import type { QuadBatch, QuadBatchHost, QuadLighting, QuadMask } from "../quadBatches";
+import { layeredQuadMaterial, lightLayeredQuads, placeInLayer, QuadMaskPlugin } from "./layeredQuads";
+import { lights2DOf } from "./lights2D";
+import { TANGENT_2D_ATTRIBUTE, type LitQuadSetup } from "./lights2DMaterial";
 
 /** What the quad batches borrow from the renderer. */
 export interface BabylonQuadBatchDeps {
   readonly scene: Scene;
   /** A loaded texture, or null (and it starts loading): `onLoad` runs once it has. */
   texture(path: string, onLoad: () => void): Texture | null;
+  /** A loaded data texture (a normal or mask map, read linear, ADR 0401), or null (and it starts loading). */
+  dataTexture(path: string, onLoad: () => void): Texture | null;
   sortOrder(layer: string, order: number): number;
 }
 
@@ -67,11 +75,31 @@ export class BabylonQuadBatches implements QuadBatchHost {
     return this.deps.scene;
   }
 
-  /** @internal A shared material for `texture` tinted `color` at `opacity`; give it back with `releaseMaterial`. */
-  acquireMaterial(texture: string, color: string, opacity: number): { key: string; material: PBRMaterial } {
+  /**
+   * @internal This frame's lit setup for a batch lit as `lighting` (its layer batch and maps; null: unlit, as when its
+   * layer has no 2D light), with a key for sharing materials. `onLoad` runs when a map finishes loading.
+   */
+  litSetup(lighting: QuadLighting | null, onLoad: () => void): { key: string; setup: LitQuadSetup } | null {
+    if (!lighting) return null;
+    const rig = lights2DOf(this.deps.scene);
+    const batch = rig?.batchOfLayer(lighting.sortingLayer) ?? -1;
+    if (!rig || batch < 0) return null;
+    const normal = lighting.normalMap ? this.deps.dataTexture(lighting.normalMap.replace(/^asset:/, ""), onLoad) : null;
+    const mask = lighting.maskMap ? this.deps.dataTexture(lighting.maskMap.replace(/^asset:/, ""), onLoad) : null;
+    const greenDown = !!lighting.normalMapGreenDown;
+    return { key: `lit${batch}@${rig.version}|${normal ? lighting.normalMap : ""}|${mask ? lighting.maskMap : ""}|${greenDown}`, setup: { batch, normal, mask, greenDown } };
+  }
+
+  /** @internal Every lit batch picks its material again (the 2D lighting's layer batches changed). */
+  refreshLighting(): void {
+    for (const b of this.batches) b.refreshLighting();
+  }
+
+  /** @internal A shared material for `texture` tinted `color` at `opacity` (lit by `lit`); give it back with `releaseMaterial`. */
+  acquireMaterial(texture: string, color: string, opacity: number, lit: { key: string; setup: LitQuadSetup } | null = null): { key: string; material: PBRMaterial } {
     const hex = HEX.test(color) ? color.toLowerCase() : "#ffffff";
     const alpha = Math.max(0, Math.min(1, opacity));
-    const key = `${texture}|${hex}|${alpha}`;
+    const key = `${texture}|${hex}|${alpha}${lit ? `|${lit.key}` : ""}`;
     let shared = this.materials.get(key);
     if (!shared) {
       const m = layeredQuadMaterial(`quads:${key}`, this.deps.scene, null);
@@ -83,6 +111,7 @@ export class BabylonQuadBatches implements QuadBatchHost {
         m.albedoTexture = tex;
       };
       if (texture) apply(this.deps.texture(texture, () => apply(this.deps.texture(texture, () => {})))); // "": plain (a 2D line without a texture)
+      if (lit) lightLayeredQuads(m, lit.setup);
       shared = { material: m, users: 0 };
       this.materials.set(key, shared);
     }
@@ -94,7 +123,7 @@ export class BabylonQuadBatches implements QuadBatchHost {
    * @internal An unshared material for a masked batch (ADR 0395): `texture` tinted, with the mask plugin; the caller
    * disposes it. The mask's texture is applied once it has loaded (nothing draws until then).
    */
-  maskedMaterial(name: string, texture: string, color: string, opacity: number, mask: QuadMask): { material: PBRMaterial; plugin: QuadMaskPlugin } {
+  maskedMaterial(name: string, texture: string, color: string, opacity: number, mask: QuadMask, lit: { key: string; setup: LitQuadSetup } | null = null): { material: PBRMaterial; plugin: QuadMaskPlugin } {
     const hex = HEX.test(color) ? color.toLowerCase() : "#ffffff";
     const m = layeredQuadMaterial(`quads:mask:${name}`, this.deps.scene, null);
     Color3.FromHexString(hex).toLinearSpaceToRef(m.albedoColor);
@@ -106,6 +135,7 @@ export class BabylonQuadBatches implements QuadBatchHost {
     };
     if (texture) apply(this.deps.texture(texture, () => apply(this.deps.texture(texture, () => {})))); // "": plain (a 2D line without a texture)
     const plugin = new QuadMaskPlugin(m, { texture: null, uv: Array.from(mask.uv) });
+    if (lit) lightLayeredQuads(m, lit.setup);
     const applyMask = (tex: Texture | null): void => {
       if (tex) plugin.mask.texture = tex;
     };
@@ -146,6 +176,10 @@ class BabylonQuadBatch implements QuadBatch {
   /** Per-vertex RGBA (sRGB) as given, or null. */
   private colors: Float32Array | null = null;
   private mask: QuadMask | null = null;
+  /** How 2D lights light it (ADR 0399), or null: unlit. */
+  private lighting: QuadLighting | null = null;
+  /** Per-vertex 2D tangents as given, or null. */
+  private tangents: Float32Array | null = null;
   /** The masked batch's own material (`mask` set), else null. */
   private masked: { material: PBRMaterial; plugin: QuadMaskPlugin; key: string } | null = null;
   private readonly matrix = Matrix.Identity();
@@ -189,6 +223,8 @@ class BabylonQuadBatch implements QuadBatch {
       data.applyToMesh(mesh, updatable);
       if (this.colors && this.colors.length === (positions.length / 3) * 4) this.applyColors(mesh, this.colors, false);
       else this.colors = null;
+      if (this.tangents && this.tangents.length === (positions.length / 3) * 2) mesh.setVerticesData(TANGENT_2D_ATTRIBUTE, this.tangents, true, 2);
+      else this.tangents = null;
       mesh.alwaysSelectAsActiveMesh = true;
       placeInLayer(mesh, this.order);
       mesh.freezeWorldMatrix(this.matrix);
@@ -257,6 +293,34 @@ class BabylonQuadBatch implements QuadBatch {
     this.updateMaterial();
   }
 
+  setLighting(lighting: QuadLighting | null): void {
+    if (this.disposed) return;
+    const same = lighting === this.lighting || (!!lighting && !!this.lighting && lighting.sortingLayer === this.lighting.sortingLayer && (lighting.normalMap ?? null) === (this.lighting.normalMap ?? null) && (lighting.maskMap ?? null) === (this.lighting.maskMap ?? null) && !!lighting.normalMapGreenDown === !!this.lighting.normalMapGreenDown);
+    this.lighting = lighting;
+    if (!same) this.updateMaterial();
+  }
+
+  setTangents(tangents: Float32Array | null): void {
+    if (this.disposed) return;
+    const mesh = this.mesh;
+    if (!tangents) {
+      if (this.tangents && mesh) mesh.removeVerticesData(TANGENT_2D_ATTRIBUTE);
+      this.tangents = null;
+      return;
+    }
+    const had = !!this.tangents && !!mesh?.isVerticesDataPresent(TANGENT_2D_ATTRIBUTE);
+    this.tangents = tangents;
+    if (mesh && tangents.length === (this.vertexFloats / 3) * 2) {
+      if (had) mesh.updateVerticesData(TANGENT_2D_ATTRIBUTE, tangents);
+      else mesh.setVerticesData(TANGENT_2D_ATTRIBUTE, tangents, true, 2);
+    }
+  }
+
+  /** @internal Pick the lit material again (the layer batches changed). */
+  refreshLighting(): void {
+    if (this.lighting) this.updateMaterial();
+  }
+
   setVisible(visible: boolean): void {
     this.visible = visible;
     this.mesh?.setEnabled(visible);
@@ -268,13 +332,15 @@ class BabylonQuadBatch implements QuadBatch {
       this.releaseMasked();
       return;
     }
+    const lit = this.owner.litSetup(this.lighting, () => this.updateMaterial());
+    const litKey = lit?.key ?? "";
     if (this.mask) {
-      const key = `${this.texture}|${this.color}|${this.opacity}|${this.mask.texture}`;
+      const key = `${this.texture}|${this.color}|${this.opacity}|${this.mask.texture}|${litKey}`;
       if (this.masked?.key === key) {
         this.masked.plugin.mask.uv = Array.from(this.mask.uv);
       } else {
         this.releaseMasked();
-        const made = this.owner.maskedMaterial(this.name, this.texture, this.color, this.opacity, this.mask);
+        const made = this.owner.maskedMaterial(this.name, this.texture, this.color, this.opacity, this.mask, lit);
         this.masked = { ...made, key };
       }
       this.releaseMaterial();
@@ -282,7 +348,7 @@ class BabylonQuadBatch implements QuadBatch {
       return;
     }
     this.releaseMasked();
-    const { key, material } = this.owner.acquireMaterial(this.texture, this.color, this.opacity);
+    const { key, material } = this.owner.acquireMaterial(this.texture, this.color, this.opacity, lit);
     this.releaseMaterial(); // after acquiring, so an unchanged key keeps its material alive
     this.materialKey = key;
     this.mesh.material = material;

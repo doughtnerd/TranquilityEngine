@@ -148,6 +148,8 @@ function fakeHost() {
     createBatch() {
       const b: FakeBatch = {
         positions: [], texture: "", matrix: [], visible: false, disposed: false,
+        setLighting(l) { (b as { lighting?: unknown }).lighting = l; },
+        setTangents(t) { (b as { tangents?: unknown }).tangents = t; },
         setQuads() {},
         setTriangles(texture, positions) { b.texture = texture; b.positions = Array.from(positions); },
         setMatrix(m, offset = 0) { b.matrix = Array.from(m).slice(offset, offset + 16); },

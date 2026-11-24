@@ -27,6 +27,8 @@ function fakeHost() {
     createBatch(name) {
       const b: FakeBatch = {
         name, texture: "", quads: 0, extent: [0, 0], order: 0, tint: ["", 0], visible: false, matrix: [], disposed: false,
+        setLighting(l) { (b as { lighting?: unknown }).lighting = l; },
+        setTangents(t) { (b as { tangents?: unknown }).tangents = t; },
         setQuads(texture, positions, _uv, indices) {
           b.texture = texture;
           b.quads = indices.length / 6;

@@ -58,6 +58,10 @@ import { GAME_POLICY, type PreviewInset, type RenderPolicy } from "../renderPoli
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
+import { BabylonLights2D } from "./lights2D";
+import { LIGHTS_2D_QUALITY } from "../../core/graphics";
+import { authoredSize } from "../../scene/importSettings";
+import { Assets } from "../../scene/Assets";
 import { BabylonMaterialLibrary } from "./materialLibrary";
 import { describeDrawn, eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext } from "./feature";
 import { _registeredRenderFeatures, byPhase, ownerOf, specNeeded, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
@@ -117,6 +121,9 @@ export class BabylonRenderer {
   readonly scene: Scene;
   /** Quad batches for plugin features (the Tilemaps plugin's tiles, ADR 0136). */
   private readonly quads: BabylonQuadBatches;
+  /** The 2D lighting rig (ADR 0399): part of the core lighting, beside `lighting`, since it reads the material library's textures. */
+  private readonly lights2D: BabylonLights2D;
+  private lights2DVersion = -1;
   /** Decal volumes for plugin features (the Decals plugin's 3D decals, ADR 0395). */
   private readonly decals: BabylonDecals;
   /** Dynamic meshes for plugin features (the Lines plugin's 3D lines and trails, ADR 0396). */
@@ -216,7 +223,22 @@ export class BabylonRenderer {
         this.materials.texture(path).then(onLoad, (err) => this.warnOnce(`tile|${path}`, `failed to load tile texture "${path}": ${(err as Error).message}`));
         return null;
       },
+      dataTexture: (path, onLoad) => {
+        const t = this.materials.loadedTexture(path, "graphData");
+        if (t) return t;
+        this.materials.texture(path, "graphData").then(onLoad, (err) => this.warnOnce(`map|${path}`, `failed to load "${path}": ${(err as Error).message}`));
+        return null;
+      },
       sortOrder: (layer, order) => sortingOrder(this.settings.render.sortingLayers, layer, order, (l) => this.warnOnce(`layer|${l}`, unknownLayerMessage(l))),
+    });
+    this.lights2D = new BabylonLights2D({
+      scene,
+      texture: (path) => {
+        const t = this.materials.loadedTexture(path);
+        if (!t) this.materials.texture(path).catch((err) => this.warnOnce(`light2d|${path}`, `failed to load 2D light texture "${path}": ${(err as Error).message}`));
+        return t;
+      },
+      textureSize: (path) => this.textureSize(path),
     });
     this.decals = new BabylonDecals({ scene, materials: this.materials, warnOnce: (key, message) => this.warnOnce(key, message) });
     this.dynamicMeshes = new BabylonDynamicMeshes({ scene, materials: this.materials, warnOnce: (key, message) => this.warnOnce(key, message) });
@@ -374,6 +396,14 @@ export class BabylonRenderer {
   // --- Textures ---------------------------------------------------------------------------------
 
   /** Load textures ahead of time so sprites don't pop in. */
+  /** A loaded texture asset's authored size in pixels (ADR 0119), or null while it isn't loaded. */
+  textureSize(path: string): readonly [number, number] | null {
+    const t = this.materials.loadedTexture(path);
+    if (!t) return null;
+    const base = t.getBaseSize();
+    return authoredSize(Assets.importSettings(path), base.width, base.height);
+  }
+
   async preloadTextures(paths: string[], onProgress?: (p: number) => void): Promise<void> {
     let done = 0;
     await Promise.all(
@@ -395,6 +425,13 @@ export class BabylonRenderer {
     ctx.view = ctx.viewCamera = null;
     ctx.ready = false;
     this.reflecting = 0; // the mesh feature counts this frame's meshes drawn with a probe as it syncs
+    // 2D lights first (ADR 0399): the sprite and quad features pick their lit materials by this frame's layer batches.
+    this.lights2D.enabled = this.policy.lighting2D !== false;
+    this.lights2D.sync(world, LIGHTS_2D_QUALITY[Graphics.tier.lights2D] ?? LIGHTS_2D_QUALITY.high);
+    if (this.lights2D.version !== this.lights2DVersion) {
+      this.lights2DVersion = this.lights2D.version;
+      this.quads.refreshLighting();
+    }
     for (const phase of SYNC_PHASES) {
       for (const slot of this.phases.get(phase) ?? []) slot.ensure(world)?.sync(world, ctx);
       this.afterPhase(phase, world, ctx);
@@ -522,7 +559,7 @@ export class BabylonRenderer {
     let held = false;
     if (views.length) {
       const draw = (): boolean => {
-        this.frame.render(views, this.lighting.shadows(), this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
+        this.frame.render(views, this.lighting.shadows(), this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1, this.lights2D);
         return this.frame.ready;
       };
       // A World's first frames (ADR 0120): held on the clear colour while a draw is missing or content loads.
@@ -633,6 +670,7 @@ export class BabylonRenderer {
     for (let i = this.slots.length - 1; i >= 0; i--) this.slots[i].dispose(); // reverse registration order (ADR 0130)
     this.lighting.dispose(); // after the features that contributed to it (the sky owns its bake)
     this.quads.dispose(); // after the features that drew with them
+    this.lights2D.dispose();
     this.decals.dispose();
     this.dynamicMeshes.dispose();
     this.frame.ui = null;
@@ -767,7 +805,7 @@ export class BabylonRenderer {
       }
     }
     const post = this.lastPost;
-    const features: RenderFeatureDiagnostics = {};
+    const features: RenderFeatureDiagnostics = { lights2D: this.lights2D.state() };
     const out: Omit<RenderDiagnostics, "started" | "quality"> = {
       lighting: this.lighting.state(),
       // Composed only once the frame graph with the composer's passes has built: until then it hasn't drawn.

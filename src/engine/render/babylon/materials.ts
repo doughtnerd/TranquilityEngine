@@ -16,7 +16,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import { Color as EngineColor, type Color } from "../../core/math";
 import type { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import type { MaterialMapKey, MaterialSettings } from "../../scene/material";
-import { MATERIAL_MAPS as MATERIAL_MAPS_LIST } from "../../scene/material";
+import { isUnlitShader, MATERIAL_MAPS as MATERIAL_MAPS_LIST } from "../../scene/material";
 import { DEFAULT_SLOT, type ModelMesh, type SurfaceInfo, type TextureInfo } from "../../scene/models";
 import type { GraphValue } from "../../scene/shaderGraph";
 import type { MaterialPropertyValue } from "../components";
@@ -423,7 +423,7 @@ export function applyBuiltinSettings(m: PBRMaterial, settings: MaterialSettings)
     m.alphaCutOff = settings.alphaCutoff;
     m.useAlphaFromAlbedoTexture = true;
   } else if (mode === "opaque") m.transparencyMode = PBRMaterial.PBRMATERIAL_OPAQUE;
-  if (settings.shader === "unlit") {
+  if (isUnlitShader(settings.shader)) {
     m.unlit = true;
   } else {
     m.metallic = settings.metalness;
@@ -470,7 +470,7 @@ export function builtinTextureSlots(m: PBRMaterial, settings: MaterialSettings):
     if (image) out.push({ image, srgb, apply });
   };
   add(settings.texture, true, (tex) => (m.albedoTexture = tex));
-  if (settings.shader === "unlit") return out;
+  if (isUnlitShader(settings.shader)) return out;
   add(settings.normalMap, false, (tex) => {
     tex.level = settings.normalScale;
     m.bumpTexture = tex;

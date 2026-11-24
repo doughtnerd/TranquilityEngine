@@ -9,7 +9,7 @@
 import { AO_SETTINGS, type PostEffects } from "./postEffects";
 
 /** One kind of pass in a camera's part of the frame. */
-export type PassKind = "clear" | "geometry" | "render" | "ao" | "dof" | "bloom" | "ca" | "finish" | "fxaa";
+export type PassKind = "clear" | "geometry" | "lights2d" | "render" | "ao" | "dof" | "bloom" | "ca" | "finish" | "fxaa";
 
 export interface CameraPassPlan {
   /**
@@ -26,8 +26,26 @@ export interface CameraPassPlan {
   readonly aoRatio: number | null;
   /** The finish pass writes an 8-bit texture for the FXAA pass after it, rather than the camera's output. */
   readonly finishToLdr: boolean;
+  /**
+   * The 2D light textures (ADR 0399), or null without 2D lights: per layer batch, how many blend styles it uses and
+   * whether it has the directional textures; their scale of the camera's size; how many shadow textures (4 lights each).
+   */
+  readonly lights2D: Light2DLayout | null;
   /** Equal keys mean the frame graph built for one plan serves the other; built from the members above only. */
   readonly key: string;
+}
+
+/**
+ * The 2D light textures' layout (ADR 0399): only what decides which textures exist. Lights' number, colours, positions
+ * and shapes are draw data, so changing them never rebuilds the frame graph.
+ */
+export interface Light2DLayout {
+  readonly batches: readonly { readonly styles: number; readonly directional: boolean }[];
+  /** The textures' size as a share of the camera's (the tier's `textureScale`). */
+  readonly scale: number;
+  readonly shadowTextures: number;
+  /** Light textures are 8-bit (half float isn't renderable): values are stored at a quarter (`range` 4). */
+  readonly lowPrecision: boolean;
 }
 
 /**
@@ -35,12 +53,14 @@ export interface CameraPassPlan {
  * the scene depth (ADR 0109). Babylon's frame graph has no SMAA: FXAA stands in for it, so the two plan
  * the same pass.
  */
-export function planCameraPasses(effects: PostEffects | null, depth = false): CameraPassPlan {
+export function planCameraPasses(effects: PostEffects | null, depth = false, lights2D: Light2DLayout | null = null): CameraPassPlan {
   const ao = effects?.ambientOcclusion ?? null;
   const geometry = depth || !!ao || !!effects?.depthOfField;
   const fxaa = effects?.antialias === "fxaa" || effects?.antialias === "smaa";
   const passes: PassKind[] = ["clear"];
   if (geometry) passes.push("geometry");
+  const lit = lights2D && lights2D.batches.length > 0 ? lights2D : null;
+  if (lit) passes.push("lights2d");
   passes.push("render");
   if (ao) passes.push("ao");
   if (effects?.depthOfField) passes.push("dof");
@@ -54,6 +74,7 @@ export function planCameraPasses(effects: PostEffects | null, depth = false): Ca
     multisample: !ao,
     aoRatio: ao ? AO_SETTINGS[ao.quality].ratio : null,
     finishToLdr: fxaa,
+    lights2D: lit,
   };
   return { ...plan, key: layoutKey(plan) };
 }
@@ -69,6 +90,8 @@ function layoutKey(p: Omit<CameraPassPlan, "key">): string {
           return p.multisample ? "render(msaa)" : "render";
         case "ao":
           return `ao@${p.aoRatio}`;
+        case "lights2d":
+          return `lights2d(${p.lights2D!.batches.map((b) => `${b.styles}${b.directional ? "d" : ""}`).join(",")}@${p.lights2D!.scale}${p.lights2D!.lowPrecision ? "/8" : ""}+${p.lights2D!.shadowTextures}s)`;
         case "finish":
           return p.finishToLdr ? "finish>ldr" : "finish";
         default:

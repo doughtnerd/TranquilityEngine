@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Color, Engine, GameObject, Light2D, SceneManager, ShadowCaster2D, SpriteRenderer, Vector2 } from "../../myco";
 import { resolveSettings, settingsIssues } from "../core/settings";
 import { layerBatches } from "../render/lights2D/layerBatches";
-import { freeformAttenuation, freeformMesh, pointAttenuation } from "../render/lights2D/lightShapes";
+import { falloffExponent, freeformAttenuation, freeformMesh, pointAttenuation } from "../render/lights2D/lightShapes";
+import { LIGHT2D_SHADER } from "../render/lights2D/lightShader";
 import { blendStyleIndex, parseLighting2D } from "../render/lights2D/settings";
 import { casterFillMesh, outlineSegments, shadowEdgeMesh, shadowFactor } from "../render/lights2D/shadowGeometry";
 import { formatImportSettings, parseImportSettings } from "../scene/importSettings";
@@ -88,6 +89,37 @@ describe("light shapes", () => {
   });
 });
 
+describe("the light shader's maths (KSL, ADR 0250)", () => {
+  it("draws point lights by the rule sampleAt reads", () => {
+    const atten = LIGHT2D_SHADER.js().fn("myco2DPointAtten");
+    const shapes = [
+      { innerRadius: 0, outerRadius: 3, innerAngle: 360, outerAngle: 360, falloff: 0.5 },
+      { innerRadius: 1, outerRadius: 4, innerAngle: 40, outerAngle: 100, falloff: 0 },
+      { innerRadius: 2, outerRadius: 2, innerAngle: 0, outerAngle: 30, falloff: 1 },
+    ];
+    for (const s of shapes) {
+      const outer = Math.min(Math.max(s.outerAngle, 0), 360);
+      const vec = [s.innerRadius, s.outerRadius, outer >= 360 ? 180 : Math.min(Math.max(s.innerAngle, 0), outer) / 2, outer >= 360 ? 180 : outer / 2];
+      for (const [x, y] of [[0, 0], [0.5, 0.5], [0, 2], [1.5, 1.5], [-1, -2.5], [0.3, 3.9], [3, 0]] as const) {
+        expect(atten([x, y], vec, falloffExponent(s.falloff)) as number).toBeCloseTo(pointAttenuation(s, x, y), 5);
+      }
+    }
+  });
+
+  it("composes blend styles, masks and directional light", () => {
+    const p = LIGHT2D_SHADER.js();
+    expect(p.fn("myco2DCompose")([0.5, 0.5, 0.5], [2, 1, 0], [0, 0, 0.25])).toEqual([1, 0.5, 0.25]);
+    expect(p.fn("myco2DMask")([0.1, 0.2, 0.3, 0.4], -1)).toBe(1);
+    expect(p.fn("myco2DMask")([0.1, 0.2, 0.3, 0.4], 2)).toBeCloseTo(0.3);
+    const facing = p.fn("myco2DDirectional")([1, 1, 1], [0, 0, 2], [0, 0, 1]) as number[];
+    expect(facing[0]).toBeCloseTo(1);
+    const away = p.fn("myco2DDirectional")([1, 1, 1], [-1, 0, 0], [1, 0, 0]) as number[];
+    expect(away[0]).toBe(0);
+    const dir = p.fn("myco2DLightDir")([3, 4], 0, [0, 0]) as number[];
+    expect(dir[0]).toBeCloseTo(0.6);
+  });
+});
+
 describe("shadow geometry", () => {
   const box: [number, number][] = [[1, -1], [2, -1], [2, 1], [1, 1]];
   it("makes a quad per edge with its far end extruded, and fills loops", () => {
@@ -139,7 +171,7 @@ describe("Light2D.sampleAt", () => {
   async function headless(): Promise<void> {
     Assets.clearSources();
     Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
-    const engine = await Engine.create({ headless: true, project: { render: { sortingLayers: ["Back", "Default"] }, lighting2D: { blendStyles: [{ name: "Multiply" }, { name: "Glow", add: 1, multiply: 0 }] } } });
+    const engine = await Engine.create({ headless: true, project: { render: { sortingLayers: ["Back", "Default"] }, lighting2D: { blendStyles: [{ name: "Multiply", mask: "none", multiply: 1, add: 0 }, { name: "Glow", mask: "none", add: 1, multiply: 0 }] } } });
     engines.push(engine);
     await SceneManager.load("s.json");
   }

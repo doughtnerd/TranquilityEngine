@@ -60,6 +60,8 @@ export interface DrawnMaterial {
  */
 export interface RenderFeatureDiagnostics {
   [feature: string]: unknown;
+  /** The core 2D lighting rig's (ADR 0399, 0400): 2D lights, shadowed ones (and those over the tier's cap), casters, layer batches (and merges past the cap), blend styles in use, and light and shadow textures per camera. */
+  lights2D?: { lights: number; shadowed: number; unshadowed: number; casters: number; batches: number; merged: number; styles: number; textures: number };
 }
 
 /**

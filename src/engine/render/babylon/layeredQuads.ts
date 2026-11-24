@@ -18,8 +18,10 @@
  *     (`Number.MAX_VALUE`, sorted by distance with the scene's other transparent meshes, after all 2D
  *     content), a negative one at that value (among the 2D content of the first sorting layer), a
  *     positive one at +Infinity, after everything (two positive orders then sort by distance, not order);
+ * - the lit variant (ADR 0399, `lightLayeredQuads`): the same material with the 2D light plugin
+ *   (`lights2DMaterial.ts`), reading its layer batch's light textures; lit and unlit draws sort alike;
  * - sprite batching (ADR 0108): sprites are sorted by draw order and, within one order, grouped by
- *   texture (an atlas); each run is one mesh of thin instances and one draw. Per instance: the world
+ *   texture (an atlas) and lighting; each run is one mesh of thin instances and one draw. Per instance: the world
  *   matrix (size, pivot, flips and the node), the tint (Babylon's instance colour, which multiplies the
  *   PBR albedo and alpha) and the slice's UV rectangle (`SpriteUvPlugin`, GLSL and WGSL).
  */
@@ -38,6 +40,7 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer.js";
 import { pbr } from "./materials";
 import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
+import { Light2DPlugin, type LitQuadSetup } from "./lights2DMaterial";
 
 // --- the material ----------------------------------------------------------------------------------
 
@@ -52,6 +55,11 @@ export function layeredQuadMaterial(name: string, scene: Scene, texture: Texture
   m.useAlphaFromAlbedoTexture = true;
   m.albedoTexture = texture;
   return m;
+}
+
+/** Light a 2D quad material by 2D lights (ADR 0399): its layer batch's light textures, and the sprite's normal and mask maps. */
+export function lightLayeredQuads(material: PBRMaterial, setup: LitQuadSetup): void {
+  new Light2DPlugin(material, setup);
 }
 
 // --- the draw order --------------------------------------------------------------------------------
@@ -171,6 +179,8 @@ export interface SpriteItem {
   color: [number, number, number, number];
   /** UV rectangle: u0, v0, width, height. */
   uvRect: [number, number, number, number];
+  /** Lit by 2D lights (ADR 0399): its setup and a key for sharing the material; null: unlit. */
+  lit: { key: string; setup: LitQuadSetup } | null;
 }
 
 /** The per-instance UV rectangle's attribute. */
@@ -231,7 +241,7 @@ const IDENTITY = Matrix.Identity();
 /** Draws sprites batched per texture run, in draw order (see the file comment). */
 export class SpriteBatcher {
   private readonly runs: Run[] = [];
-  private readonly materials = new Map<Texture | null, PBRMaterial>();
+  private readonly materials = new Map<Texture | null, Map<string, PBRMaterial>>();
   private used = 0;
   private readonly order: SpriteItem[] = [];
   private readonly textureIds = new WeakMap<Texture, number>();
@@ -245,7 +255,8 @@ export class SpriteBatcher {
     sorted.length = 0;
     for (const it of items) sorted.push(it);
     const id = (t: Texture | null) => (t ? (this.textureIds.get(t) ?? this.textureIds.set(t, this.nextTextureId++).get(t)!) : 0);
-    sorted.sort((a, b) => a.order - b.order || id(a.texture) - id(b.texture));
+    const litKey = (it: SpriteItem) => it.lit?.key ?? "";
+    sorted.sort((a, b) => a.order - b.order || id(a.texture) - id(b.texture) || (litKey(a) < litKey(b) ? -1 : litKey(a) > litKey(b) ? 1 : 0));
     let run = -1;
     let start = 0;
     const flushRun = (end: number) => {
@@ -253,7 +264,7 @@ export class SpriteBatcher {
       this.fill(run, sorted, start, end);
     };
     for (let i = 0; i < sorted.length; i++) {
-      if (i === 0 || sorted[i].texture !== sorted[i - 1].texture || sorted[i].order !== sorted[i - 1].order) {
+      if (i === 0 || sorted[i].texture !== sorted[i - 1].texture || sorted[i].order !== sorted[i - 1].order || litKey(sorted[i]) !== litKey(sorted[i - 1])) {
         flushRun(i);
         run++;
         start = i;
@@ -266,18 +277,34 @@ export class SpriteBatcher {
 
   dispose(): void {
     for (const r of this.runs) r.mesh.dispose();
-    for (const m of this.materials.values()) m.dispose();
+    for (const byLit of this.materials.values()) for (const m of byLit.values()) m.dispose();
     this.runs.length = 0;
     this.materials.clear();
   }
 
-  private material(texture: Texture | null): PBRMaterial {
-    let m = this.materials.get(texture);
+  private material(texture: Texture | null, lit: SpriteItem["lit"]): PBRMaterial {
+    let byLit = this.materials.get(texture);
+    if (!byLit) this.materials.set(texture, (byLit = new Map()));
+    const key = lit?.key ?? "";
+    let m = byLit.get(key);
     if (m) return m;
-    m = layeredQuadMaterial(`sprites:${texture?.name ?? "plain"}`, this.scene, texture);
+    m = layeredQuadMaterial(`sprites:${texture?.name ?? "plain"}${key ? `:${key}` : ""}`, this.scene, texture);
     new SpriteUvPlugin(m);
-    this.materials.set(texture, m);
+    if (lit) lightLayeredQuads(m, lit.setup);
+    byLit.set(key, m);
     return m;
+  }
+
+  /** Drop lit materials of an older 2D lighting layout (ADR 0399: their keys carry the rig's version). */
+  forgetLitMaterials(keep: (key: string) => boolean): void {
+    for (const byLit of this.materials.values()) {
+      for (const [key, m] of byLit) {
+        if (!key || keep(key)) continue;
+        if (this.runs.some((r) => r.mesh.material === m)) continue;
+        m.dispose();
+        byLit.delete(key);
+      }
+    }
   }
 
   private fill(index: number, sorted: SpriteItem[], start: number, end: number): void {
@@ -308,7 +335,7 @@ export class SpriteBatcher {
       run.uvs.set(it.uvRect, i * 4);
     }
     const texture = sorted[start].texture;
-    const material = this.material(texture);
+    const material = this.material(texture, sorted[start].lit);
     if (run.mesh.material !== material) run.mesh.material = material;
     // Its order, or a step past the previous run when that has the same order (any number: orders aren't
     // only whole ones). The last item of the previous run is the one before this run's first.

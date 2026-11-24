@@ -37,6 +37,7 @@ describe("Babylon quad batches drawing tilemaps (ADR 0103, 0136)", () => {
     const quads = new BabylonQuadBatches({
       scene,
       texture: (_path, onLoad) => (loaded ? tex : (pending.push(onLoad), null)),
+      dataTexture: () => null,
       sortOrder: (layer, order) => ["Back", "Default"].indexOf(layer) * 10000 + order,
     });
     const tilemaps = new TilemapRenderer(quads);
@@ -75,7 +76,7 @@ describe("Babylon quad batches drawing triangles (ADR 0370, 0371: skinned sprite
   it("builds a mesh of any triangles, then only moves its vertices while the indices stay the same", () => {
     const scene = new Scene(new NullEngine());
     const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false } as unknown as Texture;
-    const quads = new BabylonQuadBatches({ scene, texture: () => tex, sortOrder: (_layer, order) => order });
+    const quads = new BabylonQuadBatches({ scene, texture: () => tex, dataTexture: () => null, sortOrder: (_layer, order) => order });
     const batch = quads.createBatch("skinned");
     batch.setVisible(true);
     const indices = new Uint32Array([0, 1, 2]);

@@ -21,7 +21,9 @@ import { boneBinds, skeleton2D, toUnits } from "../../../../../engine/animation/
 import { rectMesh } from "../../../../../engine/animation/sprites/spriteMesh";
 import type { World } from "../../../../../engine/core/World";
 import { SpriteRenderer } from "../../../../../engine/render/components";
-import type { QuadBatch, QuadBatchHost } from "../../../../../engine/render/quadBatches";
+import type { QuadBatch, QuadBatchHost, QuadLighting } from "../../../../../engine/render/quadBatches";
+import { quadLighting } from "../../../../../engine/render/lights2D/spriteMaterial";
+import { tangents2D } from "../../../../../engine/render/lights2D/tangents";
 import type { SkinGeometry } from "../../../../../engine/render/skinning/skinData";
 import { PALETTE_FLOATS } from "../../../../../engine/render/skinning/skinKernel";
 import { JsSkinRuns, type SkinPalette, type SkinRun, type SkinRuns } from "../../../../../engine/render/skinning/skinRuns";
@@ -70,6 +72,9 @@ interface Entry {
   waiting: boolean;
   order: number;
   visible: boolean;
+  /** Its lighting (ADR 0399): lit with a normal map wants tangents that follow the bones. */
+  lighting: QuadLighting | null;
+  tangents: Float32Array | null;
 }
 
 const scratchPalette = (bones: number) => new Float32Array(Math.max(1, bones) * PALETTE_FLOATS);
@@ -120,7 +125,7 @@ export class SkinnedSprites {
   private syncOne(world: World, r: SpriteRenderer, skeleton: Skeleton2D, skin: SliceSkinSource): void {
     let e = this.entries.get(r);
     if (!e) {
-      e = { key: "", batch: this.host.createBatch(`skinned-sprite:${r.node.name}`), run: null, palette: null, skeletonNode: null, texture: "", rebind: [], positions: new Float32Array(0), uvs: new Float32Array(0), indices: new Uint32Array(0), skinned: null, waiting: false, order: 0, visible: false };
+      e = { key: "", batch: this.host.createBatch(`skinned-sprite:${r.node.name}`), run: null, palette: null, skeletonNode: null, texture: "", rebind: [], positions: new Float32Array(0), uvs: new Float32Array(0), indices: new Uint32Array(0), skinned: null, waiting: false, order: 0, visible: false, lighting: null, tangents: null };
       this.entries.set(r, e);
     }
     const skelSkin = sliceSkin(skeleton.bones, world.settings.render.pixelsPerUnit);
@@ -136,6 +141,8 @@ export class SkinnedSprites {
     e.order = this.host.sortOrder(r.sortingLayer, r.orderInLayer);
     e.batch.setOrder(e.order);
     e.batch.setTint(r.color.toHex(), r.color.a);
+    e.lighting = quadLighting(r.material, r.sortingLayer, e.texture);
+    e.batch.setLighting(e.lighting);
     e.visible = r.isActiveAndEnabled && !!e.run;
     e.batch.setVisible(e.visible);
     if (!e.run || !e.visible) return;
@@ -214,6 +221,9 @@ export class SkinnedSprites {
       e.positions[v * 3 + 2] = 0;
     }
     e.batch.setTriangles(e.texture, e.positions, e.uvs, e.indices);
+    // A normal map turns with the bones: the deformed mesh's texture +U, per vertex (ADR 0399).
+    if (e.lighting?.normalMap) e.batch.setTangents((e.tangents = tangents2D(e.positions, e.uvs, e.indices, e.tangents ?? undefined)));
+    else if (e.tangents) e.batch.setTangents((e.tangents = null));
   }
 
   private disposeGeometry(e: Entry): void {

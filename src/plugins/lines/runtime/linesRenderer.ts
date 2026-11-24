@@ -8,6 +8,8 @@ import type { Component } from "../../../engine/core/Component";
 import { evalCurve, type Curve } from "../../../engine/core/curve";
 import { evaluateGradient, isGradient, type Gradient } from "../../../engine/core/gradient";
 import type { World } from "../../../engine/core/World";
+import { quadLighting } from "../../../engine/render/lights2D/spriteMaterial";
+import { tangents2D } from "../../../engine/render/lights2D/tangents";
 import type { DynamicMesh, DynamicMeshHost } from "../../../engine/render/dynamicMeshes";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
 import { LineRenderer } from "./LineRenderer";
@@ -185,6 +187,10 @@ export class LinesRenderer {
     if (!e.batch) e.batch = this.host.quads.createBatch(`${c instanceof TrailRenderer ? "trail" : "line"}2d:${c.node.name}`);
     e.batch.setTriangles(c.texture, mesh.positions, mesh.uvs, mesh.indices);
     e.batch.setColors(mesh.colors);
+    // ADR 0399: lit by 2D lights unless its material is Sprite Unlit; normal maps follow the line (its U runs along it).
+    const lighting = quadLighting(c.material, c.sortingLayer, c.texture);
+    e.batch.setLighting(lighting);
+    e.batch.setTangents(lighting?.normalMap ? tangents2D(mesh.positions, mesh.uvs, mesh.indices) : null);
     e.batch.setTint("#ffffff", 1);
     e.batch.setMatrix(matrix);
     e.batch.setOrder(order);

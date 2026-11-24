@@ -71,7 +71,7 @@ describe("the sprite batcher (ADR 0108)", () => {
     const matrix = new Float32Array(16);
     matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1;
     matrix[12] = x;
-    return { texture, order, matrix, color: [1, 0.5, 0.25, 0.75], uvRect: [0.25, 0, 0.25, 0.5] };
+    return { texture, order, matrix, color: [1, 0.5, 0.25, 0.75], uvRect: [0.25, 0, 0.25, 0.5], lit: null };
   };
 
   it("draws one batch per run of one texture, in draw order", () => {
@@ -147,6 +147,7 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
       sortingLayers: () => world.settings.render.sortingLayers,
       texture: async (path) => textures.get(path)!,
       loadedTexture: (path) => textures.get(path) ?? null,
+      dataTexture: (path) => textures.get(path) ?? null,
       drawPolicy: () => policy,
       warnOnce: (key) => void warnings.push(key),
     });
