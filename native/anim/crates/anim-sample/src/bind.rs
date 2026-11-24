@@ -29,7 +29,7 @@
 
 use anim_format::clip::{
     Binding, ChannelKind, ChannelMode, ClipView, CompressedView, Key, KeyData, MarkerKind,
-    TrackKind,
+    RotationFormat, TrackKind,
 };
 use anim_format::NONE;
 use anim_math::{AosQuat, AosTransform, AosVec3, SoaTransform};
@@ -37,8 +37,8 @@ use anim_pose::sync::SyncMarker;
 
 use crate::Form;
 use crate::{
-    apply, blend_track, decode, seg_range, ClipSampler, FrameCache, FramePos, SampleError, Seg,
-    SegmentCache, TrackSample,
+    apply, apply_soa, blend_track, decode, decode_n, group, seg_range, ClipSampler, FrameCache,
+    FramePos, SampleError, Seg, SegmentCache, TrackSample,
 };
 
 /// A compressed channel, decoded.
@@ -53,6 +53,8 @@ pub(crate) struct ChanBind {
     comp: u32,
     /// The bone this channel drives, or `NONE`.
     bone: u32,
+    /// Rank among the animated channels (its ranges' slot in a frame cache), or `NONE`.
+    rank: u32,
 }
 
 /// A track record, decoded, with its column and value channel.
@@ -128,6 +130,11 @@ pub struct ClipBindings {
     value_offsets: Vec<u32>,
     value_animated: usize,
     width_sum: usize,
+    /// The animated channels (indices into `channels`), in channel order, and whether every bone
+    /// field (translation, rotation, scale) is written by at most one channel, so a frame decoded
+    /// over another frame of the same clip rewrites only the animated ones.
+    animated_channels: Vec<ChanBind>,
+    exclusive: bool,
     /// Raw form: (bone, raw offset) per bone track.
     raw_bones: Vec<(u32, u32)>,
     pub(crate) tracks: Vec<TrackBind>,
@@ -155,6 +162,8 @@ impl ClipBindings {
             value_offsets: Vec::new(),
             value_animated: 0,
             width_sum: 0,
+            animated_channels: Vec::new(),
+            exclusive: true,
             raw_bones: Vec::new(),
             tracks,
             keys,
@@ -208,6 +217,11 @@ impl ClipBindings {
                 animated_index: ch.animated_index,
                 comp,
                 bone,
+                rank: if ch.mode == ChannelMode::Animated {
+                    animated.len() as u32
+                } else {
+                    NONE
+                },
             });
             if ch.mode == ChannelMode::Animated {
                 animated.push((ch.animated_index, ch.width as u32));
@@ -216,6 +230,28 @@ impl ClipBindings {
         }
         self.width_sum = comp as usize;
         self.value_animated = values.len();
+        // Which bone fields each channel writes (as `apply`), to find fields written twice.
+        let mut written = vec![0u8; bones];
+        for ch in &self.channels {
+            if ch.mode == ChannelMode::Animated {
+                self.animated_channels.push(*ch);
+            }
+            if ch.mode == ChannelMode::Default || ch.bone == NONE {
+                continue;
+            }
+            let bit = match ch.kind {
+                ChannelKind::Translation => 1,
+                ChannelKind::Rotation => 2,
+                ChannelKind::Scale => 4,
+                ChannelKind::Value => 0,
+            };
+            if let Some(w) = written.get_mut(ch.bone as usize) {
+                if *w & bit != 0 {
+                    self.exclusive = false;
+                }
+                *w |= bit;
+            }
+        }
         // Bits before each animated index, per segment (the bitstream is in animated order).
         let mut before = vec![0u64; animated.len() + 1];
         for s in 0..c.segment_count() {
@@ -480,19 +516,23 @@ impl ClipBindings {
         f / self.segment_frames
     }
 
-    /// Segment `seg`'s widened ranges (`seg_range`'s values, as f32 bits) into `out`, two per
-    /// animated component, as a [`SegmentCache`] holds them. `out` holds at least
-    /// [`cache_len`](Self::cache_len) words.
-    pub(crate) fn segment_ranges(&self, c: &CompressedView<'_>, seg: usize, out: &mut [u32]) {
+    /// Words [`frame_ranges`](Self::frame_ranges) writes: eight per animated channel.
+    pub(crate) fn frame_ranges_len(&self) -> usize {
+        8 * self.animated_channels.len()
+    }
+
+    /// Segment `seg`'s widened ranges (`seg_range`'s values, as f32 bits) into `out`, eight words
+    /// per animated channel in rank order: the minimum of each component (up to four, then 0),
+    /// then the extent of each, so a channel loads them four lanes at a time. `out` holds at
+    /// least [`frame_ranges_len`](Self::frame_ranges_len) words.
+    pub(crate) fn frame_ranges(&self, c: &CompressedView<'_>, seg: usize, out: &mut [u32]) {
         let width_sum = self.width_sum;
         let clip_ranges = c.clip_ranges();
         let seg_ranges = c.segment_ranges();
-        for ch in &self.channels {
-            if ch.mode != ChannelMode::Animated {
-                continue;
-            }
+        for (ch, o) in self.animated_channels.iter().zip(out.chunks_exact_mut(8)) {
+            o.fill(0);
             let comp = ch.comp as usize;
-            for k in 0..ch.width as usize {
+            for k in 0..(ch.width as usize).min(4) {
                 let (min, ext) = seg_range(
                     &clip_ranges,
                     seg_ranges,
@@ -501,42 +541,124 @@ impl ClipBindings {
                     k,
                     seg * width_sum + comp + k,
                 );
-                out[2 * (comp + k)] = min.to_bits();
-                out[2 * (comp + k) + 1] = ext.to_bits();
+                o[k] = min.to_bits();
+                o[4 + k] = ext.to_bits();
             }
         }
     }
 
-    /// Decodes frame `f` alone into `out` (filled with the rest pose by the caller): the values
-    /// [`decode_pose`](Self::decode_pose) writes into `a` when `f` is its `f0`, or into `b` when
-    /// it is its `f1`, bit for bit (each value is decoded from its own segment's range either
-    /// way). The caller checks [`frame_seg`](Self::frame_seg) first; without it nothing is
-    /// written. `ranges`, when given, holds the segment's [`segment_ranges`](Self::segment_ranges)
-    /// (the same values `seg_range` computes).
-    pub(crate) fn decode_frame(
+    /// Decodes frame `f` alone over `rest` into `out` (`soa_len(rest.len())` groups, packed as
+    /// `group` packs a pose): the values [`decode_pose`](Self::decode_pose) writes into `a` when
+    /// `f` is its `f0`, or into `b` when it is its `f1`, bit for bit (each value is decoded from
+    /// its own segment's range either way). `ranges`, when given, holds the segment's
+    /// [`frame_ranges`](Self::frame_ranges) (the same values `seg_range` computes). With `held`,
+    /// `out` already holds another frame
+    /// of this clip decoded by this call over the same `rest`; when no bone field is written by
+    /// two channels (`exclusive`), only the animated channels are rewritten (the rest pose and
+    /// the constant channels are already there). The caller
+    /// checks [`frame_seg`](Self::frame_seg) first; without it nothing is written.
+    pub(crate) fn decode_frame_soa(
         &self,
         c: &CompressedView<'_>,
         f: u32,
-        out: &mut [AosTransform],
+        rest: &[AosTransform],
+        out: &mut [SoaTransform],
         ranges: Option<&[u32]>,
+        held: bool,
     ) {
         let Some(s) = self.frame_seg(c, f) else {
             return;
         };
-        let width_sum = self.width_sum;
+        let n = rest.len();
         let format = c.rotation_format();
+        if !(held && self.exclusive) {
+            for (g, o) in out.iter_mut().enumerate() {
+                *o = group(rest, g);
+            }
+            if !self.exclusive {
+                // A field written twice: every channel in order, so the last write wins.
+                self.decode_channels(c, &s, n, out, ranges, format, false);
+                return;
+            }
+            let constants = c.constants();
+            for ch in &self.channels {
+                if ch.mode != ChannelMode::Constant || ch.bone == NONE {
+                    continue;
+                }
+                let mut v = [0.0f32; 4];
+                for (k, v) in v.iter_mut().enumerate().take(ch.width as usize) {
+                    *v = constants.get(ch.data_offset as usize + k).unwrap_or(0.0);
+                }
+                if (ch.bone as usize) < n {
+                    apply_soa(out, ch.bone as usize, ch.kind, &v, format);
+                }
+            }
+        }
+        match ranges {
+            Some(rg) if rg.len() >= self.frame_ranges_len() => {
+                self.decode_animated(&s, n, out, rg, format)
+            }
+            _ => self.decode_channels(c, &s, n, out, ranges, format, true),
+        }
+    }
+
+    /// The animated channels of segment `s`'s frame into `out` (bones below `n`), their ranges
+    /// from `rg` ([`frame_ranges`](Self::frame_ranges)): the hot loop of a cached decode.
+    #[inline(always)]
+    fn decode_animated(
+        &self,
+        s: &Seg<'_>,
+        n: usize,
+        out: &mut [SoaTransform],
+        rg: &[u32],
+        format: RotationFormat,
+    ) {
+        let mut pos = s.frame_pos;
+        for (ch, w8) in self.animated_channels.iter().zip(rg.chunks_exact(8)) {
+            let r = s
+                .rates
+                .get(ch.animated_index as usize)
+                .copied()
+                .unwrap_or(0) as u32;
+            let m = (ch.width as usize).min(4);
+            let bone = ch.bone as usize;
+            if bone < n {
+                let min = [w8[0], w8[1], w8[2], w8[3]].map(f32::from_bits);
+                let ext = [w8[4], w8[5], w8[6], w8[7]].map(f32::from_bits);
+                let v = decode_n(s.data, pos, r, m, min, ext);
+                apply_soa(out, bone, ch.kind, &v, format);
+            }
+            pos += r as u64 * m as u64;
+        }
+    }
+
+    /// The channels of segment `s`'s frame into `out` (bones below `n`): only the animated ones
+    /// with `animated_only`, else every channel in order (constants included).
+    #[allow(clippy::too_many_arguments)]
+    #[inline(always)]
+    fn decode_channels(
+        &self,
+        c: &CompressedView<'_>,
+        s: &Seg<'_>,
+        n: usize,
+        out: &mut [SoaTransform],
+        ranges: Option<&[u32]>,
+        format: RotationFormat,
+        animated_only: bool,
+    ) {
+        let width_sum = self.width_sum;
         let constants = c.constants();
         let clip_ranges = c.clip_ranges();
         let seg_ranges = c.segment_ranges();
         let mut pos = s.frame_pos;
-        for ch in &self.channels {
+        let mut one = |ch: &ChanBind, pos: &mut u64| {
             let w = ch.width as usize;
             let mut v = [0.0f32; 4];
             match ch.mode {
-                ChannelMode::Default => continue,
+                ChannelMode::Default => return,
                 ChannelMode::Constant => {
                     if ch.bone == NONE {
-                        continue;
+                        return;
                     }
                     for (k, v) in v.iter_mut().enumerate().take(w) {
                         *v = constants.get(ch.data_offset as usize + k).unwrap_or(0.0);
@@ -545,17 +667,20 @@ impl ClipBindings {
                 ChannelMode::Animated => {
                     let a_i = ch.animated_index as usize;
                     let r = s.rates.get(a_i).copied().unwrap_or(0) as u32;
-                    let n = w.min(4);
+                    let m = w.min(4);
                     if ch.bone == NONE {
-                        pos += r as u64 * n as u64;
-                        continue;
+                        *pos += r as u64 * m as u64;
+                        return;
                     }
                     let comp = ch.comp as usize;
-                    for (k, v) in v.iter_mut().enumerate().take(n) {
-                        let (m, e) = match ranges {
+                    let rank = ch.rank as usize;
+                    let mut min = [0.0f32; 4];
+                    let mut ext = [0.0f32; 4];
+                    for k in 0..m {
+                        (min[k], ext[k]) = match ranges {
                             Some(r) => (
-                                f32::from_bits(r[2 * (comp + k)]),
-                                f32::from_bits(r[2 * (comp + k) + 1]),
+                                f32::from_bits(r[8 * rank + k]),
+                                f32::from_bits(r[8 * rank + 4 + k]),
                             ),
                             None => seg_range(
                                 &clip_ranges,
@@ -566,14 +691,23 @@ impl ClipBindings {
                                 s.index * width_sum + comp + k,
                             ),
                         };
-                        *v = decode(s.data, pos, r, m, e);
-                        pos += r as u64;
                     }
+                    v = decode_n(s.data, *pos, r, m, min, ext);
+                    *pos += r as u64 * m as u64;
                 }
             }
             let bone = ch.bone as usize;
-            if bone < out.len() {
-                apply(&mut out[bone], ch.kind, &v, format);
+            if bone < n {
+                apply_soa(out, bone, ch.kind, &v, format);
+            }
+        };
+        if animated_only {
+            for ch in &self.animated_channels {
+                one(ch, &mut pos);
+            }
+        } else {
+            for ch in &self.channels {
+                one(ch, &mut pos);
             }
         }
     }

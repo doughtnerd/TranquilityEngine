@@ -45,6 +45,16 @@ mod imp {
         pub fn from_u32_array(q: [u32; 4]) -> Self {
             Self(f32x4_convert_u32x4(u32x4(q[0], q[1], q[2], q[3])))
         }
+        /// These lanes with lane `i & 3` replaced by `v`.
+        #[inline(always)]
+        pub fn with_lane(self, i: usize, v: f32) -> Self {
+            Self(match i & 3 {
+                0 => f32x4_replace_lane::<0>(self.0, v),
+                1 => f32x4_replace_lane::<1>(self.0, v),
+                2 => f32x4_replace_lane::<2>(self.0, v),
+                _ => f32x4_replace_lane::<3>(self.0, v),
+            })
+        }
         #[inline(always)]
         pub(super) fn v_add(self, o: Self) -> Self {
             Self(f32x4_add(self.0, o.0))
@@ -200,6 +210,12 @@ mod imp {
         pub fn from_u32_array(q: [u32; 4]) -> Self {
             // `as f32` rounds to nearest-even, as wasm `f32x4.convert_i32x4_u` does.
             Self([q[0] as f32, q[1] as f32, q[2] as f32, q[3] as f32])
+        }
+        /// These lanes with lane `i & 3` replaced by `v`.
+        #[inline(always)]
+        pub fn with_lane(mut self, i: usize, v: f32) -> Self {
+            self.0[i & 3] = v;
+            self
         }
         #[inline(always)]
         pub(super) fn v_add(self, o: Self) -> Self {
