@@ -13,176 +13,198 @@
   "tiles": [
     {
       "id": 1,
-      "name": "Ground 0",
+      "uuid": "00000000-0000-4000-8000-000000000001",
       "sprite": "asset:images/tiles.png#ground_0",
       "collision": "full",
+      "name": "Ground 0",
       "terrain": "Ground",
       "pattern": "0*0*0*0*"
     },
     {
       "id": 2,
-      "name": "Ground 1",
+      "uuid": "00000000-0000-4000-8000-000000000002",
       "sprite": "asset:images/tiles.png#ground_1",
       "collision": "full",
+      "name": "Ground 1",
       "terrain": "Ground",
       "pattern": "1*0*0*0*"
     },
     {
       "id": 3,
-      "name": "Ground 2",
+      "uuid": "00000000-0000-4000-8000-000000000003",
       "sprite": "asset:images/tiles.png#ground_2",
       "collision": "full",
+      "name": "Ground 2",
       "terrain": "Ground",
       "pattern": "0*1*0*0*"
     },
     {
       "id": 4,
-      "name": "Ground 3",
+      "uuid": "00000000-0000-4000-8000-000000000004",
       "sprite": "asset:images/tiles.png#ground_3",
       "collision": "full",
+      "name": "Ground 3",
       "terrain": "Ground",
       "pattern": "1*1*0*0*"
     },
     {
       "id": 5,
-      "name": "Ground 4",
+      "uuid": "00000000-0000-4000-8000-000000000005",
       "sprite": "asset:images/tiles.png#ground_4",
       "collision": "full",
+      "name": "Ground 4",
       "terrain": "Ground",
       "pattern": "0*0*1*0*"
     },
     {
       "id": 6,
-      "name": "Ground 5",
+      "uuid": "00000000-0000-4000-8000-000000000006",
       "sprite": "asset:images/tiles.png#ground_5",
       "collision": "full",
+      "name": "Ground 5",
       "terrain": "Ground",
       "pattern": "1*0*1*0*"
     },
     {
       "id": 7,
-      "name": "Ground 6",
+      "uuid": "00000000-0000-4000-8000-000000000007",
       "sprite": "asset:images/tiles.png#ground_6",
       "collision": "full",
+      "name": "Ground 6",
       "terrain": "Ground",
       "pattern": "0*1*1*0*"
     },
     {
       "id": 8,
-      "name": "Ground 7",
+      "uuid": "00000000-0000-4000-8000-000000000008",
       "sprite": "asset:images/tiles.png#ground_7",
       "collision": "full",
+      "name": "Ground 7",
       "terrain": "Ground",
       "pattern": "1*1*1*0*"
     },
     {
       "id": 9,
-      "name": "Ground 8",
+      "uuid": "00000000-0000-4000-8000-000000000009",
       "sprite": "asset:images/tiles.png#ground_8",
       "collision": "full",
+      "name": "Ground 8",
       "terrain": "Ground",
       "pattern": "0*0*0*1*"
     },
     {
       "id": 10,
-      "name": "Ground 9",
+      "uuid": "00000000-0000-4000-8000-00000000000a",
       "sprite": "asset:images/tiles.png#ground_9",
       "collision": "full",
+      "name": "Ground 9",
       "terrain": "Ground",
       "pattern": "1*0*0*1*"
     },
     {
       "id": 11,
-      "name": "Ground 10",
+      "uuid": "00000000-0000-4000-8000-00000000000b",
       "sprite": "asset:images/tiles.png#ground_10",
       "collision": "full",
+      "name": "Ground 10",
       "terrain": "Ground",
       "pattern": "0*1*0*1*"
     },
     {
       "id": 12,
-      "name": "Ground 11",
+      "uuid": "00000000-0000-4000-8000-00000000000c",
       "sprite": "asset:images/tiles.png#ground_11",
       "collision": "full",
+      "name": "Ground 11",
       "terrain": "Ground",
       "pattern": "1*1*0*1*"
     },
     {
       "id": 13,
-      "name": "Ground 12",
+      "uuid": "00000000-0000-4000-8000-00000000000d",
       "sprite": "asset:images/tiles.png#ground_12",
       "collision": "full",
+      "name": "Ground 12",
       "terrain": "Ground",
       "pattern": "0*0*1*1*"
     },
     {
       "id": 14,
-      "name": "Ground 13",
+      "uuid": "00000000-0000-4000-8000-00000000000e",
       "sprite": "asset:images/tiles.png#ground_13",
       "collision": "full",
+      "name": "Ground 13",
       "terrain": "Ground",
       "pattern": "1*0*1*1*"
     },
     {
       "id": 15,
-      "name": "Ground 14",
+      "uuid": "00000000-0000-4000-8000-00000000000f",
       "sprite": "asset:images/tiles.png#ground_14",
       "collision": "full",
+      "name": "Ground 14",
       "terrain": "Ground",
       "pattern": "0*1*1*1*"
     },
     {
       "id": 16,
-      "name": "Ground 15",
+      "uuid": "00000000-0000-4000-8000-000000000010",
       "sprite": "asset:images/tiles.png#ground_15",
       "collision": "full",
+      "name": "Ground 15",
       "terrain": "Ground",
       "pattern": "1*1*1*1*"
     },
     {
       "id": 17,
-      "name": "Plank",
+      "uuid": "00000000-0000-4000-8000-000000000011",
       "sprite": "asset:images/tiles.png#plank",
-      "collision": "oneWay"
+      "collision": "oneWay",
+      "name": "Plank"
     },
     {
       "id": 18,
-      "name": "Coin",
+      "uuid": "00000000-0000-4000-8000-000000000012",
       "sprite": "asset:images/tiles.png#coin",
       "collision": "none",
+      "name": "Coin",
       "data": {
         "coin": true
       }
     },
     {
       "id": 19,
-      "name": "Spikes",
+      "uuid": "00000000-0000-4000-8000-000000000013",
       "sprite": "asset:images/tiles.png#spike",
       "collision": "none",
+      "name": "Spikes",
       "data": {
         "hazard": true
       }
     },
     {
       "id": 20,
-      "name": "Bush",
+      "uuid": "00000000-0000-4000-8000-000000000014",
       "sprite": "asset:images/tiles.png#bush",
-      "collision": "none"
+      "collision": "none",
+      "name": "Bush"
     },
     {
       "id": 21,
-      "name": "Flag",
+      "uuid": "00000000-0000-4000-8000-000000000015",
       "sprite": "asset:images/tiles.png#flag",
       "collision": "none",
+      "name": "Flag",
       "data": {
         "goal": true
       }
     },
     {
       "id": 22,
-      "name": "Crate",
+      "uuid": "00000000-0000-4000-8000-000000000016",
       "sprite": "asset:images/tiles.png#crate",
       "collision": "full",
+      "name": "Crate",
       "data": {
         "surface": "wood"
       }

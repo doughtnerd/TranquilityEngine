@@ -30,6 +30,8 @@ export interface SubtitleSpeakerLook {
 
 /** The player's values; null while they follow the project's defaults. */
 let own: SubtitleSettings | null = null;
+/** Counts `set`/`reset` calls, so saved values that finish loading after one don't overwrite the player's change. */
+let edits = 0;
 /** The World whose first scene loaded the saved values (its teardown forgets them, for the next game in the process). */
 let loadedFor: World | null = null;
 let frozen: { from: SubtitleSettings; value: Readonly<SubtitleSettings> } | null = null;
@@ -76,6 +78,7 @@ export const Subtitles = {
     warn(problems);
     if (own !== null && same(next, own)) return;
     own = next;
+    edits++;
     Storage.save(SUBTITLES_STORAGE_KEY, { ...next }, "settings").catch((err: unknown) => console.warn("[myco] Couldn't save the subtitle settings:", err));
     if (!same(next, before)) notify();
   },
@@ -84,6 +87,7 @@ export const Subtitles = {
   reset(): void {
     const before = current();
     own = null;
+    edits++;
     Storage.delete(SUBTITLES_STORAGE_KEY, "settings").catch((err: unknown) => console.warn("[myco] Couldn't delete the saved subtitle settings:", err));
     if (!same(current(), before)) notify();
   },
@@ -110,13 +114,17 @@ export const Subtitles = {
 export async function loadSubtitleSettings(world: World): Promise<void> {
   if (loadedFor === world) return;
   loadedFor = world;
-  const before = current();
+  const editsBefore = edits;
   let saved: unknown;
   try {
     saved = await Storage.load(SUBTITLES_STORAGE_KEY, "settings");
   } catch (err) {
     console.warn("[myco] Couldn't read the saved subtitle settings:", err);
   }
+  // The player changed something while this read was pending (their change is newer and already saved), or another
+  // World took over: keep what's there.
+  if (edits !== editsBefore || loadedFor !== world) return;
+  const before = current();
   if (saved === undefined || saved === null) own = null;
   else {
     const problems: string[] = [];

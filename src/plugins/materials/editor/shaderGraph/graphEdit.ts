@@ -383,7 +383,7 @@ export function addSubGraphOutput(graph: ShaderGraph, type: FunctionPort["type"]
 /** Sub-graphs: rename an output, keeping what's connected to it. */
 export function renameSubGraphOutput(graph: ShaderGraph, from: string, to: string): ShaderGraph {
   const outs = graph.subgraph?.outputs;
-  if (!outs || from === to || whyNotPortName(to, outs.map((o) => o.name).filter((n) => n !== from))) return graph;
+  if (!outs || from === to || !outs.some((o) => o.name === from) || whyNotPortName(to, outs.map((o) => o.name).filter((n) => n !== from))) return graph;
   const g = clone(graph);
   g.subgraph!.outputs.find((o) => o.name === from)!.name = to;
   const out = outputNodeId(g);

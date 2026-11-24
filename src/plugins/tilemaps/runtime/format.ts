@@ -4,17 +4,21 @@
  * A Tilemap's `layers` field is a list of layer objects. Each layer keeps its cells in sparse
  * 16 × 16 chunks keyed `"cx,cy"`, and each chunk is a run-length string of 256 cell values, row by
  * row from the chunk's bottom-left cell: `"0*200,3,3,4*2,0*50"` (a value, or `value*count`). Cell
- * values are tile ids with flip flags in the high bits (`cellValue`). Layers carry a version `v`;
- * a layer without one is version 1, and `migrateLayer` upgrades older versions.
+ * values are the layer's own small tile numbers with flip flags in the high bits (`cellValue`), and the
+ * layer's `palette` says which tileset tile each number is, by the tile's uuid (ADR 0392): deleting a
+ * tile from the tileset leaves its cells missing instead of repainting them with whatever tile takes
+ * its id. Layers carry a version `v`; a layer without one is version 1, and `migrateLayer` upgrades
+ * older versions (version 1 had no palette: its cell values were tileset ids).
  */
+import { legacyTileUuid } from "./tileset";
 
 /** Cells per chunk side. Changing it would need a layer migration. */
 export const CHUNK_SIZE = 16;
 export const CHUNK_CELLS = CHUNK_SIZE * CHUNK_SIZE;
 /** The layer format version this engine writes. */
-export const TILEMAP_LAYER_VERSION = 1;
+export const TILEMAP_LAYER_VERSION = 2;
 
-/** Tile ids are the low 24 bits of a cell value; 0 is an empty cell. */
+/** Tile numbers (a layer's palette keys) are the low 24 bits of a cell value; 0 is an empty cell. */
 export const TILE_ID_MASK = 0x00ff_ffff;
 /** Mirror the tile left to right. */
 export const FLIP_X = 1 << 24;
@@ -44,18 +48,39 @@ export interface TilemapLayerData {
   tint: string;
   /** 0..1, multiplied with the tiles' alpha. */
   opacity: number;
+  /** The layer's tile numbers (the cell values' low bits, as strings) → the tileset tiles' uuids (ADR 0392). */
+  palette: Record<string, string>;
   /** `"cx,cy"` → run-length string of the chunk's 256 cell values. */
   chunks: Record<string, string>;
 }
 
 /** A new, empty layer. */
 export function newLayer(name = "Layer", sortingLayer = "Default"): TilemapLayerData {
-  return { v: TILEMAP_LAYER_VERSION, name, sortingLayer, orderInLayer: 0, visible: true, collision: true, tint: "#ffffff", opacity: 1, chunks: {} };
+  return { v: TILEMAP_LAYER_VERSION, name, sortingLayer, orderInLayer: 0, visible: true, collision: true, tint: "#ffffff", opacity: 1, palette: {}, chunks: {} };
 }
 
 type LayerMigration = (layer: Record<string, unknown>) => Record<string, unknown>;
-/** Upgrades of a layer from version `n` (the key) to `n + 1`; none yet, while the layer is at version 1. */
-const layerMigrations = new Map<number, LayerMigration>();
+/** Upgrades of a layer from version `n` (the key) to `n + 1`. */
+const layerMigrations = new Map<number, LayerMigration>([
+  // 1 → 2 (ADR 0392): cell values were tileset ids. Each id becomes its own palette number, naming the tile by the
+  // uuid a tile from before uuids has (`legacyTileUuid`), so the cells keep their values and draw the same tiles.
+  [
+    1,
+    (layer) => {
+      const palette: Record<string, string> = {};
+      if (typeof layer.chunks === "object" && layer.chunks !== null) {
+        for (const [key, text] of Object.entries(layer.chunks as Record<string, unknown>)) {
+          if (typeof text !== "string" || !parseChunkKey(key)) continue;
+          for (const v of decodeChunk(text)) {
+            const id = tileIdOf(v);
+            if (id) palette[id] = legacyTileUuid(id);
+          }
+        }
+      }
+      return { ...layer, v: 2, palette };
+    },
+  ],
+]);
 
 /**
  * A layer read from a scene file, upgraded to the current version with defaults for missing
@@ -79,6 +104,13 @@ export function migrateLayer(raw: unknown, where = "tilemap layer"): TilemapLaye
   if (typeof layer.chunks === "object" && layer.chunks !== null) {
     for (const [k, s] of Object.entries(layer.chunks as Record<string, unknown>)) if (typeof s === "string" && parseChunkKey(k)) chunks[k] = s;
   }
+  const palette: Record<string, string> = {};
+  if (typeof layer.palette === "object" && layer.palette !== null) {
+    for (const [k, uuid] of Object.entries(layer.palette as Record<string, unknown>)) {
+      const n = Number(k);
+      if (typeof uuid === "string" && uuid && Number.isInteger(n) && n >= 1 && n <= TILE_ID_MASK && String(n) === k) palette[k] = uuid;
+    }
+  }
   return {
     v: TILEMAP_LAYER_VERSION,
     name: str("name", d.name),
@@ -88,6 +120,7 @@ export function migrateLayer(raw: unknown, where = "tilemap layer"): TilemapLaye
     collision: bool("collision", true),
     tint: str("tint", d.tint),
     opacity: num("opacity", 1),
+    palette,
     chunks,
   };
 }
