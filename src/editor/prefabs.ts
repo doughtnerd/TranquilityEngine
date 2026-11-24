@@ -3,7 +3,7 @@
 import { Assets } from "../engine";
 import { isScenePath } from "../engine/scene/SceneLoader";
 import { foldNodes, type FoldAdapter, type NodeStep, type OverrideHome } from "../engine/scene/overrideFold";
-import { mapEntryNodeRefs } from "../engine/scene/nodeReferences";
+import { mapEntryNodeRefs, nodeRefId } from "../engine/scene/nodeReferences";
 import type { ResolvedNode } from "../engine/scene/resolvedScene";
 import {
   AddComponent,
@@ -281,6 +281,8 @@ export interface CreatedPrefab {
   readonly path: string;
   /** References from inside the new prefab to scene nodes outside it, kept as overrides on the instance (ADR 0396). */
   readonly instanceOverrides: number;
+  /** List items naming nodes inside the prefab that those overrides had to leave out (a list mixing inside and outside references). */
+  readonly droppedListItems: number;
 }
 
 /**
@@ -290,11 +292,12 @@ export interface CreatedPrefab {
  * override. Returns `copies` (the subtree entries as the file gets them) with those references
  * nulled, and the overrides. `root` is the file's root id (the instance root's own fields have an
  * empty target); `kept` is an inside id that still names the same node in the scene afterwards
- * (the instance keeps the root's id), so a list may hold it beside outside references. Throws for
- * a list that holds outside references beside other inside ones: the override's value is read
- * in the scene, where those inside nodes no longer are.
+ * (the instance keeps the root's id), so a list may hold it beside outside references. A list that
+ * holds outside references beside other inside ones keeps the inside ones in the file, but the
+ * override (read in the scene, where those inside nodes no longer are) drops them; `dropped`
+ * counts those list items.
  */
-function outsideReferences(doc: SceneDocument, inside: ReadonlySet<string>, copies: NodeEntry[], root: string, kept: string | null): { nodes: NodeEntry[]; overrides: OverrideEntry[] } {
+function outsideReferences(doc: SceneDocument, inside: ReadonlySet<string>, copies: NodeEntry[], root: string, kept: string | null): { nodes: NodeEntry[]; overrides: OverrideEntry[]; dropped: number } {
   const fields = new Map<string, NodeReference[]>();
   for (const r of doc.references()) {
     if (!inside.has(r.path[0])) continue;
@@ -302,19 +305,24 @@ function outsideReferences(doc: SceneDocument, inside: ReadonlySet<string>, copi
     fields.set(key, [...(fields.get(key) ?? []), r]);
   }
   const overrides: OverrideEntry[] = [];
+  let dropped = 0;
+  const lost = (id: string | null) => id !== null && inside.has(id) && id !== kept;
   for (const refs of fields.values()) {
     if (refs.every((r) => inside.has(r.to))) continue;
     const r = refs[0];
-    if (refs.some((o) => inside.has(o.to) && o.to !== kept)) {
-      throw new Error(
-        `"${r.field}" of ${r.type} on "${r.path.join("/")}" lists both nodes inside the new prefab and nodes outside it, and the instance can't keep that list as an override. Split the list, or include those nodes in the prefab.`,
-      );
+    let value = structuredClone(r.value);
+    // Owner decision (ADR 0396): a list mixing outside references with inside ones keeps only the outside ones (and
+    // the kept root) in the instance's override; the prefab file still holds the inside ones.
+    if (Array.isArray(value) && value.some((item) => lost(nodeRefId(item)))) {
+      const before = value.length;
+      value = value.filter((item) => !lost(nodeRefId(item)));
+      dropped += before - value.length;
     }
     const target = r.path[0] === root ? r.path.slice(1) : [...r.path];
-    overrides.push({ ...(target.length ? { target } : {}), component: r.type, index: r.index, field: r.field, value: structuredClone(r.value) });
+    overrides.push({ ...(target.length ? { target } : {}), component: r.type, index: r.index, field: r.field, value });
   }
   const nodes = overrides.length ? copies.map((n) => mapEntryNodeRefs(n, (id) => (inside.has(id) ? id : null))) : copies;
-  return { nodes, overrides };
+  return { nodes, overrides, dropped };
 }
 
 /**
@@ -341,7 +349,7 @@ export async function createPrefab(scene: OpenScene, project: EditorProject, id:
 
   const copies = subtree.map((n) => structuredClone(doc.node(n)));
   delete copies[0].parent;
-  const { nodes, overrides } = outsideReferences(doc, inside, copies, id, id);
+  const { nodes, overrides, dropped } = outsideReferences(doc, inside, copies, id, id);
   const path = newPrefabPath(project, entry.name ?? id);
   await writeSceneFile(project, path, { format: doc.format, nodes });
 
@@ -352,7 +360,7 @@ export async function createPrefab(scene: OpenScene, project: EditorProject, id:
     stack.execute(new RemoveNode(id));
     stack.execute(new AddNode(instance, { parent, index }));
   });
-  return { path, instanceOverrides: overrides.length };
+  return { path, instanceOverrides: overrides.length, droppedListItems: dropped };
 }
 
 /**
@@ -384,7 +392,7 @@ export async function createPrefabFromNodes(scene: OpenScene, project: EditorPro
     sub[0].parent = rootId;
     copies.push(...sub);
   }
-  const { nodes, overrides } = outsideReferences(doc, inside, copies, rootId, null);
+  const { nodes, overrides, dropped } = outsideReferences(doc, inside, copies, rootId, null);
   const path = newPrefabPath(project, name);
   await writeSceneFile(project, path, { format: doc.format, nodes });
   const index = order.indexOf(sorted[0]);
@@ -397,7 +405,7 @@ export async function createPrefabFromNodes(scene: OpenScene, project: EditorPro
     // Set after the insertion, which re-points a template's references among its own nodes; these name scene nodes.
     if (overrides.length) stack.execute(new SetOverrides(made.keys[0]!, label, overrides));
   });
-  return { path, instanceOverrides: overrides.length };
+  return { path, instanceOverrides: overrides.length, droppedListItems: dropped };
 }
 
 /** Apply the overrides of several instances (one undo step each); returns how many overrides were applied in all. */

@@ -19,7 +19,7 @@ We will, when Create Prefab makes a prefab:
 - Write `null` in the prefab file for every reference from the new prefab's nodes to a scene node outside them. That covers component data, nested instances' field overrides and their added components' data (where `nodeReferences.ts` says references sit). For a list field, only the outside items become `null`.
 - Record each such field's original value as a field override on the new instance (`target` empty for the prefab root's own fields, else the node's path within the prefab; the `index` counts components of the type, as `SceneDocument.references()` does). The scene resolves exactly as before.
 - Keep references between the prefab's own nodes in the file as they are. In `createPrefab` the instance keeps the root's id, so a reference to the root still names it from the scene.
-- Refuse a list field that holds outside references beside references to other nodes inside the prefab. The override's value is read in the scene, where those inner nodes no longer exist, so no override can keep both.
+- A list field that holds outside references beside references to other nodes inside the prefab (owner decision): the prefab file keeps the inside items (outside ones `null`); the instance's override keeps only the outside items (and the root, whose id the instance keeps), dropping the inside ones, since the override is read in the scene where those inner nodes no longer exist. The Create Prefab message says how many list items were left out.
 - Make it one undo step, the same as before. Report the count in the status bar, e.g. "Created prefabs/game.prefab.json. 5 references to nodes outside the prefab became instance overrides; the prefab file leaves them empty."
 
 `createPrefab` and `createPrefabFromNodes` return `{ path, instanceOverrides }` (`CreatedPrefab`) in place of the path.
@@ -28,6 +28,7 @@ We will, when Create Prefab makes a prefab:
 
 - **Refuse when a reference points out** — safe, but it makes the user cut references by hand before making a prefab, and Unity users expect the override.
 - **Null the references and only warn** — the scene would change (the instance loses its references) without the user asking for it.
+- **Refuse a mixed list** — the first version did; the owner chose dropping the inside items instead.
 - **Per-item list overrides, to handle mixed lists** — the override format has no list-item override. Adding one is a file-format change for a rare case.
 
 ## Consequences
@@ -37,7 +38,7 @@ We will, when Create Prefab makes a prefab:
 
 **Negative / costs**
 - The new instance starts with overrides, so it shows as modified. Apply would write those scene references into the prefab file again, and they would name nothing there. That's the same as Apply on any instance override that points into the scene.
-- A mixed list (inside and outside references in one field) is refused.
+- In a mixed list (inside and outside references in one field), the instance's override loses the inside items; the scene's list is shorter than before until the override is edited.
 
 ## Deprecates
 
