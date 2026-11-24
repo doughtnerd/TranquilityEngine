@@ -2,7 +2,9 @@
  * Internal (ADR 0370, 0094): the GPU kernel executor's WebGPU backend. A `GpuKernel` is one compute
  * shader module (WGSL) with one or more entry points over an explicit bind group layout; each frame
  * its owner binds buffers (cached bind groups, by a key the owner chooses) and dispatches entry points
- * over N items in one compute pass. Renderer-neutral: it takes a raw GPUDevice (Babylon's, or any) and
+ * over N items in one compute pass, or records them into a `GpuComputeBatch` that many kernels share
+ * (one pass and one submit for all of them). Kernels of the same spec on one device share one module
+ * and its pipelines. Renderer-neutral: it takes a raw GPUDevice (Babylon's, or any) and
  * only the few WebGPU types below, so a renderer passes a `BufferFactory` when its draws must bind the
  * same buffers (Babylon wraps them in `StorageBuffer`s; a vertex buffer adds `BUFFER.VERTEX`).
  *
@@ -99,11 +101,91 @@ export function bindGroupLayoutEntries(bindings: readonly GpuBinding[]): unknown
   );
 }
 
+/** What kernels with the same spec on one device share: the module, layout and pipelines. */
+interface CompiledKernel {
+  readonly ready: Promise<string[]>;
+  readonly layout: unknown;
+  readonly pipelines: ReadonlyMap<string, unknown>;
+}
+
+/** Compiled kernels per device, by spec (many kernels of one spec, such as one skinning kernel per mesh, compile once). */
+const compiled = new WeakMap<GpuDevice, Map<string, CompiledKernel>>();
+
+function compile(device: GpuDevice, spec: GpuKernelSpec): CompiledKernel {
+  let byKey = compiled.get(device);
+  if (!byKey) compiled.set(device, (byKey = new Map()));
+  const key = JSON.stringify([spec.label, spec.code, spec.entryPoints, spec.bindings, spec.workgroup]);
+  let c = byKey.get(key);
+  if (c) return c;
+  const module = device.createShaderModule({ code: spec.code, label: spec.label });
+  const ready: Promise<string[]> =
+    typeof module.getCompilationInfo === "function"
+      ? module.getCompilationInfo().then((info: { messages: { type: string; message: string; lineNum: number }[] }) => info.messages.filter((m) => m.type === "error").map((m) => `${m.lineNum}: ${m.message}`))
+      : Promise.resolve([]);
+  const layout = device.createBindGroupLayout!({ entries: bindGroupLayoutEntries(spec.bindings) });
+  const pipelineLayout = device.createPipelineLayout!({ bindGroupLayouts: [layout] });
+  const pipelines = new Map<string, unknown>();
+  for (const entry of spec.entryPoints) {
+    pipelines.set(entry, device.createComputePipeline({ layout: pipelineLayout, compute: { module, entryPoint: entry }, label: entry === "main" ? spec.label : `${spec.label} ${entry}` }));
+  }
+  c = { ready, layout, pipelines };
+  byKey.set(key, c);
+  return c;
+}
+
+/**
+ * Records several kernels' dispatches into one compute pass of one command encoder, submitted once
+ * (`submit`): a frame's many small kernels (one skinning kernel per mesh) cost one submit, not one each.
+ * The pass opens at the first dispatch; a pipeline or bind group already set isn't set again. Queue
+ * writes made before `submit` (`writeBuffer`) are seen by every dispatch of the batch.
+ */
+export class GpuComputeBatch {
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  private encoder: any = null;
+  private pass: any = null;
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  private pipeline: unknown = null;
+  private group: unknown = null;
+
+  constructor(private readonly device: GpuDevice) {}
+
+  /** Whether dispatches wait for `submit`. */
+  get pending(): boolean {
+    return this.pass !== null;
+  }
+
+  /** Record one dispatch of `x` × `y` workgroups of `pipeline` with `group` at group 0. */
+  dispatch(pipeline: unknown, group: unknown, x: number, y: number): void {
+    if (!this.pass) {
+      this.encoder = this.device.createCommandEncoder();
+      this.pass = this.encoder.beginComputePass();
+      this.pipeline = this.group = null;
+    }
+    if (pipeline !== this.pipeline) {
+      this.pass.setPipeline(pipeline);
+      this.pipeline = pipeline;
+    }
+    if (group !== this.group) {
+      this.pass.setBindGroup(0, group);
+      this.group = group;
+    }
+    this.pass.dispatchWorkgroups(x, y);
+  }
+
+  /** End the pass and submit it (nothing when nothing was recorded). */
+  submit(): void {
+    if (!this.pass) return;
+    this.pass.end();
+    this.device.queue.submit([this.encoder.finish()]);
+    this.pass = this.encoder = this.pipeline = this.group = null;
+  }
+}
+
 export class GpuKernel {
   /** Shader compile errors (`line: message`), if the device reports any. */
   readonly ready: Promise<string[]>;
   private readonly layout: unknown;
-  private readonly pipelines = new Map<string, unknown>();
+  private readonly pipelines: ReadonlyMap<string, unknown>;
   private readonly groups = new Map<string, unknown>();
   private isLost = false;
 
@@ -111,16 +193,10 @@ export class GpuKernel {
     private readonly device: GpuDevice,
     readonly spec: GpuKernelSpec,
   ) {
-    const module = device.createShaderModule({ code: spec.code, label: spec.label });
-    this.ready =
-      typeof module.getCompilationInfo === "function"
-        ? module.getCompilationInfo().then((info: { messages: { type: string; message: string; lineNum: number }[] }) => info.messages.filter((m) => m.type === "error").map((m) => `${m.lineNum}: ${m.message}`))
-        : Promise.resolve([]);
-    this.layout = device.createBindGroupLayout!({ entries: bindGroupLayoutEntries(spec.bindings) });
-    const layout = device.createPipelineLayout!({ bindGroupLayouts: [this.layout] });
-    for (const entry of spec.entryPoints) {
-      this.pipelines.set(entry, device.createComputePipeline({ layout, compute: { module, entryPoint: entry }, label: entry === "main" ? spec.label : `${spec.label} ${entry}` }));
-    }
+    const c = compile(device, spec);
+    this.ready = c.ready;
+    this.layout = c.layout;
+    this.pipelines = c.pipelines;
     device.lost?.then(() => {
       this.isLost = true;
     });
@@ -168,9 +244,17 @@ export class GpuKernel {
     this.device.queue.submit([enc.finish()]);
   }
 
+  /** Record `dispatches` with `group` bound into `batch` (one pass for many kernels; `batch.submit()` submits). */
+  record(batch: GpuComputeBatch, group: unknown, dispatches: readonly GpuDispatch[]): void {
+    if (this.isLost) return;
+    for (const d of dispatches) {
+      const [x, y] = dispatchGroups(d.items, this.spec.workgroup);
+      if (x !== 0) batch.dispatch(this.pipelines.get(d.entry), group, x, y);
+    }
+  }
+
   dispose(): void {
     this.groups.clear();
-    this.pipelines.clear();
   }
 }
 
