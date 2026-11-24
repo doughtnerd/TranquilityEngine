@@ -78,7 +78,7 @@ fn sample(samples: &Samples<'_>, index: usize) -> f32 {
 ///    last frame holds, as Chromium's `AudioBufferSourceNode` does).
 /// 3. Per channel, `y = a + (b - a) * t` with `a` the sample at `idx`, `b` at the next frame.
 ///    `out_l[i]` is channel 0; `out_r[i]` is channel 1, or a copy of channel 0 for a mono clip.
-/// 4. `*pos += steps[i] as f64`; then, if `looping`, `while *pos >= frames as f64 { *pos -= frames as f64 }`.
+/// 4. `*pos += steps[i] as f64`; then, if `looping`, [`wrap_loop`]`(pos, frames as f64)`.
 ///
 /// Returns `out_l.len()` when the block was filled. A clip with `frames == 0` writes zeros and
 /// returns 0.
@@ -95,9 +95,7 @@ pub fn linear(src: &Source<'_>, pos: &mut f64, steps: &[f32], looping: bool, out
     let stereo = src.channels == 2;
     if looping {
         // A position handed in past the end wraps first, the same way step 4 keeps it.
-        while *pos >= frames_f {
-            *pos -= frames_f;
-        }
+        wrap_loop(pos, frames_f);
     }
     for i in 0..len {
         if !looping && *pos >= frames_f {
@@ -130,9 +128,7 @@ pub fn linear(src: &Source<'_>, pos: &mut f64, steps: &[f32], looping: bool, out
         }
         *pos += steps[i] as f64;
         if looping {
-            while *pos >= frames_f {
-                *pos -= frames_f;
-            }
+            wrap_loop(pos, frames_f);
         }
     }
     len
@@ -223,6 +219,43 @@ pub fn horner(x: [f32; 4], t: f32) -> f32 {
     ((c3 * t + c2) * t + c1) * t + x[1]
 }
 
+/// Wraps a looping position at or past `len` (the clip's frames) back into `[0, len)`: what
+/// `while *pos >= len { *pos -= len }` gives, without one subtraction per lap. Under two laps it is that one
+/// subtraction, bit for bit; further it is the exact remainder (a seek or offset far past the end, which the
+/// loop would take millions of laps over, on the audio thread). An infinite position restarts at 0 (the loop
+/// never ended); NaN is left as it is, as the loop left it. Public so other readers (the core's ADPCM voice)
+/// move positions exactly as these kernels do.
+#[inline(always)]
+pub fn wrap_loop(pos: &mut f64, len: f64) {
+    if *pos >= len {
+        *pos = if *pos < len + len {
+            *pos - len
+        } else if pos.is_finite() {
+            *pos % len
+        } else {
+            0.0
+        };
+    }
+}
+
+/// [`wrap_loop`] for a loop region ending at `end`, `span` frames long: a position at or past `end` goes back
+/// by whole spans into `[end - span, end)`, which is `while *pos >= end { *pos -= span }` (bit for bit within
+/// one lap) without a subtraction per lap. An infinite position restarts at the region's start.
+#[inline(always)]
+pub fn wrap_region(pos: &mut f64, end: f64, span: f64) {
+    if *pos >= end {
+        let start = end - span;
+        let once = *pos - span;
+        *pos = if once < end {
+            once
+        } else if pos.is_finite() {
+            start + (*pos - start) % span
+        } else {
+            start
+        };
+    }
+}
+
 /// `j.clamp(0, last) as usize`, the edge neighbour of a non-looping read. Not `isize::clamp`: its min > max
 /// assert formats both values, and that panic path was inlined into every copy of the four kernels (about
 /// 2.9 KB of the wasm). The plain assert keeps what it tells the optimiser (`last >= 0`, without which the
@@ -254,9 +287,7 @@ fn render4<S: Sample, const STEREO: bool, const REV: bool>(data: &[S], frames: u
     }
     let frames_f = frames as f64;
     if looping {
-        while *pos >= frames_f {
-            *pos -= frames_f;
-        }
+        wrap_loop(pos, frames_f);
     }
     let last = frames - 1;
     // The neighbour `idx + d` (d in -1..=2) at the clip's edges: wrapped when looping, else clamped.
@@ -310,9 +341,7 @@ fn render4<S: Sample, const STEREO: bool, const REV: bool>(data: &[S], frames: u
         }
         *pos += steps[i] as f64;
         if looping {
-            while *pos >= frames_f {
-                *pos -= frames_f;
-            }
+            wrap_loop(pos, frames_f);
         }
     }
     len
@@ -328,9 +357,7 @@ pub fn advance(pos: &mut f64, steps: &[f32], frames: u32, looping: bool) -> usiz
     }
     let frames_f = frames as f64;
     if looping {
-        while *pos >= frames_f {
-            *pos -= frames_f;
-        }
+        wrap_loop(pos, frames_f);
     }
     for (i, &step) in steps.iter().enumerate() {
         if !looping && *pos >= frames_f {
@@ -338,9 +365,7 @@ pub fn advance(pos: &mut f64, steps: &[f32], frames: u32, looping: bool) -> usiz
         }
         *pos += step as f64;
         if looping {
-            while *pos >= frames_f {
-                *pos -= frames_f;
-            }
+            wrap_loop(pos, frames_f);
         }
     }
     steps.len()
@@ -422,9 +447,7 @@ fn region4<S: Sample, const STEREO: bool, const REV: bool>(data: &[S], frames: u
         let was = *pos;
         *pos += steps[i] as f64;
         if was < end_f {
-            while *pos >= end_f {
-                *pos -= span;
-            }
+            wrap_region(pos, end_f, span);
         }
     }
     len
@@ -491,9 +514,7 @@ fn render_n<S: Sample, const MONO: bool, const REV: bool>(data: &[S], stride: us
     }
     let frames_f = frames as f64;
     if looping {
-        while *pos >= frames_f {
-            *pos -= frames_f;
-        }
+        wrap_loop(pos, frames_f);
     }
     let last = frames - 1;
     // The neighbour `idx + d` (d in -1..=2) at the clip's edges: wrapped when looping, else clamped.
@@ -525,9 +546,7 @@ fn render_n<S: Sample, const MONO: bool, const REV: bool>(data: &[S], stride: us
         }
         *pos += steps[i] as f64;
         if looping {
-            while *pos >= frames_f {
-                *pos -= frames_f;
-            }
+            wrap_loop(pos, frames_f);
         }
     }
     len
@@ -600,9 +619,7 @@ fn region_n<S: Sample, const MONO: bool, const REV: bool>(data: &[S], stride: us
         let was = *pos;
         *pos += steps[i] as f64;
         if was < end_f {
-            while *pos >= end_f {
-                *pos -= span;
-            }
+            wrap_region(pos, end_f, span);
         }
     }
     len
@@ -624,9 +641,7 @@ pub fn advance_region(pos: &mut f64, steps: &[f32], start: u32, end: u32, frames
         let was = *pos;
         *pos += step as f64;
         if was < end_f {
-            while *pos >= end_f {
-                *pos -= span;
-            }
+            wrap_region(pos, end_f, span);
         }
     }
     steps.len()
@@ -758,6 +773,39 @@ mod tests {
         advance_region(&mut b, &steps, 10, 40, 64);
         assert_eq!(a, b);
         assert!((10.0..40.0).contains(&a));
+    }
+
+    /// A position far past a loop's end wraps in one step, not one subtraction per lap (which would stall the
+    /// audio thread), and an infinite one restarts the loop instead of never ending.
+    #[test]
+    fn a_huge_or_infinite_position_wraps_at_once() {
+        let data = ramp_clip(16);
+        let src = Source { samples: Samples::F32(&data), channels: 1, frames: 16, reversed: false };
+        let (mut l, mut r) = ([0.0f32; 4], [0.0f32; 4]);
+        for (start, wrapped) in [(2f64.powi(44) + 3.0, 3.0), (f64::INFINITY, 0.0)] {
+            let mut pos = start;
+            assert_eq!(lagrange(&src, &mut pos, &[1.0; 4], true, &mut l, &mut r), 4);
+            assert_eq!(pos, wrapped + 4.0, "{start}");
+            let mut pos = start;
+            assert_eq!(linear(&src, &mut pos, &[1.0; 4], true, &mut l, &mut r), 4);
+            assert_eq!(pos, wrapped + 4.0, "{start}");
+            let mut pos = start;
+            assert_eq!(advance(&mut pos, &[1.0; 4], 16, true), 4);
+            assert_eq!(pos, wrapped + 4.0, "{start}");
+            let mut pos = start;
+            assert_eq!(advance_constant(&mut pos, 1.0, 4, 16, true), 4);
+            assert_eq!(pos, wrapped + 4.0, "{start}");
+        }
+        // A step that lands far past a region's end (from before it) wraps into the region.
+        let mut pos = 2.0;
+        assert_eq!(advance_region(&mut pos, &[1e9, 1.0], 4, 8, 16), 2);
+        assert_eq!(pos, 4.0 + (2.0 + 1e9 - 4.0) % 4.0 + 1.0);
+        let mut pos = 2.0;
+        assert_eq!(advance_region(&mut pos, &[f32::INFINITY, 1.0], 4, 8, 16), 2);
+        assert_eq!(pos, 5.0);
+        let mut pos = 2.0;
+        assert_eq!(lagrange_region(&src, &mut pos, &[f32::INFINITY, 1.0], 4, 8, &mut l[..2], &mut r[..2]), 2);
+        assert_eq!(pos, 5.0);
     }
 
     #[test]

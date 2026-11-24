@@ -27,7 +27,7 @@
 //! ambisonic plays an ADPCM clip straight (as an ambisonic voice plays a program straight): `voices.rs` decides.
 
 use audio_adpcm::{block_bytes, skip_run, State, BLOCK_FRAMES};
-use audio_dsp::resample::{horner, weights};
+use audio_dsp::resample::{horner, weights, wrap_loop, wrap_region};
 
 use crate::clips::AdpcmClip;
 use crate::layout::REGION_ALIGN;
@@ -136,16 +136,12 @@ fn advance<const M: u8>(pos: &mut f64, step: f32, frames_f: f64, end_f: f64, spa
         let was = *pos;
         *pos += step as f64;
         if was < end_f {
-            while *pos >= end_f {
-                *pos -= span;
-            }
+            wrap_region(pos, end_f, span);
         }
     } else {
         *pos += step as f64;
         if M == LOOP {
-            while *pos >= frames_f {
-                *pos -= frames_f;
-            }
+            wrap_loop(pos, frames_f);
         }
     }
 }
@@ -382,9 +378,7 @@ fn render_ch<const CH: usize, const M: u8>(cur: &mut Cursor, voice: u32, clip_id
     };
 
     if looping {
-        while *pos >= frames_f {
-            *pos -= frames_f;
-        }
+        wrap_loop(pos, frames_f);
         cur.set_seam(&clip, SEAM_LOOP, 0, frames);
     } else if region {
         cur.set_seam(&clip, SEAM_REGION, start, end);
