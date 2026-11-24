@@ -168,6 +168,25 @@ describe("write, then fold, gives what was asked (ADR 0287)", () => {
   }
 });
 
+describe("removing a node whose id another instance level also has", () => {
+  const added = { target: ["nest", "leaf"], addNodes: [{ id: "kid", name: "Nested kid", components: [{ type: T }] }] };
+  const named = { target: ["nest", "kid"], name: "Renamed nested kid" };
+
+  it("removing the prefab's node keeps the nested level's node of that id and its overrides", () => {
+    doc.node("inst").overrides = [structuredClone(added), structuredClone(named), { target: ["kid"], name: "Gone" }];
+    run(writeRemoveNode(doc, ["inst", "kid"]));
+    expect(doc.overrides("inst")).toEqual([added, named, { target: ["kid"], removeNode: true }]);
+    expect(folded(["inst", "nest", "kid"]).name).toBe("Renamed nested kid");
+  });
+
+  it("removing the nested level's added node keeps the prefab's node of that id and its overrides", () => {
+    doc.node("inst").overrides = [{ target: ["kid"], name: "Kept" }, structuredClone(added), structuredClone(named)];
+    run(writeRemoveNode(doc, ["inst", "nest", "kid"]));
+    expect(doc.overrides("inst")).toEqual([{ target: ["kid"], name: "Kept" }]);
+    expect(folded(["inst", "kid"]).name).toBe("Kept");
+  });
+});
+
 describe("the writer and overrides it didn't write", () => {
   it("takes one property out of an override that sets several, and drops it once it sets nothing", () => {
     doc.node("inst").overrides = [{ target: ["kid"], name: "X", active: false }];

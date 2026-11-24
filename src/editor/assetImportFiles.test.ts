@@ -51,6 +51,29 @@ describe("importFiles", () => {
   });
 });
 
+describe("importFiles never overwrites", () => {
+  it("treats a name that differs only in case as taken", async () => {
+    await importFiles(project, "", [file("Hero.png", "old")]);
+    const result = await importFiles(project, "", [file("hero.png", "new"), file("HERO.PNG.meta.json", "{}")]);
+    expect(result.imported).toEqual(["hero (1).png", "HERO.PNG.meta.json"]);
+    expect(new TextDecoder().decode(onDisk("Hero.png") as Uint8Array)).toBe("old");
+  });
+
+  it("gives same-named dropped files and folders names of their own", async () => {
+    const result = await importFiles(project, "", [file("a.png", "1"), file("a.png", "2"), file("A.PNG", "3"), file("pack/x.png", "4"), file("pack/y.png", "5"), file("pack/x.png", "6")]);
+    expect(result.imported).toEqual(["a (1).png", "a (2).png", "A.PNG", "pack/x.png", "pack/y.png", "pack (1)/x.png"]);
+    const text = (p: string) => new TextDecoder().decode(onDisk(p) as Uint8Array);
+    expect(["a (1).png", "a (2).png", "A.PNG", "pack/x.png", "pack (1)/x.png"].map(text)).toEqual(["1", "2", "3", "4", "6"]);
+  });
+
+  it("checks the disk too, for files added since the project was read", async () => {
+    fs.files.set(joinPath(ROOT, "late.png"), bytes("outside"));
+    const result = await importFiles(project, "", [file("late.png", "new")]);
+    expect(result.imported).toEqual(["late (1).png"]);
+    expect(new TextDecoder().decode(onDisk("late.png") as Uint8Array)).toBe("outside");
+  });
+});
+
 describe("filesOfPaths", () => {
   it("walks folders on the file system", async () => {
     fs.files.set(joinPath(ROOT, "pack/a.png"), bytes("1"));
