@@ -135,7 +135,7 @@ export interface UICoreLike {
   readonly hasScreenUI: boolean;
   /** Tests and the editor: an element's rectangle in canvas CSS pixels (screen canvases only; null otherwise or before layout). */
   rectOf(c: UIComponentType): { x: number; y: number; width: number; height: number } | null;
-  /** Tests: the topmost interactive element under a canvas CSS point, or null. */
+  /** Tests: the element the pointer goes to at a canvas CSS point (ADR 0385): the button or input field it presses, else the element that only blocks it; null when it reaches the game. */
   hitTest(x: number, y: number): UIComponentType | null;
   /** Editor (ADR 0077): every drawn element (canvases excepted) under a canvas CSS point, topmost first. */
   pickAll(x: number, y: number, ray?: UIPickRay | null): UIComponentType[];

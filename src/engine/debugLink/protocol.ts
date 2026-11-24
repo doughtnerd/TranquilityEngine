@@ -11,8 +11,8 @@
 // records in the capture and take framing (`records.ts`, audio 0348), so the link, captures and takes share one encoding.
 // Requests and replies travel on the reliable channel, samples on the unreliable one (the session picks).
 //
-// Decoding is lenient and never throws: a message that doesn't parse decodes to null with the reason, and the session
-// answers it with an `error`.
+// Decoding is lenient and never throws: a message that doesn't parse decodes to a refusal with the reason, and either end
+// answers it with an `error` and closes the link.
 
 /** The protocol version both ends must speak. */
 export const DEBUG_LINK_VERSION = 1;

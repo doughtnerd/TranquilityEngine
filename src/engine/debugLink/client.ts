@@ -191,9 +191,18 @@ export class DebugLinkListener {
           this.events.onClose?.(peer);
         }
       } else {
+        if (!this.connections.has(c)) continue; // closed by this end meanwhile
         const decoded = decodeEnvelope(event.data);
         if ("refused" in decoded) {
+          // Not this protocol (a malformed envelope, another version): say so, then close (ADR 0376).
           if (c.state === "open") c.send("reliable", encodeEnvelope({ kind: EnvelopeKind.error, topic: "", id: 0, payload: jsonPayload({ message: decoded.refused }) }));
+          const reason = `The tool closed the debug link: ${decoded.refused}`;
+          const peer = this.connections.get(c);
+          this.connections.delete(c);
+          if (peer) {
+            peer.close(reason);
+            this.events.onClose?.(peer);
+          } else if (c.state !== "closed") c.close(reason);
           continue;
         }
         const e = decoded.envelope;

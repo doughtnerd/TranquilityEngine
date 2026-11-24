@@ -27,6 +27,8 @@ export interface EditorDebugLinkOptions {
   readonly autoPoll?: boolean;
   /** How often, milliseconds (default 33). */
   readonly pollMs?: number;
+  /** Hears what the link wants the user to read (the editor's message log). */
+  readonly log?: (kind: "info" | "warning" | "error", text: string) => void;
 }
 
 /** @internal The editor's debug link. */
@@ -41,6 +43,8 @@ export class EditorDebugLink {
   /** Builds refused this session (host and name): their reconnection attempts are closed without asking again. */
   private readonly refused = new Set<string>();
   private generation = 0;
+  /** The last error each build sent for the link itself: a build says why before it closes the link (ADR 0376). */
+  private readonly linkErrors = new WeakMap<DebugLinkPeer, string>();
 
   constructor(private readonly options: EditorDebugLinkOptions) {}
 
@@ -72,7 +76,11 @@ export class EditorDebugLink {
     }
     const listener = new DebugLinkListener(transport, {
       onPeer: (peer) => this.arrived(peer),
-      onClose: (peer) => this.left(peer),
+      onClose: (peer) => {
+        const error = this.linkErrors.get(peer);
+        if (error !== undefined) this.options.log?.("error", `Debug link: "${peer.hello.name}" closed the link: ${error}`);
+        this.left(peer);
+      },
     });
     const address = listenAddress(prefs);
     try {
@@ -143,6 +151,7 @@ export class EditorDebugLink {
   }
 
   private arrived(peer: DebugLinkPeer): void {
+    peer.onError = (message) => this.linkErrors.set(peer, message);
     const b: ConnectedBuild = { id: this.nextId++, name: peer.hello.name, platform: peer.hello.platform, remote: peer.remote, peer };
     if (isLocalRemote(peer.remote)) return this.admit(b);
     if (this.refused.has(refusalKey(b))) {
