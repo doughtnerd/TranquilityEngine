@@ -31,18 +31,18 @@ export interface DesktopOptions {
   /**
    * ADR 0380 (pairing plan O2): the sources of the debug link's listener crates, by path under `src-tauri/vendor/`
    * (`ws-listener/Cargo.toml`, `ws-listener/src/lib.rs`, `debug-link-tauri/…`), read from native/ by node.ts. With `debug`, the
-   * project gets them as path dependencies (`tauri build` compiles them), `lib.rs` manages `DebugLinkListeners` and registers
-   * the four `myco_debuglink_*` commands. A release package, or a debug one given none, has no listener.
+   * project gets them as path dependencies (`tauri build` compiles them), `lib.rs` manages `DebugLinkListeners` and `DebugDiscovery` and registers
+   * the `myco_debuglink_*` commands. A release package, or a debug one given none, has no listener.
    */
   debugListener?: ReadonlyMap<string, string>;
 }
 
 /** The crates a debug desktop export vendors, under `src-tauri/vendor/`: their folder in native/, and the Cargo dependency line. */
-export const DEBUG_LISTENER_CRATES = ["ws-listener", "debug-link-tauri"] as const;
+export const DEBUG_LISTENER_CRATES = ["ws-listener", "debug-discovery", "debug-link-tauri"] as const;
 /** The listener crate's dependency line in the generated Cargo.toml (its own path dependency on `../ws-listener` resolves in vendor/). */
 export const DEBUG_LISTENER_DEPENDENCY = 'myco-debug-link-tauri = { path = "vendor/debug-link-tauri" }';
-/** The four commands native/debug-link-tauri defines, for the generated `generate_handler!`. */
-export const DEBUG_LISTENER_COMMANDS = ["myco_debuglink_listen_range", "myco_debuglink_listen", "myco_debuglink_send", "myco_debuglink_close", "myco_debuglink_interfaces"];
+/** The commands native/debug-link-tauri defines, for the generated `generate_handler!`. */
+export const DEBUG_LISTENER_COMMANDS = ["myco_debuglink_listen_range", "myco_debuglink_listen", "myco_debuglink_send", "myco_debuglink_close", "myco_debuglink_interfaces", "myco_debuglink_advertise", "myco_debuglink_unadvertise", "myco_debuglink_browse", "myco_debuglink_browse_stop"];
 
 /** ADR 0376: the shell lines that hand `--debug-link <address>` (or `--debug-link=<address>`) to the page as `__mycoDebugLink`. */
 export const DEBUG_LINK_FLAG_RUST = `    // ADR 0376: \`--debug-link <address>\` overrides game.json's debug.link: the page reads it as __mycoDebugLink.
@@ -71,7 +71,8 @@ export const DEBUG_CODE_FLAG_RUST = `    // ADR 0380: \`--debug-code <code>\`: t
 `;
 
 /** The shell line that manages the listeners the debug link's commands open (ADR 0376, 0379). */
-export const DEBUG_LISTENER_MANAGE_RUST = "    builder = builder.manage(debug_link_tauri::DebugLinkListeners::default());\n";
+export const DEBUG_LISTENER_MANAGE_RUST =
+  "    builder = builder.manage(debug_link_tauri::DebugLinkListeners::default());\n    builder = builder.manage(debug_link_tauri::DebugDiscovery::default());\n";
 
 /**
  * gamepad.rs's Cargo dependencies, the same lines as src-tauri/Cargo.toml's: SDL3 built from source

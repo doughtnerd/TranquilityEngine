@@ -339,7 +339,8 @@ describe("the debug link's listening flags (ADR 0380)", () => {
     expect(files.get("Cargo.toml")).toMatch(/^\[dependencies\][\s\S]*^myco-debug-link-tauri = \{ path = "vendor\/debug-link-tauri" \}$[\s\S]*^\[dev-dependencies\]/m);
     const lib = files.get("src/lib.rs")!;
     expect(lib).toContain("builder = builder.manage(debug_link_tauri::DebugLinkListeners::default());");
-    for (const c of ["listen_range", "listen", "send", "close", "interfaces"]) expect(lib).toContain(`debug_link_tauri::commands::myco_debuglink_${c},`);
+    expect(lib).toContain("builder = builder.manage(debug_link_tauri::DebugDiscovery::default());");
+    for (const c of ["listen_range", "listen", "send", "close", "interfaces", "advertise", "unadvertise", "browse", "browse_stop"]) expect(lib).toContain(`debug_link_tauri::commands::myco_debuglink_${c},`);
     expect(lib).toContain("gamepad::myco_gamepad_listen,");
     expect(lib).toContain('a == "--debug-code"');
     expect(lib).toContain("globalThis.__mycoDebugCode = {literal};");
@@ -351,6 +352,7 @@ describe("the debug link's listening flags (ADR 0380)", () => {
       expect([...files.keys()].filter((k) => k.startsWith("vendor/"))).toEqual([]);
       expect(files.get("Cargo.toml")).not.toContain("myco-debug-link-tauri");
       expect(files.get("src/lib.rs")).not.toContain("DebugLinkListeners");
+      expect(files.get("src/lib.rs")).not.toContain("DebugDiscovery");
       expect(files.get("src/lib.rs")).not.toContain("myco_debuglink");
     }
     expect(desktopProjectFiles({ name: "x", settings: {}, gamepadModule: "" }).get("src/lib.rs")).not.toContain("debug-code");

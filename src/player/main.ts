@@ -132,6 +132,12 @@ async function boot(): Promise<void> {
     if (d.listen === true) {
       const listener = await startBuildListener(runtime, { debug: manifest.debug, name: manifest.name, platform, interfaces: () => interfaces, transport: listenTransport });
       if (listener) (await import("./debugOverlay")).installDebugOverlay(listener);
+      // ADR 0380 "Discovery": a native listener reachable from the LAN (port 0 is a page's room, which has no socket)
+      // is advertised by mDNS so tools list it; the advert ends when the app does.
+      if (listener && desktop && listener.lan && listener.port > 0) {
+        const [{ advertiseBuild }, { DEBUG_LINK_PATH }] = await Promise.all([import("../engine/debugLink/tauriDiscovery"), import("../engine/debugLink/config")]);
+        void advertiseBuild({ name: manifest.name, platform, port: listener.port, path: DEBUG_LINK_PATH });
+      }
     }
   }
   runtime.start();
