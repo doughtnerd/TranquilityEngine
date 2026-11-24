@@ -790,7 +790,7 @@ pub(crate) fn decode(data: &[u8], pos: u64, bits: u32, min: f32, ext: f32) -> f3
 /// n` is `decode(data, pos + k·bits, bits, min[k], ext[k])`, bit for bit (lanes from `n` on are
 /// unspecified). When the codes fit one 64-bit read they are unpacked four at a time (the same
 /// correctly rounded division, multiply and add per lane as [`unpack_range`]).
-#[inline]
+#[inline(always)]
 pub(crate) fn decode_n(
     data: &[u8],
     pos: u64,
@@ -817,14 +817,28 @@ pub(crate) fn decode_n(
         )
         .to_array()
     } else {
-        core::array::from_fn(|k| {
-            if k < n {
-                decode(data, pos + (k as u32 * bits) as u64, bits, min[k], ext[k])
-            } else {
-                0.0
-            }
-        })
+        decode_each(data, pos, bits, n, min, ext)
     }
+}
+
+/// [`decode_n`] one sample at a time (rates of 0 or 32 bits, or codes past one 64-bit read).
+#[cold]
+#[inline(never)]
+fn decode_each(
+    data: &[u8],
+    pos: u64,
+    bits: u32,
+    n: usize,
+    min: [f32; 4],
+    ext: [f32; 4],
+) -> [f32; 4] {
+    core::array::from_fn(|k| {
+        if k < n {
+            decode(data, pos + (k as u32 * bits) as u64, bits, min[k], ext[k])
+        } else {
+            0.0
+        }
+    })
 }
 
 /// The rotation's w from its decoded components.
@@ -854,7 +868,7 @@ pub(crate) fn apply(t: &mut AosTransform, kind: ChannelKind, v: &[f32; 4], forma
 }
 
 /// [`apply`] into lane `bone % 4` of group `bone / 4` of a SoA pose: the same values.
-#[inline]
+#[inline(always)]
 pub(crate) fn apply_soa(
     pose: &mut [SoaTransform],
     bone: usize,
@@ -865,10 +879,25 @@ pub(crate) fn apply_soa(
     let Some(g) = pose.get_mut(bone / LANES) else {
         return;
     };
-    let l = bone % LANES;
+    let w = if kind == ChannelKind::Rotation {
+        rotation_w(v, format)
+    } else {
+        0.0
+    };
+    // One branch on the lane, then constant-lane writes.
+    match bone % LANES {
+        0 => put_lane(g, 0, kind, v, w),
+        1 => put_lane(g, 1, kind, v, w),
+        2 => put_lane(g, 2, kind, v, w),
+        _ => put_lane(g, 3, kind, v, w),
+    }
+}
+
+/// [`apply_soa`]'s writes into lane `l` of `g` (`w`: the rotation's w).
+#[inline(always)]
+fn put_lane(g: &mut SoaTransform, l: usize, kind: ChannelKind, v: &[f32; 4], w: f32) {
     match kind {
         ChannelKind::Rotation => {
-            let w = rotation_w(v, format);
             let q = &mut g.rotation;
             q.x = q.x.with_lane(l, v[0]);
             q.y = q.y.with_lane(l, v[1]);

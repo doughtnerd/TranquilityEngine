@@ -84,7 +84,7 @@ pub(crate) fn sample(
     out: &mut [SoaTransform],
     cache: &mut FrameCache<'_>,
 ) -> Result<(), SampleError> {
-    let s = &clip.sampler;
+    let s = clip.sampler;
     let n = s.bone_count();
     let groups = soa_len(n);
     let Some(c) = s.comp else {

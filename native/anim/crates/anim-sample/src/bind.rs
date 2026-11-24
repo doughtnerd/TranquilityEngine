@@ -314,7 +314,7 @@ impl ClipBindings {
     /// Pairs the table with `sampler`, which must read the clip and form it was built from.
     pub fn bind<'a, 'b>(
         &'b self,
-        sampler: ClipSampler<'a>,
+        sampler: &'b ClipSampler<'a>,
     ) -> Result<BoundClip<'a, 'b>, SampleError> {
         let v = sampler.view;
         let mut ok = sampler.form() == self.form
@@ -338,7 +338,7 @@ impl ClipBindings {
     /// Pairs the table with `sampler` without [`bind`](Self::bind)'s checks: for a caller that
     /// keeps a pair `bind` accepted together and pairs it on every sample (a loaded clip asset).
     /// A mismatched pair samples wrong values, never out of bounds (every read is checked).
-    pub fn pair_unchecked<'a, 'b>(&'b self, sampler: ClipSampler<'a>) -> BoundClip<'a, 'b> {
+    pub fn pair_unchecked<'a, 'b>(&'b self, sampler: &'b ClipSampler<'a>) -> BoundClip<'a, 'b> {
         BoundClip {
             sampler,
             bindings: self,
@@ -952,17 +952,19 @@ fn read_tracks(view: &ClipView<'_>) -> (Vec<TrackBind>, Vec<Key>, u32) {
     (tracks, keys, words)
 }
 
-/// A [`ClipSampler`] paired with its clip's [`ClipBindings`]. `Copy`.
+/// A [`ClipSampler`] paired with its clip's [`ClipBindings`]: two references, `Copy` (a sampler
+/// holds its clip's parsed section tables, over a kilobyte, so it is borrowed, not copied, on
+/// every sample).
 #[derive(Clone, Copy)]
 pub struct BoundClip<'a, 'b> {
-    pub(crate) sampler: ClipSampler<'a>,
+    pub(crate) sampler: &'b ClipSampler<'a>,
     pub(crate) bindings: &'b ClipBindings,
 }
 
 impl<'a, 'b> BoundClip<'a, 'b> {
     /// The sampler.
-    pub fn sampler(&self) -> &ClipSampler<'a> {
-        &self.sampler
+    pub fn sampler(&self) -> &'b ClipSampler<'a> {
+        self.sampler
     }
 
     /// The binding table.
@@ -1000,6 +1002,6 @@ impl<'a, 'b> BoundClip<'a, 'b> {
 
     /// [`ClipSampler::sample_track`] through the binding table: the same bits.
     pub fn sample_track(&self, track: usize, t: f32, out: &mut [f32]) -> TrackSample {
-        self.bindings.sample_track(&self.sampler, track, t, out)
+        self.bindings.sample_track(self.sampler, track, t, out)
     }
 }

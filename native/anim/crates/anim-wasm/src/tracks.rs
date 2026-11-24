@@ -441,7 +441,7 @@ mod tests {
         let view = ClipView::parse(&bytes).unwrap();
         let sampler = ClipSampler::new(view, Form::Raw).unwrap();
         let bindings = ClipBindings::new(&sampler);
-        let bound = bindings.bind(sampler).unwrap();
+        let bound = bindings.bind(&sampler).unwrap();
         let mut open = vec![0u32; bindings.notify_words()];
         let mut columns = vec![0u32; bindings.column_words()];
         let mut region = [0u8; 1024];
@@ -521,7 +521,7 @@ mod tests {
         let view = ClipView::parse(&bytes).unwrap();
         let sampler = ClipSampler::new(view, Form::Raw).unwrap();
         let bindings = ClipBindings::new(&sampler);
-        let bound = bindings.bind(sampler).unwrap();
+        let bound = bindings.bind(&sampler).unwrap();
         let mut open = vec![0u32; bindings.notify_words()];
         let mut columns = vec![0u32; bindings.column_words()];
         // Room for the marker (32 B) and nothing bigger than 12 more bytes.

@@ -42,7 +42,7 @@ fn sampling(c: &mut Criterion) {
             let view = ClipView::parse(bytes).unwrap();
             let sampler = ClipSampler::new(view, form).unwrap();
             let table = ClipBindings::new(&sampler);
-            let bound = table.bind(sampler).unwrap();
+            let bound = table.bind(&sampler).unwrap();
             let mut ranges = vec![0.0f32; table.cache_len()];
             let caches: &[bool] = if form == Form::Compressed {
                 &[false, true]
