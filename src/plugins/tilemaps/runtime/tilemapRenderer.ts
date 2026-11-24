@@ -107,7 +107,7 @@ export class TilemapRenderer {
           if (ce) for (const b of ce.batches) b.dispose();
           ce = { version: chunk.version, framesVersion: entry!.framesVersion, cellX, cellY, batches: [] };
           le.chunks.set(key, ce);
-          const built = buildChunkMeshes(chunk.cells, chunk.cx, chunk.cy, map.cellSize, (id) => this.frame(entry!, map, id));
+          const built = buildChunkMeshes(chunk.cells, chunk.cx, chunk.cy, map.cellSize, (n) => this.frame(entry!, map, map._tileIdAt(li, n)));
           for (const m of built) {
             const batch = this.host.createBatch(`tilemap:${map.node.name}:${li}:${key}`);
             batch.setOrder(order);

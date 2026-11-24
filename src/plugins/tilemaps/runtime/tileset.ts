@@ -11,13 +11,18 @@
  *   "anchor": [0.5, 0],                   // optional (ADR 0119): the sprite's point lands on the same point of the cell; tiles may set their own
  *   "terrains": [{ "name": "Ground", "color": "#7cb342" }],
  *   "tiles": [
- *     { "id": 1, "sprite": "asset:images/tiles.png#ground_0", "collision": "full",
+ *     { "id": 1, "uuid": "3f0c9b1e-…", "sprite": "asset:images/tiles.png#ground_0", "collision": "full",
  *       "terrain": "Ground", "pattern": "*1*1*0*1", "weight": 1, "data": { "surface": "grass" } },
  *     { "id": 2, "sprite": "asset:images/tiles.png#plank", "collision": "oneWay" },
  *     { "id": 3, "sprite": "asset:images/tiles.png#slope", "collision": { "polygon": [[0, 0], [1, 0], [1, 1]] } }
  *   ]
  * }
  * ```
+ *
+ * Each tile has a `uuid` that never changes and is never given to another tile (ADR 0392): Tilemap layers refer to
+ * tiles by it, through their palettes, so deleting a tile can't make maps paint another one in its place. A tile
+ * without one (a file from before ADR 0392) gets `legacyTileUuid(id)`, the same on every load, and keeps it once the
+ * file is saved. The integer `id` is the scripting handle (`Tilemap.setTile`, `getTile`).
  */
 
 export const TILESET_FORMAT = "myco.tileset@1";
@@ -37,8 +42,10 @@ export type TileCollision = "none" | "full" | "oneWay" | TilePolygon;
 export type TilePattern = string;
 
 export interface TileDef {
-  /** Unique within the tileset, 1 to 16777215; cells store it, so it must never change. */
+  /** Unique within the tileset, 1 to 16777215: what scripts name the tile by (`Tilemap.setTile`, `getTile`). */
   id: number;
+  /** Unique within the tileset, never changed and never reused: what Tilemap layers' palettes name the tile by (ADR 0392). */
+  uuid: string;
   /** Optional display name. */
   name?: string;
   /** Sprite reference, usually a slice: `asset:images/tiles.png#grass_0`. */
@@ -102,6 +109,15 @@ export function tileAnchor(data: TilesetData, tile: TileDef): [number, number] {
   return tile.anchor ?? data.anchor ?? [0, 0];
 }
 
+/**
+ * The uuid a tile from before ADR 0392 (a file without `uuid`s) has: derived from its id, so the same on every load,
+ * and the uuid a layer without a palette names each of its cell ids by. New tiles get random uuids instead, so a new
+ * tile never takes a deleted old tile's place.
+ */
+export function legacyTileUuid(id: number): string {
+  return `00000000-0000-4000-8000-${(id >>> 0).toString(16).padStart(12, "0")}`;
+}
+
 /** True for a valid neighbour pattern. */
 export const isPattern = (p: unknown): p is string => typeof p === "string" && /^[01*]{8}$/.test(p);
 
@@ -139,14 +155,21 @@ export function parseTileset(raw: unknown, where = "tileset"): { tileset: Tilese
     }
   }
   const ids = new Set<number>();
+  const uuids = new Set<string>();
   if (Array.isArray(raw.tiles)) {
     raw.tiles.forEach((t, i) => {
       if (!isObject(t) || !Number.isInteger(t.id) || (t.id as number) < 1 || (t.id as number) > 0xffffff) return problems.push(`${where}: tile ${i} needs an integer "id" from 1 to 16777215; skipped.`);
       const id = t.id as number;
       if (ids.has(id)) return problems.push(`${where}: tile id ${id} is used twice; skipped the second.`);
+      let uuid = typeof t.uuid === "string" && t.uuid ? t.uuid : legacyTileUuid(id);
+      if (uuids.has(uuid)) {
+        if (uuids.has(legacyTileUuid(id))) return problems.push(`${where}: tile ${id}'s uuid is another tile's; skipped.`);
+        problems.push(`${where}: tile ${id}'s uuid is another tile's; it gets ${legacyTileUuid(id)}.`);
+        uuid = legacyTileUuid(id);
+      }
       const collision = parseCollision(t.collision);
       if (!collision) problems.push(`${where}: tile ${id} has a bad "collision"; it won't collide.`);
-      const def: TileDef = { id, sprite: typeof t.sprite === "string" ? t.sprite : "", collision: collision ?? "none" };
+      const def: TileDef = { id, uuid, sprite: typeof t.sprite === "string" ? t.sprite : "", collision: collision ?? "none" };
       if (typeof t.name === "string") def.name = t.name;
       if (typeof t.terrain === "string" && t.terrain) def.terrain = t.terrain;
       if (t.pattern !== undefined) {
@@ -161,6 +184,7 @@ export function parseTileset(raw: unknown, where = "tileset"): { tileset: Tilese
       }
       if (isObject(t.data)) def.data = structuredClone(t.data);
       ids.add(id);
+      uuids.add(uuid);
       ts.tiles.push(def);
     });
   }
@@ -170,12 +194,15 @@ export function parseTileset(raw: unknown, where = "tileset"): { tileset: Tilese
 /** A tileset ready for lookups. */
 export class Tileset {
   readonly tiles = new Map<number, TileDef>();
+  /** Tiles by uuid (ADR 0392). */
+  readonly byUuid = new Map<string, TileDef>();
   /** Tiles of each terrain. */
   readonly byTerrain = new Map<string, TileDef[]>();
 
   constructor(readonly data: TilesetData) {
     for (const t of data.tiles) {
       this.tiles.set(t.id, t);
+      this.byUuid.set(t.uuid, t);
       if (t.terrain) {
         let list = this.byTerrain.get(t.terrain);
         if (!list) this.byTerrain.set(t.terrain, (list = []));
@@ -192,7 +219,12 @@ export class Tileset {
     return this.tiles.get(id);
   }
 
-  /** The next unused id. */
+  /** The tile a layer palette's uuid names, or undefined when the tileset has none (it was deleted). */
+  tileByUuid(uuid: string): TileDef | undefined {
+    return this.byUuid.get(uuid);
+  }
+
+  /** The next unused id (one past the largest). Maps name tiles by uuid, so a reused id doesn't repaint them (ADR 0392). */
   nextId(): number {
     let max = 0;
     for (const id of this.tiles.keys()) max = Math.max(max, id);

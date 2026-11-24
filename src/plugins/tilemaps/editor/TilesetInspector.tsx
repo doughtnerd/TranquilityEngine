@@ -214,7 +214,7 @@ function TileEditor(props: { data: TilesetData; tile: TileDef; readOnly: boolean
     <div class="component asset-import-card tileset-tile">
       <h3>
         Tile {tile.id}
-        <button class="tileset-delete" disabled={readOnly} title="Delete the tile (its id is never reused for another tile by this editor)" onClick={props.onDelete}>
+        <button class="tileset-delete" disabled={readOnly} title="Delete the tile (maps that used it leave those cells empty; no tile added later takes its place)" onClick={props.onDelete}>
           Delete
         </button>
       </h3>
