@@ -18,7 +18,7 @@ import { pairRefusalMessage, type EndpointKind } from "../../engine/debugLink/pr
 import { joinCandidates, joinPath, joinRefusalMessage, roomAddress, type RoomRefusal } from "../../engine/debugLink/rooms";
 
 /** What the person typed in the Connect dialog. */
-export type ConnectTarget = { readonly code: string } | { readonly address: string };
+export type ConnectTarget = { readonly code: string; readonly address?: string } | { readonly address: string };
 
 /** What the flow needs to join rooms (the link's room connector and settings). */
 export interface ConnectRooms {
@@ -87,7 +87,7 @@ export async function connectToBuild(target: ConnectTarget, host: ConnectHost): 
     if (interfaces.length === 0 && host.pageHost !== null) return { kind: "page", host: host.pageHost };
     return { kind: "native", interfaces };
   };
-  if ("address" in target) {
+  if (!("code" in target)) {
     const text = target.address.trim();
     if (!text) fail({ kind: "bad-code", message: "Type the code the build shows, or an address." });
     tries = addressCandidates({ address: text }, context()).map((c) => ({ address: c.url, shown: c.url }));
@@ -98,7 +98,14 @@ export async function connectToBuild(target: ConnectTarget, host: ConnectHost): 
     if ("refused" in read) fail({ kind: "bad-code", message: `That isn't a pairing code: ${read.refused}.` });
     const code = read.code;
     token = code.token;
-    if (code.kind === "room") {
+    const chosen = target.address?.trim();
+    if (chosen) {
+      // A build picked from the network: connect to its address, and the code supplies the token. A room code names a room
+      // instead of an address, so it can't be combined with one.
+      if (code.kind === "room") fail({ kind: "bad-code", message: "That code is for a room, not for the build you picked. Use an address code, or clear the picked build." });
+      tries = addressCandidates({ address: chosen }, context()).map((c) => ({ address: c.url, shown: c.url }));
+      if (tries.length === 0) fail({ kind: "bad-code", message: `"${chosen}" isn't an address I can read. Try ws://192.168.1.20:7790 or 192.168.1.20:7790.` });
+    } else if (code.kind === "room") {
       rooms = host.rooms ?? null;
       if (!rooms) fail({ kind: "needs-rendezvous", message: "This tool can't reach a rendezvous to join a room here. Use the build's address code or type its address." });
       const path = joinPath(rooms.kind, code, rooms.hosted, rooms.webrtc);

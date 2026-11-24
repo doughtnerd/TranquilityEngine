@@ -54,11 +54,15 @@
 .debug-link-field input { width: 100%; box-sizing: border-box; }
 .debug-link-code { font-family: var(--font-code); letter-spacing: 0.08em; text-transform: uppercase; }
 .debug-link-code::placeholder { text-transform: none; }
-.debug-link-discovered { margin-bottom: 10px; border: 1px solid var(--border); border-radius: 4px; max-height: 140px; overflow: auto; }
+.debug-link-discovered { margin-bottom: 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); }
 .debug-link-discovered-title { padding: 3px 8px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); border-bottom: 1px solid var(--border); }
-.debug-link-discovered-item { display: flex; justify-content: space-between; gap: 8px; width: 100%; border: none; border-radius: 0; background: none; color: var(--text); padding: 3px 8px; text-align: left; font-size: calc(12px * var(--ui-scale)); }
-.debug-link-discovered-item:hover:not(:disabled), .debug-link-discovered-item:focus-visible { background: var(--selection); color: var(--selection-text); }
-.debug-link-discovered-detail { color: var(--muted); }
+.debug-link-discovered-empty { margin: 0; padding: 6px 8px; color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.debug-link-discovered-list { list-style: none; margin: 0; padding: 0; max-height: 140px; overflow: auto; }
+.debug-link-discovered-list:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+.debug-link-discovered-item { padding: 3px 8px; color: var(--text); cursor: pointer; font-size: calc(12px * var(--ui-scale)); }
+.debug-link-discovered-item:hover, .debug-link-discovered-list:focus-visible .debug-link-discovered-item.active { background: var(--selection); color: var(--selection-text); }
+.debug-link-discovered-item[aria-selected="true"] { box-shadow: inset 2px 0 0 var(--accent); font-weight: 600; }
+.debug-link-discovered-list[aria-disabled="true"] .debug-link-discovered-item { cursor: default; opacity: 0.6; }
 .debug-link-status { min-height: 1.4em; margin-bottom: 8px; }
 .debug-link-status p { margin: 0; }
 .debug-link-failure { color: var(--danger); }

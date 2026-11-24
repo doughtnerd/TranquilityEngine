@@ -3,8 +3,19 @@
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
 import { expect, fn, userEvent, within } from "storybook/test";
-import { ConnectDialog, type DiscoveredBuild } from "./ConnectDialog";
+import { signal } from "@preact/signals";
+import { ConnectDialog } from "./ConnectDialog";
 import type { ConnectFailure, ConnectTarget } from "./connectFlow";
+import type { DiscoveredBuild, DiscoveryModel } from "./discovery";
+
+/** A discovery with a fixed state: `null` builds is "can't browse" (a browser page). */
+function fixedDiscovery(builds: readonly DiscoveredBuild[] | null): DiscoveryModel {
+  return { builds: signal(builds ?? []), available: signal(builds !== null), start() {}, stop() {} };
+}
+const RACERS: readonly DiscoveredBuild[] = [
+  { id: "racer-pc", name: "Racer", platform: "desktop", address: "ws://192.168.1.20:7790/myco-debug" },
+  { id: "racer-phone", name: "Racer", platform: "android", address: "ws://192.168.1.31:7790/myco-debug" },
+];
 
 const refusal = (failure: ConnectFailure) => () => Promise.reject(new Error(failure.message, { cause: failure }));
 const FAILURES: Record<string, ConnectFailure> = {
@@ -16,7 +27,7 @@ const FAILURES: Record<string, ConnectFailure> = {
 
 interface Args {
   onConnect: (target: ConnectTarget) => Promise<void>;
-  discovered?: readonly DiscoveredBuild[];
+  discovery?: DiscoveryModel;
   failure?: ConnectFailure | null;
 }
 
@@ -25,7 +36,7 @@ function Demo(props: Args) {
   return (
     <div>
       <output aria-label="State">{open ? "open" : "closed"}</output>
-      {open && <ConnectDialog onConnect={props.onConnect} onClose={() => setOpen(false)} discovered={props.discovered} failure={props.failure} />}
+      {open && <ConnectDialog onConnect={props.onConnect} onClose={() => setOpen(false)} discovery={props.discovery} failure={props.failure} />}
     </div>
   );
 }
@@ -41,7 +52,7 @@ export const Empty: Story = {
     expect(within(dialog).getByLabelText("Code")).toHaveFocus();
     expect(within(dialog).getByLabelText("Or an address")).toBeTruthy();
     expect(within(dialog).getByRole("button", { name: "Connect" })).toBeDisabled();
-    expect(within(dialog).queryByRole("group", { name: "Builds on the network" })).toBeNull();
+    expect(within(dialog).queryByRole("listbox")).toBeNull();
     expect(within(dialog).queryByRole("alert")).toBeNull();
   },
 };
@@ -97,18 +108,63 @@ export const OpenedWithAFailure: Story = {
 };
 
 export const Discovered: Story = {
-  args: {
-    discovered: [
-      { name: "Racer", platform: "desktop", address: "192.168.1.20:7790" },
-      { name: "Racer", platform: "android", address: "192.168.1.31:7790" },
-    ],
+  args: { discovery: fixedDiscovery(RACERS) },
+  play: async ({ canvasElement, args }) => {
+    const c = within(canvasElement);
+    const list = await c.findByRole("listbox", { name: "Nearby builds" });
+    expect(within(list).getAllByRole("option").map((o) => o.textContent)).toEqual(["Racer — desktop, 192.168.1.20", "Racer — android, 192.168.1.31"]);
+    await userEvent.click(within(list).getByRole("option", { name: /android/ }));
+    expect(c.getByLabelText("Or an address")).toHaveValue("ws://192.168.1.31:7790/myco-debug");
+    expect(within(list).getByRole("option", { name: /android/ })).toHaveAttribute("aria-selected", "true");
+    expect(c.getByLabelText("Code")).toHaveFocus();
+    await userEvent.type(c.getByLabelText("Code"), "3F9QK7KD2X{Enter}");
+    expect(args.onConnect).toHaveBeenCalledWith({ code: "3F9QK7KD2X", address: "ws://192.168.1.31:7790/myco-debug" });
   },
+};
+
+export const DiscoveredByKeyboard: Story = {
+  args: { discovery: fixedDiscovery(RACERS) },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    const list = await c.findByRole("group", { name: "Builds on the network" });
-    await userEvent.click(within(list).getByRole("button", { name: /android/ }));
-    expect(c.getByLabelText("Or an address")).toHaveValue("192.168.1.31:7790");
-    expect(c.getByLabelText("Code")).toHaveFocus();
+    const list = await c.findByRole("listbox", { name: "Nearby builds" });
+    list.focus();
+    await userEvent.keyboard("{ArrowDown}{Enter}");
+    expect(c.getByLabelText("Or an address")).toHaveValue("ws://192.168.1.31:7790/myco-debug");
+    list.focus();
+    await userEvent.keyboard("{Home}{Enter}");
+    expect(c.getByLabelText("Or an address")).toHaveValue("ws://192.168.1.20:7790/myco-debug");
+  },
+};
+
+export const TypingAnAddressReplacesThePickedBuild: Story = {
+  args: { discovery: fixedDiscovery(RACERS) },
+  play: async ({ canvasElement, args }) => {
+    const c = within(canvasElement);
+    await userEvent.click(await c.findByRole("option", { name: /desktop/ }));
+    await userEvent.type(c.getByLabelText("Or an address"), "9");
+    expect(c.getByRole("option", { name: /desktop/ })).toHaveAttribute("aria-selected", "false");
+    await userEvent.type(c.getByLabelText("Code"), "3F9QK7KD2X{Enter}");
+    expect(args.onConnect).toHaveBeenCalledWith({ code: "3F9QK7KD2X" });
+  },
+};
+
+export const LookingForBuilds: Story = {
+  args: { discovery: fixedDiscovery([]) },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    expect(await c.findByText("Nearby builds")).toBeTruthy();
+    expect(c.getByText("Looking for builds…")).toBeTruthy();
+    expect(c.queryByRole("listbox")).toBeNull();
+  },
+};
+
+export const NoDiscoveryInAPage: Story = {
+  args: { discovery: fixedDiscovery(null) },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await c.findByRole("dialog");
+    expect(c.queryByText("Nearby builds")).toBeNull();
+    expect(c.queryByText("Looking for builds…")).toBeNull();
   },
 };
 
