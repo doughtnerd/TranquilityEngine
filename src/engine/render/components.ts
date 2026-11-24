@@ -816,6 +816,19 @@ export class ParticleSystem extends Component {
    * play and restart, for replays, tests and lockstep.
    */
   @field(Number) seed = 0;
+  /**
+   * 2D (ADR 0409): the sorting layer its particles draw on, among sprites and tiles, at `orderInLayer`; and with a lit
+   * 2D `material`, lit by 2D lights like them (each output's flat light: no normal maps). Empty: drawn as 3D particles,
+   * ordered by their outputs' render order.
+   */
+  @field(String, { choices: (s) => ["", ...s.render.sortingLayers], description: "The sorting layer its particles draw on as 2D content (lit by 2D lights). Empty: 3D particles." }) sortingLayer = "";
+  /** With a `sortingLayer`: the order within it (higher draws on top), as a SpriteRenderer's. */
+  @field(Number) orderInLayer = 0;
+  /**
+   * With a `sortingLayer`: a 2D material asset (`"sprite-lit"`, the default when empty, or `"sprite-unlit"`) saying
+   * whether 2D lights light the particles. Their colours and textures stay their outputs'.
+   */
+  @field(AssetRef, { kind: "material", description: "With a sorting layer: Sprite Lit (default) or Sprite Unlit, whether 2D lights light the particles." }) material = "";
 
   /** @internal Commands for the render backend, in order. */
   _commands: ParticleCommand[] = [];

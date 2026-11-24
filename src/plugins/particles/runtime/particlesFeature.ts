@@ -6,6 +6,7 @@
 // ADR 0154: the renderer names nothing here. The factory builds the player's host from the renderer's
 // core host, the editor's preview arrives as render policy, and the feature answers the renderer's
 // generic hooks (warm items, a drawn object's description, its diagnostics).
+import { sortingOrder, unknownLayerMessage } from "../../../engine/render/sortOrder";
 import type { Component } from "../../../engine/core/Component";
 import type { World } from "../../../engine/core/World";
 import { _worldRaycast } from "../../../engine/core/worldServices";
@@ -36,6 +37,8 @@ function particleHost(host: BabylonFeatureHost): BabylonParticleHost {
     },
     texture: (path) => host.materials.texture(path),
     tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
+    sortOrder: (layer, order) => sortingOrder(host.settings.render.sortingLayers, layer, order, (l) => host.warnOnce(`layer|${l}`, unknownLayerMessage(l))), // 2D systems (ADR 0409)
+    warnOnce: (key, message) => host.warnOnce(key, message),
     material: (path) => host.materials.material(path), // shared with MeshRenderers; null while missing
     materialCopy: (path, name) => host.materials.copy(path, name), // soft and kernel particles (ADR 0126)
     // A World service that answers ray queries (3D physics, ADR 0135); null while the World has none
