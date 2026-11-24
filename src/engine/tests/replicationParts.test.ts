@@ -107,6 +107,10 @@ class Mover extends GameBehavior {
 const Big = defineComponent("test.parts.Big", Object.fromEntries(Array.from({ length: 300 }, (_, i) => [`f${i}`, f32])));
 replicate(Big);
 
+/** A small component added to a big ghost mid-run, to relayout it (ADR 0121, 0403). */
+const Badge = defineComponent("test.parts.Badge", { level: f32 });
+replicate(Badge);
+
 /** Sets every `Big` field from a seed (the server's values to look for on clients). */
 function fillBig(node: GameObject, seed: number): void {
   const big = node.getData(Big)! as unknown as Record<string, number>;
@@ -355,6 +359,103 @@ describe("spawns go reliably, apart from states (ADR 0402)", () => {
     inWorld(server, () => GameObject.destroy(big));
     step(engine, 60);
     expect(bigOn(p1)).toEqual([]);
+    expect(error).not.toHaveBeenCalled();
+  });
+});
+
+describe("late state parts are read in tick order (ADR 0403)", () => {
+  // A state part too big for a datagram goes by the stream, which lags the datagrams by 150 ms: every
+  // tick, the next ticks' datagrams overtake it. Balls moving every tick keep datagrams going.
+  const laggyStream = { socketDelayMs: 150, loss: 0.1 };
+  const bigOn = (w: World) => [...ghosts(w).values()].filter((n) => n.getData(Big));
+
+  it("keeps updating a ghost whose every state change is bigger than a datagram, and it catches up when the changes stop", async () => {
+    const error = vi.spyOn(console, "error");
+    const engine = await create(laggyStream);
+    step(engine, 10);
+    spawn(engine, "prefabs/partsBall.json", 40);
+    const server = world(engine, "Server");
+    const big = inWorld(server, () => GameObject.instantiate("prefabs/partsBig.json"));
+    fillBig(big, 100);
+    step(engine, 120);
+    const [clientBig] = bigOn(world(engine, "P1"));
+    expect(clientBig).toBeDefined();
+    // Every field changes every frame, steadily from where it was: each tick's state is a part over a datagram.
+    const shown = new Set<number>();
+    let shownBefore = -Infinity;
+    let wentBack = false;
+    for (let i = 0; i < 180; i++) {
+      inWorld(server, () => fillBig(big, 101 + i));
+      step(engine);
+      const f0 = clientBig.getData(Big)!.f0;
+      if (f0 < shownBefore - 1e-3) wentBack = true;
+      shownBefore = Math.max(shownBefore, f0);
+      shown.add(Math.round(f0));
+    }
+    // It kept moving (a little behind), never showing an older state after a newer one.
+    expect(shown.size).toBeGreaterThan(20);
+    expect(wentBack).toBe(false);
+    // The changes stop: it ends on the server's values.
+    inWorld(server, () => fillBig(big, 500));
+    step(engine, 120);
+    expect(clientBig.getData(Big)!.f0).toBe(500);
+    expect(clientBig.getData(Big)!.f299).toBe(500 + 299 * 0.25);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("isn't starved by lifecycle messages every tick: a late part is stale only for a ghost spawned, relayouted or moved after it", async () => {
+    const error = vi.spyOn(console, "error");
+    const engine = await create(laggyStream);
+    step(engine, 10);
+    spawn(engine, "prefabs/partsBall.json", 20);
+    const server = world(engine, "Server");
+    const big = inWorld(server, () => GameObject.instantiate("prefabs/partsBig.json"));
+    fillBig(big, 1);
+    step(engine, 120);
+    const [clientBig] = bigOn(world(engine, "P1"));
+    const shown = new Set<number>();
+    const churn: GameObject[] = [];
+    for (let i = 0; i < 180; i++) {
+      // A spawn and a despawn every frame: a lifecycle message every tick.
+      inWorld(server, () => {
+        fillBig(big, 100 + i);
+        churn.push(GameObject.instantiate("prefabs/partsCrate.json"));
+        if (churn.length > 3) GameObject.destroy(churn.shift()!);
+      });
+      step(engine);
+      shown.add(Math.round(clientBig.getData(Big)!.f0));
+    }
+    expect(shown.size).toBeGreaterThan(20);
+    inWorld(server, () => fillBig(big, 700));
+    step(engine, 120);
+    expect(clientBig.getData(Big)!.f0).toBe(700);
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it("drops late parts from before a relayout instead of reading them in the new layout, and converges after it", async () => {
+    const error = vi.spyOn(console, "error");
+    const engine = await create(laggyStream);
+    step(engine, 10);
+    spawn(engine, "prefabs/partsBall.json", 20);
+    const server = world(engine, "Server");
+    const big = inWorld(server, () => GameObject.instantiate("prefabs/partsBig.json"));
+    fillBig(big, 100);
+    step(engine, 120);
+    const [clientBig] = bigOn(world(engine, "P1"));
+    for (let i = 0; i < 120; i++) {
+      inWorld(server, () => {
+        fillBig(big, 101 + i);
+        // A relayout while big parts from before it are still on their way, and another after.
+        if (i === 40) big.addData(Badge, { level: 3 });
+        if (i === 80) big.removeData(Badge);
+        if (i === 100) big.addData(Badge, { level: 9 });
+      });
+      step(engine);
+    }
+    inWorld(server, () => fillBig(big, 900));
+    step(engine, 120);
+    expect(clientBig.getData(Big)!.f0).toBe(900);
+    expect(clientBig.getData(Badge)?.level).toBe(9);
     expect(error).not.toHaveBeenCalled();
   });
 });

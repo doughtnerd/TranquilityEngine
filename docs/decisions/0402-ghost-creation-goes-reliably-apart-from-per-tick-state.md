@@ -1,6 +1,6 @@
 # 0402. Ghost creation goes reliably, apart from per-tick state
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by [0403](0403-late-snapshot-parts-are-read-in-tick-order-and-acked.md) (late state parts are read and acked; the per-message staleness rule is replaced by a per-ghost one)
 - **Date:** 2026-11-24
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0121, 0334 and 0398)
@@ -70,7 +70,7 @@ We will send a ghost's **lifecycle** reliably and in order, apart from its per-t
 
 ## Open questions
 
-- Should a state part that arrives late (older than the newest tick) be read when it's not older than the newest lifecycle message, inserting its states in tick order and acking it, so a ghost whose state is always bigger than a datagram isn't starved on a link that reorders every tick? The baselines stay sound if the client keeps every state of a part it acks; the cost is a richer ack (late parts by tick) and history kept for older ticks.
+- Should a state part that arrives late (older than the newest tick) be read when it's not older than the newest lifecycle message, inserting its states in tick order and acking it, so a ghost whose state is always bigger than a datagram isn't starved on a link that reorders every tick? The baselines stay sound if the client keeps every state of a part it acks; the cost is a richer ack (late parts by tick) and history kept for older ticks. **Answered by [0403](0403-late-snapshot-parts-are-read-in-tick-order-and-acked.md): yes.**
 - Should spawns have their own budget, separate from states, so a burst of spawns doesn't take a tick's state updates?
 
 ## References
