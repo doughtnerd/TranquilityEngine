@@ -210,6 +210,34 @@ itself is checked by hand on the owner's emulator and recorded in the build log.
 - **Diagnostics:** `RenderDiagnostics.features.lights2D: { lights, culled, shadowed, batches, styles, textures, passMs? }`.
 - Editor CSS uses the theme tokens. The Material inspector lists Sprite Lit and Sprite Unlit.
 
+### Path to a high-end pipeline
+
+This is a constraint on this design, not a plan. The renderer should later be able to reach HDRP-class
+screen-space and probe effects (no hardware ray tracing on WebGPU), and nothing here may close that off.
+
+- **HDR throughout.** Light textures are linear HDR (RGBA16F; the RGBA8 fallback keeps a ×4 range). Lit 2D draws
+  output linear HDR into the camera's HDR target before the finish pass, so bloom, tone mapping and exposure
+  (0051) apply. An auto-exposure or physical camera later only changes the finish pass. Light intensities are
+  unbounded, never clamped to 1.
+- **Passes in the pass plan.** `lights2d` is a plan pass (0274) with its textures declared in the plan, not hidden
+  inside a material. So a later plan can reorder it, merge it with other passes, or run it as a WebGPU compute pass
+  (light tiles or bins writing the same textures), with today's raster path as the WebGL2 fallback. Lit materials
+  read textures, not how they were made.
+- **Screen-space effects stay possible.** Nothing assumes there's no depth or normal buffer. 2D draws write no depth
+  today (0186), but a later 2D depth or normals pre-pass can feed SSAO-style or screen-space effects. Light textures
+  are screen-aligned per camera and drawn with the camera's projection, so TAA jitter, motion vectors and temporal
+  reuse (accumulating light or shadow textures over frames, reprojected) can be added inside the pass without an
+  API change.
+- **Mixed 2D and 3D.** `Light2D` is component data with bounds. A later rig could put 2D lights into the same
+  culling and light buffers as 3D clustered lights (0079): one light list, culled once per camera, with 2D lights
+  filtered by layer. GPU-driven culling or indirect draws would change only internals: `QuadBatch` and the rig's
+  interfaces are `@internal`. The public `Light2D`/`ShadowCaster2D` fields name what a light is, not how it's
+  culled or drawn.
+- **Tiers are the knob.** Every cost here sits behind the `lights2D` tier field (0050): light texture scale, shadow
+  cap and softness, normal maps and batch cap. Higher tiers can add fields later (full-resolution light textures,
+  accurate normals, temporal filtering) without changing scenes, from the Android floor (0169) to high-end
+  desktop.
+
 ## Alternatives considered
 
 - **Forward 2D lighting in the sprite shader** (loop over a light list in the fragment). This needs no extra
