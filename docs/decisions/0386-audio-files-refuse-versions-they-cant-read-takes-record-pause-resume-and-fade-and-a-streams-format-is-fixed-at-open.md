@@ -104,7 +104,7 @@ ignores a label the parameter doesn't have, with one warning per parameter and l
 - 8 bytes more per voice slot (32 KB at the default 4,096 slots).
 - JSON asset formats (`myco.playlist@1`, `myco.dialogue@1`, `audio.json`, …) are still read leniently: a newer one is
   read as the current one with a problem line. Refusing them needs every editor and the runtime to handle a refused
-  asset (read-only open, no save over it); see Open questions.
+  asset (read-only open, no save over it). The owner chose to keep them lenient for now (see Open questions).
 
 ## Deprecates
 
@@ -113,7 +113,7 @@ core stream refusal.
 
 ## Open questions
 
-- Should the lenient JSON audio asset readers refuse a newer `@n` up front (and the editors open such an asset read-only)?
+- Should the lenient JSON audio asset readers refuse a newer `@n` up front (and the editors open such an asset read-only)? **Owner, 2026-11-24: no, they stay lenient until that causes a real problem.**
 
 ## References
 
