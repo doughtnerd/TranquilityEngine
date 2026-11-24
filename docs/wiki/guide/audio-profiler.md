@@ -53,7 +53,7 @@ Loudness tracks (the meters themselves, targets and the verdicts are in [Loudnes
 
 A recording survives Stop of Play once, so you can press Stop and then Save. Save with nothing recorded fails with "nothing recorded: call Audio.capture.start() first".
 
-Where the file goes: on the web a download (`<name>.mycap`); in the desktop and Android apps the app data folder's `captures/` as `<name>.mycap` (the desktop's path is shown in the bar when it is saved). Builds before ADR 0408 saved `cache/<name>.mycap.bin`, which the Profiler still opens as it is.
+Where the file goes: on the web a download (`<name>.mycap`); in the desktop and Android apps the app data folder's `captures/` as `<name>.mycap` (the desktop's path is shown in the bar when it is saved).
 
 ## Capturing from a game script
 
@@ -121,7 +121,7 @@ A capture records how the engine played. A **take** (`.mycotake`) records that p
 
 ## Opening a capture
 
-Press **Open** and choose a `.mycap` or a `.mycotake`, or drop the file on the panel. Only those files, and the `.mycap.bin` and `.mycotake.bin` files the desktop and Android apps save, are accepted; anything else, or a file larger than any capture (or take) can be, is turned away with a banner before it is read. Opening decodes in a worker, with a progress bar and a **Cancel**. A refusal leaves the capture you had open.
+Press **Open** and choose a `.mycap` or a `.mycotake`, or drop the file on the panel. Only those files are accepted; anything else, or a file larger than any capture (or take) can be, is turned away with a banner before it is read. Opening decodes in a worker, with a progress bar and a **Cancel**. A refusal leaves the capture you had open.
 
 What a capture holds is decided by the file, not by your open project, so you see what the recorder saw. Opening never replays sound and never changes your project.
 
