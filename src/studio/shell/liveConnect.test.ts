@@ -17,7 +17,7 @@ afterEach(() => {
   takesFolderChoice.value = null;
 });
 
-describe("going live on a connected build (ADR 0407)", () => {
+describe("going live on a connected build (ADR 0408)", () => {
   it("with no project, opens the takes folder and the Profiler", async () => {
     takesFolderChoice.value = "D:/takes";
     const h = host();

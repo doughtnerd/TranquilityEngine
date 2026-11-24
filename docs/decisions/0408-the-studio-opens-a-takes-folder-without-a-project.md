@@ -1,4 +1,4 @@
-# 0407. The Audio Studio opens a takes folder without a project, and takes save as plain files
+# 0408. The Audio Studio opens a takes folder without a project, and takes save as plain files
 
 - **Status:** Accepted
 - **Date:** 2026-11-24

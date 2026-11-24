@@ -53,7 +53,7 @@ Loudness tracks (the meters themselves, targets and the verdicts are in [Loudnes
 
 A recording survives Stop of Play once, so you can press Stop and then Save. Save with nothing recorded fails with "nothing recorded: call Audio.capture.start() first".
 
-Where the file goes: on the web a download (`<name>.mycap`); in the desktop and Android apps the app data folder's `captures/` as `<name>.mycap` (the desktop's path is shown in the bar when it is saved). Builds before ADR 0407 saved `cache/<name>.mycap.bin`, which the Profiler still opens as it is.
+Where the file goes: on the web a download (`<name>.mycap`); in the desktop and Android apps the app data folder's `captures/` as `<name>.mycap` (the desktop's path is shown in the bar when it is saved). Builds before ADR 0408 saved `cache/<name>.mycap.bin`, which the Profiler still opens as it is.
 
 ## Capturing from a game script
 
@@ -75,7 +75,7 @@ const where = await Audio.capture.save("boss-fight");   // "boss-fight.mycap"; a
 
 ## Captures on Android
 
-There is no Android export target yet (ADR 0155's `--target android` is not implemented: `--target` is `web` or `desktop`). To record on a phone, export the **web** build with capture on, serve it from your computer and open it in the phone's Chrome. Android 14 with Chrome 113 is the supported floor ([ADR 0169](../decisions/0169-the-supported-mobile-floor-is-android-14-with-chrome-113.md)).
+There is no Android export target yet (ADR 0155's `--target android` is not implemented: `--target` is `web` or `desktop`). To record on a phone, export the **web** build with capture on, serve it from your computer and open it in the phone's Chrome. Android 14 with Chrome 113 is the supported floor ([ADR 0169](../../decisions/0169-the-supported-mobile-floor-is-android-14-with-chrome-113.md)).
 
 1. Build and export with the option, then serve the folder:
 
@@ -149,4 +149,4 @@ A saved minute of recording is roughly **0.27 MB at 64 live voices, 0.84 MB at 2
 - [Audio mixer](audio-mixer.md), [Live mixing and ducking](audio-mixing.md), [Loudness](audio-loudness.md) and [Playing sound](playing-sound.md)
 - [Audio mix: API reference](audio-mix-api.md)
 - [Editor](editor.md) for panels and docks
-- [ADR 0171](../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md) and [ADR 0172](../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md)
+- [ADR 0171](../../decisions/0171-audio-profiler-loudness-metering-and-live-mixing.md) and [ADR 0172](../../decisions/0172-audio-mix-design-corrections-and-owner-decisions.md)

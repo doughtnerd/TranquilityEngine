@@ -220,7 +220,7 @@ pub fn run() {
                         }
                     }
                 }
-                // ADR 0407: a take file dropped on the launcher joins Recorded takes and opens as a takes workspace of
+                // ADR 0408: a take file dropped on the launcher joins Recorded takes and opens as a takes workspace of
                 // its folder, which lists the folder and writes the take's notes beside it. The fs plugin scopes only
                 // the dropped file, so its folder (not below it) is allowed too; persisted-scope keeps it.
                 ("projects", WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. })) => {

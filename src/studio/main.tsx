@@ -70,9 +70,9 @@ async function main(): Promise<void> {
 
   render(<StudioApp onCloseProject={projects.close} onOpenTake={(take) => openTake(projects.handOff, take)} />, document.getElementById("app")!);
   // A request with `connect` (the launcher's Connect to Game…, ADR 0380) opens the Connect dialog once it's handled.
-  // ADR 0407: a build that connects opens the Studio live (the takes folder with no project, the Profiler following);
+  // ADR 0408: a build that connects opens the Studio live (the takes folder with no project, the Profiler following);
   // a request with `follow` has the Profiler follow the connected build.
-  installBuildTakes(); // the connected build's takes, saved where the Studio keeps takes whichever screen shows (ADR 0407)
+  installBuildTakes(); // the connected build's takes, saved where the Studio keeps takes whichever screen shows (ADR 0408)
   installLiveConnect({ openTakes: projects.openTakes, openRoute: (request) => router.open(request) });
   const handle = (request: StudioOpenRequest) =>
     projects.handOff(request).then(() => {
@@ -83,7 +83,7 @@ async function main(): Promise<void> {
   await projects.openRequest(startRequest(location.search));
 }
 
-/** A take picked on the start screen (ADR 0380): its project, or its folder as a takes workspace (ADR 0407), on the Take screen. Failures are in the status line. */
+/** A take picked on the start screen (ADR 0380): its project, or its folder as a takes workspace (ADR 0408), on the Take screen. Failures are in the status line. */
 async function openTake(open: (request: StudioOpenRequest) => Promise<void>, take: RecentTake): Promise<void> {
   try {
     await open(takeOpenRequest(take));

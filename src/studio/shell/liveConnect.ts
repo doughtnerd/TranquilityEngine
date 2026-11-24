@@ -1,4 +1,4 @@
-// Connecting opens the Studio live (ADR 0407): when a build connects with no project open, the Studio opens the takes
+// Connecting opens the Studio live (ADR 0408): when a build connects with no project open, the Studio opens the takes
 // folder as a takes workspace on the Profiler; with a project open it does the same only after Connect to Game… or a
 // connect hand-off (a build connecting by itself doesn't pull the user off their screen). Either way the Profiler follows
 // the build's live capture at once.

@@ -159,7 +159,7 @@ describe("a build take's name", () => {
   });
 });
 
-describe("a take the game starts and stops (ADR 0407)", () => {
+describe("a take the game starts and stops (ADR 0408)", () => {
   async function watched(autoSave: boolean) {
     const build: LinkedBuild = await linkedBuild(chunk);
     undo.push(() => build.dispose());
@@ -195,7 +195,7 @@ describe("a take the game starts and stops (ADR 0407)", () => {
   });
 });
 
-describe("a take saved into a takes folder workspace (ADR 0407)", () => {
+describe("a take saved into a takes folder workspace (ADR 0408)", () => {
   it("goes into the folder itself, not a takes/ inside it, and the workspace lists it", async () => {
     const folder = joinPath(ROOT, "my-takes");
     const workspace = await openTakesFolder(fs, folder);

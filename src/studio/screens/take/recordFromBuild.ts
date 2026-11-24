@@ -3,7 +3,7 @@
 // `take.mark` `{ text }` and `take.stop` run `Audio.take` on the build; Save asks `take.upload`, subscribes to the upload,
 // reassembles its 64 KiB chunks with `createTakeReceiver` and writes the take file into the project's `takes/` folder
 // through the Studio's import (`importFiles`, as Open take file… does; never over a file; a takes folder workspace's
-// root, ADR 0407), named from the build and the
+// root, ADR 0408), named from the build and the
 // time (`smoke-game_2026-11-22_10-15-00.mycotake`). Progress is the chunks received; any refusal, a broken upload or the
 // link closing (`linkClosed`) fails with the message, and a take the build still holds can be saved again.
 import { signal } from "@preact/signals";
@@ -41,11 +41,11 @@ export interface BuildTakeSeams {
   now?(): Date;
   /**
    * The saved take was written (the Take screen opens it). `auto`: the build stopped the take and it was saved without
-   * a press (ADR 0407), so nothing should take the user off their screen.
+   * a press (ADR 0408), so nothing should take the user off their screen.
    */
   saved?(path: string, auto: boolean): void;
   /**
-   * ADR 0407: save a take the build stops by itself (F10, its script) at once (default true). False where saving needs
+   * ADR 0408: save a take the build stops by itself (F10, its script) at once (default true). False where saving needs
    * the user's press (a browser's save dialog): the take then waits, stopped, for Save.
    */
   autoSave?(): boolean;
@@ -62,7 +62,7 @@ export function buildTakeName(build: string, when: Date): string {
   return `${slug}_${day}_${time}.mycotake`;
 }
 
-/** Where a take saved into `project` goes: its `takes/` folder, or a takes folder workspace's own root (ADR 0407). */
+/** Where a take saved into `project` goes: its `takes/` folder, or a takes folder workspace's own root (ADR 0408). */
 export const takeSaveFolder = (project: EditorProject | null): string => (isTakesFolder(project) ? "" : TAKES_FOLDER);
 
 /**
@@ -86,7 +86,7 @@ export class BuildTakeRecorder {
   private gone: string | null = null;
   /** The build holds a take (recorded, or stopped and not yet replaced). */
   private holds = false;
-  /** The build's `take` subscription (ADR 0407): its take's state as it changes, however it changed. */
+  /** The build's `take` subscription (ADR 0408): its take's state as it changes, however it changed. */
   private watching: { unsubscribe(): void } | null = null;
 
   constructor(
@@ -139,7 +139,7 @@ export class BuildTakeRecorder {
   }
 
   /**
-   * ADR 0407: follow the build's take as the build changes it (F10, its script): a take it starts shows as recording,
+   * ADR 0408: follow the build's take as the build changes it (F10, its script): a take it starts shows as recording,
    * and one it stops is saved at once (`autoSave`), since the Studio, not the build, decides where takes go. While this
    * watches, the build's F10 saves nothing itself. A build too old for it refuses, and nothing changes.
    */

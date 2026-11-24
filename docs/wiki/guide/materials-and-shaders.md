@@ -1,6 +1,6 @@
 # Materials, shaders and batching
 
-How to write shaders by hand, switch shader features with keywords, change materials from scripts, and keep draw calls down. The decisions behind it are [0106](../decisions/0106-hand-written-shaders-keywords-and-variants.md), [0107](../decisions/0107-script-material-api-shared-and-instance.md) and [0108](../decisions/0108-gpu-instancing-sprite-batching-pixel-perfect-camera.md).
+How to write shaders by hand, switch shader features with keywords, change materials from scripts, and keep draw calls down. The decisions behind it are [0106](../../decisions/0106-hand-written-shaders-keywords-and-variants.md), [0107](../../decisions/0107-script-material-api-shared-and-instance.md) and [0108](../../decisions/0108-gpu-instancing-sprite-batching-pixel-perfect-camera.md).
 
 ## Hand-written shaders
 

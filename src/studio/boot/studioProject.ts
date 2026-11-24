@@ -7,7 +7,7 @@
 // stored handles (`recentForMount`). A folder with old audio events (`*.audioevent.json`) is offered their migration
 // first (ADR 0343, `audioEventMigration.ts`); declined, it opens read-only and the Playlists screen's banner offers
 // Migrate now (`pendingAudioMigration`), which migrates and opens it again. A folder of takes opens without a project as a
-// takes workspace (ADR 0407, `openTakes`).
+// takes workspace (ADR 0408, `openTakes`).
 import { FsaFileSystem } from "../../editor/fsaFileSystem";
 import { errorStatus } from "../../editor/messages";
 import { migrationSummary, offerAudioEventMigration, runAudioEventMigration, type AudioEventMigrationQuestion } from "../../editor/audioEventMigration";
@@ -31,7 +31,7 @@ export interface StudioProjects {
   open(intent: OpenIntent): Promise<OpenOutcome>;
   pickLocation(): Promise<LocationOutcome>;
   /**
-   * ADR 0407: open the folder of takes at `root` as a takes workspace (Take and Profiler, no project); a no-op when it
+   * ADR 0408: open the folder of takes at `root` as a takes workspace (Take and Profiler, no project); a no-op when it
    * is the open one. Not remembered among the recent projects. Throws when the folder can't be read. `fs` names another
    * file system (a browser's live session keeps its takes folder in memory); the desktop's folders by default.
    */

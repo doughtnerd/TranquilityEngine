@@ -4,7 +4,7 @@
 // - subscription `{ kind: "capture" }`: the live capture feed (`capture.ts`);
 // - subscription `{ kind: "upload", upload }`: an upload's chunks (`upload.ts`);
 // - subscription `{ kind: "take" }`: the take's state as it changes, the tool owning the build's takes, and a backup copy
-//   of each stopped take kept in app data on desktop and Android (`takeState.ts`, ADR 0407);
+//   of each stopped take kept in app data on desktop and Android (`takeState.ts`, ADR 0408);
 // - requests `take.start`, `take.stop`, `take.mark` `{ text }`: drive `Audio.take`, answered by the take's state and
 //   seconds after it; `take.upload`: makes the take's file bytes into an upload (`upload.ts`);
 // - command `mix.op`: one live mix op, applied through the mixer at the build's next frame start (`mixCommands.ts`).
@@ -22,7 +22,7 @@ import { AUDIO_TOPIC_CHANNEL, AudioRequest, MIX_OP_COMMAND, readAudioSubscriptio
 import { createTakeUploads, type TakeUploads } from "./upload";
 
 /**
- * ADR 0407: the build's own copy of a take it handed to the tool, in case the stream is interrupted: an auto-named
+ * ADR 0408: the build's own copy of a take it handed to the tool, in case the stream is interrupted: an auto-named
  * `<app data>/takes/*.mycotake`, in the newest-16 rotation. Desktop and Android only (a browser would download it).
  */
 function backupTake(): void {

@@ -15,7 +15,7 @@
 // **Takes (ADR 0348).** `installTakeTrigger()` is the same trigger for `Audio.take` on **F10** (game.json `audioTake`): a
 // take records what the game asked of audio beside the profile, and saves a `*.mycotake`. It has no touch gesture (three
 // fingers are the capture's; more fingers collide with the platforms' own gestures). While the Audio Studio is connected
-// and owns the build's takes (ADR 0407, `takeClaims.ts`), F10 only starts and stops: the Studio uploads and saves, and
+// and owns the build's takes (ADR 0408, `takeClaims.ts`), F10 only starts and stops: the Studio uploads and saves, and
 // the audio topic keeps a backup copy in app data on desktop and Android (`debugLink/takeState.ts`).
 import { isTauri } from "../../../../engine/platform/FileSystem";
 import { audioCapture, type AudioCapture } from "./capture";
@@ -37,7 +37,7 @@ const TOAST_RECORDING = "Recording audio…";
 const TOAST_RECORDING_TAKE = "Recording a take…";
 const toastSaved = (name: string): string => `Saved ${name}`;
 const TOAST_HANDED_OFF = "Take stopped: the Audio Studio saves it";
-/** ADR 0407: desktop and Android keep their own copy of a take they hand off, in app data. */
+/** ADR 0408: desktop and Android keep their own copy of a take they hand off, in app data. */
 const TOAST_HANDED_OFF_COPY = "Take sent to the Audio Studio (a copy is kept in app data)";
 const toastCap = (max: number): string => `Capture limit reached: this page has saved ${max} captures, and a browser can't delete downloads. Reload the page to record more.`;
 
@@ -55,7 +55,7 @@ export interface TriggerEnv {
   /** Runs `fn` after `ms` and returns the cancel. */
   schedule(fn: () => void, ms: number): () => void;
   /**
-   * ADR 0407: a connected tool owns the recordings (the take trigger: the Audio Studio's `take` subscription,
+   * ADR 0408: a connected tool owns the recordings (the take trigger: the Audio Studio's `take` subscription,
    * `takesClaimed`). The trigger then only starts and stops; the tool saves.
    */
   handedOff(): boolean;

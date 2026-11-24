@@ -43,7 +43,7 @@ const stage = signal<"foxfire" | LauncherApp>("foxfire");
 const droppingTakes = signal(false);
 
 /**
- * Dropping .mycotake files on the window adds them to Recorded takes (ADR 0407): Tauri's webview drag-drop hands over
+ * Dropping .mycotake files on the window adds them to Recorded takes (ADR 0408): Tauri's webview drag-drop hands over
  * the files' paths. Anything else dropped is refused with a note.
  */
 async function listenForTakeDrops(): Promise<void> {

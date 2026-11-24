@@ -13,7 +13,7 @@
 //   (`liveLost`), one `AUDIO_CAPTURE_LOST` record and nothing after it. Unsubscribing ends the build's hold.
 // - `{ kind: "upload", upload }`: the bytes of an upload prepared by `take.upload` as `AUDIO_TAKE_CHUNK` records, in
 //   order, one chunk per sample. The tool unsubscribes once complete (below); closing early abandons it.
-// - `{ kind: "take" }` (ADR 0407): the take's state, one `AUDIO_TAKE_STATE` record (`TakeStateReply` as JSON) now and
+// - `{ kind: "take" }` (ADR 0408): the take's state, one `AUDIO_TAKE_STATE` record (`TakeStateReply` as JSON) now and
 //   each time it changes, however it changed (F10, the game's script, a request). While a tool holds it the tool owns
 //   the build's takes: the build's F10 trigger only starts and stops them and saves nothing itself; the tool uploads a
 //   stopped take and decides where it's saved.
@@ -71,7 +71,7 @@ export const AudioLinkRecord = {
   captureLost: 0x52,
   /** One chunk of an upload. Payload: `TakeChunk`. */
   takeChunk: 0x53,
-  /** ADR 0407: the take's state now. Payload: `TakeStateReply` as UTF-8 JSON. */
+  /** ADR 0408: the take's state now. Payload: `TakeStateReply` as UTF-8 JSON. */
   takeState: 0x54,
 } as const;
 
@@ -81,7 +81,7 @@ export type AudioSubscriptionParams =
   | { readonly kind: "capture" }
   /** Upload `upload`'s chunks (`TakeUploadReply.upload`). */
   | { readonly kind: "upload"; readonly upload: number }
-  /** ADR 0407: the take's state as it changes (the tool owns the build's takes while it holds this). */
+  /** ADR 0408: the take's state as it changes (the tool owns the build's takes while it holds this). */
   | { readonly kind: "take" };
 
 /** The requests' method names. */

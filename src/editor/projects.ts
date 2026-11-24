@@ -549,7 +549,7 @@ const isTakesFolderFile = (path: string): boolean => {
 };
 
 /**
- * ADR 0407: open a folder of take files as a takes workspace, with no `project.json` (the Audio Studio's Take and
+ * ADR 0408: open a folder of take files as a takes workspace, with no `project.json` (the Audio Studio's Take and
  * Profiler without a project). The folder is made if it's missing. It loads only takes, their notes and captures; its
  * settings are empty, so it serves no audio. Named after the folder.
  */

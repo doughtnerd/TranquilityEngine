@@ -1,6 +1,6 @@
 # Tilemaps
 
-Paint 2D levels from a tile sheet, with collision, one-way platforms, auto-tiling and per-tile data. The design is [ADR 0103](../decisions/0103-tilemaps.md) (tilemaps) and [ADR 0105](../decisions/0105-tile-colliders-and-one-way-platforms.md) (tile colliders); the `samples/platformer` project is a small playable example.
+Paint 2D levels from a tile sheet, with collision, one-way platforms, auto-tiling and per-tile data. The design is [ADR 0103](../../decisions/0103-tilemaps.md) (tilemaps) and [ADR 0105](../../decisions/0105-tile-colliders-and-one-way-platforms.md) (tile colliders); the `samples/platformer` project is a small playable example.
 
 ## 1. Make a tileset
 

@@ -208,7 +208,7 @@ Mark each item **pass**, **fail** or **pass with note**. A fail gets an issue; a
 
 ### F: the Babylon fallback (Config F)
 
-The fallback (Babylon's audio engine) plays the same scene with less: no beds (the browser's own panner places every sound), no reverb zones (one console warning), occlusion as volume only (no low-pass), an ambisonic clip as its W channel in mono, and Doppler on decoded clips only. See [the spatial audio guide](../../guide/spatial-audio.md#the-babylon-fallback).
+The fallback (Babylon's audio engine) plays the same scene with less: no beds (the browser's own panner places every sound), no reverb zones (one console warning), occlusion as volume only (no low-pass), an ambisonic clip as its W channel in mono, and Doppler on decoded clips only. See [the spatial audio guide](../../wiki/guide/spatial-audio.md#the-babylon-fallback).
 
 #### F1. Walls only lower the volume
 - **Do:** as O1 and O2 (press **6**, then **2** and **F**).

@@ -219,7 +219,7 @@ describe("F10: the take trigger (ADR 0348)", () => {
   });
 });
 
-describe("F10 while the Audio Studio owns the takes (ADR 0407)", () => {
+describe("F10 while the Audio Studio owns the takes (ADR 0408)", () => {
   it("only starts and stops while a take subscription is open, and saves again once it closes", async () => {
     const target = fakeTarget();
     const { cap, calls } = fakeCapture();

@@ -84,7 +84,7 @@ const GROUPS = [
 /** ADR 0403 (plan U5): the live view of the build chosen in `studioBuild`; a build that left keeps it to show why it ended. */
 const buildFollow = signal<BuildFollow | null>(null);
 
-/** ADR 0407: follow the connected build as soon as the Profiler has it (connecting opens the Profiler live). */
+/** ADR 0408: follow the connected build as soon as the Profiler has it (connecting opens the Profiler live). */
 let followWhenShown = false;
 
 /** Ask the Profiler to follow the connected build's live capture as soon as it shows (now, if it does). */

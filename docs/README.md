@@ -4,40 +4,7 @@ Start here. These docs describe where the engine is going, why, and what is bein
 
 ## Guides
 
-How to use the engine. Guides describe what works today; the architecture docs and decision records below say why.
-
-| Guide | What it covers |
-| --- | --- |
-| [Editor](guide/editor.md) | The Projects window, the menu bar, docks and panels (closing, adding and copying panels, saved layouts, detached windows), asset previews, the `.myco/` folder |
-| [Worlds](guide/worlds.md) | Several Worlds per Engine: tags, bootstraps, systems and time per World, creating Worlds at runtime, isolation, async code, the Worlds panel |
-| [Multiplayer](guide/multiplayer.md) | Client and server Worlds, links and transports, RPCs, replication, inputs, prediction, the dedicated server (`npm run server`), the Network panel, known gaps |
-| [Water](guide/water.md) | Water surfaces: waves, colours and foam, sampling the surface from scripts, buoyancy (physics and kinematic), storms, multiplayer, known limits |
-| [Game UI](guide/ui.md) | Canvases (screen and world), the UI tree, flexbox layout, panels, text, images, buttons and input fields, scripting them, how the pointer and keyboard go to UI first, headless Worlds and tests |
-| [Input](guide/input.md) | Actions, control paths, reading input in behaviors and systems, contexts with priorities, modifiers and triggers, players and pawns, rebinding, prompts, accessibility, networked actions, gamepads on desktop and web |
-| [Navigation](guide/navigation.md) | Built-in navigation: agent types and areas, marking geometry, baking (editor and `npm run nav:bake`), streaming chunks, scripting `NavAgent`, groups, surround and flow fields, the `Navigation` queries, multiplayer, debug drawing, performance, known issues |
-| [Physics](guide/physics.md) | Bodies and colliders, interpolation, collision and trigger events (Enter/Stay/Exit), raycasts, shape casts and overlaps, character controllers, joints |
-| [Transforms and rotation](guide/transforms.md) | Unity's coordinates (left-handed, +Z forward), position, rotation and scale; quaternions and Euler angles (ZXY, radians), turning with `rotate`, `localToWorld`, how it maps to Unity, scene files, the Inspector's angles |
-| [Tilemaps](guide/tilemaps.md) | Tilesets from sliced sheets, painting with the Tile Palette, layers, auto-tiling, tile collision and one-way platforms, the scripting API |
-| [Playing sound](guide/playing-sound.md) | `Audio.playOneShot` and `AudioSource`, handles, buses and master volume, sound formats, streaming and loops, 3D sound and HRTF, which backend plays |
-| [Why is there no sound?](guide/why-no-sound.md) | A troubleshooting page driven by `Audio.debug()` and the Audio Debug panel: locked audio, the fallback backend, a sound's `reason`, AAC and format problems, the decoder worker, hidden tabs, mute and volume |
-| [Fog, camera rays and spatial audio](guide/atmosphere-and-sound.md) | The `Fog` component, `Camera.screenPointToRay` / `worldToScreenPoint`, `Ray` and `Plane`, `AudioListener` and spatial `AudioSource` |
-| [Audio mixer](guide/audio-mixer.md) | Buses, effects, snapshots, ducking, `AudioSource.output`, `Audio.bus(...)` |
-| [Audio profiler](guide/audio-profiler.md) | The Audio Profiler panel (tracks, tables, keys, loudness), recording in the editor and with `Audio.capture`, saving and opening `.mycap` files, banners and refusals, file size, what a capture reveals |
-| [Live mixing and ducking](guide/audio-mixing.md) | Mixing while Play runs: what applies at once, what is kept after Stop and undo, the Mixer panel (strips, fader keys, M / MM / S), Compare, monitor controls and taint, presence and level ducking with examples, what waits for the next Play |
-| [Audio mix: API reference](guide/audio-mix-api.md) | `Audio.capture`, `Audio.loudnessTarget`, `Bus` gain and `loudness` members, debug additions, the M5 `audio` keys |
-| [Loudness, targets and Bus.loudness](guide/audio-loudness.md) | What the meters measure (M, S, I, LRA, true peak), choosing metered buses, loudness targets that warn and never adjust, `Audio.loudnessTarget`, `Bus.loudness` in scripts, when the check is suspended or a meter is tainted, the overload ladder, accuracy |
-| [Spatial audio](guide/spatial-audio.md) | Beds, reverb zones, occlusion and materials (the door recipe), Doppler, ambisonic clips, the Babylon fallback's limits, how it compares with Wwise, FMOD and Unity |
-| [Playlists](guide/playlists.md) | The playlist format (`*.playlist.json`): Clip, Queue, Switch, Blend, Layer and Sequence, `Audio.play`, parameters, loops and release, limits; replaces audio events (ADR 0343) |
-| [Interactive music](guide/interactive-music.md) | Music on playlists: the musical clock, Switch rules and transitions, sequences, sync clips, stingers, markers, `handle.music`, mapping from old music events |
-| [Sound generators](guide/sound-generators.md) | Oscillators, synths, sfxr-style blips and silence as playlist entries: presets, Randomise/Mutate/seed, the quality setting, audition, Bake to samples, `gen:` curves, the Web Audio fallback |
-| [Audio takes](guide/audio-takes.md) | Takes: Record take, F10 and `audioTake`, `Audio.take`, opening takes in the Audio Studio and the Profiler, what a take reveals |
-| [Audio core minimum versions](guide/audio-minimum-versions.md) | Browser and webview versions the `"core"` audio backend needs (AudioWorklet, `simd128`), the one-warning fallback to `"babylon"`, Android WebView |
-| [Writing a plugin](guide/plugins.md) | Third-party plugins: the folder layout, `plugin.json`, runtime and editor halves, a physics backend, enabling, reloading, npm packages, what refuses a plugin, trust |
-| [Lines and trails](guide/lines-and-trails.md) | `LineRenderer` and `TrailRenderer` in 3D and 2D: widths and gradients, joins and caps, camera-facing ribbons, texture modes, materials, Edit Points in the scene view, trail history from scripts, coming from Unity, known limits |
-| [Decals](guide/decals.md) | `DecalProjector` (3D boxes projecting materials, blend modes, angle and distance fades, Edit Bounds), `Decal2D` (stamps clipped to a parent sprite), spawned decals with `Decals.project` / `Decals.stamp`, the pool cap, multiplayer, performance, known limits |
-| [Materials, shaders and batching](guide/materials-and-shaders.md) | Hand-written shader assets (WGSL/GLSL), keywords and variants, changing materials from scripts, GPU instancing and sprite batching, pixel-perfect cameras |
-| [Skies](guide/skies.md) | Procedural sky assets and the Sky panel, presets, time of day and the sun-driven light, the `Sky` component, cubemap environments (`.env`, `.dds`, six images), cost |
-| [Animation](guide/animation.md) | Importing skinned models and clips, the `Animator` (`play`, `crossfade`, layers, masks, `state`), property tracks and notifies, the Animation window (record mode, key buttons), tweens, timelines, graphs (state machines, blend spaces, slots, sync, linked graphs), IK and warping, retargeting, motion matching, root motion and replication, 2D flipbooks and bones, ragdolls, third-party nodes, musical timing, the live debugger, debug link and profiler, glossary |
+How to use the engine. The user docs (guides, FAQ, news) are written in [wiki/](wiki/) and published, with a generated API reference, to the project's [GitHub wiki](https://github.com/doughtnerd/TranquilityEngine/wiki) on every push to `master` ([0407](decisions/0407-user-docs-live-in-the-repo-and-ci-publishes-them-to-the-github-wiki.md)). [wiki/Home.md](wiki/Home.md) lists every page; the guide pages themselves are in [wiki/guide/](wiki/guide/). Change them in a pull request: `npm run docs:wiki -- --no-api` checks the pages and links, `npm run docs:wiki -- --out DIR` builds the whole wiki to preview.
 
 ## Architecture
 
@@ -420,7 +387,8 @@ How to use the engine. Guides describe what works today; the architecture docs a
 | [0404](decisions/0404-a-room-code-carries-its-rendezvouss-lan-address.md) | A room code carries its rendezvous's LAN address (two octets and a port from a fixed list) with an 8-bit room and a 20-bit token; a hosted room code (`Z`) uses the configured hosted rendezvous (amends 0403) | Accepted |
 | [0405](decisions/0405-late-snapshot-parts-are-read-in-tick-order-and-acked.md) | A snapshot part that comes late (too big for a datagram, overtaken by newer datagrams) is read, its states filed in tick order, and acked; a part is stale only for a ghost gone, spawned, relayouted or restructured after it, and is taken whole or not at all; acks name late ticks (protocol 7) (amends 0334, 0402) | Accepted |
 | [0406](decisions/0406-the-desktop-editor-builds-desktop-apps-with-the-hosts-toolchain.md) | The desktop editor builds desktop apps with the host's toolchain, and says what's missing when it can't | Proposed |
-| [0407](decisions/0407-the-studio-opens-a-takes-folder-without-a-project.md) | The Audio Studio opens a takes folder without a project, and takes save as plain files | Accepted |
+| [0407](decisions/0407-user-docs-live-in-the-repo-and-ci-publishes-them-to-the-github-wiki.md) | User docs live in the repo (`docs/wiki/`), and CI publishes them and a TypeDoc API reference to the GitHub wiki | Accepted |
+| [0408](decisions/0408-the-studio-opens-a-takes-folder-without-a-project.md) | The Audio Studio opens a takes folder without a project, and takes save as plain files | Accepted |
 | [0362](decisions/0362-the-ui-fidelity-pass-adds-playback-pause-clip-envelopes-reverse-second-input-curves-occlusion-curves-and-studio-format-fields.md) | The UI fidelity pass adds `pause()`/`resume()` on playback handles, the Amp envelope on clips, reverse clips, sequence marker colour and note, second-input ("And by") curves on voice curves and automation, occlusion curves, Studio fields in `audio.json`, and new loudness target defaults | Accepted |
 
 ## Working with decisions

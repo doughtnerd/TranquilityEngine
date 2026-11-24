@@ -111,7 +111,7 @@ cross products in physics and Rapier are handedness-free.
   direction vectors. Sample script fields holding positions (`navdemo.CameraRig.focus`, `Course.from`/`to`,
   `Crowd.center`, `Tour.waypoints`) are listed by hand in the migration table. Models (15 OBJ, 1 glTF, 1 FBX) are
   converted at import.
-- **Docs.** `docs/guide/transforms.md`, `docs/guide/skies.md`, `README.md`; ADRs 0013, 0014, 0075, 0118, 0163;
+- **Docs.** `docs/wiki/guide/transforms.md`, `docs/wiki/guide/skies.md`, `README.md`; ADRs 0013, 0014, 0075, 0118, 0163;
   implementation status.
 
 ## Alternatives considered

@@ -1,7 +1,7 @@
 // The Take screen's "Record from a build" controls (ADR 0348, ADR 0403, plan U5): shown above the Takes list while a
 // build is connected. Start records a take on the build; while it records, a marker text and Mark, and Stop; once
 // stopped, Save uploads the take into the project's takes/ folder (a takes folder workspace's own folder, shown with
-// Change…, ADR 0407), with the chunks received as it comes. A failure says
+// Change…, ADR 0408), with the chunks received as it comes. A failure says
 // why (with Save again when the build still holds the take). A view over props (`recordFromBuild.ts` is the flow).
 import { useState } from "preact/hooks";
 import { buildTakeStatus, type BuildTakeState } from "./recordFromBuild";
@@ -13,9 +13,9 @@ export interface BuildTakeControlsProps {
   readonly state: BuildTakeState;
   /** Writing into the project is possible (a writable project is open); Save says why not otherwise. */
   readonly whyNotSave: string | null;
-  /** Where Save writes the take, as shown (default "takes/", the project's folder; a takes folder's path, ADR 0407). */
+  /** Where Save writes the take, as shown (default "takes/", the project's folder; a takes folder's path, ADR 0408). */
   readonly into?: string;
-  /** Change… the folder takes save to (offered only for a takes folder, ADR 0407). */
+  /** Change… the folder takes save to (offered only for a takes folder, ADR 0408). */
   onChangeFolder?(): void;
   onStart(): void;
   onMark(text: string): void;

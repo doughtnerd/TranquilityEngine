@@ -593,7 +593,7 @@ Rebake overwrites the sample's own file with the same variation; the JS referenc
 the real offline render); generators are listed in the Playlists Library; locks are session-only; the Babylon fallback
 has no release envelope for looping generators; existing bakes show "out of date" once after `quality` joined the
 patch text. Windows desktop build notes (CMake ≥ 4.2 with Visual Studio 2026, JetBrains' bundled CMake, preview VS
-instances, Ninja) are in `docs/guide/editor.md`.
+instances, Ninja) are in `docs/wiki/guide/editor.md`.
 
 **D71. UI fidelity pass (2026-11-23).** The owner found the Studio far from their prototype. Seven auditors drove the
 rendered prototype and the owner's spec (`owner-spec.md`, committed) against the real Studio: ~550 findings

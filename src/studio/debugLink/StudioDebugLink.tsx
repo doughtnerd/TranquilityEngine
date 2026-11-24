@@ -18,7 +18,7 @@ const connectOpen = signal(false);
 
 /** Opens the Connect dialog (the builds menu's Connect…, the start screen's Connect to Game…, the launcher's hand-off). */
 export function openStudioConnect(): void {
-  goLiveOnConnect(); // ADR 0407: the build connected from here opens the Studio live on the Profiler
+  goLiveOnConnect(); // ADR 0408: the build connected from here opens the Studio live on the Profiler
   connectOpen.value = true;
 }
 

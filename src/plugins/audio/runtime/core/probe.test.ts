@@ -73,7 +73,7 @@ describe("the refusal", () => {
     expect(msg).toContain("Chrome/Edge 66");
     expect(msg).toContain("Safari 16.4");
     expect(msg).toContain(`"babylon"`);
-    expect(msg).toContain("docs/guide/audio-minimum-versions.md");
+    expect(msg).toContain("https://github.com/doughtnerd/TranquilityEngine/wiki/Audio-core-minimum-browser-and-webview-versions");
   });
 });
 

@@ -35,7 +35,7 @@ export const SCREENS: readonly ScreenInfo[] = [
 
 export const DEFAULT_SCREEN: ScreenId = "samples";
 
-/** ADR 0407: the screens a takes folder workspace (no project) offers; the rest need a project. */
+/** ADR 0408: the screens a takes folder workspace (no project) offers; the rest need a project. */
 export const TAKES_FOLDER_SCREENS: ReadonlySet<ScreenId> = new Set<ScreenId>(["take", "profiler"]);
 
 /** A screen by id, or undefined for anything else. */

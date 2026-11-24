@@ -55,7 +55,7 @@ function DocScope(props: { children: ComponentChildren }) {
 }
 
 /** Record from a build, above the Takes list: offered only while a build is connected (or to show why its take failed). */
-/** Where a browser with no project saves a take (ADR 0407): each one where the user says. */
+/** Where a browser with no project saves a take (ADR 0408): each one where the user says. */
 const ASK_WHERE = "a file you choose on Save";
 
 function BuildTakeSection() {

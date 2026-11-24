@@ -1,4 +1,4 @@
-// Where the Studio keeps takes when no project is open (ADR 0407): one folder, by default `<app data>/takes`, which the
+// Where the Studio keeps takes when no project is open (ADR 0408): one folder, by default `<app data>/takes`, which the
 // user can change with a folder dialog; and the take files added to the Recorded takes list by dropping them on the
 // launcher. Both are per user preferences (localStorage, shared by the launcher's and the Studio's windows). Light: the
 // launcher imports it, so it loads no engine code.

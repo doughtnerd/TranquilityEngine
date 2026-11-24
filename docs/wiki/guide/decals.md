@@ -2,7 +2,7 @@
 
 Decals put a picture onto other things: bullet holes, blood splats, scorch marks, footprints, road paint, grime. In 3D a `DecalProjector` projects a material onto whatever opaque surfaces are inside its box; in 2D a `Decal2D` stamps a sprite onto a sorting layer and can stop at the edge of the sprite it sits on. For decals that gameplay makes by the hundred, `Decals.project` and `Decals.stamp` spawn them without a node. They come from the **Decals** plugin (`myco.decals`), which is on by default.
 
-The design is in [ADR 0395](../decisions/0395-decals-are-a-plugin-3d-projectors-shade-the-scene-depth-2d-decals-are-layered-quads.md). This guide is about using them.
+The design is in [ADR 0395](../../decisions/0395-decals-are-a-plugin-3d-projectors-shade-the-scene-depth-2d-decals-are-layered-quads.md). This guide is about using them.
 
 ## 3D: DecalProjector
 

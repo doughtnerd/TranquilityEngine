@@ -29,7 +29,7 @@ export interface ProjectTake extends TakeEntry {
 }
 
 /**
- * ADR 0407: a take outside any project (badge "Recording"): in the takes folder, or a file added by dropping it on the
+ * ADR 0408: a take outside any project (badge "Recording"): in the takes folder, or a file added by dropping it on the
  * launcher. It opens in the takes folder workspace of `folder`.
  */
 export interface LooseTake extends TakeEntry {
@@ -42,7 +42,7 @@ export interface LooseTake extends TakeEntry {
 
 export type RecentTake = ProjectTake | LooseTake;
 
-/** What opens `take` in the Studio: its project on the Take screen, or its folder as a takes workspace (ADR 0407). */
+/** What opens `take` in the Studio: its project on the Take screen, or its folder as a takes workspace (ADR 0408). */
 export function takeOpenRequest(take: RecentTake): StudioOpenRequest {
   return take.kind === "project"
     ? { project: take.project.path, asset: take.path, screen: "take" }
@@ -129,7 +129,7 @@ function newestFirst<T extends TakeEntry>(takes: T[]): T[] {
 }
 
 /**
- * ADR 0407: takes outside any project. Lists the takes folder (recursively, notes skipped; a folder that is missing or
+ * ADR 0408: takes outside any project. Lists the takes folder (recursively, notes skipped; a folder that is missing or
  * null is skipped) and each added take file (a file that is gone is skipped, not an error), sorted newest first.
  * `limit` caps the number of takes read.
  */

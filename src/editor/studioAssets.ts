@@ -58,11 +58,11 @@ export interface StudioOpenRequest {
    */
   readonly connect?: true;
   /**
-   * ADR 0407: an absolute folder of take files to open as a takes workspace (Take and Profiler, no project) instead of
+   * ADR 0408: an absolute folder of take files to open as a takes workspace (Take and Profiler, no project) instead of
    * `project`, which is then null; `asset` is relative to it.
    */
   readonly takesFolder?: string;
-  /** ADR 0407: the Profiler follows the connected build's live capture once the request is handled. */
+  /** ADR 0408: the Profiler follows the connected build's live capture once the request is handled. */
   readonly follow?: true;
 }
 

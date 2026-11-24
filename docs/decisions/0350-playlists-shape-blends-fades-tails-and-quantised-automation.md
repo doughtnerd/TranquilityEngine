@@ -173,4 +173,4 @@ Nothing.
   transition segments; FMOD: instrument regions on parameter sheets, transition timelines with fade curves, quantisation.
 - `src/engine/audio/playlist/{types,format,fadeShapes,blendWeights,lint}.ts`; `src/plugins/audio/runtime/playlists/
   {nodes,liveNode,sequence,levelAutomation,quantizedLanes}.ts`; `src/engine/audio/migrate/audioEvent1.ts`.
-- Guides `docs/guide/playlists.md`, `docs/guide/interactive-music.md`; decision log D32, D33.
+- Guides `docs/wiki/guide/playlists.md`, `docs/wiki/guide/interactive-music.md`; decision log D32, D33.

@@ -1,4 +1,4 @@
-// The Studio's recorder of the connected build's takes (ADR 0403, 0407): one `BuildTakeRecorder` per chosen build,
+// The Studio's recorder of the connected build's takes (ADR 0403, 0408): one `BuildTakeRecorder` per chosen build,
 // kept by the page rather than the Take screen, because a take the build stops (F10, its script) is saved whichever
 // screen shows. The Studio decides where takes go: the open project's `takes/`, a takes folder's own folder, or, in a
 // browser with no project, a file the user chooses for each take (the save dialog, so it waits for Save there).

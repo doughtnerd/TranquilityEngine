@@ -1,5 +1,5 @@
 // The Studio's page (ADR 0341 "The shell"): the start screen with no project open, else the shell (for a takes folder
-// workspace, ADR 0407, only Take and Profiler): header, the
+// workspace, ADR 0408, only Take and Profiler): header, the
 // screen's dock (the engine's `DockLayout` over the screen's own layout store), the player bar with the screen's
 // slots, the Hear as control (ADR 0351 §6) and the game session (driving take replay, UI pass #1), the status bar, toasts and the shortcut list. A banner says why when the audio core can't run, and one over
 // the Playlists screen offers to migrate a read-only project's old audio events (ADR 0343).
@@ -80,7 +80,7 @@ export function StudioApp(props: StudioAppProps) {
       </div>
     );
   }
-  // ADR 0407: a takes folder workspace (no project) offers only Take and Profiler; another screen's route shows the Profiler.
+  // ADR 0408: a takes folder workspace (no project) offers only Take and Profiler; another screen's route shows the Profiler.
   const takesOnly = isTakesFolder(project);
   const asked = studioRouter().route.value;
   const route = takesOnly && !TAKES_FOLDER_SCREENS.has(asked.screen) ? { ...asked, screen: "profiler" as const } : asked;
