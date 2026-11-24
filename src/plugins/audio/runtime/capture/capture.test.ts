@@ -67,7 +67,7 @@ function rig(opts: { ringBytes?: number; tauri?: boolean } = {}) {
   const saved: { key: string; bytes: Uint8Array }[] = [];
   const env: SaveEnv = {
     tauri: opts.tauri ?? false,
-    storage: { save: async (key, value) => void saved.push({ key, bytes: value as Uint8Array }), list: async () => saved.map((s) => s.key), delete: async () => {} },
+    fs: { mkdir: async () => {}, write: async (path, bytes) => void saved.push({ key: path.slice(path.lastIndexOf("/") + 1), bytes }), list: async () => saved.map((s) => s.key), remove: async () => {} },
     storageRoot: async () => "/data/app",
     download: (bytes, fileName) => void downloads.push({ bytes, fileName }),
     compress: defaultSaveEnv().compress,
@@ -386,12 +386,12 @@ describe("save: the web Blob and the Tauri Storage paths, deflate-raw or stored"
     expect(await Audio.capture.save()).toMatch(/^capture-20261113-101500(-\d+)?\.mycap$/); // -2, -3... after an earlier auto name in this second
   });
 
-  it("on Tauri it saves through Storage into cache and resolves with the app-data path", async () => {
+  it("on Tauri it saves a plain file under captures/ and resolves with its path", async () => {
     const r = rig({ tauri: true });
     await Audio.capture.start();
     r.feed(SECOND);
     const path = await Audio.capture.save("arena");
-    expect(path).toBe("/data/app/cache/arena.mycap.bin");
+    expect(path).toBe("/data/app/captures/arena.mycap");
     expect(r.saved.map((s) => s.key)).toEqual(["arena.mycap"]);
     expect(r.downloads).toEqual([]);
     expect((await r.open(r.saved[0]!.bytes)).warnings).toEqual([]);

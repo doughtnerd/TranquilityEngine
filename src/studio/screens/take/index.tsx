@@ -3,7 +3,7 @@
 // History (on demand: the notes' undo tree). The panels read the screen's store (`takeScreen.ts`) and the Studio's
 // replay (`shell/replay.ts`); the Timeline panel also owns what the screen does while it shows: opening the take the
 // route names, the keys (Space, Home, M, Delete, Escape) and the player bar's slots (the take, its transport and scrub).
-import { effect, signal } from "@preact/signals";
+import { effect } from "@preact/signals";
 import type { ComponentChildren } from "preact";
 import { useEffect, useRef, useState } from "preact/hooks";
 import type { TakeNotes } from "../../../engine/audio/take/types";
@@ -38,7 +38,9 @@ import { TakeTimelineView } from "./TakeTimelineView";
 import { whyNotImportable } from "../../../editor/assetImportFiles";
 import { studioBuild } from "../../debugLink/studioLink";
 import { BuildTakeControls } from "./BuildTakeControls";
-import { BuildTakeRecorder, saveTakeIntoProject } from "./recordFromBuild";
+import { asksWhereToSaveTakes, buildTake } from "./buildTakes";
+import { isTakesFolder } from "../../../editor/projects";
+import { changeTakesFolder } from "../../shell/liveConnect";
 import "./take.css";
 
 const notesOf = (): TakeNotes => takeScreen().notes.value?.value.value ?? emptyTakeNotes();
@@ -52,35 +54,23 @@ function DocScope(props: { children: ComponentChildren }) {
   );
 }
 
-/** ADR 0403 (plan U5): the recorder of the connected build's takes; a build that left keeps it while it shows a failure. */
-const buildTake = signal<BuildTakeRecorder | null>(null);
-
-/** Follows `studioBuild`: a recorder per chosen build; a build whose link closed fails what its recorder was doing. */
-function useBuildTake(): void {
-  useEffect(
-    () =>
-      effect(() => {
-        const build = studioBuild.value;
-        const current = buildTake.peek();
-        if (current && current.build.peer === build?.peer) return;
-        if (current && current.build.peer.state === "closed") current.linkClosed(current.build.peer.closedReason);
-        const keep = !build && current?.state.peek().kind === "failed";
-        buildTake.value = build ? new BuildTakeRecorder(build, { write: (name, bytes) => saveTakeIntoProject(currentProject.peek(), name, bytes), saved: openTake }) : keep ? current : null;
-      }),
-    [],
-  );
-}
-
 /** Record from a build, above the Takes list: offered only while a build is connected (or to show why its take failed). */
+/** Where a browser with no project saves a take (ADR 0407): each one where the user says. */
+const ASK_WHERE = "a file you choose on Save";
+
 function BuildTakeSection() {
-  useBuildTake();
   const rec = buildTake.value;
   if (!rec) return null;
+  const project = currentProject.value;
+  const takesOnly = isTakesFolder(project);
+  const asks = asksWhereToSaveTakes();
   return (
     <BuildTakeControls
       build={rec.build.name}
       state={rec.state.value}
-      whyNotSave={whyNotImportable(currentProject.value)}
+      whyNotSave={asks ? null : whyNotImportable(project)}
+      into={asks ? ASK_WHERE : takesOnly && project?.root ? project.root : undefined}
+      onChangeFolder={takesOnly && !asks && project?.fileSystem ? () => void changeTakesFolder(project.fileSystem!) : undefined}
       onStart={() => void rec.start()}
       onMark={(text) => void rec.mark(text)}
       onStop={() => void rec.stop()}

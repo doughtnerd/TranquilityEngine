@@ -57,6 +57,13 @@ export interface StudioOpenRequest {
    * (ADR 0380). With `project` null it leaves whatever the Studio has open as it is, rather than closing it.
    */
   readonly connect?: true;
+  /**
+   * ADR 0407: an absolute folder of take files to open as a takes workspace (Take and Profiler, no project) instead of
+   * `project`, which is then null; `asset` is relative to it.
+   */
+  readonly takesFolder?: string;
+  /** ADR 0407: the Profiler follows the connected build's live capture once the request is handled. */
+  readonly follow?: true;
 }
 
 /** The screen a request opens: its own, else its asset's, else none (the Studio's last). */
