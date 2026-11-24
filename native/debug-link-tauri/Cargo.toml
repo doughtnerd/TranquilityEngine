@@ -1,0 +1,24 @@
+# The debug link's Tauri commands (ADR 0376, 0379, 0403), shared by the editor's shell (src-tauri) and the
+# Studio's (src-studio-tauri). Plain commands, not a plugin (pairing plan C8): each shell lists them in its own
+# `generate_handler!` and calls `.manage(DebugLinkListeners::default())`. The WebSocket server is
+# `native/ws-listener`, which builds and tests without Tauri; discovery (mDNS) is `native/debug-discovery`.
+[package]
+name = "myco-debug-link-tauri"
+description = "Tauri commands that let a page listen for the debug link's WebSocket connections (Myco, ADR 0379)."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+publish = false
+
+[dependencies]
+myco-ws-listener = { path = "../ws-listener" }
+myco-debug-discovery = { path = "../debug-discovery" }
+serde = { version = "1.0", features = ["derive"] }
+tauri = { version = "2.12.5" }
+
+[lib]
+name = "debug_link_tauri"
+
+[dev-dependencies]
+serde_json = "1.0"

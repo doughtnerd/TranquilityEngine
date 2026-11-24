@@ -4,7 +4,7 @@
 - **Date:** 2026-11-24
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0014, 0050, 0055, 0108, 0109, 0127, 0130, 0136, 0140, 0154, 0169, 0186, 0225, 0252, 0274, 0276, 0277, 0370, 0395, 0396, 0400, 0401
+- **Related:** 0014, 0050, 0055, 0108, 0109, 0127, 0130, 0136, 0140, 0154, 0169, 0186, 0225, 0252, 0274, 0276, 0277, 0370, 0395, 0396, 0407, 0408
 
 ## Context
 
@@ -49,7 +49,7 @@ position. Only the textures' layout is fixed per frame; lights are just more dra
   that mean direction, with the sprite's own normal map. So no screen normals pass is needed, and overlapping sprites
   on different layers each keep their own normals. Where coloured normal-mapped lights overlap, the result is an
   approximation (see Alternatives).
-- **Shadows** (ADR 0400) darken a light before it reaches the textures.
+- **Shadows** (ADR 0407) darken a light before it reaches the textures.
 - A World with **no 2D lights** draws exactly as today. The pass isn't planned, and lit materials use the unlit
   variant. Existing scenes, the editor and thumbnails don't change.
 
@@ -75,7 +75,7 @@ class Light2D extends Component {
   // normal maps
   normalMaps = false;
   height = 1;                                  // world units above the sprite plane (N·L direction)
-  // shadows (ADR 0400)
+  // shadows (ADR 0407)
   shadows = false; shadowStrength = 1; shadowSoftness = 0.3;
 }
 ```
@@ -85,7 +85,7 @@ class Light2D extends Component {
 - Lights add up within a blend style. Point, freeform and sprite lights cull by their bounds against each camera's
   view.
 - A 2D light lights layered quads only, and a 3D `Light` lights meshes only, as in Unity.
-- `myco.ts` exports `Light2D`, `ShadowCaster2D` (ADR 0400) and the type names. No Babylon types.
+- `myco.ts` exports `Light2D`, `ShadowCaster2D` (ADR 0407) and the type names. No Babylon types.
 
 ### Blend styles: project settings
 
@@ -133,16 +133,16 @@ name or a bad channel is reported and dropped. A light naming a missing style us
     does for sprites, tiles and decals.
 
   The Tilemaps, Decals, Lines and Animation (skinned sprites) plugins each pass their resolved material and the
-  sprite's secondary textures (ADR 0401). That one call is all they change, so lighting reaches every current and
+  sprite's secondary textures (ADR 0408). That one call is all they change, so lighting reaches every current and
   future 2D draw.
-- **Normal and mask maps** are the sprite texture's secondary textures (ADR 0401), sampled at the same UV as the
+- **Normal and mask maps** are the sprite texture's secondary textures (ADR 0408), sampled at the same UV as the
   sprite. Flips mirror the normal's X/Y.
 
 ### Core and plugin split
 
 - **Core (the lighting rig, 0252):** `Light2D` and `ShadowCaster2D` classes live in `render/components.ts`, as
   `Light` does (0140). There's a renderer-neutral `render/lights2D/`, with only pure parts: layer batches, light
-  geometry (point disc and cone meshes, freeform polygon plus falloff band), and shadow geometry (0400). The Babylon
+  geometry (point disc and cone meshes, freeform polygon plus falloff band), and shadow geometry (0407). The Babylon
   side is `render/babylon/lights2D.ts`: light textures, the light and shadow shaders, and the per-camera light draw.
   `BabylonLighting.sync` resolves 2D lights beside 3D ones, and `BabylonLighting.lights2D` answers which texture set
   and blend style uniforms a draw order gets. Core because the lit 2D material, the frame graph and the pass plan
@@ -163,7 +163,7 @@ name or a bad channel is reported and dropped. A light naming a missing style us
   tier does.
 - Each camera gets its own light textures, including render-texture cameras (0109) and the editor's scene view.
 - The pass draws, per batch × style: clear to the global light, then for each light (in groups of four shadowed
-  lights, 0400) its shadows and its mesh, additively. The cost is fill, about the light's screen area at the light
+  lights, 0407) its shadows and its mesh, additively. The cost is fill, about the light's screen area at the light
   texture scale.
 
 ### Quality tiers and the performance budget
@@ -174,8 +174,8 @@ High and Ultra→high):
 | | low | medium | high |
 |---|---|---|---|
 | Light texture scale (of the render size) | 0.25 | 0.5 | 0.5 |
-| Shadowed lights per camera (0400) | 4 | 8 | 16 |
-| Soft shadow edges (0400) | off | on | on |
+| Shadowed lights per camera (0407) | 4 | 8 | 16 |
+| Soft shadow edges (0407) | off | on | on |
 | Normal maps (directional texture) | off | on | on |
 | Layer batches before the extra ones merge | 2 | 4 | 8 |
 

@@ -176,6 +176,15 @@ describe("running the prefab actions", () => {
     expect(doc.node("ceiling").prefab).toBeUndefined();
   });
 
+  it("Create Prefab says how many references out of the prefab became instance overrides (ADR 0401)", async () => {
+    const path = await createPrefabFrom(scene(), project, [["game"]]);
+    expect(status.value).toEqual({
+      kind: "info",
+      text: `Created ${path}. 5 references to nodes outside the prefab became instance overrides; the prefab file leaves them empty. Undo turns the node back; the file stays on disk.`,
+    });
+    expect(scene().doc.node("game").overrides).toHaveLength(5);
+  });
+
   it("Create Prefab saves several siblings under one Group root", async () => {
     const { doc } = scene();
     const path = await createPrefabFrom(scene(), project, [["ceiling"], ["ground-collider"]]);

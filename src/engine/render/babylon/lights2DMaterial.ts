@@ -1,7 +1,7 @@
 /**
  * The lit layered-quad material (ADR 0399): a material plugin on the 2D quad material (`layeredQuads.ts`, ADR 0186)
  * that reads its layer batch's light textures at the fragment's screen position and composes the blend styles, with
- * the sprite texture's normal map (the directional textures) and mask map (ADR 0401). Fog, tint and slice UVs stay the
+ * the sprite texture's normal map (the directional textures) and mask map (ADR 0408). Fog, tint and slice UVs stay the
  * quad material's. The maths is KSL (`render/lights2D/lightShader.ts`); this is Babylon's injection glue.
  *
  * A lit material belongs to one layer batch (its owner keys materials by batch and the rig's `version`), so its defines

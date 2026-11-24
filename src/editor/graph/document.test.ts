@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { clipboardText } from "../clipboard";
-import { DUPLICATE_OFFSET, freeId, graphDocument, type GraphGroupData, type GraphNoteData } from "./document";
+import { DUPLICATE_OFFSET, freeId, graphDocument, pasteProperties, type GraphGroupData, type GraphNoteData } from "./document";
 
 // The graph document's edits, driven through a small graph kind of the test's own: nodes that may
 // read a property (`settings.reads`), wires between them, optional groups (stored as `boxes`, so the
@@ -242,5 +242,24 @@ describe("graph document: copy, paste, duplicate", () => {
     expect(edits.items(g)).toEqual(["out", "add1", "time1", "prop1"]);
     expect(edits.remove(g, ["nothing"])).toBe(g);
     expect(edits.remove(g, ["add1"]).wires).toEqual([]);
+  });
+});
+
+describe("graph document: pasteProperties", () => {
+  it("adds what's missing, keeps same-named properties of the same type, and renames a clash of types to a name the paste doesn't carry", () => {
+    const board: Property[] = [{ name: "Speed", type: "color", value: "#000000" }, { name: "Size", type: "number", value: 1 }];
+    const renames = pasteProperties(board, [
+      { name: "Speed", type: "number", value: 2 },
+      { name: "Speed 2", type: "number", value: 5 },
+      { name: "Size", type: "number", value: 7 },
+    ]);
+    expect(renames).toEqual(new Map([["Speed", "Speed 3"]]));
+    expect(board).toEqual([
+      { name: "Speed", type: "color", value: "#000000" },
+      { name: "Size", type: "number", value: 1 },
+      { name: "Speed 3", type: "number", value: 2 },
+      { name: "Speed 2", type: "number", value: 5 },
+    ]);
+    expect(pasteProperties(board, undefined)).toEqual(new Map());
   });
 });

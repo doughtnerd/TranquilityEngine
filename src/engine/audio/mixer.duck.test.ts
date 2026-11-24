@@ -32,6 +32,31 @@ describe("the mixer's duck lane (Dp1)", () => {
     expect(m.bus("Music").duckGain).toBe(1);
   });
 
+  it("a duck lifting to a shallower rule's level eases at the release time, not the attack (Q20, ADR 0386)", () => {
+    const two: AudioSettings = {
+      ...defaultAudioSettings(),
+      ducking: [
+        { target: "Music", trigger: "Voice", mode: "presence", amount: 0.2, attack: 0.1, release: 1 },
+        { target: "Music", trigger: "SFX", mode: "presence", amount: 0.6, attack: 0.1, release: 0.8 },
+      ],
+    };
+    const m = new Mixer(two);
+    m.voiceStarted("Voice");
+    m.voiceStarted("SFX");
+    for (let i = 0; i < 100; i++) m.update(0.1);
+    expect(m.bus("Music").duckGain).toBe(0.2);
+    m.voiceEnded("Voice"); // the deeper trigger stops; the lighter one keeps ducking
+    m.update(0.1);
+    // Released at the leaving rule's 1 s release: a tenth of the way from 0.2 to 0.6 (the 0.1 s attack would go all the way).
+    expect(m.bus("Music").duckGain).toBeCloseTo(0.2 + (0.6 - 0.2) * 0.1, 9);
+    for (let i = 0; i < 300; i++) m.update(0.1);
+    expect(m.bus("Music").duckGain).toBe(0.6);
+    // Deepening again uses the attack.
+    m.voiceStarted("Voice");
+    m.update(0.05);
+    expect(m.bus("Music").duckGain).toBeCloseTo(0.6 + (0.2 - 0.6) * 0.5, 9);
+  });
+
   it("with a source every duck read is the source's and main computes none; clearing it resumes main's from 1", () => {
     const m = new Mixer(settings());
     const core = new Map<string, number>();

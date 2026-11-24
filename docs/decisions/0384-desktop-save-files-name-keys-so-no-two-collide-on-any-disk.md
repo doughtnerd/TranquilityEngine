@@ -5,6 +5,7 @@
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
 - **Related:** 0024, 0317
+- **Amended by:** [0387](0387-desktop-save-files-shorten-long-keys-to-a-prefix-and-a-hash.md) (long keys: a prefix and a hash, the key kept inside the file; answers the open question below)
 
 ## Context
 

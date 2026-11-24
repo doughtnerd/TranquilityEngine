@@ -1,4 +1,4 @@
-// The Lights 2D plugin's editor models (ADR 0399-0401): the gizmo's lines, handles and drags, outline point editing,
+// The Lights 2D plugin's editor models (ADR 0399, 0407, 0408): the gizmo's lines, handles and drags, outline point editing,
 // the 2D Lighting settings edits, which fields each light type shows, and the lit preview.
 import { describe, expect, it } from "vitest";
 import { tangents2D } from "../../../engine/render/lights2D/tangents";

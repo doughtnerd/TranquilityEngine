@@ -22,6 +22,8 @@ import { BusesPanel } from "./BusesPanel";
 import { DEFAULT_PINS } from "./boardModel";
 import { MixerInspector } from "./MixerInspector";
 import { openMixDocument } from "./mixerDocument";
+import { studioBuild } from "../../debugLink/studioLink";
+import { createRemoteMix } from "./remoteMix";
 import { auditionSnapshot, liveMixHost, readBus, readLoudness, resetLoudness, setLoudnessTarget, setRuntimeParameter } from "./mixerRuntime";
 import { createMixerSession, type MixerSession } from "./mixerScreen";
 import { busRenameEdit } from "./renameReferences";
@@ -77,6 +79,7 @@ function mixerSession(): MixerSession | null {
     usersOf: (name) => projectFileUsers(project, busRenameEdit(name, `${name}\u0000`)),
     renameOutside: (from, to) => editProjectFiles(project, busRenameEdit(from, to), `Rename bus ${from} to ${to}`),
     live: liveMixHost,
+    remote: createRemoteMix({ build: () => studioBuild.peek(), report: (kind, text) => void (status.value = { kind, text }) }),
     readBus,
     readLoudness,
     setParameter: setRuntimeParameter,

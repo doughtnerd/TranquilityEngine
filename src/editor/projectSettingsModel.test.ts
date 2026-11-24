@@ -28,7 +28,7 @@ describe("the Project panel's settings", () => {
     d = setValue(d, "time", "maxSubSteps", 0);
     d = setValue(d, "render", "pixelsPerUnit", 0);
     expect(fields(d)).toEqual(["display.width", "display.height", "display.backgroundColor", "time.fixedDeltaTime", "time.maxSubSteps", "render.pixelsPerUnit"]);
-    expect(messages(setValue(flappy(), "time", "fixedDeltaTime", 0.5))).toEqual([expect.stringContaining("longer than the max frame time")]);
+    expect(messages(setValue(flappy(), "time", "fixedDeltaTime", 0.5))).toEqual([]); // longer than the max frame time is fine, as in Unity (ADR 0397)
     expect(messages(setName(flappy(), "  "))).toEqual([]); // empty name: falls back to the folder name
   });
 

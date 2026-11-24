@@ -74,7 +74,7 @@ export class Light2D extends Component {
   @field(Boolean) normalMaps = false;
   /** With `normalMaps`: the light's height above the sprites' plane, in world units (low: grazing light). */
   @field(Number) height = 1;
-  /** Shadows from ShadowCaster2Ds (ADR 0400). */
+  /** Shadows from ShadowCaster2Ds (ADR 0407). */
   @field(Boolean) shadows = false;
   /** How dark its shadows are, 0 (none) to 1 (no light). */
   @field(Number) shadowStrength = 1;
@@ -99,8 +99,8 @@ export class Light2D extends Component {
 export type ShadowCaster2DShape = "auto" | "collider" | "sprite" | "custom";
 
 /**
- * Casts shadows from 2D lights with `shadows` on (ADR 0400). Its outline comes from the node's 2D collision shapes (a
- * Tilemap's merged solid tiles, its 2D colliders), its SpriteRenderer's slice outline (ADR 0401) or a custom path.
+ * Casts shadows from 2D lights with `shadows` on (ADR 0407). Its outline comes from the node's 2D collision shapes (a
+ * Tilemap's merged solid tiles, its 2D colliders), its SpriteRenderer's slice outline (ADR 0408) or a custom path.
  */
 @component("engine.ShadowCaster2D")
 export class ShadowCaster2D extends Component {
@@ -563,6 +563,13 @@ export class Light extends Component {
   @field(Number) spotAngle = 30;
   /** Spot: how soft the cone's edge is, 0 (hard) to 1. */
   @field(Number) spotSoftness = 0.2;
+  /**
+   * Directional: this is the World's sun (ADR 0393), the light a sky drives and shader graphs' Main Light
+   * nodes read. Without one flagged, the brightest directional light is the sun; with several, the
+   * brightest of them.
+   */
+  @field(Boolean, { description: "The World's sun: the directional light the sky drives and shader graphs' Main Light reads. Unflagged: the brightest directional light." })
+  sun = false;
   /**
    * Directional, point and spot: cast shadows from meshes with `castShadows`. A directional
    * light's shadows cover `shadowArea` metres around its node.

@@ -132,11 +132,11 @@ export interface SpriteSlice {
   fill?: SpriteFill;
   /** A 2D skin (ADR 0371): bones, a mesh and weights, drawn deformed under a `Skeleton2D`. */
   skin?: SliceSkin;
-  /** Closed polygons in slice pixels from the slice's bottom-left, y up (ADR 0401): its outline, for 2D shadow casters (ADR 0400). Absent: the rect. */
+  /** Closed polygons in slice pixels from the slice's bottom-left, y up (ADR 0408): its outline, for 2D shadow casters (ADR 0407). Absent: the rect. */
   outline?: [number, number][][];
 }
 
-/** The secondary texture names lit 2D draws read (ADR 0401): a tangent-space normal map and a mask map. */
+/** The secondary texture names lit 2D draws read (ADR 0408): a tangent-space normal map and a mask map. */
 export const SECONDARY_TEXTURE_NAMES = ["normalMap", "maskMap"] as const;
 export type SecondaryTextureName = (typeof SECONDARY_TEXTURE_NAMES)[number];
 
@@ -155,11 +155,11 @@ export interface ImportSettings {
   pivot: [number, number];
   sprites: SpriteSlice[];
   /**
-   * Images (ADR 0401): textures laid out like this one, by name (`normalMap`, `maskMap`; others are kept for shader
+   * Images (ADR 0408): textures laid out like this one, by name (`normalMap`, `maskMap`; others are kept for shader
    * graph sprite targets), as `asset:` paths. Every slice samples them at its own UV.
    */
   secondaryTextures: Record<string, string>;
-  /** Images (ADR 0401): the normal map's green channel points up (OpenGL, default) or down (DirectX). */
+  /** Images (ADR 0408): the normal map's green channel points up (OpenGL, default) or down (DirectX). */
   normalMapGreen: "up" | "down";
   /** Images (ADR 0371): flipbooks by name, each a clip `image.png#Flip/<name>` over the named slices. */
   flipbooks: Record<string, SpriteFlipbook>;

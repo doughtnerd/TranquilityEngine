@@ -1,5 +1,5 @@
 /**
- * 2D shadow geometry (ADR 0400), renderer-neutral. A caster's outline becomes one static edge mesh: a quad per outline
+ * 2D shadow geometry (ADR 0407), renderer-neutral. A caster's outline becomes one static edge mesh: a quad per outline
  * edge whose two far vertices carry `extrude` 1, which the shadow shader pushes away from the light's position past
  * its reach. One mesh serves every light (the light is a uniform), so a moving light costs no CPU work. The caster's
  * filled outline (its loops triangulated) clears its own interior back to lit when `selfShadows` is off.

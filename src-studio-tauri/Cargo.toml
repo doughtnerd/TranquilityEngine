@@ -28,3 +28,5 @@ tauri-plugin-fs = { version = "2", features = ["watch"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-persisted-scope = "2"
+# The debug link's Tauri commands (ADR 0403), shared with the editor's shell: the Studio listens for games too.
+myco-debug-link-tauri = { path = "../native/debug-link-tauri" }

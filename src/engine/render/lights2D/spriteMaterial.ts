@@ -43,7 +43,7 @@ function spriteShaderOf(material: string): string | null {
 
 /**
  * A 2D draw's lighting for `QuadBatch.setLighting` (ADR 0399): lit on `sortingLayer` with `image`'s normal and mask maps
- * (its sidecar's secondary textures, ADR 0401), or null when its `material` is Sprite Unlit. The quad-batch host still
+ * (its sidecar's secondary textures, ADR 0408), or null when its `material` is Sprite Unlit. The quad-batch host still
  * draws it unlit while its layer has no 2D light.
  */
 export function quadLighting(material: string, sortingLayer: string, image: string): QuadLighting | null {

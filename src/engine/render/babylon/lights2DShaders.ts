@@ -1,5 +1,5 @@
 /**
- * The 2D light pass's shaders (ADR 0399, 0400) on Babylon: the light shader, which draws every light of one layer batch
+ * The 2D light pass's shaders (ADR 0399, 0407) on Babylon: the light shader, which draws every light of one layer batch
  * and blend style into its light texture (flat, or with the directional textures as MRT), and the shadow shader, which
  * draws casters' edges extruded away from each shadowed light into a channel of a shadow texture. The maths is KSL
  * (`render/lights2D/lightShader.ts`, ADR 0250); only the entry points and Babylon's attribute, varying and uniform

@@ -50,21 +50,30 @@ describe("a message per CaptureError code", () => {
     const bytes = new Uint8Array(sampleCapture());
     const header = readCaptureHeader(bytes);
     const mine = header.format;
+    const minor = header.formatMinor;
+    // ADR 0386: "incompatible version: file is x.y, this build reads a.b–c.d".
+    const reads = `this build reads ${mine}.0\u2013${mine}.${minor}`;
     const newer = bytes.slice();
     newer[8] = mine + 1;
     const e1 = readerError(newer);
     expect(e1.code).toBe("newerFormat");
     const m1 = captureErrorMessage(e1.code, plain(e1));
-    expect(m1).toContain(`format ${mine + 1}`);
-    expect(m1).toContain(`build's ${mine}`);
+    expect(m1).toContain(`incompatible version: file is capture format ${mine + 1}.${minor}`);
+    expect(m1).toContain(reads);
     expect(m1).toContain("(newerFormat)");
+    expect(m1).not.toMatch(/damaged/);
+    const newerMinor = bytes.slice();
+    new DataView(newerMinor.buffer).setUint16(84, minor + 1, true);
+    const e3 = readerError(newerMinor);
+    expect(e3.code).toBe("newerFormat");
+    expect(captureErrorMessage(e3.code, plain(e3))).toContain(`file is capture format ${mine}.${minor + 1}, ${reads}`);
     const older = bytes.slice();
     older[8] = mine - 1;
     const e2 = readerError(older);
     expect(e2.code).toBe("olderFormat");
     const m2 = captureErrorMessage(e2.code, plain(e2));
-    expect(m2).toContain(`format ${mine - 1}`);
-    expect(m2).toContain(`build's ${mine}`);
+    expect(m2).toContain(`file is capture format ${mine - 1}.${minor}`);
+    expect(m2).toContain(reads);
     expect(m2).toContain("re-record");
   });
 

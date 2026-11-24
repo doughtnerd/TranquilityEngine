@@ -30,11 +30,11 @@
  * it, or when its `group` is "" or one the connection joined (`Interest.join`) and its
  * `relevantDistance` is 0 or reaches one of the connection's viewpoints (`Interest.setViewer`, else
  * the root ghosts it owns), with 10% hysteresis on leaving. It's relevant when it and every ghost
- * above it pass. A ghost that stops being relevant goes in the leaves section until acked (clients
- * destroy prefab ghosts and deactivate scene and nested ones); one that becomes relevant again is
- * spawned afresh, and acks of snapshots from before it came back no longer count for it (the
- * client forgot that stay). One that's destroyed after it left is still despawned, so a client
- * whose leave was lost drops it, and clients forget its strings.
+ * above it pass. A ghost that stops being relevant goes in that tick's lifecycle message as a leave
+ * (clients destroy prefab ghosts and deactivate scene and nested ones); one that becomes relevant
+ * again is spawned afresh in a later one, and acks of messages from before it came back no longer
+ * count for it (the client forgot that stay). One that's destroyed after it left is still
+ * despawned, so clients destroy a deactivated scene or nested ghost and forget its strings.
  *
  * ## Structure (ADR 0100)
  *
@@ -45,29 +45,46 @@
  * parent clients can't find (a node made with `GameObject.create`; warned once), their active
  * scene. A scene or nested ghost has no parent in its structure until it's moved (clients find it
  * where it is). Spawns carry the current structure (so a late joiner's ghost spawns under its
- * current parent); later changes go in a structure section, repeated until a snapshot carrying
- * them is acked. Clients show a change when their interpolation tick reaches its tick (owned
- * predicted ghosts at once) and don't interpolate across a move.
+ * current parent); later changes go in a lifecycle message's structure section, once. Clients show
+ * a change when their interpolation tick reaches its tick (owned predicted ghosts at once) and
+ * don't interpolate across a move.
  *
  * ## The string table (ADR 0100)
  *
- * Strings in spawns and structures (prefab paths, scene files, node ids, component ids) go through
- * a per-connection table (`StringTableOut` in `wire.ts`): inline with an index until the client
- * acks a snapshot that carried it, then the index alone (a byte or two).
+ * Strings in lifecycle messages (prefab paths, scene files, node ids, component ids) go through a
+ * per-connection table (`StringTableOut` in `wire.ts`): inline with an index the first time, then
+ * the index alone (a byte or two). Lifecycle messages are reliable and in order, so a string is the
+ * client's from the moment it's written.
+ *
+ * ## Lifecycle messages (reliable, `net.ghosts`, tagged with the server tick; ADR 0402)
+ *
+ * Creation goes reliably and apart from per-tick state, as Unreal's actor channels open with a
+ * reliable bunch: on a sent tick with any, each connection gets one message of its lifecycle events:
+ *
+ * ```
+ * varuint  despawn count, then ghost ids (ascending, each as the gap from the previous)
+ * varuint  leave count,   then ghost ids (ADR 0121: no longer relevant to this connection)
+ * varuint  relayout count, then per ghost: id gap, layout version, layout spec, the codec's full record (ADR 0121)
+ * varuint  structure change count, then per ghost: id gap, its structure
+ * per spawn: 1 bit (1), id gap, the spawn and layout spec, layout version, its structure (wire.ts),
+ *            the codec's full record; then 1 bit (0)
+ * ```
+ *
+ * Each event is sent once. Spawns go in id order while the tick's budget lasts (at least one); the
+ * rest wait for the next tick. Relayouts and structure changes are only for ghosts whose spawn
+ * went before; a spawn carries the current layout and structure. Despawns and leaves always go.
  *
  * ## Snapshots (unreliable, `net.snapshot`, tagged with the server tick)
  *
  * Once per tick that advanced since the last one (or at `sendRate`), each open connection gets
- * one snapshot, in one part or more (ADR 0334, below). Each part is:
+ * one snapshot, in one part or more (ADR 0334, below), of ghost states only. It carries a ghost's
+ * state only once the client has acked the lifecycle message with its spawn, and since its last
+ * relayout only once it acked that relayout (ADR 0402): so a client never reads a state before its
+ * ghost's spawn, or in a layout it doesn't have yet. Each part is:
  *
  * ```
  * varuint  part index (0, 1, …)
  * varuint  baseline: server tick − the connection's newest acked tick (0: none, or too old)
- * varuint  despawn count, then ghost ids (ascending, each as the gap from the previous)
- * varuint  leave count,   then ghost ids (ADR 0121: no longer relevant to this connection)
- * varuint  spawn count,   then per spawn: id gap, the spawn and layout spec, layout version, its structure (wire.ts)
- * varuint  relayout count, then per ghost: id gap, layout version, layout spec (ADR 0121)
- * varuint  structure change count, then per ghost: id gap, its structure
  * varuint  state count,   then per ghost: id gap,
  *            1 bit   uses the snapshot's baseline; if not, 1 bit has a baseline, and if it
  *                    does, varuint server tick − its baseline tick
@@ -75,31 +92,39 @@
  *            without one: the codec's full record
  * ```
  *
- * Despawns, leaves, spawns and relayouts repeat in every snapshot until the connection acks one
- * that carried them. A baseline is only used while it has the ghost's current layout.
- * A ghost's baseline is the state sent in the newest snapshot the connection acked that included
- * it: both ends keep what was sent per tick (the server for `BASELINE_WINDOW` ticks), so an
- * unchanged ghost costs its id gap and two bits, about a byte.
+ * A ghost's baseline is the state in the newest acked message that included it: the full state of
+ * its spawn or relayout (once that lifecycle message is acked), or its state in an acked snapshot
+ * part. Both ends keep what was sent per tick (the server for `BASELINE_WINDOW` ticks), so an
+ * unchanged ghost costs its id gap and two bits, about a byte. A baseline is only used while it has
+ * the ghost's current layout.
  *
  * ## Parts and the budget (ADR 0334)
  *
- * A tick's snapshot is at most `maxSnapshotBytes` (64 KiB). Over a plain stream (loopback, a
- * WebSocket without a data channel) it's one part. While the connection's transport sends
+ * A tick's replication to a connection is at most `maxSnapshotBytes` (64 KiB): its lifecycle
+ * message first, then snapshot parts in what's left. Over a plain stream (loopback, a WebSocket
+ * without a data channel) the snapshot is one part. While the connection's transport sends
  * unreliable messages as lossy datagrams (ADR 0333), each part fits one datagram, and a tick has
- * as many as the budget allows; losing one loses only its ghosts. A snapshot that fits one part is
- * written once. Otherwise parts are filled first-fit: despawns and leaves, then pending relayouts
- * and structure changes, then ghosts by priority (unacked spawns first, then the ghosts unsent
- * longest, times their `importance`); what doesn't fit goes next tick. Each part is self-contained:
- * a ghost's spawn, relayout, structure change and state are in the same part, and strings not yet
- * acked are inline in every part that uses them.
+ * as many as the budget allows; losing one loses only its ghosts' states. A snapshot that fits one
+ * part is written once. Otherwise parts are filled first-fit with ghosts by priority (the ghosts
+ * unsent longest, times their `importance`); what doesn't fit goes next tick. A ghost whose state
+ * alone is bigger than a datagram still goes, alone, by the transport's slower reliable path. When
+ * the next tick's datagrams overtake it, the client still reads it (ADR 0405): its states are filed
+ * in tick order, and it's acked like any part, so a ghost whose state is always that big keeps
+ * updating, a little behind, instead of starving.
  *
  * ## Acks (unreliable, `net.snapshotAck`)
  *
- * A client that read snapshot parts in a frame sends, at the end of it, the newest tick it read
- * and every part of that tick it has read (`varuint tick, varuint count`, then the first part index
- * and the gaps between the rest). For each part not acked before, the server makes its states the
- * baselines and stops repeating what it carried. It sets the connection's `lastAckedTick` (which
- * shows on its `Connection` node) to the newest tick acked.
+ * A client that read lifecycle messages or snapshot parts in a frame sends, at the end of it, the
+ * newest lifecycle tick it applied, the newest snapshot tick it read and every part of that tick it
+ * has read, then older ticks it read a late part of lately, each repeated by a few acks (ADR 0405):
+ * `varuint lifecycle tick, varuint tick count`, then per tick (the newest, then each older one as the
+ * gap back from the one before) `varuint part count`, the first part index and the gaps between the
+ * rest. Lifecycle messages arrive in order, so the first tick
+ * acks every one up to it: their spawns and relayouts' full states become baselines and their
+ * ghosts' states may go in snapshots. For each snapshot part not acked before, the server makes its
+ * states the baselines where they're newer than the ghost's (a late part's may not be: a baseline
+ * never goes back). It sets the connection's `lastAckedTick` (which shows on its `Connection`
+ * node) to the newest snapshot tick acked.
  */
 import type { Component } from "../../core/Component";
 import type { DataComponentDef } from "../../core/data";
@@ -117,11 +142,13 @@ import {
   AFTER_UNSPECIFIED,
   BASELINE_WINDOW,
   DEFAULT_MAX_SNAPSHOT_BYTES,
+  MAX_ACK_TICKS,
   MAX_SNAPSHOT_PARTS,
   PARENT_GHOST,
   PARENT_NODE,
   PARENT_ROOT,
   PARENT_SCENE,
+  GHOSTS,
   SNAPSHOT,
   SPAWN_NESTED,
   SPAWN_PREFAB,
@@ -129,7 +156,6 @@ import {
   StringTableOut,
   sameOrderAndEnabled,
   sameParent,
-  plainWrite,
   writeSpawn,
   writeSpec,
   writeStructure,
@@ -137,6 +163,7 @@ import {
   type ParentRef,
   type SpawnInfo,
   type Structure,
+  type WriteString,
 } from "./wire";
 
 interface ServerGhost {
@@ -169,60 +196,63 @@ interface ServerGhost {
 /** What one connection has been told about one ghost. */
 interface PeerGhost {
   /**
-   * The tick it (last) became relevant to the connection: acks of snapshots from before it carried
+   * The tick it (last) became relevant to the connection: acks of messages from before it carried
    * an earlier stay (before it left), whose spawn, states and structures the client has forgotten.
    */
   readonly since: number;
+  /** Its spawn went in a lifecycle message (ADR 0402). */
+  spawnSent: boolean;
+  /** The client acked the lifecycle message with its spawn: snapshots may carry its state. */
   spawnAcked: boolean;
-  /** The state in the newest acked snapshot that included this ghost, and that snapshot's tick. */
+  /** The state in the newest acked message (a spawn, relayout or snapshot part) that included this ghost, and that message's tick. */
   baseline: GhostState | null;
   baselineTick: number;
-  /** The last tick it was included in (for priority). */
+  /** The last tick its state was in a snapshot (for priority). */
   lastSentTick: number;
-  /** The newest structure version the connection acked (ADR 0100); -1: none. */
-  structureAcked: number;
+  /** The newest structure version sent (ADR 0100), in a spawn or a structure change; -1: none. */
+  structureSent: number;
   /** The layout version of `baseline` (ADR 0121): a baseline in an older layout isn't used. */
   baselineLayout: number;
-  /** The newest layout version the connection acked (in a spawn or relayout); -1: none. */
+  /** The newest layout version sent (in a spawn or relayout); -1: none. */
+  layoutSent: number;
+  /** The newest layout version the client acked; snapshots carry its state only in that layout. */
   layoutAcked: number;
 }
 
-/** What one snapshot carried, kept until acked or too old. */
+/** What one snapshot part carried (states only, ADR 0402), kept until acked or too old. */
 interface Sent {
-  readonly spawns: number[];
-  readonly despawns: number[];
-  /** Ghosts no longer relevant (ADR 0121). */
-  readonly leaves: number[];
   readonly states: Map<number, GhostState>;
   /** The layout version of each state. */
   readonly layouts: Map<number, number>;
-  /** Layouts carried (in spawns or relayouts): ghost id and layout version. */
-  readonly relayouts: [number, number][];
-  /** Structures carried (in spawns or changes): ghost id and version. */
-  readonly structures: [number, number][];
-  /** String table indexes it defined. */
-  readonly strings: number[];
+}
+
+/**
+ * What one lifecycle message carried that matters once it's acked (ADR 0402): the full state each
+ * spawn and relayout sent, which becomes the ghost's baseline, in which layout version.
+ */
+interface Lifecycle {
+  readonly states: { readonly id: number; readonly layout: number; readonly state: GhostState; readonly spawn: boolean }[];
 }
 
 interface PeerState {
-  /** Ghosts this connection has been sent, by id, in id order. */
+  /** Ghosts relevant to this connection, by id; `spawnSent` says whether it has been sent their spawn. */
   readonly known: Map<number, PeerGhost>;
-  /** Despawns not yet acked. */
-  readonly despawns: Set<number>;
-  /** Leaves (ADR 0121) not yet acked, with the tick each began (an ack of an older leave doesn't count). */
-  readonly leaves: Map<number, number>;
   /**
    * Ghosts that left: a despawn is still sent if they go. Clients keep scene and nested ones
-   * deactivated; a prefab one's leave may not have arrived, and clients keep its strings.
+   * deactivated, and keep a prefab one's strings.
    */
   readonly dormant: Set<number>;
   /** What each part of a sent tick carried (ADR 0334); a part is nulled once acked. */
   readonly history: Map<number, (Sent | null)[]>;
+  /** Lifecycle messages not yet acked, by tick, oldest first (ADR 0402). */
+  readonly lifecycle: Map<number, Lifecycle>;
   /** Bytes of the last tick's snapshot, all its parts (for tests and tools). */
   lastBytes: number;
+  /** Bytes of the last tick's lifecycle message (ADR 0402), 0 when it had none. */
+  lastLifecycleBytes: number;
   /** How many parts the last tick's snapshot took (ADR 0334). */
   lastParts: number;
-  /** Bits each ghost took (spawn, relayout, structure, state) when last written for this connection, to plan before writing when it's over a part. */
+  /** Bits each ghost's state took when last written for this connection, to plan before writing when it's over a part. */
   lastCosts: Map<number, number>;
   /** Bits of the last snapshot written whole (before splitting), or 0. */
   lastFullBits: number;
@@ -231,7 +261,7 @@ interface PeerState {
    * spawn and state in the snapshots actually sent (tools: bandwidth per ghost type).
    */
   readonly typeBits: Map<string, number>;
-  /** Strings in spawns and structures, by index once the client has them (ADR 0100). */
+  /** Strings in lifecycle messages, by index once the client has them (ADR 0100). */
   readonly table: StringTableOut;
 }
 
@@ -278,13 +308,22 @@ export class ServerReplication {
     for (const m of session.drain(ACK)) {
       try {
         const r = m.reader();
-        const tick = r.readVarUint();
-        const count = r.readVarUint();
-        if (count > MAX_SNAPSHOT_PARTS) continue;
-        const parts: number[] = [];
-        // The first index, then each as the gap from the one before.
-        for (let i = 0, part = 0; i < count; i++) parts.push((part = i === 0 ? r.readVarUint() : part + r.readVarUint()));
-        this.acked(m.peer, tick, parts);
+        const lifecycleTick = r.readVarUint();
+        const ticks = r.readVarUint();
+        if (ticks > MAX_ACK_TICKS) continue;
+        const acks: { tick: number; parts: number[] }[] = [];
+        // The newest tick, then each older one as the gap back from the one before (ADR 0405); per tick
+        // its part count, the first index, then each as the gap from the one before.
+        for (let t = 0, tick = 0; t < ticks; t++) {
+          tick = t === 0 ? r.readVarUint() : tick - r.readVarUint();
+          const count = r.readVarUint();
+          if (count > MAX_SNAPSHOT_PARTS) throw new Error("too many parts");
+          const parts: number[] = [];
+          for (let i = 0, part = 0; i < count; i++) parts.push((part = i === 0 ? r.readVarUint() : part + r.readVarUint()));
+          acks.push({ tick, parts });
+        }
+        this.lifecycleAcked(m.peer, lifecycleTick);
+        for (const { tick, parts } of acks) this.acked(m.peer, tick, parts);
       } catch {
         // A malformed ack is ignored; the next one will do.
       }
@@ -302,30 +341,31 @@ export class ServerReplication {
     for (const peer of peers) {
       let ps = this.peers.get(peer);
       if (!ps) {
-        this.peers.set(peer, (ps = { known: new Map(), despawns: new Set(), leaves: new Map(), dormant: new Set(), history: new Map(), lastBytes: 0, lastParts: 0, lastCosts: new Map(), lastFullBits: 0, typeBits: new Map(), table: new StringTableOut() }));
+        this.peers.set(peer, (ps = { known: new Map(), dormant: new Set(), history: new Map(), lifecycle: new Map(), lastBytes: 0, lastLifecycleBytes: 0, lastParts: 0, lastCosts: new Map(), lastFullBits: 0, typeBits: new Map(), table: new StringTableOut() }));
         peer.relevantGhosts = ps.known; // what Interest.isRelevant answers from (ADR 0311)
       }
-      for (const id of despawned) {
-        if (ps.known.delete(id) || ps.dormant.delete(id)) ps.despawns.add(id);
-        ps.leaves.delete(id);
-      }
+      const despawns: number[] = [];
+      for (const id of despawned) if (ps.known.delete(id) || ps.dormant.delete(id)) despawns.push(id);
+      const leaves: number[] = [];
       const relevant = interest ? this.relevantTo(peer, ps, interest) : null;
       if (relevant) {
         for (const id of [...ps.known.keys()]) {
           if (relevant.has(id)) continue;
           ps.known.delete(id);
-          ps.leaves.set(id, tick);
+          leaves.push(id);
           ps.dormant.add(id);
         }
       }
       for (const g of this.ghosts.values()) {
         if (ps.known.has(g.id) || (relevant && !relevant.has(g.id))) continue;
-        ps.known.set(g.id, { since: tick, spawnAcked: false, baseline: null, baselineTick: 0, lastSentTick: -1, structureAcked: -1, baselineLayout: -1, layoutAcked: -1 });
-        // Back before its leave was acked: cancel it (a client that read it spawns it again from this spawn).
-        ps.leaves.delete(g.id);
+        // Back after leaving: spawned afresh (the client applies the leave, then this spawn, in order).
+        ps.known.set(g.id, { since: tick, spawnSent: false, spawnAcked: false, baseline: null, baselineTick: 0, lastSentTick: -1, structureSent: -1, baselineLayout: -1, layoutSent: -1, layoutAcked: -1 });
         ps.dormant.delete(g.id);
       }
-      const parts = this.snapshot(peer, ps, tick);
+      // Lifecycle first, reliably (ADR 0402); then the states that fit what the budget has left.
+      const lifecycleBytes = this.lifecycleMessage(peer, ps, tick, despawns, leaves);
+      const parts = this.snapshot(peer, ps, tick, Math.max(PART_HEADER_BITS / 8, this.maxSnapshotBytes - lifecycleBytes));
+      ps.lastLifecycleBytes = lifecycleBytes;
       ps.lastBytes = parts.reduce((n, part) => n + part.byteLength, 0);
       ps.lastParts = parts.length;
       for (const part of parts) session.send(SNAPSHOT, peer, "unreliable", part, tick);
@@ -544,11 +584,40 @@ export class ServerReplication {
   }
 
   /**
-   * The client read these parts of `tick` (ADR 0334): apply what each carried, once. A tick's
-   * unacked parts are kept for a later ack of the same tick; older ticks' records are dropped.
+   * The client applied every lifecycle message up to `tick` (ADR 0402; they're reliable and in order,
+   * so one tick says it all): their spawns are there, so snapshots may carry those ghosts' states,
+   * and each spawn's and relayout's full state is a baseline the client has.
+   */
+  private lifecycleAcked(peer: NetPeer, tick: number): void {
+    if (!(tick > 0 && tick <= this.session.tick)) return;
+    const ps = this.peers.get(peer);
+    if (!ps) return;
+    for (const [t, record] of ps.lifecycle) {
+      if (t > tick) break;
+      ps.lifecycle.delete(t);
+      for (const { id, layout, state, spawn } of record.states) {
+        // Only for the ghost's current stay: one that left and came back since is spawned afresh.
+        const pg = ps.known.get(id);
+        if (!pg || t < pg.since) continue;
+        if (spawn) pg.spawnAcked = true;
+        if (layout > pg.layoutAcked) pg.layoutAcked = layout;
+        if (!pg.baseline || t > pg.baselineTick) {
+          pg.baseline = state;
+          pg.baselineTick = t;
+          pg.baselineLayout = layout;
+        }
+      }
+    }
+  }
+
+  /**
+   * The client read these parts of `tick` (ADR 0334): their states become baselines, once, where
+   * they're newer than the ghost's baseline. The tick may be older than the newest acked: a part
+   * that came late by the reliable path (ADR 0405), which the client kept whole. Records are kept
+   * for `BASELINE_WINDOW` ticks (pruned when snapshots are written), each part's until it's acked.
    */
   private acked(peer: NetPeer, tick: number, parts: readonly number[]): void {
-    if (!(tick > 0 && tick >= peer.lastAckedTick && tick <= this.session.tick)) return;
+    if (!(tick > 0 && tick <= this.session.tick)) return;
     const ps = this.peers.get(peer);
     if (!ps) return;
     if (tick > peer.lastAckedTick) peer.lastAckedTick = tick;
@@ -557,70 +626,131 @@ export class ServerReplication {
       const sent = records?.[part];
       if (!sent) continue;
       records[part] = null;
-      this.applyAck(ps, tick, sent);
-    }
-    for (const t of ps.history.keys()) if (t < tick) ps.history.delete(t);
-  }
-
-  /** What one acked part carried is now on the client: spawns, despawns, leaves, layouts, structures, strings, baselines. */
-  private applyAck(ps: PeerState, tick: number, sent: Sent): void {
-    // Only what was sent during the ghost's current stay (or leave): one that left and came back
-    // since is spawned afresh, and the client has none of the earlier stay's states.
-    const current = (id: number): PeerGhost | undefined => {
-      const pg = ps.known.get(id);
-      return pg && tick >= pg.since ? pg : undefined;
-    };
-    for (const id of sent.spawns) {
-      const pg = current(id);
-      if (pg) pg.spawnAcked = true;
-    }
-    for (const id of sent.despawns) ps.despawns.delete(id);
-    for (const id of sent.leaves) if (tick >= (ps.leaves.get(id) ?? Infinity)) ps.leaves.delete(id);
-    for (const [id, version] of sent.relayouts) {
-      const pg = current(id);
-      if (pg && version > pg.layoutAcked) pg.layoutAcked = version;
-    }
-    for (const [id, version] of sent.structures) {
-      const pg = current(id);
-      if (pg && version > pg.structureAcked) pg.structureAcked = version;
-    }
-    ps.table.acked(sent.strings);
-    for (const [id, state] of sent.states) {
-      const pg = current(id);
-      if (pg && tick > pg.baselineTick) {
-        pg.baseline = state;
-        pg.baselineTick = tick;
-        pg.baselineLayout = sent.layouts.get(id) ?? -1;
+      for (const [id, state] of sent.states) {
+        // Only for the stay it was sent in: the ghost may have left and come back since.
+        const pg = ps.known.get(id);
+        if (pg && tick >= pg.since && tick > pg.baselineTick) {
+          pg.baseline = state;
+          pg.baselineTick = tick;
+          pg.baselineLayout = sent.layouts.get(id) ?? -1;
+        }
       }
     }
   }
 
   /**
-   * Write one connection's snapshot for `tick` (see the top of this file): one part, or several
-   * when it doesn't fit one datagram (ADR 0334). Remembers what each part carried.
+   * Write and send one connection's lifecycle message for `tick` (ADR 0402; the layout at the top of
+   * this file), if it has anything: this tick's despawns and leaves, the pending relayouts and
+   * structure changes of ghosts whose spawn went, and spawns not sent yet, in id order, while the
+   * snapshot budget lasts (at least one). Returns its size in bytes (0: none sent).
    */
-  private snapshot(peer: NetPeer, ps: PeerState, tick: number): Uint8Array[] {
+  private lifecycleMessage(peer: NetPeer, ps: PeerState, tick: number, despawns: number[], leaves: number[]): number {
+    const relayouts: ServerGhost[] = [];
+    const changes: ServerGhost[] = [];
+    const spawns: ServerGhost[] = [];
+    for (const [id, pg] of ps.known) {
+      const g = this.byId.get(id);
+      if (!g) continue;
+      if (!pg.spawnSent) spawns.push(g);
+      else {
+        if (pg.layoutSent < g.layoutVersion) relayouts.push(g);
+        if (pg.structureSent < g.structure.version) changes.push(g);
+      }
+    }
+    if (despawns.length + leaves.length + relayouts.length + changes.length + spawns.length === 0) return 0;
+    const byId = (a: { id: number }, b: { id: number }) => a.id - b.id;
+    despawns.sort((a, b) => a - b);
+    leaves.sort((a, b) => a - b);
+    relayouts.sort(byId);
+    changes.sort(byId);
+    spawns.sort(byId);
+    const w = new BitWriterImpl(256);
+    // Reliable and in order: a string is the client's as soon as it's written (`StringTableOut`).
+    const defined: number[] = [];
+    const tableWrite = ps.table.writer(defined);
+    const str: WriteString = (bw, value) => {
+      tableWrite(bw, value);
+      if (defined.length > 0) {
+        ps.table.acked(defined);
+        defined.length = 0;
+      }
+    };
+    const record: Lifecycle = { states: [] };
+    writeIds(w, despawns);
+    writeIds(w, leaves);
+    w.writeVarUint(relayouts.length);
+    let previous = 0;
+    for (const g of relayouts) {
+      w.writeVarUint(g.id - previous);
+      previous = g.id;
+      w.writeVarUint(g.layoutVersion);
+      writeSpec(w, g.layout.spec, str);
+      g.layout.codec.write(w, g.state as unknown as Record<string, number>);
+      ps.known.get(g.id)!.layoutSent = g.layoutVersion;
+      record.states.push({ id: g.id, layout: g.layoutVersion, state: g.state, spawn: false });
+    }
+    w.writeVarUint(changes.length);
+    previous = 0;
+    for (const g of changes) {
+      w.writeVarUint(g.id - previous);
+      previous = g.id;
+      writeStructure(w, g.structure, tick, str);
+      ps.known.get(g.id)!.structureSent = g.structure.version;
+    }
+    // Spawns last, each after a 1 bit (a 0 bit ends them), so they stop where the budget does: the
+    // budget less room for an empty snapshot part, guessing the next spawn is the size of the last.
+    const budget = (this.maxSnapshotBytes - PART_HEADER_BITS / 8) * 8;
+    previous = 0;
+    let last = 0;
+    for (const g of spawns) {
+      if (previous !== 0 && w.length + last > budget) break;
+      const start = w.length;
+      const pg = ps.known.get(g.id)!;
+      w.writeBits(1, 1);
+      w.writeVarUint(g.id - previous);
+      previous = g.id;
+      writeSpawn(w, g.spawn, g.layout.spec, str);
+      w.writeVarUint(g.layoutVersion);
+      writeStructure(w, g.structure, tick, str);
+      g.layout.codec.write(w, g.state as unknown as Record<string, number>);
+      last = w.length - start;
+      pg.spawnSent = true;
+      pg.layoutSent = g.layoutVersion;
+      pg.structureSent = g.structure.version;
+      record.states.push({ id: g.id, layout: g.layoutVersion, state: g.state, spawn: true });
+      ps.typeBits.set(g.type, (ps.typeBits.get(g.type) ?? 0) + last);
+    }
+    w.writeBits(0, 1);
+    if (record.states.length > 0) ps.lifecycle.set(tick, record);
+    const bytes = w.finish();
+    this.session.send(GHOSTS, peer, "reliable", bytes, tick);
+    return bytes.byteLength;
+  }
+
+  /**
+   * Write one connection's snapshot for `tick` (see the top of this file): the states of the ghosts
+   * whose spawn and current layout the client acked (ADR 0402), within `budgetBytes`, in one part, or
+   * several when they don't fit one datagram (ADR 0334). Remembers what each part carried.
+   */
+  private snapshot(peer: NetPeer, ps: PeerState, tick: number, budgetBytes: number): Uint8Array[] {
     const ack = peer.lastAckedTick;
     const base = ack > 0 && tick - ack <= BASELINE_WINDOW ? ack : 0;
     const all: ServerGhost[] = [];
-    for (const id of ps.known.keys()) {
+    for (const [id, pg] of ps.known) {
       const g = this.ghostById(id);
-      if (g) all.push(g);
+      if (g && pg.spawnAcked && pg.layoutAcked >= g.layoutVersion) all.push(g);
     }
     all.sort((a, b) => a.id - b.id); // ghosts back in relevance were added out of order
     // A part fits one datagram while the connection has a datagram path (ADR 0333); a tick holds
-    // at most the snapshot budget in all. Without one, a tick is one part of up to the budget.
+    // at most the budget in all. Without one, a tick is one part of up to the budget.
     const datagram = peer.datagramBodyBytes;
-    const partBits = Math.min(this.maxSnapshotBytes, datagram ?? Infinity) * 8;
-    const maxParts = datagram === undefined ? 1 : Math.min(MAX_SNAPSHOT_PARTS, Math.max(1, Math.floor((this.maxSnapshotBytes * 8) / partBits)));
-    const despawns = [...ps.despawns].sort((a, b) => a - b);
-    const leaves = [...ps.leaves.keys()].sort((a, b) => a - b);
+    const partBits = Math.min(budgetBytes, datagram ?? Infinity) * 8;
+    const maxParts = datagram === undefined ? 1 : Math.min(MAX_SNAPSHOT_PARTS, Math.max(1, Math.floor((budgetBytes * 8) / partBits)));
 
     let parts: Written[] | null = null;
-    let placedAll = true;
     if (!(ps.lastFullBits > partBits && ps.lastCosts.size > 0)) {
       // Write it whole: the common case, one part. Its sizes plan the parts if it doesn't fit.
-      const full = this.write(ps, tick, base, 0, { despawns, leaves, ghosts: all, extras: [] });
+      const full = this.write(ps, tick, base, 0, all);
       ps.lastFullBits = full.bits;
       ps.lastCosts = new Map(full.costs);
       if (full.bits <= partBits) parts = [full];
@@ -629,9 +759,9 @@ export class ServerReplication {
       // Over a part last time too: plan from last tick's sizes (a ghost not measured then is costed
       // as the largest one, to stay safe), instead of writing everything to measure.
       const fallback = ps.lastCosts.size > 0 ? Math.max(...ps.lastCosts.values()) : 0;
-      const plan = this.pack(ps, tick, all, despawns, leaves, fallback, partBits, maxParts);
+      const plan = this.pack(ps, tick, all, fallback, partBits, maxParts);
       parts = plan.plans.map((p, i) => this.writeWithin(ps, tick, base, i, p, partBits, plan.rank));
-      placedAll = plan.placed === all.length && parts.every((part, i) => part.plan.ghosts.length === plan.plans[i].ghosts.length);
+      const placedAll = plan.placed === all.length && parts.every((part, i) => part.ghosts.length === plan.plans[i].length);
       for (const part of parts) for (const [id, bits] of part.costs) ps.lastCosts.set(id, bits);
       // Everything went: what it took is what a whole write would (about), so once it fits a part
       // again the next tick writes it whole, in one part.
@@ -650,22 +780,19 @@ export class ServerReplication {
   }
 
   /**
-   * Fill parts first-fit in priority order (ADR 0334): despawns and leaves, then the pending
-   * relayouts and structure changes of spawned ghosts, then ghosts by priority (unacked spawns
-   * first, oldest first; then the ghosts unsent longest, times their importance). A ghost whose
-   * relayout or structure change is in a part goes in that part or waits, so its state never
-   * travels without them. Sizes come from `ps.lastCosts` (`fallback` for a ghost not in it).
+   * Fill parts first-fit in priority order (ADR 0334): the ghosts unsent longest, times their
+   * importance. Sizes come from `ps.lastCosts` (`fallback` for a ghost not in it).
    */
-  private pack(ps: PeerState, tick: number, all: readonly ServerGhost[], despawns: readonly number[], leaves: readonly number[], fallback: number, partBits: number, maxParts: number) {
+  private pack(ps: PeerState, tick: number, all: readonly ServerGhost[], fallback: number, partBits: number, maxParts: number) {
     const cap = partBits * 0.95;
     interface Bin {
-      readonly plan: { despawns: number[]; leaves: number[]; ghosts: ServerGhost[]; extras: ServerGhost[] };
+      readonly ghosts: ServerGhost[];
       used: number;
     }
     const bins: Bin[] = [];
     const open = (): Bin | null => {
       if (bins.length >= maxParts) return null;
-      const bin: Bin = { plan: { despawns: [], leaves: [], ghosts: [], extras: [] }, used: PART_HEADER_BITS };
+      const bin: Bin = { ghosts: [], used: PART_HEADER_BITS };
       bins.push(bin);
       return bin;
     };
@@ -676,71 +803,44 @@ export class ServerReplication {
       const bin = open();
       return bin && bin.used + cost <= cap ? bin : null;
     };
-    for (const [ids, list] of [[despawns, "despawns"], [leaves, "leaves"]] as const) {
-      for (const id of ids) {
-        const cost = varuintBits(id);
-        const bin = fit(cost);
-        if (!bin) break; // the rest go in a later snapshot
-        bin.plan[list].push(id);
-        bin.used += cost;
-      }
-    }
-    const extraIn = new Map<number, Bin>();
-    for (const g of all) {
-      const pg = ps.known.get(g.id)!;
-      if (!pg.spawnAcked || (pg.layoutAcked >= g.layoutVersion && pg.structureAcked >= g.structure.version)) continue;
-      const cost = pendingBits(g, pg, tick) + ID_SLACK_BITS;
-      const bin = fit(cost);
-      if (!bin) continue;
-      bin.plan.extras.push(g);
-      bin.used += cost;
-      extraIn.set(g.id, bin);
-    }
-    // Sort keys worked out once: unacked spawns first (by id), then by staleness times importance.
-    const keyed = all.map((g) => {
-      const pg = ps.known.get(g.id)!;
-      return { g, spawned: pg.spawnAcked, score: pg.spawnAcked ? (tick - pg.lastSentTick) * Math.max(0, g.rep.importance) : 0 };
-    });
-    keyed.sort((a, b) => (a.spawned !== b.spawned ? (a.spawned ? 1 : -1) : a.spawned ? b.score - a.score : a.g.id - b.g.id));
+    // Sort keys worked out once: staleness times importance.
+    const keyed = all.map((g) => ({ g, score: (tick - ps.known.get(g.id)!.lastSentTick) * Math.max(0, g.rep.importance) }));
+    keyed.sort((a, b) => b.score - a.score || a.g.id - b.g.id);
     const ranked = keyed.map((k) => k.g);
     const rank = new Map(ranked.map((g, i) => [g.id, i]));
     let placed = 0;
     for (const g of ranked) {
       const cost = (ps.lastCosts.get(g.id) ?? fallback) + ID_SLACK_BITS;
-      const home = extraIn.get(g.id);
-      let bin: Bin | null = home ? (home.used + cost <= cap ? home : null) : fit(cost);
-      // Always at least one ghost, even one bigger than a part (that message goes over the socket, ADR 0333).
-      if (!bin && placed === 0) bin = home ?? bins.find((b) => b.used === PART_HEADER_BITS) ?? open() ?? bins[0];
+      let bin = fit(cost);
+      // Always at least one ghost, even one bigger than a part (that message goes over the socket,
+      // ADR 0333; if it arrives after the next tick's datagrams it's stale and dropped, ADR 0402).
+      if (!bin && placed === 0) bin = bins.find((b) => b.used === PART_HEADER_BITS) ?? open() ?? bins[0];
       if (!bin) continue;
-      if (home) home.plan.extras.splice(home.plan.extras.indexOf(g), 1); // it travels with its state now
-      bin.plan.ghosts.push(g);
+      bin.ghosts.push(g);
       bin.used += cost;
       placed++;
     }
-    const byId = (a: { id: number }, b: { id: number }) => a.id - b.id;
-    const plans: PartPlan[] = bins
-      .filter((b) => b.plan.despawns.length + b.plan.leaves.length + b.plan.ghosts.length + b.plan.extras.length > 0)
-      .map((b) => ({ despawns: b.plan.despawns.sort((x, y) => x - y), leaves: b.plan.leaves.sort((x, y) => x - y), ghosts: b.plan.ghosts.sort(byId), extras: b.plan.extras.sort(byId) }));
-    if (plans.length === 0) plans.push({ despawns: [], leaves: [], ghosts: [], extras: [] }); // a tick always sends one
+    const plans: ServerGhost[][] = bins.filter((b) => b.ghosts.length > 0).map((b) => b.ghosts.sort((x, y) => x.id - y.id));
+    if (plans.length === 0) plans.push([]); // a tick always sends one
     return { plans, rank, placed };
   }
 
   /**
-   * Write part `part` of `plan`; one that comes out over `partBits` (the plan's sizes were off) sheds
-   * its lowest-priority ghosts (`rank`) and is written again. A single ghost is kept, however big.
+   * Write part `part` with `ghosts`; one that comes out over `partBits` (the plan's sizes were off)
+   * sheds its lowest-priority ghosts (`rank`) and is written again. A single ghost is kept, however big.
    */
-  private writeWithin(ps: PeerState, tick: number, base: number, part: number, plan: PartPlan, partBits: number, rank: ReadonlyMap<number, number>): Written {
-    let written = this.write(ps, tick, base, part, plan);
-    for (let tries = 0; written.bits > partBits && plan.ghosts.length > 1 && tries < 3; tries++) {
+  private writeWithin(ps: PeerState, tick: number, base: number, part: number, ghosts: readonly ServerGhost[], partBits: number, rank: ReadonlyMap<number, number>): Written {
+    let written = this.write(ps, tick, base, part, ghosts);
+    for (let tries = 0; written.bits > partBits && ghosts.length > 1 && tries < 3; tries++) {
       let excess = written.bits - partBits * 0.95;
-      const keep = new Set(plan.ghosts);
-      for (const g of [...plan.ghosts].sort((a, b) => rank.get(b.id)! - rank.get(a.id)!)) {
+      const keep = new Set(ghosts);
+      for (const g of [...ghosts].sort((a, b) => rank.get(b.id)! - rank.get(a.id)!)) {
         if (excess <= 0 || keep.size <= 1) break;
         keep.delete(g);
         excess -= written.costs.get(g.id) ?? 0;
       }
-      plan = { ...plan, ghosts: plan.ghosts.filter((g) => keep.has(g)) };
-      written = this.write(ps, tick, base, part, plan);
+      ghosts = ghosts.filter((g) => keep.has(g));
+      written = this.write(ps, tick, base, part, ghosts);
     }
     return written;
   }
@@ -749,65 +849,16 @@ export class ServerReplication {
     return this.byId.get(id);
   }
 
-  /**
-   * Write one snapshot part (the layout at the top of this file): `plan`'s despawns and leaves, its
-   * ghosts' spawns, pending relayouts, structure changes and states, and its extras' pending
-   * relayouts and structure changes. Each ghost's bits (all of those) are in `costs`.
-   */
-  private write(ps: PeerState, tick: number, base: number, part: number, plan: PartPlan): Written {
+  /** Write one snapshot part (the layout at the top of this file): `ghosts`' states. Each ghost's bits are in `costs`. */
+  private write(ps: PeerState, tick: number, base: number, part: number, ghosts: readonly ServerGhost[]): Written {
     const w = new BitWriterImpl(256);
-    const sent: Sent = { spawns: [], despawns: [...plan.despawns], leaves: [...plan.leaves], states: new Map(), layouts: new Map(), relayouts: [], structures: [], strings: [] };
-    const str = ps.table.writer(sent.strings);
+    const sent: Sent = { states: new Map(), layouts: new Map() };
     const costs = new Map<number, number>();
-    const add = (id: number, bits: number) => costs.set(id, (costs.get(id) ?? 0) + bits);
     w.writeVarUint(part);
     w.writeVarUint(base ? tick - base : 0);
-    writeIds(w, sent.despawns);
-    writeIds(w, sent.leaves);
-    const spawning = plan.ghosts.filter((g) => !ps.known.get(g.id)!.spawnAcked);
-    w.writeVarUint(spawning.length);
+    w.writeVarUint(ghosts.length);
     let previous = 0;
-    for (const g of spawning) {
-      const start = w.length;
-      w.writeVarUint(g.id - previous);
-      previous = g.id;
-      writeSpawn(w, g.spawn, g.layout.spec, str);
-      w.writeVarUint(g.layoutVersion);
-      writeStructure(w, g.structure, tick, str);
-      add(g.id, w.length - start);
-      sent.spawns.push(g.id);
-      sent.relayouts.push([g.id, g.layoutVersion]);
-      sent.structures.push([g.id, g.structure.version]);
-    }
-    // Pending relayouts and structure changes of spawned ghosts in this part, repeated until acked;
-    // a relayout comes before any state in its layout (ADR 0121, 0100).
-    const spawned = [...plan.ghosts, ...plan.extras].filter((g) => ps.known.get(g.id)!.spawnAcked).sort((a, b) => a.id - b.id);
-    const relayout = spawned.filter((g) => ps.known.get(g.id)!.layoutAcked < g.layoutVersion);
-    w.writeVarUint(relayout.length);
-    previous = 0;
-    for (const g of relayout) {
-      const start = w.length;
-      w.writeVarUint(g.id - previous);
-      previous = g.id;
-      w.writeVarUint(g.layoutVersion);
-      writeSpec(w, g.layout.spec, str);
-      add(g.id, w.length - start);
-      sent.relayouts.push([g.id, g.layoutVersion]);
-    }
-    const changed = spawned.filter((g) => ps.known.get(g.id)!.structureAcked < g.structure.version);
-    w.writeVarUint(changed.length);
-    previous = 0;
-    for (const g of changed) {
-      const start = w.length;
-      w.writeVarUint(g.id - previous);
-      previous = g.id;
-      writeStructure(w, g.structure, tick, str);
-      add(g.id, w.length - start);
-      sent.structures.push([g.id, g.structure.version]);
-    }
-    w.writeVarUint(plan.ghosts.length);
-    previous = 0;
-    for (const g of plan.ghosts) {
+    for (const g of ghosts) {
       const start = w.length;
       const pg = ps.known.get(g.id)!;
       w.writeVarUint(g.id - previous);
@@ -829,22 +880,12 @@ export class ServerReplication {
         w.writeBits(0, 2);
         g.layout.codec.write(w, values);
       }
-      add(g.id, w.length - start);
+      costs.set(g.id, w.length - start);
       sent.states.set(g.id, g.state);
       sent.layouts.set(g.id, g.layoutVersion);
     }
-    return { bytes: w.finish(), bits: w.length, costs, sent, plan };
+    return { bytes: w.finish(), bits: w.length, costs, sent, ghosts };
   }
-}
-
-/** What one snapshot part carries (ADR 0334): ids and ghosts, each list in id order. */
-interface PartPlan {
-  readonly despawns: readonly number[];
-  readonly leaves: readonly number[];
-  /** Ghosts whose state it carries, with their spawn or pending relayout and structure change. */
-  readonly ghosts: readonly ServerGhost[];
-  /** Spawned ghosts whose pending relayout or structure change it carries without a state. */
-  readonly extras: readonly ServerGhost[];
 }
 
 /** One written part: its bytes and bits, each ghost's bits, and what it carried. */
@@ -853,40 +894,15 @@ interface Written {
   readonly bits: number;
   readonly costs: Map<number, number>;
   readonly sent: Sent;
-  readonly plan: PartPlan;
+  readonly ghosts: readonly ServerGhost[];
 }
 
-/** What a part's header can take besides its items: the part index, the baseline gap and six counts. */
+/** What a part's header can take besides its states: the part index, the baseline gap and the count. */
 const PART_HEADER_BITS = 12 * 8;
 /** How many of the newest parts a planned item may go in. */
 const FIT_LOOKBACK = 4;
 /** Slack per ghost in a plan: its id gap in a part can be a byte longer than in the whole snapshot. */
 const ID_SLACK_BITS = 8;
-
-/** Bits of `value` as a varuint (7 bits per byte). */
-function varuintBits(value: number): number {
-  let bytes = 1;
-  for (let v = value; v >= 0x80; v = Math.floor(v / 0x80)) bytes++;
-  return bytes * 8;
-}
-
-/**
- * Bits of a spawned ghost's pending relayout and structure change on their own (strings inline, so
- * at least what the table writes), for planning parts.
- */
-function pendingBits(g: ServerGhost, pg: PeerGhost, tick: number): number {
-  const w = new BitWriterImpl(64);
-  if (pg.layoutAcked < g.layoutVersion) {
-    w.writeVarUint(g.id);
-    w.writeVarUint(g.layoutVersion);
-    writeSpec(w, g.layout.spec, plainWrite);
-  }
-  if (pg.structureAcked < g.structure.version) {
-    w.writeVarUint(g.id);
-    writeStructure(w, g.structure, tick, plainWrite);
-  }
-  return w.length;
-}
 
 /** A relevant ghost stays relevant until it's this much beyond its `relevantDistance` (ADR 0121). */
 export const LEAVE_HYSTERESIS = 1.1;

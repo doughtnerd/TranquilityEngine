@@ -8,7 +8,7 @@ import { blendStyleIndex, parseLighting2D } from "../render/lights2D/settings";
 import { casterFillMesh, outlineSegments, shadowEdgeMesh, shadowFactor } from "../render/lights2D/shadowGeometry";
 import { formatImportSettings, parseImportSettings } from "../scene/importSettings";
 
-// 2D lighting's renderer-neutral parts (ADR 0399, 0400, 0401): settings, layer batches, light shapes, shadow geometry,
+// 2D lighting's renderer-neutral parts (ADR 0399, 0407, 0408): settings, layer batches, light shapes, shadow geometry,
 // the sidecar's secondary textures and outlines, and Light2D.sampleAt on a headless World.
 
 describe("lighting2D settings", () => {
@@ -141,7 +141,7 @@ describe("shadow geometry", () => {
   });
 });
 
-describe("sprite sidecars (ADR 0401)", () => {
+describe("sprite sidecars (ADR 0408)", () => {
   it("reads and writes secondary textures, the normal map convention and slice outlines", () => {
     const raw = {
       format: "myco.import@1",

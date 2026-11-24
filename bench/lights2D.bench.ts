@@ -1,5 +1,5 @@
 /**
- * The 2D lighting rig's CPU cost per frame (ADR 0399, 0400), headless on Babylon's NullEngine.
+ * The 2D lighting rig's CPU cost per frame (ADR 0399, 0407), headless on Babylon's NullEngine.
  * Run: `npx vitest bench --run bench/lights2D.bench.ts`.
  *
  * The scene is ADR 0399's budget scene: 1 global and 12 point lights, 4 of them shadowed, 200 caster edges (50 square

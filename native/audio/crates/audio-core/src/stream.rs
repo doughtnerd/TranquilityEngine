@@ -410,6 +410,13 @@ impl StreamStore {
                     return false; // a restart can't change the class or the pool
                 }
                 let r = &mut self.rings[i];
+                // ADR 0386 (Q22): a stream's format is fixed when it opens, as FMOD, Wwise, Unity and
+                // Unreal fix theirs: a restart (a newer epoch, or the OPEN a SEEK awaits) at another
+                // sample rate or channel count is refused like a class change; main starts a new voice.
+                let restart = (r.epoch == o.epoch && r.awaiting_open != 0) || newer(o.epoch, r.epoch);
+                if restart && (o.channels != r.channels || o.sample_rate != r.rate) {
+                    return false;
+                }
                 if r.epoch == o.epoch {
                     if r.awaiting_open != 0 {
                         r.awaiting_open = 0;
@@ -467,7 +474,7 @@ impl StreamStore {
     /// The stream event a refused [`StreamStore::open`] of `o` reports (api-and-models §4.3):
     /// `MUSIC_FULL` (4) for a well-formed `music` open of a new stream that found the music pool
     /// full, `ERROR` (3) otherwise (no general or wide ring free, an unusable shape, a restart
-    /// that changes class or pool). Call it after `open` returned false.
+    /// that changes class, pool, sample rate or channel count, ADR 0386). Call it after `open` returned false.
     pub fn refusal_code(&self, o: &StreamOpen) -> u32 {
         let music = o.flags & wire::STREAM_OPEN_FLAG_MUSIC != 0;
         let shape_ok = o.channels >= 1 && o.channels as usize <= RING_CHANNELS && o.sample_rate > 0.0;
@@ -984,6 +991,26 @@ mod tests {
         assert!(s.open(&StreamOpen { start_frame: 9_000, ..open_rec(1, 2, 2) }));
         let r = s.ring(0);
         assert_eq!((r.written, r.epoch, r.start_frame), (0, 2, 9_000));
+    }
+
+    #[test]
+    fn a_restart_at_another_sample_rate_or_channel_count_is_refused() {
+        // ADR 0386 (Q22): a stream's format is fixed at its open, as a class is.
+        let mut s = store(1);
+        assert!(s.open(&open_rec(1, 2, 1)));
+        assert_eq!(write(&mut s, 1, &[0.25; 512], 2, 1, 0), wire::ERR_OK);
+        let at_44k = StreamOpen { sample_rate: 44_100.0, ..open_rec(1, 2, 2) };
+        assert!(!s.open(&at_44k), "a newer epoch at another rate");
+        assert_eq!(s.refusal_code(&at_44k), wire::stream_event::ERROR);
+        assert!(!s.open(&open_rec(1, 1, 2)), "a newer epoch with another channel count");
+        let r = s.ring(0);
+        assert_eq!((r.epoch, r.written, r.channels, r.rate), (1, 256, 2, 48_000.0), "the ring is untouched");
+        // The OPEN a SEEK awaits is held to the same format.
+        assert!(s.seek(1, 3, 0));
+        assert!(!s.open(&StreamOpen { sample_rate: 96_000.0, ..open_rec(1, 2, 3) }));
+        assert_eq!(s.ring(0).awaiting_open, 1);
+        assert!(s.open(&open_rec(1, 2, 3)), "the same format restarts");
+        assert_eq!(s.ring(0).awaiting_open, 0);
     }
 
     #[test]

@@ -1,15 +1,15 @@
-# 0401. Sprite textures carry secondary textures (normal map, mask map) and per-slice outlines in their sidecar, edited in the Sprite Editor
+# 0408. Sprite textures carry secondary textures (normal map, mask map) and per-slice outlines in their sidecar, edited in the Sprite Editor
 
 - **Status:** Accepted
 - **Date:** 2026-11-24
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0040, 0115, 0119, 0370, 0392, 0399, 0400
+- **Related:** 0040, 0115, 0119, 0370, 0392, 0399, 0407
 
 ## Context
 
 Lit sprites (ADR 0399) need a normal map and a mask map that line up with the sprite's texture. Shadow casters
-(ADR 0400) need a sprite's outline. The sprite texture's sidecar (`*.import.json`, ADR 0040) holds slices (rect,
+(ADR 0407) need a sprite's outline. The sprite texture's sidecar (`*.import.json`, ADR 0040) holds slices (rect,
 pivot, border, fill, skin; 0115, 0370) and import settings. It has nothing for either.
 
 Unity keeps both on the sprite texture in the Sprite Editor: **Secondary Textures** (named textures such as

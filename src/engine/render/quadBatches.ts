@@ -68,11 +68,11 @@ export interface QuadBatch {
 export interface QuadLighting {
   /** The sorting layer whose light textures it reads (the one its order came from). */
   readonly sortingLayer: string;
-  /** The sprite texture's normal map (ADR 0401), or null. */
+  /** The sprite texture's normal map (ADR 0408), or null. */
   readonly normalMap?: string | null;
   /** Its normal map's green channel points down (DirectX). */
   readonly normalMapGreenDown?: boolean;
-  /** The sprite texture's mask map (ADR 0401), or null. */
+  /** The sprite texture's mask map (ADR 0408), or null. */
   readonly maskMap?: string | null;
 }
 

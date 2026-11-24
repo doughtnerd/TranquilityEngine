@@ -1,4 +1,4 @@
-// The 2D lighting rig on Babylon (ADR 0399, 0400), without a GPU: batching and layout from a World's lights, the light
+// The 2D lighting rig on Babylon (ADR 0399, 0407), without a GPU: batching and layout from a World's lights, the light
 // pass's shaders, the lit layered-quad material's compiled text (ADR 0225), and the frame graph's 2D light task.
 import { ShaderStore } from "@babylonjs/core/Engines/shaderStore.js";
 import { FrameGraph } from "@babylonjs/core/FrameGraph/frameGraph.js";

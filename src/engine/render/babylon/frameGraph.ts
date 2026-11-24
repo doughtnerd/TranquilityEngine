@@ -219,7 +219,7 @@ export interface Lights2DTextures {
   batches: { flat: ThinTexture[]; dirColor: ThinTexture[]; dirVec: ThinTexture[] }[];
 }
 
-/** The frame graph task drawing a camera's 2D shadow and light textures (ADR 0399, 0400) through the rig. */
+/** The frame graph task drawing a camera's 2D shadow and light textures (ADR 0399, 0407) through the rig. */
 class FrameGraphLights2DTask extends FrameGraphTask {
   readonly outputTexture: FrameGraphTextureHandle;
   constructor(

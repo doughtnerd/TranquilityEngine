@@ -223,9 +223,14 @@ export async function createPrefabFrom(scene: OpenScene, project: EditorProject 
   if (refused(prefabActions(scene, project, paths).create, "Create Prefab") || !project) return null;
   const ids = paths.map((p) => p[0]);
   try {
-    const path = ids.length === 1 ? await createPrefab(scene, project, ids[0]) : await createPrefabFromNodes(scene, project, ids);
+    const { path, instanceOverrides: n, droppedListItems: d } = ids.length === 1 ? await createPrefab(scene, project, ids[0]) : await createPrefabFromNodes(scene, project, ids);
     if (ids.length === 1) select([ids[0]]);
-    status.value = { kind: "info", text: `Created ${path}. Undo turns the node${ids.length === 1 ? "" : "s"} back; the file stays on disk.` };
+    // ADR 0401: a prefab file can't reference scene nodes, so those references stay on the instance.
+    const kept =
+      n === 0 ? "" : ` ${n} reference${n === 1 ? "" : "s"} to nodes outside the prefab became instance override${n === 1 ? "" : "s"}; the prefab file leaves ${n === 1 ? "it" : "them"} empty.`;
+    const left =
+      d === 0 ? "" : ` ${d} list item${d === 1 ? "" : "s"} naming nodes inside the prefab ${d === 1 ? "was" : "were"} cleared in the instance's override${d === 1 ? "" : "s"} (the prefab file keeps ${d === 1 ? "it" : "them"}).`;
+    status.value = { kind: "info", text: `Created ${path}.${kept}${left} Undo turns the node${ids.length === 1 ? "" : "s"} back; the file stays on disk.` };
     return path;
   } catch (err) {
     status.value = errorStatus(null, err);

@@ -29,7 +29,7 @@ export interface BabylonQuadBatchDeps {
   readonly scene: Scene;
   /** A loaded texture, or null (and it starts loading): `onLoad` runs once it has. */
   texture(path: string, onLoad: () => void): Texture | null;
-  /** A loaded data texture (a normal or mask map, read linear, ADR 0401), or null (and it starts loading). */
+  /** A loaded data texture (a normal or mask map, read linear, ADR 0408), or null (and it starts loading). */
   dataTexture(path: string, onLoad: () => void): Texture | null;
   sortOrder(layer: string, order: number): number;
 }

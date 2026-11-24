@@ -12,8 +12,8 @@ Unity URP's 2D renderer:
 drawing is part of the engine's core lighting.
 
 The design is in [ADR 0399](../decisions/0399-2d-lights-draw-into-screen-light-textures-that-a-lit-layered-quad-material-reads.md)
-(lights and the lit sprite material), [ADR 0400](../decisions/0400-2d-shadow-casters-extrude-outline-edges-from-colliders-tilemaps-and-sprite-outlines.md)
-(shadows) and [ADR 0401](../decisions/0401-sprite-textures-carry-secondary-textures-and-slice-outlines-in-their-sidecar.md)
+(lights and the lit sprite material), [ADR 0407](../decisions/0407-2d-shadow-casters-extrude-outline-edges-from-colliders-tilemaps-and-sprite-outlines.md)
+(shadows) and [ADR 0408](../decisions/0408-sprite-textures-carry-secondary-textures-and-slice-outlines-in-their-sidecar.md)
 (normal maps, mask maps and outlines). This guide is about using them.
 
 ## Getting started

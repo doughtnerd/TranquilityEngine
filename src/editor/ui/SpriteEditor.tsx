@@ -48,12 +48,12 @@ interface EditSlice {
   fill?: SpriteFill;
   /** The 2D skin the Bones tool edits (ADR 0371); the Sprite Editor only carries it. */
   skin?: SliceSkin;
-  /** The outline the Lights 2D plugin's Outline tool edits (ADR 0401); the Sprite Editor only carries it. */
+  /** The outline the Lights 2D plugin's Outline tool edits (ADR 0408); the Sprite Editor only carries it. */
   outline?: [number, number][][];
   original: string | null;
 }
 
-/** Everything one undo step holds: the slices, the image's flipbooks (the Flipbooks tool's) and secondary textures (ADR 0401). */
+/** Everything one undo step holds: the slices, the image's flipbooks (the Flipbooks tool's) and secondary textures (ADR 0408). */
 interface EditState {
   slices: EditSlice[];
   flipbooks: Record<string, SpriteFlipbook>;

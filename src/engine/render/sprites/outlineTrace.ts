@@ -1,7 +1,7 @@
 /**
- * Image-to-polygon tracing (ADR 0401): the outlines of the pixels whose alpha is above a threshold, simplified. A
+ * Image-to-polygon tracing (ADR 0408): the outlines of the pixels whose alpha is above a threshold, simplified. A
  * generic library function: the Sprite Editor's Generate Outline calls it on a slice, and slice outlines feed 2D shadow
- * casters (ADR 0400). Nothing traces at run time: outlines are authored data in the sidecar.
+ * casters (ADR 0407). Nothing traces at run time: outlines are authored data in the sidecar.
  *
  * The trace walks pixel edges (each solid pixel's side that faces a clear pixel or the rect's edge), chains them into
  * closed loops with the solid on the left (counter-clockwise, y up), drops holes (clockwise loops), and simplifies each

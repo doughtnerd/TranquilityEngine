@@ -1,12 +1,13 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { networkInterfaces, tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { GAMEPAD_COMMANDS, GAMEPAD_DEPENDENCIES, desktopProjectFiles, slug } from "./desktop";
 import { modulePath, relativeSpecifier, type GameManifest } from "./format";
 import { exportProject } from "./node";
 import { USAGE, parseArgs } from "./main";
-import { ExportError, isOutputInsideProject, planWebBuild, type BuildSource } from "./webBuild";
+import { ExportError, RENDEZVOUS_FILE, SERVE_SCRIPT, debugServeScript, isOutputInsideProject, planWebBuild, type BuildSource } from "./webBuild";
 import { typescript } from "../editor/moduleImports";
 
 const SAMPLES = join(__dirname, "..", "..", "samples");
@@ -214,6 +215,155 @@ describe("the debug link option (ADR 0376)", () => {
   });
 });
 
+/** This machine's non-loopback IPv4 addresses (a machine without any prints no "On your network" line). */
+const networkInterfaces4 = () => Object.values(networkInterfaces()).flatMap((list) => (list ?? []).filter((a) => a.family === "IPv4" && !a.internal));
+
+describe("a debug web build hosts the rendezvous (ADR 0403 'Rendezvous' 2 and 3)", () => {
+  const BUNDLE = "export async function startRendezvous() {}\n";
+  const files = async (o: object) => (await planWebBuild(source(), o)).generated;
+
+  it("a release build's serve.mjs is unchanged and has no bundle, whatever the bundle option says", async () => {
+    const release = await files({ rendezvousBundle: BUNDLE });
+    expect(release.get("serve.mjs")).toBe(SERVE_SCRIPT);
+    expect(release.get("serve.mjs")).toContain('server.listen(port, "127.0.0.1"');
+    expect(release.has(RENDEZVOUS_FILE)).toBe(false);
+  });
+
+  it("--debug-link with the bundle: rendezvous.mjs beside a serve.mjs that mounts it, still on 127.0.0.1", async () => {
+    const g = await files({ debugLink: true, rendezvousBundle: BUNDLE });
+    expect(g.get(RENDEZVOUS_FILE)).toBe(BUNDLE);
+    const serve = g.get("serve.mjs")!;
+    expect(serve).toContain('import { startRendezvous } from "./rendezvous.mjs"');
+    expect(serve).toContain('await startRendezvous(server, "/myco-rendezvous")');
+    expect(serve).toContain('server.listen(port, "127.0.0.1"');
+    expect(serve).not.toContain("0.0.0.0");
+    expect(g.get("README.txt")).toContain("/myco-rendezvous");
+  });
+
+  it("--debug-lan binds 0.0.0.0 and prints the LAN addresses; without the bundle it still does, and warns", async () => {
+    const lan = await files({ debugLan: true, rendezvousBundle: BUNDLE });
+    expect(lan.get("serve.mjs")).toContain('server.listen(port, "0.0.0.0"');
+    expect(lan.get("serve.mjs")).toContain("On your network: http://");
+    expect(lan.get("README.txt")).toContain("every network interface");
+    const plan = await planWebBuild(source(), { debugLan: true });
+    expect(plan.generated.has(RENDEZVOUS_FILE)).toBe(false);
+    expect(plan.generated.get("serve.mjs")).not.toContain("rendezvous.mjs");
+    expect(plan.generated.get("serve.mjs")).toContain('server.listen(port, "0.0.0.0"');
+    expect(plan.warnings?.join("\n")).toMatch(/no rendezvous\.mjs[\s\S]*npm run build:rendezvous/);
+  });
+
+  it("every flag combination writes a serve.mjs that runs: serves the page, mounts the rendezvous, prints the LAN", async () => {
+    // A stand-in bundle: it is handed the server and the path, and answers /rendezvous-mounted over HTTP with the path.
+    const bundle = 'export async function startRendezvous(server, path) { server.prependListener("request", (req, res) => { if (req.url === "/rendezvous-mounted") res.end(path); }); }\n';
+    for (const lan of [false, true]) {
+      for (const rendezvous of [false, true]) {
+        const label = `lan ${lan}, rendezvous ${rendezvous}`;
+        const dir = mkdtempSync(join(tmpdir(), "myco-serve-"));
+        try {
+          writeFileSync(join(dir, "serve.mjs"), debugServeScript({ lan, rendezvous }));
+          writeFileSync(join(dir, "index.html"), "<title>game</title>");
+          if (rendezvous) writeFileSync(join(dir, RENDEZVOUS_FILE), bundle);
+          const child = spawn(process.execPath, [join(dir, "serve.mjs"), "0"], { stdio: ["ignore", "pipe", "pipe"] });
+          let out = "";
+          child.stderr.on("data", (d: Buffer) => (out += d));
+          try {
+            const port = await new Promise<number>((resolve, reject) => {
+              child.on("exit", (code) => reject(new Error(`serve.mjs exited ${code}: ${out}`)));
+              child.stdout.on("data", (d: Buffer) => {
+                out += d;
+                const m = /http:\/\/127\.0\.0\.1:(\d+)\//.exec(out);
+                if (m) setTimeout(() => resolve(Number(m[1])), 50); // the rest of the lines
+              });
+            });
+            expect(await (await fetch(`http://127.0.0.1:${port}/`)).text(), label).toContain("<title>game</title>");
+            const mounted = await fetch(`http://127.0.0.1:${port}/rendezvous-mounted`);
+            if (rendezvous) expect(await mounted.text(), label).toBe("/myco-rendezvous");
+            else expect(mounted.status, label).toBe(404);
+            expect(out.includes("Pairing rendezvous at ws://127.0.0.1:"), label).toBe(rendezvous);
+            expect(out.includes("On your network: http://"), label).toBe(lan && networkInterfaces4().length > 0);
+          } finally {
+            child.removeAllListeners("exit");
+            child.kill();
+          }
+        } finally {
+          rmSync(dir, { recursive: true, force: true });
+        }
+      }
+    }
+  }, 30_000);
+
+  it("--debug-rendezvous implies debugging on and is written as debug.rendezvous; a bad address is refused", async () => {
+    const plan = await planWebBuild(source(), { debugRendezvous: "wss://rdv.example.com/myco-rendezvous" });
+    expect(plan.manifest.debug).toEqual({ rendezvous: "wss://rdv.example.com/myco-rendezvous" });
+    await expect(planWebBuild(source(), { debugRendezvous: "https://x" })).rejects.toThrow(/ws:\/\/ or wss:\/\/ URL/);
+    await expect(planWebBuild(source(), { debugRendezvous: "nope" })).rejects.toThrow(/ws:\/\/ or wss:\/\/ URL/);
+  });
+
+  it("the command line takes --debug-rendezvous and the help says what it does", () => {
+    expect(parseArgs(["proj", "--debug-rendezvous", "wss://rdv.example.com/myco-rendezvous"])).toEqual({ projectDir: "proj", debugRendezvous: "wss://rdv.example.com/myco-rendezvous" });
+    expect(() => parseArgs(["proj", "--debug-rendezvous", "https://x"])).toThrow(/ws:\/\/ or wss:\/\//);
+    expect(() => parseArgs(["proj", "--debug-rendezvous"])).toThrow(/needs/);
+    expect(USAGE).toMatch(/--debug-rendezvous[\s\S]*rendezvous\.mjs[\s\S]*--build/);
+  });
+});
+
+describe("the debug link's listening flags (ADR 0403)", () => {
+  it("--debug-listen, --debug-lan and --debug-port parse, imply debugging on, and the help says so", () => {
+    expect(parseArgs(["proj", "--debug-listen"])).toEqual({ projectDir: "proj", debugListen: true });
+    expect(parseArgs(["proj", "--debug-listen", "--debug-lan", "--debug-port", "7800"])).toEqual({ projectDir: "proj", debugListen: true, debugLan: true, debugPort: 7800 });
+    expect(() => parseArgs(["proj", "--debug-port", "0"])).toThrow(/whole number/);
+    expect(() => parseArgs(["proj", "--debug-port", "x"])).toThrow(/whole number/);
+    expect(USAGE).toMatch(/--debug-listen[\s\S]*--debug-code[\s\S]*--debug-lan[\s\S]*--debug-port/);
+  });
+
+  it("game.json gets debug.listen, debug.lan and debug.port; a listen-only build writes no link (it would dial the default address)", async () => {
+    const debug = async (o: object) => JSON.parse((await planWebBuild(source(), o)).generated.get("game.json")!).debug;
+    expect(await debug({ debugListen: true })).toEqual({ listen: true });
+    expect(await debug({ debugListen: true, debugLan: true, debugPort: 7800 })).toEqual({ listen: true, lan: true, port: 7800 });
+    expect(await debug({ debugLan: true })).toEqual({ lan: true });
+    expect(await debug({ debugLink: "192.168.1.4:7790", debugListen: true })).toEqual({ link: "ws://192.168.1.4:7790/myco-debug", listen: true });
+    expect(await debug({})).toBeUndefined();
+    await expect(planWebBuild(source(), { debugPort: 70000 })).rejects.toThrow(/debug port/);
+  });
+
+  const crates = new Map([
+    ["ws-listener/Cargo.toml", "# ws\n"],
+    ["ws-listener/src/lib.rs", "// ws\n"],
+    ["debug-link-tauri/Cargo.toml", "# tauri\n"],
+    ["debug-link-tauri/src/lib.rs", "// tauri\n"],
+  ]);
+
+  it("a debug desktop package vendors the listener crates, depends on them, manages the listeners and registers the commands", () => {
+    const files = desktopProjectFiles({ name: "x", settings: {}, gamepadModule: "", debug: true, debugListener: crates });
+    for (const [path, text] of crates) expect(files.get(`vendor/${path}`)).toBe(text);
+    expect(files.get("Cargo.toml")).toMatch(/^\[dependencies\][\s\S]*^myco-debug-link-tauri = \{ path = "vendor\/debug-link-tauri" \}$[\s\S]*^\[dev-dependencies\]/m);
+    const lib = files.get("src/lib.rs")!;
+    expect(lib).toContain("builder = builder.manage(debug_link_tauri::DebugLinkListeners::default());");
+    expect(lib).toContain("builder = builder.manage(debug_link_tauri::DebugDiscovery::default());");
+    for (const c of ["listen_range", "listen", "send", "close", "interfaces", "advertise", "unadvertise", "browse", "browse_stop"]) expect(lib).toContain(`debug_link_tauri::commands::myco_debuglink_${c},`);
+    expect(lib).toContain("gamepad::myco_gamepad_listen,");
+    // The Android multicast lock (pairing plan D3), so discovery works on a phone.
+    expect(files.get("Cargo.toml")).toMatch(/^tauri-plugin-myco-multicast = \{ path = "vendor\/tauri-plugin-myco-multicast" \}$/m);
+    expect(lib).toContain(".plugin(tauri_plugin_myco_multicast::init())");
+    expect(lib).toContain('a == "--debug-code"');
+    expect(lib).toContain("globalThis.__mycoDebugCode = {literal};");
+  });
+
+  it("a release package, and a debug one given no crates, have none of it", () => {
+    for (const o of [{}, { debugListener: crates }, { debug: true }]) {
+      const files = desktopProjectFiles({ name: "x", settings: {}, gamepadModule: "", ...o });
+      expect([...files.keys()].filter((k) => k.startsWith("vendor/"))).toEqual([]);
+      expect(files.get("Cargo.toml")).not.toContain("myco-debug-link-tauri");
+      expect(files.get("src/lib.rs")).not.toContain("DebugLinkListeners");
+      expect(files.get("src/lib.rs")).not.toContain("DebugDiscovery");
+      expect(files.get("src/lib.rs")).not.toContain("myco_debuglink");
+      expect(files.get("Cargo.toml")).not.toContain("tauri-plugin-myco-multicast");
+      expect(files.get("src/lib.rs")).not.toContain("myco_multicast");
+    }
+    expect(desktopProjectFiles({ name: "x", settings: {}, gamepadModule: "" }).get("src/lib.rs")).not.toContain("debug-code");
+  });
+});
+
 describe("desktop project", () => {
   it("names the app after the project and points the window at the web build", () => {
     const files = desktopProjectFiles({ name: "Flappy Bird", settings: { display: { width: 720, height: 680 } }, gamepadModule: "// gamepads\n" });
@@ -311,6 +461,24 @@ describe("exportProject (Node)", () => {
     expect(result.plan.manifest).toEqual(manifestOf(on));
   });
 
+  it("a debug web build copies the rendezvous bundle beside serve.mjs; a release build writes neither; --debug-rendezvous reaches game.json", async () => {
+    const project = temp();
+    mkdirSync(join(project, "scenes"));
+    writeFileSync(join(project, "project.json"), '{ "name": "Tiny" }');
+    writeFileSync(join(project, "scenes", "main.scene.json"), "{}");
+    const bundle = join(temp(), "rendezvous.mjs");
+    writeFileSync(bundle, "// the rendezvous bundle\nexport async function startRendezvous() {}\n");
+    const release = join(temp(), "web");
+    await exportProject({ projectDir: project, out: release, playerDir: fakePlayer(), rendezvousFile: bundle });
+    expect(existsSync(join(release, "rendezvous.mjs"))).toBe(false);
+    expect(readFileSync(join(release, "serve.mjs"), "utf8")).toBe(SERVE_SCRIPT);
+    const debug = join(temp(), "web");
+    await exportProject({ projectDir: project, out: debug, playerDir: fakePlayer(), rendezvousFile: bundle, debugRendezvous: "wss://rdv.example.com/myco-rendezvous", debugLan: true });
+    expect(readFileSync(join(debug, "rendezvous.mjs"), "utf8")).toContain("// the rendezvous bundle");
+    expect(readFileSync(join(debug, "serve.mjs"), "utf8")).toContain('"0.0.0.0"');
+    expect((JSON.parse(readFileSync(join(debug, "game.json"), "utf8")) as GameManifest).debug).toMatchObject({ lan: true, rendezvous: "wss://rdv.example.com/myco-rendezvous" });
+  });
+
   it("replaces an earlier build through Node's fs, and keeps it when the given player isn't a built one", async () => {
     // A project with no scripts, images or models: what's checked is the output folder (the build writer's suite has the rest).
     const project = temp();
@@ -347,6 +515,15 @@ describe("exportProject (Node)", () => {
     expect(lines.filter((l) => /couldn't be baked/.test(l))).toEqual([]);
   });
 
+  it("refuses a desktop build.icon that isn't a PNG or SVG", async () => {
+    const project = temp();
+    cpSync(join(SAMPLES, "arena"), project, { recursive: true });
+    const settings = JSON.parse(readFileSync(join(project, "project.json"), "utf8")) as Record<string, unknown>;
+    writeFileSync(join(project, "project.json"), JSON.stringify({ ...settings, build: { icon: "icon.jpg" } }));
+    writeFileSync(join(project, "icon.jpg"), "not a png");
+    await expect(exportProject({ projectDir: project, out: temp(), target: "desktop", tauriBuild: false, playerDir: fakePlayer() })).rejects.toThrow(/PNG or SVG/);
+  }, 60_000);
+
   it("refuses to write into the project", async () => {
     await expect(exportProject({ projectDir: join(SAMPLES, "flappy"), out: join(SAMPLES, "flappy", "build"), playerDir: fakePlayer() })).rejects.toThrow(/inside the project/);
   });
@@ -359,7 +536,10 @@ describe("exportProject (Node)", () => {
     expect(existsSync(join(out, "web", "code", "scripts", "behaviors", "Menu.js"))).toBe(true);
     expect(JSON.parse(readFileSync(join(out, "src-tauri", "tauri.conf.json"), "utf8"))).toMatchObject({ productName: "arena", app: { windows: [{ width: 800, height: 600 }] } });
     for (const icon of ["icons/icon.ico", "icons/icon.icns", "icons/32x32.png"]) expect(existsSync(join(out, "src-tauri", icon)), icon).toBe(true);
-    expect(readFileSync(join(out, "README.txt"), "utf8")).toContain("npx @tauri-apps/cli build");
+    expect(existsSync(join(out, "src-tauri", "app-icon.svg"))).toBe(true);
+    const readme = readFileSync(join(out, "README.txt"), "utf8");
+    expect(readme).toContain("npx @tauri-apps/cli@2 icon src-tauri/app-icon.svg");
+    expect(readme).toContain("npx @tauri-apps/cli@2 build");
     expect(readFileSync(join(out, "src-tauri", "src", "gamepad.rs"), "utf8")).toBe(readFileSync(join(SRC_TAURI, "src", "gamepad.rs"), "utf8"));
   }, 60_000);
 });

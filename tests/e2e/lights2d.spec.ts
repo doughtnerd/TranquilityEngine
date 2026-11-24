@@ -4,7 +4,7 @@ import { pickCategory } from "./projectCategory";
 import { showTab } from "./tabs";
 import { captureView, steadyView, type ViewCapture } from "./viewCapture";
 
-// 2D lights (ADR 0399, 0400) in a real browser: a white quad (a SpriteRenderer without a texture) under an orthographic
+// 2D lights (ADR 0399, 0407) in a real browser: a white quad (a SpriteRenderer without a texture) under an orthographic
 // camera draws as it always did with no 2D lights; a dim global light darkens it; a red point light lights its side red;
 // a ShadowCaster2D between a light and part of the quad darkens what lies behind it; Light2D.sampleAt agrees through
 // the public myco API. In the editor: the Create menu's Point Light 2D, its Edit Shape outer-radius handle (saved), the

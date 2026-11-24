@@ -24,6 +24,7 @@ import { startRequest } from "./boot/startQuery";
 import type { RecentTake } from "./start/recentTakes";
 import { engineRuntime } from "./runtime/engineRuntime";
 import { createStudioAudioHost } from "./runtime/studioAudioHost";
+import { startStudioDebugLink } from "./debugLink/studioLink";
 import { installCalibration } from "./shell/applyCalibration";
 import { installStudioKeys } from "./shell/installKeys";
 import { installLongPress } from "./shell/longPress";
@@ -61,6 +62,7 @@ async function main(): Promise<void> {
   document.documentElement.classList.add("studio-forms");
   installLabelScrub(document);
   installCalibration(runtime);
+  startStudioDebugLink(); // listens (desktop) and connects out by code; its menu and prompt sit in the status bar
 
   render(<StudioApp onCloseProject={projects.close} onOpenTake={(take) => openTake(projects.handOff, take)} />, document.getElementById("app")!);
   if (isTauri()) await serveHandoff(projects.handOff);

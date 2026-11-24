@@ -108,6 +108,21 @@ describe("Audio.take (ADR 0348)", () => {
     expect(asCapture.take).toBe(true);
   });
 
+  it("records a handle's fade through the public API (ADR 0386)", async () => {
+    const { downloads, feed } = await rig();
+    await Audio.take.start();
+    feed(5);
+    const h = Audio.playOneShot("sfx/hit.wav");
+    feed(5);
+    h.fade(0.25, 1.5);
+    Audio.take.stop();
+    await Audio.take.save("fade");
+    const { take } = await openTakeFile(downloads[0]!.bytes);
+    const play = take.requests.find((q) => q.kind === "play")!;
+    const fade = take.requests.find((q) => q.kind === "fade");
+    expect(fade).toMatchObject({ kind: "fade", instance: play.kind === "play" ? play.instance : -1, to: 0.25, seconds: 1.5 });
+  });
+
   it("starts the plugins' take sources on the Engine with the take, and stops them with it (ADR 0348 extensions)", async () => {
     const { downloads, feed } = await rig();
     const events: string[] = [];

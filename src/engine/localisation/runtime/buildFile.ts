@@ -3,10 +3,15 @@
  * holding the language, its text direction and, per key, the message resolved through that language's fallback chain,
  * so each file is complete on its own. Notes, status, length limits, examples and sources never ship.
  *
+ * A message that came from a later language of the chain is formatted with that language's plural and number rules, as
+ * in the editor (ADR 0391), so the file also names, in `sources` (`{ "<code>": [key…] }`), the language of each message
+ * not written in its own. Compact (nothing when no key fell back) and optional: a file written before it reads as every
+ * message in the file's language.
+ *
  * The reader here is what the player loads with (`BuildStrings`); the writer and `game.json`'s `localisation` section
  * are what the export (0356 T8) writes. Parsed leniently (never throws). Pure; no plugin, no DOM.
  */
-import { defaultDirection, fallbackChain, languageOf, type LanguageSettings, type TextDirection } from "../languages";
+import { canonicalLanguageCode, defaultDirection, fallbackChain, languageOf, type LanguageSettings, type TextDirection } from "../languages";
 import { isRecord, Reader, type JsonRecord } from "../lenient";
 import { parseMessage } from "../message/parse";
 import { isStringKey, STRINGS_LIMITS } from "../strings/format";
@@ -20,13 +25,15 @@ export interface BuildStringsFile {
   direction: TextDirection;
   /** Key → message (ICU MessageFormat 1), already resolved through the language's chain. */
   strings: Record<string, string>;
+  /** Key → the language its message is written in, for the keys whose message isn't in `language` (ADR 0391). */
+  sources: Record<string, string>;
 }
 
 /** A build file, leniently: bad keys and non-string messages dropped with a problem each. */
 export function parseBuildStrings(raw: unknown, where = "strings"): { file: BuildStringsFile; problems: string[] } {
   const problems: string[] = [];
   const r = new Reader(problems);
-  const file: BuildStringsFile = { format: BUILD_STRINGS_FORMAT, language: "en", direction: "ltr", strings: {} };
+  const file: BuildStringsFile = { format: BUILD_STRINGS_FORMAT, language: "en", direction: "ltr", strings: {}, sources: {} };
   if (!isRecord(raw)) {
     r.problem(where, "a build string file must be an object; using no strings.");
     return { file, problems };
@@ -39,6 +46,19 @@ export function parseBuildStrings(raw: unknown, where = "strings"): { file: Buil
     if (!isStringKey(key)) r.problem(`${where}.strings.${key}`, "isn't a key; dropped.");
     else if (typeof text !== "string") r.problem(`${where}.strings.${key}`, "must be a message string; dropped.");
     else file.strings[key] = text.length > STRINGS_LIMITS.message ? text.slice(0, STRINGS_LIMITS.message) : text;
+  }
+  const own = file.language.toLowerCase();
+  for (const [code, keys] of Object.entries(r.record(raw.sources, `${where}.sources`) ?? {})) {
+    const at = `${where}.sources.${code}`;
+    if (canonicalLanguageCode(code) === null) r.problem(at, "isn't a language code; dropped.");
+    else if (code.toLowerCase() === own) r.problem(at, "is the file's own language; dropped.");
+    else if (!Array.isArray(keys)) r.problem(at, "must be a list of keys; dropped.");
+    else {
+      for (const key of keys) {
+        if (typeof key === "string" && Object.hasOwn(file.strings, key)) file.sources[key] = code;
+        else r.problem(at, `${JSON.stringify(key)} isn't a key with a message here; dropped.`);
+      }
+    }
   }
   return { file, problems };
 }
@@ -57,7 +77,7 @@ export interface BuildStringsSource {
 export function buildStringsFile(languages: LanguageSettings, code: string, source: BuildStringsSource): { file: BuildStringsFile; fellBack: { key: string; from: string | null }[] } {
   const chain = fallbackChain(languages, code);
   const def = languageOf(languages, code);
-  const file: BuildStringsFile = { format: BUILD_STRINGS_FORMAT, language: def?.code ?? code, direction: def?.direction ?? defaultDirection(code), strings: {} };
+  const file: BuildStringsFile = { format: BUILD_STRINGS_FORMAT, language: def?.code ?? code, direction: def?.direction ?? defaultDirection(code), strings: {}, sources: {} };
   const fellBack: { key: string; from: string | null }[] = [];
   for (const key of source.keys()) {
     let from: string | null = null;
@@ -65,6 +85,7 @@ export function buildStringsFile(languages: LanguageSettings, code: string, sour
       const text = source.message(key, c);
       if (text === undefined || parseMessage(text).problems.some((p) => p.severity === "error")) continue;
       file.strings[key] = text;
+      if (c.toLowerCase() !== file.language.toLowerCase()) file.sources[key] = c;
       from = c;
       break;
     }
@@ -73,8 +94,14 @@ export function buildStringsFile(languages: LanguageSettings, code: string, sour
   return { file, fellBack };
 }
 
-/** A build file as JSON. */
-export const buildStringsToJson = (f: BuildStringsFile): JsonRecord => ({ format: BUILD_STRINGS_FORMAT, language: f.language, direction: f.direction, strings: { ...f.strings } });
+/** A build file as JSON: `sources` grouped by language, and left out when every message is in the file's language. */
+export function buildStringsToJson(f: BuildStringsFile): JsonRecord {
+  const out: JsonRecord = { format: BUILD_STRINGS_FORMAT, language: f.language, direction: f.direction, strings: { ...f.strings } };
+  const sources: Record<string, string[]> = {};
+  for (const [key, code] of Object.entries(f.sources)) (sources[code] ??= []).push(key);
+  if (Object.keys(sources).length > 0) out.sources = sources;
+  return out;
+}
 
 /** The build file's text: compact JSON (it ships) and a final newline. */
 export const formatBuildStrings = (f: BuildStringsFile): string => `${JSON.stringify(buildStringsToJson(f))}\n`;

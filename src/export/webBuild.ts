@@ -62,6 +62,26 @@ export interface BuildOptions {
    * machine when it's `true`) and the build ships the debug link's code; without it the build holds none of it.
    */
   readonly debugLink?: string | true;
+  /**
+   * ADR 0403: `--debug-listen`, `--debug-lan`, `--debug-port`: written as `game.json`'s `debug.listen`, `debug.lan` and
+   * `debug.port`, and each implies debugging on (the default link when `debugLink` is absent). A native build then listens
+   * for tools (on `0.0.0.0` only with `lan`); a web build can't listen, so there the keys are harmless.
+   */
+  readonly debugListen?: boolean;
+  readonly debugLan?: boolean;
+  readonly debugPort?: number;
+  /**
+   * ADR 0403 "Rendezvous" 3: `--debug-rendezvous <url>`: written as `game.json`'s `debug.rendezvous`, the hosted rendezvous
+   * (a `ws://` or `wss://` URL) a room code without a LAN rendezvous falls back to. Implies debugging on.
+   */
+  readonly debugRendezvous?: string;
+  /**
+   * The rendezvous bundle's text (`dist/rendezvous/rendezvous.mjs`, `npm run build:rendezvous`). A debug build that is
+   * given it writes it as `rendezvous.mjs` beside `serve.mjs`, and `serve.mjs` mounts it on its own port at
+   * `/myco-rendezvous`, so pages it serves pair by room code through it (ADR 0403 "Rendezvous" 2). Without it (or without
+   * debugging) `serve.mjs` serves files only, and a debug build says so in the plan's warnings.
+   */
+  readonly rendezvousBundle?: string;
 }
 
 /** What a web build is made of, before anything is written. */
@@ -206,9 +226,12 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   const plugins: BuiltPlugin[] = pluginPlan.runtime.map((p) => ({ manifest: p.manifest, module: p.source.kind === "project" ? modulePath(p.runtime!) : linked.entries.get(p.runtime!)! }));
   const name = typeof source.settings.name === "string" && source.settings.name ? source.settings.name : source.name;
   let debugLink: string | null = null;
-  if (options.debugLink !== undefined) {
-    debugLink = options.debugLink === true ? DEFAULT_DEBUG_LINK : debugLinkAddress(options.debugLink);
+  const listening = options.debugListen === true || options.debugLan === true || options.debugPort !== undefined || options.debugRendezvous !== undefined;
+  if (options.debugLink !== undefined || listening) {
+    debugLink = options.debugLink === undefined || options.debugLink === true ? DEFAULT_DEBUG_LINK : debugLinkAddress(options.debugLink);
+    if (options.debugPort !== undefined && !(Number.isInteger(options.debugPort) && options.debugPort >= 1 && options.debugPort <= 65526)) throw new ExportError(`The debug port ${options.debugPort} isn't a whole number from 1 to 65526.`);
     if (!debugLink) throw new ExportError(`The debug link address "${options.debugLink}" isn't a WebSocket address (ws://host:port, host:port or a port).`);
+    if (options.debugRendezvous !== undefined && !isRendezvousUrl(options.debugRendezvous)) throw new ExportError(`The rendezvous address "${options.debugRendezvous}" isn't a ws:// or wss:// URL.`);
   }
   const manifest: GameManifest = {
     format: MANIFEST_FORMAT,
@@ -222,18 +245,36 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
     ...(options.audioTake === true && options.audioTakeFrames === false && { audioTakeFrames: false as const }),
     ...(localisation.manifest && { localisation: localisation.manifest }),
     ...(linked.assetRefs.length > 0 && { assetRefs: linked.assetRefs }),
-    ...(debugLink && { debug: { link: debugLink } }),
+    ...(debugLink && {
+      debug: {
+        // A listen-only build (listening flags, no --debug-link) writes no link, so it doesn't also dial the default
+        // address every few seconds (the player connects out only when a link, an override or a code is given).
+        ...((options.debugLink !== undefined || !listening) && { link: debugLink }),
+        ...(options.debugListen === true && { listen: true }),
+        ...(options.debugLan === true && { lan: true }),
+        ...(options.debugPort !== undefined && { port: options.debugPort }),
+        ...(options.debugRendezvous !== undefined && { rendezvous: options.debugRendezvous.trim() }),
+      },
+    }),
   };
   const generated = new Map([...files, ...localisation.generated, ...[...lineFiles].map(([p, t]) => [copiedPath(p), t] as const)]);
   generated.set(MANIFEST_FILE, `${JSON.stringify(manifest, null, 2)}\n`);
-  generated.set("serve.mjs", SERVE_SCRIPT);
-  generated.set("README.txt", webReadme(name));
+  const serveWarnings: string[] = [];
+  if (!debugLink) generated.set("serve.mjs", SERVE_SCRIPT);
+  else {
+    // ADR 0403 "Rendezvous" 2: a debug build's serve.mjs answers the rendezvous (when given its bundle) and, with `debugLan`, serves the LAN.
+    const rendezvous = options.rendezvousBundle !== undefined;
+    generated.set("serve.mjs", debugServeScript({ lan: options.debugLan === true, rendezvous }));
+    if (rendezvous) generated.set(RENDEZVOUS_FILE, options.rendezvousBundle!);
+    else serveWarnings.push(`This debug build has no ${RENDEZVOUS_FILE}, so its serve.mjs can't host the rendezvous: pages it serves can't pair by room code through it (run npm run build:rendezvous, then export again).`);
+  }
+  generated.set("README.txt", webReadme(name, debugLink !== null && options.rendezvousBundle !== undefined, debugLink !== null && options.debugLan === true));
   return {
     manifest, copies, generated,
     ...(audioEffects.modules.length > 0 && { audioEffects: audioEffects.modules }),
     ...(animationNodes.modules.length > 0 && { animationNodes: animationNodes.modules }),
     languages: localisation.languages,
-    ...(localisation.warnings.length + animationNodes.skipped.length > 0 && { warnings: [...localisation.warnings, ...animationNodes.skipped] }),
+    ...(localisation.warnings.length + animationNodes.skipped.length + serveWarnings.length > 0 && { warnings: [...localisation.warnings, ...animationNodes.skipped, ...serveWarnings] }),
     offlineRender: projectMayUseGenerators(shipped, source.json),
   };
 }
@@ -287,8 +328,27 @@ export function isOutputInsideProject(root: string, out: string): boolean {
   return !skipsFolder(first);
 }
 
-/** README.txt in a web build. */
-export function webReadme(name: string): string {
+/** The rendezvous bundle's file name in a debug web build, beside `serve.mjs`. */
+export const RENDEZVOUS_FILE = "rendezvous.mjs";
+
+/** A `ws://` or `wss://` URL (`debug.rendezvous`; `config.ts` reads it the same way). */
+function isRendezvousUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value.trim()).protocol;
+    return protocol === "ws:" || protocol === "wss:";
+  } catch {
+    return false;
+  }
+}
+
+/** README.txt in a web build. `rendezvous`: a debug build's serve.mjs hosts the rendezvous; `lan`: it serves the local network. */
+export function webReadme(name: string, rendezvous = false, lan = false): string {
+  const debug =
+    rendezvous || lan
+      ? `
+Debugging: ${rendezvous ? "serve.mjs also answers the pairing rendezvous at /myco-rendezvous on its port (rendezvous.mjs\nbeside it), so pages it serves pair with debugging tools by room code. " : ""}${lan ? "It listens on every network interface,\nnot only this computer, and prints the addresses other machines on your network open (anyone on the network can\nreach it). " : ""}
+`
+      : "";
   return `${name}: a web build made with Myco Engine.
 
 This folder is a complete static website. Put it on any web host (itch.io, GitHub Pages, a
@@ -305,11 +365,11 @@ Saves are kept in the browser's IndexedDB, per site address.
 
 What's here: index.html and assets/ (the player), myco.js (the engine), game.json (the
 manifest), project/ (the project's files), code/ (its scripts, compiled).
-`;
+${debug}`;
 }
 
-/** serve.mjs in a web build: a dependency-free static server for trying the build locally. */
-export const SERVE_SCRIPT = `#!/usr/bin/env node
+/** The static server's code up to where it listens, shared by the release and the debug `serve.mjs`. */
+const SERVE_HEAD = `#!/usr/bin/env node
 // Serve this folder over HTTP, to play the game locally: \`node serve.mjs [port]\` (default 8080,
 // 0 picks a free port), then open the address it prints. Only this computer can connect.
 import { createServer } from "node:http";
@@ -343,5 +403,29 @@ const server = createServer(async (req, res) => {
     res.end("Not found");
   }
 });
-server.listen(port, "127.0.0.1", () => console.log(\`Serving the game at http://127.0.0.1:\${server.address().port}/ (Ctrl+C stops)\`));
 `;
+
+/** serve.mjs in a web build: a dependency-free static server for trying the build locally. */
+export const SERVE_SCRIPT = `${SERVE_HEAD}server.listen(port, "127.0.0.1", () => console.log(\`Serving the game at http://127.0.0.1:\${server.address().port}/ (Ctrl+C stops)\`));
+`;
+
+/**
+ * serve.mjs in a debug web build (ADR 0403 "Rendezvous" 2): the same static server. With `lan` it listens on every
+ * interface (`0.0.0.0`) and prints this machine's network addresses; with `rendezvous` it imports `./rendezvous.mjs` (the
+ * bundle, `npm run build:rendezvous`) and mounts it on its own port at `/myco-rendezvous`, beside the pages (ADR 0067).
+ * The rendezvous carries only the pairing handshake, never debug traffic.
+ */
+export function debugServeScript(options: { readonly lan: boolean; readonly rendezvous: boolean }): string {
+  const head = SERVE_HEAD.replace("Only this computer can connect.", options.lan ? "Debugging is on, with the LAN:\n// other machines on this network can connect." : "Debugging is on; only this computer can connect.");
+  const mount = options.rendezvous ? `await startRendezvous(server, "/myco-rendezvous");\n` : "";
+  const imports = `import { networkInterfaces } from "node:os";\n${options.rendezvous ? `import { startRendezvous } from "./${RENDEZVOUS_FILE}";\n` : ""}`;
+  const lan = options.lan
+    ? `  for (const list of Object.values(networkInterfaces())) for (const a of list ?? []) if (a.family === "IPv4" && !a.internal) console.log(\`On your network: http://\${a.address}:\${bound}/\`);\n`
+    : "";
+  const pairing = options.rendezvous ? `  console.log(\`Pairing rendezvous at ws://127.0.0.1:\${bound}/myco-rendezvous\`);\n` : "";
+  return `${head}${imports}${mount}server.listen(port, "${options.lan ? "0.0.0.0" : "127.0.0.1"}", () => {
+  const bound = server.address().port;
+  console.log(\`Serving the game at http://127.0.0.1:\${bound}/ (Ctrl+C stops)\`);
+${lan}${pairing}});
+`;
+}

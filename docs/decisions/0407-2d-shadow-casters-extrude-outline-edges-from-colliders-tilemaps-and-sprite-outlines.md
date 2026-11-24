@@ -1,10 +1,10 @@
-# 0400. 2D shadow casters extrude outline edges away from each shadowed light into a shadow texture channel; outlines come from colliders, tilemaps or sprite outlines
+# 0407. 2D shadow casters extrude outline edges away from each shadowed light into a shadow texture channel; outlines come from colliders, tilemaps or sprite outlines
 
 - **Status:** Accepted
 - **Date:** 2026-11-24
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0039, 0050, 0136, 0169, 0274, 0399, 0401
+- **Related:** 0039, 0050, 0136, 0169, 0274, 0399, 0408
 
 ## Context
 
@@ -18,7 +18,7 @@ Myco already has 2D outlines in two places:
 - **Colliders:** `BoxCollider2D`, `CircleCollider2D`, `PolygonCollider2D`, `EdgeCollider2D` (ADR 0039), and
   `CollisionShapeSource2D` (`physics/shapeSource2D.ts`). `Tilemap` implements it, giving its tile collision shapes
   merged by `ShapeMerge2D`.
-- **Sprites:** the slice rectangle only. There's no alpha outline in the sidecar today. ADR 0401 adds one.
+- **Sprites:** the slice rectangle only. There's no alpha outline in the sidecar today. ADR 0408 adds one.
 
 ## Decision
 
@@ -41,7 +41,7 @@ class ShadowCaster2D extends Component {
   - `"collider"`: the node's 2D colliders (box, circle as a 16-gon, polygon, edge as an open chain), or a
     `CollisionShapeSource2D`. So `ShadowCaster2D` on a `Tilemap` shadows its solid tiles, merged into outlines the
     same way physics merges them, and re-read when `collisionSignature()` changes.
-  - `"sprite"`: the slice's outline (ADR 0401), else its rectangle. It follows `size`, flips, `pixelsPerUnit` and
+  - `"sprite"`: the slice's outline (ADR 0408), else its rectangle. It follows `size`, flips, `pixelsPerUnit` and
     the node transform. A skinned sprite uses its rest outline (the record's limits).
   - `"custom"`: `path`.
 - Outlines are turned into **edge lists** by a pure module, `render/lights2D/shadowGeometry.ts`. It's
@@ -75,7 +75,7 @@ class ShadowCaster2D extends Component {
 
 - **Gizmo:** the resolved outline in a theme colour (casters cast nothing in the scene view unless 2D Lighting is on).
 - **Edit Shape** viewport tool for `"custom"` (shared with freeform lights, 0399, `myco.lights2d.shape`). For
-  `"sprite"`, a button opens the Sprite Editor's Outline mode (0401).
+  `"sprite"`, a button opens the Sprite Editor's Outline mode (0408).
 - **Inspector:** Shape, Path (hidden unless custom), Cast Shadows, Self Shadows, Target Sorting Layers. A note shows
   when `"auto"` found nothing better than the rectangle.
 - **Create:** Add Component > Rendering 2D > Shadow Caster 2D. The context menu on a Tilemap node offers "Add Shadow

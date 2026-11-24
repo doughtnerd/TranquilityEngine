@@ -38,7 +38,7 @@ export interface BabylonSpriteHost {
   texture(path: string): Promise<Texture>;
   /** A colour texture asset if already loaded, else null (the material library's `loadedTexture(path)`). */
   loadedTexture(path: string): Texture | null;
-  /** A data texture (a normal or mask map, read linear, ADR 0401) if loaded, else null, starting it loading. */
+  /** A data texture (a normal or mask map, read linear, ADR 0408) if loaded, else null, starting it loading. */
   dataTexture(path: string): Texture | null;
   /**
    * `perObject`: a mesh per sprite, for the editor's scene view and editor play mode (picking and
@@ -284,7 +284,7 @@ export class BabylonSprites implements BabylonFeature {
 
   /**
    * The lit setup of a sprite this frame (ADR 0399): its sorting layer's layer batch, its texture's normal and mask maps
-   * (ADR 0401), or null when it's unlit (an unlit material, or no 2D light on its layer).
+   * (ADR 0408), or null when it's unlit (an unlit material, or no 2D light on its layer).
    */
   private litSetup(s: SpriteRenderer, image: string): SpriteItem["lit"] {
     const problem = spriteMaterialProblem(s.material);

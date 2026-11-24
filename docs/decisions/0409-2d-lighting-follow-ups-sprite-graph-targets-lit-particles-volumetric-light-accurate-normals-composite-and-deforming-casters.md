@@ -1,14 +1,14 @@
-# 0402. 2D lighting follow-ups: sprite shader graph targets, lit 2D particles, volumetric light and overlap modes, accurate normal maps, composite and deforming shadow casters, light masks, and colliders from sprite outlines
+# 0409. 2D lighting follow-ups: sprite shader graph targets, lit 2D particles, volumetric light and overlap modes, accurate normal maps, composite and deforming shadow casters, light masks, and colliders from sprite outlines
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-24
 - **Deciders:** Chris Carlson
-- **Supersedes:** — (extends 0399, 0400, 0401)
-- **Related:** 0047, 0057, 0060, 0106, 0136, 0185, 0186, 0370, 0399, 0400, 0401
+- **Supersedes:** — (extends 0399, 0407, 0408)
+- **Related:** 0047, 0057, 0060, 0106, 0136, 0185, 0186, 0370, 0399, 0407, 0408
 
 ## Context
 
-ADR 0399–0401 built 2D lights, the lit sprite material, normal and mask maps and 2D shadow casters. They left ten open
+ADR 0399, 0407, 0408 built 2D lights, the lit sprite material, normal and mask maps and 2D shadow casters. They left ten open
 questions. The CPU light query (`Light2D.sampleAt`) was built with them. The owner asked for the rest, especially where
 other engines have them as standard. Here is what each engine offers:
 
@@ -26,7 +26,7 @@ other engines have them as standard. Here is what each engine offers:
 
 ## Decision
 
-We will build all nine, in this order, each on the seams ADR 0399–0401 left. No new dependency.
+We will build all nine, in this order, each on the seams ADR 0399, 0407, 0408 left. No new dependency.
 
 **1. Sprite shader graph targets.** `ShaderGraphTarget` gains `"sprite-lit"`, `"sprite-unlit"` and `"sprite-custom-lit"`
 (ADR 0047, 0106). The compiler emits a layered-quad material:
@@ -70,10 +70,10 @@ named layers from a new `lighting2D.shadowLayers` list. A caster shadows a light
 The default is everything, which is today's behaviour.
 
 **8. PolygonCollider2D from sprite outline.** `PolygonCollider2D` gains `fromSprite`. When set, it reads the node's
-SpriteRenderer slice outline (ADR 0401) as its points, convex-split as today. The Inspector offers **Use Sprite
+SpriteRenderer slice outline (ADR 0408) as its points, convex-split as today. The Inspector offers **Use Sprite
 Outline**.
 
-**9. Custom secondary texture names.** ADR 0401 already keeps unknown names. This record makes them first class: the
+**9. Custom secondary texture names.** ADR 0408 already keeps unknown names. This record makes them first class: the
 Secondary Textures tab lists any number of named rows, and shader graphs read them by name (item 1).
 
 ## Alternatives considered
@@ -110,4 +110,4 @@ Secondary Textures tab lists any number of named rows, and shader graphs read th
 - Unity URP 2D: Shader Graph Sprite targets, Light 2D Volume and Overlap Operation, Normal Map Quality, Composite Shadow
   Caster 2D, Shadow Caster 2D with Sprite Skin, Custom Physics Shape (Unity Manual).
 - Godot 4: CanvasItem shaders, PointLight2D/LightOccluder2D cull masks.
-- ADR 0399–0401 and their As built notes.
+- ADR 0399, 0407, 0408 and their As built notes.

@@ -40,7 +40,12 @@ export type TakeRequest =
    */
   | { kind: "say"; t: number; instance: number; event: string; args: Record<string, string>; options: TakeSayOptions; state: TakeSayState; picked: TakeSayPick | null; random?: number }
   /** ADR 0355 §6: a queued say started (with its pick, decided then) or was dropped. */
-  | { kind: "sayState"; t: number; instance: number; state: "playing" | "dropped"; picked: TakeSayPick | null; random?: number };
+  | { kind: "sayState"; t: number; instance: number; state: "playing" | "dropped"; picked: TakeSayPick | null; random?: number }
+  /** ADR 0386: a handle paused or resumed its instance (playlist and `AudioSource` handles). */
+  | { kind: "pause"; t: number; instance: number }
+  | { kind: "resume"; t: number; instance: number }
+  /** ADR 0386: a handle faded its instance's fade gain to `to` (linear, 0..4) over `seconds`. */
+  | { kind: "fade"; t: number; instance: number; to: number; seconds: number };
 
 /** What a say did when asked: started, waits in its channel's queue, or was refused (`picked.none` says why). */
 export type TakeSayState = "playing" | "queued" | "refused";

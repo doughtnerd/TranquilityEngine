@@ -4,14 +4,14 @@
 import type { SliceSkin, SpriteFlipbook } from "../engine/animation/sprites/sidecar";
 import type { SpriteEditorChange } from "./sdk/contributions";
 
-/** A slice's outline (ADR 0401): closed polygons in slice pixels, y up. */
+/** A slice's outline (ADR 0408): closed polygons in slice pixels, y up. */
 type Outline = [number, number][][];
 
 /** The slices, flipbooks and secondary textures one undo step of the Sprite Editor holds, as far as tools touch them. */
 export interface ToolState<S extends { name: string; skin?: SliceSkin; outline?: Outline }> {
   slices: S[];
   flipbooks: Record<string, SpriteFlipbook>;
-  /** The image's secondary textures and normal map green channel (ADR 0401). */
+  /** The image's secondary textures and normal map green channel (ADR 0408). */
   secondary: { textures: Record<string, string>; normalMapGreen: "up" | "down" };
 }
 

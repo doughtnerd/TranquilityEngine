@@ -1,6 +1,6 @@
 # 0356. Text is localised through keyed string tables with ICU messages, bound by key in UI documents and scripts
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0391 (a fallback message is formatted with its source language's rules; build string files name that language in `sources`)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

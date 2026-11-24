@@ -1,5 +1,5 @@
 /**
- * The 2D lighting rig on Babylon (ADR 0399, 0400), part of the core lighting rig (ADR 0252): Light2D components drawn
+ * The 2D lighting rig on Babylon (ADR 0399, 0407), part of the core lighting rig (ADR 0252): Light2D components drawn
  * into screen-space light textures, one per layer batch and blend style (with two more, the directional textures, for a
  * batch whose lights light normal maps), and ShadowCaster2Ds' edges extruded into shadow textures (a channel per
  * shadowed light). The lit layered-quad material (`lights2DMaterial.ts`) reads them.
@@ -461,7 +461,7 @@ export class BabylonLights2D {
             const a = loop[i]!, b = loop[(i + 1) % loop.length]!;
             if (!caster.selfShadows) {
               // Only edges facing away from the light (their outward normal, right of a→b, points away): the shadow starts
-              // at the caster's far side, so its own face stays lit (ADR 0400 self shadows off).
+              // at the caster's far side, so its own face stays lit (ADR 0407 self shadows off).
               const nx = b[1] - a[1], ny = a[0] - b[0];
               if (nx * ((a[0] + b[0]) / 2 - n.x) + ny * ((a[1] + b[1]) / 2 - n.y) <= 0) continue;
             }

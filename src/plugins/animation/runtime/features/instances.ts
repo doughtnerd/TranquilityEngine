@@ -10,8 +10,9 @@
 //   its Avatar's bones in that subtree), it owns one implicit-graph core instance (4 layers × 2 players and a
 //   crossfade, D31) while active and bound. Deactivation or losing the Skeleton destroys the instance and ends its
 //   plays with `stopped`; reactivation makes a new one (Unity resets an Animator's state on re-enable) and plays
-//   `defaultClip` again. Clips are acquired once per Animator and path, and released on detach. A clip source
-//   (`*.anim.json`, `model#Anim/<name>`) resolves through `clipSources.ts` (T19): the build's compiled file, the editor's
+//   `defaultClip` again. Clips are acquired once per Animator, path and the skeleton they bind to, and released on
+//   detach; those bound to an earlier skeleton are released when it binds to another, once no play uses them.
+//   A clip source (`*.anim.json`, `model#Anim/<name>`) resolves through `clipSources.ts` (T19): the build's compiled file, the editor's
 //   compiled clip, else its raw form made here, bound to the Animator's skeleton.
 //   An Animator with no Skeleton on its node or below gets a zero-bone instance (skeleton handle 0, T17b): clips play
 //   and their property tracks, events, notify states and root curves run, with no pose or matrices (Unity's Animator
@@ -50,6 +51,8 @@ import { subAssetClip } from "./subAssetClips";
 /** @internal A clip an Animator holds: loading (`handle` undefined), loaded, or missing (0). */
 export interface ClipEntry {
   readonly path: string;
+  /** What the skeleton it is bound to names ("" for none): an entry for an earlier skeleton goes once nothing uses it. */
+  readonly skeleton: string;
   handle: number | undefined;
   info: ClipInfo | null;
 }
@@ -109,6 +112,8 @@ export interface AnimatorRuntime {
   latest: PlayRecord | null;
   /** Clips by the skeleton they were bound to and path (`clipKey`). */
   readonly clips: Map<string, ClipEntry>;
+  /** Some clips bound to an earlier skeleton are still used (`releaseEarlierClips` tries again each frame). */
+  earlierClips: boolean;
   detached: boolean;
 }
 
@@ -234,7 +239,7 @@ export function clipEntry(rt: AnimatorRuntime, path: string): ClipEntry {
   const key = `${ref}\u0000${path}`;
   const entry = rt.clips.get(key);
   if (entry) return entry;
-  const e: ClipEntry = { path, handle: undefined, info: null };
+  const e: ClipEntry = { path, skeleton: ref, handle: undefined, info: null };
   rt.clips.set(key, e);
   void (async () => {
     const ns = rt.ns ?? (await startAnimationCore(rt.world).catch(() => null));
@@ -272,6 +277,38 @@ export function clipEntry(rt: AnimatorRuntime, path: string): ClipEntry {
 function releaseClips(rt: AnimatorRuntime): void {
   for (const e of rt.clips.values()) if (e.handle && rt.ns) rt.ns.release(e.handle);
   rt.clips.clear();
+  rt.earlierClips = false;
+}
+
+/**
+ * @internal Features that keep clip entries in records of their own (graph slot plays, plays held for music) list the
+ * ones of `rt` still in use, so an entry for an earlier skeleton isn't released under them.
+ */
+export const clipUsers = new Set<(rt: AnimatorRuntime) => Iterable<ClipEntry>>();
+
+/**
+ * @internal Releases `rt`'s clips bound to a skeleton other than the one it binds to now (an Animator that rebinds keeps
+ * no clips for its earlier rig), except those a play still uses: those are tried again (`earlierClips`) each frame
+ * until their plays end. A loading entry dropped here gives its handle back when it arrives.
+ */
+export function releaseEarlierClips(rt: AnimatorRuntime): void {
+  const { ref } = clipSkeleton(rt);
+  const used = new Set<ClipEntry>();
+  for (const cmd of rt.queue) if (cmd.kind === "play" && !cmd.play.done) used.add(cmd.play.clip);
+  for (const p of rt.layers) if (p && !p.done) used.add(p.clip);
+  for (const p of playsOf(rt.world).values()) if (p.rt === rt && !p.done) used.add(p.clip);
+  for (const users of clipUsers) for (const e of users(rt)) used.add(e);
+  let kept = false;
+  for (const [key, e] of rt.clips) {
+    if (e.skeleton === ref) continue;
+    if (used.has(e)) {
+      kept = true;
+      continue;
+    }
+    rt.clips.delete(key);
+    if (e.handle && rt.ns) rt.ns.release(e.handle);
+  }
+  rt.earlierClips = kept;
 }
 
 // ------------------------------------------------------------------------------------------------ Skeleton
@@ -435,6 +472,7 @@ async function bindInstance(rt: AnimatorRuntime, ns: AnimationWorldCore, skeleto
     skeleton.animator = rt;
   }
   adoptInstance(rt, ns, instance);
+  releaseEarlierClips(rt);
 }
 
 async function activateAnimator(rt: AnimatorRuntime): Promise<void> {
@@ -502,6 +540,7 @@ export const animatorHooks: LifecycleHooks<Animator> = {
       layers: new Array<PlayRecord | null>(MAX_LAYERS).fill(null),
       latest: null,
       clips: new Map(),
+      earlierClips: false,
       detached: false,
     };
     animators.set(animator, rt);

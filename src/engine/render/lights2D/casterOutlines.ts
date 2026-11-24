@@ -1,7 +1,7 @@
 /**
- * Where a ShadowCaster2D's outline comes from (ADR 0400), renderer-neutral: the node's 2D collision shapes (a shape
+ * Where a ShadowCaster2D's outline comes from (ADR 0407), renderer-neutral: the node's 2D collision shapes (a shape
  * source such as a Tilemap, merged as outlines; or any 2D collider, through the backend-neutral `_shapeFields()` every
- * 2D collider class gives, ADR 0305), its SpriteRenderer's slice outline (ADR 0401) or rectangle, or a custom path.
+ * 2D collider class gives, ADR 0305), its SpriteRenderer's slice outline (ADR 0408) or rectangle, or a custom path.
  * Outlines are in the node's local XY; the light pass places them with the node's world matrix.
  */
 import type { Component } from "../../core/Component";

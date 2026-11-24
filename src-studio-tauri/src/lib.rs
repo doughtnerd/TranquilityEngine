@@ -17,6 +17,9 @@ pub fn run() {
         // Remembers the project folders the user granted across restarts (ADR 0116), after the fs plugin.
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_opener::init())
+        // The debug link's listeners (ADR 0403), opened by the Studio's page.
+        .manage(debug_link_tauri::DebugLinkListeners::default())
+        .manage(debug_link_tauri::DebugDiscovery::default())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -27,7 +30,19 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![process_id])
+        .invoke_handler(tauri::generate_handler![
+            process_id,
+            // The debug link's WebSocket listener (ADR 0379, 0403), the same commands as the editor's shell.
+            debug_link_tauri::commands::myco_debuglink_listen_range,
+            debug_link_tauri::commands::myco_debuglink_listen,
+            debug_link_tauri::commands::myco_debuglink_send,
+            debug_link_tauri::commands::myco_debuglink_close,
+            debug_link_tauri::commands::myco_debuglink_interfaces,
+            debug_link_tauri::commands::myco_debuglink_advertise,
+            debug_link_tauri::commands::myco_debuglink_unadvertise,
+            debug_link_tauri::commands::myco_debuglink_browse,
+            debug_link_tauri::commands::myco_debuglink_browse_stop
+        ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");
 }
