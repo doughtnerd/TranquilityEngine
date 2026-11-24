@@ -122,6 +122,31 @@ describe("connectToBuild", () => {
     expect(peers).toHaveLength(1);
   });
 
+  it("connects to a picked build's address, with the code's token and none of the code's own address", async () => {
+    const { build, peers, tried, host } = await setup();
+    const picked = "ws://192.168.1.99:7790/myco-debug";
+    await connectToBuild({ code: build.code!, address: picked }, host({ interfaces: () => [{ address: "10.0.0.5", family: "IPv4" }], reaches: [picked] }));
+    expect(tried).toEqual([picked]); // not the 10.0.1.20 / 192.168.1.20 the code would complete to
+    expect(peers).toHaveLength(1);
+  });
+
+  it("refuses a wrong code for a picked build, and an unreadable picked address", async () => {
+    const { build, host } = await setup();
+    const picked = "ws://192.168.1.99:7790/myco-debug";
+    expect(await failureOf(connectToBuild({ code: wrongCode(build.code!), address: picked }, host({ reaches: [picked] })))).toEqual({ kind: "refused", message: pairRefusalMessage("bad-token") });
+    expect((await failureOf(connectToBuild({ code: build.code!, address: "not an address" }, host()))).kind).toBe("bad-code");
+  });
+
+  it("doesn't combine a picked build with a room code, and an empty picked address uses the code as before", async () => {
+    const { build, tried, host } = await setup();
+    const room = encodePairCode({ kind: "room", rendezvous: null, room: 5, token: 7 });
+    const failure = await failureOf(connectToBuild({ code: room, address: "ws://192.168.1.99:7790/myco-debug" }, host()));
+    expect(failure.kind).toBe("bad-code");
+    expect(tried).toEqual([]);
+    await connectToBuild({ code: build.code!, address: "  " }, host({ interfaces: () => BUILD_LAN, reaches: [BUILD_URL] }));
+    expect(tried).toEqual([BUILD_URL]);
+  });
+
   it("stops at once on a wrong code, with the build's message", async () => {
     const { build, tried, host, peers } = await setup();
     const failure = await failureOf(

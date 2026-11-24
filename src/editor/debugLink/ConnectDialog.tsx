@@ -3,25 +3,18 @@
 // why it failed (a bad or expired code, a locked build, nothing answering, a room code that needs a rendezvous).
 //
 // C7 (plan Â§8): the props are the contract the editor (U1) and the Studio (U4) mount it with.
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { ConnectFailure, ConnectTarget } from "./connectFlow";
+import { buildLabel, chosenAddress, createDiscovery, type DiscoveredBuild, type DiscoveryModel } from "./discovery";
 import "./debugLink.css";
-
-/** A build found on the network (M3, D2); empty until discovery lands. */
-export interface DiscoveredBuild {
-  readonly name: string;
-  readonly platform: string;
-  /** The address to connect to; the person still types the code's token. */
-  readonly address: string;
-}
 
 export interface ConnectDialogProps {
   /** Starts a connect; the promise settles when it paired or failed (`EditorDebugLink.connect`). */
   onConnect(target: ConnectTarget): Promise<void>;
   /** Closes the dialog. */
   onClose(): void;
-  /** Builds the network lists (D2 fills it; empty before). */
-  readonly discovered?: readonly DiscoveredBuild[];
+  /** The network discovery the dialog lists builds from; default: browse the LAN (native tools only; none in a page). */
+  readonly discovery?: DiscoveryModel;
   /** A failure to show when the dialog opens (rarely needed; the dialog shows its own attempts' failures). */
   readonly failure?: ConnectFailure | null;
 }
@@ -38,19 +31,27 @@ function failureOf(err: unknown): ConnectFailure {
  * Escape closes; it closes itself when the build paired. The code is read forgivingly (lower case, spaces and a dash
  * or none are fine), so the field keeps what was typed.
  */
-export function ConnectDialog({ onConnect, onClose, discovered, failure: initialFailure }: ConnectDialogProps) {
+export function ConnectDialog({ onConnect, onClose, discovery: given, failure: initialFailure }: ConnectDialogProps) {
   const [code, setCode] = useState("");
   const [address, setAddress] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<ConnectFailure | null>(initialFailure ?? null);
+  const [chosen, setChosen] = useState<DiscoveredBuild | null>(null);
+  const [active, setActive] = useState(0);
   const codeField = useRef<HTMLInputElement>(null);
   const alive = useRef(true);
+  const discovery = useMemo(() => given ?? createDiscovery(), [given]);
+  useEffect(() => {
+    discovery.start();
+    return () => discovery.stop();
+  }, [discovery]);
   useEffect(() => {
     alive.current = true;
     codeField.current?.focus();
     return () => void (alive.current = false);
   }, []);
-  const target: ConnectTarget | null = code.trim() ? { code } : address.trim() ? { address: address.trim() } : null;
+  // A picked build's address goes with the code (the code gives its token); a code alone completes its own address.
+  const target: ConnectTarget | null = code.trim() ? (chosen ? { code, address: chosen.address } : { code }) : address.trim() ? { address: address.trim() } : null;
   const connect = () => {
     if (busy || !target) return;
     setBusy(true);
@@ -71,7 +72,15 @@ export function ConnectDialog({ onConnect, onClose, discovered, failure: initial
     set((e.currentTarget as HTMLInputElement).value);
     setFailure(null);
   };
-  const found = discovered ?? [];
+  const found = discovery.builds.value;
+  const showNearby = discovery.available.value === true;
+  const choose = (b: DiscoveredBuild) => {
+    setChosen(b);
+    setAddress(chosenAddress(b));
+    setFailure(null);
+    codeField.current?.focus();
+  };
+  const activeIndex = Math.min(active, found.length - 1);
   const codeProblem = failure?.kind === "bad-code" || failure?.kind === "refused";
   return (
     <div class="dialog-backdrop" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
@@ -112,29 +121,69 @@ export function ConnectDialog({ onConnect, onClose, discovered, failure: initial
         </label>
         <label class="debug-link-field">
           <span>Or an address</span>
-          <input type="text" value={address} placeholder="192.168.1.20:7790" autocomplete="off" spellcheck={false} disabled={busy} onInput={typed(setAddress)} />
+          <input
+            type="text"
+            value={address}
+            placeholder="192.168.1.20:7790"
+            autocomplete="off"
+            spellcheck={false}
+            disabled={busy}
+            onInput={(e) => {
+              setChosen(null); // typing an address replaces a picked build
+              typed(setAddress)(e);
+            }}
+          />
         </label>
-        {found.length > 0 && (
-          <div class="debug-link-discovered" role="group" aria-label="Builds on the network">
-            <div class="debug-link-discovered-title">On the network</div>
-            {found.map((b) => (
-              <button
-                key={`${b.address}/${b.name}`}
-                type="button"
-                class="debug-link-discovered-item"
-                disabled={busy}
-                onClick={() => {
-                  setAddress(b.address);
-                  setFailure(null);
-                  codeField.current?.focus();
+        {showNearby && (
+          <div class="debug-link-discovered">
+            <div class="debug-link-discovered-title" id="debug-link-nearby-title">
+              Nearby builds
+            </div>
+            {found.length === 0 ? (
+              <p class="debug-link-discovered-empty" role="status">
+                Looking for builds…
+              </p>
+            ) : (
+              <ul
+                class="debug-link-discovered-list"
+                role="listbox"
+                aria-labelledby="debug-link-nearby-title"
+                aria-disabled={busy ? true : undefined}
+                aria-activedescendant={`debug-link-nearby-${activeIndex}`}
+                tabIndex={busy ? -1 : 0}
+                onKeyDown={(e) => {
+                  if (busy) return;
+                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    setActive(Math.max(0, Math.min(found.length - 1, activeIndex + (e.key === "ArrowDown" ? 1 : -1))));
+                  } else if (e.key === "Home" || e.key === "End") {
+                    e.preventDefault();
+                    setActive(e.key === "Home" ? 0 : found.length - 1);
+                  } else if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    choose(found[activeIndex]!);
+                  }
                 }}
               >
-                <span>{b.name}</span>
-                <span class="debug-link-discovered-detail">
-                  {b.platform}, {b.address}
-                </span>
-              </button>
-            ))}
+                {found.map((b, i) => (
+                  <li
+                    key={b.id}
+                    id={`debug-link-nearby-${i}`}
+                    role="option"
+                    class={`debug-link-discovered-item${i === activeIndex ? " active" : ""}`}
+                    aria-selected={chosen?.id === b.id}
+                    onClick={() => {
+                      if (busy) return;
+                      setActive(i);
+                      choose(b);
+                    }}
+                  >
+                    {buildLabel(b)}
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         )}
         <div class="debug-link-status">
