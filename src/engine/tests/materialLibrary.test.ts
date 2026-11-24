@@ -420,6 +420,42 @@ describe("the Babylon material library (ADR 0127)", () => {
       const next = new Texture(null, scene);
       expect(lib.probeCopy(base, hit(next)).reflectionTexture).toBe(next);
     });
+
+    it("keeps the copies bounded while a mesh moves through a blend zone (stale blend copies are freed)", () => {
+      const base = lib.material(RED) as PBRMaterial;
+      const map = new Texture(null, scene);
+      const neighbour = new Texture(null, scene);
+      const blended = (weight: number) => ({ texture: map, intensity: 1, blend: { texture: neighbour, intensity: 1, weight, box: null } });
+      const copies = () => scene.materials.filter((m) => m.name.endsWith(":probe")).length;
+      // A frame per step, in then out of the zone, twice: each sync draws one copy.
+      const weights = [1, 0.875, 0.75, 0.625, 0.5, 0.375, 0.25, 0.125, 0, 0.125, 0.25, 0.5, 0.75, 1];
+      let drawn: PBRMaterial | null = null;
+      for (const w of [...weights, ...weights]) {
+        lib.beginSync();
+        drawn = lib.probeCopy(base, blended(w));
+        lib.endSync();
+        expect(copies()).toBeLessThanOrEqual(1);
+      }
+      expect(scene.materials).toContain(drawn);
+      // Two meshes at different weights in one sync each keep their own copy.
+      lib.beginSync();
+      const a = lib.probeCopy(base, blended(0.25));
+      const b = lib.probeCopy(base, blended(0.75));
+      lib.endSync();
+      expect(a).not.toBe(b);
+      expect(scene.materials).toContain(a);
+      expect(scene.materials).toContain(b);
+    });
+
+    it("keeps a copy asked for outside a sync (the warm-up's) after later syncs", () => {
+      const base = lib.material(RED) as PBRMaterial;
+      const map = new Texture(null, scene);
+      const neighbour = new Texture(null, scene);
+      const warm = lib.probeCopy(base, { texture: map, intensity: 1, blend: { texture: neighbour, intensity: 1, weight: 0.5, box: null } });
+      lib.beginSync();
+      lib.endSync();
+      expect(scene.materials).toContain(warm);
+    });
   });
 
   describe("render textures (ADR 0109)", () => {
