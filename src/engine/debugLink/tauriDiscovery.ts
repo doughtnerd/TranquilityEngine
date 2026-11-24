@@ -12,7 +12,7 @@
 //   `{ kind: "lost", id }` on the channel.
 // - `myco_debuglink_browse_stop` { id }.
 //
-// D1 fills the bodies below; this file is the contract D2 (the dialog's list) is written against.
+import { Channel, invoke } from "@tauri-apps/api/core";
 
 /** A build found on the LAN. */
 export interface DiscoveredBuild {
@@ -36,17 +36,54 @@ export interface AdvertisedBuild {
   readonly path: string;
 }
 
+const inTauri = (): boolean => "__TAURI_INTERNALS__" in globalThis;
+
+const reason = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
 /** Advertises a listening build on the LAN. Resolves to the stop, or null outside Tauri or when the native side can't advertise. */
 export async function advertiseBuild(build: AdvertisedBuild): Promise<(() => void) | null> {
-  void build; // D1
-  return null;
+  if (!inTauri()) return null;
+  let id: number;
+  try {
+    id = await invoke<number>("myco_debuglink_advertise", { name: build.name, platform: build.platform, port: build.port, path: build.path });
+  } catch (err) {
+    console.warn(`[myco] The debug link can't advertise this build: ${reason(err)}`);
+    return null;
+  }
+  let stopped = false;
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    invoke("myco_debuglink_unadvertise", { id }).catch(() => undefined);
+  };
 }
+
+type BrowseEvent = { kind: "found"; build: DiscoveredBuild } | { kind: "lost"; id: string };
 
 /**
  * Browses for advertised builds; `onChange` gets the whole current list after each change (found or lost). Resolves to
  * the stop, or null outside Tauri or when the native side can't browse.
  */
 export async function browseBuilds(onChange: (builds: readonly DiscoveredBuild[]) => void): Promise<(() => void) | null> {
-  void onChange; // D1
-  return null;
+  if (!inTauri()) return null;
+  const builds = new Map<string, DiscoveredBuild>();
+  let stopped = false;
+  const events = new Channel<BrowseEvent>((event) => {
+    if (stopped) return;
+    if (event.kind === "found") builds.set(event.build.id, event.build);
+    else if (!builds.delete(event.id)) return;
+    onChange([...builds.values()]);
+  });
+  let id: number;
+  try {
+    id = await invoke<number>("myco_debuglink_browse", { events });
+  } catch (err) {
+    console.warn(`[myco] The debug link can't browse for builds: ${reason(err)}`);
+    return null;
+  }
+  return () => {
+    if (stopped) return;
+    stopped = true;
+    invoke("myco_debuglink_browse_stop", { id }).catch(() => undefined);
+  };
 }

@@ -19,6 +19,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         // The debug link's listeners (ADR 0380), opened by the Studio's page.
         .manage(debug_link_tauri::DebugLinkListeners::default())
+        .manage(debug_link_tauri::DebugDiscovery::default())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -36,7 +37,11 @@ pub fn run() {
             debug_link_tauri::commands::myco_debuglink_listen,
             debug_link_tauri::commands::myco_debuglink_send,
             debug_link_tauri::commands::myco_debuglink_close,
-            debug_link_tauri::commands::myco_debuglink_interfaces
+            debug_link_tauri::commands::myco_debuglink_interfaces,
+            debug_link_tauri::commands::myco_debuglink_advertise,
+            debug_link_tauri::commands::myco_debuglink_unadvertise,
+            debug_link_tauri::commands::myco_debuglink_browse,
+            debug_link_tauri::commands::myco_debuglink_browse_stop
         ])
         .run(tauri::generate_context!())
         .expect("error while building tauri application");

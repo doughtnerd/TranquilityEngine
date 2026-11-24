@@ -16,12 +16,20 @@
 //!   in the `myco-listener` header.
 //! - `myco_debuglink_close(id)` stops a listener, frees its port and closes its connections.
 //!
+//! - `myco_debuglink_interfaces()` lists this machine's IPv4 addresses (the primary one, then loopback).
+//! - Discovery (`native/debug-discovery`, state `DebugDiscovery`, whose mDNS daemon starts at the first call; a failure
+//!   to start it is the command's error string): `myco_debuglink_advertise(name, platform, port, path)` -> id
+//!   advertises this machine's listener as `_myco-debug._tcp.local.`; `myco_debuglink_unadvertise(id)`;
+//!   `myco_debuglink_browse(events)` -> id streams `{ kind: "found", build: { id, name, platform, address } }` and
+//!   `{ kind: "lost", id }` as JSON on the channel; `myco_debuglink_browse_stop(id)`.
+//!
 //! A window that listens on a port it already listens on replaces its old listener, so a reloaded
 //! page (or a close that arrives after the next listen) never finds its own port taken.
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
+use myco_debug_discovery::{Discovery, Event};
 use myco_ws_listener::{Limits, Listener, Sink, wire};
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeBody, InvokeResponseBody, Request};
@@ -203,6 +211,81 @@ pub fn myco_debuglink_interfaces() -> Vec<InterfaceAddress> {
     interface_list(primary_ipv4())
 }
 
+/// The mDNS daemon, created at the first discovery command (a machine without multicast never pays for it).
+#[derive(Default)]
+pub struct DebugDiscovery {
+    discovery: Mutex<Option<Arc<Discovery>>>,
+}
+
+impl DebugDiscovery {
+    fn get(&self) -> Result<Arc<Discovery>, String> {
+        let mut slot = self.discovery.lock().unwrap();
+        if let Some(d) = slot.as_ref() {
+            return Ok(d.clone());
+        }
+        let d = Arc::new(Discovery::new()?);
+        *slot = Some(d.clone());
+        Ok(d)
+    }
+}
+
+/// A build found on the LAN, as the page's `DiscoveredBuild`.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+pub struct FoundBuild {
+    id: String,
+    name: String,
+    platform: String,
+    address: String,
+}
+
+/// An event on a browse channel, as JSON: `{ kind: "found", build }` or `{ kind: "lost", id }`.
+#[derive(Serialize, Debug, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum BrowseEvent {
+    Found { build: FoundBuild },
+    Lost { id: String },
+}
+
+/// The pure part of `myco_debuglink_browse`: a discovery event as the page's event.
+pub fn browse_event(event: Event) -> BrowseEvent {
+    match event {
+        Event::Found(b) => BrowseEvent::Found { build: FoundBuild { id: b.id, name: b.name, platform: b.platform, address: b.address } },
+        Event::Lost { id } => BrowseEvent::Lost { id },
+    }
+}
+
+#[tauri::command]
+pub fn myco_debuglink_advertise(
+    state: State<'_, DebugDiscovery>,
+    name: String,
+    platform: String,
+    port: u16,
+    path: String,
+) -> Result<u32, String> {
+    state.get()?.advertise(&name, &platform, port, &path)
+}
+
+#[tauri::command]
+pub fn myco_debuglink_unadvertise(state: State<'_, DebugDiscovery>, id: u32) {
+    if let Ok(d) = state.get() {
+        d.unadvertise(id);
+    }
+}
+
+#[tauri::command]
+pub fn myco_debuglink_browse(state: State<'_, DebugDiscovery>, events: Channel<BrowseEvent>) -> Result<u32, String> {
+    state.get()?.browse(move |event| {
+        let _ = events.send(browse_event(event));
+    })
+}
+
+#[tauri::command]
+pub fn myco_debuglink_browse_stop(state: State<'_, DebugDiscovery>, id: u32) {
+    if let Ok(d) = state.get() {
+        d.browse_stop(id);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -222,5 +305,21 @@ mod tests {
             let list = interface_list(primary);
             assert_eq!(list, vec![InterfaceAddress { address: "127.0.0.1".into(), family: "IPv4", internal: true }]);
         }
+    }
+
+    #[test]
+    fn browse_events_are_the_pages_json() {
+        let found = browse_event(Event::Found(myco_debug_discovery::Build {
+            id: "a._myco-debug._tcp.local.".into(),
+            name: "A".into(),
+            platform: "desktop".into(),
+            address: "ws://10.0.0.2:7790/myco-debug".into(),
+        }));
+        assert_eq!(
+            serde_json::to_string(&found).unwrap(),
+            r#"{"kind":"found","build":{"id":"a._myco-debug._tcp.local.","name":"A","platform":"desktop","address":"ws://10.0.0.2:7790/myco-debug"}}"#
+        );
+        let lost = browse_event(Event::Lost { id: "a".into() });
+        assert_eq!(serde_json::to_string(&lost).unwrap(), r#"{"kind":"lost","id":"a"}"#);
     }
 }
