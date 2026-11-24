@@ -2,12 +2,16 @@
 // ADR 0370's budget scenarios on the committed wasm in Node (T82r). The budgets are tripwires; this prints, asserts nothing.
 //
 //   node native/anim/crates/anim-wasm/bench_budgets.mjs [--rounds N] [--frames N] [--only substring] [--regen] [--compare FILE]
-//     [--characters N] [--max-instances N] [--max-bones N]
+//     [--characters N] [--max-instances N] [--max-bones N] [--gap MS]
 //
 // `--characters N` (default 100) sets the character scenarios' instance count, and `--max-instances`/`--max-bones` the
 // core's INIT limits (defaults 128 and the skeleton's bones rounded up): the shipped player starts the core with 512
 // instances and 256 bones (DEFAULT_CORE_LIMITS), so `--characters 300 --max-instances 512 --max-bones 256` measures the
 // player's 300-clip scene's core work alone.
+//
+// `--gap MS` waits MS milliseconds before each timed frame (a timer, as a page's frame loop leaves the thread idle
+// between frames) and times the frames alone: back-to-back frames (the default) measure the core with a busy CPU and
+// warm caches, spaced ones what a 60 Hz host sees.
 //
 // `--compare FILE` also runs another build of the module (same exports, e.g. the committed one saved before a change)
 // in alternate rounds and prints both medians and their ratio: an A/B on a shared, noisy machine.
@@ -77,7 +81,7 @@ function parent() {
     let note = "";
     for (let r = 0; r < rounds; r++) {
       builds.forEach((wasm, b) => {
-        const pass = ["characters", "max-instances", "max-bones"].flatMap((k) => (opt(k, null) === null ? [] : [`--${k}`, opt(k)]));
+        const pass = ["characters", "max-instances", "max-bones", "gap"].flatMap((k) => (opt(k, null) === null ? [] : [`--${k}`, opt(k)]));
         const out = execFileSync(process.execPath, [fileURLToPath(import.meta.url), "--child", name, "--frames", String(frames), "--wasm", wasm, ...pass], { encoding: "utf8" });
         const line = JSON.parse(out.trim().split("\n").pop());
         ms[b].push(line.ms);
@@ -293,8 +297,19 @@ async function child(name, frames) {
     }
   }
   for (let i = 0; i < warm; i++) step();
-  const t0 = performance.now();
-  for (let i = 0; i < frames; i++) step();
-  const ms = (performance.now() - t0) / frames;
+  const gap = Number(opt("gap", 0));
+  let ms = 0;
+  if (gap > 0) {
+    for (let i = 0; i < frames; i++) {
+      await new Promise((done) => setTimeout(done, gap));
+      const t0 = performance.now();
+      step();
+      ms += (performance.now() - t0) / frames;
+    }
+  } else {
+    const t0 = performance.now();
+    for (let i = 0; i < frames; i++) step();
+    ms = (performance.now() - t0) / frames;
+  }
   console.log(JSON.stringify({ ms, note }));
 }

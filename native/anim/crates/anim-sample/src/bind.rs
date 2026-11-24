@@ -32,13 +32,14 @@ use anim_format::clip::{
     RotationFormat, TrackKind,
 };
 use anim_format::NONE;
-use anim_math::{AosQuat, AosTransform, AosVec3, SoaTransform};
+use anim_math::quant::{is_supported_bits, unorm_max};
+use anim_math::{AosQuat, AosTransform, AosVec3, F32x4, Lane, SoaTransform};
 use anim_pose::sync::SyncMarker;
 
 use crate::Form;
 use crate::{
-    apply, apply_soa, blend_track, decode, decode_n, group, seg_range, ClipSampler, FrameCache,
-    FramePos, SampleError, Seg, SegmentCache, TrackSample,
+    apply, apply_soa, blend_track, decode, decode_n, group, read_word, seg_range, ClipSampler,
+    FrameCache, FramePos, SampleError, Seg, SegmentCache, TrackSample,
 };
 
 /// A compressed channel, decoded.
@@ -55,6 +56,51 @@ pub(crate) struct ChanBind {
     bone: u32,
     /// Rank among the animated channels (its ranges' slot in a frame cache), or `NONE`.
     rank: u32,
+}
+
+/// The animated channels of one kind (translation, rotation or scale) on the four bones of one SoA
+/// group, decoded together (`ClipBindings::decode_grouped`).
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct GroupOp {
+    group: u32,
+    kind: ChannelKind,
+    /// Components per channel (3, or 4 for a full rotation).
+    width: u8,
+    /// Bit `l` set: lane `l` has a channel (its rank in `ranks[l]`).
+    lanes: u8,
+    ranks: [u32; 4],
+}
+
+/// Words per [`GroupOp`] in a frame cache's range block: per lane its rate and bit offset in the
+/// frame, then four minimums and four extents per component (x, y, z, w).
+const GROUP_WORDS: usize = 8 + 32;
+
+/// Lane `l` of a group op whose range block is `w`: its `m` codes and `2^rate − 1`, or `slow`
+/// when its codes don't fit one 64-bit read or its rate is 0, 32 or unsupported (no channel:
+/// zero codes).
+#[inline(always)]
+fn lane_codes(
+    data: &[u8],
+    frame_pos: u64,
+    w: &[u32; GROUP_WORDS],
+    lanes: u8,
+    m: usize,
+    l: usize,
+) -> ([u32; 4], f32, bool) {
+    if lanes & (1 << l) == 0 {
+        return ([0; 4], 1.0, false);
+    }
+    let r = w[l];
+    let pos = frame_pos + w[4 + l] as u64;
+    if r != 0 && is_supported_bits(r) && (pos & 7) + m as u64 * r as u64 <= 64 {
+        let word = read_word(data, pos);
+        let mask = (1u64 << r) - 1;
+        let c = |k: u32| ((word >> (k * r)) & mask) as u32;
+        let last = if m > 3 { c(3) } else { 0 };
+        ([c(0), c(1), c(2), last], unorm_max(r) as f32, false)
+    } else {
+        ([0; 4], 1.0, true)
+    }
 }
 
 /// A track record, decoded, with its column and value channel.
@@ -135,6 +181,12 @@ pub struct ClipBindings {
     /// over another frame of the same clip rewrites only the animated ones.
     animated_channels: Vec<ChanBind>,
     exclusive: bool,
+    /// With `exclusive`, when every animated bone channel is a translation or scale of width 3
+    /// or a rotation of the stored format's width: the channels by group and kind, decoded four
+    /// lanes at a time (empty otherwise).
+    group_ops: Vec<GroupOp>,
+    /// Per animated channel (rank order) of a grouped clip: `4 × op + lane`, or `NONE`.
+    group_slots: Vec<u32>,
     /// Raw form: (bone, raw offset) per bone track.
     raw_bones: Vec<(u32, u32)>,
     pub(crate) tracks: Vec<TrackBind>,
@@ -169,6 +221,8 @@ impl ClipBindings {
             width_sum: 0,
             animated_channels: Vec::new(),
             exclusive: true,
+            group_ops: Vec::new(),
+            group_slots: Vec::new(),
             raw_bones: Vec::new(),
             tracks,
             keys,
@@ -270,6 +324,7 @@ impl ClipBindings {
                 *w |= bit;
             }
         }
+        self.build_group_ops(c.rotation_format(), bones);
         // Bits before each animated index, per segment (the bitstream is in animated order).
         let mut before = vec![0u64; animated.len() + 1];
         for s in 0..c.segment_count() {
@@ -289,6 +344,59 @@ impl ClipBindings {
                     .push(before.get(ai as usize).copied().unwrap_or(0) as u32);
             }
         }
+    }
+
+    /// Fills `group_ops` when the clip's animated bone channels allow it (see the field).
+    fn build_group_ops(&mut self, format: RotationFormat, bones: usize) {
+        if !self.exclusive {
+            return;
+        }
+        let rot_width = match format {
+            RotationFormat::QuatDropW => 3,
+            RotationFormat::QuatFull => 4,
+        };
+        // (group, kind) -> op index.
+        let mut index = vec![[NONE; 3]; bones.div_ceil(4)];
+        let mut ops: Vec<GroupOp> = Vec::new();
+        for ch in &self.animated_channels {
+            if ch.bone == NONE {
+                continue;
+            }
+            let (slot, width) = match ch.kind {
+                ChannelKind::Translation => (0, 3),
+                ChannelKind::Rotation => (1, rot_width),
+                ChannelKind::Scale => (2, 3),
+                ChannelKind::Value => return,
+            };
+            if ch.width != width {
+                return;
+            }
+            let (g, l) = (ch.bone as usize / 4, ch.bone as usize % 4);
+            let Some(at) = index.get_mut(g) else { return };
+            if at[slot] == NONE {
+                at[slot] = ops.len() as u32;
+                ops.push(GroupOp {
+                    group: g as u32,
+                    kind: ch.kind,
+                    width,
+                    lanes: 0,
+                    ranks: [NONE; 4],
+                });
+            }
+            let op = &mut ops[at[slot] as usize];
+            op.lanes |= 1 << l;
+            op.ranks[l] = ch.rank;
+        }
+        let mut slots = vec![NONE; self.animated_channels.len()];
+        for (i, op) in ops.iter().enumerate() {
+            for (l, &rank) in op.ranks.iter().enumerate() {
+                if let Some(s) = slots.get_mut(rank as usize) {
+                    *s = (4 * i + l) as u32;
+                }
+            }
+        }
+        self.group_ops = ops;
+        self.group_slots = slots;
     }
 
     fn read_keys(&mut self) {
@@ -534,34 +642,68 @@ impl ClipBindings {
         f / self.segment_frames
     }
 
-    /// Words [`frame_ranges`](Self::frame_ranges) writes: eight per animated channel.
+    /// Words [`frame_ranges`](Self::frame_ranges) writes: [`GROUP_WORDS`] per group op of a
+    /// grouped clip, else eight per animated channel.
     pub(crate) fn frame_ranges_len(&self) -> usize {
-        8 * self.animated_channels.len()
+        if self.group_ops.is_empty() {
+            8 * self.animated_channels.len()
+        } else {
+            GROUP_WORDS * self.group_ops.len()
+        }
     }
 
-    /// Segment `seg`'s widened ranges (`seg_range`'s values, as f32 bits) into `out`, eight words
-    /// per animated channel in rank order: the minimum of each component (up to four, then 0),
-    /// then the extent of each, so a channel loads them four lanes at a time. `out` holds at
-    /// least [`frame_ranges_len`](Self::frame_ranges_len) words.
+    /// Segment `seg`'s widened ranges (`seg_range`'s values, as f32 bits) into `out`. A grouped
+    /// clip: [`GROUP_WORDS`] per group op (each lane's rate and bit offset in a frame, then the
+    /// minimums and extents per component, four lanes each); otherwise eight words per animated
+    /// channel in rank order: the minimum of each component (up to four, then 0), then the extent
+    /// of each. `out` holds at least [`frame_ranges_len`](Self::frame_ranges_len) words.
     pub(crate) fn frame_ranges(&self, c: &CompressedView<'_>, seg: usize, out: &mut [u32]) {
         let width_sum = self.width_sum;
         let clip_ranges = c.clip_ranges();
         let seg_ranges = c.segment_ranges();
-        for (ch, o) in self.animated_channels.iter().zip(out.chunks_exact_mut(8)) {
-            o.fill(0);
-            let comp = ch.comp as usize;
-            for k in 0..(ch.width as usize).min(4) {
-                let (min, ext) = seg_range(
-                    &clip_ranges,
-                    seg_ranges,
-                    ch.width,
-                    ch.data_offset,
-                    k,
-                    seg * width_sum + comp + k,
-                );
-                o[k] = min.to_bits();
-                o[4 + k] = ext.to_bits();
+        let range = |ch: &ChanBind, k: usize| {
+            seg_range(
+                &clip_ranges,
+                seg_ranges,
+                ch.width,
+                ch.data_offset,
+                k,
+                seg * width_sum + ch.comp as usize + k,
+            )
+        };
+        if self.group_ops.is_empty() {
+            for (ch, o) in self.animated_channels.iter().zip(out.chunks_exact_mut(8)) {
+                o.fill(0);
+                for k in 0..(ch.width as usize).min(4) {
+                    let (min, ext) = range(ch, k);
+                    o[k] = min.to_bits();
+                    o[4 + k] = ext.to_bits();
+                }
             }
+            return;
+        }
+        let rates = c.bit_rates(seg).unwrap_or(&[]);
+        let rate =
+            |ch: &ChanBind| rates.get(ch.animated_index as usize).copied().unwrap_or(0) as u32;
+        let len = self.frame_ranges_len().min(out.len());
+        out[..len].fill(0);
+        // Each channel's bit offset in a frame: the codes of the animated channels before it (as
+        // `decode_channels` advances its position).
+        let mut off = 0u64;
+        for (ch, &slot) in self.animated_channels.iter().zip(&self.group_slots) {
+            let r = rate(ch);
+            let (op, l) = (slot as usize / 4, slot as usize % 4);
+            let o = (slot != NONE).then(|| out.get_mut(op * GROUP_WORDS..(op + 1) * GROUP_WORDS));
+            if let Some(Some(o)) = o {
+                o[l] = r;
+                o[4 + l] = off as u32;
+                for k in 0..(ch.width as usize).min(4) {
+                    let (min, ext) = range(ch, k);
+                    o[8 + 4 * k + l] = min.to_bits();
+                    o[24 + 4 * k + l] = ext.to_bits();
+                }
+            }
+            off += r as u64 * (ch.width as u64).min(4);
         }
     }
 
@@ -614,9 +756,108 @@ impl ClipBindings {
         }
         match ranges {
             Some(rg) if rg.len() >= self.frame_ranges_len() => {
-                self.decode_animated(&s, n, out, rg, format)
+                if self.group_ops.is_empty() {
+                    self.decode_animated(&s, n, out, rg, format)
+                } else {
+                    self.decode_grouped(&s, out, rg)
+                }
             }
             _ => self.decode_channels(c, &s, n, out, ranges, format, true),
+        }
+    }
+
+    /// [`decode_animated`](Self::decode_animated) for a grouped clip: each group op's lanes are
+    /// read one by one and unpacked four at a time (per lane the same division, multiply and add
+    /// as `decode`; a lane whose codes don't fit one 64-bit read, or whose rate is 0, 32 or
+    /// unsupported, goes through `decode`), and the rotation's w is computed four at a time with
+    /// `apply`'s operations. Lanes without a channel keep their values.
+    #[inline(always)]
+    fn decode_grouped(&self, s: &Seg<'_>, out: &mut [SoaTransform], rg: &[u32]) {
+        let (zero, one) = (F32x4::splat(0.0), F32x4::splat(1.0));
+        for (op, w) in self.group_ops.iter().zip(rg.chunks_exact(GROUP_WORDS)) {
+            let Ok(w) = <&[u32; GROUP_WORDS]>::try_from(w) else {
+                continue;
+            };
+            let Some(g) = out.get_mut(op.group as usize) else {
+                continue;
+            };
+            let m = op.width as usize;
+            let read = |l: usize| lane_codes(s.data, s.frame_pos, w, op.lanes, m, l);
+            let ((c0, m0, s0), (c1, m1, s1)) = (read(0), read(1));
+            let ((c2, m2, s2), (c3, m3, s3)) = (read(2), read(3));
+            let slow = s0 as u8 | (s1 as u8) << 1 | (s2 as u8) << 2 | (s3 as u8) << 3;
+            let lanes = |o: usize| {
+                F32x4::new(
+                    f32::from_bits(w[o]),
+                    f32::from_bits(w[o + 1]),
+                    f32::from_bits(w[o + 2]),
+                    f32::from_bits(w[o + 3]),
+                )
+            };
+            let max = F32x4::new(m0, m1, m2, m3);
+            let comp = |k: usize| {
+                let c = F32x4::from_u32_array([c0[k], c1[k], c2[k], c3[k]]);
+                lanes(8 + 4 * k) + c / max * lanes(24 + 4 * k)
+            };
+            let mut v = [
+                comp(0),
+                comp(1),
+                comp(2),
+                if m > 3 { comp(3) } else { zero },
+            ];
+            if slow != 0 {
+                for l in 0..4 {
+                    if slow & (1 << l) == 0 {
+                        continue;
+                    }
+                    let (r, pos) = (w[l], s.frame_pos + w[4 + l] as u64);
+                    for (k, vk) in v.iter_mut().enumerate().take(m) {
+                        let x = decode(
+                            s.data,
+                            pos + (k as u32 * r) as u64,
+                            r,
+                            f32::from_bits(w[8 + 4 * k + l]),
+                            f32::from_bits(w[24 + 4 * k + l]),
+                        );
+                        *vk = vk.with_lane(l, x);
+                    }
+                }
+            }
+            let keep = op.lanes != 0b1111;
+            let sel = |new: F32x4, old: F32x4| {
+                if keep {
+                    let on = |l: u8| if op.lanes & (1 << l) != 0 { 1.0 } else { 0.0 };
+                    F32x4::select(F32x4::new(on(0), on(1), on(2), on(3)).gt(zero), new, old)
+                } else {
+                    new
+                }
+            };
+            match op.kind {
+                ChannelKind::Rotation => {
+                    let rw = if m == 3 {
+                        let d = one - (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+                        d.max(zero).sqrt()
+                    } else {
+                        v[3]
+                    };
+                    let q = &mut g.rotation;
+                    q.x = sel(v[0], q.x);
+                    q.y = sel(v[1], q.y);
+                    q.z = sel(v[2], q.z);
+                    q.w = sel(rw, q.w);
+                }
+                ChannelKind::Translation | ChannelKind::Scale => {
+                    let p = if op.kind == ChannelKind::Translation {
+                        &mut g.translation
+                    } else {
+                        &mut g.scale
+                    };
+                    p.x = sel(v[0], p.x);
+                    p.y = sel(v[1], p.y);
+                    p.z = sel(v[2], p.z);
+                }
+                ChannelKind::Value => {}
+            }
         }
     }
 

@@ -760,7 +760,7 @@ fn read_bits(data: &[u8], pos: u64, bits: u32) -> u32 {
 /// The 64 bits from byte `pos / 8` on (bytes past the end read 0), shifted right by `pos % 8`:
 /// bit `pos + i` is bit `i` for `i < 64 − pos % 8`.
 #[inline]
-fn read_word(data: &[u8], pos: u64) -> u64 {
+pub(crate) fn read_word(data: &[u8], pos: u64) -> u64 {
     let byte = (pos >> 3) as usize;
     let shift = (pos & 7) as u32;
     let mut word = [0u8; 8];

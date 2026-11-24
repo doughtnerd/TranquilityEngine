@@ -16,13 +16,14 @@ const REST: usize = 4;
 const FRAME: usize = 6;
 const NEXT: usize = 8;
 const SEG: usize = 9;
-/// Range words per bone the header region is sized for: eight per animated channel (four
-/// minimums, four extents), three channels per bone (translation, rotation, scale), so every
-/// bone channel of a clip over this skeleton fits; only a clip whose animated value channels
-/// (property tracks) push it past that decodes its ranges per frame instead. (T82r sized it for
-/// four components per bone, which a clip animating translations on most bones passed, so the
-/// cache never engaged and every decoded component recomputed its range: two extra divisions.)
-const RANGE_WORDS_PER_BONE: usize = 8 * 3;
+/// Range words per bone the header region is sized for: three channels per bone (translation,
+/// rotation, scale) at ten words each (a grouped clip's 40 words per group and kind, a quarter
+/// per bone; otherwise eight per channel), so every bone channel of a clip over this skeleton
+/// fits; only a clip whose animated value channels (property tracks) push it past that decodes
+/// its ranges per frame instead. (T82r sized it for four components per bone, which a clip
+/// animating translations on most bones passed, so the cache never engaged and every decoded
+/// component recomputed its range: two extra divisions.)
+const RANGE_WORDS_PER_BONE: usize = 10 * 3;
 /// A held-frame word meaning "none".
 const NO_FRAME: u32 = u32::MAX;
 
