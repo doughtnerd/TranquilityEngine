@@ -88,6 +88,33 @@ describe("sliceCurveBy", () => {
     for (let i = 1; i < slice.length; i++) expect(slice[i]![0] - slice[i - 1]![0]).toBeLessThanOrEqual(1.5);
     for (const x of [10, 40, 50, 60]) expect(evalCurve(slice, x)).toBeCloseTo(evalCurveBy(main, by, x, s), 0);
   });
+
+  it("thinning keeps or drops a step's jump whole: every jump kept is still a jump", () => {
+    // Low steps between 0 and 10 at each whole x; High is linear between them: far more keys than the limit.
+    const main: Curve = Array.from({ length: 64 }, (_, i): CurveKey => [i, i % 2 === 0 ? 0 : 10, "step"]);
+    const high: Curve = Array.from({ length: 64 }, (_, i): CurveKey => [i + 0.5, i]);
+    const by: CurveBy = { input: "Speed", mode: "morph", curve: high };
+    const s = at(speed, 50);
+    const f = (x: number) => evalCurveBy(main, by, x, s);
+    const slice = sliceCurveBy(main, by, s);
+    expect(slice.length).toBeLessThanOrEqual(MAX_SLICE_KEYS);
+    expect(slice[0]![0]).toBe(0);
+    expect(slice[slice.length - 1]![0]).toBe(63.5);
+    let jumps = 0;
+    for (let i = 1; i < slice.length; i++) {
+      const x = slice[i]![0];
+      if (!Number.isInteger(x)) continue;
+      // A whole x past 0 is where Low jumps: the key before it is its left limit, just below it.
+      const before = slice[i - 1]!;
+      expect(x - before[0]).toBeGreaterThan(0);
+      expect(x - before[0]).toBeLessThan(1e-3);
+      expect(before[1]).toBeCloseTo(f(before[0]), 9);
+      expect(slice[i]![1]).toBeCloseTo(f(x), 9);
+      expect(Math.abs(slice[i]![1] - before[1])).toBeGreaterThan(4); // still a jump (half of Low's 10 at the midpoint)
+      jumps++;
+    }
+    expect(jumps).toBeGreaterThan(5);
+  });
 });
 
 describe("the format", () => {
