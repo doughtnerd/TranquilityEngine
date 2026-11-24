@@ -233,7 +233,6 @@ function parseTime(written: unknown): Parsed<"time"> {
     maxFrameTime: [isPositive, "The max frame time must be above 0 seconds."],
     maxSubSteps: [isPositiveInt, "Max sub-steps must be a whole number above 0."],
   }, problems);
-  if (value.fixedDeltaTime > value.maxFrameTime) problems.push({ field: "time.fixedDeltaTime", message: "The fixed timestep is longer than the max frame time, so no fixed step would ever run." });
   return { value, problems, warnings: [] };
 }
 
