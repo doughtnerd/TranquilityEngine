@@ -422,7 +422,7 @@ export function worldBounds(node: GameObject): { min: [number, number, number]; 
 export function localPositionFor(node: GameObject, point: readonly number[]): [number, number, number] {
   const parent = node.parent;
   const x = point[0], y = point[1], z = point[2] ?? 0;
-  if (!parent?.transform) return [x, y, z];
+  if (!parent) return [x, y, z];
   const inverse = matrixFrom(node.world.worldMatrix(parent.entity), parent.entity * 16);
   Mat4.invert(inverse, 0, inverse, 0);
   return Mat4.transformPoint(inverse, 0, x, y, z);

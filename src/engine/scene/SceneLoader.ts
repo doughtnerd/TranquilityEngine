@@ -211,6 +211,8 @@ type Made = Component | DataComponentDef<Schema> | typeof TRANSFORM_ENTRY;
  */
 class Instantiation implements FoldAdapter<GameObject, Made> {
   readonly fixups: Fixup[] = [];
+  /** Every node this instantiation created, in creation order (parents before their children). */
+  private readonly made: GameObject[] = [];
   private top: FoldScope<GameObject> | null = null;
   constructor(readonly world: World, private readonly hooks: InstantiateHooks = {}) {}
 
@@ -219,6 +221,11 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
     const { roots, scope } = foldNodes(this, file.nodes, parent, path);
     this.top = scope;
     return roots;
+  }
+
+  /** Take back what a failed instantiation made, so no half-built nodes stay in the World (or awake later). */
+  discard(): void {
+    for (const node of this.made) if (node.isValid) this.world._destroyNodeNow(node.entity);
   }
 
   /** Stop on a problem, or (editor) report it so the caller can skip the thing and carry on. */
@@ -241,12 +248,14 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
     const { entry } = step;
     this.problem(`${step.source}: prefab "${file}" not found (deleted?); "${entry.name ?? entry.id}" shows as an empty node.`, step.at);
     const node = this.world._createNode(entry.name ?? entry.id, step.parent!.entity, { transform: true, id: entry.id });
+    this.made.push(node);
     if (entry.active === false) node.setActive(false);
     return node;
   }
 
   node({ entry, parent }: NodeStep<GameObject>): GameObject {
     const node = this.world._createNode(entry.name ?? entry.id, parent!.entity, { transform: entry.transform !== false, id: entry.id });
+    this.made.push(node);
     if (entry.componentNode) this.world.setComponentNode(node.entity, true);
     if (entry.tags) node.tags = entry.tags;
     if (entry.active === false) node.setActive(false);
@@ -260,6 +269,7 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
    */
   sceneNode({ entry, parent }: NodeStep<GameObject>, scene: string): GameObject {
     const container = this.world._createNode(entry.name ?? sceneName(scene), parent!.entity, { transform: true, id: entry.id });
+    this.made.push(container);
     this.world.setSceneNode(container.entity);
     container.addBehavior(SceneInstance, { source: scene });
     return container;
@@ -306,8 +316,9 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
     node.setActive(active);
   }
   removeNode(node: GameObject): void {
-    this.world._destroyNode(node.entity);
-    this.world._flushDestroyed();
+    // This node only: flushing the World's whole destroy queue here would, during a frame (a prefab spawned
+    // from a script), remove other behaviours from the hook list the update pass is walking.
+    this.world._destroyNodeNow(node.entity);
   }
   removeComponent(node: GameObject, c: Made): void {
     if (c instanceof Component) this.world._removeComponentImmediate(c);
@@ -461,9 +472,14 @@ export function instantiateFile(world: World, file: SceneFile, parent: GameObjec
   world._assertOwns(parent, `${path}: parent`);
   return world._batch(() => {
     const job = new Instantiation(world, hooks);
-    const roots = job.file(file, parent, path);
-    job.resolveFixups();
-    return roots;
+    try {
+      const roots = job.file(file, parent, path);
+      job.resolveFixups();
+      return roots;
+    } catch (err) {
+      job.discard();
+      throw err;
+    }
   });
 }
 
@@ -485,16 +501,21 @@ export function instantiatePrefab(world: World, path: string, options: Instantia
   const parent = options.parent ?? world.activeScene ?? world.root;
   return world._batch(() => {
     const job = new Instantiation(world);
-    const roots = job.file(file, parent, path);
-    if (roots.length !== 1) throw new Error(`${path}: a prefab must have exactly one root node (has ${roots.length}).`);
-    const root = roots[0];
-    instantiatedPrefabs.set(root, path);
-    if (options.name) root.name = options.name;
-    const t = root.transform;
-    if (t && options.position) t.position = Vector3.from(options.position);
-    if (t && options.rotation2D !== undefined) t.rotation2D = options.rotation2D;
-    job.resolveFixups();
-    return root;
+    try {
+      const roots = job.file(file, parent, path);
+      if (roots.length !== 1) throw new Error(`${path}: a prefab must have exactly one root node (has ${roots.length}).`);
+      const root = roots[0];
+      instantiatedPrefabs.set(root, path);
+      if (options.name) root.name = options.name;
+      const t = root.transform;
+      if (t && options.position) t.position = Vector3.from(options.position);
+      if (t && options.rotation2D !== undefined) t.rotation2D = options.rotation2D;
+      job.resolveFixups();
+      return root;
+    } catch (err) {
+      job.discard();
+      throw err;
+    }
   });
 }
 

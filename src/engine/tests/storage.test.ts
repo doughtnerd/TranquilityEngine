@@ -141,6 +141,71 @@ describe("files (Tauri) on disk", () => {
   });
 });
 
+describe("files (Tauri): keys as file names (ADR 0384)", () => {
+  /** `memoryFiles` as a case-insensitive disk (Windows, macOS): one file per name whatever its case, keeping the first spelling. */
+  function caseInsensitiveFiles() {
+    const fs = memoryFiles();
+    const real = (p: string) => [...fs.files.keys()].find((k) => k.toLowerCase() === p.toLowerCase()) ?? p;
+    return {
+      ...fs,
+      readText: (p: string) => fs.readText(real(p)),
+      writeText: (p: string, t: string) => fs.writeText(real(p), t),
+      exists: async (p: string) => fs.files.has(real(p)) || (await fs.exists(p)),
+      remove: (p: string) => fs.remove(real(p)),
+      rename: (a: string, b: string) => fs.rename(real(a), b),
+    };
+  }
+
+  it("gives keys that differ only in case their own files on a case-insensitive disk", async () => {
+    const fs = caseInsensitiveFiles();
+    const storage = new EncodedStorage(new TauriRecords(fs, "/data"));
+    await storage.save("saves", "Slot", 1);
+    await storage.save("saves", "slot", 2);
+    expect(await storage.load("saves", "Slot")).toBe(1);
+    expect(await storage.load("saves", "slot")).toBe(2);
+    expect((await storage.list("saves")).sort()).toEqual(["Slot", "slot"]);
+  });
+
+  it("names no file with a character or device name Windows refuses", async () => {
+    const fs = memoryFiles();
+    const storage = new EncodedStorage(new TauriRecords(fs, "/data"));
+    const keys = ["a*b", "what?", "CON", "nul.cfg", "com1", "x'(y)!~", "plain-key_1.v2"];
+    for (const key of keys) await storage.save("saves", key, key);
+    for (const name of [...fs.files.keys()].map((f) => f.slice("/data/saves/".length))) {
+      expect(name).toMatch(/^([a-z0-9._-]|%[0-9A-F]{2})+\.json$/);
+      expect(name).not.toMatch(/^(con|prn|aux|nul|com[0-9]|lpt[0-9])(\.|$)/);
+    }
+    expect(fs.files.has("/data/saves/plain-key_1.v2.json")).toBe(true);
+    expect((await storage.list("saves")).sort()).toEqual([...keys].sort());
+    for (const key of keys) expect(await storage.load("saves", key)).toBe(key);
+  });
+
+  it("reads, rewrites and deletes files an earlier build named, under their keys", async () => {
+    const fs = memoryFiles();
+    fs.files.set("/data/saves/Slot1.json", "1");
+    fs.files.set("/data/saves/a*b.json", "2");
+    fs.files.set("/data/saves/best.json", "3");
+    const storage = new EncodedStorage(new TauriRecords(fs, "/data"));
+    expect((await storage.list("saves")).sort()).toEqual(["Slot1", "a*b", "best"]);
+    expect(await storage.load("saves", "Slot1")).toBe(1);
+    expect(await storage.load("saves", "a*b")).toBe(2);
+    await storage.save("saves", "Slot1", 10);
+    expect(await storage.load("saves", "Slot1")).toBe(10);
+    await storage.delete("saves", "a*b");
+    expect((await storage.list("saves")).sort()).toEqual(["Slot1", "best"]);
+    expect([...fs.files.keys()].some((f) => f.includes("*") || f.includes("Slot1"))).toBe(false);
+  });
+
+  it("lists only the files whose names it can read, skipping a stray one", async () => {
+    const fs = memoryFiles();
+    fs.files.set("/data/saves/100%.json", "1");
+    fs.files.set("/data/saves/notes.txt", "x");
+    const storage = new EncodedStorage(new TauriRecords(fs, "/data"));
+    await storage.save("saves", "ok", 2);
+    expect(await storage.list("saves")).toEqual(["ok"]);
+  });
+});
+
 // --- scopes: where each one's data lives (Tauri) ---------------------------------------------------------------
 
 const disk = memoryFiles();
