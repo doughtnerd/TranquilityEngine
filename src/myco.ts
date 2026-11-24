@@ -69,10 +69,10 @@ export { MeshRenderer } from "./plugins/meshes/runtime";
 // The Water plugin (ADR 0072, 0140).
 export { Water, WaterSurface, type WaterSample } from "./plugins/water/runtime";
 
-// The Lines plugin (ADR 0382).
+// The Lines plugin (ADR 0396).
 export { LineRenderer, TrailRenderer, type RibbonAlignment, type RibbonMode, type RibbonTextureMode } from "./plugins/lines/runtime";
 
-// The Decals plugin (ADR 0381).
+// The Decals plugin (ADR 0395).
 export { Decal2D, DecalProjector, Decals, type DecalBlend, type DecalHandle, type DecalProjectOptions, type DecalStampOptions } from "./plugins/decals/runtime";
 
 // The UI plugin (ADR 0069, 0076, 0140).

@@ -107,11 +107,18 @@ export function lineSegments(text: string, mode: LineBreakMode = "normal"): stri
     }
     i = j;
   }
+  // Spaces the text starts with stay with its first word: a break there would only make an empty first line.
+  let leading = gs[0] === " ";
   for (let i = 1; i < gs.length; i++) {
     const prev = gs[i - 1];
     const cur = gs[i];
     if (cur === " ") {
       breakBefore[i] = false; // spaces stay with the piece before them
+      continue;
+    }
+    if (leading) {
+      leading = false;
+      breakBefore[i] = false;
       continue;
     }
     if (prev === " ") breakBefore[i] = true;

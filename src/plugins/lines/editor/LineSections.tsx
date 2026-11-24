@@ -1,4 +1,4 @@
-// Under a LineRenderer's or TrailRenderer's fields in the Inspector (ADR 0382): the width curve drawn with the SDK's
+// Under a LineRenderer's or TrailRenderer's fields in the Inspector (ADR 0396): the width curve drawn with the SDK's
 // CurveField and the colour gradient with its GradientField (both fields are plain objects, so the card has no editor
 // of its own for them), and the fields the ribbon's mode ignores greyed: in 2D the material, alignment and shadows, in
 // 3D the sorting layer and order.

@@ -183,6 +183,27 @@ describe("a take file (ADR 0348)", () => {
     expect(t.meta.seeded).toBe(false);
   });
 
+  it("a group the runtime recycled names a new instance apart: a late stop of the ended one doesn't stop it on replay", async () => {
+    clock = 0;
+    const ring = new FakeRing();
+    const prof = profile(ring, [768]);
+    const rec = new TakeRecorder(ring, { now });
+    const first = { group: 5, playing: true };
+    rec.play(first, "a.playlist.json", null, {});
+    first.playing = false; // it ended, and the runtime hands its group to the next instance
+    const second = { group: 5, playing: true };
+    rec.play(second, "b.playlist.json", null, {});
+    rec.stop(first, 0); // a late stop of the ended one
+    const { requests, section } = rec.finish({ seed: 0, seeded: false, audioHash: "" });
+    const take: SaveTake = { header: SAMPLE_HEADER, meta: { ...SAMPLE_META, take: section }, span: spanOf(prof), truncatedFromSeq: 0, requests };
+    const { take: t } = await openTakeFile(assembleTakeFile(take));
+    const plays = t.requests.filter((r) => r.kind === "play") as { instance: number; path: string }[];
+    const stops = t.requests.filter((r) => r.kind === "stop") as { instance: number }[];
+    expect(plays.map((p) => p.instance)).toEqual([5, expect.any(Number)]);
+    expect(plays[1]!.instance).not.toBe(5);
+    expect(stops.every((s) => s.instance !== plays[1]!.instance)).toBe(true);
+  });
+
   it("stops with a message at the take cap rather than drop a request, and when the ring is gone", () => {
     clock = 0;
     const ring = new FakeRing(0);

@@ -10,7 +10,7 @@ import { expandParticleGraph, outputTypeResolved, portRateResolved } from "../..
 import type { ParticleProgram } from "../../../../../engine/scene/particleCompile";
 import type { ContextKind, GraphGroup, GraphNode, GraphProblem, ParticleGraph, Vec2 } from "../../../../../engine/scene/particleGraph";
 import type { PortType } from "../../../../../engine/scene/particleNodes";
-import { usePanelHistory, type UndoHistory, editor, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, GraphFindBox, WireRefusal, px, startPointerDrag, toGraph, useGraphCanvas, useGraphFind, useGraphSearch, useGraphSelection, useGraphWiring, type CanvasNode, type Point, type EditorProject } from "../../../../../editor/sdk";
+import { usePanelHistory, type UndoHistory, editor, GraphPreviewCard, NO_DRAG, NO_PAN, NoteView, NodeSearchPopup, Minimap, SelectionBox, GraphFindBox, WireRefusal, px, toGraph, useGraphCanvas, useGraphFind, useGraphSearch, useGraphSelection, useGraphWiring, usePreviewCardSize, type CanvasNode, type Point, type EditorProject } from "../../../../../editor/sdk";
 import { compileEffectGraph, effectFileMigrated, particleDocument, projectParticleAssets } from "../../particleAssets";
 import { ASSET_INPUT, BLOCK_CONTEXTS, addPseudoNode, assetMeta, assetToDoc, canMoveToAsset, editorNodeDef, extractSubgraph, isPseudo, setAssetMeta, wireRulesGraph } from "../../particleGraph/assetDocs";
 import {
@@ -45,8 +45,6 @@ import "./particleGraph.css";
 
 /** Effects framed once this session (the first view fits the graph as measured). */
 const framed = new Set<string>();
-/** The preview card's size, kept while the panel is open. */
-let previewSize = { w: 300, h: 220 };
 
 /** What a dropped wire connects a node from the search to. */
 type Pending = { side: "output" | "input"; ref: string } | null;
@@ -72,6 +70,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
   const [maximized, setMaximized] = useState(false);
   const [showMinimap, setShowMinimap] = useState(true);
   const [showPreview, setShowPreview] = useState(true);
+  const [previewSize, setPreviewSize] = usePreviewCardSize("particle-graph", { w: 300, h: 220 });
   const [blackboardCollapsed, setBlackboardCollapsed] = useState(false);
   const [problemsOpen, setProblemsOpen] = useState(false);
   const [measured, setMeasured] = useState<Map<string, Measured>>(new Map());
@@ -87,7 +86,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     root,
     canvas: () => canvas,
     nodes: () => live.current.nodes,
-    paneIgnore: ".pg-system, .pg-node, .sg-search, .sg-find, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap, .pg-previewcard, .pg-popover",
+    paneIgnore: ".pg-system, .pg-node, .sg-search, .sg-find, .sg-wire-hit, .sg-note, .sg-group-head, .sg-minimap, .sg-previewcard, .pg-popover",
     openSearch: () => openSearchAtPointer(),
     openFind: () => find.open(),
     deleteOther: () => {
@@ -168,7 +167,7 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
     nodes: canvasNodes,
     onContextMenu: (e, at) => {
       const target = e.target as Element;
-      if (target.closest(".pg-node, .pg-previewcard, .pg-popover")) return;
+      if (target.closest(".pg-node, .sg-previewcard, .pg-popover")) return;
       e.preventDefault();
       const ctx = target.closest<HTMLElement>("[data-context]");
       search.open(at, { target: ctx ? contextTarget(ctx) : { kind: "canvas" }, pending: null });
@@ -728,7 +727,11 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
             {empty && <p class="pg-canvas-empty">{assetDoc ? "Right-click or press Space to add a node." : "Right-click or press Space to add a system."}</p>}
             {box && <SelectionBox box={box} />}
             {showMinimap && <Minimap nodes={canvasNodes} view={view} size={paneSize} pane={paneApi} />}
-            {showPreview && expansion.program && <PreviewCard program={expansion.program} problems={problems.length} onClose={() => setShowPreview(false)} />}
+            {showPreview && expansion.program && (
+              <GraphPreviewCard label="Effect preview" size={previewSize} onResize={setPreviewSize} onClose={() => setShowPreview(false)}>
+                <ParticleGraphPreview program={expansion.program} problems={problems.length} />
+              </GraphPreviewCard>
+            )}
             <GraphFindBox find={find} placeholder="Find systems, blocks, nodes, notes…" />
             {open && (
               <NodeSearchPopup
@@ -743,40 +746,5 @@ export function ParticleGraphEditor(props: { project: EditorProject; path: strin
         </div>
       </div>
     </GraphEditorContext.Provider>
-  );
-}
-
-/** The live preview as a floating card in the canvas's corner: collapse it, close it, or resize it from its top-left corner. */
-function PreviewCard(props: { program: ParticleProgram; problems: number; onClose(): void }) {
-  const [open, setOpen] = useState(true);
-  const [size, setSize] = useState(previewSize);
-  const resize = (e: PointerEvent) => {
-    if (e.button !== 0) return;
-    const start = { x: e.clientX, y: e.clientY, ...size };
-    startPointerDrag(e, {
-      zoom: () => 1,
-      onMove: (dx, dy) => setSize((previewSize = { w: Math.max(200, start.w - dx), h: Math.max(140, start.h - dy) })),
-      onEnd: () => undefined,
-    });
-  };
-  return (
-    <div class={`pg-previewcard ${NO_PAN}`} aria-label="Effect preview" onPointerDown={(e) => e.stopPropagation()}>
-      {open && <div class="pg-previewcard-resize" title="Drag to resize" onPointerDown={resize} />}
-      <div class="pg-previewcard-head">
-        <button type="button" class="pg-fold" aria-label={open ? "Collapse the preview" : "Expand the preview"} aria-expanded={open} onClick={() => setOpen(!open)}>
-          {open ? "▾" : "▸"}
-        </button>
-        <span>Preview</span>
-        <span class="sg-spacer" />
-        <button type="button" class="pg-x" aria-label="Hide the preview" title="Hide the preview (Preview in the toolbar shows it again)" onClick={props.onClose}>
-          ×
-        </button>
-      </div>
-      {open && (
-        <div class="pg-previewcard-body" style={{ width: px(size.w), height: px(size.h) }}>
-          <ParticleGraphPreview program={props.program} problems={props.problems} />
-        </div>
-      )}
-    </div>
   );
 }

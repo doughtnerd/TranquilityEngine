@@ -5,6 +5,7 @@ import { useLayoutEffect, useRef } from "preact/hooks";
 import { cleanSnap, snapSettings } from "../sceneTools";
 import { openScene, pickTool, playState, sceneCamera, setViewMode, snapping, tool, viewMode, type Tool } from "../state";
 import { ViewportDropHighlight } from "./AssetDragOverlay";
+import { MoveIcon, RotateIcon, ScaleIcon, SelectIcon } from "./toolIcons";
 import { CameraPreviewFrame, SceneToolButtons } from "./SceneTools";
 import { PanelExtensions } from "./panelExtensions";
 import { SceneTabs } from "./SceneTabs";
@@ -81,11 +82,11 @@ export function ScenePanel() {
   );
 }
 
-const TOOLS: { tool: Tool; label: string; key: string }[] = [
-  { tool: "select", label: "Select", key: "Q" },
-  { tool: "move", label: "Move", key: "W" },
-  { tool: "rotate", label: "Rotate", key: "E" },
-  { tool: "scale", label: "Scale", key: "R" },
+const TOOLS: { tool: Tool; label: string; key: string; Icon: () => preact.JSX.Element }[] = [
+  { tool: "select", label: "Select", key: "Q", Icon: SelectIcon },
+  { tool: "move", label: "Move", key: "W", Icon: MoveIcon },
+  { tool: "rotate", label: "Rotate", key: "E", Icon: RotateIcon },
+  { tool: "scale", label: "Scale", key: "R", Icon: ScaleIcon },
 ];
 
 function SceneToolbar() {
@@ -97,12 +98,13 @@ function SceneToolbar() {
         {TOOLS.map((t) => (
           <button
             key={t.tool}
-            class={current === t.tool ? "active" : ""}
+            class={`icon-button${current === t.tool ? " active" : ""}`}
+            aria-label={t.label}
             aria-pressed={current === t.tool}
             title={`${t.label} (${t.key})`}
             onClick={() => pickTool(t.tool)}
           >
-            {t.label}
+            <t.Icon />
           </button>
         ))}
       </div>

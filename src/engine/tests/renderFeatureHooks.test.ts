@@ -232,6 +232,17 @@ describe("the surface's diagnostics (ADR 0154, 0050)", () => {
     surface.dispose();
   });
 
+  it("a scene load ends when the renderer fails to start: preloading textures and warming up resolve", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(BabylonRenderer, "create").mockRejectedValue(new Error("no WebGL"));
+    const surface = new BabylonSurface(fakeDom(), new FakeSettings() as never, "runtime");
+    const hung = new Promise<string>((r) => setTimeout(() => r("hung"), 1000));
+    expect(await Promise.race([surface.preloadTextures(["images/a.png"]).then(() => "done"), hung])).toBe("done");
+    expect(await Promise.race([surface.warmUp({ meshes: [], effects: [], ui: [] } as never).then(() => "done"), hung])).toBe("done");
+    expect(await surface.started).toBe(false);
+    surface.dispose();
+  });
+
   it("reports the tier as applied: its shadows at once, its render scale from the renderer's next frame (the Quality menu)", async () => {
     // The project's tiers, Low's shadows turned off (Project Settings > Graphics).
     const graphics = defaultGraphics();

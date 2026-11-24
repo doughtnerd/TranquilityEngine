@@ -1,4 +1,4 @@
-// The Decals plugin's manifest (ADR 0381), shared by its runtime and editor halves.
+// The Decals plugin's manifest (ADR 0395), shared by its runtime and editor halves.
 import type { PluginManifest } from "../manifest";
 
 export const decalsManifest: PluginManifest = {

@@ -126,6 +126,7 @@ export class BabylonProbes {
     for (const [p, entry] of [...this.entries]) {
       if (seen.has(p)) continue;
       entry.probe?.dispose();
+      entry.baked?.texture?.dispose();
       this.entries.delete(p);
     }
     this.toRender = [];

@@ -127,7 +127,7 @@ describe("the system catalog (T2)", () => {
     // UI navigation (ADR 0340) does nothing without a focused element or laid-out UI.
     expect(engine.world.scheduler.order("input")).toEqual(["engine.InputDevices", "engine.InputPairing", "engine.InputRebind", "engine.InputEvaluate", "engine.UINavigation", "engine.InputEventScripts"]);
     expect(engine.world.scheduler.order("update")).toEqual(["engine.NetReceive", "engine.Lobby", "engine.ReplicationReceive", "engine.ReplicationInterpolate", "engine.PredictionSmooth", "engine.UIDocumentEvents", "engine.InputFrame", "engine.UIControlMapper", "engine.UpdateScripts", "test.cat.Default"]);
-    // The Lines plugin samples trails and the Decals plugin ages spawned decals after late scripts (ADR 0381, 0382).
+    // The Lines plugin samples trails and the Decals plugin ages spawned decals after late scripts (ADR 0395, 0396).
     expect(engine.world.scheduler.order("lateUpdate")).toEqual(["animation.Timeline", "animation.Gather", "animation.Evaluate", "animation.Apply", "engine.LateUpdateScripts", "engine.NetInputSend", "engine.ReplicationSend", "engine.NetSend", "engine.LocalizedText", "engine.UIDocumentSync", "lines.Trails", "decals.Pool", "engine.AudioZones", "engine.Audio"]);
     engine.dispose();
   });

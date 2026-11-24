@@ -1,4 +1,4 @@
-// ADR 0382: a trail's history is game state, sampled by the `lines.Trails` system in every World, so it's read here in a
+// ADR 0396: a trail's history is game state, sampled by the `lines.Trails` system in every World, so it's read here in a
 // headless World through the Component's own interface.
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Engine, GameObject, SceneManager, Time } from "../../../myco";
@@ -19,7 +19,7 @@ async function headless(): Promise<Engine> {
   return engine;
 }
 
-describe("trail sampling (ADR 0382)", () => {
+describe("trail sampling (ADR 0396)", () => {
   it("adds a point each time the node moves at least minVertexDistance, keeping a live head between", async () => {
     const engine = await headless();
     const node = GameObject.create("bullet");

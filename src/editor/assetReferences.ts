@@ -19,7 +19,8 @@
 // kind's format), project.json and plain JSON, the open scene as one undo step (save to keep it). A move
 // asks each other file whose kind reads its format to rewrite it (ADR 0314): references to moved files,
 // and a moved file's own relative references (a .gltf moved without its .bin). Files no one rewrites
-// (scripts, and kinds that read a format without rewriting it) are reported.
+// (scripts, and kinds that read a format without rewriting it) are reported. In scenes, prefabs and project.json a
+// moved folder's path written bare (`enemies`, no `asset:` or `./`) is a name, id or tag and is left alone.
 import { assetRefTarget, sceneWithoutAsset, settingsWithoutAsset, withMovedAssets } from "./assetRefValues";
 import { assetKind, registeredKind } from "./assetKindLookup";
 import type { AssetReferences } from "./sdk/contributions";
@@ -196,11 +197,17 @@ async function rewriteOwnFormats(project: EditorProject, moves: readonly (readon
 export async function rewriteReferences(project: EditorProject, moves: readonly (readonly [string, string])[], label: string): Promise<{ updated: string[]; notRewritten: string[] }> {
   const froms = moves.map(([from]) => from);
   const rename = movedPath(moves);
-  const moved = <T>(value: T): T | null => {
-    const result = withMovedAssets(value, rename);
-    return result.changed ? result.value : null;
-  };
-  const updated = await editProjectFiles(project, { mentioned: (text) => mentions(text, froms), scene: moved, settings: moved, json: moved }, label);
+  // In scenes, prefabs and settings a bare string equal to a moved folder's path is a node id, a name or a tag, not a
+  // reference (no field there holds a folder); other JSON formats may hold folder paths (audio package includes).
+  const folders = moves.filter(([, to]) => project.folders.includes(to)).map(([from]) => from);
+  const moved =
+    (bareFolders?: readonly string[]) =>
+    <T>(value: T): T | null => {
+      const result = withMovedAssets(value, rename, bareFolders);
+      return result.changed ? result.value : null;
+    };
+  const typed = moved(folders);
+  const updated = await editProjectFiles(project, { mentioned: (text) => mentions(text, froms), scene: typed, settings: typed, json: moved() }, label);
   updated.push(...(await rewriteOwnFormats(project, moves)));
   const notRewritten = (await assetUsers(project, froms)).filter((f) => !isJsonPath(f));
   return { updated, notRewritten };

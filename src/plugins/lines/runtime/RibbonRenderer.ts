@@ -1,5 +1,5 @@
 /**
- * What line and trail renderers share (ADR 0382): how wide and what colour the ribbon is along its length, how its
+ * What line and trail renderers share (ADR 0396): how wide and what colour the ribbon is along its length, how its
  * joins and ends are rounded, how it faces the camera, how its texture runs, and how it draws (3D: depth-tested with a
  * material asset; 2D: layered 2D quads in a sorting layer). Abstract and unregistered: `LineRenderer` and
  * `TrailRenderer` are the Components.
@@ -20,7 +20,7 @@ export type RibbonAlignment = "view" | "transformZ";
  */
 export type RibbonTextureMode = "stretch" | "tile" | "distributePerSegment" | "repeatPerSegment";
 
-/** @internal The shared base of `LineRenderer` and `TrailRenderer` (ADR 0382). */
+/** @internal The shared base of `LineRenderer` and `TrailRenderer` (ADR 0396). */
 export abstract class RibbonRenderer extends Component {
   @field(String, { choices: ["3d", "2d"], description: "3D: depth-tested in the scene, with a material. 2D: layered with sprites in a sorting layer, lying in the node's XY plane." })
   mode: RibbonMode = "3d";

@@ -117,9 +117,9 @@ export class BabylonRenderer {
   readonly scene: Scene;
   /** Quad batches for plugin features (the Tilemaps plugin's tiles, ADR 0136). */
   private readonly quads: BabylonQuadBatches;
-  /** Decal volumes for plugin features (the Decals plugin's 3D decals, ADR 0381). */
+  /** Decal volumes for plugin features (the Decals plugin's 3D decals, ADR 0395). */
   private readonly decals: BabylonDecals;
-  /** Dynamic meshes for plugin features (the Lines plugin's 3D lines and trails, ADR 0382). */
+  /** Dynamic meshes for plugin features (the Lines plugin's 3D lines and trails, ADR 0396). */
   private readonly dynamicMeshes: BabylonDynamicMeshes;
   private readonly cameras = new Map<Camera, CameraEntry>();
   /** Materials and textures (ADR 0127): every material and texture the scene draws is built and cached there. */
@@ -411,7 +411,7 @@ export class BabylonRenderer {
       ctx.viewCamera = view ? this.cameras.get(view)!.camera : null;
       this.casters.length = 0;
       for (const slot of this.slots) slot.feature?.casters?.(this.casters); // ADR 0276: only the meshes feature casts
-      this.dynamicMeshes.casters(this.casters); // lines and trails with castShadows (ADR 0382): the host owns their meshes
+      this.dynamicMeshes.casters(this.casters); // lines and trails with castShadows (ADR 0396): the host owns their meshes
     } else if (phase === "effects") {
       ctx.ready = this.contentLoaded = !this.materials.loading() && this.slots.every((slot) => slot.feature?.loaded?.() ?? true);
       this.probeMeshes.length = 0;
@@ -551,11 +551,15 @@ export class BabylonRenderer {
       target = t;
     } else {
       viewport = out.rect;
-      // The inset's aspect until the next sync recomputes the camera's own.
+      // The inset's aspect and size until the next sync recomputes the camera's own: a pixel-perfect camera
+      // zooms by a whole number of the inset's device pixels (ADR 0108, 0154), as it would drawing a view that size.
       if (v.camera.projection === "orthographic") {
-        const s = v.camera.orthographicSize;
+        const grid = this.pixelGrid();
+        const s = v.camera._effectiveOrthographicSize(Math.round(out.rect.height * grid.height * grid.pixelRatio));
         camera.orthoLeft = -s * out.aspect;
         camera.orthoRight = s * out.aspect;
+        camera.orthoTop = s;
+        camera.orthoBottom = -s;
       }
     }
     return {

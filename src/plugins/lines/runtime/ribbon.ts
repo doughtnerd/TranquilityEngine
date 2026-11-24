@@ -1,5 +1,5 @@
 /**
- * Ribbon geometry (ADR 0382), renderer-neutral and pure: a strip along points, with a half width and a colour per
+ * Ribbon geometry (ADR 0396), renderer-neutral and pure: a strip along points, with a half width and a colour per
  * point, mitred or rounded joins, square or rounded ends, and UVs by texture mode.
  *
  * The strip is a run of rings, two vertices each (one per side), joined to the next ring by two triangles. A point

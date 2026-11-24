@@ -57,7 +57,7 @@ export interface ProjectSettings {
     /** Default sprite pixels per world unit (ADR 0014). */
     pixelsPerUnit: number;
     /**
-     * How many decals each World's `Decals` pool holds of each kind, 3D and 2D (ADR 0381); spawning past it fades out
+     * How many decals each World's `Decals` pool holds of each kind, 3D and 2D (ADR 0395); spawning past it fades out
      * the oldest. Placed decal Components don't count. Optional in `project.json`: 1000.
      */
     maxDecals: number;

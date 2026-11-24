@@ -371,7 +371,15 @@ impl Core {
         if !self.started {
             return STATUS_NOT_INITIALIZED;
         }
-        self.table.restore(handle, bytes)
+        let graph = match self.table.get_mut(handle) {
+            Ok(inst) => inst.graph,
+            Err(e) => return e,
+        };
+        let program = match graph {
+            0 => Some(&self.implicit),
+            g => self.arena.graph(g).ok().map(|g| &g.program),
+        };
+        self.table.restore(handle, bytes, program, &self.arena)
     }
 
     /// The input view (words; `INPUT_STRIDE` bytes per instance index).

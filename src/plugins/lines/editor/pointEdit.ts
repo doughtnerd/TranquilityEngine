@@ -1,4 +1,4 @@
-// The maths of editing a line's points in the scene view (ADR 0382), on plain numbers so it's tested without an
+// The maths of editing a line's points in the scene view (ADR 0396), on plain numbers so it's tested without an
 // editor: where a pointer ray meets the plane a point moves in, which segment a canvas point is nearest, and
 // converting between a line's space (world, or its node's) and the world.
 

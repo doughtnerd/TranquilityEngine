@@ -1,4 +1,4 @@
-// ADR 0381: decals are drawn by renderer-neutral code (tested against fake decal and quad hosts), and spawned decals
+// ADR 0395: decals are drawn by renderer-neutral code (tested against fake decal and quad hosts), and spawned decals
 // live in a per-World pool aged by the `decals.Pool` system, read here through `Decals` and the handles it returns.
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Color, Engine, GameObject, Quaternion, SceneManager, SpriteRenderer, Vector2, Vector3 } from "../../../myco";
@@ -66,7 +66,7 @@ async function headless(maxDecals = 1000): Promise<Engine> {
   return engine;
 }
 
-describe("decal drawing (ADR 0381)", () => {
+describe("decal drawing (ADR 0395)", () => {
   it("makes a projector an instance of its look's batch: the box from node, pivot and size; UVs; angle fade cosines", async () => {
     const engine = await headless();
     const { host, boxes } = fakeHosts();
@@ -129,7 +129,7 @@ describe("decal drawing (ADR 0381)", () => {
   });
 });
 
-describe("spawned decals (ADR 0381)", () => {
+describe("spawned decals (ADR 0395)", () => {
   it("counts them, ages them out after lifetime and fadeOut, and removes them by hand", async () => {
     const engine = await headless();
     const hole = Decals.project({ position: [0, 1, 0], rotation: Quaternion.identity, lifetime: 0.2, fadeOut: 0.2 });

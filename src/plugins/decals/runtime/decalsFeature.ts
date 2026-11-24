@@ -1,4 +1,4 @@
-// The Decals plugin's render feature (ADR 0130, 0381): 3D decals drawn through the renderer core's decal volumes and
+// The Decals plugin's render feature (ADR 0130, 0395): 3D decals drawn through the renderer core's decal volumes and
 // 2D decals through its quad batches. Loaded by the renderer from the loader the plugin registers, so it stays out of
 // the `myco` module. Imports no Babylon module and nothing of the backend but its feature types.
 import type { Component } from "../../../engine/core/Component";
@@ -53,7 +53,7 @@ export class DecalsFeature implements BabylonFeature {
 
 declare module "../../../engine/render/RenderSurface" {
   interface RenderFeatureDiagnostics {
-    /** The Decals plugin's (ADR 0381): placed projectors and 2D decals drawn, spawned decals in the pool, and batches. */
+    /** The Decals plugin's (ADR 0395): placed projectors and 2D decals drawn, spawned decals in the pool, and batches. */
     decals?: { projectors: number; decals2D: number; pooled: number; batches: number };
   }
 }

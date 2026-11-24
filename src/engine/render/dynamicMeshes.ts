@@ -1,5 +1,5 @@
 /**
- * Dynamic meshes (ADR 0382): the renderer core's renderer-neutral way for a plugin's render feature to draw 3D,
+ * Dynamic meshes (ADR 0396): the renderer core's renderer-neutral way for a plugin's render feature to draw 3D,
  * depth-tested meshes whose vertices it rewrites (line and trail ribbons), with a material asset or a texture. A
  * mesh can carry ribbon data, and then the backend turns each vertex to face the camera drawing it, so one buffer
  * serves every view (split screen, the editor's scene view and its game inset). The backend implements it
@@ -33,7 +33,7 @@ export interface DynamicGeometry {
   readonly ribbon?: RibbonData | null;
 }
 
-/** @internal What a render feature borrows from the renderer to draw dynamic meshes (ADR 0382). */
+/** @internal What a render feature borrows from the renderer to draw dynamic meshes (ADR 0396). */
 export interface DynamicMeshHost {
   /** A new, empty, hidden mesh. `name` is for debugging. */
   createMesh(name: string): DynamicMesh;

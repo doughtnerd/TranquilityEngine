@@ -1,5 +1,5 @@
 /**
- * Decal drawing (ADR 0381), renderer-neutral: `DecalProjector`s and pooled 3D decals become instances of decal
+ * Decal drawing (ADR 0395), renderer-neutral: `DecalProjector`s and pooled 3D decals become instances of decal
  * batches (one per look and order) through the renderer core's `DecalHost`; `Decal2D`s and pooled 2D decals become
  * layered quads through its `QuadBatchHost` (one batch per texture and draw order, or one per decal that clips itself
  * to a sprite). The renderer knows boxes and quads; this module knows decals. No Babylon here (ADR 0075): it's
@@ -216,7 +216,7 @@ export class DecalRenderer {
   }
 
   /**
-   * The mask a receiver node's sprite gives (ADR 0381): its texture, and the map from world XY (at height `z`) to its
+   * The mask a receiver node's sprite gives (ADR 0395): its texture, and the map from world XY (at height `z`) to its
    * UV, through the node's inverse world matrix and the sprite's size, pivot, flips and slice. Null when the node has
    * no sprite (the decal draws unclipped); undefined while the sprite's texture loads.
    */

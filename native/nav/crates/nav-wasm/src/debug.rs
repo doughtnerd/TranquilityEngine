@@ -9,7 +9,7 @@
 //! | [`seams`] | 7 | a xyz, b xyz, kind (0 polygon link on A's side, 1 flight leaf link's rectangle diagonal) |
 //! | [`agent_paths`] | 7 | a xyz, b xyz, agent row |
 //! | [`poly_cost_lines`] | 7 | a xyz, b xyz, runtime cost multiplier (`Infinity` = excluded; ADR 0070) |
-use nav_format::{NavLandingLinksData, NavLinkKind, NavMeshData, NavVolumeData};
+use nav_format::{NavLandingLinksData, NavLink, NavLinkKind, NavMeshData, NavPoly, NavVolumeData};
 use nav_math::Float3;
 
 /// A polygon edge with no neighbour (the navmesh's outline).
@@ -27,15 +27,31 @@ fn seg(out: &mut Vec<f32>, a: Float3, b: Float3, k: f32) {
     out.extend_from_slice(&[a.x, a.y, a.z, b.x, b.y, b.z, k]);
 }
 
+/// A polygon's links, clamped to the link list (a damaged range reads as fewer links, never a panic).
+fn poly_links<'a>(nav: &'a NavMeshData, poly: &NavPoly) -> &'a [NavLink] {
+    let len = nav.links.len() as i64;
+    let start = (poly.link_start as i64).clamp(0, len);
+    let end = (poly.link_start as i64 + poly.link_count as i64).clamp(start, len);
+    &nav.links[start as usize..end as usize]
+}
+
+/// A polygon's corners, or `None` when any of its indices fall outside the bake (that polygon isn't drawn).
+fn poly_points(nav: &NavMeshData, poly: &NavPoly) -> Option<Vec<Float3>> {
+    let start = usize::try_from(poly.vert_start).ok()?;
+    let count = usize::try_from(poly.vert_count).ok()?;
+    let ids = nav.poly_verts.get(start..start.checked_add(count)?)?;
+    ids.iter().map(|&v| usize::try_from(v).ok().and_then(|v| nav.verts.get(v).copied())).collect()
+}
+
 /// Polygon edges and links (see the module table).
 pub fn navmesh_lines(nav: &NavMeshData) -> Vec<f32> {
     let mut out = Vec::new();
     for (p, poly) in nav.polys.iter().enumerate() {
-        let n = poly.vert_count.max(0) as usize;
-        let links = &nav.links[(poly.link_start.max(0) as usize).min(nav.links.len())..((poly.link_start + poly.link_count).max(0) as usize).min(nav.links.len())];
+        let Some(pts) = poly_points(nav, poly) else { continue };
+        let n = pts.len();
+        let links = poly_links(nav, poly);
         for i in 0..n {
-            let a = nav.verts[nav.poly_verts[poly.vert_start as usize + i] as usize];
-            let b = nav.verts[nav.poly_verts[poly.vert_start as usize + (i + 1) % n] as usize];
+            let (a, b) = (pts[i], pts[(i + 1) % n]);
             let mid = (a + b) * 0.5;
             // An internal link whose portal lies on this edge: shared (draw from the lower polygon only).
             let shared = links.iter().find(|l| {
@@ -70,11 +86,10 @@ pub fn poly_cost_lines(nav: &NavMeshData, table: &[f32]) -> Vec<f32> {
         if cost == 1.0 {
             continue;
         }
-        let n = poly.vert_count.max(0) as usize;
+        let Some(pts) = poly_points(nav, poly) else { continue };
+        let n = pts.len();
         for i in 0..n {
-            let a = nav.verts[nav.poly_verts[poly.vert_start as usize + i] as usize];
-            let b = nav.verts[nav.poly_verts[poly.vert_start as usize + (i + 1) % n] as usize];
-            seg(&mut out, a, b, cost);
+            seg(&mut out, pts[i], pts[(i + 1) % n], cost);
         }
     }
     out
@@ -94,14 +109,14 @@ fn on_segment(a: Float3, b: Float3, p: Float3) -> bool {
 pub fn navmesh_triangles(nav: &NavMeshData) -> Vec<f32> {
     let mut out = Vec::new();
     for poly in &nav.polys {
-        let n = poly.vert_count.max(0) as usize;
+        let Some(pts) = poly_points(nav, poly) else { continue };
+        let n = pts.len();
         if n < 3 {
             continue;
         }
-        let v = |i: usize| nav.verts[nav.poly_verts[poly.vert_start as usize + i] as usize];
-        let a = v(0);
+        let a = pts[0];
         for i in 1..n - 1 {
-            let (b, c) = (v(i), v(i + 1));
+            let (b, c) = (pts[i], pts[i + 1]);
             out.extend_from_slice(&[a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, poly.bin as f32, poly.area as f32]);
         }
     }
@@ -169,7 +184,6 @@ pub fn seams(seams: &[nav_query::seams::Seam]) -> Vec<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nav_format::{NavLink, NavPoly};
 
     #[test]
     fn a_two_triangle_square_draws_its_outline_and_one_shared_edge() {
@@ -190,5 +204,29 @@ mod tests {
         assert_eq!(lines.len() / 7, 5);
         assert_eq!(lines.chunks(7).filter(|l| l[6] == LINE_INTERNAL).count(), 1);
         assert_eq!(navmesh_triangles(&nav).len(), 22);
+    }
+
+    /// A damaged bake (a negative link count, polygon or vertex indices out of range) draws what it can and never panics.
+    #[test]
+    fn damaged_polygon_ranges_are_skipped_instead_of_panicking() {
+        let square = vec![Float3::new(0.0, 0.0, 0.0), Float3::new(1.0, 0.0, 0.0), Float3::new(1.0, 0.0, 1.0)];
+        let nav = NavMeshData {
+            verts: square,
+            poly_verts: vec![0, 1, 2, 0, 1, 99],
+            polys: vec![
+                // A good triangle whose link range runs backwards (start past its end).
+                NavPoly { vert_start: 0, vert_count: 3, link_start: 1, link_count: -1, ..Default::default() },
+                // A vertex index past the vertex list.
+                NavPoly { vert_start: 3, vert_count: 3, ..Default::default() },
+                // A vertex range past poly_verts, and a negative start.
+                NavPoly { vert_start: 5, vert_count: 4, ..Default::default() },
+                NavPoly { vert_start: -2, vert_count: 3, ..Default::default() },
+            ],
+            links: vec![NavLink::default(), NavLink::default()],
+            ..Default::default()
+        };
+        assert_eq!(navmesh_lines(&nav).len() / 7, 3);
+        assert_eq!(navmesh_triangles(&nav).len() / 11, 1);
+        assert_eq!(poly_cost_lines(&nav, &[2.0, 2.0, 2.0, 2.0]).len() / 7, 3);
     }
 }

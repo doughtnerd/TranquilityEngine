@@ -1,5 +1,5 @@
 /**
- * Decal volumes on Babylon (ADR 0381): the backend half of `DecalHost`.
+ * Decal volumes on Babylon (ADR 0395): the backend half of `DecalHost`.
  *
  * Each batch is one unit box (-0.5..0.5) drawn as thin instances, one per decal, with a material carrying
  * `MycoDecalPlugin`. The box draws its back faces in the render pass, after the opaque meshes (`placeDecal`'s band,

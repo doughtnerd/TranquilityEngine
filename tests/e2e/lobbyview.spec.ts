@@ -27,7 +27,7 @@ test("a lobby match takes the whole game view and input, and gives them back to 
   page.on("pageerror", (err) => errors.push(err.message));
   await page.setViewportSize({ width: 2000, height: 780 }); // wide, as reported: the overlay's offset showed most there
   await openEditor(page, { sample: "pirates", timeout: 120_000 });
-  await page.getByRole("button", { name: "▶ Play" }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   await expect.poll(() => frames(page, "Menu"), { timeout: 120_000 }).toBeGreaterThan(10);
 
   const view = page.locator("#game-view");

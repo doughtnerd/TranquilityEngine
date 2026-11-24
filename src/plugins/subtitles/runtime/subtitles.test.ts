@@ -216,6 +216,30 @@ describe("Subtitles settings", () => {
     await vi.waitFor(async () => expect(await Storage.load("myco.subtitles", "settings")).toBeUndefined());
   });
 
+  it("a change made while the saved values are still loading isn't overwritten when they arrive", async () => {
+    let release!: () => void;
+    let reading!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const started = new Promise<void>((r) => (reading = r));
+    class SlowStorage extends MemoryStorage {
+      override async load(ns: Parameters<MemoryStorage["load"]>[0], key: string) {
+        if (ns === "settings" && key === "myco.subtitles") {
+          reading();
+          await gate;
+        }
+        return super.load(ns, key);
+      }
+    }
+    const storage = new SlowStorage();
+    await storage.save("settings", "myco.subtitles", { enabled: true, size: "small", background: 0.6, speakerNames: true, captions: false });
+    const booting = boot({ storage });
+    await started;
+    Subtitles.set({ size: "large" });
+    release();
+    await booting;
+    expect(Subtitles.settings.size).toBe("large");
+  });
+
   it("speaker(id): the name string in the current language, else the id, and the colour", async () => {
     await boot();
     expect(Subtitles.speaker("Ava")).toMatchObject({ name: "Ava" });

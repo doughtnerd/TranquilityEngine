@@ -402,6 +402,31 @@ describe("UIDocument", () => {
     expect(doc.query("#rows")!.children).toEqual(again);
   });
 
+  it("leaves no stray rows when keys repeat or are missing, and warns once about repeats", async () => {
+    const doc = await open();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = doc.query("#rows")!;
+    const dup = [
+      { id: "a", label: "A1", n: 1 },
+      { id: "a", label: "A2", n: 2 },
+      { id: "b", label: "B", n: 3 },
+    ];
+    const first = doc.list("#rows", dup, undefined, { key: "id" });
+    expect(host.node.children).toHaveLength(3);
+    const second = doc.list("#rows", [{ id: "c", label: "C", n: 4 }], undefined, { key: "id" });
+    expect(first.every((r) => !r.isValid)).toBe(true);
+    expect(host.node.children).toHaveLength(1);
+    expect(host.children).toEqual(second);
+    doc.list("#rows", dup, undefined, { key: "id" });
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes("own key")).length).toBe(1);
+    // Items without the key field all share `undefined`.
+    doc.list("#rows", [{ label: "x", n: 1 }, { label: "y", n: 2 }] as { id?: string; label: string; n: number }[], undefined, { key: "id" });
+    doc.list("#rows", [], undefined, { key: "id" });
+    expect(host.node.children).toHaveLength(0);
+    expect(doc.queryAll(".row")).toHaveLength(0);
+    warn.mockRestore();
+  });
+
   it("gives row events their item", async () => {
     files["ui/menu.ui.xml"] = `<Canvas><Panel id="list"><Template><Button>{label}</Button></Template></Panel></Canvas>`;
     const doc = await open();

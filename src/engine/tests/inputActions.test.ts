@@ -343,6 +343,22 @@ describe("players and pawns (ADR 0337)", () => {
     expect(InputPlayers.get(0)!.held("jump")).toBe(false);
   });
 
+  it("lets player 0 leave with its gamepad when no keyboard has joined (onePerDevice)", async () => {
+    engine.dispose();
+    engine = await Engine.create({ headless: true, project: { input: { join: "onePerDevice", maxPlayers: 4 } } });
+    pad(10);
+    pad(11);
+    step();
+    expect(InputPlayers.all().map((p) => p.index)).toEqual([0, 1]);
+    Input.inject.gamepadDisconnected(10);
+    padIds = [11];
+    step(2);
+    expect(InputPlayers.all().map((p) => p.index)).toEqual([1]);
+    pad(12); // the next pad takes the free index
+    step();
+    expect(InputPlayers.all().map((p) => p.index)).toEqual([0, 1]);
+  });
+
   it("joins the touchscreen and pen with the keyboard and pointer (pressToJoin)", async () => {
     engine.dispose();
     engine = await Engine.create({ headless: true, project: { input: { join: "pressToJoin", maxPlayers: 4 } } });
@@ -410,6 +426,18 @@ describe("players and pawns (ADR 0337)", () => {
     Input.inject.move(0, 5);
     step();
     expect(p0().vector2("look").y).toBe(5);
+  });
+
+  it("clamps an accessibility dead zone at or above 1 instead of dropping the stick's mapping", () => {
+    pad(3);
+    step();
+    p0().accessibility = { deadzone: 1 };
+    Input.inject.gamepadAxis(3, 1, -0.5);
+    step();
+    expect(p0().vector2("move").toArray()).toEqual([0, 0]);
+    Input.inject.gamepadAxis(3, 1, -1); // fully up still reads
+    step();
+    expect(p0().vector2("move").y).toBeCloseTo(1);
   });
 });
 

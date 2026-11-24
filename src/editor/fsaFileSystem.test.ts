@@ -72,6 +72,22 @@ describe("the File System Access file system", () => {
     expect(handle.read("project.json")).toBeUndefined();
   });
 
+  it("changes only the case of a name, on case-insensitive and case-sensitive folders", async () => {
+    for (const insensitive of [true, false]) {
+      const { fs, handle } = await mounted(new MemoryDirectoryHandle("game", insensitive).put("images/bird.png", "bird").put("Levels/one.json", "{}"));
+      await fs.rename("/game/images/bird.png", "/game/images/Bird.png");
+      expect((await fs.list("/game/images")).map((e) => e.name)).toEqual(["Bird.png"]);
+      expect(handle.read("images/Bird.png")).toBe("bird");
+      await fs.rename("/game/Levels", "/game/levels");
+      expect((await fs.list("/game")).map((e) => e.name).sort()).toEqual(["images", "levels"]);
+      expect(handle.read("levels/one.json")).toBe("{}");
+    }
+    // A case-sensitive folder can hold both names: the other one is never written over.
+    const { fs, handle } = await mounted(new MemoryDirectoryHandle("game").put("a.png", "a").put("A.png", "A"));
+    await expect(fs.rename("/game/a.png", "/game/A.png")).rejects.toThrow(/already exists/);
+    expect([handle.read("a.png"), handle.read("A.png")]).toEqual(["a", "A"]);
+  });
+
   it("opens a project folder for editing: saves, scripts and edit history go to the folder", async () => {
     const { fs, root, handle } = await mounted();
     const project = await openFolderProject(fs, root);

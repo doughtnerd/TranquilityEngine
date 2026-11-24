@@ -38,13 +38,13 @@ export interface QuadBatch {
   /** `#rrggbb` (sRGB; anything else reads as white) and opacity 0..1. */
   setTint(color: string, opacity: number): void;
   /**
-   * A colour per vertex (ADR 0381, 0382): RGBA, 0..1 sRGB and alpha, four floats per vertex of the current geometry,
+   * A colour per vertex (ADR 0395, 0396): RGBA, 0..1 sRGB and alpha, four floats per vertex of the current geometry,
    * multiplying the tint (per-decal fades and a 2D line's gradient in one batch). Null: none (white). Call it after the
    * geometry; a new geometry with another vertex count drops it.
    */
   setColors(rgba: Float32Array | null): void;
   /**
-   * A mask (ADR 0381): the texture's alpha multiplies the fragment's, sampled at `uv`, a 2×3 affine map
+   * A mask (ADR 0395): the texture's alpha multiplies the fragment's, sampled at `uv`, a 2×3 affine map
    * `[a, b, c, d, e, f]` from the batch's local position (x, y) to the mask's UV (v up): `u = a·x + b·y + c`,
    * `v = d·x + e·y + f`. Outside 0..1 the mask reads as transparent. Null: no mask.
    */

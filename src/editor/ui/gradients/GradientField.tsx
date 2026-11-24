@@ -68,7 +68,7 @@ export interface GradientFieldProps {
 }
 
 /**
- * A colour gradient (ADR 0057, 0382): colour stops under the bar, alpha stops above it. Click the bar's
+ * A colour gradient (ADR 0057, 0396): colour stops under the bar, alpha stops above it. Click the bar's
  * lower half to add a colour stop, its upper half for an alpha stop; drag stops to move them, drag
  * one away from the bar (or press Delete, or use Remove) to remove it. A gradient keeps at least one
  * colour stop.

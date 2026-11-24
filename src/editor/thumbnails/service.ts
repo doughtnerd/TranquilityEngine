@@ -88,7 +88,10 @@ export class ThumbnailService {
         return null;
       }
     })();
-    this.keys.set(path, { stamps, key });
+    const entry = { stamps, key };
+    this.keys.set(path, entry);
+    // A failed read (a file locked or mid-write) isn't remembered, so the next request reads again.
+    void key.then((k) => k === null && this.keys.get(path) === entry && this.keys.delete(path));
     return key;
   }
 
@@ -101,14 +104,17 @@ export class ThumbnailService {
       files: this.project.files,
       text: (p: string) => this.project.text(p) ?? this.ownFormatTexts.get(p)?.text,
     };
+    // Files that couldn't be read this time name nothing for now and aren't remembered, so the next call reads them again.
+    const failed = new Set<string>();
     for (let round = 0; round < 8; round++) {
       const deps = previewDependencies(path, source);
-      const missing = [path, ...deps].filter((p) => hasOwnReferences(p) && this.project.text(p) === undefined && this.ownFormatTexts.get(p)?.stamp !== this.project.stamp(p));
+      const missing = [path, ...deps].filter((p) => hasOwnReferences(p) && !failed.has(p) && this.project.text(p) === undefined && this.ownFormatTexts.get(p)?.stamp !== this.project.stamp(p));
       if (!missing.length) return deps;
       for (const p of missing) {
         const stamp = this.project.stamp(p) ?? "";
-        const text = await this.project.bytes(p).then((b) => new TextDecoder().decode(b), () => "");
-        this.ownFormatTexts.set(p, { stamp, text });
+        const text = await this.project.bytes(p).then((b) => new TextDecoder().decode(b), () => null);
+        if (text === null) failed.add(p);
+        else this.ownFormatTexts.set(p, { stamp, text });
       }
     }
     return previewDependencies(path, source);

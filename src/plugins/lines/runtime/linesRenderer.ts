@@ -1,5 +1,5 @@
 /**
- * Line and trail drawing (ADR 0382), renderer-neutral: each `LineRenderer` and `TrailRenderer` becomes one ribbon
+ * Line and trail drawing (ADR 0396), renderer-neutral: each `LineRenderer` and `TrailRenderer` becomes one ribbon
  * (`ribbon.ts`), drawn through the renderer core's dynamic meshes in 3D (camera-facing or flat, with a material asset)
  * or its quad batches in 2D (layered with sprites in a sorting layer, ADR 0186). The renderer knows meshes and quads;
  * this module knows lines. No Babylon here (ADR 0075): it's unit-tested against fake hosts.

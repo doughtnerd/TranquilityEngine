@@ -162,7 +162,7 @@ export class BabylonEditorViewport implements ViewportAdapter {
         const r = shape.rect;
         if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) distance = 0;
       } else if (shape.kind === "box") {
-        continue; // a decal's volume is picked through its gizmo or the Hierarchy, never by clicking the air in it (ADR 0381)
+        continue; // a decal's volume is picked through its gizmo or the Hierarchy, never by clicking the air in it (ADR 0395)
       } else if (shape.kind === "polyline") {
         distance = this.polylineHit(shape, x, y);
       } else if (o && dir && bray) {
@@ -179,7 +179,7 @@ export class BabylonEditorViewport implements ViewportAdapter {
   }
 
   /**
-   * A polyline's hit at a canvas point (ADR 0382): the camera distance of its nearest segment when the point is
+   * A polyline's hit at a canvas point (ADR 0396): the camera distance of its nearest segment when the point is
    * within the line's half width on screen (at least 4 CSS pixels), else null.
    */
   private polylineHit(shape: Extract<DrawnShape, { kind: "polyline" }>, x: number, y: number): number | null {

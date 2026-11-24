@@ -95,7 +95,7 @@ test("Play: chunks stream in round the agents, agents of every kind move, the Na
   // game is paused and stepped a frame at a time (a paused game isn't drawn again); a frame with Navmesh on has many
   // more pixels of the outline colour (the theme's `--success`) than one with it off. The camera moves, so frames
   // aren't compared pixel by pixel.
-  await page.getByRole("button", { name: "❚❚ Pause", exact: true }).click();
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
   const navmesh = page.getByRole("checkbox", { name: "Navmesh" });
   /** Tick Navmesh in the Nav popover (a step closes it). */
   const setNavmesh = async (on: boolean) => {
@@ -134,6 +134,6 @@ test("Play: chunks stream in round the agents, agents of every kind move, the Na
   await toggles();
 
   await page.getByRole("button", { name: /Stop/ }).click();
-  await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });

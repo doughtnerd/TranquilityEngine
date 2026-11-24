@@ -1,4 +1,4 @@
-// The line point tool (ADR 0382), the Lines plugin's viewport tool `myco.lines.points`: with "Edit Points" on (the
+// The line point tool (ADR 0396), the Lines plugin's viewport tool `myco.lines.points`: with "Edit Points" on (the
 // LineRenderer card's header toggle, ADR 0266), the line being edited shows its centre line and a handle per point.
 // Drag a handle to move the point in the plane facing the scene camera through it (a 2D line: its XY plane), snapped
 // like the transform gizmo; Shift-click on a segment inserts a point there; Delete removes the point last grabbed (a

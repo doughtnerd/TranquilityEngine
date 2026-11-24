@@ -1,4 +1,4 @@
-// The Lines plugin's render feature (ADR 0130, 0382): line and trail ribbons drawn through the renderer core's
+// The Lines plugin's render feature (ADR 0130, 0396): line and trail ribbons drawn through the renderer core's
 // dynamic meshes (3D) and quad batches (2D). Loaded by the renderer from the loader the plugin registers, so it stays
 // out of the `myco` module. Imports no Babylon module and nothing of the backend but its feature types.
 import type { Component } from "../../../engine/core/Component";
@@ -40,7 +40,7 @@ export class LinesFeature implements BabylonFeature {
 
 declare module "../../../engine/render/RenderSurface" {
   interface RenderFeatureDiagnostics {
-    /** The Lines plugin's (ADR 0382): ribbons drawn now, their points and meshes. */
+    /** The Lines plugin's (ADR 0396): ribbons drawn now, their points and meshes. */
     lines?: { lines: number; trails: number; points: number; meshes: number };
   }
 }

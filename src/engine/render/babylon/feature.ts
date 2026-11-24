@@ -89,10 +89,10 @@ export function describeDrawn(features: Iterable<BabylonFeature | null>, drawn: 
  * - `quads`: quad batches it drew through the renderer's `QuadBatchHost` (a tile layer's chunks, ADR 0136):
  *   the renderer resolves them to its meshes, so a renderer-neutral feature names no Babylon type.
  * - `rect`: a rectangle on the canvas in CSS pixels, origin top-left (screen-space Text): picked inside it.
- * - `box`: a box with no mesh of its own (a decal projector's volume, ADR 0381): `matrix` is the column-major
+ * - `box`: a box with no mesh of its own (a decal projector's volume, ADR 0395): `matrix` is the column-major
  *   world matrix of the unit cube (-0.5..0.5). Framed and outlined by it; a feature reports it `pickable: false`.
  * - `polyline`: a line through world-space `points` (xyz, `closed` joining the last to the first), `halfWidth`
- *   wide on each side (a line or trail ribbon, ADR 0382, whose camera-facing triangles have no CPU shape): picked
+ *   wide on each side (a line or trail ribbon, ADR 0396, whose camera-facing triangles have no CPU shape): picked
  *   by screen distance to its segments, framed and outlined by the box around its points grown by `halfWidth`.
  * - null: drawn inside a batch with no geometry of its own (a batched sprite): counted, not picked or framed.
  */
@@ -220,9 +220,9 @@ export interface BabylonFeatureHost {
   setPreviewLayer(draw: (() => Layer | null) | null): void;
   /** Sorted, unlit textured quad batches (ADR 0136): what the Tilemaps plugin draws its tiles with. */
   readonly quads: QuadBatchHost;
-  /** Decal volumes (ADR 0381): what the Decals plugin draws 3D decals with. */
+  /** Decal volumes (ADR 0395): what the Decals plugin draws 3D decals with. */
   readonly decals: DecalHost;
-  /** Depth-tested meshes a feature rewrites, camera-facing ribbons included (ADR 0382): what the Lines plugin draws 3D lines and trails with. */
+  /** Depth-tested meshes a feature rewrites, camera-facing ribbons included (ADR 0396): what the Lines plugin draws 3D lines and trails with. */
   readonly dynamicMeshes: DynamicMeshHost;
   warnOnce(key: string, message: string): void;
 }
@@ -330,7 +330,7 @@ export function lazyFeature<F extends BabylonFeature>(
 }
 
 /**
- * @internal The world-space box around a `box` or `polyline` shape (ADR 0381, 0382): a box's eight corners, a
+ * @internal The world-space box around a `box` or `polyline` shape (ADR 0395, 0396): a box's eight corners, a
  * polyline's points grown by its half width. Null for other shapes or an empty polyline.
  */
 export function shapeWorldBox(shape: DrawnShape): { min: [number, number, number]; max: [number, number, number] } | null {

@@ -210,7 +210,15 @@ pub struct VoiceArea {
     /// Playheads gathered this quantum (round-robin), reported right after the render.
     pub playheads_len: u32,
     pub playheads: [Playhead; PLAYHEADS_CAP],
+    /// Voices taken over by a PLAY (A1.1's steal) while the block's `ended` list was full: their slot
+    /// is reused, so they wait here and go out first in the next report with room, oldest first.
+    pub replaced_len: u32,
+    pub replaced: [u32; REPLACED_CARRY],
 }
+
+/// Most taken-over voices [`VoiceArea::replaced`] holds for later blocks; past that (a flood of takeovers
+/// while `ended` stays full) a takeover goes unreported.
+pub const REPLACED_CARRY: usize = 1_024;
 
 /// Offset of [`VoiceArea`] in the core-state region.
 pub const VOICE_AREA_OFFSET: usize = crate::status::STATUS_AREA_BYTES;
@@ -1982,12 +1990,33 @@ fn clip_seek_jump(slot: &mut VoiceSlot, frames: u32, looping: bool) {
     slot.start_frame = 0;
 }
 
+/// Moves the taken-over voices waiting in [`VoiceArea::replaced`] into STATUS `ended`, as many as
+/// it has room for; the rest move down and wait.
+fn report_replaced(core: &mut Core) {
+    let waiting = view(core.regions_mut()).area.replaced_len as usize;
+    if waiting == 0 {
+        return;
+    }
+    let mut sent = 0;
+    while sent < waiting {
+        let id = view(core.regions_mut()).area.replaced[sent];
+        if !status::counters_mut(core).ended.push(id) {
+            break;
+        }
+        sent += 1;
+    }
+    let a = &mut view(core.regions_mut()).area;
+    a.replaced.copy_within(sent..waiting, 0);
+    a.replaced_len = (waiting - sent) as u32;
+}
+
 /// After the render: frees ended voices into STATUS `ended` (as many as the block has room for),
 /// gathers playheads round-robin, and sets the live and mixed counts and the late records.
 fn report(core: &mut Core) {
     // B3: first, while the rings of voices that ended this quantum still hold their reports.
     report_streams(core);
     starve_hook(core);
+    report_replaced(core);
     let room = (ENDED_CAP - status::counters(core).ended.len()).min(ENDED_SCRATCH);
     let (live, mixed, ambisonic, ended, playheads, late_count, late_max, starts_late, held) = {
         let (regions, _, streams) = core.render_parts();
@@ -2254,7 +2283,14 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
     if let Some((old, stream, clip, old_flags2)) = replaced {
         // 0166 M4a (C2b): a replaced member leaves its group.
         crate::groups::leave(crate::groups::entries(core.regions_mut().groups), old_flags2, old);
-        status::counters_mut(core).ended.push(old);
+        if !status::counters_mut(core).ended.push(old) {
+            // The block's list is full: the next report with room sends it.
+            let a = &mut view(core.regions_mut()).area;
+            if (a.replaced_len as usize) < REPLACED_CARRY {
+                a.replaced[a.replaced_len as usize] = old;
+                a.replaced_len += 1;
+            }
+        }
         // 0166 M4-0 (R10): so do the replaced voice's parked records.
         crate::due::view(core.regions_mut()).drop_parked(old);
         if stream {
@@ -2890,5 +2926,20 @@ pub(crate) mod tests {
         assert_eq!(status::counters(&core).ended.len(), 1);
         assert_eq!(live_count(&mut core), 0);
         assert_eq!(status::counters(&core).live_voices, 0);
+    }
+
+    #[test]
+    fn a_voice_replaced_while_the_ended_list_is_full_is_reported_with_the_next_block() {
+        let mut core = core();
+        play(&mut core, &play_rec(0x0001_0001, 1), ASAP);
+        while status::counters_mut(&mut core).ended.push(0xF000_0000) {}
+        // The same slot, a new generation: the old voice is taken over and must be reported ended.
+        play(&mut core, &play_rec(0x0002_0001, 1), ASAP);
+        status::counters_mut(&mut core).end_block();
+        report(&mut core);
+        assert_eq!(status::counters(&core).ended.as_slice(), &[0x0001_0001]);
+        status::counters_mut(&mut core).end_block();
+        report(&mut core);
+        assert!(status::counters(&core).ended.is_empty(), "reported once");
     }
 }

@@ -39,7 +39,7 @@ export const FIRST_PARTY = {
   navigation: navigationManifest,
   tilemaps: tilemapsManifest,
   water: waterManifest,
-  // After meshes and tilemaps, which their features sync after or draw beside (ADR 0381, 0382).
+  // After meshes and tilemaps, which their features sync after or draw beside (ADR 0395, 0396).
   lines: linesManifest,
   decals: decalsManifest,
   ui: uiManifest,

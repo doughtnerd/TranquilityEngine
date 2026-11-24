@@ -1,5 +1,5 @@
 /**
- * The Decals plugin's Components (ADR 0381): `DecalProjector`, a box projecting a material onto the opaque 3D surfaces
+ * The Decals plugin's Components (ADR 0395): `DecalProjector`, a box projecting a material onto the opaque 3D surfaces
  * inside it (Unity's `DecalProjector`), and `Decal2D`, a sprite stamped onto a sorting layer that can clip itself to the
  * sprite of the node it sits on.
  */

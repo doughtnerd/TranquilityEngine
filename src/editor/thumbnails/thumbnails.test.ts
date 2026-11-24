@@ -84,6 +84,7 @@ describe("thumbnail kinds and dependencies (ADR 0061)", () => {
     expect(previewKind("models/crate.OBJ")).toBe("model");
     expect(previewKind("models/lamp.glb")).toBe("model");
     expect(previewKind("models/car.gltf")).toBe("model");
+    expect(previewKind("models/crate.mtl")).toBe("model"); // a sphere per material, drawn by the model renderer
     expect(previewKind("materials/wood.material.json")).toBe("material");
     expect(previewKind("shaders/water.shadergraph.json")).toBe("shadergraph");
     expect(previewKind("sky/studio.hdr")).toBe("environment");
@@ -274,6 +275,23 @@ describe("thumbnail service", () => {
     await store.write("0123456789abcdef0123", "webp", new Uint8Array([1])); // maybe the locked model's
     expect(await service.prune()).toBe(0);
     expect(await store.list()).toEqual(["0123456789abcdef0123.webp"]);
+  });
+
+  it("tries again after a failed read instead of hiding the thumbnail until the file changes", async () => {
+    const files = project({ "m/crate.obj": "mtllib crate.mtl\n", "m/crate.mtl": "map_Kd crate.png\n", "m/crate.png": new Uint8Array([1]) });
+    const locked = new Set(["m/crate.obj", "m/crate.mtl"]);
+    const flaky: ThumbnailProject = { ...files, files: files.files, text: () => undefined, bytes: (p) => (locked.has(p) ? Promise.reject(new Error("locked")) : files.bytes(p)) };
+    const service = new ThumbnailService(flaky, memoryStore(), maker(), manualQueue().queue);
+    expect(await service.keyFor("m/crate.obj")).toBeNull();
+    locked.delete("m/crate.obj");
+    const partial = await service.keyFor("m/crate.obj"); // the .mtl still locked: read without its texture
+    locked.clear();
+    const full = await service.keyFor("m/crate.obj");
+    expect(full).toMatch(/^[0-9a-f]{20}$/);
+    expect(full).not.toBe(partial);
+    // Once read, the texture counts: changing it re-keys the model.
+    files.set("m/crate.png", new Uint8Array([2]));
+    expect(await service.keyFor("m/crate.obj")).not.toBe(full);
   });
 
   it("drops a shared render only when every caller that can go away has gone", async () => {

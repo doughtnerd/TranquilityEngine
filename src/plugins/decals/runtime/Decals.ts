@@ -1,5 +1,5 @@
 /**
- * Spawned decals (ADR 0381): bullet holes, splats, scorch marks and footprints that gameplay makes by the hundred and
+ * Spawned decals (ADR 0395): bullet holes, splats, scorch marks and footprints that gameplay makes by the hundred and
  * never saves. `Decals.project` places a 3D decal and `Decals.stamp` a 2D one, without a node; each World keeps its own
  * pool, at most `render.maxDecals` of each kind (spawning past it fades out the oldest quickly).
  *

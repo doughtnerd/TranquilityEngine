@@ -36,6 +36,7 @@ import { PivotRow } from "./ImageImportSettings";
 import { confirmInEditor } from "./ConfirmDialog";
 import "./spriteEditor.css";
 import { eventWindow } from "../windows/dom";
+import { useDraftText } from "./draftText";
 
 /** A slice being edited: `key` tells slices apart while names change; `original` is its name when editing began. */
 interface EditSlice {
@@ -133,7 +134,6 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
   const [drawing, setDrawing] = useState<Rect | null>(null);
   const [mode, setMode] = useState<SliceMode>("count");
   const [grid, setGrid] = useState({ columns: 2, rows: 2, width: 16, height: 16, offsetX: 0, offsetY: 0, paddingX: 0, paddingY: 0, minSize: 2, skipEmpty: true });
-  const [nameDraft, setNameDraft] = useState<{ key: number; text: string; problem: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const stage = useRef<HTMLDivElement>(null);
   const viewport = useRef<HTMLDivElement>(null);
@@ -359,13 +359,6 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
     </label>
   );
 
-  const commitName = () => {
-    if (!nameDraft || !current || nameDraft.key !== current.key) return;
-    if (nameDraft.problem) return;
-    update(current.key, { name: nameDraft.text });
-    setNameDraft(null);
-  };
-
   return (
     <div class="dialog-backdrop sprite-editor-backdrop">
       <div ref={dialog} class="sprite-editor" role="dialog" aria-modal="true" aria-label={`Sprite Editor: ${fileName(image)}`} tabIndex={-1} onKeyDown={onKeyDown}>
@@ -515,21 +508,7 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
             {current ? (
               <section aria-label="Selected slice">
                 <h3>Selected slice</h3>
-                <label class="sprite-field">
-                  <span>Name</span>
-                  <input
-                    type="text"
-                    aria-label="Slice name"
-                    value={nameDraft?.key === current.key ? nameDraft.text : current.name}
-                    onInput={(e) => {
-                      const text = (e.currentTarget as HTMLInputElement).value;
-                      setNameDraft({ key: current.key, text, problem: whyNotSliceName(text, slices.filter((s) => s !== current).map((s) => s.name)) });
-                    }}
-                    onBlur={commitName}
-                    onKeyDown={(e) => e.key === "Enter" && commitName()}
-                  />
-                </label>
-                {nameDraft?.key === current.key && nameDraft.problem && <p class="sprite-problem">{nameDraft.problem}</p>}
+                <SliceNameField key={current.key} name={current.name} others={slices.filter((s) => s !== current).map((s) => s.name)} onRename={(name) => update(current.key, { name })} />
                 <div class="sprite-pair">
                   {num("X", current.rect[0], (v) => update(current.key, { rect: moveRect(current.rect, v - current.rect[0], 0, W, H) }), 0)}
                   {num("Y", current.rect[1], (v) => update(current.key, { rect: moveRect(current.rect, 0, v - current.rect[1], W, H) }), 0)}
@@ -591,3 +570,38 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
     </div>
   );
 }
+
+/**
+ * The selected slice's name: committed on Enter or blur, dropped on Escape (`useDraftText`). While typing, a name that
+ * can't be used says why under the box; committing one leaves the name as it was and keeps saying why until the next edit.
+ */
+function SliceNameField(props: { name: string; others: readonly string[]; onRename: (name: string) => void }) {
+  const { name, others, onRename } = props;
+  const [refused, setRefused] = useState<string | null>(null);
+  const { draft, input } = useDraftText(name, (text) => {
+    const why = text === name ? null : whyNotSliceName(text, others);
+    setRefused(why);
+    if (text !== name && why === null) onRename(text);
+  });
+  const typing = draft !== name ? whyNotSliceName(draft, others) : null;
+  const problem = typing ?? refused;
+  return (
+    <>
+      <label class="sprite-field">
+        <span>Name</span>
+        <input
+          type="text"
+          aria-label="Slice name"
+          aria-invalid={problem ? true : undefined}
+          {...input}
+          onInput={(e) => {
+            setRefused(null);
+            input.onInput(e);
+          }}
+        />
+      </label>
+      {problem && <p class="sprite-problem">{problem}</p>}
+    </>
+  );
+}
+

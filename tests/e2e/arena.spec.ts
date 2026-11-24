@@ -68,7 +68,7 @@ test("Play: Host makes the server World, P adds a second player, input moves pla
   await openEditor(page, { sample: "arena" });
   await expect(page.locator(".project-name")).toHaveText("Arena (sample, read-only)");
 
-  await page.getByRole("button", { name: "▶ Play" }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: PLAY_START });
   await expect.poll(() => worldNames(page), { timeout: PLAY_START }).toEqual(["Client"]); // the play Engine's Worlds start after the button shows
 
@@ -128,7 +128,7 @@ test("Play: Host makes the server World, P adds a second player, input moves pla
   await expect(worldsPanel.locator('[data-live-link="Client 2>Server"]')).toHaveCount(1);
 
   await page.getByRole("button", { name: /Stop/ }).click();
-  await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   expect(errors).toEqual([]);
 });
 
@@ -161,7 +161,7 @@ test("Play: Join connects to a dedicated server, which spawns a player the keybo
   const server = await dedicatedServer(log);
   try {
     await openEditor(page, { sample: "arena" });
-    await page.getByRole("button", { name: "▶ Play" }).click();
+    await page.getByRole("button", { name: "Play", exact: true }).click();
     await expect.poll(() => worldNames(page), { timeout: PLAY_START }).toEqual(["Client"]);
     // Point Join at this server (the scene says ws://localhost:7777, the server's default port).
     await expect.poll(() => inLiveWorld(page, "Client", (w) => w !== null)).toBe(true);
@@ -187,7 +187,7 @@ test("Play: Join connects to a dedicated server, which spawns a player the keybo
     await page.keyboard.up("d");
 
     await page.getByRole("button", { name: /Stop/ }).click();
-    await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
     await expect.poll(() => log.join("")).toMatch(/World "Server": connection 1 closed/);
   } finally {
     server.process.kill();

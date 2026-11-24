@@ -12,7 +12,7 @@
  *   - each further sprite run of the same order (another texture) sits `RUN_STEP` past the run before,
  *     so runs of one order sort deterministically and stay below the next order (whole or fractional,
  *     as long as the orders are further apart than their runs' steps);
- *   - a 3D decal volume (`placeDecal`, ADR 0381) sits in a band below every 2D draw order and particle value, by
+ *   - a 3D decal volume (`placeDecal`, ADR 0395) sits in a band below every 2D draw order and particle value, by
  *     its decal order: decals draw first among transparent meshes, right after the opaque scene they land on;
  *   - a particle mesh (`placeParticles`) sits by its emitter's `renderOrder`: 0 at Babylon's default
  *     (`Number.MAX_VALUE`, sorted by distance with the scene's other transparent meshes, after all 2D
@@ -69,7 +69,7 @@ const DECAL_BAND = -1e15;
 /** How far apart decal orders sit (decal orders are whole or fractional numbers well inside ±1e9). */
 const DECAL_STEP = 1e3;
 
-/** Put a 3D decal volume at decal order `order` (ADR 0381: below every 2D layer and particle, higher orders on top). */
+/** Put a 3D decal volume at decal order `order` (ADR 0395: below every 2D layer and particle, higher orders on top). */
 export function placeDecal(mesh: AbstractMesh, order: number): void {
   const o = Number.isFinite(order) ? Math.max(-1e9, Math.min(1e9, order)) : 0;
   mesh.alphaIndex = DECAL_BAND + o * DECAL_STEP;
@@ -81,7 +81,7 @@ export function placeParticles(mesh: AbstractMesh, renderOrder: number): void {
   else mesh.alphaIndex = renderOrder > 0 ? Number.POSITIVE_INFINITY : renderOrder;
 }
 
-// --- masks (ADR 0381) ------------------------------------------------------------------------------
+// --- masks (ADR 0395) ------------------------------------------------------------------------------
 
 /** The texture and map a quad mask samples (`QuadBatch.setMask`): u = a·x + b·y + c, v = d·x + e·y + f in the mesh's local space. */
 export interface QuadMaskBinding {

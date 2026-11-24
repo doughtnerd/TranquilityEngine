@@ -1,10 +1,10 @@
-# 0382. Line and trail renderers are a plugin that builds ribbons on the CPU; 3D ribbons face each camera in the vertex shader and 2D ribbons are layered quads
+# 0396. Line and trail renderers are a plugin that builds ribbons on the CPU; 3D ribbons face each camera in the vertex shader and 2D ribbons are layered quads
 
-- **Status:** Accepted
+- **Status:** Accepted (proposed as 0382; renumbered when merging, as master had used that number)
 - **Date:** 2026-11-24
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0011, 0014, 0019, 0049, 0075, 0096, 0126, 0127, 0130, 0133, 0135, 0136, 0140, 0154, 0164, 0186, 0222, 0225, 0276, 0346, 0381
+- **Related:** 0011, 0014, 0019, 0049, 0075, 0096, 0126, 0127, 0130, 0133, 0135, 0136, 0140, 0154, 0164, 0186, 0222, 0225, 0276, 0346, 0395
 
 ## Context
 
@@ -168,7 +168,7 @@ node's +Z) and the shader plugin is off.
   Shadow-map passes face the light's camera, which is what Unity does too.
 
 **2D ribbons are layered quads.** The plugin builds the strip in the node's XY plane and hands it to a `QuadBatch`
-through `setTriangles`, with per-vertex colours through `setColors` (added to `QuadBatch` by ADR 0381; whichever
+through `setTriangles`, with per-vertex colours through `setColors` (added to `QuadBatch` by ADR 0395; whichever
 record is built first adds it). Draw order is `sortOrder(sortingLayer, orderInLayer)`, so lines interleave with
 sprites, tiles and 2D decals as ADR 0186 requires. No new 2D material.
 
@@ -254,7 +254,7 @@ Where the build differs from the text above:
   materials' vertex code.
 - View-aligned ribbons use five more floats per vertex than a plain strip.
 - `DrawnShape` gains `polyline`; `BabylonFeatureHost` gains `dynamicMeshes`; `QuadBatch` gains `setColors` (shared
-  with 0381).
+  with 0395).
 - Transparent ribbons sort as whole meshes.
 
 ## Deprecates

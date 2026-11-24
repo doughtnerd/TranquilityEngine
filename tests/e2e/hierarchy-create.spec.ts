@@ -1,4 +1,5 @@
 import { afterFrames, expect, type Locator, type Page, test, openEditor, type Hooks } from "./fixtures";
+import { hierarchyMenu } from "./menus";
 
 const row = (page: Page, key: string) => page.locator(`.tree .row[data-key="${key}"]`);
 const selected = (page: Page) => page.locator(".tree .row.selected").evaluateAll((rows) => rows.map((r) => (r as HTMLElement).dataset.key!));
@@ -11,17 +12,17 @@ const box = async (l: Locator) => (await l.boundingBox())!;
 test("the + menu and the row menu create nodes, selected, one undo step each", async ({ page }) => {
   await openEditor(page, { sample: "flappy" });
   await page.getByRole("button", { name: "Create node" }).click();
-  await menuItem(page, "Create Sprite").click();
+  await hierarchyMenu(page, "2D", "Sprite");
   await expect(row(page, "sprite")).toHaveClass(/selected/);
   await expect(row(page, "sprite").locator(".name")).toHaveText("Sprite");
   await expect(page.locator(".scene-name")).toContainText("•");
 
   await page.getByRole("button", { name: "Create node" }).click();
-  await menuItem(page, "Create Camera").click();
+  await hierarchyMenu(page, "Camera");
   await expect(row(page, "camera-2").locator(".name")).toHaveText("Camera (1)"); // the scene has a Camera already
 
   await row(page, "bird").click({ button: "right" });
-  await menuItem(page, "Create Empty Child").click();
+  await hierarchyMenu(page, "Create Child", "Empty");
   await expect(row(page, "node")).toHaveClass(/selected/);
   expect(await row(page, "node").evaluate((el) => parseFloat((el as HTMLElement).style.paddingLeft))).toBeGreaterThan(
     await row(page, "bird").evaluate((el) => parseFloat((el as HTMLElement).style.paddingLeft)),

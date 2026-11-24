@@ -41,8 +41,8 @@ const names = (specs: readonly RenderFeatureSpec[]) => byPhase(specs).map((i) =>
 const TODAY = ["sprites", "tilemaps", "meshes", "fog", "sky", "particles", "probes", "water", "ui"];
 /**
  * With the Animation plugin's skinned meshes (ADR 0370), right after the meshes, and its skinned sprites (ADR 0371) after
- * them; the Lines plugin's ribbons (ADR 0382) after the meshes in `content` (their shadow casters are collected with
- * them), and the Decals plugin's (ADR 0381) in `effects`.
+ * them; the Lines plugin's ribbons (ADR 0396) after the meshes in `content` (their shadow casters are collected with
+ * them), and the Decals plugin's (ADR 0395) in `effects`.
  */
 const TODAY_ALL = ["sprites", "tilemaps", "meshes", "lines", "skinning", "skinnedSprites", "fog", "sky", "particles", "decals", "probes", "water", "ui"];
 

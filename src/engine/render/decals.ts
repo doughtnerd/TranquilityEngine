@@ -1,5 +1,5 @@
 /**
- * Decal volumes (ADR 0381): the renderer core's renderer-neutral way for the Decals plugin to draw 3D decals. A
+ * Decal volumes (ADR 0395): the renderer core's renderer-neutral way for the Decals plugin to draw 3D decals. A
  * decal is a box (a unit cube, -0.5..0.5, placed by its matrix) that projects a material along its local +Z onto
  * the opaque surfaces the scene depth shows inside it. The backend implements it (`BabylonDecals`); the plugin decides
  * which decals exist, where, and how faded they are. Types only: no backend code here (ADR 0010).
@@ -17,7 +17,7 @@ export interface DecalLook {
   readonly blend: DecalBlend;
 }
 
-/** @internal What a render feature borrows from the renderer to draw decal volumes (ADR 0381). */
+/** @internal What a render feature borrows from the renderer to draw decal volumes (ADR 0395). */
 export interface DecalHost {
   /** A new, empty, hidden batch of decals drawn with `look`: one draw. `name` is for debugging. */
   createBatch(name: string, look: DecalLook): DecalBatch;

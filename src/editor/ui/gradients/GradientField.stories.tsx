@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0382) for the shared gradient field: colour stops under the bar, alpha stops above it. Clicking the
+// Stories (ADR 0219, 0396) for the shared gradient field: colour stops under the bar, alpha stops above it. Clicking the
 // bar's lower half adds a colour stop, its upper half an alpha stop; a selected stop shows its readout; Remove deletes it.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";

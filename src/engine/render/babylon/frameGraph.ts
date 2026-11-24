@@ -254,6 +254,8 @@ export class BabylonFrame {
   private graph: FrameGraph | null = null;
   private key = "";
   private building = false;
+  /** Disposed: a graph whose build finishes now is freed, not installed. */
+  private disposed = false;
   private views: ViewTasks[] = [];
   private shadowTasks: FrameGraphShadowGeneratorTask[] = [];
   private overlayTask: FrameGraphOverlayTask | null = null;
@@ -385,7 +387,7 @@ export class BabylonFrame {
       .buildAsync()
       .then(() => {
         this.building = false;
-        if (this.key !== key) return graph.dispose(); // replaced meanwhile
+        if (this.disposed || this.key !== key) return graph.dispose(); // disposed or replaced meanwhile
         this.graph = graph;
         this.scene.frameGraph = graph;
         this.scene.cameraToUseForPointers = views[0].camera; // the frame graph clears scene.activeCamera
@@ -636,6 +638,7 @@ export class BabylonFrame {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.luts.dispose();
     this.scene.frameGraph = null;
     this.graph?.dispose();

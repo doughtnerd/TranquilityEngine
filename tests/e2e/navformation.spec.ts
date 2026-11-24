@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page, waitForEditor } from "./fixtures";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
+import { assetsMenu } from "./menus";
 
 // Formation assets (ADR 0065, Foxfire's NavFormation): New Navigation Formation in the Assets panel's menu makes
 // navigation/New Formation.formation.json; the Inspector's formation editor paints cells (left drag paints, right
@@ -66,11 +67,11 @@ test("a formation asset is created, painted, undone and assigned to a NavGroup",
   const errors = trackErrors(page);
   await open(page);
 
-  // Create › Navigation › Formation (the Assets panel's background menu): a 16 × 16 mask, nothing painted.
+  // Create › Navigation › Navigation Formation (the Assets panel's background menu): a 16 × 16 mask, nothing painted.
   await page.locator(".asset-folder", { hasText: /^navigation$/ }).click();
   const items = await box(page.locator(".panel.assets .asset-items"));
   await page.mouse.click(items.x + items.width - 10, items.y + items.height - 10, { button: "right" });
-  await page.getByRole("menuitem", { name: "New Navigation Formation" }).click();
+  await assetsMenu(page, "Create", "Navigation", "Navigation Formation");
   await expect(page.locator(".asset-tile.selected")).toContainText("New Formation.formation.json");
   const editor = page.getByLabel("Formation", { exact: true });
   await expect(editor.getByRole("combobox", { name: "Shape" })).toHaveValue("mask");

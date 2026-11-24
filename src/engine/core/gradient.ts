@@ -1,5 +1,5 @@
 /**
- * The engine's colour gradient (ADR 0382), shared by particles (`ParticleGradient` is this type) and line and
+ * The engine's colour gradient (ADR 0396), shared by particles (`ParticleGradient` is this type) and line and
  * trail renderers: colour keys and alpha keys, each at `t` from 0 to 1, the same JSON particle files hold:
  *
  * ```jsonc

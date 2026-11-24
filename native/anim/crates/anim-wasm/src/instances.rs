@@ -25,7 +25,7 @@
 
 pub mod implicit;
 
-use anim_graph::eval::{pose_from_words, pose_to_words, Program, SOA_WORDS};
+use anim_graph::eval::{pose_from_words, pose_to_words, Assets, Program, SOA_WORDS};
 use anim_math::layout::{soa_len, LANES};
 use anim_math::SoaTransform;
 use anim_sample::FrameCache;
@@ -246,8 +246,16 @@ impl Table {
         STATUS_OK
     }
 
-    /// Restores `h` from a snapshot of an instance of the same graph and skeleton.
-    pub fn restore(&mut self, h: u32, bytes: &[u8]) -> u32 {
+    /// Restores `h` from a snapshot of an instance of the same graph and skeleton. `program` is
+    /// the program of `h`'s graph (`None`: `h`'s graph is gone); a snapshot whose state words that
+    /// program can't run (damaged) is refused and `h` is left as it was.
+    pub fn restore(
+        &mut self,
+        h: u32,
+        bytes: &[u8],
+        program: Option<&Program>,
+        assets: &dyn Assets,
+    ) -> u32 {
         let inst = match self.get_mut(h) {
             Ok(i) => i,
             Err(e) => return e,
@@ -281,9 +289,12 @@ impl Table {
         );
         let n = inst.state.len();
         let base = SNAPSHOT_HEADER_WORDS;
-        for (i, s) in inst.state.iter_mut().enumerate() {
-            *s = read(base + i);
+        let state: Vec<u32> = (0..n).map(|i| read(base + i)).collect();
+        match program {
+            Some(p) if p.check_state(&state, inst.groups, assets) => {}
+            _ => return STATUS_BAD_RECORD,
         }
+        inst.state.copy_from_slice(&state);
         let g = inst.groups * SOA_WORDS;
         let mut poses = vec![0u32; 2 * g];
         for (i, p) in poses.iter_mut().enumerate() {

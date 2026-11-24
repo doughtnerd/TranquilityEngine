@@ -36,6 +36,16 @@ describe("rotation codecs", () => {
     expect(radians.read(negated)).toEqual([0, 3.5, 0]);
   });
 
+  it("keeps the hint for q and -q when w is 0 (a half turn), and through float noise around 0", () => {
+    const q = degrees.write([0, 540, 0], Quaternion.identity); // a half turn about y: w = 0 (to float noise)
+    expect(Math.abs(q.w)).toBeLessThan(1e-9);
+    expect(degrees.read(q)).toEqual([0, 540, 0]);
+    for (const w of [0, 1e-9, -1e-9]) {
+      expect(degrees.read(new Quaternion(q.x, q.y, q.z, w))).toEqual([0, 540, 0]);
+      expect(degrees.read(new Quaternion(-q.x, -q.y, -q.z, w))).toEqual([0, 540, 0]);
+    }
+  });
+
   it("edits one axis keeping the others", () => {
     let q = withRotationAxis(null, "radians", 2, 0.5);
     q = withRotationAxis(q, "radians", 0, 0.25);

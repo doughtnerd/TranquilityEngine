@@ -1,8 +1,8 @@
-// ADR 0382: the line point tool's maths.
+// ADR 0396: the line point tool's maths.
 import { describe, expect, it } from "vitest";
 import { invertAffine, lerp3, nearestSegment, pointsJson, rayPlane, transformPoint } from "./pointEdit";
 
-describe("line point editing maths (ADR 0382)", () => {
+describe("line point editing maths (ADR 0396)", () => {
   it("meets a plane with a ray, and not one it runs along or that's behind it", () => {
     expect(rayPlane([0, 0, -5], [0, 0, 1], [0, 0, 0], [0, 0, 1])).toEqual([0, 0, 0]);
     expect(rayPlane([0, 0, -5], [1, 0, 0], [0, 0, 0], [0, 0, 1])).toBeNull();

@@ -1,10 +1,10 @@
-# 0381. Decals are a plugin: 3D decal projectors shade what the scene depth shows inside a box, and 2D decals are layered quads masked by the sprite they sit on
+# 0395. Decals are a plugin: 3D decal projectors shade what the scene depth shows inside a box, and 2D decals are layered quads masked by the sprite they sit on
 
-- **Status:** Accepted
+- **Status:** Accepted (proposed as 0381; renumbered when merging, as master had used that number)
 - **Date:** 2026-11-24
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0010, 0014, 0075, 0109, 0127, 0130, 0133, 0135, 0136, 0140, 0154, 0164, 0186, 0222, 0225, 0274, 0276, 0382
+- **Related:** 0010, 0014, 0075, 0109, 0127, 0130, 0133, 0135, 0136, 0140, 0154, 0164, 0186, 0222, 0225, 0274, 0276, 0396
 
 ## Context
 

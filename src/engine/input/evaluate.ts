@@ -146,8 +146,15 @@ function compileMapping(spec: MappingSpec, context: string, index: number, addit
     const stick = all.some(isStickControl);
     const override = a11y.deadzone;
     const hasDeadzone = specs.some((m) => "deadzone" in m);
-    if (stick && !hasDeadzone) specs.unshift({ deadzone: { min: override ?? DEFAULT_STICK_DEADZONE } });
-    else if (stick && override !== undefined) for (let i = 0; i < specs.length; i++) if ("deadzone" in specs[i]) specs[i] = { deadzone: { ...(specs[i] as { deadzone: object }).deadzone, min: override } };
+    // The player's dead zone is kept inside the mapping's range, so a large one reads nearly digital
+    // instead of making the mapping invalid (and dropping it).
+    const within = (max: number | undefined) => Math.max(0, Math.min(override!, (max ?? 1) * 0.999));
+    if (stick && !hasDeadzone) specs.unshift({ deadzone: { min: override === undefined ? DEFAULT_STICK_DEADZONE : within(1) } });
+    else if (stick && override !== undefined)
+      for (let i = 0; i < specs.length; i++) {
+        const m = specs[i];
+        if ("deadzone" in m) specs[i] = { deadzone: { ...m.deadzone, min: within(m.deadzone.max) } };
+      }
     const triggerSpecs = [...(spec.triggers ?? []), ...(options.triggers ?? [])];
     return {
       context,

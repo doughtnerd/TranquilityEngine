@@ -1,5 +1,5 @@
 /**
- * Dynamic meshes on Babylon (ADR 0382): the backend half of `DynamicMeshHost`. Each mesh is one Babylon `Mesh` with
+ * Dynamic meshes on Babylon (ADR 0396): the backend half of `DynamicMeshHost`. Each mesh is one Babylon `Mesh` with
  * updatable buffers (vertex colours on); with ribbon data its material carries `MycoRibbonPlugin`, which turns the
  * vertices to each camera in the vertex shader. Materials are shared per look: the built-in line material (unlit,
  * alpha-blended, two-sided, the texture's colour and alpha) per texture, or one copy of a material asset or shader

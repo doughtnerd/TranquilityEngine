@@ -203,6 +203,25 @@ fn a_decibel_bus_ramp_fades_linearly_in_db() {
 }
 
 #[test]
+fn master_ramps_linearly_after_a_decibel_ramp_of_the_output() {
+    let mut m = mixer(4);
+    m.submit(&[config(&[ROOT, 0]), dc_at(V1, 1, 0.25)]);
+    m.render_n(4);
+    let base = m.render().0[127];
+    // The output's runtime lane (MASTER's ramp) to 0.5, in dB.
+    let mut r = lane_ramp(wire::BUS_MASTER_OUT, wire::LANE_RUNTIME, Some(0.5), None, 128);
+    r.shape = wire::pack_ramp_shape(wire::fade_law::DECIBEL, 0, 0);
+    m.submit(&[raw(move |b| r.write(b, 0))]);
+    m.render_n(2);
+    assert!((m.render().0[127] / base - 0.5).abs() < 1e-4);
+    // MASTER back to 1 over 1,024 frames ramps linearly in gain: 0.75 half-way.
+    m.submit(&[master(1.0, false, 1024)]);
+    let (l, _) = m.render_n(8);
+    assert!((l[511] / base - 0.75).abs() < 2e-3, "half-way: {}", l[511] / base);
+    assert!((l[1023] / base - 1.0).abs() < 1e-4, "end: {}", l[1023] / base);
+}
+
+#[test]
 fn starved_effect_memory_is_reported_in_status_with_its_owner() {
     let mut m = mixer(4);
     let mut out = vec![0u8; wire::STATUS_BUFFER_BYTES as usize];

@@ -1,11 +1,11 @@
-// ADR 0382: the engine's gradient, shared by particles and line and trail renderers.
+// ADR 0396: the engine's gradient, shared by particles and line and trail renderers.
 import { describe, expect, it } from "vitest";
 import { evaluateGradient, isGradient, whiteGradient, type Gradient } from "./gradient";
 import { evalGradient } from "../scene/particles";
 
 const g: Gradient = { colors: [[0, "#ff0000"], [1, "#0000ff"]], alphas: [[0, 1], [0.5, 0]] };
 
-describe("Gradient (ADR 0382)", () => {
+describe("Gradient (ADR 0396)", () => {
   it("blends colours in sRGB between keys and holds them outside", () => {
     expect(Array.from(evaluateGradient(g, 0))).toEqual([1, 0, 0, 1]);
     expect(Array.from(evaluateGradient(g, 0.5))).toEqual([0.5, 0, 0.5, 0]);

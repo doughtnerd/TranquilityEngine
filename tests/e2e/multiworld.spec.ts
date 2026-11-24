@@ -99,7 +99,7 @@ test("Play tiles the rendering Worlds; a click gives a World input; Worlds pause
 
   // Stop disposes it all and returns to editing.
   await page.getByRole("button", { name: /Stop/ }).click();
-  await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   await expect(page.locator("#game-view canvas")).toHaveCount(0);
   await expect(tiles).toHaveCount(0);
   await expect(page.locator("#viewport canvas")).toBeVisible();
@@ -145,7 +145,7 @@ test("Play connects linked Worlds, and Stop and Play again reconnect them", asyn
     await expect.poll(() => openConnections(page, "P1")).toBe(1);
     await expect.poll(() => openConnections(page, "P2")).toBe(1);
     await page.getByRole("button", { name: /Stop/ }).click();
-    await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   }
   expect(errors).toEqual([]);
 });

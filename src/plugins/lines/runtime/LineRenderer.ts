@@ -1,5 +1,5 @@
 /**
- * A line through points (ADR 0382), like Unity's `LineRenderer`: laser beams, aim guides, cables, paths. The points are
+ * A line through points (ADR 0396), like Unity's `LineRenderer`: laser beams, aim guides, cables, paths. The points are
  * in world space by default (`useWorldSpace`, as in Unity) or in the node's space, so the line moves with it.
  */
 import { Vector3, type Vec3Input } from "../../../engine/core/math";

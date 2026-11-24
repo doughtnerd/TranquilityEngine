@@ -1,4 +1,4 @@
-/* The shared gradient field (ADR 0382): a bar with colour stops under it and alpha stops above, and a readout row. */
+/* The shared gradient field (ADR 0396): a bar with colour stops under it and alpha stops above, and a readout row. */
 .gradient-bar {
   background-image: var(--gradient), repeating-conic-gradient(var(--border) 0% 25%, var(--bg-sunken) 0% 50%);
   background-size: 100% 100%, 8px 8px;

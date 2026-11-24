@@ -77,5 +77,5 @@ export function convertColor(value: ParticleColor, kind: ParticleColorKind): Par
 
 // --- gradient keys ---------------------------------------------------------------------------------
 
-// The gradient key helpers live in the editor SDK (ADR 0382); re-exported here for the particle editor and its tests.
+// The gradient key helpers live in the editor SDK (ADR 0396); re-exported here for the particle editor and its tests.
 export { addGradientAlphaKey as addAlphaKey, addGradientColorKey as addColorKey, moveGradientAlphaKey as moveAlphaKey, moveGradientColorKey as moveColorKey, removeGradientAlphaKey as removeAlphaKey, removeGradientColorKey as removeColorKey, setGradientColorKey as setColorKey } from "../../../../editor/sdk";

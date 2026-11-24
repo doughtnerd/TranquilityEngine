@@ -1,5 +1,5 @@
 /**
- * Trail sampling (ADR 0382): once a frame, after scripts' late update (and after physics interpolation has placed
+ * Trail sampling (ADR 0396): once a frame, after scripts' late update (and after physics interpolation has placed
  * interpolated bodies for the frame), every active `TrailRenderer` ages its points by the World's scaled time (paused
  * time freezes a trail, slow motion slows it), drops those older than `lifetime`, adds the node's world position when it
  * has moved at least `minVertexDistance` from the newest point, and keeps a live head at the node's position while

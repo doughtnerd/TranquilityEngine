@@ -16,6 +16,22 @@ describe("the mixer's duck lane (Dp1)", () => {
     expect(m.resolve("Music")!.gain).toBeCloseTo(0.4, 6);
   });
 
+  it("main's presence duck settles on its goal, and once there stops telling listeners every frame", () => {
+    const slow = settings();
+    slow.ducking[0] = { ...slow.ducking[0]!, attack: 0.5, release: 2 };
+    const m = new Mixer(slow);
+    m.voiceStarted("Voice");
+    for (let i = 0; i < 3000; i++) m.update(1 / 60);
+    expect(m.bus("Music").duckGain).toBe(0.4);
+    let notified = 0;
+    m.onChange(() => notified++);
+    for (let i = 0; i < 10; i++) m.update(1 / 60);
+    expect(notified).toBe(0);
+    m.voiceEnded("Voice");
+    for (let i = 0; i < 3000; i++) m.update(1 / 60);
+    expect(m.bus("Music").duckGain).toBe(1);
+  });
+
   it("with a source every duck read is the source's and main computes none; clearing it resumes main's from 1", () => {
     const m = new Mixer(settings());
     const core = new Map<string, number>();

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Engine, GameObject, Input, InputContext, InputPlayers, button, defineActions, defineInputContext, dpad, vec2 } from "../index";
-import { canonicalControlPath, inputActionSets, inputContextNames, inputContextProblems, inputState, watchInput, watchRawPresses, type RawPress } from "../editor";
+import { canonicalControlPath, inputActionSets, inputContextNames, inputContextProblems, inputState, watchInput, watchRawPresses, unregisterScripts, withScriptRegistrations, type RawPress } from "../editor";
 
 // The editor's view of the input system (ADR 0336, 0337): what the Input debugger panel and the context asset editor
 // read through the editor SDK, driven through Input.inject as real adapters drive it.
@@ -104,6 +104,20 @@ describe("watchInput", () => {
 });
 
 describe("for the context asset editor", () => {
+  it("forgets a script's action sets when its registrations go, putting back a build set it replaced", async () => {
+    const registered = await withScriptRegistrations(async () => {
+      defineActions("test.inputDebug.Scripted", { warp: button("<Keyboard>/q") });
+      defineActions("test.inputDebug.Player", { fire: button("<Keyboard>/f") });
+    });
+    expect(inputActionSets().map((s) => s.id)).toContain("test.inputDebug.Scripted");
+    expect(inputContextProblems({ name: "c", mappings: [{ action: "warp", control: "<Keyboard>/q" }] })).toEqual([]);
+    unregisterScripts(registered);
+    expect(inputActionSets().map((s) => s.id)).not.toContain("test.inputDebug.Scripted");
+    // A bare name the forgotten set had resolves to nothing now.
+    expect(inputContextProblems({ name: "c", mappings: [{ action: "warp", control: "<Keyboard>/q" }] }).map((p) => p.mapping)).toEqual([0]);
+    expect(inputActionSets().find((s) => s.id === "test.inputDebug.Player")?.actions.map((a) => a.name)).toEqual(["move", "fire", "honk"]);
+  });
+
   it("lists action sets and registered contexts, canonicalizes control paths, and reports the evaluator's problems", () => {
     expect(inputActionSets().find((s) => s.id === "test.inputDebug.Player")?.actions).toEqual([
       { name: "move", kind: "vec2" },

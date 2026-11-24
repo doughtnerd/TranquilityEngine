@@ -4,6 +4,7 @@
 // once; `read` resolves them against the file's folder, `rewrite` splices new relative paths into the same places,
 // so the rest of the file (layout, comments, options) is kept byte for byte. A binary .glb or .fbx isn't read.
 import type { AssetReferences, ReferenceMoves } from "../../../editor/sdk";
+import { isTextureMapStatement, readTextureMap, wavefrontStatements } from "../../../engine/scene/wavefront";
 import { isRelativeReference, relativePath, resolveRelative } from "./relativePaths";
 
 /** One reference in a file's text: where it is written, and the relative path it holds (decoded). */
@@ -19,16 +20,17 @@ interface ReferenceFormat {
   write(ref: string): string;
 }
 
-/** An .obj's material libraries (`mtllib`, each file named) and an .mtl's texture maps (`map_Kd`, `bump`…, the file after any options). */
+/**
+ * An .obj's material libraries (every file of every `mtllib`) and an .mtl's texture maps (`map_Kd`, `bump`…, the one
+ * file after the statement's options), read as the Wavefront specifications define them (ADR 0394), the same reading
+ * the model loader uses (`engine/scene/wavefront.ts`). A file name is one word: the format has no quoting.
+ */
 const wavefront: ReferenceFormat = {
   tokens(text) {
     const out: Token[] = [];
-    const line = /^[ \t]*(mtllib|map_\w+|bump|disp|norm)[ \t]+([^\r\n]*?)[ \t]*\r?$/gim;
-    for (let m = line.exec(text); m; m = line.exec(text)) {
-      const argsAt = m.index + m[0].indexOf(m[2], m[1].length);
-      const words = [...m[2].matchAll(/\S+/g)];
-      // Options (`-bm 1 file.png`) come first in a map statement; the file is the last word. `mtllib` names files only.
-      for (const w of m[1].toLowerCase() === "mtllib" ? words : words.slice(-1)) out.push({ start: argsAt + w.index!, end: argsAt + w.index! + w[0].length, ref: w[0] });
+    for (const s of wavefrontStatements(text)) {
+      const files = s.keyword.text.toLowerCase() === "mtllib" ? s.args : isTextureMapStatement(s.keyword.text) ? [readTextureMap(s.args).file] : [];
+      for (const f of files) if (f) out.push({ start: f.start, end: f.end, ref: f.text });
     }
     return out;
   },

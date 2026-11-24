@@ -556,6 +556,11 @@ impl ClipStore {
         (e.format() == ClipFormat::MagLs && e.resident != 0).then(|| unsafe { core::slice::from_raw_parts(e.addr as *const u8, e.frames as usize * 4) })
     }
 
+    /// Whether a clip of this id is held (reserved, whether or not its frames are all committed).
+    pub fn holds(&self, id: u32) -> bool {
+        self.find(id).is_ok()
+    }
+
     /// Whether every frame of the clip was committed.
     pub fn is_resident(&self, id: u32) -> bool {
         self.find(id).is_ok_and(|at| self.entries[at].resident != 0)
@@ -748,6 +753,11 @@ pub fn reserve(core: &mut Core, id: u32, frames: u32, channels: u32, sample_rate
         // ADR 0162 C6: zone kernels have their own budget; their rate is the context's.
         let zone_channels = if format == ClipFormat::ZoneKernel { 1 } else { 2 };
         if !is_zone_kernel_id(id) || channels != zone_channels || frames == 0 || (sample_rate - core.params().sample_rate).abs() > 0.5 {
+            return wire::ERR_BAD_ARG;
+        }
+        if core.clips().holds(id) {
+            // Refused as `ClipStore::reserve` refuses a held id, before anything below touches the
+            // held clip: cancelling its preparation would leave its kernel half-prepared.
             return wire::ERR_BAD_ARG;
         }
         let p = core.params();

@@ -1,5 +1,5 @@
 /**
- * Camera-facing ribbons (ADR 0382): a material plugin that turns each vertex of a ribbon to the camera drawing it,
+ * Camera-facing ribbons (ADR 0396): a material plugin that turns each vertex of a ribbon to the camera drawing it,
  * in the material's own vertex shader, so one buffer serves every view (split screen, the editor's scene view and
  * its game inset). A ribbon's vertex sits on the centre line and carries the line's direction there and a side
  * (`mycoRibbonT`: xyz, side), a half width and an along-offset in half widths (`mycoRibbonE`); just after Babylon

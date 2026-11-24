@@ -1,5 +1,5 @@
 /**
- * A trail behind a moving node (ADR 0382), like Unity's `TrailRenderer`: projectile streaks, sword swipes, skid marks.
+ * A trail behind a moving node (ADR 0396), like Unity's `TrailRenderer`: projectile streaks, sword swipes, skid marks.
  *
  * The history is game state, not drawing: the `lines.Trails` system (`trails.ts`) samples the node's world position
  * once a frame, after scripts' late update, ages the points by the World's scaled time and drops those older than

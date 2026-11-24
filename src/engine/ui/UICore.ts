@@ -500,6 +500,8 @@ export class UICore implements UICoreLike {
     const onKey = (e: KeyboardEvent) => {
       const c = this.active;
       if (!c) return;
+      // While an IME composes (CJK, ADR 0356), Enter picks its candidate and Escape drops the composition.
+      if (e.isComposing || e.keyCode === 229) return;
       const log = uiInteractions(c._world);
       if (e.key === "Enter") log.record("submit", c);
       else if (e.key === "Escape") {

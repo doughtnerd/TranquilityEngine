@@ -29,6 +29,7 @@ import { ProgramRunner, playTimes } from "../particles/programRunner";
 import { randomForSeed } from "../particles/random";
 import { BabylonKernelHost, SceneDepth } from "./gpuParticles";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
+import { cloneMaterial } from "./materialClone";
 import { createDotTexture, createDraw, type Draw, type DrawResources } from "./particleDraw";
 
 /** What an effect player needs from where it draws: the scene, textures, material assets, ray queries. */
@@ -203,8 +204,7 @@ export class EffectResources implements DrawResources {
     const fromHost = this.host.materialCopy?.(path, name);
     if (fromHost !== undefined) return fromHost;
     const shared = this.materialFor(path);
-    const copy = shared?.clone(name) ?? null;
-    return copy ? { material: copy, dispose: () => copy.dispose(false, false) } : null;
+    return shared ? cloneMaterial(shared, name) : null; // freed with the texture copies the clone made
   }
 
   /** Mesh mode: the model mesh drawn (null while it loads, undefined when there's none to be had). */

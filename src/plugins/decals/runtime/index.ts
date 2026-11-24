@@ -1,4 +1,4 @@
-// The Decals plugin's runtime half (ADR 0381): `DecalProjector` and `Decal2D`, the `Decals` pool and its aging system,
+// The Decals plugin's runtime half (ADR 0395): `DecalProjector` and `Decal2D`, the `Decals` pool and its aging system,
 // and the lazy `decals` render feature. The decal logic is here, renderer-neutral (`decalRenderer.ts`); the renderer core
 // draws decal volumes and quads. `myco` (`src/myco.ts`) exports this module's public parts.
 // Runtime code: never imports from `src/editor/` or the plugin's `editor/` folder; never imports Babylon (the

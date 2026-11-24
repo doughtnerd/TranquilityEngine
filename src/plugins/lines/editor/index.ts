@@ -1,4 +1,4 @@
-// The Lines plugin's editor half (ADR 0382): the line point tool and its Edit Points toggle, the width curve and
+// The Lines plugin's editor half (ADR 0396): the line point tool and its Edit Points toggle, the width curve and
 // colour gradient section of both Components' Inspector cards, and the Hierarchy's Line and Trail entries (3D and 2D).
 import type { EditorPlugin } from "../../../editor/sdk";
 import { linesManifest } from "../manifest";
@@ -22,9 +22,9 @@ export const linesEditorPlugin: EditorPlugin = {
       { type: "engine.Transform", data: { position } },
       { type: "engine.TrailRenderer", data: { mode } },
     ];
-    context.registerHierarchyCreateEntry({ id: "line", label: "Line", name: "Line", components: line("3d") });
-    context.registerHierarchyCreateEntry({ id: "trail", label: "Trail", name: "Trail", after: "line", components: trail("3d") });
-    context.registerHierarchyCreateEntry({ id: "line-2d", label: "Line 2D", name: "Line 2D", after: "sprite", components: line("2d") });
-    context.registerHierarchyCreateEntry({ id: "trail-2d", label: "Trail 2D", name: "Trail 2D", after: "line-2d", components: trail("2d") });
+    context.registerHierarchyCreateEntry({ id: "line", label: "Line", name: "Line", category: "Effects", components: line("3d") }); // the Create menus' submenus (ADR 0383)
+    context.registerHierarchyCreateEntry({ id: "trail", label: "Trail", name: "Trail", after: "line", category: "Effects", components: trail("3d") });
+    context.registerHierarchyCreateEntry({ id: "line-2d", label: "Line 2D", name: "Line 2D", after: "sprite", category: "2D", components: line("2d") });
+    context.registerHierarchyCreateEntry({ id: "trail-2d", label: "Trail 2D", name: "Trail 2D", after: "line-2d", category: "2D", components: trail("2d") });
   },
 };

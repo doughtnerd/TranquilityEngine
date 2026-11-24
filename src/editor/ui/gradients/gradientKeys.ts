@@ -1,5 +1,5 @@
 /**
- * Pure key edits for a colour gradient (ADR 0382, moved from the Particles plugin, ADR 0057): add, move, recolour and remove
+ * Pure key edits for a colour gradient (ADR 0396, moved from the Particles plugin, ADR 0057): add, move, recolour and remove
  * colour and alpha keys, never mutating the input. The generic key-list helpers are in `../curves/keyList.ts`. No DOM here.
  */
 import { evaluateGradient, type Gradient } from "../../../engine/core/gradient";

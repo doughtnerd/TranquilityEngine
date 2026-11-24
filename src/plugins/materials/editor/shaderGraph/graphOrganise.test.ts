@@ -87,6 +87,7 @@ describe("sub-graph outputs", () => {
     g = renameSubGraphOutput(g, "Out", "Clock");
     expect(g.edges).toEqual([{ from: "time1.time", to: "output.Clock" }]);
     expect(renameSubGraphOutput(g, "Clock", "Out2")).toBe(g); // taken
+    expect(renameSubGraphOutput(g, "Missing", "Other")).toBe(g); // no such output
     expect(whyNotPortName("2x", [])).toMatch(/letters/);
     g = setSubGraphOutputType(g, "Clock", "vec2");
     expect(g.edges).toHaveLength(1); // a float still connects to a vec2

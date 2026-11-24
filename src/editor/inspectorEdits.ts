@@ -65,14 +65,16 @@ export function withWorldTag(worlds: readonly string[] | undefined, tag: string,
 
 /**
  * Limit each component to Worlds with these tags (`["*"]`: every World), or with `undefined`
- * go back to the inherited setting, as one undo step (labelled `label` when given). Where the
+ * go back to the inherited setting, as one undo step (labelled `label` when given). Given a
+ * function, each component's tags are worked out from the Worlds that apply to it now (so
+ * ticking a tag on several nodes adds it to each node's own list). Where the
  * tags match what a component inherits, its own setting is dropped instead of repeating it; a
  * component already so is left alone. Returns how many changed.
  */
 export function setComponentWorlds(
   scene: OpenScene,
   targets: readonly { path: NodePath; node: GameObject; info: ComponentInfo }[],
-  worlds: readonly string[] | undefined,
+  worlds: readonly string[] | undefined | ((current: readonly string[] | undefined) => readonly string[] | undefined),
   label?: string,
 ): number {
   if (!editableNow({ kind: "scene", scene })) return 0;
@@ -80,7 +82,8 @@ export function setComponentWorlds(
   const able = targets.flatMap((t) => {
     const setting = componentWorlds(doc, t.path, t.info);
     if (!setting) return [];
-    const next = worlds === undefined || sameWorlds(worlds, setting.inherited) ? undefined : worlds;
+    const wanted = typeof worlds === "function" ? worlds(effectiveWorlds(setting)) : worlds;
+    const next = wanted === undefined || sameWorlds(wanted, setting.inherited) ? undefined : wanted;
     const unchanged = next === undefined ? setting.own === undefined : setting.own !== undefined && sameWorlds(next, setting.own);
     return unchanged ? [] : [{ ...t, next }];
   });

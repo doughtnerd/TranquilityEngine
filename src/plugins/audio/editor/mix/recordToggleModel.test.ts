@@ -76,6 +76,74 @@ describe("RecordToggle (ADR 0348)", () => {
     expect(writes).toHaveLength(0);
   });
 
+  it("a stop while the recorder is still loading cancels the start: nothing is written and the toggle goes idle", async () => {
+    const writes: string[] = [];
+    let state: "idle" | "loading" | "recording" | "stopped" = "stopped"; // a previous take is kept
+    let finishLoad!: () => void;
+    const toggle = new RecordToggle("take", {
+      recorder: {
+        get state() { return state; },
+        seconds: 0,
+        start: () => {
+          state = "loading";
+          return new Promise<void>((resolve) => {
+            finishLoad = () => {
+              if (state === "loading") state = "recording";
+              resolve();
+            };
+          });
+        },
+        stop: () => {
+          state = "stopped"; // a load is abandoned; the previous take stays
+        },
+      },
+      bytes: async () => new Uint8Array([9]),
+      files: () => [],
+      write: async (path) => {
+        writes.push(path);
+        return path;
+      },
+    });
+    const started = toggle.toggle();
+    await toggle.toggle(); // pressed again while starting
+    finishLoad();
+    await started;
+    expect(writes).toEqual([]);
+    expect(toggle.state).toEqual({ kind: "idle" });
+    expect(toggle.recording).toBe(false);
+  });
+
+  it("a stop while starting but already recording saves that take, and the start doesn't flip it back to recording", async () => {
+    const writes: string[] = [];
+    let state: "idle" | "loading" | "recording" | "stopped" = "idle";
+    let finish!: () => void;
+    const toggle = new RecordToggle("take", {
+      recorder: {
+        get state() { return state; },
+        seconds: 0,
+        start: () => {
+          state = "recording"; // recording, but the start's promise still waits (plugin sources loading)
+          return new Promise<void>((resolve) => (finish = resolve));
+        },
+        stop: () => {
+          state = "stopped";
+        },
+      },
+      bytes: async () => new Uint8Array([9]),
+      files: () => [],
+      write: async (path) => {
+        writes.push(path);
+        return path;
+      },
+    });
+    const started = toggle.toggle();
+    await toggle.toggle();
+    finish();
+    await started;
+    expect(writes).toEqual(["takes/take_01.mycotake"]);
+    expect(toggle.state).toEqual({ kind: "saved", path: "takes/take_01.mycotake" });
+  });
+
   it("words the tooltip by state", () => {
     expect(recordToggleTitle("take", { kind: "idle" }, 0, false)).toMatch(/while playing/);
     expect(recordToggleTitle("take", { kind: "recording" }, 2.25, true)).toBe("Recording the take · 2.3 s. Press again to stop and save it.");

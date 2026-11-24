@@ -1,4 +1,4 @@
-// A decal projector's box as the 3D shape kit's table entry (ADR 0381, built like the reverb zone and collider shapes,
+// A decal projector's box as the 3D shape kit's table entry (ADR 0395, built like the reverb zone and collider shapes,
 // ADR 0295): its wireframe with an arrow along the projection (+Z) and a cross at the node, its six face handles, and
 // what a face drag writes (`size`, and `pivot` unless Alt keeps the centre). Entries work on plain field values in node
 // units, never on the Component, so they're tested without an editor.

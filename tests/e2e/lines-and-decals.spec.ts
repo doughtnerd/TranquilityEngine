@@ -3,7 +3,7 @@ import { node, scene, stage } from "./animationAssets";
 import { inLiveWorld, type LiveNode } from "./liveWorld";
 import { captureView, steadyView, type ViewCapture } from "./viewCapture";
 
-// Line and trail renderers (ADR 0382) and decals (ADR 0381) in a real browser: a red 3D line across the view and a
+// Line and trail renderers (ADR 0396) and decals (ADR 0395) in a real browser: a red 3D line across the view and a
 // green decal projected onto a white wall draw in Play; switching the decal off takes its green away; a spawned decal
 // (`Decals.project`) and a trail behind a moving node work through the public `myco` API. In the editor, both nodes
 // draw in the scene view (`nodeRect`), and the line's Edit Points handles move a point, saved to the scene file.

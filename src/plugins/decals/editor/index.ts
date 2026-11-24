@@ -1,4 +1,4 @@
-// The Decals plugin's editor half (ADR 0381): the projector gizmo and its Edit Bounds toggle, the projector's
+// The Decals plugin's editor half (ADR 0395): the projector gizmo and its Edit Bounds toggle, the projector's
 // Inspector notes, and the Hierarchy's Decal Projector and 2D Decal entries.
 import type { EditorPlugin } from "../../../editor/sdk";
 import { decalsManifest } from "../manifest";
@@ -14,6 +14,7 @@ export const decalsEditorPlugin: EditorPlugin = {
       id: "decal-projector",
       label: "Decal Projector",
       name: "Decal Projector",
+      category: "Effects", // the Create menus' submenus (ADR 0383)
       components: (position) => [
         { type: "engine.Transform", data: { position } },
         { type: "engine.DecalProjector", data: {} },
@@ -25,6 +26,7 @@ export const decalsEditorPlugin: EditorPlugin = {
       label: "Decal 2D",
       name: "Decal 2D",
       after: "sprite",
+      category: "2D",
       components: (position, sprite) => [
         { type: "engine.Transform", data: { position } },
         { type: "engine.Decal2D", data: sprite ? { sprite } : {} },

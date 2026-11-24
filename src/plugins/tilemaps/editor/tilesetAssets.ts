@@ -4,6 +4,7 @@
 // 0134, 0233), over this plugin's `tileset` format (`tilesetFormat.ts`).
 import { newTileset, type TileDef, type TilesetData } from "../runtime/tileset";
 import type { ImportSettings } from "../../../engine/scene/importSettings";
+import { randomUuid } from "../../../engine/core/uuid";
 import { editor, type EditorProject } from "../../../editor/sdk";
 
 /** A tile's sprite reference split into its image and slice (null for a reference that isn't `asset:<image>#<slice>`). */
@@ -16,13 +17,14 @@ export function splitSprite(sprite: string): { image: string; slice: string } | 
 /** The sprite reference of a slice: `asset:images/tiles.png#grass`. */
 const sliceSprite = (image: string, slice: string) => `asset:${image}#${slice}`;
 
-/** Tiles for the slices of `settings` that `used` sprites don't have yet, with ids counting up from `firstId`. */
+/** Tiles for the slices of `settings` that `used` sprites don't have yet, with ids counting up from `firstId`, each with
+ * a new random uuid (ADR 0392: never a deleted tile's, so maps that used one don't draw the new tile in its place). */
 export function tilesForSlices(settings: ImportSettings, image: string, firstId = 1, used: ReadonlySet<string> = new Set()): TileDef[] {
   const out: TileDef[] = [];
   let id = firstId;
   for (const s of settings.sprites) {
     const sprite = sliceSprite(image, s.name);
-    if (!used.has(sprite)) out.push({ id: id++, sprite, collision: "none" });
+    if (!used.has(sprite)) out.push({ id: id++, uuid: randomUuid(), sprite, collision: "none" });
   }
   return out;
 }

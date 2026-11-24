@@ -1,4 +1,4 @@
-// The Lines plugin's manifest (ADR 0382), shared by its runtime and editor halves.
+// The Lines plugin's manifest (ADR 0396), shared by its runtime and editor halves.
 import type { PluginManifest } from "../manifest";
 
 export const linesManifest: PluginManifest = {

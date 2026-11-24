@@ -68,6 +68,20 @@ export const TimeWithWaveform: StoryObj = {
   },
 };
 
+/** A lane's right-click menu opens inside the dialog, so it opens in the dialog's window when that is a detached one (ADR 0174). */
+export const LaneMenuInTheDialog: StoryObj = {
+  render: () => <Demo kind="time" target="riser" length={2.4} lanes={[gain, pitch]} />,
+  play: async ({ canvasElement }) => {
+    const dialog = await within(canvasElement).findByRole("dialog");
+    const row = within(dialog).getByText("Pitch", { selector: ".ce-pnn" }).closest("li")!;
+    row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 120, clientY: 160 }));
+    const menu = await within(dialog).findByRole("menu", { name: "Curve menu" });
+    await expect(dialog.contains(menu)).toBe(true);
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(within(dialog).queryByRole("menu")).toBeNull());
+  },
+};
+
 export const ParameterWithHistogram: StoryObj = {
   render: () => (
     <Demo

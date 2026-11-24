@@ -1,4 +1,4 @@
-import { useState } from "preact/hooks";
+import { useEffect, useRef, useState } from "preact/hooks";
 import { useDraftText } from "./draftText";
 import { Color } from "../../engine";
 import type { UIDocumentElement } from "../../engine/ui/UIDocument";
@@ -95,6 +95,12 @@ export function UIElementInspector() {
 function MoveToClass(props: { el: UIDocumentElement; uiRef: UIElementRef }) {
   const [name, setName] = useState<string | null>(null);
   const count = movableAttributes(props.el).length;
+  // The name box takes the focus once, when it opens (an inline ref callback would run, and steal it back, on every render).
+  const box = useRef<HTMLInputElement>(null);
+  const editing = name !== null;
+  useEffect(() => {
+    if (editing) box.current?.focus();
+  }, [editing]);
   if (name === null) {
     return (
       <div class="ui-move-class">
@@ -119,7 +125,7 @@ function MoveToClass(props: { el: UIDocumentElement; uiRef: UIElementRef }) {
         type="text"
         aria-label="Class name"
         value={name}
-        ref={(input) => input?.focus()}
+        ref={box}
         onInput={(e) => setName((e.currentTarget as HTMLInputElement).value)}
         onKeyDown={(e) => {
           if (e.key === "Enter") go();

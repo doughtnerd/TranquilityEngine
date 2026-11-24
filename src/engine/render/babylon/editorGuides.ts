@@ -268,7 +268,7 @@ export class BabylonEditorGuides implements IconStyle {
         const shape = d.shape;
         if (!shape || shape.kind === "rect" || !this.isOutlined(d.component.node)) continue;
         if (shape.kind === "box" || shape.kind === "polyline") {
-          // A decal's volume is outlined by itself; a line by the box around it (ADR 0381, 0382).
+          // A decal's volume is outlined by itself; a line by the box around it (ADR 0395, 0396).
           if (shape.kind === "box") Matrix.FromArrayToRef(shape.matrix as number[], 0, tmpB);
           else {
             const b = shapeWorldBox(shape);

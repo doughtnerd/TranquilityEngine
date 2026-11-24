@@ -105,6 +105,9 @@ export function cutTakeText(s: string, max: number): Uint8Array {
 
 // --- a cursor over one payload ------------------------------------------------------------------------------------------
 
+/** The largest finite f32. */
+const F32_MAX = 3.4028234663852886e38;
+
 /** Writes a payload at `off` of `view`, little-endian. `bytes` is the count written so far. */
 class Out {
   at: number;
@@ -113,7 +116,8 @@ class Out {
   u8(n: number): void { this.view.setUint8(this.at, n); this.at += 1; }
   u16(n: number): void { this.view.setUint16(this.at, n, true); this.at += 2; }
   u32(n: number): void { this.view.setUint32(this.at, n >>> 0, true); this.at += 4; }
-  f32(x: number): void { this.view.setFloat32(this.at, x, true); this.at += 4; }
+  /** A finite value past the f32 range is written at its edge (rounding it would give an infinity, which the reader refuses). */
+  f32(x: number): void { this.view.setFloat32(this.at, x > F32_MAX ? F32_MAX : x < -F32_MAX ? -F32_MAX : x, true); this.at += 4; }
   f64(x: number): void { this.view.setFloat64(this.at, x, true); this.at += 8; }
   raw(b: Uint8Array): void { new Uint8Array(this.view.buffer, this.view.byteOffset + this.at, b.byteLength).set(b); this.at += b.byteLength; }
   /** `u16 n` then `n` bytes. */

@@ -58,6 +58,7 @@ export class SceneManager {
 
     return new Promise<GameObject>((resolve, reject) => {
       const op = () => {
+        let sceneNode: GameObject | undefined;
         try {
           if (!options.additive) {
             for (const scene of world.sceneNodes) world._destroyNode(scene.entity);
@@ -66,12 +67,14 @@ export class SceneManager {
           // The World's first scene brings the project's autoloads, now that its preparation is done (Engine.createWorld).
           if (world._autoloadsPending) SceneManager.loadAutoloads(world);
           const name = path.slice(path.lastIndexOf("/") + 1).replace(/\.(scene\.)?json$/, "");
-          const sceneNode = world._createNode(name, world.root.entity, { transform: false });
-          world.setSceneNode(sceneNode.entity);
-          world._batch(() => sceneNode.addBehavior(SceneInstance, { source: path }));
-          instantiateFile(world, file, sceneNode, path);
-          resolve(sceneNode);
+          const node = (sceneNode = world._createNode(name, world.root.entity, { transform: false }));
+          world.setSceneNode(node.entity);
+          world._batch(() => node.addBehavior(SceneInstance, { source: path }));
+          instantiateFile(world, file, node, path);
+          resolve(node);
         } catch (err) {
+          // A scene that fails to load leaves nothing of itself behind (its nodes are already taken back).
+          if (sceneNode?.isValid) world._destroyNodeNow(sceneNode.entity);
           reject(err);
         }
       };

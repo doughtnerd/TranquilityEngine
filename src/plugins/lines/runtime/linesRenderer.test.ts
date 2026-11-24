@@ -1,4 +1,4 @@
-// ADR 0382: line and trail drawing is renderer-neutral, so it's tested against fake dynamic-mesh and quad-batch hosts.
+// ADR 0396: line and trail drawing is renderer-neutral, so it's tested against fake dynamic-mesh and quad-batch hosts.
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Color, Engine, GameObject, SceneManager, Vector3 } from "../../../myco";
 import type { DynamicGeometry, DynamicMesh, DynamicMeshHost } from "../../../engine/render/dynamicMeshes";
@@ -64,7 +64,7 @@ async function headless(): Promise<Engine> {
   return engine;
 }
 
-describe("line and trail drawing (ADR 0382)", () => {
+describe("line and trail drawing (ADR 0396)", () => {
   it("draws a 3D line as a camera-facing dynamic mesh with its look, widths and gradient", async () => {
     const engine = await headless();
     const { host, meshes } = fakeHosts();

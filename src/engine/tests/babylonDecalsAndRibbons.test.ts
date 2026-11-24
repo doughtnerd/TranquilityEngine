@@ -1,4 +1,4 @@
-// ADR 0381, 0382: the Babylon halves of the decal volumes, dynamic meshes and quad masks, on NullEngine. What their
+// ADR 0395, 0396: the Babylon halves of the decal volumes, dynamic meshes and quad masks, on NullEngine. What their
 // material plugins put in Babylon's PBR shaders is read in the shader text Babylon itself produces (ADR 0225).
 import { VertexBuffer } from "@babylonjs/core/Buffers/buffer.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
@@ -35,7 +35,7 @@ function sceneOf(language: "wgsl" | "glsl" = "glsl"): Scene {
 
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 
-describe("decal volumes on Babylon (ADR 0381)", () => {
+describe("decal volumes on Babylon (ADR 0395)", () => {
   it("draws a batch as thin instances of a box: back faces, no depth test or write, below every 2D layer", () => {
     const scene = sceneOf();
     const decals = new BabylonDecals({ scene, materials: new BabylonMaterialLibrary(scene), warnOnce: () => {} });
@@ -125,7 +125,7 @@ describe("decal volumes on Babylon (ADR 0381)", () => {
   });
 });
 
-describe("dynamic meshes on Babylon (ADR 0382)", () => {
+describe("dynamic meshes on Babylon (ADR 0396)", () => {
   const geometry = (n: number, ribbon: boolean) => ({
     positions: new Float32Array(n * 3).map((_, i) => i),
     uvs: new Float32Array(n * 2),
@@ -189,7 +189,7 @@ describe("dynamic meshes on Babylon (ADR 0382)", () => {
   }
 });
 
-describe("quad colours and masks (ADR 0381, 0382)", () => {
+describe("quad colours and masks (ADR 0395, 0396)", () => {
   it("gives a batch per-vertex colours (sRGB to linear) and a mask with its own material", () => {
     const scene = sceneOf();
     const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false, isReady: () => true } as unknown as Texture;

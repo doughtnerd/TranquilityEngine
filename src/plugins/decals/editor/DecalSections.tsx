@@ -1,4 +1,4 @@
-// Under a DecalProjector's fields in the Inspector (ADR 0381): `texture` greyed while a material is set (the material's
+// Under a DecalProjector's fields in the Inspector (ADR 0395): `texture` greyed while a material is set (the material's
 // own textures draw then), with a note; and a note when the box is flat on an axis (it projects nowhere).
 import { useLayoutEffect, useRef } from "preact/hooks";
 import { sectionField, type InspectorSectionProps } from "../../../editor/sdk";

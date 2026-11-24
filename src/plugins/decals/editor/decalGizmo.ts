@@ -1,4 +1,4 @@
-// The decal projector gizmo (ADR 0381), the Decals plugin's viewport tool `myco.decals.bounds`: every `DecalProjector`
+// The decal projector gizmo (ADR 0395), the Decals plugin's viewport tool `myco.decals.bounds`: every `DecalProjector`
 // in the edited scene is drawn as its box, with an arrow along its projection (+Z) and a cross at the node, selected
 // ones bright and the others dim. With "Edit Bounds" on (the Inspector card's header toggle, ADR 0266), the box gets face
 // handles: dragging one resizes the box with the opposite face fixed (Alt: about the centre), writing `size` and

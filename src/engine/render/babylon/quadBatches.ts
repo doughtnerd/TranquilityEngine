@@ -91,7 +91,7 @@ export class BabylonQuadBatches implements QuadBatchHost {
   }
 
   /**
-   * @internal An unshared material for a masked batch (ADR 0381): `texture` tinted, with the mask plugin; the caller
+   * @internal An unshared material for a masked batch (ADR 0395): `texture` tinted, with the mask plugin; the caller
    * disposes it. The mask's texture is applied once it has loaded (nothing draws until then).
    */
   maskedMaterial(name: string, texture: string, color: string, opacity: number, mask: QuadMask): { material: PBRMaterial; plugin: QuadMaskPlugin } {
@@ -165,7 +165,7 @@ class BabylonQuadBatch implements QuadBatch {
   setTriangles(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array): void {
     if (this.mesh && this.updatable && texture === this.texture && indices === this.indices && positions.length === this.vertexFloats) {
       this.mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
-      this.mesh.updateVerticesData(VertexBuffer.UVKind, uvs); // a 2D ribbon's texture moves along it (ADR 0382)
+      this.mesh.updateVerticesData(VertexBuffer.UVKind, uvs); // a 2D ribbon's texture moves along it (ADR 0396)
       return;
     }
     this.build(texture, positions, uvs, indices, true);

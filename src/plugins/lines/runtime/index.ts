@@ -1,4 +1,4 @@
-// The Lines plugin's runtime half (ADR 0382): `LineRenderer` and `TrailRenderer`, the trail sampling system and the
+// The Lines plugin's runtime half (ADR 0396): `LineRenderer` and `TrailRenderer`, the trail sampling system and the
 // lazy `lines` render feature. The ribbons are built here, renderer-neutral (`ribbon.ts`), and drawn through the
 // renderer core's dynamic meshes and quad batches, so no line code is in the backend. `myco` (`src/myco.ts`) exports
 // this module's public parts.

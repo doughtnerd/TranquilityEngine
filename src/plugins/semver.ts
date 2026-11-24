@@ -17,7 +17,34 @@ export function compareVersions(a: Version, b: Version): number {
   if (a[3] === b[3]) return 0;
   if (!a[3]) return 1;
   if (!b[3]) return -1;
-  return a[3] < b[3] ? -1 : 1;
+  return comparePrerelease(a[3], b[3]);
+}
+
+/** Pre-release precedence per semver.org (item 11): dot-separated identifiers left to right, numeric ones compared as
+ * numbers and below alphanumeric ones, alphanumeric ones in ASCII order, and a longer list after its own prefix. */
+function comparePrerelease(a: string, b: string): number {
+  const x = a.split(".");
+  const y = b.split(".");
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const p = x[i]!;
+    const q = y[i]!;
+    if (p === q) continue;
+    const pn = /^\d+$/.test(p);
+    const qn = /^\d+$/.test(q);
+    if (pn && qn) return compareDigits(p, q);
+    if (pn) return -1;
+    if (qn) return 1;
+    return p < q ? -1 : 1;
+  }
+  return x.length - y.length;
+}
+
+/** Two digit strings by numeric value, without overflowing for long ones. */
+function compareDigits(p: string, q: string): number {
+  const a = p.replace(/^0+(?=\d)/, "");
+  const b = q.replace(/^0+(?=\d)/, "");
+  if (a.length !== b.length) return a.length - b.length;
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 type Op = ">=" | ">" | "<=" | "<" | "=";

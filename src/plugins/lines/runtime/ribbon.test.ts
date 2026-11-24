@@ -1,11 +1,11 @@
-// ADR 0382: ribbon geometry is pure, so it's tested on plain arrays.
+// ADR 0396: ribbon geometry is pure, so it's tested on plain arrays.
 import { describe, expect, it } from "vitest";
 import { buildRibbon } from "./ribbon";
 
 const pts = (...p: number[][]) => p.flat();
 const widths = (n: number, hw = 0.5) => new Float32Array(n).fill(hw);
 
-describe("ribbon geometry (ADR 0382)", () => {
+describe("ribbon geometry (ADR 0396)", () => {
   it("builds a ring of two vertices per point and two triangles between rings", () => {
     const r = buildRibbon({ points: pts([0, 0, 0], [1, 0, 0], [2, 0, 0]), halfWidths: widths(3), colors: null })!;
     expect(r.vertexCount).toBe(6);
