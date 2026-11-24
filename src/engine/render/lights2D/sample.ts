@@ -11,12 +11,12 @@ import type { World } from "../../core/World";
 import type { Point2 } from "../../physics/polygon";
 import { Assets } from "../../scene/Assets";
 import { splitSpriteRef } from "../../scene/importSettings";
-import { Light2D, ShadowCaster2D } from "../components";
+import { CompositeShadowCaster2D, Light2D, ShadowCaster2D } from "../components";
 import { spriteFrame } from "../spriteFrame";
-import { casterOutline, type TextureSizeOf } from "./casterOutlines";
+import { casterGroups, casterOutline, type TextureSizeOf } from "./casterOutlines";
 import { freeformAttenuation, pointAttenuation } from "./lightShapes";
-import { blendStyleIndex } from "./settings";
-import { outlineSegments, shadowFactor, type WorldCaster } from "./shadowGeometry";
+import { blendStyleIndex, masksOverlap } from "./settings";
+import { outlineSegments, shadowFactor, unionSegments, type WorldCaster } from "./shadowGeometry";
 
 /** sRGB 0..1 to linear. */
 export const srgbToLinear = (c: number): number => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
@@ -60,7 +60,7 @@ export function sampleLights2D(world: World, x: number, y: number, sortingLayer:
       else k = insideSpriteLight(world, light, local[0], local[1], textureSize) ? 1 : 0;
       if (k > 0 && light.shadows && light.shadowStrength > 0) {
         casters ??= worldCasters(world, sortingLayer, textureSize);
-        const lit = shadowFactor(t[4], t[5], x, y, casters);
+        const lit = shadowFactor(t[4], t[5], x, y, casters.filter((c) => masksOverlap(light.shadowMask, c.mask ?? [])));
         k *= 1 - Math.min(Math.max(light.shadowStrength, 0), 1) * (1 - lit);
       }
     }
@@ -82,17 +82,34 @@ function insideSpriteLight(world: World, light: Light2D, x: number, y: number, t
   return x >= -px * w && x <= (1 - px) * w && y >= -py * h && y <= (1 - py) * h;
 }
 
-/** Every enabled caster that shadows `sortingLayer`, in world XY. */
+/** Every enabled caster (or composite, ADR 0409) that shadows `sortingLayer`, in world XY. */
 function worldCasters(world: World, sortingLayer: string, textureSize: TextureSizeOf): WorldCaster[] {
   const out: WorldCaster[] = [];
-  for (const c of world._componentsOfType(ShadowCaster2D)) {
-    if (!c.isActiveAndEnabled || !c.castShadows || !targetsLayer(c.targetSortingLayers, sortingLayer)) continue;
-    const o = casterOutline(world, c, textureSize);
-    if (!o.loops.length && !o.chains.length) continue;
-    const t = affineOf(world.worldMatrix(c.node.entity), c.node.entity * 16);
-    const loops = o.loops.map((l) => l.map((p) => applyAffine(t, p)));
-    const chains = o.chains.map((l) => l.map((p) => applyAffine(t, p)));
-    out.push({ segments: outlineSegments(loops, chains), loops, selfShadows: c.selfShadows });
+  const casters = world._componentsOfType(ShadowCaster2D).filter((c) => c.isActiveAndEnabled);
+  for (const g of casterGroups(world, casters, (c) => c instanceof CompositeShadowCaster2D)) {
+    const s = g.settings;
+    if (!s.castShadows || !targetsLayer(s.targetSortingLayers, sortingLayer)) continue;
+    const loops: Point2[][] = [], chains: Point2[][] = [], owner: number[] = [];
+    g.members.forEach((c, mi) => {
+      if (!g.composite && !c.castShadows) return;
+      const o = casterOutline(world, c, textureSize);
+      const t = affineOf(world.worldMatrix(c.node.entity), c.node.entity * 16);
+      for (const l of o.loops) {
+        loops.push(l.map((p) => applyAffine(t, p)));
+        owner.push(mi);
+      }
+      for (const l of o.chains) chains.push(l.map((p) => applyAffine(t, p)));
+    });
+    if (!loops.length && !chains.length) continue;
+    const segs = g.composite ? concat(unionSegments(loops, owner), outlineSegments([], chains)) : outlineSegments(loops, chains);
+    out.push({ segments: segs, loops, selfShadows: s.selfShadows, mask: s.shadowMask });
   }
+  return out;
+}
+
+function concat(a: Float32Array, b: Float32Array): Float32Array {
+  const out = new Float32Array(a.length + b.length);
+  out.set(a);
+  out.set(b, a.length);
   return out;
 }

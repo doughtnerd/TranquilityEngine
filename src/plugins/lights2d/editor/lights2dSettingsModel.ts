@@ -3,7 +3,7 @@
 // runtime section's (`RUNTIME_SETTINGS.lighting2D`, ADR 0272), so the panel and the Engine's start-up warnings agree.
 import { RUNTIME_SETTINGS } from "../../../engine/core/settings";
 import { uniqueName } from "../../../engine/core/uniqueName";
-import { MAX_BLEND_STYLES, type BlendStyleMask, type LightBlendStyle } from "../../../engine/render/lights2D/settings";
+import { MAX_BLEND_STYLES, MAX_SHADOW_LAYERS, type BlendStyleMask, type LightBlendStyle } from "../../../engine/render/lights2D/settings";
 import { settingsSection, type NamedList, type NameReferencesContribution, type SettingsDraft } from "../../../editor/sdk";
 
 const LIGHTING_2D = RUNTIME_SETTINGS.lighting2D;
@@ -72,5 +72,42 @@ export const blendStyleNames: NamedList = {
 export const lights2DSortingLayers: NameReferencesContribution = {
   id: "lights2d.sortingLayers",
   list: "render.sortingLayers",
-  fields: [{ component: ["engine.Light2D", "engine.ShadowCaster2D"], field: "targetSortingLayers.*" }],
+  fields: [{ component: ["engine.Light2D", "engine.ShadowCaster2D", "engine.CompositeShadowCaster2D"], field: "targetSortingLayers.*" }],
+};
+
+/** The shadow layers now (ADR 0409; `["Default"]` when unset). */
+export const shadowLayersOf = (d: SettingsDraft): string[] => lighting2DSettings.read(d).shadowLayers;
+const withLayers = (d: SettingsDraft, layers: string[]): SettingsDraft => lighting2DSettings.set(d, "shadowLayers", layers);
+
+export function addShadowLayer(d: SettingsDraft): SettingsDraft {
+  const layers = shadowLayersOf(d);
+  return layers.length >= MAX_SHADOW_LAYERS ? d : withLayers(d, [...layers, uniqueName("Layer", layers)]);
+}
+
+/** Rename a shadow layer. (Masks naming it are renamed by the shell's settings names module, from `shadowLayerNames`.) */
+export function renameShadowLayer(d: SettingsDraft, index: number, name: string): SettingsDraft {
+  const layers = shadowLayersOf(d);
+  if (!layers[index] || !name.trim() || layers.some((l, i) => i !== index && l === name)) return d;
+  return withLayers(d, layers.map((l, i) => (i === index ? name : l)));
+}
+
+export function removeShadowLayer(d: SettingsDraft, index: number): SettingsDraft {
+  const layers = shadowLayersOf(d);
+  return layers.length <= 1 || !layers[index] ? d : withLayers(d, layers.filter((_, i) => i !== index));
+}
+
+export function moveShadowLayer(d: SettingsDraft, index: number, by: number): SettingsDraft {
+  const layers = [...shadowLayersOf(d)];
+  const to = index + by;
+  if (!layers[index] || to < 0 || to >= layers.length) return d;
+  [layers[index], layers[to]] = [layers[to]!, layers[index]!];
+  return withLayers(d, layers);
+}
+
+/** The shadow layers as a named list (ADR 0262, 0409): renaming one renames it in every light's and caster's `shadowMask`. */
+export const shadowLayerNames: NamedList = {
+  id: "lighting2D.shadowLayers",
+  noun: "shadow layer",
+  names: shadowLayersOf,
+  fields: [{ component: ["engine.Light2D", "engine.ShadowCaster2D", "engine.CompositeShadowCaster2D"], field: "shadowMask.*" }],
 };

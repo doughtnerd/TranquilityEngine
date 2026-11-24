@@ -14,6 +14,7 @@ import { findSlice, splitSpriteRef, type ImportSettings } from "../../scene/impo
 import type { ShadowCaster2D } from "../components";
 import { SpriteRenderer } from "../components";
 import { spriteFrame } from "../spriteFrame";
+import { claimedOutline } from "./outlineClaims";
 
 /** A caster's outline in its node's local XY: closed `loops` and open `chains`. */
 export interface CasterOutline {
@@ -91,6 +92,9 @@ function colliderOutline(world: World, caster: ShadowCaster2D): CasterOutline | 
 function spriteOutline(world: World, caster: ShadowCaster2D, textureSize: TextureSizeOf): CasterOutline | null {
   const r = world._componentsOf(caster.node.entity).find((c): c is SpriteRenderer => c instanceof SpriteRenderer);
   if (!r) return null;
+  // A deforming sprite's outline as its feature knows it now (ADR 0409: a skinned sprite's, from its bones).
+  const deformed = claimedOutline(r);
+  if (deformed && deformed.length) return { loops: deformed, chains: [], signature: `deformed:${JSON.stringify(deformed)}`, from: "sprite" };
   const { path, slice } = splitSpriteRef(r.sprite);
   const settings: ImportSettings | null = path ? Assets.importSettings(path) : null;
   const size = path ? textureSize(path) : null;
@@ -143,5 +147,37 @@ function capsule(cx: number, cy: number, r: number, height: number): Point2[] {
     const a = Math.PI + (i / n) * Math.PI;
     out.push([cx + Math.cos(a) * r, cy - half + Math.sin(a) * r]);
   }
+  return out;
+}
+
+/** A group of casters that cast as one (ADR 0409): one caster, or a CompositeShadowCaster2D's casters below it. */
+export interface CasterGroup {
+  /** Where the group's settings come from: the caster, or the composite. */
+  readonly settings: { readonly castShadows: boolean; readonly selfShadows: boolean; readonly targetSortingLayers: readonly string[]; readonly shadowMask: readonly string[] };
+  readonly members: readonly ShadowCaster2D[];
+  /** The composite's Component, or null for a lone caster. */
+  readonly composite: Component | null;
+}
+
+/**
+ * The World's enabled ShadowCaster2Ds grouped by their nearest enabled CompositeShadowCaster2D ancestor (on the node
+ * itself or above it): a composite's members cast as one outline with its settings, edges inside another member dropped.
+ */
+export function casterGroups(world: World, casters: readonly ShadowCaster2D[], isComposite: (c: Component) => boolean): CasterGroup[] {
+  const byComposite = new Map<Component, ShadowCaster2D[]>();
+  const out: CasterGroup[] = [];
+  for (const c of casters) {
+    let composite: Component | null = null;
+    for (let n: typeof c.node | null = c.node; n && !composite; n = n.parent) {
+      composite = world._componentsOf(n.entity).find((x) => isComposite(x) && x.isActiveAndEnabled) ?? null;
+    }
+    if (!composite) out.push({ settings: c, members: [c], composite: null });
+    else {
+      const list = byComposite.get(composite);
+      if (list) list.push(c);
+      else byComposite.set(composite, [c]);
+    }
+  }
+  for (const [composite, members] of byComposite) out.push({ settings: composite as unknown as CasterGroup["settings"], members, composite });
   return out;
 }

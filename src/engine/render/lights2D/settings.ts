@@ -5,6 +5,7 @@
  *
  * ```jsonc
  * "lighting2D": {
+ *   "shadowLayers": ["Default", "Walls"],   // ADR 0409: named shadow masks (Godot's light and occluder masks)
  *   "blendStyles": [
  *     { "name": "Multiply", "mask": "none", "multiply": 1, "add": 0 },
  *     { "name": "Rim",      "mask": "r",    "multiply": 0, "add": 1 }
@@ -33,14 +34,22 @@ export interface LightBlendStyle {
 export interface Lighting2DSettings {
   /** 1 to `MAX_BLEND_STYLES` styles; lights name one, the first when they name none that exists. */
   blendStyles: LightBlendStyle[];
+  /**
+   * Shadow layers (ADR 0409): names lights' and casters' `shadowMask` take. A caster shadows a light when their masks
+   * share a layer, or either mask is empty (every layer). At least one; default `["Default"]`.
+   */
+  shadowLayers: string[];
 }
+
+/** At most this many shadow layers. */
+export const MAX_SHADOW_LAYERS = 16;
 
 /** At most this many blend styles (each is a light texture per layer batch). */
 export const MAX_BLEND_STYLES = 4;
 
 export const DEFAULT_BLEND_STYLE: Readonly<LightBlendStyle> = Object.freeze({ name: "Multiply", mask: "none", multiply: 1, add: 0 });
 
-export const defaultLighting2D = (): Lighting2DSettings => ({ blendStyles: [{ ...DEFAULT_BLEND_STYLE }] });
+export const defaultLighting2D = (): Lighting2DSettings => ({ blendStyles: [{ ...DEFAULT_BLEND_STYLE }], shadowLayers: ["Default"] });
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const weight = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 4;
@@ -53,7 +62,19 @@ export function parseLighting2D(raw: unknown, where = "lighting2D"): { settings:
   const problems: string[] = [];
   if (raw === undefined) return { settings: defaultLighting2D(), problems };
   if (!isRecord(raw)) return { settings: defaultLighting2D(), problems: [`${where} must be an object with "blendStyles"; using the default.`] };
-  for (const key of Object.keys(raw)) if (key !== "blendStyles") problems.push(`${where}: unknown setting "${key}".`);
+  for (const key of Object.keys(raw)) if (key !== "blendStyles" && key !== "shadowLayers") problems.push(`${where}: unknown setting "${key}".`);
+  const shadowLayers: string[] = [];
+  if (raw.shadowLayers !== undefined) {
+    if (!Array.isArray(raw.shadowLayers)) problems.push(`${where}.shadowLayers must be a list of names; using ["Default"].`);
+    else
+      raw.shadowLayers.forEach((n: unknown, i) => {
+        if (typeof n !== "string" || !n.trim()) problems.push(`${where}.shadowLayers[${i}] needs a name; skipped.`);
+        else if (shadowLayers.includes(n)) problems.push(`${where}.shadowLayers: "${n}" is listed twice; skipped.`);
+        else if (shadowLayers.length >= MAX_SHADOW_LAYERS) problems.push(`${where}.shadowLayers: at most ${MAX_SHADOW_LAYERS}; "${n}" is skipped.`);
+        else shadowLayers.push(n);
+      });
+  }
+  if (shadowLayers.length === 0) shadowLayers.push("Default");
   const styles: LightBlendStyle[] = [];
   const list = raw.blendStyles;
   if (Array.isArray(list)) {
@@ -80,11 +101,16 @@ export function parseLighting2D(raw: unknown, where = "lighting2D"): { settings:
     if (Array.isArray(list)) problems.push(`${where}.blendStyles has no usable blend style; using the default.`);
     styles.push({ ...DEFAULT_BLEND_STYLE });
   }
-  return { settings: { blendStyles: styles }, problems };
+  return { settings: { blendStyles: styles, shadowLayers }, problems };
 }
 
 /** The index of the blend style named `name`, or 0 (the first) when none is. */
 export function blendStyleIndex(settings: Lighting2DSettings, name: string): number {
   const i = settings.blendStyles.findIndex((s) => s.name === name);
   return i < 0 ? 0 : i;
+}
+
+/** Whether a caster with `casterMask` shadows a light with `lightMask` (ADR 0409): either is empty, or they share a layer. */
+export function masksOverlap(lightMask: readonly string[], casterMask: readonly string[]): boolean {
+  return lightMask.length === 0 || casterMask.length === 0 || casterMask.some((l) => lightMask.includes(l));
 }

@@ -31,12 +31,12 @@ import type { Lights2DLimits } from "../../core/graphics";
 import type { Point2 } from "../../physics/polygon";
 import { Assets } from "../../scene/Assets";
 import { splitSpriteRef } from "../../scene/importSettings";
-import { Light2D, ShadowCaster2D } from "../components";
-import { casterOutline, type CasterOutline } from "../lights2D/casterOutlines";
+import { CompositeShadowCaster2D, Light2D, ShadowCaster2D } from "../components";
+import { casterGroups, casterOutline, type CasterOutline } from "../lights2D/casterOutlines";
 import { layerBatches, type LayerBatch } from "../lights2D/layerBatches";
-import { falloffExponent, freeformBounds, freeformMesh, type LightMesh } from "../lights2D/lightShapes";
+import { falloffExponent, freeformBounds, freeformMesh, insidePolygon, type LightMesh } from "../lights2D/lightShapes";
 import { affineOf, srgbToLinear, targetsLayer } from "../lights2D/sample";
-import { blendStyleIndex, type LightBlendStyle } from "../lights2D/settings";
+import { blendStyleIndex, masksOverlap, type LightBlendStyle } from "../lights2D/settings";
 import type { Light2DLayout } from "../passPlan";
 import { spriteFrame } from "../spriteFrame";
 import { LIGHT2D_ATTRIBUTES, LIGHT2D_PASS, LIGHT2D_PASS_DIR, LIGHT2D_SAMPLERS, LIGHT2D_SIZES, LIGHT2D_UNIFORMS, SHADOW2D_ATTRIBUTES, SHADOW2D_PASS, SHADOW2D_SIZES, SHADOW2D_UNIFORMS } from "./lights2DShaders";
@@ -133,10 +133,14 @@ interface TextureDraw {
 interface CasterNow {
   loops: Point2[][];
   chains: Point2[][];
+  /** For a composite (ADR 0409): each loop's member, so edges inside another member's loop don't cast. Null for one caster. */
+  owner: number[] | null;
   box: [number, number, number, number];
   z: number;
   targets: readonly string[];
   selfShadows: boolean;
+  /** Its shadow layers (ADR 0409). */
+  mask: readonly string[];
 }
 
 /** One light this frame, with what shadows need. */
@@ -408,26 +412,35 @@ export class BabylonLights2D {
   private castersNow(world: World): CasterNow[] {
     const out: CasterNow[] = [];
     const textureSize = (path: string) => this.deps.textureSize(path);
-    for (const c of world._componentsOfType(ShadowCaster2D)) {
-      if (!c.isActiveAndEnabled || !c.castShadows) continue;
-      const outline = casterOutline(world, c, textureSize);
-      this.casterCache.set(c, outline);
-      if (!outline.loops.length && !outline.chains.length) continue;
-      const e = c.node.entity;
-      const m = world.worldMatrix(e);
-      const t = affineOf(m, e * 16);
-      const det = t[0] * t[3] - t[1] * t[2];
-      const place = (p: Point2): Point2 => [t[0] * p[0] + t[2] * p[1] + t[4], t[1] * p[0] + t[3] * p[1] + t[5]];
-      // Loops with the solid on their left: a shape source's already are (holes clockwise); the rest are made counter-clockwise.
-      const loops = outline.loops.map((loop) => {
-        const w = loop.map(place);
-        if (outline.from === "source") return det < 0 ? w.reverse() : w;
-        return area(w) < 0 ? w.reverse() : w;
+    const casters = world._componentsOfType(ShadowCaster2D).filter((c) => c.isActiveAndEnabled);
+    // A CompositeShadowCaster2D's casters cast as one, with its settings (ADR 0409).
+    for (const g of casterGroups(world, casters, (c) => c instanceof CompositeShadowCaster2D)) {
+      if (!g.settings.castShadows) continue;
+      const loops: Point2[][] = [], chains: Point2[][] = [], owner: number[] = [];
+      let z = 0;
+      g.members.forEach((c, mi) => {
+        if (!g.composite && !c.castShadows) return;
+        const outline = casterOutline(world, c, textureSize);
+        this.casterCache.set(c, outline);
+        const e = c.node.entity;
+        const m = world.worldMatrix(e);
+        const t = affineOf(m, e * 16);
+        z = m[e * 16 + 14]!;
+        const det = t[0] * t[3] - t[1] * t[2];
+        const place = (p: Point2): Point2 => [t[0] * p[0] + t[2] * p[1] + t[4], t[1] * p[0] + t[3] * p[1] + t[5]];
+        // Loops with the solid on their left: a shape source's already are (holes clockwise); the rest are made counter-clockwise.
+        for (const loop of outline.loops) {
+          const w = loop.map(place);
+          loops.push(outline.from === "source" ? (det < 0 ? w.reverse() : w) : area(w) < 0 ? w.reverse() : w);
+          owner.push(mi);
+        }
+        for (const ch of outline.chains) chains.push(ch.map(place));
       });
-      const chains = outline.chains.map((ch) => ch.map(place));
+      if (!loops.length && !chains.length) continue;
       let box: [number, number, number, number] = [Infinity, Infinity, -Infinity, -Infinity];
       for (const list of [...loops, ...chains]) for (const [x, y] of list) box = [Math.min(box[0], x), Math.min(box[1], y), Math.max(box[2], x), Math.max(box[3], y)];
-      out.push({ loops, chains, box, z: m[e * 16 + 14]!, targets: c.targetSortingLayers, selfShadows: c.selfShadows });
+      const s = g.settings;
+      out.push({ loops, chains, owner: g.composite ? owner : null, box, z, targets: s.targetSortingLayers, selfShadows: s.selfShadows, mask: s.shadowMask });
     }
     return out;
   }
@@ -449,6 +462,7 @@ export class BabylonLights2D {
       for (const caster of casters) {
         if (!overlaps(caster.box, n.box)) continue;
         if (lightTargets.length && caster.targets.length && !caster.targets.some((t) => targetsLayer(lightTargets, t))) continue;
+        if (!masksOverlap(n.light.shadowMask, caster.mask)) continue; // ADR 0409: light masks
         const edge = (a: Point2, b: Point2) => {
           const base = s.cpu.vertex(a, [0, caster.z], lightAttr, channel);
           s.cpu.vertex(b, [0, caster.z], lightAttr, channel);
@@ -456,9 +470,13 @@ export class BabylonLights2D {
           s.cpu.vertex(a, [1, caster.z], lightAttr, channel);
           s.cpu.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
         };
-        for (const loop of caster.loops) {
+        caster.loops.forEach((loop, li) => {
           for (let i = 0; i < loop.length; i++) {
             const a = loop[i]!, b = loop[(i + 1) % loop.length]!;
+            if (caster.owner) {
+              const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+              if (caster.loops.some((other, oi) => caster.owner![oi] !== caster.owner![li] && insidePolygon(other, mx, my))) continue;
+            }
             if (!caster.selfShadows) {
               // Only edges facing away from the light (their outward normal, right of a→b, points away): the shadow starts
               // at the caster's far side, so its own face stays lit (ADR 0407 self shadows off).
@@ -467,7 +485,7 @@ export class BabylonLights2D {
             }
             edge(a, b);
           }
-        }
+        });
         for (const chain of caster.chains) for (let i = 1; i < chain.length; i++) edge(chain[i - 1]!, chain[i]!);
       }
     }

@@ -74,6 +74,8 @@ export interface WorldCaster {
   segments: Float32Array;
   loops: readonly (readonly Point2[])[];
   selfShadows: boolean;
+  /** Its shadow layers (ADR 0409; empty: every light). */
+  mask?: readonly string[];
 }
 
 /** 1 when nothing blocks the light at (lx, ly) from reaching (px, py), else 0 (hard shadows; the CPU sample ignores softness). */
@@ -99,4 +101,23 @@ function area(p: readonly Point2[]): number {
   let a = 0;
   for (let i = 0, j = p.length - 1; i < p.length; j = i++) a += p[j]![0] * p[i]![1] - p[i]![0] * p[j]![1];
   return a;
+}
+
+/**
+ * Edges of a composite's loops (ADR 0409) as segments, without the edges inside another member's loop (`owner[i]` is
+ * loop i's member): the merged outline casts, so shadows don't start inside the composite. An edge counts as inside when
+ * its midpoint is (an edge crossing another member's outline is kept whole).
+ */
+export function unionSegments(loops: readonly (readonly Point2[])[], owner: readonly number[]): Float32Array {
+  const out: number[] = [];
+  loops.forEach((loop, li) => {
+    for (let i = 0; i < loop.length; i++) {
+      const a = loop[i]!, b = loop[(i + 1) % loop.length]!;
+      if (a[0] === b[0] && a[1] === b[1]) continue;
+      const mx = (a[0] + b[0]) / 2, my = (a[1] + b[1]) / 2;
+      if (loops.some((other, oi) => owner[oi] !== owner[li] && insidePolygon(other, mx, my))) continue;
+      out.push(a[0], a[1], b[0], b[1]);
+    }
+  });
+  return Float32Array.from(out);
 }

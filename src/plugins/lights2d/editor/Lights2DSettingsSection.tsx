@@ -2,13 +2,34 @@
 // that scales the style's light, and how much the light multiplies and adds to a lit sprite's colour. Edits go through
 // the panel's undo history.
 import { MAX_BLEND_STYLES, BLEND_STYLE_MASKS, type BlendStyleMask } from "../../../engine/render/lights2D/settings";
-import { type ProjectSettingsSectionProps, ProblemList, NumberField, TextField } from "../../../editor/sdk";
-import { addBlendStyle, blendStylesOf, moveBlendStyle, removeBlendStyle, renameBlendStyle, setBlendStyle } from "./lights2dSettingsModel";
+import { type ProjectSettingsSectionProps, NameList, ProblemList, NumberField, TextField } from "../../../editor/sdk";
+import { addBlendStyle, addShadowLayer, blendStylesOf, moveBlendStyle, moveShadowLayer, removeBlendStyle, removeShadowLayer, renameBlendStyle, renameShadowLayer, setBlendStyle, shadowLayersOf } from "./lights2dSettingsModel";
 import "./lights2d.css";
 
 const MASK_LABELS: Record<BlendStyleMask, string> = { none: "No mask", r: "Mask R", g: "Mask G", b: "Mask B", a: "Mask A" };
 
-export function Lights2DSettingsSection({ draft, set, fieldProblems }: ProjectSettingsSectionProps) {
+export function Lights2DSettingsSection(props: ProjectSettingsSectionProps) {
+  const { draft, set, fieldProblems } = props;
+  return (
+    <>
+      <BlendStyles {...props} />
+      <NameList
+        title="Shadow layers"
+        hint="a caster shadows a light when their shadow masks share one (empty mask: all)"
+        names={shadowLayersOf(draft)}
+        field="lighting2D.shadowLayers"
+        problems={fieldProblems}
+        item="shadow layer"
+        onAdd={() => set("Add shadow layer", addShadowLayer(draft))}
+        onRename={(i, v) => set(`Rename shadow layer to ${v}`, renameShadowLayer(draft, i, v))}
+        onRemove={(i) => set("Remove shadow layer", removeShadowLayer(draft, i))}
+        onMove={(i, by) => set("Reorder shadow layers", moveShadowLayer(draft, i, by))}
+      />
+    </>
+  );
+}
+
+function BlendStyles({ draft, set, fieldProblems }: ProjectSettingsSectionProps) {
   const styles = blendStylesOf(draft);
   return (
     <div class="lights2d-styles" role="group" aria-label="Light blend styles">

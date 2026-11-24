@@ -6,7 +6,7 @@
 import type { EditorPlugin } from "../../../editor/sdk";
 import { lights2dManifest } from "../manifest";
 import { lights2dTool } from "./lights2dTool";
-import { blendStyleNames, lighting2DSettings, lights2DSortingLayers } from "./lights2dSettingsModel";
+import { blendStyleNames, lighting2DSettings, lights2DSortingLayers, shadowLayerNames } from "./lights2dSettingsModel";
 
 /** The Create menu's 2D lights: a light of each type, as Unity's Light 2D menu has them. */
 const LIGHTS: { id: string; label: string; data: Record<string, unknown> }[] = [
@@ -28,7 +28,7 @@ export const lights2dEditorPlugin: EditorPlugin = {
       after: "Rendering",
       keys: [lighting2DSettings.key],
       problems: lighting2DSettings.problems,
-      names: [blendStyleNames],
+      names: [blendStyleNames, shadowLayerNames],
       view: () => import("./Lights2DSettingsSection").then((m) => m.Lights2DSettingsSection),
     });
     context.registerNameReferences(lights2DSortingLayers);

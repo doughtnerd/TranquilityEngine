@@ -78,6 +78,7 @@ export class Light2D extends Component {
   @field(Boolean) shadows = false;
   /** How dark its shadows are, 0 (none) to 1 (no light). */
   @field(Number) shadowStrength = 1;
+  @field([String], { choices: (s) => s.lighting2D.shadowLayers, description: "The shadow layers whose casters shadow it (ADR 0409). Empty: every caster." }) shadowMask: string[] = [];
   /** How soft its shadows' edges are, 0 (hard) to 1, on qualities with soft shadows (ADR 0400). */
   @field(Number) shadowSoftness = 0.3;
 
@@ -111,11 +112,26 @@ export class ShadowCaster2D extends Component {
   @field(Boolean) castShadows = true;
   /** Shadow its own interior too. Off: what lies behind it is dark and its own face stays lit. */
   @field(Boolean) selfShadows = false;
+  @field([String], { choices: (s) => s.lighting2D.shadowLayers, description: "The shadow layers it's on (ADR 0409): it shadows lights whose mask shares one. Empty: every light." }) shadowMask: string[] = [];
   @field([String], { choices: (s) => s.render.sortingLayers, description: "The sorting layers whose lighting it shadows. Empty: every sorting layer." }) targetSortingLayers: string[] = [];
 
   override _onDetach(): void {
     this._world.render?.release(this);
   }
+}
+
+/**
+ * Merges the ShadowCaster2Ds on its node and below it into one caster (ADR 0409, Unity's Composite Shadow Caster 2D):
+ * their outlines cast together with these settings (their own are ignored), and edges inside another member's outline
+ * don't cast, so a wall built of many pieces shadows as one.
+ */
+@component("engine.CompositeShadowCaster2D")
+export class CompositeShadowCaster2D extends Component {
+  @field(Boolean) castShadows = true;
+  /** Shadow the members' interiors too. Off: what lies behind is dark and their faces stay lit. */
+  @field(Boolean) selfShadows = false;
+  @field([String], { choices: (s) => s.render.sortingLayers, description: "The sorting layers whose lighting it shadows. Empty: every sorting layer." }) targetSortingLayers: string[] = [];
+  @field([String], { choices: (s) => s.lighting2D.shadowLayers, description: "The shadow layers it's on (ADR 0409). Empty: every light." }) shadowMask: string[] = [];
 }
 
 export type Projection = "orthographic" | "perspective";

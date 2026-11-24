@@ -24,6 +24,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   Light: "Rendering",
   Light2D: "Rendering",
   ShadowCaster2D: "Rendering",
+  CompositeShadowCaster2D: "Rendering",
   Environment: "Rendering",
   Fog: "Rendering",
   Sky: "Rendering",
