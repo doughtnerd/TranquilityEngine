@@ -45,6 +45,26 @@ mod imp {
         pub fn from_u32_array(q: [u32; 4]) -> Self {
             Self(f32x4_convert_u32x4(u32x4(q[0], q[1], q[2], q[3])))
         }
+        /// Lane `i & 3`.
+        #[inline(always)]
+        pub fn get_lane(self, i: usize) -> f32 {
+            match i & 3 {
+                0 => f32x4_extract_lane::<0>(self.0),
+                1 => f32x4_extract_lane::<1>(self.0),
+                2 => f32x4_extract_lane::<2>(self.0),
+                _ => f32x4_extract_lane::<3>(self.0),
+            }
+        }
+        /// These lanes with lane `i & 3` replaced by `v`.
+        #[inline(always)]
+        pub fn with_lane(self, i: usize, v: f32) -> Self {
+            Self(match i & 3 {
+                0 => f32x4_replace_lane::<0>(self.0, v),
+                1 => f32x4_replace_lane::<1>(self.0, v),
+                2 => f32x4_replace_lane::<2>(self.0, v),
+                _ => f32x4_replace_lane::<3>(self.0, v),
+            })
+        }
         #[inline(always)]
         pub(super) fn v_add(self, o: Self) -> Self {
             Self(f32x4_add(self.0, o.0))
@@ -200,6 +220,17 @@ mod imp {
         pub fn from_u32_array(q: [u32; 4]) -> Self {
             // `as f32` rounds to nearest-even, as wasm `f32x4.convert_i32x4_u` does.
             Self([q[0] as f32, q[1] as f32, q[2] as f32, q[3] as f32])
+        }
+        /// Lane `i & 3`.
+        #[inline(always)]
+        pub fn get_lane(self, i: usize) -> f32 {
+            self.0[i & 3]
+        }
+        /// These lanes with lane `i & 3` replaced by `v`.
+        #[inline(always)]
+        pub fn with_lane(mut self, i: usize, v: f32) -> Self {
+            self.0[i & 3] = v;
+            self
         }
         #[inline(always)]
         pub(super) fn v_add(self, o: Self) -> Self {
@@ -409,7 +440,12 @@ impl Not for M32x4 {
         M32x4::v_not(self)
     }
 }
-impl LaneMask for M32x4 {}
+impl LaneMask for M32x4 {
+    #[inline(always)]
+    fn any(self) -> bool {
+        M32x4::any(self)
+    }
+}
 
 impl Lane for F32x4 {
     type Mask = M32x4;

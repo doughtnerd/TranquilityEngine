@@ -7,7 +7,7 @@
 mod common;
 
 use anim_compress::{compress, Settings};
-use anim_format::clip::ClipView;
+use anim_format::clip::{ClipView, RotationFormat};
 use anim_math::layout::soa_len;
 use anim_math::{AosTransform, SoaTransform};
 use anim_sample::{rest_pose, BoundClip, ClipBindings, ClipSampler, Form, FrameCache};
@@ -44,6 +44,11 @@ struct Fixture {
 
 /// A skeleton of `shape` and two clips (compressed and raw bytes each).
 fn fixture(shape: Shape, seed: u64) -> Fixture {
+    fixture_with(shape, seed, &Settings::default())
+}
+
+/// [`fixture`] compressed with `settings`.
+fn fixture_with(shape: Shape, seed: u64, settings: &Settings) -> Fixture {
     let mut rng = Rng::new(seed);
     let skel = skeleton(shape, &mut rng);
     let skel_bytes = skel.write().unwrap();
@@ -53,9 +58,7 @@ fn fixture(shape: Shape, seed: u64) -> Fixture {
     let clips: Vec<(Vec<u8>, Vec<u8>)> = (0..2)
         .map(|_| {
             let clip = clip(&skel, 2.0, true, &mut rng);
-            let comp = compress(&clip, Some(&skel), &Settings::default())
-                .unwrap()
-                .bytes;
+            let comp = compress(&clip, Some(&skel), settings).unwrap().bytes;
             (comp, clip.write().unwrap())
         })
         .collect();
@@ -105,7 +108,7 @@ fn cached_samples_match_uncached_bit_for_bit() {
             })
             .collect();
         let bound: Vec<BoundClip<'_, '_>> =
-            tables.iter().map(|(s, b)| b.bind(*s).unwrap()).collect();
+            tables.iter().map(|(s, b)| b.bind(s).unwrap()).collect();
         let mut head = vec![0u32; FrameCache::header_len(n)];
         let mut mem = vec![SoaTransform::default(); FrameCache::frames_len(n)];
         // Playback at 60 Hz: half, normal, 1.5x, 2x, 3x speed, and reverse; through the loop.
@@ -175,12 +178,54 @@ fn cached_samples_match_uncached_bit_for_bit() {
     }
 }
 
+/// Full rotations decode channel by channel (not by group), and a header too short for the
+/// ranges at any length decodes them per frame: the same bits either way.
+#[test]
+fn full_rotations_and_short_headers_match_uncached_bit_for_bit() {
+    let full = Settings {
+        rotation_format: Some(RotationFormat::QuatFull),
+        ..Settings::default()
+    };
+    for (fx, what) in [
+        (fixture_with(Shape::Humanoid, 4, &full), "full rotations"),
+        (fixture(Shape::Humanoid, 6), "w dropped"),
+    ] {
+        let n = fx.rest.len();
+        let s =
+            ClipSampler::new(ClipView::parse(&fx.clips[0].0).unwrap(), Form::Compressed).unwrap();
+        let table = ClipBindings::new(&s);
+        let bound = table.bind(&s).unwrap();
+        let mut head = vec![0u32; FrameCache::header_len(n)];
+        let mut mem = vec![SoaTransform::default(); FrameCache::frames_len(n)];
+        for len in [
+            12,
+            10 + 4 * n,
+            10 + 8 * n,
+            10 + 16 * n,
+            FrameCache::header_len(n),
+        ] {
+            let mut cache = FrameCache::new(&mut head[..len], &mut mem, 1);
+            let mut t = 0.0f32;
+            for _ in 0..90 {
+                t = (t + 1.3 / 60.0).rem_euclid(fx.duration);
+                check(
+                    &bound,
+                    t,
+                    &fx.rest,
+                    &mut cache,
+                    &format!("{what}, header {len}"),
+                );
+            }
+        }
+    }
+}
+
 #[test]
 fn the_raw_form_samples_as_without_a_cache() {
     let fx = fixture(Shape::Humanoid, 5);
     let s = ClipSampler::new(ClipView::parse(&fx.clips[0].1).unwrap(), Form::Raw).unwrap();
     let table = ClipBindings::new(&s);
-    let bound = table.bind(s).unwrap();
+    let bound = table.bind(&s).unwrap();
     let mut head = vec![0u32; FrameCache::header_len(fx.rest.len())];
     let mut mem = vec![SoaTransform::default(); FrameCache::frames_len(fx.rest.len())];
     let mut cache = FrameCache::new(&mut head, &mut mem, 0);

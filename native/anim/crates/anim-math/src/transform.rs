@@ -8,8 +8,8 @@
 
 use crate::f32x4::F32x4;
 use crate::lane::Lane;
-use crate::quat::{QuatT, SoaQuat};
-use crate::vec3::{SoaVec3, Vec3T};
+use crate::quat::{AosQuat, QuatT, SoaQuat};
+use crate::vec3::{AosVec3, SoaVec3, Vec3T};
 
 /// Scale components with |s| at or below this get an inverse scale of 0 in
 /// [`TransformT::inverse`] (Unreal's `SMALL_NUMBER`).
@@ -126,10 +126,59 @@ impl SoaTransform {
         core::array::from_fn(|i| AosTransform::new(t[i], r[i], s[i]))
     }
 
-    /// Lane `i` as an AoS transform.
+    /// Lane `i` as an AoS transform. Panics unless `i < 4`.
     #[inline]
     pub fn lane(self, i: usize) -> AosTransform {
-        self.to_aos()[i]
+        // One branch on the lane, then constant-lane extracts (no transpose of the group).
+        match i {
+            0 => self.lane_at(0),
+            1 => self.lane_at(1),
+            2 => self.lane_at(2),
+            3 => self.lane_at(3),
+            _ => panic!("lane {i} out of range"),
+        }
+    }
+
+    /// Replaces lane `i` with `t` (the other lanes are unchanged). Panics unless `i < 4`.
+    #[inline]
+    pub fn set_lane(&mut self, i: usize, t: AosTransform) {
+        match i {
+            0 => self.set_lane_at(0, t),
+            1 => self.set_lane_at(1, t),
+            2 => self.set_lane_at(2, t),
+            3 => self.set_lane_at(3, t),
+            _ => panic!("lane {i} out of range"),
+        }
+    }
+
+    #[inline(always)]
+    fn lane_at(self, l: usize) -> AosTransform {
+        let (t, r, s) = (self.translation, self.rotation, self.scale);
+        AosTransform::new(
+            AosVec3::new(t.x.get_lane(l), t.y.get_lane(l), t.z.get_lane(l)),
+            AosQuat::new(
+                r.x.get_lane(l),
+                r.y.get_lane(l),
+                r.z.get_lane(l),
+                r.w.get_lane(l),
+            ),
+            AosVec3::new(s.x.get_lane(l), s.y.get_lane(l), s.z.get_lane(l)),
+        )
+    }
+
+    #[inline(always)]
+    fn set_lane_at(&mut self, l: usize, v: AosTransform) {
+        let (t, r, s) = (&mut self.translation, &mut self.rotation, &mut self.scale);
+        t.x = t.x.with_lane(l, v.translation.x);
+        t.y = t.y.with_lane(l, v.translation.y);
+        t.z = t.z.with_lane(l, v.translation.z);
+        r.x = r.x.with_lane(l, v.rotation.x);
+        r.y = r.y.with_lane(l, v.rotation.y);
+        r.z = r.z.with_lane(l, v.rotation.z);
+        r.w = r.w.with_lane(l, v.rotation.w);
+        s.x = s.x.with_lane(l, v.scale.x);
+        s.y = s.y.with_lane(l, v.scale.y);
+        s.z = s.z.with_lane(l, v.scale.z);
     }
 }
 
