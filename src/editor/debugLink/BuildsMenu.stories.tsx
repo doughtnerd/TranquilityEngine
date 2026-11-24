@@ -13,7 +13,9 @@ const BUILDS: BuildEntry[] = [
 ];
 const LISTENING: ListenState = { kind: "listening", address: "ws://127.0.0.1:7790/myco-debug" };
 
-function Demo(props: { builds: readonly BuildEntry[]; listen: ListenState; onSettings: () => void }) {
+type Args = { builds: readonly BuildEntry[]; listen: ListenState; onSettings: () => void; onConnect?: () => void; onOfferRoom?: () => void; withSlot?: boolean };
+
+function Demo(props: Args) {
   const [builds, setBuilds] = useState(props.builds);
   const [active, setActive] = useState<number | null>(builds[0]?.id ?? null);
   return (
@@ -28,13 +30,15 @@ function Demo(props: { builds: readonly BuildEntry[]; listen: ListenState; onSet
           if (active === id) setActive(null);
         }}
         onSettings={props.onSettings}
+        onConnect={props.onConnect}
+        onOfferRoom={props.onOfferRoom}
+        playSlot={props.withSlot ? <span>Play as a build: 3F9QK-7KD2X</span> : undefined}
       />
       <output aria-label="Active">{active ?? "none"}</output>
     </div>
   );
 }
 
-type Args = { builds: readonly BuildEntry[]; listen: ListenState; onSettings: () => void };
 const meta = { title: "Editor/Debug link/Builds menu", render: (args: Args) => <Demo {...args} />, args: { builds: BUILDS, listen: LISTENING, onSettings: fn() } } satisfies Meta<Args>;
 export default meta;
 type Story = StoryObj<typeof meta>;
@@ -108,5 +112,52 @@ export const Unavailable: Story = {
     const c = within(canvasElement);
     await userEvent.click(c.getByRole("button", { name: "Debug link off" }));
     expect(within(c.getByRole("menu")).getByText(/can't listen for builds here/)).toBeTruthy();
+  },
+};
+
+export const ConnectItem: Story = {
+  args: { onConnect: fn() },
+  play: async ({ canvasElement, args }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole("button", { name: "2 builds" }));
+    await userEvent.click(within(c.getByRole("menu")).getByRole("menuitem", { name: "Connect to a build…" }));
+    expect(args.onConnect).toHaveBeenCalled();
+    expect(c.queryByRole("menu")).toBeNull();
+  },
+};
+
+export const OfferRoomItem: Story = {
+  args: { onOfferRoom: fn() },
+  play: async ({ canvasElement, args }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole("button", { name: "2 builds" }));
+    await userEvent.click(within(c.getByRole("menu")).getByRole("menuitem", { name: "Offer a room…" }));
+    expect(args.onOfferRoom).toHaveBeenCalled();
+    expect(c.queryByRole("menu")).toBeNull();
+  },
+};
+
+export const NoOfferRoomItemWithoutTheHandler: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole("button", { name: "2 builds" }));
+    expect(within(c.getByRole("menu")).queryByRole("menuitem", { name: "Offer a room…" })).toBeNull();
+  },
+};
+
+export const NoConnectItemWithoutTheHandler: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole("button", { name: "2 builds" }));
+    expect(within(c.getByRole("menu")).queryByRole("menuitem", { name: "Connect to a build…" })).toBeNull();
+  },
+};
+
+export const PlaySlotAtTheTop: Story = {
+  args: { withSlot: true },
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await userEvent.click(c.getByRole("button", { name: "2 builds" }));
+    expect(c.getByRole("menu").firstElementChild).toHaveTextContent("Play as a build: 3F9QK-7KD2X");
   },
 };

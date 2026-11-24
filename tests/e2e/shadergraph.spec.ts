@@ -1,6 +1,7 @@
 import { expect, requireWebGPU, test, type Locator, type Page, waitForEditor } from "./fixtures";
 import { NODES } from "../../src/engine/render/shaderGraph/nodes";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
+import { assetsMenu } from "./menus";
 import { playgroundFiles, previewDraws, previewPixels, shaderGraphFile } from "./shaderPreview";
 
 // The Shader Graph panel (ADR 0046, 0047): creating a graph from the Assets panel, adding a
@@ -58,7 +59,7 @@ test("create a shader graph, wire a colour property to the output, and see the p
   await showFolder(page, "shaders");
   const items = await box(page.locator(".panel.assets .asset-items"));
   await page.mouse.click(items.x + items.width - 10, items.y + items.height - 10, { button: "right" });
-  await page.getByRole("menuitem", { name: "New Shader Graph" }).click();
+  await assetsMenu(page, "Create", "Shader", "Shader Graph");
   const tile = page.locator(".asset-tile", { hasText: "New Shader Graph.shadergraph.json" });
   await expect(tile).toBeVisible();
   await expect(tile.locator(".asset-kind")).toHaveText("Shader Graph");

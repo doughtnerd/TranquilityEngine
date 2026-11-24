@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { assessToolchain, foundTools, type ToolchainProbe } from "./toolchain";
 
-// ADR 0381: what the desktop editor's toolchain probe means for building a desktop package.
+// ADR 0406: what the desktop editor's toolchain probe means for building a desktop package.
 const FULL: ToolchainProbe = {
   os: "windows",
   cargo: "cargo 1.90.0",

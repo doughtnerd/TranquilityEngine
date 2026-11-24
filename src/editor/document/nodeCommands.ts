@@ -1,5 +1,6 @@
 import { setKey, type Change, type Command } from "./commands";
-import type { SceneDocument } from "./SceneDocument";
+import { mapEntryNodeRefs } from "../../engine/scene/nodeReferences";
+import type { NodeEntry, SceneDocument } from "./SceneDocument";
 
 /**
  * Set the Worlds a component entry of a plain node is created in (ADR 0033 §3, 0038): its
@@ -39,5 +40,33 @@ export class SetTags implements Command {
     // After id, name, parent and active, as a person would write it.
     else setKey(entry, "tags", [...this.tags], ["id", "name", "parent", "active"]);
     return [{ kind: "rebuild", node: this.node }];
+  }
+}
+
+/**
+ * Change a top-level node's id: its entry, its children's `parent`, and every `{"$node": id}` reference in
+ * the document (component data, overrides) that points at it. The caller checks `to` is free. Every top-level
+ * node, before and after, is rebuilt, since a reference anywhere may have changed.
+ */
+export class RenameNodeId implements Command {
+  readonly label = "Change Id";
+
+  constructor(readonly from: string, readonly to: string) {}
+
+  apply(doc: SceneDocument): Change[] {
+    const roots = new Set(doc.roots());
+    const entries = doc._entries;
+    const at = entries.findIndex((e) => e.id === this.from);
+    if (at < 0) throw new Error(`No node "${this.from}".`);
+    if (this.to !== this.from && doc.has(this.to)) throw new Error(`Node id "${this.to}" is already in use.`);
+    const remap = (id: string) => (id === this.from ? this.to : id);
+    entries.forEach((e, i) => {
+      let next: NodeEntry = i === at ? { ...e, id: this.to } : e;
+      if (next.parent === this.from) next = { ...next, parent: this.to };
+      entries[i] = mapEntryNodeRefs(next, remap);
+    });
+    doc._reindex();
+    for (const id of doc.roots()) roots.add(id);
+    return [...roots].map((node) => ({ kind: "rebuild", node }) as const);
   }
 }

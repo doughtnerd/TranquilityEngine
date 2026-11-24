@@ -1,7 +1,7 @@
 /**
  * ADR 0348: records a plugin adds to a take. A take is the capture framing, whose record types below 0x80 that a reader
  * doesn't know are passed over by length (capture §5.3), so a plugin can write its own records into a take without the
- * audio reader knowing their layout. The range 0x40..0x7e is the plugins' (audio keeps 0x10..0x1d for requests; 0x7f is
+ * audio reader knowing their layout. The range 0x40..0x7e is the plugins' (audio keeps 0x10..0x3f for requests, 0x10..0x20 in use since ADR 0386; 0x7f is
  * the INDEX): the animation plugin writes 0x40..0x44 (`plugins/animation/runtime/features/debug/frameRecord.ts`).
  *
  * A plugin registers a take source (`context.take.source(name, load)`); a take that starts loads each source, hands it a

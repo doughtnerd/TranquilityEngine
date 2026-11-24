@@ -80,9 +80,13 @@ export interface Layout {
   panelInfo: Partial<Record<PanelId, PanelInfo>>;
 }
 
-/** Where a dragged panel would go. */
+/**
+ * Where a dragged panel would go. A `tab` target joins the group; `index` (ADR 0381) is the slot in the group's
+ * current tab order to insert at (0 before the first tab, `panels.length` after the last), and without it the
+ * panel goes last. Dropping a panel on its own group's header with an index reorders its tabs.
+ */
 export type DropTarget =
-  | { kind: "tab"; group: string }
+  | { kind: "tab"; group: string; index?: number }
   | { kind: "split"; dock: string; index: number }
   | { kind: "edge"; side: Side; placement: "outer" | "inner" };
 
@@ -318,6 +322,9 @@ function shape(layout: Layout): string {
 export function movePanel(layout: Layout, panel: PanelInstanceId, target: DropTarget): Layout {
   const from = locate(layout, panel);
   if (!from) return layout;
+  // A slot in the target group's current order; once the panel is taken out of its own group, later slots shift down one.
+  let slot = target.kind === "tab" ? target.index : undefined;
+  if (slot !== undefined && target.kind === "tab" && from.group.id === target.group && from.group.panels.indexOf(panel) < slot) slot--;
   // Work on a copy with the panel taken out (leaving an empty group in place, so indices hold).
   const next: Layout = structuredClone(layout);
   for (const d of allDocks(next)) for (const g of d.groups) g.panels = g.panels.filter((p) => p !== panel);
@@ -326,7 +333,7 @@ export function movePanel(layout: Layout, panel: PanelInstanceId, target: DropTa
     const dock = allDocks(next).find((d) => d.groups.some((g) => g.id === target.group));
     const group = dock?.groups.find((g) => g.id === target.group);
     if (!group) return layout;
-    group.panels.push(panel);
+    group.panels.splice(slot === undefined ? group.panels.length : Math.max(0, Math.min(slot, group.panels.length)), 0, panel);
     group.active = panel;
     delete dock!.collapsed; // dropped onto a collapsed dock: open it to show the panel
   } else if (target.kind === "split") {
@@ -666,17 +673,47 @@ const inside = (r: Rect, x: number, y: number) => x >= r.x && x < r.x + r.w && y
 
 export interface DropHit {
   target: DropTarget;
-  /** Where the panel would appear: the area to highlight while dragging. */
-  preview: Rect;
+  /** Where the panel would appear: the area to highlight while dragging. Absent when the insertion mark alone shows it (reordering a group's own tabs). */
+  preview?: Rect;
+  /** Joining or reordering a header's tabs at a position (ADR 0381): the thin mark between the tabs where it goes. */
+  insert?: Rect;
+}
+
+/** One tab as a header draws it (ADR 0381): its panel and where it starts and ends along the header, in layout coordinates. */
+export interface TabSpan {
+  panel: PanelInstanceId;
+  start: number;
+  end: number;
+}
+
+/** Width of the insertion mark between tabs. */
+const INSERT_MARK = 2;
+
+/**
+ * Where a pointer at `x` along a header would insert among its drawn tabs `spans` (in order, the hidden ones left
+ * out): before the first tab whose middle is past it, else after the last. Returns the slot in `panels` (the group's
+ * whole tab order) and where along the header the mark goes; null when no drawn tab belongs to the group.
+ */
+function tabSlot(panels: readonly PanelInstanceId[], spans: readonly TabSpan[], x: number): { index: number; at: number } | null {
+  const shown = spans.filter((s) => panels.includes(s.panel));
+  if (shown.length === 0) return null;
+  const before = shown.find((s) => x < (s.start + s.end) / 2);
+  if (before) return { index: panels.indexOf(before.panel), at: before.start };
+  const last = shown[shown.length - 1];
+  return { index: panels.indexOf(last.panel) + 1, at: last.end };
 }
 
 /**
  * The drop target under a pointer while dragging `panel`, or null for an invalid spot (the top
- * edge, outside the layout, where it already is). In order of priority: another group's header
- * (join as a tab), the layout's outer edge (new outermost dock, full height or width), the filling
+ * edge, outside the layout, where it already is). In order of priority: a group's header
+ * (join as a tab, or reorder its own group's tabs), the layout's outer edge (new outermost dock, full height or width), the filling
  * dock's edge (a new dock just outside it), inside a dock (split it evenly at that position).
+ *
+ * `tabs` gives each expanded group's drawn tabs by group id (ADR 0381): with them, a header target carries the slot
+ * the pointer is at and the insertion mark, and the panel's own header reorders it; without them (or over a collapsed
+ * strip) the panel goes last in the group.
  */
-export function hitTest(layout: Layout, geo: Geometry, panel: PanelInstanceId, x: number, y: number): DropHit | null {
+export function hitTest(layout: Layout, geo: Geometry, panel: PanelInstanceId, x: number, y: number, tabs?: Readonly<Record<string, readonly TabSpan[]>>): DropHit | null {
   const b = geo.bounds;
   if (!inside(b, x, y)) return null;
 
@@ -684,7 +721,14 @@ export function hitTest(layout: Layout, geo: Geometry, panel: PanelInstanceId, x
     for (const g of d.groups) {
       if (inside(g.header, x, y)) {
         if (g.group.panels.length === 1 && g.group.panels[0] === panel) return null; // onto itself
-        return { target: { kind: "tab", group: g.group.id }, preview: g.rect };
+        const spans = d.collapsed ? undefined : tabs?.[g.group.id];
+        const slot = spans && tabSlot(g.group.panels, spans, x);
+        if (!slot) return { target: { kind: "tab", group: g.group.id }, preview: g.rect };
+        const own = g.group.panels.includes(panel);
+        const target: DropTarget = { kind: "tab", group: g.group.id, index: slot.index };
+        if (movePanel(layout, panel, target) === layout) return null; // where it already is
+        const insert: Rect = { x: slot.at - INSERT_MARK / 2, y: g.header.y, w: INSERT_MARK, h: g.header.h };
+        return own ? { target, insert } : { target, preview: g.rect, insert };
       }
     }
   }

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Color, Engine, GameObject, Input } from "../index";
-import { UIButton, UICanvas, UIInputField, UIPanel, UIText } from "../ui/components";
+import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../ui/components";
 import { UIDocument, UIEvents, type UIEvent } from "../ui/UIDocument";
 import { World } from "../core/World";
 import { parseBindings, parseMarkup } from "../ui/document/markup";
@@ -319,6 +319,30 @@ describe("UIDocument", () => {
     expect(hoverHide.display).toBe("none");
   });
 
+  it("takes raycastTarget as an attribute or a raycast-target property, and the pointer then passes the element (ADR 0385)", async () => {
+    files["ui/hud.ui.xml"] = `<Canvas><Style src="hud.ui.css"/>
+      <Text id="score" width="200" height="40">Score</Text>
+      <Text id="hint" raycastTarget="false" width="200" height="40">Hint</Text>
+      <Image id="marker" class="decor" width="200" height="40"/>
+    </Canvas>`;
+    files["ui/hud.ui.css"] = `.decor { raycast-target: false; }`;
+    const doc = await open("ui/hud.ui.xml");
+    expect(doc.problems).toEqual([]);
+    const score = doc.query("#score")!.as(UIText);
+    const hint = doc.query("#hint")!.as(UIText);
+    const marker = doc.query("#marker")!.as(UIImage);
+    expect([score.raycastTarget, hint.raycastTarget, marker.raycastTarget]).toEqual([true, false, false]);
+    const p = await pointer();
+    p.sync();
+    const at = (e: UIText | UIImage) => {
+      const r = p.core.rectOf(e)!;
+      return p.core.hitTest(r.x + r.width / 2, r.y + r.height / 2);
+    };
+    expect(at(score)).toBe(score);
+    expect(at(hint)).toBeNull();
+    expect(at(marker)).toBeNull();
+  });
+
   it("restyles on :hover", async () => {
     const doc = await open();
     const play = doc.query("#play")!;
@@ -400,6 +424,31 @@ describe("UIDocument", () => {
     expect(setups).toEqual(["a", "b", "c"]);
     expect(again.map((r) => r.as(UIText).text)).toEqual(["Beta (3)", "Gamma (4)"]);
     expect(doc.query("#rows")!.children).toEqual(again);
+  });
+
+  it("leaves no stray rows when keys repeat or are missing, and warns once about repeats", async () => {
+    const doc = await open();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const host = doc.query("#rows")!;
+    const dup = [
+      { id: "a", label: "A1", n: 1 },
+      { id: "a", label: "A2", n: 2 },
+      { id: "b", label: "B", n: 3 },
+    ];
+    const first = doc.list("#rows", dup, undefined, { key: "id" });
+    expect(host.node.children).toHaveLength(3);
+    const second = doc.list("#rows", [{ id: "c", label: "C", n: 4 }], undefined, { key: "id" });
+    expect(first.every((r) => !r.isValid)).toBe(true);
+    expect(host.node.children).toHaveLength(1);
+    expect(host.children).toEqual(second);
+    doc.list("#rows", dup, undefined, { key: "id" });
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes("own key")).length).toBe(1);
+    // Items without the key field all share `undefined`.
+    doc.list("#rows", [{ label: "x", n: 1 }, { label: "y", n: 2 }] as { id?: string; label: string; n: number }[], undefined, { key: "id" });
+    doc.list("#rows", [], undefined, { key: "id" });
+    expect(host.node.children).toHaveLength(0);
+    expect(doc.queryAll(".row")).toHaveLength(0);
+    warn.mockRestore();
   });
 
   it("gives row events their item", async () => {

@@ -9,8 +9,10 @@ import {
   applyPrefabOverrides,
   createPrefabFrom,
   nodeHeader,
+  nodeIdProblem,
   prefabActions,
   renameNode,
+  renameNodeId,
   revertAllOverrides,
   revertNameAndActive,
   setNodesActive,
@@ -19,7 +21,7 @@ import { OrbitCamera } from "./OrbitCamera";
 import { openSceneFile } from "./project";
 import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
 import { readOnlyMessage } from "./readOnly";
-import { currentProject, openScene, playState, sceneCamera, selection, status } from "./state";
+import { currentProject, openScene, playState, sceneCamera, selectedKeys, selection, status } from "./state";
 import { inspectorTarget, select } from "./inspectorTarget";
 import { MemoryFileSystem, ROOT, closeTestProject, demoFolder, sampleProject } from "./testing";
 
@@ -174,6 +176,15 @@ describe("running the prefab actions", () => {
     expect(doc.node("ceiling").prefab).toBeUndefined();
   });
 
+  it("Create Prefab says how many references out of the prefab became instance overrides (ADR 0401)", async () => {
+    const path = await createPrefabFrom(scene(), project, [["game"]]);
+    expect(status.value).toEqual({
+      kind: "info",
+      text: `Created ${path}. 5 references to nodes outside the prefab became instance overrides; the prefab file leaves them empty. Undo turns the node back; the file stays on disk.`,
+    });
+    expect(scene().doc.node("game").overrides).toHaveLength(5);
+  });
+
   it("Create Prefab saves several siblings under one Group root", async () => {
     const { doc } = scene();
     const path = await createPrefabFrom(scene(), project, [["ceiling"], ["ground-collider"]]);
@@ -243,5 +254,44 @@ describe("during play (ADR 0257)", () => {
     } finally {
       playState.value = "edit";
     }
+  });
+});
+
+describe("changing a node's id", () => {
+  it("refuses an empty id, one with a slash, and one another node has", () => {
+    const { doc } = scene();
+    expect(nodeIdProblem(doc, "bird", "  ")).toMatch(/empty/);
+    expect(nodeIdProblem(doc, "bird", "a/b")).toMatch(/"\/"/);
+    expect(nodeIdProblem(doc, "bird", "ceiling")).toMatch(/already/);
+    expect(nodeIdProblem(doc, "bird", "bird")).toBeNull();
+    expect(nodeIdProblem(doc, "bird", " hero ")).toBeNull();
+  });
+
+  it("renames the entry, children's parents and references as one undo step, and follows the selection", () => {
+    const { doc, stack } = scene();
+    stack.execute(new AddNode({ id: "child" }, { parent: "bird" }));
+    stack.execute(new AddNode({ id: "watcher", components: [{ type: "t.Watch", data: { target: { $node: "bird" }, list: [{ $node: "bird" }, { $node: "ceiling" }] } }] }));
+    select(["bird/x", "watcher"], "bird/x");
+    expect(renameNodeId(scene(), "bird", "hero")).toBeNull();
+    expect(stack.undoLabel).toBe("Change Id");
+    expect(doc.has("bird")).toBe(false);
+    expect(doc.node("hero").name).toBe("Bird");
+    expect(doc.node("child").parent).toBe("hero");
+    expect(doc.node("watcher").components![0].data).toEqual({ target: { $node: "hero" }, list: [{ $node: "hero" }, { $node: "ceiling" }] });
+    expect(selectedKeys.value).toEqual(["watcher", "hero/x"]);
+    stack.undo();
+    expect(doc.has("bird")).toBe(true);
+    expect(doc.node("child").parent).toBe("bird");
+    expect(doc.node("watcher").components![0].data).toMatchObject({ target: { $node: "bird" } });
+    select([]);
+  });
+
+  it("changes nothing and reports why when the id isn't allowed", () => {
+    const before = scene().stack.undoLabel;
+    expect(renameNodeId(scene(), "bird", "ceiling")).toMatch(/already/);
+    expect(renameNodeId(scene(), "bird", "")).toMatch(/empty/);
+    expect(renameNodeId(scene(), "bird", "bird")).toBeNull();
+    expect(scene().doc.has("bird")).toBe(true);
+    expect(scene().stack.undoLabel).toBe(before);
   });
 });

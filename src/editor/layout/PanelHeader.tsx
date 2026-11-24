@@ -1,6 +1,7 @@
-// One panel's tab (ADR 0174): its title, the red × that closes it, pressing to show it, dragging to
-// move it, and right-clicking for the header menu (Add Panel…, Close). The dock layout draws one per
-// tab in a group's tab strip; a group holding one panel draws it as its title.
+// One panel's tab (ADR 0174): its title, the × right after it that closes it (muted, red on hover or focus, ADR 0381),
+// pressing to show it, dragging to move it (or to reorder it among its group's tabs, ADR 0381), and right-clicking for
+// the header menu (Add Panel…, Close). The dock layout draws one per tab in a group's tab strip; a group holding one
+// panel draws it as its title.
 
 export interface PanelHeaderProps {
   /** The panel instance. */

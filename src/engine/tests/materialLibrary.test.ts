@@ -280,6 +280,42 @@ describe("the Babylon material library (ADR 0127)", () => {
       expect(copy.albedoColor.g).toBeCloseTo(1); // still tinted
     });
 
+    it("frees the texture copies Babylon's clone makes with a script instance's and an override's copy", () => {
+      const base = lib.material(RED) as PBRMaterial;
+      base.albedoTexture = new Texture(null, scene); // the asset's texture has loaded
+      base.metallicTexture = new Texture(null, scene);
+      const textures = scene.textures.length;
+      const a = box("a"), b = box("b");
+      for (let i = 0; i < 5; i++) {
+        a.materialInstance.setFloat("metalness", i / 5);
+        b.setMaterialProperty("roughness", i / 5);
+        sync(a, b);
+        a.sharedMaterial = Material.shared(RED); // the instance goes
+        b.clearMaterialProperties();
+        sync(a, b);
+        lib.release(b);
+      }
+      expect(scene.textures.length).toBe(textures);
+    });
+
+    it("keeps a shader graph's override copy a graph: no probe copy, and its fog opt-out", () => {
+      useProject({ "materials/graphed.material.json": { format: "myco.material@1", shader: "asset:shaders/pulse.shadergraph.json", fog: false } });
+      const r = box("pulse", GRAPHED);
+      r.setMaterialProperty("Speed", 3);
+      const copy = drawn(r);
+      expect(copy).not.toBe(lib.material(GRAPHED));
+      expect(lib.isGraph(copy)).toBe(true);
+      expect(lib.fogless(copy)).toBe(true);
+    });
+
+    it("keeps a built-in override copy's fog opt-out", () => {
+      const r = box("glow", GLOW);
+      r.setMaterialProperty("color", Color.from("#ff00ff"));
+      const copy = drawn(r);
+      expect(copy).not.toBe(lib.material(GLOW));
+      expect(lib.fogless(copy)).toBe(true);
+    });
+
     it("warns once about a property the material doesn't have", () => {
       const r = box("a");
       r.setMaterialProperty("wobble", 2);
@@ -333,6 +369,21 @@ describe("the Babylon material library (ADR 0127)", () => {
       expect(of()).toBe(of());
     });
 
+    it("frees a shared multi-material once one of its slot materials is rebuilt", async () => {
+      const sources = await loadMeshes("asset:models/lamp.glb#Base");
+      const slots = materialSlots(sources);
+      const r = GameObject.create("lamp").addBehavior(MeshRenderer, { mesh: "asset:models/lamp.glb#Base", material: "" });
+      (r as MeshRenderer & { materials: string[] }).materials = [RED];
+      const of = () => lib.meshMaterials(r, slots).of(sources[0]);
+      const first = of();
+      expect(first).toBeInstanceOf(MultiMaterial);
+      useProject({ "materials/red.material.json": { format: "myco.material@1", color: "#ff0000", roughness: 0.1 } });
+      const second = of();
+      expect(second).not.toBe(first);
+      expect(scene.multiMaterials).toContain(second);
+      expect(scene.multiMaterials).not.toContain(first);
+    });
+
     it("resolves a warm-up mesh's slots as a renderer's, from assets only", async () => {
       const sources = await loadMeshes("asset:models/lamp.glb#Base");
       const drawnOf = lib.slotMaterials({ mesh: "asset:models/lamp.glb#Base", material: "", materials: [RED] }, sources);
@@ -343,6 +394,111 @@ describe("the Babylon material library (ADR 0127)", () => {
     it("gives a mesh with no material anywhere the default material", () => {
       const r = GameObject.create("plain").addBehavior(MeshRenderer, { material: "" });
       expect(lib.meshMaterials(r, materialSlots(cube())).of(cube()[0])).toBe(lib.defaultMaterial);
+    });
+  });
+
+  describe("reflection probe copies (ADR 0054, 0110)", () => {
+    const hit = (texture: Texture) => ({ texture, intensity: 1, blend: null });
+
+    it("reuses a material's copy for a probe, and frees it when the material is rebuilt", () => {
+      const base = lib.material(RED) as PBRMaterial;
+      const map = new Texture(null, scene);
+      const copy = lib.probeCopy(base, hit(map));
+      expect(lib.probeCopy(base, hit(map))).toBe(copy);
+      expect(copy.reflectionTexture).toBe(map);
+      useProject({ "materials/red.material.json": { format: "myco.material@1", color: "#ff0000", roughness: 0.1 } });
+      lib.material(RED); // rebuilt
+      expect(scene.materials).not.toContain(copy);
+    });
+
+    it("frees a copy when its probe's map goes (the probe removed or captured again at another size)", () => {
+      const base = lib.material(RED) as PBRMaterial;
+      const map = new Texture(null, scene);
+      const copy = lib.probeCopy(base, hit(map));
+      map.dispose();
+      expect(scene.materials).not.toContain(copy);
+      const next = new Texture(null, scene);
+      expect(lib.probeCopy(base, hit(next)).reflectionTexture).toBe(next);
+    });
+
+    it("keeps the copies bounded while a mesh moves through a blend zone (stale blend copies are freed)", () => {
+      const base = lib.material(RED) as PBRMaterial;
+      const map = new Texture(null, scene);
+      const neighbour = new Texture(null, scene);
+      const blended = (weight: number) => ({ texture: map, intensity: 1, blend: { texture: neighbour, intensity: 1, weight, box: null } });
+      const copies = () => scene.materials.filter((m) => m.name.endsWith(":probe")).length;
+      // A frame per step, in then out of the zone, twice: each sync draws one copy.
+      const weights = [1, 0.875, 0.75, 0.625, 0.5, 0.375, 0.25, 0.125, 0, 0.125, 0.25, 0.5, 0.75, 1];
+      let drawn: PBRMaterial | null = null;
+      for (const w of [...weights, ...weights]) {
+        lib.beginSync();
+        drawn = lib.probeCopy(base, blended(w));
+        lib.endSync();
+        expect(copies()).toBeLessThanOrEqual(1);
+      }
+      expect(scene.materials).toContain(drawn);
+      // Two meshes at different weights in one sync each keep their own copy.
+      lib.beginSync();
+      const a = lib.probeCopy(base, blended(0.25));
+      const b = lib.probeCopy(base, blended(0.75));
+      lib.endSync();
+      expect(a).not.toBe(b);
+      expect(scene.materials).toContain(a);
+      expect(scene.materials).toContain(b);
+    });
+
+    it("keeps a copy asked for outside a sync (the warm-up's) after later syncs", () => {
+      const base = lib.material(RED) as PBRMaterial;
+      const map = new Texture(null, scene);
+      const neighbour = new Texture(null, scene);
+      const warm = lib.probeCopy(base, { texture: map, intensity: 1, blend: { texture: neighbour, intensity: 1, weight: 0.5, box: null } });
+      lib.beginSync();
+      lib.endSync();
+      expect(scene.materials).toContain(warm);
+    });
+  });
+
+  describe("render textures (ADR 0109)", () => {
+    it("rebuilds a material sampling a render texture whose texture was replaced (its format changed)", async () => {
+      let rt = new Texture(null, scene);
+      lib.dispose();
+      lib = new BabylonMaterialLibrary(scene, { renderTexture: () => rt });
+      useProject({ "materials/screen.material.json": { format: "myco.material@1", texture: "asset:rt/screen.rendertexture.json" } });
+      const before = lib.material("asset:materials/screen.material.json") as PBRMaterial;
+      await lib.settled();
+      expect(before.albedoTexture).toBe(rt);
+      const old = rt;
+      rt = new Texture(null, scene); // the render texture assets made a new one, and dispose the old
+      old.dispose();
+      const after = lib.material("asset:materials/screen.material.json") as PBRMaterial;
+      await lib.settled();
+      expect(after.albedoTexture).toBe(rt);
+    });
+
+    it("rebuilds a graph material's slot copy that takes the render texture only as a slot override", async () => {
+      let rt = new Texture(null, scene);
+      lib.dispose();
+      lib = new BabylonMaterialLibrary(scene, { renderTexture: () => rt });
+      const screen = { ...rimShader, properties: [...rimShader.properties, { name: "Screen", type: "texture", value: "" }] };
+      useProject({
+        "shaders/screen.shader.json": screen,
+        "materials/screen.material.json": { format: "myco.material@1", shader: "asset:shaders/screen.shader.json" },
+      });
+      const sources = await loadMeshes("asset:models/lamp.glb#Base"); // Stone, then Metal
+      const slots = materialSlots(sources);
+      const r = GameObject.create("tv").addBehavior(MeshRenderer, { mesh: "asset:models/lamp.glb#Base", material: "asset:materials/screen.material.json" });
+      r.setMaterialProperty("Screen", "asset:rt/screen.rendertexture.json", 0);
+      const subs = (m: BabylonMaterial) => (m instanceof MultiMaterial ? m.subMaterials.map((s) => s!) : [m]);
+      const before = subs(lib.meshMaterials(r, slots).of(sources[0]))[0];
+      expect(before.name).toMatch(/:tv:0$/); // slot 0's own copy
+      await lib.settled();
+      const old = rt;
+      rt = new Texture(null, scene); // the format changed: a new texture, the old disposed
+      old.dispose();
+      expect(scene.materials).not.toContain(before);
+      const after = subs(lib.meshMaterials(r, slots).of(sources[0]))[0];
+      expect(after).not.toBe(before);
+      expect(after.name).toMatch(/:tv:0$/);
     });
   });
 

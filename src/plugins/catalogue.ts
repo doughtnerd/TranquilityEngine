@@ -4,8 +4,10 @@
 // plugin is one entry here. Manifests only, no plugin code: the exporter and the server plan with it.
 import { animationManifest } from "./animation/manifest";
 import { audioManifest } from "./audio/manifest";
+import { decalsManifest } from "./decals/manifest";
 import { environmentManifest } from "./environment/manifest";
 import { materialsManifest } from "./materials/manifest";
+import { linesManifest } from "./lines/manifest";
 import type { PluginManifest } from "./manifest";
 import { meshesManifest } from "./meshes/manifest";
 import { navigationManifest } from "./navigation/manifest";
@@ -37,6 +39,9 @@ export const FIRST_PARTY = {
   navigation: navigationManifest,
   tilemaps: tilemapsManifest,
   water: waterManifest,
+  // After meshes and tilemaps, which their features sync after or draw beside (ADR 0395, 0396).
+  lines: linesManifest,
+  decals: decalsManifest,
   ui: uiManifest,
   environment: environmentManifest,
   "post-processing": postProcessingManifest,

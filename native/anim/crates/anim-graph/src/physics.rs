@@ -152,6 +152,12 @@ pub fn drive_source(
     (count, f32::from_bits(state[blend::POSE_DT]))
 }
 
+/// Whether a node's state words (a restored snapshot's) are ones the evaluator can run: a
+/// `PHYSICS_BLEND` stores at most two poses.
+pub(crate) fn check_state(kind: u16, s: &[u32]) -> bool {
+    kind != kind::PHYSICS_BLEND || s.get(blend::COUNT).is_some_and(|&n| n <= 2)
+}
+
 /// Evaluates a node of this family. Called only by [`crate::dispatch`].
 pub(crate) fn evaluate(cx: &mut EvalContext<'_>, kind: u16, node: NodeData<'_>) -> NodeStatus {
     match kind {

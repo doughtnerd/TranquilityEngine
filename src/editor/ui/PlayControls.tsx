@@ -4,6 +4,7 @@ import { currentProject, docVersion, playState } from "../state";
 import { PlayLanguageMenu } from "./PlayLanguageMenu";
 import { playToolbarItems, type PlayToolbarItemContribution } from "../sdk/contributions";
 import { lazyComponent, type LazyComponent } from "./lazy";
+import { PauseIcon, PlayIcon, StepIcon } from "./toolIcons";
 import "./playdebug.css";
 
 // One lazy wrapper per contribution (ADR 0348): the plugins' Play toolbar controls, loaded with the toolbar.
@@ -22,16 +23,17 @@ export function PlayControls() {
   return (
     <div class="group play-controls" role="group" aria-label="Play controls">
       <button
-        class={`pause-button${paused ? " active" : ""}`}
+        class={`icon-button pause-button${paused ? " active" : ""}`}
         disabled={!playing}
+        aria-label={paused ? "Resume" : "Pause"}
         aria-pressed={paused}
         title={paused ? "Resume the game (Ctrl+Shift+P)" : "Pause the game: every World holds still (Ctrl+Shift+P)"}
         onClick={togglePause}
       >
-        {paused ? "▶ Resume" : "❚❚ Pause"}
+        {paused ? <PlayIcon /> : <PauseIcon />}
       </button>
-      <button disabled={!playing} title="Advance every World one frame, with a fixed step when one is due (F10 or Ctrl+Alt+P)" onClick={stepFrame}>
-        Step
+      <button class="icon-button" disabled={!playing} aria-label="Step" title="Advance every World one frame, with a fixed step when one is due (F10 or Ctrl+Alt+P)" onClick={stepFrame}>
+        <StepIcon />
       </button>
       <PlayLanguage playing={playing} />
       {/* The Subtitles overlay toggle (ADR 0357 §6) is the subtitles plugin's Play toolbar item, there while it is on. */}

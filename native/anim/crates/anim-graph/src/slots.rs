@@ -36,7 +36,9 @@ use anim_format::NONE;
 use anim_pose::root::RootDelta;
 
 use crate::dispatch::NodeStatus;
-use crate::eval::{mix_roots, EvalContext, NodeData, Phase, Program, StateEvent, StateEventKind};
+use crate::eval::{
+    mix_roots, Assets, EvalContext, NodeData, Phase, Program, StateEvent, StateEventKind,
+};
 use crate::mixing::{self, unit};
 use crate::sources::{self, player, PLAYER_LOOP_SET};
 
@@ -259,6 +261,54 @@ pub(crate) fn evaluate(cx: &mut EvalContext<'_>, kind: u16, node: NodeData<'_>) 
         _ => return NodeStatus::UnknownKind,
     }
     NodeStatus::Done
+}
+
+/// Whether node `node`'s state words (a restored snapshot's) hold only what the evaluator can run:
+/// a linked graph's parameter map, and the graph it runs, which must fit the slot, with that
+/// graph's own blob checked in turn. (A slot's words index nothing.)
+pub(crate) fn check_state(
+    program: &Program,
+    node: u32,
+    kind: u16,
+    s: &[u32],
+    groups: usize,
+    assets: &dyn Assets,
+) -> bool {
+    match kind {
+        kind::LINKED => {
+            let Some(params) = program.node_params(node) else {
+                return false;
+            };
+            let (_, _, _, pcap) = capacity(params);
+            let blob = linked::MAP + pcap as usize;
+            if s.len() < blob {
+                return false;
+            }
+            let map_count = s[linked::MAP_COUNT] as usize;
+            if map_count > pcap as usize
+                || s[linked::MAP..linked::MAP + map_count]
+                    .iter()
+                    .any(|&o| o != NONE && o as usize >= program.param_count())
+            {
+                return false;
+            }
+            let handle = s[linked::HANDLE];
+            if handle == 0 {
+                return true;
+            }
+            // A released graph runs nothing; one that is there must be one the slot could link.
+            let Some(graph) = assets.graph(handle) else {
+                return true;
+            };
+            let inner = graph.program;
+            let side = program.side(node) as usize;
+            map_count <= inner.param_count()
+                && can_link(program, side, inner, groups)
+                && s.get(blob..blob + inner.state_words(groups))
+                    .is_some_and(|blob| inner.check_state(blob, groups, assets))
+        }
+        _ => true,
+    }
 }
 
 fn update_slot(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {

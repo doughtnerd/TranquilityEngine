@@ -564,6 +564,12 @@ export function parseAudioSettings(input: unknown, options: AudioParseOptions = 
         }
       }
       settings.buses = buses.slice(0, MAX_BUSES);
+      // A kept bus whose parent was cut off by the cap hangs off the root too (the mixer needs every parent in the list).
+      for (const b of settings.buses.slice(1)) {
+        if (settings.buses.some((o) => o.name === b.parent)) continue;
+        problems.push(`audio.buses: "${b.name}" names the parent "${b.parent}", which is past the ${MAX_BUSES}-bus limit; using "${root.name}".`);
+        b.parent = root.name;
+      }
       // ADR 0344: sends name buses of the list, so they are read once every bus is known.
       settings.buses.forEach((b) => {
         if (!rawSends.has(b)) return;

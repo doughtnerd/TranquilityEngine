@@ -51,6 +51,7 @@ import {
 } from "../materialResolution";
 import { createGraphMaterial, type BabylonGraphMaterial, type GraphShared } from "./graphMaterial";
 import { applyBuiltinOverrides, applyBuiltinSettings, applySlotOverrides, builtinTextureSlots, hasLiveTextureTransform, modelBaseMaterial, modelSubMeshes, pbr, tiledTexture, type SlotAdjust } from "./materials";
+import { cloneMaterial, onOwnerDisposed } from "./materialClone";
 import { MycoProbeBlendPlugin } from "./probeBlend";
 import type { ProbeHit } from "./probes";
 import { WARM_PREFIX } from "./warmUp";
@@ -90,6 +91,8 @@ interface AssetEntry {
   graph?: BabylonGraphMaterial;
   /** Tiled texture copies it owns. */
   owned: Texture[];
+  /** The texture paths it loaded (no `asset:`): a render texture among them replaced means a rebuild (ADR 0109). */
+  uses: Set<string>;
   /** A shared Material's texture value was taken back: rebuild next time (ADR 0107). */
   rebuild?: boolean;
 }
@@ -152,6 +155,15 @@ export class BabylonMaterialLibrary {
   private readonly modelMaterials = new WeakMap<object, BabylonMaterial>();
   private readonly slotMultis = new WeakMap<object, Map<string, MultiMaterial>>();
   private readonly probeCopies = new WeakMap<BabylonMaterial, Map<string, PBRMaterial>>();
+  /**
+   * The blended probe copies a sync made (keyed by weight, so a mesh crossing a blend zone makes one per
+   * step), each with whether a renderer drew it this sync: {@link endSync} frees the rest. Copies asked for
+   * outside a sync (the warm-up's) aren't here, so they stay.
+   */
+  private readonly syncedBlends = new Map<PBRMaterial, boolean>();
+  private syncing = false;
+  /** How to free each clone it made: with the texture copies Babylon's `clone` made for it (`cloneMaterial`). */
+  private readonly clones = new WeakMap<BabylonMaterial, () => void>();
   private readonly textures = new Map<string, Texture>();
   private readonly pending = new Map<string, Promise<Texture>>();
   /** The sidecar each texture was sampled from, so a rewritten one is applied again. */
@@ -225,12 +237,16 @@ export class BabylonMaterialLibrary {
 
   /** Start a sync of a World's renderers: script instances not drawn by its end are freed ({@link endSync}). */
   beginSync(): void {
+    this.syncing = true;
     for (const e of this.instances.values()) e.seen = false;
+    for (const m of this.syncedBlends.keys()) this.syncedBlends.set(m, false);
   }
 
-  /** Free the script Material instances no renderer drew since {@link beginSync}. */
+  /** Free the script Material instances and blended probe copies no renderer drew since {@link beginSync}. */
   endSync(): void {
+    this.syncing = false;
     for (const [m, e] of this.instances) if (!e.seen) this.disposeInstance(m);
+    for (const [m, seen] of [...this.syncedBlends]) if (!seen) this.disposeClone(m);
   }
 
   /** A renderer went: free its override copies. */
@@ -244,7 +260,7 @@ export class BabylonMaterialLibrary {
     const e = this.renderers.get(r);
     if (!e) return;
     if (e.graph) e.graph.dispose();
-    else if (e.material !== e.base) e.material.dispose();
+    else if (e.material !== e.base) this.disposeClone(e.material);
     this.renderers.delete(r);
   }
 
@@ -330,20 +346,42 @@ export class BabylonMaterialLibrary {
 
   /**
    * A copy of a built-in material reflecting a probe's map (ADR 0054), one per material, probe and blend
-   * (a neighbour's map and the primary's share, ADR 0110), kept for reuse.
+   * (a neighbour's map and the primary's share, ADR 0110), kept for reuse. A blended copy a sync made is
+   * freed at the end of the first sync that doesn't draw it, so a mesh moving through a blend zone keeps
+   * only the copies drawn now.
    */
   probeCopy(base: PBRMaterial, hit: ProbeHit): PBRMaterial {
     let byProbe = this.probeCopies.get(base);
-    if (!byProbe) this.probeCopies.set(base, (byProbe = new Map()));
+    if (!byProbe) {
+      const copies = (byProbe = new Map<string, PBRMaterial>());
+      this.probeCopies.set(base, copies);
+      // The base freed (an asset rebuilt, a renderer's or instance's copy released): so are its probe copies.
+      base.onDisposeObservable.addOnce(() => {
+        if (this.probeCopies.get(base) === copies) this.probeCopies.delete(base);
+        for (const c of [...copies.values()]) this.disposeClone(c);
+        copies.clear();
+      });
+    }
     const b = hit.blend;
     const key = b ? `${hit.texture.uniqueId}|${b.texture.uniqueId}|${b.weight}` : `${hit.texture.uniqueId}`;
     let m = byProbe.get(key);
     if (!m) {
-      m = base.clone(`${base.name}:probe`);
-      m.reflectionTexture = hit.texture;
-      if (b) new MycoProbeBlendPlugin(m, { texture: b.texture, weight: b.weight, intensityRatio: 1, box: null });
-      byProbe.set(key, m);
-      if (this.noFog.has(base)) this.noFog.add(m);
+      const made = (m = this.clone(base, `${base.name}:probe`));
+      made.reflectionTexture = hit.texture;
+      if (b) new MycoProbeBlendPlugin(made, { texture: b.texture, weight: b.weight, intensityRatio: 1, box: null });
+      byProbe.set(key, made);
+      if (this.noFog.has(base)) this.noFog.add(made);
+      // A probe's map freed (the probe gone, recaptured at another size, baked): nothing finds this copy again.
+      const copies = byProbe;
+      made.onDisposeObservable.addOnce(() => {
+        this.syncedBlends.delete(made);
+        if (copies.get(key) === made) copies.delete(key);
+      });
+      onOwnerDisposed(made, b ? [hit.texture, b.texture] : [hit.texture], () => this.disposeClone(made));
+      if (b && this.syncing) this.syncedBlends.set(made, true);
+    } else if (this.syncedBlends.has(m)) {
+      if (this.syncing) this.syncedBlends.set(m, true);
+      else this.syncedBlends.delete(m); // the warm-up's too now: kept
     }
     m.environmentIntensity = hit.intensity;
     if (b) {
@@ -369,8 +407,7 @@ export class BabylonMaterialLibrary {
       const made = this.graphCopy(g, name);
       return { material: made.material, dispose: () => made.dispose() };
     }
-    const copy = base.clone(name);
-    return copy ? { material: copy, dispose: () => copy.dispose(false, false) } : null;
+    return cloneMaterial(base, name);
   }
 
   /** Whether a material is a shader graph's or shader asset's (no probe or blend copies). */
@@ -421,6 +458,8 @@ export class BabylonMaterialLibrary {
       if (!rt) return Promise.reject(new Error(`render texture "${path}" isn't in the project`));
       this.borrowed.add(rt);
       this.textures.set(load.key, rt);
+      // A changed format replaces the asset's texture (renderTextures.ts): what samples this one must take the new one.
+      rt.onDisposeObservable.addOnce(() => this.renderTextureGone(path, load.key, rt));
       this.sampledFrom.set(load.key, samplingSource(path)); // sampled from the asset's own settings, not a sidecar
       return Promise.resolve(rt);
     }
@@ -509,6 +548,26 @@ export class BabylonMaterialLibrary {
     tex.wrapU = tex.wrapV = WRAP[s.wrap];
   }
 
+  /**
+   * A render texture handed out was disposed (its asset's format changed, ADR 0109): forget it, so the next
+   * ask gets the asset's new texture, and rebuild what sampled it: the material assets that loaded it, and
+   * the script instance, renderer and slot copies that set it as a value (made again on their next draw).
+   */
+  private renderTextureGone(path: string, key: string, rt: Texture): void {
+    if (this.textures.get(key) === rt) this.textures.delete(key);
+    if (![...this.textures.values()].includes(rt)) this.borrowed.delete(rt);
+    const image = path.replace(/^asset:/, "");
+    const names = (m: BabylonMaterial, graph: BabylonGraphMaterial | undefined) =>
+      graph
+        ? Object.values(graph.properties).some((v) => typeof v === "string" && v.replace(/^asset:/, "") === image)
+        : m instanceof PBRMaterial && this.wantedTextures.get(m) === image;
+    for (const e of this.assets.values()) if (e.uses.has(image) || (e.material && names(e.material, e.graph))) e.rebuild = true;
+    for (const [r, e] of [...this.renderers]) if (e.material !== e.base && names(e.material, e.graph)) this.releaseOverrides(r);
+    // A slot copy taking it as a slot override only (its base doesn't): the renderer's slot copies go.
+    for (const [r, held] of [...this.slotEntries]) if ([...held.slots.values()].some((e) => e.material !== e.base && names(e.material, e.graph))) this.releaseSlots(r);
+    for (const [m, e] of [...this.instances]) if (e.material !== e.base && names(e.material, e.graph)) this.disposeInstance(m);
+  }
+
   /** A slot picker for `modelBaseMaterial`: each slot's sources in order, then null (the model's own). */
   private slotPicker(req: SlotRequest, slots: readonly MaterialSlot[], own: (slot: number) => BabylonMaterial | null, renderer: BabylonMaterial | null) {
     const sources = slotSources(req, slots.map((s) => s.surface.name));
@@ -532,10 +591,14 @@ export class BabylonMaterialLibrary {
     if (cached) this.disposeAsset(cached);
     const resolved = resolveMaterial(path, { shaderLevel: level, target: this.scene.getEngine().isWebGPU ? "wgsl" : "glsl", read: this.read });
     for (const w of resolved.warnings) this.warn(w);
-    const entry: AssetEntry = { resolved, material: null, owned: [] };
+    const entry: AssetEntry = { resolved, material: null, owned: [], uses: new Set() };
     this.assets.set(path, entry);
     if (resolved.kind === "graph") {
-      const graph = createGraphMaterial(this.scene, `graph:${resolved.graph!.replace(/^asset:/, "")}`, resolved.compiled!, resolved.properties, this.shared, this.loadGraphTexture);
+      const load = (p: string, linear: boolean) => {
+        entry.uses.add(p.replace(/^asset:/, ""));
+        return this.loadGraphTexture(p, linear);
+      };
+      const graph = createGraphMaterial(this.scene, `graph:${resolved.graph!.replace(/^asset:/, "")}`, resolved.compiled!, resolved.properties, this.shared, load);
       graph.setKeywords(resolved.keywords);
       this.graphs.set(graph.material, graph);
       entry.graph = graph;
@@ -560,6 +623,7 @@ export class BabylonMaterialLibrary {
     for (const slot of builtinTextureSlots(m, settings)) {
       const image = slot.image.replace(/^asset:/, "");
       if (!image) continue;
+      entry.uses.add(image);
       this.texture(image)
         .then((shared) => {
           if (this.assets.get(path) !== entry) return; // replaced meanwhile
@@ -576,6 +640,21 @@ export class BabylonMaterialLibrary {
     const made = createGraphMaterial(this.scene, name, g.compiled, { ...properties }, this.shared, this.loadGraphTexture);
     made.setKeywords(g.keywords); // a variant of the base's (ADR 0106)
     return made;
+  }
+
+  /** A clone of a built-in material, freed with its texture copies by {@link disposeClone}. */
+  private clone(base: PBRMaterial, name: string): PBRMaterial {
+    const made = cloneMaterial(base, name)!; // a PBR material always clones
+    this.clones.set(made.material, made.dispose);
+    return made.material;
+  }
+
+  /** Free a material made by {@link clone}. */
+  private disposeClone(m: BabylonMaterial): void {
+    const free = this.clones.get(m);
+    this.clones.delete(m);
+    if (free) free();
+    else m.dispose();
   }
 
   private bump(m: BabylonMaterial): void {
@@ -627,7 +706,7 @@ export class BabylonMaterialLibrary {
         this.graphs.set(made.material, made);
         e = { base: asset, material: made.material, graph: made, version: -1, seen: true };
       } else if (asset instanceof PBRMaterial) {
-        e = { base: asset, material: asset.clone(`${asset.name}:instance`), version: -1, seen: true };
+        e = { base: asset, material: this.clone(asset, `${asset.name}:instance`), version: -1, seen: true };
       } else e = { base: asset, material: asset, version: m._version, seen: true };
       if (this.noFog.has(asset)) this.noFog.add(e.material);
       this.instances.set(m, e);
@@ -649,7 +728,7 @@ export class BabylonMaterialLibrary {
     const e = this.instances.get(m);
     if (!e) return;
     if (e.graph) e.graph.dispose();
-    else if (e.material !== e.base) e.material.dispose();
+    else if (e.material !== e.base) this.disposeClone(e.material);
     this.instances.delete(m);
   }
 
@@ -683,6 +762,8 @@ export class BabylonMaterialLibrary {
     if (!entry) {
       if (baseGraph) {
         const g = this.graphCopy(baseGraph, `${base.name}:${r.node.name}`, { ...baseGraph.properties, ...values });
+        this.graphs.set(g.material, g); // a graph's copy: no probe copy (Babylon can't clone graph plugins), and it batches as a graph
+        if (this.noFog.has(base)) this.noFog.add(g.material);
         entry = { base, material: g.material, graph: g, version: r._materialPropertiesVersion, stamp };
       } else {
         entry = { base, material: base, version: -1, stamp };
@@ -699,7 +780,10 @@ export class BabylonMaterialLibrary {
       } else if (base instanceof PBRMaterial) {
         // One copy per renderer, updated in place: a new copy per change rebuilt the renderer's meshes
         // and compiled its shaders again (a splash fading its colour every frame did both).
-        if (entry.material === base) entry.material = base.clone(`${base.name}:${r.node.name}`);
+        if (entry.material === base) {
+          entry.material = this.clone(base, `${base.name}:${r.node.name}`);
+          if (this.noFog.has(base)) this.noFog.add(entry.material);
+        }
         const m = entry.material as PBRMaterial;
         applyBuiltinOverrides(m, base, values);
         this.overrideTexture(m, base, values);

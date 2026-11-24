@@ -1,4 +1,4 @@
-// The host toolchain a desktop package needs (ADR 0381): what the desktop editor's probe
+// The host toolchain a desktop package needs (ADR 0406): what the desktop editor's probe
 // (src-tauri/src/game_build.rs, `myco_build_toolchain`) found, read into whether the editor can
 // build the app itself, which Tauri CLI it runs, and what to install when it can't. No process
 // access here: the editor asks the shell, this decides.

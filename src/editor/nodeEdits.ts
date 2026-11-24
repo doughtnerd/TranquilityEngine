@@ -7,7 +7,7 @@
 // say why it isn't allowed (`whyNot`), read-only projects included (`readOnly.ts`), and the prefab
 // actions report their outcome, or the refusal, in the status bar. Siblings: `fieldEdits.ts` (field
 // values), `componentEdits.ts` (components) and `inspectorEdits.ts` (Worlds and tags).
-import { RevertOverrides, type NodePath } from "./document";
+import { RenameNodeId, RevertOverrides, type NodePath, type SceneDocument } from "./document";
 import { errorStatus } from "./messages";
 import { isOverridden, writeProperty } from "./overrideWriter";
 import { applyOverridesTo, createPrefab, createPrefabFromNodes, findInner } from "./prefabs";
@@ -15,7 +15,7 @@ import { openPrefabFrom } from "./prefabTabs";
 import type { EditorProject } from "./projects";
 import { whyReadOnly } from "./readOnly";
 import { select } from "./inspectorTarget";
-import { status, type OpenScene } from "./state";
+import { selectedKeys, status, type OpenScene } from "./state";
 import { editableNow, statusSentence, whyNotEdit } from "./editGate";
 import { undoStep } from "./undoStep";
 
@@ -88,6 +88,35 @@ export function renameNode(scene: OpenScene, path: NodePath, name: string): bool
   if (!command) return false;
   scene.stack.execute(command);
   return true;
+}
+
+/**
+ * Why `next` can't be the id of the top-level node `id`, or null when it can: not empty, no "/" (it joins the
+ * ids of a path), and not another node's id in the scene. `next` is taken as typed, trimmed.
+ */
+export function nodeIdProblem(doc: SceneDocument, id: string, next: string): string | null {
+  const wanted = next.trim();
+  if (wanted === "") return "An id can't be empty.";
+  if (wanted.includes("/")) return 'An id can\'t contain "/".';
+  if (wanted !== id && doc.has(wanted)) return `Another node already has the id "${wanted}".`;
+  return null;
+}
+
+/**
+ * Change a top-level node's id as one undo step, following the references to it (`{"$node": id}`, children's
+ * parents) and the selection. Returns the problem (see `nodeIdProblem`) and changes nothing when the id isn't
+ * allowed; null when it changed or was already `next`.
+ */
+export function renameNodeId(scene: OpenScene, id: string, next: string): string | null {
+  const wanted = next.trim();
+  const problem = nodeIdProblem(scene.doc, id, wanted);
+  if (problem) return problem;
+  if (wanted === id || !editableNow({ kind: "scene", scene })) return null;
+  scene.stack.execute(new RenameNodeId(id, wanted));
+  const moved = (k: string) => (k === id || k.startsWith(`${id}/`) ? wanted + k.slice(id.length) : k);
+  const keys = selectedKeys.peek();
+  if (keys.some((k) => moved(k) !== k)) select(keys.map(moved), moved(keys[keys.length - 1]));
+  return null;
 }
 
 /** Remove the name and active overrides of the nodes inside instances, as one undo step. Returns how many were removed. */
@@ -194,9 +223,14 @@ export async function createPrefabFrom(scene: OpenScene, project: EditorProject 
   if (refused(prefabActions(scene, project, paths).create, "Create Prefab") || !project) return null;
   const ids = paths.map((p) => p[0]);
   try {
-    const path = ids.length === 1 ? await createPrefab(scene, project, ids[0]) : await createPrefabFromNodes(scene, project, ids);
+    const { path, instanceOverrides: n, droppedListItems: d } = ids.length === 1 ? await createPrefab(scene, project, ids[0]) : await createPrefabFromNodes(scene, project, ids);
     if (ids.length === 1) select([ids[0]]);
-    status.value = { kind: "info", text: `Created ${path}. Undo turns the node${ids.length === 1 ? "" : "s"} back; the file stays on disk.` };
+    // ADR 0401: a prefab file can't reference scene nodes, so those references stay on the instance.
+    const kept =
+      n === 0 ? "" : ` ${n} reference${n === 1 ? "" : "s"} to nodes outside the prefab became instance override${n === 1 ? "" : "s"}; the prefab file leaves ${n === 1 ? "it" : "them"} empty.`;
+    const left =
+      d === 0 ? "" : ` ${d} list item${d === 1 ? "" : "s"} naming nodes inside the prefab ${d === 1 ? "was" : "were"} cleared in the instance's override${d === 1 ? "" : "s"} (the prefab file keeps ${d === 1 ? "it" : "them"}).`;
+    status.value = { kind: "info", text: `Created ${path}.${kept}${left} Undo turns the node${ids.length === 1 ? "" : "s"} back; the file stays on disk.` };
     return path;
   } catch (err) {
     status.value = errorStatus(null, err);

@@ -20,6 +20,12 @@ describe("line breaking: Latin text (unchanged)", () => {
     expect(lines("no wrap at all", Infinity)).toEqual(["no wrap at all"]);
   });
 
+  it("keeps leading spaces with the first word, giving no empty first line", () => {
+    expect(lineSegments("  Hello world")).toEqual(["  Hello ", "world"]);
+    expect(lines("  Hello world", 8)).toEqual(["  Hello", "world"]);
+    expect(lines("   ", 2)).toEqual([""]);
+  });
+
   it("breaks between any two graphemes for break-all, never inside one", () => {
     expect(lineSegments("ab", "anywhere")).toEqual(["a", "b"]);
     expect(lineSegments("éx", "anywhere")).toEqual(["é", "x"]);

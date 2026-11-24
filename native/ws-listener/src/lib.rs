@@ -37,6 +37,9 @@ const ACCEPT_POLL: Duration = Duration::from_millis(10);
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
 /// After a local close, how long to wait for the peer's close frame.
 const CLOSE_TIMEOUT: Duration = Duration::from_secs(1);
+/// A peer that takes none of what's been sent for this long is closed as too slow, even under the
+/// backlog limit (the page may have stopped sending, or closed it and be waiting for nothing).
+const STALL_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Close codes (RFC 6455).
 const GOING_AWAY: u16 = 1001;
@@ -109,6 +112,16 @@ impl Listener {
         sink: Sink,
     ) -> Result<Listener, String> {
         let socket = TcpListener::bind((host, port)).map_err(|e| bind_error(host, port, &e))?;
+        Listener::start(socket, path, limits, sink)
+    }
+
+    /// Starts accepting on an already bound socket.
+    fn start(
+        socket: TcpListener,
+        path: &str,
+        limits: Limits,
+        sink: Sink,
+    ) -> Result<Listener, String> {
         socket.set_nonblocking(true).map_err(|e| e.to_string())?;
         let port = socket.local_addr().map_err(|e| e.to_string())?.port();
         let shared = Arc::new(Shared {
@@ -133,6 +146,37 @@ impl Listener {
             accept: Some(accept),
             port,
         })
+    }
+
+    /// Binds the first free port of `first_port..first_port + count` on `host` and returns the listener
+    /// with the port it got. A port in use moves on to the next; any other error fails at once. When
+    /// every port is taken the error says so ("ports 7790-7799 are all in use"). `count` 0 binds nothing.
+    pub fn bind_range(
+        host: &str,
+        first_port: u16,
+        count: u16,
+        path: &str,
+        limits: Limits,
+        sink: Sink,
+    ) -> Result<(Listener, u16), String> {
+        let last = (first_port as u32 + count as u32)
+            .saturating_sub(1)
+            .min(u16::MAX as u32) as u16;
+        if count == 0 {
+            return Err("no ports to try".into());
+        }
+        for port in first_port..=last {
+            match TcpListener::bind((host, port)) {
+                Ok(socket) => return Ok((Listener::start(socket, path, limits, sink)?, port)),
+                Err(e) if e.kind() == ErrorKind::AddrInUse => continue,
+                Err(e) => return Err(bind_error(host, port, &e)),
+            }
+        }
+        if first_port == last {
+            Err(format!("port {first_port} is already in use"))
+        } else {
+            Err(format!("ports {first_port}-{last} are all in use"))
+        }
     }
 
     /// The bound port (the real one for port 0).
@@ -256,9 +300,13 @@ fn run_connection(stream: TcpStream, remote: SocketAddr, shared: Arc<Shared>) {
     let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
     let _ = stream.set_write_timeout(Some(HANDSHAKE_TIMEOUT));
     let path = shared.path.clone();
+    // The path the upgrade asked for, kept for the accept event (a listener at "/" serves several paths).
+    let asked = Arc::new(Mutex::new(String::new()));
+    let asked_in_check = asked.clone();
     #[allow(clippy::result_large_err)] // the error type is tungstenite's
     let check = move |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
         if path_matches(&path, request.uri().path()) {
+            *asked_in_check.lock().unwrap() = request.uri().path().to_string();
             return Ok(response);
         }
         let mut refusal = ErrorResponse::new(Some("Not Found".into()));
@@ -276,7 +324,9 @@ fn run_connection(stream: TcpStream, remote: SocketAddr, shared: Arc<Shared>) {
         return;
     }
     let _ = ws.get_mut().set_read_timeout(Some(POLL));
-    let _ = ws.get_mut().set_write_timeout(None);
+    // Writes never block for long either: a peer that stops reading must not hold this thread,
+    // or the backlog limit could never close it (see `pump`).
+    let _ = ws.get_mut().set_write_timeout(Some(POLL));
 
     let id = shared.next_id.fetch_add(1, Ordering::Relaxed);
     let (commands, inbox) = mpsc::channel();
@@ -288,9 +338,11 @@ fn run_connection(stream: TcpStream, remote: SocketAddr, shared: Arc<Shared>) {
             queued: queued.clone(),
         },
     );
+    let path = asked.lock().unwrap().clone();
     (shared.sink)(Event::Accept {
         connection: id,
         remote: remote.to_string(),
+        path,
     });
 
     let ended = pump(&mut ws, id, &inbox, &queued, &shared);
@@ -315,14 +367,47 @@ fn pump(
 ) -> Option<(u16, String)> {
     // Set once this end has sent its close frame: wait for the peer's, then stop. The report, if any, goes with it.
     let mut closing: Option<(Instant, Option<(u16, String)>)> = None;
+    // Set while tungstenite holds output the peer hasn't taken: since when. Nothing more is taken
+    // from the inbox meanwhile, so `queued` keeps counting what waits and the backlog limit applies.
+    let mut stalled: Option<Instant> = None;
     loop {
         if closing.is_none() {
+            if let Some(since) = stalled {
+                match ws.flush() {
+                    Ok(()) => stalled = None,
+                    Err(WsError::Io(e)) if would_block(&e) => {
+                        let waiting = queued.load(Ordering::Acquire);
+                        if waiting > shared.limits.max_backlog_bytes
+                            || since.elapsed() > STALL_TIMEOUT
+                        {
+                            // Sending a close frame would stall too: just drop the connection.
+                            return Some((
+                                TOO_BIG,
+                                format!("too slow: {waiting} bytes waiting to send"),
+                            ));
+                        }
+                    }
+                    Err(e) => return Some((ABNORMAL, format!("connection lost: {e}"))),
+                }
+            }
+        }
+        if closing.is_none() && stalled.is_none() {
             loop {
                 match inbox.try_recv() {
                     Ok(Command::Send(data)) => {
                         queued.fetch_sub(data.len(), Ordering::AcqRel);
-                        if let Err(e) = ws.send(Message::Binary(Bytes::from(data))) {
-                            return Some((ABNORMAL, format!("connection lost: {e}")));
+                        // `write` buffers the frame before it flushes, and a flush that would block
+                        // keeps what it couldn't write, so a stall loses nothing.
+                        let sent = ws
+                            .write(Message::Binary(Bytes::from(data)))
+                            .and_then(|()| ws.flush());
+                        match sent {
+                            Ok(()) => {}
+                            Err(WsError::Io(e)) if would_block(&e) => {
+                                stalled = Some(Instant::now());
+                                break;
+                            }
+                            Err(e) => return Some((ABNORMAL, format!("connection lost: {e}"))),
                         }
                     }
                     Ok(Command::Close {
@@ -381,8 +466,7 @@ fn pump(
                 }
             }
             Ok(_) => {} // ping, pong: tungstenite answers pings itself
-            Err(WsError::Io(e))
-                if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {}
+            Err(WsError::Io(e)) if would_block(&e) => {}
             Err(WsError::ConnectionClosed) | Err(WsError::AlreadyClosed) => {
                 return match closing {
                     Some((_, report)) => report,
@@ -406,6 +490,11 @@ fn pump(
             closing = Some((Instant::now(), None));
         }
     }
+}
+
+/// Whether an I/O error is a socket timeout (WouldBlock on Unix, TimedOut on Windows), not a failure.
+fn would_block(e: &io::Error) -> bool {
+    e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut
 }
 
 /// A close frame; the reason is cut to the 123 bytes a close frame allows.
@@ -465,7 +554,9 @@ mod tests {
     fn a_client_connects_exchanges_binary_messages_and_closes() {
         let (listener, rx) = listen("127.0.0.1", 0, "/myco-debug");
         let mut client = connect(listener.port(), "/myco-debug?myco-rtc=1").expect("connects");
-        let Event::Accept { connection, remote } = next(&rx) else {
+        let Event::Accept {
+            connection, remote, ..
+        } = next(&rx) else {
             panic!("accept first")
         };
         assert!(remote.starts_with("127.0.0.1:"), "{remote}");
@@ -499,6 +590,16 @@ mod tests {
                 reason: "done".into()
             }
         );
+    }
+
+    #[test]
+    fn accept_reports_the_path_the_upgrade_asked_for() {
+        let (listener, rx) = listen("127.0.0.1", 0, "/");
+        let _client = connect(listener.port(), "/myco-rendezvous?x=1").expect("accepted");
+        let Event::Accept { path, .. } = next(&rx) else {
+            panic!("accept first")
+        };
+        assert_eq!(path, "/myco-rendezvous");
     }
 
     #[test]
@@ -552,6 +653,47 @@ mod tests {
         .err()
         .expect("refused");
         assert_eq!(error, format!("port {} is already in use", first.port()));
+    }
+
+    fn range(first: u16, count: u16) -> Result<(Listener, u16), String> {
+        Listener::bind_range(
+            "127.0.0.1",
+            first,
+            count,
+            "/",
+            Limits::default(),
+            Arc::new(|_| {}),
+        )
+    }
+
+    #[test]
+    fn bind_range_takes_the_next_port_when_one_is_in_use() {
+        let (first, _rx) = listen("127.0.0.1", 0, "/");
+        let start = first.port();
+        let (second, port) = range(start, 50).expect("binds a later one");
+        assert!(port > start && port < start + 50); // other tests may hold the ports just above
+        assert_eq!(second.port(), port);
+    }
+
+    #[test]
+    fn bind_range_reports_when_every_port_is_taken() {
+        // Two neighbouring ports held here (retried, as other tests bind ports at the same time).
+        let (start, _held) = (0..50)
+            .find_map(|_| {
+                let a = TcpListener::bind(("127.0.0.1", 0)).ok()?;
+                let port = a.local_addr().ok()?.port();
+                let b = TcpListener::bind(("127.0.0.1", port.checked_add(1)?)).ok()?;
+                Some((port, (a, b)))
+            })
+            .expect("two neighbouring ports");
+        assert_eq!(
+            range(start, 1).err().expect("refused"),
+            format!("port {start} is already in use")
+        );
+        assert_eq!(
+            range(start, 2).err().expect("refused"),
+            format!("ports {start}-{} are all in use", start + 1)
+        );
     }
 
     #[test]
@@ -636,6 +778,30 @@ mod tests {
                 code,
                 ..
             } => assert_eq!((c, code), (connection, TOO_BIG)),
+            other => panic!("expected a close, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_peer_that_stops_reading_is_closed_once_the_backlog_is_over_the_limit() {
+        let (listener, rx) = listen("127.0.0.1", 0, "/");
+        let _client = connect(listener.port(), "/").unwrap(); // never reads
+        let Event::Accept { connection, .. } = next(&rx) else {
+            panic!("accept first")
+        };
+        // Far more than the peer's socket buffers hold, so the writes stall and the queue grows.
+        for _ in 0..32 {
+            listener.send(connection, vec![0u8; 1024 * 1024]);
+        }
+        match next(&rx) {
+            Event::Close {
+                connection: c,
+                code,
+                reason,
+            } => {
+                assert_eq!((c, code), (connection, TOO_BIG));
+                assert!(reason.starts_with("too slow"), "{reason}");
+            }
             other => panic!("expected a close, got {other:?}"),
         }
     }

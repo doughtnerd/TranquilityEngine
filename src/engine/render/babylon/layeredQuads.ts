@@ -12,6 +12,8 @@
  *   - each further sprite run of the same order (another texture) sits `RUN_STEP` past the run before,
  *     so runs of one order sort deterministically and stay below the next order (whole or fractional,
  *     as long as the orders are further apart than their runs' steps);
+ *   - a 3D decal volume (`placeDecal`, ADR 0395) sits in a band below every 2D draw order and particle value, by
+ *     its decal order: decals draw first among transparent meshes, right after the opaque scene they land on;
  *   - a particle mesh (`placeParticles`) sits by its emitter's `renderOrder`: 0 at Babylon's default
  *     (`Number.MAX_VALUE`, sorted by distance with the scene's other transparent meshes, after all 2D
  *     content), a negative one at that value (among the 2D content of the first sorting layer), a
@@ -33,6 +35,7 @@ import { VertexData } from "@babylonjs/core/Meshes/mesh.vertexData.js";
 import "@babylonjs/core/Meshes/thinInstanceMesh.js"; // Mesh.thinInstance*
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { Scene } from "@babylonjs/core/scene.js";
+import type { UniformBuffer } from "@babylonjs/core/Materials/uniformBuffer.js";
 import { pbr } from "./materials";
 import { MycoMaterialPlugin } from "./mycoMaterialPlugin";
 
@@ -61,10 +64,98 @@ export function placeInLayer(mesh: AbstractMesh, order: number): void {
   mesh.alphaIndex = order;
 }
 
+/** Where the decal band starts: far below any sorting layer's order (layer index × 10000 + order in layer) or negative particle order. */
+const DECAL_BAND = -1e15;
+/** How far apart decal orders sit (decal orders are whole or fractional numbers well inside ±1e9). */
+const DECAL_STEP = 1e3;
+
+/** Put a 3D decal volume at decal order `order` (ADR 0395: below every 2D layer and particle, higher orders on top). */
+export function placeDecal(mesh: AbstractMesh, order: number): void {
+  const o = Number.isFinite(order) ? Math.max(-1e9, Math.min(1e9, order)) : 0;
+  mesh.alphaIndex = DECAL_BAND + o * DECAL_STEP;
+}
+
 /** Put a mesh drawing particles at its emitter's `renderOrder` (see the file comment). */
 export function placeParticles(mesh: AbstractMesh, renderOrder: number): void {
   if (renderOrder === 0 || !Number.isFinite(renderOrder)) mesh.alphaIndex = Number.MAX_VALUE;
   else mesh.alphaIndex = renderOrder > 0 ? Number.POSITIVE_INFINITY : renderOrder;
+}
+
+// --- masks (ADR 0395) ------------------------------------------------------------------------------
+
+/** The texture and map a quad mask samples (`QuadBatch.setMask`): u = a·x + b·y + c, v = d·x + e·y + f in the mesh's local space. */
+export interface QuadMaskBinding {
+  texture: Texture | null;
+  /** `[a, b, c, d, e, f]`. */
+  uv: readonly number[];
+}
+
+/** Where the mask goes in Babylon's PBR shaders: the local position as a varying, then the alpha multiplied by the mask's. */
+function quadMaskCode(shaderType: string, language: ShaderLanguage): { [point: string]: string } {
+  const wgsl = language === ShaderLanguage.WGSL;
+  if (shaderType === "vertex") {
+    return wgsl
+      ? { CUSTOM_VERTEX_DEFINITIONS: "varying vMycoMaskLocal: vec2f;", CUSTOM_VERTEX_MAIN_END: "vertexOutputs.vMycoMaskLocal = vertexInputs.position.xy;" }
+      : { CUSTOM_VERTEX_DEFINITIONS: "varying vec2 vMycoMaskLocal;", CUSTOM_VERTEX_MAIN_END: "vMycoMaskLocal = position.xy;" };
+  }
+  return wgsl
+    ? {
+        CUSTOM_FRAGMENT_DEFINITIONS: "varying vMycoMaskLocal: vec2f;\nvar mycoQuadMask: texture_2d<f32>;\nvar mycoQuadMaskSampler: sampler;",
+        CUSTOM_FRAGMENT_UPDATE_ALPHA: [
+          "{",
+          "  let mycoP = vec3f(fragmentInputs.vMycoMaskLocal, 1.0);",
+          "  let mycoUv = vec2f(dot(uniforms.mycoQuadMaskU.xyz, mycoP), dot(uniforms.mycoQuadMaskV.xyz, mycoP));",
+          "  let mycoIn = step(0.0, mycoUv.x) * step(mycoUv.x, 1.0) * step(0.0, mycoUv.y) * step(mycoUv.y, 1.0);",
+          "  alpha = alpha * mycoIn * textureSample(mycoQuadMask, mycoQuadMaskSampler, clamp(mycoUv, vec2f(0.0), vec2f(1.0))).a;",
+          "}",
+        ].join("\n"),
+      }
+    : {
+        CUSTOM_FRAGMENT_DEFINITIONS: "varying vec2 vMycoMaskLocal;\nuniform sampler2D mycoQuadMask;",
+        CUSTOM_FRAGMENT_UPDATE_ALPHA: [
+          "{",
+          "  vec3 mycoP = vec3(vMycoMaskLocal, 1.0);",
+          "  vec2 mycoUv = vec2(dot(mycoQuadMaskU.xyz, mycoP), dot(mycoQuadMaskV.xyz, mycoP));",
+          "  float mycoIn = step(0.0, mycoUv.x) * step(mycoUv.x, 1.0) * step(0.0, mycoUv.y) * step(mycoUv.y, 1.0);",
+          "  alpha *= mycoIn * texture2D(mycoQuadMask, clamp(mycoUv, vec2(0.0), vec2(1.0))).a;",
+          "}",
+        ].join("\n"),
+      };
+}
+
+/** A mask on one (unshared) layered quad material: the mask texture's alpha clips the quads (a 2D decal on its sprite). */
+export class QuadMaskPlugin extends MycoMaterialPlugin {
+  constructor(
+    material: PBRMaterial,
+    public mask: QuadMaskBinding,
+  ) {
+    super(material, "MycoQuadMask", 215, { MYCO_QUAD_MASK: true });
+    this.register();
+  }
+  override getClassName(): string {
+    return "MycoQuadMaskPlugin";
+  }
+  override prepareDefines(defines: MaterialDefines): void {
+    defines.MYCO_QUAD_MASK = true;
+  }
+  override getSamplers(samplers: string[]): void {
+    samplers.push("mycoQuadMask");
+  }
+  override getUniforms(): { ubo: { name: string; size: number; type: string }[]; fragment: string } {
+    return { ubo: [{ name: "mycoQuadMaskU", size: 4, type: "vec4" }, { name: "mycoQuadMaskV", size: 4, type: "vec4" }], fragment: "" };
+  }
+  override isReadyForSubMesh(): boolean {
+    return !!this.mask.texture && this.mask.texture.isReady(); // nothing draws until the mask can clip it
+  }
+  override bindForSubMesh(ubo: UniformBuffer): void {
+    const [a = 0, b = 0, c = 0, d = 0, e = 0, f = 0] = this.mask.uv;
+    ubo.updateFloat4("mycoQuadMaskU", a, b, c, 0);
+    ubo.updateFloat4("mycoQuadMaskV", d, e, f, 0);
+    if (this.mask.texture) ubo.setTexture("mycoQuadMask", this.mask.texture);
+  }
+  override getCustomCode(shaderType: string, shaderLanguage?: ShaderLanguage): { [point: string]: string } | null {
+    return quadMaskCode(shaderType, shaderLanguage ?? ShaderLanguage.GLSL);
+  }
 }
 
 // --- sprite batching -------------------------------------------------------------------------------

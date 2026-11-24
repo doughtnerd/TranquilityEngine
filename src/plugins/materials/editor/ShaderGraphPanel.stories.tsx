@@ -3,7 +3,7 @@
 // are the coverage of copy, paste, duplicate and group in the Shader Graph: the e2e spec that does them in the whole
 // editor needs WebGPU for the panel's preview and is skipped where there is none. Also the wiring gesture and find the
 // graph layer runs for both graphs (ADR 0259). The preview here draws nothing (no GPU in the headless story browser)
-// and nothing below reads it.
+// and nothing below reads its pixels (PreviewCard checks where it docks and that the wheel over it leaves the graph alone).
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
 import { editor } from "../../../editor/sdk";
@@ -258,6 +258,36 @@ export const FindInGraph: Story = {
     await step("the toolbar's Find button closes it", async () => {
       await userEvent.click(c.getByRole("button", { name: "Find" }));
       expect(c.queryByRole("search", { name: "Find in graph" })).toBeNull();
+    });
+  },
+};
+
+export const PreviewCard: Story = {
+  play: async ({ canvasElement, step }) => {
+    const p = await openGraph(canvasElement);
+    const c = within(canvasElement);
+    const transform = () => canvasElement.querySelector<HTMLElement>(".sg-viewport")!.style.transform;
+    await step("the preview is a card docked over the canvas, with the mesh picker in its head", async () => {
+      const card = c.getByLabelText("Shader graph preview");
+      expect(p.pane().contains(card)).toBe(true);
+      expect(within(card).getByRole("combobox", { name: "Preview mesh" })).toBeVisible();
+      expect(within(card).getByLabelText("Shader preview")).toBeVisible();
+    });
+    await step("the wheel over the preview doesn't zoom the graph; over the canvas it does", async () => {
+      const before = transform();
+      fireEvent.wheel(c.getByLabelText("Shader preview"), { deltaY: -120 });
+      fireEvent.wheel(c.getByLabelText("Shader graph preview"), { deltaY: -120 });
+      expect(transform()).toBe(before);
+      fireEvent.wheel(p.pane(), { deltaY: -120, clientX: 10, clientY: 10 });
+      await waitFor(() => expect(transform()).not.toBe(before));
+    });
+    await step("the toolbar's Preview button hides it and shows it again", async () => {
+      const toggle = c.getByRole("button", { name: "Preview" });
+      expect(toggle).toHaveAttribute("aria-pressed", "true");
+      await userEvent.click(toggle);
+      expect(c.queryByLabelText("Shader graph preview")).toBeNull();
+      await userEvent.click(toggle);
+      expect(c.getByLabelText("Shader graph preview")).toBeVisible();
     });
   },
 };

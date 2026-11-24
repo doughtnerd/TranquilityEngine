@@ -38,7 +38,7 @@ import { applyOpToProject, projectOpRefusal, type ProjectMixOp } from "./project
 type EffectOverrides = ResolvedMix["effects"];
 import { liveRuleAnswer, unsupportedAnswer, type LiveCaps, type SentClass } from "./busCapability";
 import { LoudnessView, EMPTY_BUS_LOUDNESS, type BusLoudness, type LoudnessSource } from "./loudnessTypes";
-import { parameterDefault } from "./parameters";
+import { isLabelled, parameterDefault } from "./parameters";
 import { evalCurveBy, secondValueOf } from "./curveBy";
 import { engineSettingsOf, projectOfMix } from "./project/format";
 import { dbToGain, levelDbOf, MIN_DB } from "./project/gain";
@@ -83,6 +83,8 @@ export const SNAPSHOT_EDIT_MS = 20;
 export const SNAPSHOT_SEGMENT_MS = 50;
 /** Seconds before a fade's break where the gain lane's ramp aims (the blend's value as the break is reached, not after it). */
 const BREAK_EPSILON = 1e-9;
+/** A presence duck this close to its goal (gain; about 1e-6 dB at full scale) is there. */
+const DUCK_SETTLE = 1e-7;
 
 /**
  * Lane ids: the wire's `LANE_*` constants (api-and-models §4.1), and `vca` (ADR 0344), a main-side lane the wire
@@ -408,6 +410,8 @@ export class Mixer {
   /** The snapshot game code started last that is still on (`Audio.snapshot(name, fade)`'s), or null. */
   get currentSnapshot(): string | null { return this.player.latestCode(); }
   get snapshotNames(): string[] { return this.project.snapshots.map((s) => s.name); }
+  /** Q21: the unknown parameter labels already warned about (`setParameter`), one warning each. */
+  private readonly warnedLabels = new Set<string>();
 
   /** The heard clock ramps are evaluated on: the registered clock, else the mixer's own (`update`'s `dt` summed). */
   get time(): number {
@@ -929,6 +933,16 @@ export class Mixer {
     const def = this.project.parameters.find((p) => p.name === name);
     if (!def) return;
     const v = typeof value === "number" ? value : valueOf(def, value);
+    if (typeof value === "string" && !Number.isFinite(v)) {
+      // Q21 (ADR 0386): an unknown label is ignored, with one warning per parameter and label.
+      const key = `${name}\u0000${value}`;
+      if (!this.warnedLabels.has(key)) {
+        this.warnedLabels.add(key);
+        const labels = isLabelled(def) ? def.labels.map((l) => `"${l}"`).join(", ") : "none (it takes a number)";
+        console.warn(`[myco] audio parameter "${name}" has no label "${value}"; ignored. Labels: ${labels}.`);
+      }
+      return;
+    }
     if (!Number.isFinite(v)) return;
     const now = this.time;
     if (this.player.setParameter(name, value, now)) this.planSnapshots(now, 0, true);
@@ -1170,7 +1184,8 @@ export class Mixer {
 
   /**
    * Presence ducking on main, the Babylon fallback's (on the core backend the core computes it, `_setDuckSource`): each bus heads for the
-   * lowest multiplier any rule with a playing trigger asks for, easing `dt / attack` (or the longest `release`) of the way.
+   * lowest multiplier any rule with a playing trigger asks for, easing `dt / attack` of the way as it deepens, or `dt / release`
+   * (the longest of the rules it leaves) as it lifts, to a shallower rule's level or to none.
    */
   private presenceDuck(dt: number): void {
     const rules = this.settings.ducking.filter((r) => (r as { mode?: string }).mode !== "level");
@@ -1181,9 +1196,16 @@ export class Mixer {
         if (r.amount < goal) { goal = r.amount; time = r.attack; }
       }
       if (goal === 1) time = rules.filter((r) => r.target === name).reduce((m, r) => Math.max(m, r.release), 0);
+      else if (goal > s.duck) {
+        // Q20 (ADR 0386): the duck lifting to a shallower rule's level (a deeper trigger stopped) eases at the release of
+        // the deeper rules it leaves, as the core's per-rule followers do; attack is only for a deepening duck.
+        time = rules.filter((r) => r.target === name && r.amount < goal).reduce((m, r) => Math.max(m, r.release), 0);
+      }
       if (s.duck !== goal) {
         const step = time > 0 ? Math.min(1, dt / time) : 1;
-        s.duck = step >= 1 ? goal : s.duck + (goal - s.duck) * step;
+        const next = step >= 1 ? goal : s.duck + (goal - s.duck) * step;
+        // The ease only nears its goal, and rounding stalls it a few ulps short: snap once the rest is inaudible.
+        s.duck = Math.abs(goal - next) < DUCK_SETTLE ? goal : next;
         this._dirty();
       }
     }

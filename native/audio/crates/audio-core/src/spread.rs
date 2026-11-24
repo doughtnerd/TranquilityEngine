@@ -81,6 +81,7 @@ pub fn apply(entry: &mut FxEntry, panner: &PannerState, l: &mut [f32], r: &mut [
         l[i] = x_l * gp;
         r[i] *= gp;
     }
+    entry.decor.flush_denormals();
     entry.spread_gains = [p1, l1, r1];
     if l1 == 0.0 && r1 == 0.0 {
         // A point source again: the decorrelator starts from silence next time.

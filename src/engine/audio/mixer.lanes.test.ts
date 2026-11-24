@@ -357,9 +357,10 @@ describe("Mixer lanes on the heard clock (Mx1)", () => {
       for (let f = 0; f < 300; f++) {
         run();
         today.update(DT);
-        expect(m.bus("Music").duckGain).toBeCloseTo(today.duck("Music"), 12);
+        // Today's ease never arrives (rounding stalls it ulps short); the mixer's snaps to its goal once within 1e-7.
+        expect(m.bus("Music").duckGain).toBeCloseTo(today.duck("Music"), 6);
       }
-      expect(m.bus("Music").duckGain).toBeCloseTo(0.3, 9);
+      expect(m.bus("Music").duckGain).toBe(0.3);
     });
 
     it("a rule with mode 'level' is not computed on main", () => {

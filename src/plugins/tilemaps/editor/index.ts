@@ -28,7 +28,7 @@ export const tilemapsEditorPlugin: EditorPlugin = {
       icon: TILESET_ICON,
       format: tilesetFormat,
       inspector: () => import("./TilesetInspector").then((m) => m.TilesetInspector),
-      create: { label: "New Tileset", what: "tilesets" },
+      create: { label: "New Tileset", category: "2D", what: "tilesets" },
       referencedAs: ["tileset"],
     });
     // Same id as when it was built in, so saved layouts keep the tab; after Code, so the default tabs stay Assets, Code, Tile Palette.
@@ -45,6 +45,7 @@ export const tilemapsEditorPlugin: EditorPlugin = {
       label: "Tilemap",
       name: "Tilemap",
       after: "sprite",
+      category: "2D", // the Create menus' 2D submenu (ADR 0383)
       components: (position, tileset) => [
         { type: "engine.Transform", data: { position } },
         { type: "engine.Tilemap", data: tileset ? { tileset } : {} },

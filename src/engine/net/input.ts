@@ -4,7 +4,10 @@
  *
  * - A client World writes this tick's input during fixedUpdate (`Move.write({ x })`, or the
  *   writable `Move.local`). Fields it doesn't write keep last tick's values. The input is stored
- *   under the client's `time.network.serverTick` (the prediction timeline).
+ *   under the client's `time.network.serverTick` (the prediction timeline). A tick's input is sent
+ *   once: a second fixed step on the same `serverTick` (it held while its estimate came back)
+ *   sends nothing more for that tick, and its writes carry over to the next. The client's own
+ *   `of()` gives values as they travel (f32, quantized, i32, u8), as the server will read them.
  * - The server reads `Move.of(connectionNode)`: that connection's input for the current server
  *   tick, read-only, or null before any input arrived. If a tick's input is missing (lost, or
  *   late), the newest earlier one is repeated and counted (`Move.stats(node).repeated`): a
@@ -251,9 +254,10 @@ export function defineInput<S extends Schema>(id: string, schema: S, options: In
       if (!peer || peer !== session.serverPeer) return null;
       const state = stream.clients.get(world)?.get(player);
       if (!state) return null;
+      // As the server will read it (f32, quantized, i32, u8), so prediction matches it.
       const replay = session.replayTick;
-      if (replay !== null) return replayed(state, replay) as Readonly<DataView<S>> | null;
-      return state.current as Readonly<DataView<S>>;
+      if (replay !== null) return replayed(stream, state, replay) as Readonly<DataView<S>> | null;
+      return stream.coerce(state.current) as Readonly<DataView<S>>;
     },
     stats(node, player = 0) {
       const world = World.require();
@@ -307,8 +311,8 @@ export function _undefineInput(id: string): void {
  * step was skipped, or not committed yet) gets the newest earlier one, as the server would repeat
  * it; the tick being written gets the current input.
  */
-function replayed(state: ClientState, tick: number): Readonly<Values> | null {
-  if (state.pending && tick === state.tick) return state.current;
+function replayed(stream: Stream, state: ClientState, tick: number): Readonly<Values> | null {
+  if (state.pending && tick === state.tick) return stream.coerce(state.current);
   const history = state.history;
   for (let t = Math.min(tick, history.newest); t >= 0 && t >= history.oldest; t--) {
     const v = history.get(t);
@@ -366,8 +370,11 @@ function clientTick(world: World, session: NetSession): void {
         // Not connected (yet, or any more): a new connection starts a new history.
         state.history.clear();
       }
-      state.tick = open ? session.time.serverTick : -1;
-      state.pending = open;
+      // A step on a tick whose input was already sent (serverTick held, two fixed steps on one
+      // tick) doesn't send another for it: the server keeps the first. Its writes carry over to the next tick.
+      const tick = open ? session.time.serverTick : -1;
+      state.tick = tick;
+      state.pending = open && tick > state.history.newest;
     }
   }
 }

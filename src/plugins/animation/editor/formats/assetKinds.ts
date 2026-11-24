@@ -90,7 +90,7 @@ export const poseDatabaseFormat = format<PoseDatabaseSource>(parsePoseDatabase, 
 export const ANIMATION_ASSET_KINDS: readonly AssetKindContribution[] = [
   {
     id: "animclip", extensions: [ANIM_SOURCE_SUFFIX], label: "Animation Clip", icon: CLIP_ICON, format: animSourceFormat, folder: "animation",
-    create: { label: "New Animation Clip", what: "animation clips" },
+    create: { label: "New Animation Clip", category: "Animation", what: "animation clips" },
     // `Animator.clip`, subclip keys (ADR 0372).
     referencedAs: ["animclip"],
     references: reader(ANIM_SOURCE_SUFFIX, parseAnimSource, animSourceReferences),
@@ -101,7 +101,7 @@ export const ANIMATION_ASSET_KINDS: readonly AssetKindContribution[] = [
   },
   {
     id: "animgraph", extensions: [ANIM_GRAPH_SUFFIX], label: "Animation Graph", icon: GRAPH_ICON, format: animGraphFormat, folder: "animation",
-    create: { label: "New Animation Graph", what: "animation graphs" },
+    create: { label: "New Animation Graph", category: "Animation", what: "animation graphs" },
     // `Animator.graph` and linked-graph overrides.
     referencedAs: ["animgraph"],
     references: reader(ANIM_GRAPH_SUFFIX, parseAnimGraph, animGraphReferences),
@@ -111,7 +111,7 @@ export const ANIMATION_ASSET_KINDS: readonly AssetKindContribution[] = [
   },
   {
     id: "timeline", extensions: [TIMELINE_SUFFIX], label: "Timeline", icon: TIMELINE_ICON, format: timelineFormat, folder: "animation",
-    create: { label: "New Timeline", what: "timelines" },
+    create: { label: "New Timeline", category: "Animation", what: "timelines" },
     // `TimelineDirector.timeline`.
     referencedAs: ["timeline"],
     references: reader(TIMELINE_SUFFIX, parseTimeline, timelineReferences),
@@ -120,14 +120,14 @@ export const ANIMATION_ASSET_KINDS: readonly AssetKindContribution[] = [
   },
   {
     id: "avatarmask", extensions: [MASK_SUFFIX], label: "Avatar Mask", icon: MASK_ICON, format: maskFormat, folder: "animation",
-    create: { label: "New Avatar Mask", what: "avatar masks" },
+    create: { label: "New Avatar Mask", category: "Animation", what: "avatar masks" },
     referencedAs: ["avatarmask"],
     references: reader(MASK_SUFFIX, parseMask, maskReferences),
   },
   {
     // A profile names no other file (sidecars, masks and skeletons name it).
     id: "skelprofile", extensions: [SKELETON_PROFILE_SUFFIX], label: "Skeleton Profile", icon: PROFILE_ICON, format: skeletonProfileFormat, folder: "animation",
-    create: { label: "New Skeleton Profile", what: "skeleton profiles" },
+    create: { label: "New Skeleton Profile", category: "Animation", what: "skeleton profiles" },
     // `Skeleton.profile`.
     referencedAs: ["skelprofile"],
     references: { extensions: [SKELETON_PROFILE_SUFFIX], read: () => [] },
@@ -136,7 +136,7 @@ export const ANIMATION_ASSET_KINDS: readonly AssetKindContribution[] = [
   },
   {
     id: "posedb", extensions: [POSE_DATABASE_SUFFIX], label: "Pose Database", icon: POSEDB_ICON, format: poseDatabaseFormat, folder: "animation",
-    create: { label: "New Pose Database", what: "pose databases" },
+    create: { label: "New Pose Database", category: "Animation", what: "pose databases" },
     referencedAs: ["posedb"],
     references: reader(POSE_DATABASE_SUFFIX, parsePoseDatabase, poseDatabaseReferences),
     // The pose database tool (T55, `poseDatabase/PoseDatabaseEditor.tsx`): clips and tagged ranges, features, Bake.

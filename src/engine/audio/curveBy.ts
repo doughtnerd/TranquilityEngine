@@ -158,22 +158,43 @@ function resample(f: (x: number) => number, keys: Curve): Curve {
   const segments = xs.length - 1;
   const jumps = xs.slice(1).filter((b) => b > firstStep).length;
   const per = Math.max(1, Math.floor((MAX_SLICE_KEYS - 1 - jumps) / segments));
-  const out: CurveKey[] = [];
+  // Keys in slots: a jump's two keys (the left limit just before b, and b) share one slot, so thinning keeps or drops
+  // them together and a jump never turns into a ramp.
+  const slots: CurveKey[][] = [];
+  let count = 0;
+  let jumpOpen = false;
+  const push = (k: CurveKey): void => {
+    if (jumpOpen) slots[slots.length - 1]!.push(k);
+    else slots.push([k]);
+    jumpOpen = false;
+    count++;
+  };
   for (let i = 0; i < segments; i++) {
     const a = xs[i]!, b = xs[i + 1]!;
     for (let s = 0; s < per; s++) {
       const x = a + ((b - a) * s) / per;
-      out.push([x, f(x)]);
+      push([x, f(x)]);
     }
     if (b > firstStep) {
-      // The left limit at b: just before it.
+      // The left limit at b: just before it; b's own key (the next pushed) joins its slot.
       const e = b - (b - a) * 1e-6;
-      if (e > out[out.length - 1]![0]) out.push([e, f(e)]);
+      if (e > slots[slots.length - 1]!.at(-1)![0]) {
+        push([e, f(e)]);
+        jumpOpen = true;
+      }
     }
   }
   const last = xs[xs.length - 1]!;
-  out.push([last, f(last)]);
-  return out.length > MAX_SLICE_KEYS ? out.slice(0, MAX_SLICE_KEYS - 1).concat([out[out.length - 1]!]) : out;
+  push([last, f(last)]);
+  if (count <= MAX_SLICE_KEYS) return slots.flat();
+  // More keys than the limit: keep slots spread evenly over the whole span, the first and the last among them (rather
+  // than a line from the 63rd key to the end), as many as fit.
+  const g = slots.length;
+  for (let k = Math.min(g, MAX_SLICE_KEYS); k >= 2; k--) {
+    const kept = Array.from({ length: k }, (_, j) => slots[Math.round((j * (g - 1)) / (k - 1))]!);
+    if (kept.reduce((n, s) => n + s.length, 0) <= MAX_SLICE_KEYS) return kept.flat();
+  }
+  return [slots[0]![0]!, slots[g - 1]!.at(-1)!];
 }
 
 /**

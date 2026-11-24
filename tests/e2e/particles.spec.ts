@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { expect, type Hooks, openEditor, test, type Page, waitForEditor } from "./fixtures";
+import { assetsMenu, hierarchyMenu } from "./menus";
 import { installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 
 // Particles (ADR 0057, 0060): effects are graph assets authored in the Particle Graph. A Particle
@@ -83,7 +84,7 @@ test("a Particle System from the Create menu gets an effect asset; the Particle 
   const errors = trackErrors(page);
   await openWritablePlayground(page);
   await page.getByRole("button", { name: "Create node" }).click();
-  await page.locator(".hierarchy-menu [role=menuitem]").filter({ has: page.locator("span:first-child", { hasText: /^Create Particle System$/ }) }).click();
+  await hierarchyMenu(page, "Effects", "Particle System");
   await expect(page.locator(".tree .row.selected .name")).toHaveText("Particle System");
 
   // The new effect is an asset in effects/, in the graph format, and the node plays it while selected.
@@ -151,7 +152,7 @@ test("the campfire opens in the Particle Graph as three systems with a live prev
 test("the 3D Playground's campfire plays its three systems in Play mode", async ({ page }) => {
   const errors = trackErrors(page);
   await openEditor(page, { sample: "playground3d" });
-  await page.getByRole("button", { name: "▶ Play" }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   await page.waitForFunction(() => ((window as unknown as Hooks).playEngine?.world.time.frameCount ?? 0) > 10);
   // The campfire's effect plays its three systems (flames, smoke, sparks: the Particle Graph test above shows them).
   await expect.poll(async () => (await playParticles(page)).playing, { timeout: 15_000 }).toBeGreaterThan(0);
@@ -191,7 +192,7 @@ test("a particle sub-graph is created from the Assets menu, opens as a graph, sh
   await page.locator(".asset-folder", { hasText: /^effects$/ }).click();
   const items = (await page.locator(".panel.assets .asset-items").boundingBox())!;
   await page.mouse.click(items.x + items.width - 10, items.y + items.height - 10, { button: "right" });
-  await page.getByRole("menuitem", { name: "New Particle Sub-graph" }).click();
+  await assetsMenu(page, "Create", "Effects", "Particle Sub-graph");
   const tile = page.locator(".asset-tile", { hasText: "New Particle Sub-graph.particlesubgraph.json" });
   await expect(tile).toBeVisible();
   await expect(tile.locator(".asset-kind")).toHaveText("Particle Sub-graph");

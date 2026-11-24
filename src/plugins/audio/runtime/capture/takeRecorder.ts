@@ -5,7 +5,8 @@
 // recorder's "now", so the saver merges the two streams by seq into one file (`save.ts` `mergeRequests`).
 //
 // Instance ids are the runtime's instance groups (the profile's `eventStart` ids, so a request and the profile name one
-// instance alike); a one-shot's voice, which has no group, takes an id from 2^30 up. Emitter 0 is the listener; others are
+// instance alike); a one-shot's voice, which has no group, takes an id from 2^30 up, and so does a later instance given a
+// group an earlier one of the take had (a recycled group must not name two instances). Emitter 0 is the listener; others are
 // numbered from 1 in order of first play, one per entity (an `AudioSource`'s node) or script-placed instance.
 //
 // Part of the lazy chunk: `take.ts` loads it by `import()` on the first `Audio.take.start()`.
@@ -84,6 +85,8 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
   private stopped: string | null = null;
   private readonly ids = new WeakMap<object, number>();
   private nextLocal = LOCAL_ID_BASE;
+  /** The groups an instance of this take already took as its id. */
+  private readonly groups = new Set<number>();
   private readonly live = new Map<number, Live>();
   private readonly emitters = new Map<object, Emitter>();
   private readonly emitterById = new Map<number, Emitter>();
@@ -143,6 +146,26 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
     const id = this.ids.get(instance);
     if (id === undefined) return;
     this.write({ type: TakeRecordType.RELEASE, payload: { kind: "release", t: this.seconds, instance: id } });
+  }
+
+  pause(instance: object): void {
+    const id = this.ids.get(instance);
+    if (id === undefined) return;
+    this.write({ type: TakeRecordType.PAUSE, payload: { kind: "pause", t: this.seconds, instance: id } });
+  }
+
+  resume(instance: object): void {
+    const id = this.ids.get(instance);
+    if (id === undefined) return;
+    this.write({ type: TakeRecordType.RESUME, payload: { kind: "resume", t: this.seconds, instance: id } });
+  }
+
+  fade(instance: object, to: number, seconds: number): void {
+    const id = this.ids.get(instance);
+    // A non-finite `to` is ignored by the handle (it warns), so it isn't played and isn't recorded; the handle clamps the
+    // rest, and the replay's handle clamps the same way.
+    if (id === undefined || !Number.isFinite(to)) return;
+    this.write({ type: TakeRecordType.FADE, payload: { kind: "fade", t: this.seconds, instance: id, to: Math.max(0, to), seconds: Number.isFinite(seconds) ? Math.max(0, seconds) : 0 } });
   }
 
   trigger(instance: object, name: string): void {
@@ -237,7 +260,11 @@ export class TakeRecorder implements TakeRequestSink, CaptureTee {
     let id = this.ids.get(o);
     if (id !== undefined) return id;
     const g = (o as { group?: unknown }).group;
-    id = typeof g === "number" && Number.isInteger(g) && g > 0 && g < LOCAL_ID_BASE ? g : this.nextLocal++;
+    // A group the runtime recycled (its instance ended, a new one took the number) would name two instances: a late
+    // request of the ended one would act on the new one on replay. The second holder takes a local id instead.
+    const group = typeof g === "number" && Number.isInteger(g) && g > 0 && g < LOCAL_ID_BASE && !this.groups.has(g) ? g : null;
+    if (group !== null) this.groups.add(group);
+    id = group ?? this.nextLocal++;
     this.ids.set(o, id);
     return id;
   }

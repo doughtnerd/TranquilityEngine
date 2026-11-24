@@ -176,6 +176,10 @@ pub struct VoiceSlot {
     /// [`MIX_FADE_SECONDS`] on a promote or demote of a started voice.
     pub mix: Ramp,
     pub panner: PannerState,
+    /// A taken-over voice's id still to be reported ended, or 0: the overflow of
+    /// [`VoiceArea::replaced`], one cell per slot (any voice's id may wait in any slot's cell). It
+    /// outlives the slot's voices: PLAY and the free leave it; the next report with room sends it.
+    pub replaced: u32,
 }
 
 const _: () = assert!(core::mem::size_of::<VoiceSlot>() <= VOICE_SLOT_BYTES, "a voice slot fits its layout size");
@@ -210,7 +214,21 @@ pub struct VoiceArea {
     /// Playheads gathered this quantum (round-robin), reported right after the render.
     pub playheads_len: u32,
     pub playheads: [Playhead; PLAYHEADS_CAP],
+    /// Voices taken over by a PLAY (A1.1's steal) while the block's `ended` list was full: their slot
+    /// is reused, so they wait here and go out first in the next report with room, oldest first.
+    pub replaced_len: u32,
+    pub replaced: [u32; REPLACED_CARRY],
+    /// The overflow of `replaced`: how many slots' [`VoiceSlot::replaced`] cells hold an id, and
+    /// where the next search for a cell starts.
+    pub replaced_cells: u32,
+    pub replaced_cursor: u32,
 }
+
+/// Taken-over voices [`VoiceArea::replaced`] holds in order for later blocks; past that they wait
+/// in the slots' [`VoiceSlot::replaced`] cells. Every slot has one, so a flood of takeovers while
+/// `ended` stays full is reported in full once room comes back: it would take more waiting reports
+/// than this plus the slot count for one to be dropped.
+pub const REPLACED_CARRY: usize = 1_024;
 
 /// Offset of [`VoiceArea`] in the core-state region.
 pub const VOICE_AREA_OFFSET: usize = crate::status::STATUS_AREA_BYTES;
@@ -324,7 +342,8 @@ fn unlink_and_free(v: &mut View<'_>, index: usize) {
     crate::fxpool::release(v.pool, v.slots[index].fx, index);
     // 0166 M4-0: its curve (a shaped fade still running) goes with it.
     crate::curves::release(v.curves, v.slots[index].reserved, index);
-    v.slots[index] = VoiceSlot::default();
+    // A taken-over voice's report waiting in this slot's cell outlives the voice.
+    v.slots[index] = VoiceSlot { replaced: v.slots[index].replaced, ..VoiceSlot::default() };
     v.area.live_count -= 1;
 }
 
@@ -1982,12 +2001,89 @@ fn clip_seek_jump(slot: &mut VoiceSlot, frames: u32, looping: bool) {
     slot.start_frame = 0;
 }
 
+/// Moves the taken-over voices waiting in [`VoiceArea::replaced`] into STATUS `ended`, as many as
+/// it has room for; the rest move down and wait.
+fn report_replaced(core: &mut Core) {
+    let (waiting, cells) = {
+        let a = &view(core.regions_mut()).area;
+        (a.replaced_len as usize, a.replaced_cells)
+    };
+    if waiting == 0 && cells == 0 {
+        return;
+    }
+    let mut sent = 0;
+    while sent < waiting {
+        let id = view(core.regions_mut()).area.replaced[sent];
+        if !status::counters_mut(core).ended.push(id) {
+            break;
+        }
+        sent += 1;
+    }
+    let a = &mut view(core.regions_mut()).area;
+    a.replaced.copy_within(sent..waiting, 0);
+    a.replaced_len = (waiting - sent) as u32;
+    if sent < waiting {
+        return;
+    }
+    // The carry went out whole: then the slots' cells, as room allows.
+    loop {
+        let (id, i) = {
+            let v = view(core.regions_mut());
+            if v.area.replaced_cells == 0 {
+                return;
+            }
+            match next_cell(&v, true) {
+                Some(i) => (v.slots[i].replaced, i),
+                None => {
+                    v.area.replaced_cells = 0;
+                    return;
+                }
+            }
+        };
+        if !status::counters_mut(core).ended.push(id) {
+            return;
+        }
+        let v = view(core.regions_mut());
+        v.slots[i].replaced = 0;
+        v.area.replaced_cells -= 1;
+        v.area.replaced_cursor = ((i + 1) % v.slots.len()) as u32;
+    }
+}
+
+/// The first slot from [`VoiceArea::replaced_cursor`] on (wrapping) whose `replaced` cell holds an
+/// id (`full`) or is empty; `None` when there is none. Only on the overflow path.
+fn next_cell(v: &View<'_>, full: bool) -> Option<usize> {
+    let n = v.slots.len();
+    let start = v.area.replaced_cursor as usize;
+    (0..n).map(|k| (start + k) % n).find(|&i| (v.slots[i].replaced != 0) == full)
+}
+
+/// Keeps taken-over voice `old` (slot `index`'s) for a later report: in the carry while it has
+/// room, else in its slot's cell, else in the first empty cell of another slot.
+fn carry_replaced(core: &mut Core, index: usize, old: u32) {
+    let v = view(core.regions_mut());
+    if (v.area.replaced_len as usize) < REPLACED_CARRY {
+        let at = v.area.replaced_len as usize;
+        v.area.replaced[at] = old;
+        v.area.replaced_len += 1;
+        return;
+    }
+    let cell = if v.slots[index].replaced == 0 { Some(index) } else { next_cell(&v, false) };
+    if let Some(i) = cell {
+        v.slots[i].replaced = old;
+        v.area.replaced_cells += 1;
+    }
+    // None: the carry and every slot's cell are full, more waiting reports than REPLACED_CARRY
+    // plus the slots; this one can't be kept.
+}
+
 /// After the render: frees ended voices into STATUS `ended` (as many as the block has room for),
 /// gathers playheads round-robin, and sets the live and mixed counts and the late records.
 fn report(core: &mut Core) {
     // B3: first, while the rings of voices that ended this quantum still hold their reports.
     report_streams(core);
     starve_hook(core);
+    report_replaced(core);
     let room = (ENDED_CAP - status::counters(core).ended.len()).min(ENDED_SCRATCH);
     let (live, mixed, ambisonic, ended, playheads, late_count, late_max, starts_late, held) = {
         let (regions, _, streams) = core.render_parts();
@@ -2254,7 +2350,10 @@ pub fn play(core: &mut Core, play: &wire::Play, start_frame: u64) {
     if let Some((old, stream, clip, old_flags2)) = replaced {
         // 0166 M4a (C2b): a replaced member leaves its group.
         crate::groups::leave(crate::groups::entries(core.regions_mut().groups), old_flags2, old);
-        status::counters_mut(core).ended.push(old);
+        if !status::counters_mut(core).ended.push(old) {
+            // The block's list is full: the next report with room sends it.
+            carry_replaced(core, index, old);
+        }
         // 0166 M4-0 (R10): so do the replaced voice's parked records.
         crate::due::view(core.regions_mut()).drop_parked(old);
         if stream {
@@ -2890,5 +2989,56 @@ pub(crate) mod tests {
         assert_eq!(status::counters(&core).ended.len(), 1);
         assert_eq!(live_count(&mut core), 0);
         assert_eq!(status::counters(&core).live_voices, 0);
+    }
+
+    #[test]
+    fn a_voice_replaced_while_the_ended_list_is_full_is_reported_with_the_next_block() {
+        let mut core = core();
+        play(&mut core, &play_rec(0x0001_0001, 1), ASAP);
+        while status::counters_mut(&mut core).ended.push(0xF000_0000) {}
+        // The same slot, a new generation: the old voice is taken over and must be reported ended.
+        play(&mut core, &play_rec(0x0002_0001, 1), ASAP);
+        status::counters_mut(&mut core).end_block();
+        report(&mut core);
+        assert_eq!(status::counters(&core).ended.as_slice(), &[0x0001_0001]);
+        status::counters_mut(&mut core).end_block();
+        report(&mut core);
+        assert!(status::counters(&core).ended.is_empty(), "reported once");
+    }
+
+    #[test]
+    fn takeovers_past_the_carry_wait_in_the_slots_and_every_one_is_reported() {
+        let mut core = core();
+        let slots = 16u32;
+        for i in 0..slots {
+            play(&mut core, &play_rec(0x0001_0000 | i, 1), ASAP);
+        }
+        while status::counters_mut(&mut core).ended.push(0xF000_0000) {}
+        // More takeovers than the carry holds, a slot's cell taking each one past it (the same
+        // slot taken over twice past the carry uses another slot's cell).
+        let total = REPLACED_CARRY as u32 + slots;
+        let mut want = Vec::new();
+        let mut gen = [1u32; 16];
+        for k in 0..total {
+            let i = (k * 7 + k / 5) % slots; // not round-robin: some slots go twice in a row
+            want.push(gen[i as usize] << 16 | i);
+            gen[i as usize] += 1;
+            play(&mut core, &play_rec(gen[i as usize] << 16 | i, 1), ASAP);
+        }
+        let mut got = Vec::new();
+        for _ in 0..4 {
+            status::counters_mut(&mut core).end_block();
+            report(&mut core);
+            got.extend(status::counters(&core).ended.as_slice().iter().copied().filter(|&id| id != 0xF000_0000));
+        }
+        // The first block reports the carry, oldest first; the cells follow.
+        assert_eq!(&got[..REPLACED_CARRY], &want[..REPLACED_CARRY]);
+        let mut rest = got[REPLACED_CARRY..].to_vec();
+        let mut rest_want = want[REPLACED_CARRY..].to_vec();
+        rest.sort_unstable();
+        rest_want.sort_unstable();
+        assert_eq!(rest, rest_want, "none of the takeovers past the carry is lost");
+        assert_eq!(got.len(), total as usize, "each reported once");
+        assert_eq!(live_count(&mut core), slots, "the newest voices play on");
     }
 }

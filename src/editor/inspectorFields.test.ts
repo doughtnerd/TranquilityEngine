@@ -147,6 +147,24 @@ describe("a component's Worlds (ADR 0033 §3)", () => {
     expect(own()).toEqual(["server", "client"]);
   });
 
+  it("with a function, ticks or unticks a tag on each node's own Worlds, as one undo step", () => {
+    const { stack } = scene();
+    const box = (key: string) => ({ ...target(key), info: info(key, "engine.BoxCollider2D") });
+    setComponentWorlds(scene(), [box("ground-collider")], ["server"]);
+    setComponentWorlds(scene(), [box("ceiling")], ["client"]);
+    expect(setComponentWorlds(scene(), [box("ground-collider"), box("ceiling")], (cur) => withWorldTag(cur, "lobby", true), "Add lobby")).toBe(2);
+    expect(worldsOf("ground-collider", "engine.BoxCollider2D").own).toEqual(["server", "lobby"]);
+    expect(worldsOf("ceiling", "engine.BoxCollider2D").own).toEqual(["client", "lobby"]);
+    expect(stack.undoLabel).toBe("Add lobby");
+    setComponentWorlds(scene(), [box("ground-collider"), box("ceiling")], (cur) => withWorldTag(cur, "server", false));
+    expect(worldsOf("ground-collider", "engine.BoxCollider2D").own).toEqual(["lobby"]);
+    expect(worldsOf("ceiling", "engine.BoxCollider2D").own).toEqual(["client", "lobby"]);
+    stack.undo();
+    stack.undo();
+    expect(worldsOf("ground-collider", "engine.BoxCollider2D").own).toEqual(["server"]);
+    expect(worldsOf("ceiling", "engine.BoxCollider2D").own).toEqual(["client"]);
+  });
+
   it("ticks and unticks a World tag", () => {
     expect(withWorldTag(undefined, "server", true)).toEqual(["server"]);
     expect(withWorldTag(["*"], "server", false)).toEqual([]);

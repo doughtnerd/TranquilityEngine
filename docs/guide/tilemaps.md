@@ -28,7 +28,7 @@ Open **Window > Tile Palette** (or the button in the Tilemap's inspector). With 
 | Flip X / Flip Y / Rotate | X / Y / Z | Flip or turn what you paint. |
 | Stop painting | Esc, or Q/W/E/R | Back to selecting. |
 
-In the palette, click a tile for a single-tile brush, drag across tiles for a stamp, or Ctrl/⌘-click several tiles and turn on **Random** to scatter them by weight. Each stroke is one undo step. Right or middle drag still pans the view.
+In the palette, click a tile for a single-tile brush, drag across tiles for a stamp, or Ctrl/⌘-click several tiles and turn on **Random** to scatter them by weight. The scatter is decided by each cell and the map's seed, so painting the same cells again gives the same tiles; **Re-roll variants** under the Tilemap in the Inspector picks a new seed. Each stroke is one undo step. Right or middle drag still pans the view.
 
 ### Layers
 
@@ -42,7 +42,7 @@ Give tiles a **terrain** and a **pattern**: eight characters for the neighbours 
 - A **47-tile "blob" set** also fixes corners.
 - **Rule tiles** are patterns with `*` where you don't care, such as a tile used whenever there's nothing above (`0*******`).
 
-Pick the terrain in the palette and paint: the painted cells and their neighbours are re-picked so they fit. When several tiles match, the most specific wins and ties pick by weight, so you can add variations. The inspector tells you how many of the 47 blob shapes a terrain has no exact tile for. Auto-tiling runs while you paint and stores plain tile ids, so loading a map never runs it.
+Pick the terrain in the palette and paint: the painted cells and their neighbours are re-picked so they fit. When several tiles match, the most specific wins and ties pick by weight, so you can add variations. Which variation a cell gets comes from its position and the map's seed, not a fresh roll: painting next to a cell never reshuffles it unless its shape changes, and the same strokes always paint the same map. To get a different arrangement, press **Re-roll variants** under the Tilemap in the Inspector: every terrain cell keeps its shape and draws its variant again (one undo step). The inspector tells you how many of the 47 blob shapes a terrain has no exact tile for. Auto-tiling runs while you paint and stores plain tile ids, so loading a map never runs it.
 
 ## 4. Collision
 
@@ -72,7 +72,7 @@ export class Digger extends GameBehavior {
 ```
 
 - Read: `getTile(x, y, layer?)` (id, 0 when empty), `getCell` (with flip flags), `getTileDef`, `getTileData`, `hasTile`, `tiles(layer?)`, `cellBounds(layer?)`, `layerIndex(name)`.
-- Write: `setTile(x, y, id, layer?, flags?)`, `clearTile`, `fillRect(x, y, w, h, id | ids, layer?)`, `clearAll(layer?)`, `paintTerrain(cells, terrain | null, layer?)`. Colliders and drawing update for the changed chunks only.
+- Write: `setTile(x, y, id, layer?, flags?)`, `clearTile`, `fillRect(x, y, w, h, id | ids, layer?)` (several ids pick by weight and `variantSeed`), `clearAll(layer?)`, `paintTerrain(cells, terrain | null, layer?)`, `retileTerrain(layer?)` (re-pick every terrain cell, e.g. after setting `variantSeed`). Colliders and drawing update for the changed chunks only.
 - Coordinates: `worldToCell`, `cellToWorld` (cell centre), `localToCell`, `cellToLocal`.
 - Changes: `onTileChanged(listener)` returns a function that stops listening; systems read the `TilemapChanges` buffer.
 - Script edits don't rewrite the scene data; `toLayerData()` returns the current cells in scene format if you want to save them.

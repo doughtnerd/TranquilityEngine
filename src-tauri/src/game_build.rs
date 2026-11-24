@@ -1,4 +1,4 @@
-//! Desktop game builds from the editor (ADR 0381): the host's toolchain, probed, and the Tauri
+//! Desktop game builds from the editor (ADR 0406): the host's toolchain, probed, and the Tauri
 //! CLI run in a desktop package the editor has written (ADR 0041's `<out>/web/` + `<out>/src-tauri/`).
 //!
 //! `myco_build_toolchain` reports what the host has (each tool's version line, or none); the page

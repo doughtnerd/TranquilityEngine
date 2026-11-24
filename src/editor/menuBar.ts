@@ -2,7 +2,7 @@
 // the rules for which items are enabled, and what they say, are unit-tested; MenuBar.tsx reads the
 // live state into a `MenuState`, wires the `MenuActions`, and draws the result.
 import { panelTitle, type PanelCatalog, type PanelId } from "./layout/catalog";
-import { newNodeKinds } from "./nodeKinds";
+import { nodeCreateTree } from "./createMenuTree";
 
 export interface MenuEntry {
   label: string;
@@ -207,7 +207,9 @@ function clipboardItems(s: MenuState, a: MenuActions): MenuEntry[] {
 
 function createMenu(s: MenuState): Menu {
   if (!s.scene) {
-    return { id: "create", label: "Create", items: newNodeKinds().map((k) => ({ label: k.label, disabled: NO_SCENE })) };
+    // The Hierarchy's Create tree (ADR 0383), every item and submenu unavailable.
+    const off = (e: MenuEntry): MenuEntry => (e.separator ? e : { label: e.label, disabled: NO_SCENE });
+    return { id: "create", label: "Create", items: nodeCreateTree((_, label) => ({ label })).map(off) };
   }
   return { id: "create", label: "Create", items: s.createItems };
 }

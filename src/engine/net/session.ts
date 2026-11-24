@@ -118,9 +118,11 @@ import "./transport/websocket";
  * replication spawns. 3: a join ticket at the end of `hello`, `str` RPC fields and replicated
  * string behavior fields, ADR 0067/0068. 4: a string table, active flags and parents in
  * replication, ADR 0100. 5: relevancy leaves, relayouts, sibling order and disabled components,
- * ADR 0121.)
+ * ADR 0121. 6: ghost spawns, despawns, leaves, relayouts and structure changes in a reliable
+ * lifecycle message, snapshots carry states only, ADR 0402. 7: acks name late snapshot parts of
+ * older ticks, which the client reads, ADR 0405.)
  */
-const NET_PROTOCOL_VERSION = 5;
+const NET_PROTOCOL_VERSION = 7;
 
 /** How often a client pings its server, for RTT and the server-tick estimate. */
 export const PING_INTERVAL_MS = 100;

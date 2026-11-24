@@ -1,4 +1,4 @@
-import { useEffect, useState } from "preact/hooks";
+import { useMemo, useState } from "preact/hooks";
 import type { ImportSettings } from "../../engine/scene/importSettings";
 import { fileName } from "../assetBrowser";
 import { assetKind, kindImportSections, kindImportSettings, kindInspector, kindLabel } from "../assetKindLookup";
@@ -57,8 +57,13 @@ function ImportInspector(props: { path: string }) {
   const project = currentProject.value;
   const saved = project && path ? readImportSettings(project, path) : null;
   const savedKey = saved ? JSON.stringify(saved.settings) : "";
-  const [draft, setDraft] = useState<ImportSettings | null>(saved?.settings ?? null);
-  useEffect(() => setDraft(saved ? structuredClone(saved.settings) : null), [path, savedKey]);
+  // The draft belongs to the file and the settings it was made from: another file (or the sidecar rewritten) starts
+  // from its saved settings in the same render, never showing the previous file's draft first.
+  const source = `${path}\n${savedKey}`;
+  const fresh = useMemo(() => (saved ? structuredClone(saved.settings) : null), [source]);
+  const [edited, setEdited] = useState<{ source: string; settings: ImportSettings } | null>(null);
+  const draft = edited && edited.source === source ? edited.settings : fresh;
+  const setDraft = (settings: ImportSettings) => setEdited({ source, settings });
   if (!project || !path || !saved || !draft) return <p class="empty">Nothing selected</p>;
   const kind = assetKind(path);
   const views = importViews(kindImportSettings(kind));

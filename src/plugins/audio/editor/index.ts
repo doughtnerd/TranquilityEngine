@@ -1,7 +1,7 @@
 // The Audio plugin's editor half (ADR 0097, 0157): the scene editor's audio parts that stay beside the Audio Studio
 // (ADR 0341): the audio components' Inspector sections and gizmos, the occlusion overlay, the Play toolbar's Record take
 // and Record capture, the Play Stats panel's audio underruns count, the audio asset kinds (the Studio edits them; the
-// editor lists and moves them, and opens them in the Studio) and Project Settings > Audio, which points at the Studio.
+// editor lists and moves them, and opens them in the Studio) (Project Settings has no Audio section: the Studio owns `audio.json`).
 import { editor, type EditorPlugin } from "../../../editor/sdk";
 import { audioManifest } from "../manifest";
 import { Audio } from "../runtime";
@@ -27,15 +27,6 @@ export const audioEditorPlugin: EditorPlugin = {
       const project = editor.project.current;
       const version = (project?.settings as { version?: unknown } | undefined)?.version;
       return { name: project?.name ?? "", version: typeof version === "string" ? version : "" };
-    });
-    // Project settings > Audio, after Graphics as it has always been: the project's audio is `audio.json` (ADR 0344), which
-    // the Audio Studio edits, so the category only opens the Studio. It owns no keys.
-    context.registerProjectSettingsSection({
-      id: "audio",
-      title: "Audio",
-      after: "Graphics",
-      keys: [],
-      view: () => import("./AudioStudioPointer").then((m) => m.AudioStudioPointer),
     });
     // Renaming a physics layer renames it in `audio.json`'s occlusion layers.
     context.registerNameReferences(occlusionLayerReferences);

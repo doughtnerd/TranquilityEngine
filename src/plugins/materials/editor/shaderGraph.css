@@ -21,8 +21,8 @@
 .sg-side { width: 230px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--border); min-height: 0; }
 
 .sg-blackboard { flex: 1; overflow: auto; padding: 6px 8px; min-height: 80px; }
-.sg-blackboard-head, .sg-preview-head { display: flex; align-items: center; justify-content: space-between; font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
-.sg-blackboard select, .sg-blackboard input, .sg-preview-head select { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font: inherit; min-width: 0; box-sizing: border-box; }
+.sg-blackboard-head { display: flex; align-items: center; justify-content: space-between; font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); margin-bottom: 6px; }
+.sg-blackboard select, .sg-blackboard input { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font: inherit; min-width: 0; box-sizing: border-box; }
 .sg-hint { color: var(--faint); margin: 4px 0; }
 .sg-property { border: 1px solid var(--border); border-radius: 6px; padding: 4px; margin-bottom: 6px; background: var(--surface); display: flex; flex-direction: column; gap: 4px; }
 .sg-property-row { display: flex; gap: 4px; align-items: center; }
@@ -30,8 +30,8 @@
 .sg-property-actions button { padding: 0 6px; }
 .sg-property .sg-fields input { width: 46px; }
 
-.sg-preview-card { border-top: 1px solid var(--border); padding: 6px 8px; }
-.sg-preview { height: 190px; border-radius: 6px; background: var(--bg-sunken); overflow: hidden; cursor: grab; }
+/* The live preview fills its card (GraphPreviewCard, docked in the canvas's bottom-right corner). */
+.sg-preview { width: 100%; height: 100%; background: var(--bg-sunken); overflow: hidden; cursor: grab; }
 
 .sg-wire.t-float .sg-wire-line { stroke: var(--sg-float); }
 .sg-wire.t-vec2 .sg-wire-line { stroke: var(--sg-vec2); }

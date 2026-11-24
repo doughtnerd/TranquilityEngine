@@ -1,5 +1,5 @@
 import { expect, type Hooks, openEditor, type Page, play, test } from "./fixtures";
-import { menu } from "./menus";
+import { assetsMenu, menu } from "./menus";
 import { showTab } from "./tabs";
 
 // The input system in the editor (ADR 0336, 0337; docs/guide/input.md): the Input Debugger panel follows a playing
@@ -66,7 +66,7 @@ test("the Input Debugger shows a playing World's action values, flags, source an
   await expect(log).not.toContainText("fire");
 
   await page.getByRole("button", { name: /Stop/ }).click();
-  await expect(page.getByRole("button", { name: "▶ Play" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Play", exact: true })).toBeVisible();
   await expect(panel.locator(".input-debugger-empty")).toContainText("Play to see a World's input here");
   expect(errors).toEqual([]);
 });
@@ -76,11 +76,11 @@ test("New Input Context: a mapping bound with a key press is saved, and InputCon
   await page.setViewportSize({ width: 1600, height: 1000 }); // the Input Context panel sits in the right dock
   await openEditor(page, { files: { "scripts/testActions.ts": ACTIONS } });
 
-  // New… › New Input Context (right-click in the Assets panel) writes a context in the folder the panel shows, here the root.
+  // Create › Input › Input Context (right-click in the Assets panel) writes a context in the folder the panel shows, here the root.
   await page.locator(".dock-tab", { hasText: "Assets" }).click();
   const list = (await assets(page).locator(".asset-items").boundingBox())!;
   await page.mouse.click(list.x + list.width - 10, list.y + list.height - 10, { button: "right" });
-  await page.getByRole("menuitem", { name: "New Input Context", exact: true }).click();
+  await assetsMenu(page, "Create", "Input", "Input Context");
   const path = "New Input Context.input.json";
   await expect.poll(async () => JSON.parse((await read(page, path)) ?? "null")).toEqual({ name: "New Input Context", mappings: [] });
   await expect(tile(page, "New Input Context.input.json")).toHaveCount(1);

@@ -99,10 +99,15 @@ export function traceOutlines(cells: readonly (readonly [number, number])[]): [n
   while (edges.size) {
     const startKey = edges.keys().next().value as string;
     let e = take(startKey, 0, 0)!;
+    const sdx = e[2] - e[0], sdy = e[3] - e[1];
     const pts: [number, number][] = [[e[0], e[1]]];
     for (let guard = 0; guard < 1e7; guard++) {
       const dx = e[2] - e[0], dy = e[3] - e[1];
-      const next = take(`${e[2]},${e[3]}`, dx, dy);
+      const key = `${e[2]},${e[3]}`;
+      // Back at the start: close the loop when the first edge is the turn the trace would take here (a left turn
+      // at a shared corner), so a start on a corner two cells share doesn't run on into the other cell's loop.
+      if (key === startKey && (!edges.has(key) || dx * sdy - dy * sdx > 0)) break;
+      const next = take(key, dx, dy);
       if (!next) break;
       pts.push([next[0], next[1]]);
       e = next;

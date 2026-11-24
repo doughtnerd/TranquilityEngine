@@ -44,7 +44,7 @@ test.beforeEach(async ({ page }) => {
 test("Stats shows frame rate, timings and render counters over the play view", async ({ page }) => {
   const errors = trackErrors(page);
   await openEditor(page, { sample: "flappy" });
-  await page.getByRole("button", { name: "▶ Play" }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   // Play starts once the scripts are checked ("Checking scripts…"), which takes longer while other tests load the CPU.
   await expect(page.getByRole("button", { name: /Stop/ })).toBeVisible({ timeout: 20_000 });
 
@@ -75,7 +75,7 @@ test("Stats shows frame rate, timings and render counters over the play view", a
   // Remembered: on again, it shows in the next session too.
   await statsToggle.click();
   await page.getByRole("button", { name: /Stop/ }).click();
-  await page.getByRole("button", { name: "▶ Play" }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.getByRole("region", { name: "Stats" })).toBeVisible();
   expect(errors).toEqual([]);
 });
@@ -93,7 +93,7 @@ test("Gizmos off hides every gizmo and debug drawing in the play view; the menu 
   const worldName = await page.evaluate(() => (window as unknown as Hooks).playEngine!.world.name);
   await hierarchy.getByRole("combobox", { name: "Inspect World" }).selectOption(worldName);
   await hierarchy.getByRole("tree", { name: "Live nodes" }).locator('.row[data-name="Bird"]').click();
-  await page.getByRole("button", { name: "❚❚ Pause", exact: true }).click();
+  await page.getByRole("button", { name: "Pause", exact: true }).click();
   const outlined = await stepped(page);
 
   const gizmos = page.locator(".play-tools").getByRole("button", { name: "Gizmos", exact: true });

@@ -183,11 +183,15 @@ export class AudioSource extends Component {
   }
 
   pause(): void {
+    const sink = takeTap.sink; // ADR 0386: the take records what was paused
+    if (sink) for (const p of [this.voice, this.playlist]) if (p) sink.pause(p);
     this.voice?.pause();
     this.playlist?.pause();
   }
 
   resume(): void {
+    const sink = takeTap.sink;
+    if (sink) for (const p of [this.voice, this.playlist]) if (p) sink.resume(p);
     this.voice?.resume();
     this.playlist?.resume();
   }

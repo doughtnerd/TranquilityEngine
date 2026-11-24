@@ -393,6 +393,18 @@ export class World {
     this.destroyQueue.push(this.handle(e));
   }
 
+  /**
+   * @internal Destroy a node and its subtree right away, leaving the rest of the destroy queue for step 10.
+   * For nodes no script pass is iterating over: ones the scene loader made in this load (a `removeNode`
+   * override, a load that failed half way). Flushing the whole queue mid-frame would remove behaviours
+   * from the hook lists a pass is walking.
+   */
+  _destroyNodeNow(e: number): void {
+    if (e === 0) throw new Error("The World root cannot be destroyed.");
+    if (!this.alive[e]) return;
+    this.reallyDestroyNode(e);
+  }
+
   // --- components -----------------------------------------------------------------------
 
   /** @internal */
@@ -620,20 +632,19 @@ export class World {
    */
   _batch<T>(fn: () => T): T {
     this.suspendDepth++;
-    let result: T;
     try {
-      result = fn();
+      return fn();
     } finally {
       this.suspendDepth--;
+      // Also when `fn` threw: what it made and left in place is brought up to date now, not by the next batch.
+      if (this.suspendDepth === 0 && this.deferred.length) {
+        const list = this.deferred;
+        this.deferred = [];
+        this.computeOrder();
+        list.sort((a, b) => this.order[a._node.entity] - this.order[b._node.entity] || a._seq - b._seq);
+        for (const c of list) this._refreshComponent(c);
+      }
     }
-    if (this.suspendDepth === 0 && this.deferred.length) {
-      const list = this.deferred;
-      this.deferred = [];
-      this.computeOrder();
-      list.sort((a, b) => this.order[a._node.entity] - this.order[b._node.entity] || a._seq - b._seq);
-      for (const c of list) this._refreshComponent(c);
-    }
-    return result;
   }
 
   // --- the frame (ADR 0011, 0239) ---------------------------------------------------------------
@@ -1095,10 +1106,16 @@ export class World {
   }
 
   private reallyDestroyNode(e: number): void {
-    for (const child of this.childEntities(e)) this.reallyDestroyNode(child);
+    // Until none are left: an onDisable/onDestroy may add a child or a component to the node going away.
+    while (this.firstChild[e] !== NONE || this.componentsOf[e].length) {
+      for (const child of this.childEntities(e)) this.reallyDestroyNode(child);
+      for (let comps = this.componentsOf[e]; comps.length; comps = this.componentsOf[e]) {
+        const c = comps[comps.length - 1];
+        if (c._destroyed) comps.pop();
+        else this.reallyRemoveComponent(c);
+      }
+    }
     if (this.isSceneNode(e)) this.sceneNodeCount--;
-    const comps = this.componentsOf[e];
-    for (let i = comps.length - 1; i >= 0; i--) this.reallyRemoveComponent(comps[i]);
     for (const store of this.dataStores.values()) store.remove(e);
     this.unlink(e);
     this.alive[e] = 0;

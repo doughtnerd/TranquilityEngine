@@ -168,6 +168,27 @@ describe("rewriting references for moves", () => {
     expect(onDisk("scripts/Walker.ts")).toContain("asset:images/sheet.png#walk");
   });
 
+  it("leaves strings that merely equal a moved folder's path in scenes, prefabs and settings, but follows its references and plain JSON's folder paths", async () => {
+    ({ fs, project } = await openTestProject({
+      ...FILES,
+      "project.json": json({ name: "t", worlds: ["images"], tags: ["images"] }),
+      "scenes/named.scene.json": scene([
+        { id: "images", name: "images", components: [{ type: "engine.Transform" }, { type: "game.Folder", data: { tag: "images", dir: "asset:images", inside: "images/bird.png" } }] },
+        { id: "other", parent: "images", components: [{ type: "engine.Transform" }] },
+      ]),
+      "audio/packages.json": json({ include: ["images", "images/**"] }),
+    }));
+    await project.move("images", "art");
+    await rewriteReferences(project, [["images", "art"]], "Move");
+    const named = JSON.parse(onDisk("scenes/named.scene.json"));
+    expect(named.nodes[0].id).toBe("images");
+    expect(named.nodes[0].name).toBe("images");
+    expect(named.nodes[1].parent).toBe("images");
+    expect(named.nodes[0].components[1].data).toEqual({ tag: "images", dir: "asset:art", inside: "art/bird.png" });
+    expect(JSON.parse(onDisk("project.json"))).toEqual({ name: "t", worlds: ["images"], tags: ["images"] });
+    expect(JSON.parse(onDisk("audio/packages.json"))).toEqual({ include: ["art", "art/**"] });
+  });
+
   it("renames one slice only, and finds single-quoted script users", async () => {
     await open();
     const { updated, notRewritten: scriptUsers } = await rewriteReferences(project, [["images/sheet.png#walk", "images/sheet.png#run"]], "Rename slice");

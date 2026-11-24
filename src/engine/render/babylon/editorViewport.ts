@@ -24,6 +24,7 @@ import type { EditorColors, EditorOverlay, GizmoHandlers, GizmoOptions, ScreenRe
 import { readView } from "./editorBatches";
 import type { BabylonEditorContext, EditorDrawn } from "./editorContext";
 import { BabylonEditorGizmo } from "./editorGizmo";
+import { shapeWorldBox, type DrawnShape } from "./feature";
 import { BabylonEditorGuides } from "./editorGuides";
 import { BabylonEditorIcons } from "./editorIcons";
 
@@ -160,6 +161,10 @@ export class BabylonEditorViewport implements ViewportAdapter {
       if (shape.kind === "rect") {
         const r = shape.rect;
         if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) distance = 0;
+      } else if (shape.kind === "box") {
+        continue; // a decal's volume is picked through its gizmo or the Hierarchy, never by clicking the air in it (ADR 0395)
+      } else if (shape.kind === "polyline") {
+        distance = this.polylineHit(shape, x, y);
       } else if (o && dir && bray) {
         if (shape.kind === "quad") distance = visible(shape.mesh) ? rayQuadDistance(o, dir, shape.mesh.getWorldMatrix()) : null;
         else distance = nearestHit(bray, o, shape.meshes);
@@ -171,6 +176,38 @@ export class BabylonEditorViewport implements ViewportAdapter {
     hits.sort((a, b) => b.order - a.order || a.distance - b.distance);
     const seen = new Set<number>();
     return hits.filter((h) => !seen.has(h.node.entity) && seen.add(h.node.entity)).map((h) => h.node);
+  }
+
+  /**
+   * A polyline's hit at a canvas point (ADR 0396): the camera distance of its nearest segment when the point is
+   * within the line's half width on screen (at least 4 CSS pixels), else null.
+   */
+  private polylineHit(shape: Extract<DrawnShape, { kind: "polyline" }>, x: number, y: number): number | null {
+    const view = this.view();
+    if (!view) return null;
+    const p = shape.points, n = Math.floor(p.length / 3);
+    const screen: ([number, number, number] | null)[] = [];
+    for (let i = 0; i < n; i++) {
+      const s = view.worldToScreenPoint(new Vector3(p[i * 3]!, p[i * 3 + 1]!, p[i * 3 + 2]!));
+      screen.push(s.z < view.near || s.z > view.far ? null : [s.x, s.y, s.z]);
+    }
+    let best: number | null = null;
+    const segments = shape.closed && n > 2 ? n : n - 1;
+    for (let i = 0; i < Math.max(segments, n === 1 ? 1 : 0); i++) {
+      const a = screen[i], b = screen[(i + 1) % n] ?? a;
+      if (!a || !b) continue;
+      const dx = b[0] - a[0], dy = b[1] - a[1], len2 = dx * dx + dy * dy;
+      const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - a[0]) * dx + (y - a[1]) * dy) / len2)) : 0;
+      const px = a[0] + dx * t, py = a[1] + dy * t, depth = a[2] + (b[2] - a[2]) * t;
+      // The half width on screen at that depth: a world offset across the view, projected.
+      const i0 = i * 3, i1 = ((i + 1) % n) * 3;
+      const wx = p[i0]! + (p[i1]! - p[i0]!) * t, wy = p[i0 + 1]! + (p[i1 + 1]! - p[i0 + 1]!) * t, wz = p[i0 + 2]! + (p[i1 + 2]! - p[i0 + 2]!) * t;
+      const up = view.node.transform?.localToWorld.up;
+      const side = up ? view.worldToScreenPoint(new Vector3(wx + up.x * shape.halfWidth, wy + up.y * shape.halfWidth, wz + up.z * shape.halfWidth)) : null;
+      const reach = Math.max(4, side ? Math.hypot(side.x - px, side.y - py) : 0);
+      if (Math.hypot(x - px, y - py) <= reach && (best === null || depth < best)) best = depth;
+    }
+    return best;
   }
 
   /** The ray under a canvas point through the camera that draws the view, or null. */
@@ -196,14 +233,18 @@ export class BabylonEditorViewport implements ViewportAdapter {
   screenBounds(root: GameObject): { node: GameObject; rect: ScreenRect }[] {
     const world = this.ctx.world(), view = this.view();
     if (!world || !view || !this.hasSize()) return [];
-    const drawn = new Map<GameObject, { quads: AbstractMesh[]; meshes: AbstractMesh[]; rects: ScreenRect[] }>();
+    const drawn = new Map<GameObject, { quads: AbstractMesh[]; meshes: AbstractMesh[]; rects: ScreenRect[]; boxes: { min: number[]; max: number[] }[] }>();
     for (const d of this.ctx.drawn()) {
       const shape = d.shape;
       if (!shape) continue;
       const node = d.component.node;
       let entry = drawn.get(node);
-      if (!entry) drawn.set(node, (entry = { quads: [], meshes: [], rects: [] }));
+      if (!entry) drawn.set(node, (entry = { quads: [], meshes: [], rects: [], boxes: [] }));
       if (shape.kind === "rect") entry.rects.push(shape.rect);
+      else if (shape.kind === "box" || shape.kind === "polyline") {
+        const b = shapeWorldBox(shape);
+        if (b) entry.boxes.push(b);
+      }
       else if (shape.kind === "quad") entry.quads.push(...worldMeshes(d));
       else entry.meshes.push(...worldMeshes(d));
     }
@@ -219,7 +260,10 @@ export class BabylonEditorViewport implements ViewportAdapter {
     const boundsOf = (node: GameObject): ScreenRect | null => {
       const rect: ScreenRect = { left: Infinity, top: Infinity, right: -Infinity, bottom: -Infinity };
       const d = drawn.get(node);
-      if (d && d.quads.length + d.meshes.length + d.rects.length > 0) {
+      if (d && d.quads.length + d.meshes.length + d.rects.length + d.boxes.length > 0) {
+        for (const b of d.boxes) {
+          for (let i = 0; i < 8; i++) if (!grow(rect, project(view, i & 1 ? b.max[0]! : b.min[0]!, i & 2 ? b.max[1]! : b.min[1]!, i & 4 ? b.max[2]! : b.min[2]!))) return null;
+        }
         for (const r of d.rects) {
           grow(rect, [r.left, r.top]);
           grow(rect, [r.right, r.bottom]);
@@ -257,6 +301,14 @@ export class BabylonEditorViewport implements ViewportAdapter {
     let any = false;
     for (const d of this.ctx.drawn()) {
       if (d.component.node !== node) continue;
+      const b = d.shape ? shapeWorldBox(d.shape) : null;
+      if (b) {
+        for (let i = 0; i < 3; i++) {
+          min[i] = Math.min(min[i]!, b.min[i]!);
+          max[i] = Math.max(max[i]!, b.max[i]!);
+        }
+        any = true;
+      }
       for (const mesh of worldMeshes(d)) {
         const box = mesh.getBoundingInfo().boundingBox;
         const lo = box.minimumWorld, hi = box.maximumWorld;

@@ -27,6 +27,7 @@ import {
   type PanelId,
   type Rect,
   type Side,
+  type TabSpan,
 } from "./model";
 import { canClosePanel, canDetach, panelTitle } from "./catalog";
 import { foldCandidate, foldView, unfoldEdit } from "./narrowFold";
@@ -141,7 +142,9 @@ type Root = { current: HTMLDivElement | null };
 /**
  * Dockable, resizable editor panels, the scene view among them (see `model.ts` for the rules).
  * Drag a panel by its header (title or tab) to move it: the highlighted area shows where it will
- * go, and dropping on an invalid spot (or pressing Escape) leaves everything as it was. Drag the
+ * go, and dropping on an invalid spot (or pressing Escape) leaves everything as it was. Over a
+ * header, a mark between the tabs shows where it goes in the tab order; dropping on its own
+ * group's header reorders the tabs (ADR 0381). Drag the
  * handles between panels to resize; double-click a dock's border (or use the chevron in its
  * header) to collapse it to its edge. Tabs that don't fit a header go behind a "» N" button. (The
  * Scene panel keeps the engine's canvas alive across moves: see ScenePanel.tsx.)
@@ -172,7 +175,8 @@ export function DockLayout(props: { view: (type: PanelId) => ComponentChildren; 
         {geo.docks.map((d) => (
           <DockView key={d.dock.id} dock={d} root={root} view={props.view} />
         ))}
-        {dragging?.hit && <div class="drop-preview" style={box(dragging.hit.preview)} />}
+        {dragging?.hit?.preview && <div class="drop-preview" style={box(dragging.hit.preview)} />}
+        {dragging?.hit?.insert && <div class="tab-insert-mark" style={box(dragging.hit.insert)} />}
         {dragging && (
           <div class="drag-ghost" style={{ left: `${dragging.x + 12}px`, top: `${dragging.y + 12}px` }}>
             {titleOf(scope, dragging.panel)}
@@ -253,7 +257,7 @@ function DockView(props: { dock: DockRect; root: Root; view: (type: PanelId) => 
     <>
       {dock.groups.map((g, i) => (
         <div key={g.group.id} class={`dock-group side-${side}`} style={box(g.rect)}>
-          <div class="dock-header" onContextMenu={(e) => openHeaderMenu(scope, e, g.group.id)}>
+          <div class="dock-header" data-dock-group={g.group.id} onContextMenu={(e) => openHeaderMenu(scope, e, g.group.id)}>
             <TabStrip panels={g.group.panels} active={g.group.active} vertical={false} root={root} group={g.group.id} />
             {collapsible && i === chevronGroup && <CollapseButton dock={dock} />}
           </div>
@@ -451,8 +455,8 @@ function ResizeHandle(props: { rect: Rect; axis: "x" | "y"; label: string; grip?
 /**
  * Press on a header tab (or an overflow menu item): a click shows that tab, expanding its dock if
  * it's collapsed; moving past the threshold starts dragging the panel. While dragging, the drop
- * target under the pointer is previewed; releasing applies it (or nothing, over an invalid spot);
- * Escape cancels. `done` runs when the press ends either way.
+ * target under the pointer is previewed (with an insertion mark over a header's tabs, ADR 0381);
+ * releasing applies it (or nothing, over an invalid spot); Escape cancels. `done` runs when the press ends either way.
  */
 function startDrag(scope: DockScope, e: PointerEvent, panel: PanelId, root: Root, done?: () => void): void {
   if (e.button !== 0 || !root.current) return;
@@ -461,6 +465,7 @@ function startDrag(scope: DockScope, e: PointerEvent, panel: PanelId, root: Root
   e.preventDefault();
   const startX = e.clientX, startY = e.clientY;
   let active = false;
+  let tabs: Record<string, TabSpan[]> = {};
 
   const local = (m: PointerEvent) => {
     const r = root.current!.getBoundingClientRect();
@@ -468,11 +473,12 @@ function startDrag(scope: DockScope, e: PointerEvent, panel: PanelId, root: Root
   };
   const track = (m: PointerEvent) => {
     if (!active && Math.hypot(m.clientX - startX, m.clientY - startY) < DRAG_THRESHOLD) return;
+    if (!active) tabs = drawnTabs(root.current!); // the tabs don't move while dragging
     active = true;
     const { x, y } = local(m);
     const view = scope.get();
     const geo = computeGeometry(view, { x: 0, y: 0, ...size.value }, headerHeight(root.current!.ownerDocument));
-    drag.value = { panel, x, y, hit: hitTest(view, geo, panel, x, y) };
+    drag.value = { panel, x, y, hit: hitTest(view, geo, panel, x, y, tabs) };
   };
   const finish = (apply: boolean) => {
     win.removeEventListener("pointermove", track);
@@ -500,6 +506,27 @@ function startDrag(scope: DockScope, e: PointerEvent, panel: PanelId, root: Root
   win.addEventListener("pointerup", up);
   win.addEventListener("pointercancel", cancel);
   win.addEventListener("keydown", key, true);
+}
+
+/**
+ * Each expanded group's tabs as drawn in `root` (layout coordinates), by group id, for placing a drop among them
+ * (ADR 0381). A group drawn as its title stretches its one tab across the header; its span ends after the title and its ×.
+ */
+function drawnTabs(root: HTMLElement): Record<string, TabSpan[]> {
+  const origin = root.getBoundingClientRect().left;
+  const out: Record<string, TabSpan[]> = {};
+  for (const header of root.querySelectorAll<HTMLElement>(".dock-header[data-dock-group]")) {
+    out[header.dataset.dockGroup!] = [...header.querySelectorAll<HTMLElement>(".dock-tabs > .dock-tab[data-panel-instance]")].map((tab) => {
+      const r = tab.getBoundingClientRect();
+      let end = r.right;
+      if (tab.classList.contains("solo") && tab.lastElementChild) {
+        const pad = parseFloat((tab.ownerDocument.defaultView ?? window).getComputedStyle(tab).paddingLeft) || 0;
+        end = Math.min(r.right, tab.lastElementChild.getBoundingClientRect().right + pad);
+      }
+      return { panel: tab.dataset.panelInstance!, start: r.left - origin, end: end - origin };
+    });
+  }
+  return out;
 }
 
 /** The `PanelInstance` a group's showing panel is drawn as. */

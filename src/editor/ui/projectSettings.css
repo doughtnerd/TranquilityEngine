@@ -15,7 +15,7 @@
   .project-settings-row { grid-template-columns: 1fr; gap: 2px; margin-bottom: 6px; }
 }
 .project-settings-fields { border: 0; margin: 0; padding: 0; min-width: 0; }
-.project-settings-section { padding: 6px 0 8px; border-bottom: 1px solid var(--border); }
+.project-settings-section { padding: 16px; border-bottom: 1px solid var(--border); }
 .project-settings-section:last-child { border-bottom: 0; }
 .project-settings-section h4 { margin: 4px 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
 .project-settings-row { display: grid; grid-template-columns: minmax(90px, 38%) 1fr; align-items: center; gap: 6px; margin-bottom: 4px; }

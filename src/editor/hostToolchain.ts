@@ -1,4 +1,4 @@
-// The host's toolchain, from the desktop editor (ADR 0381): the shell probes it
+// The host's toolchain, from the desktop editor (ADR 0406): the shell probes it
 // (`myco_build_toolchain`, src-tauri/src/game_build.rs) and runs the Tauri CLI in a desktop package
 // the editor wrote (`myco_build_desktop_app`). The browser editor has neither: `probeHostToolchain`
 // resolves to null there and Build / Export shows the command line instead. Tauri's JS package loads

@@ -422,7 +422,7 @@ export function worldBounds(node: GameObject): { min: [number, number, number]; 
 export function localPositionFor(node: GameObject, point: readonly number[]): [number, number, number] {
   const parent = node.parent;
   const x = point[0], y = point[1], z = point[2] ?? 0;
-  if (!parent?.transform) return [x, y, z];
+  if (!parent) return [x, y, z];
   const inverse = matrixFrom(node.world.worldMatrix(parent.entity), parent.entity * 16);
   Mat4.invert(inverse, 0, inverse, 0);
   return Mat4.transformPoint(inverse, 0, x, y, z);
@@ -660,7 +660,7 @@ export interface NetPeerInfo {
   readonly rtt: number;
   readonly sent: NetTrafficInfo;
   readonly received: NetTrafficInfo;
-  /** Server: the size of the last snapshot sent on this connection, in bytes (all its parts); null on a client. */
+  /** Server: the size of the last tick's replication on this connection, in bytes (its snapshot parts and lifecycle message, ADR 0402); null on a client. */
   readonly snapshotBytes: number | null;
   /** Server: how many parts (datagrams, ADR 0334) the last snapshot took; null on a client. */
   readonly snapshotParts: number | null;
@@ -717,7 +717,7 @@ export function netWorldInfo(engine: Engine): NetWorldInfo[] {
         rtt: peer.rtt,
         sent: copyTraffic(peer.sent),
         received: copyTraffic(peer.received),
-        snapshotBytes: session.isServer ? (ps?.lastBytes ?? 0) : null,
+        snapshotBytes: session.isServer ? (ps ? ps.lastBytes + ps.lastLifecycleBytes : 0) : null,
         snapshotParts: session.isServer ? (ps?.lastParts ?? 0) : null,
         ghosts: session.isServer ? (ps?.known.size ?? 0) : null,
         ghostTypes: ps ? [...ps.typeBits].map(([type, bits]) => ({ type, bytes: bits / 8 })) : [],

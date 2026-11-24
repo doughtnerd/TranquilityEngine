@@ -10,7 +10,7 @@ import { RGBE_ReadHeader, RGBE_ReadPixels } from "@babylonjs/core/Misc/HighDynam
 import { BaseTexture } from "@babylonjs/core/Materials/Textures/baseTexture.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SHADOW_MAP_SIZE } from "../core/graphics";
+import { defaultGraphics, SHADOW_MAP_SIZE } from "../core/graphics";
 import { World } from "../core/World";
 import { Assets, Color, Engine, GameObject, Graphics, Light, SceneManager } from "../index";
 import { Environment } from "../render/components";
@@ -112,13 +112,13 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(def.direction.y).toBeLessThan(-0.5);
     expect(def.direction.x).toBeLessThan(0);
 
-    light({ type: "directional", intensity: 2 }, [0, 5, 0], [45, 0, 0]);
     light({ type: "directional", intensity: 1, castShadows: true }, [0, 5, 0], [45, 0, 0]);
+    light({ type: "directional", intensity: 2 }, [0, 5, 0], [45, 0, 0]);
     lighting.contribute({ sun: sunOver });
     sync();
     const lights = scene.lights.filter((l) => l.name.startsWith("light:")) as DirectionalLight[];
     const driven = lights.filter((l) => l.intensity === 4);
-    expect(driven).toHaveLength(1); // the shadow-casting one
+    expect(driven).toHaveLength(1); // the brighter one: neither is flagged `sun` (ADR 0393)
     expect(driven[0].diffuse.asArray()).toEqual([1, 0.5, 0.25]);
     expect(driven[0].direction.y).toBeCloseTo(-1);
     expect(lighting.mainLight.direction[1]).toBeCloseTo(1); // shader graphs' Main Light follows
@@ -190,22 +190,97 @@ describe("lights on the Babylon backend (ADR 0075 stage 2)", () => {
     expect(spot.innerAngle).toBeCloseTo(spot.angle); // softness 0: a hard edge
   });
 
-  it("picks the main light for Main Light nodes as three.js does: shadow-casting directional first, toward the light, linear × intensity", () => {
+  it("picks the main light for Main Light nodes: the directional Light flagged sun, toward the light, linear × intensity (ADR 0393)", () => {
     sync();
     const len = Math.hypot(4, 10, 6);
     expect(lighting.mainLight.direction.map((v) => +v.toFixed(4))).toEqual([4 / len, 10 / len, -6 / len].map((v) => +v.toFixed(4))); // the default sun
     light({ type: "ambient", intensity: 0.3 }); // made first, so Babylon's light0 isn't directional
     light({ type: "point" });
     light({ type: "directional", intensity: 3, color: new Color(1, 0, 0, 1) }, [0, 0, 0], [0, 0, 0]); // faces +Z: light travels +Z
-    light({ type: "directional", intensity: 2, color: new Color(0.5, 0.5, 0.5, 1), castShadows: true }, [0, 5, 0], [90, 0, 0]); // looking down
+    light({ type: "directional", intensity: 2, color: new Color(0.5, 0.5, 0.5, 1), sun: true }, [0, 5, 0], [90, 0, 0]); // looking down
     sync();
     const [dx, dy, dz] = lighting.mainLight.direction;
     expect(dx).toBeCloseTo(0);
-    expect(dy).toBeCloseTo(1); // toward the shadow caster, which shines down
+    expect(dy).toBeCloseTo(1); // toward the sun, which shines down, though the red one is brighter
     expect(dz).toBeCloseTo(0);
     const half = Math.pow(0.5, 2.2); // sRGB 0.5 in linear, by Babylon's toLinearSpace
     expect(lighting.mainLight.color[0]).toBeCloseTo(half * 2, 3);
     expect(lighting.mainLight.color[1]).toBeCloseTo(half * 2, 3);
+  });
+
+  describe("the sun: one pick for the sky and Main Light nodes, whatever the shadow tier (ADR 0393)", () => {
+    const sunOver = { direction: [0, 1, 0], color: [1, 1, 1], intensity: 4 };
+    const driven = () => (scene.lights.filter((l) => l.name.startsWith("light:")) as DirectionalLight[]).filter((l) => l.intensity === 4).map((l) => l.name);
+
+    it("is the brightest directional Light when none is flagged, not the shadow caster, on a tier with shadows and one without", () => {
+      // The project's tiers, Low's shadows turned off (Project Settings > Graphics).
+      const graphics = defaultGraphics();
+      graphics.tiers = graphics.tiers.map((t) => (t.name === "Low" ? { ...t, shadows: "off" as const } : t));
+      Graphics._configure(graphics);
+      for (const quality of ["High", "Low"]) {
+        Graphics.quality = quality;
+        const caster = light({ type: "directional", intensity: 1, castShadows: true }, [0, 5, 0], [90, 0, 0]); // shines down
+        const bright = light({ type: "directional", intensity: 3 }, [0, 5, 0], [0, 0, 0]); // shines along +Z
+        bright.node.name = "bright";
+        lighting.contribute({ sun: sunOver });
+        sync();
+        expect(driven()).toEqual(["light:bright"]);
+        lighting.contribute({ sun: sunOver });
+        sync();
+        expect(lighting.mainLight.direction[1]).toBeCloseTo(1); // the driven light, the one the sky drives
+        sync(); // no sky: Main Light is still the brightest, as authored
+        expect(lighting.mainLight.direction[2]).toBeCloseTo(-1);
+        expect(lighting.mainLight.color[0]).toBeCloseTo(3);
+        GameObject.destroy(caster.node);
+        GameObject.destroy(bright.node);
+      }
+      Graphics._configure(defaultGraphics()); // the tiers are global: leave the default ones as other tests expect
+    });
+
+    it("is the Light flagged sun, even a dim one that casts no shadow", () => {
+      Graphics.quality = "High";
+      light({ type: "directional", intensity: 3, castShadows: true }, [0, 5, 0], [0, 0, 0]);
+      const flagged = light({ type: "directional", intensity: 0.5, sun: true }, [0, 5, 0], [90, 0, 0]);
+      flagged.node.name = "flagged";
+      sync();
+      expect(lighting.mainLight.direction[1]).toBeCloseTo(1);
+      expect(lighting.mainLight.color[0]).toBeCloseTo(0.5);
+      lighting.contribute({ sun: sunOver });
+      sync();
+      expect(driven()).toEqual(["light:flagged"]);
+      flagged.enabled = false; // a disabled sun hands over to the brightest of the rest
+      lighting.contribute({ sun: sunOver });
+      sync();
+      expect(driven()).toEqual(["light:light directional"]);
+    });
+
+    it("is the brightest of several flagged Lights, with one warning", () => {
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+      try {
+        light({ type: "directional", intensity: 5 }, [0, 5, 0], [0, 0, 0]); // brightest, but not flagged
+        light({ type: "directional", intensity: 1, sun: true }, [0, 5, 0], [0, 0, 0]);
+        const brighter = light({ type: "directional", intensity: 2, color: new Color(1, 1, 1, 1), sun: true }, [0, 5, 0], [90, 0, 0]);
+        brighter.node.name = "brighter";
+        lighting.contribute({ sun: sunOver });
+        sync();
+        expect(driven()).toEqual(["light:brighter"]);
+        sync();
+        sync();
+        expect(lighting.mainLight.direction[1]).toBeCloseTo(1);
+        const sunWarnings = warn.mock.calls.filter(([m]) => String(m).includes("sun"));
+        expect(sunWarnings).toHaveLength(1);
+        expect(String(sunWarnings[0][0])).toContain("brighter");
+      } finally {
+        warn.mockRestore();
+      }
+    });
+
+    it("ranks brightness by colour too: a dim-coloured light at a higher intensity can lose", () => {
+      light({ type: "directional", intensity: 2, color: new Color(0.2, 0.2, 0.2, 1) }, [0, 5, 0], [0, 0, 0]);
+      light({ type: "directional", intensity: 1 }, [0, 5, 0], [90, 0, 0]);
+      sync();
+      expect(lighting.mainLight.direction[1]).toBeCloseTo(1); // white at 1 outshines dark grey at 2
+    });
   });
 
   it("falls back to (0.4, 1, -0.6) and white when the World's Lights include no directional one", () => {

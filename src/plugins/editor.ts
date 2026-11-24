@@ -4,6 +4,8 @@ import type { EditorPlugin } from "../editor/sdk/plugins";
 import { animationEditorPlugin } from "./animation/editor";
 import { audioEditorPlugin } from "./audio/editor";
 import type { FirstPartyPlugin } from "./catalogue";
+import { decalsEditorPlugin } from "./decals/editor";
+import { linesEditorPlugin } from "./lines/editor";
 import { materialsEditorPlugin } from "./materials/editor";
 import { navigationEditorPlugin } from "./navigation/editor";
 import { physicsEditorPlugin } from "./physics/editor";
@@ -33,6 +35,8 @@ const EDITOR_HALVES: { readonly [K in FirstPartyPlugin]?: EditorPlugin } = {
   environment: environmentEditorPlugin,
   "post-processing": postProcessingEditorPlugin,
   ui: uiEditorPlugin,
+  lines: linesEditorPlugin,
+  decals: decalsEditorPlugin,
   subtitles: subtitlesEditorPlugin,
   animation: animationEditorPlugin,
   ragdoll: ragdollEditorPlugin,

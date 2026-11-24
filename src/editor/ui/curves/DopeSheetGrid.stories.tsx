@@ -4,7 +4,7 @@
 // itself, as the curve editor's dope sheet and the Animation window do.
 import type { Meta, StoryObj } from "@storybook/preact-vite";
 import { useState } from "preact/hooks";
-import { expect, fireEvent, userEvent, within } from "storybook/test";
+import { expect, fireEvent, userEvent, waitFor, within } from "storybook/test";
 import { DopeSheetGrid, type DopeRow, type DopeSelectMode } from "./DopeSheetGrid";
 
 const ROWS: DopeRow[] = [
@@ -44,16 +44,18 @@ type Story = StoryObj<typeof meta>;
 export const SelectKeys: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await userEvent.click(c.getByRole("button", { name: "x key at 0.50 s" }));
-    expect(c.getByLabelText("Selected")).toHaveTextContent("x1");
-    await userEvent.keyboard("{Shift>}");
-    await userEvent.click(c.getByRole("button", { name: "y key at 0.25 s" }));
-    await userEvent.keyboard("{/Shift}");
-    expect(c.getByLabelText("Selected")).toHaveTextContent("x1,y0");
-    await userEvent.keyboard("{Control>}");
-    await userEvent.click(c.getByRole("button", { name: "x key at 0.50 s" }));
-    await userEvent.keyboard("{/Control}");
-    expect(c.getByLabelText("Selected")).toHaveTextContent("y0");
+    // One user session, so a modifier held down stays down for the click (each bare userEvent call starts afresh).
+    const user = userEvent.setup();
+    await user.click(c.getByRole("button", { name: "x key at 0.50 s" }));
+    await waitFor(() => expect(c.getByLabelText("Selected")).toHaveTextContent("x1"));
+    await user.keyboard("{Shift>}");
+    await user.click(c.getByRole("button", { name: "y key at 0.25 s" }));
+    await user.keyboard("{/Shift}");
+    await waitFor(() => expect(c.getByLabelText("Selected")).toHaveTextContent("x1,y0"));
+    await user.keyboard("{Control>}");
+    await user.click(c.getByRole("button", { name: "x key at 0.50 s" }));
+    await user.keyboard("{/Control}");
+    await waitFor(() => expect(c.getByLabelText("Selected")).toHaveTextContent("y0"));
     expect(c.getByRole("button", { name: "y key at 0.25 s" })).toHaveAttribute("aria-pressed", "true");
   },
 };
@@ -70,7 +72,7 @@ export const BoxSelect: Story = {
     fireEvent.pointerDown(rowX, { button: 0, clientX: a.left + a.width * 0.4, clientY: a.top + 2, pointerId: 1 });
     fireEvent.pointerMove(rowX, { clientX: a.left + a.width * 0.8, clientY: b.bottom - 2, pointerId: 1 });
     fireEvent.pointerUp(rowX, { clientX: a.left + a.width * 0.8, clientY: b.bottom - 2, pointerId: 1 });
-    expect(c.getByLabelText("Selected")).toHaveTextContent("x1,y1");
+    await waitFor(() => expect(c.getByLabelText("Selected")).toHaveTextContent("x1,y1"));
   },
 };
 
@@ -84,7 +86,7 @@ export const DragKeys: Story = {
     fireEvent.pointerDown(key, { button: 0, clientX: r.left + r.width / 2, clientY: r.top + 2, pointerId: 1 });
     fireEvent.pointerMove(key, { clientX: r.left + row.width * 0.2, clientY: r.top + 2, pointerId: 1 });
     fireEvent.pointerUp(key, { clientX: r.left + row.width * 0.2, clientY: r.top + 2, pointerId: 1 });
-    expect(c.getByLabelText("Moved")).toHaveTextContent("later");
+    await waitFor(() => expect(c.getByLabelText("Moved")).toHaveTextContent("later"));
   },
 };
 
@@ -97,7 +99,7 @@ export const PlayheadAndGhosts: Story = {
     const r = ruler.getBoundingClientRect();
     fireEvent.pointerDown(ruler, { button: 0, clientX: r.left + r.width / 2, clientY: r.top + 4, pointerId: 1 });
     fireEvent.pointerUp(ruler, { clientX: r.left + r.width / 2, clientY: r.top + 4, pointerId: 1 });
-    expect(c.getByLabelText("Playhead")).toHaveTextContent("0.50");
+    await waitFor(() => expect(c.getByLabelText("Playhead")).toHaveTextContent("0.50"));
     expect(canvasElement.querySelectorAll(".ce-ghost-flag")).toHaveLength(2);
   },
 };

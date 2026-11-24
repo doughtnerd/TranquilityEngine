@@ -109,12 +109,13 @@ export class Camera extends Component {
 
   /**
    * The half-height the camera's maths uses: with `pixelPerfect` on (orthographic) the integer-zoom
-   * size for the viewport's height in device pixels, else `orthographicSize`.
+   * size for a view `heightPx` device pixels tall (by default its viewport's height on the view's grid;
+   * the editor's camera preview passes the inset's), else `orthographicSize`.
    * @internal
    */
-  _effectiveOrthographicSize(): number {
+  _effectiveOrthographicSize(heightPx?: number): number {
     if (!this.pixelPerfect || this.projection !== "orthographic") return this.orthographicSize;
-    return pixelPerfectView(this._devicePixelSize().height, this.orthographicSize, this._world.settings.render.pixelsPerUnit).orthographicSize;
+    return pixelPerfectView(heightPx ?? this._devicePixelSize().height, this.orthographicSize, this._world.settings.render.pixelsPerUnit).orthographicSize;
   }
 
   /**
@@ -476,6 +477,13 @@ export class Light extends Component {
   @field(Number) spotAngle = 30;
   /** Spot: how soft the cone's edge is, 0 (hard) to 1. */
   @field(Number) spotSoftness = 0.2;
+  /**
+   * Directional: this is the World's sun (ADR 0393), the light a sky drives and shader graphs' Main Light
+   * nodes read. Without one flagged, the brightest directional light is the sun; with several, the
+   * brightest of them.
+   */
+  @field(Boolean, { description: "The World's sun: the directional light the sky drives and shader graphs' Main Light reads. Unflagged: the brightest directional light." })
+  sun = false;
   /**
    * Directional, point and spot: cast shadows from meshes with `castShadows`. A directional
    * light's shadows cover `shadowArea` metres around its node.

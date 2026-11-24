@@ -1,5 +1,5 @@
 import { expect, openEditor, type Page, PLAY_START, test, type Hooks } from "./fixtures";
-import { closeMenus, undoItem } from "./menus";
+import { assetsMenu, closeMenus, undoItem } from "./menus";
 
 /** The Flappy sample as a writable project folder in memory. */
 async function openProject(page: Page): Promise<void> {
@@ -85,7 +85,7 @@ test("New Scene in the Assets panel writes a scene with a camera in scenes/ (the
   await openProject(page);
   const empty = (await assets(page).locator(".asset-items").boundingBox())!;
   await page.mouse.click(empty.x + empty.width - 10, empty.y + empty.height - 10, { button: "right" });
-  await page.getByRole("menuitem", { name: "New Scene" }).click();
+  await assetsMenu(page, "Create", "Scene");
   await expect.poll(() => tabs(page)).toEqual(["main.scene.json", "New Scene.scene.json"]); // the scene kind's creator loads on first use
   await expect(page.locator(".scene-name")).toHaveText("New Scene.scene.json");
   await expect(row(page, "camera")).toHaveCount(1);
@@ -112,6 +112,6 @@ test("New Scene in the Assets panel writes a scene with a camera in scenes/ (the
 test("Play plays the active tab", async ({ page }) => {
   await openEditor(page, { sample: "flappy" });
   await openPipePair(page);
-  await page.getByRole("button", { name: "▶ Play" }).click();
+  await page.getByRole("button", { name: "Play", exact: true }).click();
   await expect(page.locator(".status-bar")).toContainText("Playing prefabs/pipe-pair.prefab.json", { timeout: PLAY_START });
 });

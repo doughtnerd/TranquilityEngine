@@ -413,11 +413,12 @@ describe("menus", () => {
     const { createMenuItems, hierarchyMenu, openUIElementMenu } = await import("./ui/HierarchyMenu");
     const uiElementMenuItems = (r: UIElementRef) => (openUIElementMenu(0, 0, r), hierarchyMenu.value!.items);
     select([]);
-    expect(createMenuItems(scene()).some((i) => i.label.includes("in Document"))).toBe(false);
+    expect(createMenuItems(scene()).some((i) => i.label === "Element in Document")).toBe(false);
     select(["bare"]);
-    const items = createMenuItems(scene());
-    expect(items.slice(0, 5).map((i) => i.label)).toEqual(["Create Panel in Document", "Create Text in Document", "Create Image in Document", "Create Button in Document", "Create Input Field in Document"]);
-    items[1].run!();
+    const [elements] = createMenuItems(scene());
+    expect(elements.label).toBe("Element in Document");
+    expect(elements.submenu!.map((i) => i.label)).toEqual(["Button", "Image", "Input Field", "Panel", "Text"]);
+    elements.submenu!.find((i) => i.label === "Text")!.run!();
     await settle();
     expect(selectedUIRef()).toEqual(ref("/Text[0]", "bare"));
     expect(text("ui/bare.ui.xml")).toContain("<Text>New Text</Text>");

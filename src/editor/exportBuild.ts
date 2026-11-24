@@ -16,18 +16,38 @@ import { packageSourceFor } from "./projectPackages";
 import { ExportError, isOutputInsideProject, planWebBuild, type BuildOptions, type WebBuildPlan } from "../export/webBuild";
 import { jsonFiles, type EditorProject } from "./projects";
 import { DEFAULT_DEBUG_LINK_PORT } from "../engine/debugLink/config";
-import { DEFAULT_ICON_SVG, desktopProjectFiles, desktopReadme, type BuildSettings } from "../export/desktop";
+import { DEBUG_LISTENER_CRATES, DEBUG_MULTICAST_PLUGIN, DEFAULT_ICON_SVG, desktopProjectFiles, desktopReadme, type BuildSettings } from "../export/desktop";
 // ADR 0335: exported games' gamepad module is the editor shell's, copied verbatim (as the command line's exporter does).
 import GAMEPAD_MODULE from "../../src-tauri/src/gamepad.rs?raw";
 
-/** The command-line export of a desktop package, for the browser editor, which can't run the host's toolchain (ADR 0381). */
-export const desktopExportCommand = (project: EditorProject, audioCapture = false, audioTake = false, takePictures = true, debugLink = false) =>
-  `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop${audioCapture ? " --audio-capture" : ""}${audioTake ? " --audio-take" : ""}${audioTake && !takePictures ? " --no-take-pictures" : ""}${debugLink ? ` --debug-link ${DEFAULT_DEBUG_LINK_PORT}` : ""}`;
+/** The command-line export of a desktop package, for the browser editor, which can't run the host's toolchain (ADR 0406). */
+export const desktopExportCommand = (project: EditorProject, audioCapture = false, audioTake = false, takePictures = true, debugLink = false, debugListen = false, debugLan = false, debugRendezvous = "") =>
+  `npm run export -- "${project.root ?? "<projectDir>"}" --target desktop${audioCapture ? " --audio-capture" : ""}${audioTake ? " --audio-take" : ""}${audioTake && !takePictures ? " --no-take-pictures" : ""}${debugLink ? ` --debug-link ${DEFAULT_DEBUG_LINK_PORT}` : ""}${debugLink && debugListen ? " --debug-listen" : ""}${debugLink && debugListen && debugLan ? " --debug-lan" : ""}${debugLink && debugRendezvous.trim() ? ` --debug-rendezvous "${debugRendezvous.trim()}"` : ""}`;
+
+/** Whether `value` is a `ws://` or `wss://` URL, as the Export dialog's Rendezvous URL field takes (an empty one is none). */
+export function isRendezvousUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value.trim()).protocol;
+    return protocol === "ws:" || protocol === "wss:";
+  } catch {
+    return false;
+  }
+}
 
 async function fetchBytes(url: string): Promise<Uint8Array> {
   const res = await fetch(url);
   if (!res.ok) throw new Error(`Couldn't read ${url}: HTTP ${res.status}`);
   return new Uint8Array(await res.arrayBuffer());
+}
+
+/** A text file's contents, or undefined when it can't be read (a missing optional file). */
+async function fetchText(url: string): Promise<string | undefined> {
+  try {
+    const res = await fetch(url);
+    return res.ok ? await res.text() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** The open project's files: text the editor holds, else the bytes behind its asset URL. */
@@ -56,7 +76,7 @@ export function exportProjectBuild(project: EditorProject, fs: FileSystem, out: 
 }
 
 /**
- * ADR 0381: write a desktop package of `project` into `out` (ADR 0041's layout): the web build in
+ * ADR 0406: write a desktop package of `project` into `out` (ADR 0041's layout): the web build in
  * `web/`, the generated Tauri project in `src-tauri/` with its icon's source as
  * `src-tauri/app-icon.png` or `.svg` (`build.icon`, else the neutral default) for `tauri icon` to
  * make the icons from, and README.txt. `out` must be empty or hold an earlier desktop package
@@ -70,7 +90,10 @@ export async function exportDesktopProject(project: EditorProject, fs: FileSyste
   const iconSource = icon ? await projectFiles(project).read(icon).catch(() => { throw new ExportError(`project.json's build.icon "${icon}" isn't in the project.`); }) : DEFAULT_ICON_SVG;
   const plan = await writeBuild(project, fs, out, "desktop", progress, options);
   const folder = fileSystemFolder(fs, out);
-  for (const [path, text] of desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule: GAMEPAD_MODULE, debug: plan.manifest.debug !== undefined })) {
+  const debug = plan.manifest.debug !== undefined;
+  // ADR 0403: a debug package carries the listener crates' sources, compiled by its own `tauri build` (a release one carries none).
+  const debugListener = debug ? await listenerCrates() : undefined;
+  for (const [path, text] of desktopProjectFiles({ name: plan.manifest.name, settings, gamepadModule: GAMEPAD_MODULE, debug, ...(debugListener && { debugListener }) })) {
     await folder.writeText(`src-tauri/${path}`, text);
   }
   const iconFile = `src-tauri/app-icon.${icon?.toLowerCase().endsWith(".png") ? "png" : "svg"}`;
@@ -78,6 +101,36 @@ export async function exportDesktopProject(project: EditorProject, fs: FileSyste
   await (typeof iconSource === "string" ? folder.writeText(iconFile, iconSource) : folder.writeBytes(iconFile, iconSource));
   await writeDesktopReadme(fs, out, plan.manifest.name, false);
   return plan;
+}
+
+/**
+ * ADR 0403: the debug link's listener crates and the Android multicast plugin, by path under `src-tauri/vendor/`, as the
+ * command line's exporter reads them from native/ (`readListenerCrates` in src/export/node.ts): each crate's Cargo.toml
+ * and src/*.rs, and the plugin's listed files. The editor bundles them, loaded only for a debug package.
+ */
+const NATIVE_SOURCES = import.meta.glob(
+  [
+    "../../native/{ws-listener,debug-discovery,debug-link-tauri}/Cargo.toml",
+    "../../native/{ws-listener,debug-discovery,debug-link-tauri}/src/*.rs",
+    "../../native/tauri-plugin-myco-multicast/{Cargo.toml,build.rs,src/lib.rs,permissions/default.toml}",
+    "../../native/tauri-plugin-myco-multicast/android/{build.gradle.kts,settings.gradle,src/main/AndroidManifest.xml,src/main/java/com/myco/multicast/MulticastPlugin.kt}",
+  ],
+  { query: "?raw", import: "default" },
+) as Record<string, () => Promise<string>>;
+
+async function listenerCrates(): Promise<Map<string, string>> {
+  const byPath = new Map(Object.entries(NATIVE_SOURCES).map(([key, load]) => [key.replace(/^(\.\.\/)+native\//, ""), load]));
+  const wanted = [
+    ...[...byPath.keys()].filter((path) => (DEBUG_LISTENER_CRATES as readonly string[]).some((crate) => path === `${crate}/Cargo.toml` || new RegExp(`^${crate}/src/[^/]+\\.rs$`).test(path))).sort(),
+    ...DEBUG_MULTICAST_PLUGIN.files.map((file) => `${DEBUG_MULTICAST_PLUGIN.crate}/${file}`),
+  ];
+  const crates = new Map<string, string>();
+  for (const path of wanted) {
+    const load = byPath.get(path);
+    if (!load) throw new ExportError(`The debug link's native source ${path} isn't bundled with this editor.`);
+    crates.set(path, await load());
+  }
+  return crates;
 }
 
 /** README.txt of the desktop package in `out`; `built` once its installers are in src-tauri/target/release/bundle/. */
@@ -88,7 +141,10 @@ export function writeDesktopReadme(fs: FileSystem, out: string, name: string, bu
 async function writeBuild(project: EditorProject, fs: FileSystem, out: string, target: "web" | "desktop", progress: ((done: number, total: number) => void) | undefined, options: BuildOptions): Promise<WebBuildPlan> {
   if (project.root && isOutputInsideProject(project.root, out)) throw new ExportError("That folder is inside the project, where the next export would copy it in. Choose a folder outside it (or its dist/ folder).");
   const name = project.root?.split(/[\\/]/).filter(Boolean).pop() ?? project.name;
-  const plan = await planWebBuild({ name, settings: project.settings, files: project.files, scripts: project.scripts, json: jsonFiles(project), packages: packageSourceFor(project, "production") }, options);
+  // ADR 0403 "Rendezvous" 2: a debug build's serve.mjs hosts the rendezvous from a bundle served beside the editor (rendezvous/rendezvous.mjs); without it the build says so.
+  const debugOn = options.debugLink !== undefined || options.debugListen === true || options.debugLan === true || options.debugPort !== undefined || options.debugRendezvous !== undefined;
+  const rendezvousBundle = debugOn && options.rendezvousBundle === undefined ? await fetchText(new URL("rendezvous/rendezvous.mjs", document.baseURI).href) : undefined;
+  const plan = await planWebBuild({ name, settings: project.settings, files: project.files, scripts: project.scripts, json: jsonFiles(project), packages: packageSourceFor(project, "production") }, { ...options, ...(rendezvousBundle !== undefined && { rendezvousBundle }) });
   const encoder = createBrowserAudioEncoder();
   return writeWebBuild(plan, {
     project: projectFiles(project),

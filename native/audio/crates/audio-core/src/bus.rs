@@ -410,13 +410,17 @@ fn repair_tree(slots: &mut [BusSlot]) {
 
 /// MASTER: the output's volume and mute, ramped over `rampFrames`.
 pub fn master(core: &mut Core, m: &Master) {
-    let v = view(core.regions_mut());
+    let regions = core.regions_mut();
+    let lanes: *mut [u8] = &mut regions.lanes[..];
+    let v = view(regions);
     if m.volume.is_finite() {
         v.area.master_volume = m.volume.max(0.0);
     }
     v.area.master_muted = (m.muted != 0) as u32;
     let target = if m.muted != 0 { 0.0 } else { v.area.master_volume };
-    v.area.master.set_target(target, m.ramp_frames);
+    // SAFETY: the lanes region is distinct from every region `v` views (Layout).
+    let entry = crate::lanes::master_entry(unsafe { &mut *lanes });
+    crate::lanes::set_master(entry, &mut v.area.master, target, m.ramp_frames);
 }
 
 /// RESET: clears the DSP state of every bus and the reverb tail, and settles every ramp on its

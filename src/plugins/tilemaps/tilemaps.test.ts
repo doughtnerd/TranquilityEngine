@@ -54,7 +54,7 @@ const formatTileset = (data: TilesetData): string => assetKinds.get("tileset")!.
 const tileset = (tiles: number, tileSize: [number, number] = [16, 16]): TilesetData => ({
   ...newTileset(),
   tileSize,
-  tiles: Array.from({ length: tiles }, (_, i) => ({ id: i + 1, sprite: `asset:images/t.png#t_${i}`, collision: "none" as const })),
+  tiles: Array.from({ length: tiles }, (_, i) => ({ id: i + 1, uuid: `uuid-${i + 1}`, sprite: `asset:images/t.png#t_${i}`, collision: "none" as const })),
 });
 
 describe("the Tilemaps plugin's runtime half (ADR 0135)", () => {
