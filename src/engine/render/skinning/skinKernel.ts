@@ -12,9 +12,11 @@
  *   (exact below 2^24).
  * - `morphs`: per target, per vertex, two rows: the position delta and the normal delta (row
  *   `(target * vertices + vertex) * 2`).
- * - `bones`: the skeleton's palette, three rows per joint: a row-major 3×4 matrix (D10: translation in
- *   the fourth column), model × inverse bind. Shared by every mesh of one skeleton (`bindInput`).
- * - `params`: row 0 = (vertices, morph targets, 0, 0); then the morph weights, four per row.
+ * - `bones`: bone palettes, three rows per joint: a row-major 3×4 matrix (D10: translation in the fourth
+ *   column), model × inverse bind. One table holds every skeleton's palette (`bindInput`); a mesh's
+ *   skeleton starts at joint `params[0].z`.
+ * - `params`: row 0 = (vertices, morph targets, first joint of the skeleton in `bones`, 0); then the
+ *   morph weights, four per row.
  *
  * Outputs (D87: one vec4 each, interleaved, 48 bytes a vertex): `position` (xyz, 1), `normal` (xyz, 0),
  * `tangent` (xyz, w). Weights are divided by their sum; a vertex whose weights are all zero keeps its
@@ -42,10 +44,11 @@ GLOBAL(KV4, skinRow0);
 GLOBAL(KV4, skinRow1);
 GLOBAL(KV4, skinRow2);
 GLOBAL(KF, skinWeight);
+GLOBAL(KI, skinBase);
 
 FN(void, skinInfluence, KF joint, KF weight) {
   if (weight != 0.0) {
-    VAR(KI, b) = KI(joint) * 3;
+    VAR(KI, b) = (KI(joint) + skinBase) * 3;
     skinRow0 = skinRow0 + in_bones(b) * weight;
     skinRow1 = skinRow1 + in_bones(b + 1) * weight;
     skinRow2 = skinRow2 + in_bones(b + 2) * weight;
@@ -95,6 +98,7 @@ FN(void, mycoSkin, KI v) {
   VAR(KV4, info) = in_params(0);
   VAR(KI, vertices) = KI(info.x);
   VAR(KI, targets) = KI(info.y);
+  skinBase = KI(info.z);
   for (VAR(KI, m) = 0; m < targets; m++) {
     VAR(KF, w) = skinMorphWeight(m);
     if (w != 0.0) {
@@ -206,13 +210,16 @@ export function packMorphTargets(g: SkinGeometry): Float32Array {
   return out;
 }
 
-/** The `params` table: the vertex and target counts, then `weights` (missing weights are zero). Reuses `out` when it fits. */
-export function packSkinParams(vertices: number, targets: number, weights: ArrayLike<number>, out?: Float32Array): Float32Array {
+/**
+ * The `params` table: the vertex and target counts, the skeleton's first joint in the `bones` table
+ * (`base`), then `weights` (missing weights are zero). Reuses `out` when it fits.
+ */
+export function packSkinParams(vertices: number, targets: number, weights: ArrayLike<number>, out?: Float32Array, base = 0): Float32Array {
   const floats = (1 + Math.ceil(targets / 4)) * 4;
   const p = out && out.length === floats ? out : new Float32Array(floats);
   p[0] = vertices;
   p[1] = targets;
-  p[2] = 0;
+  p[2] = base;
   p[3] = 0;
   for (let t = 0; t < targets; t++) p[4 + t] = t < weights.length ? Number(weights[t]) || 0 : 0;
   return p;
