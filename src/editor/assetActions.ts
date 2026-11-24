@@ -23,6 +23,8 @@ import { whyNotEdit } from "./editGate";
 export interface AssetTarget {
   readonly project: EditorProject;
   readonly entries: readonly AssetEntry[];
+  /** With no single folder in `entries`, the folder Paste and Create act in (the folder tree's root row: ""); the folder showing when absent. */
+  readonly folder?: string;
 }
 
 export type AssetCommandId = "open" | "rename" | "duplicate" | "copy" | "cut" | "paste" | "delete";
@@ -105,10 +107,11 @@ export function assetKeyCommand(e: { key: string; ctrlKey: boolean; metaKey: boo
   return null;
 }
 
-/** The folder a paste or New… goes to: a single selected folder, else the folder showing. */
-function targetFolder(project: EditorProject, entries: readonly AssetEntry[]): string {
-  const files = fileEntries(entries);
-  return files.length === 1 && isFolderEntry(files[0]) ? entryPath(files[0]) : shownFolder(project);
+/** The folder a paste or New… goes to: a single selected folder, else the target's folder, else the folder showing. */
+export function targetFolder(target: AssetTarget): string {
+  const files = fileEntries(target.entries);
+  if (files.length === 1 && isFolderEntry(files[0])) return entryPath(files[0]);
+  return target.folder !== undefined && (target.folder === "" || target.project.folders.includes(target.folder)) ? target.folder : shownFolder(target.project);
 }
 
 /** Why the file commands have nothing to act on, or null. */
@@ -144,7 +147,7 @@ export function whyNotAsset(id: AssetCommandId, target: AssetTarget): string | n
     case "duplicate":
       return whyNoFiles(entries) ?? whyReadOnly(project, "duplicate files");
     case "paste":
-      return whyNotPaste(project, targetFolder(project, entries));
+      return whyNotPaste(project, targetFolder(target));
     case "delete":
       return whyNoFiles(entries) ?? whyNotDeletable(project, files);
   }
@@ -192,7 +195,7 @@ export async function runAsset(id: AssetCommandId, target: AssetTarget): Promise
     case "duplicate":
       return selectMade(await duplicateAssets(files));
     case "paste":
-      return selectMade(await pasteAssets(targetFolder(target.project, target.entries)));
+      return selectMade(await pasteAssets(targetFolder(target)));
     case "delete":
       return deleteAssets(files);
   }
@@ -222,7 +225,7 @@ export interface AssetCreateItem extends AssetMenuItem {
 export function assetCreateItems(target: AssetTarget): CategorisedEntry<AssetCreateItem>[] {
   const { project } = target;
   const whyNot = whyReadOnly(project, "add files");
-  const folder = targetFolder(project, target.entries);
+  const folder = targetFolder(target);
   return categorise<AssetCreateItem>([
     { label: "Folder", whyNot, run: () => void makeFolder(folder) },
     // Every file entry is a registered kind's `create`; a scene is the one the top level keeps.

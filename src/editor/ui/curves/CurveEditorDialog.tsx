@@ -718,7 +718,8 @@ export function CurveEditorDialog(props: CurveEditorDialogProps) {
             Apply
           </button>
         </div>
-        {laneMenu && <ContextMenu label="Curve menu" at={{ x: laneMenu.x, y: laneMenu.y }} entries={laneMenuEntries(laneMenu.id)} onClose={() => setLaneMenu(null)} />}
+        {/* Inline: the dialog may sit in a detached window (ADR 0174), whose menus must open there, not in the main page. */}
+        {laneMenu && <ContextMenu inline label="Curve menu" at={{ x: laneMenu.x, y: laneMenu.y }} entries={laneMenuEntries(laneMenu.id)} onClose={() => setLaneMenu(null)} />}
       </div>
     </div>
   );

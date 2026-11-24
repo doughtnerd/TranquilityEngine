@@ -21,6 +21,7 @@ import {
   groupProblems,
   isSpawnableName,
   linkableNames,
+  linkIds,
   lobbyLinks,
   serverRoles,
   type ServerRole,
@@ -351,8 +352,14 @@ function Graph(props: GraphProps) {
   const editable = project.canSave;
   const live = useLiveLinks();
   const [dragging, setDragging] = useState<ReadonlyMap<string, Point> | null>(null);
-  /** The picked link (its index in `links`), or null. */
-  const [picked, setPicked] = useState<number | null>(null);
+  /** The picked link, by its identity (`linkIds`), or null: an undo or a removal doesn't move the pick onto another link. */
+  const [picked, setPicked] = useState<string | null>(null);
+  const ids = linkIds(model.links);
+  const pickedIndex = picked === null ? -1 : ids.indexOf(picked);
+  // A picked link that's gone (removed, changed, undone) is no longer picked.
+  useEffect(() => {
+    if (picked !== null && pickedIndex < 0) setPicked(null);
+  }, [picked, pickedIndex]);
   const implied = lobbyLinks(model);
   const roles = serverRoles(model);
 
@@ -451,7 +458,7 @@ function Graph(props: GraphProps) {
   const arrows: Arrow[] = [
     ...model.links.map((l, i): Arrow => {
       const spawnable = isSpawnableName(model, l.from) || isSpawnableName(model, l.to);
-      return { key: `l${i}`, from: l.from, to: l.to, label: l.transport, cls: `worlds-link${spawnable ? " spawnable" : ""}${problems.links.has(i) ? " invalid" : ""}${picked === i ? " selected" : ""}`, attr: "data-link-arrow", live: false, link: i };
+      return { key: `l:${ids[i]}`, from: l.from, to: l.to, label: l.transport, cls: `worlds-link${spawnable ? " spawnable" : ""}${problems.links.has(i) ? " invalid" : ""}${pickedIndex === i ? " selected" : ""}`, attr: "data-link-arrow", live: false, link: i };
     }),
     ...implied.map((l): Arrow => ({ key: `lobby:${l.from}>${l.to}`, from: l.from, to: l.to, label: l.label, cls: "worlds-link spawnable implied", attr: "data-lobby-link", live: false })),
     ...live.map((l): Arrow => ({ key: `live:${l.from}>${l.to}`, from: l.from, to: l.to, label: liveLabel(l), cls: `worlds-link live ${l.state}`, attr: "data-live-link", live: true })),
@@ -484,13 +491,13 @@ function Graph(props: GraphProps) {
     if (e.button !== 0) return;
     e.stopPropagation();
     focusPane();
-    setPicked(link);
+    setPicked(ids[link] ?? null);
   };
   const removePicked = (): boolean => {
-    const l = picked === null ? undefined : model.links[picked];
+    const l = pickedIndex < 0 ? undefined : model.links[pickedIndex];
     if (!l || !editable) return false;
     setPicked(null);
-    edit(s, `Remove link ${l.from} → ${l.to}`, removeLink(model, picked!));
+    edit(s, `Remove link ${l.from} → ${l.to}`, removeLink(model, pickedIndex));
     return true;
   };
   const panFrom = (e: PointerEvent) => {
@@ -528,7 +535,7 @@ function Graph(props: GraphProps) {
           let handled = true;
           if (key === "delete" || key === "backspace") handled = removePicked();
           else if (key === "f") canvas.frameAll();
-          else if (key === "escape" && picked !== null) setPicked(null);
+          else if (key === "escape" && pickedIndex >= 0) setPicked(null);
           else handled = false;
           if (handled) {
             e.preventDefault();
@@ -956,6 +963,7 @@ function Links(props: { s: PanelState; model: WorldsModel; problems: GroupedProb
   const names = linkableNames(model);
   const transports = transportChoices(listTransports(), model.links.map((l) => l.transport));
   const describe = (l: LinkConfig) => `${l.from} → ${l.to}`;
+  const ids = linkIds(model.links);
   const add = () => {
     const from = names[0] ?? "";
     const to = names.find((n) => n !== from) ?? from;
@@ -968,7 +976,8 @@ function Links(props: { s: PanelState; model: WorldsModel; problems: GroupedProb
       </h4>
       {model.links.length === 0 && <p class="worlds-none">No links at start-up. Worlds can also connect while the game runs, from scripts (world.connect(…)).</p>}
       {model.links.map((l, i) => (
-        <div key={i} class="worlds-link-row" data-link={i}>
+        // Keyed by the link, not its place, so a row's open Options and half-typed option follow it when a link before it goes.
+        <div key={ids[i]} class="worlds-link-row" data-link={i}>
           <div class="worlds-link-edit">
             <Picker label={`Link ${i + 1} from`} value={l.from} options={names} onChange={(from) => edit(s, `Link ${from} to ${l.to}`, updateLink(model, i, { from }))} />
             <span>→</span>

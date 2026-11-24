@@ -191,7 +191,8 @@ export function DopeSheet(props: DopeSheetProps) {
           props.onMenu(true);
         }}
       />
-      {menu && <ContextMenu label="Key menu" at={{ x: menu.x, y: menu.y }} entries={menuEntries(menu)} onClose={closeMenu} />}
+      {/* Inline: the dialog may sit in a detached window (ADR 0174), whose menus must open there, not in the main page. */}
+      {menu && <ContextMenu inline label="Key menu" at={{ x: menu.x, y: menu.y }} entries={menuEntries(menu)} onClose={closeMenu} />}
     </section>
   );
 }

@@ -16,6 +16,7 @@ import {
   makeFolder,
   runAsset,
   shownFolder,
+  targetFolder,
   slicesOf,
   whyNotAsset,
   type AssetCommandId,
@@ -48,6 +49,7 @@ import { assetTileSize, assetView } from "../preferences";
 import { joinPath, type EditorProject } from "../projects";
 import { currentProject, docVersion, openScene, sceneCamera, scriptsVersion, selection, status } from "../state";
 import { TileThumbnail } from "./AssetPreview";
+import { ownerWindowOf } from "../windows/dom";
 import { PanelMenu } from "./PanelMenu";
 import type { MenuEntry } from "../menuBar";
 import { RenameField } from "./RenameField";
@@ -119,16 +121,16 @@ function createSubmenu(target: AssetTarget): MenuItem {
 }
 
 /**
- * The menu for `entries` (empty: the folder showing's background): Create, Paste and Show in File Manager; for a
+ * The menu for `entries` (empty: the background of `folder`, by default the folder showing): Create, Paste and Show in File Manager; for a
  * selection, Create (in a folder), Open and plugins' actions, the clipboard, Rename, Duplicate and Delete, then Show
  * in File Manager. The layout is here; what each item does and when is assetActions.ts's.
  */
-function menuItems(project: EditorProject, entries: readonly string[]): MenuItem[] {
-  const target: AssetTarget = { project, entries };
+function menuItems(project: EditorProject, entries: readonly string[], folder?: string): MenuItem[] {
+  const target: AssetTarget = { project, entries, folder };
   const fs = project.fileSystem;
   const reveal = (path: string) => () => void fs!.reveal!(joinPath(project.root!, path)).catch((err) => (status.value = errorStatus(`Couldn't show ${path}`, err)));
   if (entries.length === 0) {
-    return [createSubmenu(target), SEP, commandItem("paste", target), ...(fs?.reveal && project.root ? [SEP, { label: "Show in File Manager", run: reveal(shownFolder(project)) }] : [])];
+    return [createSubmenu(target), SEP, commandItem("paste", target), ...(fs?.reveal && project.root ? [SEP, { label: "Show in File Manager", run: reveal(targetFolder(target)) }] : [])];
   }
   const plugins = toMenuItems([...studioAssetItems(target), ...assetPluginItems(target)]); // Open in Audio Studio first (ADR 0341)
   if (entries.every(isSliceEntry)) return [commandItem("open", target), ...plugins];
@@ -328,7 +330,7 @@ function folderRow(view: AssetsView, project: EditorProject, path: string, label
     },
     select: () => view.browser.openFolder(path),
     menu: (x, y) => {
-      menu.value = { x, y, items: menuItems(project, entry ? [entry] : []), owner: view };
+      menu.value = { x, y, items: menuItems(project, entry ? [entry] : [], path), owner: view }; // the root row's menu acts in the root
     },
     rename:
       entry && target && !whyNotAsset("rename", target)
@@ -411,6 +413,8 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
     if (e.button !== 0 || (e.target as HTMLElement).closest(".asset-item")) return;
     const el = list.current!;
     el.focus();
+    // The window the list is in: a detached Assets window (ADR 0174) gets its own pointer events.
+    const win = ownerWindowOf(el);
     const before = selectedAssets.value.filter((x) => entries.includes(x));
     const mods: Modifiers = { shift: e.shiftKey, toggle: toggleKey(e) };
     const x0 = e.clientX, y0 = e.clientY;
@@ -429,9 +433,9 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
       previewAssets(boxSelection(before, hits, mods)); // the Inspector follows once the box is let go
     };
     const finish = (keep: boolean) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("keydown", key, true);
+      win.removeEventListener("pointermove", move);
+      win.removeEventListener("pointerup", up);
+      win.removeEventListener("keydown", key, true);
       box.value = null;
       if (!keep) previewAssets(before);
       else if (!moved && !mods.shift && !mods.toggle) selectAssets([]);
@@ -444,9 +448,9 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
       k.stopPropagation();
       finish(false);
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("keydown", key, true);
+    win.addEventListener("pointermove", move);
+    win.addEventListener("pointerup", up);
+    win.addEventListener("keydown", key, true);
   };
 
   const b = box.value;

@@ -152,6 +152,14 @@ describe("copying, cutting and pasting", () => {
     expect(whyNotAsset("paste", on("images/"))).toMatch(/inside itself/);
   });
 
+  it("pastes into the target's folder (the folder tree's root row) rather than the folder showing", async () => {
+    openFolder("images");
+    await runAsset("copy", on("music/foo.mp3"));
+    expect(await runAsset("paste", { project, entries: [], folder: "" })).toBe(true);
+    expect(onDisk("foo.mp3")).toBe(true);
+    expect(onDisk("images/foo.mp3")).toBe(false);
+  });
+
   it("moves after a cut, and the clipboard empties", async () => {
     await runAsset("cut", on("music/foo.mp3"));
     expect(await runAsset("paste", on("images/"))).toBe(true);
