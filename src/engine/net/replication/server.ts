@@ -32,7 +32,9 @@
  * the root ghosts it owns), with 10% hysteresis on leaving. It's relevant when it and every ghost
  * above it pass. A ghost that stops being relevant goes in the leaves section until acked (clients
  * destroy prefab ghosts and deactivate scene and nested ones); one that becomes relevant again is
- * spawned afresh.
+ * spawned afresh, and acks of snapshots from before it came back no longer count for it (the
+ * client forgot that stay). One that's destroyed after it left is still despawned, so a client
+ * whose leave was lost drops it, and clients forget its strings.
  *
  * ## Structure (ADR 0100)
  *
@@ -166,6 +168,11 @@ interface ServerGhost {
 
 /** What one connection has been told about one ghost. */
 interface PeerGhost {
+  /**
+   * The tick it (last) became relevant to the connection: acks of snapshots from before it carried
+   * an earlier stay (before it left), whose spawn, states and structures the client has forgotten.
+   */
+  readonly since: number;
   spawnAcked: boolean;
   /** The state in the newest acked snapshot that included this ghost, and that snapshot's tick. */
   baseline: GhostState | null;
@@ -202,9 +209,12 @@ interface PeerState {
   readonly known: Map<number, PeerGhost>;
   /** Despawns not yet acked. */
   readonly despawns: Set<number>;
-  /** Leaves (ADR 0121) not yet acked. */
-  readonly leaves: Set<number>;
-  /** Scene and nested ghosts that left: clients keep them deactivated, so a despawn is still sent. */
+  /** Leaves (ADR 0121) not yet acked, with the tick each began (an ack of an older leave doesn't count). */
+  readonly leaves: Map<number, number>;
+  /**
+   * Ghosts that left: a despawn is still sent if they go. Clients keep scene and nested ones
+   * deactivated; a prefab one's leave may not have arrived, and clients keep its strings.
+   */
   readonly dormant: Set<number>;
   /** What each part of a sent tick carried (ADR 0334); a part is nulled once acked. */
   readonly history: Map<number, (Sent | null)[]>;
@@ -292,7 +302,7 @@ export class ServerReplication {
     for (const peer of peers) {
       let ps = this.peers.get(peer);
       if (!ps) {
-        this.peers.set(peer, (ps = { known: new Map(), despawns: new Set(), leaves: new Set(), dormant: new Set(), history: new Map(), lastBytes: 0, lastParts: 0, lastCosts: new Map(), lastFullBits: 0, typeBits: new Map(), table: new StringTableOut() }));
+        this.peers.set(peer, (ps = { known: new Map(), despawns: new Set(), leaves: new Map(), dormant: new Set(), history: new Map(), lastBytes: 0, lastParts: 0, lastCosts: new Map(), lastFullBits: 0, typeBits: new Map(), table: new StringTableOut() }));
         peer.relevantGhosts = ps.known; // what Interest.isRelevant answers from (ADR 0311)
       }
       for (const id of despawned) {
@@ -304,13 +314,13 @@ export class ServerReplication {
         for (const id of [...ps.known.keys()]) {
           if (relevant.has(id)) continue;
           ps.known.delete(id);
-          ps.leaves.add(id);
-          if (this.byId.get(id)?.spawn.kind !== SPAWN_PREFAB) ps.dormant.add(id);
+          ps.leaves.set(id, tick);
+          ps.dormant.add(id);
         }
       }
       for (const g of this.ghosts.values()) {
         if (ps.known.has(g.id) || (relevant && !relevant.has(g.id))) continue;
-        ps.known.set(g.id, { spawnAcked: false, baseline: null, baselineTick: 0, lastSentTick: -1, structureAcked: -1, baselineLayout: -1, layoutAcked: -1 });
+        ps.known.set(g.id, { since: tick, spawnAcked: false, baseline: null, baselineTick: 0, lastSentTick: -1, structureAcked: -1, baselineLayout: -1, layoutAcked: -1 });
         // Back before its leave was acked: cancel it (a client that read it spawns it again from this spawn).
         ps.leaves.delete(g.id);
         ps.dormant.delete(g.id);
@@ -554,23 +564,29 @@ export class ServerReplication {
 
   /** What one acked part carried is now on the client: spawns, despawns, leaves, layouts, structures, strings, baselines. */
   private applyAck(ps: PeerState, tick: number, sent: Sent): void {
-    for (const id of sent.spawns) {
+    // Only what was sent during the ghost's current stay (or leave): one that left and came back
+    // since is spawned afresh, and the client has none of the earlier stay's states.
+    const current = (id: number): PeerGhost | undefined => {
       const pg = ps.known.get(id);
+      return pg && tick >= pg.since ? pg : undefined;
+    };
+    for (const id of sent.spawns) {
+      const pg = current(id);
       if (pg) pg.spawnAcked = true;
     }
     for (const id of sent.despawns) ps.despawns.delete(id);
-    for (const id of sent.leaves) ps.leaves.delete(id);
+    for (const id of sent.leaves) if (tick >= (ps.leaves.get(id) ?? Infinity)) ps.leaves.delete(id);
     for (const [id, version] of sent.relayouts) {
-      const pg = ps.known.get(id);
+      const pg = current(id);
       if (pg && version > pg.layoutAcked) pg.layoutAcked = version;
     }
     for (const [id, version] of sent.structures) {
-      const pg = ps.known.get(id);
+      const pg = current(id);
       if (pg && version > pg.structureAcked) pg.structureAcked = version;
     }
     ps.table.acked(sent.strings);
     for (const [id, state] of sent.states) {
-      const pg = ps.known.get(id);
+      const pg = current(id);
       if (pg && tick > pg.baselineTick) {
         pg.baseline = state;
         pg.baselineTick = tick;
@@ -598,7 +614,7 @@ export class ServerReplication {
     const partBits = Math.min(this.maxSnapshotBytes, datagram ?? Infinity) * 8;
     const maxParts = datagram === undefined ? 1 : Math.min(MAX_SNAPSHOT_PARTS, Math.max(1, Math.floor((this.maxSnapshotBytes * 8) / partBits)));
     const despawns = [...ps.despawns].sort((a, b) => a - b);
-    const leaves = [...ps.leaves].sort((a, b) => a - b);
+    const leaves = [...ps.leaves.keys()].sort((a, b) => a - b);
 
     let parts: Written[] | null = null;
     let placedAll = true;
