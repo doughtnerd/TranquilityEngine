@@ -139,6 +139,8 @@ export interface SpriteSlice {
 /** The secondary texture names lit 2D draws read (ADR 0408): a tangent-space normal map and a mask map. */
 export const SECONDARY_TEXTURE_NAMES = ["normalMap", "maskMap"] as const;
 export type SecondaryTextureName = (typeof SECONDARY_TEXTURE_NAMES)[number];
+/** Whether `name` can name a secondary texture: lit sprites read the built-in ones, Secondary Texture graph nodes any (ADR 0409). */
+export const isSecondaryTextureName = (name: string): boolean => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
 
 export interface ImportSettings {
   pixelsPerUnit: number;
@@ -459,7 +461,8 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
           continue;
         }
         if (!path) continue;
-        if (!(SECONDARY_TEXTURE_NAMES as readonly string[]).includes(name)) problems.push(`${where}: secondaryTextures["${name}"] isn't a name lit sprites read (${SECONDARY_TEXTURE_NAMES.join(", ")}); kept.`);
+        // Custom names are first class (ADR 0409: Sprite Custom Lit graphs read them by name), so they must be names.
+        if (!isSecondaryTextureName(name)) problems.push(`${where}: secondaryTextures["${name}"] should be a name of letters, digits and _ not starting with a digit (shader graphs read it by name); kept.`);
         settings.secondaryTextures[name] = path;
       }
     }

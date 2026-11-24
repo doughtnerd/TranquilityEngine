@@ -23,7 +23,10 @@ import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type 
 import type { BabylonFeature, DrawnNode, FeatureSyncContext } from "./feature";
 import { layeredQuadMaterial, lightLayeredQuads, placeInLayer, SpriteBatcher, type SpriteItem } from "./layeredQuads";
 import { lights2DOf } from "./lights2D";
-import { spriteMaterialLit, spriteMaterialProblem } from "../lights2D/spriteMaterial";
+import { spriteMaterialGraph, spriteMaterialLit, spriteMaterialProblem } from "../lights2D/spriteMaterial";
+import type { BabylonGraphMaterial } from "./graphMaterial";
+import type { SpriteGraph } from "./materialLibrary";
+import { spriteGraphKey, spriteGraphMaterial, type SpriteGraphFactory } from "./spriteGraphMaterial";
 
 
 /** @internal What the sprite feature needs from the renderer. */
@@ -40,6 +43,10 @@ export interface BabylonSpriteHost {
   loadedTexture(path: string): Texture | null;
   /** A data texture (a normal or mask map, read linear, ADR 0408) if loaded, else null, starting it loading. */
   dataTexture(path: string): Texture | null;
+  /** A 2D material's sprite shader graph (ADR 0409), or null (the material library's `spriteGraph`). */
+  spriteGraph?(material: string): SpriteGraph | null;
+  /** A new graph material for a 2D draw (the material library's `spriteGraphMaterial`). */
+  spriteGraphMaterial?: SpriteGraphFactory;
   /**
    * `perObject`: a mesh per sprite, for the editor's scene view and editor play mode (picking and
    * outlines use them). `batched`: plain sprites batch (ADR 0108, 0129). Read each sync.
@@ -67,6 +74,16 @@ interface SpriteEntry {
   matrix: Matrix | null;
   /** The lit material key its own mesh's material was made with ("" unlit). */
   litKey: string;
+  /** Its sprite shader graph's material (ADR 0409), which `material` then is, or null. */
+  graph: { key: string; material: BabylonGraphMaterial } | null;
+}
+
+/** Dispose an entry's own material (its graph's, which owns it, when it has one). */
+function disposeMaterial(e: SpriteEntry): void {
+  if (e.graph) e.graph.material.dispose();
+  else e.material?.dispose();
+  e.graph = null;
+  e.material = null;
 }
 
 const tmpMatrix = new Matrix();
@@ -109,7 +126,7 @@ export class BabylonSprites implements BabylonFeature {
     const e = this.sprites.get(c);
     if (e) {
       e.mesh?.dispose();
-      e.material?.dispose();
+      disposeMaterial(e);
       this.sprites.delete(c);
       this.spritesDirty = true;
     }
@@ -130,7 +147,7 @@ export class BabylonSprites implements BabylonFeature {
   dispose(): void {
     for (const e of this.sprites.values()) {
       e.mesh?.dispose();
-      e.material?.dispose();
+      disposeMaterial(e);
     }
     this.sprites.clear();
     this.batcher.dispose();
@@ -144,7 +161,7 @@ export class BabylonSprites implements BabylonFeature {
   private syncSprite(world: World, s: SpriteRenderer, snap: number): void {
     let entry = this.sprites.get(s);
     if (!entry) {
-      entry = { mesh: null, material: null, item: null, spritePath: null, texture: null, uvKey: "", vertexCount: 16, size: null, matrix: null, litKey: "" };
+      entry = { mesh: null, material: null, item: null, spritePath: null, texture: null, uvKey: "", vertexCount: 16, size: null, matrix: null, litKey: "", graph: null };
       this.sprites.set(s, entry);
       this.spritesDirty = true;
     }
@@ -199,12 +216,14 @@ export class BabylonSprites implements BabylonFeature {
 
     // A mesh of its own with editor tools (picking and outlines), or for a 9-sliced or tiled slice
     // (ADR 0115), whose grid the batcher's quads can't draw; plain sprites batch (ADR 0108).
-    const own = this.host.drawPolicy() === "perObject" || !!(frame && (frame.border || frame.fill === "tile"));
+    // A sprite shaded by a sprite graph (ADR 0409) draws on its own mesh too: the batcher's material is the plain one.
+    const graph = spriteMaterialGraph(s.material) ? (this.host.spriteGraph?.(s.material) ?? null) : null;
+    const own = this.host.drawPolicy() === "perObject" || !!graph || !!(frame && (frame.border || frame.fill === "tile"));
     if (own && !entry.mesh) this.makeSpriteMesh(s, entry);
     else if (!own && entry.mesh) {
       entry.mesh.dispose();
-      entry.material?.dispose();
-      entry.mesh = entry.material = null;
+      disposeMaterial(entry);
+      entry.mesh = null;
       entry.matrix = null;
     }
     const { mesh, material } = entry;
@@ -217,9 +236,18 @@ export class BabylonSprites implements BabylonFeature {
     const order = this.sortOrder(s.sortingLayer, s.orderInLayer);
     const c = s.color;
     const lit = this.litSetup(s, image);
-    if (material && (lit?.key ?? "") !== entry.litKey) {
+    const graphKey = graph ? spriteGraphKey(graph, image, lit?.key ?? "") : null;
+    if (material && graph && this.host.spriteGraphMaterial && entry.graph?.key !== graphKey) {
+      // A sprite graph's material for this sprite's image and lighting (ADR 0409).
+      disposeMaterial(entry);
+      const made = spriteGraphMaterial(this.host.spriteGraphMaterial, `sprite:graph:${s.node.name}`, graph, image, lit?.setup ?? null);
+      entry.graph = { key: graphKey!, material: made };
+      entry.material = made.material as PBRMaterial;
+      entry.litKey = lit?.key ?? "";
+      mesh!.material = entry.material;
+    } else if (material && !graph && (entry.graph || (lit?.key ?? "") !== entry.litKey)) {
       // A lit material's plugin can't be taken off: a new material for a new lighting (ADR 0399).
-      material.dispose();
+      disposeMaterial(entry);
       entry.material = layeredQuadMaterial(`sprite:${s.node.name}`, this.host.scene, entry.texture);
       if (lit) lightLayeredQuads(entry.material, lit.setup);
       entry.litKey = lit?.key ?? "";
@@ -318,6 +346,7 @@ export class BabylonSprites implements BabylonFeature {
     mesh.alwaysSelectAsActiveMesh = true;
     entry.mesh = mesh;
     entry.material = material;
+    entry.graph = null;
     entry.litKey = "";
     entry.uvKey = "";
     entry.vertexCount = 16;

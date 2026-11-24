@@ -30,6 +30,12 @@ export interface LitQuadSetup {
   mask: Texture | null;
   /** The normal map's green channel points down (DirectX). */
   greenDown: boolean;
+  /**
+   * A sprite shader graph's part (ADR 0409; WGSL only): a Sprite Lit graph's own normal and mask (instead of the
+   * texture's maps), or a Sprite Custom Lit graph, which reads the light through `mycoL2DLightColor` and
+   * `mycoL2DLightDirection` and composes the colour itself.
+   */
+  graph?: { normal: boolean; mask: boolean; custom: boolean } | null;
 }
 
 /** The per-vertex 2D tangent attribute (`QuadBatch.setTangents`). */
@@ -118,10 +124,13 @@ function fragmentCode(wgsl: boolean): { [point: string]: string } {
     ].join("\n");
   return {
     CUSTOM_FRAGMENT_DEFINITIONS: [
+      ...(wgsl ? customLitFunctions() : []),
       "#ifdef MYCO_L2D",
       ...SLOTS.map((i) => [`#if MYCO_L2D_STYLES > ${i}`, sampler(`mycoL2DFlat${i}`), "#ifdef MYCO_L2D_DIR", sampler(`mycoL2DDirColor${i}`), sampler(`mycoL2DDirVec${i}`), "#endif", "#endif"].join("\n")),
       "#ifdef MYCO_L2D_NORMAL",
+      "#ifdef MYCO_L2D_NORMAL_TEX",
       sampler("mycoL2DNormal"),
+      "#endif",
       wgsl ? "varying vMycoL2DFrame: vec4f;" : "varying vec4 vMycoL2DFrame;",
       "#endif",
       "#ifdef MYCO_L2D_MASK",
@@ -135,10 +144,17 @@ function fragmentCode(wgsl: boolean): { [point: string]: string } {
     ].join("\n"),
     CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION: [
       "#ifdef MYCO_L2D",
+      "#ifndef MYCO_L2D_CUSTOM", // a Sprite Custom Lit graph composes its colour itself (ADR 0409)
       "{",
       decl("vec2", "mycoUv", `${wgsl ? "fragmentInputs.position.xy" : "gl_FragCoord.xy"} * ${u("mycoL2DScreen")}.xy`),
       decl("vec3", "mycoN", wgsl ? "vec3f(0.0, 0.0, 1.0)" : "vec3(0.0, 0.0, 1.0)"),
-      "#if defined(MYCO_L2D_NORMAL) && defined(MAINUV1)",
+      "#ifdef MYCO_L2D_GRAPH_NORMAL",
+      "{",
+      decl("vec3", "mycoNt", "mycoSpriteN"), // a Sprite Lit graph's normal (ADR 0409), turned by the same frame
+      `mycoN = normalize(${wgsl ? "vec3f" : "vec3"}(${frame}.xy * mycoNt.x + ${frame}.zw * mycoNt.y, mycoNt.z));`,
+      "}",
+      "#endif",
+      "#if defined(MYCO_L2D_NORMAL_TEX) && defined(MAINUV1)",
       "{",
       decl("vec3", "mycoNt", `${tex("mycoL2DNormal", mainUv)}.xyz * 2.0 - 1.0`),
       `mycoN = normalize(${wgsl ? "vec3f" : "vec3"}(${frame}.xy * mycoNt.x + ${frame}.zw * (mycoNt.y * ${u("mycoL2DScreen")}.z), mycoNt.z));`,
@@ -147,6 +163,9 @@ function fragmentCode(wgsl: boolean): { [point: string]: string } {
       decl("vec4", "mycoMask", wgsl ? "vec4f(1.0)" : "vec4(1.0)"),
       "#if defined(MYCO_L2D_MASK) && defined(MAINUV1)",
       `mycoMask = ${tex("mycoL2DMask", mainUv)};`,
+      "#endif",
+      "#ifdef MYCO_L2D_GRAPH_MASK",
+      "mycoMask = mycoSpriteMask;",
       "#endif",
       decl("vec3", "mycoMul", wgsl ? "vec3f(0.0)" : "vec3(0.0)"),
       decl("vec3", "mycoAdd", wgsl ? "vec3f(0.0)" : "vec3(0.0)"),
@@ -157,8 +176,43 @@ function fragmentCode(wgsl: boolean): { [point: string]: string } {
       "finalDiffuse = myco2DCompose(mycoBase, mycoMul, mycoAdd);",
       "}",
       "#endif",
+      "#endif",
     ].join("\n"),
   };
+}
+
+/**
+ * A Sprite Custom Lit graph's light reads (ADR 0409; WGSL, as graphs are): the batch's light at a fragment (every style's
+ * flat and directional light, summed, as it reaches a surface facing the viewer) and the direction it comes from (the
+ * directional textures' sum; toward the viewer without). With no light textures they read white and toward the viewer.
+ * Accurate lights aren't in the textures, so these don't see them.
+ */
+function customLitFunctions(): string[] {
+  const lod = (n: string) => `textureSampleLevel(${n}, ${n}Sampler, uv, 0.0)`;
+  const styles = (body: (i: number) => string) => SLOTS.map((i) => [`#if MYCO_L2D_STYLES > ${i}`, body(i), "#endif"].join("\n"));
+  return [
+    "#ifdef MYCO_L2D_CUSTOM",
+    "fn mycoL2DLightColor(frag: vec2f) -> vec3f {",
+    "#ifdef MYCO_L2D",
+    "  let uv = frag * uniforms.mycoL2DScreen.xy;",
+    "  var l = vec3f(0.0);",
+    ...styles((i) => [`  l = l + ${lod(`mycoL2DFlat${i}`)}.rgb;`, "#ifdef MYCO_L2D_DIR", `  l = l + ${lod(`mycoL2DDirColor${i}`)}.rgb;`, "#endif"].join("\n")),
+    "  return l * uniforms.mycoL2DScreen.w;",
+    "#else",
+    "  return vec3f(1.0);",
+    "#endif",
+    "}",
+    "fn mycoL2DLightDirection(frag: vec2f) -> vec3f {",
+    "#if defined(MYCO_L2D) && defined(MYCO_L2D_DIR)",
+    "  let uv = frag * uniforms.mycoL2DScreen.xy;",
+    "  var d = vec3f(0.0);",
+    ...styles((i) => `  d = d + ${lod(`mycoL2DDirVec${i}`)}.xyz;`),
+    "  if (length(d) > 0.00001) { return normalize(d); }",
+    "#endif",
+    "  return vec3f(0.0, 0.0, 1.0);",
+    "}",
+    "#endif",
+  ];
 }
 
 /** @internal Lights a layered-quad material by its layer batch's 2D light textures (see the file comment). */
@@ -169,7 +223,7 @@ export class Light2DPlugin extends MycoMaterialPlugin {
     material: PBRMaterial,
     readonly setup: LitQuadSetup,
   ) {
-    super(material, "MycoLight2D", 220, { MYCO_L2D: false, MYCO_L2D_STYLES: 1, MYCO_L2D_DIR: false, MYCO_L2D_NORMAL: false, MYCO_L2D_MASK: false, MYCO_L2D_TANGENT: false, MYCO_L2D_ACC: 0 });
+    super(material, "MycoLight2D", 220, { MYCO_L2D: false, MYCO_L2D_STYLES: 1, MYCO_L2D_DIR: false, MYCO_L2D_NORMAL: false, MYCO_L2D_NORMAL_TEX: false, MYCO_L2D_MASK: false, MYCO_L2D_TANGENT: false, MYCO_L2D_ACC: 0, MYCO_L2D_GRAPH_NORMAL: false, MYCO_L2D_GRAPH_MASK: false, MYCO_L2D_CUSTOM: false });
     this.register();
   }
 
@@ -186,10 +240,16 @@ export class Light2DPlugin extends MycoMaterialPlugin {
     // Accurate lights (ADR 0409) are in no light texture: every lit draw adds them, a draw without a normal map facing the viewer.
     const acc = b ? Math.min(MAX_ACCURATE, b.accurate.length / ACCURATE_FLOATS) : 0;
     defines.MYCO_L2D_ACC = acc;
-    const normals = (!!b?.directional || acc > 0) && !!this.setup.normal;
+    const graph = this.setup.graph ?? null;
+    const normals = (!!b?.directional || acc > 0) && (!!this.setup.normal || !!graph?.normal) && !graph?.custom;
     defines.MYCO_L2D_NORMAL = normals;
+    defines.MYCO_L2D_GRAPH_NORMAL = normals && !!graph?.normal;
+    defines.MYCO_L2D_NORMAL_TEX = normals && !graph?.normal;
     const rig = lights2DOf(scene);
-    defines.MYCO_L2D_MASK = !!this.setup.mask && !!b?.styles.some((s) => rig?.style(s).mask !== "none");
+    const masked = !!b?.styles.some((s) => rig?.style(s).mask !== "none");
+    defines.MYCO_L2D_GRAPH_MASK = masked && !!graph?.mask;
+    defines.MYCO_L2D_MASK = masked && !!this.setup.mask && !graph?.mask;
+    defines.MYCO_L2D_CUSTOM = !!graph?.custom;
     defines.MYCO_L2D_TANGENT = normals && !!mesh?.isVerticesDataPresent(TANGENT_2D_ATTRIBUTE);
   }
 
@@ -272,7 +332,7 @@ export class Light2DPlugin extends MycoMaterialPlugin {
         }
       for (let k = 0; k < 4; k++) setTexture(`l2dShadow${k}`, textures?.shadows[k] ?? black);
     }
-    if (this.setup.normal) setTexture("mycoL2DNormal", this.setup.normal);
+    if (this.setup.normal && !this.setup.graph?.normal) setTexture("mycoL2DNormal", this.setup.normal);
     if (this.setup.mask) setTexture("mycoL2DMask", this.setup.mask);
   }
 

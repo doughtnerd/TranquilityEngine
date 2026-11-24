@@ -5,6 +5,7 @@ import { tangents2D } from "../../../engine/render/lights2D/tangents";
 import { dragLight, lightHandles, lightLines, pointHandles, pressPoints, type LightGizmoFields } from "./lightGizmoModel";
 import { hiddenLightFields, LIGHT_FIELDS } from "./lightFields";
 import { litPreview } from "./litPreview";
+import { customRows, newTextureName, removeTexture, renameProblem, renameTexture } from "./secondaryTexturesModel";
 import { addBlendStyle, blendStylesOf, blendStyleNames, moveBlendStyle, removeBlendStyle, renameBlendStyle, setBlendStyle } from "./lights2dSettingsModel";
 
 const point = (over: Partial<LightGizmoFields> = {}): LightGizmoFields => ({ type: "point", innerRadius: 1, outerRadius: 3, innerAngle: 360, outerAngle: 360, shape: [], falloffSize: 0.5, ...over });
@@ -95,6 +96,23 @@ describe("the Secondary Textures tool's lit preview", () => {
     const fromLeft = litPreview(albedo, right, { x: -100, y: 0, height: 1 });
     const fromRight = litPreview(albedo, right, { x: 100, y: 0, height: 1 });
     expect(fromRight[4]).toBeGreaterThan(fromLeft[4]!);
+  });
+});
+
+describe("custom secondary textures (ADR 0409)", () => {
+  const textures = { normalMap: "asset:n.png", _Rim: "asset:r.png" };
+  it("lists custom rows after the built-in maps, with ones not given a texture yet", () => {
+    expect(customRows(textures, ["_Glow", "_Rim"])).toEqual(["_Rim", "_Glow"]);
+    expect(newTextureName(textures, [])).toBe("_Texture");
+    expect(newTextureName({ ...textures, _Texture: "asset:t.png" }, ["_Texture2"])).toBe("_Texture3");
+  });
+
+  it("renames in place to a free name graphs can read, and removes", () => {
+    expect(Object.keys(renameTexture({ _A: "a", normalMap: "n", _B: "b" }, [], "_A", "_Z"))).toEqual(["_Z", "normalMap", "_B"]);
+    expect(renameProblem(textures, [], "_Rim", "normalMap")).toBe("There's already a texture named normalMap.");
+    expect(renameProblem(textures, [], "_Rim", "rim light")).toMatch(/letters, digits and _/);
+    expect(renameTexture(textures, [], "_Rim", "2nd")).toEqual(textures);
+    expect(removeTexture(textures, "_Rim")).toEqual({ normalMap: "asset:n.png" });
   });
 });
 

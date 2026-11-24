@@ -196,6 +196,28 @@ describe("the lit layered-quad material (ADR 0225: the text Babylon compiles)", 
     });
   }
 
+  it("gives a Sprite Custom Lit graph its light reads and leaves the colour to it (ADR 0409)", async () => {
+    const w = await world();
+    const scene = new Scene(nullEngine("wgsl"));
+    const rig = rigOn(scene);
+    light({ type: "global" });
+    rig.sync(w, LIGHTS_2D_QUALITY.high);
+    const m = layeredQuadMaterial("custom", scene, null);
+    lightLayeredQuads(m, { batch: 0, normal: null, mask: null, greenDown: false, graph: { normal: false, mask: false, custom: true } });
+    const text = await shaderText(m);
+    expect(text.defines).toContain("#define MYCO_L2D_CUSTOM\n");
+    expect(text.fragment).toContain("fn mycoL2DLightColor(frag: vec2f) -> vec3f");
+    expect(text.fragment).toContain("fn mycoL2DLightDirection(frag: vec2f) -> vec3f");
+    // The compose sits behind the custom define (the text is before Babylon's preprocessor).
+    expect(text.fragment.lastIndexOf("#ifndef MYCO_L2D_CUSTOM", text.fragment.indexOf("finalDiffuse = myco2DCompose("))).toBeGreaterThan(-1);
+    // With no light on its layer the reads are white and toward the viewer.
+    const dark = layeredQuadMaterial("dark", scene, null);
+    lightLayeredQuads(dark, { batch: 5, normal: null, mask: null, greenDown: false, graph: { normal: false, mask: false, custom: true } });
+    const darkText = await shaderText(dark);
+    expect(darkText.defines).not.toContain("#define MYCO_L2D\n");
+    expect(darkText.fragment).toContain("return vec3f(1.0);");
+  });
+
   it("draws unlit while its layer batch has no lights", async () => {
     const w = await world();
     const scene = new Scene(nullEngine("glsl"));

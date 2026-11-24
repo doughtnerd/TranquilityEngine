@@ -333,6 +333,9 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
             <option value="lit">Lit</option>
             <option value="physical">Physical</option>
             <option value="unlit">Unlit</option>
+            <option value="sprite-lit">Sprite Lit</option>
+            <option value="sprite-unlit">Sprite Unlit</option>
+            <option value="sprite-custom-lit">Sprite Custom Lit</option>
           </select>
         </label>
         <label>
@@ -696,6 +699,7 @@ function NodeSearch(props: { graph: ShaderGraph; subgraphs: string[]; at: Point;
     }
     for (const d of [...NODES].sort((a, b) => categoryRank(a.category) - categoryRank(b.category))) {
       if (d.type === "output" || d.type === "property" || d.type === "subgraph") continue;
+      if (d.targets && !graph.subgraph && !d.targets.includes(graph.target)) continue; // nodes for other targets (ADR 0409)
       items.push({ key: d.type, type: d.type, label: d.title, category: d.category, keywords: `${d.title} ${d.category} ${d.keywords ?? ""} ${d.type}` });
     }
     return items;

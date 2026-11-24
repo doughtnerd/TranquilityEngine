@@ -24,6 +24,9 @@ import type { QuadBatch, QuadBatchHost, QuadBlend, QuadLighting, QuadMask } from
 import { layeredQuadMaterial, lightLayeredQuads, placeInLayer, QuadMaskPlugin } from "./layeredQuads";
 import { lights2DOf } from "./lights2D";
 import { TANGENT_2D_ATTRIBUTE, type LitQuadSetup } from "./lights2DMaterial";
+import type { SpriteGraph } from "./materialLibrary";
+import { spriteGraphKey, spriteGraphMaterial, type SpriteGraphFactory } from "./spriteGraphMaterial";
+import type { BabylonGraphMaterial } from "./graphMaterial";
 
 /** What the quad batches borrow from the renderer. */
 export interface BabylonQuadBatchDeps {
@@ -33,6 +36,10 @@ export interface BabylonQuadBatchDeps {
   /** A loaded data texture (a normal or mask map, read linear, ADR 0408), or null (and it starts loading). */
   dataTexture(path: string, onLoad: () => void): Texture | null;
   sortOrder(layer: string, order: number): number;
+  /** A 2D material's sprite shader graph (ADR 0409), or null (the material library's `spriteGraph`). */
+  spriteGraph?(material: string): SpriteGraph | null;
+  /** A new graph material for a 2D draw (the material library's `spriteGraphMaterial`). */
+  spriteGraphMaterial?: SpriteGraphFactory;
 }
 
 interface SharedMaterial {
@@ -81,7 +88,7 @@ export class BabylonQuadBatches implements QuadBatchHost {
    * layer has no 2D light), with a key for sharing materials. `onLoad` runs when a map finishes loading.
    */
   litSetup(lighting: QuadLighting | null, onLoad: () => void): { key: string; setup: LitQuadSetup } | null {
-    if (!lighting) return null;
+    if (!lighting || lighting.lit === false) return null;
     const rig = lights2DOf(this.deps.scene);
     const batch = rig?.batchOfLayer(lighting.sortingLayer) ?? -1;
     if (!rig || batch < 0) return null;
@@ -89,6 +96,17 @@ export class BabylonQuadBatches implements QuadBatchHost {
     const mask = lighting.maskMap ? this.deps.dataTexture(lighting.maskMap.replace(/^asset:/, ""), onLoad) : null;
     const greenDown = !!lighting.normalMapGreenDown;
     return { key: `lit${batch}@${rig.version}|${normal ? lighting.normalMap : ""}|${mask ? lighting.maskMap : ""}|${greenDown}`, setup: { batch, normal, mask, greenDown } };
+  }
+
+  /** @internal The sprite graph a lighting's material is shaded by (ADR 0409), or null. */
+  spriteGraph(lighting: QuadLighting | null): SpriteGraph | null {
+    return lighting?.material && this.deps.spriteGraph ? this.deps.spriteGraph(lighting.material) : null;
+  }
+
+  /** @internal A batch's own material from a sprite graph (ADR 0409); the batch disposes it. */
+  graphMaterial(name: string, graph: SpriteGraph, texture: string, lit: { key: string; setup: LitQuadSetup } | null): BabylonGraphMaterial | null {
+    const make = this.deps.spriteGraphMaterial;
+    return make ? spriteGraphMaterial(make, name, graph, texture, lit?.setup ?? null) : null;
   }
 
   /** @internal Every lit batch picks its material again (the 2D lighting's layer batches changed). */
@@ -299,7 +317,7 @@ class BabylonQuadBatch implements QuadBatch {
 
   setLighting(lighting: QuadLighting | null): void {
     if (this.disposed) return;
-    const same = lighting === this.lighting || (!!lighting && !!this.lighting && lighting.sortingLayer === this.lighting.sortingLayer && (lighting.normalMap ?? null) === (this.lighting.normalMap ?? null) && (lighting.maskMap ?? null) === (this.lighting.maskMap ?? null) && !!lighting.normalMapGreenDown === !!this.lighting.normalMapGreenDown);
+    const same = lighting === this.lighting || (!!lighting && !!this.lighting && lighting.sortingLayer === this.lighting.sortingLayer && (lighting.normalMap ?? null) === (this.lighting.normalMap ?? null) && (lighting.maskMap ?? null) === (this.lighting.maskMap ?? null) && !!lighting.normalMapGreenDown === !!this.lighting.normalMapGreenDown && (lighting.material ?? null) === (this.lighting.material ?? null) && lighting.lit !== false === (this.lighting.lit !== false));
     this.lighting = lighting;
     if (!same) this.updateMaterial();
   }
@@ -340,10 +358,34 @@ class BabylonQuadBatch implements QuadBatch {
     if (!this.mesh) {
       this.releaseMaterial();
       this.releaseMasked();
+      this.releaseGraphed();
       return;
     }
     const lit = this.owner.litSetup(this.lighting, () => this.updateMaterial());
     const litKey = lit?.key ?? "";
+    // A sprite shader graph's material (ADR 0409), the batch's own; a masked batch (a clipped 2D decal) keeps the mask's.
+    const graph = this.mask ? null : this.owner.spriteGraph(this.lighting);
+    if (graph) {
+      const key = `${spriteGraphKey(graph, this.texture, litKey)}|${this.blend}`;
+      if (this.graphed?.key !== key) {
+        this.releaseGraphed();
+        const made = this.owner.graphMaterial(`quads:graph:${this.name}`, graph, this.texture, lit);
+        if (made) {
+          if (this.blend === "additive") made.material.alphaMode = Constants.ALPHA_ADD;
+          this.graphed = { key, graph: made };
+        }
+      }
+      if (this.graphed) {
+        const m = this.graphed.graph.material as PBRMaterial;
+        Color3.FromHexString(HEX.test(this.color) ? this.color.toLowerCase() : "#ffffff").toLinearSpaceToRef(m.albedoColor);
+        m.alpha = Math.max(0, Math.min(1, this.opacity));
+        this.releaseMasked();
+        this.releaseMaterial();
+        this.mesh.material = m;
+        return;
+      }
+    }
+    this.releaseGraphed();
     if (this.mask) {
       const key = `${this.texture}|${this.color}|${this.opacity}|${this.mask.texture}|${litKey}|${this.blend}`;
       if (this.masked?.key === key) {
@@ -362,6 +404,14 @@ class BabylonQuadBatch implements QuadBatch {
     this.releaseMaterial(); // after acquiring, so an unchanged key keeps its material alive
     this.materialKey = key;
     this.mesh.material = material;
+  }
+
+  private graphed: { key: string; graph: BabylonGraphMaterial } | null = null;
+
+  private releaseGraphed(): void {
+    if (!this.graphed) return;
+    this.graphed.graph.dispose();
+    this.graphed = null;
   }
 
   private releaseMasked(): void {
@@ -383,6 +433,7 @@ class BabylonQuadBatch implements QuadBatch {
     this.mesh = null;
     this.releaseMaterial();
     this.releaseMasked();
+    this.releaseGraphed();
     this.owner.forget(this);
   }
 }

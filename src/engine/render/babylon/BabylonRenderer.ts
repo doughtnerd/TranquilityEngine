@@ -230,6 +230,8 @@ export class BabylonRenderer {
         return null;
       },
       sortOrder: (layer, order) => sortingOrder(this.settings.render.sortingLayers, layer, order, (l) => this.warnOnce(`layer|${l}`, unknownLayerMessage(l))),
+      spriteGraph: (material) => this.materials.spriteGraph(material),
+      spriteGraphMaterial: (name, graph, overrides) => this.materials.spriteGraphMaterial(name, graph, overrides),
     });
     this.lights2D = new BabylonLights2D({
       scene,

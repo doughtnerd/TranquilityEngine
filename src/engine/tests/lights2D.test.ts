@@ -154,7 +154,10 @@ describe("sprite sidecars (ADR 0408)", () => {
     expect(settings.secondaryTextures).toEqual(raw.secondaryTextures);
     expect(settings.normalMapGreen).toBe("down");
     expect(settings.sprites[0]!.outline).toEqual([[[0, 0], [8, 0], [4, 8]]]);
-    expect(problems).toEqual(['import settings: secondaryTextures["_Custom"] isn\'t a name lit sprites read (normalMap, maskMap); kept.']);
+    expect(problems).toEqual([]); // ADR 0409: custom names are first class
+    expect(parseImportSettings({ ...raw, secondaryTextures: { "rim light": "asset:r.png" } }).problems).toEqual([
+      'import settings: secondaryTextures["rim light"] should be a name of letters, digits and _ not starting with a digit (shader graphs read it by name); kept.',
+    ]);
     const again = parseImportSettings(JSON.parse(formatImportSettings(settings)));
     expect(again.settings.secondaryTextures).toEqual(settings.secondaryTextures);
     expect(again.settings.sprites[0]!.outline).toEqual(settings.sprites[0]!.outline);

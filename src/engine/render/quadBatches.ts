@@ -82,6 +82,10 @@ export interface QuadLighting {
   readonly normalMapGreenDown?: boolean;
   /** The sprite texture's mask map (ADR 0408), or null. */
   readonly maskMap?: string | null;
+  /** A 2D material shaded by a sprite shader graph (ADR 0409): the batch draws with the graph, the texture its Sprite Texture. */
+  readonly material?: string | null;
+  /** False for a Sprite Unlit graph's material: drawn by the graph, without 2D light. Default true. */
+  readonly lit?: boolean;
 }
 
 /** A batch's mask (`QuadBatch.setMask`): a texture whose alpha clips the quads, and the map from local position to its UV. */

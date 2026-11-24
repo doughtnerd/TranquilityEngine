@@ -9,12 +9,9 @@ import type { World } from "../../core/World";
 import { findShapeSource2D } from "../../physics/shapeSource2D";
 import type { ShapeFields2D } from "../../physics/shape2d";
 import type { Point2 } from "../../physics/polygon";
-import { Assets } from "../../scene/Assets";
-import { findSlice, splitSpriteRef, type ImportSettings } from "../../scene/importSettings";
 import type { ShadowCaster2D } from "../components";
 import { SpriteRenderer } from "../components";
-import { spriteFrame } from "../spriteFrame";
-import { claimedOutline } from "./outlineClaims";
+import { spriteOutline, type TextureSizeOf } from "../sprites/spriteOutline";
 
 /** A caster's outline in its node's local XY: closed `loops` and open `chains`. */
 export interface CasterOutline {
@@ -37,8 +34,7 @@ const isShaped = (c: unknown): c is Component & ShapedCollider => typeof (c as P
 
 const CIRCLE_SIDES = 16;
 
-/** A loaded texture's authored size in pixels (ADR 0119), or null while it isn't loaded. */
-export type TextureSizeOf = (path: string) => readonly [number, number] | null;
+export type { TextureSizeOf };
 
 /** The outline `caster` casts from now; `textureSize` gives sprite textures' sizes (a sprite outline needs its frame). */
 export function casterOutline(world: World, caster: ShadowCaster2D, textureSize: TextureSizeOf): CasterOutline {
@@ -52,7 +48,7 @@ export function casterOutline(world: World, caster: ShadowCaster2D, textureSize:
     if (c) return c;
     if (mode === "collider") return NONE;
   }
-  return spriteOutline(world, caster, textureSize) ?? NONE;
+  return casterSpriteOutline(world, caster, textureSize) ?? NONE;
 }
 
 function colliderOutline(world: World, caster: ShadowCaster2D): CasterOutline | null {
@@ -89,34 +85,11 @@ function colliderOutline(world: World, caster: ShadowCaster2D): CasterOutline | 
   return { loops, chains, signature: `collider:${JSON.stringify(sig)}`, from: "collider" };
 }
 
-function spriteOutline(world: World, caster: ShadowCaster2D, textureSize: TextureSizeOf): CasterOutline | null {
+function casterSpriteOutline(world: World, caster: ShadowCaster2D, textureSize: TextureSizeOf): CasterOutline | null {
   const r = world._componentsOf(caster.node.entity).find((c): c is SpriteRenderer => c instanceof SpriteRenderer);
   if (!r) return null;
-  // A deforming sprite's outline as its feature knows it now (ADR 0409: a skinned sprite's, from its bones).
-  const deformed = claimedOutline(r);
-  if (deformed && deformed.length) return { loops: deformed, chains: [], signature: `deformed:${JSON.stringify(deformed)}`, from: "sprite" };
-  const { path, slice } = splitSpriteRef(r.sprite);
-  const settings: ImportSettings | null = path ? Assets.importSettings(path) : null;
-  const size = path ? textureSize(path) : null;
-  const ppu = { component: r.pixelsPerUnit, project: world.settings.render.pixelsPerUnit };
-  if (!settings || !size) {
-    // Without a texture: a unit (or `size`) quad about the centre, as an empty sprite draws.
-    const w = r.size?.x ?? 1, h = r.size?.y ?? 1;
-    return { loops: [rect(-w / 2, -h / 2, w / 2, h / 2)], chains: [], signature: `rect:${w},${h}`, from: "rect" };
-  }
-  const frame = spriteFrame(settings, slice, size[0], size[1], ppu, r.size);
-  const [w, h] = frame.size;
-  const [px, py] = frame.pivot;
-  const sx = r.flipX ? -1 : 1, sy = r.flipY ? -1 : 1;
-  const place = (u: number, v: number): Point2 => [sx * (u - px) * w, sy * (v - py) * h];
-  const s = slice !== null ? findSlice(settings, slice) : undefined;
-  const sig = `${r.sprite}:${w},${h},${px},${py},${sx},${sy}`;
-  if (s?.outline && s.outline.length) {
-    const [pw, ph] = frame.pixelSize;
-    const loops = s.outline.map((poly) => poly.map(([x, y]) => place(x / pw, y / ph)));
-    return { loops, chains: [], signature: `sprite:${sig}:${JSON.stringify(s.outline)}`, from: "sprite" };
-  }
-  return { loops: [[place(0, 0), place(1, 0), place(1, 1), place(0, 1)]], chains: [], signature: `rect:${sig}`, from: "rect" };
+  const o = spriteOutline(world, r, textureSize, { deformed: true }); // a deforming sprite's shadow follows it (ADR 0409)
+  return { loops: o.loops, chains: [], signature: o.signature, from: o.from === "rect" ? "rect" : "sprite" };
 }
 
 const rect = (x0: number, y0: number, x1: number, y1: number): Point2[] => [

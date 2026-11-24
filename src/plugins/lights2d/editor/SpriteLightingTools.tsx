@@ -1,6 +1,7 @@
 // The Lights 2D plugin's Sprite Editor tools and Import Settings card (ADR 0408):
-// - Secondary Textures: an image's normal map and mask map (images the same size, laid out like it), the normal map's
-//   green channel, and a preview of the image, either map, or the image lit by a draggable test light;
+// - Secondary Textures: an image's normal map and mask map (images the same size, laid out like it), any number of
+//   custom named textures for Sprite Custom Lit shader graphs (ADR 0409), the normal map's green channel, and a preview
+//   of the image, either map, or the image lit by a draggable test light;
 // - Outline: each slice's outline for 2D shadow casters (ADR 0407): Generate traces the slice's opaque pixels
 //   (`traceOutline`), then points drag, a press mid-edge adds one and Ctrl+click removes one;
 // - the Import Settings card: the two map pickers, so a normal map can be set without opening the Sprite Editor.
@@ -11,6 +12,7 @@ import { traceOutline } from "../../../engine/render/sprites/outlineTrace";
 import { AssetPicker, editor, type ImportSettingsViewProps, type SpriteEditorToolProps } from "../../../editor/sdk";
 import { litPreview, type PreviewPixels } from "./litPreview";
 import { pressPoints, type V2 } from "./lightGizmoModel";
+import { customRows, newTextureName, removeTexture, renameProblem, renameTexture } from "./secondaryTexturesModel";
 import "./spriteTools.css";
 
 const MAPS = [
@@ -71,13 +73,56 @@ function MapRow(props: { image: string; imageUrl: string; name: string; label: s
   );
 }
 
+/** A custom secondary texture's row (ADR 0409): its name (renamed on commit), its texture, and Remove. */
+function CustomRow(props: { image: string; imageUrl: string; name: string; value: string; readOnly: string | null; problem(to: string): string; onRename(to: string): void; onCommit(v: string): void; onRemove(): void }) {
+  const [draft, setDraft] = useState(props.name);
+  useEffect(() => setDraft(props.name), [props.name]);
+  const nameProblem = props.problem(draft);
+  const sizeProblem = useSizeProblem(props.imageUrl, props.value);
+  return (
+    <div class="lights2d-map-row lights2d-custom-row">
+      <div class="lights2d-custom-name">
+        <input
+          type="text"
+          aria-label={`Name of ${props.name}`}
+          value={draft}
+          disabled={!!props.readOnly}
+          onInput={(e) => setDraft((e.currentTarget as HTMLInputElement).value)}
+          onBlur={() => (nameProblem ? setDraft(props.name) : props.onRename(draft))}
+          onKeyDown={(e) => e.key === "Enter" && (e.currentTarget as HTMLInputElement).blur()}
+        />
+        <button aria-label={`Remove ${props.name}`} title="Remove this texture" disabled={!!props.readOnly} onClick={props.onRemove}>
+          ✕
+        </button>
+      </div>
+      {nameProblem && <p class="lights2d-tool-warning" role="status">{nameProblem}</p>}
+      <AssetPicker value={props.value} kinds={["texture"]} label={props.name} accepts={(p) => p !== props.image} disabled={!!props.readOnly} onCommit={props.onCommit} />
+      {sizeProblem && <p class="lights2d-tool-warning" role="status">{sizeProblem}</p>}
+    </div>
+  );
+}
+
 /** The Sprite Editor's Secondary Textures tab. */
 export function SecondaryTexturesTool(props: SpriteEditorToolProps) {
   const [view, setView] = useState<"main" | "normalMap" | "maskMap" | "lit">("main");
   const [light, setLight] = useState({ x: 0.3, y: 0.3, height: 32 });
   const canvas = useRef<HTMLCanvasElement>(null);
   const textures = props.secondaryTextures;
-  const set = (name: string, value: string) => props.edit({ secondaryTextures: { ...textures, [name]: value } });
+  // Custom rows not given a texture yet: the sidecar keeps only textures, so their names live here until then.
+  const [pending, setPending] = useState<string[]>([]);
+  const set = (name: string, value: string) => {
+    props.edit({ secondaryTextures: { ...textures, [name]: value } });
+    if (value) setPending((p) => p.filter((n) => n !== name));
+  };
+  const rename = (from: string, to: string) => {
+    if (renameProblem(textures, pending, from, to)) return;
+    if (from in textures) props.edit({ secondaryTextures: renameTexture(textures, pending, from, to) });
+    setPending((p) => p.map((n) => (n === from ? to : n)));
+  };
+  const remove = (name: string) => {
+    if (name in textures) props.edit({ secondaryTextures: removeTexture(textures, name) });
+    setPending((p) => p.filter((n) => n !== name));
+  };
   useEffect(() => {
     if (view !== "lit" || !canvas.current) return;
     let live = true;
@@ -104,6 +149,26 @@ export function SecondaryTexturesTool(props: SpriteEditorToolProps) {
         {MAPS.map((m) => (
           <MapRow key={m.name} image={props.image} imageUrl={props.url} name={m.name} label={m.label} value={textures[m.name] ?? ""} readOnly={props.readOnly} onCommit={(v) => set(m.name, v)} />
         ))}
+        <p class="lights2d-tool-hint">Custom textures: read by name by a Sprite Custom Lit shader graph's Secondary Texture node.</p>
+        {customRows(textures, pending).map((name) => (
+          <CustomRow
+            key={name}
+            image={props.image}
+            imageUrl={props.url}
+            name={name}
+            value={textures[name] ?? ""}
+            readOnly={props.readOnly}
+            problem={(to) => renameProblem(textures, pending, name, to)}
+            onRename={(to) => rename(name, to)}
+            onCommit={(v) => set(name, v)}
+            onRemove={() => remove(name)}
+          />
+        ))}
+        <div class="lights2d-buttons">
+          <button disabled={!!props.readOnly} onClick={() => setPending((p) => [...p, newTextureName(textures, p)])}>
+            Add Texture
+          </button>
+        </div>
         <div class="lights2d-map-row">
           <label>Normal map green</label>
           <select aria-label="Normal map green" value={props.normalMapGreen} disabled={!!props.readOnly} onChange={(e) => props.edit({ normalMapGreen: (e.currentTarget as HTMLSelectElement).value as "up" | "down" })}>
