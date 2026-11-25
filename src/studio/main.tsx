@@ -30,6 +30,7 @@ import { installLiveConnect, openLiveSession } from "./shell/liveConnect";
 import { OPENING_TIMEOUT_MS, studioOpening } from "./shell/opening";
 import type { RouteRequest } from "./shell/route";
 import { installBuildTakes } from "./screens/take/buildTakes";
+import { installProjectRecordings } from "./shell/projectRecordings";
 import { installRecordingClock } from "./shell/GameSessionSlot";
 import { installProfilerLive } from "./screens/profiler";
 import { installLiveTake } from "./runtime/liveTake";
@@ -94,6 +95,7 @@ async function main(): Promise<void> {
   installProfilerLive(); // the Profiler is live while a build is connected, on every screen (ADR 0408)
   installLiveTake(); // the take recording on the connected build, live on the Take screen (ADR 0408)
   installTakePictureWidth(); // the Connect dialog's picture width, sent to the build (ADR 0408)
+  installProjectRecordings(); // another project closes the last one's open recordings (Profiler, Take)
   installBuildTakes(); // the connected build's takes, saved where the Studio keeps takes whichever screen shows (ADR 0408)
   installLiveConnect({ openTakes: projects.openTakes, openRoute: (request) => router.open(request) });
   const live = { openTakes: projects.openTakes, openRoute: (request: RouteRequest) => router.open(request) };

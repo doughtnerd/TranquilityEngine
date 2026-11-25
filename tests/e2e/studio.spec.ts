@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "./fixtures";
-import { readFile } from "./fakeFolders";
+import { readFileSync } from "node:fs";
+import { binarySeed, installFakeFolders, nextFolder, readFile } from "./fakeFolders";
 import { MINIMAL_PROJECT, openStudioFolder, openStudioSample, showPanel, sineWav, startStudioAudio, studioHeader, studioScreen, studioStart, studioStatus, trackErrors } from "./studio";
 
 // The Audio Studio's core workflows (ADR 0341–0360; the build's minimal end-to-end pass): open a project and visit every
@@ -167,5 +168,33 @@ test("Generators: a new blip from a preset auditions, and Bake makes a sample", 
   await expect(dialog).toHaveCount(0, { timeout: 30_000 });
   await studioScreen(page, "Samples");
   await expect(page.locator("[data-sample$='.wav']").first()).toBeVisible({ timeout: 15_000 });
+  expect(errors).toEqual([]);
+});
+
+test("Profiler: opening another project closes the last project's recording", async ({ page }) => {
+  const errors = trackErrors(page);
+  const capture = new Uint8Array(readFileSync(new URL("../../src/plugins/audio/runtime/capture/__fixtures__/sample.sporesample", import.meta.url)));
+  const seed = (files: Record<string, string | Uint8Array>) => Object.fromEntries(Object.entries(files).map(([p, v]) => [p, typeof v === "string" ? v : binarySeed(v)]));
+  await installFakeFolders(page, { Game: seed({ ...MINIMAL_PROJECT, "recordings/old_run.sporesample": capture }), Other: seed({ ...MINIMAL_PROJECT }) });
+  await page.goto("/studio.html");
+  await nextFolder(page, "Game");
+  await studioStart(page).getByRole("button", { name: "Add from Folder…" }).click();
+  await expect(studioHeader(page)).toBeVisible({ timeout: 30_000 });
+  await studioScreen(page, "Profiler");
+  await page.getByRole("treeitem", { name: /old_run/ }).click();
+  // (The fixture is an older capture format: the Profiler shows it as "can't open", which still names it.)
+  const oldRun = page.locator(".pf-title, .pf-error").filter({ hasText: "old_run" });
+  await expect(oldRun).toHaveCount(1, { timeout: 15_000 });
+
+  // Close it and open another project, as a hand-off from the editor does: nothing of the first one shows.
+  await studioHeader(page).locator(".studio-project").click();
+  await expect(studioStart(page)).toBeVisible();
+  await nextFolder(page, "Other");
+  await studioStart(page).getByRole("button", { name: "Add from Folder…" }).click();
+  await expect(studioHeader(page)).toBeVisible({ timeout: 30_000 });
+  await studioScreen(page, "Samples");
+  await studioScreen(page, "Profiler");
+  await expect(oldRun).toHaveCount(0);
+  await expect(page.getByRole("main", { name: "Profiler screen" }).getByText("Engine performance captures", { exact: false })).toBeVisible();
   expect(errors).toEqual([]);
 });
