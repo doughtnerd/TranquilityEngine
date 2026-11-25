@@ -1,6 +1,6 @@
 # 0115. Sprite Editor 9-slice, undo, slice search, and per-platform import overrides
 
-- **Status:** Proposed
+- **Status:** Proposed, amended by 0414 (Secondary Textures and Outline modes)
 - **Date:** 2026-11-07
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (extends 0040; answers two of its open questions)

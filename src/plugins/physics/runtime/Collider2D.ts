@@ -9,6 +9,9 @@ import { RigidBody2D } from "./RigidBody2D";
 import { attachedBody } from "./attachedBody";
 
 import type { ShapeFields2D } from "../../../engine/physics/shape2d";
+import type { Point2 } from "../../../engine/physics/polygon";
+import { SpriteRenderer } from "../../../engine/render/components";
+import { spriteOutline } from "../../../engine/render/sprites/spriteOutline";
 import type { PhysicsMaterial, PhysicsMaterial2D } from "../../../engine/physics/types";
 export type { PhysicsMaterial, PhysicsMaterial2D };
 
@@ -77,9 +80,40 @@ export class PolygonCollider2D extends Collider2D {
     [0.5, 0.5],
     [-0.5, 0.5],
   ];
+  /**
+   * Collide along the node's SpriteRenderer outline instead of `points` (ADR 0415): its slice's traced outline (the
+   * Sprite Editor's, ADR 0414; the largest loop when it has several), else its rectangle. It follows the sprite, its
+   * size and flips. Without a SpriteRenderer, `points`. A whole-texture sprite needs its texture's size, so a World
+   * without a renderer (a server) collides along its unit quad; a slice needs only its rect.
+   */
+  @field(Boolean, { description: "Collide along the node's sprite outline (its slice's traced outline, else its rectangle) instead of the points." }) fromSprite = false;
+
+  private spriteCache: { signature: string; points: ColliderPoint2D[] } | null = null;
 
   override _shapeFields(): ShapeFields2D {
+    if (this.fromSprite) {
+      const points = this.spritePoints();
+      if (points) return { kind: "polygon", points };
+    }
     return { kind: "polygon", points: this.points };
+  }
+
+  /** The sprite outline's points now, or null without a SpriteRenderer. */
+  private spritePoints(): ColliderPoint2D[] | null {
+    const r = this.node.getComponent(SpriteRenderer);
+    if (!r) return null;
+    const world = this._world;
+    const o = spriteOutline(world, r, (path) => world.render?.textureSize?.(path) ?? null);
+    if (this.spriteCache?.signature === o.signature) return this.spriteCache.points;
+    let best: Point2[] | null = null, bestArea = -1;
+    for (const loop of o.loops) {
+      let a = 0;
+      for (let i = 0, j = loop.length - 1; i < loop.length; j = i++) a += loop[j]![0] * loop[i]![1] - loop[i]![0] * loop[j]![1];
+      if (Math.abs(a) > bestArea) [best, bestArea] = [loop, Math.abs(a)];
+    }
+    if (!best || best.length < 3) return null;
+    this.spriteCache = { signature: o.signature, points: best.map((p): ColliderPoint2D => [p[0], p[1]]) };
+    return this.spriteCache.points;
   }
 }
 

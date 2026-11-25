@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { actionLabel, alignTargets, minNodes, runAlign, whyNotAlign, type AlignAction, type Axis } from "../align";
 import { statusSentence } from "../editGate";
 import { previewCamera, previewFrame, selectedCamera } from "../cameraPreview";
-import { cameraPreviewEnabled, cleanSnap, gizmoPivot, gizmoSpace, snapSettings, toggleGizmoPivot, toggleGizmoSpace, updateSnap, type SnapSettings } from "../sceneTools";
+import { cameraPreviewEnabled, cleanSnap, gizmoPivot, gizmoSpace, lighting2DShown, snapSettings, toggleGizmoPivot, toggleGizmoSpace, updateSnap, type SnapSettings } from "../sceneTools";
 import { docVersion, openScene, sceneCamera, selectedKeys, viewMode } from "../state";
 import { rotationAngles } from "../preferences";
 import { previewedQuality, previewQuality, qualityTiers } from "../graphicsPreview";
@@ -47,6 +47,14 @@ export function SceneToolButtons() {
         onClick={() => (cameraPreviewEnabled.value = !cameraPreviewEnabled.value)}
       >
         Preview
+      </button>
+      <button
+        class={`lighting2d-toggle${lighting2DShown.value ? " active" : ""}`}
+        aria-pressed={lighting2DShown.value}
+        title={lighting2DShown.value ? "2D lighting is on: sprites, tiles and 2D lines are lit by 2D lights. Click to draw them unlit." : "2D lighting is off: 2D draws are unlit. Click to light them by 2D lights."}
+        onClick={() => (lighting2DShown.value = !lighting2DShown.value)}
+      >
+        2D Lights
       </button>
       <select
         class="quality-select"

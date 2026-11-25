@@ -11,6 +11,13 @@ export const createSpritesFeature: BabylonFeatureFactory = (host) =>
     sortingLayers: () => host.settings.render.sortingLayers,
     texture: (path) => host.materials.texture(path),
     loadedTexture: (path) => host.materials.loadedTexture(path),
+    dataTexture: (path) => {
+      const t = host.materials.loadedTexture(path, "graphData");
+      if (!t) host.materials.texture(path, "graphData").catch((err) => host.warnOnce(`map|${path}`, `failed to load "${path}": ${(err as Error).message}`));
+      return t;
+    },
+    spriteGraph: (material) => host.materials.spriteGraph(material),
+    spriteGraphMaterial: (name, graph, overrides) => host.materials.spriteGraphMaterial(name, graph, overrides),
     drawPolicy: () => host.policy().drawPolicy,
     warnOnce: (key, message) => host.warnOnce(key, message),
   });

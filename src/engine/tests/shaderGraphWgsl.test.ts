@@ -84,10 +84,12 @@ describe("WGSL output of the shader graph compiler", () => {
     for (const def of NODES) {
       if (def.type === "output" || def.type === "subgraph" || def.type === "customFunction") continue;
       const n = node("n", def.type, def.type === "property" ? { settings: { property: "P" } } : def.type === "keyword" ? { settings: { keyword: "K" } } : {});
-      const g = graph([n], [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }], keywords: [{ name: "K" }] });
+      const target = def.targets?.[0] ?? "lit"; // a target it works in (ADR 0415)
+      const g = graph([n], [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }], keywords: [{ name: "K" }], target });
       const out = nodePorts(n, g).outputs.find((p) => p.type !== "texture");
       if (!out) continue;
-      for (const to of ["baseColor", "normal", ...(def.fragmentOnly ? [] : ["vertexOffset"])]) {
+      const ports = nodePorts(g.nodes[0]!, g).inputs.map((p) => p.id);
+      for (const to of ["baseColor", "normal", ...(def.fragmentOnly ? [] : ["vertexOffset"])].filter((p) => ports.includes(p))) {
         const c = wgsl({ ...g, edges: [{ from: `n.${out.id}`, to: `output.${to}` }] });
         expect(c.problems, `${def.type} -> ${to}`).toEqual([]);
         expectWgsl(c, `${def.type} -> ${to}`);
@@ -100,6 +102,7 @@ describe("WGSL output of the shader graph compiler", () => {
     const nodes: GraphNode[] = [];
     for (const def of NODES) {
       if (def.type === "output" || def.type === "subgraph" || def.type === "customFunction") continue;
+      if (def.targets) continue; // nodes for some targets only (ADR 0415) are compiled in theirs above
       nodes.push(node(`n_${def.type}`, def.type, def.type === "property" ? { settings: { property: "P" } } : def.type === "keyword" ? { settings: { keyword: "K" } } : {}));
     }
     const g = graph(nodes, [], { properties: [{ name: "P", type: "vector3", value: [1, 2, 3] }], keywords: [{ name: "K" }] });

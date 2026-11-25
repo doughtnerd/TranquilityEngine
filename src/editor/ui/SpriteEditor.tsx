@@ -48,23 +48,30 @@ interface EditSlice {
   fill?: SpriteFill;
   /** The 2D skin the Bones tool edits (ADR 0371); the Sprite Editor only carries it. */
   skin?: SliceSkin;
+  /** The outline the Lights 2D plugin's Outline tool edits (ADR 0414); the Sprite Editor only carries it. */
+  outline?: [number, number][][];
   original: string | null;
 }
 
-/** Everything one undo step holds: the slices and the image's flipbooks (the Flipbooks tool's). */
+/** Everything one undo step holds: the slices, the image's flipbooks (the Flipbooks tool's) and secondary textures (ADR 0414). */
 interface EditState {
   slices: EditSlice[];
   flipbooks: Record<string, SpriteFlipbook>;
+  secondary: { textures: Record<string, string>; normalMapGreen: "up" | "down" };
 }
 
 type SliceMode = "count" | "size" | "auto";
 
 let nextKey = 1;
-const fromSaved = (s: SpriteSlice): EditSlice => ({ key: nextKey++, name: s.name, rect: [...s.rect], pivot: [...s.pivot], border: s.border ? [...s.border] : undefined, fill: s.fill, skin: s.skin, original: s.name });
+const fromSaved = (s: SpriteSlice): EditSlice => ({ key: nextKey++, name: s.name, rect: [...s.rect], pivot: [...s.pivot], border: s.border ? [...s.border] : undefined, fill: s.fill, skin: s.skin, outline: s.outline, original: s.name });
 const asSaved = (slices: readonly EditSlice[]): SpriteSlice[] =>
-  slices.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}), ...(s.fill === "tile" ? { fill: "tile" as const } : {}), ...(s.skin ? { skin: s.skin } : {}) }));
-const stateKey = (state: EditState) => JSON.stringify({ sprites: asSaved(state.slices), flipbooks: state.flipbooks });
-const savedState = (settings: { sprites: readonly SpriteSlice[]; flipbooks: Record<string, SpriteFlipbook> }): EditState => ({ slices: settings.sprites.map(fromSaved), flipbooks: settings.flipbooks });
+  slices.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}), ...(s.fill === "tile" ? { fill: "tile" as const } : {}), ...(s.skin ? { skin: s.skin } : {}), ...(s.outline && s.outline.length ? { outline: s.outline } : {}) }));
+const stateKey = (state: EditState) => JSON.stringify({ sprites: asSaved(state.slices), flipbooks: state.flipbooks, secondary: state.secondary });
+const savedState = (settings: { sprites: readonly SpriteSlice[]; flipbooks: Record<string, SpriteFlipbook>; secondaryTextures: Record<string, string>; normalMapGreen: "up" | "down" }): EditState => ({
+  slices: settings.sprites.map(fromSaved),
+  flipbooks: settings.flipbooks,
+  secondary: { textures: { ...settings.secondaryTextures }, normalMapGreen: settings.normalMapGreen },
+});
 
 /** The image's pixels (for automatic slicing and skipping empty cells). */
 async function loadPixels(url: string): Promise<Pixels> {
@@ -232,12 +239,13 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
     try {
       // A renamed slice is renamed in the flipbooks that show it, as it is in other references.
       const flipbooksSaved = renameInFlipbooks(flipbooks, sliceRenames(slices));
-      const settings = { ...readImportSettings(project, image).settings, sprites: asSaved(slices), flipbooks: flipbooksSaved };
+      const secondary = history.present.secondary;
+      const settings = { ...readImportSettings(project, image).settings, sprites: asSaved(slices), flipbooks: flipbooksSaved, secondaryTextures: { ...secondary.textures }, normalMapGreen: secondary.normalMapGreen };
       await writeImportSettings(project, image, settings);
       const cleaned = await renameSliceReferences(project, image, sliceRenames(slices));
       const next = slices.map((s) => ({ ...s, original: s.name }));
       // Renames were applied to references, so earlier steps (with their old `original` names) can't be replayed.
-      const state: EditState = { slices: next, flipbooks: flipbooksSaved };
+      const state: EditState = { slices: next, flipbooks: flipbooksSaved, secondary };
       setHistory(createHistory(state));
       setBaseline(stateKey(state));
       docVersion.value++;
@@ -409,6 +417,8 @@ function SpriteEditor(props: { project: EditorProject; image: string }) {
                 url,
                 slices: asSaved(slices),
                 flipbooks,
+                secondaryTextures: history.present.secondary.textures,
+                normalMapGreen: history.present.secondary.normalMapGreen,
                 selected: current?.name ?? null,
                 select: (name) => setSelected(slices.find((s) => s.name === name)?.key ?? null),
                 edit: editFromTool,

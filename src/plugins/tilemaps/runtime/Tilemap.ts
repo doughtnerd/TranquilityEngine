@@ -138,6 +138,8 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
   @field(AssetRef, { kind: "tileset" }) tileset = "";
   /** One cell's width and height in local units. */
   @field(Vector2) cellSize = new Vector2(1, 1);
+  /** A sprite material asset for every layer (ADR 0399: Sprite Lit or Sprite Unlit). Empty: Sprite Lit, lit by 2D lights when the World has any. */
+  @field(AssetRef, { kind: "material", description: "A Sprite Lit or Sprite Unlit material asset for every layer. Empty: Sprite Lit." }) material = "";
   /** The layers, back to front within the same sorting layer and order. Scene data; see `format.ts`. */
   @field(PlainObject, { hidden: true }) layers: TilemapLayerData[] = [newLayer("Ground")];
   /**

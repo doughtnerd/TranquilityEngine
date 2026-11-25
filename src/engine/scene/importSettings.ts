@@ -132,7 +132,15 @@ export interface SpriteSlice {
   fill?: SpriteFill;
   /** A 2D skin (ADR 0371): bones, a mesh and weights, drawn deformed under a `Skeleton2D`. */
   skin?: SliceSkin;
+  /** Closed polygons in slice pixels from the slice's bottom-left, y up (ADR 0414): its outline, for 2D shadow casters (ADR 0413). Absent: the rect. */
+  outline?: [number, number][][];
 }
+
+/** The secondary texture names lit 2D draws read (ADR 0414): a tangent-space normal map and a mask map. */
+export const SECONDARY_TEXTURE_NAMES = ["normalMap", "maskMap"] as const;
+export type SecondaryTextureName = (typeof SECONDARY_TEXTURE_NAMES)[number];
+/** Whether `name` can name a secondary texture: lit sprites read the built-in ones, Secondary Texture graph nodes any (ADR 0415). */
+export const isSecondaryTextureName = (name: string): boolean => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
 
 export interface ImportSettings {
   pixelsPerUnit: number;
@@ -148,6 +156,13 @@ export interface ImportSettings {
   platforms: Partial<Record<ImportPlatform, PlatformOverrides>>;
   pivot: [number, number];
   sprites: SpriteSlice[];
+  /**
+   * Images (ADR 0414): textures laid out like this one, by name (`normalMap`, `maskMap`; others are kept for shader
+   * graph sprite targets), as `asset:` paths. Every slice samples them at its own UV.
+   */
+  secondaryTextures: Record<string, string>;
+  /** Images (ADR 0414): the normal map's green channel points up (OpenGL, default) or down (DirectX). */
+  normalMapGreen: "up" | "down";
   /** Images (ADR 0371): flipbooks by name, each a clip `image.png#Flip/<name>` over the named slices. */
   flipbooks: Record<string, SpriteFlipbook>;
   volume: number;
@@ -196,6 +211,8 @@ const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<ImportSe
   platforms: {},
   pivot: [0.5, 0.5],
   sprites: [],
+  secondaryTextures: Object.freeze({}) as Record<string, string>,
+  normalMapGreen: "up",
   flipbooks: Object.freeze({}) as Record<string, SpriteFlipbook>,
   volume: 1,
   stream: false,
@@ -215,7 +232,7 @@ const DEFAULT_IMPORT_SETTINGS: Readonly<ImportSettings> = Object.freeze<ImportSe
 });
 
 /** A copy of the defaults (safe to change). */
-export const defaultImportSettings = (): ImportSettings => ({ ...DEFAULT_IMPORT_SETTINGS, pivot: [0.5, 0.5], sprites: [], flipbooks: {}, materials: {}, platforms: {} });
+export const defaultImportSettings = (): ImportSettings => ({ ...DEFAULT_IMPORT_SETTINGS, pivot: [0.5, 0.5], sprites: [], secondaryTextures: {}, flipbooks: {}, materials: {}, platforms: {} });
 
 /** `images/a.png` → `images/a.png.meta.json`. */
 export const sidecarPath = (assetPath: string): string => `${assetPath}${SIDECAR_SUFFIX}`;
@@ -426,9 +443,33 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
         }
         const skin = parseSliceSkin(s.skin, `${where}: ${at}.skin`, problems);
         if (skin) slice.skin = skin;
+        if (s.outline !== undefined) {
+          const outline = Array.isArray(s.outline) ? s.outline.map((poly) => (Array.isArray(poly) ? poly.filter((p): p is [number, number] => isNumberArray(p, 2)).map((p): [number, number] => [p[0], p[1]]) : [])).filter((poly) => poly.length >= 3) : [];
+          if (outline.length > 0) slice.outline = outline;
+          else problems.push(`${where}: ${at}.outline should be a list of polygons of [x, y] points (at least 3 each); ignored.`);
+        }
         settings.sprites.push(slice);
       });
     }
+  }
+  if (raw.secondaryTextures !== undefined) {
+    if (!isObject(raw.secondaryTextures)) bad("secondaryTextures", "an object of texture asset paths by name");
+    else {
+      for (const [name, path] of Object.entries(raw.secondaryTextures)) {
+        if (typeof path !== "string") {
+          problems.push(`${where}: secondaryTextures["${name}"] should be a texture asset path; ignored.`);
+          continue;
+        }
+        if (!path) continue;
+        // Custom names are first class (ADR 0415: Sprite Custom Lit graphs read them by name), so they must be names.
+        if (!isSecondaryTextureName(name)) problems.push(`${where}: secondaryTextures["${name}"] should be a name of letters, digits and _ not starting with a digit (shader graphs read it by name); kept.`);
+        settings.secondaryTextures[name] = path;
+      }
+    }
+  }
+  if (raw.normalMapGreen !== undefined) {
+    if (raw.normalMapGreen === "up" || raw.normalMapGreen === "down") settings.normalMapGreen = raw.normalMapGreen;
+    else bad("normalMapGreen", '"up" or "down"');
   }
   if (raw.flipbooks !== undefined && raw.flipbooks !== null) {
     settings.flipbooks = parseFlipbooks(raw.flipbooks, `${where}: flipbooks`, problems);
@@ -534,8 +575,11 @@ function importSettingsJSON(settings: ImportSettings): Record<string, unknown> {
   const animation = modelAnimationToJson(settings.animation);
   if (animation) out.animation = animation;
   if (settings.sprites.length > 0) {
-    out.sprites = settings.sprites.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}), ...(s.fill === "tile" ? { fill: "tile" } : {}), ...(s.skin ? { skin: sliceSkinToJson(s.skin) } : {}) }));
+    out.sprites = settings.sprites.map((s) => ({ name: s.name, rect: [...s.rect], pivot: [...s.pivot], ...(s.border && s.border.some((b) => b !== 0) ? { border: [...s.border] } : {}), ...(s.fill === "tile" ? { fill: "tile" } : {}), ...(s.skin ? { skin: sliceSkinToJson(s.skin) } : {}), ...(s.outline && s.outline.length ? { outline: s.outline.map((poly) => poly.map((p) => [p[0], p[1]])) } : {}) }));
   }
+  const secondary = Object.entries(settings.secondaryTextures ?? {}).filter(([, v]) => v);
+  if (secondary.length) out.secondaryTextures = Object.fromEntries(secondary);
+  if (settings.normalMapGreen === "down") out.normalMapGreen = "down";
   const flipbooks = flipbooksToJson(settings.flipbooks);
   if (flipbooks) out.flipbooks = flipbooks;
   return out;

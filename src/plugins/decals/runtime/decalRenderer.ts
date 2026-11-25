@@ -10,7 +10,8 @@ import { Mat4 } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { SpriteRenderer } from "../../../engine/render/components";
 import type { DecalBatch, DecalHost, DecalLook } from "../../../engine/render/decals";
-import type { QuadBatch, QuadBatchHost, QuadMask } from "../../../engine/render/quadBatches";
+import type { QuadBatch, QuadBatchHost, QuadLighting, QuadMask } from "../../../engine/render/quadBatches";
+import { quadLighting } from "../../../engine/render/lights2D/spriteMaterial";
 import { spriteFrame, type SpriteFrame } from "../../../engine/render/spriteFrame";
 import { Assets } from "../../../engine/scene/Assets";
 import type { GameObject } from "../../../engine/scene/GameObject";
@@ -44,6 +45,8 @@ interface Instances {
 interface Quads {
   texture: string;
   order: number;
+  /** How 2D lights light it (ADR 0399), or null (Sprite Unlit). */
+  lighting: QuadLighting | null;
   mask: QuadMask | null;
   positions: number[];
   uvs: number[];
@@ -113,7 +116,7 @@ export class DecalRenderer {
       if (!c.isActiveAndEnabled || !c.node.transform) continue;
       const e = c.node.entity, m = world.worldMatrix(e);
       const receiver = c.clip === "parentSprite" ? c.node.parent : null;
-      const placed = this.addQuad(quads, `c${e}`, c.sprite, c.sortingLayer, c.orderInLayer, m, e * 16, c.size ? [c.size.x, c.size.y] : null, c.color, clamp01(c.opacity), receiver);
+      const placed = this.addQuad(quads, `c${e}`, c.sprite, c.sortingLayer, c.orderInLayer, m, e * 16, c.size ? [c.size.x, c.size.y] : null, c.color, clamp01(c.opacity), receiver, c.material);
       if (placed) {
         placed.owners.push(c);
         decals2D++;
@@ -150,6 +153,7 @@ export class DecalRenderer {
       batch.setColors(new Float32Array(q.colors));
       batch.setTint("#ffffff", 1);
       batch.setMask(q.mask);
+      batch.setLighting(q.lighting);
       batch.setMatrix(IDENTITY);
       batch.setOrder(q.order);
       batch.setVisible(true);
@@ -179,6 +183,7 @@ export class DecalRenderer {
     color: { r: number; g: number; b: number; a: number },
     opacity: number,
     receiver: GameObject | null,
+    material = "",
   ): Quads | null {
     const { path: image, slice } = splitSpriteRef(sprite);
     let frame: SpriteFrame | null = null;
@@ -197,9 +202,9 @@ export class DecalRenderer {
     const mask = receiver ? this.maskOf(receiver, m[mo + 14]!) : null;
     if (receiver && mask === undefined) return null; // the receiver's texture is loading
     // A placed Decal2D draws in a batch of its own (picked and framed by itself); spawned ones share by texture, order and receiver.
-    const key = own ?? (mask && receiver ? `${image}|${order}|r${receiver.entity}` : `${image}|${order}`);
+    const key = own ?? (mask && receiver ? `${image}|${order}|r${receiver.entity}` : `${image}|${order}`) + (material ? `|${material}` : "");
     let q = quads.get(key);
-    if (!q) quads.set(key, (q = { texture: image, order, mask: mask ?? null, positions: [], uvs: [], colors: [], owners: [] }));
+    if (!q) quads.set(key, (q = { texture: image, order, lighting: quadLighting(material, layer, image), mask: mask ?? null, positions: [], uvs: [], colors: [], owners: [] }));
     const corners: [number, number, number, number][] = [
       [-pvx * w, -pvy * h, u0, v0],
       [(1 - pvx) * w, -pvy * h, u1, v0],

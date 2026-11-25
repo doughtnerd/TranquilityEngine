@@ -23,6 +23,7 @@
  */
 import type { AbstractMesh } from "@babylonjs/core/Meshes/abstractMesh.js";
 import type { TargetCamera } from "@babylonjs/core/Cameras/targetCamera.js";
+import type { Camera } from "@babylonjs/core/Cameras/camera.js";
 import { Constants } from "@babylonjs/core/Engines/constants.js";
 import { FrameGraph } from "@babylonjs/core/FrameGraph/frameGraph.js";
 import { FrameGraphObjectList } from "@babylonjs/core/FrameGraph/frameGraphObjectList.js";
@@ -61,6 +62,7 @@ import { reclusterForNextCamera } from "./lighting";
 import { cascadeCasterList, type CustomRenderList } from "./shadowCulling";
 import type { RenderTarget } from "./renderTextures";
 import { BabylonLuts } from "./lutTextures";
+import type { BabylonLights2D } from "./lights2D";
 
 /** One camera's part of the frame. */
 export interface CameraView {
@@ -198,8 +200,96 @@ export interface ShadowRequest {
   shadowMaxZ: number;
 }
 
+/** A camera's 2D light textures (ADR 0399): handles per layer batch and style slot, and their wrapped textures once built. */
+interface ViewLights2D {
+  flat: FrameGraphTextureHandle[][];
+  dirColor: FrameGraphTextureHandle[][];
+  dirVec: FrameGraphTextureHandle[][];
+  shadows: FrameGraphTextureHandle[];
+  /** The camera's colour target size (what lit fragments' screen positions divide by). */
+  size: [number, number];
+  /** The light and shadow textures' size. */
+  lightSize: [number, number];
+  wrapped: Lights2DTextures | null;
+}
+
+/** @internal A camera's 2D light textures this frame, for the lit layered-quad material (`lights2DMaterial.ts`). */
+export interface Lights2DTextures {
+  /** The camera's colour target size in pixels. */
+  size: [number, number];
+  /** Per layer batch, per style slot: the flat light texture, and the directional colour and direction textures (empty without). */
+  batches: { flat: ThinTexture[]; dirColor: ThinTexture[]; dirVec: ThinTexture[] }[];
+  /** The shadow textures (a channel per shadowed light), for accurate lights in the lit material (ADR 0415). */
+  shadows: ThinTexture[];
+  /** The light and shadow textures' size in pixels. */
+  lightSize: [number, number];
+}
+
+/** The frame graph task drawing a camera's 2D shadow and light textures (ADR 0399, 0413) through the rig. */
+class FrameGraphLights2DTask extends FrameGraphTask {
+  readonly outputTexture: FrameGraphTextureHandle;
+  constructor(
+    name: string,
+    graph: FrameGraph,
+    private readonly rig: BabylonLights2D,
+    private readonly camera: TargetCamera,
+    private readonly lights: ViewLights2D,
+    private readonly lightSize: [number, number],
+  ) {
+    super(name, graph);
+    this.outputTexture = this._frameGraph.textureManager.createDanglingHandle();
+  }
+
+  getClassName(): string {
+    return "FrameGraphLights2DTask";
+  }
+
+  record(): void {
+    const l = this.lights;
+    const first = l.flat[0]?.[0] ?? l.shadows[0];
+    if (first !== undefined) this._frameGraph.textureManager.resolveDanglingHandle(this.outputTexture, first);
+    const engine = this._frameGraph.engine;
+    const zero = { r: 0, g: 0, b: 0, a: 0 };
+    const prepare = (context: { _applyRenderTarget(): void; clear(color: typeof zero, backBuffer: boolean, depth: boolean): void }) => {
+      context._applyRenderTarget();
+      engine.setViewport(FULL_VIEWPORT);
+      context.clear(zero, true, false); // `true`: the colour buffer (Babylon calls it the back buffer)
+    };
+    l.shadows.forEach((handle, k) => {
+      const pass = this._frameGraph.addRenderPass(`${this.name}_shadow${k}`);
+      pass.setRenderTarget(handle);
+      pass.setExecuteFunc((context) => {
+        prepare(context as unknown as Parameters<typeof prepare>[0]);
+        this.rig.drawShadows(k, this.camera.getTransformationMatrix());
+      });
+    });
+    l.flat.forEach((row, b) =>
+      row.forEach((flat, s) => {
+        const pass = this._frameGraph.addRenderPass(`${this.name}_light${b}_${s}`);
+        const directional = l.dirColor[b]?.length ? [flat, l.dirColor[b]![s]!, l.dirVec[b]![s]!] : null;
+        pass.setRenderTarget(directional ?? flat);
+        if (l.shadows.length) pass.addDependencies(l.shadows);
+        pass.setExecuteFunc((context) => {
+          prepare(context as unknown as Parameters<typeof prepare>[0]);
+          this.rig.drawLights(b, s, this.camera.getTransformationMatrix(), this.lightSize, (effect, name, k) => {
+            const h = l.shadows[k];
+            if (h === undefined) return false;
+            context.bindTextureHandle(effect, name, h);
+            return true;
+          });
+        });
+      }),
+    );
+    const disabled = this._frameGraph.addRenderPass(this.name + "_disabled", true);
+    if (first !== undefined) disabled.setRenderTarget(first);
+    disabled.setExecuteFunc(() => {});
+  }
+}
+
 interface ViewTasks {
   render: FrameGraphObjectRendererTask;
+  /** The camera's 2D light textures (ADR 0399), or null without the pass. */
+  lights2D: ViewLights2D | null;
   geometry: FrameGraphGeometryRendererTask | null;
   ao: FrameGraphSSAO2RenderingPipelineTask | null;
   dof: FrameGraphDepthOfFieldTask | null;
@@ -244,6 +334,14 @@ export function sceneDepth(scene: Scene, camera: TargetCamera): SceneDepth | nul
   return frames.get(scene)?.sceneDepth(camera) ?? null;
 }
 
+/**
+ * @internal ADR 0399: `camera`'s 2D light textures this frame, or null when it has none (no 2D lights, the graph
+ * rebuilding, the camera not drawn). Call it while drawing (a material's bind); don't keep the result across frames.
+ */
+export function lights2DTextures(scene: Scene, camera: Camera): Lights2DTextures | null {
+  return frames.get(scene)?.lights2DTextures(camera) ?? null;
+}
+
 /** @internal Whether `scene` is drawn by a frame graph (a World's renderer), so `sceneDepth` can serve it; previews and tools draw their own scenes. */
 export function hasSceneFrame(scene: Scene): boolean {
   return frames.has(scene);
@@ -279,6 +377,8 @@ export class BabylonFrame {
   private readonly depthConsumers = new Set<object>();
   /** Colour lookup tables for the finish pass (ADR 0111). */
   private readonly luts: BabylonLuts;
+  /** The 2D lighting rig this frame draws through (ADR 0399), or null. */
+  private lights2D: BabylonLights2D | null = null;
 
   constructor(private readonly scene: Scene) {
     this.objects.meshes = scene.meshes;
@@ -321,6 +421,30 @@ export class BabylonFrame {
     return t.depth;
   }
 
+  /** @internal ADR 0399: a camera's 2D light textures this frame (see `Lights2DTextures`), or null. */
+  lights2DTextures(camera: Camera): Lights2DTextures | null {
+    if (!this.graph || this.building) return null;
+    const t = this.views.find((v) => v.render.camera === camera);
+    const l = t?.lights2D;
+    if (!l) return null;
+    if (!l.wrapped) {
+      const wrap = (h: FrameGraphTextureHandle): ThinTexture | null => {
+        const internal = this.graph!.textureManager.getTextureFromHandle(h);
+        return internal ? new ThinTexture(internal) : null;
+      };
+      const batches: Lights2DTextures["batches"] = [];
+      for (let b = 0; b < l.flat.length; b++) {
+        const flat = l.flat[b]!.map(wrap), dirColor = (l.dirColor[b] ?? []).map(wrap), dirVec = (l.dirVec[b] ?? []).map(wrap);
+        if ([...flat, ...dirColor, ...dirVec].some((x) => !x)) return null;
+        batches.push({ flat: flat as ThinTexture[], dirColor: dirColor as ThinTexture[], dirVec: dirVec as ThinTexture[] });
+      }
+      const shadows = l.shadows.map(wrap);
+      if (shadows.some((x) => !x)) return null;
+      l.wrapped = { size: l.size, batches, shadows: shadows as ThinTexture[], lightSize: l.lightSize };
+    }
+    return l.wrapped;
+  }
+
   /** The drawing-buffer size of a camera's rectangle (or its render texture). */
   private viewSize(v: CameraView): { width: number; height: number } {
     if (v.target) return { width: v.target.width, height: v.target.height };
@@ -329,10 +453,12 @@ export class BabylonFrame {
   }
 
   /** Draw a frame: rebuild the graph if its layout changed, update every value, run it. */
-  render(views: CameraView[], shadows: ShadowRequest[], casters: readonly AbstractMesh[], samples: number): void {
+  render(views: CameraView[], shadows: ShadowRequest[], casters: readonly AbstractMesh[], samples: number, lights2D: BabylonLights2D | null = null): void {
     refillIfChanged(this.casterMeshes, casters);
     const depth = this.depthConsumers.size > 0;
-    const plans = views.map((v) => planCameraPasses(v.effects, depth));
+    const layout = lights2D?.layout() ?? null;
+    this.lights2D = lights2D;
+    const plans = views.map((v) => planCameraPasses(v.effects, depth, layout));
     // A view's position and "clear"/"over" decide whether its finish pass blends over the views before it.
     const key = JSON.stringify({
       samples,
@@ -355,6 +481,9 @@ export class BabylonFrame {
     this.overlayTask = null;
     if (!views.length) return;
     const graph = new FrameGraph(this.scene, false);
+    // The lit 2D material samples the 2D light textures in the render pass, behind the graph's back (ADR 0399): don't
+    // let the graph reuse their memory for a texture made after the light pass.
+    if (plans.some((p) => p.lights2D)) graph.optimizeTextureAllocation = false;
     // Every camera's clear runs before the shadow maps: a shadow map renders through Babylon's own render
     // target, behind the frame graph's back, and a clear right after it lands on the wrong target.
     const targets = views.map((v, i) => this.viewTargets(graph, v, plans[i], i, samples));
@@ -488,6 +617,26 @@ export class BabylonFrame {
       graph.addTask(geometry);
     }
 
+    // The 2D light textures (ADR 0399): drawn before the render pass, which samples them in the lit 2D material.
+    let lights2D: ViewLights2D | null = null;
+    if (plan.lights2D && this.lights2D) {
+      const l = plan.lights2D;
+      const lightSize: [number, number] = [Math.max(1, Math.round(size.width * l.scale)), Math.max(1, Math.round(size.height * l.scale))];
+      const make = (name: string, type: number) =>
+        tm.createRenderTargetTexture(`${name}${i}`, { size: { width: lightSize[0], height: lightSize[1] }, sizeIsPercentage: false, options: { createMipMaps: false, samples: 1, types: [type], formats: [Constants.TEXTUREFORMAT_RGBA], useSRGBBuffers: [false], labels: [`${name}${i}`] } });
+      const lightType = l.lowPrecision ? Constants.TEXTURETYPE_UNSIGNED_BYTE : Constants.TEXTURETYPE_HALF_FLOAT;
+      lights2D = {
+        flat: l.batches.map((b, bi) => Array.from({ length: b.styles }, (_, s) => make(`light2d_${bi}_${s}_`, lightType))),
+        dirColor: l.batches.map((b, bi) => (b.directional ? Array.from({ length: b.styles }, (_, s) => make(`light2dDirColor_${bi}_${s}_`, lightType)) : [])),
+        dirVec: l.batches.map((b, bi) => (b.directional ? Array.from({ length: b.styles }, (_, s) => make(`light2dDirVec_${bi}_${s}_`, lightType)) : [])),
+        shadows: Array.from({ length: l.shadowTextures }, (_, k) => make(`shadow2d_${k}_`, Constants.TEXTURETYPE_UNSIGNED_BYTE)),
+        size: [size.width, size.height],
+        lightSize,
+        wrapped: null,
+      };
+      graph.addTask(new FrameGraphLights2DTask(`lights2d${i}`, graph, this.lights2D, v.camera, lights2D, lightSize));
+    }
+
     // Clustered lights (ADR 0079): the task runs the clustering pass before drawing. Babylon clusters
     // once a frame, for the first camera; first in line, this makes it cluster again for this one.
     const render = new FrameGraphObjectRendererTask(`render${i}`, graph, this.scene, { enableClusteredLights: true });
@@ -584,7 +733,7 @@ export class BabylonFrame {
       if (!v.target) finish.viewport = viewport;
       graph.addTask(finish);
     }
-    return { render, geometry, ao, dof, bloom, ca, finish, fxaa, clear, finishValues, depth: null, lutPath: null };
+    return { render, lights2D, geometry, ao, dof, bloom, ca, finish, fxaa, clear, finishValues, depth: null, lutPath: null };
   }
 
   /** Values that change without changing the graph's layout. */

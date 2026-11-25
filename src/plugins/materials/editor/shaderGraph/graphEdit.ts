@@ -246,7 +246,7 @@ export function setKeyword(graph: ShaderGraph, name: string, patch: { values?: s
   return dropInvalidEdges(g);
 }
 
-const CATEGORY_ORDER = { Input: 0, Math: 1, Vector: 2, Color: 3, Noise: 4, Lighting: 5, Output: 6 } as const;
+const CATEGORY_ORDER = { Input: 0, Math: 1, Vector: 2, Color: 3, Noise: 4, Lighting: 5, Sprite: 6, Output: 7 } as const;
 /** Where a node category sorts in the node search. */
 export const categoryRank = (category: keyof typeof CATEGORY_ORDER) => CATEGORY_ORDER[category];
 

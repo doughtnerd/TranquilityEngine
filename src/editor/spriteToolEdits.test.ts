@@ -6,7 +6,7 @@ import { createHistory, pushHistory, undo } from "./spriteHistory";
 import { applyToolChange, renameInFlipbooks, type ToolState } from "./spriteToolEdits";
 
 const skin: SliceSkin = { bones: [{ name: "hip", parent: null, position: [1, 2], rotation: 0, length: 5 }], mesh: null, weights: null };
-const state = (): ToolState<{ name: string; skin?: SliceSkin }> => ({ slices: [{ name: "a" }, { name: "b", skin }], flipbooks: { run: { slices: ["a", "b"], fps: 12, loop: true } } });
+const state = (): ToolState<{ name: string; skin?: SliceSkin }> => ({ slices: [{ name: "a" }, { name: "b", skin }], flipbooks: { run: { slices: ["a", "b"], fps: 12, loop: true } }, secondary: { textures: {}, normalMapGreen: "up" } });
 
 describe("a tool's change", () => {
   it("sets a skin on the slice it names and leaves the others", () => {
@@ -49,5 +49,21 @@ describe("renaming a slice", () => {
     expect(next.run!.slices).toEqual(["a2", "b", "a2"]);
     expect(next.idle).toBe(flipbooks.idle);
     expect(renameInFlipbooks(flipbooks, []).run).toBe(flipbooks.run);
+  });
+});
+
+describe("the Lights 2D tools' changes (ADR 0414)", () => {
+  const lit = (): ToolState<{ name: string; outline?: [number, number][][] }> => ({ slices: [{ name: "a" }, { name: "b" }], flipbooks: {}, secondary: { textures: { maskMap: "asset:m.png" }, normalMapGreen: "up" } });
+  it("sets and drops slice outlines by name", () => {
+    const next = applyToolChange(lit(), { outlines: { a: [[[0, 0], [4, 0], [2, 3]]], gone: [] } });
+    expect(next.slices[0]!.outline).toEqual([[[0, 0], [4, 0], [2, 3]]]);
+    expect(next.slices[1]!.outline).toBeUndefined();
+    expect(applyToolChange(next, { outlines: { a: null } }).slices[0]!.outline).toBeUndefined();
+  });
+
+  it("replaces the secondary textures as a whole, dropping empty ones, and sets the green channel", () => {
+    const next = applyToolChange(lit(), { secondaryTextures: { normalMap: "asset:n.png", maskMap: "" }, normalMapGreen: "down" });
+    expect(next.secondary).toEqual({ textures: { normalMap: "asset:n.png" }, normalMapGreen: "down" });
+    expect(applyToolChange(lit(), {}).secondary).toEqual(lit().secondary);
   });
 });
