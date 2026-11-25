@@ -272,6 +272,11 @@ export function actionChoices(sets: readonly InputActionSetInfo[]): ActionChoice
   );
 }
 
+/** Whether any action set is the project's own, not the engine's (`engine.UIActions`, always defined). */
+export function hasProjectActionSets(sets: readonly InputActionSetInfo[]): boolean {
+  return sets.some((s) => !s.id.startsWith("engine."));
+}
+
 // --- controls ------------------------------------------------------------------------------------
 
 /** Keys offered by name (any `KeyboardEvent.key`, lower-case, is a key; these are the common ones). */

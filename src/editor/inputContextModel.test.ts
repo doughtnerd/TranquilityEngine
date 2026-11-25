@@ -8,6 +8,7 @@ import {
   actionChoices,
   contextNotes,
   formatInputContext,
+  hasProjectActionSets,
   moveItem,
   newStep,
   parseInputContext,
@@ -102,6 +103,12 @@ describe("actions, controls and problems", () => {
   it("names an action bare unless another set has one of that name", () => {
     const choices = actionChoices(inputActionSets()).filter((c) => c.label.includes("test.inputContextModel"));
     expect(choices.map((c) => c.value)).toEqual(["move", "test.inputContextModel.Player:jump", "test.inputContextModel.Menu:jump", "back"]);
+  });
+
+  it("counts only the project's own action sets, not the engine's", () => {
+    expect(hasProjectActionSets([{ id: "engine.UIActions", actions: [{ name: "navigate", kind: "vec2" }] }])).toBe(false);
+    expect(hasProjectActionSets([])).toBe(false);
+    expect(hasProjectActionSets(inputActionSets())).toBe(true);
   });
 
   it("offers controls by device, each one the evaluator accepts", () => {
