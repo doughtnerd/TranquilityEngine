@@ -14,6 +14,7 @@
 - [Tilemaps](guide/tilemaps.md)
 - [Game UI](guide/ui.md)
 - [Animation](guide/animation.md)
+- [Animation performance](guide/animation-performance.md)
 - [Multiplayer](guide/multiplayer.md)
 
 **Rendering**

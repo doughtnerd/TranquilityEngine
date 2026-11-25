@@ -111,4 +111,4 @@ The audio core is the default. The Babylon fallback plays instead when you set `
 
 ## Testing and tuning
 
-`Audio.debug()` returns a copy of the audio state: status, buses with their peaks, every playing sound (with the node whose AudioSource plays it and how it is placed: `hrtf`, `bed`, `ambisonic`, `equalPower` or `flat`) and every playing playlist instance. **Record capture** on the editor's Play toolbar records the same over time for the Audio Studio's Profiler. See [Why is there no sound?](why-no-sound.md).
+`Audio.debug()` returns a copy of the audio state: status, buses with their peaks, every playing sound (with the node whose AudioSource plays it and how it is placed: `hrtf`, `bed`, `ambisonic`, `equalPower` or `flat`) and every playing playlist instance. **Record** on the Audio Studio's Profiler screen records the same over time. See [Why is there no sound?](why-no-sound.md).

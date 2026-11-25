@@ -1,6 +1,6 @@
 # Audio profiler and capture files (ADR 0171, amended by 0172)
 
-> **The Audio Profiler panel moved to the Audio Studio.** Captures (`.sporesample`) open on the Studio's Profiler screen (the **Audio Studio** (in the editor: Window > Audio Studio, or **Open in Audio Studio** on a file; ADR 0341)). In the editor, **Record capture** and **Record take** stay on the Play toolbar and save into `recordings/` and `recordings/`. The panel walk-through below describes the editor panel this replaced.
+> **The Audio Profiler panel moved to the Audio Studio.** Captures (`.sporesample`) open on the Studio's Profiler screen (the **Audio Studio** (in the editor: Window > Audio Studio, or **Open in Audio Studio** on a file; ADR 0341)). Recording happens in the Studio: **Record** on the Profiler records the Studio's own audio, and **Record session** in the player bar records a take on a connected game build; both save into `recordings/` (the editor's Play toolbar no longer records, ADR 0416). The panel walk-through below describes the editor panel this replaced.
 
 The Audio Studio's **Profiler** screen shows what the audio core did while your game played: how busy it was, which voices were playing and why others were not, where it glitched, how loud each bus was. You can record in the editor's Play mode, record from an exported game with `Audio.capture`, save the recording as a `.sporesample` file, and open that file later in the editor (on your machine or a tester's). For the buses the profiler reports on, see [Audio mixer](audio-mixer.md); to change the mix while you watch it, [Live mixing and ducking](audio-mixing.md); for what the loudness tracks mean, [Loudness](audio-loudness.md); for every `Audio.capture` member, [Audio mix: API reference](audio-mix-api.md#audiocapture); for a silent sound, [Why is there no sound?](why-no-sound.md). To record what the game asked of audio as well, so the Studio can replay it against your current project, record a [take](audio-takes.md) instead.
 
@@ -117,7 +117,7 @@ What a phone can and can't tell you: an emulator's audio runs through your compu
 
 ## Takes
 
-A capture records how the engine played. A **take** (`.sporesample`) records that profile *and* what the game asked of audio (every play, parameter, position, stop and marker), so the Studio can replay the run against your current project and you hear your edits in context. Record one with **Record take** on the Play toolbar (it saves into the project's `recordings/` folder), with **F10** in a game exported with the Audio take option, or with `Audio.take` from a script. The Profiler opens a take's profile as it opens a capture. The full story is in [Audio takes](audio-takes.md).
+A capture records how the engine played. A **take** (`.sporesample`) records that profile *and* what the game asked of audio (every play, parameter, position, stop and marker), so the Studio can replay the run against your current project and you hear your edits in context. Record one with **Record session** in the Audio Studio's player bar while a game build is connected (it saves into the project's `recordings/` folder), with **F10** in a game exported with the Audio take option, or with `Audio.take` from a script. The Profiler opens a take's profile as it opens a capture. The full story is in [Audio takes](audio-takes.md).
 
 ## Opening a capture
 
