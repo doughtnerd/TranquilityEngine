@@ -94,7 +94,7 @@ The same 80-bone humanoid and the same idle, walk and run keys, played by Babylo
 | 100 characters, one clip | 10.24 ms | 0.67 ms | **15× faster** |
 | 100 characters, crossfade of two clips | 41.45 ms | 0.86 ms | **48× faster** |
 | 100 characters: Babylon three weighted clips, Myco the full locomotion graph | 53.61 ms | 1.20 ms | **45× faster** |
-| 300 characters, one clip | 45.91 ms | not yet measured on this machine | |
+| 300 characters, one clip | 45.91 ms | 2.00 ms | **23× faster** |
 
 Babylon's time splits into its animation update and the matrix step:
 
