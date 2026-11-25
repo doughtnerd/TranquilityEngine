@@ -2,7 +2,7 @@
 // ADR 0370's budget scenarios on the committed wasm in Node (T82r). The budgets are tripwires; this prints, asserts nothing.
 //
 //   node native/anim/crates/anim-wasm/bench_budgets.mjs [--rounds N] [--frames N] [--only substring] [--regen] [--compare FILE]
-//     [--characters N] [--max-instances N] [--max-bones N] [--gap MS]
+//     [--characters N] [--max-instances N] [--max-bones N] [--gap MS] [--busy MS] [--prime]
 //
 // `--characters N` (default 100) sets the character scenarios' instance count, and `--max-instances`/`--max-bones` the
 // core's INIT limits (defaults 128 and the skeleton's bones rounded up): the shipped player starts the core with 512
@@ -81,7 +81,7 @@ function parent() {
     let note = "";
     for (let r = 0; r < rounds; r++) {
       builds.forEach((wasm, b) => {
-        const pass = ["characters", "max-instances", "max-bones", "gap"].flatMap((k) => (opt(k, null) === null ? [] : [`--${k}`, opt(k)]));
+        const pass = ["characters", "max-instances", "max-bones", "gap", "busy"].flatMap((k) => (opt(k, null) === null ? [] : [`--${k}`, opt(k)])).concat(args.includes("--prime") ? ["--prime"] : []);
         const out = execFileSync(process.execPath, [fileURLToPath(import.meta.url), "--child", name, "--frames", String(frames), "--wasm", wasm, ...pass], { encoding: "utf8" });
         const line = JSON.parse(out.trim().split("\n").pop());
         ms[b].push(line.ms);
@@ -304,10 +304,16 @@ async function child(name, frames) {
   }
   for (let i = 0; i < warm; i++) step();
   const gap = Number(opt("gap", 0));
+  const busy = Number(opt("busy", 0));
+  const prime = args.includes("--prime");
   let ms = 0;
-  if (gap > 0) {
+  let sink = 0;
+  if (gap > 0 || busy > 0) {
     for (let i = 0; i < frames; i++) {
-      await new Promise((done) => setTimeout(done, gap));
+      if (gap > 0) await new Promise((done) => setTimeout(done, gap));
+      // Arithmetic until `busy` ms pass (not a sleep: the core stays loaded), its result kept so it isn't optimised away.
+      for (const until = performance.now() + busy; performance.now() < until; ) for (let k = 0; k < 1000; k++) sink += Math.sqrt(k + sink) * 1e-9;
+      if (prime) step();
       const t0 = performance.now();
       step();
       ms += (performance.now() - t0) / frames;
@@ -317,5 +323,5 @@ async function child(name, frames) {
     for (let i = 0; i < frames; i++) step();
     ms = (performance.now() - t0) / frames;
   }
-  console.log(JSON.stringify({ ms, note }));
+  console.log(JSON.stringify({ ms, note, ...(sink < 0 ? { sink } : {}) }));
 }
