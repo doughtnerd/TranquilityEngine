@@ -17,6 +17,8 @@ import { installCaptureTrigger, installTakeTrigger, type TriggerEnv } from "./tr
 import { takeStateSubscription } from "../debugLink/takeState";
 import { decodeTakeState } from "../debugLink/schema";
 import { RecordWriter, readRecords } from "../../../../engine/debugLink/records";
+import type { DebugTopicHost } from "../../../../engine/debugLink/topics";
+import { audioTopic } from "../debugLink/topic";
 
 /** The recorder and save chunks are the real ones, wrapped: a 4 MiB ring, each save through the rig's fakes. */
 const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
@@ -302,6 +304,48 @@ describe("F10 while the Audio Studio owns the takes (ADR 0408)", () => {
     expect(toasts.at(-1)).toBe("Take sent to the Audio Studio (a copy is kept in app data)");
     sub.close();
     uninstall();
+  });
+});
+
+describe("a take the Audio Studio starts and stops (ADR 0411 Record session)", () => {
+  it("take.start and take.stop go through the F10 trigger: the same toasts, and F10 stops a take the Studio started", async () => {
+    const target = fakeTarget();
+    const { cap, calls } = fakeCapture();
+    const toasts: string[] = [];
+    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: true, webSaves: async () => ({ count: 99, max: 16 }), schedule: manualSchedule().schedule });
+    const topic = audioTopic({} as DebugTopicHost);
+    const sub = takeStateSubscription(() => ({ state: cap.state, seconds: 0 })); // the Studio owns the takes
+    await topic.request!("take.start", undefined); // the web's save cap never applies: the Studio saves
+    expect(calls).toEqual(["start"]);
+    expect(toasts).toEqual(["Recording a take…"]);
+    target.fire("keydown", key("F10"));
+    await vi.waitFor(() => expect(calls).toEqual(["start", "stop"]));
+    expect(toasts.at(-1)).toBe("Take sent to the Audio Studio (a copy is kept in app data)");
+    await topic.request!("take.start", undefined);
+    await topic.request!("take.stop", undefined);
+    expect(calls).toEqual(["start", "stop", "start", "stop"]);
+    expect(toasts.slice(-2)).toEqual(["Recording a take…", "Take sent to the Audio Studio (a copy is kept in app data)"]);
+    sub.close();
+    uninstall();
+    topic.dispose?.();
+  });
+
+  it("a stop in a browser says the Studio saves it, and a start that fails says why and answers the Studio the error", async () => {
+    const target = fakeTarget();
+    const { cap } = fakeCapture();
+    const toasts: string[] = [];
+    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: false, schedule: manualSchedule().schedule });
+    const topic = audioTopic({} as DebugTopicHost);
+    const sub = takeStateSubscription(() => ({ state: cap.state, seconds: 0 }));
+    await topic.request!("take.start", undefined);
+    await topic.request!("take.stop", undefined);
+    expect(toasts).toEqual(["Recording a take…", "Take stopped: the Audio Studio saves it"]);
+    cap.startError = new Error("the audio core isn't available");
+    await expect(topic.request!("take.start", undefined)).rejects.toThrow("the audio core isn't available");
+    expect(toasts.slice(-2)).toEqual(["Recording a take…", "the audio core isn't available"]);
+    sub.close();
+    uninstall();
+    topic.dispose?.();
   });
 });
 

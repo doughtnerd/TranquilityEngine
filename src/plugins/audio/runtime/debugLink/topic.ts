@@ -8,7 +8,8 @@
 // - subscription `{ kind: "takeLive" }`: the live take feed, the running (else last) take's facts, emitters and log as it
 //   grows (`takeLive.ts`);
 // - requests `take.start`, `take.stop`, `take.mark` `{ text }`: drive `Audio.take`, answered by the take's state and
-//   seconds after it; `take.frames` `{ width }`: the next takes' picture width; `take.upload`: makes the take's file bytes into an upload (`upload.ts`); `build.audio` and
+//   seconds after it (start and stop through the build's F10 trigger when installed, so the player sees the same
+//   toasts, `capture/takeControl.ts`); `take.frames` `{ width }`: the next takes' picture width; `take.upload`: makes the take's file bytes into an upload (`upload.ts`); `build.audio` and
 //   `build.file`: the build's audio index and files as uploads, for replays without the project (`buildAudio.ts`, ADR 0410);
 // - command `mix.op`: one live mix op, applied through the mixer at the build's next frame start (`mixCommands.ts`).
 //
@@ -18,6 +19,7 @@ import { isTauri } from "../../../../engine/platform/FileSystem";
 import type { DebugSubscription, DebugTopic, DebugTopicHost } from "../../../../engine/debugLink/topics";
 import { captureLiveHost } from "../capture/capture";
 import { audioTake, setTakeFrameWidth, takeFileBytes, takeFrameWidth, takeLive } from "../capture/take";
+import { startTakeForTool, stopTakeForTool } from "../capture/takeControl";
 import { captureSubscription } from "./capture";
 import { applyMixOpCommand } from "./mixCommands";
 import { takeLiveSubscription } from "./takeLive";
@@ -61,10 +63,10 @@ export function audioTopic(_host: DebugTopicHost): DebugTopic {
     async request(method, params) {
       switch (method) {
         case AudioRequest.start:
-          await audioTake.start();
+          await startTakeForTool(); // through the F10 trigger when installed: the same toasts (`takeControl.ts`)
           return takeState();
         case AudioRequest.stop:
-          audioTake.stop();
+          stopTakeForTool();
           return takeState();
         case AudioRequest.mark: {
           const text = params && typeof params === "object" ? (params as Record<string, unknown>).text : undefined;

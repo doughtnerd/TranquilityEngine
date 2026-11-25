@@ -219,6 +219,7 @@ function TimelinePanel() {
         problemsOnly={store.problemsOnly.value}
         groupBy={store.groupBy.value}
         busChains={busChains()}
+        viewKey={s.kind === "open" && s.origin === "file" ? s.path : null}
         onSeek={(t) => store.seekTo(t)}
         onSelect={(key) => store.select(key, true)}
       />

@@ -7,6 +7,7 @@ import { isTauri } from "../../../engine/platform/FileSystem";
 import { isTakesFolder } from "../../../editor/projects";
 import { currentProject, status } from "../../../editor/state";
 import { studioBuild } from "../../debugLink/studioLink";
+import { takePictureWidth, takePictureWidthOf } from "../../runtime/takePictures";
 import { saveFileAs } from "../../saveFileAs";
 import { BuildTakeRecorder, saveTakeIntoProject } from "./recordFromBuild";
 import { openTake } from "./takeScreen";
@@ -53,6 +54,7 @@ export function installBuildTakes(): () => void {
       ? new BuildTakeRecorder(build, {
           write: writeTake,
           autoSave: () => !asksWhereToSaveTakes(),
+          pictureWidth: () => takePictureWidthOf(takePictureWidth.peek()),
           saved: (path, auto) => {
             if (!currentProject.peek()?.files.includes(path)) return;
             if (auto) status.value = { kind: "info", text: `Saved the take ${build.name} stopped: ${path}` };

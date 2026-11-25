@@ -16,11 +16,14 @@
 // take records what the game asked of audio beside the profile, and saves a `*.sporesample`. It has no touch gesture (three
 // fingers are the capture's; more fingers collide with the platforms' own gestures). While the Audio Studio is connected
 // and owns the build's takes (ADR 0408, `takeClaims.ts`), F10 only starts and stops: the Studio uploads and saves, and
-// the audio topic keeps a backup copy in app data on desktop and Android (`debugLink/takeState.ts`).
+// the audio topic keeps a backup copy in app data on desktop and Android (`debugLink/takeState.ts`). ADR 0411: a take the
+// Studio starts or stops (the audio topic's `take.start` and `take.stop`) goes through this trigger too (`takeControl.ts`),
+// so the player sees the same toasts as for F10 and the next F10 stops a take the Studio started.
 import { isTauri } from "../../../../engine/platform/FileSystem";
 import { audioCapture, type AudioCapture } from "./capture";
 import { audioTake } from "./take";
 import { takesClaimed } from "./takeClaims";
+import { setTakeControl } from "./takeControl";
 
 /** How long exactly three fingers stay down before the touch trigger fires, ms (owner decision 7). */
 const TRIGGER_HOLD_MS = 1000;
@@ -122,7 +125,7 @@ export function installCaptureTrigger(env: Partial<TriggerEnv> = {}): () => void
  * The player calls it once when game.json says `audioTake`. `env.capture` stands for the take (tests).
  */
 export function installTakeTrigger(env: Partial<TriggerEnv> = {}): () => void {
-  return installTrigger({ handedOff: takesClaimed, ...env }, { key: TAKE_TRIGGER_KEY, recording: TOAST_RECORDING_TAKE, touch: false, capture: audioTake });
+  return installTrigger({ handedOff: takesClaimed, ...env }, { key: TAKE_TRIGGER_KEY, recording: TOAST_RECORDING_TAKE, touch: false, capture: audioTake, tool: true });
 }
 
 interface TriggerSpec {
@@ -130,6 +133,8 @@ interface TriggerSpec {
   recording: string;
   touch: boolean;
   capture: TriggerEnv["capture"];
+  /** ADR 0411: a connected tool's start and stop go through this trigger (`takeControl.ts`). */
+  tool?: boolean;
 }
 
 function installTrigger(env: Partial<TriggerEnv>, spec: TriggerSpec): () => void {
@@ -156,6 +161,21 @@ function installTrigger(env: Partial<TriggerEnv>, spec: TriggerSpec): () => void
    */
   let unsaved = false;
 
+  /** The toast of a take handed to the tool that owns the build's takes. */
+  const handedOffToast = (): void => toast(tauri && handedOff() ? TOAST_HANDED_OFF_COPY : TOAST_HANDED_OFF);
+
+  /** Says it records and starts; resolves once recording, else toasts why and rejects. */
+  const begin = async (): Promise<void> => {
+    toast(spec.recording);
+    try {
+      await capture.start();
+      unsaved = true;
+    } catch (err) {
+      toast(message(err));
+      throw err;
+    }
+  };
+
   const toggle = async (): Promise<void> => {
     if (busy) return;
     busy = true;
@@ -165,7 +185,7 @@ function installTrigger(env: Partial<TriggerEnv>, spec: TriggerSpec): () => void
         unsaved = false;
         if (state === "recording") capture.stop();
         if (handedOff()) {
-          toast(tauri ? TOAST_HANDED_OFF_COPY : TOAST_HANDED_OFF);
+          handedOffToast();
           return;
         }
         try {
@@ -182,17 +202,28 @@ function installTrigger(env: Partial<TriggerEnv>, spec: TriggerSpec): () => void
           return;
         }
       }
-      toast(spec.recording);
-      try {
-        await capture.start();
-        unsaved = true;
-      } catch (err) {
-        toast(message(err));
-      }
+      await begin().catch(() => {}); // toasted
     } finally {
       busy = false;
     }
   };
+
+  // ADR 0411: the Studio's Record session. Its start never meets the web's save cap (the Studio saves the take), and its
+  // stop leaves the take to the Studio, saying so as F10 does when the Studio owns the takes.
+  const removeControl = spec.tool
+    ? setTakeControl({
+        start: async () => {
+          if (capture.state === "recording") return;
+          await begin();
+        },
+        stop: () => {
+          if (capture.state !== "recording") return;
+          unsaved = false;
+          capture.stop();
+          handedOffToast();
+        },
+      })
+    : null;
 
   const onKey = (e: Event): void => {
     const k = e as KeyboardEvent;
@@ -228,6 +259,7 @@ function installTrigger(env: Partial<TriggerEnv>, spec: TriggerSpec): () => void
     for (const type of touches) target.removeEventListener(type, onTouch, { capture: true });
     cancelHold?.();
     cancelHold = null;
+    removeControl?.();
     dom?.dispose();
   };
 }

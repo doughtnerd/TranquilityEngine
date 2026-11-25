@@ -392,6 +392,7 @@ How to use the engine. The user docs (guides, FAQ, news) are written in [wiki/](
 | [0409](decisions/0409-recordings-are-one-sporesample-file-in-a-recordings-folder.md) | Takes and captures are one `.sporesample` file, kept in one `recordings/` folder | Accepted |
 | [0410](decisions/0410-the-studio-downloads-a-connected-builds-audio-for-replays-without-a-project.md) | The Studio downloads a connected build's audio, so takes replay without the project | Accepted |
 | [0411](decisions/0411-a-connected-studio-is-live-and-one-recording-shows-on-both-screens.md) | A connected Studio is live, and one recording shows on Take and the Profiler alike | Accepted |
+| [0412](decisions/0412-one-view-per-recording-the-studio-returns-to-the-launcher-and-builds-record-alike.md) | One view per recording, the Studio returns to the launcher, and a build records alike from F10 or the Studio | Accepted |
 | [0362](decisions/0362-the-ui-fidelity-pass-adds-playback-pause-clip-envelopes-reverse-second-input-curves-occlusion-curves-and-studio-format-fields.md) | The UI fidelity pass adds `pause()`/`resume()` on playback handles, the Amp envelope on clips, reverse clips, sequence marker colour and note, second-input ("And by") curves on voice curves and automation, occlusion curves, Studio fields in `audio.json`, and new loudness target defaults | Accepted |
 
 ## Working with decisions

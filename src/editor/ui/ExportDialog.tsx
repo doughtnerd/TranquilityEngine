@@ -158,34 +158,34 @@ export function ExportDialog() {
             Desktop app
           </label>
         </fieldset>
-        <label class="export-audio-capture" title="Press F9 (or hold three fingers for a second) in the exported game to record its audio mix, then again to save a .sporesample file the Profiler opens">
+        <label class="dialog-option export-audio-capture" title="Press F9 (or hold three fingers for a second) in the exported game to record its audio mix, then again to save a .sporesample file the Profiler opens">
           <input type="checkbox" name="export-audio-capture" checked={audioCapture} disabled={busy} onChange={(e) => setAudioCapture(e.currentTarget.checked)} />
           Let the game record its audio mix (F9)
         </label>
-        <p class="export-audio-capture-note" style={{ color: "var(--muted)", fontSize: "12px", margin: "4px 0 10px" }}>
+        <p class="export-audio-capture-note" style={{ fontSize: "12px", margin: "-8px 0 12px 22px" }}>
           Players press F9, or hold three fingers for a second, to start recording and again to save a .sporesample file for the Profiler. A capture is labelled: it holds the project's audio settings, name and version, the names of its clips, buses, events and parameters, and part of the browser's user-agent.
         </p>
-        <label class="export-audio-take" title="Press F10 in the exported game to record a take (what the game asked of audio, with its profile), then again to save a .sporesample file the Studio replays">
+        <label class="dialog-option export-audio-take" title="Press F10 in the exported game to record a take (what the game asked of audio, with its profile), then again to save a .sporesample file the Studio replays">
           <input type="checkbox" name="export-audio-take" checked={audioTake} disabled={busy} onChange={(e) => setAudioTake(e.currentTarget.checked)} />
           Let the game record audio takes (F10)
         </label>
-        <label class="export-audio-take-pictures" title="A take holds a small picture of the game view about once a second, which the Studio shows beside it; leave this off to keep the game's screen out of takes">
+        <label class="dialog-option export-audio-take-pictures" style={{ marginLeft: "20px" }} title="A take holds a small picture of the game view about once a second, which the Studio shows beside it; leave this off to keep the game's screen out of takes">
           <input type="checkbox" name="export-audio-take-pictures" checked={audioTake && takePictures} disabled={busy || !audioTake} onChange={(e) => setTakePictures(e.currentTarget.checked)} />
           Include pictures of the game view in takes
         </label>
-        <label class="export-debug-link" title="The game connects to this editor's debug link, so the live debuggers (such as the animation graph's) can inspect it while it runs. Builds without it hold none of the link's code.">
+        <label class="dialog-option export-debug-link" title="The game connects to this editor's debug link, so the live debuggers (such as the animation graph's) can inspect it while it runs. Builds without it hold none of the link's code.">
           <input type="checkbox" name="export-debug-link" checked={debugLink} disabled={busy} onChange={(e) => setDebugLink(e.currentTarget.checked)} />
           Debugging on: connect to this editor's debug link
         </label>
-        <label class="export-debug-listen" style={{ marginLeft: "20px" }} title="The build listens for debugging tools as well as connecting to this editor, so a tool can connect to it (a native build only: a web build can't listen)">
+        <label class="dialog-option export-debug-listen" style={{ marginLeft: "20px" }} title="The build listens for debugging tools as well as connecting to this editor, so a tool can connect to it (a native build only: a web build can't listen)">
           <input type="checkbox" name="export-debug-listen" checked={debugListen} disabled={busy || !debugLink} onChange={(e) => { setDebugListen(e.currentTarget.checked); if (!e.currentTarget.checked) setDebugLan(false); }} />
           Listen for tools
         </label>
-        <label class="export-debug-lan" style={{ marginLeft: "40px" }} title="A listening build accepts connections from other machines on its network, each paired by code. Off: only tools on this machine can connect">
+        <label class="dialog-option export-debug-lan" style={{ marginLeft: "40px" }} title="A listening build accepts connections from other machines on its network, each paired by code. Off: only tools on this machine can connect">
           <input type="checkbox" name="export-debug-lan" checked={debugLan} disabled={busy || !debugLink || !debugListen} onChange={(e) => setDebugLan(e.currentTarget.checked)} />
           On the network (LAN)
         </label>
-        <label class="export-debug-rendezvous" style={{ marginLeft: "20px" }} title="Optional: a hosted rendezvous (a ws:// or wss:// address) that pages and tools use to pair by room code when no rendezvous on the local network is reachable. No public one is run: leave empty unless you host one">
+        <label class="dialog-option export-debug-rendezvous" style={{ marginLeft: "20px" }} title="Optional: a hosted rendezvous (a ws:// or wss:// address) that pages and tools use to pair by room code when no rendezvous on the local network is reachable. No public one is run: leave empty unless you host one">
           Rendezvous URL{" "}
           <input type="text" name="export-debug-rendezvous" placeholder="wss://rendezvous.example.com/myco-rendezvous" value={debugRendezvous} disabled={busy || !debugLink} aria-invalid={rendezvousBad} onInput={(e) => setDebugRendezvous(e.currentTarget.value)} />
         </label>

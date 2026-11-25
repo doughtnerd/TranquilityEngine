@@ -22,7 +22,7 @@ export const TAKE_PICTURE_MIN_WIDTH = 64;
  */
 export const TAKE_PICTURE_MAX_WIDTH = 1920;
 /** The width a build takes pictures at until told otherwise. */
-export const TAKE_PICTURE_DEFAULT_WIDTH = 320;
+export const TAKE_PICTURE_DEFAULT_WIDTH = 640;
 
 /** Play options that matter for replay (a subset of `EventOptions` / one-shot options). */
 export interface TakePlayOptions {
