@@ -12,7 +12,7 @@
 //! The evaluation order is fixed (poses in slice order, one multiply and one add per component),
 //! so the SoA and scalar instantiations agree bit for bit.
 
-use anim_math::{F32x4, Lane, QuatT, TransformT, Vec3T};
+use anim_math::{F32x4, Lane, LaneMask, QuatT, TransformT, Vec3T};
 
 /// Total weight at or below this counts as "no weight" in [`blend`].
 pub const MIN_TOTAL_WEIGHT: f32 = 1e-12;
@@ -158,9 +158,15 @@ pub fn blend_masked<L: Lane>(
     let (zero, one) = (L::splat(0.0), L::splat(1.0));
     for (((o, &b), &l), &m) in out.iter_mut().zip(base).zip(layer).zip(mask) {
         let t = (m * w).max(zero).min(one);
+        let on = t.gt(zero);
+        if !on.any() {
+            // Nothing layered on this group (the select below would keep `b` in every lane).
+            *o = b;
+            continue;
+        }
         let blended = lerp_transform(b, l, t);
         // Keep the base exactly where nothing is layered (also where t is NaN).
-        *o = TransformT::select(t.gt(zero), blended, b);
+        *o = TransformT::select(on, blended, b);
     }
 }
 

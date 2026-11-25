@@ -3,12 +3,13 @@
 // right, Loudness (bottom) and History on demand. They
 // share one session over `audio.json`'s document (`mixerScreen.ts`), made here for the open project with the real
 // confirm dialog, toasts, status bar, project-wide renames and the Studio's runtime (`mixerRuntime.ts`).
+import { audioProject } from "../../shell/audioProject";
 import { effect, signal, type Signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { AssetDocument } from "../../../editor/assetDocuments";
 import { persisted } from "../../../editor/preferences";
 import { editProjectFiles, projectFileUsers } from "../../../editor/projectFileEdits";
-import { currentProject, status } from "../../../editor/state";
+import { status } from "../../../editor/state";
 import { confirmInEditor } from "../../../editor/ui/ConfirmDialog";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
@@ -61,7 +62,7 @@ let cached: { doc: AssetDocument<AudioProject>; session: MixerSession; stopRoute
 
 /** The session for the open project's `audio.json` (one per document; a new project makes a new one). */
 function mixerSession(): MixerSession | null {
-  const project = currentProject.value;
+  const project = audioProject.value;
   const doc = openMixDocument(project);
   if (!doc || !project) {
     if (cached) { cached.stopRoute(); cached.session.dispose(); cached = null; }

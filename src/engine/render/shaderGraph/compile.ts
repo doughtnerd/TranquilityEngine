@@ -57,7 +57,7 @@ export interface CompiledShaderGraph {
     emission: string | null;
     /** The tangent-space normal's expression, or null when Normal isn't connected. */
     normal: string | null;
-    /** Sprite Lit (ADR 0409): the mask the blend styles read, or null when Mask isn't connected. */
+    /** Sprite Lit (ADR 0415): the mask the blend styles read, or null when Mask isn't connected. */
     mask?: string | null;
     /**
      * Physical graphs (ADR 0052): the features compiled in, each value's expression. A feature
@@ -308,7 +308,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
     if (!uniforms.some((u) => u.name === uname)) uniforms.push({ name: uname, type: PROPERTY_UNIFORM[p.type], property: p.name, propertyType: p.type, value: p.value });
     return { expr: p.type !== "texture" ? `uniforms.${uname}` : uname, type: valueTypeOf(PROPERTY_UNIFORM[p.type]) };
   };
-  /** A texture the drawing component supplies (ADR 0409: `@sprite`, `@secondary:<name>`), as a texture property it overrides. */
+  /** A texture the drawing component supplies (ADR 0415: `@sprite`, `@secondary:<name>`), as a texture property it overrides. */
   const drawTextureUniform = (name: string): string => {
     const uname = `uDraw_${ident(name.replace(/^@/, "").replace(/:/g, "_"))}`;
     if (!uniforms.some((u) => u.name === uname)) uniforms.push({ name: uname, type: "sampler2D", property: name, propertyType: "texture", value: "" });
@@ -445,7 +445,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
         sampleMode: (u, linear) => sampleMode(u, linear, problem),
         problem,
       };
-      // A node for other targets (ADR 0409) reads zero (a texture, white), reported: its code could need what this target lacks.
+      // A node for other targets (ADR 0415) reads zero (a texture, white), reported: its code could need what this target lacks.
       const offTarget = def.targets && !def.targets.includes(graph.target);
       if (offTarget) problem(`only works in ${def.targets!.map((t) => `"${t}"`).join(", ")} graphs; it reads zero here`);
       const exprs = offTarget ? Object.fromEntries(ports.outputs.map((o) => [o.id, o.type === "texture" ? textureUniform("") : literalOf(0, (o.type === "dynamic" ? dynamic : o.type) as ValueType, false)])) : def.emit(ctx);

@@ -1,5 +1,5 @@
 /**
- * The 2D lighting rig on Babylon (ADR 0399, 0407), part of the core lighting rig (ADR 0252): Light2D components drawn
+ * The 2D lighting rig on Babylon (ADR 0399, 0413), part of the core lighting rig (ADR 0252): Light2D components drawn
  * into screen-space light textures, one per layer batch and blend style (with two more, the directional textures, for a
  * batch whose lights light normal maps), and ShadowCaster2Ds' edges extruded into shadow textures (a channel per
  * shadowed light). The lit layered-quad material (`lights2DMaterial.ts`) reads them.
@@ -133,13 +133,13 @@ interface TextureDraw {
 interface CasterNow {
   loops: Point2[][];
   chains: Point2[][];
-  /** For a composite (ADR 0409): each loop's member, so edges inside another member's loop don't cast. Null for one caster. */
+  /** For a composite (ADR 0415): each loop's member, so edges inside another member's loop don't cast. Null for one caster. */
   owner: number[] | null;
   box: [number, number, number, number];
   z: number;
   targets: readonly string[];
   selfShadows: boolean;
-  /** Its shadow layers (ADR 0409). */
+  /** Its shadow layers (ADR 0415). */
   mask: readonly string[];
 }
 
@@ -202,7 +202,7 @@ export class BabylonLights2D {
   private layers: readonly string[] = [];
   private layerBatch: Int32Array = new Int32Array(0);
   private batches: LayerBatch[] = [];
-  /** Per layer batch: its accurate lights (ADR 0409), packed `ACCURATE_FLOATS` each, rebuilt every frame. */
+  /** Per layer batch: its accurate lights (ADR 0415), packed `ACCURATE_FLOATS` each, rebuilt every frame. */
   private accurate: Float32Array[] = [];
   /** The lights lighting accurately in each batch (left out of its light textures). */
   private accurateSets: Set<Light2D>[] = [];
@@ -236,7 +236,7 @@ export class BabylonLights2D {
     const styles = world.settings.lighting2D.blendStyles;
     const lights = this.enabled ? world._componentsOfType(Light2D).filter((l) => l.isActiveAndEnabled && l.intensity > 0) : [];
     const now: LightNow[] = lights.map((light) => this.lightNow(world, light));
-    // Accurate normal maps (ADR 0409): point lights asking for it on a tier that allows it. A batch takes the tier's cap
+    // Accurate normal maps (ADR 0415): point lights asking for it on a tier that allows it. A batch takes the tier's cap
     // of them (brightest and biggest first); the rest light as fast, so batching runs again when any is over.
     const accurate = new Set(limits.normalMaps && limits.accurateLights > 0 ? lights.filter((l) => l.normalMaps === "accurate" && l.type === "point") : []);
     const batch = () =>
@@ -305,7 +305,7 @@ export class BabylonLights2D {
 
   /**
    * A layer batch's blend styles (indices into the project's), whether it has the directional textures, and its accurate
-   * lights this frame (ADR 0409; `accurateUniforms` packs them; their count changes only with `version`).
+   * lights this frame (ADR 0415; `accurateUniforms` packs them; their count changes only with `version`).
    */
   batch(i: number): { styles: readonly number[]; directional: boolean; accurate: Float32Array } | null {
     const b = this.batches[i];
@@ -360,7 +360,7 @@ export class BabylonLights2D {
       b.styles.forEach((style, si) => {
         const draw = draws[bi]![si]!;
         const skip = this.accurateSets[bi];
-        // Additive lights first, then alpha blend ones in scene order, each covering what's drawn before it (ADR 0409).
+        // Additive lights first, then alpha blend ones in scene order, each covering what's drawn before it (ADR 0415).
         const ordered = [...b.lights].sort((p, q) => Number(now[p]?.light.overlap === "alphaBlend") - Number(now[q]?.light.overlap === "alphaBlend"));
         for (const li of ordered) {
           const n = now[li];
@@ -424,7 +424,7 @@ export class BabylonLights2D {
   }
 
   /**
-   * Each batch's accurate lights packed for the lit material (ADR 0409), per light six vec4s:
+   * Each batch's accurate lights packed for the lit material (ADR 0415), per light six vec4s:
    * position X, Y, height, shadow slot; world→local 2×2 (local = (m0·dx + m2·dy, m1·dx + m3·dy)); falloff exponent,
    * shadow strength, softness, mask channel; inner radius, outer radius, half inner and half outer angle; linear colour ×
    * intensity; the blend style's multiply and add.
@@ -476,7 +476,7 @@ export class BabylonLights2D {
     const out: CasterNow[] = [];
     const textureSize = (path: string) => this.deps.textureSize(path);
     const casters = world._componentsOfType(ShadowCaster2D).filter((c) => c.isActiveAndEnabled);
-    // A CompositeShadowCaster2D's casters cast as one, with its settings (ADR 0409).
+    // A CompositeShadowCaster2D's casters cast as one, with its settings (ADR 0415).
     for (const g of casterGroups(world, casters, (c) => c instanceof CompositeShadowCaster2D)) {
       if (!g.settings.castShadows) continue;
       const loops: Point2[][] = [], chains: Point2[][] = [], owner: number[] = [];
@@ -525,7 +525,7 @@ export class BabylonLights2D {
       for (const caster of casters) {
         if (!overlaps(caster.box, n.box)) continue;
         if (lightTargets.length && caster.targets.length && !caster.targets.some((t) => targetsLayer(lightTargets, t))) continue;
-        if (!masksOverlap(n.light.shadowMask, caster.mask)) continue; // ADR 0409: light masks
+        if (!masksOverlap(n.light.shadowMask, caster.mask)) continue; // ADR 0415: light masks
         const edge = (a: Point2, b: Point2) => {
           const base = s.cpu.vertex(a, [0, caster.z], lightAttr, channel);
           s.cpu.vertex(b, [0, caster.z], lightAttr, channel);
@@ -542,7 +542,7 @@ export class BabylonLights2D {
             }
             if (!caster.selfShadows) {
               // Only edges facing away from the light (their outward normal, right of a→b, points away): the shadow starts
-              // at the caster's far side, so its own face stays lit (ADR 0407 self shadows off).
+              // at the caster's far side, so its own face stays lit (ADR 0413 self shadows off).
               const nx = b[1] - a[1], ny = a[0] - b[0];
               if (nx * ((a[0] + b[0]) / 2 - n.x) + ny * ((a[1] + b[1]) / 2 - n.y) <= 0) continue;
             }

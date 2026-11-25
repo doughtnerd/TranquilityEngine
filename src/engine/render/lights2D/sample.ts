@@ -82,7 +82,7 @@ function insideSpriteLight(world: World, light: Light2D, x: number, y: number, t
   return x >= -px * w && x <= (1 - px) * w && y >= -py * h && y <= (1 - py) * h;
 }
 
-/** Every enabled caster (or composite, ADR 0409) that shadows `sortingLayer`, in world XY. */
+/** Every enabled caster (or composite, ADR 0415) that shadows `sortingLayer`, in world XY. */
 function worldCasters(world: World, sortingLayer: string, textureSize: TextureSizeOf): WorldCaster[] {
   const out: WorldCaster[] = [];
   const casters = world._componentsOfType(ShadowCaster2D).filter((c) => c.isActiveAndEnabled);

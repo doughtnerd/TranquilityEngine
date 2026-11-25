@@ -1,7 +1,7 @@
 /**
- * A 2D draw's material from a sprite shader graph (ADR 0409): the graph's material (`graphMaterial.ts`) set up as a
+ * A 2D draw's material from a sprite shader graph (ADR 0415): the graph's material (`graphMaterial.ts`) set up as a
  * layered quad (no depth write or test, alpha blended, both faces, ADR 0186), with the draw's own texture as the graph's
- * Sprite Texture and that texture's secondary textures (ADR 0408) as its Secondary Textures, and the 2D light plugin:
+ * Sprite Texture and that texture's secondary textures (ADR 0414) as its Secondary Textures, and the 2D light plugin:
  * a Sprite Lit graph lit through its layer batch (with the graph's normal and mask when connected), a Sprite Custom Lit
  * graph given its light functions, a Sprite Unlit graph none. One material per draw setup; the caller disposes it.
  */

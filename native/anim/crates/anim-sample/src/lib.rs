@@ -69,7 +69,7 @@ use anim_format::clip::{
 use anim_format::skeleton::SkeletonView;
 use anim_format::NONE;
 use anim_math::layout::{soa_len, LANES};
-use anim_math::quant::{is_supported_bits, unpack_range, unpack_unorm};
+use anim_math::quant::{is_supported_bits, unpack_range, unpack_range4, unpack_unorm};
 use anim_math::{AosQuat, AosTransform, AosVec3, F32x4, Lane, SoaTransform};
 
 mod bind;
@@ -754,6 +754,13 @@ pub(crate) fn seg_range(
 /// Reads `bits` (≤ 32) bits at bit `pos`, least significant first; bytes past the end read 0.
 #[inline]
 fn read_bits(data: &[u8], pos: u64, bits: u32) -> u32 {
+    (read_word(data, pos) & ((1u64 << bits) - 1)) as u32
+}
+
+/// The 64 bits from byte `pos / 8` on (bytes past the end read 0), shifted right by `pos % 8`:
+/// bit `pos + i` is bit `i` for `i < 64 − pos % 8`.
+#[inline]
+pub(crate) fn read_word(data: &[u8], pos: u64) -> u64 {
     let byte = (pos >> 3) as usize;
     let shift = (pos & 7) as u32;
     let mut word = [0u8; 8];
@@ -765,8 +772,7 @@ fn read_bits(data: &[u8], pos: u64, bits: u32) -> u32 {
             }
         }
     }
-    let v = u64::from_le_bytes(word) >> shift;
-    (v & ((1u64 << bits) - 1)) as u32
+    u64::from_le_bytes(word) >> shift
 }
 
 /// One sample of rate `bits` at bit `pos` in a segment range.
@@ -780,22 +786,134 @@ pub(crate) fn decode(data: &[u8], pos: u64, bits: u32, min: f32, ext: f32) -> f3
     }
 }
 
+/// `n` (≤ 4) consecutive samples of rate `bits` from bit `pos`, each in its own range: lane `k <
+/// n` is `decode(data, pos + k·bits, bits, min[k], ext[k])`, bit for bit (lanes from `n` on are
+/// unspecified). When the codes fit one 64-bit read they are unpacked four at a time (the same
+/// correctly rounded division, multiply and add per lane as [`unpack_range`]).
+#[inline(always)]
+pub(crate) fn decode_n(
+    data: &[u8],
+    pos: u64,
+    bits: u32,
+    n: usize,
+    min: [f32; 4],
+    ext: [f32; 4],
+) -> [f32; 4] {
+    if is_supported_bits(bits) && (pos & 7) + n as u64 * bits as u64 <= 64 {
+        let word = read_word(data, pos);
+        let mask = (1u64 << bits) - 1;
+        let code = |k: usize| {
+            if k < n {
+                ((word >> (k as u32 * bits)) & mask) as u32
+            } else {
+                0
+            }
+        };
+        unpack_range4(
+            [code(0), code(1), code(2), code(3)],
+            bits,
+            F32x4::from_array(min),
+            F32x4::from_array(ext),
+        )
+        .to_array()
+    } else {
+        decode_each(data, pos, bits, n, min, ext)
+    }
+}
+
+/// [`decode_n`] one sample at a time (rates of 0 or 32 bits, or codes past one 64-bit read).
+#[cold]
+#[inline(never)]
+fn decode_each(
+    data: &[u8],
+    pos: u64,
+    bits: u32,
+    n: usize,
+    min: [f32; 4],
+    ext: [f32; 4],
+) -> [f32; 4] {
+    core::array::from_fn(|k| {
+        if k < n {
+            decode(data, pos + (k as u32 * bits) as u64, bits, min[k], ext[k])
+        } else {
+            0.0
+        }
+    })
+}
+
+/// The rotation's w from its decoded components.
+#[inline(always)]
+fn rotation_w(v: &[f32; 4], format: RotationFormat) -> f32 {
+    match format {
+        RotationFormat::QuatDropW => {
+            let d = 1.0 - (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+            Lane::max(d, 0.0).sqrt()
+        }
+        RotationFormat::QuatFull => v[3],
+    }
+}
+
 /// Applies a bone channel's decoded components.
 #[inline]
 pub(crate) fn apply(t: &mut AosTransform, kind: ChannelKind, v: &[f32; 4], format: RotationFormat) {
     match kind {
         ChannelKind::Rotation => {
-            let w = match format {
-                RotationFormat::QuatDropW => {
-                    let d = 1.0 - (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-                    Lane::max(d, 0.0).sqrt()
-                }
-                RotationFormat::QuatFull => v[3],
-            };
+            let w = rotation_w(v, format);
             t.rotation = AosQuat::new(v[0], v[1], v[2], w);
         }
         ChannelKind::Translation => t.translation = AosVec3::new(v[0], v[1], v[2]),
         ChannelKind::Scale => t.scale = AosVec3::new(v[0], v[1], v[2]),
+        ChannelKind::Value => {}
+    }
+}
+
+/// [`apply`] into lane `bone % 4` of group `bone / 4` of a SoA pose: the same values.
+#[inline(always)]
+pub(crate) fn apply_soa(
+    pose: &mut [SoaTransform],
+    bone: usize,
+    kind: ChannelKind,
+    v: &[f32; 4],
+    format: RotationFormat,
+) {
+    let Some(g) = pose.get_mut(bone / LANES) else {
+        return;
+    };
+    let w = if kind == ChannelKind::Rotation {
+        rotation_w(v, format)
+    } else {
+        0.0
+    };
+    // One branch on the lane, then constant-lane writes.
+    match bone % LANES {
+        0 => put_lane(g, 0, kind, v, w),
+        1 => put_lane(g, 1, kind, v, w),
+        2 => put_lane(g, 2, kind, v, w),
+        _ => put_lane(g, 3, kind, v, w),
+    }
+}
+
+/// [`apply_soa`]'s writes into lane `l` of `g` (`w`: the rotation's w).
+#[inline(always)]
+fn put_lane(g: &mut SoaTransform, l: usize, kind: ChannelKind, v: &[f32; 4], w: f32) {
+    match kind {
+        ChannelKind::Rotation => {
+            let q = &mut g.rotation;
+            q.x = q.x.with_lane(l, v[0]);
+            q.y = q.y.with_lane(l, v[1]);
+            q.z = q.z.with_lane(l, v[2]);
+            q.w = q.w.with_lane(l, w);
+        }
+        ChannelKind::Translation | ChannelKind::Scale => {
+            let p = if kind == ChannelKind::Translation {
+                &mut g.translation
+            } else {
+                &mut g.scale
+            };
+            p.x = p.x.with_lane(l, v[0]);
+            p.y = p.y.with_lane(l, v[1]);
+            p.z = p.z.with_lane(l, v[2]);
+        }
         ChannelKind::Value => {}
     }
 }

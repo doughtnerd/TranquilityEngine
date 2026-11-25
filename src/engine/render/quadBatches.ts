@@ -61,7 +61,7 @@ export interface QuadBatch {
    */
   setTangents(tangents: Float32Array | null): void;
   /**
-   * How its fragments meet what's drawn below (ADR 0409): `"alpha"` (the default) blends over it, `"additive"` adds
+   * How its fragments meet what's drawn below (ADR 0415): `"alpha"` (the default) blends over it, `"additive"` adds
    * colour × alpha to it (a 2D light's volume glow).
    */
   setBlend(blend: QuadBlend): void;
@@ -76,13 +76,13 @@ export type QuadBlend = "alpha" | "additive";
 export interface QuadLighting {
   /** The sorting layer whose light textures it reads (the one its order came from). */
   readonly sortingLayer: string;
-  /** The sprite texture's normal map (ADR 0408), or null. */
+  /** The sprite texture's normal map (ADR 0414), or null. */
   readonly normalMap?: string | null;
   /** Its normal map's green channel points down (DirectX). */
   readonly normalMapGreenDown?: boolean;
-  /** The sprite texture's mask map (ADR 0408), or null. */
+  /** The sprite texture's mask map (ADR 0414), or null. */
   readonly maskMap?: string | null;
-  /** A 2D material shaded by a sprite shader graph (ADR 0409): the batch draws with the graph, the texture its Sprite Texture. */
+  /** A 2D material shaded by a sprite shader graph (ADR 0415): the batch draws with the graph, the texture its Sprite Texture. */
   readonly material?: string | null;
   /** False for a Sprite Unlit graph's material: drawn by the graph, without 2D light. Default true. */
   readonly lit?: boolean;

@@ -1,8 +1,7 @@
 // ADR 0171 amended by 0172 (M5a, task Rc4, leaf L-Rc4a; api-and-models §1.2, §5.1, §5.7): saving a take. A real recorder's
 // span becomes a file Rc1's reader opens whole (stored and deflate-raw), the web path hands a Blob-backed download a
-// sanitised name, the Tauri path saves through `Storage` into `cache` and rotates to 16, and every environment is a fake.
+// sanitised name, the Tauri path writes plain files under `recordings/` and rotates to 16, and every environment is a fake.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryStorage, Storage } from "../../../../engine/platform/Storage";
 import { CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_HAS_INDEX, CAPTURE_FLAG_TRUNCATED, CAPTURE_HEADER_BYTES, CAPTURE_TRIGGER_MAX_FILES, RecordType, readCaptureHeader } from "./format";
 import { openCapture } from "./reader";
 import { createRecorder, type EpochContext, type Recorder } from "./recorder";
@@ -39,23 +38,27 @@ function takeOf(r: Recorder, over: Partial<SaveTake> = {}): SaveTake {
 /** The real platform's deflate-raw (`CompressionStream`), as `saveCapture` uses by default. */
 const deflateRawCompress = (payload: Uint8Array): Promise<Uint8Array | null> => defaultSaveEnv().compress(payload);
 
-/** A fake environment: records the download and the `Storage` calls; compression is the real one unless told. */
+/** A fake environment: records the download and the file operations (an in-memory file tree); compression is the real one unless told. */
 function fakeEnv(over: Partial<SaveEnv> = {}) {
   const downloads: { bytes: Uint8Array; fileName: string }[] = [];
-  const storage = new MemoryStorage();
-  const saved: { key: string; bytes: Uint8Array; namespace: string }[] = [];
+  /** Absolute file path -> bytes. */
+  const files = new Map<string, Uint8Array>();
+  const folders: string[] = [];
+  const saved: { path: string; bytes: Uint8Array }[] = [];
   const deleted: string[] = [];
+  const parent = (path: string): string => path.slice(0, path.lastIndexOf("/"));
   const env: SaveEnv = {
     tauri: false,
-    storage: {
-      save: async (key, value, namespace) => {
-        saved.push({ key, bytes: value as Uint8Array, namespace });
-        await storage.save(namespace, key, value);
+    fs: {
+      mkdir: async (path) => void folders.push(path),
+      write: async (path, bytes) => {
+        saved.push({ path, bytes });
+        files.set(path, bytes);
       },
-      list: (namespace) => storage.list(namespace),
-      delete: async (key, namespace) => {
-        deleted.push(key);
-        await storage.delete(namespace, key);
+      list: async (path) => [...files.keys()].filter((k) => parent(k) === path.replace(/\/+$/, "")).map((k) => k.slice(k.lastIndexOf("/") + 1)),
+      remove: async (path) => {
+        deleted.push(path);
+        files.delete(path);
       },
     },
     storageRoot: async () => "/data/app/",
@@ -64,7 +67,7 @@ function fakeEnv(over: Partial<SaveEnv> = {}) {
     now: () => at(10, 15, 0),
     ...over,
   };
-  return { env, downloads, saved, deleted, storage };
+  return { env, downloads, saved, deleted, files, folders };
 }
 
 let smallTake: SaveTake | undefined;
@@ -76,51 +79,51 @@ async function savedName(name: string | undefined, now: Date): Promise<string> {
   return downloads[0]!.fileName;
 }
 
-describe("names (§1.2: [A-Za-z0-9._-], 64 characters, .mycap appended; absent: capture-YYYYMMDD-HHMMSS)", () => {
+describe("names (§1.2: [A-Za-z0-9._-], 64 characters, .sporesample appended; absent: capture-YYYYMMDD-HHMMSS)", () => {
   it("keeps a clean name and appends the extension once", async () => {
-    expect(await savedName("boss-fight_2.take", at(1, 2, 3))).toBe("boss-fight_2.take.mycap");
-    expect(await savedName("run.mycap", at(1, 2, 3))).toBe("run.mycap");
-    expect(await savedName("RUN.MYCAP", at(1, 2, 3))).toBe("RUN.mycap");
+    expect(await savedName("boss-fight_2.take", at(1, 2, 3))).toBe("boss-fight_2.take.sporesample");
+    expect(await savedName("run.sporesample", at(1, 2, 3))).toBe("run.sporesample");
+    expect(await savedName("RUN.SPORESAMPLE", at(1, 2, 3))).toBe("RUN.sporesample");
   });
 
   it("replaces every other character and drops leading dots, so no path or hidden file comes out", async () => {
     const cases: [string, string][] = [
-      ["my capture!", "my_capture_.mycap"],
-      ["../../etc/passwd", "_.._etc_passwd.mycap"],
-      ["..\\win\\system", "_win_system.mycap"],
-      [".hidden", "hidden.mycap"],
+      ["my capture!", "my_capture_.sporesample"],
+      ["../../etc/passwd", "_.._etc_passwd.sporesample"],
+      ["..\\win\\system", "_win_system.sporesample"],
+      [".hidden", "hidden.sporesample"],
       ["...", ""],
-      ["!!!", "_.mycap"],
-      ["café ☕ run", "caf_run.mycap"],
-      ["a/b\\c:d*e?f\"g<h>i|j", "a_b_c_d_e_f_g_h_i_j.mycap"],
-      ["tab\tnew\nline", "tab_new_line.mycap"],
+      ["!!!", "_.sporesample"],
+      ["café ☕ run", "caf_run.sporesample"],
+      ["a/b\\c:d*e?f\"g<h>i|j", "a_b_c_d_e_f_g_h_i_j.sporesample"],
+      ["tab\tnew\nline", "tab_new_line.sporesample"],
     ];
     for (const [input, out] of cases) {
       const file = await savedName(input, at(9, 8, 7));
-      if (out === "") expect(file, input).toMatch(/^capture-20261113-090807(-\d+)?\.mycap$/);
+      if (out === "") expect(file, input).toMatch(/^capture-20261113-090807(-\d+)?\.sporesample$/);
       else expect(file, input).toBe(out);
-      expect(file, input).toMatch(/^[A-Za-z0-9._-]+\.mycap$/);
+      expect(file, input).toMatch(/^[A-Za-z0-9._-]+\.sporesample$/);
       expect(file.startsWith("."), input).toBe(false);
     }
   });
 
   it("cuts the stem to 64 characters before the extension", async () => {
     const file = await savedName("x".repeat(200), at(1, 2, 3));
-    expect(file).toBe("x".repeat(64) + ".mycap");
-    expect(file.length).toBe(64 + 6);
+    expect(file).toBe("x".repeat(64) + ".sporesample");
+    expect(file.length).toBe(64 + 12);
   });
 
   it("an absent, blank, non-string or all-stripped name is capture-YYYYMMDD-HHMMSS in local time", async () => {
-    const names = [undefined, "", "   ", ".mycap", "...", "..mycap", 42 as unknown as string];
+    const names = [undefined, "", "   ", ".sporesample", "...", "..sporesample", 42 as unknown as string];
     for (const [i, name] of names.entries()) {
-      expect(await savedName(name, at(9, 5, i, 14)), String(name)).toBe(`capture-20261114-0905${String(i).padStart(2, "0")}.mycap`);
+      expect(await savedName(name, at(9, 5, i, 14)), String(name)).toBe(`capture-20261114-0905${String(i).padStart(2, "0")}.sporesample`);
     }
   });
 
   it("a second auto name within the same second doesn't repeat the first", async () => {
     const names = [];
     for (const s of [3, 3, 3, 4]) names.push(await savedName(undefined, at(1, 2, s, 15)));
-    expect(names).toEqual(["capture-20261115-010203.mycap", "capture-20261115-010203-2.mycap", "capture-20261115-010203-3.mycap", "capture-20261115-010204.mycap"]);
+    expect(names).toEqual(["capture-20261115-010203.sporesample", "capture-20261115-010203-2.sporesample", "capture-20261115-010203-3.sporesample", "capture-20261115-010204.sporesample"]);
   });
 });
 
@@ -224,9 +227,9 @@ describe("the web path: a download named from the sanitised name", () => {
     const { env, downloads, saved } = fakeEnv();
     const before = webSaveCount();
     const name = await saveCapture(takeOf(recorded(3)), "boss fight #2", env);
-    expect(name).toBe("boss_fight_2.mycap");
+    expect(name).toBe("boss_fight_2.sporesample");
     expect(downloads.length).toBe(1);
-    expect(downloads[0]!.fileName).toBe("boss_fight_2.mycap");
+    expect(downloads[0]!.fileName).toBe("boss_fight_2.sporesample");
     expect(saved).toEqual([]);
     expect(webSaveCount()).toBe(before + 1);
     const c = await openCapture(downloads[0]!.bytes);
@@ -240,7 +243,7 @@ describe("the web path: a download named from the sanitised name", () => {
     const before = webSaveCount();
     const a = await saveCapture(take, undefined, env);
     const b = await saveCapture(take, undefined, env);
-    expect([a, b]).toEqual(["capture-20261113-101500.mycap", "capture-20261113-101500-2.mycap"]);
+    expect([a, b]).toEqual(["capture-20261113-101500.sporesample", "capture-20261113-101500-2.sporesample"]);
     expect(downloads.map((d) => d.fileName)).toEqual([a, b]);
     expect(webSaveCount()).toBe(before + 2);
   });
@@ -254,9 +257,9 @@ describe("the web path: a download named from the sanitised name", () => {
     vi.stubGlobal("document", { createElement: (tag: string) => (tag === "a" ? anchor : null), body });
     vi.stubGlobal("URL", { createObjectURL: (b: Blob) => (created.push(b), "blob:fake-1"), revokeObjectURL: (u: string) => revoked.push(u) });
     try {
-      defaultSaveEnv().download(new Uint8Array([1, 2, 3]), "x.mycap");
+      defaultSaveEnv().download(new Uint8Array([1, 2, 3]), "x.sporesample");
       expect(anchor.href).toBe("blob:fake-1");
-      expect(anchor.download).toBe("x.mycap");
+      expect(anchor.download).toBe("x.sporesample");
       expect(anchor.click).toHaveBeenCalledTimes(1);
       expect(body.appendChild).toHaveBeenCalledWith(anchor);
       expect(created[0]!.size).toBe(3);
@@ -270,98 +273,114 @@ describe("the web path: a download named from the sanitised name", () => {
   });
 });
 
-describe("the Tauri path: Storage.save(key, bytes, \"cache\"), resolving with the app-data path", () => {
-  it("saves the bytes in the cache namespace and resolves <storage root>/cache/<key>.bin", async () => {
-    const { env, downloads, saved, storage } = fakeEnv({ tauri: true });
+describe("the Tauri path: plain files under <storage root>/recordings", () => {
+  it("makes the folder, writes <storage root>/recordings/<name>.sporesample and resolves with that path", async () => {
+    const { env, downloads, saved, folders, files } = fakeEnv({ tauri: true });
     const before = webSaveCount();
     const path = await saveCapture(takeOf(recorded(3)), "arena-2", env);
-    expect(path).toBe("/data/app/cache/arena-2.mycap.bin");
+    expect(path).toBe("/data/app/recordings/arena-2.sporesample");
     expect(downloads).toEqual([]);
-    expect(saved.map((s) => [s.key, s.namespace])).toEqual([["arena-2.mycap", "cache"]]);
-    expect(await storage.list("cache")).toEqual(["arena-2.mycap"]);
+    expect(folders).toEqual(["/data/app/recordings"]);
+    expect(saved.map((s) => s.path)).toEqual(["/data/app/recordings/arena-2.sporesample"]);
+    expect([...files.keys()]).toEqual([path]);
     expect(webSaveCount()).toBe(before);
     const c = await openCapture(saved[0]!.bytes);
     expect(c.warnings).toEqual([]);
   });
 
-  it("works through the real Storage facade over its memory backend", async () => {
-    const memory = new MemoryStorage();
-    Storage.use(memory);
-    try {
-      const { env } = fakeEnv({ tauri: true });
-      const real: SaveEnv = { ...env, storage: { save: (k, v, n) => Storage.save(k, v, n), list: (n) => Storage.list(n), delete: (k, n) => Storage.delete(k, n) } };
-      await saveCapture(takeOf(recorded(2)), "via-facade", real);
-      // Bytes load back as an ArrayBuffer on every backend (ADR 0317), as they always did under Tauri.
-      const back = new Uint8Array((await Storage.load<ArrayBuffer>("via-facade.mycap", "cache"))!);
-      expect(readCaptureHeader(back).flags & CAPTURE_FLAG_COMPRESSED).toBeTruthy();
-    } finally {
-      Storage.use(new MemoryStorage());
-    }
+  it("a take goes to recordings/ with .sporesample", async () => {
+    const { env, saved } = fakeEnv({ tauri: true });
+    const take = takeOf(recorded(2), { requests: { bytes: new Uint8Array(0), recordCount: 0 } });
+    expect(await saveCapture(take, "duel", env)).toBe("/data/app/recordings/duel.sporesample");
+    expect(saved.map((s) => s.path)).toEqual(["/data/app/recordings/duel.sporesample"]);
   });
 
-  it("the path mirrors TauriStorage: a trailing slash goes, the key is URI-encoded", async () => {
+  it("a name saved twice is overwritten", async () => {
+    const { env, files } = fakeEnv({ tauri: true });
+    const take = takeOf(recorded(1));
+    await saveCapture(take, "same", env);
+    await saveCapture(take, "same", env);
+    expect([...files.keys()]).toEqual(["/data/app/recordings/same.sporesample"]);
+  });
+
+  it("a trailing slash on the root goes, and a Windows root keeps its own separators", async () => {
     const take = takeOf(recorded(1));
     const windows = fakeEnv({ tauri: true, storageRoot: async () => "C:\\Users\\me\\AppData\\" }).env;
-    expect(await saveCapture(take, "a.b", windows)).toBe("C:\\Users\\me\\AppData/cache/a.b.mycap.bin");
-    expect(await saveCapture(take, "k", fakeEnv({ tauri: true, storageRoot: async () => "/d" }).env)).toBe("/d/cache/k.mycap.bin");
+    expect(await saveCapture(take, "a.b", windows)).toBe("C:\\Users\\me\\AppData/recordings/a.b.sporesample");
+    expect(await saveCapture(take, "k", fakeEnv({ tauri: true, storageRoot: async () => "/d" }).env)).toBe("/d/recordings/k.sporesample");
   });
 
-  it("still resolves when the app-data folder can't be read", async () => {
+  it("rejects, writing nothing, when the storage folder can't be resolved", async () => {
     const { env, saved } = fakeEnv({ tauri: true, storageRoot: () => Promise.reject(new Error("no path api")) });
-    await expect(saveCapture(takeOf(recorded(2)), "x", env)).resolves.toBe("cache/x.mycap.bin");
-    expect(saved.length).toBe(1);
+    await expect(saveCapture(takeOf(recorded(2)), "x", env)).rejects.toThrow("no path api");
+    expect(saved.length).toBe(0);
   });
 });
 
-describe("rotation: the newest 16 auto-named captures stay (Storage.list, delete)", () => {
-  const stems = (n: number): string[] => Array.from({ length: n }, (_, i) => `capture-20261113-1${String(i).padStart(5, "0")}.mycap`);
+describe("rotation: the newest 16 auto-named files of a folder stay (list, remove)", () => {
+  const DIR = "/data/app/recordings";
+  const stems = (n: number): string[] => Array.from({ length: n }, (_, i) => `capture-20261113-1${String(i).padStart(5, "0")}.sporesample`);
+  const put = (files: Map<string, Uint8Array>, name: string, dir = DIR): void => void files.set(`${dir}/${name}`, new Uint8Array(1));
+  const names = (files: Map<string, Uint8Array>, dir = DIR): string[] => [...files.keys()].filter((k) => k.startsWith(dir + "/")).map((k) => k.slice(dir.length + 1));
 
-  it("deletes the oldest first and keeps 16; user-named files and other cache entries are never touched", async () => {
-    const { env, storage, deleted } = fakeEnv({ tauri: true });
+  it("deletes the oldest first and keeps 16; user-named files and other files are never touched", async () => {
+    const { env, files, deleted } = fakeEnv({ tauri: true });
     const auto = stems(20);
-    for (const k of [...auto].reverse()) await storage.save("cache", k, new Uint8Array(1)); // listed in any order
-    await storage.save("cache", "my-best-run.mycap", new Uint8Array(1));
-    await storage.save("cache", "audio.calibration", new Uint8Array(1));
-    await storage.save("saves", "capture-20200101-000000.mycap", new Uint8Array(1)); // another namespace
-    const gone = await rotateCaptures(env.storage);
+    for (const k of [...auto].reverse()) put(files, k); // listed in any order
+    put(files, "my-best-run.sporesample");
+    put(files, "audio.calibration");
+    put(files, "capture-20200101-000000.sporesample", "/data/app/other"); // another folder
+    const gone = await rotateCaptures(env.fs, DIR);
     expect(gone).toEqual(auto.slice(0, 4));
-    expect(deleted).toEqual(auto.slice(0, 4));
-    const left = await storage.list("cache");
+    expect(deleted).toEqual(auto.slice(0, 4).map((k) => `${DIR}/${k}`));
+    const left = names(files);
     expect(left.filter((k) => k.startsWith("capture-")).sort()).toEqual(auto.slice(4));
-    expect(left).toContain("my-best-run.mycap");
+    expect(left).toContain("my-best-run.sporesample");
     expect(left).toContain("audio.calibration");
-    expect(await storage.list("saves")).toEqual(["capture-20200101-000000.mycap"]);
+    expect(names(files, "/data/app/other")).toEqual(["capture-20200101-000000.sporesample"]);
     expect(CAPTURE_TRIGGER_MAX_FILES).toBe(16);
   });
 
   it("a repeat suffix orders after its second: -2 is newer than the bare stem", async () => {
-    const { env, storage } = fakeEnv({ tauri: true });
-    const names = ["capture-20261113-101500-3.mycap", "capture-20261113-101500.mycap", "capture-20261113-101500-2.mycap"];
-    for (const k of names) await storage.save("cache", k, new Uint8Array(1));
-    expect(await rotateCaptures(env.storage, 1)).toEqual(["capture-20261113-101500.mycap", "capture-20261113-101500-2.mycap"]);
+    const { env, files } = fakeEnv({ tauri: true });
+    for (const k of ["capture-20261113-101500-3.sporesample", "capture-20261113-101500.sporesample", "capture-20261113-101500-2.sporesample"]) put(files, k);
+    expect(await rotateCaptures(env.fs, DIR, 1)).toEqual(["capture-20261113-101500.sporesample", "capture-20261113-101500-2.sporesample"]);
   });
 
   it("saving an auto-named capture on Tauri rotates to 16; a named save doesn't", async () => {
-    const { env, storage } = fakeEnv({ tauri: true, now: () => at(10, 15, 0, 20) });
-    for (const k of stems(16)) await storage.save("cache", k, new Uint8Array(1));
+    const { env, files } = fakeEnv({ tauri: true, now: () => at(10, 15, 0, 20) });
+    for (const k of stems(16)) put(files, k);
     const take = takeOf(recorded(2));
     await saveCapture(take, "keeper", env);
-    expect((await storage.list("cache")).length, "17 files: a named save leaves the rotation alone").toBe(17);
-    await saveCapture(take, undefined, env); // capture-20261120-101500.mycap: the 17th auto file, so the oldest goes
-    const left = await storage.list("cache");
+    expect(names(files).length, "17 files: a named save leaves the rotation alone").toBe(17);
+    await saveCapture(take, undefined, env); // capture-20261120-101500.sporesample: the 17th auto file, so the oldest goes
+    const left = names(files);
     expect(left.filter((k) => k.startsWith("capture-")).length).toBe(16);
-    expect(left).toContain("keeper.mycap");
-    expect(left).toContain("capture-20261120-101500.mycap");
+    expect(left).toContain("keeper.sporesample");
+    expect(left).toContain("capture-20261120-101500.sporesample");
     expect(left).not.toContain(stems(16)[0]);
   });
 
-  it("a delete that fails leaves the file and the rotation goes on", async () => {
-    const { env, storage } = fakeEnv({ tauri: true });
-    const names = stems(4);
-    for (const k of names) await storage.save("cache", k, new Uint8Array(1));
-    const flaky = { ...env.storage, delete: vi.fn(async (key: string, ns: "cache") => { if (key === names[0]) throw new Error("locked"); return env.storage.delete(key, ns); }) };
-    expect(await rotateCaptures(flaky, 2)).toEqual([names[1]]);
-    expect(flaky.delete).toHaveBeenCalledTimes(2);
+  it("takes rotate on their own auto-name pattern, in the one recordings folder", async () => {
+    const { env, files } = fakeEnv({ tauri: true });
+    const old = Array.from({ length: 16 }, (_, i) => `take-20261101-1000${String(i).padStart(2, "0")}.sporesample`);
+    for (const k of old) put(files, k, "/data/app/recordings");
+    put(files, "capture-20261101-100000.sporesample", "/data/app/recordings");
+    const take = takeOf(recorded(2), { requests: { bytes: new Uint8Array(0), recordCount: 0 } });
+    await saveCapture(take, undefined, env);
+    const left = names(files, "/data/app/recordings");
+    expect(left.filter((k) => k.startsWith("take-")).length).toBe(16);
+    expect(left).not.toContain(old[0]);
+    expect(left).toContain("capture-20261101-100000.sporesample"); // a capture is another kind: not counted, not removed
+  });
+
+  it("a remove that fails leaves the file and the rotation goes on", async () => {
+    const { env, files } = fakeEnv({ tauri: true });
+    const auto = stems(4);
+    for (const k of auto) put(files, k);
+    const flaky = { ...env.fs, remove: vi.fn(async (path: string) => { if (path.endsWith(auto[0]!)) throw new Error("locked"); return env.fs.remove(path); }) };
+    expect(await rotateCaptures(flaky, DIR, 2)).toEqual([auto[1]]);
+    expect(flaky.remove).toHaveBeenCalledTimes(2);
   });
 });
 

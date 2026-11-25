@@ -41,9 +41,9 @@ export interface BabylonSpriteHost {
   texture(path: string): Promise<Texture>;
   /** A colour texture asset if already loaded, else null (the material library's `loadedTexture(path)`). */
   loadedTexture(path: string): Texture | null;
-  /** A data texture (a normal or mask map, read linear, ADR 0408) if loaded, else null, starting it loading. */
+  /** A data texture (a normal or mask map, read linear, ADR 0414) if loaded, else null, starting it loading. */
   dataTexture(path: string): Texture | null;
-  /** A 2D material's sprite shader graph (ADR 0409), or null (the material library's `spriteGraph`). */
+  /** A 2D material's sprite shader graph (ADR 0415), or null (the material library's `spriteGraph`). */
   spriteGraph?(material: string): SpriteGraph | null;
   /** A new graph material for a 2D draw (the material library's `spriteGraphMaterial`). */
   spriteGraphMaterial?: SpriteGraphFactory;
@@ -74,7 +74,7 @@ interface SpriteEntry {
   matrix: Matrix | null;
   /** The lit material key its own mesh's material was made with ("" unlit). */
   litKey: string;
-  /** Its sprite shader graph's material (ADR 0409), which `material` then is, or null. */
+  /** Its sprite shader graph's material (ADR 0415), which `material` then is, or null. */
   graph: { key: string; material: BabylonGraphMaterial } | null;
 }
 
@@ -216,7 +216,7 @@ export class BabylonSprites implements BabylonFeature {
 
     // A mesh of its own with editor tools (picking and outlines), or for a 9-sliced or tiled slice
     // (ADR 0115), whose grid the batcher's quads can't draw; plain sprites batch (ADR 0108).
-    // A sprite shaded by a sprite graph (ADR 0409) draws on its own mesh too: the batcher's material is the plain one.
+    // A sprite shaded by a sprite graph (ADR 0415) draws on its own mesh too: the batcher's material is the plain one.
     const graph = spriteMaterialGraph(s.material) ? (this.host.spriteGraph?.(s.material) ?? null) : null;
     const own = this.host.drawPolicy() === "perObject" || !!graph || !!(frame && (frame.border || frame.fill === "tile"));
     if (own && !entry.mesh) this.makeSpriteMesh(s, entry);
@@ -238,7 +238,7 @@ export class BabylonSprites implements BabylonFeature {
     const lit = this.litSetup(s, image);
     const graphKey = graph ? spriteGraphKey(graph, image, lit?.key ?? "") : null;
     if (material && graph && this.host.spriteGraphMaterial && entry.graph?.key !== graphKey) {
-      // A sprite graph's material for this sprite's image and lighting (ADR 0409).
+      // A sprite graph's material for this sprite's image and lighting (ADR 0415).
       disposeMaterial(entry);
       const made = spriteGraphMaterial(this.host.spriteGraphMaterial, `sprite:graph:${s.node.name}`, graph, image, lit?.setup ?? null);
       entry.graph = { key: graphKey!, material: made };
@@ -312,7 +312,7 @@ export class BabylonSprites implements BabylonFeature {
 
   /**
    * The lit setup of a sprite this frame (ADR 0399): its sorting layer's layer batch, its texture's normal and mask maps
-   * (ADR 0408), or null when it's unlit (an unlit material, or no 2D light on its layer).
+   * (ADR 0414), or null when it's unlit (an unlit material, or no 2D light on its layer).
    */
   private litSetup(s: SpriteRenderer, image: string): SpriteItem["lit"] {
     const problem = spriteMaterialProblem(s.material);

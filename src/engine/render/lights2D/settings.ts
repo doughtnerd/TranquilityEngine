@@ -5,7 +5,7 @@
  *
  * ```jsonc
  * "lighting2D": {
- *   "shadowLayers": ["Default", "Walls"],   // ADR 0409: named shadow masks (Godot's light and occluder masks)
+ *   "shadowLayers": ["Default", "Walls"],   // ADR 0415: named shadow masks (Godot's light and occluder masks)
  *   "blendStyles": [
  *     { "name": "Multiply", "mask": "none", "multiply": 1, "add": 0 },
  *     { "name": "Rim",      "mask": "r",    "multiply": 0, "add": 1 }
@@ -35,7 +35,7 @@ export interface Lighting2DSettings {
   /** 1 to `MAX_BLEND_STYLES` styles; lights name one, the first when they name none that exists. */
   blendStyles: LightBlendStyle[];
   /**
-   * Shadow layers (ADR 0409): names lights' and casters' `shadowMask` take. A caster shadows a light when their masks
+   * Shadow layers (ADR 0415): names lights' and casters' `shadowMask` take. A caster shadows a light when their masks
    * share a layer, or either mask is empty (every layer). At least one; default `["Default"]`.
    */
   shadowLayers: string[];
@@ -110,7 +110,7 @@ export function blendStyleIndex(settings: Lighting2DSettings, name: string): num
   return i < 0 ? 0 : i;
 }
 
-/** Whether a caster with `casterMask` shadows a light with `lightMask` (ADR 0409): either is empty, or they share a layer. */
+/** Whether a caster with `casterMask` shadows a light with `lightMask` (ADR 0415): either is empty, or they share a layer. */
 export function masksOverlap(lightMask: readonly string[], casterMask: readonly string[]): boolean {
   return lightMask.length === 0 || casterMask.length === 0 || casterMask.some((l) => lightMask.includes(l));
 }

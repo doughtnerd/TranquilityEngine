@@ -1,4 +1,4 @@
-// ADR 0409: shader graphs with sprite targets: their output ports and nodes, the compiled graph, the WGSL the graph
+// ADR 0415: shader graphs with sprite targets: their output ports and nodes, the compiled graph, the WGSL the graph
 // plugin puts into the 2D quad material, and how 2D draws take a material shaded by one.
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets } from "../scene/Assets";
@@ -28,7 +28,7 @@ const SPRITE_EDGES: [string, string][] = [
 
 afterEach(() => Assets.clearSources());
 
-describe("sprite shader graph targets (ADR 0409)", () => {
+describe("sprite shader graph targets (ADR 0415)", () => {
   it("parse, and offer colour and alpha (Sprite Lit also a normal and a mask)", () => {
     for (const t of ["sprite-lit", "sprite-unlit", "sprite-custom-lit"] as const) expect(parseShaderGraph({ format: "myco.shadergraph@1", target: t }).graph.target).toBe(t);
     expect(portsOf(graph([], [], { target: "sprite-lit" }))).toEqual(["baseColor", "alpha", "normal", "mask", "alphaClip"]);
@@ -75,7 +75,7 @@ describe("sprite shader graph targets (ADR 0409)", () => {
   });
 });
 
-describe("2D draws with a sprite graph's material (ADR 0409)", () => {
+describe("2D draws with a sprite graph's material (ADR 0415)", () => {
   const use = (files: Record<string, unknown>) => Assets.addSource(Assets.fromObject(files));
   const LIT = { format: "myco.shadergraph@1", target: "sprite-lit" };
 

@@ -1,5 +1,5 @@
 /**
- * Sprite outlines another feature knows better than the slice's (ADR 0409): a skinned sprite's outline deformed by its
+ * Sprite outlines another feature knows better than the slice's (ADR 0415): a skinned sprite's outline deformed by its
  * bones, from the Animation plugin. A ShadowCaster2D with shape `sprite` (or `auto` falling back to the sprite) casts
  * from the claimed outline while there is one, so a deforming silhouette moves its shadow. Renderer-neutral; core never
  * imports the plugin (ADR 0135), as `spriteClaims.ts`.

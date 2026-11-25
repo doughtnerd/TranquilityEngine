@@ -194,7 +194,7 @@ Interactive music is part of the event format, not a new asset kind. `myco.audio
 - **Lenient parse, as before.** The music parser follows this record's rule: a bad entry is dropped or clamped and reported, never thrown. Music-specific lint (stem length, rate and channels, MP3 without a length header, ring need, tail longer than the loop) is a separate pass, `validateMusic`, run at the first play and live in the editor.
 - **Size gates.** This record's rule that wasm size gates are tripwires still holds; the mixer module grew with music to 318,306 B, past the 300 KB warning and under the 320 KB gate, which did not move (each step in the build log, `docs/design/0166-audio-music/build-log.md`).
 
-The reference for the format and the API is `docs/guide/interactive-music-api.md`.
+The reference for the format and the API is `docs/wiki/guide/interactive-music-api.md`.
 
 ## References
 

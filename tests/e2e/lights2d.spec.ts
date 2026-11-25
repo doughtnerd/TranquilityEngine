@@ -5,12 +5,12 @@ import { pickCategory } from "./projectCategory";
 import { showTab } from "./tabs";
 import { captureView, steadyView, type ViewCapture } from "./viewCapture";
 
-// 2D lights (ADR 0399, 0407) in a real browser: a white quad (a SpriteRenderer without a texture) under an orthographic
+// 2D lights (ADR 0399, 0413) in a real browser: a white quad (a SpriteRenderer without a texture) under an orthographic
 // camera draws as it always did with no 2D lights; a dim global light darkens it; a red point light lights its side red;
 // a ShadowCaster2D between a light and part of the quad darkens what lies behind it; Light2D.sampleAt agrees through
 // the public myco API. In the editor: the Create menu's Point Light 2D, its Edit Shape outer-radius handle (saved), the
 // fields its type doesn't use hidden, the scene view's 2D Lights toggle, and a blend style added in Project > 2D Lighting.
-// ADR 0409 in Play: a light's volume, an alpha blend light's overlap, and light masks.
+// ADR 0415 in Play: a light's volume, an alpha blend light's overlap, and light masks.
 test.describe.configure({ timeout: 90_000 });
 
 const gameView = (page: Page) => page.locator("#game-view canvas").first();
@@ -96,10 +96,10 @@ test("2D lights light a sprite in Play: unlit without lights, a dim global light
   expect(errors).toEqual([]);
 });
 
-test("ADR 0409 in Play: a light's volume glows over the sprite, an alpha blend light covers the light below, light masks pick casters", async ({ page }) => {
+test("ADR 0415 in Play: a light's volume glows over the sprite, an alpha blend light covers the light below, light masks pick casters", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
-  // The sample's project with a "Walls" shadow layer (ADR 0409: shadow masks name the project's shadow layers).
+  // The sample's project with a "Walls" shadow layer (ADR 0415: shadow masks name the project's shadow layers).
   const project = { ...JSON.parse(readFileSync("samples/flappy/project.json", "utf8")), lighting2D: { shadowLayers: ["Default", "Walls"] } };
   await openEditor(page, { files: { "project.json": JSON.stringify(project), "scenes/main.scene.json": scene([node("global", "Global", [0, 0, 0], [{ type: "engine.Light2D", data: { type: "global", intensity: 0.1 } }])]) } });
   await play(page);

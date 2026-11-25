@@ -301,11 +301,11 @@ export class EffectPlayer {
   private _kfx: KernelEffect | null = null;
   /** Every kernel output's draw. */
   private _draws: Draw[] = [];
-  /** A 2D system's layer and lighting (ADR 0409), or null for 3D particles. */
+  /** A 2D system's layer and lighting (ADR 0415), or null for 3D particles. */
   private layer2D: ParticleLayer2D | null = null;
 
   /**
-   * Draw as 2D content (ADR 0409): at `layer`'s order, lit by its lighting; null: 3D. A new order moves the draws; new
+   * Draw as 2D content (ADR 0415): at `layer`'s order, lit by its lighting; null: 3D. A new order moves the draws; new
    * lighting (or 2D to 3D) makes them again, keeping the simulation (the particles don't restart).
    */
   setLayer2D(layer: ParticleLayer2D | null): void {

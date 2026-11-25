@@ -9,7 +9,7 @@ import { formatClock } from "../../components/replayControlsModel";
 import { addMarker, addRegion, deleteNote, editNote, moveNote, noteColourCss, setRegionSpan } from "./notesEdits";
 import { FIXTURE_DURATION, FIXTURE_NOTES, SURFACE_LABELS, fixtureTake } from "./takeFixture";
 import { NO_TAKES, TAKES_FOLDER, takeDeletion, takeEmptyCopy, takeFiles, takeMoves, takeTree, whyNotTakeFile } from "./takeFiles";
-import { busStrip, instanceParametersAt, parameterRows, valueText } from "./takeInspectorModel";
+import { busStrip, instanceParametersAt, parameterRows, playheadSummary, valueText } from "./takeInspectorModel";
 import { findInstance, labelSegments, parameterText, pathLabel, pathTitle, playlistsInTake, takeInstances, takeTimeline } from "./takeTimeline";
 import { frameIndexAt, pictureStrip, visibleFrames } from "../../components/filmstripModel";
 
@@ -164,14 +164,14 @@ describe("notes edits (one step each)", () => {
 });
 
 describe("the takes' files", () => {
-  const files = ["takes/a.mycotake", "takes/a.mycotake.notes.json", "takes/old/b.mycotake", "captures/c.mycap", "audio.json"];
+  const files = ["recordings/a.sporesample", "recordings/a.sporesample.notes.json", "recordings/old/b.sporesample", "recordings/c.sporesample", "audio.json"];
 
-  it("lists takes by folder, never captures or notes", () => {
-    expect(takeFiles(files)).toEqual(["takes/a.mycotake", "takes/old/b.mycotake"]);
+  it("lists every recording by folder (takes and captures share the extension, ADR 0409), never notes", () => {
+    expect(takeFiles(files)).toEqual(["recordings/a.sporesample", "recordings/old/b.sporesample", "recordings/c.sporesample"]);
     const tree = takeTree(files);
     expect(tree).toHaveLength(1);
-    expect(tree[0]).toMatchObject({ kind: "folder", path: "takes" });
-    expect(TAKES_FOLDER).toBe("takes");
+    expect(tree[0]).toMatchObject({ kind: "folder", path: "recordings" });
+    expect(TAKES_FOLDER).toBe("recordings");
     expect(NO_TAKES).toContain("F10");
     expect(NO_TAKES).toMatch(/^Record one with Record take on the editor/); // a sentence of its own under "No takes yet" (T4)
   });
@@ -187,11 +187,11 @@ describe("the takes' files", () => {
   });
 
   it("moves and deletes a take's notes with it", () => {
-    expect(takeMoves(files, "takes/a.mycotake", "takes/z.mycotake")).toEqual([["takes/a.mycotake", "takes/z.mycotake"], ["takes/a.mycotake.notes.json", "takes/z.mycotake.notes.json"]]);
-    expect(takeMoves(files, "takes/old/b.mycotake", "b.mycotake")).toEqual([["takes/old/b.mycotake", "b.mycotake"]]);
-    expect(takeDeletion(files, "takes/a.mycotake")).toEqual(["takes/a.mycotake", "takes/a.mycotake.notes.json"]);
-    expect(whyNotTakeFile("run.mycap")).toContain("isn't a take file");
-    expect(whyNotTakeFile("run.mycotake")).toBeNull();
+    expect(takeMoves(files, "recordings/a.sporesample", "recordings/z.sporesample")).toEqual([["recordings/a.sporesample", "recordings/z.sporesample"], ["recordings/a.sporesample.notes.json", "recordings/z.sporesample.notes.json"]]);
+    expect(takeMoves(files, "recordings/old/b.sporesample", "b.sporesample")).toEqual([["recordings/old/b.sporesample", "b.sporesample"]]);
+    expect(takeDeletion(files, "recordings/a.sporesample")).toEqual(["recordings/a.sporesample", "recordings/a.sporesample.notes.json"]);
+    expect(whyNotTakeFile("run.wav")).toContain("isn't a take file");
+    expect(whyNotTakeFile("run.sporesample")).toBeNull();
   });
 });
 
@@ -222,6 +222,29 @@ describe("the inspector's values", () => {
     expect(s.liveDb).toBeCloseTo(-12.04, 1);
     expect(s.text).toBe("−6.0 dB · live −12.0 dB");
     expect(busStrip({ name: "SFX", authored: 1, runtime: 1, duck: 1, peak: 0 })).toMatchObject({ text: "0.0 dB", peakDb: null });
+  });
+});
+
+describe("the take at the playhead (ADR 0408)", () => {
+  it("lists what sounds, how far along the take is, the markers either side and the time of day", () => {
+    const timeline = takeTimeline(take, () => null);
+    const at = playheadSummary(timeline, take.meta, 18);
+    const all = timeline.lanes.reduce((n, l) => n + l.instances.length, 0);
+    expect(at.total).toBe(all);
+    expect(at.started).toBeGreaterThan(0);
+    expect(at.started).toBeLessThanOrEqual(all);
+    for (const p of at.playing) {
+      const i = timeline.lanes.flatMap((l) => l.instances).find((x) => x.key === p.key)!;
+      expect(i.start).toBeLessThanOrEqual(18);
+      expect(i.end === null || i.end > 18).toBe(true);
+      expect(p.playingFor).toBeCloseTo(18 - i.start, 6);
+      if (i.emitter !== null) expect(p.emitter).toBe(take.meta.emitters[i.emitter] ?? null);
+    }
+    expect(at.playing.map((p) => p.playingFor)).toEqual([...at.playing.map((p) => p.playingFor)].sort((a, b) => a - b));
+    expect(at.lastMark).toEqual({ t: 14, text: "Canyon entry" });
+    expect(at.nextMark).toEqual({ t: 22, text: "Bridge" });
+    expect(at.wallClock?.getTime()).toBe(Date.parse(take.meta.started) + 18_000);
+    expect(playheadSummary(timeline, take.meta, 0).lastMark).toBeNull();
   });
 });
 

@@ -70,7 +70,7 @@ export interface KernelSource {
 }
 
 /**
- * A 2D particle system's place (ADR 0409): its draw order among layered 2D content (`sortingOrder`), and its layer
+ * A 2D particle system's place (ADR 0415): its draw order among layered 2D content (`sortingOrder`), and its layer
  * batch's 2D lighting, or null when unlit. `key` changes with the lighting (the draws are rebuilt), not the order.
  */
 export interface ParticleLayer2D {
@@ -114,11 +114,11 @@ export function createDraw(res: DrawResources, name: string, { system: s, output
   let d: KernelDraw | KernelMaterialDraw | null = null;
   if (o.settings.material) {
     d = kernelMaterialDraw(res, name, s, k, o.settings.material, mesh);
-    if (d && layer2D?.lit) lightLayeredQuads(d.material, layer2D.lit); // a 2D system's material lit by 2D lights (ADR 0409)
+    if (d && layer2D?.lit) lightLayeredQuads(d.material, layer2D.lit); // a 2D system's material lit by 2D lights (ADR 0415)
     if (d && softness > 0) soften(d.material, softness, res.sceneDepth());
     if (!d) res.warnOnce(`kmat|${name}|${o.settings.material}`, `${name}: the kernel output "${s.kernel.name}" draws with its texture: "${o.settings.material}" isn't a PBR material (or hasn't loaded).`);
   }
-  // A lit 2D system's output without a material (ADR 0409): the 2D quad material with its texture and blending, which
+  // A lit 2D system's output without a material (ADR 0415): the 2D quad material with its texture and blending, which
   // the 2D light plugin takes (the instanced shader draw's material can't).
   if (!d && layer2D?.lit) d = litQuadDraw(res, name, s, k, texture, o.settings.blending, layer2D.lit, mesh);
   d ??= new KernelDraw(res.scene, name, s.kernel, k, s.run as BabylonRun, texture, softness > 0 ? { softness, depth: res.sceneDepth() } : null, { mesh });

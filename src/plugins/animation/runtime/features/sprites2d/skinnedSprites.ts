@@ -76,7 +76,7 @@ interface Entry {
   lighting: QuadLighting | null;
   tangents: Float32Array | null;
   /**
-   * ADR 0409: the slice outline tied to the mesh, per point its nearest rest vertex and its offset from it (units), so the
+   * ADR 0415: the slice outline tied to the mesh, per point its nearest rest vertex and its offset from it (units), so the
    * outline follows the bones for 2D shadow casters; null without an outline.
    */
   outline: { vertex: number; dx: number; dy: number }[][] | null;
@@ -117,7 +117,7 @@ export class SkinnedSprites {
   }
 
   /**
-   * ADR 0409: `r`'s slice outline as its bones deform it now, in `r`'s node's local XY (for a ShadowCaster2D on that node),
+   * ADR 0415: `r`'s slice outline as its bones deform it now, in `r`'s node's local XY (for a ShadowCaster2D on that node),
    * or null when it isn't a skinned sprite drawn here or its slice has no outline.
    */
   deformedOutline(r: SpriteRenderer): [number, number][][] | null {
@@ -225,7 +225,7 @@ export class SkinnedSprites {
       }
       return { bone: k, m: affineMultiply(skelModel!.binds[k]!, affineInvert(sliceBinds[j]!)) };
     });
-    // The outline follows its nearest vertex (ADR 0409): shadows from a deforming silhouette.
+    // The outline follows its nearest vertex (ADR 0415): shadows from a deforming silhouette.
     e.outline = skin.slice.outline?.length
       ? skin.slice.outline.map((poly) =>
           poly.map(([px, py]) => {

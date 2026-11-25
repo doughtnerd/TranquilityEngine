@@ -1,5 +1,5 @@
 /**
- * A SpriteRenderer's outline in its node's local XY (ADR 0408, 0409), renderer-neutral: its slice's traced outline
+ * A SpriteRenderer's outline in its node's local XY (ADR 0414, 0415), renderer-neutral: its slice's traced outline
  * (the sidecar's `outline`, in slice pixels) placed by the sprite's frame (size, pivot, flips), else its rectangle. What
  * a ShadowCaster2D with shape `sprite` casts from and what a PolygonCollider2D with `fromSprite` collides along.
  */
@@ -32,7 +32,7 @@ const rect = (x0: number, y0: number, x1: number, y1: number): Point2[] => [
 /**
  * `r`'s outline now. `textureSize` gives sprite textures' sizes (a whole-texture sprite's frame needs it; without it the
  * sprite counts as its unit or `size` quad; a slice needs only its rect). With `deformed`, a deforming sprite's outline as its feature has it now
- * (a skinned sprite's, from its bones, ADR 0409); without, the rest outline.
+ * (a skinned sprite's, from its bones, ADR 0415); without, the rest outline.
  */
 export function spriteOutline(world: World, r: SpriteRenderer, textureSize: TextureSizeOf, options: { deformed?: boolean } = {}): SpriteOutline {
   if (options.deformed) {

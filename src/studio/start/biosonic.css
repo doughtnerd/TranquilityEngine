@@ -8,3 +8,16 @@
 .bs-live-button:focus-visible { outline: 2px solid var(--accent2); outline-offset: 1px; }
 .bs-live-button:disabled { opacity: 0.55; cursor: default; }
 @media (pointer: coarse) { .bs-live-button { min-height: 44px; } }
+
+/* Live session: where takes save. */
+.bs-folder { margin: 2px 0 0; display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.bs-folder-label { flex: 0 0 auto; }
+.bs-folder-path { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.bs-folder-button { flex: 0 0 auto; padding: 0 4px; border: 0; border-radius: 3px; background: transparent; color: var(--accent2); font: inherit; cursor: pointer; text-decoration: underline; }
+.bs-folder-button:hover { color: var(--text); }
+.bs-folder-button:focus-visible { outline: 2px solid var(--accent2); outline-offset: 1px; }
+
+/* Recorded takes: the Project / Recording badge, the "..." menu's path, the launcher's drop highlight. */
+.ap-hero > .ap-more { align-self: center; }
+.bs-take-menu .kit-menu-group { max-width: 420px; font-family: var(--font-code); text-transform: none; letter-spacing: 0; white-space: normal; overflow-wrap: anywhere; user-select: text; color: var(--text); }
+.launcher.bs-dropping::after { content: "Drop .sporesample files to add them to Recorded takes"; position: fixed; inset: 8px; display: flex; align-items: center; justify-content: center; border: 2px dashed var(--accent2); border-radius: 8px; background: var(--playing-bar); color: var(--text); font-weight: 600; pointer-events: none; z-index: 50; }

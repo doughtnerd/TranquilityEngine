@@ -1,8 +1,8 @@
-// The Lights 2D plugin's editor half (ADR 0399, 0407): the scene view's light and caster tool with its Edit Shape
+// The Lights 2D plugin's editor half (ADR 0399, 0413): the scene view's light and caster tool with its Edit Shape
 // toggle, the Light2D Inspector section (fields by type, notes), the Project panel's 2D Lighting category (blend styles,
 // with renames reaching the Light2Ds that name them), sorting layer renames reaching lights' and casters' targets, and
 // the Hierarchy's 2D light and shadow caster entries; the Sprite Editor's Secondary Textures and Outline tabs and the
-// image Import Settings' Secondary Textures card (ADR 0408).
+// image Import Settings' Secondary Textures card (ADR 0414).
 import type { EditorPlugin } from "../../../editor/sdk";
 import { lights2dManifest } from "../manifest";
 import { lights2dTool } from "./lights2dTool";
@@ -32,7 +32,7 @@ export const lights2dEditorPlugin: EditorPlugin = {
       view: () => import("./Lights2DSettingsSection").then((m) => m.Lights2DSettingsSection),
     });
     context.registerNameReferences(lights2DSortingLayers);
-    // An image's normal and mask maps and its slices' outlines (ADR 0408).
+    // An image's normal and mask maps and its slices' outlines (ADR 0414).
     context.registerSpriteEditorTool({ id: "myco.lights2d.secondary", label: "Secondary Textures", view: () => import("./SpriteLightingTools").then((m) => m.SecondaryTexturesTool) });
     context.registerSpriteEditorTool({ id: "myco.lights2d.outline", label: "Outline", view: () => import("./SpriteLightingTools").then((m) => m.OutlineTool) });
     context.registerImportSettingsSection({ id: "myco.lights2d.secondary", kind: "image", title: "Secondary Textures", view: () => import("./SpriteLightingTools").then((m) => m.SecondaryTexturesCard) });

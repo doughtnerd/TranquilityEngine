@@ -1,6 +1,6 @@
 // ADR 0348: `Audio.take` through the public API on a fake core backend: start joins the capture ring, the hook points
 // record what the script asks (a one-shot with its position, its stop, bus volume and fades, snapshots, master volume,
-// marks), stop copies the profile, save writes one `*.mycotake` that the take reader and the capture reader both open.
+// marks), stop copies the profile, save writes one `*.sporesample` that the take reader and the capture reader both open.
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, SceneManager } from "../../../../myco";
 import { Audio } from "../Audio";
@@ -41,7 +41,7 @@ async function rig() {
   const downloads: { bytes: Uint8Array; fileName: string }[] = [];
   const env: SaveEnv = {
     tauri: false,
-    storage: { save: async () => {}, list: async () => [], delete: async () => {} },
+    fs: { mkdir: async () => {}, write: async () => {}, list: async () => [], remove: async () => {} },
     storageRoot: async () => "/data/app",
     download: (bytes, fileName) => void downloads.push({ bytes, fileName }),
     compress: defaultSaveEnv().compress,
@@ -91,7 +91,7 @@ describe("Audio.take (ADR 0348)", () => {
     Audio.take.stop();
     expect(Audio.take.state).toBe("stopped");
     const name = await Audio.take.save("run one");
-    expect(name).toBe("run_one.mycotake");
+    expect(name).toBe("run_one.sporesample");
     const file = downloads[0]!.bytes;
     const { take, profile } = await openTakeFile(file);
     const kinds = take.requests.map((q) => (q.kind === "mix" ? `mix:${q.op}` : q.kind));

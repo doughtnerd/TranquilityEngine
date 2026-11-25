@@ -52,12 +52,12 @@ test("Record take and capture from Play, Open in Audio Studio, then the Studio r
   }
   await take.click();
   await capture.click();
-  await expect.poll(async () => (await listFolder(page, "MyLab")).filter((f) => /^takes\/.+\.mycotake$/.test(f) || /^captures\/.+\.mycap$/.test(f)).length, { timeout: 30_000 }).toBe(2);
+  await expect.poll(async () => (await listFolder(page, "MyLab")).filter((f) => /^recordings\/(take|capture)_.+\.sporesample$/.test(f)).length, { timeout: 30_000 }).toBe(2);
   const files = await listFolder(page, "MyLab");
-  const takePath = files.find((f) => f.startsWith("takes/") && f.endsWith(".mycotake"))!;
-  const capturePath = files.find((f) => f.startsWith("captures/") && f.endsWith(".mycap"))!;
+  const takePath = files.find((f) => f.startsWith("recordings/take_") && f.endsWith(".sporesample"))!;
+  const capturePath = files.find((f) => f.startsWith("recordings/capture_") && f.endsWith(".sporesample"))!;
   const project: StudioFiles = {};
-  for (const f of files) if (!f.startsWith(".myco/") && !f.startsWith("takes/") && !f.startsWith("captures/")) project[f] = (await readFileBytes(page, `MyLab/${f}`))!;
+  for (const f of files) if (!f.startsWith(".myco/") && !f.startsWith("recordings/")) project[f] = (await readFileBytes(page, `MyLab/${f}`))!;
   const takeBytes = (await readFileBytes(page, `MyLab/${takePath}`))!;
   const captureBytes = (await readFileBytes(page, `MyLab/${capturePath}`))!;
   expect(errors).toEqual([]);
@@ -74,7 +74,7 @@ test("Record take and capture from Play, Open in Audio Studio, then the Studio r
   await studio.getByRole("button", { name: "Open take file…" }).first().click();
   await (await chooser).setFiles({ name: takeName, mimeType: "application/octet-stream", buffer: Buffer.from(takeBytes) });
   // The Takes and Captures trees name a file without its extension (the prototype's rows).
-  await studio.getByRole("treeitem", { name: new RegExp(takeName.replace(/\.mycotake$/i, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).click();
+  await studio.getByRole("treeitem", { name: new RegExp(takeName.replace(/\.sporesample$/i, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).click();
   await showPanel(studio, "In this take");
   await expect(studio.getByRole("list", { name: "Playlists in this take" })).toContainText("click");
   await studio.getByRole("button", { name: "Replay", exact: true }).click();
@@ -84,13 +84,22 @@ test("Record take and capture from Play, Open in Audio Studio, then the Studio r
   await expect(studio.getByText(/recorded .*picked|picked .*recorded/)).toHaveCount(0);
   await studio.getByRole("button", { name: "Pause", exact: true }).click();
 
+  // ADR 0408: with nothing selected the Inspector says what the take holds at the playhead, and Show profile opens the
+  // engine's profile the take recorded (a take holds it beside its requests) on the Profiler.
+  await expect(studio.getByRole("heading", { name: "At the playhead" })).toBeVisible();
+  await expect(studio.getByRole("heading", { name: "Recorded" })).toBeVisible();
+  await studio.getByRole("button", { name: "Show profile" }).click();
+  await expect(studio.locator(".pf-counts")).toBeVisible({ timeout: 15_000 });
+  await expect(studio.getByRole("alert")).toHaveCount(0);
+  await studioScreen(studio, "Take");
+
   // The Profiler opens the capture.
   await studioScreen(studio, "Profiler");
   const captureName = capturePath.split("/").pop()!;
   const capChooser = studio.waitForEvent("filechooser");
   await studio.getByRole("button", { name: "Open capture file…" }).click();
   await (await capChooser).setFiles({ name: captureName, mimeType: "application/octet-stream", buffer: Buffer.from(captureBytes) });
-  await studio.getByRole("treeitem", { name: new RegExp(captureName.replace(/\.mycap$/i, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).click();
+  await studio.getByRole("treeitem", { name: new RegExp(captureName.replace(/\.sporesample$/i, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&")) }).click();
   await expect(studio.locator(".pf-counts")).toBeVisible({ timeout: 15_000 });
   await expect(studio.getByRole("alert")).toHaveCount(0);
   expect(studioErrors).toEqual([]);

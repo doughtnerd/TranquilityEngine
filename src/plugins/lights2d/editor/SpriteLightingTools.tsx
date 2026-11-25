@@ -1,8 +1,8 @@
-// The Lights 2D plugin's Sprite Editor tools and Import Settings card (ADR 0408):
+// The Lights 2D plugin's Sprite Editor tools and Import Settings card (ADR 0414):
 // - Secondary Textures: an image's normal map and mask map (images the same size, laid out like it), any number of
-//   custom named textures for Sprite Custom Lit shader graphs (ADR 0409), the normal map's green channel, and a preview
+//   custom named textures for Sprite Custom Lit shader graphs (ADR 0415), the normal map's green channel, and a preview
 //   of the image, either map, or the image lit by a draggable test light;
-// - Outline: each slice's outline for 2D shadow casters (ADR 0407): Generate traces the slice's opaque pixels
+// - Outline: each slice's outline for 2D shadow casters (ADR 0413): Generate traces the slice's opaque pixels
 //   (`traceOutline`), then points drag, a press mid-edge adds one and Ctrl+click removes one;
 // - the Import Settings card: the two map pickers, so a normal map can be set without opening the Sprite Editor.
 // Tool edits are steps of the Sprite Editor's one history and are written by its Apply; the card edits the draft.
@@ -73,7 +73,7 @@ function MapRow(props: { image: string; imageUrl: string; name: string; label: s
   );
 }
 
-/** A custom secondary texture's row (ADR 0409): its name (renamed on commit), its texture, and Remove. */
+/** A custom secondary texture's row (ADR 0415): its name (renamed on commit), its texture, and Remove. */
 function CustomRow(props: { image: string; imageUrl: string; name: string; value: string; readOnly: string | null; problem(to: string): string; onRename(to: string): void; onCommit(v: string): void; onRemove(): void }) {
   const [draft, setDraft] = useState(props.name);
   useEffect(() => setDraft(props.name), [props.name]);
@@ -145,7 +145,7 @@ export function SecondaryTexturesTool(props: SpriteEditorToolProps) {
   return (
     <div class="lights2d-tool" aria-label="Secondary textures">
       <div class="lights2d-tool-side">
-        <p class="lights2d-tool-hint">Textures laid out like this image, read by lit sprites (ADR 0408): every slice samples them at its own UVs.</p>
+        <p class="lights2d-tool-hint">Textures laid out like this image, read by lit sprites (ADR 0414): every slice samples them at its own UVs.</p>
         {MAPS.map((m) => (
           <MapRow key={m.name} image={props.image} imageUrl={props.url} name={m.name} label={m.label} value={textures[m.name] ?? ""} readOnly={props.readOnly} onCommit={(v) => set(m.name, v)} />
         ))}
@@ -262,7 +262,7 @@ export function OutlineTool(props: SpriteEditorToolProps) {
   return (
     <div class="lights2d-tool" aria-label="Slice outlines">
       <div class="lights2d-tool-side">
-        <p class="lights2d-tool-hint">Each slice's outline: what a ShadowCaster2D with shape Sprite (or Auto) casts from (ADR 0407). Without one, the slice's rectangle casts.</p>
+        <p class="lights2d-tool-hint">Each slice's outline: what a ShadowCaster2D with shape Sprite (or Auto) casts from (ADR 0413). Without one, the slice's rectangle casts.</p>
         <ul class="lights2d-slices" role="listbox" aria-label="Slices">
           {props.slices.map((s) => (
             <li key={s.name} role="option" aria-selected={s.name === slice?.name} class={s.name === slice?.name ? "selected" : ""} onClick={() => props.select(s.name)}>

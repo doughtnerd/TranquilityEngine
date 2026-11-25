@@ -5,7 +5,7 @@
  * ```jsonc
  * {
  *   "format": "myco.shadergraph@1",
- *   "target": "lit",                 // "lit" (default) | "unlit" | "physical" | "sprite-lit" | "sprite-unlit" | "sprite-custom-lit" (ADR 0409)
+ *   "target": "lit",                 // "lit" (default) | "unlit" | "physical" | "sprite-lit" | "sprite-unlit" | "sprite-custom-lit" (ADR 0415)
  *   "surface": "opaque",             // "opaque" (default) | "transparent"
  *   "doubleSided": false,
  *   "properties": [{ "name": "Tint", "type": "color", "value": "#ff8800" }],
@@ -32,7 +32,7 @@ export const isShaderSubGraphPath = (path: string): boolean => path.toLowerCase(
 
 export type ShaderGraphTarget = "lit" | "unlit" | "physical" | "sprite-lit" | "sprite-unlit" | "sprite-custom-lit";
 export const SHADER_GRAPH_TARGETS: readonly ShaderGraphTarget[] = ["lit", "unlit", "physical", "sprite-lit", "sprite-unlit", "sprite-custom-lit"];
-/** A graph target 2D draws take (ADR 0409): a material shaded by one is a 2D material (sprites, tiles, 2D decals and lines). */
+/** A graph target 2D draws take (ADR 0415): a material shaded by one is a 2D material (sprites, tiles, 2D decals and lines). */
 export const isSpriteGraphTarget = (t: ShaderGraphTarget): t is "sprite-lit" | "sprite-unlit" | "sprite-custom-lit" => t.startsWith("sprite-");
 export type ShaderGraphSurface = "opaque" | "transparent";
 export type GraphPropertyType = "float" | "vector2" | "vector3" | "vector4" | "color" | "texture";

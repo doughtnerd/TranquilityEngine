@@ -1,4 +1,4 @@
-// The Secondary Textures tab's rows (ADR 0408, 0409) as pure edits of an image's `secondaryTextures` map: the built-in
+// The Secondary Textures tab's rows (ADR 0414, 0415) as pure edits of an image's `secondaryTextures` map: the built-in
 // normal and mask maps, and any number of custom named textures, which Sprite Custom Lit shader graphs read by name
 // (the Secondary Texture node). A row without a texture is only on screen: the sidecar keeps textures, not names.
 import { uniqueName } from "../../../engine/core/uniqueName";

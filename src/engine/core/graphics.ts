@@ -50,23 +50,23 @@ export const PARTICLE_QUALITIES: readonly ParticleQuality[] = ["low", "medium", 
 /** The factor emission and max particles are multiplied by for each particle quality. */
 export const PARTICLE_SCALE: Record<ParticleQuality, number> = { low: 0.25, medium: 0.5, high: 1 };
 
-/** 2D lighting quality (ADR 0399, 0407): what `LIGHTS_2D_QUALITY` sets for each. */
+/** 2D lighting quality (ADR 0399, 0413): what `LIGHTS_2D_QUALITY` sets for each. */
 export type Lights2DQuality = "low" | "medium" | "high";
 export const LIGHTS_2D_QUALITIES: readonly Lights2DQuality[] = ["low", "medium", "high"];
 /** What each 2D lighting quality allows (ADR 0399's table). */
 export interface Lights2DLimits {
   /** Light textures' size as a share of the camera's render size. */
   readonly textureScale: number;
-  /** Shadowed 2D lights per camera; further ones draw unshadowed (ADR 0407). */
+  /** Shadowed 2D lights per camera; further ones draw unshadowed (ADR 0413). */
   readonly shadowedLights: number;
-  /** Soft shadow edges (ADR 0407). */
+  /** Soft shadow edges (ADR 0413). */
   readonly softShadows: boolean;
   /** Normal maps (the directional light textures). */
   readonly normalMaps: boolean;
   /** Layer batches per camera before the highest merge with the one below. */
   readonly layerBatches: number;
   /**
-   * Point lights per layer batch whose normal maps light accurately (ADR 0409: per light N·L in the lit material);
+   * Point lights per layer batch whose normal maps light accurately (ADR 0415: per light N·L in the lit material);
    * further accurate lights, and every one where this is 0, light as `"fast"`.
    */
   readonly accurateLights: number;

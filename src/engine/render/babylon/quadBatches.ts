@@ -33,10 +33,10 @@ export interface BabylonQuadBatchDeps {
   readonly scene: Scene;
   /** A loaded texture, or null (and it starts loading): `onLoad` runs once it has. */
   texture(path: string, onLoad: () => void): Texture | null;
-  /** A loaded data texture (a normal or mask map, read linear, ADR 0408), or null (and it starts loading). */
+  /** A loaded data texture (a normal or mask map, read linear, ADR 0414), or null (and it starts loading). */
   dataTexture(path: string, onLoad: () => void): Texture | null;
   sortOrder(layer: string, order: number): number;
-  /** A 2D material's sprite shader graph (ADR 0409), or null (the material library's `spriteGraph`). */
+  /** A 2D material's sprite shader graph (ADR 0415), or null (the material library's `spriteGraph`). */
   spriteGraph?(material: string): SpriteGraph | null;
   /** A new graph material for a 2D draw (the material library's `spriteGraphMaterial`). */
   spriteGraphMaterial?: SpriteGraphFactory;
@@ -98,12 +98,12 @@ export class BabylonQuadBatches implements QuadBatchHost {
     return { key: `lit${batch}@${rig.version}|${normal ? lighting.normalMap : ""}|${mask ? lighting.maskMap : ""}|${greenDown}`, setup: { batch, normal, mask, greenDown } };
   }
 
-  /** @internal The sprite graph a lighting's material is shaded by (ADR 0409), or null. */
+  /** @internal The sprite graph a lighting's material is shaded by (ADR 0415), or null. */
   spriteGraph(lighting: QuadLighting | null): SpriteGraph | null {
     return lighting?.material && this.deps.spriteGraph ? this.deps.spriteGraph(lighting.material) : null;
   }
 
-  /** @internal A batch's own material from a sprite graph (ADR 0409); the batch disposes it. */
+  /** @internal A batch's own material from a sprite graph (ADR 0415); the batch disposes it. */
   graphMaterial(name: string, graph: SpriteGraph, texture: string, lit: { key: string; setup: LitQuadSetup } | null): BabylonGraphMaterial | null {
     const make = this.deps.spriteGraphMaterial;
     return make ? spriteGraphMaterial(make, name, graph, texture, lit?.setup ?? null) : null;
@@ -363,7 +363,7 @@ class BabylonQuadBatch implements QuadBatch {
     }
     const lit = this.owner.litSetup(this.lighting, () => this.updateMaterial());
     const litKey = lit?.key ?? "";
-    // A sprite shader graph's material (ADR 0409), the batch's own; a masked batch (a clipped 2D decal) keeps the mask's.
+    // A sprite shader graph's material (ADR 0415), the batch's own; a masked batch (a clipped 2D decal) keeps the mask's.
     const graph = this.mask ? null : this.owner.spriteGraph(this.lighting);
     if (graph) {
       const key = `${spriteGraphKey(graph, this.texture, litKey)}|${this.blend}`;

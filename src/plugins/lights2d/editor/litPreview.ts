@@ -1,4 +1,4 @@
-// The Secondary Textures tool's lit preview (ADR 0408): a sprite sheet shaded on the CPU by a test light, so a normal
+// The Secondary Textures tool's lit preview (ADR 0414): a sprite sheet shaded on the CPU by a test light, so a normal
 // map can be checked without a scene. Not the renderer's maths (that's the GPU light pass, ADR 0399): an editor preview
 // with one point light at `light` (pixels from the image's top-left, `height` above it) and a little ambient light.
 

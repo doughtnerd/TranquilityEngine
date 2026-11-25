@@ -14,6 +14,11 @@ import { CAPTURE_TRIGGER_MAX_FILES } from "./format";
 import { defaultSaveEnv, webSaveCount, type SaveEnv } from "./save";
 import { keyframeCodecForTests, statusBytes, type CaptureChunkControl } from "./testSupport";
 import { installCaptureTrigger, installTakeTrigger, type TriggerEnv } from "./trigger";
+import { takeStateSubscription } from "../debugLink/takeState";
+import { decodeTakeState } from "../debugLink/schema";
+import { RecordWriter, readRecords } from "../../../../engine/debugLink/records";
+import type { DebugTopicHost } from "../../../../engine/debugLink/topics";
+import { audioTopic } from "../debugLink/topic";
 
 /** The recorder and save chunks are the real ones, wrapped: a 4 MiB ring, each save through the rig's fakes. */
 const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
@@ -74,7 +79,7 @@ function fakeCapture() {
     state: "idle" as "idle" | "loading" | "recording" | "stopped",
     startError: null as Error | null,
     saveError: null as Error | null,
-    saved: "capture-20261113-101500.mycap",
+    saved: "capture-20261113-101500.sporesample",
     async start() {
       calls.push("start");
       if (cap.startError) throw cap.startError;
@@ -117,7 +122,7 @@ describe("F9", () => {
     expect(r.toasts).toEqual([TOAST_RECORDING]);
     await r.press();
     await vi.waitFor(() => expect(r.calls).toEqual(["start", "stop", "save"]));
-    expect(r.toasts).toEqual([TOAST_RECORDING, toastSaved("capture-20261113-101500.mycap")]);
+    expect(r.toasts).toEqual([TOAST_RECORDING, toastSaved("capture-20261113-101500.sporesample")]);
     expect(r.cap.state).toBe("stopped");
     await r.press(); // a stopped take: F9 begins the next one
     await vi.waitFor(() => expect(r.calls).toEqual(["start", "stop", "save", "start"]));
@@ -209,10 +214,138 @@ describe("F10: the take trigger (ADR 0348)", () => {
     cap.state = "stopped"; // the take reached its cap and stopped recording
     await press();
     await vi.waitFor(() => expect(calls).toEqual(["start", "save"]));
-    expect(toasts.at(-1)).toBe(toastSaved("capture-20261113-101500.mycap"));
+    expect(toasts.at(-1)).toBe(toastSaved("capture-20261113-101500.sporesample"));
     await press(); // saved: the next F10 begins a new take
     await vi.waitFor(() => expect(calls).toEqual(["start", "save", "start"]));
     uninstall();
+  });
+});
+
+describe("F10 while the Audio Studio owns the takes (ADR 0408)", () => {
+  it("only starts and stops while a take subscription is open, and saves again once it closes", async () => {
+    const target = fakeTarget();
+    const { cap, calls } = fakeCapture();
+    const toasts: string[] = [];
+    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: false, webSaves: async () => ({ count: 99, max: 16 }), schedule: manualSchedule().schedule });
+    const press = async () => {
+      target.fire("keydown", key("F10"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    const sub = takeStateSubscription(() => ({ state: cap.state, seconds: 0 }));
+    await press(); // the web's save cap doesn't apply: nothing is saved here
+    await vi.waitFor(() => expect(calls).toEqual(["start"]));
+    await press();
+    await vi.waitFor(() => expect(calls).toEqual(["start", "stop"]));
+    expect(toasts.at(-1)).toBe("Take stopped: the Audio Studio saves it");
+    sub.close();
+    cap.state = "idle";
+    await press();
+    expect(toasts.at(-1)).toMatch(/Capture limit reached/);
+    uninstall();
+  });
+
+  it("the take subscription sends the state now and each change, not every sample", () => {
+    let state: "idle" | "recording" | "stopped" = "idle";
+    const sub = takeStateSubscription(() => ({ state, seconds: state === "stopped" ? 4.5 : 0 }));
+    const sent: unknown[] = [];
+    const sample = () => {
+      const out = new RecordWriter();
+      sub.sample(out, 1);
+      for (const r of readRecords(out.take()).records) sent.push(decodeTakeState(r.payload));
+    };
+    sample();
+    sample();
+    state = "recording";
+    sample();
+    state = "stopped";
+    sample();
+    sample();
+    expect(sent).toEqual([{ state: "idle", seconds: 0 }, { state: "recording", seconds: 0 }, { state: "stopped", seconds: 4.5 }]);
+    sub.close();
+  });
+
+  it("keeps a backup copy of each take that stops while the Studio holds it, however it stopped", () => {
+    let state: "idle" | "recording" | "stopped" = "idle";
+    let backups = 0;
+    const sub = takeStateSubscription(() => ({ state, seconds: 0 }), () => void backups++);
+    const sample = () => sub.sample(new RecordWriter(), 1);
+    sample();
+    state = "stopped"; // a take that never recorded under this subscription
+    sample();
+    expect(backups).toBe(0);
+    state = "recording";
+    sample();
+    state = "stopped";
+    sample();
+    sample();
+    expect(backups).toBe(1);
+    state = "recording";
+    sample();
+    state = "stopped";
+    sample();
+    expect(backups).toBe(2);
+    sub.close();
+  });
+
+  it("on desktop and Android, F10 says a copy is kept", async () => {
+    const target = fakeTarget();
+    const { cap, calls } = fakeCapture();
+    const toasts: string[] = [];
+    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: true, schedule: manualSchedule().schedule });
+    const press = async () => {
+      target.fire("keydown", key("F10"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    const sub = takeStateSubscription(() => ({ state: cap.state, seconds: 0 }));
+    await press();
+    await vi.waitFor(() => expect(calls).toEqual(["start"]));
+    await press();
+    await vi.waitFor(() => expect(calls).toEqual(["start", "stop"]));
+    expect(toasts.at(-1)).toBe("Take sent to the Audio Studio (a copy is kept in app data)");
+    sub.close();
+    uninstall();
+  });
+});
+
+describe("a take the Audio Studio starts and stops (ADR 0411 Record session)", () => {
+  it("take.start and take.stop go through the F10 trigger: the same toasts, and F10 stops a take the Studio started", async () => {
+    const target = fakeTarget();
+    const { cap, calls } = fakeCapture();
+    const toasts: string[] = [];
+    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: true, webSaves: async () => ({ count: 99, max: 16 }), schedule: manualSchedule().schedule });
+    const topic = audioTopic({} as DebugTopicHost);
+    const sub = takeStateSubscription(() => ({ state: cap.state, seconds: 0 })); // the Studio owns the takes
+    await topic.request!("take.start", undefined); // the web's save cap never applies: the Studio saves
+    expect(calls).toEqual(["start"]);
+    expect(toasts).toEqual(["Recording a take…"]);
+    target.fire("keydown", key("F10"));
+    await vi.waitFor(() => expect(calls).toEqual(["start", "stop"]));
+    expect(toasts.at(-1)).toBe("Take sent to the Audio Studio (a copy is kept in app data)");
+    await topic.request!("take.start", undefined);
+    await topic.request!("take.stop", undefined);
+    expect(calls).toEqual(["start", "stop", "start", "stop"]);
+    expect(toasts.slice(-2)).toEqual(["Recording a take…", "Take sent to the Audio Studio (a copy is kept in app data)"]);
+    sub.close();
+    uninstall();
+    topic.dispose?.();
+  });
+
+  it("a stop in a browser says the Studio saves it, and a start that fails says why and answers the Studio the error", async () => {
+    const target = fakeTarget();
+    const { cap } = fakeCapture();
+    const toasts: string[] = [];
+    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: false, schedule: manualSchedule().schedule });
+    const topic = audioTopic({} as DebugTopicHost);
+    const sub = takeStateSubscription(() => ({ state: cap.state, seconds: 0 }));
+    await topic.request!("take.start", undefined);
+    await topic.request!("take.stop", undefined);
+    expect(toasts).toEqual(["Recording a take…", "Take stopped: the Audio Studio saves it"]);
+    cap.startError = new Error("the audio core isn't available");
+    await expect(topic.request!("take.start", undefined)).rejects.toThrow("the audio core isn't available");
+    expect(toasts.slice(-2)).toEqual(["Recording a take…", "the audio core isn't available"]);
+    sub.close();
+    uninstall();
+    topic.dispose?.();
   });
 });
 
@@ -232,7 +365,7 @@ describe("the three-finger hold", () => {
     r.target.fire("touchstart", touches(3));
     r.clock.run();
     await vi.waitFor(() => expect(r.calls).toEqual(["start", "stop", "save"]));
-    expect(r.toasts.at(-1)).toBe(toastSaved("capture-20261113-101500.mycap"));
+    expect(r.toasts.at(-1)).toBe(toastSaved("capture-20261113-101500.sporesample"));
   });
 
   it("a two-finger hold does nothing, however long", () => {
@@ -297,9 +430,9 @@ describe("the web's cap of 16", () => {
 
   it("the toast shows a Tauri path as the capture's own file name", async () => {
     for (const [saved, shown] of [
-      ["capture-20261113-101500.mycap", "capture-20261113-101500.mycap"],
-      ["/data/app/cache/capture-20261113-101500.mycap.bin", "capture-20261113-101500.mycap"],
-      ["C:\\Users\\a\\AppData\\cache\\capture-20261113-101500-2.mycap.bin", "capture-20261113-101500-2.mycap"],
+      ["capture-20261113-101500.sporesample", "capture-20261113-101500.sporesample"],
+      ["/data/app/captures/capture-20261113-101500.sporesample", "capture-20261113-101500.sporesample"],
+      ["C:\\Users\\a\\AppData\\captures\\capture-20261113-101500-2.sporesample", "capture-20261113-101500-2.sporesample"],
     ]) {
       const r = rigFake({ tauri: true });
       r.cap.saved = saved;
@@ -361,10 +494,12 @@ function realRig(opts: { tauri?: boolean; existing?: string[] } = {}) {
   const deleted: string[] = [];
   const env: SaveEnv = {
     tauri: opts.tauri ?? false,
-    storage: {
-      save: async (key) => void stored.add(key),
+    fs: {
+      mkdir: async () => {},
+      write: async (path) => void stored.add(path.slice(path.lastIndexOf("/") + 1)),
       list: async () => [...stored],
-      delete: async (key) => {
+      remove: async (path) => {
+        const key = path.slice(path.lastIndexOf("/") + 1);
         stored.delete(key);
         deleted.push(key);
       },
@@ -415,8 +550,8 @@ describe("against the real Audio.capture", () => {
     expect(r.recorders.length).toBe(1);
     r.feed(Math.ceil(RATE / BLOCK));
     target.fire("keydown", key("F9"));
-    await vi.waitFor(() => expect(r.downloads).toEqual(["capture-20261113-101500.mycap"]));
-    await vi.waitFor(() => expect(toasts).toEqual([TOAST_RECORDING, "Saved capture-20261113-101500.mycap"]));
+    await vi.waitFor(() => expect(r.downloads).toEqual(["capture-20261113-101500.sporesample"]));
+    await vi.waitFor(() => expect(toasts).toEqual([TOAST_RECORDING, "Saved capture-20261113-101500.sporesample"]));
     off();
   });
 
@@ -446,7 +581,7 @@ describe("against the real Audio.capture", () => {
   });
 
   it("on Tauri a save keeps the newest 16 auto-named files, through Rc4's rotateCaptures", async () => {
-    const old = Array.from({ length: 17 }, (_, i) => `capture-20261101-1000${String(i).padStart(2, "0")}.mycap`);
+    const old = Array.from({ length: 17 }, (_, i) => `capture-20261101-1000${String(i).padStart(2, "0")}.sporesample`);
     const r = realRig({ tauri: true, existing: old });
     const target = fakeTarget();
     const toasts: string[] = [];
@@ -455,7 +590,7 @@ describe("against the real Audio.capture", () => {
     await vi.waitFor(() => expect(Audio.capture.state).toBe("recording"));
     r.feed(4);
     target.fire("keydown", key("F9"));
-    await vi.waitFor(() => expect(toasts.at(-1)).toMatch(/^Saved capture-20261113-101500(-\d+)?\.mycap$/)); // -n after an earlier auto name in this second
+    await vi.waitFor(() => expect(toasts.at(-1)).toMatch(/^Saved capture-20261113-101500(-\d+)?\.sporesample$/)); // -n after an earlier auto name in this second
     expect(r.stored.size).toBe(CAPTURE_TRIGGER_MAX_FILES);
     expect(r.deleted, "the two oldest, oldest first").toEqual([old[0], old[1]]);
     expect(r.stored.has(toasts.at(-1)!.slice("Saved ".length))).toBe(true);

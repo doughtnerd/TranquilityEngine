@@ -219,13 +219,13 @@ export interface Lights2DTextures {
   size: [number, number];
   /** Per layer batch, per style slot: the flat light texture, and the directional colour and direction textures (empty without). */
   batches: { flat: ThinTexture[]; dirColor: ThinTexture[]; dirVec: ThinTexture[] }[];
-  /** The shadow textures (a channel per shadowed light), for accurate lights in the lit material (ADR 0409). */
+  /** The shadow textures (a channel per shadowed light), for accurate lights in the lit material (ADR 0415). */
   shadows: ThinTexture[];
   /** The light and shadow textures' size in pixels. */
   lightSize: [number, number];
 }
 
-/** The frame graph task drawing a camera's 2D shadow and light textures (ADR 0399, 0407) through the rig. */
+/** The frame graph task drawing a camera's 2D shadow and light textures (ADR 0399, 0413) through the rig. */
 class FrameGraphLights2DTask extends FrameGraphTask {
   readonly outputTexture: FrameGraphTextureHandle;
   constructor(

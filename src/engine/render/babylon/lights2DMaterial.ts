@@ -1,7 +1,7 @@
 /**
  * The lit layered-quad material (ADR 0399): a material plugin on the 2D quad material (`layeredQuads.ts`, ADR 0186)
  * that reads its layer batch's light textures at the fragment's screen position and composes the blend styles, with
- * the sprite texture's normal map (the directional textures) and mask map (ADR 0408). Fog, tint and slice UVs stay the
+ * the sprite texture's normal map (the directional textures) and mask map (ADR 0414). Fog, tint and slice UVs stay the
  * quad material's. The maths is KSL (`render/lights2D/lightShader.ts`); this is Babylon's injection glue.
  *
  * A lit material belongs to one layer batch (its owner keys materials by batch and the rig's `version`), so its defines
@@ -31,7 +31,7 @@ export interface LitQuadSetup {
   /** The normal map's green channel points down (DirectX). */
   greenDown: boolean;
   /**
-   * A sprite shader graph's part (ADR 0409; WGSL only): a Sprite Lit graph's own normal and mask (instead of the
+   * A sprite shader graph's part (ADR 0415; WGSL only): a Sprite Lit graph's own normal and mask (instead of the
    * texture's maps), or a Sprite Custom Lit graph, which reads the light through `mycoL2DLightColor` and
    * `mycoL2DLightDirection` and composes the colour itself.
    */
@@ -103,7 +103,7 @@ function fragmentCode(wgsl: boolean): { [point: string]: string } {
     ].join("\n");
   const world = wgsl ? "fragmentInputs.vPositionW.xy" : "vPositionW.xy";
   const f32 = wgsl ? "f32" : "float";
-  // An accurate light (ADR 0409): its attenuation, shadow and N·L at this fragment, into its blend style's sums.
+  // An accurate light (ADR 0415): its attenuation, shadow and N·L at this fragment, into its blend style's sums.
   const accurate = (i: number) =>
     [
       `#if MYCO_L2D_ACC > ${i}`,
@@ -144,13 +144,13 @@ function fragmentCode(wgsl: boolean): { [point: string]: string } {
     ].join("\n"),
     CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION: [
       "#ifdef MYCO_L2D",
-      "#ifndef MYCO_L2D_CUSTOM", // a Sprite Custom Lit graph composes its colour itself (ADR 0409)
+      "#ifndef MYCO_L2D_CUSTOM", // a Sprite Custom Lit graph composes its colour itself (ADR 0415)
       "{",
       decl("vec2", "mycoUv", `${wgsl ? "fragmentInputs.position.xy" : "gl_FragCoord.xy"} * ${u("mycoL2DScreen")}.xy`),
       decl("vec3", "mycoN", wgsl ? "vec3f(0.0, 0.0, 1.0)" : "vec3(0.0, 0.0, 1.0)"),
       "#ifdef MYCO_L2D_GRAPH_NORMAL",
       "{",
-      decl("vec3", "mycoNt", "mycoSpriteN"), // a Sprite Lit graph's normal (ADR 0409), turned by the same frame
+      decl("vec3", "mycoNt", "mycoSpriteN"), // a Sprite Lit graph's normal (ADR 0415), turned by the same frame
       `mycoN = normalize(${wgsl ? "vec3f" : "vec3"}(${frame}.xy * mycoNt.x + ${frame}.zw * mycoNt.y, mycoNt.z));`,
       "}",
       "#endif",
@@ -182,7 +182,7 @@ function fragmentCode(wgsl: boolean): { [point: string]: string } {
 }
 
 /**
- * A Sprite Custom Lit graph's light reads (ADR 0409; WGSL, as graphs are): the batch's light at a fragment (every style's
+ * A Sprite Custom Lit graph's light reads (ADR 0415; WGSL, as graphs are): the batch's light at a fragment (every style's
  * flat and directional light, summed, as it reaches a surface facing the viewer) and the direction it comes from (the
  * directional textures' sum; toward the viewer without). With no light textures they read white and toward the viewer.
  * Accurate lights aren't in the textures, so these don't see them.
@@ -237,7 +237,7 @@ export class Light2DPlugin extends MycoMaterialPlugin {
     defines.MYCO_L2D = this.lit;
     defines.MYCO_L2D_STYLES = b ? Math.min(4, Math.max(1, b.styles.length)) : 1;
     defines.MYCO_L2D_DIR = !!b?.directional;
-    // Accurate lights (ADR 0409) are in no light texture: every lit draw adds them, a draw without a normal map facing the viewer.
+    // Accurate lights (ADR 0415) are in no light texture: every lit draw adds them, a draw without a normal map facing the viewer.
     const acc = b ? Math.min(MAX_ACCURATE, b.accurate.length / ACCURATE_FLOATS) : 0;
     defines.MYCO_L2D_ACC = acc;
     const graph = this.setup.graph ?? null;
@@ -319,7 +319,7 @@ export class Light2DPlugin extends MycoMaterialPlugin {
         setTexture(`mycoL2DDirVec${i}`, views?.dirVec[i] ?? black);
       }
     }
-    // Accurate lights (ADR 0409): their uniforms, and the shadow textures their slots read.
+    // Accurate lights (ADR 0415): their uniforms, and the shadow textures their slots read.
     const acc = Math.min(MAX_ACCURATE, b.accurate.length / ACCURATE_FLOATS);
     if (acc > 0) {
       const ls = textures?.lightSize ?? [w, h];

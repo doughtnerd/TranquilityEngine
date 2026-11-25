@@ -75,7 +75,7 @@ export const lights2DSortingLayers: NameReferencesContribution = {
   fields: [{ component: ["engine.Light2D", "engine.ShadowCaster2D", "engine.CompositeShadowCaster2D"], field: "targetSortingLayers.*" }],
 };
 
-/** The shadow layers now (ADR 0409; `["Default"]` when unset). */
+/** The shadow layers now (ADR 0415; `["Default"]` when unset). */
 export const shadowLayersOf = (d: SettingsDraft): string[] => lighting2DSettings.read(d).shadowLayers;
 const withLayers = (d: SettingsDraft, layers: string[]): SettingsDraft => lighting2DSettings.set(d, "shadowLayers", layers);
 
@@ -104,7 +104,7 @@ export function moveShadowLayer(d: SettingsDraft, index: number, by: number): Se
   return withLayers(d, layers);
 }
 
-/** The shadow layers as a named list (ADR 0262, 0409): renaming one renames it in every light's and caster's `shadowMask`. */
+/** The shadow layers as a named list (ADR 0262, 0415): renaming one renames it in every light's and caster's `shadowMask`. */
 export const shadowLayerNames: NamedList = {
   id: "lighting2D.shadowLayers",
   noun: "shadow layer",

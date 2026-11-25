@@ -81,8 +81,8 @@ export class PolygonCollider2D extends Collider2D {
     [-0.5, 0.5],
   ];
   /**
-   * Collide along the node's SpriteRenderer outline instead of `points` (ADR 0409): its slice's traced outline (the
-   * Sprite Editor's, ADR 0408; the largest loop when it has several), else its rectangle. It follows the sprite, its
+   * Collide along the node's SpriteRenderer outline instead of `points` (ADR 0415): its slice's traced outline (the
+   * Sprite Editor's, ADR 0414; the largest loop when it has several), else its rectangle. It follows the sprite, its
    * size and flips. Without a SpriteRenderer, `points`. A whole-texture sprite needs its texture's size, so a World
    * without a renderer (a server) collides along its unit quad; a slice needs only its rect.
    */

@@ -1,4 +1,4 @@
-// The Lights 2D plugin's scene-view tool `myco.lights2d.shape` (ADR 0399, 0407, 0138): every Light2D in the edited
+// The Lights 2D plugin's scene-view tool `myco.lights2d.shape` (ADR 0399, 0413, 0138): every Light2D in the edited
 // scene drawn in its own colour (selected ones bright) and every ShadowCaster2D's outline, placed by their nodes' 2D
 // frames. With "Edit Shape" on (the Inspector card's header toggle, ADR 0266): a point light's radius and cone-angle
 // handles, a freeform light's or custom caster's point handles (a press mid-edge adds a point and drags it, Ctrl+click

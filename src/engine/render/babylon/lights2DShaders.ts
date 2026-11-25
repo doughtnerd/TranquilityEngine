@@ -1,5 +1,5 @@
 /**
- * The 2D light pass's shaders (ADR 0399, 0407) on Babylon: the light shader, which draws every light of one layer batch
+ * The 2D light pass's shaders (ADR 0399, 0413) on Babylon: the light shader, which draws every light of one layer batch
  * and blend style into its light texture (flat, or with the directional textures as MRT), and the shadow shader, which
  * draws casters' edges extruded away from each shadowed light into a channel of a shadow texture. The maths is KSL
  * (`render/lights2D/lightShader.ts`, ADR 0250); only the entry points and Babylon's attribute, varying and uniform
@@ -12,7 +12,7 @@
  * - `l2dShape` (vec4): inner and outer radius, half inner and half outer cone angle (degrees);
  * - `l2dMisc` (vec4): kind (0 global, 1 point, 2 freeform, 3 sprite), falloff exponent, directional (0/1), shadow slot (-1: none);
  * - `l2dLight` (vec4): the light's world X, Y, height, and shadow strength;
- * - `l2dExtra` (vec4): shadow softness, the light's world Z, overlap (0 additive, 1 alpha blend, ADR 0409), unused.
+ * - `l2dExtra` (vec4): shadow softness, the light's world Z, overlap (0 additive, 1 alpha blend, ADR 0415), unused.
  *
  * Blending is premultiplied (`ONE, ONE_MINUS_SRC_ALPHA`): an additive light writes alpha 0 (so it adds), an alpha blend
  * light writes its brightness as alpha (so it covers the light below it by as much).
@@ -38,7 +38,7 @@ export const SHADOW2D_ATTRIBUTES = ["position", "s2dExtrude", "s2dLight", "s2dCh
 export const SHADOW2D_SIZES = [2, 2, 4, 4] as const;
 export const SHADOW2D_UNIFORMS = ["viewProjection"];
 
-/** The shadow lookup (KSL): slot → texture and channel, with a few taps for soft edges. The lit 2D material reads it too, for accurate lights (ADR 0409). */
+/** The shadow lookup (KSL): slot → texture and channel, with a few taps for soft edges. The lit 2D material reads it too, for accurate lights (ADR 0415). */
 export const SHADOW2D_LOOKUP = shaderSource(/* KSL */ `
 TEXTURE2D(l2dShadow0);
 TEXTURE2D(l2dShadow1);

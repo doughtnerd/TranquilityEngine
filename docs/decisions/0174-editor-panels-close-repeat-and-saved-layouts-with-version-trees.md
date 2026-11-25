@@ -113,5 +113,5 @@ Some panels keep module-level state (`Hierarchy.tsx`: `collapsed`, `expanded`, `
 ## References
 
 - `src/editor/layout/model.ts`, `DockLayout.tsx`, `store.ts`; `src/editor/ui/panels.tsx`; `src/editor/menuBar.ts`; `src/editor/sdk/plugins.ts`, `contributions.ts`; `src/editor/ui/PluginsSection.tsx`; `src/editor/historyLayout.ts`, `ui/HistoryPanel.tsx`; `src/editor/projects.ts` (`listAssetFiles` skips dot-folders); `src/editor/historyPersistence.ts` (per-user storage).
-- [Editor guide: docks and panels](../guide/editor.md#docks-and-panels).
+- [Editor guide: docks and panels](../wiki/guide/editor.md#docks-and-panels).
 - Tauri 2 `WebviewWindowBuilder::on_new_window` / `NewWindowResponse::Create` for linked child windows.

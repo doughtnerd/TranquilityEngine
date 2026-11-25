@@ -33,7 +33,7 @@ export interface BabylonParticleHost extends EffectHost {
   particlePreview(): ParticlePreview | null;
   /** The quality tier's particle scale (`PARTICLE_SCALE[Graphics.tier.particles]`); multiplies emission and the particle limit. */
   tierScale(): number;
-  /** Draw order for a sorting layer and order in layer (ADR 0014, 0409: 2D particles), as sprites have it. Optional: without it, 2D systems draw as 3D. */
+  /** Draw order for a sorting layer and order in layer (ADR 0014, 0415: 2D particles), as sprites have it. Optional: without it, 2D systems draw as 3D. */
   sortOrder?(sortingLayer: string, orderInLayer: number): number;
   /** Logs a warning once per key. Optional. */
   warnOnce?(key: string, message: string): void;
@@ -152,7 +152,7 @@ export class BabylonParticles {
   }
 
   /** A player for `c`'s effect JSON, or null when it's missing or broken (warned once). */
-  /** A 2D system's place and lighting (ADR 0409), or null for 3D particles. */
+  /** A 2D system's place and lighting (ADR 0415), or null for 3D particles. */
   private layer2D(c: ParticleSystem): ParticleLayer2D | null {
     if (!c.sortingLayer || !this.host.sortOrder) return null;
     const order = this.host.sortOrder(c.sortingLayer, c.orderInLayer);

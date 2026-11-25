@@ -540,6 +540,40 @@ export async function openFolderProject(fs: FileSystem, root: string, options: {
   return new MapProject(folder, root, values, texts, write, { read: readScripts }, options.readOnly ? null : fs, await readScripts(), folders, sizes, true);
 }
 
+const takesFolderProjects = new WeakSet<EditorProject>();
+
+/** The files a takes folder workspace loads: takes, their notes, and Profiler captures. */
+const isTakesFolderFile = (path: string): boolean => {
+  const lower = path.toLowerCase();
+  return lower.endsWith(".sporesample") || lower.endsWith(".sporesample.notes.json");
+};
+
+/**
+ * ADR 0408: open a folder of take files as a takes workspace, with no `project.json` (the Audio Studio's Take and
+ * Profiler without a project). The folder is made if it's missing. It loads only takes, their notes and captures; its
+ * settings are empty, so it serves no audio. Named after the folder.
+ */
+export async function openTakesFolder(fs: FileSystem, root: string): Promise<EditorProject> {
+  if (!(await fs.exists(root))) await fs.mkdir(root);
+  const folders = new Set<string>();
+  const sizes = new Map<string, number>();
+  const { values, texts } = await loadProjectFiles(await listFiles(fs, root, "", isTakesFolderFile, folders), {
+    readText: (path) => fs.readText(joinPath(root, path)),
+    url: async (path) => {
+      const bytes = await fs.readBinary(joinPath(root, path));
+      sizes.set(path, bytes.length);
+      return blobUrl(path, bytes);
+    },
+  });
+  const folder = root.split(/[\\/]/).filter(Boolean).pop() ?? root;
+  const project = new MapProject(folder, root, values, texts, (path, text) => fs.writeText(joinPath(root, path), text), null, fs, new Map(), folders, sizes);
+  takesFolderProjects.add(project);
+  return project;
+}
+
+/** True when `project` is a takes folder workspace (`openTakesFolder`), not a Myco project. */
+export const isTakesFolder = (project: EditorProject | null | undefined): boolean => !!project && takesFolderProjects.has(project);
+
 /** Settings for the Editor World: the project's, minus autoloads, with the editor's background. */
 export function editorSettings(project: EditorProject): ProjectSettingsInput {
   const s = project.settings;

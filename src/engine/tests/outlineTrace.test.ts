@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { simplifyLoop, traceOutline } from "../render/sprites/outlineTrace";
 
-// Outline tracing (ADR 0408): solid pixels' outlines in slice pixels (y up), holes dropped, simplified.
+// Outline tracing (ADR 0414): solid pixels' outlines in slice pixels (y up), holes dropped, simplified.
 
 /** An alpha image from rows of text, top row first: `#` solid, `.` clear. */
 function image(rows: string[]) {

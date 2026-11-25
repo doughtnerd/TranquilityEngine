@@ -1,4 +1,4 @@
-// The 2D lighting rig on Babylon (ADR 0399, 0407), without a GPU: batching and layout from a World's lights, the light
+// The 2D lighting rig on Babylon (ADR 0399, 0413), without a GPU: batching and layout from a World's lights, the light
 // pass's shaders, the lit layered-quad material's compiled text (ADR 0225), and the frame graph's 2D light task.
 import { ShaderStore } from "@babylonjs/core/Engines/shaderStore.js";
 import { FrameGraph } from "@babylonjs/core/FrameGraph/frameGraph.js";
@@ -94,7 +94,7 @@ describe("the 2D lighting rig", () => {
   });
 });
 
-describe("accurate normal maps (ADR 0409)", () => {
+describe("accurate normal maps (ADR 0415)", () => {
   it("light point lights per light, up to the tier's cap a batch (the rest as fast), out of the light textures", async () => {
     const w = await world();
     const rig = rigOn(new Scene(nullEngine("glsl")));
@@ -140,7 +140,7 @@ describe("the light pass's shaders", () => {
     // The directional pass writes three targets.
     expect(ShaderStore.ShadersStore[`${LIGHT2D_PASS_DIR}PixelShader`]).toContain("layout(location = 2) out vec4 mycoOut2;");
     expect(ShaderStore.ShadersStoreWGSL[`${LIGHT2D_PASS_DIR}PixelShader`]).toContain("fragmentOutputs.fragData2");
-    // Overlap (ADR 0409): an alpha blend light writes its brightness as alpha (premultiplied blending), an additive one 0.
+    // Overlap (ADR 0415): an alpha blend light writes its brightness as alpha (premultiplied blending), an additive one 0.
     expect(ShaderStore.ShadersStore[`${LIGHT2D_PASS}PixelShader`]).toContain("float a = vExtra.z > 0.5 ? lv.w : 0.0;");
     expect(ShaderStore.ShadersStoreWGSL[`${LIGHT2D_PASS}PixelShader`]).toContain("let a = select(0.0, lv.w, fragmentInputs.vExtra.z > 0.5);");
   });
@@ -196,7 +196,7 @@ describe("the lit layered-quad material (ADR 0225: the text Babylon compiles)", 
     });
   }
 
-  it("gives a Sprite Custom Lit graph its light reads and leaves the colour to it (ADR 0409)", async () => {
+  it("gives a Sprite Custom Lit graph its light reads and leaves the colour to it (ADR 0415)", async () => {
     const w = await world();
     const scene = new Scene(nullEngine("wgsl"));
     const rig = rigOn(scene);

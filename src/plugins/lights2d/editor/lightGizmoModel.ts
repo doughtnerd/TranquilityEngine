@@ -1,4 +1,4 @@
-// What the Lights 2D plugin's scene-view tool draws and how its handles edit (ADR 0399, 0407), in a light's or caster's
+// What the Lights 2D plugin's scene-view tool draws and how its handles edit (ADR 0399, 0413), in a light's or caster's
 // local XY: a point light's two radius circles and cone edges with radius and angle handles, a freeform light's polygon
 // and falloff outline with a handle per point (and one mid-edge to add a point), a sprite light's quad, a global
 // light's sun mark, and a caster's outline (its custom path with point handles). Pure: `lights2dTool.ts` places the

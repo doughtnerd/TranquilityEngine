@@ -31,7 +31,7 @@ export interface PortDef {
   litOnly?: boolean;
   /** Output node: only for physical graphs (ADR 0052); compiled in only when connected or away from its default. */
   physicalOnly?: boolean;
-  /** Output node: only for Sprite Lit graphs (ADR 0409). */
+  /** Output node: only for Sprite Lit graphs (ADR 0415). */
   spriteLitOnly?: boolean;
   /** Output node: only applied when connected (or, for alpha clip, when above 0). */
   optional?: boolean;
@@ -75,7 +75,7 @@ export interface EmitContext {
   /** A `#rrggbb[aa]` colour (sRGB) as a linear `vec4` literal. */
   color(hex: string): string;
   /**
-   * The uniform for a texture the drawing component supplies (ADR 0409): `"@sprite"` (a 2D draw's own texture) or
+   * The uniform for a texture the drawing component supplies (ADR 0415): `"@sprite"` (a 2D draw's own texture) or
    * `"@secondary:<name>"` (that texture's secondary texture). Reads white where none is given.
    */
   drawTexture(name: string): string;
@@ -88,7 +88,7 @@ export interface EmitContext {
 
 export interface NodeDef {
   /**
-   * The graph targets it works in (ADR 0409: the sprite nodes in sprite targets, the 2D light reads in Sprite Custom
+   * The graph targets it works in (ADR 0415: the sprite nodes in sprite targets, the 2D light reads in Sprite Custom
    * Lit); absent: all. Elsewhere the compiler reports it and the node menu leaves it out.
    */
   targets?: readonly ShaderGraphTarget[];
@@ -303,7 +303,7 @@ export const OUTPUT_INPUTS: readonly PortDef[] = [
   { ...float("roughness", "Roughness", 0.5), litOnly: true },
   vec("vec3", "emission", "Emission", [0, 0, 0], { color: true, litOnly: true }),
   vec("vec3", "normal", "Normal (Tangent)", [0, 0, 1], { litOnly: true, optional: true }),
-  // ADR 0409: what a Sprite Lit graph's blend styles read for their mask channel (the sprite's mask map's place).
+  // ADR 0415: what a Sprite Lit graph's blend styles read for their mask channel (the sprite's mask map's place).
   vec("vec4", "mask", "Mask", [1, 1, 1, 1], { spriteLitOnly: true, optional: true }),
   { ...float("clearcoat", "Clearcoat", 0), physicalOnly: true },
   { ...float("clearcoatRoughness", "Clearcoat Roughness", 0), physicalOnly: true },
@@ -324,7 +324,7 @@ export const OUTPUT_INPUTS: readonly PortDef[] = [
 
 /**
  * The output node's ports for a target: lit and physical take the lit ports (physical its own too); unlit only colour
- * and alpha; the sprite targets (ADR 0409) colour and alpha, Sprite Lit also a tangent-space normal and a mask.
+ * and alpha; the sprite targets (ADR 0415) colour and alpha, Sprite Lit also a tangent-space normal and a mask.
  */
 const SPRITE_TARGETS: readonly ShaderGraphTarget[] = ["sprite-lit", "sprite-unlit", "sprite-custom-lit"];
 
@@ -526,7 +526,7 @@ export const NODES: readonly NodeDef[] = [
       return { rgba: normal ? `${c.typeName("vec4")}(${rgb}, ${s}.a)` : s, rgb, r: `${rgb}.r`, g: `${rgb}.g`, b: `${rgb}.b`, a: `${s}.a` };
     },
   },
-  // Sprite (ADR 0409): what 2D draws give a sprite graph.
+  // Sprite (ADR 0415): what 2D draws give a sprite graph.
   {
     type: "spriteTexture",
     title: "Sprite Texture",

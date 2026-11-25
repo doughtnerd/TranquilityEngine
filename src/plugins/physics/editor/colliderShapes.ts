@@ -245,7 +245,7 @@ const character2D = {
 // Polygon and edge colliders (ADR 0039): each point offset by `center`, then placed by the frame. Handles: `vertex:i`
 // on each point, `insert:i` at the middle of the edge from point i to the next (the closing edge too when closed).
 
-/** `fromSprite`: a polygon following its sprite's outline (ADR 0409): drawn, but its points have no handles. */
+/** `fromSprite`: a polygon following its sprite's outline (ADR 0415): drawn, but its points have no handles. */
 type PointsFields2D = { kind: "polygon" | "edge"; center: V2; points: V2[]; fromSprite?: boolean };
 
 /** Read a points field (plain `[x, y]` pairs, or anything with x and y), dropping malformed entries. */

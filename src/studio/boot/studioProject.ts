@@ -6,7 +6,8 @@
 // page's `?project=` come through `openRequest` and `handOff`; a browser folder is found among the recent projects'
 // stored handles (`recentForMount`). A folder with old audio events (`*.audioevent.json`) is offered their migration
 // first (ADR 0343, `audioEventMigration.ts`); declined, it opens read-only and the Playlists screen's banner offers
-// Migrate now (`pendingAudioMigration`), which migrates and opens it again.
+// Migrate now (`pendingAudioMigration`), which migrates and opens it again. A folder of takes opens without a project as a
+// takes workspace (ADR 0408, `openTakes`).
 import { FsaFileSystem } from "../../editor/fsaFileSystem";
 import { errorStatus } from "../../editor/messages";
 import { migrationSummary, offerAudioEventMigration, runAudioEventMigration, type AudioEventMigrationQuestion } from "../../editor/audioEventMigration";
@@ -14,7 +15,7 @@ import type { FileSystem } from "../../engine/platform/FileSystem";
 import { confirmInEditor } from "../../editor/ui/ConfirmDialog";
 import { NO_FOLDERS_NOTE, projectFileSystem } from "../../editor/projectFs";
 import { projectOpening, type LocationOutcome, type OpenIntent, type OpenOutcome, type OpenResult, type ProjectSource } from "../../editor/projectOpening";
-import { editorSettings, openFolderProject, useProjectAssets } from "../../editor/projects";
+import { editorSettings, openFolderProject, openTakesFolder, useProjectAssets } from "../../editor/projects";
 import { recentProjects, rememberProject } from "../../editor/recentProjects";
 import { applyProjectAudioEffects, clearProjectAudioEffects } from "../../plugins/projectAudioEffects";
 import { findSample, openSampleProject } from "../../editor/samples";
@@ -29,6 +30,12 @@ import { startStudioProjectWatch, stopStudioProjectWatch } from "./studioProject
 export interface StudioProjects {
   open(intent: OpenIntent): Promise<OpenOutcome>;
   pickLocation(): Promise<LocationOutcome>;
+  /**
+   * ADR 0408: open the folder of takes at `root` as a takes workspace (Take and Profiler, no project); a no-op when it
+   * is the open one. Not remembered among the recent projects. Throws when the folder can't be read. `fs` names another
+   * file system (a browser's live session keeps its takes folder in memory); the desktop's folders by default.
+   */
+  openTakes(root: string, fs?: FileSystem): Promise<void>;
   /** Open what the page's query asked for (`?sample=`, `?project=`). */
   openRequest(request: StartRequest): Promise<OpenOutcome | null>;
   /**
@@ -107,6 +114,17 @@ export function studioProjects({ runtime, openRoute, confirm = (q) => confirmInE
     return opening.open({ kind: "recent", entry });
   }
 
+  async function openTakes(root: string, given?: FileSystem): Promise<void> {
+    const fs = given ?? (await projectFileSystem());
+    if (!fs || (!given && fs instanceof FsaFileSystem)) throw new Error("A folder of takes opens in the desktop app.");
+    if (currentProject.peek()?.root === root && currentProject.peek()?.fileSystem === fs) return;
+    const project = await openTakesFolder(fs, root);
+    if (currentProject.peek()) close();
+    useProjectAssets(project);
+    currentProject.value = project;
+    void runtime.open(editorSettings(project));
+  }
+
   function close(): void {
     pendingAudioMigration.value = null;
     runtime.close();
@@ -119,6 +137,7 @@ export function studioProjects({ runtime, openRoute, confirm = (q) => confirmInE
   return {
     open: async (intent) => show(await opening.open(intent)),
     pickLocation: async () => show(await opening.pickLocation()),
+    openTakes,
     async openRequest(request) {
       if (!request) return null;
       try {
@@ -129,7 +148,9 @@ export function studioProjects({ runtime, openRoute, confirm = (q) => confirmInE
       }
     },
     async handOff(request) {
-      if (request.project === null && request.sample) {
+      if (request.project === null && request.takesFolder) {
+        await openTakes(request.takesFolder);
+      } else if (request.project === null && request.sample) {
         // The editor has a sample open (ADR 0380): open the same sample here, read-only.
         const current = currentProject.peek();
         if (!(current && current.root === null && current.sample === request.sample)) {
@@ -138,7 +159,8 @@ export function studioProjects({ runtime, openRoute, confirm = (q) => confirmInE
           if (outcome.kind === "cancelled") throw new Error(`Opening the ${request.sample} sample was cancelled.`);
         }
       } else if (request.project === null) {
-        if (currentProject.peek()) close();
+        // A connect request (the launcher's Connect to Game…) keeps the open project: the dialog opens over it.
+        if (currentProject.peek() && !request.connect) close();
       } else if (currentProject.peek()?.root !== request.project) {
         const outcome = show(await openFolder(request.project));
         if (outcome.kind === "refused") throw new Error(outcome.reason.text);

@@ -1,6 +1,6 @@
 /**
  * Which 2D draws are lit (ADR 0399), renderer-neutral: a 2D component's `material` field names a sprite material asset
- * (shader `"sprite-lit"` or `"sprite-unlit"`, or a shader graph with a sprite target, ADR 0409), or is empty for the
+ * (shader `"sprite-lit"` or `"sprite-unlit"`, or a shader graph with a sprite target, ADR 0415), or is empty for the
  * default, Sprite Lit. Material and graph assets are JSON, read synchronously through `Assets`; one that can't be read,
  * or whose shader isn't a sprite shader, draws with the default and is reported once by the caller
  * (`spriteMaterialProblem`).
@@ -31,7 +31,7 @@ export function spriteMaterialProblem(material: string): string | null {
   return null;
 }
 
-/** Whether a 2D draw's `material` is shaded by a sprite shader graph (ADR 0409): the backend builds it from the graph. */
+/** Whether a 2D draw's `material` is shaded by a sprite shader graph (ADR 0415): the backend builds it from the graph. */
 export function spriteMaterialGraph(material: string): boolean {
   const shader = material ? spriteShaderOf(material) : null;
   return !!shader?.startsWith("graph:sprite-");
@@ -72,12 +72,12 @@ function graphTargetOf(path: string): string {
 
 /**
  * A 2D draw's lighting for `QuadBatch.setLighting` (ADR 0399): lit on `sortingLayer` with `image`'s normal and mask maps
- * (its sidecar's secondary textures, ADR 0408), or null when its `material` is Sprite Unlit. The quad-batch host still
- * draws it unlit while its layer has no 2D light. A material shaded by a sprite graph (ADR 0409) always has lighting,
+ * (its sidecar's secondary textures, ADR 0414), or null when its `material` is Sprite Unlit. The quad-batch host still
+ * draws it unlit while its layer has no 2D light. A material shaded by a sprite graph (ADR 0415) always has lighting,
  * naming the material (and `lit: false` for a Sprite Unlit graph).
  */
 export function quadLighting(material: string, sortingLayer: string, image: string): QuadLighting | null {
-  // A sprite graph's material (ADR 0409) always goes to the backend, which builds it from the graph (lit or not).
+  // A sprite graph's material (ADR 0415) always goes to the backend, which builds it from the graph (lit or not).
   const graph = spriteMaterialGraph(material) ? { material, lit: spriteMaterialLit(material) } : null;
   if (!graph && !spriteMaterialLit(material)) return null;
   const path = image.replace(/^asset:/, "");

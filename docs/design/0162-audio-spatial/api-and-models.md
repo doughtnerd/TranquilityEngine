@@ -438,7 +438,7 @@ Level S/M/J. Days are focused human effort, not agent-wave days. **Critical path
 | E5 | Event editor | `event/*` | D4 | M | 3 | round trip (unit); backend label; e2e at wave end |
 | E6 | Asset Inspector ambisonic block | `AssetInspector.tsx` | B1 | M | 2 | writes only non-default keys |
 | E7 | Live tuning check | | E1, E3 | M | 1 | covered by the wave-end e2e run |
-| E8 | Samples and guides: `sound-lab` spatial scene (zone corridor, occluders, **a door example with a script moving `openness`**, ambisonic ambience, Doppler pass-by), `stress` and `sound-lab` settings, `dopplerLevel: 0` where benches need it, guide edits and `spatial-audio.md` with the door recipe, `implementation-status.md` | `samples/*`, `docs/guide/*` | C7, D6, B6 | M | 6.5 | samples load warning-free and non-silent; `check:links` |
+| E8 | Samples and guides: `sound-lab` spatial scene (zone corridor, occluders, **a door example with a script moving `openness`**, ambisonic ambience, Doppler pass-by), `stress` and `sound-lab` settings, `dopplerLevel: 0` where benches need it, guide edits and `spatial-audio.md` with the door recipe, `implementation-status.md` | `samples/*`, `docs/wiki/guide/*` | C7, D6, B6 | M | 6.5 | samples load warning-free and non-silent; `check:links` |
 | E9 | Playwright specs | `tests/e2e/` | E1 to E4 | M | 4 | specs written and passing in the wave-end run; 3 of 3 repeats at milestone end |
 | E10 | Listening pass document, scenes, lab-VM instructions | `listening-pass.md`, `ListeningBench.ts` | E8 | J | 2 | every item has a key or scene |
 

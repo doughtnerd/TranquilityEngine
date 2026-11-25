@@ -21,10 +21,21 @@ import "../editor/ui/fonts";
 import { activateStudioPlugins } from "./boot/studioPlugins";
 import { studioProjects } from "./boot/studioProject";
 import { startRequest } from "./boot/startQuery";
-import type { RecentTake } from "./start/recentTakes";
+import { takeOpenRequest, type RecentTake } from "./start/recentTakes";
 import { engineRuntime } from "./runtime/engineRuntime";
 import { createStudioAudioHost } from "./runtime/studioAudioHost";
 import { startStudioDebugLink } from "./debugLink/studioLink";
+import { openStudioConnect } from "./debugLink/StudioDebugLink";
+import { installLiveConnect, openLiveSession } from "./shell/liveConnect";
+import { OPENING_TIMEOUT_MS, studioOpening } from "./shell/opening";
+import type { RouteRequest } from "./shell/route";
+import { installBuildTakes } from "./screens/take/buildTakes";
+import { installRecordingClock } from "./shell/GameSessionSlot";
+import { installProfilerLive } from "./screens/profiler";
+import { installLiveTake } from "./runtime/liveTake";
+import { installTakePictureWidth } from "./runtime/takePictures";
+import { installBuildAudioDownloads, installBuildAudioMounts } from "./runtime/buildAudioSets";
+import { followBuildWhenShown } from "./screens/profiler/profilerScreen";
 import { installCalibration } from "./shell/applyCalibration";
 import { installStudioKeys } from "./shell/installKeys";
 import { installLongPress } from "./shell/longPress";
@@ -64,17 +75,65 @@ async function main(): Promise<void> {
   installCalibration(runtime);
   startStudioDebugLink(); // listens (desktop) and connects out by code; its menu and prompt sit in the status bar
 
-  render(<StudioApp onCloseProject={projects.close} onOpenTake={(take) => openTake(projects.handOff, take)} />, document.getElementById("app")!);
-  if (isTauri()) await serveHandoff(projects.handOff);
+  // The desktop app's Studio window is opened for a request (the launcher's, the editor's): it says "Opening…" until the
+  // first one is handled, rather than flashing its start screen (ADR 0408).
+  if (isTauri()) {
+    studioOpening.value = "Opening…";
+    setTimeout(() => (studioOpening.value = null), OPENING_TIMEOUT_MS);
+  }
+  render(<StudioApp onCloseProject={() => {
+    projects.close();
+    if (isTauri()) void returnToLauncher();
+  }} onOpenTake={(take) => openTake(projects.handOff, take)} />, document.getElementById("app")!);
+  // A request with `connect` (the launcher's Connect to Game…, ADR 0380) opens the Connect dialog once it's handled.
+  // ADR 0408: a build that connects opens the Studio live (the takes folder with no project, the Profiler following);
+  // a request with `follow` has the Profiler follow the connected build.
+  installBuildAudioDownloads(); // ADR 0410: a connected build's audio, for replays without the project
+  installBuildAudioMounts();
+  installRecordingClock(); // Record session's clock (ADR 0408)
+  installProfilerLive(); // the Profiler is live while a build is connected, on every screen (ADR 0408)
+  installLiveTake(); // the take recording on the connected build, live on the Take screen (ADR 0408)
+  installTakePictureWidth(); // the Connect dialog's picture width, sent to the build (ADR 0408)
+  installBuildTakes(); // the connected build's takes, saved where the Studio keeps takes whichever screen shows (ADR 0408)
+  installLiveConnect({ openTakes: projects.openTakes, openRoute: (request) => router.open(request) });
+  const live = { openTakes: projects.openTakes, openRoute: (request: RouteRequest) => router.open(request) };
+  const handle = (request: StudioOpenRequest) =>
+    projects
+      .handOff(request)
+      // Connect to Game… opens the app itself: the live session (the takes folder with no project, on the Profiler),
+      // with the Connect dialog over it (ADR 0408).
+      .then(() => (request.connect ? openLiveSession(live) : undefined))
+      .then(() => {
+        if (request.follow) followBuildWhenShown();
+        if (request.connect) openStudioConnect();
+      })
+      .finally(() => (studioOpening.value = null));
+  if (isTauri()) await serveHandoff(handle);
   await projects.openRequest(startRequest(location.search));
 }
 
-/** A take picked on the start screen (ADR 0380): its project, on the Take screen with the take. Failures are in the status line. */
+/** A take picked on the start screen (ADR 0380): its project, or its folder as a takes workspace (ADR 0408), on the Take screen. Failures are in the status line. */
 async function openTake(open: (request: StudioOpenRequest) => Promise<void>, take: RecentTake): Promise<void> {
   try {
-    await open({ project: take.project.path, asset: take.path });
+    await open(takeOpenRequest(take));
   } catch (err) {
     status.value = errorStatus("Couldn't open the take", err);
+  }
+}
+
+/**
+ * Closing the project (or the takes folder) in the desktop app goes back to the launcher it came from (ADR 0412): this
+ * window hides, keeping its debug link, and the launcher shows on Biosonic with its way back to the Foxfire apps. With
+ * no launcher open, the Studio's own start screen stays.
+ */
+async function returnToLauncher(): Promise<void> {
+  try {
+    const [{ tauriBus, showProjectsWindow }, { getCurrentWindow, Window }] = await Promise.all([import("../editor/launcher/handoff"), import("@tauri-apps/api/window")]);
+    if (!(await Window.getByLabel("projects"))) return;
+    await getCurrentWindow().hide();
+    await showProjectsWindow(await tauriBus());
+  } catch (err) {
+    console.warn("[studio] couldn't go back to the launcher:", err);
   }
 }
 

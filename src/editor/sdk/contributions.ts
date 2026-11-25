@@ -769,11 +769,11 @@ export interface ImportSettingsSectionContribution {
 export interface SpriteEditorChange {
   readonly skins?: Readonly<Record<string, SliceSkin | null>>;
   readonly flipbooks?: Readonly<Record<string, SpriteFlipbook>>;
-  /** Slice outlines by slice name (ADR 0408): closed polygons in slice pixels, y up; null removes one. */
+  /** Slice outlines by slice name (ADR 0414): closed polygons in slice pixels, y up; null removes one. */
   readonly outlines?: Readonly<Record<string, readonly (readonly [number, number])[][] | null>>;
-  /** The image's secondary textures by name (ADR 0408), replaced as a whole. */
+  /** The image's secondary textures by name (ADR 0414), replaced as a whole. */
   readonly secondaryTextures?: Readonly<Record<string, string>>;
-  /** The image's normal map green channel (ADR 0408). */
+  /** The image's normal map green channel (ADR 0414). */
   readonly normalMapGreen?: "up" | "down";
 }
 
@@ -785,7 +785,7 @@ export interface SpriteEditorToolProps {
   readonly url: string;
   readonly slices: readonly SpriteSlice[];
   readonly flipbooks: Readonly<Record<string, SpriteFlipbook>>;
-  /** The image's secondary textures (ADR 0408) and its normal map's green channel, as edited so far. */
+  /** The image's secondary textures (ADR 0414) and its normal map's green channel, as edited so far. */
   readonly secondaryTextures: Readonly<Record<string, string>>;
   readonly normalMapGreen: "up" | "down";
   /** The selected slice's name, or null. Shared with the Slices view. */

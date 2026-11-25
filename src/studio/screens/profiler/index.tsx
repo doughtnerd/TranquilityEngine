@@ -19,7 +19,10 @@ import { openMixDocument } from "../mixer/mixerDocument";
 import { CURSOR_KEYS } from "./cursorKeys";
 import { messageCounts } from "./messagesModel";
 import { AtCursor, MessageList, OpenInTake, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
-import { captureFileKind, captureFolder, openCapture, openInTake, profilerRecorder, profilerStore } from "./profilerScreen";
+import { buildFollow, captureFileKind, captureFolder, openCapture, openInTake, profilerRecorder, profilerStore, startPendingFollow } from "./profilerScreen";
+import { takeScreen } from "../take/takeScreen";
+import { openMixer } from "../../shell/openMixer";
+import { ReplayTransport } from "../take/index";
 import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "./runFileActions";
 import { durationsVersion, fileDuration } from "./runFileDurations";
 import { takeOfCapture } from "./reviewLink";
@@ -50,8 +53,8 @@ function CapturesPanel() {
       <CaptureList
         files={files}
         // A new project's scenes/, scripts/ and the sample and playlist folders aren't capture folders (UI pass T5).
-        folders={runTreeFolders(folders, files, isCaptureFile, [TAKES_FOLDER])}
-        moveFolders={runMoveFolders(folders, files, isCaptureFile, [TAKES_FOLDER])}
+        folders={runTreeFolders(folders, files, isCaptureFile, [])}
+        moveFolders={runMoveFolders(folders, files, isCaptureFile, [])}
         rootName={project?.name}
         openPath={openPath}
         writable={!!project?.canSave && !!project.fileSystem}
@@ -81,39 +84,56 @@ const GROUPS = [
   { value: "clip" as const, label: "By sound" },
 ];
 
-/** ADR 0403 (plan U5): the live view of the build chosen in `studioBuild`; a build that left keeps it to show why it ended. */
-const buildFollow = signal<BuildFollow | null>(null);
-
-/** Follows `studioBuild`: one `BuildFollow` per chosen build; a build whose link closed ends its follow with why. */
-function watchStudioBuild(): () => void {
+/**
+ * ADR 0408: the Profiler is always live while a game build is connected, on every screen: one `BuildFollow` per chosen
+ * build, started at once (a build whose link closed ends its follow with why). Installed for the page's life.
+ */
+export function installProfilerLive(): () => void {
   return effect(() => {
     const build = studioBuild.value;
     const current = buildFollow.peek();
-    if (current && current.build.peer === build?.peer) return;
+    if (current && current.build.peer === build?.peer) return startPendingFollow();
     if (current && current.build.peer.state === "closed") current.linkClosed(current.build.peer.closedReason);
     if (build || current?.state.peek().kind !== "ended") current?.dispose();
-    buildFollow.value = build ? new BuildFollow(build, { store: profilerStore() }) : current?.state.peek().kind === "ended" ? current : null;
+    const next = build ? new BuildFollow(build, { store: profilerStore() }) : current?.state.peek().kind === "ended" ? current : null;
+    buildFollow.value = next;
+    if (build && next) void next.start();
   });
 }
 
-/** The transport slot: Follow the connected build's live capture; else Record while the Studio's runtime plays. */
+/**
+ * The transport slot. While a game build is connected the Profiler is live (ADR 0408): the live label, with Rejoin when
+ * the feed ended. Otherwise the open take's replay controls (the Take screen's, ADR 0408: one recording for both
+ * screens; inactive while a recording runs) and Record, which records the Studio's own runtime.
+ */
 function ProfilerTransport() {
   const follow = buildFollow.value;
-  const local = profilerRecorder().state.value.kind;
-  // A recording of the Studio's own runtime keeps its Stop until it is saved.
-  if (follow && studioBuild.value && local !== "recording" && local !== "starting" && local !== "saving") {
-    const on = follow.state.value.kind === "starting" || follow.state.value.kind === "following";
+  const build = studioBuild.value;
+  const recorder = profilerRecorder();
+  const r = recorder.state.value;
+  const recording = r.kind === "recording" || r.kind === "starting" || r.kind === "saving";
+  if (follow && build) {
+    const k = follow.state.value.kind;
+    const on = k === "starting" || k === "following";
     return (
       <span class={`pf-record${on ? " on" : ""}`}>
-        <TransportButton icon="profiler" text label={on ? "Stop following" : "Follow build"} pressed={on} title={on ? `Stop following ${follow.build.name}'s live capture` : `Follow ${follow.build.name}'s live capture on the timeline`} onClick={() => void follow.toggle()} />
+        {on ? (
+          <span class="studio-live on" title={`The Profiler shows ${build.name}'s live capture while it is connected`}>
+            Live
+          </span>
+        ) : (
+          <TransportButton icon="profiler" text label="Rejoin" title={`Join ${build.name}'s live capture again`} onClick={() => void follow.start()} />
+        )}
       </span>
     );
   }
-  const recorder = profilerRecorder();
   const host = audioHost();
-  const r = recorder.state.value;
-  const recording = r.kind === "recording" || r.kind === "starting";
-  return <RecordButton recording={recording} busy={r.kind === "saving"} blocked={whyNotRecord({ playable: host.playable.value, voices: host.stats.value?.voices ?? 0, replaying: replayStore().playing.value })} onToggle={() => void recorder.toggle()} />;
+  return (
+    <>
+      <ReplayTransport disabled={recording} />
+      <RecordButton recording={r.kind === "recording" || r.kind === "starting"} busy={r.kind === "saving"} blocked={whyNotRecord({ playable: host.playable.value, voices: host.stats.value?.voices ?? 0, replaying: replayStore().playing.value })} onToggle={() => void recorder.toggle()} />
+    </>
+  );
 }
 
 /** Bumped twice a second while recording, so the player bar's elapsed time moves. */
@@ -128,12 +148,16 @@ function useScreen(): void {
     }, 500);
     const stops = [
       () => clearInterval(timer),
-      watchStudioBuild(),
       // The route names the capture to open (a click in Captures, a hand-off, a reload).
       effect(() => {
         void docVersion.value;
         const asset = studioRouter().route.value.asset;
-        if (asset && isCapturePath(asset) && currentProject.value?.files.includes(asset)) void store.openPath(asset);
+        if (!asset || !isCapturePath(asset) || !currentProject.value?.files.includes(asset)) return;
+        // While a build is connected both screens are live (ADR 0408): a saved recording waits.
+        if (studioBuild.peek()) return;
+        void store.openPath(asset);
+        // One recording for both screens: the Take screen opens it too (or says it has no take data).
+        void takeScreen().openPath(asset);
       }),
       ...CURSOR_KEYS.map((k) => keymap.register({ id: `profiler.${k.action}`, keys: k.keys, label: k.label, scope: { screen: "profiler" }, run: () => store.key(k.action) })),
       effect(() => {
@@ -155,8 +179,6 @@ function useScreen(): void {
       for (const stop of stops) stop();
       setPlayerSlots("profiler", null);
       profilerRecorder().dispose();
-      // The screen went away: a build follow ends its hold (Follow starts it again).
-      buildFollow.peek()?.stop();
     };
   }, []);
 }
@@ -197,6 +219,7 @@ function TimelinePanel() {
         problemsOnly={store.problemsOnly.value}
         groupBy={store.groupBy.value}
         busChains={busChains()}
+        viewKey={s.kind === "open" && s.origin === "file" ? s.path : null}
         onSeek={(t) => store.seekTo(t)}
         onSelect={(key) => store.select(key, true)}
       />
@@ -227,7 +250,7 @@ function CursorPanel() {
 }
 
 /** "Open in Mixer ›" from a voice or a message: the Mixer with the bus selected (its route's `select`). */
-const openBusInMixer = (bus: string): void => openRoute({ screen: "mixer", select: bus });
+const openBusInMixer = (bus: string): void => openMixer(bus);
 
 /** How many buses run an effect chain in the project's mix (the Effects track's Bus chip). */
 function busChains(): number {

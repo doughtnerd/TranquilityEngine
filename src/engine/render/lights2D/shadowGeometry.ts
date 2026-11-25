@@ -1,5 +1,5 @@
 /**
- * 2D shadow geometry (ADR 0407), renderer-neutral. A caster's outline becomes one static edge mesh: a quad per outline
+ * 2D shadow geometry (ADR 0413), renderer-neutral. A caster's outline becomes one static edge mesh: a quad per outline
  * edge whose two far vertices carry `extrude` 1, which the shadow shader pushes away from the light's position past
  * its reach. One mesh serves every light (the light is a uniform), so a moving light costs no CPU work. The caster's
  * filled outline (its loops triangulated) clears its own interior back to lit when `selfShadows` is off.
@@ -74,7 +74,7 @@ export interface WorldCaster {
   segments: Float32Array;
   loops: readonly (readonly Point2[])[];
   selfShadows: boolean;
-  /** Its shadow layers (ADR 0409; empty: every light). */
+  /** Its shadow layers (ADR 0415; empty: every light). */
   mask?: readonly string[];
 }
 
@@ -104,7 +104,7 @@ function area(p: readonly Point2[]): number {
 }
 
 /**
- * Edges of a composite's loops (ADR 0409) as segments, without the edges inside another member's loop (`owner[i]` is
+ * Edges of a composite's loops (ADR 0415) as segments, without the edges inside another member's loop (`owner[i]` is
  * loop i's member): the merged outline casts, so shadows don't start inside the composite. An edge counts as inside when
  * its midpoint is (an edge crossing another member's outline is kept whole).
  */

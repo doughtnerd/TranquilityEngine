@@ -2,7 +2,7 @@ import { expect, type Hooks, openEditor, type Page, play, test } from "./fixture
 import { assetsMenu, menu } from "./menus";
 import { showTab } from "./tabs";
 
-// The input system in the editor (ADR 0336, 0337; docs/guide/input.md): the Input Debugger panel follows a playing
+// The input system in the editor (ADR 0336, 0337; docs/wiki/guide/input.md): the Input Debugger panel follows a playing
 // World's actions and events, and the Input Context editor writes mappings (with Bind capturing the next key press)
 // that the InputContext component's `context` dropdown offers. The debugger's Record saves a fake controller's raw input as a
 // fixture file, and its Overlay shows players over the game view. The UIControlMapper's real drawing and rebinding are in

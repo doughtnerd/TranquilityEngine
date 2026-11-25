@@ -344,7 +344,7 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     expect(drawn().map((m) => m.alphaIndex)).toEqual([Number.POSITIVE_INFINITY, -1, Number.MAX_VALUE, -3, Number.MAX_VALUE]);
   });
 
-  it("draws a 2D system at its sorting layer's order, lit by 2D lights through the 2D quad material (ADR 0409)", async () => {
+  it("draws a 2D system at its sorting layer's order, lit by 2D lights through the 2D quad material (ADR 0415)", async () => {
     Assets.clearSources();
     Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
     const game = await MycoEngine.create({ headless: true, project: { render: { sortingLayers: ["Back", "Default"] } } });

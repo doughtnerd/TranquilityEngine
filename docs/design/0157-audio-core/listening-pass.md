@@ -160,7 +160,7 @@ M1 has one resampler mode, the 4-point Lagrange kernel (A3.6), so "per resampler
 - **Do:** press 7 and listen to the five notes; repeat. Then T: the Tape is a 24 kHz file played at the device rate (a constant non-integer ratio).
 - **Listen for:** each note at the right pitch relation (an octave down, the reference, a fifth up, an octave up, two octaves up); crackle, clicks at the note edges, level jumps. At 0.5 the note is duller (expected). At 1.5 and 2 a faint inharmonic shimmer in the top octave, and at 4 clearly gritty, metallic partials, are the **accepted aliasing** of bright content at large pitch-ups (owner, 2026-11-10; band-limiting is post-M1, #110). The Tape's melody is in tune and clean.
 - **Pass:** pitches right, edges clean, and the only artefact is the accepted aliasing at ≥ 1.5×.
-- **Code:** `native/audio/crates/audio-dsp/src/resample.rs`; the guide's Limits section, `docs/guide/audio-mixer.md`.
+- **Code:** `native/audio/crates/audio-dsp/src/resample.rs`; the guide's Limits section, `docs/wiki/guide/audio-mixer.md`.
 
 ### L7. HRTF and equal-power around the head (Configs A and C, optional D; 5 min)
 
@@ -250,7 +250,7 @@ M1 has one resampler mode, the 4-point Lagrange kernel (A3.6), so "per resampler
 - Flappy's MP3 music keeps about 54 ms of near-silence at its loop seam (L12; owner review 25).
 - `stop()` with no fade cuts at once (L10); a paused voice resumes 5 ms past the pause point (owner review 6).
 - The 0 ms limiter shapes the first half-cycle over the ceiling (L11); bus meters are before the limiter.
-- The Babylon fallback has no bus effects, no stereo pan, and streamed clips there have no pitch and play flat (`docs/guide/audio-mixer.md`, Limits).
+- The Babylon fallback has no bus effects, no stereo pan, and streamed clips there have no pitch and play flat (`docs/wiki/guide/audio-mixer.md`, Limits).
 - Plays refused under a full bus when every candidate outranks them (L9).
 
 ## Sign-off

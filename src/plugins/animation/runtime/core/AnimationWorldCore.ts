@@ -57,8 +57,8 @@ export class AnimationWorldCore {
   readonly taps = new Set<EvaluateTap>();
   /** This World's frame numbers for the profiler's Animation table (stage times, counters). */
   readonly meter = new FrameMeter();
-  /** The evaluate in progress (for the taps). */
-  private evaluating = { pass: PASS_NORMAL, dtScaled: 0, dtUnscaled: 0 };
+  /** The evaluate in progress (for the taps): rewritten in place each evaluate. */
+  private readonly evaluating = { pass: PASS_NORMAL, dtScaled: 0, dtUnscaled: 0 };
 
   constructor(
     readonly world: World,
@@ -252,14 +252,22 @@ export class AnimationWorldCore {
    */
   evaluate(pass: number, dtScaled: number, dtUnscaled: number): number {
     if (this.closed) return 0;
-    this.evaluating = { pass, dtScaled, dtUnscaled };
+    const e = this.evaluating;
+    e.pass = pass;
+    e.dtScaled = dtScaled;
+    e.dtUnscaled = dtUnscaled;
     this.commands.flush(this.sink);
+    const meter = this.meter;
+    const t = meter.start();
     let changes = 0;
-    this.meter.time("evaluate", () => {
+    try {
       changes = this.core.evaluate(this.id, pass, dtScaled, dtUnscaled);
-    });
-    this.meter.evaluated(this.core.evaluateCounts(), takeNodeFuel(), this.core.pluginFaultCount(), pass === PASS_NORMAL);
-    for (const t of this.taps) t.evaluated(this, pass);
+    } finally {
+      meter.stop("evaluate", t);
+    }
+    meter.evaluated(this.core.evaluateCounts(), takeNodeFuel(), this.core.pluginFaultCount(), pass === PASS_NORMAL);
+    // No tap (the usual case: the live debugger's recorder isn't attached): nothing to call.
+    if (this.taps.size) for (const tap of this.taps) tap.evaluated(this, pass);
     return changes;
   }
 

@@ -3,6 +3,8 @@
 
 .studio { display: grid; height: 100%; grid-template-columns: minmax(0, 1fr); grid-template-rows: auto auto 1fr auto auto; grid-template-areas: "header" "banner" "main" "player" "status"; }
 .studio.studio-starting { display: block; }
+.studio.studio-opening { display: flex; align-items: center; justify-content: center; height: 100vh; background: var(--bg); }
+.studio-opening-text { margin: 0; color: var(--muted); font-size: calc(13px * var(--ui-scale)); }
 
 
 /* Header, as the prototype draws it: the app mark and name, the project, the screens as caps tabs in their groups
@@ -27,6 +29,8 @@
 .studio-tab { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; line-height: 18px; box-sizing: border-box; border-radius: 3px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; text-decoration: none; white-space: nowrap; }
 .studio-tab .studio-glyph { display: none; }
 .studio-tab:hover { background: var(--hover); color: var(--text); }
+.studio-tab.off { opacity: 0.4; cursor: default; }
+.studio-tab.off:hover { background: none; color: var(--muted); }
 .studio-tab.on { background: var(--active); color: var(--text-strong); box-shadow: inset 0 -2px 0 var(--accent); }
 .studio-tab:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .studio-header-tools { display: flex; align-items: center; gap: 6px; flex: none; margin-left: auto; }

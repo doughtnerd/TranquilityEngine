@@ -1,7 +1,7 @@
 /**
- * Where a ShadowCaster2D's outline comes from (ADR 0407), renderer-neutral: the node's 2D collision shapes (a shape
+ * Where a ShadowCaster2D's outline comes from (ADR 0413), renderer-neutral: the node's 2D collision shapes (a shape
  * source such as a Tilemap, merged as outlines; or any 2D collider, through the backend-neutral `_shapeFields()` every
- * 2D collider class gives, ADR 0305), its SpriteRenderer's slice outline (ADR 0408) or rectangle, or a custom path.
+ * 2D collider class gives, ADR 0305), its SpriteRenderer's slice outline (ADR 0414) or rectangle, or a custom path.
  * Outlines are in the node's local XY; the light pass places them with the node's world matrix.
  */
 import type { Component } from "../../core/Component";
@@ -88,7 +88,7 @@ function colliderOutline(world: World, caster: ShadowCaster2D): CasterOutline | 
 function casterSpriteOutline(world: World, caster: ShadowCaster2D, textureSize: TextureSizeOf): CasterOutline | null {
   const r = world._componentsOf(caster.node.entity).find((c): c is SpriteRenderer => c instanceof SpriteRenderer);
   if (!r) return null;
-  const o = spriteOutline(world, r, textureSize, { deformed: true }); // a deforming sprite's shadow follows it (ADR 0409)
+  const o = spriteOutline(world, r, textureSize, { deformed: true }); // a deforming sprite's shadow follows it (ADR 0415)
   return { loops: o.loops, chains: [], signature: o.signature, from: o.from === "rect" ? "rect" : "sprite" };
 }
 
@@ -123,7 +123,7 @@ function capsule(cx: number, cy: number, r: number, height: number): Point2[] {
   return out;
 }
 
-/** A group of casters that cast as one (ADR 0409): one caster, or a CompositeShadowCaster2D's casters below it. */
+/** A group of casters that cast as one (ADR 0415): one caster, or a CompositeShadowCaster2D's casters below it. */
 export interface CasterGroup {
   /** Where the group's settings come from: the caster, or the composite. */
   readonly settings: { readonly castShadows: boolean; readonly selfShadows: boolean; readonly targetSortingLayers: readonly string[]; readonly shadowMask: readonly string[] };

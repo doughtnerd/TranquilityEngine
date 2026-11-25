@@ -10,8 +10,7 @@ describe("which files the Audio Studio opens", () => {
     expect(studioScreenFor("music/level.playlist.json")).toBe("playlists");
     expect(studioScreenFor("tests/cave.audioscene.json")).toBe("spatial");
     expect(studioScreenFor("audio.json")).toBe("mixer");
-    expect(studioScreenFor("takes/boss.mycotake")).toBe("take");
-    expect(studioScreenFor("captures/run.mycap")).toBe("profiler");
+    expect(studioScreenFor("recordings/boss.sporesample")).toBe("take");
   });
 
   it("leaves everything else to the editor", () => {

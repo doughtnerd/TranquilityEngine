@@ -9,7 +9,7 @@ import { blendStyleIndex, masksOverlap, parseLighting2D } from "../render/lights
 import { casterFillMesh, outlineSegments, shadowEdgeMesh, shadowFactor, unionSegments } from "../render/lights2D/shadowGeometry";
 import { formatImportSettings, parseImportSettings } from "../scene/importSettings";
 
-// 2D lighting's renderer-neutral parts (ADR 0399, 0407, 0408): settings, layer batches, light shapes, shadow geometry,
+// 2D lighting's renderer-neutral parts (ADR 0399, 0413, 0414): settings, layer batches, light shapes, shadow geometry,
 // the sidecar's secondary textures and outlines, and Light2D.sampleAt on a headless World.
 
 describe("lighting2D settings", () => {
@@ -142,7 +142,7 @@ describe("shadow geometry", () => {
   });
 });
 
-describe("sprite sidecars (ADR 0408)", () => {
+describe("sprite sidecars (ADR 0414)", () => {
   it("reads and writes secondary textures, the normal map convention and slice outlines", () => {
     const raw = {
       format: "myco.import@1",
@@ -154,7 +154,7 @@ describe("sprite sidecars (ADR 0408)", () => {
     expect(settings.secondaryTextures).toEqual(raw.secondaryTextures);
     expect(settings.normalMapGreen).toBe("down");
     expect(settings.sprites[0]!.outline).toEqual([[[0, 0], [8, 0], [4, 8]]]);
-    expect(problems).toEqual([]); // ADR 0409: custom names are first class
+    expect(problems).toEqual([]); // ADR 0415: custom names are first class
     expect(parseImportSettings({ ...raw, secondaryTextures: { "rim light": "asset:r.png" } }).problems).toEqual([
       'import settings: secondaryTextures["rim light"] should be a name of letters, digits and _ not starting with a digit (shader graphs read it by name); kept.',
     ]);
@@ -223,7 +223,7 @@ describe("Light2D.sampleAt", () => {
   });
 });
 
-describe("ADR 0409: light masks, composite casters, deformed outlines", () => {
+describe("ADR 0415: light masks, composite casters, deformed outlines", () => {
   const engines2: Engine[] = [];
   afterEach(() => {
     for (const e of engines2.splice(0)) e.dispose();

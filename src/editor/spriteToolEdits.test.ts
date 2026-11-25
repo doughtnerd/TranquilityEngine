@@ -52,7 +52,7 @@ describe("renaming a slice", () => {
   });
 });
 
-describe("the Lights 2D tools' changes (ADR 0408)", () => {
+describe("the Lights 2D tools' changes (ADR 0414)", () => {
   const lit = (): ToolState<{ name: string; outline?: [number, number][][] }> => ({ slices: [{ name: "a" }, { name: "b" }], flipbooks: {}, secondary: { textures: { maskMap: "asset:m.png" }, normalMapGreen: "up" } });
   it("sets and drops slice outlines by name", () => {
     const next = applyToolChange(lit(), { outlines: { a: [[[0, 0], [4, 0], [2, 3]]], gone: [] } });

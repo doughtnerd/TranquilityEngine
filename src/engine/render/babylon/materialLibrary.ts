@@ -137,7 +137,7 @@ function samplingMode(s: Sampling): number {
 const WRAP = { clamp: Texture.CLAMP_ADDRESSMODE, repeat: Texture.WRAP_ADDRESSMODE, mirror: Texture.MIRROR_ADDRESSMODE } as const;
 
 /** @internal Builds and caches a Babylon scene's materials and textures (ADR 0127). */
-/** @internal A 2D material's sprite shader graph (`BabylonMaterialLibrary.spriteGraph`, ADR 0409). */
+/** @internal A 2D material's sprite shader graph (`BabylonMaterialLibrary.spriteGraph`, ADR 0415). */
 export interface SpriteGraph {
   compiled: CompiledShaderGraph;
   properties: Record<string, GraphValue>;
@@ -152,7 +152,7 @@ export class BabylonMaterialLibrary {
   private readonly read: AssetRead;
   private readonly warned = new Set<string>();
   private readonly assets = new Map<string, AssetEntry>();
-  /** 2D materials' sprite graphs (ADR 0409), by material path. */
+  /** 2D materials' sprite graphs (ADR 0415), by material path. */
   private readonly spriteGraphs = new Map<string, { stamp: MaterialStamp; graph: SpriteGraph | null }>();
   /** Graph materials by their Babylon material, for copies sharing the compiled program. */
   private readonly graphs = new WeakMap<BabylonMaterial, BabylonGraphMaterial>();
@@ -597,7 +597,7 @@ export class BabylonMaterialLibrary {
   }
 
   /**
-   * @internal A 2D material's sprite shader graph (ADR 0409): the compiled graph and its property and keyword values,
+   * @internal A 2D material's sprite shader graph (ADR 0415): the compiled graph and its property and keyword values,
    * when `path` is a material shaded by (or itself is) a graph with a sprite target compiled for this renderer's shader
    * language, else null. Resolved again when stale (a graph edit hot-reloads its 2D draws on their next change).
    */
@@ -615,7 +615,7 @@ export class BabylonMaterialLibrary {
     return cached.graph;
   }
 
-  /** @internal A new graph material for a 2D draw (ADR 0409): `graph` with property `overrides` (the draw's textures); the caller disposes it. */
+  /** @internal A new graph material for a 2D draw (ADR 0415): `graph` with property `overrides` (the draw's textures); the caller disposes it. */
   spriteGraphMaterial(name: string, graph: SpriteGraph, overrides: Record<string, GraphValue>): BabylonGraphMaterial {
     const m = createGraphMaterial(this.scene, name, graph.compiled, { ...graph.properties, ...overrides }, this.shared, (p, linear) => this.loadGraphTexture(p, linear));
     m.setKeywords(graph.keywords);

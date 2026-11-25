@@ -67,7 +67,19 @@ const SKINNED_KINDS = [
   [VertexBuffer.TangentKind, 32, 4],
 ] as const;
 
-const requestKey = (r: SlotRequest): string => `${r.mesh}|${r.material}|${(r.materials ?? []).join(",")}`;
+/** Whether two slot requests name the same materials (compared field by field: no key string a frame). */
+const sameRequest = (a: SlotRequest, b: SlotRequest): boolean => {
+  if (a.mesh !== b.mesh || a.material !== b.material) return false;
+  const x = a.materials ?? [];
+  const y = b.materials ?? [];
+  if (x === y) return true;
+  if (x.length !== y.length) return false;
+  for (let i = 0; i < x.length; i++) if (x[i] !== y[i]) return false;
+  return true;
+};
+
+const boundsMin = new Vector3();
+const boundsMax = new Vector3();
 
 /** @internal Skinned meshes drawn by Babylon. */
 export class BabylonSkinnedMeshes implements SkinnedDraws<Mesh> {
@@ -113,6 +125,8 @@ export class BabylonSkinnedMeshes implements SkinnedDraws<Mesh> {
   }
 
   endDispatches(): void {
+    // WebGPU: one submit for the frame's dispatches; WebGL2: the passes' shared state restored.
+    this.runs.flush();
     // WebGL2 passes changed GL state behind Babylon's back.
     if (this.dispatched && this.executor === "webgl2") this.engine.wipeCaches(true);
     this.dispatched = false;
@@ -120,6 +134,7 @@ export class BabylonSkinnedMeshes implements SkinnedDraws<Mesh> {
 
   dispose(): void {
     for (const d of [...this.draws]) d.dispose();
+    this.runs.dispose?.();
   }
 
   // --- for draws ---------------------------------------------------------------------------------------
@@ -165,7 +180,8 @@ class BabylonSkinnedDraw implements SkinnedDraw<Mesh> {
   readonly mesh: Mesh;
   private readonly skinned: { buffer: Buffer; update?: () => void; release(): void };
   private readonly matrix = new Matrix();
-  private materialKey: string | null = null;
+  private readonly bounds: BoundingInfo;
+  private material: SlotRequest | null = null;
   private disposed = false;
 
   constructor(
@@ -189,7 +205,8 @@ class BabylonSkinnedDraw implements SkinnedDraw<Mesh> {
     if (d.colors) mesh.setVerticesData(VertexBuffer.ColorKind, d.colors, false);
     mesh.setIndices(d.indices, n);
     mesh.isPickable = true;
-    this.setBounds([-1, -1, -1, 1, 1, 1]);
+    this.bounds = new BoundingInfo(new Vector3(-1, -1, -1), new Vector3(1, 1, 1), mesh.getWorldMatrix());
+    mesh.setBoundingInfo(this.bounds);
   }
 
   get lost(): boolean {
@@ -217,7 +234,11 @@ class BabylonSkinnedDraw implements SkinnedDraw<Mesh> {
   }
 
   setBounds(b: Box6): void {
-    this.mesh.setBoundingInfo(new BoundingInfo(new Vector3(b[0], b[1], b[2]), new Vector3(b[3], b[4], b[5]), this.mesh.getWorldMatrix()));
+    // The same BoundingInfo, rebuilt in place (no objects a frame).
+    boundsMin.set(b[0], b[1], b[2]);
+    boundsMax.set(b[3], b[4], b[5]);
+    this.bounds.reConstruct(boundsMin, boundsMax, this.mesh.getWorldMatrix());
+    if (this.mesh.getBoundingInfo() !== this.bounds) this.mesh.setBoundingInfo(this.bounds);
   }
 
   setEnabled(enabled: boolean): void {
@@ -230,9 +251,8 @@ class BabylonSkinnedDraw implements SkinnedDraw<Mesh> {
   }
 
   setMaterials(request: SlotRequest): void {
-    const key = requestKey(request);
-    if (key === this.materialKey) return;
-    this.materialKey = key;
+    if (this.material && sameRequest(this.material, request)) return;
+    this.material = { mesh: request.mesh, material: request.material, materials: request.materials ? [...request.materials] : undefined };
     const pick = this.owner.materialLibrary.slotMaterials(request, [this.source.model]);
     this.mesh.material = pick(this.source.model, this.mesh) as BabylonMaterial;
   }

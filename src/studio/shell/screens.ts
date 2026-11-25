@@ -35,6 +35,12 @@ export const SCREENS: readonly ScreenInfo[] = [
 
 export const DEFAULT_SCREEN: ScreenId = "samples";
 
+/** ADR 0408: the screens a takes folder workspace (no project) offers; the rest need a project. */
+export const TAKES_FOLDER_SCREENS: ReadonlySet<ScreenId> = new Set<ScreenId>(["take", "profiler"]);
+
+/** ADR 0410: a takes folder with a build's audio mounted also shows Playlists and the Mixer (read-only). */
+export const TAKES_FOLDER_AUDIO_SCREENS: ReadonlySet<ScreenId> = new Set<ScreenId>(["take", "profiler", "playlists", "mixer"]);
+
 /** A screen by id, or undefined for anything else. */
 export const screenById = (id: string): ScreenInfo | undefined => SCREENS.find((s) => s.id === id);
 

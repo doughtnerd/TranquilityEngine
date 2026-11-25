@@ -8,8 +8,11 @@ import { AudioLinkRecord, encodeTakeChunk, TAKE_CHUNK_BYTES, type TakeUploadPara
 
 /** Where an upload's bytes come from: the build's take (`take.ts`'s `takeFileBytes` and `Audio.take.seconds`). */
 export interface TakeUploadSource {
-  /** The stopped take's file bytes (stops a running take first); rejects with "nothing recorded: …" when there is none. */
-  bytes(): Promise<Uint8Array>;
+  /**
+   * The bytes to upload, for the request's params: the stopped take's file bytes (stops a running take first; rejects
+   * with "nothing recorded: …" when there is none), or a build file's (ADR 0410, `buildAudio.ts`).
+   */
+  bytes(params: unknown): Promise<Uint8Array>;
   /** The take's length, seconds. */
   seconds(): number;
 }
@@ -17,16 +20,16 @@ export interface TakeUploadSource {
 /** A build's uploads: at most one kept at a time. */
 export interface TakeUploads {
   /** `take.upload`: makes the bytes and keeps them as a new upload (dropping the last); resolves with the reply. */
-  begin(params: TakeUploadParams): Promise<TakeUploadReply>;
+  begin(params: unknown): Promise<TakeUploadReply>;
   /** An `upload` subscription for upload `upload`; refused when that upload isn't the one kept. */
   subscribe(upload: number): DebugSubscription | { readonly refused: string };
   /** The link closed: drops the kept upload. */
   dispose(): void;
 }
 
-/** The uploads for one link's audio topic, reading bytes from `source`. */
-export function createTakeUploads(source: TakeUploadSource): TakeUploads {
-  let nextId = 1;
+/** The uploads for one link's audio topic, reading bytes from `source`; their ids start at `firstId` (default 1). */
+export function createTakeUploads(source: TakeUploadSource, firstId = 1): TakeUploads {
+  let nextId = firstId;
   let disposed = false;
   /** True while `begin` makes bytes. */
   let making = false;
@@ -36,12 +39,12 @@ export function createTakeUploads(source: TakeUploadSource): TakeUploads {
   const busy = () => making || (kept !== null && kept.sub !== null);
 
   return {
-    async begin(_params) {
+    async begin(params) {
       if (disposed) throw new Error("the link closed");
       if (busy()) throw new Error("an upload is already in progress: wait for it to finish or cancel it first");
       making = true;
       try {
-        const bytes = await source.bytes();
+        const bytes = await source.bytes(params);
         if (disposed) throw new Error("the link closed");
         const chunks = Math.max(1, Math.ceil(bytes.byteLength / TAKE_CHUNK_BYTES));
         const id = nextId++;
@@ -53,7 +56,7 @@ export function createTakeUploads(source: TakeUploadSource): TakeUploads {
     },
     subscribe(upload) {
       const up = kept;
-      if (disposed || !up || up.id !== upload) return { refused: `upload ${upload} isn't the one kept (call take.upload first)` };
+      if (disposed || !up || up.id !== upload) return { refused: `upload ${upload} isn't the one kept (ask for it first)` };
       if (up.sub) return { refused: `upload ${upload} is already being sent` };
       up.sent = 0;
       const sub: DebugSubscription = {

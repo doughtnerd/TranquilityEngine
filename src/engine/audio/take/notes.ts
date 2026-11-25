@@ -5,8 +5,8 @@
  *
  * The parse is lenient (bad values fall back with one problem line; nothing throws) and canonical: markers sorted by
  * time, regions by start with `from <= to`, ids unique, text cut to its limit. The writer leaves nothing out (the file is
- * small) and parsing what it writes gives the same value back. The notes of take `runs/a.mycotake` live at
- * `runs/a.mycotake.notes.json` (the whole file name, as `.meta.json` sidecars keep it).
+ * small) and parsing what it writes gives the same value back. The notes of take `runs/a.sporesample` live at
+ * `runs/a.sporesample.notes.json` (the whole file name, as `.meta.json` sidecars keep it).
  *
  * Pure; no plugin, no DOM.
  */
@@ -37,7 +37,7 @@ export const emptyTakeNotes = (): TakeNotes => ({ format: TAKE_NOTES_FORMAT, mar
 /** The notes file of take `takePath`. */
 export const takeNotesPath = (takePath: string): string => `${takePath}${TAKE_NOTES_SUFFIX}`;
 
-/** True for a take's notes file (`*.mycotake.notes.json`). */
+/** True for a take's notes file (`*.sporesample.notes.json`). */
 export const isTakeNotesPath = (path: string): boolean => path.toLowerCase().endsWith(`${TAKE_SUFFIX}${TAKE_NOTES_SUFFIX}`);
 
 const sortNotes = (n: TakeNotes): TakeNotes => ({

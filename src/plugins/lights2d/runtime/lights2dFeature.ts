@@ -1,4 +1,4 @@
-// The Lights 2D plugin's render feature (ADR 0409): light volumes, drawn through the renderer core's quad batches.
+// The Lights 2D plugin's render feature (ADR 0415): light volumes, drawn through the renderer core's quad batches.
 // Loaded by the renderer from the loader the plugin registers, so it stays out of the `myco` module. The light
 // textures, shadows and lit material stay the core lighting rig's (ADR 0399); this draws only what lies over the sprites.
 import type { Component } from "../../../engine/core/Component";
@@ -30,7 +30,7 @@ export class Lights2DFeature implements BabylonFeature {
 
 declare module "../../../engine/render/RenderSurface" {
   interface RenderFeatureDiagnostics {
-    /** The Lights 2D plugin's (ADR 0409): light volumes drawn now. */
+    /** The Lights 2D plugin's (ADR 0415): light volumes drawn now. */
     lights2dVolumes?: { volumes: number };
   }
 }

@@ -1,7 +1,7 @@
 // The desktop app's launcher (ADR 0059, 0380): the Projects window, opening on the Foxfire Studios stage. Open on an
 // application's card moves to that app's projects screen in the same page (Myco Engine, or Biosonic, the Audio
 // Studio); its "‹ Foxfire launcher" goes back. A Myco project is handed to the editor window, which is created hidden
-// once this window has painted and loads in the background (ADR 0082); a Biosonic project or take is handed to the
+// once this window has painted and loads in the background (ADR 0082); a Biosonic project or take, and Connect to Game…, is handed to the
 // Studio's window. This window then hides until the editor closes its project or the Studio window closes. It loads
 // no engine code, so it shows at once. Outside the desktop app there's no second window, so it goes to the editor page.
 import type { Window } from "@tauri-apps/api/window";
@@ -17,11 +17,13 @@ import { status } from "../state";
 import { installTheme } from "../theme";
 import "../ui/fonts";
 import { AboutDialog } from "../ui/AboutDialog";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { MycoProjectsScreen } from "../ui/appProjects/MycoProjectsScreen";
 import { NewProjectDialog } from "../ui/NewProjectDialog";
 import "../ui/editor.css";
-import { BiosonicProjectsScreen } from "../../studio/start/BiosonicProjectsScreen";
-import type { RecentTake } from "../../studio/start/recentTakes";
+import { addTakes, isTakeFilePath } from "../../studio/takesFolder";
+import { BiosonicProjectsScreen, showRecordedTakes } from "../../studio/start/BiosonicProjectsScreen";
+import { takeOpenRequest, type RecentTake } from "../../studio/start/recentTakes";
 import { launcherActions } from "./actions";
 import { startEditorWindow, startEditorWindowWhenIdle } from "./editorWindowStart";
 import { FoxfireScreen, type LauncherApp } from "./FoxfireScreen";
@@ -37,6 +39,32 @@ const WINDOW_SIZE = { width: 1280, height: 818 };
 const editorReady = signal(false);
 /** Which stage shows. */
 const stage = signal<"foxfire" | LauncherApp>("foxfire");
+
+/** True while take files are being dragged over the window (the drop highlight). */
+const droppingTakes = signal(false);
+
+/**
+ * Dropping .sporesample files on the window adds them to Recorded takes (ADR 0408): Tauri's webview drag-drop hands over
+ * the files' paths. Anything else dropped is refused with a note.
+ */
+async function listenForTakeDrops(): Promise<void> {
+  const { getCurrentWebview } = await import("@tauri-apps/api/webview");
+  await getCurrentWebview().onDragDropEvent(({ payload: p }) => {
+    if (p.type === "enter") droppingTakes.value = p.paths.some(isTakeFilePath);
+    else if (p.type === "leave") droppingTakes.value = false;
+    else if (p.type === "drop") {
+      droppingTakes.value = false;
+      const added = addTakes(p.paths);
+      if (added.length === 0) {
+        status.value = { kind: "info", text: "Only .sporesample files can be added to Recorded takes." };
+        return;
+      }
+      stage.value = "biosonic";
+      showRecordedTakes();
+      status.value = { kind: "info", text: `Added ${added.length} ${added.length === 1 ? "take" : "takes"}` };
+    }
+  });
+}
 
 /** Minimise, maximise and close, laid over the top right (the window has no title bar). Close takes the usual route: the Rust side hides this window or quits. */
 function WindowControls({ window }: { window: Window }) {
@@ -82,9 +110,11 @@ interface LauncherProps {
   readonly window: Window;
   readonly actions: Record<LauncherApp, StartActions>;
   openTake(take: RecentTake): Promise<void>;
+  /** Connect to Game…: the Studio window, with its Connect dialog open. */
+  connect(): Promise<void>;
 }
 
-function Launcher({ window, actions, openTake }: LauncherProps) {
+function Launcher({ window, actions, openTake, connect }: LauncherProps) {
   useLauncherWindow(window);
   const chrome = <WindowControls window={window} />;
   const show = (next: "foxfire" | LauncherApp) => {
@@ -95,16 +125,17 @@ function Launcher({ window, actions, openTake }: LauncherProps) {
   const back = () => show("foxfire");
   const s = stage.value;
   return (
-    <div class="launcher" data-floating-root="">
+    <div class={`launcher${droppingTakes.value ? " bs-dropping" : ""}`} data-floating-root="">
       {s === "foxfire" ? (
         <FoxfireScreen chrome={chrome} onOpen={show} />
       ) : s === "myco" ? (
         <MycoProjectsScreen chrome={chrome} back={back} note={editorReady.value ? undefined : "Starting the editor…"} />
       ) : (
-        <BiosonicProjectsScreen chrome={chrome} back={back} onOpenTake={openTake} />
+        <BiosonicProjectsScreen chrome={chrome} back={back} onOpenTake={openTake} onConnect={() => void connect()} />
       )}
       <NewProjectDialog />
       <AboutDialog />
+      <ConfirmDialog />
     </div>
   );
 }
@@ -135,15 +166,28 @@ async function main(): Promise<void> {
   const openTake = async (take: RecentTake) => {
     status.value = { kind: "info", text: `Opening ${take.name}…` };
     try {
-      await openInStudioWindow({ project: take.project.path, asset: take.path });
+      await openInStudioWindow(takeOpenRequest(take));
       status.value = null;
       hide();
     } catch (err) {
       status.value = errorStatus(`Couldn't open ${take.name}`, err);
     }
   };
-  render(<Launcher window={window} actions={actions} openTake={openTake} />, document.getElementById("app")!);
+  // The Studio window holds the debug link (its Take, Profiler and Mixer screens use the build), so the launcher hands
+  // Connect to Game… to it rather than connecting itself; whatever the Studio has open stays open.
+  const connect = async () => {
+    status.value = { kind: "info", text: "Opening the Audio Studio…" };
+    try {
+      await openInStudioWindow({ project: null, connect: true });
+      status.value = null;
+      hide();
+    } catch (err) {
+      status.value = errorStatus("Couldn't open the Audio Studio to connect", err);
+    }
+  };
+  render(<Launcher window={window} actions={actions} openTake={openTake} connect={connect} />, document.getElementById("app")!);
   startEditorWindowWhenIdle();
+  listenForTakeDrops().catch((err) => console.warn("[launcher] drag and drop of takes is unavailable:", err));
 }
 
 main().catch((err) => {

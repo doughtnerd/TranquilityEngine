@@ -34,11 +34,23 @@ describe("takeReceiver", () => {
     expect(r.push(all[2])).toMatchObject({ status: "error", error: expect.stringContaining("missing") });
     expect(r.push(all[1]).status).toBe("error");
   });
-  it("refuses a duplicate", () => {
+  it("skips a chunk delivered again with the same bytes, and finishes the upload", () => {
+    const { reply, all, src } = setup(TAKE_CHUNK_BYTES * 3);
+    const r = createTakeReceiver(reply);
+    r.push(all[0]);
+    r.push(all[1]);
+    expect(r.push(all[0])).toMatchObject({ status: "more", received: TAKE_CHUNK_BYTES * 2 });
+    expect(r.push(all[1]).status).toBe("more");
+    const res = r.push(all[2]);
+    expect(res.status === "done" && Buffer.compare(res.bytes, src)).toBe(0);
+  });
+  it("refuses a chunk again with different bytes", () => {
     const { reply, all } = setup(TAKE_CHUNK_BYTES * 3);
     const r = createTakeReceiver(reply);
     r.push(all[0]);
-    expect(r.push(all[0])).toMatchObject({ status: "error", error: expect.stringContaining("twice") });
+    const other = new Uint8Array(all[0].bytes);
+    other[0] ^= 0xff;
+    expect(r.push({ ...all[0], bytes: other })).toMatchObject({ status: "error", error: expect.stringContaining("different bytes") });
   });
   it("refuses a wrong total, upload, or size", () => {
     const { reply, all } = setup(TAKE_CHUNK_BYTES * 2);

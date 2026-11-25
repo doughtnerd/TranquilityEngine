@@ -121,7 +121,7 @@ impl ClipAsset {
     /// The sampler paired with the binding table (`load_clip` checked the pair once, and both are
     /// immutable, so it isn't checked again on every sample).
     pub fn bound(&self) -> Option<BoundClip<'_, '_>> {
-        Some(self.bindings.pair_unchecked(self.sampler))
+        Some(self.bindings.pair_unchecked(&self.sampler))
     }
 }
 
@@ -418,7 +418,7 @@ impl Arena {
         };
         let sampler = ClipSampler::new(view, form).map_err(|_| STATUS_BAD_ASSET)?;
         let bindings = ClipBindings::new(&sampler);
-        bindings.bind(sampler).map_err(|_| STATUS_BAD_ASSET)?;
+        bindings.bind(&sampler).map_err(|_| STATUS_BAD_ASSET)?;
         let (sync, exits, curves) = marker_tables(&view);
         let cues = cue_table(&view);
         let distance = travel(&view);

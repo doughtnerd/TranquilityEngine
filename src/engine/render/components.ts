@@ -39,9 +39,9 @@ export class SpriteRenderer extends Component {
 }
 
 export type Light2DType = "global" | "point" | "freeform" | "sprite";
-/** How a 2D light lights normal maps (ADR 0409): not at all, by its batch's averaged direction, or per light (point lights, high tier). */
+/** How a 2D light lights normal maps (ADR 0415): not at all, by its batch's averaged direction, or per light (point lights, high tier). */
 export type Light2DNormals = "off" | "fast" | "accurate";
-/** How a 2D light meets the light below it in its light texture (ADR 0409, Unity's overlap operation). */
+/** How a 2D light meets the light below it in its light texture (ADR 0415, Unity's overlap operation). */
 export type Light2DOverlap = "additive" | "alphaBlend";
 
 /**
@@ -75,28 +75,28 @@ export class Light2D extends Component {
   /** Sprite: the sprite whose colour and alpha shape the light, at its size (like a SpriteRenderer's). */
   @field(AssetRef, { kind: "sprite" }) sprite = "";
   /**
-   * How it lights lit sprites' normal maps (their sidecar's `normalMap`, ADR 0408). Off: flat. Fast: by the direction of
-   * its layer batch's lights, averaged. Accurate (ADR 0409): per light, for point lights on tiers that allow it (high);
+   * How it lights lit sprites' normal maps (their sidecar's `normalMap`, ADR 0414). Off: flat. Fast: by the direction of
+   * its layer batch's lights, averaged. Accurate (ADR 0415): per light, for point lights on tiers that allow it (high);
    * elsewhere as fast.
    */
   @field(String, { choices: ["off", "fast", "accurate"] }) normalMaps: Light2DNormals = "off";
   /** With `normalMaps`: the light's height above the sprites' plane, in world units (low: grazing light). */
   @field(Number) height = 1;
   /**
-   * How it meets the lights below it (ADR 0409): added to them, or blended over them by its own falloff (an alpha blend
+   * How it meets the lights below it (ADR 0415): added to them, or blended over them by its own falloff (an alpha blend
    * light replaces what's under its core). Lights in a texture draw additive first, then alpha blend in scene order.
    */
   @field(String, { choices: ["additive", "alphaBlend"] }) overlap: Light2DOverlap = "additive";
   /**
-   * A visible glow of the light itself (ADR 0409; 0: none): its shape drawn additively over its target layers' sprites,
+   * A visible glow of the light itself (ADR 0415; 0: none): its shape drawn additively over its target layers' sprites,
    * at this share of its intensity. Not for global lights; unshadowed.
    */
   @field(Number) volumeIntensity = 0;
-  /** Shadows from ShadowCaster2Ds (ADR 0407). */
+  /** Shadows from ShadowCaster2Ds (ADR 0413). */
   @field(Boolean) shadows = false;
   /** How dark its shadows are, 0 (none) to 1 (no light). */
   @field(Number) shadowStrength = 1;
-  @field([String], { choices: (s) => s.lighting2D.shadowLayers, description: "The shadow layers whose casters shadow it (ADR 0409). Empty: every caster." }) shadowMask: string[] = [];
+  @field([String], { choices: (s) => s.lighting2D.shadowLayers, description: "The shadow layers whose casters shadow it (ADR 0415). Empty: every caster." }) shadowMask: string[] = [];
   /** How soft its shadows' edges are, 0 (hard) to 1, on qualities with soft shadows (ADR 0400). */
   @field(Number) shadowSoftness = 0.3;
 
@@ -118,8 +118,8 @@ export class Light2D extends Component {
 export type ShadowCaster2DShape = "auto" | "collider" | "sprite" | "custom";
 
 /**
- * Casts shadows from 2D lights with `shadows` on (ADR 0407). Its outline comes from the node's 2D collision shapes (a
- * Tilemap's merged solid tiles, its 2D colliders), its SpriteRenderer's slice outline (ADR 0408) or a custom path.
+ * Casts shadows from 2D lights with `shadows` on (ADR 0413). Its outline comes from the node's 2D collision shapes (a
+ * Tilemap's merged solid tiles, its 2D colliders), its SpriteRenderer's slice outline (ADR 0414) or a custom path.
  */
 @component("engine.ShadowCaster2D")
 export class ShadowCaster2D extends Component {
@@ -130,7 +130,7 @@ export class ShadowCaster2D extends Component {
   @field(Boolean) castShadows = true;
   /** Shadow its own interior too. Off: what lies behind it is dark and its own face stays lit. */
   @field(Boolean) selfShadows = false;
-  @field([String], { choices: (s) => s.lighting2D.shadowLayers, description: "The shadow layers it's on (ADR 0409): it shadows lights whose mask shares one. Empty: every light." }) shadowMask: string[] = [];
+  @field([String], { choices: (s) => s.lighting2D.shadowLayers, description: "The shadow layers it's on (ADR 0415): it shadows lights whose mask shares one. Empty: every light." }) shadowMask: string[] = [];
   @field([String], { choices: (s) => s.render.sortingLayers, description: "The sorting layers whose lighting it shadows. Empty: every sorting layer." }) targetSortingLayers: string[] = [];
 
   override _onDetach(): void {
@@ -139,7 +139,7 @@ export class ShadowCaster2D extends Component {
 }
 
 /**
- * Merges the ShadowCaster2Ds on its node and below it into one caster (ADR 0409, Unity's Composite Shadow Caster 2D):
+ * Merges the ShadowCaster2Ds on its node and below it into one caster (ADR 0415, Unity's Composite Shadow Caster 2D):
  * their outlines cast together with these settings (their own are ignored), and edges inside another member's outline
  * don't cast, so a wall built of many pieces shadows as one.
  */
@@ -149,7 +149,7 @@ export class CompositeShadowCaster2D extends Component {
   /** Shadow the members' interiors too. Off: what lies behind is dark and their faces stay lit. */
   @field(Boolean) selfShadows = false;
   @field([String], { choices: (s) => s.render.sortingLayers, description: "The sorting layers whose lighting it shadows. Empty: every sorting layer." }) targetSortingLayers: string[] = [];
-  @field([String], { choices: (s) => s.lighting2D.shadowLayers, description: "The shadow layers it's on (ADR 0409). Empty: every light." }) shadowMask: string[] = [];
+  @field([String], { choices: (s) => s.lighting2D.shadowLayers, description: "The shadow layers it's on (ADR 0415). Empty: every light." }) shadowMask: string[] = [];
 }
 
 export type Projection = "orthographic" | "perspective";
@@ -817,7 +817,7 @@ export class ParticleSystem extends Component {
    */
   @field(Number) seed = 0;
   /**
-   * 2D (ADR 0409): the sorting layer its particles draw on, among sprites and tiles, at `orderInLayer`; and with a lit
+   * 2D (ADR 0415): the sorting layer its particles draw on, among sprites and tiles, at `orderInLayer`; and with a lit
    * 2D `material`, lit by 2D lights like them (each output's flat light: no normal maps). Empty: drawn as 3D particles,
    * ordered by their outputs' render order.
    */

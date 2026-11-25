@@ -1,4 +1,4 @@
-// ADR 0409: 2D light volumes, the meshes and the renderer-neutral volume batches against a fake quad-batch host.
+// ADR 0415: 2D light volumes, the meshes and the renderer-neutral volume batches against a fake quad-batch host.
 import { afterEach, describe, expect, it } from "vitest";
 import { Assets, Color, Engine, GameObject, Light2D, SceneManager, Vector2 } from "../../../myco";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
@@ -99,7 +99,7 @@ async function headless(): Promise<Engine> {
   return engine;
 }
 
-describe("light volume batches (ADR 0409)", () => {
+describe("light volume batches (ADR 0415)", () => {
   it("draw a volume light additively at its node, over its target layers, and follow its fields", async () => {
     const engine = await headless();
     const { quads, batches } = fakeQuads();

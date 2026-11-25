@@ -12,7 +12,7 @@ import { claimsSkinnedSprite, SkinnedSprites } from "./skinnedSprites";
 
 class SkinnedSpritesFeature implements BabylonFeature {
   private readonly unclaim = claimSprites(claimsSkinnedSprite);
-  /** ADR 0409: 2D shadow casters on skinned sprites cast from the deformed outline. */
+  /** ADR 0415: 2D shadow casters on skinned sprites cast from the deformed outline. */
   private readonly unclaimOutlines: () => void;
 
   constructor(private readonly sprites: SkinnedSprites) {

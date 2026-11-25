@@ -1,5 +1,5 @@
 /**
- * The Lights 2D plugin's light volumes (ADR 0409): one additive quad batch per Light2D with a `volumeIntensity`,
+ * The Lights 2D plugin's light volumes (ADR 0415): one additive quad batch per Light2D with a `volumeIntensity`,
  * placed by its node and drawn at the top of its highest target sorting layer, so the glow lies over the sprites it
  * lights and under the layers above. The meshes are `volumes.ts`'s; this keeps the batches in step with the lights.
  * Renderer-neutral: it draws through the renderer core's quad batches (ADR 0136).

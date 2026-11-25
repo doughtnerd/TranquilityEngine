@@ -36,7 +36,7 @@ export const HISTOGRAM_BINS = 32;
 
 const titleOf = (path: string): string => {
   const name = path.slice(path.lastIndexOf("/") + 1);
-  return name.toLowerCase().endsWith(".mycotake") ? name.slice(0, -".mycotake".length) : name;
+  return name.toLowerCase().endsWith(".sporesample") ? name.slice(0, -".sporesample".length) : name;
 };
 
 export class ReplayStore {

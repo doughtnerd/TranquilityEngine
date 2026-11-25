@@ -90,7 +90,7 @@ describe("PolygonCollider2D and EdgeCollider2D on Rapier (ADR 0039)", () => {
     expect(ball.transform!.position.y).toBeCloseTo(-2.5, 1);
   });
 
-  it("collides along its sprite's slice outline with fromSprite, following the sprite (ADR 0409)", async () => {
+  it("collides along its sprite's slice outline with fromSprite, following the sprite (ADR 0415)", async () => {
     // A 32 × 32 slice at 16 pixels per unit (2 × 2 units, pivot centred) whose outline is a triangle: its lower-left half.
     const sidecar = { format: "myco.import@1", pixelsPerUnit: 16, sprites: [{ name: "ramp", rect: [0, 0, 32, 32], pivot: [0.5, 0.5], outline: [[[0, 0], [32, 0], [0, 32]]] }] };
     const engine = await setup({ "ramp.png.meta.json": sidecar });

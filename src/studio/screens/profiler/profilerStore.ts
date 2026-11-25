@@ -32,6 +32,8 @@ export type OpenState =
       readonly title: string;
       /** ADR 0348: the take this capture recorded the Studio replaying (META `replayOf`), or null. */
       readonly replayOf: CaptureReplayOf | null;
+      /** ADR 0409: the recording holds take data (META `take`), so it is a take itself. */
+      readonly take: boolean;
     }
   | { readonly kind: "failed"; readonly path: string; readonly message: string };
 
@@ -88,7 +90,7 @@ export class ProfilerStore {
         source.close();
         return false;
       }
-      await this.attach(source, { kind: "open", origin: "file", path, title: captureTitle(path), replayOf: source.summary.meta.replayOf ?? null });
+      await this.attach(source, { kind: "open", origin: "file", path, title: captureTitle(path), replayOf: source.summary.meta.replayOf ?? null, take: source.summary.meta.take != null });
       return run === this.run;
     } catch (e) {
       if (run === this.run) this.state.value = { kind: "failed", path, message: messageOf(e) };
@@ -100,7 +102,7 @@ export class ProfilerStore {
   async openLive(source: ProfileSource, title: string): Promise<void> {
     ++this.run;
     this.drop();
-    await this.attach(source, { kind: "open", origin: "live", path: null, title, replayOf: source.summary.meta.replayOf ?? null }, true);
+    await this.attach(source, { kind: "open", origin: "live", path: null, title, replayOf: source.summary.meta.replayOf ?? null, take: false }, true);
   }
 
   /** The live source grew: read what it gained; a live cursor follows its newest block. */

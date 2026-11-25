@@ -132,14 +132,14 @@ export interface SpriteSlice {
   fill?: SpriteFill;
   /** A 2D skin (ADR 0371): bones, a mesh and weights, drawn deformed under a `Skeleton2D`. */
   skin?: SliceSkin;
-  /** Closed polygons in slice pixels from the slice's bottom-left, y up (ADR 0408): its outline, for 2D shadow casters (ADR 0407). Absent: the rect. */
+  /** Closed polygons in slice pixels from the slice's bottom-left, y up (ADR 0414): its outline, for 2D shadow casters (ADR 0413). Absent: the rect. */
   outline?: [number, number][][];
 }
 
-/** The secondary texture names lit 2D draws read (ADR 0408): a tangent-space normal map and a mask map. */
+/** The secondary texture names lit 2D draws read (ADR 0414): a tangent-space normal map and a mask map. */
 export const SECONDARY_TEXTURE_NAMES = ["normalMap", "maskMap"] as const;
 export type SecondaryTextureName = (typeof SECONDARY_TEXTURE_NAMES)[number];
-/** Whether `name` can name a secondary texture: lit sprites read the built-in ones, Secondary Texture graph nodes any (ADR 0409). */
+/** Whether `name` can name a secondary texture: lit sprites read the built-in ones, Secondary Texture graph nodes any (ADR 0415). */
 export const isSecondaryTextureName = (name: string): boolean => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name);
 
 export interface ImportSettings {
@@ -157,11 +157,11 @@ export interface ImportSettings {
   pivot: [number, number];
   sprites: SpriteSlice[];
   /**
-   * Images (ADR 0408): textures laid out like this one, by name (`normalMap`, `maskMap`; others are kept for shader
+   * Images (ADR 0414): textures laid out like this one, by name (`normalMap`, `maskMap`; others are kept for shader
    * graph sprite targets), as `asset:` paths. Every slice samples them at its own UV.
    */
   secondaryTextures: Record<string, string>;
-  /** Images (ADR 0408): the normal map's green channel points up (OpenGL, default) or down (DirectX). */
+  /** Images (ADR 0414): the normal map's green channel points up (OpenGL, default) or down (DirectX). */
   normalMapGreen: "up" | "down";
   /** Images (ADR 0371): flipbooks by name, each a clip `image.png#Flip/<name>` over the named slices. */
   flipbooks: Record<string, SpriteFlipbook>;
@@ -461,7 +461,7 @@ export function parseImportSettings(raw: unknown, where = "import settings"): { 
           continue;
         }
         if (!path) continue;
-        // Custom names are first class (ADR 0409: Sprite Custom Lit graphs read them by name), so they must be names.
+        // Custom names are first class (ADR 0415: Sprite Custom Lit graphs read them by name), so they must be names.
         if (!isSecondaryTextureName(name)) problems.push(`${where}: secondaryTextures["${name}"] should be a name of letters, digits and _ not starting with a digit (shader graphs read it by name); kept.`);
         settings.secondaryTextures[name] = path;
       }

@@ -1,4 +1,4 @@
-/* The Lights 2D plugin's Sprite Editor tools and Import Settings card (ADR 0408). Theme tokens only (src/editor/theme.ts). */
+/* The Lights 2D plugin's Sprite Editor tools and Import Settings card (ADR 0414). Theme tokens only (src/editor/theme.ts). */
 .lights2d-tool { display: flex; gap: 12px; height: 100%; min-height: 0; }
 .lights2d-tool-side { width: 260px; flex: none; display: flex; flex-direction: column; gap: 6px; overflow: auto; }
 .lights2d-tool-stage { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; background: var(--panel); border: 1px solid var(--border); }

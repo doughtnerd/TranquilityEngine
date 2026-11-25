@@ -1,4 +1,4 @@
-// The Lights 2D plugin's editor models (ADR 0399, 0407, 0408): the gizmo's lines, handles and drags, outline point editing,
+// The Lights 2D plugin's editor models (ADR 0399, 0413, 0414): the gizmo's lines, handles and drags, outline point editing,
 // the 2D Lighting settings edits, which fields each light type shows, and the lit preview.
 import { describe, expect, it } from "vitest";
 import { tangents2D } from "../../../engine/render/lights2D/tangents";
@@ -99,7 +99,7 @@ describe("the Secondary Textures tool's lit preview", () => {
   });
 });
 
-describe("custom secondary textures (ADR 0409)", () => {
+describe("custom secondary textures (ADR 0415)", () => {
   const textures = { normalMap: "asset:n.png", _Rim: "asset:r.png" };
   it("lists custom rows after the built-in maps, with ones not given a texture yet", () => {
     expect(customRows(textures, ["_Glow", "_Rim"])).toEqual(["_Rim", "_Glow"]);

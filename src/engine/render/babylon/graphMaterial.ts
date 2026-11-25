@@ -211,7 +211,7 @@ function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [point: 
 }
 
 /**
- * A sprite graph's fragment code (ADR 0409) on the unlit 2D quad material: the graph's colour and alpha times the draw's
+ * A sprite graph's fragment code (ADR 0415) on the unlit 2D quad material: the graph's colour and alpha times the draw's
  * tint (the material's albedo colour) and vertex colours, which the graph's surface replaces. A Sprite Lit graph's normal
  * and mask go to private variables the 2D light plugin reads (`lights2DMaterial.ts`, `MYCO_L2D_GRAPH_*`); a Sprite
  * Custom Lit graph's 2D Light nodes call that plugin's functions, and the plugin then leaves the colour to the graph.
@@ -470,7 +470,7 @@ export function createGraphMaterial(scene: Scene, name: string, c: CompiledShade
   material.albedoColor.set(1, 1, 1);
   material.metallic = 0;
   material.roughness = 1;
-  material.unlit = c.target === "unlit" || c.target.startsWith("sprite-"); // 2D draws light by the 2D light plugin (ADR 0409)
+  material.unlit = c.target === "unlit" || c.target.startsWith("sprite-"); // 2D draws light by the 2D light plugin (ADR 0415)
   material.backFaceCulling = !c.doubleSided;
   material.twoSidedLighting = c.doubleSided;
   if (c.surface === "transparent") material.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;

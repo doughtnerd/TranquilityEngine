@@ -63,7 +63,6 @@
 //! Nothing here allocates.
 
 use anim_format::clip::{ControlKind, KeyData, MarkerKind, TrackKind};
-use anim_format::NONE;
 use anim_pose::sync::{SyncClip, SyncPhase};
 
 use crate::bind::{BoundClip, ClipBindings};
@@ -696,10 +695,8 @@ impl ClipBindings {
     fn edges(&self, sp: &Span, sink: &mut (impl TrackSink + ?Sized)) {
         let hold = !sp.looping;
         let from = sp.fold(sp.a, 0);
-        for (ti, tb) in self.tracks.iter().enumerate() {
-            if tb.kind != TrackKind::Activation {
-                continue;
-            }
+        for &ti in &self.activation_tracks {
+            let ti = ti as usize;
             let was = !sp.start && self.active_at(ti, from, hold);
             let now = self.active_at(ti, sp.now, hold);
             if was != now {
@@ -721,10 +718,9 @@ impl ClipBindings {
 
     fn subclips_in(&self, sp: &Span, sink: &mut (impl TrackSink + ?Sized)) {
         let hold_end = (!sp.looping).then_some(sp.d);
-        for (ti, tb) in self.tracks.iter().enumerate() {
-            if tb.kind != TrackKind::Subclip {
-                continue;
-            }
+        for &ti in &self.subclip_tracks {
+            let ti = ti as usize;
+            let tb = &self.tracks[ti];
             for c in sp.cycles() {
                 let shift = sp.shift(c);
                 let n = tb.key_count as usize;
@@ -817,10 +813,9 @@ impl BoundClip<'_, '_> {
         if columns.len() < b.column_words() {
             return false;
         }
-        for (ti, tb) in b.tracks.iter().enumerate() {
-            if tb.column == NONE {
-                continue;
-            }
+        for &ti in &b.column_tracks {
+            let ti = ti as usize;
+            let tb = &b.tracks[ti];
             let at = tb.column as usize;
             match tb.kind {
                 TrackKind::Discrete => {
