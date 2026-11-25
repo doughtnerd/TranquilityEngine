@@ -22,6 +22,8 @@ import { Assets } from "../../scene/Assets";
 import type { MaterialInstancing, MaterialSettings } from "../../scene/material";
 import { DEFAULT_SLOT, materialSlots, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import type { GraphValue } from "../../scene/shaderGraph";
+import type { KeywordValue } from "../../scene/shaderKeywords";
+import type { CompiledShaderGraph } from "../shaderGraph/compile";
 import { isRenderTexturePath } from "../renderTexture";
 import { Graphics } from "../Graphics";
 import { Material as EngineMaterial } from "../Material";
@@ -43,6 +45,7 @@ import {
   textureValue,
   warmVariantKeywords,
   type AssetRead,
+  type MaterialStamp,
   type MaterialWarning,
   type ResolvedMaterial,
   type Sampling,
@@ -134,12 +137,23 @@ function samplingMode(s: Sampling): number {
 const WRAP = { clamp: Texture.CLAMP_ADDRESSMODE, repeat: Texture.WRAP_ADDRESSMODE, mirror: Texture.MIRROR_ADDRESSMODE } as const;
 
 /** @internal Builds and caches a Babylon scene's materials and textures (ADR 0127). */
+/** @internal A 2D material's sprite shader graph (`BabylonMaterialLibrary.spriteGraph`, ADR 0415). */
+export interface SpriteGraph {
+  compiled: CompiledShaderGraph;
+  properties: Record<string, GraphValue>;
+  keywords: Record<string, KeywordValue>;
+  /** Changes whenever the graph or its values do (what 2D draws key their materials on). */
+  key: string;
+}
+
 export class BabylonMaterialLibrary {
   private defaultMade: PBRMaterial | null = null;
   private readonly shared: GraphShared;
   private readonly read: AssetRead;
   private readonly warned = new Set<string>();
   private readonly assets = new Map<string, AssetEntry>();
+  /** 2D materials' sprite graphs (ADR 0415), by material path. */
+  private readonly spriteGraphs = new Map<string, { stamp: MaterialStamp; graph: SpriteGraph | null }>();
   /** Graph materials by their Babylon material, for copies sharing the compiled program. */
   private readonly graphs = new WeakMap<BabylonMaterial, BabylonGraphMaterial>();
   private readonly noFog = new WeakSet<BabylonMaterial>();
@@ -580,6 +594,32 @@ export class BabylonMaterialLibrary {
     const m = r._drawMaterial(slot);
     if (m?.isInstance) return this.instanceMaterial(m);
     return this.material(r.materials[slot] || r.material);
+  }
+
+  /**
+   * @internal A 2D material's sprite shader graph (ADR 0415): the compiled graph and its property and keyword values,
+   * when `path` is a material shaded by (or itself is) a graph with a sprite target compiled for this renderer's shader
+   * language, else null. Resolved again when stale (a graph edit hot-reloads its 2D draws on their next change).
+   */
+  spriteGraph(path: string): SpriteGraph | null {
+    if (!path) return null;
+    const level = Graphics.tier.shaderLevel;
+    let cached = this.spriteGraphs.get(path);
+    if (!cached || !isStampCurrent(cached.stamp, path, level, this.read)) {
+      const resolved = resolveMaterial(path, { shaderLevel: level, target: this.scene.getEngine().isWebGPU ? "wgsl" : "glsl", read: this.read });
+      for (const w of resolved.warnings) this.warn(w);
+      const c = resolved.kind === "graph" ? resolved.compiled : null;
+      const graph = c && c.target.startsWith("sprite-") && !c.noWgsl && this.scene.getEngine().isWebGPU ? { compiled: c, properties: resolved.properties, keywords: resolved.keywords, key: `${c.key}|${JSON.stringify(resolved.properties)}|${JSON.stringify(resolved.keywords)}` } : null;
+      this.spriteGraphs.set(path, (cached = { stamp: resolved.stamp, graph }));
+    }
+    return cached.graph;
+  }
+
+  /** @internal A new graph material for a 2D draw (ADR 0415): `graph` with property `overrides` (the draw's textures); the caller disposes it. */
+  spriteGraphMaterial(name: string, graph: SpriteGraph, overrides: Record<string, GraphValue>): BabylonGraphMaterial {
+    const m = createGraphMaterial(this.scene, name, graph.compiled, { ...graph.properties, ...overrides }, this.shared, (p, linear) => this.loadGraphTexture(p, linear));
+    m.setKeywords(graph.keywords);
+    return m;
   }
 
   /** A material asset's build, without the shared Material: rebuilt when stale. */

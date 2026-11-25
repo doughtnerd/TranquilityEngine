@@ -110,3 +110,22 @@ describe("the layout key", () => {
     expect(key(effects({ depthOfField: dof }))).not.toBe(key(effects({ ambientOcclusion: ao(), depthOfField: dof })));
   });
 });
+
+describe("the 2D light pass (ADR 0399)", () => {
+  const layout = (styles = 1, directional = false, shadowTextures = 0) => ({ batches: [{ styles, directional }], scale: 0.5, shadowTextures, lowPrecision: false });
+  it("runs before the render pass, only with a layer batch to light", () => {
+    expect(planCameraPasses(null, false, layout()).passes).toEqual(["clear", "lights2d", "render", "finish"]);
+    expect(planCameraPasses(null, true, layout()).passes).toEqual(["clear", "geometry", "lights2d", "render", "finish"]);
+    expect(planCameraPasses(null, false, { ...layout(), batches: [] }).passes).toEqual(["clear", "render", "finish"]);
+    expect(planCameraPasses(null, false, { ...layout(), batches: [] }).key).toBe(planCameraPasses(null).key);
+  });
+
+  it("keys only on which textures exist", () => {
+    const k = (l: ReturnType<typeof layout>) => planCameraPasses(null, false, l).key;
+    expect(k(layout())).toBe(k(layout()));
+    expect(k(layout(2))).not.toBe(k(layout()));
+    expect(k(layout(1, true))).not.toBe(k(layout()));
+    expect(k(layout(1, false, 1))).not.toBe(k(layout()));
+    expect(k({ ...layout(), scale: 0.25 })).not.toBe(k(layout()));
+  });
+});

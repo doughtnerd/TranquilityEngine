@@ -119,6 +119,8 @@ export interface EditorViewport {
   setSelection(nodes: readonly GameObject[]): void;
   /** Show or hide the selection outline, keeping what's selected. */
   setSelectionShown(shown: boolean): void;
+  /** Light 2D draws by their 2D lights (default), or draw them unlit, as the scene view's 2D Lighting toggle does (ADR 0399). */
+  setLighting2D(on: boolean): void;
   /** Draw `provider`'s overlay every frame (null: none). */
   setOverlay(provider: (() => EditorOverlay) | null): void;
   /** Show a move/rotate/scale gizmo on `nodes` (none hides it); drags report each node's new local pose. */
@@ -288,6 +290,10 @@ export class ViewportHandle implements EditorViewport {
     this.selected.clear();
     for (const n of this.selection) this.selected.add(n);
     this.live()?.setSelection(this.selection, this.selectionShown);
+  }
+
+  setLighting2D(on: boolean): void {
+    this.policy.setPolicy({ lighting2D: on });
   }
 
   setSelectionShown(shown: boolean): void {

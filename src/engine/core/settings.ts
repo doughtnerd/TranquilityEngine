@@ -1,4 +1,5 @@
 import { parseGraphics, type GraphicsSettings } from "./graphics";
+import { parseLighting2D, type Lighting2DSettings } from "../render/lights2D/settings";
 import { parseNavigationSettings, type NavigationSettings } from "../nav/settings";
 import { parseAudioSettings, type AudioSettings } from "../audio/settings";
 import type { BootstrapSetting } from "./worlds";
@@ -64,6 +65,8 @@ export interface ProjectSettings {
   };
   /** Graphics quality tiers (ADR 0050). Omitted: Low, Medium, High and Ultra, defaulting to High. */
   graphics: GraphicsSettings;
+  /** 2D lighting (ADR 0399): the light blend styles. Omitted: one, Multiply. */
+  lighting2D: Lighting2DSettings;
   /** Built-in navigation (ADR 0065): agent types, areas, voxel sizes, runtime budgets. Omitted: one person-sized walker. */
   navigation: NavigationSettings;
   /** Audio mixer buses, snapshots, ducking and the backend (ADR 0097, 0098): `audio.json`'s runtime view (ADR 0344), never a `project.json` section. Omitted: Master with Music, SFX, UI and Voice. */
@@ -338,6 +341,10 @@ export const RUNTIME_SETTINGS: { readonly [K in RuntimeSettingsKey]: RuntimeSett
   graphics: declare("graphics", (w) => {
     const { graphics, problems } = parseGraphics(w);
     return { value: graphics, problems: asIssues("graphics", problems), warnings: [] };
+  }),
+  lighting2D: declare("lighting2D", (w) => {
+    const { settings, problems } = parseLighting2D(w);
+    return { value: settings, problems: asIssues("lighting2D", problems), warnings: [] };
   }),
   navigation: declare("navigation", (w) => {
     const { settings, problems } = parseNavigationSettings(w);

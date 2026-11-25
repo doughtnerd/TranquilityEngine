@@ -6,6 +6,7 @@ import { animationManifest } from "./animation/manifest";
 import { audioManifest } from "./audio/manifest";
 import { decalsManifest } from "./decals/manifest";
 import { environmentManifest } from "./environment/manifest";
+import { lights2dManifest } from "./lights2d/manifest";
 import { materialsManifest } from "./materials/manifest";
 import { linesManifest } from "./lines/manifest";
 import type { PluginManifest } from "./manifest";
@@ -44,6 +45,7 @@ export const FIRST_PARTY = {
   decals: decalsManifest,
   ui: uiManifest,
   environment: environmentManifest,
+  lights2d: lights2dManifest,
   "post-processing": postProcessingManifest,
   audio: audioManifest,
   // After audio and UI, which it needs (ADR 0357 §5).

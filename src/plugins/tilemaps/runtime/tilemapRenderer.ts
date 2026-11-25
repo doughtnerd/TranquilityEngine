@@ -7,6 +7,7 @@
  */
 import type { World } from "../../../engine/core/World";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
+import { quadLighting } from "../../../engine/render/lights2D/spriteMaterial";
 import { Assets, sidecarValue } from "../../../engine/scene/Assets";
 import { findSlice, splitSpriteRef } from "../../../engine/scene/importSettings";
 import { buildChunkMeshes, type TileFrame } from "./mesh";
@@ -20,6 +21,8 @@ interface ChunkEntry {
   cellX: number;
   cellY: number;
   batches: QuadBatch[];
+  /** Each batch's texture (its tileset image), for its lighting's normal and mask maps (ADR 0399). */
+  textures: string[];
 }
 
 interface LayerEntry {
@@ -105,7 +108,7 @@ export class TilemapRenderer {
           let ce = le.chunks.get(key);
           if (ce && ce.version === chunk.version && ce.framesVersion === entry!.framesVersion && ce.cellX === cellX && ce.cellY === cellY) continue;
           if (ce) for (const b of ce.batches) b.dispose();
-          ce = { version: chunk.version, framesVersion: entry!.framesVersion, cellX, cellY, batches: [] };
+          ce = { version: chunk.version, framesVersion: entry!.framesVersion, cellX, cellY, batches: [], textures: [] };
           le.chunks.set(key, ce);
           const built = buildChunkMeshes(chunk.cells, chunk.cx, chunk.cy, map.cellSize, (n) => this.frame(entry!, map, map._tileIdAt(li, n)));
           for (const m of built) {
@@ -115,7 +118,9 @@ export class TilemapRenderer {
             batch.setTint(layer.meta.tint, layer.meta.opacity);
             batch.setVisible(visible);
             batch.setQuads(m.texture, m.positions, m.uvs, m.indices);
+            batch.setLighting(quadLighting(map.material, layer.meta.sortingLayer, m.texture)); // ADR 0399
             ce.batches.push(batch);
+            ce.textures.push(m.texture);
           }
         }
       }
@@ -124,6 +129,7 @@ export class TilemapRenderer {
           b.setVisible(visible);
           b.setOrder(order);
           b.setTint(layer.meta.tint, layer.meta.opacity);
+          b.setLighting(quadLighting(map.material, layer.meta.sortingLayer, ce.textures[ce.batches.indexOf(b)] ?? ""));
           if (moved) b.setMatrix(entry!.matrix!);
         }
       }

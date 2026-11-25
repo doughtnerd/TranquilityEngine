@@ -198,6 +198,10 @@ export class BabylonSurface implements RenderSurface {
     this.renderer?.setVariantReport(on);
   }
 
+  textureSize(path: string): readonly [number, number] | null {
+    return this.renderer?.textureSize(path) ?? null;
+  }
+
   async preloadTextures(paths: string[], onProgress?: (p: number) => void): Promise<void> {
     // Textures load into the renderer's scene, so wait for it (it's quick next to the textures).
     // A renderer that failed to start (logged) or a disposed surface has nothing to load into.
