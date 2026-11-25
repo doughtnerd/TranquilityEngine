@@ -1,7 +1,7 @@
 // The Studio's audio runtime host, through its interface, over a fake starter and a fake public `Audio`.
 import { describe, expect, it, vi } from "vitest";
 import { statsFromDebug } from "./audioStats";
-import { CORE_UNAVAILABLE, coreUnavailableText, createStudioAudioHost, studioRuntimeSettings, type AudioApi, type HostSeams } from "./studioAudioHost";
+import { CORE_UNAVAILABLE, PREVIEW_HANDOFF_FADE, coreUnavailableText, createStudioAudioHost, studioRuntimeSettings, type AudioApi, type HostSeams } from "./studioAudioHost";
 
 /** A fake `Audio`: its debug answers with `backend` and `status`; plays give handles that stay playing until stopped. */
 function fakeAudio(over: { backend?: string; status?: string; throws?: boolean; why?: string } = {}) {
@@ -130,6 +130,22 @@ describe("Studio audio runtime host", () => {
     expect(h).not.toBeNull();
     host.stopAll(0.2);
     expect(f.handles.map((x) => x.stopped)).toEqual([0.2, 0.2]);
+  });
+
+  it("previews one asset at a time: another asset stops the last, the same one layers, a layer play is left alone", async () => {
+    const f = fakeAudio();
+    const host = createStudioAudioHost(seams(f.audio).s);
+    await host.open({});
+    host.audition("fx/tremolo.playlist.json");
+    host.audition("fx/tremolo.playlist.json"); // again: both play (max instances, cooldown)
+    const replayed = host.audition("takes/run.instance.playlist.json", {}, "layer");
+    expect(f.handles.map((h) => h.playing)).toEqual([true, true, true]);
+    host.playClip("audio/horn.wav");
+    expect(f.handles.map((h) => h.stopped)).toEqual([PREVIEW_HANDOFF_FADE, PREVIEW_HANDOFF_FADE, null, null]);
+    expect(replayed!.playing).toBe(true);
+    host.audition("music/theme.playlist.json");
+    expect(f.handles[3]!.stopped).toBe(PREVIEW_HANDOFF_FADE);
+    expect(f.handles[4]!.playing).toBe(true);
   });
 
   it("closes: stops the Engine and polling, back to idle; a close while starting stops the late Engine", async () => {

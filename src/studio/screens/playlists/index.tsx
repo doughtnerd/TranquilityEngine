@@ -46,7 +46,7 @@ import { addEntries, duplicateEntry, removeEntry, setAutomation, setEntryUse, sa
 import { breadcrumb, childPath, editAt, effectiveOutput, entryName, filePath, pathTarget, playlistTitle, sampleTitle, whereOf, type PlaylistPath } from "./playlistPaths";
 import {
   adding, allParameters, askDelete, busPaths, askDeleteFolder, deleteFolderKeepingContents, deletingFolder, audioNow, auditioning, busNames, confirmDelete, deleting, docFor, duplicatePlaylistFiles, editContext, editFile, editOpen, followRoute,
-  linkedBy, loadPlaylist, logCursor, makeShared, moveToFolder, newPlaylist, newPlaylistFolder, newPlaylistFromSamples, newSequence, openBody, openDoc, openFile, openLints, openPath, openPlaylist,
+  linkedBy, loadPlaylist, logCursor, triggerMark, makeShared, moveToFolder, newPlaylist, newPlaylistFolder, newPlaylistFromSamples, newSequence, openBody, openDoc, openFile, openLints, openPath, openPlaylist,
   playingNow, releaseAudition, renameFolder, renamePlaylistFile, removeLinkEntry, runDrop, selectedEntry, setTestValue, stopAudition, target, testValues, trigger, triggerOffReason, unlink, voiceLog, clearLog,
   frozen, lastChange, pauseAudition, renamingOpen, resumeAudition,
 } from "./playlistsScreen";
@@ -375,7 +375,7 @@ function useScreen(): void {
         const t = pathTarget(path);
         if (body.type === "sequence") return setPlayerSlots("playlists", sequencePlayerSlots(lastCrumbName(), `Sequence · ${t.file}`));
         setPlayerSlots("playlists", playlistPlayerSlots(
-          { title: lastCrumbName(), art: playlistBadge(body.type, factsOf(body).axes).code, subtitle: typeSummary(body), busy, paused, release: canRelease(body, loadPlaylist), triggerOff: triggerOffReason(), next: nextText(), log, cursor, now },
+          { title: lastCrumbName(), art: playlistBadge(body.type, factsOf(body).axes).code, subtitle: typeSummary(body), busy, paused, release: canRelease(body, loadPlaylist), triggerOff: triggerOffReason(), next: nextText(), log, mark: triggerMark.value, cursor, now },
           { trigger, stop: stopAudition, release: releaseAudition, pause: pauseAudition, resume: resumeAudition, seek: (at) => (logCursor.value = at) },
         ));
       }),

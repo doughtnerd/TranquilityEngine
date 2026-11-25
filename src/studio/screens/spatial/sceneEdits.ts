@@ -359,3 +359,16 @@ export const patchListener = (scene: AudioTestScene, id: string, patch: Partial<
 export function soundOf(o: SceneObject): string | null {
   return o.kind === "emitter" || o.kind === "audioZone" || o.kind === "sound2d" ? o.obj.sound : null;
 }
+
+/** A game scene file (`*.scene.json`): what a test scene may name as its base. */
+export const isGameScenePath = (path: string): boolean => path.endsWith(".scene.json") && !path.endsWith(".audioscene.json");
+
+/**
+ * ADR 0347's base game scene: play this test scene over a level of the project (`path`, a `*.scene.json`), whose audio
+ * components and colliders are drawn read-only underneath and heard with the scene; null plays without one.
+ */
+export function setBaseScene(scene: AudioTestScene, path: string | null): EditResult<AudioTestScene> {
+  if (path !== null && !isGameScenePath(path)) return { refused: `${path} isn't a game scene (a .scene.json file)` };
+  if ((scene.base ?? null) === path) return accept(scene);
+  return accept({ ...scene, base: path });
+}

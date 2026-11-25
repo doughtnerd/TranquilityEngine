@@ -39,9 +39,13 @@ export interface StudioAudioHost {
   readonly playable: ReadonlySignal<boolean>;
   /** The runtime's public `Audio` API. */
   readonly audio: AudioApi;
-  /** Play a playlist or event asset (or a clip as a one-clip event); null when the runtime can't play. */
-  audition(path: string, options?: EventOptions): AudioEventHandle | null;
-  /** Play a clip once; null when the runtime can't play. */
+  /**
+   * Play a playlist or event asset (or a clip as a one-clip event); null when the runtime can't play. As a `"preview"`
+   * (default) it is one at a time: whatever another asset previews stops first (the same asset again layers, so its
+   * max instances and cooldown can be heard). A `"layer"` play (a take's replay) neither stops nor is stopped by previews.
+   */
+  audition(path: string, options?: EventOptions, mode?: PlayMode): AudioEventHandle | null;
+  /** Play a clip once, as a preview (one at a time, as `audition`); null when the runtime can't play. */
   playClip(path: string, options?: OneShotOptions): AudioHandle | null;
   /**
    * Play part of a clip: audible from source second `from` to `to`, optionally cycling `loop` (`count` passes, 0 =
@@ -53,6 +57,12 @@ export interface StudioAudioHost {
   /** Stop everything this host started (fading over `fadeSeconds`). */
   stopAll(fadeSeconds?: number): void;
 }
+
+/** How a play shares the runtime: a preview is one at a time across assets; a layer plays beside anything. */
+export type PlayMode = "preview" | "layer";
+
+/** The fade a preview's predecessor stops with, seconds. */
+export const PREVIEW_HANDOFF_FADE = 0.05;
 
 /** What `playClipSpan` plays, source seconds. */
 export interface ClipSpan {
@@ -165,6 +175,21 @@ export function createStudioAudioHost(seams: HostSeams): StudioAudioRuntime {
 
   const spans = new Set<SpanPlayback>();
 
+  // The previews playing, by the asset each plays: a preview of another asset stops them (one at a time).
+  type Stoppable = { stop(fade?: number): void; readonly playing: boolean };
+  const previews = new Map<Stoppable, string>();
+  const handOff = (path: string): void => {
+    for (const [h, p] of previews) {
+      if (h.playing && p === path) continue;
+      if (h.playing) h.stop(PREVIEW_HANDOFF_FADE);
+      previews.delete(h);
+    }
+  };
+  const previewing = <T extends Stoppable>(path: string, h: T | null): T | null => {
+    if (h) previews.set(h, path);
+    return h;
+  };
+
   /** One pass: a one-shot started at source second `srcStart` (less a crossfade's lead, silent) so `srcStart` is heard at `audibleAt`. */
   interface Pass {
     readonly handle: AudioHandle;
@@ -256,19 +281,24 @@ export function createStudioAudioHost(seams: HostSeams): StudioAudioRuntime {
     stats,
     playable,
     audio,
-    audition(path, options) {
+    audition(path, options, mode = "preview") {
       if (!playable.peek()) return null;
-      return track(audio.play(path, options));
+      if (mode === "layer") return track(audio.play(path, options));
+      handOff(path);
+      return previewing(path, track(audio.play(path, options)));
     },
     playClip(path, options) {
       if (!playable.peek()) return null;
-      return track(audio.playOneShot(path, options));
+      handOff(path);
+      return previewing(path, track(audio.playOneShot(path, options)));
     },
     playClipSpan(path, span, options) {
       if (!playable.peek() || !(span.to > span.from || (span.loop && span.loop.count !== 1 && span.from < span.loop.end))) return null;
-      return playSpan(path, span, options ?? {});
+      handOff(path);
+      return previewing(path, playSpan(path, span, options ?? {}));
     },
     stopAll(fadeSeconds = 0) {
+      previews.clear();
       for (const h of handles) h.stop(fadeSeconds);
       handles.clear();
       for (const s of spans) s.stop(fadeSeconds);

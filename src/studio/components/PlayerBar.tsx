@@ -211,6 +211,8 @@ export interface VoiceStripProps {
   readonly marks?: readonly { readonly at: number; readonly kind: "end" | "hold" | "stop" }[];
   /** The playhead, seconds (null: at the end). */
   readonly cursor: number | null;
+  /** Now, seconds: where a voice still playing ends (default: the strip's end). */
+  readonly now?: number;
   /** The times either side ("0.00", "4.00 s"). */
   readonly startText?: string;
   readonly endText?: string;
@@ -221,6 +223,8 @@ export interface VoiceStripProps {
 
 /** Voice lanes on the strip before they repeat. */
 const STRIP_LANES = 4;
+/** At most this many voice bars (the newest). */
+const STRIP_SEGMENTS = 16;
 
 /**
  * The Playlists screen's voice strip (the prototype's `.vstrip`): one thin bar per voice of the trigger across its time
@@ -243,7 +247,7 @@ export function VoiceStrip(props: VoiceStripProps) {
       {props.startText !== undefined && <span class="studio-vtc">{props.startText}</span>}
       <div
         ref={strip}
-        class={`studio-vstrip${props.segments.some((s) => s.end === null) ? " open" : ""}`}
+        class={`studio-vstrip${props.now === undefined && props.segments.some((s) => s.end === null) ? " open" : ""}`}
         role="slider"
         tabIndex={props.disabled ? -1 : 0}
         aria-label="Scrub through the voices"
@@ -271,13 +275,18 @@ export function VoiceStrip(props: VoiceStripProps) {
           props.onSeek(Math.max(props.from, Math.min(props.to, next)));
         }}
       >
-        {props.segments.slice(0, 16).map((s, i) => (
-          <i
-            key={i}
-            class={`studio-vseg${s.done ? " done" : ""}${s.end === null ? " open" : ""}`}
-            style={{ left: pct(s.start), width: s.end === null ? `calc(100% - ${pct(s.start)})` : `max(1px, calc(${pct(s.end)} - ${pct(s.start)}))`, top: `${3 + (i % STRIP_LANES) * 4}px` }}
-          />
-        ))}
+        {props.segments.slice(-STRIP_SEGMENTS).map((s, i, shown) => {
+          // The newest voices; each keeps its lane as older ones drop off the front.
+          const lane = (props.segments.length - shown.length + i) % STRIP_LANES;
+          const end = s.end ?? props.now;
+          return (
+            <i
+              key={props.segments.length - shown.length + i}
+              class={`studio-vseg${s.done ? " done" : ""}${s.end === null ? " open" : ""}`}
+              style={{ left: pct(s.start), width: end === undefined ? `calc(100% - ${pct(s.start)})` : `max(1px, calc(${pct(end)} - ${pct(s.start)}))`, top: `${3 + lane * 4}px` }}
+            />
+          );
+        })}
         {(props.marks ?? []).map((m, i) => (
           <b key={`m${i}`} class={`studio-vmark ${m.kind}`} style={{ left: pct(m.at) }} />
         ))}

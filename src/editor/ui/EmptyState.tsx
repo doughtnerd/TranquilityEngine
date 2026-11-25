@@ -6,7 +6,7 @@
 // - full (a screen's main area, nothing open): a bold title, one short line of `body`, the actions.
 //
 // Copy rules: the title is a sentence that says what is missing and, where it fits, what to do ("No takes yet. Record
-// one from the editor's Play bar."); keep `body` to one sentence; one primary action (drawn as the positive button).
+// one with Record session."); keep `body` to one sentence; one primary action (drawn as the positive button).
 import type { ComponentChildren } from "preact";
 import { InfoTip } from "./InfoTip";
 import "./kit.css";

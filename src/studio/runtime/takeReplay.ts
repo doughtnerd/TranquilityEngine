@@ -791,7 +791,7 @@ export function studioReplayTarget(host: StudioAudioHost, world: ReplayWorld): R
         ...(o.parameters ? { parameters: o.parameters } : {}),
         ...(o.position ? { position: o.position } : {}),
         ...(o.offset !== undefined ? { offset: o.offset } : {}),
-      });
+      }, "layer"); // a take's instances play together, beside whatever previews
       return handle;
     },
     setGlobal: (name, value) => audio.setParameter(name, value),

@@ -115,6 +115,8 @@ class TakeScreen {
     const open = replayStore().open.peek();
     if (open?.path === path) {
       this.state.value = { kind: "open", path };
+      // The replay already holds it; the Profiler may show another recording since (one recording for both screens).
+      void profilerStore().openPath(path);
       return;
     }
     const s = this.state.peek();

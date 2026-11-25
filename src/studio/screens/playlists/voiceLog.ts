@@ -97,12 +97,33 @@ export function stepEvent(times: readonly number[], cursor: number | null, dir: 
 /** The rows sounding at time `t` (started, not ended). */
 export const aliveAt = (log: readonly LogRow[], t: number): LogRow[] => log.filter((r) => r.kind === "voice" && r.start <= t && (r.end === null || r.end > t));
 
-/** The log's span (first start to last end, or `now` while a voice still plays). */
-export function logSpan(log: readonly LogRow[], now: number): [number, number] | null {
-  if (log.length === 0) return null;
-  const start = Math.min(...log.map((r) => r.start));
-  const end = Math.max(...log.map((r) => r.end ?? now));
-  return [start, Math.max(start, end)];
+/** Where the latest trigger began: the log's keys just before it and the audio clock then. */
+export interface TriggerMark {
+  readonly before: ReadonlySet<string>;
+  readonly at: number;
+}
+
+/** The latest trigger's mark for `log` at audio time `at`. */
+export const markTrigger = (log: readonly LogRow[], at: number): TriggerMark => ({ before: new Set(log.map((r) => r.key)), at });
+
+/** The voices the latest trigger started (every voice without a mark). */
+export const triggerRows = (log: readonly LogRow[], mark: TriggerMark | null): LogRow[] => log.filter((r) => r.kind === "voice" && !mark?.before.has(r.key));
+
+/** The widths the strip grows through while a trigger plays on with no known end, seconds. */
+const STRIP_STEPS = [2, 4, 8, 15, 30, 60, 120, 300, 600];
+
+/**
+ * The span the player bar's strip covers for one trigger's voices: from the trigger (or its first voice) to its last
+ * voice's end once all have ended; while one plays on (an indeterminate length), the next step of `STRIP_STEPS` past the
+ * time so far, so the playhead moves across the strip and the strip widens when it reaches the end. Null with no voices.
+ */
+export function triggerSpan(rows: readonly LogRow[], mark: TriggerMark | null, now: number): [number, number] | null {
+  if (rows.length === 0) return null;
+  const from = Math.min(mark?.at ?? Infinity, ...rows.map((r) => r.start));
+  if (rows.every((r) => r.end !== null)) return [from, Math.max(from, ...rows.map((r) => r.end!))];
+  const elapsed = Math.max(0, now - from);
+  const width = STRIP_STEPS.find((w) => w >= elapsed * 1.05) ?? Math.ceil((elapsed * 1.25) / 600) * 600;
+  return [from, from + width];
 }
 
 /**

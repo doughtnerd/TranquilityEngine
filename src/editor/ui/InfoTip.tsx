@@ -6,7 +6,7 @@
 //
 //   <InfoTip text="Runs on everything routed here, before the fader." />                 beside anything
 //   <Section title="Playback" hint="When a trigger plays, and what happens at the limit">  a section header
-//   <EmptyState compact title="No takes yet" body="Record one with Record take…" />        an empty state's body
+//   <EmptyState compact title="No takes yet" body="Record one with Record session…" />        an empty state's body
 import { useId, useRef, useState } from "preact/hooks";
 import { FloatingPortal } from "./FloatingPortal";
 import { usePopover } from "./popover";
