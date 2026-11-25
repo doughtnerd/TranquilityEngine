@@ -51,6 +51,7 @@
     "postinstall": "patch-package",
     "bench:particles": "node bench/particles/run.mjs",
     "bench:anim": "node tools/anim-bench/run.mjs",
+    "bench:anim:babylon": "node tools/anim-bench/babylon.mjs",
     "check:filenames": "node tools/check-filename-case.mjs",
     "build:fx-examples": "node native/fx-sdk/build.mjs"
   },
