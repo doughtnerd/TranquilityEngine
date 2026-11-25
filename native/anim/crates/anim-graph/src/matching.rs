@@ -279,7 +279,7 @@ fn database(cx: &mut EvalContext<'_>, node: &NodeData<'_>) {
         }
         Phase::Update => update(cx, node),
         Phase::Pose => {
-            sources::player_pose_at(cx, state::PLAYER, 0);
+            sources::player_pose_at(cx, state::PLAYER, 0, 0);
             if cx.state()[state::MIRRORED] != 0 {
                 mirror_out(cx);
             }

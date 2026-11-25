@@ -15,15 +15,19 @@
 //!
 //! - **early out:** a row is dropped once a partial sum exceeds the best cost. Rounding is
 //!   monotonic and every term is ≥ 0, so a partial sum never exceeds the full one;
-//! - **KD bound:** a far child is skipped when `max(bound, (q_axis − split)²)` exceeds the best
-//!   cost. Every entry of the far child lies beyond the split (`left ≤ split ≤ right`, checked at
-//!   load), so its own term on that axis, and so its cost, is at least that;
+//! - **KD bound:** a node is skipped when a lower bound of its entries' costs exceeds the best
+//!   cost. Each node keeps the bounding box of its rows (built at load); the bound is the squared
+//!   offset of the query from the box (per dim: to the nearest face, 0 inside), summed in the
+//!   distance's own order (lane by lane, then the lanes). Every entry lies in the box, so on each
+//!   dim `|q − r| ≥` the offset, and the bound is the distance's own computation with every term
+//!   replaced by one no larger: subtraction, multiplication and addition of non-negative values
+//!   round monotonically, so the computed cost of any entry is at least the computed bound, bit
+//!   for bit;
 //! - comparisons are strict (`>`), so a frame that ties the best is still evaluated and the
 //!   index tie-break applies.
 
 use crate::db::{MatchDb, Node, Prepared, TagFilter};
-use crate::MAX_KD_DEPTH;
-use anim_math::F32x4;
+use anim_math::{F32x4, Lane};
 
 /// Which search runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -101,6 +105,14 @@ struct Best {
     frame: u32,
 }
 
+/// One KD search's query, filter and best frame so far.
+struct KdWalk<'q> {
+    q: &'q [F32x4],
+    skip: Option<Skip>,
+    tags: &'q Prepared,
+    best: Best,
+}
+
 impl Best {
     #[inline(always)]
     fn offer(&mut self, cost: f32, frame: u32) {
@@ -120,6 +132,16 @@ impl MatchDb {
             None => i,
         };
         &self.rows[at * self.lanes..(at + 1) * self.lanes]
+    }
+
+    /// The row at leaf position `j` (the frame `indices[j]`).
+    #[inline(always)]
+    pub(crate) fn leaf_row(&self, j: usize) -> &[F32x4] {
+        if self.slots.is_empty() {
+            self.row(self.indices[j] as usize)
+        } else {
+            &self.rows[j * self.lanes..(j + 1) * self.lanes]
+        }
     }
 
     /// The frame stored at row position `j` (see `rows`).
@@ -212,65 +234,70 @@ impl MatchDb {
         best
     }
 
+    /// The box bound of node `node`: `Σ off²` in [`distance`]'s order, `off` per dim the query's
+    /// offset from the nearest face of the node's box (0 inside it).
+    #[inline(always)]
+    fn box_cost(&self, q: &[F32x4], node: u32) -> f32 {
+        let lanes = self.lanes;
+        let at = 2 * lanes * node as usize;
+        let (lo, hi) = (
+            &self.boxes[at..at + lanes],
+            &self.boxes[at + lanes..at + 2 * lanes],
+        );
+        let zero = F32x4::splat(0.0);
+        let mut acc = zero;
+        for ((q, lo), hi) in q.iter().zip(lo).zip(hi) {
+            let below = F32x4::select(q.lt(*lo), *q - *lo, zero);
+            let o = F32x4::select(q.gt(*hi), *q - *hi, below);
+            acc = acc + o * o;
+        }
+        hsum(acc)
+    }
+
     fn search_kd(&self, q: &[F32x4], skip: Option<Skip>, tags: &Prepared) -> Best {
-        let mut best = Best {
-            cost: f32::INFINITY,
-            frame: u32::MAX,
+        let mut walk = KdWalk {
+            q,
+            skip,
+            tags,
+            best: Best {
+                cost: f32::INFINITY,
+                frame: u32::MAX,
+            },
         };
-        // Depth-first; the near child is pushed last so it pops first. At most one pending far
-        // child per level, plus the near one: MAX_KD_DEPTH + 1 entries.
-        let mut stack = [(0u32, 0.0f32); MAX_KD_DEPTH + 2];
-        let mut sp = 1;
-        while sp > 0 {
-            sp -= 1;
-            let (node, bound) = stack[sp];
-            if bound > best.cost {
-                continue;
-            }
-            match self.nodes[node as usize] {
-                Node::Leaf { first, count } => {
-                    let range = first as usize..(first + count) as usize;
-                    for (j, &f) in range.clone().zip(&self.indices[range]) {
-                        let i = f as usize;
-                        if !self.allowed(i, skip, tags) {
-                            continue;
-                        }
-                        // Rows in leaf order: row position j holds frame f.
-                        let row = if self.slots.is_empty() {
-                            self.row(i)
-                        } else {
-                            &self.rows[j * self.lanes..(j + 1) * self.lanes]
-                        };
-                        let d = distance(q, row, best.cost);
-                        best.offer(d, f);
+        let root = self.box_cost(q, 0);
+        self.kd_visit(0, root, &mut walk);
+        walk.best
+    }
+
+    /// Visits `node`, whose every entry costs at least `bound`: depth first, the child with the
+    /// lower bound first (recursion is at most [`MAX_KD_DEPTH`](crate::MAX_KD_DEPTH) deep,
+    /// checked at load).
+    fn kd_visit(&self, node: u32, bound: f32, w: &mut KdWalk<'_>) {
+        if bound > w.best.cost {
+            return;
+        }
+        match self.nodes[node as usize] {
+            Node::Leaf { first, count } => {
+                let range = first as usize..(first + count) as usize;
+                for (j, &f) in range.clone().zip(&self.indices[range]) {
+                    let i = f as usize;
+                    if !self.allowed(i, w.skip, w.tags) {
+                        continue;
                     }
+                    let d = distance(w.q, self.leaf_row(j), w.best.cost);
+                    w.best.offer(d, f);
                 }
-                Node::Inner {
-                    axis,
-                    split,
-                    left,
-                    right,
-                } => {
-                    let a = axis as usize;
-                    let qa = q[a / 4].to_array()[a % 4];
-                    let diff = qa - split;
-                    let (near, far) = if diff < 0.0 {
-                        (left, right)
-                    } else {
-                        (right, left)
-                    };
-                    let far_bound = bound.max(diff * diff);
-                    if far_bound <= best.cost && sp + 2 <= stack.len() {
-                        stack[sp] = (far, far_bound);
-                        sp += 1;
-                    }
-                    if sp < stack.len() {
-                        stack[sp] = (near, bound);
-                        sp += 1;
-                    }
+            }
+            Node::Inner { left, right } => {
+                let (bl, br) = (self.box_cost(w.q, left), self.box_cost(w.q, right));
+                if bl <= br {
+                    self.kd_visit(left, bl, w);
+                    self.kd_visit(right, br, w);
+                } else {
+                    self.kd_visit(right, br, w);
+                    self.kd_visit(left, bl, w);
                 }
             }
         }
-        best
     }
 }

@@ -36,6 +36,7 @@ use anim_math::quant::{is_supported_bits, unorm_max};
 use anim_math::{AosQuat, AosTransform, AosVec3, F32x4, Lane, SoaTransform};
 use anim_pose::sync::SyncMarker;
 
+use crate::frames::lanes_on;
 use crate::Form;
 use crate::{
     apply, apply_soa, blend_track, decode, decode_n, group, read_word, seg_range, ClipSampler,
@@ -99,6 +100,12 @@ fn lane_codes(
     } else {
         ([0; 3], 1.0, true)
     }
+}
+
+/// Whether a sampling mask keeps `bone` (every bone without a mask).
+#[inline(always)]
+fn keeps(only: Option<&[F32x4]>, bone: u32) -> bool {
+    only.is_none() || lanes_on(only, bone as usize / 4) & (1 << (bone % 4)) != 0
 }
 
 /// A track record, decoded, with its column and value channel.
@@ -185,6 +192,10 @@ pub struct ClipBindings {
     group_ops: Vec<GroupOp>,
     /// Per animated channel (rank order) of a grouped clip: `4 × op + lane`, or `NONE`.
     group_slots: Vec<u32>,
+    /// Every segment's [`frame_ranges`](Self::frame_ranges), `frame_ranges_len()` words each
+    /// (D146: one table per clip, shared by every player, instead of a copy per player's frame
+    /// cache).
+    seg_ranges: Vec<u32>,
     /// Raw form: (bone, raw offset) per bone track.
     raw_bones: Vec<(u32, u32)>,
     pub(crate) tracks: Vec<TrackBind>,
@@ -221,6 +232,7 @@ impl ClipBindings {
             exclusive: true,
             group_ops: Vec::new(),
             group_slots: Vec::new(),
+            seg_ranges: Vec::new(),
             raw_bones: Vec::new(),
             tracks,
             keys,
@@ -233,7 +245,17 @@ impl ClipBindings {
             column_words,
         };
         match sampler.comp {
-            Some(c) => b.read_channels(&c, bones),
+            Some(c) => {
+                b.read_channels(&c, bones);
+                let len = b.frame_ranges_len();
+                let mut ranges = vec![0u32; len * b.seg_frame_bits.len()];
+                if len > 0 {
+                    for (seg, out) in ranges.chunks_exact_mut(len).enumerate() {
+                        b.frame_ranges(&c, seg, out);
+                    }
+                }
+                b.seg_ranges = ranges;
+            }
             None => {
                 for t in &b.tracks {
                     if t.kind == TrackKind::Bone && t.raw_offset != NONE {
@@ -635,6 +657,12 @@ impl ClipBindings {
         f / self.segment_frames
     }
 
+    /// Segment `seg`'s [`frame_ranges`](Self::frame_ranges), computed when the table was built.
+    pub(crate) fn segment_ranges(&self, seg: usize) -> Option<&[u32]> {
+        let len = self.frame_ranges_len();
+        self.seg_ranges.get(seg * len..(seg + 1) * len)
+    }
+
     /// Words [`frame_ranges`](Self::frame_ranges) writes: [`GROUP_WORDS`] per group op of a
     /// grouped clip, else eight per animated channel.
     pub(crate) fn frame_ranges_len(&self) -> usize {
@@ -714,6 +742,11 @@ impl ClipBindings {
     /// two channels (`exclusive`), only the animated channels are rewritten (the rest pose and
     /// the constant channels are already there). The caller
     /// checks [`frame_seg`](Self::frame_seg) first; without it nothing is written.
+    ///
+    /// With `only` (a sampling mask, one weight per bone packed like a pose), bones whose weight
+    /// isn't above 0 may be skipped: their values in `out` are left as they were or written, so
+    /// the caller reads only the bones the mask keeps (each written bone gets the same bits).
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn decode_frame_soa(
         &self,
         c: &CompressedView<'_>,
@@ -722,6 +755,7 @@ impl ClipBindings {
         out: &mut [SoaTransform],
         ranges: Option<&[u32]>,
         held: bool,
+        only: Option<&[F32x4]>,
     ) {
         let Some(s) = self.frame_seg(c, f) else {
             return;
@@ -730,16 +764,18 @@ impl ClipBindings {
         let format = c.rotation_format();
         if !(held && self.exclusive) {
             for (g, o) in out.iter_mut().enumerate() {
-                *o = group(rest, g);
+                if only.is_none() || lanes_on(only, g) != 0 {
+                    *o = group(rest, g);
+                }
             }
             if !self.exclusive {
                 // A field written twice: every channel in order, so the last write wins.
-                self.decode_channels(c, &s, n, out, ranges, format, false);
+                self.decode_channels(c, &s, n, out, ranges, format, false, only);
                 return;
             }
             let constants = c.constants();
             for ch in &self.channels {
-                if ch.mode != ChannelMode::Constant || ch.bone == NONE {
+                if ch.mode != ChannelMode::Constant || ch.bone == NONE || !keeps(only, ch.bone) {
                     continue;
                 }
                 let mut v = [0.0f32; 4];
@@ -754,12 +790,12 @@ impl ClipBindings {
         match ranges {
             Some(rg) if rg.len() >= self.frame_ranges_len() => {
                 if self.group_ops.is_empty() {
-                    self.decode_animated(&s, n, out, rg, format)
+                    self.decode_animated(&s, n, out, rg, format, only)
                 } else {
-                    self.decode_grouped(&s, out, rg)
+                    self.decode_grouped(&s, out, rg, only)
                 }
             }
-            _ => self.decode_channels(c, &s, n, out, ranges, format, true),
+            _ => self.decode_channels(c, &s, n, out, ranges, format, true, only),
         }
     }
 
@@ -767,11 +803,21 @@ impl ClipBindings {
     /// read one by one and unpacked four at a time (per lane the same division, multiply and add
     /// as `decode`; a lane whose codes don't fit one 64-bit read, or whose rate is 0, 32 or
     /// unsupported, goes through `decode`), and the rotation's w is computed four at a time with
-    /// `apply`'s operations. Lanes without a channel keep their values.
+    /// `apply`'s operations. Lanes without a channel keep their values. An op none of whose lanes
+    /// `only` keeps is skipped.
     #[inline(always)]
-    fn decode_grouped(&self, s: &Seg<'_>, out: &mut [SoaTransform], rg: &[u32]) {
+    fn decode_grouped(
+        &self,
+        s: &Seg<'_>,
+        out: &mut [SoaTransform],
+        rg: &[u32],
+        only: Option<&[F32x4]>,
+    ) {
         let (zero, one) = (F32x4::splat(0.0), F32x4::splat(1.0));
         for (op, w) in self.group_ops.iter().zip(rg.as_chunks::<GROUP_WORDS>().0) {
+            if only.is_some() && op.lanes & lanes_on(only, op.group as usize) == 0 {
+                continue;
+            }
             let Some(g) = out.get_mut(op.group as usize) else {
                 continue;
             };
@@ -856,6 +902,7 @@ impl ClipBindings {
         out: &mut [SoaTransform],
         rg: &[u32],
         format: RotationFormat,
+        only: Option<&[F32x4]>,
     ) {
         let mut pos = s.frame_pos;
         for (ch, w8) in self.animated_channels.iter().zip(rg.as_chunks::<8>().0) {
@@ -866,7 +913,7 @@ impl ClipBindings {
                 .unwrap_or(0) as u32;
             let m = (ch.width as usize).min(4);
             let bone = ch.bone as usize;
-            if bone < n {
+            if bone < n && keeps(only, ch.bone) {
                 let min = [w8[0], w8[1], w8[2], w8[3]].map(f32::from_bits);
                 let ext = [w8[4], w8[5], w8[6], w8[7]].map(f32::from_bits);
                 let v = decode_n(s.data, pos, r, m, min, ext);
@@ -877,7 +924,8 @@ impl ClipBindings {
     }
 
     /// The channels of segment `s`'s frame into `out` (bones below `n`): only the animated ones
-    /// with `animated_only`, else every channel in order (constants included).
+    /// with `animated_only`, else every channel in order (constants included). Bones `only`
+    /// doesn't keep are skipped.
     #[allow(clippy::too_many_arguments)]
     #[inline(always)]
     fn decode_channels(
@@ -889,6 +937,7 @@ impl ClipBindings {
         ranges: Option<&[u32]>,
         format: RotationFormat,
         animated_only: bool,
+        only: Option<&[F32x4]>,
     ) {
         let width_sum = self.width_sum;
         let constants = c.constants();
@@ -901,7 +950,7 @@ impl ClipBindings {
             match ch.mode {
                 ChannelMode::Default => return,
                 ChannelMode::Constant => {
-                    if ch.bone == NONE {
+                    if ch.bone == NONE || !keeps(only, ch.bone) {
                         return;
                     }
                     for (k, v) in v.iter_mut().enumerate().take(w) {
@@ -912,7 +961,7 @@ impl ClipBindings {
                     let a_i = ch.animated_index as usize;
                     let r = s.rates.get(a_i).copied().unwrap_or(0) as u32;
                     let m = w.min(4);
-                    if ch.bone == NONE {
+                    if ch.bone == NONE || !keeps(only, ch.bone) {
                         *pos += r as u64 * m as u64;
                         return;
                     }
@@ -1241,7 +1290,24 @@ impl<'a, 'b> BoundClip<'a, 'b> {
         out: &mut [SoaTransform],
         cache: &mut FrameCache<'_>,
     ) -> Result<(), SampleError> {
-        crate::frames::sample(self, t, rest, scratch, out, cache)
+        crate::frames::sample(self, t, rest, scratch, out, cache, None)
+    }
+
+    /// [`sample_pose_cached`](Self::sample_pose_cached) for a caller that reads only the bones
+    /// whose weight in `only` (one per bone, packed like a pose: `soa_len(bones)` groups; any other
+    /// length keeps every bone) is above 0, such as a layer blended through that bone mask: those
+    /// bones get the same bits, and the others may hold any values (their channels aren't
+    /// decoded). The cache holds frames decoded under one mask (it refills when the mask changes).
+    pub fn sample_pose_masked(
+        &self,
+        t: f32,
+        rest: &[AosTransform],
+        scratch: &mut [AosTransform],
+        out: &mut [SoaTransform],
+        cache: &mut FrameCache<'_>,
+        only: &[F32x4],
+    ) -> Result<(), SampleError> {
+        crate::frames::sample(self, t, rest, scratch, out, cache, Some(only))
     }
 
     /// [`ClipSampler::sample_track`] through the binding table: the same bits.
