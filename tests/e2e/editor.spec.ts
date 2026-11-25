@@ -34,7 +34,7 @@ test("opens the demo scene with its node tree; clicking in the viewport selects,
   const errors = trackErrors(page);
   await openEditor(page, { sample: "flappy" });
   await expect(page.locator(".tree .row .name")).toContainText(["Camera", "bg-a", "Bird", "Sprite", "GameManager"]);
-  await expect(page.getByRole("button", { name: "2D" })).toHaveAttribute("aria-pressed", "true");
+  await expect(page.getByRole("button", { name: "2D", exact: true })).toHaveAttribute("aria-pressed", "true");
 
   const canvas = page.locator("#viewport canvas");
   const box = (await canvas.boundingBox())!;

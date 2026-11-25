@@ -520,12 +520,26 @@ fn slot_pose(cx: &mut EvalContext<'_>, source: u32, w: f32, xf: f32, a: usize, b
         return;
     };
     cx.eval_pose(source, s_src);
+    // The players' poses are read only through the slot's mask (`blend_masked` keeps the source
+    // bit for bit where it is 0), so they skip the bones it excludes.
+    let groups = cx.groups();
+    let mask_handle = cx.state()[slot::MASK];
+    let mask = if mask_handle != 0
+        && cx
+            .assets()
+            .mask(mask_handle)
+            .is_some_and(|m| m.len() == groups)
+    {
+        mask_handle
+    } else {
+        0
+    };
     let prev = cx.set_out(s_a);
-    sources::player_pose_at(cx, a, (a == slot::B) as usize);
+    sources::player_pose_at(cx, a, (a == slot::B) as usize, mask);
     if xf < 1.0 {
         if let Some(s_b) = cx.push_slot() {
             cx.set_out(s_b);
-            sources::player_pose_at(cx, b, (b == slot::B) as usize);
+            sources::player_pose_at(cx, b, (b == slot::B) as usize, mask);
             // s_a ← lerp(b, a, xf)
             cx.lerp_slot_into(s_b, s_a, xf);
             cx.copy_slot(s_b, s_a);
@@ -533,11 +547,8 @@ fn slot_pose(cx: &mut EvalContext<'_>, source: u32, w: f32, xf: f32, a: usize, b
         }
     }
     cx.set_out(prev);
-    let mask_handle = cx.state()[slot::MASK];
-    let groups = cx.groups();
-    let assets = cx.assets();
-    let mask = if mask_handle != 0 {
-        assets.mask(mask_handle).filter(|m| m.len() == groups)
+    let mask = if mask != 0 {
+        cx.assets().mask(mask)
     } else {
         None
     };

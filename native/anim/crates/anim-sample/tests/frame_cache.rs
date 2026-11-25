@@ -1,7 +1,8 @@
 //! T82r: a `FrameCache` gives the same bits as sampling without one: sequential playback at
 //! several speeds (forward, reverse, faster than the clip's rate), seeks, frames in two segments,
 //! one cache handed between clips and rest poses, a changed tag, a cache too short, and the raw
-//! form. No tolerance: bit-for-bit equality.
+//! form; and a masked sample gives those bits on every bone its mask keeps. No tolerance:
+//! bit-for-bit equality.
 
 #[path = "../../anim-compress/tests/common/mod.rs"]
 mod common;
@@ -9,7 +10,7 @@ mod common;
 use anim_compress::{compress, Settings};
 use anim_format::clip::{ClipView, RotationFormat};
 use anim_math::layout::soa_len;
-use anim_math::{AosTransform, SoaTransform};
+use anim_math::{AosQuat, AosTransform, AosVec3, F32x4, SoaTransform};
 use anim_sample::{rest_pose, BoundClip, ClipBindings, ClipSampler, Form, FrameCache};
 use common::*;
 
@@ -167,9 +168,6 @@ fn cached_samples_match_uncached_bit_for_bit() {
         check(&bound[0], 0.3, &fx.rest, &mut cache, "short");
         let mut cache = FrameCache::new(&mut head[..1], &mut mem, 1);
         check(&bound[0], 0.3, &fx.rest, &mut cache, "short header");
-        // A header without room for the ranges: decodes without them.
-        let mut cache = FrameCache::new(&mut head[..12], &mut mem, 1);
-        check(&bound[0], 0.3, &fx.rest, &mut cache, "short");
         // Cleared: refilled.
         let mut cache = FrameCache::new(&mut head, &mut mem, 1);
         check(&bound[1], 0.3, &fx.rest, &mut cache, "before clear");
@@ -178,10 +176,9 @@ fn cached_samples_match_uncached_bit_for_bit() {
     }
 }
 
-/// Full rotations decode channel by channel (not by group), and a header too short for the
-/// ranges at any length decodes them per frame: the same bits either way.
+/// Full rotations decode channel by channel (not by group): the same bits either way.
 #[test]
-fn full_rotations_and_short_headers_match_uncached_bit_for_bit() {
+fn full_rotations_match_uncached_bit_for_bit() {
     let full = Settings {
         rotation_format: Some(RotationFormat::QuatFull),
         ..Settings::default()
@@ -197,25 +194,11 @@ fn full_rotations_and_short_headers_match_uncached_bit_for_bit() {
         let bound = table.bind(&s).unwrap();
         let mut head = vec![0u32; FrameCache::header_len(n)];
         let mut mem = vec![SoaTransform::default(); FrameCache::frames_len(n)];
-        for len in [
-            12,
-            10 + 4 * n,
-            10 + 8 * n,
-            10 + 16 * n,
-            FrameCache::header_len(n),
-        ] {
-            let mut cache = FrameCache::new(&mut head[..len], &mut mem, 1);
-            let mut t = 0.0f32;
-            for _ in 0..90 {
-                t = (t + 1.3 / 60.0).rem_euclid(fx.duration);
-                check(
-                    &bound,
-                    t,
-                    &fx.rest,
-                    &mut cache,
-                    &format!("{what}, header {len}"),
-                );
-            }
+        let mut cache = FrameCache::new(&mut head, &mut mem, 1);
+        let mut t = 0.0f32;
+        for _ in 0..90 {
+            t = (t + 1.3 / 60.0).rem_euclid(fx.duration);
+            check(&bound, t, &fx.rest, &mut cache, what);
         }
     }
 }
@@ -234,4 +217,97 @@ fn the_raw_form_samples_as_without_a_cache() {
         t += 1.0 / 60.0;
         check(&bound, t, &fx.rest, &mut cache, "raw");
     }
+}
+
+/// A sample through a bone mask gives the unmasked bits on every bone whose weight is above 0
+/// (whatever the output held before), while one cache moves between masks, no mask and another
+/// clip: grouped (w-dropped) and channel-by-channel (full rotation) clips.
+#[test]
+fn masked_samples_match_on_the_bones_the_mask_keeps() {
+    let full = Settings {
+        rotation_format: Some(RotationFormat::QuatFull),
+        ..Settings::default()
+    };
+    for (fx, what) in [
+        (fixture(Shape::Humanoid, 9), "w dropped"),
+        (fixture_with(Shape::Humanoid, 10, &full), "full rotations"),
+        (fixture(Shape::Tree(37), 11), "tree"),
+    ] {
+        let n = fx.rest.len();
+        let g = soa_len(n);
+        let tables: Vec<(ClipSampler<'_>, ClipBindings)> = fx
+            .clips
+            .iter()
+            .map(|(comp, _)| {
+                let s = ClipSampler::new(ClipView::parse(comp).unwrap(), Form::Compressed).unwrap();
+                (s, ClipBindings::new(&s))
+            })
+            .collect();
+        let bound: Vec<BoundClip<'_, '_>> =
+            tables.iter().map(|(s, b)| b.bind(s).unwrap()).collect();
+        // An upper-body-like run of bones, a scattered mask (partial groups, a negative and a NaN
+        // weight, which keep nothing), and nothing kept.
+        let upper: Vec<f32> = (0..n)
+            .map(|i| if (3..n / 2).contains(&i) { 1.0 } else { 0.0 })
+            .collect();
+        let scattered: Vec<f32> = (0..n)
+            .map(|i| match i % 7 {
+                0 => 0.25,
+                3 => -1.0,
+                5 => f32::NAN,
+                _ => 0.0,
+            })
+            .collect();
+        let none = vec![0.0f32; n];
+        let masks = [pack(&upper), pack(&scattered), pack(&none)];
+        let poison = SoaTransform::from_aos(
+            &[AosTransform::new(
+                AosVec3::new(f32::NAN, 1e30, -0.0),
+                AosQuat::new(f32::NAN, 0.0, 0.0, 0.0),
+                AosVec3::new(f32::INFINITY, 0.0, 0.0),
+            ); 4],
+        );
+        let mut head = vec![0u32; FrameCache::header_len(n)];
+        let mut mem = vec![SoaTransform::default(); FrameCache::frames_len(n)];
+        {
+            let mut t = 0.0f32;
+            for i in 0..240 {
+                t = (t + 1.3 / 60.0).rem_euclid(fx.duration);
+                let mut cache = FrameCache::new(&mut head, &mut mem, 1);
+                // One mask for runs of frames (held frames reused), sometimes no mask, and the
+                // other clip every 50 frames.
+                let clip = &bound[(i / 50) % 2];
+                let mut scratch = vec![AosTransform::default(); 2 * n];
+                let mut a = vec![SoaTransform::default(); g];
+                clip.sample_pose(t, &fx.rest, &mut scratch, &mut a, None)
+                    .unwrap();
+                let mut b = vec![poison; g];
+                if i % 13 == 6 {
+                    clip.sample_pose_cached(t, &fx.rest, &mut scratch, &mut b, &mut cache)
+                        .unwrap();
+                    assert_eq!(bits(&a), bits(&b), "{what} unmasked, t {t}");
+                    continue;
+                }
+                let m = &masks[(i / 20) % masks.len()];
+                clip.sample_pose_masked(t, &fx.rest, &mut scratch, &mut b, &mut cache, m)
+                    .unwrap();
+                for (k, (x, y)) in bits(&a).iter().zip(&bits(&b)).enumerate() {
+                    let (group, lane) = (k / 40, k % 4);
+                    if m[group].to_array()[lane] > 0.0 {
+                        assert_eq!(x, y, "{what} masked, t {t}, bone {}", 4 * group + lane);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Per-bone weights packed four lanes a group (spare lanes 0), as the core packs a mask asset.
+fn pack(per_bone: &[f32]) -> Vec<F32x4> {
+    (0..soa_len(per_bone.len()))
+        .map(|g| {
+            let at = |l: usize| per_bone.get(4 * g + l).copied().unwrap_or(0.0);
+            F32x4::new(at(0), at(1), at(2), at(3))
+        })
+        .collect()
 }

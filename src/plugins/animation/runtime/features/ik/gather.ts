@@ -57,7 +57,7 @@ import {
 } from "../../wasm/wire/rig";
 import { graphMeta } from "../graph/runtime";
 import { animatorsOf, type AnimatorRuntime } from "../instances";
-import { enabledCameras } from "../playback/view";
+import { cameraViews, type CameraViews } from "../playback/view";
 import { CharacterFrame } from "./frame";
 import { rigPhysics } from "./physics";
 import { RAY_FLOATS, rigState, type GoalTarget, type RigState } from "./state";
@@ -185,13 +185,11 @@ function writeTargets(view: DataView, row: number, rt: AnimatorRuntime, s: RigSt
 }
 
 /** The rig LOD level for `rt` (see the file header). */
-function rigLod(rt: AnimatorRuntime, cams: ReturnType<typeof enabledCameras>, at: Float64Array): number {
+function rigLod(rt: AnimatorRuntime, cams: CameraViews, at: Float64Array): number {
   const cull = rt.animator.rigCullDistance;
-  if (!(cull > 0) || !cams.length) return 0;
-  const main = cams.reduce((best, c) => (c.depth < best.depth ? c : best));
-  const p = main.node.transform?.worldPosition;
-  if (!p) return 0;
-  return Math.hypot(at[0]! - p.x, at[1]! - p.y, at[2]! - p.z) > cull ? RIG_LOD_OFF : 0;
+  const main = cams.main;
+  if (!(cull > 0) || !main || !main.placed) return 0;
+  return Math.hypot(at[0]! - main.px, at[1]! - main.py, at[2]! - main.pz) > cull ? RIG_LOD_OFF : 0;
 }
 
 /** The ray's origin and direction handed to the query (reused: the query copies them), and a hit converted to model space. */
@@ -236,7 +234,7 @@ function writeHits(view: DataView, row: number, frame: AnimationFrame, s: RigSta
 
 /** @internal `animation.Gather`'s ik sub-step (see the file header). */
 export function gatherRig(frame: AnimationFrame): void {
-  let cams: ReturnType<typeof enabledCameras> | null = null;
+  let cams: CameraViews | null = null;
   for (const rt of animatorsOf(frame.world)) {
     if (!inPass(frame, rt)) continue;
     const meta = graphMeta(rt.animator);
@@ -260,7 +258,7 @@ export function gatherRig(frame: AnimationFrame): void {
       view.setFloat32(row + RIG_CHARACTER_SCALE + 4 * k, s.frame.scale[k]!, true);
     }
     for (let k = 0; k < 4; k++) view.setFloat32(row + RIG_CHARACTER_ROTATION + 4 * k, s.frame.rotation[k]!, true);
-    cams ??= enabledCameras(frame.world);
+    cams ??= cameraViews(frame.world);
     view.setUint32(row + RIG_LOD, rigLod(rt, cams, s.frame.position), true);
     writeTargets(view, row, rt, s, meta.compiled.ikTargets);
     writeHits(view, row, frame, s, instance);

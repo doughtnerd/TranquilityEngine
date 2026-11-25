@@ -3,15 +3,16 @@
 //! [`MatchDb::new`] runs once, when the database loads (it allocates, like `anim-sample`'s
 //! `ClipBindings`): it copies the matrix into 16-byte aligned [`F32x4`] rows with each dim
 //! multiplied by `√weight` of its feature (so a search's squared distance is the weighted cost
-//! `Σ weight·(q − r)²` with no per-dim multiply), scales the KD-tree's split values the same way,
-//! and checks the tree (depth at most [`MAX_KD_DEPTH`], every frame in exactly one leaf, every
-//! entry on its side of every split above it) so the tree search is exact. Everything after
-//! that reads it and never allocates.
+//! `Σ weight·(q − r)²` with no per-dim multiply), checks the tree (depth at most
+//! [`MAX_KD_DEPTH`], every frame in exactly one leaf, every entry on its side of every split
+//! above it), stores the rows in leaf order and gives every node the bounding box of its rows
+//! (D147), which bounds the tree search exactly. Everything after that reads it and never
+//! allocates.
 
 use crate::{MAX_KD_DEPTH, MAX_TAGS, MAX_TRAJECTORY, TAG_WORDS};
 use anim_format::posedb::{words_per_frame, Feature, FeatureKind, FrameRef, KdNode, PoseDbView};
 use anim_format::NONE;
-use anim_math::F32x4;
+use anim_math::{F32x4, Lane};
 
 /// Tag bits, one per database tag (tag `t` is bit `t % 32` of word `t / 32`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -74,19 +75,12 @@ pub enum LoadError {
     KdTree(&'static str),
 }
 
-/// A KD node with its split scaled into the weighted space.
+/// A KD node's children or entries (the search bounds a node by its box, `MatchDb::boxes`; the
+/// file's splits are only checked at load).
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Node {
-    Inner {
-        axis: u32,
-        split: f32,
-        left: u32,
-        right: u32,
-    },
-    Leaf {
-        first: u32,
-        count: u32,
-    },
+    Inner { left: u32, right: u32 },
+    Leaf { first: u32, count: u32 },
 }
 
 /// Consecutive frames of one clip: frame `first + k` is at `start + k / sample_rate`.
@@ -108,6 +102,9 @@ pub struct MatchDb {
     pub(crate) rows: Vec<F32x4>,
     /// Frame → row position when `rows` is in leaf order; empty when it is in frame order.
     pub(crate) slots: Vec<u32>,
+    /// With a KD-tree: per node, the bounding box of its rows (`lanes` lane-wise minimums, then
+    /// `lanes` maximums), which bounds the search (`search`'s docs, "KD bound").
+    pub(crate) boxes: Vec<F32x4>,
     pub(crate) mean: Vec<f32>,
     pub(crate) std: Vec<f32>,
     /// `√weight` per dim.
@@ -211,17 +208,7 @@ impl MatchDb {
         let mut nodes = Vec::with_capacity(view.kd_node_count());
         for i in 0..view.kd_node_count() {
             nodes.push(match view.kd_node(i) {
-                Some(KdNode::Inner {
-                    axis,
-                    split,
-                    left,
-                    right,
-                }) => Node::Inner {
-                    axis,
-                    split: split * scale[axis as usize],
-                    left,
-                    right,
-                },
+                Some(KdNode::Inner { left, right, .. }) => Node::Inner { left, right },
                 Some(KdNode::Leaf { first, count }) => Node::Leaf { first, count },
                 None => Node::Leaf { first: 0, count: 0 },
             });
@@ -232,6 +219,7 @@ impl MatchDb {
             rate,
             rows,
             slots: Vec::new(),
+            boxes: Vec::new(),
             mean: view.mean().to_vec(),
             std: view.std().to_vec(),
             scale,
@@ -267,8 +255,42 @@ impl MatchDb {
                 db.rows = leaf_rows;
                 db.slots = slots;
             }
+            db.boxes = vec![F32x4::splat(0.0); 2 * lanes * db.nodes.len()];
+            db.fill_box(0);
         }
         Ok(db)
+    }
+
+    /// Fills node `node`'s bounding box (and its subtree's): the lane-wise minimum and maximum of
+    /// its rows (a leaf) or of its children's boxes. The tree was checked (depth at most
+    /// [`MAX_KD_DEPTH`], every frame in one leaf), so this recursion ends.
+    fn fill_box(&mut self, node: u32) {
+        let lanes = self.lanes;
+        let at = 2 * lanes * node as usize;
+        let (lo, hi) = (F32x4::splat(f32::INFINITY), F32x4::splat(f32::NEG_INFINITY));
+        let mut b = (vec![lo; lanes], vec![hi; lanes]);
+        match self.nodes[node as usize] {
+            Node::Leaf { first, count } => {
+                for j in first as usize..(first + count) as usize {
+                    for (k, r) in self.leaf_row(j).iter().enumerate() {
+                        b.0[k] = b.0[k].min(*r);
+                        b.1[k] = b.1[k].max(*r);
+                    }
+                }
+            }
+            Node::Inner { left, right } => {
+                for child in [left, right] {
+                    self.fill_box(child);
+                    let c = 2 * lanes * child as usize;
+                    for k in 0..lanes {
+                        b.0[k] = b.0[k].min(self.boxes[c + k]);
+                        b.1[k] = b.1[k].max(self.boxes[c + lanes + k]);
+                    }
+                }
+            }
+        }
+        self.boxes[at..at + lanes].copy_from_slice(&b.0);
+        self.boxes[at + lanes..at + 2 * lanes].copy_from_slice(&b.1);
     }
 
     /// Checks the tree's depth, coverage and split invariant against the file's values.
