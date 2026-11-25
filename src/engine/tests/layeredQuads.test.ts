@@ -32,10 +32,10 @@ describe("layered 2D quads (ADR 0014, 0108, 0136, 0186)", () => {
       .filter((m) => m.isEnabled())
       .sort((a, b) => a.alphaIndex - b.alphaIndex)
       .map((m) => m.name);
-  const sprite = (texture: Texture, at: number): SpriteItem => ({ texture, order: at, matrix: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1] });
+  const sprite = (texture: Texture, at: number): SpriteItem => ({ texture, order: at, matrix: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1], lit: null });
   const tileLayer = (name: string, layer: string, inLayer: number) => {
     const tex = { getBaseSize: () => ({ width: 16, height: 16 }), hasAlpha: false } as unknown as Texture;
-    const quads = new BabylonQuadBatches({ scene, texture: () => tex, sortOrder: order });
+    const quads = new BabylonQuadBatches({ scene, texture: () => tex, dataTexture: () => null, sortOrder: order });
     const batch = quads.createBatch(name);
     batch.setOrder(quads.sortOrder(layer, inLayer));
     batch.setVisible(true);

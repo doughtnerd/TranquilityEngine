@@ -81,7 +81,10 @@ async function main(): Promise<void> {
     studioOpening.value = "Opening…";
     setTimeout(() => (studioOpening.value = null), OPENING_TIMEOUT_MS);
   }
-  render(<StudioApp onCloseProject={projects.close} onOpenTake={(take) => openTake(projects.handOff, take)} />, document.getElementById("app")!);
+  render(<StudioApp onCloseProject={() => {
+    projects.close();
+    if (isTauri()) void returnToLauncher();
+  }} onOpenTake={(take) => openTake(projects.handOff, take)} />, document.getElementById("app")!);
   // A request with `connect` (the launcher's Connect to Game…, ADR 0380) opens the Connect dialog once it's handled.
   // ADR 0408: a build that connects opens the Studio live (the takes folder with no project, the Profiler following);
   // a request with `follow` has the Profiler follow the connected build.
@@ -115,6 +118,22 @@ async function openTake(open: (request: StudioOpenRequest) => Promise<void>, tak
     await open(takeOpenRequest(take));
   } catch (err) {
     status.value = errorStatus("Couldn't open the take", err);
+  }
+}
+
+/**
+ * Closing the project (or the takes folder) in the desktop app goes back to the launcher it came from (ADR 0412): this
+ * window hides, keeping its debug link, and the launcher shows on Biosonic with its way back to the Foxfire apps. With
+ * no launcher open, the Studio's own start screen stays.
+ */
+async function returnToLauncher(): Promise<void> {
+  try {
+    const [{ tauriBus, showProjectsWindow }, { getCurrentWindow, Window }] = await Promise.all([import("../editor/launcher/handoff"), import("@tauri-apps/api/window")]);
+    if (!(await Window.getByLabel("projects"))) return;
+    await getCurrentWindow().hide();
+    await showProjectsWindow(await tauriBus());
+  } catch (err) {
+    console.warn("[studio] couldn't go back to the launcher:", err);
   }
 }
 

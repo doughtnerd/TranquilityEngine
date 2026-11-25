@@ -17,7 +17,11 @@ import { AppProjectsLayout } from "../../editor/ui/appProjects/AppProjectsLayout
 import { openedWhen, searchRows } from "../../editor/ui/appProjects/appProjectsLogic";
 import { ProjectsTab } from "../../editor/ui/appProjects/ProjectsTab";
 import { ProjectTabs, TabPanel } from "../../editor/ui/appProjects/ProjectTabs";
+import { Chip } from "../../editor/ui/Chip";
 import { ContextMenu, type MenuEntry } from "../../editor/ui/ContextMenu";
+import { confirmInEditor } from "../../editor/ui/ConfirmDialog";
+import { status } from "../../editor/state";
+import { errorStatus } from "../../editor/messages";
 import { addedTakes, forgetTake, takesFolder } from "../takesFolder";
 import { formatTakeLength, listAllTakes, readTakeSummary, type RecentTake } from "./recentTakes";
 import { TakesFolderLine } from "./TakesFolderLine";
@@ -47,9 +51,34 @@ async function listTakes(key: string): Promise<void> {
 
 const takeKey = (t: RecentTake) => t.file.toLowerCase();
 
+/** Delete a take's file and its notes from disk, after asking (it can't be undone), then list the takes again. */
+async function deleteTake(t: RecentTake): Promise<void> {
+  const where = t.kind === "project" ? `from ${t.project.name}` : "from disk";
+  const { ok } = await confirmInEditor({
+    title: `Delete ${t.name}?`,
+    message: `The take file and its notes are deleted ${where}. This can't be undone.`,
+    items: [t.file],
+    confirmLabel: "Delete",
+  });
+  if (!ok) return;
+  try {
+    const fs = await projectFileSystem();
+    if (!fs) throw new Error("this window can't reach the file system");
+    await fs.remove(t.file);
+    const notes = `${t.file}.notes.json`;
+    if (await fs.exists(notes).catch(() => false)) await fs.remove(notes);
+    forgetTake(t.file);
+    status.value = { kind: "info", text: `Deleted ${t.name}` };
+  } catch (err) {
+    status.value = errorStatus(`Couldn't delete ${t.name}`, err);
+  }
+  listedFor = ""; // list again: the file is gone
+  await listTakes(`deleted:${t.file}`);
+}
+
 /** The take's badge: "Project" (beside its project's name) or "Recording" (a take outside any project). */
 function TakeBadge(props: { readonly take: RecentTake }) {
-  return <span class={`bs-badge ${props.take.kind}`}>{props.take.kind === "project" ? "Project" : "Recording"}</span>;
+  return props.take.kind === "project" ? <Chip>Project</Chip> : <Chip tone="accent">Recording</Chip>;
 }
 
 const recorded = (t: RecentTake) => (t.recordedMs === null ? "date unknown" : openedWhen(t.recordedMs));
@@ -95,6 +124,8 @@ function TakesTab(props: { readonly onOpenTake?: (take: RecentTake) => void }) {
           .catch((err) => console.warn("[biosonic] couldn't reveal the take:", err)),
     },
     ...(t.kind === "recording" && addedTakes.value.some((p) => p.toLowerCase() === t.file.toLowerCase()) ? [{ id: "forget", label: "Remove from list", title: "The file stays where it is", run: () => forgetTake(t.file) }] : []),
+    { kind: "separator" },
+    { id: "delete", label: "Delete…", danger: true, title: "Delete the take file and its notes from disk", run: () => void deleteTake(t) },
   ];
 
   return (

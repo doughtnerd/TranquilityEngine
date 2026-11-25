@@ -2,7 +2,7 @@ import type { ComponentChildren } from "preact";
 import { Panel } from "./panel/Panel";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDraftText } from "./draftText";
-import { ANTIALIAS_MODES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
+import { ANTIALIAS_MODES, LIGHTS_2D_QUALITIES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
 import { allPluginManifests } from "../../plugins/thirdPartyEditor";
 import { RENAMED_PLUGINS } from "../../plugins/enabled";
@@ -597,6 +597,10 @@ function Tiers(props: { draft: SettingsDraft; problems: readonly SettingsProblem
             <label>
               <span class="tier-label">Particles</span>
               {choice(i, "particles", "particles", PARTICLE_QUALITIES)}
+            </label>
+            <label>
+              <span class="tier-label">2D lights</span>
+              {choice(i, "lights2D", "2D lights", LIGHTS_2D_QUALITIES)}
             </label>
           </div>
         </div>

@@ -17,6 +17,7 @@ import { status } from "../state";
 import { installTheme } from "../theme";
 import "../ui/fonts";
 import { AboutDialog } from "../ui/AboutDialog";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { MycoProjectsScreen } from "../ui/appProjects/MycoProjectsScreen";
 import { NewProjectDialog } from "../ui/NewProjectDialog";
 import "../ui/editor.css";
@@ -134,6 +135,7 @@ function Launcher({ window, actions, openTake, connect }: LauncherProps) {
       )}
       <NewProjectDialog />
       <AboutDialog />
+      <ConfirmDialog />
     </div>
   );
 }

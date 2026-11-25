@@ -9,7 +9,9 @@
 //! generated `src-tauri/tauri.conf.json`.
 //!
 //! The editor runs as a GUI app, which on macOS doesn't get the shell's PATH, so both look in the
-//! usual install folders too (`~/.cargo/bin`, Homebrew's) after PATH.
+//! usual install folders too (`~/.cargo/bin`, Homebrew's) after PATH. On Windows its environment
+//! can be stale or someone else's (an MSI starts the app with its installer's), so both run tools
+//! in the user's environment read fresh from their account (`user_environment`).
 use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
@@ -120,21 +122,99 @@ fn command_line(dir: &Path, cli: &str, step: &str) -> Result<(String, Vec<String
     Ok((program.into(), args))
 }
 
-/// PATH, then the folders installers put these tools in, which a GUI app's PATH may lack.
-fn search_path() -> OsString {
-    let mut dirs: Vec<PathBuf> = std::env::var_os("PATH")
-        .map(|p| std::env::split_paths(&p).collect())
-        .unwrap_or_default();
-    let home = std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
-    let cargo_home = std::env::var_os("CARGO_HOME")
+/// The user's environment as a program they start now would get it (Windows): the variables in
+/// the registry for their account, read fresh from the process's token. The editor's own may be
+/// someone else's: an MSI started at the end of an install inherits the installer's custom-action
+/// process's (no user PATH, so no `~/.cargo/bin`, and the wrong USERPROFILE, so rustup finds no
+/// toolchain), and any editor keeps the PATH it started with after the user installs a tool.
+/// Empty elsewhere, and when Windows can't build it: the editor's own then stands.
+#[cfg(windows)]
+fn user_environment() -> Vec<(OsString, OsString)> {
+    use std::ffi::c_void;
+    use std::os::windows::ffi::OsStringExt;
+    type Handle = *mut c_void;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetCurrentProcess() -> Handle;
+        fn CloseHandle(handle: Handle) -> i32;
+    }
+    #[link(name = "advapi32")]
+    unsafe extern "system" {
+        fn OpenProcessToken(process: Handle, access: u32, token: *mut Handle) -> i32;
+    }
+    #[link(name = "userenv")]
+    unsafe extern "system" {
+        fn CreateEnvironmentBlock(block: *mut *mut c_void, token: Handle, inherit: i32) -> i32;
+        fn DestroyEnvironmentBlock(block: *mut c_void) -> i32;
+    }
+    const TOKEN_DUPLICATE: u32 = 0x2;
+    const TOKEN_IMPERSONATE: u32 = 0x4;
+    const TOKEN_QUERY: u32 = 0x8;
+    let mut vars = Vec::new();
+    // SAFETY: the token is closed and the block destroyed on every path; the block is a run of
+    // NUL-terminated UTF-16 "NAME=value" strings ended by an empty one, read up to that end.
+    unsafe {
+        let mut token: Handle = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_IMPERSONATE, &mut token) == 0 {
+            return vars;
+        }
+        let mut block: *mut c_void = std::ptr::null_mut();
+        let made = CreateEnvironmentBlock(&mut block, token, 0) != 0;
+        CloseHandle(token);
+        if !made || block.is_null() {
+            return vars;
+        }
+        let mut at = block as *const u16;
+        loop {
+            let mut len = 0;
+            while *at.add(len) != 0 {
+                len += 1;
+            }
+            if len == 0 {
+                break;
+            }
+            let entry = std::slice::from_raw_parts(at, len);
+            // Names may not hold '=', but hidden per-drive entries ("=C:=C:\…") start with one.
+            if let Some(eq) = entry.iter().skip(1).position(|&c| c == u16::from(b'=')).map(|i| i + 1) {
+                vars.push((OsString::from_wide(&entry[..eq]), OsString::from_wide(&entry[eq + 1..])));
+            }
+            at = at.add(len + 1);
+        }
+        DestroyEnvironmentBlock(block);
+    }
+    vars
+}
+
+#[cfg(not(windows))]
+fn user_environment() -> Vec<(OsString, OsString)> {
+    Vec::new()
+}
+
+/// `name` in `user_env` (names compared without case, as Windows does), else the editor's own.
+fn lookup(user_env: &[(OsString, OsString)], name: &str) -> Option<OsString> {
+    user_env
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.clone())
+        .or_else(|| std::env::var_os(name))
+}
+
+/// The user's PATH, then the editor's, then the folders installers put these tools in, which a
+/// GUI app's PATH may lack.
+fn search_path(user_env: &[(OsString, OsString)]) -> OsString {
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    let home = lookup(user_env, if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from);
+    let cargo_home = lookup(user_env, "CARGO_HOME")
         .map(PathBuf::from)
         .or_else(|| home.as_ref().map(|h| h.join(".cargo")));
-    let mut extra: Vec<PathBuf> = cargo_home.map(|c| c.join("bin")).into_iter().collect();
+    let paths = [lookup(user_env, "PATH"), std::env::var_os("PATH")];
+    let mut found: Vec<PathBuf> = paths.iter().flatten().flat_map(std::env::split_paths).collect();
+    found.extend(cargo_home.map(|c| c.join("bin")));
     if cfg!(target_os = "macos") {
-        extra.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
+        found.extend(["/opt/homebrew/bin", "/usr/local/bin"].map(PathBuf::from));
     }
-    for dir in extra {
-        if !dirs.contains(&dir) {
+    for dir in found {
+        if !dir.as_os_str().is_empty() && !dirs.contains(&dir) {
             dirs.push(dir);
         }
     }
@@ -143,8 +223,14 @@ fn search_path() -> OsString {
 
 fn command(program: &str) -> Command {
     let mut command = Command::new(program);
+    let user_env = user_environment();
+    for (name, value) in &user_env {
+        if !name.eq_ignore_ascii_case("PATH") {
+            command.env(name, value);
+        }
+    }
     command
-        .env("PATH", search_path())
+        .env("PATH", search_path(&user_env))
         .env("NO_COLOR", "1")
         .env("CARGO_TERM_COLOR", "never")
         .stdin(Stdio::null());
@@ -263,7 +349,32 @@ mod tests {
 
     #[test]
     fn the_search_path_adds_cargo_bin() {
-        let path = search_path();
+        let path = search_path(&user_environment());
         assert!(std::env::split_paths(&path).any(|p| p.ends_with(Path::new(".cargo").join("bin")) || std::env::var_os("CARGO_HOME").is_some()));
+    }
+
+    #[test]
+    fn the_users_path_comes_first_and_their_home_finds_cargo() {
+        let user_env = vec![
+            (OsString::from("Path"), OsString::from(std::env::join_paths(["/user/tools"]).unwrap())),
+            (OsString::from(if cfg!(windows) { "USERPROFILE" } else { "HOME" }), OsString::from("/home/someone")),
+            (OsString::from("CARGO_HOME"), OsString::from("/home/someone/.cargo")),
+        ];
+        let dirs: Vec<PathBuf> = std::env::split_paths(&search_path(&user_env)).collect();
+        assert_eq!(dirs[0], PathBuf::from("/user/tools"));
+        assert!(dirs.contains(&PathBuf::from("/home/someone/.cargo").join("bin")));
+        // The editor's own PATH is kept after the user's.
+        if let Some(own) = std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).find(|d| !d.as_os_str().is_empty())) {
+            assert!(dirs.contains(&own));
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_user_environment_is_read_from_the_account() {
+        let user_env = user_environment();
+        assert!(lookup(&user_env, "USERPROFILE").is_some());
+        assert!(user_env.iter().any(|(k, _)| k.eq_ignore_ascii_case("PATH")));
+        assert!(user_env.iter().all(|(k, _)| !k.is_empty() && !k.to_string_lossy().starts_with('=')));
     }
 }

@@ -21,6 +21,7 @@
 - [Skies](guide/skies.md)
 - [Water](guide/water.md)
 - [Decals](guide/decals.md)
+- [2D lighting](guide/2d-lighting.md)
 - [Lines and trails](guide/lines-and-trails.md)
 - [Fog and camera rays](guide/atmosphere-and-sound.md)
 

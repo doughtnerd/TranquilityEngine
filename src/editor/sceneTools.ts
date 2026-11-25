@@ -57,6 +57,9 @@ export const snapActive = computed(() => snapping.value || cleanSnap(snapSetting
 /** Show what a selected Camera sees in a corner of the scene view. */
 export const cameraPreviewEnabled = persisted("myco.editor.cameraPreview", true);
 
+/** Light 2D draws by their 2D lights in the scene view (ADR 0399); off draws them unlit, like Unity's scene lighting toggle. */
+export const lighting2DShown = persisted("myco.editor.lighting2D", true);
+
 /** Round `value` to the nearest multiple of `step` (no step: unchanged), without float noise. */
 export function snapTo(value: number, step: number): number {
   if (!(step > 0)) return value;

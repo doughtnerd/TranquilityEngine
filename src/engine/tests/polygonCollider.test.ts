@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { Assets, EdgeCollider2D, Engine, GameObject, PolygonCollider2D, RigidBody2D, SceneManager, CircleCollider2D, Physics2D, getComponentClass, getFields } from "../../myco";
+import { Assets, EdgeCollider2D, Engine, GameObject, PolygonCollider2D, RigidBody2D, SceneManager, CircleCollider2D, Physics2D, SpriteRenderer, getComponentClass, getFields } from "../../myco";
 import { cleanPoints, convexParts, isConvex, signedArea2, triangulate } from "../physics/polygon";
 
 const area = (pts: readonly (readonly number[])[]) => Math.abs(signedArea2(pts as [number, number][])) / 2;
@@ -42,9 +42,9 @@ describe("polygon decomposition (ADR 0039)", () => {
   });
 });
 
-async function setup() {
+async function setup(files: Record<string, unknown> = {}) {
   Assets.clearSources();
-  Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", settings: { physics: "2d" }, nodes: [] } }));
+  Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", settings: { physics: "2d" }, nodes: [] }, ...files }));
   const engine = await Engine.create({ headless: true, project: { physics: { gravity: [0, -10] as [number, number] } } });
   await SceneManager.load("s.json");
   return engine;
@@ -88,5 +88,24 @@ describe("PolygonCollider2D and EdgeCollider2D on Rapier (ADR 0039)", () => {
     edge.points = [[-5, -3], [5, -3]];
     steps(engine, 90);
     expect(ball.transform!.position.y).toBeCloseTo(-2.5, 1);
+  });
+
+  it("collides along its sprite's slice outline with fromSprite, following the sprite (ADR 0415)", async () => {
+    // A 32 × 32 slice at 16 pixels per unit (2 × 2 units, pivot centred) whose outline is a triangle: its lower-left half.
+    const sidecar = { format: "myco.import@1", pixelsPerUnit: 16, sprites: [{ name: "ramp", rect: [0, 0, 32, 32], pivot: [0.5, 0.5], outline: [[[0, 0], [32, 0], [0, 32]]] }] };
+    const engine = await setup({ "ramp.png.meta.json": sidecar });
+    const node = GameObject.create("ramp");
+    node.addBehavior(SpriteRenderer, { sprite: "ramp.png#ramp" });
+    const collider = node.addBehavior(PolygonCollider2D, { fromSprite: true });
+    steps(engine, 1);
+    // Over the triangle's slope at x = 0.5 the ground is at y = -0.5; the rectangle's top (y = 1) isn't there.
+    expect(Physics2D.raycast({ x: 0.5, y: 5 }, { x: 0, y: -1 })?.point.y).toBeCloseTo(-0.5, 3);
+    expect(Physics2D.raycast({ x: -0.5, y: 5 }, { x: 0, y: -1 })?.point.y).toBeCloseTo(0.5, 3);
+    node.getComponent(SpriteRenderer)!.flipX = true; // the outline mirrors with the sprite
+    steps(engine, 1);
+    expect(Physics2D.raycast({ x: -0.5, y: 5 }, { x: 0, y: -1 })?.point.y).toBeCloseTo(-0.5, 3);
+    collider.fromSprite = false; // back to its points: the default unit square
+    steps(engine, 1);
+    expect(Physics2D.raycast({ x: 0, y: 5 }, { x: 0, y: -1 })?.point.y).toBeCloseTo(0.5, 3);
   });
 });

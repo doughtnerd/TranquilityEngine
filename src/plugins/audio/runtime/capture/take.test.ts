@@ -362,7 +362,7 @@ describe("a take file (ADR 0348)", () => {
       return got.filter((r): r is Extract<CaptureResponse, { type: "frames" }> => r.type === "frames");
     };
     const [first, again] = await ask(file);
-    expect(first!.frames.map((f) => [f.t, f.width, f.height])).toEqual([[0, 320, 180], [1, 320, 180], [2, 320, 180]]);
+    expect(first!.frames.map((f) => [f.t, f.width, f.height])).toEqual([[0, 640, 360], [1, 640, 360], [2, 640, 360]]);
     expect([...first!.frames[0]!.jpeg]).toEqual([...JPEG]);
     expect(again!.frames).toHaveLength(3);
     const capture = assembleCapture(SAMPLE_HEADER, SAMPLE_META, profile(new FakeRing(), [768]));

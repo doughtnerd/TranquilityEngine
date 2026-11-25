@@ -19,6 +19,7 @@ import type { TimeSpan } from "../../components/timeRulerModel";
 import { TimelineZoomStrip } from "../../components/TimelineZoomStrip";
 import { useElementWidth } from "../../components/useElementWidth";
 import { useTimelineView } from "../../components/useTimelineView";
+import { recordingView } from "../../components/recordingView";
 import { formatDb } from "../../../plugins/audio/editor/dbScale";
 import { breakdownText, type BusReadout } from "./cursorReadout";
 import { EFFECT_SECTIONS, effectsCostText } from "./effectsCostModel";
@@ -42,6 +43,8 @@ export interface ProfilerTimelineProps {
   readonly groupBy: GroupBy;
   /** Buses running an effect chain in the project's mix (the Effects track's Bus chip). */
   readonly busChains?: number;
+  /** The recording's path when it may also be open on the Take screen: both timelines then show the same seconds. */
+  readonly viewKey?: string | null;
   onSeek(t: number): void;
   /** A voice block clicked (seek to its start too). */
   onSelect(key: string): void;
@@ -397,7 +400,7 @@ export function ProfilerTimeline(props: ProfilerTimelineProps) {
   const hidden = allBuses ? new Set<string>() : new Set(quiet.map((t) => t.id));
   const lastBus = busTracks[busTracks.length - 1]?.id;
   // The view: the whole capture until zoomed. A cursor moved out of it (a voice picked, a seek from elsewhere) pages the view.
-  const zoom = useTimelineView(data.duration);
+  const zoom = useTimelineView(data.duration, props.viewKey ? recordingView(props.viewKey) : undefined);
   useEffect(() => {
     zoom.follow(cursor);
   }, [cursor]);

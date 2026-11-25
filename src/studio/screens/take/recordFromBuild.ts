@@ -12,7 +12,7 @@ import { importFiles, whyNotImportable } from "../../../editor/assetImportFiles"
 import { isTakesFolder, type EditorProject } from "../../../editor/projects";
 import { createTakeReceiver } from "../../../plugins/audio/editor/debugLink/takeReceiver";
 import {
-  AUDIO_TOPIC, AudioLinkRecord, AudioRequest, decodeTakeChunk, decodeTakeState, type AudioSubscriptionParams, type TakeMarkParams, type TakeStateReply, type TakeUploadReply,
+  AUDIO_TOPIC, AudioLinkRecord, AudioRequest, decodeTakeChunk, decodeTakeState, type AudioSubscriptionParams, type TakeFramesParams, type TakeMarkParams, type TakeStateReply, type TakeUploadReply,
 } from "../../../plugins/audio/runtime/debugLink/schema";
 import { TAKES_FOLDER } from "./takeFiles";
 
@@ -49,6 +49,12 @@ export interface BuildTakeSeams {
    * the user's press (a browser's save dialog): the take then waits, stopped, for Save.
    */
   autoSave?(): boolean;
+  /**
+   * ADR 0411: the take pictures' width the user chose (the Connect dialog's), sent with `take.frames` right before each
+   * `take.start`, so the take is recorded at it even if the send on connect or on change was missed. A build that doesn't
+   * know the request keeps its own width. Absent: nothing is sent.
+   */
+  pictureWidth?(): number;
 }
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -104,6 +110,11 @@ export class BuildTakeRecorder {
     if (this.busy || this.state.peek().kind === "recording") return;
     this.state.value = { kind: "starting" };
     try {
+      const width = this.seams.pictureWidth?.();
+      if (width !== undefined) {
+        const frames: TakeFramesParams = { width };
+        await this.ask(AudioRequest.frames, frames).catch(() => {}); // an older build: its own width
+      }
       const r = await this.ask<TakeStateReply>(AudioRequest.start);
       this.holds = true;
       this.state.value = r.state === "recording" ? { kind: "recording", marks: 0 } : { kind: "failed", message: `${this.build.name} didn't start recording (its take is ${r.state}).`, canSave: false };
