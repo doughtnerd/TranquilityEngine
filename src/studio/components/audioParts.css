@@ -176,6 +176,10 @@
 .studio-span.stolen, .studio-span.blocked { background: var(--warning-soft); border-color: var(--warning); }
 .studio-span.blocked { border-style: dashed; }
 .studio-span.error { background: var(--danger-soft); border-color: var(--danger); }
+/* Experimental heatmap: cold (played once, the accent) to hot (played most, danger) by the span's `--heat` (0..1). */
+.studio-span.heat { --heat-colour: color-mix(in oklab, var(--danger) calc(var(--heat, 0) * 100%), var(--accent)); background: color-mix(in srgb, var(--heat-colour) 45%, transparent); border-color: var(--heat-colour); border-style: solid; }
+.studio-span.heat .studio-span-held { background: color-mix(in srgb, var(--heat-colour) 25%, transparent); }
+.studio-heatmap-toggle.on { color: var(--accent); background: var(--accent-soft); }
 .studio-span.selected { box-shadow: 0 0 0 2px var(--focus-ring); z-index: 1; }
 .studio-span.dim { opacity: 0.25; }
 .studio-span.live { border-right-style: dotted; }

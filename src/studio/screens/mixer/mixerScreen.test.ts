@@ -133,6 +133,28 @@ describe("the Mixer session", () => {
     expect(bus()).toBe(0.1);
   });
 
+  it("shows what the take recorded at the playhead while its replay is paused, so a scrub moves the meters", () => {
+    let replay: { take: string; duration: number; time: number; playing: boolean } | null = { take: "t", duration: 10, time: 2, playing: true };
+    const recorded = new Map<number, number>([[0, 0.05], [2, 0.3], [6, 0.8]]);
+    const f = make(mixerFixture(), {
+      extra: {
+        takeReplay: () => replay,
+        readBus: () => ({ volume: 1, duckGain: 1, peak: 0.5, activeVoices: 1 }),
+        recordedBus: (name: string) => (name === "Music" && replay && recorded.has(replay.time) ? { volume: 1, duckGain: 1, peak: recorded.get(replay.time)!, activeVoices: 0 } : null),
+      },
+    });
+    const bus = (name = "Music") => f.session.deps.readBus!(name)!.peak;
+    expect(bus()).toBe(0.5); // playing: the runtime's reading
+    replay = { ...replay!, playing: false };
+    expect(bus()).toBe(0.3);
+    replay = { ...replay!, time: 6 }; // a scrub while paused
+    expect(bus()).toBe(0.8);
+    replay = { ...replay!, time: 0 }; // at the start too
+    expect(bus()).toBe(0.05);
+    // A bus the take's profile can't say keeps the held reading.
+    expect(bus("SFX")).toBe(0.5);
+  });
+
   it("makes snapshot folders as steps of the file, so Undo takes an empty folder away", () => {
     const f = make(mixerFixture());
     const s = f.session;

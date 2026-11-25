@@ -5,6 +5,7 @@
 // A "problems only" filter dims the ones that played fine. The lane takes a time → x function, so it lines up with the
 // ruler above it.
 import { formatTime, type TimeToX } from "./timeAxis";
+import { heatText, type Heat } from "./heatmapModel";
 import { STATUS_TEXT, isDimmed, packSpans, spanBoxes, spanEnd, stepSpan, type Span } from "./spanLaneModel";
 import "./audioParts.css";
 
@@ -21,6 +22,8 @@ export interface SpanLaneProps {
   readonly filter?: "all" | "problems";
   /** Each row's height, px (default 18). */
   readonly rowHeight?: number;
+  /** Experimental heatmap: each span's play-count heat, which recolours it from cold to hot (null: drawn by status). */
+  readonly heat?: (span: Span) => Heat | null;
   /** Every bar on one row, overlapping ones drawn over each other (later on top), instead of stacked in rows. */
   readonly collapsed?: boolean;
   onSelect?(id: string): void;
@@ -59,15 +62,16 @@ export function SpanLane(props: SpanLaneProps) {
         const box = spanBoxes(s, toX, now);
         const row = rows.get(s.id) ?? 0;
         const selected = s.id === props.selected;
+        const heat = props.heat?.(s) ?? null;
         return (
           <div
             key={s.id}
             id={`studio-span-${s.id}`}
             role="option"
             aria-selected={selected}
-            class={`studio-span ${s.status}${selected ? " selected" : ""}${isDimmed(s, filter) ? " dim" : ""}${s.end === null ? " live" : ""}`}
-            style={{ left: `${box.x}px`, width: `${box.width}px`, top: `${row * rowHeight + 1}px`, height: `${rowHeight - 2}px`, ...(props.collapsed && selected ? { zIndex: 1 } : {}) }}
-            title={`${s.label} · ${STATUS_TEXT[s.status]} · ${formatTime(s.start)} – ${s.end === null ? "playing" : formatTime(spanEnd(s, now))}`}
+            class={`studio-span ${s.status}${heat ? " heat" : ""}${selected ? " selected" : ""}${isDimmed(s, filter) ? " dim" : ""}${s.end === null ? " live" : ""}`}
+            style={{ left: `${box.x}px`, width: `${box.width}px`, top: `${row * rowHeight + 1}px`, height: `${rowHeight - 2}px`, ...(props.collapsed && selected ? { zIndex: 1 } : {}), ...(heat ? { "--heat": heat.heat } : {}) }}
+            title={`${s.label} · ${STATUS_TEXT[s.status]}${heat ? ` · ${heatText(heat)}` : ""} · ${formatTime(s.start)} – ${s.end === null ? "playing" : formatTime(spanEnd(s, now))}`}
             onClick={() => props.onSelect?.(s.id)}
             onDblClick={() => props.onOpen?.(s.id)}
           >

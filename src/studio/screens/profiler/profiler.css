@@ -29,6 +29,9 @@
 .pf-why-take { margin: 8px; }
 .pf-counts { color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
 .pf-toolbar-gap { flex: 1 1 auto; }
+.pf-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 24px; padding: 0; border: none; border-radius: 4px; background: none; color: var(--text); cursor: pointer; }
+.pf-icon-btn:hover { background: var(--hover); }
+.pf-icon-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .pf-title { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
 .pf-title strong { color: var(--text-strong); font-size: calc(12px * var(--ui-scale)); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pf-title-meta { color: var(--muted); font-size: calc(12px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
@@ -108,6 +111,8 @@
 .pf-voice[data-status="stolen"], .pf-voice[data-status="blocked"], .pf-voice[data-status="refused"] { background: var(--warning-soft); border-color: var(--warning); }
 .pf-voice[data-status="missing"], .pf-voice[data-status="failed"] { background: var(--danger-soft); border-color: var(--danger); }
 /* A refusal has no length: it gets room for its word */
+/* Experimental heatmap: cold (played once, the accent) to hot (played most, danger) by `--heat` (0..1). */
+.pf-voice.heat { --heat-colour: color-mix(in oklab, var(--danger) calc(var(--heat, 0) * 100%), var(--accent)); background: color-mix(in srgb, var(--heat-colour) 45%, transparent); border-color: var(--heat-colour); }
 .pf-voice.instant { width: auto !important; min-width: 0; max-width: 96px; }
 .pf-voice.dim { opacity: 0.25; }
 .pf-voice.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); z-index: 1; }

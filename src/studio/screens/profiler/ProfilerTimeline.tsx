@@ -12,7 +12,8 @@
 // it; bus tracks that never move are folded into one "+ N unchanged buses" row; the Effects track counts instances by
 // level (spec §4.6.3). A view over props: the panel feeds it the store's signals, a story its own.
 import { createContext, Fragment, type ComponentChildren, type JSX } from "preact";
-import { useContext, useEffect, useRef, useState } from "preact/hooks";
+import { useContext, useEffect, useMemo, useRef, useState } from "preact/hooks";
+import { heatByKey, heatText, type Heat } from "../../components/heatmapModel";
 import { RunPlayhead, RunRuler } from "./RunRuler";
 import { Filmstrip } from "../../components/Filmstrip";
 import type { TimeSpan } from "../../components/timeRulerModel";
@@ -41,6 +42,8 @@ export interface ProfilerTimelineProps {
   readonly selected: string | null;
   readonly problemsOnly: boolean;
   readonly groupBy: GroupBy;
+  /** Experimental: colour each voice by how often its sound played in the capture. */
+  readonly heatmap?: boolean;
   /** Buses running an effect chain in the project's mix (the Effects track's Bus chip). */
   readonly busChains?: number;
   /** The recording's path when it may also be open on the Take screen: both timelines then show the same seconds. */
@@ -153,7 +156,7 @@ function LoadTrack({ data, track, cursor, onSeek }: { data: ProfilerData; track:
   const voices = valueAt(load.voices, cursor);
   const capNow = valueAt(load.cap, data.duration) ?? 0;
   const cpuNow = load.cpu.map((l) => valueAt(l, cursor)).find((v) => v !== null && Number.isFinite(v));
-  const value = `${voices ?? 0} voices · cap ${cap ?? "?"}${cpuNow != null ? ` · CPU ${Math.round(cpuNow)}‰` : ""}`;
+  const value = `${voices ?? 0} voices · max ${cap ?? "?"}${cpuNow != null ? ` · CPU ${Math.round(cpuNow)}‰` : ""}`;
   return (
     <TrackRow
       track={track}
@@ -163,7 +166,7 @@ function LoadTrack({ data, track, cursor, onSeek }: { data: ProfilerData; track:
       height={56}
       overlay={
         <>
-          <span class="pf-limit" title="The core's voice cap (mixedCap): voices past it are stolen or refused">voice limit {capNow}</span>
+          <span class="pf-limit" title="The most voices the engine mixes at once (mixedCap): the project's Mixed voices setting, lowered while the audio thread is overloaded. Past it voices are stolen or refused. A bus's voice limit in the Mixer is separate: None there leaves only this ceiling">mixed voices max {capNow}</span>
           <span class="pf-legend" aria-hidden="true">
             <span class="pf-key pf-key-voices">voices</span>
             {load.cpu.length > 0 && <span class="pf-key pf-key-cpu">CPU</span>}
@@ -307,20 +310,23 @@ function ParameterTrack({ data, track, name, cursor, onSeek }: { data: ProfilerD
   );
 }
 
-function VoiceButton({ block, duration, row, selected, dim, onSelect }: { block: VoiceBlock; duration: number; row: number; selected: boolean; dim: boolean; onSelect(key: string): void }) {
+/** The sound a voice played, for the heatmap's count: its generator kind and clip. */
+const soundOf = (b: VoiceBlock): string => `${b.generator ?? ""}:${b.clip}`;
+
+function VoiceButton({ block, duration, row, selected, dim, heat, onSelect }: { block: VoiceBlock; duration: number; row: number; selected: boolean; dim: boolean; heat: Heat | null; onSelect(key: string): void }) {
   const left = pct(block.start, duration);
   const width = Math.max(0, pct(block.end, duration) - left);
   const label = `${block.generator ? `${generatorBadge(block.generator).name} ` : ""}${block.clipName}: ${STATUS_TEXT[block.status]}, ${clockText(block.start)}${block.end > block.start ? ` to ${clockText(block.end)}` : ""}`;
   return (
     <button
       type="button"
-      class={`pf-voice${selected ? " selected" : ""}${dim ? " dim" : ""}${block.end <= block.start ? " instant" : ""}`}
+      class={`pf-voice${heat ? " heat" : ""}${selected ? " selected" : ""}${dim ? " dim" : ""}${block.end <= block.start ? " instant" : ""}`}
       data-status={block.status}
       data-voice={block.key}
-      style={{ left: `${left}%`, width: `${width}%`, top: `${row * ROW_PX + 5}px` }}
+      style={{ left: `${left}%`, width: `${width}%`, top: `${row * ROW_PX + 5}px`, ...(heat ? { "--heat": heat.heat } : {}) }}
       aria-pressed={selected}
       aria-label={label}
-      title={`${voiceSummary(block)} · ${clockText(block.start)}`}
+      title={`${voiceSummary(block)}${heat ? ` · ${heatText(heat)}` : ""} · ${clockText(block.start)}`}
       onClick={(e) => {
         e.stopPropagation();
         onSelect(block.key);
@@ -332,8 +338,9 @@ function VoiceButton({ block, duration, row, selected, dim, onSelect }: { block:
   );
 }
 
-function VoiceLanes(props: { data: ProfilerData; track: PlannedTrack; selected: string | null; problemsOnly: boolean; groupBy: GroupBy; onSeek(t: number): void; onSelect(key: string): void }) {
+function VoiceLanes(props: { data: ProfilerData; track: PlannedTrack; selected: string | null; problemsOnly: boolean; groupBy: GroupBy; heatmap?: boolean; onSeek(t: number): void; onSelect(key: string): void }) {
   const { data } = props;
+  const heats = useMemo(() => (props.heatmap ? heatByKey(data.voices.map(soundOf)) : null), [props.heatmap, data.voices]);
   const lanes = voiceLanes(data.voices, props.groupBy, props.problemsOnly);
   if (lanes.length === 0) {
     return (
@@ -347,7 +354,7 @@ function VoiceLanes(props: { data: ProfilerData; track: PlannedTrack; selected: 
       {lanes.map((lane) => (
         <TrackRow key={lane.key} track={{ ...props.track, label: lane.label }} value={lane.problems > 0 ? `${lane.problems} problem${lane.problems === 1 ? "" : "s"}` : null} duration={data.duration} onSeek={props.onSeek} height={lane.rowCount * ROW_PX}>
           {lane.blocks.map((b, i) => (
-            <VoiceButton key={b.key} block={b} duration={data.duration} row={lane.rows[i]!} selected={b.key === props.selected} dim={dimmed(b, props.problemsOnly)} onSelect={props.onSelect} />
+            <VoiceButton key={b.key} block={b} duration={data.duration} row={lane.rows[i]!} selected={b.key === props.selected} dim={dimmed(b, props.problemsOnly)} heat={heats?.get(soundOf(b)) ?? null} onSelect={props.onSelect} />
           ))}
         </TrackRow>
       ))}
@@ -447,7 +454,7 @@ export function ProfilerTimeline(props: ProfilerTimelineProps) {
             case "loudness":
               return <LoudnessTrack key={track.id} data={data} track={track} cursor={cursor} onSeek={props.onSeek} />;
             case "voices":
-              return <VoiceLanes key={track.id} data={data} track={track} selected={props.selected} problemsOnly={props.problemsOnly} groupBy={props.groupBy} onSeek={props.onSeek} onSelect={props.onSelect} />;
+              return <VoiceLanes key={track.id} data={data} track={track} selected={props.selected} problemsOnly={props.problemsOnly} groupBy={props.groupBy} heatmap={props.heatmap} onSeek={props.onSeek} onSelect={props.onSelect} />;
             case "parameter":
               return <ParameterTrack key={track.id} data={data} track={track} name={track.name} cursor={cursor} onSeek={props.onSeek} />;
           }

@@ -28,7 +28,7 @@ const silent: ReplayTarget = {
   play: () => null, setGlobal() {}, busVolume() {}, snapshot() {}, clearSnapshot() {}, masterVolume: () => 1, listener() {}, seed: () => true,
 };
 
-function TimelineDemo(props: { start?: number }) {
+function TimelineDemo(props: { start?: number; heatmap?: boolean }) {
   const take = useMemo(() => fixtureTake(), []);
   const replay = useMemo(() => new TakeReplay(take, silent, performanceClock), [take]);
   const timeline = useMemo(() => takeTimeline(take, (name, path) => (name === "Surface" && path === null ? SURFACE_LABELS : null)), [take]);
@@ -56,6 +56,7 @@ function TimelineDemo(props: { start?: number }) {
       <button type="button" onClick={() => replay.toggle()}>{replay.playing.value ? "Pause" : "Replay"}</button>
       <TakeTimelineView
         timeline={timeline}
+        heatmap={props.heatmap}
         time={replay.time.value}
         playing={replay.playing.value}
         selected={selected}
@@ -96,6 +97,20 @@ export const Timeline: Story = {
     await expect(canvasElement.querySelector(".tk-segment[title='Rock']")).not.toBeNull(); // Surface as labelled segments
     await userEvent.click(c.getByRole("option", { name: /Velocity 0.71/ }));
     await expect(c.getByLabelText("Selected").textContent).toMatch(/^4@/);
+  },
+};
+
+/** Experimental heatmap: each lane's instances coloured by how often its playlist played in the take (here each once: all cold). */
+export const Heatmap: Story = {
+  render: () => <TimelineDemo heatmap />,
+  play: async ({ canvasElement }) => {
+    const spans = await waitFor(() => {
+      const all = [...canvasElement.querySelectorAll<HTMLElement>(".studio-span.heat")];
+      if (all.length === 0) throw new Error("no heat yet");
+      return all;
+    });
+    await expect(spans.map((s) => Number(s.style.getPropertyValue("--heat")))).toEqual(spans.map(() => 0));
+    await expect(spans[0]!.title).toMatch(/played once/);
   },
 };
 

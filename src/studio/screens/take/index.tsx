@@ -12,6 +12,7 @@ import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { currentProject, docVersion } from "../../../editor/state";
 import { Icon } from "../../components/Icon";
+import { HeatmapToggle, heatmapOn } from "../../components/heatmapToggle";
 import { TransportButton } from "../../components/PlayerBar";
 import { formatClock } from "../../components/replayControlsModel";
 import { replayStore } from "../../shell/replay";
@@ -221,6 +222,8 @@ function useScreen(): void {
       effect(() => {
         void docVersion.value;
         const asset = studioRouter().route.value.asset;
+        // While a build is connected the timeline is live (ADR 0408): the routed take waits, and opens once it leaves.
+        if (studioBuild.value) return;
         store.follow(asset, !!asset && isTakePath(asset) && !!currentProject.value?.files.includes(asset));
       }),
       effect(() => {
@@ -287,6 +290,7 @@ function TimelinePanel() {
       <button type="button" class="tk-icon-btn" disabled={!writable} aria-label="Add region" title="Add a note region from the playhead" onClick={() => store.commitNotes(addRegion(notesOf(), open.replay.time.peek(), open.replay.time.peek(), open.take.duration), { select: true })}>
         <Icon name="region" size={14} />
       </button>
+      <HeatmapToggle class="tk-icon-btn" />
       <button type="button" class="tk-icon-btn" aria-label="Show profile" title="Show profile: the engine's profile this take recorded in the game, on the Profiler at the playhead" onClick={() => store.showProfile()}>
         <Icon name="profiler" size={14} />
       </button>
@@ -308,7 +312,7 @@ function TimelinePanel() {
       />
     );
     return (
-      <Panel toolbar={live ? <div class="tk-toolbar"><strong class="tk-toolbar-title">{live.state === "recording" ? `● Recording on ${build.name}` : `Last take from ${build.name}`}</strong></div> : undefined} bodyClass="tk-panel-body tk-timeline-body">
+      <Panel toolbar={live ? <div class="tk-toolbar"><strong class="tk-toolbar-title">{live.state === "recording" ? `● Recording on ${build.name}` : `Last take from ${build.name}`}</strong><span class="tk-toolbar-gap" /><HeatmapToggle class="tk-icon-btn" /></div> : undefined} bodyClass="tk-panel-body tk-timeline-body">
         {body}
       </Panel>
     );
@@ -355,6 +359,7 @@ function TimelinePanel() {
         {open.replay.note.value && <p class="tk-hint" role="status">{open.replay.note.value}</p>}
         <TakeTimelineView
           timeline={timeline}
+          heatmap={heatmapOn.value}
           name={open.title}
           viewKey={open.path}
           onPicture={(t) => {
@@ -412,6 +417,7 @@ function LiveTakeView(props: { readonly live: LiveTake }) {
   return (
     <TakeTimelineView
       timeline={timeline}
+      heatmap={heatmapOn.value}
       name={props.live.state === "recording" ? "Recording…" : "Last take"}
       time={take.duration}
       playing={props.live.state === "recording"}

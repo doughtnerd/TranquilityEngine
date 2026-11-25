@@ -49,6 +49,8 @@ export interface MixerDeps {
   /** A connected build's mix (U8): each edit is also sent to it (`remoteMix.ts`). Absent, or with no build: nothing is sent. */
   readonly remote?: RemoteMix;
   readBus?(name: string): BusReading | null;
+  /** A bus as the open take recorded it at the replay's playhead (`recordedLevels.ts`); null when the take's profile can't say. */
+  recordedBus?(name: string): BusReading | null;
   readLoudness?(name: string): LoudnessReading | null;
   setParameter?(name: string, value: number | string): void;
   auditionSnapshot?(name: string | null, fadeSeconds: number): void;
@@ -149,10 +151,19 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
     const r = deps.takeReplay?.() ?? null;
     return !!r && !r.playing && r.time > 0 && r.time < r.duration;
   };
-  const holding = <T,>(read: ((name: string) => T | null) | undefined): ((name: string) => T | null) | undefined => {
+  // A paused replay shows what the take recorded at the playhead where its profile has it, so a scrub moves the meters.
+  const paused = (): boolean => {
+    const r = deps.takeReplay?.() ?? null;
+    return !!r && !r.playing;
+  };
+  const holding = <T,>(read: ((name: string) => T | null) | undefined, recorded?: (name: string) => T | null): ((name: string) => T | null) | undefined => {
     if (!read) return undefined;
     const last = new Map<string, T | null>();
     return (name) => {
+      if (recorded && paused()) {
+        const then = recorded(name);
+        if (then !== null) return then;
+      }
       if (levelsHeld() && last.has(name)) return last.get(name)!;
       const now = read(name);
       last.set(name, now);
@@ -243,7 +254,7 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
   };
 
   const session: MixerSession = {
-    deps: Object.assign(Object.create(deps) as MixerDeps, { readBus: holding(deps.readBus), readLoudness: holding(deps.readLoudness) }),
+    deps: Object.assign(Object.create(deps) as MixerDeps, { readBus: holding(deps.readBus, deps.recordedBus?.bind(deps)), readLoudness: holding(deps.readLoudness) }),
     levelsHeld,
     project,
     readOnly: doc.readOnly,

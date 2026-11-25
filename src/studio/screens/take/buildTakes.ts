@@ -9,8 +9,8 @@ import { currentProject, status } from "../../../editor/state";
 import { studioBuild } from "../../debugLink/studioLink";
 import { takePictureWidth, takePictureWidthOf } from "../../runtime/takePictures";
 import { saveFileAs } from "../../saveFileAs";
+import { openRoute, studioRouter } from "../../shell/studioServices";
 import { BuildTakeRecorder, saveTakeIntoProject } from "./recordFromBuild";
-import { openTake } from "./takeScreen";
 
 /** The recorder of the connected build's takes; a build that left keeps it while it shows a failure. */
 export const buildTake = signal<BuildTakeRecorder | null>(null);
@@ -20,6 +20,26 @@ export const gameLink = signal<"linked" | "disconnected" | "none">("none");
 
 /** When the running recording started (`Date.now()`), for Record session's clock; null while none records. */
 export const recordingSince = signal<number | null>(null);
+
+/**
+ * The take the connected build last saved into the project, while the Take screen and the Profiler still show the build
+ * live (ADR 0408): it opens on them once the build disconnects, so the recording just made stays on screen.
+ */
+export const lastBuildTake = signal<string | null>(null);
+
+/** The screens that open a take from the route (one recording for both). */
+const showsTakes = (): boolean => {
+  const screen = studioRouter().route.peek().screen;
+  return screen === "take" || screen === "profiler";
+};
+
+/**
+ * Puts the saved take in the route of the Take screen or the Profiler, whichever shows; they open it in the background
+ * (or as soon as the build disconnects, while they show it live).
+ */
+function routeSavedTake(path: string): void {
+  if (showsTakes() && studioRouter().route.peek().asset !== path) openRoute({ asset: path });
+}
 
 /** True where each take is saved as a file the user chooses: a browser page with no project (a takes folder in memory). */
 export function asksWhereToSaveTakes(): boolean {
@@ -44,7 +64,12 @@ export function installBuildTakes(): () => void {
   const stop = effect(() => {
     const build = studioBuild.value;
     if (build) gameLink.value = "linked";
-    else if (gameLink.peek() === "linked") gameLink.value = "disconnected";
+    else if (gameLink.peek() === "linked") {
+      gameLink.value = "disconnected";
+      // The live view ends: the take just recorded stays open, now from its saved file.
+      const saved = lastBuildTake.peek();
+      if (saved && currentProject.peek()?.files.includes(saved)) routeSavedTake(saved);
+    }
     const current = buildTake.peek();
     if (current && current.build.peer === build?.peer) return;
     if (current && current.build.peer.state === "closed") current.linkClosed(current.build.peer.closedReason);
@@ -57,8 +82,9 @@ export function installBuildTakes(): () => void {
           pictureWidth: () => takePictureWidthOf(takePictureWidth.peek()),
           saved: (path, auto) => {
             if (!currentProject.peek()?.files.includes(path)) return;
-            if (auto) status.value = { kind: "info", text: `Saved the take ${build.name} stopped: ${path}` };
-            else openTake(path);
+            lastBuildTake.value = path;
+            routeSavedTake(path);
+            status.value = { kind: "info", text: auto ? `Saved the take ${build.name} stopped: ${path}` : `Saved ${path}` };
           },
         })
       : keep

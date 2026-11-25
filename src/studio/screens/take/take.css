@@ -74,6 +74,7 @@
 .tk-inst-lane .studio-spanlane { background: none; }
 .tk-inst-lane .studio-span { background: var(--accent-faint); border-color: var(--accent); align-items: flex-end; }
 .tk-inst-lane .studio-span-label { font-size: calc(11px * var(--ui-scale)); padding-bottom: 3px; }
+.tk-inst-lane .studio-span.heat { background: color-mix(in srgb, var(--heat-colour) 45%, transparent); border-color: var(--heat-colour); }
 .tk-inst-lane .studio-span.selected { background: var(--accent-soft); box-shadow: none; outline: 2px solid var(--accent); outline-offset: 0; }
 .tk-inst-row.silent .tk-inst-lane { opacity: 0.35; }
 .tk-ms { display: inline-flex; gap: 2px; flex: none; }

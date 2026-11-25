@@ -3,6 +3,7 @@
 // the screen's store (`profilerScreen.ts`); the Timeline panel also owns what the screen does while it shows: opening
 // the capture the route names, the cursor keys (← → step, Shift+← → markers) and the player bar's slots (the capture
 // playing and the Record button).
+import { HeatmapToggle, heatmapOn } from "../../components/heatmapToggle";
 import { effect, signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { Panel } from "../../../editor/ui/panel/Panel";
@@ -153,8 +154,8 @@ function useScreen(): void {
         void docVersion.value;
         const asset = studioRouter().route.value.asset;
         if (!asset || !isCapturePath(asset) || !currentProject.value?.files.includes(asset)) return;
-        // While a build is connected both screens are live (ADR 0408): a saved recording waits.
-        if (studioBuild.peek()) return;
+        // While a build is connected both screens are live (ADR 0408): a saved recording waits, and opens once it leaves.
+        if (studioBuild.value) return;
         void store.openPath(asset);
         // One recording for both screens: the Take screen opens it too (or says it has no take data).
         void takeScreen().openPath(asset);
@@ -200,6 +201,7 @@ function TimelinePanel() {
       <span class="pf-toolbar-gap" />
       <SegmentedControl<"all" | "problems"> size="small" look="fill" label="Voices shown" options={FILTERS} value={store.problemsOnly.value ? "problems" : "all"} onChange={(v) => (store.problemsOnly.value = v === "problems")} />
       <SegmentedControl<GroupBy> size="small" label="Group voices" options={GROUPS} value={store.groupBy.value} onChange={(v) => (store.groupBy.value = v)} />
+      <HeatmapToggle class="pf-icon-btn" />
       {s.kind === "open" && s.replayOf ? <ReplayOrigin take={s.replayOf} onOpenTake={take ? openInTake : undefined} /> : take && <OpenInTake take={take} onOpen={openInTake} />}
       {data && <span class="pf-counts" role="status">{countsText(data.messages)}</span>}
     </div>
@@ -218,6 +220,7 @@ function TimelinePanel() {
         selected={store.selected.value}
         problemsOnly={store.problemsOnly.value}
         groupBy={store.groupBy.value}
+        heatmap={heatmapOn.value}
         busChains={busChains()}
         viewKey={s.kind === "open" && s.origin === "file" ? s.path : null}
         onSeek={(t) => store.seekTo(t)}

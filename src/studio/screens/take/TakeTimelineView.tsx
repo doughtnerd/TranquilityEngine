@@ -17,6 +17,7 @@ import { TimelineZoomStrip } from "../../components/TimelineZoomStrip";
 import { useElementWidth } from "../../components/useElementWidth";
 import { useTimelineView } from "../../components/useTimelineView";
 import { recordingView } from "../../components/recordingView";
+import { heatOfCounts } from "../../components/heatmapModel";
 import { noteColourCss } from "./notesEdits";
 import type { TakeSelection } from "./takeScreen";
 import { RunPlayhead, RunRuler } from "../profiler/RunRuler";
@@ -46,6 +47,8 @@ export interface TakeTimelineViewProps {
   /** The game parameter under the pointer (here or in the Inspector), outlined in both. */
   readonly hovered?: string | null;
   onHover?(parameter: string | null): void;
+  /** Experimental: colour each lane's instances by how often its playlist played in the take. */
+  readonly heatmap?: boolean;
   /** A scrub: `done` on release. */
   /** The recording's path: the Profiler's timeline of the same file shows the same seconds. */
   readonly viewKey?: string | null;
@@ -87,6 +90,7 @@ export function TakeTimelineView(props: TakeTimelineViewProps) {
   const selectedKey = props.selected?.kind === "instance" ? props.selected.key : null;
   const globals = timeline.parameters.filter((p) => p.path === null);
   const locals = timeline.parameters.filter((p) => p.path !== null);
+  const heats = useMemo(() => (props.heatmap ? heatOfCounts(new Map(timeline.lanes.map((l) => [l.path, l.instances.length]))) : null), [props.heatmap, timeline]);
   return (
     <div class="tk-timeline" onWheel={onWheel}>
       <RunRuler duration={duration} view={zoom.view} time={props.time} label="Take time" onSeek={props.onSeek} />
@@ -148,7 +152,7 @@ export function TakeTimelineView(props: TakeTimelineViewProps) {
                 <span class="tk-head-sub">{props.plays?.(l.path) || count}</span>
               </div>
               <div class="tk-lane tk-inst-lane">
-                <SpanLane spans={l.spans} toX={axis.toX} width={width} rowHeight={32} collapsed={!open} now={duration} label={`${l.label} instances`} selected={selectedKey} onSelect={props.onSelectInstance} onOpen={props.onOpenInstance} />
+                <SpanLane spans={l.spans} toX={axis.toX} width={width} rowHeight={32} collapsed={!open} now={duration} label={`${l.label} instances`} heat={heats ? () => heats.get(l.path) ?? null : undefined} selected={selectedKey} onSelect={props.onSelectInstance} onOpen={props.onOpenInstance} />
               </div>
             </div>
           );

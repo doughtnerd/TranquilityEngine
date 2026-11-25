@@ -131,7 +131,7 @@ function VoiceField(props: { session: MixerSession; name: string }) {
         label="Voice limit"
         size="small"
         value={bus.voiceLimit === null ? "inherit" : "limit"}
-        options={[{ value: "inherit", label: master ? "None" : "Inherit", title: master ? "No voice cap" : "Use the limit of the nearest bus above" }, { value: "limit", label: "Limit", title: "Cap this bus and everything under it" }]}
+        options={[{ value: "inherit", label: master ? "None" : "Inherit", title: master ? `No bus voice cap: only the project's ${p.settings.voices.mixed} mixed voices limit how many play at once` : "Use the limit of the nearest bus above" }, { value: "limit", label: "Limit", title: "Cap this bus and everything under it" }]}
         onChange={(m) => session.commit(setVoiceLimit(session.project.peek(), name, m === "inherit" ? null : seedVoiceLimit(session.project.peek(), name)), label)}
       />
       {bus.voiceLimit !== null ? (

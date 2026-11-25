@@ -22,7 +22,7 @@ async function fixtureStore(): Promise<ProfilerStore> {
 }
 
 /** The timeline fed from the store's signals, as the Timeline panel feeds it. */
-function Demo({ store, problemsOnly, groupBy }: { store: ProfilerStore; problemsOnly?: boolean; groupBy?: GroupBy }) {
+function Demo({ store, problemsOnly, groupBy, heatmap }: { store: ProfilerStore; problemsOnly?: boolean; groupBy?: GroupBy; heatmap?: boolean }) {
   const data = store.data.value;
   if (!data) return <p>Opening…</p>;
   return (
@@ -34,6 +34,7 @@ function Demo({ store, problemsOnly, groupBy }: { store: ProfilerStore; problems
         selected={store.selected.value}
         problemsOnly={problemsOnly ?? store.problemsOnly.value}
         groupBy={groupBy ?? store.groupBy.value}
+        heatmap={heatmap}
         onSeek={(t) => store.seekTo(t)}
         onSelect={(key) => store.select(key, true)}
       />
@@ -45,6 +46,7 @@ function Demo({ store, problemsOnly, groupBy }: { store: ProfilerStore; problems
 interface Args {
   readonly problemsOnly?: boolean;
   readonly groupBy?: GroupBy;
+  readonly heatmap?: boolean;
 }
 
 const meta: Meta<Args> = {
@@ -80,6 +82,21 @@ export const Memory: Story = {
     const box = plot.getBoundingClientRect();
     fireEvent.click(plot, { clientX: box.left + box.width * 0.42, clientY: box.top + 2 });
     await waitFor(() => expect(row.querySelector(".pf-track-value")?.textContent).toMatch(/^arena .* · packages 880 KB$/));
+  },
+};
+
+/** Experimental heatmap: each voice coloured by how often its clip played in the capture (the most played is hottest). */
+export const Heatmap: Story = {
+  args: { heatmap: true },
+  play: async ({ canvasElement }) => {
+    const voices = await waitFor(() => {
+      const all = [...canvasElement.querySelectorAll<HTMLElement>(".pf-voice.heat")];
+      if (all.length === 0) throw new Error("no heat yet");
+      return all;
+    });
+    const heats = voices.map((v) => Number(v.style.getPropertyValue("--heat")));
+    await expect(Math.max(...heats)).toBe(1);
+    await expect(voices.some((v) => /played (once|\d+ times)/.test(v.title))).toBe(true);
   },
 };
 
