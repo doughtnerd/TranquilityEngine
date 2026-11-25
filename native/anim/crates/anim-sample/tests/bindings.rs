@@ -146,7 +146,7 @@ fn poses_and_tracks_are_bit_identical() {
         for form in [Form::Compressed, Form::Raw] {
             let sampler = ClipSampler::new(view, form).unwrap();
             let bindings = ClipBindings::new(&sampler);
-            let bound = bindings.bind(sampler).unwrap();
+            let bound = bindings.bind(&sampler).unwrap();
             assert_eq!(bindings.cache_len(), sampler.cache_len());
             let n = rest.len();
             let mut scratch = vec![AosTransform::default(); sampler.scratch_len()];
@@ -208,7 +208,7 @@ fn property_tracks_have_value_columns() {
     let view = ClipView::parse(&bytes).unwrap();
     let sampler = ClipSampler::new(view, Form::Compressed).unwrap();
     let b = ClipBindings::new(&sampler);
-    let bound = b.bind(sampler).unwrap();
+    let bound = b.bind(&sampler).unwrap();
     let mut offset = 0;
     for (i, track) in clip.tracks.iter().enumerate() {
         match b.column(i) {

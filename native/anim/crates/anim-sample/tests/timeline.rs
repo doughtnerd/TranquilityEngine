@@ -216,7 +216,7 @@ fn mixing_averages_floats_nlerps_quats_and_picks_the_heaviest_word() {
     let sample = |bind: &ClipBindings, bytes: &[u8]| {
         let view = ClipView::parse(bytes).unwrap();
         let sampler = ClipSampler::new(view, Form::Compressed).unwrap();
-        let bound = bind.bind(sampler).unwrap();
+        let bound = bind.bind(&sampler).unwrap();
         let mut cols = vec![0u32; n];
         assert!(bound.sample_columns(0.0, true, &mut cols));
         cols
@@ -251,9 +251,8 @@ fn a_lone_entry_below_full_weight_mixes_to_itself() {
     let a = clip_bytes(vec![value_track(TrackKind::Float, 1, &[4.0])]);
     let ba = bindings(&a);
     let view = ClipView::parse(&a).unwrap();
-    let bound = ba
-        .bind(ClipSampler::new(view, Form::Compressed).unwrap())
-        .unwrap();
+    let sampler = ClipSampler::new(view, Form::Compressed).unwrap();
+    let bound = ba.bind(&sampler).unwrap();
     let mut cols = vec![0u32; ba.column_words()];
     bound.sample_columns(0.0, true, &mut cols);
     let mut acc = vec![0u32; cols.len()];

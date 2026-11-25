@@ -32,7 +32,7 @@ import type { World } from "../../../../engine/core/World";
 import { Transform } from "../../../../engine/scene/Transform";
 import { Tweens } from "../components/Tweens";
 import type { AnimationWorldCore } from "../core/AnimationWorldCore";
-import { encodeRecord } from "../core/records";
+import { encodeRecord, type RecordFields } from "../core/records";
 import { animationCoreOf, startAnimationCore } from "../core/service";
 import type { AnimationFrame } from "../stages/frame";
 import { CHANGE_FINISHED, CHANGE_MEMBER_DONE, FLAG_PLAY, OP_KILL as TL_KILL, OP_PAUSE as TL_PAUSE, OP_PLAY as TL_PLAY, SEQ_CREATE, SEQ_MEMBER, WRAP_ONCE } from "../wasm/wire/timeline";
@@ -51,6 +51,7 @@ import {
   TIME_FIXED,
   TIME_SCALED,
   TIME_UNSCALED,
+  TWEEN_CHANGE,
 } from "../wasm/wire/tween";
 import type { Tween, TweenEase, TweenEndReason, TweenOptions, TweenResult, TweenTarget, TweenValue } from "../types";
 import { resolveTweenTarget, tweenNumbers, type TweenBinding } from "./tweens/target";
@@ -317,13 +318,11 @@ class Leaf extends Item {
     };
   }
 
-  /** Writes one core row (`width` floats). */
-  writeRow(v: ArrayLike<number>): void {
+  /** Writes one core row (`width` floats from `v[at]` on); a destroyed target writes nothing (`binding.write` checks). */
+  writeRow(v: ArrayLike<number>, at = 0): void {
     const b = this.binding!;
-    if (!b.alive()) return;
-    let out: ArrayLike<number> = v;
-    if (b.bool) out = [Math.abs(out[0]! - this.to[0]!) < 1e-6 ? this.to[0]! : this.from[0]!];
-    b.write(out);
+    if (b.bool) b.write([Math.abs(v[at]! - this.to[0]!) < 1e-6 ? this.to[0]! : this.from[0]!]);
+    else b.write(v, at);
   }
 
   /** Counts it on its node's `animation.Tweens` (once). */
@@ -644,12 +643,20 @@ function startGroup(store: Store, ns: AnimationWorldCore, g: Group): void {
   if (g.pausedEarly) ns.core.timelineControl(handle, TL_PAUSE);
 }
 
+/** Running leaves whose target is gone, found by `gatherTweens` (reused). */
+const deadLeaves: (Leaf | null)[] = [];
+
 /** @internal `animation.Gather`'s tween step: start what was created since the last update; destroyed targets end. */
 export function gatherTweens(frame: AnimationFrame): void {
   const store = stores.get(frame.world);
   if (!store) return;
-  for (const leaf of [...store.running]) {
-    if (leaf.binding!.alive()) continue;
+  // Targets gone since the last frame (whether a target lives doesn't change as tweens end, so they are found first,
+  // then ended in order: no copy of the running set each frame).
+  let dead = 0;
+  for (const leaf of store.running) if (!leaf.binding!.alive()) deadLeaves[dead++] = leaf;
+  for (let i = 0; i < dead; i++) {
+    const leaf = deadLeaves[i]!;
+    deadLeaves[i] = null;
     if (leaf.handle && leaf.ns) leaf.ns.core.tweenControl(leaf.handle, OP_DESTROYED);
     leaf.end("destroyed");
   }
@@ -663,6 +670,38 @@ export function gatherTweens(frame: AnimationFrame): void {
 }
 
 
+/**
+ * The rows `applyTweens` reads before writing any (a setter may call into the core, which can move its memory), reused
+ * every frame so a steady frame allocates nothing: `rowLeaves[i]` writes the 4 floats at `rowValues[4i]`.
+ */
+let rowValues = new Float32Array(1024);
+const rowLeaves: (Leaf | null)[] = [];
+/** Leaves whose completion record came this frame (ended after the writes), reused likewise. */
+const completedLeaves: (Leaf | null)[] = [];
+const tweenChangeOut = {} as RecordFields<typeof TWEEN_CHANGE>;
+
+/** `rowValues` with room for `n` rows (grown by doubling, never shrunk). */
+function rowRoom(n: number): Float32Array {
+  if (rowValues.length < n * 4) {
+    let size = rowValues.length;
+    while (size < n * 4) size *= 2;
+    const grown = new Float32Array(size);
+    grown.set(rowValues);
+    rowValues = grown;
+  }
+  return rowValues;
+}
+
+/** Writes the `n` rows gathered in `rowLeaves`/`rowValues`, letting go of each leaf. */
+function writeRows(n: number): void {
+  const values = rowValues;
+  for (let i = 0; i < n; i++) {
+    const leaf = rowLeaves[i]!;
+    rowLeaves[i] = null;
+    leaf.writeRow(values, i * 4);
+  }
+}
+
 /** @internal `animation.Apply`'s tween step: values into fields, then completions. */
 export function applyTweens(frame: AnimationFrame): void {
   const store = stores.get(frame.world);
@@ -670,33 +709,50 @@ export function applyTweens(frame: AnimationFrame): void {
   const core = frame.core.core;
   if (store.byHost.size) {
     const rows = core.tweenRows();
-    const writes: [Leaf, number[]][] = [];
+    const columns = rows.columns, src = rows.values;
+    const values = rowRoom(rows.count);
+    let n = 0;
     for (let i = 0; i < rows.count; i++) {
-      const leaf = store.byHost.get(rows.columns[i]!);
-      if (leaf) writes.push([leaf, Array.from(rows.values.subarray(i * 4, i * 4 + 4))]);
+      const leaf = store.byHost.get(columns[i]!);
+      if (!leaf) continue;
+      rowLeaves[n] = leaf;
+      const from = i * 4, to = n * 4;
+      values[to] = src[from]!;
+      values[to + 1] = src[from + 1]!;
+      values[to + 2] = src[from + 2]!;
+      values[to + 3] = src[from + 3]!;
+      n++;
     }
-    for (const [leaf, v] of writes) leaf.writeRow(v); // setters may call into the core: read first
-    const n = core.tweenChangeCount();
-    const completed: Leaf[] = [];
-    for (let i = 0; i < n; i++) {
-      const c = core.tweenChange(i);
+    writeRows(n); // setters may call into the core: read first
+    const changes = core.tweenChangeCount();
+    let done = 0;
+    for (let i = 0; i < changes; i++) {
+      const c = core.tweenChange(i, tweenChangeOut);
       const leaf = store.byHost.get(c.hostId);
-      if (leaf && c.kind === CHANGE_COMPLETED) completed.push(leaf);
+      if (leaf && c.kind === CHANGE_COMPLETED) completedLeaves[done++] = leaf;
     }
-    for (const leaf of completed) leaf.end("finished");
+    for (let i = 0; i < done; i++) {
+      const leaf = completedLeaves[i]!;
+      completedLeaves[i] = null;
+      leaf.end("finished");
+    }
   }
   if (store.runs.size) {
     const active = new Set(core.timelineActive());
     for (const run of store.runs.values()) {
       if (!active.has(run.handle)) continue;
       const out = core.timelineOutputs();
-      const writes: [Leaf, number[]][] = [];
+      let n = 0;
       for (const b of run.blocks) {
         if (b.leaf.state !== "running" || !(out.weights[run.weightOffset + b.index]! > 0)) continue;
         const at = run.valueOffset + b.offset;
-        writes.push([b.leaf, Array.from(out.f32.subarray(at, at + b.words))]);
+        const values = rowRoom(n + 1);
+        rowLeaves[n] = b.leaf;
+        // A block is one tween value: 1–4 words (a member's width).
+        for (let k = 0; k < 4; k++) values[n * 4 + k] = k < b.words ? out.f32[at + k]! : 0;
+        n++;
       }
-      for (const [leaf, v] of writes) leaf.writeRow(v);
+      writeRows(n);
     }
     const n = core.timelineChangeCount();
     const changes: { hostId: number; kind: number; member: number }[] = [];

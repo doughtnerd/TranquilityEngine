@@ -1,8 +1,7 @@
 /**
  * Internal (ADR 0370 "Rendering"): `mycoSkin` (`skinKernel.ts`) on the GPU kernel executor, renderer-neutral.
- * A `SkinRuns` backend makes palettes (one per skeleton: uploaded once a frame, read by each of its meshes'
- * kernels through `bindInput`) and runs (one per mesh: the kernel over its vertices, its output a vertex
- * buffer at `SKIN_STRIDE` that a renderer draws from):
+ * A `SkinRuns` backend makes palettes (one per skeleton) and runs (one per mesh: the kernel over its
+ * vertices, its output a vertex buffer at `SKIN_STRIDE` that a renderer draws from):
  *
  * - `WebGpuSkinRuns`: `GpuItemKernel`, the output a storage buffer with `VERTEX` usage made by the
  *   renderer's factory (Babylon wraps it, so its draws bind the same buffer);
@@ -12,16 +11,25 @@
  * - `JsSkinRuns`: `JsItemKernel`, the output a Float32Array the renderer uploads (no GPU kernel support,
  *   headless engines).
  *
+ * On the GPU backends every palette is a range of one shared table (a storage buffer, or an RGBA32F
+ * texture on WebGL2) with a CPU copy: `upload` writes the copy, and the changed span goes to the GPU in
+ * one write before the next pass, so a frame's palettes cost one upload, not one per skeleton. A run
+ * finds its skeleton's palette through the first joint in its params table. Dispatches are batched: on
+ * WebGPU they're recorded into one compute pass and submitted by `flush` (one submit a frame); on WebGL2
+ * the passes share their program, VAO and bindings, and `flush` restores what they changed.
+ *
  * A run's geometry tables are written once; `setMorphWeights` rewrites the small params table; `dispatch`
- * runs the kernel. The caller decides when to dispatch (only after its palette or weights changed). On
- * WebGL2 the caller restores its GL state after dispatches (Babylon: `wipeCaches(true)`).
+ * runs the kernel. The caller decides when to dispatch (only after its palette or weights changed) and
+ * calls `flush` after a frame's dispatches. On WebGL2 the caller restores its GL state after `flush`
+ * (Babylon: `wipeCaches(true)`).
  */
-import { gridLayout, padToGrid, type GridLayout } from "../gpuKernels/layout";
+import { GRID_WIDTH } from "../gpuKernels/layout";
 import { JsItemKernel } from "../gpuKernels/itemKernel";
 import { GpuItemKernel } from "../gpuKernels/itemKernelWebgpu";
-import { GlFeedbackItemKernel } from "../gpuKernels/itemKernelFeedback";
+import { GlFeedbackBatch, GlFeedbackItemKernel } from "../gpuKernels/itemKernelFeedback";
+import { RangeAllocator, type Range } from "../gpuKernels/rangeAllocator";
 import { floatTexture, writeFloatTexture } from "../gpuKernels/webgl2";
-import { BUFFER, type BufferFactory, type GpuBuffer, type GpuDevice } from "../gpuKernels/webgpu";
+import { BUFFER, GpuComputeBatch, type BufferFactory, type GpuBuffer, type GpuDevice } from "../gpuKernels/webgpu";
 import { influencesOf, packMorphTargets, packSkinParams, packSkinVertices, PALETTE_FLOATS, skinKernelSpec } from "./skinKernel";
 import { vertexCount, type SkinGeometry } from "./skinData";
 
@@ -30,7 +38,7 @@ export type SkinExecutor = "webgpu" | "webgl2" | "js";
 
 /** One skeleton's bone palette on the GPU (or CPU), read by each of its meshes' runs. */
 export interface SkinPalette {
-  /** Upload a palette (12 floats a joint, D10); the storage grows when it has more joints than before. */
+  /** Upload a palette (12 floats a joint, D10); it takes more room when it has more joints than before. */
   upload(palette: Float32Array): void;
   dispose(): void;
 }
@@ -45,7 +53,7 @@ export interface SkinRun<O> {
   /** Read bones from `palette` from now on. */
   setPalette(palette: SkinPalette): void;
   setMorphWeights(weights: ArrayLike<number>): void;
-  /** Run the kernel over every vertex. */
+  /** Run the kernel over every vertex (on WebGPU, submitted by the backend's next `flush`). */
   dispatch(): void;
   dispose(): void;
 }
@@ -55,6 +63,10 @@ export interface SkinRuns<O> {
   readonly executor: SkinExecutor;
   palette(label: string): SkinPalette;
   run(geometry: SkinGeometry): SkinRun<O>;
+  /** After a frame's dispatches: submit them (WebGPU) or restore the state they changed (WebGL2). */
+  flush(): void;
+  /** Free the shared palette table (after every run and palette was disposed). */
+  dispose?(): void;
 }
 
 /** What every backend's run keeps: the vertex and target counts, and the params table it rewrites. */
@@ -62,6 +74,8 @@ abstract class RunBase {
   readonly vertices: number;
   protected readonly targets: number;
   protected params: Float32Array;
+  /** The first joint of its palette in the shared table, as the params table holds it. */
+  protected base = 0;
 
   constructor(g: SkinGeometry) {
     this.vertices = vertexCount(g);
@@ -70,48 +84,145 @@ abstract class RunBase {
   }
 
   protected packWeights(weights: ArrayLike<number>): Float32Array {
-    this.params = packSkinParams(this.vertices, this.targets, weights, this.params);
+    this.params = packSkinParams(this.vertices, this.targets, weights, this.params, this.base);
     return this.params;
+  }
+
+  /** Whether the params table must be written again because the palette moved to `base`. */
+  protected moved(base: number): boolean {
+    if (base === this.base) return false;
+    this.base = base;
+    this.params[2] = base;
+    return true;
+  }
+}
+
+/**
+ * The CPU copy of the shared palette table and its changed span, in joints (`PALETTE_FLOATS` floats
+ * each). Ranges come from a `RangeAllocator`; the table only grows (`grow` says the GPU copy must be
+ * remade and written whole).
+ */
+class PaletteTable {
+  readonly ranges = new RangeAllocator();
+  data = new Float32Array(0);
+  /** Changed joints [lo, hi). */
+  lo = Infinity;
+  hi = 0;
+  /** Bumped when `data` grew (the GPU table must be remade). */
+  generation = 0;
+
+  constructor(private readonly roundUp: (joints: number) => number) {}
+
+  /** A range of `joints` joints; the table grows (all of it then changed) when the range ends past it. */
+  allocate(joints: number): Range {
+    const r = this.ranges.allocate(joints);
+    const need = this.ranges.end * PALETTE_FLOATS;
+    if (need > this.data.length) {
+      const grown = new Float32Array(this.roundUp(Math.max(this.ranges.end, (this.data.length / PALETTE_FLOATS) * 2, 64)) * PALETTE_FLOATS);
+      grown.set(this.data);
+      this.data = grown;
+      this.generation++;
+      this.lo = 0;
+      this.hi = this.ranges.end;
+    }
+    return r;
+  }
+
+  write(r: Range, palette: Float32Array): void {
+    const floats = Math.min(palette.length, r.size * PALETTE_FLOATS);
+    this.data.set(floats === palette.length ? palette : palette.subarray(0, floats), r.offset * PALETTE_FLOATS);
+    if (r.offset < this.lo) this.lo = r.offset;
+    if (r.offset + r.size > this.hi) this.hi = r.offset + r.size;
+  }
+
+  get dirty(): boolean {
+    return this.hi > this.lo;
+  }
+
+  clean(): void {
+    this.lo = Infinity;
+    this.hi = 0;
+  }
+}
+
+/** A palette: a range of a backend's shared table. */
+class TablePalette implements SkinPalette {
+  range: Range | null = null;
+
+  constructor(private readonly table: PaletteTable) {}
+
+  upload(palette: Float32Array): void {
+    const joints = Math.max(1, Math.ceil(palette.length / PALETTE_FLOATS));
+    if (!this.range || this.range.size < joints) {
+      if (this.range) this.table.ranges.release(this.range);
+      this.range = this.table.allocate(joints);
+    }
+    this.table.write(this.range, palette);
+  }
+
+  dispose(): void {
+    if (this.range) this.table.ranges.release(this.range);
+    this.range = null;
   }
 }
 
 // --- WebGPU ------------------------------------------------------------------------------------------
 
-class WebGpuPalette implements SkinPalette {
-  /** Replaced when an upload outgrows it: runs bind it at each dispatch. */
+/** The shared palette table as one storage buffer, written from the CPU copy before the next pass. */
+class WebGpuPalettes {
+  readonly table = new PaletteTable((j) => j);
   buffer: GpuBuffer;
-  private bytes = 0;
+  private generation = -1;
+  private readonly retired: GpuBuffer[] = [];
 
   constructor(
     private readonly device: GpuDevice,
-    private readonly label: string,
+    private readonly batch: GpuComputeBatch,
   ) {
-    this.buffer = this.make(PALETTE_FLOATS * 4);
+    this.buffer = this.make(1);
   }
 
-  upload(palette: Float32Array): void {
-    if (palette.byteLength > this.bytes) {
-      this.buffer.destroy();
-      this.buffer = this.make(palette.byteLength);
+  /** Write the changed span (remaking the buffer when the table grew). */
+  flush(): void {
+    const t = this.table;
+    if (t.generation !== this.generation) {
+      this.generation = t.generation;
+      // A pass recorded but not yet submitted may still read the old buffer: destroy it after the submit.
+      if (this.batch.pending) this.retired.push(this.buffer);
+      else this.buffer.destroy();
+      this.buffer = this.make(t.data.length / PALETTE_FLOATS);
     }
-    this.device.queue.writeBuffer(this.buffer, 0, palette.buffer, palette.byteOffset, palette.byteLength);
+    if (!t.dirty) return;
+    const bytes = PALETTE_FLOATS * 4;
+    this.device.queue.writeBuffer(this.buffer, t.lo * bytes, t.data.buffer, t.data.byteOffset + t.lo * bytes, (t.hi - t.lo) * bytes);
+    t.clean();
+  }
+
+  afterSubmit(): void {
+    for (const b of this.retired) b.destroy();
+    this.retired.length = 0;
   }
 
   dispose(): void {
+    this.afterSubmit();
     this.buffer.destroy();
   }
 
-  private make(bytes: number): GpuBuffer {
-    this.bytes = Math.ceil(bytes / 16) * 16;
-    return this.device.createBuffer({ size: this.bytes, usage: BUFFER.STORAGE | BUFFER.COPY_DST, label: `${this.label} palette` });
+  private make(joints: number): GpuBuffer {
+    return this.device.createBuffer({ size: Math.max(1, joints) * PALETTE_FLOATS * 4, usage: BUFFER.STORAGE | BUFFER.COPY_DST, label: "skin palettes" });
   }
 }
 
 class WebGpuRun extends RunBase implements SkinRun<GpuBuffer> {
   private readonly kernel: GpuItemKernel;
-  private palette: WebGpuPalette | null = null;
+  private palette: TablePalette | null = null;
 
-  constructor(device: GpuDevice, g: SkinGeometry, factory: BufferFactory | undefined) {
+  constructor(
+    private readonly owner: WebGpuSkinRuns,
+    device: GpuDevice,
+    g: SkinGeometry,
+    factory: BufferFactory | undefined,
+  ) {
     super(g);
     this.kernel = new GpuItemKernel(device, skinKernelSpec(influencesOf(g)), this.vertices, factory ? { outputFactory: factory } : {});
     this.kernel.setInput("verts", packSkinVertices(g));
@@ -128,7 +239,7 @@ class WebGpuRun extends RunBase implements SkinRun<GpuBuffer> {
   }
 
   setPalette(palette: SkinPalette): void {
-    this.palette = palette as WebGpuPalette;
+    this.palette = palette as TablePalette;
   }
 
   setMorphWeights(weights: ArrayLike<number>): void {
@@ -136,10 +247,13 @@ class WebGpuRun extends RunBase implements SkinRun<GpuBuffer> {
   }
 
   dispatch(): void {
-    const p = this.palette;
-    if (!p) return;
-    this.kernel.bindInput("bones", p.buffer); // no-op unless the palette's buffer was replaced
-    this.kernel.dispatch();
+    const range = this.palette?.range;
+    if (!range) return;
+    const palettes = this.owner.palettes;
+    palettes.flush();
+    this.kernel.bindInput("bones", palettes.buffer); // no-op unless the table's buffer was remade
+    if (this.moved(range.offset)) this.kernel.setInput("params", this.params);
+    this.kernel.dispatch(this.owner.batch);
   }
 
   dispose(): void {
@@ -150,41 +264,78 @@ class WebGpuRun extends RunBase implements SkinRun<GpuBuffer> {
 /** Skinning on WebGPU compute. `outputFactory` makes each run's output (default: a storage buffer with `VERTEX` usage). */
 export class WebGpuSkinRuns implements SkinRuns<GpuBuffer> {
   readonly executor = "webgpu" as const;
+  /** @internal This frame's dispatches, one compute pass. */
+  readonly batch: GpuComputeBatch;
+  /** @internal Every palette. */
+  readonly palettes: WebGpuPalettes;
 
   constructor(
     private readonly device: GpuDevice,
     private readonly outputFactory?: BufferFactory,
-  ) {}
+  ) {
+    this.batch = new GpuComputeBatch(device);
+    this.palettes = new WebGpuPalettes(device, this.batch);
+  }
 
-  palette(label: string): SkinPalette {
-    return new WebGpuPalette(this.device, label);
+  palette(_label: string): SkinPalette {
+    return new TablePalette(this.palettes.table);
   }
 
   run(geometry: SkinGeometry): SkinRun<GpuBuffer> {
-    return new WebGpuRun(this.device, geometry, this.outputFactory);
+    return new WebGpuRun(this, this.device, geometry, this.outputFactory);
+  }
+
+  flush(): void {
+    this.palettes.flush();
+    this.batch.submit();
+    this.palettes.afterSubmit();
+  }
+
+  dispose(): void {
+    this.batch.submit();
+    this.palettes.dispose();
   }
 }
 
 // --- WebGL2 (transform feedback) ----------------------------------------------------------------------
 
-class FeedbackPalette implements SkinPalette {
-  texture: WebGLTexture;
-  grid: GridLayout = { width: 1, height: 1 };
+/** Texels per joint in the palette texture (three vec4 rows). */
+const JOINT_TEXELS = PALETTE_FLOATS / 4;
 
-  constructor(private readonly gl: WebGL2RenderingContext) {
-    this.texture = floatTexture(gl, 1, 1);
+/** The shared palette table as one RGBA32F texture `GRID_WIDTH` texels wide, written from the CPU copy before the next pass. */
+class FeedbackPalettes {
+  // Whole rows of the texture (a joint is three texels, so whole rows are multiples of GRID_WIDTH joints).
+  readonly table = new PaletteTable((j) => Math.ceil(j / GRID_WIDTH) * GRID_WIDTH);
+  texture: WebGLTexture;
+  readonly width = GRID_WIDTH;
+  private height = 1;
+  private generation = -1;
+
+  constructor(
+    private readonly gl: WebGL2RenderingContext,
+    private readonly batch: GlFeedbackBatch,
+  ) {
+    this.texture = floatTexture(gl, this.width, 1);
   }
 
-  upload(palette: Float32Array): void {
+  /** Write the changed rows (remaking the texture when the table grew). */
+  flush(): void {
+    const t = this.table;
     const gl = this.gl;
-    const grid = gridLayout(Math.ceil(palette.length / 4));
-    if (grid.width !== this.grid.width || grid.height !== this.grid.height) {
+    if (t.generation !== this.generation) {
+      this.generation = t.generation;
       gl.deleteTexture(this.texture);
-      this.texture = floatTexture(gl, grid.width, grid.height);
-      this.grid = grid;
+      this.height = Math.max(1, Math.floor(t.data.length / 4 / this.width));
+      this.texture = floatTexture(gl, this.width, this.height);
+      this.batch.invalidate(); // making it bound it on the active unit
     }
-    writeFloatTexture(gl, this.texture, 0, 0, grid.width, grid.height, padToGrid(palette, grid));
+    if (!t.dirty) return;
+    const y0 = Math.floor((t.lo * JOINT_TEXELS) / this.width);
+    const y1 = Math.min(this.height, Math.ceil((t.hi * JOINT_TEXELS) / this.width));
+    writeFloatTexture(gl, this.texture, 0, y0, this.width, y1 - y0, t.data.subarray(y0 * this.width * 4, y1 * this.width * 4));
     gl.bindTexture(gl.TEXTURE_2D, null);
+    this.batch.invalidate(); // the upload bound the texture on the active unit
+    t.clean();
   }
 
   dispose(): void {
@@ -194,9 +345,13 @@ class FeedbackPalette implements SkinPalette {
 
 class FeedbackRun extends RunBase implements SkinRun<WebGLBuffer> {
   private readonly kernel: GlFeedbackItemKernel;
-  private palette: FeedbackPalette | null = null;
+  private palette: TablePalette | null = null;
 
-  constructor(gl: WebGL2RenderingContext, g: SkinGeometry) {
+  constructor(
+    private readonly owner: FeedbackSkinRuns,
+    gl: WebGL2RenderingContext,
+    g: SkinGeometry,
+  ) {
     super(g);
     this.kernel = new GlFeedbackItemKernel(gl, skinKernelSpec(influencesOf(g)), this.vertices);
     this.kernel.setInput("verts", packSkinVertices(g));
@@ -218,18 +373,26 @@ class FeedbackRun extends RunBase implements SkinRun<WebGLBuffer> {
   }
 
   setPalette(palette: SkinPalette): void {
-    this.palette = palette as FeedbackPalette;
+    this.palette = palette as TablePalette;
   }
 
   setMorphWeights(weights: ArrayLike<number>): void {
-    if (this.targets) this.kernel.setInput("params", this.packWeights(weights));
+    if (!this.targets) return;
+    this.kernel.setInput("params", this.packWeights(weights));
+    this.owner.batch.invalidate();
   }
 
   dispatch(): void {
-    const p = this.palette;
-    if (!p) return;
-    this.kernel.bindInput("bones", p.texture, p.grid.width); // cheap: binds at dispatch, follows a regrown texture
-    this.kernel.dispatch();
+    const range = this.palette?.range;
+    if (!range) return;
+    const { palettes, batch } = this.owner;
+    palettes.flush();
+    this.kernel.bindInput("bones", palettes.texture, palettes.width);
+    if (this.moved(range.offset)) {
+      this.kernel.setInput("params", this.params);
+      batch.invalidate();
+    }
+    this.kernel.dispatch(batch);
   }
 
   dispose(): void {
@@ -240,15 +403,32 @@ class FeedbackRun extends RunBase implements SkinRun<WebGLBuffer> {
 /** Skinning on WebGL2 through transform feedback into a vertex buffer. */
 export class FeedbackSkinRuns implements SkinRuns<WebGLBuffer> {
   readonly executor = "webgl2" as const;
+  /** @internal This frame's passes. */
+  readonly batch: GlFeedbackBatch;
+  /** @internal Every palette. */
+  readonly palettes: FeedbackPalettes;
 
-  constructor(private readonly gl: WebGL2RenderingContext) {}
+  constructor(private readonly gl: WebGL2RenderingContext) {
+    this.batch = new GlFeedbackBatch(gl);
+    this.palettes = new FeedbackPalettes(gl, this.batch);
+  }
 
   palette(_label: string): SkinPalette {
-    return new FeedbackPalette(this.gl);
+    return new TablePalette(this.palettes.table);
   }
 
   run(geometry: SkinGeometry): SkinRun<WebGLBuffer> {
-    return new FeedbackRun(this.gl, geometry);
+    return new FeedbackRun(this, this.gl, geometry);
+  }
+
+  flush(): void {
+    this.batch.end();
+  }
+
+  dispose(): void {
+    this.batch.end();
+    this.batch.dispose();
+    this.palettes.dispose();
   }
 }
 
@@ -298,7 +478,7 @@ class JsRun extends RunBase implements SkinRun<Float32Array> {
   dispose(): void {}
 }
 
-/** Skinning on the CPU: the kernel's JavaScript output (`JsItemKernel`). */
+/** Skinning on the CPU: the kernel's JavaScript output (`JsItemKernel`). Each palette is its own table (first joint 0). */
 export class JsSkinRuns implements SkinRuns<Float32Array> {
   readonly executor = "js" as const;
 
@@ -309,4 +489,6 @@ export class JsSkinRuns implements SkinRuns<Float32Array> {
   run(geometry: SkinGeometry): SkinRun<Float32Array> {
     return new JsRun(geometry);
   }
+
+  flush(): void {}
 }

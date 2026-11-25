@@ -178,6 +178,26 @@ describe("mycoSkin through the executor's JavaScript output (ADR 0370)", () => {
     }
   });
 
+  it("reads its skeleton's palette from a shared table at the params' first joint, with the same result", () => {
+    for (const influences of [4, 8] as const) {
+      const g = geometry(30, 5, influences, 2, 40 + influences);
+      const palette = randomPalette(5, 17);
+      const before = randomPalette(7, 2); // another skeleton's palette ahead of it in the table
+      const table = new Float32Array((7 + 5 + 3) * PALETTE_FLOATS);
+      table.set(before);
+      table.set(palette, 7 * PALETTE_FLOATS);
+      table.set(randomPalette(3, 5), 12 * PALETTE_FLOATS); // and one after
+      const n = g.positions.length / 3;
+      const k = new JsItemKernel(skinKernelSpec(influences), n);
+      k.setInput("verts", packSkinVertices(g));
+      k.setInput("morphs", packMorphTargets(g));
+      k.setInput("bones", table);
+      k.setInput("params", packSkinParams(n, 2, [0.25, 1], undefined, 7));
+      k.dispatch();
+      expect(Array.from(k.output)).toEqual(Array.from(runKernel(g, palette, [0.25, 1])));
+    }
+  });
+
   it("divides by the weights' sum (weights that don't add to one)", () => {
     const g = geometry(8, 3, 4, 0, 13);
     const w = Float32Array.from(g.skin!.weights, (x) => x * 0.5);
@@ -202,6 +222,7 @@ describe("skin tables", () => {
     expect(Array.from(packSkinParams(10, 5, [1, 2, 3]))).toEqual([10, 5, 0, 0, 1, 2, 3, 0, 0, 0, 0, 0]);
     const reuse = new Float32Array(8);
     expect(packSkinParams(3, 1, [0.5], reuse)).toBe(reuse);
+    expect(Array.from(packSkinParams(4, 0, [], undefined, 160))).toEqual([4, 0, 160, 0]); // the skeleton's first joint in the shared table
   });
 
   it("pads a short palette with identities, and passes a long enough one through", () => {

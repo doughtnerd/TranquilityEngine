@@ -127,7 +127,7 @@ pub fn bake(
         return Err(BakeError::RestLength);
     }
     let bindings = ClipBindings::new(&sampler);
-    let bound = bindings.bind(sampler).map_err(BakeError::Sample)?;
+    let bound = bindings.bind(&sampler).map_err(BakeError::Sample)?;
     let frames = source.frame_count().max(1) as usize;
     let rate = source.sample_rate();
 
