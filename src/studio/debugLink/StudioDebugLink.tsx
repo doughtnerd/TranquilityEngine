@@ -11,8 +11,11 @@ import { DebugLinkFields } from "../../editor/debugLink/DebugLinkSettings";
 import { cleanPreferences } from "../../editor/debugLink/debugLinkLogic";
 import { studioDebugLinkPreferences, studioLink } from "./studioLink";
 import { changeTakesFolder, goLiveOnConnect } from "../shell/liveConnect";
-import { TakesFolderLine } from "../start/TakesFolderLine";
-import { chooseTakesFolder } from "../takesFolder";
+import { chooseTakesFolder, resetTakesFolder, takesFolder, takesFolderIsDefault } from "../takesFolder";
+import { projectFileSystem } from "../../editor/projectFs";
+import { KitDialog } from "../../editor/ui/KitDialog";
+import { Chip } from "../../editor/ui/Chip";
+import { Checkbox } from "../components/Checkbox";
 import { isTakesFolder } from "../../editor/projects";
 import { currentProject } from "../../editor/state";
 import { downloadBuildAudio } from "../runtime/buildAudioSets";
@@ -28,28 +31,54 @@ export function openStudioConnect(): void {
   connectOpen.value = true;
 }
 
-/** The Connect dialog over the Studio's link, while it's open (mounted by the shell and the start screen alike). */
+/** The Connect dialog over the Studio's link, while it's open (mounted once, at the page's root). */
 export function StudioConnectDialog() {
   const link = studioLink.value;
   if (!link || !connectOpen.value) return null;
   return (
     <ConnectDialog onConnect={(target) => link.connect(target)} onClose={() => (connectOpen.value = false)}>
       {/* ADR 0408: with no project open, recordings from the build go to the takes folder (a project keeps its own). */}
-      {(!currentProject.value || isTakesFolder(currentProject.value)) && (
-        <TakesFolderLine label="Recordings save to" onChange={(fs) => (isTakesFolder(currentProject.peek()) ? changeTakesFolder(fs) : chooseTakesFolder(fs))} />
-      )}
+      {(!currentProject.value || isTakesFolder(currentProject.value)) && <RecordingsFolderField />}
       <BuildAudioOption />
-      <PictureWidthOption />
+      <PictureWidthField />
     </ConnectDialog>
   );
 }
 
+/** Where the build's recordings save (the takes folder), with Change… and Use default: the dialog's own field rows. */
+function RecordingsFolderField() {
+  const folder = takesFolder.value;
+  if (folder === null) return null;
+  const change = () =>
+    void projectFileSystem()
+      .then((fs): Promise<unknown> | null => (fs ? (isTakesFolder(currentProject.peek()) ? changeTakesFolder(fs) : chooseTakesFolder(fs)) : null))
+      .catch((err) => console.warn("[studio] couldn't choose the takes folder:", err));
+  return (
+    <>
+      <label class="debug-link-field">
+        <span>Recordings save to</span>
+        <input type="text" value={folder} title={folder} readOnly spellcheck={false} />
+      </label>
+      <div class="dialog-option">
+        <button type="button" onClick={change}>
+          Change…
+        </button>
+        {!takesFolderIsDefault.value && (
+          <button type="button" onClick={resetTakesFolder}>
+            Use default
+          </button>
+        )}
+      </div>
+    </>
+  );
+}
+
 /** ADR 0408: how wide the take's pictures of the game view are (sent to the build; the next take uses it). */
-function PictureWidthOption() {
+function PictureWidthField() {
   const width = takePictureWidthOf(takePictureWidth.value);
   return (
-    <label class="studio-build-audio-option studio-picture-width">
-      Take pictures
+    <label class="debug-link-field">
+      <span>Take pictures</span>
       <select value={String(width)} onChange={(e) => (takePictureWidth.value = Number(e.currentTarget.value))}>
         {TAKE_PICTURE_WIDTHS.map((w) => (
           <option key={w} value={String(w)}>
@@ -68,19 +97,16 @@ function PictureWidthOption() {
 function BuildAudioOption() {
   const on = downloadBuildAudio.value;
   return (
-    <div class="studio-build-audio">
-      <label class="studio-build-audio-option">
-        <input type="checkbox" checked={on} onChange={(e) => (downloadBuildAudio.value = e.currentTarget.checked)} />
-        Download the build's audio for replays
-      </label>
+    <>
+      <Checkbox checked={on} label="Download the build's audio for replays" onChange={(next) => (downloadBuildAudio.value = next)} />
       {on ? (
-        <p class="studio-build-audio-note">Takes from this build replay with its sounds, even without the project. The first connect downloads all of its audio.</p>
+        <p>Takes from this build replay with its sounds, even without the project. The first connect downloads all of its audio.</p>
       ) : (
-        <p class="studio-build-audio-warning" role="alert">
-          Replays will be silent unless the take is moved into the project and opened there.
+        <p role="alert">
+          <Chip tone="warning">Silent replays</Chip> Replays will be silent unless the take is moved into the project and opened there.
         </p>
       )}
-    </div>
+    </>
   );
 }
 const offerOpen = signal(false);
@@ -104,16 +130,19 @@ export function StudioBuildsMenu() {
       />
       {offerOpen.value && <OfferRoomDialog offer={() => link.offerRoom()} onClose={() => (offerOpen.value = false)} />}
       {settingsOpen.value && (
-        <div class="studio-link-settings" onPointerDown={(e) => e.target === e.currentTarget && (settingsOpen.value = false)}>
-          <div class="dialog" role="dialog" aria-modal="true" aria-label="Debug link settings" onKeyDown={(e) => e.key === "Escape" && (settingsOpen.value = false)}>
-            <DebugLinkFields value={cleanPreferences(studioDebugLinkPreferences.value)} listen={link.state.value} onChange={(next) => (studioDebugLinkPreferences.value = next)} />
-            <div class="dialog-buttons">
-              <button class="primary" onClick={() => (settingsOpen.value = false)}>
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
+        <KitDialog
+          title="Debug link settings"
+          class="settings-dialog"
+          width={520}
+          onClose={() => (settingsOpen.value = false)}
+          buttons={
+            <button type="button" class="primary" onClick={() => (settingsOpen.value = false)}>
+              Done
+            </button>
+          }
+        >
+          <DebugLinkFields value={cleanPreferences(studioDebugLinkPreferences.value)} listen={link.state.value} onChange={(next) => (studioDebugLinkPreferences.value = next)} />
+        </KitDialog>
       )}
     </>
   );

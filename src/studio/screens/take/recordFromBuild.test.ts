@@ -13,7 +13,8 @@ import { releaseCapture } from "../../../plugins/audio/runtime/capture/capture";
 import { openTakeFile } from "../../../plugins/audio/runtime/capture/takeFile";
 import type { CaptureChunkControl } from "../../../plugins/audio/runtime/capture/testSupport";
 import { linkedBuild, type LinkedBuild } from "../profiler/buildLinkTestSupport";
-import { BuildTakeRecorder, buildTakeName, buildTakeStatus, saveTakeIntoProject, type BuildTakeState } from "./recordFromBuild";
+import { setTakeFrameWidth, takeLive } from "../../../plugins/audio/runtime/capture/take";
+import { BuildTakeRecorder, buildTakeName, buildTakeStatus, saveTakeIntoProject, type BuildTakeSeams, type BuildTakeState } from "./recordFromBuild";
 
 const chunk = vi.hoisted((): CaptureChunkControl => ({ options: {}, recorders: [], saveEnv: null }));
 vi.mock("../../../plugins/audio/runtime/capture/recorder", async (real) => (await import("../../../plugins/audio/runtime/capture/testSupport")).captureRecorderModule(await real(), chunk));
@@ -42,11 +43,11 @@ afterEach(() => {
   currentProject.value = null;
 });
 
-async function rig(target: () => EditorProject | null = () => project) {
+async function rig(target: () => EditorProject | null = () => project, more: Partial<BuildTakeSeams> = {}) {
   const build: LinkedBuild = await linkedBuild(chunk);
   undo.push(() => build.dispose());
   const saved: string[] = [];
-  const rec = new BuildTakeRecorder({ name: "Smoke game", peer: build.peer }, { write: (name, bytes) => saveTakeIntoProject(target(), name, bytes), now: () => WHEN, saved: (p) => void saved.push(p) });
+  const rec = new BuildTakeRecorder({ name: "Smoke game", peer: build.peer }, { write: (name, bytes) => saveTakeIntoProject(target(), name, bytes), now: () => WHEN, saved: (p) => void saved.push(p), ...more });
   const states: BuildTakeState[] = [];
   undo.push(effect(() => void states.push(rec.state.value)));
   /** Runs `p` to the end, the build stepping and the tool polling meanwhile. */
@@ -112,6 +113,15 @@ describe("recording a take from a connected build", () => {
     const opened = await openTakeFile(written);
     expect(opened.take.requests.filter((q) => q.kind === "mark")).toHaveLength(1);
     console.log(`take from a build: ${written.byteLength} bytes in ${uploads[0]!.chunks} chunks`);
+  });
+
+  it("Start sends the picture width chosen first, so the take records its pictures at it (ADR 0411)", async () => {
+    setTakeFrameWidth(320); // the build's own default
+    undo.push(() => void setTakeFrameWidth(320));
+    const r = await rig(() => project, { pictureWidth: () => 960 });
+    await r.run(r.rec.start());
+    expect(r.rec.state.value).toEqual({ kind: "recording", marks: 0 });
+    expect(takeLive()?.facts.pictureWidth).toBe(960);
   });
 
   it("a second save of the same moment never writes over the first", async () => {

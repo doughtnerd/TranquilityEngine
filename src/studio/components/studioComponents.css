@@ -55,10 +55,10 @@
 .studio-session { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px 4px 6px; border-radius: 16px; border: 1px solid var(--border); background: var(--bg-sunken); color: var(--text); font-size: calc(12px * var(--ui-scale)); white-space: nowrap; }
 button.studio-session:hover { background: var(--hover); }
 .studio-session:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-.studio-session.on { border-color: var(--accent2); }
+.studio-session.on { border-color: var(--danger); background: var(--danger-soft); }
+button.studio-session.on:hover { background: var(--danger-soft); }
 .studio-session.ro { cursor: default; }
-.studio-session-disc { flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--accent2); color: var(--bg); }
-.studio-session.on .studio-session-disc { background: var(--danger); }
+.studio-session-disc { flex: none; width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; background: var(--danger); color: var(--danger-text); }
 .studio-session-text { display: flex; flex-direction: column; line-height: 13px; text-align: left; }
 .studio-session-text small { font-size: calc(10px * var(--ui-scale)); color: var(--muted); font-variant-numeric: tabular-nums; }
 .studio-linked { padding: 1px 8px; border-radius: 10px; color: var(--success); background: var(--success-soft); font-size: calc(11px * var(--ui-scale)); white-space: nowrap; }

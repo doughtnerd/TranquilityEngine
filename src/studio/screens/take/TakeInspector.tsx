@@ -238,6 +238,8 @@ export function PlayheadValues(props: {
   /** The lane the cards are for (the last one picked, else the first): its path, badge and cards. */
   readonly track?: { readonly path: string; readonly kind: string | null; readonly cards: readonly PropertyCard[] } | null;
   readonly hovered?: string | null;
+  /** Under a selected instance's details: no head and no track cards, just the picture and the take at the playhead. */
+  readonly below?: boolean;
   /** ADR 0408: the take at the playhead (what sounds, the markers either side, the time of day). */
   readonly summary?: PlayheadSummary | null;
   /** Where the take was recorded: its project, engine and device. */
@@ -254,7 +256,9 @@ export function PlayheadValues(props: {
   const sum = props.summary;
   return (
     <div class="tk-inspector">
-      {t ? (
+      {props.below ? (
+        <h4 class="tk-ins-sub">Game at the playhead · {formatTime(props.time)}</h4>
+      ) : t ? (
         <InspectorHead badge={t.kind ?? "Sound"} name={pathLabel(t.path)} title={t.path} sub="Track values at the playhead" tip="Select a playlist instance to inspect it. Values below: this track at the playhead." onOpen={props.onOpenSource ? () => props.onOpenSource!(t.path) : undefined} />
       ) : (
         <InspectorHead badge="Take" name={`Values at ${formatTime(props.time)}`} title="" sub="" tip="Select a playlist instance to inspect it." />

@@ -356,6 +356,12 @@ function TimelinePanel() {
         <TakeTimelineView
           timeline={timeline}
           name={open.title}
+          viewKey={open.path}
+          onPicture={(t) => {
+            // A picture shows the game at its moment: the Inspector's playhead view (not a selected instance) shows it large.
+            open.replay.seek(t);
+            store.selected.value = null;
+          }}
           time={open.replay.time.value}
           playing={open.replay.playing.value}
           selected={sel}
@@ -452,6 +458,43 @@ function trackCards(path: string, valueOf: (name: string) => number | null): { k
 }
 
 function InspectorPanel() {
+  // ADR 0411: while a build is connected the Take screen is live; the Inspector shows its take at the newest moment.
+  if (studioBuild.value) return <LiveInspector live={liveTake.value} />;
+  return <ReplayInspector />;
+}
+
+/** The live take's newest moment: the latest picture of the game, what sounds now, and the game's values. */
+function LiveInspector(props: { readonly live: LiveTake | null }) {
+  const store = takeScreen();
+  const take = props.live?.take ?? null;
+  const timeline = useMemo(() => (take ? takeTimeline(take, () => null) : null), [take]);
+  if (!take || !timeline) {
+    return (
+      <Panel bodyClass="tk-panel-body">
+        <EmptyState compact title="No take recording" body="Press Record session in the player bar (or F10 in the game). The game's picture and what sounds show here as it records." />
+      </Panel>
+    );
+  }
+  const t = take.duration;
+  return (
+    <Panel bodyClass="tk-panel-body">
+      <PlayheadValues
+        open
+        time={t}
+        picture={take.frames.at(-1) ?? null}
+        values={timeline.parameters.filter((p) => p.path === null).map((p) => ({ name: p.name, text: parameterText(p, t) }))}
+        track={null}
+        summary={playheadSummary(timeline, take.meta, t)}
+        recorded={{ project: take.meta.project, engine: take.meta.engine, device: take.meta.device }}
+        hovered={store.hovered.value}
+        onHover={(p) => (store.hovered.value = p)}
+        onOpenSource={openSource}
+      />
+    </Panel>
+  );
+}
+
+function ReplayInspector() {
   const store = takeScreen();
   const open = replayStore().open.value;
   const timeline = store.timeline.value;
@@ -502,24 +545,33 @@ function InspectorPanel() {
         />
       );
   }
-  if (!body) {
+  // The picture and the take at the playhead stay in view under a selected instance or note.
+  const playhead = (below: boolean, track: Parameters<typeof PlayheadValues>[0]["track"]) => (
+    <PlayheadValues
+      open={!!timeline}
+      below={below}
+      time={t}
+      picture={open?.take.frameAt(t) ?? open?.take.frames[0] ?? null}
+      values={(timeline?.parameters ?? []).filter((p) => p.path === null).map((p) => ({ name: p.name, text: parameterText(p, t) }))}
+      track={track}
+      summary={open && timeline ? playheadSummary(timeline, open.take.meta, t) : null}
+      recorded={below ? null : open ? { project: open.take.meta.project, engine: open.take.meta.engine, device: open.take.meta.device } : null}
+      {...hover}
+      onOpenSource={openSource}
+      onSelectInstance={(key) => (store.selected.value = { kind: "instance", key })}
+      onSeek={(at) => open?.replay.seek(at)}
+    />
+  );
+  if (body) body = (
+    <>
+      {body}
+      {playhead(true, null)}
+    </>
+  );
+  else {
     const focus = timeline ? (timeline.lanes.find((l) => l.path === store.focusPath.value) ?? timeline.lanes[0] ?? null) : null;
     const track = open && timeline && focus ? { path: focus.path, ...trackCards(focus.path, valuesAt(open.take, timeline, t, null)) } : null;
-    body = (
-      <PlayheadValues
-        open={!!timeline}
-        time={t}
-        picture={open?.take.frameAt(t) ?? open?.take.frames[0] ?? null}
-        values={(timeline?.parameters ?? []).filter((p) => p.path === null).map((p) => ({ name: p.name, text: parameterText(p, t) }))}
-        track={track && track.kind ? track : null}
-        summary={open && timeline ? playheadSummary(timeline, open.take.meta, t) : null}
-        recorded={open ? { project: open.take.meta.project, engine: open.take.meta.engine, device: open.take.meta.device } : null}
-        {...hover}
-        onOpenSource={openSource}
-        onSelectInstance={(key) => (store.selected.value = { kind: "instance", key })}
-        onSeek={(at) => open?.replay.seek(at)}
-      />
-    );
+    body = playhead(false, track && track.kind ? track : null);
   }
   return <Panel bodyClass="tk-panel-body">{body}</Panel>;
 }

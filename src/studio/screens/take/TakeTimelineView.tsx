@@ -16,6 +16,7 @@ import { linearTimeAxis, type TimeAxis } from "../../components/timeAxis";
 import { TimelineZoomStrip } from "../../components/TimelineZoomStrip";
 import { useElementWidth } from "../../components/useElementWidth";
 import { useTimelineView } from "../../components/useTimelineView";
+import { recordingView } from "../../components/recordingView";
 import { noteColourCss } from "./notesEdits";
 import type { TakeSelection } from "./takeScreen";
 import { RunPlayhead, RunRuler } from "../profiler/RunRuler";
@@ -46,6 +47,10 @@ export interface TakeTimelineViewProps {
   readonly hovered?: string | null;
   onHover?(parameter: string | null): void;
   /** A scrub: `done` on release. */
+  /** The recording's path: the Profiler's timeline of the same file shows the same seconds. */
+  readonly viewKey?: string | null;
+  /** A picture on the Gameplay row clicked: show the game at `t` (default: seek). */
+  onPicture?(t: number): void;
   onSeek(t: number, done: boolean): void;
   onSelectInstance(key: string): void;
   onOpenInstance(key: string): void;
@@ -67,7 +72,7 @@ export function TakeTimelineView(props: TakeTimelineViewProps) {
   const { timeline } = props;
   const duration = Math.max(0.001, timeline.duration);
   // The view: the whole take until zoomed (Ctrl/⌘ + wheel or pinch, Shift + wheel or a sideways swipe, the strip below).
-  const zoom = useTimelineView(duration);
+  const zoom = useTimelineView(duration, props.viewKey ? recordingView(props.viewKey) : undefined);
   const { start, end } = zoom.view;
   const axis = useMemo(() => linearTimeAxis(start, end, width), [start, end, width]);
   // Replaying: page the view to keep the playhead in it.
@@ -93,7 +98,7 @@ export function TakeTimelineView(props: TakeTimelineViewProps) {
           </div>
           <div class="tk-lane tk-film" ref={lane}>
             {timeline.frames.length > 0 ? (
-              <Filmstrip frames={timeline.frames} toX={axis.toX} time={props.time} onSeek={(t) => props.onSeek(t, true)} />
+              <Filmstrip frames={timeline.frames} toX={axis.toX} time={props.time} onSeek={(t) => (props.onPicture ? props.onPicture(t) : props.onSeek(t, true))} />
             ) : (
               <div class="tk-tiles" title="This take has no pictures of the game view (a take recorded with pictures shows them here)">
                 {Array.from({ length: TILES }, (_, i) => (

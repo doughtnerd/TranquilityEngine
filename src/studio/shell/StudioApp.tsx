@@ -65,7 +65,20 @@ function useFooterHeight(root: { readonly current: HTMLElement | null }): void {
   });
 }
 
+/**
+ * The page: its screens, and the Connect dialog mounted once beside them, so opening the live session under it (the
+ * start screen, "Opening…", then the takes folder) keeps what was typed and the build picked from the network.
+ */
 export function StudioApp(props: StudioAppProps) {
+  return (
+    <>
+      <StudioScreens {...props} />
+      <StudioConnectDialog />
+    </>
+  );
+}
+
+function StudioScreens(props: StudioAppProps) {
   const root = useRef<HTMLDivElement>(null);
   useFooterHeight(root);
   const project = currentProject.value;
@@ -82,7 +95,6 @@ export function StudioApp(props: StudioAppProps) {
     return (
       <div class="studio studio-starting" data-floating-root="">
         <BiosonicProjectsScreen onOpenTake={props.onOpenTake} onConnect={studioLink.value ? openStudioConnect : undefined} connected={studioBuild.value?.name ?? null} />
-        <StudioConnectDialog />
         <StudioDebugLinkPrompt />
         <NewProjectDialog />
         <AboutDialog />
@@ -127,7 +139,6 @@ export function StudioApp(props: StudioAppProps) {
       <StatusBarSlot screen={route.screen} />
       <UndoToasts queue={toasts} />
       <ConfirmDialog />
-      <StudioConnectDialog />
       {shortcutsOpen.value && (
         <KeyboardShortcutsDialog
           groups={keymap.list(route.screen, singleKeyShortcuts.value, (id) => screenById(id)?.title ?? id)}
