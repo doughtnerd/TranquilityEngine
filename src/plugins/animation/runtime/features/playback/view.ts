@@ -8,6 +8,10 @@
 // tests, a game drawing through something else) counts every Animator as visible. LOD measures against `Camera.main`
 // (the enabled camera with the lowest depth): distance from its position, or the share of its view's height the sphere
 // covers. Without a camera, LOD is off.
+//
+// Each camera's frame and frustum numbers are read once per gather sub-step (`cameraViews`), and each skeleton's world
+// matrix straight from the World's storage, so the per-Animator test allocates nothing (it used to make a
+// `LocalToWorld` per Animator and per camera, and four vectors per camera test).
 import type { World } from "../../../../../engine/core/World";
 import { Camera } from "../../../../../engine/render/components";
 import type { AnimatorRuntime } from "../instances";
@@ -24,68 +28,127 @@ interface Sphere {
   r: number;
 }
 
+/** @internal One enabled camera's numbers for the sphere test, read once per gather sub-step. */
+export interface CameraView {
+  readonly camera: Camera;
+  /** False when the camera's node has no transform (it then sees everything, as before). */
+  readonly placed: boolean;
+  /** World position, and the unit right, up and forward axes. */
+  readonly px: number;
+  readonly py: number;
+  readonly pz: number;
+  readonly rx: number;
+  readonly ry: number;
+  readonly rz: number;
+  readonly ux: number;
+  readonly uy: number;
+  readonly uz: number;
+  readonly fx: number;
+  readonly fy: number;
+  readonly fz: number;
+  readonly near: number;
+  readonly far: number;
+  readonly aspect: number;
+  readonly orthographic: boolean;
+  readonly orthographicSize: number;
+  /** `tan(fov / 2)` vertically and horizontally, and `hypot(1, t)` of each. */
+  readonly ty: number;
+  readonly tx: number;
+  readonly hy: number;
+  readonly hx: number;
+}
+
+/** @internal The enabled cameras of a World for one gather sub-step, and its main one (`Camera.main`: lowest depth). */
+export interface CameraViews {
+  readonly all: readonly CameraView[];
+  readonly main: CameraView | null;
+}
+
 const sphere: Sphere = { x: 0, y: 0, z: 0, r: 0 };
 
 function boundsOf(rt: AnimatorRuntime): Sphere | null {
   const s = rt.skeleton;
-  const t = s?.component.node.transform;
-  if (!s || !t) return null;
-  const m = t.localToWorld.value;
-  const scale = Math.max(Math.hypot(m[0]!, m[1]!, m[2]!), Math.hypot(m[4]!, m[5]!, m[6]!), Math.hypot(m[8]!, m[9]!, m[10]!));
-  sphere.x = m[12]!;
-  sphere.y = m[13]!;
-  sphere.z = m[14]!;
+  const node = s?.component.node;
+  if (!s || !node?.transform) return null;
+  const e = node.entity;
+  const m = node.world.worldMatrix(e), o = e * 16;
+  const scale = Math.max(Math.hypot(m[o]!, m[o + 1]!, m[o + 2]!), Math.hypot(m[o + 4]!, m[o + 5]!, m[o + 6]!), Math.hypot(m[o + 8]!, m[o + 9]!, m[o + 10]!));
+  sphere.x = m[o + 12]!;
+  sphere.y = m[o + 13]!;
+  sphere.z = m[o + 14]!;
   sphere.r = (s.info ? Math.max(s.info.radius, 0.1) : DEFAULT_RADIUS) * POSE_REACH * scale;
   return sphere;
 }
 
-/** Whether `b` is inside (or touches) `camera`'s view. */
-function inView(camera: Camera, b: Sphere): boolean {
+function viewOf(camera: Camera): CameraView {
   const l = camera.node.transform?.localToWorld;
-  if (!l) return true;
-  const p = l.position, right = l.right, up = l.up, fwd = l.forward;
-  const dx = b.x - p.x, dy = b.y - p.y, dz = b.z - p.z;
-  const x = dx * right.x + dy * right.y + dz * right.z;
-  const y = dx * up.x + dy * up.y + dz * up.z;
-  const z = dx * fwd.x + dy * fwd.y + dz * fwd.z;
-  if (z + b.r < camera.near || z - b.r > camera.far) return false;
   const aspect = camera.aspect > 0 ? camera.aspect : 1;
-  if (camera.projection === "orthographic") {
-    const h = camera.orthographicSize;
-    return Math.abs(y) <= h + b.r && Math.abs(x) <= h * aspect + b.r;
-  }
   const ty = Math.tan((camera.fieldOfView * Math.PI) / 360);
   const tx = ty * aspect;
+  const base = {
+    camera,
+    near: camera.near,
+    far: camera.far,
+    aspect,
+    orthographic: camera.projection === "orthographic",
+    orthographicSize: camera.orthographicSize,
+    ty,
+    tx,
+    hy: Math.hypot(1, ty),
+    hx: Math.hypot(1, tx),
+  };
+  if (!l) return { ...base, placed: false, px: 0, py: 0, pz: 0, rx: 0, ry: 0, rz: 0, ux: 0, uy: 0, uz: 0, fx: 0, fy: 0, fz: 0 };
+  const p = l.position, right = l.right, up = l.up, fwd = l.forward;
+  return { ...base, placed: true, px: p.x, py: p.y, pz: p.z, rx: right.x, ry: right.y, rz: right.z, ux: up.x, uy: up.y, uz: up.z, fx: fwd.x, fy: fwd.y, fz: fwd.z };
+}
+
+/** Whether `b` is inside (or touches) the view of `v`. */
+function inView(v: CameraView, b: Sphere): boolean {
+  if (!v.placed) return true;
+  const dx = b.x - v.px, dy = b.y - v.py, dz = b.z - v.pz;
+  const x = dx * v.rx + dy * v.ry + dz * v.rz;
+  const y = dx * v.ux + dy * v.uy + dz * v.uz;
+  const z = dx * v.fx + dy * v.fy + dz * v.fz;
+  if (z + b.r < v.near || z - b.r > v.far) return false;
+  if (v.orthographic) {
+    const h = v.orthographicSize;
+    return Math.abs(y) <= h + b.r && Math.abs(x) <= h * v.aspect + b.r;
+  }
   // Distance from the sphere's centre to each side plane, measured along the plane's normal.
-  return Math.abs(y) - ty * z <= b.r * Math.hypot(1, ty) && Math.abs(x) - tx * z <= b.r * Math.hypot(1, tx);
+  return Math.abs(y) - v.ty * z <= b.r * v.hy && Math.abs(x) - v.tx * z <= b.r * v.hx;
 }
 
-/** @internal The enabled Cameras of `world` (read once per gather pass). */
-export function enabledCameras(world: World): readonly Camera[] {
-  return world._componentsOfType(Camera).filter((c) => c.isActiveAndEnabled);
+const NONE: CameraViews = { all: [], main: null };
+
+/** @internal The enabled Cameras of `world` with their numbers (read once per gather sub-step). */
+export function cameraViews(world: World): CameraViews {
+  const cams = world._componentsOfType(Camera).filter((c) => c.isActiveAndEnabled);
+  if (!cams.length) return NONE;
+  const all = cams.map(viewOf);
+  const main = all.reduce((best, c) => (c.camera.depth < best.camera.depth ? c : best));
+  return { all, main };
 }
 
-/** @internal Whether any of `cams` sees `rt`'s skeleton (true without cameras or bounds). */
-export function isVisible(cams: readonly Camera[], rt: AnimatorRuntime): boolean {
-  if (!cams.length) return true;
+/** @internal Whether any camera of `views` sees `rt`'s skeleton (true without cameras or bounds). */
+export function isVisible(views: CameraViews, rt: AnimatorRuntime): boolean {
+  if (!views.all.length) return true;
   const b = boundsOf(rt);
   if (!b) return true;
-  for (const c of cams) if (inView(c, b)) return true;
+  for (const v of views.all) if (inView(v, b)) return true;
   return false;
 }
 
-/** @internal The update-rate LOD step (1, 2 or 4) for `rt` this frame, measured against the main one of `cams`. */
-export function lodStep(cams: readonly Camera[], rt: AnimatorRuntime): number {
+/** @internal The update-rate LOD step (1, 2 or 4) for `rt` this frame, measured against the main camera of `views`. */
+export function lodStep(views: CameraViews, rt: AnimatorRuntime): number {
   const a = rt.animator;
   if (a.lodMetric === "off") return 1;
-  if (!cams.length) return 1;
-  const main = cams.reduce((best, c) => (c.depth < best.depth ? c : best));
+  const main = views.main;
+  if (!main) return 1;
   const b = boundsOf(rt);
-  const at = main.node.transform?.worldPosition;
-  if (!b || !at) return 1;
-  const d = Math.hypot(b.x - at.x, b.y - at.y, b.z - at.z);
+  if (!b || !main.placed) return 1;
+  const d = Math.hypot(b.x - main.px, b.y - main.py, b.z - main.pz);
   if (a.lodMetric === "distance") return d > a.lodEvery4 ? 4 : d > a.lodEvery2 ? 2 : 1;
-  const half = main.projection === "orthographic" ? main.orthographicSize : Math.max(d, 1e-6) * Math.tan((main.fieldOfView * Math.PI) / 360);
+  const half = main.orthographic ? main.orthographicSize : Math.max(d, 1e-6) * main.ty;
   const share = half > 0 ? b.r / half : 1;
   return share < a.lodEvery4 ? 4 : share < a.lodEvery2 ? 2 : 1;
 }

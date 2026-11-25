@@ -22,7 +22,7 @@ import { BLACKBOARD_DIRTY, BLACKBOARD_PARAMS, BLACKBOARD_STRIDE, BLACKBOARD_VALU
 import { graphMeta } from "../graph/runtime";
 import { encodeParameter, PARAM_TYPE_IDS } from "../graph/parameters";
 import { animatorsOf, type AnimatorRuntime } from "../instances";
-import { enabledCameras, lodStep } from "../playback/view";
+import { cameraViews, lodStep, type CameraViews } from "../playback/view";
 import type { HostParameter } from "./inputs";
 
 let physicsActive = false;
@@ -81,7 +81,7 @@ const decomposed = { p: new Float32Array(3), q: new Float32Array(4), s: new Floa
 
 /** @internal `animation.Gather`'s matching sub-step (see the file header). */
 export function gatherMatchingInputs(frame: AnimationFrame): void {
-  let cams: ReturnType<typeof enabledCameras> | null = null;
+  let cams: CameraViews | null = null;
   for (const rt of animatorsOf(frame.world)) {
     if (rt.instance === 0 || rt.ns !== frame.core || (rt.animator.updateMode === "fixed") !== frame.fixed) continue;
     const inputs = graphMeta(rt.animator)?.matching;
@@ -117,7 +117,7 @@ export function gatherMatchingInputs(frame: AnimationFrame): void {
     for (const p of inputs.yaw) write(frame, rt.instance, p, yaw);
     for (const p of inputs.velocity) write(frame, rt.instance, p, ground(p, vx, vy, vz));
     if (inputs.lod.length) {
-      cams ??= enabledCameras(frame.world);
+      cams ??= cameraViews(frame.world);
       const m = Number.isFinite(rt.animator.lodSearchMultiplier) ? Math.max(1, rt.animator.lodSearchMultiplier) : 1;
       const level = Math.log2(lodStep(cams, rt));
       for (const p of inputs.lod) write(frame, rt.instance, p, m ** level);
