@@ -17,9 +17,9 @@ fn main() {
         } else {
             b.parent as i32
         };
-        let _ = write!(
+        let _ = writeln!(
             out,
-            "    {{ \"parent\": {parent}, \"t\": {:?}, \"r\": {:?}, \"s\": {:?} }}{}\n",
+            "    {{ \"parent\": {parent}, \"t\": {:?}, \"r\": {:?}, \"s\": {:?} }}{}",
             b.translation,
             b.rotation,
             b.scale,
@@ -32,22 +32,22 @@ fn main() {
     for (n, (name, seed)) in clips.iter().enumerate() {
         let mut rng = Rng::new(*seed);
         let clip = synth::clip(&skel, 1.0, true, &mut rng);
-        let _ = write!(
+        let _ = writeln!(
             out,
-            "    \"{name}\": {{ \"rate\": {}, \"frames\": {}, \"tracks\": [\n",
+            "    \"{name}\": {{ \"rate\": {}, \"frames\": {}, \"tracks\": [",
             clip.sample_rate, clip.frame_count
         );
         for (k, track) in clip.tracks.iter().enumerate() {
-            let _ = write!(
+            let _ = writeln!(
                 out,
-                "      {:?}{}\n",
+                "      {:?}{}",
                 track.raw,
                 if k + 1 < clip.tracks.len() { "," } else { "" }
             );
         }
-        let _ = write!(
+        let _ = writeln!(
             out,
-            "    ] }}{}\n",
+            "    ] }}{}",
             if n + 1 < clips.len() { "," } else { "" }
         );
     }
