@@ -6,11 +6,17 @@ use anim_bench::common::{self, synth, Rng, Shape};
 use std::fmt::Write as _;
 
 fn main() {
-    let path = std::env::args().nth(1).expect("usage: raw_clips <output file>");
+    let path = std::env::args()
+        .nth(1)
+        .expect("usage: raw_clips <output file>");
     let (skel, _) = common::skeleton(Shape::Humanoid80, 3);
     let mut out = String::from("{\n  \"bones\": [\n");
     for (i, b) in skel.bones.iter().enumerate() {
-        let parent = if b.parent == anim_format::skeleton::NO_PARENT { -1 } else { b.parent as i32 };
+        let parent = if b.parent == anim_format::skeleton::NO_PARENT {
+            -1
+        } else {
+            b.parent as i32
+        };
         let _ = write!(
             out,
             "    {{ \"parent\": {parent}, \"t\": {:?}, \"r\": {:?}, \"s\": {:?} }}{}\n",
@@ -26,11 +32,24 @@ fn main() {
     for (n, (name, seed)) in clips.iter().enumerate() {
         let mut rng = Rng::new(*seed);
         let clip = synth::clip(&skel, 1.0, true, &mut rng);
-        let _ = write!(out, "    \"{name}\": {{ \"rate\": {}, \"frames\": {}, \"tracks\": [\n", clip.sample_rate, clip.frame_count);
+        let _ = write!(
+            out,
+            "    \"{name}\": {{ \"rate\": {}, \"frames\": {}, \"tracks\": [\n",
+            clip.sample_rate, clip.frame_count
+        );
         for (k, track) in clip.tracks.iter().enumerate() {
-            let _ = write!(out, "      {:?}{}\n", track.raw, if k + 1 < clip.tracks.len() { "," } else { "" });
+            let _ = write!(
+                out,
+                "      {:?}{}\n",
+                track.raw,
+                if k + 1 < clip.tracks.len() { "," } else { "" }
+            );
         }
-        let _ = write!(out, "    ] }}{}\n", if n + 1 < clips.len() { "," } else { "" });
+        let _ = write!(
+            out,
+            "    ] }}{}\n",
+            if n + 1 < clips.len() { "," } else { "" }
+        );
     }
     out.push_str("  }\n}\n");
     std::fs::write(&path, out).expect("write the clips");
