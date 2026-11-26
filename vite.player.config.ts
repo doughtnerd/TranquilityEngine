@@ -5,11 +5,16 @@
 // the exporters (`npm run export`, and the editor, which serves a copy at player/).
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
-import { CAPTURE_CODEC, DEBUG_LINK, lazyOnly, playerFileList, typescriptTranspile } from "./vite.shared.ts";
+import { CAPTURE_CODEC, DEBUG_LINK, lazyOnly, playerFileList, typescriptTranspile, uiRuntimeEntries } from "./vite.shared.ts";
+
+// ADR 0419: Svelte's runtime and the engine's renderer, entries at fixed names that games' compiled components import.
+const uiRuntime = uiRuntimeEntries();
 
 export default defineConfig({
   plugins: [
     typescriptTranspile(),
+    uiRuntime.plugin,
+
     playerFileList({ debug: DEBUG_LINK }), // files.json's `debug`: the debug link's chunks, which release exports leave out (ADR 0376)
     lazyOnly([CAPTURE_CODEC]), // a game that never records loads none of the capture codec
   ],
@@ -24,10 +29,12 @@ export default defineConfig({
       input: {
         player: fileURLToPath(new URL("./player.html", import.meta.url)),
         myco: fileURLToPath(new URL("./src/myco.ts", import.meta.url)), // the public module (ADR 0135)
+        ...uiRuntime.input,
       },
       preserveEntrySignatures: "strict",
       output: {
-        entryFileNames: (chunk) => (chunk.name === "myco" ? "myco.js" : "assets/[name]-[hash].js"),
+        entryFileNames: (chunk) => (chunk.name === "myco" ? "myco.js" : uiRuntime.names.has(chunk.name) ? `${chunk.name}.js` : "assets/[name]-[hash].js"),
+
       },
     },
   },

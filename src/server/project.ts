@@ -16,6 +16,7 @@ import { pathToFileURL } from "node:url";
 import type { AssetSource, ProjectSettingsInput } from "../engine";
 import { setScriptAssetRefs, withScriptRegistrations } from "../engine/editor";
 import { isProjectFile, loadProjectFiles, projectFileKind, skipsFolder } from "../engine/scene/projectFiles";
+import { isUISourcePath } from "../projectCode/uiModules";
 import { nodePackageSource } from "./packages";
 import { LEGACY_AUDIO_MESSAGE, projectWithAudio } from "../engine/audio/project/load";
 import { AUDIO_PROJECT_FILE } from "../engine/audio/project/types";
@@ -51,6 +52,9 @@ export interface ServerProject {
   readonly json: ReadonlyMap<string, string>;
   /** The scripts' source, by path. */
   readonly scripts: ReadonlyMap<string, string>;
+  /** The UI code's text, by path (ADR 0419): Svelte components, rune modules and `.css` files, for game builds (the server doesn't load UI). */
+  readonly ui: ReadonlyMap<string, string>;
+
   /** Every file read, project-relative and sorted (hidden files and dependency and build folders left out). For game builds (ADR 0041). */
   readonly files: readonly string[];
 }
@@ -80,6 +84,8 @@ export async function readProject(dir: string): Promise<ServerProject> {
   });
   if (problems.length > 0) throw new ServerError(`Some JSON files in "${root}" don't parse:\n${problems.map((p) => `  - ${p.path}: ${p.message}`).join("\n")}`);
   const json = new Map([...texts].filter(([path]) => projectFileKind(path) === "json"));
+  const ui = new Map([...texts].filter(([path]) => isUISourcePath(path) || path.endsWith(".css")));
+
   const settings = values.get("project.json");
   if (typeof settings !== "object" || settings === null || Array.isArray(settings)) throw new ServerError(`${join(root, "project.json")} must hold an object of project settings.`);
   // The mix lives in audio.json (ADR 0344); an old project.json audio section is refused, not read.
@@ -91,9 +97,11 @@ export async function readProject(dir: string): Promise<ServerProject> {
     assets: { has: (p) => values.has(p), get: (p) => values.get(p) },
     json,
     scripts,
+    ui,
     files,
   };
 }
+
 
 /** Project-relative paths ("/"-separated) of every file under `root`, sorted. */
 async function listFiles(root: string, dir = root): Promise<string[]> {

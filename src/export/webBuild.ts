@@ -11,6 +11,7 @@ import type { ProjectSettingsInput } from "../engine";
 import { pickMainScene } from "../editor/projects";
 import type { PackageSource } from "../editor/packages";
 import { isProjectFile, skipsFolder } from "../engine/scene/projectFiles";
+import { isUISourcePath } from "../projectCode/uiModules";
 import { LEGACY_AUDIO_MESSAGE, hasLegacyAudio } from "../engine/audio/project/load";
 import { audioEventRefusal, isAudioEventPath } from "../engine/audio/retiredAudioEvent";
 import { buildTarget } from "../projectCode/buildTarget";
@@ -40,6 +41,12 @@ export interface BuildSource {
   readonly scripts: ReadonlyMap<string, string>;
   /** The JSON files' text by path (scripts can import them). */
   readonly json: ReadonlyMap<string, string>;
+  /**
+   * The UI code's text by path (ADR 0419): Svelte components and rune modules, which compile (dev: false) into the
+   * build's code like scripts and don't ship as files, and `.css` files, which components may import.
+   */
+  readonly ui?: ReadonlyMap<string, string>;
+
   /** The project's node_modules, for npm package imports (ADR 0125); without it, scripts importing packages can't be built. */
   readonly packages?: PackageSource;
 }
@@ -157,10 +164,11 @@ const EDITOR_FILES = new Set(["tsconfig.json", "jsconfig.json", "sample.json"]);
 /**
  * True if a file goes into builds as it is: every project file (ADR 0254: not hidden, not in a
  * dependency or build folder, not a script, which ships compiled) but the editor-only ones and
- * TypeScript tool modules (`.mts`, `.cts`), which nothing in a build can run.
- * Asset sidecars (`<asset>.meta.json`) are ordinary files and go in.
+ * TypeScript tool modules (`.mts`, `.cts`), which nothing in a build can run, and Svelte UI sources (ADR 0419),
+ * which ship compiled. Asset sidecars (`<asset>.meta.json`) are ordinary files and go in.
  */
-const isExportedFile = (path: string) => isProjectFile(path) && !EDITOR_FILES.has(path) && !/\.(mts|cts)$/i.test(path);
+const isExportedFile = (path: string) => isProjectFile(path) && !EDITOR_FILES.has(path) && !/\.(mts|cts)$/i.test(path) && !isUISourcePath(path);
+
 
 /** Throw an `ExportError` listing `problems`, if there are any: a build runs no code that didn't link. */
 function stopOn(problems: readonly ScriptProblem[], what: string): void {
@@ -218,7 +226,8 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   // The selected code links into build files (ADR 0329); any problem, a plugin entry's included, stops the build.
   const shipped = copies;
   const linked = await link(
-    { code: pluginPlan.code, json: source.json, packages: source.packages, extraEntries: pluginPlan.npmEntries, isAsset: (p) => shipped.includes(p) },
+    { code: pluginPlan.code, json: source.json, ui: source.ui, packages: source.packages, extraEntries: pluginPlan.npmEntries, isAsset: (p) => shipped.includes(p) },
+
     buildTarget,
   );
   stopOn(linked.problems, "Some scripts can't be built");

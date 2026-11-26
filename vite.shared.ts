@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import type { Plugin, Rollup, UserConfig } from "vite";
 import { compilerOptions as scriptCompilerOptions, SCRIPT_EMIT } from "./src/scriptCompiler.mjs";
+import { UI_RUNTIME_SPECIFIERS, uiRuntimeFile } from "./src/projectCode/uiModules.ts";
+
 
 /**
  * Compile TypeScript (and TSX) with tsc instead of Vite's default transformer (oxc), which does
@@ -96,8 +98,10 @@ export function svelteUI(options: { dev?: boolean } = {}): Plugin {
       const file = id.split("?")[0];
       const isComponent = file.endsWith(".svelte");
       const isModule = file.endsWith(".svelte.ts") || file.endsWith(".svelte.js");
-      if (!isComponent && !isModule) return null;
+      // Only the repository's sources: a game build's compiled `code/ui/Hud.svelte.js` is already JavaScript.
+      if ((!isComponent && !isModule) || !file.startsWith(root)) return null;
       const { compileSvelteUI, compileSvelteUIModule } = await import("./src/plugins/ui/svelte/compile.mjs");
+
       const filename = relative(root, file).split(sep).join("/");
       if (isComponent) {
         const r = compileSvelteUI(code, { filename, dev: options.dev, styles });
@@ -111,8 +115,38 @@ export function svelteUI(options: { dev?: boolean } = {}): Plugin {
   };
 }
 
+/** The id prefix of a UI runtime entry of the player (`\0myco-ui-runtime:svelte/internal/client`). */
+const UI_RUNTIME_ENTRY = "\0myco-ui-runtime:";
+
 /**
- * The engine's public type declarations as a virtual module, `virtual:myco-types`: an
+ * The player's UI runtime entries (ADR 0419): one per module compiled Svelte UI imports (`UI_RUNTIME_SPECIFIERS`),
+ * at a fixed name beside myco.js (`uiRuntimeFile`: `svelte/index.js`, `svelte/internal/client.js`,
+ * `svelte/myco-ui-renderer.js`), each re-exporting the engine's copy. A game's compiled components import them by
+ * relative path; Rollup shares their code with the player's own lazy UIView chunk, so components, the renderer and
+ * UIView run on one Svelte instance. A game without Svelte UI loads none of them; `svelte/compiler` is never one.
+ */
+export function uiRuntimeEntries(): { input: Record<string, string>; names: ReadonlySet<string>; plugin: Plugin } {
+  const input = Object.fromEntries(UI_RUNTIME_SPECIFIERS.map((s) => [uiRuntimeFile(s).slice(0, -".js".length), UI_RUNTIME_ENTRY + s]));
+  return {
+    input,
+    names: new Set(Object.keys(input)),
+    plugin: {
+      name: "myco:ui-runtime-entries",
+      resolveId: (id) => (id.startsWith(UI_RUNTIME_ENTRY) ? id : null),
+      load(id) {
+        if (!id.startsWith(UI_RUNTIME_ENTRY)) return null;
+        const spec = id.slice(UI_RUNTIME_ENTRY.length);
+        const target = JSON.stringify(spec === "myco/ui-renderer" ? SVELTE_UI_RENDERER : spec);
+        // The flag modules export nothing: importing them is what sets the flag.
+        return `import ${target};\nexport * from ${target};\n${spec === "myco/ui-renderer" ? `export { default } from ${target};\n` : ""}`;
+      },
+    },
+  };
+}
+
+/**
+ * The engine's public type declarations as a virtual module
+, `virtual:myco-types`: an
  * object of `.d.ts` text by path (`index.d.ts`, which re-exports `myco.d.ts`, the public module of
  * ADR 0135; `engine/core/World.d.ts`, `plugins/sky/runtime/index.d.ts`, ...), emitted in memory with
  * `tsconfig.engine.json`'s settings (internals stripped, editor access left out). The editor's
