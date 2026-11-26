@@ -1,26 +1,46 @@
 # Game UI
 
-Menus, HUDs, lobbies and world-space panels are built from **UI components** on nodes. They lay out with flexbox, draw inside the game canvas with crisp text at any size, and take the pointer before the game does. The components are [ADR 0069](../../decisions/0069-ui-components-on-uikit.md)'s; they lay out with Yoga and draw with Babylon GUI ([ADR 0076](../../decisions/0076-ui-yoga-layout-babylon-gui-drawing.md)), which replaced the pmndrs uikit of [ADR 0020](../../decisions/0020-in-canvas-ui-with-uikit.md). This guide is about using them.
+Menus, HUDs, lobbies and world-space panels are **UI documents**: markup in a `*.ui.xml` file, its look in `*.ui.css` stylesheets, and scripts that fill in data and react to clicks ([ADR 0077](../../decisions/0077-ui-documents-markup-styles-scripts.md)). UI lays out with flexbox, draws inside the game canvas with crisp text at any size, and takes the pointer before the game does. It lays out with Yoga and draws with Babylon GUI ([ADR 0076](../../decisions/0076-ui-yoga-layout-babylon-gui-drawing.md)).
 
-## The UI tree
+A document is the only way to make game UI ([ADR 0417](../../decisions/0417-game-ui-is-built-only-from-ui-documents.md)). The elements it builds are UI components (`UICanvas`, `UIPanel`, `UIText`, `UIImage`, `UIButton`, `UIInputField`, [ADR 0069](../../decisions/0069-ui-components-on-uikit.md)), and scripts read and write their fields, but nothing else creates them: `addComponent(UIPanel)` throws, and a scene or prefab that saves a UI component on a node fails to load, naming the file and the node.
 
-A UI element is a node with one UI component, and the node tree is the UI tree: an element's children lay out inside it. The root is a `UICanvas`.
+## A document
 
+A document's root is a `<Canvas>`; the elements inside it lay out in it, children inside their parent.
+
+```xml
+<!-- ui/menu.ui.xml -->
+<Canvas>
+  <Style src="menu.ui.css"/>
+  <Panel id="menu" class="column">
+    <Text id="title">King of Pirates</Text>
+    <Button id="play" class="primary">Play</Button>
+    <InputField id="name" placeholder="Your name"/>
+    <Text id="score">Score: {score}</Text>
+  </Panel>
+</Canvas>
 ```
-Canvas            UICanvas
-└─ Menu           UIPanel   flexDirection: column, gap: 12, padding: 24
-   ├─ Title       UIText    "King of Pirates", fontSize: 48
-   ├─ Play        UIButton  width: 240, height: 56
-   │  └─ Label    UIText    "Play"
-   └─ Name        UIInputField  placeholder: "Your name"
+
+```css
+/* ui/menu.ui.css */
+:root { --fg: #ffffff; }
+#menu { width: 100%; height: 100%; flex-direction: column; justify-content: center; align-items: center; gap: 12px; color: var(--fg); }
+#title { font-size: 48px; text-outline-color: #000000; text-outline-width: 3px; }
+.primary { width: 240px; height: 56px; background-color: #336699; }
+.primary:hover { background-color: #4477aa; }
 ```
 
-- Nodes without a UI component are skipped: their UI children lay out in the nearest UI ancestor. Use them to group things.
-- `UIText`, `UIImage` and `UIInputField` can't have children; UI nodes under one lay out beside it (with a warning).
-- An element with no `UICanvas` above it isn't drawn (with a warning).
-- A disabled component or an inactive node takes no space. `display = "none"` does the same while the node stays active (its scripts run), like CSS's `display: none`. `visible = false` hides an element and its children but keeps its space. Hidden elements, and elements inside them, don't take the pointer.
+- **Elements:** `<Canvas>`, `<Panel>`, `<Text>`, `<Image>`, `<Button>` and `<InputField>`. `<Use src="…">` puts another document's root in its place, `<Style src="…">` adds a stylesheet, and `<Template>` holds the element `list()` repeats.
+- **Attributes** set the element's fields, in kebab case (`font-size="20"`, `background-color="#336699"`) and beat stylesheet rules. A `Text`'s, `Button`'s or `InputField`'s content is its text.
+- **Stylesheets** are a CSS subset: type, `.class`, `#id`, descendant and child selectors, `:hover`, `:pressed`, `:focus`, `:disabled` and `:lang()`, and variables (`--name`, `var(--name)`). Properties are the elements' fields in kebab case. Text properties inherit from parent to child, as on the web: `color`, `font-size`, `font-weight`, `text-align`, `text-outline-color` and `text-outline-width`.
+- `Text`, `Image` and `InputField` can't have children.
+- **Bindings:** `{name}` in an attribute or a text reads `ui.data.name` (in a list row, the row's item first). The text follows the value each frame.
+- **Localised text:** `t:text="menu.start"` sets the text to that key's message in the current language ([ADR 0356](../../decisions/0356-text-is-localised-through-keyed-string-tables-with-icu-messages-bound-by-key-in-ui-documents-and-scripts.md) §4); `translate="no"` marks text that stays as written.
 
-In the editor, **Create > UI Canvas, UI Panel, UI Text, UI Image, UI Button, UI Input Field** add each kind; the components are also in **Add Component > UI**. Their fields are in the Inspector. There's no drag-to-lay-out view yet: you lay out with the fields.
+To show a document, put a node with a `UIDocument` component in the scene and set its `document` (`asset:ui/menu.ui.xml`). It builds the elements as the node's children; they aren't saved in the scene, and they're rebuilt when the document or a stylesheet changes. In the editor, **Create > UI > UI Document** adds one; its elements are selected and edited in the scene view and the Inspector, and the Create menu adds elements into the selected document.
+
+- A disabled element or an inactive node takes no space. `display: none` does the same while the node stays active, like CSS's `display: none`. `visible: false` hides an element and its children but keeps its space. Hidden elements, and elements inside them, don't take the pointer.
+- An element with no canvas above it isn't drawn (with a warning). A `<Canvas>` inside another element is a canvas of its own.
 
 ## Canvases
 
@@ -33,11 +53,13 @@ In the editor, **Create > UI Canvas, UI Panel, UI Text, UI Image, UI Button, UI 
 | `pixelSize` | World mode: world units per UI pixel (default 0.01, so a 1280×720 canvas is 12.8×7.2 units). |
 | `modal`, `autoFocus`, `firstSelected`, `player` | Keyboard and gamepad navigation: see [below](#keyboard-and-gamepad-navigation). |
 
-A screen canvas covers the game canvas. Its children lay out in a row by default (flexbox's default); for a full-screen layout, give it one `UIPanel` with `width: "100%"`, `height: "100%"`.
+A screen canvas covers the game canvas. Its children lay out in a row by default (flexbox's default); for a full-screen layout, give it one `<Panel>` with `width: 100%; height: 100%`.
+
+On the root `<Canvas>`, these are attributes: `<Canvas mode="world" pixel-size="0.005">`, `<Canvas sort-order="10">`.
 
 ## Layout
 
-Every element has flexbox fields (Yoga's, with web defaults). Lengths are UI pixels.
+Every element has flexbox fields (Yoga's, with web defaults), written in kebab case in markup and stylesheets (`flex-direction`, `justify-content`). Lengths are UI pixels.
 
 | Field | Values |
 | --- | --- |
@@ -46,7 +68,7 @@ Every element has flexbox fields (Yoga's, with web defaults). Lengths are UI pix
 | `alignItems` | across it: `stretch` (default), `flex-start`, `center`, `flex-end`, `baseline` |
 | `gap`, `padding`, `margin` | pixels, on every side |
 | `width`, `height` | pixels (`240` or `"240"`), a percentage of the parent (`"50%"`) or `"auto"` (sized by the content) |
-| `positionType` | `relative`, or `absolute` to take it out of the flow and place it by `top`, `right`, `bottom`, `left` |
+| `positionType` | `relative`, or `absolute` to take it out of the flow and place it by `top`, `right`, `bottom`, `left` (`position: absolute` in a stylesheet) |
 | `flexGrow` | how much of the parent's free space it takes |
 | `opacity` | 0–1, multiplied into its children's |
 | `visible` | `false` hides it and its children, keeping its space |
@@ -58,30 +80,45 @@ Children shrink to fit a parent that's too small (flexbox's `flex-shrink: 1`).
 ## Elements
 
 - **`UIPanel`**: a box. `backgroundColor` (none by default), `borderRadius`, `borderWidth`, `borderColor`.
-- **`UIText`**: `text`, `fontSize`, `color`, `fontWeight` (`light`, `normal`, `medium`, `semi-bold`, `bold`), `textAlign`, `wordBreak` (`break-word`, `break-all`, `keep-all` for no wrapping). The font is Inter, bundled; custom fonts aren't supported yet.
+- **`UIText`**: `text`, `font` (a font file in the project; empty is the bundled Inter), `fontSize`, `color`, `fontWeight` (`light`, `normal`, `medium`, `semi-bold`, `bold`, or a number), `textAlign` (`start` and `end` follow the language's direction), `wordBreak` (`break-word`, `break-all`, `keep-all` for no wrapping), and an outline: `textOutlineColor` (none by default) and `textOutlineWidth` (UI pixels, 0 by default). The outline shows outside the glyphs, scales with the canvas like the font, and doesn't change the layout. A HUD label over a busy game takes `text-outline-color: #000; text-outline-width: 3px;`.
 - **`UIImage`**: `image` (a texture asset) and `fit`: `fill` stretches it to the element, `cover` fills it and crops, `contain` keeps the texture's aspect ratio when the element's size comes from it (leave `width` or `height` at `"auto"`).
 - **`UIButton`**: a panel that takes the pointer, with `hoverColor`, `pressedColor` and `interactable`. Its children are its label.
 - **`UIInputField`**: a one-line text field: `value`, `placeholder`, `maxLength` (0: no limit), `fontSize`, `color`, `placeholderColor`, and the panel's style.
 - Buttons and input fields also take focus: `focusable`, `focusColor`, `navigation` and `navUp`, `navDown`, `navLeft`, `navRight` ([below](#keyboard-and-gamepad-navigation)).
-- **`UIControlMapper`**: a ready-made controls screen that lists a player's actions and rebinds them (see [Input](input.md#a-rebinding-screen)). It builds its elements as its node's children.
+- **`UIControlMapper`**: a ready-made controls screen that lists a player's actions and rebinds them (see [Input](input.md#a-rebinding-screen)). It builds its elements as its node's children, under a canvas a document built.
 
 ## Scripting
 
-UI fields are plain values: change them at runtime and the UI follows next frame. UI built in the editor and UI built in code are the same thing.
+A script finds the document on its node and reaches its elements with selectors. Element fields are plain values: change them at runtime and the UI follows next frame.
 
 ```ts
-import { GameBehavior, UIButton, UIInputField, UIText, behavior } from "myco";
+import { GameBehavior, UIDocument, UIText, behavior } from "myco";
 
 @behavior("game.MainMenu")
 export class MainMenu extends GameBehavior {
+  private ui!: UIDocument;
+
+  start() {
+    this.ui = this.node.getBehavior(UIDocument)!;
+    this.ui.data.score = 0; // {score} in the markup
+    void this.ui.ready.then(() => {
+      this.ui.query("#play")!.on("click", () => startGame(this.ui.query("#name")!.value ?? ""));
+      this.ui.query("#name")!.on("submit", (e) => startGame(e.element.value ?? ""));
+    });
+  }
+
   update() {
-    const play = this.node.find("Menu/Play")!.getComponent(UIButton)!;
-    const name = this.node.find("Menu/Name")!.getComponent(UIInputField)!;
-    if (play.clicked || name.submitted) startGame(name.value);
-    this.node.find("Menu/Title")!.getComponent(UIText)!.text = play.hovered ? "Ready?" : "King of Pirates";
+    const play = this.ui.query("#play");
+    if (play) this.ui.query("#title")!.as(UIText).text = play.hovered ? "Ready?" : "King of Pirates";
   }
 }
 ```
+
+- `query(selector)` and `queryAll(selector)` find elements (the root included); an element has its own `query`, `classList` (classes restyle it), `node`, `as(UIButton)` for its component, and the button and field state below.
+- `on(type, handler)`: `click`, `change`, `submit`, `hover`, `focus`, `blur`, and `cancel` on the root.
+- `ui.data` fills `{name}` bindings; it's checked each frame.
+- **Rows made at runtime** (a list of rooms, a crew, markers): `ui.list("#rooms", items, setup, { key: "id" })` makes one row per item from the element's `<Template>`, reusing rows by key when it's called again. `{field}` in the row reads the item, so positions and colours can be bindings too (`<Panel left="{x}" background-color="{color}">`). There's no other way to add an element at runtime.
+- `ui.ready` resolves once the document is built; `ui.problems` lists what was wrong in the markup and stylesheets.
 
 A button's state, read any time:
 
@@ -169,13 +206,12 @@ pause.query("#resume")!.on("click", () => closePauseMenu());
 
 ## Headless Worlds and tests
 
-UI components hold their data in any World. Only a World with a render backend builds and lays them out, so a server or a test can create UI without WebGL; there the pointer and typing do nothing and navigation has no layout to move focus through (a script's focus still takes `submit` and `cancel`). Tests click, hover, type and navigate through a UI core and `Input`, as a player does (`engine/tests/uiPointer.ts`, `engine/tests/uiNavigation.test.ts`).
+A document builds its elements in any World. Only a World with a render backend lays them out and draws them, so a server or a test can build UI without WebGL; there the pointer and typing do nothing and navigation has no layout to move focus through (a script's focus still takes `submit` and `cancel`). Tests click, hover, type and navigate through a UI core and `Input`, as a player does (`engine/tests/uiPointer.ts`, `engine/tests/uiNavigation.test.ts`).
 
 ## Known gaps
 
 - No scrolling, sliders, toggles or dropdowns.
 - No on-screen keyboard: a gamepad can focus an input field but not type in it.
 - No styling of focus beyond `focusColor` (a `:focus` rule styles input fields only).
-- No custom fonts (the bundled Inter only) and no shared styles or themes.
 - `fit: contain` in a box with both sides fixed stretches like `fill`.
-- No visual layout editing in the editor, and UI can't be picked in the scene view.
+- A script can add elements at runtime only through `list()` and a `<Template>`.

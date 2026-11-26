@@ -39,7 +39,7 @@ export type { ImportPlatform, ImportSettings, PlatformOverrides, TextureCompress
 export type { MaterialSettings, MaterialShader } from "./scene/material";
 
 // ParticleSystem (and ParticlePropertyValue) are the Particles plugin's public exports (`src/myco.ts`, ADR 0135);
-// SpriteRenderer, MeshRenderer, Environment, PostProcessing, Text, WaterSurface and the UI Components
+// SpriteRenderer, MeshRenderer, Environment, PostProcessing, WaterSurface and the UI Components
 // are the Sprites, Meshes, Environment, Post-processing, UI and Water plugins' (ADR 0140).
 export { Camera, Fog, Light, ReflectionProbe, type FogMode, type LightType, type MaterialPropertyValue, type ProbeRefresh, type Projection } from "./render/components";
 export { Material, type MaterialValue } from "./render/Material";

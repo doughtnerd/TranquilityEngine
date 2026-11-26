@@ -1,7 +1,7 @@
-// ADR 0356 §7: key gathering over a project — where each key is used (UI documents' `t:` attributes, LocalizedText in
-// scenes and prefabs, `Locale.t`/`Locale.text` in scripts, line tables' subtitle keys, playlist captions), and the
-// report lists built from it: missing translations, keys used but defined nowhere, keys never used, unkeyed literal
-// text in UI documents. Driven through `gatherKeys` over a fixture project of files.
+// ADR 0356 §7: key gathering over a project — where each key is used (UI documents' `t:` attributes,
+// `Locale.t`/`Locale.text` in scripts, line tables' subtitle keys, playlist captions), and the report lists built from
+// it: missing translations, keys used but defined nowhere, keys never used, unkeyed literal text in UI documents.
+// Scenes aren't read (ADR 0417: game UI is built only from documents). Driven through `gatherKeys` over a fixture project of files.
 import { describe, expect, it } from "vitest";
 import { parseLanguages } from "../languages";
 import { textHash } from "../textHash";
@@ -41,6 +41,7 @@ const FILES: [string, unknown][] = [
   <Text t:text="hud.coins">12 coins</Text>
   <Panel id="weapons"><Template><Text t:text="weapon.{id}.name"/></Template></Panel>
 </Canvas>`],
+  // An old scene still saving UI and LocalizedText: not read (ADR 0417).
   ["scenes/main.scene.json", {
     format: "myco.scene@4",
     nodes: [
@@ -58,7 +59,7 @@ describe("key gathering", () => {
   it("finds each kind of key use", () => {
     const by = (kind: string) => report.uses.filter((u) => u.kind === kind).map((u) => u.key).sort();
     expect(by("document")).toEqual(["hud.coins", "menu.missing", "menu.start", "weapon.{id}.name"]);
-    expect(by("scene")).toEqual(["credits.title", "hud.coins"]);
+    expect(report.uses.some((u) => u.path.startsWith("scenes/"))).toBe(false);
     expect(by("script")).toEqual(["menu.quit", "script.only"]);
     expect(by("line")).toEqual(["ch1.late", "intro_01", "intro_04"]);
     expect(by("caption")).toEqual(["cc.door_slams"]);
@@ -72,7 +73,7 @@ describe("key gathering", () => {
   });
 
   it("lists keys never used (a key template covers the keys it matches)", () => {
-    expect(report.unused.map((d) => d.key)).toEqual(["old.unused"]);
+    expect(report.unused.map((d) => d.key)).toEqual(["old.unused", "credits.title"]); // credits.title only in the unread scene
     expect(report.unused[0].table).toBe("strings/menu.strings.json");
   });
 
@@ -87,18 +88,17 @@ describe("key gathering", () => {
     expect(report.counts.fr).toEqual({ translated: 1, needsReview: 1, missing: 7 });
   });
 
-  it("lists unkeyed literal text in UI documents and scenes, minus translate=\"no\", bindings and keyed fields", () => {
+  it("lists unkeyed literal text in UI documents, minus translate=\"no\", bindings and keyed fields", () => {
     expect(report.unkeyed.map((u) => [u.path, u.field, u.text])).toEqual([
-      ["scenes/main.scene.json", "text", "Score"],
       ["ui/menu.ui.xml", "text", "Press any key"],
       ["ui/menu.ui.xml", "placeholder", "Your name"],
     ]);
-    expect(report.unkeyed[1]).toMatchObject({ where: "#hint", id: "hint" });
+    expect(report.unkeyed[0]).toMatchObject({ where: "#hint", id: "hint" });
   });
 
   it("leaves out dismissed unkeyed text", () => {
-    const again = gatherKeys({ files: FILES, languages, ignore: [unkeyedId(report.unkeyed[1])] });
-    expect(again.unkeyed.map((u) => u.text)).toEqual(["Score", "Your name"]);
+    const again = gatherKeys({ files: FILES, languages, ignore: [unkeyedId(report.unkeyed[0])] });
+    expect(again.unkeyed.map((u) => u.text)).toEqual(["Your name"]);
   });
 
   it("reports a key defined in two tables", () => {

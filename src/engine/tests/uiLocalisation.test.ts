@@ -1,8 +1,8 @@
 // ADR 0356 §4–§5: localised UI. UI documents bind keys with `t:` attributes (arguments and per-row keys from the row's
-// item, then `ui.data`), leave `translate="no"` text alone and match `:lang()` rules; `LocalizedText` localises
-// hand-built scene UI; all of it follows `Locale.epoch`. Text runs align `start` by the language's direction.
+// item, then `ui.data`), leave `translate="no"` text alone and match `:lang()` rules; all of it follows `Locale.epoch`.
+// (`LocalizedText` is gone, ADR 0417: scripts use `Locale.t`.) Text runs align `start` by the language's direction.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, GameObject, Locale, LocalizedText, MemoryStorage, Text, UICanvas, UIDocument, UIInputField, UIPanel, UIText, type ProjectSettingsInput } from "../../myco";
+import { Assets, Engine, GameObject, Locale, MemoryStorage, UICanvas, UIDocument, UIInputField, UIPanel, UIText, type ProjectSettingsInput } from "../../myco";
 import { World } from "../core/World";
 import { UIPointer } from "./uiPointer";
 
@@ -187,67 +187,6 @@ describe("UI stylesheets: :lang()", () => {
     await doc.ready;
     expect(doc.problems.map((p) => p.message).join("\n")).toMatch(/:lang\(\) takes one language code/);
     expect(textOf(doc, "#t")).toBe("x");
-  });
-});
-
-describe("LocalizedText", () => {
-  it("writes the message into the node's text when it starts, on a switch and when its arguments change", async () => {
-    await boot();
-    const label = GameObject.create("Label");
-    const text = label.addBehavior(UIText);
-    const loc = label.addBehavior(LocalizedText, { key: "menu.start" });
-    expect(text.text).toBe("Start game");
-    await Locale.setLanguage("fr");
-    engine!.step(DT);
-    expect(text.text).toBe("Commencer");
-    loc.key = "hud.coins";
-    loc.args = { count: 3 };
-    engine!.step(DT);
-    expect(text.text).toBe("3 pièces");
-    loc.args = { count: 1 };
-    engine!.step(DT);
-    expect(text.text).toBe("1 pièce");
-  });
-
-  it("follows arguments changed in place, as well as replaced (Q13)", async () => {
-    await boot();
-    const label = GameObject.create("Label");
-    const text = label.addBehavior(UIText);
-    const loc = label.addBehavior(LocalizedText, { key: "hud.coins" });
-    const args: Record<string, number> = { count: 1 };
-    loc.args = args;
-    engine!.step(DT);
-    expect(text.text).toBe("1 coin");
-    args.count++;
-    engine!.step(DT);
-    expect(text.text).toBe("2 coins");
-    // A name removed in place: the message shows its placeholder; added back: its value again.
-    delete args.count;
-    engine!.step(DT);
-    expect(text.text).not.toBe("2 coins");
-    args.count = 0;
-    engine!.step(DT);
-    expect(text.text).toBe("0 coins");
-    // Unchanged values: the text isn't written again (a script's own edit to it stays until something changes).
-    text.text = "edited";
-    engine!.step(DT);
-    expect(text.text).toBe("edited");
-  });
-
-  it("writes into the Text component, an input's placeholder, or a named field", async () => {
-    await boot();
-    const banner = GameObject.create("Banner");
-    const t = banner.addBehavior(Text);
-    banner.addBehavior(LocalizedText, { key: "menu.quit" });
-    expect(t.text).toBe("Quit");
-    const field = GameObject.create("Field");
-    const input = field.addBehavior(UIInputField);
-    field.addBehavior(LocalizedText, { key: "profile.name_hint" });
-    expect(input.placeholder).toBe("Your name");
-    const both = GameObject.create("Both");
-    const own = both.addBehavior(UIInputField);
-    both.addBehavior(LocalizedText, { key: "menu.start", field: "UIInputField.value" });
-    expect(own.value).toBe("Start game");
   });
 });
 

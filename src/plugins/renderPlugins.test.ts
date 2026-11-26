@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { getComponentClass } from "../engine/core/registry";
 import { PROBES_SPEC } from "../engine/render/babylon/features";
 import { FOG_SPEC } from "../engine/render/babylon/fog";
-import { Environment, MeshRenderer, PostProcessing, SpriteRenderer, Text } from "../engine/render/components";
+import { Environment, MeshRenderer, PostProcessing, SpriteRenderer } from "../engine/render/components";
 import { _registeredRenderFeatures, byPhase, type RenderFeatureSpec } from "../engine/render/renderFeatures";
 import { WaterSurface } from "../engine/render/water/WaterSurface";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../engine/ui/components";
@@ -87,7 +87,7 @@ const CASES: Case[] = [
   { plugin: waterRuntimePlugin, components: { "engine.WaterSurface": WaterSurface }, feature: WATER_SPEC, module: "water/runtime/waterFeature" },
   {
     plugin: uiRuntimePlugin,
-    components: { "engine.UICanvas": UICanvas, "engine.UIPanel": UIPanel, "engine.UIText": UIText, "engine.UIImage": UIImage, "engine.UIButton": UIButton, "engine.UIInputField": UIInputField, "engine.UIDocument": UIDocument, "engine.UIControlMapper": UIControlMapper, "engine.Text": Text },
+    components: { "engine.UICanvas": UICanvas, "engine.UIPanel": UIPanel, "engine.UIText": UIText, "engine.UIImage": UIImage, "engine.UIButton": UIButton, "engine.UIInputField": UIInputField, "engine.UIDocument": UIDocument, "engine.UIControlMapper": UIControlMapper },
     feature: UI_SPEC,
     module: "ui/runtime/uiFeature",
   },

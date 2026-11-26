@@ -77,8 +77,6 @@ export { Decal2D, DecalProjector, Decals, type DecalBlend, type DecalHandle, typ
 
 // The UI plugin (ADR 0069, 0076, 0140).
 export {
-  Text,
-  type Anchor,
   UIButton,
   UIControlMapper,
   type UIControlMapperCell,
@@ -114,7 +112,6 @@ export {
   type UIEventType,
   type UIListOptions,
   type UITag,
-  LocalizedText, // ADR 0356 §4
 } from "./plugins/ui/runtime";
 
 // The Environment plugin (ADR 0140).

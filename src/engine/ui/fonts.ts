@@ -143,12 +143,6 @@ export function fontFamilyOf(font: string | null | undefined): string {
   return entry ? `${entry.family}, ${rest}` : rest;
 }
 
-/** A CSS family list (the `Text` component's `fontFamily`) followed by the current language's fonts (ADR 0356 §5). */
-export function withLanguageFonts(family: string): string {
-  const own = languageFamilies().slice(0, -UI_FONT_FAMILY.length).replace(/, $/, "");
-  return own ? `${family}, ${own}` : family;
-}
-
 function loadProjectFont(path: string, family: string): Promise<boolean> {
   const fonts = fontSet();
   if (!fonts) return Promise.resolve(true);
