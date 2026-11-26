@@ -102,6 +102,9 @@ export const UnreadableFile: Story = {
   },
 };
 
+/** Lets the editor re-render between pointer events, as frames do between real input. */
+const tick = () => new Promise((r) => setTimeout(r, 30));
+
 export const CollisionShapes: Story = {
   play: async ({ canvasElement, step }) => {
     const c = within(canvasElement);
@@ -116,7 +119,9 @@ export const CollisionShapes: Story = {
       // The view is the 16-pixel cell with a 2-pixel margin: 20 pixels across.
       const at = (x: number, y: number) => ({ clientX: r.left + ((x + 2) / 20) * r.width, clientY: r.top + ((18 - y) / 20) * r.height, button: 0, pointerId: 1 });
       fireEvent.pointerDown(canvas, at(0, 0));
+      await tick();
       fireEvent.pointerMove(canvas, at(16, 8));
+      await tick();
       fireEvent.pointerUp(canvas, at(16, 8));
       await waitFor(async () => expect((await tile(1)).collision).toEqual({ polygon: [[0, 0], [1, 0], [1, 0.5], [0, 0.5]] }));
     });
@@ -126,7 +131,9 @@ export const CollisionShapes: Story = {
       const r = canvas.getBoundingClientRect();
       const at = (x: number, y: number) => ({ clientX: r.left + ((x + 2) / 20) * r.width, clientY: r.top + ((18 - y) / 20) * r.height, button: 0, pointerId: 1 });
       fireEvent.pointerDown(canvas, at(0, 12));
+      await tick();
       fireEvent.pointerMove(canvas, at(16, 16));
+      await tick();
       fireEvent.pointerUp(canvas, at(16, 16));
       await waitFor(async () => expect((await tile(1)).collision).toMatchObject({ shapes: [{}, { polygon: [[0, 0.75], [1, 0.75], [1, 1], [0, 1]] }] }));
       await userEvent.click(c.getByLabelText("Shape 2 one way"));
@@ -146,7 +153,7 @@ export const CollisionShapes: Story = {
     await step("Ctrl+click selects another tile; Apply gives it this tile's collision", async () => {
       await userEvent.click(c.getByRole("option", { name: /Ground 1/ }));
       fireEvent.click(c.getByRole("option", { name: /Ground 0/ }), { ctrlKey: true });
-      await userEvent.click(c.getByRole("button", { name: "Apply to 1 selected" }));
+      await userEvent.click(await c.findByRole("button", { name: "Apply to 1 selected" }));
       await waitFor(async () => expect((await tile(2)).collision).toEqual((await tile(1)).collision));
     });
   },
