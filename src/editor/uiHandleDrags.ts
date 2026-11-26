@@ -6,6 +6,7 @@ import type { UIDocumentElement } from "../engine/ui/UIDocument";
 import type { UIComponentType } from "../engine/ui/components";
 import { elementSource } from "../engine/ui/documentSource";
 import { uiBorderEdges } from "../engine/ui/layout";
+import { hasTransform, type UITransformFields } from "../engine/ui/transform2d";
 import { openScene } from "./state";
 import { beginUIEdit, moveUIElement, setUIElementAttributes } from "./uiDocumentEdits";
 import { whyNotEdit } from "./editGate";
@@ -112,7 +113,8 @@ export function beginResize(ref: UIElementRef, id: HandleId, pointer: Point, box
     height: box.size[1],
     widthValue: f.width,
     heightValue: f.height,
-    absolute: f.positionType === "absolute",
+    // ADR 0418 wave 3: with a transform of its own, the box's frame isn't its parent's, where left/top are: size only.
+    absolute: f.positionType === "absolute" && !hasTransform(el.component as unknown as UITransformFields),
     left: f.left,
     top: f.top,
     parentWidth: pad.width,
@@ -138,10 +140,11 @@ export function beginMove(ref: UIElementRef, pointer: Point, boxOf: BoxOf): Hand
   const f = fieldsOf(el);
   const label = elementLabel(el);
   if (f.positionType === "absolute") {
-    const topLeft = parentMap.toLocal(box.points[0]);
+    // ADR 0418 wave 3: offsets are in the parent's frame, from where layout put the box (its own translate aside).
+    const topLeft = parentMap.toLocal((box.layoutPoints ?? box.points)[0]);
     if (!topLeft) return null;
     const start = { left: f.left, top: f.top, right: f.right, bottom: f.bottom, x: topLeft[0] - pad.x, y: topLeft[1] - pad.y, parentWidth: pad.width, parentHeight: pad.height };
-    return attributeDrag("move", ref, `Move ${label}`, map, pointer, (dx, dy, o) => moveAttributes(start, dx, dy, o));
+    return attributeDrag("move", ref, `Move ${label}`, parentMap, pointer, (dx, dy, o) => moveAttributes(start, dx, dy, o));
   }
   return reorderDrag(ref, el, parent, parentMap, pad, boxOf, label);
 }

@@ -426,7 +426,7 @@ export class ViewportHandle implements EditorViewport {
     return ui ? ui.pickCanvases(x, y, this.rayAt(x, y)) : [];
   }
 
-  uiElementBox(c: UIComponentType): { points: [number, number][]; size: readonly [number, number]; clip: [number, number][] | null } | null {
+  uiElementBox(c: UIComponentType): { points: [number, number][]; size: readonly [number, number]; clip: [number, number][] | null; layoutPoints: [number, number][] | null } | null {
     const corners = this.live()?.ui()?.cornersOf(c);
     if (!corners) return null;
     const onCanvas = (points: number[][]): [number, number][] | null => {
@@ -442,7 +442,8 @@ export class ViewportHandle implements EditorViewport {
     const points = onCanvas(corners.points);
     if (!points) return null;
     // ADR 0418: the drawn part, when an `overflow: hidden` ancestor clips it.
-    return { points, size: corners.size, clip: corners.clip ? onCanvas(corners.clip) : null };
+    // ADR 0418 wave 3: `points` are as drawn (transformed); `layoutPoints` where layout put it in its parent's frame.
+    return { points, size: corners.size, clip: corners.clip ? onCanvas(corners.clip) : null, layoutPoints: onCanvas(corners.layoutPoints) };
   }
 
   bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer> {

@@ -15,6 +15,7 @@ import { currentProject, openScene, playState, sceneCamera, status } from "./sta
 import { select } from "./inspectorTarget";
 import { editorTextFiles } from "./textFiles";
 import { beginMove, beginResize, whyNoHandles, type BoxOf } from "./uiHandleDrags";
+import { boxMap } from "./uiHandleMath";
 import { resolveUIElement, type UIElementRef } from "./uiDocuments";
 
 const ROOT = "C:\\Games\\handles";
@@ -27,6 +28,8 @@ const MENU = `<Canvas>
     <Panel id="c" width="50" height="40"/>
     <Panel id="abs" position="absolute" left="100" top="200" width="25%" height="60"/>
     <Panel id="pinned" position="absolute" right="10" bottom="10" width="40" height="40"/>
+    <Panel id="turned" position="absolute" left="400" top="300" width="100" height="50" rotate="90" translate-x="30"/>
+    <Panel id="slid" position="absolute" width="40" height="40" translate-x="200"/>
   </Panel>
 </Canvas>
 `;
@@ -86,7 +89,7 @@ function layout(): void {
 }
 const boxOf: BoxOf = (c: UIComponentType) => {
   const corners = core.cornersOf(c);
-  return corners ? { points: corners.points.map((p) => [p[0], p[1]] as const), size: corners.size } : null;
+  return corners ? { points: corners.points.map((p) => [p[0], p[1]] as const), size: corners.size, layoutPoints: corners.layoutPoints.map((p) => [p[0], p[1]] as const) } : null;
 };
 /** The canvas point of an element's box at fractions of its width and height. */
 function at(id: string, fx: number, fy: number): [number, number] {
@@ -176,6 +179,36 @@ describe("moving", () => {
     await settle();
     expect(text()).toMatch(/id="b"[^]*id="c"[^]*id="a"[^]*id="abs"/);
     expect(scene().stack.undoLabel).toBe("Move #a");
+  });
+});
+
+describe("transformed elements (ADR 0418 wave 3)", () => {
+  it("puts the handles on the box as drawn, and resizes in its own frame without moving left/top", async () => {
+    const box = boxOf(el("turned").component)!;
+    const map = boxMap(box)!;
+    // Turned a quarter: its west edge's middle is at the top as drawn.
+    const west = map.toCanvas([0, 25]);
+    expect(west[0]).toBeCloseTo(400 + 30 + 50, 6);
+    expect(west[1]).toBeCloseTo(325 - 50, 6);
+    const drag = beginResize(ref("turned"), "w", west, boxOf)!;
+    drag.update([west[0], west[1] - 20]); // outward along the turned box's own x axis
+    drag.finish();
+    expect(text()).toContain(`<Panel id="turned" position="absolute" left="400" top="300" width="120" height="50"`);
+  });
+
+  it("moves in the parent's frame, from where layout put the element, not where its transform draws it", async () => {
+    const [x, y] = boxMap(boxOf(el("turned").component)!)!.toCanvas([50, 25]);
+    const drag = beginMove(ref("turned"), [x, y], boxOf)!;
+    drag.update([x + 15, y - 50]);
+    drag.finish();
+    expect(text()).toContain(`<Panel id="turned" position="absolute" left="415" top="250"`);
+
+    const laid = core.cornersOf(el("slid").component)!.layoutPoints[0];
+    const [sx, sy] = boxMap(boxOf(el("slid").component)!)!.toCanvas([20, 20]);
+    const slide = beginMove(ref("slid"), [sx, sy], boxOf)!;
+    slide.update([sx + 10, sy]);
+    slide.finish();
+    expect(text()).toContain(`<Panel id="slid" position="absolute" width="40" height="40" translate-x="200" left="${laid[0] + 10}"`);
   });
 });
 
