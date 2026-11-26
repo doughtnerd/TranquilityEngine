@@ -4,6 +4,7 @@
 // plugin takes "New UI Document" and "New Svelte Component" out of the Assets panel.
 
 import type { EditorPlugin } from "../../../editor/sdk";
+import { loadBuiltinUI } from "../../builtinUILoads";
 import { uiManifest } from "../manifest";
 import { createUIDocument } from "./uiDocumentAssets";
 import { createSvelteComponent } from "./svelteAssets";
@@ -21,7 +22,7 @@ export const uiEditorPlugin: EditorPlugin = {
   manifest: uiManifest,
   activate(context) {
     // The built-in UI component (UIControlMapper's screen, ADR 0419 wave B), compiled with the editor.
-    void import("../builtinUI");
+    loadBuiltinUI(() => import("../builtinUI")); // the project code load waits for it
     context.registerAssetKind({
       id: "uidocument",
       extensions: [".ui.xml"],
