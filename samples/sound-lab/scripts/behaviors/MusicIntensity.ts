@@ -1,4 +1,5 @@
-import { Audio, AudioSource, GameBehavior, Input, Text, Time, behavior, field } from "myco";
+import { Audio, AudioSource, GameBehavior, GameObject, Input, Time, behavior, field } from "myco";
+import { setHud } from "../labHud";
 
 /**
  * Music intensity (ADR 0343 playlists). This node's AudioSource plays `music-intensity.playlist.json`: three layers in
@@ -11,6 +12,8 @@ import { Audio, AudioSource, GameBehavior, Input, Text, Time, behavior, field } 
  */
 @behavior("lab.MusicIntensity")
 export class MusicIntensity extends GameBehavior {
+  /** The page's UI document node (ui/*.ui.xml): this script fills its `{music}` binding. */
+  @field(GameObject) hud: GameObject | null = null;
   @field(String) upKey = "m";
   @field(String) downKey = "n";
   @field(Number) stepSize = 0.25;
@@ -41,7 +44,6 @@ export class MusicIntensity extends GameBehavior {
 
   private apply(): void {
     Audio.setParameter("Intensity", this.value);
-    const label = this.node.getBehavior(Text);
-    if (label) label.text = `Music intensity ${this.value.toFixed(2)}: N lower, M raise (the heard value glides to it)`;
+    setHud(this.hud, "music", `Music intensity ${this.value.toFixed(2)}: N lower, M raise (the heard value glides to it)`);
   }
 }

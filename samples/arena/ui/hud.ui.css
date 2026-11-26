@@ -1,0 +1,21 @@
+/* The arena HUD's look (ADR 0077). Positions are in reference pixels. */
+#scoreboard {
+  position: absolute;
+  top: 6px;
+  left: 0;
+  width: 100%;
+  text-align: center;
+  font-size: 24px;
+  font-weight: bold;
+  color: #e8eaf0;
+}
+
+#help {
+  position: absolute;
+  bottom: 8px;
+  left: 0;
+  width: 100%;
+  text-align: center;
+  font-size: 16px;
+  color: #9aa0ad;
+}

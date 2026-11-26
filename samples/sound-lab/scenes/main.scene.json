@@ -1,22 +1,51 @@
 {
   "format": "myco.scene@5",
-  "settings": { "physics": "3d" },
+  "settings": {
+    "physics": "3d"
+  },
   "nodes": [
     {
       "id": "camera",
       "name": "Camera",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [0, 5, -12], "rotation": [0.1736482, 0, 0, 0.9848078] } },
-        { "type": "engine.Camera", "data": { "projection": "perspective", "fieldOfView": 55 } },
-        { "type": "engine.AudioListener", "data": {} }
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [0, 5, -12],
+            "rotation": [0.1736482, 0, 0, 0.9848078]
+          }
+        },
+        {
+          "type": "engine.Camera",
+          "data": {
+            "projection": "perspective",
+            "fieldOfView": 55
+          }
+        },
+        {
+          "type": "engine.AudioListener",
+          "data": {}
+        }
       ]
     },
     {
       "id": "sun",
       "name": "Sun",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [0, 8, 0], "rotation": [0.4403775, -0.2667293, -0.1388505, 0.8459573] } },
-        { "type": "engine.Light", "data": { "type": "directional", "intensity": 1.4 } }
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [0, 8, 0],
+            "rotation": [0.4403775, -0.2667293, -0.1388505, 0.8459573]
+          }
+        },
+        {
+          "type": "engine.Light",
+          "data": {
+            "type": "directional",
+            "intensity": 1.4
+          }
+        }
       ]
     },
     {
@@ -26,17 +55,38 @@
       "components": [
         {
           "type": "engine.AudioSource",
-          "data": { "clip": "asset:audio/music-loop.wav", "loop": true, "volume": 0.5, "playOnAwake": true, "output": "Music" }
+          "data": {
+            "clip": "asset:audio/music-loop.wav",
+            "loop": true,
+            "volume": 0.5,
+            "playOnAwake": true,
+            "output": "Music"
+          }
         },
-        { "type": "lab.PauseToggle", "data": { "key": "p" } }
+        {
+          "type": "lab.PauseToggle",
+          "data": {
+            "key": "p"
+          }
+        }
       ]
     },
     {
       "id": "emitter",
       "name": "Emitter",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [6, 1, 0] } },
-        { "type": "engine.MeshRenderer", "data": { "mesh": "builtin:sphere" } },
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [6, 1, 0]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
         {
           "type": "engine.AudioSource",
           "data": {
@@ -51,70 +101,154 @@
             "dopplerLevel": 0
           }
         },
-        { "type": "lab.Orbit", "data": { "radius": 6, "speed": 0.25 } }
+        {
+          "type": "lab.Orbit",
+          "data": {
+            "radius": 6,
+            "speed": 0.25
+          }
+        }
       ]
     },
     {
       "id": "events",
       "name": "Events page (key E)",
       "transform": false,
-      "components": [{ "type": "lab.SceneSwitch", "data": { "key": "e", "scene": "scenes/events.scene.json" } }]
+      "components": [
+        {
+          "type": "lab.SceneSwitch",
+          "data": {
+            "key": "e",
+            "scene": "scenes/events.scene.json"
+          }
+        }
+      ]
     },
     {
       "id": "spatial",
       "name": "Spatial page (key S)",
       "transform": false,
-      "components": [{ "type": "lab.SceneSwitch", "data": { "key": "s", "scene": "scenes/spatial.scene.json" } }]
+      "components": [
+        {
+          "type": "lab.SceneSwitch",
+          "data": {
+            "key": "s",
+            "scene": "scenes/spatial.scene.json"
+          }
+        }
+      ]
     },
     {
       "id": "music-page",
       "name": "Music page (key M)",
       "transform": false,
-      "components": [{ "type": "lab.SceneSwitch", "data": { "key": "m", "scene": "scenes/music.scene.json" } }]
+      "components": [
+        {
+          "type": "lab.SceneSwitch",
+          "data": {
+            "key": "m",
+            "scene": "scenes/music.scene.json"
+          }
+        }
+      ]
     },
     {
       "id": "rhythm-page",
       "name": "Rhythm page (key R)",
       "transform": false,
-      "components": [{ "type": "lab.SceneSwitch", "data": { "key": "r", "scene": "scenes/rhythm.scene.json" } }]
+      "components": [
+        {
+          "type": "lab.SceneSwitch",
+          "data": {
+            "key": "r",
+            "scene": "scenes/rhythm.scene.json"
+          }
+        }
+      ]
     },
     {
       "id": "mixer-page",
       "name": "Mixer page (key -)",
       "transform": false,
-      "components": [{ "type": "lab.SceneSwitch", "data": { "key": "-", "scene": "scenes/mixer.scene.json" } }]
+      "components": [
+        {
+          "type": "lab.SceneSwitch",
+          "data": {
+            "key": "-",
+            "scene": "scenes/mixer.scene.json"
+          }
+        }
+      ]
     },
     {
       "id": "page-nav",
       "name": "Page buttons (touch: E, S, M, R)",
       "transform": false,
-      "components": [{ "type": "lab.PageNav", "data": {} }]
+      "components": [
+        {
+          "type": "lab.PageNav",
+          "data": {}
+        }
+      ]
     },
     {
       "id": "oneshots",
       "name": "OneShots (key 1)",
       "transform": false,
-      "components": [{ "type": "lab.OneShots", "data": {} }]
+      "components": [
+        {
+          "type": "lab.OneShots",
+          "data": {}
+        }
+      ]
     },
     {
       "id": "buses",
       "name": "Buses (keys 2, 3)",
       "transform": false,
-      "components": [{ "type": "lab.Buses", "data": {} }]
+      "components": [
+        {
+          "type": "lab.Buses",
+          "data": {}
+        }
+      ]
     },
     {
       "id": "ambience-bus",
       "name": "Ambience bus (keys N, Z)",
       "transform": false,
-      "components": [{ "type": "lab.Buses", "data": { "bus": "Ambience", "muteKey": "n", "fadeKey": "z" } }]
+      "components": [
+        {
+          "type": "lab.Buses",
+          "data": {
+            "bus": "Ambience",
+            "muteKey": "n",
+            "fadeKey": "z"
+          }
+        }
+      ]
     },
     {
       "id": "drums",
       "name": "Drums on Music (key B)",
       "transform": false,
       "components": [
-        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/drum-loop.wav", "loop": true, "volume": 0.7, "playOnAwake": false, "output": "Music" } },
-        { "type": "lab.Toggle", "data": { "key": "b" } }
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/drum-loop.wav",
+            "loop": true,
+            "volume": 0.7,
+            "playOnAwake": false,
+            "output": "Music"
+          }
+        },
+        {
+          "type": "lab.Toggle",
+          "data": {
+            "key": "b"
+          }
+        }
       ]
     },
     {
@@ -122,8 +256,22 @@
       "name": "Noise on Ambience (key A)",
       "transform": false,
       "components": [
-        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/noise-loop.wav", "loop": true, "volume": 0.3, "playOnAwake": false, "output": "Ambience" } },
-        { "type": "lab.Toggle", "data": { "key": "a" } }
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/noise-loop.wav",
+            "loop": true,
+            "volume": 0.3,
+            "playOnAwake": false,
+            "output": "Ambience"
+          }
+        },
+        {
+          "type": "lab.Toggle",
+          "data": {
+            "key": "a"
+          }
+        }
       ]
     },
     {
@@ -131,28 +279,58 @@
       "name": "Loudness reference (keys L, W, C, F, V, D)",
       "transform": false,
       "components": [
-        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/loudness-reference.wav", "loop": true, "volume": 1, "playOnAwake": false, "output": "UI" } },
-        { "type": "engine.Text", "data": { "anchor": "top-left", "align": "left", "offset": [24, 20], "fontSize": 20, "outlineColor": "#000000", "outlineWidth": 4 } },
-        { "type": "lab.Loudness", "data": {} }
+        {
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/loudness-reference.wav",
+            "loop": true,
+            "volume": 1,
+            "playOnAwake": false,
+            "output": "UI"
+          }
+        },
+        {
+          "type": "lab.Loudness",
+          "data": {
+            "hud": {
+              "$node": "hud"
+            }
+          }
+        }
       ]
     },
     {
       "id": "snapshots",
       "name": "Snapshots (key 4)",
       "transform": false,
-      "components": [{ "type": "lab.Snapshots", "data": {} }]
+      "components": [
+        {
+          "type": "lab.Snapshots",
+          "data": {}
+        }
+      ]
     },
     {
       "id": "effects",
       "name": "Effects (keys 5, 6, X)",
       "transform": false,
-      "components": [{ "type": "lab.Effects", "data": {} }]
+      "components": [
+        {
+          "type": "lab.Effects",
+          "data": {}
+        }
+      ]
     },
     {
       "id": "bench",
       "name": "Listening bench (keys 7, 8, 9, 0, Q, O, I, K)",
       "transform": false,
-      "components": [{ "type": "lab.ListeningBench", "data": {} }]
+      "components": [
+        {
+          "type": "lab.ListeningBench",
+          "data": {}
+        }
+      ]
     },
     {
       "id": "tape",
@@ -161,10 +339,24 @@
       "components": [
         {
           "type": "engine.AudioSource",
-          "data": { "clip": "asset:audio/melody-loop.wav", "loop": true, "volume": 0.7, "playOnAwake": false, "output": "Tape" }
+          "data": {
+            "clip": "asset:audio/melody-loop.wav",
+            "loop": true,
+            "volume": 0.7,
+            "playOnAwake": false,
+            "output": "Tape"
+          }
         },
-        { "type": "lab.Tape", "data": {} },
-        { "type": "lab.PauseToggle", "data": { "key": "u" } }
+        {
+          "type": "lab.Tape",
+          "data": {}
+        },
+        {
+          "type": "lab.PauseToggle",
+          "data": {
+            "key": "u"
+          }
+        }
       ]
     },
     {
@@ -174,51 +366,172 @@
       "components": [
         {
           "type": "engine.AudioSource",
-          "data": { "clip": "asset:audio/loops/loop.wav", "loop": true, "volume": 0.7, "playOnAwake": false, "output": "UI" }
+          "data": {
+            "clip": "asset:audio/loops/loop.wav",
+            "loop": true,
+            "volume": 0.7,
+            "playOnAwake": false,
+            "output": "UI"
+          }
         },
-        { "type": "lab.LoopCycler", "data": {} }
+        {
+          "type": "lab.LoopCycler",
+          "data": {}
+        }
       ]
     },
     {
       "id": "crowd1",
       "name": "Crowd 1 (key H)",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [3, 5, -12] } },
-        { "type": "engine.MeshRenderer", "data": { "mesh": "builtin:sphere" } },
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [3, 5, -12]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
         {
           "type": "engine.AudioSource",
-          "data": { "clip": "asset:audio/noise-loop.wav", "loop": true, "volume": 0.5, "playOnAwake": false, "spatial": true, "minDistance": 2, "maxDistance": 30, "dopplerLevel": 0 }
+          "data": {
+            "clip": "asset:audio/noise-loop.wav",
+            "loop": true,
+            "volume": 0.5,
+            "playOnAwake": false,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 30,
+            "dopplerLevel": 0
+          }
         },
-        { "type": "lab.Orbit", "data": { "radius": 3, "speed": 0.1, "phase": 0, "centerX": 0, "centerZ": -12 } },
-        { "type": "lab.Toggle", "data": { "key": "h" } }
+        {
+          "type": "lab.Orbit",
+          "data": {
+            "radius": 3,
+            "speed": 0.1,
+            "phase": 0,
+            "centerX": 0,
+            "centerZ": -12
+          }
+        },
+        {
+          "type": "lab.Toggle",
+          "data": {
+            "key": "h"
+          }
+        }
       ]
     },
     {
       "id": "crowd2",
       "name": "Crowd 2 (key J)",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [7, 4, -12] } },
-        { "type": "engine.MeshRenderer", "data": { "mesh": "builtin:sphere" } },
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [7, 4, -12]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
         {
           "type": "engine.AudioSource",
-          "data": { "clip": "asset:audio/noise-loop.wav", "loop": true, "volume": 0.5, "playOnAwake": false, "spatial": true, "minDistance": 2, "maxDistance": 30, "dopplerLevel": 0 }
+          "data": {
+            "clip": "asset:audio/noise-loop.wav",
+            "loop": true,
+            "volume": 0.5,
+            "playOnAwake": false,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 30,
+            "dopplerLevel": 0
+          }
         },
-        { "type": "lab.Orbit", "data": { "radius": 7, "speed": -0.18, "phase": 0.33, "centerX": 0, "centerZ": -12 } },
-        { "type": "lab.Toggle", "data": { "key": "j" } }
+        {
+          "type": "lab.Orbit",
+          "data": {
+            "radius": 7,
+            "speed": -0.18,
+            "phase": 0.33,
+            "centerX": 0,
+            "centerZ": -12
+          }
+        },
+        {
+          "type": "lab.Toggle",
+          "data": {
+            "key": "j"
+          }
+        }
       ]
     },
     {
       "id": "crowd3",
       "name": "Crowd 3 (key J)",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [11, 6, -12] } },
-        { "type": "engine.MeshRenderer", "data": { "mesh": "builtin:sphere" } },
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [11, 6, -12]
+          }
+        },
+        {
+          "type": "engine.MeshRenderer",
+          "data": {
+            "mesh": "builtin:sphere"
+          }
+        },
         {
           "type": "engine.AudioSource",
-          "data": { "clip": "asset:audio/noise-loop.wav", "loop": true, "volume": 0.5, "playOnAwake": false, "spatial": true, "minDistance": 2, "maxDistance": 30, "dopplerLevel": 0 }
+          "data": {
+            "clip": "asset:audio/noise-loop.wav",
+            "loop": true,
+            "volume": 0.5,
+            "playOnAwake": false,
+            "spatial": true,
+            "minDistance": 2,
+            "maxDistance": 30,
+            "dopplerLevel": 0
+          }
         },
-        { "type": "lab.Orbit", "data": { "radius": 11, "speed": 0.27, "phase": 0.66, "centerX": 0, "centerZ": -12 } },
-        { "type": "lab.Toggle", "data": { "key": "j" } }
+        {
+          "type": "lab.Orbit",
+          "data": {
+            "radius": 11,
+            "speed": 0.27,
+            "phase": 0.66,
+            "centerX": 0,
+            "centerZ": -12
+          }
+        },
+        {
+          "type": "lab.Toggle",
+          "data": {
+            "key": "j"
+          }
+        }
+      ]
+    },
+    {
+      "id": "hud",
+      "name": "HUD",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.UIDocument",
+          "data": {
+            "document": "asset:ui/main.ui.xml"
+          }
+        }
       ]
     }
   ]

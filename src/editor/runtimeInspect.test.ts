@@ -158,10 +158,10 @@ describe("keeping values from play mode", () => {
     play = await startPlay({ editor, scene, project: sample });
     const engine = play.engine;
     for (let i = 0; i < 5; i++) engine.step(frame);
-    const score = live(engine, "ScoreLabel");
-    const text = listComponents(score).find((c) => c.type === "engine.Text")!;
-    writeField(score, "engine.Text", 0, "fontSize", 99);
-    expect(keepNode(scene, score)).toBe(listComponents(score).length);
+    const manager = live(engine, "GameManager");
+    const text = listComponents(manager).find((c) => c.type === "game.GameManager")!;
+    writeField(manager, "game.GameManager", 0, "restartDelay", 99);
+    expect(keepNode(scene, manager)).toBe(listComponents(manager).length);
     const sprite = live(engine, "Bird").children[0];
     keepComponent(scene, sprite, listComponents(sprite).find((c) => c.type === "engine.SpriteRenderer")!);
     expect(text).toBeDefined();
@@ -171,10 +171,9 @@ describe("keeping values from play mode", () => {
     // The bird's sprite is deleted from the document before Stop is handled.
     scene.stack.execute(new RemoveNode("bird-sprite"));
     const result = applyKept(scene, list);
-    expect(scene.doc.fieldValue("score", "engine.Text", "fontSize")).toBe(99);
-    // The game set the label's text ("0") at runtime; nothing else on it changed, so nothing else is written.
-    expect(scene.doc.fieldValue("score", "engine.Text", "text")).toBe("0");
-    expect(result.written).toBe(2);
+    expect(scene.doc.fieldValue("game", "game.GameManager", "restartDelay")).toBe(99);
+    // Nothing else on the node changed, so nothing else is written.
+    expect(result.written).toBe(1);
     expect(result.skipped).toEqual([expect.stringMatching(/^Sprite › SpriteRenderer: the node isn't in the scene any more/)]);
   });
 

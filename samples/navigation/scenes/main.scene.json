@@ -599,18 +599,9 @@
       "transform": false,
       "components": [
         {
-          "type": "engine.Text",
+          "type": "engine.UIDocument",
           "data": {
-            "text": "",
-            "fontSize": 18,
-            "anchor": "top-left",
-            "align": "left",
-            "offset": [
-              16,
-              16
-            ],
-            "outlineColor": "#000000",
-            "outlineWidth": 3
+            "document": "asset:ui/hud.ui.xml"
           }
         },
         {

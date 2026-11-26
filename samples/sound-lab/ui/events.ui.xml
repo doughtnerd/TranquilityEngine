@@ -1,0 +1,14 @@
+<!--
+  The Sound Lab's events page text as a UI document (ADR 0077): the page's heading lines and its readouts.
+  The look is in lab.ui.css, shared by every page; the scripts on the scene's nodes fill the {bindings}.
+-->
+<Canvas>
+  <Style src="lab.ui.css"/>
+  <Panel id="hud">
+    <Text class="title">Sound Lab: audio events (B goes back to the tour)</Text>
+    <Text class="title">Click the game view first. Footsteps, engine and music play together.</Text>
+    <Text id="footsteps" class="readout">{footsteps}</Text>
+    <Text id="engine" class="readout">{engine}</Text>
+    <Text id="music" class="readout">{music}</Text>
+  </Panel>
+</Canvas>

@@ -1,4 +1,5 @@
-import { Audio, GameBehavior, Input, Text, Time, behavior, field } from "myco";
+import { Audio, GameBehavior, GameObject, Input, Time, behavior, field } from "myco";
+import { setHud } from "../labHud";
 
 /** The labels of the project's global "Surface" parameter (`audio.parameters`), in the order of keys 1 to 4. */
 const SURFACES = ["Grass", "Gravel", "Wood", "Metal"];
@@ -11,6 +12,8 @@ const SURFACES = ["Grass", "Gravel", "Wood", "Metal"];
  */
 @behavior("lab.Footsteps")
 export class Footsteps extends GameBehavior {
+  /** The page's UI document node (ui/*.ui.xml): this script fills its `{footsteps}` binding. */
+  @field(GameObject) hud: GameObject | null = null;
   @field(String) event = "audio/events/footstep.playlist.json";
   @field(String) walkKey = "w";
   @field(String) runKey = "shift";
@@ -52,7 +55,6 @@ export class Footsteps extends GameBehavior {
   }
 
   private show(): void {
-    const label = this.node.getBehavior(Text);
-    if (label) label.text = `Footsteps: ${SURFACES.map((s, i) => (i === this.surface ? `[${i + 1} ${s}]` : `${i + 1} ${s}`)).join("  ")}\nW walk, Shift+W run  (steps: ${this.steps})`;
+    setHud(this.hud, "footsteps", `Footsteps: ${SURFACES.map((s, i) => (i === this.surface ? `[${i + 1} ${s}]` : `${i + 1} ${s}`)).join("  ")}\nW walk, Shift+W run  (steps: ${this.steps})`);
   }
 }

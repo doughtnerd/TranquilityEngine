@@ -6,7 +6,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, SceneManager, Text } from "../../myco";
+import { Assets, Engine, GameObject, SceneManager, UIDocument } from "../../myco";
 import { readProject } from "../../server/project";
 import { Storage } from "../platform/Storage";
 // The sample's scripts, registered as loading the project's scripts would (ADR 0031).
@@ -247,8 +247,9 @@ describe("the rhythm page's script", () => {
   it("the page shows the keys on screen", async () => {
     await boot("scenes/rhythm.scene.json");
     advance(0.2);
-    expect(JSON.stringify(json("scenes/rhythm.scene.json"))).toContain("Tap SPACE");
-    const label = (page().page as unknown as { node: { getBehavior(c: typeof Text): { text: string } | null } }).node.getBehavior(Text);
-    for (const key of ["C calibrate", "G tap game", "X reset", "O stops", "B goes back", "SPACE"]) expect(label?.text).toContain(key);
+    expect(read("ui/rhythm.ui.xml").toString("utf8")).toContain("Tap SPACE");
+    const hud = (page().page as unknown as { hud: GameObject | null }).hud;
+    const text = hud?.getBehavior(UIDocument)?.data.rhythm as string;
+    for (const key of ["C calibrate", "G tap game", "X reset", "O stops", "B goes back", "SPACE"]) expect(text).toContain(key);
   });
 });

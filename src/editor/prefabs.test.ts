@@ -185,7 +185,7 @@ describe("Create Prefab (ADR 0022)", () => {
 });
 
 describe("Create Prefab with references out of the new prefab (ADR 0401)", () => {
-  const OUT = ["spawner", "score", "message", "music-readout"];
+  const OUT = ["spawner", "hud"];
   /** The resolved component data of the node at `path` (slash-joined) in the scene. */
   const dataAt = (path: string) => openScene.value!.doc.resolve().nodes.find((n) => n.path.join("/") === path)!.components.map((c) => c.data ?? null);
 
@@ -193,15 +193,13 @@ describe("Create Prefab with references out of the new prefab (ADR 0401)", () =>
     const scene = openScene.value!;
     const before = dataAt("game");
     const made = await createPrefab(scene, project, "game");
-    expect(made.instanceOverrides).toBe(5);
+    expect(made.instanceOverrides).toBe(3);
     const manager = fileOf(made.path).nodes[0].components!.find((c) => c.type === "game.GameManager")!;
-    expect(manager.data).toEqual({ bird: null, spawner: null, scoreLabel: null, messageLabel: null, musicLabel: null });
+    expect(manager.data).toEqual({ bird: null, spawner: null, hud: null });
     expect(scene.doc.node("game").overrides).toEqual([
       { component: "game.GameManager", index: 0, field: "bird", value: { $node: "bird" } },
       { component: "game.GameManager", index: 0, field: "spawner", value: { $node: "spawner" } },
-      { component: "game.GameManager", index: 0, field: "scoreLabel", value: { $node: "score" } },
-      { component: "game.GameManager", index: 0, field: "messageLabel", value: { $node: "message" } },
-      { component: "game.GameManager", index: 0, field: "musicLabel", value: { $node: "music-readout" } },
+      { component: "game.GameManager", index: 0, field: "hud", value: { $node: "hud" } },
     ]);
     expect(dataAt("game")).toEqual(before); // the scene is as it was
     expect(scene.doc.references().filter((r) => r.path[0] === "game").map((r) => r.to)).toEqual(["bird", ...OUT]);
@@ -228,14 +226,12 @@ describe("Create Prefab with references out of the new prefab (ADR 0401)", () =>
     const path = (await createPrefabFromNodes(scene, project, ["bird", "game"], "Group")).path;
     const file = fileOf(path);
     const manager = file.nodes.find((n) => n.id === "game")!.components!.find((c) => c.type === "game.GameManager")!;
-    expect(manager.data).toEqual({ bird: { $node: "bird" }, spawner: null, scoreLabel: null, messageLabel: null, musicLabel: null });
+    expect(manager.data).toEqual({ bird: { $node: "bird" }, spawner: null, hud: null });
     expect(file.nodes.find((n) => n.id === "bird")!.components!.find((c) => c.type === "game.Bird")!.data).toEqual({ visual: { $node: "bird-sprite" } });
     const instance = scene.doc.nodes.find((n) => n.prefab === path)!;
     expect(instance.overrides).toEqual([
       { target: ["game"], component: "game.GameManager", index: 0, field: "spawner", value: { $node: "spawner" } },
-      { target: ["game"], component: "game.GameManager", index: 0, field: "scoreLabel", value: { $node: "score" } },
-      { target: ["game"], component: "game.GameManager", index: 0, field: "messageLabel", value: { $node: "message" } },
-      { target: ["game"], component: "game.GameManager", index: 0, field: "musicLabel", value: { $node: "music-readout" } },
+      { target: ["game"], component: "game.GameManager", index: 0, field: "hud", value: { $node: "hud" } },
     ]);
     expect(dataAt(`${instance.id}/game`)).toEqual(before);
     scene.stack.undo();
@@ -248,8 +244,8 @@ describe("Create Prefab with references out of the new prefab (ADR 0401)", () =>
     scene.stack.execute(
       new SetOverrides("bg-a", "Set", [
         ...scene.doc.overrides("bg-a"),
-        { component: "engine.SpriteRenderer", field: "follow", value: { $node: "score" } },
-        { addComponent: { type: "engine.SpriteRenderer", data: { sprite: "x", path: [{ $node: "message" }, null] } } },
+        { component: "engine.SpriteRenderer", field: "follow", value: { $node: "hud" } },
+        { addComponent: { type: "engine.SpriteRenderer", data: { sprite: "x", path: [{ $node: "spawner" }, null] } } },
       ]),
     );
     const before = dataAt("bg-a");
@@ -260,21 +256,21 @@ describe("Create Prefab with references out of the new prefab (ADR 0401)", () =>
     expect(nested.overrides).toContainEqual({ addComponent: { type: "engine.SpriteRenderer", data: { sprite: "x", path: [null, null] } } });
     const instance = scene.doc.nodes.find((n) => n.prefab === made.path)!;
     expect(instance.overrides).toEqual([
-      { target: ["bg-a"], component: "engine.SpriteRenderer", index: 0, field: "follow", value: { $node: "score" } },
-      { target: ["bg-a"], component: "engine.SpriteRenderer", index: 1, field: "path", value: [{ $node: "message" }, null] },
+      { target: ["bg-a"], component: "engine.SpriteRenderer", index: 0, field: "follow", value: { $node: "hud" } },
+      { target: ["bg-a"], component: "engine.SpriteRenderer", index: 1, field: "path", value: [{ $node: "spawner" }, null] },
     ]);
     expect(dataAt(`${instance.id}/bg-a`)).toEqual(before);
   });
 
   it("keeps a list mixing references into the prefab with ones out of it in the file, and clears the inside ones in the override", async () => {
     const scene = openScene.value!;
-    scene.stack.execute(new SetField("bird-sprite", "engine.SpriteRenderer", "follow", [{ $node: "bird-sprite" }, { $node: "score" }, { $node: "bird" }]));
+    scene.stack.execute(new SetField("bird-sprite", "engine.SpriteRenderer", "follow", [{ $node: "bird-sprite" }, { $node: "hud" }, { $node: "bird" }]));
     const made = await createPrefab(scene, project, "bird");
     expect(made.droppedListItems).toBe(1);
     const file = fileOf(made.path).nodes.find((n) => n.id === "bird-sprite")!;
     expect(file.components!.find((c) => c.type === "engine.SpriteRenderer")!.data!.follow).toEqual([{ $node: "bird-sprite" }, null, { $node: "bird" }]);
     const override = scene.doc.node("bird").overrides!.find((o) => o.field === "follow")!;
-    expect(override.value).toEqual([null, { $node: "score" }, { $node: "bird" }]);
+    expect(override.value).toEqual([null, { $node: "hud" }, { $node: "bird" }]);
   });
 });
 
