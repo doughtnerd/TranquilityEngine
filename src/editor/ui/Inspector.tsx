@@ -41,7 +41,7 @@ import { AddComponentMenu } from "./AddComponentMenu";
 import { AssetInspector } from "./AssetInspector";
 import { inspectorTarget } from "../inspectorTarget";
 import { listedFiles } from "../assetBrowser";
-import { isHiddenField } from "../assetFieldKinds";
+import { inspectorFields } from "../fieldVisibility";
 import { InspectorSections } from "./inspectorSections";
 import "./inspectorSections.builtin";
 import { addToPreload, preloadCandidates, removeFromPreload } from "../scenePreload";
@@ -570,8 +570,8 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
       {info.fields.length === 0 ? (
         <EmptyState compact title="No fields" />
       ) : (
-        // One row per field over the document target (ADR 0243); fields another editor owns (a ParticleSystem's effect, a Tilemap's layers) are hidden (ADR 0131).
-        <FieldRows target={documentFieldTarget(scene, paths, infos)} fields={info.fields.filter((f) => !isHiddenField(f))} />
+        // One row per field over the document target (ADR 0243); fields another editor owns (a ParticleSystem's effect, a Tilemap's layers) are hidden (ADR 0131), and so are fields whose `shownWhen` fails.
+        <FieldRows target={documentFieldTarget(scene, paths, infos)} fields={inspectorFields(infos)} />
       )}
       {/* Per-type extras under the fields: effect editor, bake buttons, nav notes… (ADR 0131). */}
       <InspectorSections scene={scene} paths={paths} info={info} />

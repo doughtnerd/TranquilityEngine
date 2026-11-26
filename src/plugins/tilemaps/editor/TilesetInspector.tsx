@@ -1,6 +1,7 @@
 // Tileset assets in the Inspector (ADR 0103): a `*.tileset.json` selected in the Assets panel shows its tile size,
 // terrains and a grid of its tiles (Ctrl/⌘+click selects several); the selected tile's name, collision and shadow
-// shapes (drawn over the tile, `TileShapeEditor.tsx`, ADR 0423), terrain, neighbour pattern (a 3 × 3 grid of buttons), weight and custom data (JSON) are edited below. Every edit
+// shapes (drawn over the tile, `TileShapeEditor.tsx`, ADR 0423), terrain, neighbour pattern (a 3 × 3 grid of buttons), weight, anchor, sort
+// offset (ADR 0424), frame animation (`TileAnimationEditor.tsx`, ADR 0421) and custom data (JSON) are edited below. Every edit
 // writes the file through the tileset's asset document and can be undone (Ctrl+Z / Ctrl+Shift+Z over the inspector,
 // or the Undo / Redo buttons of the asset document frame, ADR 0265).
 import { useEffect, useState } from "preact/hooks";
@@ -10,6 +11,7 @@ import { tilesForSlices } from "./tilesetAssets";
 import { TileThumb } from "./TileThumb";
 import { AssetDocumentFrame, AssetPicker, ColorField, editor, openAssetDocument, EmptyState } from "../../../editor/sdk";
 import { TileShapeEditor } from "./TileShapeEditor";
+import { TileAnimationEditor } from "./TileAnimationEditor";
 import { patchTiles } from "./tileShapeEditorLogic";
 import "./tilesetInspector.css";
 
@@ -309,6 +311,26 @@ function TileEditor(props: { data: TilesetData; tile: TileDef; readOnly: boolean
         />
       </label>
       <AnchorRow label="Anchor" title="Where this tile's sprite sits in its cell (blank = the tileset's default anchor)" value={tile.anchor ?? data.anchor ?? [0, 0]} readOnly={readOnly} onChange={(a) => setTile({ anchor: a[0] === (data.anchor?.[0] ?? 0) && a[1] === (data.anchor?.[1] ?? 0) ? undefined : a })} />
+      <label class="import-row" title="Applies in y-sorted sorting layers: the tile sorts this many cells above its cell's bottom, against sprites and other tiles (a tree whose trunk stands in the cell above). 0 sorts by the cell's bottom.">
+        <span>Sort Offset</span>
+        <input
+          type="number"
+          step={0.5}
+          aria-label="Sort Offset"
+          disabled={readOnly}
+          value={tile.sortOffset ?? 0}
+          onChange={(e) => {
+            const input = e.currentTarget as HTMLInputElement;
+            const v = Number(input.value);
+            if (input.value.trim() === "" || !Number.isFinite(v)) {
+              input.value = String(tile.sortOffset ?? 0);
+              return;
+            }
+            setTile({ sortOffset: v === 0 ? undefined : v }, "Set sort offset");
+          }}
+        />
+      </label>
+      <TileAnimationEditor project={props.project} tile={tile} readOnly={readOnly} onPatch={setTile} />
       <div class="tileset-data">
         <span class="hint">Custom data (JSON object, read with getTileData)</span>
         <textarea

@@ -134,6 +134,13 @@ export interface FieldOptions {
    */
   hidden?: boolean;
   /**
+   * Show the field in the Inspector only while this returns true, given the component's field values by name
+   * (`shownWhen: (t) => t.gridShape === "hexagonal"`): for fields that mean something only for some values of
+   * another. With several nodes selected, the field shows if it holds for any of them. Editor-only: the field is
+   * still saved, loaded and replicated as usual, whatever this returns. Should be a cheap, pure test.
+   */
+  shownWhen?: (values: Readonly<Record<string, unknown>>) => boolean;
+  /**
    * One or two plain sentences saying what the field is for (ADR 0159). The editor shows it as the
    * field's tooltip. Metadata only: not saved in scenes, not replicated, ignored at run time. A list
    * field's description applies to the list, not to each item.

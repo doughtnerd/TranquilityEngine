@@ -42,3 +42,17 @@
 .tile-shapes-points summary { cursor: pointer; font-size: 11px; color: var(--muted); }
 .tile-shapes-points input { margin-top: 3px; }
 .tileset-cell.also-selected { border-color: var(--accent); }
+/* The tile animation editor (ADR 0421). */
+.tile-animation { display: flex; flex-direction: column; gap: 4px; margin: 6px 0; min-width: 0; }
+.tile-animation-title { font-size: 11px; color: var(--muted); }
+.tile-animation-body { display: flex; gap: 6px; align-items: flex-start; min-width: 0; }
+.tile-animation-preview { flex: none; width: 64px; height: 64px; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-sunken); }
+.tile-animation-frames { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.tile-animation-frames li { display: flex; align-items: center; gap: 3px; min-width: 0; }
+.tile-animation-frames select { flex: 1; min-width: 0; }
+.tile-animation-frames input[type="number"] { width: 52px; flex: none; }
+.tile-animation-buttons { display: flex; gap: 1px; flex: none; }
+.tile-animation-buttons button { min-width: 20px; padding: 0 3px; }
+.tile-animation-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.tile-animation-row > select { flex: 1; min-width: 0; }
+.tile-animation-start { display: flex; align-items: center; gap: 4px; font-size: 11px; color: var(--muted); }
