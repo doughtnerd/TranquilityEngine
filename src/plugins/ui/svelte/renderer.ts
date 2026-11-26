@@ -224,9 +224,8 @@ class RenderStyle {
     return out;
   }
   private write(map: Map<string, string>): void {
-    const text = [...map].map(([k, v]) => `${k}: ${v}`).join("; ");
-    if (text) this.el.setAttribute("style", text);
-    else this.el.removeAttribute("style");
+    // As the DOM serialises it (`a: 1; b: 2;`); removing the last property leaves `style=""`, as there.
+    this.el.setAttribute("style", [...map].map(([k, v]) => `${k}: ${v};`).join(" "));
   }
   get cssText(): string {
     return this.el.getAttribute("style") ?? "";
@@ -239,14 +238,15 @@ class RenderStyle {
     return this.read().get(name) ?? "";
   }
   setProperty(name: string, value: string | null): void {
+    if (value === null || value === "") return void this.removeProperty(name);
     const map = this.read();
-    if (value === null || value === "") map.delete(name);
-    else map.set(name, value);
+    map.set(name, value);
     this.write(map);
   }
   removeProperty(name: string): string {
     const map = this.read();
-    const old = map.get(name) ?? "";
+    const old = map.get(name);
+    if (old === undefined) return ""; // nothing removed: the attribute stays as it is
     map.delete(name);
     this.write(map);
     return old;

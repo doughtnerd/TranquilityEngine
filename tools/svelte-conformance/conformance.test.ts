@@ -27,6 +27,7 @@ import { parseStylesheet } from "../../src/engine/ui/document/stylesheet";
 import { SVELTE_UI_RENDERER } from "../../vite.shared";
 import { assertHtmlEqual, assertHtmlEqualWithOptions } from "./htmlEqual";
 import { ok } from "./testShim";
+import { animations, clock, standInAnimate } from "./animationStandIn";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const version = JSON.parse(readFileSync(join(root, "node_modules/svelte/package.json"), "utf8")).version as string;
@@ -310,22 +311,26 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
     // `window` and `document` stay undefined (engine code takes a defined `window` for a browser); the `window` a test
     // gets as an argument is the renderer's `<svelte:window>` target.
     for (const [k, v] of Object.entries(fakeWindow)) if (!(k in globalThis)) (globalThis as Record<string, unknown>)[k] = v;
-    // Svelte's `raf` test helper, without its DOM animation stand-in (transitions are refused under a custom renderer for now).
+    // Svelte's `raf` test helper, with its animation stand-in moved from `element.animate` to the renderer's `animate`
+    // hook (animationStandIn.ts): keyframes go to the node's inline style on the test's clock, as in Svelte's DOM runs.
+    // The renderer's own `measure` stays (a fixture's stubbed `getBoundingClientRect` on a node is what it reads).
+    (renderer.default as unknown as { animate: unknown }).animate = standInAnimate;
     const { raf: svelteRaf } = (await import("svelte/internal/client")) as unknown as { raf: { tick: (f: (n: number) => void) => void; now: () => number; tasks: Set<unknown> } };
     const ticks = new Set<(n: number) => void>();
-    let time = 0;
     raf = {
       reset() {
-        time = 0;
+        clock.time = 0;
+        animations.clear();
         ticks.clear();
         svelteRaf.tick = (f) => void ticks.add(f);
-        svelteRaf.now = () => time;
+        svelteRaf.now = () => clock.time;
         svelteRaf.tasks.clear();
       },
       tick(ms: number) {
-        time = ms;
+        clock.time = ms;
         flushSync();
-        for (const t of ticks) t(time);
+        for (const a of animations) a._update();
+        for (const t of ticks) t(clock.time);
       },
     };
     // Samples that reject or throw asynchronously are recorded as their own failures, not the run's.
