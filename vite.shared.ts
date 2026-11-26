@@ -66,6 +66,9 @@ export const SVELTE_UI_RENDERER = fileURLToPath(new URL("./src/plugins/ui/svelte
 /** What compiled UI components get for `svelte/reactivity` (ADR 0418 wave 5): Svelte's with `MediaQuery` on the canvas. */
 const SVELTE_UI_REACTIVITY = fileURLToPath(new URL("./src/plugins/ui/svelte/reactivity.ts", import.meta.url));
 
+/** ADR 0425: the inline HTML parser, which compiled components that use `{@html}` or `bind:innerHTML` import as `myco/ui-html`. */
+export const SVELTE_UI_HTML = fileURLToPath(new URL("./src/plugins/ui/svelte/htmlInline.ts", import.meta.url));
+
 /** The cascade's stylesheet parser, which Vitest's compiled components call when they load (ADR 0419). */
 const UI_STYLESHEET_PARSER = fileURLToPath(new URL("./src/engine/ui/document/stylesheet.ts", import.meta.url));
 /** The id prefix of a plain `.css` file a component imports, as a module registering its rules. */
@@ -90,6 +93,7 @@ export function svelteUI(options: { dev?: boolean } = {}): Plugin {
     async resolveId(source, importer) {
       // The renderer compiled components import (in every config that compiles them, aliased or not).
       if (source === "myco/ui-renderer") return SVELTE_UI_RENDERER;
+      if (source === "myco/ui-html") return SVELTE_UI_HTML;
       // UI code's `svelte/reactivity` is Svelte's with `MediaQuery` on the canvas (ADR 0418 wave 5), as in the editor and games.
       if (source === "svelte/reactivity" && importer && /\.svelte(\.[jt]s)?$/.test(importer.split("?")[0])) return SVELTE_UI_REACTIVITY;
       if (!importer || !source.endsWith(".css") || !/\.svelte(\.[jt]s)?$/.test(importer.split("?")[0])) return null;
@@ -624,6 +628,7 @@ export function rendezvousFile(): Plugin {
 export const MYCO_ALIASES: Record<string, string> = {
   // Before "myco", which would otherwise take it as a path inside the engine's module.
   "myco/ui-renderer": SVELTE_UI_RENDERER,
+  "myco/ui-html": SVELTE_UI_HTML,
   myco: fileURLToPath(new URL("./src/myco.ts", import.meta.url)),
   tranquility: fileURLToPath(new URL("./src/myco.ts", import.meta.url)),
 };

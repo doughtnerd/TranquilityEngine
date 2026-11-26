@@ -4,6 +4,8 @@ import type { CompileOptions, Warning } from "svelte/compiler";
 export type SvelteUIStyles = ((css: string, filename: string) => unknown) | { readonly parser: string };
 
 export const DEFAULT_RENDERER: string;
+export const HTML_PARSER: string;
+export function usesInlineHtml(source: string): boolean;
 export function svelteUIOptions(filename: string, options?: { renderer?: string; dev?: boolean }): CompileOptions;
 export function compileSvelteUI(source: string, options: { filename: string; renderer?: string; dev?: boolean; styles?: SvelteUIStyles }): { code: string; map: unknown; css: string; warnings: Warning[] };
 export function injectedStylesOf(code: string): { hash: string; code: string } | null;

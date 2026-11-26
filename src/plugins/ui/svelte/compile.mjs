@@ -8,6 +8,14 @@ import { compile, compileModule } from "svelte/compiler";
 /** The renderer module's specifier as compiled components import it (resolved by the bundler or Vitest). */
 export const DEFAULT_RENDERER = "myco/ui-renderer";
 
+/** ADR 0425: the inline HTML parser's specifier, which components that use `{@html}` or `bind:innerHTML` import. */
+export const HTML_PARSER = "myco/ui-html";
+
+/** ADR 0425: true for a component source that uses `{@html}` or `bind:innerHTML` (so it needs the inline HTML parser). */
+export function usesInlineHtml(source) {
+  return /\{@html\s/.test(source) || /\bbind:innerHTML\b/.test(source);
+}
+
 /**
  * The compiler options for a component: the custom renderer, `css: 'external'` (the only CSS mode a custom
  * renderer has), runes always (no legacy-mode runtime), and `dev` in the editor (template locations).
@@ -41,6 +49,9 @@ export function compileSvelteUI(source, { filename, renderer = DEFAULT_RENDERER,
   const name = /^export default function ([\w$]+)\(/m.exec(code)?.[1];
   if (!name) throw new Error(`${filename}: the compiled component has no default export function.`);
   code += `\nimport { mountView as $$mycoMountView } from ${JSON.stringify(renderer)};\nexport const $mount = (host, props) => $$mycoMountView(host, ${name}, props);\n`;
+  // ADR 0425: `{@html}` and `bind:innerHTML` need the inline HTML parser; only components that use them import it, so
+  // other games never load it.
+  if (usesInlineHtml(source)) code += `\nimport { parseInlineHtml as $$mycoParseHtml } from ${JSON.stringify(HTML_PARSER)};\nimport { useHtmlParser as $$mycoUseHtml } from ${JSON.stringify(renderer)};\n$$mycoUseHtml($$mycoParseHtml);\n`;
   let css = r.css?.code ?? "";
   if (css.trim()) {
     const add = `import { addStyles as $$mycoAddStyles } from ${JSON.stringify(renderer)};\n`;

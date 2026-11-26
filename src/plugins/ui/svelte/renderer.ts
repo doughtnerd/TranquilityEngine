@@ -67,16 +67,17 @@ import { Color, Vector2 } from "../../../engine/core/math";
 import { onLocaleEpoch } from "../../../engine/localisation/Locale";
 import { setLocaleTracker } from "../../../engine/localisation/t";
 import { SVG_CONTENT_TAGS, uiTagOfHtml, uiTagOfInput } from "../../../engine/ui/host/htmlTags";
-import { UIAudio, UIForm, UIOption, UIRadio, UISvg, UIVideo } from "../../../engine/ui/components";
+import { UIAudio, UIForm, UIOption, UIRadio, UISvg, UIText, UIVideo } from "../../../engine/ui/components";
 import { checkRadio, chooseOption, selectOf } from "../../../engine/ui/formControls";
 import { applyAffine, invert, multiply } from "../../../engine/ui/transform2d";
 import { distanceToOutline, flattenPath, insideFill, parseSvgTransform, pathLength, pointAtLength, shapePath, SVG_GEOMETRY_TAGS, viewBoxMap } from "../../../engine/ui/svg/svgGeometry";
 import { UI_MEDIA_EVENTS, type UIMediaEvent, type UIMediaEventType } from "../../../engine/ui/media";
-import { onUIHostBubbleOut, setUIHostStyles, UIHostElement, UIHostEvent, type UIHostEventType, type UIHostSource, type UIHostTree } from "../../../engine/ui/host/UIHost";
+import { onUIHostBubbleOut, onUIHostEdit, setUIHostStyles, UIHostElement, UIHostEvent, type UIHostEventType, type UIHostSource, type UIHostTree } from "../../../engine/ui/host/UIHost";
 import { addUIListener, removeUIListener, runUIListeners, uiListenerOptions, type UIListener } from "../../../engine/ui/events";
 import type { UIStylesheet, UITag } from "../../../engine/ui/document/types";
 import { UIGlobals, UIGlobalTarget, type GlobalKind } from "./globalTargets";
 import { animateNode, animateSvgNode, measureNode } from "./animation";
+import type { InlineHtmlNode } from "./htmlInline";
 
 const EVENTS: Readonly<Record<string, UIHostEventType>> = {
   click: "click",
@@ -130,7 +131,9 @@ const EVENTS: Readonly<Record<string, UIHostEventType>> = {
 const HEAD_TAGS = new Set(["head", "meta", "link", "base", "script", "style", "noscript", "title"]);
 
 /** Attributes HTML has that aren't UI fields: kept on the node (getAttribute sees them), never given to the cascade. */
-const HTML_ONLY = new Set(["type", "name", "for", "alt", "title", "role", "tabindex", "autocomplete", "lang", "dir", "hidden", "spellcheck", "inputmode", "autofocus", "form", "method", "action"]);
+const HTML_ONLY = new Set(["type", "name", "for", "alt", "title", "role", "tabindex", "autocomplete", "lang", "dir", "hidden", "spellcheck", "inputmode", "autofocus", "form", "method", "action",
+  // ADR 0425: a link's and an inline element's attributes stay on the node (a game handles a link's click itself).
+  "href", "target", "rel", "download", "hreflang", "cite", "datetime"]);
 
 type Handler = (this: unknown, e: unknown) => void;
 
@@ -450,9 +453,27 @@ export class UIRenderElement extends UINodeBase {
     if (text !== "" && text !== null && text !== undefined) renderer.insert(this, new UIRenderText(String(text)), null);
   }
 
-  /** Its content as HTML (read-only): the tree Svelte rendered, as a DOM's `innerHTML` would show it. */
+  /** Its content as HTML: the tree Svelte rendered, as a DOM's `innerHTML` would show it. */
   get innerHTML(): string {
     return this._children.map(serialize).join("");
+  }
+
+  /**
+   * ADR 0425: replace its content with HTML, parsed by the inline HTML parser (phrasing elements inside a text element are
+   * its runs; block elements are panels; scripts, styles and event attributes are dropped).
+   */
+  set innerHTML(html: string) {
+    for (const c of [...this._children]) renderer.remove(c);
+    if (html !== "" && html !== null && html !== undefined) renderer.insert(this, htmlFragment(String(html)), null);
+  }
+
+  /** ADR 0425: its text as shown: `textContent` with each `<br>` a line break. */
+  get innerText(): string {
+    return this._children.map((c) => (c instanceof UIRenderText ? c.data : c instanceof UIRenderElement ? (c.localName.toLowerCase() === "br" ? "\n" : c.innerText) : "")).join("");
+  }
+
+  set innerText(text: string) {
+    this.textContent = text;
   }
 
   get outerHTML(): string {
@@ -1221,14 +1242,39 @@ function bindMedia(node: UIRenderElement, name: string, get: () => unknown, set:
   };
 }
 
-/** The outermost Text element `node` is inside, within its run of Text ancestors (it holds the text), or null. */
-function textOwner(node: UINode): UIRenderElement | null {
-  let owner: UIRenderElement | null = null;
-  for (let p = node._parent; p instanceof UIRenderElement && !p._tree; p = p._parent) {
-    if (!isTextKind(p)) break;
-    owner = p;
-  }
-  return owner;
+/** ADR 0425: an inline run: a node whose parent is a text element or a run (below the mount). */
+function isRun(node: UINode): boolean {
+  const p = node._parent;
+  return p instanceof UIRenderElement && !p._tree && (isTextKind(p) || isRun(p));
+}
+
+/** ADR 0425: an element whose content is text and runs: a text element, or a run that isn't an image. */
+function holdsText(n: UINode | UIParent | null): n is UIRenderElement {
+  return n instanceof UIRenderElement && !n._tree && (n._uiTag === "Text" || (isRun(n) && n._uiTag !== "Image"));
+}
+
+/** ADR 0425: the UI element a node makes: a run is a Text (an image stays an Image), others their own. */
+function hostedTag(el: UIRenderElement): UITag {
+  if (!isRun(el)) return el._uiTag;
+  return el._uiTag === "Image" ? "Image" : "Text";
+}
+
+/** ADR 0425: the text element a run belongs to (the outermost), or the element itself. */
+function rootText(el: UIRenderElement): UIRenderElement {
+  let r = el;
+  while (isRun(r) && r._parent instanceof UIRenderElement) r = r._parent;
+  return r;
+}
+
+/** ADR 0425: `contenteditable` on the text element (not `"false"`): its whitespace is kept as typed. */
+function isEditable(el: UIRenderElement): boolean {
+  const v = rootText(el).getAttribute("contenteditable");
+  return v !== null && v !== "false";
+}
+
+/** ADR 0425: text inside a run with its whitespace collapsed (spaces at its ends stay, one each: the text's layout joins runs). */
+function collapseInner(text: string): string {
+  return text.replace(/[ \t\n\r\f]+/g, " ");
 }
 
 /** The hosted element `parent`'s children attach to (null: the canvas, for the mount container); undefined: children aren't built there. */
@@ -1289,6 +1335,12 @@ function hostAttributes(el: UIRenderElement): Map<string, string> {
     if (k === "type") {
       if (tag === "Button") out.set("type", s);
       else if (tag === "InputField") out.set("type", uiTagOfInput(s).fieldType);
+      continue;
+    }
+    // ADR 0425: an editable text element.
+    if (k === "contenteditable") {
+      if (tag === "Text" && !isRun(el)) out.set("content-editable", s === "false" ? "false" : "true");
+      else if (!isRun(el)) warnOnce(`contenteditable on <${el.localName}>: only a text element (<p>, <span>, <h1>…) is editable in a game's UI.`);
       continue;
     }
     if (k === "name" && (tag === "Toggle" || tag === "Radio")) out.set("name", s);
@@ -1388,9 +1440,9 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
   if (node instanceof UIRenderElement && SVG_CONTENT_TAGS.has(node.localName.toLowerCase()) && !uiTagOfHtml(node.localName)) {
     warnOnce(`<${node.localName}> outside an <svg> isn't drawn; it renders as a Panel (a <div>).`);
   }
-  const owner = textOwner(node);
-  if (owner) {
-    refreshText(owner);
+  // ADR 0425: text in a text element (or a run) is its content: its text, or a text piece beside inline children.
+  if (node instanceof UIRenderText && holdsText(parent)) {
+    refreshText(parent);
     return null;
   }
   const hp = hostedParent(parent);
@@ -1406,7 +1458,10 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
     warnOnce(`<${node.localName}> inside <${parent.localName}> isn't shown: a <${parent.localName}> has no children.`);
     return null;
   }
-  const made = tree.create(node.localName, node._uiTag, hp, hostedBefore(node), hostAttributes(node), { source: sourceOf(node), written: writtenAttributes(node) });
+  // ADR 0425: an element inside a text element is an inline run of it (a Text, or an inline image).
+  const uiTag = hostedTag(node);
+  if (uiTag !== node._uiTag) warnOnce(`<${node.localName}> inside a text element (<${rootText(node).localName}>) is drawn as inline text; only phrasing elements and images belong there.`);
+  const made = tree.create(node.localName, uiTag, hp, hostedBefore(node), hostAttributes(node), { source: sourceOf(node), written: writtenAttributes(node) });
   node._hosted = made;
   node._dispatchers = new Map();
   hostedNodes.set(made, node);
@@ -1439,8 +1494,9 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
     }
     return made;
   }
-  for (const c of node._children) materialize(c, tree);
-  if (node._uiTag === "Text") refreshText(node);
+  const text = holdsText(node);
+  for (const c of node._children) if (!(text && c instanceof UIRenderText)) materialize(c, tree);
+  if (text) refreshText(node);
   // ADR 0424: state a binding or script set before the element was made.
   const pending = node._pendingState;
   node._pendingState = {};
@@ -1484,12 +1540,68 @@ function detach(node: UINode): void {
   node._parent = null;
 }
 
-/** A Text element's content changed: write its text. */
+/**
+ * A text element's (or run's) content changed: write its text. ADR 0425: with inline children, its text nodes become text
+ * pieces (runs of it beside them) and its own text is empty; with text only, that's its text (collapsed: trimmed for a
+ * text element, ends kept for a run, which the text's layout joins; kept as typed when editable). A `<br>` is a line break.
+ */
 function refreshText(el: UIRenderElement | null): void {
   if (!el?._hosted) return;
+  const tree = el._hosted.tree;
+  if (el.localName.toLowerCase() === "br") return tree.setText(el._hosted, "\n");
   // An empty Text with a `text` attribute shows the attribute, as written (spaces and line breaks kept).
   if (el._children.length === 0 && el.hasAttribute("text")) return;
-  el._hosted.tree.setText(el._hosted, collapse(el.textContent));
+  const editable = isEditable(el);
+  if (el._children.some((c) => c instanceof UIRenderElement)) {
+    tree.setText(el._hosted, "");
+    for (const c of el._children) {
+      if (!(c instanceof UIRenderText)) continue;
+      const t = editable ? c.data : collapseInner(c.data);
+      if (!c._hosted) {
+        if (t === "") continue;
+        c._hosted = tree.create("#text", "Text", el._hosted, hostedBefore(c), new Map(), { synthetic: true });
+        tree.setText(c._hosted, t);
+        tree.restyle(c._hosted);
+      } else tree.setText(c._hosted, t);
+    }
+    return;
+  }
+  for (const c of el._children) {
+    if (c instanceof UIRenderText && c._hosted) {
+      tree.remove(c._hosted);
+      c._hosted = null;
+    }
+  }
+  const flat = el.textContent;
+  tree.setText(el._hosted, editable ? flat : isRun(el) ? collapseInner(flat) : collapse(flat));
+}
+
+/**
+ * ADR 0425: an editable text the player edited: its nodes take the text the UI core wrote into its runs' components (each
+ * text piece's, or a text-only element's own), so its `input` listeners read what was typed.
+ */
+function reconcileEdit(el: UIRenderElement): void {
+  const comp = el._hosted?.component;
+  if (!(comp instanceof UIText) || el.localName.toLowerCase() === "br") return;
+  if (el._children.some((c) => c instanceof UIRenderElement)) {
+    for (const c of el._children) {
+      if (c instanceof UIRenderText) {
+        const piece = c._hosted?.component;
+        if (piece instanceof UIText && piece.text !== c.data) c.data = piece.text;
+      } else if (c instanceof UIRenderElement) reconcileEdit(c);
+    }
+    return;
+  }
+  if (el.textContent === comp.text) return;
+  const texts = el._children.filter((c): c is UIRenderText => c instanceof UIRenderText);
+  if (texts.length) {
+    texts[0].data = comp.text;
+    for (const t of texts.slice(1)) t.data = "";
+  } else if (comp.text !== "") {
+    const t = new UIRenderText(comp.text);
+    t._parent = el;
+    el._children.push(t);
+  }
 }
 
 /** ADR 0426: an attribute changed: an <svg>'s document, or a media element's <source>. */
@@ -1499,9 +1611,61 @@ function attributeChanged(el: UIRenderElement): void {
   if (isMediaNode(p) && p._hosted && el.localName.toLowerCase() === "source") p._hosted.tree.setAttributes(p._hosted, hostAttributes(p), writtenAttributes(p));
 }
 
-function refreshTextOf(node: UINode | null): void {
-  if (!node) return;
-  refreshText(isTextKind(node) && !textOwner(node) ? node : textOwner(node));
+function refreshTextOf(node: UINode | UIParent | null): void {
+  if (holdsText(node)) refreshText(node);
+}
+
+/** ADR 0425: `el` and every text-holding element in it write their text again (`contenteditable` changed how it's kept). */
+function refreshTexts(el: UIRenderElement): void {
+  if (holdsText(el)) refreshText(el);
+  for (const c of el._children) if (c instanceof UIRenderElement) refreshTexts(c);
+}
+
+// --- Inline HTML (ADR 0425): `{@html}`, `innerHTML`, `bind:innerHTML` ------------------------------------
+
+/** What the inline HTML parser gives (`htmlInline.ts`): elements with their attributes, and text, scripts and handlers gone. */
+export type { InlineHtmlNode };
+
+/** The inline HTML parser, registered by compiled components that use `{@html}` or `bind:innerHTML` (so only those games load it). */
+let htmlParser: ((html: string) => InlineHtmlNode[]) | null = null;
+
+/**
+ * ADR 0425: give the renderer the inline HTML parser (`myco/ui-html`'s `parseInlineHtml`). `compileSvelteUI` adds the call to
+ * every component that uses `{@html}` or `bind:innerHTML`, so a game without either never loads the parser.
+ */
+export function useHtmlParser(parse: (html: string) => InlineHtmlNode[]): void {
+  htmlParser = parse;
+}
+
+/** ADR 0425: an HTML string as detached renderer nodes in a fragment (an element's tag maps as the renderer maps tags). */
+function htmlFragment(html: string): UIRenderFragment {
+  const fragment = new UIRenderFragment();
+  const nodes = htmlParser
+    ? htmlParser(html)
+    : (warnOnce("{@html} and innerHTML need the inline HTML parser, which compileSvelteUI adds to components that use them; showing the text without its tags."), [{ kind: "text" as const, text: html.replace(/<[^>]*>/g, "") }]);
+  const build = (n: InlineHtmlNode, parent: UIRenderElement | UIRenderFragment): void => {
+    const node = n.kind === "text" ? new UIRenderText(n.text) : new UIRenderElement(n.tag);
+    if (node instanceof UIRenderElement && n.kind === "element") {
+      for (const [k, v] of n.attributes) node._attrs.set(k, v);
+      for (const c of n.children) build(c, node);
+    }
+    node._parent = parent;
+    parent._children.push(node);
+  };
+  for (const n of nodes) build(n, fragment);
+  return fragment;
+}
+
+/**
+ * ADR 0425: `bind:textContent`, `bind:innerText` and `bind:innerHTML` on an editable text element: the bound value written
+ * to its content when it differs (or, when the value is unset, the content read into it), and read back on each `input`.
+ */
+function bindContent(node: UIRenderElement, name: "textContent" | "innerText" | "innerHTML", get: () => unknown, set: (value: unknown) => void): () => void {
+  const read = () => node[name];
+  const v = get();
+  if (v === undefined || v === null) set(read());
+  else if (String(v) !== read()) node[name] = String(v);
+  return listen(node, "input", () => set(read()));
 }
 
 // --- Bindings ------------------------------------------------------------------------------------
@@ -1633,8 +1797,9 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
   setText(node, text) {
     node.data = text;
     if (svgRootOf(node)) return svgChanged(node);
-    const owner = textOwner(node);
-    if (owner) return refreshText(owner);
+    // ADR 0425: text in a text element (or a run) is its content.
+    const p = node._parent;
+    if (holdsText(p)) return refreshText(p);
     const tree = treeOf(node);
     if (!tree || !node._parent) return;
     const blank = !text.trim();
@@ -1650,12 +1815,14 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     if (value === undefined || value === null || value === false) return renderer.removeAttribute(el, key);
     el._attrs.set(key, value);
     if (key === "type") retag(el); // ADR 0424
+    if (key === "contenteditable") refreshTexts(el); // ADR 0425: whitespace kept, or collapsed again
     if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el), writtenAttributes(el));
     attributeChanged(el);
   },
   removeAttribute(el, name) {
     if (!el._attrs.delete(name)) return;
     if (name === "type") retag(el);
+    if (name === "contenteditable") refreshTexts(el);
     if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el), writtenAttributes(el));
     attributeChanged(el);
   },
@@ -1677,22 +1844,21 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     const oldParent = node._parent;
     const oldTree = treeOf(node);
     const oldSvg = svgRootOf(node);
-    const hadOwner = textOwner(node);
+    // ADR 0425: a text node leaving a text element takes its text piece with it; an element that stops (or starts) being
+    // an inline run is made again, as the UI element it is now.
+    if (node instanceof UIRenderText && node._hosted && holdsText(oldParent)) dematerialize(node, oldTree);
+    const wasRun = isRun(node);
     detach(node);
-    if (hadOwner) refreshText(hadOwner);
+    if (oldParent !== parent) refreshTextOf(oldParent);
     const at = anchor ? parent._children.indexOf(anchor as UINode) : -1;
     if (at < 0) parent._children.push(node);
     else parent._children.splice(at, 0, node);
     node._parent = parent;
     const tree = treeOf(node);
-    const owner = textOwner(node);
-    if (owner) {
-      if ((node instanceof UIRenderElement || node instanceof UIRenderText) && node._hosted) dematerialize(node, oldTree);
-      return refreshText(owner);
-    }
+    if (node instanceof UIRenderText && holdsText(parent)) return refreshText(parent);
     const hosted = node instanceof UIRenderElement || node instanceof UIRenderText ? node._hosted : null;
     const hp = hostedParent(parent);
-    if (hosted && tree && tree === oldTree && hp !== undefined) {
+    if (hosted && tree && tree === oldTree && hp !== undefined && isRun(node) === wasRun) {
       tree.move(hosted, hp, hostedBefore(node)); // a keyed {#each} reorder: the same GameObject
       return;
     }
@@ -1702,20 +1868,20 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
       const made = materialize(node, tree);
       if (made) tree.restyle(made);
     }
+    // ADR 0425: the text element may have inline children now (its text becomes text pieces beside them).
+    refreshTextOf(parent);
     if (oldSvg && oldSvg !== svgRootOf(node)) refreshSvg(oldSvg);
   },
   remove(node) {
     const parent = node._parent;
     const tree = treeOf(node);
-    const owner = textOwner(node);
     const svg = svgRootOf(node);
     detach(node);
     if (svg) return refreshSvg(svg);
     if (isMediaNode(parent) && parent._hosted) parent._hosted.tree.setAttributes(parent._hosted, hostAttributes(parent), writtenAttributes(parent));
     dropMediaListeners(node);
-    if (owner) return refreshText(owner);
     dematerialize(node, tree);
-    if (parent instanceof UIRenderElement) refreshTextOf(parent);
+    refreshTextOf(parent);
   },
   addEventListener(el, type, handler, options) {
     // `<svelte:window>`, `<svelte:document>` and `<svelte:body>` (the patch's `globalTarget`)
@@ -1750,12 +1916,14 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     // ADR 0424: checkboxes and radios.
     if ((name === "checked" && (tag === "Toggle" || tag === "Radio")) || (name === "indeterminate" && tag === "Toggle")) return bindState(node, name, get, set);
     if (name === "group" && (tag === "Toggle" || tag === "Radio")) return bindGroup(node, get, set);
+    // ADR 0425: an editable text's content.
+    if ((name === "textContent" || name === "innerText" || name === "innerHTML") && tag === "Text") return bindContent(node, name, get, set);
     // ADR 0426: <video> and <audio>'s media bindings.
     if (isMediaNode(node)) {
       const stop = bindMedia(node, name, get, set);
       if (stop) return stop;
     }
-    warnOnce(`bind:${name} on <${node.localName}> isn't supported yet; UI elements bind value (inputs, text areas, selects), checked, indeterminate and group, and media properties on <video> and <audio>.`);
+    warnOnce(`bind:${name} on <${node.localName}> isn't supported yet; UI elements bind value (inputs, text areas, selects), checked, indeterminate and group, media properties on <video> and <audio>, and textContent, innerText and innerHTML on editable text elements.`);
   },
   // What <svelte:window>, <svelte:document> and <svelte:body> stand for, and what <svelte:head> content goes into.
   globalTarget(kind) {
@@ -1778,6 +1946,8 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     });
   },
   measure: (node) => measureNode(node, svgRootOf(node) ? svgComputedStyle(node) : undefined),
+  // ADR 0425: `{@html}`: the string as new nodes (inline HTML parsed into runs inside a text element, block elements as panels).
+  html: (_anchor, value) => htmlFragment(value),
 });
 
 export default renderer;
@@ -1806,6 +1976,12 @@ function warnIfNotYet(type: string): void {
 onUIHostBubbleOut((e, tree) => {
   if (!mountedTrees.has(tree)) return;
   globals._continue(e, DOM_TYPES_OF.get(e.type) ?? [e.type]);
+});
+
+// ADR 0425: the player edited an editable text: its nodes take the edit before its `input` listeners run.
+onUIHostEdit((el) => {
+  const node = hostedNodes.get(el);
+  if (node) reconcileEdit(node);
 });
 
 /** Trees a view is mounted on. */

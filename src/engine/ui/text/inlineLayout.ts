@@ -164,7 +164,8 @@ export function layoutInline(runs: readonly UIInlineRun[], o: InlineLayoutOption
   const starts = runStarts(runs);
   const mode: LineBreakMode = o.wrap === "anywhere" ? "anywhere" : "normal";
   const wraps = o.wrap !== "none" && Number.isFinite(o.maxWidth);
-  const maxWidth = o.maxWidth + 1e-6;
+  // A width Yoga reports (float32) can come back a hair under the one measured: lines laid out at it wrap as measured.
+  const maxWidth = o.maxWidth + Math.max(1e-3, o.maxWidth * 1e-6);
   /** The width of `[a, b)`, measured run by run. */
   const span = (a: number, b: number): number => {
     let w = 0;
