@@ -46,7 +46,7 @@ The UI core needs to grow anyway (0418), whatever authors it.
   - Unknown tags warn once and render as Panel.
   - Attributes are component fields in kebab-case (as in 0077). `class`, `id` and `style` feed the cascade, which matches the tag as written (`div`, `button`).
 - **Mounting: `UIView`** replaces `UIDocument`.
-  - Its fields: `component` (a `.svelte` asset), the canvas settings (`mode`, `referenceResolution`, `matchHeight`, `sortOrder`, `pixelSize`, `modal`, `autoFocus`, `player`), and `stylesheets` (global `*.ui.css` themes).
+  - Its fields: `component` (a `.svelte` asset), the canvas settings (`mode`, `referenceResolution`, `matchHeight`, `sortOrder`, `pixelSize`, `modal`, `autoFocus`, `player`). It has no stylesheet field: styles come from components (below).
   - It makes the canvas root itself, so components never write a canvas tag.
   - Scripts pass data through `view.props` (reactive) or share state through `.svelte.ts` modules. Components import the engine API from `"myco"` (`Input`, `Audio`, `Locale`…).
 - **The UI core's external tree host.**
@@ -60,7 +60,13 @@ The UI core needs to grow anyway (0418), whatever authors it.
   - The patch goes upstream as an issue and pull request. If Svelte ships element bindings for custom renderers, we delete our patch and follow theirs. If not, we keep a correct, renderer-driven version.
 - **Events.** `onclick`, `oninput`, `onchange`, `onsubmit`, `onfocus`, `onblur`, `onpointerenter` and `onpointerleave` come from the UI core's interaction log (0309). They run in the same place UI document handlers run today, and a handler gets a `UIEvent`.
 - **Styles.**
-  - A component's scoped `<style>` (CSS from `css: 'external'`) and the view's `stylesheets` both feed the cascade.
+  - There is no UI stylesheet file kind: `*.ui.css` goes with UI documents. All styling is ordinary Svelte:
+    - a component's `<style>`, scoped by Svelte (`css: 'external'`);
+    - `:global(...)` rules for themes and shared rules (for example `:global(:root) { --accent: … }` in a root component);
+    - CSS custom property props (`<Card --accent="red"/>`);
+    - plain `.css` files imported from a component's script (`import "./theme.css"`), as in any Svelte project.
+  - **What `:global` reaches:** a global rule, or an imported `.css` file, applies to every `UIView` in the World, as global CSS applies to the whole page on the web. A HUD and a pause menu share one theme. Scoped rules apply only to their component's elements.
+  - **Styles are parsed at export, not in games.** The editor and the export step parse every component's CSS and every imported `.css` with css-tree into the cascade's rule data, which games load as data. Games ship no CSS parser; css-tree stays an editor and export dependency. In the editor, CSS is parsed on compile, so hot reload works as it does today.
   - 0418 wave 5's `:where()`, `:is()` and case-insensitive tag matching become prerequisites, because Svelte's scoping emits them.
   - Svelte transitions run through the `animate` hook on 0418 wave 4's keyframe engine, beside CSS transitions and keyframes.
 - **Localisation and navigation.**
@@ -130,7 +136,8 @@ The UI core needs to grow anyway (0418), whatever authors it.
 
 **Positive**
 - One UI format with components, props, snippets, runes and HTML-like tags, familiar to web developers.
-- Games likely load less UI code: the runtime plus renderer (about 30 KB gzip) instead of the parsers (40.9 KB), if themes are also pre-parsed at export.
+- Games load less UI code: the runtime plus renderer (about 30 KB gzip) instead of the markup and CSS parsers (40.9 KB), because styles are parsed at export.
+- One styling model, Svelte's: no separate stylesheet file kind, editor support or `UIView` field to keep.
 - `bind:` works as in normal Svelte, through a patch we can drop if upstream adds the same.
 
 **Negative / costs**
@@ -143,11 +150,10 @@ The UI core needs to grow anyway (0418), whatever authors it.
 ## Deprecates
 
 - `UIDocument`, `*.ui.xml`, `{name}` bindings, `ui.data`, `ui.list()`, `t:` attributes, the markup parser (`ui/document/markup.ts`) and the editor's markup edits (`src/editor/uiEdit/markupText.ts`): kept until wave D, then removed.
-- `*.ui.css` stays, as global theme stylesheets on a `UIView`.
+- `*.ui.css` and `<Style src>`: removed with UI documents in wave D. Themes move into `:global` rules or plain `.css` imports.
 
 ## Open questions
 
-- Pre-parsing stylesheets at export (so games drop css-tree): measure in wave A.
 - Whether `UIView` props are typed from the component (`$props()` types) in the Inspector.
 - The upstream pull requests' reception, and what to do if Svelte's eventual API differs from our hooks.
 - The order of the compatibility records, and the conformance pass rate to reach before wave D retires UI documents.
