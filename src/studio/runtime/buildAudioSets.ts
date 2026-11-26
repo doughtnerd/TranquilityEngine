@@ -17,11 +17,9 @@ import { acquireProjectContext, type ProjectContext } from "../../engine/core/pr
 import { getFileSystem, isTauri, type FileSystem } from "../../engine/platform/FileSystem";
 import { extensionOf } from "../../engine/scene/projectFiles";
 import type { AudioManifest } from "../../export/format";
-import { createTakeReceiver } from "../../plugins/audio/editor/debugLink/takeReceiver";
+import { audioLinkClient } from "../../plugins/audio/editor/debugLink/audioLinkClient";
 import { installAudioMedia } from "../../plugins/audio/runtime/media/mediaTable";
-import {
-  AUDIO_TOPIC, AudioLinkRecord, AudioRequest, decodeTakeChunk, type AudioSubscriptionParams, type BuildAudioFile, type BuildAudioIndex, type BuildFileParams, type TakeUploadReply,
-} from "../../plugins/audio/runtime/debugLink/schema";
+import type { BuildAudioFile, BuildAudioIndex } from "../../plugins/audio/runtime/debugLink/schema";
 import { studioBuild } from "../debugLink/studioLink";
 import { audioRuntime } from "../shell/studioServices";
 import { defaultTakesFolder, takesFolderChoice } from "../takesFolder";
@@ -48,43 +46,6 @@ export interface SetsPlace {
 }
 
 const messageOf = (e: unknown): string => (e instanceof Error ? e.message : String(e));
-
-/** An upload's bytes from the build, chunk by chunk (as the Take screen's recorder reassembles a take). */
-export function receiveUpload(build: Pick<ConnectedBuild, "peer">, reply: TakeUploadReply): Promise<Uint8Array> {
-  const rx = createTakeReceiver(reply);
-  return new Promise<Uint8Array>((resolve, reject) => {
-    let settled = false;
-    const finish = (error: string | null, bytes?: Uint8Array): void => {
-      if (settled) return;
-      settled = true;
-      sub.unsubscribe();
-      if (error === null) resolve(bytes!);
-      else reject(new Error(error));
-    };
-    const params: AudioSubscriptionParams = { kind: "upload", upload: reply.upload };
-    const sub = build.peer.subscribe(
-      AUDIO_TOPIC,
-      params,
-      (records) => {
-        for (const r of records) {
-          if (settled) return;
-          if (r.type !== AudioLinkRecord.takeChunk) continue;
-          const chunk = decodeTakeChunk(r.payload);
-          if ("refused" in chunk) return finish(chunk.refused);
-          const step = rx.push(chunk);
-          if (step.status === "error") return finish(step.error);
-          if (step.status === "done") return finish(null, step.bytes);
-        }
-      },
-      (message) => finish(message),
-    );
-  });
-}
-
-async function ask(build: Pick<ConnectedBuild, "peer">, method: string, params?: unknown): Promise<Uint8Array> {
-  const reply = (await build.peer.request(AUDIO_TOPIC, method, params)) as TakeUploadReply;
-  return receiveUpload(build, reply);
-}
 
 async function readJson<T>(fs: FileSystem, path: string): Promise<T | null> {
   try {
@@ -119,7 +80,8 @@ export async function downloadBuildAudioSet(build: Pick<ConnectedBuild, "peer">,
 
 /** `downloadBuildAudioSet`, with the index it downloaded (the set's project and `audioHash`). */
 export async function fetchBuildAudio(build: Pick<ConnectedBuild, "peer">, place: SetsPlace, onProgress?: (p: DownloadProgress) => void): Promise<{ dir: string; index: BuildAudioIndex }> {
-  const index = JSON.parse(new TextDecoder().decode(await ask(build, AudioRequest.buildAudio))) as BuildAudioIndex;
+  const client = audioLinkClient(build.peer);
+  const index = await client.buildAudio();
   const dir = joinPath(joinPath(place.root, BUILD_AUDIO_FOLDER), buildAudioSetName(index.project, index.audioHash));
   const before = await readJson<BuildAudioIndex>(place.fs, joinPath(dir, "set.json"));
   const hashes = new Map((before?.files ?? []).map((f) => [fileIn(f), f.hash]));
@@ -128,8 +90,7 @@ export async function fetchBuildAudio(build: Pick<ConnectedBuild, "peer">, place
     const at = joinPath(dir, fileIn(f));
     const fresh = (await place.fs.exists(at).catch(() => false)) && (f.hash === null || hashes.get(fileIn(f)) === f.hash);
     if (!fresh) {
-      const params: BuildFileParams = { kind: f.kind, path: f.path };
-      await writeFile(place.fs, at, await ask(build, AudioRequest.buildFile, params));
+      await writeFile(place.fs, at, await client.buildFile(f));
     }
     onProgress?.({ done: ++done, total: index.files.length });
   }

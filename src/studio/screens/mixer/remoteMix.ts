@@ -1,13 +1,13 @@
 // The Mixer editing a connected build's mix (ADR 0403, plan U8): while the Studio's `studioBuild` names a build, each
-// edit of `audio.json` is also encoded as `mix.op` commands (`mixOpCommand`: the op plus the name and bus tables it
-// references) and sent to the build with the peer's `command`; the build applies them at its next frame start through
+// edit of `audio.json` is also sent as `mix.op` commands (the op plus the name and bus tables it references) through
+// the build's audio link client (ADR 0417, `mixOp`); the build applies them at its next frame start through
 // its live mixer. The Studio's own runtime still gets the edit (the file stays the source of truth, and the build's mix
 // follows it). A command is fire-and-forget: the build's refusal comes back as an unsolicited error, which `report`
 // shows. With no build connected, nothing is sent.
 import type { ConnectedBuild } from "../../../editor/debugLink/editorLink";
 import type { AudioProject } from "../../../engine/audio/project/types";
 import type { MixOp } from "../../../engine/audio/mixOps";
-import { MIX_OP_COMMAND, mixOpCommand, type MixOpCommand } from "../../../plugins/audio/runtime/debugLink/schema";
+import { audioLinkClient } from "../../../plugins/audio/editor/debugLink/audioLinkClient";
 import { liveOps } from "./liveMix";
 
 export interface RemoteMixOptions {
@@ -36,16 +36,17 @@ export function createRemoteMix(options: RemoteMixOptions): RemoteMix {
     const build = options.build();
     if (!build || ops.length === 0) return 0;
     hear(build);
+    const client = audioLinkClient(build.peer);
     let sent = 0;
     for (const op of ops) {
-      let params: MixOpCommand;
+      let ok: boolean;
       try {
-        params = mixOpCommand(op);
+        ok = client.mixOp(op);
       } catch (err) {
         options.report("error", `Can't send this change to ${build.name}: ${(err as Error).message}`);
         continue;
       }
-      if (build.peer.command("audio", MIX_OP_COMMAND, params)) sent++;
+      if (ok) sent++;
       else options.report("error", `${build.name} isn't connected any more; the change was not sent.`);
     }
     return sent;

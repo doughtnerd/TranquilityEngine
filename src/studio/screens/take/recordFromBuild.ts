@@ -1,7 +1,7 @@
 // Recording a take from a connected build (ADR 0348 takes, ADR 0403, plan U5): the Take screen's Start, Mark, Stop and
-// Save drive the build's `audio` topic (schema in `plugins/audio/runtime/debugLink/schema.ts`): `take.start`,
-// `take.mark` `{ text }` and `take.stop` run `Audio.take` on the build; Save asks `take.upload`, subscribes to the upload,
-// reassembles its 64 KiB chunks with `createTakeReceiver` and writes the take file into the project's `recordings/` folder
+// Save drive the build's `audio` topic through the audio link client (ADR 0417, `plugins/audio/editor/debugLink/
+// audioLinkClient.ts`): start, mark and stop run `Audio.take` on the build; Save uploads the take's bytes (the client
+// reassembles the chunks and reports progress) and writes the take file into the project's `recordings/` folder
 // through the Studio's import (`importFiles`, as Open take file… does; never over a file; a takes folder workspace's
 // root, ADR 0408), named from the build and the
 // time (`smoke-game_2026-11-22_10-15-00.sporesample`). Progress is the chunks received; any refusal, a broken upload or the
@@ -10,10 +10,8 @@ import { signal } from "@preact/signals";
 import type { ConnectedBuild } from "../../../editor/debugLink/editorLink";
 import { importFiles, whyNotImportable } from "../../../editor/assetImportFiles";
 import { isTakesFolder, type EditorProject } from "../../../editor/projects";
-import { createTakeReceiver } from "../../../plugins/audio/editor/debugLink/takeReceiver";
-import {
-  AUDIO_TOPIC, AudioLinkRecord, AudioRequest, decodeTakeChunk, decodeTakeState, type AudioSubscriptionParams, type TakeFramesParams, type TakeMarkParams, type TakeStateReply, type TakeUploadReply,
-} from "../../../plugins/audio/runtime/debugLink/schema";
+import { audioLinkClient, type AudioLinkClient } from "../../../plugins/audio/editor/debugLink/audioLinkClient";
+import type { TakeStateReply } from "../../../plugins/audio/runtime/debugLink/schema";
 import { TAKES_FOLDER } from "./takeFiles";
 
 /** The build a take is recorded from: its name and its link (`studioBuild`'s `ConnectedBuild`). */
@@ -88,16 +86,18 @@ export async function saveTakeIntoProject(project: EditorProject | null, name: s
 export class BuildTakeRecorder {
   readonly state = signal<BuildTakeState>({ kind: "idle" });
   /** Ends a running upload with a message (the link closed). */
-  private abortUpload: ((message: string) => void) | null = null;
+  private abortUpload: AbortController | null = null;
   private gone: string | null = null;
   /** The build holds a take (recorded, or stopped and not yet replaced). */
   private holds = false;
-  /** The build's `take` subscription (ADR 0408): its take's state as it changes, however it changed. */
-  private watching: { unsubscribe(): void } | null = null;
+  /** The build's take state follow (ADR 0408): its take's state as it changes, however it changed; its stop. */
+  private watching: (() => void) | null = null;
 
   constructor(
     readonly build: TakeBuild,
     private readonly seams: BuildTakeSeams,
+    /** The build's audio link client (the build session shares its own). */
+    private readonly client: AudioLinkClient = audioLinkClient(build.peer),
   ) {}
 
   get busy(): boolean {
@@ -111,11 +111,8 @@ export class BuildTakeRecorder {
     this.state.value = { kind: "starting" };
     try {
       const width = this.seams.pictureWidth?.();
-      if (width !== undefined) {
-        const frames: TakeFramesParams = { width };
-        await this.ask(AudioRequest.frames, frames).catch(() => {}); // an older build: its own width
-      }
-      const r = await this.ask<TakeStateReply>(AudioRequest.start);
+      if (width !== undefined) await this.ask((c) => c.frames(width)).catch(() => {}); // an older build: its own width
+      const r = await this.ask((c) => c.start());
       this.holds = true;
       this.state.value = r.state === "recording" ? { kind: "recording", marks: 0 } : { kind: "failed", message: `${this.build.name} didn't start recording (its take is ${r.state}).`, canSave: false };
     } catch (e) {
@@ -127,9 +124,8 @@ export class BuildTakeRecorder {
   async mark(text: string): Promise<void> {
     const s = this.state.peek();
     if (s.kind !== "recording") return;
-    const params: TakeMarkParams = { text };
     try {
-      await this.ask<TakeStateReply>(AudioRequest.mark, params);
+      await this.ask((c) => c.mark(text));
       const now = this.state.peek();
       if (now.kind === "recording") this.state.value = { kind: "recording", marks: now.marks + 1 };
     } catch (e) {
@@ -142,7 +138,7 @@ export class BuildTakeRecorder {
     if (this.state.peek().kind !== "recording") return;
     this.state.value = { kind: "stopping" };
     try {
-      const r = await this.ask<TakeStateReply>(AudioRequest.stop);
+      const r = await this.ask((c) => c.stop());
       this.state.value = { kind: "stopped", seconds: r.seconds };
     } catch (e) {
       this.fail(`Couldn't stop the take: ${messageOf(e)}`);
@@ -156,24 +152,15 @@ export class BuildTakeRecorder {
    */
   watch(): void {
     if (this.watching || this.gone) return;
-    const params: AudioSubscriptionParams = { kind: "take" };
-    this.watching = this.build.peer.subscribe(
-      AUDIO_TOPIC,
-      params,
-      (records) => {
-        for (const r of records) {
-          if (r.type !== AudioLinkRecord.takeState) continue;
-          const t = decodeTakeState(r.payload);
-          if (!("refused" in t)) this.buildSays(t);
-        }
-      },
+    this.watching = this.client.followTakeState(
+      (t) => this.buildSays(t),
       () => (this.watching = null),
     );
   }
 
   /** Stop watching the build's take (the recorder is replaced or the Studio goes). */
   dispose(): void {
-    this.watching?.unsubscribe();
+    this.watching?.();
     this.watching = null;
   }
 
@@ -193,8 +180,7 @@ export class BuildTakeRecorder {
   async save(auto = false): Promise<string | null> {
     if (this.busy) return null;
     try {
-      const reply = await this.ask<TakeUploadReply>(AudioRequest.upload, {});
-      const bytes = await this.receive(reply);
+      const bytes = await this.receive();
       this.state.value = { kind: "saving" };
       const path = await this.seams.write(buildTakeName(this.build.name, this.seams.now?.() ?? new Date()), bytes);
       this.state.value = { kind: "saved", path };
@@ -211,7 +197,7 @@ export class BuildTakeRecorder {
     this.gone = `the link to ${this.build.name} closed${reason ? ` (${reason})` : ""}`;
     this.holds = false;
     this.watching = null;
-    this.abortUpload?.(this.gone);
+    this.abortUpload?.abort(this.gone);
     const k = this.state.peek().kind;
     if (k !== "idle" && k !== "saved" && k !== "failed" && k !== "saving") this.state.value = { kind: "failed", message: `The take stopped: ${this.gone}.`, canSave: false };
   }
@@ -225,47 +211,23 @@ export class BuildTakeRecorder {
     this.state.value = { kind: "failed", message, canSave: this.holds && this.gone === null };
   }
 
-  private async ask<T>(method: string, params?: unknown): Promise<T> {
+  private async ask<T>(op: (client: AudioLinkClient) => Promise<T>): Promise<T> {
     if (this.gone) throw new Error(this.gone);
-    return (await this.build.peer.request(AUDIO_TOPIC, method, params)) as T;
+    return op(this.client);
   }
 
-  /** The upload's chunks, in order, reassembled; progress in `state`. */
-  private receive(reply: TakeUploadReply): Promise<Uint8Array> {
-    const rx = createTakeReceiver(reply);
-    let received = 0;
-    this.state.value = { kind: "uploading", received: 0, chunks: reply.chunks, bytes: 0, total: reply.bytes };
-    return new Promise<Uint8Array>((resolve, reject) => {
-      let settled = false;
-      const finish = (error: string | null, bytes?: Uint8Array): void => {
-        if (settled) return;
-        settled = true;
-        this.abortUpload = null;
-        sub.unsubscribe();
-        if (error === null) resolve(bytes!);
-        else reject(new Error(error));
-      };
-      this.abortUpload = (message) => finish(message);
-      const params: AudioSubscriptionParams = { kind: "upload", upload: reply.upload };
-      const sub = this.build.peer.subscribe(
-        AUDIO_TOPIC,
-        params,
-        (records) => {
-          for (const r of records) {
-            if (settled) return;
-            const chunk = decodeTakeChunk(r.payload);
-            if ("refused" in chunk) return finish(chunk.refused);
-            const step = rx.push(chunk);
-            if (step.status === "error") return finish(step.error);
-            if (step.status === "done") return finish(null, step.bytes);
-            received = Math.ceil(step.received / reply.chunkBytes); // a chunk delivered again is skipped, not counted
-            this.state.value = { kind: "uploading", received, chunks: reply.chunks, bytes: step.received, total: reply.bytes };
-          }
-        },
-        (message) => finish(message),
-      );
-      if (this.gone) finish(this.gone);
-    });
+  /** The build's take, uploaded and reassembled by the client; progress in `state`. */
+  private async receive(): Promise<Uint8Array> {
+    if (this.gone) throw new Error(this.gone);
+    const abort = (this.abortUpload = new AbortController());
+    try {
+      return await this.client.uploadTake({
+        signal: abort.signal,
+        onProgress: (p) => (this.state.value = { kind: "uploading", received: p.received, chunks: p.chunks, bytes: p.bytes, total: p.total }),
+      });
+    } finally {
+      if (this.abortUpload === abort) this.abortUpload = null;
+    }
   }
 }
 
