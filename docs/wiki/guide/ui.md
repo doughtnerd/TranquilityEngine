@@ -347,6 +347,21 @@ input[type="checkbox"]         { width: 24px; }
 - **`calc()`** takes `+ - * /`, parentheses, nested `calc()` and `var()`, over numbers, lengths and angles; `min()`, `max()` and `clamp()` take values of one unit. A result in pixels only (or a number) is worked out in the cascade (`calc(2 * 8px)` is `16px`). A length mixing `%` and px (`calc(100% - 24px)`) is kept for layout (the field holds `calc(100% + -24px)`), on `width`, `height`, `top`/`right`/`bottom`/`left`, the min/max sizes and `flex-basis`: the UI core resolves it against the parent's content box from the last layout, and lays out once more in the same frame when that size changed. Padding, margin and borders take pixels only, so they refuse a mixed `calc()`. An expression that can't work out (`10px * 2px`, `10px + 2`, a division by zero) is left out and warned about once.
 - **`@media`** matches the canvas, not the browser window: `width`, `height`, `aspect-ratio` (each with `min-`/`max-` and in range form, `(600px <= width < 1200px)`) and `orientation`, in UI pixels after the canvas scaler, so a 1280×720-reference canvas matching height on an 800×600 window is 960×720. `and`, `or`, `not`, nested `@media`, media types (`screen` and `all` match, `print` never) and query lists work. Rules match again when the canvas changes size (the frame after, from the last layout); a view's or document's first size isn't a change, so it starts no transitions. Before the first layout (headless Worlds) only size-free queries match. `@keyframes` inside `@media` isn't supported.
 - **Svelte:** `MediaQuery` from `svelte/reactivity` follows the same canvas (`new MediaQuery("min-width: 1000px").current`), and so does `matchMedia` on `<svelte:window>`'s window.
+
+### Player preferences: reduced motion and colour scheme
+
+`@media (prefers-reduced-motion: reduce)` and `@media (prefers-color-scheme: dark)` (and their boolean forms, `(prefers-reduced-motion)`) match the player's preferences ([ADR 0427](../../decisions/0427-ui-preferences-are-a-player-setting-read-as-user-preference-media-features.md)), in UI documents and Svelte views alike, as do Svelte's `prefersReducedMotion` and `new MediaQuery("prefers-color-scheme: dark")`. They come from `UIPreferences`:
+
+```ts
+import { UIPreferences } from "myco";
+
+UIPreferences.reducedMotion = true;   // an options menu's switch; null follows the system again
+UIPreferences.colorScheme = "dark";   // "light" | "dark" | null
+UIPreferences.onChange(() => console.log(UIPreferences.reducedMotion, UIPreferences.colorScheme));
+UIPreferences.reset();                // follow the system for both
+```
+
+Until the player chooses, each follows the system's setting (the browser's or desktop window's, live); outside a browser it's no reduced motion and light. A choice is saved in player storage (`settings`, `myco.ui`) and comes back the next time the game starts, before its first scene. Rules restyle when a preference changes.
 - **Not supported:** `:has()`, namespaces in attribute selectors, `em`/`rem`/viewport units in `calc()`, and `!important` (specificity and `:where()` cover it).
 
 ## Scripting
@@ -522,6 +537,8 @@ Make a component with the Assets panel's **Create > UI > New Svelte Component** 
 **Editing in the editor** (ADR 0419 wave C). A `UIView` in the scene being edited shows its component as it renders, and the editor edits its static parts by writing back to the `.svelte` source:
 
 Inline SVG, `<video>` and `<audio>` work ([above](#inline-svg-video-and-audio)), and `svelte/transition`'s `blur` and `draw` too.
+
+**Motion.** `svelte/transition`, `svelte/animate` and `svelte/motion` (`Tween`, `Spring`, `tweened`, `spring`) run on the engine's frames and the game's unscaled clock (a paused game's menus still move), headless too, so `engine.step` drives them in tests. A value a tween or a `tick` transition computes shows in the frame it's computed. To honour a player who prefers less motion, read `prefersReducedMotion.current` from `svelte/motion` (or write `@media (prefers-reduced-motion: reduce)` rules): it follows `UIPreferences` ([above](#player-preferences-reduced-motion-and-colour-scheme)).
 
 - **Selecting.** The Hierarchy lists the view's rendered elements under its node (muted, like a UI document's), and clicking UI in the scene view selects the element under the pointer (a button's label selects the button; the view's canvas selects its node). A selection is the element's place in the file (its line and column), so it stays selected across re-renders and hot reload.
 - **The Inspector** shows its fields and where each value comes from: a literal attribute or the literal `style` (with the file and line), an expression (`width={w}`, `style:color={c}`, text with `{…}`: shown as written, view-only), a scoped or `:global` rule (the selector as written, in the component's `<style>` or an imported `.css` file), inherited from an ancestor, the text, the default, or a transition or animation running over it. Clicking a source opens that file in the Code panel at the line.
