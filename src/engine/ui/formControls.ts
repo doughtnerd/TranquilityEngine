@@ -23,6 +23,8 @@ import {
   UICanvas,
   UIForm,
   UIInputField,
+  UIMeter,
+  UIProgress,
   UILabel,
   UIOption,
   UIRadio,
@@ -124,8 +126,8 @@ const selectStates = new WeakMap<UISelect, { value: string; chosen: readonly UIO
 export function reconcileSelect(select: UISelect): UIOption[] {
   const options = optionsOf(select);
   const last = selectStates.get(select);
-  if (last && select.value !== last.value) {
-    // The value was written: the option(s) with that value are chosen (the first only, without `multiple`).
+  if (last ? select.value !== last.value : select.value !== "") {
+    // The value was written (or given before the first look): the option(s) with it are chosen (the first only, without `multiple`).
     let found = false;
     for (const o of options) {
       const on: boolean = optionValue(o) === select.value && (select.multiple || !found);
@@ -401,6 +403,31 @@ function labelActivate(world: World, label: UILabel, data: UIEventData): void {
   fireUIEvent(world, uiEventRecord("click", c, { ...data, detail: 1 }, (prevented) => {
     if (!prevented) activateControl(world, c);
   }));
+}
+
+// --- Values (the front ends' `value`) ----------------------------------------------------------
+
+/**
+ * A control's value as text, as the DOM's `value` reads it: a field's text, a select's chosen value, a slider's,
+ * progress bar's or meter's number, a checkbox's, radio's or option's `value`; null for other elements.
+ */
+export function uiValueOf(c: UIComponentType): string | null {
+  if (c instanceof UIInputField || c instanceof UISelect || c instanceof UIToggle || c instanceof UIRadio) return c.value;
+  if (c instanceof UISlider) return String(c.value);
+  if (c instanceof UIOption) return optionValue(c);
+  if (c instanceof UIProgress) return String(c.value ?? 0);
+  if (c instanceof UIMeter) return String(c.value);
+  return null;
+}
+
+/** Write a control's value from text (a slider, bar or meter reads it as a number; a select chooses the option with it). Not a player change. */
+export function setUIValue(c: UIComponentType, value: string): void {
+  if (c instanceof UIInputField || c instanceof UISelect || c instanceof UIToggle || c instanceof UIRadio || c instanceof UIOption) c.value = value;
+  else if (c instanceof UISlider) c.value = sliderValue(c, Number(value));
+  else if (c instanceof UIProgress || c instanceof UIMeter) {
+    const n = Number(value);
+    c.value = value.trim() !== "" && Number.isFinite(n) ? n : c instanceof UIMeter ? 0 : null;
+  }
 }
 
 /** True for a text area (Enter starts a line there instead of submitting). */

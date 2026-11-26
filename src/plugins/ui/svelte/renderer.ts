@@ -55,7 +55,9 @@ import { proxy } from "svelte/internal/client";
 import { Color, Vector2 } from "../../../engine/core/math";
 import { onLocaleEpoch } from "../../../engine/localisation/Locale";
 import { setLocaleTracker } from "../../../engine/localisation/t";
-import { uiTagOfHtml } from "../../../engine/ui/host/htmlTags";
+import { uiTagOfHtml, uiTagOfInput } from "../../../engine/ui/host/htmlTags";
+import { UIForm, UIOption, UIRadio } from "../../../engine/ui/components";
+import { checkRadio, chooseOption, selectOf } from "../../../engine/ui/formControls";
 import { onUIHostBubbleOut, setUIHostStyles, UIHostElement, UIHostEvent, type UIHostEventType, type UIHostSource, type UIHostTree } from "../../../engine/ui/host/UIHost";
 import { addUIListener, removeUIListener, runUIListeners, uiListenerOptions, type UIListener } from "../../../engine/ui/events";
 import type { UIStylesheet, UITag } from "../../../engine/ui/document/types";
@@ -101,6 +103,8 @@ const EVENTS: Readonly<Record<string, UIHostEventType>> = {
   dragleave: "dragleave",
   drop: "drop",
   dragend: "dragend",
+  // ADR 0424: a form's reset.
+  reset: "reset",
   // ADR 0418 wave 4: stylesheet animation events, the frame after they happen.
   transitionend: "transitionend",
   animationstart: "animationstart",
@@ -329,7 +333,7 @@ function datasetProxy(el: UIRenderElement): Record<string, string | undefined> {
 
 /** An element: what Svelte creates for a tag, and what `bind:this`, actions and attachments receive. */
 export class UIRenderElement extends UINodeBase {
-  /** @internal */ readonly _uiTag: UITag;
+  /** @internal The UI element it makes (ADR 0424: an `<input>`'s follows its `type`). */ _uiTag: UITag;
   /** @internal */ readonly _attrs = new Map<string, unknown>();
   /** @internal */ _children: UINode[] = [];
   /** @internal Listeners by DOM event type (any type: a UI event's, or one an action dispatches). */ readonly _listeners = new Map<string, UIListener<Handler>[]>();
@@ -337,6 +341,7 @@ export class UIRenderElement extends UINodeBase {
   /** @internal */ _hosted: UIHostElement | null = null;
   /** @internal Set on the container a view mounts into: the tree it hosts. */ _tree: UIHostTree | null = null;
   /** @internal An input's value set before its element was made (a binding, a script). */ _pendingValue: string | null = null;
+  /** @internal ADR 0424: `checked`, `indeterminate` and `selected` set before its element was made. */ _pendingState: Partial<Record<"checked" | "indeterminate" | "selected", boolean>> = {};
   readonly classList: RenderClassList = new RenderClassList(this);
   /** Its inline style, as the DOM's `CSSStyleDeclaration`: `style.color = "red"`, `style.setProperty("--x", "1")`. */
   readonly style: RenderStyle = styleProxy(new RenderStyle(this));
@@ -640,8 +645,13 @@ export class UIRenderElement extends UINodeBase {
     return 0;
   }
 
-  /** Input fields: their text (what the player typed). Setting it isn't a player change. */
+  /**
+   * Input fields: their text (what the player typed). ADR 0424: a select's chosen value, a slider's number, a checkbox's
+   * or radio's `value` ("on" without one), an option's (its text without one). Setting it isn't a player change.
+   */
   get value(): string {
+    if (this._uiTag === "Option" && !this._hosted) return this.getAttribute("value") ?? collapse(this.textContent);
+    if ((this._uiTag === "Toggle" || this._uiTag === "Radio") && !this._hosted) return this.getAttribute("value") ?? "on";
     return this._hosted?.value ?? this._pendingValue ?? this.getAttribute("value") ?? "";
   }
 
@@ -649,6 +659,108 @@ export class UIRenderElement extends UINodeBase {
     const v = value === null || value === undefined ? "" : String(value);
     if (this._hosted) this._hosted.value = v;
     else this._pendingValue = v;
+  }
+
+  /** ADR 0424: a slider's or number field's value as a number (NaN when it isn't one). */
+  get valueAsNumber(): number {
+    const v = this.value;
+    return v.trim() === "" ? NaN : Number(v);
+  }
+
+  set valueAsNumber(n: number) {
+    this.value = String(n);
+  }
+
+  /** ADR 0424: a checkbox's or radio's state (a radio checked unchecks its group). Setting it isn't a player change. */
+  get checked(): boolean {
+    return this.state("checked");
+  }
+
+  set checked(on: boolean) {
+    this.setState("checked", !!on);
+  }
+
+  /** ADR 0424: a checkbox shown as neither (a dash) until the player toggles it. */
+  get indeterminate(): boolean {
+    return this.state("indeterminate");
+  }
+
+  set indeterminate(on: boolean) {
+    this.setState("indeterminate", !!on);
+  }
+
+  /** ADR 0424: an option chosen in its select. */
+  get selected(): boolean {
+    return this.state("selected");
+  }
+
+  set selected(on: boolean) {
+    this.setState("selected", !!on);
+  }
+
+  /** ADR 0424: a select's options (as nodes), and the index of its chosen one (-1: none). */
+  get options(): UIRenderElement[] {
+    const out: UIRenderElement[] = [];
+    const walk = (el: UIRenderElement) => {
+      for (const c of el.children) {
+        if (c._uiTag === "Option") out.push(c);
+        else if (c._uiTag !== "Select") walk(c);
+      }
+    };
+    walk(this);
+    return out;
+  }
+
+  get selectedIndex(): number {
+    return this.options.findIndex((o) => o.selected);
+  }
+
+  set selectedIndex(i: number) {
+    const options = this.options;
+    if (options[i]) this.value = options[i].value;
+  }
+
+  /** ADR 0424: the form a control is in (null outside forms). */
+  get form(): UIRenderElement | null {
+    for (let n = this._parent; n instanceof UIRenderElement && !n._tree; n = n._parent) if (n._uiTag === "Form") return n;
+    return null;
+  }
+
+  /** ADR 0424, forms: send `submit` as a submit button does (`requestSubmit`; `submit` sends none, as on the web). */
+  requestSubmit(): void {
+    const c = this._hosted?.component;
+    if (c instanceof UIForm) c.requestSubmit();
+  }
+
+  submit(): void {
+    // The DOM's `submit()` sends no event and a game has no page to send the form to: nothing happens.
+  }
+
+  /** ADR 0424, forms: send `reset`, then (unless prevented) put the controls back as they were made. */
+  reset(): void {
+    const c = this._hosted?.component;
+    if (c instanceof UIForm) c.reset();
+  }
+
+  /** The hosted control's `checked`, `indeterminate` or `selected`, else what was set before it was made, else the attribute. */
+  private state(name: "checked" | "indeterminate" | "selected"): boolean {
+    const c = this._hosted?.component as unknown as Record<string, unknown> | undefined;
+    if (c && typeof c[name] === "boolean") return c[name] as boolean;
+    return this._pendingState[name] ?? this.hasAttribute(name);
+  }
+
+  private setState(name: "checked" | "indeterminate" | "selected", on: boolean): void {
+    const c = this._hosted?.component;
+    if (!c) {
+      this._pendingState[name] = on;
+      return;
+    }
+    if (name === "checked" && c instanceof UIRadio && on) checkRadio(c);
+    else if (name === "selected" && c instanceof UIOption && on) {
+      const select = selectOf(c);
+      if (select && !select.multiple) chooseOption(select, c);
+      else c.selected = true;
+    } else if (name in c) (c as unknown as Record<string, boolean>)[name] = on;
   }
 }
 
@@ -757,7 +869,9 @@ function treeOf(node: UINode | UIRenderFragment | null): UIHostTree | null {
 }
 
 const isTextKind = (n: unknown): n is UIRenderElement => n instanceof UIRenderElement && n._uiTag === "Text";
-const isLeafKind = (n: UIRenderElement) => n._uiTag === "Image" || n._uiTag === "InputField";
+/** Elements with no children (ADR 0424: the form controls but a select, a label and a form). */
+const LEAF_TAGS: ReadonlySet<UITag> = new Set(["Image", "InputField", "TextArea", "Toggle", "Radio", "Slider", "Progress", "Meter"]);
+const isLeafKind = (n: UIRenderElement) => LEAF_TAGS.has(n._uiTag);
 
 /** The outermost Text element `node` is inside, within its run of Text ancestors (it holds the text), or null. */
 function textOwner(node: UINode): UIRenderElement | null {
@@ -797,16 +911,32 @@ function cssText(value: unknown): string | null {
 /** The attributes the hosted element gets: HTML-only ones dropped, HTML's names mapped onto fields. */
 function hostAttributes(el: UIRenderElement): Map<string, string> {
   const out = new Map<string, string>();
+  const tag = el._uiTag;
   for (const [k, v] of el._attrs) {
     const s = cssText(v);
-    if (s === null || HTML_ONLY.has(k) || k.startsWith("aria-") || k.startsWith("data-")) continue;
-    if (k === "src" && el._uiTag === "Image") out.set("image", s);
+    if (s === null || k.startsWith("aria-") || k.startsWith("data-")) continue;
+    // ADR 0424: HTML attributes that are form elements' fields.
+    if (k === "type") {
+      if (tag === "Button") out.set("type", s);
+      else if (tag === "InputField") out.set("type", uiTagOfInput(s).fieldType);
+      continue;
+    }
+    if (k === "name" && (tag === "Toggle" || tag === "Radio")) out.set("name", s);
+    else if (k === "for" && tag === "Label") out.set("for", s);
+    else if (k === "wrap" && tag === "TextArea") out.set("wrap", s === "off" ? "off" : "soft");
+    else if (k === "maxlength" && (tag === "InputField" || tag === "TextArea")) out.set("max-length", s);
+    else if (k === "value" && tag === "Progress" && s === "") continue;
+    else if (HTML_ONLY.has(k)) continue;
+    else if (k === "src" && tag === "Image") out.set("image", s);
     else if (k === "disabled") {
-      if (el._uiTag === "Button" || el._uiTag === "InputField") out.set("interactable", "false");
+      if (FOCUSABLE_TAGS.has(tag)) out.set("interactable", "false");
     } else out.set(k, s);
   }
   return out;
 }
+
+/** ADR 0424: the UI elements HTML's `disabled` applies to (it makes them not interactable). */
+const FOCUSABLE_TAGS: ReadonlySet<UITag> = new Set(["Button", "InputField", "TextArea", "Toggle", "Radio", "Slider", "Select", "Option"]);
 
 /** Every attribute as written (HTML-only, `data-*` and `aria-*` ones too), which attribute selectors match (ADR 0418 wave 5). */
 function writtenAttributes(el: UIRenderElement): Map<string, string> {
@@ -887,13 +1017,19 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
   }
   for (const c of node._children) materialize(c, tree);
   if (node._uiTag === "Text") refreshText(node);
+  // ADR 0424: state a binding or script set before the element was made.
+  const pending = node._pendingState;
+  node._pendingState = {};
+  for (const k of ["checked", "indeterminate", "selected"] as const) if (pending[k] !== undefined) node[k] = pending[k]!;
   return made;
 }
 
 /** Forget the hosted elements of a subtree (its elements were removed with their parent's). */
 function forget(node: UINode): void {
   if (node instanceof UIRenderElement) {
-    if (node._hosted && node._uiTag === "InputField") node._pendingValue = node._hosted.value;
+    // What the player changed stays with the node, for when it's made again (ADR 0424: a control's value and state too).
+    if (node._hosted && (node._uiTag === "InputField" || node._uiTag === "TextArea" || node._uiTag === "Slider" || node._uiTag === "Select")) node._pendingValue = node._hosted.value;
+    if (node._hosted && (node._uiTag === "Toggle" || node._uiTag === "Radio")) node._pendingState = { checked: node.checked, indeterminate: node.indeterminate };
     node._hosted = null;
     node._dispatchers = new Map();
     node._children.forEach(forget);
@@ -936,13 +1072,119 @@ function refreshTextOf(node: UINode | null): void {
 
 // --- Bindings ------------------------------------------------------------------------------------
 
+/** Listen for `type` on `node` while a binding lasts: the binding's cleanup. */
+function listen(node: UIRenderElement, type: string, fn: () => void): () => void {
+  // A capture listener runs first at its target: the bound state is set before the element's own handlers read it (as a
+  // DOM binding's listener runs before Svelte's delegated handlers).
+  node.addEventListener(type, fn, true);
+  // ADR 0424: its form's reset puts it back without its own events; the binding reads it once the reset is done (as
+  // Svelte's DOM bindings do, a microtask later).
+  const form = node.form;
+  const onReset = () => queueMicrotask(() => {
+    if (node.isConnected) fn();
+  });
+  form?.addEventListener("reset", onReset);
+  return () => {
+    node.removeEventListener(type, fn, true);
+    form?.removeEventListener("reset", onReset);
+  };
+}
+
+/** Svelte's number coercion for `bind:value` on number and range inputs: "" is null, anything else a number. */
+const toNumber = (text: string): number | null => (text === "" ? null : +text);
+
+/**
+ * `bind:value`: a field's text (a number, or null when empty, for `type="number"`), a slider's number, a text area's
+ * text, a select's chosen option's value (its `value` attribute as given, any type) or, with `multiple`, an array of them.
+ */
 function bindValue(node: UIRenderElement, get: () => unknown, set: (value: unknown) => void): () => void {
+  if (node._uiTag === "Select") return bindSelect(node, get, set);
   const value = get();
   const text = value === null || value === undefined ? "" : String(value);
   if (node.value !== text) node.value = text;
-  const onInput = () => set(node.value);
-  node.addEventListener("input", onInput);
-  return () => node.removeEventListener("input", onInput);
+  const numeric = node._uiTag === "Slider" || (node._uiTag === "InputField" && String(node.getAttribute("type")).toLowerCase() === "number");
+  return listen(node, "input", () => set(numeric ? toNumber(node.value) : node.value));
+}
+
+/** An option node's value as given: its `value` attribute's own value (any type), else its text. */
+function rawOptionValue(o: UIRenderElement): unknown {
+  return o._attrs.has("value") ? o._attrs.get("value") : collapse(o.textContent);
+}
+
+/** ADR 0424: `bind:value` on a select: the option with the bound value is chosen; choosing sets it (an array with `multiple`). */
+function bindSelect(node: UIRenderElement, get: () => unknown, set: (value: unknown) => void): () => void {
+  const multiple = node.hasAttribute("multiple");
+  const value = get();
+  const options = node.options;
+  if (value === undefined) {
+    // Nothing bound yet: the bound state takes what's chosen, as Svelte's DOM binding does.
+    const chosen = options.filter((o) => o.selected);
+    if (multiple) set(chosen.map(rawOptionValue));
+    else if (chosen[0] ?? options[0]) set(rawOptionValue(chosen[0] ?? options[0]));
+  } else if (multiple) {
+    const list = Array.isArray(value) ? value : [];
+    for (const o of options) o.selected = list.includes(rawOptionValue(o));
+  } else {
+    const match = options.find((o) => rawOptionValue(o) === value);
+    if (match) match.selected = true;
+  }
+  return listen(node, "change", () => {
+    const chosen = node.options.filter((o) => o.selected).map(rawOptionValue);
+    set(multiple ? chosen : chosen[0]);
+  });
+}
+
+/** ADR 0424: `bind:checked` and `bind:indeterminate` on a checkbox (and `checked` on a radio). */
+function bindState(node: UIRenderElement, name: "checked" | "indeterminate", get: () => unknown, set: (value: unknown) => void): () => void {
+  const on = !!get();
+  if (node[name] !== on) node[name] = on;
+  return listen(node, "change", () => set(node[name]));
+}
+
+/** A checkbox's or radio's value as given: its `value` attribute's own value (any type), else "on". */
+function rawControlValue(node: UIRenderElement): unknown {
+  return node._attrs.has("value") ? node._attrs.get("value") : "on";
+}
+
+/**
+ * ADR 0424: `bind:group`: a radio is checked while the bound value is its value, and checking it sets it; a checkbox is
+ * checked while the bound array holds its value, and toggling it adds or removes it.
+ */
+function bindGroup(node: UIRenderElement, get: () => unknown, set: (value: unknown) => void): () => void {
+  const value = get();
+  const mine = rawControlValue(node);
+  if (node._uiTag === "Radio") {
+    const on = value === mine;
+    if (node.checked !== on) node.checked = on;
+    return listen(node, "change", () => {
+      if (node.checked) set(rawControlValue(node));
+    });
+  }
+  const list = Array.isArray(value) ? value : [];
+  const on = list.includes(mine);
+  if (node.checked !== on) node.checked = on;
+  return listen(node, "change", () => {
+    const now = Array.isArray(get()) ? (get() as unknown[]) : [];
+    const v = rawControlValue(node);
+    const without = now.filter((x) => x !== v);
+    set(node.checked ? [...without, v] : without);
+  });
+}
+
+/** ADR 0424: an `<input>`'s `type` changed what it is (a checkbox made a text field…): it's made again as that, in place. */
+function retag(el: UIRenderElement): void {
+  if (el.localName !== "input") return;
+  const { tag, known } = uiTagOfInput(el.getAttribute("type"));
+  if (!known) warnOnce(`<input type="${el.getAttribute("type")}"> isn't a control the UI has; it's a text field.`);
+  if (tag === el._uiTag) return;
+  el._uiTag = tag;
+  const tree = el._hosted ? el._hosted.tree : null;
+  if (!tree) return;
+  dematerialize(el, tree);
+  el._pendingValue = null;
+  el._pendingState = {};
+  const made = materialize(el, tree);
+  if (made) tree.restyle(made);
 }
 
 // --- The renderer ---------------------------------------------------------------------------------
@@ -972,10 +1214,12 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
   setAttribute(el, key, value) {
     if (value === undefined || value === null || value === false) return renderer.removeAttribute(el, key);
     el._attrs.set(key, value);
+    if (key === "type") retag(el); // ADR 0424
     if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el), writtenAttributes(el));
   },
   removeAttribute(el, name) {
     if (!el._attrs.delete(name)) return;
+    if (name === "type") retag(el);
     if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el), writtenAttributes(el));
   },
   hasAttribute: (el, name) => el.hasAttribute(name),
@@ -1054,8 +1298,12 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
       if (!stop) warnOnce(`bind:${name} on <svelte:${node.kind}> isn't something a game has.`);
       return stop;
     }
-    if (name === "value" && node._uiTag === "InputField") return bindValue(node, get, set);
-    warnOnce(`bind:${name} on <${node.localName}> isn't supported yet; UI elements bind value on <input>.`);
+    const tag = node._uiTag;
+    if (name === "value" && (tag === "InputField" || tag === "TextArea" || tag === "Slider" || tag === "Select")) return bindValue(node, get, set);
+    // ADR 0424: checkboxes and radios.
+    if ((name === "checked" && (tag === "Toggle" || tag === "Radio")) || (name === "indeterminate" && tag === "Toggle")) return bindState(node, name, get, set);
+    if (name === "group" && (tag === "Toggle" || tag === "Radio")) return bindGroup(node, get, set);
+    warnOnce(`bind:${name} on <${node.localName}> isn't supported yet; UI elements bind value (inputs, text areas, selects), checked, indeterminate and group.`);
   },
   // What <svelte:window>, <svelte:document> and <svelte:body> stand for, and what <svelte:head> content goes into.
   globalTarget(kind) {

@@ -31,7 +31,8 @@ import { defineBuiltinSystem } from "../../core/systems";
 import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import { Locale } from "../../localisation/Locale";
-import { UIButton, UICanvas, UIInputField, UIText, type UIComponentType } from "../components";
+import { UIButton, UICanvas, UIInputField, UIText, isFocusableUI, type UIComponentType } from "../components";
+import { setUIValue, uiValueOf } from "../formControls";
 import { samePseudoState, uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
 import { boundsOf, transformRect } from "../transform2d";
@@ -248,7 +249,17 @@ function targetOf(el: UIHostElement, tag: string, parent: MutableTarget | null):
 }
 
 /** Attributes that are content, written straight to their field (never converted as style, so typed text stays as typed). */
-const CONTENT_ATTRIBUTES: Readonly<Partial<Record<UITag, readonly string[]>>> = { InputField: ["value", "placeholder"], Text: ["text"] };
+const CONTENT_ATTRIBUTES: Readonly<Partial<Record<UITag, readonly string[]>>> = {
+  InputField: ["value", "placeholder"],
+  Text: ["text"],
+  // ADR 0424: what the player changes, written only when the attribute does (so a toggle or a drag stays until then).
+  TextArea: ["value", "placeholder"],
+  Toggle: ["checked", "indeterminate"],
+  Radio: ["checked"],
+  Slider: ["value"],
+  Select: ["value"],
+  Option: ["selected"],
+};
 
 const ZERO = { start: 0, end: 0 };
 
@@ -344,25 +355,25 @@ export class UIHostElement {
     return this.tree._query(selector, this, false);
   }
 
-  /** Input fields: their text; null for other elements. Setting it isn't a player change (no events). */
+  /** Input fields: their text (ADR 0424: any control's value as text, as the DOM's `value`); null for other elements. Setting it isn't a player change (no events). */
   get value(): string | null {
-    return this._comp instanceof UIInputField ? this._comp.value : null;
+    return uiValueOf(this._comp);
   }
 
   set value(value: string) {
-    if (this._comp instanceof UIInputField) this._comp.value = value;
+    setUIValue(this._comp, value);
   }
 
-  /** Give it focus (buttons and input fields; an input field starts typing, as a click does). */
+  /** Give it focus (buttons, input fields and ADR 0424's controls; an input field starts typing, as a click does). */
   focus(): void {
     const c = this._comp;
-    if (c instanceof UIButton || c instanceof UIInputField) c.focused = true;
+    if (isFocusableUI(c)) c.focused = true;
   }
 
   /** Take its focus away. */
   blur(): void {
     const c = this._comp;
-    if ((c instanceof UIButton || c instanceof UIInputField) && c.focused) c.focused = false;
+    if (isFocusableUI(c) && c.focused) c.focused = false;
   }
 
   /** Its box in its canvas's UI pixels from the UI core's last layout, or null when it isn't laid out (a headless World). */
@@ -1124,7 +1135,7 @@ export class UIHostTree {
       const value = attributes.get(name);
       const before = el._content.get(name);
       // Written when the attribute changes, so a player's typing stays until the component sets the attribute again.
-      if (value !== undefined && value !== before) comp[name] = value;
+      if (value !== undefined && value !== before) comp[name] = contentValue(comp[name], value);
       else if (value === undefined && before !== undefined) comp[name] = defaultOf(el._comp.constructor as ComponentClass, name);
       if (value === undefined) el._content.delete(name);
       else el._content.set(name, value);
@@ -1210,6 +1221,19 @@ export class UIHostTree {
     el._applied = next;
     for (const child of el._children) this.resolve(child);
   }
+}
+
+/**
+ * A content attribute's text as its field's value, by the field's current type (ADR 0424): a boolean is true unless
+ * written `false` (a bare `checked` is ""), a number is read as one (unreadable keeps the field's), text is itself.
+ */
+function contentValue(current: unknown, text: string): unknown {
+  if (typeof current === "boolean") return text !== "false";
+  if (typeof current === "number") {
+    const n = Number(text);
+    return text.trim() !== "" && Number.isFinite(n) ? n : current;
+  }
+  return text;
 }
 
 /** `a: b; c: url(x;y)` → declarations, splitting on semicolons outside parentheses and quotes. */
