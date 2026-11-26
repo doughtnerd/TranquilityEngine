@@ -20,7 +20,7 @@ import { flipRows, redrawnPixels } from "../render/pixelRegions";
 import { loadBundledFont } from "../ui/fonts";
 import { UIPointer } from "./uiPointer";
 import { loadUIDocumentSupport } from "../ui/UIDocument";
-import { uiElement } from "./uiMarkup";
+import { buildUI, byId, uiElement } from "./uiMarkup";
 
 /** Gradients the fake contexts made, in order: the kind, then the arguments (ADR 0418 wave 2). */
 const drawnGradients: Array<[string, ...number[]]> = [];
@@ -889,5 +889,112 @@ describe("paint on Babylon GUI (ADR 0418 wave 2)", () => {
     text.textShadowColor = null;
     sync(core);
     expect([block.shadowOffsetX, block.shadowOffsetY, block.shadowBlur]).toEqual([0, 0, 0]);
+  });
+});
+
+describe("transforms on Babylon GUI (ADR 0418 wave 3)", () => {
+  const syncReal = (pointer: UIPointer) => {
+    pointer.sync();
+    ui.sync(World.require(), pointer.core, {}, 1280, 720, 1);
+  };
+  /** A UI document laid out by a real UI core (which works out the transforms), drawn by the Babylon layer. */
+  async function drawn(markup: string) {
+    const doc = buildUI(markup);
+    const pointer = await UIPointer.create(World.require());
+    syncReal(pointer);
+    return { doc, pointer };
+  }
+  /** The control drawing `c`, anywhere under the screen canvas roots. */
+  const controlOf = (c: UIComponentType): Control => {
+    const find = (ctl: Control): Control | null => {
+      if (ctl.name === c.owner.name) return ctl;
+      for (const child of (ctl as Container).children ?? []) {
+        const f = find(child);
+        if (f) return f;
+      }
+      return null;
+    };
+    for (const root of screenRoots()) {
+      const f = find(root);
+      if (f) return f;
+    }
+    throw new Error(`no control for "${c.owner.name}"`);
+  };
+  /**
+   * Where a point of a control's box (from its top-left) lands on its canvas: each control's place, rotation and scales
+   * composed up to the root, as Babylon GUI draws them (about the top-left corner).
+   */
+  const onCanvas = (ctl: Control, x: number, y: number): [number, number] => {
+    let p: [number, number] = [x, y];
+    for (let c: Control | null = ctl; c && !(c.name ?? "").startsWith("myco.canvas"); c = c.parent) {
+      expect([c.transformCenterX, c.transformCenterY]).toEqual([0, 0]);
+      const cos = Math.cos(c.rotation), sin = Math.sin(c.rotation);
+      const sx = p[0] * c.scaleX, sy = p[1] * c.scaleY;
+      p = [c.leftInPixels + cos * sx - sin * sy, c.topInPixels + sin * sx + cos * sy];
+    }
+    return p;
+  };
+  const expectCorners = (ctl: Control, w: number, h: number, corners: number[][]) => {
+    [[0, 0], [w, 0], [w, h], [0, h]].forEach(([x, y], i) => {
+      const [px, py] = onCanvas(ctl, x, y);
+      expect(px).toBeCloseTo(corners[i][0], 6);
+      expect(py).toBeCloseTo(corners[i][1], 6);
+    });
+  };
+
+  it("turns and scales a control about its top-left corner, placed where its transform takes that corner", async () => {
+    const { doc, pointer } = await drawn(`<Canvas><Button id="b" position="absolute" left="100" top="100" width="200" height="50" padding="0" rotate="90" scale="2 1"/></Canvas>`);
+    try {
+      const b = byId(doc, "b", UIButton);
+      const ctl = controlOf(b);
+      expect(ctl.rotation).toBeCloseTo(Math.PI / 2);
+      expect([ctl.scaleX, ctl.scaleY]).toEqual([expect.closeTo(2), expect.closeTo(1)]);
+      expect([ctl.widthInPixels, ctl.heightInPixels]).toEqual([200, 50]); // the laid-out size: the transform does the rest
+      expectCorners(ctl, 200, 50, pointer.core.cornersOf(b)!.points);
+      b.rotate = 0;
+      b.scaleX = 1;
+      syncReal(pointer);
+      expect([ctl.rotation, ctl.scaleX, ctl.scaleY, ctl.leftInPixels, ctl.topInPixels]).toEqual([0, 1, 1, 100, 100]);
+    } finally {
+      pointer.dispose();
+    }
+  });
+
+  it("composes ancestors' transforms into a flat control, and moves a clip with its clipper", async () => {
+    const { doc, pointer } = await drawn(`<Canvas>
+        <Panel id="outer" position="absolute" left="50" top="40" width="300" height="200" rotate="30" translate-x="20">
+          <Panel id="clip" position="absolute" left="20" top="10" width="200" height="100" overflow="hidden" border-width="5" scale="1.5" background-color="#123">
+            <Button id="b" position="absolute" left="10" top="10" width="80" height="40" padding="0" rotate="-45" transform-origin="left top"/>
+          </Panel>
+        </Panel></Canvas>`);
+    try {
+      const [outer, clip, b] = [byId(doc, "outer", UIPanel), byId(doc, "clip", UIPanel), byId(doc, "b", UIButton)];
+      for (const c of [outer, clip, b]) {
+        const corners = pointer.core.cornersOf(c)!;
+        expectCorners(controlOf(c), corners.size[0], corners.size[1], corners.points);
+      }
+      // The clip container sits at the clipper's padding box, turned and scaled with it; the button is drawn in it.
+      const container = controlOf(b).parent!;
+      expect(container.name).toBe(`${clip.owner.name}.clip`);
+      expect((container as Container).clipChildren).toBe(true);
+      const laid = pointer.core.elements().find((e) => e.comp === clip)!;
+      const t = laid.transform!;
+      const inner = [[5, 5], [195, 5], [195, 95], [5, 95]].map(([x, y]) => [t[0] * (laid.x + x) + t[2] * (laid.y + y) + t[4], t[1] * (laid.x + x) + t[3] * (laid.y + y) + t[5]]);
+      expectCorners(container, 190, 90, inner);
+    } finally {
+      pointer.dispose();
+    }
+  });
+
+  it("turns a box-shadow's offset with the element and scales its blur", async () => {
+    const { doc, pointer } = await drawn(`<Canvas><Panel id="p" position="absolute" width="100" height="100" background-color="#333" box-shadow="10px 0 4px #000" rotate="90" scale="2"/></Canvas>`);
+    try {
+      const r = controlOf(byId(doc, "p", UIPanel));
+      expect(r.shadowOffsetX).toBeCloseTo(0);
+      expect(r.shadowOffsetY).toBeCloseTo(20);
+      expect(r.shadowBlur).toBeCloseTo(8);
+    } finally {
+      pointer.dispose();
+    }
   });
 });
