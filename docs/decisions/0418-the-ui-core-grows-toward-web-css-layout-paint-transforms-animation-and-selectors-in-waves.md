@@ -64,6 +64,17 @@ We will grow the UI core toward web CSS in five waves. Each wave is shippable al
 - **Layout ignores transforms**, as on the web: siblings don't move.
 - Hit-testing inverts the element's transform chain, so a rotated button clicks where it's drawn. The editor's outline and handles use the transformed corners. Navigation (0340) uses the transformed boxes' centres.
 
+- **As built (wave 3):**
+  - The fields apply as CSS applies the individual `translate`, `rotate` and `scale` properties: scale, then rotate, about the origin, then translate. A `transform` list is composed left to right and folded into them. A list that can't fold is refused with a warning: a rotation after an unequal scale (a skew), or a `%` translate after a rotation that isn't a half turn.
+  - `transform` and the individual properties write the same fields, so the later declaration wins per field. CSS would apply both.
+  - The `translate` attribute stays HTML's localisation marker (0356). Markup uses `transform="translate(…)"` or `translate-x`/`translate-y`; stylesheets take the `translate` property.
+  - One pure module, `ui/transform2d.ts`, computes every transform. The UI core composes each element's with its ancestors' after layout and publishes it with the laid-out element. Drawing, hit-testing, picking, the editor and navigation all read that result.
+  - Drawing keeps Babylon GUI controls flat, so the core's draw order and stacking stay as they are. Each control gets its transform relative to the control it's drawn in (its clipper's clip container, else the canvas root): placed at its transformed top-left corner, turned and scaled about that corner. Clip containers move with their clippers, so clipping follows the drawn shape. A rotation inside an unequal scale (a skew) can't be shown with one control's rotation and scales, so it's drawn without the skew and warned once. Hit-testing still uses the exact transform.
+  - Shadows turn with the element: the offset goes through the transform's linear part, and the blur scales by its area factor. Canvas2D shadows ignore the context transform, so the drawing layer sets this itself.
+  - Clips are a chain of (padding box, clipper's inverse transform) steps, merged into one rectangle while untransformed. `UILaidOutElement.clip` stays the layout-space overlap, and the new `bounds` field gives the drawn, clipped axis-aligned box, which navigation searches.
+  - Editor handles: resizing works in the element's drawn frame. On an element with a transform of its own, the west and north handles change only the size, because `left`/`top` are in its parent's frame. Moving uses the parent's frame, from where layout put the box (`UICorners.layoutPoints`). The editor's clip outline leaves out a clip that is turned relative to the element.
+  - The hidden DOM `<input>` that takes typing stays off-screen, as before wave 3. An IME's candidate window doesn't follow a transformed field.
+
 **Wave 4: Animation (on the engine's tween core, 0420, on unscaled time).**
 
 - **Properties:** `transition` (property list or `all`, duration, timing function, delay) and `@keyframes` with `animation` (name, duration, timing function, delay, iteration count or `infinite`, direction, fill mode, play state).

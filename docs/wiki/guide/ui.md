@@ -150,6 +150,36 @@ Panels, buttons and input fields take a shadow, a gradient or image background a
 
 **Performance.** Babylon GUI draws the UI with Canvas2D and redraws only what changed. A shadow or gradient redraws its whole region, blur included, each time it changes, so animating one (a pulsing glow, a moving gradient) costs more CPU than animating a position, and more on large screens. Animate opacity or position where you can.
 
+## Transforms: translate, rotate and scale
+
+Any element can be drawn moved, turned and scaled ([ADR 0418](../../decisions/0418-the-ui-core-grows-toward-web-css-layout-paint-transforms-animation-and-selectors-in-waves.md) wave 3). As on the web, layout ignores transforms: the element keeps its place in the layout and its siblings don't move. A transform applies to the element and its children, and the pointer, editor picking, the scene view's outline and handles, and keyboard navigation all follow what's drawn.
+
+```css
+.badge   { transform: translate(-50%, -50%) rotate(-8deg) scale(1.2); }
+.tilted  { rotate: 12deg; transform-origin: left top; }
+.pressed { scale: 0.95; }
+.slid    { translate: 40px 0; }
+```
+
+| Property | Takes | Fields it sets |
+| --- | --- | --- |
+| `transform` | `none`, or a list of `translate(x[, y])`, `translateX()`, `translateY()`, `scale(s[, sy])`, `scaleX()`, `scaleY()`, `rotate(angle)`, composed left to right | all five: `translateX`, `translateY`, `scaleX`, `scaleY`, `rotate` |
+| `translate` | `x [y]`: px, or `%` of the element's own width (x) and height (y); `none` | `translateX`, `translateY` (strings like `"12"` or `"50%"`; default `"0"`) |
+| `scale` | one number for both axes or two (`2`, `1.5 1`, `150%`); `none` | `scaleX`, `scaleY` (default 1) |
+| `rotate` | an angle: `deg`, `turn`, `rad`, `grad`, or a bare number of degrees; `none` | `rotate` (degrees, clockwise) |
+| `transform-origin` | one or two positions: `left`, `center`, `right`, `top`, `bottom`, px or `%` | `transformOriginX`, `transformOriginY` (default `"50%"`, the middle) |
+
+- **The fields keep one translate, one rotation and one scale**, applied the way CSS applies its `translate`, `rotate` and `scale` properties: scale, then rotate, about the origin, then translate. A `transform` list is folded into them, so `rotate(90deg) translate(10px)` becomes `rotate: 90deg; translate: 0 10px`. A list that can't fold is refused with a warning: a rotation after an unequal scale (`scale(2, 1) rotate(45deg)` skews), or a `%` translate after a rotation that isn't a half turn. Write `rotate()` before `scale()`.
+- **`transform` and the individual properties set the same fields**, so the later declaration wins for each field (CSS would apply both). `transform` sets all five, so `transform: scale(2)` puts `rotate` back to 0.
+- **In markup**, `transform="…"`, `rotate="45"`, `scale="2"`, `translate-x="10"` and `transform-origin="left top"` work as attributes. The `translate` attribute stays HTML's "don't localise this" marker ([ADR 0356](../../decisions/0356-text-is-localised-through-keyed-string-tables-with-icu-messages-bound-by-key-in-ui-documents-and-scripts.md)), so write `transform="translate(…)"` or `translate-x`/`translate-y` instead.
+- **Scripts** write the fields: `el.as(UIButton).rotate = 15`, `.scaleX = 1.1`, `.translateY = "-4"`.
+- **Clipping:** an `overflow: hidden` element clips its children where it's drawn, so a turned clipper clips at its turned edges, and a transformed child is clipped where the transform puts it.
+- **Paint** turns with the element: gradients, borders and rounded corners are drawn in its frame, and a shadow's offset turns and scales with it (its blur scales). 3D transforms, `skew()` and `matrix()` aren't supported.
+- **The scene view** outlines the box as drawn and puts the handles on its turned corners. Resizing works in the element's own frame (dragging a turned edge changes its width by the distance in its own UI pixels). On an element with a transform of its own, the west and north handles change only the size, never `left`/`top` (those are in its parent's frame). Moving an absolutely positioned element works in its parent's frame, from where layout put it.
+- **Input fields:** the hidden DOM `<input>` that takes typing (and IME composition) stays off-screen as before, so an IME's candidate window shows where the browser puts it, not next to the transformed field.
+
+**Performance.** Changing a transform needs no new layout: Babylon GUI redraws only the regions the element leaves and enters. Its shadow and gradient are redrawn with it, so a transformed element with a large blur still costs what a moving shadow costs.
+
 ## Scripting
 
 A script finds the document on its node and reaches its elements with selectors. Element fields are plain values: change them at runtime and the UI follows next frame.
@@ -321,6 +351,7 @@ A document builds its elements in any World. Only a World with a render backend 
 ## Known gaps
 
 - No scrolling, sliders, toggles or dropdowns.
+- No 3D transforms, `skew()` or `matrix()`; a rotation inside an unequal scale (a parent scaled `2 1` with a turned child) is drawn without its skew, though the pointer still follows the exact transform.
 - No on-screen keyboard: a gamepad can focus an input field but not type in it.
 - No styling of focus beyond `focusColor` (a `:focus` rule styles input fields only).
 - `fit: contain` in a box with both sides fixed stretches like `fill`.
