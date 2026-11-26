@@ -77,4 +77,4 @@ Nothing.
 - https://github.com/utopia-rise/fmod-gdextension/pull/210 and https://github.com/luc4s/FMOD-GODOT/issues/1 (Godot web: bank loading, no Live Update or plugins)
 - https://github.com/defold/extension-fmod/pull/18/files (pthread build needs COOP/COEP)
 - https://gamineai.com/help/fmod-unity-webgl-bank-loads-audio-silent-first-scene-bus-init-fix (Unity WebGL sample-rate issue; unverified guide)
-- `src/engine/audio/fmodBackend.ts`, `docs/guide/fmod.md`
+- `src/engine/audio/fmodBackend.ts`, `docs/wiki/guide/fmod.md`

@@ -1,7 +1,7 @@
 import { AudioOccluder, GameBehavior, Input, Time, behavior, field } from "myco";
 
 /**
- * A door for sound (ADR 0162, the door recipe in docs/guide/spatial-audio.md). Put it on the node that carries the door's
+ * A door for sound (ADR 0162, the door recipe in docs/wiki/guide/spatial-audio.md). Put it on the node that carries the door's
  * collider and its `AudioOccluder`. The collider stays where it is: what the audio system hears is the occluder's
  * `openness` (0 closed, 1 open), which blends the wall's muffling away. This script moves `openness` toward the target a
  * little each frame, so the door fades open and shut instead of clicking, and slides a child node (the panel) up out of

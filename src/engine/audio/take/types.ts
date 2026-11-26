@@ -1,5 +1,5 @@
 /**
- * Contract (ADR 0348): a take, `*.mycotake`. One file per recorded run in the capture file's framing: the engine profile
+ * Contract (ADR 0348): a take, `*.sporesample`. One file per recorded run in the capture file's framing: the engine profile
  * (every capture record) plus the requests the game made of audio. These are the decoded shapes of the request records;
  * the profile records keep the capture reader's types (`plugins/audio/runtime/capture/`).
  *
@@ -7,9 +7,22 @@
  */
 import type { Vec3 } from "../spatial/testSceneTypes";
 
-export const TAKE_SUFFIX = ".mycotake";
+export const TAKE_SUFFIX = ".sporesample";
 export const TAKE_NOTES_SUFFIX = ".notes.json";
 export const TAKE_NOTES_FORMAT = "myco.takenotes@1";
+
+/**
+ * A take picture's width, pixels (`FRAME`; its height keeps the view's aspect), settable per build at run time
+ * (`setTakeFrameWidth`, the audio topic's `take.frames`): at least this...
+ */
+export const TAKE_PICTURE_MIN_WIDTH = 64;
+/**
+ * ...and at most this (well inside `TAKE_FRAME_MAX_SIDE`; a picture that encodes past `TAKE_FRAME_MAX_BYTES` makes the
+ * take step its width down rather than lose pictures, `takeFrames.ts`).
+ */
+export const TAKE_PICTURE_MAX_WIDTH = 1920;
+/** The width a build takes pictures at until told otherwise. */
+export const TAKE_PICTURE_DEFAULT_WIDTH = 640;
 
 /** Play options that matter for replay (a subset of `EventOptions` / one-shot options). */
 export interface TakePlayOptions {
@@ -40,7 +53,12 @@ export type TakeRequest =
    */
   | { kind: "say"; t: number; instance: number; event: string; args: Record<string, string>; options: TakeSayOptions; state: TakeSayState; picked: TakeSayPick | null; random?: number }
   /** ADR 0355 §6: a queued say started (with its pick, decided then) or was dropped. */
-  | { kind: "sayState"; t: number; instance: number; state: "playing" | "dropped"; picked: TakeSayPick | null; random?: number };
+  | { kind: "sayState"; t: number; instance: number; state: "playing" | "dropped"; picked: TakeSayPick | null; random?: number }
+  /** ADR 0386: a handle paused or resumed its instance (playlist and `AudioSource` handles). */
+  | { kind: "pause"; t: number; instance: number }
+  | { kind: "resume"; t: number; instance: number }
+  /** ADR 0386: a handle faded its instance's fade gain to `to` (linear, 0..4) over `seconds`. */
+  | { kind: "fade"; t: number; instance: number; to: number; seconds: number };
 
 /** What a say did when asked: started, waits in its channel's queue, or was refused (`picked.none` says why). */
 export type TakeSayState = "playing" | "queued" | "refused";

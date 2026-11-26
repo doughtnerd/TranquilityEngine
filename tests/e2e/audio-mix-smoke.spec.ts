@@ -281,7 +281,7 @@ test("M5-0 smoke: a presence duck starts on its stamped frame", async ({ page })
 });
 
 // M5a (Rc4): capture. A game that never calls `start` loads no recorder chunk; `Audio.capture.start()` fetches it, a take
-// records the core's STATUS blocks while the audio clock runs, and `save()` downloads a deflate-raw `.mycap` whose header
+// records the core's STATUS blocks while the audio clock runs, and `save()` downloads a deflate-raw `.sporesample` whose header
 // parses and whose records are the take's. Every bound is on the core's rendered frames, never a wall-clock tolerance.
 test("M5a smoke: a capture starts, stops, is saved and is non-empty", async ({ page }) => {
   type CaptureApi = { state: string; seconds: number; bytes: number; start(): Promise<void>; stop(): void; mark(t: string): void; save(n?: string): Promise<string> };
@@ -336,15 +336,15 @@ test("M5a smoke: a capture starts, stops, is saved and is non-empty", async ({ p
     expect(c.seconds, "the ring's content is the rendered frames since the start, in seconds").toBeGreaterThan(2);
   });
 
-  await test.step("stop() holds the take and save() downloads a .mycap whose header parses and whose records are the take's", async () => {
+  await test.step("stop() holds the take and save() downloads a .sporesample whose header parses and whose records are the take's", async () => {
     await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.stop());
     expect(await page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.state)).toBe("stopped");
     const [download, name] = await Promise.all([
       page.waitForEvent("download"),
       page.evaluate(() => (globalThis as unknown as Api).__myco.Audio.capture.save("smoke / take 1")),
     ]);
-    expect(name).toBe("smoke_take_1.mycap");
-    expect(download.suggestedFilename()).toBe("smoke_take_1.mycap");
+    expect(name).toBe("smoke_take_1.sporesample");
+    expect(download.suggestedFilename()).toBe("smoke_take_1.sporesample");
     const bytes = readFileSync((await download.path())!);
     expect(bytes.byteLength, "non-empty").toBeGreaterThan(96 + 1000);
     // The 96 B plain header (§5.1).

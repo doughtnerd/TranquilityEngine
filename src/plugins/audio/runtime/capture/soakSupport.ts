@@ -254,7 +254,7 @@ export function memorySaveEnv(): SaveEnv & { files: { name: string; bytes: Uint8
   return {
     files,
     tauri: false,
-    storage: { save: async () => {}, list: async () => [], delete: async () => {} },
+    fs: { mkdir: async () => {}, write: async () => {}, list: async () => [], remove: async () => {} },
     storageRoot: async () => "",
     download: (bytes, name) => void files.push({ name, bytes: bytes.slice() }),
     compress: async (payload) => new Uint8Array(deflateRawSync(payload)),

@@ -2,6 +2,16 @@
 // ADR 0370's budget scenarios on the committed wasm in Node (T82r). The budgets are tripwires; this prints, asserts nothing.
 //
 //   node native/anim/crates/anim-wasm/bench_budgets.mjs [--rounds N] [--frames N] [--only substring] [--regen] [--compare FILE]
+//     [--characters N] [--max-instances N] [--max-bones N] [--gap MS] [--busy MS] [--prime]
+//
+// `--characters N` (default 100) sets the character scenarios' instance count, and `--max-instances`/`--max-bones` the
+// core's INIT limits (defaults 128 and the skeleton's bones rounded up): the shipped player starts the core with 512
+// instances and 256 bones (DEFAULT_CORE_LIMITS), so `--characters 300 --max-instances 512 --max-bones 256` measures the
+// player's 300-clip scene's core work alone.
+//
+// `--gap MS` waits MS milliseconds before each timed frame (a timer, as a page's frame loop leaves the thread idle
+// between frames) and times the frames alone: back-to-back frames (the default) measure the core with a busy CPU and
+// warm caches, spaced ones what a 60 Hz host sees.
 //
 // `--compare FILE` also runs another build of the module (same exports, e.g. the committed one saved before a change)
 // in alternate rounds and prints both medians and their ratio: an A/B on a shared, noisy machine.
@@ -71,7 +81,8 @@ function parent() {
     let note = "";
     for (let r = 0; r < rounds; r++) {
       builds.forEach((wasm, b) => {
-        const out = execFileSync(process.execPath, [fileURLToPath(import.meta.url), "--child", name, "--frames", String(frames), "--wasm", wasm], { encoding: "utf8" });
+        const pass = ["characters", "max-instances", "max-bones", "gap", "busy"].flatMap((k) => (opt(k, null) === null ? [] : [`--${k}`, opt(k)])).concat(args.includes("--prime") ? ["--prime"] : []);
+        const out = execFileSync(process.execPath, [fileURLToPath(import.meta.url), "--child", name, "--frames", String(frames), "--wasm", wasm, ...pass], { encoding: "utf8" });
         const line = JSON.parse(out.trim().split("\n").pop());
         ms[b].push(line.ms);
         note = line.note ?? "";
@@ -94,12 +105,18 @@ async function child(name, frames) {
   const committed = (n) => new Uint8Array(readFileSync(new URL(`fixtures/${n}`, wasmDir)));
   const generated = (n) => new Uint8Array(readFileSync(new URL(n, genDir)));
   const view = () => new DataView(exports.memory.buffer);
-  const f32bits = (x) => new Uint32Array(new Float32Array([x]).buffer)[0];
+  // Allocation-free, as the shipped host encodes (so the bench's own JS doesn't inflate the per-frame time).
+  const bitsF32 = new Float32Array(1);
+  const bitsU32 = new Uint32Array(bitsF32.buffer);
+  const f32bits = (x) => ((bitsF32[0] = x), bitsU32[0]);
+  const fieldLists = new Map();
   /** Writes record `def` (a generated wire definition) at `at` in `v`: its header, then `values` by field name (unnamed fields 0). */
   const put = (v, at, def, values) => {
     v.setUint16(at, def.opcode, true);
     v.setUint16(at + 2, def.version, true);
-    for (const [field, { offset, type }] of Object.entries(def.fields)) {
+    let fields = fieldLists.get(def);
+    if (!fields) fieldLists.set(def, (fields = Object.entries(def.fields)));
+    for (const [field, { offset, type }] of fields) {
       const x = values[field] ?? 0;
       if (type === "f32") v.setFloat32(at + offset, x, true);
       else if (type === "u32") v.setUint32(at + offset, x >>> 0, true);
@@ -220,7 +237,8 @@ async function child(name, frames) {
     const bones = Number(name.slice(-2));
     const kind = name.slice(0, -3);
     const file = bones === 60 ? (n) => committed(`humanoid${n}`) : (n) => generated(`humanoid80${n}`);
-    init(128, bones === 60 ? 64 : 80);
+    const count = Number(opt("characters", 100));
+    init(Number(opt("max-instances", Math.max(128, count))), Number(opt("max-bones", bones === 60 ? 64 : 80)));
     const skel = glue.load_skeleton(file(".skel"));
     const idle = glue.load_clip(file("_idle.anim"));
     const walk = glue.load_clip(file("_walk.anim"));
@@ -234,7 +252,7 @@ async function child(name, frames) {
       const b = bones === 60 ? JSON.parse(readFileSync(new URL("fixtures/graph_expected.json", wasmDir), "utf8")).binds : JSON.parse(readFileSync(new URL("bench.json", genDir), "utf8")).loco;
       for (const [id, asset] of [[b.idle, idle], [b.walk, walk], [b.run, run], [b.upper, mask]]) glue.graph_bind(graph, id, asset);
     }
-    const hs = Array.from({ length: 100 }, () => glue.create_instance(0, skel, graph));
+    const hs = Array.from({ length: count }, () => glue.create_instance(0, skel, graph));
     const play = (clip, fade) => send(hs.map((instance) => record(PLAY, { instance, clip, playId: 0, layer: 0, fade, speed: 1, start: 0, flags: 0 })));
     if (kind === "one_clip" || kind === "crossfade") {
       play(walk, 0);
@@ -253,7 +271,7 @@ async function child(name, frames) {
           record(SLOT_PLAY, { instance: h, slot: 0, clip: run, playId: 0, blendIn: 0.1, blendOut: 0.1, speed: 1, start: 0, end: 0.5, flags: SECTION_LOOP }),
         ]),
       );
-      if (applied !== 500) throw new Error(`${applied} of 500 graph commands applied`);
+      if (applied !== count * 5) throw new Error(`${applied} of ${count * 5} graph commands applied`);
     }
     if (kind === "locomotion_rig") {
       // Target slot 0 (the look-at's), then each frame the hits for last frame's rays: flat ground at y = 0.
@@ -285,8 +303,25 @@ async function child(name, frames) {
     }
   }
   for (let i = 0; i < warm; i++) step();
-  const t0 = performance.now();
-  for (let i = 0; i < frames; i++) step();
-  const ms = (performance.now() - t0) / frames;
-  console.log(JSON.stringify({ ms, note }));
+  const gap = Number(opt("gap", 0));
+  const busy = Number(opt("busy", 0));
+  const prime = args.includes("--prime");
+  let ms = 0;
+  let sink = 0;
+  if (gap > 0 || busy > 0) {
+    for (let i = 0; i < frames; i++) {
+      if (gap > 0) await new Promise((done) => setTimeout(done, gap));
+      // Arithmetic until `busy` ms pass (not a sleep: the core stays loaded), its result kept so it isn't optimised away.
+      for (const until = performance.now() + busy; performance.now() < until; ) for (let k = 0; k < 1000; k++) sink += Math.sqrt(k + sink) * 1e-9;
+      if (prime) step();
+      const t0 = performance.now();
+      step();
+      ms += (performance.now() - t0) / frames;
+    }
+  } else {
+    const t0 = performance.now();
+    for (let i = 0; i < frames; i++) step();
+    ms = (performance.now() - t0) / frames;
+  }
+  console.log(JSON.stringify({ ms, note, ...(sink < 0 ? { sink } : {}) }));
 }

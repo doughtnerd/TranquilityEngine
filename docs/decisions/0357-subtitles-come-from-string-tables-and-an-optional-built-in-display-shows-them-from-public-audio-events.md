@@ -280,7 +280,7 @@ declare const Subtitles: {
 | S3 | Subtitles plugin | manifest and registration; `SubtitleDisplay`, built-in document and stylesheet, `Subtitles` settings with storage and defaults, speaker lookup; tests through the UI core headless with scripted `onLine`/`onCaption` events (rows, replace per speaker, paging, fades, settings off, size presets, language change) | `src/plugins/subtitles/**`, `src/plugins/catalogue.ts` (registration), `src/myco.ts` |
 | S4 | Studio | Dialogue Text column writes the string table; Subtitle strip and reading-speed flags; caption field and audition in Playlists; test-bench subtitle; "Move subtitles to the string table" fix; stories with `play` tests | `src/studio/screens/dialogue/**` (single writer with 0354 L5 and 0355 D4), `src/studio/screens/playlists/**` (inspector) |
 | S5 | Editor | Project Settings > Subtitles; Play toolbar Subtitles overlay toggle; `SubtitleDisplay` Inspector sample row | `src/editor/ui/settings/**` (Subtitles section), the Play toolbar file (single writer with 0354 L7 and 0356 T7), `src/plugins/subtitles/editor/**` |
-| S6 | Docs and e2e | `docs/guide/subtitles.md` (built-in display, theming, player settings, replacing it, captions); 0354's guide's subtitle recipe points to it; e2e: editor Play with the overlay shows a French subtitle with the speaker name, and turning `Subtitles.set({ enabled: false })` hides it | `docs/guide/**`, `tests/e2e/subtitles.spec.ts` |
+| S6 | Docs and e2e | `docs/wiki/guide/subtitles.md` (built-in display, theming, player settings, replacing it, captions); 0354's guide's subtitle recipe points to it; e2e: editor Play with the overlay shows a French subtitle with the speaker name, and turning `Subtitles.set({ enabled: false })` hides it | `docs/wiki/guide/**`, `tests/e2e/subtitles.spec.ts` |
 
 **Changes to 0354's plan (L1–L8).**
 - **L1** builds `myco.lines@1` without `text`, with `strings` and `textKey` (§1); drops the reading-time rule (S1's
@@ -292,7 +292,7 @@ declare const Subtitles: {
 - **L5**'s Text column, Report text status and script CSV go through string tables (finished in S4).
 - **L6**'s `vo.textHash` hashes the string table's reference text.
 - **L7**'s Languages section gains 0356's text fields (T7) and `voice` (S5).
-- **L8**'s subtitle recipe becomes a pointer to `docs/guide/subtitles.md` (S6).
+- **L8**'s subtitle recipe becomes a pointer to `docs/wiki/guide/subtitles.md` (S6).
 
 **Changes to 0355's plan (D1–D5).** D1 reads the line-table format without `text`; D4's test bench shows the
 subtitle through S4. D2, D3 and D5 are unchanged; said lines reach the built-in display through `Audio.onLine` as

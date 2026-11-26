@@ -107,12 +107,21 @@ export interface AudioPack {
   data(path: string): Uint8Array | null;
 }
 
+/** `PACK_FORMAT`'s version number. */
+const PACK_FORMAT_VERSION = 1;
+
+/** ADR 0386: a package from a newer build is refused as newer, naming both versions, never as damaged. */
+const newerPack = (theirs: string, mine: string): string => `incompatible version: file is ${theirs}, this build reads ${mine}: update Myco to open it`;
+
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isWhole = (v: unknown, min = 0): v is number => typeof v === "number" && Number.isInteger(v) && v >= min;
 
 /** Reads a package: `{ pack }`, or `{ error }` (one line) when it isn't a readable `.mycopak`. Never throws. */
 export function readAudioPack(bytes: Uint8Array): { pack: AudioPack } | { error: string } {
-  if (bytes.length < HEADER_BYTES || new TextDecoder().decode(bytes.subarray(0, PACK_MAGIC.length)) !== PACK_MAGIC) return { error: "not a .mycopak file (no MYCOPAK1 header)" };
+  const magic = bytes.length < HEADER_BYTES ? "" : new TextDecoder().decode(bytes.subarray(0, PACK_MAGIC.length));
+  const magicVersion = /^MYCOPAK([2-9])$/.exec(magic);
+  if (magicVersion) return { error: newerPack(`MYCOPAK${magicVersion[1]}`, PACK_MAGIC) };
+  if (magic !== PACK_MAGIC) return { error: "not a .mycopak file (no MYCOPAK1 header)" };
   const tocBytes = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(PACK_MAGIC.length, true);
   if (HEADER_BYTES + tocBytes > bytes.length) return { error: `the table of contents runs past the end (${tocBytes} bytes)` };
   let raw: unknown;
@@ -121,6 +130,8 @@ export function readAudioPack(bytes: Uint8Array): { pack: AudioPack } | { error:
   } catch {
     return { error: "the table of contents isn't UTF-8 JSON" };
   }
+  const formatVersion = isRecord(raw) && typeof raw.format === "string" ? /^myco\.audiopack@([1-9][0-9]*)$/.exec(raw.format) : null;
+  if (formatVersion && Number(formatVersion[1]) > PACK_FORMAT_VERSION) return { error: newerPack(formatVersion[0], PACK_FORMAT) };
   if (!isRecord(raw) || raw.format !== PACK_FORMAT) return { error: `the table of contents isn't ${PACK_FORMAT}` };
   if (typeof raw.name !== "string" || !(ENCODING_PLATFORMS as readonly unknown[]).includes(raw.platform) || !Array.isArray(raw.entries)) return { error: "the table of contents lacks a name, a platform or entries" };
   const entries: PackEntry[] = [];

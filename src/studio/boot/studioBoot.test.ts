@@ -179,6 +179,13 @@ describe("the editor's hand-off", () => {
     expect(openRoute).not.toHaveBeenCalled();
   });
 
+  it("a connect request (the launcher's Connect to Game…) keeps the open project", async () => {
+    const openRoute = vi.fn();
+    await studioProjects({ runtime, openRoute }).handOff({ project: null, connect: true });
+    expect(currentProject.value).toBe(project);
+    expect(openRoute).not.toHaveBeenCalled();
+  });
+
   it("says why when this Studio can't open project folders", async () => {
     const projects = studioProjects({ runtime, openRoute: vi.fn() });
     await expect(projects.handOff({ project: "/elsewhere" })).rejects.toThrow(/can't open project folders/);

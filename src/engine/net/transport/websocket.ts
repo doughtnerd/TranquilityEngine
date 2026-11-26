@@ -18,8 +18,10 @@
  *   that can answers with an offer in a signal frame (bit 1; JSON, `SignalMessage`). Neither sends
  *   a signal frame to a peer that didn't show it understands them, so plain peers never see one.
  * - From then on ("negotiated") every unreliable message carries a 32-bit sequence number: on the
- *   socket after the header of a frame with bit 2 set, on the data channel before the payload. The
- *   receiver drops one that isn't newer than the newest it delivered, whichever way it came.
+ *   socket after the header of a frame with bit 2 set, on the data channel before the payload. Each
+ *   path numbers its messages on its own (ADR 0398), and the receiver drops one that isn't newer
+ *   than the newest it delivered from the same path. So a message too big for a datagram, sent over
+ *   the socket, still arrives when datagrams sent after it overtake it: late, never lost.
  * - Reliable messages always go over the socket. An unreliable one goes over the data channel
  *   while it's open and the message fits `maxDatagramBytes`; otherwise over the socket.
  * - A data channel that doesn't open, or closes, just leaves the traffic on the socket.
@@ -178,6 +180,19 @@ function newer(a: number, b: number): boolean {
   return ((a - b) | 0) > 0;
 }
 
+/** One path's unreliable sequence numbers (ADR 0398): the next to send, the newest delivered. */
+interface PathSequence {
+  next: number;
+  newest: number | null;
+}
+
+/** Take `path`'s next sequence number to send. */
+function nextSeq(path: PathSequence): number {
+  const seq = path.next;
+  path.next = (seq + 1) >>> 0;
+  return seq;
+}
+
 /** A WebSocket close reason is at most 123 bytes of UTF-8; longer ones make `close()` throw. */
 function closeReason(reason: string): string {
   const encoder = new TextEncoder();
@@ -213,10 +228,12 @@ class WebSocketConnection implements TransportConnection {
   /** Both ends know the datagram protocol: unreliable messages carry sequence numbers (ADR 0333). */
   private negotiated = false;
   private lane: DatagramLane | null = null;
-  /** The next unreliable sequence number to send. */
-  private sendSeq = 0;
-  /** The newest unreliable sequence number delivered; null before the first. */
-  private newestSeq: number | null = null;
+  /**
+   * Each path's sequence (ADR 0398): the next number to send on it, and the newest delivered from
+   * it (null before the first). TCP keeps the socket's in order; datagrams can be lost or reordered.
+   */
+  private readonly socketSeq: PathSequence = { next: 0, newest: null };
+  private readonly datagramSeq: PathSequence = { next: 0, newest: null };
   /** Signalling that arrived while the lane's peer connection was loading; null otherwise. */
   private laneSignals: SignalMessage[] | null = null;
 
@@ -238,20 +255,24 @@ class WebSocketConnection implements TransportConnection {
 
   send(channel: Channel, data: Uint8Array): void {
     if (this.state === "closed") throw new Error(`Can't send on closed connection ${this.id} (${this.remote}).`);
-    const seq = channel === "unreliable" && this.negotiated ? this.nextSeq() : undefined;
+    const sequenced = channel === "unreliable" && this.negotiated;
     if (this.state === "connecting") {
-      this.pending.push(encodeFrame(channel, data, seq));
+      this.pending.push(encodeFrame(channel, data, sequenced ? nextSeq(this.socketSeq) : undefined));
       return;
     }
     // A datagram that fits one packet goes over the data channel, unless its send buffer is backed
     // up (a datagram that waits is as stale as one dropped, so it's dropped, latest-wins).
     const lane = this.lane;
-    if (seq !== undefined && lane?.state === "open" && this.rtc && data.byteLength + SEQUENCE_BYTES <= this.rtc.maxDatagramBytes) {
+    if (sequenced && lane?.state === "open" && this.rtc && data.byteLength + SEQUENCE_BYTES <= this.rtc.maxDatagramBytes) {
       if (lane.bufferedAmount > this.limits.unreliableBacklogBytes) {
         this.droppedUnreliable++;
         return;
       }
-      if (lane.send(encodeDatagram(data, seq))) return;
+      // The number is taken only once the datagram goes, so a dropped one leaves no gap.
+      if (lane.send(encodeDatagram(data, this.datagramSeq.next))) {
+        nextSeq(this.datagramSeq);
+        return;
+      }
     }
     // TCP can't drop anything, so a slow link backs up the socket's buffer. Stale unreliable data
     // (snapshots) is dropped there instead of piling up; reliable data that can't drain closes the
@@ -262,7 +283,7 @@ class WebSocketConnection implements TransportConnection {
       return;
     }
     if (backlog > this.limits.maxBacklogBytes) return this.close(`too slow: ${backlog} bytes waiting to send`);
-    this.socket.send(encodeFrame(channel, data, seq));
+    this.socket.send(encodeFrame(channel, data, sequenced ? nextSeq(this.socketSeq) : undefined));
   }
 
   close(reason = "closed", code = CLOSE_NORMAL): void {
@@ -299,7 +320,7 @@ class WebSocketConnection implements TransportConnection {
     if (decoded.seq !== undefined) {
       // Sequenced frames come only from a peer this end negotiated with.
       if (!this.negotiated) return this.close("protocol error: a sequenced frame before negotiation");
-      return this.deliverSequenced(decoded.seq, decoded.data);
+      return this.deliverSequenced(this.socketSeq, decoded.seq, decoded.data);
     }
     this.events.push({ kind: "data", connection: this, channel: decoded.channel, data: decoded.data });
   }
@@ -368,25 +389,19 @@ class WebSocketConnection implements TransportConnection {
     if (message.t === "offer") this.negotiated = true;
   }
 
-  private nextSeq(): number {
-    const seq = this.sendSeq;
-    this.sendSeq = (seq + 1) >>> 0;
-    return seq;
-  }
-
   /** A data channel message: a sequence number, then an unreliable payload. */
   private handleDatagram(datagram: Uint8Array): void {
     if (this.state !== "open") return;
     if (datagram.byteLength < SEQUENCE_BYTES || datagram.byteLength - SEQUENCE_BYTES > this.limits.maxMessageBytes) return; // malformed: dropped like a lost one
     if (!this.account(datagram.byteLength)) return;
     const seq = new DataView(datagram.buffer, datagram.byteOffset, datagram.byteLength).getUint32(0);
-    this.deliverSequenced(seq, datagram.subarray(SEQUENCE_BYTES));
+    this.deliverSequenced(this.datagramSeq, seq, datagram.subarray(SEQUENCE_BYTES));
   }
 
-  /** Deliver an unreliable payload unless something newer was delivered already. */
-  private deliverSequenced(seq: number, data: Uint8Array): void {
-    if (this.newestSeq !== null && !newer(seq, this.newestSeq)) return; // stale
-    this.newestSeq = seq;
+  /** Deliver an unreliable payload unless something newer came by the same path already (ADR 0398). */
+  private deliverSequenced(path: PathSequence, seq: number, data: Uint8Array): void {
+    if (path.newest !== null && !newer(seq, path.newest)) return; // stale
+    path.newest = seq;
     this.events.push({ kind: "data", connection: this, channel: "unreliable", data });
   }
 

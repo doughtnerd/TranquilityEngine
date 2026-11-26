@@ -1,6 +1,6 @@
 # 0379. The desktop editor listens for the debug link through a native WebSocket server (tungstenite), and the browser editor doesn't listen
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0403 (the browser editor is reached by code and WebRTC; listeners also serve the rendezvous)
 - **Date:** 2026-11-23
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

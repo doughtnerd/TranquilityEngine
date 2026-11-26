@@ -42,9 +42,9 @@ const TODAY = ["sprites", "tilemaps", "meshes", "fog", "sky", "particles", "prob
 /**
  * With the Animation plugin's skinned meshes (ADR 0370), right after the meshes, and its skinned sprites (ADR 0371) after
  * them; the Lines plugin's ribbons (ADR 0396) after the meshes in `content` (their shadow casters are collected with
- * them), and the Decals plugin's (ADR 0395) in `effects`.
+ * them), the Lights 2D plugin's light volumes (ADR 0415) in `content`, and the Decals plugin's (ADR 0395) in `effects`.
  */
-const TODAY_ALL = ["sprites", "tilemaps", "meshes", "lines", "skinning", "skinnedSprites", "fog", "sky", "particles", "decals", "probes", "water", "ui"];
+const TODAY_ALL = ["sprites", "tilemaps", "meshes", "lines", "lights2dVolumes", "skinning", "skinnedSprites", "fog", "sky", "particles", "decals", "probes", "water", "ui"];
 
 afterEach(() => applyTestPlugins()); // as Vitest's setup file leaves it
 

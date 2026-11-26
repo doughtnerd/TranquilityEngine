@@ -10,7 +10,7 @@ import { loadBundledFont } from "../../../engine/ui/fonts";
 function uiHost(host: BabylonFeatureHost): BabylonUIHost {
   return {
     scene: host.scene,
-    texture: (ref) => host.materials.texture(ref),
+    texture: (ref) => host.materials.loadTexture(ref),
     viewCamera: () => host.viewCamera(),
     interactive: () => !host.policy().sceneView, // the editor's scene view: clicks select, they don't press buttons
     previewRect: () => host.previewRect(),

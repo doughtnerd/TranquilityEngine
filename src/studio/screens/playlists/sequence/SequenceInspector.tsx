@@ -54,6 +54,7 @@ import { clipName } from "./TimelineClip";
 import { TimecodeField } from "./TimecodeField";
 import { loopName } from "./timelineOverlays";
 import "./sequence.css";
+import { EmptyState } from "../../../../editor/ui/EmptyState";
 
 export interface SequenceInspectorProps {
   readonly body: PlaylistBody;
@@ -410,7 +411,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
           </div>
           {c.sample !== undefined && (
             <Section title={`Loops${loops.length ? ` · ${loops.length}` : ""}`} hint="The sample's loops. Changing one here overrides it in this clip only; reset goes back to the sample's settings.">
-              {loops.length === 0 && <p class="sq-empty">None</p>}
+              {loops.length === 0 && <EmptyState compact title="No loops" />}
               {loops.map((l, i) => (
                 <div key={l.id} class="sq-lpb">
                   <div class="sq-lph">
@@ -428,7 +429,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
           )}
           {c.sample !== undefined && (
             <Section title={`Markers${src?.markers.length ? ` · ${src.markers.length}` : ""}`} hint="The sample's markers. Turn one off for this clip only (an Exit marker turned off isn't a way out here).">
-              {!src?.markers.length && <p class="sq-empty">None</p>}
+              {!src?.markers.length && <EmptyState compact title="No markers" />}
               {src?.markers.map((m) => {
                 const on = !c.hiddenMarkers.includes(m.id);
                 return (
@@ -485,7 +486,7 @@ export function SequenceInspector(props: SequenceInspectorProps) {
             )}
           </div>
           <Section title={`Clips · ${t.clips.length}`} hint="Click one to select it">
-            {t.clips.length === 0 && <p class="sq-empty">None</p>}
+            {t.clips.length === 0 && <EmptyState compact title="No clips" />}
             {[...t.clips].sort((a, b) => a.at - b.at).map((c) => (
               <button key={c.id} type="button" class="sq-frow" onClick={() => (seqSelection.value = clickClip(sel, c.id, t.id))}>
                 <span class="sq-frow-name">{clipName(c)}</span>

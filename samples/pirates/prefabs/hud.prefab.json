@@ -123,7 +123,8 @@
           "type": "engine.UIPanel",
           "data": {
             "flexDirection": "row",
-            "justifyContent": "center"
+            "justifyContent": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -143,7 +144,8 @@
             "flexDirection": "column",
             "alignItems": "center",
             "padding": 18,
-            "borderRadius": 10
+            "borderRadius": 10,
+            "raycastTarget": false
           }
         }
       ],
@@ -169,7 +171,8 @@
               1
             ],
             "fontWeight": "bold",
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -194,7 +197,8 @@
               0.85,
               1
             ],
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -219,7 +223,8 @@
               0.85,
               1
             ],
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -244,7 +249,8 @@
               0.85,
               1
             ],
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -269,7 +275,8 @@
               0.85,
               1
             ],
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -294,7 +301,8 @@
               0.85,
               1
             ],
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -319,7 +327,8 @@
               0.85,
               1
             ],
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -344,7 +353,8 @@
               0.85,
               1
             ],
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -369,7 +379,8 @@
               0.85,
               1
             ],
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -394,7 +405,8 @@
               0.9,
               1
             ],
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -2270,7 +2282,8 @@
             "height": "60",
             "flexDirection": "column",
             "alignItems": "center",
-            "gap": 2
+            "gap": 2,
+            "raycastTarget": false
           }
         }
       ],
@@ -2304,7 +2317,8 @@
               1
             ],
             "alignItems": "center",
-            "justifyContent": "center"
+            "justifyContent": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -2323,7 +2337,8 @@
           "data": {
             "image": "asset:textures/icon_flag.png",
             "width": "24",
-            "height": "24"
+            "height": "24",
+            "raycastTarget": false
           }
         }
       ],
@@ -2349,7 +2364,8 @@
               1
             ],
             "fontWeight": "bold",
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -2373,7 +2389,8 @@
             "height": "60",
             "flexDirection": "column",
             "alignItems": "center",
-            "gap": 2
+            "gap": 2,
+            "raycastTarget": false
           }
         }
       ],
@@ -2407,7 +2424,8 @@
               1
             ],
             "alignItems": "center",
-            "justifyContent": "center"
+            "justifyContent": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -2432,7 +2450,8 @@
               0.25,
               1
             ],
-            "fontWeight": "bold"
+            "fontWeight": "bold",
+            "raycastTarget": false
           }
         }
       ],
@@ -2458,7 +2477,8 @@
               1
             ],
             "fontWeight": "bold",
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -2480,7 +2500,8 @@
             "left": "0",
             "width": "100%",
             "flexDirection": "column",
-            "alignItems": "center"
+            "alignItems": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -2514,7 +2535,8 @@
               0.8,
               0.6,
               1
-            ]
+            ],
+            "raycastTarget": false
           }
         }
       ],
@@ -2540,7 +2562,8 @@
               1
             ],
             "fontWeight": "bold",
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -2565,7 +2588,8 @@
               0.85,
               1
             ],
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -2587,7 +2611,8 @@
             "width": "100%",
             "flexDirection": "column",
             "alignItems": "center",
-            "top": "156"
+            "top": "156",
+            "raycastTarget": false
           }
         }
       ],
@@ -2621,7 +2646,8 @@
               0.93,
               0.96,
               1
-            ]
+            ],
+            "raycastTarget": false
           }
         }
       ],
@@ -2647,7 +2673,8 @@
               1
             ],
             "fontWeight": "bold",
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],
@@ -2672,7 +2699,8 @@
               1,
               1
             ],
-            "textAlign": "center"
+            "textAlign": "center",
+            "raycastTarget": false
           }
         }
       ],

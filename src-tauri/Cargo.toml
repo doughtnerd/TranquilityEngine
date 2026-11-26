@@ -33,6 +33,6 @@ tauri-plugin-persisted-scope = "2"
 # Exported desktop games get the same lines (src/export/desktop.ts, GAMEPAD_DEPENDENCIES).
 sdl3 = { version = "0.22.1", features = ["build-from-source-static", "hidapi"] }
 sdl3-sys = { version = "0.7.3", default-features = false, features = ["no-sdl-audio", "no-sdl-video", "no-sdl-gpu", "no-sdl-render", "no-sdl-camera", "no-sdl-dialog", "no-sdl-tray", "no-sdl-power", "sdl-unix-console-build"] }
-# The debug link's WebSocket listener (ADR 0379, src/debug_link.rs): tungstenite on std threads, in
-# its own crate so it builds and tests without Tauri. The editor only; exported games connect, never listen.
-myco-ws-listener = { path = "../native/ws-listener" }
+# The debug link's Tauri commands (ADR 0379, 0403), shared with the Studio's shell; they wrap
+# native/ws-listener (tungstenite on std threads). The editor only; exported games connect, never listen.
+myco-debug-link-tauri = { path = "../native/debug-link-tauri" }

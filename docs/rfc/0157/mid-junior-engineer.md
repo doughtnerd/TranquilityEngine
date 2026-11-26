@@ -13,7 +13,7 @@
 - **Quantum and the 2.667 ms budget:** "one block of 128 frames. At 48 kHz that's 2.667 ms, so the whole mix must finish inside that time." Define it once, early.
 - **Virtual voice:** "a sound that is tracked and advanced in time but not mixed. It costs almost nothing and starts being mixed when it becomes audible."
 - **Logical vs mixed voices:** "4,096 sounds can exist; 256 are actually mixed per block."
-- **Ducking, snapshot:** the guide defines these (`docs/guide/audio-mixer.md`). Link to it.
+- **Ducking, snapshot:** the guide defines these (`docs/wiki/guide/audio-mixer.md`). Link to it.
 - **HRTF:** "makes a sound seem to come from a direction, through headphones."
 - **Ambisonic bed:** "a cheap way to place many distant sounds around the listener."
 - **Partitioned convolution reverb:** "reverb recorded from a real room. Partitioned means its work is split across blocks so it doesn't spike one frame."

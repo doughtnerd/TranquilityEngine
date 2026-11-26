@@ -57,14 +57,17 @@ export class FrameMeter {
 
   constructor(private readonly clock: () => number = () => performance.now()) {}
 
-  /** Time `step` into `stage`. */
-  time(stage: FrameStage, step: () => void): void {
-    const t = this.clock();
-    try {
-      step();
-    } finally {
-      this.ms[stage] += this.clock() - t;
-    }
+  /**
+   * The clock now: a stage's start, for {@link stop}. A stage runs `const t = meter.start(); try { … } finally {
+   * meter.stop(stage, t); }` (no closure per frame).
+   */
+  start(): number {
+    return this.clock();
+  }
+
+  /** Adds the time since `started` (what {@link start} gave) to `stage`. */
+  stop(stage: FrameStage, started: number): void {
+    this.ms[stage] += this.clock() - started;
   }
 
   /** One `evaluate` call's counters; `normal` marks the pass that ends a frame. */

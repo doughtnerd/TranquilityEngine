@@ -99,3 +99,23 @@ describe("wide streams on main (ADR 0162 B4)", () => {
     expect([stereo.streams.stats.starves, stereo.streams.stats.wideStarved]).toEqual([1, 0]);
   });
 });
+
+describe("a stream the core refuses (ADR 0386, Q22)", () => {
+  it("refused at its open: no ring was free", async () => {
+    const r = rig(null);
+    await r.open("music/a.wav");
+    r.opened({ channels: 2 });
+    r.streams.streamEvent(r.id, StreamEvent.Error);
+    expect(r.errors).toEqual(["audio: no stream ring free (too many streams at once)"]);
+  });
+
+  it("refused at a restart (a seek): the voice fails and says a stream keeps its format, so play it again", async () => {
+    const r = rig(null);
+    await r.open("music/a.wav");
+    r.opened({ channels: 2 });
+    expect(r.streams.seek(r.id, 1)).toBe(48_000);
+    r.streams.streamEvent(r.id, StreamEvent.Error);
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]).toMatch(/refused the stream's restart \(a stream keeps the sample rate and channel count it opened with.*play the sound again/);
+  });
+});

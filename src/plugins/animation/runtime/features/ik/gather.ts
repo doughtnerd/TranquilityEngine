@@ -14,10 +14,12 @@
 //   from the main camera (the enabled Camera with the lowest depth; no camera: 0). Every rig node whose `lodSkip` is
 //   ≥ 1 then switches off; a node with `lodSkip` 0 always runs.
 // - **Grounder rays** (D41): `collectRigRays` (Apply) converts the ray requests the evaluate wrote (model space) to
-//   world space with the frame that evaluate used. The next gather casts them through the physics plugin's public
-//   `Physics.raycast` (`./physics.ts`) and writes the hits back in model space with *that* frame's character frame. A
-//   one-frame-old hit is standard (Final IK). Without physics, or before the first evaluate, every hit is a miss.
-import { World } from "../../../../../engine/core/World";
+//   world space with the frame that evaluate used. The next gather casts them through the World's 3D ray query (the
+//   physics service's `raycast`, what `Physics.raycast` answers with, while the physics plugin is on: `./physics.ts`)
+//   and writes the hits back in model space with *that* frame's character frame. A one-frame-old hit is standard
+//   (Final IK). Without physics, or before the first evaluate, every hit is a miss.
+import { _worldRaycast, type WorldRayHit } from "../../../../../engine/core/worldServices";
+import { Mat4 } from "../../../../../engine/core/math";
 import { GameObject } from "../../../../../engine/scene/GameObject";
 import type { AnimationFrame } from "../../stages/frame";
 import { HANDLE_INDEX_MASK } from "../../wasm/wire/core";
@@ -55,7 +57,7 @@ import {
 } from "../../wasm/wire/rig";
 import { graphMeta } from "../graph/runtime";
 import { animatorsOf, type AnimatorRuntime } from "../instances";
-import { enabledCameras } from "../playback/view";
+import { cameraViews, type CameraViews } from "../playback/view";
 import { CharacterFrame } from "./frame";
 import { rigPhysics } from "./physics";
 import { RAY_FLOATS, rigState, type GoalTarget, type RigState } from "./state";
@@ -86,18 +88,44 @@ function isNode(t: GoalTarget): t is GameObject {
   return t instanceof GameObject;
 }
 
-/** A goal target's world position, or null for a destroyed node. */
+/** `worldPoint`'s answer for a node (reused: read it before the next call). */
+const nodePoint = { x: 0, y: 0, z: 0 };
+/** `nodeRotation`'s answer and its decomposition scratch (f32, as `Transform.worldRotation` decomposes: the same bits). */
+const nodeQuat = { x: 0, y: 0, z: 0, w: 1 };
+const decomposed = { p: new Float32Array(3), q: new Float32Array(4), s: new Float32Array(3) };
+
+/** A node's world rotation (`Transform.worldRotation`'s numbers, in a reused object), or null without a Transform. */
+function nodeRotation(t: GameObject): { x: number; y: number; z: number; w: number } | null {
+  if (!t.transform) return null;
+  const e = t.entity;
+  Mat4.decompose(t.world.worldMatrix(e), e * 16, decomposed.p, 0, decomposed.q, 0, decomposed.s, 0);
+  const q = decomposed.q;
+  nodeQuat.x = q[0]!;
+  nodeQuat.y = q[1]!;
+  nodeQuat.z = q[2]!;
+  nodeQuat.w = q[3]!;
+  return nodeQuat;
+}
+
+/** A goal target's world position (a node's: `worldPosition`'s numbers, in a reused object), or null for a destroyed node. */
 function worldPoint(t: GoalTarget): { x: number; y: number; z: number } | null {
   if (!isNode(t)) return t;
   if (!t.isValid || !t.transform) return null;
-  return t.transform.worldPosition;
+  const e = t.entity;
+  const m = t.world.worldMatrix(e), o = e * 16;
+  nodePoint.x = m[o + 12]!;
+  nodePoint.y = m[o + 13]!;
+  nodePoint.z = m[o + 14]!;
+  return nodePoint;
 }
+
+const NO_ROTATION = { x: 0, y: 0, z: 0, w: 1 } as const;
 
 function writeSlot(view: DataView, at: number, p: { x: number; y: number; z: number }, q: { x: number; y: number; z: number; w: number } | null, weight: number, rotationWeight: number): void {
   view.setFloat32(at + TARGET_POSITION, p.x, true);
   view.setFloat32(at + TARGET_POSITION + 4, p.y, true);
   view.setFloat32(at + TARGET_POSITION + 8, p.z, true);
-  const r = q ?? { x: 0, y: 0, z: 0, w: 1 };
+  const r = q ?? NO_ROTATION;
   view.setFloat32(at + TARGET_ROTATION, r.x, true);
   view.setFloat32(at + TARGET_ROTATION + 4, r.y, true);
   view.setFloat32(at + TARGET_ROTATION + 8, r.z, true);
@@ -112,11 +140,15 @@ function clearSlot(view: DataView, at: number): void {
   view.setFloat32(at + TARGET_ROTATION_WEIGHT, 0, true);
 }
 
+/** Which target slots `writeTargets` filled (reused: cleared on each call). */
+const filled = new Uint8Array(RIG_MAX_TARGETS);
+
 /** Writes the IK target slots of `rt`'s graph (see the file header). */
 function writeTargets(view: DataView, row: number, rt: AnimatorRuntime, s: RigState, names: readonly string[]): void {
   const a = rt.animator;
-  const filled = new Uint8Array(RIG_MAX_TARGETS);
-  const at = (slot: number) => row + RIG_TARGETS + slot * TARGET_STRIDE;
+  filled.fill(0);
+  // Slot `k` is at `row + RIG_TARGETS + k * TARGET_STRIDE` (no closures made: this runs per character per frame).
+  const base = row + RIG_TARGETS;
   for (const [name, goal] of s.goals) {
     const slot = names.indexOf(name);
     if (slot < 0 || slot >= RIG_MAX_TARGETS) {
@@ -126,69 +158,83 @@ function writeTargets(view: DataView, row: number, rt: AnimatorRuntime, s: RigSt
     const p = goal.target ? worldPoint(goal.target) : null;
     if (!p) continue;
     let q: { x: number; y: number; z: number; w: number } | null = goal.rotation;
-    if (!q && goal.rotationWeight > 0 && goal.target && isNode(goal.target)) q = goal.target.transform?.worldRotation ?? null;
-    writeSlot(view, at(slot), p, q, goal.weight, goal.rotationWeight);
+    if (!q && goal.rotationWeight > 0 && goal.target && isNode(goal.target)) q = nodeRotation(goal.target);
+    writeSlot(view, base + slot * TARGET_STRIDE, p, q, goal.weight, goal.rotationWeight);
     filled[slot] = 1;
     if (goal.hint) {
       const pole = names.indexOf(`${name}Pole`);
       const h = worldPoint(goal.hint);
       if (pole < 0 || pole >= RIG_MAX_TARGETS) warnOnce(`ikhint:${a.graph}:${name}`, `[myco] ${a.node.name}: the graph "${a.graph}" has no pole slot "${name}Pole"; the hint of Animator.ik("${name}") is ignored.`);
       else if (h && !s.goals.has(`${name}Pole`)) {
-        writeSlot(view, at(pole), h, null, 1, 0);
+        writeSlot(view, base + pole * TARGET_STRIDE, h, null, 1, 0);
         filled[pole] = 1;
       }
     }
   }
-  a.ikTargets.forEach((name, i) => {
-    const slot = names.indexOf(name);
+  const bound = a.ikTargets;
+  for (let i = 0; i < bound.length; i++) {
+    const slot = names.indexOf(bound[i]!);
     const node = a.ikTargetNodes[i];
-    if (slot < 0 || slot >= RIG_MAX_TARGETS || filled[slot] || !node) return;
+    if (slot < 0 || slot >= RIG_MAX_TARGETS || filled[slot] || !node) continue;
     const p = worldPoint(node);
-    if (!p) return;
-    writeSlot(view, at(slot), p, null, 1, 0);
+    if (!p) continue;
+    writeSlot(view, base + slot * TARGET_STRIDE, p, null, 1, 0);
     filled[slot] = 1;
-  });
-  for (let slot = 0; slot < RIG_MAX_TARGETS; slot++) if (!filled[slot]) clearSlot(view, at(slot));
+  }
+  for (let slot = 0; slot < RIG_MAX_TARGETS; slot++) if (!filled[slot]) clearSlot(view, base + slot * TARGET_STRIDE);
 }
 
 /** The rig LOD level for `rt` (see the file header). */
-function rigLod(rt: AnimatorRuntime, cams: ReturnType<typeof enabledCameras>, at: Float64Array): number {
+function rigLod(rt: AnimatorRuntime, cams: CameraViews, at: Float64Array): number {
   const cull = rt.animator.rigCullDistance;
-  if (!(cull > 0) || !cams.length) return 0;
-  const main = cams.reduce((best, c) => (c.depth < best.depth ? c : best));
-  const p = main.node.transform?.worldPosition;
-  if (!p) return 0;
-  return Math.hypot(at[0]! - p.x, at[1]! - p.y, at[2]! - p.z) > cull ? RIG_LOD_OFF : 0;
+  const main = cams.main;
+  if (!(cull > 0) || !main || !main.placed) return 0;
+  return Math.hypot(at[0]! - main.px, at[1]! - main.py, at[2]! - main.pz) > cull ? RIG_LOD_OFF : 0;
 }
 
-/** Casts last frame's rays of `rt` and writes the hits in this frame's model space; misses without physics. */
+/** The ray's origin and direction handed to the query (reused: the query copies them), and a hit converted to model space. */
+const rayOrigin = { x: 0, y: 0, z: 0 };
+const rayDirection = { x: 0, y: 0, z: 0 };
+const out3 = new Float64Array(3);
+
+/**
+ * Casts last frame's rays of `rt` and writes the hits in this frame's model space; misses without physics. The rays go
+ * through the World's 3D ray query (`_worldRaycast`: the 3D physics service's `raycast`, the one `Physics.raycast` calls
+ * for the World, so the same hits) without `Physics.raycast`'s current-World switch and result objects.
+ */
 function writeHits(view: DataView, row: number, frame: AnimationFrame, s: RigState, instance: number): void {
-  const physics = rigPhysics();
-  const out = new Float64Array(3);
+  const cast = rigPhysics() !== null && s.rayInstance === instance;
   for (let i = 0; i < RIG_MAX_RAYS; i++) {
     const hit = row + RIG_HITS + i * HIT_STRIDE;
     view.setUint32(hit + HIT_FLAGS, 0, true);
-    if (!physics || s.rayInstance !== instance || !s.rayValid[i]) continue;
+    if (!cast || !s.rayValid[i]) continue;
     const r = i * RAY_FLOATS;
     const ray = s.rays;
-    let result: ReturnType<typeof physics.raycast> = null;
+    rayOrigin.x = ray[r]!;
+    rayOrigin.y = ray[r + 1]!;
+    rayOrigin.z = ray[r + 2]!;
+    rayDirection.x = ray[r + 3]!;
+    rayDirection.y = ray[r + 4]!;
+    rayDirection.z = ray[r + 5]!;
+    let result: WorldRayHit | null = null;
     try {
-      result = World._runIn(frame.world, () => physics.raycast({ x: ray[r]!, y: ray[r + 1]!, z: ray[r + 2]! }, { x: ray[r + 3]!, y: ray[r + 4]!, z: ray[r + 5]! }, ray[r + 6]!));
+      result = _worldRaycast(frame.world, rayOrigin, rayDirection, ray[r + 6]!);
     } catch {
-      result = null; // no 3D physics running in this World: a miss
+      result = null; // the physics query failed: a miss
     }
-    if (!result) continue;
-    s.frame.pointToModel([result.point.x, result.point.y, result.point.z], out);
-    for (let k = 0; k < 3; k++) view.setFloat32(hit + HIT_POINT + 4 * k, out[k]!, true);
-    s.frame.normalToModel([result.normal.x, result.normal.y, result.normal.z], out);
-    for (let k = 0; k < 3; k++) view.setFloat32(hit + HIT_NORMAL + 4 * k, out[k]!, true);
+    if (!result) continue; // no 3D physics running in this World, or nothing hit: a miss
+    const p = result.point, n = result.normal;
+    s.frame.pointToModel3(p.x, p.y, p.z, out3);
+    for (let k = 0; k < 3; k++) view.setFloat32(hit + HIT_POINT + 4 * k, out3[k]!, true);
+    s.frame.normalToModel3(n.x, n.y, n.z, out3);
+    for (let k = 0; k < 3; k++) view.setFloat32(hit + HIT_NORMAL + 4 * k, out3[k]!, true);
     view.setUint32(hit + HIT_FLAGS, HIT_VALID, true);
   }
 }
 
 /** @internal `animation.Gather`'s ik sub-step (see the file header). */
 export function gatherRig(frame: AnimationFrame): void {
-  let cams: ReturnType<typeof enabledCameras> | null = null;
+  let cams: CameraViews | null = null;
   for (const rt of animatorsOf(frame.world)) {
     if (!inPass(frame, rt)) continue;
     const meta = graphMeta(rt.animator);
@@ -212,7 +258,7 @@ export function gatherRig(frame: AnimationFrame): void {
       view.setFloat32(row + RIG_CHARACTER_SCALE + 4 * k, s.frame.scale[k]!, true);
     }
     for (let k = 0; k < 4; k++) view.setFloat32(row + RIG_CHARACTER_ROTATION + 4 * k, s.frame.rotation[k]!, true);
-    cams ??= enabledCameras(frame.world);
+    cams ??= cameraViews(frame.world);
     view.setUint32(row + RIG_LOD, rigLod(rt, cams, s.frame.position), true);
     writeTargets(view, row, rt, s, meta.compiled.ikTargets);
     writeHits(view, row, frame, s, instance);
@@ -236,8 +282,8 @@ export function collectRigRays(frame: AnimationFrame): void {
       s.rayValid[i] = valid ? 1 : 0;
       if (!valid) continue;
       const r = i * RAY_FLOATS;
-      s.frame.pointToWorld([view.getFloat32(at + RAY_ORIGIN, true), view.getFloat32(at + RAY_ORIGIN + 4, true), view.getFloat32(at + RAY_ORIGIN + 8, true)], s.rays, r);
-      s.frame.vectorToWorld([view.getFloat32(at + RAY_DIRECTION, true), view.getFloat32(at + RAY_DIRECTION + 4, true), view.getFloat32(at + RAY_DIRECTION + 8, true)], v3);
+      s.frame.pointToWorld3(view.getFloat32(at + RAY_ORIGIN, true), view.getFloat32(at + RAY_ORIGIN + 4, true), view.getFloat32(at + RAY_ORIGIN + 8, true), s.rays, r);
+      s.frame.vectorToWorld3(view.getFloat32(at + RAY_DIRECTION, true), view.getFloat32(at + RAY_DIRECTION + 4, true), view.getFloat32(at + RAY_DIRECTION + 8, true), v3);
       const scale = Math.hypot(v3[0]!, v3[1]!, v3[2]!);
       const length = view.getFloat32(at + RAY_LENGTH, true) * scale;
       if (!(scale > 0) || !(length > 0)) {

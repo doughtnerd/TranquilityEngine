@@ -1,11 +1,11 @@
 /**
  * Internal (ADR 0370): an item kernel (`itemKernel.ts`) on WebGPU. One compute dispatch per frame
- * writes every item's outputs into `output`, a storage buffer a draw can also bind as a vertex buffer
+ * (submitted alone, or recorded into a `GpuComputeBatch` with other kernels') writes every item's outputs into `output`, a storage buffer a draw can also bind as a vertex buffer
  * (stride `itemStride(spec)`). Inputs are storage buffers it owns, grown as tables grow.
  */
 import { VEC4_BYTES } from "./layout";
 import { ITEM_WORKGROUP, itemKernelWgsl, itemStride, type ItemKernelSpec } from "./itemKernel";
-import { BUFFER, GpuKernel, readBuffer, storageBufferFactory, type BufferFactory, type GpuBinding, type GpuBuffer, type GpuDevice, type GpuResource } from "./webgpu";
+import { BUFFER, GpuKernel, readBuffer, storageBufferFactory, type BufferFactory, type GpuBinding, type GpuBuffer, type GpuComputeBatch, type GpuDevice, type GpuDispatch, type GpuResource } from "./webgpu";
 
 export interface GpuItemKernelOptions {
   /** Makes `output` (default: a storage buffer with `BUFFER.VERTEX`, so a mesh can draw from it). */
@@ -25,6 +25,14 @@ export class GpuItemKernel {
   private readonly inputs = new Map<string, { buffer: GpuBuffer; bytes: number }>();
   private readonly factory: BufferFactory;
   private n: number;
+  private dispatches: readonly GpuDispatch[] = [];
+  /** The bind group's resources (made once per bind group, so not a new closure each dispatch). */
+  private readonly resources = (): GpuResource[] => {
+    const r: GpuResource[] = [{ binding: 0, buffer: this.info }];
+    this.spec.inputs.forEach((name, j) => r.push({ binding: j + 1, buffer: this.inputs.get(name)!.buffer }));
+    r.push({ binding: this.spec.inputs.length + 1, buffer: this.output });
+    return r;
+  };
 
   constructor(
     private readonly device: GpuDevice,
@@ -83,15 +91,11 @@ export class GpuItemKernel {
     this.gpu.invalidate();
   }
 
-  /** Run every item into `output`. */
-  dispatch(): void {
-    const group = this.gpu.group("0", () => {
-      const r: GpuResource[] = [{ binding: 0, buffer: this.info }];
-      this.spec.inputs.forEach((name, j) => r.push({ binding: j + 1, buffer: this.inputs.get(name)!.buffer }));
-      r.push({ binding: this.spec.inputs.length + 1, buffer: this.output });
-      return r;
-    });
-    this.gpu.dispatch(group, [{ entry: "main", items: this.n }]);
+  /** Run every item into `output`: submitted now, or recorded into `batch` (submitted with it). */
+  dispatch(batch?: GpuComputeBatch): void {
+    const group = this.gpu.group("0", this.resources);
+    if (batch) this.gpu.record(batch, group, this.dispatches);
+    else this.gpu.dispatch(group, this.dispatches);
   }
 
   /** Run over `items` items from now on: `output` is replaced (a draw rebinds it). */
@@ -110,6 +114,7 @@ export class GpuItemKernel {
   }
 
   private writeInfo(): void {
+    this.dispatches = [{ entry: "main", items: this.n }];
     this.device.queue.writeBuffer(this.info, 0, new Uint32Array([this.n, 0, 0, 0]).buffer, 0, VEC4_BYTES);
   }
 

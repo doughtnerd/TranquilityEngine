@@ -55,7 +55,7 @@ FMOD was considered (0099, then 0156). It's proprietary and licensed per title, 
 - **HRTF:** filters that make a sound seem to come from a direction, over headphones.
 - **Ambisonic bed:** a cheap shared sound field that many distant sounds are placed into, then rendered once.
 - **Partitioned convolution:** reverb from a recorded room response, with its work split across quanta so no single one spikes.
-- **Ducking:** lowering one bus while another plays. **Snapshot:** a saved set of bus levels to fade to. See `docs/guide/audio-mixer.md`.
+- **Ducking:** lowering one bus while another plays. **Snapshot:** a saved set of bus levels to fade to. See `docs/wiki/guide/audio-mixer.md`.
 - **LUFS:** perceived loudness.
 
 ## Decision
@@ -309,7 +309,7 @@ macOS (WKWebView) is the owner's low priority. It's a gate for macOS releases, a
 ## Deprecates
 
 - **0006** is superseded. Howler, `howlerBackend.ts` and the `howler` dependency are deleted when the Babylon backend lands (design task BB2).
-- **0099** is superseded. In M1a, `fmodBackend.ts`, `tests/fmodBackend.test.ts`, `docs/guide/fmod.md` and the `"fmod"` backend value are removed, along with the FMOD wiring in `Engine.ts:13,177`.
+- **0099** is superseded. In M1a, `fmodBackend.ts`, `tests/fmodBackend.test.ts`, `docs/wiki/guide/fmod.md` and the `"fmod"` backend value are removed, along with the FMOD wiring in `Engine.ts:13,177`.
 - **0156** is withdrawn and never built.
 - **0074, 0097, 0098** are amended (header). 0097's `busGraph.ts` moves to a test-only Web Audio reference for the parity harness. `implementation-status.md` rows and the decisions index are updated when this record is accepted.
 
@@ -401,4 +401,4 @@ Built by Cp1 (counters, Wave 2); the reader and the Profiler line are Cp2 and Pf
 - Reverb sends are post-fader (golden `m5/bus-mute-send`); the reverb runs out its tail.
 - Loudness (BS.1770 meters on Master plus up to 8 buses) and level-mode sidechain ducking run in the core. The mixer wasm is 377,648 B under the 400 KB tripwire (M5 build log, D3).
 
-See the M5 build log (`docs/design/0171-audio-mix/build-log.md`) and [guide/audio-mix-api.md](../guide/audio-mix-api.md).
+See the M5 build log (`docs/design/0171-audio-mix/build-log.md`) and [guide/audio-mix-api.md](../wiki/guide/audio-mix-api.md).

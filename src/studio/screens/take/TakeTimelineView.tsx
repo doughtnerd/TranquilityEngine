@@ -6,14 +6,18 @@
 // it drives, a line or labelled segments; hovering one outlines the Inspector cards it drives) and the notes lane (the game's marks, and the designer's note markers and regions: drag to move, a
 // double-click adds a marker; focused, Left and Right pick a note when none is, then nudge it by 0.1 s, 1 s with Shift).
 // The playhead is the replay's time. A view over props.
-import { useMemo, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { TakeNotes } from "../../../engine/audio/take/types";
 import { Filmstrip } from "../../components/Filmstrip";
 import { SpanLane } from "../../components/SpanLane";
 import { packSpans } from "../../components/spanLaneModel";
 import { ValueLane } from "../../components/ValueLane";
 import { linearTimeAxis, type TimeAxis } from "../../components/timeAxis";
+import { TimelineZoomStrip } from "../../components/TimelineZoomStrip";
 import { useElementWidth } from "../../components/useElementWidth";
+import { useTimelineView } from "../../components/useTimelineView";
+import { recordingView } from "../../components/recordingView";
+import { heatOfCounts } from "../../components/heatmapModel";
 import { noteColourCss } from "./notesEdits";
 import type { TakeSelection } from "./takeScreen";
 import { RunPlayhead, RunRuler } from "../profiler/RunRuler";
@@ -43,7 +47,13 @@ export interface TakeTimelineViewProps {
   /** The game parameter under the pointer (here or in the Inspector), outlined in both. */
   readonly hovered?: string | null;
   onHover?(parameter: string | null): void;
+  /** Experimental: colour each lane's instances by how often its playlist played in the take. */
+  readonly heatmap?: boolean;
   /** A scrub: `done` on release. */
+  /** The recording's path: the Profiler's timeline of the same file shows the same seconds. */
+  readonly viewKey?: string | null;
+  /** A picture on the Gameplay row clicked: show the game at `t` (default: seek). */
+  onPicture?(t: number): void;
   onSeek(t: number, done: boolean): void;
   onSelectInstance(key: string): void;
   onOpenInstance(key: string): void;
@@ -64,13 +74,26 @@ export function TakeTimelineView(props: TakeTimelineViewProps) {
   const width = Math.max(0, useElementWidth(lane));
   const { timeline } = props;
   const duration = Math.max(0.001, timeline.duration);
-  const axis = useMemo(() => linearTimeAxis(0, duration, width), [duration, width]);
+  // The view: the whole take until zoomed (Ctrl/⌘ + wheel or pinch, Shift + wheel or a sideways swipe, the strip below).
+  const zoom = useTimelineView(duration, props.viewKey ? recordingView(props.viewKey) : undefined);
+  const { start, end } = zoom.view;
+  const axis = useMemo(() => linearTimeAxis(start, end, width), [start, end, width]);
+  // Replaying: page the view to keep the playhead in it.
+  useEffect(() => {
+    if (props.playing) zoom.follow(props.time);
+  }, [props.time, props.playing]);
+  const onWheel = (e: WheelEvent) => {
+    const r = lane.current?.getBoundingClientRect();
+    const x = r ? Math.min(Math.max(e.clientX - r.left, 0), r.width) : 0;
+    if (zoom.wheel(e, axis.toTime(x), width)) e.preventDefault();
+  };
   const selectedKey = props.selected?.kind === "instance" ? props.selected.key : null;
   const globals = timeline.parameters.filter((p) => p.path === null);
   const locals = timeline.parameters.filter((p) => p.path !== null);
+  const heats = useMemo(() => (props.heatmap ? heatOfCounts(new Map(timeline.lanes.map((l) => [l.path, l.instances.length]))) : null), [props.heatmap, timeline]);
   return (
-    <div class="tk-timeline">
-      <RunRuler duration={duration} time={props.time} label="Take time" onSeek={props.onSeek} />
+    <div class="tk-timeline" onWheel={onWheel}>
+      <RunRuler duration={duration} view={zoom.view} time={props.time} label="Take time" onSeek={props.onSeek} />
       <div class="tk-rows">
         <div class="tk-row tk-gameplay-row">
           <div class="tk-head">
@@ -79,7 +102,7 @@ export function TakeTimelineView(props: TakeTimelineViewProps) {
           </div>
           <div class="tk-lane tk-film" ref={lane}>
             {timeline.frames.length > 0 ? (
-              <Filmstrip frames={timeline.frames} toX={axis.toX} time={props.time} onSeek={(t) => props.onSeek(t, true)} />
+              <Filmstrip frames={timeline.frames} toX={axis.toX} time={props.time} onSeek={(t) => (props.onPicture ? props.onPicture(t) : props.onSeek(t, true))} />
             ) : (
               <div class="tk-tiles" title="This take has no pictures of the game view (a take recorded with pictures shows them here)">
                 {Array.from({ length: TILES }, (_, i) => (
@@ -129,7 +152,7 @@ export function TakeTimelineView(props: TakeTimelineViewProps) {
                 <span class="tk-head-sub">{props.plays?.(l.path) || count}</span>
               </div>
               <div class="tk-lane tk-inst-lane">
-                <SpanLane spans={l.spans} toX={axis.toX} width={width} rowHeight={32} collapsed={!open} now={duration} label={`${l.label} instances`} selected={selectedKey} onSelect={props.onSelectInstance} onOpen={props.onOpenInstance} />
+                <SpanLane spans={l.spans} toX={axis.toX} width={width} rowHeight={32} collapsed={!open} now={duration} label={`${l.label} instances`} heat={heats ? () => heats.get(l.path) ?? null : undefined} selected={selectedKey} onSelect={props.onSelectInstance} onOpen={props.onOpenInstance} />
               </div>
             </div>
           );
@@ -140,9 +163,10 @@ export function TakeTimelineView(props: TakeTimelineViewProps) {
         ))}
         <NotesRow {...props} axis={axis} />
         <div class="tk-playhead-layer">
-          <RunPlayhead time={props.time} duration={duration} />
+          <RunPlayhead time={props.time} duration={duration} view={zoom.view} />
         </div>
       </div>
+      <TimelineZoomStrip timeline={zoom} anchor={props.time} />
     </div>
   );
 }

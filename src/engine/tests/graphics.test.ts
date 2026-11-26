@@ -8,7 +8,7 @@ import { MemoryStorage, Storage } from "../platform/Storage";
 // Graphics class that switches the active tier.
 
 const DEFAULT_NAMES = ["Low", "Medium", "High", "Ultra"];
-const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, cascadedLights: 2, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high" };
+const HIGH: Omit<QualityTier, "name"> = { renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, cascadedLights: 2, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high", lights2D: "high" };
 
 afterEach(() => {
   Graphics._configure(defaultGraphics());
@@ -26,8 +26,8 @@ describe("parseGraphics", () => {
     const raw = {
       defaultTier: "Only",
       tiers: [
-        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", shadowCascades: 1, cascadedLights: 1, shadowDistance: 20, anisotropy: 2, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low" },
-        { name: "Only", renderScale: 1.5, antialias: "fxaa", shadows: "ultra", shadowCascades: 4, cascadedLights: 3, shadowDistance: 500, anisotropy: 16, shaderLevel: "medium", postProcessing: true, bloom: false, ambientOcclusion: "ultra", depthOfField: true, reflectionProbes: "high", particles: "medium" },
+        { name: "Fast", renderScale: 0.5, antialias: "off", shadows: "off", shadowCascades: 1, cascadedLights: 1, shadowDistance: 20, anisotropy: 2, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low", lights2D: "low" },
+        { name: "Only", renderScale: 1.5, antialias: "fxaa", shadows: "ultra", shadowCascades: 4, cascadedLights: 3, shadowDistance: 500, anisotropy: 16, shaderLevel: "medium", postProcessing: true, bloom: false, ambientOcclusion: "ultra", depthOfField: true, reflectionProbes: "high", particles: "medium", lights2D: "medium" },
       ],
     };
     const { graphics, problems } = parseGraphics(raw);
@@ -316,5 +316,14 @@ describe("platform defaults", () => {
     const g = { ...defaultGraphics(), autoDetect: true, platformDefaults: { web: "Low" } };
     Graphics._configure(g, undefined, "Medium", "web");
     expect(Graphics.quality).toBe("Medium");
+  });
+});
+
+describe("the lights2D tier field (ADR 0399)", () => {
+  it("defaults by tier, and a tier written without it follows its shader level", () => {
+    expect(defaultGraphics().tiers.map((t) => t.lights2D)).toEqual(["low", "medium", "high", "high"]);
+    const { graphics, problems } = parseGraphics({ defaultTier: "A", tiers: [{ name: "A", shaderLevel: "medium" }, { name: "B", shaderLevel: "low", lights2D: "high" }, { name: "C", lights2D: "ultra" }] });
+    expect(graphics.tiers.map((t) => t.lights2D)).toEqual(["medium", "high", "high"]);
+    expect(problems).toEqual(['graphics.tiers[2] ("C"): lights2D should be "low", "medium", "high"; using "high".']);
   });
 });

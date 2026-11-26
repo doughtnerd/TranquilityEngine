@@ -16,6 +16,12 @@ import { createGraphMaterial } from "../render/babylon/graphMaterial";
 import type { CompiledShaderGraph } from "../render/shaderGraph/compile";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { BabylonParticles, type BabylonParticleHost } from "../render/babylon/particles";
+import { BabylonLights2D } from "../render/babylon/lights2D";
+import { BabylonMaterialLibrary } from "../render/babylon/materialLibrary";
+import { BabylonMaterials2D } from "../render/babylon/materials2D";
+import { LIGHTS_2D_QUALITY } from "../core/graphics";
+import { World } from "../core/World";
+import { Assets, Engine as MycoEngine, GameObject, Light2D, SceneManager } from "../../myco";
 import { ParticleSystem } from "../render/components";
 import { nullEngine } from "./pbrShaderSource";
 import { defaultEmitter, defaultRenderer, defaultShape, type ParticleEffect, type ParticleEmitterSettings, type ParticleRenderer, PARTICLES_FORMAT } from "../scene/particles";
@@ -338,6 +344,40 @@ describe("particles on the Babylon backend (ADR 0075 stage 5)", () => {
     frames(p, c, 2);
     // Negative orders under the scene's other transparent meshes, 0 among them, positive over them.
     expect(drawn().map((m) => m.alphaIndex)).toEqual([Number.POSITIVE_INFINITY, -1, Number.MAX_VALUE, -3, Number.MAX_VALUE]);
+  });
+
+  it("draws a 2D system at its sorting layer's order, lit by 2D lights through the 2D quad material (ADR 0415)", async () => {
+    Assets.clearSources();
+    Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] } }));
+    const game = await MycoEngine.create({ headless: true, project: { render: { sortingLayers: ["Back", "Default"] } } });
+    try {
+      await SceneManager.load("s.json");
+      GameObject.create("sun").addComponent(Light2D).type = "global"; // lights every layer
+      const rig = new BabylonLights2D({ scene, texture: () => null, textureSize: () => null });
+      rig.sync(World.require(), LIGHTS_2D_QUALITY.high);
+      const materials2D = new BabylonMaterials2D({ scene, library: new BabylonMaterialLibrary(scene) });
+      const p = make(false, true, { sortOrder: (layer, order) => ["Back", "Default"].indexOf(layer) * 10000 + order, materials2D });
+      const c = fakeSystem({ emitters: [still("E", {})] }, { sortingLayer: "Default", orderInLayer: 3 });
+      frames(p, c, 2);
+      const lit = drawn()[0]!;
+      expect(lit.alphaIndex).toBe(10003);
+      expect(lit.material).toBeInstanceOf(PBRMaterial);
+      expect(lit.material!.pluginManager?.getPlugin("MycoLight2D")).toBeTruthy();
+      c.orderInLayer = 5; // a new order moves the draw, the same mesh
+      frames(p, c, 1);
+      expect(drawn()[0]).toBe(lit);
+      expect(lit.alphaIndex).toBe(10005);
+      const count = c._state.count;
+      c.sortingLayer = ""; // 3D again: the instanced shader draw at its render order, the particles kept
+      frames(p, c, 1);
+      expect(drawn()[0]!.material).toBeInstanceOf(ShaderMaterial);
+      expect(drawn()[0]!.alphaIndex).toBe(Number.MAX_VALUE);
+      expect(c._state.count).toBeGreaterThanOrEqual(count);
+      rig.dispose();
+    } finally {
+      game.dispose();
+      Assets.clearSources();
+    }
   });
 
   it("loads every particle texture as other textures are loaded (flipped), flipbooks and trails too", async () => {

@@ -336,7 +336,7 @@ pub(crate) fn player_phase(cx: &mut EvalContext<'_>, at: usize, rate: f32) {
             };
             cx.set_alpha(a);
         }
-        Phase::Pose => pose(cx, at, 0),
+        Phase::Pose => pose(cx, at, 0, 0),
         Phase::Root => {
             let delta = root(cx, at);
             cx.set_root(delta);
@@ -387,8 +387,10 @@ pub(crate) fn player_root_at(cx: &mut EvalContext<'_>, at: usize) -> RootDelta {
 
 /// The pose of the player at word `at` of the current node's state, into the current out slot.
 /// `sub` numbers the node's players (0 or 1: a slot's two), for their frame-cache slots.
-pub(crate) fn player_pose_at(cx: &mut EvalContext<'_>, at: usize, sub: usize) {
-    pose(cx, at, sub);
+/// The pose of the player at `at` (frame-cache slot `sub` of the node), read only through bone
+/// mask `mask` (a mask handle, 0 for none): bones it gives no weight may be left unsampled.
+pub(crate) fn player_pose_at(cx: &mut EvalContext<'_>, at: usize, sub: usize, mask: u32) {
+    pose(cx, at, sub, mask);
 }
 
 fn tracks(cx: &mut EvalContext<'_>, at: usize, weight: f32) {
@@ -529,7 +531,7 @@ fn update(cx: &mut EvalContext<'_>, at: usize, rate: f32) {
     }
 }
 
-fn pose(cx: &mut EvalContext<'_>, at: usize, sub: usize) {
+fn pose(cx: &mut EvalContext<'_>, at: usize, sub: usize, mask: u32) {
     let slot = cx.out();
     let assets = cx.assets();
     let skel = cx.skeleton();
@@ -552,13 +554,21 @@ fn pose(cx: &mut EvalContext<'_>, at: usize, sub: usize) {
     } else {
         skel.rest
     };
+    let only = if mask != 0 { assets.mask(mask) } else { None };
     let (out, scratch, cache, tag) = cx.pose_sample_and_cache(slot, sub);
     let sampled = match cache {
-        // T82r: the player's frame cache (the same bits as without it).
+        // T82r: the player's frame cache (the same bits as without it). Under a mask, only the
+        // bones it keeps are decoded (the rest are never read).
         Some((header, frames)) => {
             let mut cache = anim_sample::FrameCache::new(header, frames, tag);
-            clip.bound
-                .sample_pose_cached(time, rest, scratch, out, &mut cache)
+            match only {
+                Some(m) => clip
+                    .bound
+                    .sample_pose_masked(time, rest, scratch, out, &mut cache, m),
+                None => clip
+                    .bound
+                    .sample_pose_cached(time, rest, scratch, out, &mut cache),
+            }
         }
         None => clip.bound.sample_pose(time, rest, scratch, out, None),
     };

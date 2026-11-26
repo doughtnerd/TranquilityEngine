@@ -23,7 +23,9 @@ import type { SceneHost } from "./sceneHost";
 import { SCENE_KEYS, type SceneAction } from "./sceneKeys";
 import { ScenesPanel } from "./ScenesPanel";
 import { SceneView } from "./SceneView";
-import { findObject, renameObject, setHidden, setLocked } from "./sceneEdits";
+import { findObject, isGameScenePath, renameObject, setHidden, setLocked } from "./sceneEdits";
+import { baseBanner } from "./baseLayer";
+import { audioProject } from "../../shell/audioProject";
 import { SettingsPanel } from "./SettingsPanel";
 import { materialText } from "./settingsEdits";
 import { AttenuationChoiceDialog, GameSceneDialog, TakeDialog } from "./SpatialDialogs";
@@ -71,7 +73,7 @@ function ScenesListPanel() {
       )}
       {newDialog.value?.kind === "take" && (
         <TakeDialog
-          takes={(currentProject.value?.files ?? []).filter((f) => f.toLowerCase().endsWith(".mycotake"))}
+          takes={(currentProject.value?.files ?? []).filter((f) => f.toLowerCase().endsWith(".sporesample"))}
           open={async (p) => {
             const t = await openTake(p);
             const folder = newDialog.peek()?.folder ?? "";
@@ -211,7 +213,7 @@ function ScenePanel() {
     return (
       <Panel bodyClass="sp-panel-body">
         <EmptyState
-          title="Spatial"
+          title="No test scene open"
           icon={<Icon name="spatial" size={28} />}
           body="Pick a test scene in the Scenes panel, or make one."
           action={{ label: "New test scene", title: "Test scenes place emitters, listeners, obstacles and zones to hear how distance, occlusion, reverb zones and Doppler sound, through the engine's own spatial audio", disabled: !writable(), run: () => newScene("blank", "") }}
@@ -266,6 +268,8 @@ function InspectorListPanel() {
       <div class="sp-doc" data-asset-document={openDoc.value?.path} tabIndex={-1}>
         <InspectorPanel
           scene={s}
+          gameScenes={(audioProject.value?.files ?? []).filter(isGameScenePath)}
+          baseNote={baseBanner(baseImport.value)?.text ?? null}
           selected={sel}
           readOnly={readOnly.value}
           voices={voices.value}

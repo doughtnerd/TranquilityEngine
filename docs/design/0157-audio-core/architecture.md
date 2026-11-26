@@ -745,7 +745,7 @@ Main allocates nothing per frame. The voice table and scratch are preallocated t
 
 ## 9. Cross-platform matrix
 
-Versions were recalled at design time; **A0.6 and A0.7 confirmed them on 2026-11-09** (MDN browser-compat-data 8.1.8, Playwright WebKit and Firefox in a Linux container, WebKitGTK 2.52.6 in Docker, WebView2 on Windows; details in `docs/guide/audio-minimum-versions.md` and the build log). The loader probes features, not versions.
+Versions were recalled at design time; **A0.6 and A0.7 confirmed them on 2026-11-09** (MDN browser-compat-data 8.1.8, Playwright WebKit and Firefox in a Linux container, WebKitGTK 2.52.6 in Docker, WebView2 on Windows; details in `docs/wiki/guide/audio-minimum-versions.md` and the build log). The loader probes features, not versions.
 
 **Platforms by product (owner, 2026-11-09).** The editor targets desktop and the web browser only. Published games also target Android through Tauri, whose export is a future record extending 0041; the core runs there in the Android System WebView, on the same AudioWorklet path.
 

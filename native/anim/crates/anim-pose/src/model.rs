@@ -36,7 +36,7 @@ pub fn skinning_from_model(model: &[AosTransform], inverse_bind: &[AosMat3x4], o
         .zip(inverse_bind)
         .zip(out.as_chunks_mut::<12>().0)
     {
-        *o = (AosMat3x4::from_transform(*m) * *ib).m;
+        *o = AosMat3x4::from_transform(*m).mul_rows(*ib).m;
     }
 }
 
@@ -71,7 +71,9 @@ pub fn skinning_matrices_subset(
             model[p as usize].compose(lt)
         };
         let o: &mut [f32; 12] = (&mut out[12 * i..12 * i + 12]).try_into().unwrap();
-        *o = (AosMat3x4::from_transform(model[i]) * inverse_bind[i]).m;
+        *o = AosMat3x4::from_transform(model[i])
+            .mul_rows(inverse_bind[i])
+            .m;
     }
 }
 

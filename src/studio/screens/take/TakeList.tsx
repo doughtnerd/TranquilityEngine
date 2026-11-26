@@ -11,5 +11,5 @@ export type TakeListProps = Omit<RunFileTreeProps, "tree" | "noun" | "label" | "
 export const TAKE_TREE = "take-list";
 
 export function TakeList(props: TakeListProps) {
-  return <RunFileTree {...props} files={takeFiles(props.files)} tree={TAKE_TREE} noun="take" label="Takes" accept=".mycotake" emptyBody={NO_TAKES} fileIcon={() => "take"} />;
+  return <RunFileTree {...props} files={takeFiles(props.files)} tree={TAKE_TREE} noun="take" label="Takes" accept=".sporesample" emptyBody={NO_TAKES} fileIcon={() => "take"} />;
 }

@@ -11,7 +11,7 @@ import { isTakePath } from "./captureTree";
 
 /** What the link reads of the Profiler's open capture (`ProfilerStore.state`'s open form). */
 export type ReviewCapture =
-  | { readonly kind: "open"; readonly origin: "file" | "live"; readonly path: string | null; readonly replayOf: CaptureReplayOf | null }
+  | { readonly kind: "open"; readonly origin: "file" | "live"; readonly path: string | null; readonly replayOf: CaptureReplayOf | null; readonly take: boolean }
   | { readonly kind: "none" | "opening" | "failed" };
 
 /** The Profiler's side of the link (a `ProfilerStore`). */
@@ -31,10 +31,11 @@ export interface ReviewReplay {
   } | null>;
 }
 
-/** The take file a capture is backed by: itself when it is a take, else the take a replay capture names; null for a live recording or none. */
+/** The take file a capture is backed by: itself when it holds take data, else the take a replay capture names; null for a live recording or none. */
 export function takeOfCapture(state: ReviewCapture): string | null {
   if (state.kind !== "open" || state.origin !== "file") return null;
-  if (state.path && isTakePath(state.path)) return state.path;
+  // ADR 0409: every recording is a `.sporesample`; one with take data (META `take`) is its own take.
+  if (state.take && state.path && isTakePath(state.path)) return state.path;
   return state.replayOf?.path ?? null;
 }
 

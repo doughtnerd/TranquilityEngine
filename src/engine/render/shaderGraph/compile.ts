@@ -57,6 +57,8 @@ export interface CompiledShaderGraph {
     emission: string | null;
     /** The tangent-space normal's expression, or null when Normal isn't connected. */
     normal: string | null;
+    /** Sprite Lit (ADR 0415): the mask the blend styles read, or null when Mask isn't connected. */
+    mask?: string | null;
     /**
      * Physical graphs (ADR 0052): the features compiled in, each value's expression. A feature
      * is present only when its input is connected or away from its default.
@@ -306,6 +308,12 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
     if (!uniforms.some((u) => u.name === uname)) uniforms.push({ name: uname, type: PROPERTY_UNIFORM[p.type], property: p.name, propertyType: p.type, value: p.value });
     return { expr: p.type !== "texture" ? `uniforms.${uname}` : uname, type: valueTypeOf(PROPERTY_UNIFORM[p.type]) };
   };
+  /** A texture the drawing component supplies (ADR 0415: `@sprite`, `@secondary:<name>`), as a texture property it overrides. */
+  const drawTextureUniform = (name: string): string => {
+    const uname = `uDraw_${ident(name.replace(/^@/, "").replace(/:/g, "_"))}`;
+    if (!uniforms.some((u) => u.name === uname)) uniforms.push({ name: uname, type: "sampler2D", property: name, propertyType: "texture", value: "" });
+    return uname;
+  };
   const textureUniform = (path: string, linear = false): string => {
     const existing = uniforms.find((u) => u.type === "sampler2D" && u.property === undefined && u.value === path && !!u.linear === linear);
     if (existing) return existing.name;
@@ -420,6 +428,8 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
         builtin: (b) => this.builtin(b),
         helper: (h) => this.helper(h),
         texture: (path) => textureUniform(path),
+        drawTexture: (name) => drawTextureUniform(name),
+        target: graph.target,
         property: (name) => {
           const v = scope.bindings ? (scope.bindings.get(name) ?? null) : propertyUniform(name);
           return v && { uniform: v.expr, type: v.type };
@@ -435,7 +445,10 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
         sampleMode: (u, linear) => sampleMode(u, linear, problem),
         problem,
       };
-      const exprs = def.emit(ctx);
+      // A node for other targets (ADR 0415) reads zero (a texture, white), reported: its code could need what this target lacks.
+      const offTarget = def.targets && !def.targets.includes(graph.target);
+      if (offTarget) problem(`only works in ${def.targets!.map((t) => `"${t}"`).join(", ")} graphs; it reads zero here`);
+      const exprs = offTarget ? Object.fromEntries(ports.outputs.map((o) => [o.id, o.type === "texture" ? textureUniform("") : literalOf(0, (o.type === "dynamic" ? dynamic : o.type) as ValueType, false)])) : def.emit(ctx);
       const result: Record<string, Value> = {};
       for (const o of ports.outputs) {
         const type: ValueType = o.type === "dynamic" ? dynamic : o.type;
@@ -585,13 +598,14 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
   const fragment = new Stage("fragment");
   const output = graph.nodes.find((n) => n.type === OUTPUT_NODE_TYPE) ?? { id: "output", type: OUTPUT_NODE_TYPE, position: [0, 0] as [number, number] };
   const sub = graph.subgraph;
-  const lit = graph.target !== "unlit" && !sub;
+  const lit = (graph.target === "lit" || graph.target === "physical") && !sub;
+  const spriteLit = graph.target === "sprite-lit" && !sub;
   const physicalTarget = graph.target === "physical" && !sub;
   const port = (id: string) => OUTPUT_INPUTS.find((p) => p.id === id)!;
   const connected = (id: string) => root.incoming.has(portRef(output.id, id));
 
   let offset: string | null = null, baseColor: string, alpha: string;
-  let metalness: string | null = null, roughness: string | null = null, emission: string | null = null, normal: string | null = null, alphaClip: string | null = null;
+  let metalness: string | null = null, roughness: string | null = null, emission: string | null = null, normal: string | null = null, alphaClip: string | null = null, mask: string | null = null;
   let physical: Partial<Record<PhysicalInput, string>> | null = null;
   if (sub) {
     // A sub-graph draws its first output, unlit (its preview).
@@ -608,13 +622,14 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
     } else baseColor = `${wgslType("vec3")}(1.0)`;
     alpha = "1.0";
   } else {
-    offset = connected("vertexOffset") ? vertex.surface(output, port("vertexOffset")) : null;
+    offset = connected("vertexOffset") && !graph.target.startsWith("sprite-") ? vertex.surface(output, port("vertexOffset")) : null;
     baseColor = fragment.surface(output, port("baseColor"));
     alpha = fragment.surface(output, port("alpha"));
     metalness = lit ? fragment.surface(output, port("metalness")) : null;
     roughness = lit ? fragment.surface(output, port("roughness")) : null;
     emission = lit ? fragment.surface(output, port("emission")) : null;
-    normal = lit && connected("normal") ? fragment.surface(output, port("normal")) : null;
+    normal = (lit || spriteLit) && connected("normal") ? fragment.surface(output, port("normal")) : null;
+    mask = spriteLit && connected("mask") ? fragment.surface(output, port("mask")) : null;
     const clipValue = output.inputs?.alphaClip;
     alphaClip = connected("alphaClip") || (typeof clipValue === "number" && clipValue > 0) ? fragment.surface(output, port("alphaClip")) : null;
     if (physicalTarget) {
@@ -648,7 +663,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
       }
     }
   }
-  const tangentFrame = normal !== null || !!physical?.clearcoatNormal;
+  const tangentFrame = (normal !== null && !spriteLit) || !!physical?.clearcoatNormal; // a sprite's normal turns by the 2D light plugin's frame
   if (tangentFrame) fragment.helper("tangentFrame");
 
   // Types for every node, reached or not (the editor colours all wires).
@@ -688,7 +703,7 @@ export function compileShaderGraph(graph: ShaderGraph, options: { shaderLevel?: 
     surface,
     doubleSided: !sub && graph.doubleSided,
     vertex: { declarations: vertexDeclarations, body: vertexBody, offset, varyings },
-    fragment: { declarations: fragmentDeclarations, body: fragmentBody, baseColor, alpha, metalness, roughness, emission, normal, physical, alphaClip },
+    fragment: { declarations: fragmentDeclarations, body: fragmentBody, baseColor, alpha, metalness, roughness, emission, normal, mask, physical, alphaClip },
     uniforms,
     problems,
     nodeProblems,

@@ -5,7 +5,7 @@
 // when there's nothing to play. The scrub row is always there, an idle track before the first trigger, so the bar keeps
 // its height when a trigger starts the log.
 import { TransportButton, VoiceStrip, type PlayerBarSlots } from "../../components/PlayerBar";
-import { eventTimes, logSpan, stepEvent, type LogRow } from "./voiceLog";
+import { eventTimes, stepEvent, triggerRows, triggerSpan, type LogRow, type TriggerMark } from "./voiceLog";
 
 export interface PlaylistPlayerState {
   readonly title: string;
@@ -23,6 +23,8 @@ export interface PlaylistPlayerState {
   /** What the next trigger plays at the test values ("Random pick · 1 of 5"), for the status at rest. */
   readonly next?: string;
   readonly log: readonly LogRow[];
+  /** Where the latest trigger began: the strip shows its voices only (null: the whole log). */
+  readonly mark?: TriggerMark | null;
   readonly cursor: number | null;
   /** The audio clock at the last poll. */
   readonly now: number;
@@ -38,14 +40,16 @@ export interface PlaylistPlayerActions {
 }
 
 export function playlistPlayerSlots(s: PlaylistPlayerState, a: PlaylistPlayerActions): PlayerBarSlots {
-  const times = eventTimes(s.log);
-  const span = logSpan(s.log, s.now);
+  // The strip and the event steps cover the latest trigger: its voices from its start, the playhead live until scrubbed.
+  const voices = triggerRows(s.log, s.mark ?? null);
+  const times = eventTimes(voices);
+  const span = triggerSpan(voices, s.mark ?? null, s.now);
+  const playhead = s.cursor ?? (span ? Math.min(s.now, span[1]) : null);
   const off = !s.busy && s.triggerOff !== null;
   // The big button is the prototype's accent pill: Trigger, or Release while a held loop waits (a paused one triggers fresh).
   const pill = s.busy && s.release && !s.paused
     ? { icon: "release" as const, label: "Release", title: "Release: held loops end by their exit settings (Space)", run: a.release }
     : { icon: "trigger" as const, label: "Trigger", title: s.triggerOff ?? (s.paused ? "Trigger: start fresh (Space)" : "Resolve and play one voice of this playlist (Space)"), run: a.trigger };
-  const voices = s.log.filter((r) => r.kind === "voice");
   return {
     nowPlaying: { art: s.art ?? "PL", title: s.title, subtitle: s.subtitle },
     transport: (
@@ -66,9 +70,10 @@ export function playlistPlayerSlots(s: PlaylistPlayerState, a: PlaylistPlayerAct
       <VoiceStrip
         from={span[0]}
         to={span[1]}
-        cursor={s.cursor}
-        segments={voices.map((r) => ({ start: r.start, end: r.end, done: r.end !== null && s.cursor !== null && r.end <= s.cursor }))}
-        startText={((s.cursor ?? span[1]) - span[0]).toFixed(2)}
+        cursor={playhead}
+        now={s.now}
+        segments={voices.map((r) => ({ start: r.start, end: r.end, done: r.end !== null && playhead !== null && r.end <= playhead }))}
+        startText={((playhead ?? span[1]) - span[0]).toFixed(2)}
         endText={voices.some((r) => r.end === null) ? "playing" : `${(span[1] - span[0]).toFixed(2)} s`}
         title="Drag to preview the voice log at any point. Bars are this trigger's voices."
         onSeek={(t) => a.seek(t)}
@@ -77,7 +82,7 @@ export function playlistPlayerSlots(s: PlaylistPlayerState, a: PlaylistPlayerAct
       <VoiceStrip from={0} to={1} cursor={0} segments={[]} startText="0.00" endText="—" title="Trigger to start the voice log" disabled onSeek={() => {}} />
     ),
     status: s.paused
-      ? `Paused at ${span ? ((s.cursor ?? span[1]) - span[0]).toFixed(2) : "0.00"} s`
+      ? `Paused at ${span && playhead !== null ? (playhead - span[0]).toFixed(2) : "0.00"} s`
       : s.busy
         ? `Playing: ${s.title}${s.release ? " · held until released" : ""}`
         : s.cursor !== null && span

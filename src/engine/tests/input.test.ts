@@ -254,7 +254,7 @@ describe("input streams (T12)", () => {
     const sizes: number[] = [];
     const send = link.send.bind(link);
     vi.spyOn(link, "send").mockImplementation((channel, data) => {
-      if (channel === "unreliable" && data[0] >= 8 && data.byteLength > 8) sizes.push(data.byteLength); // not pings, or replication's few-byte snapshot acks (T11)
+      if (channel === "unreliable" && data[0] >= 8 && data.byteLength > 12) sizes.push(data.byteLength); // not pings, or replication's snapshot acks (about 10 bytes, T11, ADR 0405); these inputs are 15 bytes and up
       send(channel, data);
     });
     step(engine, 10);

@@ -70,7 +70,7 @@ We will:
 
 ## Deprecates
 
-0099 (Proposed) becomes **Superseded by 0156**: its research and its "Howler stays the default" stance carry over. The `<script>`/`FMODModule` loader, FS preloading, `{ val }` calls and the `audio.fmod.sdkPath` setting are removed. `settings.ts` reads an old `sdkPath`, ignores it, and reports it as a problem. `docs/guide/fmod.md` is rewritten.
+0099 (Proposed) becomes **Superseded by 0156**: its research and its "Howler stays the default" stance carry over. The `<script>`/`FMODModule` loader, FS preloading, `{ val }` calls and the `audio.fmod.sdkPath` setting are removed. `settings.ts` reads an old `sdkPath`, ignores it, and reports it as a problem. `docs/wiki/guide/fmod.md` is rewritten.
 
 ## Open questions
 

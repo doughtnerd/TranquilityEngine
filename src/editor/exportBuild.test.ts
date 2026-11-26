@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GameManifest } from "../export/format";
-import { desktopExportCommand, exportProjectBuild } from "./exportBuild";
+import { desktopExportCommand, exportDesktopProject, exportProjectBuild, isRendezvousUrl, writeDesktopReadme } from "./exportBuild";
 import { openFolderProject, readOnlyProject } from "./projects";
 import { demoFolder, ROOT, type MemoryFileSystem } from "./testing";
+import { joinPath } from "./projectPaths";
 
 // Build / Export in the editor (ADR 0041): the editor's file sources (the open project's files, its scripts compiled, and the
 // player fetched from beside the editor) wired to the build writer (ADR 0296), whose own suite has the rest.
@@ -68,6 +69,48 @@ describe("the Export dialog's audio capture checkbox (its option reaches the bui
   });
 });
 
+describe("the Export dialog's Rendezvous URL (ADR 0403)", () => {
+  it("the desktop command adds --debug-rendezvous only with debugging on and a URL given", async () => {
+    const project = await folderProject(demoFolder());
+    expect(desktopExportCommand(project, false, false, true, true, false, false, "")).not.toContain("--debug-rendezvous");
+    expect(desktopExportCommand(project, false, false, true, false, false, false, "wss://r.example/myco-rendezvous")).not.toContain("--debug-rendezvous");
+    expect(desktopExportCommand(project, false, false, true, true, false, false, " wss://r.example/myco-rendezvous ")).toMatch(/--debug-link 7790 --debug-rendezvous "wss:\/\/r\.example\/myco-rendezvous"$/);
+  });
+
+  it("is validated as a ws:// or wss:// URL", () => {
+    expect(isRendezvousUrl("wss://r.example/myco-rendezvous")).toBe(true);
+    expect(isRendezvousUrl("ws://192.168.1.4:7790/myco-rendezvous")).toBe(true);
+    expect(isRendezvousUrl("https://r.example")).toBe(false);
+    expect(isRendezvousUrl("r.example")).toBe(false);
+  });
+
+  it("a debug export writes it as debug.rendezvous, and fetches the rendezvous bundle served beside the editor when there is one", async () => {
+    PLAYER["rendezvous/rendezvous.mjs"] = "export async function startRendezvous() {}\n";
+    try {
+      const fs = demoFolder();
+      const project = await folderProject(fs);
+      const plan = await exportProjectBuild(project, fs, "C:\\Out\\flappy", undefined, { debugLink: true, debugRendezvous: "wss://r.example/myco-rendezvous" });
+      expect(JSON.parse(fs.files.get("C:\\Out\\flappy\\game.json") as string).debug).toMatchObject({ rendezvous: "wss://r.example/myco-rendezvous" });
+      expect(fs.files.get("C:\\Out\\flappy\\rendezvous.mjs")).toContain("startRendezvous");
+      expect(fs.files.get("C:\\Out\\flappy\\serve.mjs")).toContain("./rendezvous.mjs");
+      expect(plan.warnings ?? []).toEqual([]);
+      // A release export has none of it.
+      const release = demoFolder();
+      await exportProjectBuild(await folderProject(release), release, "C:\\Out\\flappy");
+      expect(release.files.has("C:\\Out\\flappy\\rendezvous.mjs")).toBe(false);
+    } finally {
+      delete PLAYER["rendezvous/rendezvous.mjs"];
+    }
+  });
+
+  it("without the bundle beside the editor, a debug export still builds and warns", async () => {
+    const fs = demoFolder();
+    const plan = await exportProjectBuild(await folderProject(fs), fs, "C:\\Out\\flappy", undefined, { debugLink: true });
+    expect(fs.files.has("C:\\Out\\flappy\\rendezvous.mjs")).toBe(false);
+    expect(plan.warnings?.join("\n")).toContain("rendezvous.mjs");
+  });
+});
+
 describe("exportProjectBuild", () => {
   it("writes the player, the project's files and its compiled scripts into the folder", async () => {
     const fs = demoFolder();
@@ -101,5 +144,75 @@ describe("exportProjectBuild", () => {
     } finally {
       PLAYER["player/files.json"] = JSON.stringify({ files: ["assets/player-x.js", "myco.js", "player.html"] });
     }
+  });
+});
+
+describe("exportDesktopProject (ADR 0406)", () => {
+  const OUT = "C:\\Out\\desktop";
+  const file = (fs: MemoryFileSystem, p: string) => fs.files.get(joinPath(OUT, p));
+  /** project.json's exporter-only `build` settings (ADR 0041). */
+  const setBuild = (fs: MemoryFileSystem, build: Record<string, string>) => {
+    const at = joinPath(ROOT, "project.json");
+    fs.files.set(at, JSON.stringify({ ...(JSON.parse(fs.files.get(at) as string) as object), build }));
+  };
+
+  it("writes the web build in web/, the generated Tauri project, the default icon's source and a README", async () => {
+    const fs = demoFolder();
+    const project = await folderProject(fs);
+    const plan = await exportDesktopProject(project, fs, OUT);
+    expect(file(fs, "web/game.json")).toBeDefined();
+    expect(file(fs, "web/index.html")).toBeDefined();
+    expect(file(fs, "game.json")).toBeUndefined();
+    const config = JSON.parse(file(fs, "src-tauri/tauri.conf.json") as string) as { productName: string; build: { frontendDist: string } };
+    expect(config).toMatchObject({ productName: plan.manifest.name, build: { frontendDist: "../web" } });
+    expect(file(fs, "src-tauri/src/gamepad.rs")).toContain("myco_gamepad_listen");
+    expect(file(fs, "src-tauri/app-icon.svg")).toContain("<svg");
+    // The package has no icons/ until `tauri icon` runs, so the README makes them before the build.
+    expect(file(fs, "README.txt")).toContain("npx @tauri-apps/cli@2 icon src-tauri/app-icon.svg");
+    expect(file(fs, "README.txt")).toContain("npx @tauri-apps/cli@2 build");
+    expect(file(fs, "README.txt")).not.toContain("Installers:");
+  });
+
+  it("re-exporting keeps the Rust build cache, and build.icon's PNG replaces the default icon source", async () => {
+    const fs = demoFolder();
+    const project = await folderProject(fs);
+    await exportDesktopProject(project, fs, OUT);
+    fs.files.set(joinPath(OUT, "src-tauri/target/release/cached.rlib"), new Uint8Array([7]));
+    setBuild(fs, { icon: "images/flappyBird.png" });
+    const withIcon = await folderProject(fs);
+    await exportDesktopProject(withIcon, fs, OUT);
+    expect(file(fs, "src-tauri/target/release/cached.rlib")).toEqual(new Uint8Array([7]));
+    expect(file(fs, "src-tauri/app-icon.png")).toEqual(new Uint8Array([137, 80, 78, 71]));
+    expect(file(fs, "src-tauri/app-icon.svg")).toBeUndefined();
+    expect(file(fs, "README.txt")).toContain("npx @tauri-apps/cli@2 icon src-tauri/app-icon.png");
+  });
+
+  it("refuses an icon that isn't a PNG or SVG, before writing anything", async () => {
+    const fs = demoFolder();
+    setBuild(fs, { icon: "images/ground.jpg" });
+    const project = await folderProject(fs);
+    await expect(exportDesktopProject(project, fs, OUT)).rejects.toThrow(/PNG or SVG/);
+    expect([...fs.files.keys()].some((k) => k.startsWith(OUT))).toBe(false);
+  });
+
+  it("a debug package vendors the debug link's listener crates and the multicast plugin (ADR 0403); a release one doesn't", async () => {
+    const fs = demoFolder();
+    const project = await folderProject(fs);
+    await exportDesktopProject(project, fs, OUT);
+    expect(file(fs, "src-tauri/vendor/ws-listener/Cargo.toml")).toBeUndefined();
+    const debugFs = demoFolder();
+    await exportDesktopProject(await folderProject(debugFs), debugFs, OUT, undefined, { debugLink: true });
+    for (const crate of ["ws-listener", "debug-discovery", "debug-link-tauri"]) {
+      expect(file(debugFs, `src-tauri/vendor/${crate}/Cargo.toml`)).toContain("[package]");
+      expect(file(debugFs, `src-tauri/vendor/${crate}/src/lib.rs`)).toBeDefined();
+    }
+    expect(file(debugFs, "src-tauri/vendor/tauri-plugin-myco-multicast/android/src/main/java/com/myco/multicast/MulticastPlugin.kt")).toBeDefined();
+    expect(file(debugFs, "src-tauri/Cargo.toml")).toContain('myco-debug-link-tauri = { path = "vendor/debug-link-tauri" }');
+  });
+
+  it("the README names the installers once the app is built", async () => {
+    const fs = demoFolder();
+    await writeDesktopReadme(fs, OUT, "flappy", true);
+    expect(file(fs, "README.txt")).toContain("Installers: src-tauri/target/release/bundle/");
   });
 });

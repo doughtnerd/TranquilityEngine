@@ -34,10 +34,12 @@ function LevelFader(props: { session: MixerSession; name: string; orientation?: 
   const value = shownLevel(p, name, editing);
   const kind = kindOf(p, name);
   const auto = p.automation.some((a) => !a.bypass && a.on === name && a.target === "volume");
+  // Fader and Meter default to different orientations, so the meter takes the fader's, resolved here.
+  const orientation = props.orientation ?? "horizontal";
   return (
     <Fader
       value={value}
-      orientation={props.orientation}
+      orientation={orientation}
       label={props.label ?? `${name} level`}
       ghosts={levelGhosts(p, name, editing)}
       disabled={session.readOnly}
@@ -45,7 +47,7 @@ function LevelFader(props: { session: MixerSession; name: string; orientation?: 
       title={auto ? "Level automation adds to this; open Automate in the Inspector" : `Drag to set the level · double-click for 0 dB (${formatDb(value)} dB)`}
       onValue={(db, drag) => session.commit(setLevel(session.project.peek(), name, db, session.editing.peek()), levelLabel(session.project.peek(), name, session.editing.peek()), drag || undefined)}
     >
-      {props.meter !== false && kind !== "vca" && <LiveMeter session={session} name={name} orientation={props.orientation} />}
+      {props.meter !== false && kind !== "vca" && <LiveMeter session={session} name={name} orientation={orientation} />}
     </Fader>
   );
 }
@@ -328,7 +330,7 @@ function ListView(props: { session: MixerSession; drag: Drag; startDrag(e: Point
               {cell(r.name, r.depth, r.depth > 0, r.hasChildren)}
               <LevelFader session={session} name={r.name} />
               <LevelCell session={session} name={r.name} />
-              <span class={`mx-voices${v.own ? "" : " inherited"}`} title={v.own ? `Caps every sequence routed into ${r.name} or any bus under it` : v.from ? `No cap here; shares ${v.from}'s limit of ${v.limit}` : "No voice cap"}>{v.text}</span>
+              <span class={`mx-voices${v.own ? "" : " inherited"}`} title={v.own ? `Caps every sequence routed into ${r.name} or any bus under it` : v.from ? `No cap here; shares ${v.from}'s limit of ${v.limit}` : `No bus voice cap: only the project's ${p.settings.voices.mixed} mixed voices limit how many play at once`}>{v.text}</span>
               <span class={`mx-bed${bed?.kind === "lost" ? " warn" : bed?.kind === "own" ? " own" : ""}`} title={bedTitle(bed, r.name === master, beds.maxBeds)}>{bedCell(bed, r.name === master)}</span>
               <MuteSolo session={session} name={r.name} />
               {bus.mute && <span class="mx-sr">muted</span>}

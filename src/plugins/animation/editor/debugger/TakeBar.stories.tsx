@@ -8,7 +8,7 @@ import { RecorderBar } from "./RecorderBar";
 import { TakeNotes, TakePicker } from "./TakeBar";
 import "./debugger.css";
 
-const FILES = ["takes/run_01.mycotake", "takes/boss_fight.mycotake"];
+const FILES = ["recordings/run_01.sporesample", "recordings/boss_fight.sporesample"];
 
 const meta = {
   title: "Animation/Debugger/Take",
@@ -21,9 +21,9 @@ type Story = StoryObj<typeof meta>;
 export const Closed: Story = {
   play: async ({ canvasElement, args }) => {
     const c = within(canvasElement);
-    await userEvent.selectOptions(c.getByLabelText("Take file"), "takes/boss_fight.mycotake");
+    await userEvent.selectOptions(c.getByLabelText("Take file"), "recordings/boss_fight.sporesample");
     await userEvent.click(c.getByRole("button", { name: "Open take" }));
-    await expect(args.onOpen).toHaveBeenCalledWith("takes/boss_fight.mycotake");
+    await expect(args.onOpen).toHaveBeenCalledWith("recordings/boss_fight.sporesample");
   },
 };
 

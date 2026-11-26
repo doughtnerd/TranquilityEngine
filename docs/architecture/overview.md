@@ -21,7 +21,7 @@ Game developers write scripts that feel like Unity: a class extends `GameBehavio
 - Mobile or console targets.
 - An engine event/signal system. Behaviors communicate through method calls or data ([0017](../decisions/0017-user-systems-and-data-components.md)).
 - Visual scripting and terrain tools in the editor. (~~Animation timeline~~: no longer a non-goal, [0373](../decisions/0373-the-editor-gets-animation-graph-timeline-rig-and-debugging-tools.md).)
-- ~~Multiplayer networking.~~ No longer a non-goal: [0032](../decisions/0032-worlds-systems-and-bootstraps.md) and [0033](../decisions/0033-server-authoritative-netcode.md) add several Worlds per Engine and server-authoritative netcode between them (user guides: [Worlds](../guide/worlds.md), [Multiplayer](../guide/multiplayer.md)). Lockstep determinism is still not a goal.
+- ~~Multiplayer networking.~~ No longer a non-goal: [0032](../decisions/0032-worlds-systems-and-bootstraps.md) and [0033](../decisions/0033-server-authoritative-netcode.md) add several Worlds per Engine and server-authoritative netcode between them (user guides: [Worlds](../wiki/guide/worlds.md), [Multiplayer](../wiki/guide/multiplayer.md)). Lockstep determinism is still not a goal.
 - Supporting browsers without WebGL2.
 
 ## Layers

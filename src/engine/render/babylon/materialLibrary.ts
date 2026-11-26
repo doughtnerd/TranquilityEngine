@@ -22,6 +22,8 @@ import { Assets } from "../../scene/Assets";
 import type { MaterialInstancing, MaterialSettings } from "../../scene/material";
 import { DEFAULT_SLOT, materialSlots, type MaterialSlot, type ModelMesh } from "../../scene/models";
 import type { GraphValue } from "../../scene/shaderGraph";
+import type { KeywordValue } from "../../scene/shaderKeywords";
+import type { CompiledShaderGraph } from "../shaderGraph/compile";
 import { isRenderTexturePath } from "../renderTexture";
 import { Graphics } from "../Graphics";
 import { Material as EngineMaterial } from "../Material";
@@ -43,6 +45,7 @@ import {
   textureValue,
   warmVariantKeywords,
   type AssetRead,
+  type MaterialStamp,
   type MaterialWarning,
   type ResolvedMaterial,
   type Sampling,
@@ -134,12 +137,23 @@ function samplingMode(s: Sampling): number {
 const WRAP = { clamp: Texture.CLAMP_ADDRESSMODE, repeat: Texture.WRAP_ADDRESSMODE, mirror: Texture.MIRROR_ADDRESSMODE } as const;
 
 /** @internal Builds and caches a Babylon scene's materials and textures (ADR 0127). */
+/** @internal A 2D material's sprite shader graph (`BabylonMaterialLibrary.spriteGraph`, ADR 0415). */
+export interface SpriteGraph {
+  compiled: CompiledShaderGraph;
+  properties: Record<string, GraphValue>;
+  keywords: Record<string, KeywordValue>;
+  /** Changes whenever the graph or its values do (what 2D draws key their materials on). */
+  key: string;
+}
+
 export class BabylonMaterialLibrary {
   private defaultMade: PBRMaterial | null = null;
   private readonly shared: GraphShared;
   private readonly read: AssetRead;
   private readonly warned = new Set<string>();
   private readonly assets = new Map<string, AssetEntry>();
+  /** 2D materials' sprite graphs (ADR 0415), by material path. */
+  private readonly spriteGraphs = new Map<string, { stamp: MaterialStamp; graph: SpriteGraph | null }>();
   /** Graph materials by their Babylon material, for copies sharing the compiled program. */
   private readonly graphs = new WeakMap<BabylonMaterial, BabylonGraphMaterial>();
   private readonly noFog = new WeakSet<BabylonMaterial>();
@@ -155,6 +169,13 @@ export class BabylonMaterialLibrary {
   private readonly modelMaterials = new WeakMap<object, BabylonMaterial>();
   private readonly slotMultis = new WeakMap<object, Map<string, MultiMaterial>>();
   private readonly probeCopies = new WeakMap<BabylonMaterial, Map<string, PBRMaterial>>();
+  /**
+   * The blended probe copies a sync made (keyed by weight, so a mesh crossing a blend zone makes one per
+   * step), each with whether a renderer drew it this sync: {@link endSync} frees the rest. Copies asked for
+   * outside a sync (the warm-up's) aren't here, so they stay.
+   */
+  private readonly syncedBlends = new Map<PBRMaterial, boolean>();
+  private syncing = false;
   /** How to free each clone it made: with the texture copies Babylon's `clone` made for it (`cloneMaterial`). */
   private readonly clones = new WeakMap<BabylonMaterial, () => void>();
   private readonly textures = new Map<string, Texture>();
@@ -230,12 +251,16 @@ export class BabylonMaterialLibrary {
 
   /** Start a sync of a World's renderers: script instances not drawn by its end are freed ({@link endSync}). */
   beginSync(): void {
+    this.syncing = true;
     for (const e of this.instances.values()) e.seen = false;
+    for (const m of this.syncedBlends.keys()) this.syncedBlends.set(m, false);
   }
 
-  /** Free the script Material instances no renderer drew since {@link beginSync}. */
+  /** Free the script Material instances and blended probe copies no renderer drew since {@link beginSync}. */
   endSync(): void {
+    this.syncing = false;
     for (const [m, e] of this.instances) if (!e.seen) this.disposeInstance(m);
+    for (const [m, seen] of [...this.syncedBlends]) if (!seen) this.disposeClone(m);
   }
 
   /** A renderer went: free its override copies. */
@@ -335,7 +360,9 @@ export class BabylonMaterialLibrary {
 
   /**
    * A copy of a built-in material reflecting a probe's map (ADR 0054), one per material, probe and blend
-   * (a neighbour's map and the primary's share, ADR 0110), kept for reuse.
+   * (a neighbour's map and the primary's share, ADR 0110), kept for reuse. A blended copy a sync made is
+   * freed at the end of the first sync that doesn't draw it, so a mesh moving through a blend zone keeps
+   * only the copies drawn now.
    */
   probeCopy(base: PBRMaterial, hit: ProbeHit): PBRMaterial {
     let byProbe = this.probeCopies.get(base);
@@ -360,8 +387,15 @@ export class BabylonMaterialLibrary {
       if (this.noFog.has(base)) this.noFog.add(made);
       // A probe's map freed (the probe gone, recaptured at another size, baked): nothing finds this copy again.
       const copies = byProbe;
-      made.onDisposeObservable.addOnce(() => copies.get(key) === made && copies.delete(key));
+      made.onDisposeObservable.addOnce(() => {
+        this.syncedBlends.delete(made);
+        if (copies.get(key) === made) copies.delete(key);
+      });
       onOwnerDisposed(made, b ? [hit.texture, b.texture] : [hit.texture], () => this.disposeClone(made));
+      if (b && this.syncing) this.syncedBlends.set(made, true);
+    } else if (this.syncedBlends.has(m)) {
+      if (this.syncing) this.syncedBlends.set(m, true);
+      else this.syncedBlends.delete(m); // the warm-up's too now: kept
     }
     m.environmentIntensity = hit.intensity;
     if (b) {
@@ -425,8 +459,23 @@ export class BabylonMaterialLibrary {
 
   // --- Textures -------------------------------------------------------------------------------------
 
+  /**
+   * A texture asset for a use (see {@link TextureUse}) if it has loaded (sampled again if its import settings changed
+   * since), else null: it starts loading, and `onReady` runs once with it when it has. A load that fails warns once per
+   * path and use (a later call tries again). What 2D draws, decals, lines and the 2D lights ask each frame.
+   */
+  texture(path: string, use: TextureUse = "color", onReady?: (texture: Texture) => void): Texture | null {
+    const have = this.loadedTexture(path, use);
+    if (have) return have;
+    this.loadTexture(path, use).then(
+      (t) => onReady?.(t),
+      (err: unknown) => this.warn({ key: `texture|${use}|${path}`, message: `failed to load texture "${path}": ${(err as Error).message}` }),
+    );
+    return null;
+  }
+
   /** A texture asset for a use (see {@link TextureUse}), loaded once per path and use. Rejects if it can't be read (a later call tries again). */
-  texture(path: string, use: TextureUse = "color"): Promise<Texture> {
+  loadTexture(path: string, use: TextureUse = "color"): Promise<Texture> {
     const load = textureLoad(path, use);
     const have = this.textures.get(load.key);
     if (have) return Promise.resolve(have);
@@ -477,7 +526,7 @@ export class BabylonMaterialLibrary {
 
   /**
    * A texture already loaded for a use, sampled again if its import settings changed since (the editor's
-   * import settings), or null (none yet: call {@link texture} to load it).
+   * import settings), or null (none yet: call {@link texture} or {@link loadTexture} to load it).
    */
   loadedTexture(path: string, use: TextureUse = "color"): Texture | null {
     const key = textureLoad(path, use).key;
@@ -518,7 +567,7 @@ export class BabylonMaterialLibrary {
     console.warn(`[myco] ${w.message}`);
   }
 
-  private readonly loadGraphTexture = (p: string, linear: boolean) => this.texture(p, linear ? "graphData" : "graphColor");
+  private readonly loadGraphTexture = (p: string, linear: boolean) => this.loadTexture(p, linear ? "graphData" : "graphColor");
 
   /** Filtering and wrapping from the image's import settings (ADR 0040). */
   private sample(key: string, path: string, tex: Texture): void {
@@ -531,7 +580,7 @@ export class BabylonMaterialLibrary {
   /**
    * A render texture handed out was disposed (its asset's format changed, ADR 0109): forget it, so the next
    * ask gets the asset's new texture, and rebuild what sampled it: the material assets that loaded it, and
-   * the script instance and renderer copies that set it as a value (made again on their next draw).
+   * the script instance, renderer and slot copies that set it as a value (made again on their next draw).
    */
   private renderTextureGone(path: string, key: string, rt: Texture): void {
     if (this.textures.get(key) === rt) this.textures.delete(key);
@@ -543,6 +592,8 @@ export class BabylonMaterialLibrary {
         : m instanceof PBRMaterial && this.wantedTextures.get(m) === image;
     for (const e of this.assets.values()) if (e.uses.has(image) || (e.material && names(e.material, e.graph))) e.rebuild = true;
     for (const [r, e] of [...this.renderers]) if (e.material !== e.base && names(e.material, e.graph)) this.releaseOverrides(r);
+    // A slot copy taking it as a slot override only (its base doesn't): the renderer's slot copies go.
+    for (const [r, held] of [...this.slotEntries]) if ([...held.slots.values()].some((e) => e.material !== e.base && names(e.material, e.graph))) this.releaseSlots(r);
     for (const [m, e] of [...this.instances]) if (e.material !== e.base && names(e.material, e.graph)) this.disposeInstance(m);
   }
 
@@ -558,6 +609,32 @@ export class BabylonMaterialLibrary {
     const m = r._drawMaterial(slot);
     if (m?.isInstance) return this.instanceMaterial(m);
     return this.material(r.materials[slot] || r.material);
+  }
+
+  /**
+   * @internal A 2D material's sprite shader graph (ADR 0415): the compiled graph and its property and keyword values,
+   * when `path` is a material shaded by (or itself is) a graph with a sprite target compiled for this renderer's shader
+   * language, else null. Resolved again when stale (a graph edit hot-reloads its 2D draws on their next change).
+   */
+  spriteGraph(path: string): SpriteGraph | null {
+    if (!path) return null;
+    const level = Graphics.tier.shaderLevel;
+    let cached = this.spriteGraphs.get(path);
+    if (!cached || !isStampCurrent(cached.stamp, path, level, this.read)) {
+      const resolved = resolveMaterial(path, { shaderLevel: level, target: this.scene.getEngine().isWebGPU ? "wgsl" : "glsl", read: this.read });
+      for (const w of resolved.warnings) this.warn(w);
+      const c = resolved.kind === "graph" ? resolved.compiled : null;
+      const graph = c && c.target.startsWith("sprite-") && !c.noWgsl && this.scene.getEngine().isWebGPU ? { compiled: c, properties: resolved.properties, keywords: resolved.keywords, key: `${c.key}|${JSON.stringify(resolved.properties)}|${JSON.stringify(resolved.keywords)}` } : null;
+      this.spriteGraphs.set(path, (cached = { stamp: resolved.stamp, graph }));
+    }
+    return cached.graph;
+  }
+
+  /** @internal A new graph material for a 2D draw (ADR 0415): `graph` with property `overrides` (the draw's textures); the caller disposes it. */
+  spriteGraphMaterial(name: string, graph: SpriteGraph, overrides: Record<string, GraphValue>): BabylonGraphMaterial {
+    const m = createGraphMaterial(this.scene, name, graph.compiled, { ...graph.properties, ...overrides }, this.shared, (p, linear) => this.loadGraphTexture(p, linear));
+    m.setKeywords(graph.keywords);
+    return m;
   }
 
   /** A material asset's build, without the shared Material: rebuilt when stale. */
@@ -602,7 +679,7 @@ export class BabylonMaterialLibrary {
       const image = slot.image.replace(/^asset:/, "");
       if (!image) continue;
       entry.uses.add(image);
-      this.texture(image)
+      this.loadTexture(image)
         .then((shared) => {
           if (this.assets.get(path) !== entry) return; // replaced meanwhile
           const { texture, owned } = tiledTexture(shared, settings.tiling);
@@ -777,7 +854,7 @@ export class BabylonMaterialLibrary {
     if (image === null) m.albedoTexture = base.albedoTexture;
     else if (!image) m.albedoTexture = null;
     else
-      this.texture(image)
+      this.loadTexture(image)
         .then((tex) => {
           // Still wanting this image, and not disposed meanwhile.
           if (this.wantedTextures.get(m) === image && this.scene.materials.includes(m)) m.albedoTexture = tex;

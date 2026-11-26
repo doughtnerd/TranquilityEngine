@@ -1,7 +1,10 @@
 // The debug link's envelope and sample records (ADR 0376): every kind round-trips, malformed messages and records are
 // refused with a reason (never a throw), JSON payloads and hellos read leniently.
 import { describe, expect, it } from "vitest";
-import { DEBUG_LINK_VERSION, DEBUG_TOPIC_MAX_BYTES, EnvelopeKind, decodeEnvelope, encodeEnvelope, jsonPayload, readHello, readJsonPayload, type Envelope } from "./protocol";
+import {
+  DEBUG_LINK_VERSION, DEBUG_PAIR_NAME_MAX, DEBUG_PAIR_TOKEN_MAX, DEBUG_TOPIC_MAX_BYTES, ENDPOINT_KINDS, EnvelopeKind, PAIR_REFUSAL_REASONS, decodeEnvelope, encodeEnvelope,
+  jsonPayload, pairEnvelope, pairRefusalMessage, pairedEnvelope, readHello, readJsonPayload, readPair, readPairReply, type DebugPair, type DebugPairReply, type Envelope,
+} from "./protocol";
 import { RECORD_HEAD_BYTES, RECORD_MAX_BYTES, RecordWriter, readRecords } from "./records";
 
 const bytes = (...b: number[]) => new Uint8Array(b);
@@ -51,10 +54,78 @@ describe("the envelope", () => {
     expect(readJsonPayload(bytes(0x7b))).toEqual({ refused: "the payload isn't JSON" });
   });
 
+  it("speaks version 2 and refuses a version 1 peer with a message naming both versions", () => {
+    expect(DEBUG_LINK_VERSION).toBe(2);
+    const hello = encodeEnvelope({ kind: EnvelopeKind.hello, topic: "", id: 0, payload: jsonPayload({ name: "Flappy", platform: "desktop", topics: ["animation"] }) });
+    expect(hello[0]).toBe(2);
+    const read = decodeEnvelope(hello);
+    const json = "envelope" in read ? readJsonPayload(read.envelope.payload) : { refused: "" };
+    expect("value" in json && readHello(json.value).name).toBe("Flappy");
+    // What a version 1 build sends first: its hello behind version byte 1.
+    const v1 = hello.slice();
+    v1[0] = 1;
+    expect(decodeEnvelope(v1)).toEqual({ refused: "the other end speaks debug link version 1; this one speaks 2" });
+  });
+
   it("reads a hello leniently", () => {
     expect(readHello({ name: "Flappy", platform: "desktop", topics: ["animation", 3] })).toEqual({ name: "Flappy", platform: "desktop", topics: ["animation"] });
     expect(readHello(null)).toEqual({ name: "A game", platform: "web", topics: [] });
     expect(readHello({ name: "  " }).name).toBe("A game");
+  });
+});
+
+describe("pairing (version 2)", () => {
+  const roundTrip = (e: Envelope) => {
+    const read = decodeEnvelope(encodeEnvelope(e));
+    if (!("envelope" in read)) throw new Error(read.refused);
+    const json = readJsonPayload(read.envelope.payload);
+    if (!("value" in json)) throw new Error(json.refused);
+    return { envelope: read.envelope, value: json.value };
+  };
+
+  it("round-trips a pair for each role and endpoint kind, with and without a token and a name", () => {
+    for (const role of ["build", "tool"] as const) {
+      for (const kind of ENDPOINT_KINDS) {
+        const full: DebugPair = { role, kind, token: DEBUG_PAIR_TOKEN_MAX, name: "Audio Studio on DESKTOP-1" };
+        const { envelope, value } = roundTrip(pairEnvelope(full));
+        expect([envelope.kind, envelope.topic, envelope.id]).toEqual([EnvelopeKind.pair, "", 0]);
+        expect(readPair(value)).toEqual({ pair: full });
+        expect(readPair(roundTrip(pairEnvelope({ role, kind })).value)).toEqual({ pair: { role, kind } });
+      }
+    }
+    expect(readPair(roundTrip(pairEnvelope({ role: "tool", kind: "native", token: 0 })).value)).toEqual({ pair: { role: "tool", kind: "native", token: 0 } });
+  });
+
+  it("refuses a pair with an unknown role or kind or a bad token; trims and caps the name", () => {
+    expect(readPair(null)).toEqual({ refused: expect.stringContaining("object") });
+    expect(readPair({ role: "editor", kind: "native" })).toEqual({ refused: expect.stringContaining("role") });
+    expect(readPair({ role: "tool", kind: "page-ftp" })).toEqual({ refused: expect.stringContaining("kind") });
+    for (const token of [-1, 1.5, DEBUG_PAIR_TOKEN_MAX + 1, "12"]) expect(readPair({ role: "tool", kind: "native", token })).toEqual({ refused: expect.stringContaining("token") });
+    expect(readPair({ role: "build", kind: "page-http", name: "  Flappy  " })).toEqual({ pair: { role: "build", kind: "page-http", name: "Flappy" } });
+    expect(readPair({ role: "build", kind: "page-http", name: "   " })).toEqual({ pair: { role: "build", kind: "page-http" } });
+    expect(readPair({ role: "build", kind: "page-http", name: 7 })).toEqual({ pair: { role: "build", kind: "page-http" } });
+    expect((readPair({ role: "build", kind: "native", name: "x".repeat(500) }) as { pair: DebugPair }).pair.name).toHaveLength(DEBUG_PAIR_NAME_MAX);
+  });
+
+  it("round-trips paired: accepted by each way, refused for each reason", () => {
+    for (const via of ["token", "same-machine", "prompt"] as const) {
+      const { envelope, value } = roundTrip(pairedEnvelope({ accepted: true, via }));
+      expect(envelope.kind).toBe(EnvelopeKind.paired);
+      expect(readPairReply(value)).toEqual({ reply: { accepted: true, via } });
+    }
+    for (const reason of PAIR_REFUSAL_REASONS) {
+      const r: DebugPairReply = { accepted: false, reason, message: pairRefusalMessage(reason) };
+      expect(readPairReply(roundTrip(pairedEnvelope(r)).value)).toEqual({ reply: r });
+      expect(pairRefusalMessage(reason)).toMatch(/\.$/);
+    }
+  });
+
+  it("refuses a paired it can't read; a refusal without a message gets its reason's sentence", () => {
+    expect(readPairReply("yes")).toEqual({ refused: expect.stringContaining("object") });
+    expect(readPairReply({ accepted: true, via: "magic" })).toEqual({ refused: expect.stringContaining("via") });
+    expect(readPairReply({ accepted: "maybe" })).toEqual({ refused: expect.stringContaining("accepted") });
+    expect(readPairReply({ accepted: false, reason: "tired" })).toEqual({ refused: expect.stringContaining("reason") });
+    expect(readPairReply({ accepted: false, reason: "locked" })).toEqual({ reply: { accepted: false, reason: "locked", message: pairRefusalMessage("locked") } });
   });
 });
 

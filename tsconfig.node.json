@@ -3,13 +3,13 @@
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "lib": ["ES2022", "DOM"],
-    "types": ["node"],
+    "lib": ["ES2022", "DOM", "DOM.Iterable", "ESNext.Decorators"],
+    "types": ["node", "vite/client"],
     "strict": true,
     "isolatedModules": true,
     "skipLibCheck": true,
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["vite.config.ts", "vite.engine.config.ts", "vite.editor.config.ts", "vite.player.config.ts", "vite.shared.ts", "vitest.config.mts", "vitest.stories.config.mts", ".storybook/main.ts", ".storybook/vite.config.ts", "playwright.config.ts", "tests/**/*"]
+  "include": ["vite.config.ts", "vite.engine.config.ts", "vite.editor.config.ts", "vite.player.config.ts", "vite.shared.ts", "vitest.config.mts", "vitest.stories.config.mts", ".storybook/main.ts", ".storybook/vite.config.ts", "playwright.config.ts", "tests/**/*", "src/engine/ui/document/css-tree-parser.d.ts"]
 }

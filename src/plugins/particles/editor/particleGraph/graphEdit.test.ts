@@ -288,6 +288,51 @@ describe("particle graph edits", () => {
     expect(edits.clipboardFromText(text({ edges: [{ from: "n7.out", to: `s2.${cb}.color` }] }))).toBeNull(); // a wire from a missing node
   });
 
+  /** An effect with a Number property "Speed" (value 3) and a Property node reading it (n1), plus a time node (n2). */
+  function withSpeed(): ParticleGraph {
+    let g = edits.addProperty(emptyParticleGraph(), "number").graph;
+    g = edits.renameProperty(g, "Number", "Speed");
+    g = edits.setPropertyValue(g, "Speed", 3);
+    g = addNode(g, "property", [0, 0], { name: "Speed" }).graph;
+    return addNode(g, "time", [0, 100]).graph;
+  }
+
+  it("copies the properties the copied nodes read, and a paste in the same effect reuses them", () => {
+    const g = withSpeed();
+    const clip = edits.copy(g, ["n1"])!;
+    expect(clip.properties).toEqual([{ name: "Speed", type: "number", value: 3, exposed: true }]);
+    expect(edits.copy(g, ["n2"])!.properties).toEqual([]); // a node reading no property carries none
+    expect(edits.clipboardFromText(clipboardText(clip))).toEqual(clip);
+    const pasted = edits.paste(g, clip, [200, 0]);
+    expect(pasted.graph.properties).toEqual(g.properties); // not added twice
+    expect(pasted.graph.nodes.find((n) => n.id === pasted.ids[0])!.settings).toEqual({ name: "Speed" });
+  });
+
+  it("adds the properties pasted nodes read to an effect lacking them", () => {
+    const clip = edits.clipboardFromText(clipboardText(edits.copy(withSpeed(), ["n1"])!))!;
+    const into = edits.paste(emptyParticleGraph(), clip, [0, 0]);
+    expect(into.graph.properties).toEqual([{ name: "Speed", type: "number", value: 3, exposed: true }]);
+    expect(into.graph.nodes[0].settings).toEqual({ name: "Speed" });
+    expect(parseParticleGraph(JSON.parse(JSON.stringify(into.graph))).problems).toEqual([]);
+  });
+
+  it("keeps a same-named property of the same type, and adds one of another type under a free name", () => {
+    const clip = edits.copy(withSpeed(), ["n1"])!;
+    // The same name and type: the effect's own property (and value) is the one the pasted node reads.
+    let same = edits.addProperty(emptyParticleGraph(), "number").graph;
+    same = edits.setPropertyValue(edits.renameProperty(same, "Number", "Speed"), "Speed", 9);
+    const kept = edits.paste(same, clip, [0, 0]);
+    expect(kept.graph.properties).toEqual([{ name: "Speed", type: "number", value: 9, exposed: true }]);
+    expect(kept.graph.nodes[0].settings).toEqual({ name: "Speed" });
+    // The same name, another type: the copied property is added as "Speed 2" and the pasted node reads it.
+    let other = edits.addProperty(emptyParticleGraph(), "color").graph;
+    other = edits.renameProperty(other, "Colour", "Speed");
+    const before = other.properties[0];
+    const added = edits.paste(other, clip, [0, 0]);
+    expect(added.graph.properties).toEqual([before, { name: "Speed 2", type: "number", value: 3, exposed: true }]);
+    expect(added.graph.nodes[0].settings).toEqual({ name: "Speed 2" });
+  });
+
   it("duplicates systems and nodes with fresh ids from the shared id space", () => {
     const g = sample();
     const d = edits.duplicate(g, ["s1", "n1", "n2"]);

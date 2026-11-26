@@ -48,7 +48,7 @@ About 13 person-weeks; plan 16-18 for browser and Tauri quirks. Behind a flag: i
 ## Conflicts with existing code and decisions
 
 - `Engine.ts:12-14,174-177` wires FMOD and parses settings; `backend.ts:60` has a module-global `mixer` and backend. A core that owns time needs a per-Engine lifecycle (dispose, restart play mode).
-- Deletions: `busGraph.ts`, `howlerBackend.ts`, `fmodBackend.ts`, `tests/fmodBackend.test.ts`, `docs/guide/fmod.md`. Check `src/myco.ts` and `src/editor/audioSettingsModel.ts` references.
+- Deletions: `busGraph.ts`, `howlerBackend.ts`, `fmodBackend.ts`, `tests/fmodBackend.test.ts`, `docs/wiki/guide/fmod.md`. Check `src/myco.ts` and `src/editor/audioSettingsModel.ts` references.
 - `tests/audioBackend.test.ts:1-51` and `spatialAudio.test.ts` use a fake `AudioBackend`. The interface must grow (events, handles, priority), so update the fakes in the same change.
 - `mixer.resolveAll()` output must be serialised into the core on `onChange`; the mixer stays the source of truth.
 - 0133 (line 138) already lists Audio as a plugin. Decide now: recommend core wasm stays in `src/engine/audio/` and authoring UI becomes a plugin in M2.

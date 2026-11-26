@@ -1,6 +1,6 @@
 # 0272. Runtime `project.json` sections are declared once, each with a default and a parse that gives the value and its problems
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by [0397](0397-system-ordering-loops-fail-at-definition-for-the-engine-and-are-broken-for-scripts.md) (a fixed timestep may be longer than the max frame time)
 - **Date:** 2026-11-20
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

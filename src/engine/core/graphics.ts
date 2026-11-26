@@ -9,8 +9,8 @@
  *   "autoDetect": false,
  *   "targetFrameRate": 60,
  *   "tiers": [
- *     { "name": "Low", "renderScale": 0.75, "antialias": "off", "shadows": "low", "shadowCascades": 1, "shadowDistance": 30, "anisotropy": 1, "shaderLevel": "low", "postProcessing": false, "bloom": false, "ambientOcclusion": "off", "depthOfField": false, "reflectionProbes": "off", "particles": "low" },
- *     { "name": "High", "renderScale": 1, "antialias": "msaa", "shadows": "high", "shadowCascades": 3, "shadowDistance": 80, "anisotropy": 8, "shaderLevel": "high", "postProcessing": true, "bloom": true, "ambientOcclusion": "medium", "depthOfField": true, "reflectionProbes": "medium", "particles": "high" }
+ *     { "name": "Low", "renderScale": 0.75, "antialias": "off", "shadows": "low", "shadowCascades": 1, "shadowDistance": 30, "anisotropy": 1, "shaderLevel": "low", "postProcessing": false, "bloom": false, "ambientOcclusion": "off", "depthOfField": false, "reflectionProbes": "off", "particles": "low", "lights2D": "low" },
+ *     { "name": "High", "renderScale": 1, "antialias": "msaa", "shadows": "high", "shadowCascades": 3, "shadowDistance": 80, "anisotropy": 8, "shaderLevel": "high", "postProcessing": true, "bloom": true, "ambientOcclusion": "medium", "depthOfField": true, "reflectionProbes": "medium", "particles": "high", "lights2D": "high" }
  *   ]
  * }
  * ```
@@ -50,6 +50,33 @@ export const PARTICLE_QUALITIES: readonly ParticleQuality[] = ["low", "medium", 
 /** The factor emission and max particles are multiplied by for each particle quality. */
 export const PARTICLE_SCALE: Record<ParticleQuality, number> = { low: 0.25, medium: 0.5, high: 1 };
 
+/** 2D lighting quality (ADR 0399, 0413): what `LIGHTS_2D_QUALITY` sets for each. */
+export type Lights2DQuality = "low" | "medium" | "high";
+export const LIGHTS_2D_QUALITIES: readonly Lights2DQuality[] = ["low", "medium", "high"];
+/** What each 2D lighting quality allows (ADR 0399's table). */
+export interface Lights2DLimits {
+  /** Light textures' size as a share of the camera's render size. */
+  readonly textureScale: number;
+  /** Shadowed 2D lights per camera; further ones draw unshadowed (ADR 0413). */
+  readonly shadowedLights: number;
+  /** Soft shadow edges (ADR 0413). */
+  readonly softShadows: boolean;
+  /** Normal maps (the directional light textures). */
+  readonly normalMaps: boolean;
+  /** Layer batches per camera before the highest merge with the one below. */
+  readonly layerBatches: number;
+  /**
+   * Point lights per layer batch whose normal maps light accurately (ADR 0415: per light N·L in the lit material);
+   * further accurate lights, and every one where this is 0, light as `"fast"`.
+   */
+  readonly accurateLights: number;
+}
+export const LIGHTS_2D_QUALITY: Record<Lights2DQuality, Lights2DLimits> = {
+  low: { textureScale: 0.25, shadowedLights: 4, softShadows: false, normalMaps: false, layerBatches: 2, accurateLights: 0 },
+  medium: { textureScale: 0.5, shadowedLights: 8, softShadows: true, normalMaps: true, layerBatches: 4, accurateLights: 0 },
+  high: { textureScale: 0.5, shadowedLights: 16, softShadows: true, normalMaps: true, layerBatches: 8, accurateLights: 8 },
+};
+
 /** One quality tier. */
 export interface QualityTier {
   /** Shown in menus and used to pick the tier (`Graphics.quality = "High"`). Unique. */
@@ -88,6 +115,8 @@ export interface QualityTier {
   reflectionProbes: ProbeQualityName;
   /** Particle budget (ADR 0057): scales every ParticleSystem's emission and max particles by `PARTICLE_SCALE`. */
   particles: ParticleQuality;
+  /** 2D lighting quality (ADR 0399): light texture scale, shadowed lights, soft shadows, normal maps, layer batches (`LIGHTS_2D_QUALITY`). */
+  lights2D: Lights2DQuality;
 }
 
 export interface GraphicsSettings {
@@ -130,10 +159,10 @@ export const defaultGraphics = (): GraphicsSettings => ({
   autoDetect: false,
   targetFrameRate: 60,
   tiers: [
-    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", shadowCascades: 1, cascadedLights: 1, shadowDistance: 30, anisotropy: 1, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low" },
-    { name: "Medium", renderScale: 1, antialias: "smaa", shadows: "medium", shadowCascades: 2, cascadedLights: 1, shadowDistance: 50, anisotropy: 4, shaderLevel: "medium", postProcessing: true, bloom: true, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "low", particles: "medium" },
-    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, cascadedLights: 2, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high" },
-    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", shadowCascades: 4, cascadedLights: 4, shadowDistance: 120, anisotropy: 16, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true, reflectionProbes: "high", particles: "high" },
+    { name: "Low", renderScale: 0.75, antialias: "off", shadows: "low", shadowCascades: 1, cascadedLights: 1, shadowDistance: 30, anisotropy: 1, shaderLevel: "low", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low", lights2D: "low" },
+    { name: "Medium", renderScale: 1, antialias: "smaa", shadows: "medium", shadowCascades: 2, cascadedLights: 1, shadowDistance: 50, anisotropy: 4, shaderLevel: "medium", postProcessing: true, bloom: true, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "low", particles: "medium", lights2D: "medium" },
+    { name: "High", renderScale: 1, antialias: "msaa", shadows: "high", shadowCascades: 3, cascadedLights: 2, shadowDistance: 80, anisotropy: 8, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "medium", depthOfField: true, reflectionProbes: "medium", particles: "high", lights2D: "high" },
+    { name: "Ultra", renderScale: 1.25, antialias: "msaa", shadows: "ultra", shadowCascades: 4, cascadedLights: 4, shadowDistance: 120, anisotropy: 16, shaderLevel: "high", postProcessing: true, bloom: true, ambientOcclusion: "high", depthOfField: true, reflectionProbes: "high", particles: "high", lights2D: "high" },
   ],
 });
 
@@ -150,7 +179,7 @@ export function pipelineTierKey(t: Readonly<QualityTier>): string {
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "shadowCascades", "cascadedLights", "shadowDistance", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField", "reflectionProbes", "particles"];
+const TIER_KEYS = ["name", "renderScale", "antialias", "shadows", "shadowCascades", "cascadedLights", "shadowDistance", "anisotropy", "shaderLevel", "postProcessing", "bloom", "ambientOcclusion", "depthOfField", "reflectionProbes", "particles", "lights2D"];
 
 /**
  * Read a `graphics` section leniently: bad values are reported and replaced by the default
@@ -196,7 +225,7 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
         if (typeof t.anisotropy === "number" && Number.isInteger(t.anisotropy) && t.anisotropy >= 1 && t.anisotropy <= 16) tier.anisotropy = t.anisotropy;
         else bad("anisotropy", "a whole number from 1 to 16");
       }
-      const choice = <K extends "antialias" | "shadows" | "shaderLevel" | "ambientOcclusion" | "reflectionProbes" | "particles">(key: K, options: readonly QualityTier[K][]) => {
+      const choice = <K extends "antialias" | "shadows" | "shaderLevel" | "ambientOcclusion" | "reflectionProbes" | "particles" | "lights2D">(key: K, options: readonly QualityTier[K][]) => {
         const v = t[key];
         if (v === undefined) return;
         if (options.includes(v as QualityTier[K])) tier[key] = v as QualityTier[K];
@@ -208,6 +237,9 @@ export function parseGraphics(raw: unknown, where = "graphics"): { graphics: Gra
       choice("ambientOcclusion", AO_QUALITIES);
       choice("reflectionProbes", PROBE_QUALITIES);
       choice("particles", PARTICLE_QUALITIES);
+      // A tier written before 2D lighting existed follows its shader level (the same low/medium/high scale) rather than High's value.
+      if (t.lights2D === undefined) tier.lights2D = tier.shaderLevel;
+      else choice("lights2D", LIGHTS_2D_QUALITIES);
       for (const key of ["postProcessing", "bloom", "depthOfField"] as const) {
         if (t[key] === undefined) continue;
         if (typeof t[key] === "boolean") tier[key] = t[key] as boolean;

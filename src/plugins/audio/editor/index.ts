@@ -1,6 +1,6 @@
 // The Audio plugin's editor half (ADR 0097, 0157): the scene editor's audio parts that stay beside the Audio Studio
-// (ADR 0341): the audio components' Inspector sections and gizmos, the occlusion overlay, the Play toolbar's Record take
-// and Record capture, the Play Stats panel's audio underruns count, the audio asset kinds (the Studio edits them; the
+// (ADR 0341): the audio components' Inspector sections and gizmos, the occlusion overlay (ADR 0416: no Play toolbar record
+// toggles; the Studio records), the Play Stats panel's audio underruns count, the audio asset kinds (the Studio edits them; the
 // editor lists and moves them, and opens them in the Studio) (Project Settings has no Audio section: the Studio owns `audio.json`).
 import { editor, type EditorPlugin } from "../../../editor/sdk";
 import { audioManifest } from "../manifest";
@@ -32,8 +32,6 @@ export const audioEditorPlugin: EditorPlugin = {
     context.registerNameReferences(occlusionLayerReferences);
     // Play Stats: the audio thread's underruns since the page loaded, on every World's Nodes row (the audio core is shared).
     context.registerPlayStatsCounter({ id: "myco.audio.underruns", label: "audio underruns", count: () => Audio.debug().counters.underruns });
-    // ADR 0348: Record take and Record capture on the Play toolbar, saving into the project's takes/ and captures/ folders.
-    context.registerPlayToolbarItem({ id: "myco.audio.record", view: () => import("./mix/RecordToggles").then((m) => m.RecordToggles) });
     // The retired audio event asset (ADR 0158 §1, replaced by playlists, ADR 0343): listed as the old format to migrate,
     // its clips still counted as used (ADR 0148). Nothing plays or edits it (no format, no field accepts it); opening one
     // opens the Audio Studio, which offers the migration, as the editor does when the project opens.

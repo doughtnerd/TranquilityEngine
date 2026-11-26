@@ -27,4 +27,5 @@ export * from "./webgl2";
 export * from "./itemKernel";
 export { GpuItemKernel, type GpuItemKernelOptions } from "./itemKernelWebgpu";
 export { GlItemKernel } from "./itemKernelWebgl2";
-export { GlFeedbackItemKernel } from "./itemKernelFeedback";
+export { GlFeedbackBatch, GlFeedbackItemKernel } from "./itemKernelFeedback";
+export { RangeAllocator, type Range } from "./rangeAllocator";

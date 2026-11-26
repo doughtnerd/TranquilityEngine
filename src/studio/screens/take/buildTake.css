@@ -1,0 +1,17 @@
+/* The Take screen's Record from a build controls (BuildTakeControls.tsx), above the Takes list. Theme tokens only. */
+.bt-controls { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: var(--fs-md); }
+.bt-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.bt-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bt-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--muted); }
+.bt-dot.on { background: var(--danger); }
+.bt-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.bt-mark-text { flex: 1 1 100px; min-width: 0; height: 22px; padding: 0 6px; border: 1px solid var(--border); border-radius: 3px; background: var(--input-bg); color: var(--text); font: inherit; }
+.bt-primary { border-color: var(--accent); }
+.bt-stop { color: var(--danger); }
+.bt-progress { flex: 1; height: 8px; accent-color: var(--accent); }
+.bt-status { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.bt-error { margin: 0; color: var(--danger); overflow-wrap: anywhere; }
+.bt-into { display: flex; align-items: center; gap: 4px; margin: 0; color: var(--muted); min-width: 0; }
+.bt-into-label { flex: none; }
+.bt-into-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; font-family: var(--font-code); color: var(--text); }
+.bt-into-change { flex: none; }

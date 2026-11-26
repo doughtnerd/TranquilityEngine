@@ -60,6 +60,8 @@ export interface DrawnMaterial {
  */
 export interface RenderFeatureDiagnostics {
   [feature: string]: unknown;
+  /** The core 2D lighting rig's (ADR 0399, 0413): 2D lights, shadowed ones (and those over the tier's cap), casters, layer batches (and merges past the cap), blend styles in use, and light and shadow textures per camera. */
+  lights2D?: { lights: number; shadowed: number; unshadowed: number; casters: number; batches: number; merged: number; styles: number; textures: number };
 }
 
 /**
@@ -163,6 +165,8 @@ export interface RenderSurface {
   dispose(): void;
   /** Load textures ahead of time so sprites don't pop in. */
   preloadTextures(paths: string[], onProgress?: (p: number) => void): Promise<void>;
+  /** A loaded texture asset's authored size in pixels (ADR 0119), or null while it isn't loaded (2D shadow casters' sprite outlines, ADR 0413). */
+  textureSize?(path: string): readonly [number, number] | null;
   /**
    * Draw a warm set's meshes, particle effects and world-space UI once, hidden, in every pass the frame
    * would put them in, so their shader pipelines exist before they're shown (ADR 0080). Resolves once

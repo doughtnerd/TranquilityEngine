@@ -4,7 +4,7 @@ import { expect, test, type Hooks } from "./fixtures";
 import { audioClockRuns, captureState, exportAndServe, filesUnder, readTruth, stopServed, type Served } from "./audioExport";
 
 // M5d, task X3 (ADR 0171 amended by 0172, owner decision 7): a game exported without `--audio-capture` loads no part of the
-// recorder. (The round trip that opened the saved `.mycap` in the editor's Audio Profiler went with that panel, ADR 0341:
+// recorder. (The round trip that opened the saved `.sporesample` in the editor's Audio Profiler went with that panel, ADR 0341:
 // captures open on the Audio Studio's Profiler screen.) No wall-clock assertion: the scene is paced on the audio clock.
 
 test.describe.configure({ mode: "serial", timeout: 240_000 });

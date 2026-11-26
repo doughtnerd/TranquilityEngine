@@ -5,8 +5,9 @@
 // leave the editor the references it owns while it has the project open; `runFileActions.ts`, given `captureFileKind`).
 // The panels call these; the models are elsewhere.
 import { signal } from "@preact/signals";
+import { buildSession } from "../../runtime/buildSession";
 import { importFiles, whyNotImportable } from "../../../editor/assetImportFiles";
-import { currentProject } from "../../../editor/state";
+import { currentProject, status } from "../../../editor/state";
 import { CaptureSource } from "../../../plugins/audio/editor/mix/profilerSource";
 import { captureFileBytes, captureLiveHost, setCaptureReplayOf } from "../../../plugins/audio/runtime/capture/capture";
 import { replayStore } from "../../shell/replay";
@@ -15,6 +16,7 @@ import { CaptureRecorder } from "./captureRecorder";
 import { CAPTURES_FOLDER, whyNotCaptureFile } from "./captureTree";
 import { ProfilerStore } from "./profilerStore";
 import { linkReview } from "./reviewLink";
+import { studioBuild } from "../../debugLink/studioLink";
 import type { RunFileKind } from "./runFileActions";
 
 let store: ProfilerStore | null = null;
@@ -30,6 +32,34 @@ async function readProjectFile(path: string): Promise<ArrayBuffer> {
   return res.arrayBuffer();
 }
 
+/** ADR 0408: follow the connected build as soon as the Profiler has it (connecting opens the Profiler live). */
+let followWhenShown = false;
+
+/** Ask the Profiler to follow the connected build's live capture as soon as it shows (now, if it does). */
+export function followBuildWhenShown(): void {
+  followWhenShown = true;
+  startPendingFollow();
+}
+
+/** Start the follow asked for, once the connected build's session has its capture follow (`buildSession`, ADR 0417). */
+export function startPendingFollow(): void {
+  const session = buildSession.peek();
+  const follow = session?.open ? session.follow : null;
+  if (!followWhenShown || !follow || !studioBuild.peek() || follow.build.peer !== studioBuild.peek()?.peer) return;
+  followWhenShown = false;
+  void follow.start();
+}
+
+/**
+ * Stop following the build's live capture, so what the Profiler is asked to show next stays shown (a file, a recording
+ * of a replay; ADR 0408). Follow build starts it again.
+ */
+export function stopFollowingBuild(): void {
+  followWhenShown = false;
+  const follow = buildSession.peek()?.follow;
+  if (follow?.following) follow.stop();
+}
+
 /** The screen's store; its cursor and the open take's replay are one review position (`reviewLink.ts`) for the page's life. */
 export function profilerStore(): ProfilerStore {
   if (store) return store;
@@ -39,7 +69,22 @@ export function profilerStore(): ProfilerStore {
 }
 
 /** Open in Take: the take on the Take screen at the Profiler's position (the review link seeks it once it is open). */
-export const openInTake = (path: string): void => openRoute({ screen: "take", asset: path });
+export const openInTake = (path: string): void => {
+  if (refuseWhileLive(path)) return;
+  openRoute({ screen: "take", asset: path });
+};
+
+/**
+ * ADR 0408: while a game build is connected, Take and the Profiler always show it live, so a saved recording can't be
+ * opened: says so in the status line and answers true. False when nothing is connected.
+ */
+export function refuseWhileLive(path: string): boolean {
+  const build = studioBuild.peek();
+  if (!build) return false;
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  status.value = { kind: "info", text: `Showing ${build.name} live: disconnect from it to open ${name}.` };
+  return true;
+}
 
 /** Write capture bytes into the selected Captures folder (else the project's captures folder) (never over a file); resolves with the path written. */
 async function writeCapture(path: string, bytes: Uint8Array): Promise<string> {
@@ -81,9 +126,12 @@ export function profilerRecorder(): CaptureRecorder {
 }
 
 /** Open a capture on the Profiler (the route says which, so a reload or a hand-off opens the same one). */
-export const openCapture = (path: string): void => openRoute({ screen: "profiler", asset: path });
+export const openCapture = (path: string): void => {
+  if (refuseWhileLive(path)) return;
+  openRoute({ screen: "profiler", asset: path });
+};
 
-/** The Captures tree's selected folder: where Open capture file…, New folder and a new recording go (null: `captures/`). */
+/** The Captures tree's selected folder: where Open capture file…, New folder and a new recording go (null: `recordings/`). */
 export const captureFolder = signal<string | null>(null);
 
 /** Captures for the Captures tree's actions: the open capture follows a move and closes on a delete. */

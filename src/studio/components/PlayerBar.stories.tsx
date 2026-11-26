@@ -8,7 +8,7 @@ import type { ComponentChildren } from "preact";
 import { useState } from "preact/hooks";
 import { expect, userEvent, within } from "storybook/test";
 import { HearAsControl } from "./HearAsControl";
-import { GameSession, LiveLabel, MiniWaveform, PlayerBar, TransportButton, VoiceStrip } from "./PlayerBar";
+import { RecordSession, LiveLabel, MiniWaveform, PlayerBar, TransportButton, VoiceStrip } from "./PlayerBar";
 
 const meta: Meta<typeof PlayerBar> = { title: "Studio/PlayerBar", component: PlayerBar };
 export default meta;
@@ -20,7 +20,7 @@ const at = (width: number) => (Story: () => ComponentChildren) => (
   </div>
 );
 const noop = () => {};
-const session = (live = false) => <GameSession live={live} time={live ? 12.48 : 0} title="Play the game session" linked onToggle={noop} />;
+const session = (live = false) => <RecordSession recording={live} time={live ? 12.48 : 0} connected title="Record a take on the game" link="linked" onToggle={noop} />;
 const hearAs = <HearAsControl choice="source" busy={0} failure={null} onChoose={noop} onToggle={noop} />;
 const LEVELS = [0.2, 0.5, 0.9, 0.7, 0.8, 0.6, 0.65, 0.5, 0.45, 0.4, 0.35, 0.3, 0.3, 0.25, 0.22, 0.2, 0.18, 0.15, 0.12, 0.1, 0.08, 0.06, 0.04, 0.02];
 
@@ -30,7 +30,7 @@ export const Idle: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByText("Nothing playing")).toBeVisible();
-    await expect(c.getByRole("button", { name: /Game session/ })).toBeVisible();
+    await expect(c.getByRole("button", { name: /Record session/ })).toBeVisible();
   },
 };
 
@@ -119,20 +119,20 @@ export const MixerSession: Story = {
     scrub: (
       <>
         <LiveLabel live />
-        <input type="range" aria-label="Game session position" min={0} max={32} value={12.48} />
+        <input type="range" aria-label="Replay position" min={0} max={32} value={12.48} />
         <span>00:12.480</span>
       </>
     ),
     status: "Changes play right away",
     hearAs,
-    session: <GameSession live time={12.48} title="The game session is the main button on this screen" linked readOnly onToggle={noop} />,
+    session: <RecordSession recording time={12.48} connected title="Stop and save the recording" link="linked" onToggle={noop} />,
   },
   decorators: [at(1440)],
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByText("Live")).toBeVisible();
     await expect(c.getByText("Linked to game")).toBeVisible();
-    await expect(c.getByRole("status", { name: /Game session running, 00:12.480/ })).toBeVisible();
+    await expect(c.getByRole("button", { name: /Stop and save the recording, 00:12.480/ })).toBeVisible();
   },
 };
 

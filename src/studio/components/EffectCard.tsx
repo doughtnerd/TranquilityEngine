@@ -15,6 +15,7 @@ import { formatParam } from "./parameterRowModel";
 import { Icon } from "./Icon";
 import { ParameterRow } from "./ParameterRow";
 import "./audioParts.css";
+import { EmptyState } from "../../editor/ui/EmptyState";
 
 export interface EffectCardProps {
   readonly effect: Effect;
@@ -143,7 +144,7 @@ export function EffectCard(props: EffectCardProps) {
               {plugin.health.text}
             </p>
           )}
-          {spec.params.length === 0 && <p class="studio-row-empty">No settings.</p>}
+          {spec.params.length === 0 && <EmptyState compact title="No settings" />}
           {spec.params.map((q) => {
             const value = effect.params[q.name] ?? q.default;
             const auto = automated[q.name];

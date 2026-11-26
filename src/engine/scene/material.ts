@@ -5,7 +5,7 @@
  * ```jsonc
  * {
  *   "format": "myco.material@1",
- *   "shader": "lit",                    // "lit" (default) | "unlit" | "physical" (ADR 0052) | a shader graph's path (ADR 0047)
+ *   "shader": "lit",                    // "lit" (default) | "unlit" | "physical" (ADR 0052) | "sprite-lit" | "sprite-unlit" (ADR 0399) | a shader graph's path (ADR 0047)
  *   "color": "#ffffffff",               // base colour, #rrggbb or #rrggbbaa; alpha < 1 is see-through
  *   "texture": "asset:textures/a.png",  // base colour texture, multiplied by color (default none)
  *   "tiling": [1, 1],                   // how often the textures repeat across the mesh (default once)
@@ -49,11 +49,23 @@ export const MATERIAL_SUFFIX = ".material.json";
 /** True for a material asset path. */
 export const isMaterialPath = (path: string): boolean => path.toLowerCase().endsWith(MATERIAL_SUFFIX);
 
-/** `lit`, `unlit`, `physical`, or the path of a shader graph or shader asset (`asset:shaders/water.shadergraph.json`, `asset:shaders/rim.shader.json`). */
-export type MaterialShader = "lit" | "unlit" | "physical" | (string & {});
+/**
+ * `lit`, `unlit`, `physical`, the 2D sprite shaders `sprite-lit` and `sprite-unlit` (ADR 0399: for layered 2D draws;
+ * a mesh draws them unlit), or the path of a shader graph or shader asset (`asset:shaders/water.shadergraph.json`, `asset:shaders/rim.shader.json`).
+ */
+export type MaterialShader = "lit" | "unlit" | "physical" | "sprite-lit" | "sprite-unlit" | (string & {});
+
+/** The built-in shaders (everything but a shader graph or shader asset path). */
+export const BUILTIN_SHADERS = ["lit", "unlit", "physical", "sprite-lit", "sprite-unlit"] as const;
+
+/** Whether a shader is one of the 2D sprite shaders (ADR 0399). */
+export const isSpriteShader = (shader: string): shader is "sprite-lit" | "sprite-unlit" => shader === "sprite-lit" || shader === "sprite-unlit";
+
+/** Whether a built-in shader draws a mesh unlit: `unlit`, and the sprite shaders (meant for 2D draws). */
+export const isUnlitShader = (shader: string): boolean => shader === "unlit" || isSpriteShader(shader);
 
 /** The shader graph or shader asset a material draws with, or null for the built-in shaders. */
-export const materialGraph = (settings: Pick<MaterialSettings, "shader">): string | null => (settings.shader !== "lit" && settings.shader !== "unlit" && settings.shader !== "physical" ? settings.shader : null);
+export const materialGraph = (settings: Pick<MaterialSettings, "shader">): string | null => ((BUILTIN_SHADERS as readonly string[]).includes(settings.shader) ? null : settings.shader);
 
 const graphOfRaw = new WeakMap<object, string | null>();
 
@@ -263,8 +275,8 @@ export function parseMaterial(raw: unknown, where = "material"): { settings: Mat
     else bad(key, "an asset path");
   };
   if (raw.shader !== undefined) {
-    if (raw.shader === "lit" || raw.shader === "unlit" || raw.shader === "physical" || (typeof raw.shader === "string" && (isShaderGraphPath(raw.shader) || isShaderAssetPath(raw.shader)))) settings.shader = raw.shader;
-    else bad("shader", '"lit", "unlit", "physical", a shader graph (*.shadergraph.json) or a shader asset (*.shader.json)');
+    if ((BUILTIN_SHADERS as readonly unknown[]).includes(raw.shader) || (typeof raw.shader === "string" && (isShaderGraphPath(raw.shader) || isShaderAssetPath(raw.shader)))) settings.shader = raw.shader as MaterialShader;
+    else bad("shader", '"lit", "unlit", "physical", "sprite-lit", "sprite-unlit", a shader graph (*.shadergraph.json) or a shader asset (*.shader.json)');
   }
   if (raw.properties !== undefined) {
     if (isObject(raw.properties)) {

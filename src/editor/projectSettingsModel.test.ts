@@ -28,7 +28,7 @@ describe("the Project panel's settings", () => {
     d = setValue(d, "time", "maxSubSteps", 0);
     d = setValue(d, "render", "pixelsPerUnit", 0);
     expect(fields(d)).toEqual(["display.width", "display.height", "display.backgroundColor", "time.fixedDeltaTime", "time.maxSubSteps", "render.pixelsPerUnit"]);
-    expect(messages(setValue(flappy(), "time", "fixedDeltaTime", 0.5))).toEqual([expect.stringContaining("longer than the max frame time")]);
+    expect(messages(setValue(flappy(), "time", "fixedDeltaTime", 0.5))).toEqual([]); // longer than the max frame time is fine, as in Unity (ADR 0397)
     expect(messages(setName(flappy(), "  "))).toEqual([]); // empty name: falls back to the folder name
   });
 
@@ -204,7 +204,7 @@ describe("the Project panel's settings", () => {
       d = setTierValue(d, 0, "antialias", "msaa");
       d = setTierValue(d, 0, "anisotropy", 2);
       d = setTierValue(d, 0, "shaderLevel", "medium");
-      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", shadowCascades: 1, cascadedLights: 1, shadowDistance: 30, anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low" });
+      expect(graphicsOf(d).tiers[0]).toEqual({ name: "Low", renderScale: 0.5, antialias: "msaa", shadows: "off", shadowCascades: 1, cascadedLights: 1, shadowDistance: 30, anisotropy: 2, shaderLevel: "medium", postProcessing: false, bloom: false, ambientOcclusion: "off", depthOfField: false, reflectionProbes: "off", particles: "low", lights2D: "low" });
       expect(settingsProblems(d)).toEqual([]);
       expect(graphicsOf(setDefaultTier(d, "Low")).defaultTier).toBe("Low");
       expect(setDefaultTier(d, "Nope")).toBe(d);

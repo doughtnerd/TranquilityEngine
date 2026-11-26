@@ -4,7 +4,7 @@
  * ```sh
  * npm run export -- <projectDir> [--out <dir>] [--target web|desktop] [--platform web|desktop|android]
  *                   [--no-audio-convert] [--scene <path>] [--audio-capture] [--languages <codes>] [--pseudo]
- *                   [--debug-link <address>]
+ *                   [--debug-link <address>] [--debug-listen] [--debug-lan] [--debug-port N] [--debug-rendezvous <url>]
  * ```
  *
  * - `--target web` (default) writes a static web build: the prebuilt player (dist/player/, built
@@ -40,15 +40,26 @@ Options:
                    localised files and its part of each audio package
   --pseudo         Add the pseudo-languages (qps-ploc, qps-plocm), for testing text expansion and right-to-left
   --audio-capture  Ship the audio capture trigger: F9 (or a one-second three-finger hold) records the game's audio mix and
-                   saves a .mycap file for the editor's Profiler. The file names the project's clips, buses and events.
+                   saves a .sporesample file for the editor's Profiler. The file names the project's clips, buses and events.
   --audio-take     Ship the audio take trigger: F10 records a take (what the game asked of audio, and the profile) and
-                   saves a .mycotake file for the Studio. The file names the project's playlists, parameters and nodes.
+                   saves a .sporesample file for the Studio. The file names the project's playlists, parameters and nodes.
   --no-take-pictures
                    With --audio-take: takes record no pictures of the game view (by default a small JPEG about
                    once a second, which the Studio shows beside the take)
   --debug-link A   Debugging on: the game connects to the editor's debug link at A (ws://host:port, host:port, or
                    a port on this machine, such as 7790) so its live debuggers can inspect it. A desktop app also
                    takes --debug-link <address> when launched. Builds without it hold none of the link's code
+  --debug-listen   Debugging on, and the game listens for tools (game.json debug.listen) as well as connecting out. A
+                   desktop app gets the native listener, built into it by tauri build; a web build can't listen, so
+                   there the key is harmless. A desktop app also takes --debug-code <code> when launched
+  --debug-lan      Debugging on; a listening game accepts tools from other machines on its network (debug.lan: binds
+                   0.0.0.0, each tool paired by code) instead of this machine only. Off by default
+  --debug-port N   Debugging on; the first port a listening game tries (debug.port, default 7790; it tries the next nine)
+  --debug-rendezvous U
+                   Debugging on; the hosted rendezvous (a ws:// or wss:// URL, game.json debug.rendezvous) a room code
+                   without a LAN rendezvous uses. A debug web build's serve.mjs also hosts a rendezvous itself
+                   (rendezvous.mjs beside it, built with npm run build:rendezvous if missing); with --debug-lan it
+                   serves the local network (0.0.0.0) and prints the addresses to open
   --build          Desktop: run tauri build (default when Rust is installed)
   --no-build       Desktop: only write the Tauri project
   -h, --help       Show this help`;
@@ -91,6 +102,29 @@ const EXPORT_COMMAND: Command<ExportOptions> = {
       set: (o, v) => {
         if (!debugLinkAddress(v)) throw new UsageError(`--debug-link is a WebSocket address: ws://host:port, host:port or a port (got ${JSON.stringify(v)}).`);
         o.debugLink = v;
+      },
+    },
+    "--debug-listen": { set: (o) => void (o.debugListen = true) },
+    "--debug-lan": { set: (o) => void (o.debugLan = true) },
+    "--debug-port": {
+      takes: "a port",
+      set: (o, v) => {
+        const port = /^\d+$/.test(v) ? Number(v) : NaN;
+        if (!(port >= 1 && port <= 65526)) throw new UsageError(`--debug-port is a whole number from 1 to 65526 (got ${JSON.stringify(v)}).`);
+        o.debugPort = port;
+      },
+    },
+    "--debug-rendezvous": {
+      takes: "a ws:// or wss:// URL",
+      set: (o, v) => {
+        let protocol = "";
+        try {
+          protocol = new URL(v.trim()).protocol;
+        } catch {
+          // not a URL: refused below
+        }
+        if (protocol !== "ws:" && protocol !== "wss:") throw new UsageError(`--debug-rendezvous is a ws:// or wss:// URL (got ${JSON.stringify(v)}).`);
+        o.debugRendezvous = v;
       },
     },
     "--build": { set: (o) => void (o.tauriBuild = true) },

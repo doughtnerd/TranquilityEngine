@@ -2,15 +2,18 @@
  * Decal drawing (ADR 0395), renderer-neutral: `DecalProjector`s and pooled 3D decals become instances of decal
  * batches (one per look and order) through the renderer core's `DecalHost`; `Decal2D`s and pooled 2D decals become
  * layered quads through its `QuadBatchHost` (one batch per texture and draw order, or one per decal that clips itself
- * to a sprite). The renderer knows boxes and quads; this module knows decals. No Babylon here (ADR 0075): it's
- * unit-tested against fake hosts.
+ * to a sprite). The renderer knows boxes and quads; this module knows decals. It is the Decals plugin's render feature
+ * (ADR 0130, 0418), loaded by the renderer from the loader the plugin registers, so it stays out of the `myco` module.
+ * No Babylon here (ADR 0075): it's unit-tested against fake hosts.
  */
 import type { Component } from "../../../engine/core/Component";
 import { Mat4 } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
-import { SpriteRenderer } from "../../../engine/render/components";
+import type { BabylonFeature, BabylonFeatureFactory, DrawnNode, FeatureSyncContext } from "../../../engine/render/babylon/feature";
+import { type Camera, SpriteRenderer } from "../../../engine/render/components";
 import type { DecalBatch, DecalHost, DecalLook } from "../../../engine/render/decals";
 import type { QuadBatch, QuadBatchHost, QuadMask } from "../../../engine/render/quadBatches";
+import { sortingOrder } from "../../../engine/render/sortOrder";
 import { spriteFrame, type SpriteFrame } from "../../../engine/render/spriteFrame";
 import { Assets } from "../../../engine/scene/Assets";
 import type { GameObject } from "../../../engine/scene/GameObject";
@@ -24,10 +27,12 @@ export interface DecalsHost {
   readonly quads: QuadBatchHost;
   /** The project's pixels per unit (a sprite's default scale). */
   pixelsPerUnit(): number;
+  /** The main view camera when the sync context has none yet (distance fades are measured from it), or null: no fades. */
+  viewCamera(): Camera | null;
 }
 
-/** @internal A placed decal drawn now (ADR 0276): a projector's box (column-major unit-cube-to-world), or a 2D decal's quad batch and draw order. */
-export type DrawnDecal =
+/** A placed decal drawn now (ADR 0276): a projector's box (column-major unit-cube-to-world), or a 2D decal's quad batch and draw order. */
+type DrawnDecal =
   | { readonly component: DecalProjector; readonly kind: "box"; readonly matrix: Float32Array }
   | { readonly component: Decal2D; readonly kind: "quads"; readonly batch: QuadBatch; readonly order: number };
 
@@ -43,7 +48,12 @@ interface Instances {
 
 interface Quads {
   texture: string;
+  sortingLayer: string;
+  orderInLayer: number;
+  /** Its draw order (`sortingOrder`), for picking. */
   order: number;
+  /** Its 2D material asset (ADR 0399: "" the default, Sprite Lit). */
+  material: string;
   mask: QuadMask | null;
   positions: number[];
   uvs: number[];
@@ -67,8 +77,8 @@ const box = new Float64Array(16);
 const tmp = new Float64Array(16);
 const inv = new Float64Array(16);
 
-/** @internal */
-export class DecalRenderer {
+/** @internal Decals: the Decals plugin's render feature. Syncs in `effects`, after the content and the lighting rig. */
+export class DecalRenderer implements BabylonFeature {
   private readonly boxes = new Map<string, DecalBatch>();
   private readonly quads = new Map<string, QuadBatch>();
   private drawnNow: DrawnDecal[] = [];
@@ -77,8 +87,14 @@ export class DecalRenderer {
 
   constructor(private readonly host: DecalsHost) {}
 
-  /** Draw the World's decals as seen from `eye` (the main view camera's world position, for distance fades), or without fades when null. */
-  sync(world: World, eye: readonly [number, number, number] | null): void {
+  /** Draw the World's decals as seen from the main view camera (distance fades), or without fades when there's none. */
+  sync(world: World, ctx?: FeatureSyncContext): void {
+    const view = ctx?.view ?? this.host.viewCamera();
+    let eye: [number, number, number] | null = null;
+    if (view?.node.transform) {
+      const m = world.worldMatrix(view.node.entity), o = view.node.entity * 16;
+      eye = [m[o + 12]!, m[o + 13]!, m[o + 14]!];
+    }
     this.ready = true;
     this.drawnNow = [];
     const instances = new Map<string, Instances>();
@@ -113,7 +129,7 @@ export class DecalRenderer {
       if (!c.isActiveAndEnabled || !c.node.transform) continue;
       const e = c.node.entity, m = world.worldMatrix(e);
       const receiver = c.clip === "parentSprite" ? c.node.parent : null;
-      const placed = this.addQuad(quads, `c${e}`, c.sprite, c.sortingLayer, c.orderInLayer, m, e * 16, c.size ? [c.size.x, c.size.y] : null, c.color, clamp01(c.opacity), receiver);
+      const placed = this.addQuad(world, quads, `c${e}`, c.sprite, c.sortingLayer, c.orderInLayer, m, e * 16, c.size ? [c.size.x, c.size.y] : null, c.color, clamp01(c.opacity), receiver, c.material);
       if (placed) {
         placed.owners.push(c);
         decals2D++;
@@ -122,7 +138,7 @@ export class DecalRenderer {
     for (const d of pool?.decals2D ?? []) {
       if (!d.alive) continue;
       Mat4.copy(box, 0, d.matrix, 0);
-      this.addQuad(quads, null, d.look.sprite, d.look.sortingLayer, d.look.orderInLayer, box, 0, d.size2D, d.color, clamp01(d.opacity) * d.fade(), d.clip);
+      this.addQuad(world, quads, null, d.look.sprite, d.look.sortingLayer, d.look.orderInLayer, box, 0, d.size2D, d.color, clamp01(d.opacity) * d.fade(), d.clip);
     }
 
     // --- hand the batches over ----------------------------------------------------------------------
@@ -146,12 +162,12 @@ export class DecalRenderer {
       usedQuads.add(key);
       let batch = this.quads.get(key);
       if (!batch) this.quads.set(key, (batch = this.host.quads.createBatch(`decal2d:${key}`)));
-      batch.setTriangles(q.texture, new Float32Array(q.positions), new Float32Array(q.uvs), quadIndices(q.positions.length / 12));
-      batch.setColors(new Float32Array(q.colors));
+      batch.setOrder(q.sortingLayer, q.orderInLayer);
+      batch.setMaterial(q.material);
+      batch.setTriangles(q.texture, new Float32Array(q.positions), new Float32Array(q.uvs), quadIndices(q.positions.length / 12), new Float32Array(q.colors));
       batch.setTint("#ffffff", 1);
       batch.setMask(q.mask);
       batch.setMatrix(IDENTITY);
-      batch.setOrder(q.order);
       batch.setVisible(true);
       for (const owner of q.owners) this.drawnNow.push({ component: owner, kind: "quads", batch, order: q.order });
     }
@@ -168,6 +184,7 @@ export class DecalRenderer {
    * placed Decal2D), else the one for its texture, draw order and receiver. Null while its texture loads.
    */
   private addQuad(
+    world: World,
     quads: Map<string, Quads>,
     own: string | null,
     sprite: string,
@@ -179,6 +196,7 @@ export class DecalRenderer {
     color: { r: number; g: number; b: number; a: number },
     opacity: number,
     receiver: GameObject | null,
+    material = "",
   ): Quads | null {
     const { path: image, slice } = splitSpriteRef(sprite);
     let frame: SpriteFrame | null = null;
@@ -193,13 +211,13 @@ export class DecalRenderer {
     const [w, h] = frame?.size ?? size ?? [1, 1];
     const [pvx, pvy] = frame?.pivot ?? [0.5, 0.5];
     const [u0, v0, u1, v1] = frame?.uv ?? [0, 0, 1, 1];
-    const order = this.host.quads.sortOrder(layer, orderInLayer);
+    const order = sortingOrder(world.settings.render.sortingLayers, layer, orderInLayer); // the batch warns about an unknown layer
     const mask = receiver ? this.maskOf(receiver, m[mo + 14]!) : null;
     if (receiver && mask === undefined) return null; // the receiver's texture is loading
     // A placed Decal2D draws in a batch of its own (picked and framed by itself); spawned ones share by texture, order and receiver.
-    const key = own ?? (mask && receiver ? `${image}|${order}|r${receiver.entity}` : `${image}|${order}`);
+    const key = own ?? (mask && receiver ? `${image}|${order}|r${receiver.entity}` : `${image}|${order}`) + (material ? `|${material}` : "");
     let q = quads.get(key);
-    if (!q) quads.set(key, (q = { texture: image, order, mask: mask ?? null, positions: [], uvs: [], colors: [], owners: [] }));
+    if (!q) quads.set(key, (q = { texture: image, sortingLayer: layer, orderInLayer, order, material, mask: mask ?? null, positions: [], uvs: [], colors: [], owners: [] }));
     const corners: [number, number, number, number][] = [
       [-pvx * w, -pvy * h, u0, v0],
       [(1 - pvx) * w, -pvy * h, u1, v0],
@@ -243,8 +261,15 @@ export class DecalRenderer {
     };
   }
 
-  drawn(): readonly DrawnDecal[] {
-    return this.drawnNow;
+  /**
+   * ADR 0276: each placed projector as its box (not picked: a click on a wall selects the wall) and each placed 2D decal
+   * as its quad batch at its draw order. Spawned decals have no node and aren't reported.
+   */
+  *drawn(): Iterable<DrawnNode> {
+    for (const d of this.drawnNow) {
+      if (d.kind === "box") yield { component: d.component, shape: { kind: "box", matrix: d.matrix }, order: 0, pickable: false };
+      else yield { component: d.component, shape: { kind: "quads", batches: [d.batch] }, order: d.order };
+    }
   }
 
   loaded(): boolean {
@@ -266,6 +291,17 @@ export class DecalRenderer {
     this.drawnNow = [];
   }
 }
+
+declare module "../../../engine/render/RenderSurface" {
+  interface RenderFeatureDiagnostics {
+    /** The Decals plugin's (ADR 0395): placed projectors and 2D decals drawn, spawned decals in the pool, and batches. */
+    decals?: { projectors: number; decals2D: number; pooled: number; batches: number };
+  }
+}
+
+/** @internal Builds the feature from the renderer's shared services: the decal volumes, the quad batches, the project's pixels per unit and the view camera. */
+export const createDecalsFeature: BabylonFeatureFactory = (host) =>
+  new DecalRenderer({ decals: host.decals, quads: host.quads, pixelsPerUnit: () => host.settings.render.pixelsPerUnit, viewCamera: () => host.viewCamera() });
 
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));

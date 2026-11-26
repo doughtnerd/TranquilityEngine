@@ -7,12 +7,17 @@ import type { World } from "../../../../../engine/core/World";
 import type { BabylonFeature, BabylonFeatureFactory, DrawnDescription, DrawnNode } from "../../../../../engine/render/babylon/feature";
 import { SpriteRenderer } from "../../../../../engine/render/components";
 import { claimSprites } from "../../../../../engine/render/spriteClaims";
+import { claimSpriteOutlines } from "../../../../../engine/render/lights2D/outlineClaims";
 import { claimsSkinnedSprite, SkinnedSprites } from "./skinnedSprites";
 
 class SkinnedSpritesFeature implements BabylonFeature {
   private readonly unclaim = claimSprites(claimsSkinnedSprite);
+  /** ADR 0415: 2D shadow casters on skinned sprites cast from the deformed outline. */
+  private readonly unclaimOutlines: () => void;
 
-  constructor(private readonly sprites: SkinnedSprites) {}
+  constructor(private readonly sprites: SkinnedSprites) {
+    this.unclaimOutlines = claimSpriteOutlines((r) => this.sprites.deformedOutline(r));
+  }
 
   sync(world: World): void {
     this.sprites.sync(world);
@@ -33,6 +38,7 @@ class SkinnedSpritesFeature implements BabylonFeature {
 
   dispose(): void {
     this.unclaim();
+    this.unclaimOutlines();
     this.sprites.dispose();
   }
 }

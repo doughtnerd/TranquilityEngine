@@ -21,6 +21,41 @@ export interface DebugManifest {
    * transport's default.
    */
   readonly webrtc?: false | Readonly<Record<string, unknown>>;
+  /**
+   * `debug.listen` (ADR 0403 "Roles"): the build listens for tools as well as (or instead of) connecting out, on a native
+   * build only (a page can't listen). Written by an export with `--debug-listen`. Omitted: false (connect out only).
+   */
+  readonly listen?: boolean;
+  /**
+   * `debug.lan` (ADR 0403, 0376 "Security"): a listening build accepts connections from other machines on its network
+   * (binds `0.0.0.0`), each paired by code; without it, it binds loopback and only same-machine tools connect. Written by
+   * `--debug-lan` (the export dialog's Debugging section, off by default). Omitted: false.
+   */
+  readonly lan?: boolean;
+  /**
+   * `debug.port`: the first port a listening build tries; when it's taken it tries the next nine (7790..7799 by default,
+   * so the editor, the Studio and a game share a machine). A whole number 1..65526. Omitted: `DEFAULT_DEBUG_LINK_PORT`.
+   */
+  readonly port?: number;
+  /**
+   * `debug.rendezvous`: the hosted rendezvous's WebSocket URL (`ws://` or `wss://`, path `/myco-rendezvous`), which a
+   * room code without a LAN rendezvous falls back to (ADR 0403 "Rendezvous" 3; plan O7). Omitted: none configured (no
+   * public rendezvous exists, plan O3).
+   */
+  readonly rendezvous?: string;
+  /**
+   * `debug.iceServers`: STUN/TURN servers for the `webrtc` transport beyond one network (ADR 0403 "Transports": host
+   * candidates only on one network, ICE servers a setting for later). Omitted: none.
+   */
+  readonly iceServers?: readonly DebugIceServer[];
+}
+
+/** One `debug.iceServers` entry: `RTCIceServer`'s fields, declared here so the exporter needs no DOM types. */
+export interface DebugIceServer {
+  /** `stun:`, `turn:` or `turns:` URLs. */
+  readonly urls: string | readonly string[];
+  readonly username?: string;
+  readonly credential?: string;
 }
 
 /**
@@ -71,5 +106,89 @@ export function readDebugManifest(debug: unknown, override?: string | null): { c
   if (d.webrtc === false) webrtc = false;
   else if (d.webrtc && typeof d.webrtc === "object" && !Array.isArray(d.webrtc)) webrtc = d.webrtc as Record<string, unknown>;
   else if (d.webrtc !== undefined) problems.push("game.json's debug.webrtc should be false or the WebSocket transport's webrtc options; ignored.");
-  return { config: webrtc === undefined ? { link } : { link, webrtc }, problems };
+  const config: { link: string; webrtc?: DebugManifest["webrtc"]; listen?: boolean; lan?: boolean; port?: number; rendezvous?: string; iceServers?: readonly DebugIceServer[] } = { link };
+  if (webrtc !== undefined) config.webrtc = webrtc;
+  const listen = readBoolean(d, "listen", problems);
+  if (listen !== undefined) config.listen = listen;
+  const lan = readBoolean(d, "lan", problems);
+  if (lan !== undefined) config.lan = lan;
+  const port = readPort(d, problems);
+  if (port !== undefined) config.port = port;
+  const rendezvous = readRendezvous(d, problems);
+  if (rendezvous !== undefined) config.rendezvous = rendezvous;
+  const iceServers = readIceServers(d, problems);
+  if (iceServers !== undefined) config.iceServers = iceServers;
+  return { config, problems };
+}
+
+/** A `true` or `false` key; anything else is ignored with a problem line. Omitted: undefined. */
+function readBoolean(d: Record<string, unknown>, key: "listen" | "lan", problems: string[]): boolean | undefined {
+  const v = d[key];
+  if (v === undefined || typeof v === "boolean") return v;
+  problems.push(`game.json's debug.${key} should be true or false; ignored.`);
+  return undefined;
+}
+
+/** A whole number from 1 to 65526; anything else is ignored with a problem line. Omitted: undefined. */
+function readPort(d: Record<string, unknown>, problems: string[]): number | undefined {
+  const v = d.port;
+  if (v === undefined) return undefined;
+  if (typeof v === "number" && Number.isInteger(v) && v >= 1 && v <= 65526) return v;
+  problems.push("game.json's debug.port should be a whole number from 1 to 65526; ignored.");
+  return undefined;
+}
+
+/** A `ws://` or `wss://` URL string; anything else is ignored with a problem line. Omitted: undefined. */
+function readRendezvous(d: Record<string, unknown>, problems: string[]): string | undefined {
+  const v = d.rendezvous;
+  if (v === undefined) return undefined;
+  if (typeof v === "string") {
+    const url = v.trim();
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "ws:" || parsed.protocol === "wss:") return url;
+    } catch {
+      // not a URL: reported below
+    }
+  }
+  problems.push("game.json's debug.rendezvous should be a ws:// or wss:// URL; ignored.");
+  return undefined;
+}
+
+/** `stun:`, `turn:` or `turns:` followed by a host and optional port, no spaces. */
+const ICE_URL = /^(stun|turns?):\S+$/i;
+
+/**
+ * `debug.iceServers`: an array of entries. An entry that isn't a valid server (bad `urls`, a non-string `username` or
+ * `credential`) is dropped with a problem line each. A value that isn't an array is ignored with one problem line.
+ */
+function readIceServers(d: Record<string, unknown>, problems: string[]): DebugIceServer[] | undefined {
+  const v = d.iceServers;
+  if (v === undefined) return undefined;
+  if (!Array.isArray(v)) {
+    problems.push("game.json's debug.iceServers should be an array of { urls, username?, credential? } entries; ignored.");
+    return undefined;
+  }
+  const servers: DebugIceServer[] = [];
+  for (const entry of v) {
+    const server = readIceServer(entry);
+    if (server) servers.push(server);
+    else problems.push("game.json's debug.iceServers has an entry that isn't a STUN or TURN server (urls of stun:, turn: or turns: addresses, optional username and credential as text); dropped.");
+  }
+  return servers;
+}
+
+function readIceServer(entry: unknown): DebugIceServer | null {
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
+  const e = entry as Record<string, unknown>;
+  const list = typeof e.urls === "string" ? [e.urls] : Array.isArray(e.urls) ? e.urls : null;
+  if (!list || list.length === 0 || !list.every((u) => typeof u === "string" && ICE_URL.test(u))) return null;
+  if (e.username !== undefined && typeof e.username !== "string") return null;
+  if (e.credential !== undefined && typeof e.credential !== "string") return null;
+  const server: { urls: string | string[]; username?: string; credential?: string } = {
+    urls: typeof e.urls === "string" ? e.urls : [...(list as string[])],
+  };
+  if (typeof e.username === "string") server.username = e.username;
+  if (typeof e.credential === "string") server.credential = e.credential;
+  return server;
 }

@@ -119,6 +119,8 @@ export {
 
 // The Environment plugin (ADR 0140).
 export { Environment } from "./plugins/environment/runtime";
+// The Lights 2D plugin (ADR 0399, 0413).
+export { CompositeShadowCaster2D, Light2D, ShadowCaster2D, type BlendStyleMask, type Light2DNormals, type Light2DOverlap, type Light2DType, type LightBlendStyle, type Lighting2DSettings, type ShadowCaster2DShape } from "./plugins/lights2d/runtime";
 
 // The Post-processing plugin (ADR 0140).
 export { PostProcessing, type ToneMapping } from "./plugins/post-processing/runtime";

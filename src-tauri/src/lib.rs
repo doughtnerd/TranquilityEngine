@@ -1,10 +1,11 @@
-mod debug_link;
+mod game_build;
 mod gamepad;
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use tauri::webview::{NewWindowResponse, WebviewWindowBuilder};
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindow, WindowEvent};
+use tauri::{AppHandle, DragDropEvent, Manager, WebviewUrl, WebviewWindow, WindowEvent};
+use tauri_plugin_fs::FsExt;
 
 /// The editor window's label (tauri.conf.json, the capabilities, `EDITOR_WINDOW` in editorWindowStart.ts).
 const EDITOR_WINDOW: &str = "main";
@@ -152,7 +153,8 @@ pub fn run() {
         .plugin(tauri_plugin_persisted_scope::init())
         .plugin(tauri_plugin_opener::init())
         // The debug link's listeners (ADR 0376, 0379), opened by the editor's page.
-        .manage(debug_link::DebugLinkListeners::default())
+        .manage(debug_link_tauri::DebugLinkListeners::default())
+        .manage(debug_link_tauri::DebugDiscovery::default())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -180,9 +182,18 @@ pub fn run() {
             gamepad::myco_gamepad_sensors,
             gamepad::myco_gamepad_trigger_effect,
             // The debug link's WebSocket listener (ADR 0379).
-            debug_link::myco_debuglink_listen,
-            debug_link::myco_debuglink_send,
-            debug_link::myco_debuglink_close
+            debug_link_tauri::commands::myco_debuglink_listen_range,
+            debug_link_tauri::commands::myco_debuglink_listen,
+            debug_link_tauri::commands::myco_debuglink_send,
+            debug_link_tauri::commands::myco_debuglink_close,
+            debug_link_tauri::commands::myco_debuglink_interfaces,
+            debug_link_tauri::commands::myco_debuglink_advertise,
+            debug_link_tauri::commands::myco_debuglink_unadvertise,
+            debug_link_tauri::commands::myco_debuglink_browse,
+            debug_link_tauri::commands::myco_debuglink_browse_stop,
+            // Desktop game builds from the editor with the host's toolchain (ADR 0406).
+            game_build::myco_build_toolchain,
+            game_build::myco_build_desktop_app
         ])
         .on_window_event(|window, event| {
             let other = |label: &str| window.app_handle().get_webview_window(label);
@@ -206,6 +217,17 @@ pub fn run() {
                         if !editor_showing {
                             let _ = projects.show();
                             let _ = projects.set_focus();
+                        }
+                    }
+                }
+                // ADR 0408: a take file dropped on the launcher joins Recorded takes and opens as a takes workspace of
+                // its folder, which lists the folder and writes the take's notes beside it. The fs plugin scopes only
+                // the dropped file, so its folder (not below it) is allowed too; persisted-scope keeps it.
+                ("projects", WindowEvent::DragDrop(DragDropEvent::Drop { paths, .. })) => {
+                    for path in paths {
+                        let is_take = path.extension().is_some_and(|e| e.eq_ignore_ascii_case("sporesample"));
+                        if let (true, Some(folder)) = (is_take && path.is_file(), path.parent()) {
+                            let _ = window.app_handle().fs_scope().allow_directory(folder, false);
                         }
                     }
                 }

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Camera, Engine, GameBehavior, GameObject, Input, PenState, TouchState, Vector2 } from "../index";
+import { Camera, Color, Engine, GameBehavior, GameObject, Input, PenState, TouchState, Vector2 } from "../index";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UILength } from "../ui/components";
 import { World } from "../core/World";
 import { UICore, canvasScale, uiLength } from "../ui/UICore";
@@ -847,6 +847,146 @@ describe("UICore pointer routing", () => {
     mouse("down", 100, 40);
     expect(Input.pointerOverUI).toBe(false);
     expect(Input.getMouseButtonDown(0)).toBe(true);
+  });
+});
+
+describe("UICore raycast targets (ADR 0385, Unity's Graphic.raycastTarget)", () => {
+  /** A canvas with a column of fixed-size elements at (20, 20), 200×50 each, 10 apart. */
+  function column() {
+    const canvas = node("Canvas", null, UICanvas);
+    const box = node("Column", canvas.node, UIPanel, { flexDirection: "column", padding: 20, gap: 10, width: "100%", height: "100%" } as Partial<UIPanel>);
+    const size = { width: 200 as UILength, height: 50 as UILength };
+    const panel = node("Panel", box.node, UIPanel, { ...size, backgroundColor: new Color(0, 0, 0, 0.5) } as Partial<UIPanel>);
+    const text = node("Text", box.node, UIText, { ...size, text: "Score" } as Partial<UIText>);
+    const image = node("Image", box.node, UIImage, { ...size } as Partial<UIImage>);
+    return { canvas, box, panel, text, image };
+  }
+  const centres = { panel: 45, text: 105, image: 165 };
+
+  /** Press and release at (100, y): whether the game saw the press, and whether the pointer was over UI. */
+  function press(y: number) {
+    DomInput.attach().pointerDown(0, 100, y);
+    engine.step(DT);
+    const seen = { over: Input.pointerOverUI, down: Input.getMouseButtonDown(0) };
+    DomInput.attach().pointerUp(0, 100, y);
+    engine.step(DT);
+    engine.step(DT);
+    return seen;
+  }
+
+  it("text, images and panels with a background stop the pointer by default; a click on them reaches neither the game nor any button", async () => {
+    const { box, panel, text, image } = column();
+    expect([panel.raycastTarget, text.raycastTarget, image.raycastTarget, box.raycastTarget]).toEqual([true, true, true, true]);
+    const c = await core();
+    sync(c);
+    expect(c.hitTest(100, centres.panel)).toBe(panel);
+    expect(c.hitTest(100, centres.text)).toBe(text);
+    expect(c.hitTest(100, centres.image)).toBe(image);
+    for (const y of Object.values(centres)) expect(press(y)).toEqual({ over: true, down: false });
+    // The column itself has no background or border: a layout box, which the pointer passes (Unity's empty RectTransform).
+    expect(c.hitTest(600, 400)).toBeNull();
+    expect(press(400)).toEqual({ over: false, down: true });
+  });
+
+  it("a panel stops the pointer with a transparent background or a border, not without either", async () => {
+    const { panel } = column();
+    const c = await core();
+    panel.backgroundColor = null;
+    sync(c);
+    expect(c.hitTest(100, centres.panel)).toBeNull();
+    panel.borderWidth = 2;
+    sync(c);
+    expect(c.hitTest(100, centres.panel)).toBe(panel);
+    panel.borderWidth = 0;
+    panel.backgroundColor = new Color(0, 0, 0, 0); // Unity's invisible blocker
+    sync(c);
+    expect(c.hitTest(100, centres.panel)).toBe(panel);
+  });
+
+  it("raycastTarget = false lets the pointer through to the game", async () => {
+    const { panel, text, image } = column();
+    for (const e of [panel, text, image]) e.raycastTarget = false;
+    const c = await core();
+    sync(c);
+    for (const y of Object.values(centres)) {
+      expect(c.hitTest(100, y)).toBeNull();
+      expect(press(y)).toEqual({ over: false, down: true });
+    }
+  });
+
+  it("a blocking panel over a button keeps the button from the pointer, until its raycastTarget is off", async () => {
+    const canvas = node("Canvas", null, UICanvas);
+    const button = node("Button", canvas.node, UIButton, { width: 200, height: 100, positionType: "absolute", left: 0, top: 0 } as Partial<UIButton>);
+    const cover = node("Cover", canvas.node, UIPanel, { width: 200, height: 100, positionType: "absolute", left: 0, top: 0, backgroundColor: new Color(0, 0, 0, 0.3) } as Partial<UIPanel>);
+    const c = await core();
+    sync(c);
+    expect(c.hitTest(100, 50)).toBe(cover);
+    mouse("down", 100, 50);
+    mouse("up", 100, 50);
+    expect(button.clicked).toBe(false);
+    expect(Input.getMouseButtonUp(0)).toBe(false);
+    cover.raycastTarget = false;
+    sync(c);
+    expect(c.hitTest(100, 50)).toBe(button);
+    mouse("down", 100, 50);
+    mouse("up", 100, 50);
+    expect(button.clicked).toBe(true);
+  });
+
+  it("a button's label passes the click to the button, whether the label or the button is the raycast target", async () => {
+    const canvas = node("Canvas", null, UICanvas);
+    const button = node("Button", canvas.node, UIButton, { width: 200, height: 100, padding: 0 } as Partial<UIButton>);
+    const label = node("Label", button.node, UIText, { text: "Play", width: "100%", height: "100%" } as Partial<UIText>);
+    const c = await core();
+    sync(c);
+    expect(c.hitTest(100, 50)).toBe(button); // the label is the target; the button takes it
+    mouse("down", 100, 50);
+    expect(button.pressed).toBe(true);
+    mouse("up", 100, 50);
+    expect(button.clicked).toBe(true);
+    // The button's own graphic off: the label still catches the pointer for it, as in Unity.
+    button.raycastTarget = false;
+    sync(c);
+    engine.step(DT);
+    mouse("down", 100, 50);
+    mouse("up", 100, 50);
+    expect(button.clicked).toBe(true);
+    // Neither: the pointer passes to the game.
+    label.raycastTarget = false;
+    sync(c);
+    expect(c.hitTest(100, 50)).toBeNull();
+    mouse("down", 100, 50);
+    expect(Input.getMouseButtonDown(0)).toBe(true);
+    expect(button.pressed).toBe(false);
+  });
+
+  it("a press on a blocking element takes focus from an input field, as a press elsewhere does", async () => {
+    const canvas = node("Canvas", null, UICanvas);
+    const field = node("Name", canvas.node, UIInputField, { width: 300, height: 40 } as Partial<UIInputField>);
+    const note = node("Note", canvas.node, UIText, { text: "Type your name", width: 300, height: 40, positionType: "absolute", left: 0, top: 40 } as Partial<UIText>);
+    const c = await core();
+    sync(c);
+    mouse("down", 50, 20);
+    mouse("up", 50, 20);
+    expect(field.focused).toBe(true);
+    expect(c.hitTest(100, 60)).toBe(note);
+    mouse("down", 100, 60);
+    expect(field.focused).toBe(false);
+    expect(Input.getMouseButtonDown(0)).toBe(false);
+  });
+
+  it("stops the pointer on world canvases the same way", async () => {
+    const cam = GameObject.create("Cam").addBehavior(Camera, {}); // at the origin, looking along +z (ADR 0164)
+    const canvas = node("World", null, UICanvas, { mode: "world", referenceResolution: new Vector2(200, 100), pixelSize: 0.01 } as Partial<UICanvas>);
+    canvas.node.transform!.position.set(0, 0, 5);
+    const sign = node("Sign", canvas.node, UIText, { text: "Shop", width: "100%", height: "100%" } as Partial<UIText>);
+    engine.step(DT);
+    const c = await core({ interactive: true, host: { viewCamera: () => cam } });
+    sync(c);
+    expect(c.hitTest(640, 360)).toBe(sign);
+    sign.raycastTarget = false;
+    sync(c);
+    expect(c.hitTest(640, 360)).toBeNull();
   });
 });
 

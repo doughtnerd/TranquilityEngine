@@ -1,6 +1,6 @@
 // ADR 0171/0172 (Rc1, leaf L-Rc1c; api-and-models §5.3, §5.4, §6.2): golden byte vectors per record type, in
 // `capture/__fixtures__/records.json` (head and payload hex, hand-assembled from the spec table, and the decoded fields).
-// Each vector decodes to its fields and encodes back to its bytes; the whole-file vector (`__fixtures__/sample.mycap`,
+// Each vector decodes to its fields and encodes back to its bytes; the whole-file vector (`__fixtures__/sample.sporesample`,
 // stored, with INDEX) opens, every record round-trips, and `assembleCapture` rebuilds it byte-equal.
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
@@ -9,6 +9,7 @@ import { CORE_ABI_VERSION, MAGIC, SCHEMA_HASH, STATUS_BUFFER_BYTES, STATUS_HEADE
 import {
   CAPTURE_ABI_VERSION,
   CAPTURE_FLAG_COMPRESSED,
+  CAPTURE_FORMAT_MINOR,
   CAPTURE_FLAG_HAS_INDEX,
   CAPTURE_RECORD_HEAD_BYTES,
   DEFERRED_STAMP_BYTES,
@@ -242,13 +243,15 @@ describe("capture record vectors (L-Rc1c)", () => {
   });
 
   it("L-Rc1c: the whole-file vector opens, every record round-trips, and assembleCapture rebuilds it byte-equal", async () => {
-    const file = new Uint8Array(readFileSync(new URL("./__fixtures__/sample.mycap", import.meta.url)));
+    const file = new Uint8Array(readFileSync(new URL("./__fixtures__/sample.sporesample", import.meta.url)));
     // The fixture's header carries the wire SCHEMA_HASH and the ABI version it was assembled under; a schema or ABI
     // change elsewhere must not break this vector, so the current hash and ABI are stamped over them (header bytes
     // 12..28 and 28..32, §5.1) before anything reads it.
     for (let i = 0; i < 16; i++) file[12 + i] = parseInt(SCHEMA_HASH.slice(2 * i, 2 * i + 2), 16);
     // Likewise the core ABI it names (header bytes 28..32): an ABI bump must not break it either (ADR 0328).
     new DataView(file.buffer, file.byteOffset).setUint32(28, CORE_ABI_VERSION, true);
+    // And the format minor (header bytes 84..86, ADR 0386: written 0 before it): a minor bump must not break it.
+    new DataView(file.buffer, file.byteOffset).setUint16(84, CAPTURE_FORMAT_MINOR, true);
     const c = await openCapture(file);
     expect(c.header.recordCount).toBe(16);
     expect(c.header.flags & CAPTURE_FLAG_COMPRESSED).toBe(0);

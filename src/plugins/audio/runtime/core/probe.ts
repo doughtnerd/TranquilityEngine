@@ -57,7 +57,7 @@ function hasOutputTimestamp(env: ProbeEnv): boolean {
 
 /**
  * @internal The one warning (§7 "Core fails to load"): names the missing features and says the minimum versions
- * (docs/guide/audio-minimum-versions.md), and that sound falls back to the "babylon" backend.
+ * (the wiki's "Audio core: minimum browser and webview versions", docs/wiki/guide/audio-minimum-versions.md), and that sound falls back to the "babylon" backend.
  */
 function refusalMessage(missing: readonly string[]): string {
   const list = missing.join(", ");
@@ -66,7 +66,7 @@ function refusalMessage(missing: readonly string[]): string {
     "The core needs AudioWorklet (Chrome/Edge 66, Firefox 76, Safari 14.1), " +
     "WebAssembly simd128 (Chrome/Edge/WebView2 91, Firefox 89, Safari 16.4) and " +
     "AudioContext.getOutputTimestamp (Chrome/Edge 57, Firefox 70). " +
-    'Using the "babylon" backend: basic playback, no effects. See docs/guide/audio-minimum-versions.md.'
+    'Using the "babylon" backend: basic playback, no effects. See https://github.com/doughtnerd/TranquilityEngine/wiki/Audio-core-minimum-browser-and-webview-versions.'
   );
 }
 

@@ -1,0 +1,14 @@
+# Network discovery for the debug link (ADR 0403 "Discovery", pairing plan D1): a listening native build advertises
+# `_myco-debug._tcp.local.` over mDNS and native tools browse for it. No Tauri: native/debug-link-tauri wraps it in
+# commands, and `cargo test` here runs without Tauri's system libraries.
+[package]
+name = "myco-debug-discovery"
+description = "mDNS advertising and browsing of listening Myco builds (the debug link's discovery, ADR 0403)."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "MIT"
+publish = false
+
+[dependencies]
+mdns-sd = "0.22"

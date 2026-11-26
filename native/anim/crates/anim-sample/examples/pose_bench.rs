@@ -42,7 +42,7 @@ fn main() {
         .collect();
     let sampler = ClipSampler::new(view, Form::Compressed).unwrap();
     let bindings = ClipBindings::new(&sampler);
-    let bound = bindings.bind(sampler).unwrap();
+    let bound = bindings.bind(&sampler).unwrap();
     let mut scratch = vec![AosTransform::default(); sampler.scratch_len()];
     let mut out = vec![SoaTransform::default(); soa_len(rest.len())];
     let mut mem = vec![0.0f32; sampler.cache_len()];

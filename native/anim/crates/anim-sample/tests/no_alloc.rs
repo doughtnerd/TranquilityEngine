@@ -168,8 +168,8 @@ fn sampling_does_not_allocate() {
     let mut cache = SegmentCache::new(&mut mem);
     let bindings = ClipBindings::new(&comp);
     let raw_bindings = ClipBindings::new(&raw);
-    let bound = bindings.bind(comp).unwrap();
-    let raw_bound = raw_bindings.bind(raw).unwrap();
+    let bound = bindings.bind(&comp).unwrap();
+    let raw_bound = raw_bindings.bind(&raw).unwrap();
     let mut open = vec![0u32; bindings.notify_words()];
     let mut columns = vec![0u32; bindings.column_words()];
     let mut records = 0usize;

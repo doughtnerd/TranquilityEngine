@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Engine } from "../index";
+import { World } from "../core/World";
 import { RUNTIME_SETTINGS, defaultSettings, resolveSettings, settingsIssues, type ProjectSettingsInput } from "../core/settings";
 
 // ADR 0272: each runtime project.json section declared once: key, default, and a parse giving the value and its problems.
@@ -10,7 +11,7 @@ const fields = (input: Record<string, unknown>) => settingsIssues(input).problem
 
 describe("runtime settings sections", () => {
   it("declare every key the engine reads, with a default that is what an absent section parses to", () => {
-    expect(Object.keys(RUNTIME_SETTINGS)).toEqual(["name", "display", "time", "physics", "render", "graphics", "navigation", "audio", "input", "autoload", "plugins", "languages", "subtitles"]);
+    expect(Object.keys(RUNTIME_SETTINGS)).toEqual(["name", "display", "time", "physics", "render", "graphics", "lighting2D", "navigation", "audio", "input", "autoload", "plugins", "languages", "subtitles"]);
     for (const section of Object.values(RUNTIME_SETTINGS)) {
       expect(section.parse(undefined)).toEqual({ value: section.default, problems: [], warnings: [] });
     }
@@ -34,6 +35,19 @@ describe("runtime settings sections", () => {
     const settings = resolveSettings({ display: { width: 800, custom: 1 } as never, time: { fixedDeltaTime: 0.01 } });
     expect(settings.display).toMatchObject({ width: 800, height: 720, custom: 1 });
     expect(settings.time.fixedDeltaTime).toBe(0.01);
+  });
+
+  it("accept a fixed timestep longer than the max frame time, like Unity: fixed steps then run less than once a frame", () => {
+    const time = { fixedDeltaTime: 0.5, maxSubSteps: 5, maxFrameTime: 0.25 };
+    expect(settingsIssues({ time })).toEqual({ problems: [], warnings: [] });
+    expect(resolveSettings({ time }).time).toEqual(time);
+    const world = new World("runtime", { time });
+    world.step(0.25);
+    expect(world.time.fixedStepCount).toBe(0);
+    world.step(0.25);
+    expect(world.time.fixedStepCount).toBe(1);
+    world.step(10); // clamped to maxFrameTime: still half a step a frame, never a burst
+    expect(world.time.fixedStepCount).toBe(1);
   });
 
   it("check physics the same way for the engine and the Physics settings section: gravity, layers, the matrix and backend ids", () => {

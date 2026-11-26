@@ -16,15 +16,15 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 
 /** The audio documentation: the guide's audio pages, the 0157 design docs, the core's own notes. */
 const DEFAULTS = [
-  "docs/guide/playing-sound.md",
-  "docs/guide/why-no-sound.md",
-  "docs/guide/atmosphere-and-sound.md",
-  "docs/guide/audio-mixer.md",
-  "docs/guide/sound-events.md",
-  "docs/guide/spatial-audio.md",
-  "docs/guide/interactive-music.md",
-  "docs/guide/interactive-music-api.md",
-  "docs/guide/audio-minimum-versions.md",
+  "docs/wiki/guide/playing-sound.md",
+  "docs/wiki/guide/why-no-sound.md",
+  "docs/wiki/guide/atmosphere-and-sound.md",
+  "docs/wiki/guide/audio-mixer.md",
+  "docs/wiki/guide/sound-events.md",
+  "docs/wiki/guide/spatial-audio.md",
+  "docs/wiki/guide/interactive-music.md",
+  "docs/wiki/guide/interactive-music-api.md",
+  "docs/wiki/guide/audio-minimum-versions.md",
   "docs/design/0157-audio-core",
   "native/audio/README.md",
   "native/audio/PORTS.md",
@@ -95,6 +95,8 @@ for (const file of files) {
       if (fenced) return;
       for (const target of targetsOf(line)) {
         if (/^(https?:|mailto:|data:)/i.test(target)) continue;
+        // A bare `API-…` name in docs/wiki/ links a generated API reference page (ADR 0407); tools/build-wiki.mjs checks it.
+        if (/^API-[\w-]+(#.*)?$/.test(target) && relative(root, file).split(/[\\/]/).slice(0, 2).join("/") === "docs/wiki") continue;
         checked++;
         const [pathPart, anchor] = target.split("#");
         const where = `${relative(root, file)}:${i + 1}: ${target}`;

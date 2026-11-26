@@ -258,6 +258,14 @@ function endTravel(w: TravelWait, reason: AnimatorTravelResult["reason"]): void 
   w.resolve({ reason });
 }
 
+/** @internal `clipUsers`: the clips `rt`'s slot plays still use (queued or playing). */
+export function* graphClipsInUse(rt: AnimatorRuntime): Iterable<ClipEntry> {
+  const ag = animatorGraphs.get(rt.animator);
+  if (!ag) return;
+  for (const i of ag.queue) if (i.kind === "slot" && !i.play.done) yield i.play.clip;
+  for (const p of ag.runtime?.plays.values() ?? []) if (!p.done) yield p.clip;
+}
+
 /** @internal `graphInstanceHooks.unbound`: the Animator's `instance` is going; its plays end, its graph is released. */
 export function graphInstanceUnbound(rt: AnimatorRuntime, instance: number): void {
   const ag = animatorGraphs.get(rt.animator);

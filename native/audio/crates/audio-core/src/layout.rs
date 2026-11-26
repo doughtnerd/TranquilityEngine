@@ -26,8 +26,9 @@ pub const CORE_STATE_BYTES: usize = 128 * 1024;
 /// Scheduled records waiting for their frame (architecture §5.1: 8,192 pending × 48 B).
 pub const PENDING_CAPACITY: usize = 8_192;
 pub const PENDING_RECORD_BYTES: usize = 48;
-/// One logical voice slot (architecture §5.1 estimate: 192 B). A1.2 sizes its slot type to fit.
-pub const VOICE_SLOT_BYTES: usize = 192;
+/// One logical voice slot (architecture §5.1 estimate: 192 B; 200 since the slot keeps a cell for a
+/// taken-over voice's report, ADR 0386). A1.2 sizes its slot type to fit.
+pub const VOICE_SLOT_BYTES: usize = 200;
 /// One entry of the mixed list (a voice slot index).
 pub const MIXED_ENTRY_BYTES: usize = 4;
 /// One bus: gains, ramps, effect slots, its one compressor and its stereo quantum buffer
@@ -361,7 +362,8 @@ mod tests {
     fn the_default_preset_matches_the_memory_table() {
         // architecture §5.1: core and scheduler ≈ 450 KB, voices 768 KB, directory ≈ 130 KB.
         let layout = Layout::new(&preset(4_096, 128, 16));
-        assert_eq!(layout.region(RegionKind::Voices).len, 768 * 1024);
+        // Voices 800 KB since ADR 0386 (a 4 B cell per slot for a taken-over voice's report; 768 KB before).
+        assert_eq!(layout.region(RegionKind::Voices).len, 800 * 1024);
         assert_eq!(layout.region(RegionKind::Arena).len, 16 << 20);
         // The shared reverb (A2.2b): spectra and delay lines of the 1.8 s stereo IR, ≈ 3.0 MB at 48 kHz.
         let reverb = layout.region(RegionKind::Reverb).len;

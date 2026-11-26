@@ -16,7 +16,7 @@ import {
   KEYFRAME_VOICE_STATE_MAX, KeyframeBusFlag, KeyframeMeteredFlag, NO_NAME, type CaptureMusicState, type CaptureVoiceState,
 } from "./keyframeLayout";
 import { voiceRowReason, type CaptureVoiceReason } from "./reasons";
-import { isTakeRecordType, TakeRecordError, TakeRecordType, decodeTakeRecord, type TakeRecord } from "../../../../engine/audio/take/records";
+import { isTakeRecordType, TAKE_FORMAT_MINOR, TakeRecordError, TakeRecordType, decodeTakeRecord, type TakeRecord } from "../../../../engine/audio/take/records";
 import type { TakeMetaSection } from "../../../../engine/audio/take/reader";
 import { CORE_ABI_VERSION, Kind, MAGIC, QUANTUM_FRAMES, SCHEMA_HASH, STATUS_BUFFER_BYTES, STATUS_EVERY_QUANTA, STATUS_HEADER_BYTES, STATUS_HEADER_COLUMNS, VERSION_MAJOR, VERSION_MINOR } from "../wire.generated";
 export {
@@ -36,6 +36,12 @@ export const CAPTURE_HEADER_BYTES = 96;
  * `take` header flag, META's `take` section and the request records; format 1 files are refused (not migrated).
  */
 export const CAPTURE_FORMAT = 2;
+/**
+ * ADR 0386: the format's minor this build writes and reads up to (header bytes 84..86, which files before it wrote as 0):
+ * the take format's minor (`TAKE_FORMAT_MINOR`), as a minor only adds take request records. A file of a newer minor is
+ * refused up front (`newerFormat`): an older reader would pass over the records it doesn't know and replay something else.
+ */
+export const CAPTURE_FORMAT_MINOR = TAKE_FORMAT_MINOR;
 /** The core ABI this build reads captures of: the generated `CORE_ABI_VERSION`, beside the schema hash (ADR 0328). */
 export const CAPTURE_ABI_VERSION = CORE_ABI_VERSION;
 /** R16: the uncompressed payload's cap, from the header before inflate and while inflating (64 MiB). */
@@ -81,7 +87,7 @@ export const CAPTURE_FLAG_TRUNCATED = 1 << 0;
 export const CAPTURE_FLAG_MAIN_SIDE_ONLY = 1 << 1;
 export const CAPTURE_FLAG_HAS_INDEX = 1 << 2;
 export const CAPTURE_FLAG_COMPRESSED = 1 << 3;
-/** ADR 0348: a take (`*.mycotake`): request records may follow, META carries a `take` section, the cap is the take's. */
+/** ADR 0348: a take (`*.sporesample`): request records may follow, META carries a `take` section, the cap is the take's. */
 export const CAPTURE_FLAG_TAKE = 1 << 4;
 const CAPTURE_FLAGS_KNOWN = 0x1f;
 
@@ -103,7 +109,7 @@ export const RecordType = {
   WRAP: 0x09,
   INDEX: 0x7f,
 } as const;
-/** ADR 0348: a take's request record codes (0x10..0x1d, `engine/audio/take/records.ts`): only in a file with the `take` flag. */
+/** ADR 0348: a take's request record codes (0x10..0x20 since ADR 0386, `engine/audio/take/records.ts`): only in a file with the `take` flag. */
 export { TakeRecordType, isTakeRecordType };
 export type RecordTypeCode = (typeof RecordType)[keyof typeof RecordType];
 /** The first required (never skipped) unknown type. */
@@ -119,8 +125,8 @@ export const GAP_REASON_MAX = 5;
 export const NAME_TABLES = ["clips", "buses", "events", "parameters", "snapshots", "targets"] as const;
 export type NameTable = (typeof NAME_TABLES)[number];
 /** MIXOP `origin`. */
-export const MixOpOrigin = { editor: 0, script: 1, undo: 2, redo: 3, compare: 4 } as const;
-export const MIXOP_ORIGIN_MAX = 4;
+export const MixOpOrigin = { editor: 0, script: 1, undo: 2, redo: 3, compare: 4, debugLink: 5 } as const;
+export const MIXOP_ORIGIN_MAX = 5;
 
 /** EVENT `kind` (§5.6). */
 export const EventKind = {
@@ -171,17 +177,20 @@ export const KEYFRAME_COUNT_BYTES = 2;
 export const CAPTURE_ERROR_CODES = [
   /** Shorter than the header, or the magic differs. */
   "badMagic",
-  /** `format` above this build's. */
+  /**
+   * ADR 0386: a version above what this build reads: `format` or its minor, the core ABI's major (or its minor under another
+   * wire hash), the status envelope's. The message reads "incompatible version: file is x.y, this build reads a.b–c.d".
+   */
   "newerFormat",
-  /** `format` below this build's (old captures are not migrated). */
+  /** ADR 0386: a version below what this build reads: `format` (old captures are not migrated), the core ABI's major, the envelope's. Worded as `newerFormat`. */
   "olderFormat",
-  /** Another wire `SCHEMA_HASH` under another core ABI major (another minor reads); the message names both ABI versions and says "re-record with this build". */
+  /** This build's very core ABI under another wire `SCHEMA_HASH` (a schema edit nobody versioned); the message names both and says "re-record with this build". */
   "wireMismatch",
   /** `uncompressedBytes` past `CAPTURE_MAX_UNCOMPRESSED_BYTES`, or a live view past it. */
   "tooLarge",
   /** The inflated payload ran past `uncompressedBytes` (a deflate bomb or a lying header): stopped at +1 byte. */
   "inflateOverrun",
-  /** Any other header field outside its domain: flags, ABI, envelope, rates, sizes that disagree, reserved non-zero. */
+  /** Any other header field outside its domain: flags, rates, sizes that disagree, reserved non-zero. */
   "badHeader",
   /** The deflate stream is corrupt, or no inflater exists. */
   "inflateFailed",
@@ -253,6 +262,8 @@ export interface CaptureErrorInfo {
 /** The plain header's fields, decoded. */
 export interface CaptureHeader {
   format: number;
+  /** ADR 0386: the format's minor (0 in files written before it). */
+  formatMinor: number;
   flags: number;
   /** 32 lower-case hex characters. */
   schemaHash: string;
@@ -308,7 +319,8 @@ export function writeCaptureHeader(view: DataView, h: CaptureHeader): void {
   view.setUint32(72, h.recordCount, true);
   view.setUint32(76, h.indexBytes, true);
   view.setUint32(80, h.ringBytes, true);
-  view.setUint32(84, 0, true);
+  view.setUint16(84, h.formatMinor, true);
+  view.setUint16(86, 0, true);
   view.setFloat64(88, h.firstFrame, true);
 }
 
@@ -319,20 +331,34 @@ function hex16(bytes: Uint8Array, off: number): string {
 }
 
 /**
- * Reads and checks the header, refusing in §5.1's order: length and magic (`badMagic`), `format` (`newerFormat`,
- * `olderFormat`), `SCHEMA_HASH` (`wireMismatch`, unless the file's core ABI is another minor of this build's major:
- * minors are backward compatible), `uncompressedBytes` (`tooLarge`), then every other field
- * (`badHeader`, `metaTooLarge`, `tooManyRecords`). Nothing is allocated from a header value.
+ * Reads and checks the header, refusing in §5.1's order: length and magic (`badMagic`), the versions (ADR 0386: `format`
+ * and its minor, then the core ABI, as `newerFormat` or `olderFormat` naming the file's version and the ones this build
+ * reads), `SCHEMA_HASH` (`wireMismatch` for this build's very ABI under another hash; an older minor of its major reads:
+ * minors are backward compatible), `uncompressedBytes` (`tooLarge`), then every other field (`newerFormat`/`olderFormat`
+ * for the status envelope, `badHeader`, `metaTooLarge`, `tooManyRecords`). Nothing is allocated from a header value.
  */
 export function readCaptureHeader(bytes: Uint8Array): CaptureHeader {
   if (bytes.byteLength < CAPTURE_HEADER_BYTES) throw new CaptureError("badMagic", 0, `${bytes.byteLength} B is shorter than the ${CAPTURE_HEADER_BYTES} B capture header`);
   for (let i = 0; i < 8; i++) if (bytes[i] !== CAPTURE_MAGIC[i]) throw new CaptureError("badMagic", i, "not a Myco capture file (bad magic)");
   const v = new DataView(bytes.buffer, bytes.byteOffset, CAPTURE_HEADER_BYTES);
   const format = v.getUint16(8, true);
-  if (format > CAPTURE_FORMAT) throw new CaptureError("newerFormat", 8, `capture format ${format} is newer than this build's ${CAPTURE_FORMAT}`);
-  if (format < CAPTURE_FORMAT) throw new CaptureError("olderFormat", 8, `capture format ${format} is older than this build's ${CAPTURE_FORMAT}; old captures are not migrated`);
+  const formatMinor = v.getUint16(84, true);
+  // ADR 0386: a version this build can't read is refused here, naming the file's version and the ones this build reads,
+  // never later as a damaged record.
+  const formats = `${CAPTURE_FORMAT}.0\u2013${CAPTURE_FORMAT}.${CAPTURE_FORMAT_MINOR}`;
+  if (format > CAPTURE_FORMAT || (format === CAPTURE_FORMAT && formatMinor > CAPTURE_FORMAT_MINOR)) {
+    throw new CaptureError("newerFormat", format > CAPTURE_FORMAT ? 8 : 84, incompatible(`capture format ${format}.${formatMinor}`, formats));
+  }
+  if (format < CAPTURE_FORMAT) throw new CaptureError("olderFormat", 8, `${incompatible(`capture format ${format}.${formatMinor}`, formats)}; old captures are not migrated`);
   const schemaHash = hex16(bytes, 12);
   const abiVersion = v.getUint32(28, true);
+  const abis = `${CAPTURE_ABI_VERSION >>> 8}.0\u2013${abiText(CAPTURE_ABI_VERSION)}`;
+  const abiMajor = abiVersion >>> 8, myMajor = CAPTURE_ABI_VERSION >>> 8;
+  // A newer core minor under this very wire hash wrote the same records (nothing it added reaches the file): it reads.
+  if (abiMajor > myMajor || (abiMajor === myMajor && (abiVersion & 0xff) > (CAPTURE_ABI_VERSION & 0xff) && schemaHash !== SCHEMA_HASH)) {
+    throw new CaptureError("newerFormat", 28, incompatible(`audio core ABI ${abiText(abiVersion)}`, abis));
+  }
+  if (abiMajor < myMajor) throw new CaptureError("olderFormat", 28, `${incompatible(`audio core ABI ${abiText(abiVersion)}`, abis)}; re-record with this build`);
   if (schemaHash !== SCHEMA_HASH && !abiReadable(abiVersion)) {
     throw new CaptureError("wireMismatch", 12, `recorded with audio ABI ${abiText(abiVersion)} (wire ${schemaHash}); this build is ABI ${abiText(CAPTURE_ABI_VERSION)} (wire ${SCHEMA_HASH}): re-record with this build`);
   }
@@ -340,7 +366,7 @@ export function readCaptureHeader(bytes: Uint8Array): CaptureHeader {
   const cap = (v.getUint16(10, true) & CAPTURE_FLAG_TAKE) !== 0 ? TAKE_MAX_UNCOMPRESSED_BYTES : CAPTURE_MAX_UNCOMPRESSED_BYTES;
   if (uncompressedBytes > cap) throw new CaptureError("tooLarge", 68, `${uncompressedBytes} B uncompressed is past the ${cap} B cap`);
   const h: CaptureHeader = {
-    format, flags: v.getUint16(10, true), schemaHash, abiVersion,
+    format, formatMinor, flags: v.getUint16(10, true), schemaHash, abiVersion,
     envelopeMajor: v.getUint16(32, true), envelopeMinor: v.getUint16(34, true), statusBytesMax: v.getUint32(36, true),
     sampleRate: v.getUint32(40, true), quantumFrames: v.getUint16(44, true), statusEveryQuanta: v.getUint8(46), preset: v.getUint8(47),
     startDateMs: v.getFloat64(48, true), keyframeIntervalMs: v.getUint32(56, true), metaBytes: v.getUint32(60, true),
@@ -349,8 +375,10 @@ export function readCaptureHeader(bytes: Uint8Array): CaptureHeader {
   };
   const bad = (off: number, what: string): never => { throw new CaptureError("badHeader", off, what); };
   if (h.flags & ~CAPTURE_FLAGS_KNOWN) bad(10, `unknown flag bits 0x${h.flags.toString(16)}`);
-  if (h.abiVersion >>> 8 !== CAPTURE_ABI_VERSION >>> 8) bad(28, `ABI ${abiText(h.abiVersion)} with this wire's hash (expected ${abiText(CAPTURE_ABI_VERSION)})`);
-  if (h.envelopeMajor !== VERSION_MAJOR || h.envelopeMinor > VERSION_MINOR) bad(32, `envelope ${h.envelopeMajor}.${h.envelopeMinor}, expected ${VERSION_MAJOR}.${VERSION_MINOR} or an older ${VERSION_MAJOR}.x`);
+  if (h.envelopeMajor !== VERSION_MAJOR || h.envelopeMinor > VERSION_MINOR) {
+    const code = h.envelopeMajor > VERSION_MAJOR || (h.envelopeMajor === VERSION_MAJOR && h.envelopeMinor > VERSION_MINOR) ? "newerFormat" : "olderFormat";
+    throw new CaptureError(code, 32, incompatible(`status envelope ${h.envelopeMajor}.${h.envelopeMinor}`, `${VERSION_MAJOR}.0\u2013${VERSION_MAJOR}.${VERSION_MINOR}`));
+  }
   if (h.statusBytesMax !== STATUS_BUFFER_BYTES) bad(36, `statusBytesMax ${h.statusBytesMax}, expected ${STATUS_BUFFER_BYTES}`);
   if (h.sampleRate < CAPTURE_MIN_SAMPLE_RATE || h.sampleRate > CAPTURE_MAX_SAMPLE_RATE) bad(40, `sample rate ${h.sampleRate}`);
   if (h.quantumFrames !== QUANTUM_FRAMES) bad(44, `quantumFrames ${h.quantumFrames}`);
@@ -365,19 +393,24 @@ export function readCaptureHeader(bytes: Uint8Array): CaptureHeader {
   const hasIndex = (h.flags & CAPTURE_FLAG_HAS_INDEX) !== 0;
   if (!hasIndex && h.indexBytes !== 0) bad(76, `indexBytes ${h.indexBytes} without hasIndex`);
   if (hasIndex && (h.indexBytes < CAPTURE_RECORD_HEAD_BYTES + INDEX_MIN_BYTES || h.indexBytes > h.recordBytes || h.indexBytes > CAPTURE_RECORD_HEAD_BYTES + CAPTURE_RECORD_MAX_BYTES || h.recordCount === 0)) bad(76, `indexBytes ${h.indexBytes}`);
-  if (v.getUint32(84, true) !== 0) bad(84, "reserved is not 0");
+  if (v.getUint16(86, true) !== 0) bad(86, "reserved is not 0");
   if (!(Number.isFinite(h.firstFrame) && h.firstFrame >= 0)) bad(88, `firstFrame ${h.firstFrame}`);
   return h;
 }
 
 /**
- * Whether a file stamped with another wire hash can still be read: its core ABI has this build's major and another
- * minor. A minor only adds (an opcode, a flag bit, an appended word; "no record changes layout", ADR 0328), so a take
- * or capture recorded under another minor opens. A different major, or this very version under another hash (a schema
+ * Whether a file stamped with another wire hash can still be read: its core ABI has this build's major and an older
+ * minor (a newer minor is refused first as `newerFormat`, ADR 0386: it may use what this build lacks). A minor only adds (an opcode, a flag bit, an appended word; "no record changes layout", ADR 0328), so a take
+ * or capture recorded under an older minor opens. A different major, or this very version under another hash (a schema
  * edit nobody versioned), is `wireMismatch`.
  */
 function abiReadable(abi: number): boolean {
-  return abi >>> 8 === CAPTURE_ABI_VERSION >>> 8 && abi !== CAPTURE_ABI_VERSION;
+  return abi >>> 8 === CAPTURE_ABI_VERSION >>> 8 && (abi & 0xff) < (CAPTURE_ABI_VERSION & 0xff);
+}
+
+/** ADR 0386: the words of every version refusal: the file's version and the ones this build reads. */
+function incompatible(file: string, reads: string): string {
+  return `incompatible version: file is ${file}, this build reads ${reads}`;
 }
 
 function abiText(abi: number): string {
@@ -577,6 +610,28 @@ export function readRecordHead(view: DataView, off: number, end: number, statusB
   const frame = view.getFloat64(off + 12, true);
   if (!(Number.isFinite(frame) && frame >= 0)) throw new CaptureError("badFrame", base + off + 12, `frame ${frame}`);
   return { type, flags, epoch: view.getUint16(off + 2, true), len, seq: view.getUint32(off + 8, true), frame };
+}
+
+/**
+ * ADR 0417: cuts the whole records off the front of `bytes`, a stream of records in this framing that may stop at any
+ * byte (a live take's log as the debug link delivers it), calling `each` with every record's head and where its payload
+ * starts in `view` (a view of `bytes`). Answers how many bytes the whole records took: the rest is the start of a record
+ * still to come. A record whose head `readRecordHead` refuses throws its `CaptureError` (a STATUS record is capped at
+ * `CAPTURE_RECORD_MAX_BYTES` here).
+ */
+export function splitCaptureRecords(bytes: Uint8Array, each: (head: RecordHead, view: DataView, payloadAt: number) => void): number {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const end = bytes.byteLength;
+  let off = 0;
+  while (end - off >= CAPTURE_RECORD_HEAD_BYTES) {
+    const len = view.getUint32(off + 4, true);
+    // A record still arriving (one past its cap is refused below, before waiting for bytes that never come).
+    if (len <= CAPTURE_RECORD_MAX_BYTES && end - off < CAPTURE_RECORD_HEAD_BYTES + len) break;
+    const head = readRecordHead(view, off, end, CAPTURE_RECORD_MAX_BYTES);
+    each(head, view, off + CAPTURE_RECORD_HEAD_BYTES);
+    off += CAPTURE_RECORD_HEAD_BYTES + head.len;
+  }
+  return off;
 }
 
 /** Bytes the `deferred` stamp takes at the payload's start. */
@@ -1458,7 +1513,7 @@ export function assembleCapture(init: CaptureHeaderInit, meta: CaptureMetaInit |
   const flags = (init.truncated ? CAPTURE_FLAG_TRUNCATED : 0) | (init.mainSideOnly ? CAPTURE_FLAG_MAIN_SIDE_ONLY : 0) | (opts.index ? CAPTURE_FLAG_HAS_INDEX : 0) | (init.take ? CAPTURE_FLAG_TAKE : 0);
   const out = new Uint8Array(CAPTURE_HEADER_BYTES + metaBytes.byteLength + body.byteLength);
   writeCaptureHeader(new DataView(out.buffer), {
-    format: CAPTURE_FORMAT, flags, schemaHash: SCHEMA_HASH, abiVersion: init.abiVersion ?? CAPTURE_ABI_VERSION,
+    format: CAPTURE_FORMAT, formatMinor: CAPTURE_FORMAT_MINOR, flags, schemaHash: SCHEMA_HASH, abiVersion: init.abiVersion ?? CAPTURE_ABI_VERSION,
     envelopeMajor: VERSION_MAJOR, envelopeMinor: VERSION_MINOR, statusBytesMax: STATUS_BUFFER_BYTES,
     sampleRate: init.sampleRate, quantumFrames: QUANTUM_FRAMES, statusEveryQuanta: STATUS_EVERY_QUANTA, preset: init.preset,
     startDateMs: init.startDateMs, keyframeIntervalMs: CAPTURE_KEYFRAME_INTERVAL_MS, metaBytes: metaBytes.byteLength,

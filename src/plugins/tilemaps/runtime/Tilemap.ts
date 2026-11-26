@@ -20,7 +20,8 @@ import { AssetRef, PlainObject, component, field } from "../../../engine/core/re
 import type { CollisionShapes2D, CollisionShapeSource2D, ShapeMerge2D } from "../../../engine/physics/shapeSource2D";
 import { Assets } from "../../../engine/scene/Assets";
 import { buildTileShapes } from "./collision";
-import { paintTerrain } from "./autotile";
+import { paintTerrain, retileTerrain, type CellAccess } from "./autotile";
+import { cellRandom, RANDOM_BRUSH_STREAM } from "./cellHash";
 import {
   CHUNK_CELLS,
   CHUNK_SIZE,
@@ -137,8 +138,17 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
   @field(AssetRef, { kind: "tileset" }) tileset = "";
   /** One cell's width and height in local units. */
   @field(Vector2) cellSize = new Vector2(1, 1);
+  /** A sprite material asset for every layer (ADR 0399: Sprite Lit or Sprite Unlit). Empty: Sprite Lit, lit by 2D lights when the World has any. */
+  @field(AssetRef, { kind: "material", description: "A Sprite Lit or Sprite Unlit material asset for every layer. Empty: Sprite Lit." }) material = "";
   /** The layers, back to front within the same sorting layer and order. Scene data; see `format.ts`. */
   @field(PlainObject, { hidden: true }) layers: TilemapLayerData[] = [newLayer("Ground")];
+  /**
+   * Chooses among equally fitting variants (ADR 0400): auto-tiling's pick between terrain tiles that fit a cell alike,
+   * and `fillRect`'s pick among several tiles, are a hash of the cell and this seed, so the same strokes always paint
+   * the same map. Changing it affects later painting; `retileTerrain()` re-picks the terrain cells already painted.
+   * The editor's Re-roll button does both. Shown under the Tilemap's fields rather than as one.
+   */
+  @field(Number, { hidden: true }) variantSeed = 0;
 
   private source: unknown = null;
   private runtime: RuntimeLayer[] = [];
@@ -393,11 +403,22 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
     return true;
   }
 
-  /** Fill a rectangle of cells with tile `id` (0 clears). With several ids, each cell picks one at random by the tiles' weights. */
+  /**
+   * Fill a rectangle of cells with tile `id` (0 clears). With several ids, each cell picks one by the tiles' weights,
+   * the pick drawn from the cell and `variantSeed` (ADR 0400), so the same call fills the same way; change the seed
+   * for another arrangement.
+   */
   fillRect(x: number, y: number, width: number, height: number, id: number | readonly number[], layer: number | string = 0): void {
     const ids = typeof id === "number" ? [id] : id;
     const defs: { id: number; weight?: number }[] = ids.map((i) => this.tilesetAsset?.tile(i) ?? { id: i });
-    for (let j = 0; j < height; j++) for (let i = 0; i < width; i++) this.setTile(x + i, y + j, pickWeighted(defs)?.id ?? 0, layer);
+    x = Math.floor(x);
+    y = Math.floor(y);
+    for (let j = 0; j < height; j++) {
+      for (let i = 0; i < width; i++) {
+        const cx = x + i, cy = y + j;
+        this.setTile(cx, cy, pickWeighted(defs, () => cellRandom(this.variantSeed, cx, cy, RANDOM_BRUSH_STREAM))?.id ?? 0, layer);
+      }
+    }
   }
 
   /** Remove every tile from a layer (or every layer). */
@@ -414,7 +435,30 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
   paintTerrain(cells: readonly (readonly [number, number])[], terrain: string | null, layer: number | string = 0): [number, number][] {
     const ts = this.tilesetAsset;
     if (!ts) return [];
-    return paintTerrain(ts, { get: (x, y) => this.getCell(x, y, layer), set: (x, y, id) => this.setTile(x, y, id, layer) }, cells, terrain);
+    return paintTerrain(ts, this.cellAccess(layer), cells, terrain, this.variantSeed);
+  }
+
+  /**
+   * Re-pick every terrain cell of a layer (or every layer) for its neighbours, with `variantSeed` choosing among
+   * equally fitting variants (ADR 0400): after changing the seed, to re-roll the variants, or after the tileset's
+   * terrain tiles changed. Cells of tiles without a terrain are left alone. Returns the cells that changed (of every
+   * layer re-tiled).
+   */
+  retileTerrain(layer?: number | string): [number, number][] {
+    const ts = this.tilesetAsset;
+    if (!ts) return [];
+    const layers = layer === undefined ? this._layers().map((_, i) => i) : [this.indexOf(layer)];
+    const changed: [number, number][] = [];
+    for (const li of layers) {
+      const cells = [...this.tiles(li)].map(({ x, y }) => [x, y] as const);
+      changed.push(...retileTerrain(ts, this.cellAccess(li), cells, this.variantSeed));
+    }
+    return changed;
+  }
+
+  /** A layer's cells as auto-tiling reads and writes them. */
+  private cellAccess(layer: number | string): CellAccess {
+    return { get: (x, y) => this.getCell(x, y, layer), set: (x, y, id) => void this.setTile(x, y, id, layer) };
   }
 
   /** Every non-empty cell of a layer (a cell whose tile the tileset no longer has reads as empty). */

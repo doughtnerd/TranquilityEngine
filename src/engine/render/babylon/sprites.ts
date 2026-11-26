@@ -1,9 +1,9 @@
 /**
  * The Babylon backend's sprite feature (ADR 0014, 0040, 0108, 0115, 0130): SpriteRenderers drawn as
  * thin-instance batches, or as a mesh each (9-sliced and tiled slices, and the editor's scene view).
- * Shares nothing with the renderer but what `BabylonSpriteHost` hands it.
+ * Shares nothing with the renderer but what `BabylonSpriteHost` hands it; materials, lit or not, are the 2D materials'
+ * (`materials2D.ts`, ADR 0418).
  */
-import type { PBRMaterial } from "@babylonjs/core/Materials/PBR/pbrMaterial.js";
 import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Color3 } from "@babylonjs/core/Maths/math.color.js";
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
@@ -21,8 +21,8 @@ import { spriteClaimed } from "../spriteClaims";
 import { sortingOrder, unknownLayerMessage } from "../sortOrder";
 import { MAX_TILE_QUADS, SPRITE_GRID_INDICES, spriteFrame, spriteMeshData, type SpriteFrame } from "../spriteFrame";
 import type { BabylonFeature, DrawnNode, FeatureSyncContext } from "./feature";
-import { layeredQuadMaterial, placeInLayer, SpriteBatcher, type SpriteItem } from "./layeredQuads";
-
+import { placeInLayer, SpriteBatcher, type SpriteItem } from "./layeredQuads";
+import type { BabylonMaterials2D, Material2D, Material2DRequest } from "./materials2D";
 
 /** @internal What the sprite feature needs from the renderer. */
 export interface BabylonSpriteHost {
@@ -32,10 +32,13 @@ export interface BabylonSpriteHost {
   pixelsPerUnit(): number;
   /** The project's sorting layers, bottom to top (`render.sortingLayers`). */
   sortingLayers(): readonly string[];
-  /** Loads a colour texture asset (the material library's `texture(path)`). */
-  texture(path: string): Promise<Texture>;
-  /** A colour texture asset if already loaded, else null (the material library's `loadedTexture(path)`). */
-  loadedTexture(path: string): Texture | null;
+  /**
+   * A colour texture asset if loaded (sampled again if its import settings changed), else null: it starts loading and
+   * `onReady` runs once it has (the material library's `texture`).
+   */
+  texture(path: string, onReady?: () => void): Texture | null;
+  /** The 2D materials (ADR 0418): every sprite's material, batched or its own, lit or not. */
+  readonly materials2D: BabylonMaterials2D;
   /**
    * `perObject`: a mesh per sprite, for the editor's scene view and editor play mode (picking and
    * outlines use them). `batched`: plain sprites batch (ADR 0108, 0129). Read each sync.
@@ -46,9 +49,10 @@ export interface BabylonSpriteHost {
 }
 
 interface SpriteEntry {
-  /** Its own quad and material: the editor's scene view only (picking and outlines); other Worlds batch (ADR 0108). */
+  /** Its own quad: the editor's scene view, sliced and tiled slices and graph-shaded sprites; other sprites batch (ADR 0108). */
   mesh: Mesh | null;
-  material: PBRMaterial | null;
+  /** Its material (ADR 0418): its own mesh's, or its batch's; null before it was first shown. */
+  look: Material2D | null;
   /** What the batcher draws for it (ADR 0108), null while hidden. */
   item: SpriteItem | null;
   spritePath: string | null;
@@ -95,7 +99,7 @@ export class BabylonSprites implements BabylonFeature {
     const e = this.sprites.get(c);
     if (e) {
       e.mesh?.dispose();
-      e.material?.dispose();
+      e.look?.release();
       this.sprites.delete(c);
       this.spritesDirty = true;
     }
@@ -116,7 +120,7 @@ export class BabylonSprites implements BabylonFeature {
   dispose(): void {
     for (const e of this.sprites.values()) {
       e.mesh?.dispose();
-      e.material?.dispose();
+      e.look?.release();
     }
     this.sprites.clear();
     this.batcher.dispose();
@@ -130,30 +134,25 @@ export class BabylonSprites implements BabylonFeature {
   private syncSprite(world: World, s: SpriteRenderer, snap: number): void {
     let entry = this.sprites.get(s);
     if (!entry) {
-      entry = { mesh: null, material: null, item: null, spritePath: null, texture: null, uvKey: "", vertexCount: 16, size: null, matrix: null };
+      entry = { mesh: null, look: null, item: null, spritePath: null, texture: null, uvKey: "", vertexCount: 16, size: null, matrix: null };
       this.sprites.set(s, entry);
       this.spritesDirty = true;
     }
     const { path: image, slice } = splitSpriteRef(s.sprite);
     if (entry.spritePath !== s.sprite) {
       entry.spritePath = s.sprite;
-      const tex = image ? this.host.loadedTexture(image) : null;
-      entry.texture = tex;
-      if (tex) tex.hasAlpha = true; // Babylon reads a texture's alpha only when told it has one
-      if (entry.material) entry.material.albedoTexture = tex;
-      this.spritesDirty = true;
-      if (image && !tex) {
-        const requested = s.sprite;
-        this.host
-          .texture(image)
-          .then(() => {
+      const requested = s.sprite;
+      const tex = image
+        ? this.host.texture(image, () => {
             if (entry!.spritePath === requested) entry!.spritePath = null; // re-resolve next sync
           })
-          .catch((err) => console.error(`[myco] failed to load texture "${image}":`, err));
-      }
+        : null;
+      entry.texture = tex;
+      if (tex) tex.hasAlpha = true; // Babylon reads a texture's alpha only when told it has one
+      this.spritesDirty = true;
     }
     // A sidecar rewritten since the texture loaded (the editor's import settings): sample it anew.
-    if (entry.texture && image) this.host.loadedTexture(image);
+    if (entry.texture && image) this.host.texture(image);
 
     const ready = !s.sprite || !!entry.texture;
     // A skinned slice under a Skeleton2D is another feature's to draw (ADR 0371, `spriteClaims.ts`).
@@ -185,15 +184,15 @@ export class BabylonSprites implements BabylonFeature {
 
     // A mesh of its own with editor tools (picking and outlines), or for a 9-sliced or tiled slice
     // (ADR 0115), whose grid the batcher's quads can't draw; plain sprites batch (ADR 0108).
-    const own = this.host.drawPolicy() === "perObject" || !!(frame && (frame.border || frame.fill === "tile"));
+    // A sprite shaded by a sprite graph (ADR 0415) draws on its own mesh too: the batcher's material is the plain one.
+    const own = this.host.drawPolicy() === "perObject" || this.host.materials2D.shadedByGraph(s.material) || !!(frame && (frame.border || frame.fill === "tile"));
     if (own && !entry.mesh) this.makeSpriteMesh(s, entry);
     else if (!own && entry.mesh) {
       entry.mesh.dispose();
-      entry.material?.dispose();
-      entry.mesh = entry.material = null;
+      entry.mesh = null;
       entry.matrix = null;
     }
-    const { mesh, material } = entry;
+    const mesh = entry.mesh;
     if (mesh) {
       mesh.setEnabled(true);
       if (entry.item) this.spritesDirty = true; // drawn by its own mesh now
@@ -202,22 +201,28 @@ export class BabylonSprites implements BabylonFeature {
 
     const order = this.sortOrder(s.sortingLayer, s.orderInLayer);
     const c = s.color;
-    if (material) {
-      material.albedoColor.set(c.r, c.g, c.b).toLinearSpaceToRef(material.albedoColor);
-      material.alpha = c.a;
-      placeInLayer(mesh!, order);
+    // Its own mesh's material takes the tint in place; a batch's is white, tinted by the instance colour.
+    const request: Material2DRequest = mesh
+      ? { texture: image, material: s.material, sortingLayer: s.sortingLayer, own: true, tint: c }
+      : { texture: image, material: s.material, sortingLayer: s.sortingLayer, instanced: true };
+    if (entry.look) entry.look.update(request);
+    else entry.look = this.host.materials2D.acquire(request);
+    const material = entry.look.material;
+    if (mesh) {
+      if (mesh.material !== material) mesh.material = material;
+      placeInLayer(mesh, order);
       if (frame && texSize) this.setSpriteGeometry(entry, frame, texSize.width, texSize.height);
     } else {
-      const item = (entry.item ??= { texture: null, order, matrix: new Float32Array(16), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1] });
+      const item = (entry.item ??= { material, order, matrix: new Float32Array(16), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1] });
       // The batch's instance colour multiplies the (white) albedo: linear, like the albedo colour.
       tmpColor.set(c.r, c.g, c.b).toLinearSpaceToRef(tmpColor);
-      if (item.color[0] !== tmpColor.r || item.color[1] !== tmpColor.g || item.color[2] !== tmpColor.b || item.color[3] !== c.a || item.order !== order || item.texture !== entry.texture) {
+      if (item.color[0] !== tmpColor.r || item.color[1] !== tmpColor.g || item.color[2] !== tmpColor.b || item.color[3] !== c.a || item.order !== order || item.material !== material) {
         item.color[0] = tmpColor.r;
         item.color[1] = tmpColor.g;
         item.color[2] = tmpColor.b;
         item.color[3] = c.a;
         item.order = order;
-        item.texture = entry.texture;
+        item.material = material;
         this.spritesDirty = true;
       }
       const [u0, v0, u1, v1] = frame?.uv ?? [0, 0, 1, 1];
@@ -254,7 +259,7 @@ export class BabylonSprites implements BabylonFeature {
     }
   }
 
-  /** A sprite's own quad and material: a 4 × 4 vertex grid, so a slice's 9-slice border can move the inner lines (ADR 0115). */
+  /** A sprite's own quad: a 4 × 4 vertex grid, so a slice's 9-slice border can move the inner lines (ADR 0115). */
   private makeSpriteMesh(s: SpriteRenderer, entry: SpriteEntry): void {
     const scene = this.host.scene;
     const mesh = new Mesh(`sprite:${s.node.name}`, scene);
@@ -265,11 +270,8 @@ export class BabylonSprites implements BabylonFeature {
     data.uvs = grid.uvs;
     data.indices = SPRITE_GRID_INDICES as number[];
     data.applyToMesh(mesh, true);
-    const material = layeredQuadMaterial(`sprite:${s.node.name}`, scene, entry.texture);
-    mesh.material = material;
     mesh.alwaysSelectAsActiveMesh = true;
     entry.mesh = mesh;
-    entry.material = material;
     entry.uvKey = "";
     entry.vertexCount = 16;
     entry.matrix = null;

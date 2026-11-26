@@ -76,4 +76,21 @@ describe("the player's debug link files", () => {
     const out = list(bundleOf([{ fileName: "myco.js", isEntry: true, dynamicImports: ["h.js"], moduleIds: ["C:\\repo\\src\\myco.ts"] }, { fileName: "h.js", moduleIds: ["C:\\repo\\src\\engine\\debugLink\\host.ts"] }]));
     expect("debug" in out && out.debug).toEqual(["h.js"]);
   });
+
+  it("the rule covers ADR 0403's pairing code: subfolders of the link, the webrtc transport, the player's overlay", () => {
+    expect(DEBUG_LINK.matches(`${ROOT}/engine/debugLink/pairing/code.ts`)).toBe(true);
+    expect(DEBUG_LINK.matches(`${ROOT}/engine/debugLink/rendezvous/client.ts`)).toBe(true);
+    expect(DEBUG_LINK.matches(`${ROOT}/engine/debugLink/tauriListener.ts`)).toBe(true);
+    expect(DEBUG_LINK.matches(`${ROOT}/engine/debugLink/pairing/topics.ts`)).toBe(true); // only the top-level registry is exempt
+    expect(DEBUG_LINK.matches(`${ROOT}/engine/net/transport/webrtc.ts`)).toBe(true);
+    expect(DEBUG_LINK.matches(`${ROOT}/engine/net/transport/websocket.ts`)).toBe(false); // game traffic uses it
+    expect(DEBUG_LINK.matches(`${ROOT}/player/debugOverlay.ts`)).toBe(true);
+    expect(DEBUG_LINK.matches(`${ROOT}/player/main.ts`)).toBe(false);
+    const out = list(bundleOf([
+      { fileName: "myco.js", isEntry: true, dynamicImports: ["p.js", "o.js"], moduleIds: [`${ROOT}/myco.ts`] },
+      { fileName: "p.js", moduleIds: [`${ROOT}/engine/debugLink/pairing/code.ts`, `${ROOT}/engine/net/transport/webrtc.ts`] },
+      { fileName: "o.js", moduleIds: [`${ROOT}/player/debugOverlay.ts`] },
+    ]));
+    expect("debug" in out && out.debug).toEqual(["o.js", "p.js"]);
+  });
 });

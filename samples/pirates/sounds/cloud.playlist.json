@@ -1,0 +1,29 @@
+{
+  "format": "myco.playlist@1",
+  "type": "clip",
+  "output": "SFX",
+  "note": "A ghost ship's fog cloud billowing up: a splash pitched far down.",
+  "playback": {
+    "maxInstances": 4,
+    "whenFull": "stealOldest"
+  },
+  "volume": -4.44,
+  "pitch": -13.93,
+  "volumeRandom": [
+    -1.5,
+    0
+  ],
+  "pitchRandom": [
+    -1.93,
+    1.93
+  ],
+  "spatial": {
+    "attenuation": "sounds/sea.attenuation.json"
+  },
+  "entries": [
+    {
+      "sample": "audio/cannonball_splash.wav",
+      "loop": "off"
+    }
+  ]
+}

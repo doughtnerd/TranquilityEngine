@@ -1,5 +1,5 @@
 /**
- * ADR 0348: the byte form of a take's request records (`*.mycotake`). A take is a capture file (ADR 0171/0172 framing: a
+ * ADR 0348: the byte form of a take's request records (`*.sporesample`). A take is a capture file (ADR 0171/0172 framing: a
  * plain header, a JSON META block, typed records with a 20 B head, an INDEX, deflate) whose stream carries, beside the
  * profile records, the requests the game made of audio. This module is the request records' payload codecs, pure and
  * shared by the writer (the runtime's take recorder) and the readers (the capture reader passes over them, the take reader
@@ -34,11 +34,17 @@ export const TakeRecordType = {
   SAY: 0x1c,
   /** ADR 0355 §6: a queued say started or was dropped. */
   SAYSTATE: 0x1d,
+  /** ADR 0386: a handle paused its instance (`pause()`). */
+  PAUSE: 0x1e,
+  /** ADR 0386: a handle resumed its instance (`resume()`). */
+  RESUME: 0x1f,
+  /** ADR 0386: a handle faded its instance (`fade(to, seconds)`). */
+  FADE: 0x20,
 } as const;
 export type TakeRecordTypeCode = (typeof TakeRecordType)[keyof typeof TakeRecordType];
 
 const FIRST = TakeRecordType.PLAY;
-const LAST = TakeRecordType.SAYSTATE;
+const LAST = TakeRecordType.FADE;
 /** True for a request record type. */
 export function isTakeRecordType(type: number): boolean {
   return type >= FIRST && type <= LAST;
@@ -71,10 +77,12 @@ export const TAKE_SAY_WHEN_BUSY = ["queue", "interrupt", "drop"] as const;
 /** SAYSTATE `state` codes. */
 export const TAKE_SAY_STATE_CHANGES = ["playing", "dropped"] as const;
 /**
- * The take format's minor version: 1 adds LINE, LANGUAGE, SAY and SAYSTATE (ADR 0354 §10, 0355 §6). They sit in the
- * skippable range, so a reader of minor 0 passes over them by length.
+ * The take format's minor version: 1 adds LINE, LANGUAGE, SAY and SAYSTATE (ADR 0354 §10, 0355 §6); 2 adds PAUSE, RESUME
+ * and FADE (ADR 0386). They sit in the skippable range, so a reader of an older minor would pass over them by length and
+ * replay something else: since ADR 0386 the capture header carries this minor (`CAPTURE_FORMAT_MINOR`) and a reader
+ * refuses a newer one up front.
  */
-export const TAKE_FORMAT_MINOR = 1;
+export const TAKE_FORMAT_MINOR = 2;
 
 /** MIX `op` codes, in `TakeRequest` "mix" order. */
 export const TAKE_MIX_OPS = ["busVolume", "busFade", "snapshotStart", "snapshotStop", "masterVolume"] as const;
@@ -212,7 +220,10 @@ export type TakeRecordInit =
   | { type: typeof TakeRecordType.LINE; payload: Extract<TakeRequest, { kind: "line" }> }
   | { type: typeof TakeRecordType.LANGUAGE; payload: Extract<TakeRequest, { kind: "language" }> }
   | { type: typeof TakeRecordType.SAY; payload: Extract<TakeRequest, { kind: "say" }> }
-  | { type: typeof TakeRecordType.SAYSTATE; payload: Extract<TakeRequest, { kind: "sayState" }> };
+  | { type: typeof TakeRecordType.SAYSTATE; payload: Extract<TakeRequest, { kind: "sayState" }> }
+  | { type: typeof TakeRecordType.PAUSE; payload: Extract<TakeRequest, { kind: "pause" }> }
+  | { type: typeof TakeRecordType.RESUME; payload: Extract<TakeRequest, { kind: "resume" }> }
+  | { type: typeof TakeRecordType.FADE; payload: Extract<TakeRequest, { kind: "fade" }> };
 
 /** One POSE record: every emitter that moved at one read (the listener is emitter 0). */
 export interface TakePoses {
@@ -259,7 +270,10 @@ export function encodeTakeRecord(view: DataView, off: number, r: TakeRecordInit)
       break;
     }
     case TakeRecordType.STOP: o.f64(r.payload.t); o.u32(r.payload.instance); o.f32(r.payload.fade); break;
-    case TakeRecordType.RELEASE: o.f64(r.payload.t); o.u32(r.payload.instance); break;
+    case TakeRecordType.RELEASE:
+    case TakeRecordType.PAUSE:
+    case TakeRecordType.RESUME: o.f64(r.payload.t); o.u32(r.payload.instance); break;
+    case TakeRecordType.FADE: o.f64(r.payload.t); o.u32(r.payload.instance); o.f32(r.payload.to); o.f32(r.payload.seconds); break;
     case TakeRecordType.PARAM: o.f64(r.payload.t); o.u32(id(r.payload.instance)); o.f64(r.payload.value); o.text(cutTakeText(r.payload.name, TAKE_NAME_MAX_BYTES)); break;
     case TakeRecordType.POSE: {
       const poses = r.payload.poses.slice(0, TAKE_MAX_POSES);
@@ -406,7 +420,10 @@ export function takeRecordBytes(r: TakeRecordInit): number {
       return 8 + 4 + 4 + 1 + 4 + 4 + 2 + 2 + cutTakeText(p.path, TAKE_PATH_MAX_BYTES).byteLength + 2 + cutTakeText(p.options.bus ?? "", TAKE_NAME_MAX_BYTES).byteLength + paramsBytes(params(p.options.parameters));
     }
     case TakeRecordType.STOP: return 16;
-    case TakeRecordType.RELEASE: return 12;
+    case TakeRecordType.RELEASE:
+    case TakeRecordType.PAUSE:
+    case TakeRecordType.RESUME: return 12;
+    case TakeRecordType.FADE: return 20;
     case TakeRecordType.PARAM: return 8 + 4 + 8 + 2 + cutTakeText(r.payload.name, TAKE_NAME_MAX_BYTES).byteLength;
     case TakeRecordType.POSE: return 10 + r.payload.poses.slice(0, TAKE_MAX_POSES).reduce((n, p) => n + 5 + 2 * vecBytes + (p.forward ? vecBytes : 0), 0);
     case TakeRecordType.MIX: return 8 + 1 + 8 + 4 + 2 + cutTakeText(r.payload.target, TAKE_NAME_MAX_BYTES).byteLength;
@@ -449,6 +466,7 @@ const NAMES: Record<number, string> = {
   [TakeRecordType.POSE]: "POSE", [TakeRecordType.MIX]: "MIX", [TakeRecordType.TRIGGER]: "TRIGGER", [TakeRecordType.MARK]: "MARK",
   [TakeRecordType.FRAME]: "FRAME", [TakeRecordType.KEYFRAME]: "take KEYFRAME",
   [TakeRecordType.LINE]: "LINE", [TakeRecordType.LANGUAGE]: "LANGUAGE", [TakeRecordType.SAY]: "SAY", [TakeRecordType.SAYSTATE]: "SAYSTATE",
+  [TakeRecordType.PAUSE]: "PAUSE", [TakeRecordType.RESUME]: "RESUME", [TakeRecordType.FADE]: "FADE",
 };
 
 function readParams(i: In, name: string): Record<string, number> {
@@ -505,6 +523,19 @@ export function decodeTakeRecord(type: number, view: DataView, off: number, len:
       break;
     }
     case TakeRecordType.RELEASE: out = { type: "request", requests: [{ kind: "release", t, instance: i.u32() }] }; break;
+    case TakeRecordType.PAUSE: out = { type: "request", requests: [{ kind: "pause", t, instance: i.u32() }] }; break;
+    case TakeRecordType.RESUME: out = { type: "request", requests: [{ kind: "resume", t, instance: i.u32() }] }; break;
+    case TakeRecordType.FADE: {
+      const instance = i.u32();
+      const toAt = i.at;
+      const to = i.f32("to");
+      if (to < 0) i.bad(toAt, `to ${to}`);
+      const sAt = i.at;
+      const seconds = i.f32("seconds");
+      if (seconds < 0) i.bad(sAt, `seconds ${seconds}`);
+      out = { type: "request", requests: [{ kind: "fade", t, instance, to, seconds }] };
+      break;
+    }
     case TakeRecordType.PARAM: {
       const instance = orNull(i.u32());
       const value = i.f64("value");

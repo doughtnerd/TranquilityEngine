@@ -245,7 +245,8 @@ const character2D = {
 // Polygon and edge colliders (ADR 0039): each point offset by `center`, then placed by the frame. Handles: `vertex:i`
 // on each point, `insert:i` at the middle of the edge from point i to the next (the closing edge too when closed).
 
-type PointsFields2D = { kind: "polygon" | "edge"; center: V2; points: V2[] };
+/** `fromSprite`: a polygon following its sprite's outline (ADR 0415): drawn, but its points have no handles. */
+type PointsFields2D = { kind: "polygon" | "edge"; center: V2; points: V2[]; fromSprite?: boolean };
 
 /** Read a points field (plain `[x, y]` pairs, or anything with x and y), dropping malformed entries. */
 function readPoints(value: unknown): V2[] {
@@ -276,11 +277,12 @@ function pointsShape<C extends PolygonCollider2D | EdgeCollider2D, T extends str
     hint: "Show handles in the viewport: drag vertices, press an edge's middle handle to add one, Ctrl+click a vertex to remove it",
     read(c) {
       const f = read(c);
-      return f && { kind, center: f.center, points: readPoints(f.points) };
+      return f && { kind, center: f.center, points: readPoints(f.points), ...(c instanceof PolygonCollider2D && c.fromSprite ? { fromSprite: true } : {}) };
     },
     outline: (f, frame) => ({ points: f.points.map((p) => frameToWorld(frame, [f.center[0] + p[0], f.center[1] + p[1]])), closed }),
     handles(f, frame) {
       const out: Record<string, P3> = {}, { points, center } = f;
+      if (f.fromSprite) return { center: frameToWorld(frame, center) };
       const n = points.length, edges = closed ? n : n - 1;
       points.forEach((p, i) => (out[`vertex:${i}`] = frameToWorld(frame, [center[0] + p[0], center[1] + p[1]])));
       for (let i = 0; i < edges; i++) {

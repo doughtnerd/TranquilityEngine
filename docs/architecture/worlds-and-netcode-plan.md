@@ -76,7 +76,7 @@ T13, T14 and T15 ran in parallel from wave 3's review fixes and merged in order 
 
 ## Wave 5: proof (after wave 4), done 2026-11-02
 
-T17 is done (2026-11-02): user guides in `docs/guide/` ([Worlds](../guide/worlds.md), [Multiplayer](../guide/multiplayer.md)), the 0032–0035 rows of `implementation-status.md` checked against the code (rows added for 0034 and 0035), and the READMEs and overview updated. It ran beside T16; the guide's paragraph on `samples/arena/` was checked against the sample at merge.
+T17 is done (2026-11-02): user guides in `docs/wiki/guide/` ([Worlds](../wiki/guide/worlds.md), [Multiplayer](../wiki/guide/multiplayer.md)), the 0032–0035 rows of `implementation-status.md` checked against the code (rows added for 0034 and 0035), and the READMEs and overview updated. It ran beside T16; the guide's paragraph on `samples/arena/` was checked against the sample at merge.
 
 T16 is done: `samples/arena/`, a 2D arena following Unity's frontend pattern (the bootstrap starts only `Client` on a menu; Host creates the `Server` template at runtime and connects over loopback, P adds `Client 2`, Join connects to a dedicated server by address). Predicted movement, server-spawned shots, server-authoritative scores. It needed `WorldHandle.connect(address, …)` (ADR 0036, proposed), `myco-server` running server-tagged templates, and a fix to the replication layout cache across script reloads. Not yet reviewed.
 

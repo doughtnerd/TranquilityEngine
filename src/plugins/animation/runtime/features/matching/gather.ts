@@ -15,14 +15,14 @@
 import type { GraphParamType } from "../../../../../engine/animation/animGraph";
 import { getComponentClass } from "../../../../../engine/core/registry";
 import type { Component } from "../../../../../engine/core/Component";
-import type { Vector3 } from "../../../../../engine/core/math";
+import { Mat4, type Vector3 } from "../../../../../engine/core/math";
 import type { AnimationFrame } from "../../stages/frame";
 import { HANDLE_INDEX_MASK } from "../../wasm/wire/core";
 import { BLACKBOARD_DIRTY, BLACKBOARD_PARAMS, BLACKBOARD_STRIDE, BLACKBOARD_VALUES, SET_PARAM } from "../../wasm/wire/graph";
 import { graphMeta } from "../graph/runtime";
 import { encodeParameter, PARAM_TYPE_IDS } from "../graph/parameters";
 import { animatorsOf, type AnimatorRuntime } from "../instances";
-import { enabledCameras, lodStep } from "../playback/view";
+import { cameraViews, lodStep, type CameraViews } from "../playback/view";
 import type { HostParameter } from "./inputs";
 
 let physicsActive = false;
@@ -61,38 +61,63 @@ function write(frame: AnimationFrame, instance: number, p: HostParameter, value:
   }
 }
 
-const ground = (p: HostParameter, x: number, y: number, z: number): number[] => (p.type === "vec2" ? [x, z] : [x, y, z]);
+const xz = [0, 0];
+const xyz = [0, 0, 0];
+/** A ground value for `p` (vec2: x z; vec3: x y z), in a reused array `write` encodes at once. */
+const ground = (p: HostParameter, x: number, y: number, z: number): number[] => {
+  if (p.type === "vec2") {
+    xz[0] = x;
+    xz[1] = z;
+    return xz;
+  }
+  xyz[0] = x;
+  xyz[1] = y;
+  xyz[2] = z;
+  return xyz;
+};
+
+/** `Transform.worldRotation`'s decomposition (f32, so the same bits), reused. */
+const decomposed = { p: new Float32Array(3), q: new Float32Array(4), s: new Float32Array(3) };
 
 /** @internal `animation.Gather`'s matching sub-step (see the file header). */
 export function gatherMatchingInputs(frame: AnimationFrame): void {
-  let cams: ReturnType<typeof enabledCameras> | null = null;
+  let cams: CameraViews | null = null;
   for (const rt of animatorsOf(frame.world)) {
     if (rt.instance === 0 || rt.ns !== frame.core || (rt.animator.updateMode === "fixed") !== frame.fixed) continue;
     const inputs = graphMeta(rt.animator)?.matching;
     if (!inputs) continue;
-    const t = rt.animator.node.transform;
-    if (!t) continue;
-    const pos = t.worldPosition;
+    const node = rt.animator.node;
+    if (!node.transform) continue;
+    // The world matrix read once: `worldPosition`'s and `worldRotation`'s numbers without their objects.
+    const e = node.entity;
+    const m = node.world.worldMatrix(e), o = e * 16;
+    const px = m[o + 12]!, py = m[o + 13]!, pz = m[o + 14]!;
     const prev = last.get(rt);
     const dt = rt.animator.updateMode === "unscaled" ? frame.unscaledDt : frame.dt;
     let vx = 0, vy = 0, vz = 0;
     const cc = controllerOf(rt);
     if (cc) ({ x: vx, y: vy, z: vz } = cc.velocity);
     else if (prev && prev.instance === rt.instance && dt > 0) {
-      vx = (pos.x - prev.x) / dt;
-      vy = (pos.y - prev.y) / dt;
-      vz = (pos.z - prev.z) / dt;
+      vx = (px - prev.x) / dt;
+      vy = (py - prev.y) / dt;
+      vz = (pz - prev.z) / dt;
     }
-    last.set(rt, { instance: rt.instance, x: pos.x, y: pos.y, z: pos.z });
-    const q = t.worldRotation;
+    if (prev) {
+      prev.instance = rt.instance;
+      prev.x = px;
+      prev.y = py;
+      prev.z = pz;
+    } else last.set(rt, { instance: rt.instance, x: px, y: py, z: pz });
+    Mat4.decompose(m, o, decomposed.p, 0, decomposed.q, 0, decomposed.s, 0);
+    const qx = decomposed.q[0]!, qy = decomposed.q[1]!, qz = decomposed.q[2]!, qw = decomposed.q[3]!;
     // The world forward (+Z rotated by q): yaw is its heading about +Y.
-    const fx = 2 * (q.x * q.z + q.w * q.y), fz = 1 - 2 * (q.x * q.x + q.y * q.y);
+    const fx = 2 * (qx * qz + qw * qy), fz = 1 - 2 * (qx * qx + qy * qy);
     const yaw = Math.atan2(fx, fz);
-    for (const p of inputs.position) write(frame, rt.instance, p, ground(p, pos.x, pos.y, pos.z));
+    for (const p of inputs.position) write(frame, rt.instance, p, ground(p, px, py, pz));
     for (const p of inputs.yaw) write(frame, rt.instance, p, yaw);
     for (const p of inputs.velocity) write(frame, rt.instance, p, ground(p, vx, vy, vz));
     if (inputs.lod.length) {
-      cams ??= enabledCameras(frame.world);
+      cams ??= cameraViews(frame.world);
       const m = Number.isFinite(rt.animator.lodSearchMultiplier) ? Math.max(1, rt.animator.lodSearchMultiplier) : 1;
       const level = Math.log2(lodStep(cams, rt));
       for (const p of inputs.lod) write(frame, rt.instance, p, m ** level);

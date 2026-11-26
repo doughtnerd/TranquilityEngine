@@ -3,8 +3,8 @@
 // for a playlist's), a title and a subtitle, and on Samples a mini waveform. Centre: the screen's transport (small round
 // buttons around the big one: Play / Pause, or the Playlists screen's Trigger pill) above its scrub row (a track, or the
 // Playlists screen's voice strip). Right: a status line, the Hear as control (ADR 0351 §6) and the game session: the
-// "Game session" pill and "Linked to game" badge (owner decision, UI pass #1: they drive take replay until a live game
-// link is built).
+// "Record session" button and the game link badge (ADR 0408; they replace UI pass #1's "Game session" pill, which drove
+// take replay before the live game link was built).
 import type { ComponentChildren } from "preact";
 import { useRef } from "preact/hooks";
 import { Icon, type IconName } from "./Icon";
@@ -128,52 +128,61 @@ export function PlayerBar(props: PlayerBarSlots & { readonly label?: string; rea
   );
 }
 
-export interface GameSessionProps {
-  /** The session runs (v1: the open take replays). */
-  readonly live: boolean;
-  /** Its clock, seconds. */
+/** The link to a game build, as the player bar's badge shows it: linked, ended, or never made (no badge). */
+export type GameLinkState = "linked" | "disconnected" | "none";
+
+export interface RecordSessionProps {
+  /** A recording runs on the connected build. */
+  readonly recording: boolean;
+  /** Seconds recorded so far. */
   readonly time: number;
+  /** A game build is connected: only then can a session be recorded. */
+  readonly connected: boolean;
+  /** Busy starting, stopping or saving: the button waits. */
+  readonly busy?: boolean;
   /** The tooltip: what pressing it does now. */
   readonly title: string;
-  /** Edits reach what is running (v1: a take is open, so edits are heard against its replay). */
-  readonly linked: boolean;
-  readonly linkedTitle?: string;
-  /** The screen's big button is the session already (Mixer): the pill only shows its state. */
-  readonly readOnly?: boolean;
+  /** The badge beside it. */
+  readonly link: GameLinkState;
+  /** The connected build's name, for the badge's tooltip. */
+  readonly build?: string | null;
   onToggle(): void;
 }
 
 /**
- * The prototype's "Game session" pill (`.pb-ses`: a disc with ▶ or ■ and the session clock) and the "Linked to game"
- * badge (`.pb-lk`), spec §3.5/§3.7. A view over props; the shell wires them to the take replay (owner decision, UI
- * pass #1) until the live game link is built.
+ * ADR 0408: "Record session" (the prototype's `.pb-ses` disc and clock): records a take on the connected game build, and
+ * the next press stops it and saves it. Inactive with no build connected. Beside it the link badge: "Linked to game"
+ * while linked, a grey "Disconnected" once the link has ended. A view over props.
  */
-export function GameSession(props: GameSessionProps) {
+export function RecordSession(props: RecordSessionProps) {
   const clock = formatClock(props.time);
+  const label = props.recording ? "Stop and save the recording" : "Record session";
   return (
     <>
-      {props.readOnly ? (
-        <span class={`studio-session ro${props.live ? " on" : ""}`} title={props.title} role="status" aria-label={`Game session ${props.live ? "running" : "stopped"}, ${clock}`}>
-          <span class="studio-session-disc" aria-hidden="true">
-            <Icon name={props.live ? "stop" : "play"} size={10} />
-          </span>
-          <span class="studio-session-text">
-            Game session<small>{clock}</small>
-          </span>
+      <button
+        type="button"
+        class={`studio-session${props.recording ? " on" : ""}`}
+        aria-pressed={props.recording}
+        aria-label={`${label}, ${clock}`}
+        title={props.title}
+        disabled={!props.connected || props.busy}
+        onClick={props.onToggle}
+      >
+        <span class="studio-session-disc" aria-hidden="true">
+          <Icon name={props.recording ? "stop" : "record"} size={10} />
         </span>
-      ) : (
-        <button type="button" class={`studio-session${props.live ? " on" : ""}`} aria-pressed={props.live} aria-label={`Game session, ${clock}`} title={props.title} onClick={props.onToggle}>
-          <span class="studio-session-disc" aria-hidden="true">
-            <Icon name={props.live ? "stop" : "play"} size={10} />
-          </span>
-          <span class="studio-session-text">
-            Game session<small>{clock}</small>
-          </span>
-        </button>
-      )}
-      {props.linked && (
-        <span class="studio-linked" title={props.linkedTitle ?? "Edits go to the running game"}>
+        <span class="studio-session-text">
+          Record session<small>{clock}</small>
+        </span>
+      </button>
+      {props.link === "linked" && (
+        <span class="studio-linked" title={props.build ? `Linked to ${props.build}` : "Linked to the running game"}>
           Linked to game
+        </span>
+      )}
+      {props.link === "disconnected" && (
+        <span class="studio-linked off" title="The link to the game has ended. Connect again from the status bar's builds menu.">
+          Disconnected
         </span>
       )}
     </>
@@ -202,6 +211,8 @@ export interface VoiceStripProps {
   readonly marks?: readonly { readonly at: number; readonly kind: "end" | "hold" | "stop" }[];
   /** The playhead, seconds (null: at the end). */
   readonly cursor: number | null;
+  /** Now, seconds: where a voice still playing ends (default: the strip's end). */
+  readonly now?: number;
   /** The times either side ("0.00", "4.00 s"). */
   readonly startText?: string;
   readonly endText?: string;
@@ -212,6 +223,8 @@ export interface VoiceStripProps {
 
 /** Voice lanes on the strip before they repeat. */
 const STRIP_LANES = 4;
+/** At most this many voice bars (the newest). */
+const STRIP_SEGMENTS = 16;
 
 /**
  * The Playlists screen's voice strip (the prototype's `.vstrip`): one thin bar per voice of the trigger across its time
@@ -234,7 +247,7 @@ export function VoiceStrip(props: VoiceStripProps) {
       {props.startText !== undefined && <span class="studio-vtc">{props.startText}</span>}
       <div
         ref={strip}
-        class={`studio-vstrip${props.segments.some((s) => s.end === null) ? " open" : ""}`}
+        class={`studio-vstrip${props.now === undefined && props.segments.some((s) => s.end === null) ? " open" : ""}`}
         role="slider"
         tabIndex={props.disabled ? -1 : 0}
         aria-label="Scrub through the voices"
@@ -262,13 +275,18 @@ export function VoiceStrip(props: VoiceStripProps) {
           props.onSeek(Math.max(props.from, Math.min(props.to, next)));
         }}
       >
-        {props.segments.slice(0, 16).map((s, i) => (
-          <i
-            key={i}
-            class={`studio-vseg${s.done ? " done" : ""}${s.end === null ? " open" : ""}`}
-            style={{ left: pct(s.start), width: s.end === null ? `calc(100% - ${pct(s.start)})` : `max(1px, calc(${pct(s.end)} - ${pct(s.start)}))`, top: `${3 + (i % STRIP_LANES) * 4}px` }}
-          />
-        ))}
+        {props.segments.slice(-STRIP_SEGMENTS).map((s, i, shown) => {
+          // The newest voices; each keeps its lane as older ones drop off the front.
+          const lane = (props.segments.length - shown.length + i) % STRIP_LANES;
+          const end = s.end ?? props.now;
+          return (
+            <i
+              key={props.segments.length - shown.length + i}
+              class={`studio-vseg${s.done ? " done" : ""}${s.end === null ? " open" : ""}`}
+              style={{ left: pct(s.start), width: end === undefined ? `calc(100% - ${pct(s.start)})` : `max(1px, calc(${pct(end)} - ${pct(s.start)}))`, top: `${3 + lane * 4}px` }}
+            />
+          );
+        })}
         {(props.marks ?? []).map((m, i) => (
           <b key={`m${i}`} class={`studio-vmark ${m.kind}`} style={{ left: pct(m.at) }} />
         ))}

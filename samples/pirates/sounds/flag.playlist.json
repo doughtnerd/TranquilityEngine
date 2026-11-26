@@ -1,0 +1,18 @@
+{
+  "format": "myco.playlist@1",
+  "type": "clip",
+  "output": "SFX",
+  "note": "The flag changing hands: flat, every captain should hear it.",
+  "playback": {
+    "maxInstances": 2,
+    "whenFull": "stealOldest",
+    "priority": 220
+  },
+  "volume": -1.94,
+  "entries": [
+    {
+      "sample": "audio/flag_capture.wav",
+      "loop": "off"
+    }
+  ]
+}

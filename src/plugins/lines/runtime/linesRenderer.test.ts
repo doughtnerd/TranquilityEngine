@@ -4,12 +4,16 @@ import { Assets, Color, Engine, GameObject, SceneManager, Vector3 } from "../../
 import type { DynamicGeometry, DynamicMesh, DynamicMeshHost } from "../../../engine/render/dynamicMeshes";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
 import { LineRenderer } from "./LineRenderer";
+import { PICK_ORDER, type DrawnNode, type DrawnShape } from "../../../engine/render/babylon/feature";
 import { LinesRenderer } from "./linesRenderer";
+
+/** A drawn ribbon's polyline (ADR 0276). */
+const ribbon = (d: DrawnNode) => d.shape as Extract<DrawnShape, { kind: "polyline" }>;
 import { TrailRenderer } from "./TrailRenderer";
 
 function fakeHosts() {
   const meshes: (DynamicMesh & { geometry: DynamicGeometry | null; look: [string, string]; matrix: number[]; visible: boolean; disposed: boolean; shadows: [boolean, boolean] })[] = [];
-  const batches: (QuadBatch & { positions: Float32Array | null; colors: Float32Array | null; texture: string; order: number; visible: boolean; disposed: boolean; matrix: number[] })[] = [];
+  const batches: (QuadBatch & { positions: Float32Array | null; colors: Float32Array | null; texture: string; order: [string, number]; material: string | null; visible: boolean; disposed: boolean; matrix: number[] })[] = [];
   const dynamicMeshes: DynamicMeshHost = {
     createMesh() {
       const m: (typeof meshes)[number] = {
@@ -29,13 +33,14 @@ function fakeHosts() {
   const quads: QuadBatchHost = {
     createBatch() {
       const b: (typeof batches)[number] = {
-        positions: null, colors: null, texture: "", order: 0, visible: false, disposed: false, matrix: [],
+        positions: null, colors: null, texture: "", order: ["", 0], material: null, visible: false, disposed: false, matrix: [],
+        setMaterial(m) { b.material = m; },
+        setBlend() {},
         setQuads() {},
-        setTriangles(t, p) { b.texture = t; b.positions = p; },
-        setColors(c) { b.colors = c; },
+        setTriangles(t, p, _uv, _i, c) { b.texture = t; b.positions = p; b.colors = c ?? null; },
         setMask() {},
         setMatrix(x, o = 0) { b.matrix = Array.from(x).slice(o, o + 16); },
-        setOrder(o) { b.order = o; },
+        setOrder(layer, inLayer) { b.order = [layer, inLayer]; },
         setTint() {},
         setVisible(v) { b.visible = v; },
         dispose() { b.disposed = true; },
@@ -44,7 +49,6 @@ function fakeHosts() {
       return b;
     },
     textureSize: () => [1, 1],
-    sortOrder: (layer, order) => ["Back", "Default"].indexOf(layer) * 10000 + order,
   };
   return { host: { dynamicMeshes, quads }, meshes, batches };
 }
@@ -90,8 +94,8 @@ describe("line and trail drawing (ADR 0396)", () => {
     expect(g.positions[0]).toBe(0);
     const drawn = [...lines.drawn()];
     expect(drawn).toHaveLength(1);
-    expect(drawn[0]!.order).toBeNull();
-    expect(drawn[0]!.halfWidth).toBeCloseTo(0.1);
+    expect(drawn[0]!.order).toBe(PICK_ORDER.depthTested);
+    expect(ribbon(drawn[0]!).halfWidth).toBeCloseTo(0.1);
   });
 
   it("puts a node-space line under its node's matrix and reports its points in world space", async () => {
@@ -103,7 +107,7 @@ describe("line and trail drawing (ADR 0396)", () => {
     node.addBehavior(LineRenderer, { useWorldSpace: false, positions: [new Vector3(0, 0, 0), new Vector3(1, 0, 0)] });
     lines.sync(engine.world);
     expect(meshes[0]!.matrix[13]).toBe(3);
-    expect(Array.from([...lines.drawn()][0]!.points)).toEqual([0, 3, 0, 1, 3, 0]);
+    expect(Array.from(ribbon([...lines.drawn()][0]!).points)).toEqual([0, 3, 0, 1, 3, 0]);
   });
 
   it("draws a 2D line as layered quads in its sorting layer, flat in the XY plane", async () => {
@@ -116,7 +120,8 @@ describe("line and trail drawing (ADR 0396)", () => {
     expect(meshes).toHaveLength(0);
     expect(batches).toHaveLength(1);
     const b = batches[0]!;
-    expect(b.order).toBe(7);
+    expect(b.order).toEqual(["Back", 7]);
+    expect(b.material).toBe(""); // the default 2D material (Sprite Lit)
     expect(b.texture).toBe("dash.png");
     expect(b.colors!.length).toBe(4 * 4);
     expect(Math.abs(b.positions![1]!)).toBeCloseTo(0.05); // offset across, in y
@@ -148,6 +153,6 @@ describe("line and trail drawing (ADR 0396)", () => {
     trail.addPosition([5, 0, 0]);
     lines.sync(engine.world);
     const drawn = [...lines.drawn()].find((d) => d.component === trail)!;
-    expect(drawn.points[0]).toBe(5); // the newest point first: the head is the ribbon's start (curve and gradient at 0)
+    expect(ribbon(drawn).points[0]).toBe(5); // the newest point first: the head is the ribbon's start (curve and gradient at 0)
   });
 });

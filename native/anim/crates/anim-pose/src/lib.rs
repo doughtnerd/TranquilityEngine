@@ -58,8 +58,5 @@ pub fn bone(pose: &[SoaTransform], i: usize) -> AosTransform {
 /// `i` is out of range of the groups.
 #[inline]
 pub fn set_bone(pose: &mut [SoaTransform], i: usize, t: AosTransform) {
-    let g = &mut pose[i / LANES];
-    let mut lanes = g.to_aos();
-    lanes[i % LANES] = t;
-    *g = SoaTransform::from_aos(&lanes);
+    pose[i / LANES].set_lane(i % LANES, t);
 }

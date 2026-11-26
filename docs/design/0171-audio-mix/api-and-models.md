@@ -337,7 +337,8 @@ The header is **not** compressed, so a wire mismatch or a size bomb is refused b
 | 72 | 4 | `recordCount` u32 |
 | 76 | 4 | `indexBytes` u32: the INDEX record's length (0 when `hasIndex` is clear) |
 | 80 | 4 | `ringBytes` u32 |
-| 84 | 4 | reserved, 0 |
+| 84 | 2 | formatMinor (ADR 0386; 0 in files written before it): a newer one than the build reads is refused (`newerFormat`) |
+| 86 | 2 | reserved, 0 |
 | 88 | 8 | `firstFrame` f64: the oldest kept frame |
 
 **Reading, each step refusing with a `CaptureError` and its code before the next:** length >= 96 and magic (`badMagic`); `format` 1 (`newerFormat`/`olderFormat`); `SCHEMA_HASH` equal to this build's (`wireMismatch`, whose message names both ABI versions and says "re-record with this build"); `uncompressedBytes <= CAPTURE_MAX_UNCOMPRESSED_BYTES` (64 MiB, R16) (`tooLarge`); inflate with a hard stop at `uncompressedBytes + 1` (`inflateOverrun`); then META, then records. No header count sizes an allocation; arrays grow by the records read, up to the caps.
@@ -370,7 +371,7 @@ Canonical order is (epoch, frame, seq); **within one epoch no record's frame is 
 | 0x05 | EVENT | `f64 perfMs`, `u8 kind`, `u8 reason`, `u16 argc`, `argc` x `u32`, an optional trailing `f32` per kind (§5.6) |
 | 0x06 | MARKER | `f64 perfMs`, `u16 n`, `n` UTF-8 bytes (<= 120): owner joins and Compare swaps write one |
 | 0x07 | NAMES | `u8 table` (0 clip, 1 bus, 2 event, 3 parameter, 4 snapshot, 5 target), `u8[3]`, `u32 id`, `u16 n`, `n` bytes: a name first used after the META chunk |
-| 0x08 | MIXOP | one `MixOp` (§6.2's byte form), `f64 perfMs`, origin (0 editor, 1 script, 2 undo, 3 redo, 4 compare) |
+| 0x08 | MIXOP | one `MixOp` (§6.2's byte form), `f64 perfMs`, origin (0 editor, 1 script, 2 undo, 3 redo, 4 compare, 5 debugLink: a tool's `mix.op` over the debug link, ADR 0403) |
 | 0x09 | WRAP | the writer jumped to offset 0; ring only, stripped by the saver |
 | 0x7F | INDEX | §5.4 |
 
@@ -656,7 +657,7 @@ Level S (senior), M (mid), J (junior). Days are focused human effort. **Bold is 
 | Dbg1 | `Audio.debug()` additions (`mixCaps` with `cpuReason`, `cpu`, `mix` with the slot table, the recorder, `busRecordsEarly`, `sidechainLate`, `liveRefused`, the ladder step) and the debug panel rows | `backend.ts`, `debug.ts`, `AudioDebugPanel.tsx`, `audioDebugRows.ts` | Cp2 | M | 3.5 | flags per backend tested; panel rows |
 | Bn2 | Benches: recorder at 1,024 voices (main <= 1 ms per second, zero allocation), STATUS parse at 17,824 B, spike S3's capture scene re-run idle through the real core | `audio-bench`, `tools/audio-bench`, `capture/*.bench` | Rc2, Rc3 | M | 3.5 | within the allowances of contract S12; real-core sizes recorded |
 | **E1** | **Playwright: record in Play, pause, scrub, step, jump to underrun, save, reopen, drop a file, every empty state, every filter option** | `tests/e2e/audio-mix-a.spec.ts` | Pf4, Pf5 | M | 4.5 | 3 of 3 repeats at wave end |
-| Dc2 | Docs: guide chapter on the profiler and capture files | `docs/guide` | Pf4 | J | 2 | `check:links` clean |
+| Dc2 | Docs: guide chapter on the profiler and capture files | `docs/wiki/guide` | Pf4 | J | 2 | `check:links` clean |
 
 ### M5b loudness (45.5 days, 9.1 person-weeks)
 
@@ -674,7 +675,7 @@ Level S (senior), M (mid), J (junior). Days are focused human effort. **Bold is 
 | Pf6 | Profiler loudness: the series from recorded sub-blocks in the Worker (the shared `LoudnessStats`), M, S and I at the cursor, target marks | `editor/mix/loudnessTrackModel.ts`, `tracks/loudness.ts` | Ld3, Rc5, Pf3a | M | 4 | a reopened capture reads the live meter's values |
 | Bb2 | Babylon M5b rows: the inert shape and the panel text | `babylonBackend.ts` | Ld4 | J | 1 | section 9 rows |
 | E2 | Playwright: a tone reads -22.99 LUFS in Play, target warning, reset, pause, taint on mute, the ladder flag | `tests/e2e/audio-mix-b.spec.ts` | Ld4, Ld5, Pf6 | M | 3 | 3 of 3 repeats at wave end |
-| Dc3 | Docs: guide chapter on loudness, targets and `Bus.loudness` | `docs/guide` | Ld4 | J | 1.5 | `check:links` clean |
+| Dc3 | Docs: guide chapter on loudness, targets and `Bus.loudness` | `docs/wiki/guide` | Ld4 | J | 1.5 | `check:links` clean |
 
 ### M5c live mixing and sidechain ducking (71 days, 14.2 person-weeks)
 
@@ -698,7 +699,7 @@ Level S (senior), M (mid), J (junior). Days are focused human effort. **Bold is 
 | Bb3 | Babylon M5c: direct ops, presence ducking, level rules shown as needing the core, structural rebuild, panel rows | `babylonBackend.ts` | Ma1 | M | 3 | section 9 rows against the mocks |
 | Bn4 | Metered scenes: 2 and 8 sidechain rules, the lane product, the gate | `audio-bench`, `tools/audio-bench` | Sc1 | M | 2 | inside the allowances of contract S12 |
 | **E3** | **Playwright: a live edit heard in Play, kept after Stop, undone; Mixer strips; level ducking audible; every edit class and every option** | `tests/e2e/audio-mix-c.spec.ts` | Mp2b, Dk1, Ck1 | M | 5 | 3 of 3 repeats at wave end |
-| Dc4 | Docs: guide chapters on live mixing and ducking; the 0147 and 0097 amendments | `docs/guide`, `docs/decisions` | Mp2b | J | 2 | `check:links` clean |
+| Dc4 | Docs: guide chapters on live mixing and ducking; the 0147 and 0097 amendments | `docs/wiki/guide`, `docs/decisions` | Mp2b | J | 2 | `check:links` clean |
 
 ### M5d captures in exports, samples, guides and the listening pass (29.5 days, 5.9 person-weeks)
 

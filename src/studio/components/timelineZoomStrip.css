@@ -1,0 +1,17 @@
+/* The shared zoom strip (TimelineZoomStrip). --tz-head is the width of the timeline's row heads, so the scrollbar sits under the lanes. */
+.tz-strip { display: flex; align-items: center; flex: none; border-top: 1px solid var(--border); background: var(--panel); min-height: 34px; }
+.tz-zoom { width: var(--tz-head, 168px); flex: none; box-sizing: border-box; display: flex; align-items: center; gap: 4px; padding: 0 10px; }
+.tz-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; border: none; border-radius: 4px; background: none; color: var(--muted); box-shadow: none; cursor: pointer; }
+.tz-btn:hover:not(:disabled) { color: var(--text); background: var(--hover); }
+.tz-btn:disabled { opacity: 0.4; cursor: default; }
+.tz-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+.tz-pct { margin-left: 2px; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
+.tz-scrollbar { position: relative; flex: 1 1 auto; height: 14px; margin: 0 12px 0 6px; background: var(--bg-sunken); border-radius: 7px; cursor: pointer; }
+.tz-thumb { position: absolute; top: 0; bottom: 0; min-width: 28px; box-sizing: border-box; background: var(--border-strong); border-radius: 7px; cursor: grab; touch-action: none; }
+.tz-thumb-edge { position: absolute; top: 1px; width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--text); background: var(--panel); cursor: ew-resize; }
+.tz-thumb-edge.start { left: -6px; }
+.tz-thumb-edge.end { right: -6px; }
+@media (pointer: coarse) {
+  .tz-scrollbar { height: 20px; border-radius: 10px; }
+  .tz-thumb-edge::before { content: ""; position: absolute; inset: -6px -10px; }
+}

@@ -4,6 +4,7 @@
 // `audio.json`) on demand. The panels read the screen's state (`playlistsScreen.ts`) and call its actions; the Playlist
 // panel also owns what the screen does while it shows: following the route, the Space key and the player bar's slots
 // (Trigger / Release, Pause / Resume, Stop, previous and next voice event, the voice log's scrub).
+import { audioProject } from "../../shell/audioProject";
 import { effect, signal } from "@preact/signals";
 import { openCurveEditorDialog } from "../../../editor/ui/curves/openCurveEditorDialog";
 import { ContextMenu, SEPARATOR } from "../../../editor/ui/ContextMenu";
@@ -19,8 +20,9 @@ import { changeText } from "./ModeToolbar";
 import { replaceLinks } from "./structureEdits";
 import { useEffect } from "preact/hooks";
 import { deleteAssets } from "../../../editor/assetDelete";
-import { currentProject, docVersion, status } from "../../../editor/state";
+import { docVersion, status } from "../../../editor/state";
 import { EmptyState } from "../../../editor/ui/EmptyState";
+import { Icon } from "../../components/Icon";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { Section } from "../../../editor/ui/PanelFields";
 import type { Entry } from "../../../engine/audio/playlist/types";
@@ -45,7 +47,7 @@ import { addEntries, duplicateEntry, removeEntry, setAutomation, setEntryUse, sa
 import { breadcrumb, childPath, editAt, effectiveOutput, entryName, filePath, pathTarget, playlistTitle, sampleTitle, whereOf, type PlaylistPath } from "./playlistPaths";
 import {
   adding, allParameters, askDelete, busPaths, askDeleteFolder, deleteFolderKeepingContents, deletingFolder, audioNow, auditioning, busNames, confirmDelete, deleting, docFor, duplicatePlaylistFiles, editContext, editFile, editOpen, followRoute,
-  linkedBy, loadPlaylist, logCursor, makeShared, moveToFolder, newPlaylist, newPlaylistFolder, newPlaylistFromSamples, newSequence, openBody, openDoc, openFile, openLints, openPath, openPlaylist,
+  linkedBy, loadPlaylist, logCursor, triggerMark, makeShared, moveToFolder, newPlaylist, newPlaylistFolder, newPlaylistFromSamples, newSequence, openBody, openDoc, openFile, openLints, openPath, openPlaylist,
   playingNow, releaseAudition, renameFolder, renamePlaylistFile, removeLinkEntry, runDrop, selectedEntry, setTestValue, stopAudition, target, testValues, trigger, triggerOffReason, unlink, voiceLog, clearLog,
   frozen, lastChange, pauseAudition, renamingOpen, resumeAudition,
 } from "./playlistsScreen";
@@ -68,7 +70,7 @@ import { sequenceSpace, stopSequence } from "./sequence/sequenceState";
 import { sequencePlayerSlots } from "./sequence/SequenceTransport";
 import "./playlists.css";
 
-const writable = () => !!currentProject.value?.canSave;
+const writable = () => !!audioProject.value?.canSave;
 
 /** The path a tree row opens: a file alone, an embedded entry down its indices, a linked entry through its parent into its file. */
 function pathOf(n: PlaylistNode): PlaylistPath | null {
@@ -139,7 +141,7 @@ const treeActions: TreeActions = {
 
 function TreePanel() {
   void docVersion.value;
-  const project = currentProject.value;
+  const project = audioProject.value;
   const files = project?.files ?? [];
   // A new project's scenes/ and scripts/ aren't playlist folders (T5).
   const folders = contentFolders(project?.folders ?? [], files, isPlaylistPath);
@@ -182,7 +184,7 @@ function addSample(path: string): void {
 
 function LibraryPanel() {
   void docVersion.value;
-  const files = currentProject.value?.files ?? [];
+  const files = audioProject.value?.files ?? [];
   const sources = projectSources();
   const body = openBody.value;
   const addTo = body && body.type !== "sequence" ? lastCrumbName() : null;
@@ -374,7 +376,7 @@ function useScreen(): void {
         const t = pathTarget(path);
         if (body.type === "sequence") return setPlayerSlots("playlists", sequencePlayerSlots(lastCrumbName(), `Sequence · ${t.file}`));
         setPlayerSlots("playlists", playlistPlayerSlots(
-          { title: lastCrumbName(), art: playlistBadge(body.type, factsOf(body).axes).code, subtitle: typeSummary(body), busy, paused, release: canRelease(body, loadPlaylist), triggerOff: triggerOffReason(), next: nextText(), log, cursor, now },
+          { title: lastCrumbName(), art: playlistBadge(body.type, factsOf(body).axes).code, subtitle: typeSummary(body), busy, paused, release: canRelease(body, loadPlaylist), triggerOff: triggerOffReason(), next: nextText(), log, mark: triggerMark.value, cursor, now },
           { trigger, stop: stopAudition, release: releaseAudition, pause: pauseAudition, resume: resumeAudition, seek: (at) => (logCursor.value = at) },
         ));
       }),
@@ -388,25 +390,29 @@ function useScreen(): void {
 
 /** The centre with nothing open: the spec's card (New playlist / New sequence / New folder), and the no-samples line. */
 function NothingOpen() {
-  const project = currentProject.value;
+  const project = audioProject.value;
   const files = project?.files ?? [];
   const none = !files.some(isPlaylistPath);
   const w = writable();
   return (
-    <div class="pl-nothing" role="note" aria-label={none ? "No playlists yet" : "No playlist open"}>
-      <b class="pl-nothing-title">{none ? "No playlists yet" : "No playlist open"}</b>
-      <p>{none ? "A playlist decides which sample plays: pick at random, step through in order, layer, blend by a game parameter, or switch by a label. For a timeline of samples and playlists, make a sequence." : "Pick a playlist in the Playlists panel, or make one."}</p>
-      {!files.some(isSamplePath) && (
-        <p class="pl-nothing-warn">
-          This project has no samples yet. <button type="button" class="pl-link" onClick={() => openRoute({ screen: "samples" })}>Import some in Samples</button> first, or make an empty playlist now and fill it later.
-        </p>
-      )}
-      <div class="pl-nothing-actions">
-        <button type="button" class="pl-play-btn" disabled={!w} onClick={() => void newPlaylist("", false)}>New playlist</button>
-        <button type="button" class="pl-small" disabled={!w} onClick={() => void newSequence("")}>New sequence</button>
-        <button type="button" class="pl-small" disabled={!w} onClick={() => void newPlaylistFolder("").then((path) => path && renameFolderRow(path))}>New folder</button>
-      </div>
-    </div>
+    <EmptyState
+      title={none ? "No playlists yet" : "No playlist open"}
+      icon={<Icon name="playlists" size={28} />}
+      body={
+        <>
+          <p>{none ? "A playlist decides which sample plays: pick at random, step through in order, layer, blend by a game parameter, or switch by a label. For a timeline of samples and playlists, make a sequence." : "Pick a playlist in the Playlists panel, or make one."}</p>
+          {!files.some(isSamplePath) && (
+            <p>
+              This project has no samples yet. <button type="button" class="pl-link" onClick={() => openRoute({ screen: "samples" })}>Import some in Samples</button> first, or make an empty playlist now and fill it later.
+            </p>
+          )}
+        </>
+      }
+      action={{ label: "New playlist", disabled: !w, run: () => void newPlaylist("", false) }}
+    >
+      <button type="button" class="pl-small" disabled={!w} onClick={() => void newSequence("")}>New sequence</button>
+      <button type="button" class="pl-small" disabled={!w} onClick={() => void newPlaylistFolder("").then((path) => path && renameFolderRow(path))}>New folder</button>
+    </EmptyState>
   );
 }
 
@@ -434,7 +440,7 @@ function EditorPanel() {
     );
   }
   const crumbs = breadcrumb(path, loadPlaylist);
-  const files = currentProject.value?.files ?? [];
+  const files = audioProject.value?.files ?? [];
   const title = crumbs[crumbs.length - 1]?.name ?? "";
   const linkedIn = t.indices.length ? [] : (linkedBy.value.get(t.file) ?? []);
   const levels = body.type === "blend" ? liveWeights(body, ctx.parameters, testValues.value, voiceTime() ?? 0) : entryLevels(body, shownNow(), loadPlaylist);
@@ -527,7 +533,7 @@ function InspectorPanel() {
   const body = openBody.value;
   const t = target.value;
   const doc = openDoc.value;
-  const project = currentProject.value;
+  const project = audioProject.value;
   if (!path || !body || !t || !doc) {
     return (
       <Panel bodyClass="pl-panel-body">

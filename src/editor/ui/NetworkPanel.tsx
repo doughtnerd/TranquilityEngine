@@ -6,6 +6,7 @@ import { netConditionsSetting, netPlaySetup } from "../preferences";
 import { playing, togglePlaying } from "../session";
 import { currentProject, openScene, playState } from "../state";
 import "./network.css";
+import { EmptyState } from "./EmptyState";
 
 /** Stats refresh this often while playing (not every frame). */
 const REFRESH_MS = 250;
@@ -150,10 +151,11 @@ function Conditions() {
 
 function NotPlaying() {
   return (
-    <p class="network-empty">
-      Play to see each networked World's connections here: state, round-trip time, traffic per kind of message, snapshot sizes, ghosts and input. With
-      Multiplayer play on, a project whose client World is linked to a server World plays with the clients and thin clients chosen above.
-    </p>
+    <EmptyState
+      compact
+      title="Play to see each networked World's connections here."
+      body="It shows state, round-trip time, traffic per kind of message, snapshot sizes, ghosts and input; with Multiplayer play on, a project whose client World is linked to a server World plays with the clients and thin clients chosen above."
+    />
   );
 }
 
@@ -176,7 +178,7 @@ function Stats() {
   }, [session, sampler]);
   const toggle = (key: string) => setOpen((s) => (s.has(key) ? new Set([...s].filter((k) => k !== key)) : new Set([...s, key])));
 
-  if (worlds.length === 0) return <p class="network-empty">No World in this game is networked: none is linked to another, or connected at runtime.</p>;
+  if (worlds.length === 0) return <EmptyState compact title="No World in this game is networked." body="None is linked to another, or connected at runtime." />;
   return (
     <div class="network-stats">
       {worlds.map((w) => (

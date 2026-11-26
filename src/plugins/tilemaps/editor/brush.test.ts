@@ -7,14 +7,14 @@ import { tilemapsEditorPlugin } from ".";
 import { openSceneFile } from "../../../editor/project";
 import { editor } from "../../../editor/sdk";
 import { DEMO_SCENE, demoAssets, demoSettings, insertNew, sceneViewTools } from "../../../editor/testing";
-import { activeLayer, beginStroke, brushFlags, brushRandom, brushStamp, brushTerrain, brushTool, commitTilemap, flipBrush, footprintAt, pickBrushTool, type BrushTool } from "./brush";
+import { activeLayer, beginStroke, brushFlags, brushRandom, brushStamp, brushTerrain, brushTool, commitTilemap, flipBrush, footprintAt, pickBrushTool, rerollVariants, type BrushTool } from "./brush";
 import type { Cell } from "../runtime/brushes";
 import { compose, TURN_CLOCKWISE as TURN } from "../runtime/tileFlips";
 
 const TILESET = {
   format: "myco.tileset@1",
   tileSize: [16, 16],
-  terrains: [{ name: "G" }],
+  terrains: [{ name: "G" }, { name: "V" }],
   tiles: [
     { id: 1, sprite: "" },
     { id: 2, sprite: "" },
@@ -24,6 +24,8 @@ const TILESET = {
     { id: 11, sprite: "", terrain: "G", pattern: "0*1*0*0*" },
     { id: 12, sprite: "", terrain: "G", pattern: "0*1*0*1*" },
     { id: 13, sprite: "", terrain: "G", pattern: "0*0*0*1*" },
+    { id: 30, sprite: "", terrain: "V" },
+    { id: 31, sprite: "", terrain: "V" },
   ],
 };
 
@@ -147,6 +149,39 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     r.moveTo([3, 6]);
     expect(r.footprint()).toEqual({ x0: 3, y0: 5, x1: 6, y1: 7 });
     expect(footprintAt("erase", [1, 1])).toEqual({ x0: 1, y0: 1, x1: 2, y1: 2 });
+  });
+
+  it("paints the same random-brush cells again from the same strokes, by the map's seed (ADR 0400)", () => {
+    const { map } = newMap();
+    brushStamp.value = { width: 2, height: 1, values: [1, 2] };
+    brushRandom.value = true;
+    stroke(map, "pencil", [0, 0], [39, 0]);
+    const first = Array.from({ length: 40 }, (_, x) => map.getTile(x, 0));
+    expect(new Set(first)).toEqual(new Set([1, 2]));
+    stroke(map, "erase", [0, 0], [39, 0]);
+    stroke(map, "pencil", [0, 0], [39, 0]);
+    expect(Array.from({ length: 40 }, (_, x) => map.getTile(x, 0))).toEqual(first);
+  });
+
+  it("re-rolls a map's terrain variants as one undoable step (ADR 0400)", () => {
+    const { scene, id, map } = newMap();
+    brushTerrain.value = "V";
+    stroke(map, "rect", [0, 0], [19, 0]);
+    commitTilemap(scene, [id], map);
+    const cells = (m: Tilemap) => Array.from({ length: 20 }, (_, x) => m.getTile(x, 0));
+    const before = cells(map);
+    const seed = map.variantSeed;
+    rerollVariants(scene, [id], map);
+    const live = () => scene.sync.nodeFor([id])!.getBehavior(Tilemap)!;
+    expect(live().variantSeed).not.toBe(seed);
+    expect(scene.doc.fieldValue(id, "engine.Tilemap", "variantSeed", 0)).toBe(live().variantSeed);
+    const after = cells(live());
+    expect(after).not.toEqual(before);
+    expect(after.every((t) => t === 30 || t === 31)).toBe(true);
+    expect(scene.stack.undoLabel).toBe("Re-roll tile variants");
+    scene.stack.undo();
+    expect(cells(live())).toEqual(before);
+    expect(live().variantSeed).toBe(seed);
   });
 
   it("commits a stroke as one undoable step, and undo puts the World back", () => {

@@ -118,6 +118,15 @@ abstract class UIElement extends UIComponent {
    * `flex` (the default) lays it out.
    */
   @field(String, { choices: ["flex", "none"] }) display: UIDisplay = "flex";
+  /**
+   * Whether the pointer stops at this element, like Unity's `Graphic.raycastTarget` (ADR 0385). True (the default):
+   * a press over it goes to the UI, never to the game (`Input.pointerOverUI` is true), and reaches the button or
+   * input field it's in, if any; over text, an image or a panel outside one, it does nothing. False: the pointer
+   * passes through to whatever is behind it (other UI, or the game). Text, images, buttons and input fields stop
+   * it; a panel only when it draws a background (even a transparent one) or a border, as a panel without either is
+   * a layout box (Unity's empty RectTransform). Children aren't affected: each element has its own.
+   */
+  @field(Boolean) raycastTarget = true;
 }
 
 /** A box: background, border and rounded corners, laying out its children. */

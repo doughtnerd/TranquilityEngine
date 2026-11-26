@@ -34,7 +34,7 @@ import type {
 } from "../../../../engine/scene/particleGraph";
 import { PARTICLE_GRAPH_FORMAT } from "../../../../engine/scene/particleGraph";
 import { newGraphId, parseParticleGraph, systemTemplate } from "../../../../engine/scene/particleGraphFormat";
-import { graphDocument, type GraphWiringEdits } from "../../../../editor/sdk";
+import { graphDocument, pasteProperties, type GraphWiringEdits } from "../../../../editor/sdk";
 import { nodeDef, type PortType } from "../../../../engine/scene/particleNodes";
 import { outputTypeResolved, whyNotConnectResolved, type AssetResolver } from "../../../../engine/scene/particleSubgraphs";
 import { blockInputs, editorNodeDef, wireRulesGraph } from "./assetDocs";
@@ -523,13 +523,15 @@ export const setPropertyExposed = (graph: ParticleGraph, name: string, exposed: 
 
 export const CLIPBOARD_FORMAT = "myco.particles.clipboard@1";
 
-/** Systems and nodes copied with Ctrl+C, with the wires and events among them. Pastes into any effect. */
+/** Systems and nodes copied with Ctrl+C, with the wires, events and properties they use. Pastes into any effect. */
 export interface ParticleClipboard {
   format: typeof CLIPBOARD_FORMAT;
   systems: ParticleGraphSystem[];
   nodes: GraphNode[];
   edges: GraphEdge[];
   events: GraphEvent[];
+  /** The Blackboard properties the copied Property nodes read (a paste adds those the effect lacks). */
+  properties: GraphProperty[];
 }
 
 /** Ids for a paste: unused in the graph (systems, blocks, nodes, notes and groups share one id space), counting up per prefix. */
@@ -554,7 +556,9 @@ function allocator(graph: ParticleGraph) {
 /**
  * The Particle Graph's graph document edits. Its canvas items are its systems and nodes (one id
  * space with blocks, notes and groups). New properties are exposed. A copy takes the wires and
- * events among the copied items; a paste gives every system, block and node a new id.
+ * events among the copied items and the properties its nodes read; a paste gives every system,
+ * block and node a new id and adds the properties the effect lacks, as the Shader Graph's does
+ * (`pasteProperties`: a same-named property of another type is added under a free name).
  */
 export const particleGraphEdits = graphDocument<ParticleGraph, GraphNode, GraphProperty, ParticleClipboard>({
   items: (g) => [...g.systems, ...g.nodes].map((i) => i.id),
@@ -575,22 +579,26 @@ export const particleGraphEdits = graphDocument<ParticleGraph, GraphNode, GraphP
       const nodes = graph.nodes.filter((n) => set.has(n.id));
       if (systems.length + nodes.length === 0) return null;
       const inside = (ref: string) => set.has(ref.split(".")[0]);
+      const read = new Set(nodes.filter((n) => n.type === "property").map((n) => n.settings?.name));
       return {
         systems: clone(systems),
         nodes: clone(nodes),
         edges: clone(graph.edges.filter((e) => inside(e.from) && inside(e.to))),
         events: clone(graph.events.filter((e) => inside(e.from) && inside(e.to))),
+        properties: clone(graph.properties.filter((p) => read.has(p.name))),
       };
     },
-    // Well formed: read as an effect file's systems, nodes, wires and events would be, with no problems.
+    // Well formed: read as an effect file's systems, nodes, wires, events and properties would be, with no problems.
     read(raw) {
       if (!Array.isArray(raw.systems) || !Array.isArray(raw.nodes) || raw.systems.length + raw.nodes.length === 0) return null;
-      const { graph, problems } = parseParticleGraph({ format: PARTICLE_GRAPH_FORMAT, systems: raw.systems, nodes: raw.nodes, edges: raw.edges ?? [], events: raw.events ?? [] }, "clipboard");
-      if (problems.length || graph.systems.length !== raw.systems.length || graph.nodes.length !== raw.nodes.length) return null;
-      return { format: CLIPBOARD_FORMAT, systems: graph.systems, nodes: graph.nodes, edges: graph.edges, events: graph.events };
+      const properties = raw.properties ?? [];
+      const { graph, problems } = parseParticleGraph({ format: PARTICLE_GRAPH_FORMAT, properties, systems: raw.systems, nodes: raw.nodes, edges: raw.edges ?? [], events: raw.events ?? [] }, "clipboard");
+      if (problems.length || graph.systems.length !== raw.systems.length || graph.nodes.length !== raw.nodes.length || graph.properties.length !== properties.length) return null;
+      return { format: CLIPBOARD_FORMAT, systems: graph.systems, nodes: graph.nodes, edges: graph.edges, events: graph.events, properties: graph.properties };
     },
     positions: (clip) => [...clip.systems, ...clip.nodes].map((i) => i.position),
     paste(g, clip, [dx, dy]) {
+      const renames = pasteProperties(g.properties, clip.properties);
       const take = allocator(g);
       const ids = new Map<string, string>();
       const blockIds = new Map<string, string>(); // "oldSystem.oldBlock" → new block id
@@ -610,6 +618,8 @@ export const particleGraphEdits = graphDocument<ParticleGraph, GraphNode, GraphP
       }
       for (const n of clone(clip.nodes)) {
         const id = take("n");
+        const to = n.type === "property" ? renames.get(String(n.settings?.name)) : undefined;
+        if (to !== undefined) n.settings = { ...n.settings, name: to };
         ids.set(n.id, id);
         g.nodes.push({ ...n, id, position: round([n.position[0] + dx, n.position[1] + dy]) });
         out.push(id);

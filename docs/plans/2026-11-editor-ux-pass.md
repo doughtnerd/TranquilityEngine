@@ -129,7 +129,7 @@ Review findings, all fixed:
 ## Wave 3 results (2026-11-04)
 
 Built:
-- **G, docs:** `docs/guide/editor.md` (the Projects window, menu bar, docks and tab overflow, asset previews, `.myco/`), the guide index, and status rows for 0061 and 0063.
+- **G, docs:** `docs/wiki/guide/editor.md` (the Projects window, menu bar, docks and tab overflow, asset previews, `.myco/`), the guide index, and status rows for 0061 and 0063.
 - **H, live previews:**
   - live, orbitable Inspector previews (`ThumbnailRenderer.preview`: drag, wheel, double-click) for models, materials, shader graphs, environments, prefabs and particle effects, sharing the one WebGL context;
   - Inspector pages for environments and prefabs.

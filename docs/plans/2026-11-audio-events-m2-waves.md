@@ -173,7 +173,7 @@ After every wave, before the next one starts, the coordinator:
 | E4.2 (with E4.3) | mid | `runtime/loopPointsReader.ts`, `loopPointsReader.test.ts`, `loopPoints.test.ts`; edits: `loopPoints.ts` (fills C1), `core/clipRegistry.ts`, `src/engine/scene/importSettings.ts` (+ its test) |
 | E4.4 | strongest | `decoder/streamRegion.test.ts`, `core/streamRegionLoopback.test.ts`; edits: `audio-decode/src/decoder.rs`, `decoder/handler.ts`, `decoder/streams.ts`, `decoder/decoderClient.ts`, `core/streams.ts`, `core/coreAutomation.ts`, `core/coreBackend.ts` (seek, `reopenStreams`), `core/replay.ts` (`PlayheadTracker`); if its release mechanism needs it, `audio-core/src/stream.rs` and `voices.rs` |
 | E5.1 | mid | `samples/sound-lab/scenes/events.scene.json`, `samples/sound-lab/audio/events/*.audioevent.json`, `audio/events/*.wav` (generated), `scripts/behaviors/*Events*.ts`; edits: `samples/sound-lab/project.json` (global parameters, bus automation), `tools/makeTones.mjs`, `tools/README.md`, `sample.json` (if it lists scenes) |
-| E5.2 | mid | `docs/guide/sound-events.md` (the coordinator adds it to `docs/README.md`) |
+| E5.2 | mid | `docs/wiki/guide/sound-events.md` (the coordinator adds it to `docs/README.md`) |
 | E5.3 | mid | `events/eventBench.test.ts` (main per play and per `setParameter`); a build-log entry with the native `audio-bench` automation numbers |
 | E6.3 | strongest | `plugins/audio/editor/event/EventEditorPanel.tsx` (fills the placeholder), `eventTree.ts`, `eventTree.test.ts`, `NodeProperties.tsx`, `nodeFields.ts`, `nodeFields.test.ts`, `ParametersPane.tsx`, `eventEditor.css`; edits: `event/openEventEditor.ts` (fills C4) |
 | E6.5 | mid | edits: `plugins/audio/editor/AudioSettingsSection.tsx`, `audioSettingsModel.ts`, `audioSettingsModel.test.ts`, `audioSettings.css` |
@@ -186,7 +186,7 @@ After every wave, before the next one starts, the coordinator:
 |---|---|---|
 | E6.4 | mid | `plugins/audio/editor/event/Audition.tsx` (fills C4), `event/auditionHost.ts`, `event/auditionHost.test.ts` |
 | E5.4 | mid | `tests/e2e/audio-events.spec.ts` (tagged `@slow`) |
-| E4.5 | mid | edits: `loopPoints.ts` (plain-clip use), `core/coreAutomation.ts` (`onPlay` and `onLoopPoints` send SET_LOOP for plain loops), `babylonBackend.ts` (the C1 call becomes live, bytes fetched for the reader, the streamed-loop warning), `events/eventRuntime.ts` (the `loopRegion` default), `docs/guide/sound-events.md` (one paragraph); `loopFlip.test.ts`; a list in the build log of every sample clip with loop points and how it now sounds |
+| E4.5 | mid | edits: `loopPoints.ts` (plain-clip use), `core/coreAutomation.ts` (`onPlay` and `onLoopPoints` send SET_LOOP for plain loops), `babylonBackend.ts` (the C1 call becomes live, bytes fetched for the reader, the streamed-loop warning), `events/eventRuntime.ts` (the `loopRegion` default), `docs/wiki/guide/sound-events.md` (one paragraph); `loopFlip.test.ts`; a list in the build log of every sample clip with loop points and how it now sounds |
 | E5.5 | owner | the lab-VM run of E5.3's native numbers |
 
 **Exit (E5):** 0158 §6's budgets in the build log (main ≤ 5 µs per typical `Audio.play` and per `setParameter`; ≈ 0 per frame for steady instances; core automation ≤ 0.03 ms p99.9 at 256 voices × 3 bindings, from the lab VM); the `@slow` spec green.

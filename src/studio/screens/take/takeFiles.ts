@@ -1,27 +1,28 @@
 // The Takes panel's files (ADR 0348 "The Take screen"; the prototype's takes file system): the project's take files
-// (`*.mycotake`) by folder, through the Profiler's capture tree (a take is a capture file with requests), their notes
+// (`*.sporesample`) by folder, through the Profiler's capture tree (a take is a capture file with requests), their notes
 // files (`<take>.notes.json`), which move and go with them, and where imported takes go. Pure.
 import { takeNotesPath } from "../../../engine/audio/take/notes";
-import { captureTree, isTakePath, searchCaptures, type CaptureNode } from "../profiler/captureTree";
+import { RECORDINGS_FOLDER, captureTree, isTakePath, searchCaptures, type CaptureNode } from "../profiler/captureTree";
 
 /** Where the Studio imports takes (and where the editor's Record take saves them). */
-export const TAKES_FOLDER = "takes";
+export const TAKES_FOLDER = RECORDINGS_FOLDER;
 
 /** The empty state's words. */
 /**
  * How to get a take, under "No takes yet" (one sentence, sentence case, UI pass T4). The Studio replays takes but can't
  * record one (no game session yet): takes come from the editor's Play toolbar or a game build.
  */
-export const NO_TAKES = "Record one with Record take on the editor's Play toolbar, or with F10 in a game build that has audioTake on.";
+export const NO_TAKES = "Record one with Record take on the editor's Play toolbar, with F10 in a game build that has audioTake on, or here with Start take once a build is connected.";
 
 /**
  * The Take screen's centre with no take open (spec §1.3: an empty state is one short line saying what to do): the
- * title, and one line that says how a take is recorded (the Studio can't record one: owner decision 1).
+ * title, and one line that says how a take is recorded (the Studio records only from a connected build, ADR 0403; it
+ * can't record its own: owner decision 1).
  */
 export function takeEmptyCopy(hasTakes: boolean): { readonly title: string; readonly line: string } {
   return hasTakes
-    ? { title: "No take open", line: "Pick one in Takes, or record one with Record take on the editor's Play toolbar." }
-    : { title: "No takes yet", line: "Record one with Record take on the editor's Play toolbar, or F10 in a game build." };
+    ? { title: "No take open", line: "Pick one in Takes, or record with Record take on the editor's Play toolbar or a build." }
+    : { title: "No takes yet", line: "Use Record take on the editor's Play toolbar, F10 in a game build, or a connected build." };
 }
 
 /** The take files of `files`. */
@@ -35,7 +36,7 @@ export const searchTakes = (files: readonly string[], query: string): string[] =
 
 /** Why a chosen file can't be imported as a take, or null. */
 export function whyNotTakeFile(name: string): string | null {
-  return isTakePath(name) ? null : `${name} isn't a take file (.mycotake).`;
+  return isTakePath(name) ? null : `${name} isn't a take file (.sporesample).`;
 }
 
 /** The moves that rename or move take `from` to `to`: the take, and its notes when it has some. */

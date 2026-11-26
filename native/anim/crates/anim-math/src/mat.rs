@@ -178,6 +178,27 @@ impl<L: Lane> Mul for Mat3x4T<L> {
 }
 
 impl AosMat3x4 {
+    /// `self * o` a row at a time, four lanes per row: the same bits as `*` (each element is
+    /// `a0·b0 + a1·b1 + a2·b2` in that order, plus `a3` on the translation column only).
+    #[inline]
+    pub fn mul_rows(self, o: Self) -> Self {
+        let (a, b) = (&self.m, &o.m);
+        let row = |k: usize| F32x4::new(b[4 * k], b[4 * k + 1], b[4 * k + 2], b[4 * k + 3]);
+        let (b0, b1, b2) = (row(0), row(1), row(2));
+        let r = |i: usize| {
+            let v = F32x4::splat(a[4 * i]) * b0
+                + F32x4::splat(a[4 * i + 1]) * b1
+                + F32x4::splat(a[4 * i + 2]) * b2;
+            v.with_lane(3, v.get_lane(3) + a[4 * i + 3]).to_array()
+        };
+        let (r0, r1, r2) = (r(0), r(1), r(2));
+        Self {
+            m: [
+                r0[0], r0[1], r0[2], r0[3], r1[0], r1[1], r1[2], r1[3], r2[0], r2[1], r2[2], r2[3],
+            ],
+        }
+    }
+
     /// The twelve floats in the output layout.
     #[inline(always)]
     pub fn to_rows(self) -> [f32; 12] {

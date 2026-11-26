@@ -9,7 +9,7 @@
 
 /** What a capture holds, as far as choosing tracks goes. */
 export interface CaptureContents {
-  /** It carries picture frames (a take's FRAME records; never for a `.mycap`). */
+  /** It carries picture frames (a take's FRAME records; never for a `.sporesample`). */
   readonly frames: boolean;
   /** STATUS samples exist (not a Babylon-fallback capture). */
   readonly status: boolean;

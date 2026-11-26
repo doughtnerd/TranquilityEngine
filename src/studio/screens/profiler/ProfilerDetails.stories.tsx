@@ -187,23 +187,23 @@ export const Recording: Story = { render: () => <RecordButton recording busy={fa
 
 const openTake = fn();
 export const ReplayCapture: Story = {
-  render: () => <ReplayOrigin take={{ path: "takes/HoverBike/canyon_run_01.mycotake", audioHash: "5f3a90c1" }} onOpenTake={openTake} />,
+  render: () => <ReplayOrigin take={{ path: "recordings/HoverBike/canyon_run_01.sporesample", audioHash: "5f3a90c1" }} onOpenTake={openTake} />,
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByText("canyon_run_01.mycotake")).toBeVisible();
+    await expect(c.getByText("canyon_run_01.sporesample")).toBeVisible();
     const open = c.getByRole("button", { name: "Open in Take" });
     await expect(open).toHaveAttribute("title", "Open canyon_run_01 in Take at the same playhead");
     await userEvent.click(open);
-    await expect(openTake).toHaveBeenCalledWith("takes/HoverBike/canyon_run_01.mycotake");
+    await expect(openTake).toHaveBeenCalledWith("recordings/HoverBike/canyon_run_01.sporesample");
   },
 };
 
 /** The project doesn't have the take the replay capture names: no "Open in Take" to a take that isn't there. */
 export const ReplayOfAMissingTake: Story = {
-  render: () => <ReplayOrigin take={{ path: "takes/gone.mycotake", audioHash: "5f3a90c1" }} />,
+  render: () => <ReplayOrigin take={{ path: "recordings/gone.sporesample", audioHash: "5f3a90c1" }} />,
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByText("gone.mycotake")).toBeVisible();
+    await expect(c.getByText("gone.sporesample")).toBeVisible();
     await expect(c.queryByRole("button", { name: "Open in Take" })).toBeNull();
   },
 };

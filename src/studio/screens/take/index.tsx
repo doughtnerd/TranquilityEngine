@@ -5,13 +5,14 @@
 // route names, the keys (Space, Home, M, Delete, Escape) and the player bar's slots (the take, its transport and scrub).
 import { effect } from "@preact/signals";
 import type { ComponentChildren } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
+import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { TakeNotes } from "../../../engine/audio/take/types";
 import { emptyTakeNotes } from "../../../engine/audio/take/notes";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { currentProject, docVersion } from "../../../editor/state";
 import { Icon } from "../../components/Icon";
+import { HeatmapToggle, heatmapOn } from "../../components/heatmapToggle";
 import { TransportButton } from "../../components/PlayerBar";
 import { formatClock } from "../../components/replayControlsModel";
 import { replayStore } from "../../shell/replay";
@@ -20,21 +21,29 @@ import { audioHost, keymap, openRoute, setPlayerSlots, studioRouter } from "../.
 import { historyPanel } from "../placeholder";
 import { addMarker, addRegion, deleteNote, editNote, moveNote, setRegionSpan } from "./notesEdits";
 import { InstanceDetails, MixerStrip, NoteDetails, PlayheadValues } from "./TakeInspector";
-import { busStrip, instanceParametersAt, parameterRows, type BusStrip } from "./takeInspectorModel";
+import { busStrip, instanceParametersAt, parameterRows, playheadSummary, type BusStrip } from "./takeInspectorModel";
 import { isTakePath, takeEmptyCopy, takeFiles } from "./takeFiles";
 import { PlaylistsInTake } from "./PlaylistsInTake";
 import { TakeList } from "./TakeList";
 import { globalParameters, openSource, openTake, takeFileKind, takePlaylist, takeScreen } from "./takeScreen";
-import { CAPTURES_FOLDER, runMoveFolders, runTreeFolders } from "../profiler/captureTree";
+import { runMoveFolders, runTreeFolders } from "../profiler/captureTree";
 import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "../profiler/runFileActions";
 import { durationsVersion, fileDuration } from "../profiler/runFileDurations";
-import { findInstance, parameterText, pathTitle, playlistsInTake, type TakeInstance, type TakeTimeline } from "./takeTimeline";
+import { findInstance, parameterText, pathTitle, playlistsInTake, takeTimeline, type TakeInstance, type TakeTimeline } from "./takeTimeline";
+import { buildSession, takeOnShow, type LiveTake } from "../../runtime/buildSession";
+import { openMixer } from "../../shell/openMixer";
 import { drivesText, playlistSummary, playsText, propertyCards, typeName, type PropertyCard } from "./takePlaylists";
 import type { Take } from "../../../engine/audio/take/reader";
 import type { Effect } from "../../../engine/audio/effects/types";
 import { EFFECT_CATALOGUE, isBuiltinEffectType } from "../../../engine/audio/effects/catalogue";
 import { openMixDocument } from "../mixer/mixerDocument";
 import { TakeTimelineView } from "./TakeTimelineView";
+import { whyNotImportable } from "../../../editor/assetImportFiles";
+import { BuildTakeControls } from "./BuildTakeControls";
+import { asksWhereToSaveTakes } from "./buildTakes";
+import { mountedBuildAudio } from "../../runtime/buildAudioSets";
+import { isTakesFolder } from "../../../editor/projects";
+import { changeTakesFolder } from "../../shell/liveConnect";
 import "./take.css";
 
 const notesOf = (): TakeNotes => takeScreen().notes.value?.value.value ?? emptyTakeNotes();
@@ -48,6 +57,34 @@ function DocScope(props: { children: ComponentChildren }) {
   );
 }
 
+/** Record from a build, above the Takes list: offered only while a build is connected (or to show why its take failed). */
+/** Where a browser with no project saves a take (ADR 0408): each one where the user says. */
+const ASK_WHERE = "a file you choose on Save";
+
+function BuildTakeSection() {
+  const session = buildSession.value;
+  const rec = session?.recorder ?? null;
+  // While the build is connected; after it left, only to show why its take failed (until dismissed).
+  if (!session || !rec || (session.show.value.kind !== "live" && rec.state.value.kind !== "failed")) return null;
+  const project = currentProject.value;
+  const takesOnly = isTakesFolder(project);
+  const asks = asksWhereToSaveTakes();
+  return (
+    <BuildTakeControls
+      build={rec.build.name}
+      state={rec.state.value}
+      whyNotSave={asks ? null : whyNotImportable(project)}
+      into={asks ? ASK_WHERE : takesOnly && project?.root ? project.root : undefined}
+      onChangeFolder={takesOnly && !asks && project?.fileSystem ? () => void changeTakesFolder(project.fileSystem!) : undefined}
+      onStart={() => void session.start()}
+      onMark={(text) => void session.mark(text)}
+      onStop={() => void session.stop()}
+      onSave={() => void rec.save()}
+      onDismiss={() => rec.dismiss()}
+    />
+  );
+}
+
 function TakesPanel() {
   void docVersion.value; // the project's file list grows and shrinks with it
   void durationsVersion.value; // a take's duration arrived
@@ -57,11 +94,12 @@ function TakesPanel() {
   const k = takeFileKind;
   return (
     <Panel bodyClass="tk-panel-body">
+      <BuildTakeSection />
       <TakeList
         files={files}
         // A new project's scenes/, scripts/ and the sample and playlist folders aren't take folders (UI pass T5).
-        folders={runTreeFolders(folders, files, isTakePath, [CAPTURES_FOLDER])}
-        moveFolders={runMoveFolders(folders, files, isTakePath, [CAPTURES_FOLDER])}
+        folders={runTreeFolders(folders, files, isTakePath, [])}
+        moveFolders={runMoveFolders(folders, files, isTakePath, [])}
         rootName={project?.name}
         openPath={takeScreen().shownPath()}
         writable={!!project?.canSave && !!project.fileSystem}
@@ -128,18 +166,23 @@ function toggleLoop(): void {
   open.replay.setLoop(region ? { from: region.from, to: region.to } : { from: 0, to: open.take.duration });
 }
 
-function TakeTransport() {
+/**
+ * The open take's replay controls: go to start, replay or pause, loop, restart instances. The Take screen's transport,
+ * and the Profiler's (ADR 0408: one recording for both screens), where a running recording makes them inactive.
+ */
+export function ReplayTransport(props: { readonly disabled?: boolean }) {
   const open = replayStore().open.value;
   if (!open) return null;
   const r = open.replay;
   const playing = r.playing.value;
   const loop = r.loop.value;
+  const off = !!props.disabled;
   return (
     <>
-      <TransportButton icon="skipBack" label="Go to start" title="Go to start (Home)" onClick={goToStart} />
-      <TransportButton icon={playing ? "pause" : "play"} label={playing ? "Pause" : "Replay"} title={playing ? "Pause (Space)" : "Replay the take against your current audio (Space)"} primary pressed={playing} onClick={() => r.toggle()} />
-      <TransportButton icon="loop" label="Loop" pressed={!!loop} title={loop ? `Looping ${formatClock(loop.from)}–${formatClock(loop.to)}: click to stop` : "Loop the selected region, or the whole take"} onClick={toggleLoop} />
-      <TransportButton icon="redo" label="Restart instances" title="Changed during Play: restart the playing copies with the new version" disabled={!playing} onClick={() => r.restartInstances()} />
+      <TransportButton icon="skipBack" label="Go to start" title="Go to start (Home)" disabled={off} onClick={goToStart} />
+      <TransportButton icon={playing ? "pause" : "play"} label={playing ? "Pause" : "Replay"} title={off ? "Inactive while a recording runs" : playing ? "Pause (Space)" : "Replay the take against your current audio (Space)"} primary pressed={playing} disabled={off} onClick={() => r.toggle()} />
+      <TransportButton icon="loop" label="Loop" pressed={!!loop} title={loop ? `Looping ${formatClock(loop.from)}–${formatClock(loop.to)}: click to stop` : "Loop the selected region, or the whole take"} disabled={off} onClick={toggleLoop} />
+      <TransportButton icon="redo" label="Restart instances" title="Changed during Play: restart the playing copies with the new version" disabled={off || !playing} onClick={() => r.restartInstances()} />
     </>
   );
 }
@@ -177,6 +220,8 @@ function useScreen(): void {
       effect(() => {
         void docVersion.value;
         const asset = studioRouter().route.value.asset;
+        // While a build is connected the timeline is live (ADR 0408): the routed take waits, and opens once it leaves.
+        if (takeOnShow.value.kind === "live") return;
         store.follow(asset, !!asset && isTakePath(asset) && !!currentProject.value?.files.includes(asset));
       }),
       effect(() => {
@@ -190,7 +235,7 @@ function useScreen(): void {
         slotsKey = key;
         setPlayerSlots("take", {
           nowPlaying: open ? { art: "TAKE", title: open.title, subtitle: `Recorded take · ${open.take.duration.toFixed(1)} s` } : null,
-          transport: <TakeTransport />,
+          transport: <ReplayTransport />,
           scrub: open ? <TakeScrub /> : undefined,
           status: note ?? (open ? (playing ? "Replaying the take" : "Replay, or edit and hear it against the take") : undefined),
           playhead: open ? replay.time : null,
@@ -231,35 +276,56 @@ function TimelinePanel() {
   const instance = sel?.kind === "instance" && timeline ? findInstance(timeline, sel.key) : null;
   const writable = !!doc && !doc.readOnly;
   const words = useLaneWords(timeline);
-  const sequence = instance ? takePlaylist(instance.path)?.type === "sequence" : false;
   const toolbar = open ? (
     <div class="tk-toolbar">
-      {instance ? (
-        <>
-          <strong class="tk-toolbar-title" title={instance.path}>{pathTitle(instance.path)}</strong>
-          <button type="button" class="tk-btn" title="Move the playhead to where this instance started" onClick={() => open.replay.seek(instance.start)}>Go to start</button>
-          <button type="button" class="tk-btn" title={`Edit this ${sequence ? "sequence" : "playlist"}'s clips, regions and automation in Playlists`} onClick={() => openSource(instance.path)}>
-            Open {sequence ? "sequence" : "playlist"} ›
-          </button>
-        </>
-      ) : (
-        <strong class="tk-toolbar-title" title="Scrub to audition the whole mix · click an instance to inspect it">{open.title}</strong>
-      )}
+      <strong class="tk-toolbar-title" title={instance ? instance.path : "Scrub to audition the whole mix · click an instance to inspect it"}>
+        {instance ? pathTitle(instance.path) : open.title}
+      </strong>
       <span class="tk-toolbar-gap" />
       <button type="button" class="tk-icon-btn" disabled={!writable} aria-label="Add marker" title="Add a note marker at the playhead (M)" onClick={() => addMarkerAt(open.replay.time.peek())}>
-        <Icon name="note" size={14} />
+        <Icon name="marker" size={14} />
       </button>
       <button type="button" class="tk-icon-btn" disabled={!writable} aria-label="Add region" title="Add a note region from the playhead" onClick={() => store.commitNotes(addRegion(notesOf(), open.replay.time.peek(), open.replay.time.peek(), open.take.duration), { select: true })}>
-        <Icon name="razor" size={14} />
+        <Icon name="region" size={14} />
       </button>
-      <button type="button" class="tk-icon-btn" aria-label="Profile this replay" title="Profile this replay: record the Studio's runtime in the Profiler while this take replays" onClick={() => store.profileReplay()}>
+      <HeatmapToggle class="tk-icon-btn" />
+      <button type="button" class="tk-icon-btn" aria-label="Show profile" title="Show profile: the engine's profile this take recorded in the game, on the Profiler at the playhead" onClick={() => store.showProfile()}>
         <Icon name="profiler" size={14} />
       </button>
     </div>
   ) : undefined;
   let body;
+  // ADR 0408: while a game build is connected the Take screen is live: the take recording on the build grows here, and
+  // between recordings the last one shows; saved recordings open once it disconnects.
+  const show = takeOnShow.value;
+  if (show.kind === "live") {
+    const build = { name: show.build };
+    const live = show.take;
+    body = live ? (
+      <LiveTakeView live={live} />
+    ) : (
+      <EmptyState
+        title={`Live from ${build.name}`}
+        icon={<Icon name="take" size={28} />}
+        body={<p>Press Record session in the player bar (or F10 in the game) to record a take. It shows here as it records.</p>}
+      />
+    );
+    return (
+      <Panel toolbar={live ? <div class="tk-toolbar"><strong class="tk-toolbar-title">{live.state === "recording" ? `● Recording on ${build.name}` : `Last take from ${build.name}`}</strong><span class="tk-toolbar-gap" /><HeatmapToggle class="tk-icon-btn" /></div> : undefined} bodyClass="tk-panel-body tk-timeline-body">
+        {body}
+      </Panel>
+    );
+  }
   if (s.kind === "opening") body = <p class="tk-note" role="status">Opening {s.path}…</p>;
   else if (s.kind === "failed") body = <p class="tk-error" role="alert">Can't open {s.path}: {s.message}</p>;
+  else if (s.kind === "noTake")
+    body = (
+      <EmptyState
+        title="No take data in this capture"
+        body={`${s.path} holds the engine's profile only, not what the game asked of audio, so there's nothing to replay. The Profiler shows it.`}
+        action={{ label: "Open in Profiler", run: () => openRoute({ screen: "profiler", asset: s.path }) }}
+      />
+    );
   else if (!open || !timeline) {
     const project = currentProject.value;
     const copy = takeEmptyCopy(takeFiles(project?.files ?? []).length > 0);
@@ -269,12 +335,12 @@ function TimelinePanel() {
         title={copy.title}
         icon={<Icon name="take" size={28} />}
         body={<p>{copy.line}</p>}
-        action={{ label: "Open take file…", title: writable ? "Copy a .mycotake into the project's takes folder and open it" : "This project is read-only", disabled: !writable, run: () => importPick.current?.click() }}
+        action={{ label: "Open take file…", title: writable ? "Copy a .sporesample into the project's recordings folder and open it" : "This project is read-only", disabled: !writable, run: () => importPick.current?.click() }}
       >
         <input
           ref={importPick}
           type="file"
-          accept=".mycotake"
+          accept=".sporesample"
           hidden
           aria-label="Take file to open"
           onChange={(e) => {
@@ -292,7 +358,14 @@ function TimelinePanel() {
         {open.replay.note.value && <p class="tk-hint" role="status">{open.replay.note.value}</p>}
         <TakeTimelineView
           timeline={timeline}
+          heatmap={heatmapOn.value}
           name={open.title}
+          viewKey={open.path}
+          onPicture={(t) => {
+            // A picture shows the game at its moment: the Inspector's playhead view (not a selected instance) shows it large.
+            open.replay.seek(t);
+            store.selected.value = null;
+          }}
           time={open.replay.time.value}
           playing={open.replay.playing.value}
           selected={sel}
@@ -329,6 +402,44 @@ function TimelinePanel() {
   );
 }
 
+const NO_NOTES = emptyTakeNotes();
+const NONE: ReadonlySet<string> = new Set();
+
+/**
+ * ADR 0408: the take recording on the connected build, as it grows (the build session's live take): the timeline with its playhead at the
+ * newest moment, read-only (no replay, no notes). Instances can still be selected for the Inspector.
+ */
+function LiveTakeView(props: { readonly live: LiveTake }) {
+  const take = props.live.take;
+  const timeline = useMemo(() => takeTimeline(take, () => null), [take]);
+  const store = takeScreen();
+  return (
+    <TakeTimelineView
+      timeline={timeline}
+      heatmap={heatmapOn.value}
+      name={props.live.state === "recording" ? "Recording…" : "Last take"}
+      time={take.duration}
+      playing={props.live.state === "recording"}
+      selected={store.selected.value}
+      notes={NO_NOTES}
+      notesWritable={false}
+      muted={NONE}
+      soloed={NONE}
+      hovered={store.hovered.value}
+      onHover={(p) => (store.hovered.value = p)}
+      onSeek={() => {}}
+      onSelectInstance={(key) => (store.selected.value = { kind: "instance", key })}
+      onOpenInstance={(key) => {
+        const i = findInstance(timeline, key);
+        if (i) openSource(i.path);
+      }}
+      onSelectNote={() => {}}
+      onMoveNote={() => {}}
+      onAddMarker={() => {}}
+    />
+  );
+}
+
 /** The game's value of each parameter at `t` for an instance: its own parameters first, then the take's globals. */
 function valuesAt(take: Take, timeline: TakeTimeline, t: number, instance: TakeInstance | null): (name: string) => number | null {
   const own = instance ? instanceParametersAt(take, instance, t) : {};
@@ -352,6 +463,44 @@ function trackCards(path: string, valueOf: (name: string) => number | null): { k
 }
 
 function InspectorPanel() {
+  // ADR 0411: while a build is connected the Take screen is live; the Inspector shows its take at the newest moment.
+  const show = takeOnShow.value;
+  if (show.kind === "live") return <LiveInspector live={show.take} />;
+  return <ReplayInspector />;
+}
+
+/** The live take's newest moment: the latest picture of the game, what sounds now, and the game's values. */
+function LiveInspector(props: { readonly live: LiveTake | null }) {
+  const store = takeScreen();
+  const take = props.live?.take ?? null;
+  const timeline = useMemo(() => (take ? takeTimeline(take, () => null) : null), [take]);
+  if (!take || !timeline) {
+    return (
+      <Panel bodyClass="tk-panel-body">
+        <EmptyState compact title="No take recording" body="Press Record session in the player bar (or F10 in the game). The game's picture and what sounds show here as it records." />
+      </Panel>
+    );
+  }
+  const t = take.duration;
+  return (
+    <Panel bodyClass="tk-panel-body">
+      <PlayheadValues
+        open
+        time={t}
+        picture={take.frames.at(-1) ?? null}
+        values={timeline.parameters.filter((p) => p.path === null).map((p) => ({ name: p.name, text: parameterText(p, t) }))}
+        track={null}
+        summary={playheadSummary(timeline, take.meta, t)}
+        recorded={{ project: take.meta.project, engine: take.meta.engine, device: take.meta.device }}
+        hovered={store.hovered.value}
+        onHover={(p) => (store.hovered.value = p)}
+        onOpenSource={openSource}
+      />
+    </Panel>
+  );
+}
+
+function ReplayInspector() {
   const store = takeScreen();
   const open = replayStore().open.value;
   const timeline = store.timeline.value;
@@ -402,20 +551,33 @@ function InspectorPanel() {
         />
       );
   }
-  if (!body) {
+  // The picture and the take at the playhead stay in view under a selected instance or note.
+  const playhead = (below: boolean, track: Parameters<typeof PlayheadValues>[0]["track"]) => (
+    <PlayheadValues
+      open={!!timeline}
+      below={below}
+      time={t}
+      picture={open?.take.frameAt(t) ?? open?.take.frames[0] ?? null}
+      values={(timeline?.parameters ?? []).filter((p) => p.path === null).map((p) => ({ name: p.name, text: parameterText(p, t) }))}
+      track={track}
+      summary={open && timeline ? playheadSummary(timeline, open.take.meta, t) : null}
+      recorded={below ? null : open ? { project: open.take.meta.project, engine: open.take.meta.engine, device: open.take.meta.device } : null}
+      {...hover}
+      onOpenSource={openSource}
+      onSelectInstance={(key) => (store.selected.value = { kind: "instance", key })}
+      onSeek={(at) => open?.replay.seek(at)}
+    />
+  );
+  if (body) body = (
+    <>
+      {body}
+      {playhead(true, null)}
+    </>
+  );
+  else {
     const focus = timeline ? (timeline.lanes.find((l) => l.path === store.focusPath.value) ?? timeline.lanes[0] ?? null) : null;
     const track = open && timeline && focus ? { path: focus.path, ...trackCards(focus.path, valuesAt(open.take, timeline, t, null)) } : null;
-    body = (
-      <PlayheadValues
-        open={!!timeline}
-        time={t}
-        picture={open?.take.frameAt(t) ?? open?.take.frames[0] ?? null}
-        values={(timeline?.parameters ?? []).filter((p) => p.path === null).map((p) => ({ name: p.name, text: parameterText(p, t) }))}
-        track={track && track.kind ? track : null}
-        {...hover}
-        onOpenSource={openSource}
-      />
-    );
+    body = playhead(false, track && track.kind ? track : null);
   }
   return <Panel bodyClass="tk-panel-body">{body}</Panel>;
 }
@@ -448,7 +610,7 @@ function MixerPanel() {
   const { running, strips } = useBusStrips();
   return (
     <Panel bodyClass="tk-panel-body">
-      <MixerStrip running={running} strips={strips} onOpenMixer={() => openRoute({ screen: "mixer" })} />
+      <MixerStrip running={running} strips={strips} onOpenMixer={() => openMixer()} />
     </Panel>
   );
 }

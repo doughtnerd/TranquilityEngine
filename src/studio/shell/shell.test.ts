@@ -51,7 +51,7 @@ describe("router", () => {
     expect(parseRoute("")).toEqual({ screen: "samples" });
     expect(parseRoute("#/nonsense?asset=x")).toEqual({ screen: "samples", asset: "x" });
     expect(parseRoute("#PROFILER")).toEqual({ screen: "profiler" });
-    const route = { screen: "take", asset: "takes/run 1.mycotake", select: "i7" } as const;
+    const route = { screen: "take", asset: "takes/run 1.sporesample", select: "i7" } as const;
     expect(parseRoute(formatRoute(route))).toEqual(route);
   });
 
@@ -60,7 +60,7 @@ describe("router", () => {
     const hash = studioUrl(request).slice(studioUrl(request).indexOf("#"));
     expect(parseRoute(hash)).toEqual({ screen: "playlists", asset: "music/boss fight.playlist.json" });
     expect(parseRoute("#/mixer")).toEqual({ screen: "mixer" });
-    expect(parseRoute("#/profiler/captures/a.mycap?asset=captures/b.mycap")).toEqual({ screen: "profiler", asset: "captures/b.mycap" });
+    expect(parseRoute("#/profiler/captures/a.sporesample?asset=captures/b.sporesample")).toEqual({ screen: "profiler", asset: "captures/b.sporesample" });
     expect(parseRoute("#/nonsense/x.wav")).toEqual({ screen: "samples" });
     expect(parseRoute("#/samples/bad%E0.wav")).toEqual({ screen: "samples" }); // a malformed escape: the screen alone
   });

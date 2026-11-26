@@ -44,10 +44,10 @@ export function AnimationWindow() {
   if (!doc) {
     return (
       <Panel>
-        <div class="aw-empty">
+        <>
           {target.kind === "animator" ? <ClipPicker target={target} /> : null}
           <EmptyState compact title={target.clip ? "Not an editable clip" : "No clip"} body={target.clip ? `${target.clip} isn't an authored clip (*.anim.json) in this project. Model clips are edited through their import settings.` : "This Animator has no default clip. Choose a clip, or set its Default Clip."} />
-        </div>
+        </>
       </Panel>
     );
   }

@@ -39,8 +39,8 @@ export interface TweenBinding {
   alive(): boolean;
   /** The field's current value (its numbers), or null when it can't be read (a material property with no override). */
   read(): number[] | null;
-  /** Writes `width` floats (a boolean: 0 or 1). */
-  write(values: ArrayLike<number>): void;
+  /** Writes `width` floats from `values[at]` on (a boolean: 0 or 1). */
+  write(values: ArrayLike<number>, at?: number): void;
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -149,10 +149,10 @@ function binding(node: GameObject, target: object, field: string, shape: Shape, 
     bool: shape.bool,
     alive,
     read,
-    write(values) {
+    write(values, at = 0) {
       if (!alive()) return;
-      for (let i = 0; i < shape.width; i++) f[i] = values[i]!;
-      if (shape.bool) u[0] = values[0]! >= 0.5 ? 1 : 0;
+      for (let i = 0; i < shape.width; i++) f[i] = values[at + i]!;
+      if (shape.bool) u[0] = values[at]! >= 0.5 ? 1 : 0;
       write(f, u, 0);
     },
   };

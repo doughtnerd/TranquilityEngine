@@ -246,7 +246,7 @@ export const VoicesNotPlaying: Story = { render: () => frame(640, 200, <VoicesPa
 export const FromGameScene: Story = { render: () => <GameSceneDialog scenes={["scenes/canyon.scene.json", "scenes/level_02.scene.json"]} onPick={fn()} onCancel={fn()} /> };
 
 export const FromTake: Story = {
-  render: () => <TakeDialog takes={["takes/canyon_run_04.mycotake"]} open={async () => ({ duration: 95, at: () => fixtureScene() })} onCreate={fn()} onCancel={fn()} />,
+  render: () => <TakeDialog takes={["recordings/canyon_run_04.sporesample"]} open={async () => ({ duration: 95, at: () => fixtureScene() })} onCreate={fn()} onCancel={fn()} />,
   play: async ({ canvasElement }) => {
     const c = within(canvasElement.ownerDocument.body);
     await expect(await c.findByText(/At 0:00 of 1:35/)).toBeVisible();

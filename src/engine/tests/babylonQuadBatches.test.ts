@@ -7,6 +7,7 @@ import { World } from "../core/World";
 import { Assets, Engine, GameObject, SceneManager } from "../index";
 import { Tilemap } from "../../plugins/tilemaps/runtime/Tilemap";
 import { BabylonQuadBatches } from "../render/babylon/quadBatches";
+import { BabylonMaterials2D } from "../render/babylon/materials2D";
 import { TilemapRenderer } from "../../plugins/tilemaps/runtime/tilemapRenderer";
 import { newLayer } from "../../plugins/tilemaps/runtime/format";
 
@@ -36,6 +37,7 @@ describe("Babylon quad batches drawing tilemaps (ADR 0103, 0136)", () => {
     const tex = { getBaseSize: () => ({ width: 64, height: 32 }), hasAlpha: false } as unknown as Texture;
     const quads = new BabylonQuadBatches({
       scene,
+      materials2D: new BabylonMaterials2D({ scene, library: { texture: () => (loaded ? tex : null) } }),
       texture: (_path, onLoad) => (loaded ? tex : (pending.push(onLoad), null)),
       sortOrder: (layer, order) => ["Back", "Default"].indexOf(layer) * 10000 + order,
     });
@@ -75,7 +77,7 @@ describe("Babylon quad batches drawing triangles (ADR 0370, 0371: skinned sprite
   it("builds a mesh of any triangles, then only moves its vertices while the indices stay the same", () => {
     const scene = new Scene(new NullEngine());
     const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false } as unknown as Texture;
-    const quads = new BabylonQuadBatches({ scene, texture: () => tex, sortOrder: (_layer, order) => order });
+    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortOrder: (_layer, order) => order });
     const batch = quads.createBatch("skinned");
     batch.setVisible(true);
     const indices = new Uint32Array([0, 1, 2]);

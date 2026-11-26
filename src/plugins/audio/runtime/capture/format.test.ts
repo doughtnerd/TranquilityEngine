@@ -5,10 +5,10 @@ import { MIX_OP_NAMES, OP_CLASSES } from "../../../../engine/audio/mixOps";
 import { CORE_ABI_MAJOR } from "../worklet/coreDriver";
 import { CORE_ABI_VERSION, SCHEMA_HASH } from "../wire.generated";
 import {
-  assembleCapture, CAPTURE_ABI_VERSION, CAPTURE_HEADER_BYTES, CAPTURE_MIXOP_CLASSES, CAPTURE_MIXOP_CODES, CaptureError, RecordType,
+  assembleCapture, CAPTURE_ABI_VERSION, CAPTURE_FORMAT_MINOR, CAPTURE_HEADER_BYTES, CAPTURE_MIXOP_CLASSES, CAPTURE_MIXOP_CODES, CaptureError, RecordType,
   cutUtf8, decodeCaptureMeta, decodeEpoch, decodeEvent, decodeGap, decodeIndex, decodeMarker, decodeMixOpRecord, decodeNames,
   encodeCaptureMeta, encodeEpoch, encodeEvent, encodeGap, encodeIndex, encodeMarker, encodeMixOpRecord, encodeNames,
-  eventBytes, indexBytes, markerBytes, mixOpBytes, namesBytes, readCaptureHeader, readRecordHead, writeRecordHead,
+  eventBytes, indexBytes, markerBytes, mixOpBytes, namesBytes, readCaptureHeader, readRecordHead, splitCaptureRecords, writeRecordHead,
   type CaptureErrorCode,
 } from "./format";
 import { SAMPLE_HEADER, SAMPLE_META, sampleCapture } from "./testSupport";
@@ -61,14 +61,19 @@ describe("capture header (§5.1)", () => {
     const all = v((d) => { d.setUint8(12, d.getUint8(12) ^ 1); d.setUint32(68, 0xffffffff, true); });
     expect(codeOf(() => readCaptureHeader(all))).toBe("wireMismatch");
     expect(codeOf(() => readCaptureHeader(v((d) => d.setUint32(68, 64 * 1024 * 1024 + 1, true))))).toBe("tooLarge");
-    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint32(84, 1, true))))).toBe("badHeader");
+    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(86, 1, true))))).toBe("badHeader");
+    // ADR 0386: header bytes 84..86 are the format's minor; a newer one is refused up front, an older one reads.
+    expect(codeOf(() => readCaptureHeader(v((d) => d.setUint16(84, CAPTURE_FORMAT_MINOR + 1, true))))).toBe("newerFormat");
+    expect(readCaptureHeader(v((d) => d.setUint16(84, 0, true))).formatMinor).toBe(0);
+    expect(readCaptureHeader(file).formatMinor).toBe(CAPTURE_FORMAT_MINOR);
   });
 
   it("stamps the running core's ABI the writer gives, and this build's without one (ADR 0328)", () => {
     expect(readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION }, SAMPLE_META, [])).abiVersion).toBe(CORE_ABI_VERSION);
     expect(readCaptureHeader(assembleCapture(SAMPLE_HEADER, SAMPLE_META, [])).abiVersion).toBe(CAPTURE_ABI_VERSION);
-    // A core of another ABI major under this wire's hash is refused when read; another minor reads.
-    expect(codeOf(() => readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION + 0x100 }, SAMPLE_META, [])))).toBe("badHeader");
+    // A core of another ABI major is refused as a version (ADR 0386), whatever its hash; another minor under this hash reads.
+    expect(codeOf(() => readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION + 0x100 }, SAMPLE_META, [])))).toBe("newerFormat");
+    expect(codeOf(() => readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION - 0x100 }, SAMPLE_META, [])))).toBe("olderFormat");
     expect(readCaptureHeader(assembleCapture({ ...SAMPLE_HEADER, abiVersion: CORE_ABI_VERSION + 1 }, SAMPLE_META, [])).abiVersion).toBe(CORE_ABI_VERSION + 1);
   });
 
@@ -79,10 +84,10 @@ describe("capture header (§5.1)", () => {
     const h = readCaptureHeader(c);
     expect(h.abiVersion >> 8).toBe(CORE_ABI_VERSION >> 8);
     expect(h.schemaHash).not.toBe(SCHEMA_HASH);
-    // A different major under another hash is still refused; so is this very version under another hash.
+    // An older major under another hash is refused as a version (ADR 0386); this very version under another hash is a wire mismatch.
     const major = c.slice();
     new DataView(major.buffer).setUint32(28, CORE_ABI_VERSION - 0x100, true);
-    expect(codeOf(() => readCaptureHeader(major))).toBe("wireMismatch");
+    expect(codeOf(() => readCaptureHeader(major))).toBe("olderFormat");
     const same = c.slice();
     new DataView(same.buffer).setUint32(28, CORE_ABI_VERSION, true);
     expect(codeOf(() => readCaptureHeader(same))).toBe("wireMismatch");
@@ -93,7 +98,18 @@ describe("capture header (§5.1)", () => {
     new DataView(c.buffer).setUint16(34, 0, true);
     expect(readCaptureHeader(c).envelopeMinor).toBe(0);
     new DataView(c.buffer).setUint16(34, 99, true);
-    expect(codeOf(() => readCaptureHeader(c))).toBe("badHeader");
+    expect(codeOf(() => readCaptureHeader(c))).toBe("newerFormat"); // ADR 0386: newer, not damaged
+    expect(() => readCaptureHeader(c)).toThrow(/incompatible version: file is status envelope \d+\.99, this build reads \d+\.0\u2013\d+\.\d+/);
+  });
+
+  it("refuses a file from a newer core ABI minor under another wire hash as newerFormat, naming both versions (ADR 0386)", () => {
+    const newer = CORE_ABI_VERSION + 1;
+    const c = assembleCapture({ ...SAMPLE_HEADER, abiVersion: newer }, SAMPLE_META, []).slice();
+    for (let i = 12; i < 28; i++) c[i] = c[i]! ^ 0x5a; // the newer build's own wire hash
+    expect(codeOf(() => readCaptureHeader(c))).toBe("newerFormat");
+    const reads = `${CORE_ABI_VERSION >> 8}\\.0\u2013${CORE_ABI_VERSION >> 8}\\.${CORE_ABI_VERSION & 0xff}`;
+    const theirs = `${newer >> 8}\\.${newer & 0xff}`;
+    expect(() => readCaptureHeader(c)).toThrow(new RegExp(`incompatible version: file is audio core ABI ${theirs}, this build reads ${reads}`));
   });
 
   it("names both ABI versions on a wire mismatch", () => {
@@ -172,12 +188,12 @@ describe("META (§5.2)", () => {
   });
   it("ADR 0348: a replay capture's replayOf round-trips; absent or malformed it reads as null, never a refusal", () => {
     expect(decodeCaptureMeta(encodeCaptureMeta(SAMPLE_META)).replayOf).toBeNull();
-    const replayOf = { path: "takes/canyon_run_01.mycotake", audioHash: "5f3a90c1" };
+    const replayOf = { path: "takes/canyon_run_01.sporesample", audioHash: "5f3a90c1" };
     expect(decodeCaptureMeta(encodeCaptureMeta({ ...SAMPLE_META, replayOf })).replayOf).toEqual(replayOf);
     const base = { project: {}, device: { preset: 1, sampleRate: 48000 }, names: {} };
     const read = (v: unknown) => decodeCaptureMeta(new TextEncoder().encode(JSON.stringify({ ...base, replayOf: v }))).replayOf;
     expect(read({ path: 3, audioHash: "x" })).toBeNull();
-    expect(read("takes/a.mycotake")).toBeNull();
+    expect(read("takes/a.sporesample")).toBeNull();
     expect(read({ path: "a".repeat(2000), audioHash: "h" })!.path).toHaveLength(1024);
   });
   it("refuses what isn't the shape", () => {
@@ -186,5 +202,38 @@ describe("META (§5.2)", () => {
     expect(codeOf(() => decodeCaptureMeta(enc("{")))).toBe("badMeta");
     expect(codeOf(() => decodeCaptureMeta(new Uint8Array([0x7b, 0xff, 0x7d])))).toBe("badUtf8");
     expect(codeOf(() => decodeCaptureMeta(enc('{"project":{},"device":{"preset":1,"sampleRate":48000},"names":{"clips":{"x":"a"}}}')))).toBe("badMeta");
+  });
+});
+
+describe("splitCaptureRecords (ADR 0417)", () => {
+  /** Records of payload sizes `sizes`, framed back to back; each payload's bytes are its index. */
+  const stream = (sizes: number[]): Uint8Array => {
+    const out = new Uint8Array(sizes.reduce((n, s) => n + 20 + s, 0));
+    const view = new DataView(out.buffer);
+    let off = 0;
+    sizes.forEach((len, i) => {
+      off += writeRecordHead(view, off, { type: 0x17, flags: 0, epoch: 0, len, seq: i, frame: 0 });
+      out.fill(i, off, off + len);
+      off += len;
+    });
+    return out;
+  };
+
+  it("cuts whole records off a stream cut at any byte, leaving the rest", () => {
+    const bytes = stream([3, 0, 40]);
+    for (let cut = 0; cut <= bytes.byteLength; cut++) {
+      const seen: { seq: number; len: number; first: number }[] = [];
+      const used = splitCaptureRecords(bytes.subarray(0, cut), (h, view, at) => seen.push({ seq: h.seq, len: h.len, first: h.len ? view.getUint8(at) : -1 }));
+      const whole = [23, 43, 103].filter((end) => end <= cut);
+      expect(used).toBe(whole.at(-1) ?? 0);
+      expect(seen.map((s) => s.seq)).toEqual(whole.map((_, i) => i));
+      if (seen[2]) expect(seen[2]).toEqual({ seq: 2, len: 40, first: 2 });
+    }
+  });
+
+  it("refuses a record past its cap before waiting for its bytes", () => {
+    const bytes = stream([1]);
+    new DataView(bytes.buffer).setUint32(4, 1 << 24, true);
+    expect(codeOf(() => splitCaptureRecords(bytes, () => {}))).toBe("recordTooLarge");
   });
 });

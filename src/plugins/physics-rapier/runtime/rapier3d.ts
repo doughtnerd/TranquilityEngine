@@ -270,6 +270,10 @@ class RapierWorld3D implements PhysicsWorld3DBackend {
   private readonly queryRay = new RAPIER.Ray({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 });
   private rayAccept: (collider: number) => boolean = () => true;
   private readonly rayPredicate = (c: RAPIER.Collider): boolean => this.rayAccept(c.handle);
+  // `raycast`'s reused state: the ray's origin and direction in Rapier's memory, and the hit it reads into.
+  private readonly rayOrigin = RAPIER.VectorOps.intoRaw({ x: 0, y: 0, z: 0 });
+  private readonly rayDirection = RAPIER.VectorOps.intoRaw({ x: 0, y: 0, z: 1 });
+  private readonly rayHit = new RAPIER.RayColliderIntersection(null as unknown as RAPIER.Collider, 0, { x: 0, y: 0, z: 0 });
 
   constructor(private readonly options: PhysicsWorldOptions<Dim3>) {
     this.rapier = new RAPIER.World(v3(options.gravity));
@@ -432,10 +436,26 @@ class RapierWorld3D implements PhysicsWorld3DBackend {
   }
 
   raycast(origin: Vec3, direction: Vec3, maxDistance: number, groups?: number) {
-    const ray = new RAPIER.Ray(v3(origin), v3(direction));
-    const hit = this.rapier.castRayAndGetNormal(ray, maxDistance, true, undefined, groups);
-    if (!hit) return null;
-    return { collider: hit.collider.handle, point: v3(ray.pointAt(hit.timeOfImpact)), normal: v3(hit.normal), distance: hit.timeOfImpact };
+    // `World.castRayAndGetNormal`'s own steps, without its per-call garbage: it makes (and frees) two vectors in Rapier's
+    // memory, a predicate closure that answers nothing, and a hit object each call. The grounder casts two rays per
+    // character per frame through here. The same query, so the same hits.
+    const o = this.rayOrigin, d = this.rayDirection, w = this.rapier;
+    o.x = origin.x;
+    o.y = origin.y;
+    o.z = origin.z;
+    d.x = direction.x;
+    d.y = direction.y;
+    d.z = direction.z;
+    // Filter flags 0: none (what `undefined` becomes on the way in). No predicate: Rapier skips the filter for a value
+    // that isn't a function; the World's closure answered undefined ("keep") for every collider it was called with.
+    const noPredicate = undefined as unknown as (handle: number) => boolean;
+    const raw = w.broadPhase.raw.castRayAndGetNormal(w.narrowPhase.raw, w.bodies.raw, w.colliders.raw, o, d, maxDistance, true, 0, groups, undefined, undefined, noPredicate);
+    if (!raw) return null;
+    const hit = RAPIER.RayColliderIntersection.fromBuffer(w.colliders, raw, this.rayHit);
+    const t = hit.timeOfImpact;
+    // `Ray.pointAt`: origin + dir × t.
+    const point = { x: origin.x + direction.x * t, y: origin.y + direction.y * t, z: origin.z + direction.z * t };
+    return { collider: hit.collider.handle, point, normal: v3(hit.normal), distance: t };
   }
 
   raycastInto(origin: Vec3, direction: Vec3, maxDistance: number, groups: number | undefined, excludeSensors: boolean, accept: (collider: number) => boolean, out: BackendRayInto): boolean {

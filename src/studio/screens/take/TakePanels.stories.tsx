@@ -28,7 +28,7 @@ const silent: ReplayTarget = {
   play: () => null, setGlobal() {}, busVolume() {}, snapshot() {}, clearSnapshot() {}, masterVolume: () => 1, listener() {}, seed: () => true,
 };
 
-function TimelineDemo(props: { start?: number }) {
+function TimelineDemo(props: { start?: number; heatmap?: boolean }) {
   const take = useMemo(() => fixtureTake(), []);
   const replay = useMemo(() => new TakeReplay(take, silent, performanceClock), [take]);
   const timeline = useMemo(() => takeTimeline(take, (name, path) => (name === "Surface" && path === null ? SURFACE_LABELS : null)), [take]);
@@ -56,6 +56,7 @@ function TimelineDemo(props: { start?: number }) {
       <button type="button" onClick={() => replay.toggle()}>{replay.playing.value ? "Pause" : "Replay"}</button>
       <TakeTimelineView
         timeline={timeline}
+        heatmap={props.heatmap}
         time={replay.time.value}
         playing={replay.playing.value}
         selected={selected}
@@ -96,6 +97,20 @@ export const Timeline: Story = {
     await expect(canvasElement.querySelector(".tk-segment[title='Rock']")).not.toBeNull(); // Surface as labelled segments
     await userEvent.click(c.getByRole("option", { name: /Velocity 0.71/ }));
     await expect(c.getByLabelText("Selected").textContent).toMatch(/^4@/);
+  },
+};
+
+/** Experimental heatmap: each lane's instances coloured by how often its playlist played in the take (here each once: all cold). */
+export const Heatmap: Story = {
+  render: () => <TimelineDemo heatmap />,
+  play: async ({ canvasElement }) => {
+    const spans = await waitFor(() => {
+      const all = [...canvasElement.querySelectorAll<HTMLElement>(".studio-span.heat")];
+      if (all.length === 0) throw new Error("no heat yet");
+      return all;
+    });
+    await expect(spans.map((s) => Number(s.style.getPropertyValue("--heat")))).toEqual(spans.map(() => 0));
+    await expect(spans[0]!.title).toMatch(/played once/);
   },
 };
 
@@ -202,18 +217,19 @@ export const Replaying: Story = {
   },
 };
 
-const FILES = ["takes/HoverBike/Canyon/canyon_run_01.mycotake", "takes/HoverBike/Canyon/canyon_run_03.mycotake", "takes/HoverBike/Canyon/canyon_run_03.mycotake.notes.json", "takes/Boss/boss_arena_01.mycotake", "captures/capture_01.mycap"];
+const FILES = ["recordings/HoverBike/Canyon/canyon_run_01.sporesample", "recordings/HoverBike/Canyon/canyon_run_03.sporesample", "recordings/HoverBike/Canyon/canyon_run_03.sporesample.notes.json", "recordings/Boss/boss_arena_01.sporesample", "recordings/capture_01.sporesample"];
 const listArgs = {
-  folders: ["takes", "takes/HoverBike", "takes/HoverBike/Canyon", "takes/Boss"], writable: true,
+  folders: ["recordings", "recordings/HoverBike", "recordings/HoverBike/Canyon", "recordings/Boss"], writable: true,
   onOpen: fn(), onImport: fn(), onRename: fn(), onMove: fn(), onDelete: fn(), onDuplicate: fn(), onRenameFolder: fn(), onDeleteFolder: fn(), onNewFolder: fn(async () => null),
 };
 
 export const Takes: Story = {
-  render: () => <div style={{ width: "280px" }}><TakeList files={FILES} openPath="takes/HoverBike/Canyon/canyon_run_03.mycotake" {...listArgs} /></div>,
+  render: () => <div style={{ width: "280px" }}><TakeList files={FILES} openPath="recordings/HoverBike/Canyon/canyon_run_03.sporesample" {...listArgs} /></div>,
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     await expect(c.getByText("canyon_run_01")).toBeVisible();
-    await expect(c.queryByText("capture_01.mycap")).toBeNull();
+    await expect(c.getByText("capture_01")).toBeVisible(); // every recording is listed, a capture too (ADR 0409)
+    await expect(c.queryByText("canyon_run_03.sporesample.notes.json")).toBeNull();
   },
 };
 

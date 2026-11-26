@@ -1,18 +1,30 @@
 /**
- * What replication's two message kinds carry (ADR 0033, T11), shared by the server and client
- * halves. The layout of a snapshot is at the top of `server.ts`.
+ * What replication's message kinds carry (ADR 0033, T11), shared by the server and client halves.
+ * The layouts of a snapshot part and a ghost lifecycle message are at the top of `server.ts`.
  */
 import type { BitReader, BitWriter } from "../codec";
 import { registerNetMessage } from "../session";
 import type { FieldShape, LayoutSpec } from "./layout";
 
-/** Server → client, unreliable: one or more parts per peer per sent tick (ADR 0334). */
+/** Server → client, unreliable: one or more parts per peer per sent tick (ADR 0334), ghost states only (ADR 0402). */
 export const SNAPSHOT = registerNetMessage("net.snapshot");
-/** Client → server, unreliable: the newest snapshot tick read, and which of its parts (ADR 0334). */
+/**
+ * Server → client, reliable and in order (ADR 0402): a sent tick's ghost lifecycle events for one
+ * connection (despawns, leaves, relayouts, structure changes and spawns, each spawn and relayout with
+ * the ghost's full state), when it has any.
+ */
+export const GHOSTS = registerNetMessage("net.ghosts");
+/**
+ * Client → server, unreliable: the newest lifecycle tick applied (ADR 0402), then the newest snapshot
+ * tick read and which of its parts (ADR 0334).
+ */
 export const ACK = registerNetMessage("net.snapshotAck");
 
 /** Parts an ack may name at most (a tick has at most `maxSnapshotBytes` / the datagram size). */
 export const MAX_SNAPSHOT_PARTS = 1024;
+
+/** Snapshot ticks an ack names at most: the newest, then older ones that got a late part (ADR 0405). */
+export const MAX_ACK_TICKS = 16;
 
 /**
  * Baselines older than this many ticks aren't used (the ghost is sent whole instead), so both
@@ -220,8 +232,10 @@ const MAX_TABLE_STRINGS = 4096;
 
 /**
  * The server's string table for one connection. A string is sent inline with an index the first
- * times (`2i + 1`, then the string), and as its index alone (`2i + 2`) once the client acked a
- * snapshot that defined it; `0` is an inline string with no index (the table is full).
+ * time (`2i + 1`, then the string), and as its index alone (`2i + 2`) once it's `acked`; `0` is an
+ * inline string with no index (the table is full). Only ghost lifecycle messages use it, and they're
+ * reliable and in order (ADR 0402), so the server marks a string acked as soon as it's written: every
+ * later message reaches the client after the one that defined it.
  */
 export class StringTableOut {
   private readonly entries = new Map<string, { index: number; acked: boolean }>();
@@ -249,7 +263,7 @@ export class StringTableOut {
     };
   }
 
-  /** The client read a snapshot that defined these indexes. */
+  /** The client has these indexes: the messages that defined them reach it before any later one (ADR 0402). */
   acked(indexes: readonly number[]): void {
     for (const i of indexes) {
       const s = this.byIndex[i];

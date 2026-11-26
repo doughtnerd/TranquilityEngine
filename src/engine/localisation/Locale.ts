@@ -132,8 +132,10 @@ function resolve(key: string, record: boolean): Resolved | null {
       warnOnce(`malformed|${key}|${code}`, `The "${code}" message of "${key}" is malformed (${p.problems.find((x) => x.severity === "error")!.message}); using the next language.`);
       continue;
     }
-    if (record && code !== list[0] && !(isPseudo(current) && code === list[1])) noteMissing(key);
-    return { ast: p.ast, code };
+    // A build file holds its language's fallbacks and names the language each is written in (ADR 0391).
+    const written = strings.sourceOf?.(key, code) ?? code;
+    if (record && written !== list[0] && !(isPseudo(current) && written === list[1])) noteMissing(key);
+    return { ast: p.ast, code: written };
   }
   if (record) noteMissing(key);
   return null;

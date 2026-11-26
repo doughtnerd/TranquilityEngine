@@ -17,9 +17,9 @@ import { createRouter, type HashLocation } from "../../shell/route";
 import { provideStudio } from "../../shell/studioServices";
 import { takeScreen } from "./takeScreen";
 
-const GOOD = "takes/good.mycotake";
-const OTHER = "takes/other.mycotake";
-const BAD = "takes/bad.mycotake";
+const GOOD = "takes/good.sporesample";
+const OTHER = "takes/other.sporesample";
+const BAD = "takes/bad.sporesample";
 
 /** A short take with no requests: one EPOCH in the profile and the recorder's own keyframe. */
 function takeBytes(): Uint8Array {

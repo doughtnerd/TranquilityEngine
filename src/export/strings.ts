@@ -6,7 +6,7 @@
 //   (which never adds one). `--pseudo` adds the two pseudo-languages (`localisation.pseudo`), which format the
 //   reference language's strings. The build's own `project.json` marks every language it left out `ship: false`, so
 //   `Locale.languages` and `Audio.languages` list only what the build holds.
-// - **String files**: `strings/<code>.json` (`myco.strings.build@1`) per shipped language, every key resolved through
+// - **String files**: `strings/<code>.json` (`myco.strings.build@1`; fallback messages name their language, ADR 0391) per shipped language, every key resolved through
 //   that language's chain (`buildStringsFile`), so each file is complete on its own. A translation that fails the checks
 //   (`checkTranslation`: it doesn't parse, uses an argument the reference doesn't, changes an argument's kind, lacks a
 //   plural category) is replaced by its fallback. Each language with keys that fell back gets one build warning. The

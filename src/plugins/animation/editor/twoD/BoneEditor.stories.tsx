@@ -27,6 +27,8 @@ function Harness(props: { skin?: SliceSkin; readOnly?: string | null }) {
         url={SHEET_URL}
         slices={slices}
         flipbooks={{}}
+        secondaryTextures={{}}
+        normalMapGreen="up"
         selected={selected}
         select={setSelected}
         readOnly={props.readOnly ?? null}

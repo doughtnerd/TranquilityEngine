@@ -3,6 +3,7 @@
 // the screen's store (`profilerScreen.ts`); the Timeline panel also owns what the screen does while it shows: opening
 // the capture the route names, the cursor keys (← → step, Shift+← → markers) and the player bar's slots (the capture
 // playing and the Record button).
+import { HeatmapToggle, heatmapOn } from "../../components/heatmapToggle";
 import { effect, signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { Panel } from "../../../editor/ui/panel/Panel";
@@ -20,6 +21,9 @@ import { CURSOR_KEYS } from "./cursorKeys";
 import { messageCounts } from "./messagesModel";
 import { AtCursor, MessageList, OpenInTake, ReplayOrigin, VoiceDetails, WhyItPlayed } from "./ProfilerDetails";
 import { captureFileKind, captureFolder, openCapture, openInTake, profilerRecorder, profilerStore } from "./profilerScreen";
+import { takeScreen } from "../take/takeScreen";
+import { openMixer } from "../../shell/openMixer";
+import { ReplayTransport } from "../take/index";
 import { deleteFile, deleteFolder, duplicateFile, importInto, moveItems, newRunFolder, renameFile, renameFolder } from "./runFileActions";
 import { durationsVersion, fileDuration } from "./runFileDurations";
 import { takeOfCapture } from "./reviewLink";
@@ -28,6 +32,9 @@ import { PluginHealth } from "./PluginHealth";
 import { resetPluginEffect, usePluginHealth } from "../../components/EffectChainHealth";
 import { Icon } from "../../components/Icon";
 import { RecordButton, whyNotRecord } from "./RecordButton";
+import { TransportButton } from "../../components/PlayerBar";
+import { buildSession, takeOnShow } from "../../runtime/buildSession";
+import { buildFollowStatus } from "./remoteLiveHost";
 import { replayStore } from "../../shell/replay";
 import { clockText, valueAt } from "./timelineGeometry";
 import type { GroupBy } from "./voiceModel";
@@ -47,8 +54,8 @@ function CapturesPanel() {
       <CaptureList
         files={files}
         // A new project's scenes/, scripts/ and the sample and playlist folders aren't capture folders (UI pass T5).
-        folders={runTreeFolders(folders, files, isCaptureFile, [TAKES_FOLDER])}
-        moveFolders={runMoveFolders(folders, files, isCaptureFile, [TAKES_FOLDER])}
+        folders={runTreeFolders(folders, files, isCaptureFile, [])}
+        moveFolders={runMoveFolders(folders, files, isCaptureFile, [])}
         rootName={project?.name}
         openPath={openPath}
         writable={!!project?.canSave && !!project.fileSystem}
@@ -78,13 +85,40 @@ const GROUPS = [
   { value: "clip" as const, label: "By sound" },
 ];
 
-/** The transport slot: Record while the Studio's runtime plays. */
+/**
+ * The transport slot. While a game build is connected the Profiler is live (ADR 0408): the live label, with Rejoin when
+ * the feed ended. Otherwise the open take's replay controls (the Take screen's, ADR 0408: one recording for both
+ * screens; inactive while a recording runs) and Record, which records the Studio's own runtime.
+ */
 function ProfilerTransport() {
+  const session = buildSession.value;
   const recorder = profilerRecorder();
-  const host = audioHost();
   const r = recorder.state.value;
-  const recording = r.kind === "recording" || r.kind === "starting";
-  return <RecordButton recording={recording} busy={r.kind === "saving"} blocked={whyNotRecord({ playable: host.playable.value, voices: host.stats.value?.voices ?? 0, replaying: replayStore().playing.value })} onToggle={() => void recorder.toggle()} />;
+  const recording = r.kind === "recording" || r.kind === "starting" || r.kind === "saving";
+  if (session && takeOnShow.value.kind === "live") {
+    const follow = session.follow;
+    const build = session.build;
+    const k = follow.state.value.kind;
+    const on = k === "starting" || k === "following";
+    return (
+      <span class={`pf-record${on ? " on" : ""}`}>
+        {on ? (
+          <span class="studio-live on" title={`The Profiler shows ${build.name}'s live capture while it is connected`}>
+            Live
+          </span>
+        ) : (
+          <TransportButton icon="profiler" text label="Rejoin" title={`Join ${build.name}'s live capture again`} onClick={() => void follow.start()} />
+        )}
+      </span>
+    );
+  }
+  const host = audioHost();
+  return (
+    <>
+      <ReplayTransport disabled={recording} />
+      <RecordButton recording={r.kind === "recording" || r.kind === "starting"} busy={r.kind === "saving"} blocked={whyNotRecord({ playable: host.playable.value, voices: host.stats.value?.voices ?? 0, replaying: replayStore().playing.value })} onToggle={() => void recorder.toggle()} />
+    </>
+  );
 }
 
 /** Bumped twice a second while recording, so the player bar's elapsed time moves. */
@@ -103,19 +137,26 @@ function useScreen(): void {
       effect(() => {
         void docVersion.value;
         const asset = studioRouter().route.value.asset;
-        if (asset && isCapturePath(asset) && currentProject.value?.files.includes(asset)) void store.openPath(asset);
+        if (!asset || !isCapturePath(asset) || !currentProject.value?.files.includes(asset)) return;
+        // While a build is connected both screens are live (ADR 0408): a saved recording waits, and opens once it leaves.
+        if (takeOnShow.value.kind === "live") return;
+        void store.openPath(asset);
+        // One recording for both screens: the Take screen opens it too (or says it has no take data).
+        void takeScreen().openPath(asset);
       }),
       ...CURSOR_KEYS.map((k) => keymap.register({ id: `profiler.${k.action}`, keys: k.keys, label: k.label, scope: { screen: "profiler" }, run: () => store.key(k.action) })),
       effect(() => {
         const s = store.state.value;
         const data = store.data.value;
         const rec = profilerRecorder().state.value;
+        const follow = buildSession.value?.follow;
+        const followed = follow ? buildFollowStatus(follow.state.value, follow.build.name) : null;
         void tick.value;
         const live = s.kind === "open" && s.origin === "live";
         setPlayerSlots("profiler", {
           nowPlaying: s.kind === "open" ? { art: "CAP", title: s.title, subtitle: `${s.replayOf ? "Replay capture" : "Capture"} · ${clockText(data?.duration ?? 0)}${live ? " · live" : ""}` } : null,
           transport: <ProfilerTransport />,
-          status: recorderStatus(rec, profilerRecorder().seconds, profilerRecorder().replayOf) ?? (s.kind === "open" && data ? `Cursor ${clockText(store.cursor.value)}` : undefined),
+          status: followed ?? recorderStatus(rec, profilerRecorder().seconds, profilerRecorder().replayOf) ?? (s.kind === "open" && data ? `Cursor ${clockText(store.cursor.value)}` : undefined),
         });
       }),
     ];
@@ -144,12 +185,13 @@ function TimelinePanel() {
       <span class="pf-toolbar-gap" />
       <SegmentedControl<"all" | "problems"> size="small" look="fill" label="Voices shown" options={FILTERS} value={store.problemsOnly.value ? "problems" : "all"} onChange={(v) => (store.problemsOnly.value = v === "problems")} />
       <SegmentedControl<GroupBy> size="small" label="Group voices" options={GROUPS} value={store.groupBy.value} onChange={(v) => (store.groupBy.value = v)} />
+      <HeatmapToggle class="pf-icon-btn" />
       {s.kind === "open" && s.replayOf ? <ReplayOrigin take={s.replayOf} onOpenTake={take ? openInTake : undefined} /> : take && <OpenInTake take={take} onOpen={openInTake} />}
       {data && <span class="pf-counts" role="status">{countsText(data.messages)}</span>}
     </div>
   );
   let body;
-  if (s.kind === "none") body = <EmptyState title="Profiler" icon={<Icon name="profiler" size={28} />} body={<p>Engine performance captures: voices, CPU, buses and loudness over time, and why each sound played. Open a capture from the Captures panel, or {NO_CAPTURES.charAt(0).toLowerCase() + NO_CAPTURES.slice(1)}</p>} />;
+  if (s.kind === "none") body = <EmptyState title="No capture open" icon={<Icon name="profiler" size={28} />} body={<p>Open one from the Captures panel, or {NO_CAPTURES.charAt(0).toLowerCase() + NO_CAPTURES.slice(1)}</p>} />;
   else if (s.kind === "opening") body = <p class="pf-note" role="status">Opening {s.path}…</p>;
   else if (s.kind === "failed") body = <p class="pf-error" role="alert">Can't open {s.path}: {s.message}</p>;
   else if (!data || data.tracks.length === 0) body = <EmptyState compact title="Nothing to draw" body="This capture holds no voices, buses, loudness or STATUS samples." />;
@@ -162,7 +204,9 @@ function TimelinePanel() {
         selected={store.selected.value}
         problemsOnly={store.problemsOnly.value}
         groupBy={store.groupBy.value}
+        heatmap={heatmapOn.value}
         busChains={busChains()}
+        viewKey={s.kind === "open" && s.origin === "file" ? s.path : null}
         onSeek={(t) => store.seekTo(t)}
         onSelect={(key) => store.select(key, true)}
       />
@@ -193,7 +237,7 @@ function CursorPanel() {
 }
 
 /** "Open in Mixer ›" from a voice or a message: the Mixer with the bus selected (its route's `select`). */
-const openBusInMixer = (bus: string): void => openRoute({ screen: "mixer", select: bus });
+const openBusInMixer = (bus: string): void => openMixer(bus);
 
 /** How many buses run an effect chain in the project's mix (the Effects track's Bus chip). */
 function busChains(): number {

@@ -387,10 +387,11 @@ describe("leaving and coming back under latency and loss (ADR 0121)", () => {
     inWorld(server, () => Interest.join(connectionOf(engine, 0), "g"));
     // The client reads the first spawn and the leave, but no snapshot after the return; meanwhile
     // its acks of the first spawn reach the server.
+    // (Lifecycle messages are reliable, ADR 0402: the return's spawn is retransmitted, so it's late, not lost.)
     toClient.setConditions({ loss: 1 });
     step(engine, 8);
     toClient.setConditions(undefined);
-    step(engine, 60);
+    step(engine, 150);
     const p1 = world(engine, "P1");
     expect(ghostIn(p1, crate)).not.toBeNull();
     expect(errors).not.toHaveBeenCalled();

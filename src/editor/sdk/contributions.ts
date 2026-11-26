@@ -525,8 +525,8 @@ export interface SceneToolbarItemContribution {
 }
 
 /**
- * Controls on the Play toolbar, after Pause and Step, in registration order (ADR 0348): the Audio plugin's Record take
- * and Record capture toggles. The view loads with the toolbar and decides itself when it is enabled (while playing).
+ * Controls on the Play toolbar, after Pause and Step, in registration order (ADR 0348; the Audio plugin's record toggles
+ * were removed by ADR 0416). The view loads with the toolbar and decides itself when it is enabled (while playing).
  */
 export interface PlayToolbarItemContribution {
   readonly id: string;
@@ -769,6 +769,12 @@ export interface ImportSettingsSectionContribution {
 export interface SpriteEditorChange {
   readonly skins?: Readonly<Record<string, SliceSkin | null>>;
   readonly flipbooks?: Readonly<Record<string, SpriteFlipbook>>;
+  /** Slice outlines by slice name (ADR 0414): closed polygons in slice pixels, y up; null removes one. */
+  readonly outlines?: Readonly<Record<string, readonly (readonly [number, number])[][] | null>>;
+  /** The image's secondary textures by name (ADR 0414), replaced as a whole. */
+  readonly secondaryTextures?: Readonly<Record<string, string>>;
+  /** The image's normal map green channel (ADR 0414). */
+  readonly normalMapGreen?: "up" | "down";
 }
 
 /** What the Sprite Editor gives a tool's view: the image's slices and flipbooks as edited so far, and the one way to change them. */
@@ -779,6 +785,9 @@ export interface SpriteEditorToolProps {
   readonly url: string;
   readonly slices: readonly SpriteSlice[];
   readonly flipbooks: Readonly<Record<string, SpriteFlipbook>>;
+  /** The image's secondary textures (ADR 0414) and its normal map's green channel, as edited so far. */
+  readonly secondaryTextures: Readonly<Record<string, string>>;
+  readonly normalMapGreen: "up" | "down";
   /** The selected slice's name, or null. Shared with the Slices view. */
   readonly selected: string | null;
   select(name: string | null): void;

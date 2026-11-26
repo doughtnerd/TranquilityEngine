@@ -67,7 +67,7 @@ function rig(opts: { ringBytes?: number; tauri?: boolean } = {}) {
   const saved: { key: string; bytes: Uint8Array }[] = [];
   const env: SaveEnv = {
     tauri: opts.tauri ?? false,
-    storage: { save: async (key, value) => void saved.push({ key, bytes: value as Uint8Array }), list: async () => saved.map((s) => s.key), delete: async () => {} },
+    fs: { mkdir: async () => {}, write: async (path, bytes) => void saved.push({ key: path.slice(path.lastIndexOf("/") + 1), bytes }), list: async () => saved.map((s) => s.key), remove: async () => {} },
     storageRoot: async () => "/data/app",
     download: (bytes, fileName) => void downloads.push({ bytes, fileName }),
     compress: defaultSaveEnv().compress,
@@ -371,28 +371,28 @@ describe("save: the web Blob and the Tauri Storage paths, deflate-raw or stored"
     await Audio.capture.start();
     r.feed(2 * SECOND);
     const name = await Audio.capture.save("my take / 1");
-    expect(name).toBe("my_take_1.mycap");
-    expect(r.downloads.map((d) => d.fileName)).toEqual(["my_take_1.mycap"]);
+    expect(name).toBe("my_take_1.sporesample");
+    expect(r.downloads.map((d) => d.fileName)).toEqual(["my_take_1.sporesample"]);
     expect(r.saved).toEqual([]);
     const h = readCaptureHeader(r.downloads[0]!.bytes);
     expect(h.flags & CAPTURE_FLAG_COMPRESSED).toBeTruthy();
     expect((await r.open(r.downloads[0]!.bytes)).warnings).toEqual([]);
   });
 
-  it("an absent name is capture-YYYYMMDD-HHMMSS.mycap", async () => {
+  it("an absent name is capture-YYYYMMDD-HHMMSS.sporesample", async () => {
     const r = rig();
     await Audio.capture.start();
     r.feed(3);
-    expect(await Audio.capture.save()).toMatch(/^capture-20261113-101500(-\d+)?\.mycap$/); // -2, -3... after an earlier auto name in this second
+    expect(await Audio.capture.save()).toMatch(/^capture-20261113-101500(-\d+)?\.sporesample$/); // -2, -3... after an earlier auto name in this second
   });
 
-  it("on Tauri it saves through Storage into cache and resolves with the app-data path", async () => {
+  it("on Tauri it saves a plain file under recordings/ and resolves with its path", async () => {
     const r = rig({ tauri: true });
     await Audio.capture.start();
     r.feed(SECOND);
     const path = await Audio.capture.save("arena");
-    expect(path).toBe("/data/app/cache/arena.mycap.bin");
-    expect(r.saved.map((s) => s.key)).toEqual(["arena.mycap"]);
+    expect(path).toBe("/data/app/recordings/arena.sporesample");
+    expect(r.saved.map((s) => s.key)).toEqual(["arena.sporesample"]);
     expect(r.downloads).toEqual([]);
     expect((await r.open(r.saved[0]!.bytes)).warnings).toEqual([]);
   });
@@ -448,7 +448,7 @@ describe("save: the web Blob and the Tauri Storage paths, deflate-raw or stored"
 
   it("a capture started while the Studio replays a take names the take in META; one started after doesn't", async () => {
     const r = rig();
-    setCaptureReplayOf({ path: "takes/canyon_run_01.mycotake", audioHash: "5f3a90c1" });
+    setCaptureReplayOf({ path: "takes/canyon_run_01.sporesample", audioHash: "5f3a90c1" });
     try {
       await Audio.capture.start();
       r.feed(5);
@@ -457,7 +457,7 @@ describe("save: the web Blob and the Tauri Storage paths, deflate-raw or stored"
     } finally {
       setCaptureReplayOf(null);
     }
-    expect((await r.open(r.downloads[0]!.bytes)).meta.replayOf).toEqual({ path: "takes/canyon_run_01.mycotake", audioHash: "5f3a90c1" });
+    expect((await r.open(r.downloads[0]!.bytes)).meta.replayOf).toEqual({ path: "takes/canyon_run_01.sporesample", audioHash: "5f3a90c1" });
     await Audio.capture.start();
     r.feed(5);
     await Audio.capture.save();

@@ -177,4 +177,4 @@ migration.
 
 - Prototype Playlists and Sequence screens (`Playlists.dc.html`, `Sequencer.dc.html`), Journeys j3–j8.
 - `src/engine/audio/eventFormat.ts`, `musicFormat.ts`, `musicRules.ts`; `src/plugins/audio/runtime/events/`, `music/`.
-- Guides `docs/guide/sound-events.md`, `docs/guide/interactive-music.md`.
+- Guides `docs/wiki/guide/sound-events.md`, `docs/wiki/guide/interactive-music.md`.

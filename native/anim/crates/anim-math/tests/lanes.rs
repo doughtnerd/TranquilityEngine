@@ -223,3 +223,43 @@ fn transposes_and_padding() {
     let (gt, gr, gs) = t.to_glam();
     assert_eq!(bits_t(AosTransform::from_glam(gt, gr, gs)), bits_t(t));
 }
+
+#[test]
+fn row_multiply_and_lane_access_match_the_scalar_forms() {
+    let mut rng = Rng::new(13);
+    for _ in 0..1_000 {
+        let a = AosMat3x4::from_transform(rng.transform());
+        let mut b = AosMat3x4::from_transform(rng.transform());
+        // Signed zeros and specials in both operands: the translation column adds a3 alone.
+        b.m[rng.below(12) as usize] = SPECIAL[rng.below(SPECIAL.len() as u64) as usize];
+        let mut a2 = a;
+        a2.m[rng.below(12) as usize] = -0.0;
+        for (x, y) in [(a, b), (a2, b), (a2, a2)] {
+            let got = bits_m(x.mul_rows(y));
+            let want = bits_m(x * y);
+            for (g, w) in got.iter().zip(want) {
+                let nan = f32::from_bits(*g).is_nan() && f32::from_bits(w).is_nan();
+                assert!(nan || *g == w, "mul_rows: {got:?} vs {want:?}");
+            }
+        }
+
+        let ts = four(|| rng.transform());
+        let mut soa = SoaTransform::from_aos(&ts);
+        let t = rng.transform();
+        let l = rng.below(4) as usize;
+        for (i, want) in ts.iter().enumerate() {
+            assert_eq!(bits_t(soa.lane(i)), bits_t(*want), "lane {i}");
+        }
+        soa.set_lane(l, t);
+        let mut want = ts;
+        want[l] = t;
+        for (i, w) in want.iter().enumerate() {
+            assert_eq!(bits_t(soa.lane(i)), bits_t(*w), "set_lane {l}, lane {i}");
+        }
+        let v = F32x4::from_array([1.0, 2.0, 3.0, 4.0]).with_lane(l, -0.0);
+        assert_eq!(v.get_lane(l).to_bits(), (-0.0f32).to_bits());
+        for i in (0..4).filter(|&i| i != l) {
+            assert_eq!(v.get_lane(i), (i + 1) as f32);
+        }
+    }
+}

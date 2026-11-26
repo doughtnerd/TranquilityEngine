@@ -30,6 +30,6 @@ export const decalsRuntimePlugin: RuntimePlugin = {
   activate(context) {
     context.registerComponents([DecalProjector, Decal2D]);
     context.registerEngineSystems([DECAL_POOL_SYSTEM]);
-    context.registerRenderFeature({ spec: DECALS_SPEC, load: () => import("./decalsFeature").then((m) => m.createDecalsFeature) });
+    context.registerRenderFeature({ spec: DECALS_SPEC, load: () => import("./decalRenderer").then((m) => m.createDecalsFeature) });
   },
 };

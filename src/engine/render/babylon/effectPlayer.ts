@@ -30,7 +30,8 @@ import { randomForSeed } from "../particles/random";
 import { BabylonKernelHost, SceneDepth } from "./gpuParticles";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
 import { cloneMaterial } from "./materialClone";
-import { createDotTexture, createDraw, type Draw, type DrawResources } from "./particleDraw";
+import { createDotTexture, createDraw, type Draw, type DrawResources, type ParticleLayer2D } from "./particleDraw";
+import { placeInLayer } from "./layeredQuads";
 
 /** What an effect player needs from where it draws: the scene, textures, material assets, ray queries. */
 export interface EffectHost {
@@ -300,6 +301,24 @@ export class EffectPlayer {
   private _kfx: KernelEffect | null = null;
   /** Every kernel output's draw. */
   private _draws: Draw[] = [];
+  /** A 2D system's layer and lighting (ADR 0415), or null for 3D particles. */
+  private layer2D: ParticleLayer2D | null = null;
+
+  /**
+   * Draw as 2D content (ADR 0415): at `layer`'s order, lit by its lighting; null: 3D. A new order moves the draws; new
+   * lighting (or 2D to 3D) makes them again, keeping the simulation (the particles don't restart).
+   */
+  setLayer2D(layer: ParticleLayer2D | null): void {
+    const was = this.layer2D;
+    this.layer2D = layer;
+    if (!this._kfx) return;
+    if ((was === null) !== (layer === null) || was?.lit !== layer?.lit) {
+      for (const d of this._draws) d.dispose();
+      this._draws = [];
+      this.makeDraws(this._kfx);
+    } else if (layer && was?.order !== layer.order) for (const d of this._draws) for (const m of d.meshes) placeInLayer(m, layer.order);
+  }
+
   /** What the current build depended on (`EffectResources.buildKey`); "" when unbuilt. */
   private key = "";
   /** The effect's random, swapped on restart; the spawners and runner call it through `rnd`. */
@@ -440,8 +459,13 @@ export class EffectPlayer {
       seed: this.seed,
     });
     this._kfx = kfx;
+    this.makeDraws(kfx);
+  }
+
+  /** Every kernel output's draw, for this player's 2D layer (or 3D). */
+  private makeDraws(kfx: KernelEffect): void {
     const { name } = this.options;
-    for (const s of kfx.systems) for (let k = 0; k < s.kernel.outputs.length; k++) this._draws.push(createDraw(res, `${name}:${s.kernel.id}:${k}`, { system: s, output: k }));
+    for (const s of kfx.systems) for (let k = 0; k < s.kernel.outputs.length; k++) this._draws.push(createDraw(this.resources, `${name}:${s.kernel.id}:${k}`, { system: s, output: k }, this.layer2D));
   }
 
   // --- playing --------------------------------------------------------------------------------------
@@ -543,7 +567,7 @@ export class EffectPlayer {
 export function libraryEffectHost(scene: Scene, library: BabylonMaterialLibrary): EffectHost {
   return {
     scene,
-    texture: (path) => library.texture(path),
+    texture: (path) => library.loadTexture(path),
     material: (path) => library.material(path),
     materialCopy: (path, name) => library.copy(path, name),
   };

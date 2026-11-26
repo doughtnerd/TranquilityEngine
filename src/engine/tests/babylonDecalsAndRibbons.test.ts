@@ -20,6 +20,7 @@ import { placeInLayer } from "../render/babylon/layeredQuads";
 import { BabylonMaterialLibrary } from "../render/babylon/materialLibrary";
 import { pbr } from "../render/babylon/materials";
 import { BabylonQuadBatches } from "../render/babylon/quadBatches";
+import { BabylonMaterials2D } from "../render/babylon/materials2D";
 import { MycoRibbonPlugin } from "../render/babylon/ribbonPlugin";
 import { nullEngine, shaderText } from "./pbrShaderSource";
 
@@ -193,10 +194,9 @@ describe("quad colours and masks (ADR 0395, 0396)", () => {
   it("gives a batch per-vertex colours (sRGB to linear) and a mask with its own material", () => {
     const scene = sceneOf();
     const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false, isReady: () => true } as unknown as Texture;
-    const quads = new BabylonQuadBatches({ scene, texture: () => tex, sortOrder: () => 0 });
+    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortOrder: () => 0 });
     const b = quads.createBatch("q");
-    b.setTriangles("t.png", new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]), new Float32Array(8), new Uint32Array([0, 1, 2, 0, 2, 3]));
-    b.setColors(new Float32Array([0.5, 1, 1, 0.25, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]));
+    b.setTriangles("t.png", new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]), new Float32Array(8), new Uint32Array([0, 1, 2, 0, 2, 3]), new Float32Array([0.5, 1, 1, 0.25, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]));
     b.setVisible(true);
     const mesh = quads.meshOf(b)!;
     const c = mesh.getVerticesData(VertexBuffer.ColorKind)!;
@@ -217,7 +217,7 @@ describe("quad colours and masks (ADR 0395, 0396)", () => {
     // is read from the plugin; a NullEngine never readies a texture, so the masked material builds no effect here.
     const scene = sceneOf("glsl");
     const tex = RawTexture.CreateRGBATexture(new Uint8Array([255, 255, 255, 255]), 1, 1, scene) as unknown as Texture;
-    const quads = new BabylonQuadBatches({ scene, texture: () => tex, sortOrder: () => 0 });
+    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortOrder: () => 0 });
     const b = quads.createBatch("q");
     b.setTriangles("t.png", new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0]), new Float32Array(6), new Uint32Array([0, 1, 2]));
     b.setMask({ texture: "m.png", uv: [1, 0, 0, 0, 1, 0] });

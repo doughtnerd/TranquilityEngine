@@ -21,8 +21,10 @@ import type { Scene } from "@babylonjs/core/scene.js";
 import type { ModelMesh } from "../../scene/models";
 import type { KernelEffect } from "../particles/gpu/kernelEffect";
 import { KernelDraw, sortRunOnce, type BabylonRun, type SceneDepth } from "./gpuParticles";
+import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { KernelMaterialDraw, drawsKernelParticles } from "./kernelMaterial";
-import { placeParticles } from "./layeredQuads";
+import { layeredQuadMaterial, lightLayeredQuads, placeInLayer, placeParticles } from "./layeredQuads";
+import type { LitQuadSetup } from "./lights2DMaterial";
 import { MycoSoftParticlePlugin } from "./softParticles";
 
 /** One drawing of a kernel output on the Babylon backend, made by `createDraw`. */
@@ -67,6 +69,16 @@ export interface KernelSource {
   output: number;
 }
 
+/**
+ * A 2D particle system's place (ADR 0415): its draw order among layered 2D content (`sortingOrder`), and its layer
+ * batch's 2D lighting, or null when unlit (the 2D materials' setup, ADR 0418: another object when the lighting changes,
+ * and the draws are rebuilt; a new order only moves them).
+ */
+export interface ParticleLayer2D {
+  order: number;
+  lit: LitQuadSetup | null;
+}
+
 /** The default dot texture's size in pixels. */
 export const DOT_SIZE = 64;
 
@@ -93,7 +105,7 @@ export function createDotTexture(scene: Scene): RawTexture {
  * The draw for a kernel output (see the file comment): the one place a particle draw is made, given what
  * it shades with and put in the draw order. With its material asset where it can be, else its texture.
  */
-export function createDraw(res: DrawResources, name: string, { system: s, output: k }: KernelSource): Draw {
+export function createDraw(res: DrawResources, name: string, { system: s, output: k }: KernelSource, layer2D: ParticleLayer2D | null = null): Draw {
   const o = s.kernel.outputs[k];
   const found = o.settings.texture ? res.textureFor(o.settings.texture) : null;
   const texture = found && found !== "failed" ? found : res.dotTexture();
@@ -102,12 +114,29 @@ export function createDraw(res: DrawResources, name: string, { system: s, output
   let d: KernelDraw | KernelMaterialDraw | null = null;
   if (o.settings.material) {
     d = kernelMaterialDraw(res, name, s, k, o.settings.material, mesh);
+    if (d && layer2D?.lit) lightLayeredQuads(d.material, layer2D.lit); // a 2D system's material lit by 2D lights (ADR 0415)
     if (d && softness > 0) soften(d.material, softness, res.sceneDepth());
     if (!d) res.warnOnce(`kmat|${name}|${o.settings.material}`, `${name}: the kernel output "${s.kernel.name}" draws with its texture: "${o.settings.material}" isn't a PBR material (or hasn't loaded).`);
   }
+  // A lit 2D system's output without a material (ADR 0415): the 2D quad material with its texture and blending, which
+  // the 2D light plugin takes (the instanced shader draw's material can't).
+  if (!d && layer2D?.lit) d = litQuadDraw(res, name, s, k, texture, o.settings.blending, layer2D.lit, mesh);
   d ??= new KernelDraw(res.scene, name, s.kernel, k, s.run as BabylonRun, texture, softness > 0 ? { softness, depth: res.sceneDepth() } : null, { mesh });
-  placeParticles(d.mesh, o.settings.renderOrder);
+  if (layer2D) placeInLayer(d.mesh, layer2D.order);
+  else placeParticles(d.mesh, o.settings.renderOrder);
   return d;
+}
+
+/** A lit 2D system's output drawn with the 2D quad material (its texture, its blending) and the 2D light plugin. */
+function litQuadDraw(res: DrawResources, name: string, s: SystemRun, k: number, texture: BaseTexture, blending: string, lit: LitQuadSetup, mesh: ModelMesh | undefined): KernelMaterialDraw {
+  const m = layeredQuadMaterial(`${name}:lit2d`, res.scene, texture as Texture);
+  texture.hasAlpha = true;
+  if (blending === "additive") m.alphaMode = Constants.ALPHA_ADD;
+  else if (blending === "premultiplied") m.alphaMode = Constants.ALPHA_PREMULTIPLIED;
+  lightLayeredQuads(m, lit);
+  const run = s.run as BabylonRun;
+  const source = { textures: (sorted: boolean, trail: boolean) => run.textures(sorted, trail), sortFor: () => sortRunOnce(res.scene, run) };
+  return new KernelMaterialDraw(res.scene, name, s.kernel, k, source, { material: m, dispose: () => m.dispose() }, { mesh, interleaved: run.kind === "webgpu" });
 }
 
 /** A kernel output drawn with a material asset's copy (ADR 0126), or null when the material can't (not PBR, not loaded). */

@@ -28,6 +28,8 @@ export interface RenderPolicy {
    * nodes play (all of them with Simulate All), at the preview speed. Null: game rules.
    */
   particlePreview: ParticlePreview | null;
+  /** 2D draws are lit by 2D lights (ADR 0399); false draws them unlit (the scene view's 2D Lighting toggle). */
+  lighting2D: boolean;
 }
 
 /**
@@ -83,7 +85,7 @@ export function sameInset(a: PreviewInset | null, b: PreviewInset | null): boole
 }
 
 /** @internal A game's policy: everything off. */
-export const GAME_POLICY: Readonly<RenderPolicy> = Object.freeze({ sceneView: false, drawPolicy: "batched", cameraPreview: null, particlePreview: null });
+export const GAME_POLICY: Readonly<RenderPolicy> = Object.freeze({ sceneView: false, drawPolicy: "batched", cameraPreview: null, particlePreview: null, lighting2D: true });
 
 /**
  * @internal What a render surface gives its editor viewport handle (ADR 0129): live from the start,

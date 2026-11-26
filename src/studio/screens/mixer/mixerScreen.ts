@@ -11,6 +11,7 @@ import type { AudioProject } from "../../../engine/audio/project/types";
 import { addBus, addReturn, addVca, deleteItem, kindOf, masterOf, planDelete, renameItem, type EditResult } from "./busTree";
 import { createLiveMix, type LiveMix, type LiveMixHost, type LiveOrigin } from "./liveMix";
 import { labelOn } from "./mixEdits";
+import type { RemoteMix } from "./remoteMix";
 import { DEFAULT_PINS, livePins, togglePin, type BusReading, type LoudnessReading } from "./boardModel";
 import { addFolder, deleteSnapshot, newSnapshot } from "./snapshotTree";
 import type { TestValues } from "./snapshotBlend";
@@ -45,7 +46,11 @@ export interface MixerDeps {
   renameOutside?(from: string, to: string): Promise<string[]>;
   /** The runtime, when there is one. */
   readonly live?: LiveMixHost;
+  /** A connected build's mix (U8): each edit is also sent to it (`remoteMix.ts`). Absent, or with no build: nothing is sent. */
+  readonly remote?: RemoteMix;
   readBus?(name: string): BusReading | null;
+  /** A bus as the open take recorded it at the replay's playhead (`recordedLevels.ts`); null when the take's profile can't say. */
+  recordedBus?(name: string): BusReading | null;
   readLoudness?(name: string): LoudnessReading | null;
   setParameter?(name: string, value: number | string): void;
   auditionSnapshot?(name: string | null, fadeSeconds: number): void;
@@ -83,6 +88,8 @@ export interface MixerSession {
   readonly liveEdits: ReadonlySignal<number>;
   /** The game session is live now (read in a render, it subscribes); its start sets `liveEdits` back to 0. */
   sessionLive(): boolean;
+  /** The take replay is paused part-way: meters and loudness readouts hold the levels they had when it paused. */
+  levelsHeld(): boolean;
   /** Bumped while the runtime runs, so meters re-read. */
   readonly tick: Signal<number>;
   readonly live: LiveMix | null;
@@ -133,13 +140,53 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
   let sessionWasLive = false;
   /** Whether the session is live now; a new start counts edits from 0 again. */
   const sessionNow = (): boolean => {
-    const on = deps.sessionLive?.() ?? false;
+    const on = session.deps.sessionLive?.() ?? false;
     if (on && !sessionWasLive) liveEdits.value = 0;
     sessionWasLive = on;
     return on;
   };
+  // A take replay paused part-way holds its levels: readings taken while it plays are kept, and handed back until it
+  // plays again (stopped at the start or end, or no take open, the readings fall to what the runtime reports).
+  const levelsHeld = (): boolean => {
+    const r = deps.takeReplay?.() ?? null;
+    return !!r && !r.playing && r.time > 0 && r.time < r.duration;
+  };
+  // A paused replay shows what the take recorded at the playhead where its profile has it, so a scrub moves the meters.
+  const paused = (): boolean => {
+    const r = deps.takeReplay?.() ?? null;
+    return !!r && !r.playing;
+  };
+  const holding = <T,>(read: ((name: string) => T | null) | undefined, recorded?: (name: string) => T | null): ((name: string) => T | null) | undefined => {
+    if (!read) return undefined;
+    const last = new Map<string, T | null>();
+    return (name) => {
+      if (recorded && paused()) {
+        const then = recorded(name);
+        if (then !== null) return then;
+      }
+      if (levelsHeld() && last.has(name)) return last.get(name)!;
+      const now = read(name);
+      last.set(name, now);
+      return now;
+    };
+  };
   const live = deps.live ? createLiveMix(deps.live, () => doc.value.peek()) : null;
   const stops: (() => void)[] = [];
+  // With a build connected (`studioBuild`), every change of the document is also sent to it as `mix.op` commands; the
+  // Studio's own runtime below still gets it, and a refusal from the build shows in the status bar (`deps.report`).
+  if (deps.remote) {
+    const remote = deps.remote;
+    let sentFrom = doc.value.peek();
+    stops.push(
+      effect(() => {
+        const after = doc.value.value;
+        const prev = sentFrom;
+        sentFrom = after;
+        if (prev !== after) remote.changed(prev, after);
+      }),
+      () => remote.dispose(),
+    );
+  }
 
   // Every change of the document (an edit, undo, redo, an outside write) reaches the running mixer, named by who made
   // it: the session's own edits (a drag's coalesced moves too, one step of the history) are the editor's; a change the
@@ -207,7 +254,8 @@ export function createMixerSession(deps: MixerDeps): MixerSession {
   };
 
   const session: MixerSession = {
-    deps,
+    deps: Object.assign(Object.create(deps) as MixerDeps, { readBus: holding(deps.readBus, deps.recordedBus?.bind(deps)), readLoudness: holding(deps.readLoudness) }),
+    levelsHeld,
     project,
     readOnly: doc.readOnly,
     selected,

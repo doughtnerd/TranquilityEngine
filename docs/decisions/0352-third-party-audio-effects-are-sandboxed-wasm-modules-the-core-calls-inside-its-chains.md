@@ -254,9 +254,9 @@ Studio, the exporter and the player agree before anything loads:
 - `samples/fx-tremolo/`: a small sample project with `plugins/tremolo/` (`plugin.json`, `dsp/` Rust source on the
   SDK, the committed `dsp/tremolo.wasm`), a playlist using the tremolo on an instance submix and on a bus, built by
   `npm run build:fx-examples` (needs only Rust and `wasm32-unknown-unknown`).
-- `docs/guide/audio-effect-plugins.md`: writing an effect in Rust (the trait) and C (the header), the ABI, the
+- `docs/wiki/guide/audio-effect-plugins.md`: writing an effect in Rust (the trait) and C (the header), the ABI, the
   manifest, budgets and faults, testing an effect natively (`cargo test` over the trait) and in the Studio, versioning
-  and stable parameter names, shipping in a project or an npm package. `docs/guide/plugins.md` gains a short "Audio
+  and stable parameter names, shipping in a project or an npm package. `docs/wiki/guide/plugins.md` gains a short "Audio
   effects" section linking it.
 
 ## Alternatives considered
@@ -311,7 +311,7 @@ Studio, the exporter and the player agree before anything loads:
 - `src/engine/audio/effects/`, `src/studio/components/EffectCard.tsx`, `effectChainModel.ts`;
   `native/audio/crates/audio-dsp/src/fx/mod.rs`, `audio-core/src/fx.rs`, `fxmem.rs`, `audio-wasm/src/lib.rs`;
   `src/plugins/audio/runtime/worklet/coreDriver.ts`, `processor.ts`; `src/plugins/thirdParty.ts`;
-  `tools/audio-bench/meter.mjs`; `docs/guide/plugins.md`.
+  `tools/audio-bench/meter.mjs`; `docs/wiki/guide/plugins.md`.
 
 ## Build plan
 
@@ -328,7 +328,7 @@ the glue leaving the core running.
 | B4 | Worklet glue and host | `effectGlue.ts` (dispatch, copies, fuel, fault checks, events), `coreDriver.ts` import object, `effectPlugins/host.ts` (fetch, validate, instrument, register, replay after rebuild, reload on save), the `effectPlugins` capability on core, Babylon (none) and the fake; `Audio.debug().plugins`; capture events; tests with a trapping, NaN-producing, looping and growing test module | `src/plugins/audio/runtime/worklet/**`, `src/plugins/audio/runtime/effectPlugins/**`, `backend.ts`, `core/coreBackend.ts`, `testing.ts`, `debugTypes.ts`, `capture/**` |
 | B5 | Exports and offline | plan copies module files and writes `audioEffects`; player registers them; offline renderer imports `myco_ext` and loads modules; render cache key; tests in `buildWriter.test.ts` and the offline render suite | `src/export/webBuild.ts`, `src/export/format.ts`, `src/player/main.ts`, the offline renderer's worker (W9-B's files) |
 | B6 | Studio | Plugins group in Add effect, plugin chip, choices menu, status and Reset plugin on `EffectCard`, Profiler rows, Plugins settings details; stories with `play` tests | `src/studio/components/EffectCard.tsx`, `EffectChain.tsx`, `effectChainModel.ts`, `src/studio/screens/profiler/**`, `src/editor/ui/` Plugins settings view |
-| B7 | Docs and e2e | `docs/guide/audio-effect-plugins.md`, `plugins.md` section; `@slow` spec: the tremolo sample exported for web plays with the tremolo's modulation visible in a capture's bus meter; a Studio spec adding the tremolo to a bus | `docs/guide/**`, `tests/e2e/audio-plugins.spec.ts` |
+| B7 | Docs and e2e | `docs/wiki/guide/audio-effect-plugins.md`, `plugins.md` section; `@slow` spec: the tremolo sample exported for web plays with the tremolo's modulation visible in a capture's bus meter; a Studio spec adding the tremolo to a bus | `docs/wiki/guide/**`, `tests/e2e/audio-plugins.spec.ts` |
 
 B1 and B2 run in parallel; B3 after 0351's wire change in the same wave (the wire and `audio-wasm/src/lib.rs` have one
 writer per wave); B4 needs B1 and B3; B5 and B6 need B2 and B4.

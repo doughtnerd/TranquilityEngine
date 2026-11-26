@@ -6,6 +6,8 @@
 //   D46: a clip used as a timeline) and loads it into the core, keyed by path and content. `subclip` keys' clips load
 //   with it: another `*.timeline.json` or a `*.anim.json` source (written the same way: their property and keyed tracks),
 //   or a compiled clip file (`acquireFile`), nested up to the core's three levels, and are bound with `timeline_bind`.
+//   A loaded timeline is kept while its path stays, unless one of the files it read changed since
+//   (`Assets.notifyChanged`): then the next activation or preview loads it again.
 // - **Instance:** one core timeline instance per active director (`TIMELINE_CREATE`, scaled time), playing at once when
 //   `playOnStart` (or `play()` was called while it loaded), starting at `playhead`. `wrapMode` `hold` and `loop` are the
 //   core's hold and loop; `none` plays as hold and, at the end, stops: the playhead goes back to 0 and the fields take
@@ -97,6 +99,22 @@ interface Loaded {
   readonly binds: readonly { readonly owner: number; readonly stringId: number; readonly asset: number }[];
   /** Every handle acquired (released on detach or reload). */
   readonly handles: readonly number[];
+  /** Each file read (the timeline and the clips nested in it) and its change count when read. */
+  readonly files: ReadonlyMap<string, number>;
+}
+
+/**
+ * How often each project file has changed (`Assets.notifyChanged`: the editor saved or replaced it). A loaded timeline
+ * whose files changed since it read them is stale: the next activation or preview loads it again, so an editor preview
+ * after an edit saved at the same path shows the new content.
+ */
+const changes = new Map<string, number>();
+Assets.onChanged((path) => changes.set(path, (changes.get(path) ?? 0) + 1));
+
+/** Whether a file `loaded` read has changed since. */
+function stale(loaded: Loaded): boolean {
+  for (const [path, n] of loaded.files) if ((changes.get(path) ?? 0) !== n) return true;
+  return false;
 }
 
 /** FNV-1a over bytes: the raw clip's content key. */
@@ -123,9 +141,16 @@ function sourceOf(path: string): RawClipSource | null {
   return parsed.value;
 }
 
-async function loadClip(ns: AnimationWorldCore, ref: string, depth: number, out: { binds: Loaded["binds"][number][]; handles: number[] }, chain: readonly string[]): Promise<LoadedClip | null> {
+interface LoadOut {
+  binds: Loaded["binds"][number][];
+  handles: number[];
+  files: Map<string, number>;
+}
+
+async function loadClip(ns: AnimationWorldCore, ref: string, depth: number, out: LoadOut, chain: readonly string[]): Promise<LoadedClip | null> {
   const path = normalizeAssetPath(ref);
   if (!path) return null;
+  out.files.set(path, changes.get(path) ?? 0);
   if (path.endsWith(".timeline.json") || path.endsWith(".anim.json")) {
     if (chain.includes(path)) {
       warnOnce(`cycle:${path}`, `[myco] animation: the timeline "${path}" nests itself; the inner one doesn't play.`);
@@ -292,10 +317,10 @@ async function activate(rt: DirectorRuntime): Promise<void> {
   if (!ns || epoch !== rt.epoch || !rt.active) return;
   rt.ns = ns;
   const path = normalizeAssetPath(rt.director.timeline);
-  if (rt.loaded?.path !== path) {
+  if (rt.loaded?.path !== path || stale(rt.loaded)) {
     release(rt);
     if (!path) return;
-    const out = { binds: [] as Loaded["binds"][number][], handles: [] as number[] };
+    const out: LoadOut = { binds: [], handles: [], files: new Map() };
     const root = await loadClip(ns, path, 0, out, []);
     if (epoch !== rt.epoch || !rt.active || !ns.open) {
       for (const h of out.handles) ns.release(h);
@@ -306,7 +331,7 @@ async function activate(rt: DirectorRuntime): Promise<void> {
       settle(rt, "stopped");
       return;
     }
-    rt.loaded = { path, root, binds: out.binds, handles: out.handles };
+    rt.loaded = { path, root, binds: out.binds, handles: out.handles, files: out.files };
   }
   createInstance(rt, ns);
 }

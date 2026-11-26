@@ -67,6 +67,8 @@ export class Decal2D extends Component {
   sortingLayer = "Default";
   @field(Number, { description: "Its order within the sorting layer." })
   orderInLayer = 0;
+  @field(AssetRef, { kind: "material", description: "A Sprite Lit or Sprite Unlit material asset (ADR 0399). Empty: Sprite Lit, lit by 2D lights when the World has any." })
+  material = "";
   @field(String, { choices: ["none", "parentSprite"], description: "parentSprite: drawn only where the parent node's sprite is opaque. none: everywhere." })
   clip: Decal2DClip = "parentSprite";
 

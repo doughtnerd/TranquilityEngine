@@ -26,7 +26,7 @@ Checked in the repository rather than taken from the design handoff ([2026-11-au
   - The core backend's side of the group operations (§4.6: admit, prime, read primed, stamp, cancel, the group events) has **no row of its own**: P1's "the `primeGroup` message, one batch per group, pool accounting" is that work. This plan puts it in a new file, `runtime/core/musicOps.ts`, so `coreBackend.ts` (1,858 lines) is touched once, by the Q2 skeleton.
   - The decoder worker has no peaks message yet; Ed1 needs one (`decoder/protocol.ts`, `decoder/handler.ts`).
   - The editor plugin registers panels in `src/plugins/audio/editor/index.ts`; the event editor's panels are under `editor/event/`. `editor/music/` doesn't exist.
-- **Things the design names that don't exist yet:** `src/plugins/audio/runtime/music/` (all of it), `src/engine/audio/music*.ts`, `audio-core/src/{due,curves,groups}.rs`, `audio-wire/src/schema/music.rs`, `src/plugins/audio/editor/music/`, `docs/guide/interactive-music.md`, `tests/e2e/audio-music-*.spec.ts`, `docs/design/0166-audio-music/build-log.md` and `listening-pass.md`.
+- **Things the design names that don't exist yet:** `src/plugins/audio/runtime/music/` (all of it), `src/engine/audio/music*.ts`, `audio-core/src/{due,curves,groups}.rs`, `audio-wire/src/schema/music.rs`, `src/plugins/audio/editor/music/`, `docs/wiki/guide/interactive-music.md`, `tests/e2e/audio-music-*.spec.ts`, `docs/design/0166-audio-music/build-log.md` and `listening-pass.md`.
 - **Not run in planning:** `node_modules` is absent in this container, so no baseline `npm test` or typecheck was run. Wave 0's baseline does it once (the working-notes rule: don't run what can't change a decision; the baseline can).
 
 ## What "shippable" means here
@@ -136,7 +136,7 @@ Two chains, computed by script from the table (plan est.):
 | `tests/e2e/audio-music-smoke.spec.ts` | S0 (W1); Z3 on the flip branch (W3: the expectation becomes `splitQuanta` 0); grown by E1 (W6), E2 (W8), E3 and Ed11 (W9, Ed11 after E3), one case each |
 | the `audio-bench` scene registry, `tools/audio-bench/*` | Z5 (W4), Bench1 (W8) |
 | `samples/*` (scenes, `project.json`, generators) | SM1 (W5), SM2 (W7), Rh3 (W9), L2 (W10) |
-| `docs/guide/interactive-music.md` | D2 (W6), D3 (W8), D4 (W9), D5 (W10) |
+| `docs/wiki/guide/interactive-music.md` | D2 (W6), D3 (W8), D4 (W9), D5 (W10) |
 | `package.json`, `vite*.ts`, `playwright.config.ts` | coordinator |
 | `docs/architecture/implementation-status.md`, `docs/README.md`, `docs/decisions/*`, `docs/design/0166-audio-music/build-log.md`, `listening-pass.md` | coordinator (Z6, D2–D5, L1, L2 supply text; no task rewrites 0166 or 0167; deviations go in the build log) |
 
@@ -266,7 +266,7 @@ After every wave, before its files change owner, the coordinator:
 | **P2** | strongest | fills `runtime/music/planner.ts` |
 | **P3** | strongest | fills `runtime/music/anchors.ts` |
 | Z5 | mid | `audio-bench` scenes, `tools/audio-bench/*` (registry); listening section M4-0 text (RS1) |
-| Z6 | mid (J row, prose) | ADR 0157 amendment text, status and guide text supplied to the coordinator; guide note in `docs/guide/` (the audio events guide) |
+| Z6 | mid (J row, prose) | ADR 0157 amendment text, status and guide text supplied to the coordinator; guide note in `docs/wiki/guide/` (the audio events guide) |
 | P5 | mid | fills `runtime/music/stems.ts` |
 | P6 | mid | edits `events/eventRuntime.ts`, `AudioSource.ts`, tests |
 | Ed3 | mid | fills `editor/music/segmentDrag.ts`, `segmentSnap.ts` |
@@ -302,7 +302,7 @@ After every wave, before its files change owner, the coordinator:
 | **R3a** | strongest | fills `runtime/music/transition.ts` (incl. `planImmediate`, H5) |
 | T1 | mid | new `runtime/music/*.loopback.test.ts` and a deterministic-clock fixture |
 | E1 | mid | `tests/e2e/audio-music-a.spec.ts`; one case in the smoke spec; listening section M4a (RS1) and its walker case |
-| D2 | mid (J row, prose) | `docs/guide/interactive-music.md` (new) |
+| D2 | mid (J row, prose) | `docs/wiki/guide/interactive-music.md` (new) |
 | R2 | mid | fills `runtime/music/musicSwitch.ts` |
 | R5 | mid | fills `runtime/music/stingers.ts`, `stingerPolicy.ts` |
 | R6 | mid | edits `runtime/music/stems.ts`, `events/automation.ts` |
@@ -337,7 +337,7 @@ After every wave, before its files change owner, the coordinator:
 | T3 | mid | new `runtime/music/transitionPrecedence.test.ts`, `transition.loopback.test.ts` |
 | Bench1 | mid | `audio-bench` scenes, `tools/audio-bench/*`; listening section M4b is E2's |
 | E2 | mid | `tests/e2e/audio-music-b.spec.ts`; one smoke case; listening section M4b (RS1) and its walker case |
-| D3 | mid (J row, prose) | edits `docs/guide/interactive-music.md` |
+| D3 | mid (J row, prose) | edits `docs/wiki/guide/interactive-music.md` |
 | **K2** | mid | edits `runtime/music/musicSystem.ts`, `src/engine/core/Component.ts` |
 | K3 | mid | edits `runtime/music/handle.ts` (`positionAt`, `judged`) |
 | K4 | mid | new `runtime/music/beatClock.test.ts`, trace fixtures |
@@ -349,7 +349,7 @@ After every wave, before its files change owner, the coordinator:
 
 | Task | Level | Files |
 |---|---|---|
-| Rh2 → Rh3 → E3, D4 (a chain inside the wave) | mid (Rh2 J row with a mid lead) | Rh2 fills `runtime/music/calibration.ts`; Rh3 `samples/sound-lab` tap scene; E3 `tests/e2e/audio-music-c.spec.ts`, one smoke case, listening section M4c (RS1); D4 edits `docs/guide/interactive-music.md` |
+| Rh2 → Rh3 → E3, D4 (a chain inside the wave) | mid (Rh2 J row with a mid lead) | Rh2 fills `runtime/music/calibration.ts`; Rh3 `samples/sound-lab` tap scene; E3 `tests/e2e/audio-music-c.spec.ts`, one smoke case, listening section M4c (RS1); D4 edits `docs/wiki/guide/interactive-music.md` |
 | K5 | mid | edits `runtime/music/musicSystem.ts` |
 | B3 | mid | edits `runtime/babylonBackend.ts` |
 | Ed10 → Ed11 (a chain) | mid | Ed10 edits `editor/AudioSettingsSection.tsx`, `audioSettingsModel.ts`; Ed11 (after Ed10) `tests/e2e/audio-music-d.spec.ts` (segment view, rules table, import, settings) and one smoke case after E3's |
@@ -364,7 +364,7 @@ After every wave, before its files change owner, the coordinator:
 | L1 | mid (J row, prose for the owner) | consolidates the four sections into `docs/design/0166-audio-music/listening-pass.md` (text to the coordinator), completes `audio-music-listening.spec.ts` |
 | L2 (after L1) | mid | `samples/*` final (flappy music in play, sound-lab polish); status text to the coordinator |
 | L3 (after the owner's pass) | strongest | as the owner's items say; **not** `samples/*` (an item that needs a sample change goes to L2) |
-| D5 (after L2) | mid (J row, prose) | API reference, ADR 0158 and 0097 amendment text (to the coordinator), `docs/guide/interactive-music.md` final |
+| D5 (after L2) | mid (J row, prose) | API reference, ADR 0158 and 0097 amendment text (to the coordinator), `docs/wiki/guide/interactive-music.md` final |
 
 **Exit (M4d exits here):** the shippable checks; Ed11's composer flow 3 of 3; samples warning-free and non-silent; the owner's sign-off block filled; milestone-end checks; the merge to master with approval.
 

@@ -2,7 +2,7 @@ import type { ComponentChildren } from "preact";
 import { Panel } from "./panel/Panel";
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDraftText } from "./draftText";
-import { ANTIALIAS_MODES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
+import { ANTIALIAS_MODES, LIGHTS_2D_QUALITIES, PLATFORMS, PARTICLE_QUALITIES, PROBE_QUALITIES, SHADER_LEVELS, SHADOW_QUALITIES } from "../../engine/core/graphics";
 import { defaultSettings } from "../../engine/core/settings";
 import { allPluginManifests } from "../../plugins/thirdPartyEditor";
 import { RENAMED_PLUGINS } from "../../plugins/enabled";
@@ -46,6 +46,7 @@ import { lazyComponent, type LazyComponent } from "./lazy";
 import { NumberField, TextField } from "./settingsControls";
 import { NameList, ProblemList, Row } from "./settingsControls";
 import "./projectSettings.css";
+import { EmptyState } from "./EmptyState";
 
 /** The panel's state for the open project: its project section's session (ADR 0151), kept outside the component. */
 type PanelState = ProjectSectionSession<SettingsDraft, SettingsProblem>;
@@ -73,7 +74,7 @@ export function ProjectSettingsPanel() {
   void projectSettingsSections.version.value; // a plugin's category (de)registered, with the keys it owns
   docVersion.value; // files added (autoload choices)
   const project = currentProject.value;
-  if (!project) return <Panel><p class="empty">No project open</p></Panel>;
+  if (!project) return <Panel><EmptyState compact title="No project open" /></Panel>;
   const s = settings.open(project);
   const draft = s.draft;
   const editable = project.canSave;
@@ -597,6 +598,10 @@ function Tiers(props: { draft: SettingsDraft; problems: readonly SettingsProblem
             <label>
               <span class="tier-label">Particles</span>
               {choice(i, "particles", "particles", PARTICLE_QUALITIES)}
+            </label>
+            <label>
+              <span class="tier-label">2D lights</span>
+              {choice(i, "lights2D", "2D lights", LIGHTS_2D_QUALITIES)}
             </label>
           </div>
         </div>

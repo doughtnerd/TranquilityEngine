@@ -40,7 +40,7 @@ import { createMaterialForGraph, SHADER_GRAPH_PANEL, shaderGraphDocument } from 
 import { shaderFindItems } from "./shaderGraph/graphSearch";
 import { PropertyValue, TEXTURE_SLOT, numberValue } from "./ShaderPropertyValue";
 import { Color } from "../../../engine";
-import { AssetPicker, ColorField, editor, type EditorProject, type ValueReport, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, GraphFindBox, WireRefusal, handleProps, px, toGraph, useGraphCanvas, useGraphFind, useGraphSearch, useGraphSelection, useGraphWiring, useNodeDrag, usePreviewCardSize, GraphPreviewCard, wirePath, type CanvasNode, type GraphDragHooks, type Point, type SearchItem, Panel } from "../../../editor/sdk";
+import { AssetPicker, ColorField, editor, type EditorProject, type ValueReport, NO_DRAG, NO_PAN, NO_WHEEL, NoteView, NodeSearchPopup, Minimap, SelectionBox, GraphFindBox, WireRefusal, handleProps, px, toGraph, useGraphCanvas, useGraphFind, useGraphSearch, useGraphSelection, useGraphWiring, useNodeDrag, usePreviewCardSize, GraphPreviewCard, wirePath, type CanvasNode, type GraphDragHooks, type Point, type SearchItem, Panel, EmptyState } from "../../../editor/sdk";
 import "../../../editor/graph/graph.css";
 import "./shaderGraph.css";
 
@@ -51,16 +51,15 @@ type Pending = { side: "output" | "input"; ref: string; type: ValueType | "dynam
 export function ShaderGraphPanel() {
   const path = editor.assets.openIn(SHADER_GRAPH_PANEL);
   const project = editor.project.current;
-  if (!project) return <Panel><p class="empty">No project open</p></Panel>;
+  if (!project) return <Panel><EmptyState compact title="No project open" /></Panel>;
   if (!path || !project.files.includes(path)) {
     return (
       <Panel>
-        <div class="shader-graph-empty">
-          <p>Double-click a shader graph (<code>*.shadergraph.json</code>) in the Assets panel to edit it here.</p>
-          <button disabled={!project.canSave} onClick={() => void editor.assets.create("shadergraph").then((made) => made && editor.assets.open(made))}>
-            New Shader Graph
-          </button>
-        </div>
+        <EmptyState
+          compact
+          title="Double-click a shader graph (*.shadergraph.json) in the Assets panel to edit it here."
+          action={{ label: "New Shader Graph", disabled: !project.canSave, run: () => void editor.assets.create("shadergraph").then((made) => made && editor.assets.open(made)) }}
+        />
       </Panel>
     );
   }
@@ -333,6 +332,9 @@ function GraphEditor(props: { project: EditorProject; path: string }) {
             <option value="lit">Lit</option>
             <option value="physical">Physical</option>
             <option value="unlit">Unlit</option>
+            <option value="sprite-lit">Sprite Lit</option>
+            <option value="sprite-unlit">Sprite Unlit</option>
+            <option value="sprite-custom-lit">Sprite Custom Lit</option>
           </select>
         </label>
         <label>
@@ -696,6 +698,7 @@ function NodeSearch(props: { graph: ShaderGraph; subgraphs: string[]; at: Point;
     }
     for (const d of [...NODES].sort((a, b) => categoryRank(a.category) - categoryRank(b.category))) {
       if (d.type === "output" || d.type === "property" || d.type === "subgraph") continue;
+      if (d.targets && !graph.subgraph && !d.targets.includes(graph.target)) continue; // nodes for other targets (ADR 0415)
       items.push({ key: d.type, type: d.type, label: d.title, category: d.category, keywords: `${d.title} ${d.category} ${d.keywords ?? ""} ${d.type}` });
     }
     return items;

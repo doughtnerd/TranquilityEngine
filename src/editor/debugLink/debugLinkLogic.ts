@@ -11,9 +11,16 @@ export interface DebugLinkPreferences {
   readonly lan: boolean;
   /** The port (default 7790). */
   readonly port: number;
+  /**
+   * A rendezvous's WebSocket URL (`ws://` or `wss://`) for room codes when no machine on the network hosts one (default
+   * empty). Optional in the type: a value written before it existed reads as empty.
+   */
+  readonly rendezvous?: string;
+  /** STUN/TURN URLs (`stun:`, `turn:`, `turns:`) for networks beyond this one (default none). Optional, as `rendezvous`. */
+  readonly iceServers?: readonly string[];
 }
 
-export const DEFAULT_DEBUG_LINK_PREFERENCES: DebugLinkPreferences = { listen: true, lan: false, port: DEFAULT_DEBUG_LINK_PORT };
+export const DEFAULT_DEBUG_LINK_PREFERENCES: DebugLinkPreferences = { listen: true, lan: false, port: DEFAULT_DEBUG_LINK_PORT, rendezvous: "", iceServers: [] };
 
 /** A stored preferences value read leniently (anything bad falls back to the default). */
 export function cleanPreferences(raw: unknown): DebugLinkPreferences {
@@ -22,7 +29,32 @@ export function cleanPreferences(raw: unknown): DebugLinkPreferences {
     listen: typeof r.listen === "boolean" ? r.listen : DEFAULT_DEBUG_LINK_PREFERENCES.listen,
     lan: typeof r.lan === "boolean" ? r.lan : DEFAULT_DEBUG_LINK_PREFERENCES.lan,
     port: cleanPort(r.port),
+    rendezvous: cleanRendezvous(r.rendezvous),
+    iceServers: cleanIceServers(r.iceServers),
   };
+}
+
+/** A rendezvous URL from a field: empty, or a `ws://` or `wss://` URL with a host (trimmed); else empty. */
+export function cleanRendezvous(raw: unknown): string {
+  const s = typeof raw === "string" ? raw.trim() : "";
+  if (!s) return "";
+  try {
+    const url = new URL(s);
+    return (url.protocol === "ws:" || url.protocol === "wss:") && url.hostname ? s : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Whether a line is a STUN or TURN URL (`stun:`, `turn:` or `turns:`, then an address). */
+export function isIceServerUrl(raw: string): boolean {
+  return /^(stun|turns?):\S+$/i.test(raw.trim());
+}
+
+/** The ICE server URLs kept from a list (trimmed; blanks and anything that isn't a STUN or TURN URL are dropped). */
+export function cleanIceServers(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((u): u is string => typeof u === "string" && isIceServerUrl(u)).map((u) => u.trim());
 }
 
 /** A port from a field: an integer 1024..65535, else the default. */
@@ -67,6 +99,18 @@ export interface BuildEntry {
 
 /** The menu's line for a build: its name, then where it runs when it isn't this machine. */
 export function buildLabel(b: BuildEntry): string {
+  // A build reached through a rendezvous room (ADR 0404) is named by the room's URL, which carries the room and its
+  // token: show only where the rendezvous is.
+  if (b.remote.includes("://")) {
+    let host = "";
+    try {
+      host = new URL(b.remote).hostname.replace(/^\[|\]$/g, "");
+    } catch {
+      host = "";
+    }
+    const room = host === "" ? "a room" : isLocalRemote(host) ? "this machine, through a room" : `${host}, through a room`;
+    return `${b.name} (${b.platform}, ${room})`;
+  }
   const where = isLocalRemote(b.remote) ? "this machine" : remoteHost(b.remote);
   return `${b.name} (${b.platform}, ${where})`;
 }

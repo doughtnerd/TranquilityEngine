@@ -58,7 +58,12 @@ import { GAME_POLICY, type PreviewInset, type RenderPolicy } from "../renderPoli
 import type { PostEffects, ToneMappingName } from "../postEffects";
 import { BabylonFrame, type CameraView } from "./frameGraph";
 import { BabylonLighting } from "./lighting";
+import { BabylonLights2D } from "./lights2D";
+import { LIGHTS_2D_QUALITY } from "../../core/graphics";
+import { authoredSize } from "../../scene/importSettings";
+import { Assets } from "../../scene/Assets";
 import { BabylonMaterialLibrary } from "./materialLibrary";
+import { BabylonMaterials2D } from "./materials2D";
 import { describeDrawn, eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext } from "./feature";
 import { _registeredRenderFeatures, byPhase, ownerOf, specNeeded, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonQuadBatches } from "./quadBatches";
@@ -117,6 +122,8 @@ export class BabylonRenderer {
   readonly scene: Scene;
   /** Quad batches for plugin features (the Tilemaps plugin's tiles, ADR 0136). */
   private readonly quads: BabylonQuadBatches;
+  /** The 2D lighting rig (ADR 0399): part of the core lighting, beside `lighting`, since it reads the material library's textures. */
+  private readonly lights2D: BabylonLights2D;
   /** Decal volumes for plugin features (the Decals plugin's 3D decals, ADR 0395). */
   private readonly decals: BabylonDecals;
   /** Dynamic meshes for plugin features (the Lines plugin's 3D lines and trails, ADR 0396). */
@@ -124,6 +131,8 @@ export class BabylonRenderer {
   private readonly cameras = new Map<Camera, CameraEntry>();
   /** Materials and textures (ADR 0127): every material and texture the scene draws is built and cached there. */
   private readonly materials: BabylonMaterialLibrary;
+  /** 2D materials (ADR 0418): sprites', quad batches' and 2D particles' materials, lit by the 2D lighting rig or not. */
+  private readonly materials2D: BabylonMaterials2D;
   private readonly warned = new Set<string>();
   /** Time and drawing-buffer size, read by every graph material. */
   private readonly graphShared: GraphShared = { time: 0, resolution: [1, 1] }; // `mainLight` is the lighting's, set once it exists
@@ -207,16 +216,19 @@ export class BabylonRenderer {
       shared: this.graphShared,
       renderTexture: (path) => this.renderTextures.texture(path),
       editorPicking: () => this.policy.drawPolicy === "perObject", // the editor's picking needs per-object instances
+      warn: (key, message) => this.warnOnce(key, message),
     });
+    this.materials2D = new BabylonMaterials2D({ scene, library: this.materials, warnOnce: (key, message) => this.warnOnce(key, message) });
     this.quads = new BabylonQuadBatches({
       scene,
-      texture: (path, onLoad) => {
-        const t = this.materials.loadedTexture(path);
-        if (t) return t;
-        this.materials.texture(path).then(onLoad, (err) => this.warnOnce(`tile|${path}`, `failed to load tile texture "${path}": ${(err as Error).message}`));
-        return null;
-      },
+      materials2D: this.materials2D,
+      texture: (path, onReady) => this.materials.texture(path, "color", () => onReady()),
       sortOrder: (layer, order) => sortingOrder(this.settings.render.sortingLayers, layer, order, (l) => this.warnOnce(`layer|${l}`, unknownLayerMessage(l))),
+    });
+    this.lights2D = new BabylonLights2D({
+      scene,
+      texture: (path) => this.materials.texture(path),
+      textureSize: (path) => this.textureSize(path),
     });
     this.decals = new BabylonDecals({ scene, materials: this.materials, warnOnce: (key, message) => this.warnOnce(key, message) });
     this.dynamicMeshes = new BabylonDynamicMeshes({ scene, materials: this.materials, warnOnce: (key, message) => this.warnOnce(key, message) });
@@ -374,12 +386,20 @@ export class BabylonRenderer {
   // --- Textures ---------------------------------------------------------------------------------
 
   /** Load textures ahead of time so sprites don't pop in. */
+  /** A loaded texture asset's authored size in pixels (ADR 0119), or null while it isn't loaded. */
+  textureSize(path: string): readonly [number, number] | null {
+    const t = this.materials.loadedTexture(path);
+    if (!t) return null;
+    const base = t.getBaseSize();
+    return authoredSize(Assets.importSettings(path), base.width, base.height);
+  }
+
   async preloadTextures(paths: string[], onProgress?: (p: number) => void): Promise<void> {
     let done = 0;
     await Promise.all(
       paths.map((p) =>
         this.materials
-          .texture(p)
+          .loadTexture(p)
           .catch((err) => console.error(`[myco] failed to load texture "${p}":`, err))
           .finally(() => onProgress?.(++done / paths.length)),
       ),
@@ -395,6 +415,9 @@ export class BabylonRenderer {
     ctx.view = ctx.viewCamera = null;
     ctx.ready = false;
     this.reflecting = 0; // the mesh feature counts this frame's meshes drawn with a probe as it syncs
+    // 2D lights first (ADR 0399): a new layout of layer batches refreshes the 2D materials (ADR 0418) before the content draws.
+    this.lights2D.enabled = this.policy.lighting2D !== false;
+    this.lights2D.sync(world, LIGHTS_2D_QUALITY[Graphics.tier.lights2D] ?? LIGHTS_2D_QUALITY.high);
     for (const phase of SYNC_PHASES) {
       for (const slot of this.phases.get(phase) ?? []) slot.ensure(world)?.sync(world, ctx);
       this.afterPhase(phase, world, ctx);
@@ -462,6 +485,7 @@ export class BabylonRenderer {
       scene: this.scene,
       lighting: this.lighting,
       materials: this.materials,
+      materials2D: this.materials2D,
       probes: {
         get any() {
           return probes.any;
@@ -522,7 +546,7 @@ export class BabylonRenderer {
     let held = false;
     if (views.length) {
       const draw = (): boolean => {
-        this.frame.render(views, this.lighting.shadows(), this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1);
+        this.frame.render(views, this.lighting.shadows(), this.casters, Graphics.tier.antialias === "msaa" ? 4 : 1, this.lights2D);
         return this.frame.ready;
       };
       // A World's first frames (ADR 0120): held on the clear colour while a draw is missing or content loads.
@@ -633,6 +657,8 @@ export class BabylonRenderer {
     for (let i = this.slots.length - 1; i >= 0; i--) this.slots[i].dispose(); // reverse registration order (ADR 0130)
     this.lighting.dispose(); // after the features that contributed to it (the sky owns its bake)
     this.quads.dispose(); // after the features that drew with them
+    this.materials2D.dispose(); // after everything that drew with them
+    this.lights2D.dispose();
     this.decals.dispose();
     this.dynamicMeshes.dispose();
     this.frame.ui = null;
@@ -767,7 +793,9 @@ export class BabylonRenderer {
       }
     }
     const post = this.lastPost;
-    const features: RenderFeatureDiagnostics = {};
+    const lights2D = this.lights2D.state();
+    // The 2D lighting rig reports once a World has 2D lights or shadow casters (ADR 0399).
+    const features: RenderFeatureDiagnostics = lights2D.lights || lights2D.casters ? { lights2D } : {};
     const out: Omit<RenderDiagnostics, "started" | "quality"> = {
       lighting: this.lighting.state(),
       // Composed only once the frame graph with the composer's passes has built: until then it hasn't drawn.

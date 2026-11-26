@@ -104,6 +104,11 @@ function framePump(tick: () => void): () => void {
 /** The project a capture's META names (§5.2, owner decision 6). The engine has no project record at run time, so the page title stands in until a shell says better. */
 let projectInfo: () => { name: string; version: string } = () => ({ name: typeof document !== "undefined" ? document.title : "", version: "" });
 
+/** @internal The project a capture's META names now (ADR 0410: the build audio index names it too). */
+export function captureProject(): { name: string; version: string } {
+  return projectInfo();
+}
+
 /** @internal Where a shell (the player, the editor) says which project a capture belongs to. */
 export function setCaptureProject(info: () => { name: string; version: string }): void {
   projectInfo = info;
@@ -255,7 +260,7 @@ class Capture implements AudioCapture {
     return this.withTake((s, take) => s.saveCapture(take, name));
   }
 
-  /** The take as a `.mycap` file's bytes, as `save` would write them (the Studio's save into its project). */
+  /** The take as a `.sporesample` file's bytes, as `save` would write them (the Studio's save into its project). */
   fileBytes(): Promise<Uint8Array> {
     return this.withTake((s, take) => s.captureFileBytes(take));
   }
@@ -775,8 +780,8 @@ export const audioCapture: AudioCapture = {
 export const captureLiveHost: CaptureLiveHost = { join: () => capture.join() };
 
 /**
- * @internal ADR 0348 (decision log D13): the latest take as a `.mycap` file's bytes, compressed as `Audio.capture.save()`
- * writes them, for the Audio Studio to write into its project's `captures/` on every platform (`save()` downloads in a
+ * @internal ADR 0348 (decision log D13): the latest take as a `.sporesample` file's bytes, compressed as `Audio.capture.save()`
+ * writes them, for the Audio Studio to write into its project's `recordings/` on every platform (`save()` downloads in a
  * browser). Rejects as `save()` does when nothing was recorded. Not part of `Audio.capture`'s public type.
  */
 export function captureFileBytes(): Promise<Uint8Array> {
@@ -801,7 +806,7 @@ export function releaseCapture(): void {
  */
 onAudioSessionReleased(releaseCapture);
 
-/** @internal ADR 0348: the editor's Record capture toggle: the capture's file bytes, to write into the project's `captures/` folder itself. */
+/** @internal ADR 0348: the editor's Record capture toggle: the capture's file bytes, to write into the project's `recordings/` folder itself. */
 export function captureFileBytesNow(): Promise<Uint8Array> {
   return capture.fileBytes();
 }

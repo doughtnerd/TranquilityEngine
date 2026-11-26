@@ -5,7 +5,7 @@
 // keyframes each second, the cap stops it with a message rather than dropping requests.
 import { describe, expect, it } from "vitest";
 import {
-  CAPTURE_FLAG_TAKE, CAPTURE_HEADER_BYTES, CAPTURE_MAX_UNCOMPRESSED_BYTES, CAPTURE_RECORD_HEAD_BYTES, CaptureError, RecordType,
+  CAPTURE_FLAG_TAKE, CAPTURE_FORMAT_MINOR, CAPTURE_HEADER_BYTES, CAPTURE_MAX_UNCOMPRESSED_BYTES, CAPTURE_RECORD_HEAD_BYTES, CaptureError, RecordType,
   TAKE_MAX_UNCOMPRESSED_BYTES, assembleCapture, encodeRecords, readCaptureHeader, recordPayloadBytes, type CaptureMetaInit, type CaptureRecordInit, type IndexEntry,
 } from "./format";
 import { decodeRecordAt, openCapture } from "./reader";
@@ -183,6 +183,40 @@ describe("a take file (ADR 0348)", () => {
     expect(t.meta.seeded).toBe(false);
   });
 
+  it("ADR 0386: a handle's pause, resume and fade are recorded as the game asked them; a pre-take instance's are left out", async () => {
+    clock = 0;
+    const ring = new FakeRing();
+    const prof = profile(ring, [768]);
+    const rec = new TakeRecorder(ring, { now });
+    const inst = { group: 4, playing: true };
+    rec.play(inst, "music/theme.playlist.json", null, {});
+    clock = 250;
+    rec.pause(inst);
+    clock = 1250;
+    rec.resume(inst);
+    rec.fade(inst, 0.5, 2);
+    rec.fade(inst, Number.NaN, 1); // ignored by the handle: not played, not recorded
+    rec.fade(inst, -3, -1); // clamped as the handle clamps
+    rec.pause({ group: 9 }); // from before the take
+    const { requests, section } = rec.finish({ seed: 0, seeded: false, audioHash: "" });
+    const take: SaveTake = { header: SAMPLE_HEADER, meta: { ...SAMPLE_META, take: section }, span: spanOf(prof), truncatedFromSeq: 0, requests };
+    const { take: t } = await openTakeFile(assembleTakeFile(take));
+    expect(t.requests.slice(1)).toEqual([
+      { kind: "pause", t: 0.25, instance: 4 },
+      { kind: "resume", t: 1.25, instance: 4 },
+      { kind: "fade", t: 1.25, instance: 4, to: 0.5, seconds: 2 },
+      { kind: "fade", t: 1.25, instance: 4, to: 0, seconds: 0 },
+    ]);
+  });
+
+  it("a take of a newer format minor is refused up front, naming the versions (ADR 0386)", async () => {
+    const { file } = recordTake();
+    const c = file.slice();
+    new DataView(c.buffer).setUint16(84, CAPTURE_FORMAT_MINOR + 1, true);
+    await expect(openTakeFile(c)).rejects.toMatchObject({ code: "newerFormat" });
+    await expect(openTakeFile(c)).rejects.toThrow(/incompatible version: file is capture format 2\.3, this build reads 2\.0\u20132\.2/);
+  });
+
   it("a group the runtime recycled names a new instance apart: a late stop of the ended one doesn't stop it on replay", async () => {
     clock = 0;
     const ring = new FakeRing();
@@ -328,7 +362,7 @@ describe("a take file (ADR 0348)", () => {
       return got.filter((r): r is Extract<CaptureResponse, { type: "frames" }> => r.type === "frames");
     };
     const [first, again] = await ask(file);
-    expect(first!.frames.map((f) => [f.t, f.width, f.height])).toEqual([[0, 320, 180], [1, 320, 180], [2, 320, 180]]);
+    expect(first!.frames.map((f) => [f.t, f.width, f.height])).toEqual([[0, 640, 360], [1, 640, 360], [2, 640, 360]]);
     expect([...first!.frames[0]!.jpeg]).toEqual([...JPEG]);
     expect(again!.frames).toHaveLength(3);
     const capture = assembleCapture(SAMPLE_HEADER, SAMPLE_META, profile(new FakeRing(), [768]));

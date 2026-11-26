@@ -61,7 +61,7 @@ export function LiveMeter(props: { session: MixerSession; name: string; orientat
   const reading = session.deps.readBus?.(name) ?? null;
   const live = session.live;
   const tainted = !!live && (live.monitor.taint(name).length > 0 || live.compare.taintedFor(name));
-  return <Meter peakDb={peakDb(reading)} orientation={props.orientation} scale={props.scale} label={`${name} meter`} tainted={tainted} />;
+  return <Meter peakDb={peakDb(reading)} orientation={props.orientation} scale={props.scale} label={`${name} meter`} tainted={tainted} frozen={session.levelsHeld()} />;
 }
 
 /**

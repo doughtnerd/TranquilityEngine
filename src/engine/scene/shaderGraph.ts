@@ -5,7 +5,7 @@
  * ```jsonc
  * {
  *   "format": "myco.shadergraph@1",
- *   "target": "lit",                 // "lit" (default) | "unlit"
+ *   "target": "lit",                 // "lit" (default) | "unlit" | "physical" | "sprite-lit" | "sprite-unlit" | "sprite-custom-lit" (ADR 0415)
  *   "surface": "opaque",             // "opaque" (default) | "transparent"
  *   "doubleSided": false,
  *   "properties": [{ "name": "Tint", "type": "color", "value": "#ff8800" }],
@@ -30,7 +30,10 @@ export const isShaderGraphPath = (path: string): boolean => path.toLowerCase().e
 /** True for a shader sub-graph asset path. */
 export const isShaderSubGraphPath = (path: string): boolean => path.toLowerCase().endsWith(SHADER_SUBGRAPH_SUFFIX);
 
-export type ShaderGraphTarget = "lit" | "unlit" | "physical";
+export type ShaderGraphTarget = "lit" | "unlit" | "physical" | "sprite-lit" | "sprite-unlit" | "sprite-custom-lit";
+export const SHADER_GRAPH_TARGETS: readonly ShaderGraphTarget[] = ["lit", "unlit", "physical", "sprite-lit", "sprite-unlit", "sprite-custom-lit"];
+/** A graph target 2D draws take (ADR 0415): a material shaded by one is a 2D material (sprites, tiles, 2D decals and lines). */
+export const isSpriteGraphTarget = (t: ShaderGraphTarget): t is "sprite-lit" | "sprite-unlit" | "sprite-custom-lit" => t.startsWith("sprite-");
 export type ShaderGraphSurface = "opaque" | "transparent";
 export type GraphPropertyType = "float" | "vector2" | "vector3" | "vector4" | "color" | "texture";
 export const GRAPH_PROPERTY_TYPES: readonly GraphPropertyType[] = ["float", "vector2", "vector3", "vector4", "color", "texture"];
@@ -269,8 +272,8 @@ export function parseShaderGraph(raw: unknown, where = "shader graph"): { graph:
   // Sub-graph outputs may be textures: the compiler passes the texture's uniform through (WGSL can't hold one in a variable).
   if (raw.format === SHADER_SUBGRAPH_FORMAT) graph.subgraph = { outputs: parsePorts(raw.outputs, `${where} outputs`, problems, true) };
   if (raw.target !== undefined) {
-    if (raw.target === "lit" || raw.target === "unlit" || raw.target === "physical") graph.target = raw.target;
-    else problems.push(`${where}: "target" should be "lit" or "unlit"; using "lit".`);
+    if ((SHADER_GRAPH_TARGETS as readonly unknown[]).includes(raw.target)) graph.target = raw.target as ShaderGraphTarget;
+    else problems.push(`${where}: "target" should be one of ${SHADER_GRAPH_TARGETS.map((t) => `"${t}"`).join(", ")}; using "lit".`);
   }
   if (raw.surface !== undefined) {
     if (raw.surface === "opaque" || raw.surface === "transparent") graph.surface = raw.surface;

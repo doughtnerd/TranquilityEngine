@@ -10,6 +10,7 @@ import { pixelCenterOffset, pixelPerfectView } from "./pixelPerfect";
 import type { PixelGrid } from "./RenderSurface";
 import { Material } from "./Material";
 import { modelVariantsIfLoaded } from "../scene/models";
+import { sampleLights2D } from "./lights2D/sample";
 
 /** Draws a textured quad (ADR 0014). */
 @component("engine.SpriteRenderer")
@@ -26,10 +27,129 @@ export class SpriteRenderer extends Component {
   /** Sorting layer name from project settings (back to front). */
   @field(String, { choices: (s) => s.render.sortingLayers }) sortingLayer = "Default";
   @field(Number) orderInLayer = 0;
+  /**
+   * A sprite material asset (ADR 0399: shader `"sprite-lit"` or `"sprite-unlit"`). Empty: the default, Sprite Lit, which
+   * draws unlit while the World has no 2D lights.
+   */
+  @field(AssetRef, { kind: "material", description: "A Sprite Lit or Sprite Unlit material asset. Empty: Sprite Lit, lit by 2D lights when the World has any." }) material = "";
 
   override _onDetach(): void {
     this._world.render?.release(this);
   }
+}
+
+export type Light2DType = "global" | "point" | "freeform" | "sprite";
+/** How a 2D light lights normal maps (ADR 0415): not at all, by its batch's averaged direction, or per light (point lights, high tier). */
+export type Light2DNormals = "off" | "fast" | "accurate";
+/** How a 2D light meets the light below it in its light texture (ADR 0415, Unity's overlap operation). */
+export type Light2DOverlap = "additive" | "alphaBlend";
+
+/**
+ * A 2D light (ADR 0399): lights the layered 2D draws (sprites, tiles, 2D decals, 2D lines, skinned sprites) whose
+ * material is Sprite Lit, on its target sorting layers, through one of the project's light blend styles. Global lights
+ * fill their layers with a flat colour; point lights (a spot when their angles are under 360°) fall off between two
+ * radii; freeform lights fill a polygon with a falloff band outside it; sprite lights are shaped and coloured by a
+ * sprite. A 2D light lights no mesh, and a 3D `Light` no 2D draw.
+ */
+@component("engine.Light2D")
+export class Light2D extends Component {
+  @field(String, { choices: ["global", "point", "freeform", "sprite"] }) type: Light2DType = "point";
+  @field(Color) color = Color.white;
+  @field(Number, { description: "How bright the light is (no upper limit: light textures are HDR)." }) intensity = 1;
+  @field(String, { choices: (s) => s.lighting2D.blendStyles.map((b) => b.name), description: "Which of the project's blend styles it lights through." }) blendStyle = "Multiply";
+  @field([String], { choices: (s) => s.render.sortingLayers, description: "The sorting layers it lights. Empty: every sorting layer." }) targetSortingLayers: string[] = [];
+  /** Point: full brightness inside this radius, in world units. */
+  @field(Number) innerRadius = 0;
+  /** Point: no light past this radius, in world units. */
+  @field(Number) outerRadius = 3;
+  /** Point: the full-brightness cone's full angle in degrees, along the node's +Y (360: all round). */
+  @field(Number) innerAngle = 360;
+  /** Point: the cone's full angle in degrees, past which there's no light (360: all round). */
+  @field(Number) outerAngle = 360;
+  /** Point: the falloff's shape, 0 (linear) to 1 (sharp, most light near the inner radius). */
+  @field(Number) falloff = 0.5;
+  /** Freeform: the lit polygon, in the node's local XY. */
+  @field([Vector2]) shape: Vector2[] = [new Vector2(-1, -1), new Vector2(1, -1), new Vector2(1, 1), new Vector2(-1, 1)];
+  /** Freeform: how far the light fades out past the polygon, in world units. */
+  @field(Number) falloffSize = 0.5;
+  /** Sprite: the sprite whose colour and alpha shape the light, at its size (like a SpriteRenderer's). */
+  @field(AssetRef, { kind: "sprite" }) sprite = "";
+  /**
+   * How it lights lit sprites' normal maps (their sidecar's `normalMap`, ADR 0414). Off: flat. Fast: by the direction of
+   * its layer batch's lights, averaged. Accurate (ADR 0415): per light, for point lights on tiers that allow it (high);
+   * elsewhere as fast.
+   */
+  @field(String, { choices: ["off", "fast", "accurate"] }) normalMaps: Light2DNormals = "off";
+  /** With `normalMaps`: the light's height above the sprites' plane, in world units (low: grazing light). */
+  @field(Number) height = 1;
+  /**
+   * How it meets the lights below it (ADR 0415): added to them, or blended over them by its own falloff (an alpha blend
+   * light replaces what's under its core). Lights in a texture draw additive first, then alpha blend in scene order.
+   */
+  @field(String, { choices: ["additive", "alphaBlend"] }) overlap: Light2DOverlap = "additive";
+  /**
+   * A visible glow of the light itself (ADR 0415; 0: none): its shape drawn additively over its target layers' sprites,
+   * at this share of its intensity. Not for global lights; unshadowed.
+   */
+  @field(Number) volumeIntensity = 0;
+  /** Shadows from ShadowCaster2Ds (ADR 0413). */
+  @field(Boolean) shadows = false;
+  /** How dark its shadows are, 0 (none) to 1 (no light). */
+  @field(Number) shadowStrength = 1;
+  @field([String], { choices: (s) => s.lighting2D.shadowLayers, description: "The shadow layers whose casters shadow it (ADR 0415). Empty: every caster." }) shadowMask: string[] = [];
+  /** How soft its shadows' edges are, 0 (hard) to 1, on qualities with soft shadows (ADR 0400). */
+  @field(Number) shadowSoftness = 0.3;
+
+  /**
+   * The light the current World's 2D lights give at `point` (world units) on sorting layer `sortingLayer`, through blend
+   * style `blendStyle` (default the first), as linear RGB: every enabled light's colour × intensity × falloff, shadows
+   * included, without normal maps (flat). For gameplay, such as how visible a character is; computed on the CPU from
+   * the lights' fields, the same rule the light pass draws by. A sprite light counts as its rectangle.
+   */
+  static sampleAt(point: Vector2 | Vector3, sortingLayer = "Default", blendStyle?: string): Color {
+    return sampleLights2D(World.require(), point.x, point.y, sortingLayer, blendStyle);
+  }
+
+  override _onDetach(): void {
+    this._world.render?.release(this);
+  }
+}
+
+export type ShadowCaster2DShape = "auto" | "collider" | "sprite" | "custom";
+
+/**
+ * Casts shadows from 2D lights with `shadows` on (ADR 0413). Its outline comes from the node's 2D collision shapes (a
+ * Tilemap's merged solid tiles, its 2D colliders), its SpriteRenderer's slice outline (ADR 0414) or a custom path.
+ */
+@component("engine.ShadowCaster2D")
+export class ShadowCaster2D extends Component {
+  /** `auto`: collision shapes on the node if any, else the sprite's outline, else its rectangle. */
+  @field(String, { choices: ["auto", "collider", "sprite", "custom"] }) shape: ShadowCaster2DShape = "auto";
+  /** Custom: a closed outline in the node's local XY. */
+  @field([Vector2]) path: Vector2[] = [];
+  @field(Boolean) castShadows = true;
+  /** Shadow its own interior too. Off: what lies behind it is dark and its own face stays lit. */
+  @field(Boolean) selfShadows = false;
+  @field([String], { choices: (s) => s.lighting2D.shadowLayers, description: "The shadow layers it's on (ADR 0415): it shadows lights whose mask shares one. Empty: every light." }) shadowMask: string[] = [];
+  @field([String], { choices: (s) => s.render.sortingLayers, description: "The sorting layers whose lighting it shadows. Empty: every sorting layer." }) targetSortingLayers: string[] = [];
+
+  override _onDetach(): void {
+    this._world.render?.release(this);
+  }
+}
+
+/**
+ * Merges the ShadowCaster2Ds on its node and below it into one caster (ADR 0415, Unity's Composite Shadow Caster 2D):
+ * their outlines cast together with these settings (their own are ignored), and edges inside another member's outline
+ * don't cast, so a wall built of many pieces shadows as one.
+ */
+@component("engine.CompositeShadowCaster2D")
+export class CompositeShadowCaster2D extends Component {
+  @field(Boolean) castShadows = true;
+  /** Shadow the members' interiors too. Off: what lies behind is dark and their faces stay lit. */
+  @field(Boolean) selfShadows = false;
+  @field([String], { choices: (s) => s.render.sortingLayers, description: "The sorting layers whose lighting it shadows. Empty: every sorting layer." }) targetSortingLayers: string[] = [];
+  @field([String], { choices: (s) => s.lighting2D.shadowLayers, description: "The shadow layers it's on (ADR 0415). Empty: every light." }) shadowMask: string[] = [];
 }
 
 export type Projection = "orthographic" | "perspective";
@@ -478,6 +598,13 @@ export class Light extends Component {
   /** Spot: how soft the cone's edge is, 0 (hard) to 1. */
   @field(Number) spotSoftness = 0.2;
   /**
+   * Directional: this is the World's sun (ADR 0393), the light a sky drives and shader graphs' Main Light
+   * nodes read. Without one flagged, the brightest directional light is the sun; with several, the
+   * brightest of them.
+   */
+  @field(Boolean, { description: "The World's sun: the directional light the sky drives and shader graphs' Main Light reads. Unflagged: the brightest directional light." })
+  sun = false;
+  /**
    * Directional, point and spot: cast shadows from meshes with `castShadows`. A directional
    * light's shadows cover `shadowArea` metres around its node.
    */
@@ -689,6 +816,19 @@ export class ParticleSystem extends Component {
    * play and restart, for replays, tests and lockstep.
    */
   @field(Number) seed = 0;
+  /**
+   * 2D (ADR 0415): the sorting layer its particles draw on, among sprites and tiles, at `orderInLayer`; and with a lit
+   * 2D `material`, lit by 2D lights like them (each output's flat light: no normal maps). Empty: drawn as 3D particles,
+   * ordered by their outputs' render order.
+   */
+  @field(String, { choices: (s) => ["", ...s.render.sortingLayers], description: "The sorting layer its particles draw on as 2D content (lit by 2D lights). Empty: 3D particles." }) sortingLayer = "";
+  /** With a `sortingLayer`: the order within it (higher draws on top), as a SpriteRenderer's. */
+  @field(Number) orderInLayer = 0;
+  /**
+   * With a `sortingLayer`: a 2D material asset (`"sprite-lit"`, the default when empty, or `"sprite-unlit"`) saying
+   * whether 2D lights light the particles. Their colours and textures stay their outputs'.
+   */
+  @field(AssetRef, { kind: "material", description: "With a sorting layer: Sprite Lit (default) or Sprite Unlit, whether 2D lights light the particles." }) material = "";
 
   /** @internal Commands for the render backend, in order. */
   _commands: ParticleCommand[] = [];

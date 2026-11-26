@@ -2,13 +2,14 @@
 // take's records, WRAP stripped, Rc2's `copyRecords`) becomes a file: the 96 B plain header, META, the records and an INDEX
 // record, the part after the header deflate-raw compressed with `CompressionStream` (or stored raw, `compressed` clear,
 // where the runtime has none). The web saves a `Blob` through `a[download]`; Tauri (desktop and Android) saves through
-// `Storage.save(key, bytes, "cache")`, `<storage root>/cache/<key>.bin`, and keeps the newest 16 auto-named files
-// (`CAPTURE_TRIGGER_MAX_FILES`: oldest deleted first through `Storage.list` and `delete`).
+// the engine's `FileSystem`: a plain file with its real extension, `<storage root>/recordings/<name>.sporesample` or
+// `<storage root>/recordings/<name>.sporesample`, and keeps the newest 16 auto-named files of each folder
+// (`CAPTURE_TRIGGER_MAX_FILES`: oldest deleted first through `list` and `remove`).
 //
 // This file is part of the lazy chunk: `capture/capture.ts` loads it by `import()` on the first `save`, never statically,
 // so a game that never captures carries none of `format.ts`. Everything environmental (the platform, the storage, the
 // download, the compressor, the clock) is one `SaveEnv`, so every path runs against fakes.
-import { isTauri } from "../../../../engine/platform/FileSystem";
+import { getFileSystem, isTauri } from "../../../../engine/platform/FileSystem";
 import { Storage } from "../../../../engine/platform/Storage";
 import {
   CAPTURE_FLAG_COMPRESSED, CAPTURE_FLAG_HAS_INDEX, CAPTURE_HEADER_BYTES, CAPTURE_RECORD_HEAD_BYTES, CAPTURE_TRIGGER_MAX_FILES,
@@ -18,26 +19,34 @@ import {
 import type { RingSpan } from "./ring";
 
 /** The file extension every capture carries. */
-export const CAPTURE_EXTENSION = ".mycap";
+export const CAPTURE_EXTENSION = ".sporesample";
 /** ADR 0348: a take's (`TAKE_SUFFIX` of `engine/audio/take/types.ts`). */
-export const TAKE_EXTENSION = ".mycotake";
+export const TAKE_EXTENSION = ".sporesample";
 
-/** What is saved: a capture (`.mycap`, auto names `capture-…`) or a take (`.mycotake`, auto names `take-…`). */
+/** What is saved: a capture (`.sporesample`, auto names `capture-…`) or a take (`.sporesample`, auto names `take-…`). */
 export type SaveKind = "capture" | "take";
 const EXTENSION: Readonly<Record<SaveKind, string>> = { capture: CAPTURE_EXTENSION, take: TAKE_EXTENSION };
 /** A file name's stem is cut to this many characters (§1.2); the extension is added after. */
 const CAPTURE_NAME_MAX_CHARS = 64;
 
+/** The file operations behind a Tauri save; `path`s are absolute. */
+export interface SaveFiles {
+  /** Creates the folder and any missing parents. */
+  mkdir(path: string): Promise<void>;
+  /** Writes (or overwrites) the file. */
+  write(path: string, bytes: Uint8Array): Promise<void>;
+  /** The names of the files (not folders) directly in `path`. */
+  list(path: string): Promise<string[]>;
+  remove(path: string): Promise<void>;
+}
+
 /** What the saver needs of the platform, the storage, the clock and the compressor. */
 export interface SaveEnv {
   /** True inside a Tauri webview (desktop or Android): the file goes to the app's data folder. */
   tauri: boolean;
-  storage: {
-    save(key: string, value: unknown, namespace: "cache"): Promise<void>;
-    list(namespace: "cache"): Promise<string[]>;
-    delete(key: string, namespace: "cache"): Promise<void>;
-  };
-  /** The folder `Storage` writes files under (Tauri: the storage scope's folder, ADR 0317). */
+  /** The file operations the saver needs (Tauri: the engine's `FileSystem`). */
+  fs: SaveFiles;
+  /** The folder the `recordings/` folder lives in (Tauri: the storage scope's folder, ADR 0317). */
   storageRoot(): Promise<string>;
   /** Hands the bytes to the browser as a download named `fileName`. */
   download(bytes: Uint8Array, fileName: string): void;
@@ -94,8 +103,8 @@ export function mergeRequests(span: RingSpan, requests: { bytes: Uint8Array; rec
 // --- names ----------------------------------------------------------------------------------------------------------
 
 const AUTO_NAME: Readonly<Record<SaveKind, RegExp>> = {
-  capture: /^capture-(\d{8})-(\d{6})(?:-(\d+))?\.mycap$/,
-  take: /^take-(\d{8})-(\d{6})(?:-(\d+))?\.mycotake$/,
+  capture: /^capture-(\d{8})-(\d{6})(?:-(\d+))?\.sporesample$/,
+  take: /^take-(\d{8})-(\d{6})(?:-(\d+))?\.sporesample$/,
 };
 const pad = (n: number, w = 2): string => String(n).padStart(w, "0");
 
@@ -116,7 +125,7 @@ function autoCaptureStem(now: Date, kind: SaveKind = "capture"): string {
 
 /**
  * The file name for `name` (§1.2): every character outside `[A-Za-z0-9._-]` becomes `_`, leading dots go (no hidden file,
- * no `..`), a `.mycap` the caller already wrote isn't doubled, the stem is cut to 64 characters and `.mycap` is appended.
+ * no `..`), a `.sporesample` the caller already wrote isn't doubled, the stem is cut to 64 characters and `.sporesample` is appended.
  * An absent name, or one with nothing left, is the auto name. `auto` says which, since only auto-named files rotate.
  */
 function captureFileName(name: string | undefined, now: Date, kind: SaveKind = "capture"): { file: string; auto: boolean } {
@@ -227,9 +236,11 @@ export function captureFileBytes(take: SaveTake, compress: SaveEnv["compress"] =
 
 // --- where it goes --------------------------------------------------------------------------------------------------
 
-/** Where Tauri's `Storage` puts `key` in the `cache` namespace (`TauriRecords`: `<storage root>/cache/<encoded key>.bin`). */
-function cachePath(root: string, key: string): string {
-  return `${root.replace(/[\\/]+$/, "")}/cache/${encodeURIComponent(key)}.bin`;
+/** The folder a kind is saved in, under the storage root. */
+const FOLDER: Readonly<Record<SaveKind, string>> = { capture: "recordings", take: "recordings" };
+
+function folderPath(root: string, kind: SaveKind): string {
+  return `${root.replace(/[\\/]+$/, "")}/${FOLDER[kind]}`;
 }
 
 /** `[date, time, repeat]` of an auto-named file, for ordering; null for any other name. */
@@ -239,19 +250,20 @@ function autoOrder(key: string, kind: SaveKind): [string, string, number] | null
 }
 
 /**
- * Keeps the newest `keep` (default `CAPTURE_TRIGGER_MAX_FILES`, 16) auto-named captures in the `cache` namespace and deletes
- * the older ones, oldest first (`Storage.list`, `delete`). Files a caller named are never touched, and neither is anything
- * else in `cache`. Returns the keys it deleted. The built-in trigger (X1) calls this, not a copy of it.
+ * Keeps the newest `keep` (default `CAPTURE_TRIGGER_MAX_FILES`, 16) auto-named files of `kind` in `dir` and deletes the
+ * older ones, oldest first (`list`, `remove`). Files a caller named are never touched, and neither is anything else in the
+ * folder. Returns the file names it deleted. The built-in trigger (X1) calls this, not a copy of it.
  */
-export async function rotateCaptures(storage: Pick<SaveEnv["storage"], "list" | "delete">, keep = CAPTURE_TRIGGER_MAX_FILES, kind: SaveKind = "capture"): Promise<string[]> {
-  const ordered = (await storage.list("cache"))
+export async function rotateCaptures(files: Pick<SaveFiles, "list" | "remove">, dir: string, keep = CAPTURE_TRIGGER_MAX_FILES, kind: SaveKind = "capture"): Promise<string[]> {
+  const base = dir.replace(/[\\/]+$/, "");
+  const ordered = (await files.list(dir))
     .map((key) => ({ key, order: autoOrder(key, kind) }))
     .filter((e): e is { key: string; order: [string, string, number] } => e.order !== null)
     .sort((a, b) => (a.order[0] < b.order[0] ? -1 : a.order[0] > b.order[0] ? 1 : a.order[1] < b.order[1] ? -1 : a.order[1] > b.order[1] ? 1 : a.order[2] - b.order[2]));
   const deleted: string[] = [];
   for (const { key } of ordered.slice(0, Math.max(0, ordered.length - keep))) {
     try {
-      await storage.delete(key, "cache");
+      await files.remove(`${base}/${key}`);
       deleted.push(key);
     } catch {
       // A file that can't be deleted stays; the next save tries again.
@@ -277,10 +289,11 @@ function browserDownload(bytes: Uint8Array, fileName: string): void {
 export function defaultSaveEnv(): SaveEnv {
   return {
     tauri: isTauri(),
-    storage: {
-      save: (key, value, namespace) => Storage.save(key, value, namespace),
-      list: (namespace) => Storage.list(namespace),
-      delete: (key, namespace) => Storage.delete(key, namespace),
+    fs: {
+      mkdir: async (path) => (await getFileSystem()).mkdir(path),
+      write: async (path, bytes) => (await getFileSystem()).writeBinary(path, bytes),
+      list: async (path) => (await (await getFileSystem()).list(path)).filter((e) => !e.isDirectory).map((e) => e.name),
+      remove: async (path) => (await getFileSystem()).remove(path),
     },
     storageRoot: async () => Storage.root() ?? (await import("@tauri-apps/api/path")).appDataDir(),
     download: browserDownload,
@@ -291,7 +304,7 @@ export function defaultSaveEnv(): SaveEnv {
 
 
 /**
- * Compresses and saves `take`. Resolves with the file name on the web, with the app-data path on Tauri (and then rotates
+ * Compresses and saves `take`. Resolves with the file name on the web, with the absolute file path on Tauri (and then rotates
  * auto-named files to 16). The span is copied by the caller before this runs, so a ring that goes on recording changes
  * nothing here.
  */
@@ -304,11 +317,9 @@ export async function saveCapture(take: SaveTake, name?: string, env: SaveEnv = 
     webSaves++;
     return file;
   }
-  await env.storage.save(file, bytes, "cache");
-  if (auto) await rotateCaptures(env.storage, CAPTURE_TRIGGER_MAX_FILES, kind);
-  try {
-    return cachePath(await env.storageRoot(), file);
-  } catch {
-    return `cache/${encodeURIComponent(file)}.bin`;
-  }
+  const dir = folderPath(await env.storageRoot(), kind);
+  await env.fs.mkdir(dir);
+  await env.fs.write(`${dir}/${file}`, bytes);
+  if (auto) await rotateCaptures(env.fs, dir, CAPTURE_TRIGGER_MAX_FILES, kind);
+  return `${dir}/${file}`;
 }

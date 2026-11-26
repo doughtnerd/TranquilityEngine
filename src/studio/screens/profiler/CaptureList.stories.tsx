@@ -1,5 +1,5 @@
 // Stories (ADR 0219, 0348) for the Captures panel's view, the run-file tree Takes shares: captures by folder (editor and
-// game-build captures and a take) with bare names and durations, the open one selected, a click opening another, search
+// game-build captures and a take, one folder and one extension, ADR 0409) with bare names and durations, the open one selected, a click opening another, search
 // with each match's folders in its meta, the toolbar's add menu (Open capture file…, New folder) and Collapse all, the
 // file and folder menus (Duplicate, Move to…, Move to top level, Delete folder), F2 renaming in place, Delete, a drag
 // onto a folder, and the empty state saying where captures come from.
@@ -8,15 +8,15 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test";
 import { CaptureList, type CaptureListProps } from "./CaptureList";
 import "./profiler.css";
 
-const FILES = ["captures/canyon_run_03.mycap", "captures/boss_mix_check.mycap", "captures/Test PC/slot 07.mycap", "captures/Tablet/slot 06.mycap", "takes/canyon_run_03.mycotake", "sfx/boom.wav", "project.json"];
-const FOLDERS = ["captures", "captures/Test PC", "captures/Tablet", "takes"];
-const SECONDS: Record<string, number> = { "captures/canyon_run_03.mycap": 32, "captures/Test PC/slot 07.mycap": 108, "captures/Tablet/slot 06.mycap": 55 };
+const FILES = ["recordings/canyon_run_03.sporesample", "recordings/boss_mix_check.sporesample", "recordings/Test PC/slot 07.sporesample", "recordings/Tablet/slot 06.sporesample", "recordings/take_01.sporesample", "sfx/boom.wav", "project.json"];
+const FOLDERS = ["recordings", "recordings/Test PC", "recordings/Tablet"];
+const SECONDS: Record<string, number> = { "recordings/canyon_run_03.sporesample": 32, "recordings/Test PC/slot 07.sporesample": 108, "recordings/Tablet/slot 06.sporesample": 55 };
 
 const meta = {
   title: "Studio/Profiler/Captures",
   component: CaptureList,
   args: {
-    files: FILES, folders: FOLDERS, openPath: "captures/canyon_run_03.mycap", writable: true, duration: (p: string) => SECONDS[p] ?? null,
+    files: FILES, folders: FOLDERS, openPath: "recordings/canyon_run_03.sporesample", writable: true, duration: (p: string) => SECONDS[p] ?? null,
     onOpen: fn(), onImport: fn(), onRename: fn(), onMove: fn(), onDelete: fn(), onDuplicate: fn(), onRenameFolder: fn(), onDeleteFolder: fn(), onFolder: fn(),
     onNewFolder: fn(async (parent: string) => `${parent ? `${parent}/` : ""}New Folder`),
   },
@@ -33,7 +33,7 @@ export const ByFolder: Story = {
     const c = within(canvasElement);
     const tree = c.getByRole("tree", { name: "Captures" });
     const labels = within(tree).getAllByRole("treeitem").map((r) => r.querySelector(".name")?.textContent?.trim());
-    // Bare names (no extension), folders first; files that aren't captures stay out.
+    // Bare names (no extension), folders first; files that aren't recordings stay out.
     await expect(labels).toEqual(expect.arrayContaining(["Test PC", "slot 07", "canyon_run_03"]));
     await expect(within(tree).queryByText("boom")).toBeNull();
     // The duration is the row's meta.
@@ -41,7 +41,7 @@ export const ByFolder: Story = {
     await expect(rowOf(c.getAllByRole("treeitem", { name: /canyon_run_03/ })[0]!).textContent).toContain("32.0 s");
     await expect(c.getAllByRole("treeitem", { name: /canyon_run_03/ })[0]).toHaveAttribute("aria-selected", "true");
     await userEvent.click(c.getByText("boss_mix_check"));
-    await expect(args.onOpen).toHaveBeenCalledWith("captures/boss_mix_check.mycap");
+    await expect(args.onOpen).toHaveBeenCalledWith("recordings/boss_mix_check.sporesample");
   },
 };
 
@@ -56,7 +56,7 @@ export const Search: Story = {
     const rows = within(tree).getAllByRole("treeitem");
     await expect(rows.map((r) => r.querySelector(".name")?.textContent)).toEqual(["slot 06", "slot 07"]);
     // Each match names its folders in its meta.
-    await expect(rows[1]!.textContent).toContain("captures › Test PC · 1:48");
+    await expect(rows[1]!.textContent).toContain("recordings › Test PC · 1:48");
     await userEvent.clear(c.getByRole("searchbox", { name: "Search captures" }));
     await userEvent.type(c.getByRole("searchbox", { name: "Search captures" }), "zzz");
     await expect(c.getByText("No matches")).toBeVisible();
@@ -74,10 +74,10 @@ export const RenameAndDelete: Story = {
     await userEvent.clear(field);
     await userEvent.type(field, "boss_final{Enter}");
     // The extension is kept.
-    await expect(args.onRename).toHaveBeenCalledWith("captures/boss_mix_check.mycap", "boss_final.mycap");
+    await expect(args.onRename).toHaveBeenCalledWith("recordings/boss_mix_check.sporesample", "boss_final.sporesample");
     c.getByRole("treeitem", { name: /slot 06/ }).focus();
     await userEvent.keyboard("{Delete}");
-    await expect(args.onDelete).toHaveBeenCalledWith("captures/Tablet/slot 06.mycap");
+    await expect(args.onDelete).toHaveBeenCalledWith("recordings/Tablet/slot 06.sporesample");
   },
 };
 
@@ -90,7 +90,7 @@ export const MoveTo: Story = {
     const dialog = await body.findByRole("dialog");
     await userEvent.click(within(dialog).getByText("Tablet"));
     await userEvent.click(within(dialog).getByRole("button", { name: "Move" }));
-    await expect(args.onMove).toHaveBeenCalledWith(["captures/Test PC/slot 07.mycap"], "captures/Tablet");
+    await expect(args.onMove).toHaveBeenCalledWith(["recordings/Test PC/slot 07.sporesample"], "recordings/Tablet");
   },
 };
 
@@ -101,10 +101,10 @@ export const FileMenu: Story = {
     rightClick(rowOf(c.getByRole("treeitem", { name: /slot 07/ })));
     await expect((await body.findAllByRole("menuitem")).map((m) => m.textContent)).toEqual(["Open", "RenameF2", "Duplicate", "Move to…", "Move to top level", "Delete captureDel"]);
     await userEvent.click(body.getByRole("menuitem", { name: "Duplicate" }));
-    await expect(args.onDuplicate).toHaveBeenCalledWith("captures/Test PC/slot 07.mycap");
+    await expect(args.onDuplicate).toHaveBeenCalledWith("recordings/Test PC/slot 07.sporesample");
     rightClick(rowOf(c.getByRole("treeitem", { name: /slot 07/ })));
     await userEvent.click(await body.findByRole("menuitem", { name: "Move to top level" }));
-    await expect(args.onMove).toHaveBeenCalledWith(["captures/Test PC/slot 07.mycap"], "");
+    await expect(args.onMove).toHaveBeenCalledWith(["recordings/Test PC/slot 07.sporesample"], "");
   },
 };
 
@@ -116,14 +116,14 @@ export const FolderMenu: Story = {
     rightClick(rowOf(folder));
     await expect((await body.findAllByRole("menuitem")).map((m) => m.textContent)).toEqual(["RenameF2", "New folder", "Move to…", "Move to top level", "Delete folderDel"]);
     await userEvent.click(body.getByRole("menuitem", { name: /Delete folder/ }));
-    await expect(args.onDeleteFolder).toHaveBeenCalledWith("captures/Test PC");
+    await expect(args.onDeleteFolder).toHaveBeenCalledWith("recordings/Test PC");
     // F2 renames a folder in place.
     folder.focus();
     await userEvent.keyboard("{F2}");
     const field = await waitFor(() => c.getByRole("textbox", { name: "Folder name" }));
     await userEvent.clear(field);
     await userEvent.type(field, "Desk PC{Enter}");
-    await expect(args.onRenameFolder).toHaveBeenCalledWith("captures/Test PC", "Desk PC");
+    await expect(args.onRenameFolder).toHaveBeenCalledWith("recordings/Test PC", "Desk PC");
   },
 };
 
@@ -135,7 +135,7 @@ export const AddMenuAndCollapse: Story = {
     await userEvent.click(c.getByRole("button", { name: "More ways to add captures" }));
     await expect((await body.findAllByRole("menuitem")).map((m) => m.textContent)).toEqual(["Open capture file…into captures", "New folderin captures"]);
     await userEvent.click(body.getByRole("menuitem", { name: /New folder/ }));
-    await expect(args.onNewFolder).toHaveBeenCalledWith("captures");
+    await expect(args.onNewFolder).toHaveBeenCalledWith("recordings");
     // Collapse all closes every folder.
     await userEvent.click(c.getByRole("button", { name: "Collapse all" }));
     await waitFor(() => expect(c.queryByText("slot 07")).toBeNull());
@@ -159,7 +159,7 @@ export const DragOntoFolder: Story = {
     await waitFor(() => expect(to.closest("[role=treeitem]")!.querySelector(".row")!.className).toMatch(/drop/));
     window.dispatchEvent(new PointerEvent("pointerup", at(to.getBoundingClientRect())));
     void b;
-    await expect(args.onMove).toHaveBeenCalledWith(["captures/boss_mix_check.mycap"], "captures/Tablet");
+    await expect(args.onMove).toHaveBeenCalledWith(["recordings/boss_mix_check.sporesample"], "recordings/Tablet");
   },
 };
 

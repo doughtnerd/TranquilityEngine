@@ -10,7 +10,7 @@
  * One tempo (120 bpm, 4/4, a bar is 2 s) for every clip, so any segment can follow any other on the grid. Mono, 16-bit
  * PCM at 22.05 kHz, the same encoding as the `music-{pad,pulse,lead}.wav` stems SM1 kept in `audio/events/` (mono 16-bit
  * WAV: a decoded clip needs no codec, and a few seconds of it is small). The stems of one segment are exactly the same
- * length, as a segment needs (`docs/guide/interactive-music.md`, "Tracks and stems").
+ * length, as a segment needs (`docs/wiki/guide/interactive-music.md`, "Tracks and stems").
  *
  * The clips, and the segment each one is a stem of (the events in `samples/sound-lab/audio/music/*.audioevent.json`):
  *   explore-pad, explore-arp      explore, 2 bars, a forever loop (the whole clip wraps)

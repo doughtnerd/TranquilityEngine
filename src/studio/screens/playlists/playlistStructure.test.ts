@@ -6,7 +6,7 @@ import { isSamplePath, libraryGroups, sampleDragText, sampleFromDrag } from "./l
 import { ancestorKeys, entryKey, fileKey, findNode, folderKey, linkedByIndex, nodePath, playlistTree, searchTree } from "./playlistTree";
 import { childrenToKeep, countLinks, deleteEntry, moveAcrossFiles, moveWithinFile, planDelete, replaceLinks, shiftAfterRemoval } from "./structureEdits";
 import { dropLabel, dropZone, planDrop } from "./treeDrop";
-import { aliveAt, eventTimes, logSpan, stepEvent, updateLog, voicesNow, type DebugSnapshot } from "./voiceLog";
+import { aliveAt, eventTimes, markTrigger, stepEvent, triggerRows, triggerSpan, updateLog, voicesNow, type DebugSnapshot } from "./voiceLog";
 
 const ctx = { parameters: [] };
 const sample = (s: string): Entry => ({ kind: "sample", sample: s, trim: null, loop: "inherit", ...defaultEntryUse() });
@@ -217,6 +217,22 @@ describe("voice log", () => {
     expect(stepEvent(times, 2, -1)).toBe(1);
     expect(aliveAt(log, 1.5)).toHaveLength(1);
     expect(aliveAt(log, 2)).toHaveLength(0);
-    expect(logSpan(log, 5)).toEqual([1, 2]);
+  });
+
+  it("keeps the latest trigger's voices for the strip, over its own span", () => {
+    const first = updateLog(updateLog([], snap(1, [v(1)]), "p.playlist.json"), snap(2, []), "p.playlist.json");
+    const mark = markTrigger(first, 30);
+    const log = updateLog(first, snap(30.1, [v(2), v(3)]), "p.playlist.json");
+    const rows = triggerRows(log, mark);
+    expect(rows.map((r) => r.key)).toEqual(["v2:7", "v3:7"]);
+    expect(triggerRows(log, null)).toHaveLength(3);
+    // Still playing (no known end): a strip wider than the time so far, so the playhead moves across it.
+    expect(triggerSpan(rows, mark, 31)).toEqual([30, 32]);
+    expect(triggerSpan(rows, mark, 33.5)).toEqual([30, 34]);
+    expect(triggerSpan(rows, mark, 40)).toEqual([30, 45]);
+    // Every voice ended: the strip is the trigger's own length.
+    const done = triggerRows(updateLog(log, snap(32.5, []), "p.playlist.json"), mark);
+    expect(triggerSpan(done, mark, 50)).toEqual([30, 32.5]);
+    expect(triggerSpan([], mark, 50)).toBeNull();
   });
 });

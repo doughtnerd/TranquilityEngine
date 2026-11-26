@@ -18,6 +18,11 @@ export interface LocaleStrings {
   load(code: string): Promise<void>;
   /** The message `key` has in `code` as written, or undefined when that language has none (or isn't loaded). */
   message(key: string, code: string): string | undefined;
+  /**
+   * The language `code`'s message for `key` is written in, when it isn't `code` (a build file holds its fallbacks, ADR
+   * 0391): its plural and number rules format it. Absent or undefined: `code`.
+   */
+  sourceOf?(key: string, code: string): string | undefined;
   /** Every key there is a message for, in table order (a build: the loaded languages' keys). */
   keys(): Iterable<string>;
 }
@@ -117,6 +122,8 @@ export class ProjectStrings implements LocaleStrings {
  */
 export class BuildStrings implements LocaleStrings {
   private readonly loaded = new Map<string, Map<string, string>>();
+  /** Lower-case language code → key → the language its message is written in, where that differs (ADR 0391). */
+  private readonly sources = new Map<string, Map<string, string>>();
   private readonly loading = new Map<string, Promise<void>>();
 
   /**
@@ -140,6 +147,7 @@ export class BuildStrings implements LocaleStrings {
           const { file, problems } = parseBuildStrings(raw, `strings/${code}.json`);
           for (const problem of problems) warnOnce(problem);
           this.loaded.set(lower, new Map(Object.entries(file.strings)));
+          this.sources.set(lower, new Map(Object.entries(file.sources)));
         },
         (err: unknown) => {
           this.loading.delete(lower);
@@ -153,6 +161,10 @@ export class BuildStrings implements LocaleStrings {
 
   message(key: string, code: string): string | undefined {
     return this.loaded.get(code.toLowerCase())?.get(key);
+  }
+
+  sourceOf(key: string, code: string): string | undefined {
+    return this.sources.get(code.toLowerCase())?.get(key);
   }
 
   *keys(): Iterable<string> {

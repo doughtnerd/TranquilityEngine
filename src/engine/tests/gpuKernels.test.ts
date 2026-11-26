@@ -5,10 +5,10 @@ import { describe, expect, it } from "vitest";
 import { shaderSource } from "../render/shaderSource/shaderSource";
 import { dispatchGroups, gridLayout, padToGrid, PingPong, texelOf } from "../render/gpuKernels/layout";
 import { JsItemKernel, checkItemKernel, itemKernelFeedbackVaryings, itemKernelGlsl, itemKernelGlslFeedback, itemKernelWgsl, itemStride, type ItemKernelSpec } from "../render/gpuKernels/itemKernel";
-import { GlFeedbackItemKernel } from "../render/gpuKernels/itemKernelFeedback";
+import { GlFeedbackBatch, GlFeedbackItemKernel } from "../render/gpuKernels/itemKernelFeedback";
 import { GpuItemKernel } from "../render/gpuKernels/itemKernelWebgpu";
 import { GlItemKernel } from "../render/gpuKernels/itemKernelWebgl2";
-import { BUFFER, type GpuDevice } from "../render/gpuKernels/webgpu";
+import { BUFFER, GpuComputeBatch, type GpuDevice } from "../render/gpuKernels/webgpu";
 import { compileParticleKernels, U } from "../scene/particleKernel";
 import { defaultBlock } from "../scene/particleBlocks";
 import type { ParticleGraph } from "../scene/particleGraph";
@@ -292,6 +292,33 @@ describe("GPU kernel executor: shared inputs and transform feedback (T16)", () =
     k.dispose();
     expect(rec.buffers.find((b) => b.label === "shared")!.destroyed).toBe(false);
     expect(() => k.bindInput("nope", shared)).toThrow(/no input/);
+  });
+
+  it("compiles one spec once per device, and records many kernels into one pass and one submit", () => {
+    const { device, rec } = recordingDevice();
+    let submits = 0;
+    let encoders = 0;
+    const submit = device.queue.submit.bind(device.queue);
+    device.queue.submit = (c) => (submits++, submit(c));
+    const encoder = device.createCommandEncoder.bind(device);
+    device.createCommandEncoder = () => (encoders++, encoder());
+    const kernels = [new GpuItemKernel(device, MOVE, 4), new GpuItemKernel(device, MOVE, 100), new GpuItemKernel(device, MOVE, 0)];
+    expect(rec.shaders).toHaveLength(1);
+    expect(rec.pipelines).toEqual(["main"]);
+    const batch = new GpuComputeBatch(device);
+    expect(batch.pending).toBe(false);
+    for (const k of kernels) k.dispatch(batch);
+    expect(batch.pending).toBe(true);
+    expect(submits).toBe(0);
+    expect(rec.dispatches).toEqual([
+      ["main", 1, 1],
+      ["main", 2, 1],
+    ]); // no items: no dispatch
+    batch.submit();
+    batch.submit(); // nothing recorded since
+    expect([submits, encoders]).toEqual([1, 1]);
+    kernels[0].dispatch(); // alone: its own pass and submit, as before
+    expect([submits, encoders]).toEqual([2, 2]);
   });
 
   it("wraps the body in a transform-feedback vertex shader capturing kout0.. interleaved", () => {

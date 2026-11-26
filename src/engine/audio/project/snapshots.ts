@@ -28,10 +28,14 @@ export function testValueOf(def: ParameterDef, values: TestValues): number {
   return isLabelled(def) ? Math.max(0, def.labels.indexOf(def.default)) : def.default;
 }
 
-/** A parameter value as the conditions read it: a label becomes its index (-1 when unknown), a number stays. */
+/**
+ * A parameter value as the conditions read it: a label becomes its index, a number stays. An unknown label is NaN, so
+ * callers ignore it (Q21, ADR 0386) rather than storing -1 as "no label".
+ */
 export function valueOf(def: ParameterDef | undefined, value: number | string): number {
   if (typeof value === "number") return value;
-  return def && isLabelled(def) ? def.labels.indexOf(value) : Number.NaN;
+  const i = def && isLabelled(def) ? def.labels.indexOf(value) : -1;
+  return i >= 0 ? i : Number.NaN;
 }
 
 /** Whether one condition holds for the values; false for an unknown parameter or a mismatched op. */

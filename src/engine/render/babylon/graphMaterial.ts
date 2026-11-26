@@ -187,12 +187,13 @@ function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [point: 
     };
   }
   const f = c.fragment;
+  if (c.target.startsWith("sprite-")) return spriteGraphCode(c);
   const code: { [point: string]: string } = {
     CUSTOM_FRAGMENT_DEFINITIONS: `${f.declarations}\n${f.normal || f.physical?.clearcoatNormal ? TANGENT_FRAME : ""}`,
     CUSTOM_FRAGMENT_MAIN_BEGIN: `${usesColor(f.body) ? FRAGMENT_COLOR : ""}${f.body}`,
     CUSTOM_FRAGMENT_UPDATE_ALPHA: [`surfaceAlbedo = ${f.baseColor};`, `alpha = ${f.alpha};`, f.alphaClip ? `if (alpha < ${f.alphaClip}) { discard; }` : ""].join("\n"),
   };
-  if (c.target !== "unlit") {
+  if (c.target === "lit" || c.target === "physical") {
     const points: { [P in PbrPoint]?: PbrCode } = {};
     const ior = f.physical?.ior;
     if (f.metalness || f.roughness || ior) {
@@ -207,6 +208,33 @@ function graphCustomCode(c: CompiledShaderGraph, shaderType: string): { [point: 
     Object.assign(code, pbrInjections("wgsl", "fragment", points));
   }
   return code;
+}
+
+/**
+ * A sprite graph's fragment code (ADR 0415) on the unlit 2D quad material: the graph's colour and alpha times the draw's
+ * tint (the material's albedo colour) and vertex colours, which the graph's surface replaces. A Sprite Lit graph's normal
+ * and mask go to private variables the 2D light plugin reads (`lights2DMaterial.ts`, `MYCO_L2D_GRAPH_*`); a Sprite
+ * Custom Lit graph's 2D Light nodes call that plugin's functions, and the plugin then leaves the colour to the graph.
+ */
+function spriteGraphCode(c: CompiledShaderGraph): { [point: string]: string } {
+  const f = c.fragment;
+  return {
+    CUSTOM_FRAGMENT_DEFINITIONS: [f.declarations, "var<private> mycoSpriteN: vec3f = vec3f(0.0, 0.0, 1.0);", "var<private> mycoSpriteMask: vec4f = vec4f(1.0);"].join("\n"),
+    CUSTOM_FRAGMENT_MAIN_BEGIN: `${usesColor(f.body) ? FRAGMENT_COLOR : ""}${f.body}`,
+    CUSTOM_FRAGMENT_UPDATE_ALPHA: [
+      `surfaceAlbedo = (${f.baseColor}) * uniforms.vAlbedoColor.rgb;`,
+      `alpha = (${f.alpha}) * uniforms.vAlbedoColor.a;`,
+      "#ifdef VERTEXCOLOR",
+      "surfaceAlbedo = surfaceAlbedo * fragmentInputs.vColor.rgb;",
+      "#ifdef VERTEXALPHA",
+      "alpha = alpha * fragmentInputs.vColor.a;",
+      "#endif",
+      "#endif",
+      f.alphaClip ? `if (alpha < ${f.alphaClip}) { discard; }` : "",
+      f.normal ? `mycoSpriteN = normalize(${f.normal});` : "",
+      f.mask ? `mycoSpriteMask = ${f.mask};` : "",
+    ].join("\n"),
+  };
 }
 
 /**
@@ -292,7 +320,7 @@ function glslCustomCode(c: CompiledShaderGraph, shaderType: string, depth = fals
     CUSTOM_FRAGMENT_MAIN_BEGIN: f.body,
     CUSTOM_FRAGMENT_UPDATE_ALPHA: [`surfaceAlbedo = ${f.baseColor};`, `alpha = ${f.alpha};`].join("\n"),
   };
-  if (c.target !== "unlit") {
+  if (c.target === "lit" || c.target === "physical") {
     const points: { [P in PbrPoint]?: PbrCode } = {};
     if (f.metalness || f.roughness) points.reflectivity = `vec4(${f.metalness ?? "vReflectivityColor.x"}, ${f.roughness ?? "vReflectivityColor.y"}, vReflectivityColor.zw)`;
     if (f.emission) code.CUSTOM_FRAGMENT_BEFORE_FINALCOLORCOMPOSITION = `finalEmissive = ${f.emission};`;
@@ -442,7 +470,7 @@ export function createGraphMaterial(scene: Scene, name: string, c: CompiledShade
   material.albedoColor.set(1, 1, 1);
   material.metallic = 0;
   material.roughness = 1;
-  material.unlit = c.target === "unlit";
+  material.unlit = c.target === "unlit" || c.target.startsWith("sprite-"); // 2D draws light by the 2D light plugin (ADR 0415)
   material.backFaceCulling = !c.doubleSided;
   material.twoSidedLighting = c.doubleSided;
   if (c.surface === "transparent") material.transparencyMode = PBRMaterial.PBRMATERIAL_ALPHABLEND;

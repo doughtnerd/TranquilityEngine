@@ -24,14 +24,14 @@ export const Compact: Story = {
 
 /** A side panel's empty state is one line; its explanation is an ⓘ tooltip (spec §1.3), which a press also opens. */
 export const CompactOneLine: Story = {
-  args: { title: "No takes yet", body: "Record one with Record take on the editor's Play bar.", compact: true },
+  args: { title: "No takes yet", body: "Record one with Record session in the Studio's player bar.", compact: true },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
     const note = c.getByRole("note", { name: "No takes yet" });
     await expect(note.querySelector("p")).toBeTruthy();
     const tip = c.getByRole("button", { name: "About: No takes yet" });
-    await expect(tip).toHaveAttribute("title", "Record one with Record take on the editor's Play bar.");
+    await expect(tip).toHaveAttribute("title", "Record one with Record session in the Studio's player bar.");
     await userEvent.click(tip);
-    await expect(await within(document.body).findByRole("tooltip")).toHaveTextContent("Record one with Record take");
+    await expect(await within(document.body).findByRole("tooltip")).toHaveTextContent("Record one with Record session");
   },
 };

@@ -26,6 +26,6 @@ export const linesRuntimePlugin: RuntimePlugin = {
   activate(context) {
     context.registerComponents([LineRenderer, TrailRenderer]);
     context.registerEngineSystems([TRAIL_SYSTEM]);
-    context.registerRenderFeature({ spec: LINES_SPEC, load: () => import("./linesFeature").then((m) => m.createLinesFeature) });
+    context.registerRenderFeature({ spec: LINES_SPEC, load: () => import("./linesRenderer").then((m) => m.createLinesFeature) });
   },
 };

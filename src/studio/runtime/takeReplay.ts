@@ -40,6 +40,10 @@ export interface ReplayHandle {
   setParameter(name: string, value: number): void;
   getParameter?(name: string): number | string | undefined;
   trigger(name: string): unknown;
+  /** ADR 0386: the handle requests a take records, re-issued as the game made them. */
+  pause?(): void;
+  resume?(): void;
+  fade?(to: number, seconds: number): void;
 }
 
 export interface ReplayPlayOptions extends TakePlayOptions {
@@ -139,6 +143,20 @@ export const UNSEEDED_NOTE = "The Studio's audio runtime couldn't be reseeded fr
 
 type Play = Extract<TakeRequest, { kind: "play" }>;
 type Pose = Extract<TakeRequest, { kind: "pose" }>;
+/** ADR 0386: a handle's pause, resume or fade. */
+type HandleOp = Extract<TakeRequest, { kind: "pause" | "resume" | "fade" }>;
+
+/** A fade gain ramp (linear) the handle was given: from `from` at `start` to `to` over `seconds`. */
+interface FadeRamp {
+  from: number;
+  to: number;
+  start: number;
+  seconds: number;
+}
+
+/** The fade gain at `t` (1 without a fade). */
+const fadeGainAt = (f: FadeRamp | null, t: number): number =>
+  f === null ? 1 : f.seconds <= 0 || t >= f.start + f.seconds ? f.to : f.from + (f.to - f.from) * Math.max(0, (t - f.start) / f.seconds);
 
 interface PoseTrack {
   readonly times: Float64Array;
@@ -153,8 +171,17 @@ interface Live {
   options: TakePlayOptions;
   parameters: Record<string, number>;
   released: boolean;
+  /** ADR 0386: paused since `pausedAt`, after `pausedFor` seconds paused before (the play position stood still then). */
+  paused: boolean;
+  pausedAt: number;
+  pausedFor: number;
+  /** ADR 0386: the last fade the game gave its handle, or null. */
+  fade: FadeRamp | null;
   handle: ReplayHandle | null;
 }
+
+/** A started instance's state before its handle requests: playing, unpaused, at fade gain 1. */
+const FRESH = { paused: false, pausedAt: 0, pausedFor: 0, fade: null } as const;
 
 /** A recorded pick's line key; null for none. */
 const pickedKey = (p: { key: string } | { none: string } | null): string | null => (p !== null && "key" in p ? p.key : null);
@@ -200,6 +227,8 @@ export class TakeReplay {
   private readonly tracks = new Map<number, PoseTrack>();
   private readonly plays = new Map<number, Play[]>();
   private readonly releases = new Map<number, number[]>();
+  /** ADR 0386: each instance's pauses, resumes and fades, in take order. */
+  private readonly handleOps = new Map<number, HandleOp[]>();
   private readonly mixBuses = new Set<string>();
   private readonly hasSnapshots: boolean;
   private readonly hasMaster: boolean;
@@ -227,6 +256,10 @@ export class TakeReplay {
         let list = this.releases.get(q.instance);
         if (!list) this.releases.set(q.instance, (list = []));
         list.push(q.t);
+      } else if (q.kind === "pause" || q.kind === "resume" || q.kind === "fade") {
+        let list = this.handleOps.get(q.instance);
+        if (!list) this.handleOps.set(q.instance, (list = []));
+        list.push(q);
       } else if (q.kind === "mix") {
         if (q.op === "busVolume" || q.op === "busFade") this.mixBuses.add(q.target);
         else if (q.op === "masterVolume") master = true;
@@ -442,7 +475,7 @@ export class TakeReplay {
         const old = this.live.get(q.instance);
         if (old && Math.abs(old.started - q.t) < 1e-9 && old.path === q.path) return false; // started by the keyframe already
         old?.handle?.stop(0);
-        const l: Live = { instance: q.instance, path: q.path, emitter: q.emitter, started: q.t, options: q.options, parameters: { ...q.options.parameters }, released: false, handle: null };
+        const l: Live = { instance: q.instance, path: q.path, emitter: q.emitter, started: q.t, options: q.options, parameters: { ...q.options.parameters }, released: false, ...FRESH, handle: null };
         l.handle = this.start(l, q.t);
         this.live.set(q.instance, l);
         return true;
@@ -481,6 +514,16 @@ export class TakeReplay {
         if (!l || l.released) return false;
         l.released = true;
         l.handle?.release();
+        return true;
+      }
+      case "pause":
+      case "resume":
+      case "fade": {
+        const l = this.live.get(q.instance);
+        if (!l || !handleOp(l, q)) return false;
+        if (q.kind === "pause") l.handle?.pause?.();
+        else if (q.kind === "resume") l.handle?.resume?.();
+        else l.handle?.fade?.(q.to, q.seconds);
         return true;
       }
       case "param": {
@@ -560,10 +603,17 @@ export class TakeReplay {
   private start(l: Live, t: number): ReplayHandle | null {
     if (!this.audible(l.path)) return null;
     const pose = l.emitter === null ? null : this.poseAt(l.emitter, t);
-    // Alive since before `t` (a seek, a resume): it starts as far in as it had played.
-    const offset = t - l.started;
+    // Alive since before `t` (a seek, a resume): it starts as far in as it had played, less the time it stood paused.
+    const offset = (l.paused ? l.pausedAt : t) - l.started - l.pausedFor;
     const h = this.target.play(l.path, { ...l.options, parameters: { ...l.parameters }, ...(pose ? { position: pose.position } : {}), ...(offset > 0.01 ? { offset } : {}) });
     if (h && l.released) h.release();
+    if (h && l.fade) {
+      // ADR 0386: the fade gain where the game's fade had it at `t`, then the rest of that fade.
+      h.fade?.(fadeGainAt(l.fade, t), 0);
+      const left = l.fade.start + l.fade.seconds - t;
+      if (left > 0) h.fade?.(l.fade.to, left);
+    }
+    if (h && l.paused) h.pause?.();
     return h;
   }
 
@@ -606,7 +656,7 @@ export class TakeReplay {
       for (const k of kf.instances) {
         const play = this.playOf(k.instance, k.started, kf.t);
         const released = (this.releases.get(k.instance) ?? []).some((r) => r >= (play?.t ?? k.started) && r < kf.t);
-        alive.set(k.instance, { instance: k.instance, path: k.path, emitter: k.emitter, started: k.started, options: play?.options ?? {}, parameters: { ...k.parameters }, released, handle: null });
+        alive.set(k.instance, { instance: k.instance, path: k.path, emitter: k.emitter, started: k.started, options: play?.options ?? {}, parameters: { ...k.parameters }, released, ...FRESH, handle: null });
         before.add(k.instance);
       }
     }
@@ -614,7 +664,7 @@ export class TakeReplay {
       if (q.kind === "play") {
         alive.delete(q.instance);
         before.delete(q.instance);
-        alive.set(q.instance, { instance: q.instance, path: q.path, emitter: q.emitter, started: q.t, options: q.options, parameters: { ...q.options.parameters }, released: false, handle: null });
+        alive.set(q.instance, { instance: q.instance, path: q.path, emitter: q.emitter, started: q.t, options: q.options, parameters: { ...q.options.parameters }, released: false, ...FRESH, handle: null });
       } else if (q.kind === "stop") alive.delete(q.instance);
       else if (q.kind === "release") {
         const l = alive.get(q.instance);
@@ -627,6 +677,8 @@ export class TakeReplay {
         }
       }
     }
+    // ADR 0386: each alive instance's pauses and fades since it started, up to `t` (those at `t` the next dispatch issues).
+    for (const l of alive.values()) for (const q of this.handleOps.get(l.instance) ?? []) if (q.t >= l.started - 1e-9 && q.t < t) handleOp(l, q);
     this.globals = globals;
     for (const [name, value] of Object.entries(globals)) this.target.setGlobal(name, value);
     this.mixAt(t);
@@ -695,6 +747,24 @@ export class TakeReplay {
   }
 }
 
+/** ADR 0386: `q` applied to `l`'s replay state; false when it changes nothing (a pause while paused, a resume while playing). */
+function handleOp(l: Live, q: HandleOp): boolean {
+  if (q.kind === "pause") {
+    if (l.paused) return false;
+    l.paused = true;
+    l.pausedAt = q.t;
+    return true;
+  }
+  if (q.kind === "resume") {
+    if (!l.paused) return false;
+    l.paused = false;
+    l.pausedFor += q.t - l.pausedAt;
+    return true;
+  }
+  l.fade = { from: fadeGainAt(l.fade, q.t), to: q.to, start: q.t, seconds: q.seconds };
+  return true;
+}
+
 function poseOf(p: Pose): ReplayPose {
   return { position: p.position, ...(p.forward ? { forward: p.forward } : {}) };
 }
@@ -721,7 +791,7 @@ export function studioReplayTarget(host: StudioAudioHost, world: ReplayWorld): R
         ...(o.parameters ? { parameters: o.parameters } : {}),
         ...(o.position ? { position: o.position } : {}),
         ...(o.offset !== undefined ? { offset: o.offset } : {}),
-      });
+      }, "layer"); // a take's instances play together, beside whatever previews
       return handle;
     },
     setGlobal: (name, value) => audio.setParameter(name, value),

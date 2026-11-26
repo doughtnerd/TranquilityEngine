@@ -16,6 +16,8 @@ import type { ParticleStats } from "../RenderSurface";
 import type { ParticlePreview } from "../renderPolicy";
 import { srgbToLinear } from "../particles/gpu/kernelMath";
 import { EffectPlayer, EffectResources, type EffectHost, type PlayState } from "./effectPlayer";
+import type { BabylonMaterials2D } from "./materials2D";
+import type { ParticleLayer2D } from "./particleDraw";
 import type { WarmParts } from "./warmUp";
 
 /** What the particle player needs from the render backend: an effect host, plus the World's matrices and rules. */
@@ -30,6 +32,12 @@ export interface BabylonParticleHost extends EffectHost {
   particlePreview(): ParticlePreview | null;
   /** The quality tier's particle scale (`PARTICLE_SCALE[Graphics.tier.particles]`); multiplies emission and the particle limit. */
   tierScale(): number;
+  /** Draw order for a sorting layer and order in layer (ADR 0014, 0415: 2D particles), as sprites have it. Optional: without it, 2D systems draw as 3D. */
+  sortOrder?(sortingLayer: string, orderInLayer: number): number;
+  /** The 2D materials (ADR 0418): a 2D system's lighting. Optional: without them, 2D systems draw unlit. */
+  readonly materials2D?: BabylonMaterials2D;
+  /** Logs a warning once per key. Optional. */
+  warnOnce?(key: string, message: string): void;
 }
 
 interface Instance {
@@ -92,6 +100,7 @@ export class BabylonParticles {
     const t = c.tint;
     player.tint = [srgbToLinear(t.r), srgbToLinear(t.g), srgbToLinear(t.b), t.a];
     player.setOverrides(c.overrides);
+    player.setLayer2D(this.layer2D(c));
 
     // Rebuild when a texture changes (finishing loading, or reimported), checked at once while
     // unbuilt and a few times a second after.
@@ -141,6 +150,13 @@ export class BabylonParticles {
     } else if (c.destroyOnFinish && player.started && !alive) {
       GameObject.destroy(c.node);
     }
+  }
+
+  /** A 2D system's place and lighting (ADR 0415), or null for 3D particles. */
+  private layer2D(c: ParticleSystem): ParticleLayer2D | null {
+    if (!c.sortingLayer || !this.host.sortOrder) return null;
+    const order = this.host.sortOrder(c.sortingLayer, c.orderInLayer);
+    return { order, lit: this.host.materials2D?.litSetup(c.material, c.sortingLayer) ?? null };
   }
 
   /** A player for `c`'s effect JSON, or null when it's missing or broken (warned once). */

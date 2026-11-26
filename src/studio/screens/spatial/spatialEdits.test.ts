@@ -4,8 +4,7 @@ import type { AudioTestScene, MovingEmitter } from "../../../engine/audio/spatia
 import { NO_AUDITION, auditionScene, isSilenced, liveUpdate, toggleMute, toggleSolo } from "./audition";
 import {
   activeListener, deleteObject, duplicateObject, findObject, framePoints, moveObjectTo, insertRoutePoint, patchEmitter, patchReverbZone, pasteObject, positionOf, removeRoutePoint, renameObject, setActiveListener, setBox, setBoxHeights, setHeight,
-  setHidden, setLocked, type EditResult,
-} from "./sceneEdits";
+  setHidden, setLocked, type EditResult, isGameScenePath, setBaseScene } from "./sceneEdits";
 import { fixtureScene } from "./spatialFixture";
 import { INITIAL_TOOLS, afterPlace, escape, newObject, pickTool, place, placeLabel, placesByClick } from "./tools";
 
@@ -214,5 +213,18 @@ describe("audition", () => {
     expect(liveUpdate(s, ok(renameObject(s, "emitter1", "Falls")))).toEqual({ kind: "none" });
     expect(liveUpdate(s, ok(patchEmitter(s, "emitter1", { volume: -3 })))).toEqual({ kind: "rebuild" });
     expect(liveUpdate(s, ok(deleteObject(s, "emitter1")))).toEqual({ kind: "rebuild" });
+  });
+});
+
+describe("the base game scene (ADR 0347)", () => {
+  it("sets a level of the project as the base, clears it, and refuses a file that isn't a game scene", () => {
+    const s = fixtureScene();
+    const set = setBaseScene(s, "scenes/level1.scene.json");
+    expect("next" in set && set.next.base).toBe("scenes/level1.scene.json");
+    const cleared = setBaseScene("next" in set ? set.next : s, null);
+    expect("next" in cleared && cleared.next.base).toBeNull();
+    expect(setBaseScene(s, "spatial/other.audioscene.json")).toEqual({ refused: "spatial/other.audioscene.json isn't a game scene (a .scene.json file)" });
+    expect(isGameScenePath("levels/a.scene.json")).toBe(true);
+    expect(isGameScenePath("a.audioscene.json")).toBe(false);
   });
 });

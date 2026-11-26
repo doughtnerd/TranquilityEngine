@@ -4,7 +4,7 @@
 import { computed, effect, signal } from "@preact/signals";
 import { Camera, type Engine, type GameObject } from "../engine";
 import { viewport } from "../engine/editor";
-import { cameraPreviewEnabled, cleanSnap, installSceneToolKeys, snapSettings } from "./sceneTools";
+import { cameraPreviewEnabled, cleanSnap, installSceneToolKeys, lighting2DShown, snapSettings } from "./sceneTools";
 import { docVersion, playState, selectedWorldNode } from "./state";
 
 /** The inset's frame element in the Scene panel, while it's shown. */
@@ -29,10 +29,12 @@ export function installSceneView(engine: Engine): () => void {
     viewport(world).setGrid({ cellSize: s.grid, visible: s.showGrid });
   });
   const stopPreview = effect(() => viewport(world).setCameraPreview(previewCamera.value?.getBehavior(Camera) ?? null, previewFrame.value));
+  const stopLighting = effect(() => viewport(world).setLighting2D(lighting2DShown.value));
   const stopKeys = typeof window === "undefined" ? () => {} : installSceneToolKeys(window);
   return () => {
     stopGrid();
     stopPreview();
+    stopLighting();
     stopKeys();
     viewport(world).setCameraPreview(null, null);
   };

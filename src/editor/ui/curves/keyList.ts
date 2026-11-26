@@ -191,16 +191,19 @@ const atX = <K extends AnyKey>(k: K, x: number): K => [x, ...k.slice(1)] as unkn
 
 /**
  * `moved` (a key list with the keys at `indices` given new x values) sorted again by x: a moved key landing on a key
- * that didn't move replaces it (Unity's and Godot's dope sheets overwrite), and the moved keys' new indices are returned
- * in the order of `indices`. Keys that didn't move keep their order.
+ * that didn't move replaces it (Unity's and Godot's dope sheets overwrite), and of moved keys landing on each other the
+ * one landing last (the latest in the original list) replaces the others, as Unity's Animation window, Maya and Blender
+ * do, so two keys never share a time. The moved keys' new indices are returned in the order of `indices`, -1 for one
+ * that was replaced. Keys that didn't move keep their order.
  */
 function settle<K extends AnyKey>(keys: readonly K[], indices: readonly number[], moved: (k: K, i: number) => K): KeysEdit<K> {
   const chosen = new Set(indices.filter((i) => i >= 0 && i < keys.length));
   const still = keys.map((k, i) => ({ k: copyKey(k), i })).filter((e) => !chosen.has(e.i));
-  const going = [...chosen].map((i) => ({ k: moved(keys[i], i), i }));
+  const landed = [...chosen].sort((a, b) => a - b).map((i) => ({ k: moved(keys[i], i), i }));
+  const going = landed.filter((g, n) => !landed.slice(n + 1).some((later) => Math.abs(later.k[0] - g.k[0]) < SAME_X));
   const kept = still.filter((s) => !going.some((g) => Math.abs(g.k[0] - s.k[0]) < SAME_X));
   const all = [...kept.map((e) => ({ ...e, moved: false })), ...going.map((e) => ({ ...e, moved: true }))];
-  // Stable by x; an unmoved key sorts before a moved one at the same x (none remain after the overwrite above).
+  // Stable by x; an unmoved key sorts before a moved one at the same x (none remain after the overwrites above).
   all.sort((a, b) => a.k[0] - b.k[0] || Number(a.moved) - Number(b.moved) || a.i - b.i);
   const at = new Map<number, number>();
   all.forEach((e, n) => e.moved && at.set(e.i, n));

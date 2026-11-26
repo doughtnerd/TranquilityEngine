@@ -3,12 +3,13 @@
 // right, Loudness (bottom) and History on demand. They
 // share one session over `audio.json`'s document (`mixerScreen.ts`), made here for the open project with the real
 // confirm dialog, toasts, status bar, project-wide renames and the Studio's runtime (`mixerRuntime.ts`).
+import { audioProject } from "../../shell/audioProject";
 import { effect, signal, type Signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { AssetDocument } from "../../../editor/assetDocuments";
 import { persisted } from "../../../editor/preferences";
 import { editProjectFiles, projectFileUsers } from "../../../editor/projectFileEdits";
-import { currentProject, status } from "../../../editor/state";
+import { status } from "../../../editor/state";
 import { confirmInEditor } from "../../../editor/ui/ConfirmDialog";
 import { EmptyState } from "../../../editor/ui/EmptyState";
 import { Panel } from "../../../editor/ui/panel/Panel";
@@ -16,12 +17,18 @@ import { AUDIO_PROJECT_FILE, type AudioProject } from "../../../engine/audio/pro
 import { Icon } from "../../components/Icon";
 import type { StudioPanel } from "../../shell/studioPanels";
 import { replayStore } from "../../shell/replay";
+import { profilerStore } from "../profiler/profilerScreen";
+import { takeOfCapture } from "../profiler/reviewLink";
+import { captureNames } from "../../../plugins/audio/runtime/capture/reader";
+import { recordedBusReading } from "./recordedLevels";
 import { studioRouter, toasts } from "../../shell/studioServices";
 import { historyPanel } from "../placeholder";
 import { BusesPanel } from "./BusesPanel";
 import { DEFAULT_PINS } from "./boardModel";
 import { MixerInspector } from "./MixerInspector";
 import { openMixDocument } from "./mixerDocument";
+import { studioBuild } from "../../debugLink/studioLink";
+import { createRemoteMix } from "./remoteMix";
 import { auditionSnapshot, liveMixHost, readBus, readLoudness, resetLoudness, setLoudnessTarget, setRuntimeParameter } from "./mixerRuntime";
 import { createMixerSession, type MixerSession } from "./mixerScreen";
 import { busRenameEdit } from "./renameReferences";
@@ -32,6 +39,24 @@ import { renameParameterOutside } from "./globalParametersPanels";
 import { SnapshotsPanel } from "./SnapshotsPanel";
 import { TriggerDialogHost } from "./TriggerDialog";
 import { NewGlobalParameterHost } from "./newGlobalParameter";
+
+/** Each open profile's names, built once (every meter asks each frame). */
+const namesOf = new WeakMap<object, ReturnType<typeof captureNames>>();
+
+/**
+ * A bus as the open take recorded it at the replay's playhead: the take's profile is open on the Profiler (opening a take
+ * opens both) and its cursor follows the replay (`reviewLink.ts`), so its seek is the moment. Subscribes in a render.
+ */
+function recordedBus(name: string) {
+  const open = replayStore().open.value;
+  const store = profilerStore();
+  const seek = store.seek.value;
+  const source = store.source;
+  if (!open || !seek || !source || takeOfCapture(store.state.value) !== open.path) return null;
+  let names = namesOf.get(source.summary);
+  if (!names) namesOf.set(source.summary, (names = captureNames(source.summary)));
+  return recordedBusReading(seek, (slot, at) => names.bus(slot, at), name);
+}
 import "./mixer.css";
 
 /** Per user: whether the live board is open, and List or Strips. */
@@ -59,7 +84,7 @@ let cached: { doc: AssetDocument<AudioProject>; session: MixerSession; stopRoute
 
 /** The session for the open project's `audio.json` (one per document; a new project makes a new one). */
 function mixerSession(): MixerSession | null {
-  const project = currentProject.value;
+  const project = audioProject.value;
   const doc = openMixDocument(project);
   if (!doc || !project) {
     if (cached) { cached.stopRoute(); cached.session.dispose(); cached = null; }
@@ -77,7 +102,9 @@ function mixerSession(): MixerSession | null {
     usersOf: (name) => projectFileUsers(project, busRenameEdit(name, `${name}\u0000`)),
     renameOutside: (from, to) => editProjectFiles(project, busRenameEdit(from, to), `Rename bus ${from} to ${to}`),
     live: liveMixHost,
+    remote: createRemoteMix({ build: () => studioBuild.peek(), report: (kind, text) => void (status.value = { kind, text }) }),
     readBus,
+    recordedBus,
     readLoudness,
     setParameter: setRuntimeParameter,
     auditionSnapshot,

@@ -18,6 +18,8 @@ export interface MeterProps {
   readonly label: string;
   /** The meter is fed by a monitor (solo, Compare): drawn hatched, as 0172's taint rule asks. */
   readonly tainted?: boolean;
+  /** Playback is paused: the peak hold line stays where it was instead of falling with the clock. */
+  readonly frozen?: boolean;
   /** Milliseconds now, for the hold (default `performance.now()`); stories pass a fixed clock. */
   readonly now?: number;
 }
@@ -27,7 +29,7 @@ export function Meter(props: MeterProps) {
   const hold = useRef<MeterHold>(EMPTY_HOLD);
   const [, redraw] = useState(0);
   const now = props.now ?? (typeof performance !== "undefined" ? performance.now() : 0);
-  hold.current = nextHold(hold.current, props.peakDb, now);
+  hold.current = nextHold(hold.current, props.peakDb, props.frozen ? hold.current.heldAt : now);
   const h = hold.current;
   const size = (f: number) => (orientation === "horizontal" ? { width: `${f * 100}%` } : { height: `${f * 100}%` });
   const along = (f: number) => (orientation === "horizontal" ? { left: `${f * 100}%` } : { bottom: `${f * 100}%` });

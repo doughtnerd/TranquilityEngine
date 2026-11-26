@@ -9,6 +9,7 @@ import { isLabelled, type ParameterDef } from "../../engine/audio/parameters";
 import type { EditResult } from "./editResult";
 import type { ParameterKind, ParameterList } from "./parameterList";
 import "./parameters.css";
+import { EmptyState } from "../ui/EmptyState";
 
 export interface ParameterCardsProps<H> {
   list: ParameterList<H>;
@@ -114,7 +115,7 @@ export function ParameterCards<H>(props: ParameterCardsProps<H>) {
         <span>Parameters</span>
         <span class="param-hint">{props.hint}</span>
       </div>
-      {parameters.length === 0 && <p class="param-empty">{props.empty}</p>}
+      {parameters.length === 0 && <EmptyState compact title={props.empty} />}
       {parameters.map((p) => <ParameterCard key={p.name} {...props} parameter={p} />)}
       <div class="param-add">
         <button disabled={readOnly || full} title={addTitle} onClick={() => apply(list.add(holder), "Add parameter")}>

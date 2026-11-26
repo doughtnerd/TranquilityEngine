@@ -1,8 +1,9 @@
 // The Generator editor wired to the Playlists screen (ADR 0360 §9, D63): the open generator, its document (undo and
 // redo follow it through `data-asset-document`), the locks, the preview, the audition and the Bake dialog. The
 // Playlist panel shows it in its place while a generator is open; the Library shows `GeneratorLibraryPanel`.
+import { audioProject } from "../../../shell/audioProject";
 import { useEffect } from "preact/hooks";
-import { currentProject, docVersion } from "../../../../editor/state";
+import { docVersion } from "../../../../editor/state";
 import { BakeDialog } from "./BakeDialog";
 import { GeneratorEditor } from "./GeneratorEditor";
 import { GeneratorLibrary } from "./GeneratorLibrary";
@@ -24,7 +25,7 @@ export function GeneratorPanel() {
   const doc = generatorDoc.value;
   if (!t || !body || !doc) return null;
   const { title, where } = generatorTitle.value;
-  const writable = !!currentProject.value?.canSave && !doc.readOnly;
+  const writable = !!audioProject.value?.canSave && !doc.readOnly;
   const a = auditionState.value;
   const defaults = bakeDefaults.value;
   return (
@@ -56,7 +57,7 @@ export function GeneratorPanel() {
 /** The Library's generators section, searched with the Library's `query`. */
 export function GeneratorLibraryPanel(props: { readonly query: string }) {
   void docVersion.value;
-  const project = currentProject.value;
+  const project = audioProject.value;
   const rows = libraryGenerators(project?.files ?? [], props.query, (p) => project?.assets.get(p));
   const t = generatorTarget.value;
   const addTo = libraryAddTarget.value;

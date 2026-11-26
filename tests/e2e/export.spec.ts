@@ -327,8 +327,8 @@ test.describe("Sound Lab web build", { tag: "@slow" }, () => {
         return c.save("exported");
       }),
     ]);
-    expect(name).toBe("exported.mycap");
-    expect(download.suggestedFilename()).toBe("exported.mycap");
+    expect(name).toBe("exported.sporesample");
+    expect(download.suggestedFilename()).toBe("exported.sporesample");
     expect(errors).toEqual([]);
   });
 

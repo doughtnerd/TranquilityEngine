@@ -15,7 +15,7 @@ import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { devices, type InputClaim, type PointerFrame } from "../input/devices";
 import { UIButton, UICanvas, UIInputField, UIPanel, type UIComponentType, type UIFocusableElement } from "./components";
-import { UI_KIND_TYPES, flexShrinkOf, isInteractiveKind, isLeafKind, sameTextRun, textRunOf, uiKindOf } from "./elementKinds";
+import { UI_KIND_TYPES, flexShrinkOf, isInteractiveKind, isLeafKind, isRaycastTarget, sameTextRun, textRunOf, uiKindOf } from "./elementKinds";
 import { fontEpoch } from "./fonts";
 import { uiInteractions } from "./interactions";
 import { pointerFocus } from "./navigation";
@@ -53,8 +53,6 @@ interface CanvasEntry extends Entry {
   height: number;
   /** Elements in draw order, from the last sync. */
   elements: Entry[];
-  /** The interactive elements in draw order (later is on top). */
-  interactive: Entry[];
 }
 
 /** True when a point lies within `edge` pixels inside the border of the `width` x `height` frame at the origin. */
@@ -64,6 +62,18 @@ function onFrameEdge(x: number, y: number, width: number, height: number, edge: 
 }
 
 const scratchInv = new Float32Array(16);
+
+/** What the pointer meets: the topmost raycast target, and the button or input field that takes it (null: it only blocks). */
+interface Hit {
+  readonly target: Entry;
+  readonly handler: Entry | null;
+}
+
+/** The interactive element a pointer on `e` goes to: `e` itself or its nearest interactive ancestor, below its canvas. */
+function handlerOf(e: Entry): Entry | null {
+  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = at.parent) if (isInteractiveKind(at.kind)) return at;
+  return null;
+}
 
 export class UICore implements UICoreLike {
   /** Resolves when Yoga has loaded. */
@@ -156,7 +166,8 @@ export class UICore implements UICoreLike {
   }
 
   hitTest(x: number, y: number): UIComponentType | null {
-    return this.hit(x, y)?.comp ?? null;
+    const hit = this.hit(x, y);
+    return hit ? (hit.handler ?? hit.target).comp : null;
   }
 
   // --- Sync -----------------------------------------------------------------------------------
@@ -267,7 +278,6 @@ export class UICore implements UICoreLike {
       canvas.scale = 1;
       canvas.width = canvas.height = 0;
       canvas.elements = [];
-      canvas.interactive = [];
       this.canvasEntries.set(c as UICanvas, canvas);
     } else if (run) {
       node.setMeasureFunc((w, wm) => this.measure(entry, wm === yoga.MEASURE_MODE_UNDEFINED ? Infinity : w));
@@ -417,7 +427,6 @@ export class UICore implements UICoreLike {
   /** Read Yoga's boxes into the entries' absolute (canvas UI pixel) boxes, visibility and opacity, in draw order. */
   private readLayout(canvas: CanvasEntry): void {
     canvas.elements = [];
-    canvas.interactive = [];
     const cv = canvas.comp.isActiveAndEnabled;
     canvas.box = { x: 0, y: 0, width: canvas.width, height: canvas.height, visible: cv, opacity: 1 };
     const walk = (parent: Entry, ox: number, oy: number, visible: boolean, opacity: number) => {
@@ -428,7 +437,6 @@ export class UICore implements UICoreLike {
         const o = opacity * c.opacity;
         e.box = { x, y, width: e.node.getComputedWidth(), height: e.node.getComputedHeight(), visible: v, opacity: o };
         canvas.elements.push(e);
-        if (isInteractiveKind(e.kind)) canvas.interactive.push(e);
         walk(e, x, y, v, o);
       }
     };
@@ -594,7 +602,9 @@ export class UICore implements UICoreLike {
       return;
     }
     log.layout = this; // navigation searches this core's layout (ADR 0340)
-    const hit = this.hit(raw.x, raw.y);
+    // A raycast target claims the pointer (ADR 0385); the button or input field it's in, if any, takes it.
+    const blocked = this.hit(raw.x, raw.y);
+    const hit = blocked?.handler ?? null;
     const usable = (e: Entry | null): e is Entry => !!e && e.kind === "button" && (e.comp as UIButton).interactable && e.comp.isActiveAndEnabled;
     // The pointer moving or pressing makes it the last UI input: focus colours hide.
     const last = this.lastPointer;
@@ -620,7 +630,7 @@ export class UICore implements UICoreLike {
 
     const focused = log.focused;
     const typing = focused instanceof UIInputField && focused.typing;
-    return { pointer: !!hit, keyboard: typing, keys };
+    return { pointer: !!blocked, keyboard: typing, keys };
   }
 
   /**
@@ -733,16 +743,21 @@ export class UICore implements UICoreLike {
     return { ux: (ox + dx * t) / laid.pixelSize + laid.width / 2, uy: laid.height / 2 - (oy + dy * t) / laid.pixelSize, t };
   }
 
-  /** The topmost interactive element under a canvas point: screen canvases from the highest `sortOrder`, then the nearest in world canvases. */
-  private hit(x: number, y: number): Entry | null {
+  /**
+   * What the pointer meets at a canvas point (ADR 0385): the topmost raycast target (`target`, an element whose
+   * `raycastTarget` is on and that is a graphic), screen canvases from the highest `sortOrder`, then the nearest in
+   * world canvases; and the button or input field that takes it (`handler`: the target or its nearest such ancestor,
+   * as Unity's events bubble to their handler), null when the target only blocks. Null when no target is there.
+   */
+  private hit(x: number, y: number): Hit | null {
     for (let k = this.screenList.length - 1; k >= 0; k--) {
       const canvas = this.screenList[k];
       const px = x / canvas.scale, py = y / canvas.scale;
-      for (let i = canvas.interactive.length - 1; i >= 0; i--) {
-        const e = canvas.interactive[i];
-        if (!this.hittable(e)) continue;
+      for (let i = canvas.elements.length - 1; i >= 0; i--) {
+        const e = canvas.elements[i];
+        if (!this.hittable(e) || !isRaycastTarget(e.comp)) continue;
         const b = e.box;
-        if (px >= b.x && px <= b.x + b.width && py >= b.y && py <= b.y + b.height) return e;
+        if (px >= b.x && px <= b.x + b.width && py >= b.y && py <= b.y + b.height) return { target: e, handler: handlerOf(e) };
       }
     }
     const ray = this.viewRay(x, y);
@@ -753,16 +768,16 @@ export class UICore implements UICoreLike {
       const at = canvas ? this.onWorldCanvas(laid, ray) : null;
       if (!canvas || !at) continue;
       const { ux, uy, t } = at;
-      for (let i = canvas.interactive.length - 1; i >= 0; i--) {
-        const e = canvas.interactive[i];
-        if (!this.hittable(e)) continue;
+      for (let i = canvas.elements.length - 1; i >= 0; i--) {
+        const e = canvas.elements[i];
+        if (!this.hittable(e) || !isRaycastTarget(e.comp)) continue;
         const b = e.box;
         if (ux < b.x || ux > b.x + b.width || uy < b.y || uy > b.y + b.height) continue;
         if (t < bestDistance) [best, bestDistance] = [e, t];
         break; // the topmost of this canvas
       }
     }
-    return best;
+    return best ? { target: best, handler: handlerOf(best) } : null;
   }
 
   private hittable(e: Entry): boolean {

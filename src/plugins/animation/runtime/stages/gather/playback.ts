@@ -18,12 +18,11 @@ import {
   INPUT_TIME_SCALE,
   MAX_LAYERS,
 } from "../../wasm/wire/core";
-import { animatorsOf, type AnimatorRuntime } from "../../features/instances";
+import { animatorsOf, releaseEarlierClips, type AnimatorRuntime } from "../../features/instances";
 import { gameplayOnly } from "../../features/network/ghosts";
 import { syncServerBones } from "../../features/network/serverBones";
 import { flushQueue } from "../../features/playback/plays";
-import { enabledCameras, isVisible, lodStep } from "../../features/playback/view";
-import type { Camera } from "../../../../../engine/render/components";
+import { cameraViews, isVisible, lodStep, type CameraViews } from "../../features/playback/view";
 import type { AnimationFrame } from "../frame";
 
 const CULL = { always: CULL_ALWAYS, whenVisible: CULL_WHEN_VISIBLE, rootMotionOnly: CULL_ROOT_MOTION_ONLY } as const;
@@ -33,7 +32,7 @@ export function inPass(frame: AnimationFrame, rt: AnimatorRuntime): boolean {
   return rt.instance !== 0 && rt.ns === frame.core && (rt.animator.updateMode === "fixed") === frame.fixed;
 }
 
-function writeRow(frame: AnimationFrame, rt: AnimatorRuntime, cams: readonly Camera[]): void {
+function writeRow(frame: AnimationFrame, rt: AnimatorRuntime, cams: CameraViews): void {
   const a = rt.animator;
   // Servers evaluate only what gameplay reads (T33): culled as `rootMotionOnly`, unless a BoneAttachment needs the pose.
   const serverOnly = gameplayOnly(rt);
@@ -60,11 +59,12 @@ function writeRow(frame: AnimationFrame, rt: AnimatorRuntime, cams: readonly Cam
 
 /** @internal */
 export function gatherPlayback(frame: AnimationFrame): void {
-  let cams: readonly Camera[] | null = null;
+  let cams: CameraViews | null = null;
   for (const rt of animatorsOf(frame.world)) {
     if (!inPass(frame, rt)) continue;
-    cams ??= enabledCameras(frame.world);
+    cams ??= cameraViews(frame.world);
     writeRow(frame, rt, cams);
     flushQueue(frame, rt);
+    if (rt.earlierClips) releaseEarlierClips(rt); // clips of an earlier skeleton whose plays have ended since
   }
 }

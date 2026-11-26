@@ -13,7 +13,8 @@
  *   class (0 = first), string field name, string value
  * ```
  *
- * Snapshots are unreliable and these are reliable, so either may arrive first: the client keeps
+ * These follow the tick's lifecycle message on the same reliable stream (ADR 0402), but a ghost's
+ * spawn can wait for a later tick's budget, and its node for its scene, so they may come first: the client keeps
  * the newest value of each field per ghost id and writes them to the ghost's node when it's found
  * or made, and again whenever new values arrive. Values are capped at `MAX_STR_BYTES` like `str`
  * RPC fields; a longer one is cut (and warned about once).

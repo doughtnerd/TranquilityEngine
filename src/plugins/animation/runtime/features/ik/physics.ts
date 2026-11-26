@@ -1,6 +1,8 @@
-// The physics plugin's public query API for the rig (ADR 0370, 0374; T40t): grounder rays are cast with `Physics.raycast`
-// (never the backend, ADR 0010). Physics is an optional dependency, so its module is loaded with `import()` when it is
-// active for this activation (D113), and dropped when it isn't. Until it has loaded, and without physics, rays miss.
+// Whether the rig casts grounder rays (ADR 0370, 0374; T40t): while the physics plugin is on. The rays go through the
+// World's 3D ray query (`_worldRaycast`, the physics service's `raycast` that `Physics.raycast` also answers with;
+// never the backend, ADR 0010; `./gather.ts`). Physics is an optional dependency, so its module is loaded with
+// `import()` when it is active for this activation (D113), and dropped when it isn't. Until it has loaded, and without
+// physics, rays miss.
 import type { Physics as PhysicsApi } from "../../../../physics/runtime";
 
 let active = false;

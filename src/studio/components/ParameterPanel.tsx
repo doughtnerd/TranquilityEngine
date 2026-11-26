@@ -10,6 +10,7 @@ import { Icon } from "./Icon";
 import { ParameterRow } from "./ParameterRow";
 import "./audioParts.css";
 import "./newParameterDialog.css";
+import { EmptyState } from "../../editor/ui/EmptyState";
 
 export interface ParameterPanelProps {
   readonly parameters: readonly ParameterDef[];
@@ -37,8 +38,7 @@ export function ParameterPanel(props: ParameterPanelProps) {
   const rows = parameterRows(props.parameters, props.values, props.units);
   const add = props.onNewParameter;
   if (rows.length === 0) {
-    const empty = <p class="studio-row-empty">{props.empty ?? "No game parameters yet."}</p>;
-    return add ? <div class="studio-params-empty">{empty}<NewParameterButton onClick={add} /></div> : empty;
+    return <EmptyState compact title={props.empty ?? "No game parameters yet."}>{add && <NewParameterButton onClick={add} />}</EmptyState>;
   }
   return (
     <div class="studio-params" role="group" aria-label="Game parameters (test values)">

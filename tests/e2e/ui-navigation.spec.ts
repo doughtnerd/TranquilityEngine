@@ -2,7 +2,7 @@ import { expect, openEditor, type Page, play, test } from "./fixtures";
 import { inLiveWorld } from "./liveWorld";
 import { captureView, pixelsNear, type ViewCapture } from "./viewCapture";
 
-// Keyboard focus navigation of game UI (ADR 0340, docs/guide/ui.md "Keyboard and gamepad navigation"), played for real: a
+// Keyboard focus navigation of game UI (ADR 0340, docs/wiki/guide/ui.md "Keyboard and gamepad navigation"), played for real: a
 // screen canvas with `autoFocus` and four buttons in a 2×2 grid. The arrow keys move focus spatially, Tab and Shift+Tab in
 // tree order, Enter clicks the focused button and Escape cancels on the canvas, all read through the public `myco` API
 // (`UIButton.focused`, `UICanvas`, `InputPlayers`) and a script that counts clicks and cancels. While a button has focus,

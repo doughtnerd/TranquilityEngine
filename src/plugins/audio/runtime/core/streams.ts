@@ -569,8 +569,15 @@ export class StreamManager {
     else if (code === StreamEvent.Error) {
       this.stats.coreErrors++;
       const e = this.byStream.get(id);
-      // A drained stream closed early ends on its own; a voice still live here had its ring refused.
-      if (e && this.deps.table.isLive(e.voice)) this.fail(id, "audio: no stream ring free (too many streams at once)");
+      // A drained stream closed early ends on its own; a voice still live here had its ring refused: at its open (no
+      // ring free), or at a restart (a seek or loop change, epoch past 1) the core refused because it changed the
+      // stream's sample rate or channel count, which a stream keeps from its open (ADR 0386): the voice stops, and
+      // playing the sound again opens a new stream in the new format.
+      if (e && this.deps.table.isLive(e.voice)) {
+        this.fail(id, e.epoch > 1
+          ? "audio: the core refused the stream's restart (a stream keeps the sample rate and channel count it opened with, or no ring was free); play the sound again"
+          : "audio: no stream ring free (too many streams at once)");
+      }
     }
   }
 

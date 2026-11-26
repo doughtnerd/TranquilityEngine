@@ -25,7 +25,7 @@ import {
   parseShaderGraph,
 } from "../../../../engine/scene/shaderGraph";
 import { KEYWORD_NAME, type ShaderKeyword } from "../../../../engine/scene/shaderKeywords";
-import { freeId, graphDocument, type GraphWiringEdits } from "../../../../editor/sdk";
+import { freeId, graphDocument, pasteProperties, type GraphWiringEdits } from "../../../../editor/sdk";
 import { uniqueName, type Numbering } from "../../../../engine/core/uniqueName";
 
 const clone = (g: ShaderGraph): ShaderGraph => structuredClone(g);
@@ -246,7 +246,7 @@ export function setKeyword(graph: ShaderGraph, name: string, patch: { values?: s
   return dropInvalidEdges(g);
 }
 
-const CATEGORY_ORDER = { Input: 0, Math: 1, Vector: 2, Color: 3, Noise: 4, Lighting: 5, Output: 6 } as const;
+const CATEGORY_ORDER = { Input: 0, Math: 1, Vector: 2, Color: 3, Noise: 4, Lighting: 5, Sprite: 6, Output: 7 } as const;
 /** Where a node category sorts in the node search. */
 export const categoryRank = (category: keyof typeof CATEGORY_ORDER) => CATEGORY_ORDER[category];
 
@@ -281,7 +281,8 @@ export interface GraphClipboard {
 /**
  * The Shader Graph's graph document edits. Its canvas items are its nodes; the output node can't be
  * removed, copied or duplicated. Groups and notes are left out of the file when there are none. A
- * copy takes the properties and keywords its nodes read, and a paste adds those the graph lacks.
+ * copy takes the properties and keywords its nodes read, and a paste adds those the graph lacks
+ * (`pasteProperties`: a same-named property of another type is added under a free name).
  */
 export const shaderGraphEdits = graphDocument<ShaderGraph, GraphNode, GraphProperty, GraphClipboard>({
   items: (g) => g.nodes.map((n) => n.id),
@@ -333,7 +334,7 @@ export const shaderGraphEdits = graphDocument<ShaderGraph, GraphNode, GraphPrope
     },
     positions: (clip) => clip.nodes.map((n) => n.position),
     paste(g, clip, by) {
-      for (const p of clip.properties ?? []) if (!g.properties.some((q) => q.name === p.name)) g.properties.push(structuredClone(p));
+      const renames = pasteProperties(g.properties, clip.properties);
       for (const k of clip.keywords ?? []) if (!g.keywords?.some((q) => q.name === k.name)) g.keywords = [...(g.keywords ?? []), structuredClone(k)];
       const map = new Map<string, string>();
       const taken = new Set<string>();
@@ -343,6 +344,8 @@ export const shaderGraphEdits = graphDocument<ShaderGraph, GraphNode, GraphPrope
         copy.id = newNodeId(g, n.type, taken);
         taken.add(copy.id);
         copy.position = [Math.round(n.position[0] + by[0]), Math.round(n.position[1] + by[1])];
+        const to = copy.type === "property" ? renames.get(String(copy.settings?.property)) : undefined;
+        if (to !== undefined) copy.settings = { ...copy.settings, property: to };
         map.set(n.id, copy.id);
         g.nodes.push(copy);
       }

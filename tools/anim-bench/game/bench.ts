@@ -12,7 +12,7 @@
 //   which runs just before the Engine's (the Engine requests its next frame after its step).
 //
 // The result is one console line, `[anim-bench] {json}`, that run.mjs reads. Nothing here reads engine internals.
-import { Animator, Camera, GameBehavior, GameObject, Quaternion, Skeleton, SkinnedMeshRenderer, Time, TimelineDirector, Vector2, Vector3, behavior, defineSystem, tween } from "myco";
+import { Animator, Camera, GameBehavior, GameObject, MeshRenderer, Quaternion, Skeleton, SkinnedMeshRenderer, Time, TimelineDirector, Vector2, Vector3, behavior, defineSystem, tween } from "myco";
 
 const params = new URLSearchParams(globalThis.location?.search ?? "");
 const SCENARIO = params.get("bench") ?? "empty";
@@ -26,6 +26,28 @@ const WARM = num("warm", 120);
 const FRAMES = num("frames", 300);
 /** `camera=0` switches the camera off, so nothing renders: the animation stages without the renderer competing for the CPU. */
 const CAMERA = num("camera", 1) !== 0;
+
+// --- GPU call counts (run.mjs --count) ------------------------------------------------------------------------------
+
+/** run.mjs's counting init script (gpuCounts.js), present only in a counted run: the page's own WebGL2/WebGPU calls. */
+interface Counts {
+  info: { contexts: string[]; skinning: string | null };
+  snapshot(): Record<string, number>;
+}
+const counts = (globalThis as { __animBenchCounts?: Counts }).__animBenchCounts ?? null;
+let countsAtStart: Record<string, number> | null = null;
+
+/** Each counter's change per measured frame since `countsAtStart`. */
+function countsPerFrame(frames: number): Record<string, number> | null {
+  if (!counts || !countsAtStart) return null;
+  const end = counts.snapshot();
+  const out: Record<string, number> = {};
+  for (const k of Object.keys(end).sort()) {
+    const d = end[k] - (countsAtStart[k] ?? 0);
+    if (d) out[k] = Math.round((d / frames) * 100) / 100;
+  }
+  return out;
+}
 
 // --- Probes --------------------------------------------------------------------------------------------------------
 
@@ -102,17 +124,21 @@ function grid(i: number, n: number, gap: number): Vector3 {
   return new Vector3((i % side - (side - 1) / 2) * gap, 0, (Math.floor(i / side) - (side - 1) / 2) * gap);
 }
 
-function character(name: string, at: Vector3, init: Record<string, unknown>, skin: boolean, skeleton = SKELETON): Animator {
+/** How a character's body is drawn: skinned (GPU skinning), the same mesh static (a MeshRenderer: the per-mesh draw cost without skinning), or not at all. */
+type Body = "skinned" | "static" | "none";
+
+function character(name: string, at: Vector3, init: Record<string, unknown>, body: Body, skeleton = SKELETON): Animator {
   const node = GameObject.create(name);
   node.transform!.position = at;
   node.addComponent(Skeleton, { skeleton });
   const animator = node.addComponent(Animator, { cullingMode: "always", lodMetric: "off", ...init });
-  if (skin) GameObject.create(`${name} Body`, { parent: node }).addComponent(SkinnedMeshRenderer, { mesh: BODY });
+  if (body === "skinned") GameObject.create(`${name} Body`, { parent: node }).addComponent(SkinnedMeshRenderer, { mesh: BODY });
+  else if (body === "static") GameObject.create(`${name} Body`, { parent: node }).addComponent(MeshRenderer, { mesh: BODY });
   return animator;
 }
 
 /** ADR 0370's character budget scene (bench_budgets.mjs `locomotion_rig_80`): the locomotion graph, grounder and look-at. */
-function characters(graph: string, rig: boolean, skin: boolean): Built {
+function characters(graph: string, rig: boolean, skin: Body): Built {
   const n = num("n", 100);
   const look = GameObject.create("Look Target");
   const animators: Animator[] = [];
@@ -129,14 +155,14 @@ function characters(graph: string, rig: boolean, skin: boolean): Built {
     animators.push(a);
   }
   look.transform!.position = new Vector3(1.5, 1.6, 2);
-  return { animators, note: `${n} characters, 80 bones, ${rig ? "locomotion graph + grounder + look-at" : "locomotion graph"}${skin ? ", skinned meshes" : ", no meshes"}` };
+  return { animators, note: `${n} characters, 80 bones, ${rig ? "locomotion graph + grounder + look-at" : "locomotion graph"}${skin === "skinned" ? ", skinned meshes" : skin === "static" ? ", the same meshes static (MeshRenderer)" : ", no meshes"}` };
 }
 
 /** Many Animators on the implicit graph, each playing one clip (bench_budgets.mjs `one_clip_80`). */
 function clips(): Built {
   const n = num("n", 300);
   const animators: Animator[] = [];
-  for (let i = 0; i < n; i++) animators.push(character(`Clip ${i}`, grid(i, n, 2), { defaultClip: CLIPS.walk }, false));
+  for (let i = 0; i < n; i++) animators.push(character(`Clip ${i}`, grid(i, n, 2), { defaultClip: CLIPS.walk }, "none"));
   return { animators, note: `${n} clip players (implicit graph, walk), 80 bones, no meshes` };
 }
 
@@ -166,7 +192,7 @@ function matching(): Built {
   const n = num("n", 20);
   const graph = params.get("graph") ?? "asset:graphs/match_kd.animgraph.json";
   const animators: Animator[] = [];
-  for (let i = 0; i < n; i++) animators.push(character(`Matcher ${i}`, grid(i, n, 3), { graph }, false, "asset:match/match.skel"));
+  for (let i = 0; i < n; i++) animators.push(character(`Matcher ${i}`, grid(i, n, 3), { graph }, "none", "asset:match/match.skel"));
   const home = animators.map((a) => a.node.transform!.position.clone());
   const pos = animators.map(() => [0, 0]);
   const vel = animators.map(() => [0, 0]);
@@ -205,9 +231,10 @@ function matching(): Built {
 
 function build(): Built {
   switch (SCENARIO) {
-    case "characters": return characters("asset:graphs/loco_rig.animgraph.json", true, true);
-    case "characters_noskin": return characters("asset:graphs/loco_rig.animgraph.json", true, false);
-    case "locomotion": return characters("asset:graphs/loco.animgraph.json", false, false);
+    case "characters": return characters("asset:graphs/loco_rig.animgraph.json", true, "skinned");
+    case "characters_static": return characters("asset:graphs/loco_rig.animgraph.json", true, "static");
+    case "characters_noskin": return characters("asset:graphs/loco_rig.animgraph.json", true, "none");
+    case "locomotion": return characters("asset:graphs/loco.animgraph.json", false, "none");
     case "clips": return clips();
     case "tweens": return tweens();
     case "timeline": return timeline();
@@ -258,12 +285,16 @@ export class AnimBench extends GameBehavior {
     };
     this.lastStart = start;
     if (this.warmed++ < WARM) return;
+    if (this.rows.length === 0) {
+      countsAtStart = counts?.snapshot() ?? null;
+      (globalThis as { __animBenchMeasuring?: boolean }).__animBenchMeasuring = true; // run.mjs --profile starts its profiler here
+    }
     this.rows.push(row);
     if (this.rows.length < FRAMES) return;
     this.done = true;
     measuring = false;
     const animators = this.built!.animators;
     const playing = this.built!.hasState === false ? null : animators.filter((a) => a.state(0).name !== "").length;
-    console.log(`[anim-bench] ${JSON.stringify({ scenario: SCENARIO, note: this.built!.note, camera: CAMERA, frames: this.rows.length, warm: WARM, animators: animators.length, playing, stats: summary(this.rows) })}`);
+    console.log(`[anim-bench] ${JSON.stringify({ scenario: SCENARIO, note: this.built!.note, camera: CAMERA, frames: this.rows.length, warm: WARM, animators: animators.length, playing, stats: summary(this.rows), ...(counts && { counts: { contexts: [...new Set(counts.info.contexts)], skinning: counts.info.skinning, perFrame: countsPerFrame(this.rows.length) } }) })}`);
   }
 }

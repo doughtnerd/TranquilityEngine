@@ -9,6 +9,7 @@ import { floodCells, lineCells, rectCells, type Cell, type Stamp } from "../runt
 import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, cellValue, flagsOf, tileIdOf } from "../runtime/format";
 import { compose, flipPoint, rotateClockwise } from "../runtime/tileFlips";
 import { pickWeighted } from "../runtime/tileset";
+import { cellRandom, newSeed, RANDOM_BRUSH_STREAM } from "../runtime/cellHash";
 import { editor, type OpenScene } from "../../../editor/sdk";
 
 export type BrushTool = "pencil" | "rect" | "fill" | "erase" | "pick";
@@ -28,7 +29,11 @@ export const PAINT_TOOL_ID = "myco.tilemaps.paint";
 export const brushTool: ReadonlySignal<BrushTool | null> = editor.viewport.mode<BrushTool>(PAINT_TOOL_ID);
 /** What the brush paints: a block of cell values (a single tile is 1 × 1). */
 export const brushStamp = signal<Stamp>({ width: 1, height: 1, values: [1] });
-/** Paint each cell with one of the stamp's tiles at random (by the tiles' weights) instead of the block. */
+/**
+ * Paint each cell with one of the stamp's tiles at random (by the tiles' weights) instead of the block. The pick is a
+ * hash of the cell and the map's `variantSeed` (ADR 0400), as auto-tiling's variants are, so the same strokes paint the
+ * same map; Re-roll gives the map a new seed.
+ */
 export const brushRandom = signal(false);
 /** Paint this terrain with auto-tiling instead of the stamp (null: the stamp). */
 export const brushTerrain = signal<string | null>(null);
@@ -201,9 +206,10 @@ function brushPainter(map: Tilemap): { paint(tool: BrushTool, cells: readonly Ce
   const stamp = orientedStamp(brushStamp.peek(), brushFlags.peek());
   const weight = (id: number) => map.tilesetAsset?.tile(id)?.weight ?? 1;
   const choices = stamp.values.filter((n) => n !== 0).map((value) => ({ value, weight: weight(tileIdOf(value)) }));
-  /** The value painted at a cell: the stamp tiled from `origin`, or one of its tiles at random by weight. */
+  const seed = map.variantSeed;
+  /** The value painted at a cell: the stamp tiled from `origin`, or one of its tiles by weight, drawn from the cell and the map's seed. */
   const valueAt = (x: number, y: number, origin: Cell): number => {
-    if (random) return pickWeighted(choices)?.value ?? 0;
+    if (random) return pickWeighted(choices, () => cellRandom(seed, x, y, RANDOM_BRUSH_STREAM))?.value ?? 0;
     const c = (((x - origin[0]) % stamp.width) + stamp.width) % stamp.width;
     const r = (((y - origin[1]) % stamp.height) + stamp.height) % stamp.height;
     return stamp.values[r * stamp.width + c] ?? 0;
@@ -268,6 +274,26 @@ function pickFromMap(map: Tilemap, a: Cell, b: Cell): void {
 /** The Tilemap on a World node (the first). */
 export function tilemapOf(node: GameObject | null): Tilemap | null {
   return node?.getBehavior(Tilemap) ?? null;
+}
+
+/**
+ * Re-roll a map's variants (ADR 0400): a new `variantSeed`, and every terrain cell re-picked with it (each keeps its
+ * shape; equally fitting variants are drawn again), as one undoable step. Cells painted with the random brush keep
+ * their tiles: the map doesn't know which they were. Nothing changes when the scene can't be edited now.
+ */
+export function rerollVariants(scene: OpenScene, path: readonly string[], map: Tilemap): void {
+  const seed = newSeed(map.variantSeed);
+  editor.scene.edit(
+    "Re-roll tile variants",
+    () => {
+      map.variantSeed = seed;
+      map.retileTerrain();
+      const place = { scene, path, type: "engine.Tilemap" };
+      editor.scene.writeField(place, "variantSeed", seed);
+      editor.scene.writeField(place, "layers", map.toLayerData());
+    },
+    scene,
+  );
 }
 
 /**

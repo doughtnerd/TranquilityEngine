@@ -17,12 +17,15 @@ import { assetKinds } from "../../../editor/sdk/contributions";
 import { currentProject, docVersion, status } from "../../../editor/state";
 import { studioScreenFor } from "../../../editor/studioAssets";
 import { captureErrorMessage } from "../../../plugins/audio/editor/mix/openSaveFlow";
-import { CaptureError } from "../../../plugins/audio/runtime/capture/format";
+import { CAPTURE_FLAG_TAKE, CaptureError, readCaptureHeader } from "../../../plugins/audio/runtime/capture/format";
+import { isTakesFolder } from "../../../editor/projects";
+import { mountBuildAudioFor, unmountBuildAudio } from "../../runtime/buildAudioSets";
 import { openTakeFile } from "../../../plugins/audio/runtime/capture/takeFile";
 import { replayStore } from "../../shell/replay";
+import { audioProject } from "../../shell/audioProject";
 import { openRoute } from "../../shell/studioServices";
 import { openMixDocument } from "../mixer/mixerDocument";
-import { profilerRecorder } from "../profiler/profilerScreen";
+import { profilerRecorder, profilerStore, refuseWhileLive, stopFollowingBuild } from "../profiler/profilerScreen";
 import type { NotesEdit } from "./notesEdits";
 import type { RunFileKind } from "../profiler/runFileActions";
 import { TAKES_FOLDER, takeDeletion, whyNotTakeFile } from "./takeFiles";
@@ -53,6 +56,8 @@ export type TakeOpenState =
   | { readonly kind: "none" }
   | { readonly kind: "opening"; readonly path: string }
   | { readonly kind: "open"; readonly path: string }
+  /** ADR 0409: a recording with no take data (a Profiler capture): the Profiler shows it. */
+  | { readonly kind: "noTake"; readonly path: string }
   | { readonly kind: "failed"; readonly path: string; readonly message: string };
 
 /** What is selected on the timeline: an instance (its timeline key) or a note. */
@@ -110,6 +115,8 @@ class TakeScreen {
     const open = replayStore().open.peek();
     if (open?.path === path) {
       this.state.value = { kind: "open", path };
+      // The replay already holds it; the Profiler may show another recording since (one recording for both screens).
+      void profilerStore().openPath(path);
       return;
     }
     const s = this.state.peek();
@@ -117,12 +124,23 @@ class TakeScreen {
     const run = ++this.run;
     this.state.value = { kind: "opening", path };
     try {
+      // One recording for both screens (ADR 0408): the Profiler opens its profile too, so switching tabs keeps it.
+      void profilerStore().openPath(path);
       const bytes = new Uint8Array(await readProjectFile(path));
+      if ((readCaptureHeader(bytes).flags & CAPTURE_FLAG_TAKE) === 0) {
+        if (run !== this.run) return;
+        if (replayStore().open.peek()) replayStore().close();
+        this.selected.value = null;
+        this.state.value = { kind: "noTake", path };
+        return;
+      }
       const { take } = await openTakeFile(bytes);
       if (run !== this.run) return;
       replayStore().openTake(path, take);
       this.selected.value = null;
       this.state.value = { kind: "open", path };
+      // ADR 0410: in a takes folder, the build audio downloaded for this take's project and mix, so it replays with sound.
+      if (isTakesFolder(currentProject.peek())) void mountBuildAudioFor(take.meta);
     } catch (e) {
       if (run !== this.run) return;
       // The screen now names the failed take: the take open before it closes, so the tree, the timeline and the player
@@ -143,7 +161,7 @@ class TakeScreen {
       return;
     }
     const s = this.state.peek();
-    if (s.kind === "failed" || s.kind === "opening") {
+    if (s.kind === "failed" || s.kind === "opening" || s.kind === "noTake") {
       this.run++;
       this.state.value = replayStore().open.peek() ? { kind: "open", path: replayStore().open.peek()!.path } : { kind: "none" };
     }
@@ -152,12 +170,13 @@ class TakeScreen {
   /** The take the screen shows or tries to: the failed or opening one, else the open replay's (the Takes tree selects it). */
   shownPath(): string | null {
     const s = this.state.value;
-    if (s.kind === "failed" || s.kind === "opening") return s.path;
+    if (s.kind === "failed" || s.kind === "opening" || s.kind === "noTake") return s.path;
     return replayStore().open.value?.path ?? null;
   }
 
   /** Close the open take. */
   close(): void {
+    unmountBuildAudio();
     this.run++;
     replayStore().close();
     this.selected.value = null;
@@ -178,10 +197,23 @@ class TakeScreen {
   }
 
   /**
+   * "Show profile": the engine's profile the take recorded beside its requests (a take holds both, ADR 0348), on the
+   * Profiler at the playhead. The two screens share one review position (`reviewLink.ts`).
+   */
+  showProfile(): void {
+    const open = replayStore().open.peek();
+    if (!open) return;
+    stopFollowingBuild();
+    openRoute({ screen: "profiler", asset: open.path });
+  }
+
+  /**
    * "Profile this replay": the Profiler records the Studio's runtime while the take replays (ADR 0348), from the take's
    * start, so the replay capture's clock is the take's and the two screens share one review position (`reviewLink.ts`).
    */
   profileReplay(): void {
+    // The build's live feed would replace the recording on the Profiler's timeline (ADR 0408).
+    stopFollowingBuild();
     const open = replayStore().open.peek();
     if (open) {
       open.replay.seek(0);
@@ -201,7 +233,8 @@ export function takeScreen(): TakeScreen {
 
 /** The playlist at `path` as the project has it now (an open document's edits included), or null when it isn't one. */
 export function takePlaylist(path: string): PlaylistAsset | null {
-  const project = currentProject.value;
+  // ADR 0410: in a takes folder, the build's downloaded audio (read-only).
+  const project = audioProject.value;
   void docVersion.value;
   if (!project || !isPlaylistPath(path) || !project.files.includes(path)) return null;
   try {
@@ -216,8 +249,15 @@ export function globalParameters(): readonly ParameterDef[] {
   return openMixDocument()?.value.value.parameters ?? [];
 }
 
-/** Open a take on the Take screen (the route says which, so a reload or a hand-off opens the same one). */
-export const openTake = (path: string): void => openRoute({ screen: "take", asset: path });
+/**
+ * Open a recording on the Take screen (the route says which, so a reload or a hand-off opens the same one); the Profiler
+ * opens it too (ADR 0408: one recording for both screens). While a game is connected both screens show it live, so a
+ * saved recording waits until it disconnects.
+ */
+export const openTake = (path: string): void => {
+  if (refuseWhileLive(path)) return;
+  openRoute({ screen: "take", asset: path });
+};
 
 /** Open the asset behind an instance on its screen ("fix it at the source"): a playlist on Playlists, a sample on Samples. */
 export const openSource = (path: string): void => openRoute({ screen: studioScreenFor(path) ?? "playlists", asset: path });

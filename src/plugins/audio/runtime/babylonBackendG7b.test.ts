@@ -59,7 +59,7 @@ describe("a capture on the real Babylon backend", () => {
     const downloads: Uint8Array[] = [];
     chunk.saveEnv = ({
       tauri: false,
-      storage: { save: async () => {}, list: async () => [], delete: async () => {} },
+      fs: { mkdir: async () => {}, write: async () => {}, list: async () => [], remove: async () => {} },
       storageRoot: async () => "/data",
       download: (bytes) => void downloads.push(bytes),
       compress: defaultSaveEnv().compress,

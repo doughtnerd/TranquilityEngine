@@ -17,10 +17,25 @@ const bits = (v: number): number => {
   return u32[0]!;
 };
 
-function floats(out: Uint32Array, at: number, values: readonly number[]): boolean {
-  if (!values.every((v) => typeof v === "number" && Number.isFinite(Math.fround(v)))) return false;
-  for (let k = 0; k < 4; k++) out[at + k] = k < values.length ? bits(values[k]!) : 0;
+/** A number that stays finite as an f32. */
+const isFloat = (v: unknown): v is number => typeof v === "number" && Number.isFinite(Math.fround(v));
+
+/** The first `n` (1–4) of a, b, c, d as f32 bits at `out[at]`, the rest of the four words 0; false when one isn't a finite f32. */
+function floats(out: Uint32Array, at: number, n: number, a: unknown, b: unknown, c: unknown, d: unknown): boolean {
+  if (!isFloat(a) || (n > 1 && !isFloat(b)) || (n > 2 && !isFloat(c)) || (n > 3 && !isFloat(d))) return false;
+  out[at] = bits(a);
+  out[at + 1] = n > 1 ? bits(b as number) : 0;
+  out[at + 2] = n > 2 ? bits(c as number) : 0;
+  out[at + 3] = n > 3 ? bits(d as number) : 0;
   return true;
+}
+
+/** `word`, then three 0 words, at `out[at]`. */
+function word(out: Uint32Array, at: number, w: number): void {
+  out[at] = w;
+  out[at + 1] = 0;
+  out[at + 2] = 0;
+  out[at + 3] = 0;
 }
 
 const fromBits = (w: number): number => {
@@ -53,30 +68,31 @@ export function decodeParameter(type: GraphParamType, words: Uint32Array, at: nu
 
 /** @internal Writes `value` as a `type` parameter's four words at `out[at]`; false (nothing written) when it doesn't fit. */
 export function encodeParameter(type: GraphParamType, value: unknown, out: Uint32Array, at: number): boolean {
+  // No arrays made here: the host writes parameters every frame (motion matching's inputs, gameplay's `set`).
   const arr = Array.isArray(value) ? (value as unknown[]) : null;
   switch (type) {
     case "float":
-      return typeof value === "number" && floats(out, at, [value]);
+      return floats(out, at, 1, value, 0, 0, 0);
     case "int":
       if (typeof value !== "number" || !Number.isInteger(value) || value < -0x80000000 || value > 0x7fffffff) return false;
-      out.set([value >>> 0, 0, 0, 0], at);
+      word(out, at, value >>> 0);
       return true;
     case "bool":
       if (typeof value !== "boolean") return false;
-      out.set([value ? 1 : 0, 0, 0, 0], at);
+      word(out, at, value ? 1 : 0);
       return true;
     case "vec2":
-      if (value instanceof Vector2) return floats(out, at, [value.x, value.y]);
-      return arr?.length === 2 && floats(out, at, arr as number[]);
+      if (value instanceof Vector2) return floats(out, at, 2, value.x, value.y, 0, 0);
+      return arr?.length === 2 && floats(out, at, 2, arr[0], arr[1], 0, 0);
     case "vec3":
-      if (value instanceof Vector3) return floats(out, at, [value.x, value.y, value.z]);
-      return arr?.length === 3 && floats(out, at, arr as number[]);
+      if (value instanceof Vector3) return floats(out, at, 3, value.x, value.y, value.z, 0);
+      return arr?.length === 3 && floats(out, at, 3, arr[0], arr[1], arr[2], 0);
     case "quat":
-      if (value instanceof Quaternion) return floats(out, at, [value.x, value.y, value.z, value.w]);
-      return arr?.length === 4 && floats(out, at, arr as number[]);
+      if (value instanceof Quaternion) return floats(out, at, 4, value.x, value.y, value.z, value.w);
+      return arr?.length === 4 && floats(out, at, 4, arr[0], arr[1], arr[2], arr[3]);
     case "node":
-      if (value === null) out.set([NONE, 0, 0, 0], at);
-      else if (value instanceof GameObject) out.set([value.entity >>> 0, 0, 0, 0], at);
+      if (value === null) word(out, at, NONE);
+      else if (value instanceof GameObject) word(out, at, value.entity >>> 0);
       else return false;
       return true;
   }

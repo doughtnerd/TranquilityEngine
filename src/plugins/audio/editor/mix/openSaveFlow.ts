@@ -5,15 +5,15 @@
 // them. Pure.
 import type { CaptureErrorCode } from "../../runtime/capture/reader";
 
-/** Codes an open adds beside the reader's: a file that isn't a capture (not `.mycap`), and any other failure. */
+/** Codes an open adds beside the reader's: a file that isn't a capture (not `.sporesample`), and any other failure. */
 export type OpenRouteCode = "notCapture" | "open";
 
 /** One headline per code. The reader's detail follows it (`captureErrorMessage`), so a headline says what it means and what to do. */
 const CAPTURE_ERROR_HEADLINES: Readonly<Record<CaptureErrorCode, string>> = {
   badMagic: "Not a Myco capture file.",
-  newerFormat: "This capture was saved by a newer build; update this editor to open it.",
-  olderFormat: "This capture was saved by an older build and old captures are not migrated; re-record it with this build.",
-  wireMismatch: "This capture was recorded by an audio core of another major version, so its records can't be read.",
+  newerFormat: "This capture was saved by a newer version of Myco; update this editor to open it.",
+  olderFormat: "This capture was saved by an older version of Myco that this build no longer reads; re-record it with this build.",
+  wireMismatch: "This capture was recorded by an audio core whose records are laid out differently at the same version, so they can't be read.",
   tooLarge: "This capture is larger than this build can open.",
   inflateOverrun: "The capture's data is bigger than its header says; the file is damaged or not trusted.",
   badHeader: "The capture's header is invalid.",

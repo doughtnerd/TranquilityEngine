@@ -10,13 +10,13 @@ import { FIXTURE_SECONDS, fixtureCapture } from "./profilerFixture";
 import { ProfilerStore } from "./profilerStore";
 import { linkReview, takeOfCapture } from "./reviewLink";
 
-const TAKE = "takes/canyon_run_03.mycotake";
-const OTHER = "takes/other.mycotake";
+const TAKE = "recordings/canyon_run_03.sporesample";
+const OTHER = "recordings/other.sporesample";
 
 function setup() {
   const files: Record<string, Uint8Array> = {
-    "captures/replay.mycap": fixtureCapture(FIXTURE_SECONDS, { path: TAKE, audioHash: "h" }),
-    "captures/plain.mycap": fixtureCapture(),
+    "recordings/replay.sporesample": fixtureCapture(FIXTURE_SECONDS, { path: TAKE, audioHash: "h" }),
+    "recordings/plain.sporesample": fixtureCapture(),
   };
   const profiler = new ProfilerStore({
     open: (bytes) => CaptureSource.openFile(bytes, { worker: inProcessWorker() }),
@@ -30,10 +30,10 @@ function setup() {
 
 describe("one review position for Take and the Profiler", () => {
   it("names the take a capture is backed by: a take file itself, or a replay capture's take; never a live recording", () => {
-    expect(takeOfCapture({ kind: "open", origin: "file", path: TAKE, replayOf: null })).toBe(TAKE);
-    expect(takeOfCapture({ kind: "open", origin: "file", path: "captures/r.mycap", replayOf: { path: TAKE, audioHash: "h" } })).toBe(TAKE);
-    expect(takeOfCapture({ kind: "open", origin: "file", path: "captures/r.mycap", replayOf: null })).toBeNull();
-    expect(takeOfCapture({ kind: "open", origin: "live", path: null, replayOf: { path: TAKE, audioHash: "h" } })).toBeNull();
+    expect(takeOfCapture({ kind: "open", origin: "file", path: TAKE, replayOf: null, take: true })).toBe(TAKE);
+    expect(takeOfCapture({ kind: "open", origin: "file", path: "recordings/r.sporesample", replayOf: { path: TAKE, audioHash: "h" }, take: false })).toBe(TAKE);
+    expect(takeOfCapture({ kind: "open", origin: "file", path: "recordings/r.sporesample", replayOf: null, take: false })).toBeNull();
+    expect(takeOfCapture({ kind: "open", origin: "live", path: null, replayOf: { path: TAKE, audioHash: "h" }, take: false })).toBeNull();
     expect(takeOfCapture({ kind: "none" })).toBeNull();
   });
 
@@ -41,7 +41,7 @@ describe("one review position for Take and the Profiler", () => {
     const { profiler, replay } = setup();
     replay.openTake(TAKE, fixtureTake());
     replay.seek(8.5);
-    await profiler.openPath("captures/replay.mycap");
+    await profiler.openPath("recordings/replay.sporesample");
     // The capture opened after the take: the Profiler's cursor is the take's position, not 0.
     await vi.waitFor(() => expect(profiler.cursor.value).toBeCloseTo(8.5));
     // Moving the Profiler's cursor moves the take…
@@ -58,7 +58,7 @@ describe("one review position for Take and the Profiler", () => {
 
   it("lands a take opened from the Profiler (Open in Take) at the Profiler's cursor", async () => {
     const { profiler, replay } = setup();
-    await profiler.openPath("captures/replay.mycap");
+    await profiler.openPath("recordings/replay.sporesample");
     profiler.seekTo(6.25);
     replay.openTake(TAKE, fixtureTake());
     expect(replay.time.value).toBeCloseTo(6.25);
@@ -69,7 +69,7 @@ describe("one review position for Take and the Profiler", () => {
     const { profiler, replay, unlink } = setup();
     replay.openTake(OTHER, fixtureTake());
     replay.seek(4);
-    await profiler.openPath("captures/replay.mycap"); // a replay of another take
+    await profiler.openPath("recordings/replay.sporesample"); // a replay of another take
     profiler.seekTo(2);
     expect(replay.time.value).toBeCloseTo(4);
     replay.openTake(TAKE, fixtureTake());
@@ -77,7 +77,7 @@ describe("one review position for Take and the Profiler", () => {
     unlink();
     profiler.seekTo(7);
     expect(replay.time.value).toBeCloseTo(2);
-    await profiler.openPath("captures/plain.mycap"); // no take behind it
+    await profiler.openPath("recordings/plain.sporesample"); // no take behind it
     replay.seek(9);
     expect(profiler.cursor.value).toBe(0);
   });

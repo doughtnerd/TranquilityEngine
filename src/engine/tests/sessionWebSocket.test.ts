@@ -93,23 +93,39 @@ describe("network sessions over WebSocket in Node (T10)", () => {
       for (let i = 0; i < 300; i++) GameObject.instantiate("prefabs/wsCrate.json", { position: [i, 0, 0] });
     });
     const ticks: { bytes: number; parts: number }[] = [];
+    let lifecycle = 0;
     const ghosts = () => game.world._componentsOfType(Replicated).filter((r) => r.isGhost).length;
+    const record = () => {
+      const ps = serverReplication(host.world)!.peerState(peer())!;
+      ticks.push({ bytes: ps.lastBytes, parts: ps.lastParts });
+      lifecycle = Math.max(lifecycle, ps.lastLifecycleBytes);
+    };
     await stepUntil(
       [host, game],
       () => {
-        const ps = serverReplication(host.world)!.peerState(peer())!;
-        ticks.push({ bytes: ps.lastBytes, parts: ps.lastParts });
+        record();
         return ghosts() === 300;
       },
       10000,
     );
-    // 300 spawns are several KB: a tick sends them in several parts of about a datagram each (ADR 0334).
+    // 300 spawns are several KB: they go reliably, in the socket's stream (ADR 0402).
     const limit = peer().datagramBodyBytes!;
     expect(limit).toBeLessThan(1100);
-    const split = ticks.filter((t) => t.parts > 1);
-    expect(split.length).toBeGreaterThan(0);
+    expect(lifecycle).toBeGreaterThan(5 * limit);
+    // Moving every crate makes their states several KB: a tick sends them in several parts of about
+    // a datagram each (ADR 0334).
+    World._runIn(host.world, () => {
+      for (const rep of host.world._componentsOfType(Replicated)) rep.node.transform!.position.set(rep.node.transform!.position.x * 1.37 + 0.123, 17.25, -3.5);
+    });
+    await stepUntil(
+      [host, game],
+      () => {
+        record();
+        return ticks.some((t) => t.parts > 1);
+      },
+      10000,
+    );
     for (const t of ticks) expect(t.bytes).toBeLessThanOrEqual(t.parts * limit);
-    expect(Math.max(...split.map((t) => t.bytes))).toBeGreaterThan(5 * limit);
   });
 
   it("a listen takes its owner's default transport options, under its own (the dedicated server's webrtc settings, ADR 0333)", async () => {

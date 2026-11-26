@@ -106,6 +106,23 @@ describe("several keys at once (ADR 0373)", () => {
     expect(scaleKeys(keys, [2], 0, 4, [0, 1]).keys).toEqual([[0, "a"], [0.25, "b"], [1, "c"]]);
     expect(scaleKeys(keys, [1], 0, -1, [0, 1]).keys).toEqual(keys);
   });
+  it("moved keys landing on each other: the last one landing replaces the others, so no two keys share a time", () => {
+    // Scaled up against the end, "c" and "d" both clamp to 1; "d" lands last and wins, "c" is gone.
+    const r = scaleKeys(keys, [2, 3], 0, 4, [0, 1]);
+    expect(r.keys).toEqual([[0, "a"], [0.25, "b"], [1, "d"]]);
+    expect(r.indices).toEqual([-1, 2]);
+    // The order the indices are given in doesn't change which key wins.
+    expect(scaleKeys(keys, [3, 2], 0, 4, [0, 1])).toEqual({ keys: [[0, "a"], [0.25, "b"], [1, "d"]], indices: [2, -1] });
+    // Collapsed onto an unmoved key and onto each other: the latest moved key replaces both.
+    const c = scaleKeys(keys, [0, 1], 0.5, 1e-9, [0, 1]);
+    expect(c.keys.map((k) => k[1])).toEqual(["b", "d"]);
+    expect(c.keys[0][0]).toBeCloseTo(0.5, 6);
+    expect(c.indices).toEqual([-1, 0]);
+    // Pasting keys that land on each other keeps the later copied one.
+    const p = pasteKeys(keys, [[0, "x"], [1e-9, "y"]] as K[], 0.5, [0, 1]);
+    expect(p.keys.map((k) => k[1])).toEqual(["a", "b", "y", "d"]);
+    expect(p.indices).toEqual([-1, 2]);
+  });
   it("removes any number of keys, all of them included", () => {
     expect(removeKeys(keys, [0, 3])).toEqual([[0.25, "b"], [0.5, "c"]]);
     expect(removeKeys(keys, [0, 1, 2, 3])).toEqual([]);

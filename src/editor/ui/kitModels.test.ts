@@ -150,7 +150,7 @@ describe("Move to…", () => {
     expect(whyNotMoveTo("audio", dir)).toMatch(/already/);
     expect(whyNotMoveTo("audio/sfxtra", dir)).toBeNull(); // a sibling whose name only starts the same
     expect(whyNotMoveTo("", dir)).toBeNull();
-    const mixed = [{ path: "takes/a.mycotake", folder: false }, { path: "b.mycotake", folder: false }];
+    const mixed = [{ path: "takes/a.sporesample", folder: false }, { path: "b.sporesample", folder: false }];
     expect(whyNotMoveTo("takes", mixed)).toBeNull(); // one of them moves
     expect(whyNotMoveTo("x", [])).not.toBeNull();
     expect(isCurrentFolder("audio/sfx", file)).toBe(true);

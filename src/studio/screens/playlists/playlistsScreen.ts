@@ -4,6 +4,7 @@
 // step each (`applyEdit`; drags coalesce); refusals go to the status bar. File actions (new, rename, duplicate, move,
 // delete, make shared) go through the engine's asset operations, so references follow. The panels read the signals and
 // call these; the rules are the pure models beside this file.
+import { audioProject } from "../../shell/audioProject";
 import { computed, effect, signal } from "@preact/signals";
 import { currentAudioProject } from "../../../editor/audioProjectFile";
 import { assetDocumentsDeleted, openAssetDocument, readAsset, type AssetDocument } from "../../../editor/assetDocuments";
@@ -14,7 +15,7 @@ import { splitExtension } from "../../../editor/freePath";
 import { errorStatus } from "../../../editor/messages";
 import { createAsset } from "../../../editor/assetKindHost";
 import { duplicateAssets, moveAssets, moveAssetsTo, newFolder, renameAsset } from "../../../editor/assetOps";
-import { currentProject, docVersion, status } from "../../../editor/state";
+import { docVersion, status } from "../../../editor/state";
 import { isSidecarPath, parseImportSettings, sidecarAsset, sidecarPath } from "../../../engine/scene/importSettings";
 import { parseDerivedSample } from "../../../engine/audio/sample/format";
 import type { ParameterDef } from "../../../engine/audio/parameters";
@@ -33,7 +34,7 @@ import { linkedByIndex } from "./playlistTree";
 import { clipsPlaylist } from "./clipsPlaylist";
 import { childrenToKeep, deleteEntry, folderContentsUp, moveAcrossFiles, moveWithinFile, insertEntries, planDelete, replaceLinks, takeEntry, type ChildrenChoice, type DeletePlan, type DeleteTarget, type LinksChoice } from "./structureEdits";
 import type { DropPlan } from "./treeDrop";
-import { updateLog, voicesNow, type DebugSnapshot, type LogRow } from "./voiceLog";
+import { markTrigger, triggerRows, triggerSpan, updateLog, voicesNow, type DebugSnapshot, type LogRow, type TriggerMark } from "./voiceLog";
 import { busPath } from "../mixer/busTree";
 import { starterTracks } from "./sequence/sequenceEdits";
 import { playback as sequencePlayback, sequenceContext } from "./sequence/sequenceState";
@@ -50,6 +51,8 @@ export const testValues = signal<Readonly<Record<string, number>>>({});
 export const voiceLog = signal<readonly LogRow[]>([]);
 export const playingNow = signal<ReturnType<typeof voicesNow>>([]);
 export const logCursor = signal<number | null>(null);
+/** Where the latest trigger began, so the player bar's strip shows that trigger's voices (null: none yet). */
+export const triggerMark = signal<TriggerMark | null>(null);
 /** The audio clock at the last poll (the log's "now"). */
 export const audioNow = signal(0);
 /** The delete confirmation's plan (null: closed). */
@@ -70,7 +73,7 @@ export const lastChange = signal<{ readonly playlist: string; readonly from: str
  */
 export const frozen = signal<{ readonly log: readonly LogRow[]; readonly now: ReturnType<typeof voicesNow>; readonly time: number } | null>(null);
 
-const project = () => currentProject.value;
+const project = () => audioProject.value;
 
 /** A playlist file's current value (an open document's, edits included), or null when it isn't a readable playlist. Tracks. */
 export function loadPlaylist(path: string): PlaylistAsset | null {
@@ -86,7 +89,7 @@ export function loadPlaylist(path: string): PlaylistAsset | null {
 
 /** The document of a playlist file. */
 export function docFor(path: string): AssetDocument<PlaylistAsset> | null {
-  const p = currentProject.peek();
+  const p = audioProject.peek();
   return p ? openAssetDocument<PlaylistAsset>(p, path, "playlist") : null;
 }
 
@@ -130,7 +133,7 @@ export const openLints = computed<readonly PlaylistLint[]>(() => {
 
 /** A sample's tempo (its sidecar's or derived sample's edits), null when it has none, undefined when unknown. */
 function sampleTempo(path: string): { bpm: number } | null | undefined {
-  const p = currentProject.peek();
+  const p = audioProject.peek();
   if (!p) return undefined;
   try {
     if (path.toLowerCase().endsWith(".sample.json")) {
@@ -343,7 +346,7 @@ export async function confirmDelete(plan: DeletePlan, children: ChildrenChoice, 
     }
     return;
   }
-  const p = currentProject.peek();
+  const p = audioProject.peek();
   const doc = docFor(t.path);
   const body = loadPlaylist(t.path);
   if (!p || !doc || !body) return;
@@ -390,7 +393,7 @@ export async function confirmDelete(plan: DeletePlan, children: ChildrenChoice, 
 
 /** Undo a playlist delete: the file and its sidecar back, the children kept as files gone, the links and references back. */
 async function restoreDeleted(path: string, text: string, side: string | undefined, made: readonly string[], relinked: readonly string[], cleaned: readonly (readonly [string, string])[]): Promise<void> {
-  const p = currentProject.peek();
+  const p = audioProject.peek();
   if (!p) return;
   try {
     await p.writeFile(path, text);
@@ -416,7 +419,7 @@ export const deletingFolder = signal<{ readonly path: string; readonly items: nu
 
 /** What deleting `folder` moves up a level, in the open project. */
 function contentsUp(folder: string): [string, string][] {
-  const p = currentProject.peek();
+  const p = audioProject.peek();
   if (!p) return [];
   return folderContentsUp(folder, { files: [...p.files, ...p.scripts.keys()], folders: p.folders }, splitExtension, (f) => (isSidecarPath(f) ? sidecarAsset(f) : null));
 }
@@ -433,7 +436,7 @@ export function askDeleteFolder(folder: string): void {
  */
 export async function deleteFolderKeepingContents(folder: string): Promise<boolean> {
   deletingFolder.value = null;
-  const p = currentProject.peek();
+  const p = audioProject.peek();
   if (!p) return false;
   const refused = whyNotDeletable(p, [folderEntry(folder)]);
   if (refused) {
@@ -462,7 +465,7 @@ export async function deleteFolderKeepingContents(folder: string): Promise<boole
 
 /** Undo a folder delete: the folder back, and what moved up moved into it again. */
 async function restoreFolder(folder: string, moves: readonly (readonly [string, string])[]): Promise<void> {
-  const p = currentProject.peek();
+  const p = audioProject.peek();
   if (!p) return;
   try {
     await p.createFolder(folder);
@@ -596,9 +599,17 @@ export function trigger(): void {
   if (logAsset !== (what.kind === "file" ? what.path : null)) {
     logAsset = what.kind === "file" ? what.path : null;
     voiceLog.value = [];
-    logCursor.value = null;
   }
+  startTrigger();
+}
+
+/** A new trigger: the strip starts over with this trigger's voices and the playhead follows it live from the start. */
+function startTrigger(): void {
+  const before = voiceLog.peek();
+  logCursor.value = null;
+  triggerMark.value = markTrigger(before, Number.POSITIVE_INFINITY);
   startPolling();
+  triggerMark.value = markTrigger(before, audioNow.peek());
 }
 
 /** Stop every voice the audition started (a 120 ms fade). */
@@ -628,8 +639,9 @@ export function resumeAudition(): void {
   for (const h of handles) h.resume();
 }
 
-/** Key-off: held loops end by their exit settings, a Blend's envelope releases. */
+/** Key-off: held loops end by their exit settings, a Blend's envelope releases; the playhead follows live again. */
 export function releaseAudition(): void {
+  logCursor.value = null;
   for (const h of handles) h.release();
 }
 
@@ -684,6 +696,11 @@ function poll(): void {
     audioNow.value = snap.time;
   }
   const busy = handles.size > 0 || playingNow.peek().length > 0;
+  // The trigger ended (by itself, Release or Stop): the playhead goes back to its start, ready to scrub or trigger again.
+  if (auditioning.peek() && !busy && !frozen.peek()) {
+    const span = triggerSpan(triggerRows(voiceLog.peek(), triggerMark.peek()), triggerMark.peek(), audioNow.peek());
+    if (span) logCursor.value = span[0];
+  }
   auditioning.value = busy;
   if (busy) idlePolls = 0;
   else if (++idlePolls > 10 && poller) {
@@ -701,9 +718,8 @@ export function followVoices(path: string): void {
   if (logAsset !== path) {
     logAsset = path;
     voiceLog.value = [];
-    logCursor.value = null;
   }
-  startPolling();
+  startTrigger();
 }
 effect(() => {
   if (!sequencePlayback.value) return;
@@ -715,4 +731,5 @@ effect(() => {
 export function clearLog(): void {
   voiceLog.value = [];
   logCursor.value = null;
+  triggerMark.value = null;
 }

@@ -9,7 +9,7 @@
 // coin.generator.json", and "out of date" when the generator's resolved patch no longer hashes to the block's `hash`
 // (SHA-256 of `generatorPatchText`, so formatting and notes don't count). Rebake renders the sample's variation again
 // over its own file (`rebakeOptions`). The rules here are pure; `BAKE` is the one binding to the project.
-import { currentProject } from "../../../../editor/state";
+import { audioProject } from "../../../shell/audioProject";
 import { bakeGenerator, generatorPatchHash } from "../../../../engine/audio/generators/bake";
 import type { GeneratedProvenance } from "../../../../engine/audio/generators/provenance";
 import type { GeneratorBody } from "../../../../engine/audio/generators/types";
@@ -79,7 +79,7 @@ export function studioBake<H>(bake: OfflineBake<H>, host: () => H | null): BakeG
 
 /** The bake the Studio calls: G5's offline bake over the open project (rejects with none open). */
 export const BAKE: BakeGenerator | null = studioBake(bakeGenerator, () => {
-  const p = currentProject.peek();
+  const p = audioProject.peek();
   return p ? projectBakeHost(p) : null;
 });
 

@@ -1,7 +1,8 @@
 /**
  * `LocalizedText` (ADR 0356 §4, Unity's `LocalizeStringEvent`): localised text for hand-built scene UI. It writes the
  * message of `key` in the current language into a text field of its node, when it starts, on every language change
- * (`Locale.epoch`) and when `key`, `field` or `args` change. Literal text fields keep working unchanged; add this
+ * (`Locale.epoch`) and when `key`, `field` or `args` change: a new `args` object, or one of its own values changed in place
+ * (`loc.args.count++`; compared one level deep, so a value's own insides aren't watched). Literal text fields keep working unchanged; add this
  * component to the ones that should follow the language.
  */
 import { Component } from "../core/Component";
@@ -26,10 +27,11 @@ export class LocalizedText extends Component {
   @field(String) key = "";
   /** The field it writes; empty: the node's text (see the class). */
   @field(String) field = "";
-  /** The message's arguments, set by scripts at runtime (not saved): `loc.args = { count: 3 }`. */
+  /** The message's arguments, set by scripts at runtime (not saved): `loc.args = { count: 3 }`, or `loc.args.count++`. */
   args: MessageArgs | null = null;
 
-  private written: { epoch: number; key: string; field: string; args: MessageArgs | null } | null = null;
+  /** What was last written from: `values` is a copy of the arguments' own values then, to see changes made in place. */
+  private written: { epoch: number; key: string; field: string; args: MessageArgs | null; values: Record<string, unknown> | null; count: number } | null = null;
 
   /** @internal */
   override _onActivate(): void {
@@ -52,8 +54,9 @@ export class LocalizedText extends Component {
   _sync(): void {
     const w = this.written;
     const epoch = Locale.epoch;
-    if (w && w.epoch === epoch && w.key === this.key && w.field === this.field && w.args === this.args) return;
-    this.written = { epoch, key: this.key, field: this.field, args: this.args };
+    if (w && w.epoch === epoch && w.key === this.key && w.field === this.field && w.args === this.args && sameValues(this.args, w.values, w.count)) return;
+    const values = this.args ? { ...this.args } : null;
+    this.written = { epoch, key: this.key, field: this.field, args: this.args, values, count: values ? Object.keys(values).length : 0 };
     if (this.key === "") return;
     const target = this.target();
     if (!target) {
@@ -79,6 +82,18 @@ export class LocalizedText extends Component {
     }
     return null;
   }
+}
+
+/** `args`' own values are those of `values` (both null, or the same `count` names with identical values); allocates nothing while they are. */
+function sameValues(args: MessageArgs | null, values: Record<string, unknown> | null, count: number): boolean {
+  if (args === null || values === null) return args === values;
+  let n = 0;
+  for (const name in args) {
+    if (!Object.hasOwn(args, name)) continue;
+    if (!Object.hasOwn(values, name) || !Object.is(args[name], values[name])) return false;
+    n++;
+  }
+  return n === count; // fewer names than the copy: one was deleted
 }
 
 function inWorld(world: World): LocalizedText[] {

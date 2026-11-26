@@ -30,7 +30,7 @@ The engineering is sound and the budget story is honest. For authoring, the reco
 
 A day on one level: place zones, place occluders, assign materials, listen.
 
-- **Smooth:** components placed like colliders (0162:101), one IR asset per zone, sends on buses I already know (`docs/guide/audio-mixer.md:12-16`, the `reverb` bus effect with `send`). Event filters and sends (0162:89) mean I stop making one bus per wall type.
+- **Smooth:** components placed like colliders (0162:101), one IR asset per zone, sends on buses I already know (`docs/wiki/guide/audio-mixer.md:12-16`, the `reverb` bus effect with `send`). Event filters and sends (0162:89) mean I stop making one bus per wall type.
 - **Painful, predicted:** (a) hearing the result requires Play and a walk-through; the record has no "listener at editor camera" audition. (b) The occlusion debug view is a viewport overlay (0162:102) but shows rays, not what I hear: I want the current occlusion dB and cutoff per voice in the Audio Debug panel. (c) IR assets are WAV/FLAC only with "a few procedural presets" (0162:79); I would want to audition IRs on a test sound inside the Inspector before assigning. (d) A material table of "wood, concrete, glass, metal, cloth…" (0162:74) with no way to edit the values per project is a trap; I will want to tune concrete up by 6 dB the first week.
 - **Iteration speed:** no live editing statement. Changing a zone's wet level, blend distance or a material cutoff in the Inspector must apply while Play is running. The record is silent.
 
@@ -56,7 +56,7 @@ A day on one level: place zones, place occluders, assign materials, listen.
 
 - **Zone wet level and blend distance.** Without defaults named, a new zone must start at a conservative wet and a blend distance of about 2 m, not 0 (a pop at the doorway) and not large.
 - **Occlusion on by default for every spatial source** (0162:76), against an `AudioOccluder` layer that nothing is on, so the default is no change. Fine. But a default material: set "concrete" and not "none", or a placed occluder does nothing and the designer thinks it is broken.
-- **Rolloff inconsistency.** `AudioSource` defaults to `maxDistance` 100 (`src/plugins/audio/runtime/AudioSource.ts:68-72`) while the event guide shows 30 (`docs/guide/sound-events.md:39`). The bed pulls the far voices in this range, so the same footstep changes panner at different distances. Align them.
+- **Rolloff inconsistency.** `AudioSource` defaults to `maxDistance` 100 (`src/plugins/audio/runtime/AudioSource.ts:68-72`) while the event guide shows 30 (`docs/wiki/guide/sound-events.md:39`). The bed pulls the far voices in this range, so the same footstep changes panner at different distances. Align them.
 - **Doppler on at 1** (0162:86) will be heard on every moving emitter, including music from a moving object. Off by default for events on the Music and UI buses.
 - **Smoothing 100 ms** (0162:75) is right for a wall; a door that slams shut will feel late. Provide a per-material attack.
 - **Budget default of 0.25 ms** (0162:73) means a 256-source scene refreshes in 5 frames; a fast-moving player will hear sources open up late. Acceptable.

@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { actionLabel, alignTargets, minNodes, runAlign, whyNotAlign, type AlignAction, type Axis } from "../align";
 import { statusSentence } from "../editGate";
 import { previewCamera, previewFrame, selectedCamera } from "../cameraPreview";
-import { cameraPreviewEnabled, cleanSnap, gizmoPivot, gizmoSpace, snapSettings, toggleGizmoPivot, toggleGizmoSpace, updateSnap, type SnapSettings } from "../sceneTools";
+import { cameraPreviewEnabled, cleanSnap, gizmoPivot, gizmoSpace, lighting2DShown, snapSettings, toggleGizmoPivot, toggleGizmoSpace, updateSnap, type SnapSettings } from "../sceneTools";
 import { docVersion, openScene, sceneCamera, selectedKeys, viewMode } from "../state";
 import { rotationAngles } from "../preferences";
 import { previewedQuality, previewQuality, qualityTiers } from "../graphicsPreview";
@@ -31,7 +31,7 @@ export function SceneToolButtons() {
         </button>
       </div>
       <div class="group" role="group" aria-label="Snapping">
-        <button class={`snap-toggle${snap.always ? " active" : ""}`} aria-pressed={snap.always} title="Always snap gizmo drags (otherwise hold Ctrl)" onClick={() => updateSnap({ always: !snap.always })}>
+        <button class={`snap-toggle toggle${snap.always ? " active" : ""}`} aria-pressed={snap.always} title="Always snap gizmo drags (otherwise hold Ctrl)" onClick={() => updateSnap({ always: !snap.always })}>
           Snap
         </button>
         <Popover label="Snap settings" buttonClass="snap-settings" buttonText="▾" title="Snap steps and grid">
@@ -41,12 +41,20 @@ export function SceneToolButtons() {
       <AlignMenu />
       <SceneToolbarItems />
       <button
-        class={`camera-preview-toggle${cameraPreviewEnabled.value ? " active" : ""}`}
+        class={`camera-preview-toggle toggle${cameraPreviewEnabled.value ? " active" : ""}`}
         aria-pressed={cameraPreviewEnabled.value}
         title={selectedCamera.value ? "Show what the selected camera sees in a corner of the view" : "Show what a selected camera sees in a corner of the view (select a Camera node)"}
         onClick={() => (cameraPreviewEnabled.value = !cameraPreviewEnabled.value)}
       >
         Preview
+      </button>
+      <button
+        class={`lighting2d-toggle toggle${lighting2DShown.value ? " active" : ""}`}
+        aria-pressed={lighting2DShown.value}
+        title={lighting2DShown.value ? "2D lighting is on: sprites, tiles and 2D lines are lit by 2D lights. Click to draw them unlit." : "2D lighting is off: 2D draws are unlit. Click to light them by 2D lights."}
+        onClick={() => (lighting2DShown.value = !lighting2DShown.value)}
+      >
+        2D Lights
       </button>
       <select
         class="quality-select"

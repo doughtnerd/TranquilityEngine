@@ -1,5 +1,5 @@
 /* A project section's toolbar (ADR 0151): the panel's buttons, Undo, Redo and the save marker. */
 .section-toolbar { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 4px 6px; border-bottom: 1px solid var(--border); }
-.section-status { margin-left: auto; font-size: calc(11px * var(--ui-scale)); color: var(--muted); white-space: nowrap; }
+.section-status { margin-left: auto; font-size: var(--fs-sm); color: var(--muted); white-space: nowrap; }
 .section-status.saved { color: var(--success); }
 .section-status.unsaved { color: var(--warning); }

@@ -112,6 +112,16 @@ impl Listener {
         sink: Sink,
     ) -> Result<Listener, String> {
         let socket = TcpListener::bind((host, port)).map_err(|e| bind_error(host, port, &e))?;
+        Listener::start(socket, path, limits, sink)
+    }
+
+    /// Starts accepting on an already bound socket.
+    fn start(
+        socket: TcpListener,
+        path: &str,
+        limits: Limits,
+        sink: Sink,
+    ) -> Result<Listener, String> {
         socket.set_nonblocking(true).map_err(|e| e.to_string())?;
         let port = socket.local_addr().map_err(|e| e.to_string())?.port();
         let shared = Arc::new(Shared {
@@ -136,6 +146,37 @@ impl Listener {
             accept: Some(accept),
             port,
         })
+    }
+
+    /// Binds the first free port of `first_port..first_port + count` on `host` and returns the listener
+    /// with the port it got. A port in use moves on to the next; any other error fails at once. When
+    /// every port is taken the error says so ("ports 7790-7799 are all in use"). `count` 0 binds nothing.
+    pub fn bind_range(
+        host: &str,
+        first_port: u16,
+        count: u16,
+        path: &str,
+        limits: Limits,
+        sink: Sink,
+    ) -> Result<(Listener, u16), String> {
+        let last = (first_port as u32 + count as u32)
+            .saturating_sub(1)
+            .min(u16::MAX as u32) as u16;
+        if count == 0 {
+            return Err("no ports to try".into());
+        }
+        for port in first_port..=last {
+            match TcpListener::bind((host, port)) {
+                Ok(socket) => return Ok((Listener::start(socket, path, limits, sink)?, port)),
+                Err(e) if e.kind() == ErrorKind::AddrInUse => continue,
+                Err(e) => return Err(bind_error(host, port, &e)),
+            }
+        }
+        if first_port == last {
+            Err(format!("port {first_port} is already in use"))
+        } else {
+            Err(format!("ports {first_port}-{last} are all in use"))
+        }
     }
 
     /// The bound port (the real one for port 0).
@@ -259,9 +300,13 @@ fn run_connection(stream: TcpStream, remote: SocketAddr, shared: Arc<Shared>) {
     let _ = stream.set_read_timeout(Some(HANDSHAKE_TIMEOUT));
     let _ = stream.set_write_timeout(Some(HANDSHAKE_TIMEOUT));
     let path = shared.path.clone();
+    // The path the upgrade asked for, kept for the accept event (a listener at "/" serves several paths).
+    let asked = Arc::new(Mutex::new(String::new()));
+    let asked_in_check = asked.clone();
     #[allow(clippy::result_large_err)] // the error type is tungstenite's
     let check = move |request: &Request, response: Response| -> Result<Response, ErrorResponse> {
         if path_matches(&path, request.uri().path()) {
+            *asked_in_check.lock().unwrap() = request.uri().path().to_string();
             return Ok(response);
         }
         let mut refusal = ErrorResponse::new(Some("Not Found".into()));
@@ -293,9 +338,11 @@ fn run_connection(stream: TcpStream, remote: SocketAddr, shared: Arc<Shared>) {
             queued: queued.clone(),
         },
     );
+    let path = asked.lock().unwrap().clone();
     (shared.sink)(Event::Accept {
         connection: id,
         remote: remote.to_string(),
+        path,
     });
 
     let ended = pump(&mut ws, id, &inbox, &queued, &shared);
@@ -507,7 +554,9 @@ mod tests {
     fn a_client_connects_exchanges_binary_messages_and_closes() {
         let (listener, rx) = listen("127.0.0.1", 0, "/myco-debug");
         let mut client = connect(listener.port(), "/myco-debug?myco-rtc=1").expect("connects");
-        let Event::Accept { connection, remote } = next(&rx) else {
+        let Event::Accept {
+            connection, remote, ..
+        } = next(&rx) else {
             panic!("accept first")
         };
         assert!(remote.starts_with("127.0.0.1:"), "{remote}");
@@ -541,6 +590,16 @@ mod tests {
                 reason: "done".into()
             }
         );
+    }
+
+    #[test]
+    fn accept_reports_the_path_the_upgrade_asked_for() {
+        let (listener, rx) = listen("127.0.0.1", 0, "/");
+        let _client = connect(listener.port(), "/myco-rendezvous?x=1").expect("accepted");
+        let Event::Accept { path, .. } = next(&rx) else {
+            panic!("accept first")
+        };
+        assert_eq!(path, "/myco-rendezvous");
     }
 
     #[test]
@@ -594,6 +653,47 @@ mod tests {
         .err()
         .expect("refused");
         assert_eq!(error, format!("port {} is already in use", first.port()));
+    }
+
+    fn range(first: u16, count: u16) -> Result<(Listener, u16), String> {
+        Listener::bind_range(
+            "127.0.0.1",
+            first,
+            count,
+            "/",
+            Limits::default(),
+            Arc::new(|_| {}),
+        )
+    }
+
+    #[test]
+    fn bind_range_takes_the_next_port_when_one_is_in_use() {
+        let (first, _rx) = listen("127.0.0.1", 0, "/");
+        let start = first.port();
+        let (second, port) = range(start, 50).expect("binds a later one");
+        assert!(port > start && port < start + 50); // other tests may hold the ports just above
+        assert_eq!(second.port(), port);
+    }
+
+    #[test]
+    fn bind_range_reports_when_every_port_is_taken() {
+        // Two neighbouring ports held here (retried, as other tests bind ports at the same time).
+        let (start, _held) = (0..50)
+            .find_map(|_| {
+                let a = TcpListener::bind(("127.0.0.1", 0)).ok()?;
+                let port = a.local_addr().ok()?.port();
+                let b = TcpListener::bind(("127.0.0.1", port.checked_add(1)?)).ok()?;
+                Some((port, (a, b)))
+            })
+            .expect("two neighbouring ports");
+        assert_eq!(
+            range(start, 1).err().expect("refused"),
+            format!("port {start} is already in use")
+        );
+        assert_eq!(
+            range(start, 2).err().expect("refused"),
+            format!("ports {start}-{} are all in use", start + 1)
+        );
     }
 
     #[test]

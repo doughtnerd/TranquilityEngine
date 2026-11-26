@@ -150,23 +150,23 @@ describe("the cursor keys", () => {
 });
 
 describe("the captures tree", () => {
-  const files = ["captures/b.mycap", "captures/a.mycap", "captures/test pc/slot 07.mycap", "takes/run.mycotake", "sfx/boom.wav", "root.mycap"];
+  const files = ["recordings/b.sporesample", "recordings/a.sporesample", "recordings/test pc/slot 07.sporesample", "recordings/run.sporesample", "sfx/boom.wav", "root.sporesample"];
 
   it("holds capture files by folder, folders first, by name", () => {
     const tree = captureTree(files);
-    expect(tree.map((n) => n.name)).toEqual(["captures", "takes", "root.mycap"]);
+    expect(tree.map((n) => n.name)).toEqual(["recordings", "root.sporesample"]);
     const captures = tree[0]!;
-    expect(captures.kind === "folder" && captures.children.map((n) => n.name)).toEqual(["test pc", "a.mycap", "b.mycap"]);
-    expect(treeFolders(tree)).toEqual(["captures", "captures/test pc", "takes"]);
-    expect(captureTitle("captures/test pc/slot 07.mycap")).toBe("slot 07");
+    expect(captures.kind === "folder" && captures.children.map((n) => n.name)).toEqual(["test pc", "a.sporesample", "b.sporesample", "run.sporesample"]);
+    expect(treeFolders(tree)).toEqual(["recordings", "recordings/test pc"]);
+    expect(captureTitle("recordings/test pc/slot 07.sporesample")).toBe("slot 07");
   });
 
   it("searches by path, names the next free capture and refuses other files", () => {
-    expect(searchCaptures(files, "PC slot")).toEqual(["captures/test pc/slot 07.mycap"]);
+    expect(searchCaptures(files, "PC slot")).toEqual(["recordings/test pc/slot 07.sporesample"]);
     expect(searchCaptures(files, "boom")).toEqual([]);
-    expect(nextCapturePath(["captures/capture_01.mycap"])).toBe("captures/capture_02.mycap");
-    expect(whyNotCaptureFile("x.wav")).toMatch(/isn't a capture file/);
-    expect(whyNotCaptureFile("x.MYCAP")).toBeNull();
+    expect(nextCapturePath(["recordings/capture_01.sporesample"])).toBe("recordings/capture_02.sporesample");
+    expect(whyNotCaptureFile("x.wav")).toMatch(/isn't a recording/);
+    expect(whyNotCaptureFile("x.SPORESAMPLE")).toBeNull();
   });
 });
 

@@ -1,31 +1,39 @@
 // The Captures panel's tree (ADR 0348 "The Profiler screen"; the prototype's captures file system): the project's
-// capture files (`*.mycap`, and takes, `*.mycotake`, whose profile the Profiler reads too) by folder, wherever they are,
-// or while searching the matches by path. Saved and imported captures go to `captures/`. Pure.
+// recordings (`*.sporesample`, ADR 0409: every one holds a profile, and a take's also holds what the game asked of
+// audio) by folder, wherever they are, or while searching the matches by path. Saved and imported recordings go to
+// `recordings/`. Pure.
 
 import { contentFolders } from "../../components/projectFolders";
 
-/** The files the Profiler opens. */
-export const CAPTURE_SUFFIXES = [".mycap", ".mycotake"] as const;
+/** ADR 0409: the one recording file type, for takes and captures alike (the header's take flag tells them apart). */
+export const RECORDING_SUFFIX = ".sporesample";
 
-/** Where the Studio saves and imports captures. */
-export const CAPTURES_FOLDER = "captures";
+/** The files the Profiler opens. */
+export const CAPTURE_SUFFIXES = [RECORDING_SUFFIX] as const;
+
+/** ADR 0409: where the Studio, the editor and game builds save recordings, takes and captures alike. */
+export const RECORDINGS_FOLDER = "recordings";
+
+/** Where the Studio saves and imports captures (`RECORDINGS_FOLDER`). */
+export const CAPTURES_FOLDER = RECORDINGS_FOLDER;
 
 /** The empty state's words. */
 /**
  * How to get a capture, under "No captures yet" (sentence case, UI pass T4): the Studio's own Record first (it records
  * while a playlist auditions or a take replays, `whyNotRecord`), then the editor's Play toolbar and a game build.
  */
-export const NO_CAPTURES = "Record one here while a playlist or a take plays, or with Record capture in the editor's Play toolbar or F9 in a game build.";
+export const NO_CAPTURES = "Record one here while a playlist or a take plays, or with F9 in a game build.";
 
 export const isCapturePath = (path: string): boolean => {
   const lower = path.toLowerCase();
   return CAPTURE_SUFFIXES.some((s) => lower.endsWith(s));
 };
 
-export const isTakePath = (path: string): boolean => path.toLowerCase().endsWith(".mycotake");
+/** A recording the Take screen lists (every `*.sporesample`; one without take data says so when opened, ADR 0409). */
+export const isTakePath = (path: string): boolean => path.toLowerCase().endsWith(RECORDING_SUFFIX);
 
-/** A capture file (`*.mycap`): what the Captures tree lists. Takes are the Take screen's (the Profiler still opens one it is sent). */
-export const isCaptureFile = (path: string): boolean => path.toLowerCase().endsWith(".mycap");
+/** A recording the Captures tree lists: every `*.sporesample` (each holds a profile, ADR 0409). */
+export const isCaptureFile = (path: string): boolean => path.toLowerCase().endsWith(RECORDING_SUFFIX);
 
 const nameOf = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
 const folderOf = (path: string): string => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
@@ -95,7 +103,7 @@ export function treeFolders(nodes: readonly CaptureNode[]): string[] {
  * The folders a Takes or Captures tree shows: of the project's content folders (`contentFolders`: not the game's scenes,
  * scripts and plugins, nor hidden ones, unless they hold such files), those holding a file the tree lists, at any depth,
  * and those holding no file at all (a folder the user just made, to move files into). A folder of samples or playlists
- * stays in the Samples and Playlists trees, and the other tree's own folder (`takes/` for Captures, `captures/` for
+ * stays in the Samples and Playlists trees, and the other tree's own folder (`recordings/` for Captures, `recordings/` for
  * Takes: `otherRoots`), empty subfolders included, stays in that tree unless it holds a file this one lists. Move to…
  * offers every content folder but the other tree's (`runMoveFolders`).
  */
@@ -141,17 +149,16 @@ export function rowMeta(path: string, duration: number | null, searching: boolea
   return [searching ? folderTrail(path) || "Top level" : "", duration === null ? "" : durationText(duration)].filter(Boolean).join(" · ");
 }
 
-/** The first free `captures/<stem>_NN.mycap` (01, 02…) in `files`. */
+/** The first free `recordings/<stem>_NN.sporesample` (01, 02…) in `files`. */
 export function nextCapturePath(files: readonly string[], stem = "capture", folder = CAPTURES_FOLDER): string {
   const taken = new Set(files.map((f) => f.toLowerCase()));
   for (let n = 1; ; n++) {
-    const path = `${folder}/${stem}_${String(n).padStart(2, "0")}.mycap`;
+    const path = `${folder}/${stem}_${String(n).padStart(2, "0")}.sporesample`;
     if (!taken.has(path.toLowerCase())) return path;
   }
 }
 
 /** Why `name` can't be imported into the captures folder (a take goes to the Take screen's Takes), or null. */
 export function whyNotCaptureFile(name: string): string | null {
-  if (isTakePath(name)) return `${name} is a take: open it from the Take screen's Takes panel.`;
-  return isCaptureFile(name) ? null : `${name} isn't a capture file (.mycap).`;
+  return isCaptureFile(name) ? null : `${name} isn't a recording (.sporesample).`;
 }

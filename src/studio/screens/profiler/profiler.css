@@ -3,19 +3,19 @@
 .pf-panel-body { padding: 0; container-type: inline-size; }
 .pf-scroll { width: 100%; overflow-x: auto; }
 .pf-tool { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
-.pf-note { color: var(--muted); margin: 8px; font-size: calc(12px * var(--ui-scale)); }
+.pf-note { color: var(--muted); margin: 8px; font-size: var(--fs-md); }
 .pf-error { color: var(--danger); margin: 8px; }
 .pf-hint { color: var(--faint); font-weight: normal; margin-left: 6px; }
 .pf-missing { color: var(--faint); }
 
 /* Plugins (ADR 0352 §9): live plugin effect health */
-.pf-plugins { width: 100%; border-collapse: collapse; font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.pf-plugins { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 .pf-plugins th, .pf-plugins td { padding: 3px 6px; text-align: left; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .pf-plugins thead th { color: var(--muted); font-weight: 600; }
 .pf-plugins tbody th { color: var(--text); font-weight: normal; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
 .pf-plugins tr.attention th { color: var(--warning); }
 .pf-plugins td.over { color: var(--danger); }
-.pf-plugin-reset { padding: 0 6px; font-size: calc(11px * var(--ui-scale)); }
+.pf-plugin-reset { padding: 0 6px; font-size: var(--fs-sm); }
 
 /* Toolbar */
 .pf-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
@@ -23,28 +23,35 @@
 .pf-toggle:hover { background: var(--button-hover); }
 .pf-toggle.on { background: var(--warning-soft); border-color: var(--warning); color: var(--text-strong); }
 :is(.pf-toggle, .pf-tool, .pf-plugin-reset):focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-.pf-replay-of { display: inline-flex; flex-wrap: wrap; min-width: 0; align-items: center; gap: 6px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.pf-replay-of { display: inline-flex; flex-wrap: wrap; min-width: 0; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-sm); }
 .pf-replay-of strong { color: var(--text); font-weight: 600; }
 .pf-open-take { white-space: nowrap; }
 .pf-why-take { margin: 8px; }
-.pf-counts { color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.pf-counts { color: var(--muted); font-size: var(--fs-sm); }
 .pf-toolbar-gap { flex: 1 1 auto; }
+.pf-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 24px; padding: 0; border: none; border-radius: 4px; background: none; color: var(--text); cursor: pointer; }
+.pf-icon-btn:hover { background: var(--hover); }
+.pf-icon-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .pf-title { display: inline-flex; align-items: baseline; gap: 8px; min-width: 0; }
-.pf-title strong { color: var(--text-strong); font-size: calc(12px * var(--ui-scale)); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pf-title-meta { color: var(--muted); font-size: calc(12px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.pf-title strong { color: var(--text-strong); font-size: var(--fs-md); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pf-title-meta { color: var(--muted); font-size: var(--fs-md); font-variant-numeric: tabular-nums; }
 
 /* Timeline */
-.pf-timeline { --pf-head: 168px; --run-head: var(--pf-head); display: flex; flex-direction: column; min-width: 0; padding-bottom: 8px; }
+.pf-timeline { --pf-head: 168px; --run-head: var(--pf-head); --tz-head: var(--pf-head); display: flex; flex-direction: column; min-width: 0; padding-bottom: 8px; }
 .pf-tracks { position: relative; }
 .pf-track { display: grid; grid-template-columns: var(--pf-head) 1fr; border-bottom: 1px solid var(--border); min-height: 22px; }
 .pf-track-head { display: flex; flex-direction: column; justify-content: center; gap: 1px; padding: 2px 8px; background: var(--panel); border-right: 1px solid var(--border); min-width: 0; }
-.pf-track-label { color: var(--text); font-size: calc(12px * var(--ui-scale)); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-track-label { color: var(--text); font-size: var(--fs-md); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The data tracks' names are caps (LOAD, EFFECTS, LOUDNESS); voice lanes keep their names; game lanes are accent2 */
-:is(.pf-track-load, .pf-track-fx, .pf-track-effects, .pf-track-memory, .pf-track-loudness, .pf-track-picture, .pf-track-parameter) .pf-track-label { color: var(--muted); font-size: calc(11px * var(--ui-scale)); letter-spacing: 0.04em; text-transform: uppercase; }
+:is(.pf-track-load, .pf-track-fx, .pf-track-effects, .pf-track-memory, .pf-track-loudness, .pf-track-picture, .pf-track-parameter) .pf-track-label { color: var(--muted); font-size: var(--fs-sm); }
 .pf-track-parameter .pf-track-label { color: var(--accent2); }
-.pf-track-value { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-track-value { color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pf-plot { position: relative; min-width: 0; background: var(--bg-sunken); cursor: crosshair; overflow: hidden; }
 .pf-lines { display: block; width: 100%; }
+/* The zoom: plots are drawn over the whole capture, in a box stretched to the zoom and slid by the view (ProfilerTimeline). */
+.pf-clip { position: absolute; inset: 0; overflow: hidden; }
+.pf-zoom { position: absolute; top: 0; bottom: 0; }
+.pf-timeline .tz-strip { position: sticky; bottom: 0; z-index: 5; }
 .pf-line { fill: none; stroke-width: 1.5; }
 .pf-voices { stroke: var(--accent); }
 .pf-cpu { stroke: var(--muted); stroke-width: 1; }
@@ -56,7 +63,7 @@
 .pf-fx-spatial { stroke: var(--warning); color: var(--warning); }
 .pf-fx-music { stroke: var(--text); color: var(--text); }
 .pf-fx-loudness { stroke: var(--muted); color: var(--muted); }
-.pf-fx-legend { position: absolute; top: 2px; right: 4px; display: flex; gap: 6px; pointer-events: auto; font-size: calc(10px * var(--ui-scale)); }
+.pf-fx-legend { position: absolute; top: 2px; right: 4px; display: flex; gap: 6px; pointer-events: auto; font-size: var(--fs-xs); }
 .pf-fx-key::before { content: ""; display: inline-block; width: 8px; height: 2px; margin-right: 3px; vertical-align: middle; background: currentColor; }
 .pf-bus { stroke: var(--accent); }
 .pf-loud { stroke: var(--accent2); }
@@ -71,23 +78,23 @@
 .pf-ref { stroke-width: 1; }
 .pf-zero { stroke: var(--border-strong); }
 .pf-target { stroke: var(--muted); stroke-dasharray: 4 3; }
-.pf-ref-label { position: absolute; right: 4px; top: 2px; color: var(--faint); font-size: calc(10px * var(--ui-scale)); pointer-events: none; }
+.pf-ref-label { position: absolute; right: 4px; top: 2px; color: var(--faint); font-size: var(--fs-xs); pointer-events: none; }
 /* The bus breakdown at the cursor: the total in bold, then authored and each lane with its reason */
-.pf-float { position: absolute; top: 2px; display: flex; flex-direction: column; margin-left: 8px; padding: 3px 7px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 4px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); line-height: 14px; white-space: nowrap; pointer-events: none; z-index: 5; box-shadow: 0 4px 12px var(--shadow, rgba(0, 0, 0, 0.4)); }
+.pf-float { position: absolute; top: 2px; display: flex; flex-direction: column; margin-left: 8px; padding: 3px 7px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 4px; color: var(--muted); font-size: var(--fs-sm); line-height: 14px; white-space: nowrap; pointer-events: none; z-index: 5; box-shadow: 0 4px 12px var(--shadow, rgba(0, 0, 0, 0.4)); }
 .pf-float strong { color: var(--text-strong); font-weight: 600; }
 .pf-track-bus .pf-plot { overflow: visible; }
-.pf-limit { position: absolute; top: 3px; right: 4px; padding: 0 4px; border: 1px solid var(--danger); border-radius: 3px; background: var(--bg); color: var(--danger); font-size: calc(10px * var(--ui-scale)); line-height: 14px; pointer-events: auto; }
-.pf-legend { position: absolute; bottom: 2px; right: 4px; display: flex; gap: 8px; color: var(--muted); font-size: calc(10px * var(--ui-scale)); pointer-events: none; }
+.pf-limit { position: absolute; top: 3px; right: 4px; padding: 0 4px; border: 1px solid var(--danger); border-radius: 3px; background: var(--bg); color: var(--danger); font-size: var(--fs-xs); line-height: 14px; pointer-events: auto; }
+.pf-legend { position: absolute; bottom: 2px; right: 4px; display: flex; gap: 8px; color: var(--muted); font-size: var(--fs-xs); pointer-events: none; }
 .pf-key::before { content: ""; display: inline-block; width: 10px; height: 2px; margin-right: 3px; vertical-align: middle; background: currentColor; }
 .pf-key-voices { color: var(--accent); }
 .pf-key-cpu { color: var(--muted); }
 .pf-chips { position: absolute; top: 3px; right: 4px; display: flex; gap: 4px; pointer-events: auto; }
-.pf-chip-n { padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--muted); font-size: calc(10px * var(--ui-scale)); line-height: 14px; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.pf-more-buses .pf-track-head .link { font-size: calc(11px * var(--ui-scale)); text-align: left; padding: 0; }
+.pf-chip-n { padding: 0 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg); color: var(--muted); font-size: var(--fs-xs); line-height: 14px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pf-more-buses .pf-track-head .link { font-size: var(--fs-sm); text-align: left; padding: 0; }
 .pf-plot-empty { min-height: 22px; cursor: default; }
 .pf-float.left { transform: translateX(calc(-100% - 12px)); }
 .pf-picture { position: absolute; inset: 0; }
-.pf-lane-empty { margin: 0; padding: 3px 6px; color: var(--faint); font-size: calc(11px * var(--ui-scale)); }
+.pf-lane-empty { margin: 0; padding: 3px 6px; color: var(--faint); font-size: var(--fs-sm); }
 
 /* Ruler marks: the problems as ticks at the ruler's foot (2x10, the prototype's), markers in the note colour */
 .pf-mark { position: absolute; bottom: 0; width: 3px; height: 10px; margin-left: -1.5px; padding: 0; border: none; border-radius: 1px; background: var(--marker-note); cursor: pointer; z-index: 1; }
@@ -100,10 +107,12 @@
 .pf-cursor-layer { position: absolute; top: 0; bottom: 0; left: var(--pf-head); right: 0; pointer-events: none; z-index: 4; }
 
 /* Voice blocks (the prototype's button.v): 24px in a 34px row; played on the badge fill, problems in their colours */
-.pf-voice { position: absolute; height: 24px; min-width: 6px; padding: 0 4px; border: 1px solid var(--border-strong); border-radius: 3px; background: var(--badge); color: var(--text); font-size: calc(11px * var(--ui-scale)); line-height: 22px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: clip; cursor: pointer; }
+.pf-voice { position: absolute; height: 24px; min-width: 6px; padding: 0 4px; border: 1px solid var(--border-strong); border-radius: 3px; background: var(--badge); color: var(--text); font-size: var(--fs-sm); line-height: 22px; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: clip; cursor: pointer; }
 .pf-voice[data-status="stolen"], .pf-voice[data-status="blocked"], .pf-voice[data-status="refused"] { background: var(--warning-soft); border-color: var(--warning); }
 .pf-voice[data-status="missing"], .pf-voice[data-status="failed"] { background: var(--danger-soft); border-color: var(--danger); }
 /* A refusal has no length: it gets room for its word */
+/* Experimental heatmap: cold (played once, the accent) to hot (played most, danger) by `--heat` (0..1). */
+.pf-voice.heat { --heat-colour: color-mix(in oklab, var(--danger) calc(var(--heat, 0) * 100%), var(--accent)); background: color-mix(in srgb, var(--heat-colour) 45%, transparent); border-color: var(--heat-colour); }
 .pf-voice.instant { width: auto !important; min-width: 0; max-width: 96px; }
 .pf-voice.dim { opacity: 0.25; }
 .pf-voice.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); z-index: 1; }
@@ -112,23 +121,23 @@
 /* Side panels */
 .pf-cursor-panel, .pf-voice-panel, .pf-why { padding: 6px 8px; }
 .pf-panel-caption { margin: 0 0 6px; color: var(--text); font-variant-numeric: tabular-nums; }
-.pf-table { width: 100%; border-collapse: collapse; font-size: calc(12px * var(--ui-scale)); }
+.pf-table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 .pf-table th, .pf-table td { padding: 2px 4px; border-bottom: 1px solid var(--border); text-align: left; font-weight: normal; }
-.pf-table thead th { color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.pf-table thead th { color: var(--muted); font-size: var(--fs-sm); }
 .pf-table .num { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pf-why-cell { color: var(--warning); }
 /* The status chip (the prototype's: radius 3, filled, no border) */
-.pf-chip { display: inline-block; padding: 0 6px; border-radius: 3px; background: var(--success-soft); color: var(--success); font-size: calc(12px * var(--ui-scale)); line-height: 18px; }
+.pf-chip { display: inline-block; padding: 0 6px; border-radius: 3px; background: var(--success-soft); color: var(--success); font-size: var(--fs-md); line-height: 18px; }
 .pf-chip[data-severity="warning"] { background: var(--warning-soft); color: var(--warning); }
 .pf-chip[data-severity="error"] { background: var(--danger-soft); color: var(--danger); }
 .pf-voice-status { margin: 0; }
 /* At cursor: the .cap grid, Bus | You hear, the reason after the name */
-.pf-cap-grid { width: 100%; border-collapse: collapse; font-size: calc(12px * var(--ui-scale)); }
+.pf-cap-grid { width: 100%; border-collapse: collapse; font-size: var(--fs-md); }
 .pf-cap-grid th, .pf-cap-grid td { padding: 1px 0; text-align: left; font-weight: normal; color: var(--text); }
-.pf-cap-grid thead th { color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; padding-bottom: 2px; }
+.pf-cap-grid thead th { color: var(--muted); font-size: var(--fs-sm); font-weight: 600; padding-bottom: 2px; }
 .pf-cap-grid .num { text-align: right; width: 64px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .pf-cap-grid .num.over { color: var(--warning); }
-.pf-why-word { color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.pf-why-word { color: var(--muted); font-size: var(--fs-sm); }
 .pf-reason { color: var(--muted); }
 .pf-facts { display: grid; grid-template-columns: max-content 1fr; gap: 3px 10px; margin: 8px 0 0; }
 .pf-facts dt { color: var(--muted); }
@@ -150,11 +159,11 @@ button.pf-wn:hover { border-color: var(--accent); border-top-color: var(--accent
 button.pf-wn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 .pf-wn.bad { border-top-color: var(--warning); background: var(--warning-soft); }
 .pf-wn.err { border-top-color: var(--danger); background: var(--danger-soft); }
-.pf-wn-kind { color: var(--badge-text); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-wn-kind { color: var(--badge-text); font-size: var(--fs-xs); font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .pf-wn.bad .pf-wn-kind { color: var(--warning); }
 .pf-wn.err .pf-wn-kind { color: var(--danger); }
-.pf-wn-name { color: var(--text-strong); font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pf-wn-why { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-wn-name { color: var(--text-strong); font-size: var(--fs-md); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pf-wn-why { color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* The arrow from the previous node: 24px of 2px line and a 6px head */
 .pf-wge { position: absolute; background: var(--border-strong); }
 .pf-wg-chart.row .pf-wge { right: 100%; top: 50%; width: 24px; height: 2px; margin-top: -1px; }
@@ -163,26 +172,26 @@ button.pf-wn:focus-visible { outline: 2px solid var(--focus-ring); outline-offse
 .pf-wg-chart.row .pf-wge::after { right: -2px; top: -3px; border-left: 6px solid var(--border-strong); border-right: none; }
 .pf-wg-chart.column .pf-wge::after { bottom: -2px; left: -3px; border-top: 6px solid var(--border-strong); border-bottom: none; }
 .pf-wgz { position: absolute; right: 8px; bottom: 8px; display: flex; align-items: center; gap: 2px; padding: 2px; border-radius: 5px; background: var(--surface); box-shadow: 0 2px 8px var(--shadow, rgba(0, 0, 0, 0.4)); cursor: default; }
-.pf-wgz button { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 22px; padding: 0 4px; border: none; border-radius: 3px; background: none; color: var(--text); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; cursor: pointer; }
+.pf-wgz button { display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 22px; padding: 0 4px; border: none; border-radius: 3px; background: none; color: var(--text); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; cursor: pointer; }
 .pf-wgz button:hover { background: var(--hover); }
 .pf-wgz button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .pf-wgz-pct { min-width: 44px !important; }
-.pf-why-note { margin: 0 10px 6px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); display: inline-flex; align-items: center; gap: 4px; }
+.pf-why-note { margin: 0 10px 6px; color: var(--muted); font-size: var(--fs-sm); display: inline-flex; align-items: center; gap: 4px; }
 
 /* Messages */
 .pf-messages-panel { display: flex; flex-direction: column; min-height: 100%; }
 .pf-messages-bar { display: flex; align-items: center; gap: 6px; padding: 4px 6px; }
-.pf-msg-count { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.pf-msg-count { flex: none; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 .pf-messages { list-style: none; margin: 0; padding: 0; }
 .pf-message-row { display: flex; align-items: center; border-bottom: 1px solid var(--border); }
 .pf-message-row > .pf-message { flex: 1 1 auto; min-width: 0; border-bottom: none; }
 .pf-open-mixer { flex: none; padding: 0 8px; white-space: nowrap; }
-.pf-message { display: grid; grid-template-columns: 64px 70px 1fr; gap: 8px; width: 100%; padding: 3px 10px; font-size: calc(12px * var(--ui-scale)); background: none; border: none; border-bottom: 1px solid var(--border); color: var(--text); text-align: left; cursor: pointer; }
+.pf-message { display: grid; grid-template-columns: 64px 70px 1fr; gap: 8px; width: 100%; padding: 3px 10px; font-size: var(--fs-md); background: none; border: none; border-bottom: 1px solid var(--border); color: var(--text); text-align: left; cursor: pointer; }
 .pf-message:hover { background: var(--hover); }
 .pf-message.selected { background: var(--selection); color: var(--selection-text); }
 .pf-message:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
 .pf-msg-time { font-variant-numeric: tabular-nums; color: var(--muted); }
-.pf-msg-kind { font-size: calc(10px * var(--ui-scale)); letter-spacing: 0.04em; color: var(--muted); }
+.pf-msg-kind { font-size: var(--fs-xs); letter-spacing: 0.04em; color: var(--muted); }
 .pf-msg-time { white-space: nowrap; }
 .pf-message[data-kind="warning"] .pf-msg-kind { color: var(--warning); }
 .pf-message[data-kind="error"] .pf-msg-kind { color: var(--danger); }

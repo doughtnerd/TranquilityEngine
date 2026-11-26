@@ -8,7 +8,7 @@ import type { ShaderKeyword } from "../../../engine/scene/shaderKeywords";
 import { sameMaterial, withKeywordValue } from "./materialAssets";
 import { createMaterialForGraph } from "./shaderGraphAssets";
 import { PropertyValue, TEXTURE_SLOT } from "./ShaderPropertyValue";
-import { AssetDocumentFrame, AssetPicker, ColorField, editor, openAssetDocument, LargePreview, SliderField } from "../../../editor/sdk";
+import { AssetDocumentFrame, AssetPicker, ColorField, editor, openAssetDocument, LargePreview, SliderField, EmptyState } from "../../../editor/sdk";
 
 /**
  * A material asset's settings (ADR 0043), edited in place: each change writes the file, and every
@@ -18,7 +18,7 @@ export function MaterialInspector(props: { path: string }) {
   editor.project.version; // rewritten by this inspector, or on disk
   const { path } = props;
   const project = editor.project.current;
-  if (!project) return <p class="empty">Nothing selected</p>;
+  if (!project) return <EmptyState compact title="Nothing selected" />;
   const doc = openAssetDocument<MaterialSettings>(project, path, "material");
   const settings = doc.value.value;
   const readOnly = doc.readOnly;
@@ -287,7 +287,7 @@ export function MaterialInspector(props: { path: string }) {
 export function ShaderGraphInspector(props: { path: string }) {
   editor.project.version;
   const project = editor.project.current;
-  if (!project) return <p class="empty">Nothing selected</p>;
+  if (!project) return <EmptyState compact title="Nothing selected" />;
   const { value: graph, problems } = editor.assets.read<ShaderGraph>(project, props.path);
   const all = [...problems.map((p) => p.message), ...compileShaderGraph(graph).problems];
   const sub = !!graph.subgraph;

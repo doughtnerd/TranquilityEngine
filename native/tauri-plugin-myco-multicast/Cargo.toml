@@ -1,0 +1,18 @@
+# Holds an Android Wi-Fi multicast lock for the life of a debug game, so mDNS discovery (native/debug-discovery over
+# mdns-sd) can receive multicast packets (Myco debug-link pairing, ADR 0403). A Tauri 2 mobile plugin with no
+# commands: on desktop and iOS `init()` does nothing. Vendored into a debug desktop export's src-tauri/vendor/.
+[package]
+name = "tauri-plugin-myco-multicast"
+description = "A Tauri 2 plugin that holds an Android WifiManager.MulticastLock while the app runs (Myco debug link)."
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.77"
+license = "MIT"
+publish = false
+links = "tauri-plugin-myco-multicast"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "2" }

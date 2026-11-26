@@ -15,7 +15,8 @@ import { Assets, Camera, Color, Engine, GameObject, SceneManager, Vector2 } from
 import { SpriteRenderer } from "../render/components";
 import { BabylonSprites } from "../render/babylon/sprites";
 import type { FeatureSyncContext } from "../render/babylon/feature";
-import { SpriteBatcher, type SpriteItem } from "../render/babylon/layeredQuads";
+import { batchedSpriteMaterial, layeredQuadMaterial, SpriteBatcher, type SpriteItem } from "../render/babylon/layeredQuads";
+import { BabylonMaterials2D } from "../render/babylon/materials2D";
 import { nullEngine, shaderText } from "./pbrShaderSource";
 import { _registeredRenderFeatures } from "../render/renderFeatures";
 import { claimSprites } from "../render/spriteClaims";
@@ -60,6 +61,7 @@ describe("the sprite batcher (ADR 0108)", () => {
     engine = new NullEngine();
     scene = new Scene(engine);
     batcher = new SpriteBatcher(scene);
+    materials.clear();
   });
   afterEach(() => {
     batcher.dispose();
@@ -67,14 +69,24 @@ describe("the sprite batcher (ADR 0108)", () => {
     engine.dispose();
   });
 
-  const item = (texture: Texture | null, order: number, x = 0): SpriteItem => {
+  /** A sprite batch material per texture (as the 2D materials share them, ADR 0418). */
+  const materials = new Map<Texture | null, PBRMaterial>();
+  const batchMaterial = (texture: Texture | null, s: Scene = scene): PBRMaterial => {
+    let m = materials.get(texture);
+    if (!m || m.getScene() !== s) {
+      materials.set(texture, (m = layeredQuadMaterial("sprites", s, texture)));
+      batchedSpriteMaterial(m);
+    }
+    return m;
+  };
+  const item = (texture: Texture | null, order: number, x = 0, s: Scene = scene): SpriteItem => {
     const matrix = new Float32Array(16);
     matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1;
     matrix[12] = x;
-    return { texture, order, matrix, color: [1, 0.5, 0.25, 0.75], uvRect: [0.25, 0, 0.25, 0.5] };
+    return { material: batchMaterial(texture, s), order, matrix, color: [1, 0.5, 0.25, 0.75], uvRect: [0.25, 0, 0.25, 0.5] };
   };
 
-  it("draws one batch per run of one texture, in draw order", () => {
+  it("draws one batch per run of one material (one texture), in draw order", () => {
     const atlas = new Texture(null, scene), other = new Texture(null, scene);
     // Equal orders group by texture; a different texture in between splits a run.
     batcher.update([item(atlas, 0), item(other, 1), item(atlas, 0, 1), item(atlas, 2), item(atlas, 2, 1)]);
@@ -91,7 +103,7 @@ describe("the sprite batcher (ADR 0108)", () => {
     expect(y).toBeLessThan(6);
     expect(z).toBe(6);
     expect((meshes[0].material as PBRMaterial).albedoTexture).toBe(atlas);
-    expect(meshes[0].material).toBe(meshes[2].material); // one material per texture
+    expect(meshes[0].material).toBe(meshes[2].material); // a run draws with its sprites' material
     // A whole tile map from one atlas is one draw.
     batcher.update(Array.from({ length: 500 }, (_, i) => item(atlas, 0, i)));
     expect([batches(scene).length, batchedSprites(scene)]).toEqual([1, 500]);
@@ -112,7 +124,7 @@ describe("the sprite batcher (ADR 0108)", () => {
       const e = nullEngine(language);
       const s = new Scene(e);
       const b = new SpriteBatcher(s);
-      b.update([item(null, 0)]);
+      b.update([item(null, 0, 0, s)]);
       const mesh = batches(s)[0]!;
       const { vertex, fragment } = await shaderText(mesh.material!, mesh);
       const attribute = uvAttribute(mesh);
@@ -145,8 +157,8 @@ describe("the sprite feature (ADR 0108, 0130)", () => {
       scene,
       pixelsPerUnit: () => world.settings.render.pixelsPerUnit,
       sortingLayers: () => world.settings.render.sortingLayers,
-      texture: async (path) => textures.get(path)!,
-      loadedTexture: (path) => textures.get(path) ?? null,
+      texture: (path) => textures.get(path) ?? null,
+      materials2D: new BabylonMaterials2D({ scene, library: { texture: (path) => textures.get(path) ?? null } }),
       drawPolicy: () => policy,
       warnOnce: (key) => void warnings.push(key),
     });

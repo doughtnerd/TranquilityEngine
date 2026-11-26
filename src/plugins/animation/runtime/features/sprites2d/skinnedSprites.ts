@@ -22,6 +22,7 @@ import { rectMesh } from "../../../../../engine/animation/sprites/spriteMesh";
 import type { World } from "../../../../../engine/core/World";
 import { SpriteRenderer } from "../../../../../engine/render/components";
 import type { QuadBatch, QuadBatchHost } from "../../../../../engine/render/quadBatches";
+import { sortingOrder } from "../../../../../engine/render/sortOrder";
 import type { SkinGeometry } from "../../../../../engine/render/skinning/skinData";
 import { PALETTE_FLOATS } from "../../../../../engine/render/skinning/skinKernel";
 import { JsSkinRuns, type SkinPalette, type SkinRun, type SkinRuns } from "../../../../../engine/render/skinning/skinRuns";
@@ -70,6 +71,11 @@ interface Entry {
   waiting: boolean;
   order: number;
   visible: boolean;
+  /**
+   * ADR 0415: the slice outline tied to the mesh, per point its nearest rest vertex and its offset from it (units), so the
+   * outline follows the bones for 2D shadow casters; null without an outline.
+   */
+  outline: { vertex: number; dx: number; dy: number }[][] | null;
 }
 
 const scratchPalette = (bones: number) => new Float32Array(Math.max(1, bones) * PALETTE_FLOATS);
@@ -106,6 +112,31 @@ export class SkinnedSprites {
     this.entries.delete(r);
   }
 
+  /**
+   * ADR 0415: `r`'s slice outline as its bones deform it now, in `r`'s node's local XY (for a ShadowCaster2D on that node),
+   * or null when it isn't a skinned sprite drawn here or its slice has no outline.
+   */
+  deformedOutline(r: SpriteRenderer): [number, number][][] | null {
+    const e = this.entries.get(r);
+    const skel = e?.skeletonNode;
+    if (!e?.outline || !e.run || !skel || e.skinned === null) return null;
+    const world = r.node.world;
+    const sm = world.worldMatrix(skel.entity), so = skel.entity * 16;
+    const nm = world.worldMatrix(r.node.entity), no = r.node.entity * 16;
+    // Node-local from world: the inverse of the node's 2D affine.
+    const [a, b, c, d, tx, ty] = [nm[no]!, nm[no + 1]!, nm[no + 4]!, nm[no + 5]!, nm[no + 12]!, nm[no + 13]!];
+    const det = a * d - b * c;
+    if (Math.abs(det) < 1e-12) return null;
+    return e.outline.map((poly) =>
+      poly.map(({ vertex, dx, dy }): [number, number] => {
+        const mx = e.positions[vertex * 3]! + dx, my = e.positions[vertex * 3 + 1]! + dy;
+        const wx = sm[so]! * mx + sm[so + 4]! * my + sm[so + 12]!, wy = sm[so + 1]! * mx + sm[so + 5]! * my + sm[so + 13]!;
+        const px = wx - tx, py = wy - ty;
+        return [(d * px - c * py) / det, (-b * px + a * py) / det];
+      }),
+    );
+  }
+
   /** What it drew: each visible skinned sprite with its batch and draw order. */
   *drawn(): Iterable<{ renderer: SpriteRenderer; batches: readonly QuadBatch[]; order: number }> {
     for (const [renderer, e] of this.entries) if (e.visible && e.run) yield { renderer, batches: [e.batch], order: e.order };
@@ -120,7 +151,7 @@ export class SkinnedSprites {
   private syncOne(world: World, r: SpriteRenderer, skeleton: Skeleton2D, skin: SliceSkinSource): void {
     let e = this.entries.get(r);
     if (!e) {
-      e = { key: "", batch: this.host.createBatch(`skinned-sprite:${r.node.name}`), run: null, palette: null, skeletonNode: null, texture: "", rebind: [], positions: new Float32Array(0), uvs: new Float32Array(0), indices: new Uint32Array(0), skinned: null, waiting: false, order: 0, visible: false };
+      e = { key: "", batch: this.host.createBatch(`skinned-sprite:${r.node.name}`), run: null, palette: null, skeletonNode: null, texture: "", rebind: [], positions: new Float32Array(0), uvs: new Float32Array(0), indices: new Uint32Array(0), skinned: null, waiting: false, order: 0, visible: false, outline: null };
       this.entries.set(r, e);
     }
     const skelSkin = sliceSkin(skeleton.bones, world.settings.render.pixelsPerUnit);
@@ -133,9 +164,10 @@ export class SkinnedSprites {
       e.key = key;
       this.build(e, r, skeleton, skin, skelSkin, size);
     }
-    e.order = this.host.sortOrder(r.sortingLayer, r.orderInLayer);
-    e.batch.setOrder(e.order);
+    e.order = sortingOrder(world.settings.render.sortingLayers, r.sortingLayer, r.orderInLayer); // for picking; the batch warns about an unknown layer
+    e.batch.setOrder(r.sortingLayer, r.orderInLayer);
     e.batch.setTint(r.color.toHex(), r.color.a);
+    e.batch.setMaterial(r.material); // ADR 0399: a normal map then follows the bones (the host's tangents)
     e.visible = r.isActiveAndEnabled && !!e.run;
     e.batch.setVisible(e.visible);
     if (!e.run || !e.visible) return;
@@ -188,6 +220,20 @@ export class SkinnedSprites {
       }
       return { bone: k, m: affineMultiply(skelModel!.binds[k]!, affineInvert(sliceBinds[j]!)) };
     });
+    // The outline follows its nearest vertex (ADR 0415): shadows from a deforming silhouette.
+    e.outline = skin.slice.outline?.length
+      ? skin.slice.outline.map((poly) =>
+          poly.map(([px, py]) => {
+            const [x, y] = toUnits(skin.frame, px, py);
+            let best = 0, bestD = Infinity;
+            for (let v = 0; v < n; v++) {
+              const d = (positions[v * 3]! - x) ** 2 + (positions[v * 3 + 1]! - y) ** 2;
+              if (d < bestD) [best, bestD] = [v, d];
+            }
+            return { vertex: best, dx: x - positions[best * 3]!, dy: y - positions[best * 3 + 1]! };
+          }),
+        )
+      : null;
     const geometry: SkinGeometry = { positions, normals: null, tangents: null, skin: { influences: 4, joints, weights: ws }, morphTargets: [] };
     e.positions = new Float32Array(n * 3);
     e.uvs = uvs;

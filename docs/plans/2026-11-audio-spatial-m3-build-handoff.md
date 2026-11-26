@@ -8,7 +8,7 @@ Written 2026-11-12 at the end of the build session that ran waves 0–9 unattend
 - **Morning update (owner, 2026-11-12):** the mixer's 256 KB gate is a tripwire, now 320 KB (D25); B3's size-for-CPU cuts reverted (D26); **the bed flip is applied** (D27, `3cd855c`).
 - **Merged flips** (plan-scheduled, gates passed, one-line reverts, logged D17, D18, D20 and C5's): wide memory, occlusion on, Doppler on, zone memory.
 - **Issues:** all closed. M3 is on master (#164, #165); #137 (C3b's worker-less upload) closed as not needed.
-- Status: the 0162 row in `docs/architecture/implementation-status.md`; the guide `docs/guide/spatial-audio.md`; the sample `samples/sound-lab` spatial page (key S from the tour).
+- Status: the 0162 row in `docs/architecture/implementation-status.md`; the guide `docs/wiki/guide/spatial-audio.md`; the sample `samples/sound-lab` spatial page (key S from the tour).
 
 ## What needs the owner (in order)
 

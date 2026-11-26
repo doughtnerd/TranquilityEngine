@@ -14,7 +14,7 @@ Paste as a new section after "## Audio core (`native/audio`; ADR 0157)":
 
 ## 2. User guide paragraph
 
-Place it at the end of the section "## Spatial audio (0074)" in `docs/guide/atmosphere-and-sound.md`, after the paragraph beginning "Only the World that has the view plays sound." (about line 45). That file is the only one under `docs/guide/` with a spatial audio heading. `audio-mixer.md` mentions spatial sound only in its limits, so it is not the place.
+Place it at the end of the section "## Spatial audio (0074)" in `docs/wiki/guide/atmosphere-and-sound.md`, after the paragraph beginning "Only the World that has the view plays sound." (about line 45). That file is the only one under `docs/wiki/guide/` with a spatial audio heading. `audio-mixer.md` mentions spatial sound only in its limits, so it is not the place.
 
 > 3D sound over headphones uses the IRCAM Listen HRTF database (IRC_Composite_C, Copyright 2002 IRCAM). We thank IRCAM for making it available.
 

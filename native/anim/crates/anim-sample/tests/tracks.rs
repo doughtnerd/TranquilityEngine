@@ -842,7 +842,7 @@ fn columns_hold_values_discrete_and_activation() {
         let view = fx.view();
         let sampler = ClipSampler::new(view, form).unwrap();
         let b = ClipBindings::new(&sampler);
-        let bound = b.bind(sampler).unwrap();
+        let bound = b.bind(&sampler).unwrap();
         let cols: Vec<_> = b.columns().collect();
         assert_eq!(
             cols.iter()
@@ -885,7 +885,7 @@ fn evaluate_runs_every_kind_in_order_and_deterministically() {
     let fx = Fx::new(true);
     let sampler = ClipSampler::new(fx.view(), Form::Compressed).unwrap();
     let b = ClipBindings::new(&sampler);
-    let bound = b.bind(sampler).unwrap();
+    let bound = b.bind(&sampler).unwrap();
     let run = || {
         let mut open = vec![0u32; b.notify_words()];
         let mut words = vec![0u32; b.column_words()];
@@ -942,14 +942,14 @@ fn bindings_refuse_another_clip() {
     let raw = ClipSampler::new(fx.view(), Form::Raw).unwrap();
     let comp = ClipSampler::new(fx.view(), Form::Compressed).unwrap();
     let b = ClipBindings::new(&raw);
-    assert!(matches!(b.bind(comp), Err(SampleError::Bindings)));
+    assert!(matches!(b.bind(&comp), Err(SampleError::Bindings)));
     let mut other = fixture(false);
     other.tracks.pop();
     let other = other.write().unwrap();
     let ov = ClipView::parse(&other).unwrap();
     assert!(matches!(
-        b.bind(ClipSampler::new(ov, Form::Raw).unwrap()),
+        b.bind(&ClipSampler::new(ov, Form::Raw).unwrap()),
         Err(SampleError::Bindings)
     ));
-    assert!(b.bind(raw).is_ok());
+    assert!(b.bind(&raw).is_ok());
 }

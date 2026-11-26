@@ -373,12 +373,18 @@ export const CAPTURE_CODEC: LazyOnlyRule = {
 };
 
 /**
- * The debug link (ADR 0376): everything in `src/engine/debugLink/` but the topic registry plugins register through
- * (`topics.ts`, a map of `import()` functions with type-only imports), and the plugins' topics (`runtime/**\/debugLink/`).
- * The player loads them by `import()` when `game.json` has `debug`; release exports leave their chunks out.
+ * The debug link (ADR 0376, 0403): everything under `src/engine/debugLink/` (subfolders too: pairing, rendezvous, the
+ * listener transport) but the topic registry plugins register through (`topics.ts`, a map of `import()` functions with
+ * type-only imports); the `webrtc` transport only the link uses (`src/engine/net/transport/webrtc.ts`); the player's
+ * pairing overlay (`src/player/debugOverlay*.ts`); and the plugins' topics (`runtime/**\/debugLink/`). The player loads
+ * them by `import()` when `game.json` has `debug`; release exports leave their chunks out.
  */
 export const DEBUG_LINK: LazyOnlyRule = {
-  matches: (id) => /\/src\/engine\/debugLink\/(?!topics\.ts$)[^/]+\.ts$/.test(id) || /\/src\/plugins\/[^/]+\/runtime\/(?:[^/]+\/)*debugLink\/[^/]+\.ts$/.test(id),
+  matches: (id) =>
+    /\/src\/engine\/debugLink\/(?!topics\.ts$)(?:[^/]+\/)*[^/]+\.ts$/.test(id) ||
+    /\/src\/engine\/net\/transport\/webrtc\.ts$/.test(id) ||
+    /\/src\/player\/debugOverlay[^/]*\.ts$/.test(id) ||
+    /\/src\/plugins\/[^/]+\/runtime\/(?:[^/]+\/)*debugLink\/[^/]+\.ts$/.test(id),
   why: "the debug link loads only in builds with debugging on, by import() (ADR 0376)",
 };
 
@@ -414,6 +420,32 @@ export function playerFiles(): Plugin {
       }
       this.emitFile({ type: "asset", fileName: "player/files.json", source: readFileSync(join(PLAYER_DIR, "files.json")) });
       for (const file of manifest.files) this.emitFile({ type: "asset", fileName: `player/${file}`, source: readFileSync(join(PLAYER_DIR, ...file.split("/"))) });
+    },
+  };
+}
+
+/**
+ * Ship the rendezvous bundle beside the editor (ADR 0403, plan R4), as the player is: the dev server serves
+ * dist/rendezvous/rendezvous.mjs at /rendezvous/rendezvous.mjs (once `npm run build:rendezvous` has run), and the editor
+ * build copies it to `rendezvous/`, so the editor's Export can write it beside a debug web build's `serve.mjs`.
+ */
+export function rendezvousFile(): Plugin {
+  const file = fileURLToPath(new URL("./dist/rendezvous/rendezvous.mjs", import.meta.url));
+  return {
+    name: "myco:rendezvous-file",
+    configureServer(server) {
+      server.middlewares.use("/rendezvous/rendezvous.mjs", (_req, res, next) => {
+        if (!existsSync(file)) return next();
+        res.setHeader("Content-Type", "text/javascript");
+        res.end(readFileSync(file));
+      });
+    },
+    generateBundle() {
+      if (!existsSync(file)) {
+        this.warn("dist/rendezvous/ isn't built, so the editor's debug web exports get no rendezvous. Run `npm run build:rendezvous` first.");
+        return;
+      }
+      this.emitFile({ type: "asset", fileName: "rendezvous/rendezvous.mjs", source: readFileSync(file) });
     },
   };
 }

@@ -51,6 +51,7 @@ const RIG = {
       rect: [32, 0, 16, 16],
       pivot: [0, 0],
       skin: { bones: [{ name: "arm", position: [0, 8], length: 16 }], mesh: { vertices: [0, 0, 16, 0, 16, 16, 0, 16], triangles: [0, 1, 2, 0, 2, 3] }, weights: [[0, 1], [0, 1], [0, 1], [0, 1]] },
+      outline: [[[0, 0], [16, 0], [16, 16], [0, 16]]], // ADR 0415: shadow casters follow it as the bones bend it
     },
     { name: "plain", rect: [48, 0, 16, 16] },
   ],
@@ -148,12 +149,13 @@ function fakeHost() {
     createBatch() {
       const b: FakeBatch = {
         positions: [], texture: "", matrix: [], visible: false, disposed: false,
+        setMaterial() {},
+        setBlend() {},
         setQuads() {},
         setTriangles(texture, positions) { b.texture = texture; b.positions = Array.from(positions); },
         setMatrix(m, offset = 0) { b.matrix = Array.from(m).slice(offset, offset + 16); },
         setOrder() {},
         setTint() {},
-        setColors() {},
         setMask() {},
         setVisible(v) { b.visible = v; },
         dispose() { b.disposed = true; },
@@ -162,7 +164,6 @@ function fakeHost() {
       return b;
     },
     textureSize: () => [64, 32],
-    sortOrder: (_layer, order) => order,
   };
   return { host, batches };
 }
@@ -227,6 +228,8 @@ describe("Skeleton2D and skinned sprites (ADR 0370, 0371)", () => {
     expectPoints(xy(arm), ARM_REST);
     expect(body.matrix[12]).toBe(5); // placed by the Skeleton2D's node
     expect([...sprites.drawn()].map((d) => d.renderer)).toEqual([r.body, r.arm]);
+    expectPoints(sprites.deformedOutline(r.arm)![0]!, ARM_REST); // ADR 0415: the outline at rest, in the arm node's space
+    expect(sprites.deformedOutline(r.body)).toBeNull(); // no outline on the body's slice
     sprites.dispose();
     expect(batches.every((b) => b.disposed)).toBe(true);
   });
@@ -243,6 +246,7 @@ describe("Skeleton2D and skinned sprites (ADR 0370, 0371)", () => {
     const [body, arm] = batches as [FakeBatch, FakeBatch];
     expectPoints(xy(body), BODY_REST.map((p, i) => (i === 2 || i === 3 ? turn(p) : p)));
     expectPoints(xy(arm), ARM_REST.map(turn));
+    expectPoints(sprites.deformedOutline(r.arm)![0]!, ARM_REST.map(turn)); // ADR 0415: the outline bends with the bone
 
     // An unchanged pose skins nothing; stopping returns to the bind pose.
     body.positions = [];

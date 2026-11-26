@@ -137,6 +137,29 @@ export function freeId(prefix: string, taken: (id: string) => boolean): string {
 const clone = <T>(v: T): T => structuredClone(v);
 const round = (p: readonly number[]): GraphVec => [Math.round(p[0]), Math.round(p[1])];
 
+/**
+ * Add to `properties` (a graph's Blackboard, changed in place) the properties a paste carries, as
+ * Unity's VFX Graph does when nodes reading Blackboard properties are pasted. A property the graph
+ * already has with the same name and type is the one the pasted nodes read (its value is kept). One
+ * it lacks is added. One whose name the graph uses for a property of another type is added under a
+ * free name (`Speed 2`), never one the paste also carries. Returns those renames (copied name → name
+ * in the graph), for the paste to point its property nodes at.
+ */
+export function pasteProperties<P extends GraphPropertyData>(properties: P[], carried: readonly P[] | undefined): Map<string, string> {
+  const renames = new Map<string, string>();
+  const taken = new Set([...properties, ...(carried ?? [])].map((p) => p.name));
+  for (const p of carried ?? []) {
+    const same = properties.find((q) => q.name === p.name);
+    if (same?.type === p.type) continue;
+    const name = same ? uniqueName(p.name, taken) : p.name;
+    taken.add(name);
+    if (name !== p.name) renames.set(p.name, name);
+    properties.push({ ...clone(p), name });
+  }
+  return renames;
+}
+
+
 /** The graph document edits for one kind of graph. */
 export function graphDocument<G extends { nodes: N[]; properties: P[] }, N extends { id: string }, P extends GraphPropertyData, C extends ClipboardPayload>(
   kind: GraphDocumentKind<G, N, P, C>,

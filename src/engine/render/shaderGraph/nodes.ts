@@ -3,7 +3,7 @@
  * emits. Shared by the compiler and the editor's Shader Graph panel, so both agree on every port.
  */
 import { Assets, normalizeAssetPath } from "../../scene/Assets";
-import type { GraphNode, GraphProperty, GraphPropertyType, InputValue, ShaderGraph } from "../../scene/shaderGraph";
+import type { GraphNode, GraphProperty, GraphPropertyType, InputValue, ShaderGraph, ShaderGraphTarget } from "../../scene/shaderGraph";
 import { OUTPUT_NODE_TYPE, parseShaderGraph } from "../../scene/shaderGraph";
 import type { ShaderLevel } from "../../core/graphics";
 
@@ -31,6 +31,8 @@ export interface PortDef {
   litOnly?: boolean;
   /** Output node: only for physical graphs (ADR 0052); compiled in only when connected or away from its default. */
   physicalOnly?: boolean;
+  /** Output node: only for Sprite Lit graphs (ADR 0415). */
+  spriteLitOnly?: boolean;
   /** Output node: only applied when connected (or, for alpha clip, when above 0). */
   optional?: boolean;
   /** Texture inputs: the texture an unconnected input reads (a Sub Graph's texture property default). */
@@ -72,15 +74,27 @@ export interface EmitContext {
   keyword(name: string): { constant: string; values: string[] | null } | null;
   /** A `#rrggbb[aa]` colour (sRGB) as a linear `vec4` literal. */
   color(hex: string): string;
+  /**
+   * The uniform for a texture the drawing component supplies (ADR 0415): `"@sprite"` (a 2D draw's own texture) or
+   * `"@secondary:<name>"` (that texture's secondary texture). Reads white where none is given.
+   */
+  drawTexture(name: string): string;
+  /** The (outer) graph's target. */
+  target: ShaderGraphTarget;
   /** Record how a texture uniform is sampled: as a colour (sRGB-decoded) or linear data (normal maps). */
   sampleMode(uniform: string, linear: boolean): void;
   problem(message: string): void;
 }
 
 export interface NodeDef {
+  /**
+   * The graph targets it works in (ADR 0415: the sprite nodes in sprite targets, the 2D light reads in Sprite Custom
+   * Lit); absent: all. Elsewhere the compiler reports it and the node menu leaves it out.
+   */
+  targets?: readonly ShaderGraphTarget[];
   type: string;
   title: string;
-  category: "Input" | "Math" | "Vector" | "Color" | "Noise" | "Lighting" | "Output";
+  category: "Input" | "Math" | "Vector" | "Color" | "Noise" | "Lighting" | "Sprite" | "Output";
   /** More words node search matches. */
   keywords?: string;
   inputs: PortDef[];
@@ -289,6 +303,8 @@ export const OUTPUT_INPUTS: readonly PortDef[] = [
   { ...float("roughness", "Roughness", 0.5), litOnly: true },
   vec("vec3", "emission", "Emission", [0, 0, 0], { color: true, litOnly: true }),
   vec("vec3", "normal", "Normal (Tangent)", [0, 0, 1], { litOnly: true, optional: true }),
+  // ADR 0415: what a Sprite Lit graph's blend styles read for their mask channel (the sprite's mask map's place).
+  vec("vec4", "mask", "Mask", [1, 1, 1, 1], { spriteLitOnly: true, optional: true }),
   { ...float("clearcoat", "Clearcoat", 0), physicalOnly: true },
   { ...float("clearcoatRoughness", "Clearcoat Roughness", 0), physicalOnly: true },
   vec("vec3", "clearcoatNormal", "Clearcoat Normal (Tangent)", [0, 0, 1], { physicalOnly: true, optional: true }),
@@ -306,6 +322,24 @@ export const OUTPUT_INPUTS: readonly PortDef[] = [
   { ...float("alphaClip", "Alpha Clip", 0), optional: true },
 ];
 
+/**
+ * The output node's ports for a target: lit and physical take the lit ports (physical its own too); unlit only colour
+ * and alpha; the sprite targets (ADR 0415) colour and alpha, Sprite Lit also a tangent-space normal and a mask.
+ */
+const SPRITE_TARGETS: readonly ShaderGraphTarget[] = ["sprite-lit", "sprite-unlit", "sprite-custom-lit"];
+
+export function outputPorts(target: ShaderGraphTarget): PortDef[] {
+  const sprite = target.startsWith("sprite-");
+  return OUTPUT_INPUTS.filter((p) => {
+    if (p.physicalOnly) return target === "physical";
+    if (p.spriteLitOnly) return target === "sprite-lit";
+    if (p.id === "normal") return target === "lit" || target === "physical" || target === "sprite-lit";
+    if (p.litOnly) return target === "lit" || target === "physical";
+    if (p.vertex && sprite) return false; // 2D draws have no vertex stage of their own to offset
+    return true;
+  });
+}
+
 export const NODES: readonly NodeDef[] = [
   // Output
   {
@@ -317,7 +351,7 @@ export const NODES: readonly NodeDef[] = [
     ports: (_node, graph) => ({
       inputs: graph.subgraph
         ? graph.subgraph.outputs.map((o) => ({ id: o.name, label: o.name, type: o.type, ...(o.type === "texture" ? {} : { default: 0 }) }))
-        : OUTPUT_INPUTS.filter((p) => (p.physicalOnly ? graph.target === "physical" : graph.target !== "unlit" || !p.litOnly)),
+        : outputPorts(graph.target),
       outputs: [],
     }),
     emit: () => ({}),
@@ -491,6 +525,54 @@ export const NODES: readonly NodeDef[] = [
       const rgb = normal ? `(${s}.rgb * 2.0 - 1.0)` : `${s}.rgb`;
       return { rgba: normal ? `${c.typeName("vec4")}(${rgb}, ${s}.a)` : s, rgb, r: `${rgb}.r`, g: `${rgb}.g`, b: `${rgb}.b`, a: `${s}.a` };
     },
+  },
+  // Sprite (ADR 0415): what 2D draws give a sprite graph.
+  {
+    type: "spriteTexture",
+    title: "Sprite Texture",
+    category: "Sprite",
+    keywords: "sprite main texture 2d image tile",
+    inputs: [],
+    outputs: [out("texture", "out", "Texture")],
+    targets: SPRITE_TARGETS,
+    emit: (c) => ({ out: c.drawTexture("@sprite") }),
+  },
+  {
+    type: "secondaryTexture",
+    title: "Secondary Texture",
+    category: "Sprite",
+    keywords: "sprite secondary normal mask map custom 2d",
+    inputs: [],
+    outputs: [out("texture", "out", "Texture")],
+    settings: [{ id: "name", label: "Name", kind: "text", default: "normalMap" }],
+    targets: SPRITE_TARGETS,
+    emit: (c) => {
+      const name = (c.settings.name ?? "").trim();
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(name)) c.problem("the name should be a secondary texture's name (letters, digits and _)");
+      return { out: c.drawTexture(`@secondary:${name}`) };
+    },
+  },
+  {
+    type: "lightColor2D",
+    title: "2D Light Color",
+    category: "Sprite",
+    keywords: "light 2d color custom lit",
+    inputs: [],
+    outputs: [out("vec3", "out", "Color")],
+    fragmentOnly: true,
+    targets: ["sprite-custom-lit"],
+    emit: () => ({ out: "mycoL2DLightColor(fragmentInputs.position.xy)" }),
+  },
+  {
+    type: "lightDirection2D",
+    title: "2D Light Direction",
+    category: "Sprite",
+    keywords: "light 2d direction normal custom lit",
+    inputs: [],
+    outputs: [out("vec3", "out", "Direction")],
+    fragmentOnly: true,
+    targets: ["sprite-custom-lit"],
+    emit: () => ({ out: "mycoL2DLightDirection(fragmentInputs.position.xy)" }),
   },
   {
     type: "textureAsset",

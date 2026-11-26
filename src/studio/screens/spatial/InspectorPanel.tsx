@@ -21,7 +21,7 @@ import { FIELDS, bottomValue, fieldValue, topValue, zoneState, type FieldId } fr
 import { SegmentedControl } from "../../../editor/ui/SegmentedControl";
 import { editLabel } from "./pointerModel";
 import {
-  activeListener, aKind, findObject, moveObjectTo, patchAudioZone, patchEmitter, patchListener, patchObstacle, patchReverbZone, patchSound2d, positionOf, renameObject, setBox, setBoxHeights, setHeight, type EditResult, type SceneObject,
+  activeListener, aKind, findObject, setBaseScene, moveObjectTo, patchAudioZone, patchEmitter, patchListener, patchObstacle, patchReverbZone, patchSound2d, positionOf, renameObject, setBox, setBoxHeights, setHeight, type EditResult, type SceneObject,
 } from "./sceneEdits";
 import { dopplerRatioText, liveDistanceText, livePlace, speedText } from "./liveMotion";
 import { distanceText, occlusionText, RENDERED_LABEL } from "./voicesTable";
@@ -78,6 +78,10 @@ export interface InspectorProps {
   onEditPath(id: string): void;
   onDelete(id: string): void;
   onOpenSound(path: string): void;
+  /** The project's game scenes (`*.scene.json`), offered as the base level. */
+  readonly gameScenes?: readonly string[];
+  /** The base scene as imported: what it brought in, or why it's missing (the scene section's note). */
+  readonly baseNote?: string | null;
 }
 
 export function InspectorPanel(props: InspectorProps) {
@@ -85,11 +89,40 @@ export function InspectorPanel(props: InspectorProps) {
   if (!o) {
     return (
       <div class="sp-inspector">
+        <SceneSettings {...props} />
         <p class="sp-note" title="Tools on the left of the scene place new objects.">Select something in the scene or outline to edit it here.</p>
       </div>
     );
   }
   return <ObjectInspector key={o.obj.id} {...props} o={o} />;
+}
+
+const NO_BASE = "";
+
+/**
+ * The scene itself, with nothing selected (ADR 0347): its base game scene, a level of the project played underneath, so
+ * a sound designer tries sounds in an actual level: its audio sources, zones and colliders are drawn read-only and heard.
+ */
+function SceneSettings(props: InspectorProps) {
+  const base = props.scene.base ?? null;
+  const scenes = props.gameScenes ?? [];
+  const options = [{ value: NO_BASE, label: "None" }, ...scenes.map((p) => ({ value: p, label: p }))];
+  if (base !== null && !scenes.includes(base)) options.push({ value: base, label: `${base} (missing)` });
+  return (
+    <Section title="Scene" hint="Base game scene: a level from the project, drawn read-only under this scene. Its audio sources and zones play with yours and its colliders occlude, so you hear your sounds in the actual level.">
+      <FieldRow label="Base game scene">
+        <SelectBox
+          label="Base game scene"
+          title={scenes.length === 0 ? "The project has no game scenes (.scene.json) to play under this one" : "Play this scene over a level of the project"}
+          value={base ?? NO_BASE}
+          options={options}
+          disabled={props.readOnly || (scenes.length === 0 && base === null)}
+          onValue={(v) => props.onEdit(v === NO_BASE ? "Remove base game scene" : "Set base game scene", (s) => setBaseScene(s, v === NO_BASE ? null : v))}
+        />
+      </FieldRow>
+      {props.baseNote && <p class="sp-note">{props.baseNote}</p>}
+    </Section>
+  );
 }
 
 function ObjectInspector(props: InspectorProps & { o: SceneObject }) {

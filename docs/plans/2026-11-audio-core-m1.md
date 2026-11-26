@@ -155,7 +155,7 @@ A0.4 and A0.2 depend on A0.1 in the table, but only nominally. The shell needs n
 |---|---|---|
 | **A0.3** loader, worklet shell and `coreDriver`, context, unlock, STATUS with immediate RECYCLE and a pool of 8, `bufferPool` | S | `src/plugins/audio/runtime/core/{loader,context,unlock,bufferPool,probe}.ts`, the `load()` body in `service.ts`, `runtime/worklet/*`, `audio-core/src/{status,counters}.rs`, `audio-wasm` bodies of `status_take`/`status_ptr`/`process` |
 | A0.10 ports intake: Blink files staged with provenance, `PORTS.md`, SPDX headers, notices, the header check | J | `native/audio/third_party/**`, `PORTS.md`, `THIRD_PARTY_NOTICES.md`, `portsNotices.test.ts` |
-| A0.5 remove FMOD | J (Sonnet) | `src/engine/audio/fmodBackend.ts`, `tests/fmodBackend.test.ts`, `docs/guide/fmod.md`, the fmod lines of `Engine.ts`, settings and editor model |
+| A0.5 remove FMOD | J (Sonnet) | `src/engine/audio/fmodBackend.ts`, `tests/fmodBackend.test.ts`, `docs/wiki/guide/fmod.md`, the fmod lines of `Engine.ts`, settings and editor model |
 
 A0.3 sets up two seams for later tasks:
 - **`counters.rs`** holds every STATUS field in K1. The status writer serialises all of them from day one, so later tasks set a counter in their own module and never edit `status.rs` (K12).
@@ -169,7 +169,7 @@ A0.5 and A0.4 both touch settings, so A0.5 branches after A0.4's merge.
 |---|---|---|
 | **A0.7** WebView2 and WebKitGTK smoke: tone, autoplay policy per webview, second Engine shares the host | M (WebKitGTK in Docker: Xvfb, a PulseAudio null sink, the monitor recorded and the tone checked in the signal) | `src-tauri/` autoplay flags only if needed; findings in `build-log.md` |
 | A0.8 host and World-service lifecycle across two Engines, `releaseWorld`, reconfigure with live voices | S | `runtime/core/service.ts` (lifecycle part), `src/engine/Engine.ts` |
-| A0.6 feature probes, refusal message, Babylon fallback trigger, minimum versions doc, suspended `addModule` in WebKit and Firefox; check Android's WebView for AudioWorklet and `simd128` | M | `runtime/core/probe.ts` (fills A0.3's stub), the trigger in `backend.ts`, `docs/guide/` minimum versions |
+| A0.6 feature probes, refusal message, Babylon fallback trigger, minimum versions doc, suspended `addModule` in WebKit and Firefox; check Android's WebView for AudioWorklet and `simd128` | M | `runtime/core/probe.ts` (fills A0.3's stub), the trigger in `backend.ts`, `docs/wiki/guide/` minimum versions |
 | A0.9 unlock re-arm after `interrupted` and resume failure | M | `runtime/core/unlock.ts` |
 
 Until BB1, A0.6's fallback lands on the Howler-backed `"babylon"` value.
@@ -306,7 +306,7 @@ H3 (MS6) also lands here if H2 is ready. It touches `selection.ts` (the HRTF fla
 | Task | Who | Files |
 |---|---|---|
 | B3b seek epochs | M | `decoder/streams.ts` (seek), `audio-core/src/stream.rs` (flush) |
-| B6 remove `decodeAudioData` from the core path; sidecar `stream` semantics; guide | M | `runtime/core/loader.ts`, `docs/guide/` |
+| B6 remove `decodeAudioData` from the core path; sidecar `stream` semantics; guide | M | `runtime/core/loader.ts`, `docs/wiki/guide/` |
 
 **Wave 5:** B4 gapless loops, AAC opt-in, unknown-codec warning (M; `decoder/streams.ts` (loops), the `aac` feature in `audio-decode`). It follows B3b because both edit `streams.ts`.
 
@@ -320,7 +320,7 @@ H3 (MS6) also lands here if H2 is ready. It touches `selection.ts` (the HRTF fla
 |---|---|---|---|
 | 1 | A3.5 re-measure (4-point resampler, 64 MB of clips, pitch up to 16×, HRTF cost) and freeze the budget table | S | `architecture.md` §6, `audio-bench` |
 | 1 | C4 listening checklist and objective thresholds | S | `docs/design/0157-audio-core/listening-pass.md` |
-| 1 | C2 docs ("Playing sound", "Why is there no sound?", contributor note), notices review | J | `docs/guide/**`, `implementation-status.md` through the coordinator |
+| 1 | C2 docs ("Playing sound", "Why is there no sound?", contributor note), notices review | J | `docs/wiki/guide/**`, `implementation-status.md` through the coordinator |
 | 2 | C1 stress sample and informational benches | M | `samples/stress/**`, `audio-bench` |
 | 3 | C1b metered wasm build and the 10% CI gate | S | the metered target in `build.mjs` (coordinator), the CI gate script |
 | 3 | **C3** soak on Windows (WebView2, Chromium), Linux (WebKitGTK) and the low-end Android phone; size the "low" preset | M + owner | results in `build-log.md`; preset numbers in `architecture.md` §5.3 |

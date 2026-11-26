@@ -53,6 +53,9 @@ export interface AnimationCoreLimits {
 /** The most roles a profile has (`anim-retarget`'s `MAX_ROLES`): the bone map buffers' size. */
 const GUESS_CAPACITY = 1024;
 
+/** Whether `b` is a SharedArrayBuffer (a shared memory grows without detaching: its views are checked by identity). */
+const isShared = (b: ArrayBufferLike): boolean => typeof SharedArrayBuffer !== "undefined" && b instanceof SharedArrayBuffer;
+
 /** @internal The limits a page's core starts with when a project names none. */
 export const DEFAULT_CORE_LIMITS: AnimationCoreLimits = { maxInstances: 512, maxBones: 256, arenaInitialBytes: 4 << 20 };
 
@@ -196,7 +199,13 @@ export class AnimationCore {
   private readonly freeWorlds: number[] = [];
   private nextWorld = 0;
   private cached: AnimationViews | null = null;
+  /** Whether `cached` is over a shared memory (which grows without detaching; `views()`). */
+  private cachedShared = false;
   private changeCount = 0;
+  /** `tweenRows`' views, reused while the rows haven't moved. */
+  private tweenViews: { readonly count: number; readonly columns: Uint32Array; readonly values: Float32Array } | null = null;
+  /** `evaluateCounts`' answer, reused. */
+  private readonly counts = { instances: 0, culled: 0, lodSkipped: 0, evaluated: 0, bones: 0, skinned: 0 };
 
   private constructor(
     private readonly wasm: AnimationWasm,
@@ -497,7 +506,12 @@ export class AnimationCore {
   tweenRows(): { readonly count: number; readonly columns: Uint32Array; readonly values: Float32Array } {
     const n = this.wasm.tween_values_count();
     const buffer = this.memory();
-    return { count: n, columns: new Uint32Array(buffer, this.wasm.tween_columns_ptr(), n), values: new Float32Array(buffer, this.wasm.tween_values_ptr(), n * 4) };
+    const columns = this.wasm.tween_columns_ptr(), values = this.wasm.tween_values_ptr();
+    // The same views while nothing moved (a steady frame of tweens makes none).
+    const c = this.tweenViews;
+    if (c && c.count === n && c.columns.buffer === buffer && c.columns.byteOffset === columns && c.values.byteOffset === values) return c;
+    this.tweenViews = { count: n, columns: new Uint32Array(buffer, columns, n), values: new Float32Array(buffer, values, n * 4) };
+    return this.tweenViews;
   }
 
   /** Tween state-change records waiting since the last `writeInputs`. */
@@ -636,7 +650,7 @@ export class AnimationCore {
   evaluate(world: number, pass: number, dtScaled: number, dtUnscaled: number): number {
     this.changeCount = this.wasm.evaluate(world, pass, dtScaled, dtUnscaled);
     // T70: flagged instances' match reports, while their inputs are still the evaluated ones.
-    for (const h of this.matchDebugged.keys()) this.matchDebugged.set(h, this.readMatchReport(h));
+    if (this.matchDebugged.size) for (const h of this.matchDebugged.keys()) this.matchDebugged.set(h, this.readMatchReport(h));
     return this.changeCount;
   }
 
@@ -738,10 +752,15 @@ export class AnimationCore {
 
   /** The views over the core's memory, rebuilt when it has moved (see the file header). */
   views(): AnimationViews {
+    // Growing a (non-shared) wasm memory detaches its old buffer, so a cached buffer that still has bytes is the memory's
+    // own: the stages call this per Animator, and `Memory.buffer` is a slow API getter.
+    const c = this.cached;
+    if (c && !this.cachedShared && c.buffer.byteLength !== 0) return c;
     const buffer = this.memory();
-    if (this.cached?.buffer === buffer) return this.cached;
+    if (c?.buffer === buffer) return c;
     const w = this.wasm;
     const n = this.limits.maxInstances;
+    this.cachedShared = isShared(buffer);
     this.cached = {
       buffer,
       data: new DataView(buffer),
@@ -761,12 +780,18 @@ export class AnimationCore {
     return instanceRow(handle) * this.limits.maxBones * MATRIX_FLOATS;
   }
 
-  /** The last `evaluate` call's counters (the profiler's Animation table; `core/frameMeter.ts`). */
+  /** The last `evaluate` call's counters (the profiler's Animation table; `core/frameMeter.ts`): one object, rewritten by each call. */
   evaluateCounts(): EvaluateCounts {
     const d = this.views().data;
     const at = this.wasm.stats_ptr();
-    const w = (i: number) => d.getUint32(at + i * 4, true);
-    return { instances: w(0), culled: w(1), lodSkipped: w(2), evaluated: w(3), bones: w(4), skinned: w(5) };
+    const c = this.counts;
+    c.instances = d.getUint32(at, true);
+    c.culled = d.getUint32(at + 4, true);
+    c.lodSkipped = d.getUint32(at + 8, true);
+    c.evaluated = d.getUint32(at + 12, true);
+    c.bones = d.getUint32(at + 16, true);
+    c.skinned = d.getUint32(at + 20, true);
+    return c;
   }
 
   stats(): AnimationCoreStats {

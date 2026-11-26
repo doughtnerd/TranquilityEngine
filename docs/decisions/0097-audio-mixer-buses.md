@@ -57,7 +57,7 @@ The bus graph, snapshots and ducking are unchanged: music plays on the `Music` b
 
 ## References
 
-- `src/engine/audio/`, `docs/guide/audio-mixer.md`
+- `src/engine/audio/`, `docs/wiki/guide/audio-mixer.md`
 
 ## Amended by ADR 0172 (M5), 2026-11-13: the bus's gain is seven lanes
 
@@ -77,4 +77,4 @@ The model above stands; these parts changed.
 - **Ducking.** A rule has a required `mode`. `presence` is the original voice-activity rule, now decided in the core on the voice's own frame. `level` is a sidechain with `detector` (`peak` or `rms`) and `threshold` (dBFS); a new level rule starts at RMS, −30 dBFS. Rules on one target combine by min. Level rules can't form a cycle; at most 8 level rules and 32 rules in all. Level mode needs the audio core; the Babylon fallback keeps the rule and doesn't duck. This replaces "trigger detection is voice activity, not signal level" and the alternative that deferred level-based ducking.
 - **Edits.** Project Settings and the Mixer panel edit `audio` while Play runs, through the shared Project Settings history (0173; one undo step per gesture). Edits apply live (`mixer.apply`); structural edits dip for 20 ms; keys outside `buses`, `snapshots`, `ducking`, `automation`, `loudnessTargets` and `loudnessResetOnPlay` apply at the next Play. Monitor mute and solo, Compare and the snapshot buttons are never saved.
 
-See [guide/audio-mixing.md](../guide/audio-mixing.md).
+See [guide/audio-mixing.md](../wiki/guide/audio-mixing.md).

@@ -106,7 +106,7 @@ class VoiceHandle implements AudioHandle {
   get reason(): AudioReason | null { try { return this.voice.reason; } catch { return null; } }
   // The voice clamps and warns once (`AudioHandle`), so the values go through as given.
   stop(fadeSeconds = 0): void { takeTap.sink?.stop(this.voice, fadeSeconds); try { this.voice.stop(fadeSeconds); } catch { /* a voice already gone */ } }
-  fade(to: number, seconds: number): void { try { this.voice.fade(to, seconds); } catch { /* a voice already gone */ } }
+  fade(to: number, seconds: number): void { takeTap.sink?.fade(this.voice, to, seconds); try { this.voice.fade(to, seconds); } catch { /* a voice already gone */ } }
 }
 
 
@@ -128,7 +128,7 @@ const FAILED_EVENT: AudioPlaylistHandle = Object.freeze({ ...INERT_EVENT, reason
 
 /**
  * ADR 0348: the public handle over a playlist instance, with the take's hooks on the requests a replay re-issues (stop,
- * release, trigger; parameters reach the take through the profile taps). One per instance, whether or not a take records.
+ * release, trigger, and since ADR 0386 pause, resume and fade; parameters reach the take through the profile taps). One per instance, whether or not a take records.
  */
 class TakePlaylistHandle implements AudioPlaylistHandle {
   constructor(private readonly instance: PlaylistInstance, private readonly h: AudioPlaylistHandle) {}
@@ -139,7 +139,7 @@ class TakePlaylistHandle implements AudioPlaylistHandle {
   get panner(): AudioPanner | null { return this.h.panner; }
   get occlusion(): number { return this.h.occlusion; }
   stop(fadeSeconds?: number): void { takeTap.sink?.stop(this.instance, fadeSeconds === undefined || !Number.isFinite(fadeSeconds) ? PLAYLIST_STOP_FADE : fadeSeconds); this.h.stop(fadeSeconds); }
-  fade(to: number, seconds: number): void { this.h.fade(to, seconds); }
+  fade(to: number, seconds: number): void { takeTap.sink?.fade(this.instance, to, seconds); this.h.fade(to, seconds); }
   setParameter(name: string, value: number | string): void { this.h.setParameter(name, value); }
   getParameter(name: string): number | string | undefined { return this.h.getParameter(name); }
   release(): void { takeTap.sink?.release(this.instance); this.h.release(); }
@@ -147,8 +147,8 @@ class TakePlaylistHandle implements AudioPlaylistHandle {
   get music(): MusicHandle | undefined { return this.h.music; }
   onMusic(kind: MusicKind, fn: (e: MusicEvent) => void): () => void { return this.h.onMusic(kind, fn); }
   trigger(name: string): boolean { takeTap.sink?.trigger(this.instance, String(name)); return this.h.trigger(name); }
-  pause(): void { this.h.pause(); }
-  resume(): void { this.h.resume(); }
+  pause(): void { takeTap.sink?.pause(this.instance); this.h.pause(); }
+  resume(): void { takeTap.sink?.resume(this.instance); this.h.resume(); }
   get paused(): boolean { return this.h.paused; }
 }
 
@@ -462,7 +462,7 @@ export const Audio = {
 
   /**
    * ADR 0348: record a take of the game run for the audio designer: what the game asked of audio and the engine's profile,
-   * in one `*.mycotake` file. `await Audio.take.start()`, `Audio.take.mark("boss")`, then `Audio.take.save()`. The recorder
+   * in one `*.sporesample` file. `await Audio.take.start()`, `Audio.take.mark("boss")`, then `Audio.take.save()`. The recorder
    * loads on the first `start()`; a game that never calls it loads nothing.
    */
   get take(): AudioTake {

@@ -86,7 +86,7 @@ function rig() {
   const downloads: Uint8Array[] = [];
   const env: SaveEnv = {
     tauri: false,
-    storage: { save: async () => {}, list: async () => [], delete: async () => {} },
+    fs: { mkdir: async () => {}, write: async () => {}, list: async () => [], remove: async () => {} },
     storageRoot: async () => "/data",
     download: (bytes) => void downloads.push(bytes),
     compress: defaultSaveEnv().compress,
@@ -173,7 +173,7 @@ describe("LiveFollow over Rc4's LiveHost", () => {
     expect(Audio.capture.state).toBe("stopped");
     r.follow.stop();
     expect(captureDebug()).toMatchObject({ state: "held", owners: 0 });
-    await expect(Audio.capture.save("after-panel")).resolves.toBe("after-panel.mycap");
+    await expect(Audio.capture.save("after-panel")).resolves.toBe("after-panel.sporesample");
   });
 });
 

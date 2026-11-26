@@ -71,5 +71,7 @@ export const audioRuntimePlugin: RuntimePlugin = {
     context.registerEngineSystems([...AUDIO_SYSTEMS, AUDIO_ZONE_SYSTEM]);
     context.registerWorldService(AUDIO_SERVICE);
     context.registerWorldService(AUDIO_PACKAGES_SERVICE);
+    // ADR 0376, 0403 (C4): the debug link's `audio` topic; its code loads by `import()` only when a build's link starts.
+    context.debugLink.topic("audio", () => import("./debugLink/topic").then((m) => m.audioTopic));
   },
 };

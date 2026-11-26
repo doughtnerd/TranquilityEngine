@@ -348,8 +348,12 @@ describe("replication (T11)", () => {
     inWorld(server, () => {
       for (let i = 0; i < 200; i++) GameObject.instantiate("prefabs/crate.json", { position: [i, i % 7, 0] });
     });
-    step(engine, 2);
-    const withSpawns = replication.peerState(peer)!.lastBytes;
+    // The spawns go once, in a reliable lifecycle message (ADR 0402); their states follow in snapshots once acked.
+    let withSpawns = 0;
+    for (let i = 0; i < 2; i++) {
+      step(engine);
+      withSpawns = Math.max(withSpawns, replication.peerState(peer)!.lastLifecycleBytes);
+    }
     step(engine, 60);
     const steady = replication.peerState(peer)!.lastBytes;
     const perGhost = (steady - empty) / 200;
@@ -378,7 +382,9 @@ describe("replication (T11)", () => {
     });
     step(engine, 2);
     const peer = netSession(server)!.openPeers()[0];
-    expect(serverReplication(server)!.peerState(peer)!.lastBytes).toBeLessThanOrEqual(300);
+    // The budget holds the tick's lifecycle message (its spawns, ADR 0402) and its snapshot together.
+    const ps = serverReplication(server)!.peerState(peer)!;
+    expect(ps.lastBytes + ps.lastLifecycleBytes).toBeLessThanOrEqual(300);
     expect(ghosts(world(engine, "P1")).size).toBeLessThan(100);
     step(engine, 120);
     expect(ghosts(world(engine, "P1")).size).toBe(100);
@@ -622,11 +628,13 @@ describe("bandwidth per ghost type (editor tools)", () => {
       "scenes/arena.scene.json#group/lamp",
     ]);
     for (const bytes of Object.values(types)) expect(bytes).toBeGreaterThan(0);
-    // Two tanks cost more than the one door, and everything attributed fits in what was sent as snapshots.
+    // Two tanks cost more than the one door, and everything attributed fits in what was sent as
+    // snapshots (states) and lifecycle messages (spawns, ADR 0402).
     expect(types["prefabs/tank.json"]).toBeGreaterThan(types["scenes/arena.scene.json#door"]);
     const attributed = Object.values(types).reduce((n, b) => n + b, 0);
-    expect(attributed).toBeLessThanOrEqual(peer.sent.byKind["net.snapshot"].bytes);
-    expect(attributed).toBeGreaterThan(peer.sent.byKind["net.snapshot"].bytes * 0.3);
+    const replicated = peer.sent.byKind["net.snapshot"].bytes + peer.sent.byKind["net.ghosts"].bytes;
+    expect(attributed).toBeLessThanOrEqual(replicated);
+    expect(attributed).toBeGreaterThan(replicated * 0.3);
     // A client has no breakdown.
     expect(netWorldInfo(engine).find((w) => w.world === "P1")!.peers[0].ghostTypes).toEqual([]);
   });

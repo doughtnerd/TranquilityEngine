@@ -22,7 +22,7 @@ import { GeneratorBadge } from "../playlists/generator/GeneratorParts";
 // ---- Replay of a take -------------------------------------------------------------------------------------------------
 
 const fileName = (path: string): string => path.slice(path.lastIndexOf("/") + 1);
-const takeTitle = (path: string): string => fileName(path).replace(/\.mycotake$/i, "");
+const takeTitle = (path: string): string => fileName(path).replace(/\.sporesample$/i, "");
 
 /** "Open in Take" (spec §2.16): the capture's take on the Take screen, at the same playhead (one review position). */
 export function OpenInTake(props: { readonly take: string; onOpen(path: string): void }) {

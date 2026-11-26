@@ -1,12 +1,17 @@
 // The connected-builds menu (ADR 0376): a status bar button that counts the builds connected through the debug link,
 // opening a menu to pick the build the live debuggers read, disconnect one, or open the link's settings. `BuildsMenu`
 // is the view; `DebugLinkBuilds` connects it to the editor's link.
+import type { ComponentChildren } from "preact";
 import { useRef, useState } from "preact/hooks";
 import { usePopover } from "../ui/popover";
 import { buildLabel, buildsButtonText, type BuildEntry } from "./debugLinkLogic";
 import type { ListenState } from "./editorLink";
+import { ConnectDialog } from "./ConnectDialog";
+import { OfferRoomDialog } from "./OfferRoomDialog";
 import { editorDebugLink } from "./link";
+import { PlayBuildSlot } from "./playBuild";
 import "./debugLink.css";
+import { EmptyState } from "../ui/EmptyState";
 
 export interface BuildsMenuProps {
   readonly builds: readonly BuildEntry[];
@@ -16,6 +21,21 @@ export interface BuildsMenuProps {
   onChoose(id: number | null): void;
   onDisconnect(id: number): void;
   onSettings(): void;
+  /**
+   * Opens the Connect dialog (ADR 0403: connect to a listening build by its code or address). C7: U1 adds the menu item
+   * and the dialog; absent, no item.
+   */
+  onConnect?(): void;
+  /**
+   * Opens the Offer a room dialog (ADR 0404: a tool that can't listen shows a room code a browser game joins with
+   * `?debug-code=`); absent, no item.
+   */
+  onOfferRoom?(): void;
+  /**
+   * Drawn at the top of the open menu: the editor's Play as a build (its code and paired tools, `playBuild.ts`). C7: U1
+   * renders it; U3 fills it.
+   */
+  playSlot?: ComponentChildren;
 }
 
 /** The status bar button and its menu. */
@@ -46,7 +66,13 @@ export function BuildsMenu(props: BuildsMenuProps) {
       </button>
       {open && (
         <div ref={menu} class="debug-link-menu" role="menu" aria-label="Connected builds" onClick={(e) => e.stopPropagation()}>
-          {props.builds.length === 0 && <div class="debug-link-empty">{emptyText(props.listen)}</div>}
+          {props.playSlot && (
+            <>
+              <div class="debug-link-slot">{props.playSlot}</div>
+              <div class="debug-link-separator" role="separator" />
+            </>
+          )}
+          {props.builds.length === 0 && <EmptyState compact title={emptyText(props.listen)} />}
           {props.builds.map((b) => (
             <div key={b.id} class="debug-link-row">
               <button role="menuitemradio" aria-checked={props.active === b.id} class="debug-link-pick" onClick={() => pick(() => props.onChoose(b.id))}>
@@ -69,6 +95,16 @@ export function BuildsMenu(props: BuildsMenuProps) {
             </button>
           )}
           <div class="debug-link-separator" role="separator" />
+          {props.onConnect && (
+            <button role="menuitem" onClick={() => pick(props.onConnect!)}>
+              Connect to a build…
+            </button>
+          )}
+          {props.onOfferRoom && (
+            <button role="menuitem" onClick={() => pick(props.onOfferRoom!)}>
+              Offer a room…
+            </button>
+          )}
           <button role="menuitem" onClick={() => pick(props.onSettings)}>
             Debug link settings…
           </button>
@@ -88,14 +124,23 @@ function emptyText(listen: ListenState): string {
 export function DebugLinkBuilds({ onSettings }: { onSettings(): void }) {
   const link = editorDebugLink();
   const builds = link.builds.value;
+  const [connecting, setConnecting] = useState(false);
+  const [offering, setOffering] = useState(false);
   return (
-    <BuildsMenu
-      builds={builds}
-      active={link.active.value?.id ?? null}
-      listen={link.state.value}
-      onChoose={(id) => link.choose(id)}
-      onDisconnect={(id) => link.disconnect(id)}
-      onSettings={onSettings}
-    />
+    <>
+      <BuildsMenu
+        builds={builds}
+        active={link.active.value?.id ?? null}
+        listen={link.state.value}
+        onChoose={(id) => link.choose(id)}
+        onDisconnect={(id) => link.disconnect(id)}
+        onSettings={onSettings}
+        onConnect={() => setConnecting(true)}
+        onOfferRoom={() => setOffering(true)}
+        playSlot={link.play.value ? <PlayBuildSlot build={link.play.value} /> : undefined}
+      />
+      {connecting && <ConnectDialog onConnect={(target) => link.connect(target)} onClose={() => setConnecting(false)} />}
+      {offering && <OfferRoomDialog offer={() => link.offerRoom()} onClose={() => setOffering(false)} />}
+    </>
   );
 }

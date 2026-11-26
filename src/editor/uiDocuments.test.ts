@@ -116,7 +116,7 @@ describe("documents in the Editor World", () => {
     expect(scene().doc.children("hud")).toEqual(["child"]);
     await saveOpenScene();
     expect(project.textOf("scenes/main.scene.json")).not.toContain("UIButton");
-    const prefab = await createPrefab(scene(), project, "hud");
+    const prefab = (await createPrefab(scene(), project, "hud")).path;
     const text = project.textOf(prefab)!;
     expect(text).toContain("engine.UIDocument");
     expect(text).not.toMatch(/engine\.UI(Canvas|Panel|Text|Button)/);

@@ -1,6 +1,6 @@
 # 0356. Text is localised through keyed string tables with ICU messages, bound by key in UI documents and scripts
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0391 (a fallback message is formatted with its source language's rules; build string files name that language in `sources`)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -478,7 +478,7 @@ Nothing. 0354's line-table `text` field is retired by 0357 before it is built.
 | T6 | Exchange and gathering | CSV, XLIFF 1.2, PO readers and writers; import diff with checks and stale-source detection; `gather.ts` (documents, scenes, prefabs, scripts, line tables); grapheme length; unit tests (round trips with quotes, BOM, plurals, fuzzy, `maxwidth`) | `src/engine/localisation/exchange/**`, `src/engine/localisation/gather.ts` |
 | T7 | Editor | Localisation panel (Strings, Report with fit check, Exchange), message editor, Inspector Localise and Extract, `LocalizedText` inspector, key renames through 0314/0262, pseudo-languages in the Play toolbar's Language menu, Languages settings fields, ownership rule; stories with `play` tests | `src/editor/ui/localisation/**`, `src/editor/ui/settings/**` (Languages section, after 0354 L7), the Play toolbar file (after 0354 L7), the UI Inspector section |
 | T8 | Export | `strings/<code>.json`, `game.json` `localisation`, language fonts and asset-root variants per shipped language, `--pseudo`, build warnings; tests in `buildWriter.test.ts` | `src/export/strings.ts` (new), `src/export/main.ts`, `src/export/format.ts` |
-| T9 | Docs and e2e | `docs/guide/localising-text.md` (tables, ICU, binding, fonts, RTL limits, translators); e2e: the editor's Localisation panel adds a French translation, Play in French shows it in a UI document, the pseudo-language shows an unkeyed string plain; `@slow` export with two languages boots and `Locale.setLanguage("fr")` changes a document's text | `docs/guide/**`, `tests/e2e/localisation.spec.ts`, `tests/e2e/export-languages.spec.ts` (shared with 0354 L8: one writer) |
+| T9 | Docs and e2e | `docs/wiki/guide/localising-text.md` (tables, ICU, binding, fonts, RTL limits, translators); e2e: the editor's Localisation panel adds a French translation, Play in French shows it in a UI document, the pseudo-language shows an unkeyed string plain; `@slow` export with two languages boots and `Locale.setLanguage("fr")` changes a document's text | `docs/wiki/guide/**`, `tests/e2e/localisation.spec.ts`, `tests/e2e/export-languages.spec.ts` (shared with 0354 L8: one writer) |
 
 T1 runs after 0354's L1 (or in the same wave with `languages.ts` and `variants.ts` owned by L1 and handed to T1/T5
 after it merges). T2 after T1; T3, T4, T5 and T6 beside each other after T2; T7 after T3, T6 and 0354's L7; T8 after

@@ -342,7 +342,7 @@ The audio branch (`origin/ccr-8460d665-umr8or`) is mid-build and changes about 1
   - animation source value curves, tween custom easing and runtime curve tracks use it;
   - **the coordinator rebuilds and commits audio's wasm, hash and metered wasm** and logs any audio gate change.
   - follow-ups collected from Phase B merges: the JUMP node's normalised-time field; a per-bone server evaluation flag; swapping a raw clip for its compiled one in place; `AnimationCore` wrapping the core's existing `match_debug_write`/`match_debug` (with a per-instance debug flag) and setting T55's `MatchDebugSource`; a custom `Skeleton.profile` in ragdoll generation; mirrored clips and custom features in `posedb_bake`.
-- **T80, user guide:** `docs/guide/animation.md`; glossary.
+- **T80, user guide:** `docs/wiki/guide/animation.md`; glossary.
 - **T81, e2e specs:** animation smoke (capture-based); editor flows; cold-loaded exported build; WebKit.
 - **T82, benches through the shipped player:** benches through the shipped player; size gate review; logged as tripwires.
 

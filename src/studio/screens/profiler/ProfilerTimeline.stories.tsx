@@ -14,15 +14,15 @@ import { ProfilerTimeline } from "./ProfilerTimeline";
 import type { GroupBy } from "./voiceModel";
 import "./profiler.css";
 
-/** A store with the fixture open, as the screen's store opens `captures/run.mycap`. */
+/** A store with the fixture open, as the screen's store opens `recordings/run.sporesample`. */
 async function fixtureStore(): Promise<ProfilerStore> {
   const store = new ProfilerStore({ open: (bytes) => CaptureSource.openFile(bytes), readFile: async () => fixtureCapture().slice().buffer });
-  await store.openPath("captures/run.mycap");
+  await store.openPath("recordings/run.sporesample");
   return store;
 }
 
 /** The timeline fed from the store's signals, as the Timeline panel feeds it. */
-function Demo({ store, problemsOnly, groupBy }: { store: ProfilerStore; problemsOnly?: boolean; groupBy?: GroupBy }) {
+function Demo({ store, problemsOnly, groupBy, heatmap }: { store: ProfilerStore; problemsOnly?: boolean; groupBy?: GroupBy; heatmap?: boolean }) {
   const data = store.data.value;
   if (!data) return <p>Opening…</p>;
   return (
@@ -34,6 +34,7 @@ function Demo({ store, problemsOnly, groupBy }: { store: ProfilerStore; problems
         selected={store.selected.value}
         problemsOnly={problemsOnly ?? store.problemsOnly.value}
         groupBy={groupBy ?? store.groupBy.value}
+        heatmap={heatmap}
         onSeek={(t) => store.seekTo(t)}
         onSelect={(key) => store.select(key, true)}
       />
@@ -45,6 +46,7 @@ function Demo({ store, problemsOnly, groupBy }: { store: ProfilerStore; problems
 interface Args {
   readonly problemsOnly?: boolean;
   readonly groupBy?: GroupBy;
+  readonly heatmap?: boolean;
 }
 
 const meta: Meta<Args> = {
@@ -83,6 +85,21 @@ export const Memory: Story = {
   },
 };
 
+/** Experimental heatmap: each voice coloured by how often its clip played in the capture (the most played is hottest). */
+export const Heatmap: Story = {
+  args: { heatmap: true },
+  play: async ({ canvasElement }) => {
+    const voices = await waitFor(() => {
+      const all = [...canvasElement.querySelectorAll<HTMLElement>(".pf-voice.heat")];
+      if (all.length === 0) throw new Error("no heat yet");
+      return all;
+    });
+    const heats = voices.map((v) => Number(v.style.getPropertyValue("--heat")));
+    await expect(Math.max(...heats)).toBe(1);
+    await expect(voices.some((v) => /played (once|\d+ times)/.test(v.title))).toBe(true);
+  },
+};
+
 export const SelectStolenVoice: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
@@ -117,7 +134,7 @@ export const EffectsCost: Story = {
   loaders: [
     async () => {
       const store = new ProfilerStore({ open: (bytes) => CaptureSource.openFile(bytes), readFile: async () => cpuCapture() });
-      await store.openPath("captures/cpu.mycap");
+      await store.openPath("recordings/cpu.sporesample");
       return { store };
     },
   ],

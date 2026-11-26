@@ -13,6 +13,7 @@ import { animSourceToJson, emptyAnimSource, type AnimSource } from "../../../../
 import { compiledClipPath } from "../../../../engine/animation/compile/keys";
 import { compileRawClip } from "../../../../engine/animation/compile/rawClip";
 import { readSkeletonInfo } from "../assetInfo";
+import { animationCoreOf } from "../core/service";
 import { instanceForSkeleton, skinningMatrices } from "../skeletonInstances";
 import { setCompiledClipSource, type CompiledClipRequest } from "./clipSources";
 
@@ -181,5 +182,37 @@ describe("clip sources (T19)", () => {
     await play([a.anim, WAVE], [anim, WAVE]);
     warn.mockRestore();
     expect(skinningMatrices(world, late)!.slice()).toEqual(skinningMatrices(world, a.node)!.slice());
+  });
+
+  it("let go of the clips bound to an Animator's earlier skeleton once it binds to a new one", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const late = GameObject.create("Rebound");
+    made.push(late);
+    const anim = late.addComponent(Animator);
+    const url = fixtureUrl("walk.anim").href;
+    /** The Animator's references to the walk file (one per skeleton it holds the clip for). */
+    const held = (): number => {
+      const core = animationCoreOf(world)?.core;
+      const h = core?.acquireLoaded(url, "clip") ?? 0;
+      if (!h) return 0;
+      const n = core!.references(h) - 1;
+      core!.release(h);
+      return n;
+    };
+    // Played with no skeleton: the Animator holds the file once, for "no bones".
+    anim.play(WALK);
+    await vi.waitFor(() => {
+      engine.step(0);
+      expect(held()).toBe(1);
+    });
+    late.addComponent(Skeleton, { skeleton: SKEL });
+    await vi.waitFor(() => expect(instanceForSkeleton(world, late)).not.toBe(0));
+    await play([anim, WALK]);
+    warn.mockRestore();
+    // Held for the Skeleton now; the "no bones" entry went with the rebind (its play ended there).
+    expect(held()).toBe(1);
+    GameObject.destroy(late);
+    engine.step(0);
+    expect(held()).toBe(0);
   });
 });

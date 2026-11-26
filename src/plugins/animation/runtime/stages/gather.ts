@@ -27,9 +27,13 @@ const GATHER: readonly StageStep[] = [
 
 /** @internal Run the gather sub-steps for `frame`. */
 export function runGather(frame: AnimationFrame): void {
-  frame.core.meter.time("gather", () => {
-    for (const step of GATHER) step(frame);
-  });
+  const meter = frame.core.meter;
+  const t = meter.start();
+  try {
+    for (let i = 0; i < GATHER.length; i++) GATHER[i]!(frame);
+  } finally {
+    meter.stop("gather", t);
+  }
 }
 
 /** @internal The `animation.Gather` system. */

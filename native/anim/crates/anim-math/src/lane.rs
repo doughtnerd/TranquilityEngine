@@ -12,9 +12,16 @@ use core::ops::{Add, BitAnd, BitOr, Div, Mul, Neg, Not, Sub};
 pub trait LaneMask:
     Copy + BitAnd<Output = Self> + BitOr<Output = Self> + Not<Output = Self>
 {
+    /// Whether any lane is set.
+    fn any(self) -> bool;
 }
 
-impl LaneMask for bool {}
+impl LaneMask for bool {
+    #[inline(always)]
+    fn any(self) -> bool {
+        self
+    }
+}
 
 /// One `f32` or four `f32` lanes. Implemented by `f32` and [`F32x4`](crate::F32x4).
 ///
