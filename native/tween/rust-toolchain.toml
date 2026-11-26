@@ -1,0 +1,7 @@
+# ADR 0370: the animation core builds with one pinned stable toolchain and the wasm target, so the
+# committed wasm and its source hash are reproducible (as native/audio).
+[toolchain]
+channel = "1.99.1"
+targets = ["wasm32-unknown-unknown"]
+profile = "minimal"
+components = ["rustfmt", "clippy"]

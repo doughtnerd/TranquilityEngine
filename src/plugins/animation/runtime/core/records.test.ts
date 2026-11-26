@@ -4,6 +4,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { COMMAND_BYTES, PLAY, STOP, WIRE_HEADER } from "../wasm/wire/core";
 import { CommandWriter, type CommandSink } from "./commands";
+import { WIRE_HEADER as ENGINE_HEADER } from "../../../../engine/wasm/wireRecords";
 import { encodeRecord, getRecord, putRecord, recordOpcode, type RecordLayout } from "./records";
 
 const EVERY: RecordLayout = {
@@ -22,6 +23,10 @@ const EVERY: RecordLayout = {
 };
 
 describe("wire records", () => {
+  it("writes the header gen_wire generates", () => {
+    expect(ENGINE_HEADER).toEqual(WIRE_HEADER);
+  });
+
   it("round-trips every scalar type, header first", () => {
     const values = { a: 200, b: -5, c: 60000, d: -30000, e: 0xfffffff0, f: -123456, g: 1.5 };
     const bytes = encodeRecord(EVERY, values);

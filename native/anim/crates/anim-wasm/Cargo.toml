@@ -11,6 +11,8 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 anim-wire.workspace = true
+# ADR 0420 spike: the tween table, sequence programs and easings (native/common/tween).
+myco-tween = { path = "../../../common/tween" }
 anim-math.workspace = true
 anim-format.workspace = true
 anim-sample.workspace = true

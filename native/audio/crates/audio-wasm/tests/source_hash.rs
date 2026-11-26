@@ -12,12 +12,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use source_hash::{hashed_files, source_hash, to_hex};
 
 /// The digest of the fixture (the same constant as FIXTURE_HASH in sourceHash.test.ts).
-const FIXTURE_HASH: &str = "3f9c4b95c720a04252ca88a1664af88e";
+const FIXTURE_HASH: &str = "f4f9ef03a71eeb91422df242049a55bb";
 
 /// The keys the fixture hashes, in order.
 const EXPECTED_KEYS: [&str; 8] = [
-    "../common/c/Cargo.toml",
-    "../common/c/src/lib.rs",
+    "../common/curve/Cargo.toml",
+    "../common/curve/src/lib.rs",
     "Cargo.lock",
     "Cargo.toml",
     "crates/a/Cargo.toml",
@@ -77,11 +77,13 @@ impl Fixture {
         self.write("vectors/wire.rs", "fn w() {}\n");
         self.write("crates/a/README.md", "# a\n");
         self.write("build.mjs", "export {};\n");
-        // The shared crates beside the root (ADR 0370): hashed under `../common/`, with the same skips.
-        self.write("../common/c/Cargo.toml", "[package]\nname = \"c\"\n");
-        self.write("../common/c/src/lib.rs", &fix("pub fn c() {}\r\n"));
-        self.write("../common/c/target/debug/y.rs", "fn y() {}\n");
-        self.write("../common/c/tests/t.rs", "fn t() {}\n");
+        // The shared crates the core links (ADR 0370): hashed under `../common/`, with the same skips;
+        // another shared crate beside them (ADR 0420) is left out.
+        self.write("../common/curve/Cargo.toml", "[package]\nname = \"c\"\n");
+        self.write("../common/curve/src/lib.rs", &fix("pub fn c() {}\r\n"));
+        self.write("../common/curve/target/debug/y.rs", "fn y() {}\n");
+        self.write("../common/curve/tests/t.rs", "fn t() {}\n");
+        self.write("../common/other/src/lib.rs", "pub fn o() {}\n");
     }
 
     fn keys(&self) -> Vec<String> {
@@ -156,8 +158,9 @@ fn a_shared_crate_is_hashed_and_its_build_output_is_not() {
     let fixture = Fixture::new("shared");
     fixture.populate(true);
     let before = fixture.hash();
-    fixture.write("../common/c/target/debug/y.rs", "fn changed() {}\n");
+    fixture.write("../common/curve/target/debug/y.rs", "fn changed() {}\n");
+    fixture.write("../common/other/src/lib.rs", "pub fn changed() {}\n");
     assert_eq!(fixture.hash(), before);
-    fixture.write("../common/c/src/lib.rs", "pub fn c() { changed() }\n");
+    fixture.write("../common/curve/src/lib.rs", "pub fn c() { changed() }\n");
     assert_ne!(fixture.hash(), before);
 }

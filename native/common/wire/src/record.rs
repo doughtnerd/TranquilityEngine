@@ -15,6 +15,8 @@
 //! Records are declared with [`wire_record!`](crate::wire_record), which writes the Rust struct, its
 //! encoder and decoder, and the [`RecordDesc`] the generator turns into TypeScript.
 
+use alloc::vec::Vec;
+
 /// The bytes of the header every record starts with (opcode, then version).
 pub const HEADER_BYTES: u32 = 4;
 /// The header's opcode offset.
@@ -83,9 +85,11 @@ macro_rules! scalar {
     ($ty:ty, $scalar:ident, $n:literal, $value:ident, $as:ty) => {
         impl WireScalar for $ty {
             const SCALAR: Scalar = Scalar::$scalar;
+            #[inline]
             fn put(self, out: &mut [u8], at: usize) {
                 out[at..at + $n].copy_from_slice(&self.to_le_bytes());
             }
+            #[inline]
             fn get(bytes: &[u8], at: usize) -> Self {
                 let mut b = [0u8; $n];
                 b.copy_from_slice(&bytes[at..at + $n]);
@@ -124,6 +128,7 @@ pub const fn offset(types: &[Scalar], index: usize) -> u32 {
 }
 
 /// The stride of a record whose fields have `types`.
+#[inline]
 pub const fn stride(types: &[Scalar]) -> u32 {
     let mut at = HEADER_BYTES;
     let mut i = 0;
@@ -134,6 +139,7 @@ pub const fn stride(types: &[Scalar]) -> u32 {
     align(at, STRIDE_ALIGN)
 }
 
+#[inline]
 const fn align(at: u32, to: u32) -> u32 {
     at.div_ceil(to) * to
 }
@@ -189,7 +195,7 @@ pub trait WireRecord: Sized {
 
     /// The record's bytes (allocates).
     fn encode(&self) -> Vec<u8> {
-        let mut out = vec![0u8; Self::DESC.stride as usize];
+        let mut out = alloc::vec![0u8; Self::DESC.stride as usize];
         // The buffer is exactly one stride long, so this can't fail.
         let _ = self.encode_into(&mut out);
         out
@@ -197,6 +203,10 @@ pub trait WireRecord: Sized {
 }
 
 /// Checks a record's header and length before reading it.
+///
+/// `#[inline]` (ADR 0420 spike): called from every record's decoder in other crates; outlined, it
+/// takes `&DESC`, which keeps every record's descriptor (names and field docs, ~25 KB) in the module.
+#[inline]
 pub fn check_header(desc: &RecordDesc, bytes: &[u8]) -> Result<(), WireError> {
     if bytes.len() < desc.stride as usize {
         return Err(WireError::Short {
@@ -221,7 +231,8 @@ pub fn check_header(desc: &RecordDesc, bytes: &[u8]) -> Result<(), WireError> {
     Ok(())
 }
 
-/// Writes a record's header after checking the buffer's length.
+/// Writes a record's header after checking the buffer's length. `#[inline]`, as [`check_header`].
+#[inline]
 pub fn put_header(desc: &RecordDesc, out: &mut [u8]) -> Result<(), WireError> {
     if out.len() < desc.stride as usize {
         return Err(WireError::Short {
@@ -239,7 +250,7 @@ pub fn put_header(desc: &RecordDesc, out: &mut [u8]) -> Result<(), WireError> {
 /// layout.
 ///
 /// ```
-/// use anim_wire::wire_record;
+/// use myco_wire::wire_record;
 /// const ID: u8 = 0x7f;
 /// const VERSION: u16 = 1;
 /// wire_record! {
@@ -251,7 +262,7 @@ pub fn put_header(desc: &RecordDesc, out: &mut [u8]) -> Result<(), WireError> {
 ///         weight: f32,
 ///     }
 /// }
-/// assert_eq!(<Example as anim_wire::WireRecord>::DESC.stride, 12);
+/// assert_eq!(<Example as myco_wire::WireRecord>::DESC.stride, 12);
 /// ```
 #[macro_export]
 macro_rules! wire_record {
@@ -309,8 +320,8 @@ macro_rules! wire_record {
                 Ok(Self { $($field),* })
             }
 
-            fn values(&self) -> ::std::vec::Vec<(&'static str, $crate::Value)> {
-                ::std::vec![$((stringify!($field), $crate::WireScalar::value(self.$field))),*]
+            fn values(&self) -> $crate::__alloc::vec::Vec<(&'static str, $crate::Value)> {
+                $crate::__alloc::vec![$((stringify!($field), $crate::WireScalar::value(self.$field))),*]
             }
         }
     };
@@ -326,7 +337,7 @@ pub struct Const {
 }
 
 /// One wire family: its records, constants and test vectors. Every family module defines one
-/// `FAMILY`, listed once in [`crate::FAMILIES`].
+/// `FAMILY`, listed once in its core's family table (`anim_wire::FAMILIES`).
 #[derive(Clone, Copy, Debug)]
 pub struct FamilyDesc {
     /// The family's name: its module, its TypeScript file (`wire/<name>.ts`) and its vector file.

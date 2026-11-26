@@ -12,4 +12,14 @@ edition = "2021"
 license = "Apache-2.0 OR MIT"
 publish = false
 
+# `alloc` (ADR 0420), off by default: the key parser (`parse_keys`) for hosts that keep curves as
+# slices of baked keys, the animation core (anim-sample) and myco-tween. The audio core links this
+# crate without it, so its build doesn't change.
+[features]
+alloc = []
+
+[[test]]
+name = "parse"
+required-features = ["alloc"]
+
 [workspace]

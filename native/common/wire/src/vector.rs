@@ -3,6 +3,8 @@
 //! (`src/plugins/animation/runtime/wasm/wire.roundtrip.test.ts`) decodes the bytes with the
 //! generated constants and encodes the values back, so both sides agree on every layout.
 
+use alloc::vec::Vec;
+
 use crate::record::{Value, WireRecord};
 
 /// One case.

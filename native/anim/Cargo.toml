@@ -3,10 +3,15 @@
 # which is committed, so the engine builds without Rust.
 #
 # Crates (ADR 0370, in dependency order; each crate's Cargo.toml declares its edges):
-#   anim-wire (boundary records, TS generator) . anim-math (SoA maths on glam + simd128)
+#   anim-wire (boundary records, TS generator; the record mechanism is native/common/wire, `myco-wire`, and the
+#   `tween` family native/common/tween's, both re-exported, ADR 0420) . anim-math (SoA maths on glam + simd128)
 #   anim-format (binary layouts) -> anim-offline (f64 reference) -> anim-compress, anim-sample
 #   anim-pose -> anim-rig, anim-retarget, anim-match, anim-physics -> anim-graph -> anim-wasm (boundary)
 #   anim-plugin-sdk (third-party node ABI), anim-meter (fuel pass), anim-bench (criterion benches).
+# Shared crates outside the workspace (path dependencies, ADR 0370 and 0420): native/common/curve (`myco-curve`, with
+# its `alloc` key parser) under anim-sample; native/common/wire (`myco-wire`) under anim-wire; native/common/tween
+# (`myco-tween`: the tween table, easings and sequence programs) under anim-wire and anim-wasm, also linked by the
+# standalone tween module (native/tween). The source hash covers native/common/.
 #
 # Coordinator-owned (docs/design/animation/ground-rules.md): tasks edit only their crate's own Cargo.toml.
 [workspace]
