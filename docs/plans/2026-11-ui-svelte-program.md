@@ -18,7 +18,7 @@ The coordinator's plan for building ADRs 0418 (the UI core grows toward web CSS)
 | Wave | Contents | Depends on |
 |---|---|---|
 | X1 | 0418 wave 4: transitions, `@keyframes`, `animation`, on the tween backend; `transitionend`/`animationend` | 0420 |
-| X2 | Svelte hooks without UI core dependencies: legacy `on:`, `globalTarget` (`<svelte:window/document/body>`, events and size bindings), `addStyles` (`css: 'injected'`), `<svelte:head>` title; `t()`; the Element subset on renderer nodes | 0419 A |
+| X2 ✅ merged (conformance 1077/1311, 82.2%) | Svelte hooks without UI core dependencies: legacy `on:`, `globalTarget` (`<svelte:window/document/body>`, events and size bindings), `addStyles` (`css: 'injected'`), `<svelte:head>` title; `t()`; the Element subset on renderer nodes | 0419 A |
 | X3 | 0421: Svelte runtime and renderer bundled into each game's code at export, tree-shaken | 0419 A |
 | Y1 | 0418 wave 5: `:not`, structural, attribute and sibling selectors, `calc()`, canvas `@media` (+ `MediaQuery`) | X1 (cascade) |
 | Y2 | Svelte `animate`/`measure` hooks: `transition:`/`in:`/`out:`/`animate:` and `svelte/transition` built-ins on the tween backend and transformed boxes | X1, wave 3 |
@@ -35,4 +35,5 @@ The coordinator's plan for building ADRs 0418 (the UI core grows toward web CSS)
 - Committed wasm embeds the building checkout's absolute path (pre-existing); remapping paths is a hygiene follow-up beside the pending `wasm-opt` note.
 - The core-backed tween backend's update clears per-frame outputs for every World: UI runs it outside a game World's evaluate-to-apply span (0420 as built).
 - Transform lists that would skew are refused, and skew isn't drawn (0418 wave 3 as built); Z2's matrix transforms lift both.
+- Units ruling (coordinator): Svelte's `window.innerWidth/innerHeight` and `devicePixelRatio` move to canvas **UI pixels** (device pixels per UI pixel), matching `getBoundingClientRect` and canvas `@media`; done in wave Y1. The 0418 implementation-status row's "getBoundingClientRect on transformed boxes missing" is done (X2).
 - e2e specs already known to be affected: `ui-navigation`, `localisation`, `arena`, `input`, `input-mapper`, `sample`, `hierarchy-create`, `selection`, `sound-lab-touch`, plus Code panel, Assets Create, export and player-boot specs (wave A part 2).
