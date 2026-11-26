@@ -1,6 +1,6 @@
 /**
  * Scrolling (ADR 0423): what scripts, navigation and the UI core's input share to move an element's `scrollX`/`scrollY`.
- * Nothing here is public API; UI documents' elements and the Svelte renderer's nodes offer it as the DOM's scrolling
+ * Nothing here is public API; hosted elements and the Svelte renderer's nodes offer it as the DOM's scrolling
  * members (`scrollTo`, `scrollBy`, `scrollIntoView`, `scrollTop`…).
  *
  * - **Where things are.** Scroll ranges come from the UI core's last layout (`UILaidOutElement.scroll`), read through the
@@ -232,7 +232,7 @@ export function canMove(at: number, max: number, d: number): boolean {
   return (d < 0 && at > 0.01) || (d > 0 && at < max - 0.01);
 }
 
-// --- The DOM's scrolling members, as UI documents' elements and renderer nodes offer them ---------
+// --- The DOM's scrolling members, as hosted elements and renderer nodes offer them ---------------
 
 /** `scrollTo`/`scrollBy`'s arguments: `(x, y)` or `({ left, top, behavior })`. */
 export type UIScrollToArgs = [x?: number | { readonly left?: number; readonly top?: number; readonly behavior?: UIScrollBehaviorOption }, y?: number];

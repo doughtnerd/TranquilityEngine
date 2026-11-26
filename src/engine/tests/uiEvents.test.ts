@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, Input } from "../index";
 import { UIButton, UIInputField, UIPanel } from "../ui/components";
-import { UIEvents, loadUIDocumentSupport, type UIDocument, type UIEvent } from "../ui/UIDocument";
+import type { UIHostElement, UIHostEvent } from "../ui/host/UIHost";
 import { World } from "../core/World";
 import { UIPointer, stubDocument } from "./uiPointer";
-import { buildUI } from "./uiMarkup";
+import { buildUI, loadUITestSupport, uiAs, type TestUI } from "./uiMarkup";
 
-// ADR 0422: UI events travel through capture, target and bubble phases over the target's ancestors in a document, with
+// ADR 0422: UI events travel through capture, target and bubble phases over the target's ancestors in a view, with
 // the DOM's event members, pointer and key data, and default actions handlers can prevent. Driven as a player drives
-// them: a UI core routes `Input`'s DOM adapter (`UIPointer`), documents built from markup, handlers through `on`.
+// them: a UI core routes `Input`'s DOM adapter (`UIPointer`), views built from markup (ADR 0419), handlers through `on`.
 
 const DT = 1 / 60;
 let engine: Engine;
@@ -17,7 +17,7 @@ let pointers: UIPointer[] = [];
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
-  await loadUIDocumentSupport();
+  await loadUITestSupport();
 });
 
 afterEach(() => {
@@ -39,35 +39,35 @@ const step = (frames = 1) => {
 };
 
 /** A column list of two 200 × 40 rows at the canvas's corner, inside a panel with a background. */
-function list(): UIDocument {
+function list(): TestUI {
   return buildUI(`<Canvas>
-  <Panel id="list" flex-direction="column" align-items="flex-start" background-color="#222222" padding="10">
-    <Button id="one" width="200" height="40" padding="0">One</Button>
-    <Button id="two" width="200" height="40" padding="0">Two</Button>
-    <InputField id="name" width="200" height="30"/>
-  </Panel>
+  <div id="list" flex-direction="column" align-items="flex-start" background-color="#222222" padding="10">
+    <button id="one" width="200" height="40" padding="0">One</button>
+    <button id="two" width="200" height="40" padding="0">Two</button>
+    <input id="name" width="200" height="30"/>
+  </div>
 </Canvas>`);
 }
 
 describe("inert (HTML's)", () => {
   it("takes an inert element's subtree out of hit-testing and focus: the pointer reaches what's behind", async () => {
     const doc = buildUI(`<Canvas>
-  <Panel id="back" background-color="#222222" padding="10">
-    <Panel id="wrap" inert="true">
-      <Button id="b" width="200" height="40" padding="0">B</Button>
-    </Panel>
-  </Panel>
+  <div id="back" background-color="#222222" padding="10">
+    <div id="wrap" inert="true">
+      <button id="b" width="200" height="40" padding="0">B</button>
+    </div>
+  </div>
 </Canvas>`);
     const clicks: string[] = [];
-    doc.query("#back")!.on("click", (e) => clicks.push(e.target.id ?? ""));
-    const b = doc.query("#b")!.as(UIButton);
+    doc.query("#back")!.on("click", (e) => clicks.push(e.element.id ?? ""));
+    const b = uiAs(doc.query("#b")!, UIButton);
     const p = await pointer();
     step();
     expect(() => p.click(b)).toThrow(/would hit/);
     b.focused = true;
     expect(b.focused).toBe(false);
 
-    doc.query("#wrap")!.as(UIPanel).inert = false;
+    uiAs(doc.query("#wrap")!, UIPanel).inert = false;
     step();
     p.click(b);
     step();
@@ -81,48 +81,48 @@ describe("propagation (ADR 0422)", () => {
   it("runs capture handlers from the root down, the target's, then bubble handlers back up", async () => {
     const doc = list();
     const seen: string[] = [];
-    const log = (who: string) => (e: UIEvent) => seen.push(`${who} ${e.eventPhase} ${e.target.id}>${e.currentTarget?.id ?? "canvas"}`);
-    doc.root!.on("click", log("canvas-capture"), { capture: true }).on("click", log("canvas"));
-    doc.query("#list")!.on("click", log("list-capture"), { capture: true }).on("click", log("list"));
-    doc.query("#one")!.on("click", log("one")).on("click", log("one-capture"), { capture: true });
+    const log = (who: string) => (e: UIHostEvent) => seen.push(`${who} ${e.eventPhase} ${e.element.id}`);
+    doc.root!.on("click", log("canvas-capture"), { capture: true });
+    doc.root!.on("click", log("canvas"));
+    doc.query("#list")!.on("click", log("list-capture"), { capture: true });
+    doc.query("#list")!.on("click", log("list"));
+    doc.query("#one")!.on("click", log("one"));
+    doc.query("#one")!.on("click", log("one-capture"), { capture: true });
     const p = await pointer();
-    p.click(doc.query("#one")!.as(UIButton));
+    p.click(uiAs(doc.query("#one")!, UIButton));
     step();
     // At the target, capture handlers run first (as browsers do now); the label made from "One" is the button's.
-    expect(seen).toEqual(["canvas-capture 1 one>canvas", "list-capture 1 one>list", "one-capture 2 one>one", "one 2 one>one", "list 3 one>list", "canvas 3 one>canvas"]);
+    expect(seen).toEqual(["canvas-capture 1 one", "list-capture 1 one", "one-capture 2 one", "one 2 one", "list 3 one", "canvas 3 one"]);
   });
 
   it("stops at stopPropagation (after the element's other handlers) and at stopImmediatePropagation (at once)", async () => {
     const doc = list();
     const seen: string[] = [];
     doc.query("#list")!.on("click", () => seen.push("list"));
-    doc.query("#one")!.on("click", (e) => (seen.push("one a"), e.stopPropagation())).on("click", () => seen.push("one b"));
-    doc.query("#two")!.on("click", (e) => (seen.push("two a"), e.stopImmediatePropagation())).on("click", () => seen.push("two b"));
+    doc.query("#one")!.on("click", (e) => (seen.push("one a"), e.stopPropagation()));
+    doc.query("#one")!.on("click", () => seen.push("one b"));
+    doc.query("#two")!.on("click", (e) => (seen.push("two a"), e.stopImmediatePropagation()));
+    doc.query("#two")!.on("click", () => seen.push("two b"));
     const p = await pointer();
-    p.click(doc.query("#one")!.as(UIButton));
+    p.click(uiAs(doc.query("#one")!, UIButton));
     step();
-    p.click(doc.query("#two")!.as(UIButton));
+    p.click(uiAs(doc.query("#two")!, UIButton));
     step(2); // a second press waits a frame (one press per frame)
     expect(seen).toEqual(["one a", "one b", "two a"]);
   });
 
-  it("delivers a click on a row to a handler on its list, with the row as the target, and keeps the UIEvents buffer as it was", async () => {
+  it("delivers a click on a row to a handler on its list, with the row as the target, the button's polled click set", async () => {
     const doc = list();
     const targets: string[] = [];
-    let buffered: UIEvent[] = [];
     let clicked = false;
     doc.query("#list")!.on("click", (e) => {
-      targets.push(e.target.id!);
-      // As a script would that frame: the buffer and the polled state.
-      buffered = [...UIEvents.read()];
-      clicked = doc.query("#two")!.clicked;
+      targets.push(e.element.id!);
+      clicked = uiAs(doc.query("#two")!, UIButton).clicked; // as a script would that frame
     });
     const p = await pointer();
-    p.click(doc.query("#two")!.as(UIButton));
+    p.click(uiAs(doc.query("#two")!, UIButton));
     step();
     expect(targets).toEqual(["two"]);
-    // The buffer has what it always had: the button's polled click and hover, once each.
-    expect(buffered.map((e) => `${e.type} ${e.element.id}`)).toEqual(["click two", "hover two"]);
     expect(clicked).toBe(true);
   });
 
@@ -131,10 +131,11 @@ describe("propagation (ADR 0422)", () => {
     const seen: string[] = [];
     const listEl = doc.query("#list")!;
     const capture = () => seen.push("capture");
-    listEl.on("click", () => seen.push("once"), { once: true }).on("click", capture, { capture: true });
+    listEl.on("click", () => seen.push("once"), { once: true });
+    listEl.on("click", capture, { capture: true });
     listEl.off("click", capture); // a bubble handler: the capture one stays
     const p = await pointer();
-    const one = doc.query("#one")!.as(UIButton);
+    const one = uiAs(doc.query("#one")!, UIButton);
     p.click(one);
     step();
     p.click(one);
@@ -150,12 +151,12 @@ describe("pointer events (ADR 0422)", () => {
     const one = doc.query("#one")!;
     for (const type of ["pointerover", "pointerenter", "pointermove", "pointerdown", "pointerup", "click", "dblclick", "pointerout", "pointerleave"] as const) {
       one.on(type, (e) => {
-        if (e.target === one) seen.push(`${type} ${e.clientX},${e.clientY} ${e.offsetX},${e.offsetY} b${e.button} ${e.detail}`);
+        if (e.element === one) seen.push(`${type} ${e.clientX},${e.clientY} ${e.offsetX},${e.offsetY} b${e.button} ${e.detail}`);
       });
     }
     const p = await pointer();
     // The row is at (10, 10) (the list's padding), 200 × 40: its middle is (110, 30).
-    p.click(one.as(UIButton));
+    p.click(uiAs(one, UIButton));
     step();
     expect(seen).toEqual(["pointerover 110,30 100,20 b-1 0", "pointerenter 110,30 100,20 b-1 0", "pointermove 110,30 100,20 b-1 0", "pointerdown 110,30 100,20 b0 0", "pointerup 110,30 100,20 b0 0", "click 110,30 100,20 b0 1"]);
     seen.length = 0;
@@ -173,15 +174,16 @@ describe("pointer events (ADR 0422)", () => {
     const seen: string[] = [];
     for (const id of ["list", "one", "two"]) {
       const el = doc.query(`#${id}`)!;
-      el.on("pointerenter", () => seen.push(`enter ${id}`)).on("pointerleave", () => seen.push(`leave ${id}`));
+      el.on("pointerenter", () => seen.push(`enter ${id}`));
+      el.on("pointerleave", () => seen.push(`leave ${id}`));
     }
-    doc.query("#list")!.on("pointerover", (e) => seen.push(`over@list ${e.target.id} from ${e.relatedTarget?.id ?? "-"}`));
+    doc.query("#list")!.on("pointerover", (e) => seen.push(`over@list ${e.element.id} from ${(e.relatedTarget as UIHostElement | null)?.id ?? "-"}`));
     const p = await pointer();
-    p.hover(doc.query("#one")!.as(UIButton));
+    p.hover(uiAs(doc.query("#one")!, UIButton));
     step();
     expect(seen).toEqual(["over@list one from -", "enter list", "enter one"]);
     seen.length = 0;
-    p.hover(doc.query("#two")!.as(UIButton));
+    p.hover(uiAs(doc.query("#two")!, UIButton));
     step();
     expect(seen).toEqual(["leave one", "over@list two from one", "enter two"]);
   });
@@ -189,13 +191,14 @@ describe("pointer events (ADR 0422)", () => {
   it("sends contextmenu with a right press, and doesn't click a button that isn't interactable", async () => {
     const doc = list();
     const seen: string[] = [];
-    doc.query("#list")!.on("contextmenu", (e) => seen.push(`menu ${e.target.id} ${e.button}`)).on("click", (e) => seen.push(`click ${e.target.id}`));
-    doc.query("#two")!.as(UIButton).interactable = false;
+    doc.query("#list")!.on("contextmenu", (e) => seen.push(`menu ${e.element.id} ${e.button}`));
+    doc.query("#list")!.on("click", (e) => seen.push(`click ${e.element.id}`));
+    uiAs(doc.query("#two")!, UIButton).interactable = false;
     const p = await pointer();
-    p.hover(doc.query("#one")!.as(UIButton));
+    p.hover(uiAs(doc.query("#one")!, UIButton));
     p.dom.click(2);
     step();
-    p.click(doc.query("#two")!.as(UIButton));
+    p.click(uiAs(doc.query("#two")!, UIButton));
     step();
     expect(seen).toEqual(["menu one 2"]);
   });
@@ -208,23 +211,24 @@ describe("default actions (ADR 0422)", () => {
     const seen: string[] = [];
     const name = doc.query("#name")!;
     const listEl = doc.query("#list")!;
-    listEl.on("focusin", (e) => seen.push(`focusin ${e.target.id}`)).on("focusout", (e) => seen.push(`focusout ${e.target.id} to ${e.relatedTarget?.id ?? "-"}`));
-    name.on("focus", (e) => seen.push(`focus ${e.target.id}`));
+    listEl.on("focusin", (e) => seen.push(`focusin ${e.element.id}`));
+    listEl.on("focusout", (e) => seen.push(`focusout ${e.element.id} to ${(e.relatedTarget as UIHostElement | null)?.id ?? "-"}`));
+    name.on("focus", (e) => seen.push(`focus ${e.element.id}`));
     let prevent = true;
     name.on("pointerdown", (e) => {
-      seen.push(`down, focused: ${name.focused}`);
+      seen.push(`down, focused: ${uiAs(name, UIInputField).focused}`);
       if (prevent) e.preventDefault();
     });
     const p = await pointer();
-    p.click(name.as(UIInputField));
+    p.click(uiAs(name, UIInputField));
     step();
-    expect(name.focused).toBe(false);
+    expect(uiAs(name, UIInputField).focused).toBe(false);
     prevent = false;
     p.dom.click();
     step(2); // a second press waits a frame (one press per frame)
-    expect(name.focused).toBe(true);
-    expect(name.as(UIInputField).typing).toBe(true);
-    p.click(doc.query("#one")!.as(UIButton));
+    expect(uiAs(name, UIInputField).focused).toBe(true);
+    expect(uiAs(name, UIInputField).typing).toBe(true);
+    p.click(uiAs(doc.query("#one")!, UIButton));
     step(2);
     expect(seen).toEqual(["down, focused: false", "down, focused: false", "focus name", "focusin name", "focusout name to one", "focusin one"]);
   });
@@ -234,9 +238,10 @@ describe("default actions (ADR 0422)", () => {
     const doc = list();
     const seen: string[] = [];
     const name = doc.query("#name")!;
-    doc.query("#list")!.on("keydown", (e) => seen.push(`keydown ${e.key} ${e.code} on ${e.target.id}`)).on("keyup", (e) => seen.push(`keyup ${e.key}`));
+    doc.query("#list")!.on("keydown", (e) => seen.push(`keydown ${e.key} ${e.code} on ${e.element.id}`));
+    doc.query("#list")!.on("keyup", (e) => seen.push(`keyup ${e.key}`));
     name.on("submit", () => seen.push("submit"));
-    name.as(UIInputField).focused = true;
+    uiAs(name, UIInputField).focused = true;
     const p = await pointer();
     p.sync();
     dom.typeText("Ada");
@@ -247,14 +252,14 @@ describe("default actions (ADR 0422)", () => {
     dom.emit("keydown", { key: "Enter" });
     p.dom.keyDown("Enter");
     step();
-    expect(name.submitted).toBe(true);
+    expect(uiAs(name, UIInputField).submitted).toBe(true);
     p.dom.keyUp("Enter");
     step();
     name.on("keydown", (e) => e.preventDefault(), { once: true });
     dom.emit("keydown", { key: "Enter" });
     p.dom.keyDown("Enter");
     step();
-    expect(name.submitted).toBe(false);
+    expect(uiAs(name, UIInputField).submitted).toBe(false);
     expect(seen).toEqual(["keydown a KeyA on name", "keyup a", "keydown Enter Enter on name", "submit", "keyup Enter", "keydown Enter Enter on name"]);
   });
 });
@@ -262,8 +267,8 @@ describe("default actions (ADR 0422)", () => {
 describe("drags between UI elements (ADR 0422)", () => {
   it("drags a draggable element past the threshold: dragstart, drag, dragenter/dragover, drop where a dragover was prevented, dragend; no click", async () => {
     const doc = buildUI(`<Canvas>
-  <Panel id="src" draggable="true" width="100" height="100" background-color="#ff0000"/>
-  <Panel id="bin" width="100" height="100" margin-left="50" background-color="#0000ff"/>
+  <div id="src" draggable="true" width="100" height="100" background-color="#ff0000"/>
+  <div id="bin" width="100" height="100" margin-left="50" background-color="#0000ff"/>
 </Canvas>`);
     const seen: string[] = [];
     const src = doc.query("#src")!;
@@ -271,12 +276,12 @@ describe("drags between UI elements (ADR 0422)", () => {
     src.on("dragstart", (e) => (seen.push("dragstart"), e.dataTransfer!.setData("text", "apple")));
     src.on("dragend", () => seen.push("dragend"));
     src.on("click", () => seen.push("click"));
-    bin.on("dragenter", (e) => seen.push(`dragenter from ${e.relatedTarget?.id ?? "-"}`));
+    bin.on("dragenter", (e) => seen.push(`dragenter from ${(e.relatedTarget as UIHostElement | null)?.id ?? "-"}`));
     bin.on("dragover", (e) => e.preventDefault());
     bin.on("drop", (e) => seen.push(`drop ${e.dataTransfer!.getData("text/plain")}`));
     const p = await pointer();
-    const from = p.pointIn(src.as(UIPanel));
-    const to = p.pointIn(bin.as(UIPanel));
+    const from = p.pointIn(uiAs(src, UIPanel));
+    const to = p.pointIn(uiAs(bin, UIPanel));
     p.dom.moveTo(from.x, from.y);
     p.dom.pointerDown(0);
     step();

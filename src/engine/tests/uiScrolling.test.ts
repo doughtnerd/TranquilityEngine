@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, Input } from "../index";
 import { UIButton, UIPanel, UIText } from "../ui/components";
-import { loadUIDocumentSupport, type UIDocument } from "../ui/UIDocument";
 import { World } from "../core/World";
 import { UIPointer, stubDocument } from "./uiPointer";
-import { buildUI } from "./uiMarkup";
+import { buildUI, loadUITestSupport, uiAs, type TestUI } from "./uiMarkup";
 
 // ADR 0423: elements scroll with `overflow: auto | scroll`: layout, clipping and drawing offsets, hit-testing, the
 // wheel (with chaining and `overscroll-behavior`), touch drags with momentum, keys, scrollbars, the DOM's scrolling
@@ -18,7 +17,7 @@ let pointers: UIPointer[] = [];
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
-  await loadUIDocumentSupport();
+  await loadUITestSupport();
 });
 
 afterEach(() => {
@@ -44,12 +43,12 @@ function frame(p: UIPointer, frames = 1): void {
 }
 
 /** A 200 × 100 vertical list of ten 40-pixel rows (400 pixels of content) at (0, 0). */
-function list(attrs = "", css?: string): UIDocument {
-  const rows = Array.from({ length: 10 }, (_, i) => `<Button id="r${i}" height="40" width="180" padding="0">Row ${i}</Button>`).join("\n");
-  return buildUI(`<Canvas><Panel id="list" width="200" height="100" flex-direction="column" align-items="flex-start" overflow="auto" ${attrs}>${rows}</Panel></Canvas>`, css === undefined ? {} : { css });
+function list(attrs = "", css?: string): TestUI {
+  const rows = Array.from({ length: 10 }, (_, i) => `<button id="r${i}" height="40" width="180" padding="0">Row ${i}</button>`).join("\n");
+  return buildUI(`<Canvas><div id="list" width="200" height="100" flex-direction="column" align-items="flex-start" overflow="auto" ${attrs}>${rows}</div></Canvas>`, css === undefined ? {} : { css });
 }
 
-const panel = (doc: UIDocument, id = "list") => doc.query(`#${id}`)!.as(UIPanel);
+const panel = (doc: TestUI, id = "list") => uiAs(doc.query(`#${id}`)!, UIPanel);
 
 describe("layout and drawing (ADR 0423)", () => {
   it("measures the content past the padding box, offsets the children by the scroll, clamps it, and hit-tests what's shown", async () => {
@@ -73,8 +72,8 @@ describe("layout and drawing (ADR 0423)", () => {
   });
 
   it("lays out the content unconstrained along a scrolling axis: text keeps its height instead of shrinking", async () => {
-    const lines = Array.from({ length: 6 }, (_, i) => `<Text id="t${i}" font-size="20">Line ${i}</Text>`).join("");
-    const doc = buildUI(`<Canvas><Panel id="list" width="200" height="60" flex-direction="column" overflow="auto">${lines}</Panel><Panel id="clip" width="200" height="60" flex-direction="column" overflow="hidden">${lines.replace(/id="t/g, 'id="h')}</Panel></Canvas>`);
+    const lines = Array.from({ length: 6 }, (_, i) => `<p id="t${i}" font-size="20">Line ${i}</p>`).join("");
+    const doc = buildUI(`<Canvas><div id="list" width="200" height="60" flex-direction="column" overflow="auto">${lines}</div><div id="clip" width="200" height="60" flex-direction="column" overflow="hidden">${lines.replace(/id="t/g, 'id="h')}</div></Canvas>`);
     const p = await pointer();
     p.sync();
     const scrolled = p.core.rectOf(doc.query("#t5")!.component)!;
@@ -85,7 +84,7 @@ describe("layout and drawing (ADR 0423)", () => {
   });
 
   it("reads overflow-x and overflow-y, the overflow shorthand's two values, and CSS's visible-beside-scroll rule", async () => {
-    const doc = buildUI(`<Canvas><Panel id="a" class="a"/><Panel id="b" class="b"/><Panel id="c" overflow-y="scroll"/></Canvas>`, { css: `.a { overflow: hidden auto; } .b { overflow: scroll; overflow-x: hidden; }` });
+    const doc = buildUI(`<Canvas><div id="a" class="a"/><div id="b" class="b"/><div id="c" overflow-y="scroll"/></Canvas>`, { css: `.a { overflow: hidden auto; } .b { overflow: scroll; overflow-x: hidden; }` });
     const a = panel(doc, "a"), b = panel(doc, "b");
     expect([a.overflow, a.overflowX, a.overflowY]).toEqual(["visible", "hidden", "auto"]);
     expect([b.overflow, b.overflowX, b.overflowY]).toEqual(["scroll", "hidden", null]);
@@ -120,8 +119,8 @@ describe("the wheel (ADR 0423)", () => {
   });
 
   it("chains to the next scroller out once the inner one can't move, unless overscroll-behavior contains it", async () => {
-    const rows = Array.from({ length: 4 }, (_, i) => `<Button id="i${i}" height="40" width="100" padding="0">I${i}</Button>`).join("");
-    const doc = buildUI(`<Canvas><Panel id="outer" width="300" height="100" flex-direction="column" overflow="auto"><Panel id="inner" width="200" height="60" flex-direction="column" overflow="auto">${rows}</Panel><Panel height="300" width="10"/></Panel></Canvas>`);
+    const rows = Array.from({ length: 4 }, (_, i) => `<button id="i${i}" height="40" width="100" padding="0">I${i}</button>`).join("");
+    const doc = buildUI(`<Canvas><div id="outer" width="300" height="100" flex-direction="column" overflow="auto"><div id="inner" width="200" height="60" flex-direction="column" overflow="auto">${rows}</div><div height="300" width="10"/></div></Canvas>`);
     const p = await pointer();
     const inner = panel(doc, "inner"), outer = panel(doc, "outer");
     p.wheel(inner, 0, 500);
@@ -142,8 +141,9 @@ describe("touch and pen drags (ADR 0423)", () => {
     const doc = list();
     const p = await pointer();
     const seen: string[] = [];
-    doc.query("#r1")!.on("click", () => seen.push("click")).on("pointercancel", () => seen.push("cancel"));
-    const at = p.pointIn(doc.query("#r1")!.as(UIButton));
+    doc.query("#r1")!.on("click", () => seen.push("click"));
+    doc.query("#r1")!.on("pointercancel", () => seen.push("cancel"));
+    const at = p.pointIn(uiAs(doc.query("#r1")!, UIButton));
     p.dom.touchStart(5, at.x, at.y);
     frame(p);
     p.dom.touchMove(5, at.x, at.y - 6);
@@ -166,7 +166,7 @@ describe("touch and pen drags (ADR 0423)", () => {
   it("doesn't scroll by a mouse drag (the press stays a press)", async () => {
     const doc = list();
     const p = await pointer();
-    const at = p.pointIn(doc.query("#r1")!.as(UIButton));
+    const at = p.pointIn(uiAs(doc.query("#r1")!, UIButton));
     p.dom.moveTo(at.x, at.y);
     p.dom.pointerDown(0);
     frame(p);
@@ -197,7 +197,7 @@ describe("keys (ADR 0423)", () => {
     frame(p);
     expect(panel(doc).scrollY).toBe(490 - 100);
     // A focused row: the arrows are navigation's, but Page Up scrolls the list it's in.
-    doc.query("#r9")!.as(UIButton).focused = true;
+    uiAs(doc.query("#r9")!, UIButton).focused = true;
     p.dom.tap("PageUp");
     frame(p);
     expect(panel(doc).scrollY).toBeCloseTo(390 - 87.5);
@@ -208,14 +208,14 @@ describe("navigation (ADR 0423, 0340)", () => {
   it("finds rows scrolled out of view and scrolls the one it focuses into view", async () => {
     const doc = list();
     const p = await pointer();
-    doc.query("#r0")!.as(UIButton).focused = true;
+    uiAs(doc.query("#r0")!, UIButton).focused = true;
     for (let i = 0; i < 4; i++) {
       Input.inject.keyDown("arrowdown");
       frame(p);
       Input.inject.keyUp("arrowdown");
       frame(p);
     }
-    expect(doc.query("#r4")!.focused).toBe(true);
+    expect(uiAs(doc.query("#r4")!, UIButton).focused).toBe(true);
     // Row 4 is at 160–200 in the content: the nearest scroll that shows it puts its bottom at the list's.
     expect(panel(doc).scrollY).toBe(100);
     Input.inject.releaseAll();
@@ -224,7 +224,7 @@ describe("navigation (ADR 0423, 0340)", () => {
 
 describe("scrollbars (ADR 0423)", () => {
   it("shows a bar for scroll always and for auto when the content overflows, styled by scrollbar-width and scrollbar-color", async () => {
-    const doc = buildUI(`<Canvas><Panel id="auto" width="100" height="100" overflow="auto"/><Panel id="scroll" class="s" width="100" height="100" overflow-y="scroll" overflow-x="hidden"/><Panel id="none" width="100" height="100" overflow="scroll" scrollbar-width="none"/></Canvas>`, { css: `.s { scrollbar-color: #ff0000 #00ff00; scrollbar-width: thin; }` });
+    const doc = buildUI(`<Canvas><div id="auto" width="100" height="100" overflow="auto"/><div id="scroll" class="s" width="100" height="100" overflow-y="scroll" overflow-x="hidden"/><div id="none" width="100" height="100" overflow="scroll" scrollbar-width="none"/></Canvas>`, { css: `.s { scrollbar-color: #ff0000 #00ff00; scrollbar-width: thin; }` });
     const p = await pointer();
     p.sync();
     const laid = (id: string) => p.core.elements().find((e) => e.comp === panel(doc, id))!.scroll!;
@@ -296,7 +296,8 @@ describe("the script API and events (ADR 0423)", () => {
     const doc = list();
     const p = await pointer();
     const seen: string[] = [];
-    doc.query("#list")!.on("scroll", (e) => seen.push(`scroll ${e.bubbles}`)).on("scrollend", () => seen.push("scrollend"));
+    doc.query("#list")!.on("scroll", (e) => seen.push(`scroll ${e.bubbles}`));
+    doc.query("#list")!.on("scrollend", () => seen.push("scrollend"));
     doc.root!.on("scroll", () => seen.push("canvas heard it"));
     frame(p);
     panel(doc).scrollY = 40;

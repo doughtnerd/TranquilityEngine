@@ -1,6 +1,6 @@
 /**
  * The UI interaction log (ADR 0309): what the player did to one World's UI, recorded by the UI core
- * and UI navigation (ADR 0340), and read by the components' getters and UI documents. It also keeps
+ * and UI navigation (ADR 0340), and read by the components' getters and the UI host. It also keeps
  * the World's one focused element. Nothing here is public API.
  *
  * Two timing rules:
@@ -210,7 +210,7 @@ export class UIInteractions {
     return this.focusedElement;
   }
 
-  // --- Reading: component getters, UI documents and the drawing layer ---------------------------
+  // --- Reading: component getters, the UI host and the drawing layer ----------------------------
 
   /** True in the frame the event is for (the World's current frame). */
   happened(target: Target, type: UIInteractionType): boolean {

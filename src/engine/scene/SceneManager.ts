@@ -5,7 +5,6 @@ import { isModelPath, loadModel } from "./models";
 import type { GameObject } from "./GameObject";
 import { splitSpriteRef } from "./importSettings";
 import { SceneInstance, collectAssetRefs, instantiateFile, loadSceneFile } from "./SceneLoader";
-import { loadUIDocumentSupport } from "../ui/UIDocument";
 import { warmSet, warmSetEmpty, type WarmSet } from "./warmUp";
 import { _startWorldServicesForScene } from "../core/worldServices";
 import { resolvedComponents } from "./resolvedScene";
@@ -116,7 +115,7 @@ export class SceneManager {
 
 /**
  * Load what the scene files at `files` need before they're instantiated: images, models, material
- * textures, UI document support; then warm up `warm`'s meshes (ADR 0080) once textures are in, since a
+ * textures; then warm up `warm`'s meshes (ADR 0080) once textures are in, since a
  * texture that hasn't loaded gives a material a different shader variant.
  */
 async function prepareAssets(world: World, files: readonly string[], onProgress: ((p: number) => void) | undefined, warm: WarmSet): Promise<void> {
@@ -147,8 +146,6 @@ async function prepareAssets(world: World, files: readonly string[], onProgress:
       // reported when the material is drawn
     }
   }
-  // UI documents (ADR 0077): their parsers, so documents build as the scene is instantiated.
-  if (refs.some((p) => p.endsWith(".ui.xml"))) await loadUIDocumentSupport();
   const images = [...new Set(refs.filter((p) => IMAGE.test(p)))];
   const models = [...new Set(refs.filter((p) => isModelPath(p) && Assets.has(p)))];
   await Promise.all(models.map((m) => loadModel(m).catch((err) => console.error(`[myco] failed to load the model "${m}":`, err))));

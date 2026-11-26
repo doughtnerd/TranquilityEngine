@@ -3,11 +3,10 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, Color, Engine } from "../index";
 import { UIButton, UIPanel, UIText } from "../ui/components";
-import { loadUIDocumentSupport } from "../ui/UIDocument";
 import { parseStylesheet, resolveStyle } from "../ui/document/stylesheet";
 import { linearGradientLine, parseBackgroundImage, parseCornerRadii, parseShadow, radialGradientCircle } from "../ui/document/paintValues";
 import type { MarkupElement, StyleTarget, UITag } from "../ui/document/types";
-import { buildUI, byId } from "./uiMarkup";
+import { buildUI, byId, loadUITestSupport } from "./uiMarkup";
 
 function target(tag: UITag, opts: { classes?: string[]; parent?: StyleTarget | null } = {}): StyleTarget {
   return { tag, id: null, classes: opts.classes ?? [], state: { hover: false, pressed: false, focus: false, disabled: false }, parent: opts.parent ?? null };
@@ -15,7 +14,7 @@ function target(tag: UITag, opts: { classes?: string[]; parent?: StyleTarget | n
 
 function element(tag: UITag, attributes: Record<string, string> = {}): MarkupElement {
   const span = { start: 0, end: 0 };
-  return { kind: "element", tag, attributes: Object.entries(attributes).map(([name, value]) => ({ name, value, span, valueSpan: span })), children: [], text: null, template: null, span, openTagSpan: span, file: "ui/hud/t.ui.xml" };
+  return { tag, attributes: Object.entries(attributes).map(([name, value]) => ({ name, value, span, valueSpan: span })), file: "ui/hud/t.svelte" };
 }
 
 const black = new Color(0, 0, 0, 1);
@@ -101,7 +100,7 @@ describe("the cascade's paint (ADR 0418 wave 2)", () => {
       `.card { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5); border-radius: 4px 8px 12px 16px; background-image: linear-gradient(90deg, #fff, #000 60%); }
        .round { border-radius: 10px; }
        .hud { text-shadow: 1px 2px 3px #ff0000; }`,
-      "ui/hud/s.ui.css",
+      "ui/hud/s.css",
     );
     expect(sheet.problems).toEqual([]);
     const warnings: string[] = [];
@@ -133,7 +132,7 @@ describe("the cascade's paint (ADR 0418 wave 2)", () => {
   });
 
   it("resolves a url() background against the stylesheet, as asset fields are", () => {
-    const sheet = parseStylesheet(`Panel { background-image: url(../images/wood.png); } .abs { background-image: url("asset:ui/bg.png"); } .none { background-image: none; }`, "ui/hud/s.ui.css");
+    const sheet = parseStylesheet(`Panel { background-image: url(../images/wood.png); } .abs { background-image: url("asset:ui/bg.png"); } .none { background-image: none; }`, "ui/hud/s.css");
     const out = (classes: string[]) => resolveStyle(target("Panel", { classes }), element("Panel"), UIPanel, [sheet], null, () => {}).get("backgroundImage")?.value;
     expect(out([])).toBe(`url("asset:ui/images/wood.png")`);
     expect(out(["abs"])).toBe(`url("asset:ui/bg.png")`);
@@ -143,7 +142,7 @@ describe("the cascade's paint (ADR 0418 wave 2)", () => {
   it("leaves out paint values it can't read, and warns once for each", () => {
     const sheet = parseStylesheet(
       `.bad { box-shadow: inset 1px 1px 3px #123456; text-shadow: 1px; border-radius: 4px / 2px; background-image: conic-gradient(red, blue); }`,
-      "ui/hud/bad.ui.css",
+      "ui/hud/bad.css",
     );
     const warnings: string[] = [];
     for (let i = 0; i < 2; i++) {
@@ -165,7 +164,7 @@ describe("paint on a built document (ADR 0418 wave 2)", () => {
   let engine: Engine;
   beforeEach(async () => {
     engine = await Engine.create({ headless: true });
-    await loadUIDocumentSupport();
+    await loadUITestSupport();
   });
   afterEach(() => {
     engine.dispose();
@@ -175,8 +174,8 @@ describe("paint on a built document (ADR 0418 wave 2)", () => {
   it("gives elements the shorthands' fields from rules and attributes, and keeps borderRadius working for scripts", () => {
     const doc = buildUI(
       `<Canvas>
-         <Panel id="card" class="card"><Text id="label" class="title">Hi</Text></Panel>
-         <Button id="play" border-radius="2 4"/>
+         <div id="card" class="card"><p id="label" class="title">Hi</p></div>
+         <button id="play" border-radius="2 4"/>
        </Canvas>`,
       { css: `.card { box-shadow: 3px 3px 6px #00000080; background-image: radial-gradient(#fff, #000); } .title { text-shadow: 0 1px 2px black; }` },
     );

@@ -5,8 +5,7 @@ import type { UIComponentType } from "../ui/components";
 import { World } from "../core/World";
 import { UICore } from "../ui/UICore";
 import { Assets } from "../scene/Assets";
-import { loadUIDocumentSupport } from "../ui/UIDocument";
-import { buildUI, byId } from "./uiMarkup";
+import { buildUI, byId, loadUITestSupport } from "./uiMarkup";
 import { UIPointer } from "./uiPointer";
 
 // ADR 0418 wave 1: layout on Yoga. Per-side padding, margin and border widths with CSS shorthands, min/max sizes,
@@ -21,7 +20,7 @@ const pointers: UIPointer[] = [];
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
-  await loadUIDocumentSupport();
+  await loadUITestSupport();
 });
 
 afterEach(() => {
@@ -54,7 +53,7 @@ const panel = (doc: ReturnType<typeof buildUI>, id: string) => byId(doc, id, UIP
 
 describe("shorthands and longhands in the cascade (ADR 0418)", () => {
   it("expands padding, margin and border-width: one value is the all-sides field, two to four the sides", () => {
-    const doc = buildUI(`<Canvas><Panel id="a" class="two"/><Panel id="b" class="one"/><Panel id="c" class="three"/><Panel id="d" class="four"/></Canvas>`, {
+    const doc = buildUI(`<Canvas><div id="a" class="two"/><div id="b" class="one"/><div id="c" class="three"/><div id="d" class="four"/></Canvas>`, {
       css: `.two { padding: 4px 8px; margin: 1px 2px; border-width: 3px 5px }
             .one { padding: 6px; border-width: 2px }
             .three { margin: 1px 2px 3px }
@@ -76,7 +75,7 @@ describe("shorthands and longhands in the cascade (ADR 0418)", () => {
   });
 
   it("orders shorthands and longhands as CSS does: the later declaration wins for each longhand", () => {
-    const doc = buildUI(`<Canvas><Panel id="a" class="x"/><Panel id="b" class="y"/><Panel id="c" class="z"/></Canvas>`, {
+    const doc = buildUI(`<Canvas><div id="a" class="x"/><div id="b" class="y"/><div id="c" class="z"/></Canvas>`, {
       css: `.x { padding: 10px; padding-left: 2px }
             .y { padding-left: 2px; padding: 10px }
             #c { padding-left: 7px }
@@ -91,8 +90,8 @@ describe("shorthands and longhands in the cascade (ADR 0418)", () => {
   });
 
   it("takes shorthands in attributes too, and attributes beat rules", () => {
-    const doc = buildUI(`<Canvas><Panel id="a" padding="1 2 3 4" border="2px solid #fff"/><Panel id="b" padding-left="5"/></Canvas>`, {
-      css: `#a { padding-left: 9px; border-width: 7px } Panel { padding: 3px 3px }`,
+    const doc = buildUI(`<Canvas><div id="a" padding="1 2 3 4" border="2px solid #fff"/><div id="b" padding-left="5"/></Canvas>`, {
+      css: `#a { padding-left: 9px; border-width: 7px } div { padding: 3px 3px }`,
     });
     const a = panel(doc, "a");
     expect([a.paddingTop, a.paddingRight, a.paddingBottom, a.paddingLeft]).toEqual([1, 2, 3, 4]);
@@ -103,7 +102,7 @@ describe("shorthands and longhands in the cascade (ADR 0418)", () => {
   });
 
   it("reads border as a width, solid or none, and a colour, in any order", () => {
-    const doc = buildUI(`<Canvas><Panel id="a" class="a"/><Panel id="b" class="b"/><Panel id="c" class="c"/></Canvas>`, {
+    const doc = buildUI(`<Canvas><div id="a" class="a"/><div id="b" class="b"/><div id="c" class="c"/></Canvas>`, {
       css: `.a { border-width: 1px 2px; border: rgb(255, 0, 0) solid 4px }
             .b { border-width: 3px; border: none }
             .c { border: solid }`,
@@ -117,7 +116,7 @@ describe("shorthands and longhands in the cascade (ADR 0418)", () => {
   });
 
   it("reads flex as grow, shrink and basis, with CSS's one- and two-value forms", () => {
-    const doc = buildUI(`<Canvas><Panel id="a" flex="1"/><Panel id="b" flex="none"/><Panel id="c" flex="2 0 50%"/><Panel id="d" flex="100px"/><Panel id="e" flex="3 40px"/><Panel id="f" flex="auto"/></Canvas>`);
+    const doc = buildUI(`<Canvas><div id="a" flex="1"/><div id="b" flex="none"/><div id="c" flex="2 0 50%"/><div id="d" flex="100px"/><div id="e" flex="3 40px"/><div id="f" flex="auto"/></Canvas>`);
     const fields = (id: string) => {
       const p = panel(doc, id);
       return [p.flexGrow, p.flexShrink, p.flexBasis];
@@ -132,7 +131,7 @@ describe("shorthands and longhands in the cascade (ADR 0418)", () => {
 
   it("converts the other layout properties, and warns about a value that isn't valid, leaving the field alone", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const doc = buildUI(`<Canvas><Panel id="a" class="a"/><Text id="t" class="t"/></Canvas>`, {
+    const doc = buildUI(`<Canvas><div id="a" class="a"/><p id="t" class="t"/></Canvas>`, {
       css: `.a { min-width: 10px; max-width: 50%; min-height: auto; max-height: none; flex-wrap: wrap-reverse; align-self: center;
                  align-content: space-between; flex-shrink: 2; flex-basis: 30px; aspect-ratio: 16 / 9; overflow: hidden; z-index: -2;
                  padding: 1px 2px 3px 4px 5px }
@@ -153,23 +152,23 @@ describe("shorthands and longhands in the cascade (ADR 0418)", () => {
 
 describe("Yoga layout of the new fields (ADR 0418)", () => {
   it("lays out per-side padding, margin and border widths", async () => {
-    const doc = buildUI(`<Canvas><Panel id="p" width="200" height="100" padding="1 2 3 4" border-width="10 0 0 20"><Panel id="c" flex-grow="1" margin="5 6 7 8"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div id="p" width="200" height="100" padding="1 2 3 4" border-width="10 0 0 20"><div id="c" flex-grow="1" margin="5 6 7 8"/></div></Canvas>`);
     const core = await laidOut();
     // Inside the border (top 10, left 20) and padding (top 1, left 4), then the margin (top 5, left 8).
     expect(box(core, panel(doc, "c"))).toEqual([20 + 4 + 8, 10 + 1 + 5, 200 - 20 - 0 - 4 - 2 - 8 - 6, 100 - 10 - 0 - 1 - 3 - 5 - 7]);
   });
 
   it("clamps sizes to min and max", async () => {
-    const doc = buildUI(`<Canvas><Panel id="a" width="10" min-width="40" height="500" max-height="50%"/><Panel id="b" flex-grow="1" max-width="100"/></Canvas>`);
+    const doc = buildUI(`<Canvas><div id="a" width="10" min-width="40" height="500" max-height="50%"/><div id="b" flex-grow="1" max-width="100"/></Canvas>`);
     const core = await laidOut();
     expect(box(core, panel(doc, "a"))).toEqual([0, 0, 40, 360]);
     expect(box(core, panel(doc, "b"))[2]).toBe(100);
   });
 
   it("wraps children onto new lines, aligning the lines with align-content and an item with align-self", async () => {
-    const doc = buildUI(`<Canvas><Panel id="row" width="250" height="300" flex-wrap="wrap" align-content="center" align-items="flex-start">
-        <Panel id="a" width="100" height="40"/><Panel id="b" width="100" height="40"/><Panel id="c" width="100" height="40" align-self="flex-end"/>
-      </Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div id="row" width="250" height="300" flex-wrap="wrap" align-content="center" align-items="flex-start">
+        <div id="a" width="100" height="40"/><div id="b" width="100" height="40"/><div id="c" width="100" height="40" align-self="flex-end"/>
+      </div></Canvas>`);
     const core = await laidOut();
     // Two lines of 40 centred in 300: the first at 110, the second at 150.
     expect(box(core, panel(doc, "a"))).toEqual([0, 110, 100, 40]);
@@ -178,8 +177,8 @@ describe("Yoga layout of the new fields (ADR 0418)", () => {
   });
 
   it("shrinks panels only when flex-shrink says so (null keeps the kind's), from flex-basis", async () => {
-    const doc = buildUI(`<Canvas><Panel width="300" height="50"><Panel id="keep" width="200"/><Panel id="shrink" width="200" flex-shrink="1"/></Panel>
-        <Panel width="300" height="50"><Panel id="basis" flex-basis="120" width="10"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div width="300" height="50"><div id="keep" width="200"/><div id="shrink" width="200" flex-shrink="1"/></div>
+        <div width="300" height="50"><div id="basis" flex-basis="120" width="10"/></div></Canvas>`);
     const core = await laidOut();
     expect(box(core, panel(doc, "keep"))[2]).toBe(200);
     expect(box(core, panel(doc, "shrink"))[2]).toBe(100);
@@ -187,7 +186,7 @@ describe("Yoga layout of the new fields (ADR 0418)", () => {
   });
 
   it("keeps an aspect ratio when only one side is set", async () => {
-    const doc = buildUI(`<Canvas><Panel align-items="flex-start" width="400" height="400"><Panel id="a" width="200" aspect-ratio="2"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div align-items="flex-start" width="400" height="400"><div id="a" width="200" aspect-ratio="2"/></div></Canvas>`);
     const core = await laidOut();
     expect(box(core, panel(doc, "a"))).toEqual([0, 0, 200, 100]);
   });
@@ -196,9 +195,9 @@ describe("Yoga layout of the new fields (ADR 0418)", () => {
 describe("overflow: hidden (ADR 0418)", () => {
   /** A 100 × 100 panel with a 10 px border clipping a button that hangs out of it to the right and below. */
   function clipped() {
-    const doc = buildUI(`<Canvas><Panel id="clip" width="100" height="100" border-width="10" background-color="#333" overflow="hidden">
-        <Button id="inside" position="absolute" left="0" top="0" width="150" height="150" padding="0"/>
-      </Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div id="clip" width="100" height="100" border-width="10" background-color="#333" overflow="hidden">
+        <button id="inside" position="absolute" left="0" top="0" width="150" height="150" padding="0"/>
+      </div></Canvas>`);
     return { doc, clip: panel(doc, "clip"), inside: byId(doc, "inside", UIButton) };
   }
 
@@ -226,8 +225,8 @@ describe("overflow: hidden (ADR 0418)", () => {
   });
 
   it("intersects nested clips", async () => {
-    const doc = buildUI(`<Canvas><Panel width="100" height="100" overflow="hidden"><Panel id="inner" position="absolute" left="50" top="50" width="100" height="100" overflow="hidden">
-        <Button id="b" position="absolute" left="0" top="0" width="100" height="100" padding="0"/></Panel></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div width="100" height="100" overflow="hidden"><div id="inner" position="absolute" left="50" top="50" width="100" height="100" overflow="hidden">
+        <button id="b" position="absolute" left="0" top="0" width="100" height="100" padding="0"/></div></div></Canvas>`);
     const core = await laidOut();
     const b = byId(doc, "b", UIButton);
     expect(core.elements().find((e) => e.comp === b)!.clip).toEqual({ x: 50, y: 50, width: 50, height: 50 });
@@ -236,9 +235,9 @@ describe("overflow: hidden (ADR 0418)", () => {
   });
 
   it("takes an element clipped away out of keyboard navigation, and searches the drawn part of the rest", async () => {
-    const doc = buildUI(`<Canvas><Panel flex-direction="column" width="200" height="80" overflow="hidden">
-        <Button id="a" width="100" height="50" padding="0"/><Button id="b" width="100" height="50" padding="0"/><Button id="c" width="100" height="50" padding="0"/>
-      </Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div flex-direction="column" width="200" height="80" overflow="hidden">
+        <button id="a" width="100" height="50" padding="0"/><button id="b" width="100" height="50" padding="0"/><button id="c" width="100" height="50" padding="0"/>
+      </div></Canvas>`);
     const p = await UIPointer.create(World.require());
     pointers.push(p);
     const [a, b, c] = ["a", "b", "c"].map((id) => byId(doc, id, UIButton));
@@ -262,7 +261,7 @@ describe("overflow: hidden (ADR 0418)", () => {
 
 describe("z-index (ADR 0418)", () => {
   it("orders drawing and hits among siblings by zIndex, then document order", async () => {
-    const doc = buildUI(`<Canvas><Button id="a" position="absolute" width="100" height="100" padding="0"/><Button id="b" position="absolute" width="100" height="100" padding="0"/></Canvas>`);
+    const doc = buildUI(`<Canvas><button id="a" position="absolute" width="100" height="100" padding="0"/><button id="b" position="absolute" width="100" height="100" padding="0"/></Canvas>`);
     const [a, b] = ["a", "b"].map((id) => byId(doc, id, UIButton));
     const core = await laidOut();
     expect(core.hitTest(50, 50)).toBe(b); // the later sibling is on top
@@ -281,9 +280,9 @@ describe("z-index (ADR 0418)", () => {
 
   it("keeps a child's zIndex inside its parent's stacking context, as CSS does", async () => {
     const doc = buildUI(`<Canvas>
-        <Panel id="p" position="absolute" width="100" height="100" z-index="1" background-color="#111"><Button id="child" width="100" height="100" padding="0" z-index="100"/></Panel>
-        <Button id="s" position="absolute" width="100" height="100" padding="0" z-index="2"/>
-        <Button id="under" position="absolute" width="100" height="100" padding="0"/>
+        <div id="p" position="absolute" width="100" height="100" z-index="1" background-color="#111"><button id="child" width="100" height="100" padding="0" z-index="100"/></div>
+        <button id="s" position="absolute" width="100" height="100" padding="0" z-index="2"/>
+        <button id="under" position="absolute" width="100" height="100" padding="0"/>
       </Canvas>`);
     const [p, child, s, under] = [panel(doc, "p"), ...["child", "s", "under"].map((id) => byId(doc, id, UIButton))];
     const core = await laidOut();
@@ -294,8 +293,8 @@ describe("z-index (ADR 0418)", () => {
 
   it("draws an overflow: hidden element's descendants right after it, as one group", async () => {
     const doc = buildUI(`<Canvas>
-        <Panel id="clip" position="absolute" width="100" height="100" overflow="hidden"><Button id="inner" width="100" height="100" padding="0" z-index="5"/></Panel>
-        <Button id="after" position="absolute" width="100" height="100" padding="0"/>
+        <div id="clip" position="absolute" width="100" height="100" overflow="hidden"><button id="inner" width="100" height="100" padding="0" z-index="5"/></div>
+        <button id="after" position="absolute" width="100" height="100" padding="0"/>
       </Canvas>`);
     const [clip, inner, after] = [panel(doc, "clip"), byId(doc, "inner", UIButton), byId(doc, "after", UIButton)];
     const core = await laidOut();

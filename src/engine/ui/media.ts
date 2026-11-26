@@ -469,7 +469,7 @@ defineBuiltinSystem({
   name: "engine.UIMedia",
   phase: "lateUpdate",
   // After the UI syncs: a Svelte binding's write this frame reaches the source this frame.
-  after: ["engine.UIDocumentSync", "engine.UIHostSync"],
+  after: ["engine.UIHostSync"],
   run: (w) => {
     const set = players.get(w);
     if (!set?.size) return;

@@ -6,12 +6,11 @@ import { Assets, Color, Engine, Input } from "../index";
 import { World } from "../core/World";
 import { UIPanel } from "../ui/components";
 import { UICore } from "../ui/UICore";
-import { loadUIDocumentSupport } from "../ui/UIDocument";
 import { uiAnimationReady } from "../ui/animation/UIAnimator";
 import { parseFilter } from "../ui/document/filterValues";
 import { filterReach, filterStepsOf, filterText } from "../ui/filters";
 import { filterPixels } from "../render/filterPixels";
-import { buildUI, byId } from "./uiMarkup";
+import { buildUI, byId, classList, loadUITestSupport } from "./uiMarkup";
 
 const DT = 1 / 64;
 let engine: Engine;
@@ -19,7 +18,7 @@ let engine: Engine;
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
-  await loadUIDocumentSupport();
+  await loadUITestSupport();
 });
 
 afterEach(() => {
@@ -62,14 +61,14 @@ describe("filter values (ADR 0426)", () => {
 
 describe("filters in the cascade and the UI core (ADR 0426)", () => {
   it("expands filter from a stylesheet, a later filter replacing every field", () => {
-    const doc = buildUI(`<Canvas><Panel id="p" class="a b"/></Canvas>`, { css: `.a { filter: blur(2px) sepia(1) } .b { filter: saturate(3) }` });
+    const doc = buildUI(`<Canvas><div id="p" class="a b"/></Canvas>`, { css: `.a { filter: blur(2px) sepia(1) } .b { filter: saturate(3) }` });
     const p = byId(doc, "p", UIPanel);
     expect([p.filterBlur, p.filterSepia, p.filterSaturate]).toEqual([0, 0, 3]);
   });
 
   it("gives each element its own filter, then its ancestors', lengths through the filtering element's transform", async () => {
-    const doc = buildUI(`<Canvas><Panel id="p" position="absolute" width="100" height="100" filter="blur(2px)" scale="2">
-        <Panel id="q" width="10" height="10" filter="drop-shadow(4px 0 1px black)"/><Panel id="r" width="10" height="10"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div id="p" position="absolute" width="100" height="100" filter="blur(2px)" scale="2">
+        <div id="q" width="10" height="10" filter="drop-shadow(4px 0 1px black)"/><div id="r" width="10" height="10"/></div></Canvas>`);
     const core = new UICore({ interactive: false });
     await core.ready;
     try {
@@ -86,11 +85,10 @@ describe("filters in the cascade and the UI core (ADR 0426)", () => {
 
   it("transitions each filter function as a number", async () => {
     await uiAnimationReady(World.require());
-    const doc = buildUI(`<Canvas><Panel id="p" class="a"/></Canvas>`, { css: `.a { transition: filter 1s linear } .a.on { filter: blur(8px) grayscale(1) }` });
-    await doc.ready;
+    const doc = buildUI(`<Canvas><div id="p" class="a"/></Canvas>`, { css: `.a { transition: filter 1s linear } .a.on { filter: blur(8px) grayscale(1) }` });
     const p = byId(doc, "p", UIPanel);
     engine.step(DT);
-    doc.query("#p")!.classList.add("on");
+    classList(doc.query("#p")!).add("on");
     for (let i = 0; i < 33; i++) engine.step(DT);
     expect(p.filterBlur).toBeCloseTo(4, 4);
     expect(p.filterGrayscale).toBeCloseTo(0.5, 4);

@@ -9,11 +9,10 @@ import type { UIComponentType } from "../ui/components";
 import { World } from "../core/World";
 import { UICore } from "../ui/UICore";
 import { Assets } from "../scene/Assets";
-import { loadUIDocumentSupport } from "../ui/UIDocument";
 import { applyAffine, compose, decompose, decomposeCss, interpolateAffine, invert, localTransform, matrixText, multiply, parseMatrixText, recompose, type UIAffine, type UITransformFields } from "../ui/transform2d";
 import { uiAnimationReady } from "../ui/animation/UIAnimator";
 import { parseTransform, parseTransformOrigin, parseTranslate, parseScale, parseRotate } from "../ui/document/transformValues";
-import { buildUI, byId } from "./uiMarkup";
+import { buildUI, byId, classList, loadUITestSupport } from "./uiMarkup";
 import { UIPointer } from "./uiPointer";
 
 const DT = 1 / 60;
@@ -24,7 +23,7 @@ const pointers: UIPointer[] = [];
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
-  await loadUIDocumentSupport();
+  await loadUITestSupport();
 });
 
 afterEach(() => {
@@ -157,7 +156,7 @@ describe("transform values (ADR 0418 wave 3)", () => {
 
 describe("transforms in the cascade (ADR 0418 wave 3)", () => {
   it("expands transform, translate, scale and transform-origin, and takes rotate as an angle", () => {
-    const doc = buildUI(`<Canvas><Panel id="a" class="a"/><Panel id="b" class="b"/><Panel id="c" transform="rotate(-0.25turn) scale(3)" transform-origin="right bottom" translate-x="25%"/></Canvas>`, {
+    const doc = buildUI(`<Canvas><div id="a" class="a"/><div id="b" class="b"/><div id="c" transform="rotate(-0.25turn) scale(3)" transform-origin="right bottom" translate-x="25%"/></Canvas>`, {
       css: `.a { transform: translate(10px, 20%) rotate(45deg) scale(2, 1); transform-origin: left top }
             .b { translate: 4px; scale: 0.5; rotate: 1rad }`,
     });
@@ -174,7 +173,7 @@ describe("transforms in the cascade (ADR 0418 wave 3)", () => {
   });
 
   it("orders transform with the individual properties by the cascade: the later declaration wins for each field", () => {
-    const doc = buildUI(`<Canvas><Panel id="a" class="x"/><Panel id="b" class="y"/></Canvas>`, {
+    const doc = buildUI(`<Canvas><div id="a" class="x"/><div id="b" class="y"/></Canvas>`, {
       css: `.x { rotate: 10deg; transform: scale(2) }
             .y { transform: rotate(30deg) scale(2); scale: 3 }`,
     });
@@ -185,7 +184,7 @@ describe("transforms in the cascade (ADR 0418 wave 3)", () => {
 
   it("warns once about a value it can't read, leaving the fields alone", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
-    const doc = buildUI(`<Canvas><Panel id="a" class="bad"/><Panel id="b" class="bad"/></Canvas>`, {
+    const doc = buildUI(`<Canvas><div id="a" class="bad"/><div id="b" class="bad"/></Canvas>`, {
       css: `.bad { transform: skewX(10deg) translate(5%); rotate: 5px; translate: 1px 2px 3px; transform-origin: middle }`,
     });
     const a = byId(doc, "a", UIPanel);
@@ -202,7 +201,7 @@ describe("transforms in the cascade (ADR 0418 wave 3)", () => {
 describe("hit-testing and picking transformed elements (ADR 0418 wave 3)", () => {
   /** A 200 × 50 button at (100, 100), written as `attrs`. */
   function button(attrs: string) {
-    const doc = buildUI(`<Canvas><Button id="b" position="absolute" left="100" top="100" width="200" height="50" padding="0" ${attrs}/></Canvas>`);
+    const doc = buildUI(`<Canvas><button id="b" position="absolute" left="100" top="100" width="200" height="50" padding="0" ${attrs}/></Canvas>`);
     return byId(doc, "b", UIButton);
   }
 
@@ -229,8 +228,8 @@ describe("hit-testing and picking transformed elements (ADR 0418 wave 3)", () =>
   });
 
   it("composes a parent's transform with its children's: a button in a rotated, scaled panel", async () => {
-    const doc = buildUI(`<Canvas><Panel id="p" position="absolute" left="0" top="0" width="200" height="200" rotate="180" background-color="#222">
-        <Button id="b" position="absolute" left="0" top="0" width="50" height="50" padding="0" scale="2"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div id="p" position="absolute" left="0" top="0" width="200" height="200" rotate="180" background-color="#222">
+        <button id="b" position="absolute" left="0" top="0" width="50" height="50" padding="0" scale="2"/></div></Canvas>`);
     const b = byId(doc, "b", UIButton), p = byId(doc, "p", UIPanel);
     const core = await laidOut();
     // The button doubles about its middle (25, 25): (-25, -25) to (75, 75), clipped by nothing; then the panel's half
@@ -241,8 +240,8 @@ describe("hit-testing and picking transformed elements (ADR 0418 wave 3)", () =>
   });
 
   it("reports corners as drawn, the laid-out ones in the parent's frame, and the transform", async () => {
-    const doc = buildUI(`<Canvas><Panel id="p" position="absolute" left="0" top="0" width="100" height="100" translate-x="10">
-        <Button id="b" width="40" height="20" padding="0" rotate="90"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div id="p" position="absolute" left="0" top="0" width="100" height="100" translate-x="10">
+        <button id="b" width="40" height="20" padding="0" rotate="90"/></div></Canvas>`);
     const b = byId(doc, "b", UIButton);
     const core = await laidOut();
     const c = core.cornersOf(b)!;
@@ -256,8 +255,8 @@ describe("hit-testing and picking transformed elements (ADR 0418 wave 3)", () =>
   });
 
   it("clips with the clipper's transform: an overflow: hidden panel turned a quarter clips its child where it's drawn", async () => {
-    const doc = buildUI(`<Canvas><Panel id="clip" position="absolute" left="100" top="100" width="200" height="100" overflow="hidden" rotate="90">
-        <Button id="b" position="absolute" left="0" top="0" width="400" height="100" padding="0"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div id="clip" position="absolute" left="100" top="100" width="200" height="100" overflow="hidden" rotate="90">
+        <button id="b" position="absolute" left="0" top="0" width="400" height="100" padding="0"/></div></Canvas>`);
     const b = byId(doc, "b", UIButton);
     const core = await laidOut();
     // The clip (100, 100)-(300, 200) turns about (200, 150) to (150, 50)-(250, 250); the button reaches past it to the
@@ -272,8 +271,8 @@ describe("hit-testing and picking transformed elements (ADR 0418 wave 3)", () =>
   });
 
   it("clips a transformed child by an untransformed clipper", async () => {
-    const doc = buildUI(`<Canvas><Panel position="absolute" left="0" top="0" width="100" height="100" overflow="hidden">
-        <Button id="b" position="absolute" left="0" top="0" width="100" height="100" padding="0" translate-x="80"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div position="absolute" left="0" top="0" width="100" height="100" overflow="hidden">
+        <button id="b" position="absolute" left="0" top="0" width="100" height="100" padding="0" translate-x="80"/></div></Canvas>`);
     const b = byId(doc, "b", UIButton);
     const core = await laidOut();
     expect(core.hitTest(90, 50)).toBe(b);
@@ -295,9 +294,9 @@ describe("navigation between transformed elements (ADR 0418 wave 3)", () => {
   it("searches the transformed boxes' centres", async () => {
     // a and b side by side as laid out; b is translated below a, c is to the right of a.
     const doc = buildUI(`<Canvas>
-        <Button id="a" position="absolute" left="0" top="0" width="100" height="50" padding="0"/>
-        <Button id="b" position="absolute" left="300" top="0" width="100" height="50" padding="0" transform="translate(-300px, 200px)"/>
-        <Button id="c" position="absolute" left="150" top="0" width="100" height="50" padding="0"/>
+        <button id="a" position="absolute" left="0" top="0" width="100" height="50" padding="0"/>
+        <button id="b" position="absolute" left="300" top="0" width="100" height="50" padding="0" transform="translate(-300px, 200px)"/>
+        <button id="c" position="absolute" left="150" top="0" width="100" height="50" padding="0"/>
       </Canvas>`);
     const p = await UIPointer.create(World.require());
     pointers.push(p);
@@ -321,8 +320,8 @@ describe("navigation between transformed elements (ADR 0418 wave 3)", () => {
 
 describe("the editor's view of transforms (ADR 0418 wave 3)", () => {
   it("picks from the drawn box in z order", async () => {
-    const doc = buildUI(`<Canvas><Button id="under" position="absolute" left="0" top="0" width="100" height="100" padding="0"/>
-        <Button id="over" position="absolute" left="200" top="0" width="100" height="100" padding="0" translate-x="-150"/></Canvas>`);
+    const doc = buildUI(`<Canvas><button id="under" position="absolute" left="0" top="0" width="100" height="100" padding="0"/>
+        <button id="over" position="absolute" left="200" top="0" width="100" height="100" padding="0" translate-x="-150"/></Canvas>`);
     const [under, over] = ["under", "over"].map((id) => byId(doc, id, UIButton));
     const core = await laidOut();
     expect(core.pickAll(75, 50)).toEqual([over, under] as UIComponentType[]);
@@ -346,7 +345,7 @@ describe("matrix transforms with skew (ADR 0426)", () => {
   });
 
   it("hits a skewed button where it's drawn, the pointer through the exact inverse", async () => {
-    const doc = buildUI(`<Canvas><Button id="b" position="absolute" left="100" top="100" width="200" height="50" padding="0" transform="skewX(45deg)"/></Canvas>`);
+    const doc = buildUI(`<Canvas><button id="b" position="absolute" left="100" top="100" width="200" height="50" padding="0" transform="skewX(45deg)"/></Canvas>`);
     const b = byId(doc, "b", UIButton);
     expect(b.transformMatrix).toBe("matrix(1, 0, 1, 1, 0, 0)");
     const core = await laidOut();
@@ -376,12 +375,11 @@ describe("matrix transforms with skew (ADR 0426)", () => {
 
   it("transitions a skew through the decomposition, starting from no matrix", async () => {
     await uiAnimationReady(World.require());
-    const doc = buildUI(`<Canvas><Panel id="p" class="a" width="100" height="100"/></Canvas>`, { css: `.a { transition: transform 1s linear } .a.on { transform: skewX(45deg) }` });
-    await doc.ready;
+    const doc = buildUI(`<Canvas><div id="p" class="a" width="100" height="100"/></Canvas>`, { css: `.a { transition: transform 1s linear } .a.on { transform: skewX(45deg) }` });
     const p = byId(doc, "p", UIPanel);
     engine.step(1 / 64);
     expect(p.transformMatrix).toBe("");
-    doc.query("#p")!.classList.add("on");
+    classList(doc.query("#p")!).add("on");
     for (let i = 0; i < 33; i++) engine.step(1 / 64);
     // Half way through the shear (0 → 1): a shear of 0.5, nothing else.
     near(parseMatrixText(p.transformMatrix)!, [1, 0, 0.5, 1, 0, 0]);

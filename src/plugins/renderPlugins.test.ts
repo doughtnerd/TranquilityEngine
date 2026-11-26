@@ -10,7 +10,6 @@ import { Environment, MeshRenderer, PostProcessing, SpriteRenderer } from "../en
 import { _registeredRenderFeatures, byPhase, type RenderFeatureSpec } from "../engine/render/renderFeatures";
 import { WaterSurface } from "../engine/render/water/WaterSurface";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../engine/ui/components";
-import { UIDocument } from "../engine/ui/UIDocument";
 import { environmentRuntimePlugin } from "./environment/runtime";
 import { MESHES_SPEC, meshesRuntimePlugin } from "./meshes/runtime";
 import { postProcessingRuntimePlugin } from "./post-processing/runtime";
@@ -87,7 +86,7 @@ const CASES: Case[] = [
   { plugin: waterRuntimePlugin, components: { "engine.WaterSurface": WaterSurface }, feature: WATER_SPEC, module: "water/runtime/waterFeature" },
   {
     plugin: uiRuntimePlugin,
-    components: { "engine.UICanvas": UICanvas, "engine.UIPanel": UIPanel, "engine.UIText": UIText, "engine.UIImage": UIImage, "engine.UIButton": UIButton, "engine.UIInputField": UIInputField, "engine.UIDocument": UIDocument, "engine.UIControlMapper": UIControlMapper },
+    components: { "engine.UICanvas": UICanvas, "engine.UIPanel": UIPanel, "engine.UIText": UIText, "engine.UIImage": UIImage, "engine.UIButton": UIButton, "engine.UIInputField": UIInputField, "engine.UIControlMapper": UIControlMapper },
     feature: UI_SPEC,
     module: "ui/runtime/uiFeature",
   },

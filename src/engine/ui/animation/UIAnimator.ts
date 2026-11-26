@@ -1,14 +1,14 @@
 /**
- * The UI animator (ADR 0418 wave 4): runs the transitions and keyframe animations the cascade declares on UI document
+ * The UI animator (ADR 0418 wave 4): runs the transitions and keyframe animations the cascade declares on UI
  * elements and on the UI host's elements (Svelte views), on the tween backend (ADR 0420: the animation core's tween
  * table when the animation plugin is on, else the standalone tween module), on the World's unscaled clock.
  *
- * - **Starting.** After restyling an element, its owner (a `UIDocument`, a `UIHostTree`) hands over what changed
+ * - **Starting.** After restyling an element, its owner (a `UIHostTree`) hands over what changed
  *   (`styled`): each field written, with the value it showed before. A changed field its `transition-property` covers
  *   starts a transition from the value shown (mid-transition values included) to the new one. A name new to
  *   `animation-name`, or an element appearing with one, starts that animation; a name gone stops it.
  * - **Running.** One World's animator owns one backend (a World id in its module). Each frame, in `engine.UIAnimation`
- *   (late update, right after the UI document and host syncs, so a class change starts its transition the same frame,
+ *   (late update, right after the UI host's sync, so a class change starts its transition the same frame,
  *   and outside any World's animation evaluate-to-apply span, as the core-backed backend's update needs, 0420 as built)
  *   it advances its runs, creates the tweens due, updates the backend once (`PASS_NORMAL`, tweens on `TIME_UNSCALED`)
  *   and writes the values back to the fields.
@@ -974,10 +974,10 @@ function endedPlayback(duration: number, hooks: UIPlayHooks): UIPlayback {
   };
 }
 
-// Late update, after the UI document and host syncs (their restyles start transitions): this frame's values.
+// Late update, after the UI host's sync (its restyles start transitions): this frame's values.
 defineBuiltinSystem({
   name: "engine.UIAnimation",
   phase: "lateUpdate",
-  after: ["engine.UIDocumentSync", "engine.UIHostSync"],
+  after: ["engine.UIHostSync"],
   run: (w) => animators.get(w)?.update(),
 });

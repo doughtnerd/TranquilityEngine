@@ -19,8 +19,7 @@ import { BabylonUI, measureText } from "../render/babylon/ui";
 import { flipRows, redrawnPixels } from "../render/pixelRegions";
 import { loadBundledFont } from "../ui/fonts";
 import { UIPointer } from "./uiPointer";
-import { loadUIDocumentSupport } from "../ui/UIDocument";
-import { buildUI, byId, uiElement } from "./uiMarkup";
+import { buildUI, byId, loadUITestSupport, uiElement } from "./uiMarkup";
 
 /** Gradients the fake contexts made, in order: the kind, then the arguments (ADR 0418 wave 2). */
 const drawnGradients: Array<[string, ...number[]]> = [];
@@ -54,7 +53,7 @@ const loaded: string[] = [];
 
 beforeEach(async () => {
   engine = await Engine.create({ headless: true });
-  await loadUIDocumentSupport();
+  await loadUITestSupport();
   babylon = new NullEngine();
   (babylon as unknown as { createCanvas: typeof fakeCanvas }).createCanvas = fakeCanvas;
   scene = new Scene(babylon);
@@ -994,7 +993,7 @@ describe("transforms on Babylon GUI (ADR 0418 wave 3)", () => {
   };
 
   it("turns and scales a control about its top-left corner, placed where its transform takes that corner", async () => {
-    const { doc, pointer } = await drawn(`<Canvas><Button id="b" position="absolute" left="100" top="100" width="200" height="50" padding="0" rotate="90" scale="2 1"/></Canvas>`);
+    const { doc, pointer } = await drawn(`<Canvas><button id="b" position="absolute" left="100" top="100" width="200" height="50" padding="0" rotate="90" scale="2 1"/></Canvas>`);
     try {
       const b = byId(doc, "b", UIButton);
       const ctl = controlOf(b);
@@ -1013,11 +1012,11 @@ describe("transforms on Babylon GUI (ADR 0418 wave 3)", () => {
 
   it("composes ancestors' transforms into a flat control, and moves a clip with its clipper", async () => {
     const { doc, pointer } = await drawn(`<Canvas>
-        <Panel id="outer" position="absolute" left="50" top="40" width="300" height="200" rotate="30" translate-x="20">
-          <Panel id="clip" position="absolute" left="20" top="10" width="200" height="100" overflow="hidden" border-width="5" scale="1.5" background-color="#123">
-            <Button id="b" position="absolute" left="10" top="10" width="80" height="40" padding="0" rotate="-45" transform-origin="left top"/>
-          </Panel>
-        </Panel></Canvas>`);
+        <div id="outer" position="absolute" left="50" top="40" width="300" height="200" rotate="30" translate-x="20">
+          <div id="clip" position="absolute" left="20" top="10" width="200" height="100" overflow="hidden" border-width="5" scale="1.5" background-color="#123">
+            <button id="b" position="absolute" left="10" top="10" width="80" height="40" padding="0" rotate="-45" transform-origin="left top"/>
+          </div>
+        </div></Canvas>`);
     try {
       const [outer, clip, b] = [byId(doc, "outer", UIPanel), byId(doc, "clip", UIPanel), byId(doc, "b", UIButton)];
       for (const c of [outer, clip, b]) {
@@ -1038,7 +1037,7 @@ describe("transforms on Babylon GUI (ADR 0418 wave 3)", () => {
   });
 
   it("turns a box-shadow's offset with the element and scales its blur", async () => {
-    const { doc, pointer } = await drawn(`<Canvas><Panel id="p" position="absolute" width="100" height="100" background-color="#333" box-shadow="10px 0 4px #000" rotate="90" scale="2"/></Canvas>`);
+    const { doc, pointer } = await drawn(`<Canvas><div id="p" position="absolute" width="100" height="100" background-color="#333" box-shadow="10px 0 4px #000" rotate="90" scale="2"/></Canvas>`);
     try {
       const r = controlOf(byId(doc, "p", UIPanel));
       expect(r.shadowOffsetX).toBeCloseTo(0);
@@ -1078,10 +1077,10 @@ describe("ADR 0426 on Babylon GUI: skew through the full matrix, and filters", (
   it("draws a skewed element through its whole matrix, where the core hits it, and in a clip with its clipper", async () => {
     ui.screen.scaleTo(1280, 720);
     const doc = buildUI(`<Canvas>
-        <Button id="b" position="absolute" left="100" top="100" width="200" height="50" padding="0" transform="skewX(45deg)"/>
-        <Panel id="clip" position="absolute" left="400" top="100" width="200" height="100" overflow="hidden" transform="skewY(20deg)" background-color="#123">
-          <Button id="c" position="absolute" left="10" top="10" width="80" height="40" padding="0" rotate="30"/>
-        </Panel></Canvas>`);
+        <button id="b" position="absolute" left="100" top="100" width="200" height="50" padding="0" transform="skewX(45deg)"/>
+        <div id="clip" position="absolute" left="400" top="100" width="200" height="100" overflow="hidden" transform="skewY(20deg)" background-color="#123">
+          <button id="c" position="absolute" left="10" top="10" width="80" height="40" padding="0" rotate="30"/>
+        </div></Canvas>`);
     const pointer = await UIPointer.create(World.require());
     try {
       pointer.sync();
@@ -1116,8 +1115,8 @@ describe("ADR 0426 on Babylon GUI: skew through the full matrix, and filters", (
 
   it("sets the context's filter around the element's drawing, its lengths in texture pixels, its subtree inheriting it", async () => {
     ui.screen.scaleTo(1280, 720);
-    const doc = buildUI(`<Canvas><Panel id="p" position="absolute" left="10" top="10" width="100" height="100" background-color="#333" filter="blur(2px) grayscale(1)">
-        <Panel id="q" width="50" height="50" background-color="#f00" filter="brightness(1.5)"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div id="p" position="absolute" left="10" top="10" width="100" height="100" background-color="#333" filter="blur(2px) grayscale(1)">
+        <div id="q" width="50" height="50" background-color="#f00" filter="brightness(1.5)"/></div></Canvas>`);
     const pointer = await UIPointer.create(World.require());
     const ctx = ui.screen.getContext() as unknown as Record<string, unknown>;
     const seen: string[] = [];
@@ -1140,7 +1139,7 @@ describe("ADR 0426 on Babylon GUI: skew through the full matrix, and filters", (
 
   it("filters offscreen where the context has no filter, drawing the filtered pixels back", async () => {
     ui.screen.scaleTo(1280, 720);
-    buildUI(`<Canvas><Panel id="p" position="absolute" left="10" top="10" width="20" height="10" background-color="#fff" filter="invert(1)"/></Canvas>`);
+    buildUI(`<Canvas><div id="p" position="absolute" left="10" top="10" width="20" height="10" background-color="#fff" filter="invert(1)"/></Canvas>`);
     const pointer = await UIPointer.create(World.require());
     const ctx = ui.screen.getContext() as unknown as Record<string, unknown>;
     const made: { width: number; height: number; data: Uint8ClampedArray }[] = [];

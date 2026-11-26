@@ -1,9 +1,9 @@
 /**
  * The UI cascade (ADR 0077, 0419): selector matching against the built element tree, and the cascade
  * that turns attributes, rules, inheritance and variables into component field values. It works on
- * parsed rule data (`UIStylesheet`), so it holds no CSS parser: UI documents parse their sheets with
- * `stylesheet.ts` (css-tree), and Svelte components' styles are parsed when they compile, in the editor
- * and at export, so games using only Svelte UI load this module and never the parser.
+ * parsed rule data (`UIStylesheet`), so it holds no CSS parser: Svelte components' styles are parsed with
+ * `stylesheet.ts` (css-tree) when they compile, in the editor and at export, so games load this module and
+ * never the parser (ADR 0419).
  */
 import { Color, Vector2 } from "../../core/math";
 import { AssetRef, getFields, type FieldInfo } from "../../core/registry";
@@ -11,7 +11,7 @@ import { UI_TYPES } from "../components";
 import { isGenericFontFamily } from "../fonts";
 import { UI_TAGS as UI_KIND_TAGS } from "../elementKinds";
 import { HTML_TAGS } from "../host/htmlTags";
-import { hasBinding, resolvePath } from "./sourceText";
+import { resolvePath } from "./sourceText";
 import { parseColor } from "./cssColor";
 import { parseBackgroundImage, parseCornerRadii, parseShadow } from "./paintValues";
 import { parseRotate, parseScale, parseTransform, parseTransformOrigin, parseTranslate } from "./transformValues";
@@ -109,11 +109,9 @@ const NULLABLE_NUMBER_FIELDS: ReadonlySet<string> = new Set([
   "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth",
   "flexShrink",
 ]);
-/** Attributes that aren't fields (`translate="no"` marks text as deliberately unlocalised, ADR 0356 §4). */
+/** Attributes that aren't fields (HTML's `translate`). */
 const NOT_FIELDS: ReadonlySet<string> = new Set(["id", "class", "translate"]);
-/** The prefix of key attributes (`t:text="menu.start"`, ADR 0356 §4): the runtime writes the localised message. */
-const KEY_ATTRIBUTE_PREFIX = "t:";
-/** Node reference fields an attribute sets by naming another element's id (ADR 0340): the document resolves them after building. */
+/** Node reference fields an attribute sets by naming another element's id (ADR 0340): the UI host resolves them in its tree. */
 const REFERENCE_FIELDS: ReadonlySet<string> = new Set(["navUp", "navDown", "navLeft", "navRight", "firstSelected"]);
 
 // --- Matching -----------------------------------------------------------------------------------
@@ -304,8 +302,8 @@ export function usesLang(sheets: readonly { rules: readonly StyleRule[] }[]): bo
 // --- Selectors: :is(), :where() and tag names (ADR 0419) -----------------------------------------
 // Svelte's scoped CSS emits `:where(.svelte-hash)` and lowercase HTML tags. `:is()` (the specificity of
 // its most specific argument) and `:where()` (no specificity) each hold a selector list matched against
-// the element itself. Tags match case-insensitively: `button` is a UI document's `Button`, and the HTML
-// tags Svelte components are written with (`div`) match the tag as written.
+// the element itself. Tags match case-insensitively: the HTML tags Svelte components are written with (`div`,
+// `button`) match the tag as written, and a UI element name (`Button`) matches it in any case.
 
 /** An `:is()` or `:where()` argument list: one of its selectors must match the element. */
 export interface SelectorGroup {
@@ -421,15 +419,6 @@ export function convertValue(raw: string, info: FieldInfo, file: string): unknow
     return s;
   }
   return undefined;
-}
-
-/**
- * A bound value (`{name}` filled in) for a field: text fields take the string as it is (quotes and all);
- * other fields convert like an attribute. Undefined when it can't convert.
- */
-export function boundValue(text: string, info: FieldInfo, file: string): unknown {
-  if (isTextField(info)) return text;
-  return convertValue(text, info, file);
 }
 
 /** `background-color` → `backgroundColor`; camelCase stays. */
@@ -776,26 +765,13 @@ function isKnownField(name: string): boolean {
  * `positionType`), or null for `id`, `class`, `translate` and key attributes (`t:text`, see `keyAttributeField`).
  */
 export function attributeField(attribute: MarkupAttribute): string | null {
-  if (NOT_FIELDS.has(attribute.name) || attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX)) return null;
+  if (NOT_FIELDS.has(attribute.name)) return null;
   const field = propertyField(attribute.name);
   return REFERENCE_FIELDS.has(field) ? null : field;
 }
 
-/** The field a key attribute localises (`t:text` → `text`, `t:placeholder` → `placeholder`), or null for other attributes. */
-export function keyAttributeField(attribute: MarkupAttribute): string | null {
-  if (!attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX)) return null;
-  const name = attribute.name.slice(KEY_ATTRIBUTE_PREFIX.length);
-  return name === "" ? null : propertyField(name);
-}
-
-/** True for a field a key attribute may localise: a plain string (not a length, a choice or an asset). */
-export function isTextField(info: FieldInfo): boolean {
-  return info.type === String && !LENGTH_FIELDS.has(info.name) && !Array.isArray(info.options?.choices) && !PAINT_VALUES[info.name] && !TRANSFORM_VALUES[info.name];
-}
-
 /** The node reference field an attribute names by an element id (`nav-up="play"` → `navUp`, `first-selected` → `firstSelected`), or null. */
 export function referenceField(attribute: MarkupAttribute): string | null {
-  if (attribute.name.startsWith(KEY_ATTRIBUTE_PREFIX)) return null;
   const field = propertyField(attribute.name);
   return REFERENCE_FIELDS.has(field) ? field : null;
 }
@@ -948,10 +924,10 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     }
   }
 
-  // Attributes beat rules. Bound attributes (`{name}`) are the runtime's: it writes them as data changes.
+  // Attributes beat rules.
   for (const a of element.attributes) {
     const field = attributeField(a);
-    if (!field || hasBinding(a.value)) continue;
+    if (!field) continue;
     if (isAnimationProperty(a.name)) {
       const where = `${element.file} <${element.tag} ${a.name}>`;
       const value = prepare(a.value, where);
@@ -1070,11 +1046,6 @@ class AnimationCascade {
     if (this.transitionSource) out.set(TRANSITION_KEY, { field: TRANSITION_KEY, value: transitionSpecs(this.transition), source: this.transitionSource });
     if (this.animationSource) out.set(ANIMATION_KEY, { field: ANIMATION_KEY, value: animationSpecs(this.animation), source: this.animationSource });
   }
-}
-
-/** True when any sheet declares a transition or animation, or has `@keyframes` (so the tween backend can open early). */
-export function usesAnimation(sheets: readonly UIStylesheet[]): boolean {
-  return sheets.some((s) => (s.keyframes?.length ?? 0) > 0 || s.rules.some((r) => r.declarations.some((d) => isAnimationProperty(d.property))));
 }
 
 /** The longhand fields of a shorthand property (camelCase), or null when it isn't one. */

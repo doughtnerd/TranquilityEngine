@@ -1,11 +1,10 @@
 // The UI plugin's runtime half (ADR 0069, 0076, 0140): claims the UI Components (canvases, elements,
-// UIDocument), and registers the lazy UI render feature. The classes, `UICore` and the Babylon
+// UIView), and registers the lazy UI render feature. The classes, `UICore` and the Babylon
 // GUI drawing stay in core: the adapter reads them from `render/babylon/` (ADR 0075), and the editor's
 // overlays and input routing use the core. `myco` (`src/myco.ts`) exports the public parts from here.
 // Runtime code: never imports from `src/editor/` or Babylon (the feature's code loads on demand).
 import type { RenderFeatureSpec } from "../../../engine/render/renderFeatures";
 import { isUIComponent, UIAudio, UIButton, UICanvas, UIForm, UIImage, UIInputField, UILabel, UIMeter, UIOption, UIPanel, UIProgress, UIRadio, UISelect, UISlider, UISvg, UIText, UITextArea, UIToggle, UIVideo } from "../../../engine/ui/components";
-import { UIDocument } from "../../../engine/ui/UIDocument";
 import { UIControlMapper } from "./UIControlMapper";
 import { UIView } from "./UIView";
 import type { RuntimePlugin } from "../../runtimeContext";
@@ -18,7 +17,7 @@ export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, UITextArea,
 export { UIActions, UI_CONTEXT_PRIORITY } from "../../../engine/ui/navigation";
 export type { UIMediaEvent, UIMediaEventType, UIMediaSource } from "../../../engine/ui/media";
 export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, type UIControlMapperRow, type UIControlMapperSetting, type UIControlMapperSettingKind, type UIControlMapperText } from "./UIControlMapper";
-export { UIClassList, UIDocument, UIDocumentElement, UIEvents, type UIEvent, type UIEventHandler, type UIEventType, type UIListOptions, type UITag } from "../../../engine/ui/UIDocument";
+export type { UITag } from "../../../engine/ui/document/types";
 export { UIView } from "./UIView";
 export { UIPreferences, type UIColorScheme } from "../../../engine/ui/preferences";
 /** A UI element a `UIView`'s component rendered (ADR 0419): `view.query("#play")`. */
@@ -53,7 +52,7 @@ const UI_PREFERENCES_SERVICE: WorldServiceDef<null, World> = {
 export const uiRuntimePlugin: RuntimePlugin = {
   manifest: uiManifest,
   activate(context) {
-    context.registerComponents([UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UITextArea, UIToggle, UIRadio, UISlider, UISelect, UIOption, UIProgress, UIMeter, UILabel, UIForm, UISvg, UIVideo, UIAudio, UIDocument, UIControlMapper, UIView]);
+    context.registerComponents([UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UITextArea, UIToggle, UIRadio, UISlider, UISelect, UIOption, UIProgress, UIMeter, UILabel, UIForm, UISvg, UIVideo, UIAudio, UIControlMapper, UIView]);
     context.registerRenderFeature({
       spec: UI_SPEC,
       load: () => import("./uiFeature").then((m) => m.loadUIFeature()),

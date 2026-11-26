@@ -6,10 +6,9 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Assets, Engine } from "../index";
 import { World } from "../core/World";
 import { applyTestPlugins } from "../../plugins/testPlugins";
-import { loadUIDocumentSupport } from "../ui/UIDocument";
 import { uiAnimationReady } from "../ui/animation/UIAnimator";
 import { UIPanel } from "../ui/components";
-import { buildUI } from "./uiMarkup";
+import { buildUI, classList, loadUITestSupport, uiAs } from "./uiMarkup";
 
 const DT = 1 / 64;
 const N = 500;
@@ -29,7 +28,7 @@ describe.each([
   beforeEach(async () => {
     applyTestPlugins(disabled);
     engine = await Engine.create({ headless: true });
-    await loadUIDocumentSupport();
+    await loadUITestSupport();
   });
 
   afterEach(() => {
@@ -40,16 +39,15 @@ describe.each([
 
   it("costs little per frame", async () => {
     await uiAnimationReady(World.require());
-    const panels = Array.from({ length: N }, (_, i) => `<Panel id="p${i}" class="p" position="absolute" width="10px" height="10px"/>`).join("");
+    const panels = Array.from({ length: N }, (_, i) => `<div id="p${i}" class="p" position="absolute" width="10px" height="10px"/>`).join("");
     const transition = animated ? "transition: opacity 0.5s linear, background-color 0.5s ease" : "";
     const doc = buildUI(`<Canvas>${panels}</Canvas>`, { css: `.p { opacity: 1; background-color: #102030; ${transition} } .p.on { opacity: 0.2; background-color: #f0e0d0 }` });
-    await doc.ready;
     const els = doc.queryAll(".p");
-    const p = els[0].as(UIPanel);
+    const p = uiAs(els[0], UIPanel);
     const changes: number[] = [];
     const moving: number[] = [];
     for (let round = 0; round < ROUNDS; round++) {
-      for (const el of els) el.classList.toggle("on");
+      for (const el of els) classList(el).toggle("on");
       let t0 = performance.now();
       engine.step(DT); // 500 restyles, 1,000 transitions starting
       changes.push(performance.now() - t0);

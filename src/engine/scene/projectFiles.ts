@@ -6,7 +6,7 @@
  * are what `Assets.json`, `Assets.text` and `Assets.url` read.
  *
  * - **json**: `.json` files load parsed (scenes, prefabs, materials, sidecars, data).
- * - **text**: code and text files load as their contents: UI documents and stylesheets (ADR 0077),
+ * - **text**: code and text files load as their contents: Svelte components and stylesheets (ADR 0419),
  *   shader code (ADR 0106), JavaScript and TypeScript tool modules, Markdown and plain text.
  * - **url**: everything else (images, audio, models, fonts, LUTs, baked data) loads as a URL the
  *   host serves its bytes from (a blob URL in the editor, a build URL in the player, a `file:` URL

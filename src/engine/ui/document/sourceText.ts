@@ -1,9 +1,9 @@
-// Source text helpers the UI document parsers and the cascade share (ADR 0077): project-relative path
-// resolution, line and column of a problem, and `{name}` bindings in attribute values. Pure, with no
-// parser behind them, so the cascade (`cascade.ts`) can use them without loading `htmlparser2`.
-import type { BindingPart, ParseBindings, SourceProblem, SourceSpan } from "./types";
+// Source text helpers the stylesheet parser and the cascade share (ADR 0077, 0419): project-relative path
+// resolution and the line and column of a problem. Pure, with no parser behind them, so the cascade
+// (`cascade.ts`) can use them without loading css-tree.
+import type { SourceProblem, SourceSpan } from "./types";
 
-/** The folder part of a project path (`ui/menu.ui.xml` → `ui/`). */
+/** The folder part of a project path (`ui/Hud.svelte` → `ui/`). */
 function folderOf(file: string): string {
   const i = file.lastIndexOf("/");
   return i < 0 ? "" : file.slice(0, i + 1);
@@ -39,43 +39,3 @@ export function problemAt(source: string, file: string, span: SourceSpan, messag
   const { line, column } = lineColumn(source, span.start);
   return { message: `${file}:${line}:${column}: ${message}`, line, column, span };
 }
-
-
-export const parseBindings: ParseBindings = (value) => {
-  const parts: BindingPart[] = [];
-  let text = "";
-  let i = 0;
-  while (i < value.length) {
-    const c = value[i];
-    if (c === "{" && value[i + 1] === "{") {
-      text += "{";
-      i += 2;
-    } else if (c === "}" && value[i + 1] === "}") {
-      text += "}";
-      i += 2;
-    } else if (c === "{") {
-      const close = value.indexOf("}", i + 1);
-      const name = close < 0 ? "" : value.slice(i + 1, close).trim();
-      if (close < 0 || !/^[A-Za-z_$][\w$]*(\.[A-Za-z_$][\w$]*)*$/.test(name)) {
-        text += c; // not a binding: kept as written
-        i++;
-        continue;
-      }
-      if (text) parts.push({ text });
-      text = "";
-      parts.push({ binding: name });
-      i = close + 1;
-    } else {
-      text += c;
-      i++;
-    }
-  }
-  if (text || parts.length === 0) parts.push({ text });
-  return parts;
-};
-
-/** True when a value has a `{name}` binding. */
-export function hasBinding(value: string): boolean {
-  return parseBindings(value).some((p) => "binding" in p);
-}
-

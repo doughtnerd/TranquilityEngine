@@ -4,7 +4,7 @@
  *
  * - **The kind table**: per kind, its component type, markup tag, whether it is a leaf (can't have
  *   children), whether it takes the pointer, which pseudo-classes it sets, and whether it paints
- *   anything. The UI core (`UICore.ts`), UI documents (`UIDocument.ts`, the markup and stylesheet
+ *   anything. The UI core (`UICore.ts`), the UI host (`host/UIHost.ts`, the stylesheet
  *   parsers), the Babylon drawing layer and the editor's UI picking read it instead of switching on
  *   component classes themselves.
  * - **`textRunOf`**: an element's resolved text run (text, size, CSS weight, family, line height and

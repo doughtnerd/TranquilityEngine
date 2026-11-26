@@ -286,7 +286,7 @@ export class World {
   /**
    * @internal Mark a node as the root of a subtree being edited (ADR 0026). Inside it, GameBehavior
    * hooks don't run, built-in activation side effects (e.g. audio playback) are skipped (unless the
-   * component opts in with `_activatesInEditMode`, as UIDocument does) and user
+   * component opts in with `_activatesInEditMode`, as UIView does) and user
    * systems don't see its nodes, so a scene open in the editor stays still. Editor tools outside
    * the subtree keep running.
    */
