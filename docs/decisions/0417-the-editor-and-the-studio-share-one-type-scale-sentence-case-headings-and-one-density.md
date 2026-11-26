@@ -1,6 +1,6 @@
 # 0417. The editor and the Studio share one type scale, sentence-case headings and one density
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -43,8 +43,8 @@ keeps working:
 | Token | Size at default scale | Use |
 | --- | --- | --- |
 | `--fs-xs` | 10 px | Type badges (CLP, SEQ), unit suffixes, tiny counts |
-| `--fs-sm` | 11 px | Secondary text: row meta ("Loop · 1.3 s"), status bar, hints |
-| `--fs-md` | 12 px | Body: rows, fields, buttons, menus, dock tabs, panel headings |
+| `--fs-sm` | 11 px | Secondary text: row meta ("Loop · 1.3 s"), status bar, hints; dock tabs (at 12 px a narrow dock fits one tab fewer) |
+| `--fs-md` | 12 px | Body: rows, fields, buttons, menus, panel headings, Studio header tabs |
 | `--fs-lg` | 14 px | Inspector titles, dialog titles |
 | `--fs-xl` | 16 px | A full empty state's title, start screens' section titles |
 

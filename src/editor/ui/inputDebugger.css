@@ -1,23 +1,23 @@
 /* Input debugger panel (ADR 0336, 0337) */
 .panel.inputDebugger .panel-body { padding: 0; overflow: auto; }
-.input-debugger { display: flex; flex-direction: column; min-width: 0; font-size: calc(12px * var(--ui-scale)); }
+.input-debugger { display: flex; flex-direction: column; min-width: 0; font-size: var(--fs-md); }
 .input-debugger-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .input-debugger-bar-tools { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-left: auto; }
-.input-debugger-bar-tools button { padding: 1px 8px; font-size: calc(11px * var(--ui-scale)); }
+.input-debugger-bar-tools button { padding: 1px 8px; font-size: var(--fs-sm); }
 .input-debugger-bar-tools button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
 .input-debugger-record.recording { display: inline-flex; align-items: baseline; gap: 6px; background: var(--danger) !important; border-color: var(--danger) !important; }
 .input-debugger-record.recording .input-debugger-facts { color: inherit; }
-.input-debugger-saved { flex-basis: 100%; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
-.input-debugger-bar label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.input-debugger-saved { flex-basis: 100%; color: var(--muted); font-size: var(--fs-sm); }
+.input-debugger-bar label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-sm); }
 .input-debugger-bar select { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; }
-.input-debugger-empty, .input-debugger-none { margin: 0; padding: 8px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); }
+.input-debugger-empty, .input-debugger-none { margin: 0; padding: 8px; color: var(--muted); font-size: var(--fs-sm); }
 .input-debugger-none { padding: 2px 0; font-style: italic; }
 .input-debugger-section { padding: 6px 8px; border-bottom: 1px solid var(--border); }
-.input-debugger-section h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 4px; font-size: calc(12px * var(--ui-scale)); font-weight: 600; }
-.input-debugger-facts { color: var(--muted); font-weight: normal; font-size: calc(11px * var(--ui-scale)); }
+.input-debugger-section h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 4px; font-size: var(--fs-md); font-weight: 600; }
+.input-debugger-facts { color: var(--muted); font-weight: normal; font-size: var(--fs-sm); }
 .input-debugger-clear { margin-left: auto; font-weight: normal; }
 .input-debugger-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.input-debugger-table th { text-align: left; font-weight: normal; color: var(--muted); font-size: calc(10px * var(--ui-scale)); padding: 1px 4px; white-space: nowrap; }
+.input-debugger-table th { text-align: left; font-weight: normal; color: var(--muted); font-size: var(--fs-xs); padding: 1px 4px; white-space: nowrap; }
 .input-debugger-table td { padding: 1px 4px; white-space: nowrap; }
 .input-debugger-table tr.disconnected td { color: var(--faint); text-decoration: line-through; }
 .input-debugger-actions tr:not(.active) td { color: var(--muted); }
@@ -25,20 +25,20 @@
 .input-debugger-bar-track { display: inline-block; width: 40px; height: 6px; border-radius: 3px; background: var(--bg-sunken); overflow: hidden; flex: none; }
 .input-debugger-bar-fill { display: block; height: 100%; background: var(--accent); }
 .input-debugger-phases { display: flex; flex-wrap: wrap; gap: 2px; white-space: normal !important; }
-.input-flag { padding: 0 4px; border-radius: 6px; font-size: calc(10px * var(--ui-scale)); line-height: 15px; }
+.input-flag { padding: 0 4px; border-radius: 6px; font-size: var(--fs-xs); line-height: 15px; }
 .input-flag.level { background: var(--badge); color: var(--badge-text); }
 .input-flag.edge { background: var(--accent2-soft); color: var(--text); }
 .input-flag.canceled { background: var(--warning-soft); color: var(--warning); }
 .input-debugger-num { text-align: right; }
-.input-debugger-source { color: var(--muted); font-size: calc(11px * var(--ui-scale)); overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+.input-debugger-source { color: var(--muted); font-size: var(--fs-sm); overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
 .input-debugger-contexts { display: flex; flex-direction: column; gap: 2px; margin-bottom: 4px; }
 .input-debugger-context { display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap; }
 .input-debugger-priority { min-width: 24px; padding: 0 4px; border-radius: 3px; background: var(--active); text-align: center; font-variant-numeric: tabular-nums; }
 .input-debugger-context-name { font-weight: 600; }
-.input-debugger-consumed { color: var(--warning); font-size: calc(11px * var(--ui-scale)); }
-.input-debugger-rebind { margin: 0 0 4px; padding: 3px 6px; border-radius: 3px; background: var(--accent-faint); color: var(--text); font-size: calc(11px * var(--ui-scale)); }
-.input-debugger-problems { margin: 0 0 4px; padding-left: 16px; color: var(--danger); font-size: calc(11px * var(--ui-scale)); }
-.input-debugger-log { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; font-family: var(--font-code); font-size: calc(11px * var(--ui-scale)); }
+.input-debugger-consumed { color: var(--warning); font-size: var(--fs-sm); }
+.input-debugger-rebind { margin: 0 0 4px; padding: 3px 6px; border-radius: 3px; background: var(--accent-faint); color: var(--text); font-size: var(--fs-sm); }
+.input-debugger-problems { margin: 0 0 4px; padding-left: 16px; color: var(--danger); font-size: var(--fs-sm); }
+.input-debugger-log { list-style: none; margin: 0; padding: 0; max-height: 220px; overflow: auto; font-family: var(--font-code); font-size: var(--fs-sm); }
 .input-debugger-log li { padding: 1px 0; white-space: nowrap; }
 .input-debugger-log li.log-device { color: var(--muted); }
 .input-debugger-log li.log-rebind, .input-debugger-log li.log-joined, .input-debugger-log li.log-left { color: var(--accent); }

@@ -2,11 +2,11 @@
    time, a 32px lane with second labels, a 6px tick strip and the accent triangle with its glow). Theme tokens only. */
 .run-ruler-row { display: grid; grid-template-columns: var(--run-head, 168px) minmax(0, 1fr); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 4; background: var(--panel); }
 .run-ruler-head { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 0 10px; border-right: 1px solid var(--border); background: var(--panel); overflow: hidden; }
-.run-cap { flex: none; color: var(--muted); font-size: calc(11px * var(--ui-scale)); line-height: 14px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
-.run-readout { color: var(--text-strong); font-size: calc(14px * var(--ui-scale)); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.run-cap { flex: none; color: var(--muted); font-size: var(--fs-sm); line-height: 14px; font-weight: 600; }
+.run-readout { color: var(--text-strong); font-size: var(--fs-lg); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .run-ruler { position: relative; height: 32px; min-width: 0; cursor: ew-resize; touch-action: none; outline: none; }
 .run-ruler:focus-visible { box-shadow: inset 0 0 0 2px var(--focus-ring); }
-.run-label { position: absolute; top: 4px; transform: translateX(-50%); color: var(--muted); font-size: calc(10px * var(--ui-scale)); white-space: nowrap; pointer-events: none; font-variant-numeric: tabular-nums; }
+.run-label { position: absolute; top: 4px; transform: translateX(-50%); color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; pointer-events: none; font-variant-numeric: tabular-nums; }
 .run-label.first { transform: translateX(3px); }
 .run-label.last { transform: translateX(calc(-100% - 3px)); }
 .run-ticks { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; pointer-events: none; background-image: linear-gradient(to right, var(--border-strong) 1px, transparent 1px); background-repeat: repeat-x; }
@@ -16,5 +16,5 @@
 /* A narrow head (a phone, a side dock): the cap goes, the time stays. */
 @container (max-width: 480px) {
   .run-cap { display: none; }
-  .run-readout { font-size: calc(12px * var(--ui-scale)); }
+  .run-readout { font-size: var(--fs-md); }
 }

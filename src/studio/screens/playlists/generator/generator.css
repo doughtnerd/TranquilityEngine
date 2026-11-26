@@ -1,7 +1,7 @@
 /* The Generator editor (ADR 0360 §9, 0349): theme tokens only, so Settings > Appearance themes it. */
 .gen-editor { display: flex; flex-direction: column; gap: 10px; padding: 10px 12px; min-height: 0; overflow: auto; outline: none; }
 .gen-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.gen-title { margin: 0; font-size: calc(15px * var(--ui-scale, 1)); color: var(--text-strong); flex: 1; min-width: 8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gen-title { margin: 0; font-size: var(--fs-lg); color: var(--text-strong); flex: 1; min-width: 8em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .gen-where { color: var(--muted); }
 .gen-tools { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .gen-tools label { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); }
@@ -24,10 +24,10 @@
 
 .gen-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; align-items: start; }
 .gen-group { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; margin: 0; min-width: 0; }
-.gen-group legend { color: var(--muted); padding: 0 4px; font-size: calc(12px * var(--ui-scale, 1)); text-transform: uppercase; letter-spacing: 0.04em; }
+.gen-group legend { color: var(--muted); padding: 0 4px; font-size: var(--fs-md); }
 .gen-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; align-items: center; gap: 4px; }
 .gen-row.no-lock { grid-template-columns: minmax(0, 1fr) auto; }
-.gen-readout { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 5.5em; text-align: right; font-size: calc(12px * var(--ui-scale, 1)); }
+.gen-readout { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 5.5em; text-align: right; font-size: var(--fs-md); }
 .gen-lock { background: none; border: 1px solid transparent; border-radius: 4px; color: var(--faint); cursor: pointer; padding: 0; width: 22px; height: 22px; line-height: 1; }
 .gen-lock:hover:not(:disabled) { color: var(--text); border-color: var(--border); }
 .gen-lock.on { color: var(--accent); }
@@ -41,7 +41,7 @@
 .gen-key.black { width: 18px; height: 40px; margin: 0 -9px 0 -10px; background: var(--bg); color: var(--muted); z-index: 2; }
 .gen-key.on { background: var(--accent); color: var(--accent-text); }
 .gen-key:disabled { cursor: not-allowed; }
-.gen-key-label { font-size: calc(10px * var(--ui-scale, 1)); padding-bottom: 3px; pointer-events: none; }
+.gen-key-label { font-size: var(--fs-xs); padding-bottom: 3px; pointer-events: none; }
 
 .gen-provenance { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .gen-provenance .smp-link:disabled { opacity: 0.55; cursor: not-allowed; }
