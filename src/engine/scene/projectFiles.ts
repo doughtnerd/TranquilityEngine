@@ -12,7 +12,9 @@
  *   host serves its bytes from (a blob URL in the editor, a build URL in the player, a `file:` URL
  *   on the dedicated server).
  *
- * TypeScript sources (`.ts`, `.tsx`) aren't project files: scripts are read and compiled apart (ADR 0030).
+ * TypeScript sources (`.ts`, `.tsx`) aren't project files: scripts are read and compiled apart (ADR 0030). A `.tsx`
+ * whose text is XML is a Tiled tileset (ADR 0422), not TypeScript: `isTiledTilesetText` tells them apart, so a host
+ * that reads a `.tsx` (`isTsxPath`) keeps it as a project file and never hands it to the script build.
  * No imports, so the desktop editor's Projects window (ADR 0059) can use it without the engine.
  */
 
@@ -51,6 +53,27 @@ export function isProjectFile(path: string): boolean {
   const parts = path.split("/");
   if (parts.some((p, i) => p === "" || p.startsWith(".") || (i < parts.length - 1 && SKIPPED_FOLDERS.has(p)))) return false;
   return !/\.tsx?$/i.test(path);
+}
+
+/** True for a `.tsx` path: TypeScript, or a Tiled XML tileset, which only its text tells apart (`isTiledTilesetText`). */
+export const isTsxPath = (path: string): boolean => /\.tsx$/i.test(path);
+
+/**
+ * True if a `.tsx` file's text is a Tiled tileset (ADR 0422): after any byte order mark and whitespace it starts with
+ * `<?xml` or `<tileset`, which no TypeScript file can. Such a file is a project file (it loads as a URL), not a script.
+ */
+export function isTiledTilesetText(text: string): boolean {
+  const t = text.replace(/^\uFEFF/, "").trimStart();
+  return t.startsWith("<?xml") || t.startsWith("<tileset");
+}
+
+/**
+ * Whether a file whose text a host has read is a project file: `isProjectFile`, and a `.tsx` that is a Tiled
+ * tileset (`isTiledTilesetText`) rather than TypeScript.
+ */
+export function isProjectFileText(path: string, text: string): boolean {
+  if (isTsxPath(path)) return isProjectFile(path.slice(0, -4)) && isTiledTilesetText(text);
+  return isProjectFile(path);
 }
 
 /** A host's I/O for `loadProjectFiles`. */

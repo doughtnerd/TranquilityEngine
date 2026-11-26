@@ -82,6 +82,8 @@ export { EmptyState, type EmptyStateProps } from "../ui/EmptyState";
 export { UndoToasts, createToastQueue, UNDO_TOAST_MS, type Toast, type ToastQueue, type ToastRequest } from "../ui/UndoToast";
 export { ContextMenu, SEPARATOR, tidyEntries, type ContextMenuProps, type MenuEntry, type MenuItem } from "../ui/ContextMenu";
 export { MoveToDialog, type MoveToDialogProps, type MovingItem } from "../ui/MoveToDialog";
+// The kit's dialog frame (header with × close, body, footer with summary and buttons), for a plugin's own dialogs (ADR 0422's import dialog).
+export { KitDialog, type KitDialogProps } from "../ui/KitDialog";
 export { SegmentedControl, type SegmentedControlProps, type SegmentOption } from "../ui/SegmentedControl";
 export { Chip, type ChipProps, type ChipTone } from "../ui/Chip";
 export { HistoryPopover, type HistoryPopoverProps } from "../ui/HistoryPopover";

@@ -1,0 +1,22 @@
+/* The Import as Myco assets dialog (ADR 0422). Theme tokens only (src/editor/theme.ts). */
+.tile-import-lead { margin: 0; color: var(--muted); }
+.tile-import-form { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; }
+.tile-import-form label { display: flex; flex-direction: column; gap: 3px; color: var(--muted); }
+.tile-import-form input[type="text"],
+.tile-import-form input[type="number"] { font: inherit; padding: 3px 6px; background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; }
+.tile-import-form .tile-import-check { flex-direction: row; align-items: center; gap: 6px; color: var(--text); }
+.tile-import-intgrid { margin: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 4px; display: flex; flex-direction: column; gap: 4px; }
+.tile-import-intgrid legend { padding: 0 4px; color: var(--muted); }
+.tile-import-intgrid label { display: flex; align-items: center; gap: 8px; }
+.tile-import-swatch { flex: none; width: 12px; height: 12px; border-radius: 2px; border: 1px solid var(--border-strong); }
+.tile-import-value { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-import-heading { margin: 4px 0 0; font-size: var(--fs-md); font-weight: 600; color: var(--text-strong); text-transform: none; letter-spacing: 0; }
+.tile-import-files,
+.tile-import-warnings { margin: 0; padding: 4px 8px; list-style: none; max-height: 160px; overflow: auto; background: var(--bg-sunken); border: 1px solid var(--border); border-radius: 4px; }
+.tile-import-files li { display: flex; align-items: center; gap: 6px; padding: 1px 0; }
+.tile-import-path { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tile-import-tag { flex: none; padding: 0 6px; border-radius: 8px; background: var(--badge); color: var(--badge-text); font-size: var(--fs-sm); }
+.tile-import-overwrite { background: var(--warning-soft); color: var(--warning); }
+.tile-import-warnings li { padding: 2px 0; color: var(--warning); }
+.tile-import-error { margin: 0; color: var(--danger); }
+.tile-import-inspector { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 8px; color: var(--muted); }
