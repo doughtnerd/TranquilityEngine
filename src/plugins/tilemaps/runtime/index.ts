@@ -23,6 +23,6 @@ export const tilemapsRuntimePlugin: RuntimePlugin = {
   manifest: tilemapsManifest,
   activate(context) {
     context.registerComponents([Tilemap]);
-    context.registerRenderFeature({ spec: TILEMAPS_SPEC, load: () => import("./tilemapsFeature").then((m) => m.createTilemapsFeature) });
+    context.registerRenderFeature({ spec: TILEMAPS_SPEC, load: () => import("./tilemapRenderer").then((m) => m.createTilemapsFeature) });
   },
 };

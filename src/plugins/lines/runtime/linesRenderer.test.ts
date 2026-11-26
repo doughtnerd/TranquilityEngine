@@ -4,7 +4,11 @@ import { Assets, Color, Engine, GameObject, SceneManager, Vector3 } from "../../
 import type { DynamicGeometry, DynamicMesh, DynamicMeshHost } from "../../../engine/render/dynamicMeshes";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
 import { LineRenderer } from "./LineRenderer";
+import { PICK_ORDER, type DrawnNode, type DrawnShape } from "../../../engine/render/babylon/feature";
 import { LinesRenderer } from "./linesRenderer";
+
+/** A drawn ribbon's polyline (ADR 0276). */
+const ribbon = (d: DrawnNode) => d.shape as Extract<DrawnShape, { kind: "polyline" }>;
 import { TrailRenderer } from "./TrailRenderer";
 
 function fakeHosts() {
@@ -90,8 +94,8 @@ describe("line and trail drawing (ADR 0396)", () => {
     expect(g.positions[0]).toBe(0);
     const drawn = [...lines.drawn()];
     expect(drawn).toHaveLength(1);
-    expect(drawn[0]!.order).toBeNull();
-    expect(drawn[0]!.halfWidth).toBeCloseTo(0.1);
+    expect(drawn[0]!.order).toBe(PICK_ORDER.depthTested);
+    expect(ribbon(drawn[0]!).halfWidth).toBeCloseTo(0.1);
   });
 
   it("puts a node-space line under its node's matrix and reports its points in world space", async () => {
@@ -103,7 +107,7 @@ describe("line and trail drawing (ADR 0396)", () => {
     node.addBehavior(LineRenderer, { useWorldSpace: false, positions: [new Vector3(0, 0, 0), new Vector3(1, 0, 0)] });
     lines.sync(engine.world);
     expect(meshes[0]!.matrix[13]).toBe(3);
-    expect(Array.from([...lines.drawn()][0]!.points)).toEqual([0, 3, 0, 1, 3, 0]);
+    expect(Array.from(ribbon([...lines.drawn()][0]!).points)).toEqual([0, 3, 0, 1, 3, 0]);
   });
 
   it("draws a 2D line as layered quads in its sorting layer, flat in the XY plane", async () => {
@@ -149,6 +153,6 @@ describe("line and trail drawing (ADR 0396)", () => {
     trail.addPosition([5, 0, 0]);
     lines.sync(engine.world);
     const drawn = [...lines.drawn()].find((d) => d.component === trail)!;
-    expect(drawn.points[0]).toBe(5); // the newest point first: the head is the ribbon's start (curve and gradient at 0)
+    expect(ribbon(drawn).points[0]).toBe(5); // the newest point first: the head is the ribbon's start (curve and gradient at 0)
   });
 });

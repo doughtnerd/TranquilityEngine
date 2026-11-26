@@ -2,11 +2,15 @@
  * The Lights 2D plugin's light volumes (ADR 0415): one additive quad batch per Light2D with a `volumeIntensity`,
  * placed by its node and drawn at the top of its highest target sorting layer, so the glow lies over the sprites it
  * lights and under the layers above. The meshes are `volumes.ts`'s; this keeps the batches in step with the lights.
- * Renderer-neutral: it draws through the renderer core's quad batches (ADR 0136).
+ * Renderer-neutral: it draws through the renderer core's quad batches (ADR 0136). It is the plugin's render feature
+ * (ADR 0418: no pass-through class), loaded by the renderer from the loader the plugin registers, so it stays out of the
+ * `myco` module. The light textures, shadows and lit material stay the core lighting rig's (ADR 0399).
  */
+import type { Component } from "../../../engine/core/Component";
 import type { World } from "../../../engine/core/World";
 import type { Point2 } from "../../../engine/physics/polygon";
 import { Light2D } from "../../../engine/render/components";
+import type { BabylonFeature, BabylonFeatureFactory } from "../../../engine/render/babylon/feature";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
 import { spriteFrame } from "../../../engine/render/spriteFrame";
 import { Assets } from "../../../engine/scene/Assets";
@@ -30,8 +34,8 @@ interface Entry {
 /** The highest order in a sorting layer (orders step 10000 a layer, ADR 0014). */
 const TOP_OF_LAYER = 9999;
 
-/** @internal */
-export class Lights2DVolumes {
+/** @internal Light volumes: the Lights 2D plugin's render feature. */
+export class Lights2DVolumes implements BabylonFeature {
   private readonly entries = new Map<Light2D, Entry>();
 
   constructor(private readonly host: VolumesHost) {}
@@ -95,11 +99,15 @@ export class Lights2DVolumes {
     return n;
   }
 
-  release(l: Light2D): void {
-    const e = this.entries.get(l);
+  diagnostics(): { volumes: number } {
+    return { volumes: this.count() };
+  }
+
+  release(c: Component): void {
+    const e = c instanceof Light2D ? this.entries.get(c) : undefined;
     if (!e) return;
     e.batch.dispose();
-    this.entries.delete(l);
+    this.entries.delete(c as Light2D);
   }
 
   dispose(): void {
@@ -119,3 +127,13 @@ const fields = (l: Light2D) => ({
   falloff: l.falloff,
   falloffSize: l.falloffSize,
 });
+
+declare module "../../../engine/render/RenderSurface" {
+  interface RenderFeatureDiagnostics {
+    /** The Lights 2D plugin's (ADR 0415): light volumes drawn now. */
+    lights2dVolumes?: { volumes: number };
+  }
+}
+
+/** @internal Builds the feature from the renderer's quad batches and render policy. */
+export const createLights2DFeature: BabylonFeatureFactory = (host) => new Lights2DVolumes({ quads: host.quads, lit: () => host.policy().lighting2D !== false });

@@ -2,10 +2,13 @@
  * Tilemap drawing (ADR 0103, 0136), renderer-neutral: each layer's chunk becomes one quad batch per
  * texture (usually one), rebuilt only when the chunk's cells, the map's cell size, the tileset, a texture or
  * an image's slices change. The renderer core draws the batches (`QuadBatchHost`); this module knows tiles, the renderer
- * knows quads. Like sprites, tiles draw in sorting-layer order without depth testing (ADR 0014).
+ * knows quads. Like sprites, tiles draw in sorting-layer order without depth testing (ADR 0014). It is the Tilemaps
+ * plugin's render feature (ADR 0130, 0418), built by the factory below from the renderer's quad batches.
  * No Babylon here (ADR 0075): it's unit-tested against a fake host.
  */
+import type { Component } from "../../../engine/core/Component";
 import type { World } from "../../../engine/core/World";
+import type { BabylonFeature, BabylonFeatureFactory, DrawnNode } from "../../../engine/render/babylon/feature";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
 import { sortingOrder } from "../../../engine/render/sortOrder";
 import { Assets, sidecarValue } from "../../../engine/scene/Assets";
@@ -30,13 +33,6 @@ interface LayerEntry {
   order: number;
 }
 
-/** @internal A tile layer drawn now (ADR 0276): its map, its draw order and its chunks' batches. */
-export interface DrawnLayer {
-  readonly map: Tilemap;
-  readonly order: number;
-  readonly batches: readonly QuadBatch[];
-}
-
 interface MapEntry {
   layers: LayerEntry[];
   tileset: Tileset | null;
@@ -49,8 +45,8 @@ interface MapEntry {
   matrix: Float32Array | null;
 }
 
-/** @internal */
-export class TilemapRenderer {
+/** @internal Tilemaps: the Tilemaps plugin's render feature. Syncs after sprites and before meshes (`after` constraints, ADR 0135). */
+export class TilemapRenderer implements BabylonFeature {
   private readonly maps = new Map<Tilemap, MapEntry>();
 
   constructor(private readonly host: QuadBatchHost) {}
@@ -134,14 +130,17 @@ export class TilemapRenderer {
     });
   }
 
-  /** The layers drawn now (visible, with tiles), in map then layer order (ADR 0276: what the Tilemaps feature drew). */
-  *drawn(): Iterable<DrawnLayer> {
+  /**
+   * ADR 0276: each tile layer drawn now (visible, with tiles), in map then layer order, as its quad batches in its draw
+   * order (tiles are picked like sprites: by layer, not depth).
+   */
+  *drawn(): Iterable<DrawnNode> {
     for (const [map, entry] of this.maps) {
       for (const le of entry.layers) {
         if (!le.visible) continue;
         const batches: QuadBatch[] = [];
         for (const ce of le.chunks.values()) batches.push(...ce.batches);
-        if (batches.length) yield { map, order: le.order, batches };
+        if (batches.length) yield { component: map, shape: { kind: "quads", batches }, order: le.order };
       }
     }
   }
@@ -180,11 +179,11 @@ export class TilemapRenderer {
     return frame;
   }
 
-  release(map: Tilemap): void {
-    const e = this.maps.get(map);
+  release(c: Component): void {
+    const e = c instanceof Tilemap ? this.maps.get(c) : undefined;
     if (!e) return;
     for (const l of e.layers) disposeLayer(l);
-    this.maps.delete(map);
+    this.maps.delete(c as Tilemap);
   }
 
   dispose(): void {
@@ -196,3 +195,6 @@ function disposeLayer(le: LayerEntry): void {
   for (const ce of le.chunks.values()) for (const b of ce.batches) b.dispose();
   le.chunks.clear();
 }
+
+/** @internal Builds the feature from the renderer's shared services: only the quad batches. */
+export const createTilemapsFeature: BabylonFeatureFactory = (host) => new TilemapRenderer(host.quads);

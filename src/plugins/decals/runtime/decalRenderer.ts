@@ -2,13 +2,15 @@
  * Decal drawing (ADR 0395), renderer-neutral: `DecalProjector`s and pooled 3D decals become instances of decal
  * batches (one per look and order) through the renderer core's `DecalHost`; `Decal2D`s and pooled 2D decals become
  * layered quads through its `QuadBatchHost` (one batch per texture and draw order, or one per decal that clips itself
- * to a sprite). The renderer knows boxes and quads; this module knows decals. No Babylon here (ADR 0075): it's
- * unit-tested against fake hosts.
+ * to a sprite). The renderer knows boxes and quads; this module knows decals. It is the Decals plugin's render feature
+ * (ADR 0130, 0418), loaded by the renderer from the loader the plugin registers, so it stays out of the `myco` module.
+ * No Babylon here (ADR 0075): it's unit-tested against fake hosts.
  */
 import type { Component } from "../../../engine/core/Component";
 import { Mat4 } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
-import { SpriteRenderer } from "../../../engine/render/components";
+import type { BabylonFeature, BabylonFeatureFactory, DrawnNode, FeatureSyncContext } from "../../../engine/render/babylon/feature";
+import { type Camera, SpriteRenderer } from "../../../engine/render/components";
 import type { DecalBatch, DecalHost, DecalLook } from "../../../engine/render/decals";
 import type { QuadBatch, QuadBatchHost, QuadMask } from "../../../engine/render/quadBatches";
 import { sortingOrder } from "../../../engine/render/sortOrder";
@@ -25,10 +27,12 @@ export interface DecalsHost {
   readonly quads: QuadBatchHost;
   /** The project's pixels per unit (a sprite's default scale). */
   pixelsPerUnit(): number;
+  /** The main view camera when the sync context has none yet (distance fades are measured from it), or null: no fades. */
+  viewCamera(): Camera | null;
 }
 
-/** @internal A placed decal drawn now (ADR 0276): a projector's box (column-major unit-cube-to-world), or a 2D decal's quad batch and draw order. */
-export type DrawnDecal =
+/** A placed decal drawn now (ADR 0276): a projector's box (column-major unit-cube-to-world), or a 2D decal's quad batch and draw order. */
+type DrawnDecal =
   | { readonly component: DecalProjector; readonly kind: "box"; readonly matrix: Float32Array }
   | { readonly component: Decal2D; readonly kind: "quads"; readonly batch: QuadBatch; readonly order: number };
 
@@ -73,8 +77,8 @@ const box = new Float64Array(16);
 const tmp = new Float64Array(16);
 const inv = new Float64Array(16);
 
-/** @internal */
-export class DecalRenderer {
+/** @internal Decals: the Decals plugin's render feature. Syncs in `effects`, after the content and the lighting rig. */
+export class DecalRenderer implements BabylonFeature {
   private readonly boxes = new Map<string, DecalBatch>();
   private readonly quads = new Map<string, QuadBatch>();
   private drawnNow: DrawnDecal[] = [];
@@ -83,8 +87,14 @@ export class DecalRenderer {
 
   constructor(private readonly host: DecalsHost) {}
 
-  /** Draw the World's decals as seen from `eye` (the main view camera's world position, for distance fades), or without fades when null. */
-  sync(world: World, eye: readonly [number, number, number] | null): void {
+  /** Draw the World's decals as seen from the main view camera (distance fades), or without fades when there's none. */
+  sync(world: World, ctx?: FeatureSyncContext): void {
+    const view = ctx?.view ?? this.host.viewCamera();
+    let eye: [number, number, number] | null = null;
+    if (view?.node.transform) {
+      const m = world.worldMatrix(view.node.entity), o = view.node.entity * 16;
+      eye = [m[o + 12]!, m[o + 13]!, m[o + 14]!];
+    }
     this.ready = true;
     this.drawnNow = [];
     const instances = new Map<string, Instances>();
@@ -251,8 +261,15 @@ export class DecalRenderer {
     };
   }
 
-  drawn(): readonly DrawnDecal[] {
-    return this.drawnNow;
+  /**
+   * ADR 0276: each placed projector as its box (not picked: a click on a wall selects the wall) and each placed 2D decal
+   * as its quad batch at its draw order. Spawned decals have no node and aren't reported.
+   */
+  *drawn(): Iterable<DrawnNode> {
+    for (const d of this.drawnNow) {
+      if (d.kind === "box") yield { component: d.component, shape: { kind: "box", matrix: d.matrix }, order: 0, pickable: false };
+      else yield { component: d.component, shape: { kind: "quads", batches: [d.batch] }, order: d.order };
+    }
   }
 
   loaded(): boolean {
@@ -274,6 +291,17 @@ export class DecalRenderer {
     this.drawnNow = [];
   }
 }
+
+declare module "../../../engine/render/RenderSurface" {
+  interface RenderFeatureDiagnostics {
+    /** The Decals plugin's (ADR 0395): placed projectors and 2D decals drawn, spawned decals in the pool, and batches. */
+    decals?: { projectors: number; decals2D: number; pooled: number; batches: number };
+  }
+}
+
+/** @internal Builds the feature from the renderer's shared services: the decal volumes, the quad batches, the project's pixels per unit and the view camera. */
+export const createDecalsFeature: BabylonFeatureFactory = (host) =>
+  new DecalRenderer({ decals: host.decals, quads: host.quads, pixelsPerUnit: () => host.settings.render.pixelsPerUnit, viewCamera: () => host.viewCamera() });
 
 const IDENTITY = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));

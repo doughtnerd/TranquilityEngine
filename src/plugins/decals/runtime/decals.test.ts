@@ -1,7 +1,7 @@
 // ADR 0395: decals are drawn by renderer-neutral code (tested against fake decal and quad hosts), and spawned decals
 // live in a per-World pool aged by the `decals.Pool` system, read here through `Decals` and the handles it returns.
 import { afterEach, describe, expect, it } from "vitest";
-import { Assets, Color, Engine, GameObject, Quaternion, SceneManager, SpriteRenderer, Vector2, Vector3 } from "../../../myco";
+import { Assets, Camera, Color, Engine, GameObject, Quaternion, SceneManager, SpriteRenderer, Vector2, Vector3 } from "../../../myco";
 import type { DecalBatch, DecalHost, DecalLook } from "../../../engine/render/decals";
 import type { QuadBatch, QuadBatchHost, QuadMask } from "../../../engine/render/quadBatches";
 import { Decal2D, DecalProjector } from "./components";
@@ -11,7 +11,8 @@ import { Decals } from "./Decals";
 type FakeDecalBatch = DecalBatch & { look: DecalLook; count: number; matrices: Float32Array; colors: Float32Array; uvs: Float32Array; angles: Float32Array; order: number; disposed: boolean };
 type FakeQuads = QuadBatch & { texture: string; positions: Float32Array; colors: Float32Array | null; mask: QuadMask | null; order: [string, number]; material: string | null; disposed: boolean };
 
-function fakeHosts() {
+/** Fake hosts; `view` is the view camera distance fades are measured from (none by default). */
+function fakeHosts(view: () => Camera | null = () => null) {
   const boxes: FakeDecalBatch[] = [];
   const quads: FakeQuads[] = [];
   const decals: DecalHost = {
@@ -48,7 +49,7 @@ function fakeHosts() {
     },
     textureSize: () => [100, 50],
   };
-  return { host: { decals, quads: quadHost, pixelsPerUnit: () => 100 }, boxes, quads };
+  return { host: { decals, quads: quadHost, pixelsPerUnit: () => 100, viewCamera: view }, boxes, quads };
 }
 
 const engines: Engine[] = [];
@@ -74,7 +75,7 @@ describe("decal drawing (ADR 0395)", () => {
     const node = GameObject.create("scorch");
     node.transform!.position.set(1, 2, 3);
     node.addBehavior(DecalProjector, { texture: "scorch.png", size: new Vector3(2, 4, 6), uvScale: new Vector2(2, 1), order: 3, color: new Color(1, 0.5, 0, 1), opacity: 0.5 });
-    decals.sync(engine.world, null);
+    decals.sync(engine.world);
     expect(boxes).toHaveLength(1);
     const b = boxes[0]!;
     expect(b.look).toEqual({ material: "", texture: "scorch.png", blend: "alpha" });
@@ -87,21 +88,23 @@ describe("decal drawing (ADR 0395)", () => {
     expect(Array.from(b.uvs)).toEqual([2, 1, 0, 0]);
     expect(b.angles[0]).toBeCloseTo(Math.cos(Math.PI / 3));
     expect(b.angles[1]).toBeCloseTo(0);
-    const drawn = decals.drawn();
+    const drawn = [...decals.drawn()];
     expect(drawn).toHaveLength(1);
-    expect(drawn[0]!.kind).toBe("box");
+    expect(drawn[0]!.shape?.kind).toBe("box");
+    expect(drawn[0]!.pickable).toBe(false); // a click on the wall selects the wall
   });
 
   it("fades a projector out over fadeRange before drawDistance, and drops its batch once nothing uses it", async () => {
     const engine = await headless();
-    const { host, boxes } = fakeHosts();
+    const eye = GameObject.create("eye").addComponent(Camera); // at the origin
+    const { host, boxes } = fakeHosts(() => eye);
     const decals = new DecalRenderer(host);
     const p = GameObject.create("far").addBehavior(DecalProjector, { drawDistance: 100, fadeRange: 10, pivot: new Vector3(0, 0, 0) });
     p.node.transform!.position.z = 95; // the box's centre: 5 m inside the 10 m fade
-    decals.sync(engine.world, [0, 0, 0]);
+    decals.sync(engine.world);
     expect(boxes[0]!.colors[3]).toBeCloseTo(0.5);
     p.node.transform!.position.z = 200;
-    decals.sync(engine.world, [0, 0, 0]);
+    decals.sync(engine.world);
     expect(boxes[0]!.disposed).toBe(true);
   });
 
@@ -114,7 +117,7 @@ describe("decal drawing (ADR 0395)", () => {
     crate.addBehavior(SpriteRenderer, { sprite: "crate.png" }); // 100 × 50 px at 100 px per unit: 1 × 0.5, pivot centred
     const splat = GameObject.create("splat", { parent: crate });
     splat.addBehavior(Decal2D, { sprite: "splat.png", sortingLayer: "Default", orderInLayer: 2 });
-    decals.sync(engine.world, null);
+    decals.sync(engine.world);
     expect(quads).toHaveLength(1);
     const q = quads[0]!;
     expect(q.order).toEqual(["Default", 2]);
@@ -154,10 +157,10 @@ describe("spawned decals (ADR 0395)", () => {
     const door = GameObject.create("door");
     door.transform!.position.x = 5;
     const hole = Decals.project({ position: [0, 1, 0], parent: door });
-    decals.sync(engine.world, null);
+    decals.sync(engine.world);
     expect(boxes[0]!.matrices[12]).toBe(5);
     door.transform!.position.x = 7;
-    decals.sync(engine.world, null);
+    decals.sync(engine.world);
     expect(boxes[0]!.matrices[12]).toBe(7);
     GameObject.destroy(door);
     engine.step(0.01); // destroyed at the end of this frame
