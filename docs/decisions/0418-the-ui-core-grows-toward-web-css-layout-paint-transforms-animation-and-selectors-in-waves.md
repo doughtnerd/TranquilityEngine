@@ -38,12 +38,24 @@ We will grow the UI core toward web CSS in five waves. Each wave is shippable al
 - `overflow` (`visible | hidden`). `hidden` clips drawing (`clipChildren`) and hit-testing to the padding box. `scroll` (a scroll offset, wheel, drag and navigation scrolling into view) gets its own record.
 - `zIndex` (number): draw and hit-test order among siblings, then document order, as in a CSS stacking context per element with a non-zero `zIndex`.
 
+- **As built (wave 1):**
+  - Per-side border widths are on `UIPanel` (with buttons and input fields), where borders already live, not on every element.
+  - A per-side or `flexShrink` field left null takes the all-sides field or the element kind's default.
+  - Per-side padding and margin take pixels only.
+  - `overflow: hidden` also starts a stacking group (as a non-zero `zIndex` does), so drawing and hit order always agree.
+
 **Wave 2: Paint (Babylon GUI).**
 
 - `boxShadow`: one shadow with `offset-x offset-y blur colour`; `inset` and several shadows are left out. It is drawn by the element's background rectangle.
 - `backgroundImage` takes `linear-gradient(angle, stops…)` and `radial-gradient(stops…)` (circle at centre) besides `url()`, drawn with Babylon GUI's gradients. Colour stops take positions in `%`.
 - `borderRadius` grows four per-corner fields (`borderTopLeftRadius`…), with the shorthand taking one to four values.
 - `textShadow` on `Text`: one shadow, drawn as the TextBlock's shadow.
+
+- **As built (wave 2):**
+  - A shadow is four typed fields, colour (null: none), offset x and y, and blur, so the Inspector edits them and wave 4 can animate them. `box-shadow`/`text-shadow` expand to them.
+  - Corner fields default to -1, meaning they take `borderRadius`.
+  - `backgroundImage` is a string field holding the CSS value. A gradient replaces `backgroundColor`, so hover colours don't show on a gradient button.
+  - Babylon GUI 9.32's declarations swap the comments on two corners: its drawing code draws `cornerRadiusZ` bottom-right and `W` bottom-left, and the mapping follows the drawing code.
 
 **Wave 3: Transforms (draw-time, as in CSS).**
 
