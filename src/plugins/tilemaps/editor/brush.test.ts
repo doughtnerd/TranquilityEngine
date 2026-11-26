@@ -257,4 +257,27 @@ describe("painting a tilemap in the editor (ADR 0103)", () => {
     stroke(map, "pencil", [0, 5], [2, 5]);
     expect([map.getTile(0, 5), map.getTile(1, 5), map.getTile(2, 5)]).toEqual([11, 12, 13]);
   });
+
+  it("on a hexagonal map, flips tiles but not a stamp's layout, doesn't turn, and fills across every side (ADR 0421)", () => {
+    const { map } = newMap();
+    map.gridShape = "hexagonal";
+    brushStamp.value = { width: 2, height: 1, values: [1, 2] };
+    flipBrush("rotate", map);
+    expect(brushFlags.value).toBe(0);
+    flipBrush("x", map);
+    expect(footprintAt("pencil", [0, 0], map)).toEqual({ x0: 0, y0: 0, x1: 2, y1: 1 });
+    stroke(map, "pencil", [0, 0]);
+    expect(block(map, 0, 0, 2, 1)).toEqual([[cellValue(1, FLIP_X), cellValue(2, FLIP_X)]]);
+    // A turn picked elsewhere (the palette) keeps only its flips on a hexagonal map: no tile is turned diagonally.
+    brushFlags.value = TURN;
+    stroke(map, "pencil", [0, 4]);
+    expect(block(map, 0, 4, 2, 1)).toEqual([[cellValue(1, TURN & ~FLIP_DIAGONAL), cellValue(2, TURN & ~FLIP_DIAGONAL)]]);
+    // (0, 10) and its north-west neighbour (-1, 11) share a side on the hexagonal grid, though not in offset coordinates.
+    brushFlags.value = 0;
+    map.setTile(0, 10, 3);
+    map.setTile(-1, 11, 3);
+    brushStamp.value = { width: 1, height: 1, values: [4] };
+    stroke(map, "fill", [0, 10]);
+    expect([map.getTile(0, 10), map.getTile(-1, 11)]).toEqual([4, 4]);
+  });
 });

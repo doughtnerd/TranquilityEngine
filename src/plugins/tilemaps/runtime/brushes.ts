@@ -29,9 +29,9 @@ export function lineCells(ax: number, ay: number, bx: number, by: number): Cell[
 }
 
 /**
- * The 4-connected region of cells with the same value as the start cell. An empty region is
- * bounded by `bounds` (the area searched), so filling empty space stops instead of running forever;
- * at most `limit` cells are returned.
+ * The 4-connected region of cells with the same value as the start cell (or connected through `neighbours`, the cells
+ * sharing a side with a cell on the map's grid, ADR 0421). An empty region is bounded by `bounds` (the area searched),
+ * so filling empty space stops instead of running forever; at most `limit` cells are returned.
  */
 export function floodCells(
   sx: number,
@@ -39,6 +39,7 @@ export function floodCells(
   valueAt: (x: number, y: number) => number,
   bounds: { minX: number; minY: number; maxX: number; maxY: number },
   limit = 100_000,
+  neighbours?: (x: number, y: number) => readonly (readonly [number, number])[],
 ): Cell[] {
   const target = valueAt(sx, sy);
   const seen = new Set<string>();
@@ -52,7 +53,8 @@ export function floodCells(
     seen.add(k);
     if (valueAt(x, y) !== target) continue;
     out.push([x, y]);
-    stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
+    if (neighbours) for (const [nx, ny] of neighbours(x, y)) stack.push([nx, ny]);
+    else stack.push([x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]);
   }
   return out;
 }

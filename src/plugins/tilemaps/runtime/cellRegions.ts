@@ -1,6 +1,7 @@
 /**
  * Regions of grid cells (ADR 0105): solid cells (cell (x, y) covers x..x+1, y..y+1) merged into
- * rectangles, per-row runs or closed outlines. Pure; the tile collision shapes (`collision.ts`) use it.
+ * rectangles, per-row runs or closed outlines; and, for cells of any shape (ADR 0421), outlines traced by cancelling
+ * the edges cells share. Pure; the tile collision shapes (`collision.ts`) use it.
  */
 import type { ShapeRect2D } from "../../../engine/physics/shapeSource2D";
 
@@ -121,4 +122,112 @@ export function traceOutlines(cells: readonly (readonly [number, number])[]): [n
     if (simple.length >= 3) loops.push(simple);
   }
   return loops;
+}
+
+/**
+ * Outlines of the union of cells of any shape (ADR 0421), given each cell's corners counter-clockwise (`outline`,
+ * `TileGrid.cellOutline`): every cell's edges are collected, an edge two cells share (one each way) cancels, and the
+ * rest chain into closed loops with the solid on the left, collinear points merged. Where two loops touch at a point
+ * the trace takes the sharpest left turn, keeping them apart. Neighbouring cells must share their corners (hexagons
+ * of one grid do, their flat sides' ends included). Points match to a millionth of a cell's size.
+ */
+export function traceCellOutlines(cells: readonly (readonly [number, number])[], outline: (x: number, y: number) => readonly (readonly [number, number])[]): [number, number][][] {
+  if (!cells.length) return [];
+  const quantum = extent(outline(cells[0][0], cells[0][1])) * 1e-6 || 1e-6;
+  const key = (p: readonly [number, number]) => `${Math.round(p[0] / quantum)},${Math.round(p[1] / quantum)}`;
+  interface Edge {
+    a: [number, number];
+    b: [number, number];
+    ka: string;
+    kb: string;
+  }
+  // Directed edges by "from|to", with how many are left once shared ones cancel.
+  const edges = new Map<string, { e: Edge; n: number }>();
+  const seen = new Set<string>();
+  for (const [x, y] of cells) {
+    if (seen.has(`${x},${y}`)) continue;
+    seen.add(`${x},${y}`);
+    const pts = outline(x, y);
+    for (let i = 0; i < pts.length; i++) {
+      const a = pts[i], b = pts[(i + 1) % pts.length];
+      const ka = key(a), kb = key(b);
+      if (ka === kb) continue;
+      const reverse = edges.get(`${kb}|${ka}`);
+      if (reverse && reverse.n > 0) {
+        reverse.n--;
+        continue;
+      }
+      const own = edges.get(`${ka}|${kb}`);
+      if (own) own.n++;
+      else edges.set(`${ka}|${kb}`, { e: { a: [a[0], a[1]], b: [b[0], b[1]], ka, kb }, n: 1 });
+    }
+  }
+  const from = new Map<string, Edge[]>();
+  let left = 0;
+  for (const { e, n } of edges.values()) {
+    for (let i = 0; i < n; i++) {
+      let l = from.get(e.ka);
+      if (!l) from.set(e.ka, (l = []));
+      l.push(e);
+      left++;
+    }
+  }
+  /** How far `e` turns left after an edge going (dx, dy): larger is a sharper left turn. */
+  const turn = (dx: number, dy: number, e: Edge) => {
+    const ex = e.b[0] - e.a[0], ey = e.b[1] - e.a[1];
+    return Math.atan2(dx * ey - dy * ex, dx * ex + dy * ey);
+  };
+  const remove = (e: Edge) => {
+    const l = from.get(e.ka)!;
+    l.splice(l.indexOf(e), 1);
+    if (!l.length) from.delete(e.ka);
+    left--;
+  };
+  const loops: [number, number][][] = [];
+  while (left > 0) {
+    const start = from.values().next().value![0];
+    remove(start);
+    const pts: [number, number][] = [start.a];
+    let e = start;
+    for (let guard = 0; guard < 1e7; guard++) {
+      const dx = e.b[0] - e.a[0], dy = e.b[1] - e.a[1];
+      let best: Edge | null = null, bestTurn = -Infinity;
+      for (const c of from.get(e.kb) ?? []) {
+        const t = turn(dx, dy, c);
+        if (t > bestTurn) (best = c), (bestTurn = t);
+      }
+      // Back at the start: close unless another edge leaving here is the sharper left turn (the loop touches itself).
+      if (e.kb === start.ka && (!best || turn(dx, dy, start) >= bestTurn)) break;
+      if (!best) break;
+      remove(best);
+      pts.push(best.a);
+      e = best;
+    }
+    const simple = polygonCorners(pts, quantum);
+    if (simple.length >= 3) loops.push(simple);
+  }
+  return loops;
+}
+
+/** The largest width or height of a set of points. */
+function extent(points: readonly (readonly [number, number])[]): number {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const [x, y] of points) {
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+  }
+  return Math.max(maxX - minX, maxY - minY, 0);
+}
+
+/** A closed polygon with its collinear points dropped (a point counts as collinear within `tolerance` of the line). */
+export function polygonCorners(points: readonly (readonly [number, number])[], tolerance = extent(points) * 1e-6): [number, number][] {
+  const out: [number, number][] = [];
+  for (let i = 0; i < points.length; i++) {
+    const a = points[(i + points.length - 1) % points.length], b = points[i], c = points[(i + 1) % points.length];
+    const len = Math.hypot(c[0] - a[0], c[1] - a[1]) || 1;
+    if (Math.abs((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])) / len > tolerance) out.push([b[0], b[1]]);
+  }
+  return out;
 }

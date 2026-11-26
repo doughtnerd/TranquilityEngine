@@ -1,7 +1,7 @@
 /**
  * The Tilemap component (ADR 0103): a grid of tiles from one tileset asset, in several layers
- * drawn in chunks. Cell (x, y) covers local x·cellSize.x .. (x+1)·cellSize.x (and the same in y),
- * on the node's XY plane, y up.
+ * drawn in chunks. On a square grid cell (x, y) covers local x·cellSize.x .. (x+1)·cellSize.x (and the same in y),
+ * on the node's XY plane, y up; isometric, staggered and hexagonal grids (ADR 0421) place cells as `grids.ts` says.
  *
  * The `layers` field is the scene data (run-length chunk strings, `format.ts`). At runtime the
  * component decodes it into typed arrays; scripts edit those through `setTile` and friends, and
@@ -22,6 +22,7 @@ import { Assets } from "../../../engine/scene/Assets";
 import { buildTileShapes } from "./collision";
 import { paintTerrain, retileTerrain, type CellAccess } from "./autotile";
 import { cellRandom, RANDOM_BRUSH_STREAM } from "./cellHash";
+import { gridKey, tileGrid, type GridParams, type TileGrid } from "./grids";
 import {
   CHUNK_CELLS,
   CHUNK_SIZE,
@@ -166,6 +167,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
   private source: unknown = null;
   private runtime: RuntimeLayer[] = [];
   private listeners: ((change: TileChange) => void)[] = [];
+  private grid: { key: string; grid: TileGrid } | null = null;
   /** @internal Goes up when anything about the cells or layers changes. */
   _version = 0;
 
@@ -296,17 +298,38 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
     return loadTileset(this.tileset);
   }
 
+  // --- grid (ADR 0421) ------------------------------------------------------------------------
+
+  private gridParams(): GridParams {
+    return { shape: this.gridShape, cellSize: this.cellSize, staggerAxis: this.staggerAxis, staggerIndex: this.staggerIndex, hexSide: this.hexSide };
+  }
+
+  /** @internal The cell layout of the grid fields as they are now (one `TileGrid` per set of values). */
+  _grid(): TileGrid {
+    const params = this.gridParams();
+    const key = gridKey(params);
+    if (this.grid?.key !== key) this.grid = { key, grid: tileGrid(params) };
+    return this.grid.grid;
+  }
+
+  /** @internal What tells two grids apart: changes with the cell size and any grid field. */
+  _gridKey(): string {
+    return gridKey(this.gridParams());
+  }
+
   // --- 2D collision shapes (ADR 0105, 0136) ---------------------------------------------------
 
-  /** @internal The 2D shape source signature: changes with the cell size, the tileset and the colliding layers' cells. */
+  /** @internal The 2D shape source signature: changes with the grid, the tileset and the colliding layers' cells. */
   collisionSignature(): string {
     const layers = this._layers().map((l) => `${l.version}:${l.meta.collision}`).join(",");
-    return [this.cellSize.x, this.cellSize.y, this.tileset, this.tilesetAsset ? "ts" : "", layers].join("|");
+    const shape = this.gridShape === "square" || !this.gridShape ? [] : [this._gridKey()];
+    return [this.cellSize.x, this.cellSize.y, ...shape, this.tileset, this.tilesetAsset ? "ts" : "", layers].join("|");
   }
 
   /**
    * @internal The tiles' collision shapes (each tile's from the tileset; layers with `collision: false`
-   * skipped), for whatever 2D collider sits on this node. Null while the tileset is missing.
+   * skipped), for whatever 2D collider sits on this node. Null while the tileset is missing. On a square grid they are
+   * in cell units (`unit` is the cell size); on other grids in local units (`unit` 1 × 1, ADR 0421).
    */
   collisionShapes(merge: ShapeMerge2D): CollisionShapes2D | null {
     const ts = this.tilesetAsset;
@@ -316,6 +339,8 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
       if (!l.meta.collision) return;
       for (const cell of this.tiles(i)) cells.push(cell);
     });
+    const grid = this._grid();
+    if (grid.shape !== "square") return { unit: { x: 1, y: 1 }, ...buildTileShapes(cells, (id) => ts.tile(id)?.collision, merge, grid) };
     return { unit: { x: this.cellSize.x, y: this.cellSize.y }, ...buildTileShapes(cells, (id) => ts.tile(id)?.collision, merge) };
   }
 
@@ -471,7 +496,8 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
 
   /** A layer's cells as auto-tiling reads and writes them. */
   private cellAccess(layer: number | string): CellAccess {
-    return { get: (x, y) => this.getCell(x, y, layer), set: (x, y, id) => void this.setTile(x, y, id, layer) };
+    const grid = this._grid();
+    return { get: (x, y) => this.getCell(x, y, layer), set: (x, y, id) => void this.setTile(x, y, id, layer), neighbours: (x, y) => grid.neighbours(x, y), neighbourCount: grid.neighbourCount };
   }
 
   /** Every non-empty cell of a layer (a cell whose tile the tileset no longer has reads as empty). */
@@ -525,14 +551,30 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
 
   // --- coordinates ---------------------------------------------------------------------------
 
-  /** The cell holding a point in the node's local space. */
+  /** The cell holding a point in the node's local space (on any grid shape). */
   localToCell(p: Vec2Like): Vector2 {
-    return new Vector2(Math.floor(p.x / this.cellSize.x), Math.floor(p.y / this.cellSize.y));
+    const [x, y] = this._grid().localToCell(p.x, p.y);
+    return new Vector2(x, y);
   }
 
   /** A cell's centre in the node's local space. */
   cellToLocal(x: number, y: number): Vector2 {
-    return new Vector2((Math.floor(x) + 0.5) * this.cellSize.x, (Math.floor(y) + 0.5) * this.cellSize.y);
+    const [lx, ly] = this._grid().cellToLocal(Math.floor(x), Math.floor(y));
+    return new Vector2(lx, ly);
+  }
+
+  /**
+   * A cell's neighbours (ADR 0421): 8 on square, isometric and staggered grids (N NE E SE S SW W NW of the grid's own
+   * axes, so an isometric "N" is up-left on screen), 6 on hexagonal ones (clockwise from the first side at or clockwise
+   * of north). Auto-tiling patterns name them in this order.
+   */
+  cellNeighbours(x: number, y: number): Vector2[] {
+    return this._grid().neighbours(Math.floor(x), Math.floor(y)).map(([nx, ny]) => new Vector2(nx, ny));
+  }
+
+  /** A cell's corners in the node's local space, counter-clockwise (a square, a diamond or a hexagon). */
+  cellOutline(x: number, y: number): Vector2[] {
+    return this._grid().cellOutline(Math.floor(x), Math.floor(y)).map(([px, py]) => new Vector2(px, py));
   }
 
   /** The cell holding a world point. */

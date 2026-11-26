@@ -1,7 +1,10 @@
 // Tilemap painting in the editor (ADR 0103, 0289): the brush the Tile Palette sets up, and the strokes
 // it paints. The brush owns the stamp's layout under its flips, the stroke rules and the footprint.
 // Strokes paint the Editor World's Tilemap at once (so painting shows while the pointer moves) and
-// commit to the scene document as one write of `layers` when they end.
+// commit to the scene document as one write of `layers` when they end. On every grid shape (ADR 0421) the brush works
+// in cell space: rectangles are cell-space rectangles (diamonds on an isometric map), flood fill follows the cells
+// sharing a side, and stamps keep their layout. On hexagonal maps a quarter turn isn't a symmetry, so the brush only
+// flips tiles' images there: Rotate is off and a multi-cell stamp's layout is neither mirrored nor turned.
 import { signal, type ReadonlySignal } from "@preact/signals";
 import { type GameObject } from "../../../engine";
 import { Tilemap } from "../runtime";
@@ -67,7 +70,14 @@ export function chooseTerrain(name: string | null): void {
   if (name && (!t || t === "pick")) pickBrushTool("pencil");
 }
 
-export function flipBrush(axis: "x" | "y" | "rotate"): void {
+/** Whether the brush can turn on `map`'s grid: not on hexagonal maps (ADR 0421). */
+export function canRotateOn(map: Tilemap | null): boolean {
+  return map?.gridShape !== "hexagonal";
+}
+
+/** Flip or turn the brush. Turning does nothing when `map` is hexagonal (ADR 0421). */
+export function flipBrush(axis: "x" | "y" | "rotate", map: Tilemap | null = null): void {
+  if (axis === "rotate" && !canRotateOn(map)) return;
   const f = brushFlags.peek();
   brushFlags.value = axis === "x" ? f ^ FLIP_X : axis === "y" ? f ^ FLIP_Y : rotateClockwise(f);
 }
@@ -107,7 +117,7 @@ export function beginStroke(map: Tilemap, tool: BrushTool, cell: Cell): BrushStr
   const start: Cell = [cell[0], cell[1]];
   let last: Cell = start;
   const painter = brushPainter(map);
-  const shape = footprintShape(tool);
+  const shape = footprintShape(tool, map);
   if (tool === "fill") painter?.fill(start);
   else if (tool === "pencil" || tool === "erase") painter?.paint(tool, [start], start);
   return {
@@ -139,15 +149,18 @@ export function beginStroke(map: Tilemap, tool: BrushTool, cell: Cell): BrushStr
   };
 }
 
-/** The cells `tool` would paint pressed on `cell`: the brush's stamp as it is laid out (flipped and turned) for the pencil, else the cell. */
-export function footprintAt(tool: BrushTool, cell: Cell): Footprint {
-  return footprintOf(footprintShape(tool), cell, cell);
+/**
+ * The cells `tool` would paint pressed on `cell`: the brush's stamp as it is laid out (flipped and turned) for the
+ * pencil, else the cell. `map` decides the layout's turns (none on hexagonal maps).
+ */
+export function footprintAt(tool: BrushTool, cell: Cell, map: Tilemap | null = null): Footprint {
+  return footprintOf(footprintShape(tool, map), cell, cell);
 }
 
 /** The block `tool` paints at a cell with the brush as it is now: the pencil's stamp as laid out, else one cell. */
-function footprintShape(tool: BrushTool): { width: number; height: number } {
+function footprintShape(tool: BrushTool, map: Tilemap | null): { width: number; height: number } {
   if (tool !== "pencil" || brushTerrain.peek() || brushRandom.peek()) return { width: 1, height: 1 };
-  const { width, height } = orientedStamp(brushStamp.peek(), brushFlags.peek());
+  const { width, height } = orientedStamp(brushStamp.peek(), brushFlags.peek(), canRotateOn(map));
   return { width, height };
 }
 
@@ -166,9 +179,12 @@ function stampCorner(x: number, y: number, origin: Cell, width: number, height: 
  * The stamp as painted with the brush's flips `flags`: the block's layout transformed as one tile is
  * (mirrored, and turned with width and height swapped), each tile's own flips composed with `flags`.
  * Cells map through `flipPoint`, so the block and its tiles follow tileFlips.ts's one convention.
+ * Without `layout` (hexagonal maps, ADR 0421) only the tiles' images flip: the layout stays and turns are dropped.
  */
-function orientedStamp(stamp: Stamp, flags: number): Stamp {
+function orientedStamp(stamp: Stamp, flags: number, layout = true): Stamp {
+  if (!layout) flags &= FLIP_X | FLIP_Y;
   if (!flags) return stamp;
+  if (!layout) return { width: stamp.width, height: stamp.height, values: stamp.values.map((v) => withFlips(v, flags)) };
   const turned = (flags & FLIP_DIAGONAL) !== 0;
   const width = turned ? stamp.height : stamp.width, height = turned ? stamp.width : stamp.height;
   const values = new Array<number>(width * height).fill(0);
@@ -198,12 +214,23 @@ function fillBounds(map: Tilemap, x: number, y: number): { minX: number; minY: n
   return { minX: Math.min(b.minX, x) - 1, minY: Math.min(b.minY, y) - 1, maxX: Math.max(b.maxX, x) + 1, maxY: Math.max(b.maxY, y) + 1 };
 }
 
+/**
+ * The cells sharing a side with a cell, for flood fill on a non-square grid (ADR 0421): every neighbour of a hexagon,
+ * the N E S W neighbours of a diamond. Undefined on square grids (the fill's own 4 neighbours).
+ */
+function sideNeighbours(map: Tilemap): ((x: number, y: number) => readonly (readonly [number, number])[]) | undefined {
+  const grid = map._grid();
+  if (grid.shape === "square") return undefined;
+  if (grid.neighbourCount === 6) return (x, y) => grid.neighbours(x, y);
+  return (x, y) => grid.neighbours(x, y).filter((_, i) => i % 2 === 0);
+}
+
 /** Paints `map`'s active layer with the brush as it is now (null when the map has no layer). */
 function brushPainter(map: Tilemap): { paint(tool: BrushTool, cells: readonly Cell[], origin: Cell): void; fill(at: Cell): void } | null {
   const layer = paintLayer(map);
   if (layer < 0) return null;
   const terrain = brushTerrain.peek(), random = brushRandom.peek();
-  const stamp = orientedStamp(brushStamp.peek(), brushFlags.peek());
+  const stamp = orientedStamp(brushStamp.peek(), brushFlags.peek(), canRotateOn(map));
   const weight = (id: number) => map.tilesetAsset?.tile(id)?.weight ?? 1;
   const choices = stamp.values.filter((n) => n !== 0).map((value) => ({ value, weight: weight(tileIdOf(value)) }));
   const seed = map.variantSeed;
@@ -252,7 +279,7 @@ function brushPainter(map: Tilemap): { paint(tool: BrushTool, cells: readonly Ce
   return {
     paint,
     fill([x, y]) {
-      paint("fill", floodCells(x, y, (cx, cy) => map.getCell(cx, cy, layer), fillBounds(map, x, y), 20_000), [x, y]);
+      paint("fill", floodCells(x, y, (cx, cy) => map.getCell(cx, cy, layer), fillBounds(map, x, y), 20_000, sideNeighbours(map)), [x, y]);
     },
   };
 }

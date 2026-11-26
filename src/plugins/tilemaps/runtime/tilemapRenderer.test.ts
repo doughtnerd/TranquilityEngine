@@ -13,6 +13,8 @@ interface FakeBatch extends QuadBatch {
   /** The farthest vertex from the map's origin, in local units. */
   extent: [number, number];
   order: [string, number];
+  /** `setOrder`'s third argument (ADR 0421): undefined when none was passed. */
+  within: number | undefined;
   material: string | null;
   tint: [string, number];
   visible: boolean;
@@ -27,7 +29,7 @@ function fakeHost() {
   const host: QuadBatchHost = {
     createBatch(name) {
       const b: FakeBatch = {
-        name, texture: "", quads: 0, extent: [0, 0], order: ["", 0], material: null, tint: ["", 0], visible: false, matrix: [], disposed: false,
+        name, texture: "", quads: 0, extent: [0, 0], order: ["", 0], within: undefined, material: null, tint: ["", 0], visible: false, matrix: [], disposed: false,
         setMaterial(m) { b.material = m; },
         setBlend() {},
         setQuads(texture, positions, _uv, indices) {
@@ -38,7 +40,7 @@ function fakeHost() {
         },
         setTriangles() {},
         setMatrix(m, offset = 0) { b.matrix = Array.from(m).slice(offset, offset + 16); },
-        setOrder(layer, inLayer) { b.order = [layer, inLayer]; },
+        setOrder(layer, inLayer, within) { b.order = [layer, inLayer]; b.within = within; },
         setTint(c, a) { b.tint = [c, a]; },
         setMask() {},
         setVisible(v) { b.visible = v; },
@@ -85,7 +87,7 @@ describe("the tile renderer (ADR 0103, 0136)", () => {
     tiles.sync(world);
     const first = live();
     expect(first.map((b) => b.quads).sort((a, b) => a - b)).toEqual([4 * 2, 16 * 2]);
-    expect(first.every((b) => b.texture === "t.png" && b.order[0] === "Back" && b.order[1] === 3 && b.material === "" && b.visible && b.tint[0] === "#ff0000" && b.tint[1] === 0.5)).toBe(true);
+    expect(first.every((b) => b.texture === "t.png" && b.order[0] === "Back" && b.order[1] === 3 && b.within === undefined && b.material === "" && b.visible && b.tint[0] === "#ff0000" && b.tint[1] === 0.5)).toBe(true);
     // Editing one chunk rebuilds only that chunk.
     map.setTile(18, 0, 0);
     tiles.sync(world);
@@ -138,5 +140,41 @@ describe("the tile renderer (ADR 0103, 0136)", () => {
     tiles.sync(engine.world);
     expect(live()).toEqual(drawn);
     expect(batches.filter((b) => b.disposed)).toHaveLength(1);
+  });
+
+  it("orders a non-square layer's chunks back to front, and draws again when the grid changes (ADR 0421)", async () => {
+    Assets.clearSources();
+    Assets.addSource(
+      Assets.fromObject({
+        "s.json": { format: "myco.scene@1", nodes: [] },
+        "t.png": "data:image/png;base64,",
+        "ts.tileset.json": { format: "myco.tileset@1", tileSize: [16, 16], tiles: [{ id: 1, sprite: "asset:t.png" }] },
+      }),
+    );
+    const engine = await Engine.create({ headless: true });
+    engines.push(engine);
+    await SceneManager.load("s.json");
+    const { host, batches, load } = fakeHost();
+    load();
+    const live = () => batches.filter((b) => !b.disposed);
+    const tiles = new TilemapRenderer(host);
+    const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("G", "Default")], gridShape: "isometric" });
+    // Chunks (0, 0), (1, 0) and (1, 1): on an isometric map (1, 1) is the farthest back, (0, 0) the front.
+    for (const [x, y] of [[0, 0], [16, 0], [16, 16]]) map.setTile(x, y, 1);
+    tiles.sync(engine.world);
+    const within = (chunk: string) => live().find((b) => b.name.endsWith(`:${chunk}`))!.within!;
+    expect(live()).toHaveLength(3);
+    expect(within("1,1")).toBeLessThan(within("1,0"));
+    expect(within("1,0")).toBeLessThan(within("0,0"));
+    for (const b of live()) {
+      expect(b.within).toBeGreaterThanOrEqual(0);
+      expect(b.within).toBeLessThan(1);
+    }
+    // Another grid lays the vertices out again; a square grid passes no painter's order.
+    const before = live();
+    map.gridShape = "square";
+    tiles.sync(engine.world);
+    expect(live().some((b) => before.includes(b))).toBe(false);
+    expect(live().every((b) => b.within === undefined)).toBe(true);
   });
 });
