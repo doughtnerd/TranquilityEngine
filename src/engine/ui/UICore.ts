@@ -24,6 +24,7 @@ import type { TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptio
 import { uiDomCode, uiDomKey, uiEventRecord, UIDataTransfer, type UIEventData, type UIEventRecord } from "./events";
 import { advanceUIScrolling, canMove, uiScrollBy, uiScrollMoving, uiScrollTo, uiStartMomentum, uiStopScrolling, type UIScrollable } from "./scrolling";
 import { applyAffine, boundsOf, compose, invert, localTransform, multiply, transformRect, type UIAffine, type UITransformFields } from "./transform2d";
+import { filterStepsOf, transformFilterSteps, type UIFilterFields, type UIFilterStep } from "./filters";
 
 export { canvasScale, uiLength } from "./layout";
 
@@ -54,6 +55,8 @@ interface Placement {
   reach: UIRect;
   /** ADR 0423: a clipping element's scroll state; null otherwise. */
   scroll: UIScrollInfo | null;
+  /** ADR 0426: the filter drawn over it: its own steps, then its ancestors' (lengths in canvas UI pixels); null: none. */
+  filter: readonly UIFilterStep[] | null;
 }
 
 /** One clip (ADR 0418): a rectangle in layout space, tested after mapping the point through `inverse`. `empty`: hides everything (a clipper scaled to 0). */
@@ -171,7 +174,7 @@ function paintOrder(root: Entry): Entry[] {
   return out;
 }
 
-const NO_PLACE: Placement = { clip: null, clipper: null, childClip: null, order: 0, clips: [], transform: null, inverse: null, bounds: { x: 0, y: 0, width: 0, height: 0 }, reachClips: [], reach: { x: 0, y: 0, width: 0, height: 0 }, scroll: null };
+const NO_PLACE: Placement = { clip: null, clipper: null, childClip: null, order: 0, clips: [], transform: null, inverse: null, bounds: { x: 0, y: 0, width: 0, height: 0 }, reachClips: [], reach: { x: 0, y: 0, width: 0, height: 0 }, scroll: null, filter: null };
 
 /** ADR 0423: scrollbar thickness in UI pixels by `scrollbarWidth`, and a thumb's shortest length. */
 const SCROLLBAR_WIDTH = { auto: 10, thin: 6, none: 0 } as const;
@@ -763,7 +766,7 @@ export class UICore implements UICoreLike {
     const cv = canvas.comp.isActiveAndEnabled;
     canvas.box = { x: 0, y: 0, width: canvas.width, height: canvas.height, visible: cv, opacity: 1 };
     const yoga = this.yoga!;
-    const walk = (parent: Entry, ox: number, oy: number, visible: boolean, opacity: number, clip: UIRect | null, clipper: Entry | null, clips: readonly ClipStep[], reachClips: readonly ClipStep[], parentTransform: UIAffine | null) => {
+    const walk = (parent: Entry, ox: number, oy: number, visible: boolean, opacity: number, clip: UIRect | null, clipper: Entry | null, clips: readonly ClipStep[], reachClips: readonly ClipStep[], parentTransform: UIAffine | null, parentFilter: readonly UIFilterStep[] | null) => {
       for (const e of parent.children) {
         const c = e.comp as Exclude<UIComponentType, UICanvas>;
         const n = e.node;
@@ -783,16 +786,19 @@ export class UICore implements UICoreLike {
         // ADR 0418 wave 3: its transform composes its parent's with its own; layout above ignored both.
         const transform = compose(parentTransform, localTransform(c as unknown as UITransformFields, e.box));
         const inverse = transform ? invert(transform) : null;
-        e.place = { clip, clipper, childClip, order: 0, clips, transform, inverse, bounds: drawnBounds(e.box, transform, clips), reachClips, reach: drawnBounds(e.box, transform, reachClips), scroll };
+        // ADR 0426: its own filter (lengths through its transform) applies to it and its descendants, before its ancestors'.
+        const own = filterStepsOf(c as unknown as UIFilterFields);
+        const filter = own.length ? [...transformFilterSteps(own, transform), ...(parentFilter ?? [])] : parentFilter;
+        e.place = { clip, clipper, childClip, order: 0, clips, transform, inverse, bounds: drawnBounds(e.box, transform, clips), reachClips, reach: drawnBounds(e.box, transform, reachClips), scroll, filter };
         canvas.elements.push(e);
         // ADR 0423: its children are drawn moved by its scroll; only a clip that doesn't scroll keeps navigation out.
         const sx = scroll?.x ?? 0, sy = scroll?.y ?? 0;
         const nextClips = childClip ? withClip(clips, childClip, transform, inverse) : clips;
         const nextReach = childClip && !isUserScroller(c) ? withClip(reachClips, childClip, transform, inverse) : reachClips;
-        walk(e, x - sx, y - sy, v, o, childClip ? intersectRect(childClip, clip) : clip, childClip ? e : clipper, nextClips, nextReach, transform);
+        walk(e, x - sx, y - sy, v, o, childClip ? intersectRect(childClip, clip) : clip, childClip ? e : clipper, nextClips, nextReach, transform, filter);
       }
     };
-    walk(canvas, 0, 0, cv, 1, null, null, [], [], null);
+    walk(canvas, 0, 0, cv, 1, null, null, [], [], null, null);
     canvas.painted = paintOrder(canvas);
     canvas.painted.forEach((e, i) => (e.place.order = i));
     canvas.hitOrder = hitOrderOf(canvas.painted);
@@ -858,7 +864,7 @@ export class UICore implements UICoreLike {
       canvasList.push({ comp: c, mode: c.mode, sortOrder: c.sortOrder, width: canvas.width, height: canvas.height, scale: canvas.scale, pixelSize: c.mode === "world" ? c.pixelSize : 1, worldMatrix, visible: c.isActiveAndEnabled });
       for (const e of canvas.elements) {
         const b = e.box, p = e.place;
-        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds, reach: p.reach, scroll: p.scroll });
+        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds, reach: p.reach, scroll: p.scroll, filter: p.filter });
       }
     }
     const changed = !sameCanvases(this.canvasList, canvasList) || !sameElements(this.elementList, elementList);

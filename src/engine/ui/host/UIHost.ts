@@ -35,6 +35,7 @@ import { UIButton, UICanvas, UIInputField, UIText, type UIComponentType } from "
 import { uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
 import { boundsOf, transformRect } from "../transform2d";
+import { filterStepsOf, filterText, type UIFilterFields } from "../filters";
 import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIMediaEnvironment, UIPseudo, UIStylesheet, UITag } from "../document/types";
 import type { UIAnimationSpec, UITransitionSpec } from "../document/animationValues";
 import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimator, type UIAnimationEvent, type UIAnimationStop, type UIPlayback, type UIPlayHooks, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "../animation/UIAnimator";
@@ -422,6 +423,8 @@ export class UIHostElement {
     if (tx !== 0 || ty !== 0) parts.push(`translate(${px(tx)}, ${px(ty)})`);
     if (rotate !== 0) parts.push(`rotate(${rotate}deg)`);
     if (sx !== 1 || sy !== 1) parts.push(`scale(${sx}, ${sy})`);
+    // ADR 0426: the full matrix, applied after the three.
+    if (typeof c.transformMatrix === "string" && c.transformMatrix.trim() !== "") parts.push(c.transformMatrix.trim());
     const hasBorder = "borderWidth" in c;
     const border = (s: string) => (hasBorder ? side(`border${s}Width`, "borderWidth") : "0px");
     return {
@@ -459,8 +462,8 @@ export class UIHostElement {
       backgroundColor: rgba(c.backgroundColor),
       color: rgba(c.color, "rgba(0, 0, 0, 1)"),
       fontSize: px(num(c.fontSize, 16)),
-      // Not drawn yet (filters and SVG come with ADR 0426): their initial values.
-      filter: "none",
+      // ADR 0426: the filter fields as CSS (their fixed order); SVG stroke properties belong to SVG shapes, not elements.
+      filter: filterText(filterStepsOf(c as Partial<UIFilterFields>)),
       zoom: "1",
       strokeLinecap: "butt",
       strokeWidth: "1px",
@@ -491,7 +494,7 @@ export class UIHostElement {
         const raw = P.substituteVars(String(value), vars);
         const values = raw === undefined ? "uses a variable that isn't defined." : P.keyframeValues(P.propertyField(name), raw, fields, file);
         if (typeof values === "string") {
-          const later = /^filter$|^backdrop-filter$/.test(name) ? " Filters come with ADR 0426; the rest of the animation runs." : /^stroke|^fill/.test(name) ? " SVG comes with ADR 0426; the rest of the animation runs." : "";
+          const later = /^backdrop-filter$/.test(name) ? " backdrop-filter isn't supported (ADR 0426); the rest of the animation runs." : /^stroke|^fill/.test(name) ? " SVG paint applies to shapes inside an <svg> (ADR 0426); the rest of the animation runs." : "";
           // Once per tag, property and reason (a transition's keyframes hold a new value each frame).
           const key = `${this.tag}|${name}|${values}`;
           if (!animateWarned.has(key)) {

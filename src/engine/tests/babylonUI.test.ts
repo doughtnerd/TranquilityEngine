@@ -1016,3 +1016,131 @@ describe("transforms on Babylon GUI (ADR 0418 wave 3)", () => {
     }
   });
 });
+
+describe("ADR 0426 on Babylon GUI: skew through the full matrix, and filters", () => {
+  /** The control drawing `c`, anywhere under the screen canvas roots. */
+  const controlOf = (c: UIComponentType): Control => {
+    const find = (ctl: Control): Control | null => {
+      if (ctl.name === c.owner.name) return ctl;
+      for (const child of (ctl as Container).children ?? []) {
+        const f = find(child);
+        if (f) return f;
+      }
+      return null;
+    };
+    for (const root of screenRoots()) {
+      const f = find(root);
+      if (f) return f;
+    }
+    throw new Error(`no control for "${c.owner.name}"`);
+  };
+  /** Where Babylon GUI draws a point of a control's measure: through its `_transformMatrix` (laid out and drawn once). */
+  const drawnAt = (ctl: Control, x: number, y: number): [number, number] => {
+    const m = ctl._transformMatrix.m;
+    const cm = (ctl as unknown as { _currentMeasure: { left: number; top: number } })._currentMeasure;
+    const px = cm.left + x, py = cm.top + y;
+    return [px * m[0] + py * m[2] + m[4], px * m[1] + py * m[3] + m[5]];
+  };
+
+  it("draws a skewed element through its whole matrix, where the core hits it, and in a clip with its clipper", async () => {
+    ui.screen.scaleTo(1280, 720);
+    const doc = buildUI(`<Canvas>
+        <Button id="b" position="absolute" left="100" top="100" width="200" height="50" padding="0" transform="skewX(45deg)"/>
+        <Panel id="clip" position="absolute" left="400" top="100" width="200" height="100" overflow="hidden" transform="skewY(20deg)" background-color="#123">
+          <Button id="c" position="absolute" left="10" top="10" width="80" height="40" padding="0" rotate="30"/>
+        </Panel></Canvas>`);
+    const pointer = await UIPointer.create(World.require());
+    try {
+      pointer.sync();
+      ui.sync(World.require(), pointer.core, {}, 1280, 720, 1);
+      ui.screen._checkUpdate(null);
+      for (const id of ["b", "clip", "c"]) {
+        const comp = byId(doc, id, id === "clip" ? UIPanel : UIButton);
+        const ctl = controlOf(comp);
+        // The skewed ones are drawn through the matrix, not Babylon's own; "c" is only turned within its clipper's frame.
+        if (id !== "c") expect([ctl.rotation, ctl.scaleX, ctl.scaleY]).toEqual([0, 1, 1]);
+        else expect(ctl.rotation).toBeCloseTo(Math.PI / 6);
+        const corners = pointer.core.cornersOf(comp)!;
+        const [w, h] = corners.size;
+        [[0, 0], [w, 0], [w, h], [0, h]].forEach(([x, y], i) => {
+          const [px, py] = drawnAt(ctl, x, y);
+          expect(px).toBeCloseTo(corners.points[i][0], 4);
+          expect(py).toBeCloseTo(corners.points[i][1], 4);
+        });
+      }
+      // No skew: back on Babylon's rotation and scales.
+      const b = byId(doc, "b", UIButton);
+      b.transformMatrix = "";
+      b.rotate = 90;
+      pointer.sync();
+      ui.sync(World.require(), pointer.core, {}, 1280, 720, 1);
+      expect(controlOf(b).rotation).toBeCloseTo(Math.PI / 2);
+      expect((controlOf(b) as unknown as { affine: unknown }).affine).toBeNull();
+    } finally {
+      pointer.dispose();
+    }
+  });
+
+  it("sets the context's filter around the element's drawing, its lengths in texture pixels, its subtree inheriting it", async () => {
+    ui.screen.scaleTo(1280, 720);
+    const doc = buildUI(`<Canvas><Panel id="p" position="absolute" left="10" top="10" width="100" height="100" background-color="#333" filter="blur(2px) grayscale(1)">
+        <Panel id="q" width="50" height="50" background-color="#f00" filter="brightness(1.5)"/></Panel></Canvas>`);
+    const pointer = await UIPointer.create(World.require());
+    const ctx = ui.screen.getContext() as unknown as Record<string, unknown>;
+    const seen: string[] = [];
+    let filter = "none";
+    Object.defineProperty(ctx, "filter", { configurable: true, get: () => filter, set: (v: string) => (seen.push(v), (filter = v)) });
+    try {
+      pointer.sync();
+      ui.sync(World.require(), pointer.core, {}, 1280, 720, 2); // two texture pixels per UI pixel
+      ui.screen._checkUpdate(null);
+      expect(seen).toContain("blur(4px) grayscale(1)");
+      // The child: its own filter first, then its parent's (CSS filters a subtree as one).
+      expect(seen).toContain("brightness(1.5) blur(4px) grayscale(1)");
+      const p = controlOf(byId(doc, "p", UIPanel)) as unknown as { filterReach: number };
+      expect(p.filterReach).toBe(12); // a blur reaches three standard deviations
+    } finally {
+      delete ctx.filter;
+      pointer.dispose();
+    }
+  });
+
+  it("filters offscreen where the context has no filter, drawing the filtered pixels back", async () => {
+    ui.screen.scaleTo(1280, 720);
+    buildUI(`<Canvas><Panel id="p" position="absolute" left="10" top="10" width="20" height="10" background-color="#fff" filter="invert(1)"/></Canvas>`);
+    const pointer = await UIPointer.create(World.require());
+    const ctx = ui.screen.getContext() as unknown as Record<string, unknown>;
+    const made: { width: number; height: number; data: Uint8ClampedArray }[] = [];
+    const drawn: unknown[][] = [];
+    const draw = ctx.drawImage;
+    ctx.getTransform = () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
+    ctx.drawImage = (...a: unknown[]) => drawn.push(a);
+    const create = (babylon as unknown as { createCanvas: (w: number, h: number) => ReturnType<typeof fakeCanvas> }).createCanvas;
+    (babylon as unknown as { createCanvas: unknown }).createCanvas = (w: number, h: number) => {
+      const c = create(w, h);
+      const octx = c.getContext() as unknown as Record<string, unknown>;
+      octx.getTransform = () => ({ a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 });
+      octx.getImageData = (_x: number, _y: number, iw: number, ih: number) => {
+        const img = { width: iw, height: ih, data: new Uint8ClampedArray(iw * ih * 4).fill(255) };
+        made.push(img);
+        return img;
+      };
+      octx.putImageData = () => undefined;
+      return c;
+    };
+    try {
+      pointer.sync();
+      ui.sync(World.require(), pointer.core, {}, 1280, 720, 1);
+      ui.screen._checkUpdate(null);
+      expect(made).toHaveLength(1);
+      // White inverted is black; alpha untouched.
+      expect([...made[0].data.slice(0, 4)]).toEqual([0, 0, 0, 255]);
+      expect([made[0].width, made[0].height]).toEqual([20, 10]);
+      expect(drawn.some((a) => a[5] === 10 && a[6] === 10 && a[7] === 20 && a[8] === 10)).toBe(true);
+    } finally {
+      ctx.drawImage = draw;
+      (babylon as unknown as { createCanvas: unknown }).createCanvas = create;
+      pointer.dispose();
+    }
+  });
+});

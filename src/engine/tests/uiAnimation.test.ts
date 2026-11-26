@@ -165,7 +165,7 @@ describe("@keyframes and the cascade (ADR 0418 wave 4)", () => {
   it("maps transition properties onto the fields they cover: all, shorthands' longhands, one field", () => {
     const fields = fieldsOf(UIPanel);
     expect(transitionFields("padding", fields)).toEqual(["padding", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft"]);
-    expect(transitionFields("transform", fields)).toEqual(["translateX", "translateY", "scaleX", "scaleY", "rotate"]);
+    expect(transitionFields("transform", fields)).toEqual(["translateX", "translateY", "scaleX", "scaleY", "rotate", "transformMatrix"]);
     expect(transitionFields("box-shadow", fields)).toEqual(["boxShadowColor", "boxShadowOffsetX", "boxShadowOffsetY", "boxShadowBlur"]);
     expect(transitionFields("background-color", fields)).toEqual(["backgroundColor"]);
     expect(transitionFields("color", fields)).toEqual([]); // a Panel has no color

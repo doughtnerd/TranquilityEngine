@@ -249,6 +249,39 @@ abstract class UIElement extends UIComponent {
    */
   @field(String) transformOriginX: UILength = "50%";
   @field(String) transformOriginY: UILength = "50%";
+  /**
+   * ADR 0426: a full 2D matrix applied after translate, rotate and scale, as `matrix(a, b, c, d, e, f)` (pixels); "" (the
+   * default) for none. A stylesheet's `transform` list that doesn't fold into the three (one with `skew()`, `skewX()`,
+   * `skewY()` or `matrix()`, or a rotation after an unequal scale) sets it. It animates as CSS interpolates matrices.
+   */
+  @field(String) transformMatrix = "";
+
+  // ADR 0426: CSS filters, drawn over the element and its children (a stylesheet's `filter` sets them). Each function is a
+  // field, so transitions and keyframes animate them; they apply in this order whatever order `filter` lists them in.
+  /** `blur()`: a Gaussian blur, its standard deviation in UI pixels. 0: none. */
+  @field(Number) filterBlur = 0;
+  /** `brightness()`: 1 as it is, 0 black, above 1 brighter. */
+  @field(Number) filterBrightness = 1;
+  /** `contrast()`: 1 as it is, 0 flat grey. */
+  @field(Number) filterContrast = 1;
+  /** `grayscale()`: 0 as it is, 1 fully grey. */
+  @field(Number) filterGrayscale = 0;
+  /** `hue-rotate()`, in degrees. */
+  @field(Number) filterHueRotate = 0;
+  /** `invert()`: 0 as it is, 1 inverted. */
+  @field(Number) filterInvert = 0;
+  /** `opacity()`: like `opacity`, applied as a filter step (after the ones before it). 1 as it is. */
+  @field(Number) filterOpacity = 1;
+  /** `saturate()`: 1 as it is, 0 grey, above 1 more saturated. */
+  @field(Number) filterSaturate = 1;
+  /** `sepia()`: 0 as it is, 1 fully sepia. */
+  @field(Number) filterSepia = 0;
+  /** `drop-shadow()`'s colour: a shadow of what's drawn (its shape, not its box). Null: none. */
+  @field(Color) filterDropShadowColor: Color | null = null;
+  /** The drop shadow's offset right and down, and its blur, in UI pixels. */
+  @field(Number) filterDropShadowOffsetX = 0;
+  @field(Number) filterDropShadowOffsetY = 0;
+  @field(Number) filterDropShadowBlur = 0;
 }
 
 /** A box: background, border and rounded corners, laying out its children. */

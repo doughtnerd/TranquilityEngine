@@ -42,6 +42,9 @@ import type { BaseGradient } from "@babylonjs/gui/2D/controls/gradient/BaseGradi
 import { LinearGradient } from "@babylonjs/gui/2D/controls/gradient/LinearGradient.js";
 import { RadialGradient } from "@babylonjs/gui/2D/controls/gradient/RadialGradient.js";
 import type { Measure } from "@babylonjs/gui/2D/measure.js";
+import { Matrix2D } from "@babylonjs/gui/2D/math2D.js";
+import type { ICanvas } from "@babylonjs/core/Engines/ICanvas.js";
+import type { Nullable } from "@babylonjs/core/types.js";
 import type { Component } from "../../core/Component";
 import { Color } from "../../core/math";
 import type { World } from "../../core/World";
@@ -58,6 +61,8 @@ import type { TextMeasureRequest, UICoreLike, UILaidOutCanvas, UILaidOutElement,
 import { flipRows, redrawnPixels, type PixelRect } from "../pixelRegions";
 import { linearGradientLine, parseBackgroundImage, radialGradientCircle, type PaintBox, type UIBackgroundImage } from "../../ui/document/paintValues";
 import { applyAffine, decompose, invert, multiply, type UIAffine } from "../../ui/transform2d";
+import { filterReach, filterText, transformFilterSteps, type UIFilterStep } from "../../ui/filters";
+import { filterPixels } from "../filterPixels";
 
 /** World canvases' texture pixels per UI pixel. */
 const WORLD_RESOLUTION = 2;
@@ -140,12 +145,155 @@ interface BarsEntry {
 const DEFAULT_THUMB = new Color(0.78, 0.8, 0.84, 0.75);
 const DEFAULT_TRACK = new Color(0, 0, 0, 0.22);
 
+/** What `Drawn` reaches of Babylon GUI's protected and private control state (checked when Babylon is upgraded, ADR 0426). */
+interface ControlInternals {
+  _currentMeasure: Measure;
+  _evaluatedMeasure: Measure;
+  _transformMatrix: Matrix2D;
+  _invertTransformMatrix: Matrix2D;
+  _host: AdvancedDynamicTexture;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ControlClass = new (...args: any[]) => Control;
+
+/** True when a Canvas2D context draws `filter` itself (ADR 0426): `CanvasRenderingContext2D.filter` is a string there. */
+function drawsFilters(ctx: ICanvasRenderingContext): boolean {
+  return typeof (ctx as unknown as { filter?: unknown }).filter === "string";
+}
+
+/**
+ * ADR 0426: a control drawn with what Babylon GUI's own state can't express.
+ * - **A full matrix** (`affine`): the map from its parent control's frame (UI pixels, the parent's corner at 0, 0) to where
+ *   it's drawn, replacing Babylon's left/top, rotation and scales: `_transform` sets it on the context and in its
+ *   `_transformMatrix` (which redraw regions, clipping checks and its children use), so skew draws as the core hits it.
+ * - **A CSS filter** (`filter`, the context's `filter` text, lengths in texture pixels): set on the context around its
+ *   drawing where the browser supports `CanvasRenderingContext2D.filter`; otherwise it's drawn to an offscreen canvas and
+ *   filtered there (`filterPixels.ts`). `filterReach` (texture pixels) grows its redraw region and clip for blur and
+ *   drop shadows, as Babylon grows them for its own shadow.
+ */
+function Drawn<T extends ControlClass>(Base: T) {
+  class DrawnControl extends Base {
+    affine: UIAffine | null = null;
+    filter = "";
+    /** The filter's steps, lengths in texture pixels: the offscreen fallback's. */
+    filterSteps: readonly UIFilterStep[] = [];
+    filterReach = 0;
+    private readonly local = Matrix2D.Identity();
+    private offscreen: { canvas: ICanvas; width: number; height: number } | null = null;
+
+    protected override _transform(context?: ICanvasRenderingContext): void {
+      const m = this.affine;
+      if (!m) return super._transform(context);
+      const self = this as unknown as ControlInternals;
+      // Its parent's corner in measure coordinates: where its own corner is, less where it was placed in the parent.
+      const ox = self._currentMeasure.left - this.leftInPixels, oy = self._currentMeasure.top - this.topInPixels;
+      const e = m[4] + ox - (m[0] * ox + m[2] * oy), f = m[5] + oy - (m[1] * ox + m[3] * oy);
+      (context as unknown as { transform?(a: number, b: number, c: number, d: number, e: number, f: number): void } | undefined)?.transform?.(m[0], m[1], m[2], m[3], e, f);
+      const l = this.local.m;
+      if (l[0] !== m[0] || l[1] !== m[1] || l[2] !== m[2] || l[3] !== m[3] || l[4] !== e || l[5] !== f) {
+        this.local.fromValues(m[0], m[1], m[2], m[3], e, f);
+        this._flagDescendantsAsMatrixDirty();
+      }
+      if (this.parent) this.local.multiplyToRef(this.parent._transformMatrix, self._transformMatrix);
+      else self._transformMatrix.fromValues(l[0], l[1], l[2], l[3], l[4], l[5]);
+      self._transformMatrix.invertToRef(self._invertTransformMatrix);
+      self._currentMeasure.transformToRef(self._transformMatrix, self._evaluatedMeasure);
+    }
+
+    protected override _applyStates(context: ICanvasRenderingContext): void {
+      super._applyStates(context);
+      if (this.filter && drawsFilters(context)) context.filter = this.filter;
+    }
+
+    protected override _computeAdditionalOffsetX(): number {
+      return super._computeAdditionalOffsetX() + this.filterReach;
+    }
+
+    protected override _computeAdditionalOffsetY(): number {
+      return super._computeAdditionalOffsetY() + this.filterReach;
+    }
+
+    override _intersectsRect(rect: Measure, context?: ICanvasRenderingContext): boolean {
+      const r = this.filterReach;
+      if (r <= 0) return super._intersectsRect(rect, context);
+      const m = (this as unknown as ControlInternals)._evaluatedMeasure;
+      return !(m.left - r >= rect.left + rect.width || m.top - r >= rect.top + rect.height || m.left + m.width + r <= rect.left || m.top + m.height + r <= rect.top);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    constructor(...args: any[]) {
+      super(...args);
+      // `_clip` is private in Babylon's declarations, so it's replaced on the instance (ADR 0426, checked on upgrades).
+      const own = (Base.prototype as unknown as { _clip(c: ICanvasRenderingContext, r?: Nullable<Measure>): void })._clip;
+      (this as unknown as { _clip(c: ICanvasRenderingContext, r?: Nullable<Measure>): void })._clip = (c, r) => (this.filterReach > 0 ? this.clipFiltered(c) : own.call(this, c, r));
+    }
+
+    private clipFiltered(context: ICanvasRenderingContext): void {
+      // Grown by the filter's reach in its own frame (the reach is in texture pixels; its frame's are scaled by its matrix).
+      const self = this as unknown as ControlInternals;
+      const t = self._transformMatrix.m;
+      const k = Math.sqrt(Math.abs(t[0] * t[3] - t[1] * t[2])) || 1;
+      const r = this.filterReach / k;
+      const m = self._currentMeasure;
+      context.beginPath();
+      context.rect(m.left - r, m.top - r, m.width + 2 * r, m.height + 2 * r);
+      context.clip();
+    }
+
+    override _render(context: ICanvasRenderingContext, invalidatedRectangle?: Nullable<Measure>): boolean {
+      if (!this.filter || drawsFilters(context) || !this.filterSteps.length) return super._render(context, invalidatedRectangle);
+      return this.renderFiltered(context, invalidatedRectangle);
+    }
+
+    /** The offscreen fallback: draw into a canvas the size of its drawn bounds (grown by the reach), filter it, and draw that. */
+    private renderFiltered(context: ICanvasRenderingContext, invalidatedRectangle?: Nullable<Measure>): boolean {
+      if (!this.isVisible || this.notRenderable) return super._render(context, invalidatedRectangle);
+      const self = this as unknown as ControlInternals;
+      this._transform(); // its matrix and drawn bounds now, as the draw below will make them
+      const em = self._evaluatedMeasure;
+      const size = self._host.getSize();
+      const r = this.filterReach;
+      const x0 = Math.max(0, Math.floor(em.left - r)), y0 = Math.max(0, Math.floor(em.top - r));
+      const x1 = Math.min(size.width, Math.ceil(em.left + em.width + r)), y1 = Math.min(size.height, Math.ceil(em.top + em.height + r));
+      const w = x1 - x0, h = y1 - y0;
+      if (w <= 0 || h <= 0) return false;
+      const getTransform = (context as unknown as { getTransform?(): { a: number; b: number; c: number; d: number; e: number; f: number } }).getTransform;
+      const engine = self._host.getScene()?.getEngine();
+      if (!getTransform || !engine) return super._render(context, invalidatedRectangle);
+      let off = this.offscreen;
+      if (!off || off.width < w || off.height < h) {
+        off = this.offscreen = { canvas: engine.createCanvas(Math.max(w, off?.width ?? 0), Math.max(h, off?.height ?? 0)), width: Math.max(w, off?.width ?? 0), height: Math.max(h, off?.height ?? 0) };
+      }
+      const octx = off.canvas.getContext("2d") as unknown as ICanvasRenderingContext;
+      const t = getTransform.call(context);
+      octx.setTransform(1, 0, 0, 1, 0, 0);
+      octx.clearRect(0, 0, off.width, off.height);
+      octx.setTransform(t.a, t.b, t.c, t.d, t.e - x0, t.f - y0);
+      const drew = super._render(octx, null);
+      octx.setTransform(1, 0, 0, 1, 0, 0);
+      const image = octx.getImageData(0, 0, w, h);
+      filterPixels(image, this.filterSteps);
+      octx.putImageData(image, 0, 0);
+      context.save();
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.drawImage(off.canvas, 0, 0, w, h, x0, y0, w, h);
+      context.restore();
+      return drew;
+    }
+  }
+  return DrawnControl;
+}
+
+const DrawnRectangle = Drawn(Rectangle);
+const DrawnImage = Drawn(Image);
+
 /**
  * A text block in the language's direction, wrapping lines by the engine's line breaking (ADR 0356 §5): the context's
  * base direction is the language's, and lines break where `lineBreak.ts` allows (spaces, between CJK characters with
  * the kinsoku rules, Thai words), measured as `textSize` measures them for layout.
  */
-class LocalisedTextBlock extends TextBlock {
+class LocalisedTextBlock extends Drawn(TextBlock) {
   /** The base direction (ADR 0356 §5): the canvas context's `direction`, so the browser orders mixed runs within a line. */
   direction: "ltr" | "rtl" = "ltr";
   /** Where lines may break: `ui/text/lineBreak.ts`'s rules, the same ones `textSize` measured with. */
@@ -175,11 +323,11 @@ class LocalisedTextBlock extends TextBlock {
   }
 
   protected override _computeAdditionalOffsetX(): number {
-    return this.overflow;
+    return super._computeAdditionalOffsetX() + this.overflow;
   }
 
   protected override _computeAdditionalOffsetY(): number {
-    return this.overflow;
+    return super._computeAdditionalOffsetY() + this.overflow;
   }
 }
 
@@ -188,7 +336,7 @@ class LocalisedTextBlock extends TextBlock {
  * control's, so the rectangle rebuilds its gradient for the box it's drawn in, the moment it draws (assigned to the
  * protected field, as a setter would mark it dirty again mid-draw).
  */
-class PaintedRectangle extends Rectangle {
+class PaintedRectangle extends Drawn(Rectangle) {
   /** The gradient `backgroundImage` names, or null. */
   paint: GradientPaint | null = null;
   /** Texture pixels the redrawn rectangle grows by on every side, for a shadow that moved or shrank (see `LocalisedTextBlock`). */
@@ -434,6 +582,7 @@ export class BabylonUI {
     if (put(ctl, "h", el.height)) ctl.heightInPixels = el.height;
     if (put(ctl, "z", el.order)) ctl.zIndex = el.order;
     if (put(ctl, "alpha", el.opacity)) ctl.alpha = el.opacity;
+    applyFilter(ctl, el.filter ?? null, canvas.root.scaleX);
 
     const c = el.comp;
     switch (el.kind) {
@@ -468,7 +617,7 @@ export class BabylonUI {
       t.clipContent = false;
       control = t;
     } else if (el.kind === "image") {
-      const image = new Image(name);
+      const image = new DrawnImage(name);
       image.autoScale = false;
       control = image;
     } else {
@@ -503,24 +652,49 @@ export class BabylonUI {
    * Place a control whose untransformed box has its top-left corner at (x, y) in canvas UI pixels, drawn in `into` (a
    * clip container) or its canvas root, with its whole transform `transform` (ADR 0418 wave 3, see the head comment).
    */
-  private place(ctl: Control, x: number, y: number, into: ClipEntry | undefined, transform: UIAffine | null, name: string): void {
+  private place(ctl: Control, x: number, y: number, into: ClipEntry | undefined, transform: UIAffine | null, _name: string): void {
     const frame = into?.transform ?? null;
     let rel: UIAffine | null = transform;
     if (frame) {
       const inv = invert(frame);
       rel = inv ? (transform ? multiply(inv, transform) : inv) : null;
     }
+    const ix = into?.x ?? 0, iy = into?.y ?? 0;
+    const d = rel ? decompose(rel) : null;
+    // ADR 0426: a skew (a rotation inside an unequal scale, `skew()`, `matrix()`) isn't Babylon's rotation and scales: the
+    // control is placed where layout put it and drawn through the whole map, in its parent's frame (`Drawn`).
+    const drawn = ctl as Control & { affine?: UIAffine | null };
+    if (rel && d && Math.abs(d.skew) > 1e-6 && "affine" in drawn) {
+      const lx = x - ix, ly = y - iy;
+      // In the parent control's frame: T(−into) · rel · T(into).
+      const m: UIAffine = [rel[0], rel[1], rel[2], rel[3], rel[4] + rel[0] * ix + rel[2] * iy - ix, rel[5] + rel[1] * ix + rel[3] * iy - iy];
+      if (put(ctl, "x", lx)) ctl.leftInPixels = lx;
+      if (put(ctl, "y", ly)) ctl.topInPixels = ly;
+      if (put(ctl, "rot", 0)) ctl.rotation = 0;
+      if (put(ctl, "sx", 1)) ctl.scaleX = 1;
+      if (put(ctl, "sy", 1)) ctl.scaleY = 1;
+      if (put(ctl, "affine", m.join(","))) {
+        drawn.affine = m;
+        ctl._markMatrixAsDirty();
+        ctl._markAsDirty();
+      }
+      return;
+    }
+    if (drawn.affine) {
+      drawn.affine = null;
+      put(ctl, "affine", "");
+      ctl._markMatrixAsDirty();
+      ctl._markAsDirty();
+    }
     let rotation = 0, scaleX = 1, scaleY = 1;
-    if (rel) {
+    if (rel && d) {
       [x, y] = applyAffine(rel, x, y);
-      const d = decompose(rel);
       rotation = d.rotation;
       scaleX = d.scaleX;
       scaleY = d.scaleY;
-      if (Math.abs(d.skew) > 1e-6) this.warnOnce(`skew|${name}`, `UI element "${name}" is rotated inside an unequal scale, which skews it; it's drawn without the skew`);
     }
-    x -= into?.x ?? 0;
-    y -= into?.y ?? 0;
+    x -= ix;
+    y -= iy;
     if (put(ctl, "x", x)) ctl.leftInPixels = x;
     if (put(ctl, "y", y)) ctl.topInPixels = y;
     if (put(ctl, "rot", rotation)) ctl.rotation = rotation;
@@ -556,7 +730,7 @@ export class BabylonUI {
       clip = undefined;
     }
     if (!clip) {
-      const container = new Rectangle(`${el.comp.owner.name}.clip`);
+      const container = new DrawnRectangle(`${el.comp.owner.name}.clip`);
       container.thickness = 0;
       container.clipContent = true;
       container.clipChildren = true;
@@ -631,7 +805,7 @@ export class BabylonUI {
       }
       if (!pair) {
         const make = (name: string) => {
-          const r = new Rectangle(`${el.comp.owner.name}.${name}`);
+          const r = new DrawnRectangle(`${el.comp.owner.name}.${name}`);
           r.thickness = 0;
           r.isHitTestVisible = false;
           placeBox(r);
@@ -658,6 +832,7 @@ export class BabylonUI {
         if (put(r, "radius", radius)) r.cornerRadius = radius;
         if (put(r, "bg", colorKey(color))) r.background = color.toCss();
         if (put(r, "alpha", el.opacity)) r.alpha = el.opacity;
+        applyFilter(r, el.filter ?? null, canvas.root.scaleX);
       }
     }
   }
@@ -998,6 +1173,24 @@ function applyShadow(ctl: Control, color: Color | null, offsetX: number, offsetY
   ctl.shadowOffsetY = offsetY * scale;
   ctl.shadowBlur = Math.max(0, blur) * scale;
   return Math.ceil((Math.max(Math.abs(offsetX), Math.abs(offsetY)) + 2 * Math.max(0, blur)) * scale) + 1;
+}
+
+/**
+ * ADR 0426: a control's filter from the core's chain (lengths in UI pixels), in texture pixels (`scale` per UI pixel), as
+ * the context's `filter` text and the steps the offscreen fallback draws. Marks it dirty when it changed.
+ */
+function applyFilter(ctl: Control, steps: readonly UIFilterStep[] | null, scale: number): void {
+  const d = ctl as Control & { filter?: string; filterSteps?: readonly UIFilterStep[]; filterReach?: number };
+  if (d.filter === undefined) return;
+  const scaled = steps?.length ? transformFilterSteps(steps, null, scale) : [];
+  const text = scaled.length ? filterText(scaled) : "";
+  if (d.filter === text) return;
+  // Where the old filter reached is redrawn too (a blur shrinking or going leaves nothing behind).
+  if (d.filterReach && ctl.host) ctl.invalidateRect();
+  d.filter = text;
+  d.filterSteps = scaled;
+  d.filterReach = filterReach(scaled);
+  ctl._markAsDirty();
 }
 
 /** Controls sit at absolute pixel boxes from the top-left; the core did the layout. */

@@ -152,16 +152,19 @@ describe("UIView: Svelte transitions (the patch's animate hook)", () => {
     expect(frames(7, () => field(v, "#box", "opacity"))).toEqual([0, 0.133, 0.267, 0.4, 0.533, 0.667, 0.8]);
   });
 
-  it("degrades blur (no filters yet) to its fade and draw (no SVG yet) to nothing, warning once", async () => {
+  it("blurs in through the filter fields (ADR 0426) as it fades", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const blur = await transitions("blur");
     blur.show(true);
-    const opacity = frames(7, () => field(blur.v, "#box", "opacity"));
-    expect(opacity[0]).toBe(0);
-    expect(opacity[6]).toBe(0.8);
-    const filter = warn.mock.calls.filter((c) => String(c[0]).includes("can't animate filter"));
-    expect(filter).toHaveLength(1);
-    expect(String(filter[0][0])).toContain("ADR 0426");
+    const both = frames(7, () => [field(blur.v, "#box", "opacity"), field(blur.v, "#box", "filterBlur")]);
+    expect(both[0]).toEqual([0, 5]); // blur's default amount, 5px, unblurring as it fades in
+    expect((both[3][1] as number) > 0 && (both[3][1] as number) < 5).toBe(true);
+    expect(both[6]).toEqual([0.8, 0]);
+    expect(warn.mock.calls.some((c) => String(c[0]).includes("can't animate filter"))).toBe(false);
+  });
+
+  it.skip("draw: replaced below", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     const draw = await transitions("draw");
     draw.show(true);
