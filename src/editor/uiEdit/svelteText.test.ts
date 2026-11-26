@@ -2,6 +2,7 @@
 // `parse()` spans, and refuses the dynamic parts (`{…}`, `{#each}` rows, snippets).
 import { beforeAll, describe, expect, it } from "vitest";
 import {
+  addNamedImport,
   duplicateElement,
   elementAtLocation,
   insertAfterElement,
@@ -13,9 +14,11 @@ import {
   removeAttribute,
   removeElement,
   setAttribute,
+  setAttributeExpression,
   setRuleDeclarations,
   setStyleProperty,
   setText,
+  setTextExpression,
   SvelteEditError,
 } from "./svelteText";
 
@@ -141,5 +144,51 @@ describe("the component's <style>", () => {
     expect(setRuleDeclarations(SRC, ".box", [["gap", "4px"]])).toContain(`.title { font-size: 30px; }\n  .box { gap: 4px; }\n</style>`);
     const bare = `<div class="a"></div>\n`;
     expect(setRuleDeclarations(bare, ".a", [["gap", "4px"]])).toBe(`<div class="a"></div>\n\n<style>\n  .a { gap: 4px; }\n</style>\n`);
+  });
+});
+
+describe("localised text (ADR 0356 §9, 0419 wave F)", () => {
+  const LOC = `<script lang="ts">
+  import { Locale } from "myco";
+  import Badge from "./Badge.svelte";
+</script>
+
+<p id="a" title="Hello &amp; welcome">  Press start  </p>
+<p id="b">{t("menu.go")} and {@html tHtml(\`menu.rich\`, { n })} {t(key)}</p>
+<input id="c" placeholder={t("menu.name", { max: 8 })} />
+`;
+
+  it("reads text and expression tags in order, t()/tHtml() calls with literal keys, and the script's imports", () => {
+    const src = parseSvelte(LOC);
+    const b = src.elements.find((e) => e.name === "p" && e.content.length > 1)!;
+    expect(b.content.map((c) => (c.kind === "text" ? ["text", c.text] : ["expression", c.html, c.call]))).toEqual([
+      ["expression", false, { name: "t", key: "menu.go", args: false }],
+      ["text", " and "],
+      ["expression", true, { name: "tHtml", key: "menu.rich", args: true }],
+      ["expression", false, null],
+    ]);
+    const a = src.elements[0];
+    expect(a.content).toEqual([expect.objectContaining({ kind: "text", text: "  Press start  " })]);
+    expect(a.attributes[1].value).toMatchObject({ kind: "literal", text: "Hello & welcome" });
+    expect(src.elements.find((e) => e.name === "input")!.attributes[1].value).toMatchObject({ kind: "dynamic", call: { name: "t", key: "menu.name", args: true } });
+    expect(src.script!.imports.map((i) => [i.from, i.named.map((n) => n.local), i.others])).toEqual([["myco", ["Locale"], []], ["./Badge.svelte", [], ["Badge"]]]);
+  });
+
+  it("replaces literal text or a literal attribute with an expression, refusing dynamic parts", () => {
+    expect(setTextExpression(LOC, at(LOC, `<p id="a"`), `t("menu.start")`)).toContain(`<p id="a" title="Hello &amp; welcome">  {t("menu.start")}  </p>`);
+    expect(setAttributeExpression(LOC, at(LOC, `<p id="a"`), "title", `t("menu.hello")`)).toContain(`<p id="a" title={t("menu.hello")}>`);
+    expect(() => setTextExpression(LOC, at(LOC, `<p id="b"`), `t("x")`)).toThrow(/expressions/);
+    expect(() => setAttributeExpression(LOC, at(LOC, "<input"), "placeholder", `t("x")`)).toThrow(/expression/);
+    expect(() => setAttributeExpression(LOC, at(LOC, "<input"), "title", `t("x")`)).toThrow(/no title/);
+  });
+
+  it("adds a named import to the script: into the module's import, after the last import, into an empty script, or in a new script", () => {
+    expect(addNamedImport(LOC, "t", "myco")).toContain(`import { Locale, t } from "myco";`);
+    expect(addNamedImport(addNamedImport(LOC, "t", "myco"), "t", "myco")).toBe(addNamedImport(LOC, "t", "myco"));
+    expect(addNamedImport(`<script>\n  import X from "./x";\n  let a = 1;\n</script>\n<p>a</p>`, "t", "myco")).toBe(`<script>\n  import X from "./x";\n  import { t } from "myco";\n  let a = 1;\n</script>\n<p>a</p>`);
+    expect(addNamedImport(`<script lang="ts">\n  let a = 1;\n</script>\n<p>a</p>`, "t", "myco")).toBe(`<script lang="ts">\n  import { t } from "myco";\n  let a = 1;\n</script>\n<p>a</p>`);
+    expect(addNamedImport(`<script></script>\n<p>a</p>`, "t", "myco")).toBe(`<script>\n  import { t } from "myco";\n</script>\n<p>a</p>`);
+    expect(addNamedImport(`<p>a</p>\n`, "t", "myco")).toBe(`<script lang="ts">\n  import { t } from "myco";\n</script>\n\n<p>a</p>\n`);
+    expect(() => addNamedImport(`<script>\n  import { t } from "./i18n";\n</script>\n<p>a</p>`, "t", "myco")).toThrow(/another t/);
   });
 });

@@ -48,12 +48,22 @@ export interface LiteralValue {
   readonly quoted: boolean;
 }
 
-/** An attribute as written: its name, span and value (literal, bare, or with `{…}` in it). */
+/**
+ * A `t("key")` or `tHtml("key", …)` call with a literal key (`myco`'s localised text, ADR 0356, 0419): the key, which
+ * function, and whether it passes message arguments.
+ */
+export interface KeyCall {
+  readonly name: "t" | "tHtml";
+  readonly key: string;
+  readonly args: boolean;
+}
+
+/** An attribute as written: its name, span and value (literal, bare, or with `{…}` in it: `call` when it's one `{t("key")}`). */
 export interface SvelteAttribute {
   readonly name: string;
   readonly start: number;
   readonly end: number;
-  readonly value: LiteralValue | { readonly kind: "boolean" } | { readonly kind: "dynamic"; readonly source: string };
+  readonly value: LiteralValue | { readonly kind: "boolean" } | { readonly kind: "dynamic"; readonly source: string; readonly call: KeyCall | null };
 }
 
 /** A directive or spread on an element (`class:x={…}`, `style:color={…}`, `bind:value`, `{...props}`), as written. */
@@ -70,6 +80,14 @@ export type SvelteText =
   | { readonly kind: "dynamic"; readonly source: string; readonly start: number }
   | { readonly kind: "none" };
 
+/**
+ * One piece of what an element holds directly, in order: literal text (decoded, as shown) or an expression tag
+ * (`{…}`, or `{@html …}` with `html`), with `call` when the expression is one `t("key")`/`tHtml("key")` call.
+ */
+export type SvelteContent =
+  | { readonly kind: "text"; readonly text: string; readonly start: number; readonly end: number }
+  | { readonly kind: "expression"; readonly source: string; readonly start: number; readonly end: number; readonly html: boolean; readonly call: KeyCall | null };
+
 /** An element (`RegularElement`) of a component's template. */
 export interface SvelteElement {
   readonly name: string;
@@ -81,6 +99,8 @@ export interface SvelteElement {
   readonly attributes: readonly SvelteAttribute[];
   readonly directives: readonly SvelteDirective[];
   readonly text: SvelteText;
+  /** Its direct text and expression tags, in order (whitespace-only text left out), whatever else it holds. */
+  readonly content: readonly SvelteContent[];
   /** The nearest element it's inside, or null at the top of the template. */
   readonly parent: SvelteElement | null;
   /** Its place among the elements written directly beside it (the same fragment), and how many there are. */
@@ -105,6 +125,17 @@ export interface SvelteRule {
   readonly declarations: readonly { readonly property: string; readonly value: string; readonly start: number; readonly end: number }[];
 }
 
+/** An import of the instance `<script>`, as written: its span, module, and named specifiers. */
+export interface SvelteImport {
+  readonly from: string;
+  readonly start: number;
+  readonly end: number;
+  /** Named specifiers (`{ a, b as c }`): imported and local names, and where each ends. */
+  readonly named: readonly { readonly imported: string; readonly local: string; readonly end: number }[];
+  /** Default and namespace specifiers' local names. */
+  readonly others: readonly string[];
+}
+
 export interface SvelteSource {
   readonly text: string;
   /** Every element of the template, in source order. */
@@ -113,6 +144,8 @@ export interface SvelteSource {
   readonly top: readonly SvelteElement[];
   /** The `<style>` block's content span and rules, or null without one. */
   readonly style: { readonly start: number; readonly end: number; readonly rules: readonly SvelteRule[] } | null;
+  /** The instance `<script>`'s content span and imports, or null without one (a `module` script isn't it). */
+  readonly script: { readonly start: number; readonly end: number; readonly imports: readonly SvelteImport[] } | null;
 }
 
 interface Node {
@@ -166,6 +199,20 @@ export function offsetAt(text: string, line: number, column: number): number {
   return at + column <= text.length ? at + column : -1;
 }
 
+/** The `t("key")`/`tHtml("key")` call an expression is, or null (a key built at runtime isn't one). */
+function keyCallOf(expression: Node | undefined): KeyCall | null {
+  if (!expression || expression.type !== "CallExpression") return null;
+  const callee = expression.callee as Node;
+  const name = callee.type === "Identifier" ? String(callee.name) : "";
+  if (name !== "t" && name !== "tHtml") return null;
+  const args = expression.arguments as Node[];
+  const first = args[0];
+  let key: string | null = null;
+  if (first?.type === "Literal" && typeof first.value === "string") key = first.value;
+  else if (first?.type === "TemplateLiteral" && (first.expressions as Node[]).length === 0) key = String(((first.quasis as Node[])[0].value as { cooked: string }).cooked);
+  return key === null ? null : { name, key, args: args.length > 1 };
+}
+
 function attributeOf(text: string, a: Node): SvelteAttribute {
   const name = String(a.name);
   const v = a.value as true | Node | Node[];
@@ -184,7 +231,17 @@ function attributeOf(text: string, a: Node): SvelteAttribute {
     return { name, start: a.start, end: a.end, value: { kind: "literal", text: parts.map((p) => String(p.data)).join(""), start, end, quoted } };
   }
   const first = parts[0], last = parts[parts.length - 1];
-  return { name, start: a.start, end: a.end, value: { kind: "dynamic", source: text.slice(first.start, last.end) } };
+  const call = parts.length === 1 && first.type === "ExpressionTag" ? keyCallOf(first.expression as Node) : null;
+  return { name, start: a.start, end: a.end, value: { kind: "dynamic", source: text.slice(first.start, last.end), call } };
+}
+
+function contentOf(text: string, nodes: readonly Node[]): SvelteContent[] {
+  const out: SvelteContent[] = [];
+  for (const n of nodes) {
+    if (n.type === "Text" && String(n.data).trim() !== "") out.push({ kind: "text", text: String(n.data), start: n.start, end: n.end });
+    else if (n.type === "ExpressionTag" || n.type === "HtmlTag") out.push({ kind: "expression", source: text.slice(n.start, n.end), start: n.start, end: n.end, html: n.type === "HtmlTag", call: keyCallOf(n.expression as Node) });
+  }
+  return out;
 }
 
 function textOf(text: string, nodes: readonly Node[]): SvelteText {
@@ -202,7 +259,7 @@ function textOf(text: string, nodes: readonly Node[]): SvelteText {
 /** Parse a component's source. Throws `SvelteEditError` (with Svelte's message) when it doesn't parse, or before `loadSvelteParser`. */
 export function parseSvelte(text: string): SvelteSource {
   if (!parser) throw new SvelteEditError("Svelte's parser isn't loaded yet; try again in a moment");
-  let root: { fragment: { nodes: Node[] }; css: Node | null };
+  let root: { fragment: { nodes: Node[] }; css: Node | null; instance: Node | null };
   try {
     root = parser(text, { modern: true }) as unknown as typeof root;
   } catch (err) {
@@ -235,6 +292,7 @@ export function parseSvelte(text: string): SvelteSource {
           attributes,
           directives,
           text: textOf(text, fragment),
+          content: contentOf(text, fragment),
           parent,
           index: here.indexOf(n),
           siblings: here.length,
@@ -276,7 +334,27 @@ export function parseSvelte(text: string): SvelteSource {
     }
     style = { start: content.start, end: content.end, rules };
   }
-  return { text, elements, top, style };
+  let script: SvelteSource["script"] = null;
+  if (root.instance) {
+    const content = root.instance.content as Node & { body: Node[] };
+    const imports: SvelteImport[] = content.body
+      .filter((b) => b.type === "ImportDeclaration")
+      .map((b) => {
+        const specifiers = b.specifiers as Node[];
+        return {
+          from: String((b.source as Node).value),
+          start: b.start,
+          end: b.end,
+          named: specifiers.filter((x) => x.type === "ImportSpecifier").map((x) => ({ imported: String((x.imported as Node).name ?? (x.imported as Node).value), local: String((x.local as Node).name), end: x.end })),
+          others: specifiers.filter((x) => x.type !== "ImportSpecifier").map((x) => String((x.local as Node).name)),
+        };
+      });
+    // The content node's span is its statements'; the script's content runs from its open tag's `>` to `</script>`.
+    const open = text.indexOf(">", root.instance.start) + 1;
+    const close = text.lastIndexOf("</script", root.instance.end);
+    script = { start: open, end: close < open ? open : close, imports };
+  }
+  return { text, elements, top, style, script };
 }
 
 /** The element starting at `offset` (its `<`), or null. */
@@ -431,6 +509,55 @@ export function setText(text: string, at: number, value: string): string {
   const close = closeTagStart(text, el);
   if (close === null) throw new SvelteEditError("its closing tag can't be found");
   return splice(text, el.openTagEnd, close, escapeText(value));
+}
+
+/**
+ * Replace the literal text content of the element starting at `at` with the expression tag `{expression}` (the
+ * whitespace around the text kept as written). Refused when it has no literal text, or has elements inside.
+ */
+export function setTextExpression(text: string, at: number, expression: string): string {
+  const { el } = element(text, at);
+  if (el.text.kind === "dynamic") throw new SvelteEditError(`its text has expressions (${el.text.source}): only literal text can be replaced`);
+  if (el.text.kind === "none" && el.content.some((c) => c.kind === "expression")) throw new SvelteEditError(`its text has expressions (${text.slice(el.content[0].start, el.content[el.content.length - 1].end)}): only literal text can be replaced`);
+  if (el.text.kind === "none" || el.text.text.trim() === "") throw new SvelteEditError(el.children.length > 0 ? "it has elements inside: its text is theirs" : "it has no text");
+  const raw = text.slice(el.text.start, el.text.end);
+  const lead = /^\s*/.exec(raw)![0], trail = /\s*$/.exec(raw)![0];
+  return splice(text, el.text.start, el.text.end, `${lead}{${expression}}${trail}`);
+}
+
+/** Write attribute `name` of the element starting at `at` as `name={expression}`, replacing its literal value. Refused when it's missing or already an expression. */
+export function setAttributeExpression(text: string, at: number, name: string, expression: string): string {
+  const { el } = element(text, at);
+  const a = el.attributes.find((x) => x.name === name);
+  if (!a) throw new SvelteEditError(`it has no ${name} attribute`);
+  if (a.value.kind === "dynamic") throw new SvelteEditError(`${name} is an expression (${a.value.source}) already`);
+  return splice(text, a.start, a.end, `${name}={${expression}}`);
+}
+
+/**
+ * Make sure the component's instance `<script>` imports `name` from `from` (`import { t } from "myco"`): added to an
+ * import of that module with named specifiers, else as a new import after the last one, else in a new `<script>` at
+ * the top of the file. Refused when another import already binds `name`.
+ */
+export function addNamedImport(text: string, name: string, from: string): string {
+  const source = parseSvelte(text);
+  const script = source.script;
+  if (!script) return `<script lang="ts">\n  import { ${name} } from "${from}";\n</script>\n\n${text}`;
+  const imports = script.imports;
+  if (imports.some((i) => i.from === from && i.named.some((n) => n.imported === name && n.local === name))) return text;
+  const clash = imports.find((i) => i.named.some((n) => n.local === name) || i.others.includes(name));
+  if (clash) throw new SvelteEditError(`the component's script already imports another ${name} (from "${clash.from}")`);
+  const same = imports.find((i) => i.from === from && i.named.length > 0);
+  if (same) return splice(text, same.named[same.named.length - 1].end, same.named[same.named.length - 1].end, `, ${name}`);
+  const line = `import { ${name} } from "${from}";`;
+  if (imports.length > 0) {
+    const last = imports[imports.length - 1];
+    return splice(text, last.end, last.end, `\n${indentAt(text, last.start)}${line}`);
+  }
+  const body = text.slice(script.start, script.end);
+  const firstCode = body.search(/\S/);
+  const indent = firstCode < 0 ? "  " : indentAt(text, script.start + firstCode) || "  ";
+  return splice(text, script.start, script.start, `\n${indent}${line}${firstCode < 0 ? "\n" : ""}`);
 }
 
 // --- Structure ---------------------------------------------------------------------------------------
