@@ -10,12 +10,16 @@ import { select } from "./inspectorTarget";
 import { confirmInEditor } from "./ui/ConfirmDialog";
 import { deleteUIElement } from "./uiDocumentEdits";
 import { selectedUIRef } from "./uiDocuments";
+import { selectedUIViewRef } from "./uiViews";
+import { deleteUIViewElement } from "./uiViewEdits";
 import { undoStep } from "./undoStep";
 
 /** Delete the selected nodes (and their children) as one undo step. Returns true if they were deleted. */
 export async function deleteSelected(): Promise<boolean> {
   const ui = selectedUIRef();
   if (ui) return deleteUIElement(ui); // a UI document's element (ADR 0077): from its markup file
+  const viewEl = selectedUIViewRef();
+  if (viewEl) return deleteUIViewElement(viewEl); // an element a UIView rendered (ADR 0419 wave C): from its .svelte source
   if (!openScene.value || selectedKeys.value.length === 0) return false;
   const scene = editableNow({ kind: "scene" }, "delete nodes"); // not while playing (ADR 0247)
   if (!scene) return false;

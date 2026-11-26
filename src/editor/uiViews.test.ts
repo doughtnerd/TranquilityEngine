@@ -354,3 +354,36 @@ describe("scene-view handles", () => {
     }
   });
 });
+
+describe("menus", () => {
+  it("the Create menu inserts tags into the selected element or the selected node's view; rows have a menu; Delete and Duplicate act on the selection", async () => {
+    const { createMenuItems, hierarchyMenu, openUIViewElementMenu } = await import("./ui/HierarchyMenu");
+    const { deleteSelected } = await import("./deleteSelection");
+    const { duplicateSelection } = await import("./hierarchyActions");
+    select(["hud"]);
+    const [elements] = createMenuItems(scene());
+    expect(elements.label).toBe("Element in Svelte Component");
+    expect(elements.submenu!.map((i) => i.label)).toContain("Checkbox (input)");
+    selectUIElement(ref("box"));
+    createMenuItems(scene())[0].submenu!.find((i) => i.label === "Text (span)")!.run!();
+    await settle();
+    expect(text()).toContain(`<div id="box" style="height: 20px" width="50">\n    <span>New Text</span>\n  </div>`);
+    expect(resolveUIViewElement(scene().sync, selectedUIViewRef()!)!.tag).toBe("span");
+
+    const [v] = viewRows(scene().sync, "hud");
+    const each = v.rows[0].children.find((c) => c.label === "span.row")!;
+    openUIViewElementMenu(0, 0, each.ref);
+    expect(hierarchyMenu.value!.items.find((i) => i.label === "Delete")!.disabled).toMatch(/\{#each\}/);
+    openUIViewElementMenu(0, 0, ref("play"));
+    expect(hierarchyMenu.value!.items.find((i) => i.label === "Duplicate")!.disabled).toBeNull();
+    hierarchyMenu.value = null;
+
+    selectUIElement(ref("play"));
+    expect(duplicateSelection()).toBe(true);
+    await settle();
+    expect(text()).toContain(`<button id="play-2" class="primary">Play</button>`);
+    expect(await deleteSelected()).toBe(true);
+    await settle();
+    expect(text()).not.toContain("play-2");
+  });
+});

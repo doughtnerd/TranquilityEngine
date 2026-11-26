@@ -15,6 +15,8 @@ import { createUIElement, deleteUIElement, duplicateUIElement, NEW_ELEMENTS } fr
 import { whyNotEdit } from "../editGate";
 import { documentsOn, resolveUIElement, selectedUIRef, uiRefKey, type UIElementRef } from "../uiDocuments";
 import { elementSource } from "../../engine/ui/documentSource";
+import { resolveUIViewElement, selectedUIViewRef, uiViewRefKey, viewsOn, type UIViewRef } from "../uiViews";
+import { createUIViewElement, deleteUIViewElement, duplicateUIViewElement, NEW_VIEW_ELEMENTS, whyNotEditViewElement, type UIViewAt } from "../uiViewEdits";
 import { renameRow } from "./TreeView";
 import { PanelMenu } from "./PanelMenu";
 
@@ -63,14 +65,33 @@ function uiCreateTarget(scene: OpenScene): UIElementRef | { host: string; index:
   return node && documentsOn(node).length > 0 ? { host: active!, index: 0 } : null;
 }
 
+/** A submenu `label` of HTML tags (ADR 0419 wave C) to insert into a view's component source at `at` (an element, or the view's top level). */
+function uiViewElementSubmenu(label: string, at: UIViewRef | UIViewAt): MenuItem {
+  const scene = openScene.value;
+  const reason = "file" in at ? whyNotEditViewElement(scene, at) : whyNotEdit({ kind: "ui-documents" }, "edit Svelte UI");
+  const tags = Object.keys(NEW_VIEW_ELEMENTS).sort((a, b) => NEW_VIEW_ELEMENTS[a].label.localeCompare(NEW_VIEW_ELEMENTS[b].label));
+  return { label, submenu: tags.map((tag) => ({ label: NEW_VIEW_ELEMENTS[tag].label, disabled: reason, run: () => void createUIViewElement(tag, at) })) };
+}
+
+/** Where the Create menu adds Svelte elements: the selected view element, or the selected node's (first) UIView. */
+function uiViewCreateTarget(scene: OpenScene): UIViewRef | UIViewAt | null {
+  const ref = selectedUIViewRef();
+  if (ref) return ref;
+  const active = selection.value;
+  const node = active ? scene.sync.nodeFor(active) : null;
+  return node && viewsOn(node).length > 0 ? { host: active!, index: 0 } : null;
+}
+
 /**
  * The "+" menu (and the menu bar's Create menu): the Create tree adding at the top level, then the same tree under
- * Child of Selection for the active selected node, if there is one; first, elements into the selected UI document.
+ * Child of Selection for the active selected node, if there is one; first, elements into the selected UI document,
+ * or into the selected view's component (ADR 0419 wave C).
  */
 export function createMenuItems(scene: OpenScene): MenuItem[] {
   const active = selection.value;
   const ui = uiCreateTarget(scene);
-  const items: MenuItem[] = ui ? [uiElementSubmenu("Element in Document", ui), SEPARATOR] : [];
+  const view = ui ? null : uiViewCreateTarget(scene);
+  const items: MenuItem[] = ui ? [uiElementSubmenu("Element in Document", ui), SEPARATOR] : view ? [uiViewElementSubmenu("Element in Svelte Component", view), SEPARATOR] : [];
   items.push(...createTree(scene, { kind: "into", key: null }));
   if (active && scene.doc.has(active.split("/")[0])) items.push(SEPARATOR, { label: "Child of Selection", submenu: createTree(scene, { kind: "into", key: active }) });
   return items;
@@ -89,6 +110,25 @@ function uiElementMenuItems(scene: OpenScene, ref: UIElementRef, owner?: object)
     { label: "Duplicate", shortcut: "Ctrl+D", disabled: reason ?? label ?? root, run: () => void duplicateUIElement(ref) },
     { label: "Delete", shortcut: "Del", disabled: reason ?? root, run: () => void deleteUIElement(ref) },
   ];
+}
+
+/** The right-click menu for an element a UIView rendered (ADR 0419 wave C): create inside it, rename, duplicate, delete; view-only ones say why. */
+function uiViewElementMenuItems(scene: OpenScene, ref: UIViewRef, owner?: object): MenuItem[] {
+  const el = resolveUIViewElement(scene.sync, ref);
+  const reason = el ? whyNotEditViewElement(scene, ref) : "it's gone";
+  return [
+    uiViewElementSubmenu("Create Element", ref),
+    SEPARATOR,
+    { label: "Rename", shortcut: "F2", disabled: reason, run: () => renameRow(HIERARCHY_TREE, uiTreeKey(uiViewRefKey(ref)), owner) },
+    { label: "Duplicate", shortcut: "Ctrl+D", disabled: reason, run: () => void duplicateUIViewElement(ref) },
+    { label: "Delete", shortcut: "Del", disabled: reason, run: () => void deleteUIViewElement(ref) },
+  ];
+}
+
+/** Open the right-click menu for a view element row, in the panel `owner`. */
+export function openUIViewElementMenu(x: number, y: number, ref: UIViewRef, owner?: object): void {
+  const scene = openScene.value;
+  if (scene) hierarchyMenu.value = { x, y, items: uiViewElementMenuItems(scene, ref, owner), owner };
 }
 
 /** Open the right-click menu for a UI document element row, in the panel `owner`. */
