@@ -15,6 +15,14 @@
 //   `renderScale`) is left alone, because it would also resize the texture.
 // - A world canvas is a plane with its own texture at `WORLD_RESOLUTION` times the reference
 //   resolution, its root container scaled by that factor.
+//
+// Transforms (ADR 0418 wave 3): the core gives each element its whole transform (ancestors' and its own, `transform2d.ts`).
+// Controls stay flat (each in its canvas root, or in its clipper's clip container) so the draw order stays the core's, and
+// Babylon GUI composes a control's transform with its parent control's only. So each control gets its transform relative
+// to the control it's drawn in (`inverse(clipper's) · its own`): placed at where that takes its box's top-left corner,
+// turned and scaled about that corner (`transformCenterX/Y` 0) by the map's rotation and scales. A clip container moves
+// with its clipper, so what it clips is clipped where the clipper is drawn. A rotation inside an unequal scale (a skew)
+// can't be expressed by a control's rotation and scales and is drawn without the skew.
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { CreatePlane, CreatePlaneVertexData } from "@babylonjs/core/Meshes/Builders/planeBuilder.js";
@@ -49,6 +57,7 @@ import { wrapLine, wrapText, type LineBreakMode } from "../../ui/text/lineBreak"
 import type { TextMeasureRequest, UICoreLike, UILaidOutCanvas, UILaidOutElement, UITextRun, UITextWrap } from "../../ui/uiCoreTypes";
 import { flipRows, redrawnPixels, type PixelRect } from "../pixelRegions";
 import { linearGradientLine, parseBackgroundImage, radialGradientCircle, type PaintBox, type UIBackgroundImage } from "../../ui/document/paintValues";
+import { applyAffine, decompose, invert, multiply, type UIAffine } from "../../ui/transform2d";
 
 /** World canvases' texture pixels per UI pixel. */
 const WORLD_RESOLUTION = 2;
@@ -114,6 +123,8 @@ interface ClipEntry {
   /** Its corner in its canvas's UI pixels: its children's offset. */
   x: number;
   y: number;
+  /** ADR 0418 wave 3: its clipper's whole transform (null: none), which the controls drawn in it are placed relative to. */
+  transform: UIAffine | null;
   stamp: number;
 }
 
@@ -397,9 +408,7 @@ export class BabylonUI {
     }
     ctl.isVisible = el.visible;
     if (!el.visible) return;
-    const x = el.x - (into?.x ?? 0), y = el.y - (into?.y ?? 0);
-    if (put(ctl, "x", x)) ctl.leftInPixels = x;
-    if (put(ctl, "y", y)) ctl.topInPixels = y;
+    this.place(ctl, el.x, el.y, into, el.transform ?? null, el.comp.owner.name);
     if (put(ctl, "w", el.width)) ctl.widthInPixels = el.width;
     if (put(ctl, "h", el.height)) ctl.heightInPixels = el.height;
     if (put(ctl, "z", el.order)) ctl.zIndex = el.order;
@@ -412,7 +421,7 @@ export class BabylonUI {
         this.syncPanel(e, c as UIPanel, el, canvas.root.scaleX);
         break;
       case "text":
-        this.syncUIText(e, c as UIText, el.text!, canvas.root.scaleX);
+        this.syncUIText(e, c as UIText, el.text!, canvas.root.scaleX, el.transform ?? null);
         break;
       case "image":
         this.syncImage(e, c as UIImage, el);
@@ -469,6 +478,35 @@ export class BabylonUI {
     return { comp: el.comp, canvas, control, label, caret, backdrop: null, edges: null, last: {}, stamp: 0, dead: false };
   }
 
+  /**
+   * Place a control whose untransformed box has its top-left corner at (x, y) in canvas UI pixels, drawn in `into` (a
+   * clip container) or its canvas root, with its whole transform `transform` (ADR 0418 wave 3, see the head comment).
+   */
+  private place(ctl: Control, x: number, y: number, into: ClipEntry | undefined, transform: UIAffine | null, name: string): void {
+    const frame = into?.transform ?? null;
+    let rel: UIAffine | null = transform;
+    if (frame) {
+      const inv = invert(frame);
+      rel = inv ? (transform ? multiply(inv, transform) : inv) : null;
+    }
+    let rotation = 0, scaleX = 1, scaleY = 1;
+    if (rel) {
+      [x, y] = applyAffine(rel, x, y);
+      const d = decompose(rel);
+      rotation = d.rotation;
+      scaleX = d.scaleX;
+      scaleY = d.scaleY;
+      if (Math.abs(d.skew) > 1e-6) this.warnOnce(`skew|${name}`, `UI element "${name}" is rotated inside an unequal scale, which skews it; it's drawn without the skew`);
+    }
+    x -= into?.x ?? 0;
+    y -= into?.y ?? 0;
+    if (put(ctl, "x", x)) ctl.leftInPixels = x;
+    if (put(ctl, "y", y)) ctl.topInPixels = y;
+    if (put(ctl, "rot", rotation)) ctl.rotation = rotation;
+    if (put(ctl, "sx", scaleX)) ctl.scaleX = scaleX;
+    if (put(ctl, "sy", scaleY)) ctl.scaleY = scaleY;
+  }
+
   private removeElement(c: UIComponentType, e: ElementEntry, canvasGone = false): void {
     e.dead = true;
     this.elements.delete(c);
@@ -503,7 +541,7 @@ export class BabylonUI {
       container.clipChildren = true;
       container.isHitTestVisible = false;
       placeBox(container);
-      clip = { canvas, container, x: 0, y: 0, stamp };
+      clip = { canvas, container, x: 0, y: 0, transform: null, stamp };
       this.clips.set(el.comp, clip);
     }
     clip.stamp = stamp;
@@ -514,12 +552,12 @@ export class BabylonUI {
       ctl.parent?.removeControl(ctl);
       parent.addControl(ctl);
     }
+    ctl.isVisible = el.visible;
+    // ADR 0418 wave 3: it moves with its clipper (placed before `clip` takes the clipper's transform for its own children).
+    this.place(ctl, box.x, box.y, into, el.transform ?? null, el.comp.owner.name);
     clip.x = box.x;
     clip.y = box.y;
-    ctl.isVisible = el.visible;
-    const x = box.x - (into?.x ?? 0), y = box.y - (into?.y ?? 0);
-    if (put(ctl, "x", x)) ctl.leftInPixels = x;
-    if (put(ctl, "y", y)) ctl.topInPixels = y;
+    clip.transform = el.transform ?? null;
     if (put(ctl, "w", box.width)) ctl.widthInPixels = box.width;
     if (put(ctl, "h", box.height)) ctl.heightInPixels = box.height;
     if (put(ctl, "z", el.order + 0.5)) ctl.zIndex = el.order + 0.5;
@@ -565,8 +603,9 @@ export class BabylonUI {
     // The shadow is the background's (Babylon's Rectangle casts it from its fill). Canvas2D shadows ignore the
     // context's transform, so they're scaled here, as the canvas's scale scales everything else.
     const shadow = c.boxShadowColor;
-    if (put(r, "shadow", shadow ? `${colorKey(shadow)}|${c.boxShadowOffsetX}|${c.boxShadowOffsetY}|${c.boxShadowBlur}|${scale}` : "none")) {
-      const reach = applyShadow(r, shadow, c.boxShadowOffsetX, c.boxShadowOffsetY, c.boxShadowBlur, scale);
+    const lin = linearKey(el.transform ?? null);
+    if (put(r, "shadow", shadow ? `${colorKey(shadow)}|${c.boxShadowOffsetX}|${c.boxShadowOffsetY}|${c.boxShadowBlur}|${scale}|${lin}` : "none")) {
+      const reach = applyShadow(r, shadow, c.boxShadowOffsetX, c.boxShadowOffsetY, c.boxShadowBlur, scale, el.transform ?? null);
       r.overflow = Math.max(r.shadowReach, reach); // clears the old shadow too when it shrinks or moves
       r.shadowReach = reach;
     }
@@ -658,7 +697,7 @@ export class BabylonUI {
    * A UIText: the core's text run (exactly what it measured), with the component's colour, outline and alignment.
    * `scale` is its canvas's texture pixels per UI pixel.
    */
-  private syncUIText(e: ElementEntry, c: UIText, run: UITextRun, scale: number): void {
+  private syncUIText(e: ElementEntry, c: UIText, run: UITextRun, scale: number, transform: UIAffine | null): void {
     const t = e.control as LocalisedTextBlock;
     if (put(t, "text", run.text)) t.text = run.text;
     this.setFont(t, run);
@@ -673,8 +712,8 @@ export class BabylonUI {
     }
     // ADR 0418 wave 2: one shadow under the glyphs, scaled by the canvas like a panel's.
     const shadow = c.textShadowColor;
-    if (put(t, "shadow", shadow ? `${colorKey(shadow)}|${c.textShadowOffsetX}|${c.textShadowOffsetY}|${c.textShadowBlur}|${scale}` : "none")) {
-      const reach = applyShadow(t, shadow, c.textShadowOffsetX, c.textShadowOffsetY, c.textShadowBlur, scale);
+    if (put(t, "shadow", shadow ? `${colorKey(shadow)}|${c.textShadowOffsetX}|${c.textShadowOffsetY}|${c.textShadowBlur}|${scale}|${linearKey(transform)}` : "none")) {
+      const reach = applyShadow(t, shadow, c.textShadowOffsetX, c.textShadowOffsetY, c.textShadowBlur, scale, transform);
       t.shadowOverflow = Math.max(t.shadowReach, reach); // clears the old shadow too when it shrinks or moves
       t.shadowReach = reach;
     }
@@ -832,14 +871,25 @@ function babylonGradient(paint: GradientPaint, box: PaintBox): BaseGradient {
   return g;
 }
 
+/** A transform's linear part as a key (its shadow's offset turns and scales with it), "" for none. */
+function linearKey(m: UIAffine | null): string {
+  return m ? `${m[0]},${m[1]},${m[2]},${m[3]}` : "";
+}
+
 /**
  * A control's shadow (ADR 0418 wave 2) from UI-pixel values, in texture pixels (`scale` per UI pixel: Canvas2D draws
- * shadows untransformed). Returns how far it reaches past the box, in texture pixels. Null: none.
+ * shadows untransformed). Returns how far it reaches past the box, in texture pixels. Null: none. `transform` (wave 3) is
+ * the element's whole transform: as in CSS, the offset turns and scales with the element and the blur scales.
  */
-function applyShadow(ctl: Control, color: Color | null, offsetX: number, offsetY: number, blur: number, scale: number): number {
+function applyShadow(ctl: Control, color: Color | null, offsetX: number, offsetY: number, blur: number, scale: number, transform: UIAffine | null = null): number {
   if (!color) {
     ctl.shadowOffsetX = ctl.shadowOffsetY = ctl.shadowBlur = 0;
     return 0;
+  }
+  if (transform) {
+    const [a, b, c, d] = transform;
+    [offsetX, offsetY] = [a * offsetX + c * offsetY, b * offsetX + d * offsetY];
+    blur *= Math.sqrt(Math.abs(a * d - b * c));
   }
   ctl.shadowColor = color.toCss();
   ctl.shadowOffsetX = offsetX * scale;
@@ -852,10 +902,9 @@ function applyShadow(ctl: Control, color: Color | null, offsetX: number, offsetY
 function placeBox(c: Control): void {
   c.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
   c.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
-  if (c instanceof Container) {
-    c.transformCenterX = 0;
-    c.transformCenterY = 0;
-  }
+  // Turned and scaled about the top-left corner: canvas roots by their scale, elements by their transform (ADR 0418 wave 3).
+  c.transformCenterX = 0;
+  c.transformCenterY = 0;
 }
 
 /**
