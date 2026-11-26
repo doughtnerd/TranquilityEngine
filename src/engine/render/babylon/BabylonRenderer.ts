@@ -63,6 +63,7 @@ import { LIGHTS_2D_QUALITY } from "../../core/graphics";
 import { authoredSize } from "../../scene/importSettings";
 import { Assets } from "../../scene/Assets";
 import { BabylonMaterialLibrary } from "./materialLibrary";
+import { BabylonMaterials2D } from "./materials2D";
 import { describeDrawn, eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext } from "./feature";
 import { _registeredRenderFeatures, byPhase, ownerOf, specNeeded, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonQuadBatches } from "./quadBatches";
@@ -131,6 +132,8 @@ export class BabylonRenderer {
   private readonly cameras = new Map<Camera, CameraEntry>();
   /** Materials and textures (ADR 0127): every material and texture the scene draws is built and cached there. */
   private readonly materials: BabylonMaterialLibrary;
+  /** 2D materials (ADR 0418): sprites', quad batches' and 2D particles' materials, lit by the 2D lighting rig or not. */
+  private readonly materials2D: BabylonMaterials2D;
   private readonly warned = new Set<string>();
   /** Time and drawing-buffer size, read by every graph material. */
   private readonly graphShared: GraphShared = { time: 0, resolution: [1, 1] }; // `mainLight` is the lighting's, set once it exists
@@ -216,6 +219,7 @@ export class BabylonRenderer {
       editorPicking: () => this.policy.drawPolicy === "perObject", // the editor's picking needs per-object instances
       warn: (key, message) => this.warnOnce(key, message),
     });
+    this.materials2D = new BabylonMaterials2D({ scene, library: this.materials, warnOnce: (key, message) => this.warnOnce(key, message) });
     this.quads = new BabylonQuadBatches({
       scene,
       texture: (path, onReady) => this.materials.texture(path, "color", onReady),
@@ -488,6 +492,7 @@ export class BabylonRenderer {
       scene: this.scene,
       lighting: this.lighting,
       materials: this.materials,
+      materials2D: this.materials2D,
       probes: {
         get any() {
           return probes.any;
@@ -659,6 +664,7 @@ export class BabylonRenderer {
     for (let i = this.slots.length - 1; i >= 0; i--) this.slots[i].dispose(); // reverse registration order (ADR 0130)
     this.lighting.dispose(); // after the features that contributed to it (the sky owns its bake)
     this.quads.dispose(); // after the features that drew with them
+    this.materials2D.dispose(); // after everything that drew with them
     this.lights2D.dispose();
     this.decals.dispose();
     this.dynamicMeshes.dispose();

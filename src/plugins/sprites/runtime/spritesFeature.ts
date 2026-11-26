@@ -9,10 +9,8 @@ export const createSpritesFeature: BabylonFeatureFactory = (host) =>
     scene: host.scene,
     pixelsPerUnit: () => host.settings.render.pixelsPerUnit,
     sortingLayers: () => host.settings.render.sortingLayers,
-    texture: (path, onReady) => host.materials.texture(path, "color", onReady),
-    dataTexture: (path) => host.materials.texture(path, "graphData"),
-    spriteGraph: (material) => host.materials.spriteGraph(material),
-    spriteGraphMaterial: (name, graph, overrides) => host.materials.spriteGraphMaterial(name, graph, overrides),
+    texture: (path, onReady) => host.materials.texture(path, "color", onReady && (() => onReady())),
+    materials2D: host.materials2D,
     drawPolicy: () => host.policy().drawPolicy,
     warnOnce: (key, message) => host.warnOnce(key, message),
   });

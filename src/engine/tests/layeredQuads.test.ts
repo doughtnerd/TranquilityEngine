@@ -7,7 +7,7 @@ import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { layeredQuadMaterial, placeInLayer, placeParticles, SpriteBatcher, type SpriteItem } from "../render/babylon/layeredQuads";
+import { batchedSpriteMaterial, layeredQuadMaterial, placeInLayer, placeParticles, SpriteBatcher, type SpriteItem } from "../render/babylon/layeredQuads";
 import { BabylonQuadBatches } from "../render/babylon/quadBatches";
 import { sortingOrder } from "../render/sortOrder";
 
@@ -15,11 +15,13 @@ const LAYERS = ["Back", "Default"];
 const order = (layer: string, inLayer: number) => sortingOrder(LAYERS, layer, inLayer);
 
 describe("layered 2D quads (ADR 0014, 0108, 0136, 0186)", () => {
+  const materials = new Map<Texture, PBRMaterial>();
   let engine: NullEngine;
   let scene: Scene;
   beforeEach(() => {
     engine = new NullEngine();
     scene = new Scene(engine);
+    materials.clear();
   });
   afterEach(() => {
     scene.dispose();
@@ -32,7 +34,16 @@ describe("layered 2D quads (ADR 0014, 0108, 0136, 0186)", () => {
       .filter((m) => m.isEnabled())
       .sort((a, b) => a.alphaIndex - b.alphaIndex)
       .map((m) => m.name);
-  const sprite = (texture: Texture, at: number): SpriteItem => ({ texture, order: at, matrix: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1], lit: null });
+  /** A sprite batch material per texture (as the 2D materials share them). */
+  const batchMaterial = (texture: Texture): PBRMaterial => {
+    let m = materials.get(texture);
+    if (!m) {
+      materials.set(texture, (m = layeredQuadMaterial(`sprites:${materials.size}`, scene, texture)));
+      batchedSpriteMaterial(m);
+    }
+    return m;
+  };
+  const sprite = (texture: Texture, at: number): SpriteItem => ({ material: batchMaterial(texture), order: at, matrix: new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]), color: [1, 1, 1, 1], uvRect: [0, 0, 1, 1] });
   const tileLayer = (name: string, layer: string, inLayer: number) => {
     const tex = { getBaseSize: () => ({ width: 16, height: 16 }), hasAlpha: false } as unknown as Texture;
     const quads = new BabylonQuadBatches({ scene, texture: () => tex, dataTexture: () => null, sortOrder: order });

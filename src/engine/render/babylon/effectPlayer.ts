@@ -312,7 +312,7 @@ export class EffectPlayer {
     const was = this.layer2D;
     this.layer2D = layer;
     if (!this._kfx) return;
-    if ((was?.key ?? null) !== (layer?.key ?? null)) {
+    if ((was === null) !== (layer === null) || was?.lit !== layer?.lit) {
       for (const d of this._draws) d.dispose();
       this._draws = [];
       this.makeDraws(this._kfx);
