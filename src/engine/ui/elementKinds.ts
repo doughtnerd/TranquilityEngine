@@ -15,7 +15,7 @@
  * Renderer-neutral and nothing here is public API (ADR 0010).
  */
 import { Locale } from "../localisation/Locale";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType, type UITextAlign, type UIWordBreak } from "./components";
+import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType, type UIOverflow, type UITextAlign, type UIWordBreak } from "./components";
 import type { UIPseudo, UITag } from "./document/types";
 import { fontFamilyOf } from "./fonts";
 import { uiBorderEdges } from "./layout";
@@ -46,8 +46,12 @@ const visible = (c: { a: number } | null | undefined): boolean => !!c && c.a > 0
 /** A border on any side (ADR 0418: sides may differ). */
 const hasBorder = (c: UIPanel): boolean => uiBorderEdges(c).some((w) => w > 0);
 const panelPaints = (c: UIPanel): boolean => visible(c.backgroundColor) || (hasBorder(c) && visible(c.borderColor));
-/** A panel with a background (a transparent one too: Unity's invisible blocker) or a border; without either it's a layout box. */
-const panelIsGraphic = (c: UIPanel): boolean => c.backgroundColor !== null || hasBorder(c);
+/**
+ * A panel with a background (a transparent one too: Unity's invisible blocker) or a border; without either it's a layout
+ * box. ADR 0423: a panel the player scrolls takes the pointer over its whole box too (a ScrollRect's viewport), so the
+ * wheel and drags reach it between its children.
+ */
+const panelIsGraphic = (c: UIPanel): boolean => c.backgroundColor !== null || hasBorder(c) || isUserScroller(c);
 const always = () => true;
 
 /** The kinds, subclasses before the classes they extend (the first whose type matches wins). */
@@ -175,6 +179,38 @@ export function textRunOf(c: UIComponentType): UITextRun | null {
     return { text: c.text, fontSize: c.fontSize, fontWeight: cssFontWeight(c.fontWeight), fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: WRAPS[c.wordBreak] ?? "word", direction, align: textAlignEdge(c.textAlign, direction) };
   }
   return null;
+}
+
+// --- Overflow (ADR 0418 wave 1, 0423) -------------------------------------------------------------
+
+/**
+ * An element's overflow on each axis: `overflowX`/`overflowY`, else `overflow`. As in CSS, `visible` beside an axis that
+ * isn't computes to `auto` (a box can't clip one way and spill the other). A canvas: both `visible`.
+ */
+export function overflowAxes(c: UIComponentType): { readonly x: UIOverflow; readonly y: UIOverflow } {
+  if (c instanceof UICanvas) return VISIBLE_BOTH;
+  const all = c.overflow ?? "visible";
+  let x = c.overflowX ?? all, y = c.overflowY ?? all;
+  if (x === "visible" && y !== "visible") x = "auto";
+  else if (y === "visible" && x !== "visible") y = "auto";
+  return x === "visible" && y === "visible" ? VISIBLE_BOTH : { x, y };
+}
+const VISIBLE_BOTH = { x: "visible", y: "visible" } as const;
+
+/** True for an element that clips its children (any `overflow` other than `visible`). */
+export function clipsChildren(c: UIComponentType): boolean {
+  return overflowAxes(c).x !== "visible";
+}
+
+/** True for `overflow` `auto` or `scroll` (on either axis): the player scrolls it. */
+export function isUserScroller(c: UIComponentType): boolean {
+  const { x, y } = overflowAxes(c);
+  return x === "auto" || x === "scroll" || y === "auto" || y === "scroll";
+}
+
+/** True when the player scrolls `c` along an axis: `auto` or `scroll` there. */
+export function userScrollsAxis(o: UIOverflow): boolean {
+  return o === "auto" || o === "scroll";
 }
 
 /** True when two runs measure and draw the same. */

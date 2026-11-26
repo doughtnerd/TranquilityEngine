@@ -9,6 +9,9 @@
  *   field is typing, nor a key a UI router claimed), `pointerdown`/`pointerup` (and `mousedown`/`mouseup`) for
  *   buttons pressed outside UI that takes the pointer, `pointermove`/`mousemove` and `wheel`. They go to the body,
  *   then the document, then the window, as a DOM event bubbles from the body; `stopPropagation` ends that.
+ *   ADR 0422: UI events that bubble out of a view's canvas unstopped carry on through the body, the document and the
+ *   window (`_continue`), as a DOM event bubbles out of an element; a type the UI dispatched in a frame isn't fed to
+ *   them from the devices too (a click on a button reaches `<svelte:window onclick>` once, from the button).
  *   The window also gets `resize` when the drawing canvas's size changes, and `online`/`offline`; the document,
  *   `visibilitychange`. Events come in play, not in the editor's edit mode.
  * - **State and bindings.** `window`: `innerWidth`/`innerHeight` (and `outerWidth`/`outerHeight`, the same: a game
@@ -145,6 +148,26 @@ export class UIGlobalTarget {
     return !event.defaultPrevented;
   }
 
+  /** @internal ADR 0422: run this target's `type` listeners for a UI event bubbling up from a view (its `target` stays the node it happened on). */
+  _run(type: string, event: { currentTarget?: unknown; _stopped?: boolean }): void {
+    const set = this._listeners.get(type);
+    if (!set?.size) return;
+    try {
+      event.currentTarget = this;
+    } catch {
+      // an event with read-only fields
+    }
+    for (const [fn, opts] of [...set]) {
+      if (opts.once) set.delete(fn);
+      try {
+        fn.call(this, event);
+      } catch (err) {
+        console.error(`[myco] a <svelte:${this.kind}> "${type}" handler threw:`, err);
+      }
+      if (event._stopped) break;
+    }
+  }
+
   /** @internal Whether anything listens to `type`. */
   _has(type: string): boolean {
     return (this._listeners.get(type)?.size ?? 0) > 0;
@@ -267,6 +290,8 @@ export class UIGlobals {
   readonly body: UIGlobalTarget;
   private stopFrame: (() => void) | null = null;
   private lastFrame = -1;
+  /** ADR 0422: the event types the UI dispatched to a view in a device frame. */
+  private uiTypes = { frame: -1, types: new Set<string>() };
   private last: { width: number; height: number; online: boolean; visibility: string } | null = null;
 
   constructor(
@@ -335,8 +360,33 @@ export class UIGlobals {
     }
   }
 
+  /**
+   * @internal ADR 0422: a UI event dispatched in a view, as its DOM `types`: when it bubbles and wasn't stopped, on
+   * through the body, the document and the window. Either way the devices don't feed those types this frame.
+   */
+  _continue(event: { bubbles?: boolean; _stopped?: boolean; eventPhase?: number; currentTarget?: unknown }, types: readonly string[]): void {
+    if (this.uiTypes.frame !== devices.frame) this.uiTypes = { frame: devices.frame, types: new Set() };
+    for (const t of types) this.uiTypes.types.add(t);
+    if (!event.bubbles || event._stopped) return;
+    for (const target of [this.body, this.document, this.window]) {
+      try {
+        event.eventPhase = 3;
+      } catch {
+        // read-only
+      }
+      for (const t of types) target._run(t, event);
+      if (event._stopped) break;
+    }
+    try {
+      event.eventPhase = 0;
+    } catch {
+      // read-only
+    }
+  }
+
   /** Bubble `make()` from the body through the document to the window, to the targets listening to `type`. */
   private bubble(type: string, make: () => UIGlobalEvent): void {
+    if (this.uiTypes.frame === devices.frame && this.uiTypes.types.has(type)) return; // the UI's dispatch reached them (ADR 0422)
     const chain = [this.body, this.document, this.window].filter((t) => t._has(type));
     if (!chain.length) return;
     const e = make();

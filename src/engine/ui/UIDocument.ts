@@ -2,7 +2,8 @@
  * UI documents (ADR 0077): a `UIDocument` component builds a markup file's elements (`*.ui.xml`) as
  * its node's children, styled by the document's stylesheets (`*.ui.css`), and gives scripts a
  * web-like API over them: `query`, `queryAll`, `data` for `{name}` bindings, `list()` for repeated
- * rows, and element handlers (`on("click", …)`) over the polled state and the `UIEvents` buffer.
+ * rows, and element handlers (`on("click", …)`) over the polled state and the `UIEvents` buffer. Handlers hear events
+ * through capture, target and bubble phases, as the DOM's do (ADR 0422), and elements scroll (ADR 0423).
  *
  * Localised text (ADR 0356 §4): `t:<field>="key"` sets a text field to the key's message in the
  * current language, its arguments read like `{name}` bindings (the row's item, then `data`) and the key
@@ -34,9 +35,13 @@ import { childPaths, labelPath } from "./documentSource";
 import type { BindingPart, MarkupAttribute, MarkupElement, ResolvedValue, Selector, SourceProblem, StyleTarget, UIPseudo, UIStylesheet, UITag } from "./document/types";
 import { Locale, localeMessageNames, type MessageArg } from "../localisation/Locale";
 import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimationReady, uiAnimator, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "./animation/UIAnimator";
+import { addUIEventFrontEnd, addUIListener, dispatchUIEvents, propagate, removeUIListener, runUIListeners, uiEventBubbles, uiEventCancelable, UIEventBase, uiListenerOptions, type UIDataTransfer, type UIEventRecord, type UIListener } from "./events";
+import { uiScrollIntoViewArg, uiScrollSizes, uiScrollToArgs, isScrollable, type UIScrollIntoViewOptions, type UIScrollToArgs } from "./scrolling";
 import type { UIAnimationSpec, UITransitionSpec } from "./document/animationValues";
 
 export type { SourceProblem, UITag } from "./document/types";
+export type { UIDataTransfer } from "./events";
+export type { UIScrollIntoViewOptions } from "./scrolling";
 
 type ComponentClass = new () => UIComponentType;
 
@@ -62,11 +67,21 @@ export function loadUIDocumentSupport(): Promise<void> {
 
 // --- Events -------------------------------------------------------------------------------------
 
-export type UIEventType = "click" | "change" | "submit" | "hover" | "focus" | "blur" | "cancel" | "transitionend" | "animationstart" | "animationiteration" | "animationend";
+export type UIEventType =
+  | "click" | "change" | "submit" | "hover" | "focus" | "blur" | "cancel" | "transitionend" | "animationstart" | "animationiteration" | "animationend"
+  // ADR 0422: the DOM's pointer, keyboard, focus and drag events; ADR 0423: scrolling.
+  | "dblclick" | "contextmenu" | "pointerdown" | "pointerup" | "pointermove" | "pointerover" | "pointerout" | "pointerenter" | "pointerleave" | "pointercancel"
+  | "wheel" | "keydown" | "keyup" | "focusin" | "focusout" | "scroll" | "scrollend"
+  | "dragstart" | "drag" | "dragenter" | "dragover" | "dragleave" | "drop" | "dragend";
 
-/** One UI event of the frame. */
+/**
+ * One UI event of the frame. ADR 0422: it travels through the target's ancestors in the document as a DOM event does
+ * (capture from the root down, the target, then bubbling back up for the types that bubble), with the DOM's
+ * propagation and cancellation members and its pointer, wheel and keyboard fields.
+ */
 export interface UIEvent {
   readonly type: UIEventType;
+  /** The element it happened on (the same as `target`). */
   readonly element: UIDocumentElement;
   readonly document: UIDocument;
   /** The list item of the row the element is in (`list()`), or undefined outside rows. */
@@ -77,9 +92,91 @@ export interface UIEvent {
   readonly animationName?: string;
   /** Transition and animation events: seconds it had run, its delay not counted. */
   readonly elapsedTime?: number;
+  /** ADR 0422: the element it happened on. */
+  readonly target: UIDocumentElement;
+  /** The element whose handler is running (null outside dispatch). */
+  readonly currentTarget: UIDocumentElement | null;
+  /** The other element of `pointerover`/`pointerout`/enter/leave, `focus`/`blur`/`focusin`/`focusout` and `dragenter`/`dragleave`, when it's in a document; else null. */
+  readonly relatedTarget: UIDocumentElement | null;
+  /** 1 capturing, 2 at the target, 3 bubbling. */
+  readonly eventPhase: number;
+  readonly bubbles: boolean;
+  readonly cancelable: boolean;
+  readonly defaultPrevented: boolean;
+  /** Cancel the engine's default action: focus on press, scrolling by the wheel, keys or a touch drag, a drag starting, submit on Enter. */
+  preventDefault(): void;
+  /** No further element hears the event. */
+  stopPropagation(): void;
+  /** No further handler hears it, on this element or another. */
+  stopImmediatePropagation(): void;
+  /** Pointer events: where, in the canvas's UI pixels (as `rect` boxes are). */
+  readonly clientX: number;
+  readonly clientY: number;
+  /** Pointer events: where, in the target's own pixels from its corner. */
+  readonly offsetX: number;
+  readonly offsetY: number;
+  /** Pointer events: where, in the drawing canvas's CSS pixels. */
+  readonly canvasX: number;
+  readonly canvasY: number;
+  /** The button that changed (0 left, 1 middle, 2 right; -1 for moves), and the buttons held (1 left, 2 right, 4 middle). */
+  readonly button: number;
+  readonly buttons: number;
+  /** `mouse`, `touch` or `pen`. */
+  readonly pointerType: string;
+  /** Clicks: how many in a row (2 for a `dblclick`). */
+  readonly detail: number;
+  /** `wheel`: how far, in CSS pixels. */
+  readonly deltaX: number;
+  readonly deltaY: number;
+  /** Keys: the DOM's `key` (`"a"`, `"Enter"`, `"ArrowUp"`) and `code` (`"KeyA"`). */
+  readonly key: string;
+  readonly code: string;
+  readonly shiftKey: boolean;
+  readonly ctrlKey: boolean;
+  readonly altKey: boolean;
+  readonly metaKey: boolean;
+  /** Drag events: the drag's data. */
+  readonly dataTransfer: UIDataTransfer | null;
 }
 
 export type UIEventHandler = (event: UIEvent) => void;
+
+/** ADR 0422: `on`'s options: `capture` runs the handler while the event travels down to its target; `once` removes it after it runs. */
+export interface UIEventHandlerOptions {
+  readonly capture?: boolean;
+  readonly once?: boolean;
+}
+
+/** A document's UI event (ADR 0422): the shared event object with the document's elements as targets. */
+class UIDocumentEvent extends UIEventBase implements UIEvent {
+  declare readonly type: UIEventType;
+  currentTarget: UIDocumentElement | null = null;
+  readonly propertyName?: string;
+  readonly animationName?: string;
+  readonly elapsedTime?: number;
+
+  constructor(
+    type: UIEventType,
+    readonly element: UIDocumentElement,
+    readonly document: UIDocument,
+    record: UIEventRecord | null,
+    readonly relatedTarget: UIDocumentElement | null = null,
+    detail: { propertyName?: string; animationName?: string; elapsedTime?: number } = {},
+  ) {
+    super(type, record, { bubbles: uiEventBubbles(type), cancelable: uiEventCancelable(type) });
+    if (detail.propertyName !== undefined) this.propertyName = detail.propertyName;
+    if (detail.animationName !== undefined) this.animationName = detail.animationName;
+    if (detail.elapsedTime !== undefined) this.elapsedTime = detail.elapsedTime;
+  }
+
+  get target(): UIDocumentElement {
+    return this.element;
+  }
+
+  get item(): unknown {
+    return this.element.item;
+  }
+}
 
 /**
  * The frame's UI events from documents (ADR 0077), for systems: clicks, changes, submits and hovers
@@ -200,7 +297,7 @@ export class UIDocumentElement {
   /** @internal */ _bindings: Binding[] = [];
   /** @internal */ _scope: RowScope | null = null;
   /** @internal Rows `list()` made in this element. */ _list: ListState | null = null;
-  /** @internal */ _handlers = new Map<UIEventType, UIEventHandler[]>();
+  /** @internal */ _handlers = new Map<UIEventType, UIListener<UIEventHandler>[]>();
   /** @internal */ _alive = true;
   /** @internal True for a button's label made from its text content. */ _synthetic = false;
   /** @internal Its static path (the rule is `documentSource.ts`'s); null in list rows and inside them. */ _path: string | null = null;
@@ -277,23 +374,82 @@ export class UIDocumentElement {
    * Stylesheet animation (ADR 0418 wave 4): `transitionend` when a property's transition finishes, and
    * `animationstart`, `animationiteration` and `animationend` for keyframe animations, the frame after
    * they happened (the event names the property or animation, and the seconds it had run).
+   *
+   * ADR 0422: events travel through the element's ancestors as DOM events do, so a handler on a list hears clicks on
+   * its rows: `{ capture: true }` hears them on the way down, before the target; others at the target and on the way
+   * back up (for the types that bubble: `click`, `change`, `submit`, the pointer and key events, `wheel`, `focusin`/
+   * `focusout`, drags). Also: `pointerdown`/`pointerup`/`pointermove`/`pointerover`/`pointerout`/`pointerenter`/
+   * `pointerleave`/`pointercancel` (on the element under the pointer that stops it, ADR 0385), `dblclick`,
+   * `contextmenu`, `wheel`, `keydown`/`keyup` (on the focused element), `focusin`/`focusout`, `scroll`/`scrollend`
+   * (ADR 0423, the frame after it scrolled), and UI drags (`dragstart`, `drag`, `dragenter`, `dragover`, `dragleave`,
+   * `drop`, `dragend`, from a `draggable` element). `preventDefault` cancels the engine's default action.
    */
-  on(type: UIEventType, handler: UIEventHandler): this {
-    const list = this._handlers.get(type);
-    if (list) list.push(handler);
-    else this._handlers.set(type, [handler]);
+  on(type: UIEventType, handler: UIEventHandler, options?: UIEventHandlerOptions | boolean): this {
+    const o = uiListenerOptions(options);
+    let list = this._handlers.get(type);
+    if (!list) this._handlers.set(type, (list = []));
+    addUIListener(list, handler, o.capture, o.once);
     return this;
   }
 
-  /** Remove a handler, or every handler of `type` when none is given. */
-  off(type: UIEventType, handler?: UIEventHandler): this {
+  /** Remove a handler (added with the same `capture`), or every handler of `type` when none is given. */
+  off(type: UIEventType, handler?: UIEventHandler, options?: UIEventHandlerOptions | boolean): this {
     if (!handler) this._handlers.delete(type);
-    else {
-      const list = this._handlers.get(type);
-      const i = list ? list.indexOf(handler) : -1;
-      if (list && i >= 0) list.splice(i, 1);
-    }
+    else removeUIListener(this._handlers.get(type), handler, uiListenerOptions(options).capture);
     return this;
+  }
+
+  // --- Scrolling (ADR 0423) ---------------------------------------------------------------------
+
+  /** How far its content is scrolled down, in UI pixels (its component's `scrollY`); set it to scroll. */
+  get scrollTop(): number {
+    return isScrollable(this._comp) ? this._comp.scrollY : 0;
+  }
+
+  set scrollTop(value: number) {
+    uiScrollToArgs(this.document._world, this._comp, [{ top: value, behavior: "instant" }], false);
+  }
+
+  /** How far its content is scrolled right (`scrollX`). */
+  get scrollLeft(): number {
+    return isScrollable(this._comp) ? this._comp.scrollX : 0;
+  }
+
+  set scrollLeft(value: number) {
+    uiScrollToArgs(this.document._world, this._comp, [{ left: value, behavior: "instant" }], false);
+  }
+
+  /** Its content's width and height, at least its padding box, from the last layout (UI pixels). */
+  get scrollWidth(): number {
+    return uiScrollSizes(this.document._world, this._comp).scrollWidth;
+  }
+
+  get scrollHeight(): number {
+    return uiScrollSizes(this.document._world, this._comp).scrollHeight;
+  }
+
+  /** Its padding box's width and height, where its content scrolls. */
+  get clientWidth(): number {
+    return uiScrollSizes(this.document._world, this._comp).clientWidth;
+  }
+
+  get clientHeight(): number {
+    return uiScrollSizes(this.document._world, this._comp).clientHeight;
+  }
+
+  /** Scroll its content to `x`, `y` (or `{ left, top, behavior }`): `smooth` animates, `instant` jumps, `auto` follows `scroll-behavior`. */
+  scrollTo(...args: UIScrollToArgs): void {
+    uiScrollToArgs(this.document._world, this._comp, args, false);
+  }
+
+  /** Scroll its content by `dx`, `dy` (or `{ left, top, behavior }`). */
+  scrollBy(...args: UIScrollToArgs): void {
+    uiScrollToArgs(this.document._world, this._comp, args, true);
+  }
+
+  /** Scroll its scrolling ancestors so it shows: `block` and `inline` `start`, `center`, `end` or `nearest` (`true`: start, `false`: end). */
+  scrollIntoView(options?: boolean | UIScrollIntoViewOptions): void {
+    uiScrollIntoViewArg(this.document._world, this._comp, options);
   }
 
   /** Buttons: true for the frame a click finished on it. */
@@ -1028,34 +1184,63 @@ export class UIDocument extends Component {
     if (world.inEditMode(this.node.entity)) return; // a scene being edited: no events (ADR 0026)
     const log = uiInteractions(world);
     const events: UIEvent[] = [];
-    if (this._canceled()) events.push({ type: "cancel", element: root, document: this, item: undefined });
+    const own: UIDocumentEvent[] = [];
+    if (this._canceled()) own.push(new UIDocumentEvent("cancel", root, this, null));
     // Last frame's transition and animation events (ADR 0418 wave 4), in the order they happened.
     for (const { element, event } of takeUIAnimationEvents(world, this)) {
       const el = element as UIDocumentElement;
-      if (el._alive) events.push({ type: event.type, element: el, document: this, item: el.item, propertyName: event.propertyName, animationName: event.animationName, elapsedTime: event.elapsedTime });
+      if (el._alive) own.push(new UIDocumentEvent(event.type, el, this, null, null, event));
     }
+    events.push(...own);
+    // The buffer's other events, as the polled state has them (ADR 0309); their handlers run from the frame's records.
     walk(root, (el) => {
       if (!el._alive) return;
       const c = el._comp;
       const types: readonly UIInteractionType[] = c instanceof UIButton ? BUTTON_EVENTS : c instanceof UIInputField ? FIELD_EVENTS : [];
       for (const type of types) {
-        if (type === "click" ? (c as UIButton).clicked : log.happened(c as UIButton | UIInputField, type)) events.push({ type: type as UIEventType, element: el, document: this, item: el.item });
+        if (type === "click" ? (c as UIButton).clicked : log.happened(c as UIButton | UIInputField, type)) events.push(new UIDocumentEvent(type as UIEventType, el, this, null));
       }
     });
-    if (events.length === 0) return;
-    const buffer = world._buffer(UIEvents);
-    buffer.push(...events);
-    for (const e of events) {
-      const handlers = e.element._handlers.get(e.type);
-      if (!handlers?.length) continue;
-      for (const h of [...handlers]) {
+    if (events.length) world._buffer(UIEvents).push(...events);
+    // Cancel and animation events don't bubble: their target's handlers.
+    for (const e of own) if (e.element._alive) this.dispatch(e);
+  }
+
+  /**
+   * @internal ADR 0422: one of the frame's records on an element of this document: its event (or events: a focus
+   * change is `focus` then `focusin`, a blur `blur` then `focusout`) through the element's ancestors.
+   */
+  _dispatchRecord(r: UIEventRecord, el: UIDocumentElement): void {
+    const world = this._world;
+    if (world.inEditMode(this.node.entity)) return; // a scene being edited: no events (ADR 0026)
+    if (r.type === "cancel") return; // the root's, from the polled state
+    if (r.type === "submit" && !uiInteractions(world).happened(el._comp as UIInputField, "submit")) return; // its Enter was prevented
+    let related = r.data.related ? UIDocument._elementOf(r.data.related) : null;
+    while (related?._synthetic && related._parent) related = related._parent;
+    const types: readonly UIEventType[] = r.type === "focus" ? ["focus", "focusin"] : r.type === "blur" ? ["blur", "focusout"] : [r.type as UIEventType];
+    for (const type of types) {
+      if (!el._alive) return;
+      this.dispatch(new UIDocumentEvent(type, el, this, type === r.type ? r : null, related));
+    }
+  }
+
+  /** Run `e` through its target's ancestors in this document (capture, target, bubble). */
+  private dispatch(e: UIDocumentEvent): void {
+    const path: UIDocumentElement[] = [];
+    for (let at: UIDocumentElement | null = e.element; at; at = at._parent) path.push(at);
+    propagate(e, path, (el, phase) => {
+      const list = el._handlers.get(e.type);
+      if (!list?.length) return;
+      e.currentTarget = el;
+      runUIListeners(list, phase, e, (h) => {
         try {
           h(e);
         } catch (err) {
-          console.error(`[myco] a UI "${e.type}" handler on ${e.element} threw:`, err);
+          console.error(`[myco] a UI "${e.type}" handler on ${el} threw:`, err);
         }
-      }
-    }
+      });
+    });
+    e.currentTarget = null;
   }
 
   /** @internal True in the frame the player pressed `cancel` on the document's canvas: its root, or the canvas above it (ADR 0340). */
@@ -1147,7 +1332,31 @@ function documentsOf(world: World): UIDocument[] {
   return [...liveDocuments].filter((d) => d.node.isValid && d._world === world);
 }
 
-// Right after UI input routing (which runs as the frame begins) and before behaviors' update.
-defineBuiltinSystem({ name: "engine.UIDocumentEvents", phase: "update", after: ["engine.Lobby", "engine.PredictionSmooth"], before: ["engine.UpdateScripts"], run: (w) => documentsOf(w).forEach((d) => d._collectEvents()) });
+// ADR 0422: the frame's event records on documents' elements go to their document.
+addUIEventFrontEnd((r) => {
+  let el = r.target ? elementByComponent.get(r.target) : undefined;
+  if (!el?._alive) return false;
+  // A button's label made from its text isn't written in the markup: its events are the button's (as a text node's are its element's).
+  if (el._synthetic && (r.type === "pointerenter" || r.type === "pointerleave")) return true; // its button has its own
+  while (el._synthetic && el._parent) el = el._parent;
+  let related = r.data.related ? elementByComponent.get(r.data.related) : undefined;
+  while (related?._synthetic && related._parent) related = related._parent;
+  if ((r.type === "pointerover" || r.type === "pointerout") && related === el) return true; // between a label and its button
+  el.document._dispatchRecord(r, el);
+  return true;
+});
+
+// Right after UI input routing (which runs as the frame begins) and before behaviors' update: documents' buffer and
+// their own events, then every UI event record of the frame (ADR 0422: documents' and hosted trees', in order).
+defineBuiltinSystem({
+  name: "engine.UIDocumentEvents",
+  phase: "update",
+  after: ["engine.Lobby", "engine.PredictionSmooth"],
+  before: ["engine.UpdateScripts"],
+  run: (w) => {
+    documentsOf(w).forEach((d) => d._collectEvents());
+    dispatchUIEvents(w);
+  },
+});
 // After behaviors' lateUpdate, before render sync: bindings and restyles show this frame.
 defineBuiltinSystem({ name: "engine.UIDocumentSync", phase: "lateUpdate", after: ["engine.LateUpdateScripts"], run: (w) => documentsOf(w).forEach((d) => d._lateSync()) });

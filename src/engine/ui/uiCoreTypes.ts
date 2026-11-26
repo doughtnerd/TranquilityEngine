@@ -86,6 +86,38 @@ export interface UILaidOutCanvas {
   readonly visible: boolean;
 }
 
+/** ADR 0423: one scrollbar as drawn, in its canvas's UI pixels in layout space (the scroller's transform applies to it). */
+export interface UIScrollbar {
+  readonly track: UIRect;
+  readonly thumb: UIRect;
+}
+
+/**
+ * ADR 0423: a clipping element's scroll state at the last layout. Lengths in UI pixels; the padding box is the area its
+ * content scrolls in (`clientWidth`/`clientHeight`), the content's extent the union of its children's margin boxes plus
+ * its end padding (`scrollWidth`/`scrollHeight`, at least the padding box).
+ */
+export interface UIScrollInfo {
+  /** Its scroll offset after clamping (what's drawn). */
+  readonly x: number;
+  readonly y: number;
+  /** The largest offsets: how far the content reaches past the padding box. */
+  readonly maxX: number;
+  readonly maxY: number;
+  readonly clientWidth: number;
+  readonly clientHeight: number;
+  readonly scrollWidth: number;
+  readonly scrollHeight: number;
+  /** Whether the player scrolls the axis (`overflow` `auto` or `scroll` on it); a `hidden` axis scrolls only by script. */
+  readonly userX: boolean;
+  readonly userY: boolean;
+  /** The padding box in layout space (canvas UI pixels before transforms). */
+  readonly client: UIRect;
+  /** The scrollbars shown (null: none on that axis). */
+  readonly barX: UIScrollbar | null;
+  readonly barY: UIScrollbar | null;
+}
+
 /** An element (not a canvas) as laid out in the last `sync`. */
 export interface UILaidOutElement {
   readonly comp: UIComponentType;
@@ -98,7 +130,7 @@ export interface UILaidOutElement {
   readonly height: number;
   /**
    * Draw order within its canvas (ADR 0418): parents before children, then siblings by `zIndex` and document order;
-   * an element with a non-zero `zIndex` or `overflow: hidden` draws its descendants right after itself. The pointer
+   * an element with a non-zero `zIndex` or an `overflow` other than `visible` draws its descendants right after itself. The pointer
    * goes to the highest first.
    */
   readonly order: number;
@@ -109,7 +141,7 @@ export interface UILaidOutElement {
   readonly clip: UIRect | null;
   /** Its nearest `overflow: hidden` ancestor (the drawing layer draws it inside that one's clip), or null. */
   readonly clipper: UIComponentType | null;
-  /** With `overflow: hidden`: its padding box (inside its border), which its descendants are clipped to; else null. */
+  /** With `overflow` other than `visible` (`hidden`, or scrolling, ADR 0423): its padding box (inside its border), which its descendants are clipped to; else null. */
   readonly childClip: UIRect | null;
   /** Drawn: active and enabled, `visible`, and every ancestor element too. */
   readonly visible: boolean;
@@ -124,6 +156,13 @@ export interface UILaidOutElement {
   readonly transform: UIAffine | null;
   /** The axis-aligned bounds of what's drawn of it, in canvas UI pixels: its box transformed, cut down by its clips. Its box when nothing transforms or clips it. */
   readonly bounds: UIRect;
+  /**
+   * ADR 0423: `bounds` cut down only by clips that don't scroll (`overflow: hidden` on both axes), so navigation can find an
+   * element scrolled out of view and scroll it back. The same as `bounds` when no scrolling element clips it.
+   */
+  readonly reach: UIRect;
+  /** ADR 0423: with `overflow` other than `visible`: its scroll state; else null. */
+  readonly scroll: UIScrollInfo | null;
 }
 
 /** A ray in world space, for picking world canvases. */

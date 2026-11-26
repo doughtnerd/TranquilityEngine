@@ -47,9 +47,19 @@ export type UIFlexWrap = "nowrap" | "wrap" | "wrap-reverse";
 /** `auto` takes the parent's `alignItems`. */
 export type UIAlignSelf = "auto" | UIAlign;
 export type UIAlignContent = "flex-start" | "center" | "flex-end" | "stretch" | "space-between" | "space-around" | "space-evenly";
-/** `hidden` clips the element's children (drawing and the pointer) to its padding box. */
-export type UIOverflow = "visible" | "hidden";
+/**
+ * `hidden` clips the element's children (drawing and the pointer) to its padding box; `auto` and `scroll` clip them too
+ * and let the player scroll them (ADR 0423): `scroll` always shows a scrollbar, `auto` when the content overflows.
+ */
+export type UIOverflow = "visible" | "hidden" | "auto" | "scroll";
+/** ADR 0423: `smooth` animates `scrollTo`, `scrollBy` and `scrollIntoView` (unless they ask for `instant`). */
+export type UIScrollBehavior = "auto" | "smooth";
+/** ADR 0423: `contain` and `none` keep the wheel and drags from scrolling the element's scrolling ancestors once it can't move further. */
+export type UIOverscrollBehavior = "auto" | "contain" | "none";
+/** ADR 0423: a scrollbar's thickness: `auto` (10 UI pixels), `thin` (6) or `none` (hidden, the element still scrolls). */
+export type UIScrollbarWidth = "auto" | "thin" | "none";
 
+const OVERFLOW = ["visible", "hidden", "auto", "scroll"];
 const FLEX_DIRECTIONS = ["row", "column", "row-reverse", "column-reverse"];
 const JUSTIFY = ["flex-start", "center", "flex-end", "space-between", "space-around", "space-evenly"];
 const ALIGN = ["flex-start", "center", "flex-end", "stretch", "baseline"];
@@ -180,8 +190,38 @@ abstract class UIElement extends UIComponent {
   /**
    * `hidden` clips its children to its padding box (inside its border): they are drawn and take the pointer only
    * there. It also draws them together, at its own place in the order (as an element with a `zIndex` does).
+   * `auto` and `scroll` clip them the same way and scroll them (ADR 0423): by the wheel, a touch or pen drag, the
+   * keyboard, a draggable scrollbar, navigation and `scrollX`/`scrollY`. The stylesheet's `overflow: x y` sets the
+   * two axes (`overflowX`, `overflowY`).
    */
-  @field(String, { choices: ["visible", "hidden"] }) overflow: UIOverflow = "visible";
+  @field(String, { choices: OVERFLOW }) overflow: UIOverflow = "visible";
+  /** ADR 0423: the horizontal axis's overflow (`overflow-x`); null (the default) takes `overflow`. */
+  @field(String, { choices: OVERFLOW }) overflowX: UIOverflow | null = null;
+  /** ADR 0423: the vertical axis's overflow (`overflow-y`); null takes `overflow`. */
+  @field(String, { choices: OVERFLOW }) overflowY: UIOverflow | null = null;
+  /**
+   * ADR 0423: how far its content is scrolled right and down, in UI pixels (`scrollLeft`/`scrollTop` on the web).
+   * Scripts write them; the UI core keeps them between 0 and how far the content reaches past its padding box, at
+   * each layout. Only an element that clips (`overflow` other than `visible`) scrolls.
+   */
+  @field(Number) scrollX = 0;
+  @field(Number) scrollY = 0;
+  /** ADR 0423: `smooth` animates scripted scrolling (`scrollTo`, `scrollBy`, `scrollIntoView` and navigation's); `auto` jumps. */
+  @field(String, { choices: ["auto", "smooth"] }) scrollBehavior: UIScrollBehavior = "auto";
+  /** ADR 0423: `contain` or `none`: once it can't scroll further, the wheel and drags don't go on to scroll its ancestors. */
+  @field(String, { choices: ["auto", "contain", "none"] }) overscrollBehavior: UIOverscrollBehavior = "auto";
+  /** ADR 0423: its scrollbars' thickness (`scrollbar-width`): `auto`, `thin` or `none`. */
+  @field(String, { choices: ["auto", "thin", "none"] }) scrollbarWidth: UIScrollbarWidth = "auto";
+  /** ADR 0423: its scrollbars' thumb colour (`scrollbar-color: thumb track`); null: the default, a light grey. */
+  @field(Color) scrollbarThumbColor: Color | null = null;
+  /** ADR 0423: its scrollbars' track colour; null: the default, a faint dark strip. */
+  @field(Color) scrollbarTrackColor: Color | null = null;
+  /**
+   * ADR 0422: a pointer press on it (or inside it) that moves starts a UI drag: `dragstart` on it, `drag` while it
+   * moves, `dragenter`/`dragover`/`dragleave` on the elements under the pointer, `drop` where it's released (if a
+   * `dragover` there was prevented), then `dragend`. HTML's `draggable` attribute.
+   */
+  @field(Boolean) draggable = false;
   /**
    * Draw and pointer order among its siblings (higher on top, then document order), as in CSS. A non-zero value
    * draws the element and its children together, ordered within it.
