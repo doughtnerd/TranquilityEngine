@@ -139,12 +139,12 @@ describe("@keyframes and the cascade (ADR 0418 wave 4)", () => {
   it("parses @keyframes blocks: from, to, percentages and lists, and reports what it can't read", () => {
     const sheet = parseStylesheet(`@keyframes pulse { from { opacity: 0 } 50%, 75% { opacity: .5; animation-timing-function: ease-in } to { opacity: 1 } }
       @keyframes bad { 120% { opacity: 1 } }
-      @media (min-width: 10px) { .a { opacity: 1 } }
+      @supports (display: flex) { .a { opacity: 1 } }
       .a { color: red }`, "ui/a.ui.css");
     expect(sheet.rules).toHaveLength(1);
     expect(sheet.keyframes?.map((k) => [k.name, k.frames.map((f) => f.offsets)])).toEqual([["pulse", [[0], [0.5, 0.75], [1]]], ["bad", []]]);
     expect(sheet.keyframes?.[0].frames[1].declarations.map((d) => [d.property, d.value])).toEqual([["opacity", ".5"], ["animation-timing-function", "ease-in"]]);
-    expect(sheet.problems.map((p) => p.message)).toEqual([expect.stringMatching(/a keyframe selector is from, to or a percentage/), expect.stringMatching(/@media isn't supported/)]);
+    expect(sheet.problems.map((p) => p.message)).toEqual([expect.stringMatching(/a keyframe selector is from, to or a percentage/), expect.stringMatching(/@supports isn't supported/)]);
   });
 
   it("orders transition and animation declarations like fields: specificity, longhands over shorthands, attributes last, variables", () => {

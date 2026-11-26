@@ -93,15 +93,15 @@ function element(tag: UITag, attributes: Record<string, string> = {}): MarkupEle
 
 describe("stylesheets", () => {
   it("parses selectors with specificity and reports what isn't supported", () => {
-    const sheet = parseStylesheet(`Panel .a > #b:hover, Text {}\n[x] {}\n@media screen { Panel {} }\nPanel { color: red !important; }`, "ui/s.ui.css");
+    const sheet = parseStylesheet(`Panel .a > #b:hover, Text {}\nPanel::before {}\n@supports (color: red) { Panel {} }\nPanel { color: red !important; }`, "ui/s.ui.css");
     const [rule] = sheet.rules;
     expect(rule.selectors).toHaveLength(2);
     expect(rule.selectors[0].specificity).toEqual([1, 2, 1]);
     expect(rule.selectors[0].parts.map((p) => p.combinator)).toEqual([null, " ", ">"]);
     expect(rule.selectorText).toBe("Panel .a > #b:hover, Text");
     const messages = sheet.problems.map((p) => p.message).join("\n");
-    expect(messages).toMatch(/Attribute selectors aren't supported/);
-    expect(messages).toMatch(/@media isn't supported/);
+    expect(messages).toMatch(/Pseudo-elements aren't supported/);
+    expect(messages).toMatch(/@supports isn't supported/);
     expect(messages).toMatch(/!important isn't supported/);
     expect(sheet.rules.at(-1)!.declarations[0].value).toBe("red");
   });
@@ -535,7 +535,7 @@ describe("UIDocument", () => {
 
   it("throws for a bad query selector", async () => {
     const doc = await open();
-    expect(() => doc.query("[x]")).toThrow(/Bad selector/);
+    expect(() => doc.query("Panel::before")).toThrow(/Bad selector/);
   });
 });
 

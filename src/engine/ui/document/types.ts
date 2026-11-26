@@ -97,16 +97,52 @@ export interface SimpleSelector {
   readonly lang: readonly string[];
   /** `:is()` and `:where()` (ADR 0419): each a selector list, one of which must match the element; `zero` for `:where()`. */
   readonly is?: readonly { readonly selectors: readonly Selector[]; readonly zero: boolean }[];
+  // ADR 0418 wave 5. Each is absent when the compound doesn't use it, so rule data stays small.
+  /** `:not()`: each a selector list, none of which may match the element. */
+  readonly not?: readonly (readonly Selector[])[];
+  /** `:first-child`, `:nth-child(an+b [of S])`, `:last-of-type`…: the element's position among its siblings. */
+  readonly nth?: readonly UINthSelector[];
+  /** `[a]`, `[a=v]`, `[a~=v]`, `[a|=v]`, `[a^=v]`, `[a$=v]`, `[a*=v]` (each with an `i` flag). */
+  readonly attributes?: readonly UIAttributeSelector[];
+  /** `:empty`: no child elements and no text. */
+  readonly empty?: boolean;
+  /** `:root`: the tree's root (a hosted tree's canvas, a document's root element). */
+  readonly root?: boolean;
+}
+
+/**
+ * A structural pseudo-class (ADR 0418 wave 5): the element is at a position `a·n + b` (n = 0, 1, 2…; 1-based) among
+ * its parent's child elements, counted from the end with `last`, only among elements with its tag with `ofType`, and
+ * only among elements matching `of` (`:nth-child(2 of .item)`). `:first-child` is `{ a: 0, b: 1 }`.
+ */
+export interface UINthSelector {
+  readonly a: number;
+  readonly b: number;
+  readonly last?: boolean;
+  readonly ofType?: boolean;
+  readonly of?: readonly Selector[];
+}
+
+/** An attribute selector (ADR 0418 wave 5): the attribute is present, or its value compares by `op` (`insensitive`: ASCII case-insensitively, the `i` flag). */
+export interface UIAttributeSelector {
+  /** Matched case-insensitively, as HTML attribute names are. */
+  readonly name: string;
+  readonly op?: "=" | "~=" | "|=" | "^=" | "$=" | "*=";
+  readonly value?: string;
+  readonly insensitive?: boolean;
 }
 
 export type UIPseudo = "hover" | "pressed" | "focus" | "disabled";
 
-/** A complex selector: compound parts joined by descendant (" ") or child (">") combinators, rightmost last. */
+/** How a compound joins the one on its left: descendant, child, next sibling or any later sibling (ADR 0418 wave 5). */
+export type Combinator = " " | ">" | "+" | "~";
+
+/** A complex selector: compound parts joined by combinators, rightmost last. */
 export interface Selector {
-  readonly parts: readonly { readonly selector: SimpleSelector; readonly combinator: " " | ">" | null }[];
-  /** [ids, classes + pseudo-classes, tags], compared in that order. */
+  readonly parts: readonly { readonly selector: SimpleSelector; readonly combinator: Combinator | null }[];
+  /** [ids, classes + pseudo-classes + attributes, tags], compared in that order. */
   readonly specificity: readonly [number, number, number];
-  /** `:root`: only declares variables. */
+  /** The selector is `:root` alone, where variables are declared (its compound says `root` too). */
   readonly root: boolean;
 }
 
@@ -126,6 +162,35 @@ export interface StyleRule {
   readonly span: SourceSpan;
   /** Order across all of a document's sheets (later wins ties). */
   readonly order: number;
+  /**
+   * The `@media` blocks the rule is in (ADR 0418 wave 5), outermost first: each a query list, one of whose queries must
+   * match the canvas; every block must. Absent outside `@media`.
+   */
+  readonly media?: readonly (readonly UIMediaQuery[])[];
+}
+
+/** A media query (ADR 0418 wave 5): an optional media type (`not` negates the whole query) and a condition. */
+export interface UIMediaQuery {
+  readonly not?: boolean;
+  /** `all` and `screen` match; any other type never does. Absent: `all`. */
+  readonly type?: string;
+  readonly condition?: UIMediaCondition;
+}
+
+/**
+ * A media condition: `and`, `or` or `not` of conditions, or one feature test (`(min-width: 600px)` is width `>=` 600).
+ * A feature without `op` is the boolean form (`(orientation)`). Lengths are UI pixels; ratios are numbers.
+ */
+export type UIMediaCondition =
+  | { readonly and: readonly UIMediaCondition[] }
+  | { readonly or: readonly UIMediaCondition[] }
+  | { readonly not: UIMediaCondition }
+  | { readonly feature: string; readonly op?: "=" | "<" | "<=" | ">" | ">="; readonly value?: number | string };
+
+/** What media queries are evaluated against: the canvas, in UI pixels after the canvas scaler. */
+export interface UIMediaEnvironment {
+  readonly width: number;
+  readonly height: number;
 }
 
 export interface UIStylesheet {
@@ -163,6 +228,15 @@ export interface StyleTarget {
   readonly parent: StyleTarget | null;
   /** The current text language (ADR 0356 §4), for `:lang()`; absent: no `:lang()` rule matches. */
   readonly lang?: string;
+  // ADR 0418 wave 5. Absent: the structural, attribute and `@media` tests that need them don't match.
+  /** The attributes as written (markup attributes; a Svelte element's renderer attributes), for attribute selectors. */
+  readonly attributes?: ReadonlyMap<string, string>;
+  /** Its child elements in order (text isn't an element), for structural selectors and sibling combinators. */
+  readonly children?: readonly StyleTarget[];
+  /** It has text (a text element's, or text beside its child elements), so it isn't `:empty`. */
+  readonly content?: boolean;
+  /** On the root target: the canvas `@media` rules are matched against; null before its size is known. */
+  readonly media?: UIMediaEnvironment | null;
 }
 
 /** Where an element's field value comes from (the Inspector shows this in wave B). */

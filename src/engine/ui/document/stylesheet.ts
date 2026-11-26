@@ -7,9 +7,11 @@
  */
 import parse from "css-tree/parser";
 import type { CssNode, Declaration as CssDeclaration, Rule as CssRule, Selector as CssSelector } from "css-tree";
-import { groupSpecificity, isKnownTag, PSEUDO, UI_TAGS, type SelectorGroup } from "./cascade";
+import { isKnownTag, PSEUDO, selectorSpecificity, UI_TAGS, type SelectorGroup } from "./cascade";
+import { parseMediaQueryList } from "./mediaQuery";
+import { parseCompoundText } from "./selectorQuery";
 import { problemAt } from "./sourceText";
-import type { Declaration, ParseStylesheet, Selector, SimpleSelector, SourceProblem, StyleRule, UIKeyframe, UIKeyframes, UIPseudo } from "./types";
+import type { Combinator, Declaration, ParseStylesheet, Selector, SimpleSelector, SourceProblem, StyleRule, UIAttributeSelector, UIKeyframe, UIKeyframes, UIMediaQuery, UINthSelector, UIPseudo } from "./types";
 
 export * from "./cascade";
 
@@ -33,23 +35,40 @@ export const parseStylesheet: ParseStylesheet = (source, file, firstOrder = 0) =
     return { file, rules, problems };
   }
   if (ast.type !== "StyleSheet") return { file, rules, problems };
-  for (const node of ast.children.toArray()) {
-    const loc = node.loc;
-    const start = loc?.start.offset ?? 0;
-    const end = loc?.end.offset ?? 0;
-    if (node.type === "Atrule") {
-      if (node.name.toLowerCase() === "keyframes") {
-        const block = parseKeyframes(node, source, report);
-        if (block) keyframes.push(block);
+  const walk = (nodes: readonly CssNode[], media: readonly (readonly UIMediaQuery[])[]) => {
+    for (const node of nodes) {
+      const loc = node.loc;
+      const start = loc?.start.offset ?? 0;
+      const end = loc?.end.offset ?? 0;
+      if (node.type === "Atrule") {
+        const name = node.name.toLowerCase();
+        if (name === "keyframes" && media.length === 0) {
+          const block = parseKeyframes(node, source, report);
+          if (block) keyframes.push(block);
+          continue;
+        }
+        if (name === "media") {
+          // ADR 0418 wave 5: `@media` on the canvas; its rules carry the query lists they're in.
+          const prelude = node.prelude?.loc ? source.slice(node.prelude.loc.start.offset, node.prelude.loc.end.offset) : "";
+          let list: UIMediaQuery[];
+          try {
+            list = parseMediaQueryList(prelude, true);
+          } catch (err) {
+            report(start, end, `@media ${(err as Error).message}; the block is ignored.`);
+            continue;
+          }
+          if (node.block) walk(node.block.children.toArray(), [...media, list]);
+          continue;
+        }
+        report(start, end, `@${node.name} isn't supported${media.length ? " inside @media" : ""} in UI stylesheets; the rule is ignored.`);
         continue;
       }
-      report(start, end, `@${node.name} isn't supported in UI stylesheets; the rule is ignored.`);
-      continue;
+      if (node.type !== "Rule") continue;
+      const rule = parseRule(node, source, report);
+      if (rule) rules.push({ ...rule, order: firstOrder + rules.length, ...(media.length ? { media } : {}) });
     }
-    if (node.type !== "Rule") continue;
-    const rule = parseRule(node, source, report);
-    if (rule) rules.push({ ...rule, order: firstOrder + rules.length });
-  }
+  };
+  walk(ast.children.toArray(), []);
   return keyframes.length ? { file, rules, problems, keyframes } : { file, rules, problems };
 };
 
@@ -122,7 +141,7 @@ function parseRule(node: CssRule, source: string, report: (start: number, end: n
   const selectors: Selector[] = [];
   for (const sel of prelude.children.toArray()) {
     if (sel.type !== "Selector") continue;
-    const parsed = parseSelector(sel, report);
+    const parsed = parseSelector(sel, source, report);
     if (parsed) selectors.push(parsed);
   }
   const declarations: Declaration[] = [];
@@ -142,11 +161,34 @@ function parseRule(node: CssRule, source: string, report: (start: number, end: n
   return { selectors, declarations, selectorText, span: { start, end } };
 }
 
-function parseSelector(sel: CssSelector, report: (start: number, end: number, message: string) => void): Selector | null {
-  const parts: { selector: SimpleSelector; combinator: " " | ">" | null }[] = [];
-  let current: { tag: string | null; id: string | null; classes: string[]; pseudo: UIPseudo[]; lang: string[]; is?: SelectorGroup[] } | null = null;
-  let pendingCombinator: " " | ">" | null = null;
-  let root = false;
+type Report = (start: number, end: number, message: string) => void;
+
+type MutableCompound = {
+  tag: string | null;
+  id: string | null;
+  classes: string[];
+  pseudo: UIPseudo[];
+  lang: string[];
+  is?: SelectorGroup[];
+  not?: (readonly Selector[])[];
+  nth?: UINthSelector[];
+  attributes?: UIAttributeSelector[];
+  empty?: boolean;
+  root?: boolean;
+};
+
+/** Pseudo-classes read by the query reader (ADR 0418 wave 5), so rule data and queries read them alike. */
+const READ_AS_TEXT: ReadonlySet<string> = new Set([
+  "not", "first-child", "last-child", "only-child", "nth-child", "nth-last-child",
+  "first-of-type", "last-of-type", "only-of-type", "nth-of-type", "nth-last-of-type", "empty", "root",
+]);
+
+const SUPPORTED = ":hover, :pressed, :focus, :disabled, :lang(), :is(), :where(), :not(), :first-child, :last-child, :only-child, :nth-child(), :nth-last-child(), the -of-type forms, :empty and :root";
+
+function parseSelector(sel: CssSelector, source: string, report: Report): Selector | null {
+  const parts: { selector: SimpleSelector; combinator: Combinator | null }[] = [];
+  let current: MutableCompound | null = null;
+  let pendingCombinator: Combinator | null = null;
   let ok = true;
   const flush = () => {
     if (!current) return;
@@ -154,7 +196,24 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
     current = null;
     pendingCombinator = null;
   };
-  const compound = () => (current ??= { tag: null, id: null, classes: [], pseudo: [], lang: [] });
+  const compound = (): MutableCompound => (current ??= { tag: null, id: null, classes: [], pseudo: [], lang: [] });
+  /** Read `source[s, e)` (an attribute selector or a wave 5 pseudo-class) with the query reader, into the compound. */
+  const readText = (s: number, e: number) => {
+    let read: SimpleSelector;
+    try {
+      read = parseCompoundText(source.slice(s, e));
+    } catch (err) {
+      report(s, e, `"${source.slice(s, e)}": ${(err as Error).message.replace(/ at \d+$/, "")}.`);
+      ok = false;
+      return;
+    }
+    const c = compound();
+    if (read.attributes) (c.attributes ??= []).push(...read.attributes);
+    if (read.nth) (c.nth ??= []).push(...read.nth);
+    if (read.not) (c.not ??= []).push(...read.not);
+    if (read.empty) c.empty = true;
+    if (read.root) c.root = true;
+  };
   for (const n of sel.children.toArray()) {
     const s = n.loc?.start.offset ?? 0;
     const e = n.loc?.end.offset ?? 0;
@@ -173,17 +232,18 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
       case "IdSelector":
         compound().id = n.name;
         break;
-      case "PseudoClassSelector":
-        if (n.name === "root") {
-          root = true;
-          compound();
-        } else if (PSEUDO.has(n.name)) compound().pseudo.push(n.name as UIPseudo);
-        else if (n.name === "is" || n.name === "where") {
-          const group = parseSelectorGroup(n, report);
+      case "AttributeSelector":
+        readText(s, e);
+        break;
+      case "PseudoClassSelector": {
+        const name = n.name.toLowerCase();
+        if (PSEUDO.has(name)) compound().pseudo.push(name as UIPseudo);
+        else if (READ_AS_TEXT.has(name)) readText(s, e);
+        else if (name === "is" || name === "where") {
+          const group = parseSelectorGroup(n, source, report);
           if (group) (compound().is ??= []).push(group);
           else ok = false;
-        }
-        else if (n.name === "lang") {
+        } else if (name === "lang") {
           // `:lang(de)` (ADR 0356 §4): one language range, matched by BCP 47 prefix against the current text language.
           const ranges = (n.children?.toArray() ?? []).map((c) => (c.type === "Identifier" ? c.name : c.type === "String" ? c.value : "")).filter((r) => /^[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$/.test(r));
           if (ranges.length !== 1) {
@@ -191,48 +251,33 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
             ok = false;
           } else compound().lang.push(ranges[0]);
         } else {
-          report(s, e, `:${n.name} isn't supported; UI pseudo-classes are :hover, :pressed, :focus, :disabled, :lang(), :is() and :where().`);
+          report(s, e, `:${n.name} isn't supported; UI pseudo-classes are ${SUPPORTED}.`);
           ok = false;
         }
         break;
+      }
       case "Combinator":
-        if (n.name === " " || n.name === ">") {
+        if (n.name === " " || n.name === ">" || n.name === "+" || n.name === "~") {
           flush();
           pendingCombinator = n.name;
         } else {
-          report(s, e, `The "${n.name}" combinator isn't supported; use descendants (A B) or children (A > B).`);
+          report(s, e, `The "${n.name}" combinator isn't supported; use descendants (A B), children (A > B) or siblings (A + B, A ~ B).`);
           ok = false;
         }
         break;
       default:
-        report(s, e, `${n.type === "AttributeSelector" ? "Attribute selectors" : n.type === "PseudoElementSelector" ? "Pseudo-elements" : n.type} aren't supported in UI stylesheets.`);
+        report(s, e, `${n.type === "PseudoElementSelector" ? "Pseudo-elements" : n.type} aren't supported in UI stylesheets.`);
         ok = false;
     }
   }
   flush();
   if (!ok || parts.length === 0) return null;
-  if (root && (parts.length > 1 || parts[0].selector.tag || parts[0].selector.id || parts[0].selector.classes.length || parts[0].selector.pseudo.length || parts[0].selector.lang.length || parts[0].selector.is?.length)) {
-    report(sel.loc?.start.offset ?? 0, sel.loc?.end.offset ?? 0, ":root only goes alone, to declare variables.");
-    return null;
-  }
-  let ids = 0;
-  let classes = 0;
-  let tags = 0;
-  for (const p of parts) {
-    if (p.selector.id) ids++;
-    classes += p.selector.classes.length + p.selector.pseudo.length + p.selector.lang.length;
-    if (p.selector.tag) tags++;
-    for (const g of p.selector.is ?? []) {
-      const [a, b, c] = groupSpecificity(g);
-      ids += a;
-      classes += b;
-      tags += c;
-    }
-  }
-  return { parts, specificity: root ? [0, 1, 0] : [ids, classes, tags], root };
+  const only = parts.length === 1 ? parts[0].selector : null;
+  const root = !!only?.root && !only.tag && !only.id && !only.classes.length && !only.pseudo.length && !only.lang.length && !only.is && !only.not && !only.nth && !only.attributes && !only.empty;
+  return { parts, specificity: selectorSpecificity(parts), root };
 }
 
-function parseSelectorGroup(n: CssNode, report: (start: number, end: number, message: string) => void): SelectorGroup | null {
+function parseSelectorGroup(n: CssNode, source: string, report: Report): SelectorGroup | null {
   if (n.type !== "PseudoClassSelector") return null;
   const list = n.children?.toArray().find((c) => c.type === "SelectorList");
   if (!list || list.type !== "SelectorList") {
@@ -242,14 +287,9 @@ function parseSelectorGroup(n: CssNode, report: (start: number, end: number, mes
   const selectors: Selector[] = [];
   for (const sel of list.children.toArray()) {
     if (sel.type !== "Selector") continue;
-    const parsed = parseSelector(sel, report);
+    const parsed = parseSelector(sel, source, report);
     if (!parsed) return null;
-    if (parsed.root) {
-      report(sel.loc?.start.offset ?? 0, sel.loc?.end.offset ?? 0, `:root can't go inside :${n.name}().`);
-      return null;
-    }
     selectors.push(parsed);
   }
   return selectors.length ? { selectors, zero: n.name === "where" } : null;
 }
-
