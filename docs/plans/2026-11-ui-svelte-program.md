@@ -20,9 +20,9 @@ The coordinator's plan for building ADRs 0418 (the UI core grows toward web CSS)
 | X1 ✅ merged | 0418 wave 4: transitions, `@keyframes`, `animation`, on the tween backend; `transitionend`/`animationend` | 0420 |
 | X2 ✅ merged (conformance 1077/1311, 82.2%) | Svelte hooks without UI core dependencies: legacy `on:`, `globalTarget` (`<svelte:window/document/body>`, events and size bindings), `addStyles` (`css: 'injected'`), `<svelte:head>` title; `t()`; the Element subset on renderer nodes | 0419 A |
 | X3 ✅ merged (UI bundle 24.9 KB + cascade 10.7 KB gzip) | 0421: Svelte runtime and renderer bundled into each game's code at export, tree-shaken | 0419 A |
-| Y1 | 0418 wave 5: `:not`, structural, attribute and sibling selectors, `calc()`, canvas `@media` (+ `MediaQuery`) | X1 (cascade) |
-| Y2 | Svelte `animate`/`measure` hooks: `transition:`/`in:`/`out:`/`animate:` and `svelte/transition` built-ins on the tween backend and transformed boxes | X1, wave 3 |
-| Y3 | Event bubbling and capture (0422); scrolling containers (0423) | X2 |
+| Y1 ✅ merged | 0418 wave 5: `:not`, structural, attribute and sibling selectors, `calc()`, canvas `@media` (+ `MediaQuery`) | X1 (cascade) |
+| Y2 ✅ merged | Svelte `animate`/`measure` hooks: `transition:`/`in:`/`out:`/`animate:` and `svelte/transition` built-ins on the tween backend and transformed boxes | X1, wave 3 |
+| Y3 ✅ merged (conformance 1121/1311, 85.5%) | Event bubbling and capture (0422); scrolling containers (0423) | X2 |
 | Z1 | 0419 wave B: built-in UI (`UIControlMapper`, `SubtitleDisplay`) and the samples to Svelte | X2 (`t()`), Y3 (bubbling) |
 | Z2 | Form elements (0424); inline rich text, `{@html}`, `contenteditable` (0425); filters, SVG, video/audio, matrix transforms with skew (0426) | Y-wave |
 | C | 0419 wave C: editor tooling for `.svelte` (picking by template location, literal attribute editing, Create menu, Inspector sources) | Z1 |
@@ -40,4 +40,5 @@ The coordinator's plan for building ADRs 0418 (the UI core grows toward web CSS)
 - Wave 4 gaps: `UIView.ready` doesn't wait for the tween backend (a view's very first segment eases in TS, values correct); mid-transition inheritance to children, reversed-transition shortening, `transition-behavior`, `linear()`. Svelte `on*` animation event attributes mapped (coordinator).
 - Both tween backends hold only 256 sequences (vs 4,096 tweens): Y2's Svelte transitions should use tweens per segment as wave 4 does.
 - Size tripwire (0421's HUD UI bundle, `src/export/svelteExport.test.ts`): raised from 24.9 KB to 30.6 KB gzip measured (30,560 bytes) at the Y1+Y2+Y3 merge, past the old 29.9 KB tripwire. Why: the renderer grew by scheduled features, not by accident: canvas window units and `matchMedia` (Y1), the `animate`/`measure` hooks and Svelte's transition runtime (Y2), event propagation and the nodes' scrolling members (Y3).
+- Agents' "full suite passes" claims need checking: wave 5 reported green while its own tip failed 14 animation tests (found at merge). The coordinator re-runs the full suite after every merge and reads the summary from a saved log (`Test Files|Tests  | FAIL `), never by grepping `×`, which matches benchmark output.
 - e2e specs already known to be affected: `ui-navigation`, `localisation`, `arena`, `input`, `input-mapper`, `sample`, `hierarchy-create`, `selection`, `sound-lab-touch`, `inspector-fields`, `worldspanel`, `export`, `export-capture`, `animation-export`, `studio-export`, plus Code panel, Assets Create, export and player-boot specs (wave A part 2).
