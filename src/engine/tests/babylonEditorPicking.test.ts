@@ -12,8 +12,10 @@ import { UtilityLayerRenderer } from "@babylonjs/core/Rendering/utilityLayerRend
 import { Scene } from "@babylonjs/core/scene.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { World } from "../core/World";
-import { Assets, Camera, Engine, GameObject, SceneManager } from "../index";
-import { ParticleSystem } from "../render/components";
+import { Assets, Camera, Engine, GameObject, SceneManager, Vector2 } from "../index";
+import { ParticleSystem, SpriteRenderer } from "../render/components";
+import { BabylonSprites } from "../render/babylon/sprites";
+import { BabylonMaterials2D } from "../render/babylon/materials2D";
 import type { BabylonEditorContext, EditorDrawn } from "../render/babylon/editorContext";
 import { PICK_ORDER } from "../render/babylon/feature";
 import { BabylonEditorViewport } from "../render/babylon/editorViewport";
@@ -94,6 +96,36 @@ describe("Babylon editor viewport picking and queries (ADR 0075 stage 8, 0128)",
     const near = box("near", [0, 0, -2]);
     const far = box("far", [0, 0, 2]);
     expect(queries.pick(400, 300)).toEqual([back, front, near, far]);
+  });
+
+  it("picks the sprite drawn on top in a y-sorted layer: the lower one (ADR 0424), from the sprite feature's places", () => {
+    camera();
+    const pickSprites = (ySortedLayers: string[]) => {
+      const sprites = new BabylonSprites({
+        scene,
+        pixelsPerUnit: () => 100,
+        sortingLayers: () => ["Default"],
+        ySortedLayers: () => ySortedLayers,
+        texture: () => null,
+        materials2D: new BabylonMaterials2D({ scene, library: { texture: () => null } }),
+        drawPolicy: () => "perObject", // the editor's scene view: a quad per sprite
+        warnOnce: () => {},
+      });
+      sprites.sync(world());
+      drawn = [];
+      for (const d of sprites.drawn()) if (d.shape?.kind === "quad") drawn.push({ component: d.component, shape: d.shape, order: d.order });
+      const picked = queries.pick(400, 300);
+      sprites.dispose();
+      return picked;
+    };
+    // Overlapping at the canvas centre; the higher one comes first in the World.
+    const high = GameObject.create("high");
+    high.transform!.position.set(0, 0.5, 0);
+    high.addBehavior(SpriteRenderer, { size: new Vector2(2, 2) });
+    const low = GameObject.create("low");
+    low.addBehavior(SpriteRenderer, { size: new Vector2(2, 2) });
+    expect(pickSprites(["Default"])).toEqual([low, high]);
+    expect(pickSprites([])).toEqual([high, low]); // not y-sorted: one order, so the first drawn
   });
 
   it("returns nothing for a miss or an empty canvas, and without a view camera", () => {

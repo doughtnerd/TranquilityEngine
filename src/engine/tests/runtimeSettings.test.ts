@@ -70,6 +70,26 @@ describe("runtime settings sections", () => {
   });
 });
 
+describe("y-sorted sorting layers (ADR 0424)", () => {
+  it("default to none, and keep listed sorting layers", () => {
+    expect(defaultSettings.render.ySortedLayers).toEqual([]);
+    const { value, problems } = RUNTIME_SETTINGS.render.parse({ sortingLayers: ["Default", "World"], ySortedLayers: ["World"] });
+    expect(problems).toEqual([]);
+    expect(value.ySortedLayers).toEqual(["World"]);
+  });
+
+  it("report unknown, repeated and malformed names, dropping them", () => {
+    const { value, problems } = RUNTIME_SETTINGS.render.parse({ sortingLayers: ["Default", "World"], ySortedLayers: ["World", "Nope", "World", 3] });
+    expect(problems.map((p) => p.field)).toEqual(["render.ySortedLayers.1", "render.ySortedLayers.2", "render.ySortedLayers.3"]);
+    expect(problems[0]!.message).toBe('Y-sorted layers: "Nope" isn\'t a sorting layer.');
+    expect(value.ySortedLayers).toEqual(["World"]);
+    const bad = RUNTIME_SETTINGS.render.parse({ ySortedLayers: "World" });
+    expect(bad.problems.map((p) => p.field)).toEqual(["render.ySortedLayers"]);
+    expect(bad.value.ySortedLayers).toEqual([]);
+    expect(fields({ render: { ySortedLayers: ["Ghost"] } })).toEqual(["render.ySortedLayers.0"]); // checked against the default layers
+  });
+});
+
 describe("the Engine's start-up warnings", () => {
   it("say every runtime section's problems and warnings, one rule for all", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);

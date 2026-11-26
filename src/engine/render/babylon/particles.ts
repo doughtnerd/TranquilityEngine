@@ -32,8 +32,11 @@ export interface BabylonParticleHost extends EffectHost {
   particlePreview(): ParticlePreview | null;
   /** The quality tier's particle scale (`PARTICLE_SCALE[Graphics.tier.particles]`); multiplies emission and the particle limit. */
   tierScale(): number;
-  /** Draw order for a sorting layer and order in layer (ADR 0014, 0415: 2D particles), as sprites have it. Optional: without it, 2D systems draw as 3D. */
-  sortOrder?(sortingLayer: string, orderInLayer: number): number;
+  /**
+   * Draw place for a sorting layer and order in layer (ADR 0014, 0415: 2D particles), as sprites have it, with the
+   * system's world height `y` for a y-sorted layer (ADR 0424, `drawPlace`). Optional: without it, 2D systems draw as 3D.
+   */
+  sortOrder?(sortingLayer: string, orderInLayer: number, y: number): number;
   /** The 2D materials (ADR 0418): a 2D system's lighting. Optional: without them, 2D systems draw unlit. */
   readonly materials2D?: BabylonMaterials2D;
   /** Logs a warning once per key. Optional. */
@@ -155,7 +158,7 @@ export class BabylonParticles {
   /** A 2D system's place and lighting (ADR 0415), or null for 3D particles. */
   private layer2D(c: ParticleSystem): ParticleLayer2D | null {
     if (!c.sortingLayer || !this.host.sortOrder) return null;
-    const order = this.host.sortOrder(c.sortingLayer, c.orderInLayer);
+    const order = this.host.sortOrder(c.sortingLayer, c.orderInLayer, this.host.worldMatrix(c)[13] ?? 0); // its node's height (ADR 0424)
     return { order, lit: this.host.materials2D?.litSetup(c.material, c.sortingLayer) ?? null };
   }
 

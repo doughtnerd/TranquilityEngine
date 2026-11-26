@@ -22,7 +22,7 @@ import { rectMesh } from "../../../../../engine/animation/sprites/spriteMesh";
 import type { World } from "../../../../../engine/core/World";
 import { SpriteRenderer } from "../../../../../engine/render/components";
 import type { QuadBatch, QuadBatchHost } from "../../../../../engine/render/quadBatches";
-import { sortingOrder } from "../../../../../engine/render/sortOrder";
+import { drawPlace, ySortWithin } from "../../../../../engine/render/sortOrder";
 import type { SkinGeometry } from "../../../../../engine/render/skinning/skinData";
 import { PALETTE_FLOATS } from "../../../../../engine/render/skinning/skinKernel";
 import { JsSkinRuns, type SkinPalette, type SkinRun, type SkinRuns } from "../../../../../engine/render/skinning/skinRuns";
@@ -164,8 +164,10 @@ export class SkinnedSprites {
       e.key = key;
       this.build(e, r, skeleton, skin, skelSkin, size);
     }
-    e.order = sortingOrder(world.settings.render.sortingLayers, r.sortingLayer, r.orderInLayer); // for picking; the batch warns about an unknown layer
-    e.batch.setOrder(r.sortingLayer, r.orderInLayer);
+    // In a y-sorted layer (ADR 0424) its sort point is the sprite node's world position, as a plain sprite's.
+    const render = world.settings.render, y = world.worldMatrix(r.node.entity)[r.node.entity * 16 + 13]!;
+    e.order = drawPlace(render, r.sortingLayer, r.orderInLayer, y); // for picking; the batch warns about an unknown layer
+    e.batch.setOrder(r.sortingLayer, r.orderInLayer, ySortWithin(render, r.sortingLayer, y));
     e.batch.setTint(r.color.toHex(), r.color.a);
     e.batch.setMaterial(r.material); // ADR 0399: a normal map then follows the bones (the host's tangents)
     e.visible = r.isActiveAndEnabled && !!e.run;
