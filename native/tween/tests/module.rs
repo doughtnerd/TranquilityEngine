@@ -35,7 +35,9 @@ fn a_curve_eased_tween_reads_its_curve_and_completes() {
     let mut m = Module::default();
     assert_eq!(m.configure(8), STATUS_OK);
     // A step curve: 0 until x = 1 (so the value holds `from` until the end).
-    let keys = [0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0];
+    let keys = [
+        0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0,
+    ];
     let curve = m.load_curve(&keys);
     assert!(curve >= 1 << 16, "a curve handle is above every easing id");
     let h = m.create(&create(curve));
