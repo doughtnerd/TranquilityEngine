@@ -408,6 +408,7 @@ How to use the engine. The user docs (guides, FAQ, news) are written in [wiki/](
 | [0424](decisions/0424-y-sorted-sorting-layers-interleave-sprites-and-tile-rows-by-height.md) | Y-sorted sorting layers interleave sprites and tile rows by their height on screen | Accepted |
 | [0425](decisions/0425-tilemap-layers-get-offset-parallax-and-lock-and-the-editor-can-dim-inactive-layers.md) | Tilemap layers get an offset, a parallax factor and a lock; the editor can dim inactive layers | Accepted |
 | [0426](decisions/0426-the-tile-editor-gets-a-selection-tool-saved-stamps-a-replace-tile-command-and-a-prefab-brush.md) | The tile editor gets a selection tool, stamps saved in the tileset, a replace-tile command and a prefab brush | Accepted |
+| [0427](decisions/0427-inspector-fields-can-be-shown-only-when-other-fields-have-certain-values.md) | Inspector fields can be shown only when other fields of the component have certain values | Accepted |
 | [0362](decisions/0362-the-ui-fidelity-pass-adds-playback-pause-clip-envelopes-reverse-second-input-curves-occlusion-curves-and-studio-format-fields.md) | The UI fidelity pass adds `pause()`/`resume()` on playback handles, the Amp envelope on clips, reverse clips, sequence marker colour and note, second-input ("And by") curves on voice curves and automation, occlusion curves, Studio fields in `audio.json`, and new loudness target defaults | Accepted |
 
 ## Working with decisions
