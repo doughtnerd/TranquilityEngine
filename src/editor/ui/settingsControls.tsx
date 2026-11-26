@@ -24,7 +24,17 @@ export function Row(props: { label: string; problems: readonly SettingsProblem[]
   );
 }
 
-/** An editable list of names: rename in place, remove, and (with `onMove`) reorder. */
+/** A checkbox column beside a `NameList`'s names (a sorting layer's "Y-sort", ADR 0424). */
+export interface NameListCheck {
+  /** The column's heading. */
+  title: string;
+  /** What it means, as the heading's tooltip. */
+  description?: string;
+  checked: (i: number) => boolean;
+  onChange: (i: number, checked: boolean) => void;
+}
+
+/** An editable list of names: rename in place, remove, (with `onMove`) reorder, and (with `check`) a checkbox per name. */
 export function NameList(props: {
   title: string;
   hint?: string;
@@ -39,6 +49,7 @@ export function NameList(props: {
   onRename: (i: number, name: string) => void;
   onRemove: (i: number) => void;
   onMove?: (i: number, by: number) => void;
+  check?: NameListCheck;
 }) {
   const { names, field, problems, item } = props;
   return (
@@ -46,12 +57,27 @@ export function NameList(props: {
       <div class="project-settings-list-head">
         <span>{props.title}</span>
         {props.hint && <span class="project-settings-hint">{props.hint}</span>}
+        {props.check && (
+          <span class="project-settings-list-check-title" title={props.check.description}>
+            {props.check.title}
+          </span>
+        )}
       </div>
       {names.map((name, i) => {
         const invalid = problems.some((p) => p.field === `${field}.${i}`);
         return (
           <div key={`${i}:${name}`} class={`project-settings-item${invalid ? " invalid" : ""}`} data-index={i}>
             <TextField value={name} label={`${item} ${i + 1}`} onCommit={(v) => props.onRename(i, v.trim())} />
+            {props.check && (
+              <input
+                type="checkbox"
+                class="project-settings-list-check"
+                aria-label={`${props.check.title} ${name}`}
+                title={props.check.description}
+                checked={props.check.checked(i)}
+                onChange={(e) => props.check!.onChange(i, (e.currentTarget as HTMLInputElement).checked)}
+              />
+            )}
             {props.onMove && (
               <>
                 <button class="icon" aria-label={`Move ${name} up`} title="Move up (further back)" disabled={i === 0} onClick={() => props.onMove!(i, -1)}>

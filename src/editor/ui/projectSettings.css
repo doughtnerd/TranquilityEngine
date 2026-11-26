@@ -38,6 +38,8 @@
 .project-settings-item { display: flex; align-items: center; gap: 3px; width: 100%; }
 .project-settings-item input[type="text"] { flex: 1; min-width: 0; }
 .project-settings-item.invalid input[type="text"] { border-color: var(--danger); }
+.project-settings-list-check-title { margin-left: auto; color: var(--muted); font-size: var(--fs-sm); }
+.project-settings-item input.project-settings-list-check { flex: none; margin: 0 4px; }
 .project-settings-item button.icon { flex: none; width: 22px; height: 22px; padding: 0; line-height: 1; }
 .project-settings-path { flex: 1; min-width: 0; font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .project-settings-item.invalid .project-settings-path { color: var(--danger); }

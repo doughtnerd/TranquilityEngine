@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { addAutoload, addSortingLayer, addTier, graphicsOf, moveTier, removeTier, renameTier, setPlatformDefault, setAutoDetect, setDefaultTier, setTargetFrameRate, setTierValue, moveAutoload, moveSortingLayer, setName, settingsProblems, settingsWarnings, setValue, withSettings, type SettingsDraft } from "./projectSettingsModel";
+import { addAutoload, addSortingLayer, addTier, graphicsOf, isYSortedLayer, removeSortingLayer, renameSortingLayer, setYSortedLayer, moveTier, removeTier, renameTier, setPlatformDefault, setAutoDetect, setDefaultTier, setTargetFrameRate, setTierValue, moveAutoload, moveSortingLayer, setName, settingsProblems, settingsWarnings, setValue, withSettings, type SettingsDraft } from "./projectSettingsModel";
 import { raw, readDraft } from "./testing";
 
 const FLAPPY = raw["../../samples/flappy/project.json"];
@@ -50,6 +50,24 @@ describe("the Project panel's settings", () => {
     d = moveAutoload(addAutoload(flappy(), "a.prefab.json"), 1, -1);
     expect(d.autoload).toEqual(["a.prefab.json", "prefabs/music.prefab.json"]);
     expect(setValue({ display: { width: 3 } }, "display", "width", undefined).display).toBeUndefined();
+  });
+
+  it("y-sorts sorting layers (ADR 0424), keeping the list in step when a layer is renamed or removed", () => {
+    const layers = flappy().render!.sortingLayers!;
+    let d = setYSortedLayer(flappy(), layers.indexOf("Player"), true);
+    d = setYSortedLayer(d, layers.indexOf("Pipes"), true);
+    expect(d.render!.ySortedLayers).toEqual(["Pipes", "Player"].sort((a, b) => layers.indexOf(a) - layers.indexOf(b))); // in sorting layer order
+    expect(isYSortedLayer(d, layers.indexOf("Player"))).toBe(true);
+    expect(isYSortedLayer(d, layers.indexOf("Default"))).toBe(false);
+    expect(settingsProblems(d, ["prefabs/music.prefab.json"])).toEqual([]);
+    d = renameSortingLayer(d, layers.indexOf("Player"), "Actors");
+    expect(d.render!.ySortedLayers).toContain("Actors");
+    expect(d.render!.ySortedLayers).not.toContain("Player");
+    d = removeSortingLayer(d, layers.indexOf("Pipes"));
+    expect(d.render!.ySortedLayers).toEqual(["Actors"]);
+    d = setYSortedLayer(d, d.render!.sortingLayers!.indexOf("Actors"), false);
+    expect(d.render!.ySortedLayers).toBeUndefined(); // none: the key goes, so the default applies
+    expect(fields(setValue(flappy(), "render", "ySortedLayers", ["Ghost"]))).toEqual(["render.ySortedLayers.0"]);
   });
 
   it("writes only the changed sections into project.json, keeping the rest of the text", () => {
