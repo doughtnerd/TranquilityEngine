@@ -284,6 +284,18 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
       expect(Math.fround(p.opacity)).toBe(p.opacity);
     });
 
+    it("start from a built tree's settled styles when the sheets use structural selectors, but not for its own build", async () => {
+      // ADR 0418 wave 5 restyles a built tree once its siblings exist (#p was built as the last child): that restyle
+      // isn't a change and doesn't transition; a class a script adds before the first frame is one, and does.
+      const doc = await animatedUI(`<Canvas><Panel id="p" class="a"/><Panel id="q" class="a"/><Panel id="r" class="a"/></Canvas>`, `.a { opacity: 1; transition: opacity 1s linear } .a:last-child { opacity: 0.5 } .a.on { opacity: 0 }`);
+      const p = byId(doc, "p", UIPanel), q = byId(doc, "q", UIPanel), r = byId(doc, "r", UIPanel);
+      expect([p.opacity, q.opacity, r.opacity]).toEqual([1, 1, 0.5]);
+      doc.query("#q")!.classList.add("on");
+      step(33);
+      expect([p.opacity, r.opacity]).toEqual([1, 0.5]);
+      expect(q.opacity).toBeCloseTo(0.5, 5);
+    });
+
     it("wait out their delay at the old value; a negative delay starts part-way", async () => {
       const doc = await animatedUI(`<Canvas><Panel id="a" class="x"/><Panel id="b" class="y"/></Canvas>`, `.x { transition: opacity 1s linear 0.25s } .y { transition: opacity 1s linear -0.5s } .on { opacity: 0 }`);
       const a = byId(doc, "a", UIPanel), b = byId(doc, "b", UIPanel);

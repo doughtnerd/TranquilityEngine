@@ -670,7 +670,11 @@ export class UIHostTree {
   private shapeChanged = false;
   private disposed = false;
   private readonly selectorCache = new Map<string, readonly Selector[]>();
-  /** Elements made since the last late sync: styling them again in it starts no transitions (they're new). */
+  /**
+   * Elements made since styles were last resolved (a late sync, or `layoutNow` reading layout) when the sheets use
+   * structural selectors: restyling them for the siblings made after them starts no transitions (they're new). Once
+   * styles are resolved they're settled, as an element's are in the DOM once its style has been read.
+   */
   private readonly fresh = new Set<UIHostElement>();
   /** The next late sync restyles for the canvas's first known size: nothing transitions (ADR 0418 wave 5). */
   private firstMedia = false;
@@ -719,7 +723,7 @@ export class UIHostTree {
     this.applyAttributes(el, attributes, options.written);
     elementByComponent.set(el._comp, el);
     this.place(el, p, before);
-    this.fresh.add(el);
+    if (sheetsUseStructure) this.fresh.add(el);
     this.childrenChanged(p);
     this.shapeChanged = true;
     hostVersion++;
@@ -948,7 +952,6 @@ export class UIHostTree {
       }
     });
     this.resolveDirty();
-    this.fresh.clear();
     this.firstMedia = false;
     if (this.shapeChanged) {
       this.shapeChanged = false;
@@ -977,9 +980,12 @@ export class UIHostTree {
 
   // --- Inside ---------------------------------------------------------------------------------------
 
-  /** Restyle the elements changed since the last restyle (a subtree once, from its top). */
+  /** Restyle the elements changed since the last restyle (a subtree once, from its top); new elements are settled after. */
   private resolveDirty(): void {
-    if (!this.dirty.size) return;
+    if (!this.dirty.size) {
+      this.fresh.clear();
+      return;
+    }
     const dirty = [...this.dirty].filter((e) => e._alive);
     this.dirty.clear();
     const set = new Set(dirty);
@@ -988,6 +994,7 @@ export class UIHostTree {
       for (let p = el._parent; p && !covered; p = p._parent) covered = set.has(p);
       if (!covered) this.resolve(el);
     }
+    this.fresh.clear();
     hostVersion++;
   }
 

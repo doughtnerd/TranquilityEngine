@@ -462,7 +462,10 @@ export class UIDocument extends Component {
   /** @internal The sheets use structural selectors or sibling combinators (ADR 0418 wave 5): rows and class changes restyle siblings. */ _structure = false;
   /** The sheets have `@media` rules (ADR 0418 wave 5): a canvas size change restyles the tree. */
   private mediaRules = false;
-  /** Elements built since the last late sync: styling them again starts no transitions. */
+  /**
+   * Rows built since the last late sync when the sheets use structural selectors: restyling them for the siblings built
+   * after them starts no transitions. A whole tree's build settles its own styles at once and leaves none here.
+   */
   private readonly fresh = new Set<UIDocumentElement>();
   /** The next restyle is for the canvas's first known size: nothing transitions. */
   private firstMedia = false;
@@ -716,11 +719,15 @@ export class UIDocument extends Component {
             this.rootElement = this.build(root, null, null, reuse, "");
           });
           // Each element was styled as it was built, before its later siblings and children existed and before the root
-          // knew its canvas: structural selectors and `@media` match once the whole tree is there (ADR 0418 wave 5).
+          // knew its canvas: structural selectors and `@media` match once the whole tree is there (ADR 0418 wave 5), the
+          // rows its bindings list included. Bound fields aren't the cascade's, so restyling after binding keeps them.
           const built = this.rootElement!;
           built._target.media = this.canvasSize();
+          this.updateBindings(built);
           if (this._structure || (this.mediaRules && built._target.media)) this.restyle(built);
-          this.updateBindings(this.rootElement!);
+          // The built tree's styles are settled: a change from here (a class a script adds before the first frame)
+          // transitions from the value shown, as any later one does (ADR 0418 wave 4).
+          this.fresh.clear();
         }
       }
     }
@@ -777,7 +784,8 @@ export class UIDocument extends Component {
     el._resolved = new Map();
     el._styled = false;
     el._target = targetOf(el, markup, idAttr, classAttr.split(/\s+/).filter(Boolean), parent?._target ?? null);
-    this.fresh.add(el);
+    // Only structural selectors restyle a new element again once its later siblings exist (ADR 0418 wave 5).
+    if (this._structure) this.fresh.add(el);
     const parentNode = parent ? parent._node : this.node;
     const node = world._createNode(idAttr ?? markup.tag, parentNode.entity);
     el._node = node;
