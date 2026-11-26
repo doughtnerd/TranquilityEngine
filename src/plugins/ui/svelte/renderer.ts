@@ -16,11 +16,15 @@
  *   its text. Anywhere else, text with something other than whitespace is a Text element of its own (a
  *   button's label). Whitespace is collapsed as UI markup does. Comments (Svelte's anchors) are never built.
  * - **Events** are the UI core's (ADR 0309) with DOM names: `onclick`, `oninput`, `onchange`, `onsubmit`,
- *   `onfocus`, `onblur`, `onpointerenter`, `onpointerleave` (and `onmouseenter`/`onmouseleave`), as event
- *   attributes or legacy `on:` directives (with their modifiers). A handler gets a `UIHostEvent` whose
- *   `target`/`currentTarget` are the node (so `e.currentTarget.value` reads a field, as on the web) and whose
- *   `element` is the hosted UI element. Listeners of any other type are kept for `dispatchEvent` (an action's
- *   custom event). Events don't propagate yet.
+ *   `onfocus`, `onblur`, `onpointerenter`, `onpointerleave` (and `onmouseenter`/`onmouseleave`), and (ADR 0422)
+ *   `onpointerdown`/`up`/`move`/`over`/`out`/`cancel` (and their `onmouse…` names), `ondblclick`, `oncontextmenu`,
+ *   `onwheel`, `onkeydown`/`onkeyup` (on the focused element), `onfocusin`/`onfocusout`, `onscroll`/`onscrollend`
+ *   (ADR 0423) and drags, as event attributes or legacy `on:` directives (with their modifiers). They travel through
+ *   the nodes' ancestors in capture (`onclickcapture`, `addEventListener(…, { capture: true })`), target and bubble
+ *   phases, then, bubbling out of the view, through `<svelte:body>`, `<svelte:document>` and `<svelte:window>`. A
+ *   handler gets a `UIHostEvent` whose `target` is the node it happened on and `currentTarget` the node listening
+ *   (so `e.currentTarget.value` reads a field, as on the web), and whose `element` is the hosted UI element. Listeners
+ *   of any other type are kept for `dispatchEvent` (an action's custom event), which propagates the same way.
  * - **The patch's hooks** (`patches/svelte+5.59.2.patch`, `docs/architecture/svelte-patch.md`): `bind`
  *   (`bind:value` on `input`; the window's and document's bindings), `globalTarget` (`<svelte:window>`,
  *   `<svelte:document>` and `<svelte:body>` are `globalTargets.ts`'s targets, fed from the device snapshot and
@@ -34,8 +38,9 @@
  *   (the UI's focus, ADR 0340), `getBoundingClientRect` (transformed, in canvas UI pixels), `closest`/`matches`/
  *   `querySelector`/`querySelectorAll`, `contains`, `parentElement`/`parentNode`/`children`/`childNodes`/
  *   `firstElementChild`/`lastElementChild`/`nextElementSibling`/`previousElementSibling` (and the node
- *   versions), `value`, `tagName`, `textContent`, `innerHTML` (read-only), `isConnected`, and `element` (the
- *   hosted UI element). Not `scrollIntoView` (nothing scrolls yet).
+ *   versions), `value`, `tagName`, `textContent`, `innerHTML` (read-only), `isConnected`, `element` (the
+ *   hosted UI element), and (ADR 0423) `scrollTop`/`scrollLeft`, `scrollWidth`/`scrollHeight`/`clientWidth`/
+ *   `clientHeight`, `scrollTo`, `scrollBy` and `scrollIntoView`.
  * - **`t()`** from "myco" is reactive in components: the renderer installs a reactive read of `Locale.epoch`.
  *
  * Svelte builds a template instance as a detached subtree and inserts it; the hosted elements are made
@@ -51,7 +56,8 @@ import { Color, Vector2 } from "../../../engine/core/math";
 import { onLocaleEpoch } from "../../../engine/localisation/Locale";
 import { setLocaleTracker } from "../../../engine/localisation/t";
 import { uiTagOfHtml } from "../../../engine/ui/host/htmlTags";
-import { setUIHostStyles, UIHostEvent, type UIHostElement, type UIHostEventType, type UIHostSource, type UIHostTree } from "../../../engine/ui/host/UIHost";
+import { onUIHostBubbleOut, setUIHostStyles, UIHostElement, UIHostEvent, type UIHostEventType, type UIHostSource, type UIHostTree } from "../../../engine/ui/host/UIHost";
+import { addUIListener, removeUIListener, runUIListeners, uiListenerOptions, type UIListener } from "../../../engine/ui/events";
 import type { UIStylesheet, UITag } from "../../../engine/ui/document/types";
 import { UIGlobals, UIGlobalTarget, type GlobalKind } from "./globalTargets";
 import { animateNode, measureNode } from "./animation";
@@ -67,6 +73,34 @@ const EVENTS: Readonly<Record<string, UIHostEventType>> = {
   pointerleave: "pointerleave",
   mouseenter: "pointerenter",
   mouseleave: "pointerleave",
+  // ADR 0422: the pointer (with the mouse names browsers also fire), keys, focus moving, drags; ADR 0423: scrolling.
+  pointerdown: "pointerdown",
+  pointerup: "pointerup",
+  pointermove: "pointermove",
+  pointerover: "pointerover",
+  pointerout: "pointerout",
+  pointercancel: "pointercancel",
+  mousedown: "pointerdown",
+  mouseup: "pointerup",
+  mousemove: "pointermove",
+  mouseover: "pointerover",
+  mouseout: "pointerout",
+  dblclick: "dblclick",
+  contextmenu: "contextmenu",
+  wheel: "wheel",
+  keydown: "keydown",
+  keyup: "keyup",
+  focusin: "focusin",
+  focusout: "focusout",
+  scroll: "scroll",
+  scrollend: "scrollend",
+  dragstart: "dragstart",
+  drag: "drag",
+  dragenter: "dragenter",
+  dragover: "dragover",
+  dragleave: "dragleave",
+  drop: "drop",
+  dragend: "dragend",
   // ADR 0418 wave 4: stylesheet animation events, the frame after they happen.
   transitionend: "transitionend",
   animationstart: "animationstart",
@@ -78,25 +112,26 @@ const EVENTS: Readonly<Record<string, UIHostEventType>> = {
 const HEAD_TAGS = new Set(["head", "meta", "link", "base", "script", "style", "noscript", "title"]);
 
 /** Attributes HTML has that aren't UI fields: kept on the node (getAttribute sees them), never given to the cascade. */
-const HTML_ONLY = new Set(["type", "name", "for", "alt", "title", "role", "tabindex", "autocomplete", "lang", "dir", "hidden", "draggable", "spellcheck", "inputmode", "autofocus", "form", "method", "action"]);
+const HTML_ONLY = new Set(["type", "name", "for", "alt", "title", "role", "tabindex", "autocomplete", "lang", "dir", "hidden", "spellcheck", "inputmode", "autofocus", "form", "method", "action"]);
 
 type Handler = (this: unknown, e: unknown) => void;
-/** A listener's options that matter without propagation: `once`. */
-type ListenerOptions = { once: boolean };
 
-function listenerOptions(options: unknown): ListenerOptions {
-  return { once: typeof options === "object" && options !== null && !!(options as { once?: boolean }).once };
-}
+/** What propagation reads of an event (a `UIHostEvent`, or an event object a script made). */
+type Propagating = { type: string; bubbles?: boolean; eventPhase?: number; _stopped?: boolean; _stoppedNow?: boolean; _passive?: boolean; target?: unknown; currentTarget?: unknown };
 
-/** Run `type`'s listeners on `el` with `event` (a listener added with `once` is removed first). Stops at `stopPropagation`. */
-function runListeners(el: UIRenderElement, type: string, event: unknown): void {
-  const set = el._listeners.get(type);
-  if (!set?.size) return;
-  for (const [h, opts] of [...set]) {
-    if (opts.once) set.delete(h);
-    h.call(el, event);
-    if ((event as { _stopped?: boolean })._stopped) break;
+/**
+ * ADR 0422: run `type`'s listeners on `el` for a phase (1 capture, 2 target, 3 bubble), `this` being the node. A
+ * listener added with `once` is removed first; `stopImmediatePropagation` ends the run.
+ */
+function runListeners(el: UIRenderElement, type: string, event: Propagating, phase: 1 | 2 | 3): void {
+  const list = el._listeners.get(type);
+  if (!list?.length) return;
+  try {
+    event.currentTarget = el;
+  } catch {
+    // an event whose fields are read-only
   }
+  runUIListeners(list, phase, event, (h) => h.call(el, event));
 }
 
 const warned = new Set<string>();
@@ -297,8 +332,8 @@ export class UIRenderElement extends UINodeBase {
   /** @internal */ readonly _uiTag: UITag;
   /** @internal */ readonly _attrs = new Map<string, unknown>();
   /** @internal */ _children: UINode[] = [];
-  /** @internal Listeners by DOM event type (any type: a UI event's, or one an action dispatches). */ readonly _listeners = new Map<string, Map<Handler, ListenerOptions>>();
-  /** @internal */ _dispatchers = new Map<UIHostEventType, (e: UIHostEvent) => void>();
+  /** @internal Listeners by DOM event type (any type: a UI event's, or one an action dispatches). */ readonly _listeners = new Map<string, UIListener<Handler>[]>();
+  /** @internal The host listeners (capture and bubble) relaying each UI event type to this node's listeners. */ _dispatchers = new Map<UIHostEventType, [(e: UIHostEvent) => void, (e: UIHostEvent) => void]>();
   /** @internal */ _hosted: UIHostElement | null = null;
   /** @internal Set on the container a view mounts into: the tree it hosts. */ _tree: UIHostTree | null = null;
   /** @internal An input's value set before its element was made (a binding, a script). */ _pendingValue: string | null = null;
@@ -447,26 +482,56 @@ export class UIRenderElement extends UINodeBase {
     return [...this._attrs.keys()].filter((k) => this.getAttribute(k) !== null);
   }
 
-  /** Run this node's listeners of `event.type` now (any type; no bubbling yet), as if the event happened. Returns false if a listener called `preventDefault`. */
-  dispatchEvent(event: { type: string; defaultPrevented?: boolean; target?: unknown; currentTarget?: unknown }): boolean {
+  /**
+   * Dispatch `event` now (any type), as if it happened here (ADR 0422): through this node's ancestors in capture,
+   * target and (when `event.bubbles`) bubble phases, then, out of a mounted view, `<svelte:body>`, `<svelte:document>`
+   * and `<svelte:window>`. Returns false if a listener called `preventDefault`.
+   */
+  dispatchEvent(event: { type: string; defaultPrevented?: boolean; target?: unknown; currentTarget?: unknown; bubbles?: boolean }): boolean {
+    const e = event as Propagating;
     try {
-      event.target ??= this;
-      event.currentTarget = this;
+      e.target ??= this;
     } catch {
       // an event whose fields are read-only
     }
-    runListeners(this, event.type, event);
+    const path: UIRenderElement[] = [];
+    for (let n: UIRenderElement | UIRenderFragment | null = this; n instanceof UIRenderElement; n = n._parent) {
+      path.push(n);
+      if (n._tree) break; // the view's mount node: the canvas
+    }
+    const setPhase = (p: number) => {
+      try {
+        e.eventPhase = p;
+      } catch {
+        // read-only
+      }
+    };
+    for (let i = path.length - 1; i >= 1 && !e._stopped; i--) {
+      setPhase(1);
+      runListeners(path[i], e.type, e, 1);
+    }
+    if (!e._stopped) {
+      setPhase(2);
+      runListeners(path[0], e.type, e, 2);
+    }
+    if (e.bubbles) {
+      for (let i = 1; i < path.length && !e._stopped; i++) {
+        setPhase(3);
+        runListeners(path[i], e.type, e, 3);
+      }
+      if (!e._stopped && path[path.length - 1]._tree) globals._continue(e, [e.type]);
+    }
+    setPhase(0);
     return !event.defaultPrevented;
   }
 
-  /** Click it, as a script can on the web: its `click` listeners run now with a `UIHostEvent` (the UI core isn't involved). */
+  /** Click it, as a script can on the web: a bubbling `click` (a `UIHostEvent`) dispatched now (the UI core isn't involved). */
   click(): void {
     if (this._hosted) {
       const e = new UIHostEvent("click", this._hosted);
       e.target = this;
-      e.currentTarget = this;
       this.dispatchEvent(e);
-    } else this.dispatchEvent({ type: "click", defaultPrevented: false });
+    } else this.dispatchEvent({ type: "click", defaultPrevented: false, bubbles: true });
   }
 
   getAttribute(name: string): string | null {
@@ -490,8 +555,60 @@ export class UIRenderElement extends UINodeBase {
     renderer.addEventListener(this, type, handler, options);
   }
 
-  removeEventListener(type: string, handler: Handler): void {
-    renderer.removeEventListener(this, type, handler);
+  removeEventListener(type: string, handler: Handler, options?: boolean | { capture?: boolean }): void {
+    renderer.removeEventListener(this, type, handler, options as never);
+  }
+
+  // --- Scrolling (ADR 0423): the hosted element's, once there is one ---------------------------------
+
+  /** How far its content is scrolled down, in UI pixels; set it to scroll. */
+  get scrollTop(): number {
+    return this._hosted?.scrollTop ?? 0;
+  }
+
+  set scrollTop(value: number) {
+    if (this._hosted) this._hosted.scrollTop = value;
+  }
+
+  /** How far its content is scrolled right. */
+  get scrollLeft(): number {
+    return this._hosted?.scrollLeft ?? 0;
+  }
+
+  set scrollLeft(value: number) {
+    if (this._hosted) this._hosted.scrollLeft = value;
+  }
+
+  /** Its content's extent and its padding box from the last layout (UI pixels; 0 before). */
+  get scrollWidth(): number {
+    return this._hosted?.scrollWidth ?? 0;
+  }
+
+  get scrollHeight(): number {
+    return this._hosted?.scrollHeight ?? 0;
+  }
+
+  get clientWidth(): number {
+    return this._hosted?.clientWidth ?? 0;
+  }
+
+  get clientHeight(): number {
+    return this._hosted?.clientHeight ?? 0;
+  }
+
+  /** Scroll its content to `x`, `y` (or `{ left, top, behavior }`). */
+  scrollTo(x?: number | { left?: number; top?: number; behavior?: "auto" | "smooth" | "instant" }, y?: number): void {
+    this._hosted?.scrollTo(x, y);
+  }
+
+  /** Scroll its content by `dx`, `dy` (or `{ left, top, behavior }`). */
+  scrollBy(x?: number | { left?: number; top?: number; behavior?: "auto" | "smooth" | "instant" }, y?: number): void {
+    this._hosted?.scrollBy(x, y);
+  }
+
+  /** Scroll its scrolling ancestors so it shows (`{ block, inline, behavior }`, or `true`/`false` for start/end). */
+  scrollIntoView(options?: boolean | { block?: "start" | "center" | "end" | "nearest"; inline?: "start" | "center" | "end" | "nearest"; behavior?: "auto" | "smooth" | "instant" }): void {
+    this._hosted?.scrollIntoView(options);
   }
 
   /** Give it the UI's focus (buttons and input fields; ADR 0340), as a script does: no focus event. */
@@ -715,18 +832,26 @@ function collapse(text: string): string {
 const DOM_TYPES_OF = new Map<UIHostEventType, string[]>();
 for (const [dom, ui] of Object.entries(EVENTS)) DOM_TYPES_OF.set(ui, [...(DOM_TYPES_OF.get(ui) ?? []), dom]);
 
+/**
+ * ADR 0422: relay a UI event type from `el`'s hosted element to its listeners, each phase: a capture listener on the
+ * host runs the node's capture listeners (while capturing, and first at the target), a bubble one its others. The
+ * event's `target` and `relatedTarget` become nodes.
+ */
 function attachDispatcher(el: UIRenderElement, type: UIHostEventType): void {
   if (!el._hosted || el._dispatchers.has(type)) return;
-  const fn = (e: UIHostEvent) => {
+  const make = (phase: 1 | 3) => (e: UIHostEvent) => {
     e.currentTarget = el;
-    e.target = el;
+    e.target = hostedNodes.get(e.element) ?? el;
+    if (e.relatedTarget instanceof UIHostElement) e.relatedTarget = hostedNodes.get(e.relatedTarget) ?? null;
     for (const dom of DOM_TYPES_OF.get(type) ?? []) {
-      runListeners(el, dom, e);
-      if (e._stopped) break;
+      runListeners(el, dom, e, phase);
+      if (e._stoppedNow) break;
     }
   };
-  el._dispatchers.set(type, fn);
-  el._hosted.on(type, fn);
+  const pair: [(e: UIHostEvent) => void, (e: UIHostEvent) => void] = [make(1), make(3)];
+  el._dispatchers.set(type, pair);
+  el._hosted.on(type, pair[0], { capture: true });
+  el._hosted.on(type, pair[1]);
 }
 
 /** Build `node` (and its subtree) in `tree`. Returns the top element built, to restyle once. */
@@ -912,14 +1037,15 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     const ui = EVENTS[type];
     // Any type is kept, for `dispatchEvent` (an action's custom event); only the UI's events happen by themselves.
     if (!ui && !el._listeners.has(type)) warnIfNotYet(type);
-    let set = el._listeners.get(type);
-    if (!set) el._listeners.set(type, (set = new Map()));
-    if (!set.has(handler as Handler)) set.set(handler as Handler, listenerOptions(options));
+    let list = el._listeners.get(type);
+    if (!list) el._listeners.set(type, (list = []));
+    const o = uiListenerOptions(options); // ADR 0422: capture, once and passive
+    addUIListener(list, handler as Handler, o.capture, o.once, o.passive);
     if (ui) attachDispatcher(el, ui);
   },
-  removeEventListener(el, type, handler) {
+  removeEventListener(el, type, handler, options?: unknown) {
     if (isGlobal(el)) return el.removeEventListener(type, handler as Handler);
-    el._listeners.get(type)?.delete(handler as Handler);
+    removeUIListener(el._listeners.get(type), handler as Handler, uiListenerOptions(options).capture);
   },
   // The patch's hooks (patches/svelte+5.59.2.patch): element bindings under a custom renderer, and bindings on the global targets.
   bind(node, name, get, set) {
@@ -960,12 +1086,22 @@ const head = new UIRenderElement("head");
 /** `<svelte:window>`, `<svelte:document>` and `<svelte:body>`. */
 const globals = new UIGlobals(head, (el) => hostedNodes.get(el) ?? null);
 
-/** DOM events UI elements don't have yet (they come with event bubbling, ADR 0419's DOM event semantics). */
-const NOT_YET = new Set(["keydown", "keyup", "keypress", "pointerdown", "pointerup", "pointermove", "mousedown", "mouseup", "mousemove", "wheel", "dblclick", "contextmenu", "pointerover", "pointerout", "mouseover", "mouseout", "focusin", "focusout"]);
-/** Warn (once per type) about a DOM event no UI element has yet; other types are custom events an action dispatches. */
+/** DOM events UI elements don't have (ADR 0422's set covers the pointer as pointer and mouse events, not touch events). */
+const NOT_YET = new Set(["keypress", "touchstart", "touchmove", "touchend", "touchcancel", "auxclick", "beforeinput", "compositionstart", "compositionend"]);
+/** Warn (once per type) about a DOM event no UI element has; other types are custom events an action dispatches. */
 function warnIfNotYet(type: string): void {
-  if (NOT_YET.has(type)) warnOnce(`on${type} doesn't happen on UI elements yet; they have onclick, oninput, onchange, onsubmit, onfocus, onblur, onpointerenter and onpointerleave (and <svelte:window> has keys and the pointer).`);
+  if (NOT_YET.has(type)) warnOnce(`on${type} doesn't happen on UI elements; touches arrive as pointer events (onpointerdown, onpointermove, onpointerup), and keys as onkeydown and onkeyup.`);
 }
+
+// ADR 0422: UI events that bubble out of a view's canvas go on through <svelte:body>, <svelte:document> and <svelte:window>
+// (and the types the UI dispatched aren't fed to them again from the devices that frame).
+onUIHostBubbleOut((e, tree) => {
+  if (!mountedTrees.has(tree)) return;
+  globals._continue(e, DOM_TYPES_OF.get(e.type) ?? [e.type]);
+});
+
+/** Trees a view is mounted on. */
+const mountedTrees = new WeakSet<UIHostTree>();
 
 // `t()` from "myco" follows the language inside components: a reactive read of Locale.epoch.
 setLocaleTracker(createSubscriber((update) => onLocaleEpoch(update)));
@@ -1016,6 +1152,8 @@ export function mountView(tree: UIHostTree, component: Component<Record<string, 
   const container = new UIRenderElement("div");
   container._tree = tree;
   container._hosted = tree.root;
+  mountedTrees.add(tree);
+  hostedNodes.set(tree.root, container);
   const reactive = proxy({ ...props }) as Record<string, unknown>;
   const instance = mount(component, { target: container as never, props: reactive, renderer } as never);
   flushSync();

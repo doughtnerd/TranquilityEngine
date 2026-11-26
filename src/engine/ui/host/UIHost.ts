@@ -14,8 +14,10 @@
  *   restyled in the late sync of the frame they happen in, after the flush hooks (`onFlush`) ran, so a
  *   change a click handler queued in a microtask shows in the frame of the click.
  * - Events come from the UI core's interaction log (ADR 0309) with DOM names (`click`, `input`,
- *   `change`, `submit`, `focus`, `blur`, `pointerenter`, `pointerleave`), at the same point in the frame
- *   UI document handlers run: right after UI input routing, before behaviors' `update`.
+ *   `change`, `submit`, `focus`, `blur`, `pointerenter`, `pointerleave`…), at the same point in the frame
+ *   UI document handlers run: right after UI input routing, before behaviors' `update`. ADR 0422: they travel
+ *   through the element's ancestors in capture, target and bubble phases; one that bubbles out of the tree's canvas
+ *   unstopped goes on to the renderer (`onUIHostBubbleOut`: Svelte's body, document and window).
  * - The editor finds the hosted element of a picked component with `uiHostElementOf`, with the template
  *   location it was made from (`source`), and follows changes with `onUIHostChanged`.
  * - Geometry and played keyframes (ADR 0419, for Svelte's transitions and `animate:`): reading an element's box
@@ -36,6 +38,8 @@ import { boundsOf, transformRect } from "../transform2d";
 import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIMediaEnvironment, UIPseudo, UIStylesheet, UITag } from "../document/types";
 import type { UIAnimationSpec, UITransitionSpec } from "../document/animationValues";
 import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimator, type UIAnimationEvent, type UIAnimationStop, type UIPlayback, type UIPlayHooks, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "../animation/UIAnimator";
+import { addUIEventFrontEnd, addUIListener, propagate, removeUIListener, runUIListeners, uiEventBubbles, uiEventCancelable, UIEventBase, uiListenerOptions, type UIEventRecord, type UIListener } from "../events";
+import { uiScrollIntoViewArg, uiScrollSizes, uiScrollToArgs, isScrollable, type UIScrollIntoViewOptions, type UIScrollToArgs } from "../scrolling";
 
 type Cascade = typeof import("./hostSupport");
 type ComponentClass = new () => UIComponentType;
@@ -139,32 +143,46 @@ function warnOnce(message: string): void {
 
 export type UIHostEventType =
   | "click" | "input" | "change" | "submit" | "focus" | "blur" | "pointerenter" | "pointerleave"
-  | "transitionend" | "animationstart" | "animationiteration" | "animationend";
+  | "transitionend" | "animationstart" | "animationiteration" | "animationend"
+  // ADR 0422: the DOM's pointer, keyboard, focus and drag events; ADR 0423: scrolling.
+  | "dblclick" | "contextmenu" | "pointerdown" | "pointerup" | "pointermove" | "pointerover" | "pointerout" | "pointercancel"
+  | "wheel" | "keydown" | "keyup" | "focusin" | "focusout" | "scroll" | "scrollend"
+  | "dragstart" | "drag" | "dragenter" | "dragover" | "dragleave" | "drop" | "dragend";
 
-/** A UI event on a hosted element (ADR 0419): what an `onclick`, `oninput`… handler gets. */
-export class UIHostEvent {
+/**
+ * A UI event on a hosted element (ADR 0419): what an `onclick`, `oninput`… handler gets. ADR 0422: the DOM's
+ * propagation and cancellation members and pointer, wheel and keyboard fields (`UIEventBase`).
+ */
+export class UIHostEvent extends UIEventBase {
+  declare readonly type: UIHostEventType;
   /** What the handler is listening on; a renderer sets it to its own node (as the DOM's `currentTarget`). */
   currentTarget: unknown;
   /** The element the event happened on; a renderer sets it to its own node (as the DOM's `target`). */
   target: unknown;
+  /** The other element of pointer over/out/enter/leave, focus changes and drag enter/leave: a hosted element (a renderer sets its node), or null. */
+  relatedTarget: unknown;
   /** `transitionend` (ADR 0418 wave 4): the property whose transition finished (kebab-case); "" otherwise. */
   readonly propertyName: string;
   /** Animation events: the animation's name; "" otherwise. */
   readonly animationName: string;
   /** Transition and animation events: seconds it had run, its delay not counted; 0 otherwise. */
   readonly elapsedTime: number;
-  private prevented = false;
-  private stopped = false;
 
   constructor(
-    readonly type: UIHostEventType,
+    type: UIHostEventType,
     /** The hosted element the event happened on. */
     readonly element: UIHostElement,
     /** A transition or animation event's details. */
     detail?: Pick<UIAnimationEvent, "propertyName" | "animationName" | "elapsedTime">,
+    /** ADR 0422: the record it comes from (pointer and key data; `preventDefault` cancels its default action). */
+    record: UIEventRecord | null = null,
+    /** The hosted element of `relatedTarget`. */
+    related: UIHostElement | null = null,
   ) {
+    super(type, record, { bubbles: uiEventBubbles(type), cancelable: uiEventCancelable(type), on: element._comp });
     this.currentTarget = element;
     this.target = element;
+    this.relatedTarget = related;
     this.propertyName = detail?.propertyName ?? "";
     this.animationName = detail?.animationName ?? "";
     this.elapsedTime = detail?.elapsedTime ?? 0;
@@ -180,28 +198,6 @@ export class UIHostEvent {
     return undefined;
   }
 
-  get defaultPrevented(): boolean {
-    return this.prevented;
-  }
-
-  /** Recorded only: UI events have no default actions to cancel yet. */
-  preventDefault(): void {
-    this.prevented = true;
-  }
-
-  /** Stops the remaining handlers on the element (events don't bubble yet, so that's all it stops). */
-  stopPropagation(): void {
-    this.stopped = true;
-  }
-
-  stopImmediatePropagation(): void {
-    this.stopped = true;
-  }
-
-  /** @internal */
-  get _stopped(): boolean {
-    return this.stopped;
-  }
 }
 
 export type UIHostListener = (event: UIHostEvent) => void;
@@ -266,8 +262,7 @@ export class UIHostElement {
   /** @internal */ _resolved: Map<string, ResolvedValue> = new Map();
   /** @internal */ _applied = new Set<string>();
   /** @internal */ _alive = true;
-  /** @internal */ _listeners = new Map<UIHostEventType, Set<UIHostListener>>();
-  /** @internal Last frame's hover, for `pointerleave`. */ _hovered = false;
+  /** @internal */ _listeners = new Map<UIHostEventType, UIListener<UIHostListener>[]>();
   /** @internal The field's value changed since the last `change` event. */ _edited = false;
   /** @internal Content attributes last written (`CONTENT_ATTRIBUTES`). */ _content = new Map<string, string>();
   /** @internal Styled at least once (a first style starts no transitions, ADR 0418 wave 4). */ _styled = false;
@@ -524,33 +519,92 @@ export class UIHostElement {
   }
 
   /**
-   * Listen to a UI event (`click`, `input`, `change`, `submit`, `focus`, `blur`, `pointerenter`, `pointerleave`), or
-   * to stylesheet animation (ADR 0418 wave 4: `transitionend`, `animationstart`, `animationiteration`, `animationend`,
-   * the frame after they happened).
+   * Listen to a UI event (`click`, `input`, `change`, `submit`, `focus`, `blur`, `pointerenter`, `pointerleave`, and
+   * ADR 0422's pointer, key, focus and drag events, ADR 0423's `scroll`/`scrollend`), or to stylesheet animation (ADR
+   * 0418 wave 4: `transitionend`, `animationstart`, `animationiteration`, `animationend`, the frame after they
+   * happened). `capture` hears it on the way down to its target; `once` removes the listener once it ran.
    */
-  on(type: UIHostEventType, listener: UIHostListener): void {
-    let set = this._listeners.get(type);
-    if (!set) this._listeners.set(type, (set = new Set()));
-    set.add(listener);
-    if (type === "pointerleave") this._hovered = this._comp instanceof UIButton && this._comp.hovered;
+  on(type: UIHostEventType, listener: UIHostListener, options?: { capture?: boolean; once?: boolean } | boolean): void {
+    const o = uiListenerOptions(options);
+    let list = this._listeners.get(type);
+    if (!list) this._listeners.set(type, (list = []));
+    addUIListener(list, listener, o.capture, o.once);
   }
 
-  off(type: UIHostEventType, listener: UIHostListener): void {
-    this._listeners.get(type)?.delete(listener);
+  off(type: UIHostEventType, listener: UIHostListener, options?: { capture?: boolean } | boolean): void {
+    removeUIListener(this._listeners.get(type), listener, uiListenerOptions(options).capture);
   }
 
-  /** Run this element's listeners of `event.type` now (what the frame does for the events the UI core recorded). */
+  /**
+   * Dispatch `event` (whose `element` is this element) now through this element's ancestors in the tree, in capture,
+   * target and bubble phases (ADR 0422); one that bubbles out of the canvas unstopped goes on to `onUIHostBubbleOut`.
+   */
   dispatch(event: UIHostEvent): void {
-    const set = this._listeners.get(event.type);
-    if (!set?.size) return;
-    for (const fn of [...set]) {
-      try {
-        fn(event);
-      } catch (err) {
-        console.error(`[myco] a UI "${event.type}" handler on <${this.tag}> threw:`, err);
-      }
-      if (event._stopped) break;
-    }
+    const path: UIHostElement[] = [];
+    for (let at: UIHostElement | null = this; at; at = at._parent) path.push(at);
+    propagate(event, path, (el, phase) => {
+      const list = el._listeners.get(event.type);
+      if (!list?.length) return;
+      runUIListeners(list, phase, event, (fn) => {
+        try {
+          fn(event);
+        } catch (err) {
+          console.error(`[myco] a UI "${event.type}" handler on <${el.tag}> threw:`, err);
+        }
+      });
+    });
+    for (const hook of [...bubbleOutHooks]) hook(event, this.tree);
+  }
+
+  // --- Scrolling (ADR 0423) ---------------------------------------------------------------------
+
+  /** How far its content is scrolled down and right, in UI pixels (`scrollY`, `scrollX`); set them to scroll. */
+  get scrollTop(): number {
+    return isScrollable(this._comp) ? this._comp.scrollY : 0;
+  }
+
+  set scrollTop(value: number) {
+    uiScrollToArgs(this.tree.world, this._comp, [{ top: value, behavior: "instant" }], false);
+  }
+
+  get scrollLeft(): number {
+    return isScrollable(this._comp) ? this._comp.scrollX : 0;
+  }
+
+  set scrollLeft(value: number) {
+    uiScrollToArgs(this.tree.world, this._comp, [{ left: value, behavior: "instant" }], false);
+  }
+
+  /** Its content's extent and its padding box, from the last layout (UI pixels). */
+  get scrollWidth(): number {
+    return uiScrollSizes(this.tree.world, this._comp).scrollWidth;
+  }
+
+  get scrollHeight(): number {
+    return uiScrollSizes(this.tree.world, this._comp).scrollHeight;
+  }
+
+  get clientWidth(): number {
+    return uiScrollSizes(this.tree.world, this._comp).clientWidth;
+  }
+
+  get clientHeight(): number {
+    return uiScrollSizes(this.tree.world, this._comp).clientHeight;
+  }
+
+  /** Scroll its content to `x`, `y` (or `{ left, top, behavior }`). */
+  scrollTo(...args: UIScrollToArgs): void {
+    uiScrollToArgs(this.tree.world, this._comp, args, false);
+  }
+
+  /** Scroll its content by `dx`, `dy` (or `{ left, top, behavior }`). */
+  scrollBy(...args: UIScrollToArgs): void {
+    uiScrollToArgs(this.tree.world, this._comp, args, true);
+  }
+
+  /** Scroll its scrolling ancestors so it shows (`block`, `inline`: `start`, `center`, `end`, `nearest`). */
+  scrollIntoView(options?: boolean | UIScrollIntoViewOptions): void {
+    uiScrollIntoViewArg(this.tree.world, this._comp, options);
   }
 
   toString(): string {
@@ -584,6 +638,17 @@ export function onUIHostChanged(listener: (tree: UIHostTree) => void): () => voi
 }
 
 const frameHooks = new Set<(world: World) => void>();
+const bubbleOutHooks = new Set<(event: UIHostEvent, tree: UIHostTree) => void>();
+
+/**
+ * ADR 0422: call `hook` after every event dispatched in a hosted tree, with the tree. A renderer carries on the ones that
+ * bubble and weren't stopped past its view's root (Svelte's `<svelte:body>`, `<svelte:document>`, `<svelte:window>`),
+ * and notes the types its UI dispatched. Returns a function that stops it.
+ */
+export function onUIHostBubbleOut(hook: (event: UIHostEvent, tree: UIHostTree) => void): () => void {
+  bubbleOutHooks.add(hook);
+  return () => bubbleOutHooks.delete(hook);
+}
 
 /**
  * Run `hook(world)` each frame in every World that has a hosted tree in play (not in the editor's edit mode), right
@@ -860,49 +925,56 @@ export class UIHostTree {
 
   // --- Frame ------------------------------------------------------------------------------------
 
-  /** @internal After UI input routing, before behaviors' update: the frame's events for this tree's elements, in tree order. */
+  /**
+   * @internal ADR 0422: one of the frame's records on an element of this tree, as the DOM events it is: a field's
+   * change is `input` (and `change` once committed, by Enter or focus leaving), focus `focus` then `focusin`, a blur
+   * `blur` then `focusout`; the rest under their own names. A button's `hover` is left to `pointerenter`.
+   */
+  _dispatchRecord(r: UIEventRecord, el: UIHostElement): void {
+    if (!this.isValid || this.world.inEditMode(this.root._node.entity)) return;
+    const types: UIHostEventType[] = [];
+    const field = el._comp instanceof UIInputField ? el._comp : null;
+    switch (r.type) {
+      case "hover":
+      case "cancel":
+        return;
+      case "change":
+        el._edited = true;
+        types.push("input");
+        break;
+      case "submit":
+        if (!field || !uiInteractions(this.world).happened(field, "submit")) return; // its Enter was prevented
+        // As on the web, `change` fires when an edit is committed: Enter, or focus leaving the field.
+        if (el._edited) types.push("change");
+        el._edited = false;
+        types.push("submit");
+        break;
+      case "blur":
+        if (field && el._edited) types.push("change");
+        el._edited = false;
+        types.push("blur", "focusout");
+        break;
+      case "focus":
+        types.push("focus", "focusin");
+        break;
+      default:
+        types.push(r.type as UIHostEventType);
+    }
+    let related = r.data.related ? uiHostElementOf(r.data.related) : null;
+    while (related?.synthetic && related._parent) related = related._parent;
+    for (const type of types) {
+      if (!el._alive) return;
+      el.dispatch(new UIHostEvent(type, el, undefined, type === r.type ? r : null, related));
+    }
+  }
+
+  /** @internal After UI input routing and the frame's event records, before behaviors' update: last frame's transition and animation events (ADR 0418 wave 4), on their targets. */
   _collectEvents(): void {
     if (!this.isValid || this.world.inEditMode(this.root._node.entity)) return;
-    const log = uiInteractions(this.world);
-    const events: UIHostEvent[] = [];
-    walk(this.root, (el) => {
-      if (!el._alive || el._listeners.size === 0) return;
-      const c = el._comp;
-      const has = (t: UIHostEventType) => (el._listeners.get(t)?.size ?? 0) > 0;
-      const push = (t: UIHostEventType) => {
-        if (has(t)) events.push(new UIHostEvent(t, el));
-      };
-      if (c instanceof UIButton) {
-        if (log.happened(c, "blur")) push("blur");
-        if (log.happened(c, "focus")) push("focus");
-        if (c.clicked) push("click");
-        if (log.happened(c, "hover")) push("pointerenter");
-        const hovered = c.hovered;
-        if (el._hovered && !hovered) push("pointerleave");
-        el._hovered = hovered;
-      } else if (c instanceof UIInputField) {
-        const blurred = log.happened(c, "blur");
-        const submitted = log.happened(c, "submit");
-        if (log.happened(c, "change")) {
-          el._edited = true;
-          push("input");
-        }
-        // As on the web, `change` fires when an edit is committed: Enter, or focus leaving the field.
-        if (el._edited && (blurred || submitted)) {
-          el._edited = false;
-          push("change");
-        }
-        if (submitted) push("submit");
-        if (blurred) push("blur");
-        if (log.happened(c, "focus")) push("focus");
-      }
-    });
-    // Last frame's transition and animation events (ADR 0418 wave 4), in the order they happened.
     for (const { element, event } of takeUIAnimationEvents(this.world, this)) {
       const el = element as UIHostElement;
-      if (el._alive && (el._listeners.get(event.type)?.size ?? 0) > 0) events.push(new UIHostEvent(event.type, el, event));
+      if (el._alive && (el._listeners.get(event.type)?.length ?? 0) > 0) el.dispatch(new UIHostEvent(event.type, el, event));
     }
-    for (const e of events) if (e.element._alive) e.element.dispatch(e);
   }
 
   /** @internal Late update, before the UI document sync: the flush hooks (queued renderer updates). */
@@ -1157,6 +1229,20 @@ function splitDeclarations(style: string): { name: string; value: string }[] {
   take(style.length);
   return out;
 }
+
+// ADR 0422: the frame's event records on hosted elements go to their tree.
+addUIEventFrontEnd((r) => {
+  let el = r.target ? uiHostElementOf(r.target) : null;
+  if (!el) return false;
+  // A label the renderer made for a text node isn't an element of the component: its events are its parent's (as a text node's are).
+  if (el.synthetic && (r.type === "pointerenter" || r.type === "pointerleave")) return true; // its parent has its own
+  while (el.synthetic && el._parent) el = el._parent;
+  let related = r.data.related ? uiHostElementOf(r.data.related) : null;
+  while (related?.synthetic && related._parent) related = related._parent;
+  if ((r.type === "pointerover" || r.type === "pointerout") && related === el) return true; // between a label and its parent
+  el.tree._dispatchRecord(r, el);
+  return true;
+});
 
 function treesOf(world: World): UIHostTree[] {
   return [...liveTrees].filter((t) => t.world === world && t.isValid);

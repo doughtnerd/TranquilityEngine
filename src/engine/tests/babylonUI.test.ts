@@ -83,7 +83,7 @@ function canvasInfo(comp: UICanvas, over: Partial<UILaidOutCanvas> = {}): UILaid
   return { comp, mode: comp.mode, sortOrder: comp.sortOrder, width: 1280, height: 720, scale: 1, pixelSize: comp.pixelSize, worldMatrix: null, visible: true, ...over };
 }
 
-type ElementInit = Partial<Pick<UILaidOutElement, "x" | "y" | "width" | "height" | "visible" | "opacity" | "order" | "clip" | "clipper" | "childClip">>;
+type ElementInit = Partial<Pick<UILaidOutElement, "x" | "y" | "width" | "height" | "visible" | "opacity" | "order" | "clip" | "clipper" | "childClip" | "scroll">>;
 
 /** A fake core reporting these canvases and elements (orders count up per canvas; text runs resolved as the core resolves them, on each read). */
 class FakeCore implements UICoreLike {
@@ -448,6 +448,24 @@ describe("layout wave 1 on Babylon GUI (ADR 0418)", () => {
     expect(back).toBe(r);
     expect([back.leftInPixels, back.topInPixels]).toEqual([15, 20]);
     expect(rootOf().children.some((c) => c.name === "Clip.clip")).toBe(false);
+  });
+
+  it("draws a scroller's scrollbar as a track and a thumb over its content, in its colours, and removes them with the bar (ADR 0423)", () => {
+    const canvas = node("C", null, UICanvas);
+    const list = node("List", canvas.node, UIPanel, { overflow: "auto", scrollbarThumbColor: new Color(1, 0, 0, 1) });
+    const core = new FakeCore();
+    const client = { x: 0, y: 0, width: 100, height: 100 };
+    const scroll = { x: 0, y: 30, maxX: 0, maxY: 300, clientWidth: 100, clientHeight: 100, scrollWidth: 100, scrollHeight: 400, userX: true, userY: true, client, barX: null, barY: { track: { x: 90, y: 0, width: 10, height: 100 }, thumb: { x: 90, y: 7.5, width: 10, height: 25 } } };
+    core.set([canvasInfo(canvas)], [[list, canvas, { x: 0, y: 0, width: 100, height: 100, order: 2, childClip: client, scroll }]]);
+    sync(core);
+    const track = byName(rootOf(), "List.scrollbar-y") as Rectangle;
+    const thumb = byName(rootOf(), "List.scrollbar-y-thumb") as Rectangle;
+    expect([thumb.leftInPixels, thumb.topInPixels, thumb.widthInPixels, thumb.heightInPixels]).toEqual([90, 7.5, 10, 25]);
+    expect([track.zIndex, thumb.zIndex]).toEqual([2.6, 2.7]); // over the clip container (2.5) and so its content
+    expect(thumb.background).toBe(new Color(1, 0, 0, 1).toCss());
+    core.set([canvasInfo(canvas)], [[list, canvas, { x: 0, y: 0, width: 100, height: 100, order: 2, childClip: client, scroll: { ...scroll, barY: null } }]]);
+    sync(core);
+    expect(rootOf().children.some((c) => (c.name ?? "").includes("scrollbar"))).toBe(false);
   });
 
   it("nests a clip in its clipper's clip", () => {

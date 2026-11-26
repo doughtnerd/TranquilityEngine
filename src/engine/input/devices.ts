@@ -224,6 +224,15 @@ export interface PointerFrame {
   held(button: number): boolean;
   /** The button was released this frame. */
   up(button: number): boolean;
+  /** What drives the pointer this frame (ADR 0423: a touch or pen drag scrolls, the mouse's doesn't): the pen while its tip is down, the primary touch while it's down, else the mouse. */
+  readonly pointerType: "mouse" | "touch" | "pen";
+  /** The wheel this frame, CSS pixels (+y down), before any claim. */
+  readonly wheelX: number;
+  readonly wheelY: number;
+  /** This frame's key presses and releases (`Input`'s key names), in order, before any claim (ADR 0422: the focused UI element's `keydown`/`keyup`). */
+  readonly keys: readonly { readonly key: string; readonly down: boolean }[];
+  /** True while a key is held (modifiers for UI events). */
+  keyHeld(key: string): boolean;
 }
 
 /**
@@ -235,6 +244,8 @@ export interface InputClaim {
   readonly pointer?: boolean;
   readonly keyboard?: boolean;
   readonly keys?: readonly string[];
+  /** The wheel (ADR 0423): a UI scroller took this frame's scroll, so `scrolling` reads zero for the game. */
+  readonly wheel?: boolean;
 }
 
 export type InputRouter = (pointer: PointerFrame) => InputClaim | void;
@@ -544,6 +555,8 @@ class DeviceSnapshot implements DeviceEventSink {
   private readonly routers: InputRouter[] = [];
   private pointerToUI = false;
   private keyboardToUI = false;
+  /** A router took this frame's wheel (a UI scroller scrolled by it). */
+  private wheelToUI = false;
   /** Mouse buttons pressed over UI and still held: the game doesn't see them held or released. */
   private readonly uiHeld = new Set<string>();
   /** This frame's mouse presses and releases that went to the UI. */
@@ -726,7 +739,7 @@ class DeviceSnapshot implements DeviceEventSink {
     this.pendingMove.set(0, 0);
     this.scrolled.copy(this.pendingScroll);
     this.pendingScroll.set(0, 0);
-    this.route();
+    this.route(keyEvents);
     // Raw key and pointer-button events the game sees (after routing), for rebinding and recording.
     for (const ev of keyEvents) {
       const pointer = isMouseKey(ev.key);
@@ -860,23 +873,34 @@ class DeviceSnapshot implements DeviceEventSink {
     return this.pressAt ?? this.pointer;
   }
 
-  private route(): void {
+  private route(keyEvents: readonly QueuedEvent[] = []): void {
     this.pointerToUI = false;
     this.keyboardToUI = false;
+    this.wheelToUI = false;
     this.uiDown.clear();
     this.uiUp.clear();
+    const PEN_TIP = 1;
+    const pen = this.penDevice, touch = this.touchscreen;
+    const pointerType = (pen.held | pen.down | pen.up) & PEN_TIP ? "pen" : (touch.held | touch.down | touch.up) & PRIMARY ? "touch" : "mouse";
+    const keys = keyEvents.filter((e) => !isMouseKey(e.key)).map((e) => ({ key: e.key, down: e.down }));
     const frame: PointerFrame = {
       x: this.framePointer.x,
       y: this.framePointer.y,
       down: (b) => this.downNow.has(mouseKey(b)),
       held: (b) => this.heldKeys.has(mouseKey(b)),
       up: (b) => this.upNow.has(mouseKey(b)),
+      pointerType,
+      wheelX: this.scrolled.x,
+      wheelY: this.scrolled.y,
+      keys,
+      keyHeld: (k) => this.heldKeys.has(k) || this.downNow.has(k),
     };
     for (const router of [...this.routers]) {
       try {
         const claim = router(frame);
         if (claim?.pointer) this.pointerToUI = true;
         if (claim?.keyboard) this.keyboardToUI = true;
+        if (claim?.wheel) this.wheelToUI = true;
         for (const k of claim?.keys ?? []) this.uiKeys.add(normalizeKey(k));
       } catch (err) {
         console.error("[myco] UI input routing failed:", err);
@@ -923,6 +947,7 @@ class DeviceSnapshot implements DeviceEventSink {
     this.pendingScroll.set(0, 0);
     this.pointerToUI = false;
     this.keyboardToUI = false;
+    this.wheelToUI = false;
     this.uiHeld.clear();
     this.uiDown.clear();
     this.uiUp.clear();
@@ -975,8 +1000,9 @@ class DeviceSnapshot implements DeviceEventSink {
     return this.moved.clone();
   }
 
+  /** The wheel, zero in a frame a UI scroller took it (ADR 0423). */
   get scrolling(): Vector2 {
-    return this.scrolled.clone();
+    return this.wheelToUI ? new Vector2() : this.scrolled.clone();
   }
 
   /** This frame's movement and scroll, without copying (CSS pixels, +y down). */
@@ -987,10 +1013,10 @@ class DeviceSnapshot implements DeviceEventSink {
     return this.moved.y;
   }
   get scrollX(): number {
-    return this.scrolled.x;
+    return this.wheelToUI ? 0 : this.scrolled.x;
   }
   get scrollY(): number {
-    return this.scrolled.y;
+    return this.wheelToUI ? 0 : this.scrolled.y;
   }
   get pointerX(): number {
     return this.framePointer.x;

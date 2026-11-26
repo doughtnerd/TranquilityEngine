@@ -9,17 +9,26 @@
  *   with the frame the World steps next. Every script phase of that frame sees them; the frame after, none.
  * - Navigation's events (`engine.UINavigation`, in the input phase) are published for the current
  *   frame, which hasn't run a script yet, so the same rule holds for them.
+ *
+ * ADR 0422: beside the polled state, the log keeps the frame's event records (`events.ts`) in order, published by
+ * the same rules: what the routing recorded (pointer and key events, with their default actions), the polled
+ * events as they're published, and records a default action adds while the frame's events are dispatched (focus
+ * moved by a press). `dispatchUIEvents` takes them with `nextRecord`.
  */
 import type { World } from "../core/World";
 import type { UIButton, UICanvas, UIFocusableElement, UIInputField } from "./components";
 import type { UILaidOutCanvas, UILaidOutElement } from "./uiCoreTypes";
+import type { UIEventRecord } from "./events";
 
 export type UIInteractionType = "click" | "change" | "submit" | "hover" | "focus" | "blur" | "cancel";
 
 type Target = UIFocusableElement | UICanvas;
 
-/** Who moved focus: a script (no events, ADR 0309), the pointer (events next frame) or navigation (events this frame). */
-export type UIFocusCause = "script" | "pointer" | "navigation";
+/**
+ * Who moved focus: a script (no events, ADR 0309), the pointer (events next frame), navigation (events this frame), or
+ * a press's default action while the frame's events are dispatched (ADR 0422: events this frame, after the press's).
+ */
+export type UIFocusCause = "script" | "pointer" | "navigation" | "press";
 
 /** What the hidden input asks navigation for while a field is typing: Tab, Shift+Tab, Escape. */
 export type UITypingRequest = "next" | "previous" | "cancel";
@@ -52,6 +61,11 @@ export class UIInteractions {
   /** The frame `published` is for. */
   private frame = -1;
   private published = new Map<Target, Set<UIInteractionType>>();
+  /** ADR 0422: records since the last routing, published by the next one. */
+  private pendingRecords: UIEventRecord[] = [];
+  /** ADR 0422: the frame's records (the frame `published` is for), and how many were dispatched. */
+  private records: UIEventRecord[] = [];
+  private cursor = 0;
 
   /** The last UI input was navigation (a UI action), not the pointer: focus colours show (ADR 0340). */
   navigating = false;
@@ -65,6 +79,28 @@ export class UIInteractions {
   /** The player changed a field's value or pressed Enter in it, between frames. */
   record(type: "change" | "submit", field: UIInputField): void {
     this.pending.push({ type, target: field });
+  }
+
+  /** ADR 0422: an event record for the next routing to publish (the frame after: a scroll the last layout saw). */
+  queue(record: UIEventRecord): void {
+    this.pendingRecords.push(record);
+  }
+
+  /** ADR 0422: an event record of the World's current frame (a default action's, while the frame's events are dispatched). */
+  emit(record: UIEventRecord): void {
+    this.stamp(this.world.time.frameCount);
+    this.records.push(record);
+  }
+
+  /** ADR 0422: the frame's next record not yet dispatched, or null. */
+  nextRecord(): UIEventRecord | null {
+    if (this.frame !== this.world.time.frameCount || this.cursor >= this.records.length) return null;
+    return this.records[this.cursor++];
+  }
+
+  /** ADR 0422: take back a polled event of this frame (a `submit` whose Enter a handler prevented). */
+  retract(type: UIInteractionType, target: Target): void {
+    if (this.frame === this.world.time.frameCount) this.published.get(target)?.delete(type);
   }
 
   /** The hidden input took Tab, Shift+Tab or Escape while a field was typing: navigation acts on it next. */
@@ -83,17 +119,21 @@ export class UIInteractions {
    * The routing (run before the World steps): take what the pointer did, then publish everything
    * recorded since the last routing for the World's next frame. A submit whose field lost focus is dropped.
    */
-  route(pointer: UIPointerState): void {
+  route(pointer: UIPointerState, records: readonly UIEventRecord[] = []): void {
     if (pointer.hovered && pointer.hovered !== this.hoveredButton) this.pending.push({ type: "hover", target: pointer.hovered });
-    if (pointer.clicked) this.pending.push({ type: "click", target: pointer.clicked });
     this.hoveredButton = pointer.hovered;
     this.pressedButton = pointer.pressed;
     this.stamp(this.world.time.frameCount + 1);
+    // ADR 0422: the routing's records first (keys and the pointer), then what was recorded since the last routing.
+    this.records.push(...records, ...this.pendingRecords);
+    this.pendingRecords = [];
     for (const { type, target } of this.pending) {
       if (type === "submit" && target !== this.focusedElement) continue;
       this.add(type, target);
     }
     this.pending = [];
+    // A pointer click's record is the routing's own (`click`, on the element the press and release share).
+    if (pointer.clicked) this.add("click", pointer.clicked, false);
   }
 
   /** Navigation: an event of the World's current frame (its input phase, before any script). */
@@ -105,13 +145,18 @@ export class UIInteractions {
   private stamp(frame: number): void {
     if (frame === this.frame) return;
     this.published = new Map();
+    this.records = [];
+    this.cursor = 0;
     this.frame = frame;
   }
 
-  private add(type: UIInteractionType, target: Target): void {
+  /** Publish a polled event; with `record`, its event record too (ADR 0422), the type's DOM rules decided by the front ends. */
+  private add(type: UIInteractionType, target: Target, record = true, related: Target | null = null): void {
     const types = this.published.get(target);
     if (types) types.add(type);
     else this.published.set(target, new Set([type]));
+    if (!record) return;
+    this.records.push({ type, target, bubbles: false, cancelable: false, data: related ? { related } : {}, prevented: false });
   }
 
   /** The World doesn't take the pointer now (not interactive, or no local input): nothing hovered or pressed, nothing recorded. */
@@ -119,6 +164,7 @@ export class UIInteractions {
     this.hoveredButton = null;
     this.pressedButton = null;
     this.pending = [];
+    this.pendingRecords = [];
     this.requests = [];
   }
 
@@ -130,9 +176,15 @@ export class UIInteractions {
     this.focusedElement = target;
     this.typingNow = !!target && typing && isField(target);
     if (previous === target || cause === "script") return;
-    const send = (type: UIInteractionType, t: Target) => (cause === "pointer" ? this.pending.push({ type, target: t }) : this.publishNow(type, t));
-    if (previous) send("blur", previous);
-    if (target) send("focus", target);
+    const send = (type: UIInteractionType, t: Target, related: Target | null) => {
+      if (cause === "pointer") this.pending.push({ type, target: t });
+      else {
+        this.stamp(this.world.time.frameCount);
+        this.add(type, t, true, related);
+      }
+    };
+    if (previous) send("blur", previous, target);
+    if (target) send("focus", target, previous);
   }
 
   /** Take focus from `target` if it has it. */

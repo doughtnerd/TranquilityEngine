@@ -648,6 +648,30 @@ const FLEX: Shorthand = {
   },
 };
 
+/**
+ * ADR 0423: `overflow: <x> [<y>]`: one value is the field itself (both axes, the axes' own fields cleared), two set
+ * `overflowX` and `overflowY`. CSS's `clip` is `hidden` here.
+ */
+const OVERFLOW: Shorthand = {
+  longhands: ["overflow", "overflowX", "overflowY"],
+  expand(value) {
+    const parts = valueParts(value).map((p) => (p.toLowerCase() === "clip" ? "hidden" : p.toLowerCase()));
+    if (parts.length === 1) return [["overflow", parts[0]], ["overflowX", null], ["overflowY", null]];
+    if (parts.length === 2) return [["overflowX", parts[0]], ["overflowY", parts[1]]];
+    return null;
+  },
+};
+
+/** ADR 0423: `scrollbar-color: <thumb> <track>`, or `auto` (the defaults). */
+const SCROLLBAR_COLOR: Shorthand = {
+  longhands: ["scrollbarThumbColor", "scrollbarTrackColor"],
+  expand(value) {
+    const parts = valueParts(value);
+    if (parts.length === 1 && parts[0].toLowerCase() === "auto") return [["scrollbarThumbColor", null], ["scrollbarTrackColor", null]];
+    return parts.length === 2 ? [["scrollbarThumbColor", parts[0]], ["scrollbarTrackColor", parts[1]]] : null;
+  },
+};
+
 /** Shorthand properties by the field name they're written as (`border-width` → `borderWidth`). */
 const SHORTHANDS: ReadonlyMap<string, Shorthand> = new Map([
   ["padding", edgeShorthand("padding", (s) => `padding${s}`)],
@@ -655,6 +679,8 @@ const SHORTHANDS: ReadonlyMap<string, Shorthand> = new Map([
   ["borderWidth", edgeShorthand("borderWidth", (s) => `border${s}Width`)],
   ["border", BORDER],
   ["flex", FLEX],
+  ["overflow", OVERFLOW],
+  ["scrollbarColor", SCROLLBAR_COLOR],
 ]);
 
 /** True when `name` is a shorthand that sets one of `fields` (a Text has no border, so `border` on it sets nothing). */

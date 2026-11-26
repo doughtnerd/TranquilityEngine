@@ -15,12 +15,14 @@ import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { devices, type InputClaim, type PointerFrame } from "../input/devices";
 import { UIButton, UICanvas, UIInputField, type UIComponentType, type UIFocusableElement } from "./components";
-import { UI_KIND_TYPES, flexShrinkOf, isInteractiveKind, isLeafKind, isRaycastTarget, sameTextRun, textRunOf, uiKindOf } from "./elementKinds";
+import { UI_KIND_TYPES, clipsChildren, flexShrinkOf, isInteractiveKind, isLeafKind, isRaycastTarget, isUserScroller, overflowAxes, sameTextRun, textRunOf, uiKindOf, userScrollsAxis } from "./elementKinds";
 import { fontEpoch } from "./fonts";
 import { uiInteractions } from "./interactions";
 import { pointerFocus } from "./navigation";
 import { canvasScale, estimateText, inRect, intersectRect, isMixedLength, loadYogaOnce, loadedYoga, uiBorderEdges, uiEdges, uiLength, uiLimit, type UIRect } from "./layout";
-import type { TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPickRay } from "./uiCoreTypes";
+import type { TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPickRay, UIScrollbar, UIScrollInfo } from "./uiCoreTypes";
+import { uiDomCode, uiDomKey, uiEventRecord, UIDataTransfer, type UIEventData, type UIEventRecord } from "./events";
+import { advanceUIScrolling, canMove, uiScrollBy, uiScrollMoving, uiScrollTo, uiStartMomentum, uiStopScrolling, type UIScrollable } from "./scrolling";
 import { applyAffine, boundsOf, compose, invert, localTransform, multiply, transformRect, type UIAffine, type UITransformFields } from "./transform2d";
 
 export { canvasScale, uiLength } from "./layout";
@@ -47,6 +49,11 @@ interface Placement {
   inverse: UIAffine | null;
   /** The axis-aligned bounds of what's drawn of it, in canvas UI pixels: transformed, then clipped. */
   bounds: UIRect;
+  /** ADR 0423: the clips that don't scroll (navigation reaches elements scrolled out of view), and `bounds` cut by those only. */
+  reachClips: readonly ClipStep[];
+  reach: UIRect;
+  /** ADR 0423: a clipping element's scroll state; null otherwise. */
+  scroll: UIScrollInfo | null;
 }
 
 /** One clip (ADR 0418): a rectangle in layout space, tested after mapping the point through `inverse`. `empty`: hides everything (a clipper scaled to 0). */
@@ -110,15 +117,19 @@ interface CanvasEntry extends Entry {
   height: number;
   /** Elements in tree order (parents first), from the last sync. */
   elements: Entry[];
-  /** The same elements in draw order (ADR 0418: `zIndex`, then document order): hit-testing walks it from the end. */
+  /** The same elements in draw order (ADR 0418: `zIndex`, then document order): picking walks it from the end. */
   painted: Entry[];
+  /** ADR 0423: `painted` with each scroller's scrollbars after its last descendant, as they're drawn: hit-testing walks it from the end. */
+  hitOrder: HitItem[];
 }
 
-/** True for an element that draws its descendants together, ordered among themselves (ADR 0418): a non-zero `zIndex` or `overflow: hidden`. */
+/** An element, or one of a scroller's scrollbars (ADR 0423), in hit-testing order. */
+type HitItem = Entry | { readonly bar: "x" | "y"; readonly scroller: Entry };
+
+/** True for an element that draws its descendants together, ordered among themselves (ADR 0418): a non-zero `zIndex` or an `overflow` that clips. */
 function stacks(e: Entry): boolean {
   if (e.kind === "canvas") return true;
-  const c = e.comp as Exclude<UIComponentType, UICanvas>;
-  return zOf(e) !== 0 || c.overflow === "hidden";
+  return zOf(e) !== 0 || clipsChildren(e.comp);
 }
 
 function zOf(e: Entry): number {
@@ -160,7 +171,20 @@ function paintOrder(root: Entry): Entry[] {
   return out;
 }
 
-const NO_PLACE: Placement = { clip: null, clipper: null, childClip: null, order: 0, clips: [], transform: null, inverse: null, bounds: { x: 0, y: 0, width: 0, height: 0 } };
+const NO_PLACE: Placement = { clip: null, clipper: null, childClip: null, order: 0, clips: [], transform: null, inverse: null, bounds: { x: 0, y: 0, width: 0, height: 0 }, reachClips: [], reach: { x: 0, y: 0, width: 0, height: 0 }, scroll: null };
+
+/** ADR 0423: scrollbar thickness in UI pixels by `scrollbarWidth`, and a thumb's shortest length. */
+const SCROLLBAR_WIDTH = { auto: 10, thin: 6, none: 0 } as const;
+const MIN_THUMB = 18;
+/** ADR 0422/0423: how far (CSS pixels) a press moves before it's a drag: a mouse drag of a draggable element, a touch or pen drag scroll. */
+const DRAG_THRESHOLD = 4;
+const TOUCH_SCROLL_THRESHOLD = 10;
+/** Two clicks this close (seconds, CSS pixels) on the same element make a `dblclick`. */
+const DBLCLICK_SECONDS = 0.5;
+const DBLCLICK_DISTANCE = 5;
+/** Keyboard scrolling: an arrow key's step (UI pixels), and a page key's share of the scroller's height. */
+const ARROW_STEP = 40;
+const PAGE_SHARE = 0.875;
 
 /** True when a point lies within `edge` pixels inside the border of the `width` x `height` frame at the origin. */
 function onFrameEdge(x: number, y: number, width: number, height: number, edge: number): boolean {
@@ -174,6 +198,86 @@ const scratchInv = new Float32Array(16);
 interface Hit {
   readonly target: Entry;
   readonly handler: Entry | null;
+  /** Where, in the target canvas's UI pixels. */
+  readonly ux: number;
+  readonly uy: number;
+  /** ADR 0423: the press is on the target's scrollbar (the target is the scroller). */
+  readonly bar: "x" | "y" | null;
+}
+
+/** ADR 0422/0423: what a held press is doing: maybe a drag, scrolling by touch, a UI drag, or dragging a scrollbar. */
+interface Gesture {
+  kind: "pending" | "scroll" | "drag" | "thumb" | "none";
+  readonly pointerType: "mouse" | "touch" | "pen";
+  readonly startX: number;
+  readonly startY: number;
+  lastX: number;
+  lastY: number;
+  /** The pointerdown wasn't prevented (a prevented press neither drag-scrolls nor drags). */
+  armed: boolean;
+  /** The element pressed (the raycast target). */
+  readonly target: Entry | null;
+  /** The nearest draggable element at or above it. */
+  readonly source: Entry | null;
+  /** The scrollers at or above it, innermost first. */
+  readonly chain: Entry[];
+  /** A touch drag: the scroller it moves; a thumb drag: the scroller and axis. */
+  scroller: Entry | null;
+  axis: "x" | "y" | null;
+  startScroll: number;
+  /** Recent positions (seconds, CSS pixels) for momentum. */
+  samples: { t: number; x: number; y: number }[];
+  /** A UI drag's data, the element under the pointer, and whether its last `dragover` was prevented (a drop allowed). */
+  data: UIDataTransfer | null;
+  dropTarget: Entry | null;
+  accepts: boolean;
+}
+
+/** ADR 0422: an element and its ancestors below its canvas, the element first. */
+function pathOf(e: Entry): Entry[] {
+  const out: Entry[] = [];
+  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = at.parent) out.push(at);
+  return out;
+}
+
+/** ADR 0422: the nearest element both are in (themselves included), below their canvas; null when they share none. */
+function commonAncestor(a: Entry, b: Entry): Entry | null {
+  const up = pathOf(a);
+  for (let at: Entry | null = b; at && at.kind !== "canvas"; at = at.parent) if (up.includes(at)) return at;
+  return null;
+}
+
+/** ADR 0422: a press in a button that isn't interactable doesn't click (the DOM's disabled controls). */
+function disabledPath(e: Entry): boolean {
+  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = at.parent) if (at.kind === "button" && !(at.comp as UIButton).interactable) return true;
+  return false;
+}
+
+/** ADR 0423: the elements at or above `e` the player scrolls (`overflow` `auto` or `scroll`), innermost first. */
+function scrollChain(e: Entry): Entry[] {
+  const out: Entry[] = [];
+  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = at.parent) {
+    const s = at.place.scroll;
+    if (s && (s.userX || s.userY) && at.box.visible) out.push(at);
+  }
+  return out;
+}
+
+/**
+ * ADR 0423: the scroller in `chain` (innermost first) that takes a scroll of `dx`, `dy`: the first that scrolls that
+ * way and can still move, chaining outward, unless a scroller that can't move has `overscroll-behavior` `contain` or
+ * `none`, which ends the chain there.
+ */
+function pickScroller(chain: readonly Entry[], dx: number, dy: number): Entry | null {
+  if (dx === 0 && dy === 0) return null;
+  for (const e of chain) {
+    const s = e.place.scroll!;
+    const okX = dx === 0 || (s.userX && canMove(s.x, s.maxX, dx));
+    const okY = dy === 0 || (s.userY && canMove(s.y, s.maxY, dy));
+    if (okX && okY) return e;
+    if ((e.comp as UIScrollable).overscrollBehavior !== "auto") return null;
+  }
+  return null;
 }
 
 /** The interactive element a pointer on `e` goes to: `e` itself or its nearest interactive ancestor, below its canvas. */
@@ -195,6 +299,8 @@ export class UICore implements UICoreLike {
   private readonly host: UICoreHost;
   private readonly removeHook: () => void;
   private readonly passive: boolean;
+  /** In `relayout` (a mid-frame layout read): layout only. */
+  private relayingOut = false;
   private readonly warned = new Set<string>();
   private world: World | null = null;
   private width = 0;
@@ -217,6 +323,18 @@ export class UICore implements UICoreLike {
   private swallowed: string[] = [];
   /** The pointer's position at the last routing: moving it ends navigation's focus colours (ADR 0340). */
   private lastPointer: { x: number; y: number } | null = null;
+  /** ADR 0422: the raycast target under the pointer at the last routing (pointerover/out/enter/leave follow it). */
+  private hoverTarget: Entry | null = null;
+  /** ADR 0422: the raycast target a left press began on (a click goes to what it and the release share). */
+  private pressTarget: Entry | null = null;
+  /** ADR 0422: the last click, for `dblclick`. */
+  private lastClick: { comp: UIComponentType; time: number; x: number; y: number; count: number } | null = null;
+  /** ADR 0422/0423: what the held press is doing. */
+  private gesture: Gesture | null = null;
+  /** ADR 0423: the scroller the last press landed in: with nothing focused, keys scroll it. */
+  private activeScroller: Entry | null = null;
+  /** ADR 0423: each scroller's offsets at the last layout, and whether it was moving (for `scroll` and `scrollend`). */
+  private readonly lastScroll = new Map<Entry, { x: number; y: number; moving: boolean }>();
 
   /** Whether clicks press buttons and focus fields (false: the editor's scene view, where they select; ADR 0129). */
   setInteractive(on: boolean): void {
@@ -264,7 +382,14 @@ export class UICore implements UICoreLike {
 
   /** Lay the last synced World's UI out again now, at the last size (the UI host reading geometry mid-frame, ADR 0419). */
   relayout(): void {
-    if (this.world && !this.disposed) this.sync(this.world, this.width, this.height);
+    if (!this.world || this.disposed) return;
+    // Layout only: scrolling moves on, and `scroll`/`scrollend` are noted, once a frame, in the frame's own sync (ADR 0423).
+    this.relayingOut = true;
+    try {
+      this.sync(this.world, this.width, this.height);
+    } finally {
+      this.relayingOut = false;
+    }
   }
 
   /** The caret index in a focused input field's text, or null when it isn't the one being typed in. */
@@ -289,10 +414,14 @@ export class UICore implements UICoreLike {
 
   // --- Sync -----------------------------------------------------------------------------------
 
-  sync(world: World, width: number, height: number, _deltaSeconds = 0): void {
+  sync(world: World, width: number, height: number, deltaSeconds = 0): void {
     if (this.disposed || !this.yoga) return;
     const yoga = this.yoga;
     this.world = world;
+    // ADR 0423: smooth scrolls and momentum move on before layout reads the offsets (the routing core only).
+    if (!this.passive && !this.relayingOut) advanceUIScrolling(world, deltaSeconds);
+    // The layout scripts' scrolling reads (ADR 0423) and navigation search: the routing core's, from its first layout.
+    if (!this.passive && this.interactiveMode && world._takesInput) uiInteractions(world).layout = this;
     this.width = width;
     this.height = height;
 
@@ -343,7 +472,40 @@ export class UICore implements UICoreLike {
       }
     }
     this.collectResults(world, canvases);
+    if (!this.passive && !this.relayingOut) this.noteScrolls(world);
     this.syncDom();
+  }
+
+  /**
+   * ADR 0423: a scroller whose offsets changed since the last layout gets a `scroll` event, and one that stopped (no
+   * change, no gesture holding it, no smooth scroll or momentum) a `scrollend`, published with the next routing, so
+   * they're dispatched the frame after (as the DOM fires them before the next frame's rendering).
+   */
+  private noteScrolls(world: World): void {
+    const log = uiInteractions(world);
+    const seen = new Set<Entry>();
+    for (const canvas of this.canvasEntries.values()) {
+      for (const e of canvas.elements) {
+        const s = e.place.scroll;
+        if (!s) continue;
+        seen.add(e);
+        const last = this.lastScroll.get(e);
+        if (!last) {
+          this.lastScroll.set(e, { x: s.x, y: s.y, moving: false });
+          continue;
+        }
+        if (last.x !== s.x || last.y !== s.y) {
+          last.x = s.x;
+          last.y = s.y;
+          last.moving = true;
+          log.queue(uiEventRecord("scroll", e.comp));
+        } else if (last.moving && !uiScrollMoving(world, e.comp as UIScrollable) && this.gesture?.scroller !== e) {
+          last.moving = false;
+          log.queue(uiEventRecord("scrollend", e.comp));
+        }
+      }
+    }
+    for (const e of [...this.lastScroll.keys()]) if (!seen.has(e)) this.lastScroll.delete(e);
   }
 
   /** Forget a removed component. */
@@ -353,6 +515,11 @@ export class UICore implements UICoreLike {
     this.entries.delete(c);
     if (c instanceof UICanvas) this.canvasEntries.delete(c);
     if (this.pressed === entry) this.pressed = null;
+    if (this.hoverTarget === entry) this.hoverTarget = null;
+    if (this.pressTarget === entry) this.pressTarget = null;
+    if (this.activeScroller === entry) this.activeScroller = null;
+    if (this.gesture && (this.gesture.target === entry || this.gesture.source === entry || this.gesture.scroller === entry || this.gesture.dropTarget === entry)) this.gesture = null;
+    this.lastScroll.delete(entry);
     if (this.active === c) this.unfocusDom();
     if (entry.parent) {
       entry.parent.node.removeChild(entry.node);
@@ -403,6 +570,7 @@ export class UICore implements UICoreLike {
       canvas.width = canvas.height = 0;
       canvas.elements = [];
       canvas.painted = [];
+      canvas.hitOrder = [];
       this.canvasEntries.set(c as UICanvas, canvas);
     } else if (run) {
       node.setMeasureFunc((w, wm) => this.measure(entry, wm === yoga.MEASURE_MODE_UNDEFINED ? Infinity : w));
@@ -538,7 +706,8 @@ export class UICore implements UICoreLike {
     if (put(13, (v = autoToUndefined(uiLength(c.left, bw))))) n.setPosition(yoga.EDGE_LEFT, v as never);
     if (put(14, (v = finite(c.flexGrow)))) n.setFlexGrow(v as number);
     // Null: the kind's (text wraps to what's left; other boxes keep their size).
-    if (put(15, (v = c.flexShrink === null || c.flexShrink === undefined ? flexShrinkOf(entry.kind) : finite(c.flexShrink)))) n.setFlexShrink(v as number);
+    // ADR 0423: in a parent the player scrolls along its main axis, content lays out unconstrained: a kind's default shrink is 0 there.
+    if (put(15, (v = c.flexShrink === null || c.flexShrink === undefined ? (scrollsMainAxis(entry.parent) ? 0 : flexShrinkOf(entry.kind)) : finite(c.flexShrink)))) n.setFlexShrink(v as number);
     if (put(26, (v = uiLimit(c.minWidth, bw)))) n.setMinWidth(v as never);
     if (put(27, (v = uiLimit(c.maxWidth, bw)))) n.setMaxWidth(v as never);
     if (put(28, (v = uiLimit(c.minHeight, bh)))) n.setMinHeight(v as never);
@@ -549,7 +718,7 @@ export class UICore implements UICoreLike {
     const rowParent = entry.parent?.kind === "canvas" || /^row/.test((entry.parent?.comp as { flexDirection?: string } | undefined)?.flexDirection ?? "");
     if (put(33, (v = uiLength(c.flexBasis, rowParent ? bw : bh) ?? "auto"))) n.setFlexBasis(v as never);
     if (put(34, (v = Number.isFinite(c.aspectRatio) && c.aspectRatio > 0 ? c.aspectRatio : undefined))) n.setAspectRatio(v as never);
-    if (put(35, (v = c.overflow === "hidden" ? yoga.OVERFLOW_HIDDEN : yoga.OVERFLOW_VISIBLE))) n.setOverflow(v as never);
+    if (put(35, (v = isUserScroller(c) ? yoga.OVERFLOW_SCROLL : clipsChildren(c) ? yoga.OVERFLOW_HIDDEN : yoga.OVERFLOW_VISIBLE))) n.setOverflow(v as never);
 
     // The text run is the measure's dirty signature: a changed run, or a font arriving (which changes
     // every text's size), measures again. An unchanged run keeps its object, so `elements()` compare it by identity.
@@ -594,7 +763,7 @@ export class UICore implements UICoreLike {
     const cv = canvas.comp.isActiveAndEnabled;
     canvas.box = { x: 0, y: 0, width: canvas.width, height: canvas.height, visible: cv, opacity: 1 };
     const yoga = this.yoga!;
-    const walk = (parent: Entry, ox: number, oy: number, visible: boolean, opacity: number, clip: UIRect | null, clipper: Entry | null, clips: readonly ClipStep[], parentTransform: UIAffine | null) => {
+    const walk = (parent: Entry, ox: number, oy: number, visible: boolean, opacity: number, clip: UIRect | null, clipper: Entry | null, clips: readonly ClipStep[], reachClips: readonly ClipStep[], parentTransform: UIAffine | null) => {
       for (const e of parent.children) {
         const c = e.comp as Exclude<UIComponentType, UICanvas>;
         const n = e.node;
@@ -604,22 +773,74 @@ export class UICore implements UICoreLike {
         const width = n.getComputedWidth(), height = n.getComputedHeight();
         e.box = { x, y, width, height, visible: v, opacity: o };
         let childClip: UIRect | null = null;
-        if (c.overflow === "hidden") {
+        let scroll: UIScrollInfo | null = null;
+        if (clipsChildren(c)) {
           const bl = n.getComputedBorder(yoga.EDGE_LEFT), bt = n.getComputedBorder(yoga.EDGE_TOP);
           const br = n.getComputedBorder(yoga.EDGE_RIGHT), bb = n.getComputedBorder(yoga.EDGE_BOTTOM);
           childClip = { x: x + bl, y: y + bt, width: Math.max(0, width - bl - br), height: Math.max(0, height - bt - bb) };
+          scroll = this.scrollOf(e, childClip, bl, bt);
         }
         // ADR 0418 wave 3: its transform composes its parent's with its own; layout above ignored both.
         const transform = compose(parentTransform, localTransform(c as unknown as UITransformFields, e.box));
         const inverse = transform ? invert(transform) : null;
-        e.place = { clip, clipper, childClip, order: 0, clips, transform, inverse, bounds: drawnBounds(e.box, transform, clips) };
+        e.place = { clip, clipper, childClip, order: 0, clips, transform, inverse, bounds: drawnBounds(e.box, transform, clips), reachClips, reach: drawnBounds(e.box, transform, reachClips), scroll };
         canvas.elements.push(e);
-        walk(e, x, y, v, o, childClip ? intersectRect(childClip, clip) : clip, childClip ? e : clipper, childClip ? withClip(clips, childClip, transform, inverse) : clips, transform);
+        // ADR 0423: its children are drawn moved by its scroll; only a clip that doesn't scroll keeps navigation out.
+        const sx = scroll?.x ?? 0, sy = scroll?.y ?? 0;
+        const nextClips = childClip ? withClip(clips, childClip, transform, inverse) : clips;
+        const nextReach = childClip && !isUserScroller(c) ? withClip(reachClips, childClip, transform, inverse) : reachClips;
+        walk(e, x - sx, y - sy, v, o, childClip ? intersectRect(childClip, clip) : clip, childClip ? e : clipper, nextClips, nextReach, transform);
       }
     };
-    walk(canvas, 0, 0, cv, 1, null, null, [], null);
+    walk(canvas, 0, 0, cv, 1, null, null, [], [], null);
     canvas.painted = paintOrder(canvas);
     canvas.painted.forEach((e, i) => (e.place.order = i));
+    canvas.hitOrder = hitOrderOf(canvas.painted);
+  }
+
+  /**
+   * ADR 0423: a clipping element's scroll state. Its content's extent is the union of its children's margin boxes (from
+   * its padding box's corner) plus its end padding, at least the padding box; its offsets are clamped to that, and the
+   * routing core writes the clamped values back. Scrollbars show on an axis the player scrolls: always for `scroll`,
+   * for `auto` when the content overflows, never with `scrollbar-width: none`.
+   */
+  private scrollOf(e: Entry, client: UIRect, bl: number, bt: number): UIScrollInfo {
+    const yoga = this.yoga!;
+    const c = e.comp as UIScrollable;
+    const n = e.node;
+    let right = 0, bottom = 0;
+    for (const ch of e.children) {
+      const cc = ch.comp as UIScrollable;
+      if (!cc.isActiveAndEnabled || cc.display === "none") continue;
+      const cn = ch.node;
+      right = Math.max(right, cn.getComputedLeft() - bl + cn.getComputedWidth() + cn.getComputedMargin(yoga.EDGE_RIGHT));
+      bottom = Math.max(bottom, cn.getComputedTop() - bt + cn.getComputedHeight() + cn.getComputedMargin(yoga.EDGE_BOTTOM));
+    }
+    const scrollWidth = Math.max(client.width, right + n.getComputedPadding(yoga.EDGE_RIGHT));
+    const scrollHeight = Math.max(client.height, bottom + n.getComputedPadding(yoga.EDGE_BOTTOM));
+    const maxX = scrollWidth - client.width, maxY = scrollHeight - client.height;
+    const at = (v: number, max: number) => (Number.isFinite(v) ? Math.min(Math.max(0, v), max) : 0);
+    const x = at(c.scrollX, maxX), y = at(c.scrollY, maxY);
+    if (!this.passive) {
+      if (c.scrollX !== x) c.scrollX = x;
+      if (c.scrollY !== y) c.scrollY = y;
+    }
+    const axes = overflowAxes(c);
+    const userX = userScrollsAxis(axes.x), userY = userScrollsAxis(axes.y);
+    const t = SCROLLBAR_WIDTH[c.scrollbarWidth] ?? SCROLLBAR_WIDTH.auto;
+    const showX = t > 0 && userX && (axes.x === "scroll" || maxX > 0.5);
+    const showY = t > 0 && userY && (axes.y === "scroll" || maxY > 0.5);
+    const bar = (along: "x" | "y"): UIScrollbar => {
+      if (along === "y") {
+        const track = { x: client.x + client.width - t, y: client.y, width: t, height: Math.max(0, client.height - (showX ? t : 0)) };
+        const len = Math.min(track.height, Math.max(MIN_THUMB, (track.height * client.height) / scrollHeight));
+        return { track, thumb: { x: track.x, y: track.y + (maxY > 0 ? ((track.height - len) * y) / maxY : 0), width: t, height: len } };
+      }
+      const track = { x: client.x, y: client.y + client.height - t, width: Math.max(0, client.width - (showY ? t : 0)), height: t };
+      const len = Math.min(track.width, Math.max(MIN_THUMB, (track.width * client.width) / scrollWidth));
+      return { track, thumb: { x: track.x + (maxX > 0 ? ((track.width - len) * x) / maxX : 0), y: track.y, width: len, height: t } };
+    };
+    return { x, y, maxX, maxY, clientWidth: client.width, clientHeight: client.height, scrollWidth, scrollHeight, userX, userY, client, barX: showX ? bar("x") : null, barY: showY ? bar("y") : null };
   }
 
   /** Publish the results for the drawing layer, bumping `layoutVersion` only if something changed. */
@@ -637,7 +858,7 @@ export class UICore implements UICoreLike {
       canvasList.push({ comp: c, mode: c.mode, sortOrder: c.sortOrder, width: canvas.width, height: canvas.height, scale: canvas.scale, pixelSize: c.mode === "world" ? c.pixelSize : 1, worldMatrix, visible: c.isActiveAndEnabled });
       for (const e of canvas.elements) {
         const b = e.box, p = e.place;
-        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds });
+        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds, reach: p.reach, scroll: p.scroll });
       }
     }
     const changed = !sameCanvases(this.canvasList, canvasList) || !sameElements(this.elementList, elementList);
@@ -765,7 +986,14 @@ export class UICore implements UICoreLike {
   /**
    * The routing step (ADR 0069, 0310), run in the device snapshot before any World steps: hit-test
    * the pointer against last frame's layout, claim it for UI, and hand the World's interaction log
-   * (ADR 0309) what the pointer did, with focus moved by a press; the log publishes the frame's events.
+   * (ADR 0309) what the pointer did; the log publishes the frame's events.
+   *
+   * ADR 0422: it also records the frame's UI events in order, each on the raycast target it happened on (the element
+   * that claims the pointer, 0385): `pointerover`/`pointerout`/`pointerenter`/`pointerleave` as the target changes,
+   * `pointermove`, `pointerdown`/`pointerup` for each button, `click` on what the left press and release share (and
+   * `dblclick`), `contextmenu`, `wheel`, `keydown`/`keyup` on the focused element (else the scroller last pressed in),
+   * `pointercancel` when a touch drag starts scrolling, and UI drags. Default actions ride on them, run after their
+   * dispatch unless a handler prevents them: focus on press, scrolling (ADR 0423), a drag starting, submit on Enter.
    */
   private route(raw: PointerFrame): InputClaim | void {
     this.pointerHeld = raw.down(0) || raw.held(0);
@@ -778,6 +1006,8 @@ export class UICore implements UICoreLike {
       if (log.layout === this) log.layout = null;
       log.idle();
       this.pressed = null;
+      this.hoverTarget = this.pressTarget = this.activeScroller = null;
+      this.gesture = null;
       return;
     }
     log.layout = this; // navigation searches this core's layout (ADR 0340)
@@ -787,29 +1017,292 @@ export class UICore implements UICoreLike {
     const usable = (e: Entry | null): e is Entry => !!e && e.kind === "button" && (e.comp as UIButton).interactable && e.comp.isActiveAndEnabled;
     // The pointer moving or pressing makes it the last UI input: focus colours hide.
     const last = this.lastPointer;
-    if (last && (last.x !== raw.x || last.y !== raw.y)) log.navigating = false;
+    const moved = !last || last.x !== raw.x || last.y !== raw.y;
+    if (last && moved) log.navigating = false;
     this.lastPointer = { x: raw.x, y: raw.y };
+    const now = world.time.realtimeSinceStartup;
 
+    // ADR 0422: the frame's records, with what each needs.
+    const records: UIEventRecord[] = [];
+    const mods = { shiftKey: raw.keyHeld("shift"), ctrlKey: raw.keyHeld("control"), altKey: raw.keyHeld("alt"), metaKey: raw.keyHeld("meta") };
+    const buttons = (raw.held(0) ? 1 : 0) | (raw.held(2) ? 2 : 0) | (raw.held(1) ? 4 : 0);
+    const live = (e: Entry | null): Entry | null => (e && this.entries.has(e.comp) && e.canvas ? e : null);
+    const pdata = (e: Entry | null, extra: UIEventData = {}): UIEventData => ({ canvasX: raw.x, canvasY: raw.y, ...this.pointAt(e, blocked, raw.x, raw.y), button: -1, buttons, pointerType: raw.pointerType, pointerId: raw.pointerType === "mouse" ? 1 : 2, isPrimary: true, ...mods, ...extra });
+    const over = blocked?.target ?? null;
+    const g = this.gesture;
+
+    // Hover: out and leave from what it left, over and enter on what it's on (DOM order: leave innermost first, enter outermost first).
+    const old = live(this.hoverTarget);
+    if (over !== old) {
+      const oldPath = old ? pathOf(old) : [];
+      const newPath = over ? pathOf(over) : [];
+      const related = (e: Entry | null) => ({ related: e?.comp ?? null });
+      if (old) records.push(uiEventRecord("pointerout", old.comp, pdata(old, related(over))));
+      for (const e of oldPath) if (!newPath.includes(e)) records.push(uiEventRecord("pointerleave", e.comp, pdata(e, related(over))));
+      if (over) records.push(uiEventRecord("pointerover", over.comp, pdata(over, related(old))));
+      for (let i = newPath.length - 1; i >= 0; i--) if (!oldPath.includes(newPath[i])) records.push(uiEventRecord("pointerenter", newPath[i].comp, pdata(newPath[i], related(old))));
+    }
+    this.hoverTarget = over;
+    if (moved && over && g?.kind !== "scroll") records.push(uiEventRecord("pointermove", over.comp, pdata(over)));
+
+    // Presses.
     if (raw.down(0)) {
       log.navigating = false;
       this.pressed = usable(hit) ? hit : null;
       // A press focuses what it hit (an input field starts typing); elsewhere it unfocuses, unless a modal canvas keeps focus.
+      // ADR 0422: that's the pointerdown's default action, after its dispatch.
       const target = hit && (hit.kind === "button" || hit.kind === "input") ? (hit.comp as UIFocusableElement) : null;
       const press = pointerFocus(this, target);
-      if (press.focus) log.focus(target, "pointer", hit!.kind === "input");
-      else if (!press.trapped) log.focus(null, "pointer");
+      const typing = hit?.kind === "input";
+      this.pressTarget = over;
+      const chain = over ? scrollChain(over) : [];
+      for (const s of chain) uiStopScrolling(world, s.comp as UIScrollable); // a press stops a fling
+      this.activeScroller = chain[0] ?? null;
+      let source: Entry | null = null;
+      for (let at = over; at && at.kind !== "canvas" && !source; at = at.parent) if ((at.comp as UIScrollable).draggable) source = at;
+      const gesture: Gesture = { kind: "pending", pointerType: raw.pointerType, startX: raw.x, startY: raw.y, lastX: raw.x, lastY: raw.y, armed: true, target: over, source, chain, scroller: null, axis: null, startScroll: 0, samples: [{ t: now, x: raw.x, y: raw.y }], data: null, dropTarget: null, accepts: false };
+      let barAction: (() => void) | null = null;
+      if (blocked?.bar && over) barAction = this.pressBar(world, gesture, over, blocked.bar, blocked.ux, blocked.uy);
+      this.gesture = gesture;
+      records.push(
+        uiEventRecord("pointerdown", over?.comp ?? null, pdata(over, { button: 0, buttons: buttons | 1 }), (prevented) => {
+          if (prevented) {
+            if (gesture.kind === "pending") gesture.armed = false;
+            return;
+          }
+          barAction?.();
+          if (press.focus) log.focus(target, "press", typing);
+          else if (!press.trapped) log.focus(null, "press");
+        }),
+      );
     }
+    for (const b of [1, 2]) {
+      if (raw.down(b) && over) records.push(uiEventRecord("pointerdown", over.comp, pdata(over, { button: b, buttons: buttons | (b === 2 ? 2 : 4) })));
+      if (raw.down(b) && over && b === 2) records.push(uiEventRecord("contextmenu", over.comp, pdata(over, { button: 2, buttons: buttons | 2 })));
+      if (raw.up(b) && over) records.push(uiEventRecord("pointerup", over.comp, pdata(over, { button: b })));
+    }
+
+    // A held press moving: a touch or pen drag scrolls, a draggable element drags, a scrollbar thumb follows.
+    if (g && g === this.gesture && raw.held(0) && !raw.down(0)) this.moveGesture(world, g, raw, records, pdata);
+    const dragging = this.gesture?.kind === "drag" ? this.gesture : null;
+    if (dragging && (raw.held(0) || raw.up(0))) {
+      const source = live(dragging.source);
+      const under = over;
+      if (source) records.push(uiEventRecord("drag", source.comp, pdata(source, { dataTransfer: dragging.data! })));
+      if (under !== dragging.dropTarget) {
+        const before = live(dragging.dropTarget);
+        if (before) records.push(uiEventRecord("dragleave", before.comp, pdata(before, { related: under?.comp ?? null, dataTransfer: dragging.data! })));
+        if (under) records.push(uiEventRecord("dragenter", under.comp, pdata(under, { related: before?.comp ?? null, dataTransfer: dragging.data! })));
+        dragging.dropTarget = under;
+        dragging.accepts = false;
+      }
+      if (under && raw.held(0)) records.push(uiEventRecord("dragover", under.comp, pdata(under, { dataTransfer: dragging.data! }), (prevented) => (dragging.accepts = prevented)));
+    }
+
     if (this.pressed && !this.entries.has(this.pressed.comp)) this.pressed = null;
     let clicked: UIButton | null = null;
     if (raw.up(0)) {
-      if (this.pressed && this.pressed === hit) clicked = this.pressed.comp as UIButton;
+      const done = this.gesture;
+      if (done?.kind === "scroll" && done.scroller) this.fling(world, done);
+      else if (done?.kind === "drag") {
+        const target = live(done.dropTarget);
+        const source = live(done.source);
+        if (target && done.accepts) records.push(uiEventRecord("drop", target.comp, pdata(target, { button: 0, dataTransfer: done.data! })));
+        if (source) records.push(uiEventRecord("dragend", source.comp, pdata(source, { button: 0, dataTransfer: done.data! })));
+      } else if (done?.kind !== "thumb" || over) {
+        if (over) records.push(uiEventRecord("pointerup", over.comp, pdata(over, { button: 0 })));
+        if (this.pressed && this.pressed === hit) clicked = this.pressed.comp as UIButton;
+        // ADR 0422: `click` on the element the press and the release share, unless a disabled button holds it.
+        const pressedOn = live(this.pressTarget);
+        const target = pressedOn && over ? commonAncestor(pressedOn, over) : null;
+        if (target && !disabledPath(target)) {
+          const prev = this.lastClick;
+          const again = prev && prev.comp === target.comp && now - prev.time <= DBLCLICK_SECONDS && Math.hypot(raw.x - prev.x, raw.y - prev.y) <= DBLCLICK_DISTANCE;
+          const count = again ? prev.count + 1 : 1;
+          this.lastClick = { comp: target.comp, time: now, x: raw.x, y: raw.y, count };
+          records.push(uiEventRecord("click", target.comp, pdata(target, { button: 0, detail: count })));
+          if (count === 2) records.push(uiEventRecord("dblclick", target.comp, pdata(target, { button: 0, detail: 2 })));
+        }
+      }
       this.pressed = null;
+      this.pressTarget = null;
+      this.gesture = null;
     } else if (this.pressed && !raw.held(0) && !raw.down(0)) this.pressed = null; // released without an up (focus lost)
-    log.route({ hovered: usable(hit) ? (hit.comp as UIButton) : null, pressed: (this.pressed?.comp as UIButton | undefined) ?? null, clicked });
+    if (this.gesture && !raw.held(0) && !raw.down(0) && !raw.up(0)) this.gesture = null;
+
+    // The wheel (ADR 0423): the innermost scroller under the pointer that can still move that way takes it, as its default action.
+    let wheelTaken = false;
+    if ((raw.wheelX !== 0 || raw.wheelY !== 0) && over) {
+      const scale = over.canvas?.comp.mode === "screen" ? over.canvas.scale : 1;
+      let dx = raw.wheelX / scale, dy = raw.wheelY / scale;
+      if (mods.shiftKey && dx === 0) [dx, dy] = [dy, 0]; // Shift turns the wheel sideways, as browsers do
+      const chain = scrollChain(over);
+      const sx = dx !== 0 ? pickScroller(chain, dx, 0) : null;
+      const sy = dy !== 0 ? pickScroller(chain, 0, dy) : null;
+      wheelTaken = !!(sx || sy);
+      records.push(
+        uiEventRecord("wheel", over.comp, pdata(over, { button: 0, deltaX: raw.wheelX, deltaY: raw.wheelY, deltaMode: 0 }), (prevented) => {
+          if (prevented) return;
+          if (sx) uiScrollBy(world, sx.comp as UIScrollable, dx, 0, "instant");
+          if (sy) uiScrollBy(world, sy.comp as UIScrollable, 0, dy, "instant");
+        }),
+      );
+    }
+
+    // Keys (ADR 0422): to the focused element, else (ADR 0423) the scroller the last press landed in.
+    const focusedEntry = live(log.focused ? (this.entries.get(log.focused) ?? null) : null);
+    const keyTarget = focusedEntry ?? live(this.activeScroller);
+    if (keyTarget) {
+      for (const k of raw.keys) {
+        const data: UIEventData = { key: uiDomKey(k.key), code: uiDomCode(k.key), repeat: false, ...mods };
+        if (!k.down) {
+          records.push(uiEventRecord("keyup", keyTarget.comp, data));
+          continue;
+        }
+        records.push(
+          uiEventRecord("keydown", keyTarget.comp, data, (prevented) => {
+            const field = keyTarget.comp instanceof UIInputField ? keyTarget.comp : null;
+            if (prevented) {
+              if (k.key === "enter" && field) log.retract("submit", field); // Enter's default: the submit
+              return;
+            }
+            this.keyScroll(world, keyTarget, k.key, !focusedEntry, !!field?.typing);
+          }),
+        );
+      }
+    }
+
+    log.route({ hovered: usable(hit) ? (hit.comp as UIButton) : null, pressed: (this.pressed?.comp as UIButton | undefined) ?? null, clicked }, records);
 
     const focused = log.focused;
     const typing = focused instanceof UIInputField && focused.typing;
-    return { pointer: !!blocked, keyboard: typing, keys };
+    return { pointer: !!blocked, keyboard: typing, keys, wheel: wheelTaken };
+  }
+
+  /** ADR 0422: a point's position for an event on `e`: the target canvas's UI pixels, and `e`'s own (through its transform). */
+  private pointAt(e: Entry | null, hit: Hit | null, x: number, y: number): UIEventData {
+    let ux = hit?.ux ?? x, uy = hit?.uy ?? y;
+    if (e?.canvas && hit && e.canvas !== hit.target.canvas && e.canvas.comp.mode === "screen") [ux, uy] = [x / e.canvas.scale, y / e.canvas.scale];
+    else if (e?.canvas && !hit && e.canvas.comp.mode === "screen") [ux, uy] = [x / e.canvas.scale, y / e.canvas.scale];
+    if (!e) return { clientX: ux, clientY: uy, offsetX: 0, offsetY: 0 };
+    const [lx, ly] = e.place.inverse ? applyAffine(e.place.inverse, ux, uy) : [ux, uy];
+    const offsetOf = (comp: UIComponentType) => {
+      const o = this.entries.get(comp);
+      if (!o) return null;
+      const [ox, oy] = o.place.inverse ? applyAffine(o.place.inverse, ux, uy) : [ux, uy];
+      return { x: ox - o.box.x, y: oy - o.box.y };
+    };
+    return { clientX: ux, clientY: uy, offsetX: lx - e.box.x, offsetY: ly - e.box.y, offsetOf };
+  }
+
+  /**
+   * ADR 0423: a press on a scrollbar. On the thumb it starts dragging it; on the track it pages toward the press (the
+   * pointerdown's default action, returned to run after its dispatch).
+   */
+  private pressBar(world: World, g: Gesture, scroller: Entry, axis: "x" | "y", ux: number, uy: number): (() => void) | null {
+    const s = scroller.place.scroll;
+    const bar = axis === "x" ? s?.barX : s?.barY;
+    if (!s || !bar) return null;
+    const [lx, ly] = scroller.place.inverse ? applyAffine(scroller.place.inverse, ux, uy) : [ux, uy];
+    if (inRect(lx, ly, bar.thumb)) {
+      g.kind = "thumb";
+      g.scroller = scroller;
+      g.axis = axis;
+      g.startScroll = axis === "x" ? s.x : s.y;
+      return null;
+    }
+    g.kind = "none";
+    const before = axis === "x" ? lx < bar.thumb.x : ly < bar.thumb.y;
+    const page = (axis === "x" ? s.clientWidth : s.clientHeight) * PAGE_SHARE * (before ? -1 : 1);
+    return () => uiScrollBy(world, scroller.comp as UIScrollable, axis === "x" ? page : 0, axis === "y" ? page : 0);
+  }
+
+  /** ADR 0422/0423: a held press moved (the frames after it went down). */
+  private moveGesture(world: World, g: Gesture, raw: PointerFrame, records: UIEventRecord[], pdata: (e: Entry | null, extra?: UIEventData) => UIEventData): void {
+    const now = world.time.realtimeSinceStartup;
+    g.samples.push({ t: now, x: raw.x, y: raw.y });
+    while (g.samples.length > 2 && now - g.samples[0].t > 0.1) g.samples.shift();
+    const scaleOf = (e: Entry | null) => (e?.canvas?.comp.mode === "screen" ? e.canvas.scale : 1);
+    if (g.kind === "pending" && g.armed) {
+      const fx = raw.x - g.startX, fy = raw.y - g.startY;
+      const distance = Math.hypot(fx, fy);
+      // A touch or pen drag past the threshold scrolls the innermost scroller that can move its main way; the press is cancelled.
+      if (g.pointerType !== "mouse" && distance > TOUCH_SCROLL_THRESHOLD) {
+        const along = Math.abs(fx) > Math.abs(fy) ? { dx: -fx, dy: 0 } : { dx: 0, dy: -fy };
+        const scroller = pickScroller(g.chain, along.dx, along.dy);
+        if (scroller) {
+          g.kind = "scroll";
+          g.scroller = scroller;
+          const target = g.target && this.entries.has(g.target.comp) ? g.target : null;
+          if (target) records.push(uiEventRecord("pointercancel", target.comp, pdata(target, { button: 0 })));
+          this.pressed = null;
+          this.pressTarget = null;
+          const scale = scaleOf(scroller);
+          uiScrollBy(world, scroller.comp as UIScrollable, -fx / scale, -fy / scale, "instant");
+        }
+      }
+      // A draggable element dragged past the threshold starts a UI drag, unless `dragstart` is prevented.
+      if (g.kind === "pending" && g.source && distance > DRAG_THRESHOLD && this.entries.has(g.source.comp)) {
+        g.kind = "none";
+        g.data = new UIDataTransfer();
+        records.push(
+          uiEventRecord("dragstart", g.source.comp, pdata(g.source, { button: 0, dataTransfer: g.data }), (prevented) => {
+            if (prevented || this.gesture !== g) return;
+            g.kind = "drag";
+            this.pressed = null; // a drag isn't a click
+            this.pressTarget = null;
+          }),
+        );
+      }
+    } else if (g.kind === "scroll" && g.scroller) {
+      const scale = scaleOf(g.scroller);
+      uiScrollBy(world, g.scroller.comp as UIScrollable, -(raw.x - g.lastX) / scale, -(raw.y - g.lastY) / scale, "instant");
+    } else if (g.kind === "thumb" && g.scroller && g.axis) {
+      const s = g.scroller.place.scroll;
+      const bar = g.axis === "x" ? s?.barX : s?.barY;
+      if (s && bar) {
+        const room = g.axis === "x" ? bar.track.width - bar.thumb.width : bar.track.height - bar.thumb.height;
+        const moved = (g.axis === "x" ? raw.x - g.startX : raw.y - g.startY) / scaleOf(g.scroller);
+        const max = g.axis === "x" ? s.maxX : s.maxY;
+        const to = g.startScroll + (room > 0 ? (moved * max) / room : 0);
+        uiScrollTo(world, g.scroller.comp as UIScrollable, g.axis === "x" ? to : null, g.axis === "y" ? to : null, "instant");
+      }
+    }
+    g.lastX = raw.x;
+    g.lastY = raw.y;
+  }
+
+  /** ADR 0423: a touch or pen drag scroll let go: it keeps moving at the speed of its last tenth of a second. */
+  private fling(world: World, g: Gesture): void {
+    const a = g.samples[0], b = g.samples[g.samples.length - 1];
+    const dt = b.t - a.t;
+    if (!g.scroller || dt <= 0) return;
+    const scale = g.scroller.canvas?.comp.mode === "screen" ? g.scroller.canvas.scale : 1;
+    const s = g.scroller.place.scroll;
+    const vx = s?.userX ? -(b.x - a.x) / dt / scale : 0;
+    const vy = s?.userY ? -(b.y - a.y) / dt / scale : 0;
+    uiStartMomentum(world, g.scroller.comp as UIScrollable, vx, vy);
+  }
+
+  /**
+   * ADR 0423: keyboard scrolling, a keydown's default action. Page Up/Down and Home/End scroll the scroller the target is
+   * in (not while an input field types, for Home/End); with nothing focused (the target is the scroller last pressed
+   * in), the arrow keys scroll too (with something focused they're navigation's, ADR 0340).
+   */
+  private keyScroll(world: World, target: Entry, key: string, nothingFocused: boolean, typing: boolean): void {
+    const page = key === "pageup" || key === "pagedown";
+    const edge = key === "home" || key === "end";
+    const arrow = key === "arrowup" || key === "arrowdown" || key === "arrowleft" || key === "arrowright";
+    if (!page && !(edge && !typing) && !(arrow && nothingFocused)) return;
+    const horizontal = key === "arrowleft" || key === "arrowright";
+    const sign = key === "pageup" || key === "home" || key === "arrowup" || key === "arrowleft" ? -1 : 1;
+    const scroller = pickScroller(scrollChain(target), horizontal ? sign : 0, horizontal ? 0 : sign);
+    const s = scroller?.place.scroll;
+    if (!scroller || !s) return;
+    const comp = scroller.comp as UIScrollable;
+    if (edge) uiScrollTo(world, comp, null, sign < 0 ? 0 : s.maxY);
+    else if (page) uiScrollBy(world, comp, 0, sign * s.clientHeight * PAGE_SHARE);
+    else uiScrollBy(world, comp, horizontal ? sign * ARROW_STEP : 0, horizontal ? 0 : sign * ARROW_STEP);
   }
 
   /**
@@ -935,34 +1428,45 @@ export class UICore implements UICoreLike {
    * `raycastTarget` is on and that is a graphic), screen canvases from the highest `sortOrder`, then the nearest in
    * world canvases; and the button or input field that takes it (`handler`: the target or its nearest such ancestor,
    * as Unity's events bubble to their handler), null when the target only blocks. Null when no target is there.
+   * ADR 0423: a scroller's scrollbars, drawn over its content, are met before it (the target is the scroller, `bar` the axis).
    */
   private hit(x: number, y: number): Hit | null {
     for (let k = this.screenList.length - 1; k >= 0; k--) {
       const canvas = this.screenList[k];
-      const px = x / canvas.scale, py = y / canvas.scale;
-      for (let i = canvas.painted.length - 1; i >= 0; i--) {
-        const e = canvas.painted[i];
-        if (!this.hittable(e) || !isRaycastTarget(e.comp)) continue;
-        if (onDrawnBox(e, px, py)) return { target: e, handler: handlerOf(e) };
-      }
+      const found = this.hitIn(canvas, x / canvas.scale, y / canvas.scale);
+      if (found) return found;
     }
     const ray = this.viewRay(x, y);
     if (!ray) return null;
-    let best: Entry | null = null, bestDistance = Infinity;
+    let best: Hit | null = null, bestDistance = Infinity;
     for (const laid of this.canvasList) {
       const canvas = laid.mode === "world" ? this.canvasEntries.get(laid.comp) : undefined;
       const at = canvas ? this.onWorldCanvas(laid, ray) : null;
       if (!canvas || !at) continue;
-      const { ux, uy, t } = at;
-      for (let i = canvas.painted.length - 1; i >= 0; i--) {
-        const e = canvas.painted[i];
-        if (!this.hittable(e) || !isRaycastTarget(e.comp)) continue;
-        if (!onDrawnBox(e, ux, uy)) continue;
-        if (t < bestDistance) [best, bestDistance] = [e, t];
-        break; // the topmost of this canvas
-      }
+      const found = this.hitIn(canvas, at.ux, at.uy); // the topmost of this canvas
+      if (found && at.t < bestDistance) [best, bestDistance] = [found, at.t];
     }
-    return best ? { target: best, handler: handlerOf(best) } : null;
+    return best;
+  }
+
+  /** The topmost raycast target (or scrollbar) of a canvas at a point in its UI pixels. */
+  private hitIn(canvas: CanvasEntry, ux: number, uy: number): Hit | null {
+    const order = canvas.hitOrder;
+    for (let i = order.length - 1; i >= 0; i--) {
+      const item = order[i];
+      if ("bar" in item) {
+        const e = item.scroller;
+        const s = e.place.scroll;
+        const bar = item.bar === "x" ? s?.barX : s?.barY;
+        if (!bar || !this.hittable(e) || (e.place.transform && !e.place.inverse)) continue;
+        const [lx, ly] = e.place.inverse ? applyAffine(e.place.inverse, ux, uy) : [ux, uy];
+        if (inRect(lx, ly, bar.track) && inClips(ux, uy, e.place.clips)) return { target: e, handler: handlerOf(e), ux, uy, bar: item.bar };
+        continue;
+      }
+      if (!this.hittable(item) || !isRaycastTarget(item.comp)) continue;
+      if (onDrawnBox(item, ux, uy)) return { target: item, handler: handlerOf(item), ux, uy, bar: null };
+    }
+    return null;
   }
 
   private hittable(e: Entry): boolean {
@@ -990,6 +1494,15 @@ function yogaTables(yoga: Yoga) {
   };
 }
 
+/** ADR 0423: true when the player scrolls `parent` along its flex direction (its children then keep their size along it). */
+function scrollsMainAxis(parent: Entry | null): boolean {
+  if (!parent || parent.kind === "canvas") return false;
+  const c = parent.comp as UIScrollable;
+  const axes = overflowAxes(c);
+  const row = c.flexDirection === "row" || c.flexDirection === "row-reverse";
+  return userScrollsAxis(row ? axes.x : axes.y);
+}
+
 function finite(n: number): number {
   return Number.isFinite(n) ? n : 0;
 }
@@ -1013,8 +1526,48 @@ function sameElements(a: readonly UILaidOutElement[], b: readonly UILaidOutEleme
   if (a.length !== b.length) return false;
   return a.every((x, i) => {
     const y = b[i];
-    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text && x.clipper === y.clipper && sameRect(x.clip, y.clip) && sameRect(x.childClip, y.childClip) && sameAffine(x.transform, y.transform) && sameRect(x.bounds, y.bounds);
+    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text && x.clipper === y.clipper && sameRect(x.clip, y.clip) && sameRect(x.childClip, y.childClip) && sameAffine(x.transform, y.transform) && sameRect(x.bounds, y.bounds) && sameRect(x.reach, y.reach) && sameScroll(x.scroll, y.scroll);
   });
+}
+
+function sameScroll(a: UIScrollInfo | null, b: UIScrollInfo | null): boolean {
+  if (!a || !b) return a === b;
+  const bar = (p: UIScrollbar | null, q: UIScrollbar | null) => (!p || !q ? p === q : sameRect(p.track, q.track) && sameRect(p.thumb, q.thumb));
+  return a.x === b.x && a.y === b.y && a.maxX === b.maxX && a.maxY === b.maxY && a.userX === b.userX && a.userY === b.userY && sameRect(a.client, b.client) && bar(a.barX, b.barX) && bar(a.barY, b.barY);
+}
+
+/**
+ * ADR 0423: hit-testing order: the draw order with each scroller's scrollbars right after its last descendant (they're
+ * drawn over its content, under whatever is drawn after it). A scroller's descendants follow it in `painted`.
+ */
+function hitOrderOf(painted: readonly Entry[]): HitItem[] {
+  const index = new Map<Entry, number>();
+  painted.forEach((e, i) => index.set(e, i));
+  const lastOf = (e: Entry): number => {
+    let last = index.get(e) ?? -1;
+    for (const c of e.children) last = Math.max(last, lastOf(c));
+    return last;
+  };
+  const after = new Map<number, HitItem[]>();
+  for (let i = painted.length - 1; i >= 0; i--) {
+    const e = painted[i];
+    const s = e.place.scroll;
+    if (!s || (!s.barX && !s.barY)) continue;
+    const at = lastOf(e);
+    const list = after.get(at) ?? [];
+    // An outer scroller's bars go after an inner one's ending at the same place (visited later, pushed last).
+    if (s.barX) list.push({ bar: "x", scroller: e });
+    if (s.barY) list.push({ bar: "y", scroller: e });
+    after.set(at, list);
+  }
+  if (!after.size) return painted as HitItem[];
+  const out: HitItem[] = [];
+  painted.forEach((e, i) => {
+    out.push(e);
+    const bars = after.get(i);
+    if (bars) out.push(...bars);
+  });
+  return out;
 }
 
 function sameAffine(a: UIAffine | null, b: UIAffine | null): boolean {
