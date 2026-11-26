@@ -1,4 +1,4 @@
-# UI program: web CSS on the UI core and Svelte as the UI format (ADRs 0417–0421)
+# UI program: web CSS on the UI core and Svelte as the UI format (ADRs 0417–0426)
 
 The coordinator's plan for building ADRs 0418 (the UI core grows toward web CSS), 0419 (UI authored in Svelte, full compatibility), 0420 (shared tween crate) and 0421 (Svelte runtime bundled per game), in waves of parallel worktree agents. The owner approved running it to completion (2026-11-26). Agents run typecheck and Vitest only; the coordinator merges each wave and runs only the **affected** e2e specs, **once, at the end** (owner's rule).
 
@@ -22,9 +22,9 @@ The coordinator's plan for building ADRs 0418 (the UI core grows toward web CSS)
 | X3 | 0421: Svelte runtime and renderer bundled into each game's code at export, tree-shaken | 0419 A |
 | Y1 | 0418 wave 5: `:not`, structural, attribute and sibling selectors, `calc()`, canvas `@media` (+ `MediaQuery`) | X1 (cascade) |
 | Y2 | Svelte `animate`/`measure` hooks: `transition:`/`in:`/`out:`/`animate:` and `svelte/transition` built-ins on the tween backend and transformed boxes | X1, wave 3 |
-| Y3 | Records and builds for the compatibility features: event bubbling and capture; scrolling containers | X2 |
+| Y3 | Event bubbling and capture (0422); scrolling containers (0423) | X2 |
 | Z1 | 0419 wave B: built-in UI (`UIControlMapper`, `SubtitleDisplay`) and the samples to Svelte | X2 (`t()`), Y3 (bubbling) |
-| Z2 | Records and builds: form elements (checkbox, radio, range, number, textarea, select, progress, label), rich inline text and `{@html}`, filters, SVG, video, `contenteditable`, matrix transforms with skew | Y-wave |
+| Z2 | Form elements (0424); inline rich text, `{@html}`, `contenteditable` (0425); filters, SVG, video/audio, matrix transforms with skew (0426) | Y-wave |
 | C | 0419 wave C: editor tooling for `.svelte` (picking by template location, literal attribute editing, Create menu, Inspector sources) | Z1 |
 | D | 0419 wave D: retire UI documents (`UIDocument`, `*.ui.xml`, `*.ui.css`, markup parser, markup edits) once conformance meets the gate | C, conformance |
 | End | Affected e2e specs once; per-wave captures and the frame-time check (Pirates HUD, control mapper) | all |
