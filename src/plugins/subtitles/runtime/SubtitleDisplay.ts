@@ -1,7 +1,8 @@
 /**
  * `SubtitleDisplay` (ADR 0357 §5): the optional built-in subtitle and caption display. Add it to any node (a persistent
- * scene or a HUD prefab); it builds its UI document under its own `UICanvas` child (screen mode, `sortOrder` 1000), or
- * under the node's own canvas when the node has one, and shows what `Audio.onLine` and `Audio.onCaption` report, timed
+ * scene or a HUD prefab); it builds its UI document on a child node. The built-in document's root is a `<Canvas>` (screen
+ * mode, `sortOrder` 1000, ADR 0417); a replacement document has its own `<Canvas>` root, or shows under a canvas another
+ * document built above the node. It shows what `Audio.onLine` and `Audio.onCaption` report, timed
  * on the heard clock (`Audio.time`), obeying the player's `Subtitles` settings.
  *
  * Built only on public API — `Audio.onLine`, `Audio.onCaption`, `Audio.time`, `Audio.subtitleLanguage`, `Locale`,
@@ -15,7 +16,7 @@ import { AssetRef, component, field } from "../../../engine/core/registry";
 import { Locale } from "../../../engine/localisation/Locale";
 import { readingRule } from "../../../engine/localisation/subtitles";
 import { GameObject } from "../../../engine/scene/GameObject";
-import { UICanvas, UIPanel, UIText } from "../../../engine/ui/components";
+import { UICanvas, type UIPanel, UIText } from "../../../engine/ui/components";
 import { UIDocument, type UIDocumentElement } from "../../../engine/ui/UIDocument";
 import { Audio, type AudioCaptionEvent, type AudioLineEvent } from "../../audio/runtime";
 import { characterFit, fontSizeFor, showSpeakerNames, SubtitleBoard, type BoardRow, type SpeakerNameMode } from "./board";
@@ -138,20 +139,25 @@ export class SubtitleDisplay extends GameBehavior {
 
   // --- building ------------------------------------------------------------------------------------------------------
 
-  /** The UI it draws in: a child with its own screen canvas, or a full-size panel under the node's own canvas. */
+  /** The child its document builds on; the document brings its own canvas (ADR 0417). */
   private mount(): void {
     if (this.host?.isValid) return;
     const host = GameObject.create("Subtitles", { parent: this.node, transform: false });
-    if (this.node.getComponent(UICanvas)) host.addBehavior(UIPanel, { positionType: "absolute", width: "100%", height: "100%", top: 0, left: 0 });
-    else host.addBehavior(UICanvas, { mode: "screen", sortOrder: 1000 });
     this.ui = host.addBehavior(UIDocument, { document: displayDocument(this.document, this.stylesheet) });
     this.host = host;
     this.items.clear();
     this.listed = "";
   }
 
+  /** The canvas its rows are laid out on: the document's root canvas, else the nearest one above the node. */
   private canvas(): UICanvas | null {
-    return this.node.getComponent(UICanvas) ?? this.host?.getComponent(UICanvas) ?? null;
+    const root = this.ui?.root?.component;
+    if (root instanceof UICanvas) return root;
+    for (let n: GameObject | null = this.node; n; n = n.parent) {
+      const c = n.getComponent(UICanvas);
+      if (c) return c;
+    }
+    return null;
   }
 
   private language(): string {

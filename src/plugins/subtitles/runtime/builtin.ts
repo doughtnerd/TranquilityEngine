@@ -2,14 +2,16 @@
  * The built-in subtitle document and stylesheet (ADR 0357 §5), served to UI documents from an asset source the plugin
  * adds under `__myco/subtitles/` (never listed, so the editor and string-table discovery don't see it).
  *
- * **The contract for replacement documents and themes:** an element `#subtitles` whose `<Template>` holds an element
+ * **The contract for replacement documents and themes:** a `<Canvas>` root (game UI comes only from documents, ADR 0417;
+ * a document without one shows only when the display's node is under a canvas another document built), and an element
+ * `#subtitles` whose `<Template>` holds an element
  * with a `.speaker` and a `.line` Text (and optionally a `.box` Panel, the background, whose opacity the player's
  * `background` setting drives). The display writes `#subtitles`' placement (position, margin, max width), each row's
  * opacity (fades) and `speech`/`caption` class, the `.speaker` and `.line` texts, font size and the speaker's colour,
  * and the `.box` opacity. Themes override the variables below in a stylesheet (`SubtitleDisplay.stylesheet`).
  *
- * A display with a `stylesheet` gets a small generated wrapper document: its document `<Use>`d, then the stylesheet,
- * so the theme comes after the document's own styles.
+ * A display with a `stylesheet` gets a small generated wrapper document: its document `<Use>`d as the root, then the
+ * stylesheet, so the theme comes after the document's own styles.
  */
 import { Assets, type AssetSource } from "../../../engine/scene/Assets";
 import { SUBTITLE_LOOK } from "./look";
@@ -18,7 +20,8 @@ export const BUILTIN_FOLDER = "__myco/subtitles";
 export const BUILTIN_DOCUMENT = `${BUILTIN_FOLDER}/subtitles.ui.xml`;
 export const BUILTIN_STYLESHEET = `${BUILTIN_FOLDER}/subtitles.ui.css`;
 
-const DOCUMENT = `<Panel id="subtitle-root">
+// Its own screen canvas above the game's UI (ADR 0357 §5, 0417).
+const DOCUMENT = `<Canvas id="subtitle-root" mode="screen" sort-order="1000">
   <Style src="subtitles.ui.css"/>
   <Panel id="subtitles">
     <Template>
@@ -29,7 +32,7 @@ const DOCUMENT = `<Panel id="subtitle-root">
       </Panel>
     </Template>
   </Panel>
-</Panel>
+</Canvas>
 `;
 
 const STYLESHEET = `/* The built-in subtitle look (ADR 0357 §5). Themes override these variables in their own stylesheet. */
@@ -43,7 +46,6 @@ const STYLESHEET = `/* The built-in subtitle look (ADR 0357 §5). Themes overrid
   --subtitle-radius: ${SUBTITLE_LOOK.radius}px;
 }
 
-#subtitle-root { width: 100%; height: 100%; }
 #subtitles { position: absolute; flex-direction: column; align-items: center; gap: ${SUBTITLE_LOOK.gap}px; }
 .row { flex-direction: row; align-items: flex-start; gap: ${SUBTITLE_LOOK.nameGap}px; padding: var(--subtitle-padding); }
 .box {
@@ -94,7 +96,7 @@ export function displayDocument(document: string, stylesheet: string): string {
   if (!path) {
     path = `${BUILTIN_FOLDER}/display-${++wrappers}.ui.xml`;
     wrapperOf.set(id, path);
-    files.set(path, `<Panel id="subtitle-theme" width="100%" height="100%">\n  <Use src="/${doc}"/>\n  <Style src="/${css}"/>\n</Panel>\n`);
+    files.set(path, `<Use src="/${doc}"/>\n<Style src="/${css}"/>\n`);
   }
   return path;
 }
