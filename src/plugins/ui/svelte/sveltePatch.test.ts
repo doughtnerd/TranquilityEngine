@@ -95,6 +95,26 @@ describe("the custom renderer bind hook (svelte patch)", () => {
     expect(calls.at(-1)).toBe("cleanup");
   });
 
+  it("tells the hook, through ownChange, whether the batch being applied is one its own set started", () => {
+    let report!: (v: unknown) => void;
+    const seen: [unknown, boolean][] = [];
+    const renderer = {
+      bind(_n: unknown, _name: string, get: () => unknown, set: (v: unknown) => void, ownChange: () => boolean) {
+        report = set;
+        seen.push([get(), ownChange()]);
+      },
+    };
+    const v = $.state("a");
+    const stop = withRenderer(renderer, () => $.bind_renderer({}, "value", () => $.get(v), (x) => $.set(v, x)));
+    flushSync();
+    report("typed"); // the node reporting a change
+    flushSync();
+    $.set(v, "elsewhere"); // a change the node didn't start
+    flushSync();
+    expect(seen).toEqual([["a", false], ["typed", true], ["elsewhere", false]]);
+    stop();
+  });
+
   it("throws a clear error when the renderer has no bind", () => {
     const previous = $.push_renderer({});
     try {
@@ -394,6 +414,7 @@ describe("custom renderer paths doing what the DOM paths do (svelte patch)", () 
     delegate(types: string[]): void;
     validate_snippet_renderer<T>(fn: T): T;
     set_value(node: unknown, value: unknown, isSelect?: boolean): void;
+    attribute_effect(node: unknown, fn: () => Record<string, unknown>, sync?: unknown[], async?: unknown[], blockers?: unknown[], cssHash?: string, removeDefaults?: boolean, skipWarning?: boolean, tag?: string): void;
     from_tree(structure: unknown[], flags: number): () => unknown;
   }
   const x = internal as unknown as Extra;
@@ -530,6 +551,36 @@ describe("custom renderer paths doing what the DOM paths do (svelte patch)", () 
     expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([expect.stringContaining("select_multiple_invalid_value")]);
     expect(select.attrs.get("value")).toEqual(["a"]);
     warn.mockRestore();
+    stop();
+  });
+
+  it("tells the renderer of a select's first nullish value (the DOM sets `select.value`), and only a select's", () => {
+    const r = eventRenderer();
+    const select = node("select");
+    const input = node("input");
+    const stop = withRenderer(r, () => {
+      x.set_value(select, null, true);
+      x.set_value(input, null);
+    });
+    expect(select.attrs.has("value")).toBe(true);
+    expect(select.attrs.get("value")).toBeNull();
+    expect(input.attrs.has("value")).toBe(false);
+    stop();
+  });
+
+  it("keeps a spread's default when its first checked or value is nullish, and removes a later nullish one", () => {
+    const r = eventRenderer();
+    const input = node("input");
+    r.setAttribute(input, "checked", "");
+    const checked = $.state<boolean | undefined>(undefined);
+    const stop = withRenderer(r, () => x.attribute_effect(input, () => ({ checked: $.get(checked) }), [], [], [], undefined, false, false, "input"));
+    flushSync();
+    expect(input.attrs.has("checked")).toBe(true);
+    $.set(checked, true);
+    flushSync();
+    $.set(checked, undefined);
+    flushSync();
+    expect(input.attrs.has("checked")).toBe(false);
     stop();
   });
 });

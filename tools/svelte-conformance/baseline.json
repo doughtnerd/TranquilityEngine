@@ -1,12 +1,12 @@
 {
   "version": "5.59.2",
   "counts": {
-    "pass": 1274,
-    "fail": 35,
+    "pass": 1278,
+    "fail": 31,
     "skip": 55,
     "outOfScope": 31,
     "inScopeRun": 1278,
-    "inScopePass": 1274
+    "inScopePass": 1278
   },
   "passing": [
     "1000-reading-derived-effects",
@@ -70,6 +70,8 @@
     "async-bindable-prop",
     "async-binding-after-await",
     "async-binding-update-while-focused",
+    "async-binding-update-while-focused-2",
+    "async-binding-update-while-focused-3",
     "async-block-destroy-during-init",
     "async-block-effect-queueing",
     "async-block-reject-during-init",
@@ -892,6 +894,7 @@
     "fork-effect-teardown-undone-value",
     "form-default-value",
     "form-default-value-select",
+    "form-default-value-spread",
     "form-novalidate-casing",
     "function-parameter-shadowing",
     "functional-templating",
@@ -1079,6 +1082,7 @@
     "rune-name-used-by-rune",
     "runes-from-func",
     "runes-in-module-context",
+    "select-default-value-preserve-selection",
     "select-falsy-value",
     "select-function-binding-derived",
     "select-multiple-invalid-value",

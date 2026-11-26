@@ -11,14 +11,18 @@ rewrites `baseline.json`, keeping `outOfScope`.
 
 ## Counts (2026-11-26)
 
-| | Before the triage | After the triage | After the patch round (class c) | After the engine round (class a) |
-|---|---|---|---|---|
-| Pass | 1130 | 1210 | 1241 | 1274 |
-| Fail | 181 | 99 | 68 | 35 |
-| Skip | 53 | 55 (two `skip_async` fixtures, which Svelte's async-mode run skips too) | 55 | 55 |
-| Pass rate over every sample run | 86.2% of 1311 | 92.4% of 1309 | 94.8% of 1309 | 97.3% of 1309 |
-| Out of scope (run, listed) | not listed | 28 | 29 | 31 |
-| **Pass rate in scope** | not measured | **94.5% (1210 of 1281)** | **97.0% (1241 of 1280)** | **99.7% (1274 of 1278)** |
+| | Before the triage | After the triage | After the patch round (class c) | After the engine round (class a) | After the second patch round (class c2) |
+|---|---|---|---|---|---|
+| Pass | 1130 | 1210 | 1241 | 1274 | 1278 |
+| Fail | 181 | 99 | 68 | 35 | 31 (all out of scope) |
+| Skip | 53 | 55 (two `skip_async` fixtures, which Svelte's async-mode run skips too) | 55 | 55 | 55 |
+| Pass rate over every sample run | 86.2% of 1311 | 92.4% of 1309 | 94.8% of 1309 | 97.3% of 1309 | 97.6% of 1309 |
+| Out of scope (run, listed) | not listed | 28 | 29 | 31 | 31 |
+| **Pass rate in scope** | not measured | **94.5% (1210 of 1281)** | **97.0% (1241 of 1280)** | **99.7% (1274 of 1278)** | **100% (1278 of 1278)** |
+
+**After the second patch round:** every in-scope sample passes. Class **c2** is done (its three patch changes are in
+`patches/svelte+5.59.2.patch`, below); the 31 failures are **b** 14 and **d** 17, all listed in `baseline.json`'s
+`outOfScope`.
 
 **After the engine round:** the 35 failures are **c2** 4 needing a second patch change (written up below, each
 verified by applying the change at load time in a private run: all four pass with it), **b** 14 harness or jsdom-only
@@ -84,11 +88,14 @@ harness runs them, with traces injected into Svelte's batch module at load time)
 The harness also counts `mountView`'s own flush as the first of Svelte's harness flushes before a test (Svelte's harness
 mounts without flushing).
 
-### c2: needs a second patch change (in scope, open): 4
+### c2: needs a second patch change: done (2026-11-26)
 
-Verified: each change below, applied to Svelte's sources at load time in a private run (never `node_modules`), makes its
-samples pass with the engine round's renderer, which already takes the extra arguments (they're optional). Paths are in
-`node_modules/svelte/src/internal/client/`.
+All three changes below are in `patches/svelte+5.59.2.patch` (`docs/architecture/svelte-patch.md`: "Element bindings" for
+`ownChange`, "Fixes to custom-renderer paths" for the other two), and the four samples pass. One renderer change came
+with the first: with `ownChange`, a focused field kept its typed text even when the binding's setter changed the value
+(`binding-update-while-focused-3`, `(v) => text = v.toUpperCase()`, then failed), so the renderer's `bind:value` now does
+what Svelte's `bind_value` does a tick after an `input`: it shows the bound value if it differs from what the field
+reported, focused or not. Paths are in `node_modules/svelte/src/internal/client/`.
 
 | Samples | Patch change |
 |---|---|

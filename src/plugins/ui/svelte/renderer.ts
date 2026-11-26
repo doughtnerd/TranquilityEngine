@@ -60,7 +60,7 @@
  */
 /// <reference path="./svelte-modules.d.ts" />
 import { createRenderer } from "svelte/renderer";
-import { flushSync, mount, unmount, type Component } from "svelte";
+import { flushSync, mount, tick, unmount, type Component } from "svelte";
 import { createSubscriber } from "svelte/reactivity";
 import { proxy } from "svelte/internal/client";
 import { Color, Vector2 } from "../../../engine/core/math";
@@ -2153,7 +2153,16 @@ function bindValue(node: UIRenderElement, get: () => unknown, set: (value: unkno
   const keep = (isFocused(node) && !!ownChange?.()) || (numeric() && value === toNumber(node.value));
   if (!keep && node.value !== text) node.value = text;
   // `numeric` is read at each change: the type can change while bound (Svelte's DOM binding checks it each time too).
-  return listen(node, "input", () => set(numeric() ? toNumber(node.value) : node.value));
+  return listen(node, "input", () => {
+    const sent = numeric() ? toNumber(node.value) : node.value;
+    set(sent);
+    // As Svelte's DOM binding, a tick later: a setter that changed the value (`(v) => text = v.toUpperCase()`) is
+    // shown even in a focused field, which the re-bind above leaves as typed while the change is its own.
+    void tick().then(() => {
+      const now = get();
+      if (now !== sent) node.value = now === null || now === undefined ? "" : String(now);
+    });
+  });
 }
 
 /** An option node's value as given: its `value` attribute's own value (any type), else its text. */

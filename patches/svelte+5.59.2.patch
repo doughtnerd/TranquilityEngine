@@ -530,21 +530,23 @@ index 0000000..b0374e9
 +}
 diff --git a/node_modules/svelte/src/internal/client/custom-renderer/bind.js b/node_modules/svelte/src/internal/client/custom-renderer/bind.js
 new file mode 100644
-index 0000000..9827338
+index 0000000..9c16d91
 --- /dev/null
 +++ b/node_modules/svelte/src/internal/client/custom-renderer/bind.js
-@@ -0,0 +1,28 @@
+@@ -0,0 +1,40 @@
 +/** @import { Renderer } from './types.js' */
 +import { render_effect } from '../reactivity/effects.js';
 +import * as e from '../errors.js';
 +import { current_renderer } from './state.js';
++import { current_batch, view_batch } from '../reactivity/batch.js';
 +
 +/**
 + * An element binding (`bind:value`, `bind:checked`, `bind:clientWidth`...) under a custom renderer:
 + * the renderer's `bind(node, name, get, set)` hook connects the node to the bound state and returns
 + * a cleanup function. Like an attachment, the hook runs again (after the previous cleanup) when state
 + * it read through `get()` changes, so a renderer pushes the current value by reading `get()` and
-+ * reports changes from the node by calling `set(value)`.
++ * reports changes from the node by calling `set(value)`. The fifth argument, `ownChange()`, is true while the
++ * batch being applied is one a `set` from this binding started: a renderer doesn't rewrite a focused control then.
 + *
 + * The compiler can't see the renderer object, so a renderer without `bind` fails here, when the
 + * binding is created, rather than at compile time.
@@ -560,7 +562,17 @@ index 0000000..9827338
 +		e.renderer_bind_unsupported(name);
 +	}
 +
-+	render_effect(() => renderer.bind(node, name, get, set));
++	// Svelte's DOM bindings never rewrite a focused control with a value from a batch the control's own
++	// change started; a renderer can't see batches, so record the ones `set` runs in and let it ask
++	var batches = new WeakSet();
++	/** @param {unknown} value */
++	var report = (value) => {
++		set(value);
++		if (current_batch !== null) batches.add(current_batch);
++	};
++	var own_change = () => view_batch !== null && batches.has(view_batch);
++
++	render_effect(() => renderer.bind(node, name, get, report, own_change));
 +}
 diff --git a/node_modules/svelte/src/internal/client/custom-renderer/global.js b/node_modules/svelte/src/internal/client/custom-renderer/global.js
 new file mode 100644
@@ -915,7 +927,7 @@ index d7c6965..9e97c1b 100644
  	effect(() => {
  		// Bit of a hack: branches.js/each.js use offscreen fragments with temporary text nodes that will
 diff --git a/node_modules/svelte/src/internal/client/dom/elements/attributes.js b/node_modules/svelte/src/internal/client/dom/elements/attributes.js
-index 44be12e..ec1cb0d 100644
+index 44be12e..3d7d431 100644
 --- a/node_modules/svelte/src/internal/client/dom/elements/attributes.js
 +++ b/node_modules/svelte/src/internal/client/dom/elements/attributes.js
 @@ -2,7 +2,7 @@
@@ -927,7 +939,7 @@ index 44be12e..ec1cb0d 100644
  import { create_event, delegate, delegated } from './events.js';
  import { add_form_reset_listener, autofocus } from './misc.js';
  import * as w from '../../warnings.js';
-@@ -103,8 +103,22 @@ export function remove_input_defaults(input) {
+@@ -103,10 +103,32 @@ export function remove_input_defaults(input) {
  /**
   * @param {Element} element
   * @param {any} value
@@ -950,8 +962,18 @@ index 44be12e..ec1cb0d 100644
 +
  	var attributes = get_attributes(element);
  
++	// the DOM output for `<select value={null}>` sets `select.value` and chooses no option; under a renderer the
++	// early return below would hide a first nullish value, so the renderer hears it (and knows the select has a value)
++	if (is_select && current_renderer != null && value == null && !('value' in attributes)) {
++		attributes.value = undefined;
++		current_renderer.setAttribute(element, 'value', value);
++		return;
++	}
++
  	if (
-@@ -287,6 +301,7 @@ export function set_custom_element_data(node, prop, value) {
+ 		attributes.value ===
+ 			(attributes.value =
+@@ -287,6 +309,7 @@ export function set_custom_element_data(node, prop, value) {
   * @param {string} [css_hash]
   * @param {boolean} [should_remove_defaults]
   * @param {boolean} [skip_warning]
@@ -959,7 +981,7 @@ index 44be12e..ec1cb0d 100644
   * @returns {Record<string, any>}
   */
  function set_attributes(
-@@ -295,7 +310,8 @@ function set_attributes(
+@@ -295,7 +318,8 @@ function set_attributes(
  	next,
  	css_hash,
  	should_remove_defaults = false,
@@ -969,7 +991,7 @@ index 44be12e..ec1cb0d 100644
  ) {
  	if (hydrating && should_remove_defaults && node_name(element) === INPUT_TAG) {
  		if (!('defaultValue' in next || 'defaultChecked' in next)) {
-@@ -316,7 +332,8 @@ function set_attributes(
+@@ -316,7 +340,8 @@ function set_attributes(
  	}
  
  	var current = prev || {};
@@ -979,7 +1001,7 @@ index 44be12e..ec1cb0d 100644
  	var is_select_element = node_name(element) === SELECT_TAG;
  
  	try {
-@@ -372,8 +389,13 @@ function set_attributes(
+@@ -372,8 +397,13 @@ function set_attributes(
  				// that once set, the value attribute of an <option> element can't be removed. This is
  				// a very rare edge case, and removing the attribute altogether isn't possible either
  				// for the <option value={undefined}> case, so we're not losing any functionality here.
@@ -995,7 +1017,7 @@ index 44be12e..ec1cb0d 100644
  				current[key] = value;
  				continue;
  			}
-@@ -413,7 +435,7 @@ function set_attributes(
+@@ -413,7 +443,7 @@ function set_attributes(
  				const opts = {};
  				const event_handle_key = '$$' + key;
  				let event_name = key.slice(2);
@@ -1004,7 +1026,19 @@ index 44be12e..ec1cb0d 100644
  
  				if (is_capture_event(event_name)) {
  					event_name = event_name.slice(0, -7);
-@@ -555,6 +577,7 @@ function set_attributes(
+@@ -491,7 +521,10 @@ function set_attributes(
+ 
+ 				if (value == null && !is_custom_element && !is_default) {
+ 					attributes[key] = null;
+-					if ((name === 'value' || name === 'checked') && current_renderer == null) {
++					if ((name === 'value' || name === 'checked') && current_renderer != null && prev === undefined) {
++						// a spread's first nullish value/checked keeps the default, as on the DOM below; removing the
++						// attribute would read as `checked={false}` / an emptied value to a renderer
++					} else if ((name === 'value' || name === 'checked') && current_renderer == null) {
+ 						// removing value/checked also removes defaultValue/defaultChecked — preserve
+ 						let input = /** @type {HTMLInputElement} */ (element);
+ 						const use_default = prev === undefined;
+@@ -555,6 +588,7 @@ function set_attributes(
   * @param {string} [css_hash]
   * @param {boolean} [should_remove_defaults]
   * @param {boolean} [skip_warning]
@@ -1012,7 +1046,7 @@ index 44be12e..ec1cb0d 100644
   */
  export function attribute_effect(
  	element,
-@@ -564,7 +587,8 @@ export function attribute_effect(
+@@ -564,7 +598,8 @@ export function attribute_effect(
  	blockers = [],
  	css_hash,
  	should_remove_defaults = false,
@@ -1022,7 +1056,7 @@ index 44be12e..ec1cb0d 100644
  ) {
  	flatten(blockers, sync, async, (values) => {
  		/** @type {Record<string | symbol, any> | undefined} */
-@@ -585,7 +609,8 @@ export function attribute_effect(
+@@ -585,7 +620,8 @@ export function attribute_effect(
  				next,
  				css_hash,
  				should_remove_defaults,
@@ -1933,7 +1967,7 @@ index 31e8fbd..cb27c2d 100644
  		const opacity = +style.opacity;
  		return {
 diff --git a/node_modules/svelte/types/index.d.ts b/node_modules/svelte/types/index.d.ts
-index 27cb293..85aeb42 100644
+index 27cb293..129e6cf 100644
 --- a/node_modules/svelte/types/index.d.ts
 +++ b/node_modules/svelte/types/index.d.ts
 @@ -2737,6 +2737,34 @@ declare module 'svelte/reactivity/window' {
@@ -1985,7 +2019,7 @@ index 27cb293..85aeb42 100644
  
  		/** Creates a text node with the given text. */
  		createText(data: string): N['text'];
-@@ -2812,6 +2843,90 @@ declare module 'svelte/renderer' {
+@@ -2812,6 +2843,92 @@ declare module 'svelte/renderer' {
  		/** Remove an event listener of the given type and handler from the target node. */
  		removeEventListener(target: N['element'], type: string, handler: any, options?: any): void;
  
@@ -1994,13 +2028,15 @@ index 27cb293..85aeb42 100644
 +		 * Read the bound value with `get()` and push it to the node; call `set(value)` when the node
 +		 * changes it. Return a cleanup function. The binding runs again, after the cleanup, when state
 +		 * read through `get()` changes. Without `bind`, element bindings (other than `bind:this`)
-+		 * throw when they are created.
++		 * throw when they are created. `ownChange()` is true while the batch being applied is one a
++		 * `set` from this binding started: Svelte's DOM bindings don't rewrite a focused control then.
 +		 */
 +		bind?(
 +			node: N['element'],
 +			name: string,
 +			get: () => any,
-+			set: (value: any) => void
++			set: (value: any) => void,
++			ownChange?: () => boolean
 +		): (() => void) | void;
 +
 +		/**
