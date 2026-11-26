@@ -7,7 +7,7 @@ import { Assets } from "../../engine/scene/Assets";
 import { setAudioBackend } from "../../plugins/audio/runtime/backend";
 import { releaseCapture } from "../../plugins/audio/runtime/capture/capture";
 import type { CaptureChunkControl } from "../../plugins/audio/runtime/capture/testSupport";
-import { linkedBuild, type LinkedBuild } from "../screens/profiler/buildLinkTestSupport";
+import { linkedBuild, type LinkedBuild } from "../../plugins/audio/editor/debugLink/buildLinkTestSupport";
 import { BUILD_AUDIO_FOLDER, buildAudioSetName, downloadBuildAudioSet, mountBuildAudioFor, mountedBuildAudio, unmountBuildAudio } from "./buildAudioSets";
 import { currentProject } from "../../editor/state";
 import { provideStudio } from "../shell/studioServices";

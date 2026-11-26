@@ -1,4 +1,4 @@
-# 0417. The editor and the Studio share one type scale, sentence-case headings and one density
+# 0420. The editor and the Studio share one type scale, sentence-case headings and one density
 
 - **Status:** Accepted
 - **Date:** 2026-11-26

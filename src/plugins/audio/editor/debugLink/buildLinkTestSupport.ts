@@ -1,18 +1,18 @@
 // @internal Tests only (plan U5): a headless build serving the real `audio` debug-link topic, paired over the loopback
-// transport with a tool's `ToolConnector`, as the link smoke does (`plugins/audio/editor/debugLink/linkSmoke.test.ts`).
+// transport with a tool's `ToolConnector`, as the link smoke does (`linkSmoke.test.ts`), for the audio link client's tests and the Studio's.
 // The audio runtime runs on the capture tests' rig: a fake core backend feeding the real recorder and take. A test file
 // that uses it mocks the recorder and save chunks with `captureRecorderModule` / `captureSaveModule` over its own
 // `CaptureChunkControl` and passes that control here. Link time is one injected clock; the engine steps by frames.
-import { Assets, Engine, SceneManager } from "../../../myco";
-import { createTransport } from "../../../engine/net/Transport";
-import "../../../engine/net/transport/loopback";
-import { ToolConnector, type DebugLinkPeer } from "../../../engine/debugLink/client";
-import { startBuildListener } from "../../../engine/debugLink/host";
-import { decodePairCode } from "../../../engine/debugLink/pairing/code";
-import { setAudioBackend } from "../../../plugins/audio/runtime/backend";
-import { makeFakeBackend, type FakeBackend } from "../../../plugins/audio/runtime/testing";
-import { defaultSaveEnv, type SaveEnv } from "../../../plugins/audio/runtime/capture/save";
-import { keyframeCodecForTests, statusBytes, type CaptureChunkControl } from "../../../plugins/audio/runtime/capture/testSupport";
+import { Assets, Engine, SceneManager } from "../../../../myco";
+import { createTransport } from "../../../../engine/net/Transport";
+import "../../../../engine/net/transport/loopback";
+import { ToolConnector, type DebugLinkPeer } from "../../../../engine/debugLink/client";
+import { startBuildListener } from "../../../../engine/debugLink/host";
+import { decodePairCode } from "../../../../engine/debugLink/pairing/code";
+import { setAudioBackend } from "../../runtime/backend";
+import { makeFakeBackend, type FakeBackend } from "../../runtime/testing";
+import { defaultSaveEnv, type SaveEnv } from "../../runtime/capture/save";
+import { keyframeCodecForTests, statusBytes, type CaptureChunkControl } from "../../runtime/capture/testSupport";
 
 export const RATE = 48_000;
 export const BLOCK = 768;

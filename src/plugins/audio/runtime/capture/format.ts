@@ -612,6 +612,28 @@ export function readRecordHead(view: DataView, off: number, end: number, statusB
   return { type, flags, epoch: view.getUint16(off + 2, true), len, seq: view.getUint32(off + 8, true), frame };
 }
 
+/**
+ * ADR 0417: cuts the whole records off the front of `bytes`, a stream of records in this framing that may stop at any
+ * byte (a live take's log as the debug link delivers it), calling `each` with every record's head and where its payload
+ * starts in `view` (a view of `bytes`). Answers how many bytes the whole records took: the rest is the start of a record
+ * still to come. A record whose head `readRecordHead` refuses throws its `CaptureError` (a STATUS record is capped at
+ * `CAPTURE_RECORD_MAX_BYTES` here).
+ */
+export function splitCaptureRecords(bytes: Uint8Array, each: (head: RecordHead, view: DataView, payloadAt: number) => void): number {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  const end = bytes.byteLength;
+  let off = 0;
+  while (end - off >= CAPTURE_RECORD_HEAD_BYTES) {
+    const len = view.getUint32(off + 4, true);
+    // A record still arriving (one past its cap is refused below, before waiting for bytes that never come).
+    if (len <= CAPTURE_RECORD_MAX_BYTES && end - off < CAPTURE_RECORD_HEAD_BYTES + len) break;
+    const head = readRecordHead(view, off, end, CAPTURE_RECORD_MAX_BYTES);
+    each(head, view, off + CAPTURE_RECORD_HEAD_BYTES);
+    off += CAPTURE_RECORD_HEAD_BYTES + head.len;
+  }
+  return off;
+}
+
 /** Bytes the `deferred` stamp takes at the payload's start. */
 export const DEFERRED_STAMP_BYTES = 8;
 

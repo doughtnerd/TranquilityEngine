@@ -34,6 +34,7 @@ import type { WarmItem } from "./warmUp";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { LightingContributions } from "./lighting";
 import type { BabylonMaterialLibrary } from "./materialLibrary";
+import type { BabylonMaterials2D } from "./materials2D";
 import type { ProbeHit } from "./probes";
 
 /** @internal What the renderer worked out before a feature's phase (ADR 0130). */
@@ -197,6 +198,8 @@ export interface BabylonFeatureHost {
   readonly lighting: LightingContributions;
   /** The material library (ADR 0127). */
   readonly materials: BabylonMaterialLibrary;
+  /** The 2D materials (ADR 0418): what every 2D draw (sprites, 2D particles) gets its material, lit or not, from. */
+  readonly materials2D: BabylonMaterials2D;
   /** Reflection probes: whether any exist, the lookup (the probe nearest a point, ADR 0130), and counting a mesh drawn with one's reflection this frame (diagnostics). */
   readonly probes: { readonly any: boolean; lookup(x: number, y: number, z: number): ProbeHit | null; reflected(): void };
   /** The project settings the renderer was made with (pixels per unit, sorting layers). */

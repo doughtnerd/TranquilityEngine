@@ -1,35 +1,24 @@
-// The player bar's session controls (ADR 0408): "Record session" records a take on the connected game build (the Take
-// screen's recorder, `buildTakes.ts`), and the next press stops it and saves it where the Studio keeps recordings. With
-// no build connected it is inactive. Beside it the game link badge: "Linked to game" while linked, a grey "Disconnected"
+// The player bar's session controls (ADR 0408): "Record session" records a take on the connected game build (the build
+// session, `runtime/buildSession.ts`, ADR 0417), and the next press stops it and saves it where the Studio keeps
+// recordings. With no build connected it is inactive. Beside it the game link badge: "Linked to game" while linked, a grey "Disconnected"
 // once the link has ended. The Mixer has no transport of its own, so its big button plays the open take's replay
 // (`SessionTransport`), as in the prototype.
-import { effect } from "@preact/signals";
 import { useEffect, useState } from "preact/hooks";
 import { LiveLabel, RecordSession, TransportButton, type PlayerBarSlots } from "../components/PlayerBar";
 import { formatClock } from "../components/replayControlsModel";
-import { studioBuild } from "../debugLink/studioLink";
-import { buildTake, gameLink, recordingSince } from "../screens/take/buildTakes";
+import { buildSession } from "../runtime/buildSession";
 import { replayStore } from "./replay";
 import { studioRouter } from "./studioServices";
 
 /** Record session's press: start a recording on the build, or stop the running one and save it. */
 export async function toggleRecordSession(): Promise<void> {
-  const rec = buildTake.peek();
-  if (!rec || !studioBuild.peek()) return;
-  const k = rec.state.peek().kind;
-  if (k === "recording") {
-    await rec.stop();
+  const session = buildSession.peek();
+  if (!session?.open) return;
+  const rec = session.recorder;
+  if (rec.state.peek().kind === "recording") {
+    await session.stop();
     await rec.save();
-  } else if (!rec.busy) await rec.start();
-}
-
-/** Keeps `recordingSince` while the build records (however it started: here, the Take screen, F10, the game). */
-export function installRecordingClock(): () => void {
-  return effect(() => {
-    const recording = buildTake.value?.state.value.kind === "recording";
-    if (!recording) recordingSince.value = null;
-    else if (recordingSince.peek() === null) recordingSince.value = Date.now();
-  });
+  } else if (!rec.busy) await session.start();
 }
 
 /** Re-renders twice a second while `on`, so a clock moves. */
@@ -43,11 +32,12 @@ function useTick(on: boolean): void {
 }
 
 export function GameSessionSlot(_props: { readonly readOnly?: boolean }) {
-  const build = studioBuild.value;
-  const rec = buildTake.value;
-  const state = rec?.state.value.kind ?? "idle";
-  const recording = state === "recording";
-  const since = recordingSince.value;
+  const session = buildSession.value;
+  const recordingState = session?.recording.value ?? null;
+  const build = recordingState && recordingState.kind !== "ended" ? session!.build : null;
+  const state = build ? session!.recorder.state.value.kind : "idle";
+  const recording = recordingState?.kind === "recording";
+  const since = recordingState?.kind === "recording" ? recordingState.since : null;
   useTick(recording);
   const busy = state === "starting" || state === "stopping" || state === "uploading" || state === "saving";
   const title = !build
@@ -59,10 +49,10 @@ export function GameSessionSlot(_props: { readonly readOnly?: boolean }) {
     <RecordSession
       recording={recording}
       time={recording && since !== null ? (Date.now() - since) / 1000 : 0}
-      connected={!!build && !!rec}
+      connected={!!build}
       busy={busy}
       title={title}
-      link={gameLink.value}
+      link={!recordingState ? "none" : recordingState.kind === "ended" ? "disconnected" : "linked"}
       build={build?.name ?? null}
       onToggle={() => void toggleRecordSession()}
     />

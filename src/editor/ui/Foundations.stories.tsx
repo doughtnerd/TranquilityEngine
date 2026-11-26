@@ -1,4 +1,4 @@
-// Stories (ADR 0219, 0417) for the shared foundations: the type scale, the spacing tokens and list row height, and
+// Stories (ADR 0219, 0420) for the shared foundations: the type scale, the spacing tokens and list row height, and
 // how a choice differs from an on/off toggle. They draw the tokens from editor.css, so a theme or the UI size
 // setting changes them here as it does in the apps.
 import type { Meta, StoryObj } from "@storybook/preact-vite";

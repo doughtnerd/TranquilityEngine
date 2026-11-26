@@ -8,7 +8,7 @@ import {
   assembleCapture, CAPTURE_ABI_VERSION, CAPTURE_FORMAT_MINOR, CAPTURE_HEADER_BYTES, CAPTURE_MIXOP_CLASSES, CAPTURE_MIXOP_CODES, CaptureError, RecordType,
   cutUtf8, decodeCaptureMeta, decodeEpoch, decodeEvent, decodeGap, decodeIndex, decodeMarker, decodeMixOpRecord, decodeNames,
   encodeCaptureMeta, encodeEpoch, encodeEvent, encodeGap, encodeIndex, encodeMarker, encodeMixOpRecord, encodeNames,
-  eventBytes, indexBytes, markerBytes, mixOpBytes, namesBytes, readCaptureHeader, readRecordHead, writeRecordHead,
+  eventBytes, indexBytes, markerBytes, mixOpBytes, namesBytes, readCaptureHeader, readRecordHead, splitCaptureRecords, writeRecordHead,
   type CaptureErrorCode,
 } from "./format";
 import { SAMPLE_HEADER, SAMPLE_META, sampleCapture } from "./testSupport";
@@ -202,5 +202,38 @@ describe("META (§5.2)", () => {
     expect(codeOf(() => decodeCaptureMeta(enc("{")))).toBe("badMeta");
     expect(codeOf(() => decodeCaptureMeta(new Uint8Array([0x7b, 0xff, 0x7d])))).toBe("badUtf8");
     expect(codeOf(() => decodeCaptureMeta(enc('{"project":{},"device":{"preset":1,"sampleRate":48000},"names":{"clips":{"x":"a"}}}')))).toBe("badMeta");
+  });
+});
+
+describe("splitCaptureRecords (ADR 0417)", () => {
+  /** Records of payload sizes `sizes`, framed back to back; each payload's bytes are its index. */
+  const stream = (sizes: number[]): Uint8Array => {
+    const out = new Uint8Array(sizes.reduce((n, s) => n + 20 + s, 0));
+    const view = new DataView(out.buffer);
+    let off = 0;
+    sizes.forEach((len, i) => {
+      off += writeRecordHead(view, off, { type: 0x17, flags: 0, epoch: 0, len, seq: i, frame: 0 });
+      out.fill(i, off, off + len);
+      off += len;
+    });
+    return out;
+  };
+
+  it("cuts whole records off a stream cut at any byte, leaving the rest", () => {
+    const bytes = stream([3, 0, 40]);
+    for (let cut = 0; cut <= bytes.byteLength; cut++) {
+      const seen: { seq: number; len: number; first: number }[] = [];
+      const used = splitCaptureRecords(bytes.subarray(0, cut), (h, view, at) => seen.push({ seq: h.seq, len: h.len, first: h.len ? view.getUint8(at) : -1 }));
+      const whole = [23, 43, 103].filter((end) => end <= cut);
+      expect(used).toBe(whole.at(-1) ?? 0);
+      expect(seen.map((s) => s.seq)).toEqual(whole.map((_, i) => i));
+      if (seen[2]) expect(seen[2]).toEqual({ seq: 2, len: 40, first: 2 });
+    }
+  });
+
+  it("refuses a record past its cap before waiting for its bytes", () => {
+    const bytes = stream([1]);
+    new DataView(bytes.buffer).setUint32(4, 1 << 24, true);
+    expect(codeOf(() => splitCaptureRecords(bytes, () => {}))).toBe("recordTooLarge");
   });
 });

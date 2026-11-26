@@ -1,6 +1,6 @@
 /**
  * 2D light volumes (ADR 0415): the visible glow of a Light2D whose `volumeIntensity` is above 0, as a mesh in the
- * light's local XY with a colour per vertex. The Lights 2D plugin's render feature (`lights2dFeature.ts`) draws it as an
+ * light's local XY with a colour per vertex. The Lights 2D plugin's render feature (`volumeRenderer.ts`) draws it as an
  * additive quad batch over the light's target layers. Brightness follows the light's own shape rules
  * (`render/lights2D/lightShapes.ts`): a point light's radial and cone falloff sampled on a polar grid, a freeform light's
  * falloff band, a sprite light's sprite. Pure: no renderer.

@@ -293,7 +293,7 @@
 .sp-occb:disabled { opacity: 0.55; cursor: default; }
 .sp-mat-head { display: flex; align-items: center; justify-content: space-between; margin: 6px 8px 0; }
 .sp-cap { font-size: var(--fs-sm); line-height: 14px; font-weight: 600; color: var(--muted); }
-/* Settings rows (ADR 0417): labels on one line, sliders take the slack, number fields and units line up in a column. */
+/* Settings rows (ADR 0420): labels on one line, sliders take the slack, number fields and units line up in a column. */
 .sp-settings .kit-field { grid-template-columns: minmax(96px, max-content) minmax(0, 1fr); }
 .sp-settings .kit-field-control .kit-num { width: 56px; }
 .sp-settings .kit-field-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

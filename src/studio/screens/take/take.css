@@ -171,7 +171,7 @@
 /* The fader takes what is left after the name and dB rows, so they always show; a panel too short for even the
    smallest fader scrolls instead of clipping them. */
 .tk-strips { display: flex; gap: 2px; padding: 6px 8px; overflow: auto; flex: 1 1 auto; min-height: 0; }
-/* A row that scrolls fades at the edge it is clipped on (ADR 0417); with nothing to scroll the timeline is inactive and nothing fades. */
+/* A row that scrolls fades at the edge it is clipped on (ADR 0420); with nothing to scroll the timeline is inactive and nothing fades. */
 @property --tk-fade-l { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @property --tk-fade-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
 @keyframes tk-strips-fade { from { --tk-fade-l: 0px; --tk-fade-r: 32px; } 1% { --tk-fade-l: 32px; --tk-fade-r: 32px; } 99% { --tk-fade-l: 32px; --tk-fade-r: 32px; } to { --tk-fade-l: 32px; --tk-fade-r: 0px; } }
