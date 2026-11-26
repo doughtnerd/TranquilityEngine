@@ -151,7 +151,7 @@ function classify(err: unknown, stage: "compile" | "run"): { category: string; m
   return { category: "other runtime error", message };
 }
 
-/** The hosted UI elements must mirror the rendered tree: the same elements (and text labels) in the same order, Text elements holding the text. */
+/** The hosted UI elements must mirror the rendered tree: the same elements (and text labels) in the same order, Text elements holding the text (ADR 0425: in their own text and their inline runs'). */
 function checkHostTree(target: InstanceType<Renderer["UIRenderElement"]>, host: UIHostElement): void {
   const label = (h: UIHostElement) => h.tag;
   const expected: string[] = [];
@@ -163,8 +163,10 @@ function checkHostTree(target: InstanceType<Renderer["UIRenderElement"]>, host: 
       expected.push(el.localName);
       if (!textKind(el)) checkHostTree(el, el.element);
       else {
-        const text = el.textContent.replace(/[ \t\n\r\f]+/g, " ").trim();
-        const shown = (el.element.component as { text?: string }).text;
+        const collapse = (s: string) => s.replace(/[ \t\n\r\f]+/g, " ").trim();
+        const text = collapse((el as unknown as { innerText: string }).innerText);
+        const runsOf = (h: UIHostElement): string => ((h.component as { text?: string }).text ?? "") + h.children.map(runsOf).join("");
+        const shown = collapse(runsOf(el.element));
         if (shown !== text) throw new Error(`host tree: <${el.localName}> shows ${JSON.stringify(shown)}, not ${JSON.stringify(text)}`);
       }
     } else if (c.nodeType === 3 && (c as { data: string }).data.trim()) expected.push("#text");
@@ -305,6 +307,9 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
     engine = await Engine.create({ headless: true });
     await loadUIHostSupport();
     renderer = await import("../../src/plugins/ui/svelte/renderer");
+    // ADR 0425: the inline HTML parser, which compileSvelteUI imports into components that use `{@html}` or `bind:innerHTML`
+    // (the samples compile with `compile` itself, so the harness registers it once).
+    renderer.useHtmlParser((await import("../../src/plugins/ui/svelte/htmlInline")).parseInlineHtml);
     const win = (renderer.default as unknown as { globalTarget(kind: string): object }).globalTarget("window");
     testWindow = new Proxy(win, { get: (target, key, receiver) => (typeof key === "string" && key in fakeWindow ? fakeWindow[key as keyof typeof fakeWindow] : Reflect.get(target, key, receiver)) });
     // The event constructors tests make events with (dispatched to renderer nodes, which read only `type`). The global
