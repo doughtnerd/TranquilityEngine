@@ -1,4 +1,5 @@
-// The Tilemaps plugin's runtime half (ADR 0103, 0135, 0136): the `Tilemap` Component, tilesets, layer
+// The Tilemaps plugin's runtime half (ADR 0103, 0135, 0136): the `Tilemap` Component, the `MapObject` Component
+// imported Tiled objects and LDtk entities carry (ADR 0422), tilesets, layer
 // formats, auto-tiling, brushes, tile collision shapes, the chunk mesh builder and the tiles render
 // feature. The feature draws through the renderer core's quad batches (`QuadBatchHost`), so no tile code
 // is left in the backend: `BabylonQuadBatches` knows quads, not tiles. `Tilemap` offers its tile
@@ -9,9 +10,11 @@
 import type { RenderFeatureSpec } from "../../../engine/render/renderFeatures";
 import type { RuntimePlugin } from "../../runtimeContext";
 import { tilemapsManifest } from "../manifest";
+import { MapObject } from "./MapObject";
 import { Tilemap } from "./Tilemap";
 
 export { Tilemap, TilemapChanges, type TileChange } from "./Tilemap";
+export { MapObject } from "./MapObject";
 export { FLIP_DIAGONAL, FLIP_X, FLIP_Y, type TilemapLayerData } from "./format";
 export type { TerrainDef, TileAnimation, TileCollision, TileDef, TileFrameDef, TileOccluder, TilePattern, TilePolygon, TileShapes, TileStamp, TileStampLayer, TilesetData, TilesetPreviewGrid } from "./tileset";
 export type { TileGridShape } from "./Tilemap";
@@ -23,7 +26,7 @@ const TILEMAPS_SPEC: RenderFeatureSpec = { name: "tilemaps", phase: "content", t
 export const tilemapsRuntimePlugin: RuntimePlugin = {
   manifest: tilemapsManifest,
   activate(context) {
-    context.registerComponents([Tilemap]);
+    context.registerComponents([Tilemap, MapObject]);
     context.registerRenderFeature({ spec: TILEMAPS_SPEC, load: () => import("./tilemapRenderer").then((m) => m.createTilemapsFeature) });
   },
 };
