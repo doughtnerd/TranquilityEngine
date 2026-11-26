@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import ts from "typescript";
 import type { Plugin, Rollup, UserConfig } from "vite";
 import { compilerOptions as scriptCompilerOptions, SCRIPT_EMIT } from "./src/scriptCompiler.mjs";
-import { UI_RUNTIME_SPECIFIERS, uiRuntimeFile } from "./src/projectCode/uiModules.ts";
+import { UI_RUNTIME_SPECIFIERS, uiRuntimeFile } from "./src/projectCode/uiModules";
 
 
 /**
