@@ -125,7 +125,7 @@ export function TilePalettePanel() {
                   aria-label={`Layer ${i + 1} name`}
                   defaultValue={l.name}
                   disabled={readOnly}
-                  onClick={(e) => e.stopPropagation()}
+                  onClick={(e) => (e.stopPropagation(), i !== active && chooseLayer(i, l))}
                   onChange={(e) => {
                     const name = (e.currentTarget as HTMLInputElement).value.trim();
                     if (name) edit("Rename layer", (x) => (x[i].name = name));

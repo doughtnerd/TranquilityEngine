@@ -2,6 +2,9 @@
 // tileset, and painting in the scene view is one undoable step.
 import { afterFrames, expect, test, openEditor, type Hooks } from "./fixtures";
 import { menu, openMenu } from "./menus";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 test("paints tiles from the Tile Palette in the scene view, as one undo step", async ({ page }) => {
   await openEditor(page, { sample: "platformer" });
@@ -60,8 +63,25 @@ test("clicking a tile in the scene view selects its tilemap", async ({ page }) =
   await expect(page.locator(".tilemap-summary")).toContainText("2 layers");
 });
 
+/** The platformer sample's files, for a writable copy (`openEditor(page, { files })` writes them over the Flappy sample). */
+function platformerFiles(): Record<string, string | Uint8Array> {
+  const root = fileURLToPath(new URL("../../samples/platformer", import.meta.url));
+  const out: Record<string, string | Uint8Array> = {};
+  const walk = (dir: string): void => {
+    for (const e of fs.readdirSync(path.join(root, dir), { withFileTypes: true })) {
+      const rel = dir ? `${dir}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(rel);
+      else if (rel === "sample.json") continue;
+      else if (rel.endsWith(".png")) out[rel] = new Uint8Array(fs.readFileSync(path.join(root, rel)));
+      else out[rel] = fs.readFileSync(path.join(root, rel), "utf8");
+    }
+  };
+  walk("");
+  return out;
+}
+
 test("the selection tool deletes the selected cells as one undo step, and locked layers aren't painted", async ({ page }) => {
-  await openEditor(page, { sample: "platformer" });
+  await openEditor(page, { files: platformerFiles() });
   await page.locator('.tree .row[data-key="level"]').click();
   await page.getByRole("button", { name: "Open Tile Palette" }).click();
   const palette = page.locator(".tile-palette");
@@ -104,7 +124,7 @@ test("a Tiled map imports as a tileset and a prefab through Import as Myco asset
     tilesets: [{ firstgid: 1, name: "iso", tilewidth: 32, tileheight: 16, tilecount: 2, columns: 2, margin: 0, spacing: 0, image: "iso.png", imagewidth: 64, imageheight: 16,
       tiles: [{ id: 1, animation: [{ tileid: 0, duration: 200 }, { tileid: 1, duration: 200 }] }] }],
   });
-  await openEditor(page, { files: { "levels/room.tmj": map } });
+  await openEditor(page, { files: { "levels/room.tmj": new TextEncoder().encode(map) } });
   const panel = page.locator(".panel.assets");
   await panel.locator(".asset-folder", { hasText: /^levels$/ }).click();
   const tile = (name: string) => panel.locator(".asset-item", { has: page.locator(".asset-name", { hasText: new RegExp(`^${name}$`) }) });

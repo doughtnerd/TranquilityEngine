@@ -45,3 +45,8 @@
 .tile-stamp-save { display: flex; gap: 4px; }
 .tile-stamp-save input { flex: 1; }
 .tile-prefabs.over { outline: 1px dashed var(--accent); outline-offset: 2px; }
+
+/* A read-only project disables the layer row's controls; let clicks on them reach the row, so a layer can still be picked. */
+.tile-layers li :disabled {
+  pointer-events: none;
+}
