@@ -35,14 +35,52 @@ export function svelteUIOptions(filename, { renderer = DEFAULT_RENDERER, dev = f
 export function compileSvelteUI(source, { filename, renderer = DEFAULT_RENDERER, dev = false, styles }) {
   const r = compile(source, svelteUIOptions(filename, { renderer, dev }));
   let code = r.js.code;
-  const css = r.css?.code ?? "";
+  let css = r.css?.code ?? "";
   if (css.trim()) {
     const add = `import { addStyles as $$mycoAddStyles } from ${JSON.stringify(renderer)};\n`;
     if (typeof styles === "function") code += `\n${add}$$mycoAddStyles(${JSON.stringify(filename)}, ${JSON.stringify(styles(css, filename))});\n`;
     else if (styles?.parser) code += `\n${add}import { parseStylesheet as $$mycoParse } from ${JSON.stringify(styles.parser)};\n$$mycoAddStyles(${JSON.stringify(filename)}, $$mycoParse(${JSON.stringify(css)}, ${JSON.stringify(filename)}));\n`;
     else throw new Error(`${filename} has styles, and nothing was given to parse them (the \`styles\` option).`);
   }
+  const injected = injectedStylesOf(code);
+  if (injected) {
+    // `<svelte:options css="injected" />`: the renderer's `addStyles` hook registers the CSS when the component is
+    // created; it's parsed here, so games still ship no CSS parser.
+    css = injected.code;
+    code += `\n${injectStylesCode(injected, { filename, renderer, styles })}`;
+  }
   return { code, map: r.js.map, css, warnings: r.warnings };
+}
+
+/**
+ * The CSS a component compiled with `css: 'injected'` hands the renderer's `addStyles` hook (Svelte's `$$css`):
+ * its scoping hash and scoped CSS, or null for a component without injected styles.
+ */
+export function injectedStylesOf(code) {
+  const lit = `('(?:[^'\\\\]|\\\\.)*'|"(?:[^"\\\\]|\\\\.)*")`;
+  const m = new RegExp(`const \\$\\$css = \\{\\s*hash: ${lit},\\s*code: ${lit}\\s*\\};`).exec(code);
+  if (!m) return null;
+  return { hash: readStringLiteral(m[1]), code: readStringLiteral(m[2]) };
+}
+
+const ESCAPES = { n: "\n", t: "\t", r: "\r", b: "\b", f: "\f", v: "\v", 0: "\0" };
+
+/** A JavaScript string literal's value (no `eval`: the editor's page may forbid it). */
+function readStringLiteral(literal) {
+  return literal.slice(1, -1).replace(/\\(u\{[0-9a-fA-F]+\}|u[0-9a-fA-F]{4}|x[0-9a-fA-F]{2}|\r\n|[\s\S])/g, (_, e) => {
+    if (e[0] === "u") return String.fromCodePoint(parseInt(e[1] === "{" ? e.slice(2, -1) : e.slice(1), 16));
+    if (e[0] === "x") return String.fromCharCode(parseInt(e.slice(1), 16));
+    if (e === "\n" || e === "\r\n" || e === "\r") return ""; // a line continuation
+    return ESCAPES[e] ?? e;
+  });
+}
+
+/** The module code that gives the renderer an injected stylesheet's rule data (`injectStyles`), keyed by its hash. */
+function injectStylesCode({ hash, code }, { filename, renderer, styles }) {
+  const add = `import { injectStyles as $$mycoInject } from ${JSON.stringify(renderer)};\n`;
+  if (typeof styles === "function") return `${add}$$mycoInject(${JSON.stringify(hash)}, ${JSON.stringify(styles(code, filename))});\n`;
+  if (styles?.parser) return `${add}import { parseStylesheet as $$mycoParseInjected } from ${JSON.stringify(styles.parser)};\n$$mycoInject(${JSON.stringify(hash)}, $$mycoParseInjected(${JSON.stringify(code)}, ${JSON.stringify(filename)}));\n`;
+  throw new Error(`${filename} has styles, and nothing was given to parse them (the \`styles\` option).`);
 }
 
 /**

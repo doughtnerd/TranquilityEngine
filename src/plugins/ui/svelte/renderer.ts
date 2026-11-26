@@ -16,15 +16,25 @@
  *   its text. Anywhere else, text with something other than whitespace is a Text element of its own (a
  *   button's label). Whitespace is collapsed as UI markup does. Comments (Svelte's anchors) are never built.
  * - **Events** are the UI core's (ADR 0309) with DOM names: `onclick`, `oninput`, `onchange`, `onsubmit`,
- *   `onfocus`, `onblur`, `onpointerenter`, `onpointerleave` (and `onmouseenter`/`onmouseleave`). A handler
- *   gets a `UIHostEvent` whose `target`/`currentTarget` are the node (so `e.currentTarget.value` reads a
- *   field, as on the web) and whose `element` is the hosted UI element.
- * - **Bindings** go through the patched `bind` hook (`patches/svelte+5.59.2.patch`): `bind:value` on
- *   `input`. `bind:this` gives the node, which has the Element subset below.
+ *   `onfocus`, `onblur`, `onpointerenter`, `onpointerleave` (and `onmouseenter`/`onmouseleave`), as event
+ *   attributes or legacy `on:` directives (with their modifiers). A handler gets a `UIHostEvent` whose
+ *   `target`/`currentTarget` are the node (so `e.currentTarget.value` reads a field, as on the web) and whose
+ *   `element` is the hosted UI element. Listeners of any other type are kept for `dispatchEvent` (an action's
+ *   custom event). Events don't propagate yet.
+ * - **The patch's hooks** (`patches/svelte+5.59.2.patch`, `docs/architecture/svelte-patch.md`): `bind`
+ *   (`bind:value` on `input`; the window's and document's bindings), `globalTarget` (`<svelte:window>`,
+ *   `<svelte:document>` and `<svelte:body>` are `globalTargets.ts`'s targets, fed from the device snapshot and
+ *   the canvas; `<svelte:head>` content goes into a head node nothing shows, and its `<title>` sets the page's
+ *   title) and `addStyles` (`css: 'injected'`, as rule data parsed when the component compiled).
  * - **Nodes offer an Element subset** for actions, attachments and `bind:this`: `setAttribute`/
- *   `getAttribute`/`removeAttribute`/`hasAttribute`, `classList`, `style`, `addEventListener`/
- *   `removeEventListener`, `focus`/`blur`, `getBoundingClientRect`, `value`, `tagName`, `parentElement`,
- *   `children`, `textContent`, and `element` (the hosted UI element).
+ *   `getAttribute`/`removeAttribute`/`hasAttribute`/`getAttributeNames`, `classList`, `style` (also by
+ *   camel-case property), `dataset`, `addEventListener`/`removeEventListener`/`dispatchEvent`, `focus`/`blur`
+ *   (the UI's focus, ADR 0340), `getBoundingClientRect` (transformed, in canvas UI pixels), `closest`/`matches`/
+ *   `querySelector`/`querySelectorAll`, `contains`, `parentElement`/`parentNode`/`children`/`childNodes`/
+ *   `firstElementChild`/`lastElementChild`/`nextElementSibling`/`previousElementSibling` (and the node
+ *   versions), `value`, `tagName`, `textContent`, `innerHTML` (read-only), `isConnected`, and `element` (the
+ *   hosted UI element). Not `scrollIntoView` (nothing scrolls yet).
+ * - **`t()`** from "myco" is reactive in components: the renderer installs a reactive read of `Locale.epoch`.
  *
  * Svelte builds a template instance as a detached subtree and inserts it; the hosted elements are made
  * when a subtree is connected to a mounted view, and the subtree is styled once, at once. An `insert` of a
@@ -33,11 +43,15 @@
 /// <reference path="./svelte-modules.d.ts" />
 import { createRenderer } from "svelte/renderer";
 import { flushSync, mount, unmount, type Component } from "svelte";
+import { createSubscriber } from "svelte/reactivity";
 import { proxy } from "svelte/internal/client";
 import { Color, Vector2 } from "../../../engine/core/math";
+import { onLocaleEpoch } from "../../../engine/localisation/Locale";
+import { setLocaleTracker } from "../../../engine/localisation/t";
 import { uiTagOfHtml } from "../../../engine/ui/host/htmlTags";
 import { setUIHostStyles, UIHostEvent, type UIHostElement, type UIHostEventType, type UIHostSource, type UIHostTree } from "../../../engine/ui/host/UIHost";
 import type { UIStylesheet, UITag } from "../../../engine/ui/document/types";
+import { UIGlobals, UIGlobalTarget, type GlobalKind } from "./globalTargets";
 
 const EVENTS: Readonly<Record<string, UIHostEventType>> = {
   click: "click",
@@ -52,10 +66,30 @@ const EVENTS: Readonly<Record<string, UIHostEventType>> = {
   mouseleave: "pointerleave",
 };
 
+/** Tags that belong in a page's head (`<svelte:head>`), not in a UI. */
+const HEAD_TAGS = new Set(["head", "meta", "link", "base", "script", "style", "noscript", "title"]);
+
 /** Attributes HTML has that aren't UI fields: kept on the node (getAttribute sees them), never given to the cascade. */
 const HTML_ONLY = new Set(["type", "name", "for", "alt", "title", "role", "tabindex", "autocomplete", "lang", "dir", "hidden", "draggable", "spellcheck", "inputmode", "autofocus", "form", "method", "action"]);
 
 type Handler = (this: unknown, e: unknown) => void;
+/** A listener's options that matter without propagation: `once`. */
+type ListenerOptions = { once: boolean };
+
+function listenerOptions(options: unknown): ListenerOptions {
+  return { once: typeof options === "object" && options !== null && !!(options as { once?: boolean }).once };
+}
+
+/** Run `type`'s listeners on `el` with `event` (a listener added with `once` is removed first). Stops at `stopPropagation`. */
+function runListeners(el: UIRenderElement, type: string, event: unknown): void {
+  const set = el._listeners.get(type);
+  if (!set?.size) return;
+  for (const [h, opts] of [...set]) {
+    if (opts.once) set.delete(h);
+    h.call(el, event);
+    if ((event as { _stopped?: boolean })._stopped) break;
+  }
+}
 
 const warned = new Set<string>();
 function warnOnce(message: string): void {
@@ -73,6 +107,33 @@ abstract class UINodeBase {
   get parentElement(): UIRenderElement | null {
     const p = this._parent;
     return p instanceof UIRenderElement && !p._tree ? p : null;
+  }
+
+  /** Its parent (the view's mount node at the top of a view). */
+  get parentNode(): UIRenderElement | UIRenderFragment | null {
+    return this._parent;
+  }
+
+  get nextSibling(): UINode | null {
+    const p = this._parent;
+    return p ? (p._children[p._children.indexOf(this as unknown as UINode) + 1] ?? null) : null;
+  }
+
+  get previousSibling(): UINode | null {
+    const p = this._parent;
+    return p ? (p._children[p._children.indexOf(this as unknown as UINode) - 1] ?? null) : null;
+  }
+
+  get nextElementSibling(): UIRenderElement | null {
+    let n = this.nextSibling;
+    while (n && !(n instanceof UIRenderElement)) n = n.nextSibling;
+    return n;
+  }
+
+  get previousElementSibling(): UIRenderElement | null {
+    let n = this.previousSibling;
+    while (n && !(n instanceof UIRenderElement)) n = n.previousSibling;
+    return n;
   }
 }
 
@@ -184,23 +245,66 @@ class RenderStyle {
   }
 }
 
+/** `backgroundColor` → `background-color` (`cssFloat` → `float`). */
+function kebab(name: string): string {
+  return name === "cssFloat" ? "float" : name.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+}
+
+/** A `RenderStyle` that also reads and writes properties by camel-case name, as a `CSSStyleDeclaration` does. */
+function styleProxy(style: RenderStyle): RenderStyle {
+  return new Proxy(style, {
+    get(target, key, receiver) {
+      if (typeof key !== "string" || key in target) return Reflect.get(target, key, receiver);
+      return target.getPropertyValue(kebab(key));
+    },
+    set(target, key, value, receiver) {
+      if (typeof key !== "string" || key in target) return Reflect.set(target, key, value, receiver);
+      target.setProperty(kebab(key), value === null || value === undefined ? null : String(value));
+      return true;
+    },
+  });
+}
+
+/** `fooBar` ↔ `data-foo-bar`. */
+function datasetProxy(el: UIRenderElement): Record<string, string | undefined> {
+  const attr = (key: string) => `data-${kebab(key)}`;
+  return new Proxy({} as Record<string, string | undefined>, {
+    get: (_, key) => (typeof key === "string" ? (el.getAttribute(attr(key)) ?? undefined) : undefined),
+    set: (_, key, value) => {
+      if (typeof key === "string") el.setAttribute(attr(key), String(value));
+      return true;
+    },
+    deleteProperty: (_, key) => {
+      if (typeof key === "string") el.removeAttribute(attr(key));
+      return true;
+    },
+    has: (_, key) => typeof key === "string" && el.hasAttribute(attr(key)),
+    ownKeys: () => el.getAttributeNames().filter((n) => n.startsWith("data-")).map((n) => n.slice(5).replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())),
+    getOwnPropertyDescriptor: (_, key) => (typeof key === "string" && el.hasAttribute(attr(key)) ? { value: el.getAttribute(attr(key)), enumerable: true, configurable: true, writable: true } : undefined),
+  });
+}
+
 /** An element: what Svelte creates for a tag, and what `bind:this`, actions and attachments receive. */
 export class UIRenderElement extends UINodeBase {
   /** @internal */ readonly _uiTag: UITag;
   /** @internal */ readonly _attrs = new Map<string, unknown>();
   /** @internal */ _children: UINode[] = [];
-  /** @internal */ readonly _listeners = new Map<UIHostEventType, Set<Handler>>();
+  /** @internal Listeners by DOM event type (any type: a UI event's, or one an action dispatches). */ readonly _listeners = new Map<string, Map<Handler, ListenerOptions>>();
   /** @internal */ _dispatchers = new Map<UIHostEventType, (e: UIHostEvent) => void>();
   /** @internal */ _hosted: UIHostElement | null = null;
   /** @internal Set on the container a view mounts into: the tree it hosts. */ _tree: UIHostTree | null = null;
   /** @internal An input's value set before its element was made (a binding, a script). */ _pendingValue: string | null = null;
   readonly classList: RenderClassList = new RenderClassList(this);
-  readonly style: RenderStyle = new RenderStyle(this);
+  /** Its inline style, as the DOM's `CSSStyleDeclaration`: `style.color = "red"`, `style.setProperty("--x", "1")`. */
+  readonly style: RenderStyle = styleProxy(new RenderStyle(this));
+  /** Its `data-*` attributes by camel-case name, as the DOM's `dataset`. */
+  readonly dataset: Record<string, string | undefined> = datasetProxy(this);
 
   constructor(readonly localName: string) {
     super();
     const ui = uiTagOfHtml(localName);
-    if (!ui) warnOnce(`<${localName}> isn't an HTML tag the UI knows; it renders as a Panel (a <div>).`);
+    // Head content (`<svelte:head>`) is warned about where it's inserted.
+    if (!ui && !HEAD_TAGS.has(localName)) warnOnce(`<${localName}> isn't an HTML tag the UI knows; it renders as a Panel (a <div>).`);
     this._uiTag = ui ?? "Panel";
   }
 
@@ -233,6 +337,36 @@ export class UIRenderElement extends UINodeBase {
 
   get children(): UIRenderElement[] {
     return this._children.filter((c): c is UIRenderElement => c instanceof UIRenderElement);
+  }
+
+  get childElementCount(): number {
+    return this.children.length;
+  }
+
+  get firstElementChild(): UIRenderElement | null {
+    return this.children[0] ?? null;
+  }
+
+  get lastElementChild(): UIRenderElement | null {
+    return this.children.at(-1) ?? null;
+  }
+
+  get firstChild(): UINode | null {
+    return this._children[0] ?? null;
+  }
+
+  get lastChild(): UINode | null {
+    return this._children.at(-1) ?? null;
+  }
+
+  /** In a mounted view. */
+  get isConnected(): boolean {
+    return treeOf(this) !== null;
+  }
+
+  /** The `document` global target (`<svelte:document>`'s). */
+  get ownerDocument(): unknown {
+    return globals.document;
   }
 
   /** Every child node, text and comments included. */
@@ -278,14 +412,42 @@ export class UIRenderElement extends UINodeBase {
     return out;
   }
 
-  /** Run this node's listeners of `event.type` now (no bubbling yet), as if the event happened. Returns false if a listener called `preventDefault`. */
-  dispatchEvent(event: { type: string; defaultPrevented?: boolean }): boolean {
-    const ui = EVENTS[event.type];
-    const set = ui ? this._listeners.get(ui) : undefined;
-    for (const h of [...(set ?? [])]) {
-      h.call(this, event);
-      if ((event as { _stopped?: boolean })._stopped) break;
+  /** Whether a selector matches it (the selectors `querySelector` takes). */
+  matches(selector: string): boolean {
+    const scope = mountOf(this);
+    return this !== scope && parseNodeSelectors(selector).some((s) => matchesNode(s, s.length - 1, this, scope));
+  }
+
+  /** Itself or its nearest ancestor a selector matches (within its view), or null. */
+  closest(selector: string): UIRenderElement | null {
+    const scope = mountOf(this);
+    const selectors = parseNodeSelectors(selector);
+    for (let el: UIRenderElement | null = this; el && el !== scope; el = el._parent instanceof UIRenderElement ? el._parent : null) {
+      const at = el;
+      if (selectors.some((s) => matchesNode(s, s.length - 1, at, scope))) return at;
     }
+    return null;
+  }
+
+  /** Whether `node` is this element or inside it. */
+  contains(node: unknown): boolean {
+    for (let n = node as UINode | UIRenderFragment | null; n; n = n._parent) if (n === this) return true;
+    return false;
+  }
+
+  getAttributeNames(): string[] {
+    return [...this._attrs.keys()].filter((k) => this.getAttribute(k) !== null);
+  }
+
+  /** Run this node's listeners of `event.type` now (any type; no bubbling yet), as if the event happened. Returns false if a listener called `preventDefault`. */
+  dispatchEvent(event: { type: string; defaultPrevented?: boolean; target?: unknown; currentTarget?: unknown }): boolean {
+    try {
+      event.target ??= this;
+      event.currentTarget = this;
+    } catch {
+      // an event whose fields are read-only
+    }
+    runListeners(this, event.type, event);
     return !event.defaultPrevented;
   }
 
@@ -316,14 +478,15 @@ export class UIRenderElement extends UINodeBase {
     return this.getAttribute(name) !== null;
   }
 
-  addEventListener(type: string, handler: Handler): void {
-    renderer.addEventListener(this, type, handler);
+  addEventListener(type: string, handler: Handler, options?: boolean | { once?: boolean; capture?: boolean; passive?: boolean }): void {
+    renderer.addEventListener(this, type, handler, options);
   }
 
   removeEventListener(type: string, handler: Handler): void {
     renderer.removeEventListener(this, type, handler);
   }
 
+  /** Give it the UI's focus (buttons and input fields; ADR 0340), as a script does: no focus event. */
   focus(): void {
     this._hosted?.focus();
   }
@@ -332,10 +495,13 @@ export class UIRenderElement extends UINodeBase {
     this._hosted?.blur();
   }
 
-  /** Its box in its canvas's UI pixels from the last layout (zero size before it's laid out). */
+  /**
+   * Its box in its canvas's UI pixels from the last layout, through its transforms (ADR 0418 wave 3: the
+   * axis-aligned rectangle around the transformed box, not cut by clips). Zero size before it's laid out.
+   */
   getBoundingClientRect(): { x: number; y: number; width: number; height: number; top: number; left: number; right: number; bottom: number } {
-    const r = this._hosted?.rect() ?? { x: 0, y: 0, width: 0, height: 0 };
-    return { ...r, top: r.y, left: r.x, right: r.x + r.width, bottom: r.y + r.height };
+    const r = this._hosted?.bounds() ?? { x: 0, y: 0, width: 0, height: 0 };
+    return { x: r.x, y: r.y, width: r.width, height: r.height, top: r.y, left: r.x, right: r.x + r.width, bottom: r.y + r.height };
   }
 
   /** Input fields: their text (what the player typed). Setting it isn't a player change. */
@@ -428,8 +594,14 @@ function matchesCompound(c: NodeCompound, el: UIRenderElement): boolean {
   return true;
 }
 
-/** Whether `compounds[0..i]` matches `el`, its ancestors staying inside `scope`. */
-function matchesNode(compounds: NodeCompound[], i: number, el: UIRenderElement, scope: UIRenderElement): boolean {
+/** The mount node of the view `el` is in, or null when it's detached. */
+function mountOf(el: UIRenderElement): UIRenderElement | null {
+  for (let n: UIRenderElement | UIRenderFragment | null = el; n; n = n._parent) if (n instanceof UIRenderElement && n._tree) return n;
+  return null;
+}
+
+/** Whether `compounds[0..i]` matches `el`, its ancestors staying inside `scope` (null: all of them). */
+function matchesNode(compounds: NodeCompound[], i: number, el: UIRenderElement, scope: UIRenderElement | null): boolean {
   if (!matchesCompound(compounds[i], el)) return false;
   if (i === 0) return true;
   const up = (n: UIRenderElement) => (n._parent instanceof UIRenderElement && n._parent !== scope ? n._parent : null);
@@ -510,13 +682,17 @@ function collapse(text: string): string {
   return text.replace(/[ \t\n\r\f]+/g, " ").trim();
 }
 
+/** The DOM event types each UI event is delivered as (`pointerenter` also as `mouseenter`). */
+const DOM_TYPES_OF = new Map<UIHostEventType, string[]>();
+for (const [dom, ui] of Object.entries(EVENTS)) DOM_TYPES_OF.set(ui, [...(DOM_TYPES_OF.get(ui) ?? []), dom]);
+
 function attachDispatcher(el: UIRenderElement, type: UIHostEventType): void {
   if (!el._hosted || el._dispatchers.has(type)) return;
   const fn = (e: UIHostEvent) => {
     e.currentTarget = el;
     e.target = el;
-    for (const h of [...(el._listeners.get(type) ?? [])]) {
-      h.call(el, e);
+    for (const dom of DOM_TYPES_OF.get(type) ?? []) {
+      runListeners(el, dom, e);
       if (e._stopped) break;
     }
   };
@@ -549,7 +725,8 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
   const made = tree.create(node.localName, node._uiTag, hp, hostedBefore(node), hostAttributes(node), { source: sourceOf(node) });
   node._hosted = made;
   node._dispatchers = new Map();
-  for (const type of node._listeners.keys()) attachDispatcher(node, type);
+  hostedNodes.set(made, node);
+  for (const type of node._listeners.keys()) if (EVENTS[type]) attachDispatcher(node, EVENTS[type]);
   if (node._pendingValue !== null) {
     made.value = node._pendingValue;
     node._pendingValue = null;
@@ -572,6 +749,16 @@ function forget(node: UINode): void {
 function dematerialize(node: UINode, tree: UIHostTree | null): void {
   if ((node instanceof UIRenderElement || node instanceof UIRenderText) && node._hosted && tree) tree.remove(node._hosted);
   forget(node);
+}
+
+/**
+ * A removed `<video>` or `<audio>` keeps no listeners, as Svelte's DOM runtime removes them from media elements (which
+ * can still fire after they're removed); other removed elements keep theirs, as on the web.
+ */
+function dropMediaListeners(node: UINode): void {
+  if (!(node instanceof UIRenderElement)) return;
+  if (node.localName === "video" || node.localName === "audio") node._listeners.clear();
+  node._children.forEach(dropMediaListeners);
 }
 
 function detach(node: UINode): void {
@@ -647,6 +834,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
   },
   getParent: (node) => node._parent,
   insert(parent, node, anchor) {
+    if (parent === head && node instanceof UIRenderElement) warnOnce(`<${node.localName}> in <svelte:head> is ignored: in a game, only <title> means something (the window's title).`);
     if (node instanceof UIRenderFragment) {
       for (const c of [...node._children]) renderer.insert(parent, c, anchor);
       return;
@@ -684,33 +872,71 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     const tree = treeOf(node);
     const owner = textOwner(node);
     detach(node);
+    dropMediaListeners(node);
     if (owner) return refreshText(owner);
     dematerialize(node, tree);
     if (parent instanceof UIRenderElement) refreshTextOf(parent);
   },
-  addEventListener(el, type, handler) {
+  addEventListener(el, type, handler, options) {
+    // `<svelte:window>`, `<svelte:document>` and `<svelte:body>` (the patch's `globalTarget`)
+    if (isGlobal(el)) return el.addEventListener(type, handler as Handler, options as { once?: boolean });
     const ui = EVENTS[type];
-    if (!ui) {
-      warnOnce(`on${type} has no UI event; UI elements have onclick, oninput, onchange, onsubmit, onfocus, onblur, onpointerenter and onpointerleave.`);
-      return;
-    }
-    let set = el._listeners.get(ui);
-    if (!set) el._listeners.set(ui, (set = new Set()));
-    set.add(handler as Handler);
-    attachDispatcher(el, ui);
+    // Any type is kept, for `dispatchEvent` (an action's custom event); only the UI's events happen by themselves.
+    if (!ui && !el._listeners.has(type)) warnIfNotYet(type);
+    let set = el._listeners.get(type);
+    if (!set) el._listeners.set(type, (set = new Map()));
+    if (!set.has(handler as Handler)) set.set(handler as Handler, listenerOptions(options));
+    if (ui) attachDispatcher(el, ui);
   },
   removeEventListener(el, type, handler) {
-    const ui = EVENTS[type];
-    if (ui) el._listeners.get(ui)?.delete(handler as Handler);
+    if (isGlobal(el)) return el.removeEventListener(type, handler as Handler);
+    el._listeners.get(type)?.delete(handler as Handler);
   },
-  // The patch's hook (patches/svelte+5.59.2.patch): element bindings under a custom renderer.
+  // The patch's hooks (patches/svelte+5.59.2.patch): element bindings under a custom renderer, and bindings on the global targets.
   bind(node, name, get, set) {
+    if (isGlobal(node)) {
+      const stop = node._bind(name, set);
+      if (!stop) warnOnce(`bind:${name} on <svelte:${node.kind}> isn't something a game has.`);
+      return stop;
+    }
     if (name === "value" && node._uiTag === "InputField") return bindValue(node, get, set);
     warnOnce(`bind:${name} on <${node.localName}> isn't supported yet; UI elements bind value on <input>.`);
+  },
+  // What <svelte:window>, <svelte:document> and <svelte:body> stand for, and what <svelte:head> content goes into.
+  globalTarget(kind) {
+    return kind === "head" ? head : globals.target(kind as GlobalKind);
+  },
+  // `css: 'injected'`: the rule data parsed when the component compiled (`injectStyles`), keyed by its scoping hash.
+  addStyles(hash) {
+    const data = injected.get(hash);
+    if (data) setUIHostStyles(`svelte-injected:${hash}`, data);
+    else warnOnce(`A component's injected CSS (${hash}) wasn't parsed when it compiled, and games have no CSS parser: compile it with the engine's compileSvelteUI, or use css: 'external'.`);
   },
 });
 
 export default renderer;
+
+/** Whether a node the runtime hands the renderer is a global target (`globalTarget`), not an element. */
+function isGlobal(node: unknown): node is UIGlobalTarget {
+  return node instanceof UIGlobalTarget;
+}
+
+/** The renderer node of each hosted element (for `document.activeElement`). */
+const hostedNodes = new WeakMap<UIHostElement, UIRenderElement>();
+/** What `<svelte:head>` content goes into: never shown (only `<title>` means something, through `document.title`). */
+const head = new UIRenderElement("head");
+/** `<svelte:window>`, `<svelte:document>` and `<svelte:body>`. */
+const globals = new UIGlobals(head, (el) => hostedNodes.get(el) ?? null);
+
+/** DOM events UI elements don't have yet (they come with event bubbling, ADR 0419's DOM event semantics). */
+const NOT_YET = new Set(["keydown", "keyup", "keypress", "pointerdown", "pointerup", "pointermove", "mousedown", "mouseup", "mousemove", "wheel", "dblclick", "contextmenu", "pointerover", "pointerout", "mouseover", "mouseout", "focusin", "focusout"]);
+/** Warn (once per type) about a DOM event no UI element has yet; other types are custom events an action dispatches. */
+function warnIfNotYet(type: string): void {
+  if (NOT_YET.has(type)) warnOnce(`on${type} doesn't happen on UI elements yet; they have onclick, oninput, onchange, onsubmit, onfocus, onblur, onpointerenter and onpointerleave (and <svelte:window> has keys and the pointer).`);
+}
+
+// `t()` from "myco" follows the language inside components: a reactive read of Locale.epoch.
+setLocaleTracker(createSubscriber((update) => onLocaleEpoch(update)));
 
 // --- Styles ---------------------------------------------------------------------------------------
 
@@ -720,6 +946,17 @@ export default renderer;
  */
 export function addStyles(file: string, css: UIStylesheet): void {
   setUIHostStyles(file, css);
+}
+
+/** `css: 'injected'` styles parsed when their component compiled, by scoping hash: what the `addStyles` hook registers when one is created. */
+const injected = new Map<string, UIStylesheet>();
+
+/**
+ * What a compiled component with `css: 'injected'` calls when it's imported: its CSS as rule data (parsed when it
+ * compiled; games ship no CSS parser), registered by the renderer's `addStyles` hook once the component is created.
+ */
+export function injectStyles(hash: string, css: UIStylesheet): void {
+  injected.set(hash, css);
 }
 
 // --- Mounting: what `UIView` does ----------------------------------------------------------------
