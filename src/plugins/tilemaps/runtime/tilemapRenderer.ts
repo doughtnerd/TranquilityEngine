@@ -1,7 +1,8 @@
 /**
  * Tilemap drawing (ADR 0103, 0136), renderer-neutral: each layer's chunk becomes one quad batch per
- * texture (usually one), rebuilt only when the chunk's cells, the map's cell size, the tileset, a texture or
- * an image's slices change. The renderer core draws the batches (`QuadBatchHost`); this module knows tiles, the renderer
+ * texture (usually one), rebuilt only when the chunk's cells, the map's grid (cell size and shape), the tileset, a
+ * texture or an image's slices change. On non-square grids (ADR 0421) a layer's chunks also carry a painter's order
+ * among themselves (`QuadBatch.setOrder`'s `within`): back chunks (higher on screen) first. The renderer core draws the batches (`QuadBatchHost`); this module knows tiles, the renderer
  * knows quads. Like sprites, tiles draw in sorting-layer order without depth testing (ADR 0014). It is the Tilemaps
  * plugin's render feature (ADR 0130, 0418), built by the factory below from the renderer's quad batches.
  * No Babylon here (ADR 0075): it's unit-tested against a fake host.
@@ -13,6 +14,8 @@ import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatche
 import { sortingOrder } from "../../../engine/render/sortOrder";
 import { Assets, sidecarValue } from "../../../engine/scene/Assets";
 import { findSlice, splitSpriteRef } from "../../../engine/scene/importSettings";
+import { CHUNK_SIZE, parseChunkKey } from "./format";
+import type { TileGrid } from "./grids";
 import { buildChunkMeshes, type TileFrame } from "./mesh";
 import { Tilemap } from "./Tilemap";
 import { tileAnchor, type Tileset } from "./tileset";
@@ -20,9 +23,8 @@ import { tileAnchor, type Tileset } from "./tileset";
 interface ChunkEntry {
   version: number;
   framesVersion: number;
-  /** The cell size its vertices were laid out at (`Tilemap.cellSize`). */
-  cellX: number;
-  cellY: number;
+  /** The grid its vertices were laid out on (`Tilemap._gridKey()`: cell size and shape). */
+  grid: string;
   batches: QuadBatch[];
 }
 
@@ -83,7 +85,8 @@ export class TilemapRenderer implements BabylonFeature {
     if (entry.matrix) for (let i = 0; i < 16 && !moved; i++) moved = entry.matrix[i] !== wm[e * 16 + i];
     if (moved) entry.matrix = wm.slice(e * 16, e * 16 + 16);
 
-    const { x: cellX, y: cellY } = map.cellSize;
+    const grid = map._grid();
+    const gridKey = map._gridKey();
     layers.forEach((layer, li) => {
       let le = entry!.layers[li];
       const visible = active && layer.meta.visible && !!tileset;
@@ -101,14 +104,13 @@ export class TilemapRenderer implements BabylonFeature {
       if (visible) {
         for (const [key, chunk] of layer.chunks) {
           let ce = le.chunks.get(key);
-          if (ce && ce.version === chunk.version && ce.framesVersion === entry!.framesVersion && ce.cellX === cellX && ce.cellY === cellY) continue;
+          if (ce && ce.version === chunk.version && ce.framesVersion === entry!.framesVersion && ce.grid === gridKey) continue;
           if (ce) for (const b of ce.batches) b.dispose();
-          ce = { version: chunk.version, framesVersion: entry!.framesVersion, cellX, cellY, batches: [] };
+          ce = { version: chunk.version, framesVersion: entry!.framesVersion, grid: gridKey, batches: [] };
           le.chunks.set(key, ce);
-          const built = buildChunkMeshes(chunk.cells, chunk.cx, chunk.cy, map.cellSize, (n) => this.frame(entry!, map, map._tileIdAt(li, n)));
+          const built = buildChunkMeshes(chunk.cells, chunk.cx, chunk.cy, grid, (n) => this.frame(entry!, map, map._tileIdAt(li, n)));
           for (const m of built) {
             const batch = this.host.createBatch(`tilemap:${map.node.name}:${li}:${key}`);
-            batch.setOrder(sortingLayer, orderInLayer);
             batch.setMaterial(map.material); // ADR 0399
             batch.setMatrix(entry!.matrix!);
             batch.setTint(layer.meta.tint, layer.meta.opacity);
@@ -118,10 +120,13 @@ export class TilemapRenderer implements BabylonFeature {
           }
         }
       }
-      for (const ce of le.chunks.values()) {
+      const within = grid.shape === "square" ? null : paintersOrder(le.chunks, grid);
+      for (const [key, ce] of le.chunks) {
+        const w = within?.get(key);
         for (const b of ce.batches) {
           b.setVisible(visible);
-          b.setOrder(sortingLayer, orderInLayer);
+          if (w === undefined) b.setOrder(sortingLayer, orderInLayer);
+          else b.setOrder(sortingLayer, orderInLayer, w);
           b.setTint(layer.meta.tint, layer.meta.opacity);
           b.setMaterial(map.material);
           if (moved) b.setMatrix(entry!.matrix!);
@@ -189,6 +194,19 @@ export class TilemapRenderer implements BabylonFeature {
   dispose(): void {
     for (const map of [...this.maps.keys()]) this.release(map);
   }
+}
+
+/**
+ * A non-square layer's chunks in painter's order (ADR 0421): each chunk's place in [0, 1), back chunks (the higher
+ * `drawKey` of their first cell is lower: higher on screen) first. Ties keep a fixed order by chunk position.
+ */
+function paintersOrder(chunks: Map<string, ChunkEntry>, grid: TileGrid): Map<string, number> {
+  const keyed = [...chunks.keys()].map((key) => {
+    const [cx, cy] = parseChunkKey(key)!;
+    return { key, cx, cy, draw: grid.drawKey(cx * CHUNK_SIZE, cy * CHUNK_SIZE) };
+  });
+  keyed.sort((a, b) => a.draw - b.draw || a.cy - b.cy || a.cx - b.cx);
+  return new Map(keyed.map((k, i) => [k.key, i / keyed.length]));
 }
 
 function disposeLayer(le: LayerEntry): void {

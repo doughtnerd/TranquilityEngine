@@ -1,14 +1,16 @@
 // Scene view tilemap painting (ADR 0103), a viewport tool (ADR 0138): while a Tilemap node is selected
 // and the Tile Palette has a brush, the tool is active in that brush's mode (ADR 0231) and left presses in
 // the scene view paint instead of selecting. Each stroke is one undo step (Escape mid-stroke puts it back).
-// Draws the map's grid around the pointer and the brush's footprint (the brush's, ADR 0289) as an overlay.
+// Draws the map's grid around the pointer and the brush's footprint (the brush's, ADR 0289) as an overlay: on
+// isometric, staggered and hexagonal maps (ADR 0421) the cells' own outlines, and the footprint as the outline of its cells.
 import { effect } from "@preact/signals";
 import type { Tilemap } from "../runtime";
 import { Quat } from "../../../engine/core/math";
 import { viewport } from "../../../engine/editor";
 import type { EditorOverlay } from "../../../engine/editor";
 import type { Cell } from "../runtime/brushes";
-import { PAINT_TOOL_ID, activeLayer, beginStroke, brushTerrain, brushTool, commitTilemap, flipBrush, footprintAt, pickBrushTool, tilemapOf, type BrushStroke, type BrushTool } from "./brush";
+import { traceCellOutlines } from "../runtime/cellRegions";
+import { PAINT_TOOL_ID, activeLayer, beginStroke, brushTerrain, brushTool, canRotateOn, commitTilemap, flipBrush, footprintAt, pickBrushTool, tilemapOf, type BrushStroke, type BrushTool, type Footprint } from "./brush";
 import { type ViewportToolContribution, editor } from "../../../editor/sdk";
 
 const GRID = 0x5a6270;
@@ -79,7 +81,9 @@ export const paintTool: ViewportToolContribution<BrushTool> = {
         return true;
       }
       if (brushTool.peek() && (key === "x" || key === "y" || key === "z")) {
-        flipBrush(key === "x" ? "x" : key === "y" ? "y" : "rotate");
+        // Z (turn) is off on hexagonal maps (ADR 0421): the key isn't the paint tool's there.
+        if (key === "z" && !canRotateOn(paintTarget())) return false;
+        flipBrush(key === "x" ? "x" : key === "y" ? "y" : "rotate", paintTarget());
         return true;
       }
       return false;
@@ -137,6 +141,11 @@ function paintOverlay(state: PaintState): EditorOverlay {
   const hover = state.hover;
   if (!t || !map || !hover || !map.node.transform) return overlay;
   const tr = map.node.transform;
+  const s = state.stroke;
+  const tool = s?.tool ?? t;
+  const footprint = s ? s.footprint() : footprintAt(t, hover, map);
+  const color = tool === "erase" ? ERASE : tool === "pick" ? PICK : BRUSH;
+  if (map.gridShape !== "square") return gridOverlay(overlay, map, hover, footprint, color);
   const cs = map.cellSize;
   const w = (cx: number, cy: number): [number, number, number] => {
     const p = tr.localToWorld.transformPoint({ x: cx * cs.x, y: cy * cs.y, z: 0 });
@@ -149,10 +158,46 @@ function paintOverlay(state: PaintState): EditorOverlay {
     segs.push(...w(hx - GRID_REACH, hy + i), ...w(hx + GRID_REACH + 1, hy + i));
   }
   overlay.segments = [{ positions: new Float32Array(segs), color: GRID }];
-  const s = state.stroke;
-  const tool = s?.tool ?? t;
-  const { x0, y0, x1, y1 } = s ? s.footprint() : footprintAt(t, hover);
-  const color = tool === "erase" ? ERASE : tool === "pick" ? PICK : BRUSH;
+  const { x0, y0, x1, y1 } = footprint;
   overlay.lines.push({ points: [w(x0, y0), w(x1, y0), w(x1, y1), w(x0, y1)], closed: true, color });
   return overlay;
+}
+
+/** Footprints larger than this many cells are traced by their border cells only (the hole inside is dropped). */
+const TRACE_LIMIT = 16_384;
+
+/**
+ * The overlay on a non-square grid (ADR 0421): each cell's outline around the pointer, and the footprint's cells
+ * outlined as one shape.
+ */
+function gridOverlay(overlay: EditorOverlay, map: Tilemap, [hx, hy]: Cell, { x0, y0, x1, y1 }: Footprint, color: number): EditorOverlay {
+  const tr = map.node.transform!;
+  const w = ([x, y]: readonly [number, number]): [number, number, number] => {
+    const p = tr.localToWorld.transformPoint({ x, y, z: 0 });
+    return [p.x, p.y, p.z];
+  };
+  const segs: number[] = [];
+  for (let y = hy - GRID_REACH; y <= hy + GRID_REACH; y++) {
+    for (let x = hx - GRID_REACH; x <= hx + GRID_REACH; x++) {
+      const pts = map.cellOutline(x, y).map((p) => w([p.x, p.y]));
+      for (let i = 0; i < pts.length; i++) segs.push(...pts[i], ...pts[(i + 1) % pts.length]);
+    }
+  }
+  overlay.segments = [{ positions: new Float32Array(segs), color: GRID }];
+  const cells: Cell[] = [];
+  const all = (x1 - x0) * (y1 - y0) <= TRACE_LIMIT;
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (all || y === y0 || y === y1 - 1 || x === x0 || x === x1 - 1) cells.push([x, y]);
+  const outline = (x: number, y: number) => map.cellOutline(x, y).map((p): [number, number] => [p.x, p.y]);
+  for (const loop of traceCellOutlines(cells, outline)) if (all || area(loop) > 0) overlay.lines.push({ points: loop.map(w), closed: true, color });
+  return overlay;
+}
+
+/** Twice a loop's signed area (positive counter-clockwise: an outer outline, not a hole). */
+function area(loop: readonly (readonly [number, number])[]): number {
+  let a = 0;
+  for (let i = 0; i < loop.length; i++) {
+    const p = loop[i], q = loop[(i + 1) % loop.length];
+    a += p[0] * q[1] - q[0] * p[1];
+  }
+  return a;
 }
