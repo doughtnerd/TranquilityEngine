@@ -32,7 +32,7 @@ The coordinator's plan for building ADRs 0418 (the UI core grows toward web CSS)
 | Second patch round ✅ (conformance 1278/1309, 97.6%; in scope 1278/1278, 100%) | The engine round's 4 class (c2) samples: `ownChange` passed to `bind`, a spread's first nullish `checked`/`value`, a select's first nullish `value` (patch), and a setter-changed value shown in a focused field (renderer) | Engine round |
 | D ✅ merged | 0419 wave D: retire UI documents (`UIDocument`, `*.ui.xml`, `*.ui.css`, markup parser, markup edits) once conformance meets the gate | C, conformance |
 | F ✅ merged | 0419 wave F: what D removed without a Svelte replacement: localisation for Svelte UI (unkeyed-text list with Dismiss, text fit check, Inspector Localise / Extract to string table, ADR 0356 §7–§9) and `UIView.firstSelected` | D |
-| End | Affected e2e specs once; per-wave captures and the frame-time check (Pirates HUD, control mapper) | all |
+| End ✅ (28 affected specs, chromium + chromium-slow: 117 passed after two fixes: `code.spec` counts the sample's UI component among reloaded scripts; one Flappy export audio test failed under load and passed on its own, with the rest of `export.spec` run in full, 12/12) | Affected e2e specs once; per-wave captures and the frame-time check (Pirates HUD, control mapper) | all |
 
 ## Notes carried between waves
 
