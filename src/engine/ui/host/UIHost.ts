@@ -29,6 +29,7 @@ import { Locale } from "../../localisation/Locale";
 import { UIButton, UICanvas, UIInputField, UIText, type UIComponentType } from "../components";
 import { uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
+import { boundsOf, transformRect } from "../transform2d";
 import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIPseudo, UIStylesheet, UITag } from "../document/types";
 
 type Cascade = typeof import("./hostSupport");
@@ -313,6 +314,19 @@ export class UIHostElement {
     return e ? { x: e.x, y: e.y, width: e.width, height: e.height } : null;
   }
 
+  /**
+   * Where it's drawn, in its canvas's UI pixels: its laid-out box through its own and its ancestors' transforms
+   * (ADR 0418 wave 3), as the axis-aligned rectangle around it, not cut down by clips (as the DOM's
+   * `getBoundingClientRect`). Its box when nothing transforms it; null when it isn't laid out.
+   */
+  bounds(): { x: number; y: number; width: number; height: number } | null {
+    const layout = uiInteractions(this.tree.world).layout;
+    if (!layout || this._comp instanceof UICanvas) return this.rect();
+    const e = layout.elements().find((l) => l.comp === this._comp);
+    if (!e) return null;
+    return e.transform ? boundsOf(transformRect(e.transform, e)) : { x: e.x, y: e.y, width: e.width, height: e.height };
+  }
+
   /** Listen to a UI event (`click`, `input`, `change`, `submit`, `focus`, `blur`, `pointerenter`, `pointerleave`). */
   on(type: UIHostEventType, listener: UIHostListener): void {
     let set = this._listeners.get(type);
@@ -363,6 +377,30 @@ export function uiHostElementOf(component: UIComponentType): UIHostElement | nul
 export function onUIHostChanged(listener: (tree: UIHostTree) => void): () => void {
   changeListeners.add(listener);
   return () => changeListeners.delete(listener);
+}
+
+const frameHooks = new Set<(world: World) => void>();
+
+/**
+ * Run `hook(world)` each frame in every World that has a hosted tree in play (not in the editor's edit mode), right
+ * after the frame's UI events: a renderer delivers its global events there (`<svelte:window>` keys, `resize`).
+ * Returns a function that stops it.
+ */
+export function onUIHostFrame(hook: (world: World) => void): () => void {
+  frameHooks.add(hook);
+  return () => frameHooks.delete(hook);
+}
+
+/** The drawing canvas's size in CSS pixels at `world`'s last UI layout (what screen canvases cover), or null before one. */
+export function uiHostViewport(world: World): { width: number; height: number } | null {
+  const v = uiInteractions(world).layout?.viewport;
+  return v ? { width: v.width, height: v.height } : null;
+}
+
+/** The hosted element that has `world`'s focus (ADR 0340), or null. */
+export function uiHostFocused(world: World): UIHostElement | null {
+  const c = uiInteractions(world).focused;
+  return c ? uiHostElementOf(c) : null;
 }
 
 function notifyChanged(tree: UIHostTree): void {
@@ -797,6 +835,23 @@ function treesOf(world: World): UIHostTree[] {
 
 // Right after UI input routing and the UI documents' handlers, before behaviors' update.
 defineBuiltinSystem({ name: "engine.UIHostEvents", phase: "update", after: ["engine.Lobby", "engine.PredictionSmooth", "engine.UIDocumentEvents"], before: ["engine.UpdateScripts"], run: (w) => treesOf(w).forEach((t) => t._collectEvents()) });
+// Then the renderers' per-frame hooks (global events), before behaviors' update.
+defineBuiltinSystem({
+  name: "engine.UIHostFrame",
+  phase: "update",
+  after: ["engine.UIHostEvents"],
+  before: ["engine.UpdateScripts"],
+  run: (w) => {
+    if (!frameHooks.size || !treesOf(w).some((t) => !w.inEditMode(t.root._node.entity))) return;
+    for (const hook of [...frameHooks]) {
+      try {
+        hook(w);
+      } catch (err) {
+        console.error("[myco] a UI host frame hook threw:", err);
+      }
+    }
+  },
+});
 // After behaviors' lateUpdate and before the UI sync: renderers flush the updates their handlers queued (Svelte's microtasks).
 defineBuiltinSystem({ name: "engine.UIHostFlush", phase: "lateUpdate", after: ["engine.LateUpdateScripts"], before: ["engine.UIDocumentSync"], run: (w) => treesOf(w).forEach((t) => t._flush()) });
 // Then restyles, so the flushed changes show this frame.
