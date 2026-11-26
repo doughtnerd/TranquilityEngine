@@ -19,6 +19,9 @@ import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import { compile, compileModule } from "svelte/compiler";
 import { flushSync } from "svelte";
+// Svelte's harness drops every batch left after a sample (a fork never committed or discarded), "to prevent cross-talk
+// between tests" (its runtime-legacy/shared.ts): the same module Svelte's `svelte` export uses (one instance).
+import { clear as clearBatches } from "../../node_modules/svelte/src/internal/client/reactivity/batch.js";
 import { Engine, GameObject } from "../../src/engine/index";
 import { World } from "../../src/engine/core/World";
 import { loadUIHostSupport, UIHostTree, type UIHostElement } from "../../src/engine/ui/host/UIHost";
@@ -289,8 +292,10 @@ async function runSample(name: string): Promise<Result> {
     const svelteGlobal = (globalThis as { __svelte?: { uid?: number } }).__svelte;
     if (svelteGlobal) svelteGlobal.uid = 1;
     (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = setTimeout;
-    config.before_test?.();
     const mod = (await import(join(dir, "_output_myco/main.svelte.js"))) as { default: never };
+    // As Svelte's harness: what the sample's modules logged or warned while being imported isn't the test's.
+    logs.length = warnings.length = 0;
+    config.before_test?.();
     mounted = renderer.mountView(tree, mod.default, config.props ?? {});
     const target = mounted.target;
     currentTarget = target;
@@ -369,6 +374,7 @@ async function runSample(name: string): Promise<Result> {
     console.group = original.group;
     console.groupCollapsed = original.groupCollapsed;
     console.groupEnd = original.groupEnd;
+    clearBatches();
     tree.dispose();
     GameObject.destroy(node);
     world.applyDestroys();
