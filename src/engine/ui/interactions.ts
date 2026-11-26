@@ -35,6 +35,8 @@ export interface UIPointerState {
 export interface UILayoutSource {
   canvases(): readonly UILaidOutCanvas[];
   elements(): readonly UILaidOutElement[];
+  /** The drawing canvas's size in CSS pixels at the last layout (what screen canvases cover). */
+  readonly viewport?: { readonly width: number; readonly height: number };
 }
 
 export class UIInteractions {

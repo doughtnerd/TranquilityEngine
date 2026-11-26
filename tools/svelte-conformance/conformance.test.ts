@@ -22,7 +22,7 @@ import { flushSync } from "svelte";
 import { Engine, GameObject } from "../../src/engine/index";
 import { World } from "../../src/engine/core/World";
 import { loadUIHostSupport, UIHostTree, type UIHostElement } from "../../src/engine/ui/host/UIHost";
-import { svelteUIOptions } from "../../src/plugins/ui/svelte/compile.mjs";
+import { injectedStylesOf, svelteUIOptions } from "../../src/plugins/ui/svelte/compile.mjs";
 import { parseStylesheet } from "../../src/engine/ui/document/stylesheet";
 import { SVELTE_UI_RENDERER } from "../../vite.shared";
 import { assertHtmlEqual, assertHtmlEqualWithOptions } from "./htmlEqual";
@@ -67,6 +67,8 @@ type Renderer = typeof import("../../src/plugins/ui/svelte/renderer");
 let renderer: Renderer;
 let engine: Engine;
 let raf: { reset(): void; tick(ms: number): void } = { reset() {}, tick() {} };
+/** The `window` tests get: the renderer's `<svelte:window>` target (its listeners, sizes and `dispatchEvent`), with the event constructors. */
+let testWindow: object = {};
 
 class FakeEvent {
   defaultPrevented = false;
@@ -124,6 +126,8 @@ function compileSample(dir: string, config: Config): void {
       const r = compile(text, options as never);
       let code = r.js.code;
       if (r.css?.code.trim()) code += `\nimport { addStyles as $$s } from ${JSON.stringify(SVELTE_UI_RENDERER)};\n$$s(${JSON.stringify(abs)}, ${JSON.stringify(parseStylesheet(r.css.code, abs))});\n`;
+      const injected = injectedStylesOf(code);
+      if (injected) code += `\nimport { injectStyles as $$i } from ${JSON.stringify(SVELTE_UI_RENDERER)};\n$$i(${JSON.stringify(injected.hash)}, ${JSON.stringify(parseStylesheet(injected.code, abs))});\n`;
       write(join(out, `${name}.js`), code);
     }
   }
@@ -233,7 +237,7 @@ async function runSample(name: string): Promise<Result> {
         ok,
         target,
         snapshot: undefined,
-        window: fakeWindow,
+        window: testWindow,
         raf,
         compileOptions: config.compileOptions ?? {},
         logs,
@@ -300,7 +304,11 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
     engine = await Engine.create({ headless: true });
     await loadUIHostSupport();
     renderer = await import("../../src/plugins/ui/svelte/renderer");
-    // The event constructors tests make events with (dispatched to renderer nodes, which read only `type`). `window` and `document` stay undefined.
+    const win = (renderer.default as unknown as { globalTarget(kind: string): object }).globalTarget("window");
+    testWindow = new Proxy(win, { get: (target, key, receiver) => (typeof key === "string" && key in fakeWindow ? fakeWindow[key as keyof typeof fakeWindow] : Reflect.get(target, key, receiver)) });
+    // The event constructors tests make events with (dispatched to renderer nodes, which read only `type`). The global
+    // `window` and `document` stay undefined (engine code takes a defined `window` for a browser); the `window` a test
+    // gets as an argument is the renderer's `<svelte:window>` target.
     for (const [k, v] of Object.entries(fakeWindow)) if (!(k in globalThis)) (globalThis as Record<string, unknown>)[k] = v;
     // Svelte's `raf` test helper, without its DOM animation stand-in (transitions are refused under a custom renderer for now).
     const { raf: svelteRaf } = (await import("svelte/internal/client")) as unknown as { raf: { tick: (f: (n: number) => void) => void; now: () => number; tasks: Set<unknown> } };

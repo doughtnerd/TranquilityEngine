@@ -241,6 +241,11 @@ export class UICore implements UICoreLike {
     return this.canvasList;
   }
 
+  /** The drawing canvas's size in CSS pixels at the last `sync`. */
+  get viewport(): { readonly width: number; readonly height: number } {
+    return { width: this.width, height: this.height };
+  }
+
   elements(): readonly UILaidOutElement[] {
     return this.elementList;
   }

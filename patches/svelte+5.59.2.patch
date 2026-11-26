@@ -1,21 +1,185 @@
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/index.js b/node_modules/svelte/src/compiler/phases/2-analyze/index.js
+index f9e845d..73a606b 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/index.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/index.js
+@@ -473,21 +473,10 @@ export function analyze_component(root, source, options) {
+ 	const css = options.css({ filename: options.filename });
+ 	const custom_renderer = options.experimental.customRenderer({ filename: options.filename });
+ 
+-	// Injected styles are added to the document, which doesn't apply to components that use a
+-	// custom renderer (an actual renderer module, i.e. a string — `null` means the DOM): they are
+-	// never server-rendered and their nodes aren't in the document. An inherited `css: 'injected'`
+-	// (from the compiler options, which tools like vite-plugin-svelte set) is therefore ignored and
+-	// the CSS is returned as with `css: 'external'`; only an explicit `<svelte:options css="injected" />`
+-	// in such a component is an error
+-	const has_custom_renderer = typeof custom_renderer === 'string';
+-
+-	if (has_custom_renderer) {
+-		const css_attribute = root.options?.attributes.find((attribute) => attribute.name === 'css');
+-
+-		if (css_attribute) {
+-			e.incompatible_with_custom_renderer(css_attribute, "`css: 'injected'`");
+-		}
+-	}
++	// Under a custom renderer (an actual renderer module, i.e. a string — `null` means the DOM), injected
++	// styles go to the renderer's optional `addStyles(hash, code)` hook instead of the document (see
++	// `append_styles`). Like `css: 'external'` output, the code is the component's scoped CSS. A renderer
++	// without `addStyles` throws when the component is created
+ 
+ 	const custom_element = options.customElementOptions ?? custom_element_from_option;
+ 	const is_custom_element = !!options.customElementOptions || custom_element_from_option;
+@@ -553,7 +542,7 @@ export function analyze_component(root, source, options) {
+ 		event_directive_node: null,
+ 		uses_event_attributes: false,
+ 		custom_element,
+-		inject_styles: (css === 'injected' && !has_custom_renderer) || is_custom_element,
++		inject_styles: css === 'injected' || is_custom_element,
+ 		accessors:
+ 			is_custom_element ||
+ 			(runes ? false : !!options.accessors) ||
 diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/BindDirective.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/BindDirective.js
-index ea70f8c..1b75bbb 100644
+index ea70f8c..65f50a2 100644
 --- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/BindDirective.js
 +++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/BindDirective.js
-@@ -28,7 +28,10 @@ export function BindDirective(node, context) {
+@@ -12,7 +12,6 @@ import { binding_properties } from '../../bindings.js';
+ import fuzzymatch from '../../../utils/fuzzymatch.js';
+ import { is_content_editable_binding, is_svg } from '../../../../utils.js';
+ import { mark_subtree_dynamic } from './shared/fragment.js';
+-import { custom_renderer } from '../../../state.js';
+ 
+ /**
+  * @param {AST.BindDirective} node
+@@ -28,9 +27,9 @@ export function BindDirective(node, context) {
  		parent?.type === 'SvelteDocument' ||
  		parent?.type === 'SvelteBody'
  	) {
 -		if (custom_renderer) {
+-			e.incompatible_with_custom_renderer(node, '`bind:`');
+-		}
 +		// Under a custom renderer, element bindings go through the renderer's optional `bind` hook
-+		// (see `bind_renderer`); bindings on `<svelte:window>`, `<svelte:document>` and `<svelte:body>`
-+		// have no renderer node to bind to
-+		if (custom_renderer && parent.type !== 'RegularElement' && parent.type !== 'SvelteElement') {
- 			e.incompatible_with_custom_renderer(node, '`bind:`');
- 		}
++		// (see `bind_renderer`), and so do bindings on `<svelte:window>`, `<svelte:document>` and
++		// `<svelte:body>`, whose node is the renderer's global target (see `global_target`)
  		if (node.name in binding_properties) {
+ 			const property = binding_properties[node.name];
+ 			if (property.valid_elements && !property.valid_elements.includes(parent.name)) {
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/OnDirective.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/OnDirective.js
+index f3f9c10..b8a0d95 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/OnDirective.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/OnDirective.js
+@@ -1,8 +1,6 @@
+ /** @import { AST } from '#compiler' */
+ /** @import { Context } from '../types' */
+-import * as e from '../../../errors.js';
+ import * as w from '../../../warnings.js';
+-import { custom_renderer } from '../../../state.js';
+ import { mark_subtree_dynamic } from './shared/fragment.js';
+ 
+ /**
+@@ -10,10 +8,6 @@ import { mark_subtree_dynamic } from './shared/fragment.js';
+  * @param {Context} context
+  */
+ export function OnDirective(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`on:`');
+-	}
+-
+ 	if (context.state.analysis.runes) {
+ 		const parent_type = context.path.at(-1)?.type;
+ 
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteBody.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteBody.js
+index 495f88e..fcadc12 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteBody.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteBody.js
+@@ -1,7 +1,6 @@
+ /** @import { AST } from '#compiler' */
+ /** @import { Context } from '../types' */
+ import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ import { is_event_attribute } from '../../../utils/ast.js';
+ import { disallow_children } from '../../nodes.js';
+ import { check_global_event_reference } from './shared/utils.js';
+@@ -11,10 +10,6 @@ import { check_global_event_reference } from './shared/utils.js';
+  * @param {Context} context
+  */
+ export function SvelteBody(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`<svelte:body>`');
+-	}
+-
+ 	disallow_children(node);
+ 	for (const attribute of node.attributes) {
+ 		if (attribute.type === 'Attribute' && is_event_attribute(attribute)) {
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteDocument.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteDocument.js
+index 8a44d35..f2acc93 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteDocument.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteDocument.js
+@@ -2,7 +2,6 @@
+ /** @import { Context } from '../types' */
+ import { disallow_children } from '../../nodes.js';
+ import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ import { is_event_attribute } from '../../../utils/ast.js';
+ import { check_global_event_reference } from './shared/utils.js';
+ 
+@@ -11,10 +10,6 @@ import { check_global_event_reference } from './shared/utils.js';
+  * @param {Context} context
+  */
+ export function SvelteDocument(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`<svelte:document>`');
+-	}
+-
+ 	disallow_children(node);
+ 
+ 	for (const attribute of node.attributes) {
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteHead.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteHead.js
+index 4a70ea0..5a3ed44 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteHead.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteHead.js
+@@ -1,7 +1,6 @@
+ /** @import { AST } from '#compiler' */
+ /** @import { Context } from '../types' */
+ import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ import { mark_subtree_dynamic } from './shared/fragment.js';
+ 
+ /**
+@@ -9,10 +8,6 @@ import { mark_subtree_dynamic } from './shared/fragment.js';
+  * @param {Context} context
+  */
+ export function SvelteHead(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`<svelte:head>`');
+-	}
+-
+ 	for (const attribute of node.attributes) {
+ 		e.svelte_head_illegal_attribute(attribute);
+ 	}
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteWindow.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteWindow.js
+index 3e89452..8bba0d8 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteWindow.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/SvelteWindow.js
+@@ -2,7 +2,6 @@
+ /** @import { Context } from '../types' */
+ import { disallow_children } from '../../nodes.js';
+ import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ import { is_event_attribute } from '../../../utils/ast.js';
+ import { check_global_event_reference } from './shared/utils.js';
+ 
+@@ -11,10 +10,6 @@ import { check_global_event_reference } from './shared/utils.js';
+  * @param {Context} context
+  */
+ export function SvelteWindow(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`<svelte:window>`');
+-	}
+-
+ 	disallow_children(node);
+ 
+ 	for (const attribute of node.attributes) {
 diff --git a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/BindDirective.js b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/BindDirective.js
-index c7bf24b..9efdba4 100644
+index c7bf24b..9745388 100644
 --- a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/BindDirective.js
 +++ b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/BindDirective.js
 @@ -1,7 +1,7 @@
@@ -27,7 +191,7 @@ index c7bf24b..9efdba4 100644
  import { is_text_attribute } from '../../../../utils/ast.js';
  import * as b from '#compiler/builders';
  import { binding_properties } from '../../../bindings.js';
-@@ -75,7 +75,14 @@ export function BindDirective(node, context) {
+@@ -75,7 +75,19 @@ export function BindDirective(node, context) {
  	/** @type {CallExpression} */
  	let call;
  
@@ -35,14 +199,73 @@ index c7bf24b..9efdba4 100644
 +	if (
 +		custom_renderer &&
 +		node.name !== 'this' &&
-+		(parent.type === 'RegularElement' || parent.type === 'SvelteElement')
++		(parent.type === 'RegularElement' ||
++			parent.type === 'SvelteElement' ||
++			parent.type === 'SvelteWindow' ||
++			parent.type === 'SvelteDocument' ||
++			parent.type === 'SvelteBody')
 +	) {
-+		// the DOM binding helpers don't apply to a custom renderer's nodes: the renderer binds
++		// the DOM binding helpers don't apply to a custom renderer's nodes: the renderer binds (on
++		// `<svelte:window>`, `<svelte:document>` and `<svelte:body>` the node is its global target)
 +		call = b.call('$.bind_renderer', context.state.node, b.literal(node.name), get, set);
 +	} else if (property?.event) {
  		call = b.call(
  			'$.bind_property',
  			b.literal(node.name),
+diff --git a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/TitleElement.js b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/TitleElement.js
+index d91c387..9976bd0 100644
+--- a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/TitleElement.js
++++ b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/TitleElement.js
+@@ -1,6 +1,7 @@
+ /** @import { AST } from '#compiler' */
+ /** @import { ComponentContext } from '../types' */
+ import * as b from '#compiler/builders';
++import { custom_renderer } from '../../../../state.js';
+ import { build_template_chunk, Memoizer } from './shared/utils.js';
+ 
+ /**
+@@ -20,7 +21,11 @@ export function TitleElement(node, context) {
+ 	const statement = b.stmt(
+ 		b.assignment(
+ 			'=',
+-			b.member(b.id('$.document'), b.id('title', node.name_loc)),
++			// under a custom renderer, the title goes to its `document` global target
++			b.member(
++				custom_renderer ? b.call('$.global_target', b.literal('document')) : b.id('$.document'),
++				b.id('title', node.name_loc)
++			),
+ 			evaluated.is_known
+ 				? b.literal(evaluated.value)
+ 				: evaluated.is_defined
+diff --git a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/shared/special_element.js b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/shared/special_element.js
+index c878f2f..0f82a13 100644
+--- a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/shared/special_element.js
++++ b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/shared/special_element.js
+@@ -2,6 +2,10 @@
+ /** @import { AST } from '#compiler' */
+ /** @import { ComponentContext } from '../../types' */
+ import * as b from '#compiler/builders';
++import { custom_renderer } from '../../../../../state.js';
++
++/** @type {Record<string, string>} */
++const global_kinds = { SvelteWindow: 'window', SvelteDocument: 'document', SvelteBody: 'body' };
+ 
+ /**
+  *
+@@ -10,7 +14,12 @@ import * as b from '#compiler/builders';
+  * @param {ComponentContext} context
+  */
+ export function visit_special_element(node, id, context) {
+-	const state = { ...context.state, node: b.id(id) };
++	// Under a custom renderer, the node is the renderer's global target for the element (its
++	// optional `globalTarget(kind)` hook), which events, bindings, actions and attachments go to
++	const target = custom_renderer
++		? b.call('$.global_target', b.literal(global_kinds[node.type]))
++		: b.id(id);
++	const state = { ...context.state, node: target };
+ 
+ 	for (const attribute of node.attributes) {
+ 		if (attribute.type === 'OnDirective') {
 diff --git a/node_modules/svelte/src/internal/client/custom-renderer/bind.js b/node_modules/svelte/src/internal/client/custom-renderer/bind.js
 new file mode 100644
 index 0000000..9827338
@@ -77,11 +300,147 @@ index 0000000..9827338
 +
 +	render_effect(() => renderer.bind(node, name, get, set));
 +}
+diff --git a/node_modules/svelte/src/internal/client/custom-renderer/global.js b/node_modules/svelte/src/internal/client/custom-renderer/global.js
+new file mode 100644
+index 0000000..db8e440
+--- /dev/null
++++ b/node_modules/svelte/src/internal/client/custom-renderer/global.js
+@@ -0,0 +1,38 @@
++/** @import { Renderer } from './types.js' */
++import * as e from '../errors.js';
++import { current_renderer } from './state.js';
++
++/** The global targets renderers returned, so listeners added to them are removed with their component */
++var global_targets = new WeakSet();
++
++/**
++ * The node `<svelte:window>`, `<svelte:document>` or `<svelte:body>` (`kind` `'window'`, `'document'`
++ * or `'body'`) stands for under a custom renderer, and what `<svelte:head>` content is inserted into
++ * (`'head'`): the renderer's `globalTarget(kind)`. Events on it go through the renderer's
++ * `addEventListener`, bindings through its `bind`, and `<title>` sets the `document` target's `title`.
++ *
++ * The compiler can't see the renderer object, so a renderer without `globalTarget` fails here, when
++ * the component is created, rather than at compile time.
++ * @param {'window' | 'document' | 'body' | 'head'} kind
++ * @returns {any}
++ */
++export function global_target(kind) {
++	var renderer = /** @type {Renderer<any> | null} */ (current_renderer);
++
++	if (typeof renderer?.globalTarget !== 'function') {
++		e.renderer_global_target_unsupported(kind);
++	}
++
++	var target = renderer.globalTarget(kind);
++	if (target !== null && typeof target === 'object') global_targets.add(target);
++	return target;
++}
++
++/**
++ * Whether `node` is one of a custom renderer's global targets, which outlive the components that
++ * listen to them
++ * @param {unknown} node
++ */
++export function is_global_target(node) {
++	return node !== null && typeof node === 'object' && global_targets.has(node);
++}
+diff --git a/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js b/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
+index 55d169b..21e6f9f 100644
+--- a/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
++++ b/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
+@@ -12,6 +12,8 @@ import {
+ } from '../operations.js';
+ import { block, branch } from '../../reactivity/effects.js';
+ import { COMMENT_NODE, HEAD_EFFECT } from '#client/constants';
++import { current_renderer } from '../../custom-renderer/state.js';
++import { global_target } from '../../custom-renderer/global.js';
+ 
+ /**
+  * @param {string} hash
+@@ -54,7 +56,9 @@ export function head(hash, render_fn) {
+ 	}
+ 
+ 	if (!hydrating) {
+-		anchor = /** @type {Comment | Text} */ (append_child(document.head, create_anchor()));
++		// under a custom renderer, head content goes into its `head` global target
++		var head = current_renderer ? global_target('head') : document.head;
++		anchor = /** @type {Comment | Text} */ (append_child(head, create_anchor()));
+ 	}
+ 
+ 	try {
+diff --git a/node_modules/svelte/src/internal/client/dom/css.js b/node_modules/svelte/src/internal/client/dom/css.js
+index d7c6965..9e97c1b 100644
+--- a/node_modules/svelte/src/internal/client/dom/css.js
++++ b/node_modules/svelte/src/internal/client/dom/css.js
+@@ -1,4 +1,7 @@
++/** @import { Renderer } from '../custom-renderer/types.js' */
+ import { DEV } from 'esm-env';
++import * as e from '../errors.js';
++import { current_renderer } from '../custom-renderer/state.js';
+ import { register_style } from '../dev/css.js';
+ import { effect } from '../reactivity/effects.js';
+ import { create_element, append_child, set_text_content } from './operations.js';
+@@ -9,6 +12,17 @@ import { active_effect } from '../runtime.js';
+  * @param {{ hash: string, code: string }} css
+  */
+ export function append_styles(anchor, css) {
++	var renderer = /** @type {Renderer<any> | null} */ (current_renderer);
++
++	if (renderer !== null) {
++		// a custom renderer's nodes aren't in a document: the renderer takes the styles
++		if (typeof renderer.addStyles !== 'function') {
++			e.renderer_add_styles_unsupported();
++		}
++		renderer.addStyles(css.hash, css.code);
++		return;
++	}
++
+ 	// Use an effect to ensure `anchor` is in the DOM, otherwise getRootNode() will yield wrong results
+ 	effect(() => {
+ 		// Bit of a hack: branches.js/each.js use offscreen fragments with temporary text nodes that will
+diff --git a/node_modules/svelte/src/internal/client/dom/elements/events.js b/node_modules/svelte/src/internal/client/dom/elements/events.js
+index e8d5dba..fcb0764 100644
+--- a/node_modules/svelte/src/internal/client/dom/elements/events.js
++++ b/node_modules/svelte/src/internal/client/dom/elements/events.js
+@@ -19,6 +19,7 @@ import {
+ 	remove_event_listener
+ } from '../operations.js';
+ import { current_renderer } from '../../custom-renderer/state.js';
++import { is_global_target } from '../../custom-renderer/global.js';
+ 
+ /**
+  * Used on elements, as a map of event type -> event handler,
+@@ -150,15 +151,16 @@ export function event(event_name, dom, handler, capture, passive) {
+ 	var target_handler = create_event(event_name, dom, handler, options);
+ 
+ 	if (
+-		// if there's a renderer we will never add to body, window or document.
+-		current_renderer == null &&
+-		(dom === document.body ||
+-			// @ts-ignore
+-			dom === window ||
+-			// @ts-ignore
+-			dom === document ||
+-			// Firefox has quirky behavior, it can happen that we still get "canplay" events when the element is already removed
+-			dom instanceof HTMLMediaElement)
++		current_renderer == null
++			? dom === document.body ||
++				// @ts-ignore
++				dom === window ||
++				// @ts-ignore
++				dom === document ||
++				// Firefox has quirky behavior, it can happen that we still get "canplay" events when the element is already removed
++				dom instanceof HTMLMediaElement
++			: // a custom renderer's global targets (`<svelte:window>`...) outlive the component
++				is_global_target(dom)
+ 	) {
+ 		teardown(() => {
+ 			target_handler.__removed = true;
 diff --git a/node_modules/svelte/src/internal/client/errors.js b/node_modules/svelte/src/internal/client/errors.js
-index 559c9b3..24fb45c 100644
+index 559c9b3..8c23eb2 100644
 --- a/node_modules/svelte/src/internal/client/errors.js
 +++ b/node_modules/svelte/src/internal/client/errors.js
-@@ -479,6 +479,23 @@ export function renderer_cannot_cross(guest, host) {
+@@ -479,6 +479,56 @@ export function renderer_cannot_cross(guest, host) {
  	}
  }
  
@@ -102,23 +461,57 @@ index 559c9b3..24fb45c 100644
 +	}
 +}
 +
++/**
++ * `<svelte:%kind%>` needs the custom renderer to define `globalTarget`
++ * @param {string} kind
++ * @returns {never}
++ */
++export function renderer_global_target_unsupported(kind) {
++	if (DEV) {
++		const error = new Error(`renderer_global_target_unsupported\n\`<svelte:${kind}>\` needs the custom renderer to define \`globalTarget\`\nhttps://svelte.dev/e/renderer_global_target_unsupported`);
++
++		error.name = 'Svelte error';
++
++		throw error;
++	} else {
++		throw new Error(`https://svelte.dev/e/renderer_global_target_unsupported`);
++	}
++}
++
++/**
++ * `css: 'injected'` needs the custom renderer to define `addStyles`
++ * @returns {never}
++ */
++export function renderer_add_styles_unsupported() {
++	if (DEV) {
++		const error = new Error(`renderer_add_styles_unsupported\n\`css: 'injected'\` needs the custom renderer to define \`addStyles\`\nhttps://svelte.dev/e/renderer_add_styles_unsupported`);
++
++		error.name = 'Svelte error';
++
++		throw error;
++	} else {
++		throw new Error(`https://svelte.dev/e/renderer_add_styles_unsupported`);
++	}
++}
++
  /**
   * The `%rune%` rune is only available inside `.svelte` and `.svelte.js/ts` files
   * @param {string} rune
 diff --git a/node_modules/svelte/src/internal/client/index.js b/node_modules/svelte/src/internal/client/index.js
-index ee2959d..1dfd56b 100644
+index ee2959d..5e1f5ef 100644
 --- a/node_modules/svelte/src/internal/client/index.js
 +++ b/node_modules/svelte/src/internal/client/index.js
-@@ -194,3 +194,4 @@ export { strict_equals, equals } from './dev/equality.js';
+@@ -194,3 +194,5 @@ export { strict_equals, equals } from './dev/equality.js';
  export { log_if_contains_state } from './dev/console-log.js';
  export { push_renderer, pop_renderer } from './custom-renderer/state.js';
  export { cross, is_crossing } from './custom-renderer/cross.js';
 +export { bind_renderer } from './custom-renderer/bind.js';
++export { global_target } from './custom-renderer/global.js';
 diff --git a/node_modules/svelte/types/index.d.ts b/node_modules/svelte/types/index.d.ts
-index 27cb293..8cb4890 100644
+index 27cb293..3a72caf 100644
 --- a/node_modules/svelte/types/index.d.ts
 +++ b/node_modules/svelte/types/index.d.ts
-@@ -2812,6 +2812,20 @@ declare module 'svelte/renderer' {
+@@ -2812,6 +2812,38 @@ declare module 'svelte/renderer' {
  		/** Remove an event listener of the given type and handler from the target node. */
  		removeEventListener(target: N['element'], type: string, handler: any, options?: any): void;
  
@@ -135,6 +528,24 @@ index 27cb293..8cb4890 100644
 +			get: () => any,
 +			set: (value: any) => void
 +		): (() => void) | void;
++
++		/**
++		 * The node `<svelte:window>`, `<svelte:document>` and `<svelte:body>` stand for (`kind` `'window'`,
++		 * `'document'`, `'body'`), and the element `<svelte:head>` content is inserted into (`'head'`).
++		 * Return the same object for a kind every time. Events on it go through `addEventListener`,
++		 * bindings (`bind:innerWidth`...) through `bind`, actions and attachments get it, and a `<title>`
++		 * in `<svelte:head>` sets the `document` target's `title`. Without `globalTarget`, those throw when
++		 * the component is created.
++		 */
++		globalTarget?(kind: 'window' | 'document' | 'body' | 'head'): any;
++
++		/**
++		 * Takes a component's styles when it compiled with `css: 'injected'`: `hash` is the component's
++		 * scoping class and `code` its scoped CSS (as `css: 'external'` would return it). Called each time
++		 * such a component is created; the same `hash` again has the same `code`. Without `addStyles`,
++		 * those components throw when they are created.
++		 */
++		addStyles?(hash: string, code: string): void;
 +
  		/**
  		 * Called when a component (or snippet) that uses this renderer is rendered inside
