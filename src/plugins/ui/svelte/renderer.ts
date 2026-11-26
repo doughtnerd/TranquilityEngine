@@ -1245,8 +1245,11 @@ function bindMedia(node: UIRenderElement, name: string, get: () => unknown, set:
 /** ADR 0425: an inline run: a node whose parent is a text element or a run (below the mount). */
 function isRun(node: UINode): boolean {
   const p = node._parent;
-  return p instanceof UIRenderElement && !p._tree && (isTextKind(p) || isRun(p));
+  return p instanceof UIRenderElement && !p._tree && !OWN_KIND_IN_TEXT.has(p._uiTag) && (isTextKind(p) || isRun(p));
 }
+
+/** ADR 0425: elements that stay what they are inside a text element (not drawn there yet: an <svg>'s shapes are its document). */
+const OWN_KIND_IN_TEXT: ReadonlySet<UITag> = new Set(["Svg", "Video", "Audio"]);
 
 /** ADR 0425: an element whose content is text and runs: a text element, or a run that isn't an image. */
 function holdsText(n: UINode | UIParent | null): n is UIRenderElement {
@@ -1256,6 +1259,10 @@ function holdsText(n: UINode | UIParent | null): n is UIRenderElement {
 /** ADR 0425: the UI element a node makes: a run is a Text (an image stays an Image), others their own. */
 function hostedTag(el: UIRenderElement): UITag {
   if (!isRun(el)) return el._uiTag;
+  if (OWN_KIND_IN_TEXT.has(el._uiTag)) {
+    warnOnce(`<${el.localName}> inside a text element isn't drawn yet; put it beside the text.`);
+    return el._uiTag;
+  }
   return el._uiTag === "Image" ? "Image" : "Text";
 }
 
