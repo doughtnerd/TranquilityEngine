@@ -75,7 +75,38 @@ Every element has flexbox fields (Yoga's, with web defaults), written in kebab c
 | `display` | `flex` (default), or `none` to take it and its children out of layout, drawing and the pointer |
 | `raycastTarget` | `true` (default): the pointer stops at it, if it's a graphic ([below](#the-pointer-goes-to-ui-first)); `false`: it passes through |
 
-Children shrink to fit a parent that's too small (flexbox's `flex-shrink: 1`).
+When children don't fit, text shrinks and wraps to what's left; other elements keep their size unless their `flexShrink` says otherwise (below).
+
+### Sides, sizes, wrapping, clipping and layers
+
+[ADR 0418](../../decisions/0418-the-ui-core-grows-toward-web-css-layout-paint-transforms-animation-and-selectors-in-waves.md) wave 1 adds these fields to every element, each settable by attribute, rule or script:
+
+| Field | Values |
+| --- | --- |
+| `paddingTop`, `paddingRight`, `paddingBottom`, `paddingLeft`; the same for `margin…` | pixels on one side; `null` (the default) takes `padding` / `margin`, the all-sides value |
+| `borderTopWidth`, `borderRightWidth`, `borderBottomWidth`, `borderLeftWidth` | panels, buttons and input fields: one side's border; `null` takes `borderWidth`. Unequal sides draw each side as its own edge |
+| `minWidth`, `minHeight` | pixels or a percentage; `auto` (default): no minimum |
+| `maxWidth`, `maxHeight` | pixels or a percentage; `none` (default): no maximum |
+| `flexWrap` | `nowrap` (default), `wrap`, `wrap-reverse`: children that don't fit go onto more lines |
+| `alignSelf` | `auto` (default: the parent's `alignItems`), or one of `alignItems`' values for this element |
+| `alignContent` | how wrapped lines share the space across: `stretch` (default), `flex-start`, `center`, `flex-end`, `space-between`, `space-around`, `space-evenly` |
+| `flexShrink` | how much it shrinks, relative to its siblings, when they don't fit; `null` (default): its kind's (text 1, others 0) |
+| `flexBasis` | its size along the parent's direction before growing and shrinking: pixels, a percentage, or `auto` (default: its `width` or `height`) |
+| `aspectRatio` | width ÷ height, kept when only one side is set (`aspect-ratio: 16 / 9`); 0 (default): none |
+| `overflow` | `visible` (default) or `hidden`: its children are drawn, take the pointer and can be reached by navigation only inside its padding box (inside its border, with rounded inner corners) |
+| `zIndex` | draw and pointer order among siblings: higher on top, then document order |
+
+Shorthands work as in CSS, in stylesheets and in attributes, and expand to the fields above where they're written, so the later declaration wins for each side:
+
+```css
+.card { padding: 8px 16px; margin: 0 0 12px; border: 2px solid #fff; border-width: 2px 0; }
+.grow { flex: 1; }              /* grow 1, shrink 1, basis 0; also flex: none | auto | 2 0 50% | 120px */
+```
+
+- `padding`, `margin` and `border-width` take one to four values (top, right, bottom, left, as in CSS). One value sets the all-sides field and clears the sides; two to four set the sides. A script writing `padding` changes the sides that have no value of their own.
+- `border` takes a width, `solid` (or `none`, no border) and a colour, in any order. Only solid borders are drawn.
+- `overflow: hidden` and a non-zero `zIndex` each draw the element's descendants together, right after it, ordered among themselves by their own `zIndex`: a child can't rise above its parent's later siblings by its `zIndex` (a CSS stacking context). Tab and `next`/`previous` keep document order; only drawing and the pointer follow `zIndex`.
+- `overflow: hidden` doesn't scroll. An element it clips away entirely is skipped by keyboard and gamepad navigation, and the editor outlines only the part that's drawn.
 
 ## Elements
 

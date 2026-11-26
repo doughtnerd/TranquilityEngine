@@ -77,7 +77,7 @@ function canvasInfo(comp: UICanvas, over: Partial<UILaidOutCanvas> = {}): UILaid
   return { comp, mode: comp.mode, sortOrder: comp.sortOrder, width: 1280, height: 720, scale: 1, pixelSize: comp.pixelSize, worldMatrix: null, visible: true, ...over };
 }
 
-type ElementInit = Partial<Pick<UILaidOutElement, "x" | "y" | "width" | "height" | "visible" | "opacity">>;
+type ElementInit = Partial<Pick<UILaidOutElement, "x" | "y" | "width" | "height" | "visible" | "opacity" | "order" | "clip" | "clipper" | "childClip">>;
 
 /** A fake core reporting these canvases and elements (orders count up per canvas; text runs resolved as the core resolves them, on each read). */
 class FakeCore implements UICoreLike {
@@ -91,7 +91,7 @@ class FakeCore implements UICoreLike {
     this.es = elements.map(([comp, canvas, init = {}]) => {
       const order = orders.get(canvas) ?? 0;
       orders.set(canvas, order + 1);
-      return { comp, kind: uiKindOf(comp), canvas, x: 0, y: 0, width: 100, height: 40, order, visible: true, opacity: 1, text: null, ...init } as UILaidOutElement;
+      return { comp, kind: uiKindOf(comp), canvas, x: 0, y: 0, width: 100, height: 40, order, visible: true, opacity: 1, text: null, clip: null, clipper: null, childClip: null, ...init } as UILaidOutElement;
     });
     this.layoutVersion++;
   }
@@ -407,6 +407,92 @@ describe("screen canvases on Babylon GUI (ADR 0076)", () => {
     core.set([], []);
     sync(core);
     expect(rootOf()).toBeUndefined();
+  });
+});
+
+describe("layout wave 1 on Babylon GUI (ADR 0418)", () => {
+  it("draws an overflow: hidden element's descendants in a clip at its padding box, right above it, and takes them out again", () => {
+    const canvas = node("C", null, UICanvas);
+    const clipper = node("Clip", canvas.node, UIPanel, { borderWidth: 10, borderRadius: 12, overflow: "hidden" });
+    const inner = node("Inner", clipper.node, UIPanel, { backgroundColor: new Color(1, 1, 1, 1) });
+    const core = new FakeCore();
+    const padding = { x: 10, y: 10, width: 80, height: 80 };
+    core.set([canvasInfo(canvas)], [
+      [clipper, canvas, { x: 0, y: 0, width: 100, height: 100, order: 3, childClip: padding }],
+      [inner, canvas, { x: 15, y: 20, width: 150, height: 40, order: 4, clip: padding, clipper }],
+    ]);
+    sync(core);
+    const clip = byName(rootOf(), "Clip.clip") as Rectangle;
+    expect([clip.leftInPixels, clip.topInPixels, clip.widthInPixels, clip.heightInPixels]).toEqual([10, 10, 80, 80]);
+    expect(clip.zIndex).toBe(3.5); // after the clipper (3), before the next element of the canvas
+    expect(clip.clipChildren && clip.clipContent).toBe(true);
+    expect(clip.thickness).toBe(0);
+    expect(clip.cornerRadius).toBe(2); // the inner corners: the radius less the border
+    const r = clip.children.find((c) => c.name === "Inner")!;
+    expect([r.leftInPixels, r.topInPixels, r.zIndex]).toEqual([5, 10, 4]); // offset by the clip's corner
+    expect(rootOf().children.some((c) => c.name === "Inner")).toBe(false);
+
+    // No longer hidden: the descendant goes back to the canvas's root, and the clip goes.
+    core.set([canvasInfo(canvas)], [
+      [clipper, canvas, { x: 0, y: 0, width: 100, height: 100, order: 3 }],
+      [inner, canvas, { x: 15, y: 20, width: 150, height: 40, order: 4 }],
+    ]);
+    sync(core);
+    const back = byName(rootOf(), "Inner");
+    expect(back).toBe(r);
+    expect([back.leftInPixels, back.topInPixels]).toEqual([15, 20]);
+    expect(rootOf().children.some((c) => c.name === "Clip.clip")).toBe(false);
+  });
+
+  it("nests a clip in its clipper's clip", () => {
+    const canvas = node("C", null, UICanvas);
+    const outer = node("Outer", canvas.node, UIPanel, { overflow: "hidden" });
+    const inner = node("Inner", outer.node, UIPanel, { overflow: "hidden" });
+    const core = new FakeCore();
+    const outerBox = { x: 0, y: 0, width: 100, height: 100 }, innerBox = { x: 50, y: 50, width: 100, height: 100 };
+    core.set([canvasInfo(canvas)], [
+      [outer, canvas, { ...outerBox, order: 0, childClip: outerBox }],
+      [inner, canvas, { ...innerBox, order: 1, childClip: innerBox, clip: outerBox, clipper: outer }],
+    ]);
+    sync(core);
+    const outerClip = byName(rootOf(), "Outer.clip") as Container;
+    const innerClip = outerClip.children.find((c) => c.name === "Inner.clip")!;
+    expect([innerClip.leftInPixels, innerClip.topInPixels, innerClip.zIndex]).toEqual([50, 50, 1.5]);
+  });
+
+  it("draws equal border sides as the Rectangle's stroke, and unequal ones as an edge rectangle each", () => {
+    const canvas = node("C", null, UICanvas);
+    const panel = node("P", canvas.node, UIPanel, { borderWidth: 2, borderLeftWidth: 6, borderColor: new Color(0, 1, 0, 1) });
+    const core = new FakeCore();
+    core.set([canvasInfo(canvas)], [[panel, canvas, { width: 200, height: 80 }]]);
+    sync(core);
+    const r = byName(rootOf(), "P") as Rectangle;
+    expect(r.thickness).toBe(0);
+    const edges = [0, 1, 2, 3].map((i) => r.children.find((c) => c.name === `P.edge${i}`) as Rectangle);
+    expect(edges.map((e) => e.isVisible)).toEqual([true, true, true, true]);
+    expect([edges[0].heightInPixels, edges[1].widthInPixels, edges[2].heightInPixels, edges[3].widthInPixels]).toEqual([2, 2, 2, 6]);
+    expect(edges.map((e) => e.background)).toEqual(Array(4).fill("rgba(0, 255, 0, 1)"));
+    expect([edges[1].horizontalAlignment, edges[2].verticalAlignment]).toEqual([Control.HORIZONTAL_ALIGNMENT_RIGHT, Control.VERTICAL_ALIGNMENT_BOTTOM]);
+
+    panel.borderLeftWidth = null; // equal again: the stroke
+    sync(core);
+    expect(r.thickness).toBe(2);
+    expect(edges.every((e) => !e.isVisible)).toBe(true);
+  });
+
+  it("insets an input field's text by each side's border and padding", () => {
+    const canvas = node("C", null, UICanvas);
+    const field = node("F", canvas.node, UIInputField, { placeholder: "Name", padding: 8, paddingLeft: 12, borderWidth: 1, borderLeftWidth: 4 });
+    const core = new FakeCore();
+    core.set([canvasInfo(canvas)], [[field, canvas, { width: 240, height: 36 }]]);
+    sync(core);
+    const r = byName(rootOf(), "F") as Rectangle;
+    const label = r.children.find((c) => c.name === "F.text") as TextBlock;
+    expect(r.thickness).toBe(0);
+    expect(label.leftInPixels).toBe(4 + 12);
+    expect(label.topInPixels).toBe(1);
+    expect(label.widthInPixels).toBe(240 - 4 - 1 - 12 - 8);
+    expect(label.heightInPixels).toBe(36 - 2);
   });
 });
 
