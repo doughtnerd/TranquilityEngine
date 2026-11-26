@@ -37,7 +37,7 @@ import { proxy } from "svelte/internal/client";
 import { Color, Vector2 } from "../../../engine/core/math";
 import { uiTagOfHtml } from "../../../engine/ui/host/htmlTags";
 import { setUIHostStyles, UIHostEvent, type UIHostElement, type UIHostEventType, type UIHostSource, type UIHostTree } from "../../../engine/ui/host/UIHost";
-import type { UITag } from "../../../engine/ui/document/types";
+import type { UIStylesheet, UITag } from "../../../engine/ui/document/types";
 
 const EVENTS: Readonly<Record<string, UIHostEventType>> = {
   click: "click",
@@ -714,8 +714,11 @@ export default renderer;
 
 // --- Styles ---------------------------------------------------------------------------------------
 
-/** What a compiled component calls when it's imported: its CSS (`css: 'external'`) joins every view's cascade. */
-export function addStyles(file: string, css: string): void {
+/**
+ * What a compiled component (or a `.css` file it imports) calls when it's imported: its CSS (`css: 'external'`),
+ * parsed into rule data when it compiled, joins every view's cascade.
+ */
+export function addStyles(file: string, css: UIStylesheet): void {
   setUIHostStyles(file, css);
 }
 

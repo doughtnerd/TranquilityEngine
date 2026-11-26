@@ -61,17 +61,37 @@ const ENGINE_TYPES = "virtual:myco-types";
 /** The engine's Svelte renderer module (ADR 0419), which compiled UI components import as `myco/ui-renderer`. */
 export const SVELTE_UI_RENDERER = fileURLToPath(new URL("./src/plugins/ui/svelte/renderer.ts", import.meta.url));
 
+/** The cascade's stylesheet parser, which Vitest's compiled components call when they load (ADR 0419). */
+const UI_STYLESHEET_PARSER = fileURLToPath(new URL("./src/engine/ui/document/stylesheet.ts", import.meta.url));
+/** The id prefix of a plain `.css` file a component imports, as a module registering its rules. */
+const UI_CSS_PREFIX = "\0myco-ui-css:";
+
 /**
  * Game UI components (ADR 0419): `*.svelte` compiled with the engine's custom renderer and external CSS,
- * and `*.svelte.ts` rune modules, through `src/plugins/ui/svelte/compile.mjs`. Filenames are passed
- * relative to the repository, so scoping hashes don't depend on the checkout's location. Vitest uses it
- * now; the editor and export compile the same way (0419 wave A part 2).
+ * `*.svelte.ts` rune modules, and plain `.css` files components import, through
+ * `src/plugins/ui/svelte/compile.mjs`. Filenames are passed relative to the repository, so scoping hashes
+ * don't depend on the checkout's location. Vitest uses it; the editor and the export compile the same way
+ * through the project code linker (`projectCode/compileUI.ts`), which parses the CSS while compiling. Here,
+ * in Node, the parser (TypeScript with decorators behind it) can't load while compiling, so the compiled
+ * module calls it when it loads.
  */
 export function svelteUI(options: { dev?: boolean } = {}): Plugin {
   const root = fileURLToPath(new URL(".", import.meta.url));
+  const styles = { parser: UI_STYLESHEET_PARSER };
   return {
     name: "myco:svelte-ui",
     enforce: "pre",
+    async resolveId(source, importer) {
+      if (!importer || !source.endsWith(".css") || !/\.svelte(\.[jt]s)?$/.test(importer.split("?")[0])) return null;
+      const resolved = await this.resolve(source, importer, { skipSelf: true });
+      return resolved ? UI_CSS_PREFIX + resolved.id : null;
+    },
+    async load(id) {
+      if (!id.startsWith(UI_CSS_PREFIX)) return null;
+      const file = id.slice(UI_CSS_PREFIX.length);
+      const { compileSvelteUIStyles } = await import("./src/plugins/ui/svelte/compile.mjs");
+      return compileSvelteUIStyles(readFileSync(file, "utf8"), { filename: relative(root, file).split(sep).join("/"), styles }).code;
+    },
     async transform(code, id) {
       const file = id.split("?")[0];
       const isComponent = file.endsWith(".svelte");
@@ -80,7 +100,7 @@ export function svelteUI(options: { dev?: boolean } = {}): Plugin {
       const { compileSvelteUI, compileSvelteUIModule } = await import("./src/plugins/ui/svelte/compile.mjs");
       const filename = relative(root, file).split(sep).join("/");
       if (isComponent) {
-        const r = compileSvelteUI(code, { filename, dev: options.dev });
+        const r = compileSvelteUI(code, { filename, dev: options.dev, styles });
         for (const w of r.warnings) this.warn(`${w.code}: ${w.message}`);
         return { code: r.code, map: r.map as never };
       }

@@ -23,6 +23,7 @@ import { Engine, GameObject } from "../../src/engine/index";
 import { World } from "../../src/engine/core/World";
 import { loadUIHostSupport, UIHostTree, type UIHostElement } from "../../src/engine/ui/host/UIHost";
 import { svelteUIOptions } from "../../src/plugins/ui/svelte/compile.mjs";
+import { parseStylesheet } from "../../src/engine/ui/document/stylesheet";
 import { SVELTE_UI_RENDERER } from "../../vite.shared";
 import { assertHtmlEqual, assertHtmlEqualWithOptions } from "./htmlEqual";
 import { ok } from "./testShim";
@@ -122,7 +123,7 @@ function compileSample(dir: string, config: Config): void {
       if (options.css !== "injected") options.css = "external";
       const r = compile(text, options as never);
       let code = r.js.code;
-      if (r.css?.code.trim()) code += `\nimport { addStyles as $$s } from ${JSON.stringify(SVELTE_UI_RENDERER)};\n$$s(${JSON.stringify(abs)}, ${JSON.stringify(r.css.code)});\n`;
+      if (r.css?.code.trim()) code += `\nimport { addStyles as $$s } from ${JSON.stringify(SVELTE_UI_RENDERER)};\n$$s(${JSON.stringify(abs)}, ${JSON.stringify(parseStylesheet(r.css.code, abs))});\n`;
       write(join(out, `${name}.js`), code);
     }
   }

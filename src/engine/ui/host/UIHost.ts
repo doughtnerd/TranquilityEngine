@@ -29,19 +29,23 @@ import { Locale } from "../../localisation/Locale";
 import { UIButton, UICanvas, UIInputField, UIText, type UIComponentType } from "../components";
 import { uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
+import { parseSelectorQuery } from "../document/selectorQuery";
 import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIPseudo, UIStylesheet, UITag } from "../document/types";
 
-type Parsers = typeof import("../document/parsers");
+type Cascade = typeof import("../document/cascade");
 type ComponentClass = new () => UIComponentType;
 
-let parsers: Parsers | null = null;
-let loading: Promise<Parsers> | null = null;
+let cascade: Cascade | null = null;
+let loading: Promise<Cascade> | null = null;
 
-/** Load the cascade (it lives with the stylesheet parser until styles are parsed at export, ADR 0419). Trees can be made once it resolves. */
+/**
+ * Load the cascade (ADR 0419: without the CSS parser, since components' styles arrive parsed). Trees can
+ * be made once it resolves.
+ */
 export function loadUIHostSupport(): Promise<void> {
-  if (parsers) return Promise.resolve();
-  loading ??= import("../document/parsers").then(
-    (m) => (parsers = m),
+  if (cascade) return Promise.resolve();
+  loading ??= import("../document/cascade").then(
+    (m) => (cascade = m),
     (err: unknown) => {
       loading = null;
       throw err;
@@ -50,9 +54,9 @@ export function loadUIHostSupport(): Promise<void> {
   return loading.then(() => undefined);
 }
 
-function requireParsers(): Parsers {
-  if (!parsers) throw new Error("The UI host's cascade isn't loaded: await loadUIHostSupport() first.");
-  return parsers;
+function requireCascade(): Cascade {
+  if (!cascade) throw new Error("The UI host's cascade isn't loaded: await loadUIHostSupport() first.");
+  return cascade;
 }
 
 function warn(message: string): void {
@@ -61,8 +65,8 @@ function warn(message: string): void {
 
 // --- Styles ---------------------------------------------------------------------------------------
 
-/** Each registered stylesheet by its file, in registration order: CSS text, or rule data parsed ahead (at export). */
-const styleSources = new Map<string, string | UIStylesheet>();
+/** Each registered stylesheet by its file, in registration order: rule data, parsed when its component compiled. */
+const styleSources = new Map<string, UIStylesheet>();
 let styleVersion = 0;
 let parsedVersion = -1;
 let parsedSheets: UIStylesheet[] = [];
@@ -71,29 +75,35 @@ let sheetsUseLang = false;
 
 /**
  * Set (or with null, remove) the stylesheet `file` contributes to every hosted tree: a Svelte component's
- * CSS (`css: 'external'`) or an imported `.css` file. Registering a file again replaces it (hot reload),
- * keeping its place in the cascade order.
+ * CSS (`css: 'external'`) or an imported `.css` file, as rule data parsed when it compiled (ADR 0419: games
+ * ship no CSS parser). Registering a file again replaces it (hot reload), keeping its place in the cascade
+ * order; registering equal data again changes nothing.
  */
-export function setUIHostStyles(file: string, css: string | UIStylesheet | null): void {
+export function setUIHostStyles(file: string, css: UIStylesheet | null): void {
   const current = styleSources.get(file);
   if (css === null) {
     if (current === undefined) return;
     styleSources.delete(file);
   } else {
-    if (current === css) return;
+    if (current === css || (current && sameSheet(current, css))) return;
     styleSources.set(file, css);
   }
   styleVersion++;
 }
 
-/** The registered stylesheets, parsed, with cascade order across them. */
+/** Rule data equal to what's registered: a module evaluated again (a relink) with the same CSS. */
+function sameSheet(a: UIStylesheet, b: UIStylesheet): boolean {
+  return a.rules.length === b.rules.length && JSON.stringify(a) === JSON.stringify(b);
+}
+
+/** The registered stylesheets, with cascade order across them. */
 function hostSheets(): readonly UIStylesheet[] {
   if (parsedVersion === styleVersion) return parsedSheets;
-  const P = requireParsers();
+  const P = requireCascade();
   let order = 0;
   const sheets: UIStylesheet[] = [];
   for (const [file, source] of styleSources) {
-    const sheet = typeof source === "string" ? P.parseStylesheet(source, file, order) : { ...source, rules: source.rules.map((r, i) => ({ ...r, order: order + i })) };
+    const sheet = { ...source, file, rules: source.rules.map((r, i) => ({ ...r, order: order + i })) };
     order += sheet.rules.length;
     for (const p of sheet.problems) warnOnce(p.message);
     sheets.push(sheet);
@@ -412,7 +422,7 @@ export class UIHostTree {
     /** What relative asset paths in attributes resolve against when an element has no source file. */
     readonly file: string,
   ) {
-    requireParsers();
+    requireCascade();
     const root = new UIHostElement(this, "Canvas", "Canvas", null, false);
     root._node = world._createNode("Canvas", parent.entity);
     root._comp = world._addComponent(root._node.entity, UICanvas);
@@ -645,7 +655,7 @@ export class UIHostTree {
   _query<F extends boolean>(selector: string, within: UIHostElement, first: F): F extends true ? UIHostElement | null : UIHostElement[];
   _query(selector: string, within: UIHostElement, first: boolean): UIHostElement | null | UIHostElement[] {
     const selectors = this.selectors(selector);
-    const P = requireParsers();
+    const P = requireCascade();
     const out: UIHostElement[] = [];
     const visit = (el: UIHostElement): boolean => {
       if (!el._alive) return false;
@@ -665,9 +675,11 @@ export class UIHostTree {
   private selectors(selector: string): readonly Selector[] {
     let cached = this.selectorCache.get(selector);
     if (!cached) {
-      const sheet = requireParsers().parseStylesheet(`${selector}{}`, "<query>");
-      if (sheet.problems.length) throw new Error(`Bad selector "${selector}": ${sheet.problems.map((p) => p.message.replace(/^<query>:\d+:\d+: /, "")).join(" ")}`);
-      cached = sheet.rules[0]?.selectors ?? [];
+      try {
+        cached = parseSelectorQuery(selector);
+      } catch (err) {
+        throw new Error(`Bad selector "${selector}": ${(err as Error).message}.`);
+      }
       this.selectorCache.set(selector, cached);
     }
     return cached;
@@ -714,7 +726,7 @@ export class UIHostTree {
   }
 
   private resolve(el: UIHostElement): void {
-    const P = requireParsers();
+    const P = requireCascade();
     const type = el._comp.constructor as ComponentClass;
     const sheets = parsedSheets;
     const parentResolved = el._parent?._resolved ?? null;
