@@ -4,9 +4,11 @@
  * through `props`, which is reactive. The component's elements are ordinary UI elements: laid out, drawn
  * and clicked by the UI core, styled by every component's CSS.
  *
- * Svelte loads the first time a World has a view, so games without Svelte UI never download it. The
- * view mounts once it has (`ready`); it unmounts when disabled or removed, and mounts again (fresh state)
- * when enabled. A new version of the component (hot reload) mounts again in the frame it appears.
+ * `UIView` never imports Svelte (ADR 0421): a compiled component's module mounts itself (its `$mount`, made
+ * by compile.mjs) with the Svelte and renderer it was linked with, the editor's shared runtime or the game's
+ * own bundle at export. The cascade loads the first time a World has a view. The view mounts once it has
+ * (`ready`); it unmounts when disabled or removed, and mounts again (fresh state) when enabled. A new
+ * version of the component (hot reload) mounts again in the frame it appears.
  */
 import { Component } from "../../../engine/core/Component";
 import { Vector2 } from "../../../engine/core/math";
@@ -15,24 +17,41 @@ import { Assets, normalizeAssetPath } from "../../../engine/scene/Assets";
 import type { UICanvasMode } from "../../../engine/ui/components";
 import { loadUIHostSupport, UIHostTree, type UIHostElement } from "../../../engine/ui/host/UIHost";
 
-type Renderer = typeof import("../svelte/renderer");
-let rendererModule: Renderer | null = null;
-let rendererLoading: Promise<Renderer> | null = null;
+/** A mounted component: the renderer's `MountedView`, as far as `UIView` uses it. */
+interface Mounted {
+  /** The props the component sees, reactive. */
+  readonly props: Record<string, unknown>;
+  /** Apply queued updates now. */
+  flush(): void;
+  unmount(): void;
+}
 
-/** Load Svelte, the engine's renderer and the cascade (once). */
-function loadViewSupport(): Promise<Renderer> {
-  if (rendererModule) return Promise.resolve(rendererModule);
-  rendererLoading ??= Promise.all([import("../svelte/renderer"), loadUIHostSupport()]).then(
-    ([m]) => (rendererModule = m),
+/** What a compiled component's module exports to be mounted: `$mount(host, props)`. */
+type MountComponent = (host: UIHostTree, props: Record<string, unknown>) => Mounted;
+
+/** A compiled component module's mount function, or null for a value that isn't one. */
+function mountOf(module: unknown): MountComponent | null {
+  const mount = (module as { $mount?: unknown } | null)?.$mount;
+  return typeof mount === "function" ? (mount as MountComponent) : null;
+}
+
+let supportLoaded = false;
+let supportLoading: Promise<void> | null = null;
+
+/** Load the cascade and selector reader (once). */
+function loadViewSupport(): Promise<void> {
+  if (supportLoaded) return Promise.resolve();
+  supportLoading ??= loadUIHostSupport().then(
+    () => {
+      supportLoaded = true;
+    },
     (err: unknown) => {
-      rendererLoading = null;
+      supportLoading = null;
       throw err;
     },
   );
-  return rendererLoading;
+  return supportLoading;
 }
-
-type Mounted = ReturnType<Renderer["mountView"]>;
 
 @component("engine.UIView")
 export class UIView extends Component {
@@ -110,13 +129,13 @@ export class UIView extends Component {
   /** @internal */
   override _onActivate(): void {
     const generation = ++this.generation;
-    if (rendererModule) this.mount(rendererModule);
+    if (supportLoaded) this.mount();
     else {
       loadViewSupport().then(
-        (r) => {
-          if (generation === this.generation && this.isActiveAndEnabled && !this.mounted) this.mount(r);
+        () => {
+          if (generation === this.generation && this.isActiveAndEnabled && !this.mounted) this.mount();
         },
-        (err: unknown) => console.error("[myco] couldn't load Svelte for a UIView:", err),
+        (err: unknown) => console.error("[myco] couldn't load the UI cascade for a UIView:", err),
       );
     }
   }
@@ -138,7 +157,7 @@ export class UIView extends Component {
    * Make the canvas and mount the component on it. The canvas is made without a component too (the field
    * empty, the asset missing or broken), so the frame's check below mounts it once that's fixed.
    */
-  private mount(r: Renderer): void {
+  private mount(): void {
     const path = normalizeAssetPath(this.component);
     const value = path && Assets.has(path) ? Assets.get(path) : undefined;
     this.mountedFrom = { path, value };
@@ -149,20 +168,20 @@ export class UIView extends Component {
     this.stopFlush = tree.onFlush(() => {
       if (this.sourceChanged()) {
         this.teardown(true);
-        this.mount(r);
+        this.mount();
         return;
       }
       this.copyCanvasFields();
       this.mounted?.flush();
     });
     if (!path) return;
-    const comp = r.componentOf(value);
-    if (!comp) {
+    const mount = mountOf(value);
+    if (!mount) {
       console.warn(`[myco] UIView on "${this.node.name}": ${value === undefined ? `there's no component "${path}"` : `"${path}" isn't a compiled Svelte component`}.`);
       return;
     }
     try {
-      this.mounted = r.mountView(tree, comp, this.staging);
+      this.mounted = mount(tree, this.staging);
     } catch (err) {
       console.error(`[myco] UIView on "${this.node.name}": "${path}" threw while mounting:`, err);
       return;

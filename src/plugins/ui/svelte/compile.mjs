@@ -35,6 +35,12 @@ export function svelteUIOptions(filename, { renderer = DEFAULT_RENDERER, dev = f
 export function compileSvelteUI(source, { filename, renderer = DEFAULT_RENDERER, dev = false, styles }) {
   const r = compile(source, svelteUIOptions(filename, { renderer, dev }));
   let code = r.js.code;
+  // ADR 0421: the module mounts its own component, with the Svelte and the renderer it was linked with (the editor's
+  // shared runtime, or the game's own bundle), so `UIView` never imports Svelte. A `$` name can't clash with the
+  // component's own exports (Svelte reserves it).
+  const name = /^export default function ([\w$]+)\(/m.exec(code)?.[1];
+  if (!name) throw new Error(`${filename}: the compiled component has no default export function.`);
+  code += `\nimport { mountView as $$mycoMountView } from ${JSON.stringify(renderer)};\nexport const $mount = (host, props) => $$mycoMountView(host, ${name}, props);\n`;
   const css = r.css?.code ?? "";
   if (css.trim()) {
     const add = `import { addStyles as $$mycoAddStyles } from ${JSON.stringify(renderer)};\n`;
