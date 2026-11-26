@@ -417,7 +417,7 @@ describe("menus", () => {
     select(["bare"]);
     const [elements] = createMenuItems(scene());
     expect(elements.label).toBe("Element in Document");
-    expect(elements.submenu!.map((i) => i.label)).toEqual(["Button", "Image", "Input Field", "Panel", "Text"]);
+    expect(elements.submenu!.map((i) => i.label)).toEqual(["Button", "Checkbox", "Drop-down", "Form", "Image", "Input Field", "Label", "Meter", "Option", "Panel", "Progress Bar", "Radio Button", "Slider", "Text", "Text Area"]);
     elements.submenu!.find((i) => i.label === "Text")!.run!();
     await settle();
     expect(selectedUIRef()).toEqual(ref("/Text[0]", "bare"));
