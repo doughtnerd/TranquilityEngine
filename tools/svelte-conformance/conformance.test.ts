@@ -13,7 +13,7 @@
 // Every sample is its own test that records its result without failing; the last test is the ratchet: every
 // sample listed in baseline.json must still pass. `UPDATE_BASELINE=1` rewrites the baseline from this run.
 // Results, with each failure's category and message, go to node_modules/.cache/svelte-conformance/results.json.
-import { afterAll, assert, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, assert, beforeAll, describe, expect, it, vi, type MockInstance } from "vitest";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,12 +28,16 @@ import { SVELTE_UI_RENDERER } from "../../vite.shared";
 import { assertHtmlEqual, assertHtmlEqualWithOptions } from "./htmlEqual";
 import { ok } from "./testShim";
 import { animations, clock, standInAnimate } from "./animationStandIn";
+import { setPage } from "./pageGlobals";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const version = JSON.parse(readFileSync(join(root, "node_modules/svelte/package.json"), "utf8")).version as string;
-const checkout = join(root, "node_modules/.cache/svelte-conformance", version);
+// `SVELTE_CONFORMANCE_CACHE` moves the fixtures and results (a directory holding `<version>/` and `results.json`) so
+// concurrent runs don't share the compiled output; its path must contain "svelte-conformance" (the Vitest config's imports).
+const cache = process.env.SVELTE_CONFORMANCE_CACHE ?? join(root, "node_modules/.cache/svelte-conformance");
+const checkout = join(cache, version);
 const SAMPLES = join(checkout, "packages/svelte/tests/runtime-runes/samples");
-const RESULTS = join(root, "node_modules/.cache/svelte-conformance/results.json");
+const RESULTS = join(cache, "results.json");
 const BASELINE = join(root, "tools/svelte-conformance/baseline.json");
 const FILTER = process.env.FILTER ? new RegExp(process.env.FILTER) : null;
 const SAMPLE_TIMEOUT = 5000;
@@ -43,13 +47,46 @@ interface Result {
   status: Status;
   category?: string;
   message?: string;
+  /** With `DEBUG=stack`: where a failure was thrown. */
+  stack?: string;
 }
 const results = new Map<string, Result>();
+
+/**
+ * The baseline (baseline.json): the samples that must keep passing (the ratchet), and the samples out of scope (ADR
+ * 0419's "Out of scope": impossible or meaningless in a canvas game, or an expectation only jsdom can meet), each with
+ * its reason. Out-of-scope samples still run, so one that starts passing shows; the in-scope pass rate leaves them out.
+ * TRIAGE.md classifies every sample that doesn't pass.
+ */
+interface Baseline {
+  version: string;
+  counts: Record<string, number>;
+  passing: string[];
+  outOfScope: Record<string, string>;
+}
+const baseline: Baseline | null = existsSync(BASELINE) ? (JSON.parse(readFileSync(BASELINE, "utf8")) as Baseline) : null;
+const outOfScope: Record<string, string> = baseline?.outOfScope ?? {};
+
+/** The run's counts: every sample's, and those of the samples in scope (not skipped, not out of scope). */
+function tally(): { pass: number; fail: number; skip: number; outOfScope: number; inScopeRun: number; inScopePass: number } {
+  const counts = { pass: 0, fail: 0, skip: 0, outOfScope: 0, inScopeRun: 0, inScopePass: 0 };
+  for (const [name, r] of results) {
+    counts[r.status]++;
+    if (r.status === "skip") continue;
+    if (name in outOfScope) counts.outOfScope++;
+    else {
+      counts.inScopeRun++;
+      if (r.status === "pass") counts.inScopePass++;
+    }
+  }
+  return counts;
+}
 
 interface Config {
   skip?: boolean;
   mode?: string[];
   skip_mode?: string[];
+  skip_async?: boolean;
   html?: string;
   props?: Record<string, unknown>;
   compileOptions?: Record<string, unknown>;
@@ -70,6 +107,11 @@ let engine: Engine;
 let raf: { reset(): void; tick(ms: number): void } = { reset() {}, tick() {} };
 /** The `window` tests get: the renderer's `<svelte:window>` target (its listeners, sizes and `dispatchEvent`), with the event constructors. */
 let testWindow: object = {};
+/** The mounted sample's target: the page's content, which the page `document`'s queries search (pageGlobals.ts). */
+let currentTarget: object | null = null;
+/** The listeners a sample's config added to the page's window, removed after it. */
+const pageListeners: unknown[][] = [];
+let matchMediaSpy: MockInstance | null = null;
 
 class FakeEvent {
   defaultPrevented = false;
@@ -114,7 +156,7 @@ function compileSample(dir: string, config: Config): void {
     const abs = join(dir, file);
     const text = readFileSync(abs, "utf8").replace(/\r\n/g, "\n");
     if (file.endsWith(".svelte.js")) {
-      const r = compileModule(text, { filename: abs, generate: "client", dev: !!extra.dev, experimental: { async: true } });
+      const r = compileModule(text, { filename: abs, rootDir: dir, generate: "client", dev: !!extra.dev, experimental: { async: true } });
       write(join(out, file), r.js.code);
     } else if (file.endsWith(".js")) {
       const source = relative(dirname(join(out, file)), abs).replace(/\\/g, "/");
@@ -122,7 +164,7 @@ function compileSample(dir: string, config: Config): void {
     } else if (file.endsWith(".svelte") && !file.endsWith(".server.svelte")) {
       const name = file.replace(/\.client\.svelte$/, ".svelte");
       const base = svelteUIOptions(abs, { renderer: SVELTE_UI_RENDERER, dev: !!extra.dev });
-      const options = { ...base, ...extra, experimental: { ...(extra.experimental as object), async: true, customRenderer: SVELTE_UI_RENDERER }, runes: "runes" in extra ? (extra.runes as boolean) : true, filename: abs, generate: "client" as const };
+      const options = { ...base, ...extra, experimental: { ...(extra.experimental as object), async: true, customRenderer: SVELTE_UI_RENDERER }, runes: "runes" in extra ? (extra.runes as boolean) : true, filename: abs, rootDir: dir, generate: "client" as const };
       if (options.css !== "injected") options.css = "external";
       const r = compile(text, options as never);
       let code = r.js.code;
@@ -134,7 +176,13 @@ function compileSample(dir: string, config: Config): void {
   }
 }
 
-function classify(err: unknown, stage: "compile" | "run"): { category: string; message: string } {
+function classify(err: unknown, stage: "compile" | "run"): { category: string; message: string; stack?: string } {
+  const e = err as { message?: string; name?: string; code?: string; stack?: string };
+  if (process.env.DEBUG === "stack" && e?.stack) return { ...classifyMessage(e, stage), stack: e.stack.split("\n").slice(1, 12).join("\n") };
+  return classifyMessage(e, stage);
+}
+
+function classifyMessage(err: unknown, stage: "compile" | "run"): { category: string; message: string } {
   const e = err as { message?: string; name?: string; code?: string };
   const message = process.env.DEBUG ? `${String(e?.message ?? err)}${(err as { actual?: unknown })?.actual !== undefined ? `\nactual:   ${JSON.stringify((err as { actual?: unknown }).actual)}\nexpected: ${JSON.stringify((err as { expected?: unknown }).expected)}` : ""}` : String(e?.message ?? err).split("\n")[0].slice(0, 300);
   const refused = /^(`[^`]+`|[^ ]+) is not compatible with `customRenderer`/.exec(message);
@@ -179,6 +227,8 @@ async function runSample(name: string): Promise<Result> {
   const dir = join(SAMPLES, name);
   const config = ((await import(join(dir, "_config.js"))) as { default: Config }).default;
   if (config.skip) return { status: "skip", category: "skipped by Svelte" };
+  // Svelte runs runtime-runes in async mode by default (`SVELTE_NO_ASYNC` unset), skipping these; the harness compiles in async mode too.
+  if (config.skip_async) return { status: "skip", category: "skipped in Svelte's async mode" };
   if (config.skip_mode?.includes("client") || (config.mode && !config.mode.includes("client"))) return { status: "skip", category: "not a client test" };
 
   try {
@@ -191,8 +241,8 @@ async function runSample(name: string): Promise<Result> {
   const logs: unknown[] = [];
   const warnings: unknown[] = [];
   const errors: unknown[] = [];
-  const original = { log: console.log, warn: console.warn, error: console.error };
-  console.log = (...args: unknown[]) => logs.push(...args);
+  const original = { log: console.log, warn: console.warn, error: console.error, group: console.group, groupCollapsed: console.groupCollapsed, groupEnd: console.groupEnd };
+  console.log = (...args: unknown[]) => void logs.push(...args); // returns undefined, as console.log does (`{console.log(x)}` renders "")
   console.warn = (...args: unknown[]) => {
     if (typeof args[0] === "string" && args[0].startsWith("[myco]")) return; // the engine's own notes, not Svelte's
     if (typeof args[0] === "string" && args[0].startsWith("%c[svelte]")) {
@@ -203,24 +253,47 @@ async function runSample(name: string): Promise<Result> {
       warnings.push(message);
     } else warnings.push(...args);
   };
-  console.error = (...args: unknown[]) => errors.push(...args);
+  let rejection: unknown = null;
+  const onRejection = (err: unknown) => (rejection ??= err);
+  console.error = (...args: unknown[]) => {
+    // An event listener that threw: the engine reports it (`[myco] a UI "click" handler on <button> threw:`, error), as
+    // the DOM reports a listener's exception rather than throwing it at the dispatcher. jsdom's report is an `error`
+    // event on the window and a console error; unless a window listener stops it, Svelte's harness counts it as uncaught.
+    if (typeof args[0] === "string" && args[0].startsWith("[myco]") && / (threw|failed):?$/.test(args[0]) && args.length > 1) {
+      const err = args[1] as { message?: unknown };
+      errors.push(String(err?.message ?? err));
+      const report = new FakeEvent("error", { error: err, message: String(err?.message ?? err) });
+      (testWindow as { dispatchEvent(e: unknown): unknown }).dispatchEvent(report);
+      if (!report._stopped && !report.defaultPrevented) onRejection(err);
+      return;
+    }
+    errors.push(...args);
+  };
+  // `$inspect` and `$inspect.trace` group their output: the group labels are logs too, as in Svelte's harness.
+  console.group = console.groupCollapsed = (...args: unknown[]) => void logs.push(...args);
+  console.groupEnd = () => {};
 
   const world = World.require();
   const node = GameObject.create(`conformance ${name}`);
   const tree = new UIHostTree(world, node, `samples/${name}`);
   let mounted: ReturnType<Renderer["mountView"]> | null = null;
   let unintended = false;
-  let rejection: unknown = null;
-  const onRejection = (err: unknown) => (rejection ??= err);
   process.on("unhandledRejection", onRejection);
   process.on("uncaughtException", onRejection);
   try {
     raf.reset();
+    // A fresh page per sample, as jsdom is for Svelte: no title left by the previous sample's `<svelte:head>`.
+    ((renderer.default as unknown as { globalTarget(kind: string): { title: string } }).globalTarget("document")).title = "";
+    matchMediaSpy?.mockClear();
+    // ...and `$props.id()` counting from c1 again (Svelte keeps its counter on the global object, jsdom's window per test).
+    const svelteGlobal = (globalThis as { __svelte?: { uid?: number } }).__svelte;
+    if (svelteGlobal) svelteGlobal.uid = 1;
     (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = setTimeout;
     config.before_test?.();
     const mod = (await import(join(dir, "_output_myco/main.svelte.js"))) as { default: never };
     mounted = renderer.mountView(tree, mod.default, config.props ?? {});
     const target = mounted.target;
+    currentTarget = target;
     if (config.error) {
       unintended = true;
       assert.fail("Expected a runtime error");
@@ -275,6 +348,8 @@ async function runSample(name: string): Promise<Result> {
     if (!unintended && config.error && message.includes(config.error)) return { status: "pass" };
     return { status: "fail", ...classify(err, "run") };
   } finally {
+    currentTarget = null;
+    for (const args of pageListeners.splice(0)) (testWindow as { removeEventListener(...a: unknown[]): void }).removeEventListener(...args);
     try {
       mounted?.unmount();
     } catch {
@@ -291,6 +366,9 @@ async function runSample(name: string): Promise<Result> {
     console.log = original.log;
     console.warn = original.warn;
     console.error = original.error;
+    console.group = original.group;
+    console.groupCollapsed = original.groupCollapsed;
+    console.groupEnd = original.groupEnd;
     tree.dispose();
     GameObject.destroy(node);
     world.applyDestroys();
@@ -311,11 +389,22 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
     // (the samples compile with `compile` itself, so the harness registers it once).
     renderer.useHtmlParser((await import("../../src/plugins/ui/svelte/htmlInline")).parseInlineHtml);
     const win = (renderer.default as unknown as { globalTarget(kind: string): object }).globalTarget("window");
-    testWindow = new Proxy(win, { get: (target, key, receiver) => (typeof key === "string" && key in fakeWindow ? fakeWindow[key as keyof typeof fakeWindow] : Reflect.get(target, key, receiver)) });
+    // A config's own window listeners last only for its sample (jsdom's window is fresh per test); see `pageListeners`.
+    const addListener = (win as { addEventListener(...a: unknown[]): void }).addEventListener.bind(win);
+    const added = (...args: unknown[]) => {
+      pageListeners.push(args);
+      addListener(...args);
+    };
+    testWindow = new Proxy(win, { get: (target, key, receiver) => (key === "addEventListener" ? added : typeof key === "string" && key in fakeWindow ? fakeWindow[key as keyof typeof fakeWindow] : Reflect.get(target, key, receiver)) });
+    // Svelte's harness mocks `window.matchMedia` (jsdom has none) and fixtures check its calls: the window target's is spied on, its answers kept.
+    matchMediaSpy = vi.spyOn(win as { matchMedia(q: string): unknown }, "matchMedia");
     // The event constructors tests make events with (dispatched to renderer nodes, which read only `type`). The global
     // `window` and `document` stay undefined (engine code takes a defined `window` for a browser); the `window` a test
     // gets as an argument is the renderer's `<svelte:window>` target.
+    setPage({ window: testWindow, document: (renderer.default as unknown as { globalTarget(kind: string): object }).globalTarget("document"), target: () => currentTarget, tick: (ms) => raf.tick(ms) });
     for (const [k, v] of Object.entries(fakeWindow)) if (!(k in globalThis)) (globalThis as Record<string, unknown>)[k] = v;
+    // The page's `name` (`window.name`, "" on a fresh page), a global in jsdom and browsers that a component can name by accident (`{name}`).
+    if (!("name" in globalThis)) (globalThis as Record<string, unknown>).name = "";
     // Svelte's `raf` test helper, with its animation stand-in moved from `element.animate` to the renderer's `animate`
     // hook (animationStandIn.ts): keyframes go to the node's inline style on the test's clock, as in Svelte's DOM runs.
     // The renderer's own `measure` stays (a fixture's stubbed `getBoundingClientRect` on a node is what it reads).
@@ -350,18 +439,20 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
       for (const l of saved.exception) process.on("uncaughtException", l);
     }
     engine?.dispose();
-    const counts = { pass: 0, fail: 0, skip: 0 };
+    const counts = tally();
     const categories = new Map<string, number>();
-    for (const r of results.values()) {
-      counts[r.status]++;
-      if (r.status === "fail") categories.set(r.category!, (categories.get(r.category!) ?? 0) + 1);
-    }
+    for (const [name, r] of results) if (r.status === "fail" && !(name in outOfScope)) categories.set(r.category!, (categories.get(r.category!) ?? 0) + 1);
     const sorted = [...categories].sort((a, b) => b[1] - a[1]);
+    const samples = Object.fromEntries([...results].map(([n, r]) => [n, n in outOfScope ? { ...r, outOfScope: outOfScope[n] } : r]));
     mkdirSync(dirname(RESULTS), { recursive: true });
-    writeFileSync(RESULTS, JSON.stringify({ version, counts, categories: Object.fromEntries(sorted), samples: Object.fromEntries(results) }, null, 2));
+    writeFileSync(RESULTS, JSON.stringify({ version, counts, categories: Object.fromEntries(sorted), samples }, null, 2));
     const run = counts.pass + counts.fail;
-    original.log(`\nSvelte ${version} runtime-runes on the engine's renderer: ${counts.pass} pass, ${counts.fail} fail, ${counts.skip} skip (${run ? ((100 * counts.pass) / run).toFixed(1) : 0}% of ${run} run)`);
+    const pct = (a: number, b: number) => (b ? ((100 * a) / b).toFixed(1) : "0");
+    original.log(`\nSvelte ${version} runtime-runes on the engine's renderer: ${counts.pass} pass, ${counts.fail} fail, ${counts.skip} skip (${pct(counts.pass, run)}% of ${run} run)`);
+    original.log(`In scope: ${counts.inScopePass} of ${counts.inScopeRun} pass (${pct(counts.inScopePass, counts.inScopeRun)}%); ${counts.outOfScope} run out of scope (baseline.json's outOfScope)`);
     for (const [c, n] of sorted.slice(0, 25)) original.log(`  ${String(n).padStart(4)}  ${c}`);
+    const nowPassing = Object.keys(outOfScope).filter((n) => results.get(n)?.status === "pass");
+    if (nowPassing.length) original.log(`Out of scope but passing now (take them off the list): ${nowPassing.join(", ")}`);
     original.log(`Results: ${RESULTS}`);
   });
 
@@ -375,20 +466,21 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
       }
       results.set(name, result);
       // `DEBUG=1` with a FILTER: show why each failure failed.
-      if (process.env.DEBUG && result.status === "fail") original.log(`${name}: ${result.category}\n${result.message}`);
+      if (process.env.DEBUG && result.status === "fail") original.log(`${name}: ${result.category}\n${result.message}${result.stack ? `\n${result.stack}` : ""}`);
     });
   }
 
   it("keeps every sample in the baseline passing (the ratchet)", () => {
     if (FILTER) return;
     const passing = [...results].filter(([, r]) => r.status === "pass").map(([n]) => n).sort();
+    // Every out-of-scope sample names one that exists, with a reason.
+    expect(Object.entries(outOfScope).filter(([n, why]) => !results.has(n) || !why.trim()).map(([n]) => n), "outOfScope entries without a sample or a reason").toEqual([]);
     if (process.env.UPDATE_BASELINE) {
-      const counts = { pass: passing.length, fail: [...results.values()].filter((r) => r.status === "fail").length, skip: [...results.values()].filter((r) => r.status === "skip").length };
-      writeFileSync(BASELINE, `${JSON.stringify({ version, counts, passing }, null, 2)}\n`);
+      const sortedOut = Object.fromEntries(Object.entries(outOfScope).sort(([a], [b]) => (a < b ? -1 : 1)));
+      writeFileSync(BASELINE, `${JSON.stringify({ version, counts: tally(), passing, outOfScope: sortedOut }, null, 2)}\n`);
       return;
     }
-    if (!existsSync(BASELINE)) return;
-    const baseline = JSON.parse(readFileSync(BASELINE, "utf8")) as { passing: string[] };
+    if (!baseline) return;
     const lost = baseline.passing.filter((n) => results.get(n)?.status !== "pass");
     expect(lost, "samples that passed in baseline.json and fail now").toEqual([]);
   });

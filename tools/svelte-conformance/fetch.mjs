@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const version = JSON.parse(readFileSync(join(root, "node_modules/svelte/package.json"), "utf8")).version;
-const dir = join(root, "node_modules/.cache/svelte-conformance", version);
+const dir = join(process.env.SVELTE_CONFORMANCE_CACHE ?? join(root, "node_modules/.cache/svelte-conformance"), version);
 const marker = join(dir, "packages/svelte/tests/runtime-runes/samples");
 
 if (existsSync(marker)) {

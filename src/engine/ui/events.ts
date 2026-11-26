@@ -146,11 +146,13 @@ export interface UIEventRecord {
   prevented: boolean;
   /** The default action: run after the record is dispatched, told whether it was prevented. */
   readonly after?: (prevented: boolean) => void;
+  /** What runs before the record is dispatched: a click's legacy pre-activation (a checkbox toggling), which `after` undoes when prevented. */
+  readonly before?: () => void;
 }
 
 /** A record of `type` on `target` with the type's DOM rules. */
-export function uiEventRecord(type: string, target: UIComponentType | null, data: UIEventData = {}, after?: (prevented: boolean) => void): UIEventRecord {
-  return { type, target, bubbles: uiEventBubbles(type), cancelable: uiEventCancelable(type), data, prevented: false, after };
+export function uiEventRecord(type: string, target: UIComponentType | null, data: UIEventData = {}, after?: (prevented: boolean) => void, before?: () => void): UIEventRecord {
+  return { type, target, bubbles: uiEventBubbles(type), cancelable: uiEventCancelable(type), data, prevented: false, after, before };
 }
 
 // --- The event object ----------------------------------------------------------------------------
@@ -387,8 +389,27 @@ export function dispatchUIEvents(world: World): void {
 const dispatching = new Set<World>();
 const dispatchedFrame = new WeakMap<World, number>();
 
+/**
+ * Dispatch `record` now, with its default action, as the DOM dispatches an event a script sends (`element.click()`):
+ * the events its default action sends (a checkbox's `input` and `change`, a form's `submit`) go at once too.
+ */
+export function dispatchUIEventNow(world: World, record: UIEventRecord): void {
+  const nested = dispatching.has(world);
+  dispatching.add(world);
+  try {
+    dispatchRecord(record);
+  } finally {
+    if (!nested) dispatching.delete(world);
+  }
+}
+
 /** One record to its front end, then its default action. */
 function dispatchRecord(r: UIEventRecord): void {
+  try {
+    r.before?.();
+  } catch (err) {
+    console.error(`[myco] the activation of a UI "${r.type}" event failed:`, err);
+  }
   if (r.target) {
     for (const fe of frontEnds) {
       try {

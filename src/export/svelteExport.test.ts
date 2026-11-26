@@ -169,6 +169,8 @@ describe("exporting Svelte UI", () => {
     // Measured 2026-11-26 (Svelte 5.59.2, esbuild 0.28.2): 24.9 KB gzip for the HUD's components, rule data, Svelte and the renderer
     // at 0421; 30.6 KB once waves Y1-Y3 grew the renderer (window units and matchMedia, animate/measure, event propagation, scrolling);
     // 36.9 KB at Z3 (form elements, SVG, media, inline runs and {@html}, then Svelte's frames and clock on the engine frame).
+    // 38.2 KB (38,221 bytes) after Z1-Z2 (form bindings, SVG, media, 0425's runs and `html` hook) and the conformance triage's
+    // Element-subset members (reflected attributes, namespaces, stepUp, booleans as the DOM writes them).
     expect(gzip).toBeLessThan(MEASURED_GZIP * 1.2);
   });
 
@@ -222,4 +224,4 @@ describe("exporting Svelte UI", () => {
 });
 
 /** The HUD's UI code, gzip bytes per file summed, as measured (the tripwire is 20% above it). */
-const MEASURED_GZIP = 36_900;
+const MEASURED_GZIP = 38_200;

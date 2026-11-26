@@ -145,14 +145,29 @@ type Propagating = { type: string; bubbles?: boolean; eventPhase?: number; _stop
  * ADR 0422: run `type`'s listeners on `el` for a phase (1 capture, 2 target, 3 bubble), `this` being the node. A
  * listener added with `once` is removed first; `stopImmediatePropagation` ends the run.
  */
+/**
+ * Set an event's propagation field (`target`, `currentTarget`, `eventPhase`) as dispatch does: assigned on a plain or
+ * engine event, defined on the instance for a DOM `Event` a script made (`new Event("blur")`), whose are read-only.
+ */
+function setEventField(event: object, key: "target" | "currentTarget" | "eventPhase", value: unknown): void {
+  const e = event as Record<string, unknown>;
+  try {
+    e[key] = value;
+  } catch {
+    // read-only: defined below
+  }
+  if (e[key] === value) return;
+  try {
+    Object.defineProperty(event, key, { configurable: true, enumerable: true, get: () => value });
+  } catch {
+    // a frozen event keeps its own
+  }
+}
+
 function runListeners(el: UIRenderElement, type: string, event: Propagating, phase: 1 | 2 | 3): void {
   const list = el._listeners.get(type);
   if (!list?.length) return;
-  try {
-    event.currentTarget = el;
-  } catch {
-    // an event whose fields are read-only
-  }
+  setEventField(event, "currentTarget", el);
   runUIListeners(list, phase, event, (h) => h.call(el, event));
 }
 
@@ -369,13 +384,18 @@ export class UIRenderElement extends UINodeBase {
   /** Its `data-*` attributes by camel-case name, as the DOM's `dataset`. */
   readonly dataset: Record<string, string | undefined> = datasetProxy(this);
 
-  constructor(readonly localName: string) {
+  constructor(
+    readonly localName: string,
+    /** @internal The namespace it was created in, when the renderer is told (Svelte's `createElement(name, namespace)`); else worked out from where it is. */ readonly _namespace: string | null = null,
+  ) {
     super();
     const ui = uiTagOfHtml(localName);
     // Head content (`<svelte:head>`) is warned about where it's inserted.
     // ADR 0426: an <svg>'s shapes are kept as its SVG document (warned about where they're inserted outside one).
     if (!ui && !HEAD_TAGS.has(localName) && !SVG_CONTENT_TAGS.has(localName.toLowerCase())) warnOnce(`<${localName}> isn't an HTML tag the UI knows; it renders as a Panel (a <div>).`);
     this._uiTag = ui ?? "Panel";
+    // A select iterates over its options (`const [first] = select`), as the DOM's does; other elements aren't iterable.
+    if (this._uiTag === "Select") Object.defineProperty(this, Symbol.iterator, { value: () => this.options[Symbol.iterator]() });
   }
 
   get tagName(): string {
@@ -401,6 +421,160 @@ export class UIRenderElement extends UINodeBase {
 
   set className(value: string) {
     this.setAttribute("class", value);
+  }
+
+  set id(value: string) {
+    this.setAttribute("id", value);
+  }
+
+  /**
+   * Its namespace, as the DOM's: the one it was created in when the renderer was told (`createElement(name, namespace)`),
+   * else an `xmlns` attribute's, else where it is: SVG inside an `<svg>` (HTML again inside a `<foreignObject>`), MathML
+   * inside a `<math>`, HTML elsewhere.
+   */
+  get namespaceURI(): string {
+    for (let n: UIRenderElement | null = this; n; n = n._parent instanceof UIRenderElement ? n._parent : null) {
+      if (n._namespace) return n === this || n.localName.toLowerCase() !== "foreignobject" ? n._namespace : NAMESPACE_HTML;
+      const xmlns = n.getAttribute("xmlns");
+      if (xmlns) return xmlns;
+      const tag = n.localName.toLowerCase();
+      if (n !== this && tag === "foreignobject") return NAMESPACE_HTML;
+      if (tag === "svg") return NAMESPACE_SVG;
+      if (tag === "math") return NAMESPACE_MATHML;
+    }
+    return NAMESPACE_HTML;
+  }
+
+  // --- Reflected attributes, as the DOM's IDL attributes reflect them --------------------------------
+
+  /** HTML's `hidden` (a boolean attribute). */
+  get hidden(): boolean {
+    return this.hasAttribute("hidden");
+  }
+
+  set hidden(on: boolean) {
+    this.reflectFlag("hidden", on);
+  }
+
+  /** HTML's `inert` (a boolean attribute). */
+  get inert(): boolean {
+    return this.hasAttribute("inert");
+  }
+
+  set inert(on: boolean) {
+    this.reflectFlag("inert", on);
+  }
+
+  /** HTML's `disabled` (a boolean attribute; a disabled control isn't interactable, ADR 0424). */
+  get disabled(): boolean {
+    return this.hasAttribute("disabled");
+  }
+
+  set disabled(on: boolean) {
+    this.reflectFlag("disabled", on);
+  }
+
+  /** `<details>`' and `<dialog>`'s `open` (a boolean attribute). */
+  get open(): boolean {
+    return this.hasAttribute("open");
+  }
+
+  set open(on: boolean) {
+    this.reflectFlag("open", on);
+  }
+
+  /** HTML's `draggable`: `true`/`false` as written, else images (and links with an `href`) are draggable by default. */
+  get draggable(): boolean {
+    const v = this.getAttribute("draggable")?.toLowerCase();
+    if (v === "true") return true;
+    if (v === "false") return false;
+    const tag = this.localName.toLowerCase();
+    return tag === "img" || (tag === "a" && this.hasAttribute("href"));
+  }
+
+  set draggable(on: boolean) {
+    this.setAttribute("draggable", on ? "true" : "false");
+  }
+
+  /** HTML's `translate`: `yes` (or "") and `no` as written, else its parent's (true at the top). */
+  get translate(): boolean {
+    for (let n: UIRenderElement | null = this; n; n = n._parent instanceof UIRenderElement ? n._parent : null) {
+      const v = n.getAttribute("translate")?.toLowerCase();
+      if (v === "yes" || v === "") return true;
+      if (v === "no") return false;
+    }
+    return true;
+  }
+
+  set translate(on: boolean) {
+    this.setAttribute("translate", on ? "yes" : "no");
+  }
+
+  /** An `<input>`'s type as the DOM reads it (lower case, `text` for none or one it doesn't know), a `<button>`'s (`submit` by default); else the attribute. */
+  get type(): string {
+    const tag = this.localName.toLowerCase();
+    const v = this.getAttribute("type");
+    if (tag === "input") {
+      const t = (v ?? "").toLowerCase();
+      return INPUT_TYPES.has(t) ? t : "text";
+    }
+    if (tag === "button") {
+      const t = (v ?? "").toLowerCase();
+      return t === "reset" || t === "button" ? t : "submit";
+    }
+    return v ?? "";
+  }
+
+  set type(value: string) {
+    this.setAttribute("type", value);
+  }
+
+  get name(): string {
+    return this.getAttribute("name") ?? "";
+  }
+
+  set name(value: string) {
+    this.setAttribute("name", value);
+  }
+
+  get title(): string {
+    return this.getAttribute("title") ?? "";
+  }
+
+  set title(value: string) {
+    this.setAttribute("title", value);
+  }
+
+  get lang(): string {
+    return this.getAttribute("lang") ?? "";
+  }
+
+  set lang(value: string) {
+    this.setAttribute("lang", value);
+  }
+
+  get dir(): string {
+    const v = this.getAttribute("dir")?.toLowerCase() ?? "";
+    return v === "ltr" || v === "rtl" || v === "auto" ? v : "";
+  }
+
+  set dir(value: string) {
+    this.setAttribute("dir", value);
+  }
+
+  /** HTML's `tabIndex`: the attribute as a number, else 0 for a focusable control and -1 for anything else. */
+  get tabIndex(): number {
+    const n = parseInt(this.getAttribute("tabindex") ?? "", 10);
+    return Number.isFinite(n) ? n : FOCUSABLE_TAGS.has(this._uiTag) ? 0 : -1;
+  }
+
+  set tabIndex(n: number) {
+    this.setAttribute("tabindex", String(Math.trunc(Number(n) || 0)));
+  }
+
+  private reflectFlag(name: string, on: boolean): void {
+    if (on) this.setAttribute(name, "");
+    else this.removeAttribute(name);
   }
 
   readonly nodeType = 1;
@@ -500,6 +674,17 @@ export class UIRenderElement extends UINodeBase {
     return out;
   }
 
+  /** The elements inside this one with a tag (`*` for every one), in order. */
+  getElementsByTagName(tag: string): UIRenderElement[] {
+    return this.querySelectorAll(tag === "*" ? "*" : String(tag));
+  }
+
+  /** The elements inside this one with every class in `names` (space-separated), in order. */
+  getElementsByClassName(names: string): UIRenderElement[] {
+    const classes = String(names).split(/\s+/).filter(Boolean);
+    return classes.length ? this.querySelectorAll(classes.map((c) => `.${c}`).join("")) : [];
+  }
+
   /** Whether a selector matches it (the selectors `querySelector` takes). */
   matches(selector: string): boolean {
     const scope = mountOf(this);
@@ -534,22 +719,14 @@ export class UIRenderElement extends UINodeBase {
    */
   dispatchEvent(event: { type: string; defaultPrevented?: boolean; target?: unknown; currentTarget?: unknown; bubbles?: boolean }): boolean {
     const e = event as Propagating;
-    try {
-      e.target ??= this;
-    } catch {
-      // an event whose fields are read-only
-    }
+    if (e.target === undefined || e.target === null) setEventField(e, "target", this);
     const path: UIRenderElement[] = [];
     for (let n: UIRenderElement | UIRenderFragment | null = this; n instanceof UIRenderElement; n = n._parent) {
       path.push(n);
       if (n._tree) break; // the view's mount node: the canvas
     }
     const setPhase = (p: number) => {
-      try {
-        e.eventPhase = p;
-      } catch {
-        // read-only
-      }
+      setEventField(e, "eventPhase", p);
     };
     for (let i = path.length - 1; i >= 1 && !e._stopped; i--) {
       setPhase(1);
@@ -570,13 +747,15 @@ export class UIRenderElement extends UINodeBase {
     return !event.defaultPrevented;
   }
 
-  /** Click it, as a script can on the web: a bubbling `click` (a `UIHostEvent`) dispatched now (the UI core isn't involved). */
+  /**
+   * Click it, as a script can on the web: a bubbling `click` dispatched now with HTML's activation, by the UI core (a
+   * checkbox toggles before the click's listeners and back if one prevents it, then `input` and `change`; a submit
+   * button submits its form; a label clicks its control). Nothing on a disabled control. Before it's in a mounted view,
+   * only the `click` is dispatched.
+   */
   click(): void {
-    if (this._hosted) {
-      const e = new UIHostEvent("click", this._hosted);
-      e.target = this;
-      this.dispatchEvent(e);
-    } else this.dispatchEvent({ type: "click", defaultPrevented: false, bubbles: true });
+    if (this._hosted) this._hosted.click();
+    else this.dispatchEvent({ type: "click", defaultPrevented: false, bubbles: true });
   }
 
   getAttribute(name: string): string | null {
@@ -813,6 +992,38 @@ export class UIRenderElement extends UINodeBase {
     this.value = String(n);
   }
 
+  /** A number field's or slider's `stepUp(n)`: its value `n` steps up, on its step from `min` and within `min`..`max` (no events, as on the web). */
+  stepUp(n = 1): void {
+    this.stepBy(Number(n));
+  }
+
+  /** `stepDown(n)`: `n` steps down. */
+  stepDown(n = 1): void {
+    this.stepBy(-Number(n));
+  }
+
+  private stepBy(n: number): void {
+    const type = this.type;
+    const stepText = this.getAttribute("step");
+    if ((type !== "number" && type !== "range") || stepText?.toLowerCase() === "any") throw new Error(`InvalidStateError: stepUp() and stepDown() apply to number and range inputs with a step (this is type="${type}"${stepText ? ` step="${stepText}"` : ""})`);
+    const step = parseFloat(stepText ?? "") > 0 ? parseFloat(stepText!) : 1;
+    const range = type === "range";
+    const min = parseFloat(this.getAttribute("min") ?? "");
+    const max = parseFloat(this.getAttribute("max") ?? "");
+    const lo = Number.isFinite(min) ? min : range ? 0 : -Infinity;
+    const hi = Number.isFinite(max) ? max : range ? 100 : Infinity;
+    const base = Number.isFinite(min) ? min : 0;
+    const current = Number.isFinite(this.valueAsNumber) ? this.valueAsNumber : 0;
+    // HTML: a value off the step moves only to the nearest step that way; one on a step moves n steps.
+    const k = (current - base) / step;
+    const onStep = Math.abs(k - Math.round(k)) < 1e-9;
+    let next = onStep ? current + n * step : base + (n > 0 ? Math.ceil(k) : Math.floor(k)) * step;
+    if (next > hi) next = base + Math.floor((hi - base) / step) * step;
+    if (next < lo) next = base + Math.ceil((lo - base) / step) * step;
+    const decimals = Math.max((String(step).split(".")[1] ?? "").length, (String(base).split(".")[1] ?? "").length);
+    this.value = String(Number(next.toFixed(decimals)));
+  }
+
   /** ADR 0424: a checkbox's or radio's state (a radio checked unchecks its group). Setting it isn't a player change. */
   get checked(): boolean {
     return this.state("checked");
@@ -851,6 +1062,14 @@ export class UIRenderElement extends UINodeBase {
     };
     walk(this);
     return out;
+  }
+
+  /** A media element's `srcObject` (a `MediaStream` on the web), kept as given; the UI's media plays `src`. */
+  srcObject: unknown = null;
+
+  /** A select's chosen options. */
+  get selectedOptions(): UIRenderElement[] {
+    return this.options.filter((o) => o.selected);
   }
 
   get selectedIndex(): number {
@@ -912,6 +1131,21 @@ type UIParent = UIRenderElement | UIRenderFragment;
 // --- The Element subset's HTML and selectors -----------------------------------------------------
 
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"]);
+const NAMESPACE_HTML = "http://www.w3.org/1999/xhtml";
+const NAMESPACE_SVG = "http://www.w3.org/2000/svg";
+const NAMESPACE_MATHML = "http://www.w3.org/1998/Math/MathML";
+/** The `<input>` types HTML knows (what `input.type` reads back; anything else reads as `text`). */
+const INPUT_TYPES = new Set(["text", "search", "tel", "url", "email", "password", "date", "month", "week", "time", "datetime-local", "number", "range", "color", "checkbox", "radio", "file", "submit", "image", "reset", "button", "hidden"]);
+/** HTML's boolean attributes (present or absent; Svelte's list). */
+const BOOLEAN_ATTRIBUTES = new Set(["allowfullscreen", "async", "autofocus", "autoplay", "checked", "controls", "default", "disabled", "formnovalidate", "indeterminate", "inert", "ismap", "loop", "multiple", "muted", "nomodule", "novalidate", "open", "playsinline", "readonly", "required", "reversed", "seamless", "selected", "webkitdirectory", "defer", "disablepictureinpicture", "disableremoteplayback", "hidden"]);
+
+/** Whether `name` is a boolean attribute on `el`: one of HTML's, on an HTML element that isn't a custom element. */
+function isBooleanAttribute(el: UIRenderElement, name: string): boolean {
+  return BOOLEAN_ATTRIBUTES.has(name.toLowerCase()) && !el.localName.includes("-") && el.namespaceURI === NAMESPACE_HTML;
+}
+
+/** Enumerated attributes whose DOM property is a boolean: the keywords for false and true. */
+const BOOLEAN_KEYWORDS: Readonly<Record<string, readonly [string, string]>> = { translate: ["no", "yes"], draggable: ["false", "true"], spellcheck: ["false", "true"] };
 const escapeText = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const escapeAttr = (s: string) => s.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
 
@@ -1708,8 +1942,9 @@ function bindValue(node: UIRenderElement, get: () => unknown, set: (value: unkno
   const value = get();
   const text = value === null || value === undefined ? "" : String(value);
   if (node.value !== text) node.value = text;
-  const numeric = node._uiTag === "Slider" || (node._uiTag === "InputField" && String(node.getAttribute("type")).toLowerCase() === "number");
-  return listen(node, "input", () => set(numeric ? toNumber(node.value) : node.value));
+  // Read at each change: the type can change while bound (Svelte's DOM binding checks it each time too).
+  const numeric = () => node._uiTag === "Slider" || (node._uiTag === "InputField" && String(node.getAttribute("type")).toLowerCase() === "number");
+  return listen(node, "input", () => set(numeric() ? toNumber(node.value) : node.value));
 }
 
 /** An option node's value as given: its `value` attribute's own value (any type), else its text. */
@@ -1783,11 +2018,14 @@ function retag(el: UIRenderElement): void {
   const { tag, known } = uiTagOfInput(el.getAttribute("type"));
   if (!known) warnOnce(`<input type="${el.getAttribute("type")}"> isn't a control the UI has; it's a text field.`);
   if (tag === el._uiTag) return;
+  // HTML keeps a field's value when its type changes between text-like types and range (a slider clamps it).
+  const valued = (t: UITag) => t === "InputField" || t === "Slider";
+  const keep = valued(el._uiTag) && valued(tag) ? el.value : null;
   el._uiTag = tag;
   const tree = el._hosted ? el._hosted.tree : null;
   if (!tree) return;
   dematerialize(el, tree);
-  el._pendingValue = null;
+  el._pendingValue = keep;
   el._pendingState = {};
   const made = materialize(el, tree);
   if (made) tree.restyle(made);
@@ -1797,7 +2035,8 @@ function retag(el: UIRenderElement): void {
 
 const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderElement; text: UIRenderText; comment: UIRenderComment }>({
   createFragment: () => new UIRenderFragment(),
-  createElement: (name) => new UIRenderElement(name),
+  // A namespace, if Svelte passes one (its custom-renderer `createElement` passes only the name today), is kept.
+  createElement: (name: string, namespace?: string | null) => new UIRenderElement(name, namespace ?? null),
   createText: (data) => new UIRenderText(data),
   createComment: (data) => new UIRenderComment(data),
   getNodeType: (node) => (node instanceof UIRenderElement ? "element" : node instanceof UIRenderText ? "text" : node instanceof UIRenderComment ? "comment" : "fragment"),
@@ -1820,6 +2059,19 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
   },
   getAttribute: (el, name) => el.getAttribute(name),
   setAttribute(el, key, value) {
+    // Enumerated attributes whose DOM property is a boolean (`translate={false}`): Svelte sets the property on a DOM element,
+    // which writes the keyword; under a renderer it hands over the boolean, so the keyword is written here.
+    if (typeof value === "boolean" && key in BOOLEAN_KEYWORDS) value = BOOLEAN_KEYWORDS[key][value ? 1 : 0];
+    // Any other boolean is HTML's boolean attribute ("" or absent) where the DOM element has one (`disabled={x}`), else
+    // the word, as `setAttribute` writes it (`data-open={true}`, an SVG's or a custom element's `readonly={false}`).
+    else if (typeof value === "boolean" && !isBooleanAttribute(el, key)) value = String(value);
+    // A media element's `srcObject` is a property, never an attribute (Svelte's DOM path sets the property).
+    if (key === "srcObject") {
+      el.srcObject = value ?? null;
+      return;
+    }
+    // `<option value={undefined}>`: Svelte's DOM writes an empty value, so the option's value isn't its label.
+    if ((value === undefined || value === null) && key === "value" && el.localName === "option") value = "";
     if (value === undefined || value === null || value === false) return renderer.removeAttribute(el, key);
     el._attrs.set(key, value);
     if (key === "type") retag(el); // ADR 0424
@@ -1924,6 +2176,11 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     // ADR 0424: checkboxes and radios.
     if ((name === "checked" && (tag === "Toggle" || tag === "Radio")) || (name === "indeterminate" && tag === "Toggle")) return bindState(node, name, get, set);
     if (name === "group" && (tag === "Toggle" || tag === "Radio")) return bindGroup(node, get, set);
+    // `<details bind:open>` (and `<dialog>`): the `open` attribute, and its `toggle` events.
+    if (name === "open" && (node.localName === "details" || node.localName === "dialog")) {
+      node.open = !!get();
+      return listen(node, "toggle", () => set(node.open));
+    }
     // ADR 0425: an editable text's content.
     if ((name === "textContent" || name === "innerText" || name === "innerHTML") && tag === "Text") return bindContent(node, name, get, set);
     // ADR 0426: <video> and <audio>'s media bindings.

@@ -15,7 +15,7 @@ import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { devices, type InputClaim, type PointerFrame } from "../input/devices";
 import { UIButton, UICanvas, UIImage, UIInputField, UIOption, UISelect, UISlider, UIText, UITextArea, isFocusableUI, type UIComponentType, type UIFocusableElement } from "./components";
-import { clickDefault, controlChanged, formOf, optionsOf, rememberDefaults, selectLabels, setSelectOpen, sliderValue, stepNumberField, submitForm } from "./formControls";
+import { uiClickRecord, controlChanged, formOf, optionsOf, rememberDefaults, selectLabels, setSelectOpen, sliderValue, stepNumberField, submitForm } from "./formControls";
 import { formPartsOf, partsKey } from "./formParts";
 import { UI_KIND_TYPES, clipsChildren, flexShrinkOf, isInteractiveKind, isLeafKind, isRaycastTarget, isUserScroller, overflowAxes, sameTextMeasure, sameTextRun, textRunOf, uiKindOf, userScrollsAxis } from "./elementKinds";
 import { fontEpoch } from "./fonts";
@@ -1535,9 +1535,7 @@ export class UICore implements UICoreLike {
           // ADR 0424: its default action activates the control it's on (a checkbox toggles, an option is chosen…).
           const clickData = pdata(target, { button: 0, detail: count });
           const on = target.comp;
-          records.push(uiEventRecord("click", on, clickData, (prevented) => {
-            if (!prevented) clickDefault(world, on, clickData);
-          }));
+          records.push(uiClickRecord(world, on, clickData));
           if (count === 2) records.push(uiEventRecord("dblclick", target.comp, pdata(target, { button: 0, detail: 2 })));
         }
       }

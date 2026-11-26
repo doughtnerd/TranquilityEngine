@@ -38,7 +38,7 @@ import {
   type UIFocusableElement,
 } from "./components";
 import { uiInteractions } from "./interactions";
-import { fireUIEvent, uiEventRecord, type UIEventData } from "./events";
+import { dispatchUIEventNow, fireUIEvent, uiEventRecord, type UIEventData, type UIEventRecord } from "./events";
 
 // --- Trees -----------------------------------------------------------------------------------------
 
@@ -371,6 +371,73 @@ export function activateControl(world: World, c: UIComponentType): void {
 }
 
 /**
+ * A `click` record on `target` with HTML's activation (ADR 0424, as the conformance triage amended it): a checkbox or
+ * radio the click activates changes before the click's handlers run (HTML's legacy pre-activation), so they read the new
+ * state, and changes back if one prevents the click; else `input` and `change` follow. Every other activation (an option
+ * chosen, a select opened, a form submitted or reset, a label's click sent on) is the click's default action, as before.
+ */
+export function uiClickRecord(world: World, target: UIComponentType, data: UIEventData = {}, after?: (prevented: boolean) => void): UIEventRecord {
+  const c = activatedControl(target);
+  if (!(c instanceof UIToggle) && !(c instanceof UIRadio)) {
+    return uiEventRecord("click", target, data, (prevented) => {
+      // A handler may have removed what was clicked: nothing is left to activate.
+      if (!prevented && target.node.isValid) clickDefault(world, target, data);
+      after?.(prevented);
+    });
+  }
+  let undo: (() => void) | null = null;
+  return uiEventRecord(
+    "click",
+    target,
+    data,
+    (prevented) => {
+      if (prevented) undo?.();
+      else if (undo && c.node.isValid) controlChanged(world, c);
+      after?.(prevented);
+    },
+    () => {
+      if (!c.interactable || !c.isActiveAndEnabled) return;
+      if (c instanceof UIToggle) {
+        const was = { checked: c.checked, indeterminate: c.indeterminate };
+        c.checked = !c.checked;
+        c.indeterminate = false;
+        undo = () => {
+          c.checked = was.checked;
+          c.indeterminate = was.indeterminate;
+        };
+      } else {
+        const previous = radioGroup(c).find((r) => r.checked) ?? null;
+        if (!checkRadio(c)) return; // already checked: nothing changes, nothing is sent
+        undo = () => {
+          c.checked = false;
+          if (previous) checkRadio(previous);
+        };
+      }
+    },
+  );
+}
+
+/**
+ * The DOM's `element.click()` on a UI element: a `click` dispatched now (bubbling, cancelable) with its activation, and
+ * the events its activation sends (`input`, `change`, `submit`) at once. Nothing on a control that isn't interactable.
+ */
+export function clickUI(world: World, target: UIComponentType): void {
+  if (isFocusableUI(target) && !target.interactable) return;
+  dispatchUIEventNow(world, uiClickRecord(world, target));
+}
+
+/** The control a click on `target` activates: the nearest control at or above it, else a label's control (null for a field, a slider or nothing). */
+function activatedControl(target: UIComponentType): UIComponentType | null {
+  for (let n: GameObject | null = target.owner; n?.isValid; n = n.parent) {
+    if (n.getComponent(UICanvas)) return null;
+    const c = controlOn(n);
+    if (c) return c instanceof UIInputField || c instanceof UISlider ? null : c;
+    if (n.getComponent(UILabel)) return null; // a label sends a click of its own to its control
+  }
+  return null;
+}
+
+/**
  * A finished click on `target`'s default action (ADR 0422, 0424): the nearest control at or above it activates (an
  * option in its select's list, a checkbox, a radio, a select, a button); a field or slider there takes it (nothing
  * more). Else a label at or above it sends a click to its control, whose own default action follows.
@@ -400,9 +467,7 @@ function labelActivate(world: World, label: UILabel, data: UIEventData): void {
     if (c.focusable) log.focus(c, "press", c instanceof UIInputField);
     return;
   }
-  fireUIEvent(world, uiEventRecord("click", c, { ...data, detail: 1 }, (prevented) => {
-    if (!prevented) activateControl(world, c);
-  }));
+  fireUIEvent(world, uiClickRecord(world, c, { ...data, detail: 1 }));
 }
 
 // --- Values (the front ends' `value`) ----------------------------------------------------------
