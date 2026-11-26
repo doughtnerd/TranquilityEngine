@@ -20,7 +20,7 @@ import { undoStep } from "./undoStep";
 const SINGLE = new Set(["engine.RigidBody2D", "engine.SpriteRenderer", "engine.Camera"]);
 
 /** The UI element types only a UI document builds (ADR 0417): never added by hand. */
-const DOCUMENT_ONLY = new Set(["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField"]);
+const DOCUMENT_ONLY = new Set(["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField", "engine.UISvg", "engine.UIVideo", "engine.UIAudio"]);
 
 const shortName = (type: string) => type.replace(/^[^.]*\./, "");
 

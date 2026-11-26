@@ -283,7 +283,7 @@ export class GameObject {
 // --- UI elements come from UI views and documents (ADR 0417, amended by 0419) --------------------
 
 /** Ids of the UI components only a `UIView`'s render or a `UIDocument`'s build creates (ADR 0417, 0419). */
-const DOCUMENT_ONLY = new Set(["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField"]);
+const DOCUMENT_ONLY = new Set(["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField", "engine.UISvg", "engine.UIVideo", "engine.UIAudio"]);
 
 /** @internal What refusing a UI component outside a UI view or document says (ADR 0417, 0419); scene loads say it too. */
 export const UI_FROM_DOCUMENTS = "UI elements come from a UIView's Svelte component or a UI document (ADR 0417, 0419): write the element in the component (or a *.ui.xml document), or use ui.list() for rows made at runtime.";

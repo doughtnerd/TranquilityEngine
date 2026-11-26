@@ -6,7 +6,18 @@
  *
  * - **Tags are HTML names**, mapped onto UI elements (`engine/ui/host/htmlTags.ts`): `div`, `section`,
  *   `nav`… → Panel; `span`, `p`, `h1`–`h6`, `label` → Text; `img` → Image; `button` → Button; `input` →
- *   InputField. Unknown tags warn once and are Panels. The cascade matches the tag as written.
+ *   InputField; (ADR 0426) `svg` → Svg, `video` → Video, `audio` → Audio. Unknown tags warn once and are Panels. The
+ *   cascade matches the tag as written.
+ * - **Inline SVG (ADR 0426).** An `<svg>`'s descendants (`path`, `rect`, `circle`, `g`, `text`, `use`, gradients…) aren't
+ *   UI elements: the renderer keeps them as nodes and writes the subtree as SVG text to the `<svg>`'s `UISvg.markup`
+ *   whenever anything in it changes; the drawing layer rasterises it. Only the `<svg>` itself is styled by the cascade
+ *   (its size, `color` for `currentColor`); shapes take their paint from attributes and inline styles. Pointer events on
+ *   the `<svg>` go on to the shape under them (`svgShapeAt`: geometry and `pointer-events`), through its groups. Shapes
+ *   have `getTotalLength()`/`getPointAtLength()`, and `draw` writes its stroke dashes into the subtree each frame.
+ * - **Media (ADR 0426).** `<video>` and `<audio>` nodes have the media API (`play`, `pause`, `currentTime`, `duration`,
+ *   `paused`, `ended`, `volume`, `muted`, `playbackRate`, `loop`…) over their `UIVideo`/`UIAudio`, media events
+ *   (`onplay`, `onended`, `ontimeupdate`…) and Svelte's media bindings through `bind`. `src` (or a `<source>` child's),
+ *   `autoplay`, `loop` and `muted` attributes are fields.
  * - **Attributes are component fields** in kebab-case (ADR 0077), converted by the cascade as markup
  *   attributes are; `class`, `id` and `style` (Svelte's `class:` and `style:` arrive inside them) feed the
  *   cascade. Typed values pass as CSS text (a `Color` becomes `rgba(…)`). `img src` is the image, and

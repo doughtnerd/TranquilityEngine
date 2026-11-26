@@ -21,8 +21,13 @@
 // Babylon GUI composes a control's transform with its parent control's only. So each control gets its transform relative
 // to the control it's drawn in (`inverse(clipper's) · its own`): placed at where that takes its box's top-left corner,
 // turned and scaled about that corner (`transformCenterX/Y` 0) by the map's rotation and scales. A clip container moves
-// with its clipper, so what it clips is clipped where the clipper is drawn. A rotation inside an unequal scale (a skew)
-// can't be expressed by a control's rotation and scales and is drawn without the skew.
+// with its clipper, so what it clips is clipped where the clipper is drawn. ADR 0426: a map that skews (`skew()`,
+// `matrix()`, a rotation inside an unequal scale) isn't a rotation and scales: such a control is placed where layout put
+// it and drawn through the whole map, its `_transform` overridden with the element's Matrix2D (`Drawn`).
+//
+// ADR 0426 also draws CSS filters (the context's `filter`, or an offscreen pass where Canvas2D lacks it), inline SVG (an
+// SVG image rasterised from `UISvg.markup`) and video (a `UIVideo`'s media element's current frame) — `Drawn`,
+// `MediaImage`.
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
 import type { Mesh } from "@babylonjs/core/Meshes/mesh.js";
 import { CreatePlane, CreatePlaneVertexData } from "@babylonjs/core/Meshes/Builders/planeBuilder.js";

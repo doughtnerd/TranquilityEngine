@@ -165,7 +165,7 @@ Panels, buttons and input fields take a shadow, a gradient or image background a
 
 **Performance.** Babylon GUI draws the UI with Canvas2D and redraws only what changed. A shadow or gradient redraws its whole region, blur included, each time it changes, so animating one (a pulsing glow, a moving gradient) costs more CPU than animating a position, and more on large screens. Animate opacity or position where you can.
 
-## Transforms: translate, rotate and scale
+## Transforms: translate, rotate, scale and skew
 
 Any element can be drawn moved, turned and scaled ([ADR 0418](../../decisions/0418-the-ui-core-grows-toward-web-css-layout-paint-transforms-animation-and-selectors-in-waves.md) wave 3). As on the web, layout ignores transforms: the element keeps its place in the layout and its siblings don't move. A transform applies to the element and its children, and the pointer, editor picking, the scene view's outline and handles, and keyboard navigation all follow what's drawn.
 
@@ -178,22 +178,59 @@ Any element can be drawn moved, turned and scaled ([ADR 0418](../../decisions/04
 
 | Property | Takes | Fields it sets |
 | --- | --- | --- |
-| `transform` | `none`, or a list of `translate(x[, y])`, `translateX()`, `translateY()`, `scale(s[, sy])`, `scaleX()`, `scaleY()`, `rotate(angle)`, composed left to right | all five: `translateX`, `translateY`, `scaleX`, `scaleY`, `rotate` |
+| `transform` | `none`, or a list of `translate(x[, y])`, `translateX()`, `translateY()`, `scale(s[, sy])`, `scaleX()`, `scaleY()`, `rotate(angle)`, `skew(ax[, ay])`, `skewX()`, `skewY()`, `matrix(a, b, c, d, e, f)`, composed left to right | all six: `translateX`, `translateY`, `scaleX`, `scaleY`, `rotate`, `transformMatrix` |
 | `translate` | `x [y]`: px, or `%` of the element's own width (x) and height (y); `none` | `translateX`, `translateY` (strings like `"12"` or `"50%"`; default `"0"`) |
 | `scale` | one number for both axes or two (`2`, `1.5 1`, `150%`); `none` | `scaleX`, `scaleY` (default 1) |
 | `rotate` | an angle: `deg`, `turn`, `rad`, `grad`, or a bare number of degrees; `none` | `rotate` (degrees, clockwise) |
 | `transform-origin` | one or two positions: `left`, `center`, `right`, `top`, `bottom`, px or `%` | `transformOriginX`, `transformOriginY` (default `"50%"`, the middle) |
 
-- **The fields keep one translate, one rotation and one scale**, applied the way CSS applies its `translate`, `rotate` and `scale` properties: scale, then rotate, about the origin, then translate. A `transform` list is folded into them, so `rotate(90deg) translate(10px)` becomes `rotate: 90deg; translate: 0 10px`. A list that can't fold is refused with a warning: a rotation after an unequal scale (`scale(2, 1) rotate(45deg)` skews), or a `%` translate after a rotation that isn't a half turn. Write `rotate()` before `scale()`.
-- **`transform` and the individual properties set the same fields**, so the later declaration wins for each field (CSS would apply both). `transform` sets all five, so `transform: scale(2)` puts `rotate` back to 0.
+- **The fields keep one translate, one rotation, one scale and a full matrix**, applied the way CSS applies its `translate`, `rotate` and `scale` properties and then `transform`: the matrix, then scale, then rotate, about the origin, then translate. A `transform` list is folded into the first three when it can be, so `rotate(90deg) translate(10px)` becomes `rotate: 90deg; translate: 0 10px`.
+- **Skew and matrices** ([ADR 0426](../../decisions/0426-ui-draws-css-filters-svg-video-and-full-matrix-transforms.md)): a list that doesn't fold (one with `skew()`, `skewX()`, `skewY()` or `matrix()`, or a rotation after an unequal scale, which skews) is held in `transformMatrix` as `matrix(a, b, c, d, e, f)`, after its leading translates, which keep their `%` (`translate(-50%, -50%) skewX(10deg)` works). A `%` translate later in such a list is refused with a warning (a matrix holds pixels): write it first, or in px. Skewed elements are drawn, hit and picked exactly.
+- **`transform` and the individual properties set the same fields**, so the later declaration wins for each field (CSS would apply both). `transform` sets all six, so `transform: scale(2)` puts `rotate` back to 0 and clears the matrix.
 - **In markup**, `transform="…"`, `rotate="45"`, `scale="2"`, `translate-x="10"` and `transform-origin="left top"` work as attributes. The `translate` attribute stays HTML's "don't localise this" marker ([ADR 0356](../../decisions/0356-text-is-localised-through-keyed-string-tables-with-icu-messages-bound-by-key-in-ui-documents-and-scripts.md)), so write `transform="translate(…)"` or `translate-x`/`translate-y` instead.
-- **Scripts** write the fields: `el.as(UIButton).rotate = 15`, `.scaleX = 1.1`, `.translateY = "-4"`.
+- **Scripts** write the fields: `el.as(UIButton).rotate = 15`, `.scaleX = 1.1`, `.translateY = "-4"`, `.transformMatrix = "matrix(1, 0, 0.2, 1, 0, 0)"`.
+- **Animating** a transform tweens each field; the matrix interpolates as CSS interpolates matrices (decomposed into translation, rotation, shear and scales, each mixed, then put back together), so `skewX(0)` → `skewX(30deg)` shears smoothly and a turn doesn't take the long way round.
 - **Clipping:** an `overflow: hidden` element clips its children where it's drawn, so a turned clipper clips at its turned edges, and a transformed child is clipped where the transform puts it.
-- **Paint** turns with the element: gradients, borders and rounded corners are drawn in its frame, and a shadow's offset turns and scales with it (its blur scales). 3D transforms, `skew()` and `matrix()` aren't supported.
+- **Paint** turns with the element: gradients, borders and rounded corners are drawn in its frame, and a shadow's offset turns and scales with it (its blur scales). 3D transforms aren't supported.
 - **The scene view** outlines the box as drawn and puts the handles on its turned corners. Resizing works in the element's own frame (dragging a turned edge changes its width by the distance in its own UI pixels). On an element with a transform of its own, the west and north handles change only the size, never `left`/`top` (those are in its parent's frame). Moving an absolutely positioned element works in its parent's frame, from where layout put it.
 - **Input fields:** the hidden DOM `<input>` that takes typing (and IME composition) stays off-screen as before, so an IME's candidate window shows where the browser puts it, not next to the transformed field.
 
 **Performance.** Changing a transform needs no new layout: Babylon GUI redraws only the regions the element leaves and enters. Its shadow and gradient are redrawn with it, so a transformed element with a large blur still costs what a moving shadow costs.
+
+## Filters
+
+`filter` ([ADR 0426](../../decisions/0426-ui-draws-css-filters-svg-video-and-full-matrix-transforms.md)) draws an element and its children through CSS filter functions: `blur()`, `brightness()`, `contrast()`, `grayscale()`, `hue-rotate()`, `invert()`, `opacity()`, `saturate()`, `sepia()` and `drop-shadow()`.
+
+```css
+.locked  { filter: grayscale(1) brightness(0.7); }
+.frosted { filter: blur(4px); transition: filter 0.3s; }
+.icon    { filter: drop-shadow(0 2px 3px #0008); }
+```
+
+- **Each function is a field** (`filterBlur`, `filterBrightness`, `filterContrast`, `filterGrayscale`, `filterHueRotate`, `filterInvert`, `filterOpacity`, `filterSaturate`, `filterSepia`, and `filterDropShadowColor`/`OffsetX`/`OffsetY`/`Blur`), so transitions and keyframes animate them and scripts write them. `filter` sets them all (the ones it doesn't list back to no effect).
+- **They apply in one fixed order**, the order above, whatever order `filter` lists them in. A function listed twice folds where it can (brightness, contrast, saturate and opacity factors multiply, hue-rotate angles add, blurs combine as Gaussians); `grayscale`, `sepia` or `invert` twice and several drop shadows are refused with a warning, as is `url()`. `backdrop-filter` isn't supported.
+- **A filter applies to the subtree:** its children are drawn through it too (theirs first, then their parent's). Each drawn piece is filtered as it's drawn, so a blur blurs each piece, and translucent pieces overlapping each other are filtered one by one rather than flattened first.
+- Lengths (a blur, a drop shadow's offset) scale and turn with the element's transform, as shadows do. A `drop-shadow` without a colour is black.
+- **Cost:** a filter redraws the region it covers, grown by how far a blur or shadow reaches. Browsers with `CanvasRenderingContext2D.filter` (Chromium, Firefox, Safari 18) apply it while drawing; elsewhere the element is drawn to an offscreen canvas and filtered there (blurs approximated by box blurs), which costs more for big elements.
+
+## Inline SVG, video and audio
+
+[ADR 0426](../../decisions/0426-ui-draws-css-filters-svg-video-and-full-matrix-transforms.md). In a Svelte component:
+
+```svelte
+<svg class="icon" width="24" height="24" viewBox="0 0 24 24" onclick={pick}>
+  <path d="M4 12 l5 5 l11 -11" fill="none" stroke="currentColor" stroke-width="2" in:draw={{ duration: 400 }} />
+</svg>
+
+<video src="asset:videos/intro.webm" autoplay muted bind:currentTime={t} bind:paused onended={next}></video>
+<audio src="asset:sounds/theme.ogg" loop bind:this={music}></audio>
+```
+
+- **`<svg>`** is an element (`UISvg`); its shapes (`path`, `rect`, `circle`, `ellipse`, `line`, `polyline`, `polygon`, `g`, `text`, `use`, `defs`, gradients and `stop`…) stay an SVG document, drawn as an image of it, rasterised again only when something in it changes. Its size comes from its `width`/`height` attributes or the stylesheet (300 × 150 without either, as in HTML). The stylesheet styles the `<svg>` itself, and its `color` is `currentColor` inside; shapes take their paint from attributes and inline `style`. A pointer event on it goes to the shape under the pointer (by the shape's geometry and its `pointer-events`: by default its fill where it's filled and its stroke where it's stroked), then through its groups to the `<svg>`. Shapes have `getTotalLength()` and `getPointAtLength()`, and `svelte/transition`'s `draw` works. SMIL animation (`<animate>`) isn't supported; UI documents can't hold inline SVG (`<Svg markup="…">` takes the SVG as text).
+- **`<video>`** is an image whose picture is the video's current frame (`UIVideo`; `fit` works), drawn each frame while it plays. `src` is a project file (`asset:videos/…`) or a URL, or a `<source src>` inside it. A script can hand it any media element instead: `el.as(UIVideo).media = myVideoElement`. There are no built-in controls.
+- **`<audio>`** isn't drawn (`UIAudio`, `display: none`); it plays through the audio plugin, an `AudioSource` on its node made when it first plays (on the Master bus). `duration` is NaN there (engine sounds don't report their length), `playbackRate` changes the pitch too, and seeking (`currentTime = …`) jumps on the core audio backend only.
+- **Both** have the media API on the node and the component: `play()`, `pause()`, `currentTime`, `duration`, `paused`, `ended`, `volume`, `muted`, `playbackRate`, `loop`; media events (`onplay`, `onpause`, `onended`, `ontimeupdate`, `onvolumechange`, `ondurationchange`…; `on("ended", …)` on the component); and Svelte's media bindings: `bind:currentTime`, `bind:paused`, `bind:volume`, `bind:muted`, `bind:playbackRate`, and read-only `bind:duration`, `bind:ended`, `bind:readyState`, `bind:seeking`, `bind:videoWidth`, `bind:videoHeight`. `autoplay`, `loop` and `muted` are attributes (fields). Browsers let only muted video start without a gesture.
+- Headless Worlds (servers, tests) make no media element from `src`; one handed to `media` works anywhere.
 
 ## Animation: transitions and keyframes
 
@@ -430,7 +467,9 @@ Make a component with the Assets panel's **Create > UI > New Svelte Component** 
 - A game build compiles them without the editor's debugging information. The `.svelte` and `.svelte.ts` files don't ship: their compiled code does, with Svelte's runtime and the engine's renderer from the player, never the compiler. Styles are parsed when they compile, so a game that uses only Svelte UI doesn't load the CSS parser.
 
 
-Not yet: transitions and `animate:`, `{@html}`, npm packages that import Svelte, type checking inside `.svelte` files, and the editor's view of components (picking, Inspector edits).
+Inline SVG, `<video>` and `<audio>` work ([above](#inline-svg-video-and-audio)), and `svelte/transition`'s `blur` and `draw` too.
+
+Not yet: `{@html}`, npm packages that import Svelte, type checking inside `.svelte` files, and the editor's view of components (picking, Inspector edits).
  How much of Svelte works is measured by `npm run test:svelte-conformance`, which runs Svelte's own runtime tests against the engine's renderer (see the 0419 row of the implementation status).
 
 ## Headless Worlds and tests
@@ -441,7 +480,7 @@ A document builds its elements in any World. Only a World with a render backend 
 
 - No sliders, toggles or dropdowns. Scrolling doesn't follow `flex-direction: *-reverse` or right-to-left text (it starts at the top-left), and a scrollbar is drawn over the content rather than beside it.
 - Events from the pointer go only to elements that stop it (raycast targets): a click on a bare layout panel's gap goes to the game, not to the panel's handlers. Touch events (`touchstart`…) aren't sent; touches arrive as pointer events.
-- No 3D transforms, `skew()` or `matrix()`; a rotation inside an unequal scale (a parent scaled `2 1` with a turned child) is drawn without its skew, though the pointer still follows the exact transform.
+- No 3D transforms, `backdrop-filter`, SVG filters (`filter: url(…)`) or SMIL animation in inline SVG. Stylesheet rules don't reach the shapes inside an `<svg>` (only the `<svg>` itself).
 - No on-screen keyboard: a gamepad can focus an input field but not type in it.
 - In a Svelte component, `ontransitionend={…}` and the other animation event attributes aren't wired yet; listen with `on("transitionend", …)` on the element from `UIView.query`.
 - No styling of focus beyond `focusColor` (a `:focus` rule styles input fields only).
