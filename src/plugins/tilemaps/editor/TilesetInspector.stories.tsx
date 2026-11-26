@@ -161,3 +161,68 @@ export const PreviewGrid: Story = {
     await waitFor(async () => expect("previewGrid" in (await saved())).toBe(false));
   },
 };
+
+const PNG = new Uint8Array([137, 80, 78, 71]);
+const slices = (prefix: string) => ({ format: "myco.import@1", sprites: [0, 1, 2].map((i) => ({ name: `${prefix}_${i}`, rect: [i * 16, 0, 16, 16], pivot: [0.5, 0] })) });
+
+export const AnimatedTile: Story = {
+  parameters: {
+    editor: {
+      files: {
+        [TILESET]: ground,
+        "images/tiles.png": PNG,
+        "images/tiles.png.meta.json": slices("ground"),
+        "images/lava.png": PNG,
+        "images/lava.png.meta.json": slices("lava"),
+      },
+    } satisfies EditorStoryParameters,
+  },
+  play: async ({ canvasElement, step }) => {
+    const c = within(canvasElement);
+    await new Promise((r) => setTimeout(r, 50));
+    await userEvent.click(c.getByRole("option", { name: /Ground 0/ }));
+    await step("adding frames writes the animation, with a live preview", async () => {
+      await userEvent.selectOptions(c.getByLabelText("Add frame"), "asset:images/tiles.png#ground_0");
+      await waitFor(async () => expect((await tile(1)).animation).toEqual({ frames: [{ sprite: "asset:images/tiles.png#ground_0", duration: 0.1 }] }));
+      await userEvent.selectOptions(c.getByLabelText("Add frame"), "asset:images/tiles.png#ground_2");
+      await waitFor(async () => expect((await tile(1)).animation?.frames).toHaveLength(2));
+      expect(c.getByRole("img", { name: "Animation preview" })).toBeVisible();
+    });
+    await step("a frame of another image is refused", async () => {
+      await userEvent.selectOptions(c.getByLabelText("Add frame"), "asset:images/lava.png#lava_0");
+      await new Promise((r) => setTimeout(r, 50));
+      expect((await tile(1)).animation?.frames).toHaveLength(2);
+    });
+    await step("duration, order and start; each edit one undo step", async () => {
+      fireEvent.change(c.getByLabelText("Frame 2 duration"), { target: { value: "0.3" } });
+      await waitFor(async () => expect((await tile(1)).animation?.frames[1].duration).toBe(0.3));
+      fireEvent.change(c.getByLabelText("Frame 2 duration"), { target: { value: "0" } });
+      await new Promise((r) => setTimeout(r, 50));
+      expect((await tile(1)).animation?.frames[1].duration).toBe(0.3);
+      await userEvent.click(c.getByRole("button", { name: "Move frame 2 earlier" }));
+      await waitFor(async () => expect((await tile(1)).animation?.frames.map((f) => f.sprite)).toEqual(["asset:images/tiles.png#ground_2", "asset:images/tiles.png#ground_0"]));
+      await userEvent.click(c.getByRole("button", { name: "Undo" }));
+      await waitFor(async () => expect((await tile(1)).animation?.frames[0].sprite).toBe("asset:images/tiles.png#ground_0"));
+      await userEvent.selectOptions(c.getByLabelText("Animation start"), "random");
+      await waitFor(async () => expect((await tile(1)).animation?.start).toBe("random"));
+    });
+    await step("removing the last frame removes the field", async () => {
+      await userEvent.click(c.getByRole("button", { name: "Remove frame 2" }));
+      await userEvent.click(c.getByRole("button", { name: "Remove frame 1" }));
+      await waitFor(async () => expect("animation" in (await tile(1))).toBe(false));
+    });
+  },
+};
+
+export const SortOffset: Story = {
+  play: async ({ canvasElement }) => {
+    const c = within(canvasElement);
+    await new Promise((r) => setTimeout(r, 50));
+    await userEvent.click(c.getByRole("option", { name: /Ground 0/ }));
+    expect(c.getByLabelText("Sort Offset")).toHaveValue(0);
+    fireEvent.change(c.getByLabelText("Sort Offset"), { target: { value: "1" } });
+    await waitFor(async () => expect((await tile(1)).sortOffset).toBe(1));
+    fireEvent.change(c.getByLabelText("Sort Offset"), { target: { value: "0" } });
+    await waitFor(async () => expect("sortOffset" in (await tile(1))).toBe(false));
+  },
+};
