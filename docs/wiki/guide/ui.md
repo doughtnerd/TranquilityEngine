@@ -52,7 +52,7 @@ To show a component, put a node with a `UIView` in the scene and set its `compon
 
 A screen canvas covers the game canvas. Its children lay out in a row by default (flexbox's default); for a full-screen layout, give the component one root element with `width: 100%; height: 100%`.
 
-These are the `UIView`'s fields (the canvas's but `firstSelected`), set in the Inspector or by a script (`view.sortOrder = 10`): a component never writes a canvas tag.
+These are the `UIView`'s fields, set in the Inspector or by a script (`view.sortOrder = 10`): a component never writes a canvas tag.
 
 ## Layout
 
@@ -454,7 +454,7 @@ Pressing a button focuses it, so Space and Enter then press it until focus moves
 | Field | Meaning |
 | --- | --- |
 | `autoFocus` | When the canvas becomes active, focus `firstSelected`, else its first focusable element: a pause menu gets focus without script. |
-| `firstSelected` | The element `autoFocus`, `modal` and `navigate` with nothing focused start on. |
+| `firstSelected` | The element `autoFocus`, `modal` and `navigate` with nothing focused start on. On a `UIView`, the id of an element its component renders (`options` or `#options`), which follows the element that has the id as the view renders; empty: the first focusable element. |
 | `modal` | While it has a focusable element, focus can't leave it: focus elsewhere moves in, and presses outside don't take it (they still press what they hit). |
 | `player` | The local player whose UI actions drive it (-1, the default: any local player), for split-screen menus. The `ui` context is on only for that player. |
 
@@ -464,7 +464,7 @@ With nothing focused, navigation acts on the highest `sortOrder` screen canvas t
 
 **Showing focus.** `focusColor` is a button's fill (under hover and pressed) and an input field's border, drawn while it has focus and the last UI input was navigation. Moving or pressing the pointer hides it, so mouse users don't see a stray highlight.
 
-**In a component.** The same rules, as attributes: `focusable="false"`, `focus-color`, `navigation="explicit"`, `nav-up`, `nav-down`, `nav-left` and `nav-right` (element ids in the same view, which follow the element that has the id as the view renders). The canvas's `autoFocus`, `modal` and `player` are the `UIView`'s fields; `firstSelected` is the canvas's, which a script sets (`(view.root!.component as UICanvas).firstSelected = view.query("#resume")!.node`).
+**In a component.** The same rules, as attributes: `focusable="false"`, `focus-color`, `navigation="explicit"`, `nav-up`, `nav-down`, `nav-left` and `nav-right` (element ids in the same view, which follow the element that has the id as the view renders). The canvas's `autoFocus`, `modal`, `firstSelected` and `player` are the `UIView`'s fields (`firstSelected` an element id: `firstSelected: "resume"`).
 
 ```svelte
 <div flex-direction="column" gap="12">
@@ -507,7 +507,7 @@ Make a component with the Assets panel's **Create > UI > New Svelte Component** 
 - **Bindings:** `bind:value`, `bind:checked`, `bind:indeterminate` and `bind:group` on the [form elements](#form-elements), and `bind:this`, which gives a node with an Element subset for actions and attachments: `setAttribute`/`getAttribute`, `classList`, `style` (`node.style.color = "red"`), `dataset`, `addEventListener`/`dispatchEvent`, `focus`/`blur` (the UI's focus), `getBoundingClientRect` (in canvas UI pixels, through transforms), `closest`/`matches`/`querySelector`, `contains`, `parentElement`/`children`/`nextElementSibling`…, `value`, `textContent`, and scrolling (`scrollTop`, `scrollHeight`, `scrollTo`, `scrollIntoView`…).
 - **The window:** `<svelte:window>`, `<svelte:document>` and `<svelte:body>` work. `onkeydown`/`onkeyup` get the keys the game gets (none while a text field is typing) and the ones that bubble out of the focused node, `onpointerdown`/`onpointerup`/`onpointermove`/`onwheel` the pointer outside UI and what bubbles out of the view, and `onresize` fires when the view's canvas changes size. The window is the canvas in UI pixels, the units of `getBoundingClientRect` and `@media`: `bind:innerWidth`/`bind:innerHeight` (and `outerWidth`/`outerHeight`) are the canvas's size after the canvas scaler (960×720 for a 1280×720-reference canvas matching height on an 800×600 window), `bind:devicePixelRatio` is device pixels per UI pixel, and `window.matchMedia(query)` (and `svelte/reactivity`'s `MediaQuery`) answers against it, with `change` events. With several views, that's the first view's canvas. `bind:online` and `<svelte:document bind:activeElement>` (the focused element) work too.
 - **`<svelte:head>`:** its `<title>` sets the browser tab's or the desktop window's title; anything else in it is ignored with a warning.
-- **Localised text:** `import { t } from "myco"` and write `{t("menu.start")}` or `{t("hud.coins", { count })}`: the message in the current language, as `Locale.t`, which follows `Locale.setLanguage` (and string table edits) in the same frame. A message with inline tags (`You have <b>{count}</b> coins`) draws as runs through `{@html tHtml("hud.coins", { count })}` ([below](#inline-text-runs-links-html-and-editable-text)).
+- **Localised text:** `import { t } from "myco"` and write `{t("menu.start")}` or `{t("hud.coins", { count })}`: the message in the current language, as `Locale.t`, which follows `Locale.setLanguage` (and string table edits) in the same frame. A message with inline tags (`You have <b>{count}</b> coins`) draws as runs through `{@html tHtml("hud.coins", { count })}` ([below](#inline-text-runs-links-html-and-editable-text)). In the editor, select an element with literal text and use the Inspector's **Localisation** section: **Localise…** picks a key, **Extract to string table…** adds the text to a table under a new key; either writes `{t("key")}` (or `placeholder={t("key")}`) into the source and imports `t` (Ctrl+Z undoes it), and **Unlink** writes the text back. The Localisation panel's Report lists literal text that isn't localised yet (Dismiss leaves one out; `translate="no"` on an element leaves out its text) and **Check text fit** lays each language out in the boxes the open scene's views render.
 - **Styles** are Svelte's: a component's `<style>` is scoped to it (`<svelte:options css="injected" />` works too); `:global(...)` rules apply to every `UIView` in the World (one theme for the HUD and the pause menu). Selectors match the tag as written (`button`, `div`), in any case, and `:is()`/`:where()` work (`:where()` adds no specificity), as do the [wave 5 selectors, `calc()` and `@media`](#selectors-calc-and-media).
 - **Scripts** pass data through `view.props`, which is reactive (`view.props.coins = 10` shows that frame), wait for `await view.ready`, and find elements with `view.query("#play")`/`view.queryAll(".row")`. Disabling or removing the view unmounts the component; enabling it mounts it again with fresh state and the same props.
 - **The component's exports:** `view.exports` holds what the root component exports (`export function reset() {…}` in its `<script>` is `view.exports.reset()`), null until it's mounted and a new object each time it mounts again.
@@ -556,5 +556,4 @@ A view renders its elements in any World. Only a World with a render backend lay
 - In a Svelte component, `ontransitionend={…}` and the other animation event attributes aren't wired yet; listen with `on("transitionend", …)` on the element from `UIView.query`.
 - No styling of focus beyond `focusColor` (a `:focus` rule styles input fields and the form controls, not buttons). A slider shows navigation's focus only through its border, which it has none of by default.
 - `fit: contain` in a box with both sides fixed stretches like `fill`.
-- `first-selected` has no attribute in a component (a view writes no canvas tag): a script sets `UICanvas.firstSelected`.
-- The Localisation panel's unkeyed-text report and text fit check, and the Inspector's Localise and Extract to string table, read UI documents' markup and went with them; they don't read Svelte components yet.
+- The Localisation panel's text fit check measures only elements whose whole text is one keyed message (`<p>{t("menu.start")}</p>`), rendered by a view in the open scene, in a direction their `width` or `height` fixes; its unkeyed-text list doesn't see text written at a component's top level, outside any element.

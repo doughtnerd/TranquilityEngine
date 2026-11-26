@@ -148,6 +148,17 @@ attributes, `<Use>`/`<Style>`/`<Template>`, the `UIEvents` buffer and the editor
   they're built for Svelte UI.
 - **Editor:** the Create menu's UI entry is **UI View** (a node with a `UIView` on a new component).
 
+**As built (wave F, 2026-11-26; coordinator decisions):** what wave D removed without a Svelte replacement is back.
+- **`UIView.firstSelected`** (public API, a string field): the id of an element the component renders. The view
+  writes it on its canvas as the `first-selected` reference, so the host follows the id across re-renders as it does
+  `nav-*`; scripts no longer set `UICanvas.firstSelected` for a view.
+- **Localisation tools on `.svelte` sources** (ADR 0356 §7, §9), from `parse()` spans: the unkeyed-text list with
+  Dismiss (literal text content and the literal attributes that show text; `translate="no"` honoured), the text fit
+  check over the keyed text the open scene's views render (in their laid-out boxes), and the Inspector's Localise /
+  Extract to string table, which write `{t("key")}` and add `import { t } from "myco"` to the component's script,
+  with the table write in the same undo step. Only static literal text is localised in place; text with `{…}` or
+  elements inside is reported and refused with the reason.
+
 ## Alternatives considered
 
 - **Svelte as a layer beside `.ui.xml`** (the spike's recommendation). Keeps full visual editing of markup, but leaves two formats. The owner prefers one.
