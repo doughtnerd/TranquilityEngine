@@ -89,7 +89,7 @@ Glossary: **2D materials** (Rendering).
 
 ## Open questions
 
-- The light-binding spike's outcome (above).
+- The light-binding spike: feasible (2026-11-26); proposed as [0419](0419-lit-2d-materials-get-their-light-textures-through-an-explicit-binding-and-the-frame-graph-keeps-aliasing-on.md).
 
 ## Build notes
 
