@@ -1,6 +1,6 @@
 # 0420. Tweening is a shared Rust crate, linked by the animation core and by a small standalone tween module that UI uses without the animation plugin
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -73,7 +73,17 @@ There's a precedent for exactly this split: `native/common/curve` (`myco-curve`)
   - the core's wasm size.
 
   Results go in the build log. Release builds use `lto = true`, `codegen-units = 1`, `opt-level = 3`, so the crate boundary should leave the generated code unchanged; the benches confirm it.
-- **Spike first.** A prototype split measures the standalone module's size (raw and gzip) and runs the benches before this record is accepted. It needs the `wasm32-unknown-unknown` target.
+
+**Changes from the spike** (`spikes/tween-crate/README.md`, accepted 2026-11-26):
+
+- **`native/common/wire` (`myco-wire`)** is the record layer under both `myco-tween` and `anim-wire`. The record macro and types (`record.rs`, `vector.rs`) moved there, which breaks the cycle a tween crate depending on `anim-wire` would create. The TypeScript generator stays in `anim-wire`, which re-exports the tween family, so `wire/tween.ts` is generated unchanged.
+- **No memory type parameter.** Both hosts allocate the table once, when it's sized, and never per frame. The core sizes it through `init`'s `bytes_needed`; the standalone module through `tweens_configure`. A create before configuring returns "table full". The curve lookup remains the one generic host parameter.
+- **Only the sequence program moves out of `timeline.rs`:** members, their evaluation and their completion order. Playback stays a timeline instance in the core.
+- **The standalone module gets a small sequence player** (owner's choice), so UI keyframes behave identically with or without the animation plugin.
+- **`exp2` stays in `anim-math`** (`anim_math::trig::exp2`): `anim-match`'s springs use it, so the easings move without it.
+- **The curve key parser goes into `myco-curve` behind an `alloc` feature**, off by default (owner's choice). `myco-tween` and `anim-sample` enable it; the audio core links `myco-curve` without it, unchanged.
+- **`build:tween`'s size gate** is about 36 KB raw (the measured build plus 20%).
+- **Measured (spike):** the core's benches, fuel pass and tests unchanged within noise (tweens 1,000: linear 14.8 → 14.3 µs, eased 22.9 → 21.4 µs, vec3/quat 47.7 → 46.5 µs, budget 200 µs); core wasm 879,335 → 879,015 bytes raw, gzip 353 KB both; the standalone module 30,077 bytes raw, 13,789 gzip (12,854 with `wasm-opt -O3`), plus 2,135 bytes gzip of JS glue. Adopting the split commits a rebuilt core, since its source hash covers `native/common/`.
 
 ## Alternatives considered
 
@@ -100,7 +110,6 @@ There's a precedent for exactly this split: `native/common/curve` (`myco-curve`)
 
 ## Open questions
 
-- The standalone module's size, which the spike measures. If it comes out unexpectedly large, revisit the JS alternative.
 - Whether scripts get a UI-facing `tween()` without the animation plugin (`element.animate(...)`, 0418's open question) on the same backend.
 
 ## References

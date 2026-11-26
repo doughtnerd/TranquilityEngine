@@ -1,6 +1,6 @@
 # 0371. One property-track format serves skeletal clips, property animation, sprite flipbooks, timelines and tweens; models import skins, clips and morphs
 
-- **Status:** Accepted, amended by 0378 (`TweenField` dotted paths, `setMaterialProperty` slots; timeline `event` tracks not delivered)
+- **Status:** Accepted, amended by 0378 (`TweenField` dotted paths, `setMaterialProperty` slots; timeline `event` tracks not delivered), amended by 0420 (the tween table and sequences live in `myco-tween`)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
