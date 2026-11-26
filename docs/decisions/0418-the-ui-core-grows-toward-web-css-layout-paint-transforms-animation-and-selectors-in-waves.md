@@ -1,10 +1,10 @@
 # 0418. The UI core grows toward web CSS in five waves: layout, paint, transforms, animation, then selectors and values
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0069, 0076, 0077, 0271, 0340, 0385, 0417
+- **Related:** 0069, 0076, 0077, 0271, 0340, 0385, 0417, 0419, 0420
 
 ## Context
 
@@ -52,13 +52,13 @@ We will grow the UI core toward web CSS in five waves. Each wave is shippable al
 - **Layout ignores transforms**, as on the web: siblings don't move.
 - Hit-testing inverts the element's transform chain, so a rotated button clicks where it's drawn. The editor's outline and handles use the transformed corners. Navigation (0340) uses the transformed boxes' centres.
 
-**Wave 4: Animation (the UI core's own tweening, on unscaled time).**
+**Wave 4: Animation (on the engine's tween core, 0420, on unscaled time).**
 
 - **Properties:** `transition` (property list or `all`, duration, timing function, delay) and `@keyframes` with `animation` (name, duration, timing function, delay, iteration count or `infinite`, direction, fill mode, play state).
   - These are cascade declarations, not component fields: a class or pseudo-class change starts them.
   - Scripts drive them by changing classes or by setting the `animation-*` attributes.
 - **Animatable values:** numbers, lengths (px with px, % with %; a mixed pair jumps at the midpoint, as CSS does for non-interpolable values), colours (in linear RGB), the transform fields and opacity.
-- **Timing functions:** `linear`, `ease`, `ease-in`, `ease-out`, `ease-in-out`, `cubic-bezier()` and `steps()`, using `bezier-easing` 3.2.0 (MIT, about 1 KB) pinned exact.
+- **Timing functions:** `linear`, `ease`, `ease-in`, `ease-out`, `ease-in-out`, `cubic-bezier()` and `steps()`, as engine curves (Bezier keys, step keys) on the shared tween crate (0420). Transitions and keyframes run on the animation core's tween table when the animation plugin is on, and on the small tween module when it isn't.
 - **When it runs:** animation runs in the UI document sync on the World's unscaled clock, so UI still animates while the game is paused with `Time.timeScale = 0`. A script writing a field directly overrides that field's running transition, as an inline style would.
 - **Events:** `transitionend` and `animationend` through `element.on` (on top of 0309's interaction log), one frame after they finish, like other UI events.
 
@@ -93,7 +93,7 @@ We will grow the UI core toward web CSS in five waves. Each wave is shippable al
 
 **Positive**
 - `.ui.xml` and any later Svelte layer get the same, much larger CSS: wrapping layouts, min/max sizes, clipping, layering, shadows, gradients, transforms and animated states.
-- Mostly wiring onto Yoga, Babylon GUI and css-tree. One new dependency, `bezier-easing`, at about 1 KB.
+- Mostly wiring onto Yoga, Babylon GUI and css-tree. No new dependency: animation runs on the engine's tween core (0420).
 - A step toward the Gameface-like path the spike describes, without leaving the canvas.
 
 **Negative / costs**
@@ -116,4 +116,4 @@ Nothing. `padding`, `margin`, `borderWidth` and `borderRadius` keep working as "
 
 - `spikes/svelte-ui/README.md` (the gap list), 0077 §2 (the CSS subset), 0076 (Yoga and Babylon GUI), 0271 (text runs), 0340 (navigation), 0385 (raycast targets)
 - `src/engine/ui/components.ts`, `src/engine/ui/UICore.ts`, `src/engine/ui/document/stylesheet.ts`, `src/engine/render/babylon/ui.ts`
-- Yoga 3.2.1 node API; Babylon GUI 9.32 `Control` (`shadow*`, `gradient`, `rotation`, `scaleX/Y`, `transformCenterX/Y`, `zIndex`, `clipChildren`) and `Rectangle` (`cornerRadiusX..W`); `bezier-easing` 3.2.0
+- Yoga 3.2.1 node API; Babylon GUI 9.32 `Control` (`shadow*`, `gradient`, `rotation`, `scaleX/Y`, `transformCenterX/Y`, `zIndex`, `clipChildren`) and `Rectangle` (`cornerRadiusX..W`)

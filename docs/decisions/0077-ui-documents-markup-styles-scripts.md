@@ -1,6 +1,6 @@
 # 0077. UI is authored as markup documents with stylesheets, driven by scripts, and edited in the scene view
 
-- **Status:** Accepted, amended by 0298 (where an element is written and its path are the UI document's answers, `ui/documentSource.ts`), amended by 0309 (events come from the UI core's interaction log; a script's `value` writes are never a `change`), amended by 0417 (hand-built UI nodes no longer work beside documents)
+- **Status:** Accepted, amended by 0298 (where an element is written and its path are the UI document's answers, `ui/documentSource.ts`), amended by 0309 (events come from the UI core's interaction log; a script's `value` writes are never a `change`), amended by 0417 (hand-built UI nodes no longer work beside documents); partly superseded by 0419 (Svelte replaces the markup format, bindings, `ui.data`/`ui.list()` and §6's Preact; the CSS subset and event core stay)
 - **Date:** 2026-11-05
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

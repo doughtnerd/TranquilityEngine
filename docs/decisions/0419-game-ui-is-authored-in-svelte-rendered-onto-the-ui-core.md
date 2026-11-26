@@ -1,10 +1,10 @@
 # 0419. Game UI is authored as Svelte components, rendered onto the UI core; UI documents are retired
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0077 (the `*.ui.xml` markup format, `{name}` bindings, `ui.data`/`ui.list()`, and markup-only scene-view editing; its CSS subset and its event core stay), 0077 §6 (Preact for dynamic parts)
-- **Related:** 0020, 0076, 0309, 0340, 0356, 0417, 0418
+- **Related:** 0020, 0076, 0309, 0340, 0356, 0417, 0418, 0420
 
 ## Context
 
@@ -87,7 +87,7 @@ The UI core needs to grow anyway (0418), whatever authors it.
 
 - **Every compile-time refusal becomes a renderer hook in the same patch.** Each hook is optional: the compiler keeps refusing when a renderer lacks it. Each is offered upstream on its own, and each is deleted if upstream ships an equivalent.
   - `bind(node, name, get, set)`: element `bind:`, including size bindings (`clientWidth`, `contentRect`…).
-  - `animate(node, keyframes, options) → handle` and `measure(node)`: `transition:`, `in:`, `out:`, `animate:`.
+  - `animate(node, keyframes, options) → handle` and `measure(node)`: `transition:`, `in:`, `out:`, `animate:`. The engine renderer runs keyframes on the shared tween core (0420).
   - `globalTarget(kind)`: `<svelte:window>`, `<svelte:document>`, `<svelte:body>`, with events and bindings. The engine routes keys from the device snapshot (respecting UI claims) and `resize` and sizes from the canvas.
   - `html(anchor, string) → nodes`: `{@html}`.
   - `addStyles(css)`: `css: 'injected'`.
@@ -120,7 +120,7 @@ The UI core needs to grow anyway (0418), whatever authors it.
   - `<script>` in `{@html}`, iframes, browser-history CSS (`:visited`);
   - third-party libraries that use `document`/`window` APIs beyond the Element subset and the hooks above.
 
-**Owner decisions recorded as proposed defaults (confirm or change in review):**
+**Owner decisions (confirmed 2026-11-26):**
 1. Visual editing covers static parts only; dynamic parts are view-only.
 2. UI documents keep working during migration and are removed in wave D, not in one cut-over.
 3. 0418 waves 1–2 (format-neutral) run first or in parallel with wave A. 0418 wave 5's `:where`/`:is`/tag-case items are pulled forward into wave A.
@@ -156,7 +156,7 @@ The UI core needs to grow anyway (0418), whatever authors it.
 
 - Whether `UIView` props are typed from the component (`$props()` types) in the Inspector.
 - The upstream pull requests' reception, and what to do if Svelte's eventual API differs from our hooks.
-- The order of the compatibility records, and the conformance pass rate to reach before wave D retires UI documents.
+- The order of the compatibility records, and the conformance pass rate to reach before wave D retires UI documents (the owner sets it once wave A reports a baseline).
 
 ## References
 
