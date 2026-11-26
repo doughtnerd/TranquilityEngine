@@ -1,8 +1,8 @@
 {
   "version": "5.59.2",
   "counts": {
-    "pass": 1121,
-    "fail": 190,
+    "pass": 1125,
+    "fail": 186,
     "skip": 53
   },
   "passing": [
@@ -467,6 +467,7 @@
     "attachment-svelte-element",
     "attribute-parts",
     "attribute-spread-call-expression",
+    "attribute-spread-input",
     "attribute-spread-reactivitiy",
     "attribute-spread-uppercase-on",
     "autofocus-with-call",
@@ -977,6 +978,8 @@
     "rune-name-used-by-rune",
     "runes-from-func",
     "runes-in-module-context",
+    "select-function-binding-derived",
+    "select-spread-option-selected",
     "select-value-with-call",
     "set-context-after-await",
     "set-context-after-mount",
@@ -1040,6 +1043,7 @@
     "snippet-whitespace",
     "snippets-as-slots",
     "spread-props",
+    "state-bind-group",
     "state-delete-property",
     "state-each-bind-this",
     "state-eager-declaration",
