@@ -77,6 +77,7 @@ import { addUIListener, removeUIListener, runUIListeners, uiListenerOptions, typ
 import type { UIStylesheet, UITag } from "../../../engine/ui/document/types";
 import { UIGlobals, UIGlobalTarget, type GlobalKind } from "./globalTargets";
 import { animateNode, animateSvgNode, measureNode } from "./animation";
+import { frameNow, requestFrame } from "./timing";
 import type { InlineHtmlNode } from "./htmlInline";
 
 const EVENTS: Readonly<Record<string, UIHostEventType>> = {
@@ -1955,6 +1956,9 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
   measure: (node) => measureNode(node, svgRootOf(node) ? svgComputedStyle(node) : undefined),
   // ADR 0425: `{@html}`: the string as new nodes (inline HTML parsed into runs inside a text element, block elements as panels).
   html: (_anchor, value) => htmlFragment(value),
+  // Svelte's frames and clock (`timing.ts`): `svelte/motion`, `tick` transitions and Svelte's loop on engine frames.
+  requestAnimationFrame: requestFrame,
+  now: frameNow,
 });
 
 export default renderer;

@@ -145,6 +145,13 @@ describe("UIView: Svelte transitions (the patch's animate hook)", () => {
     expect(frames(7, () => field(v, "#box", "text"))).toEqual(["", "H", "He", "Hel", "Hel", "Hell", "Hello"]);
   });
 
+  it("runs a tick transition on engine frames: its inline style writes show in the frame they're made", async () => {
+    const { v, show } = await transitions("tickstyle");
+    show(true);
+    // 100 ms (6 frames) from 0 to 60px: each frame's width is that frame's progress, not the frame before's.
+    expect(frames(8, () => field(v, "#box", "width"))).toEqual(["0", "10", "20", "30", "40", "50", "60", "60"]);
+  });
+
   it("runs on unscaled time: a paused game's UI still transitions", async () => {
     const { v, show } = await transitions("fade");
     Time.timeScale = 0;
@@ -252,38 +259,20 @@ describe("UIView: the measure hook", () => {
 });
 
 describe("UIView: svelte/motion", () => {
-  it("drives fields from Tween and Spring through style:, frame by frame on Svelte's clock", async () => {
-    // svelte/motion reads `prefers-reduced-motion` when it's imported (MediaQuery; canvas @media is wave Y1's).
-    vi.stubGlobal("window", { matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }) });
+  it("drives fields from Tween and Spring through style:, on engine frames and the World's unscaled clock", async () => {
+    // Svelte's frames and clock are the renderer's (the patch's `requestAnimationFrame`/`now` hooks): engine.step drives
+    // them, headless, with no requestAnimationFrame; a value a frame computes shows in that frame.
     const MotionModule = await import("./testComponents/Motion.svelte");
-    vi.unstubAllGlobals();
     Assets.addSource(Assets.fromObject({ "ui/motion.svelte": MotionModule }));
-    // svelte/motion runs on Svelte's own frame clock (requestAnimationFrame in a browser, none in Node): the test drives it.
-    const { raf } = (await import("svelte/internal/client")) as unknown as { raf: { tick: (f: (n: number) => void) => void; now: () => number } };
-    const saved = { tick: raf.tick, now: raf.now };
-    const ticks: ((n: number) => void)[] = [];
-    let now = 0;
-    raf.tick = (f) => void ticks.push(f);
-    raf.now = () => now;
-    try {
-      const v = await view("ui/motion.svelte", { target: 0 });
-      v.props = { target: 100 };
-      const widths: number[] = [];
-      const heights: number[] = [];
-      for (let i = 0; i < 8; i++) {
-        engine.step(DT);
-        now += 1000 / 60;
-        for (const f of ticks.splice(0)) f(now);
-        widths.push(Number(field(v, "#tween", "width")));
-        heights.push(Number(field(v, "#spring", "height")));
-      }
-      expect(widths[1]).toBeGreaterThan(0);
-      expect(widths.every((w, i) => i === 0 || w >= widths[i - 1])).toBe(true);
-      expect(widths.at(-1)).toBe(100); // 100 ms, linear
-      expect(heights.at(-1)).toBeGreaterThan(0);
-    } finally {
-      raf.tick = saved.tick;
-      raf.now = saved.now;
-    }
+    const v = await view("ui/motion.svelte", { target: 0 });
+    Time.timeScale = 0; // a paused game's UI still moves
+    v.props = { target: 100 };
+    const widths = frames(8, () => round(Number(field(v, "#tween", "width"))));
+    const heights = frames(40, () => Number(field(v, "#spring", "height")));
+    // 100 ms, linear: the tween starts in the frame the target changed and moves 1/6 of the way each 1/60 s frame.
+    expect(widths).toEqual([0, 16.667, 33.333, 50, 66.667, 83.333, 100, 100]);
+    expect(heights[0]).toBeGreaterThan(0);
+    expect(Math.max(...heights)).toBeGreaterThan(100); // damped: it overshoots, then settles
+    expect(heights.at(-1)).toBeCloseTo(100, 0);
   });
 });

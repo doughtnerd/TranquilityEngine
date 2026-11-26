@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { compile } from "svelte/compiler";
-import { flushSync } from "svelte";
+import { flushSync, mount, unmount } from "svelte";
+import { Tween } from "svelte/motion";
 import * as internal from "svelte/internal/client";
 import "svelte/internal/flags/custom-renderer"; // effects remember their renderer (compiled components import it too)
 import { crossfade, fade, fly } from "svelte/transition";
@@ -314,5 +315,73 @@ describe("the custom renderer html hook (svelte patch)", () => {
     const anchor = node("<!>");
     r.insert(parent, anchor, null);
     expect(() => withRenderer(r, () => h.html(anchor, () => "x"))).toThrow(/needs the custom renderer to define `html`|renderer_html_unsupported/);
+  });
+});
+
+// ADR 0419 wave Z3: the `requestAnimationFrame(callback)` and `now()` hooks: while a component mounted with a renderer
+// that has them is mounted, Svelte's frame loop (`svelte/motion`, `tick` transitions) runs on the renderer's frames and
+// clock instead of the browser's; unmounting gives them back.
+describe("the custom renderer timing hooks (svelte patch)", () => {
+  type N = { name: string; parent: N | null; children: N[] };
+  const node = (name: string): N => ({ name, parent: null, children: [] });
+  /** The least a renderer needs to mount a component that renders nothing, with Svelte's frames and clock. */
+  const timedRenderer = () => {
+    const insert = (parent: N, n: N, anchor: N | null): void => {
+      if (n.parent) n.parent.children.splice(n.parent.children.indexOf(n), 1);
+      n.parent = parent;
+      const at = anchor ? parent.children.indexOf(anchor) : -1;
+      if (at < 0) parent.children.push(n);
+      else parent.children.splice(at, 0, n);
+    };
+    const r = {
+      clock: 1000,
+      frames: [] as ((time: number) => void)[],
+      /** One of the renderer's frames: the clock moves on, then the callbacks asked for run. */
+      frame(ms: number) {
+        r.clock += ms;
+        for (const f of r.frames.splice(0)) f(r.clock);
+      },
+      requestAnimationFrame: (callback: (time: number) => void) => void r.frames.push(callback),
+      now: () => r.clock,
+      createFragment: () => node("#fragment"),
+      createElement: (name: string) => node(name),
+      createText: () => node("#text"),
+      createComment: () => node("<!>"),
+      getNodeType: (n: N) => (n.name === "<!>" ? "comment" : n.name === "#fragment" ? "fragment" : n.name === "#text" ? "text" : "element"),
+      getText: () => "",
+      setText() {},
+      getAttribute: () => null,
+      setAttribute() {},
+      removeAttribute() {},
+      hasAttribute: () => false,
+      insert,
+      remove: (n: N) => void (n.parent && (n.parent.children.splice(n.parent.children.indexOf(n), 1), (n.parent = null))),
+      getParent: (n: N) => n.parent,
+      getFirstChild: (n: N) => n.children[0] ?? null,
+      getLastChild: (n: N) => n.children.at(-1) ?? null,
+      getNextSibling: (n: N) => (n.parent ? (n.parent.children[n.parent.children.indexOf(n) + 1] ?? null) : null),
+      addEventListener() {},
+      removeEventListener() {},
+    };
+    return r;
+  };
+
+  it("runs svelte/motion on the renderer's frames and clock while the component is mounted, and gives them back after", async () => {
+    const r = timedRenderer();
+    let tween!: Tween<number>;
+    const app = mount(((_anchor: unknown) => {
+      tween = new Tween(0, { duration: 100 });
+      void tween.set(100);
+    }) as never, { target: node("root") as never, renderer: r } as never);
+    expect(r.frames).toHaveLength(1); // the tween's loop asked for the renderer's next frame
+    r.frame(25);
+    expect(tween.current).toBe(25);
+    r.frame(80); // past its end
+    expect(tween.current).toBe(100);
+    expect(r.frames).toHaveLength(0); // done: no more frames asked for
+
+    await unmount(app);
+    void new Tween(0, { duration: 100 }).set(1);
+    expect(r.frames).toHaveLength(0); // unmounted: Svelte's own frames again (none in Node)
   });
 });

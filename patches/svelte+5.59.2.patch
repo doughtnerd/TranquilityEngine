@@ -779,7 +779,7 @@ index e8d5dba..fcb0764 100644
  		teardown(() => {
  			target_handler.__removed = true;
 diff --git a/node_modules/svelte/src/internal/client/dom/elements/transitions.js b/node_modules/svelte/src/internal/client/dom/elements/transitions.js
-index 721888b..31b275d 100644
+index 721888b..e491887 100644
 --- a/node_modules/svelte/src/internal/client/dom/elements/transitions.js
 +++ b/node_modules/svelte/src/internal/client/dom/elements/transitions.js
 @@ -8,6 +8,14 @@ import { TRANSITION_GLOBAL, TRANSITION_IN, TRANSITION_OUT } from '../../../../co
@@ -1049,16 +1049,20 @@ index 721888b..31b275d 100644
  			}
  		}
  
-@@ -434,7 +506,7 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+@@ -434,7 +506,11 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
  			return t1 + delta * easing(time / d);
  		};
  
 -		if (tick) {
-+		if (tick && renderer === null) {
++		// a custom renderer that supplies Svelte's frames (`requestAnimationFrame`) runs `tick` on them, as the DOM does;
++		// one that doesn't calls the handle's `onframe` (below)
++		var ticks_on_loop = renderer === null || !!renderer.requestAnimationFrame;
++
++		if (tick && ticks_on_loop) {
  			loop(() => {
  				if (animation.playState !== 'running') return false;
  
-@@ -445,8 +517,16 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+@@ -445,8 +521,16 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
  			});
  		}
  
@@ -1066,7 +1070,7 @@ index 721888b..31b275d 100644
 +		animation = animate_element(renderer, element, keyframes, { duration: d, fill: 'forwards' });
  		animation.onfinish = finish;
 +
-+		if (tick && renderer !== null) {
++		if (tick && !ticks_on_loop) {
 +			// a custom renderer calls `onframe` on each of its frames while the animation runs
 +			/** @type {any} */ (animation).onframe = () => {
 +				var t = get_t();
@@ -1076,7 +1080,7 @@ index 721888b..31b275d 100644
  	}
  
  	if (!duration && !delay) {
-@@ -478,7 +558,7 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+@@ -478,7 +562,7 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
  			//
  			// fill forwards to prevent the element from rendering without styles applied
  			// see https://github.com/sveltejs/svelte/issues/14732
@@ -1085,7 +1089,7 @@ index 721888b..31b275d 100644
  
  			animation.onfinish = () => {
  				// remove dummy animation from the stack to prevent conflict with main animation
-@@ -495,7 +575,8 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+@@ -495,7 +579,8 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
  			if (animation) {
  				animation.cancel();
  				// This prevents memory leaks in Chromium
@@ -1216,6 +1220,106 @@ index ee2959d..5e1f5ef 100644
  export { cross, is_crossing } from './custom-renderer/cross.js';
 +export { bind_renderer } from './custom-renderer/bind.js';
 +export { global_target } from './custom-renderer/global.js';
+diff --git a/node_modules/svelte/src/internal/client/render.js b/node_modules/svelte/src/internal/client/render.js
+index 86d3e1b..564b7fc 100644
+--- a/node_modules/svelte/src/internal/client/render.js
++++ b/node_modules/svelte/src/internal/client/render.js
+@@ -28,6 +28,7 @@ import { boundary } from './dom/blocks/boundary.js';
+ import { push_renderer, pop_renderer } from './custom-renderer/state.js';
+ import { async_mode_flag, custom_renderers_flag } from '../flags/index.js';
+ import { current_batch } from './reactivity/batch.js';
++import { use_renderer_timing } from './timing.js';
+ 
+ /**
+  * This is normally true — block effects should run their intro transitions —
+@@ -171,13 +172,32 @@ export function hydrate(component, options) {
+  */
+ function _mount(Component, options) {
+ 	if (custom_renderers_flag && options.renderer) {
+-		var previous_renderer = push_renderer(options.renderer);
++		var renderer = options.renderer;
++		var previous_renderer = push_renderer(renderer);
++		// a renderer with its own frames and clock supplies Svelte's (`svelte/motion`, `tick` transitions,
++		// `loop`) while the component is mounted, outros included
++		var release_timing =
++			renderer.requestAnimationFrame || renderer.now ? use_renderer_timing(renderer) : null;
+ 
+ 		try {
+-			return _mount_inner(Component, options);
++			var component = _mount_inner(Component, options);
++		} catch (error) {
++			release_timing?.();
++			throw error;
+ 		} finally {
+ 			pop_renderer(previous_renderer);
+ 		}
++
++		if (release_timing !== null) {
++			var unmount_component = mounted_components.get(component);
++			mounted_components.set(component, (/** @type {any} */ options) => {
++				var done = unmount_component(options);
++				Promise.resolve(done).then(release_timing, release_timing);
++				return done;
++			});
++		}
++
++		return component;
+ 	}
+ 
+ 	return _mount_inner(Component, options);
+diff --git a/node_modules/svelte/src/internal/client/timing.js b/node_modules/svelte/src/internal/client/timing.js
+index 1702798..4ec2b57 100644
+--- a/node_modules/svelte/src/internal/client/timing.js
++++ b/node_modules/svelte/src/internal/client/timing.js
+@@ -5,12 +5,46 @@ import { BROWSER } from 'esm-env';
+ 
+ const now = BROWSER ? () => performance.now() : () => Date.now();
+ 
++/**
++ * Custom renderers that supply Svelte's frames and clock (`requestAnimationFrame`, `now`), one entry per
++ * mounted root that uses one (see `use_renderer_timing`). The last one is in effect.
++ * @type {Array<{ requestAnimationFrame?: (callback: (time: number) => void) => void; now?: () => number }>}
++ */
++const timing_sources = [];
++
++/**
++ * Makes `source` (a custom renderer with `requestAnimationFrame` and/or `now`) supply Svelte's frames and clock
++ * until the returned function is called: `svelte/motion`, `tick` transitions and everything else on `loop`
++ * then run on the renderer's frames. While several are in use, the latest one wins.
++ * @param {{ requestAnimationFrame?: (callback: (time: number) => void) => void; now?: () => number }} source
++ * @returns {() => void}
++ */
++export function use_renderer_timing(source) {
++	timing_sources.push(source);
++	var released = false;
++
++	return () => {
++		if (released) return;
++		released = true;
++		var i = timing_sources.lastIndexOf(source);
++		if (i !== -1) timing_sources.splice(i, 1);
++	};
++}
++
+ /** @type {Raf} */
+ export const raf = {
+ 	// don't access requestAnimationFrame eagerly outside method
+ 	// this allows basic testing of user code without JSDOM
+ 	// bunder will eval and remove ternary when the user's app is built
+-	tick: /** @param {any} _ */ (_) => (BROWSER ? requestAnimationFrame : noop)(_),
+-	now: () => now(),
++	tick: /** @param {any} _ */ (_) => {
++		// a custom renderer's frames, while a component that uses it is mounted
++		var source = timing_sources[timing_sources.length - 1];
++		if (source?.requestAnimationFrame) return source.requestAnimationFrame(_);
++		return (BROWSER ? requestAnimationFrame : noop)(_);
++	},
++	now: () => {
++		var source = timing_sources[timing_sources.length - 1];
++		return source?.now ? source.now() : now();
++	},
+ 	tasks: new Set()
+ };
 diff --git a/node_modules/svelte/src/transition/index.js b/node_modules/svelte/src/transition/index.js
 index 31e8fbd..cb27c2d 100644
 --- a/node_modules/svelte/src/transition/index.js
@@ -1302,7 +1406,7 @@ index 31e8fbd..cb27c2d 100644
  		const opacity = +style.opacity;
  		return {
 diff --git a/node_modules/svelte/types/index.d.ts b/node_modules/svelte/types/index.d.ts
-index 27cb293..1546d4a 100644
+index 27cb293..1cf2718 100644
 --- a/node_modules/svelte/types/index.d.ts
 +++ b/node_modules/svelte/types/index.d.ts
 @@ -2737,6 +2737,34 @@ declare module 'svelte/reactivity/window' {
@@ -1340,7 +1444,7 @@ index 27cb293..1546d4a 100644
  	/**
  	 * A custom renderer. `N` describes the types of the renderer's nodes, for example:
  	 *
-@@ -2812,6 +2840,74 @@ declare module 'svelte/renderer' {
+@@ -2812,6 +2840,90 @@ declare module 'svelte/renderer' {
  		/** Remove an event listener of the given type and handler from the target node. */
  		removeEventListener(target: N['element'], type: string, handler: any, options?: any): void;
  
@@ -1411,6 +1515,22 @@ index 27cb293..1546d4a 100644
 +		 * `html`, `{@html}` throws when it first renders.
 +		 */
 +		html?(anchor: N['element'] | N['comment'], value: string): N['fragment'];
++
++		/**
++		 * Svelte's frames, in place of the browser's `requestAnimationFrame`: call `callback` once, on the renderer's next
++		 * frame, before that frame shows (so state the callback changes shows in it), with the time `now()` gives. While a
++		 * component mounted with this renderer is mounted, `svelte/motion` (`Tween`, `Spring`, `tweened`, `spring`), `tick`
++		 * transitions and the rest of Svelte's frame loop run on these frames (with several such renderers mounted, the
++		 * most recent one's). Without it, they use `requestAnimationFrame` (none outside a browser), and a `tick`
++		 * transition calls the `animate` handle's `onframe` instead.
++		 */
++		requestAnimationFrame?(callback: (time: number) => void): void;
++
++		/**
++		 * Svelte's clock, in place of `performance.now()`: milliseconds, never decreasing, the time of the renderer's
++		 * current frame. Used with `requestAnimationFrame`, while a component mounted with this renderer is mounted.
++		 */
++		now?(): number;
 +
  		/**
  		 * Called when a component (or snippet) that uses this renderer is rendered inside

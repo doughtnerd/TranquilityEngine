@@ -19,6 +19,7 @@
  */
 import type { UIHostElement } from "../../../engine/ui/host/UIHost";
 import type { UIPlayback, UIPlayHooks } from "../../../engine/ui/animation/UIAnimator";
+import { frameNow } from "./timing";
 
 /** The renderer nodes the hooks get: an element shown through its hosted UI element. */
 interface AnimatedNode {
@@ -33,6 +34,8 @@ export class NodeAnimation {
   /** Set by Svelte for a `tick` transition: called each frame it plays. */
   onframe: (() => void) | null = null;
   private state: "running" | "finished" | "idle" = "running";
+  /** Svelte's clock when it started. */
+  private readonly startedAt = frameNow();
   private playback: UIPlayback | null = null;
   /** What the UI animator calls (`onFrame` only while Svelte wants frames). */
   readonly hooks: UIPlayHooks;
@@ -51,10 +54,16 @@ export class NodeAnimation {
     };
   }
 
-  /** Milliseconds since it started; null once cancelled. */
+  /**
+   * Milliseconds since it started, on Svelte's clock (`timing.ts`: the frame's unscaled time), up to its duration; null
+   * once cancelled. Svelte's `tick` transitions read it in the frame's Svelte callbacks, before the UI animator moves its
+   * playback on for that frame: the playback started in a frame shows its time `t` in the frame `t` after, which is the
+   * clock's difference then too.
+   */
   get currentTime(): number | null {
     if (this.state === "idle") return null;
-    return (this.playback ? this.playback.time : this.state === "finished" ? this.duration : 0) * 1000;
+    if (this.state === "finished") return this.duration * 1000;
+    return Math.min(this.duration * 1000, Math.max(0, frameNow() - this.startedAt));
   }
 
   get playState(): "running" | "finished" | "idle" {

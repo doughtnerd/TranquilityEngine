@@ -24,6 +24,15 @@
       },
     };
   }
+  // A `tick` transition that writes an inline style each frame (ADR 0419 wave Z3: shown in the frame it's written).
+  function grow(node: { style: { width: string } }, { duration = 100 }: { duration?: number } = {}) {
+    return {
+      duration,
+      tick: (t: number) => {
+        node.style.width = `${Math.round(t * 600) / 10}px`;
+      },
+    };
+  }
 </script>
 
 {#if show && kind === "fade"}
@@ -42,6 +51,8 @@
   <svg id="art" width="100" height="100" viewBox="0 0 100 100"><path d="M0 50 L100 50" stroke="red" in:draw={{ duration: 100 }}></path></svg>
 {:else if show && kind === "tick"}
   <p id="box" in:typewriter={{ duration: 100 }}>Hello</p>
+{:else if show && kind === "tickstyle"}
+  <div id="box" in:grow={{ duration: 100 }}></div>
 {:else if show && kind === "probe"}
   <div id="box" class="probe" bind:this={probe}></div>
 {/if}

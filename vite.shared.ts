@@ -65,6 +65,8 @@ export const SVELTE_UI_RENDERER = fileURLToPath(new URL("./src/plugins/ui/svelte
 
 /** What compiled UI components get for `svelte/reactivity` (ADR 0418 wave 5): Svelte's with `MediaQuery` on the canvas. */
 const SVELTE_UI_REACTIVITY = fileURLToPath(new URL("./src/plugins/ui/svelte/reactivity.ts", import.meta.url));
+/** Svelte's `svelte/motion` entry, whose `prefersReducedMotion` is a `MediaQuery` from `svelte/reactivity` (ADR 0419 wave Z3). */
+const SVELTE_MOTION_ENTRY = /[\\/]svelte[\\/]src[\\/]motion[\\/]index\.js$/;
 
 /** ADR 0425: the inline HTML parser, which compiled components that use `{@html}` or `bind:innerHTML` import as `myco/ui-html`. */
 export const SVELTE_UI_HTML = fileURLToPath(new URL("./src/plugins/ui/svelte/htmlInline.ts", import.meta.url));
@@ -95,7 +97,8 @@ export function svelteUI(options: { dev?: boolean } = {}): Plugin {
       if (source === "myco/ui-renderer") return SVELTE_UI_RENDERER;
       if (source === "myco/ui-html") return SVELTE_UI_HTML;
       // UI code's `svelte/reactivity` is Svelte's with `MediaQuery` on the canvas (ADR 0418 wave 5), as in the editor and games.
-      if (source === "svelte/reactivity" && importer && /\.svelte(\.[jt]s)?$/.test(importer.split("?")[0])) return SVELTE_UI_REACTIVITY;
+      // Svelte's own `svelte/motion` too, so its `prefersReducedMotion` follows the engine's setting (canvas `@media`) as UI code's `MediaQuery` does.
+      if (source === "svelte/reactivity" && importer && (/\.svelte(\.[jt]s)?$/.test(importer.split("?")[0]) || SVELTE_MOTION_ENTRY.test(importer.split("?")[0]))) return SVELTE_UI_REACTIVITY;
       if (!importer || !source.endsWith(".css") || !/\.svelte(\.[jt]s)?$/.test(importer.split("?")[0])) return null;
       const resolved = await this.resolve(source, importer, { skipSelf: true });
       return resolved ? UI_CSS_PREFIX + resolved.id : null;

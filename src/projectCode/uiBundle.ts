@@ -57,7 +57,8 @@ async function resolveRuntimeImport(resolver: PackageResolver, specifier: string
   if (specifier === "myco/ui-renderer") return { file: UI_RENDERER_SOURCE };
   if (specifier === "myco/ui-html") return { file: UI_HTML_SOURCE }; // ADR 0425
   // UI code's `svelte/reactivity` is Svelte's with `MediaQuery` on the canvas (ADR 0418 wave 5); that module imports Svelte's.
-  if (specifier === "svelte/reactivity" && importer === "") return { file: UI_REACTIVITY_SOURCE };
+  // Svelte's `svelte/motion` gets it too, so its `prefersReducedMotion` follows the engine's setting (ADR 0419 wave Z3).
+  if (specifier === "svelte/reactivity" && (importer === "" || importer.endsWith("svelte/src/motion/index.js"))) return { file: UI_REACTIVITY_SOURCE };
   if (importer.endsWith(".ts") && (specifier.startsWith("./") || specifier.startsWith("../"))) {
     const base = join(dirname(importer), specifier);
     if (base.startsWith(ENGINE_SOURCE_DIR)) return { host: true };
