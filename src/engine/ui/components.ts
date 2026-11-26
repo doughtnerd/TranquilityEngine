@@ -394,6 +394,13 @@ export class UISvg extends UIImage {
   @field(String) markup = "";
   /** What `currentColor` is in it (`color`, inherited as text's is). */
   @field(Color) color = Color.white;
+
+  constructor() {
+    super();
+    // HTML's size for an <svg> without one of its own (its attributes or the stylesheet set it).
+    this.width = "300";
+    this.height = "150";
+  }
 }
 
 /** The media API `UIVideo` and `UIAudio` share (ADR 0426, `media.ts`). */

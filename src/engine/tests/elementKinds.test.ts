@@ -26,7 +26,7 @@ describe("UI element kinds", () => {
   });
 
   it("maps every markup tag to its component type", () => {
-    expect([...UI_TAGS].sort()).toEqual(["Button", "Canvas", "Image", "InputField", "Panel", "Text"]);
+    expect([...UI_TAGS].sort()).toEqual(["Audio", "Button", "Canvas", "Image", "InputField", "Panel", "Svg", "Text", "Video"]); // ADR 0426: Svg, Video, Audio
     expect(uiTypeOfTag("InputField")).toBe(UIInputField);
     expect(uiTypeOfTag("Button")).toBe(UIButton);
   });

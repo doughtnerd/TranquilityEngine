@@ -1153,9 +1153,6 @@ function hostAttributes(el: UIRenderElement): Map<string, string> {
       if (s === null) continue;
       out.set(k, (k === "width" || k === "height") && /^\s*-?[\d.]+px\s*$/.test(s) ? String(parseFloat(s)) : s);
     }
-    // No size of its own: HTML's 300 × 150 (an icon's CSS usually sets it).
-    if (!out.has("width") && !/\bwidth\s*:/.test(out.get("style") ?? "")) out.set("width", "300");
-    if (!out.has("height") && !/\bheight\s*:/.test(out.get("style") ?? "")) out.set("height", "150");
     return out;
   }
   // ADR 0426: media: `src` (or its first <source>'s), and HTML's boolean attributes as fields.
