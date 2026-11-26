@@ -38,6 +38,10 @@ export type UICanvasMode = "screen" | "world";
  */
 export type UITextAlign = "start" | "end" | "left" | "center" | "right" | "justify";
 export type UIWordBreak = "break-word" | "break-all" | "keep-all";
+/** ADR 0425: a text's `font-style` (`oblique` draws as italic). */
+export type UIFontStyle = "normal" | "italic" | "oblique";
+/** ADR 0425: an inline run's `vertical-align`. */
+export type UIVerticalAlign = "baseline" | "sub" | "super" | "middle" | "top" | "bottom" | "text-top" | "text-bottom";
 export type UIImageFit = "cover" | "contain" | "fill";
 /**
  * How `navigate` leaves a focusable element (ADR 0340): `auto` takes its explicit neighbours, else the
@@ -369,6 +373,21 @@ export class UIText extends UIElement {
   @field(Number) textShadowOffsetY = 0;
   /** How far the text shadow blurs, in UI pixels (`text-shadow-blur`, inherited). */
   @field(Number) textShadowBlur = 0;
+
+  // ADR 0425: inline runs. A text element's inline children (`<b>`, `<span>`, `<a>`, `<img>`, `<br>`…) are runs of it,
+  // laid out and drawn with it; these fields style a run (and, where it makes sense, the whole text).
+  /** `italic` (or `oblique`, drawn italic) slants the glyphs (`font-style`, inherited). */
+  @field(String, { choices: ["normal", "italic", "oblique"] }) fontStyle: UIFontStyle = "normal";
+  /** Lines drawn with the glyphs (`text-decoration`): `none`, or any of `underline`, `line-through` and `overline`, space-separated. A run's reach its inline children. */
+  @field(String) textDecoration = "none";
+  /** Painted behind the text: an inline run's glyphs (and its inline children's), or the whole box of a text element; null paints nothing. */
+  @field(Color) backgroundColor: Color | null = null;
+  /** An inline run's place on its line (`vertical-align`): `sub` and `super` lower and raise its baseline; `middle`, `top`, `bottom`, `text-top`, `text-bottom` align its box. */
+  @field(String, { choices: ["baseline", "sub", "super", "middle", "top", "bottom", "text-top", "text-bottom"] }) verticalAlign: UIVerticalAlign = "baseline";
+  /** `contenteditable`: the player edits the text (a press puts the caret, typing and the IME go through the hidden input, `input` events follow); whitespace is kept as typed. */
+  @field(Boolean) contentEditable = false;
+  /** @internal A run of text between a text element's inline children (not an element): events on it go to its parent. */
+  _textPiece = false;
 }
 
 /** A texture laid out as an element. */

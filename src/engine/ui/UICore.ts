@@ -14,19 +14,21 @@ import { Mat4, Vector2 } from "../core/math";
 import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { devices, type InputClaim, type PointerFrame } from "../input/devices";
-import { UIButton, UICanvas, UIInputField, UIOption, UISelect, UISlider, UITextArea, isFocusableUI, type UIComponentType, type UIFocusableElement } from "./components";
+import { UIButton, UICanvas, UIImage, UIInputField, UIOption, UISelect, UISlider, UIText, UITextArea, isFocusableUI, type UIComponentType, type UIFocusableElement } from "./components";
 import { clickDefault, controlChanged, formOf, optionsOf, rememberDefaults, selectLabels, setSelectOpen, sliderValue, stepNumberField, submitForm } from "./formControls";
 import { formPartsOf, partsKey } from "./formParts";
-import { UI_KIND_TYPES, clipsChildren, flexShrinkOf, isInteractiveKind, isLeafKind, isRaycastTarget, isUserScroller, overflowAxes, sameTextRun, textRunOf, uiKindOf, userScrollsAxis } from "./elementKinds";
+import { UI_KIND_TYPES, clipsChildren, flexShrinkOf, isInteractiveKind, isLeafKind, isRaycastTarget, isUserScroller, overflowAxes, sameTextMeasure, sameTextRun, textRunOf, uiKindOf, userScrollsAxis } from "./elementKinds";
 import { fontEpoch } from "./fonts";
 import { uiInteractions } from "./interactions";
 import { pointerFocus } from "./navigation";
 import { canvasScale, estimateText, inRect, intersectRect, isMixedLength, loadYogaOnce, loadedYoga, uiBorderEdges, uiEdges, uiLength, uiLimit, type UIRect } from "./layout";
-import type { TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPart, UIPickRay, UIScrollbar, UIScrollInfo } from "./uiCoreTypes";
+import type { UIInlineEditing, UIInlineRun, TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPart, UIPickRay, UIScrollbar, UIScrollInfo } from "./uiCoreTypes";
 import { fireUIEvent, uiDomCode, uiDomKey, uiEventRecord, UIDataTransfer, type UIEventData, type UIEventRecord } from "./events";
 import { advanceUIScrolling, canMove, uiScrollBy, uiScrollMoving, uiScrollTo, uiStartMomentum, uiStopScrolling, type UIScrollable } from "./scrolling";
 import { applyAffine, boundsOf, compose, invert, localTransform, multiply, transformRect, type UIAffine, type UITransformFields } from "./transform2d";
 import { filterStepsOf, transformFilterSteps, type UIFilterFields, type UIFilterStep } from "./filters";
+import { caretAt, indexAt, inlineFont, layoutInline, selectionRects, type RunMeasure, type UIInlineLayout } from "./text/inlineLayout";
+import { applyInlineEdit } from "./text/inlineEdit";
 
 export { canvasScale, uiLength } from "./layout";
 
@@ -123,6 +125,39 @@ interface Entry {
   partsKey?: string;
   /** ADR 0424: what else a measured element's size depends on (a select's option labels, a text area's rows). */
   measureKey?: string;
+  /**
+   * ADR 0425: an inline run (a text's inline child): the element it's inside (its text, or an inline element), which events
+   * travel up through. It has no Yoga node in the tree; its box is its fragments' bounds, from its text's layout.
+   */
+  inlineIn?: Entry | null;
+  /** ADR 0425: a text with runs: its inline layout at its content width (null otherwise), and what it was laid out for. */
+  inline?: UIInlineLayout | null;
+  inlineFor?: { run: UITextRun; width: number; inset: string };
+  /** ADR 0425: its runs' fragments in canvas UI pixels (layout space): what hit-testing resolves a point on the text to. */
+  inlineHits?: { x: number; y: number; width: number; height: number; owner: Entry | null }[];
+  /** ADR 0425: a text's inline runs (every inline descendant), from the last sync. */
+  inlineRuns?: Entry[];
+}
+
+/** ADR 0425: an editable text being edited: its selection (`anchor` to `focus`, offsets in its text), the hidden text area's text, what's shown. */
+interface EditState {
+  readonly entry: Entry;
+  anchor: number;
+  focus: number;
+  text: string;
+  /** A press is selecting by dragging. */
+  dragging: boolean;
+  /** The selection changed here, to be put into the hidden text area. */
+  selectionChanged: boolean;
+  shown: UIInlineEditing | null;
+  shownFor: UIInlineLayout | null;
+  shownAnchor: number;
+  shownFocus: number;
+}
+
+/** ADR 0425: the element events go up to from `e`: an inline run's text or inline element, else its Yoga parent. */
+function up(e: Entry): Entry | null {
+  return e.inlineIn ?? e.parent;
 }
 
 interface CanvasEntry extends Entry {
@@ -262,27 +297,27 @@ function openSelectAbove(e: Entry): Entry | null {
 /** ADR 0422: an element and its ancestors below its canvas, the element first. */
 function pathOf(e: Entry): Entry[] {
   const out: Entry[] = [];
-  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = at.parent) out.push(at);
+  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = up(at)) out.push(at);
   return out;
 }
 
 /** ADR 0422: the nearest element both are in (themselves included), below their canvas; null when they share none. */
 function commonAncestor(a: Entry, b: Entry): Entry | null {
-  const up = pathOf(a);
-  for (let at: Entry | null = b; at && at.kind !== "canvas"; at = at.parent) if (up.includes(at)) return at;
+  const path = pathOf(a);
+  for (let at: Entry | null = b; at && at.kind !== "canvas"; at = up(at)) if (path.includes(at)) return at;
   return null;
 }
 
 /** ADR 0422: a press in a button (ADR 0424: any control) that isn't interactable doesn't click (the DOM's disabled controls). */
 function disabledPath(e: Entry): boolean {
-  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = at.parent) if (isFocusableUI(at.comp) && !at.comp.interactable) return true;
+  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = up(at)) if (isFocusableUI(at.comp) && !at.comp.interactable) return true;
   return false;
 }
 
 /** ADR 0423: the elements at or above `e` the player scrolls (`overflow` `auto` or `scroll`), innermost first. */
 function scrollChain(e: Entry): Entry[] {
   const out: Entry[] = [];
-  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = at.parent) {
+  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = up(at)) {
     const s = at.place.scroll;
     if (s && (s.userX || s.userY) && at.box.visible) out.push(at);
   }
@@ -308,7 +343,7 @@ function pickScroller(chain: readonly Entry[], dx: number, dy: number): Entry | 
 
 /** The interactive element a pointer on `e` goes to: `e` itself or its nearest interactive ancestor, below its canvas. */
 function handlerOf(e: Entry): Entry | null {
-  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = at.parent) if (isInteractiveKind(at.kind)) return at;
+  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = up(at)) if (isInteractiveKind(at.kind)) return at;
   return null;
 }
 
@@ -345,6 +380,9 @@ export class UICore implements UICoreLike {
   /** ADR 0424: the hidden elements made so far: a one-line `<input>` and a `<textarea>`. */
   private readonly doms: { line?: HTMLInputElement; area?: HTMLInputElement } = {};
   private active: UIInputField | null = null;
+  /** ADR 0425: the editable text being edited, and the one the hidden text area holds. */
+  private editing: EditState | null = null;
+  private editActive: UIText | null = null;
   private programmatic = false;
   private detachDom: (() => void) | null = null;
   /** Keys the hidden input took since the last routing (Tab, Escape leaving a field), claimed from the game until released. */
@@ -485,7 +523,7 @@ export class UICore implements UICoreLike {
     this.attach(desired);
 
     // Properties and layout.
-    for (const entry of this.entries.values()) if (entry.canvas) this.applyProperties(yoga, entry);
+    for (const entry of this.entries.values()) if (entry.canvas && !entry.inlineIn) this.applyProperties(yoga, entry);
     const canvases = [...this.canvasEntries.values()].sort((a, b) => a.comp.sortOrder - b.comp.sortOrder);
     for (const canvas of canvases) {
       this.applyCanvas(canvas);
@@ -549,6 +587,7 @@ export class UICore implements UICoreLike {
     if (this.gesture && (this.gesture.target === entry || this.gesture.source === entry || this.gesture.scroller === entry || this.gesture.dropTarget === entry)) this.gesture = null;
     this.lastScroll.delete(entry);
     if (this.active === c) this.unfocusDom();
+    if (this.editing?.entry === entry) this.endEditing();
     if (entry.parent) {
       holder(entry.parent).removeChild(entry.node);
       entry.parent.children = entry.parent.children.filter((e) => e !== entry);
@@ -571,6 +610,8 @@ export class UICore implements UICoreLike {
     if (this.world && uiInteractions(this.world).layout === this) uiInteractions(this.world).layout = null;
     for (const c of [...this.entries.keys()]) this.release(c);
     this.unfocusDom();
+    this.editing = null;
+    this.editActive = null;
     this.detachDom?.();
     this.detachDom = null;
     this.doms.line = this.doms.area = undefined;
@@ -630,12 +671,19 @@ export class UICore implements UICoreLike {
         const entry = this.entries.get(c)!;
         entry.canvas = canvas;
         placed.add(entry);
+        entry.inlineIn = null;
+        // ADR 0425: a text's inline children (texts and images, nested ones too) are its runs: no boxes of their own.
+        if (leaf?.kind === "text" && (c instanceof UIText || c instanceof UIImage)) {
+          this.collectInline(child, entry, leaf, leaf, canvas, byNode, placed, desired);
+          continue;
+        }
         if (leaf) {
           this.warnOnce(`leaf|${child.entity}`, `UI element "${child.name}" is under a ${leaf.comp.constructor.name}, which can't have children; it lays out beside it instead.`);
         }
         list.push(entry);
         if (isLeafKind(entry.kind)) {
           desired.set(entry, []);
+          entry.inlineRuns = [];
           walk(child, into, list, entry); // children of a leaf join its parent
         } else {
           const own: Entry[] = [];
@@ -645,6 +693,35 @@ export class UICore implements UICoreLike {
       }
     };
     walk(node, parent, root);
+  }
+
+  /** ADR 0425: an inline run `entry` (on `node`) inside `within` (its text or an inline element), and its own inline descendants. */
+  private collectInline(node: GameObject, entry: Entry, within: Entry, text: Entry, canvas: CanvasEntry, byNode: Map<number, UIComponentType>, placed: Set<Entry>, desired: Map<Entry, Entry[]>): void {
+    entry.inlineIn = within;
+    (text.inlineRuns ??= []).push(entry);
+    desired.set(entry, []);
+    const walk = (n: GameObject) => {
+      for (const child of n.children) {
+        if (child.isComponentNode) continue;
+        const c = byNode.get(child.entity);
+        if (!c) {
+          walk(child);
+          continue;
+        }
+        if (c instanceof UICanvas) continue;
+        const e = this.entries.get(c)!;
+        e.canvas = canvas;
+        placed.add(e);
+        if (c instanceof UIText || c instanceof UIImage) this.collectInline(child, e, entry, text, canvas, byNode, placed, desired);
+        else {
+          e.inlineIn = null;
+          desired.set(e, []);
+          this.warnOnce(`inline|${child.entity}`, `UI element "${child.name}" is inside a text run; only text and images are runs, so it isn't shown.`);
+          e.canvas = null;
+        }
+      }
+    };
+    walk(node);
   }
 
   /** Make every Yoga node's children what `desired` says (and detach elements that have no place). */
@@ -763,12 +840,28 @@ export class UICore implements UICoreLike {
       // ADR 0424: a select's size follows every option's label, a text area's its rows.
       const key = entry.kind === "select" ? selectLabels(c as UISelect).join("\u0000") : entry.kind === "textarea" ? String((c as UITextArea).rows) : undefined;
       if (!sameTextRun(run, entry.run) || epoch !== entry.measuredEpoch || key !== entry.measureKey) {
+        // ADR 0425: runs that changed only colour, decoration or background (a link's hover) are drawn again, not measured.
+        const remeasure = !sameTextMeasure(run, entry.run) || epoch !== entry.measuredEpoch || key !== entry.measureKey;
         entry.run = run;
         entry.measuredEpoch = epoch;
         entry.measureKey = key;
-        n.markDirty();
+        if (remeasure) n.markDirty();
       }
     }
+  }
+
+  /** ADR 0425: a string's width in a run's font: the host's exact measure, else an estimate (Node). */
+  private readonly runWidth: RunMeasure = (text, run) => {
+    const exact = this.host.measureRunWidth?.(text, inlineFont(run));
+    if (exact !== undefined) return exact;
+    let n = 0;
+    for (const _ of text) n++;
+    return n * 0.55 * run.fontSize;
+  };
+
+  /** ADR 0425: a text run with inline runs laid out at `maxWidth` (and aligned in `alignWidth`). */
+  private layoutRuns(run: UITextRun, maxWidth: number, alignWidth?: number): UIInlineLayout {
+    return layoutInline(run.runs!, { maxWidth: run.wrap === "none" ? Infinity : maxWidth, alignWidth, wrap: run.wrap, lineHeight: run.lineHeight, align: run.align, direction: run.direction, fontSize: run.fontSize, keepTrailingBreak: !!run.editable }, this.runWidth);
   }
 
   /** An entry's content box size at its last layout (a canvas's own size): what its children's percentages are of. */
@@ -799,6 +892,11 @@ export class UICore implements UICoreLike {
     if (entry.kind === "textarea") {
       const rows = Math.max(1, Math.round((entry.comp as UITextArea).rows) || 1);
       return { width: Number.isFinite(maxWidth) ? maxWidth : 20 * run.fontSize * 0.55, height: rows * lineHeight };
+    }
+    // ADR 0425: inline runs measure together, as they're laid out and drawn.
+    if (run.runs) {
+      const laid = this.layoutRuns(run, maxWidth);
+      return { width: laid.width, height: laid.height };
     }
     const request: TextMeasureRequest = { ...run, maxWidth: run.wrap === "none" ? Infinity : maxWidth };
     return measure(request);
@@ -838,6 +936,8 @@ export class UICore implements UICoreLike {
         const filter = own.length ? [...transformFilterSteps(own, transform), ...(parentFilter ?? [])] : parentFilter;
         e.place = { clip, clipper, childClip, order: 0, clips, transform, inverse, bounds: drawnBounds(e.box, transform, clips), reachClips, reach: drawnBounds(e.box, transform, reachClips), scroll, filter };
         canvas.elements.push(e);
+        // ADR 0425: a text with inline runs is laid out at its content width; its runs get their fragments' bounds.
+        if (e.kind === "text") this.placeInline(e);
         if (e.popup) {
           // ADR 0424: a select's list lays out at least as wide as the select, below it (above it where it wouldn't fit),
           // outside every clip; shown only while the select is open.
@@ -864,6 +964,55 @@ export class UICore implements UICoreLike {
     if (lists.length) canvas.painted = [...canvas.painted.filter((e) => !lists.includes(e)), ...lists];
     canvas.painted.forEach((e, i) => (e.place.order = i));
     canvas.hitOrder = hitOrderOf(canvas.painted);
+  }
+
+  /**
+   * ADR 0425: lay a text's runs out at its content width (again only when its run, width or insets changed), and give each
+   * of its inline runs a box (its fragments' bounds; at the text's content corner with no size when it has none) and the
+   * text's placement, so events, `getBoundingClientRect` and hit-testing reach the run.
+   */
+  private placeInline(e: Entry): void {
+    const run = e.run;
+    if (!run?.runs) {
+      e.inline = null;
+      e.inlineFor = undefined;
+      e.inlineHits = undefined;
+      return;
+    }
+    const yoga = this.yoga!;
+    const n = e.node;
+    const side = (edge: number) => (Number.isFinite(n.getComputedPadding(edge)) ? n.getComputedPadding(edge) : 0) + (Number.isFinite(n.getComputedBorder(edge)) ? n.getComputedBorder(edge) : 0);
+    const pl = side(yoga.EDGE_LEFT), pt = side(yoga.EDGE_TOP);
+    const inner = Math.max(0, e.box.width - pl - side(yoga.EDGE_RIGHT));
+    const insetKey = `${pl}|${pt}`;
+    const f = e.inlineFor;
+    let laid = e.inline;
+    if (!laid || !f || f.run !== run || Math.abs(f.width - inner) > 1e-6 || f.inset !== insetKey) {
+      laid = { ...this.layoutRuns(run, inner + 1e-6, inner), inset: { x: pl, y: pt } };
+      e.inline = laid;
+      e.inlineFor = { run, width: inner, inset: insetKey };
+    }
+    const ox = e.box.x + pl, oy = e.box.y + pt;
+    const hits: NonNullable<Entry["inlineHits"]> = [];
+    const boxes = new Map<Entry, UIRect>();
+    for (const line of laid.lines) {
+      for (const fr of line.fragments) {
+        const r = run.runs[fr.run];
+        const owner = r.owner && r.owner !== e.comp ? (this.entries.get(r.owner) ?? null) : null;
+        const rect = { x: ox + fr.x, y: oy + line.top, width: fr.width, height: line.height };
+        hits.push({ ...rect, owner });
+        for (let at = owner; at && at !== e; at = at.inlineIn ?? null) {
+          const b = boxes.get(at);
+          boxes.set(at, b ? unionRect(b, rect) : rect);
+        }
+      }
+    }
+    e.inlineHits = hits;
+    for (const re of e.inlineRuns ?? []) {
+      const rect = boxes.get(re) ?? { x: ox, y: oy, width: 0, height: 0 };
+      re.box = { ...rect, visible: e.box.visible && re.comp.isActiveAndEnabled && (re.comp as UIText).visible !== false, opacity: e.box.opacity * ((re.comp as UIText).opacity ?? 1) };
+      re.place = { ...e.place, childClip: null, scroll: null, bounds: drawnBounds(rect, e.place.transform, e.place.clips), reach: drawnBounds(rect, e.place.transform, e.place.reachClips) };
+    }
   }
 
   /**
@@ -941,7 +1090,7 @@ export class UICore implements UICoreLike {
           e.partsKey = key;
           e.parts = parts;
         }
-        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds, reach: p.reach, scroll: p.scroll, parts: e.parts ?? null, filter: p.filter });
+        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds, reach: p.reach, scroll: p.scroll, parts: e.parts ?? null, filter: p.filter, inline: e.kind === "text" ? (e.inline ?? null) : null, editing: this.editingOf(e) });
       }
     }
     const changed = !sameCanvases(this.canvasList, canvasList) || !sameElements(this.elementList, elementList);
@@ -977,6 +1126,8 @@ export class UICore implements UICoreLike {
     el.style.cssText = "position:fixed;left:-10000px;top:0;width:1px;height:1px;opacity:0;pointer-events:none;";
     // The player's typing: the value now, the change event for the World's next frame (ADR 0309).
     const onInput = () => {
+      // ADR 0425: an editable text's edit goes into its runs' components; `input` follows in the next frame.
+      if (this.editing && this.editActive && this.dom === el) return this.editInput(el);
       const c = this.active;
       if (!c) return;
       let v = el.value;
@@ -991,6 +1142,16 @@ export class UICore implements UICoreLike {
     // Enter submits; Tab, Shift+Tab and Escape leave the field through navigation (ADR 0340), and their
     // presses stay the UI's until released, so the game (and the `ui` context) never sees them as new ones.
     const onKey = (e: KeyboardEvent) => {
+      // ADR 0425: Escape leaves an editable text (Enter starts a line in it); Tab leaves it for navigation.
+      if (this.editing && this.editActive && this.dom === el && !e.isComposing && e.keyCode !== 229) {
+        if (e.key === "Escape" || e.key === "Tab") {
+          if (e.key === "Tab") e.preventDefault?.();
+          this.swallowed.push(e.key === "Tab" ? "tab" : "escape");
+          this.endEditing();
+          if (e.key === "Tab" && this.world) uiInteractions(this.world).request(e.shiftKey ? "previous" : "next");
+        }
+        return;
+      }
       const c = this.active;
       if (!c) return;
       // While an IME composes (CJK, ADR 0356), Enter picks its candidate and Escape drops the composition.
@@ -1009,6 +1170,7 @@ export class UICore implements UICoreLike {
       }
     };
     const onBlur = () => {
+      if (!this.programmatic && this.editing && this.editActive && !this.pointerHeld) return this.endEditing();
       if (this.programmatic || !this.active) return;
       // A press on the canvas takes DOM focus first; routing re-focuses the field that press hit.
       if (this.pointerHeld) return;
@@ -1034,6 +1196,14 @@ export class UICore implements UICoreLike {
   /** Move DOM focus to or from the wanted field's hidden input, and mirror `value` and `maxLength` into it. */
   private syncDom(): void {
     if (this.passive || typeof document === "undefined") return;
+    // ADR 0425: an editable text being edited holds the hidden text area (its runs' text, images as U+FFFC).
+    const ed = this.editing;
+    if (ed && (!this.entries.has(ed.entry.comp) || !ed.entry.canvas || !ed.entry.box.visible || !ed.entry.run?.runs || !(ed.entry.comp as UIText).contentEditable)) this.endEditing();
+    if (this.editing) return this.syncEditDom(this.editing);
+    if (this.editActive) {
+      this.editActive = null;
+      this.unfocusDom();
+    }
     const want = this.wantedField();
     const wantComp = want ? (want.comp as UIInputField) : null;
     if (!wantComp) {
@@ -1063,6 +1233,121 @@ export class UICore implements UICoreLike {
     const dir = want!.run?.direction ?? "ltr"; // the language's direction (ADR 0356 §5): the IME and selection follow it
     if (el.dir !== dir) el.dir = dir;
     if (el.value !== wantComp.value) el.value = wantComp.value; // a script changed it
+  }
+
+  // --- Editable text (ADR 0425) ----------------------------------------------------------------
+
+  /** The text area an editable text types in: its text mirrored, focused, and the selection either way between them. */
+  private syncEditDom(ed: EditState): void {
+    const el = this.ensureDom(true);
+    if (!el) return;
+    this.dom = el;
+    this.active = null;
+    const run = ed.entry.run!;
+    const comp = ed.entry.comp as UIText;
+    if (this.editActive !== comp) {
+      this.editActive = comp;
+      el.value = ed.text = run.text;
+      el.removeAttribute("maxlength");
+      this.programmatic = true;
+      el.focus();
+      this.programmatic = false;
+      ed.selectionChanged = true;
+    } else if (document.activeElement !== el) {
+      this.programmatic = true;
+      el.focus();
+      this.programmatic = false;
+    }
+    if (run.text !== ed.text && el.value === ed.text) {
+      // A script changed the text (or an edit couldn't go in whole: an image stays): take it as it is now.
+      el.value = ed.text = run.text;
+      ed.anchor = Math.min(ed.anchor, run.text.length);
+      ed.focus = Math.min(ed.focus, run.text.length);
+      ed.selectionChanged = true;
+    }
+    if (el.dir !== run.direction) el.dir = run.direction;
+    if (ed.selectionChanged) {
+      ed.selectionChanged = false;
+      const a = Math.min(ed.anchor, ed.focus), b = Math.max(ed.anchor, ed.focus);
+      el.setSelectionRange(a, b, ed.anchor > ed.focus ? "backward" : "forward");
+    } else {
+      // The player moved the caret or the selection with the keys (or the IME did).
+      const s = el.selectionStart ?? el.value.length, e = el.selectionEnd ?? s;
+      const backward = el.selectionDirection === "backward";
+      ed.anchor = backward ? e : s;
+      ed.focus = backward ? s : e;
+    }
+  }
+
+  /** The player typed in an editable text: the edit goes into its runs' components; `input` is sent in the next routing. */
+  private editInput(el: HTMLInputElement): void {
+    const ed = this.editing!;
+    const next = el.value;
+    if (next === ed.text || !ed.entry.run?.runs) return;
+    applyInlineEdit(ed.entry.comp as UIText, ed.entry.run.runs, ed.text, next);
+    ed.text = next;
+    const s = el.selectionStart ?? next.length, e = el.selectionEnd ?? s;
+    ed.anchor = s;
+    ed.focus = e;
+    uiInteractions(ed.entry.comp._world).queue(uiEventRecord("input", ed.entry.comp));
+  }
+
+  /** The editable text a press on `e` edits: the text it is or is a run of, when that text is editable. */
+  private editableOf(e: Entry | null): Entry | null {
+    let at = e;
+    while (at?.inlineIn) at = at.inlineIn;
+    return at && at.kind === "text" && (at.comp as UIText).contentEditable && at.run?.runs ? at : null;
+  }
+
+  /** The offset in an editable text nearest a canvas UI pixel point. */
+  private editIndexAt(e: Entry, ux: number, uy: number): number {
+    const laid = e.inline;
+    const run = e.run;
+    if (!laid || !run?.runs) return 0;
+    const [lx, ly] = e.place.inverse ? applyAffine(e.place.inverse, ux, uy) : [ux, uy];
+    const inset = laid.inset ?? { x: 0, y: 0 };
+    return indexAt(laid, run.runs, lx - e.box.x - inset.x, ly - e.box.y - inset.y, this.runWidth, run.direction);
+  }
+
+  /** A press on an editable text: it starts (or goes on) being edited, the caret where the press was (Shift extends the selection). */
+  private beginEditing(world: World, e: Entry, ux: number, uy: number, extend: boolean): void {
+    const index = this.editIndexAt(e, ux, uy);
+    if (this.editing && this.editing.entry !== e) this.endEditing();
+    if (this.editing) {
+      if (!extend) this.editing.anchor = index;
+      this.editing.focus = index;
+      this.editing.dragging = true;
+      this.editing.selectionChanged = true;
+      return;
+    }
+    this.editing = { entry: e, anchor: index, focus: index, text: e.run!.text, dragging: true, selectionChanged: true, shown: null, shownFor: null, shownAnchor: -1, shownFocus: -1 };
+    uiInteractions(world).emit(uiEventRecord("focus", e.comp));
+  }
+
+  /** The editable text stops being edited: `blur` (and `focusout`) on it, and the hidden text area lets go. */
+  private endEditing(): void {
+    const ed = this.editing;
+    if (!ed) return;
+    this.editing = null;
+    if (this.entries.has(ed.entry.comp)) uiInteractions(ed.entry.comp._world).queue(uiEventRecord("blur", ed.entry.comp));
+    if (this.editActive) {
+      this.editActive = null;
+      this.unfocusDom();
+    }
+  }
+
+  /** What an editable text being edited shows (the same object while nothing changes), or null for any other element. */
+  private editingOf(e: Entry): UIInlineEditing | null {
+    const ed = this.editing;
+    if (!ed || ed.entry !== e || !e.inline || !e.run?.runs) return null;
+    if (ed.shown && ed.shownFor === e.inline && ed.shownAnchor === ed.anchor && ed.shownFocus === ed.focus) return ed.shown;
+    const runs = e.run.runs, laid = e.inline, dir = e.run.direction;
+    const a = Math.min(ed.anchor, ed.focus, laid.text.length), b = Math.min(Math.max(ed.anchor, ed.focus), laid.text.length);
+    ed.shown = a === b ? { caret: caretAt(laid, runs, a, this.runWidth, dir), selection: [] } : { caret: null, selection: selectionRects(laid, runs, a, b, this.runWidth, dir) };
+    ed.shownFor = laid;
+    ed.shownAnchor = ed.anchor;
+    ed.shownFocus = ed.focus;
+    return ed.shown;
   }
 
   private unfocusDom(): void {
@@ -1154,7 +1439,7 @@ export class UICore implements UICoreLike {
       for (const s of chain) uiStopScrolling(world, s.comp as UIScrollable); // a press stops a fling
       this.activeScroller = chain[0] ?? null;
       let source: Entry | null = null;
-      for (let at = over; at && at.kind !== "canvas" && !source; at = at.parent) if ((at.comp as UIScrollable).draggable) source = at;
+      for (let at = over; at && at.kind !== "canvas" && !source; at = up(at)) if ((at.comp as UIScrollable).draggable) source = at;
       const gesture: Gesture = { kind: "pending", pointerType: raw.pointerType, startX: raw.x, startY: raw.y, lastX: raw.x, lastY: raw.y, armed: true, target: over, source, chain, scroller: null, axis: null, startScroll: 0, samples: [{ t: now, x: raw.x, y: raw.y }], data: null, dropTarget: null, accepts: false };
       let barAction: (() => void) | null = null;
       if (blocked?.bar && over) barAction = this.pressBar(world, gesture, over, blocked.bar, blocked.ux, blocked.uy);
@@ -1181,8 +1466,24 @@ export class UICore implements UICoreLike {
           const path = over ? pathOf(over) : [];
           for (const e of this.entries.values()) if (e.kind === "select" && (e.comp as UISelect).open && !path.includes(e)) setSelectOpen(e.comp as UISelect, false);
           if (slider && gesture.kind === "slider") this.slideTo(world, slider, ux, uy, null);
+          // ADR 0425: a press on an editable text puts its caret there (and edits it); a press elsewhere ends editing.
+          const editable = this.editableOf(over);
+          if (editable && !press.trapped) this.beginEditing(world, editable, ux, uy, mods.shiftKey);
+          else if (this.editing) this.endEditing();
         }),
       );
+    }
+    // ADR 0425: dragging from a press in an editable text selects.
+    const ed = this.editing;
+    if (ed?.dragging) {
+      if (raw.held(0) && !raw.down(0) && moved) {
+        const at = this.canvasPoint(ed.entry, raw.x, raw.y);
+        if (at) {
+          ed.focus = this.editIndexAt(ed.entry, at.x, at.y);
+          ed.selectionChanged = true;
+        }
+      }
+      if (!raw.held(0) && !raw.down(0)) ed.dragging = false;
     }
     for (const b of [1, 2]) {
       if (raw.down(b) && over) records.push(uiEventRecord("pointerdown", over.comp, pdata(over, { button: b, buttons: buttons | (b === 2 ? 2 : 4) })));
@@ -1267,7 +1568,9 @@ export class UICore implements UICoreLike {
 
     // Keys (ADR 0422): to the focused element, else (ADR 0423) the scroller the last press landed in.
     const focusedEntry = live(log.focused ? (this.entries.get(log.focused) ?? null) : null);
-    const keyTarget = focusedEntry ?? live(this.activeScroller);
+    // ADR 0425: an editable text being edited has the keys, as a focused contenteditable does.
+    const editingEntry = this.editing ? live(this.editing.entry) : null;
+    const keyTarget = editingEntry ?? focusedEntry ?? live(this.activeScroller);
     if (keyTarget) {
       for (const k of raw.keys) {
         const data: UIEventData = { key: uiDomKey(k.key), code: uiDomCode(k.key), repeat: false, ...mods };
@@ -1294,7 +1597,7 @@ export class UICore implements UICoreLike {
               const form = formOf(field);
               if (form) submitForm(world, form, true);
             }
-            this.keyScroll(world, keyTarget, k.key, !focusedEntry, !!field?.typing);
+            this.keyScroll(world, keyTarget, k.key, !focusedEntry && !editingEntry, !!field?.typing || !!editingEntry);
           }),
         );
       }
@@ -1304,7 +1607,7 @@ export class UICore implements UICoreLike {
 
     const focused = log.focused;
     const typing = focused instanceof UIInputField && focused.typing;
-    return { pointer: !!blocked, keyboard: typing, keys, wheel: wheelTaken };
+    return { pointer: !!blocked, keyboard: typing || !!this.editing, keys, wheel: wheelTaken };
   }
 
   /** ADR 0422: a point's position for an event on `e`: the target canvas's UI pixels, and `e`'s own (through its transform). */
@@ -1494,7 +1797,10 @@ export class UICore implements UICoreLike {
       for (let i = canvas.painted.length - 1; i >= 0; i--) {
         const e = canvas.painted[i];
         if (!this.hittable(e)) continue;
-        if (onDrawnBox(e, px, py)) out.push(e.comp);
+        if (!onDrawnBox(e, px, py)) continue;
+        const run = this.runAt(e, px, py); // ADR 0425: the run under the point first, then its text
+        if (run) out.push(run.comp);
+        out.push(e.comp);
       }
     }
     const r = ray ?? this.viewRay(x, y);
@@ -1508,7 +1814,10 @@ export class UICore implements UICoreLike {
       for (let i = canvas.painted.length - 1; i >= 0; i--) {
         const e = canvas.painted[i];
         if (!this.hittable(e)) continue;
-        if (onDrawnBox(e, at.ux, at.uy)) comps.push(e.comp);
+        if (!onDrawnBox(e, at.ux, at.uy)) continue;
+        const run = this.runAt(e, at.ux, at.uy);
+        if (run) comps.push(run.comp);
+        comps.push(e.comp);
       }
       if (comps.length) hits.push({ comps, t: at.t });
     }
@@ -1638,8 +1947,22 @@ export class UICore implements UICoreLike {
         continue;
       }
       if (!this.hittable(item) || !isRaycastTarget(item.comp)) continue;
-      if (onDrawnBox(item, ux, uy)) return { target: item, handler: handlerOf(item), ux, uy, bar: null };
+      if (onDrawnBox(item, ux, uy)) {
+        // ADR 0425: on a text with runs, the run under the point (its element) is the target.
+        const run = this.runAt(item, ux, uy);
+        const target = run && this.hittable(run) && isRaycastTarget(run.comp) ? run : item;
+        return { target, handler: handlerOf(target), ux, uy, bar: null };
+      }
     }
+    return null;
+  }
+
+  /** ADR 0425: the inline run (its element) under a canvas point on a text with runs, or null (between runs, or plain text). */
+  private runAt(e: Entry, ux: number, uy: number): Entry | null {
+    const hits = e.inlineHits;
+    if (!hits?.length) return null;
+    const [lx, ly] = e.place.inverse ? applyAffine(e.place.inverse, ux, uy) : [ux, uy];
+    for (const h of hits) if (h.owner && lx >= h.x && lx <= h.x + h.width && ly >= h.y && ly <= h.y + h.height) return this.entries.has(h.owner.comp) ? h.owner : null;
     return null;
   }
 
@@ -1700,7 +2023,7 @@ function sameElements(a: readonly UILaidOutElement[], b: readonly UILaidOutEleme
   if (a.length !== b.length) return false;
   return a.every((x, i) => {
     const y = b[i];
-    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text && x.clipper === y.clipper && sameRect(x.clip, y.clip) && sameRect(x.childClip, y.childClip) && sameAffine(x.transform, y.transform) && sameRect(x.bounds, y.bounds) && sameRect(x.reach, y.reach) && sameScroll(x.scroll, y.scroll) && x.parts === y.parts;
+    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text && x.clipper === y.clipper && sameRect(x.clip, y.clip) && sameRect(x.childClip, y.childClip) && sameAffine(x.transform, y.transform) && sameRect(x.bounds, y.bounds) && sameRect(x.reach, y.reach) && sameScroll(x.scroll, y.scroll) && x.parts === y.parts && (x.inline ?? null) === (y.inline ?? null) && (x.editing ?? null) === (y.editing ?? null);
   });
 }
 
@@ -1780,6 +2103,12 @@ function localClip(box: UIRect, p: Placement): UIRect | null {
     any = true;
   }
   return any ? r : null;
+}
+
+/** The smallest rectangle holding both. */
+function unionRect(a: UIRect, b: UIRect): UIRect {
+  const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
+  return { x, y, width: Math.max(a.x + a.width, b.x + b.width) - x, height: Math.max(a.y + a.height, b.y + b.height) - y };
 }
 
 function sameRect(a: UIRect | null, b: UIRect | null): boolean {

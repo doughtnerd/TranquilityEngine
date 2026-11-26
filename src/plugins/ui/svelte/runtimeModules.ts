@@ -25,6 +25,7 @@ const LOADERS: Readonly<Record<string, Loader>> = {
   "svelte/store": () => import("svelte/store"),
   "svelte/transition": () => import("svelte/transition"),
   "myco/ui-renderer": () => import("./renderer"),
+  "myco/ui-html": () => import("./htmlInline"),
 };
 
 for (const s of UI_RUNTIME_SPECIFIERS) if (!LOADERS[s]) throw new Error(`No loader for the UI runtime module "${s}".`);

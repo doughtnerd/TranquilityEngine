@@ -66,6 +66,12 @@ export interface MarkupElement {
   readonly file: string;
   /** Set on the root element of an expanded `<Use src>`: the used file. */
   readonly from?: string;
+  /**
+   * ADR 0425: an inline run inside a `Text`: the HTML tag as written (`b`, `a`, `span`, `br`, `img`…), which selectors
+   * match and HTML's defaults key on (`tag` is the element it builds: `Text`, or `Image` for `img`), or `#text` for the
+   * text between a text's inline children. Absent for every other element.
+   */
+  readonly inlineTag?: string;
 }
 
 export interface UIMarkup {

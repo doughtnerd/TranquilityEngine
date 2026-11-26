@@ -21,6 +21,8 @@ export const UI_RUNTIME_SPECIFIERS: readonly string[] = [
   "svelte/store",
   "svelte/transition",
   "myco/ui-renderer",
+  // ADR 0425: the inline HTML parser, imported by components that use `{@html}` or `bind:innerHTML`.
+  "myco/ui-html",
 ];
 
 const RUNTIME = new Set(UI_RUNTIME_SPECIFIERS);
@@ -30,6 +32,9 @@ export const isUIRuntimeSpecifier = (specifier: string): boolean => RUNTIME.has(
 
 /** The engine's renderer (`myco/ui-renderer`) among the engine's files, by path from the engine's root. */
 export const UI_RENDERER_SOURCE = "src/plugins/ui/svelte/renderer.ts";
+
+/** ADR 0425: the inline HTML parser (`myco/ui-html`) among the engine's files, by path from the engine's root. */
+export const UI_HTML_SOURCE = "src/plugins/ui/svelte/htmlInline.ts";
 
 /** What UI code's `svelte/reactivity` is (ADR 0418 wave 5): Svelte's module with `MediaQuery` on the canvas, by path from the engine's root. */
 export const UI_REACTIVITY_SOURCE = "src/plugins/ui/svelte/reactivity.ts";

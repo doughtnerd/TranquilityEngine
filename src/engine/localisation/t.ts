@@ -23,3 +23,19 @@ export function t(key: string, args?: MessageArgs): string {
   track?.();
   return Locale.t(key, args);
 }
+
+const HTML_ESCAPES: Readonly<Record<string, string>> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
+
+/**
+ * ADR 0425: the message of `key` as inline HTML, for `{@html tHtml("hud.coins", { count })}` in a Svelte component. A
+ * message may carry the inline subset (`You have <b>{count}</b> coins`; translators keep the tags), which then draws as
+ * styled runs. Each string argument is escaped, so text from a player (a name) shows as typed and can never add markup;
+ * numbers and dates format as in `t`, and a `LocalText` argument is another message, kept as written. Follows language
+ * changes as `t` does.
+ */
+export function tHtml(key: string, args?: MessageArgs): string {
+  if (!args) return t(key);
+  const safe: Record<string, MessageArgs[string]> = {};
+  for (const [k, v] of Object.entries(args)) safe[k] = typeof v === "string" ? v.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]) : v;
+  return t(key, safe);
+}

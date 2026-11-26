@@ -64,7 +64,9 @@ describe("UIView", () => {
       "Canvas",
       "  section#shop.shop",
       '    h1#title.title "Shop (10 left)"',
-      '    p#hint "Pick something"', // `<b>` inside a Text is part of its text
+      '    p#hint ""', // ADR 0425: `<b>` inside a Text is an inline run of it, beside a text piece
+      '      #text "Pick "',
+      '      b "something"',
       "    button#item-a.row",
       '      #text "Apple"',
       '      span.price "2g"',

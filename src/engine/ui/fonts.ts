@@ -125,12 +125,27 @@ function languageFamilies(): string {
   return languageStack.families;
 }
 
+/** ADR 0425: CSS generic families a `font` field may name, as the system fonts they stand for. */
+const GENERIC_FAMILIES: Readonly<Record<string, string>> = {
+  monospace: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+  serif: "ui-serif, Georgia, serif",
+  "sans-serif": "sans-serif",
+  "system-ui": "system-ui",
+};
+
+/** ADR 0425: true for a CSS generic family name a `font` field may hold (not a font file). */
+export function isGenericFontFamily(name: string): boolean {
+  return Object.hasOwn(GENERIC_FAMILIES, name.trim());
+}
+
 /**
  * The CSS family list for a `font` field (ADR 0356 §5): the font (or the current language's replacement for it),
  * the language's fonts, then Inter and the system font. Empty is no font of its own; a font file asset is its own
- * family (loaded on first use). Anything else warns once and is left out.
+ * family (loaded on first use). ADR 0425: a CSS generic family (`monospace`, `serif`, `sans-serif`, `system-ui`), as
+ * `<code>` takes by default, is the system's font of that kind. Anything else warns once and is left out.
  */
 export function fontFamilyOf(font: string | null | undefined): string {
+  if (font && isGenericFontFamily(font)) return `${GENERIC_FAMILIES[font.trim()]}, ${languageFamilies()}`;
   let path = font ? normalizeAssetPath(font.trim()) : "";
   if (path) {
     const replace = localeFonts().fontReplace;

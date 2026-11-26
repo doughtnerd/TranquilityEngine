@@ -666,6 +666,18 @@ export function onUIHostBubbleOut(hook: (event: UIHostEvent, tree: UIHostTree) =
   return () => bubbleOutHooks.delete(hook);
 }
 
+const editHooks = new Set<(el: UIHostElement) => void>();
+
+/**
+ * ADR 0425: call `hook` with an editable text element the player edited (the UI core wrote the edit into its runs'
+ * components), right before its `input` event is dispatched: a renderer brings its own nodes up to date there, so the
+ * event's listeners (`bind:textContent`) read the edited text. Returns a function that stops it.
+ */
+export function onUIHostEdit(hook: (el: UIHostElement) => void): () => void {
+  editHooks.add(hook);
+  return () => editHooks.delete(hook);
+}
+
 /**
  * Run `hook(world)` each frame in every World that has a hosted tree in play (not in the editor's edit mode), right
  * after the frame's UI events: a renderer delivers its global events there (`<svelte:window>` keys, `resize`).
@@ -799,6 +811,8 @@ export class UIHostTree {
     el._node = this.world._createNode(attributes.get("id") || tag, p._node.entity);
     // The host is the second maker of UI components (ADR 0417 as amended by 0419): `addComponent` still refuses them.
     el._comp = this.world._addComponent(el._node.entity, uiTypeOfTag(uiTag));
+    // ADR 0425: text the renderer made between a text element's inline children: a run of it, not an element.
+    if (el.synthetic && el._comp instanceof UIText && p._comp instanceof UIText) el._comp._textPiece = true;
     el._parent = p;
     el._target = targetOf(el, tag, p._target);
     this.applyAttributes(el, attributes, options.written);
@@ -985,6 +999,8 @@ export class UIHostTree {
       default:
         types.push(r.type as UIHostEventType);
     }
+    // ADR 0425: an editable text's edit: the renderer brings its nodes up to date before anyone hears `input`.
+    if (r.type === "input" && el._comp instanceof UIText) for (const hook of editHooks) hook(el);
     let related = r.data.related ? uiHostElementOf(r.data.related) : null;
     while (related?.synthetic && related._parent) related = related._parent;
     for (const type of types) {

@@ -20,7 +20,7 @@ import { selectLabel } from "./formControls";
 import type { UIPseudo, UIPseudoState, UITag } from "./document/types";
 import { fontFamilyOf } from "./fonts";
 import { uiBorderEdges } from "./layout";
-import type { UIKind, UITextRun, UITextWrap } from "./uiCoreTypes";
+import type { UIInlineRun, UIKind, UITextRun, UITextWrap } from "./uiCoreTypes";
 
 /** A UI text line's height, as a multiple of its font size. */
 export const UI_LINE_HEIGHT = 1.2;
@@ -98,7 +98,8 @@ const KINDS: readonly KindSpec[] = [
   // A label's whole box takes a click (which goes to its control); a form is a panel.
   { kind: "label", type: UILabel, tag: "Label", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: always } as KindSpec<UILabel> as KindSpec,
   { kind: "form", type: UIForm, tag: "Form", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: panelIsGraphic } as KindSpec<UIForm> as KindSpec,
-  { kind: "text", type: UIText, tag: "Text", leaf: true, interactive: false, flexShrink: 1, paints: (c: UIText) => textRunOf(c)!.text.trim() !== "", graphic: always } as KindSpec<UIText> as KindSpec,
+  // ADR 0425: a text's inline children are its runs, not boxes (it stays a leaf for layout); its background paints its box.
+  { kind: "text", type: UIText, tag: "Text", leaf: true, interactive: false, flexShrink: 1, paints: (c: UIText) => visible(c.backgroundColor) || textRunOf(c)!.text.trim() !== "", graphic: always } as KindSpec<UIText> as KindSpec,
   // ADR 0426: an inline SVG and a video draw as images (their own pictures); audio is a box that draws nothing.
   { kind: "image", type: UISvg, tag: "Svg", leaf: true, interactive: false, flexShrink: 0, paints: (c: UISvg) => c.markup !== "", graphic: always } as KindSpec<UISvg> as KindSpec,
   { kind: "image", type: UIVideo, tag: "Video", leaf: true, interactive: false, flexShrink: 0, paints: (c: UIVideo) => c.src !== "" || c._player.current !== null, graphic: always } as KindSpec<UIVideo> as KindSpec,
@@ -235,9 +236,175 @@ export function textRunOf(c: UIComponentType): UITextRun | null {
   }
   if (c instanceof UIText) {
     const direction = Locale.direction;
-    return { text: c.text, fontSize: c.fontSize, fontWeight: cssFontWeight(c.fontWeight), fontFamily: fontFamilyOf(c.font), lineHeight: UI_LINE_HEIGHT, wrap: WRAPS[c.wordBreak] ?? "word", direction, align: textAlignEdge(c.textAlign, direction) };
+    const fontFamily = fontFamilyOf(c.font);
+    const run = { text: c.text, fontSize: c.fontSize, fontWeight: cssFontWeight(c.fontWeight), fontFamily, lineHeight: UI_LINE_HEIGHT, wrap: WRAPS[c.wordBreak] ?? "word", direction, align: textAlignEdge(c.textAlign, direction) };
+    // ADR 0425: inline children make runs (an editable text always has them: its caret and selection are placed by them).
+    const runs = inlineRunsOf(c, fontFamily);
+    if (!runs) return run;
+    let text = "";
+    for (const r of runs) text += r.text;
+    return c.contentEditable ? { ...run, text, runs, editable: true } : { ...run, text, runs };
   }
   return null;
+}
+
+// --- Inline runs (ADR 0425) ----------------------------------------------------------------------
+
+const OBJECT = "￼";
+
+/** A colour as CSS text. */
+function cssColor(c: { r: number; g: number; b: number; a: number }): string {
+  return `rgba(${Math.round(c.r * 255)}, ${Math.round(c.g * 255)}, ${Math.round(c.b * 255)}, ${c.a})`;
+}
+
+/** A node's inline children: its UI components that are text or images, in order, shown (active, enabled, not `display: none`). */
+function inlineChildren(c: UIText): (UIText | UIImage)[] {
+  const world = c._world;
+  const out: (UIText | UIImage)[] = [];
+  for (const e of world.childEntities(c.owner.entity)) {
+    for (const k of world._componentsOf(e)) {
+      if ((k instanceof UIText || (k instanceof UIImage && !(k instanceof UISvg) && !(k instanceof UIVideo))) && !k._destroyed) {
+        if (k.isActiveAndEnabled && k.display !== "none") out.push(k);
+        break;
+      }
+    }
+  }
+  return out;
+}
+
+/** What a run inherits from its inline ancestors inside the text: decorations, a background, a baseline shift, a font. */
+interface InlineContext {
+  readonly decoration: string;
+  readonly background: string | null;
+  readonly shift: number;
+  readonly family: string;
+  readonly hidden: boolean;
+}
+
+/** `text-decoration` lines as a sorted, space-separated set. */
+function decorationsOf(own: string, inherited: string): string {
+  const set = new Set(inherited ? inherited.split(" ") : []);
+  for (const w of own.split(/\s+/)) if (w === "underline" || w === "line-through" || w === "overline") set.add(w);
+  return [...set].sort().join(" ");
+}
+
+/** A length field as UI pixels when it's a plain number, else `fallback` (`auto`, percentages). */
+function pixelsOr(v: unknown, fallback: number): number {
+  const n = typeof v === "number" ? v : typeof v === "string" && /^-?(\d+\.?\d*|\.\d+)(px)?$/.test(v.trim()) ? parseFloat(v) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : fallback;
+}
+
+/**
+ * A text element's inline runs (ADR 0425): its own text, then each inline child's runs in order (a child text's own
+ * text, then its children's, depth first; an image as one U+FFFC run), with whitespace collapsed across runs as HTML's
+ * `white-space: normal` does (unless the text is editable, which keeps it as typed). Null when it has no inline
+ * children and isn't editable: plain text, one run, as before.
+ */
+function inlineRunsOf(c: UIText, family: string): UIInlineRun[] | null {
+  const children = inlineChildren(c);
+  if (!children.length && !c.contentEditable) return null;
+  const out: UIInlineRun[] = [];
+  const base: InlineContext = { decoration: "", background: null, shift: 0, family, hidden: false };
+  pushRuns(c, base, out, true);
+  if (!c.contentEditable) collapseRuns(out);
+  else if (!out.length) out.push(textRun(c, "", base, c));
+  return out;
+}
+
+function textRun(c: UIText, text: string, ctx: InlineContext, owner: UIComponentType): UIInlineRun {
+  return {
+    text,
+    fontSize: c.fontSize,
+    fontWeight: cssFontWeight(c.fontWeight),
+    fontStyle: c.fontStyle === "normal" ? "normal" : "italic",
+    fontFamily: ctx.family,
+    color: ctx.hidden ? "rgba(0, 0, 0, 0)" : cssColor(c.color),
+    decoration: ctx.hidden ? "" : ctx.decoration,
+    background: ctx.hidden ? null : ctx.background,
+    verticalAlign: c.verticalAlign === "sub" || c.verticalAlign === "super" ? "baseline" : (c.verticalAlign ?? "baseline"),
+    shift: ctx.shift,
+    image: null,
+    owner,
+    source: c,
+  };
+}
+
+function pushRuns(c: UIText, outer: InlineContext, out: UIInlineRun[], root: boolean): void {
+  // The text element itself paints its background over its box (it's drawn by the drawing layer), not behind its runs.
+  const shift = c.verticalAlign === "sub" ? -0.25 * c.fontSize : c.verticalAlign === "super" ? 0.45 * c.fontSize : 0;
+  const ctx: InlineContext = root
+    ? { ...outer, decoration: decorationsOf(c.textDecoration, "") }
+    : {
+        decoration: decorationsOf(c.textDecoration, outer.decoration),
+        background: c.backgroundColor && c.backgroundColor.a > 0 ? cssColor(c.backgroundColor) : outer.background,
+        shift: outer.shift + shift,
+        family: c.font ? fontFamilyOf(c.font) : outer.family,
+        hidden: outer.hidden || !c.visible,
+      };
+  // A text piece's events go to the element it's in.
+  const owner = c._textPiece ? ownerAbove(c) : c;
+  if (c.text !== "") out.push(textRun(c, c.text, ctx, owner));
+  for (const k of inlineChildren(c)) {
+    if (k instanceof UIText) {
+      // A `<br>`: a line break in the run's style.
+      pushRuns(k, ctx, out, false);
+      continue;
+    }
+    const size = c.fontSize;
+    const w = pixelsOr(k.width, NaN), h = pixelsOr(k.height, NaN);
+    const width = Number.isFinite(w) ? w : Number.isFinite(h) ? h : size;
+    const height = Number.isFinite(h) ? h : width;
+    out.push({ ...textRun(c, OBJECT, ctx, k), verticalAlign: "baseline", decoration: "", background: null, image: { src: k.image, width, height }, owner: k, source: null });
+  }
+}
+
+/** The element a text piece belongs to: its parent's component. */
+function ownerAbove(c: UIText): UIComponentType {
+  const p = c._world.parentEntity(c.owner.entity);
+  if (p >= 0) for (const k of c._world._componentsOf(p)) if (k instanceof UIText) return k;
+  return c;
+}
+
+/**
+ * HTML's whitespace collapsing across runs: runs of spaces, tabs and line breaks are one space; a space after a space (in
+ * an earlier run too) or at a paragraph's start goes, and spaces before a line break run (`<br>`) or at the end go.
+ * Line break runs are exactly "\n" and stay.
+ */
+function collapseRuns(runs: UIInlineRun[]): void {
+  let space = true;
+  for (let i = 0; i < runs.length; i++) {
+    const r = runs[i];
+    if (r.text === "\n" && r.source && isBreak(r)) {
+      trimBefore(runs, i);
+      space = true;
+      continue;
+    }
+    if (r.image) {
+      space = false;
+      continue;
+    }
+    let t = r.text.replace(/[ \t\n\r\f]+/g, " ");
+    if (space && t.startsWith(" ")) t = t.slice(1);
+    if (t !== "") space = t.endsWith(" ");
+    if (t !== r.text) runs[i] = { ...r, text: t };
+  }
+  trimBefore(runs, runs.length);
+}
+
+/** True for a `<br>`'s run: a text whose text is exactly one line break and that has no children. */
+function isBreak(r: UIInlineRun): boolean {
+  return (r.source as UIText | null)?.text === "\n";
+}
+
+/** Drop the trailing space of the text before run `end` (the last run with text there). */
+function trimBefore(runs: UIInlineRun[], end: number): void {
+  for (let j = end - 1; j >= 0; j--) {
+    const r = runs[j];
+    if (r.image || (r.text === "\n" && isBreak(r))) return;
+    if (r.text === "") continue;
+    if (r.text.endsWith(" ")) runs[j] = { ...r, text: r.text.slice(0, -1) };
+    return;
+  }
 }
 
 // --- Overflow (ADR 0418 wave 1, 0423) -------------------------------------------------------------
@@ -276,5 +443,36 @@ export function userScrollsAxis(o: UIOverflow): boolean {
 export function sameTextRun(a: UITextRun | null, b: UITextRun | null): boolean {
   if (a === b) return true;
   if (!a || !b) return false;
-  return a.text === b.text && a.fontSize === b.fontSize && a.fontWeight === b.fontWeight && a.fontFamily === b.fontFamily && a.lineHeight === b.lineHeight && a.wrap === b.wrap && a.direction === b.direction && a.align === b.align;
+  return a.text === b.text && a.fontSize === b.fontSize && a.fontWeight === b.fontWeight && a.fontFamily === b.fontFamily && a.lineHeight === b.lineHeight && a.wrap === b.wrap && a.direction === b.direction && a.align === b.align && a.editable === b.editable && sameRuns(a.runs, b.runs);
+}
+
+/** ADR 0425: true when two run lists are the same, run by run (style, owner and source included). */
+function sameRuns(a: readonly UIInlineRun[] | undefined, b: readonly UIInlineRun[] | undefined): boolean {
+  if (a === b) return true;
+  if (!a || !b || a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i], y = b[i];
+    if (x.text !== y.text || x.fontSize !== y.fontSize || x.fontWeight !== y.fontWeight || x.fontStyle !== y.fontStyle || x.fontFamily !== y.fontFamily || x.color !== y.color || x.decoration !== y.decoration || x.background !== y.background || x.verticalAlign !== y.verticalAlign || x.shift !== y.shift || x.owner !== y.owner || x.source !== y.source) return false;
+    if (x.image !== y.image && (!x.image || !y.image || x.image.src !== y.image.src || x.image.width !== y.image.width || x.image.height !== y.image.height)) return false;
+  }
+  return true;
+}
+
+/**
+ * ADR 0425: true when two runs measure the same (what the text says and how it's set: colours, decorations and
+ * backgrounds aside), so a colour change (a link's hover) redraws without laying out again.
+ */
+export function sameTextMeasure(a: UITextRun | null, b: UITextRun | null): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  if (a.text !== b.text || a.fontSize !== b.fontSize || a.fontWeight !== b.fontWeight || a.fontFamily !== b.fontFamily || a.lineHeight !== b.lineHeight || a.wrap !== b.wrap || a.editable !== b.editable) return false;
+  const x = a.runs, y = b.runs;
+  if (x === y) return true;
+  if (!x || !y || x.length !== y.length) return false;
+  for (let i = 0; i < x.length; i++) {
+    const p = x[i], q = y[i];
+    if (p.text !== q.text || p.fontSize !== q.fontSize || p.fontWeight !== q.fontWeight || p.fontStyle !== q.fontStyle || p.fontFamily !== q.fontFamily || p.verticalAlign !== q.verticalAlign || p.shift !== q.shift) return false;
+    if (p.image !== q.image && (!p.image || !q.image || p.image.width !== q.image.width || p.image.height !== q.image.height)) return false;
+  }
+  return true;
 }

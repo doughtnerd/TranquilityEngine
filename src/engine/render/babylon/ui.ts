@@ -62,7 +62,8 @@ import { fontEpoch, onFontLoaded } from "../../ui/fonts";
 import { uiInteractions } from "../../ui/interactions";
 import { uiBorderEdges, uiEdges } from "../../ui/layout";
 import { wrapLine, wrapText, type LineBreakMode } from "../../ui/text/lineBreak";
-import type { TextMeasureRequest, UICoreLike, UILaidOutCanvas, UILaidOutElement, UITextRun, UITextWrap } from "../../ui/uiCoreTypes";
+import type { TextMeasureRequest, UICoreLike, UIInlineEditing, UIInlineRun, UILaidOutCanvas, UILaidOutElement, UITextRun, UITextWrap } from "../../ui/uiCoreTypes";
+import { INLINE_ASCENT, inlineFont, type UIInlineLayout } from "../../ui/text/inlineLayout";
 import { flipRows, redrawnPixels, type PixelRect } from "../pixelRegions";
 import { linearGradientLine, parseBackgroundImage, radialGradientCircle, type PaintBox, type UIBackgroundImage } from "../../ui/document/paintValues";
 import { applyAffine, decompose, invert, multiply, type UIAffine } from "../../ui/transform2d";
@@ -406,7 +407,95 @@ class LocalisedTextBlock extends Drawn(TextBlock) {
   protected override _computeAdditionalOffsetY(): number {
     return super._computeAdditionalOffsetY() + this.overflow;
   }
+
+  /** ADR 0425: the element's own `background-color`, painted over its box under the text (CSS text); null: none. */
+  boxBackground: string | null = null;
+  /**
+   * ADR 0425: inline runs to draw instead of the block's own text: the core's layout (lines and fragments, from the content
+   * box's corner `inset`), the runs, and an editable text's caret and selection. Null: plain text, drawn by Babylon.
+   */
+  inline: { layout: UIInlineLayout; runs: readonly UIInlineRun[]; editing: UIInlineEditing | null } | null = null;
+  /** ADR 0425: an inline image's picture by texture path (null while it loads). */
+  inlineImage: (src: string) => CanvasImageSource | null = () => null;
+
+  override _draw(context: ICanvasRenderingContext): void {
+    if (this.boxBackground) {
+      const m = this._currentMeasure;
+      context.save();
+      context.fillStyle = this.boxBackground;
+      context.fillRect(m.left, m.top, m.width, m.height);
+      context.restore();
+    }
+    if (!this.inline) return super._draw(context);
+    context.save();
+    this._applyStates(context);
+    this.drawRuns(context, this.inline);
+    context.restore();
+  }
+
+  /**
+   * ADR 0425: the runs as the core laid them out: selection, backgrounds, then each fragment's glyphs (outline under the
+   * fill, the block's shadow under both) or image, and its decorations; the caret last. In UI pixels (the canvas's scale
+   * is the context's transform), from the content box's corner.
+   */
+  private drawRuns(context: ICanvasRenderingContext, inline: NonNullable<LocalisedTextBlock["inline"]>): void {
+    const m = this._currentMeasure;
+    const { layout, runs, editing } = inline;
+    const ox = m.left + (layout.inset?.x ?? 0), oy = m.top + (layout.inset?.y ?? 0);
+    for (const r of editing?.selection ?? []) {
+      context.fillStyle = SELECTION_COLOR;
+      context.fillRect(ox + r.x, oy + r.y, r.width, r.height);
+    }
+    for (const line of layout.lines) {
+      for (const f of line.fragments) {
+        const bg = runs[f.run].background;
+        if (!bg) continue;
+        context.fillStyle = bg;
+        context.fillRect(ox + f.x, oy + f.top, f.width, f.height);
+      }
+    }
+    const ctx = context as unknown as CanvasRenderingContext2D;
+    if (this.shadowBlur || this.shadowOffsetX || this.shadowOffsetY) {
+      const ratio = this.host.idealRatio;
+      ctx.shadowColor = this.shadowColor;
+      ctx.shadowBlur = this.shadowBlur;
+      ctx.shadowOffsetX = this.shadowOffsetX * ratio;
+      ctx.shadowOffsetY = this.shadowOffsetY * ratio;
+    }
+    for (const line of layout.lines) {
+      for (const f of line.fragments) {
+        const r = runs[f.run];
+        const x = ox + f.x;
+        if (r.image) {
+          const picture = this.inlineImage(r.image.src);
+          if (picture) context.drawImage(picture, x, oy + f.top, f.width, f.height);
+          continue;
+        }
+        context.font = inlineFont(r);
+        context.fillStyle = r.color;
+        if (this.outlineWidth) context.strokeText(f.text, x, oy + f.baseline);
+        context.fillText(f.text, x, oy + f.baseline);
+        if (r.decoration) {
+          const thick = Math.max(1, r.fontSize * 0.07);
+          const at = (dy: number) => context.fillRect(x, oy + f.baseline + dy - thick / 2, f.width, thick);
+          if (r.decoration.includes("underline")) at(r.fontSize * 0.12);
+          if (r.decoration.includes("line-through")) at(-r.fontSize * 0.3);
+          if (r.decoration.includes("overline")) at(-r.fontSize * INLINE_ASCENT);
+        }
+      }
+    }
+    const caret = editing?.caret;
+    if (caret) {
+      ctx.shadowColor = "transparent";
+      const at = runs.find((r) => !r.image) ?? null;
+      context.fillStyle = at?.color ?? "white";
+      context.fillRect(ox + caret.x - 0.5, oy + caret.top, 1, caret.height);
+    }
+  }
 }
+
+/** ADR 0425: an editable text's selection, painted under its glyphs. */
+const SELECTION_COLOR = "rgba(80, 140, 255, 0.45)";
 
 /**
  * A panel's rectangle with the paint of ADR 0418 wave 2. A Babylon gradient is placed in the texture's pixels, not the
@@ -677,7 +766,7 @@ export class BabylonUI {
         this.syncPanel(e, c as UIPanel, el, canvas.root.scaleX);
         break;
       case "text":
-        this.syncUIText(e, c as UIText, el.text!, canvas.root.scaleX, el.transform ?? null);
+        this.syncUIText(e, c as UIText, el.text!, canvas.root.scaleX, el.transform ?? null, el);
         break;
       case "image":
         // ADR 0426: an inline SVG's image and a video's frame; else a texture.
@@ -1110,9 +1199,12 @@ export class BabylonUI {
    * A UIText: the core's text run (exactly what it measured), with the component's colour, outline and alignment.
    * `scale` is its canvas's texture pixels per UI pixel.
    */
-  private syncUIText(e: ElementEntry, c: UIText, run: UITextRun, scale: number, transform: UIAffine | null): void {
+  private syncUIText(e: ElementEntry, c: UIText, run: UITextRun, scale: number, transform: UIAffine | null, el: UILaidOutElement): void {
     const t = e.control as LocalisedTextBlock;
-    if (put(t, "text", run.text)) t.text = run.text;
+    // ADR 0425: runs are drawn from the core's layout (the block's own text stays empty); the box's background under them.
+    this.syncInline(t, el);
+    const shown = el.inline ? "" : run.text;
+    if (put(t, "text", shown)) t.text = shown;
     this.setFont(t, run);
     const ck = colorKey(c.color);
     if (put(t, "color", ck)) t.color = c.color.toCss();
@@ -1141,6 +1233,54 @@ export class BabylonUI {
       // The block wraps with `lineBreak.ts`, as `textSize` measured: anywhere, or at spaces and between CJK characters.
       t.breakMode = run.wrap === "anywhere" ? "anywhere" : "normal";
     }
+  }
+
+  /** ADR 0425: a text's box background and inline runs, redrawn when the core's layout, runs or editing state change. */
+  private syncInline(t: LocalisedTextBlock, el: UILaidOutElement): void {
+    const c = el.comp as UIText;
+    const bg = c.backgroundColor && c.backgroundColor.a > 0 ? c.backgroundColor.toCss() : null;
+    if (put(t, "boxBackground", bg)) {
+      t.boxBackground = bg;
+      t._markAsDirty();
+    }
+    const layout = el.inline ?? null, runs = el.text?.runs ?? null, editing = el.editing ?? null;
+    const changed = put(t, "inline", layout);
+    if (put(t, "runs", runs) || put(t, "editing", editing) || changed) {
+      t.inline = layout && runs ? { layout, runs, editing } : null;
+      t.inlineImage = (src) => this.inlineImageOf(src, t);
+      t._markAsDirty();
+    }
+  }
+
+  /** ADR 0425: inline images' pictures by texture path, and the text blocks waiting for each to load. */
+  private readonly inlineImages = new Map<string, { picture: CanvasImageSource | null; waiting: Set<Control> }>();
+
+  /** ADR 0425: an inline image's picture, loading it the first time (the text is drawn again once it's there). */
+  private inlineImageOf(src: string, t: Control): CanvasImageSource | null {
+    const ref = src ? splitSpriteRef(src).path : "";
+    if (!ref) return null;
+    let entry = this.inlineImages.get(ref);
+    if (!entry) {
+      entry = { picture: null, waiting: new Set() };
+      this.inlineImages.set(ref, entry);
+      const e = entry;
+      this.options
+        .texture(ref)
+        .then((tex) => {
+          const url = tex.url;
+          if (!url || typeof globalThis.Image !== "function") return;
+          const img = new globalThis.Image();
+          img.onload = () => {
+            e.picture = img;
+            for (const w of e.waiting) w._markAsDirty();
+            e.waiting.clear();
+          };
+          img.src = url;
+        })
+        .catch((err) => this.warnOnce(`inline-img|${ref}`, `failed to load inline image "${ref}": ${(err as Error).message}`));
+    }
+    if (!entry.picture) entry.waiting.add(t);
+    return entry.picture;
   }
 
   private syncImage(e: ElementEntry, c: UIImage, el: UILaidOutElement): void {
@@ -1606,6 +1746,21 @@ export function measureText(req: TextMeasureRequest): { width: number; height: n
   if (width <= 0) return { width: 0, height };
   const roomy = width * TEXT_SLACK + 1;
   return { width: width <= maxWidth ? Math.min(maxWidth, roomy) : roomy, height }; // a word wider than maxWidth overflows, as before
+}
+
+/**
+ * ADR 0425: one line of text's width in UI pixels in a CSS font (`UICoreHost.measureRunWidth`), the 2D canvas's exact
+ * measure the inline runs' layout positions with; drawn with the same font, so fragments sit where they were laid out.
+ * Without a canvas (Node) it estimates per character.
+ */
+export function measureRunWidth(text: string, font: string): number {
+  const ctx = context();
+  if (!ctx) {
+    const size = Number(/(\d+(?:\.\d+)?)px/.exec(font)?.[1] ?? 16);
+    return [...text].length * size * 0.55;
+  }
+  ctx.font = font;
+  return ctx.measureText(text).width;
 }
 
 /** Room measured text gets over its full-size measurement (see `measureText`). */

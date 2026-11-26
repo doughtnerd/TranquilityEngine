@@ -16,7 +16,7 @@ import { PackageResolver, dirname, join, type PackageFiles } from "../editor/pac
 import { relativeSpecifier } from "../export/format";
 import { compilerOptions, SCRIPT_EMIT } from "../scriptCompiler.mjs";
 import { BUILTIN_UI_COMPONENTS } from "./builtinUI";
-import { ENGINE_SOURCE_DIR, UI_HOST_FILE, UI_REACTIVITY_SOURCE, UI_RENDERER_SOURCE, UI_RUNTIME_SPECIFIERS } from "./uiModules";
+import { ENGINE_SOURCE_DIR, UI_HOST_FILE, UI_HTML_SOURCE, UI_REACTIVITY_SOURCE, UI_RENDERER_SOURCE, UI_RUNTIME_SPECIFIERS } from "./uiModules";
 
 /** Where a game's UI runtime comes from: the engine's files, and esbuild to bundle them with. */
 export interface UIRuntimeSource {
@@ -55,6 +55,7 @@ async function probeTs(resolver: PackageResolver, base: string): Promise<string 
  */
 async function resolveRuntimeImport(resolver: PackageResolver, specifier: string, importer: string): Promise<RuntimeImport> {
   if (specifier === "myco/ui-renderer") return { file: UI_RENDERER_SOURCE };
+  if (specifier === "myco/ui-html") return { file: UI_HTML_SOURCE }; // ADR 0425
   // UI code's `svelte/reactivity` is Svelte's with `MediaQuery` on the canvas (ADR 0418 wave 5); that module imports Svelte's.
   if (specifier === "svelte/reactivity" && importer === "") return { file: UI_REACTIVITY_SOURCE };
   if (importer.endsWith(".ts") && (specifier.startsWith("./") || specifier.startsWith("../"))) {

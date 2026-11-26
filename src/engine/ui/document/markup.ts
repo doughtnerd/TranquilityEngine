@@ -5,6 +5,7 @@
  */
 import { Parser } from "htmlparser2";
 import { UI_TAGS as UI_KIND_TAGS } from "../elementKinds";
+import { HTML_TAGS } from "../host/htmlTags";
 import { hasBinding, parseBindings, problemAt, resolvePath } from "./sourceText";
 import type { MarkupAttribute, MarkupElement, ParseMarkup, SourceProblem, SourceSpan, UIMarkup, UITag } from "./types";
 
@@ -29,6 +30,21 @@ interface Building {
   openEnd: number;
   /** `<Template>` children collect here until it closes. */
   templateChildren?: MarkupElement[];
+  /** ADR 0425: an inline run inside a `Text` (`b`, `span`, `br`, `img`…): its tag as written; null otherwise. */
+  inline: string | null;
+  /** ADR 0425: a `Text`'s or inline run's text and child elements in order (text pieces become runs beside the children). */
+  content: (string | MarkupElement)[];
+}
+
+/** ADR 0425: the HTML phrasing tags a `Text` takes as inline runs (each builds a Text, `img` an Image). */
+function inlineTagOf(name: string): string | null {
+  const lower = name.toLowerCase();
+  return lower === "img" || HTML_TAGS.get(lower) === "Text" ? lower : null;
+}
+
+/** ADR 0425: text inside an inline run with whitespace collapsed, its ends kept (one space each: the text joins its runs). */
+function collapseInner(text: string): string {
+  return text.replace(/[ \t\n\r\f]+/g, " ");
 }
 
 /**
@@ -83,8 +99,13 @@ function parseFile(source: string, file: string, read: (path: string) => string 
     if (!parent) roots.push(el);
     else if (parent.templateChildren) parent.templateChildren.push(el);
     else if (parent.special) report(el.span, `<${el.tag}> can't go inside <${parent.tag}>.`);
-    else parent.children.push(el);
+    else {
+      parent.children.push(el);
+      parent.content.push(el);
+    }
   };
+  /** ADR 0425: the element on top takes text and inline runs: a `Text`, or an inline run in one. */
+  const holdsRuns = (b: Building | undefined): boolean => !!b && !b.special && (b.tag === "Text" || (b.inline !== null && b.inline !== "img"));
 
   const useFile = (b: Building, span: SourceSpan): MarkupElement | null => {
     const srcAttr = attr(b, "src");
@@ -113,11 +134,36 @@ function parseFile(source: string, file: string, read: (path: string) => string 
     return withFrom(root, path);
   };
 
+  /**
+   * ADR 0425: a Text with inline runs, or an inline run: its text pieces between inline children become `#text` runs
+   * (collapsed, ends kept), a text-only run keeps its text (ends kept), a `br` is a line break, an `img` an Image (`src`
+   * its `image`).
+   */
+  const inlineElement = (b: Building, span: SourceSpan, openTagSpan: SourceSpan): MarkupElement => {
+    const base = { kind: "element" as const, template: b.template, span, openTagSpan, file };
+    const tag: UITag = b.inline === "img" ? "Image" : "Text";
+    const attributes = b.inline === "img" ? b.attributes.map((a) => (a.name === "src" ? { ...a, name: "image" } : a)) : b.attributes;
+    const own = b.inline ? { inlineTag: b.inline } : {};
+    if (b.inline === "br") return { ...base, ...own, tag, attributes, children: [], text: "\n" };
+    if (!b.children.some((c) => c.inlineTag)) {
+      const text = b.inline ? collapseInner(b.text) : collapseWhitespace(b.text);
+      return { ...base, ...own, tag, attributes, children: b.children, text: text === "" ? null : text };
+    }
+    const children: MarkupElement[] = [];
+    for (const c of b.content) {
+      if (typeof c !== "string") children.push(c);
+      else if (c !== "") children.push({ ...base, tag: "Text", inlineTag: "#text", attributes: [], children: [], template: null, text: collapseInner(c) });
+    }
+    return { ...base, ...own, tag, attributes, children, text: null };
+  };
+
   parser = new Parser(
     {
       onopentag(name) {
         const start = parser.startIndex;
-        const b: Building = { tag: name, attributes: pendingAttributes, children: [], text: "", template: null, special: !UI_TAGS.has(name), start, openEnd: parser.endIndex + 1 };
+        // ADR 0425: inside a Text, HTML's phrasing tags are its inline runs.
+        const inline = !UI_TAGS.has(name) && holdsRuns(stack[stack.length - 1]) ? inlineTagOf(name) : null;
+        const b: Building = { tag: name, attributes: pendingAttributes, children: [], text: "", template: null, special: !UI_TAGS.has(name) && !inline, start, openEnd: parser.endIndex + 1, inline, content: [] };
         pendingAttributes = [];
         if (name === "Template") {
           const parent = stack[stack.length - 1];
@@ -141,7 +187,14 @@ function parseFile(source: string, file: string, read: (path: string) => string 
           if (text.trim()) report({ start: parser.startIndex, end: parser.endIndex + 1 }, "Text outside the root element is ignored.");
           return;
         }
-        if (TEXT_TAGS.has(top.tag)) top.text += text;
+        if (TEXT_TAGS.has(top.tag) || holdsRuns(top)) {
+          top.text += text;
+          if (holdsRuns(top)) {
+            const last = top.content.length - 1;
+            if (typeof top.content[last] === "string") top.content[last] += text;
+            else top.content.push(text);
+          }
+        }
         else if (text.trim()) report({ start: parser.startIndex, end: parser.endIndex + 1 }, `Text inside <${top.tag}> is ignored (only Text, Button, InputField, TextArea, Option and Label take text).`);
       },
       onclosetag(name, implied) {
@@ -178,6 +231,7 @@ function parseFile(source: string, file: string, read: (path: string) => string 
           return;
         }
         if (b.special) return; // unknown: reported at its open tag
+        if (b.inline || (b.tag === "Text" && b.children.some((c) => c.inlineTag))) return addChild(inlineElement(b, span, openTagSpan));
         const trimmed = collapseWhitespace(b.text);
         const el: MarkupElement = {
           kind: "element",

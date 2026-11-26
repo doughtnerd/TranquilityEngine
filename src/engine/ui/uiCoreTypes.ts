@@ -18,6 +18,15 @@ import type { UICanvas, UIComponentType } from "./components";
 import type { UIRect } from "./layout";
 import type { UIAffine } from "./transform2d";
 import type { UIFilterStep } from "./filters";
+import type { UIInlineLayout } from "./text/inlineLayout";
+
+export type { UIInlineLayout } from "./text/inlineLayout";
+
+/** ADR 0425: what an editable text being edited shows: a caret, or the selection's rectangles (one per line). */
+export interface UIInlineEditing {
+  readonly caret: { readonly x: number; readonly top: number; readonly height: number } | null;
+  readonly selection: readonly { readonly x: number; readonly y: number; readonly width: number; readonly height: number }[];
+}
 
 export type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input"
   // ADR 0424: form elements.
@@ -44,10 +53,52 @@ export interface UITextRun {
   readonly direction: "ltr" | "rtl";
   /** Its alignment as an edge, `start`/`end` resolved for `direction`. */
   readonly align: "left" | "center" | "right" | "justify";
+  /**
+   * ADR 0425: the styled inline runs a text element holds (its inline child elements and the text between them), in
+   * order, laid out together (`text/inlineLayout.ts`); `text` is then their text joined. Absent for plain text: one run in
+   * the fields above, as before.
+   */
+  readonly runs?: readonly UIInlineRun[];
+  /** ADR 0425: `contenteditable`: whitespace is kept as typed (line breaks break lines) and the player edits the text. */
+  readonly editable?: boolean;
+}
+
+/** ADR 0425: `vertical-align` keywords an inline run takes (`sub` and `super` are baseline shifts, folded into `shift`). */
+export type UIVerticalAlign = "baseline" | "sub" | "super" | "middle" | "top" | "bottom" | "text-top" | "text-bottom";
+
+/**
+ * ADR 0425: one styled run of a text element: text in one style, a line break (`text` "\n", a `<br>`) or an inline image
+ * (`text` U+FFFC, one character, so offsets into the joined text count it). Resolved by `textRunOf` from the element's
+ * inline children, with whitespace collapsed across runs as HTML does (unless the text is editable).
+ */
+export interface UIInlineRun {
+  readonly text: string;
+  readonly fontSize: number;
+  /** CSS font weight ("400", "700"). */
+  readonly fontWeight: string;
+  readonly fontStyle: "normal" | "italic";
+  /** CSS font family list. */
+  readonly fontFamily: string;
+  /** CSS colour text (`rgba(…)`); transparent for a run that's `visibility: hidden`. */
+  readonly color: string;
+  /** Lines drawn with the glyphs, space-separated (`underline`, `line-through`, `overline`), its inline ancestors' included; "" for none. */
+  readonly decoration: string;
+  /** CSS colour text painted behind its glyphs (its own or the nearest inline ancestor's `background-color`), or null. */
+  readonly background: string | null;
+  /** Its own `vertical-align` keyword other than a shift (`middle`, `top`…); `baseline` otherwise. */
+  readonly verticalAlign: UIVerticalAlign;
+  /** How far its baseline is raised (UI pixels; negative lowers it): `sub` and `super` on it and its inline ancestors. */
+  readonly shift: number;
+  /** An inline image: its texture and size in UI pixels; null for text. */
+  readonly image: { readonly src: string; readonly width: number; readonly height: number } | null;
+  /** The element events on it go to (hit-testing resolves to it): the nearest inline element, never a text piece. */
+  readonly owner: UIComponentType | null;
+  /** The component whose `text` holds this run's text (what editing changes); null for line breaks and images. */
+  readonly source: UIComponentType | null;
 }
 
 /** A text run to measure, for Yoga's layout of text elements (direction and alignment don't change its size). */
-export interface TextMeasureRequest extends Omit<UITextRun, "direction" | "align"> {
+export interface TextMeasureRequest extends Omit<UITextRun, "direction" | "align" | "runs" | "editable"> {
   /** Width available in UI pixels (Infinity when unbounded, and always for `wrap: "none"`); text wraps to it. */
   readonly maxWidth: number;
 }
@@ -58,6 +109,11 @@ export interface UICoreHost {
   viewCamera?(): Camera | null;
   /** Measure text in UI pixels. Without it, the core estimates (Node). */
   measureText?(request: TextMeasureRequest): { width: number; height: number };
+  /**
+   * ADR 0425: one line of text's exact width in UI pixels in a CSS font (`italic 700 16px Inter, …`), for laying out inline
+   * runs (wrapping across runs, positions, hit-testing, the caret). Without it, the core estimates (Node).
+   */
+  measureRunWidth?(text: string, font: string): number;
 }
 
 export interface UICoreOptions {
@@ -152,6 +208,13 @@ export interface UILaidOutElement {
   readonly opacity: number;
   /** Text and input field elements: the text run the core measured, which the drawing layer draws. Null for other kinds. */
   readonly text: UITextRun | null;
+  /**
+   * ADR 0425: a text element with inline runs: its lines and their fragments, laid out at its content width, positions in
+   * UI pixels from its content box's corner (`inset`), which the drawing layer draws as they are. Null or absent otherwise.
+   */
+  readonly inline?: UIInlineLayout | null;
+  /** ADR 0425: an editable text the player is editing: its caret (null while a selection shows) and selection, in `inline`'s coordinates. */
+  readonly editing?: UIInlineEditing | null;
   /**
    * ADR 0418 wave 3: where it's drawn, as a map from its laid-out box (the fields above) to canvas UI pixels: its
    * ancestors' transforms and its own (`transform2d.ts`). Null when nothing transforms it.
