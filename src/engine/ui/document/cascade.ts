@@ -926,6 +926,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
 
   // Attributes beat rules.
   for (const a of element.attributes) {
+    if (isVariable(a.name)) continue; // declared above, with the rules' variables (an inline `style="--accent: …"`)
     const field = attributeField(a);
     if (!field) continue;
     if (isAnimationProperty(a.name)) {

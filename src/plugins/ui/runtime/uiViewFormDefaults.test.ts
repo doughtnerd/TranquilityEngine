@@ -61,6 +61,14 @@ async function view(): Promise<{ v: UIView; n: Nodes; log: string[] }> {
 }
 
 describe("UIView: HTML's form defaults and reset", () => {
+  it("draws a text area's content as its value only, and a progress bar's fallback text not at all (no text element beside them)", async () => {
+    const { v, n } = await view();
+    expect(n.notes.value).toBe("hello");
+    const texts = (sel: string) => v.query(sel)!.children.map((c) => (c.component instanceof UIText ? c.component.text : c.component.constructor.name));
+    expect(texts("#notes")).toEqual([]);
+    expect(texts("#prog")).toEqual([]);
+  });
+
   it("shows defaults, binds them when bound to nothing, and a reset input puts them back", async () => {
     const { v, n } = await view();
     expect(n.name.value).toBe("x");

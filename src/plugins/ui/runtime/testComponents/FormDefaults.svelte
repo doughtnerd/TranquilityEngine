@@ -23,6 +23,7 @@
     <option value="c" selected>C</option>
   </select>
   <select id="plain" bind:this={nodes.plain}><option value="a">A</option><option value="b">B</option></select>
+  <progress id="prog" value="1" max="2">50%</progress>
   <input id="reset" type="reset" value="Start over" bind:this={nodes.reset} />
 </form>
 <p id="para">Count: <input id="intext" bind:this={nodes.intext} value="7" /></p>

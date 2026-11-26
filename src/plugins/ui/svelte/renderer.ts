@@ -1729,6 +1729,9 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
   }
   const hp = hostedParent(parent);
   if (hp === undefined) return null;
+  // Text in a control isn't an element: a text area's is its default value (`textAreaContentChanged`), and the rest is
+  // HTML's fallback content (`<progress>60%</progress>`), which a browser doesn't show either.
+  if (node instanceof UIRenderText && parent instanceof UIRenderElement && isLeafKind(parent)) return null;
   if (node instanceof UIRenderText) {
     if (!node.data.trim()) return null;
     const label = tree.create("#text", "Text", hp, hostedBefore(node), new Map(), { synthetic: true });

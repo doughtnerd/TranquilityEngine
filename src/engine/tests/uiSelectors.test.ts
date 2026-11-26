@@ -191,6 +191,19 @@ describe("wave 5 selectors", () => {
   });
 });
 
+describe("variables set by an element's own attributes", () => {
+  it("declares them for var() without warning that the element has no such field (Svelte's style={\"--accent: …\"})", () => {
+    const sheet = parseStylesheet(`div { background-color: var(--accent); }`, "t.css");
+    const t = build({ tag: "section", id: "root", children: [{ tag: "div", id: "p" }] });
+    const span = { start: 0, end: 0 };
+    const el: MarkupElement = { tag: "Panel", attributes: [{ name: "--accent", value: "#ff0000", span, valueSpan: span }], file: "t.svelte" };
+    const warnings: string[] = [];
+    const values = resolveStyle(t.get("p"), el, UIPanel, [sheet], null, (w) => warnings.push(w));
+    expect(values.get("backgroundColor")?.value).toEqual(Color.from("#ff0000"));
+    expect(warnings).toEqual([]);
+  });
+});
+
 describe("wave 5 values: calc(), min(), max(), clamp()", () => {
   const panel = (decls: string, vars = "") => {
     const warnings: string[] = [];
