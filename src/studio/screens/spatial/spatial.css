@@ -285,15 +285,22 @@
 .sp-table-scroll { overflow-x: auto; margin: 4px 8px; }
 /* Key/value rows (the occlusion summary): muted keys, values right-aligned and strong. */
 .sp-kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 8px; margin: 4px 8px 6px; font-size: var(--fs-md); align-items: center; }
-.sp-kv dt { color: var(--text); }
-.sp-kv dd { margin: 0; text-align: right; font-weight: 600; color: var(--text-strong); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-kv dt { color: var(--muted); }
+.sp-kv dd { margin: 0; text-align: right; color: var(--text); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sp-occb { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border: 1px solid var(--border); border-radius: 3px; background: var(--bg-sunken); color: var(--text); font-size: var(--fs-sm); font-weight: 400; cursor: pointer; }
 .sp-occb .studio-glyph { color: var(--accent); }
 .sp-occb:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .sp-occb:disabled { opacity: 0.55; cursor: default; }
 .sp-mat-head { display: flex; align-items: center; justify-content: space-between; margin: 6px 8px 0; }
 .sp-cap { font-size: var(--fs-sm); line-height: 14px; font-weight: 600; color: var(--muted); }
-.sp-off { min-width: 40px; }
+/* Settings rows (ADR 0417): labels on one line, sliders take the slack, number fields and units line up in a column. */
+.sp-settings .kit-field { grid-template-columns: minmax(96px, max-content) minmax(0, 1fr); }
+.sp-settings .kit-field-control .kit-num { width: 56px; }
+.sp-settings .kit-field-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-settings .kit-field-control { flex-wrap: nowrap; min-width: 0; }
+.sp-settings .kit-field-control .sp-range { min-width: 32px; }
+.sp-settings .kit-field-control .kit-unit { flex: none; width: 3.6em; }
+.sp-off { flex: none; box-sizing: border-box; width: 56px; padding-right: 6px; text-align: right; }
 /* Fits the default 300px dock: fixed columns, headers wrap, fields fill their cells (the name takes what's left). */
 .sp-materials { width: 100%; margin: 0; border-collapse: collapse; table-layout: fixed; font-size: var(--fs-md); }
 .sp-materials th { color: var(--muted); font-weight: 400; font-size: var(--fs-sm); line-height: 1.2; text-align: left; vertical-align: bottom; padding: 2px; overflow-wrap: anywhere; }

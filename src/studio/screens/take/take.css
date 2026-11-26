@@ -171,6 +171,13 @@
 /* The fader takes what is left after the name and dB rows, so they always show; a panel too short for even the
    smallest fader scrolls instead of clipping them. */
 .tk-strips { display: flex; gap: 2px; padding: 6px 8px; overflow: auto; flex: 1 1 auto; min-height: 0; }
+/* A row that scrolls fades at the edge it is clipped on (ADR 0417); with nothing to scroll the timeline is inactive and nothing fades. */
+@property --tk-fade-l { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --tk-fade-r { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@keyframes tk-strips-fade { from { --tk-fade-l: 0px; --tk-fade-r: 32px; } 1% { --tk-fade-l: 32px; --tk-fade-r: 32px; } 99% { --tk-fade-l: 32px; --tk-fade-r: 32px; } to { --tk-fade-l: 32px; --tk-fade-r: 0px; } }
+@supports (animation-timeline: scroll()) {
+  .tk-strips { mask-image: linear-gradient(to right, transparent 0, #000 var(--tk-fade-l), #000 calc(100% - var(--tk-fade-r)), transparent 100%); animation: tk-strips-fade linear both; animation-timeline: scroll(x self); }
+}
 /* Each bus a card (the prototype's 92px channel cards): name, FX line, the fader with its meter, the level */
 .tk-strip { display: flex; flex-direction: column; align-items: stretch; gap: 3px; width: 92px; box-sizing: border-box; padding: 6px; flex: none; min-height: 0; background: var(--bg); border: 1px solid var(--border); border-radius: 3px; }
 .tk-strip .studio-fader.vertical { align-self: center; }
