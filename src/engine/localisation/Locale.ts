@@ -68,6 +68,28 @@ let remember = false;
 /** Bumped by every switch and configuration: a switch whose number is no longer the latest was superseded. */
 let switchSeq = 0;
 let shipped: readonly LocaleLanguage[] = languagesOf(settings);
+const epochListeners = new Set<() => void>();
+
+/** Resolved text can change: raise `epoch` and tell the epoch listeners (`onLocaleEpoch`). */
+function raiseEpoch(): void {
+  epoch++;
+  for (const fn of [...epochListeners]) {
+    try {
+      fn();
+    } catch (err) {
+      console.error("[myco] A Locale epoch listener threw:", err);
+    }
+  }
+}
+
+/**
+ * @internal Call `fn` whenever `Locale.epoch` rises (a language switch, a table edit, hot reload), right as it does:
+ * what makes `t()` reactive in UI components. Returns the unsubscribe function.
+ */
+export function onLocaleEpoch(fn: () => void): () => void {
+  epochListeners.add(fn);
+  return () => epochListeners.delete(fn);
+}
 let chainCache: { epoch: number; chain: readonly string[] } | null = null;
 const listeners = new Set<(e: LocaleChange) => void>();
 const missing: { key: string; language: string }[] = [];
@@ -291,7 +313,7 @@ export const Locale = {
         const previous = current;
         current = target;
         pending = null;
-        epoch++;
+        raiseEpoch();
         localiseAssets(settings, current); // ADR 0356 §10: textures and fonts follow in the same step
         notify(previous);
         if (remember && settings.remember) Storage.save(LOCALE_STORAGE_KEY, target, "settings").catch((err: unknown) => console.warn(`[myco] Couldn't remember the language "${target}":`, err));
@@ -417,7 +439,7 @@ export async function configureLocale(config: LocaleConfig): Promise<void> {
   remember = config.remember ?? false;
   shipped = languagesOf(settings);
   missing.length = 0;
-  epoch++;
+  raiseEpoch();
   const start = startLanguage(settings, config.remembered, config.system ?? []);
   pending = start;
   try {
@@ -429,7 +451,7 @@ export async function configureLocale(config: LocaleConfig): Promise<void> {
   const previous = current;
   current = start;
   pending = null;
-  epoch++;
+  raiseEpoch();
   localiseAssets(settings, current);
   if (previous !== start) notify(previous);
 }
@@ -437,7 +459,7 @@ export async function configureLocale(config: LocaleConfig): Promise<void> {
 /** @internal The project's tables changed (the editor saved one, hot reload): resolved text can change. */
 export function localeStringsChanged(next?: LocaleStrings): void {
   if (next) strings = next;
-  epoch++;
+  raiseEpoch();
 }
 
 /** @internal The strings in use (the editor's hot reload swaps project strings). */
