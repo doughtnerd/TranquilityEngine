@@ -4,4 +4,4 @@
  * download them.
  */
 export { hasBinding, parseBindings, parseMarkup, resolvePath } from "./markup";
-export { attributeField, boundValue, propertyField, cloneValue, convertValue, fieldsOf, isTextField, keyAttributeField, matchSelector, parseStylesheet, referenceField, resolveStyle, usesLang, usesPseudo } from "./stylesheet";
+export { ANIMATION_KEY, attributeField, boundValue, propertyField, cloneValue, convertValue, fieldsOf, isTextField, keyAttributeField, keyframeTracks, matchSelector, parseStylesheet, referenceField, resolveStyle, TRANSITION_KEY, transitionFields, usesAnimation, usesLang, usesPseudo } from "./stylesheet";
