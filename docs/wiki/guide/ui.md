@@ -180,6 +180,46 @@ Any element can be drawn moved, turned and scaled ([ADR 0418](../../decisions/04
 
 **Performance.** Changing a transform needs no new layout: Babylon GUI redraws only the regions the element leaves and enters. Its shadow and gradient are redrawn with it, so a transformed element with a large blur still costs what a moving shadow costs.
 
+## Animation: transitions and keyframes
+
+Stylesheets animate as CSS does ([ADR 0418](../../decisions/0418-the-ui-core-grows-toward-web-css-layout-paint-transforms-animation-and-selectors-in-waves.md) wave 4): a **transition** eases a field from its old value to its new one when a class, a pseudo-class (`:hover`, `:focus`…) or an attribute changes it, and an **animation** plays `@keyframes` while an element has it, starting when the element appears or when its `animation-name` changes. It works the same in UI documents and in Svelte views.
+
+```css
+.button { background-color: #335; transform: scale(1); transition: background-color 150ms ease-out, transform 150ms; }
+.button:hover { background-color: #558; scale: 1.05; }
+.toast { animation: slide-in 300ms ease-out, fade 300ms ease-in 3s forwards; }
+@keyframes slide-in { from { translate: 0 -40px; opacity: 0; } }
+@keyframes fade { to { opacity: 0; } }
+.spinner { animation: spin 1s linear infinite; }
+@keyframes spin { to { rotate: 360deg; } }
+```
+
+| Property | Takes |
+| --- | --- |
+| `transition` | comma-separated `property duration timing-function delay` in any order (the first time is the duration, the second the delay); `none` |
+| `transition-property` | `all`, `none`, or property names; a shorthand covers its longhands (`padding` its sides, `transform` the transform fields, `box-shadow` the shadow's fields, `border-radius` the corners) |
+| `transition-duration`, `transition-delay` | times: `0.3s`, `300ms` (a negative delay starts part-way) |
+| `transition-timing-function` | `linear`, `ease`, `ease-in`, `ease-out`, `ease-in-out`, `cubic-bezier(x1, y1, x2, y2)`, `steps(n[, jump-start \| jump-end \| jump-none \| jump-both \| start \| end])`, `step-start`, `step-end` |
+| `animation` | comma-separated `name duration timing-function delay iteration-count direction fill-mode play-state` in any order |
+| `animation-name` | `@keyframes` names, or `none` |
+| `animation-iteration-count` | a number (`2.5` ends half way through the third) or `infinite` |
+| `animation-direction` | `normal`, `reverse`, `alternate`, `alternate-reverse` |
+| `animation-fill-mode` | `none`, `forwards` (hold the last value), `backwards` (show the first keyframe during the delay), `both` |
+| `animation-play-state` | `running`, `paused` (toggle it with a class to pause and resume) |
+
+- **What animates:** numbers (opacity, sizes in px, `font-size`, `gap`, `z-index` rounded…), lengths (`width`, `left`, `translate`…: px with px, `%` with `%`; a mixed pair or `auto` jumps half way), colours (in linear RGB), the transform fields, shadow fields, per-side padding, margins and borders, and corner radii. A side left unset animates from its all-sides value, and a shadow from `none` animates from a transparent one. Other fields (choices like `flex-direction`, text, images) change at once in a transition, and jump half way between keyframes.
+- **`@keyframes`** take `from`, `to` and percentages (`0%, 50% { … }` lists several). A keyframe can set `animation-timing-function` for the segment that starts at it. A missing `from` or `to` uses the element's own value, so `@keyframes fade { from { opacity: 0 } }` fades in to whatever opacity the element has. The last `@keyframes` with a name wins.
+- **These are styles, not fields:** set them in rules, as attributes (`<Panel class="x" transition="opacity 0.2s">`) or in a Svelte `style`. A script starts and stops them by changing classes or attributes.
+- **A script writing a field** that's transitioning or animating takes it over at once, as an inline style would: `el.as(UIPanel).opacity = 1` stops that field's transition (no `transitionend`) or that field of the animation.
+- **Time:** animations run on the World's unscaled clock, so UI still animates with `Time.timeScale = 0` (a pause menu). They start in the frame of the change.
+- **Interrupting:** a transition interrupted by another change starts again from the value showing, towards the new value.
+- **Events:** `el.on("transitionend", e => …)` with `e.propertyName` (kebab-case) and `e.elapsedTime`; `animationstart`, `animationiteration` and `animationend` with `e.animationName`. Like other UI events they arrive in the frame after they happened, and they're in the `UIEvents` buffer too. Svelte views listen on the element the same way (`UIViewElement.on`).
+- **The Inspector** shows a field that's animating as *Transition* or *Animation*, over the rule or attribute it animates to.
+- **Scenes being edited** don't animate: the editor shows each element's styled values.
+- **Not supported:** `transition-behavior`, `animation-composition`, `animation-timeline`, the `linear()` timing function, and CSS's shortening of a transition that reverses half way. Changing an animation's duration or timing while it runs takes effect when it next starts (its play state applies at once). An inherited value (a `color` on a button) reaches its label at the end of a transition, not in between, unless the label transitions too.
+
+**How it runs.** Transitions and keyframe segments run as tweens on the engine's tween core ([ADR 0420](../../decisions/0420-tweening-is-a-shared-rust-crate-linked-by-the-animation-core-and-a-small-tween-module.md)): the animation core's when the animation plugin is on, otherwise a small standalone tween module that loads the first time a document's stylesheet animates. Timing functions become engine curves (a cubic Bézier is exactly one Bézier segment). Measured headless (no drawing): 500 elements each transitioning a colour and a number cost about 1 ms a frame, and the frame that starts all 1,000 transitions about 17 ms (9 without transitions). Animating paint (shadows, gradients, colours of large boxes) also redraws regions each frame (see Paint above); opacity and transforms are the cheap things to animate.
+
 ## Scripting
 
 A script finds the document on its node and reaches its elements with selectors. Element fields are plain values: change them at runtime and the UI follows next frame.
@@ -208,7 +248,7 @@ export class MainMenu extends GameBehavior {
 ```
 
 - `query(selector)` and `queryAll(selector)` find elements (the root included); an element has its own `query`, `classList` (classes restyle it), `node`, `as(UIButton)` for its component, and the button and field state below.
-- `on(type, handler)`: `click`, `change`, `submit`, `hover`, `focus`, `blur`, and `cancel` on the root.
+- `on(type, handler)`: `click`, `change`, `submit`, `hover`, `focus`, `blur`, and `cancel` on the root; `transitionend`, `animationstart`, `animationiteration` and `animationend` (see Animation above).
 - `ui.data` fills `{name}` bindings; it's checked each frame.
 - **Rows made at runtime** (a list of rooms, a crew, markers): `ui.list("#rooms", items, setup, { key: "id" })` makes one row per item from the element's `<Template>`, reusing rows by key when it's called again. `{field}` in the row reads the item, so positions and colours can be bindings too (`<Panel left="{x}" background-color="{color}">`). There's no other way to add an element at runtime.
 - `ui.ready` resolves once the document is built; `ui.problems` lists what was wrong in the markup and stylesheets.
@@ -353,6 +393,7 @@ A document builds its elements in any World. Only a World with a render backend 
 - No scrolling, sliders, toggles or dropdowns.
 - No 3D transforms, `skew()` or `matrix()`; a rotation inside an unequal scale (a parent scaled `2 1` with a turned child) is drawn without its skew, though the pointer still follows the exact transform.
 - No on-screen keyboard: a gamepad can focus an input field but not type in it.
+- In a Svelte component, `ontransitionend={…}` and the other animation event attributes aren't wired yet; listen with `on("transitionend", …)` on the element from `UIView.query`.
 - No styling of focus beyond `focusColor` (a `:focus` rule styles input fields only).
 - `fit: contain` in a box with both sides fixed stretches like `fill`.
 - A script can add elements at runtime only through `list()` and a `<Template>`.

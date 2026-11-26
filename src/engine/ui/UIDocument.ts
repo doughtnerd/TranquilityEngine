@@ -85,7 +85,9 @@ export type UIEventHandler = (event: UIEvent) => void;
  * The frame's UI events from documents (ADR 0077), for systems: clicks, changes, submits and hovers
  * (the pointer moving onto a button), as the UI core recorded them (ADR 0309); focus and blur (the
  * pointer or keyboard and gamepad navigation moving focus) and cancel (on the document's root, ADR
- * 0340). Filled right after UI input routing, before behaviors' `update`; cleared at the end of the frame.
+ * 0340), and last frame's stylesheet animation events (`transitionend`, `animationstart`, `animationiteration`,
+ * `animationend`, ADR 0418 wave 4). Filled right after UI input routing, before behaviors' `update`; cleared at the
+ * end of the frame.
  */
 export const UIEvents = defineBuffer<UIEvent>("engine.UIEvents");
 
