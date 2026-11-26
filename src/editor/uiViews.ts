@@ -24,7 +24,7 @@ import { pathKey } from "./document";
 import { selectedUIElement } from "./state";
 import { editorTextFiles } from "./textFiles";
 import { elementAtLocation, lineColumnAt, loadSvelteParser, normalizeSelector, parseSvelte, styleDeclarations, svelteParserLoaded, SvelteEditError, type SvelteElement, type SvelteSource } from "./uiEdit/svelteText";
-import { formatValue, kebab, type FieldOrigin, type FieldSourceRow, type NodeLookup } from "./uiDocuments";
+import { formatValue, kebab, resolveUIElement, selectedUIRef, type FieldOrigin, type FieldSourceRow, type NodeLookup } from "./uiDocuments";
 
 // --- Refs and keys ------------------------------------------------------------------------------
 
@@ -155,6 +155,14 @@ export function watchUIViews(): void {
     bump();
     if (!svelteParserLoaded()) void loadSvelteParser().then(bump, () => {});
   });
+}
+
+/** The selected UI element of either kind (a document's, or one a view rendered) as the scene view draws it, or null. */
+export function selectedUIComponent(lookup: NodeLookup): { readonly component: UIComponentType; readonly node: GameObject } | null {
+  const doc = selectedUIRef();
+  if (doc) return resolveUIElement(lookup, doc);
+  const view = selectedUIViewRef();
+  return view ? resolveUIViewElement(lookup, view) : null;
 }
 
 // --- The source ------------------------------------------------------------------------------------

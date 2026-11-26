@@ -115,6 +115,9 @@ const label = (el: UIHostElement) => (el.id ? `#${el.id}` : `<${el.tag}>`);
 const ID_PATTERN = /^[A-Za-z_][\w-]*$/;
 const CLASS_PATTERN = /^-?[A-Za-z_][\w-]*$/;
 
+/** Properties that are lengths: a bare number written into a literal `style` gets `px`, as CSS needs. */
+const LENGTHS: ReadonlySet<string> = new Set(["width", "height", "top", "right", "bottom", "left", "min-width", "min-height", "max-width", "max-height", "flex-basis", "gap", "padding", "margin", "font-size", "border-radius", "border-width"]);
+
 /** Write `attributes` on the element starting at `start` (see `setUIViewElementAttributes`). */
 function writeAttributes(text: string, start: number, attributes: Readonly<Record<string, string | null>>): string {
   for (const [name, value] of Object.entries(attributes)) {
@@ -134,7 +137,7 @@ function writeAttributes(text: string, start: number, attributes: Readonly<Recor
       continue;
     }
     // An inline style beats attributes: a property the literal style sets is changed there.
-    if (inStyle) text = setStyleProperty(text, start, property, value);
+    if (inStyle) text = setStyleProperty(text, start, property, LENGTHS.has(property) && /^-?(\d+\.?\d*|\.\d+)$/.test(value.trim()) && Number(value) !== 0 ? `${value.trim()}px` : value); // CSS lengths take units
     else text = setAttribute(text, start, written?.name ?? (field === "image" ? "src" : property), value);
   }
   return text;

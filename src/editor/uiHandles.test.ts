@@ -214,15 +214,15 @@ describe("transformed elements (ADR 0418 wave 3)", () => {
 
 describe("refusals", () => {
   it("shows no handles in read-only projects, in play mode, or on the root", async () => {
-    expect(whyNoHandles(el("a"))).toBeNull();
-    expect(whyNoHandles(resolveUIElement(scene().sync, { host: "hud", index: 0, path: "" })!)).toMatch(/root/);
+    expect(whyNoHandles(ref("a"))).toBeNull();
+    expect(whyNoHandles({ host: "hud", index: 0, path: "" })).toMatch(/root/);
     playState.value = "playing";
-    expect(whyNoHandles(el("a"))).toMatch(/stop playing/);
+    expect(whyNoHandles(ref("a"))).toMatch(/stop playing/);
     expect(beginResize(ref("a"), "se", at("a", 1, 1), boxOf)).toBeNull();
     expect(beginMove(ref("a"), at("a", 0.5, 0.5), boxOf)).toBeNull();
     playState.value = "edit";
     currentProject.value = Object.create(project, { canSave: { value: false } }) as EditorProject;
-    expect(whyNoHandles(el("a"))).toMatch(/read-only/);
+    expect(whyNoHandles(ref("a"))).toMatch(/read-only/);
     expect(beginResize(ref("a"), "se", at("a", 1, 1), boxOf)).toBeNull();
     expect(text()).toBe(MENU);
   });

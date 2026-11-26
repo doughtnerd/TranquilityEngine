@@ -18,6 +18,9 @@ import { inspectorTarget, select, selectUIElement } from "./inspectorTarget";
 import { editorTextFiles } from "./textFiles";
 import { useCoreAssetKinds } from "./testing";
 import { loadSvelteParser } from "./uiEdit/svelteText";
+import { UICore } from "../engine/ui/UICore";
+import type { UIComponentType } from "../engine/ui/components";
+import { beginMove, beginResize, whyNoHandles, type BoxOf } from "./uiHandleDrags";
 import "./session"; // what reloads the project's code when an edit writes UI code
 import {
   refOfViewElement,
@@ -302,5 +305,52 @@ describe("editing", () => {
     await open(readOnlyProject("Sample", { values, texts }));
     expect(setUIViewElementField(ref("play"), "width", "10")).toBe(false);
     expect(status.value?.text).toMatch(/read-only/);
+  });
+});
+
+describe("scene-view handles", () => {
+  it("resize a static element (the literal attribute, and the style where it sets the size) as one undo step; reorder in flow; refuse dynamic ones", async () => {
+    const core = new UICore({ interactive: false });
+    await core.ready;
+    try {
+      const layout = () => core.sync(engine.world, 1280, 720, DT);
+      const boxOf: BoxOf = (c: UIComponentType) => {
+        const corners = core.cornersOf(c);
+        return corners ? { points: corners.points.map((p) => [p[0], p[1]] as const), size: corners.size, layoutPoints: corners.layoutPoints.map((p) => [p[0], p[1]] as const) } : null;
+      };
+      layout();
+      const corner = (id: string): [number, number] => {
+        const p = boxOf(find(id).component)!.points;
+        return [p[2][0], p[2][1]];
+      };
+      const start = corner("box");
+      const before = scene().stack.allStates.length;
+      const drag = beginResize(ref("box"), "se", start, boxOf)!;
+      expect(drag).not.toBeNull();
+      drag.update([start[0] + 10, start[1] + 5]);
+      expect(drag.finish()).toBe(true);
+      expect(scene().stack.allStates.length).toBe(before + 1);
+      await settle();
+      layout();
+      expect(text()).toContain(`<div id="box" style="height: 25px" width="60"></div>`);
+      expect(find("box").as(UIPanel).width).toBe("60");
+
+      // The sections's children flow in a row: dragging the box to the front reorders it in the file.
+      const title = boxOf(find("title").component)!.points[0];
+      const move = beginMove(ref("box"), corner("box").map((v) => v - 2) as [number, number], boxOf)!;
+      expect(move.kind).toBe("reorder");
+      move.update([title[0] + 1, title[1] + 1]);
+      expect(move.finish()).toBe(true);
+      await settle();
+      expect(text()).toContain(`<section id="hud" gap="4">\n  <div id="box"`);
+
+      const [v] = viewRows(scene().sync, "hud");
+      const each = v.rows[0].children.find((c) => c.label === "span.row")!;
+      expect(whyNoHandles(each.ref)).toMatch(/\{#each\}/);
+      expect(beginResize(each.ref, "se", [0, 0], boxOf)).toBeNull();
+      expect(whyNoHandles(ref("badge"))).toMatch(/child component/);
+    } finally {
+      core.dispose();
+    }
   });
 });

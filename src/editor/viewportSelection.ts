@@ -19,6 +19,8 @@ import { combineSelection, selectModeFor, withDescendants, type SelectMode } fro
 import { docVersion, openScene, refineList, selectedKeys, selectedNodes, selectedUIElement, selection } from "./state";
 import { select, selectUIElement } from "./inspectorTarget";
 import { elementOfComponent, parseUIRefKey, refOfElement, uiRefKey, type NodeLookup } from "./uiDocuments";
+import { parseUIViewRefKey, refOfViewElement, uiViewRefKey, viewElementOfComponent } from "./uiViews";
+import { uiHostElementOf } from "../engine/ui/host/UIHost";
 import { pressOnSelectedUI } from "./uiHandles";
 import { orderClickHits, partitionUIHits } from "./uiPicking";
 import { boxBetween, chooseSelection, colliderBounds, colliderHits, hitIds, idsInBox, isPlainClick, keysNear, type PointerSample } from "./viewportPicks";
@@ -30,7 +32,8 @@ const REFINE_RADIUS = 24;
 
 /**
  * Selection keys for the UI under a click (ADR 0077), topmost first: a UI document's element as its
- * `uiRefKey`, a hand-built UI node (ADR 0069) as its document node id. Elements outside the edited
+ * `uiRefKey`, an element a UIView rendered (ADR 0419 wave C) as its `uiViewRefKey` (a button's label picks the
+ * button), a hand-built UI node (ADR 0069) as its document node id. Elements outside the edited
  * scene, list rows and nodes `pickable` refuses (locked) are left out; duplicates too.
  */
 function uiHitKeys(comps: readonly UIComponentType[], lookup: NodeLookup & { nodeIdOf(node: GameObject): string | null }, pickable: (node: GameObject) => boolean): string[] {
@@ -38,18 +41,27 @@ function uiHitKeys(comps: readonly UIComponentType[], lookup: NodeLookup & { nod
   for (const c of comps) {
     const el = elementOfComponent(c);
     let key: string | null = null;
+    const hosted = el ? null : viewElementOfComponent(c);
     if (el) {
       const ref = el.document.node.isValid && pickable(el.document.node) ? refOfElement(lookup, el) : null;
       key = ref ? uiRefKey(ref) : null;
+    } else if (hosted) {
+      const viewNode = hosted.tree.root.node.parent;
+      const ref = viewNode && pickable(viewNode) ? refOfViewElement(lookup, hosted) : null;
+      key = ref ? uiViewRefKey(ref) : null;
+    } else if (uiHostElementOf(c)) {
+      // A view's canvas (it has no template location): the view's node.
+      const viewNode = uiHostElementOf(c)!.tree.root.node.parent;
+      key = viewNode && pickable(viewNode) ? lookup.nodeIdOf(viewNode) : null;
     } else if (pickable(c.owner)) key = lookup.nodeIdOf(c.owner);
     if (key !== null && !out.includes(key)) out.push(key);
   }
   return out;
 }
 
-/** Select what a plain click chose: a UI element's key (`ui:...`), a node id, or nothing. */
+/** Select what a plain click chose: a UI element's key (`ui:...`, or a view's `uiv:...`), a node id, or nothing. */
 function applyClickSelection(key: string | null): void {
-  const ref = key ? parseUIRefKey(key) : null;
+  const ref = key ? (parseUIRefKey(key) ?? parseUIViewRefKey(key)) : null;
   if (ref) selectUIElement(ref);
   else select(key === null ? [] : [key]);
 }
