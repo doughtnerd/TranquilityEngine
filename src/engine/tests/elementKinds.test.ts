@@ -40,6 +40,9 @@ describe("UI element kinds", () => {
     const button = make(UIButton);
     const none = { checked: false, indeterminate: false, "placeholder-shown": false };
     expect(uiPseudoState(button)).toEqual({ hover: false, pressed: false, focus: false, disabled: false, ...none });
+    button.focused = true; // ADR 0340 focus: `button:focus` matches
+    expect(uiPseudoState(button)).toMatchObject({ focus: true });
+    button.focused = false;
     button.interactable = false;
     expect(uiPseudoState(button)).toMatchObject({ disabled: true });
     const field = make(UIInputField);

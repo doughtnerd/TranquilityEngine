@@ -21,7 +21,6 @@
     unbind: { label: string; enabled: boolean };
     reset: string;
     save: string;
-    focus: string | null;
     look: { width: string; fontSize: number; glyphSize: number; colors: Record<string, string> };
   }
 
@@ -33,7 +32,7 @@
 </script>
 
 {#snippet cell(c: Cell)}
-  <button id={c.id} class="cell" class:waiting={c.waiting} class:focused={model?.focus === c.id} interactable={String(c.interactable)} height={height}>
+  <button id={c.id} class="cell" class:waiting={c.waiting} interactable={String(c.interactable)} height={height}>
     {#each c.glyphs as g, i (i)}
       <img src={g.asset} height={look.glyphSize} width={Math.round((look.glyphSize * g.width) / g.height)} />
     {/each}
@@ -42,7 +41,7 @@
 {/snippet}
 
 {#snippet side(b: SettingButton, label: string, enabled: boolean)}
-  <button id={b.id} class="side" class:focused={model?.focus === b.id} interactable={String(b.interactable)} width={height} height={height}>
+  <button id={b.id} class="side" interactable={String(b.interactable)} width={height} height={height}>
     <span class:muted={!enabled}>{label}</span>
   </button>
 {/snippet}
@@ -72,7 +71,7 @@
           <div class="row">
             <span class="name">{s.label}</span>
             {#if s.toggle}
-              <button id={s.toggle.id} class="toggle" class:focused={model.focus === s.toggle.id} interactable={String(s.toggle.interactable)} height={height}>
+              <button id={s.toggle.id} class="toggle" interactable={String(s.toggle.interactable)} height={height}>
                 <span class:muted={!s.enabled}>{s.value}</span>
               </button>
             {:else if s.decrease && s.increase}
@@ -88,9 +87,9 @@
       <span id="status" class={model.statusWarning ? "warning" : "muted"}>{model.status}</span>
     {/if}
     <div class="buttons">
-      <button id="unbind" class:focused={model.focus === "unbind"} interactable={String(model.unbind.enabled)}><span class:muted={!model.unbind.enabled}>{model.unbind.label}</span></button>
-      <button id="reset" class:focused={model.focus === "reset"}><span>{model.reset}</span></button>
-      <button id="save" class:focused={model.focus === "save"}><span>{model.save}</span></button>
+      <button id="unbind" interactable={String(model.unbind.enabled)}><span class:muted={!model.unbind.enabled}>{model.unbind.label}</span></button>
+      <button id="reset"><span>{model.reset}</span></button>
+      <button id="save"><span>{model.save}</span></button>
     </div>
   </div>
 </div>
@@ -147,7 +146,7 @@
     border-color: var(--cell);
   }
   /* The focused button shows the accent border, after mouse use too: Delete, Backspace and Unbind act on what has focus. */
-  button.focused {
+  button:focus {
     border-color: var(--accent);
   }
   .cell {

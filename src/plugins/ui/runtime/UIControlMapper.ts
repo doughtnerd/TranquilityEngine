@@ -327,8 +327,6 @@ interface ViewModel {
   unbind: { label: string; enabled: boolean };
   reset: string;
   save: string;
-  /** The id of the button that has focus, which shows the accent border. */
-  focus: string | null;
   look: { width: string; fontSize: number; glyphSize: number; colors: Record<string, string> };
 }
 
@@ -1062,7 +1060,6 @@ export class UIControlMapper extends Component {
       unbind: { label: t.unbind, enabled: unbindable },
       reset: t.reset,
       save: t.save,
-      focus: this.focusedId(built),
       look: {
         width: /^-?\d+(\.\d+)?$/.test(w) ? `${w}px` : w,
         fontSize: this.fontSize,
@@ -1070,14 +1067,6 @@ export class UIControlMapper extends Component {
         colors: { background: css(this.backgroundColor), cell: css(this.cellColor), hover: css(this.hoverColor), pressed: css(this.pressedColor), accent: css(this.accentColor), text: css(this.textColor), muted: css(this.mutedColor), warning: css(this.warningColor) },
       },
     };
-  }
-
-  /** The id of the screen's button that has focus, or null. */
-  private focusedId(built: Built): string | null {
-    for (const r of built.rows) for (const c of [r.keyboard, r.gamepad]) if (c?.button?.focused) return c.id;
-    for (const s of built.settings) for (const k of ["toggle", "decrease", "increase"] as const) if (s[k]?.focused) return s.ids[k];
-    for (const k of ["unbind", "reset", "save"] as const) if (built[k]?.focused) return k;
-    return null;
   }
 
   /**

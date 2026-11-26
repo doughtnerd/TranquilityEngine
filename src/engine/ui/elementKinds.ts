@@ -72,7 +72,7 @@ const KINDS: readonly KindSpec[] = [
   } as KindSpec<UIOption> as KindSpec,
   {
     kind: "button", type: UIButton, tag: "Button", leaf: false, interactive: true, flexShrink: 0,
-    pseudo: (c: UIButton) => ({ hover: c.hovered, pressed: c.pressed, disabled: !c.interactable }),
+    pseudo: (c: UIButton) => ({ hover: c.hovered, pressed: c.pressed, focus: c.focused, disabled: !c.interactable }),
     paints: panelPaints,
     graphic: always,
   } as KindSpec<UIButton> as KindSpec,
