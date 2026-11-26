@@ -251,6 +251,9 @@ async function runSample(name: string): Promise<Result> {
     raf.reset();
     // A fresh page per sample, as jsdom is for Svelte: no title left by the previous sample's `<svelte:head>`.
     ((renderer.default as unknown as { globalTarget(kind: string): { title: string } }).globalTarget("document")).title = "";
+    // ...and `$props.id()` counting from c1 again (Svelte keeps its counter on the global object, jsdom's window per test).
+    const svelteGlobal = (globalThis as { __svelte?: { uid?: number } }).__svelte;
+    if (svelteGlobal) svelteGlobal.uid = 1;
     (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = setTimeout;
     config.before_test?.();
     const mod = (await import(join(dir, "_output_myco/main.svelte.js"))) as { default: never };

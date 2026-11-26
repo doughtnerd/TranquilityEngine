@@ -144,14 +144,29 @@ type Propagating = { type: string; bubbles?: boolean; eventPhase?: number; _stop
  * ADR 0422: run `type`'s listeners on `el` for a phase (1 capture, 2 target, 3 bubble), `this` being the node. A
  * listener added with `once` is removed first; `stopImmediatePropagation` ends the run.
  */
+/**
+ * Set an event's propagation field (`target`, `currentTarget`, `eventPhase`) as dispatch does: assigned on a plain or
+ * engine event, defined on the instance for a DOM `Event` a script made (`new Event("blur")`), whose are read-only.
+ */
+function setEventField(event: object, key: "target" | "currentTarget" | "eventPhase", value: unknown): void {
+  const e = event as Record<string, unknown>;
+  try {
+    e[key] = value;
+  } catch {
+    // read-only: defined below
+  }
+  if (e[key] === value) return;
+  try {
+    Object.defineProperty(event, key, { configurable: true, enumerable: true, get: () => value });
+  } catch {
+    // a frozen event keeps its own
+  }
+}
+
 function runListeners(el: UIRenderElement, type: string, event: Propagating, phase: 1 | 2 | 3): void {
   const list = el._listeners.get(type);
   if (!list?.length) return;
-  try {
-    event.currentTarget = el;
-  } catch {
-    // an event whose fields are read-only
-  }
+  setEventField(event, "currentTarget", el);
   runUIListeners(list, phase, event, (h) => h.call(el, event));
 }
 
@@ -378,6 +393,8 @@ export class UIRenderElement extends UINodeBase {
     // ADR 0426: an <svg>'s shapes are kept as its SVG document (warned about where they're inserted outside one).
     if (!ui && !HEAD_TAGS.has(localName) && !SVG_CONTENT_TAGS.has(localName.toLowerCase())) warnOnce(`<${localName}> isn't an HTML tag the UI knows; it renders as a Panel (a <div>).`);
     this._uiTag = ui ?? "Panel";
+    // A select iterates over its options (`const [first] = select`), as the DOM's does; other elements aren't iterable.
+    if (this._uiTag === "Select") Object.defineProperty(this, Symbol.iterator, { value: () => this.options[Symbol.iterator]() });
   }
 
   get tagName(): string {
@@ -701,22 +718,14 @@ export class UIRenderElement extends UINodeBase {
    */
   dispatchEvent(event: { type: string; defaultPrevented?: boolean; target?: unknown; currentTarget?: unknown; bubbles?: boolean }): boolean {
     const e = event as Propagating;
-    try {
-      e.target ??= this;
-    } catch {
-      // an event whose fields are read-only
-    }
+    if (e.target === undefined || e.target === null) setEventField(e, "target", this);
     const path: UIRenderElement[] = [];
     for (let n: UIRenderElement | UIRenderFragment | null = this; n instanceof UIRenderElement; n = n._parent) {
       path.push(n);
       if (n._tree) break; // the view's mount node: the canvas
     }
     const setPhase = (p: number) => {
-      try {
-        e.eventPhase = p;
-      } catch {
-        // read-only
-      }
+      setEventField(e, "eventPhase", p);
     };
     for (let i = path.length - 1; i >= 1 && !e._stopped; i--) {
       setPhase(1);
@@ -1054,6 +1063,14 @@ export class UIRenderElement extends UINodeBase {
     return out;
   }
 
+  /** A media element's `srcObject` (a `MediaStream` on the web), kept as given; the UI's media plays `src`. */
+  srcObject: unknown = null;
+
+  /** A select's chosen options. */
+  get selectedOptions(): UIRenderElement[] {
+    return this.options.filter((o) => o.selected);
+  }
+
   get selectedIndex(): number {
     return this.options.findIndex((o) => o.selected);
   }
@@ -1118,6 +1135,14 @@ const NAMESPACE_SVG = "http://www.w3.org/2000/svg";
 const NAMESPACE_MATHML = "http://www.w3.org/1998/Math/MathML";
 /** The `<input>` types HTML knows (what `input.type` reads back; anything else reads as `text`). */
 const INPUT_TYPES = new Set(["text", "search", "tel", "url", "email", "password", "date", "month", "week", "time", "datetime-local", "number", "range", "color", "checkbox", "radio", "file", "submit", "image", "reset", "button", "hidden"]);
+/** HTML's boolean attributes (present or absent; Svelte's list). */
+const BOOLEAN_ATTRIBUTES = new Set(["allowfullscreen", "async", "autofocus", "autoplay", "checked", "controls", "default", "disabled", "formnovalidate", "indeterminate", "inert", "ismap", "loop", "multiple", "muted", "nomodule", "novalidate", "open", "playsinline", "readonly", "required", "reversed", "seamless", "selected", "webkitdirectory", "defer", "disablepictureinpicture", "disableremoteplayback", "hidden"]);
+
+/** Whether `name` is a boolean attribute on `el`: one of HTML's, on an HTML element that isn't a custom element. */
+function isBooleanAttribute(el: UIRenderElement, name: string): boolean {
+  return BOOLEAN_ATTRIBUTES.has(name.toLowerCase()) && !el.localName.includes("-") && el.namespaceURI === NAMESPACE_HTML;
+}
+
 /** Enumerated attributes whose DOM property is a boolean: the keywords for false and true. */
 const BOOLEAN_KEYWORDS: Readonly<Record<string, readonly [string, string]>> = { translate: ["no", "yes"], draggable: ["false", "true"], spellcheck: ["false", "true"] };
 const escapeText = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -2036,6 +2061,16 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     // Enumerated attributes whose DOM property is a boolean (`translate={false}`): Svelte sets the property on a DOM element,
     // which writes the keyword; under a renderer it hands over the boolean, so the keyword is written here.
     if (typeof value === "boolean" && key in BOOLEAN_KEYWORDS) value = BOOLEAN_KEYWORDS[key][value ? 1 : 0];
+    // Any other boolean is HTML's boolean attribute ("" or absent) where the DOM element has one (`disabled={x}`), else
+    // the word, as `setAttribute` writes it (`data-open={true}`, an SVG's or a custom element's `readonly={false}`).
+    else if (typeof value === "boolean" && !isBooleanAttribute(el, key)) value = String(value);
+    // A media element's `srcObject` is a property, never an attribute (Svelte's DOM path sets the property).
+    if (key === "srcObject") {
+      el.srcObject = value ?? null;
+      return;
+    }
+    // `<option value={undefined}>`: Svelte's DOM writes an empty value, so the option's value isn't its label.
+    if ((value === undefined || value === null) && key === "value" && el.localName === "option") value = "";
     if (value === undefined || value === null || value === false) return renderer.removeAttribute(el, key);
     el._attrs.set(key, value);
     if (key === "type") retag(el); // ADR 0424

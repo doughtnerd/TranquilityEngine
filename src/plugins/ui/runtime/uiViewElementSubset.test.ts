@@ -114,6 +114,34 @@ describe("UIView: the Element subset as Svelte's fixtures use it", () => {
     expect(amount.value).toBe("6");
   });
 
+  it("writes a boolean as HTML's boolean attribute only where the element has one, else as the word", async () => {
+    const { root } = await view();
+    const span = root.querySelector("#plainspan");
+    expect([span.getAttribute("data-open"), span.getAttribute("aria-hidden")]).toEqual(["true", "false"]);
+    expect(root.querySelector("#ro").getAttribute("readonly")).toBe("false");
+    expect(root.querySelector("#flags").getAttribute("hidden")).toBe("");
+  });
+
+  it("gives a DOM Event a script dispatches its target and currentTarget", async () => {
+    const { root } = await view();
+    const flags = root.querySelector("#flags") as Node & { addEventListener(t: string, f: (e: Event) => void): void; dispatchEvent(e: Event): boolean };
+    const seen: unknown[] = [];
+    flags.addEventListener("ping", (e) => seen.push(e.target === flags, e.currentTarget === flags));
+    flags.dispatchEvent(new Event("ping"));
+    expect(seen).toEqual([true, true]);
+  });
+
+  it("iterates a select over its options, lists its chosen ones, and keeps srcObject as a property", async () => {
+    const { root } = await view();
+    const pick = root.querySelector("#pick") as Node & Iterable<Node> & { selectedOptions: Node[] };
+    const [a, b] = pick;
+    expect([a.value, b.value, pick.selectedOptions.map((o) => o.value)]).toEqual(["a", "b", ["b"]]);
+    const stream = {};
+    const flags = root.querySelector("#flags") as Node & { setAttribute(n: string, v: unknown): void; srcObject: unknown };
+    flags.setAttribute("srcObject", stream);
+    expect([flags.srcObject === stream, flags.getAttribute("srcObject")]).toEqual([true, null]);
+  });
+
   it("finds elements by tag and by class", async () => {
     const { root } = await view();
     expect(root.getElementsByTagName("button").map((b) => b.id)).toEqual(["send", "plain", "kind"]);

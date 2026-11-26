@@ -33,5 +33,7 @@
   <svg id="icon" width="10" height="10"><g class="shape"><circle cx="5" cy="5" r="4" /></g><foreignObject><span class="shape">in svg</span></foreignObject></svg>
   <math><mrow id="row"></mrow></math>
   <div id="flags" hidden translate={false} draggable="true" tabindex="3"></div>
-  <span id="plainspan"></span>
+  <span id="plainspan" data-open={true} aria-hidden={false}></span>
+  <svg id="ro" readonly={false} width="4" height="4"></svg>
+  <select id="pick"><option value="a">A</option><option value="b" selected>B</option></select>
 </div>
