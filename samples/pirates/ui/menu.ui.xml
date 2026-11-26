@@ -117,7 +117,7 @@
 
     <Panel id="footer">
       <!-- An attribute, not text content: content collapses runs of spaces, as in HTML. -->
-      <Text id="help" text="Steer with the mouse.  A / D pick a battery.  Space fires.  F drops a ghost ship's fog.  Esc leaves a match."/>
+      <Text id="help" text="Steer with the mouse or a gamepad's left stick.  A / D or the shoulder buttons pick a battery.  Space or the right trigger fires.  F drops a ghost ship's fog.  Esc or Start leaves a match."/>
       <Text id="error">{error}</Text>
     </Panel>
   </Panel>

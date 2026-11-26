@@ -1,6 +1,7 @@
 import { Audio, GameBehavior, Lobby, Time, UIButton, UIDocument, behavior, type LobbyRoom, type UIDocumentElement } from "myco";
 import { TEAM_COLORS } from "../data";
 import { ARENAS, BOT_NAMES, MATCH_LENGTHS, SHIP_COUNTS, arenaOf, forgetLeftMatch, leftMatchEarly, shipsOf } from "../lobby";
+import { UI_CLICK } from "../sounds";
 
 const NAME_KEY = "pirates.name";
 const SERVER_KEY = "pirates.server";
@@ -305,7 +306,7 @@ export class MenuDocument extends GameBehavior {
   // --- UI helpers ---------------------------------------------------------------------------------
 
   private click(): void {
-    Audio.playOneShot("audio/ui_click.wav", { volume: 0.6 });
+    Audio.play(UI_CLICK);
   }
 
   private el(selector: string): UIDocumentElement {

@@ -1,0 +1,26 @@
+{
+  "format": "myco.playlist@1",
+  "type": "clip",
+  "output": "SFX",
+  "note": "A ship breaking up and going down.",
+  "playback": {
+    "maxInstances": 4,
+    "whenFull": "stealOldest",
+    "priority": 200
+  },
+  "volume": 0.0,
+  "pitch": -10.42,
+  "pitchRandom": [
+    -1.58,
+    1.58
+  ],
+  "spatial": {
+    "attenuation": "sounds/sea.attenuation.json"
+  },
+  "entries": [
+    {
+      "sample": "audio/wood_crunch.wav",
+      "loop": "off"
+    }
+  ]
+}

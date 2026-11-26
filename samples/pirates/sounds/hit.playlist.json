@@ -1,0 +1,30 @@
+{
+  "format": "myco.playlist@1",
+  "type": "clip",
+  "output": "SFX",
+  "note": "A cannonball striking a hull.",
+  "playback": {
+    "maxInstances": 8,
+    "whenFull": "stealOldest",
+    "priority": 170
+  },
+  "volume": -1.94,
+  "pitch": 0.3,
+  "volumeRandom": [
+    -1.5,
+    0
+  ],
+  "pitchRandom": [
+    -2.12,
+    2.12
+  ],
+  "spatial": {
+    "attenuation": "sounds/sea.attenuation.json"
+  },
+  "entries": [
+    {
+      "sample": "audio/wood_crunch.wav",
+      "loop": "off"
+    }
+  ]
+}

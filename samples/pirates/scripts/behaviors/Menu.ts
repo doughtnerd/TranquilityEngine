@@ -1,6 +1,7 @@
 import { Audio, Color, GameBehavior, Lobby, Time, UIButton, UIInputField, UIPanel, UIText, behavior, type GameObject, type LobbyRoom } from "myco";
 import { TEAM_COLORS } from "../data";
 import { ARENAS, BOT_NAMES, MATCH_LENGTHS, SHIP_COUNTS, arenaOf, forgetLeftMatch, leftMatchEarly, shipsOf } from "../lobby";
+import { UI_CLICK } from "../sounds";
 
 const NAME_KEY = "pirates.name";
 const SERVER_KEY = "pirates.server";
@@ -41,7 +42,8 @@ function save(key: string, value: string): void {
  * dedicated server's (`npm run server -- samples/pirates`).
  *
  * While a match plays, the lobby pauses this World and the match World takes the screen; when the
- * match ends, this World resumes and shows the room with the results.
+ * match ends, this World resumes and shows the room with the results. Every button is focusable,
+ * so the keyboard and a gamepad drive the menu as well as the mouse (`focusScreen`).
  */
 @behavior("pirates.Menu")
 export class Menu extends GameBehavior {
@@ -55,6 +57,8 @@ export class Menu extends GameBehavior {
   private startWhenHost = false;
   private shownError = "";
   private errorSince = 0;
+  /** The screen shown last frame ("home" or "room"), to give the new one focus when it changes. */
+  private screen = "";
 
   start(): void {
     const name = this.field("Screen/Home/Left/Name");
@@ -86,6 +90,21 @@ export class Menu extends GameBehavior {
     if (inRoom) this.room(room!);
     else this.home();
     this.header();
+    this.focusScreen(inRoom ? "room" : state === "match" ? "" : "home");
+  }
+
+  /**
+   * Keyboard and gamepad navigation (ADR 0340): when a screen appears, its main button takes focus
+   * (Quick Match, or Ready in a room), so the arrows or the d-pad move from there and Enter or the
+   * south button presses. The focus ring shows only once the player navigates, so the mouse sees
+   * nothing; clicking a field moves focus to it for typing.
+   */
+  private focusScreen(screen: string): void {
+    if (screen === this.screen) return;
+    this.screen = screen;
+    const main = screen === "home" ? "Screen/Home/Left/QuickMatch" : screen === "room" ? "Screen/Room/Side/Buttons/Ready" : null;
+    const button = main ? this.button(main) : null;
+    if (button) button.focused = true;
   }
 
   // --- home ---------------------------------------------------------------------------------------
@@ -265,7 +284,7 @@ export class Menu extends GameBehavior {
   // --- UI helpers ---------------------------------------------------------------------------------
 
   private click(): void {
-    Audio.playOneShot("audio/ui_click.wav", { volume: 0.6 });
+    Audio.play(UI_CLICK);
   }
 
   private find(path: string): GameObject | null {

@@ -1,0 +1,16 @@
+{
+  "format": "myco.playlist@1",
+  "type": "clip",
+  "output": "Rain",
+  "note": "A storm's rain, looping. Its bus follows the Storm parameter, so it stays silent in fair weather.",
+  "playback": {
+    "plays": "untilStopped",
+    "maxInstances": 1
+  },
+  "entries": [
+    {
+      "sample": "audio/rain_loop.wav",
+      "loop": "on"
+    }
+  ]
+}

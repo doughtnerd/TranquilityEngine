@@ -166,7 +166,8 @@
       {
        "type": "engine.AudioSource",
        "data": {
-        "clip": "asset:audio/ocean_loop.wav",
+        "clip": "asset:sounds/ocean.playlist.json",
+        "output": "Ambience",
         "loop": true,
         "volume": 0.3,
         "playOnAwake": true
@@ -4048,7 +4049,7 @@
       {
        "type": "engine.UIText",
        "data": {
-        "text": "Steer with the mouse.  A / D pick a battery.  Space fires.  F drops a ghost ship's fog.  Esc leaves a match.",
+        "text": "Steer with the mouse or a gamepad's left stick.  A / D or the shoulder buttons pick a battery.  Space or the right trigger fires.  F drops a ghost ship's fog.  Esc or Start leaves a match.",
         "fontSize": 15,
         "color": [
          0.95,
