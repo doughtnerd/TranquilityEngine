@@ -132,6 +132,22 @@ object on each mount (re-enabling, hot reload). `view.transformError` is a funct
 unchanged), passed as `mount`'s `transformError` and read when a `<svelte:boundary>` catches an error, so setting it
 takes effect at once. A compiled module's `$mount(host, props, options)` takes the mount options.
 
+**As built (wave D, 2026-11-26; coordinator decisions under owner decision 2):** UI documents are removed, not
+deprecated: `UIDocument`, `*.ui.xml`, `*.ui.css`, the markup parser, `{name}` bindings, `ui.data`/`ui.list()`, `t:`
+attributes, `<Use>`/`<Style>`/`<Template>`, the `UIEvents` buffer and the editor's markup tooling. A saved
+`engine.UIDocument` fails to load naming this record (no migration; the samples were already Svelte).
+- **`htmlparser2` stays, editor-only:** the XLIFF reader (`localisation/exchange/xliff.ts`, which only the editor's
+  Localisation panel loads) and the conformance harness use it; games no longer load it.
+- **Navigation references are the host's:** `nav-up`/`nav-down`/`nav-left`/`nav-right` (and `first-selected` on a
+  canvas) set their field to the element in the view with that id, resolved again as the view renders (they were a
+  document's job). A component can't write `first-selected` (it writes no canvas tag); scripts set
+  `UICanvas.firstSelected`.
+- **Event dispatch** runs as `engine.UIEventDispatch` (the UI host's), where `engine.UIDocumentEvents` ran.
+- **Localisation:** key gathering reads `t(…)`/`tHtml(…)` in `*.svelte` and `*.svelte.ts`; the unkeyed-text list,
+  the fit check and the Inspector's Localise / Extract to string table read and wrote markup, so they're removed until
+  they're built for Svelte UI.
+- **Editor:** the Create menu's UI entry is **UI View** (a node with a `UIView` on a new component).
+
 ## Alternatives considered
 
 - **Svelte as a layer beside `.ui.xml`** (the spike's recommendation). Keeps full visual editing of markup, but leaves two formats. The owner prefers one.

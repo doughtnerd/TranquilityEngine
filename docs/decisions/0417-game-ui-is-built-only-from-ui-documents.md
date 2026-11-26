@@ -1,6 +1,6 @@
 # 0417. Game UI is built only from UI documents; hand-built UI nodes, the screen `Text` component and `LocalizedText` are removed
 
-- **Status:** Accepted, amended by 0419 (UI components come from a `UIView`'s Svelte render; UI documents retired after migration)
+- **Status:** Accepted, amended by 0419 (UI components come only from a `UIView`'s Svelte render: wave D retired UI documents, and a saved `engine.UIDocument` fails to load naming 0419)
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** 0020 (the interim screen `Text`), 0069 (authoring UI as hand-placed component nodes; the components stay as what document elements are made of), 0356 §4 (`LocalizedText` only; `t:` attributes stay)

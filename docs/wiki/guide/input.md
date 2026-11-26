@@ -215,11 +215,11 @@ The engine draws a glyph for every icon key a prompt gives: keycaps with the key
 ```ts
 const prompt = this.input.prompt("jump")!;         // follows the device the player last used
 const glyph = InputGlyphs.get(prompt.icons[0])!;   // or InputGlyphs.of(prompt) for every control
-ui.query("#jump-hint")!.as(UIImage).image = glyph.asset; // "asset:@myco/glyphs/xbox/buttonSouth.svg", in a UI document
+(view.query("#jump-hint")!.component as UIImage).image = glyph.asset; // "asset:@myco/glyphs/xbox/buttonSouth.svg"
 img.src = glyph.url;                               // an HTML <img>; glyph.svg is the markup
 ```
 
-`glyph.asset` works wherever a texture asset does: a UI document's `<Image image="asset:@myco/glyphs/keyboard/space.svg">` (or a binding, `<Image image="{jumpGlyph}">` with `ui.data.jumpGlyph = glyph.asset`), an image element's `image` field, sprites. Glyphs are 64 pixels high; keycaps with long labels are wider (`glyph.width`).
+`glyph.asset` works wherever a texture asset does: a component's `<img src="asset:@myco/glyphs/keyboard/space.svg">` (or a prop, `<img src={jumpGlyph}>` with `view.props.jumpGlyph = glyph.asset`), an image element's `image` field, sprites. Glyphs are 64 pixels high; keycaps with long labels are wider (`glyph.width`).
 
 ### A rebinding screen
 

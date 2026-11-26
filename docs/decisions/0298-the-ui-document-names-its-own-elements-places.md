@@ -1,6 +1,6 @@
 # 0298. The UI document names its own elements' places
 
-- **Status:** Accepted
+- **Status:** Superseded by 0419 (wave D retired UI documents; `ui/documentSource.ts` and the element paths went with them; Svelte UI is addressed by template location, 0419 wave C)
 - **Date:** 2026-11-21
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
