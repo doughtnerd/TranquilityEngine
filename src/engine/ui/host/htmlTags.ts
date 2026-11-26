@@ -11,7 +11,9 @@
 import type { UITag } from "../document/types";
 
 const PANEL = ["div", "section", "nav", "main", "header", "footer", "article", "aside", "ul", "ol", "li", "fieldset", "figure", "dialog", "menu", "address", "hgroup", "search", "details", "optgroup"];
-const TEXT = ["span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "b", "i", "small", "a", "code", "pre", "blockquote", "figcaption", "legend", "summary"];
+const TEXT = ["span", "p", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "b", "i", "small", "a", "code", "pre", "blockquote", "figcaption", "legend", "summary",
+  // ADR 0425: the other phrasing elements, inline runs inside a text element; `br` is a line break run.
+  "u", "s", "sub", "sup", "mark", "del", "ins", "strike", "abbr", "cite", "kbd", "samp", "var", "dfn", "q", "time", "data", "bdi", "bdo", "br"];
 
 /** Every HTML tag with a UI element of its own, by lowercase name. */
 export const HTML_TAGS: ReadonlyMap<string, UITag> = new Map<string, UITag>([

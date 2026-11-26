@@ -8,6 +8,7 @@
 import { Color, Vector2 } from "../../core/math";
 import { AssetRef, getFields, type FieldInfo } from "../../core/registry";
 import { UI_TYPES } from "../components";
+import { isGenericFontFamily } from "../fonts";
 import { UI_TAGS as UI_KIND_TAGS } from "../elementKinds";
 import { HTML_TAGS } from "../host/htmlTags";
 import { hasBinding, resolvePath } from "./sourceText";
@@ -51,7 +52,49 @@ export const UI_TAGS: ReadonlySet<string> = UI_KIND_TAGS;
 /** The pseudo-classes UI elements have. */
 export const PSEUDO: ReadonlySet<string> = new Set<UIPseudo>(["hover", "pressed", "focus", "disabled", "checked", "indeterminate", "placeholder-shown"]);
 /** Text fields children inherit, as on the web (camelCase field names). */
-export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize", "fontWeight", "textAlign", "textOutlineColor", "textOutlineWidth", "textShadowColor", "textShadowOffsetX", "textShadowOffsetY", "textShadowBlur"]);
+export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize", "fontWeight", "textAlign", "textOutlineColor", "textOutlineWidth", "textShadowColor", "textShadowOffsetX", "textShadowOffsetY", "textShadowBlur", "fontStyle"]);
+
+/**
+ * ADR 0425: what HTML's own stylesheet gives phrasing elements, by tag as written: below every author declaration (an
+ * attribute or any rule), above inheritance, as the user-agent origin is. `fontSize` is a share of the parent's.
+ */
+const TAG_DEFAULTS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
+  b: { fontWeight: "bold" },
+  strong: { fontWeight: "bold" },
+  i: { fontStyle: "italic" },
+  em: { fontStyle: "italic" },
+  cite: { fontStyle: "italic" },
+  var: { fontStyle: "italic" },
+  dfn: { fontStyle: "italic" },
+  u: { textDecoration: "underline" },
+  ins: { textDecoration: "underline" },
+  a: { textDecoration: "underline" },
+  s: { textDecoration: "line-through" },
+  del: { textDecoration: "line-through" },
+  strike: { textDecoration: "line-through" },
+  code: { font: "monospace" },
+  kbd: { font: "monospace" },
+  samp: { font: "monospace" },
+  small: { fontSize: 0.83 },
+  sub: { fontSize: 0.83, verticalAlign: "sub" },
+  sup: { fontSize: 0.83, verticalAlign: "super" },
+  mark: { backgroundColor: new Color(1, 1, 0, 1), color: new Color(0, 0, 0, 1) },
+};
+
+/** ADR 0425: the tag of a run of text between a text element's inline children (not an element: no rule matches it). */
+export const TEXT_PIECE_TAG = "#text";
+
+/** ADR 0425: an element's user-agent defaults (`TAG_DEFAULTS`), with a relative font size worked out from the parent's. */
+function tagDefaults(tag: string, parent: ReadonlyMap<string, ResolvedValue> | null): [string, unknown][] {
+  const d = TAG_DEFAULTS[tag.toLowerCase()];
+  if (!d || !Object.hasOwn(TAG_DEFAULTS, tag.toLowerCase())) return [];
+  return Object.entries(d).map(([field, value]) => {
+    if (field !== "fontSize") return [field, cloneValue(value)];
+    const from = parent?.get("fontSize")?.value;
+    const size = typeof from === "number" && Number.isFinite(from) ? from : 16;
+    return [field, Math.round(size * (value as number) * 100) / 100];
+  });
+}
 /** String fields that hold a `UILength`. */
 const LENGTH_FIELDS: ReadonlySet<string> = new Set(["width", "height", "top", "right", "bottom", "left", "minWidth", "minHeight", "maxWidth", "maxHeight", "flexBasis"]);
 /** Length fields that take `none` (no maximum, ADR 0418). */
@@ -349,6 +392,12 @@ export function convertValue(raw: string, info: FieldInfo, file: string): unknow
     return parts.length === 2 && parts[0] !== undefined && parts[1] !== undefined ? new Vector2(parts[0], parts[1]) : undefined;
   }
   if (type === AssetRef) {
+    // ADR 0425: `font-family` names a font file or a CSS generic family (`monospace`); of a list, the first.
+    if (info.name === "font") {
+      const first = unquote((v.split(",")[0] ?? "").trim());
+      if (isGenericFontFamily(first)) return first;
+      if (!/^url\(/.test(v) && v.includes(",")) return convertValue(first, info, file);
+    }
     const url = /^url\((.*)\)$/.exec(v);
     const path = unquote(url ? url[1] : v);
     if (path === "" || path.startsWith("asset:")) return path;
@@ -389,7 +438,7 @@ export function camelCase(name: string): string {
 }
 
 /** Property and attribute names (camelCase) that name another field: CSS's `position` is `positionType`. */
-const ALIASES: Readonly<Record<string, string>> = { position: "positionType" };
+const ALIASES: Readonly<Record<string, string>> = { position: "positionType", fontFamily: "font", textDecorationLine: "textDecoration" };
 
 /** The field a property or attribute sets: its camelCase name (`flex-direction` → `flexDirection`), or the field an alias names (`position` → `positionType`). */
 export function propertyField(name: string): string {
@@ -779,7 +828,9 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   // Matching declarations in cascade order: specificity, then rule order, then position in the rule.
   const matched: { rule: StyleRule; declaration: Declaration; file: string; spec: readonly [number, number, number]; index: number }[] = [];
   const env = mediaOf(target);
-  for (const sheet of sheets) {
+  // ADR 0425: a run of text between inline elements (`#text`) isn't an element: no rule matches it (not even `*`); it
+  // only inherits, as a DOM text node's style is its parent's.
+  for (const sheet of target.tag === TEXT_PIECE_TAG ? [] : sheets) {
     for (const rule of sheet.rules) {
       if (rule.media && !ruleInMedia(rule, env)) continue;
       let best: readonly [number, number, number] | null = null;
@@ -916,6 +967,11 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
       continue;
     }
     set(field, a.value, { kind: "attribute", attribute: a, file: element.file }, `${element.file} <${element.tag} ${a.name}>`);
+  }
+
+  // ADR 0425: HTML's own defaults for phrasing elements (`<b>` bold, `<a>` underlined…), below every declaration.
+  for (const [field, value] of tagDefaults(target.tag, parent)) {
+    if (!out.has(field) && fields.has(field)) out.set(field, { field, value, source: { kind: "default" } });
   }
 
   // Inheritance: text properties nothing set here come from the parent.
