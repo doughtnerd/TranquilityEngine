@@ -136,6 +136,18 @@ This is a constraint on this design, not a plan.
   small data texture of UV rectangles and cumulative times) plus a per-vertex animation index and phase, with the
   time as a uniform. The tile format above already holds everything that table needs.
 
+### As built (2026-11-26)
+
+- Hex neighbour order reads "the first side clockwise of north" as at or clockwise of north: pointy-top (stagger axis y)
+  is NE E SE SW W NW, flat-top (axis x) N NE SE S SW NW. Hex `localToCell` tests the guessed cell and its neighbours'
+  outlines, since a non-regular hexagon isn't its centre's Voronoi cell.
+- Tiled y-down cells map to Myco cells by `tiledCellToCell` in `grids.ts` (isometric swaps and negates the axes; stagger
+  axis y keeps every row's parity).
+- The editor's edit World keeps stepping, so "edit mode shows frame 0" is decided by the World's kind (`"editor"`), not
+  by time. Changing `animationSpeed` during play jumps to the frame for the new speed (time × speed).
+- Staggered and hexagonal multi-cell stamps keep their offset-coordinate layout, so placed an odd number of rows away
+  they change shape on screen.
+
 ## Alternatives considered
 
 - **A `grid` object field** (`{ shape, staggerAxis, … }` in one PlainObject). One field instead of four, but the

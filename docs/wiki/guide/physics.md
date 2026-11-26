@@ -5,7 +5,7 @@
 ## Bodies and colliders
 
 - `RigidBody` / `RigidBody2D`: `bodyType` (`dynamic`, `kinematic`, `static`), `mass`, gravity, damping, constraints, `collisionDetection`, `velocity`, `addForce`, `addTorque`.
-- Colliders: `BoxCollider`, `SphereCollider`, `CapsuleCollider`, `MeshCollider` (3D); `BoxCollider2D`, `CircleCollider2D`, `PolygonCollider2D`, `EdgeCollider2D`. A collider joins the nearest RigidBody on its node or above it, or is static. A collider on a child node follows the child when a script moves it relative to the body (ADR 0093).
+- Colliders: `BoxCollider`, `SphereCollider`, `CapsuleCollider`, `MeshCollider` (3D); `BoxCollider2D`, `CircleCollider2D`, `PolygonCollider2D`, `EdgeCollider2D`, and `ShapeCollider2D` for a tilemap's tiles (see [Tilemaps](tilemaps.md)). A 2D collider with **One Way** ticked is a platform bodies and character controllers jump up through and land on (along the node's up); `RigidBody2D.dropThrough()` and `CharacterController2D.dropThrough()` drop through the one-way platforms the body stands on (ADR 0423). A collider joins the nearest RigidBody on its node or above it, or is static. A collider on a child node follows the child when a script moves it relative to the body (ADR 0093).
 - **Interpolation** (ADR 0093): `interpolate` is on by default. In a World that renders, dynamic bodies are shown between their last two fixed steps, so they move smoothly at any frame rate. The Transform holds that shown pose during `update`/`lateUpdate` (it trails the simulation by up to one step); in `fixedUpdate` it holds the simulated pose. Turn it off per body for exact positions in `update`. Headless Worlds never interpolate.
 
 ## Events

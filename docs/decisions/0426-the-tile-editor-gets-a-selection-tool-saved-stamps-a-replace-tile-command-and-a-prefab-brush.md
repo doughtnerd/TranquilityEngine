@@ -65,6 +65,14 @@ scene-collection tiles) for props with behaviour, doors, chests, spawners.
 - Instances are ordinary prefab instances (0086): they can be selected, overridden and moved afterwards; a moved one
   just stops matching a cell. Nothing at runtime knows they came from a brush.
 
+### As built (2026-11-26)
+
+- Painting a cell that already holds an instance of the same prefab keeps it (and its overrides) instead of replacing
+  it; several prefabs chosen at once (Ctrl/⌘-click) make the brush random.
+- The editor SDK gained `editor.scene.remove(label, paths, target?)` for the prefab eraser (it removes top-level nodes
+  and writes `removeNode` overrides inside prefab instances).
+- The Replace and prefab-brush scene scopes skip Tilemaps inside prefab instances.
+
 ## Alternatives considered
 
 - **Stamps as their own asset files** (`*.tilestamps.json`). Shareable between tilesets, but stamps name tile uuids

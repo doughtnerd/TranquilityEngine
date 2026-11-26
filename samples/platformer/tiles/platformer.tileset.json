@@ -170,6 +170,27 @@
       "name": "Coin",
       "data": {
         "coin": true
+      },
+      "animation": {
+        "frames": [
+          {
+            "sprite": "asset:images/tiles.png#coin",
+            "duration": 0.3
+          },
+          {
+            "sprite": "asset:images/tiles.png#coin_1",
+            "duration": 0.1
+          },
+          {
+            "sprite": "asset:images/tiles.png#coin_2",
+            "duration": 0.1
+          },
+          {
+            "sprite": "asset:images/tiles.png#coin_1",
+            "duration": 0.1
+          }
+        ],
+        "start": "random"
       }
     },
     {

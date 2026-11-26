@@ -146,6 +146,18 @@ It builds from any `CollisionShapeSource2D` (0136), so it is named for that: cla
   (marked `@deprecated`), so `getComponent(TilemapCollider2D)` keeps working.
 - Create > Tilemap, the importers (0422), the platformer sample, the guides and docs use the new name.
 
+### As built (2026-11-26)
+
+- A body that landed on a one-way collider keeps colliding with it while the two touch (the rule's "was at or above"),
+  which 0105's tolerance alone didn't do: a hard landing sank a body past the tolerance and the next step let it fall.
+  The hook now measures every shape's extent along up (capsules, polygons, compounds, rotation).
+- The Inspector names components from their id, so it shows "ShapeCollider2D", like "BoxCollider2D".
+- Shapes are cached per (group of layers sharing an offset, chunk, mode), not per layer, so a cell solid in two layers
+  counts once. Benchmark (`bench/tileShapes.bench.ts`, 512 × 512, 30 % solid, one-cell edits): `collisionShapes`
+  rectangles 99.8 → 4.8 ms and outline 2467 → 5.4 ms per edit; the physics step after an edit stays ~330–475 ms, now
+  almost all the Rapier compound rebuild, which is this record's trigger for a region-collider record.
+- Shadows are taken from every layer, collision flag or not, so a non-colliding layer of colliding tiles now casts.
+
 ## Alternatives considered
 
 - **A Platform Effector component** (Unity's `PlatformEffector2D`, with a surface arc and side friction). More
