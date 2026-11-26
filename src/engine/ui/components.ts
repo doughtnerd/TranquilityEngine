@@ -731,7 +731,8 @@ export class UIInputField extends UIFocusable {
   @field(AssetRef, { kind: "font" }) font = "";
   @field(Number) fontSize = 16;
   @field(Color) color = Color.white;
-  @field(Color) placeholderColor = new Color(1, 1, 1, 0.45);
+  /** The placeholder's colour: browsers' default, `darkgray` (#a9a9a9, Chromium's user-agent stylesheet), legible on light and dark fields. */
+  @field(Color) placeholderColor = new Color(169 / 255, 169 / 255, 169 / 255, 1);
   /**
    * ADR 0424: `text`; `password`, drawn as dots; or `number`, whose arrow keys (while typing) step `value` by `step`
    * between `min` and `max`. The value stays text, as on the web.
