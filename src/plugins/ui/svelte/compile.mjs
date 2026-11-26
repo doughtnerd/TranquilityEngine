@@ -48,7 +48,7 @@ export function compileSvelteUI(source, { filename, renderer = DEFAULT_RENDERER,
   // component's own exports (Svelte reserves it).
   const name = /^export default function ([\w$]+)\(/m.exec(code)?.[1];
   if (!name) throw new Error(`${filename}: the compiled component has no default export function.`);
-  code += `\nimport { mountView as $$mycoMountView } from ${JSON.stringify(renderer)};\nexport const $mount = (host, props) => $$mycoMountView(host, ${name}, props);\n`;
+  code += `\nimport { mountView as $$mycoMountView } from ${JSON.stringify(renderer)};\nexport const $mount = (host, props, options) => $$mycoMountView(host, ${name}, props, options);\n`;
   // ADR 0425: `{@html}` and `bind:innerHTML` need the inline HTML parser; only components that use them import it, so
   // other games never load it.
   if (usesInlineHtml(source)) code += `\nimport { parseInlineHtml as $$mycoParseHtml } from ${JSON.stringify(HTML_PARSER)};\nimport { useHtmlParser as $$mycoUseHtml } from ${JSON.stringify(renderer)};\n$$mycoUseHtml($$mycoParseHtml);\n`;

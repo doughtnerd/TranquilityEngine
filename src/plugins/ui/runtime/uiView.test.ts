@@ -9,6 +9,7 @@ import * as HudModule from "./testComponents/Hud.svelte";
 import * as FormModule from "./testComponents/Form.svelte";
 import * as PriceModule from "./testComponents/Price.svelte";
 import * as FaderModule from "./testComponents/Fader.svelte";
+import * as ExportedModule from "./testComponents/Exported.svelte";
 
 // ADR 0419 wave A: game UI as Svelte components, mounted by `UIView` through the engine's renderer onto the
 // UI core's external tree host. Components compile in the test run (vitest.config.mts's `svelteUI()`), as the
@@ -21,7 +22,7 @@ let pointer: UIPointer | null = null;
 beforeEach(async () => {
   Input.reset();
   Assets.clearSources();
-  Assets.addSource(Assets.fromObject({ "ui/hud.svelte": HudModule, "ui/form.svelte": FormModule, "ui/price.svelte": PriceModule, "ui/fader.svelte": FaderModule }));
+  Assets.addSource(Assets.fromObject({ "ui/hud.svelte": HudModule, "ui/form.svelte": FormModule, "ui/price.svelte": PriceModule, "ui/fader.svelte": FaderModule, "ui/exported.svelte": ExportedModule }));
   engine = await Engine.create({ headless: true });
 });
 
@@ -214,6 +215,39 @@ describe("UIView", () => {
     engine.step(DT);
     expect(v.query("#title")).toBeNull();
     expect(canvas.isValid).toBe(false);
+  });
+
+  it("exposes the root component's exports, new on each mount, and null while unmounted", async () => {
+    const v = await view("ui/exported.svelte", {});
+    const exports = v.exports!;
+    expect(exports.label).toBe("exported");
+    (exports.bump as () => void)();
+    engine.step(DT);
+    expect(v.query("#count")!.as(UIText).text).toBe("1");
+
+    v.enabled = false;
+    expect(v.exports).toBeNull();
+    v.enabled = true;
+    await v.ready;
+    expect(v.exports).not.toBe(exports);
+    expect(v.exports!.label).toBe("exported");
+    expect(v.query("#count")!.as(UIText).text).toBe("0"); // fresh state
+  });
+
+  it("passes errors a boundary catches through transformError, read when the error is caught", async () => {
+    const v = await view("ui/exported.svelte", {});
+    v.props.fail = true;
+    engine.step(DT);
+    expect(v.query("#failed")!.as(UIText).text).toBe("Error: boom"); // none set: unchanged
+
+    v.props.fail = false;
+    v.enabled = false;
+    v.enabled = true;
+    await v.ready;
+    v.transformError = (error) => `shown: ${(error as Error).message}`;
+    v.props.fail = true;
+    engine.step(DT);
+    expect(v.query("#failed")!.as(UIText).text).toBe("shown: boom");
   });
 
   it("still refuses UI components from addComponent", () => {

@@ -102,6 +102,7 @@ interface Config {
   before_test?: () => void;
   after_test?: () => void;
   test?: (args: Record<string, unknown>) => unknown;
+  transformError?: (error: unknown) => unknown;
 }
 
 type Renderer = typeof import("../../src/plugins/ui/svelte/renderer");
@@ -296,7 +297,7 @@ async function runSample(name: string): Promise<Result> {
     // As Svelte's harness: what the sample's modules logged or warned while being imported isn't the test's.
     logs.length = warnings.length = 0;
     config.before_test?.();
-    mounted = renderer.mountView(tree, mod.default, config.props ?? {});
+    mounted = renderer.mountView(tree, mod.default, config.props ?? {}, { transformError: config.transformError });
     const target = mounted.target;
     currentTarget = target;
     if (config.error) {
@@ -313,7 +314,7 @@ async function runSample(name: string): Promise<Result> {
         assert: { ...assert, htmlEqual: assertHtmlEqual, htmlEqualWithOptions: assertHtmlEqualWithOptions },
         variant: "dom",
         component: mounted.props,
-        instance: {},
+        instance: mounted.exports,
         mod,
         ok,
         target,

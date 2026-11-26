@@ -21,13 +21,15 @@ import { loadUIHostSupport, UIHostTree, type UIHostElement } from "../../../engi
 interface Mounted {
   /** The props the component sees, reactive. */
   readonly props: Record<string, unknown>;
+  /** The root component's exports (what Svelte's `mount` returns). */
+  readonly exports: Record<string, unknown>;
   /** Apply queued updates now. */
   flush(): void;
   unmount(): void;
 }
 
-/** What a compiled component's module exports to be mounted: `$mount(host, props)`. */
-type MountComponent = (host: UIHostTree, props: Record<string, unknown>) => Mounted;
+/** What a compiled component's module exports to be mounted: `$mount(host, props, options)`. */
+type MountComponent = (host: UIHostTree, props: Record<string, unknown>, options: { transformError: (error: unknown) => unknown }) => Mounted;
 
 /** A compiled component module's mount function, or null for a value that isn't one. */
 function mountOf(module: unknown): MountComponent | null {
@@ -74,6 +76,13 @@ export class UIView extends Component {
   /** The local player whose UI actions drive it; -1: any local player. */
   @field(Number) player = -1;
 
+  /**
+   * Svelte's `transformError` (ADR 0419): turns an error a `<svelte:boundary>` catches into what its `failed` snippet
+   * and `onerror` get (a framework's error hook: a message safe to show, an error id). Read when an error is caught,
+   * so setting it takes effect at once; null passes errors through unchanged.
+   */
+  transformError: ((error: unknown) => unknown) | null = null;
+
   private staging: Record<string, unknown> = {};
   private tree: UIHostTree | null = null;
   private mounted: Mounted | null = null;
@@ -96,6 +105,14 @@ export class UIView extends Component {
     for (const k of Object.keys(target)) if (!(k in value)) delete target[k];
     Object.assign(target, value);
     if (target !== this.staging) this.staging = { ...value };
+  }
+
+  /**
+   * The root component's exports while it's mounted (what Svelte's `mount` returns: its `export const` and
+   * `export function` values), or null before it mounts. A remount (re-enabling, hot reload) gives a new object.
+   */
+  get exports(): Record<string, unknown> | null {
+    return this.mounted?.exports ?? null;
   }
 
   /** Resolves once the component is mounted (at once if it is). */
@@ -186,7 +203,7 @@ export class UIView extends Component {
       return;
     }
     try {
-      this.mounted = mount(tree, this.staging);
+      this.mounted = mount(tree, this.staging, { transformError: (error) => (this.transformError ? this.transformError(error) : error) });
     } catch (err) {
       console.error(`[myco] UIView on "${this.node.name}": "${path}" threw while mounting:`, err);
       return;
