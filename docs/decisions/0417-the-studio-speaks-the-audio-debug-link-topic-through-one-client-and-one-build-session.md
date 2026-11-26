@@ -1,6 +1,6 @@
 # 0417. The Studio speaks the audio debug-link topic through one client and one build session
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-25
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

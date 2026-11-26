@@ -1,6 +1,6 @@
 # 0418. 2D draws get their materials from one module, and quad batches name a material
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-25
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
