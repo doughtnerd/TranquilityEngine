@@ -23,6 +23,11 @@
  *   transition, or that field of an animation, as an inline style would.
  * - **Events** (`transitionend`, `animationstart`, `animationiteration`, `animationend`) are queued for their owner,
  *   which delivers them in the next frame's event step, like other UI events.
+ * - **Played keyframes** (`play`, ADR 0419: a Svelte transition's or `animate:`'s keyframes, through the renderer's
+ *   `animate` hook) run as an animation of the element's own, kept across restyles and drawn over its stylesheet
+ *   animations: one iteration, linear between keyframes (Svelte samples its easing into them), its last values held
+ *   until it's stopped, no CSS events. Its hooks run after the frame's values are written: `onFrame` while it runs,
+ *   `onEnd` once at its end. One played in those hooks (the next keyframes, after a delay's) starts in that frame.
  *
  * Internal: the owners call it; games see only the CSS.
  */
@@ -121,6 +126,24 @@ interface Track {
   held: unknown;
 }
 
+/** What a played animation (`play`) calls: `onFrame` each frame it runs, `onEnd` when it ends. Read at each call. */
+export interface UIPlayHooks {
+  onFrame?: (() => void) | null;
+  onEnd?: (() => void) | null;
+}
+
+/** A played animation (`play`). */
+export interface UIPlayback {
+  /** Seconds since it started (unscaled), up to its duration. */
+  readonly time: number;
+  /** It reached its end (its last values held) or was stopped. */
+  readonly ended: boolean;
+  /** Stops it: its fields go back to the values the cascade gives them. */
+  stop(): void;
+}
+
+const LINEAR_TIMING: UITimingFunction = { kind: "linear" };
+
 interface Run {
   readonly kind: "transition" | "animation";
   /** The animation's name, or the transitioned property (kebab-case). */
@@ -144,6 +167,8 @@ interface Run {
   tweensPaused: boolean;
   /** Ended and holding its last values (`fill: forwards`/`both`). */
   held: boolean;
+  /** A played animation's hooks (`play`); null for the stylesheet's. */
+  readonly played: UIPlayHooks | null;
 }
 
 interface ElementState {
@@ -345,6 +370,11 @@ export class UIAnimator {
   private readonly byColumn = new Map<number, Track>();
   private nextColumn = 1;
   private events: QueuedEvent[] = [];
+  /** Played animations' hooks due after this frame's values: frames, then ends. */
+  private framed: UIPlayHooks[] = [];
+  private ending: UIPlayHooks[] = [];
+  /** In the frame's played-animation hooks: what they play starts this frame. */
+  private inHooks = false;
 
   constructor(private readonly world: World) {}
 
@@ -475,6 +505,7 @@ export class UIAnimator {
           fresh: true,
           tweensPaused: false,
           held: false,
+          played: null,
         });
         // Until the frame's update, the field shows where it was.
         comp[w.field] = clone(w.before);
@@ -484,7 +515,7 @@ export class UIAnimator {
 
     // Animations: kept by name; a new name starts, a name gone stops.
     const old = new Map<string, Run>();
-    for (const r of s.animations) if (!old.has(r.name)) old.set(r.name, r);
+    for (const r of s.animations) if (!r.played && !old.has(r.name)) old.set(r.name, r);
     const next: Run[] = [];
     for (const a of animations ?? []) {
       const kept = old.get(a.spec.name);
@@ -497,6 +528,8 @@ export class UIAnimator {
       const run = this.startAnimation(s, a);
       if (run) next.push(run);
     }
+    // Played animations (`play`) aren't the stylesheet's: they stay, drawn over its animations.
+    for (const r of s.animations) if (r.played) next.push(r);
     s.animations = next;
     for (const run of old.values()) this.stopRun(s, run, true);
     if (s.transitions.size || s.animations.length) void this.open();
@@ -537,6 +570,78 @@ export class UIAnimator {
       fresh: true,
       tweensPaused: false,
       held: false,
+      played: null,
+    };
+  }
+
+  /**
+   * Plays keyframe tracks on an element (see the module docs): per field, its stops (offsets 0-1, values as the field
+   * stores them), over `duration` seconds. A track missing its 0% or 100% stop takes the element's own value there.
+   * `name` is what the editor shows as animating its fields. In a scene being edited nothing plays: it ends at once.
+   */
+  play(el: UIStyledElement, name: string, tracks: ReadonlyMap<string, readonly UIAnimationStop[]>, duration: number, hooks: UIPlayHooks): UIPlayback {
+    if (!el.animate || !el.comp.node.isValid || el.comp._destroyed) return endedPlayback(duration, hooks);
+    let s = this.elements.get(el.comp);
+    if (!s) {
+      s = { owner: el.owner, element: el.element, comp: el.comp, fields: el.fields, transitions: new Map(), animations: [], base: new Map(), written: new Map() };
+      this.elements.set(el.comp, s);
+    }
+    this.owners.add(el.owner);
+    const state = s;
+    const comp = s.comp as unknown as Record<string, unknown>;
+    const list: Track[] = [];
+    for (const [field, declared] of tracks) {
+      const info = s.fields.get(field);
+      if (!info || declared.length === 0) continue;
+      const base = this.animated(s, field) ? s.base.get(field) : comp[field];
+      const stops: Stop[] = [...declared].sort((a, b) => a.offset - b.offset).map((x) => ({ offset: x.offset, value: x.value, timing: x.timing ?? LINEAR_TIMING }));
+      if (stops[0].offset > 0) stops.unshift({ offset: 0, value: clone(base), timing: LINEAR_TIMING });
+      if (stops[stops.length - 1].offset < 1) stops.push({ offset: 1, value: clone(stops.length === 1 ? stops[0].value : base), timing: LINEAR_TIMING });
+      // Sampled keyframes repeat values (a constant field, a held stretch): only where a value changes is there a segment.
+      const kept = stops.filter((x, i) => i === 0 || i === stops.length - 1 || !same(x.value, stops[i - 1].value) || !same(x.value, stops[i + 1].value));
+      if (!s.base.has(field)) s.base.set(field, clone(base));
+      list.push(newTrack(field, animatedKind(field, info.type), kept));
+    }
+    const run: Run = {
+      kind: "animation",
+      name,
+      tracks: list,
+      duration: Math.max(0, duration),
+      delay: 0,
+      iterations: 1,
+      direction: "normal",
+      fill: "forwards",
+      timing: LINEAR_TIMING,
+      paused: false,
+      time: 0,
+      prev: 0,
+      started: false,
+      // Played in this frame's hooks: this frame already shows its start, so its clock runs from the next frame.
+      fresh: !this.inHooks,
+      tweensPaused: false,
+      held: false,
+      played: hooks,
+    };
+    s.animations = [...s.animations, run];
+    // Its first keyframe shows now, not after the next update (no frame of the cascade's values between keyframes).
+    for (const t of list) this.write(s, t.field, t.stops[0].value);
+    void this.open();
+    let stopped = false;
+    return {
+      get time() {
+        return Math.min(run.time, run.duration);
+      },
+      get ended() {
+        return stopped || run.held;
+      },
+      stop: () => {
+        if (stopped) return;
+        stopped = true;
+        if (!state.animations.includes(run)) return;
+        state.animations = state.animations.filter((r) => r !== run);
+        this.stopRun(state, run, true);
+        this.forget(state);
+      },
     };
   }
 
@@ -659,6 +764,20 @@ export class UIAnimator {
       s.transitions.forEach((run, field) => this.finish(s, run, field));
       this.forget(s);
     }
+
+    // Played animations' hooks, once this frame's values are written (they may play and stop animations).
+    if (this.framed.length || this.ending.length) {
+      const framed = this.framed, ending = this.ending;
+      this.framed = [];
+      this.ending = [];
+      this.inHooks = true;
+      try {
+        for (const h of framed) call(h.onFrame);
+        for (const h of ending) call(h.onEnd);
+      } finally {
+        this.inHooks = false;
+      }
+    }
   }
 
   /** A field whose value isn't what the animator last wrote: a script wrote it, and wins over its transition or animation. */
@@ -777,13 +896,17 @@ export class UIAnimator {
     }
     const wasStarted = run.started;
     run.started = true;
-    if (animation && !wasStarted) this.queue(s, { type: "animationstart", propertyName: "", animationName: run.name, elapsedTime: Math.max(0, -run.delay) });
+    if (animation && !wasStarted && !run.played) this.queue(s, { type: "animationstart", propertyName: "", animationName: run.name, elapsedTime: Math.max(0, -run.delay) });
     if (local < end) {
       for (const t of run.tracks) {
         if (t.overridden) continue;
         const tweened = t.mode === "tween" && t.out !== undefined;
         this.write(s, t.field, tweened ? t.out : valueAtTime(run, t, local, others), tweened);
         t.dirty = false;
+      }
+      if (run.played) {
+        if (run.played.onFrame) this.framed.push(run.played);
+        return;
       }
       if (animation && run.duration > 0 && wasStarted && localPrev >= 0) {
         const k = Math.floor(local / run.duration);
@@ -812,13 +935,43 @@ export class UIAnimator {
       } else if (s.base.has(t.field)) this.write(s, t.field, s.base.get(t.field));
       t.dirty = false;
     }
-    this.queue(s, { type: "animationend", propertyName: "", animationName: run.name, elapsedTime: end });
+    if (run.played) this.ending.push(run.played);
+    else this.queue(s, { type: "animationend", propertyName: "", animationName: run.name, elapsedTime: end });
     if (forwards) run.held = true;
     else {
       s.animations = s.animations.filter((r) => r !== run);
       for (const t of run.tracks) if (!this.animated(s, t.field)) this.unwatch(s, t.field);
     }
   }
+}
+
+/** Runs a played animation's hook; one that throws is reported and the rest still run. */
+function call(fn: (() => void) | null | undefined): void {
+  if (!fn) return;
+  try {
+    fn();
+  } catch (err) {
+    console.error("[myco] a UI animation's hook threw:", err);
+  }
+}
+
+/** A played animation that ends at once (nothing plays in a scene being edited): `onEnd` in a microtask. */
+function endedPlayback(duration: number, hooks: UIPlayHooks): UIPlayback {
+  let ended = false;
+  queueMicrotask(() => {
+    if (ended) return;
+    ended = true;
+    hooks.onEnd?.();
+  });
+  return {
+    get time() {
+      return Math.max(0, duration);
+    },
+    get ended() {
+      return ended;
+    },
+    stop: () => void (ended = true),
+  };
 }
 
 // Late update, after the UI document and host syncs (their restyles start transitions): this frame's values.

@@ -25,7 +25,9 @@
  *   (`bind:value` on `input`; the window's and document's bindings), `globalTarget` (`<svelte:window>`,
  *   `<svelte:document>` and `<svelte:body>` are `globalTargets.ts`'s targets, fed from the device snapshot and
  *   the canvas; `<svelte:head>` content goes into a head node nothing shows, and its `<title>` sets the page's
- *   title) and `addStyles` (`css: 'injected'`, as rule data parsed when the component compiled).
+ *   title), `addStyles` (`css: 'injected'`, as rule data parsed when the component compiled), and `animate` and
+ *   `measure` (`transition:`, `in:`, `out:`, `animate:` and `svelte/transition`: keyframes played on the UI animator,
+ *   and geometry laid out when read; `animation.ts`).
  * - **Nodes offer an Element subset** for actions, attachments and `bind:this`: `setAttribute`/
  *   `getAttribute`/`removeAttribute`/`hasAttribute`/`getAttributeNames`, `classList`, `style` (also by
  *   camel-case property), `dataset`, `addEventListener`/`removeEventListener`/`dispatchEvent`, `focus`/`blur`
@@ -52,6 +54,7 @@ import { uiTagOfHtml } from "../../../engine/ui/host/htmlTags";
 import { setUIHostStyles, UIHostEvent, type UIHostElement, type UIHostEventType, type UIHostSource, type UIHostTree } from "../../../engine/ui/host/UIHost";
 import type { UIStylesheet, UITag } from "../../../engine/ui/document/types";
 import { UIGlobals, UIGlobalTarget, type GlobalKind } from "./globalTargets";
+import { animateNode, measureNode } from "./animation";
 
 const EVENTS: Readonly<Record<string, UIHostEventType>> = {
   click: "click",
@@ -502,11 +505,22 @@ export class UIRenderElement extends UINodeBase {
 
   /**
    * Its box in its canvas's UI pixels from the last layout, through its transforms (ADR 0418 wave 3: the
-   * axis-aligned rectangle around the transformed box, not cut by clips). Zero size before it's laid out.
+   * axis-aligned rectangle around the transformed box, not cut by clips), laid out first when the view changed since
+   * (as the DOM's is). Zero size when nothing lays the World out.
    */
   getBoundingClientRect(): { x: number; y: number; width: number; height: number; top: number; left: number; right: number; bottom: number } {
+    this._hosted?.tree.layoutNow(); // as reading layout does in the DOM: changes made since the last layout count
     const r = this._hosted?.bounds() ?? { x: 0, y: 0, width: 0, height: 0 };
     return { x: r.x, y: r.y, width: r.width, height: r.height, top: r.y, left: r.x, right: r.x + r.width, bottom: r.y + r.height };
+  }
+
+  /**
+   * SVG geometry's length (`svelte/transition`'s `draw` reads it): 0, as nothing draws SVG yet (ADR 0426), so `draw`
+   * runs without drawing anything and the element shows as it is.
+   */
+  getTotalLength(): number {
+    warnOnce(`<${this.localName}>.getTotalLength(): SVG isn't drawn yet (ADR 0426), so draw transitions show the element as it is.`);
+    return 0;
   }
 
   /** Input fields: their text (what the player typed). Setting it isn't a player change. */
@@ -917,6 +931,9 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     if (data) setUIHostStyles(`svelte-injected:${hash}`, data);
     else warnOnce(`A component's injected CSS (${hash}) wasn't parsed when it compiled, and games have no CSS parser: compile it with the engine's compileSvelteUI, or use css: 'external'.`);
   },
+  // `transition:`, `in:`, `out:` and `animate:` (`animation.ts`): keyframes on the UI animator, and geometry.
+  animate: (node, keyframes, options) => animateNode(node, keyframes, options),
+  measure: (node) => measureNode(node),
 });
 
 export default renderer;

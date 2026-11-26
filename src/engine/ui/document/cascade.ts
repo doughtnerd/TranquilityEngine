@@ -918,8 +918,12 @@ export function keyframeTracks(
   return out;
 }
 
-/** A keyframe declaration's fields and values for an element with `fields` (none it lacks), or why it can't be read. */
-function keyframeValues(field: string, raw: string, fields: ReadonlyMap<string, FieldInfo>, file: string): (readonly [string, unknown])[] | string {
+/**
+ * A keyframe declaration's fields and values for an element with `fields` (none it lacks), or why it can't be read:
+ * shorthands expand and values convert as rule values do. Also the UI host's for keyframes played at runtime (ADR 0419:
+ * Svelte transitions' CSS, through the renderer's `animate` hook).
+ */
+export function keyframeValues(field: string, raw: string, fields: ReadonlyMap<string, FieldInfo>, file: string): (readonly [string, unknown])[] | string {
   const typed = typedShorthand(field);
   if (typed) {
     const expanded = typed(raw);

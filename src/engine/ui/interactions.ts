@@ -37,6 +37,8 @@ export interface UILayoutSource {
   elements(): readonly UILaidOutElement[];
   /** The drawing canvas's size in CSS pixels at the last layout (what screen canvases cover). */
   readonly viewport?: { readonly width: number; readonly height: number };
+  /** Lay the World's UI out again now, at the last size (ADR 0419: the UI host reading geometry mid-frame). */
+  relayout?(): void;
 }
 
 export class UIInteractions {

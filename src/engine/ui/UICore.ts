@@ -250,6 +250,11 @@ export class UICore implements UICoreLike {
     return this.elementList;
   }
 
+  /** Lay the last synced World's UI out again now, at the last size (the UI host reading geometry mid-frame, ADR 0419). */
+  relayout(): void {
+    if (this.world && !this.disposed) this.sync(this.world, this.width, this.height);
+  }
+
   /** The caret index in a focused input field's text, or null when it isn't the one being typed in. */
   caretOf(c: UIInputField): number | null {
     if (!this.dom || this.active !== c) return null;

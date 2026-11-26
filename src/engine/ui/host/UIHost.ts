@@ -18,6 +18,9 @@
  *   UI document handlers run: right after UI input routing, before behaviors' `update`.
  * - The editor finds the hosted element of a picked component with `uiHostElementOf`, with the template
  *   location it was made from (`source`), and follows changes with `onUIHostChanged`.
+ * - Geometry and played keyframes (ADR 0419, for Svelte's transitions and `animate:`): reading an element's box
+ *   (`layoutNow`, then `bounds`) lays the UI out first when something changed, as reading layout does in the DOM;
+ *   `computedStyle` gives its values as CSS text; `animate` plays keyframes on the UI animator (ADR 0418 wave 4).
  *
  * UI components are made only here and by UI document builds (ADR 0417, amended by 0419).
  */
@@ -32,7 +35,7 @@ import { uiInteractions } from "../interactions";
 import { boundsOf, transformRect } from "../transform2d";
 import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIPseudo, UIStylesheet, UITag } from "../document/types";
 import type { UIAnimationSpec, UITransitionSpec } from "../document/animationValues";
-import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimator, type UIAnimationEvent, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "../animation/UIAnimator";
+import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimator, type UIAnimationEvent, type UIAnimationStop, type UIPlayback, type UIPlayHooks, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "../animation/UIAnimator";
 
 type Cascade = typeof import("./hostSupport");
 type ComponentClass = new () => UIComponentType;
@@ -118,6 +121,8 @@ function hostSheets(): readonly UIStylesheet[] {
 }
 
 const warned = new Set<string>();
+/** What `UIHostElement.animate` warned about, by tag, property and reason. */
+const animateWarned = new Set<string>();
 function warnOnce(message: string): void {
   if (warned.has(message)) return;
   warned.add(message);
@@ -344,6 +349,136 @@ export class UIHostElement {
   }
 
   /**
+   * Its values as CSS text by camel-case property, as the DOM's `getComputedStyle` gives them (ADR 0419: what Svelte's
+   * transitions and `animate:` read through the renderer's `measure` hook): sizes, edges, transforms and origins in
+   * px from the last layout (`layoutNow` first for an up-to-date one), the transform as `translate() rotate() scale()`
+   * (`none` when it has none), colours as `rgba()`. Properties UI elements don't have read as their CSS initial value.
+   */
+  computedStyle(): Record<string, string> {
+    const c = this._comp as unknown as Record<string, unknown>;
+    const r = this.rect();
+    const num = (v: unknown, fallback = 0) => (typeof v === "number" && Number.isFinite(v) ? v : fallback);
+    /** A length field in px, its % of `of`; null for `auto`/`none`. */
+    const lenPx = (v: unknown, of: number): number | null => {
+      if (typeof v === "number") return v;
+      if (typeof v !== "string" || v === "auto" || v === "none") return null;
+      const n = parseFloat(v);
+      if (!Number.isFinite(n)) return null;
+      return v.trim().endsWith("%") ? (n / 100) * of : n;
+    };
+    const px = (n: number) => `${Math.round(n * 1e4) / 1e4}px`;
+    const width = r?.width ?? lenPx(c.width, 0) ?? 0;
+    const height = r?.height ?? lenPx(c.height, 0) ?? 0;
+    const len = (v: unknown, of: number) => {
+      const n = lenPx(v, of);
+      return n === null ? String(v ?? "auto") : px(n);
+    };
+    const side = (field: string, all: string) => px(c[field] === null || c[field] === undefined ? num(c[all]) : num(c[field]));
+    const rgba = (v: unknown, none = "rgba(0, 0, 0, 0)") =>
+      v instanceof Color ? `rgba(${Math.round(v.r * 255)}, ${Math.round(v.g * 255)}, ${Math.round(v.b * 255)}, ${Math.round(v.a * 1000) / 1000})` : none;
+    const tx = lenPx(c.translateX, width) ?? 0, ty = lenPx(c.translateY, height) ?? 0;
+    const rotate = num(c.rotate), sx = num(c.scaleX, 1), sy = num(c.scaleY, 1);
+    const parts: string[] = [];
+    if (tx !== 0 || ty !== 0) parts.push(`translate(${px(tx)}, ${px(ty)})`);
+    if (rotate !== 0) parts.push(`rotate(${rotate}deg)`);
+    if (sx !== 1 || sy !== 1) parts.push(`scale(${sx}, ${sy})`);
+    const hasBorder = "borderWidth" in c;
+    const border = (s: string) => (hasBorder ? side(`border${s}Width`, "borderWidth") : "0px");
+    return {
+      display: String(c.display ?? "flex"),
+      position: String(c.positionType ?? "relative"),
+      boxSizing: "border-box",
+      width: px(width),
+      height: px(height),
+      minWidth: len(c.minWidth, width),
+      minHeight: len(c.minHeight, height),
+      maxWidth: len(c.maxWidth, width),
+      maxHeight: len(c.maxHeight, height),
+      top: len(c.top, 0),
+      right: len(c.right, 0),
+      bottom: len(c.bottom, 0),
+      left: len(c.left, 0),
+      paddingTop: side("paddingTop", "padding"),
+      paddingRight: side("paddingRight", "padding"),
+      paddingBottom: side("paddingBottom", "padding"),
+      paddingLeft: side("paddingLeft", "padding"),
+      marginTop: side("marginTop", "margin"),
+      marginRight: side("marginRight", "margin"),
+      marginBottom: side("marginBottom", "margin"),
+      marginLeft: side("marginLeft", "margin"),
+      borderTopWidth: border("Top"),
+      borderRightWidth: border("Right"),
+      borderBottomWidth: border("Bottom"),
+      borderLeftWidth: border("Left"),
+      opacity: String(num(c.opacity, 1)),
+      visibility: c.visible === false ? "hidden" : "visible",
+      overflow: String(c.overflow ?? "visible"),
+      zIndex: num(c.zIndex) === 0 ? "auto" : String(c.zIndex),
+      transform: parts.length ? parts.join(" ") : "none",
+      transformOrigin: `${px(lenPx(c.transformOriginX, width) ?? width / 2)} ${px(lenPx(c.transformOriginY, height) ?? height / 2)}`,
+      backgroundColor: rgba(c.backgroundColor),
+      color: rgba(c.color, "rgba(0, 0, 0, 1)"),
+      fontSize: px(num(c.fontSize, 16)),
+      // Not drawn yet (filters and SVG come with ADR 0426): their initial values.
+      filter: "none",
+      zoom: "1",
+      strokeLinecap: "butt",
+      strokeWidth: "1px",
+    };
+  }
+
+  /**
+   * Play keyframes on it (ADR 0419: a Svelte transition's or `animate:`'s, through the renderer's `animate` hook) on the
+   * UI animator (ADR 0418 wave 4: the tween backend, on unscaled time): each keyframe is CSS declarations by property
+   * (camel or kebab case), evenly spaced over `duration` seconds, and the last one's values stay until `stop()`. Values
+   * convert as a stylesheet's do (its variables included); a declaration it can't animate is warned about once and
+   * left out. `hooks.onFrame` runs each frame it plays, `hooks.onEnd` once at its end.
+   */
+  animate(keyframes: readonly Readonly<Record<string, string>>[], duration: number, hooks: UIPlayHooks): UIPlayback {
+    const P = requireCascade();
+    const type = this._comp.constructor as ComponentClass;
+    const fields = P.fieldsOf(type);
+    const vars = new Map<string, string>();
+    for (const [k, v] of this._resolved) if (k.startsWith("--")) vars.set(k, String(v.value));
+    const file = this.source?.file ?? this.tree.file;
+    const tracks = new Map<string, UIAnimationStop[]>();
+    const n = keyframes.length;
+    keyframes.forEach((frame, i) => {
+      const offset = n === 1 ? 1 : i / (n - 1);
+      for (const [property, value] of Object.entries(frame)) {
+        if (value === undefined || value === null || String(value).trim() === "") continue;
+        const name = property === "cssFloat" ? "float" : property.replace(/[A-Z]/g, (ch) => `-${ch.toLowerCase()}`);
+        const raw = P.substituteVars(String(value), vars);
+        const values = raw === undefined ? "uses a variable that isn't defined." : P.keyframeValues(P.propertyField(name), raw, fields, file);
+        if (typeof values === "string") {
+          const later = /^filter$|^backdrop-filter$/.test(name) ? " Filters come with ADR 0426; the rest of the animation runs." : /^stroke|^fill/.test(name) ? " SVG comes with ADR 0426; the rest of the animation runs." : "";
+          // Once per tag, property and reason (a transition's keyframes hold a new value each frame).
+          const key = `${this.tag}|${name}|${values}`;
+          if (!animateWarned.has(key)) {
+            animateWarned.add(key);
+            warn(`<${this.tag}> can't animate ${name}: "${raw ?? value}" ${values}${later}`);
+          }
+          continue;
+        }
+        for (const [field, v] of values) {
+          let list = tracks.get(field);
+          if (!list) tracks.set(field, (list = []));
+          const stop = { offset, value: P.cloneValue(v), timing: null };
+          if (list.length && list[list.length - 1].offset === offset) list[list.length - 1] = stop;
+          else list.push(stop);
+        }
+      }
+    });
+    return uiAnimator(this.tree.world).play(
+      { owner: this.tree, element: this, comp: this._comp, fields, animate: this._alive && !this.tree.world.inEditMode(this._node.entity) },
+      "transition",
+      tracks,
+      duration,
+      hooks,
+    );
+  }
+
+  /**
    * Listen to a UI event (`click`, `input`, `change`, `submit`, `focus`, `blur`, `pointerenter`, `pointerleave`), or
    * to stylesheet animation (ADR 0418 wave 4: `transitionend`, `animationstart`, `animationiteration`, `animationend`,
    * the frame after they happened).
@@ -383,6 +518,10 @@ export class UIHostElement {
 
 /** Live trees, for the frame systems. */
 const liveTrees = new Set<UIHostTree>();
+/** Counts changes to every hosted tree, so `layoutNow` lays out again only after one. */
+let hostVersion = 0;
+/** When each World was last laid out by `layoutNow`. */
+const lastLayout = new WeakMap<World, { frame: number; version: number }>();
 /** Each hosted element by its component, for the editor's picking. */
 const elementByComponent = new WeakMap<UIComponentType, UIHostElement>();
 const changeListeners = new Set<(tree: UIHostTree) => void>();
@@ -516,6 +655,7 @@ export class UIHostTree {
     elementByComponent.set(el._comp, el);
     this.place(el, p, before);
     this.shapeChanged = true;
+    hostVersion++;
     return el;
   }
 
@@ -524,6 +664,7 @@ export class UIHostTree {
     if (!el._alive) return;
     this.applyAttributes(el, attributes);
     this.dirty.add(el);
+    hostVersion++;
   }
 
   /** Write a Text's text (or an input field's value): content, never style. */
@@ -532,6 +673,7 @@ export class UIHostTree {
     const c = el._comp;
     if (c instanceof UIText) c.text = text;
     else if (c instanceof UIInputField) c.value = text;
+    hostVersion++;
   }
 
   /** Move an element to `parent` (null: the canvas), before `before` (null: last). */
@@ -549,6 +691,7 @@ export class UIHostTree {
     }
     this.place(el, p, before);
     this.shapeChanged = true;
+    hostVersion++;
   }
 
   /** Remove an element and its subtree: hidden now, destroyed at the end of the frame (at once outside a frame). */
@@ -570,6 +713,7 @@ export class UIHostTree {
       this.world.applyDestroys(); // now outside a frame, at its end inside one
     }
     this.shapeChanged = true;
+    hostVersion++;
   }
 
   /** Resolve an element's style (and its subtree's) now: a new subtree shows styled before the next frame. */
@@ -577,6 +721,25 @@ export class UIHostTree {
     if (!el._alive) return;
     hostSheets();
     this.resolve(el);
+    hostVersion++;
+  }
+
+  /**
+   * Lay the UI out now, as reading geometry does in the DOM (ADR 0419: `getBoundingClientRect` and the renderer's
+   * `measure` hook, which Svelte's transitions and `animate:` read right after changing the tree): pending restyles run,
+   * then the UI core that lays this World out (its pointer router) lays it out again. Nothing happens when no hosted
+   * tree changed since the last time in this frame, or when nothing lays the World out (a headless World).
+   */
+  layoutNow(): void {
+    if (!this.isValid) return;
+    hostSheets();
+    this.resolveDirty();
+    const world = this.world;
+    const frame = world.time.frameCount;
+    const last = lastLayout.get(world);
+    if (last && last.frame === frame && last.version === hostVersion) return;
+    uiInteractions(world).layout?.relayout?.();
+    lastLayout.set(world, { frame, version: hostVersion });
   }
 
   /** Run `hook` each frame before the tree restyles (the renderer flushes its queued updates there). Returns a function that stops it. */
@@ -698,16 +861,7 @@ export class UIHostTree {
         if (sheetsUsePseudo) this.dirty.add(el);
       }
     });
-    if (this.dirty.size) {
-      const dirty = [...this.dirty].filter((e) => e._alive);
-      this.dirty.clear();
-      const set = new Set(dirty);
-      for (const el of dirty) {
-        let covered = false;
-        for (let p = el._parent; p && !covered; p = p._parent) covered = set.has(p);
-        if (!covered) this.resolve(el);
-      }
-    }
+    this.resolveDirty();
     if (this.shapeChanged) {
       this.shapeChanged = false;
       notifyChanged(this);
@@ -734,6 +888,20 @@ export class UIHostTree {
   }
 
   // --- Inside ---------------------------------------------------------------------------------------
+
+  /** Restyle the elements changed since the last restyle (a subtree once, from its top). */
+  private resolveDirty(): void {
+    if (!this.dirty.size) return;
+    const dirty = [...this.dirty].filter((e) => e._alive);
+    this.dirty.clear();
+    const set = new Set(dirty);
+    for (const el of dirty) {
+      let covered = false;
+      for (let p = el._parent; p && !covered; p = p._parent) covered = set.has(p);
+      if (!covered) this.resolve(el);
+    }
+    hostVersion++;
+  }
 
   private selectors(selector: string): readonly Selector[] {
     let cached = this.selectorCache.get(selector);
