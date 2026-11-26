@@ -9,9 +9,8 @@
 import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { SpriteSlice } from "../../../engine/scene/importSettings";
 import { traceOutline } from "../../../engine/render/sprites/outlineTrace";
-import { AssetPicker, editor, type ImportSettingsViewProps, type SpriteEditorToolProps } from "../../../editor/sdk";
+import { AssetPicker, editor, pressPoints, type ImportSettingsViewProps, type SpriteEditorToolProps, type V2 } from "../../../editor/sdk";
 import { litPreview, type PreviewPixels } from "./litPreview";
-import { pressPoints, type V2 } from "./lightGizmoModel";
 import { customRows, newTextureName, removeTexture, renameProblem, renameTexture } from "./secondaryTexturesModel";
 import "./spriteTools.css";
 
