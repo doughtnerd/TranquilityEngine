@@ -137,9 +137,9 @@ export class UIInteractions {
   }
 
   /** Navigation: an event of the World's current frame (its input phase, before any script). */
-  publishNow(type: UIInteractionType, target: Target, after?: (prevented: boolean) => void): void {
+  publishNow(type: UIInteractionType, target: Target, after?: (prevented: boolean) => void, before?: () => void): void {
     this.stamp(this.world.time.frameCount);
-    this.add(type, target, true, null, after);
+    this.add(type, target, true, null, after, before);
   }
 
   private stamp(frame: number): void {
@@ -151,14 +151,14 @@ export class UIInteractions {
   }
 
   /** Publish a polled event; with `record`, its event record too (ADR 0422), the type's DOM rules decided by the front ends. */
-  private add(type: UIInteractionType, target: Target, record = true, related: Target | null = null, after?: (prevented: boolean) => void): void {
+  private add(type: UIInteractionType, target: Target, record = true, related: Target | null = null, after?: (prevented: boolean) => void, before?: () => void): void {
     const types = this.published.get(target);
     if (types) types.add(type);
     else this.published.set(target, new Set([type]));
     if (!record) return;
     // ADR 0424: a click navigation sends can be cancelled (its default action activates the control).
     const cancelable = type === "click" && !!after;
-    this.records.push({ type, target, bubbles: false, cancelable, data: related ? { related } : {}, prevented: false, after });
+    this.records.push({ type, target, bubbles: false, cancelable, data: related ? { related } : {}, prevented: false, after, before });
   }
 
   /** ADR 0424: a polled event of the World's current frame without a record (a control's `change`, a form's `submit`: their records are sent apart). */

@@ -26,7 +26,7 @@ import { addContextSource, defineInputContext } from "../input/contexts";
 import { takesLocalInput } from "../input/deviceEntities";
 import { playerNodes, InputPlayer } from "../input/players";
 import { UIButton, UICanvas, UIInputField, UIOption, UIPanel, UIRadio, UISelect, UISlider, isFocusableUI, type UIFocusableElement } from "./components";
-import { activateControl, checkRadio, controlChanged, optionsOf, radioGroup, reconcileSelect, selectOf, setSelectOpen, sliderValue } from "./formControls";
+import { uiClickRecord, checkRadio, controlChanged, optionsOf, radioGroup, reconcileSelect, selectOf, setSelectOpen, sliderValue } from "./formControls";
 import { uiInteractions, type UIInteractions, type UILayoutSource } from "./interactions";
 import type { UILaidOutElement } from "./uiCoreTypes";
 import type { UIRect } from "./layout";
@@ -320,15 +320,15 @@ function run(world: World): void {
   if (act.submit && target) {
     // ADR 0424: `submit` clicks any control but a field (a field starts typing); the click's default action activates it.
     if (!(target instanceof UIInputField)) {
-      log.publishNow("click", target, (prevented) => {
-        if (prevented) return;
-        activateControl(world, target);
+      // Its activation is a click's (a checkbox toggles before the click's handlers, HTML's order).
+      const click = uiClickRecord(world, target, {}, (prevented) => {
         // A select opened from the keyboard puts focus on its chosen option, for the arrows.
-        if (target instanceof UISelect && target.open) {
+        if (!prevented && target instanceof UISelect && target.open) {
           const first = reconcileSelect(target)[0] ?? optionsOf(target).find((o) => o.interactable);
           if (first) log.focus(first, "script");
         }
       });
+      log.publishNow("click", target, click.after, click.before);
     } else if (!log.isTyping(target)) log.setTyping(true);
   }
   if (act.cancel && target) {

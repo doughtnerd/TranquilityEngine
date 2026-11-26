@@ -96,6 +96,32 @@ describe("checkboxes and radios (ADR 0424)", () => {
     expect([byId(doc, "a", UIToggle).checked, byId(doc, "b", UIToggle).checked]).toEqual([false, false]);
   });
 
+  it("toggles before the click's handlers run, as HTML does, and back when one prevents it", async () => {
+    const doc = buildUI(`<Canvas><Panel ${COLUMN}><Toggle id="a"/><Radio id="r1" name="g" checked="true"/><Radio id="r2" name="g"/></Panel></Canvas>`);
+    const p = await pointer();
+    const seen: string[] = [];
+    const a = byId(doc, "a", UIToggle);
+    const [r1, r2] = [byId(doc, "r1", UIRadio), byId(doc, "r2", UIRadio)];
+    let prevent = false;
+    doc.query("#a")!.on("click", (e) => {
+      seen.push(`a ${a.checked}`);
+      if (prevent) e.preventDefault();
+    });
+    doc.query("#r2")!.on("click", (e) => {
+      seen.push(`r ${r1.checked} ${r2.checked}`);
+      e.preventDefault();
+    });
+    const log = record(doc, ["change"]);
+    click(p, a);
+    expect([a.checked, ...log]).toEqual([true, "change a"]);
+    prevent = true;
+    click(p, a);
+    expect(a.checked).toBe(true);
+    click(p, r2);
+    expect(seen).toEqual(["a true", "a false", "r false true"]);
+    expect([r1.checked, r2.checked, log.length]).toEqual([true, false, 1]);
+  });
+
   it("checks one radio per name within a form, and arrows move the check through the group", async () => {
     const doc = buildUI(`<Canvas><Panel ${COLUMN}>
       <Form id="f1" flex-direction="row"><Radio id="a" name="size" checked="true"/><Radio id="b" name="size"/><Radio id="c" name="size"/></Form>

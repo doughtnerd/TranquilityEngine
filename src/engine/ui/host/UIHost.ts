@@ -32,7 +32,7 @@ import type { World } from "../../core/World";
 import type { GameObject } from "../../scene/GameObject";
 import { Locale } from "../../localisation/Locale";
 import { UIButton, UICanvas, UIInputField, UIText, isFocusableUI, type UIComponentType } from "../components";
-import { setUIValue, uiValueOf } from "../formControls";
+import { clickUI, setUIValue, uiValueOf } from "../formControls";
 import { samePseudoState, uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
 import { boundsOf, transformRect } from "../transform2d";
@@ -363,6 +363,15 @@ export class UIHostElement {
 
   set value(value: string) {
     setUIValue(this._comp, value);
+  }
+
+  /**
+   * The DOM's `click()`: a bubbling `click` dispatched now with HTML's activation (a checkbox toggles before its
+   * handlers and back if one prevents it, a submit button submits its form), whose `input`, `change` or `submit` follow
+   * at once. Nothing on a control that isn't interactable.
+   */
+  click(): void {
+    clickUI(this.tree.world, this._comp);
   }
 
   /** Give it focus (buttons, input fields and ADR 0424's controls; an input field starts typing, as a click does). */
