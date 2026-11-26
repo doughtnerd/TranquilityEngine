@@ -263,7 +263,8 @@ interface Binding {
 }
 
 interface MutableTarget extends StyleTarget {
-  readonly tag: UITag;
+  /** A UI tag, or (ADR 0425) an inline run's HTML tag as written. */
+  readonly tag: string;
   classes: string[];
   state: UIPseudoState;
   parent: MutableTarget | null;
@@ -278,7 +279,7 @@ interface MutableTarget extends StyleTarget {
 function targetOf(el: UIDocumentElement, markup: MarkupElement, id: string | null, classes: string[], parent: MutableTarget | null): MutableTarget {
   const attributes = new Map(markup.attributes.map((a) => [a.name, a.value]));
   return {
-    tag: markup.tag,
+    tag: markup.inlineTag ?? markup.tag, // ADR 0425: an inline run matches as the tag it was written as
     id,
     classes,
     state: { hover: false, pressed: false, focus: false, disabled: false },
@@ -345,9 +346,9 @@ export class UIDocumentElement {
     return this._comp;
   }
 
-  /** The element name in the markup (`Button`). */
+  /** The element name in the markup (`Button`); an inline run's (ADR 0425), the element it builds (`Text`, `Image`). */
   get tag(): UITag {
-    return this._target.tag;
+    return this._markup.tag; // ADR 0425: an inline run's is the element it builds (`Text`)
   }
 
   get id(): string | null {
@@ -949,6 +950,11 @@ export class UIDocument extends Component {
     el._node = node;
     // The one place UI components are made (ADR 0417): `addBehavior` refuses them, so the build adds through the World.
     el._comp = world._addComponent(node.entity, type);
+    // ADR 0425: the text between a text's inline children is a run of it, not an element (events go to its parent).
+    if (markup.inlineTag === "#text" && el._comp instanceof UIText) {
+      el._comp._textPiece = true;
+      el._synthetic = true;
+    }
     el._path = scope || parent?._path === null ? null : path; // list rows and what's inside them have none
     elementByComponent.set(el._comp, el);
 
@@ -1158,7 +1164,9 @@ export class UIDocument extends Component {
     if (names === null && b.fallback) return this.fill(el, b.fallback);
     const args = names?.map((n) => this.lookup(el, n)) ?? [];
     if (c && c.epoch === epoch && c.key === key && c.args.length === args.length && c.args.every((v, i) => v === args[i])) return c.value;
-    const value = names === null ? Locale.t(key) : Locale.t(key, Object.fromEntries(names.map((n, i) => [n, args[i] as MessageArg])));
+    const message = names === null ? Locale.t(key) : Locale.t(key, Object.fromEntries(names.map((n, i) => [n, args[i] as MessageArg])));
+    // ADR 0425: a message's inline tags (`<b>{count}</b>`) draw as runs in Svelte UI (`tHtml`); a document shows its text.
+    const value = message.includes("<") ? message.replace(/<\/?[a-zA-Z][^<>]*>/g, "") : message;
     b.cache = { epoch, key, names, args, value };
     return value;
   }

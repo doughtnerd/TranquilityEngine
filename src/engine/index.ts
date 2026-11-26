@@ -50,7 +50,7 @@ export type { NavAgentType, NavArea, NavigationSettings } from "./nav/settings";
 
 // Text localisation (ADR 0356 §6): string keys resolved through the language's fallback chain, ICU messages on `Intl`.
 export { Locale, LocalText, type LocaleLanguage, type MessageArg, type MessageArgs } from "./localisation/Locale";
-export { t } from "./localisation/t";
+export { t, tHtml } from "./localisation/t";
 
 export { Input } from "./input/Input";
 export { ActionEvents, ActionPhase, axis, axisOf, button, chordOf, defineActions, dpad, vec2, vec3, type ActionEvent, type ActionEventPhase, type ActionOptions, type ActionReader, type ActionSetDef, type ActionSetOptions, type ActionSetView, type ActionType, type BindingSpec } from "./input/actions";
