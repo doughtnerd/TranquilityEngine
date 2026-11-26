@@ -30,9 +30,24 @@ export class UIPointer {
     return p;
   }
 
-  /** Lay the World's UI out again (the renderer does every frame). */
-  sync(): void {
-    this.core.sync(this.world, this.width, this.height);
+  /** Lay the World's UI out again (the renderer does every frame), `dt` seconds on: smooth scrolls and momentum move on by it (ADR 0423). */
+  sync(dt = 0): void {
+    this.core.sync(this.world, this.width, this.height, dt);
+  }
+
+  /** A point in `el` at fractions of its box (default its middle), in canvas pixels, after laying out; no hit check. */
+  pointIn(el: UIComponentType, fx = 0.5, fy = 0.5): { x: number; y: number } {
+    this.sync();
+    const r = this.core.rectOf(el);
+    if (!r) throw new Error(`"${el.owner.name}" isn't laid out on a screen canvas.`);
+    return { x: r.x + r.width * fx, y: r.y + r.height * fy };
+  }
+
+  /** Move the pointer over `el` (at fractions of its box) and turn the wheel by `dx`, `dy` CSS pixels. */
+  wheel(el: UIComponentType, dx: number, dy: number, fx = 0.5, fy = 0.5): void {
+    const { x, y } = this.pointIn(el, fx, fy);
+    this.dom.moveTo(x, y);
+    this.dom.scroll(dx, dy);
   }
 
   /** The middle of `el` in canvas pixels, after laying out; throws if the pointer there wouldn't hit it. */

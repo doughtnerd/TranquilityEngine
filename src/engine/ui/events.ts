@@ -109,6 +109,8 @@ export interface UIEventData {
   readonly clientY?: number;
   readonly offsetX?: number;
   readonly offsetY?: number;
+  /** Where the point is in another element's own pixels (an event retargeted from the element it was recorded on). */
+  readonly offsetOf?: (comp: UIComponentType) => { readonly x: number; readonly y: number } | null;
   readonly button?: number;
   readonly buttons?: number;
   readonly pointerType?: "mouse" | "touch" | "pen" | "";
@@ -218,7 +220,7 @@ export class UIEventBase {
     readonly type: string,
     /** The record it was made from (its `prevented` follows `preventDefault`); null for an event made by a script. */
     private readonly record: UIEventRecord | null = null,
-    init: { bubbles?: boolean; cancelable?: boolean; data?: UIEventData } = {},
+    init: { bubbles?: boolean; cancelable?: boolean; data?: UIEventData; on?: UIComponentType } = {},
   ) {
     const d = record?.data ?? init.data ?? {};
     this.bubbles = init.bubbles ?? record?.bubbles ?? uiEventBubbles(type);
@@ -228,8 +230,9 @@ export class UIEventBase {
     this.canvasY = d.canvasY ?? 0;
     this.clientX = d.clientX ?? 0;
     this.clientY = d.clientY ?? 0;
-    this.offsetX = d.offsetX ?? 0;
-    this.offsetY = d.offsetY ?? 0;
+    const own = init.on && d.offsetOf ? d.offsetOf(init.on) : null;
+    this.offsetX = own?.x ?? d.offsetX ?? 0;
+    this.offsetY = own?.y ?? d.offsetY ?? 0;
     this.button = d.button ?? 0;
     this.buttons = d.buttons ?? 0;
     this.pointerType = d.pointerType ?? "";
@@ -456,11 +459,20 @@ export function runUIListeners<F>(list: UIListener<F>[] | undefined, phase: 1 | 
       if (l.capture !== capture || !list.includes(l)) continue;
       if (l.once) list.splice(list.indexOf(l), 1);
       const was = event._passive;
+      // A passive listener's preventDefault does nothing: the engine's events check `_passive`; another event object
+      // (one a script made) gets a preventDefault that does nothing while the listener runs.
+      const shadow = l.passive && !(event instanceof UIEventBase) && typeof (event as { preventDefault?: unknown }).preventDefault === "function";
+      const own = shadow ? Object.getOwnPropertyDescriptor(event, "preventDefault") : undefined;
       if (l.passive) event._passive = true;
+      if (shadow) Object.defineProperty(event, "preventDefault", { value: () => undefined, configurable: true, writable: true });
       try {
         call(l.fn);
       } finally {
         event._passive = was;
+        if (shadow) {
+          if (own) Object.defineProperty(event, "preventDefault", own);
+          else delete (event as { preventDefault?: unknown }).preventDefault;
+        }
       }
       if (event._stoppedNow) return;
     }

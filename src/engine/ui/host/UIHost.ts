@@ -168,7 +168,7 @@ export class UIHostEvent extends UIEventBase {
     /** The hosted element of `relatedTarget`. */
     related: UIHostElement | null = null,
   ) {
-    super(type, record, { bubbles: uiEventBubbles(type), cancelable: uiEventCancelable(type) });
+    super(type, record, { bubbles: uiEventBubbles(type), cancelable: uiEventCancelable(type), on: element._comp });
     this.currentTarget = element;
     this.target = element;
     this.relatedTarget = related;

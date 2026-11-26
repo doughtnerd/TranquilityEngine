@@ -13,6 +13,8 @@
  *   run a script yet, so every script phase of the frame sees them.
  * - Canvases trap focus (`modal`), take it when they become active (`autoFocus`, `firstSelected`), and
  *   name the player whose actions drive them (`player`).
+ * - ADR 0423: an element scrolled out of its scrolling ancestors' view is still found (by where it is), and focus it
+ *   moves to is scrolled into view (`nearest`, smoothly where `scroll-behavior` says so).
  */
 import { getDataComponentDef } from "../core/data";
 import { defineBuiltinSystem } from "../core/systems";
@@ -27,16 +29,18 @@ import { UIButton, UICanvas, UIInputField, type UIFocusableElement } from "./com
 import { uiInteractions, type UIInteractions, type UILayoutSource } from "./interactions";
 import type { UILaidOutElement } from "./uiCoreTypes";
 import type { UIRect } from "./layout";
+import { uiScrollIntoView } from "./scrolling";
 
 /**
  * The part of an element that's drawn (ADR 0418): its box as drawn (wave 3: transformed, so the search uses the
- * transformed box's centre), clipped by its `overflow: hidden` ancestors, as axis-aligned bounds.
+ * transformed box's centre), clipped by its `overflow: hidden` ancestors, as axis-aligned bounds. ADR 0423: scrolling
+ * ancestors don't cut it (an element scrolled out of view is where it is, and navigation scrolls it back).
  */
 function shownBox(e: UILaidOutElement): UIRect {
-  return e.bounds;
+  return e.reach ?? e.bounds;
 }
 
-/** True when an `overflow: hidden` ancestor clips the element away entirely (or a scale of 0 flattens it), so the player can't see it to pick it. */
+/** True when an `overflow: hidden` ancestor clips the element away entirely (or a scale of 0 flattens it), so the player can't see it to pick it. A scrolling ancestor doesn't. */
 function clippedAway(e: UILaidOutElement): boolean {
   if ((!e.clip && !e.transform) || e.width <= 0 || e.height <= 0) return false;
   const r = shownBox(e);
@@ -273,6 +277,7 @@ function run(world: World): void {
     if (canvas?.autoFocus) state.pending.add(canvas);
   }
 
+  const before = log.focused;
   // autoFocus: canvases that became active take focus (higher sortOrder last, so it wins).
   const active = layout.activeCanvases();
   const now = new Set(active);
@@ -319,6 +324,8 @@ function run(world: World): void {
       if (on) log.publishNow("cancel", on);
     }
   }
+  // ADR 0423: what navigation focused shows: its scrolling ancestors scroll it into view.
+  if (target && target !== before) uiScrollIntoView(world, target, { block: "nearest", inline: "nearest" });
 }
 
 /** A `navigate` value's direction: its larger axis (+Y up). */

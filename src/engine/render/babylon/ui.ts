@@ -43,7 +43,7 @@ import { LinearGradient } from "@babylonjs/gui/2D/controls/gradient/LinearGradie
 import { RadialGradient } from "@babylonjs/gui/2D/controls/gradient/RadialGradient.js";
 import type { Measure } from "@babylonjs/gui/2D/measure.js";
 import type { Component } from "../../core/Component";
-import type { Color } from "../../core/math";
+import { Color } from "../../core/math";
 import type { World } from "../../core/World";
 import { splitSpriteRef } from "../../scene/importSettings";
 import type { WarmContent } from "../../scene/warmUp";
@@ -127,6 +127,18 @@ interface ClipEntry {
   transform: UIAffine | null;
   stamp: number;
 }
+
+/** ADR 0423: a scroller's drawn scrollbars: a track and a thumb per axis it shows. */
+interface BarsEntry {
+  canvas: CanvasEntry;
+  x: { track: Rectangle; thumb: Rectangle } | null;
+  y: { track: Rectangle; thumb: Rectangle } | null;
+  stamp: number;
+}
+
+/** ADR 0423: scrollbar colours without `scrollbar-color`: a light thumb on a faint dark track. */
+const DEFAULT_THUMB = new Color(0.78, 0.8, 0.84, 0.75);
+const DEFAULT_TRACK = new Color(0, 0, 0, 0.22);
 
 /**
  * A text block in the language's direction, wrapping lines by the engine's line breaking (ADR 0356 §5): the context's
@@ -223,6 +235,8 @@ export class BabylonUI {
   private readonly elements = new Map<UIComponentType, ElementEntry>();
   /** ADR 0418: clips of `overflow: hidden` elements, by the element. */
   private readonly clips = new Map<UIComponentType, ClipEntry>();
+  /** ADR 0423: scrollers' scrollbars, by the element. */
+  private readonly bars = new Map<UIComponentType, BarsEntry>();
   private readonly warned = new Set<string>();
   private stamp = 0;
   private disposed = false;
@@ -256,6 +270,10 @@ export class BabylonUI {
       if (!canvas) continue;
       this.syncElement(el, canvas, extra, stamp);
       this.syncClip(el, canvas, stamp);
+      this.syncBars(el, canvas, stamp);
+    }
+    for (const [c, b] of this.bars) {
+      if (b.stamp !== stamp) this.removeBars(c, b);
     }
     for (const [c, e] of this.elements) {
       if (e.stamp !== stamp) this.removeElement(c, e);
@@ -280,6 +298,8 @@ export class BabylonUI {
     }
     const e = this.elements.get(c as UIComponentType);
     if (e) this.removeElement(c as UIComponentType, e);
+    const b = this.bars.get(c as UIComponentType);
+    if (b) this.removeBars(c as UIComponentType, b);
   }
 
   dispose(): void {
@@ -379,6 +399,7 @@ export class BabylonUI {
   private removeCanvas(c: UICanvas, e: CanvasEntry): void {
     for (const [comp, el] of this.elements) if (el.canvas === e) this.removeElement(comp, el, true);
     for (const [comp, clip] of this.clips) if (clip.canvas === e) this.clips.delete(comp); // the root's disposal takes them
+    for (const [comp, b] of this.bars) if (b.canvas === e) this.bars.delete(comp);
     this.canvases.delete(c);
     if (e.mesh) {
       e.adt.dispose();
@@ -569,6 +590,87 @@ export class BabylonUI {
     this.clips.delete(c);
     clip.container.parent?.removeControl(clip.container);
     clip.container.dispose();
+  }
+
+  // --- scrollbars (ADR 0423) ---
+
+  /**
+   * A scroller's scrollbars: a track and a thumb per axis the core shows one on, drawn where the scroller is drawn
+   * (with its transform), over its content (above its clip container) and under whatever is drawn after it.
+   */
+  private syncBars(el: UILaidOutElement, canvas: CanvasEntry, stamp: number): void {
+    const s = el.scroll;
+    let b = this.bars.get(el.comp);
+    if (!s || (!s.barX && !s.barY)) {
+      if (b) this.removeBars(el.comp, b);
+      return;
+    }
+    if (b && b.canvas !== canvas) {
+      this.removeBars(el.comp, b);
+      b = undefined;
+    }
+    if (!b) this.bars.set(el.comp, (b = { canvas, x: null, y: null, stamp }));
+    b.stamp = stamp;
+    const into = this.clipOf(el, canvas);
+    const parent = into?.container ?? canvas.root;
+    const c = el.comp as UIPanel;
+    const thumbColor = c.scrollbarThumbColor ?? DEFAULT_THUMB;
+    const trackColor = c.scrollbarTrackColor ?? DEFAULT_TRACK;
+    for (const axis of ["x", "y"] as const) {
+      const bar = axis === "x" ? s.barX : s.barY;
+      let pair: { track: Rectangle; thumb: Rectangle } | null = b[axis];
+      if (!bar) {
+        if (pair) {
+          for (const r of [pair.track, pair.thumb]) {
+            r.parent?.removeControl(r);
+            r.dispose();
+          }
+        }
+        b[axis] = null;
+        continue;
+      }
+      if (!pair) {
+        const make = (name: string) => {
+          const r = new Rectangle(`${el.comp.owner.name}.${name}`);
+          r.thickness = 0;
+          r.isHitTestVisible = false;
+          placeBox(r);
+          return r;
+        };
+        pair = b[axis] = { track: make(`scrollbar-${axis}`), thumb: make(`scrollbar-${axis}-thumb`) };
+      }
+      const parts: [Rectangle, typeof bar.track, Color, number][] = [
+        [pair.track, bar.track, trackColor, 0.6],
+        [pair.thumb, bar.thumb, thumbColor, 0.7],
+      ];
+      for (const [r, rect, color, z] of parts) {
+        if (r.parent !== parent) {
+          r.parent?.removeControl(r);
+          parent.addControl(r);
+        }
+        r.isVisible = el.visible;
+        if (!el.visible) continue;
+        this.place(r, rect.x, rect.y, into, el.transform ?? null, el.comp.owner.name);
+        if (put(r, "w", rect.width)) r.widthInPixels = rect.width;
+        if (put(r, "h", rect.height)) r.heightInPixels = rect.height;
+        if (put(r, "z", el.order + z)) r.zIndex = el.order + z;
+        const radius = Math.min(rect.width, rect.height) / 2;
+        if (put(r, "radius", radius)) r.cornerRadius = radius;
+        if (put(r, "bg", colorKey(color))) r.background = color.toCss();
+        if (put(r, "alpha", el.opacity)) r.alpha = el.opacity;
+      }
+    }
+  }
+
+  private removeBars(c: UIComponentType, b: BarsEntry): void {
+    this.bars.delete(c);
+    for (const pair of [b.x, b.y]) {
+      if (!pair) continue;
+      for (const r of [pair.track, pair.thumb]) {
+        r.parent?.removeControl(r);
+        r.dispose();
+      }
+    }
   }
 
   /** A panel, button or input field's box. `scale` is its canvas's texture pixels per UI pixel. */

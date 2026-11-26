@@ -163,7 +163,7 @@ class UIDocumentEvent extends UIEventBase implements UIEvent {
     readonly relatedTarget: UIDocumentElement | null = null,
     detail: { propertyName?: string; animationName?: string; elapsedTime?: number } = {},
   ) {
-    super(type, record, { bubbles: uiEventBubbles(type), cancelable: uiEventCancelable(type) });
+    super(type, record, { bubbles: uiEventBubbles(type), cancelable: uiEventCancelable(type), on: element._comp });
     if (detail.propertyName !== undefined) this.propertyName = detail.propertyName;
     if (detail.animationName !== undefined) this.animationName = detail.animationName;
     if (detail.elapsedTime !== undefined) this.elapsedTime = detail.elapsedTime;

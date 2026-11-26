@@ -394,6 +394,8 @@ export class UICore implements UICoreLike {
     this.world = world;
     // ADR 0423: smooth scrolls and momentum move on before layout reads the offsets (the routing core only).
     if (!this.passive) advanceUIScrolling(world, deltaSeconds);
+    // The layout scripts' scrolling reads (ADR 0423) and navigation search: the routing core's, from its first layout.
+    if (!this.passive && this.interactiveMode && world._takesInput) uiInteractions(world).layout = this;
     this.width = width;
     this.height = height;
 
@@ -964,8 +966,8 @@ export class UICore implements UICoreLike {
     const usable = (e: Entry | null): e is Entry => !!e && e.kind === "button" && (e.comp as UIButton).interactable && e.comp.isActiveAndEnabled;
     // The pointer moving or pressing makes it the last UI input: focus colours hide.
     const last = this.lastPointer;
-    const moved = !!last && (last.x !== raw.x || last.y !== raw.y);
-    if (moved) log.navigating = false;
+    const moved = !last || last.x !== raw.x || last.y !== raw.y;
+    if (last && moved) log.navigating = false;
     this.lastPointer = { x: raw.x, y: raw.y };
     const now = world.time.realtimeSinceStartup;
 
@@ -1127,13 +1129,19 @@ export class UICore implements UICoreLike {
   }
 
   /** ADR 0422: a point's position for an event on `e`: the target canvas's UI pixels, and `e`'s own (through its transform). */
-  private pointAt(e: Entry | null, hit: Hit | null, x: number, y: number): { clientX: number; clientY: number; offsetX: number; offsetY: number } {
+  private pointAt(e: Entry | null, hit: Hit | null, x: number, y: number): UIEventData {
     let ux = hit?.ux ?? x, uy = hit?.uy ?? y;
     if (e?.canvas && hit && e.canvas !== hit.target.canvas && e.canvas.comp.mode === "screen") [ux, uy] = [x / e.canvas.scale, y / e.canvas.scale];
     else if (e?.canvas && !hit && e.canvas.comp.mode === "screen") [ux, uy] = [x / e.canvas.scale, y / e.canvas.scale];
     if (!e) return { clientX: ux, clientY: uy, offsetX: 0, offsetY: 0 };
     const [lx, ly] = e.place.inverse ? applyAffine(e.place.inverse, ux, uy) : [ux, uy];
-    return { clientX: ux, clientY: uy, offsetX: lx - e.box.x, offsetY: ly - e.box.y };
+    const offsetOf = (comp: UIComponentType) => {
+      const o = this.entries.get(comp);
+      if (!o) return null;
+      const [ox, oy] = o.place.inverse ? applyAffine(o.place.inverse, ux, uy) : [ux, uy];
+      return { x: ox - o.box.x, y: oy - o.box.y };
+    };
+    return { clientX: ux, clientY: uy, offsetX: lx - e.box.x, offsetY: ly - e.box.y, offsetOf };
   }
 
   /**
