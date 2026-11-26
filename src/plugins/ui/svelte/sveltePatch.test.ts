@@ -3,6 +3,8 @@ import { compile } from "svelte/compiler";
 import { flushSync } from "svelte";
 import * as internal from "svelte/internal/client";
 import "svelte/internal/flags/custom-renderer"; // effects remember their renderer (compiled components import it too)
+import { crossfade, fade, fly } from "svelte/transition";
+import { flip } from "svelte/animate";
 
 // ADR 0419: patches/svelte+5.59.2.patch, the custom renderer's hooks.
 // - `bind`: the compiler emits `bind_renderer` for element bindings when a custom renderer is set (bind:this stays
@@ -13,6 +15,9 @@ import "svelte/internal/flags/custom-renderer"; // effects remember their render
 //   content and its <title>; listeners on a global target go when their component does.
 // - `addStyles(hash, code)`: `css: 'injected'`.
 // - Legacy `on:` compiles to the renderer's `addEventListener`, with Svelte's modifier wrappers.
+// - `animate(node, keyframes, options)` and `measure(node)`: `transition:`, `in:`, `out:` and `animate:` compile under a
+//   custom renderer; `svelte/transition` and `svelte/animate` read geometry through `measure`; a renderer without the
+//   hooks fails clearly. (Playing them end to end: uiViewTransitions.test.ts, through a UIView.)
 
 interface Internal {
   state<T>(v: T): unknown;
@@ -25,6 +30,8 @@ interface Internal {
   global_target(kind: string): unknown;
   event(name: string, node: unknown, handler: (e: unknown) => void, capture?: boolean, passive?: boolean): void;
   append_styles(anchor: unknown, css: { hash: string; code: string }): void;
+  transition(flags: number, node: unknown, fn: () => unknown, params: (() => unknown) | null): void;
+  animation(node: unknown, fn: () => unknown, params: (() => unknown) | null): void;
   head(hash: string, render: (anchor: unknown) => void): void;
 }
 
@@ -173,5 +180,53 @@ describe("the custom renderer bind hook (svelte patch)", () => {
     withRenderer({ addStyles: (hash: string, code: string) => added.push(`${hash} ${code}`) }, () => $.append_styles(null, { hash: "svelte-x", code: "p.svelte-x{}" }))();
     expect(added).toEqual(["svelte-x p.svelte-x{}"]);
     expect(() => withRenderer({}, () => $.append_styles(null, { hash: "svelte-x", code: "" }))).toThrow(/css: 'injected'.*needs the custom renderer to define `addStyles`|renderer_add_styles_unsupported/);
+  });
+
+  it("compiles transition:, in:, out: and animate: under a custom renderer, as for the DOM", () => {
+    const source = `<script>import { fade, fly } from "svelte/transition"; import { flip } from "svelte/animate"; let list = $state([1]); let on = $state(true);</script>
+{#if on}<p transition:fade>a</p><p in:fly={{ y: 10 }} out:fade|global>b</p>{/if}
+{#each list as x (x)}<i animate:flip>{x}</i>{/each}`;
+    const custom = compile(source, OPTIONS).js.code;
+    expect(custom).toContain("$.transition(3, p, () => fade)");
+    expect(custom).toContain("$.transition(1, p_1, () => fly,");
+    expect(custom).toContain("$.transition(6, p_1, () => fade)");
+    expect(custom).toContain("$.animation(i, () => flip, null)");
+    const dom = compile(source, { filename: "B.svelte", generate: "client" }).js.code;
+    expect(dom).toContain("$.transition(3, p, () => fade)");
+  });
+
+  it("fails clearly when the renderer has no animate (transitions) or no measure (animate:)", () => {
+    expect(() => withRenderer({}, () => $.transition(3, {}, () => fade, null))).toThrow(/`transition:` needs the custom renderer to define `animate`|renderer_animate_unsupported/);
+    expect(() => withRenderer({}, () => $.transition(1, {}, () => fade, null))).toThrow(/`in:` needs the custom renderer to define `animate`|renderer_animate_unsupported/);
+    expect(() => withRenderer({ animate() {} }, () => $.animation({}, () => flip, null))).toThrow(/`animate:` needs the custom renderer to define `measure`|renderer_measure_unsupported/);
+  });
+
+  it("has svelte/transition and svelte/animate measure through the renderer", () => {
+    const node = { name: "node" };
+    const other = { name: "other" };
+    const boxes = new Map<unknown, { left: number; top: number; width: number; height: number }>([
+      [node, { left: 0, top: 0, width: 100, height: 20 }],
+      [other, { left: 50, top: 40, width: 100, height: 20 }],
+    ]);
+    const renderer = {
+      measure: (n: unknown) => {
+        const b = boxes.get(n)!;
+        return { ...b, right: b.left + b.width, bottom: b.top + b.height, clientWidth: b.width, clientHeight: b.height, style: { opacity: "0.5", transform: "none", transformOrigin: "50px 10px" } };
+      },
+    };
+    let fadeCss = "", flyCss = "", flipCss = "", crossCss = "";
+    withRenderer(renderer, () => {
+      fadeCss = fade(node as never).css!(1, 0);
+      flyCss = fly(node as never, { x: 10 }).css!(0, 1).replace(/\s+/g, " ").trim();
+      flipCss = flip(node as never, { from: boxes.get(other) as DOMRect, to: boxes.get(node) as DOMRect }, {}).css!(0, 1);
+      const [send, receive] = crossfade({});
+      send(other as never, { key: 1 });
+      const incoming = receive(node as never, { key: 1 }) as unknown as () => { css(t: number, u: number): string };
+      crossCss = incoming().css(0, 1).replace(/\s+/g, " ").trim();
+    })();
+    expect(fadeCss).toBe("opacity: 0.5");
+    expect(flyCss).toBe("transform: translate(10px, 0px); opacity: 0");
+    expect(flipCss).toBe("transform:  translate(50px, 40px) scale(1, 1);");
+    expect(crossCss).toBe("opacity: 0; transform-origin: top left; transform: translate(50px,40px) scale(1, 1);");
   });
 });
