@@ -124,7 +124,6 @@ export class BabylonRenderer {
   private readonly quads: BabylonQuadBatches;
   /** The 2D lighting rig (ADR 0399): part of the core lighting, beside `lighting`, since it reads the material library's textures. */
   private readonly lights2D: BabylonLights2D;
-  private lights2DVersion = -1;
   /** Decal volumes for plugin features (the Decals plugin's 3D decals, ADR 0395). */
   private readonly decals: BabylonDecals;
   /** Dynamic meshes for plugin features (the Lines plugin's 3D lines and trails, ADR 0396). */
@@ -222,11 +221,9 @@ export class BabylonRenderer {
     this.materials2D = new BabylonMaterials2D({ scene, library: this.materials, warnOnce: (key, message) => this.warnOnce(key, message) });
     this.quads = new BabylonQuadBatches({
       scene,
-      texture: (path, onReady) => this.materials.texture(path, "color", onReady),
-      dataTexture: (path, onReady) => this.materials.texture(path, "graphData", onReady),
+      materials2D: this.materials2D,
+      texture: (path, onReady) => this.materials.texture(path, "color", () => onReady()),
       sortOrder: (layer, order) => sortingOrder(this.settings.render.sortingLayers, layer, order, (l) => this.warnOnce(`layer|${l}`, unknownLayerMessage(l))),
-      spriteGraph: (material) => this.materials.spriteGraph(material),
-      spriteGraphMaterial: (name, graph, overrides) => this.materials.spriteGraphMaterial(name, graph, overrides),
     });
     this.lights2D = new BabylonLights2D({
       scene,
@@ -418,13 +415,9 @@ export class BabylonRenderer {
     ctx.view = ctx.viewCamera = null;
     ctx.ready = false;
     this.reflecting = 0; // the mesh feature counts this frame's meshes drawn with a probe as it syncs
-    // 2D lights first (ADR 0399): the sprite and quad features pick their lit materials by this frame's layer batches.
+    // 2D lights first (ADR 0399): a new layout of layer batches refreshes the 2D materials (ADR 0418) before the content draws.
     this.lights2D.enabled = this.policy.lighting2D !== false;
     this.lights2D.sync(world, LIGHTS_2D_QUALITY[Graphics.tier.lights2D] ?? LIGHTS_2D_QUALITY.high);
-    if (this.lights2D.version !== this.lights2DVersion) {
-      this.lights2DVersion = this.lights2D.version;
-      this.quads.refreshLighting();
-    }
     for (const phase of SYNC_PHASES) {
       for (const slot of this.phases.get(phase) ?? []) slot.ensure(world)?.sync(world, ctx);
       this.afterPhase(phase, world, ctx);

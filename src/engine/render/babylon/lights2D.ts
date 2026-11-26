@@ -269,10 +269,10 @@ export class BabylonLights2D {
       ? { batches: batching.batches.map((b) => ({ styles: b.styles.length, directional: b.directional })), scale: limits.textureScale, shadowTextures: Math.ceil(kept.length / 4), lowPrecision: this.range !== 1 }
       : null;
     const key = `${JSON.stringify(layout)}|${[...batching.layerBatch].join(",")}|${batching.batches.map((b) => b.styles.join(".")).join(",")}|${this.accurateSets.map((s) => s.size).join(",")}`;
-    if (key !== this.layoutKey) {
+    const changed = key !== this.layoutKey;
+    if (changed) {
       this.layoutKey = key;
       this.version++;
-      this.onLayoutChange.notifyObservers();
     }
     this.layers = layers;
     this.layerBatch = batching.layerBatch;
@@ -294,6 +294,7 @@ export class BabylonLights2D {
       styles: new Set(batching.batches.flatMap((b) => b.styles)).size,
       textures: batching.batches.reduce((n, b) => n + b.styles.length * (b.directional ? 3 : 1), 0) + Math.ceil(kept.length / 4),
     };
+    if (changed) this.onLayoutChange.notifyObservers(); // once this frame's batches are in place
   }
 
   /** The light textures' layout this frame, or null when nothing is lit. */

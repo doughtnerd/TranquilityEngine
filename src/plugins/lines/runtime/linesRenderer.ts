@@ -8,8 +8,7 @@ import type { Component } from "../../../engine/core/Component";
 import { evalCurve, type Curve } from "../../../engine/core/curve";
 import { evaluateGradient, isGradient, type Gradient } from "../../../engine/core/gradient";
 import type { World } from "../../../engine/core/World";
-import { quadLighting } from "../../../engine/render/lights2D/spriteMaterial";
-import { tangents2D } from "../../../engine/render/lights2D/tangents";
+import { sortingOrder } from "../../../engine/render/sortOrder";
 import type { DynamicMesh, DynamicMeshHost } from "../../../engine/render/dynamicMeshes";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
 import { LineRenderer } from "./LineRenderer";
@@ -162,8 +161,8 @@ export class LinesRenderer {
     if (twoD) {
       e.mesh?.dispose();
       e.mesh = null;
-      order = this.host.quads.sortOrder(c.sortingLayer, c.orderInLayer);
-      this.draw2D(e, c, mesh, matrix, order);
+      order = sortingOrder(world.settings.render.sortingLayers, c.sortingLayer, c.orderInLayer);
+      this.draw2D(e, c, mesh, matrix);
     } else {
       e.batch?.dispose();
       e.batch = null;
@@ -183,17 +182,14 @@ export class LinesRenderer {
     e.mesh.setVisible(true);
   }
 
-  private draw2D(e: Entry, c: RibbonRenderer, mesh: RibbonMesh, matrix: ArrayLike<number>, order: number): void {
+  private draw2D(e: Entry, c: RibbonRenderer, mesh: RibbonMesh, matrix: ArrayLike<number>): void {
     if (!e.batch) e.batch = this.host.quads.createBatch(`${c instanceof TrailRenderer ? "trail" : "line"}2d:${c.node.name}`);
-    e.batch.setTriangles(c.texture, mesh.positions, mesh.uvs, mesh.indices);
-    e.batch.setColors(mesh.colors);
     // ADR 0399: lit by 2D lights unless its material is Sprite Unlit; normal maps follow the line (its U runs along it).
-    const lighting = quadLighting(c.material, c.sortingLayer, c.texture);
-    e.batch.setLighting(lighting);
-    e.batch.setTangents(lighting?.normalMap ? tangents2D(mesh.positions, mesh.uvs, mesh.indices) : null);
+    e.batch.setOrder(c.sortingLayer, c.orderInLayer);
+    e.batch.setMaterial(c.material);
+    e.batch.setTriangles(c.texture, mesh.positions, mesh.uvs, mesh.indices, mesh.colors);
     e.batch.setTint("#ffffff", 1);
     e.batch.setMatrix(matrix);
-    e.batch.setOrder(order);
     e.batch.setVisible(true);
   }
 }

@@ -9,7 +9,7 @@ import { DecalRenderer } from "./decalRenderer";
 import { Decals } from "./Decals";
 
 type FakeDecalBatch = DecalBatch & { look: DecalLook; count: number; matrices: Float32Array; colors: Float32Array; uvs: Float32Array; angles: Float32Array; order: number; disposed: boolean };
-type FakeQuads = QuadBatch & { texture: string; positions: Float32Array; colors: Float32Array | null; mask: QuadMask | null; order: number; disposed: boolean };
+type FakeQuads = QuadBatch & { texture: string; positions: Float32Array; colors: Float32Array | null; mask: QuadMask | null; order: [string, number]; material: string | null; disposed: boolean };
 
 function fakeHosts() {
   const boxes: FakeDecalBatch[] = [];
@@ -31,16 +31,14 @@ function fakeHosts() {
   const quadHost: QuadBatchHost = {
     createBatch() {
       const b: FakeQuads = {
-        texture: "", positions: new Float32Array(), colors: null, mask: null, order: 0, disposed: false,
-        setLighting(l) { (b as { lighting?: unknown }).lighting = l; },
-        setTangents(t) { (b as { tangents?: unknown }).tangents = t; },
-        setBlend(m) { (b as { blend?: unknown }).blend = m; },
+        texture: "", positions: new Float32Array(), colors: null, mask: null, order: ["", 0], material: null, disposed: false,
+        setMaterial(m) { b.material = m; },
+        setBlend() {},
         setQuads() {},
-        setTriangles(t, p) { b.texture = t; b.positions = p; },
-        setColors(c) { b.colors = c; },
+        setTriangles(t, p, _uv, _i, c) { b.texture = t; b.positions = p; b.colors = c ?? null; },
         setMask(m) { b.mask = m; },
         setMatrix() {},
-        setOrder(o) { b.order = o; },
+        setOrder(layer, inLayer) { b.order = [layer, inLayer]; },
         setTint() {},
         setVisible() {},
         dispose() { b.disposed = true; },
@@ -49,7 +47,6 @@ function fakeHosts() {
       return b;
     },
     textureSize: () => [100, 50],
-    sortOrder: (layer, order) => ["Back", "Default"].indexOf(layer) * 10000 + order,
   };
   return { host: { decals, quads: quadHost, pixelsPerUnit: () => 100 }, boxes, quads };
 }
@@ -120,7 +117,8 @@ describe("decal drawing (ADR 0395)", () => {
     decals.sync(engine.world, null);
     expect(quads).toHaveLength(1);
     const q = quads[0]!;
-    expect(q.order).toBe(10002);
+    expect(q.order).toEqual(["Default", 2]);
+    expect(q.material).toBe(""); // the default 2D material (Sprite Lit)
     expect(q.texture).toBe("splat.png");
     expect(Array.from(q.positions.subarray(0, 3))).toEqual([3.5, -0.25, 0]); // its own 1 × 0.5 quad around the node at x = 4
     expect(q.mask!.texture).toBe("crate.png");

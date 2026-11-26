@@ -9,7 +9,7 @@ import { TrailRenderer } from "./TrailRenderer";
 
 function fakeHosts() {
   const meshes: (DynamicMesh & { geometry: DynamicGeometry | null; look: [string, string]; matrix: number[]; visible: boolean; disposed: boolean; shadows: [boolean, boolean] })[] = [];
-  const batches: (QuadBatch & { positions: Float32Array | null; colors: Float32Array | null; texture: string; order: number; visible: boolean; disposed: boolean; matrix: number[] })[] = [];
+  const batches: (QuadBatch & { positions: Float32Array | null; colors: Float32Array | null; texture: string; order: [string, number]; material: string | null; visible: boolean; disposed: boolean; matrix: number[] })[] = [];
   const dynamicMeshes: DynamicMeshHost = {
     createMesh() {
       const m: (typeof meshes)[number] = {
@@ -29,16 +29,14 @@ function fakeHosts() {
   const quads: QuadBatchHost = {
     createBatch() {
       const b: (typeof batches)[number] = {
-        positions: null, colors: null, texture: "", order: 0, visible: false, disposed: false, matrix: [],
-        setLighting(l) { (b as { lighting?: unknown }).lighting = l; },
-        setTangents(t) { (b as { tangents?: unknown }).tangents = t; },
-        setBlend(m) { (b as { blend?: unknown }).blend = m; },
+        positions: null, colors: null, texture: "", order: ["", 0], material: null, visible: false, disposed: false, matrix: [],
+        setMaterial(m) { b.material = m; },
+        setBlend() {},
         setQuads() {},
-        setTriangles(t, p) { b.texture = t; b.positions = p; },
-        setColors(c) { b.colors = c; },
+        setTriangles(t, p, _uv, _i, c) { b.texture = t; b.positions = p; b.colors = c ?? null; },
         setMask() {},
         setMatrix(x, o = 0) { b.matrix = Array.from(x).slice(o, o + 16); },
-        setOrder(o) { b.order = o; },
+        setOrder(layer, inLayer) { b.order = [layer, inLayer]; },
         setTint() {},
         setVisible(v) { b.visible = v; },
         dispose() { b.disposed = true; },
@@ -47,7 +45,6 @@ function fakeHosts() {
       return b;
     },
     textureSize: () => [1, 1],
-    sortOrder: (layer, order) => ["Back", "Default"].indexOf(layer) * 10000 + order,
   };
   return { host: { dynamicMeshes, quads }, meshes, batches };
 }
@@ -119,7 +116,8 @@ describe("line and trail drawing (ADR 0396)", () => {
     expect(meshes).toHaveLength(0);
     expect(batches).toHaveLength(1);
     const b = batches[0]!;
-    expect(b.order).toBe(7);
+    expect(b.order).toEqual(["Back", 7]);
+    expect(b.material).toBe(""); // the default 2D material (Sprite Lit)
     expect(b.texture).toBe("dash.png");
     expect(b.colors!.length).toBe(4 * 4);
     expect(Math.abs(b.positions![1]!)).toBeCloseTo(0.05); // offset across, in y

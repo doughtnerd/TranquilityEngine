@@ -63,11 +63,9 @@ export class Lights2DVolumes {
     if (built.sig !== e.sig) {
       e.sig = built.sig;
       const m = built.mesh;
-      e.batch.setTriangles(built.texture, m.positions, m.uvs, m.indices);
-      e.batch.setColors(m.colors);
+      e.batch.setTriangles(built.texture, m.positions, m.uvs, m.indices, m.colors);
     }
-    const layers = world.settings.render.sortingLayers;
-    e.batch.setOrder(this.host.quads.sortOrder(volumeLayer(layers, l.targetSortingLayers), TOP_OF_LAYER));
+    e.batch.setOrder(volumeLayer(world.settings.render.sortingLayers, l.targetSortingLayers), TOP_OF_LAYER); // unlit: a new batch has no material
     e.batch.setMatrix(world.worldMatrix(l.node.entity), l.node.entity * 16);
     if (!e.shown) e.batch.setVisible(true);
     e.shown = true;

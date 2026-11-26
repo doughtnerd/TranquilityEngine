@@ -10,8 +10,8 @@ import { Mat4 } from "../../../engine/core/math";
 import type { World } from "../../../engine/core/World";
 import { SpriteRenderer } from "../../../engine/render/components";
 import type { DecalBatch, DecalHost, DecalLook } from "../../../engine/render/decals";
-import type { QuadBatch, QuadBatchHost, QuadLighting, QuadMask } from "../../../engine/render/quadBatches";
-import { quadLighting } from "../../../engine/render/lights2D/spriteMaterial";
+import type { QuadBatch, QuadBatchHost, QuadMask } from "../../../engine/render/quadBatches";
+import { sortingOrder } from "../../../engine/render/sortOrder";
 import { spriteFrame, type SpriteFrame } from "../../../engine/render/spriteFrame";
 import { Assets } from "../../../engine/scene/Assets";
 import type { GameObject } from "../../../engine/scene/GameObject";
@@ -44,9 +44,12 @@ interface Instances {
 
 interface Quads {
   texture: string;
+  sortingLayer: string;
+  orderInLayer: number;
+  /** Its draw order (`sortingOrder`), for picking. */
   order: number;
-  /** How 2D lights light it (ADR 0399), or null (Sprite Unlit). */
-  lighting: QuadLighting | null;
+  /** Its 2D material asset (ADR 0399: "" the default, Sprite Lit). */
+  material: string;
   mask: QuadMask | null;
   positions: number[];
   uvs: number[];
@@ -116,7 +119,7 @@ export class DecalRenderer {
       if (!c.isActiveAndEnabled || !c.node.transform) continue;
       const e = c.node.entity, m = world.worldMatrix(e);
       const receiver = c.clip === "parentSprite" ? c.node.parent : null;
-      const placed = this.addQuad(quads, `c${e}`, c.sprite, c.sortingLayer, c.orderInLayer, m, e * 16, c.size ? [c.size.x, c.size.y] : null, c.color, clamp01(c.opacity), receiver, c.material);
+      const placed = this.addQuad(world, quads, `c${e}`, c.sprite, c.sortingLayer, c.orderInLayer, m, e * 16, c.size ? [c.size.x, c.size.y] : null, c.color, clamp01(c.opacity), receiver, c.material);
       if (placed) {
         placed.owners.push(c);
         decals2D++;
@@ -125,7 +128,7 @@ export class DecalRenderer {
     for (const d of pool?.decals2D ?? []) {
       if (!d.alive) continue;
       Mat4.copy(box, 0, d.matrix, 0);
-      this.addQuad(quads, null, d.look.sprite, d.look.sortingLayer, d.look.orderInLayer, box, 0, d.size2D, d.color, clamp01(d.opacity) * d.fade(), d.clip);
+      this.addQuad(world, quads, null, d.look.sprite, d.look.sortingLayer, d.look.orderInLayer, box, 0, d.size2D, d.color, clamp01(d.opacity) * d.fade(), d.clip);
     }
 
     // --- hand the batches over ----------------------------------------------------------------------
@@ -149,13 +152,12 @@ export class DecalRenderer {
       usedQuads.add(key);
       let batch = this.quads.get(key);
       if (!batch) this.quads.set(key, (batch = this.host.quads.createBatch(`decal2d:${key}`)));
-      batch.setTriangles(q.texture, new Float32Array(q.positions), new Float32Array(q.uvs), quadIndices(q.positions.length / 12));
-      batch.setColors(new Float32Array(q.colors));
+      batch.setOrder(q.sortingLayer, q.orderInLayer);
+      batch.setMaterial(q.material);
+      batch.setTriangles(q.texture, new Float32Array(q.positions), new Float32Array(q.uvs), quadIndices(q.positions.length / 12), new Float32Array(q.colors));
       batch.setTint("#ffffff", 1);
       batch.setMask(q.mask);
-      batch.setLighting(q.lighting);
       batch.setMatrix(IDENTITY);
-      batch.setOrder(q.order);
       batch.setVisible(true);
       for (const owner of q.owners) this.drawnNow.push({ component: owner, kind: "quads", batch, order: q.order });
     }
@@ -172,6 +174,7 @@ export class DecalRenderer {
    * placed Decal2D), else the one for its texture, draw order and receiver. Null while its texture loads.
    */
   private addQuad(
+    world: World,
     quads: Map<string, Quads>,
     own: string | null,
     sprite: string,
@@ -198,13 +201,13 @@ export class DecalRenderer {
     const [w, h] = frame?.size ?? size ?? [1, 1];
     const [pvx, pvy] = frame?.pivot ?? [0.5, 0.5];
     const [u0, v0, u1, v1] = frame?.uv ?? [0, 0, 1, 1];
-    const order = this.host.quads.sortOrder(layer, orderInLayer);
+    const order = sortingOrder(world.settings.render.sortingLayers, layer, orderInLayer); // the batch warns about an unknown layer
     const mask = receiver ? this.maskOf(receiver, m[mo + 14]!) : null;
     if (receiver && mask === undefined) return null; // the receiver's texture is loading
     // A placed Decal2D draws in a batch of its own (picked and framed by itself); spawned ones share by texture, order and receiver.
     const key = own ?? (mask && receiver ? `${image}|${order}|r${receiver.entity}` : `${image}|${order}`) + (material ? `|${material}` : "");
     let q = quads.get(key);
-    if (!q) quads.set(key, (q = { texture: image, order, lighting: quadLighting(material, layer, image), mask: mask ?? null, positions: [], uvs: [], colors: [], owners: [] }));
+    if (!q) quads.set(key, (q = { texture: image, sortingLayer: layer, orderInLayer, order, material, mask: mask ?? null, positions: [], uvs: [], colors: [], owners: [] }));
     const corners: [number, number, number, number][] = [
       [-pvx * w, -pvy * h, u0, v0],
       [(1 - pvx) * w, -pvy * h, u1, v0],

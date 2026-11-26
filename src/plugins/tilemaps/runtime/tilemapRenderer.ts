@@ -7,7 +7,7 @@
  */
 import type { World } from "../../../engine/core/World";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
-import { quadLighting } from "../../../engine/render/lights2D/spriteMaterial";
+import { sortingOrder } from "../../../engine/render/sortOrder";
 import { Assets, sidecarValue } from "../../../engine/scene/Assets";
 import { findSlice, splitSpriteRef } from "../../../engine/scene/importSettings";
 import { buildChunkMeshes, type TileFrame } from "./mesh";
@@ -21,8 +21,6 @@ interface ChunkEntry {
   cellX: number;
   cellY: number;
   batches: QuadBatch[];
-  /** Each batch's texture (its tileset image), for its lighting's normal and mask maps (ADR 0399). */
-  textures: string[];
 }
 
 interface LayerEntry {
@@ -93,7 +91,8 @@ export class TilemapRenderer {
     layers.forEach((layer, li) => {
       let le = entry!.layers[li];
       const visible = active && layer.meta.visible && !!tileset;
-      const order = this.host.sortOrder(layer.meta.sortingLayer, layer.meta.orderInLayer);
+      const { sortingLayer, orderInLayer } = layer.meta;
+      const order = sortingOrder(world.settings.render.sortingLayers, sortingLayer, orderInLayer); // the batches warn about an unknown layer
       if (!le) entry!.layers[li] = le = { chunks: new Map(), visible, order };
       le.visible = visible;
       le.order = order;
@@ -108,28 +107,27 @@ export class TilemapRenderer {
           let ce = le.chunks.get(key);
           if (ce && ce.version === chunk.version && ce.framesVersion === entry!.framesVersion && ce.cellX === cellX && ce.cellY === cellY) continue;
           if (ce) for (const b of ce.batches) b.dispose();
-          ce = { version: chunk.version, framesVersion: entry!.framesVersion, cellX, cellY, batches: [], textures: [] };
+          ce = { version: chunk.version, framesVersion: entry!.framesVersion, cellX, cellY, batches: [] };
           le.chunks.set(key, ce);
           const built = buildChunkMeshes(chunk.cells, chunk.cx, chunk.cy, map.cellSize, (n) => this.frame(entry!, map, map._tileIdAt(li, n)));
           for (const m of built) {
             const batch = this.host.createBatch(`tilemap:${map.node.name}:${li}:${key}`);
-            batch.setOrder(order);
+            batch.setOrder(sortingLayer, orderInLayer);
+            batch.setMaterial(map.material); // ADR 0399
             batch.setMatrix(entry!.matrix!);
             batch.setTint(layer.meta.tint, layer.meta.opacity);
             batch.setVisible(visible);
             batch.setQuads(m.texture, m.positions, m.uvs, m.indices);
-            batch.setLighting(quadLighting(map.material, layer.meta.sortingLayer, m.texture)); // ADR 0399
             ce.batches.push(batch);
-            ce.textures.push(m.texture);
           }
         }
       }
       for (const ce of le.chunks.values()) {
         for (const b of ce.batches) {
           b.setVisible(visible);
-          b.setOrder(order);
+          b.setOrder(sortingLayer, orderInLayer);
           b.setTint(layer.meta.tint, layer.meta.opacity);
-          b.setLighting(quadLighting(map.material, layer.meta.sortingLayer, ce.textures[ce.batches.indexOf(b)] ?? ""));
+          b.setMaterial(map.material);
           if (moved) b.setMatrix(entry!.matrix!);
         }
       }
