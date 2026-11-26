@@ -1,6 +1,6 @@
 // The selected UI document element's box, outlined in the scene view (ADR 0077 §4). Drawn as an SVG
 // polygon over the viewport, following the UI core's layout boxes every frame: a rectangle on a
-// screen canvas, the projected quad on a world canvas. Renderer-neutral DOM (no backend code); the
+// screen canvas, the projected quad on a world canvas, clipped to what an `overflow: hidden` ancestor shows (ADR 0418). Renderer-neutral DOM (no backend code); the
 // boxes come from the UI core's layout (ADR 0076). The
 // resize handles and reorder marker are `uiHandles.ts`, in an overlay of their own above this one.
 import type { Engine } from "../engine";
@@ -31,7 +31,9 @@ export function installUIElementOutline(engine: Engine): () => void {
     const scene = openScene.peek(), ref = selectedUIRef();
     const el = scene && ref ? resolveUIElement(scene.sync, ref) : null;
     const canvas = viewportCanvas(world);
-    const points = el && canvas && el.node.activeInHierarchy ? (viewport(world).uiElementBox(el.component)?.points ?? null) : null;
+    // The part that's drawn (ADR 0418: an `overflow: hidden` ancestor clips it), else the whole box.
+    const box = el && canvas && el.node.activeInHierarchy ? viewport(world).uiElementBox(el.component) : null;
+    const points = box ? (box.clip ?? box.points) : null;
     let attr = "";
     if (points && canvas) {
       const c = canvas.getBoundingClientRect(), h = host.getBoundingClientRect();

@@ -18,6 +18,7 @@ import { Locale } from "../localisation/Locale";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType, type UITextAlign, type UIWordBreak } from "./components";
 import type { UIPseudo, UITag } from "./document/types";
 import { fontFamilyOf } from "./fonts";
+import { uiBorderEdges } from "./layout";
 import type { UIKind, UITextRun, UITextWrap } from "./uiCoreTypes";
 
 /** A UI text line's height, as a multiple of its font size. */
@@ -42,9 +43,11 @@ interface KindSpec<C extends UIComponentType = UIComponentType> {
 }
 
 const visible = (c: { a: number } | null | undefined): boolean => !!c && c.a > 0;
-const panelPaints = (c: UIPanel): boolean => visible(c.backgroundColor) || (c.borderWidth > 0 && visible(c.borderColor));
+/** A border on any side (ADR 0418: sides may differ). */
+const hasBorder = (c: UIPanel): boolean => uiBorderEdges(c).some((w) => w > 0);
+const panelPaints = (c: UIPanel): boolean => visible(c.backgroundColor) || (hasBorder(c) && visible(c.borderColor));
 /** A panel with a background (a transparent one too: Unity's invisible blocker) or a border; without either it's a layout box. */
-const panelIsGraphic = (c: UIPanel): boolean => c.backgroundColor !== null || c.borderWidth > 0;
+const panelIsGraphic = (c: UIPanel): boolean => c.backgroundColor !== null || hasBorder(c);
 const always = () => true;
 
 /** The kinds, subclasses before the classes they extend (the first whose type matches wins). */

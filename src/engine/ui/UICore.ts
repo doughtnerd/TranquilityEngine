@@ -14,17 +14,29 @@ import { Mat4, Vector2 } from "../core/math";
 import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";
 import { devices, type InputClaim, type PointerFrame } from "../input/devices";
-import { UIButton, UICanvas, UIInputField, UIPanel, type UIComponentType, type UIFocusableElement } from "./components";
+import { UIButton, UICanvas, UIInputField, type UIComponentType, type UIFocusableElement } from "./components";
 import { UI_KIND_TYPES, flexShrinkOf, isInteractiveKind, isLeafKind, isRaycastTarget, sameTextRun, textRunOf, uiKindOf } from "./elementKinds";
 import { fontEpoch } from "./fonts";
 import { uiInteractions } from "./interactions";
 import { pointerFocus } from "./navigation";
-import { canvasScale, estimateText, loadYogaOnce, loadedYoga, uiLength } from "./layout";
+import { canvasScale, estimateText, inRect, intersectRect, loadYogaOnce, loadedYoga, uiBorderEdges, uiEdges, uiLength, uiLimit, type UIRect } from "./layout";
 import type { TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPickRay } from "./uiCoreTypes";
 
 export { canvasScale, uiLength } from "./layout";
 
 type ElementKind = Exclude<UIKind, "canvas">;
+
+/** Where an element sits among `overflow: hidden` clips and in the draw order (ADR 0418), from the last layout. */
+interface Placement {
+  /** The overlap of its `overflow: hidden` ancestors' padding boxes; null when unclipped. */
+  clip: UIRect | null;
+  /** Its nearest `overflow: hidden` ancestor. */
+  clipper: Entry | null;
+  /** With `overflow: hidden`: its own padding box. */
+  childClip: UIRect | null;
+  /** Its place in its canvas's draw order. */
+  order: number;
+}
 
 interface Entry {
   readonly comp: UIComponentType;
@@ -44,6 +56,8 @@ interface Entry {
   applied: unknown[];
   /** Last laid-out result, in its canvas's UI pixels. */
   box: { x: number; y: number; width: number; height: number; visible: boolean; opacity: number };
+  /** Clip and draw order from the last layout (ADR 0418). */
+  place: Placement;
 }
 
 interface CanvasEntry extends Entry {
@@ -51,9 +65,52 @@ interface CanvasEntry extends Entry {
   scale: number;
   width: number;
   height: number;
-  /** Elements in draw order, from the last sync. */
+  /** Elements in tree order (parents first), from the last sync. */
   elements: Entry[];
+  /** The same elements in draw order (ADR 0418: `zIndex`, then document order): hit-testing walks it from the end. */
+  painted: Entry[];
 }
+
+/** True for an element that draws its descendants together, ordered among themselves (ADR 0418): a non-zero `zIndex` or `overflow: hidden`. */
+function stacks(e: Entry): boolean {
+  if (e.kind === "canvas") return true;
+  const c = e.comp as Exclude<UIComponentType, UICanvas>;
+  return zOf(e) !== 0 || c.overflow === "hidden";
+}
+
+function zOf(e: Entry): number {
+  const z = (e.comp as { zIndex?: number }).zIndex;
+  return typeof z === "number" && Number.isFinite(z) ? z : 0;
+}
+
+/**
+ * A canvas's elements in draw order, as CSS paints stacking contexts (ADR 0418): within each group (the canvas, or an
+ * element that `stacks`), its members are its descendants down to (and including) nested groups, stably sorted by
+ * `zIndex`, so equal ones keep document order and parents stay before their children; each nested group is followed
+ * by its own members.
+ */
+function paintOrder(root: Entry): Entry[] {
+  const out: Entry[] = [];
+  const group = (g: Entry) => {
+    const members: Entry[] = [];
+    const gather = (p: Entry) => {
+      for (const c of p.children) {
+        members.push(c);
+        if (!stacks(c)) gather(c);
+      }
+    };
+    gather(g);
+    const sorted = members.some((m) => zOf(m) !== 0) ? members.map((m, i) => ({ m, i, z: zOf(m) })).sort((a, b) => a.z - b.z || a.i - b.i).map((x) => x.m) : members;
+    for (const m of sorted) {
+      out.push(m);
+      if (stacks(m)) group(m);
+    }
+  };
+  group(root);
+  return out;
+}
+
+const NO_PLACE: Placement = { clip: null, clipper: null, childClip: null, order: 0 };
 
 /** True when a point lies within `edge` pixels inside the border of the `width` x `height` frame at the origin. */
 function onFrameEdge(x: number, y: number, width: number, height: number, edge: number): boolean {
@@ -272,12 +329,13 @@ export class UICore implements UICoreLike {
     const kind = uiKindOf(c);
     const node = yoga.Node.create(this.config ?? undefined);
     const run = textRunOf(c);
-    const entry: Entry = { comp: c, kind, node, parent: null, children: [], canvas: null, run, measuredEpoch: fontEpoch(), applied: [], box: { x: 0, y: 0, width: 0, height: 0, visible: false, opacity: 1 } };
+    const entry: Entry = { comp: c, kind, node, parent: null, children: [], canvas: null, run, measuredEpoch: fontEpoch(), applied: [], box: { x: 0, y: 0, width: 0, height: 0, visible: false, opacity: 1 }, place: NO_PLACE };
     if (kind === "canvas") {
       const canvas = entry as CanvasEntry;
       canvas.scale = 1;
       canvas.width = canvas.height = 0;
       canvas.elements = [];
+      canvas.painted = [];
       this.canvasEntries.set(c as UICanvas, canvas);
     } else if (run) {
       node.setMeasureFunc((w, wm) => this.measure(entry, wm === yoga.MEASURE_MODE_UNDEFINED ? Infinity : w));
@@ -390,8 +448,16 @@ export class UICore implements UICoreLike {
     if (put(2, (v = t.justify[c.justifyContent] ?? yoga.JUSTIFY_FLEX_START))) n.setJustifyContent(v as never);
     if (put(3, (v = t.align[c.alignItems] ?? yoga.ALIGN_STRETCH))) n.setAlignItems(v as never);
     if (put(4, (v = finite(c.gap)))) n.setGap(yoga.GUTTER_ALL, v as number);
-    if (put(5, (v = finite(c.padding)))) n.setPadding(yoga.EDGE_ALL, v as number);
-    if (put(6, (v = finite(c.margin)))) n.setMargin(yoga.EDGE_ALL, v as number);
+    // ADR 0418 wave 1: each side its own value, else the all-sides one (slots 5, 6 and 16 are the top edges).
+    const pad = uiEdges(c.padding, c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft);
+    const mar = uiEdges(c.margin, c.marginTop, c.marginRight, c.marginBottom, c.marginLeft);
+    const bor = uiBorderEdges(c);
+    for (let i = 0; i < 4; i++) {
+      const edge = t.edges[i];
+      if (put(i === 0 ? 5 : 16 + i, pad[i])) n.setPadding(edge, pad[i]);
+      if (put(i === 0 ? 6 : 19 + i, mar[i])) n.setMargin(edge, mar[i]);
+      if (put(i === 0 ? 16 : 22 + i, bor[i])) n.setBorder(edge, bor[i]);
+    }
     if (put(7, (v = uiLength(c.width)))) n.setWidth(v as never);
     if (put(8, (v = uiLength(c.height)))) n.setHeight(v as never);
     if (put(9, (v = c.positionType === "absolute" ? yoga.POSITION_TYPE_ABSOLUTE : yoga.POSITION_TYPE_RELATIVE))) n.setPositionType(v as never);
@@ -400,8 +466,18 @@ export class UICore implements UICoreLike {
     if (put(12, (v = autoToUndefined(uiLength(c.bottom))))) n.setPosition(yoga.EDGE_BOTTOM, v as never);
     if (put(13, (v = autoToUndefined(uiLength(c.left))))) n.setPosition(yoga.EDGE_LEFT, v as never);
     if (put(14, (v = finite(c.flexGrow)))) n.setFlexGrow(v as number);
-    if (put(15, (v = flexShrinkOf(entry.kind)))) n.setFlexShrink(v as number); // text wraps to what's left; other boxes keep their size
-    if (put(16, (v = c instanceof UIPanel ? finite(c.borderWidth) : 0))) n.setBorder(yoga.EDGE_ALL, v as number);
+    // Null: the kind's (text wraps to what's left; other boxes keep their size).
+    if (put(15, (v = c.flexShrink === null || c.flexShrink === undefined ? flexShrinkOf(entry.kind) : finite(c.flexShrink)))) n.setFlexShrink(v as number);
+    if (put(26, (v = uiLimit(c.minWidth)))) n.setMinWidth(v as never);
+    if (put(27, (v = uiLimit(c.maxWidth)))) n.setMaxWidth(v as never);
+    if (put(28, (v = uiLimit(c.minHeight)))) n.setMinHeight(v as never);
+    if (put(29, (v = uiLimit(c.maxHeight)))) n.setMaxHeight(v as never);
+    if (put(30, (v = t.wrap[c.flexWrap] ?? yoga.WRAP_NO_WRAP))) n.setFlexWrap(v as never);
+    if (put(31, (v = t.alignSelf[c.alignSelf] ?? yoga.ALIGN_AUTO))) n.setAlignSelf(v as never);
+    if (put(32, (v = t.alignContent[c.alignContent] ?? yoga.ALIGN_STRETCH))) n.setAlignContent(v as never);
+    if (put(33, (v = uiLength(c.flexBasis) ?? "auto"))) n.setFlexBasis(v as never);
+    if (put(34, (v = Number.isFinite(c.aspectRatio) && c.aspectRatio > 0 ? c.aspectRatio : undefined))) n.setAspectRatio(v as never);
+    if (put(35, (v = c.overflow === "hidden" ? yoga.OVERFLOW_HIDDEN : yoga.OVERFLOW_VISIBLE))) n.setOverflow(v as never);
 
     // The text run is the measure's dirty signature: a changed run, or a font arriving (which changes
     // every text's size), measures again. An unchanged run keeps its object, so `elements()` compare it by identity.
@@ -424,23 +500,38 @@ export class UICore implements UICoreLike {
     return this.host.measureText?.(request) ?? estimateText(request);
   }
 
-  /** Read Yoga's boxes into the entries' absolute (canvas UI pixel) boxes, visibility and opacity, in draw order. */
+  /**
+   * Read Yoga's boxes into the entries' absolute (canvas UI pixel) boxes, visibility and opacity, in tree order; then
+   * their clips (`overflow: hidden` ancestors' padding boxes) and draw order (ADR 0418).
+   */
   private readLayout(canvas: CanvasEntry): void {
     canvas.elements = [];
     const cv = canvas.comp.isActiveAndEnabled;
     canvas.box = { x: 0, y: 0, width: canvas.width, height: canvas.height, visible: cv, opacity: 1 };
-    const walk = (parent: Entry, ox: number, oy: number, visible: boolean, opacity: number) => {
+    const yoga = this.yoga!;
+    const walk = (parent: Entry, ox: number, oy: number, visible: boolean, opacity: number, clip: UIRect | null, clipper: Entry | null) => {
       for (const e of parent.children) {
         const c = e.comp as Exclude<UIComponentType, UICanvas>;
-        const x = ox + e.node.getComputedLeft(), y = oy + e.node.getComputedTop();
+        const n = e.node;
+        const x = ox + n.getComputedLeft(), y = oy + n.getComputedTop();
         const v = visible && c.isActiveAndEnabled && c.visible && c.display !== "none";
         const o = opacity * c.opacity;
-        e.box = { x, y, width: e.node.getComputedWidth(), height: e.node.getComputedHeight(), visible: v, opacity: o };
+        const width = n.getComputedWidth(), height = n.getComputedHeight();
+        e.box = { x, y, width, height, visible: v, opacity: o };
+        let childClip: UIRect | null = null;
+        if (c.overflow === "hidden") {
+          const bl = n.getComputedBorder(yoga.EDGE_LEFT), bt = n.getComputedBorder(yoga.EDGE_TOP);
+          const br = n.getComputedBorder(yoga.EDGE_RIGHT), bb = n.getComputedBorder(yoga.EDGE_BOTTOM);
+          childClip = { x: x + bl, y: y + bt, width: Math.max(0, width - bl - br), height: Math.max(0, height - bt - bb) };
+        }
+        e.place = { clip, clipper, childClip, order: 0 };
         canvas.elements.push(e);
-        walk(e, x, y, v, o);
+        walk(e, x, y, v, o, childClip ? intersectRect(childClip, clip) : clip, childClip ? e : clipper);
       }
     };
-    walk(canvas, 0, 0, cv, 1);
+    walk(canvas, 0, 0, cv, 1, null, null);
+    canvas.painted = paintOrder(canvas);
+    canvas.painted.forEach((e, i) => (e.place.order = i));
   }
 
   /** Publish the results for the drawing layer, bumping `layoutVersion` only if something changed. */
@@ -456,10 +547,10 @@ export class UICore implements UICoreLike {
         Mat4.copy(worldMatrix, 0, world.worldMatrix(e), e * 16);
       }
       canvasList.push({ comp: c, mode: c.mode, sortOrder: c.sortOrder, width: canvas.width, height: canvas.height, scale: canvas.scale, pixelSize: c.mode === "world" ? c.pixelSize : 1, worldMatrix, visible: c.isActiveAndEnabled });
-      canvas.elements.forEach((e, order) => {
-        const b = e.box;
-        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order, visible: b.visible, opacity: b.opacity, text: e.run });
-      });
+      for (const e of canvas.elements) {
+        const b = e.box, p = e.place;
+        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip });
+      }
     }
     const changed = !sameCanvases(this.canvasList, canvasList) || !sameElements(this.elementList, elementList);
     this.screenList = canvases.filter((c) => c.comp.mode === "screen" && c.comp.isActiveAndEnabled);
@@ -645,11 +736,11 @@ export class UICore implements UICoreLike {
     for (let k = this.screenList.length - 1; k >= 0; k--) {
       const canvas = this.screenList[k];
       const px = x / canvas.scale, py = y / canvas.scale;
-      for (let i = canvas.elements.length - 1; i >= 0; i--) {
-        const e = canvas.elements[i];
+      for (let i = canvas.painted.length - 1; i >= 0; i--) {
+        const e = canvas.painted[i];
         if (!this.hittable(e)) continue;
         const b = e.box;
-        if (px >= b.x && px <= b.x + b.width && py >= b.y && py <= b.y + b.height) out.push(e.comp);
+        if (px >= b.x && px <= b.x + b.width && py >= b.y && py <= b.y + b.height && inRect(px, py, e.place.clip)) out.push(e.comp);
       }
     }
     const r = ray ?? this.viewRay(x, y);
@@ -660,11 +751,11 @@ export class UICore implements UICoreLike {
       const at = canvas ? this.onWorldCanvas(laid, r) : null;
       if (!canvas || !at) continue;
       const comps: UIComponentType[] = [];
-      for (let i = canvas.elements.length - 1; i >= 0; i--) {
-        const e = canvas.elements[i];
+      for (let i = canvas.painted.length - 1; i >= 0; i--) {
+        const e = canvas.painted[i];
         if (!this.hittable(e)) continue;
         const b = e.box;
-        if (at.ux >= b.x && at.ux <= b.x + b.width && at.uy >= b.y && at.uy <= b.y + b.height) comps.push(e.comp);
+        if (at.ux >= b.x && at.ux <= b.x + b.width && at.uy >= b.y && at.uy <= b.y + b.height && inRect(at.ux, at.uy, e.place.clip)) comps.push(e.comp);
       }
       if (comps.length) hits.push({ comps, t: at.t });
     }
@@ -701,24 +792,33 @@ export class UICore implements UICoreLike {
   /**
    * Editor (ADR 0077 wave B): an element's box corners (top-left, top-right, bottom-right,
    * bottom-left) from the last layout: canvas CSS pixels `[x, y]` on a screen canvas, world points
-   * `[x, y, z]` on a world canvas, with the box's size in UI pixels. Null when it isn't laid out.
+   * `[x, y, z]` on a world canvas, with the box's size in UI pixels. Null when it isn't laid out. `clip` has the
+   * corners of the part that's drawn when an `overflow: hidden` ancestor clips it (ADR 0418).
    */
   cornersOf(c: UIComponentType): UICorners | null {
     const entry = this.entries.get(c);
     const canvas = entry?.canvas;
     if (!entry || !canvas || !this.yoga) return null;
     const b = entry.box;
-    const xs = [b.x, b.x + b.width, b.x + b.width, b.x], ys = [b.y, b.y, b.y + b.height, b.y + b.height];
+    const clipRect = entry.place.clip ? intersectRect(b, entry.place.clip) : null;
+    const corners = (r: UIRect) => {
+      const xs = [r.x, r.x + r.width, r.x + r.width, r.x], ys = [r.y, r.y, r.y + r.height, r.y + r.height];
+      return xs.map((x, i) => [x, ys[i]]);
+    };
     const size: [number, number] = [b.width, b.height];
-    if (canvas.comp.mode !== "world") return { space: "screen", points: xs.map((x, i) => [x * canvas.scale, ys[i] * canvas.scale]), size };
+    if (canvas.comp.mode !== "world") {
+      const toCanvas = (r: UIRect) => corners(r).map(([x, y]) => [x * canvas.scale, y * canvas.scale]);
+      return { space: "screen", points: toCanvas(b), size, clip: clipRect ? toCanvas(clipRect) : null };
+    }
     const laid = this.canvasList.find((l) => l.comp === canvas.comp);
     if (!laid?.worldMatrix) return null;
     const m = laid.worldMatrix;
-    const points = xs.map((x, i) => {
-      const lx = (x - laid.width / 2) * laid.pixelSize, ly = (laid.height / 2 - ys[i]) * laid.pixelSize;
-      return [m[0] * lx + m[4] * ly + m[12], m[1] * lx + m[5] * ly + m[13], m[2] * lx + m[6] * ly + m[14]];
-    });
-    return { space: "world", points, size };
+    const toWorld = (r: UIRect) =>
+      corners(r).map(([x, y]) => {
+        const lx = (x - laid.width / 2) * laid.pixelSize, ly = (laid.height / 2 - y) * laid.pixelSize;
+        return [m[0] * lx + m[4] * ly + m[12], m[1] * lx + m[5] * ly + m[13], m[2] * lx + m[6] * ly + m[14]];
+      });
+    return { space: "world", points: toWorld(b), size, clip: clipRect ? toWorld(clipRect) : null };
   }
 
   private viewRay(x: number, y: number): UIPickRay | null {
@@ -753,11 +853,11 @@ export class UICore implements UICoreLike {
     for (let k = this.screenList.length - 1; k >= 0; k--) {
       const canvas = this.screenList[k];
       const px = x / canvas.scale, py = y / canvas.scale;
-      for (let i = canvas.elements.length - 1; i >= 0; i--) {
-        const e = canvas.elements[i];
+      for (let i = canvas.painted.length - 1; i >= 0; i--) {
+        const e = canvas.painted[i];
         if (!this.hittable(e) || !isRaycastTarget(e.comp)) continue;
         const b = e.box;
-        if (px >= b.x && px <= b.x + b.width && py >= b.y && py <= b.y + b.height) return { target: e, handler: handlerOf(e) };
+        if (px >= b.x && px <= b.x + b.width && py >= b.y && py <= b.y + b.height && inRect(px, py, e.place.clip)) return { target: e, handler: handlerOf(e) };
       }
     }
     const ray = this.viewRay(x, y);
@@ -768,11 +868,11 @@ export class UICore implements UICoreLike {
       const at = canvas ? this.onWorldCanvas(laid, ray) : null;
       if (!canvas || !at) continue;
       const { ux, uy, t } = at;
-      for (let i = canvas.elements.length - 1; i >= 0; i--) {
-        const e = canvas.elements[i];
+      for (let i = canvas.painted.length - 1; i >= 0; i--) {
+        const e = canvas.painted[i];
         if (!this.hittable(e) || !isRaycastTarget(e.comp)) continue;
         const b = e.box;
-        if (ux < b.x || ux > b.x + b.width || uy < b.y || uy > b.y + b.height) continue;
+        if (ux < b.x || ux > b.x + b.width || uy < b.y || uy > b.y + b.height || !inRect(ux, uy, e.place.clip)) continue;
         if (t < bestDistance) [best, bestDistance] = [e, t];
         break; // the topmost of this canvas
       }
@@ -797,6 +897,11 @@ function yogaTables(yoga: Yoga) {
     flexDirections: { row: yoga.FLEX_DIRECTION_ROW, column: yoga.FLEX_DIRECTION_COLUMN, "row-reverse": yoga.FLEX_DIRECTION_ROW_REVERSE, "column-reverse": yoga.FLEX_DIRECTION_COLUMN_REVERSE } as Record<string, number>,
     justify: { "flex-start": yoga.JUSTIFY_FLEX_START, center: yoga.JUSTIFY_CENTER, "flex-end": yoga.JUSTIFY_FLEX_END, "space-between": yoga.JUSTIFY_SPACE_BETWEEN, "space-around": yoga.JUSTIFY_SPACE_AROUND, "space-evenly": yoga.JUSTIFY_SPACE_EVENLY } as Record<string, number>,
     align: { "flex-start": yoga.ALIGN_FLEX_START, center: yoga.ALIGN_CENTER, "flex-end": yoga.ALIGN_FLEX_END, stretch: yoga.ALIGN_STRETCH, baseline: yoga.ALIGN_BASELINE } as Record<string, number>,
+    // ADR 0418 wave 1.
+    edges: [yoga.EDGE_TOP, yoga.EDGE_RIGHT, yoga.EDGE_BOTTOM, yoga.EDGE_LEFT] as const,
+    wrap: { nowrap: yoga.WRAP_NO_WRAP, wrap: yoga.WRAP_WRAP, "wrap-reverse": yoga.WRAP_WRAP_REVERSE } as Record<string, number>,
+    alignSelf: { auto: yoga.ALIGN_AUTO, "flex-start": yoga.ALIGN_FLEX_START, center: yoga.ALIGN_CENTER, "flex-end": yoga.ALIGN_FLEX_END, stretch: yoga.ALIGN_STRETCH, baseline: yoga.ALIGN_BASELINE } as Record<string, number>,
+    alignContent: { "flex-start": yoga.ALIGN_FLEX_START, center: yoga.ALIGN_CENTER, "flex-end": yoga.ALIGN_FLEX_END, stretch: yoga.ALIGN_STRETCH, "space-between": yoga.ALIGN_SPACE_BETWEEN, "space-around": yoga.ALIGN_SPACE_AROUND, "space-evenly": yoga.ALIGN_SPACE_EVENLY } as Record<string, number>,
   };
 }
 
@@ -823,6 +928,11 @@ function sameElements(a: readonly UILaidOutElement[], b: readonly UILaidOutEleme
   if (a.length !== b.length) return false;
   return a.every((x, i) => {
     const y = b[i];
-    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text;
+    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text && x.clipper === y.clipper && sameRect(x.clip, y.clip) && sameRect(x.childClip, y.childClip);
   });
+}
+
+function sameRect(a: UIRect | null, b: UIRect | null): boolean {
+  if (!a || !b) return a === b;
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
 }

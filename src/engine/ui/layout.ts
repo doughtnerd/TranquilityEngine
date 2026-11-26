@@ -49,6 +49,54 @@ export function uiLength(v: UILength | null | undefined): number | `${number}%` 
   return px !== "" && Number.isFinite(n) ? n : undefined;
 }
 
+// 0418 wave 1: layout
+
+/** A finite number, else 0. */
+function finiteOr0(n: number | null | undefined): number {
+  return typeof n === "number" && Number.isFinite(n) ? n : 0;
+}
+
+/** The four sides (top, right, bottom, left) of an edge property: each side's own value, else the all-sides value. */
+export function uiEdges(all: number, top: number | null, right: number | null, bottom: number | null, left: number | null): [number, number, number, number] {
+  const a = finiteOr0(all);
+  const side = (v: number | null) => (v === null || v === undefined ? a : finiteOr0(v));
+  return [side(top), side(right), side(bottom), side(left)];
+}
+
+/** A panel's border widths (top, right, bottom, left), never negative; zeros for an element without a border. */
+export function uiBorderEdges(c: object): [number, number, number, number] {
+  const p = c as { borderWidth?: number; borderTopWidth?: number | null; borderRightWidth?: number | null; borderBottomWidth?: number | null; borderLeftWidth?: number | null };
+  if (typeof p.borderWidth !== "number") return [0, 0, 0, 0];
+  return uiEdges(p.borderWidth, p.borderTopWidth ?? null, p.borderRightWidth ?? null, p.borderBottomWidth ?? null, p.borderLeftWidth ?? null).map((v) => Math.max(0, v)) as [number, number, number, number];
+}
+
+/** A min/max length as Yoga takes it: pixels or a percentage; `"auto"`, `"none"` and unreadable values are unset. */
+export function uiLimit(v: UILength | null | undefined): number | `${number}%` | undefined {
+  const l = uiLength(v);
+  return l === "auto" ? undefined : l;
+}
+
+/** A rectangle in a canvas's UI pixels. */
+export interface UIRect {
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+}
+
+/** The overlap of two rectangles (zero-sized, at the nearer edge, when they don't overlap); `a` when `b` is null. */
+export function intersectRect(a: UIRect, b: UIRect | null): UIRect {
+  if (!b) return a;
+  const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y);
+  const r = Math.min(a.x + a.width, b.x + b.width), bottom = Math.min(a.y + a.height, b.y + b.height);
+  return { x, y, width: Math.max(0, r - x), height: Math.max(0, bottom - y) };
+}
+
+/** True when a point lies in a rectangle (edges included); always for a null rectangle (unclipped). */
+export function inRect(x: number, y: number, r: UIRect | null): boolean {
+  return !r || (x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height);
+}
+
 /**
  * The Node fallback: 0.55 em per character, greedy wrapping to `maxWidth` at spaces (`wrap: "word"`,
  * a longer word overflows) or at any character (`"anywhere"`); `"none"` breaks only at line breaks.

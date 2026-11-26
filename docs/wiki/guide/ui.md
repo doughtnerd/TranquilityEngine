@@ -75,17 +75,80 @@ Every element has flexbox fields (Yoga's, with web defaults), written in kebab c
 | `display` | `flex` (default), or `none` to take it and its children out of layout, drawing and the pointer |
 | `raycastTarget` | `true` (default): the pointer stops at it, if it's a graphic ([below](#the-pointer-goes-to-ui-first)); `false`: it passes through |
 
-Children shrink to fit a parent that's too small (flexbox's `flex-shrink: 1`).
+When children don't fit, text shrinks and wraps to what's left; other elements keep their size unless their `flexShrink` says otherwise (below).
+
+### Sides, sizes, wrapping, clipping and layers
+
+[ADR 0418](../../decisions/0418-the-ui-core-grows-toward-web-css-layout-paint-transforms-animation-and-selectors-in-waves.md) wave 1 adds these fields to every element, each settable by attribute, rule or script:
+
+| Field | Values |
+| --- | --- |
+| `paddingTop`, `paddingRight`, `paddingBottom`, `paddingLeft`; the same for `margin…` | pixels on one side; `null` (the default) takes `padding` / `margin`, the all-sides value |
+| `borderTopWidth`, `borderRightWidth`, `borderBottomWidth`, `borderLeftWidth` | panels, buttons and input fields: one side's border; `null` takes `borderWidth`. Unequal sides draw each side as its own edge |
+| `minWidth`, `minHeight` | pixels or a percentage; `auto` (default): no minimum |
+| `maxWidth`, `maxHeight` | pixels or a percentage; `none` (default): no maximum |
+| `flexWrap` | `nowrap` (default), `wrap`, `wrap-reverse`: children that don't fit go onto more lines |
+| `alignSelf` | `auto` (default: the parent's `alignItems`), or one of `alignItems`' values for this element |
+| `alignContent` | how wrapped lines share the space across: `stretch` (default), `flex-start`, `center`, `flex-end`, `space-between`, `space-around`, `space-evenly` |
+| `flexShrink` | how much it shrinks, relative to its siblings, when they don't fit; `null` (default): its kind's (text 1, others 0) |
+| `flexBasis` | its size along the parent's direction before growing and shrinking: pixels, a percentage, or `auto` (default: its `width` or `height`) |
+| `aspectRatio` | width ÷ height, kept when only one side is set (`aspect-ratio: 16 / 9`); 0 (default): none |
+| `overflow` | `visible` (default) or `hidden`: its children are drawn, take the pointer and can be reached by navigation only inside its padding box (inside its border, with rounded inner corners) |
+| `zIndex` | draw and pointer order among siblings: higher on top, then document order |
+
+Shorthands work as in CSS, in stylesheets and in attributes, and expand to the fields above where they're written, so the later declaration wins for each side:
+
+```css
+.card { padding: 8px 16px; margin: 0 0 12px; border: 2px solid #fff; border-width: 2px 0; }
+.grow { flex: 1; }              /* grow 1, shrink 1, basis 0; also flex: none | auto | 2 0 50% | 120px */
+```
+
+- `padding`, `margin` and `border-width` take one to four values (top, right, bottom, left, as in CSS). One value sets the all-sides field and clears the sides; two to four set the sides. A script writing `padding` changes the sides that have no value of their own.
+- `border` takes a width, `solid` (or `none`, no border) and a colour, in any order. Only solid borders are drawn.
+- `overflow: hidden` and a non-zero `zIndex` each draw the element's descendants together, right after it, ordered among themselves by their own `zIndex`: a child can't rise above its parent's later siblings by its `zIndex` (a CSS stacking context). Tab and `next`/`previous` keep document order; only drawing and the pointer follow `zIndex`.
+- `overflow: hidden` doesn't scroll. An element it clips away entirely is skipped by keyboard and gamepad navigation, and the editor outlines only the part that's drawn.
 
 ## Elements
 
-- **`UIPanel`**: a box. `backgroundColor` (none by default), `borderRadius`, `borderWidth`, `borderColor`.
+- **`UIPanel`**: a box. `backgroundColor` (none by default), `borderRadius`, `borderWidth`, `borderColor`, and the paint [above](#paint-shadows-gradients-and-rounded-corners): a shadow, a background image or gradient, and per-corner radii.
 - **`UIText`**: `text`, `font` (a font file in the project; empty is the bundled Inter), `fontSize`, `color`, `fontWeight` (`light`, `normal`, `medium`, `semi-bold`, `bold`, or a number), `textAlign` (`start` and `end` follow the language's direction), `wordBreak` (`break-word`, `break-all`, `keep-all` for no wrapping), and an outline: `textOutlineColor` (none by default) and `textOutlineWidth` (UI pixels, 0 by default). The outline shows outside the glyphs, scales with the canvas like the font, and doesn't change the layout. A HUD label over a busy game takes `text-outline-color: #000; text-outline-width: 3px;`.
 - **`UIImage`**: `image` (a texture asset) and `fit`: `fill` stretches it to the element, `cover` fills it and crops, `contain` keeps the texture's aspect ratio when the element's size comes from it (leave `width` or `height` at `"auto"`).
 - **`UIButton`**: a panel that takes the pointer, with `hoverColor`, `pressedColor` and `interactable`. Its children are its label.
 - **`UIInputField`**: a one-line text field: `value`, `placeholder`, `maxLength` (0: no limit), `fontSize`, `color`, `placeholderColor`, and the panel's style.
 - Buttons and input fields also take focus: `focusable`, `focusColor`, `navigation` and `navUp`, `navDown`, `navLeft`, `navRight` ([below](#keyboard-and-gamepad-navigation)).
 - **`UIControlMapper`**: a ready-made controls screen that lists a player's actions and rebinds them (see [Input](input.md#a-rebinding-screen)). It builds its elements as its node's children, under a canvas a document built.
+
+## Paint: shadows, gradients and rounded corners
+
+Panels, buttons and input fields take a shadow, a gradient or image background and a radius per corner; text takes a shadow ([ADR 0418](../../decisions/0418-the-ui-core-grows-toward-web-css-layout-paint-transforms-animation-and-selectors-in-waves.md) wave 2). Write them as CSS, in a stylesheet or as attributes:
+
+```css
+.card {
+  background-color: #1d2230;
+  border-radius: 12px 12px 0 0;              /* top-left, top-right, bottom-right, bottom-left */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5); /* offset-x offset-y blur colour */
+}
+.banner { background-image: linear-gradient(90deg, #336699, #66aacc 70%); }
+.glow   { background-image: radial-gradient(#ffffffcc, transparent); }
+.wood   { background-image: url(../images/wood.png); }
+.title  { text-shadow: 0 2px 4px black; }
+```
+
+| Property | Takes | Fields it sets |
+| --- | --- | --- |
+| `box-shadow` | one shadow: `offset-x offset-y [blur] [colour]` (black when the colour is left out), or `none` | `boxShadowOffsetX`, `boxShadowOffsetY`, `boxShadowBlur`, `boxShadowColor` (null: none) |
+| `text-shadow` | the same, on text; inherited like `color` | `textShadowOffsetX`, `textShadowOffsetY`, `textShadowBlur`, `textShadowColor` |
+| `background-image` | `url(path)`, `linear-gradient([angle \| to side,] stops…)`, `radial-gradient([circle [at center],] stops…)` or `none` | `backgroundImage` (the CSS text) |
+| `border-radius` | one to four lengths, in CSS order | one value: `borderRadius`; two to four: `borderTopLeftRadius`, `borderTopRightRadius`, `borderBottomRightRadius`, `borderBottomLeftRadius` |
+
+- **Shadows** are one shadow each: `inset`, a spread and several shadows aren't supported. Offsets and blur are UI pixels and scale with the canvas. A panel's shadow is cast by its background, so a panel without a `backgroundColor` or gradient has none.
+- **Gradients:** a stop is a colour and an optional position in `%`; positions left out are spread evenly, as in CSS. A linear gradient's angle is in `deg` (also `turn`, `rad`, `grad`; default `180deg`, top to bottom) or `to top`, `to right`, `to bottom`, `to left`. A radial gradient is a circle at the centre reaching the farthest corner. A gradient replaces `backgroundColor`, so a button with one doesn't change colour on hover.
+- **`url()`** stretches the texture over the box inside the border, under the element's children; a relative path is relative to the stylesheet or document.
+- **Corners:** a corner's field at `-1` (its default) takes `borderRadius`, so scripts writing `borderRadius` keep working. One value in `border-radius` sets `borderRadius` and puts every corner back on it; `border-top-left-radius: 0` after it squares just that corner. Elliptical corners (`/`) aren't supported.
+- A value that can't be read is left out and warned about once, saying why.
+- Every field is also its own property (`box-shadow-blur: 8px`, `background-image` by attribute), and scripts write them like any field.
+
+**Performance.** Babylon GUI draws the UI with Canvas2D and redraws only what changed. A shadow or gradient redraws its whole region, blur included, each time it changes, so animating one (a pulsing glow, a moving gradient) costs more CPU than animating a position, and more on large screens. Animate opacity or position where you can.
 
 ## Scripting
 

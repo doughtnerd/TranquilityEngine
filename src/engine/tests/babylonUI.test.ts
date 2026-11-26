@@ -22,11 +22,16 @@ import { UIPointer } from "./uiPointer";
 import { loadUIDocumentSupport } from "../ui/UIDocument";
 import { uiElement } from "./uiMarkup";
 
+/** Gradients the fake contexts made, in order: the kind, then the arguments (ADR 0418 wave 2). */
+const drawnGradients: Array<[string, ...number[]]> = [];
+
 /** A 2D context that draws nothing and measures half an em per character. */
 function fakeContext() {
   const ctx: Record<string, unknown> = { font: "16px sans-serif", canvas: null };
   const noop = () => undefined;
   for (const m of ["save", "restore", "clearRect", "fillRect", "scale", "translate", "rotate", "beginPath", "closePath", "clip", "fill", "stroke", "fillText", "strokeText", "drawImage", "setTransform", "moveTo", "lineTo", "arc", "rect", "quadraticCurveTo", "arcTo"]) ctx[m] = noop;
+  ctx.createLinearGradient = (...a: number[]) => (drawnGradients.push(["linear", ...a]), { addColorStop: noop });
+  ctx.createRadialGradient = (...a: number[]) => (drawnGradients.push(["radial", ...a]), { addColorStop: noop });
   ctx.measureText = (s: string) => {
     const size = Number(/(\d+(?:\.\d+)?)px/.exec(String(ctx.font))?.[1] ?? 16);
     return { width: s.length * size * 0.5, actualBoundingBoxAscent: size, actualBoundingBoxDescent: 0 };
@@ -54,6 +59,7 @@ beforeEach(async () => {
   (babylon as unknown as { createCanvas: typeof fakeCanvas }).createCanvas = fakeCanvas;
   scene = new Scene(babylon);
   loaded.length = 0;
+  drawnGradients.length = 0;
   ui = new BabylonUI(scene, {
     texture: async (ref) => {
       loaded.push(ref);
@@ -77,7 +83,7 @@ function canvasInfo(comp: UICanvas, over: Partial<UILaidOutCanvas> = {}): UILaid
   return { comp, mode: comp.mode, sortOrder: comp.sortOrder, width: 1280, height: 720, scale: 1, pixelSize: comp.pixelSize, worldMatrix: null, visible: true, ...over };
 }
 
-type ElementInit = Partial<Pick<UILaidOutElement, "x" | "y" | "width" | "height" | "visible" | "opacity">>;
+type ElementInit = Partial<Pick<UILaidOutElement, "x" | "y" | "width" | "height" | "visible" | "opacity" | "order" | "clip" | "clipper" | "childClip">>;
 
 /** A fake core reporting these canvases and elements (orders count up per canvas; text runs resolved as the core resolves them, on each read). */
 class FakeCore implements UICoreLike {
@@ -91,7 +97,7 @@ class FakeCore implements UICoreLike {
     this.es = elements.map(([comp, canvas, init = {}]) => {
       const order = orders.get(canvas) ?? 0;
       orders.set(canvas, order + 1);
-      return { comp, kind: uiKindOf(comp), canvas, x: 0, y: 0, width: 100, height: 40, order, visible: true, opacity: 1, text: null, ...init } as UILaidOutElement;
+      return { comp, kind: uiKindOf(comp), canvas, x: 0, y: 0, width: 100, height: 40, order, visible: true, opacity: 1, text: null, clip: null, clipper: null, childClip: null, ...init } as UILaidOutElement;
     });
     this.layoutVersion++;
   }
@@ -410,6 +416,92 @@ describe("screen canvases on Babylon GUI (ADR 0076)", () => {
   });
 });
 
+describe("layout wave 1 on Babylon GUI (ADR 0418)", () => {
+  it("draws an overflow: hidden element's descendants in a clip at its padding box, right above it, and takes them out again", () => {
+    const canvas = node("C", null, UICanvas);
+    const clipper = node("Clip", canvas.node, UIPanel, { borderWidth: 10, borderRadius: 12, overflow: "hidden" });
+    const inner = node("Inner", clipper.node, UIPanel, { backgroundColor: new Color(1, 1, 1, 1) });
+    const core = new FakeCore();
+    const padding = { x: 10, y: 10, width: 80, height: 80 };
+    core.set([canvasInfo(canvas)], [
+      [clipper, canvas, { x: 0, y: 0, width: 100, height: 100, order: 3, childClip: padding }],
+      [inner, canvas, { x: 15, y: 20, width: 150, height: 40, order: 4, clip: padding, clipper }],
+    ]);
+    sync(core);
+    const clip = byName(rootOf(), "Clip.clip") as Rectangle;
+    expect([clip.leftInPixels, clip.topInPixels, clip.widthInPixels, clip.heightInPixels]).toEqual([10, 10, 80, 80]);
+    expect(clip.zIndex).toBe(3.5); // after the clipper (3), before the next element of the canvas
+    expect(clip.clipChildren && clip.clipContent).toBe(true);
+    expect(clip.thickness).toBe(0);
+    expect(clip.cornerRadius).toBe(2); // the inner corners: the radius less the border
+    const r = clip.children.find((c) => c.name === "Inner")!;
+    expect([r.leftInPixels, r.topInPixels, r.zIndex]).toEqual([5, 10, 4]); // offset by the clip's corner
+    expect(rootOf().children.some((c) => c.name === "Inner")).toBe(false);
+
+    // No longer hidden: the descendant goes back to the canvas's root, and the clip goes.
+    core.set([canvasInfo(canvas)], [
+      [clipper, canvas, { x: 0, y: 0, width: 100, height: 100, order: 3 }],
+      [inner, canvas, { x: 15, y: 20, width: 150, height: 40, order: 4 }],
+    ]);
+    sync(core);
+    const back = byName(rootOf(), "Inner");
+    expect(back).toBe(r);
+    expect([back.leftInPixels, back.topInPixels]).toEqual([15, 20]);
+    expect(rootOf().children.some((c) => c.name === "Clip.clip")).toBe(false);
+  });
+
+  it("nests a clip in its clipper's clip", () => {
+    const canvas = node("C", null, UICanvas);
+    const outer = node("Outer", canvas.node, UIPanel, { overflow: "hidden" });
+    const inner = node("Inner", outer.node, UIPanel, { overflow: "hidden" });
+    const core = new FakeCore();
+    const outerBox = { x: 0, y: 0, width: 100, height: 100 }, innerBox = { x: 50, y: 50, width: 100, height: 100 };
+    core.set([canvasInfo(canvas)], [
+      [outer, canvas, { ...outerBox, order: 0, childClip: outerBox }],
+      [inner, canvas, { ...innerBox, order: 1, childClip: innerBox, clip: outerBox, clipper: outer }],
+    ]);
+    sync(core);
+    const outerClip = byName(rootOf(), "Outer.clip") as Container;
+    const innerClip = outerClip.children.find((c) => c.name === "Inner.clip")!;
+    expect([innerClip.leftInPixels, innerClip.topInPixels, innerClip.zIndex]).toEqual([50, 50, 1.5]);
+  });
+
+  it("draws equal border sides as the Rectangle's stroke, and unequal ones as an edge rectangle each", () => {
+    const canvas = node("C", null, UICanvas);
+    const panel = node("P", canvas.node, UIPanel, { borderWidth: 2, borderLeftWidth: 6, borderColor: new Color(0, 1, 0, 1) });
+    const core = new FakeCore();
+    core.set([canvasInfo(canvas)], [[panel, canvas, { width: 200, height: 80 }]]);
+    sync(core);
+    const r = byName(rootOf(), "P") as Rectangle;
+    expect(r.thickness).toBe(0);
+    const edges = [0, 1, 2, 3].map((i) => r.children.find((c) => c.name === `P.edge${i}`) as Rectangle);
+    expect(edges.map((e) => e.isVisible)).toEqual([true, true, true, true]);
+    expect([edges[0].heightInPixels, edges[1].widthInPixels, edges[2].heightInPixels, edges[3].widthInPixels]).toEqual([2, 2, 2, 6]);
+    expect(edges.map((e) => e.background)).toEqual(Array(4).fill("rgba(0, 255, 0, 1)"));
+    expect([edges[1].horizontalAlignment, edges[2].verticalAlignment]).toEqual([Control.HORIZONTAL_ALIGNMENT_RIGHT, Control.VERTICAL_ALIGNMENT_BOTTOM]);
+
+    panel.borderLeftWidth = null; // equal again: the stroke
+    sync(core);
+    expect(r.thickness).toBe(2);
+    expect(edges.every((e) => !e.isVisible)).toBe(true);
+  });
+
+  it("insets an input field's text by each side's border and padding", () => {
+    const canvas = node("C", null, UICanvas);
+    const field = node("F", canvas.node, UIInputField, { placeholder: "Name", padding: 8, paddingLeft: 12, borderWidth: 1, borderLeftWidth: 4 });
+    const core = new FakeCore();
+    core.set([canvasInfo(canvas)], [[field, canvas, { width: 240, height: 36 }]]);
+    sync(core);
+    const r = byName(rootOf(), "F") as Rectangle;
+    const label = r.children.find((c) => c.name === "F.text") as TextBlock;
+    expect(r.thickness).toBe(0);
+    expect(label.leftInPixels).toBe(4 + 12);
+    expect(label.topInPixels).toBe(1);
+    expect(label.widthInPixels).toBe(240 - 4 - 1 - 12 - 8);
+    expect(label.heightInPixels).toBe(36 - 2);
+  });
+});
+
 describe("world canvases on Babylon GUI (ADR 0076)", () => {
   const matrix = (): Float32Array => {
     const m = new Float32Array(16);
@@ -680,5 +772,122 @@ describe("uploading only the redrawn part of the screen UI (ADR 0075 notes)", ()
     const ui = new BabylonUI(scene, { texture: () => Promise.reject(new Error("no textures")) });
     expect(Object.prototype.hasOwnProperty.call(ui.screen, "update")).toBe(false);
     ui.dispose();
+  });
+});
+
+describe("paint on Babylon GUI (ADR 0418 wave 2)", () => {
+  const painted = (init: Partial<UIPanel>, opts: { scale?: number; pixelRatio?: number; box?: ElementInit } = {}) => {
+    const canvas = node("C", null, UICanvas);
+    const panel = node("P", canvas.node, UIPanel, { backgroundColor: new Color(0.2, 0.2, 0.2, 1), ...init });
+    const core = new FakeCore();
+    const box = { x: 10, y: 20, width: 200, height: 80, ...opts.box };
+    core.set([canvasInfo(canvas, { scale: opts.scale ?? 1 })], [[panel, canvas, box]]);
+    sync(core, {}, 1280, 720, opts.pixelRatio ?? 1);
+    return { canvas, panel, core, rect: byName(rootOf(), "P") as Rectangle };
+  };
+  const round = (vs: number[]) => vs.map((v) => Math.round(v * 1000) / 1000);
+
+  it("gives each corner its own radius, -1 taking borderRadius: X top-left, Y top-right, Z bottom-right, W bottom-left", () => {
+    const { rect, panel, core } = painted({ borderRadius: 5, borderTopLeftRadius: 1, borderTopRightRadius: 2, borderBottomRightRadius: 3 });
+    expect([rect.cornerRadiusX, rect.cornerRadiusY, rect.cornerRadiusZ, rect.cornerRadiusW]).toEqual([1, 2, 3, 5]);
+    panel.borderTopLeftRadius = panel.borderTopRightRadius = panel.borderBottomRightRadius = -1;
+    panel.borderRadius = 8; // a script's all-corners radius, as before
+    sync(core);
+    expect([rect.cornerRadiusX, rect.cornerRadiusY, rect.cornerRadiusZ, rect.cornerRadiusW]).toEqual([8, 8, 8, 8]);
+  });
+
+  it("casts a box-shadow from the background, in UI pixels scaled with the canvas, and takes it away", () => {
+    const { rect, panel, core } = painted({ boxShadowColor: new Color(0, 0, 0, 0.5), boxShadowOffsetX: 2, boxShadowOffsetY: 4, boxShadowBlur: 6 }, { scale: 2, pixelRatio: 1.5 });
+    expect(rect.shadowColor).toBe("rgba(0, 0, 0, 0.5)");
+    expect([rect.shadowOffsetX, rect.shadowOffsetY, rect.shadowBlur]).toEqual([6, 12, 18]); // Canvas2D shadows ignore the root's 3x scale
+    panel.boxShadowColor = null;
+    sync(core, {}, 1280, 720, 1.5);
+    expect([rect.shadowOffsetX, rect.shadowOffsetY, rect.shadowBlur]).toEqual([0, 0, 0]);
+  });
+
+  it("redraws where a shadow was when it moves or goes, so it doesn't stay behind", () => {
+    ui.screen.scaleTo(1280, 720);
+    const { rect, panel, core } = painted({ boxShadowColor: new Color(0, 0, 0, 1), boxShadowOffsetX: 30, boxShadowOffsetY: 30 });
+    ui.screen._checkUpdate(null);
+    const rects: number[][] = [];
+    const invalidate = ui.screen.invalidateRect.bind(ui.screen);
+    ui.screen.invalidateRect = (...r: [number, number, number, number]) => {
+      rects.push(r);
+      invalidate(...r);
+    };
+    panel.boxShadowOffsetX = panel.boxShadowOffsetY = 0;
+    sync(core);
+    ui.screen._checkUpdate(null);
+    const right = rect.leftInPixels + rect.widthInPixels;
+    const bottom = rect.topInPixels + rect.heightInPixels;
+    expect(Math.max(...rects.map((r) => r[2]))).toBeGreaterThanOrEqual(right + 30);
+    expect(Math.max(...rects.map((r) => r[3]))).toBeGreaterThanOrEqual(bottom + 30);
+  });
+
+  it("fills a linear gradient as the background, across the box it's drawn in", async () => {
+    const { LinearGradient } = await import("@babylonjs/gui/2D/controls/gradient/LinearGradient.js");
+    ui.screen.scaleTo(1280, 720);
+    const { rect, core, panel, canvas } = painted({ backgroundImage: "linear-gradient(90deg, #ff0000, #0000ff 60%)" });
+    const g = rect.backgroundGradient!;
+    expect(g).toBeInstanceOf(LinearGradient);
+    expect(g.colorStops).toEqual([{ offset: 0, color: "rgba(255, 0, 0, 1)" }, { offset: 0.6, color: "rgba(0, 0, 255, 1)" }]);
+    ui.screen._checkUpdate(null);
+    expect(drawnGradients.map(([k, ...a]) => [k, ...round(a)])).toEqual([["linear", 10, 60, 210, 60]]);
+    // Moved: drawn across the new box.
+    core.set([canvasInfo(canvas)], [[panel, canvas, { x: 50, y: 20, width: 100, height: 80 }]]);
+    sync(core);
+    ui.screen._checkUpdate(null);
+    expect(drawnGradients.slice(1).map(([k, ...a]) => [k, ...round(a)])).toEqual([["linear", 50, 60, 150, 60]]);
+    panel.backgroundImage = "";
+    sync(core);
+    expect(rect.backgroundGradient).toBeNull();
+    expect(rect.background).toBe("rgba(51, 51, 51, 1)"); // the colour again
+  });
+
+  it("fills a radial gradient as a circle at the centre reaching the corners", async () => {
+    const { RadialGradient } = await import("@babylonjs/gui/2D/controls/gradient/RadialGradient.js");
+    ui.screen.scaleTo(1280, 720);
+    const { rect } = painted({ backgroundImage: "radial-gradient(circle, #ffffff, #000000)" }, { box: { x: 0, y: 0, width: 60, height: 80 } });
+    expect(rect.backgroundGradient).toBeInstanceOf(RadialGradient);
+    ui.screen._checkUpdate(null);
+    expect(drawnGradients).toEqual([["radial", 30, 40, 0, 30, 40, 50]]);
+  });
+
+  it("draws a url() background as an image filling the box inside the border, under the panel's children", async () => {
+    const { rect, panel, core } = painted({ backgroundImage: `url("asset:images/wood.png")`, borderWidth: 2 });
+    const img = rect.children.find((c) => c.name === "P.background") as Image;
+    expect(img).toBeDefined();
+    expect([img.widthInPixels, img.heightInPixels]).toEqual([196, 76]);
+    expect(img.zIndex).toBe(-1);
+    await vi.waitFor(() => expect(loaded).toEqual(["images/wood.png"]));
+    panel.backgroundImage = "linear-gradient(#000, #fff)";
+    sync(core);
+    expect(rect.children.some((c) => c.name === "P.background")).toBe(false);
+  });
+
+  it("warns once about a backgroundImage a script wrote that can't be read, and draws none", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { rect, panel, core } = painted({ backgroundImage: "conic-gradient(red, blue)" });
+    expect(rect.backgroundGradient).toBeNull();
+    panel.backgroundImage = "";
+    sync(core);
+    panel.backgroundImage = "conic-gradient(red, blue)";
+    sync(core);
+    expect(warn.mock.calls.filter((c) => String(c[0]).includes("conic-gradient")).length).toBe(1);
+    warn.mockRestore();
+  });
+
+  it("draws a UIText's text-shadow as the TextBlock's shadow, scaled with the canvas", () => {
+    const canvas = node("C", null, UICanvas);
+    const text = node("T", canvas.node, UIText, { text: "Score", textShadowColor: new Color(1, 0, 0, 1), textShadowOffsetX: 1, textShadowOffsetY: 2, textShadowBlur: 3 });
+    const core = new FakeCore();
+    core.set([canvasInfo(canvas, { scale: 2 })], [[text, canvas, { x: 0, y: 0, width: 200, height: 36 }]]);
+    sync(core);
+    const block = byName(rootOf(), "T") as TextBlock;
+    expect(block.shadowColor).toBe("rgba(255, 0, 0, 1)");
+    expect([block.shadowOffsetX, block.shadowOffsetY, block.shadowBlur]).toEqual([2, 4, 6]);
+    text.textShadowColor = null;
+    sync(core);
+    expect([block.shadowOffsetX, block.shadowOffsetY, block.shadowBlur]).toEqual([0, 0, 0]);
   });
 });

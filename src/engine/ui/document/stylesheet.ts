@@ -12,6 +12,8 @@ import { UI_TYPES } from "../components";
 import { UI_TAGS as UI_KIND_TAGS } from "../elementKinds";
 import { HTML_TAGS } from "../host/htmlTags";
 import { hasBinding, problemAt, resolvePath } from "./markup";
+import { parseColor } from "./cssColor";
+import { parseBackgroundImage, parseCornerRadii, parseShadow } from "./paintValues";
 import type {
   Declaration,
   MarkupAttribute,
@@ -31,9 +33,21 @@ import type {
 const UI_TAGS: ReadonlySet<string> = UI_KIND_TAGS;
 const PSEUDO: ReadonlySet<string> = new Set<UIPseudo>(["hover", "pressed", "focus", "disabled"]);
 /** Text fields children inherit, as on the web (camelCase field names). */
-export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize", "fontWeight", "textAlign", "textOutlineColor", "textOutlineWidth"]);
+export const INHERITED_FIELDS: ReadonlySet<string> = new Set(["color", "fontSize", "fontWeight", "textAlign", "textOutlineColor", "textOutlineWidth", "textShadowColor", "textShadowOffsetX", "textShadowOffsetY", "textShadowBlur"]);
 /** String fields that hold a `UILength`. */
-const LENGTH_FIELDS: ReadonlySet<string> = new Set(["width", "height", "top", "right", "bottom", "left"]);
+const LENGTH_FIELDS: ReadonlySet<string> = new Set(["width", "height", "top", "right", "bottom", "left", "minWidth", "minHeight", "maxWidth", "maxHeight", "flexBasis"]);
+/** Length fields that take `none` (no maximum, ADR 0418). */
+const NONE_LENGTH_FIELDS: ReadonlySet<string> = new Set(["maxWidth", "maxHeight"]);
+/**
+ * Number fields where null means "not set here" (ADR 0418): a side takes the all-sides value, `flexShrink` its
+ * element kind's. `auto` and `none` write null.
+ */
+const NULLABLE_NUMBER_FIELDS: ReadonlySet<string> = new Set([
+  "paddingTop", "paddingRight", "paddingBottom", "paddingLeft",
+  "marginTop", "marginRight", "marginBottom", "marginLeft",
+  "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth",
+  "flexShrink",
+]);
 /** Attributes that aren't fields (`translate="no"` marks text as deliberately unlocalised, ADR 0356 §4). */
 const NOT_FIELDS: ReadonlySet<string> = new Set(["id", "class", "translate"]);
 /** The prefix of key attributes (`t:text="menu.start"`, ADR 0356 §4): the runtime writes the localised message. */
@@ -307,43 +321,20 @@ function selectorUses(sel: Selector, test: (s: SimpleSelector) => boolean): bool
 
 // --- Values -------------------------------------------------------------------------------------
 
-const NAMED_COLORS: Readonly<Record<string, string>> = {
-  black: "#000000", white: "#ffffff", red: "#ff0000", green: "#008000", lime: "#00ff00", blue: "#0000ff",
-  yellow: "#ffff00", cyan: "#00ffff", aqua: "#00ffff", magenta: "#ff00ff", fuchsia: "#ff00ff", orange: "#ffa500",
-  purple: "#800080", pink: "#ffc0cb", brown: "#a52a2a", gray: "#808080", grey: "#808080", silver: "#c0c0c0",
-  navy: "#000080", teal: "#008080", maroon: "#800000", olive: "#808000", gold: "#ffd700", coral: "#ff7f50",
-  crimson: "#dc143c", indigo: "#4b0082", violet: "#ee82ee", salmon: "#fa8072", tomato: "#ff6347",
-  darkgray: "#a9a9a9", darkgrey: "#a9a9a9", lightgray: "#d3d3d3", lightgrey: "#d3d3d3", dimgray: "#696969", dimgrey: "#696969",
-};
-
-/** A CSS colour: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`/`rgba()`, a named colour, `transparent`; `none` is null (no fill). */
-export function parseColor(raw: string): Color | null | undefined {
-  const v = raw.trim().toLowerCase();
-  if (v === "none") return null;
-  if (v === "transparent") return new Color(0, 0, 0, 0);
-  const named = NAMED_COLORS[v];
-  if (named) return Color.from(named);
-  if (/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(v)) {
-    let hex = v.slice(1);
-    if (hex.length <= 4) hex = hex.split("").map((c) => c + c).join("");
-    const n = (i: number) => parseInt(hex.slice(i, i + 2), 16) / 255;
-    return new Color(n(0), n(2), n(4), hex.length === 8 ? n(6) : 1);
-  }
-  const fn = /^rgba?\(([^)]*)\)$/.exec(v);
-  if (fn) {
-    const parts = fn[1].split(/[\s,/]+/).filter(Boolean);
-    if (parts.length !== 3 && parts.length !== 4) return undefined;
-    const channel = (s: string) => (s.endsWith("%") ? parseFloat(s) / 100 : parseFloat(s) / 255);
-    const alpha = (s: string) => (s.endsWith("%") ? parseFloat(s) / 100 : parseFloat(s));
-    const c = new Color(channel(parts[0]), channel(parts[1]), channel(parts[2]), parts[3] !== undefined ? alpha(parts[3]) : 1);
-    return [c.r, c.g, c.b, c.a].every(Number.isFinite) ? c : undefined;
-  }
-  return undefined;
-}
+export { parseColor };
 
 function parseNumber(raw: string): number | undefined {
   const m = /^(-?(?:\d+\.?\d*|\.\d+))(px)?$/.exec(raw.trim());
   return m ? parseFloat(m[1]) : undefined;
+}
+
+/** `aspect-ratio` (ADR 0418): `16 / 9`, `1.5`, or `auto` or `0` (none). Undefined for anything else. */
+function parseAspectRatio(raw: string): number | undefined {
+  if (raw === "auto") return 0;
+  const m = /^(\d+\.?\d*|\.\d+)\s*(?:\/\s*(\d+\.?\d*|\.\d+))?$/.exec(raw);
+  if (!m) return undefined;
+  const r = parseFloat(m[1]) / (m[2] !== undefined ? parseFloat(m[2]) : 1);
+  return Number.isFinite(r) && r >= 0 ? r : undefined;
 }
 
 function unquote(raw: string): string {
@@ -358,7 +349,13 @@ function unquote(raw: string): string {
 export function convertValue(raw: string, info: FieldInfo, file: string): unknown {
   const type = info.type;
   const v = raw.trim();
-  if (type === Number) return parseNumber(v);
+  const paint = PAINT_VALUES[info.name];
+  if (paint) return paint(v, file);
+  if (type === Number) {
+    if (NULLABLE_NUMBER_FIELDS.has(info.name) && (v === "auto" || v === "none")) return null;
+    if (info.name === "aspectRatio") return parseAspectRatio(v);
+    return parseNumber(v);
+  }
   // A bare attribute (`<Canvas auto-focus>`) is true, as in HTML.
   if (type === Boolean) return v === "true" || v === "" ? true : v === "false" ? false : undefined;
   if (type === Color) return parseColor(v);
@@ -377,6 +374,7 @@ export function convertValue(raw: string, info: FieldInfo, file: string): unknow
     const s = unquote(v);
     if (LENGTH_FIELDS.has(info.name)) {
       if (s === "auto" || /^-?(\d+\.?\d*|\.\d+)%$/.test(s)) return s;
+      if (s === "none" && NONE_LENGTH_FIELDS.has(info.name)) return s;
       const n = parseNumber(s);
       return n === undefined ? undefined : String(n);
     }
@@ -395,7 +393,7 @@ export function convertValue(raw: string, info: FieldInfo, file: string): unknow
  * other fields convert like an attribute. Undefined when it can't convert.
  */
 export function boundValue(text: string, info: FieldInfo, file: string): unknown {
-  if (info.type === String && !LENGTH_FIELDS.has(info.name) && !Array.isArray(info.options?.choices)) return text;
+  if (isTextField(info)) return text;
   return convertValue(text, info, file);
 }
 
@@ -447,6 +445,189 @@ export function substituteVars(value: string, vars: ReadonlyMap<string, string>,
   return out;
 }
 
+// --- Paint values (ADR 0418 wave 2) --------------------------------------------------------------
+
+/**
+ * String fields whose value is CSS paint, checked and normalised as they're set: `backgroundImage` takes `none`,
+ * `url()` (a relative path resolved against the file, as asset fields are) or a gradient. Undefined when invalid.
+ */
+const PAINT_VALUES: Readonly<Record<string, (value: string, file: string) => unknown>> = {
+  backgroundImage: (value, file) => {
+    const parsed = parseBackgroundImage(value);
+    if (!parsed.ok) return undefined;
+    if (parsed.value.kind === "none") return "";
+    if (parsed.value.kind !== "url") return value;
+    const path = parsed.value.path;
+    const asset = path.startsWith("asset:") ? path : `asset:${path.startsWith("./") || path.startsWith("../") ? resolvePath(file, path) : path.replace(/^\//, "")}`;
+    return `url("${asset}")`;
+  },
+};
+
+/** The fields a paint shorthand sets, with their values; or why the value can't be read. */
+type PaintExpansion = { readonly ok: true; readonly fields: readonly (readonly [string, unknown])[] } | { readonly ok: false; readonly problem: string };
+
+const CORNERS = ["borderTopLeftRadius", "borderTopRightRadius", "borderBottomRightRadius", "borderBottomLeftRadius"] as const;
+
+function shadowFields(prefix: "boxShadow" | "textShadow", value: string): PaintExpansion {
+  const s = parseShadow(value);
+  if (!s.ok) return s;
+  const { offsetX, offsetY, blur, color } = s.value;
+  return { ok: true, fields: [[`${prefix}Color`, color], [`${prefix}OffsetX`, offsetX], [`${prefix}OffsetY`, offsetY], [`${prefix}Blur`, blur]] };
+}
+
+/**
+ * Paint shorthands (camelCase property to its expansion): `box-shadow` and `text-shadow` set their colour, offset and
+ * blur fields; `border-radius` with one value sets `borderRadius` and puts every corner back on it (-1), and with two
+ * to four sets the corners, in CSS order.
+ */
+const PAINT_SHORTHANDS: Readonly<Record<string, (value: string) => PaintExpansion>> = {
+  boxShadow: (value) => shadowFields("boxShadow", value),
+  textShadow: (value) => shadowFields("textShadow", value),
+  borderRadius: (value) => {
+    const r = parseCornerRadii(value);
+    if (!r.ok) return r;
+    if (value.trim().split(/\s+/).length === 1) return { ok: true, fields: [["borderRadius", r.value[0]], ...CORNERS.map((c) => [c, -1] as const)] };
+    return { ok: true, fields: CORNERS.map((c, i) => [c, r.value[i]] as const) };
+  },
+};
+
+/** True for a property (camelCase) that's a paint shorthand rather than one field. */
+export function isPaintShorthand(property: string): boolean {
+  return Object.prototype.hasOwnProperty.call(PAINT_SHORTHANDS, property);
+}
+
+/** A paint shorthand's longhand fields and values (`box-shadow: 0 2px 4px #0008` sets `boxShadowOffsetY` to 2, and so on). */
+export function expandPaintShorthand(property: string, value: string): PaintExpansion {
+  const expand = PAINT_SHORTHANDS[property];
+  return expand ? expand(value) : { ok: false, problem: `${property} isn't a paint shorthand.` };
+}
+
+// --- Shorthands (ADR 0418 wave 1) ---------------------------------------------------------------
+//
+// A shorthand (`padding: 4px 8px`, `border: 2px solid #fff`, `flex: 1 1 0`) expands to its longhand fields where it
+// is declared, in an attribute or a rule, so the cascade orders it with the longhands as CSS does: whichever comes
+// later (by specificity, then order; attributes after rules) wins for each longhand. `padding`, `margin` and
+// `borderWidth` are fields too, the all-sides values: one value sets that field and clears the sides (null: take it),
+// two to four set the sides.
+
+/** One longhand of an expansion: its field and the value to convert, or null to write null (a side that takes the all-sides value). */
+type Longhand = readonly [field: string, raw: string | null];
+
+interface Shorthand {
+  /** Every field it can set. */
+  readonly longhands: readonly string[];
+  /** The longhands a value sets; null when the value isn't valid for it. */
+  expand(value: string): Longhand[] | null;
+}
+
+/** A value's space-separated parts, keeping parenthesised groups (`rgb(1, 2, 3)`) whole. */
+function valueParts(value: string): string[] {
+  const out: string[] = [];
+  let current = "";
+  let depth = 0;
+  for (const ch of value.trim()) {
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    if (/\s/.test(ch) && depth === 0) {
+      if (current) out.push(current);
+      current = "";
+    } else current += ch;
+  }
+  if (current) out.push(current);
+  return out;
+}
+
+const SIDES = ["Top", "Right", "Bottom", "Left"] as const;
+
+/** CSS's one to four values as top, right, bottom, left. */
+function fourSides(parts: readonly string[]): [string, string, string, string] | null {
+  const [a, b = a, c = a, d = b] = parts;
+  return parts.length >= 1 && parts.length <= 4 ? [a, b, c, d] : null;
+}
+
+/** `padding`, `margin`, `border-width`: one value is the all-sides field (sides cleared), two to four the sides. */
+function edgeShorthand(all: string, side: (s: (typeof SIDES)[number]) => string): Shorthand {
+  const sides = SIDES.map(side);
+  return {
+    longhands: [all, ...sides],
+    expand(value) {
+      const parts = valueParts(value);
+      if (parts.length === 1) return [[all, parts[0]], ...sides.map((s): Longhand => [s, null])];
+      const four = fourSides(parts);
+      return four ? sides.map((s, i): Longhand => [s, four[i]]) : null;
+    },
+  };
+}
+
+const BORDER_STYLES: ReadonlySet<string> = new Set(["solid", "none", "hidden"]);
+
+/**
+ * `border: <width> <style> <colour>`, any order, each optional: the width on every side (`medium`, 3, when only a
+ * style is given), `solid`, or `none`/`hidden` for no border, and the colour.
+ */
+const BORDER: Shorthand = {
+  longhands: ["borderWidth", ...SIDES.map((s) => `border${s}Width`), "borderColor"],
+  expand(value) {
+    let width: string | null = null, style: string | null = null, color: string | null = null;
+    for (const part of valueParts(value)) {
+      const p = part.toLowerCase();
+      if (BORDER_STYLES.has(p) && style === null) style = p;
+      else if (parseNumber(p) !== undefined && width === null) width = p;
+      else if (p === "medium" || p === "thin" || p === "thick") width = p === "thin" ? "1" : p === "thick" ? "5" : "3";
+      else if (parseColor(p) && color === null) color = part;
+      else return null;
+    }
+    if (width === null && style === null && color === null) return null;
+    const w = style === "none" || style === "hidden" ? "0" : (width ?? "3");
+    const out: Longhand[] = [["borderWidth", w], ...SIDES.map((s): Longhand => [`border${s}Width`, null])];
+    if (color !== null) out.push(["borderColor", color]);
+    return out;
+  },
+};
+
+const isFlexNumber = (p: string) => /^(\d+\.?\d*|\.\d+)$/.test(p);
+
+/**
+ * `flex: <grow> <shrink> <basis>`, as CSS reads it: `none` (0 0 auto), `auto` (1 1 auto), `initial` (0 1 auto),
+ * one number (that grow, 1, 0), one length (1 1 that basis), two numbers (grow shrink 0), a number and a length
+ * (grow 1 basis), or all three.
+ */
+const FLEX: Shorthand = {
+  longhands: ["flexGrow", "flexShrink", "flexBasis"],
+  expand(value) {
+    const parts = valueParts(value);
+    const of = (grow: string, shrink: string, basis: string): Longhand[] => [["flexGrow", grow], ["flexShrink", shrink], ["flexBasis", basis]];
+    if (parts.length === 1) {
+      const p = parts[0];
+      if (p === "none") return of("0", "0", "auto");
+      if (p === "auto") return of("1", "1", "auto");
+      if (p === "initial") return of("0", "1", "auto");
+      return isFlexNumber(p) ? of(p, "1", "0") : of("1", "1", p);
+    }
+    if (parts.length === 2) {
+      const [a, b] = parts;
+      if (!isFlexNumber(a)) return null;
+      return isFlexNumber(b) ? of(a, b, "0") : of(a, "1", b);
+    }
+    if (parts.length === 3 && isFlexNumber(parts[0]) && isFlexNumber(parts[1])) return of(parts[0], parts[1], parts[2]);
+    return null;
+  },
+};
+
+/** Shorthand properties by the field name they're written as (`border-width` → `borderWidth`). */
+const SHORTHANDS: ReadonlyMap<string, Shorthand> = new Map([
+  ["padding", edgeShorthand("padding", (s) => `padding${s}`)],
+  ["margin", edgeShorthand("margin", (s) => `margin${s}`)],
+  ["borderWidth", edgeShorthand("borderWidth", (s) => `border${s}Width`)],
+  ["border", BORDER],
+  ["flex", FLEX],
+]);
+
+/** True when `name` is a shorthand that sets one of `fields` (a Text has no border, so `border` on it sets nothing). */
+function shorthandApplies(name: string, fields: ReadonlyMap<string, FieldInfo>): boolean {
+  return SHORTHANDS.get(name)?.longhands.some((f) => fields.has(f)) ?? false;
+}
+
 // --- Cascade ------------------------------------------------------------------------------------
 
 const fieldMaps = new Map<abstract new (...args: never[]) => object, Map<string, FieldInfo>>();
@@ -462,10 +643,10 @@ export function fieldsOf(component: abstract new (...args: never[]) => object): 
 }
 
 let knownFields: Set<string> | null = null;
-/** Every UI component's field names: properties outside these are unknown. */
+/** Every UI component's field names and the shorthands (`border`, `flex`): properties outside these are unknown. */
 function isKnownField(name: string): boolean {
   knownFields ??= new Set(UI_TYPES.flatMap((t) => [...fieldsOf(t).keys()]));
-  return knownFields.has(name);
+  return knownFields.has(name) || isPaintShorthand(name) || SHORTHANDS.has(name);
 }
 
 /**
@@ -487,7 +668,7 @@ export function keyAttributeField(attribute: MarkupAttribute): string | null {
 
 /** True for a field a key attribute may localise: a plain string (not a length, a choice or an asset). */
 export function isTextField(info: FieldInfo): boolean {
-  return info.type === String && !LENGTH_FIELDS.has(info.name) && !Array.isArray(info.options?.choices);
+  return info.type === String && !LENGTH_FIELDS.has(info.name) && !Array.isArray(info.options?.choices) && !PAINT_VALUES[info.name];
 }
 
 /** The node reference field an attribute names by an element id (`nav-up="play"` → `navUp`, `first-selected` → `firstSelected`), or null. */
@@ -547,20 +728,54 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   for (const [k, v] of out) vars.set(k, String(v.value));
 
   const set = (field: string, raw: string, source: ValueSource, where: string) => {
+    const shorthand = SHORTHANDS.get(field);
     const info = fields.get(field);
-    if (!info) return false;
+    if (!info && !shorthand) return false;
     const substituted = substituteVars(raw, vars);
     if (substituted === undefined) {
       warnOnce(`${where}: "${raw}" uses a variable that isn't defined.`);
       return false;
     }
-    const value = convertValue(substituted, info, element.file);
+    if (shorthand) {
+      // ADR 0418: every longhand this element has, or none when one of them isn't valid.
+      const invalid = () => warnOnce(`${where}: "${substituted}" isn't a valid ${field} for <${target.tag}>.`);
+      const longhands = shorthand.expand(substituted);
+      if (!longhands) return invalid(), false;
+      const values: [string, unknown][] = [];
+      for (const [f, r] of longhands) {
+        const fi = fields.get(f);
+        if (!fi) continue;
+        const v = r === null ? null : convertValue(r, fi, element.file);
+        if (v === undefined) return invalid(), false;
+        values.push([f, v]);
+      }
+      for (const [f, v] of values) out.set(f, { field: f, value: v, source });
+      return true;
+    }
+    const value = convertValue(substituted, info!, element.file);
     if (value === undefined) {
       warnOnce(`${where}: "${substituted}" isn't a valid ${field} for <${target.tag}>.`);
       return false;
     }
     out.set(field, { field, value, source });
     return true;
+  };
+
+  // A paint shorthand (ADR 0418 wave 2) sets its longhands: this element's own, and inherited ones it passes on.
+  const setShorthand = (property: string, raw: string, source: ValueSource, where: string) => {
+    const substituted = substituteVars(raw, vars);
+    if (substituted === undefined) {
+      warnOnce(`${where}: "${raw}" uses a variable that isn't defined.`);
+      return;
+    }
+    const expanded = expandPaintShorthand(property, substituted);
+    if (!expanded.ok) {
+      warnOnce(`${where}: "${substituted}" ${expanded.problem}`);
+      return;
+    }
+    for (const [field, value] of expanded.fields) {
+      if (fields.has(field) || INHERITED_FIELDS.has(field)) out.set(field, { field, value: cloneValue(value), source });
+    }
   };
 
   // Rules.
@@ -574,7 +789,9 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     }
     const where = `${m.file} "${m.rule.selectorText}" ${prop}`;
     const source: ValueSource = { kind: "rule", rule: m.rule, declaration: m.declaration, file: m.file };
-    if (fields.has(field)) {
+    if (isPaintShorthand(field)) {
+      setShorthand(field, m.declaration.value, source, where);
+    } else if (fields.has(field) || shorthandApplies(field, fields)) {
       set(field, m.declaration.value, source, where);
     } else if (INHERITED_FIELDS.has(field)) {
       // Not this element's field, but its children inherit it (a Panel's color reaches its Text).
@@ -587,7 +804,11 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   for (const a of element.attributes) {
     const field = attributeField(a);
     if (!field || hasBinding(a.value)) continue;
-    if (!fields.has(field)) {
+    if (isPaintShorthand(field)) {
+      setShorthand(field, a.value, { kind: "attribute", attribute: a, file: element.file }, `${element.file} <${element.tag} ${a.name}>`);
+      continue;
+    }
+    if (!fields.has(field) && !shorthandApplies(field, fields)) {
       if (!isKnownField(field)) warnOnce(`${element.file}: <${element.tag}> has no field "${a.name}".`);
       continue;
     }

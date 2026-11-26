@@ -42,10 +42,19 @@ export type UIImageFit = "cover" | "contain" | "fill";
  * spatial search; `explicit` only its neighbours; `none` neither.
  */
 export type UINavigationMode = "auto" | "explicit" | "none";
+// 0418 wave 1: layout
+export type UIFlexWrap = "nowrap" | "wrap" | "wrap-reverse";
+/** `auto` takes the parent's `alignItems`. */
+export type UIAlignSelf = "auto" | UIAlign;
+export type UIAlignContent = "flex-start" | "center" | "flex-end" | "stretch" | "space-between" | "space-around" | "space-evenly";
+/** `hidden` clips the element's children (drawing and the pointer) to its padding box. */
+export type UIOverflow = "visible" | "hidden";
 
 const FLEX_DIRECTIONS = ["row", "column", "row-reverse", "column-reverse"];
 const JUSTIFY = ["flex-start", "center", "flex-end", "space-between", "space-around", "space-evenly"];
 const ALIGN = ["flex-start", "center", "flex-end", "stretch", "baseline"];
+// 0418 wave 1: layout
+const ALIGN_CONTENT = ["flex-start", "center", "flex-end", "stretch", "space-between", "space-around", "space-evenly"];
 
 /** Releases what the render backend built for a removed UI component (its layout node and drawing). */
 abstract class UIComponent extends Component {
@@ -132,6 +141,52 @@ abstract class UIElement extends UIComponent {
    * a layout box (Unity's empty RectTransform). Children aren't affected: each element has its own.
    */
   @field(Boolean) raycastTarget = true;
+
+  // 0418 wave 1: layout
+  /**
+   * Space inside the element on one side (`padding-top` …; the `padding` shorthand takes one to four values, as in
+   * CSS). Null (the default): `padding`, the all-sides value.
+   */
+  @field(Number) paddingTop: number | null = null;
+  @field(Number) paddingRight: number | null = null;
+  @field(Number) paddingBottom: number | null = null;
+  @field(Number) paddingLeft: number | null = null;
+  /** Space around the element on one side (`margin-top` …; the `margin` shorthand takes one to four values). Null: `margin`. */
+  @field(Number) marginTop: number | null = null;
+  @field(Number) marginRight: number | null = null;
+  @field(Number) marginBottom: number | null = null;
+  @field(Number) marginLeft: number | null = null;
+  /** The smallest size layout gives it: pixels, a percentage of the parent, or `"auto"` (no minimum). */
+  @field(String) minWidth: UILength = "auto";
+  @field(String) minHeight: UILength = "auto";
+  /** The largest size layout gives it: pixels, a percentage of the parent, or `"none"` (no maximum). */
+  @field(String) maxWidth: UILength = "none";
+  @field(String) maxHeight: UILength = "none";
+  /** Whether children that don't fit on one line wrap onto more (`wrap-reverse`: new lines go before the first). */
+  @field(String, { choices: ["nowrap", "wrap", "wrap-reverse"] }) flexWrap: UIFlexWrap = "nowrap";
+  /** This element's alignment across its parent's direction; `auto` takes the parent's `alignItems`. */
+  @field(String, { choices: ["auto", ...ALIGN] }) alignSelf: UIAlignSelf = "auto";
+  /** How wrapped lines share the space across the direction (only with `flexWrap`). */
+  @field(String, { choices: ALIGN_CONTENT }) alignContent: UIAlignContent = "stretch";
+  /**
+   * How much this element shrinks, relative to its siblings, when they don't fit. Null (the default): its kind's,
+   * as before: text shrinks (and wraps to what's left), other elements keep their size.
+   */
+  @field(Number) flexShrink: number | null = null;
+  /** Its size along the parent's direction before growing and shrinking: pixels, a percentage, or `"auto"` (its `width`/`height`). */
+  @field(String) flexBasis: UILength = "auto";
+  /** Width divided by height, kept when only one of them is set (`aspect-ratio: 16 / 9`); 0: none. */
+  @field(Number) aspectRatio = 0;
+  /**
+   * `hidden` clips its children to its padding box (inside its border): they are drawn and take the pointer only
+   * there. It also draws them together, at its own place in the order (as an element with a `zIndex` does).
+   */
+  @field(String, { choices: ["visible", "hidden"] }) overflow: UIOverflow = "visible";
+  /**
+   * Draw and pointer order among its siblings (higher on top, then document order), as in CSS. A non-zero value
+   * draws the element and its children together, ordered within it.
+   */
+  @field(Number) zIndex = 0;
 }
 
 /** A box: background, border and rounded corners, laying out its children. */
@@ -139,9 +194,44 @@ abstract class UIElement extends UIComponent {
 export class UIPanel extends UIElement {
   /** Null: transparent. */
   @field(Color) backgroundColor: Color | null = null;
+  /** Every corner's radius, for the corners whose own radius below is -1. */
   @field(Number) borderRadius = 0;
+  /** The border's width on every side (`border-width` takes one to four values; `border` a width, `solid` or `none`, and a colour). */
   @field(Number) borderWidth = 0;
   @field(Color) borderColor = Color.black;
+  // 0418 wave 1: layout
+  /** The border's width on one side (`border-top-width` …). Null (the default): `borderWidth`. Unequal sides draw each side as its own edge. */
+  @field(Number) borderTopWidth: number | null = null;
+  @field(Number) borderRightWidth: number | null = null;
+  @field(Number) borderBottomWidth: number | null = null;
+  @field(Number) borderLeftWidth: number | null = null;
+
+  // 0418 wave 2: paint
+  /**
+   * One corner's radius in UI pixels; -1 (the default) takes `borderRadius`. A stylesheet's `border-radius` with two
+   * to four values sets these, as CSS does (top-left, top-right, bottom-right, bottom-left).
+   */
+  @field(Number) borderTopLeftRadius = -1;
+  @field(Number) borderTopRightRadius = -1;
+  @field(Number) borderBottomRightRadius = -1;
+  @field(Number) borderBottomLeftRadius = -1;
+  /**
+   * Drawn over the background: `url(asset:images/wood.png)` (stretched to the box), `linear-gradient(angle, stops…)`
+   * or `radial-gradient(stops…)` (a circle at the centre), stops being a colour and an optional position in `%`.
+   * A gradient replaces `backgroundColor`. Empty: none.
+   */
+  @field(String) backgroundImage = "";
+  /**
+   * A shadow under the background, `box-shadow: offset-x offset-y blur colour` in a stylesheet (ADR 0418). It's
+   * drawn by the background, so a panel without a `backgroundColor` or gradient casts none. Null: no shadow.
+   */
+  @field(Color) boxShadowColor: Color | null = null;
+  /** The shadow's offset to the right, in UI pixels. */
+  @field(Number) boxShadowOffsetX = 0;
+  /** The shadow's offset down, in UI pixels. */
+  @field(Number) boxShadowOffsetY = 0;
+  /** How far the shadow blurs, in UI pixels (CSS's blur radius). */
+  @field(Number) boxShadowBlur = 0;
 }
 
 /**
@@ -172,6 +262,16 @@ export class UIText extends UIElement {
   @field(Color) textOutlineColor: Color | null = null;
   /** How far the outline reaches outside the glyphs, in UI pixels (`text-outline-width`, inherited); 0 draws none. It doesn't change the layout. */
   @field(Number) textOutlineWidth = 0;
+
+  // 0418 wave 2: paint
+  /** A shadow under the glyphs (`text-shadow: offset-x offset-y blur colour`, inherited); null draws none. */
+  @field(Color) textShadowColor: Color | null = null;
+  /** The text shadow's offset to the right, in UI pixels (`text-shadow-offset-x`, inherited). */
+  @field(Number) textShadowOffsetX = 0;
+  /** The text shadow's offset down, in UI pixels (`text-shadow-offset-y`, inherited). */
+  @field(Number) textShadowOffsetY = 0;
+  /** How far the text shadow blurs, in UI pixels (`text-shadow-blur`, inherited). */
+  @field(Number) textShadowBlur = 0;
 }
 
 /** A texture laid out as an element. */

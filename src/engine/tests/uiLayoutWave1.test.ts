@@ -1,0 +1,306 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { Engine, Input } from "../index";
+import { UIButton, UIPanel, UIText } from "../ui/components";
+import type { UIComponentType } from "../ui/components";
+import { World } from "../core/World";
+import { UICore } from "../ui/UICore";
+import { Assets } from "../scene/Assets";
+import { loadUIDocumentSupport } from "../ui/UIDocument";
+import { buildUI, byId } from "./uiMarkup";
+import { UIPointer } from "./uiPointer";
+
+// ADR 0418 wave 1: layout on Yoga. Per-side padding, margin and border widths with CSS shorthands, min/max sizes,
+// wrapping, align-self/-content, flex-shrink/-basis, aspect-ratio, overflow: hidden (clipping drawing order, hits,
+// picking and navigation) and z-index, through UI documents, the UI core and keyboard navigation.
+
+const DT = 1 / 60;
+let engine: Engine;
+const cores: UICore[] = [];
+const pointers: UIPointer[] = [];
+
+beforeEach(async () => {
+  Input.reset();
+  engine = await Engine.create({ headless: true });
+  await loadUIDocumentSupport();
+});
+
+afterEach(() => {
+  for (const c of cores.splice(0)) c.dispose();
+  for (const p of pointers.splice(0)) p.dispose();
+  Input.inject.releaseAll();
+  engine.step(DT);
+  engine.dispose();
+  Assets.clearSources();
+  Input.reset();
+  vi.restoreAllMocks();
+});
+
+/** A UI core that has laid out the World's UI at 1280 × 720 (a scale of 1 for the default canvas). */
+async function laidOut(): Promise<UICore> {
+  const c = new UICore({ interactive: false });
+  cores.push(c);
+  await c.ready;
+  c.sync(World.require(), 1280, 720, DT);
+  return c;
+}
+
+/** An element's box in canvas pixels. */
+function box(core: UICore, c: UIComponentType): [number, number, number, number] {
+  const r = core.rectOf(c)!;
+  return [r.x, r.y, r.width, r.height];
+}
+
+const panel = (doc: ReturnType<typeof buildUI>, id: string) => byId(doc, id, UIPanel);
+
+describe("shorthands and longhands in the cascade (ADR 0418)", () => {
+  it("expands padding, margin and border-width: one value is the all-sides field, two to four the sides", () => {
+    const doc = buildUI(`<Canvas><Panel id="a" class="two"/><Panel id="b" class="one"/><Panel id="c" class="three"/><Panel id="d" class="four"/></Canvas>`, {
+      css: `.two { padding: 4px 8px; margin: 1px 2px; border-width: 3px 5px }
+            .one { padding: 6px; border-width: 2px }
+            .three { margin: 1px 2px 3px }
+            .four { padding: 1px 2px 3px 4px }`,
+    });
+    const a = panel(doc, "a");
+    expect([a.paddingTop, a.paddingRight, a.paddingBottom, a.paddingLeft]).toEqual([4, 8, 4, 8]);
+    expect([a.marginTop, a.marginRight, a.marginBottom, a.marginLeft]).toEqual([1, 2, 1, 2]);
+    expect([a.borderTopWidth, a.borderRightWidth, a.borderBottomWidth, a.borderLeftWidth]).toEqual([3, 5, 3, 5]);
+    expect(a.padding).toBe(0); // the all-sides value is untouched by a multi-value shorthand
+    const b = panel(doc, "b");
+    expect(b.padding).toBe(6);
+    expect([b.paddingTop, b.paddingRight, b.paddingBottom, b.paddingLeft]).toEqual([null, null, null, null]);
+    expect(b.borderWidth).toBe(2);
+    const c = panel(doc, "c");
+    expect([c.marginTop, c.marginRight, c.marginBottom, c.marginLeft]).toEqual([1, 2, 3, 2]);
+    const d = panel(doc, "d");
+    expect([d.paddingTop, d.paddingRight, d.paddingBottom, d.paddingLeft]).toEqual([1, 2, 3, 4]);
+  });
+
+  it("orders shorthands and longhands as CSS does: the later declaration wins for each longhand", () => {
+    const doc = buildUI(`<Canvas><Panel id="a" class="x"/><Panel id="b" class="y"/><Panel id="c" class="z"/></Canvas>`, {
+      css: `.x { padding: 10px; padding-left: 2px }
+            .y { padding-left: 2px; padding: 10px }
+            #c { padding-left: 7px }
+            .z { padding: 1px 2px }`,
+    });
+    const a = panel(doc, "a");
+    expect([a.padding, a.paddingLeft, a.paddingTop]).toEqual([10, 2, null]);
+    const b = panel(doc, "b");
+    expect([b.padding, b.paddingLeft]).toEqual([10, null]); // the shorthand reset the side: it takes padding again
+    const c = panel(doc, "c");
+    expect([c.paddingTop, c.paddingLeft]).toEqual([1, 7]); // the id rule is more specific than the class's shorthand
+  });
+
+  it("takes shorthands in attributes too, and attributes beat rules", () => {
+    const doc = buildUI(`<Canvas><Panel id="a" padding="1 2 3 4" border="2px solid #fff"/><Panel id="b" padding-left="5"/></Canvas>`, {
+      css: `#a { padding-left: 9px; border-width: 7px } Panel { padding: 3px 3px }`,
+    });
+    const a = panel(doc, "a");
+    expect([a.paddingTop, a.paddingRight, a.paddingBottom, a.paddingLeft]).toEqual([1, 2, 3, 4]);
+    expect(a.borderWidth).toBe(2);
+    expect([a.borderColor.r, a.borderColor.g, a.borderColor.b]).toEqual([1, 1, 1]);
+    const b = panel(doc, "b");
+    expect([b.paddingTop, b.paddingLeft]).toEqual([3, 5]);
+  });
+
+  it("reads border as a width, solid or none, and a colour, in any order", () => {
+    const doc = buildUI(`<Canvas><Panel id="a" class="a"/><Panel id="b" class="b"/><Panel id="c" class="c"/></Canvas>`, {
+      css: `.a { border-width: 1px 2px; border: rgb(255, 0, 0) solid 4px }
+            .b { border-width: 3px; border: none }
+            .c { border: solid }`,
+    });
+    const a = panel(doc, "a");
+    expect(a.borderWidth).toBe(4);
+    expect(a.borderLeftWidth).toBeNull();
+    expect([a.borderColor.r, a.borderColor.g, a.borderColor.b]).toEqual([1, 0, 0]);
+    expect(panel(doc, "b").borderWidth).toBe(0);
+    expect(panel(doc, "c").borderWidth).toBe(3); // medium
+  });
+
+  it("reads flex as grow, shrink and basis, with CSS's one- and two-value forms", () => {
+    const doc = buildUI(`<Canvas><Panel id="a" flex="1"/><Panel id="b" flex="none"/><Panel id="c" flex="2 0 50%"/><Panel id="d" flex="100px"/><Panel id="e" flex="3 40px"/><Panel id="f" flex="auto"/></Canvas>`);
+    const fields = (id: string) => {
+      const p = panel(doc, id);
+      return [p.flexGrow, p.flexShrink, p.flexBasis];
+    };
+    expect(fields("a")).toEqual([1, 1, "0"]);
+    expect(fields("b")).toEqual([0, 0, "auto"]);
+    expect(fields("c")).toEqual([2, 0, "50%"]);
+    expect(fields("d")).toEqual([1, 1, "100"]);
+    expect(fields("e")).toEqual([3, 1, "40"]);
+    expect(fields("f")).toEqual([1, 1, "auto"]);
+  });
+
+  it("converts the other layout properties, and warns about a value that isn't valid, leaving the field alone", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    const doc = buildUI(`<Canvas><Panel id="a" class="a"/><Text id="t" class="t"/></Canvas>`, {
+      css: `.a { min-width: 10px; max-width: 50%; min-height: auto; max-height: none; flex-wrap: wrap-reverse; align-self: center;
+                 align-content: space-between; flex-shrink: 2; flex-basis: 30px; aspect-ratio: 16 / 9; overflow: hidden; z-index: -2;
+                 padding: 1px 2px 3px 4px 5px }
+            .t { border: 2px solid red; flex-shrink: auto }`,
+    });
+    const a = panel(doc, "a");
+    expect([a.minWidth, a.maxWidth, a.minHeight, a.maxHeight]).toEqual(["10", "50%", "auto", "none"]);
+    expect([a.flexWrap, a.alignSelf, a.alignContent, a.flexShrink, a.flexBasis]).toEqual(["wrap-reverse", "center", "space-between", 2, "30"]);
+    expect(a.aspectRatio).toBeCloseTo(16 / 9);
+    expect([a.overflow, a.zIndex]).toEqual(["hidden", -2]);
+    expect([a.paddingTop, a.padding]).toEqual([null, 0]); // five values: not a padding
+    expect(warn.mock.calls.flat().join("\n")).toMatch(/"1px 2px 3px 4px 5px" isn't a valid padding/);
+    // A Text has no border: the shorthand sets nothing on it, and isn't unknown.
+    expect(warn.mock.calls.flat().join("\n")).not.toMatch(/unknown property "border"/);
+    expect(byId(doc, "t", UIText).flexShrink).toBeNull();
+  });
+});
+
+describe("Yoga layout of the new fields (ADR 0418)", () => {
+  it("lays out per-side padding, margin and border widths", async () => {
+    const doc = buildUI(`<Canvas><Panel id="p" width="200" height="100" padding="1 2 3 4" border-width="10 0 0 20"><Panel id="c" flex-grow="1" margin="5 6 7 8"/></Panel></Canvas>`);
+    const core = await laidOut();
+    // Inside the border (top 10, left 20) and padding (top 1, left 4), then the margin (top 5, left 8).
+    expect(box(core, panel(doc, "c"))).toEqual([20 + 4 + 8, 10 + 1 + 5, 200 - 20 - 0 - 4 - 2 - 8 - 6, 100 - 10 - 0 - 1 - 3 - 5 - 7]);
+  });
+
+  it("clamps sizes to min and max", async () => {
+    const doc = buildUI(`<Canvas><Panel id="a" width="10" min-width="40" height="500" max-height="50%"/><Panel id="b" flex-grow="1" max-width="100"/></Canvas>`);
+    const core = await laidOut();
+    expect(box(core, panel(doc, "a"))).toEqual([0, 0, 40, 360]);
+    expect(box(core, panel(doc, "b"))[2]).toBe(100);
+  });
+
+  it("wraps children onto new lines, aligning the lines with align-content and an item with align-self", async () => {
+    const doc = buildUI(`<Canvas><Panel id="row" width="250" height="300" flex-wrap="wrap" align-content="center" align-items="flex-start">
+        <Panel id="a" width="100" height="40"/><Panel id="b" width="100" height="40"/><Panel id="c" width="100" height="40" align-self="flex-end"/>
+      </Panel></Canvas>`);
+    const core = await laidOut();
+    // Two lines of 40 centred in 300: the first at 110, the second at 150.
+    expect(box(core, panel(doc, "a"))).toEqual([0, 110, 100, 40]);
+    expect(box(core, panel(doc, "b"))).toEqual([100, 110, 100, 40]);
+    expect(box(core, panel(doc, "c"))).toEqual([0, 150, 100, 40]);
+  });
+
+  it("shrinks panels only when flex-shrink says so (null keeps the kind's), from flex-basis", async () => {
+    const doc = buildUI(`<Canvas><Panel width="300" height="50"><Panel id="keep" width="200"/><Panel id="shrink" width="200" flex-shrink="1"/></Panel>
+        <Panel width="300" height="50"><Panel id="basis" flex-basis="120" width="10"/></Panel></Canvas>`);
+    const core = await laidOut();
+    expect(box(core, panel(doc, "keep"))[2]).toBe(200);
+    expect(box(core, panel(doc, "shrink"))[2]).toBe(100);
+    expect(box(core, panel(doc, "basis"))[2]).toBe(120);
+  });
+
+  it("keeps an aspect ratio when only one side is set", async () => {
+    const doc = buildUI(`<Canvas><Panel align-items="flex-start" width="400" height="400"><Panel id="a" width="200" aspect-ratio="2"/></Panel></Canvas>`);
+    const core = await laidOut();
+    expect(box(core, panel(doc, "a"))).toEqual([0, 0, 200, 100]);
+  });
+});
+
+describe("overflow: hidden (ADR 0418)", () => {
+  /** A 100 × 100 panel with a 10 px border clipping a button that hangs out of it to the right and below. */
+  function clipped() {
+    const doc = buildUI(`<Canvas><Panel id="clip" width="100" height="100" border-width="10" background-color="#333" overflow="hidden">
+        <Button id="inside" position="absolute" left="0" top="0" width="150" height="150" padding="0"/>
+      </Panel></Canvas>`);
+    return { doc, clip: panel(doc, "clip"), inside: byId(doc, "inside", UIButton) };
+  }
+
+  it("hits a clipped child only inside the clipper's padding box", async () => {
+    const { clip, inside } = clipped();
+    const core = await laidOut();
+    expect(box(core, inside)).toEqual([10, 10, 150, 150]); // laid out as before: clipping doesn't change layout
+    expect(core.hitTest(50, 50)).toBe(inside);
+    expect(core.hitTest(95, 50)).toBe(clip); // on the border: outside the padding box
+    expect(core.hitTest(130, 130)).toBeNull(); // in the button's box, but clipped away
+    expect(core.pickAll(130, 130)).toEqual([]);
+    expect(core.pickAll(50, 50)).toEqual([inside, clip]);
+  });
+
+  it("reports each element's clip, its clipper and the clipper's padding box, and the clipped corners", async () => {
+    const { clip, inside } = clipped();
+    const core = await laidOut();
+    const el = core.elements().find((e) => e.comp === inside)!;
+    expect(el.clip).toEqual({ x: 10, y: 10, width: 80, height: 80 });
+    expect(el.clipper).toBe(clip);
+    const c = core.elements().find((e) => e.comp === clip)!;
+    expect([c.clip, c.clipper, c.childClip]).toEqual([null, null, { x: 10, y: 10, width: 80, height: 80 }]);
+    expect(core.cornersOf(inside)!.clip).toEqual([[10, 10], [90, 10], [90, 90], [10, 90]]);
+    expect(core.cornersOf(clip)!.clip).toBeNull();
+  });
+
+  it("intersects nested clips", async () => {
+    const doc = buildUI(`<Canvas><Panel width="100" height="100" overflow="hidden"><Panel id="inner" position="absolute" left="50" top="50" width="100" height="100" overflow="hidden">
+        <Button id="b" position="absolute" left="0" top="0" width="100" height="100" padding="0"/></Panel></Panel></Canvas>`);
+    const core = await laidOut();
+    const b = byId(doc, "b", UIButton);
+    expect(core.elements().find((e) => e.comp === b)!.clip).toEqual({ x: 50, y: 50, width: 50, height: 50 });
+    expect(core.hitTest(120, 120)).toBeNull();
+    expect(core.hitTest(75, 75)).toBe(b);
+  });
+
+  it("takes an element clipped away out of keyboard navigation, and searches the drawn part of the rest", async () => {
+    const doc = buildUI(`<Canvas><Panel flex-direction="column" width="200" height="80" overflow="hidden">
+        <Button id="a" width="100" height="50" padding="0"/><Button id="b" width="100" height="50" padding="0"/><Button id="c" width="100" height="50" padding="0"/>
+      </Panel></Canvas>`);
+    const p = await UIPointer.create(World.require());
+    pointers.push(p);
+    const [a, b, c] = ["a", "b", "c"].map((id) => byId(doc, id, UIButton));
+    a.focused = true;
+    engine.step(DT);
+    const press = (key: string) => {
+      Input.inject.keyDown(key);
+      engine.step(DT);
+      Input.inject.keyUp(key);
+      engine.step(DT);
+    };
+    press("arrowdown");
+    expect(b.focused).toBe(true); // half shown: still reachable
+    press("arrowdown");
+    expect(b.focused).toBe(true); // c is below the clip
+    press("tab");
+    expect(a.focused).toBe(true); // next skips c too, wrapping to a
+    expect(c.focused).toBe(false);
+  });
+});
+
+describe("z-index (ADR 0418)", () => {
+  it("orders drawing and hits among siblings by zIndex, then document order", async () => {
+    const doc = buildUI(`<Canvas><Button id="a" position="absolute" width="100" height="100" padding="0"/><Button id="b" position="absolute" width="100" height="100" padding="0"/></Canvas>`);
+    const [a, b] = ["a", "b"].map((id) => byId(doc, id, UIButton));
+    const core = await laidOut();
+    expect(core.hitTest(50, 50)).toBe(b); // the later sibling is on top
+    a.zIndex = 1;
+    core.sync(World.require(), 1280, 720, DT);
+    expect(core.hitTest(50, 50)).toBe(a);
+    const order = (c: UIComponentType) => core.elements().find((e) => e.comp === c)!.order;
+    expect(order(a)).toBeGreaterThan(order(b));
+    expect(core.elements().map((e) => e.comp)).toEqual([a, b]); // elements() stays in tree order
+    a.zIndex = 0;
+    b.zIndex = -1;
+    core.sync(World.require(), 1280, 720, DT);
+    expect(core.hitTest(50, 50)).toBe(a);
+    expect(core.pickAll(50, 50)).toEqual([a, b]);
+  });
+
+  it("keeps a child's zIndex inside its parent's stacking context, as CSS does", async () => {
+    const doc = buildUI(`<Canvas>
+        <Panel id="p" position="absolute" width="100" height="100" z-index="1" background-color="#111"><Button id="child" width="100" height="100" padding="0" z-index="100"/></Panel>
+        <Button id="s" position="absolute" width="100" height="100" padding="0" z-index="2"/>
+        <Button id="under" position="absolute" width="100" height="100" padding="0"/>
+      </Canvas>`);
+    const [p, child, s, under] = [panel(doc, "p"), ...["child", "s", "under"].map((id) => byId(doc, id, UIButton))];
+    const core = await laidOut();
+    expect(core.pickAll(50, 50)).toEqual([s, child, p, under]);
+    const orders = new Map(core.elements().map((e) => [e.comp, e.order]));
+    expect([orders.get(under), orders.get(p), orders.get(child), orders.get(s)]).toEqual([0, 1, 2, 3]);
+  });
+
+  it("draws an overflow: hidden element's descendants right after it, as one group", async () => {
+    const doc = buildUI(`<Canvas>
+        <Panel id="clip" position="absolute" width="100" height="100" overflow="hidden"><Button id="inner" width="100" height="100" padding="0" z-index="5"/></Panel>
+        <Button id="after" position="absolute" width="100" height="100" padding="0"/>
+      </Canvas>`);
+    const [clip, inner, after] = [panel(doc, "clip"), byId(doc, "inner", UIButton), byId(doc, "after", UIButton)];
+    const core = await laidOut();
+    const orders = new Map(core.elements().map((e) => [e.comp, e.order]));
+    expect([orders.get(clip), orders.get(inner), orders.get(after)]).toEqual([0, 1, 2]);
+    expect(core.hitTest(50, 50)).toBe(after);
+  });
+});
