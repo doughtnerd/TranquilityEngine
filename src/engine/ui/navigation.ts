@@ -26,16 +26,19 @@ import { playerNodes, InputPlayer } from "../input/players";
 import { UIButton, UICanvas, UIInputField, type UIFocusableElement } from "./components";
 import { uiInteractions, type UIInteractions, type UILayoutSource } from "./interactions";
 import type { UILaidOutElement } from "./uiCoreTypes";
-import { intersectRect, type UIRect } from "./layout";
+import type { UIRect } from "./layout";
 
-/** The part of an element that's drawn (ADR 0418): its box, clipped by its `overflow: hidden` ancestors. */
+/**
+ * The part of an element that's drawn (ADR 0418): its box as drawn (wave 3: transformed, so the search uses the
+ * transformed box's centre), clipped by its `overflow: hidden` ancestors, as axis-aligned bounds.
+ */
 function shownBox(e: UILaidOutElement): UIRect {
-  return e.clip ? intersectRect(e, e.clip) : e;
+  return e.bounds;
 }
 
-/** True when an `overflow: hidden` ancestor clips the element away entirely, so the player can't see it to pick it. */
+/** True when an `overflow: hidden` ancestor clips the element away entirely (or a scale of 0 flattens it), so the player can't see it to pick it. */
 function clippedAway(e: UILaidOutElement): boolean {
-  if (!e.clip || e.width <= 0 || e.height <= 0) return false;
+  if ((!e.clip && !e.transform) || e.width <= 0 || e.height <= 0) return false;
   const r = shownBox(e);
   return r.width <= 0 || r.height <= 0;
 }

@@ -187,6 +187,28 @@ abstract class UIElement extends UIComponent {
    * draws the element and its children together, ordered within it.
    */
   @field(Number) zIndex = 0;
+
+  // 0418 wave 3: transforms. Drawn, not laid out: layout ignores them (siblings don't move), as on the web. They apply to
+  // the element and its children, and the pointer, picking and navigation follow what's drawn.
+  /**
+   * How far the element is drawn moved right: pixels, or a percentage of its own width (`"50%"`). A stylesheet's
+   * `translate: x y` or `transform: translate(x, y)` sets it with `translateY`. (The `translate` attribute stays
+   * HTML's localisation marker: in markup write `transform="translate(…)"` or `translate-x`.)
+   */
+  @field(String) translateX: UILength = "0";
+  /** How far it's drawn moved down: pixels, or a percentage of its own height. */
+  @field(String) translateY: UILength = "0";
+  /** How much it's drawn stretched across (`scale: 2` sets both; `scale: 2 1` each), about its transform origin. 1: as laid out. */
+  @field(Number) scaleX = 1;
+  @field(Number) scaleY = 1;
+  /** How far it's drawn turned clockwise about its transform origin, in degrees (`rotate: 45deg`, `0.25turn`, `1rad`). */
+  @field(Number) rotate = 0;
+  /**
+   * The point it turns and scales about, across its own box: pixels from its left edge, or a percentage of its width
+   * (`transform-origin: left top`, `25% 75%`, `10px 4px`). Default: the middle.
+   */
+  @field(String) transformOriginX: UILength = "50%";
+  @field(String) transformOriginY: UILength = "50%";
 }
 
 /** A box: background, border and rounded corners, laying out its children. */

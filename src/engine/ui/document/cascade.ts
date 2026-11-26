@@ -13,6 +13,7 @@ import { HTML_TAGS } from "../host/htmlTags";
 import { hasBinding, resolvePath } from "./sourceText";
 import { parseColor } from "./cssColor";
 import { parseBackgroundImage, parseCornerRadii, parseShadow } from "./paintValues";
+import { parseRotate, parseScale, parseTransform, parseTransformOrigin, parseTranslate } from "./transformValues";
 import type {
   Declaration,
   MarkupAttribute,
@@ -170,7 +171,7 @@ function unquote(raw: string): string {
 export function convertValue(raw: string, info: FieldInfo, file: string): unknown {
   const type = info.type;
   const v = raw.trim();
-  const paint = PAINT_VALUES[info.name];
+  const paint = PAINT_VALUES[info.name] ?? TRANSFORM_VALUES[info.name];
   if (paint) return paint(v, file);
   if (type === Number) {
     if (NULLABLE_NUMBER_FIELDS.has(info.name) && (v === "auto" || v === "none")) return null;
@@ -323,6 +324,56 @@ export function expandPaintShorthand(property: string, value: string): PaintExpa
   return expand ? expand(value) : { ok: false, problem: `${property} isn't a paint shorthand.` };
 }
 
+// --- Transform values (ADR 0418 wave 3) ---------------------------------------------------------
+//
+// `transform`, `translate`, `scale` and `transform-origin` are shorthands of the transform fields, expanded where they're
+// declared, as the paint shorthands are (typed values, parsed by `transformValues.ts`). `rotate` is a field itself and
+// takes an angle. A `transform` list folds into the fields, applied as translate, rotate, scale (`transform2d.ts`); a list
+// that can't fold (a skew) is refused with a warning. The `translate` attribute stays HTML's localisation marker
+// (ADR 0356 §4), so markup writes `transform="translate(…)"` or `translate-x`/`translate-y`.
+
+/** A px or % length, as a transform length field stores it (`"12"`, `"50%"`). Undefined when it isn't one. */
+function transformLength(value: string): string | undefined {
+  if (/\s/.test(value.trim())) return undefined;
+  const r = parseTranslate(value);
+  return r.ok && value.trim().toLowerCase() !== "none" ? r.value.translateX : undefined;
+}
+
+/** A position along one axis: px, %, or that axis's keywords. */
+function originAlong(axis: "x" | "y") {
+  const keywords: Record<string, string> = axis === "x" ? { left: "0%", center: "50%", right: "100%" } : { top: "0%", center: "50%", bottom: "100%" };
+  return (value: string): string | undefined => keywords[value.trim().toLowerCase()] ?? transformLength(value);
+}
+
+/** Transform fields whose values are checked and normalised as they're set (lengths, angles). Undefined when invalid. */
+const TRANSFORM_VALUES: Readonly<Record<string, (value: string, file: string) => unknown>> = {
+  translateX: transformLength,
+  translateY: transformLength,
+  transformOriginX: originAlong("x"),
+  transformOriginY: originAlong("y"),
+  rotate: (value) => {
+    const r = parseRotate(value);
+    return r.ok ? r.value : undefined;
+  },
+};
+
+const fieldsFrom = (r: { ok: true; value: object } | { ok: false; problem: string }): PaintExpansion => (r.ok ? { ok: true, fields: Object.entries(r.value) } : r);
+
+/** Transform shorthands (camelCase property to its expansion into the transform fields). */
+const TRANSFORM_SHORTHANDS: Readonly<Record<string, (value: string) => PaintExpansion>> = {
+  transform: (value) => fieldsFrom(parseTransform(value)),
+  translate: (value) => fieldsFrom(parseTranslate(value)),
+  scale: (value) => fieldsFrom(parseScale(value)),
+  transformOrigin: (value) => fieldsFrom(parseTransformOrigin(value)),
+};
+
+/** The expansion of a shorthand that sets typed values (paint, ADR 0418 wave 2; transforms, wave 3), or undefined. */
+function typedShorthand(property: string): ((value: string) => PaintExpansion) | undefined {
+  if (Object.prototype.hasOwnProperty.call(PAINT_SHORTHANDS, property)) return PAINT_SHORTHANDS[property];
+  if (Object.prototype.hasOwnProperty.call(TRANSFORM_SHORTHANDS, property)) return TRANSFORM_SHORTHANDS[property];
+  return undefined;
+}
+
 // --- Shorthands (ADR 0418 wave 1) ---------------------------------------------------------------
 //
 // A shorthand (`padding: 4px 8px`, `border: 2px solid #fff`, `flex: 1 1 0`) expands to its longhand fields where it
@@ -467,7 +518,7 @@ let knownFields: Set<string> | null = null;
 /** Every UI component's field names and the shorthands (`border`, `flex`): properties outside these are unknown. */
 function isKnownField(name: string): boolean {
   knownFields ??= new Set(UI_TYPES.flatMap((t) => [...fieldsOf(t).keys()]));
-  return knownFields.has(name) || isPaintShorthand(name) || SHORTHANDS.has(name);
+  return knownFields.has(name) || typedShorthand(name) !== undefined || SHORTHANDS.has(name);
 }
 
 /**
@@ -489,7 +540,7 @@ export function keyAttributeField(attribute: MarkupAttribute): string | null {
 
 /** True for a field a key attribute may localise: a plain string (not a length, a choice or an asset). */
 export function isTextField(info: FieldInfo): boolean {
-  return info.type === String && !LENGTH_FIELDS.has(info.name) && !Array.isArray(info.options?.choices) && !PAINT_VALUES[info.name];
+  return info.type === String && !LENGTH_FIELDS.has(info.name) && !Array.isArray(info.options?.choices) && !PAINT_VALUES[info.name] && !TRANSFORM_VALUES[info.name];
 }
 
 /** The node reference field an attribute names by an element id (`nav-up="play"` → `navUp`, `first-selected` → `firstSelected`), or null. */
@@ -582,14 +633,14 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     return true;
   };
 
-  // A paint shorthand (ADR 0418 wave 2) sets its longhands: this element's own, and inherited ones it passes on.
+  // A paint or transform shorthand (ADR 0418 waves 2 and 3) sets its longhands: this element's own, and inherited ones it passes on.
   const setShorthand = (property: string, raw: string, source: ValueSource, where: string) => {
     const substituted = substituteVars(raw, vars);
     if (substituted === undefined) {
       warnOnce(`${where}: "${raw}" uses a variable that isn't defined.`);
       return;
     }
-    const expanded = expandPaintShorthand(property, substituted);
+    const expanded = typedShorthand(property)!(substituted);
     if (!expanded.ok) {
       warnOnce(`${where}: "${substituted}" ${expanded.problem}`);
       return;
@@ -610,7 +661,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
     }
     const where = `${m.file} "${m.rule.selectorText}" ${prop}`;
     const source: ValueSource = { kind: "rule", rule: m.rule, declaration: m.declaration, file: m.file };
-    if (isPaintShorthand(field)) {
+    if (typedShorthand(field)) {
       setShorthand(field, m.declaration.value, source, where);
     } else if (fields.has(field) || shorthandApplies(field, fields)) {
       set(field, m.declaration.value, source, where);
@@ -625,7 +676,7 @@ export const resolveStyle: ResolveStyle = (target, element, component, sheets, p
   for (const a of element.attributes) {
     const field = attributeField(a);
     if (!field || hasBinding(a.value)) continue;
-    if (isPaintShorthand(field)) {
+    if (typedShorthand(field)) {
       setShorthand(field, a.value, { kind: "attribute", attribute: a, file: element.file }, `${element.file} <${element.tag} ${a.name}>`);
       continue;
     }

@@ -16,6 +16,7 @@ import type { World } from "../core/World";
 import type { Camera } from "../render/components";
 import type { UICanvas, UIComponentType } from "./components";
 import type { UIRect } from "./layout";
+import type { UIAffine } from "./transform2d";
 
 export type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input";
 
@@ -101,7 +102,10 @@ export interface UILaidOutElement {
    * goes to the highest first.
    */
   readonly order: number;
-  /** The part of the canvas it is drawn and hit in: the overlap of every `overflow: hidden` ancestor's padding box; null when none clips it. */
+  /**
+   * The overlap of every `overflow: hidden` ancestor's padding box, in layout space (before transforms); null when none
+   * clips it. With transforms (ADR 0418 wave 3), each clip moves with its clipper: `bounds` is what's drawn.
+   */
   readonly clip: UIRect | null;
   /** Its nearest `overflow: hidden` ancestor (the drawing layer draws it inside that one's clip), or null. */
   readonly clipper: UIComponentType | null;
@@ -113,6 +117,13 @@ export interface UILaidOutElement {
   readonly opacity: number;
   /** Text and input field elements: the text run the core measured, which the drawing layer draws. Null for other kinds. */
   readonly text: UITextRun | null;
+  /**
+   * ADR 0418 wave 3: where it's drawn, as a map from its laid-out box (the fields above) to canvas UI pixels: its
+   * ancestors' transforms and its own (`transform2d.ts`). Null when nothing transforms it.
+   */
+  readonly transform: UIAffine | null;
+  /** The axis-aligned bounds of what's drawn of it, in canvas UI pixels: its box transformed, cut down by its clips. Its box when nothing transforms or clips it. */
+  readonly bounds: UIRect;
 }
 
 /** A ray in world space, for picking world canvases. */
@@ -132,6 +143,11 @@ export interface UICorners {
   readonly size: readonly [number, number];
   /** The corners of the part that is drawn, as `points`, when an `overflow: hidden` ancestor clips it (ADR 0418); null when nothing does. */
   readonly clip: number[][] | null;
+  /**
+   * ADR 0418 wave 3: `points` is the box as drawn, after its transforms. These are its laid-out box's corners with only
+   * its ancestors' transforms: where layout put it in its parent's frame. The same as `points` without a transform of its own.
+   */
+  readonly layoutPoints: number[][];
 }
 
 /** The renderer-neutral UI core (ADR 0076). */

@@ -21,6 +21,7 @@ import { uiInteractions } from "./interactions";
 import { pointerFocus } from "./navigation";
 import { canvasScale, estimateText, inRect, intersectRect, loadYogaOnce, loadedYoga, uiBorderEdges, uiEdges, uiLength, uiLimit, type UIRect } from "./layout";
 import type { TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPickRay } from "./uiCoreTypes";
+import { applyAffine, boundsOf, compose, invert, localTransform, multiply, transformRect, type UIAffine, type UITransformFields } from "./transform2d";
 
 export { canvasScale, uiLength } from "./layout";
 
@@ -36,6 +37,43 @@ interface Placement {
   childClip: UIRect | null;
   /** Its place in its canvas's draw order. */
   order: number;
+  /**
+   * ADR 0418 wave 3: the clips a point must fall in to reach it, as each clipper's padding box in layout space with the
+   * inverse of that clipper's transform (null: untransformed). Clips in one frame are merged into one rectangle.
+   */
+  clips: readonly ClipStep[];
+  /** Its whole transform (its ancestors' and its own; null: none) and that inverted (null: none, or a scale of 0 flattens it). */
+  transform: UIAffine | null;
+  inverse: UIAffine | null;
+  /** The axis-aligned bounds of what's drawn of it, in canvas UI pixels: transformed, then clipped. */
+  bounds: UIRect;
+}
+
+/** One clip (ADR 0418): a rectangle in layout space, tested after mapping the point through `inverse`. `empty`: hides everything (a clipper scaled to 0). */
+interface ClipStep {
+  readonly rect: UIRect;
+  readonly transform: UIAffine | null;
+  readonly inverse: UIAffine | null;
+  readonly empty: boolean;
+}
+
+/** True when a canvas point lies in every clip. */
+function inClips(x: number, y: number, clips: readonly ClipStep[]): boolean {
+  for (const c of clips) {
+    if (c.empty) return false;
+    const [lx, ly] = c.inverse ? applyAffine(c.inverse, x, y) : [x, y];
+    if (!inRect(lx, ly, c.rect)) return false;
+  }
+  return true;
+}
+
+/** True when a canvas point lies on the element's box as drawn (its transform inverted), and in its clips. */
+function onDrawnBox(e: Entry, x: number, y: number): boolean {
+  const p = e.place;
+  if (p.transform && !p.inverse) return false; // flattened to nothing
+  const [lx, ly] = p.inverse ? applyAffine(p.inverse, x, y) : [x, y];
+  const b = e.box;
+  return lx >= b.x && lx <= b.x + b.width && ly >= b.y && ly <= b.y + b.height && inClips(x, y, p.clips);
 }
 
 interface Entry {
@@ -110,7 +148,7 @@ function paintOrder(root: Entry): Entry[] {
   return out;
 }
 
-const NO_PLACE: Placement = { clip: null, clipper: null, childClip: null, order: 0 };
+const NO_PLACE: Placement = { clip: null, clipper: null, childClip: null, order: 0, clips: [], transform: null, inverse: null, bounds: { x: 0, y: 0, width: 0, height: 0 } };
 
 /** True when a point lies within `edge` pixels inside the border of the `width` x `height` frame at the origin. */
 function onFrameEdge(x: number, y: number, width: number, height: number, edge: number): boolean {
@@ -509,7 +547,7 @@ export class UICore implements UICoreLike {
     const cv = canvas.comp.isActiveAndEnabled;
     canvas.box = { x: 0, y: 0, width: canvas.width, height: canvas.height, visible: cv, opacity: 1 };
     const yoga = this.yoga!;
-    const walk = (parent: Entry, ox: number, oy: number, visible: boolean, opacity: number, clip: UIRect | null, clipper: Entry | null) => {
+    const walk = (parent: Entry, ox: number, oy: number, visible: boolean, opacity: number, clip: UIRect | null, clipper: Entry | null, clips: readonly ClipStep[], parentTransform: UIAffine | null) => {
       for (const e of parent.children) {
         const c = e.comp as Exclude<UIComponentType, UICanvas>;
         const n = e.node;
@@ -524,12 +562,15 @@ export class UICore implements UICoreLike {
           const br = n.getComputedBorder(yoga.EDGE_RIGHT), bb = n.getComputedBorder(yoga.EDGE_BOTTOM);
           childClip = { x: x + bl, y: y + bt, width: Math.max(0, width - bl - br), height: Math.max(0, height - bt - bb) };
         }
-        e.place = { clip, clipper, childClip, order: 0 };
+        // ADR 0418 wave 3: its transform composes its parent's with its own; layout above ignored both.
+        const transform = compose(parentTransform, localTransform(c as unknown as UITransformFields, e.box));
+        const inverse = transform ? invert(transform) : null;
+        e.place = { clip, clipper, childClip, order: 0, clips, transform, inverse, bounds: drawnBounds(e.box, transform, clips) };
         canvas.elements.push(e);
-        walk(e, x, y, v, o, childClip ? intersectRect(childClip, clip) : clip, childClip ? e : clipper);
+        walk(e, x, y, v, o, childClip ? intersectRect(childClip, clip) : clip, childClip ? e : clipper, childClip ? withClip(clips, childClip, transform, inverse) : clips, transform);
       }
     };
-    walk(canvas, 0, 0, cv, 1, null, null);
+    walk(canvas, 0, 0, cv, 1, null, null, [], null);
     canvas.painted = paintOrder(canvas);
     canvas.painted.forEach((e, i) => (e.place.order = i));
   }
@@ -549,7 +590,7 @@ export class UICore implements UICoreLike {
       canvasList.push({ comp: c, mode: c.mode, sortOrder: c.sortOrder, width: canvas.width, height: canvas.height, scale: canvas.scale, pixelSize: c.mode === "world" ? c.pixelSize : 1, worldMatrix, visible: c.isActiveAndEnabled });
       for (const e of canvas.elements) {
         const b = e.box, p = e.place;
-        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip });
+        elementList.push({ comp: e.comp, kind: e.kind as ElementKind, canvas: c, x: b.x, y: b.y, width: b.width, height: b.height, order: p.order, visible: b.visible, opacity: b.opacity, text: e.run, clip: p.clip, clipper: p.clipper?.comp ?? null, childClip: p.childClip, transform: p.transform, bounds: p.bounds });
       }
     }
     const changed = !sameCanvases(this.canvasList, canvasList) || !sameElements(this.elementList, elementList);
@@ -739,8 +780,7 @@ export class UICore implements UICoreLike {
       for (let i = canvas.painted.length - 1; i >= 0; i--) {
         const e = canvas.painted[i];
         if (!this.hittable(e)) continue;
-        const b = e.box;
-        if (px >= b.x && px <= b.x + b.width && py >= b.y && py <= b.y + b.height && inRect(px, py, e.place.clip)) out.push(e.comp);
+        if (onDrawnBox(e, px, py)) out.push(e.comp);
       }
     }
     const r = ray ?? this.viewRay(x, y);
@@ -754,8 +794,7 @@ export class UICore implements UICoreLike {
       for (let i = canvas.painted.length - 1; i >= 0; i--) {
         const e = canvas.painted[i];
         if (!this.hittable(e)) continue;
-        const b = e.box;
-        if (at.ux >= b.x && at.ux <= b.x + b.width && at.uy >= b.y && at.uy <= b.y + b.height && inRect(at.ux, at.uy, e.place.clip)) comps.push(e.comp);
+        if (onDrawnBox(e, at.ux, at.uy)) comps.push(e.comp);
       }
       if (comps.length) hits.push({ comps, t: at.t });
     }
@@ -800,25 +839,26 @@ export class UICore implements UICoreLike {
     const canvas = entry?.canvas;
     if (!entry || !canvas || !this.yoga) return null;
     const b = entry.box;
-    const clipRect = entry.place.clip ? intersectRect(b, entry.place.clip) : null;
-    const corners = (r: UIRect) => {
-      const xs = [r.x, r.x + r.width, r.x + r.width, r.x], ys = [r.y, r.y, r.y + r.height, r.y + r.height];
-      return xs.map((x, i) => [x, ys[i]]);
-    };
+    const p = entry.place;
+    // ADR 0418 wave 3: the corners as drawn (its transform), and as laid out in its parent's frame (its ancestors' only).
+    const clipRect = p.clips.length ? localClip(b, p) : null;
+    const drawn = transformRect(p.transform, b);
+    const laid = transformRect(entry.parent?.place.transform ?? null, b);
+    const clipped = clipRect ? transformRect(p.transform, clipRect) : null;
     const size: [number, number] = [b.width, b.height];
     if (canvas.comp.mode !== "world") {
-      const toCanvas = (r: UIRect) => corners(r).map(([x, y]) => [x * canvas.scale, y * canvas.scale]);
-      return { space: "screen", points: toCanvas(b), size, clip: clipRect ? toCanvas(clipRect) : null };
+      const toCanvas = (pts: [number, number][]) => pts.map(([x, y]) => [x * canvas.scale, y * canvas.scale]);
+      return { space: "screen", points: toCanvas(drawn), size, clip: clipped ? toCanvas(clipped) : null, layoutPoints: toCanvas(laid) };
     }
-    const laid = this.canvasList.find((l) => l.comp === canvas.comp);
-    if (!laid?.worldMatrix) return null;
-    const m = laid.worldMatrix;
-    const toWorld = (r: UIRect) =>
-      corners(r).map(([x, y]) => {
-        const lx = (x - laid.width / 2) * laid.pixelSize, ly = (laid.height / 2 - y) * laid.pixelSize;
+    const plane = this.canvasList.find((l) => l.comp === canvas.comp);
+    if (!plane?.worldMatrix) return null;
+    const m = plane.worldMatrix;
+    const toWorld = (pts: [number, number][]) =>
+      pts.map(([x, y]) => {
+        const lx = (x - plane.width / 2) * plane.pixelSize, ly = (plane.height / 2 - y) * plane.pixelSize;
         return [m[0] * lx + m[4] * ly + m[12], m[1] * lx + m[5] * ly + m[13], m[2] * lx + m[6] * ly + m[14]];
       });
-    return { space: "world", points: toWorld(b), size, clip: clipRect ? toWorld(clipRect) : null };
+    return { space: "world", points: toWorld(drawn), size, clip: clipped ? toWorld(clipped) : null, layoutPoints: toWorld(laid) };
   }
 
   private viewRay(x: number, y: number): UIPickRay | null {
@@ -856,8 +896,7 @@ export class UICore implements UICoreLike {
       for (let i = canvas.painted.length - 1; i >= 0; i--) {
         const e = canvas.painted[i];
         if (!this.hittable(e) || !isRaycastTarget(e.comp)) continue;
-        const b = e.box;
-        if (px >= b.x && px <= b.x + b.width && py >= b.y && py <= b.y + b.height && inRect(px, py, e.place.clip)) return { target: e, handler: handlerOf(e) };
+        if (onDrawnBox(e, px, py)) return { target: e, handler: handlerOf(e) };
       }
     }
     const ray = this.viewRay(x, y);
@@ -871,8 +910,7 @@ export class UICore implements UICoreLike {
       for (let i = canvas.painted.length - 1; i >= 0; i--) {
         const e = canvas.painted[i];
         if (!this.hittable(e) || !isRaycastTarget(e.comp)) continue;
-        const b = e.box;
-        if (ux < b.x || ux > b.x + b.width || uy < b.y || uy > b.y + b.height || !inRect(ux, uy, e.place.clip)) continue;
+        if (!onDrawnBox(e, ux, uy)) continue;
         if (t < bestDistance) [best, bestDistance] = [e, t];
         break; // the topmost of this canvas
       }
@@ -928,8 +966,46 @@ function sameElements(a: readonly UILaidOutElement[], b: readonly UILaidOutEleme
   if (a.length !== b.length) return false;
   return a.every((x, i) => {
     const y = b[i];
-    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text && x.clipper === y.clipper && sameRect(x.clip, y.clip) && sameRect(x.childClip, y.childClip);
+    return x.comp === y.comp && x.canvas === y.canvas && x.x === y.x && x.y === y.y && x.width === y.width && x.height === y.height && x.order === y.order && x.visible === y.visible && x.opacity === y.opacity && x.text === y.text && x.clipper === y.clipper && sameRect(x.clip, y.clip) && sameRect(x.childClip, y.childClip) && sameAffine(x.transform, y.transform) && sameRect(x.bounds, y.bounds);
   });
+}
+
+function sameAffine(a: UIAffine | null, b: UIAffine | null): boolean {
+  if (!a || !b) return a === b;
+  return a.every((v, i) => v === b[i]);
+}
+
+/** A clipper's clip added to the chain (ADR 0418): merged into the last one when both are in the same (untransformed) frame. */
+function withClip(clips: readonly ClipStep[], rect: UIRect, transform: UIAffine | null, inverse: UIAffine | null): readonly ClipStep[] {
+  const last = clips[clips.length - 1];
+  if (!transform && last && !last.transform && !last.empty) return [...clips.slice(0, -1), { ...last, rect: intersectRect(rect, last.rect) }];
+  return [...clips, { rect, transform, inverse, empty: !!transform && !inverse }];
+}
+
+/** The axis-aligned bounds of a box as drawn: its transformed corners, cut down by each clip's transformed bounds. */
+function drawnBounds(box: UIRect, transform: UIAffine | null, clips: readonly ClipStep[]): UIRect {
+  let r = transform ? boundsOf(transformRect(transform, box)) : box;
+  for (const c of clips) r = c.empty ? { x: r.x, y: r.y, width: 0, height: 0 } : intersectRect(r, c.transform ? boundsOf(transformRect(c.transform, c.rect)) : c.rect);
+  return r;
+}
+
+/**
+ * The part of an element's box its clips leave, in its own layout frame (the editor's outline of a clipped element). A
+ * clip turned against the element (a rotated clipper with an unrotated child, or the reverse) isn't a rectangle in its
+ * frame and is left out, so the outline is the box there.
+ */
+function localClip(box: UIRect, p: Placement): UIRect | null {
+  let r: UIRect = box;
+  let any = false;
+  for (const c of p.clips) {
+    if (c.empty) return { x: box.x, y: box.y, width: 0, height: 0 };
+    // The clipper's frame to the element's: inverse(element) · clipper.
+    const rel = p.inverse ? (c.transform ? multiply(p.inverse, c.transform) : p.inverse) : c.transform;
+    if (rel && (Math.abs(rel[1]) > 1e-9 || Math.abs(rel[2]) > 1e-9 || rel[0] <= 0 || rel[3] <= 0)) continue;
+    r = intersectRect(r, rel ? boundsOf(transformRect(rel, c.rect)) : c.rect);
+    any = true;
+  }
+  return any ? r : null;
 }
 
 function sameRect(a: UIRect | null, b: UIRect | null): boolean {
