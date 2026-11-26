@@ -195,6 +195,6 @@ test("Profiler: opening another project closes the last project's recording", as
   await studioScreen(page, "Samples");
   await studioScreen(page, "Profiler");
   await expect(oldRun).toHaveCount(0);
-  await expect(page.getByRole("main", { name: "Profiler screen" }).getByText("Engine performance captures", { exact: false })).toBeVisible();
+  await expect(page.getByRole("main", { name: "Profiler screen" }).getByRole("heading", { name: "No capture open" })).toBeVisible();
   expect(errors).toEqual([]);
 });

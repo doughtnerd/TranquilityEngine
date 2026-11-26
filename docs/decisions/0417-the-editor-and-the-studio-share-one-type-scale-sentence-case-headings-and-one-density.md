@@ -65,7 +65,7 @@ This changes the look of the owner's Studio prototype, which draws tabs in capit
 - **Empty states** go through `EmptyState` only; the ad-hoc classes are removed. Its full look stays as 0349 and the
   owner spec (§1.3, §3.9) define it: icon, title, one line, one primary action, drawn with the kit's positive button.
 - **Choice vs toggle.** The current option of a segmented control or mode switch keeps the solid accent fill. An on/off
-  toggle that is on (`aria-pressed="true"`) is drawn quietly: accent text and border on `--accent-faint`, no glow.
+  toggle (a button with class `toggle`, since choices also set `aria-pressed`) that is on is drawn quietly: accent text and border on `--accent-faint`, no glow.
 - **Lists** have no per-row fill: rows are transparent, with `--hover` on hover and `--selection` when selected; tags
   in a row use one neutral chip style unless the colour means something.
 - **Studio mark** shows the Studio's brand mark (`src/editor/ui/brand/`), not an empty square.
