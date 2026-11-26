@@ -8,7 +8,7 @@ import { effect, signal, type ReadonlySignal } from "@preact/signals";
 import type { ConnectedBuild } from "../../editor/debugLink/editorLink";
 import type { Take } from "../../engine/audio/take/reader";
 import { AUDIO_TOPIC, type AudioSubscriptionParams } from "../../plugins/audio/runtime/debugLink/schema";
-import { TakeLiveStream } from "../../plugins/audio/runtime/debugLink/takeLiveStream";
+import { TakeLiveStream } from "../../plugins/audio/editor/debugLink/takeLiveStream";
 import { studioBuild } from "../debugLink/studioLink";
 
 /** Where the connected build's take stands: none (or no build), recording, or stopped (its last take, kept). */
