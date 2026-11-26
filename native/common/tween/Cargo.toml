@@ -1,0 +1,21 @@
+# `myco-tween` (ADR 0420 spike): the tween table, its value function, the Penner easings, sequence
+# programs and the `tween` wire family, shared by the animation core (native/anim, anim-wasm) and the
+# standalone tween module (native/tween). A path dependency of both, and its own workspace so
+# `cargo test` runs here.
+#
+# anim-math is a cross-workspace path dependency (native/anim's crate, for `AosQuat` and the
+# deterministic trig); its `glam.workspace = true` resolves against native/anim/Cargo.toml.
+[package]
+name = "myco-tween"
+description = "Myco's tweening (tween table, easings, sequence programs, the tween wire family), no_std, shared by the animation core and the standalone tween module."
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0 OR MIT"
+publish = false
+
+[dependencies]
+myco-wire = { path = "../wire" }
+myco-curve = { path = "../curve" }
+anim-math = { path = "../../anim/crates/anim-math" }
+
+[workspace]

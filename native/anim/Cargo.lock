@@ -185,6 +185,7 @@ dependencies = [
  "anim-offline",
  "anim-pose",
  "myco-curve",
+ "myco-tween",
 ]
 
 [[package]]
@@ -205,6 +206,7 @@ dependencies = [
  "anim-rig",
  "anim-sample",
  "anim-wire",
+ "myco-tween",
  "sha2",
  "wasm-bindgen",
 ]
@@ -212,6 +214,10 @@ dependencies = [
 [[package]]
 name = "anim-wire"
 version = "0.1.0"
+dependencies = [
+ "myco-tween",
+ "myco-wire",
+]
 
 [[package]]
 name = "anstyle"
@@ -505,6 +511,19 @@ checksum = "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"
 
 [[package]]
 name = "myco-curve"
+version = "0.1.0"
+
+[[package]]
+name = "myco-tween"
+version = "0.1.0"
+dependencies = [
+ "anim-math",
+ "myco-curve",
+ "myco-wire",
+]
+
+[[package]]
+name = "myco-wire"
 version = "0.1.0"
 
 [[package]]

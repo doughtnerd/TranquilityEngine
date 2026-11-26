@@ -1,9 +1,9 @@
 //! Penner easings against closed-form f64 references written from the published (easings.net)
 //! formulas, each in its own `in`, `out` and `inOut` form (not through the module's mirror
-//! identities). Tolerance: 2e-6 absolute, see `anim_math::ease`'s accuracy note (the f32 sine
+//! identities). Tolerance: 2e-6 absolute, see `myco_tween::ease`'s accuracy note (the f32 sine
 //! polynomial's 3e-7 amplified by elastic's factors).
 
-use anim_math::ease::{ease, exp2, LAST_ID};
+use myco_tween::ease::{ease, LAST_ID};
 use std::f64::consts::PI;
 
 const TOLERANCE: f64 = 2e-6;
@@ -121,20 +121,6 @@ fn midpoints_of_in_out_are_one_half() {
         let m = ease(id, 0.5);
         assert!((m - 0.5).abs() < 1e-6, "id {id}: {m}");
     }
-}
-
-#[test]
-fn exp2_matches_f64() {
-    let mut x = -30.0f32;
-    while x <= 10.0 {
-        let want = 2f64.powf(x as f64);
-        let got = exp2(x) as f64;
-        assert!(((got - want) / want).abs() < 2e-7, "2^{x}: {got} vs {want}");
-        x += 0.037;
-    }
-    assert_eq!(exp2(0.0), 1.0);
-    assert_eq!(exp2(3.0), 8.0);
-    assert_eq!(exp2(-2.0), 0.25);
 }
 
 #[test]

@@ -1,6 +1,10 @@
 //! Family `tween`: the tween table's create and control commands and its output records (ADR
 //! 0371, 0372).
 //!
+//! Moved here from `anim-wire` (ADR 0420 spike); `anim_wire::tween` re-exports this module, and
+//! `anim-wire`'s generator still writes `wire/tween.ts` from [`FAMILY`] (byte for byte as before:
+//! the family's doc string is unchanged, so it still names its old path).
+//!
 //! # The table
 //!
 //! A tween is a one-track clip built in code: a value of 1 to 4 floats (a float, a vec2/3/4 or a
@@ -44,7 +48,7 @@
 //!
 //! `EASE_LINEAR` is 0; the others are `EASE_<IN|OUT|IN_OUT>_<FAMILY>` = `1 + 3·family + mode`
 //! (families quad, cubic, quart, quint, sine, expo, circ, back, elastic, bounce). Formulas:
-//! `anim_math::ease`.
+//! [`crate::ease`].
 //!
 //! # Engine curves (T70)
 //!
@@ -67,9 +71,9 @@
 //!   view at `curve_samples_ptr()`, valid until the next call; it returns a status. Hosts sample
 //!   runtime curve tracks with it, so the core's evaluator gives their values.
 
-use crate::record::{Const, FamilyDesc, WireRecord};
-use crate::vector::Vector;
-use crate::wire_record;
+use alloc::vec;
+use alloc::vec::Vec;
+use myco_wire::{wire_record, Const, FamilyDesc, Vector, WireRecord};
 
 /// The family id (the opcodes' high byte).
 pub const ID: u8 = 6;

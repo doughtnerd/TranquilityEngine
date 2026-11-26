@@ -13,6 +13,8 @@ anim-format.workspace = true
 anim-pose.workspace = true
 # T70: the engine curve evaluator, shared with the audio core (ADR 0370; `native/common/curve`).
 myco-curve = { path = "../../../common/curve" }
+# ADR 0420 spike: the curve key parser (`myco_tween::curves`), re-exported by `curve`.
+myco-tween = { path = "../../../common/tween" }
 
 [dev-dependencies]
 anim-offline.workspace = true

@@ -1,0 +1,34 @@
+# The standalone tween module (ADR 0420 spike): the `tween` wire family over `myco-tween`
+# (native/common/tween) with a small curve store, for UI animation without the animation plugin.
+# Spike only: built and measured by build.mjs here, not committed under src/ and not in package.json.
+[package]
+name = "myco-tween-wasm"
+description = "Myco's standalone tween module (ADR 0420 spike): the tween table and curve easings, without the animation core."
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+myco-tween = { path = "../common/tween" }
+# The pin native/anim uses (build.mjs checks wasm-bindgen-cli against it).
+wasm-bindgen = "=0.2.130"
+
+[dev-dependencies]
+myco-wire = { path = "../common/wire" }
+
+# native/anim's release profile, so the shared crate is optimised as it is in the animation core.
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+debug = false
+
+[profile.dev]
+panic = "abort"
+
+[workspace]
