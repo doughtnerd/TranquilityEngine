@@ -296,7 +296,7 @@ describe("UIControlMapper (ADR 0337)", () => {
     step();
     await pointer();
     step();
-    const canvas = node.children.find((c) => c.getComponent(UICanvas));
+    const canvas = node.getComponentInChildren(UICanvas)?.node; // its built-in document's root
     expect(canvas).toBeDefined();
     expect(canvas!.getComponent(UICanvas)).toMatchObject({ autoFocus: true, player: 0, modal: true });
     expect(m.rows).toHaveLength(1);

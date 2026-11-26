@@ -22,10 +22,11 @@
  * focus: they're the screen's editing keys, like a text field's, not game actions (an action set
  * for them would show up in every list of actions, this screen's included).
  *
- * Like a UI document's elements, the nodes it builds belong to it: they aren't in the scene file
- * and go when it does. It is the engine's one built-in screen besides documents (ADR 0417 refuses UI
- * components from `addComponent` and scene files, so it adds them through the World). Without a
- * `UICanvas` above it (a UI document's canvas), it makes its own screen canvas.
+ * It is made of built-in UI documents (ADR 0417: game UI comes only from documents): the screen
+ * (`@myco/ui/control-mapper.ui.xml`, or `control-mapper-canvas.ui.xml` with a screen canvas of its
+ * own when there's no `UICanvas` above it), one per row, cell and accessibility row, built under the
+ * screen's `#Rows` and `#Settings` as the player's bindings call for them. Their nodes belong to it:
+ * they aren't in the scene file and go when it does.
  */
 import { Component } from "../core/Component";
 import { Color } from "../core/math";
@@ -44,8 +45,10 @@ import { familyName } from "../input/players";
 import type { InputAccessibility } from "../input/profiles";
 import { controlLabel, type InputPrompt } from "../input/prompts";
 import { RebindResults, type RebindResult } from "../input/rebind";
-import { UIButton, UICanvas, UIImage, UIPanel, UIText, type UIComponentType, type UILength } from "./components";
+import { Assets } from "../scene/Assets";
+import { UIButton, UICanvas, UIImage, UIPanel, UIText, type UILength } from "./components";
 import { uiInteractions } from "./interactions";
+import { UIDocument, loadUIDocumentSupport, type UIDocumentElement } from "./UIDocument";
 
 /** The words a control mapper shows, for translating. */
 export interface UIControlMapperText {
@@ -227,6 +230,8 @@ interface CellState {
 }
 
 interface SettingState {
+  /** The row document's node. */
+  host: GameObject;
   setting: UIControlMapperSettingKind;
   action: string | null;
   label: string;
@@ -261,6 +266,8 @@ const STEPPERS: Record<"sensitivity" | "repeatDelay" | "repeatInterval" | "deadz
 const DEFAULT_REPEAT = { delay: 0.4, interval: 0.1 };
 
 interface RowState {
+  /** The row document's node. */
+  host: GameObject;
   action: string;
   part: string | null;
   label: string;
@@ -297,6 +304,49 @@ interface Built {
 }
 
 const IMAGES_PER_CELL = 3;
+
+/** The built-in documents the screen is built from (ADR 0417), as `@myco/ui/<name>.ui.xml`. */
+const DOCUMENT_DIR = "@myco/ui/";
+const label = (id: string) => `<Text id="${id}Label"/>`;
+const SCREEN = `<Panel id="Screen" width="100%" height="100%" justify-content="center" align-items="center">
+  <Panel id="Panel" flex-direction="column" padding="24" gap="10" border-radius="12">
+    <Text id="Title" font-weight="bold"/>
+    <Panel id="Header" gap="8" align-items="center">
+      <Text id="Action" width="34%"/>
+      <Text id="Keyboard" flex-grow="1" width="0"/>
+      <Text id="Gamepad" flex-grow="1" width="0"/>
+    </Panel>
+    <Panel id="Rows" flex-direction="column" gap="6"/>
+    <Text id="Accessibility" font-weight="bold" display="none"/>
+    <Panel id="Settings" flex-direction="column" gap="6" display="none"/>
+    <Text id="Status"/>
+    <Panel id="Buttons" gap="8" justify-content="flex-end">
+      <Button id="Unbind" border-width="2">${label("Unbind")}</Button>
+      <Button id="Reset" border-width="2">${label("Reset")}</Button>
+      <Button id="Save" border-width="2">${label("Save")}</Button>
+    </Panel>
+  </Panel>
+</Panel>`;
+const cell = (id: string) =>
+  `<Button id="${id}" flex-grow="1" width="0" padding="6" gap="8" justify-content="flex-start" border-width="2">${'<Image display="none"/>'.repeat(IMAGES_PER_CELL)}<Text id="Label" word-break="keep-all"/></Button>`;
+const side = (id: string) => `<Button id="${id}" justify-content="center" align-items="center" border-width="2">${label(id)}</Button>`;
+const DOCUMENTS: Record<string, string> = {
+  "control-mapper": SCREEN,
+  "control-mapper-canvas": `<Canvas id="Canvas" sort-order="100" auto-focus>${SCREEN}</Canvas>`,
+  "control-mapper-row": `<Panel id="Row" gap="8" align-items="center"><Text id="Name" width="34%"/></Panel>`,
+  "control-mapper-keyboard": cell("Keyboard"),
+  "control-mapper-gamepad": cell("Gamepad"),
+  "control-mapper-toggle": `<Panel id="Setting" gap="8" align-items="center"><Text id="Name" width="34%"/><Button id="Toggle" flex-grow="1" width="0" padding="6" justify-content="center" align-items="center" border-width="2">${label("Toggle")}</Button></Panel>`,
+  "control-mapper-stepper": `<Panel id="Setting" gap="8" align-items="center"><Text id="Name" width="34%"/>${side("Decrease")}<Text id="Value" flex-grow="1" width="0" text-align="center"/>${side("Increase")}</Panel>`,
+};
+const documentPath = (name: string) => `${DOCUMENT_DIR}${name}.ui.xml`;
+Assets.addBuiltinSource({
+  has: (path) => path.startsWith(DOCUMENT_DIR) && path.endsWith(".ui.xml") && path.slice(DOCUMENT_DIR.length, -7) in DOCUMENTS,
+  get: (path) => DOCUMENTS[path.slice(DOCUMENT_DIR.length, -7)],
+});
+
+/** Whether the document parsers have loaded (they load the first time a mapper needs them). */
+let documentSupport: "none" | "loading" | "ready" = "none";
 /** The UI actions' set (ADR 0340): listed only when `actions` names it. */
 const UI_ACTIONS_SET = "engine.UIActions";
 /** The screen's editing keys, read as the player's device events while one of its cells has focus. */
@@ -464,6 +514,20 @@ export class UIControlMapper extends Component {
       warnedNoUI = true;
       return;
     }
+    if (documentSupport !== "ready") {
+      // Built from UI documents (ADR 0417): wait for their parsers, loaded once.
+      if (documentSupport === "none") {
+        documentSupport = "loading";
+        loadUIDocumentSupport().then(
+          () => (documentSupport = "ready"),
+          (err: unknown) => {
+            documentSupport = "none";
+            console.error("[myco] UIControlMapper couldn't load the UI document parsers:", err);
+          },
+        );
+      }
+      return;
+    }
     const input = InputPlayers.get(this.player);
     const built = (this.built ??= this.build(world));
     const finished = input ? this.collectResults(input) : false;
@@ -601,44 +665,58 @@ export class UIControlMapper extends Component {
 
   // --- Building ---------------------------------------------------------------------------------
 
-  private el<T extends UIComponentType>(world: World, type: new () => T, name: string, parent: GameObject, init: Partial<T> = {}): T {
-    // Engine-built like a document's elements (ADR 0417): `addBehavior` refuses UI components, so through the World.
-    const node = world._createNode(name, parent.entity);
-    return world._addComponent(node.entity, type, init);
+  /** Build the built-in document `name` on a new node `host` under `parent`; returns its root element. */
+  private document(world: World, parent: GameObject, host: string, name: string): UIDocumentElement {
+    const node = world._createNode(host, parent.entity);
+    const root = node.addBehavior(UIDocument, { document: `asset:${documentPath(name)}` }).root;
+    if (!root) throw new Error(`UIControlMapper: the built-in document "${documentPath(name)}" didn't build.`);
+    return root;
   }
 
   private build(world: World): Built {
     const above = canvasOf(this.node);
     // A full-size box that centres the panel: in the canvas above, else in a screen canvas of its own,
     // which takes focus when it appears (ADR 0340) and is driven by this player's UI actions.
-    const canvas = above ?? this.el(world, UICanvas, "ControlMapper", this.node, { sortOrder: 100, autoFocus: true, player: this.player, modal: this.modal });
-    const root = above ? world._createNode("ControlMapper", this.node.entity) : canvas.node;
-    const host = this.el(world, UIPanel, "Screen", root, { width: "100%", height: "100%", justifyContent: "center", alignItems: "center" }).node;
-    const panel = this.el(world, UIPanel, "Panel", host, { flexDirection: "column", padding: 24, gap: 10, borderRadius: 12 });
-    const title = this.el(world, UIText, "Title", panel.node, { fontWeight: "bold" });
-    const header = this.el(world, UIPanel, "Header", panel.node, { gap: 8, alignItems: "center" });
-    const headerAction = this.el(world, UIText, "Action", header.node, { width: "34%" });
-    const headerKeyboard = this.el(world, UIText, "Keyboard", header.node, { flexGrow: 1, width: 0 as UILength });
-    const headerGamepad = this.el(world, UIText, "Gamepad", header.node, { flexGrow: 1, width: 0 as UILength });
-    const list = this.el(world, UIPanel, "Rows", panel.node, { flexDirection: "column", gap: 6 });
-    const settingsHeading = this.el(world, UIText, "Accessibility", panel.node, { fontWeight: "bold", display: "none" });
-    const settingsList = this.el(world, UIPanel, "Settings", panel.node, { flexDirection: "column", gap: 6, display: "none" });
-    const status = this.el(world, UIText, "Status", panel.node, {});
-    const footer = this.el(world, UIPanel, "Buttons", panel.node, { gap: 8, justifyContent: "flex-end" });
-    const unbind = this.el(world, UIButton, "Unbind", footer.node, { borderWidth: 2 });
-    const unbindText = this.el(world, UIText, "Label", unbind.node, {});
-    const reset = this.el(world, UIButton, "Reset", footer.node, { borderWidth: 2 });
-    const resetText = this.el(world, UIText, "Label", reset.node, {});
-    const save = this.el(world, UIButton, "Save", footer.node, { borderWidth: 2 });
-    const saveText = this.el(world, UIText, "Label", save.node, {});
-    return { root, canvas, ownCanvas: !above, panel, title, headerAction, headerKeyboard, headerGamepad, list, settingsHeading, settingsList, settingsSignature: "", settings: [], status, unbind, unbindText, reset, resetText, save, saveText, signature: "", rows: [] };
+    const top = this.document(world, this.node, "ControlMapper", above ? "control-mapper" : "control-mapper-canvas");
+    const root = top.node.parent!;
+    const at = <T extends UIText | UIPanel | UIButton>(id: string, type: abstract new () => T): T => top.query(`#${id}`)!.as(type);
+    const canvas = above ?? top.as(UICanvas);
+    if (!above) {
+      canvas.player = this.player;
+      canvas.modal = this.modal;
+    }
+    return {
+      root,
+      canvas,
+      ownCanvas: !above,
+      panel: at("Panel", UIPanel),
+      title: at("Title", UIText),
+      headerAction: at("Action", UIText),
+      headerKeyboard: at("Keyboard", UIText),
+      headerGamepad: at("Gamepad", UIText),
+      list: at("Rows", UIPanel),
+      settingsHeading: at("Accessibility", UIText),
+      settingsList: at("Settings", UIPanel),
+      settingsSignature: "",
+      settings: [],
+      status: at("Status", UIText),
+      unbind: at("Unbind", UIButton),
+      unbindText: at("UnbindLabel", UIText),
+      reset: at("Reset", UIButton),
+      resetText: at("ResetLabel", UIText),
+      save: at("Save", UIButton),
+      saveText: at("SaveLabel", UIText),
+      signature: "",
+      rows: [],
+    };
   }
 
   private buildCell(world: World, row: GameObject, action: string, device: UIControlMapperDevice): CellState {
-    const button = this.el(world, UIButton, device === "keyboard" ? "Keyboard" : "Gamepad", row, { flexGrow: 1, width: 0 as UILength, height: (this.glyphSize + 14) as UILength, padding: 6, gap: 8, justifyContent: "flex-start", borderWidth: 2 });
-    const images: UIImage[] = [];
-    for (let i = 0; i < IMAGES_PER_CELL; i++) images.push(this.el(world, UIImage, `Glyph${i}`, button.node, { display: "none" }));
-    const text = this.el(world, UIText, "Label", button.node, { wordBreak: "keep-all" });
+    const el = this.document(world, row, device === "keyboard" ? "Keyboard" : "Gamepad", `control-mapper-${device}`);
+    const button = el.as(UIButton);
+    button.height = (this.glyphSize + 14) as UILength;
+    const images = el.queryAll("Image").map((i) => i.as(UIImage));
+    const text = el.query("Text")!.as(UIText);
     return { action, device, label: "", icons: [], part: null, adds: false, context: null, controls: [], chord: false, conflict: false, button, text, images };
   }
 
@@ -672,11 +750,11 @@ export class UIControlMapper extends Component {
       const at = was ? built.rows.findIndex((r) => r.keyboard === was || r.gamepad === was) : -1;
       if (was && at >= 0) anchor = { row: at, device: was.device, focused: was.button.focused };
       this.lastCell = null;
-      for (const r of built.rows) if (r.name.node.parent?.isValid) world._destroyNode(r.name.node.parent.entity);
+      for (const r of built.rows) if (r.host.isValid) world._destroyNode(r.host.entity);
       built.rows = want.map((w, i) => {
-        const row = this.el(world, UIPanel, `Row${i}`, built.list.node, { gap: 8, alignItems: "center" });
-        const name = this.el(world, UIText, "Name", row.node, { width: "34%" });
-        return { action: w.action, part: w.part, label: w.label, name, keyboard: this.keyboard ? this.buildCell(world, row.node, w.action, "keyboard") : null, gamepad: this.gamepad ? this.buildCell(world, row.node, w.action, "gamepad") : null };
+        const row = this.document(world, built.list.node, `Row${i}`, "control-mapper-row");
+        const name = row.query("#Name")!.as(UIText);
+        return { host: row.node.parent!, action: w.action, part: w.part, label: w.label, name, keyboard: this.keyboard ? this.buildCell(world, row.node, w.action, "keyboard") : null, gamepad: this.gamepad ? this.buildCell(world, row.node, w.action, "gamepad") : null };
       });
     }
     // Contents.
@@ -841,20 +919,31 @@ export class UIControlMapper extends Component {
   }
 
   private buildSetting(world: World, parent: GameObject, index: number, setting: UIControlMapperSettingKind, action: string | null): SettingState {
-    const row = this.el(world, UIPanel, `Setting${index}`, parent, { gap: 8, alignItems: "center" });
-    const name = this.el(world, UIText, "Name", row.node, { width: "34%" });
+    const toggle = setting === "invertY" || setting === "holdToToggle" || setting === "repeat";
+    const row = this.document(world, parent, `Setting${index}`, toggle ? "control-mapper-toggle" : "control-mapper-stepper");
+    const at = <T extends UIText | UIButton>(id: string, type: abstract new () => T): T | null => row.query(`#${id}`)?.as(type) ?? null;
     const height = (this.glyphSize + 14) as UILength;
-    const state: SettingState = { setting, action, label: "", value: "", enabled: true, name, valueText: null, toggle: null, toggleText: null, decrease: null, decreaseText: null, increase: null, increaseText: null };
-    if (setting === "invertY" || setting === "holdToToggle" || setting === "repeat") {
-      state.toggle = this.el(world, UIButton, "Toggle", row.node, { flexGrow: 1, width: 0 as UILength, height, padding: 6, justifyContent: "center", alignItems: "center", borderWidth: 2 });
-      state.toggleText = this.el(world, UIText, "Label", state.toggle.node, {});
-    } else {
-      const side = { width: height, height, justifyContent: "center", alignItems: "center", borderWidth: 2 } as const;
-      state.decrease = this.el(world, UIButton, "Decrease", row.node, side);
-      state.decreaseText = this.el(world, UIText, "Label", state.decrease.node, {});
-      state.valueText = this.el(world, UIText, "Value", row.node, { flexGrow: 1, width: 0 as UILength, textAlign: "center" });
-      state.increase = this.el(world, UIButton, "Increase", row.node, side);
-      state.increaseText = this.el(world, UIText, "Label", state.increase.node, {});
+    const state: SettingState = {
+      host: row.node.parent!,
+      setting,
+      action,
+      label: "",
+      value: "",
+      enabled: true,
+      name: at("Name", UIText)!,
+      valueText: at("Value", UIText),
+      toggle: at("Toggle", UIButton),
+      toggleText: at("ToggleLabel", UIText),
+      decrease: at("Decrease", UIButton),
+      decreaseText: at("DecreaseLabel", UIText),
+      increase: at("Increase", UIButton),
+      increaseText: at("IncreaseLabel", UIText),
+    };
+    if (state.toggle) state.toggle.height = height;
+    for (const b of [state.decrease, state.increase]) {
+      if (!b) continue;
+      b.width = height;
+      b.height = height;
     }
     return state;
   }
@@ -867,7 +956,7 @@ export class UIControlMapper extends Component {
       built.settingsSignature = signature;
       // Focus on a row being removed goes back to the cells.
       const hadFocus = built.settings.some((r) => [r.toggle, r.decrease, r.increase].some((b) => b?.focused));
-      for (const r of built.settings) if (r.name.node.parent?.isValid) world._destroyNode(r.name.node.parent.entity);
+      for (const r of built.settings) if (r.host.isValid) world._destroyNode(r.host.entity);
       built.settings = want.map((w, i) => this.buildSetting(world, built.settingsList.node, i, w.setting, w.action));
       if (hadFocus) this.refocus(built);
     }

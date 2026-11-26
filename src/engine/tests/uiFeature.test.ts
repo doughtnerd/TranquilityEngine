@@ -6,8 +6,10 @@ import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import type { Layer } from "@babylonjs/core/Layers/layer.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
-import { Engine, GameObject, Input } from "../index";
+import { Assets, Engine, GameObject, Input } from "../index";
 import { UIButton, UICanvas, type UILength } from "../ui/components";
+import { loadUIDocumentSupport } from "../ui/UIDocument";
+import { buildUI, byId } from "./uiMarkup";
 import { BabylonUI } from "../render/babylon/ui";
 import { BabylonUIFeature, type BabylonUIHost } from "../render/babylon/uiFeature";
 import { _registeredRenderFeatures, ownerOf, specNeeded } from "../render/renderFeatures";
@@ -50,6 +52,7 @@ function host(): BabylonUIHost {
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
+  await loadUIDocumentSupport();
   babylon = new NullEngine();
   (babylon as unknown as { createCanvas: typeof fakeCanvas }).createCanvas = fakeCanvas;
   scene = new Scene(babylon);
@@ -65,6 +68,7 @@ afterEach(() => {
   scene.dispose();
   babylon.dispose();
   engine.dispose();
+  Assets.clearSources();
   Input.reset();
   vi.restoreAllMocks();
 });
@@ -75,10 +79,10 @@ async function make(): Promise<BabylonUIFeature> {
   return feature;
 }
 
+/** A screen canvas with a button, built by a UI document (ADR 0417). */
 function menu() {
-  const canvas = GameObject.create("Canvas").addBehavior(UICanvas);
-  const play = GameObject.create("Play", { parent: canvas.node }).addBehavior(UIButton, { width: 200 as UILength, height: 50 as UILength } as never);
-  return { canvas, play };
+  const doc = buildUI(`<Canvas id="Canvas"><Button id="Play" width="200" height="50"/></Canvas>`);
+  return { canvas: byId(doc, "Canvas", UICanvas), play: byId(doc, "Play", UIButton) };
 }
 
 describe("BabylonUIFeature", () => {
@@ -103,7 +107,7 @@ describe("BabylonUIFeature", () => {
   it("reports what it drew (ADR 0276): a world canvas's plane, left to the UI core's picking, and no screen canvas", async () => {
     const f = await make();
     const { canvas } = menu();
-    const world = GameObject.create("Sign").addBehavior(UICanvas, { mode: "world" } as never);
+    const world = byId(buildUI(`<Canvas id="Sign" mode="world"/>`), "Sign", UICanvas);
     f.sync(World.require());
     const drawn = [...f.drawn()];
     expect(drawn.map((d) => d.component)).toEqual([world]); // a screen canvas has no shape in the scene

@@ -5,6 +5,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, Locale, MemoryStorage, UICanvas, UIDocument, UIInputField, UIPanel, UIText, type ProjectSettingsInput } from "../../myco";
 import { World } from "../core/World";
 import { UIPointer } from "./uiPointer";
+import { loadUIDocumentSupport } from "../ui/UIDocument";
+import { buildUI, byId } from "./uiMarkup";
 
 const DT = 1 / 60;
 
@@ -193,10 +195,9 @@ describe("UI stylesheets: :lang()", () => {
 describe("text direction", () => {
   it("aligns start to the left in English and to the right in Arabic, through the core's text runs", async () => {
     await boot();
-    const canvas = GameObject.create("Canvas").addBehavior(UICanvas);
-    const start = GameObject.create("Start", { parent: canvas.node }).addBehavior(UIText, { text: "Hi" });
-    const end = GameObject.create("End", { parent: canvas.node }).addBehavior(UIText, { text: "Hi", textAlign: "end" });
-    const left = GameObject.create("Left", { parent: canvas.node }).addBehavior(UIText, { text: "Hi", textAlign: "left" });
+    await loadUIDocumentSupport();
+    const doc = buildUI(`<Canvas><Text id="start">Hi</Text><Text id="end" text-align="end">Hi</Text><Text id="left" text-align="left">Hi</Text></Canvas>`);
+    const [start, end, left] = ["start", "end", "left"].map((id) => byId(doc, id, UIText));
     expect(start.textAlign).toBe("start"); // the default
     const p = await UIPointer.create(World.require());
     pointers.push(p);

@@ -543,7 +543,7 @@ export class UIDocument extends Component {
     return () => buildListeners.delete(listener);
   }
 
-  /** @internal Editor: the live document element a UI component belongs to, or null (removed, or the control mapper's own). */
+  /** @internal Editor: the live document element a UI component belongs to, or null (removed). */
   static _elementOf(component: UIComponentType): UIDocumentElement | null {
     const el = elementByComponent.get(component);
     return el && el._alive ? el : null;

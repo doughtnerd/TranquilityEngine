@@ -10,7 +10,7 @@ import type { Container } from "@babylonjs/gui/2D/controls/container.js";
 import { Control } from "@babylonjs/gui/2D/controls/control.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
-import { Color, Engine, GameObject, Input, Locale, type ProjectSettingsInput } from "../index";
+import { Assets, Color, Engine, GameObject, Input, Locale, type ProjectSettingsInput } from "../index";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../ui/components";
 import type { UIComponentType } from "../ui/components";
 import { textRunOf, uiKindOf } from "../ui/elementKinds";
@@ -19,6 +19,8 @@ import { BabylonUI, measureText } from "../render/babylon/ui";
 import { flipRows, redrawnPixels } from "../render/pixelRegions";
 import { loadBundledFont } from "../ui/fonts";
 import { UIPointer } from "./uiPointer";
+import { loadUIDocumentSupport } from "../ui/UIDocument";
+import { uiElement } from "./uiMarkup";
 
 /** A 2D context that draws nothing and measures half an em per character. */
 function fakeContext() {
@@ -47,6 +49,7 @@ const loaded: string[] = [];
 
 beforeEach(async () => {
   engine = await Engine.create({ headless: true });
+  await loadUIDocumentSupport();
   babylon = new NullEngine();
   (babylon as unknown as { createCanvas: typeof fakeCanvas }).createCanvas = fakeCanvas;
   scene = new Scene(babylon);
@@ -64,11 +67,11 @@ afterEach(() => {
   scene.dispose();
   babylon.dispose();
   engine.dispose();
+  Assets.clearSources();
 });
 
-function node<T extends UIComponentType>(name: string, parent: GameObject | null, type: new () => T, init: Partial<T> = {}): T {
-  return GameObject.create(name, { parent }).addBehavior(type as never, init as never) as T;
-}
+/** One element (ADR 0417: built by a UI document), its fields then written as a script writes them. */
+const node = uiElement;
 
 function canvasInfo(comp: UICanvas, over: Partial<UILaidOutCanvas> = {}): UILaidOutCanvas {
   return { comp, mode: comp.mode, sortOrder: comp.sortOrder, width: 1280, height: 720, scale: 1, pixelSize: comp.pixelSize, worldMatrix: null, visible: true, ...over };
