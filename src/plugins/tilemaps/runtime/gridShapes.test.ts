@@ -89,12 +89,12 @@ describe("grid shapes on the Tilemap (ADR 0421)", () => {
     expect(s.oneWayPolygons.map(round)).toEqual([[[0, -0.5], [1, 0], [0, 0.5], [-1, 0]]]);
     // Cell (5, 5)'s box is centred at (0, 5): the triangle [0,0] [1,0] [1,1] of the box.
     expect(s.polygons.map(round)).toEqual([[[-1, 4.5], [1, 4.5], [1, 5.5]]]);
-    // Staggered cells next to each other in diamond space merge the same way.
+    // Staggered cells next to each other in diamond space merge the same way (within a chunk, ADR 0423).
     map.gridShape = "staggered";
     map.clearAll();
     const grid = tileGrid({ shape: "staggered", cellSize: { x: 2, y: 1 } });
-    const [ne] = grid.neighbours(0, 0); // N in diamond space
-    map.setTile(0, 0, 1);
+    const [ne] = grid.neighbours(4, 4); // N in diamond space
+    map.setTile(4, 4, 1);
     map.setTile(ne[0], ne[1], 1);
     expect(map.collisionShapes("rectangles")!.polygons).toHaveLength(1);
   });

@@ -18,8 +18,9 @@ import { defineBuffer } from "../../../engine/core/data";
 import { Vector2, Vector3, type Vec2Like, type Vec3Like } from "../../../engine/core/math";
 import { AssetRef, PlainObject, component, field } from "../../../engine/core/registry";
 import type { CollisionShapes2D, CollisionShapeSource2D, ShapeMerge2D } from "../../../engine/physics/shapeSource2D";
+import type { ShadowShapes2D, ShadowShapeSource2D } from "../../../engine/render/shadowShapeSource2D";
 import { Assets } from "../../../engine/scene/Assets";
-import { buildTileShapes } from "./collision";
+import type { TileShapes } from "./collision";
 import { paintTerrain, retileTerrain, type CellAccess } from "./autotile";
 import { cellRandom, RANDOM_BRUSH_STREAM } from "./cellHash";
 import { gridKey, tileGrid, type GridParams, type TileGrid } from "./grids";
@@ -39,7 +40,8 @@ import {
   tileIdOf,
   type TilemapLayerData,
 } from "./format";
-import { Tileset, parseTileset, pickWeighted, type TileDef } from "./tileset";
+import { Tileset, parseTileset, pickWeighted, type TileCollision, type TileDef } from "./tileset";
+import { TileShapeCache, type ShapeLayer } from "./tileShapeCache";
 
 /** One changed cell, in `TilemapChanges` and `onTileChanged` listeners. */
 export interface TileChange {
@@ -137,7 +139,7 @@ export type TileGridShape = "square" | "isometric" | "staggered" | "hexagonal";
 let nextVersion = 1;
 
 @component("engine.Tilemap")
-export class Tilemap extends Component implements CollisionShapeSource2D {
+export class Tilemap extends Component implements CollisionShapeSource2D, ShadowShapeSource2D {
   /** The tileset asset (`*.tileset.json`) the cells' tile ids refer to. */
   @field(AssetRef, { kind: "tileset" }) tileset = "";
   /** One cell's width and height in local units. */
@@ -170,6 +172,10 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
   private grid: { key: string; grid: TileGrid } | null = null;
   /** ADR 0425: view-only opacity factors by layer index (`_setViewOpacity`). */
   private readonly viewOpacity = new Map<number, number>();
+  /** ADR 0423: tile shapes merged per chunk. */
+  private shapeCache = new TileShapeCache();
+  /** The last shapes put together per merge mode (and "shadow"), with the key they were made for. */
+  private shapeResults = new Map<string, { key: string; shapes: CollisionShapes2D | ShadowShapes2D }>();
   /** @internal Goes up when anything about the cells or layers changes. */
   _version = 0;
 
@@ -320,11 +326,11 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
     return gridKey(this.gridParams());
   }
 
-  // --- 2D collision shapes (ADR 0105, 0136) ---------------------------------------------------
+  // --- 2D collision and shadow shapes (ADR 0105, 0136, 0423, 0425) ------------------------------
 
-  /** @internal The 2D shape source signature: changes with the grid, the tileset and the colliding layers' cells. */
+  /** @internal The 2D shape source signature: changes with the grid, the tileset and the colliding layers' cells and offsets. */
   collisionSignature(): string {
-    const layers = this._layers().map((l) => `${l.version}:${l.meta.collision}`).join(",");
+    const layers = this._layers().map((l) => `${l.version}:${l.meta.collision}:${offsetKey(l)}`).join(",");
     const shape = this.gridShape === "square" || !this.gridShape ? [] : [this._gridKey()];
     return [this.cellSize.x, this.cellSize.y, ...shape, this.tileset, this.tilesetAsset ? "ts" : "", layers].join("|");
   }
@@ -332,19 +338,76 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
   /**
    * @internal The tiles' collision shapes (each tile's from the tileset; layers with `collision: false`
    * skipped), for whatever 2D collider sits on this node. Null while the tileset is missing. On a square grid they are
-   * in cell units (`unit` is the cell size); on other grids in local units (`unit` 1 × 1, ADR 0421).
+   * in cell units (`unit` is the cell size); on other grids in local units (`unit` 1 × 1, ADR 0421). A layer's
+   * `offset` (ADR 0425) moves its shapes. Merged per chunk and cached (ADR 0423): an edit re-merges the chunks it touched.
    */
   collisionShapes(merge: ShapeMerge2D): CollisionShapes2D | null {
     const ts = this.tilesetAsset;
     if (!ts) return null;
-    const cells: { x: number; y: number; value: number }[] = [];
-    this._layers().forEach((l, i) => {
-      if (!l.meta.collision) return;
-      for (const cell of this.tiles(i)) cells.push(cell);
-    });
+    const key = `${this.collisionSignature()}|${tilesetToken(ts)}`;
+    const cached = this.shapeResults.get(merge);
+    if (cached?.key === key) return cached.shapes as CollisionShapes2D;
+    const shapes = this.mergedShapes("collision", merge, (l) => l.meta.collision, (id) => ts.tile(id)?.collision, ts);
+    this.shapeResults.set(merge, { key, shapes });
+    return shapes;
+  }
+
+  /**
+   * @internal The 2D shadow shape source signature (ADR 0423): changes with the grid, the tileset and every layer's
+   * cells and offsets (a layer's collision flag doesn't gate its shadows).
+   */
+  shadowSignature(): string {
+    const layers = this._layers().map((l) => `${l.version}:${offsetKey(l)}`).join(",");
+    return [this._gridKey(), this.tileset, this.tilesetAsset ? "ts" : "", layers].join("|");
+  }
+
+  /**
+   * @internal What the tiles cast 2D shadows with (ADR 0423), in local units: each tile's `occluder` ("collision", the
+   * default, is its collision shapes without the one-way ones; "full" the cell's outline; "none" nothing; or its own
+   * shapes in box units), whole cells merged into outlines per chunk as collision is, layer offsets applied. Every
+   * layer casts, whatever its collision flag. Null while the tileset is missing.
+   */
+  shadowShapes(): ShadowShapes2D | null {
+    const ts = this.tilesetAsset;
+    if (!ts) return null;
+    const key = `${this.shadowSignature()}|${tilesetToken(ts)}`;
+    const cached = this.shapeResults.get("shadow");
+    if (cached?.key === key) return cached.shapes as ShadowShapes2D;
+    const s = this.mergedShapes("shadow", "outline", () => true, (id) => occluderShapes(ts.tile(id)), ts);
+    const ux = s.unit.x, uy = s.unit.y;
+    const local = (pts: [number, number][]) => (ux === 1 && uy === 1 ? pts : pts.map(([x, y]): [number, number] => [x * ux, y * uy]));
+    const shapes: ShadowShapes2D = { loops: s.loops.map(local), polygons: s.polygons.map(local) };
+    this.shapeResults.set("shadow", { key, shapes });
+    return shapes;
+  }
+
+  /** Every `include`d layer's tiles merged (layers with the same offset together, through the per-chunk cache), each offset group moved by its offset. */
+  private mergedShapes(purpose: string, mode: ShapeMerge2D, include: (l: RuntimeLayer) => boolean, collisionOf: (id: number) => TileCollision | undefined, ts: Tileset): CollisionShapes2D {
     const grid = this._grid();
-    if (grid.shape !== "square") return { unit: { x: 1, y: 1 }, ...buildTileShapes(cells, (id) => ts.tile(id)?.collision, merge, grid) };
-    return { unit: { x: this.cellSize.x, y: this.cellSize.y }, ...buildTileShapes(cells, (id) => ts.tile(id)?.collision, merge) };
+    const square = grid.shape === "square";
+    const unit = square ? { x: this.cellSize.x, y: this.cellSize.y } : { x: 1, y: 1 };
+    const groups = new Map<string, { offset: [number, number]; layers: ShapeLayer[] }>();
+    this._layers().forEach((l, i) => {
+      if (!include(l)) return;
+      const ok = offsetKey(l);
+      let g = groups.get(ok);
+      if (!g) groups.set(ok, (g = { offset: layerOffsetOf(l), layers: [] }));
+      g.layers.push({ id: i, chunks: l.chunks, value: (stored) => this.valueOf(l, stored) });
+    });
+    const context = `${tilesetToken(ts)}|${this._gridKey()}`;
+    const prefix = `${purpose}|${mode}|`;
+    const used = new Set<string>();
+    const out: CollisionShapes2D = { unit, boxes: [], loops: [], polygons: [], oneWay: [], oneWayPolygons: [] };
+    for (const [ok, g] of groups) {
+      const slot = prefix + ok;
+      used.add(slot);
+      const s = this.shapeCache.shapes(slot, g.layers, collisionOf, mode, grid, context);
+      // Offsets are in local units; square-grid shapes are in cell units.
+      const dx = unit.x ? g.offset[0] / unit.x : 0, dy = unit.y ? g.offset[1] / unit.y : 0;
+      appendShapes(out, dx || dy ? movedShapes(s, dx, dy) : s);
+    }
+    this.shapeCache.retain(prefix, used);
+    return out;
   }
 
   // --- layers --------------------------------------------------------------------------------
@@ -683,6 +746,57 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
     this._world.render?.release(this);
     this.listeners.length = 0;
   }
+}
+
+/** A Tileset's number, so caches keyed by it notice a reloaded tileset (a new Tileset object). */
+const tilesetTokens = new WeakMap<Tileset, number>();
+let nextTilesetToken = 1;
+function tilesetToken(ts: Tileset): number {
+  let t = tilesetTokens.get(ts);
+  if (t === undefined) tilesetTokens.set(ts, (t = nextTilesetToken++));
+  return t;
+}
+
+/** ADR 0425: a layer's offset in local units. */
+function layerOffsetOf(l: RuntimeLayer): [number, number] {
+  const o = l.meta.offset;
+  return o && Number.isFinite(o[0]) && Number.isFinite(o[1]) ? [o[0], o[1]] : [0, 0];
+}
+
+function offsetKey(l: RuntimeLayer): string {
+  const [x, y] = layerOffsetOf(l);
+  return `${x},${y}`;
+}
+
+/**
+ * ADR 0423: what a tile casts shadows with, as a collision the shape merge reads (`TileCollision`): its occluder, or its
+ * collision for `"collision"` (one-way parts land among the one-way shapes, which cast nothing). Occluder shapes are
+ * never one-way.
+ */
+const solidOccluders = new WeakMap<object, TileCollision>();
+function occluderShapes(tile: Readonly<TileDef> | undefined): TileCollision | undefined {
+  if (!tile) return undefined;
+  const o = tile.occluder ?? "collision";
+  if (o === "collision") return tile.collision;
+  if (typeof o === "string") return o;
+  let solid = solidOccluders.get(o);
+  if (!solid) solidOccluders.set(o, (solid = { shapes: o.shapes.map((s) => ({ polygon: s.polygon })) }));
+  return solid;
+}
+
+/** Shapes moved by (dx, dy) shape units. */
+function movedShapes(s: TileShapes, dx: number, dy: number): TileShapes {
+  const move = (pts: [number, number][]) => pts.map(([x, y]): [number, number] => [x + dx, y + dy]);
+  const rect = (r: { x: number; y: number; w: number; h: number }) => ({ x: r.x + dx, y: r.y + dy, w: r.w, h: r.h });
+  return { boxes: s.boxes.map(rect), loops: s.loops.map(move), polygons: s.polygons.map(move), oneWay: s.oneWay.map(rect), oneWayPolygons: s.oneWayPolygons.map(move) };
+}
+
+function appendShapes(out: TileShapes, s: TileShapes): void {
+  for (const b of s.boxes) out.boxes.push(b);
+  for (const l of s.loops) out.loops.push(l);
+  for (const p of s.polygons) out.polygons.push(p);
+  for (const r of s.oneWay) out.oneWay.push(r);
+  for (const p of s.oneWayPolygons) out.oneWayPolygons.push(p);
 }
 
 function sameCells(a: Int32Array, b: Int32Array): boolean {
