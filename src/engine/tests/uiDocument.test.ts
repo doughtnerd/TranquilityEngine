@@ -537,6 +537,44 @@ describe("UIDocument", () => {
     const doc = await open();
     expect(() => doc.query("Panel::before")).toThrow(/Bad selector/);
   });
+
+  it("restyles structural selectors as list rows change, matches markup attributes, and @media and calc() on its canvas (ADR 0418 wave 5)", async () => {
+    files["ui/w5.ui.xml"] = `<Canvas>
+  <Style src="w5.ui.css"/>
+  <Panel id="rows" kind="list"><Template><Text class="row">{label}</Text></Template></Panel>
+  <Panel id="box"/>
+</Canvas>`;
+    files["ui/w5.ui.css"] = `.row:first-child { font-size: 20px; } .row:last-child { font-size: 30px; }
+[kind=list] { gap: 3; }
+Panel:empty { opacity: 0.5; }
+#box { width: calc(25% + 10px); }
+@media (max-width: 1000px) { #box { gap: 6; } }`;
+    const doc = await open("ui/w5.ui.xml");
+    const sizes = () => doc.queryAll(".row").map((r) => r.as(UIText).fontSize);
+    doc.list("#rows", [{ label: "a" }, { label: "b" }, { label: "c" }]);
+    engine.step(DT);
+    const [first, middle, last] = sizes();
+    expect([first, last]).toEqual([20, 30]);
+    expect([20, 30]).not.toContain(middle);
+    doc.list("#rows", [{ label: "a" }, { label: "b" }]);
+    engine.step(DT);
+    expect(sizes()).toEqual([20, 30]);
+    const rows = doc.query("#rows")!.as(UIPanel);
+    const box = doc.query("#box")!.as(UIPanel);
+    expect(rows.gap).toBe(3);
+    expect([rows.opacity, box.opacity]).toEqual([1, 0.5]);
+    expect(box.width).toBe("calc(25% + 10px)");
+
+    const p = await pointer(); // 1280×720
+    engine.step(DT);
+    p.sync();
+    expect(box.gap).toBe(0);
+    expect(p.core.rectOf(box)!.width).toBe(330);
+    p.dispose();
+    pointers.push(await UIPointer.create(World.require(), 800, 720)); // 800 UI pixels wide
+    engine.step(DT);
+    expect(box.gap).toBe(6);
+  });
 });
 
 describe("UIDocument in the editor (ADR 0077 wave B)", () => {

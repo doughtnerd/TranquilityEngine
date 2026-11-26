@@ -19,7 +19,7 @@ import { UI_KIND_TYPES, flexShrinkOf, isInteractiveKind, isLeafKind, isRaycastTa
 import { fontEpoch } from "./fonts";
 import { uiInteractions } from "./interactions";
 import { pointerFocus } from "./navigation";
-import { canvasScale, estimateText, inRect, intersectRect, loadYogaOnce, loadedYoga, uiBorderEdges, uiEdges, uiLength, uiLimit, type UIRect } from "./layout";
+import { canvasScale, estimateText, inRect, intersectRect, isMixedLength, loadYogaOnce, loadedYoga, uiBorderEdges, uiEdges, uiLength, uiLimit, type UIRect } from "./layout";
 import type { TextMeasureRequest, UITextRun, UICoreHost, UICoreLike, UICoreOptions, UICorners, UIKind, UILaidOutCanvas, UILaidOutElement, UIPickRay } from "./uiCoreTypes";
 import { applyAffine, boundsOf, compose, invert, localTransform, multiply, transformRect, type UIAffine, type UITransformFields } from "./transform2d";
 
@@ -96,6 +96,11 @@ interface Entry {
   box: { x: number; y: number; width: number; height: number; visible: boolean; opacity: number };
   /** Clip and draw order from the last layout (ADR 0418). */
   place: Placement;
+  /**
+   * ADR 0418 wave 5: the parent's content size its lengths mixing % and px (`calc()`) were last resolved against, or
+   * absent when it has none. Layout runs again once when the parent's size turns out different.
+   */
+  calcBasis?: { width: number; height: number };
 }
 
 interface CanvasEntry extends Entry {
@@ -119,6 +124,13 @@ function stacks(e: Entry): boolean {
 function zOf(e: Entry): number {
   const z = (e.comp as { zIndex?: number }).zIndex;
   return typeof z === "number" && Number.isFinite(z) ? z : 0;
+}
+
+/** The length fields that may hold a `calc()` mixing % and px (ADR 0418 wave 5). */
+const MIXED_FIELDS = ["width", "height", "top", "right", "bottom", "left", "minWidth", "maxWidth", "minHeight", "maxHeight", "flexBasis"] as const;
+
+function sameSize(a: { width: number; height: number }, b: { width: number; height: number }): boolean {
+  return Math.abs(a.width - b.width) < 1e-4 && Math.abs(a.height - b.height) < 1e-4;
 }
 
 /**
@@ -317,6 +329,13 @@ export class UICore implements UICoreLike {
       this.applyCanvas(canvas);
       canvas.node.calculateLayout(canvas.width, canvas.height, yoga.DIRECTION_LTR);
       this.readLayout(canvas);
+      // `calc()` mixing % and px (ADR 0418 wave 5) resolved against last frame's parent sizes: once more where they changed.
+      const stale = canvas.elements.filter((e) => e.calcBasis && e.parent && !sameSize(e.calcBasis, this.contentSize(e.parent)));
+      if (stale.length) {
+        for (const e of stale) this.applyProperties(yoga, e);
+        canvas.node.calculateLayout(canvas.width, canvas.height, yoga.DIRECTION_LTR);
+        this.readLayout(canvas);
+      }
     }
     this.collectResults(world, canvases);
     this.syncDom();
@@ -501,24 +520,29 @@ export class UICore implements UICoreLike {
       if (put(i === 0 ? 6 : 19 + i, mar[i])) n.setMargin(edge, mar[i]);
       if (put(i === 0 ? 16 : 22 + i, bor[i])) n.setBorder(edge, bor[i]);
     }
-    if (put(7, (v = uiLength(c.width)))) n.setWidth(v as never);
-    if (put(8, (v = uiLength(c.height)))) n.setHeight(v as never);
+    // ADR 0418 wave 5: lengths mixing % and px resolve in pixels against the parent's content size (last layout's).
+    const basis = MIXED_FIELDS.some((f) => isMixedLength(c[f])) && entry.parent ? this.contentSize(entry.parent) : undefined;
+    entry.calcBasis = basis;
+    const bw = basis?.width, bh = basis?.height;
+    if (put(7, (v = uiLength(c.width, bw)))) n.setWidth(v as never);
+    if (put(8, (v = uiLength(c.height, bh)))) n.setHeight(v as never);
     if (put(9, (v = c.positionType === "absolute" ? yoga.POSITION_TYPE_ABSOLUTE : yoga.POSITION_TYPE_RELATIVE))) n.setPositionType(v as never);
-    if (put(10, (v = autoToUndefined(uiLength(c.top))))) n.setPosition(yoga.EDGE_TOP, v as never);
-    if (put(11, (v = autoToUndefined(uiLength(c.right))))) n.setPosition(yoga.EDGE_RIGHT, v as never);
-    if (put(12, (v = autoToUndefined(uiLength(c.bottom))))) n.setPosition(yoga.EDGE_BOTTOM, v as never);
-    if (put(13, (v = autoToUndefined(uiLength(c.left))))) n.setPosition(yoga.EDGE_LEFT, v as never);
+    if (put(10, (v = autoToUndefined(uiLength(c.top, bh))))) n.setPosition(yoga.EDGE_TOP, v as never);
+    if (put(11, (v = autoToUndefined(uiLength(c.right, bw))))) n.setPosition(yoga.EDGE_RIGHT, v as never);
+    if (put(12, (v = autoToUndefined(uiLength(c.bottom, bh))))) n.setPosition(yoga.EDGE_BOTTOM, v as never);
+    if (put(13, (v = autoToUndefined(uiLength(c.left, bw))))) n.setPosition(yoga.EDGE_LEFT, v as never);
     if (put(14, (v = finite(c.flexGrow)))) n.setFlexGrow(v as number);
     // Null: the kind's (text wraps to what's left; other boxes keep their size).
     if (put(15, (v = c.flexShrink === null || c.flexShrink === undefined ? flexShrinkOf(entry.kind) : finite(c.flexShrink)))) n.setFlexShrink(v as number);
-    if (put(26, (v = uiLimit(c.minWidth)))) n.setMinWidth(v as never);
-    if (put(27, (v = uiLimit(c.maxWidth)))) n.setMaxWidth(v as never);
-    if (put(28, (v = uiLimit(c.minHeight)))) n.setMinHeight(v as never);
-    if (put(29, (v = uiLimit(c.maxHeight)))) n.setMaxHeight(v as never);
+    if (put(26, (v = uiLimit(c.minWidth, bw)))) n.setMinWidth(v as never);
+    if (put(27, (v = uiLimit(c.maxWidth, bw)))) n.setMaxWidth(v as never);
+    if (put(28, (v = uiLimit(c.minHeight, bh)))) n.setMinHeight(v as never);
+    if (put(29, (v = uiLimit(c.maxHeight, bh)))) n.setMaxHeight(v as never);
     if (put(30, (v = t.wrap[c.flexWrap] ?? yoga.WRAP_NO_WRAP))) n.setFlexWrap(v as never);
     if (put(31, (v = t.alignSelf[c.alignSelf] ?? yoga.ALIGN_AUTO))) n.setAlignSelf(v as never);
     if (put(32, (v = t.alignContent[c.alignContent] ?? yoga.ALIGN_STRETCH))) n.setAlignContent(v as never);
-    if (put(33, (v = uiLength(c.flexBasis) ?? "auto"))) n.setFlexBasis(v as never);
+    const rowParent = entry.parent?.kind === "canvas" || /^row/.test((entry.parent?.comp as { flexDirection?: string } | undefined)?.flexDirection ?? "");
+    if (put(33, (v = uiLength(c.flexBasis, rowParent ? bw : bh) ?? "auto"))) n.setFlexBasis(v as never);
     if (put(34, (v = Number.isFinite(c.aspectRatio) && c.aspectRatio > 0 ? c.aspectRatio : undefined))) n.setAspectRatio(v as never);
     if (put(35, (v = c.overflow === "hidden" ? yoga.OVERFLOW_HIDDEN : yoga.OVERFLOW_VISIBLE))) n.setOverflow(v as never);
 
@@ -533,6 +557,19 @@ export class UICore implements UICoreLike {
         n.markDirty();
       }
     }
+  }
+
+  /** An entry's content box size at its last layout (a canvas's own size): what its children's percentages are of. */
+  private contentSize(e: Entry): { width: number; height: number } {
+    if (e.kind === "canvas") return { width: (e as CanvasEntry).width, height: (e as CanvasEntry).height };
+    const n = e.node;
+    const y = this.yoga!;
+    const fin = (v: number) => (Number.isFinite(v) ? v : 0);
+    const across = (a: number, b: number) => fin(n.getComputedPadding(a)) + fin(n.getComputedPadding(b)) + fin(n.getComputedBorder(a)) + fin(n.getComputedBorder(b));
+    return {
+      width: Math.max(0, fin(n.getComputedWidth()) - across(y.EDGE_LEFT, y.EDGE_RIGHT)),
+      height: Math.max(0, fin(n.getComputedHeight()) - across(y.EDGE_TOP, y.EDGE_BOTTOM)),
+    };
   }
 
   /** Measure the entry's text run, wrapped to `maxWidth` unless it doesn't wrap. */

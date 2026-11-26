@@ -27,11 +27,11 @@ import type { World } from "../core/World";
 import { Assets, normalizeAssetPath } from "../scene/Assets";
 import { projectFileKind } from "../scene/projectFiles";
 import type { GameObject } from "../scene/GameObject";
-import { UIButton, UICanvas, UIInputField, type UIComponentType } from "./components";
+import { UIButton, UICanvas, UIInputField, UIText, type UIComponentType } from "./components";
 import { uiPseudoState, uiTypeOfTag } from "./elementKinds";
 import { uiInteractions, type UIInteractionType } from "./interactions";
 import { childPaths, labelPath } from "./documentSource";
-import type { BindingPart, MarkupAttribute, MarkupElement, ResolvedValue, Selector, SourceProblem, StyleTarget, UIPseudo, UIStylesheet, UITag } from "./document/types";
+import type { BindingPart, MarkupAttribute, MarkupElement, ResolvedValue, Selector, SourceProblem, StyleTarget, UIMediaEnvironment, UIPseudo, UIStylesheet, UITag } from "./document/types";
 import { Locale, localeMessageNames, type MessageArg } from "../localisation/Locale";
 import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimationReady, uiAnimator, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "./animation/UIAnimator";
 import type { UIAnimationSpec, UITransitionSpec } from "./document/animationValues";
@@ -169,6 +169,31 @@ interface MutableTarget extends StyleTarget {
   state: Record<UIPseudo, boolean>;
   parent: MutableTarget | null;
   lang: string;
+  media: UIMediaEnvironment | null;
+}
+
+/**
+ * An element's style target. Its child elements and text are read when a selector asks (ADR 0418 wave 5), so they're
+ * the element's current ones; attributes are the markup's as written (a bound attribute's `{name}` text, not its value).
+ */
+function targetOf(el: UIDocumentElement, markup: MarkupElement, id: string | null, classes: string[], parent: MutableTarget | null): MutableTarget {
+  const attributes = new Map(markup.attributes.map((a) => [a.name, a.value]));
+  return {
+    tag: markup.tag,
+    id,
+    classes,
+    state: { hover: false, pressed: false, focus: false, disabled: false },
+    parent,
+    lang: Locale.language,
+    media: null,
+    attributes,
+    get children() {
+      return el._children.filter((c) => !c._synthetic && c._alive).map((c) => c._target);
+    },
+    get content() {
+      return (el._comp instanceof UIText && el._comp.text !== "") || el._children.some((c) => c._synthetic && c._alive);
+    },
+  };
 }
 
 /** A list row's data: `{field}` bindings inside it read the item first. */
@@ -352,7 +377,8 @@ export class UIDocumentElement {
 
   /** @internal */
   _markDirty(): void {
-    this.document._styleDirty.add(this);
+    // With sibling or structural selectors (ADR 0418 wave 5), its siblings may match differently too.
+    this.document._styleDirty.add(this.document._structure && this._parent ? this._parent : this);
   }
 
   private describe(): string {
@@ -433,6 +459,13 @@ export class UIDocument extends Component {
   private animates = false;
   /** The sheets use `:lang()`: a language change restyles the tree (ADR 0356 §4). */
   private langRules = false;
+  /** @internal The sheets use structural selectors or sibling combinators (ADR 0418 wave 5): rows and class changes restyle siblings. */ _structure = false;
+  /** The sheets have `@media` rules (ADR 0418 wave 5): a canvas size change restyles the tree. */
+  private mediaRules = false;
+  /** Elements built since the last late sync: styling them again starts no transitions. */
+  private readonly fresh = new Set<UIDocumentElement>();
+  /** The next restyle is for the canvas's first known size: nothing transitions. */
+  private firstMedia = false;
   /** `Locale.epoch` the tree was last brought up to date with. */
   private localeEpoch = -1;
   private problemList: SourceProblem[] = [];
@@ -541,6 +574,7 @@ export class UIDocument extends Component {
     rows.forEach((row, i) => world._setSiblingIndex(row._node.entity, own.length + i));
     state.rows = rows;
     state.keys = keys;
+    if (this._structure) this._styleDirty.add(host); // rows' positions changed (ADR 0418 wave 5)
     for (const row of rows) this.updateBindings(row);
     if (this.rootElement) this.resolveReferences(this.rootElement);
     for (const [row, item] of fresh) {
@@ -573,7 +607,8 @@ export class UIDocument extends Component {
    */
   _resolveAt(el: UIDocumentElement, state: Partial<Record<UIPseudo, boolean>>): ReadonlyMap<string, ResolvedValue> {
     if (!parsers) return new Map();
-    return parsers.resolveStyle({ ...el._target, state: { ...el._target.state, ...state } }, el._markup, el._comp.constructor as ComponentClass, this.sheets, el._parent?._resolved ?? null, () => {});
+    const P = parsers;
+    return withState(el._target, { ...el._target.state, ...state }, () => P.resolveStyle(el._target, el._markup, el._comp.constructor as ComponentClass, this.sheets, el._parent?._resolved ?? null, () => {}));
   }
 
   /** @internal The `document` value the tree was last built from, or null before a build (`documentSource.ts`). */
@@ -669,6 +704,8 @@ export class UIDocument extends Component {
         }
         this.pseudo = P.usesPseudo(this.sheets);
         this.langRules = P.usesLang(this.sheets);
+        this._structure = P.usesStructure(this.sheets);
+        this.mediaRules = P.usesMedia(this.sheets);
         this.animates = P.usesAnimation(this.sheets);
         if (this.animates) void uiAnimator(this._world).open(); // the tween backend loads while the tree builds
         this.localeEpoch = Locale.epoch;
@@ -678,6 +715,11 @@ export class UIDocument extends Component {
           this._world._batch(() => {
             this.rootElement = this.build(root, null, null, reuse, "");
           });
+          // Each element was styled as it was built, before its later siblings and children existed and before the root
+          // knew its canvas: structural selectors and `@media` match once the whole tree is there (ADR 0418 wave 5).
+          const built = this.rootElement!;
+          built._target.media = this.canvasSize();
+          if (this._structure || (this.mediaRules && built._target.media)) this.restyle(built);
           this.updateBindings(this.rootElement!);
         }
       }
@@ -734,14 +776,8 @@ export class UIDocument extends Component {
     el._applied = new Set();
     el._resolved = new Map();
     el._styled = false;
-    el._target = {
-      tag: markup.tag,
-      id: idAttr,
-      classes: classAttr.split(/\s+/).filter(Boolean),
-      state: { hover: false, pressed: false, focus: false, disabled: false },
-      parent: parent?._target ?? null,
-      lang: Locale.language,
-    };
+    el._target = targetOf(el, markup, idAttr, classAttr.split(/\s+/).filter(Boolean), parent?._target ?? null);
+    this.fresh.add(el);
     const parentNode = parent ? parent._node : this.node;
     const node = world._createNode(idAttr ?? markup.tag, parentNode.entity);
     el._node = node;
@@ -869,7 +905,7 @@ export class UIDocument extends Component {
     // Transitions and keyframe animations (ADR 0418 wave 4): the animator takes what changed from here.
     const transitions = resolved.get(P.TRANSITION_KEY)?.value as readonly UITransitionSpec[] | undefined;
     const animations = resolved.get(P.ANIMATION_KEY)?.value as readonly UIAnimationSpec[] | undefined;
-    const first = !el._styled;
+    const first = !el._styled || this.fresh.has(el) || this.firstMedia;
     el._styled = true;
     if (transitions?.length || animations?.length || uiAnimating(this._world, el._comp)) {
       const sheets = this.sheets;
@@ -884,7 +920,7 @@ export class UIDocument extends Component {
     // A button's hover and pressed colours come from `:hover` / `:pressed` backgrounds, so the drawing shows them.
     if (this.pseudo && el._comp instanceof UIButton) {
       const at = (state: Partial<Record<UIPseudo, boolean>>) =>
-        P.resolveStyle({ ...el._target, state: { ...el._target.state, hover: false, pressed: false, ...state } }, el._markup, type, this.sheets, parentResolved, () => {}).get("backgroundColor");
+        withState(el._target, { ...el._target.state, hover: false, pressed: false, ...state }, () => P.resolveStyle(el._target, el._markup, type, this.sheets, parentResolved, () => {}).get("backgroundColor"));
       const base = at({});
       const hover = at({ hover: true });
       const pressed = at({ hover: true, pressed: true });
@@ -1084,6 +1120,16 @@ export class UIDocument extends Component {
       });
       if (this.langRules) this._styleDirty.add(root);
     }
+    // ADR 0418 wave 5: `@media` rules match again when the canvas (last frame's layout) changes size.
+    const size = this.canvasSize();
+    const was = root._target.media;
+    if (size && (!was || was.width !== size.width || was.height !== size.height)) {
+      root._target.media = size;
+      if (this.mediaRules) {
+        this._styleDirty.add(root);
+        if (!was) this.firstMedia = true; // the document's first size isn't a change to animate
+      }
+    }
     this.updateBindings(root);
     walk(root, (el) => {
       const state = uiPseudoState(el._comp);
@@ -1104,6 +1150,19 @@ export class UIDocument extends Component {
         if (!covered) this.restyle(el);
       }
     }
+    this.fresh.clear();
+    this.firstMedia = false;
+  }
+
+  /** The size in UI pixels, at the World's last layout, of the canvas the document is on (its root, or above it): what `@media` matches. */
+  private canvasSize(): UIMediaEnvironment | null {
+    const layout = uiInteractions(this._world).layout;
+    if (!layout) return null;
+    const root = this.rootElement;
+    let canvas: UICanvas | null = root?._comp instanceof UICanvas ? root._comp : null;
+    for (let n: GameObject | null = this.node; !canvas && n; n = n.parent) canvas = n.getComponent(UICanvas);
+    const c = canvas ? layout.canvases().find((l) => l.comp === canvas) : undefined;
+    return c ? { width: c.width, height: c.height } : null;
   }
 
   private sourcesChanged(): boolean {
@@ -1118,6 +1177,17 @@ export class UIDocument extends Component {
 /** The events each kind can have, in the order a frame's are reported. */
 const BUTTON_EVENTS: readonly UIInteractionType[] = ["blur", "focus", "click", "hover"];
 const FIELD_EVENTS: readonly UIInteractionType[] = ["blur", "focus", "change", "submit"];
+
+/** Run `fn` with the target in another pseudo-class state for a moment: the target itself, which its siblings know it by. */
+function withState<T>(target: MutableTarget, state: Record<UIPseudo, boolean>, fn: () => T): T {
+  const saved = target.state;
+  target.state = state;
+  try {
+    return fn();
+  } finally {
+    target.state = saved;
+  }
+}
 
 function walk(el: UIDocumentElement, fn: (el: UIDocumentElement) => void): void {
   fn(el);

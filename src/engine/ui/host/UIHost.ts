@@ -30,7 +30,7 @@ import { UIButton, UICanvas, UIInputField, UIText, type UIComponentType } from "
 import { uiPseudoState, uiTypeOfTag } from "../elementKinds";
 import { uiInteractions } from "../interactions";
 import { boundsOf, transformRect } from "../transform2d";
-import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIPseudo, UIStylesheet, UITag } from "../document/types";
+import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIMediaEnvironment, UIPseudo, UIStylesheet, UITag } from "../document/types";
 import type { UIAnimationSpec, UITransitionSpec } from "../document/animationValues";
 import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimator, type UIAnimationEvent, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "../animation/UIAnimator";
 
@@ -74,6 +74,10 @@ let parsedVersion = -1;
 let parsedSheets: UIStylesheet[] = [];
 let sheetsUsePseudo = false;
 let sheetsUseLang = false;
+/** Structural pseudo-classes or sibling combinators (ADR 0418 wave 5): tree changes restyle siblings. */
+let sheetsUseStructure = false;
+/** `@media` rules (ADR 0418 wave 5): a canvas size change restyles the tree. */
+let sheetsUseMedia = false;
 
 /**
  * Set (or with null, remove) the stylesheet `file` contributes to every hosted tree: a Svelte component's
@@ -114,6 +118,8 @@ function hostSheets(): readonly UIStylesheet[] {
   parsedVersion = styleVersion;
   sheetsUsePseudo = P.usesPseudo(sheets);
   sheetsUseLang = P.usesLang(sheets);
+  sheetsUseStructure = P.usesStructure(sheets);
+  sheetsUseMedia = P.usesMedia(sheets);
   return sheets;
 }
 
@@ -210,6 +216,32 @@ interface MutableTarget extends StyleTarget {
   state: Record<UIPseudo, boolean>;
   parent: MutableTarget | null;
   lang: string;
+  media: UIMediaEnvironment | null;
+}
+
+/**
+ * An element's style target. Its attributes (as the renderer wrote them), child elements and text are read when a
+ * selector asks (ADR 0418 wave 5), so they're always the element's current ones.
+ */
+function targetOf(el: UIHostElement, tag: string, parent: MutableTarget | null): MutableTarget {
+  return {
+    tag,
+    id: null,
+    classes: [],
+    state: { hover: false, pressed: false, focus: false, disabled: false },
+    parent,
+    lang: Locale.language,
+    media: null,
+    get attributes() {
+      return el._written;
+    },
+    get children() {
+      return el._childTargets();
+    },
+    get content() {
+      return el._hasContent();
+    },
+  };
 }
 
 /** Attributes that are content, written straight to their field (never converted as style, so typed text stays as typed). */
@@ -234,6 +266,19 @@ export class UIHostElement {
   /** @internal The field's value changed since the last `change` event. */ _edited = false;
   /** @internal Content attributes last written (`CONTENT_ATTRIBUTES`). */ _content = new Map<string, string>();
   /** @internal Styled at least once (a first style starts no transitions, ADR 0418 wave 4). */ _styled = false;
+  /** @internal The attributes as written, which attribute selectors match (ADR 0418 wave 5). */ _written: ReadonlyMap<string, string> = new Map();
+  /** @internal Its child elements' targets, until its children change. */ _childTargetList: MutableTarget[] | null = null;
+
+  /** @internal Its child elements' style targets, in order (text labels aren't elements). */
+  _childTargets(): MutableTarget[] {
+    return (this._childTargetList ??= this._children.filter((c) => !c.synthetic && c._alive).map((c) => c._target));
+  }
+
+  /** @internal It has text: a text element's own, or text beside its children (a label made from it). */
+  _hasContent(): boolean {
+    if (this._comp instanceof UIText && this._comp.text !== "") return true;
+    return this._children.some((c) => c.synthetic && c._alive);
+  }
 
   /** @internal */
   constructor(
@@ -417,6 +462,20 @@ export function uiHostViewport(world: World): { width: number; height: number } 
   return v ? { width: v.width, height: v.height } : null;
 }
 
+/**
+ * The canvas of `world`'s first hosted tree at its last UI layout: its size in UI pixels (what `@media` matches, ADR
+ * 0418 wave 5) and `scale`, the drawing canvas's CSS pixels per UI pixel. Null before a layout, or without a tree.
+ */
+export function uiHostCanvas(world: World): { width: number; height: number; scale: number } | null {
+  const layout = uiInteractions(world).layout;
+  if (!layout) return null;
+  for (const tree of treesOf(world)) {
+    const c = layout.canvases().find((l) => l.comp === tree.root._comp);
+    if (c) return { width: c.width, height: c.height, scale: c.scale };
+  }
+  return null;
+}
+
 /** The hosted element that has `world`'s focus (ADR 0340), or null. */
 export function uiHostFocused(world: World): UIHostElement | null {
   const c = uiInteractions(world).focused;
@@ -472,6 +531,10 @@ export class UIHostTree {
   private shapeChanged = false;
   private disposed = false;
   private readonly selectorCache = new Map<string, readonly Selector[]>();
+  /** Elements made since the last late sync: styling them again in it starts no transitions (they're new). */
+  private readonly fresh = new Set<UIHostElement>();
+  /** The next late sync restyles for the canvas's first known size: nothing transitions (ADR 0418 wave 5). */
+  private firstMedia = false;
 
   constructor(
     readonly world: World,
@@ -483,7 +546,8 @@ export class UIHostTree {
     const root = new UIHostElement(this, "Canvas", "Canvas", null, false);
     root._node = world._createNode("Canvas", parent.entity);
     root._comp = world._addComponent(root._node.entity, UICanvas);
-    root._target = { tag: "Canvas", id: null, classes: [], state: { hover: false, pressed: false, focus: false, disabled: false }, parent: null, lang: Locale.language };
+    root._target = targetOf(root, "Canvas", null);
+    root._target.media = this.canvasSize(root._comp);
     root._markup = this.markup(root, new Map());
     elementByComponent.set(root._comp, root);
     this.root = root;
@@ -501,37 +565,45 @@ export class UIHostTree {
 
   /**
    * Make an element of `uiTag` written as `tag` under `parent` (null: the canvas), before `before` (null:
-   * last). `attributes` are as written: fields in kebab-case, `id`, `class`, `style`. Not styled yet: call
-   * `restyle` on the top of a subtree once it's made.
+   * last). `attributes` are as written: fields in kebab-case, `id`, `class`, `style`. `written` is every attribute as
+   * the author wrote it (HTML-only ones too, `data-*`, `type`), which attribute selectors match (ADR 0418 wave 5);
+   * absent: `attributes`. Not styled yet: call `restyle` on the top of a subtree once it's made.
    */
-  create(tag: string, uiTag: UITag, parent: UIHostElement | null, before: UIHostElement | null, attributes: ReadonlyMap<string, string>, options: { source?: UIHostSource | null; synthetic?: boolean } = {}): UIHostElement {
+  create(tag: string, uiTag: UITag, parent: UIHostElement | null, before: UIHostElement | null, attributes: ReadonlyMap<string, string>, options: { source?: UIHostSource | null; synthetic?: boolean; written?: ReadonlyMap<string, string> } = {}): UIHostElement {
     const p = parent ?? this.root;
     const el = new UIHostElement(this, tag, uiTag, options.source ?? null, options.synthetic ?? false);
     el._node = this.world._createNode(attributes.get("id") || tag, p._node.entity);
     // The host is the second maker of UI components (ADR 0417 as amended by 0419): `addComponent` still refuses them.
     el._comp = this.world._addComponent(el._node.entity, uiTypeOfTag(uiTag));
     el._parent = p;
-    el._target = { tag, id: null, classes: [], state: { hover: false, pressed: false, focus: false, disabled: false }, parent: p._target, lang: Locale.language };
-    this.applyAttributes(el, attributes);
+    el._target = targetOf(el, tag, p._target);
+    this.applyAttributes(el, attributes, options.written);
     elementByComponent.set(el._comp, el);
     this.place(el, p, before);
+    this.fresh.add(el);
+    this.childrenChanged(p);
     this.shapeChanged = true;
     return el;
   }
 
-  /** Replace an element's attributes (all of them, as the renderer now has them); restyled in this frame's late sync. */
-  setAttributes(el: UIHostElement, attributes: ReadonlyMap<string, string>): void {
+  /**
+   * Replace an element's attributes (all of them, as the renderer now has them, and `written` as in `create`); restyled
+   * in this frame's late sync, with its siblings when the styles have sibling or structural selectors.
+   */
+  setAttributes(el: UIHostElement, attributes: ReadonlyMap<string, string>, written?: ReadonlyMap<string, string>): void {
     if (!el._alive) return;
-    this.applyAttributes(el, attributes);
-    this.dirty.add(el);
+    this.applyAttributes(el, attributes, written);
+    this.dirty.add(sheetsUseStructure && el._parent ? el._parent : el);
   }
 
   /** Write a Text's text (or an input field's value): content, never style. */
   setText(el: UIHostElement, text: string): void {
     if (!el._alive) return;
     const c = el._comp;
-    if (c instanceof UIText) c.text = text;
-    else if (c instanceof UIInputField) c.value = text;
+    if (c instanceof UIText) {
+      if (sheetsUseStructure && (c.text === "") !== (text === "")) this.dirty.add(el); // `:empty`
+      c.text = text;
+    } else if (c instanceof UIInputField) c.value = text;
   }
 
   /** Move an element to `parent` (null: the canvas), before `before` (null: last). */
@@ -546,8 +618,10 @@ export class UIHostTree {
       el._parent = p;
       el._target.parent = p._target;
       this.dirty.add(el); // descendant selectors may match differently
+      this.childrenChanged(from);
     }
     this.place(el, p, before);
+    this.childrenChanged(p);
     this.shapeChanged = true;
   }
 
@@ -563,7 +637,9 @@ export class UIHostTree {
       e._alive = false;
       e._listeners.clear();
       this.dirty.delete(e);
+      this.fresh.delete(e);
     });
+    if (parent) this.childrenChanged(parent);
     if (el._node.isValid) {
       el._node.setActive(false);
       this.world._destroyNode(el._node.entity);
@@ -690,6 +766,16 @@ export class UIHostTree {
       });
       if (sheetsUseLang) this.dirty.add(this.root);
     }
+    // ADR 0418 wave 5: `@media` rules match again when the canvas (last frame's layout) changes size.
+    const size = this.canvasSize();
+    const was = this.root._target.media;
+    if (size && (!was || was.width !== size.width || was.height !== size.height)) {
+      this.root._target.media = size;
+      if (sheetsUseMedia) {
+        this.dirty.add(this.root);
+        if (!was) this.firstMedia = true; // the view's first size isn't a change to animate
+      }
+    }
     walk(this.root, (el) => {
       const state = uiPseudoState(el._comp);
       const s = el._target.state;
@@ -708,6 +794,8 @@ export class UIHostTree {
         if (!covered) this.resolve(el);
       }
     }
+    this.fresh.clear();
+    this.firstMedia = false;
     if (this.shapeChanged) {
       this.shapeChanged = false;
       notifyChanged(this);
@@ -756,8 +844,21 @@ export class UIHostTree {
     this.world._setSiblingIndex(el._node.entity, i); // node order is layout and draw order
   }
 
-  private applyAttributes(el: UIHostElement, attributes: ReadonlyMap<string, string>): void {
+  /** `parent`'s children were added, removed or reordered: with structural selectors, it restyles with them (ADR 0418 wave 5). */
+  private childrenChanged(parent: UIHostElement): void {
+    parent._childTargetList = null;
+    if (sheetsUseStructure && parent._alive) this.dirty.add(parent);
+  }
+
+  /** The canvas's size in UI pixels at the World's last layout, which `@media` matches (null before one). */
+  private canvasSize(canvas: UIComponentType = this.root._comp): UIMediaEnvironment | null {
+    const c = uiInteractions(this.world).layout?.canvases().find((l) => l.comp === canvas);
+    return c ? { width: c.width, height: c.height } : null;
+  }
+
+  private applyAttributes(el: UIHostElement, attributes: ReadonlyMap<string, string>, written?: ReadonlyMap<string, string>): void {
     el._attributes = attributes;
+    el._written = written ?? attributes;
     el._target.id = attributes.get("id") || null;
     el._target.classes = (attributes.get("class") ?? "").split(/\s+/).filter(Boolean);
     const comp = el._comp as unknown as Record<string, unknown>;
@@ -818,7 +919,7 @@ export class UIHostTree {
     // Transitions and keyframe animations (ADR 0418 wave 4): the animator takes what changed from here.
     const transitions = resolved.get(P.TRANSITION_KEY)?.value as readonly UITransitionSpec[] | undefined;
     const animations = resolved.get(P.ANIMATION_KEY)?.value as readonly UIAnimationSpec[] | undefined;
-    const first = !el._styled;
+    const first = !el._styled || this.fresh.has(el) || this.firstMedia;
     el._styled = true;
     if (transitions?.length || animations?.length || uiAnimating(this.world, el._comp)) {
       uiAnimator(this.world).styled(
@@ -831,8 +932,16 @@ export class UIHostTree {
     }
     // A button's hover and pressed colours come from `:hover` / `:pressed` backgrounds, so the drawing shows them.
     if (sheetsUsePseudo && el._comp instanceof UIButton) {
-      const at = (state: Partial<Record<UIPseudo, boolean>>) =>
-        P.resolveStyle({ ...el._target, state: { ...el._target.state, hover: false, pressed: false, ...state } }, el._markup, type, sheets, parentResolved, () => {}).get("backgroundColor");
+      // The target itself, in another state for a moment: its siblings know it by identity (structural selectors).
+      const at = (state: Partial<Record<UIPseudo, boolean>>) => {
+        const saved = el._target.state;
+        el._target.state = { ...saved, hover: false, pressed: false, ...state };
+        try {
+          return P.resolveStyle(el._target, el._markup, type, sheets, parentResolved, () => {}).get("backgroundColor");
+        } finally {
+          el._target.state = saved;
+        }
+      };
       const base = at({});
       const hover = at({ hover: true });
       const pressed = at({ hover: true, pressed: true });

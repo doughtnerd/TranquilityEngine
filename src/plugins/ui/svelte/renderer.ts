@@ -677,6 +677,16 @@ function hostAttributes(el: UIRenderElement): Map<string, string> {
   return out;
 }
 
+/** Every attribute as written (HTML-only, `data-*` and `aria-*` ones too), which attribute selectors match (ADR 0418 wave 5). */
+function writtenAttributes(el: UIRenderElement): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const [k, v] of el._attrs) {
+    const s = cssText(v);
+    if (s !== null) out.set(k, s);
+  }
+  return out;
+}
+
 function sourceOf(el: UIRenderElement): UIHostSource | null {
   const meta = (el as unknown as { __svelte_meta?: { loc?: UIHostSource } }).__svelte_meta;
   return meta?.loc ? { file: meta.loc.file, line: meta.loc.line, column: meta.loc.column } : null;
@@ -727,7 +737,7 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
     warnOnce(`<${node.localName}> inside <${parent.localName}> isn't shown: a <${parent.localName}> has no children.`);
     return null;
   }
-  const made = tree.create(node.localName, node._uiTag, hp, hostedBefore(node), hostAttributes(node), { source: sourceOf(node) });
+  const made = tree.create(node.localName, node._uiTag, hp, hostedBefore(node), hostAttributes(node), { source: sourceOf(node), written: writtenAttributes(node) });
   node._hosted = made;
   node._dispatchers = new Map();
   hostedNodes.set(made, node);
@@ -823,11 +833,11 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
   setAttribute(el, key, value) {
     if (value === undefined || value === null || value === false) return renderer.removeAttribute(el, key);
     el._attrs.set(key, value);
-    if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el));
+    if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el), writtenAttributes(el));
   },
   removeAttribute(el, name) {
     if (!el._attrs.delete(name)) return;
-    if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el));
+    if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el), writtenAttributes(el));
   },
   hasAttribute: (el, name) => el.hasAttribute(name),
   getFirstChild: (el) => el._children[0] ?? null,
