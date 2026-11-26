@@ -1,10 +1,10 @@
-# 0423. Tile collision is edited visually with several shapes per tile; any 2D collider can be one-way, bodies and character controllers can drop through, and tile shapes are cached per chunk
+# 0423. Tile collision and shadow shapes are edited visually with several shapes per tile; any 2D collider can be one-way, bodies and character controllers can drop through, and tile shapes are cached per chunk
 
 - **Status:** Proposed
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0103 and 0105)
-- **Related:** 0005, 0039, 0103, 0105, 0136, 0137, 0392, 0413, 0414, 0421, 0422
+- **Related:** 0005, 0039, 0103, 0105, 0136, 0137, 0392, 0413, 0414, 0421, 0422, 0425
 
 ## Context
 
@@ -61,6 +61,25 @@ What 0103 and 0105 left open, and what reading the code turned up:
 - **`previewGrid`** is an optional tileset field (`"square"`, `"isometric"`, `"hexagonal"`) that only tells the editor
   which cell outline to draw. The importer (0422) writes it; the inspector sets it. It changes nothing at runtime:
   `"full"` always means the outline of whatever grid the map uses.
+
+### Shadow shapes per tile
+
+2D shadow casters (0413) take a Tilemap's collision shapes. That's wrong for tiles that block light but not bodies
+(a window frame's mullions, a fence you can walk behind in a top-down game) and for tiles that block bodies but not
+light (glass, water edges).
+
+- A tile may carry `occluder`: `"collision"` (default: the tile's collision, today's behaviour), `"none"`, `"full"`, or
+  `{ "shapes": [{ "polygon": … }] }` in the same box units. Absent means `"collision"`, so existing tilesets cast the
+  same shadows.
+- The collision canvas has a **Collision / Shadow** switch: the same tools edit the occluder shapes, drawn in a second
+  theme colour, with "Same as collision" as the default preset.
+- **Core:** a new renderer-neutral interface beside the 2D shape source, `ShadowShapeSource2D`
+  (`src/engine/render/shadowShapeSource2D.ts`: `shadowSignature()`, `shadowShapes()` → closed outlines and convex
+  polygons in local units), with `findShadowShapeSource2D(node)`. `Tilemap` implements it from each tile's occluder,
+  merged into outlines per chunk like collision (cached the same way, below), on every grid (0421) and with layer
+  offsets (0425). `ShadowCaster2D` in `"auto"` and `"collider"` modes prefers a shadow shape source on the node over
+  its collision shapes; other casters are unchanged. A layer's collision flag doesn't gate its shadows; a layer field
+  isn't added (a layer of `"none"` occluders casts nothing).
 
 ### One-way on any 2D collider
 
@@ -140,12 +159,15 @@ closed; a second shape source is the time to revisit it.
 
 **Positive**
 - Tile collision is drawn, generated from the sprite, copied between tiles and has as many shapes as a tile needs.
+- Tiles can cast shadows that differ from their collision, without a second Tilemap.
 - Any 2D collider can be a one-way platform; character controllers honour one-way colliders; Down + Jump works
   with one call.
 - Editing a big map's collision re-merges one chunk instead of the whole map.
 
 **Negative / costs**
-- The tileset format gains `shapes` and `previewGrid`; older engines read a multi-shape tile as no collision.
+- The tileset format gains `shapes`, `occluder` and `previewGrid`; older engines read a multi-shape tile as no
+  collision and ignore occluders.
+- One more core interface (`ShadowShapeSource2D`) that shadow casters check.
 - The character controller's filter predicate crosses the wasm boundary per candidate collider during its casts,
   while one-way colliders exist.
 - Dropping pairs add per-step bookkeeping in the Rapier backend while any are marked.
@@ -160,8 +182,6 @@ closed; a second shape source is the time to revisit it.
 ## Open questions
 
 - A surface arc or direction other than the node's +Y for one-way colliders.
-- Per-tile occluder shapes for 2D shadows separate from collision (Godot's occlusion layers); today shadows use the
-  collision shapes (0413).
 
 ## References
 
@@ -170,5 +190,5 @@ closed; a second shape source is the time to revisit it.
 - Rapier `KinematicCharacterController.computeColliderMovement(collider, translation, filterFlags, filterGroups,
   filterPredicate)`.
 - Code: `src/plugins/tilemaps/runtime/collision.ts`, `cellRegions.ts`, `Tilemap.ts`, `editor/TilesetInspector.tsx`;
-  `src/plugins/physics/runtime/Collider2D.ts`, `RigidBody2D.ts`, `CharacterController2D.ts`, `backend.ts`,
+  `src/engine/render/lights2D/casterOutlines.ts`; `src/plugins/physics/runtime/Collider2D.ts`, `RigidBody2D.ts`, `CharacterController2D.ts`, `backend.ts`,
   `core/tilemap2d.ts`; `src/plugins/physics-rapier/runtime/rapier2d.ts`; `src/plugins/lights2d/editor/lightGizmoModel.ts`.

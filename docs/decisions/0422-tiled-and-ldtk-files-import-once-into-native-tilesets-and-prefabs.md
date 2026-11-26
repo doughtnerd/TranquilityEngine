@@ -4,7 +4,7 @@
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
-- **Related:** 0040, 0085, 0086, 0103, 0105, 0133, 0149, 0392, 0400, 0421, 0423
+- **Related:** 0040, 0085, 0086, 0103, 0105, 0133, 0149, 0392, 0400, 0421, 0423, 0425
 
 ## Context
 
@@ -93,8 +93,9 @@ runtime never reads either format.
   that mixes tilesets appears in each Tilemap under the same name. Every imported layer gets order in layer = its
   position in Tiled's layer stack, so layers in different Tilemaps interleave as they did in Tiled. Tilemaps whose
   tiles collide get a `TilemapCollider2D`.
-- Layer `visible`, `opacity` and `tintcolor` map directly; group layers flatten (names joined with `/`, opacity and
-  visibility multiplied). Layer offsets and parallax factors aren't kept (warning).
+- Layer `visible`, `opacity`, `tintcolor`, `locked`, offsets and parallax factors map directly (offset and parallax
+  per 0425); group layers flatten (names joined with `/`, opacity and visibility multiplied, offsets added,
+  parallax multiplied).
 - Cell data: CSV, base64, base64 with zlib or gzip (through the platform's `DecompressionStream`), finite and
   infinite (chunked) maps. zstd-compressed layers are refused with a message saying to save the map uncompressed.
   The hex rotation bit is dropped with a warning.
@@ -111,7 +112,7 @@ runtime never reads either format.
   levels at their world positions (y flipped), for the Free and GridVania layouts; linear layouts place them in a row.
 - Tiles layers and auto-layers → Tilemap layers of their baked tiles (auto-layer rules are not re-run in Myco). Where
   a layer stacks several tiles in one cell, the extra tiles go into further layers (`Walls`, `Walls#2`) at the next
-  order. Tiles off the layer's grid snap to it, with a warning. Layer opacity and visibility map directly.
+  order. Tiles off the layer's grid snap to it, with a warning. Layer opacity, visibility and pixel offsets map directly (0425).
 - **IntGrid layers** → a Tilemap of their own, hidden, on a generated `<project>.intgrid.tileset.json` with one tile
   per IntGrid value: no sprite, `data` `{ intGrid: value, name: identifier }`, and the collision chosen in the dialog
   (default none). A `TilemapCollider2D` is added when any value collides. Scripts read the semantics with
@@ -163,7 +164,7 @@ plain data; nothing in the engine reads it.
 **Negative / costs**
 - A new editor dependency (`fast-xml-parser`).
 - Conversion is one-way: later edits in Myco are overwritten by a re-import.
-- Lossy where Myco has no equivalent: layer offsets and parallax, multi-colour Wang transitions, Tiled's hex rotation,
+- Lossy where Myco has no equivalent: multi-colour Wang transitions, Tiled's hex rotation,
   zstd data, text objects, `.world` files, LDtk rules (baked, not kept).
 - A map with several tilesets becomes several Tilemap nodes.
 - The script build gains a content sniff for `.tsx` files.

@@ -4,7 +4,7 @@
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0103)
-- **Related:** 0014, 0103, 0105, 0119, 0136, 0289, 0392, 0399, 0400, 0413, 0418
+- **Related:** 0014, 0103, 0424, 0105, 0119, 0136, 0289, 0392, 0399, 0400, 0413, 0418
 
 ## Context
 
@@ -165,7 +165,7 @@ This is a constraint on this design, not a plan.
   fractional draw orders: two non-square layers on the same sorting layer and order interleave by chunk, not by
   layer (give them different orders).
 - Tiles still sort by layer against sprites, so a character can't walk behind a tall isometric wall tile and in
-  front of the next one; that needs per-row y-sorting, which this record doesn't add.
+  front of the next one; per-row y-sorting is 0424.
 - Hexagonal stamps don't mirror or turn their layout.
 - `QuadBatch.setOrder` and `setQuads` change (an internal interface; the decals, lines and skinned sprite callers
   are unaffected because the new argument is optional and the in-place rule only applies to identical arrays).
@@ -176,8 +176,6 @@ Nothing. The square-only arithmetic in `Tilemap.ts` and `mesh.ts` moves into `gr
 
 ## Open questions
 
-- Per-row y-sorting of tiles against sprites (Unity's Individual mode, Godot's y-sort), for top-down and isometric
-  games.
 - Tiled's hex 120° rotation flag: not stored; hex tiles import unrotated with a warning.
 
 ## References
