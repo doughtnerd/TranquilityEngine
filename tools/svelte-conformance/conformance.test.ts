@@ -492,6 +492,10 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
     // Every out-of-scope sample names one that exists, with a reason.
     expect(Object.entries(outOfScope).filter(([n, why]) => !results.has(n) || !why.trim()).map(([n]) => n), "outOfScope entries without a sample or a reason").toEqual([]);
     if (process.env.UPDATE_BASELINE) {
+      // Never write a baseline that loses samples (a broken run, e.g. fixtures that didn't resolve, would otherwise
+      // replace it with nothing); ALLOW_LOSS=1 accepts a deliberate loss.
+      const dropped = baseline && !process.env.ALLOW_LOSS ? baseline.passing.filter((n) => results.get(n)?.status !== "pass") : [];
+      expect(dropped, "UPDATE_BASELINE refused: these baseline samples fail now (ALLOW_LOSS=1 to accept)").toEqual([]);
       const sortedOut = Object.fromEntries(Object.entries(outOfScope).sort(([a], [b]) => (a < b ? -1 : 1)));
       writeFileSync(BASELINE, `${JSON.stringify({ version, counts: tally(), passing, outOfScope: sortedOut }, null, 2)}\n`);
       return;

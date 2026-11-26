@@ -10,6 +10,9 @@ import { MYCO_ALIASES, typescriptTranspile } from "./vite.shared.ts";
 // renderer. `npm run test:svelte-conformance` (which fetches the fixtures first); never part of `npm test`.
 
 const root = dirname(fileURLToPath(import.meta.url));
+// A run's fixtures and output may live in its own folder (SVELTE_CONFORMANCE_CACHE): match it by path, whatever its name.
+const cacheDir = process.env.SVELTE_CONFORMANCE_CACHE;
+const isConformancePath = (p: string): boolean => p.includes("svelte-conformance") || (!!cacheDir && p.startsWith(cacheDir));
 // Its real path: the runtime the engine imports resolves through symlinks (a worktree's linked node_modules), and a
 // fixture importing Svelte's sources by relative path must get those same module instances.
 const svelteSrc = realpathSync(join(root, "node_modules/svelte/src"));
@@ -24,7 +27,7 @@ function fixtureImports(): Plugin {
       // `svelte/motion`'s own `svelte/reactivity` import (its `prefersReducedMotion`) is the engine's too, as the
       // engine's builds resolve it (ADR 0419 wave Z3, vite.shared.ts and the UI bundle).
       if (source === "svelte/reactivity" && importer?.split("?")[0].endsWith("/svelte/src/motion/index.js")) return join(root, "src/plugins/ui/svelte/reactivity.ts");
-      if (!importer || !importer.includes("svelte-conformance")) return null;
+      if (!importer || !isConformancePath(importer)) return null;
       if (source === "../../test" || source === "../../test.ts") return join(root, "tools/svelte-conformance/testShim.ts");
       // Svelte's animation helper patches jsdom's `HTMLElement.prototype.animate`; the fixtures only take its `raf`.
       if (/^\.\.\/\.\.\/\.\.\/animation-helpers(\.js)?$/.test(source)) return PAGE_GLOBALS;
@@ -48,7 +51,7 @@ function fixtureImports(): Plugin {
     },
     // Svelte's test helpers in TypeScript (`suite.ts`) sit under node_modules/.cache, which the engine's tsc plugin skips.
     transform(code, id) {
-      if (!id.includes("svelte-conformance")) return null;
+      if (!isConformancePath(id)) return null;
       // A config naming the page's `window` or `document` (jsdom globals in Svelte's harness) gets the harness's (pageGlobals.ts).
       if (/[\\/]_config\.js$/.test(id.split("?")[0])) {
         const names = ["window", "document"].filter((n) => new RegExp(`(?<![.\\w$])${n}\\b`).test(code));
