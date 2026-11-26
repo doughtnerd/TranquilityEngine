@@ -1175,7 +1175,7 @@ describe("UICore editor picking (ADR 0077)", () => {
     const { column, play } = menu();
     const c = await core({ interactive: false });
     sync(c);
-    expect(c.cornersOf(play)).toEqual({ space: "screen", points: [[20, 20], [220, 20], [220, 70], [20, 70]], size: [200, 50] });
+    expect(c.cornersOf(play)).toEqual({ space: "screen", points: [[20, 20], [220, 20], [220, 70], [20, 70]], size: [200, 50], clip: null });
     expect(c.cornersOf(column)!.points[2]).toEqual([1280, 720]);
 
     const sign = node("Sign", null, UICanvas, { mode: "world", referenceResolution: new Vector2(200, 100), pixelSize: 0.01 } as Partial<UICanvas>);

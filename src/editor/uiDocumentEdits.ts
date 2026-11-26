@@ -163,9 +163,14 @@ const refAt = (ref: { readonly host: string; readonly index: number }, path: str
 // --- Values ---------------------------------------------------------------------------------------
 
 /** Number fields that are lengths, written with `px` in stylesheets. */
-const PX_FIELDS: ReadonlySet<string> = new Set(["gap", "padding", "margin", "borderRadius", "borderWidth", "fontSize"]);
+const PX_FIELDS: ReadonlySet<string> = new Set([
+  "gap", "padding", "margin", "borderRadius", "borderWidth", "fontSize",
+  // ADR 0418 wave 1
+  "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "marginTop", "marginRight", "marginBottom", "marginLeft",
+  "borderTopWidth", "borderRightWidth", "borderBottomWidth", "borderLeftWidth",
+]);
 /** String fields that hold a length (`auto`, `50%`, or pixels). */
-const LENGTH_FIELDS: ReadonlySet<string> = new Set(["width", "height", "top", "right", "bottom", "left"]);
+const LENGTH_FIELDS: ReadonlySet<string> = new Set(["width", "height", "top", "right", "bottom", "left", "minWidth", "minHeight", "maxWidth", "maxHeight", "flexBasis"]);
 
 /** The field a component of `el` has for an attribute name, or null. */
 function fieldInfo(el: UIDocumentElement, name: string): FieldInfo | null {

@@ -160,8 +160,8 @@ export interface EditorViewport {
   pickUI(x: number, y: number): UIComponentType[];
   /** UI canvases a click at a canvas point selects, topmost first (ADR 0117). */
   pickUICanvases(x: number, y: number): UICanvas[];
-  /** A UI element's four corners on the canvas and its size in UI pixels, or null (not laid out, or behind the camera). */
-  uiElementBox(c: UIComponentType): { points: [number, number][]; size: readonly [number, number] } | null;
+  /** A UI element's four corners on the canvas and its size in UI pixels, or null (not laid out, or behind the camera); `clip`: the drawn part's corners when an `overflow: hidden` ancestor clips it (ADR 0418). */
+  uiElementBox(c: UIComponentType): { points: [number, number][]; size: readonly [number, number]; clip?: [number, number][] | null } | null;
   /** Editor (ADR 0110): a reflection probe's current capture as a prefiltered `.env` file. Rejects until ready. */
   bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer>;
 }
@@ -426,17 +426,23 @@ export class ViewportHandle implements EditorViewport {
     return ui ? ui.pickCanvases(x, y, this.rayAt(x, y)) : [];
   }
 
-  uiElementBox(c: UIComponentType): { points: [number, number][]; size: readonly [number, number] } | null {
+  uiElementBox(c: UIComponentType): { points: [number, number][]; size: readonly [number, number]; clip: [number, number][] | null } | null {
     const corners = this.live()?.ui()?.cornersOf(c);
     if (!corners) return null;
-    if (corners.space === "screen") return { points: corners.points.map((p) => [p[0], p[1]]), size: corners.size };
-    const out: [number, number][] = [];
-    for (const p of corners.points) {
-      const q = this.worldToCanvas(p);
-      if (!q) return null;
-      out.push(q);
-    }
-    return { points: out, size: corners.size };
+    const onCanvas = (points: number[][]): [number, number][] | null => {
+      if (corners.space === "screen") return points.map((p) => [p[0], p[1]]);
+      const out: [number, number][] = [];
+      for (const p of points) {
+        const q = this.worldToCanvas(p);
+        if (!q) return null;
+        out.push(q);
+      }
+      return out;
+    };
+    const points = onCanvas(corners.points);
+    if (!points) return null;
+    // ADR 0418: the drawn part, when an `overflow: hidden` ancestor clips it.
+    return { points, size: corners.size, clip: corners.clip ? onCanvas(corners.clip) : null };
   }
 
   bakeReflectionProbe(probe: ReflectionProbe): Promise<ArrayBuffer> {

@@ -5,6 +5,7 @@
 import type { UIDocumentElement } from "../engine/ui/UIDocument";
 import type { UIComponentType } from "../engine/ui/components";
 import { elementSource } from "../engine/ui/documentSource";
+import { uiBorderEdges } from "../engine/ui/layout";
 import { openScene } from "./state";
 import { beginUIEdit, moveUIElement, setUIElementAttributes } from "./uiDocumentEdits";
 import { whyNotEdit } from "./editGate";
@@ -41,9 +42,8 @@ export function whyNoHandles(el: UIDocumentElement): string | null {
 
 /** The parent's padding box (inside its border) in its own frame, UI pixels: origin and size. */
 function paddingBox(parent: UIDocumentElement, box: BoxOnCanvas): { x: number; y: number; width: number; height: number } {
-  const b = (parent.component as { borderWidth?: number }).borderWidth;
-  const border = typeof b === "number" && Number.isFinite(b) ? Math.max(0, b) : 0;
-  return { x: border, y: border, width: Math.max(0, box.size[0] - 2 * border), height: Math.max(0, box.size[1] - 2 * border) };
+  const [top, right, bottom, left] = uiBorderEdges(parent.component); // each side's own width (ADR 0418)
+  return { x: left, y: top, width: Math.max(0, box.size[0] - left - right), height: Math.max(0, box.size[1] - top - bottom) };
 }
 
 /** A drag in progress. `update` takes the pointer on the canvas; `finish` applies it (true if a file changed); `cancel` undoes it. */

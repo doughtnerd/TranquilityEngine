@@ -26,6 +26,19 @@ import { playerNodes, InputPlayer } from "../input/players";
 import { UIButton, UICanvas, UIInputField, type UIFocusableElement } from "./components";
 import { uiInteractions, type UIInteractions, type UILayoutSource } from "./interactions";
 import type { UILaidOutElement } from "./uiCoreTypes";
+import { intersectRect, type UIRect } from "./layout";
+
+/** The part of an element that's drawn (ADR 0418): its box, clipped by its `overflow: hidden` ancestors. */
+function shownBox(e: UILaidOutElement): UIRect {
+  return e.clip ? intersectRect(e, e.clip) : e;
+}
+
+/** True when an `overflow: hidden` ancestor clips the element away entirely, so the player can't see it to pick it. */
+function clippedAway(e: UILaidOutElement): boolean {
+  if (!e.clip || e.width <= 0 || e.height <= 0) return false;
+  const r = shownBox(e);
+  return r.width <= 0 || r.height <= 0;
+}
 
 /** The name of the engine context holding `UIActions`' bindings. */
 export const UI_CONTEXT = "ui";
@@ -100,7 +113,7 @@ function focusableOn(node: GameObject | null): UIFocusableElement | null {
 /** The last layout, indexed: what navigation searches. */
 class Layout {
   readonly byComp = new Map<UIFocusableElement, UILaidOutElement>();
-  /** Focusable elements by canvas, in tree order (the layout's draw order). */
+  /** Focusable elements by canvas, in tree order (as `elements()` lists them; `zIndex` changes only the draw order). */
   readonly candidates = new Map<UICanvas, UILaidOutElement[]>();
 
   constructor(readonly source: UILayoutSource | null) {
@@ -108,7 +121,7 @@ class Layout {
     for (const e of source.elements()) {
       if (!isFocusableComp(e.comp)) continue;
       this.byComp.set(e.comp, e);
-      if (!e.visible || !canFocus(e.comp)) continue;
+      if (!e.visible || !canFocus(e.comp) || clippedAway(e)) continue;
       let list = this.candidates.get(e.canvas);
       if (!list) this.candidates.set(e.canvas, (list = []));
       list.push(e);
@@ -346,8 +359,15 @@ function search(origin: UILaidOutElement, list: readonly UILaidOutElement[], dir
   const horizontal = dir === "left" || dir === "right";
   const sign = dir === "right" || dir === "down" ? 1 : -1;
   // Along: the direction's axis; across: the other. Spans as [min, max].
-  const along = (e: UILaidOutElement): [number, number] => (horizontal ? [e.x, e.x + e.width] : [e.y, e.y + e.height]);
-  const across = (e: UILaidOutElement): [number, number] => (horizontal ? [e.y, e.y + e.height] : [e.x, e.x + e.width]);
+  // The drawn part of each box (ADR 0418: clipped by `overflow: hidden` ancestors).
+  const along = (el: UILaidOutElement): [number, number] => {
+    const e = shownBox(el);
+    return horizontal ? [e.x, e.x + e.width] : [e.y, e.y + e.height];
+  };
+  const across = (el: UILaidOutElement): [number, number] => {
+    const e = shownBox(el);
+    return horizontal ? [e.y, e.y + e.height] : [e.x, e.x + e.width];
+  };
   const [oa0, oa1] = along(origin);
   const [oc0, oc1] = across(origin);
   const edge = sign > 0 ? oa1 : oa0;

@@ -15,6 +15,7 @@
 import type { World } from "../core/World";
 import type { Camera } from "../render/components";
 import type { UICanvas, UIComponentType } from "./components";
+import type { UIRect } from "./layout";
 
 export type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input";
 
@@ -94,8 +95,18 @@ export interface UILaidOutElement {
   readonly y: number;
   readonly width: number;
   readonly height: number;
-  /** Draw order within its canvas: parents before children, earlier siblings first. */
+  /**
+   * Draw order within its canvas (ADR 0418): parents before children, then siblings by `zIndex` and document order;
+   * an element with a non-zero `zIndex` or `overflow: hidden` draws its descendants right after itself. The pointer
+   * goes to the highest first.
+   */
   readonly order: number;
+  /** The part of the canvas it is drawn and hit in: the overlap of every `overflow: hidden` ancestor's padding box; null when none clips it. */
+  readonly clip: UIRect | null;
+  /** Its nearest `overflow: hidden` ancestor (the drawing layer draws it inside that one's clip), or null. */
+  readonly clipper: UIComponentType | null;
+  /** With `overflow: hidden`: its padding box (inside its border), which its descendants are clipped to; else null. */
+  readonly childClip: UIRect | null;
   /** Drawn: active and enabled, `visible`, and every ancestor element too. */
   readonly visible: boolean;
   /** `opacity` times every ancestor's. */
@@ -119,6 +130,8 @@ export interface UICorners {
   readonly space: "screen" | "world";
   readonly points: number[][];
   readonly size: readonly [number, number];
+  /** The corners of the part that is drawn, as `points`, when an `overflow: hidden` ancestor clips it (ADR 0418); null when nothing does. */
+  readonly clip: number[][] | null;
 }
 
 /** The renderer-neutral UI core (ADR 0076). */
@@ -127,7 +140,7 @@ export interface UICoreLike {
   sync(world: World, width: number, height: number, deltaSeconds?: number): void;
   /** Canvases from the last sync, ascending `sortOrder`. */
   canvases(): readonly UILaidOutCanvas[];
-  /** Elements from the last sync, grouped by canvas in `canvases()` order, each canvas's in `order`. */
+  /** Elements from the last sync, grouped by canvas in `canvases()` order, each canvas's in tree order (parents first; `order` is the draw order). */
   elements(): readonly UILaidOutElement[];
   /** Increases whenever `sync` changed any box, visibility, text run or the element set (drawing layers can skip work otherwise). */
   readonly layoutVersion: number;
