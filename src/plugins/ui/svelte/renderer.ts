@@ -744,6 +744,9 @@ export class UIRenderElement extends UINodeBase {
       if (!e._stopped && path[path.length - 1]._tree) globals._continue(e, [e.type]);
     }
     setPhase(0);
+    // As the DOM's dispatch ends, its stop flags are cleared, so the event can be dispatched again (a script's own
+    // event object; the engine's events keep theirs, read-only).
+    for (const flag of ["_stopped", "_stoppedNow"] as const) if (Object.getOwnPropertyDescriptor(e, flag)?.writable) e[flag] = false;
     return !event.defaultPrevented;
   }
 
@@ -1631,15 +1634,21 @@ for (const [dom, ui] of Object.entries(EVENTS)) DOM_TYPES_OF.set(ui, [...(DOM_TY
  * host runs the node's capture listeners (while capturing, and first at the target), a bubble one its others. The
  * event's `target` and `relatedTarget` become nodes.
  */
+/** ADR 0426: the shape an event on an <svg> is under (or null), found once per event. */
+const svgTargets = new WeakMap<UIHostEvent, UIRenderElement | null>();
+
 function attachDispatcher(el: UIRenderElement, type: UIHostEventType): void {
   if (!el._hosted || el._dispatchers.has(type)) return;
   const make = (phase: 1 | 3) => (e: UIHostEvent) => {
     e.currentTarget = el;
-    e.target = hostedNodes.get(e.element) ?? el;
     if (e.relatedTarget instanceof UIHostElement) e.relatedTarget = hostedNodes.get(e.relatedTarget) ?? null;
-    // ADR 0426: on an <svg>, a pointer event goes on to the shape under it, through the shapes' groups.
-    const shape = el._uiTag === "Svg" && e.element === el._hosted && POSITIONED.has(type) ? svgShapeAt(el, e.offsetX, e.offsetY) : null;
-    if (shape) e.target = shape;
+    // ADR 0426: on an <svg>, a pointer event goes on to the shape under it, through the shapes' groups; its target is
+    // that shape for every element it passes (Svelte's delegated handlers read the path from the target).
+    const hostedTarget = hostedNodes.get(e.element) ?? el;
+    if (!svgTargets.has(e)) svgTargets.set(e, hostedTarget._uiTag === "Svg" && POSITIONED.has(type) ? svgShapeAt(hostedTarget, e.offsetX, e.offsetY) : null);
+    const found = svgTargets.get(e) ?? null;
+    e.target = found ?? hostedTarget;
+    const shape = el === hostedTarget ? found : null;
     const run = (n: UIRenderElement, p: 1 | 2 | 3) => {
       for (const dom of DOM_TYPES_OF.get(type) ?? []) {
         runListeners(n, dom, e, p);
@@ -1886,7 +1895,7 @@ function htmlFragment(html: string): UIRenderFragment {
     ? htmlParser(html)
     : (warnOnce("{@html} and innerHTML need the inline HTML parser, which compileSvelteUI adds to components that use them; showing the text without its tags."), [{ kind: "text" as const, text: html.replace(/<[^>]*>/g, "") }]);
   const build = (n: InlineHtmlNode, parent: UIRenderElement | UIRenderFragment): void => {
-    const node = n.kind === "text" ? new UIRenderText(n.text) : new UIRenderElement(n.tag);
+    const node = n.kind === "text" ? new UIRenderText(n.text) : n.kind === "comment" ? new UIRenderComment(n.text) : new UIRenderElement(n.tag);
     if (node instanceof UIRenderElement && n.kind === "element") {
       for (const [k, v] of n.attributes) node._attrs.set(k, v);
       for (const c of n.children) build(c, node);
@@ -2035,7 +2044,7 @@ function retag(el: UIRenderElement): void {
 
 const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderElement; text: UIRenderText; comment: UIRenderComment }>({
   createFragment: () => new UIRenderFragment(),
-  // A namespace, if Svelte passes one (its custom-renderer `createElement` passes only the name today), is kept.
+  // The namespace Svelte passes (our patch: HTML unless the template or `<svelte:element>` says SVG or MathML) is kept.
   createElement: (name: string, namespace?: string | null) => new UIRenderElement(name, namespace ?? null),
   createText: (data) => new UIRenderText(data),
   createComment: (data) => new UIRenderComment(data),

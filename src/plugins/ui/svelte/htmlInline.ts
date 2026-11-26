@@ -7,8 +7,10 @@
  *   names are lowercased (outside `<svg>`, whose `linearGradient` and `foreignObject` keep their case); attribute names
  *   stay as written. The renderer maps each tag as it does a template's: phrasing elements inside a text element are its
  *   inline runs, block elements are panels.
+ * - Comments, as comment nodes (the DOM's `innerHTML` keeps them; Svelte's `createRawSnippet` checks its HTML is one
+ *   element by them).
  * - **Dropped:** `<script>`, `<style>` and the other elements that run code or embed documents (with their content),
- *   comments, doctypes, CDATA; every event handler attribute (`on…`), `srcdoc`, and URL attributes that hold a
+ *   doctypes, CDATA; every event handler attribute (`on…`), `srcdoc`, and URL attributes that hold a
  *   `javascript:`, `vbscript:` or (but on an image's `src`) `data:` URL.
  * - Void elements (`br`, `img`, `hr`, `input`…) take no children; a close tag closes the open element it names (and
  *   the ones inside it), one that names nothing open is ignored; opening a block element closes an open `p`, as
@@ -17,8 +19,11 @@
  * Pure: no DOM, nothing from the engine.
  */
 
-/** An element (its tag, attributes in order and children) or a run of text. */
-export type InlineHtmlNode = { readonly kind: "element"; readonly tag: string; readonly attributes: readonly (readonly [string, string])[]; readonly children: readonly InlineHtmlNode[] } | { readonly kind: "text"; readonly text: string };
+/** An element (its tag, attributes in order and children), a run of text, or a comment (its text). */
+export type InlineHtmlNode =
+  | { readonly kind: "element"; readonly tag: string; readonly attributes: readonly (readonly [string, string])[]; readonly children: readonly InlineHtmlNode[] }
+  | { readonly kind: "text"; readonly text: string }
+  | { readonly kind: "comment"; readonly text: string };
 
 const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr", "param", "keygen"]);
 /** Elements dropped with everything inside them: they run code, style the page or embed another document. */
@@ -101,9 +106,10 @@ export function parseInlineHtml(html: string): InlineHtmlNode[] {
     }
     if (lt > i) text(decodeEntities(html.slice(i, lt)));
     i = lt;
-    // Comments, doctypes, CDATA and processing instructions: dropped.
+    // A comment, kept; doctypes, CDATA and processing instructions: dropped.
     if (html.startsWith("<!--", i)) {
       const end = html.indexOf("-->", i + 4);
+      top().children.push({ kind: "comment", text: html.slice(i + 4, end < 0 ? n : end) });
       i = end < 0 ? n : end + 3;
       continue;
     }

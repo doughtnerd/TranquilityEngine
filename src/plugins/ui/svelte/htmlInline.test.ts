@@ -1,11 +1,11 @@
 // ADR 0425: the inline HTML parser `{@html}`, `innerHTML` and `bind:innerHTML` use: elements, attributes and text with
-// entities decoded; scripts, styles, comments, event attributes and script URLs dropped; HTML's implied closes.
+// entities decoded; comments kept; scripts, styles, event attributes and script URLs dropped; HTML's implied closes.
 import { describe, expect, it } from "vitest";
 import { decodeEntities, parseInlineHtml, type InlineHtmlNode } from "./htmlInline";
 
 /** The nodes as compact HTML-ish text, for comparing. */
 const show = (nodes: readonly InlineHtmlNode[]): string =>
-  nodes.map((n) => (n.kind === "text" ? n.text : `<${n.tag}${n.attributes.map(([k, v]) => ` ${k}="${v}"`).join("")}>${show(n.children)}</${n.tag}>`)).join("");
+  nodes.map((n) => (n.kind === "text" ? n.text : n.kind === "comment" ? `<!--${n.text}-->` : `<${n.tag}${n.attributes.map(([k, v]) => ` ${k}="${v}"`).join("")}>${show(n.children)}</${n.tag}>`)).join("");
 
 describe("inline HTML parser", () => {
   it("reads elements, attributes and text, decoding entities", () => {
@@ -13,8 +13,9 @@ describe("inline HTML parser", () => {
     expect(decodeEntities("&lt;b&gt; &unknown; &#65;")).toBe("<b> &unknown; A");
   });
 
-  it("drops scripts, styles, comments and embedded documents with their content", () => {
-    expect(show(parseInlineHtml(`a<script>alert("<b>")</script>b<style>p{}</style>c<!-- note -->d<iframe src="x">e</iframe>f<!DOCTYPE html>`))).toBe("abcdf");
+  it("drops scripts, styles and embedded documents with their content, and keeps comments", () => {
+    expect(show(parseInlineHtml(`a<script>alert("<b>")</script>b<style>p{}</style>c<!-- note -->d<iframe src="x">e</iframe>f<!DOCTYPE html>`))).toBe("abc<!-- note -->df");
+    expect(show(parseInlineHtml(`<!-- --><div>1</div><!-- open`))).toBe("<!-- --><div>1</div><!-- open-->");
   });
 
   it("drops event attributes, srcdoc and script URLs, keeping an image's data: picture", () => {
