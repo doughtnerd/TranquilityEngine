@@ -11,7 +11,7 @@ import { Control } from "@babylonjs/gui/2D/controls/control.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
 import { Assets, Color, Engine, GameObject, Input, Locale, type ProjectSettingsInput } from "../index";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../ui/components";
+import { UIButton, UICanvas, UIImage, UIInputField, UIOption, UIPanel, UISelect, UIText, UIToggle } from "../ui/components";
 import type { UIComponentType } from "../ui/components";
 import { textRunOf, uiKindOf } from "../ui/elementKinds";
 import type { UICoreLike, UILaidOutCanvas, UILaidOutElement } from "../ui/uiCoreTypes";
@@ -83,7 +83,7 @@ function canvasInfo(comp: UICanvas, over: Partial<UILaidOutCanvas> = {}): UILaid
   return { comp, mode: comp.mode, sortOrder: comp.sortOrder, width: 1280, height: 720, scale: 1, pixelSize: comp.pixelSize, worldMatrix: null, visible: true, ...over };
 }
 
-type ElementInit = Partial<Pick<UILaidOutElement, "x" | "y" | "width" | "height" | "visible" | "opacity" | "order" | "clip" | "clipper" | "childClip" | "scroll">>;
+type ElementInit = Partial<Pick<UILaidOutElement, "x" | "y" | "width" | "height" | "visible" | "opacity" | "order" | "clip" | "clipper" | "childClip" | "scroll" | "parts">>;
 
 /** A fake core reporting these canvases and elements (orders count up per canvas; text runs resolved as the core resolves them, on each read). */
 class FakeCore implements UICoreLike {
@@ -517,6 +517,39 @@ describe("layout wave 1 on Babylon GUI (ADR 0418)", () => {
     expect(label.topInPixels).toBe(1);
     expect(label.widthInPixels).toBe(240 - 4 - 1 - 12 - 8);
     expect(label.heightInPixels).toBe(36 - 2);
+  });
+});
+
+describe("form elements on Babylon GUI (ADR 0424)", () => {
+  it("draws a control's parts as rectangles over its box (inset by its stroke), turned and coloured, and drops them when gone", () => {
+    const canvas = node("C", null, UICanvas);
+    const toggle = node("T", canvas.node, UIToggle, { borderWidth: 1 });
+    const core = new FakeCore();
+    const fill = { x: 0, y: 0, width: 16, height: 16, color: [1, 0, 0, 1] as const, radius: 3, rotate: 0 };
+    const stroke = { x: 4, y: 7, width: 6, height: 2, color: [1, 1, 1, 1] as const, radius: 1, rotate: 45 };
+    core.set([canvasInfo(canvas)], [[toggle, canvas, { width: 16, height: 16, parts: [fill, stroke] }]]);
+    sync(core);
+    const box = byName(rootOf(), "T") as Rectangle;
+    const parts = box.children.filter((c) => (c.name ?? "").startsWith("T.part")) as Rectangle[];
+    expect(parts.map((p) => [p.leftInPixels, p.topInPixels, p.widthInPixels, p.heightInPixels, p.cornerRadius])).toEqual([[-1, -1, 16, 16, 3], [3, 6, 6, 2, 1]]);
+    expect(parts[1].rotation).toBeCloseTo(Math.PI / 4);
+    expect(parts[0].background).toBe("rgba(255, 0, 0, 1)");
+    core.set([canvasInfo(canvas)], [[toggle, canvas, { width: 16, height: 16, parts: null }]]);
+    sync(core);
+    expect(box.children.some((c) => (c.name ?? "").startsWith("T.part"))).toBe(false);
+  });
+
+  it("draws a select's chosen option as its text, without a caret", () => {
+    const canvas = node("C", null, UICanvas);
+    const select = node("S", canvas.node, UISelect);
+    const option = node("O", select.node, UIOption, { label: "Green", selected: true });
+    const core = new FakeCore();
+    core.set([canvasInfo(canvas)], [[select, canvas, { width: 120, height: 30 }], [option, canvas, { visible: false }]]);
+    sync(core);
+    const r = byName(rootOf(), "S") as Rectangle;
+    const label = r.children.find((c) => c.name === "S.text") as TextBlock;
+    expect(label.text).toBe("Green");
+    expect((r.children.find((c) => c.name === "S.caret") as Rectangle).isVisible).toBe(false);
   });
 });
 

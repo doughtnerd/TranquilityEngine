@@ -48,7 +48,7 @@ import type { World } from "../../core/World";
 import { splitSpriteRef } from "../../scene/importSettings";
 import type { WarmContent } from "../../scene/warmUp";
 import { WARM_PREFIX, type WarmItem } from "./warmUp";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "../../ui/components";
+import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UISelect, UIText, UITextArea, isFocusableUI, type UIComponentType } from "../../ui/components";
 import type { ICanvasRenderingContext } from "@babylonjs/core/Engines/ICanvas.js";
 import { fontEpoch, onFontLoaded } from "../../ui/fonts";
 import { uiInteractions } from "../../ui/interactions";
@@ -106,6 +106,8 @@ interface ElementEntry {
   /** Panels whose `backgroundImage` is a `url()` (ADR 0418 wave 2): the image filling the box, under any children. */
   backdrop: Image | null;
   caret: Rectangle | null;
+  /** ADR 0424: a form element's parts, drawn over its box (`syncParts`), made on first need. */
+  parts: Rectangle[] | null;
   /** Panels whose border sides differ (ADR 0418): one filled rectangle per side (top, right, bottom, left), made on first need. */
   edges: Rectangle[] | null;
   last: Last;
@@ -439,6 +441,15 @@ export class BabylonUI {
     switch (el.kind) {
       case "panel":
       case "button":
+      // ADR 0424: form elements are panels with parts (`syncParts`); a select and a text area have text as a field does.
+      case "option":
+      case "toggle":
+      case "radio":
+      case "slider":
+      case "progress":
+      case "meter":
+      case "label":
+      case "form":
         this.syncPanel(e, c as UIPanel, el, canvas.root.scaleX);
         break;
       case "text":
@@ -448,9 +459,53 @@ export class BabylonUI {
         this.syncImage(e, c as UIImage, el);
         break;
       case "input":
-        this.syncInput(e, c as UIInputField, el, extra);
+      case "select":
+      case "textarea":
+        this.syncInput(e, c as UIInputField | UISelect, el, extra);
         break;
     }
+    this.syncParts(e, el);
+  }
+
+  /**
+   * ADR 0424: a form element's parts (a checkbox's fill and mark, a slider's track, fill and thumb, a bar's fill, a
+   * select's arrow), from the core's `parts`: filled rectangles over its box, made as needed and reused.
+   */
+  private syncParts(e: ElementEntry, el: UILaidOutElement): void {
+    const parts = el.parts ?? [];
+    if (!parts.length && !e.parts?.length) return;
+    const host = e.control instanceof Rectangle ? e.control : null;
+    if (!host) return;
+    const list = (e.parts ??= []);
+    while (list.length > parts.length) {
+      const r = list.pop()!;
+      host.removeControl(r);
+      r.dispose();
+    }
+    // The Rectangle insets its children by its stroke (only while every border side is equal).
+    const inset = host.thickness;
+    parts.forEach((p, i) => {
+      let r = list[i];
+      if (!r) {
+        r = new Rectangle(`${host.name}.part${i}`);
+        r.thickness = 0;
+        r.isHitTestVisible = false;
+        r.horizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
+        r.verticalAlignment = Control.VERTICAL_ALIGNMENT_TOP;
+        r.zIndex = 1; // over an input field's text, under nothing it owns
+        host.addControl(r);
+        list.push(r);
+      }
+      if (put(r, "x", p.x - inset)) r.leftInPixels = p.x - inset;
+      if (put(r, "y", p.y - inset)) r.topInPixels = p.y - inset;
+      if (put(r, "w", p.width)) r.widthInPixels = p.width;
+      if (put(r, "h", p.height)) r.heightInPixels = p.height;
+      if (put(r, "radius", p.radius)) r.cornerRadius = p.radius;
+      if (put(r, "rotate", p.rotate)) r.rotation = (p.rotate * Math.PI) / 180;
+      const [cr, cg, cb, ca] = p.color;
+      const css = `rgba(${Math.round(cr * 255)}, ${Math.round(cg * 255)}, ${Math.round(cb * 255)}, ${ca})`;
+      if (put(r, "color", css)) r.background = css;
+    });
   }
 
   private createElement(el: UILaidOutElement, canvas: CanvasEntry): ElementEntry {
@@ -473,7 +528,7 @@ export class BabylonUI {
       control = image;
     } else {
       const r = new PaintedRectangle(name);
-      if (el.kind === "input") {
+      if (el.kind === "input" || el.kind === "select" || el.kind === "textarea") {
         label = new LocalisedTextBlock(`${name}.text`);
         label.resizeToFit = false;
         label.textHorizontalAlignment = Control.HORIZONTAL_ALIGNMENT_LEFT;
@@ -496,7 +551,7 @@ export class BabylonUI {
     placeBox(control);
     control.isHitTestVisible = false;
     canvas.root.addControl(control);
-    return { comp: el.comp, canvas, control, label, caret, backdrop: null, edges: null, last: {}, stamp: 0, dead: false };
+    return { comp: el.comp, canvas, control, label, caret, backdrop: null, edges: null, parts: null, last: {}, stamp: 0, dead: false };
   }
 
   /**
@@ -679,13 +734,14 @@ export class BabylonUI {
     let background = c.backgroundColor;
     let border = c.borderColor;
     // Focus colours (ADR 0340) show while the last UI input was navigation: a button's fill, a field's border.
-    const showsFocus = (c instanceof UIButton || c instanceof UIInputField) && uiInteractions(c._world).showsFocus(c);
+    // ADR 0424: every control shows it, a button (and an option) by its fill, the others by their border.
+    const showsFocus = isFocusableUI(c) && uiInteractions(c._world).showsFocus(c);
     if (c instanceof UIButton && c.interactable) {
       // Pressed needs hovered too (a press dragged off the button shows it unpressed).
       if (c.pressed && c.hovered) background = c.pressedColor;
       else if (c.hovered) background = c.hoverColor;
       else if (showsFocus) background = c.focusColor;
-    } else if (c instanceof UIInputField && showsFocus) border = c.focusColor;
+    } else if (!(c instanceof UIButton) && isFocusableUI(c) && showsFocus) border = c.focusColor;
     const bk = background ? colorKey(background) : -1;
     if (put(r, "bg", bk)) r.background = background ? background.toCss() : "";
     // ADR 0418 wave 2: a corner's own radius, or (at -1) borderRadius. Babylon's corners, by how Rectangle draws them:
@@ -874,14 +930,23 @@ export class BabylonUI {
     }
   }
 
-  private syncInput(e: ElementEntry, c: UIInputField, el: UILaidOutElement, extra: { caretOf?(c: UIInputField): number | null }): void {
+  /**
+   * An input field's box, text and caret. ADR 0424: a select's too (its chosen option's label, no caret), and a text
+   * area's: its lines from the top, wrapped, moved up by its scroll, the caret on the line it's in (soft wraps aside).
+   */
+  private syncInput(e: ElementEntry, c: UIInputField | UISelect, el: UILaidOutElement, extra: { caretOf?(c: UIInputField): number | null }): void {
     this.syncPanel(e, c, el, e.canvas.root.scaleX);
     const label = e.label!;
     const caret = e.caret!;
     // Insets per side (ADR 0418). The Rectangle insets its children by its stroke, which it has only while the border's sides are equal.
     const [bt, br, bb, bl] = uiBorderEdges(c);
     const stroke = bt === br && bt === bb && bt === bl ? bt : 0;
-    const [, pr, , pl] = uiEdges(c.padding, c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft);
+    const [pt, pr, , pl] = uiEdges(c.padding, c.paddingTop, c.paddingRight, c.paddingBottom, c.paddingLeft);
+    const area = c instanceof UITextArea ? c : null;
+    if (put(label, "area", !!area)) {
+      label.textVerticalAlignment = area ? Control.VERTICAL_ALIGNMENT_TOP : Control.VERTICAL_ALIGNMENT_CENTER;
+      caret.verticalAlignment = area ? Control.VERTICAL_ALIGNMENT_TOP : Control.VERTICAL_ALIGNMENT_CENTER;
+    }
     const start = bl - stroke + pl; // the text's left edge inside the Rectangle's children
     const run = el.text!; // the value, or the placeholder while it's empty, as the core measured it
     if (put(label, "text", run.text)) label.text = run.text;
@@ -892,30 +957,39 @@ export class BabylonUI {
       (label as LocalisedTextBlock).direction = run.direction;
       label.textHorizontalAlignment = rtl ? Control.HORIZONTAL_ALIGNMENT_RIGHT : Control.HORIZONTAL_ALIGNMENT_LEFT;
     }
-    const color = c.value ? c.color : c.placeholderColor;
+    const field = c instanceof UIInputField ? c : null;
+    const color = !field || field.value ? c.color : field.placeholderColor;
     if (put(label, "color", colorKey(color))) label.color = color.toCss();
+    if (put(label, "wrap", run.wrap)) label.textWrapping = run.wrap === "none" ? WRAP_CLIP : WRAP_WORD;
+    // A text area's lines start below its top padding, moved up by its scroll; it clips them (a Rectangle clips its children).
+    const scrollY = el.scroll?.y ?? 0;
+    const top = area ? bt - stroke + pt - scrollY : bt - stroke;
     if (put(label, "left", start)) label.leftInPixels = start;
-    if (put(label, "top", bt - stroke)) label.topInPixels = bt - stroke;
+    if (put(label, "top", top)) label.topInPixels = top;
     const lw = Math.max(0, el.width - bl - br - pl - pr);
     if (put(label, "w", lw)) label.widthInPixels = lw;
-    const lh = Math.max(0, el.height - bt - bb);
+    const lh = area ? Math.max(0, el.scroll?.scrollHeight ?? el.height) : Math.max(0, el.height - bt - bb);
     if (put(label, "h", lh)) label.heightInPixels = lh;
 
-    const index = c.typing ? (extra.caretOf?.(c) ?? null) : null;
-    if (index === null) {
+    const index = field?.typing ? (extra.caretOf?.(field) ?? null) : null;
+    if (!field || index === null) {
       caret.isVisible = false;
       return;
     }
-    const prefix = c.value ? run.text.slice(0, Math.max(0, index)) : "";
+    // A text area's caret: on the line (by line breaks) its index is in, from that line's start.
+    const before = field.value ? run.text.slice(0, Math.max(0, index)) : "";
+    const lineIndex = area ? before.split("\n").length - 1 : 0;
+    const prefix = area ? before.slice(before.lastIndexOf("\n") + 1) : before;
     const pw = prefix ? textSize(prefix, run.fontSize, run.fontWeight, run.fontFamily, run.lineHeight).width : 0; // exact, unlike layout's roomier measure
     caret.isVisible = true;
     const ch = run.fontSize * run.lineHeight;
     // Right to left: the text ends at the right edge, so the caret sits that far in from it. Approximate for text that
     // mixes directions (a known limit, ADR 0356 §5).
-    const full = rtl && c.value ? textSize(run.text, run.fontSize, run.fontWeight, run.fontFamily, run.lineHeight).width : 0;
+    const full = rtl && field.value && !area ? textSize(run.text, run.fontSize, run.fontWeight, run.fontFamily, run.lineHeight).width : 0;
     const x = rtl ? start + Math.max(lw, full) - pw : start + pw;
     if (put(caret, "left", x)) caret.leftInPixels = x;
-    if (put(caret, "top", (bt - bb) / 2)) caret.topInPixels = (bt - bb) / 2; // centred on the text, not the box
+    const caretTop = area ? top + lineIndex * ch : (bt - bb) / 2; // a field's is centred on the text, not the box
+    if (put(caret, "top", caretTop)) caret.topInPixels = caretTop;
 
     if (put(caret, "h", ch)) caret.heightInPixels = ch;
     if (put(caret, "color", colorKey(c.color))) caret.background = c.color.toCss();

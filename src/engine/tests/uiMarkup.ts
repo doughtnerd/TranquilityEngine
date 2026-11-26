@@ -1,7 +1,8 @@
 import { Assets } from "../scene/Assets";
 import { GameObject } from "../scene/GameObject";
 import { UIDocument } from "../ui/UIDocument";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "../ui/components";
+import type { UIComponentType } from "../ui/components";
+import { UI_TAGS, uiTypeOfTag } from "../ui/elementKinds";
 
 // Test helpers that make game UI the one way a game can (ADR 0417): markup built by a `UIDocument`. Call
 // `loadUIDocumentSupport()` first (in `beforeEach`), so documents build as soon as they're added.
@@ -37,14 +38,8 @@ export function byId<T extends UIComponentType>(doc: UIDocument, id: string, typ
   return el.as(type);
 }
 
-const TAGS = new Map<Function, string>([
-  [UICanvas, "Canvas"],
-  [UIPanel, "Panel"],
-  [UIText, "Text"],
-  [UIImage, "Image"],
-  [UIButton, "Button"],
-  [UIInputField, "InputField"],
-]);
+/** Each UI component type's markup tag (ADR 0424's form elements too). */
+const TAGS = new Map<Function, string>([...UI_TAGS].map((tag) => [uiTypeOfTag(tag), tag]));
 
 /**
  * One element, as a one-element document on a new node under `parent`, its fields then written as a
