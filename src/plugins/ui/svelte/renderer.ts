@@ -1623,6 +1623,7 @@ function hostAttributes(el: UIRenderElement): Map<string, string> {
     else if (k === "value" && tag === "Button") continue; // an <input type="submit">'s label (`inputButtonLabel`)
     else if (HTML_ONLY.has(k)) continue;
     else if (k === "src" && tag === "Image") out.set("image", s);
+    else if (k === "inert") out.set("inert", "true"); // HTML's boolean attribute (present: inert)
     else if (k === "disabled") {
       if (FOCUSABLE_TAGS.has(tag)) out.set("interactable", "false");
     } else out.set(k, s);

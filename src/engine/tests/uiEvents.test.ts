@@ -49,6 +49,34 @@ function list(): UIDocument {
 </Canvas>`);
 }
 
+describe("inert (HTML's)", () => {
+  it("takes an inert element's subtree out of hit-testing and focus: the pointer reaches what's behind", async () => {
+    const doc = buildUI(`<Canvas>
+  <Panel id="back" background-color="#222222" padding="10">
+    <Panel id="wrap" inert="true">
+      <Button id="b" width="200" height="40" padding="0">B</Button>
+    </Panel>
+  </Panel>
+</Canvas>`);
+    const clicks: string[] = [];
+    doc.query("#back")!.on("click", (e) => clicks.push(e.target.id ?? ""));
+    const b = doc.query("#b")!.as(UIButton);
+    const p = await pointer();
+    step();
+    expect(() => p.click(b)).toThrow(/would hit/);
+    b.focused = true;
+    expect(b.focused).toBe(false);
+
+    doc.query("#wrap")!.as(UIPanel).inert = false;
+    step();
+    p.click(b);
+    step();
+    expect(clicks).toEqual(["b"]);
+    b.focused = true;
+    expect(b.focused).toBe(true);
+  });
+});
+
 describe("propagation (ADR 0422)", () => {
   it("runs capture handlers from the root down, the target's, then bubble handlers back up", async () => {
     const doc = list();

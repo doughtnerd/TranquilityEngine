@@ -5,6 +5,7 @@ import { UIButton, UIText } from "../../../engine/ui/components";
 import { UIPointer, stubDocument } from "../../../engine/tests/uiPointer";
 import { UIView } from "./UIView";
 import * as EventsModule from "./testComponents/Events.svelte";
+import * as InertModule from "./testComponents/Inert.svelte";
 
 // ADR 0422 and 0423 in Svelte views: events travel through the renderer's nodes in capture, target and bubble phases
 // and out of the view to <svelte:window>; nodes scroll with the DOM's members. Driven through a UI core routing
@@ -16,7 +17,7 @@ let pointer: UIPointer | null = null;
 
 beforeEach(async () => {
   Input.reset();
-  engine = await Engine.create({ headless: true, assets: Assets.fromObject({ "ui/events.svelte": EventsModule }) });
+  engine = await Engine.create({ headless: true, assets: Assets.fromObject({ "ui/events.svelte": EventsModule, "ui/inert.svelte": InertModule }) });
 });
 
 afterEach(() => {
@@ -46,6 +47,53 @@ async function view(): Promise<{ v: UIView; log: string[]; nodes: Record<string,
   pointer = await UIPointer.create(World.require());
   return { v, log, nodes };
 }
+
+describe("UIView: inert (HTML's)", () => {
+  async function inertView(): Promise<{ v: UIView; log: string[] }> {
+    const log: string[] = [];
+    const v = GameObject.create("UI").addBehavior(UIView, { component: "asset:ui/inert.svelte", props: { log: (s: string) => log.push(s) } });
+    await v.ready;
+    pointer = await UIPointer.create(World.require());
+    engine.step(DT);
+    return { v, log };
+  }
+
+  it("takes an inert element's subtree out of the pointer and focus, and gives them back when it stops being inert", async () => {
+    const { v, log } = await inertView();
+    const inner = v.query("#inner")!.as(UIButton);
+    expect(() => pointer!.click(inner)).toThrow(/would hit nothing/); // the pointer passes through it (nothing behind)
+    engine.step(DT);
+    expect(log).toEqual([]);
+    v.query("#inner")!.focus();
+    expect(inner.focused).toBe(false);
+    pointer!.click(v.query("#outer")!.as(UIButton));
+    engine.step(DT);
+    expect(log).toEqual(["outer"]);
+
+    log.length = 0;
+    v.props.inert = false;
+    engine.step(DT);
+    pointer!.click(inner);
+    engine.step(DT);
+    expect(log).toEqual(["inner"]);
+    v.query("#inner")!.focus();
+    expect(inner.focused).toBe(true);
+  });
+
+  it("takes focus away from an element inside one that becomes inert", async () => {
+    const { v } = await inertView();
+    v.props.inert = false;
+    engine.step(DT);
+    const inner = v.query("#inner")!.as(UIButton);
+    v.query("#inner")!.focus();
+    engine.step(DT);
+    expect(inner.focused).toBe(true);
+    v.props.inert = true;
+    engine.step(DT);
+    engine.step(DT);
+    expect(inner.focused).toBe(false);
+  });
+});
 
 describe("UIView: events propagate (ADR 0422)", () => {
   it("runs onclickcapture on the way down, the target's onclick, onclick on the way up, then <svelte:window>", async () => {

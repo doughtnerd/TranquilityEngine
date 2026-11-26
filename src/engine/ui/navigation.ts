@@ -25,7 +25,7 @@ import type { TriggerSpec } from "../input/contextTypes";
 import { addContextSource, defineInputContext } from "../input/contexts";
 import { takesLocalInput } from "../input/deviceEntities";
 import { playerNodes, InputPlayer } from "../input/players";
-import { UIButton, UICanvas, UIInputField, UIOption, UIPanel, UIRadio, UISelect, UISlider, isFocusableUI, type UIFocusableElement } from "./components";
+import { UIButton, UICanvas, UIInputField, UIOption, UIPanel, UIRadio, UISelect, UISlider, isFocusableUI, isInertUI, type UIFocusableElement } from "./components";
 import { uiClickRecord, checkRadio, controlChanged, optionsOf, radioGroup, reconcileSelect, selectOf, setSelectOpen, sliderValue } from "./formControls";
 import { uiInteractions, type UIInteractions, type UILayoutSource } from "./interactions";
 import type { UILaidOutElement } from "./uiCoreTypes";
@@ -98,7 +98,7 @@ defineInputContext({
 /** True for a button or input field that can take focus now (layout aside): focusable, active, enabled, shown, and (buttons) interactable. */
 function canFocus(c: UIFocusableElement): boolean {
   if (!c.node.isValid || !c.focusable || !c.isActiveAndEnabled || c.display === "none") return false;
-  return c.interactable;
+  return c.interactable && !isInertUI(c);
 }
 
 const isFocusableComp = isFocusableUI;

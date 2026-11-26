@@ -308,6 +308,12 @@ function commonAncestor(a: Entry, b: Entry): Entry | null {
   return null;
 }
 
+/** HTML's `inert`: the element or one it's in is inert (the pointer passes through it). */
+function inertEntry(e: Entry): boolean {
+  for (let at: Entry | null = e; at && at.kind !== "canvas"; at = up(at)) if ((at.comp as { inert?: boolean }).inert) return true;
+  return false;
+}
+
 /** ADR 0422: a press in a button (ADR 0424: any control) that isn't interactable doesn't click (the DOM's disabled controls). */
 function disabledPath(e: Entry): boolean {
   for (let at: Entry | null = e; at && at.kind !== "canvas"; at = up(at)) if (isFocusableUI(at.comp) && !at.comp.interactable) return true;
@@ -1965,7 +1971,7 @@ export class UICore implements UICoreLike {
   }
 
   private hittable(e: Entry): boolean {
-    return e.comp.isActiveAndEnabled && e.box.visible && e.canvas !== null;
+    return e.comp.isActiveAndEnabled && e.box.visible && e.canvas !== null && !inertEntry(e);
   }
 
   private warnOnce(key: string, message: string): void {

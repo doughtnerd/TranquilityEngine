@@ -157,6 +157,12 @@ abstract class UIElement extends UIComponent {
    * a layout box (Unity's empty RectTransform). Children aren't affected: each element has its own.
    */
   @field(Boolean) raycastTarget = true;
+  /**
+   * HTML's `inert`: the element and everything inside it are drawn as before but take no part in interaction: the
+   * pointer passes through them (to what's behind), and they can't take focus or be navigated to (focus inside leaves).
+   * Svelte's outros set it on outroing elements.
+   */
+  @field(Boolean) inert = false;
 
   // 0418 wave 1: layout
   /**
@@ -641,6 +647,7 @@ abstract class UIFocusable extends UIPanel {
   set focused(value: boolean) {
     const log = uiInteractions(this._world);
     const self = this as unknown as UIFocusableElement;
+    if (value && isInertUI(this)) return; // HTML's: an inert element can't take focus
     if (value) log.focus(self, "script");
     else log.blur(self, "script");
   }
@@ -757,6 +764,7 @@ export class UIInputField extends UIFocusable {
 
   set focused(value: boolean) {
     const log = uiInteractions(this._world);
+    if (value && isInertUI(this)) return; // HTML's: an inert element can't take focus
     if (value) log.focus(this, "script", true);
     else log.blur(this, "script");
   }
@@ -1021,6 +1029,16 @@ export const UI_TYPES = [UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputFi
 
 /** An element that takes focus (ADR 0340, 0424). */
 export type UIFocusableElement = UIButton | UIInputField | UIToggle | UIRadio | UISlider | UISelect;
+
+/** True when the element or an element it's in (up to its canvas) is `inert` (HTML's): it takes no pointer, focus or navigation. */
+export function isInertUI(c: UIComponent): boolean {
+  for (let n: GameObject | null = c.owner; n?.isValid; n = n.parent) {
+    const el = n.getComponent(UIElement);
+    if (el?.inert) return true;
+    if (!el) return false; // the canvas (or a node outside UI)
+  }
+  return false;
+}
 
 /** True for an element that takes focus (ADR 0340, 0424): buttons, fields and the other form controls. */
 export function isFocusableUI(c: unknown): c is UIFocusableElement {
