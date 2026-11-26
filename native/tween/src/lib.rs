@@ -1,8 +1,9 @@
-//! The standalone tween module (ADR 0420 spike): `myco-tween`'s table behind a wasm-bindgen
-//! boundary, for UI animation in a game without the animation plugin.
+//! The standalone tween module (ADR 0420): `myco-tween`'s table and a sequence player behind a
+//! wasm-bindgen boundary, for UI animation in a game without the animation plugin. Built by
+//! `npm run build:tween` (`build.mjs`) into `src/engine/tween/wasm/`, which is committed.
 //!
-//! The calls are the animation core's tween calls (wire family `tween`, the same records, statuses
-//! and views), minus what needs the core:
+//! The calls are the animation core's tween and sequence calls (wire families `tween` and
+//! `timeline`, the same records, statuses and views), minus what needs the core:
 //!
 //! - **Sizing:** there is no `init`. The table starts empty; `tweens_configure(max)` sizes it once
 //!   (`tween_bytes_for(max)` says what that costs). Until then `tween_create` answers `STATUS_FULL`.
@@ -13,20 +14,30 @@
 //!   `myco_tween::curves::CurveStore` (the core keeps them in its asset arena). Handles have the
 //!   same layout, so a curve handle in a tween's `ease` reads the same way.
 //!
-//! Sequences and parallel groups (`myco_tween::seq`) are timeline instances in the animation core,
-//! whose playback stays there; the spike doesn't export them.
+//! - **Sequences:** `timelines_configure(max)` sizes the sequence table (the core's takes a record
+//!   buffer too, which sequences never write). `timeline_create_sequence`, `timeline_control`,
+//!   `timeline_info`, `timeline_blocks` and the `timeline_*` views are the core's, for sequences
+//!   only ([`seq`]: the core's playback of `myco_tween::seq`'s program, cut down to sequences).
+//!   `update` advances the tweens, then the sequences, as the core's `evaluate` does.
 
 use std::cell::RefCell;
 
+use anim_wire::timeline::TimelineInfo;
+use anim_wire::WireRecord;
 use myco_tween::curves::CurveStore;
 use myco_tween::host::{STATUS_OK, STATUS_TOO_LARGE};
 use myco_tween::{Tweens, MAX_TWEENS};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-/// The module's state: the tween table and its curve store.
+pub mod seq;
+
+use seq::{Sequences, MAX_SEQUENCES};
+
+/// The module's state: the tween table, the sequence table and their curve store.
 #[derive(Default)]
 pub struct Module {
     tweens: Tweens,
+    sequences: Sequences,
     curves: CurveStore,
     last_status: u32,
 }
@@ -38,6 +49,15 @@ impl Module {
             return STATUS_TOO_LARGE;
         }
         self.tweens = Tweens::new(max as usize);
+        STATUS_OK
+    }
+
+    /// Sizes the sequence table for `max` sequences (drops every sequence); a status.
+    pub fn configure_sequences(&mut self, max: u32) -> u32 {
+        if max as usize > MAX_SEQUENCES {
+            return STATUS_TOO_LARGE;
+        }
+        self.sequences = Sequences::new(max as usize);
         STATUS_OK
     }
 
@@ -65,14 +85,37 @@ impl Module {
         self.tweens.control(record)
     }
 
-    /// Clears the frame's rows and change records.
-    pub fn begin_frame(&mut self) {
-        self.tweens.begin_frame();
+    /// Creates a sequence from a `SEQ_CREATE` record and its `SEQ_MEMBER` records; its handle, or
+    /// 0 (see [`Module::last_status`]).
+    pub fn create_sequence(&mut self, bytes: &[u8]) -> u32 {
+        let r = self.sequences.create(bytes);
+        self.handle(r)
     }
 
-    /// Advances `world`'s tweens in `pass`; the change records waiting.
+    /// Applies a `TIMELINE_CONTROL` record to a sequence; a status.
+    pub fn control_sequence(&mut self, record: &[u8]) -> u32 {
+        self.sequences.control(record)
+    }
+
+    /// Writes a sequence's `TIMELINE_INFO` into `out`; the bytes written (0: stale or short).
+    pub fn sequence_info(&self, handle: u32, out: &mut [u8]) -> u32 {
+        match self.sequences.info(handle) {
+            Some(info) if info.encode_into(out).is_ok() => TimelineInfo::STRIDE,
+            _ => 0,
+        }
+    }
+
+    /// Clears the frame's rows and change records (tweens and sequences).
+    pub fn begin_frame(&mut self) {
+        self.tweens.begin_frame();
+        self.sequences.begin_frame();
+    }
+
+    /// Advances `world`'s tweens, then its sequences, in `pass`; the tween change records waiting.
     pub fn update(&mut self, world: u32, pass: u32, dt_scaled: f32, dt_unscaled: f32) -> u32 {
         self.tweens
+            .update(&self.curves, world, pass, dt_scaled, dt_unscaled);
+        self.sequences
             .update(&self.curves, world, pass, dt_scaled, dt_unscaled);
         self.tweens.change_count() as u32
     }
@@ -96,6 +139,11 @@ impl Module {
     /// The tween table (its rows, values and change records).
     pub fn tweens(&self) -> &Tweens {
         &self.tweens
+    }
+
+    /// The sequence table (its blocks, values, weights and change records).
+    pub fn sequences(&self) -> &Sequences {
+        &self.sequences
     }
 }
 
@@ -199,4 +247,89 @@ pub fn tween_changes_ptr() -> u32 {
 #[wasm_bindgen]
 pub fn tween_changes_dropped() -> u32 {
     with(|m| m.tweens.dropped())
+}
+
+/// Bytes a sequence table of `max` sequences takes (members and values excluded).
+#[wasm_bindgen]
+pub fn sequence_bytes_for(max: u32) -> f64 {
+    Sequences::bytes_for(max as usize) as f64
+}
+
+/// Sizes the sequence table (drops every sequence); a status.
+#[wasm_bindgen]
+pub fn timelines_configure(max_sequences: u32) -> u32 {
+    with(|m| m.configure_sequences(max_sequences))
+}
+
+/// Creates a sequence (`SEQ_CREATE` followed by its `SEQ_MEMBER` records); its handle, or 0 (see
+/// `last_status`).
+#[wasm_bindgen]
+pub fn timeline_create_sequence(bytes: &[u8]) -> u32 {
+    with(|m| m.create_sequence(bytes))
+}
+
+/// Applies a `TIMELINE_CONTROL` record to a sequence; a status.
+#[wasm_bindgen]
+pub fn timeline_control(record: &[u8]) -> u32 {
+    with(|m| m.control_sequence(record))
+}
+
+/// Writes a sequence's `TIMELINE_INFO` into `out`; the bytes written (0: stale or short).
+#[wasm_bindgen]
+pub fn timeline_info(instance: u32, out: &mut [u8]) -> u32 {
+    with(|m| m.sequence_info(instance, out))
+}
+
+/// Bytes of a sequence's `TIMELINE_BLOCK` records.
+#[wasm_bindgen]
+pub fn timeline_block_bytes(instance: u32) -> u32 {
+    with(|m| m.sequences.block_bytes(instance) as u32)
+}
+
+/// Writes a sequence's `TIMELINE_BLOCK` records into `out`; the bytes written.
+#[wasm_bindgen]
+pub fn timeline_blocks(instance: u32, out: &mut [u8]) -> u32 {
+    with(|m| m.sequences.write_blocks(instance, out) as u32)
+}
+
+/// Sequences evaluated this frame.
+#[wasm_bindgen]
+pub fn timeline_active_count() -> u32 {
+    with(|m| m.sequences.active_count() as u32)
+}
+
+/// The byte offset of the evaluated sequences' handles (`u32` each).
+#[wasm_bindgen]
+pub fn timeline_active_ptr() -> u32 {
+    with(|m| addr(m.sequences.active()))
+}
+
+/// The byte offset of the sequences' value words.
+#[wasm_bindgen]
+pub fn timeline_values_ptr() -> u32 {
+    with(|m| addr(m.sequences.values()))
+}
+
+/// The byte offset of the sequences' block weights (`f32` each).
+#[wasm_bindgen]
+pub fn timeline_weights_ptr() -> u32 {
+    with(|m| addr(m.sequences.weights()))
+}
+
+/// `TIMELINE_CHANGE` records this frame.
+#[wasm_bindgen]
+pub fn timeline_changes_count() -> u32 {
+    with(|m| m.sequences.change_count() as u32)
+}
+
+/// The byte offset of the sequence change records.
+#[wasm_bindgen]
+pub fn timeline_changes_ptr() -> u32 {
+    with(|m| addr(m.sequences.changes()))
+}
+
+/// Sequence changes dropped this frame because the buffer was full.
+#[wasm_bindgen]
+pub fn timeline_changes_dropped() -> u32 {
+    with(|m| m.sequences.changes_dropped())
 }
