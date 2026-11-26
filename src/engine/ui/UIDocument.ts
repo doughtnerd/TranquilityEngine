@@ -154,6 +154,7 @@ interface Binding {
 }
 
 interface MutableTarget extends StyleTarget {
+  readonly tag: UITag;
   classes: string[];
   state: Record<UIPseudo, boolean>;
   parent: MutableTarget | null;

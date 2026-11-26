@@ -25,5 +25,7 @@ export const uiEditorPlugin: EditorPlugin = {
       create: { label: "New UI Document", category: "UI", create: (folder) => createUIDocument(folder) },
     });
     context.registerAssetKind({ id: "stylesheet", extensions: [".css"], label: "Stylesheet", icon: STYLESHEET_ICON, codeEditor: true });
+    // Svelte components (ADR 0419), which UIView's field takes. Compiling them in the editor and at export is wave A part 2.
+    context.registerAssetKind({ id: "svelte", extensions: [".svelte"], label: "Svelte Component", icon: STYLESHEET_ICON, codeEditor: true, referencedAs: ["svelte"] });
   },
 };

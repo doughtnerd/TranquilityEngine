@@ -10,6 +10,7 @@ import { Color, Vector2 } from "../../core/math";
 import { AssetRef, getFields, type FieldInfo } from "../../core/registry";
 import { UI_TYPES } from "../components";
 import { UI_TAGS as UI_KIND_TAGS } from "../elementKinds";
+import { HTML_TAGS } from "../host/htmlTags";
 import { hasBinding, problemAt, resolvePath } from "./markup";
 import type {
   Declaration,
@@ -108,7 +109,7 @@ function parseRule(node: CssRule, source: string, report: (start: number, end: n
 
 function parseSelector(sel: CssSelector, report: (start: number, end: number, message: string) => void): Selector | null {
   const parts: { selector: SimpleSelector; combinator: " " | ">" | null }[] = [];
-  let current: { tag: UITag | null; id: string | null; classes: string[]; pseudo: UIPseudo[]; lang: string[] } | null = null;
+  let current: { tag: string | null; id: string | null; classes: string[]; pseudo: UIPseudo[]; lang: string[]; is?: SelectorGroup[] } | null = null;
   let pendingCombinator: " " | ">" | null = null;
   let root = false;
   let ok = true;
@@ -125,9 +126,9 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
     switch (n.type) {
       case "TypeSelector":
         if (n.name === "*") compound();
-        else if (UI_TAGS.has(n.name)) compound().tag = n.name as UITag;
+        else if (isKnownTag(n.name)) compound().tag = n.name;
         else {
-          report(s, e, `Unknown element "${n.name}" in a selector. Elements are ${[...UI_TAGS].join(", ")}.`);
+          report(s, e, `Unknown element "${n.name}" in a selector. Elements are ${[...UI_TAGS].join(", ")}, or the HTML tags Svelte components write them as (div, span, button…).`);
           ok = false;
         }
         break;
@@ -142,6 +143,11 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
           root = true;
           compound();
         } else if (PSEUDO.has(n.name)) compound().pseudo.push(n.name as UIPseudo);
+        else if (n.name === "is" || n.name === "where") {
+          const group = parseSelectorGroup(n, report);
+          if (group) (compound().is ??= []).push(group);
+          else ok = false;
+        }
         else if (n.name === "lang") {
           // `:lang(de)` (ADR 0356 §4): one language range, matched by BCP 47 prefix against the current text language.
           const ranges = (n.children?.toArray() ?? []).map((c) => (c.type === "Identifier" ? c.name : c.type === "String" ? c.value : "")).filter((r) => /^[A-Za-z]{1,8}(-[A-Za-z0-9]{1,8})*$/.test(r));
@@ -150,7 +156,7 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
             ok = false;
           } else compound().lang.push(ranges[0]);
         } else {
-          report(s, e, `:${n.name} isn't supported; UI pseudo-classes are :hover, :pressed, :focus, :disabled and :lang().`);
+          report(s, e, `:${n.name} isn't supported; UI pseudo-classes are :hover, :pressed, :focus, :disabled, :lang(), :is() and :where().`);
           ok = false;
         }
         break;
@@ -170,7 +176,7 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
   }
   flush();
   if (!ok || parts.length === 0) return null;
-  if (root && (parts.length > 1 || parts[0].selector.tag || parts[0].selector.id || parts[0].selector.classes.length || parts[0].selector.pseudo.length || parts[0].selector.lang.length)) {
+  if (root && (parts.length > 1 || parts[0].selector.tag || parts[0].selector.id || parts[0].selector.classes.length || parts[0].selector.pseudo.length || parts[0].selector.lang.length || parts[0].selector.is?.length)) {
     report(sel.loc?.start.offset ?? 0, sel.loc?.end.offset ?? 0, ":root only goes alone, to declare variables.");
     return null;
   }
@@ -181,6 +187,12 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
     if (p.selector.id) ids++;
     classes += p.selector.classes.length + p.selector.pseudo.length + p.selector.lang.length;
     if (p.selector.tag) tags++;
+    for (const g of p.selector.is ?? []) {
+      const [a, b, c] = groupSpecificity(g);
+      ids += a;
+      classes += b;
+      tags += c;
+    }
   }
   return { parts, specificity: root ? [0, 1, 0] : [ids, classes, tags], root };
 }
@@ -188,11 +200,12 @@ function parseSelector(sel: CssSelector, report: (start: number, end: number, me
 // --- Matching -----------------------------------------------------------------------------------
 
 function matchesSimple(s: SimpleSelector, t: StyleTarget): boolean {
-  if (s.tag && s.tag !== t.tag) return false;
+  if (s.tag && !sameTag(s.tag, t.tag)) return false;
   if (s.id && s.id !== t.id) return false;
   for (const c of s.classes) if (!t.classes.includes(c)) return false;
   for (const p of s.pseudo) if (!t.state[p]) return false;
   for (const range of s.lang) if (!langMatches(t.lang, range)) return false;
+  if (s.is) for (const g of s.is) if (!matchesGroup(g, t)) return false;
   return true;
 }
 
@@ -222,12 +235,74 @@ function matchFrom(selector: Selector, index: number, target: StyleTarget): bool
 
 /** True when any rule of these sheets uses a pseudo-class (so elements restyle when their state changes). */
 export function usesPseudo(sheets: readonly { rules: readonly StyleRule[] }[]): boolean {
-  return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => sel.parts.some((p) => p.selector.pseudo.length > 0))));
+  return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => selectorUses(sel, (p) => p.pseudo.length > 0))));
 }
 
 /** True when any rule of these sheets uses `:lang()` (so elements restyle when the language changes, ADR 0356 §4). */
 export function usesLang(sheets: readonly { rules: readonly StyleRule[] }[]): boolean {
-  return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => sel.parts.some((p) => p.selector.lang.length > 0))));
+  return sheets.some((s) => s.rules.some((r) => r.selectors.some((sel) => selectorUses(sel, (p) => p.lang.length > 0))));
+}
+
+// --- Selectors: :is(), :where() and tag names (ADR 0419) -----------------------------------------
+// Svelte's scoped CSS emits `:where(.svelte-hash)` and lowercase HTML tags. `:is()` (the specificity of
+// its most specific argument) and `:where()` (no specificity) each hold a selector list matched against
+// the element itself. Tags match case-insensitively: `button` is a UI document's `Button`, and the HTML
+// tags Svelte components are written with (`div`) match the tag as written.
+
+/** An `:is()` or `:where()` argument list: one of its selectors must match the element. */
+export interface SelectorGroup {
+  readonly selectors: readonly Selector[];
+  /** `:where()`: adds no specificity. */
+  readonly zero: boolean;
+}
+
+const KNOWN_TAGS: ReadonlySet<string> = new Set([...[...UI_TAGS].map((t) => t.toLowerCase()), ...HTML_TAGS.keys()]);
+
+/** A UI element name (any case), or an HTML tag the renderer maps onto one (`div`, `span`, `button`…). */
+function isKnownTag(name: string): boolean {
+  return KNOWN_TAGS.has(name.toLowerCase());
+}
+
+/** Tags match case-insensitively, as HTML tags do. */
+function sameTag(a: string, b: string): boolean {
+  return a === b || a.toLowerCase() === b.toLowerCase();
+}
+
+function parseSelectorGroup(n: CssNode, report: (start: number, end: number, message: string) => void): SelectorGroup | null {
+  if (n.type !== "PseudoClassSelector") return null;
+  const list = n.children?.toArray().find((c) => c.type === "SelectorList");
+  if (!list || list.type !== "SelectorList") {
+    report(n.loc?.start.offset ?? 0, n.loc?.end.offset ?? 0, `:${n.name}() takes a selector list.`);
+    return null;
+  }
+  const selectors: Selector[] = [];
+  for (const sel of list.children.toArray()) {
+    if (sel.type !== "Selector") continue;
+    const parsed = parseSelector(sel, report);
+    if (!parsed) return null;
+    if (parsed.root) {
+      report(sel.loc?.start.offset ?? 0, sel.loc?.end.offset ?? 0, `:root can't go inside :${n.name}().`);
+      return null;
+    }
+    selectors.push(parsed);
+  }
+  return selectors.length ? { selectors, zero: n.name === "where" } : null;
+}
+
+function groupSpecificity(g: SelectorGroup): readonly [number, number, number] {
+  if (g.zero) return [0, 0, 0];
+  let best: readonly [number, number, number] = [0, 0, 0];
+  for (const sel of g.selectors) if (compareSpec(sel.specificity, best) > 0) best = sel.specificity;
+  return best;
+}
+
+function matchesGroup(g: SelectorGroup, t: StyleTarget): boolean {
+  return g.selectors.some((sel) => matchFrom(sel, sel.parts.length - 1, t));
+}
+
+/** True when `test` holds for a compound of the selector, or of a selector inside its `:is()` / `:where()`. */
+function selectorUses(sel: Selector, test: (s: SimpleSelector) => boolean): boolean {
+  return sel.parts.some((p) => test(p.selector) || (p.selector.is ?? []).some((g) => g.selectors.some((inner) => selectorUses(inner, test))));
 }
 
 // --- Values -------------------------------------------------------------------------------------

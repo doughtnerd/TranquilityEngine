@@ -23,6 +23,7 @@
     "test": "vitest run",
     "test:tools": "node --test tools/*.test.mjs",
     "test:stories": "vitest run --config vitest.stories.config.mts",
+    "test:svelte-conformance": "node tools/svelte-conformance/fetch.mjs && vitest run --config vitest.svelte-conformance.config.mts",
     "storybook": "storybook dev -p 6006",
     "build:storybook": "storybook build -o dist/storybook",
     "bench": "vitest bench --run",
@@ -77,6 +78,7 @@
     "node-datachannel": "^0.33.6",
     "preact": "^11.1.1",
     "resolve.exports": "2.0.4",
+    "svelte": "5.59.2",
     "three": "^0.187.0",
     "ws": "^8.22.1",
     "yoga-layout": "3.2.1"

@@ -165,8 +165,8 @@ export class GameObject {
    * throw (ADR 0032). A component registered for other Worlds (`@behavior(id, { worlds })`, ADR
    * 0033) isn't attached: you get a detached instance that never runs and that `getBehavior`
    * doesn't find (see `_componentAllowedIn`). UI components (`UICanvas`, `UIPanel`, `UIText`,
-   * `UIImage`, `UIButton`, `UIInputField`) throw: only a `UIDocument` building its markup makes them
-   * (ADR 0417).
+   * `UIImage`, `UIButton`, `UIInputField`) throw: only a `UIView` rendering its component, or a
+   * `UIDocument` building its markup, makes them (ADR 0417, amended by 0419).
    */
   addBehavior<T extends Component>(type: ConcreteComponentType<T>, init?: ComponentInit<T>): T {
     this.check();
@@ -280,13 +280,13 @@ export class GameObject {
   }
 }
 
-// --- UI elements come from UI documents (ADR 0417) ---------------------------------------------
+// --- UI elements come from UI views and documents (ADR 0417, amended by 0419) --------------------
 
-/** Ids of the UI components only a `UIDocument` building its markup creates (ADR 0417). */
+/** Ids of the UI components only a `UIView`'s render or a `UIDocument`'s build creates (ADR 0417, 0419). */
 const DOCUMENT_ONLY = new Set(["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField"]);
 
-/** @internal What refusing a UI component outside a UI document says (ADR 0417); scene loads say it too. */
-export const UI_FROM_DOCUMENTS = "UI elements come from UI documents (ADR 0417): add the element to a *.ui.xml document, or use ui.list() for rows made at runtime.";
+/** @internal What refusing a UI component outside a UI view or document says (ADR 0417, 0419); scene loads say it too. */
+export const UI_FROM_DOCUMENTS = "UI elements come from a UIView's Svelte component or a UI document (ADR 0417, 0419): write the element in the component (or a *.ui.xml document), or use ui.list() for rows made at runtime.";
 
 /**
  * @internal The id of the UI component `type` is or extends, when only a UI document may create it

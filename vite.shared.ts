@@ -58,6 +58,39 @@ const hash = (text: string) => createHash("sha1").update(text).digest("hex");
 /** The module the editor imports the engine's declarations from (ADR 0030). */
 const ENGINE_TYPES = "virtual:myco-types";
 
+/** The engine's Svelte renderer module (ADR 0419), which compiled UI components import as `myco/ui-renderer`. */
+export const SVELTE_UI_RENDERER = fileURLToPath(new URL("./src/plugins/ui/svelte/renderer.ts", import.meta.url));
+
+/**
+ * Game UI components (ADR 0419): `*.svelte` compiled with the engine's custom renderer and external CSS,
+ * and `*.svelte.ts` rune modules, through `src/plugins/ui/svelte/compile.mjs`. Filenames are passed
+ * relative to the repository, so scoping hashes don't depend on the checkout's location. Vitest uses it
+ * now; the editor and export compile the same way (0419 wave A part 2).
+ */
+export function svelteUI(options: { dev?: boolean } = {}): Plugin {
+  const root = fileURLToPath(new URL(".", import.meta.url));
+  return {
+    name: "myco:svelte-ui",
+    enforce: "pre",
+    async transform(code, id) {
+      const file = id.split("?")[0];
+      const isComponent = file.endsWith(".svelte");
+      const isModule = file.endsWith(".svelte.ts") || file.endsWith(".svelte.js");
+      if (!isComponent && !isModule) return null;
+      const { compileSvelteUI, compileSvelteUIModule } = await import("./src/plugins/ui/svelte/compile.mjs");
+      const filename = relative(root, file).split(sep).join("/");
+      if (isComponent) {
+        const r = compileSvelteUI(code, { filename, dev: options.dev });
+        for (const w of r.warnings) this.warn(`${w.code}: ${w.message}`);
+        return { code: r.code, map: r.map as never };
+      }
+      const js = file.endsWith(".ts") ? ts.transpileModule(code, { fileName: file, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext, verbatimModuleSyntax: false } }).outputText : code;
+      const r = compileSvelteUIModule(js, { filename, dev: options.dev });
+      return { code: r.code, map: r.map as never };
+    },
+  };
+}
+
 /**
  * The engine's public type declarations as a virtual module, `virtual:myco-types`: an
  * object of `.d.ts` text by path (`index.d.ts`, which re-exports `myco.d.ts`, the public module of
@@ -452,6 +485,8 @@ export function rendezvousFile(): Plugin {
 
 /** `"myco"` (and its old name) as project scripts and samples import the engine (ADR 0031): the engine's public module. */
 export const MYCO_ALIASES: Record<string, string> = {
+  // Before "myco", which would otherwise take it as a path inside the engine's module.
+  "myco/ui-renderer": SVELTE_UI_RENDERER,
   myco: fileURLToPath(new URL("./src/myco.ts", import.meta.url)),
   tranquility: fileURLToPath(new URL("./src/myco.ts", import.meta.url)),
 };

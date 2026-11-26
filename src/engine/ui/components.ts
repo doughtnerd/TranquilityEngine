@@ -3,7 +3,8 @@
  * is a node with one UI component, and the node tree is the UI tree: an element's children lay out
  * inside it with flexbox. A `UICanvas` is the root.
  *
- * Only a `UIDocument` building its markup makes them (ADR 0417): `addComponent` throws for these
+ * Only a `UIView` rendering its Svelte component or a `UIDocument` building its markup makes them
+ * (ADR 0417, amended by 0419): `addComponent` throws for these
  * types, and a scene or prefab saving one fails to load. Scripts reach them through a document's
  * elements (`element.as(UIButton)`) and write their fields at runtime.
  *

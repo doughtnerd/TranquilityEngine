@@ -7,6 +7,7 @@ import type { RenderFeatureSpec } from "../../../engine/render/renderFeatures";
 import { isUIComponent, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../../../engine/ui/components";
 import { UIDocument } from "../../../engine/ui/UIDocument";
 import { UIControlMapper } from "../../../engine/ui/controlMapper";
+import { UIView } from "./UIView";
 import type { RuntimePlugin } from "../../runtimeContext";
 import { uiManifest } from "../manifest";
 
@@ -14,6 +15,9 @@ export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlig
 export { UIActions, UI_CONTEXT_PRIORITY } from "../../../engine/ui/navigation";
 export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, type UIControlMapperRow, type UIControlMapperSetting, type UIControlMapperSettingKind, type UIControlMapperText } from "../../../engine/ui/controlMapper";
 export { UIClassList, UIDocument, UIDocumentElement, UIEvents, type UIEvent, type UIEventHandler, type UIEventType, type UIListOptions, type UITag } from "../../../engine/ui/UIDocument";
+export { UIView } from "./UIView";
+/** A UI element a `UIView`'s component rendered (ADR 0419): `view.query("#play")`. */
+export type { UIHostElement as UIViewElement, UIHostEvent as UIViewEvent } from "../../../engine/ui/host/UIHost";
 
 /**
  * Screen and world UI canvases and their elements; loaded the first time a World
@@ -33,7 +37,7 @@ const UI_SPEC: RenderFeatureSpec = {
 export const uiRuntimePlugin: RuntimePlugin = {
   manifest: uiManifest,
   activate(context) {
-    context.registerComponents([UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UIDocument, UIControlMapper]);
+    context.registerComponents([UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UIDocument, UIControlMapper, UIView]);
     context.registerRenderFeature({
       spec: UI_SPEC,
       load: () => import("./uiFeature").then((m) => m.loadUIFeature()),

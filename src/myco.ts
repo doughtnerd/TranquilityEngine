@@ -112,6 +112,9 @@ export {
   type UIEventType,
   type UIListOptions,
   type UITag,
+  UIView,
+  type UIViewElement,
+  type UIViewEvent,
 } from "./plugins/ui/runtime";
 
 // The Environment plugin (ADR 0140).

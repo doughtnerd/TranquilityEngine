@@ -88,12 +88,15 @@ export type ParseBindings = (value: string) => readonly BindingPart[];
 
 /** A simple selector: a tag, an id, classes, pseudo-classes and `:lang()` ranges, all of which must match. */
 export interface SimpleSelector {
-  readonly tag: UITag | null;
+  /** As written, matched case-insensitively (ADR 0419: `button` is `Button`; Svelte's HTML tags such as `div` match as written). */
+  readonly tag: string | null;
   readonly id: string | null;
   readonly classes: readonly string[];
   readonly pseudo: readonly UIPseudo[];
   /** `:lang(de)` (ADR 0356 §4): language ranges the current text language must match by BCP 47 prefix. */
   readonly lang: readonly string[];
+  /** `:is()` and `:where()` (ADR 0419): each a selector list, one of which must match the element; `zero` for `:where()`. */
+  readonly is?: readonly { readonly selectors: readonly Selector[]; readonly zero: boolean }[];
 }
 
 export type UIPseudo = "hover" | "pressed" | "focus" | "disabled";
@@ -136,7 +139,8 @@ export type ParseStylesheet = (source: string, file: string, firstOrder?: number
 
 /** What a selector is matched against: an element in the built tree. */
 export interface StyleTarget {
-  readonly tag: UITag;
+  /** A UI document's tag (`Button`), or the HTML tag a Svelte component wrote (`button`, `div`; ADR 0419). */
+  readonly tag: string;
   readonly id: string | null;
   readonly classes: readonly string[];
   readonly state: Readonly<Record<UIPseudo, boolean>>;

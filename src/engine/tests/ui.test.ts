@@ -11,7 +11,7 @@ import { buildUI, byId } from "./uiMarkup";
 // (uiCore.test.ts, ADR 0076) and on Babylon (babylonUI.test.ts); the three.js runtime was removed with
 // its backend (ADR 0081).
 
-const FROM_DOCUMENTS = "UI elements come from UI documents (ADR 0417): add the element to a *.ui.xml document, or use ui.list() for rows made at runtime.";
+const FROM_DOCUMENTS = "UI elements come from a UIView's Svelte component or a UI document (ADR 0417, 0419): write the element in the component (or a *.ui.xml document), or use ui.list() for rows made at runtime.";
 
 const DT = 1 / 60;
 let engine: Engine;
@@ -130,7 +130,7 @@ describe("UI comes only from UI documents (ADR 0417)", () => {
     }));
     await expect(SceneManager.load("scenes/menu.scene.json")).rejects.toThrow(`scenes/menu.scene.json: node "/menu/Menu/Title" saves a UI component ("engine.UIText"). ${FROM_DOCUMENTS}`);
     expect(() => GameObject.instantiate("prefabs/hud.prefab.json")).toThrow(`prefabs/hud.prefab.json: node "/Menu/Title" saves a UI component ("engine.UIPanel"). ${FROM_DOCUMENTS}`);
-    expect(() => GameObject.instantiate("prefabs/added.prefab.json")).toThrow(/prefabs\/added\.prefab\.json: node "\/Instance" saves a UI component \("engine\.UIButton"\)\. UI elements come from UI documents \(ADR 0417\)/);
+    expect(() => GameObject.instantiate("prefabs/added.prefab.json")).toThrow(/prefabs\/added\.prefab\.json: node "\/Instance" saves a UI component \("engine\.UIButton"\)\. UI elements come from a UIView's Svelte component or a UI document \(ADR 0417, 0419\)/);
     expect(engine.world.root.children.map((c) => c.name)).toEqual([]); // nothing half-built stays
     expect(GameObject.findObjectsOfType(Marker)).toEqual([]);
   });
