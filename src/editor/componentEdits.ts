@@ -19,8 +19,8 @@ import { undoStep } from "./undoStep";
 /** Components a node can have only one of. Colliders, audio sources and scripts can repeat. */
 const SINGLE = new Set(["engine.RigidBody2D", "engine.SpriteRenderer", "engine.Camera"]);
 
-/** The UI element types only a UI document builds (ADR 0417): never added by hand. */
-const DOCUMENT_ONLY = new Set([
+/** The UI element types only a UIView renders (ADR 0417, 0419): never added by hand. */
+const VIEW_ONLY = new Set([
   "engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField",
   // ADR 0424: form elements.
   "engine.UITextArea", "engine.UIToggle", "engine.UIRadio", "engine.UISlider", "engine.UISelect", "engine.UIOption", "engine.UIProgress", "engine.UIMeter", "engine.UILabel", "engine.UIForm",
@@ -33,7 +33,7 @@ const shortName = (type: string) => type.replace(/^[^.]*\./, "");
 /** Why `type` can't be added to `node`, or null if it can. */
 export function whyNotAddable(node: GameObject, type: string): string | null {
   if (!isEditableComponent(type)) return `${shortName(type)} is managed by the engine`;
-  if (DOCUMENT_ONLY.has(type)) return `${shortName(type)} comes from UI documents: add the element to a *.ui.xml document`;
+  if (VIEW_ONLY.has(type)) return `${shortName(type)} comes from a UIView: write the element in its Svelte component`;
   const existing = listComponents(node).find((c) => c.type === type);
   if (existing && (SINGLE.has(type) || existing.kind === "data")) return `it already has a ${shortName(type)}`;
   return null;
@@ -220,5 +220,5 @@ export function removeMissingComponent(scene: OpenScene, path: NodePath, type: s
 
 /** The types Add Component offers: the engine's catalog without the UI element types documents build (ADR 0417). */
 export function componentCatalog(): ComponentTypeInfo[] {
-  return engineCatalog().filter((t) => !DOCUMENT_ONLY.has(t.id));
+  return engineCatalog().filter((t) => !VIEW_ONLY.has(t.id));
 }

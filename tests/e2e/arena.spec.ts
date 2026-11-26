@@ -44,10 +44,10 @@ const playersIn = (page: Page, world: string): Promise<PlayerState[]> =>
 const scoreboard = (page: Page, world: string) =>
   inLiveWorld(page, world, (w, { myco, componentsOf }) =>
     w
-      ? (componentsOf<{ node: LiveNode; query(s: string): { as(t: unknown): { text: string } | null } | null }>(w.root, myco.UIDocument)
-          .find((d) => d.node.name === "Scoreboard")
+      ? (componentsOf<{ node: LiveNode; query(s: string): { component: { text?: string } } | null }>(w.root, myco.UIView)
+          .find((v) => v.node.name === "Scoreboard")
           ?.query("#scoreboard")
-          ?.as(myco.UIText)?.text ?? null)
+          ?.component.text ?? null)
       : null,
   );
 

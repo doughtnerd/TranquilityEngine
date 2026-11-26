@@ -9,14 +9,13 @@ import { evalCurve } from "../core/curve";
 import { World } from "../core/World";
 import { applyTestPlugins } from "../../plugins/testPlugins";
 import { UIPanel, UIText } from "../ui/components";
-import { loadUIDocumentSupport, type UIDocument, type UIEvent } from "../ui/UIDocument";
 import { loadUIHostSupport, setUIHostStyles, UIHostTree, type UIHostEvent } from "../ui/host/UIHost";
 import { uiAnimationReady } from "../ui/animation/UIAnimator";
 import { timingCurve } from "../ui/animation/timingCurves";
 import { parseAnimation, parseTime, parseTimingFunction, parseTransition, type UITimingFunction } from "../ui/document/animationValues";
 import { ANIMATION_KEY, keyframeTracks, parseStylesheet, resolveStyle, TRANSITION_KEY, transitionFields, fieldsOf } from "../ui/document/stylesheet";
 import type { MarkupElement, StyleTarget, UITag } from "../ui/document/types";
-import { buildUI, byId } from "./uiMarkup";
+import { buildUI, byId, classList, loadUITestSupport, uiAs, type TestUI } from "./uiMarkup";
 
 const DT = 1 / 64;
 
@@ -132,7 +131,7 @@ function target(tag: UITag, classes: string[] = []): StyleTarget {
 
 function element(tag: UITag, attributes: Record<string, string> = {}): MarkupElement {
   const span = { start: 0, end: 0 };
-  return { kind: "element", tag, attributes: Object.entries(attributes).map(([name, value]) => ({ name, value, span, valueSpan: span })), children: [], text: null, template: null, span, openTagSpan: span, file: "ui/t.ui.xml" };
+  return { tag, attributes: Object.entries(attributes).map(([name, value]) => ({ name, value, span, valueSpan: span })), file: "ui/t.svelte" };
 }
 
 describe("@keyframes and the cascade (ADR 0418 wave 4)", () => {
@@ -140,7 +139,7 @@ describe("@keyframes and the cascade (ADR 0418 wave 4)", () => {
     const sheet = parseStylesheet(`@keyframes pulse { from { opacity: 0 } 50%, 75% { opacity: .5; animation-timing-function: ease-in } to { opacity: 1 } }
       @keyframes bad { 120% { opacity: 1 } }
       @supports (display: flex) { .a { opacity: 1 } }
-      .a { color: red }`, "ui/a.ui.css");
+      .a { color: red }`, "ui/a.css");
     expect(sheet.rules).toHaveLength(1);
     expect(sheet.keyframes?.map((k) => [k.name, k.frames.map((f) => f.offsets)])).toEqual([["pulse", [[0], [0.5, 0.75], [1]]], ["bad", []]]);
     expect(sheet.keyframes?.[0].frames[1].declarations.map((d) => [d.property, d.value])).toEqual([["opacity", ".5"], ["animation-timing-function", "ease-in"]]);
@@ -148,7 +147,7 @@ describe("@keyframes and the cascade (ADR 0418 wave 4)", () => {
   });
 
   it("orders transition and animation declarations like fields: specificity, longhands over shorthands, attributes last, variables", () => {
-    const sheet = parseStylesheet(`:root { --t: 0.5s } Panel { transition: opacity 1s, transform var(--t) linear } .fast { transition-duration: 100ms } Panel { animation: spin 2s infinite }`, "ui/a.ui.css");
+    const sheet = parseStylesheet(`:root { --t: 0.5s } Panel { transition: opacity 1s, transform var(--t) linear } .fast { transition-duration: 100ms } Panel { animation: spin 2s infinite }`, "ui/a.css");
     expect(sheet.problems).toEqual([]);
     const resolved = resolveStyle(target("Panel", ["fast"]), element("Panel", { "animation-play-state": "paused" }), UIPanel, [sheet], null, () => {});
     expect(resolved.get(TRANSITION_KEY)?.value).toEqual([
@@ -174,14 +173,14 @@ describe("@keyframes and the cascade (ADR 0418 wave 4)", () => {
 
   it("converts keyframes per element: shorthands expand, variables substitute, the last block of a name wins", () => {
     const sheet = parseStylesheet(`@keyframes k { to { opacity: 0 } }
-      @keyframes k { from { transform: translate(4px, 50%) rotate(90deg); padding: 2px 4px } 50% { opacity: var(--half); animation-timing-function: steps(2) } }`, "ui/a.ui.css");
+      @keyframes k { from { transform: translate(4px, 50%) rotate(90deg); padding: 2px 4px } 50% { opacity: var(--half); animation-timing-function: steps(2) } }`, "ui/a.css");
     const vars = new Map([["--half", { field: "--half", value: "0.5", source: { kind: "default" as const } }]]);
-    const tracks = keyframeTracks([sheet], "k", UIPanel, vars, "ui/a.ui.xml", () => {})!;
+    const tracks = keyframeTracks([sheet], "k", UIPanel, vars, "ui/a.svelte", () => {})!;
     expect(tracks.get("opacity")).toEqual([{ offset: 0.5, value: 0.5, timing: { kind: "steps", steps: 2, position: "jump-end" } }]);
     expect(tracks.get("translateY")).toEqual([{ offset: 0, value: "50%", timing: null }]);
     expect(tracks.get("rotate")).toEqual([{ offset: 0, value: 90, timing: null }]);
     expect(tracks.get("paddingRight")).toEqual([{ offset: 0, value: 4, timing: null }]);
-    expect(keyframeTracks([sheet], "missing", UIPanel, vars, "ui/a.ui.xml", () => {})).toBeNull();
+    expect(keyframeTracks([sheet], "missing", UIPanel, vars, "ui/a.svelte", () => {})).toBeNull();
   });
 });
 
@@ -238,7 +237,7 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
   beforeEach(async () => {
     applyTestPlugins([...disabled]);
     engine = await Engine.create({ headless: true });
-    await loadUIDocumentSupport();
+    await loadUITestSupport();
   });
 
   afterEach(() => {
@@ -252,20 +251,18 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
     for (let i = 0; i < frames; i++) engine.step(DT);
   };
 
-  async function animatedUI(markup: string, css: string): Promise<UIDocument> {
+  async function animatedUI(markup: string, css: string): Promise<TestUI> {
     await uiAnimationReady(World.require()); // the backend opens before the tree builds, so even its first frame tweens
-    const doc = buildUI(markup, { css });
-    await doc.ready;
-    return doc;
+    return buildUI(markup, { css });
   }
 
   describe("transitions", () => {
     it("ease a class change from the value shown to the new one, starting the frame of the change", async () => {
-      const doc = await animatedUI(`<Canvas><Panel id="p" class="a"/></Canvas>`, `.a { opacity: 0; transition: opacity 1s linear } .a.on { opacity: 1 }`);
+      const doc = await animatedUI(`<Canvas><div id="p" class="a"/></Canvas>`, `.a { opacity: 0; transition: opacity 1s linear } .a.on { opacity: 1 }`);
       const p = byId(doc, "p", UIPanel);
       step();
       expect(p.opacity).toBe(0);
-      doc.query("#p")!.classList.add("on");
+      classList(doc.query("#p")!).add("on");
       step();
       expect(p.opacity).toBe(0);
       step(16);
@@ -275,9 +272,9 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
     });
 
     it("ease through the timing function's curve, computed by the tween backend", async () => {
-      const doc = await animatedUI(`<Canvas><Panel id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s ease } .a.on { opacity: 0 }`);
+      const doc = await animatedUI(`<Canvas><div id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s ease } .a.on { opacity: 0 }`);
       const p = byId(doc, "p", UIPanel);
-      doc.query("#p")!.classList.add("on");
+      classList(doc.query("#p")!).add("on");
       step(33); // the change's frame, then half a second
       expect(p.opacity).toBeCloseTo(1 - cssBezier(...EASE, 0.5), 5);
       // A value the backend wrote is an f32 (the tween table's floats); one eased here in JavaScript wouldn't be.
@@ -285,21 +282,23 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
     });
 
     it("start from a built tree's settled styles when the sheets use structural selectors, but not for its own build", async () => {
-      // ADR 0418 wave 5 restyles a built tree once its siblings exist (#p was built as the last child): that restyle
-      // isn't a change and doesn't transition; a class a script adds before the first frame is one, and does.
-      const doc = await animatedUI(`<Canvas><Panel id="p" class="a"/><Panel id="q" class="a"/><Panel id="r" class="a"/></Canvas>`, `.a { opacity: 1; transition: opacity 1s linear } .a:last-child { opacity: 0.5 } .a.on { opacity: 0 }`);
+      // ADR 0418 wave 5 restyles a built tree once its siblings exist (each element is styled as it's rendered, as the
+      // last child so far): that restyle, in the frame's late sync, isn't a change and doesn't transition; a class a
+      // script adds after it is one, and does.
+      const doc = await animatedUI(`<Canvas><div id="p" class="a"/><div id="q" class="a"/><div id="r" class="a"/></Canvas>`, `.a { opacity: 1; transition: opacity 1s linear } .a:last-child { opacity: 0.5 } .a.on { opacity: 0 }`);
       const p = byId(doc, "p", UIPanel), q = byId(doc, "q", UIPanel), r = byId(doc, "r", UIPanel);
+      step();
       expect([p.opacity, q.opacity, r.opacity]).toEqual([1, 1, 0.5]);
-      doc.query("#q")!.classList.add("on");
+      classList(doc.query("#q")!).add("on");
       step(33);
       expect([p.opacity, r.opacity]).toEqual([1, 0.5]);
       expect(q.opacity).toBeCloseTo(0.5, 5);
     });
 
     it("wait out their delay at the old value; a negative delay starts part-way", async () => {
-      const doc = await animatedUI(`<Canvas><Panel id="a" class="x"/><Panel id="b" class="y"/></Canvas>`, `.x { transition: opacity 1s linear 0.25s } .y { transition: opacity 1s linear -0.5s } .on { opacity: 0 }`);
+      const doc = await animatedUI(`<Canvas><div id="a" class="x"/><div id="b" class="y"/></Canvas>`, `.x { transition: opacity 1s linear 0.25s } .y { transition: opacity 1s linear -0.5s } .on { opacity: 0 }`);
       const a = byId(doc, "a", UIPanel), b = byId(doc, "b", UIPanel);
-      for (const id of ["#a", "#b"]) doc.query(id)!.classList.add("on");
+      for (const id of ["#a", "#b"]) classList(doc.query(id)!).add("on");
       step();
       expect([a.opacity, b.opacity]).toEqual([1, 0.5]);
       step(16);
@@ -309,13 +308,13 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
     });
 
     it("turn back from the value shown when the change is undone mid-way", async () => {
-      const doc = await animatedUI(`<Canvas><Panel id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s linear } .on { opacity: 0 }`);
+      const doc = await animatedUI(`<Canvas><div id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s linear } .on { opacity: 0 }`);
       const p = byId(doc, "p", UIPanel);
       const el = doc.query("#p")!;
-      el.classList.add("on");
+      classList(el).add("on");
       step(33);
       expect(p.opacity).toBe(0.5);
-      el.classList.remove("on");
+      classList(el).remove("on");
       step();
       expect(p.opacity).toBe(0.5);
       step(32);
@@ -323,22 +322,23 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
     });
 
     it("stop when their property is no longer covered: at their end, or at the value the change wrote", async () => {
-      const doc = await animatedUI(`<Canvas><Panel id="a" class="t"/><Panel id="b" class="t"/></Canvas>`, `.t { transition: opacity 1s linear } .on { opacity: 0 } .cut { transition: none } .cut.other { opacity: 0.3 }`);
+      const doc = await animatedUI(`<Canvas><div id="a" class="t"/><div id="b" class="t"/></Canvas>`, `.t { transition: opacity 1s linear } .on { opacity: 0 } .cut { transition: none } .cut.other { opacity: 0.3 }`);
       const a = byId(doc, "a", UIPanel), b = byId(doc, "b", UIPanel);
-      for (const id of ["#a", "#b"]) doc.query(id)!.classList.add("on");
+      for (const id of ["#a", "#b"]) classList(doc.query(id)!).add("on");
       step(33);
       expect([a.opacity, b.opacity]).toEqual([0.5, 0.5]);
-      doc.query("#a")!.classList.add("cut");
-      doc.query("#b")!.classList.add("cut", "other");
+      classList(doc.query("#a")!).add("cut");
+      classList(doc.query("#b")!).add("cut", "other");
       step();
       expect([a.opacity, b.opacity]).toEqual([0, 0.3]);
     });
 
     it("give way to a script writing the field, as an inline style would", async () => {
-      const doc = await animatedUI(`<Canvas><Panel id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s linear } .on { opacity: 0 }`);
+      const doc = await animatedUI(`<Canvas><div id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s linear } .on { opacity: 0 }`);
       const p = byId(doc, "p", UIPanel);
       const ended = vi.fn();
-      doc.query("#p")!.on("transitionend", ended).classList.add("on");
+      doc.query("#p")!.on("transitionend", ended);
+      classList(doc.query("#p")!).add("on");
       step(17);
       p.opacity = 0.9;
       step(70);
@@ -348,14 +348,14 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
 
     it("animate colours in linear RGB, lengths px with px (a mixed pair jumps at the midpoint), transforms, shadows, sides and corners", async () => {
       const doc = await animatedUI(
-        `<Canvas><Panel id="p" class="a"/><Panel id="m" class="m"/></Canvas>`,
+        `<Canvas><div id="p" class="a"/><div id="m" class="m"/></Canvas>`,
         `.a { background-color: #000000; width: 100px; padding: 4px; transition: all 1s linear }
          .a.on { background-color: #ffffff; width: 200px; padding-top: 12px; transform: translate(10px, 6px) rotate(90deg) scale(2); box-shadow: 0 4px 8px #000; border-radius: 8px 8px 0 0 }
          .m { width: 100px; transition: width 1s linear } .m.on { width: 50% }`,
       );
       const p = byId(doc, "p", UIPanel), m = byId(doc, "m", UIPanel);
-      doc.query("#p")!.classList.add("on");
-      doc.query("#m")!.classList.add("on");
+      classList(doc.query("#p")!).add("on");
+      classList(doc.query("#m")!).add("on");
       step(17);
       expect(m.width).toBe("100");
       step(16);
@@ -374,19 +374,20 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
     });
 
     it("run on unscaled time: UI still animates while the game is paused", async () => {
-      const doc = await animatedUI(`<Canvas><Panel id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s linear } .on { opacity: 0 }`);
+      const doc = await animatedUI(`<Canvas><div id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s linear } .on { opacity: 0 }`);
       const p = byId(doc, "p", UIPanel);
       Time.timeScale = 0;
-      doc.query("#p")!.classList.add("on");
+      classList(doc.query("#p")!).add("on");
       step(33);
       expect(p.opacity).toBe(0.5);
       Time.timeScale = 1;
     });
 
     it("send transitionend the frame after they finish, through element.on", async () => {
-      const doc = await animatedUI(`<Canvas><Panel id="p" class="a"/></Canvas>`, `.a { transition: opacity 0.5s linear, width 0.25s } .on { opacity: 0; width: 10px }`);
-      const events: UIEvent[] = [];
-      doc.query("#p")!.on("transitionend", (e) => events.push(e)).classList.add("on");
+      const doc = await animatedUI(`<Canvas><div id="p" class="a"/></Canvas>`, `.a { transition: opacity 0.5s linear, width 0.25s } .on { opacity: 0; width: 10px }`);
+      const events: UIHostEvent[] = [];
+      doc.query("#p")!.on("transitionend", (e) => events.push(e));
+      classList(doc.query("#p")!).add("on");
       step(17); // width ends on the last of these
       expect(events).toEqual([]);
       step();
@@ -399,7 +400,7 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
   describe("keyframe animations", () => {
     it("start when an element appears, and follow iterations, direction and fill", async () => {
       const doc = await animatedUI(
-        `<Canvas><Panel id="a" class="grow"/><Panel id="b" class="alt"/><Panel id="c" class="once"/></Canvas>`,
+        `<Canvas><div id="a" class="grow"/><div id="b" class="alt"/><div id="c" class="once"/></Canvas>`,
         `@keyframes grow { from { width: 0px } to { width: 100px } }
          .grow { animation: grow 1s linear infinite }
          .alt { animation: grow 1s linear 2 alternate forwards }
@@ -420,7 +421,7 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
 
     it("eases each segment through its keyframe's timing function, and fills missing ends with the element's value", async () => {
       const doc = await animatedUI(
-        `<Canvas><Panel id="a" class="a"/><Panel id="b" class="b"/></Canvas>`,
+        `<Canvas><div id="a" class="a"/><div id="b" class="b"/></Canvas>`,
         `@keyframes k { 0% { opacity: 0 } 50% { opacity: 1; animation-timing-function: linear } 100% { opacity: 0.5 } }
          @keyframes fade { from { opacity: 0 } }
          .a { animation: k 1s ease-in } .b { opacity: 0.8; animation: fade 1s linear }`,
@@ -435,25 +436,25 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
     });
 
     it("pause and resume with animation-play-state, and stop when their name goes", async () => {
-      const doc = await animatedUI(`<Canvas><Panel id="p" class="grow" width="7px"/></Canvas>`, `@keyframes grow { from { width: 0px } to { width: 100px } } .grow { animation: grow 1s linear infinite } .grow.hold { animation-play-state: paused }`);
+      const doc = await animatedUI(`<Canvas><div id="p" class="grow" width="7px"/></Canvas>`, `@keyframes grow { from { width: 0px } to { width: 100px } } .grow { animation: grow 1s linear infinite } .grow.hold { animation-play-state: paused }`);
       const p = byId(doc, "p", UIPanel);
       const el = doc.query("#p")!;
       step(17);
       expect(p.width).toBe("25");
-      el.classList.add("hold");
+      classList(el).add("hold");
       step(20);
       expect(p.width).toBe("25");
-      el.classList.remove("hold");
+      classList(el).remove("hold");
       step(16);
       expect(p.width).toBe("50");
-      el.classList.remove("grow");
+      classList(el).remove("grow");
       step();
       expect(p.width).toBe("7");
     });
 
     it("start part-way with a negative delay, end part-way with a fractional count, and step with steps()", async () => {
       const doc = await animatedUI(
-        `<Canvas><Panel id="a" class="a"/><Panel id="b" class="b"/><Panel id="c" class="c"/></Canvas>`,
+        `<Canvas><div id="a" class="a"/><div id="b" class="b"/><div id="c" class="c"/></Canvas>`,
         `@keyframes grow { from { width: 0px } to { width: 100px } }
          .a { animation: grow 1s linear -0.5s } .b { animation: grow 1s linear 1.5 forwards } .c { animation: grow 1s steps(4) infinite }`,
       );
@@ -469,7 +470,7 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
     });
 
     it("send animationstart, animationiteration and animationend the frame after, through element.on", async () => {
-      const doc = await animatedUI(`<Canvas><Panel id="p" class="a"/></Canvas>`, `@keyframes k { to { opacity: 0 } } .a { animation: k 0.25s linear 0.125s 2 }`);
+      const doc = await animatedUI(`<Canvas><div id="p" class="a"/></Canvas>`, `@keyframes k { to { opacity: 0 } } .a { animation: k 0.25s linear 0.125s 2 }`);
       const events: string[] = [];
       const el = doc.query("#p")!;
       for (const type of ["animationstart", "animationiteration", "animationend"] as const) el.on(type, (e) => events.push(`${e.type} ${e.animationName} ${e.elapsedTime}`));
@@ -498,14 +499,14 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
       const events: UIHostEvent[] = [];
       div.on("transitionend", (e) => events.push(e));
       step();
-      expect(span.as(UIText).translateY).toBe("-20");
+      expect(uiAs(span, UIText).translateY).toBe("-20");
       tree.setAttributes(div, new Map([["class", "box off"]]));
       step(17);
-      expect(div.as(UIPanel).opacity).toBe(0.5);
-      expect(span.as(UIText).translateY).toBe("-9.375");
+      expect(uiAs(div, UIPanel).opacity).toBe(0.5);
+      expect(uiAs(span, UIText).translateY).toBe("-9.375");
       step(17);
-      expect(div.as(UIPanel).opacity).toBe(0);
-      expect(span.as(UIText).translateY).toBe("0");
+      expect(uiAs(div, UIPanel).opacity).toBe(0);
+      expect(uiAs(span, UIText).translateY).toBe("0");
       expect(events.map((e) => [e.type, e.propertyName, e.elapsedTime])).toEqual([["transitionend", "opacity", 0.5]]);
       tree.dispose();
     });

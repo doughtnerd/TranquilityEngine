@@ -4,8 +4,7 @@ import { UIButton, UICanvas, UIImage, UIText } from "../ui/components";
 import { UIControlMapper } from "../../plugins/ui/runtime/UIControlMapper";
 import { World } from "../core/World";
 import { UIPointer, stubDocument } from "./uiPointer";
-import { loadUIDocumentSupport } from "../ui/UIDocument";
-import { buildUI, byId } from "./uiMarkup";
+import { buildUI, byId, loadUITestSupport } from "./uiMarkup";
 // The built-in UI components, as the editor provides them (ADR 0419 wave B).
 import "../../plugins/ui/builtinUI";
 
@@ -29,7 +28,7 @@ let pads: number[] = [];
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
-  await loadUIDocumentSupport();
+  await loadUITestSupport();
   stubDocument();
 });
 
@@ -67,7 +66,7 @@ async function pointer(height = 1400): Promise<UIPointer> {
   return p;
 }
 
-/** A mapper under a game's canvas (a UI document's), with a UI core laying it out. */
+/** A mapper under a game's canvas (a UI view's), with a UI core laying it out. */
 async function mapper(init: Partial<UIControlMapper> = {}): Promise<UIControlMapper> {
   const canvas = byId(buildUI(`<Canvas id="Canvas"/>`), "Canvas", UICanvas);
   const m = GameObject.create("Controls", { parent: canvas.node }).addBehavior(UIControlMapper, { actions: "jump, move, bomb", ...init } as never);
@@ -184,7 +183,7 @@ describe("UIControlMapper (ADR 0337)", () => {
     expect(rgba(row(m, "Jump").gamepad!.button.borderColor)).toEqual(rgba(m.accentColor));
     expect(rgba(row(m, "Jump").keyboard!.button.borderColor)).toEqual(rgba(m.cellColor));
 
-    const menu = buildUI(`<Canvas id="Menu"><Button id="Play"/></Canvas>`);
+    const menu = buildUI(`<Canvas id="Menu"><button id="Play"/></Canvas>`);
     const canvas = byId(menu, "Menu", UICanvas);
     const play = byId(menu, "Play", UIButton);
     play.focused = true;

@@ -1,4 +1,4 @@
-// Text edits on a Svelte component's source (ADR 0419 wave C), beside `markupText.ts` for UI documents: every edit
+// Text edits on a Svelte component's source (ADR 0419 wave C): every edit
 // re-parses the file with `parse(src, { modern: true })` and changes only the text its spans name, so comments,
 // formatting and hand edits stay. Elements are found by where they start (the offset of their `<`), which is
 // what Svelte's dev-mode template location names (line, column).

@@ -7,8 +7,7 @@ import type { TextMeasureRequest } from "../ui/uiCoreTypes";
 import { Assets } from "../scene/Assets";
 import { FakeInput, fakeDocument, stubDocument } from "./uiPointer";
 import { DomInput, FakeCanvas } from "./domInput";
-import { loadUIDocumentSupport } from "../ui/UIDocument";
-import { uiElement } from "./uiMarkup";
+import { loadUITestSupport, uiElement } from "./uiMarkup";
 import { UI_FONT_FAMILY, fontEpoch, fontFamilyOf, loadBundledFont, onFontLoaded } from "../ui/fonts";
 
 // ADR 0076: the renderer-neutral UI core: Yoga layout and UI-first routing, no renderer, no GPU.
@@ -20,7 +19,7 @@ let cores: UICore[] = [];
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
-  await loadUIDocumentSupport();
+  await loadUITestSupport();
 });
 
 afterEach(() => {
@@ -279,8 +278,10 @@ describe("UICore layout", () => {
 
   it("warns once about elements outside a canvas and does not lay them out", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    node("Canvas", null, UICanvas);
-    const loose = node("Loose", null, UIPanel, { width: 10, height: 10 } as Partial<UIPanel>);
+    const canvas = node("Canvas", null, UICanvas);
+    // UI elements are made under a view's canvas (ADR 0419); a script can still move one's node out of it.
+    const loose = node("Loose", canvas.node, UIPanel, { width: 10, height: 10 } as Partial<UIPanel>);
+    loose.node.setParent(GameObject.create("Elsewhere"));
     const c = await core();
     sync(c);
     sync(c);
@@ -293,7 +294,9 @@ describe("UICore layout", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const canvas = node("Canvas", null, UICanvas);
     const text = node("Label", canvas.node, UIText, { text: "Hi", width: 40, height: 20 } as Partial<UIText>);
-    const child = node("Child", text.node, UIPanel, { width: 30, height: 30 } as Partial<UIPanel>);
+    // A text's children are its inline runs when rendered (ADR 0425); a script moving a panel's node under it makes one.
+    const child = node("Child", canvas.node, UIPanel, { width: 30, height: 30 } as Partial<UIPanel>);
+    child.node.setParent(text.node);
     const c = await core();
     sync(c);
     sync(c);

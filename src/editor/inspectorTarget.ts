@@ -1,6 +1,6 @@
 // What the Inspector shows (ADR 0242), and the rule that keeps the selections behind it apart.
 // Four selections can take the Inspector: the scene's nodes (`selectedKeys`), the Assets panel's
-// entries (`selectedAssets`), a UI document element (`selectedUIElement`, ADR 0077) and a bone of a
+// entries (`selectedAssets`), a UI element a view rendered (`selectedUIElement`, ADR 0419 wave C) and a bone of a
 // node's Skeleton, a read-only Hierarchy row (ADR 0373's bone target, kept here as `selectedBone`). Their
 // signals stay where they are (state.ts, assetSelection.ts) as storage; every selection source
 // writes them through the functions here, which apply the rule, and `inspectorTarget` answers
@@ -16,7 +16,6 @@ import type { NodePath } from "./document";
 import { findInner } from "./prefabs";
 import { inspectedWorld, liveInspecting, liveSelection } from "./runtimeInspect";
 import { docVersion, openScene, selectedKeys, selectedUIElement, type OpenScene } from "./state";
-import { parseUIRefKey, uiRefKey, type UIElementRef } from "./uiDocuments";
 import { parseUIViewRefKey, uiViewRefKey, type UIViewRef } from "./uiViews";
 
 /** What the Inspector shows, highest priority first. */
@@ -25,8 +24,6 @@ export type InspectorTarget =
   | { readonly kind: "live"; readonly world: string; readonly node: GameObject | null }
   /** One asset selected in the Assets panel that has an Inspector view (a selected slice shows its image). */
   | { readonly kind: "asset"; readonly path: string }
-  /** An element of a UI document. */
-  | { readonly kind: "uiElement"; readonly ref: UIElementRef }
   /** An element a UIView rendered from a Svelte component (ADR 0419 wave C). */
   | { readonly kind: "uiViewElement"; readonly ref: UIViewRef }
   /** A bone of the Skeleton on the node at `path` (ADR 0373), named by `bone`; `provider` is the contribution listing it (`registerSkeletonBones`). */
@@ -67,8 +64,6 @@ export const inspectorTarget = computed<InspectorTarget>(() => {
   const asset = keys.length === 0 ? assetOf(selectedAssets.value) : null;
   if (asset !== null) return { kind: "asset", path: asset };
   const element = selectedUIElement.value;
-  const ref = element !== null ? parseUIRefKey(element) : null;
-  if (ref) return { kind: "uiElement", ref };
   const viewRef = element !== null ? parseUIViewRefKey(element) : null;
   if (viewRef) return { kind: "uiViewElement", ref: viewRef };
   docVersion.value; // an undo may remove selected nodes
@@ -125,13 +120,13 @@ export function previewAssets(entries: readonly string[]): void {
   setPanelSelection(entries);
 }
 
-/** Select a UI document element, or an element a UIView rendered (null clears it). Clears the nodes and the Assets panel's entries. */
-export function selectUIElement(ref: UIElementRef | UIViewRef | null): void {
+/** Select an element a UIView rendered (null clears it). Clears the nodes and the Assets panel's entries. */
+export function selectUIElement(ref: UIViewRef | null): void {
   batch(() => {
     if (selectedKeys.peek().length > 0) selectedKeys.value = [];
     if (selectedAssets.peek().length > 0) setPanelSelection([]);
     if (selectedBone.peek() !== null) selectedBone.value = null;
-    selectedUIElement.value = ref ? ("file" in ref ? uiViewRefKey(ref) : uiRefKey(ref)) : null;
+    selectedUIElement.value = ref ? uiViewRefKey(ref) : null;
   });
 }
 

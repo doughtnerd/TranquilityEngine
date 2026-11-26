@@ -1,5 +1,5 @@
 /**
- * UI stylesheets (`*.ui.css`, ADR 0077, and Svelte components' CSS, ADR 0419): a CSS subset parsed with
+ * UI stylesheets (Svelte components' CSS and the `.css` files they import, ADR 0419; the CSS subset of ADR 0077): parsed with
  * `css-tree` (its parser only, not the lexer and its property data) into rule data (`UIStylesheet`) for
  * the cascade (`cascade.ts`, re-exported here). Pure and renderer-neutral; never throws for a bad sheet
  * (problems are reported). Svelte components' styles are parsed with it when they compile (the editor,

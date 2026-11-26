@@ -1142,4 +1142,4 @@ function mappersOf(world: World): UIControlMapper[] {
 }
 
 // After the UI's events (so clicks are read the frame scripts see them) and before behaviors' update.
-defineBuiltinSystem({ name: "engine.UIControlMapper", phase: "update", after: ["engine.UIDocumentEvents", "engine.UIHostEvents", "engine.InputFrame"], before: ["engine.UpdateScripts"], run: (w) => mappersOf(w).forEach((m) => m._frame(w)) });
+defineBuiltinSystem({ name: "engine.UIControlMapper", phase: "update", after: ["engine.UIHostEvents", "engine.InputFrame"], before: ["engine.UpdateScripts"], run: (w) => mappersOf(w).forEach((m) => m._frame(w)) });

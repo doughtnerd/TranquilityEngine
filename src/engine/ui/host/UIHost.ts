@@ -1,12 +1,12 @@
 /**
  * The UI core's external tree host (ADR 0419): ordinary UI elements that another library (the UI
- * plugin's Svelte renderer) creates, changes, moves and removes, styled by the same cascade as UI
- * documents. Internal to the UI plugin, not game API.
+ * plugin's Svelte renderer) creates, changes, moves and removes, styled by the cascade. Internal to the UI
+ * plugin, not game API. Since ADR 0419 wave D retired UI documents, it's the only maker of UI elements.
  *
  * - A `UIHostTree` owns a canvas node under a parent node (a `UIView`'s), and every element made in it
- *   is a node with one UI component under that canvas: the node tree is the UI tree, as for documents,
- *   so the UI core lays it out, draws it and routes the pointer to it unchanged.
- * - Elements are document-like: a tag as written (`div`, `button`), attributes (component fields in
+ *   is a node with one UI component under that canvas: the node tree is the UI tree, so the UI core lays it
+ *   out, draws it and routes the pointer to it.
+ * - Elements are HTML-like: a tag as written (`div`, `button`), attributes (component fields in
  *   kebab-case, ADR 0077), `id`, classes and an inline `style`, matched by the stylesheets every hosted
  *   tree in the process shares (`setUIHostStyles`: Svelte's scoped rules match only their component's
  *   elements through its hash class, and `:global` rules reach every view, as global CSS reaches a page).
@@ -14,8 +14,8 @@
  *   restyled in the late sync of the frame they happen in, after the flush hooks (`onFlush`) ran, so a
  *   change a click handler queued in a microtask shows in the frame of the click.
  * - Events come from the UI core's interaction log (ADR 0309) with DOM names (`click`, `input`,
- *   `change`, `submit`, `focus`, `blur`, `pointerenter`, `pointerleave`…), at the same point in the frame
- *   UI document handlers run: right after UI input routing, before behaviors' `update`. ADR 0422: they travel
+ *   `change`, `submit`, `focus`, `blur`, `pointerenter`, `pointerleave`…), dispatched once a frame
+ *   (`engine.UIEventDispatch`): right after UI input routing, before behaviors' `update`. ADR 0422: they travel
  *   through the element's ancestors in capture, target and bubble phases; one that bubbles out of the tree's canvas
  *   unstopped goes on to the renderer (`onUIHostBubbleOut`: Svelte's body, document and window).
  * - The editor finds the hosted element of a picked component with `uiHostElementOf`, with the template
@@ -24,7 +24,9 @@
  *   (`layoutNow`, then `bounds`) lays the UI out first when something changed, as reading layout does in the DOM;
  *   `computedStyle` gives its values as CSS text; `animate` plays keyframes on the UI animator (ADR 0418 wave 4).
  *
- * UI components are made only here and by UI document builds (ADR 0417, amended by 0419).
+ * - Node references written by element id (`nav-up="play"`, `first-selected`, ADR 0340) are resolved in the tree.
+ *
+ * UI components are made only here (ADR 0417, amended by 0419).
  */
 import { Color, Vector2 } from "../../core/math";
 import { defineBuiltinSystem } from "../../core/systems";
@@ -41,7 +43,7 @@ import { filterStepsOf, filterText, type UIFilterFields } from "../filters";
 import type { MarkupAttribute, MarkupElement, ResolvedValue, Selector, StyleTarget, UIMediaEnvironment, UIPseudo, UIPseudoState, UIStylesheet, UITag } from "../document/types";
 import type { UIAnimationSpec, UITransitionSpec } from "../document/animationValues";
 import { takeUIAnimationEvents, uiAnimating, uiAnimationOwnerGone, uiAnimator, type UIAnimationEvent, type UIAnimationStop, type UIPlayback, type UIPlayHooks, type UIResolvedAnimation, type UIResolvedTransition, type UIStyleWrite } from "../animation/UIAnimator";
-import { addUIEventFrontEnd, addUIListener, dispatchUIEventNow, propagate, removeUIListener, runUIListeners, uiEventBubbles, uiEventCancelable, UIEventBase, uiEventRecord, uiListenerOptions, type UIEventRecord, type UIListener } from "../events";
+import { addUIEventFrontEnd, addUIListener, dispatchUIEventNow, dispatchUIEvents, propagate, removeUIListener, runUIListeners, uiEventBubbles, uiEventCancelable, UIEventBase, uiEventRecord, uiListenerOptions, type UIEventRecord, type UIListener } from "../events";
 import { uiScrollIntoViewArg, uiScrollSizes, uiScrollToArgs, isScrollable, type UIScrollIntoViewOptions, type UIScrollToArgs } from "../scrolling";
 
 type Cascade = typeof import("./hostSupport");
@@ -219,11 +221,6 @@ export class UIHostEvent extends UIEventBase {
     return this.element.value;
   }
 
-  /** The list item a row is for: always undefined (Svelte's `{#each}` closes over its item). Kept for UI document handlers' shape. */
-  get item(): undefined {
-    return undefined;
-  }
-
 }
 
 export type UIHostListener = (event: UIHostEvent) => void;
@@ -286,7 +283,7 @@ const CONTENT_ATTRIBUTES: Readonly<Partial<Record<UITag, readonly string[]>>> = 
 
 const ZERO = { start: 0, end: 0 };
 
-/** A hosted UI element: a node with one UI component, styled by the cascade like a UI document's element. */
+/** A hosted UI element: a node with one UI component, styled by the cascade. */
 export class UIHostElement {
   /** @internal */ _node!: GameObject;
   /** @internal */ _comp!: UIComponentType;
@@ -790,6 +787,15 @@ function walk(el: UIHostElement, fn: (el: UIHostElement) => void): void {
   for (const c of el._children) walk(c, fn);
 }
 
+/** Whether attributes name another element by id (`nav-up`, `first-selected`…, ADR 0340): a cheap name test first, as attributes change often. */
+function hasReferenceAttribute(attributes: ReadonlyMap<string, string>): boolean {
+  for (const name of attributes.keys()) {
+    const n = name.charCodeAt(0);
+    if ((n === 110 || n === 102) && requireCascade().referenceField({ name } as MarkupAttribute) !== null) return true; // "n…", "f…"
+  }
+  return false;
+}
+
 /**
  * A tree of hosted UI elements under a canvas, the root, made under `parent` (a `UIView`'s node). The
  * element operations are what a DOM-like renderer needs: create (under a parent, before a sibling), set
@@ -815,6 +821,12 @@ export class UIHostTree {
   private readonly fresh = new Set<UIHostElement>();
   /** The next late sync restyles for the canvas's first known size: nothing transitions (ADR 0418 wave 5). */
   private firstMedia = false;
+  /**
+   * Elements with node reference attributes (`nav-up="play"`, ADR 0340), with the fields they set: resolved by element id
+   * in this tree once the tree or an attribute changed (`refsDirty`), before the restyle is done.
+   */
+  private readonly referencing = new Map<UIHostElement, Set<string>>();
+  private refsDirty = false;
 
   constructor(
     readonly world: World,
@@ -853,7 +865,7 @@ export class UIHostTree {
     const p = parent ?? this.root;
     const el = new UIHostElement(this, tag, uiTag, options.source ?? null, options.synthetic ?? false);
     el._node = this.world._createNode(attributes.get("id") || tag, p._node.entity);
-    // The host is the second maker of UI components (ADR 0417 as amended by 0419): `addComponent` still refuses them.
+    // The host is the maker of UI components (ADR 0417 as amended by 0419): `addComponent` refuses them.
     el._comp = this.world._addComponent(el._node.entity, uiTypeOfTag(uiTag));
     // ADR 0425: text the renderer made between a text element's inline children: a run of it, not an element.
     if (el.synthetic && el._comp instanceof UIText && p._comp instanceof UIText) el._comp._textPiece = true;
@@ -924,7 +936,9 @@ export class UIHostTree {
       e._listeners.clear();
       this.dirty.delete(e);
       this.fresh.delete(e);
+      this.referencing.delete(e);
     });
+    if (this.referencing.size) this.refsDirty = true; // an id it named may be gone
     if (parent) this.childrenChanged(parent);
     if (el._node.isValid) {
       el._node.setActive(false);
@@ -940,6 +954,7 @@ export class UIHostTree {
     if (!el._alive) return;
     hostSheets();
     this.resolve(el);
+    this.resolveReferences();
     hostVersion++;
   }
 
@@ -1062,7 +1077,7 @@ export class UIHostTree {
     }
   }
 
-  /** @internal Late update, before the UI document sync: the flush hooks (queued renderer updates). */
+  /** @internal Late update, before the restyle: the flush hooks (queued renderer updates). */
   _flush(): void {
     if (!this.isValid) return;
     for (const hook of [...this.flushHooks]) {
@@ -1114,6 +1129,7 @@ export class UIHostTree {
       }
     });
     this.resolveDirty();
+    this.resolveReferences();
     this.firstMedia = false;
     if (this.shapeChanged) {
       this.shapeChanged = false;
@@ -1160,6 +1176,46 @@ export class UIHostTree {
     hostVersion++;
   }
 
+  /**
+   * Node references written by element id (ADR 0340): `nav-up`, `nav-down`, `nav-left`, `nav-right` and `first-selected`
+   * set their field to the node of the element in this tree with that id (`"play"` or `"#play"`), or null.
+   */
+  private resolveReferences(): void {
+    if (!this.refsDirty) return;
+    this.refsDirty = false;
+    if (!this.referencing.size) return;
+    const P = requireCascade();
+    const byId = new Map<string, UIHostElement>();
+    walk(this.root, (e) => {
+      if (e._alive && e._target.id && !byId.has(e._target.id)) byId.set(e._target.id, e);
+    });
+    for (const [el, set] of [...this.referencing]) {
+      if (!el._alive) {
+        this.referencing.delete(el);
+        continue;
+      }
+      const comp = el._comp as unknown as Record<string, unknown>;
+      const fields = P.fieldsOf(el._comp.constructor as ComponentClass);
+      const now = new Set<string>();
+      for (const [name, value] of el._attributes) {
+        const field = P.referenceField({ name } as MarkupAttribute);
+        if (!field) continue;
+        if (!fields.has(field)) {
+          warnOnce(`<${el.tag} ${name}>: <${el.tag}> has no field "${name}".`);
+          continue;
+        }
+        const id = value.trim().replace(/^#/, "");
+        const target = id ? byId.get(id) : undefined;
+        if (id && !target) warnOnce(`<${el.tag} ${name}="${value}">: there's no element with id "${id}".`);
+        comp[field] = target?._node ?? null;
+        now.add(field);
+      }
+      for (const field of set) if (!now.has(field)) comp[field] = null; // the attribute went
+      if (now.size) this.referencing.set(el, now);
+      else this.referencing.delete(el);
+    }
+  }
+
   private selectors(selector: string): readonly Selector[] {
     let cached = this.selectorCache.get(selector);
     if (!cached) {
@@ -1196,6 +1252,10 @@ export class UIHostTree {
   private applyAttributes(el: UIHostElement, attributes: ReadonlyMap<string, string>, written?: ReadonlyMap<string, string>): void {
     el._attributes = attributes;
     el._written = written ?? attributes;
+    if (this.referencing.has(el) || hasReferenceAttribute(attributes)) {
+      if (!this.referencing.has(el)) this.referencing.set(el, new Set());
+      this.refsDirty = true;
+    } else if (this.referencing.size && (attributes.get("id") || null) !== el._target.id) this.refsDirty = true; // an id others name
     el._target.id = attributes.get("id") || null;
     el._target.classes = (attributes.get("class") ?? "").split(/\s+/).filter(Boolean);
     const comp = el._comp as unknown as Record<string, unknown>;
@@ -1223,7 +1283,7 @@ export class UIHostTree {
     if (style) {
       for (const decl of splitDeclarations(style)) attrs.push({ name: decl.name, value: decl.value, span: ZERO, valueSpan: ZERO });
     }
-    return { kind: "element", tag: el.uiTag, attributes: attrs, children: [], text: null, template: null, span: ZERO, openTagSpan: ZERO, file: el.source?.file ?? this.file };
+    return { tag: el.uiTag, attributes: attrs, file: el.source?.file ?? this.file };
   }
 
   private resolve(el: UIHostElement): void {
@@ -1351,8 +1411,11 @@ function treesOf(world: World): UIHostTree[] {
   return [...liveTrees].filter((t) => t.world === world && t.isValid);
 }
 
-// Right after UI input routing and the UI documents' handlers, before behaviors' update.
-defineBuiltinSystem({ name: "engine.UIHostEvents", phase: "update", after: ["engine.Lobby", "engine.PredictionSmooth", "engine.UIDocumentEvents"], before: ["engine.UpdateScripts"], run: (w) => treesOf(w).forEach((t) => t._collectEvents()) });
+// Right after UI input routing (which runs as the frame begins) and before behaviors' update: every UI event record of
+// the frame, in order (ADR 0309, 0422), each to the front end that owns its target (a hosted element's tree).
+defineBuiltinSystem({ name: "engine.UIEventDispatch", phase: "update", after: ["engine.Lobby", "engine.PredictionSmooth"], before: ["engine.InputFrame", "engine.UpdateScripts"], run: (w) => dispatchUIEvents(w) });
+// Then the trees' own events (transition and animation events), before behaviors' update.
+defineBuiltinSystem({ name: "engine.UIHostEvents", phase: "update", after: ["engine.Lobby", "engine.PredictionSmooth", "engine.UIEventDispatch"], before: ["engine.UpdateScripts"], run: (w) => treesOf(w).forEach((t) => t._collectEvents()) });
 // Then the renderers' per-frame hooks (global events), before behaviors' update.
 defineBuiltinSystem({
   name: "engine.UIHostFrame",
@@ -1371,6 +1434,6 @@ defineBuiltinSystem({
   },
 });
 // After behaviors' lateUpdate and before the UI sync: renderers flush the updates their handlers queued (Svelte's microtasks).
-defineBuiltinSystem({ name: "engine.UIHostFlush", phase: "lateUpdate", after: ["engine.LateUpdateScripts"], before: ["engine.UIDocumentSync"], run: (w) => treesOf(w).forEach((t) => t._flush()) });
+defineBuiltinSystem({ name: "engine.UIHostFlush", phase: "lateUpdate", after: ["engine.LateUpdateScripts"], run: (w) => treesOf(w).forEach((t) => t._flush()) });
 // Then restyles, so the flushed changes show this frame.
 defineBuiltinSystem({ name: "engine.UIHostSync", phase: "lateUpdate", after: ["engine.UIHostFlush"], run: (w) => treesOf(w).forEach((t) => t._lateSync()) });

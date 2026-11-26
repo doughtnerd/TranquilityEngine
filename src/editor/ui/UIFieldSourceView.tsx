@@ -1,94 +1,16 @@
+// The Inspector's pieces for a selected UI element's fields (ADR 0077 §4, ADR 0419 wave C): each field with its editor
+// and a badge saying where its value comes from (opening that file in the Code panel at the line), a text box that
+// commits on Enter or blur, and Move to class. `UIViewElementInspector.tsx` puts them together for Svelte UI.
 import { useEffect, useRef, useState } from "preact/hooks";
 import { useDraftText } from "./draftText";
 import { Color } from "../../engine";
-import type { UIDocumentElement } from "../../engine/ui/UIDocument";
-import { documentFile, elementSource } from "../../engine/ui/documentSource";
 import { openScript } from "../code/codeBuffers";
-import { currentProject, openScene, playState } from "../state";
-import { editorTextFiles } from "../textFiles";
-import { attributeText, movableAttributes, moveUIElementToClass, renameUIElement, setUIElementClasses, setUIElementField, suggestedClassName } from "../uiDocumentEdits";
-import { whyNotEdit } from "../editGate";
-import { describeOrigin, fieldSources, markupLocation, originBadge, resolveUIElement, selectedUIRef, uiBuildVersion, type FieldOrigin, type FieldSourceRow, type UIElementRef } from "../uiDocuments";
-import { isLocalisableField, UIFieldLocalise } from "./localisation/UIFieldLocalise";
-import "./ui-element-inspector.css";
+import { describeOrigin, originBadge, type FieldOrigin, type FieldSourceRow } from "../uiFieldSources";
 
 /** The file and line an origin points into, to open in the Code panel there. */
 function placeOf(origin: FieldOrigin): { file: string; line: number } | null {
   if (origin.kind === "inherited" || origin.kind === "animated") return placeOf(origin.origin);
   return origin.kind === "default" ? null : { file: origin.file, line: origin.line };
-}
-
-/**
- * A selected UI document element (ADR 0077 §4): what it is, where it's written, and its component's
- * fields with where each value comes from (its attribute, a stylesheet rule, inherited, the text
- * content, a binding, or the default). Editing a field writes an attribute on the element in its
- * markup file (the text content for a Text's text, a button's label or an input field's value),
- * overriding rules and inheritance; ✕ removes the attribute. The id and classes edit in place, and
- * Move to class moves the attributes into a stylesheet rule. Every edit is one undo step.
- */
-export function UIElementInspector() {
-  uiBuildVersion.value; // follow rebuilds (hot reload)
-  currentProject.value;
-  playState.value;
-  const scene = openScene.value, ref = selectedUIRef();
-  const el = scene && ref ? resolveUIElement(scene.sync, ref) : null;
-  const where = el && markupLocation(el);
-  if (!el || !ref || !where) return <p class="empty">{editorTextFiles.busy ? "Updating…" : "The selected UI element is gone (its document changed)."}</p>;
-  const rows = fieldSources(el);
-  const type = el.component.constructor.name;
-  const readOnly = whyNotEdit({ kind: "ui-documents" });
-  return (
-    <div class="inspector-body ui-element-inspector">
-      <div class="node-header">
-        <span class="node-name ui-element-name">{where.synthetic ? "Label" : `<${el.tag}>`}</span>
-      </div>
-      <p class="ui-element-note">
-        {readOnly
-          ? `From a UI document: built from the markup file, not saved in the scene. Can't edit it here: ${readOnly}.`
-          : where.synthetic
-            ? "A button's text content. Its text edits the button's label; style it on the button or in a stylesheet."
-            : "From a UI document: edits are written to its markup file (Ctrl+Z undoes them)."}
-      </p>
-      <dl class="node-meta">
-        <dt>File</dt>
-        <dd>
-          <button class="link-button" title={`Open ${where.file} in the Code panel`} onClick={() => openScript(where.file)}>
-            {where.file}:{where.line}
-          </button>
-          {where.from && <span class="ui-element-from"> (used from another document)</span>}
-        </dd>
-        {!where.synthetic && (
-          <>
-            <dt>Id</dt>
-            <dd>
-              {readOnly ? el.id ?? "" : <DraftInput label="Id" value={el.id ?? ""} placeholder="none" onCommit={(v) => renameUIElement(ref, v)} />}
-            </dd>
-            <dt>Class</dt>
-            <dd>
-              {readOnly ? el.classList.values().join(" ") : <DraftInput label="Class" value={el.classList.values().join(" ")} placeholder="none" onCommit={(v) => setUIElementClasses(ref, v)} />}
-            </dd>
-          </>
-        )}
-        <dt>Document</dt>
-        <dd>{documentFile(el.document) ?? el.document.document}</dd>
-      </dl>
-      {!readOnly && !where.synthetic && <MoveToClass key={ref.path} count={movableAttributes(el).length} suggested={suggestedClassName(el)} onMove={(name) => moveUIElementToClass(ref, name)} target="the stylesheet" />}
-      <section class="component">
-        <h3>{type}</h3>
-        <div class="fields ui-element-fields">
-          {rows.map((r) => (
-            <FieldSourceView key={r.field} row={r} raw={writtenText(r, el)} onCommit={(v) => setUIElementField(ref, r.field, v)} editable={!readOnly && (!where.synthetic || r.field === "text")} />
-          ))}
-          {rows.filter((r) => isLocalisableField(el, r.field, where.synthetic)).map((r) => (
-            <div key={`localise-${r.field}`} class="ui-field-localise">
-              <span class="ui-field-localise-label">{r.property} key</span>
-              <UIFieldLocalise el={el} uiRef={ref} field={r.field} documentFile={where.file} disabled={readOnly ? `Can't edit it here: ${readOnly}` : null} />
-            </div>
-          ))}
-        </div>
-      </section>
-    </div>
-  );
 }
 
 /** "Move to class": a class name (its id, or its tag, to start with) and the button that moves the attributes. */
@@ -107,7 +29,7 @@ export function MoveToClass(props: { count: number; suggested: string; onMove: (
         <button
           class="ui-move-class-open"
           disabled={count === 0}
-          title={count === 0 ? "No attributes to move (id, class, bindings and expressions stay)" : `Move ${count === 1 ? "its attribute" : `its ${count} attributes`} into a class rule in ${props.target}`}
+          title={count === 0 ? "No attributes to move (id, class and expressions stay)" : `Move ${count === 1 ? "its attribute" : `its ${count} attributes`} into a class rule in ${props.target}`}
           onClick={() => setName(props.suggested)}
         >
           Move to class…
@@ -146,14 +68,6 @@ export function MoveToClass(props: { count: number; suggested: string; onMove: (
 export function DraftInput(props: { value: string; label: string; placeholder?: string; class?: string; onCommit: (v: string) => void }) {
   const { input } = useDraftText(props.value, (draft) => draft !== props.value && props.onCommit(draft));
   return <input type="text" class={props.class} aria-label={props.label} placeholder={props.placeholder} {...input} />;
-}
-
-/** What the field's editor starts with: the attribute as written, the text content, or the current value. */
-export function writtenText(row: FieldSourceRow, el: UIDocumentElement): string {
-  const o = row.origin;
-  if (o.kind === "attribute" || o.kind === "binding") return o.attribute.value;
-  if (o.kind === "content") return elementSource(el)?.text ?? "";
-  return attributeText(row.value);
 }
 
 const choicesOf = (row: FieldSourceRow): string[] | null => {
@@ -206,7 +120,7 @@ export function FieldSourceView(props: { row: FieldSourceRow; raw: string; onCom
   const place = placeOf(row.origin);
   const file = place?.file ?? null;
   const describe = describeOrigin(row.origin);
-  const own = row.origin.kind === "attribute" || row.origin.kind === "binding";
+  const own = row.origin.kind === "attribute";
   return (
     <>
       <div class={`label-cell origin-${row.origin.kind}`} data-field={row.field}>
@@ -253,7 +167,6 @@ function shortOrigin(origin: FieldOrigin): string {
     case "inherited":
       return `from ${origin.fromLabel}`;
     case "content":
-    case "binding":
       return `${origin.file.split("/").pop()}:${origin.line}`;
     case "expression":
       return `${origin.source.length > 28 ? `${origin.source.slice(0, 27)}…` : origin.source} · ${origin.file.split("/").pop()}:${origin.line}`;

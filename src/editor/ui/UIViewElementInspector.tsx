@@ -1,13 +1,11 @@
 import { currentProject, openScene, playState } from "../state";
 import { openScript } from "../code/codeBuffers";
 import { editorTextFiles } from "../textFiles";
-import { attributeText } from "../uiDocumentEdits";
-import type { FieldSourceRow } from "../uiDocuments";
+import { attributeText, type FieldSourceRow } from "../uiFieldSources";
 import { resolveUIViewElement, selectedUIViewRef, uiViewVersion, viewElementSource, viewFieldSources, whyViewOnly, writtenClasses } from "../uiViews";
 import { movableViewAttributes, moveUIViewElementToClass, renameUIViewElement, setUIViewElementClasses, setUIViewElementField, setUIViewElementText, suggestedViewClassName, whyNotEditViewElement } from "../uiViewEdits";
 import { styleDeclarations } from "../uiEdit/svelteText";
-import { uiBuildVersion } from "../uiDocuments";
-import { DraftInput, FieldSourceView, MoveToClass } from "./UIElementInspector";
+import { DraftInput, FieldSourceView, MoveToClass } from "./UIFieldSourceView";
 import "./ui-element-inspector.css";
 
 const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
@@ -33,7 +31,6 @@ function rawText(row: FieldSourceRow, text: string | null): string {
  */
 export function UIViewElementInspector() {
   uiViewVersion.value; // follow re-renders and hot reload
-  uiBuildVersion.value;
   currentProject.value;
   playState.value;
   const scene = openScene.value, ref = selectedUIViewRef();

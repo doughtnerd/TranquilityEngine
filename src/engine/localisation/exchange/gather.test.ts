@@ -1,11 +1,11 @@
-// ADR 0356 §7: key gathering over a project — where each key is used (UI documents' `t:` attributes,
+// ADR 0356 §7: key gathering over a project — where each key is used (`t()`/`tHtml()` in Svelte UI, ADR 0419;
 // `Locale.t`/`Locale.text` in scripts, line tables' subtitle keys, playlist captions), and the report lists built from
-// it: missing translations, keys used but defined nowhere, keys never used, unkeyed literal text in UI documents.
-// Scenes aren't read (ADR 0417: game UI is built only from documents). Driven through `gatherKeys` over a fixture project of files.
+// it: missing translations, keys used but defined nowhere, keys never used. Scenes aren't read (ADR 0417: game UI is
+// built only by UI views), nor retired UI documents (ADR 0419). Driven through `gatherKeys` over a fixture project of files.
 import { describe, expect, it } from "vitest";
 import { parseLanguages } from "../languages";
 import { textHash } from "../textHash";
-import { gatherKeys, unkeyedId } from "./gather";
+import { gatherKeys } from "./gather";
 
 const languages = parseLanguages({ list: [{ code: "en", name: "English" }, { code: "fr", name: "Français" }, { code: "de", name: "Deutsch", ship: false }], reference: "en" }).languages;
 
@@ -30,17 +30,20 @@ const FILES: [string, unknown][] = [
   ["audio/vo/ch1.strings.json", { format: "myco.strings@1", language: "en", strings: [{ key: "intro_01", text: "Hello." }, { key: "ch1.late", text: "You're late." }] }],
   ["audio/vo/ch1.lines.json", { format: "myco.lines@1", lines: [{ key: "intro_01", speaker: "Ava" }, { key: "intro_02", speaker: "Ava", textKey: "ch1.late" }, { key: "breath_03", textKey: null }, { key: "intro_04" }] }],
   ["audio/sfx/door.playlist.json", { format: "myco.playlist@1", caption: { key: "cc.door_slams", minGap: 2 } }],
-  ["ui/menu.ui.xml", `<Canvas>
-  <Text id="title" t:text="menu.start"/>
-  <Button id="go" t:text="menu.missing"/>
-  <Text id="hint">Press any key</Text>
-  <Text translate="no">MYCO</Text>
-  <Panel translate="no"><Text>Logo text</Text></Panel>
-  <Text>{score}</Text>
-  <InputField id="name" placeholder="Your name"/>
-  <Text t:text="hud.coins">12 coins</Text>
-  <Panel id="weapons"><Template><Text t:text="weapon.{id}.name"/></Template></Panel>
-</Canvas>`],
+  ["ui/Menu.svelte", `<script lang="ts">
+  import { t, tHtml } from "myco";
+  import { greet } from "./greet.svelte";
+  let { count }: { count: number } = $props();
+</script>
+
+<h1 id="title">{t("menu.start")}</h1>
+<button id="go">{t('menu.missing')}</button>
+<p>{@html tHtml("hud.coins", { count })}</p>
+<p>{greet.t("not.a.key")} {format("not.either")}</p>
+`],
+  ["ui/greet.svelte.ts", `import { Locale, t } from "myco";\nexport const greet = { line: () => t("weapon.sword.name"), axe: () => Locale.text("weapon.axe.name") };\n`],
+  // A retired UI document (ADR 0419): not read.
+  ["ui/menu.ui.xml", `<Canvas><Text t:text="menu.quit"/></Canvas>`],
   // An old scene still saving UI and LocalizedText: not read (ADR 0417).
   ["scenes/main.scene.json", {
     format: "myco.scene@4",
@@ -58,21 +61,20 @@ describe("key gathering", () => {
 
   it("finds each kind of key use", () => {
     const by = (kind: string) => report.uses.filter((u) => u.kind === kind).map((u) => u.key).sort();
-    expect(by("document")).toEqual(["hud.coins", "menu.missing", "menu.start", "weapon.{id}.name"]);
-    expect(report.uses.some((u) => u.path.startsWith("scenes/"))).toBe(false);
+    expect(by("component")).toEqual(["hud.coins", "menu.missing", "menu.start", "weapon.axe.name", "weapon.sword.name"]);
+    expect(report.uses.some((u) => u.path.startsWith("scenes/") || u.path.endsWith(".ui.xml"))).toBe(false);
     expect(by("script")).toEqual(["menu.quit", "script.only"]);
     expect(by("line")).toEqual(["ch1.late", "intro_01", "intro_04"]);
     expect(by("caption")).toEqual(["cc.door_slams"]);
-    expect(report.uses.find((u) => u.key === "weapon.{id}.name")?.template).toBe(true);
-    expect(report.uses.find((u) => u.key === "menu.start")).toMatchObject({ path: "ui/menu.ui.xml", where: "#title" });
+    expect(report.uses.find((u) => u.key === "menu.start")).toMatchObject({ path: "ui/Menu.svelte", where: "line 7" });
   });
 
   it("lists keys used but defined nowhere", () => {
     expect(report.undefinedKeys.map((u) => u.key).sort()).toEqual(["cc.door_slams", "intro_04", "menu.missing", "script.only"]);
-    expect(report.undefinedKeys.find((u) => u.key === "menu.missing")?.uses[0]).toMatchObject({ kind: "document", path: "ui/menu.ui.xml" });
+    expect(report.undefinedKeys.find((u) => u.key === "menu.missing")?.uses[0]).toMatchObject({ kind: "component", path: "ui/Menu.svelte", where: "line 8" });
   });
 
-  it("lists keys never used (a key template covers the keys it matches)", () => {
+  it("lists keys never used", () => {
     expect(report.unused.map((d) => d.key)).toEqual(["old.unused", "credits.title"]); // credits.title only in the unread scene
     expect(report.unused[0].table).toBe("strings/menu.strings.json");
   });
@@ -86,19 +88,6 @@ describe("key gathering", () => {
     expect(report.missing.find((m) => m.key === "old.unused")?.used).toBe(false);
     expect(report.needsReview).toEqual([{ key: "menu.quit", table: "strings/menu.strings.json", languages: ["fr"] }]);
     expect(report.counts.fr).toEqual({ translated: 1, needsReview: 1, missing: 7 });
-  });
-
-  it("lists unkeyed literal text in UI documents, minus translate=\"no\", bindings and keyed fields", () => {
-    expect(report.unkeyed.map((u) => [u.path, u.field, u.text])).toEqual([
-      ["ui/menu.ui.xml", "text", "Press any key"],
-      ["ui/menu.ui.xml", "placeholder", "Your name"],
-    ]);
-    expect(report.unkeyed[0]).toMatchObject({ where: "#hint", id: "hint" });
-  });
-
-  it("leaves out dismissed unkeyed text", () => {
-    const again = gatherKeys({ files: FILES, languages, ignore: [unkeyedId(report.unkeyed[0])] });
-    expect(again.unkeyed.map((u) => u.text)).toEqual(["Your name"]);
   });
 
   it("reports a key defined in two tables", () => {

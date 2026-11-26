@@ -4,7 +4,7 @@ import type { PluginManifest } from "../manifest";
 export const uiManifest: PluginManifest = {
   name: "myco.ui",
   title: "UI",
-  description: "Game UI: canvases, panels, text, images, buttons, input fields, UI documents and stylesheets, and world-space Text.",
+  description: "Game UI: Svelte components mounted by UIView onto canvases, panels, text, images, buttons, form controls and media.",
   // First-party plugins carry the engine's version: keep in step with package.json's "version".
   version: "1.0.0",
 };

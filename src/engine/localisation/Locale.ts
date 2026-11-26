@@ -95,7 +95,6 @@ const listeners = new Set<(e: LocaleChange) => void>();
 const missing: { key: string; language: string }[] = [];
 const parsed = new Map<string, MessageParse>();
 const accented = new WeakMap<readonly MessageNode[], MessageNode[]>();
-const names = new WeakMap<readonly MessageNode[], readonly string[]>();
 const warned = new Set<string>();
 
 function warnOnce(key: string, message: string): void {
@@ -238,7 +237,7 @@ async function loadLanguage(code: string): Promise<void> {
 
 /**
  * A key and arguments, resolved when read (Unreal's `FText`): `toString()` is `Locale.t(key, args)` in the current
- * language. `ui.data.title = Locale.text("quest.title", { name })` shows the title and follows language changes.
+ * language. `view.props.title = Locale.text("quest.title", { name })` shows the title and follows language changes.
  */
 export class LocalText {
   readonly key: string;
@@ -464,24 +463,6 @@ export function localeStringsChanged(next?: LocaleStrings): void {
 
 /** @internal The strings in use (the editor's hot reload swaps project strings). */
 export const localeStrings = (): LocaleStrings => strings;
-
-/** @internal The argument names the message `key` resolves to now uses (UI documents look up only those); null when the key is missing. */
-export function localeMessageNames(key: string): readonly string[] | null {
-  const r = resolve(key, false);
-  if (!r) return null;
-  let list = names.get(r.ast);
-  if (!list) names.set(r.ast, (list = Object.freeze([...collectNames(r.ast, new Set())])));
-  return list;
-}
-
-function collectNames(ast: readonly MessageNode[], out: Set<string>): Set<string> {
-  for (const n of ast) {
-    if (n.type === "text" || n.type === "pound") continue;
-    out.add(n.name);
-    if (n.type === "plural" || n.type === "select") for (const o of n.options) collectNames(o.value, out);
-  }
-  return out;
-}
 
 /** @internal The font files and replacements of a language (the current one by default; a pseudo-language: the reference's). */
 export function localeFonts(code: string = current): { readonly fonts: readonly string[]; readonly fontReplace: Readonly<Record<string, string>> } {

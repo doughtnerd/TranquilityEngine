@@ -3,21 +3,20 @@
  * and the report lists built from it.
  *
  * **Uses** come from:
- * - UI documents (`*.ui.xml`): `t:<field>="key"` attributes; a key with `{name}` bindings (`weapon.{id}.name`) is a
- *   template, which covers every key it matches;
- * - scripts (`.ts`, `.js`, …): literal first arguments of `Locale.t(…)`, `Locale.text(…)` and `Locale.has(…)`, found by
- *   a text search (best effort: a key built at runtime isn't seen);
+ * - Svelte UI (`*.svelte` components and `*.svelte.ts` rune modules, ADR 0419): literal first arguments of `t(…)` and
+ *   `tHtml(…)` (the `myco` imports), and of `Locale.t(…)`, `Locale.text(…)` and `Locale.has(…)`;
+ * - scripts (`.ts`, `.js`, …): literal first arguments of `Locale.t(…)`, `Locale.text(…)` and `Locale.has(…)`;
  * - line tables (`*.lines.json`, 0357 §1): each line's subtitle key (its `textKey`, else its key; `null`: none);
  * - playlists (`*.playlist.json`, 0357 §4): the caption's key.
  *
+ * Code is read by a text search (best effort: a key built at runtime isn't seen).
+ *
  * **Lists:** keys used but defined in no table (`undefinedKeys`), keys defined but never used (`unused`), translations
  * missing per key in the shipped languages (`missing`, with whether the key is used) and needing review
- * (`needsReview`), per-language counts, keys defined in two tables (`duplicates`), and **unkeyed text**: literal text
- * in UI documents (a `Text`'s or `Button`'s content, an `InputField`'s value, `text` and `placeholder` attributes),
- * with letters in it, not marked `translate="no"` (on the element or an ancestor), and not bound to a key; dismissed
- * ones (`.myco/localisation-ignore.json`, by `unkeyedId`) are left out.
+ * (`needsReview`), per-language counts, and keys defined in two tables (`duplicates`).
  *
- * Scenes and prefabs aren't read: game UI is built only from UI documents (ADR 0417), so a scene holds no UI text.
+ * Scenes and prefabs aren't read: game UI is built only from Svelte components (ADR 0417, 0419), so a scene holds no UI
+ * text. ADR 0419 retired UI documents, and with them the `t:` attributes and the unkeyed-text list read from their markup.
  *
  * Localisation is engine-level and imports nothing from audio: line tables and playlists are read here for the one or
  * two fields gathering needs.
@@ -28,21 +27,16 @@ import { shippedLanguages, type LanguageSettings } from "../languages";
 import { isRecord } from "../lenient";
 import { parseStringTable, stringsPathKind } from "../strings/format";
 import { effectiveStatus, parseTranslation, type TranslationFile } from "../strings/translation";
-import { hasBinding, parseBindings, parseMarkup } from "../../ui/document/markup";
-import type { MarkupElement } from "../../ui/document/types";
 
-export type KeyUseKind = "document" | "script" | "line" | "caption";
+export type KeyUseKind = "component" | "script" | "line" | "caption";
 
 /** One place a key is used. */
 export interface KeyUse {
-  /** The key as written (a template keeps its `{name}` parts). */
   readonly key: string;
   readonly path: string;
   readonly kind: KeyUseKind;
-  /** Where in the file: `#id` or the element's tag for a document, `line 3` for a script, the line key for a line table. */
+  /** Where in the file: `line 3` for a component or script, the line key for a line table. */
   readonly where: string;
-  /** A key with `{name}` bindings, covering every key it matches. */
-  readonly template: boolean;
 }
 
 /** A key a table defines. */
@@ -50,18 +44,6 @@ export interface DefinedKey {
   readonly key: string;
   readonly table: string;
   readonly text: string;
-}
-
-/** Literal text that isn't bound to a key. */
-export interface UnkeyedText {
-  readonly path: string;
-  /** The field it sets (`text`, `placeholder`, `value`). */
-  readonly field: string;
-  readonly text: string;
-  /** `#id` or the element's tag. */
-  readonly where: string;
-  /** The element's id, when it has one (Extract to string table suggests a key from it). */
-  readonly id: string | null;
 }
 
 export interface LanguageCounts {
@@ -78,70 +60,31 @@ export interface GatherReport {
   readonly missing: readonly { readonly key: string; readonly table: string; readonly languages: readonly string[]; readonly used: boolean }[];
   readonly needsReview: readonly { readonly key: string; readonly table: string; readonly languages: readonly string[] }[];
   readonly duplicates: readonly { readonly key: string; readonly tables: readonly string[] }[];
-  readonly unkeyed: readonly UnkeyedText[];
   /** Per shipped language other than the reference. */
   readonly counts: Readonly<Record<string, LanguageCounts>>;
 }
 
 export interface GatherInput {
-  /** Project files by path: parsed JSON for `.json` files, text for text files (`.ui.xml`, scripts). */
+  /** Project files by path: parsed JSON for `.json` files, text for text files (components, scripts). */
   readonly files: Iterable<readonly [string, unknown]>;
   readonly languages: LanguageSettings;
-  /** Dismissed unkeyed text, by `unkeyedId`. */
-  readonly ignore?: readonly string[];
 }
-
-/** The id a dismissal of unkeyed text is kept under: its file, where and field, and the text. */
-export const unkeyedId = (u: Pick<UnkeyedText, "path" | "where" | "field" | "text">): string => `${u.path}|${u.where}|${u.field}|${u.text}`;
 
 const SCRIPT = /\.(ts|tsx|js|mjs|cjs|mts|cts)$/i;
 const LOCALE_CALL = /\bLocale\s*\.\s*(?:t|text|has)\s*\(\s*(["'`])([A-Za-z0-9_.{}-]{1,128})\1/g;
+/** Svelte UI (ADR 0419): `myco`'s reactive `t(…)` and `tHtml(…)`, not as a member (`x.t(…)`) or part of a longer name. */
+const UI_CALL = /(?<![\w$.])(?:t|tHtml)\s*\(\s*(["'`])([A-Za-z0-9_.{}-]{1,128})\1/g;
+const UI_CODE = /\.svelte$|\.svelte\.(ts|js)$/i;
 
-/** A key template (`weapon.{id}.name`) as a pattern over keys. */
-function templatePattern(key: string): RegExp {
-  const source = parseBindings(key).map((p) => ("binding" in p ? "[A-Za-z0-9_.-]+" : p.text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))).join("");
-  return new RegExp(`^${source}$`);
-}
-
-const hasLetters = (text: string): boolean => /\p{L}/u.test(parseBindings(text).map((p) => ("text" in p ? p.text : "")).join(""));
-
-function documentUses(path: string, source: string, read: (p: string) => string | null, uses: KeyUse[], unkeyed: UnkeyedText[]): void {
-  const markup = parseMarkup(source, path, read);
-  const walk = (el: MarkupElement, noTranslate: boolean) => {
-    if (el.file !== path) return; // a used document reports its own
-    const id = el.attributes.find((a) => a.name === "id")?.value ?? null;
-    const where = id ? `#${id}` : el.tag;
-    const off = noTranslate || el.attributes.some((a) => a.name === "translate" && a.value.trim().toLowerCase() === "no");
-    const keyed = new Set<string>();
-    for (const a of el.attributes) {
-      if (!a.name.startsWith("t:") || a.name.length <= 2) continue;
-      keyed.add(a.name.slice(2));
-      const key = a.value.trim();
-      if (key) uses.push({ key, path, kind: "document", where, template: hasBinding(key) });
+function scriptUses(path: string, text: string, kind: KeyUseKind, uses: KeyUse[]): void {
+  const found: { index: number; key: string }[] = [];
+  for (const pattern of kind === "component" ? [LOCALE_CALL, UI_CALL] : [LOCALE_CALL]) {
+    for (const m of text.matchAll(pattern)) {
+      if (m[1] === "`" && m[2].includes("${")) continue;
+      found.push({ index: m.index, key: m[2] });
     }
-    if (!off) {
-      const contentField = el.tag === "InputField" ? "value" : "text";
-      const literal = (field: string, text: string | null | undefined) => {
-        if (!text || keyed.has(field) || !hasLetters(text)) return;
-        unkeyed.push({ path, field, text, where, id });
-      };
-      const textAttr = el.attributes.find((a) => a.name === contentField)?.value;
-      literal(contentField, textAttr ?? el.text);
-      if (el.tag === "InputField") literal("placeholder", el.attributes.find((a) => a.name === "placeholder")?.value);
-    }
-    for (const c of el.children) walk(c, off);
-    if (el.template) walk(el.template, off);
-  };
-  if (markup.root) walk(markup.root, false);
-}
-
-function scriptUses(path: string, text: string, uses: KeyUse[]): void {
-  for (const m of text.matchAll(LOCALE_CALL)) {
-    const line = text.slice(0, m.index).split("\n").length;
-    const key = m[2];
-    if (m[1] === "`" && key.includes("${")) continue;
-    uses.push({ key, path, kind: "script", where: `line ${line}`, template: false });
   }
+  for (const f of found.sort((a, b) => a.index - b.index)) uses.push({ key: f.key, path, kind, where: `line ${text.slice(0, f.index).split("\n").length}` });
 }
 
 function lineTableUses(path: string, json: unknown, uses: KeyUse[]): void {
@@ -149,13 +92,13 @@ function lineTableUses(path: string, json: unknown, uses: KeyUse[]): void {
   for (const l of json.lines) {
     if (!isRecord(l) || typeof l.key !== "string") continue;
     const key = l.textKey === null ? null : typeof l.textKey === "string" && l.textKey.trim() ? l.textKey.trim() : l.key;
-    if (key) uses.push({ key, path, kind: "line", where: l.key, template: false });
+    if (key) uses.push({ key, path, kind: "line", where: l.key });
   }
 }
 
 function captionUses(path: string, json: unknown, uses: KeyUse[]): void {
   if (isRecord(json) && isRecord(json.caption) && typeof json.caption.key === "string" && json.caption.key.trim()) {
-    uses.push({ key: json.caption.key.trim(), path, kind: "caption", where: "caption", template: false });
+    uses.push({ key: json.caption.key.trim(), path, kind: "caption", where: "caption" });
   }
 }
 
@@ -163,13 +106,8 @@ function captionUses(path: string, json: unknown, uses: KeyUse[]): void {
 export function gatherKeys(input: GatherInput): GatherReport {
   const files = new Map<string, unknown>();
   for (const [p, v] of input.files) files.set(p, v);
-  const read = (p: string): string | null => {
-    const v = files.get(p);
-    return typeof v === "string" ? v : null;
-  };
   const paths = [...files.keys()].sort();
   const uses: KeyUse[] = [];
-  const unkeyed: UnkeyedText[] = [];
   const defined: DefinedKey[] = [];
   const owners = new Map<string, string[]>();
   const translations = new Map<string, TranslationFile[]>(); // table → its translations
@@ -188,21 +126,19 @@ export function gatherKeys(input: GatherInput): GatherReport {
       const list = translations.get(kind.table) ?? [];
       list.push(parseTranslation(value, path).translation);
       translations.set(kind.table, list);
-    } else if (lower.endsWith(".ui.xml") && typeof value === "string") documentUses(path, value, read, uses, unkeyed);
+    } else if (UI_CODE.test(path) && typeof value === "string") scriptUses(path, value, "component", uses);
     else if (lower.endsWith(".lines.json")) lineTableUses(path, value, uses);
     else if (lower.endsWith(".playlist.json")) captionUses(path, value, uses);
-    else if (SCRIPT.test(path) && !lower.endsWith(".d.ts") && typeof value === "string") scriptUses(path, value, uses);
+    else if (SCRIPT.test(path) && !lower.endsWith(".d.ts") && typeof value === "string") scriptUses(path, value, "script", uses);
   }
 
   const definedKeys = new Set(defined.map((d) => d.key));
-  const templates = uses.filter((u) => u.template).map((u) => templatePattern(u.key));
-  const plainUsed = new Set(uses.filter((u) => !u.template).map((u) => u.key));
-  const isUsed = (key: string) => plainUsed.has(key) || templates.some((t) => t.test(key));
+  const used = new Set(uses.map((u) => u.key));
+  const isUsed = (key: string) => used.has(key);
 
   const undefinedMap = new Map<string, KeyUse[]>();
   for (const u of uses) {
-    const known = u.template ? defined.some((d) => templatePattern(u.key).test(d.key)) : definedKeys.has(u.key);
-    if (known) continue;
+    if (definedKeys.has(u.key)) continue;
     const list = undefinedMap.get(u.key) ?? [];
     list.push(u);
     undefinedMap.set(u.key, list);
@@ -228,7 +164,6 @@ export function gatherKeys(input: GatherInput): GatherReport {
     if (review.length) needsReview.push({ key: d.key, table: d.table, languages: review });
   }
 
-  const ignored = new Set(input.ignore ?? []);
   return {
     defined,
     uses,
@@ -237,7 +172,6 @@ export function gatherKeys(input: GatherInput): GatherReport {
     missing,
     needsReview,
     duplicates: [...owners].filter(([, t]) => t.length > 1).map(([key, tables]) => ({ key, tables })),
-    unkeyed: unkeyed.filter((u) => !ignored.has(unkeyedId(u))),
     counts,
   };
 }

@@ -9,8 +9,8 @@ describe("project files", () => {
     ["scenes/main.scene.json", "json"],
     ["images/bird.png.meta.json", "json"],
     ["DATA/A.JSON", "json"],
-    ["ui/hud.ui.xml", "text"],
-    ["ui/hud.ui.css", "text"],
+    ["data/level.xml", "text"],
+    ["ui/theme.css", "text"],
     ["shaders/wave.wgsl", "text"],
     ["shaders/wave.glsl", "text"],
     ["notes.txt", "text"],
@@ -42,13 +42,13 @@ describe("project files", () => {
   });
 
   it("loads each file through the host's reader as its asset value, in the order given", async () => {
-    const files: Record<string, string> = { "b.json": '{"x":1}', "ui/a.ui.xml": "<ui/>", "bad.json": "{" };
-    const loaded = await loadProjectFiles(["b.json", "ui/a.ui.xml", "images/c.png", "bad.json"], {
+    const files: Record<string, string> = { "b.json": '{"x":1}', "ui/a.xml": "<ui/>", "bad.json": "{" };
+    const loaded = await loadProjectFiles(["b.json", "ui/a.xml", "images/c.png", "bad.json"], {
       readText: async (p) => files[p],
       url: (p) => `blob:${p}`,
     });
-    expect([...loaded.values]).toEqual([["b.json", { x: 1 }], ["ui/a.ui.xml", "<ui/>"], ["images/c.png", "blob:images/c.png"]]);
-    expect([...loaded.texts.keys()]).toEqual(["b.json", "ui/a.ui.xml"]);
+    expect([...loaded.values]).toEqual([["b.json", { x: 1 }], ["ui/a.xml", "<ui/>"], ["images/c.png", "blob:images/c.png"]]);
+    expect([...loaded.texts.keys()]).toEqual(["b.json", "ui/a.xml"]);
     expect(loaded.problems.map((p) => p.path)).toEqual(["bad.json"]);
   });
 });

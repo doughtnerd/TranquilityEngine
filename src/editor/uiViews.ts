@@ -1,7 +1,6 @@
 // Svelte UI in the editor (ADR 0419 wave C): the model between the editor's selection, the elements a `UIView`
 // renders in the Editor World (`UIHostElement`s, through the UI core's tree host) and the `.svelte` source they're
-// written in, with where each field's value comes from. It's `uiDocuments.ts`'s counterpart for views; editing is
-// `uiViewEdits.ts`.
+// written in, with where each field's value comes from (`uiFieldSources.ts`); editing is `uiViewEdits.ts`.
 //
 // A rendered element is addressed by its template location, not by a path in the tree: the view's node (path key),
 // which UIView on it (by index), the file and the line and column its tag starts at (Svelte's dev-mode location),
@@ -25,7 +24,7 @@ import { pathKey } from "./document";
 import { selectedUIElement } from "./state";
 import { editorTextFiles } from "./textFiles";
 import { elementAtLocation, lineColumnAt, loadSvelteParser, normalizeSelector, parseSvelte, styleDeclarations, svelteParserLoaded, SvelteEditError, type SvelteElement, type SvelteSource } from "./uiEdit/svelteText";
-import { formatValue, kebab, resolveUIElement, selectedUIRef, type FieldOrigin, type FieldSourceRow, type NodeLookup } from "./uiDocuments";
+import { formatValue, kebab, type FieldOrigin, type FieldSourceRow, type NodeLookup } from "./uiFieldSources";
 
 // --- Refs and keys ------------------------------------------------------------------------------
 
@@ -43,7 +42,7 @@ export interface UIViewRef {
 
 const SEP = "|";
 
-/** A view ref as one string, for the selection signal and hierarchy rows (`uiv:` beside documents' `ui:`). */
+/** A view ref as one string, for the selection signal and hierarchy rows (`uiv:`). */
 export const uiViewRefKey = (r: UIViewRef): string => `uiv:${r.host}${SEP}${r.index}${SEP}${r.file}${SEP}${r.line}:${r.column}${SEP}${r.nth}`;
 
 /** The view ref a key names, or null if it isn't one. */
@@ -58,7 +57,7 @@ export function parseUIViewRefKey(key: string): UIViewRef | null {
   return { host: parts[0], index, file, line, column, nth };
 }
 
-/** True for a ref of a view's element (not a document's). */
+/** True for a ref of a view's element. */
 export const isUIViewKey = (key: string | null): boolean => !!key && key.startsWith("uiv:");
 
 /**
@@ -168,10 +167,8 @@ export function watchUIViews(): void {
   });
 }
 
-/** The selected UI element of either kind (a document's, or one a view rendered) as the scene view draws it, or null. */
+/** The selected UI element (one a view rendered) as the scene view draws it, or null. */
 export function selectedUIComponent(lookup: NodeLookup): { readonly component: UIComponentType; readonly node: GameObject } | null {
-  const doc = selectedUIRef();
-  if (doc) return resolveUIElement(lookup, doc);
   const view = selectedUIViewRef();
   return view ? resolveUIViewElement(lookup, view) : null;
 }
@@ -407,7 +404,7 @@ function originOf(el: UIHostElement, field: string, source: ValueSource): FieldO
         from = (from && withTarget(from, inner.from)) ?? from;
         inner = inner.source;
       }
-      return { kind: "inherited", from: null, fromLabel: from ? viewElementLabel(from) : "a parent element", origin: originOf(from ?? el, field, inner) };
+      return { kind: "inherited", fromLabel: from ? viewElementLabel(from) : "a parent element", origin: originOf(from ?? el, field, inner) };
     }
     case "default":
       return { kind: "default" };
@@ -421,7 +418,7 @@ function contentOrigin(el: UIHostElement): FieldOrigin {
   const element = s ? elementAtLocation(s, src.line, src.column) : null;
   const line = element && element.text.kind !== "none" ? lineColumnAt(s!.text, element.text.start).line : src.line;
   if (element?.text.kind === "dynamic") return { kind: "expression", file: src.file, line, name: "text", source: element.text.source };
-  return { kind: "content", file: src.file, line, bound: false };
+  return { kind: "content", file: src.file, line };
 }
 
 /**

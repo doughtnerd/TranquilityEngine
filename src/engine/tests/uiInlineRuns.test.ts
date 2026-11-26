@@ -1,18 +1,17 @@
-// ADR 0425: a text element's inline runs in UI documents (phrasing child markup inside a `Text`, bound and styled like
-// any element), measured and laid out by the UI core as one paragraph and drawn by the Babylon layer from that layout;
-// messages carrying the inline subset (`tHtml` escapes arguments; a document shows the text).
+// ADR 0425: a text element's inline runs (phrasing elements inside a text element, styled like any element, as a Svelte
+// component renders them, ADR 0419), measured and laid out by the UI core as one paragraph and drawn by the Babylon
+// layer from that layout; messages carrying the inline subset (`tHtml` escapes arguments).
 import { NullEngine } from "@babylonjs/core/Engines/nullEngine.js";
 import { Scene } from "@babylonjs/core/scene.js";
 import { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import type { Container } from "@babylonjs/gui/2D/controls/container.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Assets, Engine, GameObject, Locale, MemoryStorage, tHtml, UIDocument, UIText, type ProjectSettingsInput } from "../../myco";
+import { Assets, Engine, Locale, MemoryStorage, tHtml, UIText, type ProjectSettingsInput } from "../../myco";
 import { World } from "../core/World";
 import { UICore } from "../ui/UICore";
 import { textRunOf } from "../ui/elementKinds";
-import { loadUIDocumentSupport } from "../ui/UIDocument";
 import { BabylonUI } from "../render/babylon/ui";
-import { buildUI, byId } from "./uiMarkup";
+import { buildUI, byId, loadUITestSupport, uiAs } from "./uiMarkup";
 
 const DT = 1 / 60;
 let engine: Engine;
@@ -23,15 +22,14 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("UI documents: inline runs in a Text (ADR 0425)", () => {
+describe("inline runs in a text element (ADR 0425)", () => {
   beforeEach(async () => {
     engine = await Engine.create({ headless: true });
-    await loadUIDocumentSupport();
+    await loadUITestSupport();
   });
 
-  it("makes phrasing child markup runs, styled by the cascade and HTML's defaults, with bindings in them", () => {
-    const doc = buildUI(`<Canvas><Text id="t" font-size="20">You have <b id="n">{coins}</b> coins<br/>and <i class="hot">style</i>!</Text></Canvas>`, { css: `.hot { color: #ff0000; } b { text-decoration: underline; }` });
-    doc.data.coins = 12;
+  it("makes phrasing child elements runs, styled by the cascade and HTML's defaults", () => {
+    const doc = buildUI(`<Canvas><p id="t" font-size="20">You have <b id="n">12</b> coins<br/>and <i class="hot">style</i>!</p></Canvas>`, { css: `.hot { color: #ff0000; } b { text-decoration: underline; }` });
     engine.step(DT);
     const text = byId(doc, "t", UIText);
     expect(text.text).toBe("");
@@ -40,18 +38,18 @@ describe("UI documents: inline runs in a Text (ADR 0425)", () => {
     const [, n, , , , i] = run.runs!;
     expect(n).toMatchObject({ fontWeight: "700", decoration: "underline", fontSize: 20 });
     expect(i).toMatchObject({ fontStyle: "italic", color: "rgba(255, 0, 0, 1)", fontSize: 20 });
-    // A run is an element of the document (queried, styled); a text piece isn't one.
-    expect(doc.query("#n")!.as(UIText).fontWeight).toBe("bold");
-    expect(doc.query("#t")!.children.filter((c) => c.as(UIText)._textPiece === false).length).toBe(3);
+    // A run is an element of the view (queried, styled); a text piece isn't one.
+    expect(uiAs(doc.query("#n")!, UIText).fontWeight).toBe("bold");
+    expect(doc.query("#t")!.children.filter((c) => uiAs(c, UIText)._textPiece === false).length).toBe(3);
   });
 
   it("collapses whitespace across runs as HTML does", () => {
-    const doc = buildUI(`<Canvas><Text id="t">  one <b> two </b>  three  </Text></Canvas>`);
+    const doc = buildUI(`<Canvas><p id="t">  one <b> two </b>  three  </p></Canvas>`);
     expect(textRunOf(byId(doc, "t", UIText))!.runs!.map((r) => r.text)).toEqual(["one ", "two ", "three"]);
   });
 
   it("lays the runs out as one paragraph: wrapping across them at the text's width, the box their height", async () => {
-    const doc = buildUI(`<Canvas><Text id="t" width="70">aaaa <b>bb</b>b cc dd</Text></Canvas>`);
+    const doc = buildUI(`<Canvas><p id="t" width="70">aaaa <b>bb</b>b cc dd</p></Canvas>`);
     const core = new UICore({ interactive: false });
     await core.ready;
     core.sync(World.require(), 800, 600);
@@ -66,26 +64,16 @@ describe("UI documents: inline runs in a Text (ADR 0425)", () => {
 describe("messages with the inline subset (ADR 0425)", () => {
   const FILES = {
     "strings/ui.strings.json": { format: "myco.strings@1", language: "en", strings: [{ key: "hud.hello", text: "Hi <b>{name}</b>, you have <i>{count, plural, one {# coin} other {# coins}}</i>" }] },
-    "ui/hud.ui.xml": `<Canvas><Text id="hello" t:text="hud.hello"/></Canvas>`,
   };
 
   beforeEach(async () => {
     engine = await Engine.create({ headless: true, project: { languages: { list: [{ code: "en", name: "English" }], reference: "en", default: "en", useSystemLanguage: false } } as ProjectSettingsInput, assets: Assets.fromObject(FILES), storage: new MemoryStorage() });
-    await loadUIDocumentSupport();
+    await loadUITestSupport();
   });
 
   it("keeps the message's tags for {@html} and escapes string arguments", () => {
     expect(tHtml("hud.hello", { name: "<i>Bob</i> & co", count: 2 })).toBe("Hi <b>&lt;i&gt;Bob&lt;/i&gt; &amp; co</b>, you have <i>2 coins</i>");
     expect(Locale.t("hud.hello", { name: "Al", count: 1 })).toBe("Hi <b>Al</b>, you have <i>1 coin</i>");
-  });
-
-  it("shows a message's text without its tags in a UI document", async () => {
-    const doc = GameObject.create("UI").addBehavior(UIDocument, { document: "asset:ui/hud.ui.xml" });
-    await doc.ready;
-    doc.data.name = "Al";
-    doc.data.count = 3;
-    engine.step(DT);
-    expect(doc.query("#hello")!.as(UIText).text).toBe("Hi Al, you have 3 coins");
   });
 });
 
@@ -107,7 +95,7 @@ describe("Babylon UI: drawing inline runs (ADR 0425)", () => {
 
   it("draws each fragment where the core laid it out, in its run's font and colour, with backgrounds and decorations", async () => {
     engine = await Engine.create({ headless: true });
-    await loadUIDocumentSupport();
+    await loadUITestSupport();
     const drawn: string[] = [];
     const babylon = new NullEngine();
     (babylon as unknown as { createCanvas(w: number, h: number): unknown }).createCanvas = (width: number, height: number) => {
@@ -118,7 +106,7 @@ describe("Babylon UI: drawing inline runs (ADR 0425)", () => {
     };
     const scene = new Scene(babylon);
     const ui = new BabylonUI(scene, { texture: async () => new Texture("data:,", scene, { noMipmap: true }) });
-    const doc = buildUI(`<Canvas><Text id="t" color="#ffffff">Go <b>now</b> <mark>!</mark></Text></Canvas>`);
+    const doc = buildUI(`<Canvas><p id="t" color="#ffffff">Go <b>now</b> <mark>!</mark></p></Canvas>`);
     const core = new UICore({ interactive: false });
     await core.ready;
     core.sync(World.require(), 800, 600);

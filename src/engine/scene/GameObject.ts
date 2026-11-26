@@ -165,12 +165,12 @@ export class GameObject {
    * throw (ADR 0032). A component registered for other Worlds (`@behavior(id, { worlds })`, ADR
    * 0033) isn't attached: you get a detached instance that never runs and that `getBehavior`
    * doesn't find (see `_componentAllowedIn`). UI components (`UICanvas`, `UIPanel`, `UIText`,
-   * `UIImage`, `UIButton`, `UIInputField`) throw: only a `UIView` rendering its component, or a
-   * `UIDocument` building its markup, makes them (ADR 0417, amended by 0419).
+   * `UIImage`, `UIButton`, `UIInputField`…) throw: only a `UIView` rendering its component makes them
+   * (ADR 0417, amended by 0419).
    */
   addBehavior<T extends Component>(type: ConcreteComponentType<T>, init?: ComponentInit<T>): T {
     this.check();
-    refuseDocumentOnly(type);
+    refuseViewOnly(type);
     if (init) this.world._assertOwnsAll(init, `${this}.addBehavior(${type.name})`);
     if (!_componentAllowedIn(this.world, type)) return detachedComponent(this, type, init);
     return this.world._addComponent(this.entity, type, init as Partial<T>);
@@ -182,7 +182,7 @@ export class GameObject {
    */
   addChildBehavior<T extends Component>(type: ConcreteComponentType<T>, options: { name?: string; position?: Vec3Input; init?: ComponentInit<T> } = {}): T {
     this.check();
-    refuseDocumentOnly(type);
+    refuseViewOnly(type);
     if (!_componentAllowedIn(this.world, type)) return detachedComponent(this, type, options.init);
     const child = this.world._createNode(options.name ?? type.name, this.entity);
     this.world.setComponentNode(child.entity, true);
@@ -280,28 +280,28 @@ export class GameObject {
   }
 }
 
-// --- UI elements come from UI views and documents (ADR 0417, amended by 0419) --------------------
+// --- UI elements come from UI views (ADR 0417, amended by 0419) ----------------------------------
 
-/** Ids of the UI components only a `UIView`'s render or a `UIDocument`'s build creates (ADR 0417, 0419). */
-const DOCUMENT_ONLY = new Set(["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField", "engine.UISvg", "engine.UIVideo", "engine.UIAudio"]);
+/** Ids of the UI components only a `UIView`'s render creates (ADR 0417, 0419). */
+const VIEW_ONLY = new Set(["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField", "engine.UISvg", "engine.UIVideo", "engine.UIAudio"]);
 
-/** @internal What refusing a UI component outside a UI view or document says (ADR 0417, 0419); scene loads say it too. */
-export const UI_FROM_DOCUMENTS = "UI elements come from a UIView's Svelte component or a UI document (ADR 0417, 0419): write the element in the component (or a *.ui.xml document), or use ui.list() for rows made at runtime.";
+/** @internal What refusing a UI component outside a UI view says (ADR 0417, 0419); scene loads say it too. */
+export const UI_FROM_VIEWS = "UI elements come from a UIView's Svelte component (ADR 0417, 0419): write the element in the component.";
 
 /**
- * @internal The id of the UI component `type` is or extends, when only a UI document may create it
- * (ADR 0417); else null. Matched by registered id, so this module needn't import the UI components.
+ * @internal The id of the UI component `type` is or extends, when only a UI view may create it
+ * (ADR 0417, 0419); else null. Matched by registered id, so this module needn't import the UI components.
  */
-export function _documentOnlyComponentId(type: ComponentClass): string | null {
+export function _viewOnlyComponentId(type: ComponentClass): string | null {
   for (let t: unknown = type; typeof t === "function" && t !== Component; t = Object.getPrototypeOf(t)) {
     const id = getComponentId(t as ComponentClass);
-    if (id !== undefined && DOCUMENT_ONLY.has(id)) return id;
+    if (id !== undefined && VIEW_ONLY.has(id)) return id;
   }
   return null;
 }
 
-function refuseDocumentOnly(type: ComponentClass): void {
-  if (_documentOnlyComponentId(type) !== null) throw new Error(UI_FROM_DOCUMENTS);
+function refuseViewOnly(type: ComponentClass): void {
+  if (_viewOnlyComponentId(type) !== null) throw new Error(UI_FROM_VIEWS);
 }
 
 // --- per-World components (ADR 0033 §3) ---------------------------------------------------------

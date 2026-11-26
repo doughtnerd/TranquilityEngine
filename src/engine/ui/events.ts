@@ -1,19 +1,19 @@
 /**
- * UI event propagation (ADR 0422): what UI documents and the UI host (Svelte views) share to dispatch UI events through
- * capture, target and bubble phases over an element's ancestors, as DOM events are. Nothing here is public API; the
- * event objects the front ends make from it are.
+ * UI event propagation (ADR 0422): what the UI host (Svelte views) uses to dispatch UI events through capture, target
+ * and bubble phases over an element's ancestors, as DOM events are. Nothing here is public API; the event objects the
+ * front ends make from it are.
  *
  * - **Records.** The UI core's routing (and the interaction log, ADR 0309) records what happened to which element as
  *   `UIEventRecord`s: a DOM type, the target component, whether it bubbles and can be cancelled, its pointer or key
  *   data, and an `after` callback, the default action, run once the record has been dispatched, told whether a handler
  *   called `preventDefault`. Records are published with the interaction log's frame rule, so they're dispatched in the
  *   frame the polled state is true in.
- * - **Dispatch.** Once a frame, at the point UI document handlers always ran (`engine.UIDocumentEvents`: right after UI
- *   input routing, before behaviors' `update`), `dispatchUIEvents` hands each record of the frame, in order, to the
- *   front end that owns its target (a document's element, a hosted element), which builds the path from its own tree
+ * - **Dispatch.** Once a frame (`engine.UIEventDispatch`: right after UI input routing, before behaviors' `update`),
+ *   `dispatchUIEvents` hands each record of the frame, in order, to the front end that owns its target (a hosted
+ *   element's tree), which builds the path from its own tree
  *   and runs its listeners with `propagate`, then runs the record's default action. A default action may record more
  *   (focus moving records `blur`, `focusout`, `focus`, `focusin`): they're dispatched in the same pass, in order.
- * - **Events.** `UIEventBase` is the event object both front ends extend: `type`, `target`, `currentTarget`,
+ * - **Events.** `UIEventBase` is the event object front ends extend: `type`, `target`, `currentTarget`,
  *   `eventPhase`, `bubbles`, `cancelable`, `stopPropagation`, `stopImmediatePropagation`, `preventDefault` /
  *   `defaultPrevented`, and the DOM's pointer, wheel and keyboard fields. Positions: `clientX`/`clientY` (and `x`, `y`,
  *   `pageX`, `pageY`) in the target canvas's UI pixels, as `getBoundingClientRect` reports boxes; `offsetX`/`offsetY` in
@@ -364,7 +364,7 @@ export type UIEventFrontEnd = (record: UIEventRecord) => boolean;
 
 const frontEnds: UIEventFrontEnd[] = [];
 
-/** Register a front end (UI documents, the UI host). Returns its removal. */
+/** Register a front end (the UI host). Returns its removal. */
 export function addUIEventFrontEnd(frontEnd: UIEventFrontEnd): () => void {
   frontEnds.push(frontEnd);
   return () => {

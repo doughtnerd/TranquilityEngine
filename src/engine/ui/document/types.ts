@@ -1,8 +1,7 @@
 /**
- * The contract between UI documents' parsers and their runtime (ADR 0077). Parsers (`markup.ts`,
- * `stylesheet.ts`) are pure and renderer-neutral; the runtime (`UIDocument.ts`) builds nodes from what
- * they return. Spans let the editor (wave B) patch the source files in place. Nothing here is public
- * API except where `UIDocument.ts` re-exports it.
+ * The contract between the stylesheet parser (`stylesheet.ts`, ADR 0077, 0419), the cascade (`cascade.ts`) and the UI
+ * host that styles rendered elements with it (`host/UIHost.ts`). Pure and renderer-neutral. Spans let the editor patch
+ * the source files in place. Nothing here is public API except `UITag`, which the UI plugin re-exports.
  */
 
 /** A range in a source file: character offsets, `end` exclusive. */
@@ -19,10 +18,10 @@ export interface SourceProblem {
   readonly span: SourceSpan;
 }
 
-// --- Markup (`*.ui.xml`) ------------------------------------------------------------------------
+// --- Elements -------------------------------------------------------------------------------------
 
-/** Element names and the UI components they make (ADR 0069 components). */
-/** ADR 0426: `Svg`, `Video` and `Audio` are the HTML `svg`, `video` and `audio` elements (Svelte UI). */
+/** The UI element kinds (ADR 0069 components) the HTML tags a Svelte component writes map onto (`host/htmlTags.ts`). */
+/** ADR 0426: `Svg`, `Video` and `Audio` are the HTML `svg`, `video` and `audio` elements. */
 export type UITag = "Canvas" | "Panel" | "Text" | "Image" | "Button" | "InputField"
   // ADR 0424: form elements.
   | "TextArea" | "Toggle" | "Radio" | "Slider" | "Select" | "Option" | "Progress" | "Meter" | "Label" | "Form"
@@ -30,72 +29,25 @@ export type UITag = "Canvas" | "Panel" | "Text" | "Image" | "Button" | "InputFie
   | "Svg" | "Video" | "Audio";
 
 export interface MarkupAttribute {
-  /** As written: a field (`fontSize`), `id`, `class`, `translate`, or a key binding `t:<field>` (ADR 0356 §4). */
+  /** As written: a field (`fontSize`), `id`, `class`, or an HTML attribute. */
   readonly name: string;
-  /** The raw value, with `{name}` bindings left in. */
   readonly value: string;
-  /** The whole `name="value"` text. */
+  /** The whole `name="value"` text in its file (zero when it isn't from a file). */
   readonly span: SourceSpan;
   /** Just the value, inside the quotes. */
   readonly valueSpan: SourceSpan;
 }
 
-/** A piece of a binding-aware string: literal text, or `{name}`. */
-export type BindingPart = { readonly text: string } | { readonly binding: string };
-
+/** An element as the cascade reads it: the UI element kind it makes, its attributes as written, and its file. */
 export interface MarkupElement {
-  readonly kind: "element";
   readonly tag: UITag;
   /** In source order. `id` and `class` are among them. */
   readonly attributes: readonly MarkupAttribute[];
-  /** Child elements, in order. `<Use>` is already expanded (each gets `from` set); `<Style>` and `<Template>` aren't here. */
-  readonly children: readonly MarkupElement[];
-  /**
-   * A `Text`, `Button` label shorthand or `InputField`'s text content, with whitespace collapsed as in
-   * HTML (runs of spaces, tabs and line breaks become one space, trimmed; `&#160;` isn't collapsed), or
-   * null when none. Bindings left in. A `text="…"` attribute keeps its spacing exactly.
-   */
-  readonly text: string | null;
-  /** The `<Template>` child's single element, for `list()` (null when none). */
-  readonly template: MarkupElement | null;
-  /** The element's whole source, open tag to close tag. */
-  readonly span: SourceSpan;
-  /** The open tag only (`<Panel …>`), where the editor inserts attributes. */
-  readonly openTagSpan: SourceSpan;
-  /** The file it comes from (differs from the document's for elements from a `<Use>`). */
+  /** The file it comes from: relative paths in its attributes (an image's `src`) resolve against it. */
   readonly file: string;
-  /** Set on the root element of an expanded `<Use src>`: the used file. */
-  readonly from?: string;
-  /**
-   * ADR 0425: an inline run inside a `Text`: the HTML tag as written (`b`, `a`, `span`, `br`, `img`…), which selectors
-   * match and HTML's defaults key on (`tag` is the element it builds: `Text`, or `Image` for `img`), or `#text` for the
-   * text between a text's inline children. Absent for every other element.
-   */
-  readonly inlineTag?: string;
 }
 
-export interface UIMarkup {
-  readonly file: string;
-  /** The document's single root element (normally a `Canvas`); null when it has none (a problem says so). */
-  readonly root: MarkupElement | null;
-  /** Stylesheet paths from `<Style src>`, resolved against the file's folder, in order (used documents' first). */
-  readonly styles: readonly string[];
-  /** Every file the document depends on (itself, used documents, stylesheets): a change to any rebuilds it. */
-  readonly files: readonly string[];
-  readonly problems: readonly SourceProblem[];
-}
-
-/**
- * Parse a markup document. `read(path)` returns another project file's text (for `<Use src>`), or null
- * when it doesn't exist. Paths are project-relative (`ui/menu.ui.xml`); `src` attributes are relative to
- * the file that has them. Never throws for bad markup: problems are reported and the rest still parses.
- */
-export type ParseMarkup = (source: string, file: string, read: (path: string) => string | null) => UIMarkup;
-
-/** Split a string into literal and `{name}` parts (`{{` is a literal brace). */
-export type ParseBindings = (value: string) => readonly BindingPart[];
-
-// --- Stylesheets (`*.ui.css`) -------------------------------------------------------------------
+// --- Stylesheets ----------------------------------------------------------------------------------
 
 /** A simple selector: a tag, an id, classes, pseudo-classes and `:lang()` ranges, all of which must match. */
 export interface SimpleSelector {
@@ -233,7 +185,7 @@ export type ParseStylesheet = (source: string, file: string, firstOrder?: number
 
 /** What a selector is matched against: an element in the built tree. */
 export interface StyleTarget {
-  /** A UI document's tag (`Button`), or the HTML tag a Svelte component wrote (`button`, `div`; ADR 0419). */
+  /** The HTML tag a Svelte component wrote (`button`, `div`; ADR 0419), or a UI element name (`Button`). */
   readonly tag: string;
   readonly id: string | null;
   readonly classes: readonly string[];

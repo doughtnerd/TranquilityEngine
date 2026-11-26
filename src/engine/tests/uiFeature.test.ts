@@ -8,8 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
 import { Assets, Engine, GameObject, Input } from "../index";
 import { UIButton, UICanvas, type UILength } from "../ui/components";
-import { loadUIDocumentSupport } from "../ui/UIDocument";
-import { buildUI, byId } from "./uiMarkup";
+import { buildUI, byId, loadUITestSupport } from "./uiMarkup";
 import { BabylonUI } from "../render/babylon/ui";
 import { BabylonUIFeature, type BabylonUIHost } from "../render/babylon/uiFeature";
 import { _registeredRenderFeatures, ownerOf, specNeeded } from "../render/renderFeatures";
@@ -52,7 +51,7 @@ function host(): BabylonUIHost {
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
-  await loadUIDocumentSupport();
+  await loadUITestSupport();
   babylon = new NullEngine();
   (babylon as unknown as { createCanvas: typeof fakeCanvas }).createCanvas = fakeCanvas;
   scene = new Scene(babylon);
@@ -79,9 +78,9 @@ async function make(): Promise<BabylonUIFeature> {
   return feature;
 }
 
-/** A screen canvas with a button, built by a UI document (ADR 0417). */
+/** A screen canvas with a button, rendered by a UI view (ADR 0417, 0419). */
 function menu() {
-  const doc = buildUI(`<Canvas id="Canvas"><Button id="Play" width="200" height="50"/></Canvas>`);
+  const doc = buildUI(`<Canvas id="Canvas"><button id="Play" width="200" height="50"/></Canvas>`);
   return { canvas: byId(doc, "Canvas", UICanvas), play: byId(doc, "Play", UIButton) };
 }
 

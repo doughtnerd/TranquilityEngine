@@ -9,7 +9,7 @@ import { Color } from "../core/math";
 
 const state = { hover: false, pressed: false, focus: false, disabled: false };
 const target = (tag: string, classes: string[] = [], parent: StyleTarget | null = null, id: string | null = null): StyleTarget => ({ tag, id, classes, state, parent });
-const element = (tag: MarkupElement["tag"]): MarkupElement => ({ kind: "element", tag, attributes: [], children: [], text: null, template: null, span: { start: 0, end: 0 }, openTagSpan: { start: 0, end: 0 }, file: "t.css" });
+const element = (tag: MarkupElement["tag"]): MarkupElement => ({ tag, attributes: [], file: "t.css" });
 
 function selector(text: string) {
   const sheet = parseStylesheet(`${text} {}`, "t.css");

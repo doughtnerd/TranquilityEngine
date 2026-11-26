@@ -1,10 +1,10 @@
 // Editing Svelte UI from the editor (ADR 0419 wave C): the Inspector's fields, text, id and classes, Move to class,
 // Create, the hierarchy's rename, duplicate, delete and drag, and the scene view's handles, all written back to the
 // view's `.svelte` source with edits that change only their own text (`uiEdit/svelteText.ts`, on `parse()` spans).
-// It's `uiDocumentEdits.ts`'s counterpart for views, with the same rules:
+// The rules:
 //
 // - Every edit is one `WriteFiles` command on the open scene's CommandStack, so Ctrl+Z undoes it in order with scene
-//   and UI document edits, and the History panel lists it. The file host writes through the project; writing UI code
+//   edits, and the History panel lists it. The file host writes through the project; writing UI code
 //   reloads the project's code (`textFiles.ts`), and the view hot-reloads with its props.
 // - Whether it can be edited now (a scene open, a project that can save, not playing) is the edit gate's (ADR 0247).
 // - Only static parts of the view's own component are edited (owner decision 1 of ADR 0419): `uiViews.ts`'s
@@ -19,8 +19,7 @@ import { status, type OpenScene } from "./state";
 import { beginEditStep, editableNow, whyNotEdit } from "./editGate";
 import { selectUIElement } from "./inspectorTarget";
 import type { UndoStep } from "./undoStep";
-import { cssValue } from "./uiDocumentEdits";
-import { kebab } from "./uiDocuments";
+import { cssValue, kebab } from "./uiFieldSources";
 import {
   duplicateElement,
   elementAtLocation,
@@ -50,16 +49,16 @@ export type UIViewAt = { readonly host: string; readonly index: number };
 
 /** Start a gesture whose edits are one undo step (a scene-view handle drag), or null with the reason in the status bar. */
 export function beginUIViewEdit(label: string): UndoStep | null {
-  return beginEditStep({ kind: "ui-documents" }, label, TO_DO);
+  return beginEditStep({ kind: "ui" }, label, TO_DO);
 }
 
 /** Why the element `ref` names can't be edited now (the edit gate, then `whyViewOnly`), or null. */
 export function whyNotEditViewElement(scene: OpenScene | null, ref: UIViewRef): string | null {
-  return whyNotEdit({ kind: "ui-documents" }, TO_DO) ?? (scene ? whyViewOnly(scene.sync, ref) : "open a scene first");
+  return whyNotEdit({ kind: "ui" }, TO_DO) ?? (scene ? whyViewOnly(scene.sync, ref) : "open a scene first");
 }
 
 /** The open scene if Svelte UI can be edited now; otherwise says why in the status bar. */
-const editableScene = (): OpenScene | null => editableNow({ kind: "ui-documents" }, TO_DO);
+const editableScene = (): OpenScene | null => editableNow({ kind: "ui" }, TO_DO);
 
 interface Editable {
   readonly scene: OpenScene;
@@ -307,7 +306,7 @@ export function moveUIViewElement(ref: UIViewRef, parent: UIViewRef | UIViewAt, 
   return done !== null;
 }
 
-/** New elements' starting markup, by the HTML tag the Create menu names (sizes and looks like UI documents' Create, ADR 0069). */
+/** New elements' starting markup, by the HTML tag the Create menu names (sizes and looks as ADR 0069's Create gave them). */
 export const NEW_VIEW_ELEMENTS: Readonly<Record<string, { readonly label: string; readonly markup: string }>> = {
   div: { label: "Panel (div)", markup: `<div width="200" height="100" background-color="#2a2f3a"></div>` },
   span: { label: "Text (span)", markup: `<span>New Text</span>` },

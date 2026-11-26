@@ -3,15 +3,14 @@ import { Assets, Color, Engine } from "../index";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "../ui/components";
 import { UI_TAGS, cssFontWeight, isInteractiveKind, isLeafKind, isPaintedUI, textRunOf, uiKindOf, uiPseudoState, uiTypeOfTag } from "../ui/elementKinds";
 import { UI_FONT_FAMILY } from "../ui/fonts";
-import { loadUIDocumentSupport } from "../ui/UIDocument";
-import { uiElement } from "./uiMarkup";
+import { loadUITestSupport, uiElement } from "./uiMarkup";
 
 // ADR 0271: the UI element kinds and the resolved text run.
 
 let engine: Engine;
 beforeEach(async () => {
   engine = await Engine.create({ headless: true });
-  await loadUIDocumentSupport();
+  await loadUITestSupport();
 });
 afterEach(() => {
   engine.dispose();

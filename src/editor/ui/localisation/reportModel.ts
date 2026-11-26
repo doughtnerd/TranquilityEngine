@@ -1,24 +1,20 @@
 // The Localisation panel's Report tab (ADR 0356 §7, §8, §9): per-language translated / needs review / missing counts,
-// then the lists — keys used but missing a translation, keys used but defined nowhere, unused keys, unkeyed text, keys
-// defined twice, and the text fit check's overflows — each row naming the file that opens it. Built from the engine's
-// key gathering (`exchange/gather.ts`) and the fit check (`fitCheck.ts`).
+// then the lists — keys used but missing a translation, keys used but defined nowhere, unused keys and keys defined
+// twice — each row naming the file that opens it. Built from the engine's key gathering (`exchange/gather.ts`). (The
+// unkeyed-text list and the text fit check read UI documents' markup; ADR 0419 retired them with the documents.)
 //
 // Pure.
 import type { GatherReport } from "../../../engine/localisation/exchange/gather";
-import { unkeyedId } from "../../../engine/localisation/exchange/gather";
-import type { FitResult } from "./fitCheck";
 
-export type ReportSectionId = "missing" | "undefined" | "unused" | "unkeyed" | "duplicates" | "fit";
+export type ReportSectionId = "missing" | "undefined" | "unused" | "duplicates";
 
 /** One row of a report list: what it says and the file it opens. */
 export interface ReportRow {
   readonly id: string;
   readonly key: string;
   readonly detail: string;
-  /** The file to open (a document, scene, script or table). */
+  /** The file to open (a component, script or table). */
   readonly path: string;
-  /** For unkeyed text: the dismissal id (`.myco/localisation-ignore.json`). */
-  readonly dismiss?: string;
 }
 
 export interface ReportSection {
@@ -45,10 +41,10 @@ export interface LocalisationReport {
   readonly issues: number;
 }
 
-const KIND_WORD = { document: "UI document", scene: "scene", script: "script", line: "line table", caption: "playlist caption" } as const;
+const KIND_WORD = { component: "Svelte UI", script: "script", line: "line table", caption: "playlist caption" } as const;
 
-/** The report from a gathering run and, when it was run, the fit check. */
-export function localisationReport(gather: GatherReport, fit: FitResult | null): LocalisationReport {
+/** The report from a gathering run. */
+export function localisationReport(gather: GatherReport): LocalisationReport {
   const languages = Object.entries(gather.counts).map(([language, c]) => {
     const total = c.translated + c.needsReview + c.missing;
     return { language, ...c, done: total === 0 ? 1 : c.translated / total };
@@ -78,31 +74,12 @@ export function localisationReport(gather: GatherReport, fit: FitResult | null):
       rows: gather.unused.map((d) => ({ id: `unused|${d.key}`, key: d.key, detail: d.table, path: d.table })),
     },
     {
-      id: "unkeyed",
-      title: "Unkeyed text",
-      hint: "Literal text that isn't localised: select it and use Localise or Extract to string table in the Inspector, or mark it translate=\"no\".",
-      rows: gather.unkeyed.map((u) => ({ id: `unkeyed|${unkeyedId(u)}`, key: u.text, detail: `${u.path} ${u.where} (${u.field})`, path: u.path, dismiss: unkeyedId(u) })),
-    },
-    {
       id: "duplicates",
       title: "Keys in two tables",
       hint: "Keys are unique across the project: the first table in path order wins and the others are ignored.",
       rows: gather.duplicates.map((d) => ({ id: `dup|${d.key}`, key: d.key, detail: d.tables.join(", "), path: d.tables[1] ?? d.tables[0] })),
     },
   ];
-  if (fit) {
-    sections.push({
-      id: "fit",
-      title: "Text that doesn't fit",
-      hint: `Laid out in ${fit.languages.join(", ")} with each key's examples (long stand-ins otherwise): ${fit.checked} element${fit.checked === 1 ? "" : "s"} checked, ${fit.skipped} without a fixed width skipped.`,
-      rows: fit.overflows.map((o) => ({
-        id: `fit|${o.path}|${o.where}|${o.language}`,
-        key: o.key,
-        detail: `${o.language}: ${o.reason === "lines" ? `${Math.round(o.needed.height)} px tall, box ${o.box.height} px` : `${Math.round(o.needed.width)} px wide, box ${o.box.width} px`} · ${o.path} ${o.where}`,
-        path: o.path,
-      })),
-    });
-  }
   const issues = sections.reduce((n, s) => n + s.rows.length, 0);
   return { languages, sections, issues };
 }

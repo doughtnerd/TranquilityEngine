@@ -1,11 +1,11 @@
-// The editor's one tree view (ADR 0278): the Hierarchy (scene nodes, prefab instances' inner nodes and UI document
+// The editor's one tree view (ADR 0278): the Hierarchy (scene nodes, prefab instances' inner nodes and UI view
 // elements), the live Hierarchy of a running World and the Assets panel's folders all draw with it. It owns what a
 // tree does: rows with a caret, collapse, the keyboard (Up/Down/Home/End move and select, Right opens or steps in,
 // Left closes or steps out, F2 renames, Delete removes), renaming in place, the drop indicator a drag asks for, and
 // the ARIA tree pattern (tree, treeitem, group, aria-level, aria-expanded, aria-selected, one tab stop that roves).
 //
 // Adapters supply each item set's rows and edits as `TreeRow`s: what a row shows and what selecting, opening,
-// renaming, removing or dragging it does. Rows from different item sets mix in one tree (a node's UI document
+// renaming, removing or dragging it does. Rows from different item sets mix in one tree (a node's UI view
 // elements sit under its children), each with its own edits. Which row is being renamed is kept per tree name
 // (`renameRow`), so a menu item can start a rename the tree then shows.
 import type { ComponentChildren } from "preact";

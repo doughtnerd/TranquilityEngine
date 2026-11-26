@@ -1,17 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Color, Engine, GameBehavior, GameObject, Input, SceneManager, Vector2, behavior, getComponentClass, getFields } from "../index";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../ui/components";
-import { UIDocument, loadUIDocumentSupport } from "../ui/UIDocument";
 import { World } from "../core/World";
 import { DomInput } from "./domInput";
-import { buildUI, byId } from "./uiMarkup";
+import { buildUI, byId, loadUITestSupport } from "./uiMarkup";
 
-// ADR 0069: UI components in a headless World, and Input without UI. ADR 0417: only UI documents make
-// them. Layout, pointer routing and editor picking are tested on the renderer-neutral core
+// ADR 0069: UI components in a headless World, and Input without UI. ADR 0417 (amended by 0419): only a UIView's
+// Svelte component makes them; ADR 0419 retired UI documents. Layout, pointer routing and editor picking are tested on the renderer-neutral core
 // (uiCore.test.ts, ADR 0076) and on Babylon (babylonUI.test.ts); the three.js runtime was removed with
 // its backend (ADR 0081).
 
-const FROM_DOCUMENTS = "UI elements come from a UIView's Svelte component or a UI document (ADR 0417, 0419): write the element in the component (or a *.ui.xml document), or use ui.list() for rows made at runtime.";
+const FROM_VIEWS = "UI elements come from a UIView's Svelte component (ADR 0417, 0419): write the element in the component.";
 
 const DT = 1 / 60;
 let engine: Engine;
@@ -19,7 +18,7 @@ let engine: Engine;
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
-  await loadUIDocumentSupport();
+  await loadUITestSupport();
 });
 
 afterEach(() => {
@@ -36,10 +35,10 @@ function world(): World {
 /** A 1280×720 screen canvas with a column of fixed-size buttons. */
 function menu() {
   const doc = buildUI(`<Canvas id="Canvas">
-    <Panel id="Menu" flex-direction="column" padding="20" gap="10" width="100%" height="100%">
-      <Button id="Play" width="200" height="50" padding="0"/>
-      <Button id="Quit" width="200" height="50" padding="0"/>
-    </Panel>
+    <div id="Menu" flex-direction="column" padding="20" gap="10" width="100%" height="100%">
+      <button id="Play" width="200" height="50" padding="0"/>
+      <button id="Quit" width="200" height="50" padding="0"/>
+    </div>
   </Canvas>`);
   return { doc, canvas: byId(doc, "Canvas", UICanvas), column: byId(doc, "Menu", UIPanel), play: byId(doc, "Play", UIButton), quit: byId(doc, "Quit", UIButton) };
 }
@@ -62,7 +61,7 @@ describe("UI components (ADR 0069)", () => {
 
   it("hold data in a headless World without building anything: with no UI core, nothing clicks or submits", () => {
     const { play } = menu();
-    const field = byId(buildUI(`<Canvas><InputField id="Name" placeholder="Your name"/></Canvas>`), "Name", UIInputField);
+    const field = byId(buildUI(`<Canvas><input id="Name" placeholder="Your name"/></Canvas>`), "Name", UIInputField);
     expect(world().render).toBeNull();
     engine.step(DT);
     // A press and release where Play would be laid out (uiCore.test.ts clicks it with a core).
@@ -83,15 +82,15 @@ describe("UI components (ADR 0069)", () => {
   });
 });
 
-describe("UI comes only from UI documents (ADR 0417)", () => {
+describe("UI comes only from UI views (ADR 0417, 0419)", () => {
   const types = [UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField];
 
   it("refuses every UI component from addComponent, addBehavior and addChildBehavior, adding nothing", () => {
     const n = GameObject.create("Hand-built");
     for (const type of types) {
-      expect(() => n.addComponent(type as never)).toThrow(FROM_DOCUMENTS);
-      expect(() => n.addBehavior(type as never, {} as never)).toThrow(FROM_DOCUMENTS);
-      expect(() => n.addChildBehavior(type as never)).toThrow(FROM_DOCUMENTS);
+      expect(() => n.addComponent(type as never)).toThrow(FROM_VIEWS);
+      expect(() => n.addBehavior(type as never, {} as never)).toThrow(FROM_VIEWS);
+      expect(() => n.addChildBehavior(type as never)).toThrow(FROM_VIEWS);
     }
     expect(n.getComponents(UIPanel as never)).toEqual([]);
     expect(n.children).toEqual([]);
@@ -99,10 +98,10 @@ describe("UI comes only from UI documents (ADR 0417)", () => {
 
   it("refuses a script's subclass of a UI component too", () => {
     class FancyButton extends UIButton {}
-    expect(() => GameObject.create("Fancy").addComponent(FancyButton)).toThrow(FROM_DOCUMENTS);
+    expect(() => GameObject.create("Fancy").addComponent(FancyButton)).toThrow(FROM_VIEWS);
   });
 
-  it("still makes them in a document's build, as element types scripts read and write", () => {
+  it("still makes them in a view's render, as element types scripts read and write", () => {
     const { doc, play } = menu();
     expect(doc.query("#Play")!.node.getComponent(UIButton)).toBe(play);
     play.interactable = false;
@@ -128,9 +127,9 @@ describe("UI comes only from UI documents (ADR 0417)", () => {
       "prefabs/added.prefab.json": { format: "myco.scene@5", nodes: [{ id: "i", name: "Instance", prefab: "prefabs/plain.prefab.json", overrides: [{ addComponent: { type: "engine.UIButton" } }] }] },
       "prefabs/plain.prefab.json": { format: "myco.scene@5", nodes: [{ id: "p", name: "Plain" }] },
     }));
-    await expect(SceneManager.load("scenes/menu.scene.json")).rejects.toThrow(`scenes/menu.scene.json: node "/menu/Menu/Title" saves a UI component ("engine.UIText"). ${FROM_DOCUMENTS}`);
-    expect(() => GameObject.instantiate("prefabs/hud.prefab.json")).toThrow(`prefabs/hud.prefab.json: node "/Menu/Title" saves a UI component ("engine.UIPanel"). ${FROM_DOCUMENTS}`);
-    expect(() => GameObject.instantiate("prefabs/added.prefab.json")).toThrow(/prefabs\/added\.prefab\.json: node "\/Instance" saves a UI component \("engine\.UIButton"\)\. UI elements come from a UIView's Svelte component or a UI document \(ADR 0417, 0419\)/);
+    await expect(SceneManager.load("scenes/menu.scene.json")).rejects.toThrow(`scenes/menu.scene.json: node "/menu/Menu/Title" saves a UI component ("engine.UIText"). ${FROM_VIEWS}`);
+    expect(() => GameObject.instantiate("prefabs/hud.prefab.json")).toThrow(`prefabs/hud.prefab.json: node "/Menu/Title" saves a UI component ("engine.UIPanel"). ${FROM_VIEWS}`);
+    expect(() => GameObject.instantiate("prefabs/added.prefab.json")).toThrow(/prefabs\/added\.prefab\.json: node "\/Instance" saves a UI component \("engine\.UIButton"\)\. UI elements come from a UIView's Svelte component \(ADR 0417, 0419\)/);
     expect(engine.world.root.children.map((c) => c.name)).toEqual([]); // nothing half-built stays
     expect(GameObject.findObjectsOfType(Marker)).toEqual([]);
   });
@@ -139,19 +138,20 @@ describe("UI comes only from UI documents (ADR 0417)", () => {
     const removed = ["engine.Text", "engine.LocalizedText", "Text", "LocalizedText"];
     Assets.addSource(Assets.fromObject(Object.fromEntries(removed.map((type, i) => [`prefabs/old${i}.prefab.json`, fromFile([{ type, data: { text: "Score" } }])]))));
     removed.forEach((type, i) => {
-      expect(() => GameObject.instantiate(`prefabs/old${i}.prefab.json`)).toThrow(`prefabs/old${i}.prefab.json: node "/Menu/Title" saves "${type}", which was removed. ${FROM_DOCUMENTS}`);
+      expect(() => GameObject.instantiate(`prefabs/old${i}.prefab.json`)).toThrow(`prefabs/old${i}.prefab.json: node "/Menu/Title" saves "${type}", which was removed. ${FROM_VIEWS}`);
     });
   });
 
-  it("loads a scene whose UI is a UIDocument, and builds it", async () => {
+  it("fails to load a scene or prefab that saves a UIDocument (ADR 0419 retired them), by id or bare name, naming the record", async () => {
     Assets.addSource(Assets.fromObject({
       "ui/hud.ui.xml": `<Canvas><Text id="score">0</Text></Canvas>`,
       "scenes/game.scene.json": { format: "myco.scene@5", nodes: [{ id: "hud", name: "HUD", components: [{ type: "engine.UIDocument", data: { document: "asset:ui/hud.ui.xml" } }] }] },
+      "prefabs/hud.prefab.json": fromFile([{ type: "UIDocument", data: { document: "asset:ui/hud.ui.xml" } }]),
     }));
-    await SceneManager.load("scenes/game.scene.json");
-    const doc = GameObject.findObjectOfType(UIDocument)!;
-    await doc.ready;
-    expect(doc.query("#score")!.as(UIText).text).toBe("0");
+    const retired = (file: string, node: string, type: string) => `${file}: node "${node}" saves "${type}": UI documents (*.ui.xml, *.ui.css) were retired by ADR 0419. Write the UI as a Svelte component and mount it with a UIView.`;
+    await expect(SceneManager.load("scenes/game.scene.json")).rejects.toThrow(retired("scenes/game.scene.json", "/game/HUD", "engine.UIDocument"));
+    expect(() => GameObject.instantiate("prefabs/hud.prefab.json")).toThrow(retired("prefabs/hud.prefab.json", "/Menu/Title", "UIDocument"));
+    expect(engine.world.root.children.map((c) => c.name)).toEqual([]); // nothing half-built stays
   });
 });
 

@@ -2,11 +2,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, Input } from "../index";
 import { World } from "../core/World";
 import { UIButton, UIForm, UIInputField, UIMeter, UIOption, UIPanel, UIProgress, UIRadio, UISelect, UISlider, UIText, UITextArea, UIToggle } from "../ui/components";
-import { loadUIDocumentSupport, type UIDocument, type UIEvent } from "../ui/UIDocument";
 import { UIPointer, stubDocument } from "./uiPointer";
-import { buildUI, byId } from "./uiMarkup";
+import { buildUI, byId, loadUITestSupport, type TestUI } from "./uiMarkup";
+import type { UIHostEvent } from "../ui/host/UIHost";
 
-// ADR 0424: HTML's form elements as UI core kinds, in UI documents: checkboxes, radios, sliders, number and password
+// ADR 0424: HTML's form elements as UI core kinds, rendered by a view: checkboxes, radios, sliders, number and password
 // fields, text areas, selects with their popup list, progress bars and meters, labels and forms; their `input`/`change`
 // events and default actions, keyboard and gamepad navigation, the `:checked`, `:indeterminate`, `:disabled` and
 // `:placeholder-shown` pseudo-classes and the parts each draws. Driven through a UI core routing `Input`'s DOM adapter
@@ -19,7 +19,7 @@ let pointers: UIPointer[] = [];
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
-  await loadUIDocumentSupport();
+  await loadUITestSupport();
 });
 
 afterEach(() => {
@@ -62,9 +62,9 @@ function press(p: UIPointer, key: string): void {
 }
 
 /** Every event of `types` on the document's root, as "type id", in order. */
-function record(doc: UIDocument, types: readonly string[]): string[] {
+function record(doc: TestUI, types: readonly string[]): string[] {
   const log: string[] = [];
-  for (const t of types) doc.root!.on(t as never, (e: UIEvent) => log.push(`${e.type} ${e.target.id ?? "-"}`));
+  for (const t of types) doc.root!.on(t as never, (e: UIHostEvent) => log.push(`${e.type} ${e.element.id ?? "-"}`));
   return log;
 }
 
@@ -72,7 +72,7 @@ const COLUMN = `flex-direction="column" align-items="flex-start" gap="8"`;
 
 describe("checkboxes and radios (ADR 0424)", () => {
   it("toggles a checkbox on click with input then change, clears indeterminate, and polls changed", async () => {
-    const doc = buildUI(`<Canvas><Panel ${COLUMN}><Toggle id="a" indeterminate="true"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div ${COLUMN}><input type="checkbox" id="a" indeterminate="true"/></div></Canvas>`);
     const p = await pointer();
     const log = record(doc, ["input", "change", "click"]);
     const a = byId(doc, "a", UIToggle);
@@ -88,7 +88,7 @@ describe("checkboxes and radios (ADR 0424)", () => {
   });
 
   it("doesn't toggle when the click is prevented, or when it isn't interactable", async () => {
-    const doc = buildUI(`<Canvas><Panel ${COLUMN}><Toggle id="a"/><Toggle id="b" interactable="false"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div ${COLUMN}><input type="checkbox" id="a"/><input type="checkbox" id="b" interactable="false"/></div></Canvas>`);
     const p = await pointer();
     doc.query("#a")!.on("click", (e) => e.preventDefault());
     click(p, byId(doc, "a", UIToggle));
@@ -97,7 +97,7 @@ describe("checkboxes and radios (ADR 0424)", () => {
   });
 
   it("toggles before the click's handlers run, as HTML does, and back when one prevents it", async () => {
-    const doc = buildUI(`<Canvas><Panel ${COLUMN}><Toggle id="a"/><Radio id="r1" name="g" checked="true"/><Radio id="r2" name="g"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div ${COLUMN}><input type="checkbox" id="a"/><input type="radio" id="r1" name="g" checked="true"/><input type="radio" id="r2" name="g"/></div></Canvas>`);
     const p = await pointer();
     const seen: string[] = [];
     const a = byId(doc, "a", UIToggle);
@@ -123,10 +123,10 @@ describe("checkboxes and radios (ADR 0424)", () => {
   });
 
   it("checks one radio per name within a form, and arrows move the check through the group", async () => {
-    const doc = buildUI(`<Canvas><Panel ${COLUMN}>
-      <Form id="f1" flex-direction="row"><Radio id="a" name="size" checked="true"/><Radio id="b" name="size"/><Radio id="c" name="size"/></Form>
-      <Form id="f2" flex-direction="row"><Radio id="d" name="size" checked="true"/></Form>
-    </Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div ${COLUMN}>
+      <form id="f1" flex-direction="row"><input type="radio" id="a" name="size" checked="true"/><input type="radio" id="b" name="size"/><input type="radio" id="c" name="size"/></form>
+      <form id="f2" flex-direction="row"><input type="radio" id="d" name="size" checked="true"/></form>
+    </div></Canvas>`);
     const p = await pointer();
     const log = record(doc, ["change"]);
     click(p, byId(doc, "b", UIRadio));
@@ -145,7 +145,7 @@ describe("checkboxes and radios (ADR 0424)", () => {
   });
 
   it("toggles a focused checkbox with Space (submit)", async () => {
-    const doc = buildUI(`<Canvas><Panel ${COLUMN}><Toggle id="a"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div ${COLUMN}><input type="checkbox" id="a"/></div></Canvas>`);
     const p = await pointer();
     byId(doc, "a", UIToggle).focused = true;
     press(p, "space");
@@ -153,8 +153,8 @@ describe("checkboxes and radios (ADR 0424)", () => {
   });
 
   it("matches :checked, :indeterminate and :disabled, and draws the fill and mark in accent-color", async () => {
-    const doc = buildUI(`<Canvas><Panel ${COLUMN}><Toggle id="a"/><Toggle id="b" interactable="false"/><Toggle id="c" indeterminate="true"/></Panel></Canvas>`, {
-      css: `Toggle:checked { width: 20px; } Toggle:disabled { opacity: 0.5; } Toggle:indeterminate { height: 30px; } #a { accent-color: #ff0000; }`,
+    const doc = buildUI(`<Canvas><div ${COLUMN}><input type="checkbox" id="a"/><input type="checkbox" id="b" interactable="false"/><input type="checkbox" id="c" indeterminate="true"/></div></Canvas>`, {
+      css: `input:checked { width: 20px; } input:disabled { opacity: 0.5; } input:indeterminate { height: 30px; } #a { accent-color: #ff0000; }`,
     });
     const p = await pointer();
     frame(p); // the late sync matches pseudo-classes
@@ -173,11 +173,11 @@ describe("checkboxes and radios (ADR 0424)", () => {
 describe("labels (ADR 0424)", () => {
   it("toggles the checkbox it wraps, clicks it once, and focuses a field by `for`", async () => {
     stubDocument();
-    const doc = buildUI(`<Canvas><Panel ${COLUMN}>
-      <Label id="l1"><Toggle id="t"/>Accept the terms</Label>
-      <Label id="l2" for="name">Name</Label>
-      <InputField id="name"/>
-    </Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div ${COLUMN}>
+      <label id="l1"><input type="checkbox" id="t"/>Accept the terms</label>
+      <label id="l2" for="name">Name</label>
+      <input id="name"/>
+    </div></Canvas>`);
     const p = await pointer();
     const clicks: string[] = [];
     doc.query("#t")!.on("click", () => clicks.push("t"));
@@ -196,7 +196,7 @@ describe("labels (ADR 0424)", () => {
 describe("sliders (ADR 0424)", () => {
   it("jumps to a press, follows a drag with input, sends change on release, and snaps to its step", async () => {
     // 216 wide and 16 tall: the thumb's centre runs from 8 to 208, 2 pixels a unit.
-    const doc = buildUI(`<Canvas><Panel ${COLUMN}><Slider id="s" width="216" step="5"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div ${COLUMN}><input type="range" id="s" width="216" step="5"/></div></Canvas>`);
     const p = await pointer();
     const log = record(doc, ["input", "change"]);
     const s = byId(doc, "s", UISlider);
@@ -219,7 +219,7 @@ describe("sliders (ADR 0424)", () => {
 
   it("steps with the arrow keys, a tenth with Page Up/Down, to its ends with Home/End; up and down leave it", async () => {
     stubDocument();
-    const doc = buildUI(`<Canvas><Panel ${COLUMN}><Slider id="s" min="0" max="10" step="1" value="5"/><Button id="next" width="80" height="30">Next</Button></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div ${COLUMN}><input type="range" id="s" min="0" max="10" step="1" value="5"/><button id="next" width="80" height="30">Next</button></div></Canvas>`);
     const p = await pointer();
     const s = byId(doc, "s", UISlider);
     s.focused = true;
@@ -243,16 +243,16 @@ describe("sliders (ADR 0424)", () => {
 
 describe("fields: number, password and text areas (ADR 0424)", () => {
   it("draws a password as dots, one per character", async () => {
-    const doc = buildUI(`<Canvas><InputField id="pw" type="password" value="hunter2"/></Canvas>`);
+    const doc = buildUI(`<Canvas><input id="pw" type="password" value="hunter2"/></Canvas>`);
     const p = await pointer();
     expect(p.core.elements().find((e) => e.comp === byId(doc, "pw", UIInputField))!.text!.text).toBe("•••••••");
   });
 
   it("steps a typing number field with the arrow keys, within min and max", async () => {
     stubDocument();
-    const doc = buildUI(`<Canvas><InputField id="n" type="number" min="0" max="3" step="2" value="0"/></Canvas>`);
+    const doc = buildUI(`<Canvas><input id="n" type="number" min="0" max="3" step="2" value="0"/></Canvas>`);
     const p = await pointer();
-    const log = record(doc, ["change"]);
+    const log = record(doc, ["change", "input"]);
     const n = byId(doc, "n", UIInputField);
     n.focused = true;
     frame(p);
@@ -262,11 +262,11 @@ describe("fields: number, password and text areas (ADR 0424)", () => {
     p.dom.tap("arrowup");
     frame(p, 2);
     expect(n.value).toBe("3");
-    expect(log).toEqual(["change n", "change n"]);
+    expect(log).toEqual(["input n", "input n"]); // each step is an `input`; a text-like field commits its `change` on Enter or blur
   });
 
   it("lays a text area out `rows` lines tall, wraps its lines and scrolls them with the wheel", async () => {
-    const doc = buildUI(`<Canvas><Panel ${COLUMN}><TextArea id="t" rows="3" padding="0" border-width="0" width="200" font-size="10"/></Panel></Canvas>`);
+    const doc = buildUI(`<Canvas><div ${COLUMN}><textarea id="t" rows="3" padding="0" border-width="0" width="200" font-size="10"/></div></Canvas>`);
     const t = byId(doc, "t", UITextArea);
     t.value = Array.from({ length: 10 }, (_, i) => `line ${i}`).join("\n");
     const p = await pointer();
@@ -281,7 +281,7 @@ describe("fields: number, password and text areas (ADR 0424)", () => {
 
   it("starts a new line on Enter in a text area instead of submitting its form", async () => {
     const fake = stubDocument();
-    const doc = buildUI(`<Canvas><Form id="f"><TextArea id="t"/></Form></Canvas>`);
+    const doc = buildUI(`<Canvas><form id="f"><textarea id="t"/></form></Canvas>`);
     const p = await pointer();
     const log = record(doc, ["submit"]);
     byId(doc, "t", UITextArea).focused = true;
@@ -296,10 +296,10 @@ describe("fields: number, password and text areas (ADR 0424)", () => {
 });
 
 describe("selects (ADR 0424)", () => {
-  const SELECT = `<Canvas><Panel flex-direction="row" align-items="flex-start" gap="8" width="400" height="300" overflow="hidden">
-    <Select id="s"><Option id="o1" value="r">Red</Option><Option id="o2" value="g" selected="true">Green</Option><Option id="o3" interactable="false">Blue</Option></Select>
-    <Button id="other" width="100" height="30">Other</Button>
-  </Panel></Canvas>`;
+  const SELECT = `<Canvas><div flex-direction="row" align-items="flex-start" gap="8" width="400" height="300" overflow="hidden">
+    <select id="s"><option id="o1" value="r">Red</option><option id="o2" value="g" selected="true">Green</option><option id="o3" interactable="false">Blue</option></select>
+    <button id="other" width="100" height="30">Other</button>
+  </div></Canvas>`;
 
   it("shows its chosen option, opens a list above everything on click, chooses with input then change, and closes", async () => {
     const doc = buildUI(SELECT);
@@ -362,10 +362,10 @@ describe("selects (ADR 0424)", () => {
 
 describe("progress bars and meters (ADR 0424)", () => {
   it("fills a progress bar to value / max, sweeps an indeterminate one, and colours a meter by its regions", async () => {
-    const doc = buildUI(`<Canvas><Panel ${COLUMN}>
-      <Progress id="p" value="0.25" width="100"/><Progress id="q" width="100"/>
-      <Meter id="good" value="0.9" low="0.3" high="0.7" optimum="1" width="100"/><Meter id="fair" value="0.5" low="0.3" high="0.7" optimum="1" width="100"/><Meter id="poor" value="0.1" low="0.3" high="0.7" optimum="1" width="100"/>
-    </Panel></Canvas>`, { css: `Progress:indeterminate { opacity: 0.75; }` });
+    const doc = buildUI(`<Canvas><div ${COLUMN}>
+      <progress id="p" value="0.25" width="100"/><progress id="q" width="100"/>
+      <meter id="good" value="0.9" low="0.3" high="0.7" optimum="1" width="100"/><meter id="fair" value="0.5" low="0.3" high="0.7" optimum="1" width="100"/><meter id="poor" value="0.1" low="0.3" high="0.7" optimum="1" width="100"/>
+    </div></Canvas>`, { css: `progress:indeterminate { opacity: 0.75; }` });
     const p = await pointer();
     frame(p);
     const parts = (id: string, type: new () => UIProgress | UIMeter) => p.core.elements().find((e) => e.comp === byId(doc, id, type))!.parts;
@@ -382,11 +382,11 @@ describe("progress bars and meters (ADR 0424)", () => {
 describe("forms (ADR 0424)", () => {
   it("submits on a submit button and on Enter in a field, and resets its controls as built unless prevented", async () => {
     const fake = stubDocument();
-    const doc = buildUI(`<Canvas><Form id="f" ${COLUMN}>
-      <InputField id="name" value="Ada"/><Toggle id="t" checked="true"/>
-      <Select id="s"><Option id="o1">One</Option><Option id="o2">Two</Option></Select>
-      <Button id="go" width="80" height="30">Go</Button><Button id="clear" type="reset" width="80" height="30">Clear</Button><Button id="plain" type="button" width="80" height="30">Plain</Button>
-    </Form></Canvas>`);
+    const doc = buildUI(`<Canvas><form id="f" ${COLUMN}>
+      <input id="name" value="Ada"/><input type="checkbox" id="t" checked="true"/>
+      <select id="s"><option id="o1">One</option><option id="o2">Two</option></select>
+      <button id="go" width="80" height="30">Go</button><button id="clear" type="reset" width="80" height="30">Clear</button><button id="plain" type="button" width="80" height="30">Plain</button>
+    </form></Canvas>`);
     const p = await pointer();
     const log = record(doc, ["submit", "reset"]);
     click(p, byId(doc, "go", UIButton));
@@ -416,7 +416,7 @@ describe("forms (ADR 0424)", () => {
   });
 
   it("matches :placeholder-shown while a field with a placeholder is empty", async () => {
-    const doc = buildUI(`<Canvas><InputField id="n" placeholder="Name"/></Canvas>`, { css: `InputField:placeholder-shown { opacity: 0.5; }` });
+    const doc = buildUI(`<Canvas><input id="n" placeholder="Name"/></Canvas>`, { css: `input:placeholder-shown { opacity: 0.5; }` });
     const p = await pointer();
     frame(p);
     const n = byId(doc, "n", UIInputField);
