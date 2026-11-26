@@ -11,18 +11,20 @@ rewrites `baseline.json`, keeping `outOfScope`.
 
 ## Counts (2026-11-26)
 
-| | Before the triage | After |
-|---|---|---|
-| Pass | 1130 | 1210 |
-| Fail | 181 | 99 |
-| Skip | 53 | 55 (two `skip_async` fixtures, which Svelte's async-mode run skips too) |
-| Pass rate over every sample run | 86.2% of 1311 | 92.4% of 1309 |
-| Out of scope (run, listed) | not listed | 28 |
-| **Pass rate in scope** | not measured | **94.5% (1210 of 1281)** |
+| | Before the triage | After the triage | After the patch round (class c) |
+|---|---|---|---|
+| Pass | 1130 | 1210 | 1241 |
+| Fail | 181 | 99 | 68 |
+| Skip | 53 | 55 (two `skip_async` fixtures, which Svelte's async-mode run skips too) | 55 |
+| Pass rate over every sample run | 86.2% of 1311 | 92.4% of 1309 | 94.8% of 1309 |
+| Out of scope (run, listed) | not listed | 28 | 29 |
+| **Pass rate in scope** | not measured | **94.5% (1210 of 1281)** | **97.0% (1241 of 1280)** |
 
-The 99 failures by class: **a** 41 engine or renderer gaps (open), **c** 30 needing a Svelte patch change (written up
-below; another agent holds the patch), **b** 11 harness or jsdom-only expectations, **d** 17 out of scope per 0419.
-The 71 in scope (a and c) still fail; the gate before wave D needs them fixed or ruled out of scope by the owner.
+The 68 failures by class: **a** 39 engine or renderer gaps (open), **b** 12 harness or jsdom-only expectations,
+**d** 17 out of scope per 0419. Class **c** (patch changes) is done: 29 of its 30 samples pass, and `if-transition-inert`
+turned out to be a jsdom-only expectation (now class b). The patch round also fixed `svelte-meta-component` and
+`svelte-meta-component-async` (class a). The 39 in scope (class a) still fail; the gate before wave D needs them fixed
+or ruled out of scope by the owner.
 
 What the triage changed:
 
@@ -35,6 +37,9 @@ What the triage changed:
   (title, `$props.id()` counter, a config's window listeners); `skip_async` skipped; the page's global `name`;
   `svelte/reactivity` resolved to the engine's, as games get it, with `matchMedia` spied on as Svelte's harness mocks
   it; class lists compared as token sets and inline styles as declarations.
+- **Harness (patch round)**: `inert` is left out of HTML comparisons on both sides (Svelte's outros set
+  `element.inert`, which a browser reflects and jsdom, lacking `inert`, keeps as an expando, so the fixtures never show
+  it); `svelte/motion`'s own `svelte/reactivity` import resolves to the engine's.
 - **UI core**: a click toggles a checkbox or radio *before* its handlers, HTML's order (0424 as built toggled after),
   and back if one prevents it; `click()` from a script runs the activation through the UI core (`UIHostElement.click`),
   with its `input`, `change` and `submit` at once.
@@ -47,7 +52,7 @@ What the triage changed:
 
 ## Every sample that doesn't pass
 
-### a: engine or renderer gap (in scope, open): 41
+### a: engine or renderer gap (in scope, open): 39
 
 | Samples | Reason / status |
 |---|---|
@@ -67,32 +72,20 @@ What the triage changed:
 | `muted-without-bind-works` | engine: changing the `muted` attribute on `<audio>` sends no `volumechange` (the media element doesn't report attribute-driven changes) |
 | `option-rich-content` | engine: an option holding elements (`<option><span>…</span> A</option>`) reads its label as the select's value instead of its `value`; not yet traced |
 | `select-option-added` | engine: `select.value = …` then a `change`, then options added: `selectedOptions` is empty; not yet traced |
-| `svelte-meta-component`, `svelte-meta-component-async` | open: `__svelte_meta` missing on this node under the renderer (dev locations through components/async); not yet traced (likely the patch's dev-meta path) |
 
-### c: needs a patch change (in scope, written up below): 30
+### c: needs a patch change: done (2026-11-26)
 
-| Samples | Reason / status |
-|---|---|
-| `create-raw-snippet-invalid-render`, `snippet-raw`, `snippet-raw-component`, `snippet-raw-component-ssr-dev`, `snippet-raw-teardown`, `svelte-meta-raw-snippet`, `svelte-meta-raw-snippet-boundary` | patch: `createRawSnippet` under a custom renderer (snippet_renderer_mismatch / invalid_snippet_in_custom_renderer); it could build its nodes through the `html` hook |
-| `dynamic-element-dynamic-namespace` | patch: `create_element` drops the namespace under a renderer (`current_renderer.createElement(tag)`); pass it (`createElement(tag, namespace ?? NAMESPACE_HTML)`): the renderer keeps it (`namespaceURI`), so a `<svelte:element>` with `xmlns={null}` inside an `<svg>` is HTML |
-| `event-attribute-delegation-5`, `event-on-stop-propagation` | patch: Svelte's root delegation runs `onclick` handlers after direct `on:click` listeners; under a renderer both are direct, so registration order decides (the patch could mark delegated handlers for a root phase) |
-| `event-handler-component-invalid-warning`, `event-handler-invalid-values`, `event-handler-invalid-warning` | patch: Svelte's dev `apply()` names the event `clickcapture` when `eventPhase < BUBBLING_PHASE`; under a renderer (no delegation) listeners run at the target (phase 2): test `=== CAPTURING_PHASE` (1) |
-| `if-nested-template`, `if-transition-inert` | patch: Svelte skips `element.inert` during outros under a custom renderer (transitions.js `renderer === null` guards); the renderer reflects `inert` now, so the guards can go |
-| `manual-mount`, `mount-intro-transition`, `mount-unmount-anchor` | patch: `mount()` called inside a component (no `renderer` option) takes the DOM path; it should default to the active renderer |
-| `select-falsy-value` | patch: `set_value` returns early for a nullish first value under a renderer, so `<option value={undefined}>` writes nothing; the DOM path writes `value=""` (the renderer turns a nullish option value into "" once it's called) |
-| `select-multiple-invalid-value` | patch: the dev warning `select_multiple_invalid_value` is in the DOM select binding; `bind_renderer` should emit it for a non-array value on `<select multiple>` |
-| `side-effect-derived-spring`, `side-effect-derived-tween` | patch (Z3's): `svelte/motion` builds `prefersReducedMotion` with Svelte's own `MediaQuery` on the global `window` at import; it should ask the renderer's window target (as the engine's `svelte/reactivity` does) |
-| `snippet-block-without-render-tag-dev`, `snippet-children-without-render-tag-dev` | patch: the dev `snippet_without_render_tag` check (a snippet rendered as text) is on the DOM text path only; the renderer's `setText` path skips it |
-| `snippet-invalid-call` | patch: dev `validate_snippet_args` skips its anchor check under a renderer (`!current_renderer && …`); it should still refuse a missing anchor (`typeof anchor !== 'object' || anchor === null`) |
-| `snippet-slot-let-error`, `snippet-slot-let-renamed-children-error` | patch: under a renderer the `snippet_renderer_mismatch` check fires before the dev `invalid_default_snippet` error the fixture expects |
-| `state-proxy-equality-mismatch` | patch: Svelte's dev array warnings (`state_proxy_equality_mismatch`) are installed by `init_operations`, which a renderer mount skips |
-| `svelte-meta-html-snippet`, `svelte-meta-html-update` | patch: the `html` hook's nodes get no `__svelte_meta` (the DOM path sets it on `{@html}`'s top-level nodes) |
+All 14 changes below are in `patches/svelte+5.59.2.patch` (`docs/architecture/svelte-patch.md`, "Event delegation" and
+"Fixes to custom-renderer paths"), and their samples pass, but `if-transition-inert` (class b: once `inert` matched,
+its remaining difference is jsdom's computed `opacity`). The `svelte/motion` item needed no patch change: the harness
+now resolves `svelte/motion`'s `svelte/reactivity` import to the engine's, as the engine's builds do (Z3).
 
-### b: harness or jsdom-only expectation (out of scope: listed in baseline.json): 11
+### b: harness or jsdom-only expectation (out of scope: listed in baseline.json): 12
 
 | Samples | Reason / status |
 |---|---|
 | `inspect`, `inspect-console-trace`, `inspect-derived-2`, `inspect-fork-discarded`, `inspect-multiple`, `inspect-nested-state`, `inspect-new-property`, `inspect-recursive` | jsdom-only expectation: the logged stack frame names the DOM's class (`at HTMLButtonElement.click`); the values and the call site match |
+| `if-transition-inert` | jsdom-only expectation: `fade` multiplies by `getComputedStyle(node).opacity`, which jsdom reports as "" (0), hence the expected `opacity: 0`; a browser, and the renderer's `measure`, report 1. (`inert`, the triage's reason, is now set through the renderer and compared as below.) |
 | `select-default-value-single-observer` | tests Svelte's DOM implementation (counts `MutationObserver`s, which the DOM path uses for selects); a renderer has no observers |
 | `style-update` | serialisation only: CSSOM drops the unknown declaration `other-key: 0`; the renderer keeps the style as written (no behaviour either way) |
 | `svelte-meta-component-2` | reads the DOM's global `Element.prototype` |
@@ -118,9 +111,9 @@ Not run, so in neither rate. The harness records why (`results.json`).
 | `skip: true` in the fixture (Svelte doesn't run it either) (9) | `async-abort-signal-after-await`, `async-abort-signal-after-await-fork`, `async-each-const-await-error-boundary`, `async-each-item-kept-offscreen-live`, `async-if-branch-kept-offscreen-live`, `deferred-events-consistency-2`, `effect-teardown-paused-old-value`, `error-boundary-18`, `tick-timing` |
 | `skip_async: true`: Svelte's default run is async mode, as the harness's is (2) | `const-tag-boundary-deprecated-usage`, `untrack-own-deriveds` |
 
-## Patch changes needed (class c)
+## Patch changes (class c, done)
 
-For whoever holds `patches/svelte+5.59.2.patch`. Paths are in `node_modules/svelte/src/internal/client/`. Each change
+As written up for the patch's holder; each is now in `patches/svelte+5.59.2.patch`, with what was built where it differs. Paths are in `node_modules/svelte/src/internal/client/`. Each change
 is optional for renderers that lack the hook, like the rest of the patch (`docs/architecture/svelte-patch.md`).
 
 1. **Namespaces** (`dynamic-element-dynamic-namespace`): `dom/operations.js` `create_element` returns
@@ -138,6 +131,7 @@ is optional for renderers that lack the hook, like the rest of the patch (`docs/
    `args[0]?.eventPhase < Event.BUBBLING_PHASE ? 'capture' : ''`. Under a renderer nothing is delegated, so a listener
    runs at the target (phase 2) and is named `clickcapture`. Use `args[0]?.eventPhase === 1 ? 'capture' : ''` (which
    also stops reading the global `Event`).
+   *Built:* `apply()` is unchanged: with item 13, delegated handlers run from the root listener in the bubbling phase, as on the DOM, so the warning names `click`.
 4. **Snippet anchor check** (`snippet-invalid-call`): `dev/validation.js` `validate_snippet_args` skips the anchor
    check under a renderer (`!current_renderer && …`). Under a renderer refuse `typeof anchor !== 'object' || anchor === null`
    (the renderer's nodes aren't `Node`s); today the call reaches the renderer with `undefined` and crashes there.
@@ -153,6 +147,7 @@ is optional for renderers that lack the hook, like the rest of the patch (`docs/
    under a renderer (`invalid_snippet_in_custom_renderer`; a raw snippet also has no `__renderer`, so
    `snippet_renderer_mismatch`). It can be supported through the `html` hook: `current_renderer.html(anchor, render())`
    gives the nodes, `setup(element)` gets the single element, and the snippet is tagged with the renderer.
+   *Built:* as written; the engine's inline HTML parser now keeps comments as comment nodes (as `innerHTML` does), so `create-raw-snippet-invalid-render`'s leading comment warns; `compileSvelteUI` (and rune modules) import the parser for `createRawSnippet` too.
 8. **`{@html}` dev locations** (`svelte-meta-html-snippet`, `svelte-meta-html-update`): the DOM path of
    `dom/blocks/html.js` sets `__svelte_meta` (component and `loc`) on the top-level nodes it inserts; the `html` hook
    path doesn't. Set it on the nodes the hook returns, in dev.
@@ -161,23 +156,28 @@ is optional for renderers that lack the hook, like the rest of the patch (`docs/
    `<option value={undefined}>` writes nothing, where the DOM path writes `value=""`. For an `OPTION` under a renderer,
    write `value ?? ''` on the first call (the spread path, `set_attributes`, likewise). The engine's renderer already
    turns a nullish option value into "" when it is called.
+   *Built:* in the compiler instead: under a renderer `<option value={x}>` compiles to `$.set_value(option, x ?? '')`, and spreads pass `attribute_effect` the tag (a renderer's node has no `nodeName` for Svelte to read).
 10. **`<select multiple>` warning** (`select-multiple-invalid-value`): `w.select_multiple_invalid_value()` is in the DOM
     binding (`dom/elements/bindings/select.js`); `bind_renderer` should warn the same for a non-array value bound to a
     `<select multiple>` before calling the renderer's `bind`.
+    *Built:* the sample is `<select multiple value={...}>`, an attribute, not a binding: the compiler passes `set_value` an `is_select` flag under a renderer, and it warns (and keeps the selection) for a non-array value when the renderer's node has `multiple`.
 11. **Dev array warnings** (`state-proxy-equality-mismatch`): `init_array_prototype_warnings()` is installed by the DOM
     operations' `init_operations` (`dom/operations.js`), which a renderer mount never reaches. Call it (in dev) when a
     renderer mounts too.
 12. **`mount()` inside a component** (`manual-mount`, `mount-intro-transition`, `mount-unmount-anchor`): a component
     calling `mount(Child, { target: someNode })` without a `renderer` option takes the DOM path (and needs
     `document`). Default the option to the active renderer (`current_renderer`) when a renderer is rendering.
+    *Built:* handlers (direct and delegated) also run with their renderer current, since the samples mount from click handlers, where no renderer was current; `mount()` then defaults to it (unless the target is a DOM `Node`).
 13. **Root delegation order** (`event-attribute-delegation-5`, `event-on-stop-propagation`): on the DOM, `onclick`
     attributes are delegated and run as the event reaches the root, after direct `on:click` listeners along the path;
     under a renderer both are direct listeners, so registration order decides. Pass the renderer a `delegated` flag
     (`addEventListener(el, type, fn, { delegated: true })`) so it can run those in a root phase after bubbling.
+    *Built:* no renderer flag: Svelte's own delegation runs under a renderer (the analyzer delegates, `mount` listens on the target through the renderer, the path is the target's ancestors by `getParent`, and `create_event` runs the delegated handlers below its node first), because `on:`/`on()` interleave with delegated handlers in a way a root phase alone can't give (`event-attribute-delegation-5`). The renderer's `dispatchEvent` now clears a script event's stop flags when done, as the DOM's dispatch does.
 14. **`svelte/motion` at import** (`side-effect-derived-spring`, `side-effect-derived-tween`; Z3's area): `motion/index.js`
     builds `prefersReducedMotion` with Svelte's own `MediaQuery` on the global `window` when it's imported, which
     throws headless and reads the page, not the canvas, in a game. It should ask the renderer's window target, as the
     engine's `svelte/reactivity` does (`src/plugins/ui/svelte/reactivity.ts`).
+    *Built:* no patch change: Z3 already resolves it in the engine's builds (`vite.shared.ts`, the UI bundle); the harness didn't, and now does.
 
 ## How out-of-scope is decided
 
@@ -186,4 +186,4 @@ is optional for renderers that lack the hook, like the rest of the patch (`docs/
   browser APIs over DOM nodes, such as `FormData`). A game has no page head either: `<svelte:head>` keeps `<title>`.
 - **b**: expectations only jsdom can meet without faking: a DOM class name in a stack trace, the DOM's global classes,
   a count of the DOM path's `MutationObserver`s, CSSOM dropping a declaration it doesn't know (no behaviour).
-- Everything else is in scope: fixed, or open in class a or c above.
+- Everything else is in scope: fixed, or open in class a above.
