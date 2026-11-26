@@ -5,7 +5,7 @@
 // or the Undo / Redo buttons of the asset document frame, ADR 0265).
 import { useEffect, useState } from "preact/hooks";
 import { missingBlobMasks } from "../runtime/autotile";
-import { ANY_PATTERN, type TileCollision, type TileDef, type TilesetData } from "../runtime/tileset";
+import { ANY_PATTERN, tilePolygons, type TileCollision, type TileDef, type TilesetData } from "../runtime/tileset";
 import { tilesForSlices } from "./tilesetAssets";
 import { TileThumb } from "./TileThumb";
 import { AssetDocumentFrame, AssetPicker, ColorField, editor, openAssetDocument, EmptyState } from "../../../editor/sdk";
@@ -177,7 +177,7 @@ function AddFromSlices(props: { images: string[]; accepts: (image: string) => bo
 function TileEditor(props: { data: TilesetData; tile: TileDef; readOnly: boolean; project: NonNullable<typeof editor.project.current>; setTile: (patch: Partial<TileDef>) => void; onDelete: () => void }) {
   const { data, tile, readOnly, setTile } = props;
   const kind = collisionKind(tile.collision);
-  const poly = typeof tile.collision === "object" ? tile.collision : null;
+  const poly = typeof tile.collision === "object" ? (tilePolygons(tile.collision)[0] ?? null) : null; // multi-shape editing: ADR 0423
   const [polyText, setPolyText] = useState(poly ? polygonText(poly.polygon) : "0,0 1,0 1,1 0,1");
   const [polyError, setPolyError] = useState(false);
   const [json, setJson] = useState(tile.data ? JSON.stringify(tile.data, null, 2) : "");

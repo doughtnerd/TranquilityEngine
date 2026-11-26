@@ -52,6 +52,12 @@ export interface TilemapLayerData {
   palette: Record<string, string>;
   /** `"cx,cy"` → run-length string of the chunk's 256 cell values. */
   chunks: Record<string, string>;
+  /** ADR 0425: shifts the layer's drawing and collision, in local units. Absent: `[0, 0]`. */
+  offset?: [number, number];
+  /** ADR 0425: how much the layer moves with the view camera (Tiled's parallax factor), visual only. Absent: `[1, 1]`. */
+  parallax?: [number, number];
+  /** ADR 0425: the editor's brushes skip it. Absent: false. */
+  locked?: boolean;
 }
 
 /** A new, empty layer. */
@@ -100,6 +106,10 @@ export function migrateLayer(raw: unknown, where = "tilemap layer"): TilemapLaye
   const str = (k: string, def: string) => (typeof layer[k] === "string" ? (layer[k] as string) : def);
   const num = (k: string, def: number) => (typeof layer[k] === "number" && Number.isFinite(layer[k]) ? (layer[k] as number) : def);
   const bool = (k: string, def: boolean) => (typeof layer[k] === "boolean" ? (layer[k] as boolean) : def);
+  const pair = (k: string): [number, number] | undefined => {
+    const a = layer[k];
+    return Array.isArray(a) && a.length === 2 && a.every((n) => typeof n === "number" && Number.isFinite(n)) ? [a[0] as number, a[1] as number] : undefined;
+  };
   const chunks: Record<string, string> = {};
   if (typeof layer.chunks === "object" && layer.chunks !== null) {
     for (const [k, s] of Object.entries(layer.chunks as Record<string, unknown>)) if (typeof s === "string" && parseChunkKey(k)) chunks[k] = s;
@@ -122,6 +132,10 @@ export function migrateLayer(raw: unknown, where = "tilemap layer"): TilemapLaye
     opacity: num("opacity", 1),
     palette,
     chunks,
+    // ADR 0425: additive, written only when not the default.
+    ...((o) => (o && (o[0] !== 0 || o[1] !== 0) ? { offset: o } : {}))(pair("offset")),
+    ...((p) => (p && (p[0] !== 1 || p[1] !== 1) ? { parallax: p } : {}))(pair("parallax")),
+    ...(layer.locked === true ? { locked: true } : {}),
   };
 }
 

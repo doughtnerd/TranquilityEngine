@@ -20,7 +20,7 @@ import { Assets } from "../../scene/Assets";
 import { authoredSize } from "../../scene/importSettings";
 import { tangents2D } from "../lights2D/tangents";
 import type { QuadBatch, QuadBatchHost, QuadBlend, QuadMask } from "../quadBatches";
-import { placeInLayer } from "./layeredQuads";
+import { placeInLayer, withinOrder } from "./layeredQuads";
 import { TANGENT_2D_ATTRIBUTE } from "./lights2DMaterial";
 import type { BabylonMaterials2D, Material2D, Material2DRequest, Tint2D } from "./materials2D";
 
@@ -208,9 +208,9 @@ class BabylonQuadBatch implements QuadBatch {
     this.mesh?.freezeWorldMatrix(this.matrix);
   }
 
-  setOrder(sortingLayer: string, orderInLayer: number): void {
+  setOrder(sortingLayer: string, orderInLayer: number, within = 0): void {
     if (this.disposed) return;
-    this.order = this.owner.sortOrder(sortingLayer, orderInLayer);
+    this.order = this.owner.sortOrder(sortingLayer, orderInLayer) + withinOrder(within);
     if (this.mesh) placeInLayer(this.mesh, this.order);
     if (sortingLayer === this.sortingLayer) return;
     this.sortingLayer = sortingLayer;

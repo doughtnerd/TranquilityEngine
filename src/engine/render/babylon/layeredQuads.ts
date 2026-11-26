@@ -69,6 +69,16 @@ export function lightLayeredQuads(material: PBRMaterial, setup: LitQuadSetup): v
 /** How far apart runs of one draw order sit in `alphaIndex`. */
 const RUN_STEP = 1e-4;
 
+/**
+ * How far into its draw order a 2D draw sits (ADR 0421, 0424): `within` in [0, 1) maps to [0, WITHIN_SPAN), so draws of
+ * one order sort among themselves (painter's order of isometric and hexagonal tile chunks, heights in a y-sorted layer)
+ * and stay below the next whole order. Sprite runs of one order step by `RUN_STEP` on top of it.
+ */
+export const WITHIN_SPAN = 0.5;
+export function withinOrder(within: number): number {
+  return Number.isFinite(within) ? Math.max(0, Math.min(within, 0.999999)) * WITHIN_SPAN : 0;
+}
+
 /** Put a mesh drawing 2D content (a lone sprite, a quad batch) at draw order `order` (`sortingOrder`'s value). */
 export function placeInLayer(mesh: AbstractMesh, order: number): void {
   mesh.alphaIndex = order;

@@ -130,6 +130,9 @@ function loadTileset(path: string): Tileset | null {
   return ts;
 }
 
+/** ADR 0421: a Tilemap's cell layout. */
+export type TileGridShape = "square" | "isometric" | "staggered" | "hexagonal";
+
 let nextVersion = 1;
 
 @component("engine.Tilemap")
@@ -149,6 +152,16 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
    * The editor's Re-roll button does both. Shown under the Tilemap's fields rather than as one.
    */
   @field(Number, { hidden: true }) variantSeed = 0;
+  /** ADR 0421: the cell layout. `cellSize` is one cell's bounding box (a diamond's or hexagon's width and height). */
+  @field(String, { choices: ["square", "isometric", "staggered", "hexagonal"], animatable: false }) gridShape: TileGridShape = "square";
+  /** ADR 0421: staggered and hexagonal grids: which rows ("y") or columns ("x") shift by half a cell. */
+  @field(String, { choices: ["y", "x"], animatable: false }) staggerAxis: "x" | "y" = "y";
+  /** ADR 0421: staggered and hexagonal grids: whether the odd or the even rows (columns) shift. */
+  @field(String, { choices: ["odd", "even"], animatable: false }) staggerIndex: "odd" | "even" = "odd";
+  /** ADR 0421: hexagonal grids: the flat sides' length along the stagger axis, as a fraction of `cellSize` on that axis. */
+  @field(Number, { animatable: false }) hexSide = 0.5;
+  /** ADR 0421: how fast tile animations play (0 stops them). */
+  @field(Number) animationSpeed = 1;
 
   private source: unknown = null;
   private runtime: RuntimeLayer[] = [];

@@ -14,7 +14,7 @@ import type { CollisionShapes2D, ShapeMerge2D, ShapeRect2D } from "../../../engi
 import { greedyRectangles, rowRuns, traceOutlines } from "./cellRegions";
 import { flagsOf, tileIdOf } from "./format";
 import { flipPoint } from "./tileFlips";
-import type { TileCollision } from "./tileset";
+import { tilePolygons, type TileCollision } from "./tileset";
 
 /** How whole-cell tiles merge (ADR 0105): the core 2D shape source's merge modes (ADR 0136). */
 export type TileCollisionMode = ShapeMerge2D;
@@ -50,7 +50,7 @@ export function buildTileShapes(cells: Iterable<TileCell>, collisionOf: (id: num
     if (!c || c === "none") continue;
     if (c === "full") full.push([x, y]);
     else if (c === "oneWay") oneWay.push([x, y]);
-    else (c.oneWay ? shapes.oneWayPolygons : shapes.polygons).push(...polygonParts(c.polygon, x, y, flagsOf(value)));
+    else for (const p of tilePolygons(c)) (p.oneWay ? shapes.oneWayPolygons : shapes.polygons).push(...polygonParts(p.polygon, x, y, flagsOf(value)));
   }
   if (mode === "outline") shapes.loops = traceOutlines(full);
   else shapes.boxes = greedyRectangles(full);

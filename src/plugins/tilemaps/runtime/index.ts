@@ -13,7 +13,8 @@ import { Tilemap } from "./Tilemap";
 
 export { Tilemap, TilemapChanges, type TileChange } from "./Tilemap";
 export { FLIP_DIAGONAL, FLIP_X, FLIP_Y, type TilemapLayerData } from "./format";
-export type { TerrainDef, TileCollision, TileDef, TilePattern, TilePolygon, TilesetData } from "./tileset";
+export type { TerrainDef, TileAnimation, TileCollision, TileDef, TileFrameDef, TileOccluder, TilePattern, TilePolygon, TileShapes, TileStamp, TileStampLayer, TilesetData, TilesetPreviewGrid } from "./tileset";
+export type { TileGridShape } from "./Tilemap";
 export type { TileCollisionMode } from "./collision";
 
 /** After sprites; `MESHES_SPEC` names it in its own `after`, so meshes sync after it (ADR 0135). */

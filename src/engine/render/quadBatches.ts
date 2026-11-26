@@ -34,8 +34,12 @@ export interface QuadBatch {
   setTriangles(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void;
   /** The column-major 4×4 node-to-world matrix at `offset` (the layout `World.worldMatrix` gives). */
   setMatrix(m: ArrayLike<number>, offset?: number): void;
-  /** Its place among layered 2D content (ADR 0014): a sorting layer and an order in it, as sprites have. Lit batches read that layer's 2D light. */
-  setOrder(sortingLayer: string, orderInLayer: number): void;
+  /**
+   * Its place among layered 2D content (ADR 0014): a sorting layer and an order in it, as sprites have. Lit batches read
+   * that layer's 2D light. `within` (ADR 0421, 0424; [0, 1), default 0) orders draws of the same order among themselves,
+   * larger drawing later: an isometric layer's chunks in painter's order, heights in a y-sorted layer.
+   */
+  setOrder(sortingLayer: string, orderInLayer: number, within?: number): void;
   /**
    * Its 2D material asset (ADR 0399, 0415): "" the default, Sprite Lit (lit by its sorting layer's 2D lights, with its
    * texture's normal and mask maps); a Sprite Unlit material, or a sprite graph's; or null (the default for a new batch)

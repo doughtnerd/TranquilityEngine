@@ -58,6 +58,14 @@ export {
   type TilePolygon,
   type TilesetData,
   type TileCollisionMode,
+  type TileAnimation,
+  type TileFrameDef,
+  type TileOccluder,
+  type TileShapes,
+  type TileStamp,
+  type TileStampLayer,
+  type TilesetPreviewGrid,
+  type TileGridShape,
 } from "./plugins/tilemaps/runtime";
 
 // The Sprites plugin (ADR 0140).

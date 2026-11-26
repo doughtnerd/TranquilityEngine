@@ -35,8 +35,52 @@ export interface TilePolygon {
   oneWay?: boolean;
 }
 
-/** How a tile collides: not at all, as the whole cell, as a one-way platform the size of the cell, or as a polygon. */
-export type TileCollision = "none" | "full" | "oneWay" | TilePolygon;
+/** ADR 0423: several polygons, each optionally one-way, in the tile's box units. */
+export interface TileShapes {
+  shapes: TilePolygon[];
+}
+
+/**
+ * How a tile collides: not at all, as the whole cell, as a one-way platform the size of the cell, as a polygon, or as
+ * several polygons (ADR 0423). Polygons are in the tile's cell box units (ADR 0421): `[0, 0]` bottom-left, `[1, 1]`
+ * top-right of the box its sprite is drawn in; `"full"` and `"oneWay"` mean the cell's own outline on any grid.
+ */
+export type TileCollision = "none" | "full" | "oneWay" | TilePolygon | TileShapes;
+
+/** ADR 0423: what a tile casts 2D shadows with. `"collision"` (the default): its collision shapes. */
+export type TileOccluder = "collision" | "none" | "full" | TileShapes;
+
+/** ADR 0421: one frame of a tile's animation. Every frame comes from the tile sprite's image. */
+export interface TileFrameDef {
+  sprite: string;
+  /** Seconds, > 0. */
+  duration: number;
+}
+
+/** ADR 0421: a tile's frame animation. */
+export interface TileAnimation {
+  frames: TileFrameDef[];
+  /** `"together"` (default): every cell shows the same frame. `"random"`: each cell starts at an offset from `cellRandom`. */
+  start?: "together" | "random";
+}
+
+/** ADR 0423: which cell outline the tileset editor draws over tiles. Editor-only. */
+export type TilesetPreviewGrid = "square" | "isometric" | "hexagonal";
+
+/** ADR 0426: one layer of a saved stamp, in the layer encoding (palette numbers to tile uuids, run-length cells). */
+export interface TileStampLayer {
+  name: string;
+  palette: Record<string, string>;
+  /** Run-length cell values, `size[0] × size[1]` of them, row by row from the bottom-left; 0 leaves the map's cell alone. */
+  cells: string;
+}
+
+/** ADR 0426: a named multi-cell stamp saved in the tileset. */
+export interface TileStamp {
+  name: string;
+  size: [number, number];
+  layers: TileStampLayer[];
+}
 
 /** A neighbour pattern for auto-tiling: 8 characters, N NE E SE S SW W NW, each `1` (same terrain), `0` (not) or `*` (either). */
 export type TilePattern = string;
@@ -61,6 +105,12 @@ export interface TileDef {
   anchor?: [number, number];
   /** Anything the game wants, read with `Tilemap.getTileData`. */
   data?: Record<string, unknown>;
+  /** ADR 0421: frame animation. */
+  animation?: TileAnimation;
+  /** ADR 0423: shadow shapes; absent means `"collision"`. */
+  occluder?: TileOccluder;
+  /** ADR 0424: in a y-sorted layer, the tile sorts this many cells above its cell's bottom. Absent: 0. */
+  sortOffset?: number;
 }
 
 export interface TerrainDef {
@@ -76,6 +126,12 @@ export interface TilesetData {
   anchor?: [number, number];
   terrains: TerrainDef[];
   tiles: TileDef[];
+  /** ADR 0423: the cell outline the editor draws over tiles. Editor-only. */
+  previewGrid?: TilesetPreviewGrid;
+  /** ADR 0426: saved stamps. */
+  stamps?: TileStamp[];
+  /** ADR 0426: prefabs offered by the prefab brush (`asset:` references). */
+  prefabs?: string[];
 }
 
 export const NEIGHBOUR_OFFSETS: readonly (readonly [number, number])[] = [
@@ -119,17 +175,61 @@ export function legacyTileUuid(id: number): string {
 }
 
 /** True for a valid neighbour pattern. */
-export const isPattern = (p: unknown): p is string => typeof p === "string" && /^[01*]{8}$/.test(p);
+export const isPattern = (p: unknown): p is string => typeof p === "string" && /^([01*]{8}|[01*]{6})$/.test(p); // 6 on hexagonal grids (ADR 0421)
+
+function parsePolygon(raw: unknown): TilePolygon | null {
+  if (!isObject(raw) || !Array.isArray(raw.polygon)) return null;
+  const pts = raw.polygon.filter((p): p is [number, number] => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])).map((p) => [p[0], p[1]] as [number, number]);
+  if (pts.length < 3) return null;
+  return raw.oneWay === true ? { polygon: pts, oneWay: true } : { polygon: pts };
+}
+
+/** ADR 0423: `{ shapes: [...] }`, or null. A single shape reads as the single-polygon form. */
+function parseShapes(raw: unknown): TilePolygon | TileShapes | null {
+  if (!isObject(raw) || !Array.isArray(raw.shapes)) return null;
+  const shapes = raw.shapes.map(parsePolygon).filter((p): p is TilePolygon => !!p);
+  if (!shapes.length) return null;
+  return shapes.length === 1 ? shapes[0]! : { shapes };
+}
 
 function parseCollision(raw: unknown): TileCollision | null {
   if (raw === undefined || raw === "none") return "none";
   if (raw === "full" || raw === "oneWay") return raw;
-  if (isObject(raw) && Array.isArray(raw.polygon)) {
-    const pts = raw.polygon.filter((p): p is [number, number] => Array.isArray(p) && p.length >= 2 && Number.isFinite(p[0]) && Number.isFinite(p[1])).map((p) => [p[0], p[1]] as [number, number]);
-    if (pts.length < 3) return null;
-    return raw.oneWay === true ? { polygon: pts, oneWay: true } : { polygon: pts };
+  return parsePolygon(raw) ?? parseShapes(raw);
+}
+
+/** The polygons of a tile's collision (or occluder) shapes; empty for the string forms. */
+export function tilePolygons(c: TileCollision | TileOccluder | undefined): TilePolygon[] {
+  if (!c || typeof c === "string") return [];
+  return "shapes" in c ? c.shapes : [c];
+}
+
+function parseOccluder(raw: unknown): TileOccluder | null {
+  if (raw === undefined || raw === "collision") return "collision";
+  if (raw === "none" || raw === "full") return raw;
+  const p = parsePolygon(raw);
+  if (p) return { shapes: [p] };
+  const s = parseShapes(raw);
+  return s ? ("shapes" in s ? s : { shapes: [s] }) : null;
+}
+
+function parseAnimation(raw: unknown): TileAnimation | null {
+  if (!isObject(raw) || !Array.isArray(raw.frames)) return null;
+  const frames = raw.frames.filter((f): f is { sprite: string; duration: number } => isObject(f) && typeof f.sprite === "string" && !!f.sprite && typeof f.duration === "number" && f.duration > 0).map((f) => ({ sprite: f.sprite, duration: f.duration }));
+  if (!frames.length) return null;
+  return raw.start === "random" ? { frames, start: "random" } : { frames };
+}
+
+function parseStamp(raw: unknown): TileStamp | null {
+  if (!isObject(raw) || typeof raw.name !== "string" || !Array.isArray(raw.size) || raw.size.length !== 2 || !raw.size.every((n) => Number.isInteger(n) && n > 0) || !Array.isArray(raw.layers)) return null;
+  const layers: TileStampLayer[] = [];
+  for (const l of raw.layers) {
+    if (!isObject(l) || typeof l.name !== "string" || typeof l.cells !== "string" || !isObject(l.palette)) return null;
+    const palette: Record<string, string> = {};
+    for (const [k, v] of Object.entries(l.palette)) if (typeof v === "string") palette[k] = v;
+    layers.push({ name: l.name, palette, cells: l.cells });
   }
-  return null;
+  return { name: raw.name, size: [raw.size[0] as number, raw.size[1] as number], layers };
 }
 
 /**
@@ -174,7 +274,7 @@ export function parseTileset(raw: unknown, where = "tileset"): { tileset: Tilese
       if (typeof t.terrain === "string" && t.terrain) def.terrain = t.terrain;
       if (t.pattern !== undefined) {
         if (isPattern(t.pattern)) def.pattern = t.pattern;
-        else problems.push(`${where}: tile ${id} "pattern" should be 8 of 0, 1 or *; ignored.`);
+        else problems.push(`${where}: tile ${id} "pattern" should be 8 (6 on hexagonal grids) of 0, 1 or *; ignored.`);
       }
       if (typeof t.weight === "number" && t.weight >= 0) def.weight = t.weight;
       if (t.anchor !== undefined) {
@@ -183,10 +283,32 @@ export function parseTileset(raw: unknown, where = "tileset"): { tileset: Tilese
         else problems.push(`${where}: tile ${id} "anchor" should be [x, y] from 0 to 1; ignored.`);
       }
       if (isObject(t.data)) def.data = structuredClone(t.data);
+      if (t.animation !== undefined) {
+        const a = parseAnimation(t.animation);
+        if (a) def.animation = a;
+        else problems.push(`${where}: tile ${id} "animation" needs frames of { sprite, duration > 0 }; ignored.`);
+      }
+      if (t.occluder !== undefined) {
+        const o = parseOccluder(t.occluder);
+        if (o && o !== "collision") def.occluder = o;
+        else if (!o) problems.push(`${where}: tile ${id} has a bad "occluder"; it casts shadows with its collision.`);
+      }
+      if (typeof t.sortOffset === "number" && Number.isFinite(t.sortOffset) && t.sortOffset !== 0) def.sortOffset = t.sortOffset;
       ids.add(id);
       uuids.add(uuid);
       ts.tiles.push(def);
     });
+  }
+  if (raw.previewGrid === "square" || raw.previewGrid === "isometric" || raw.previewGrid === "hexagonal") ts.previewGrid = raw.previewGrid;
+  if (Array.isArray(raw.stamps)) {
+    const stamps = raw.stamps.map(parseStamp);
+    if (stamps.some((s) => !s)) problems.push(`${where}: skipped a stamp without a name, size and layers.`);
+    const ok = stamps.filter((s): s is TileStamp => !!s);
+    if (ok.length) ts.stamps = ok;
+  }
+  if (Array.isArray(raw.prefabs)) {
+    const prefabs = raw.prefabs.filter((p): p is string => typeof p === "string" && !!p);
+    if (prefabs.length) ts.prefabs = prefabs;
   }
   return { tileset: ts, problems };
 }
