@@ -430,7 +430,8 @@ export class UIAnimator {
     const covered = new Map<string, UITransitionSpec>();
     for (const t of transitions ?? []) for (const f of t.fields) covered.set(f, t.spec);
     for (const [field, run] of [...s.transitions]) {
-      if (!covered.has(field)) this.stopTransition(s, field, run, true);
+      // No longer covered: it stops at its end value, unless this restyle wrote the field a new one.
+      if (!covered.has(field)) this.stopTransition(s, field, run, !writes.some((w) => w.field === field));
     }
     if (!first) {
       for (const w of writes) {

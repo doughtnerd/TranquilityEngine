@@ -310,6 +310,18 @@ describe.each(BACKENDS)("UI animation on %s", (_name, disabled) => {
       expect(p.opacity).toBe(0.75);
     });
 
+    it("stop when their property is no longer covered: at their end, or at the value the change wrote", async () => {
+      const doc = await animatedUI(`<Canvas><Panel id="a" class="t"/><Panel id="b" class="t"/></Canvas>`, `.t { transition: opacity 1s linear } .on { opacity: 0 } .cut { transition: none } .cut.other { opacity: 0.3 }`);
+      const a = byId(doc, "a", UIPanel), b = byId(doc, "b", UIPanel);
+      for (const id of ["#a", "#b"]) doc.query(id)!.classList.add("on");
+      step(33);
+      expect([a.opacity, b.opacity]).toEqual([0.5, 0.5]);
+      doc.query("#a")!.classList.add("cut");
+      doc.query("#b")!.classList.add("cut", "other");
+      step();
+      expect([a.opacity, b.opacity]).toEqual([0, 0.3]);
+    });
+
     it("give way to a script writing the field, as an inline style would", async () => {
       const doc = await animatedUI(`<Canvas><Panel id="p" class="a"/></Canvas>`, `.a { transition: opacity 1s linear } .on { opacity: 0 }`);
       const p = byId(doc, "p", UIPanel);
