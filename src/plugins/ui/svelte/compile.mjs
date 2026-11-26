@@ -11,9 +11,17 @@ export const DEFAULT_RENDERER = "myco/ui-renderer";
 /** ADR 0425: the inline HTML parser's specifier, which components that use `{@html}` or `bind:innerHTML` import. */
 export const HTML_PARSER = "myco/ui-html";
 
-/** ADR 0425: true for a component source that uses `{@html}` or `bind:innerHTML` (so it needs the inline HTML parser). */
+/**
+ * ADR 0425: true for a source that uses `{@html}`, `bind:innerHTML` or Svelte's `createRawSnippet` (whose HTML the
+ * renderer's `html` hook reads, as `{@html}`'s), so it needs the inline HTML parser.
+ */
 export function usesInlineHtml(source) {
-  return /\{@html\s/.test(source) || /\bbind:innerHTML\b/.test(source);
+  return /\{@html\s/.test(source) || /\bbind:innerHTML\b/.test(source) || /\bcreateRawSnippet\b/.test(source);
+}
+
+/** The module code that gives the renderer the inline HTML parser. */
+function useHtmlParserCode(renderer) {
+  return `\nimport { parseInlineHtml as $$mycoParseHtml } from ${JSON.stringify(HTML_PARSER)};\nimport { useHtmlParser as $$mycoUseHtml } from ${JSON.stringify(renderer)};\n$$mycoUseHtml($$mycoParseHtml);\n`;
 }
 
 /**
@@ -49,9 +57,9 @@ export function compileSvelteUI(source, { filename, renderer = DEFAULT_RENDERER,
   const name = /^export default function ([\w$]+)\(/m.exec(code)?.[1];
   if (!name) throw new Error(`${filename}: the compiled component has no default export function.`);
   code += `\nimport { mountView as $$mycoMountView } from ${JSON.stringify(renderer)};\nexport const $mount = (host, props, options) => $$mycoMountView(host, ${name}, props, options);\n`;
-  // ADR 0425: `{@html}` and `bind:innerHTML` need the inline HTML parser; only components that use them import it, so
-  // other games never load it.
-  if (usesInlineHtml(source)) code += `\nimport { parseInlineHtml as $$mycoParseHtml } from ${JSON.stringify(HTML_PARSER)};\nimport { useHtmlParser as $$mycoUseHtml } from ${JSON.stringify(renderer)};\n$$mycoUseHtml($$mycoParseHtml);\n`;
+  // ADR 0425: `{@html}`, `bind:innerHTML` and raw snippets need the inline HTML parser; only components that use them
+  // import it, so other games never load it.
+  if (usesInlineHtml(source)) code += useHtmlParserCode(renderer);
   let css = r.css?.code ?? "";
   if (css.trim()) {
     const add = `import { addStyles as $$mycoAddStyles } from ${JSON.stringify(renderer)};\n`;
@@ -111,8 +119,13 @@ export function compileSvelteUIStyles(css, { filename, renderer = DEFAULT_RENDER
   throw new Error(`${filename}: nothing was given to parse styles with (the \`styles\` option).`);
 }
 
-/** Compile a rune module (`*.svelte.ts`, already stripped of types, or `*.svelte.js`). */
-export function compileSvelteUIModule(source, { filename, dev = false }) {
+/**
+ * Compile a rune module (`*.svelte.ts`, already stripped of types, or `*.svelte.js`). One that makes raw snippets
+ * (`createRawSnippet`) gives the renderer the inline HTML parser, as a component that uses `{@html}` does.
+ */
+export function compileSvelteUIModule(source, { filename, renderer = DEFAULT_RENDERER, dev = false }) {
   const r = compileModule(source, { filename, generate: "client", dev });
-  return { code: r.js.code, map: r.js.map, warnings: r.warnings };
+  let code = r.js.code;
+  if (/\bcreateRawSnippet\b/.test(source)) code += useHtmlParserCode(renderer);
+  return { code, map: r.js.map, warnings: r.warnings };
 }

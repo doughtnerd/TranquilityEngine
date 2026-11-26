@@ -21,6 +21,9 @@ function fixtureImports(): Plugin {
     name: "myco:svelte-conformance-imports",
     enforce: "pre",
     async resolveId(source, importer, options) {
+      // `svelte/motion`'s own `svelte/reactivity` import (its `prefersReducedMotion`) is the engine's too, as the
+      // engine's builds resolve it (ADR 0419 wave Z3, vite.shared.ts and the UI bundle).
+      if (source === "svelte/reactivity" && importer?.split("?")[0].endsWith("/svelte/src/motion/index.js")) return join(root, "src/plugins/ui/svelte/reactivity.ts");
       if (!importer || !importer.includes("svelte-conformance")) return null;
       if (source === "../../test" || source === "../../test.ts") return join(root, "tools/svelte-conformance/testShim.ts");
       // Svelte's animation helper patches jsdom's `HTMLElement.prototype.animate`; the fixtures only take its `raf`.

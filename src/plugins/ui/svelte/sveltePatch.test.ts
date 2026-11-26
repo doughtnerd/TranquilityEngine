@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { compile } from "svelte/compiler";
-import { flushSync, mount, unmount } from "svelte";
+import { createRawSnippet, flushSync, mount, unmount } from "svelte";
 import { Tween } from "svelte/motion";
 import * as internal from "svelte/internal/client";
 import "svelte/internal/flags/custom-renderer"; // effects remember their renderer (compiled components import it too)
@@ -383,5 +383,153 @@ describe("the custom renderer timing hooks (svelte patch)", () => {
     await unmount(app);
     void new Tween(0, { duration: 100 }).set(1);
     expect(r.frames).toHaveLength(0); // unmounted: Svelte's own frames again (none in Node)
+  });
+});
+
+// Conformance round 2: what Svelte's custom-renderer paths skipped, or did differently, that its DOM paths do
+// (docs/architecture/svelte-patch.md, "Event delegation" and "Fixes to custom-renderer paths").
+describe("custom renderer paths doing what the DOM paths do (svelte patch)", () => {
+  interface Extra {
+    delegated(type: string, node: unknown, handler: (e: unknown) => void): void;
+    delegate(types: string[]): void;
+    validate_snippet_renderer<T>(fn: T): T;
+    set_value(node: unknown, value: unknown, isSelect?: boolean): void;
+    from_tree(structure: unknown[], flags: number): () => unknown;
+  }
+  const x = internal as unknown as Extra;
+  type N = { name: string; ns?: string; parent: N | null; children: N[]; attrs: Map<string, unknown>; listeners: Map<string, ((e: unknown) => void)[]> };
+  const node = (name: string, ns?: string): N => ({ name, ns, parent: null, children: [], attrs: new Map(), listeners: new Map() });
+  /** A tree renderer with listeners (bubbling dispatch, `cancelBubble`) and an `html` hook making a node per word. */
+  const eventRenderer = () => {
+    const insert = (parent: N, n: N, anchor: N | null): void => {
+      if (n.name === "#fragment") {
+        for (const c of [...n.children]) insert(parent, c, anchor);
+        return;
+      }
+      if (n.parent) n.parent.children.splice(n.parent.children.indexOf(n), 1);
+      n.parent = parent;
+      const at = anchor ? parent.children.indexOf(anchor) : -1;
+      if (at < 0) parent.children.push(n);
+      else parent.children.splice(at, 0, n);
+    };
+    const r = {
+      created: [] as N[],
+      /** Dispatch a bubbling event at `target`: its listeners, then each ancestor's, until one stops it. */
+      click(target: N) {
+        const e = { type: "click", target, cancelBubble: false, eventPhase: 2, stopPropagation: () => void (e.cancelBubble = true) };
+        for (let n: N | null = target; n && !e.cancelBubble; n = n.parent) {
+          for (const l of [...(n.listeners.get("click") ?? [])]) l(e);
+          e.eventPhase = 3;
+        }
+      },
+      createFragment: () => node("#fragment"),
+      createElement: (name: string, ns?: string) => {
+        const n = node(name, ns);
+        r.created.push(n);
+        return n;
+      },
+      createText: () => node("#text"),
+      createComment: () => node("<!>"),
+      getNodeType: (n: N) => (n.name === "<!>" ? "comment" : n.name === "#fragment" ? "fragment" : n.name === "#text" ? "text" : "element"),
+      getText: () => "",
+      setText() {},
+      getAttribute: (n: N, k: string) => (n.attrs.has(k) ? String(n.attrs.get(k)) : null),
+      setAttribute: (n: N, k: string, v: unknown) => void n.attrs.set(k, v),
+      removeAttribute: (n: N, k: string) => void n.attrs.delete(k),
+      hasAttribute: (n: N, k: string) => n.attrs.has(k),
+      html(_anchor: N, value: string): N {
+        const fragment = node("#fragment");
+        for (const w of value.split(" ")) insert(fragment, node(w), null);
+        return fragment;
+      },
+      insert,
+      remove: (n: N) => void (n.parent && (n.parent.children.splice(n.parent.children.indexOf(n), 1), (n.parent = null))),
+      getParent: (n: N) => n.parent,
+      getFirstChild: (n: N) => n.children[0] ?? null,
+      getLastChild: (n: N) => n.children.at(-1) ?? null,
+      getNextSibling: (n: N) => (n.parent ? (n.parent.children[n.parent.children.indexOf(n) + 1] ?? null) : null),
+      addEventListener: (n: N, type: string, fn: (e: unknown) => void) => {
+        if (!n.listeners.has(type)) n.listeners.set(type, []);
+        n.listeners.get(type)!.push(fn);
+      },
+      removeEventListener: (n: N, type: string, fn: (e: unknown) => void) => {
+        const list = n.listeners.get(type) ?? [];
+        if (list.includes(fn)) list.splice(list.indexOf(fn), 1);
+      },
+    };
+    return r;
+  };
+
+  it("compiles event attributes delegated, an option's nullish value as '', and a select's value with its check", () => {
+    const code = compile(`<script>let v = $state(); let f = () => {};</script><button onclick={f}>b</button><select multiple value={v}><option value={v}>o</option></select>`, OPTIONS).js.code;
+    expect(code).toContain("$.delegated('click', button,");
+    expect(code).toContain("$.delegate(['click'])");
+    expect(code).toMatch(/\$\.set_value\(option, [^;]*\?\? ''\)/);
+    expect(code).toMatch(/\$\.set_value\(select, [^;]*, true\)/);
+    const dom = compile(`<script>let v = $state();</script><select><option value={v}>o</option></select>`, { filename: "B.svelte", generate: "client" }).js.code;
+    expect(dom).not.toContain("$.set_value(");
+  });
+
+  it("runs delegated handlers from the mount target, after the direct listeners below it, and with the renderer current", () => {
+    const r = eventRenderer();
+    const log: string[] = [];
+    let inner!: N;
+    let outer!: N;
+    const app = mount(((anchor: N) => {
+      outer = r.createElement("div");
+      inner = r.createElement("button");
+      r.insert(outer, inner, null);
+      r.insert(anchor.parent!, outer, anchor);
+      x.delegated("click", inner, () => log.push("inner onclick"));
+      $.event("click", inner, () => log.push("inner on:click"));
+      x.delegated("click", outer, () => {
+        log.push("outer onclick");
+        // `mount()` in a handler renders with the handler's renderer
+        mount(((a: N) => void r.insert(a.parent!, r.createElement("mounted"), a)) as never, { target: outer as never });
+      });
+      x.delegate(["click"]);
+    }) as never, { target: node("root") as never, renderer: r } as never);
+    r.click(inner);
+    expect(log).toEqual(["inner on:click", "inner onclick", "outer onclick"]);
+    expect(outer.children.map((c) => c.name)).toContain("mounted");
+    void unmount(app);
+  });
+
+  it("passes the namespace to createElement, and builds a raw snippet through the html hook", () => {
+    const r = eventRenderer();
+    const parent = node("p");
+    const anchor = node("<!>");
+    r.insert(parent, anchor, null);
+    let setUp: unknown = null;
+    const raw = createRawSnippet(() => ({ render: () => " one ", setup: (el: unknown) => void (setUp = el) }));
+    expect(x.validate_snippet_renderer(raw)).toBe(raw); // raw snippets render with whichever renderer is current
+    const stop = withRenderer(r, () => {
+      (raw as unknown as (a: N) => void)(anchor);
+      r.insert(parent, x.from_tree([["svg", null, ["path", null]], ["div", null]], 1)() as N, anchor);
+    });
+    flushSync();
+    expect(parent.children.map((c) => c.name)).toEqual(["one", "svg", "div", "<!>"]);
+    expect(setUp).toBe(parent.children[0]);
+    expect(r.created.map((n) => [n.name, n.ns])).toEqual([
+      ["svg", "http://www.w3.org/2000/svg"],
+      ["path", "http://www.w3.org/2000/svg"],
+      ["div", "http://www.w3.org/1999/xhtml"],
+    ]);
+    stop();
+  });
+
+  it("keeps a <select multiple>'s selection when its value isn't an array, with Svelte's warning", () => {
+    const r = eventRenderer();
+    const select = node("select");
+    r.setAttribute(select, "multiple", "");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const stop = withRenderer(r, () => {
+      x.set_value(select, 123, true);
+      x.set_value(select, ["a"], true);
+    });
+    expect(warn.mock.calls.map((c) => String(c[0]))).toEqual([expect.stringContaining("select_multiple_invalid_value")]);
+    expect(select.attrs.get("value")).toEqual(["a"]);
+    warn.mockRestore();
+    stop();
   });
 });

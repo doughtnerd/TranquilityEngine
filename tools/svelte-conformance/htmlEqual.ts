@@ -8,7 +8,9 @@ import { assert } from "vitest";
 // Two serialisations that aren't behaviour: a class list is a set of tokens (the DOM's `classList` dedupes and moves
 // tokens as Svelte's DOM path toggles them; a renderer gets the whole string each time), and an inline style is its
 // declarations (the DOM's `style` serialises `color: red;`, a written attribute keeps its own spacing and case).
-// An empty `class` or `style` is the same as none.
+// An empty `class` or `style` is the same as none. `inert` is left out on both sides: Svelte's outros set
+// `element.inert`, which a browser reflects as the attribute and jsdom (which doesn't implement `inert`) keeps as an
+// expando, so the fixtures' HTML never has it; the renderer reflects it, as a browser does.
 function classTokens(value: string): string {
   return [...new Set(value.split(/\s+/).filter(Boolean))].sort().join(" ");
 }
@@ -38,7 +40,7 @@ function clean(nodes: ChildNode[], preserveComments: boolean): string {
     } else if (n.type === "tag" || n.type === "script" || n.type === "style") {
       const el = n as Element;
       const attrs = Object.entries(el.attribs)
-        .filter(([name, value]) => !(["onload", "onerror"].includes(name) && value === "this.__e=event") && name !== "xmlns")
+        .filter(([name, value]) => !(["onload", "onerror"].includes(name) && value === "this.__e=event") && name !== "xmlns" && name !== "inert")
         .map(([name, value]) => [name, name === "class" ? classTokens(value.replace(/svelte-\w+/, "svelte-xyz123")) : name === "style" ? declarations(value) : value] as const)
         .filter(([name, value]) => !((name === "class" || name === "style") && value === ""))
         .sort((a, b) => (a[0] < b[0] ? -1 : 1))
