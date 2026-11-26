@@ -155,7 +155,6 @@ button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px
   border-bottom: 1px solid var(--border);
 }
 .panel-body { flex: 1; overflow: auto; padding: 8px 10px; }
-.panel .empty { color: var(--muted); margin: 0; }
 
 /* Dock layout: panels around the viewport, absolutely positioned from the layout model. */
 .dock-layout { grid-area: main; position: relative; min-width: 0; min-height: 0; overflow: hidden; }
@@ -475,18 +474,15 @@ button.primary:hover:not(:disabled) { background: var(--accent-hover); border-co
 .add-component-menu ul { list-style: none; margin: 0; padding: 0 0 4px; overflow-y: auto; }
 .add-component-menu li { padding: 3px 12px; cursor: default; user-select: none; }
 .add-component-menu li.group { padding: 6px 8px 2px; color: var(--muted); font-size: var(--fs-sm); }
-.add-component-menu li.empty { color: var(--muted); font-style: italic; }
 .add-component-menu li[role="option"]:hover:not(.disabled) { background: var(--button-hover); }
 .add-component-menu li.active { background: var(--selection); color: var(--selection-text); }
 .add-component-menu li.disabled { color: var(--muted); opacity: 0.6; }
 .component.off .fields { opacity: 0.55; }
 /* Scene settings (no node selected): the warm-up preload list (ADR 0080). */
-.scene-settings > .empty { margin-bottom: 6px; }
 .scene-setting-label { font-weight: 600; margin: 4px 0 2px; }
 .scene-setting-hint { color: var(--muted); margin: 0 0 6px; font-size: var(--fs-sm); }
 .preload-list { list-style: none; margin: 0 0 6px; padding: 0; }
 .preload-list li { display: flex; align-items: center; gap: 6px; padding: 2px 0; }
-.preload-list li.empty { color: var(--muted); font-style: italic; }
 .preload-list .preload-path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .preload-list .remove-component { padding: 0 6px; font-size: var(--fs-sm); line-height: 18px; color: var(--muted); background: transparent; border-color: transparent; }
 .preload-list .remove-component:hover { color: var(--danger-text); background: var(--danger-strong); border-color: var(--danger-strong); }
@@ -589,7 +585,6 @@ button:disabled.primary { opacity: 0.5; }
 .message-log-filter-count { color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 2px; }
 .message-log-filter.error.on .message-log-filter-count { color: var(--danger); }
 .message-log-list { list-style: none; margin: 0; padding: 0; overflow: auto; flex: 1; user-select: text; }
-.message-log-list .empty { padding: 10px; color: var(--muted); }
 .message-entry .message-action { flex: none; font-size: var(--fs-sm); padding: 1px 8px; }
 .message-entry { padding: 5px 10px; border-bottom: 1px solid var(--border); font-size: var(--fs-md); }
 .message-entry-head { display: flex; align-items: baseline; gap: 8px; }

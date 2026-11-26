@@ -9,6 +9,7 @@ import { AddComponentMenu } from "./AddComponentMenu";
 import { FieldRows } from "./fieldRows";
 import { liveFieldTarget } from "../fieldTarget";
 import "./playdebug.css";
+import { EmptyState } from "./EmptyState";
 
 /** Live values refresh this often (not every frame); a field being typed in keeps its draft. */
 const REFRESH_MS = 250;
@@ -31,8 +32,8 @@ export function RuntimeInspector() {
   const scene = openScene.value;
   const session = playing.value;
   kept.value; // the kept marks follow it
-  if (!node) return <p class="empty">Select a node of World {world} (live) in the Hierarchy.</p>;
-  if (!node.isValid) return <p class="empty">That node has been destroyed.</p>;
+  if (!node) return <EmptyState compact title={`Select a node of World ${world} (live) in the Hierarchy.`} />;
+  if (!node.isValid) return <EmptyState compact title="That node has been destroyed." />;
   const mapping = scene ? docPathFor(node, scene.path, scene.doc) : { reason: "no scene is open." };
   const keepable = "path" in mapping;
   const afterEdit = () => session?.paused && session.redraw();
@@ -182,7 +183,7 @@ function LiveComponent(props: { node: GameObject; info: ComponentInfo; keepable:
         </button>
       </h3>
       {info.fields.length === 0 ? (
-        <p class="empty">No fields</p>
+        <EmptyState compact title="No fields" />
       ) : (
         // The document Inspector's rows over a live target (ADR 0243): every field kind, written to the running World only.
         <FieldRows target={liveFieldTarget(node, info, onEdit)} fields={info.fields} />

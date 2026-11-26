@@ -15,6 +15,7 @@ import { EffectCard } from "./EffectCard";
 import { Icon } from "./Icon";
 import { resetPluginEffect, usePluginHealth } from "./EffectChainHealth";
 import "./audioParts.css";
+import { EmptyState } from "../../editor/ui/EmptyState";
 
 export interface EffectChainProps {
   readonly effects: readonly Effect[];
@@ -101,7 +102,7 @@ export function EffectChain(props: EffectChainProps) {
           <Icon name="plus" size={14} /> Add effect
         </button>
       </header>
-      {effects.length === 0 && <p class="studio-row-empty">No effects. Effects run top to bottom.</p>}
+      {effects.length === 0 && <EmptyState compact title="No effects" body="Effects run top to bottom." />}
       {effects.map((effect, i) => {
         const label = effectSpec(effect.type).label;
         return (

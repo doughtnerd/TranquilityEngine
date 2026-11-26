@@ -24,6 +24,7 @@ import { FadeShapeSelect } from "../../components/FadeShapeSelect";
 import { FADE_SHAPE_OPTIONS, narrowWeightCurve, weightCurvePreset } from "../../components/fadeShapeModel";
 import { ADSR_LIMITS, setAdsr, setEntryUse, setEnvelopeMode, type EditContext } from "./playlistEdits";
 import { entryName } from "./playlistPaths";
+import { EmptyState } from "../../../editor/ui/EmptyState";
 
 export interface BlendViewProps {
   readonly body: PlaylistBody;
@@ -296,7 +297,7 @@ export function BlendView(props: BlendViewProps) {
 
   return (
     <div class="pl-blend">
-      {body.entries.length === 0 ? <div class="pl-empty-box">Add entries to place them on the {twoD ? "plane" : "lane"}.</div> : twoD ? plane() : lane()}
+      {body.entries.length === 0 ? <EmptyState compact title={`Add entries to place them on the ${twoD ? "plane" : "lane"}.`} /> : twoD ? plane() : lane()}
       {props.selected !== null && body.entries[props.selected] && <EntryShaping {...props} twoD={twoD} regionOf={regionOf} setRegion={setRegion} />}
       {!twoD && <EnvelopeEditor body={body} writable={writable} onEdit={onEdit} input={input[0] ?? 0} inputText={fmtAt(0, denormalise(input[0] ?? 0, ranges[0]!))} axis={axisName(0)} />}
     </div>

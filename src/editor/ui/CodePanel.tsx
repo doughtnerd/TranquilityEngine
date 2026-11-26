@@ -11,6 +11,7 @@ import { currentProject, scriptsVersion, status } from "../state";
 import { codeAppearance } from "../theme";
 import { isScriptPath } from "../projectPaths";
 import { confirmInEditor } from "./ConfirmDialog";
+import { EmptyState } from "./EmptyState";
 
 /**
  * The Code panel (ADR 0030): project scripts, JSON, JavaScript and TypeScript modules (such as
@@ -25,18 +26,21 @@ export function CodePanel() {
   const active = activeScript.value;
   const dirty = dirtyScripts.value;
   scriptsVersion.value; // the tabs follow reloads (a deleted script)
-  if (!project) return <Panel><p class="empty">No project open</p></Panel>;
+  if (!project) return <Panel><EmptyState compact title="No project open" /></Panel>;
   const files = codeFiles(project);
   if (tabs.length === 0) {
     return (
       <Panel>
-        <p class="empty">
-          {project.scripts.size > 0
-            ? "Double-click a script, JSON, JavaScript or text file in the Assets panel to open it."
-            : project.root === null
-              ? "This project has no scripts."
-              : "This project has no scripts yet: add .ts files under scripts/."}
-        </p>
+        <EmptyState
+          compact
+          title={
+            project.scripts.size > 0
+              ? "Double-click a script, JSON, JavaScript or text file in the Assets panel to open it."
+              : project.root === null
+                ? "This project has no scripts."
+                : "This project has no scripts yet: add .ts files under scripts/."
+          }
+        />
       </Panel>
     );
   }
@@ -205,7 +209,7 @@ function MonacoHost() {
       editor?.dispose();
     };
   }, []);
-  if (failed) return <p class="empty error">Couldn't load the code editor: {failed}</p>;
+  if (failed) return <p class="kit-note" role="alert">Couldn't load the code editor: {failed}</p>;
   return (
     <div class="code-editor-wrap">
       <div ref={host} class="code-editor" />

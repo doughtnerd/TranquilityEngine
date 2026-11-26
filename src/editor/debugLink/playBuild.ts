@@ -168,7 +168,7 @@ export function PlayBuildSlot({ build }: { readonly build: PlayBuild | null }) {
   return el(
     "div",
     { class: "debug-link-play", "aria-label": "Play as a build" },
-    el("div", { class: "debug-link-empty" }, stateText(build)),
+    el("div", { class: "debug-link-state" }, stateText(build)),
     ...tools.map((t) => el("div", { key: `${t.remote}\n${t.name}`, class: "debug-link-row" }, `Paired: ${toolLabel(t)}`)),
     el("div", { class: "debug-link-separator", role: "separator" }),
   );

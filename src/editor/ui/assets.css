@@ -1,7 +1,6 @@
 /* Asset browser (ADR 0022): folder tree | search + tile grid, sized to whatever dock holds it. */
 /* The tree and the grid scroll on their own, so the panel body neither pads nor scrolls. */
 .panel.assets .panel-body { padding: 0; overflow: hidden; display: flex; container-type: size; }
-.panel.assets .panel-body > .empty { padding: 8px 10px; }
 .asset-browser { flex: 1; display: flex; min-width: 0; min-height: 0; }
 
 .asset-tree { flex: none; width: 170px; overflow: auto; border-right: 1px solid var(--border); padding: 6px 0; }
@@ -38,7 +37,6 @@
 
 .asset-items-wrap { position: relative; flex: 1; min-height: 0; display: flex; }
 .asset-items { flex: 1; min-height: 0; overflow: auto; list-style: none; margin: 0; padding: 8px; outline: none; }
-.asset-items > .empty { color: var(--muted); }
 .asset-box { position: absolute; pointer-events: none; border: 1px solid var(--accent); background: var(--accent-soft); }
 .asset-item { position: relative; border-radius: 4px; border: 1px solid transparent; cursor: default; user-select: none; min-width: 0; outline: none; }
 .asset-item:hover { background: var(--hover); }

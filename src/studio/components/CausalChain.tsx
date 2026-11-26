@@ -8,6 +8,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "preact/hooks";
 import { KIND_TEXT, START_VIEW, chainKey, chainText, chainWheel, fitView, panBy, shouldStack, worstSeverity, zoomAt, ZOOM_STEP, type CausalStep, type ChainView } from "./causalChainModel";
 import { Icon } from "./Icon";
 import "./audioParts.css";
+import { EmptyState } from "../../editor/ui/EmptyState";
 
 export interface CausalChainProps {
   readonly steps: readonly CausalStep[];
@@ -70,7 +71,7 @@ export function CausalChain(props: CausalChainProps) {
     return () => vp.removeEventListener("wheel", onWheel);
   }, [steps.length === 0]);
 
-  if (steps.length === 0) return <p class="studio-row-empty">Select a voice to see why it played.</p>;
+  if (steps.length === 0) return <EmptyState compact title="Select a voice to see why it played." />;
   const worst = worstSeverity(steps);
   return (
     <div class="studio-chainview">

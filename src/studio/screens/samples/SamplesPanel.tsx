@@ -477,14 +477,12 @@ function EmptyProjectCard(props: { readOnly: boolean }) {
   if (!dock) return null;
   return createPortal(
     <div class="smp-empty-overlay">
-      <div class="smp-empty-card" role="region" aria-label="No samples yet">
-        <Icon name="samples" size={40} />
-        <span class="smp-empty-title">No samples yet</span>
-        <button type="button" class="primary smp-empty-import" autoFocus disabled={props.readOnly} title={props.readOnly ? "Open a project folder to import" : "Import samples… (or drop audio files on the Samples panel)"} onClick={() => (dialog.value = { kind: "import" })}>
-          <Icon name="import" size={14} />
-          Import samples…
-        </button>
-      </div>
+      <EmptyState
+        title="No samples yet"
+        icon={<Icon name="samples" size={28} />}
+        body="Import audio files, or drop them on the Samples panel."
+        action={{ label: "Import samples…", autoFocus: true, disabled: props.readOnly, title: props.readOnly ? "Open a project folder to import" : undefined, run: () => (dialog.value = { kind: "import" }) }}
+      />
     </div>,
     dock,
   );

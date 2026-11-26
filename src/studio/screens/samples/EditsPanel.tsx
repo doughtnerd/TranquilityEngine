@@ -323,7 +323,7 @@ export function EditsPanel() {
             <Chip>Toolbar</Chip>
           </li>
         )}
-        {e.effects.length === 0 && n.mode === "off" && <li class="smp-fx-empty smp-faint">No edits · plays the source as imported</li>}
+        {e.effects.length === 0 && n.mode === "off" && <li role="presentation"><EmptyState compact title="No edits: plays the source as imported." /></li>}
       </ol>
     </Panel>
   );

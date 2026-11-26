@@ -2,7 +2,7 @@
 // its name, parent, rest pose (local, from the asset) and current pose (model space, animated where the Editor World
 // animates the skeleton), plus Add BoneAttachment. The logic is `bones.ts`.
 import { useEffect, useState } from "preact/hooks";
-import { editor, type BoneInspectorProps } from "../../../../editor/sdk";
+import { editor, type BoneInspectorProps, EmptyState } from "../../../../editor/sdk";
 import { addBoneAttachment, boneDetails, type BonePose } from "./bones";
 import "./scene.css";
 
@@ -37,7 +37,7 @@ export function BoneInspector(props: BoneInspectorProps) {
   if (!details) {
     return (
       <div class="inspector-body bone-inspector">
-        <p class="empty">The bone {bone} isn't in this node's skeleton (or the skeleton is still loading).</p>
+        <EmptyState compact title={`The bone ${bone} isn't in this node's skeleton (or the skeleton is still loading).`} />
       </div>
     );
   }

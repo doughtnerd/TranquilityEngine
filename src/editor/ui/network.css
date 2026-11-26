@@ -16,7 +16,7 @@
 .network-slider input { width: 100%; min-width: 0; }
 .network-slider-label { color: var(--muted); }
 .network-slider-value { text-align: right; font-variant-numeric: tabular-nums; }
-.network-empty, .network-none { margin: 0; padding: 8px; color: var(--muted); font-size: var(--fs-sm); }
+.network-none { margin: 0; padding: 8px; color: var(--muted); font-size: var(--fs-sm); }
 .network-none { padding: 2px 0; font-style: italic; }
 
 .network-stats { display: flex; flex-direction: column; }

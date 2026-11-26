@@ -17,6 +17,7 @@ import { clearInputLog, followedInputWorld, inputOverlayShown, inputRecording, s
 import { actionLabel, formatValue, logText, pickWorld, recordingFileName, recordingSummary, seconds, sourceLabel, splitPhases, valueMagnitude } from "../inputDebuggerLogic";
 import { editor, Panel, usePanelState } from "../sdk";
 import "./inputDebugger.css";
+import { EmptyState } from "./EmptyState";
 
 /** Log lines shown, newest first. */
 const LOG_LINES = 60;
@@ -32,10 +33,11 @@ export function InputDebuggerPanel() {
         ) : (
           <>
             <Bar />
-            <p class="input-debugger-empty">
-              Play to see a World's input here: its devices and players, each player's active contexts by priority, every action's value, phase and hold time with the mapping that produced it, the
-              controls higher contexts consumed, rebinds in progress and recent events. Record works now too: it records your controllers' raw input for a test fixture.
-            </p>
+            <EmptyState
+              compact
+              title="Play to see a World's input here."
+              body="It shows its devices and players, each player's active contexts by priority, every action's value, phase and hold time with the mapping that produced it, the controls higher contexts consumed, rebinds in progress and recent events; Record works now too, recording your controllers' raw input for a test fixture."
+            />
           </>
         )}
       </div>
@@ -161,12 +163,12 @@ function WorldView(props: { world: World }) {
   const { world } = props;
   const { state, log } = useInputSample(world);
   if (!state) return null;
-  if (!state.takesInput) return <p class="input-debugger-empty">{state.world} doesn't take local input (a server, a World with input off, or a tile without focus), so it has no devices or actions.</p>;
+  if (!state.takesInput) return <EmptyState compact title={`${state.world} doesn't take local input, so it has no devices or actions.`} body="It's a server, a World with input off, or a tile without focus." />;
   return (
     <>
       <Devices state={state} />
       {state.players.length === 0 ? (
-        <p class="input-debugger-empty">No players: the game defines no action sets (defineActions), so there's nothing to evaluate.</p>
+        <EmptyState compact title="No players: the game defines no action sets (defineActions), so there's nothing to evaluate." />
       ) : (
         state.players.map((p) => <Player key={p.index} player={p} sets={new Set(p.actions.map((a) => a.set)).size} />)
       )}

@@ -54,14 +54,14 @@ export function TimelineWindow() {
     const file = s.file.value;
     return (
       <Panel>
-        <div class="aw-empty">
+        <>
           <Breadcrumb />
           <EmptyState
             compact
             title={file ? "Not an editable timeline" : "No timeline"}
             body={file ? `${file} isn't a timeline (*.timeline.json) in this project.` : "This TimelineDirector has no timeline. Set its Timeline field, or create one in the Assets panel."}
           />
-        </div>
+        </>
       </Panel>
     );
   }

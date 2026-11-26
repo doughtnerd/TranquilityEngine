@@ -311,7 +311,6 @@ button.sq-tci:hover:not(:disabled) { background: var(--hover); }
 .sq-lph { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .sq-lpb .sq-fld { grid-template-columns: 70px minmax(0, 1fr); }
 .sq-lpb .studio-slider { grid-template-columns: 70px minmax(40px, 1fr) auto; }
-.sq-empty { margin: 0; padding: 2px 8px; color: var(--muted); } /* in line with the section titles and rows */
 .sq-mrow { display: flex; align-items: center; gap: 6px; min-height: 24px; }
 .sq-mrow.off .sq-mrow-name { color: var(--muted); }
 .sq-frow { display: flex; align-items: center; gap: 6px; width: 100%; font: inherit; font-size: var(--fs-md); text-align: left; padding: 4px 6px; border: 0; border-radius: 3px; background: none; color: var(--text); cursor: pointer; }

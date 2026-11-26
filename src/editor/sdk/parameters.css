@@ -2,7 +2,6 @@
 .param-list { display: flex; flex-direction: column; gap: 6px; width: 100%; min-width: 0; }
 .param-list-head { display: flex; align-items: baseline; gap: 8px; font-size: var(--fs-md); color: var(--text); min-width: 0; }
 .param-hint { font-size: var(--fs-sm); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.param-empty { margin: 2px 0; font-size: var(--fs-sm); color: var(--faint); }
 .param-card { display: flex; flex-direction: column; gap: 4px; padding: 6px; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); min-width: 0; }
 .param-card[data-kind="labelled"] { border-left: 3px solid var(--accent); }
 .param-head { display: flex; gap: 4px; align-items: center; min-width: 0; }
