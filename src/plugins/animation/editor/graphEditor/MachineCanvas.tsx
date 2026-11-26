@@ -6,10 +6,7 @@
 // state to open its sub-graph.
 import { useRef, useState } from "preact/hooks";
 import type { AnimGraph, MachineState, StateMachine } from "../../../../engine/animation/animGraph";
-import {
-  Minimap, SelectionBox, WireRefusal, handleProps, isFieldTarget, px, startBoxSelect, toGraph, useGraphCanvas, useGraphWiring, useNodeDrag,
-  type CanvasNode, type EditResult, type GraphDragHooks, type GraphWiringEdits, type Point,
-} from "../../../../editor/sdk";
+import { Minimap, SelectionBox, WireRefusal, handleProps, isFieldTarget, px, startBoxSelect, toGraph, useGraphCanvas, useGraphWiring, useNodeDrag, type CanvasNode, type EditResult, type GraphDragHooks, type GraphWiringEdits, type Point, EmptyState } from "../../../../editor/sdk";
 import { nodeById } from "./graphEditLogic";
 import {
   ANY_ID, ENTRY_ID, addState, addTransition, entryOf, moveStates, priorityLabel, removeState, setEntry,
@@ -268,7 +265,7 @@ export function MachineCanvas(props: MachineCanvasProps) {
         ))}
         <WireRefusal draft={wiring.draft} hint={wiring.hint} />
       </div>
-      {m.states.length === 0 && <p class="ag-canvas-empty">Right-click to add a state.</p>}
+      {m.states.length === 0 && <div class="ag-canvas-hint"><EmptyState compact title="Right-click to add a state." /></div>}
       {box && <SelectionBox box={box} />}
       <Minimap nodes={canvasNodes} view={canvas.view} size={canvas.paneSize} pane={canvas.paneApi} />
     </div>

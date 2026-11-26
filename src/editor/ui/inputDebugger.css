@@ -10,7 +10,7 @@
 .input-debugger-saved { flex-basis: 100%; color: var(--muted); font-size: var(--fs-sm); }
 .input-debugger-bar label { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: var(--fs-sm); }
 .input-debugger-bar select { background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 1px 4px; }
-.input-debugger-empty, .input-debugger-none { margin: 0; padding: 8px; color: var(--muted); font-size: var(--fs-sm); }
+.input-debugger-none { margin: 0; padding: 8px; color: var(--muted); font-size: var(--fs-sm); }
 .input-debugger-none { padding: 2px 0; font-style: italic; }
 .input-debugger-section { padding: 6px 8px; border-bottom: 1px solid var(--border); }
 .input-debugger-section h4 { display: flex; align-items: baseline; gap: 8px; margin: 0 0 4px; font-size: var(--fs-md); font-weight: 600; }

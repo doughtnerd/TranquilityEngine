@@ -11,6 +11,7 @@ import { useElementWidth } from "../components/useElementWidth";
 import { screenById, type ScreenId } from "./screens";
 import { dockOf } from "./screenDocks";
 import type { ScreenDockModel } from "./studioPanels";
+import { EmptyState } from "../../editor/ui/EmptyState";
 
 /** Below this width (CSS px) the screen shows one panel at a time. */
 export const SINGLE_PANEL_BELOW = 640;
@@ -23,7 +24,7 @@ export function ScreenDock(props: { screen: ScreenId }) {
   const main = useRef<HTMLElement>(null);
   const width = useElementWidth(main);
   const single = width > 0 && width < SINGLE_PANEL_BELOW;
-  const empty = <p class="empty">This panel isn't available.</p>;
+  const empty = <EmptyState compact title="This panel isn't available." />;
   return (
     <main ref={main} class={`studio-dock${single ? " single" : ""}`} aria-label={`${screenById(props.screen)!.title} screen`}>
       {single ? <SinglePanel dock={dock} empty={empty} /> : <DockLayout key={props.screen} host={dock.host} view={(type) => dock.panels.get(type)?.view() ?? empty} />}

@@ -44,7 +44,7 @@ test("Samples: import a WAV, add a marker and a loop, undo and redo; the edits a
   const errors = trackErrors(page);
   await openStudioFolder(page, "Game", MINIMAL_PROJECT);
   // The empty project's card over the dock (spec §4.1.2): one line and Import samples….
-  await page.getByRole("region", { name: "No samples yet" }).getByRole("button", { name: "Import samples…" }).click();
+  await page.getByRole("note", { name: "No samples yet" }).getByRole("button", { name: "Import samples…" }).click();
   const chooser = page.waitForEvent("filechooser");
   await page.getByRole("dialog", { name: "Import samples" }).getByRole("button", { name: "Choose files…" }).click();
   await (await chooser).setFiles({ name: "tone.wav", mimeType: "audio/wav", buffer: Buffer.from(sineWav(1)) });

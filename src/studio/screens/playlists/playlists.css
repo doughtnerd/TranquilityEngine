@@ -92,7 +92,6 @@
 .pl-adb.more { width: 18px; border-left: 1px solid var(--border); color: var(--muted); }
 .pl-adb:hover:not(:disabled) { background: var(--button-hover); }
 .pl-adb:disabled { opacity: 0.45; }
-.pl-tree-empty { margin: 8px 10px; color: var(--muted); font-size: var(--fs-md); }
 .pl-folder-icon { color: var(--muted); width: 14px; display: inline-block; text-align: center; }
 .pl-count { color: var(--muted); font-size: var(--fs-sm); margin-left: auto; }
 .pl-row-trail { display: inline-flex; gap: 6px; align-items: center; margin-left: auto; min-width: 0; }
@@ -140,11 +139,6 @@
 .pl-lsn .pl-u { font-variant-numeric: tabular-nums; }
 
 /* Nothing open (T15): the spec's card. */
-.pl-nothing { max-width: 440px; margin: 64px auto; padding: 0 16px; display: flex; flex-direction: column; gap: 8px; font-size: var(--fs-md); color: var(--muted); }
-.pl-nothing p { margin: 0; line-height: 17px; }
-.pl-nothing-title { font-size: var(--fs-lg); color: var(--text-strong); }
-.pl-nothing-warn { color: var(--warning); }
-.pl-nothing-actions { display: flex; gap: 6px; margin-top: 4px; }
 
 /* Playlist panel: header rows (`.tb2`, `.tb2.sub`) */
 .pl-editor { display: flex; flex-direction: column; min-height: 100%; }
@@ -168,7 +162,6 @@
 .pl-tl select { font-size: var(--fs-md); }
 .pl-used-in { padding: 4px 10px; color: var(--muted); font-size: var(--fs-sm); border-bottom: 1px solid var(--border); }
 .pl-view { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; min-height: 0; }
-.pl-empty-box { padding: 30px; text-align: center; color: var(--muted); border: 1px dashed var(--border-strong); border-radius: 4px; font-size: var(--fs-md); }
 
 /* Entry rows (`.lrow.lst`): # | badge | entry | weight / at 0 | voice | now | open, remove */
 .pl-entries { display: flex; flex-direction: column; gap: 1px; }

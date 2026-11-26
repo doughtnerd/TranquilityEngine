@@ -22,6 +22,7 @@ import { MiniPopover } from "./MiniPopover";
 import { ChangeExtras, changeText, unitOf } from "./ModeToolbar";
 import { addRule, changeLength, removeRule, setLabelEntry, setLabelGain, setRule } from "./playlistEdits";
 import { entryName, playlistTitle } from "./playlistPaths";
+import { EmptyState } from "../../../editor/ui/EmptyState";
 
 export interface SwitchViewProps extends EntryListProps {
   /** The parameter's test value (a label's index), when one is set. */
@@ -139,7 +140,7 @@ export function SwitchView(props: SwitchViewProps) {
             </div>
           );
         })}
-        {labels.length === 0 && <div class="pl-empty-box">Pick a labelled parameter with By to map its labels.</div>}
+        {labels.length === 0 && <EmptyState compact title="Pick a labelled parameter with By to map its labels." />}
       </div>
 
       <div class="pl-subcap">Change rules</div>

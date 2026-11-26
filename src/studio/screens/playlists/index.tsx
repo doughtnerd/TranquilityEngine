@@ -22,6 +22,7 @@ import { useEffect } from "preact/hooks";
 import { deleteAssets } from "../../../editor/assetDelete";
 import { docVersion, status } from "../../../editor/state";
 import { EmptyState } from "../../../editor/ui/EmptyState";
+import { Icon } from "../../components/Icon";
 import { Panel } from "../../../editor/ui/panel/Panel";
 import { Section } from "../../../editor/ui/PanelFields";
 import type { Entry } from "../../../engine/audio/playlist/types";
@@ -394,20 +395,24 @@ function NothingOpen() {
   const none = !files.some(isPlaylistPath);
   const w = writable();
   return (
-    <div class="pl-nothing" role="note" aria-label={none ? "No playlists yet" : "No playlist open"}>
-      <b class="pl-nothing-title">{none ? "No playlists yet" : "No playlist open"}</b>
-      <p>{none ? "A playlist decides which sample plays: pick at random, step through in order, layer, blend by a game parameter, or switch by a label. For a timeline of samples and playlists, make a sequence." : "Pick a playlist in the Playlists panel, or make one."}</p>
-      {!files.some(isSamplePath) && (
-        <p class="pl-nothing-warn">
-          This project has no samples yet. <button type="button" class="pl-link" onClick={() => openRoute({ screen: "samples" })}>Import some in Samples</button> first, or make an empty playlist now and fill it later.
-        </p>
-      )}
-      <div class="pl-nothing-actions">
-        <button type="button" class="pl-play-btn" disabled={!w} onClick={() => void newPlaylist("", false)}>New playlist</button>
-        <button type="button" class="pl-small" disabled={!w} onClick={() => void newSequence("")}>New sequence</button>
-        <button type="button" class="pl-small" disabled={!w} onClick={() => void newPlaylistFolder("").then((path) => path && renameFolderRow(path))}>New folder</button>
-      </div>
-    </div>
+    <EmptyState
+      title={none ? "No playlists yet" : "No playlist open"}
+      icon={<Icon name="playlists" size={28} />}
+      body={
+        <>
+          <p>{none ? "A playlist decides which sample plays: pick at random, step through in order, layer, blend by a game parameter, or switch by a label. For a timeline of samples and playlists, make a sequence." : "Pick a playlist in the Playlists panel, or make one."}</p>
+          {!files.some(isSamplePath) && (
+            <p>
+              This project has no samples yet. <button type="button" class="pl-link" onClick={() => openRoute({ screen: "samples" })}>Import some in Samples</button> first, or make an empty playlist now and fill it later.
+            </p>
+          )}
+        </>
+      }
+      action={{ label: "New playlist", disabled: !w, run: () => void newPlaylist("", false) }}
+    >
+      <button type="button" class="pl-small" disabled={!w} onClick={() => void newSequence("")}>New sequence</button>
+      <button type="button" class="pl-small" disabled={!w} onClick={() => void newPlaylistFolder("").then((path) => path && renameFolderRow(path))}>New folder</button>
+    </EmptyState>
   );
 }
 

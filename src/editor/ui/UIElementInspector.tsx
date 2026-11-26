@@ -11,6 +11,7 @@ import { whyNotEdit } from "../editGate";
 import { describeOrigin, fieldSources, markupLocation, originBadge, resolveUIElement, selectedUIRef, uiBuildVersion, type FieldOrigin, type FieldSourceRow, type UIElementRef } from "../uiDocuments";
 import { isLocalisableField, UIFieldLocalise } from "./localisation/UIFieldLocalise";
 import "./ui-element-inspector.css";
+import { EmptyState } from "./EmptyState";
 
 /** The file an origin points into, to open in the Code panel. */
 function fileOf(origin: FieldOrigin): string | null {
@@ -33,7 +34,7 @@ export function UIElementInspector() {
   const scene = openScene.value, ref = selectedUIRef();
   const el = scene && ref ? resolveUIElement(scene.sync, ref) : null;
   const where = el && markupLocation(el);
-  if (!el || !ref || !where) return <p class="empty">{editorTextFiles.busy ? "Updating…" : "The selected UI element is gone (its document changed)."}</p>;
+  if (!el || !ref || !where) return (editorTextFiles.busy ? <p class="kit-note" role="status">Updating…</p> : <EmptyState compact title="The selected UI element is gone (its document changed)." />);
   const rows = fieldSources(el);
   const type = el.component.constructor.name;
   const readOnly = whyNotEdit({ kind: "ui-documents" });

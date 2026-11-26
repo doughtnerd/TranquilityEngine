@@ -8,7 +8,7 @@ import { missingBlobMasks } from "../runtime/autotile";
 import { ANY_PATTERN, type TileCollision, type TileDef, type TilesetData } from "../runtime/tileset";
 import { tilesForSlices } from "./tilesetAssets";
 import { TileThumb } from "./TileThumb";
-import { AssetDocumentFrame, AssetPicker, ColorField, editor, openAssetDocument } from "../../../editor/sdk";
+import { AssetDocumentFrame, AssetPicker, ColorField, editor, openAssetDocument, EmptyState } from "../../../editor/sdk";
 import "./tilesetInspector.css";
 import { parsePolygon, polygonText } from "./polygonText";
 
@@ -30,7 +30,7 @@ export function TilesetInspector(props: { path: string }) {
   const project = editor.project.current;
   const [selected, setSelected] = useState<number | null>(null);
   useEffect(() => setSelected(null), [path]);
-  if (!project) return <p class="empty">Nothing selected</p>;
+  if (!project) return <EmptyState compact title="Nothing selected" />;
   const doc = openAssetDocument<TilesetData>(project, path, "tileset");
   const data = doc.value.value;
   const readOnly = doc.readOnly;

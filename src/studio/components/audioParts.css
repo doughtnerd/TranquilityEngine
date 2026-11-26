@@ -115,8 +115,6 @@
 .studio-row-summary { flex: 1 1 0; min-width: 0; color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .studio-row-tools { margin-left: auto; display: inline-flex; align-items: center; gap: 2px; flex: none; }
 .studio-row-body { display: flex; flex-direction: column; gap: 4px; padding: 2px 0 4px 24px; }
-.studio-row-empty { margin: 4px 0; color: var(--faint); font-size: var(--fs-md); }
-.studio-row-empty.error { color: var(--danger); }
 /* An icon-only button (ADR 0361: its name is its aria-label, its tooltip the title). */
 .studio-icon-button { flex: none; width: 22px; height: 20px; padding: 0; border: 1px solid transparent; border-radius: 3px; background: none; color: var(--muted); line-height: 18px; display: inline-grid; place-items: center; }
 .studio-icon-button:hover:not(:disabled) { background: var(--hover); color: var(--text); }

@@ -17,7 +17,6 @@
   border-radius: 3px;
 }
 .hierarchy-search:focus { outline: none; border-color: var(--accent); }
-.hierarchy-no-match { font-size: var(--fs-md); margin-top: 6px !important; }
 
 .tree .row.filter-context .name { opacity: 0.55; }
 .tree .row.scene-hidden .name { font-style: italic; opacity: 0.55; }

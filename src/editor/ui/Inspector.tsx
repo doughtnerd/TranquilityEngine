@@ -55,6 +55,7 @@ import { componentHeaderActions, skeletonBones, type BoneInspectorProps, type Co
 import { lazyComponent, type LazyComponent } from "./lazy";
 import { usePopover } from "./popover";
 import { editableNow, statusSentence, whyNotEdit } from "../editGate";
+import { EmptyState } from "./EmptyState";
 
 /**
  * What the Inspector shows (ADR 0242, `inspectorTarget`): a live World's node while playing, an
@@ -70,7 +71,7 @@ export function Inspector() {
     case "nodes":
       return target.paths.length > 1 ? <Panel><MultiInspector scene={target.scene} paths={[...target.paths]} /></Panel> : <NodeInspector scene={target.scene} path={target.paths[0]} />;
     case "sceneSettings": return <Panel><SceneSettings scene={target.scene} /></Panel>;
-    case "nothing": return <Panel><p class="empty">Nothing selected</p></Panel>;
+    case "nothing": return <Panel><EmptyState compact title="Nothing selected" /></Panel>;
   }
 }
 
@@ -81,7 +82,7 @@ const boneViews = new WeakMap<SkeletonBonesContribution, LazyComponent<BoneInspe
 function BoneInspector(props: BoneInspectorProps & { provider: string }) {
   const { provider, ...rest } = props;
   const contribution = skeletonBones.get(provider);
-  if (!contribution) return <p class="empty">Nothing selected</p>;
+  if (!contribution) return <EmptyState compact title="Nothing selected" />;
   let View = boneViews.get(contribution);
   if (!View) boneViews.set(contribution, (View = lazyComponent(contribution.inspector)));
   return <View {...rest} />;
@@ -198,13 +199,13 @@ function SceneSettings(props: { scene: OpenScene }) {
   return (
     <div class="inspector-body scene-settings">
       <SceneReadOnlyNote scene={scene} />
-      <p class="empty">Nothing selected</p>
+      <EmptyState compact title="Nothing selected" />
       <section class="component" aria-label="Scene settings">
         <h3>Scene settings</h3>
         <div class="scene-setting-label">Preload</div>
         <p class="scene-setting-hint">Prefabs and materials scripts spawn by a computed path. Their shaders compile while the scene loads, so they don't stall a frame the first time they draw.</p>
         <ul class="preload-list" aria-label="Preload list">
-          {list.length === 0 && <li class="empty">Nothing listed. The warm-up already covers the scene's own content and paths written in scripts.</li>}
+          {list.length === 0 && <li role="presentation"><EmptyState compact title="Nothing listed" body="The warm-up already covers the scene's own content and paths written in scripts." /></li>}
           {list.map((p) => (
             <li key={p}>
               <span class="preload-path" title={p}>
@@ -298,7 +299,7 @@ function MultiInspector(props: { scene: OpenScene; paths: NodePath[] }) {
         {names.join(", ")}
       </p>
       <NodeTags scene={scene} paths={paths} />
-      {shared.length === 0 && <p class="empty">No components in common</p>}
+      {shared.length === 0 && <EmptyState compact title="No components in common" />}
       {shared.map((c) => (
         <ComponentCard
           key={`${key}/${c.type}#${c.index}`}
@@ -567,7 +568,7 @@ function ComponentCard(props: { scene: OpenScene; paths: NodePath[]; infos: Comp
         )}
       </h3>
       {info.fields.length === 0 ? (
-        <p class="empty">No fields</p>
+        <EmptyState compact title="No fields" />
       ) : (
         // One row per field over the document target (ADR 0243); fields another editor owns (a ParticleSystem's effect, a Tilemap's layers) are hidden (ADR 0131).
         <FieldRows target={documentFieldTarget(scene, paths, infos)} fields={info.fields.filter((f) => !isHiddenField(f))} />

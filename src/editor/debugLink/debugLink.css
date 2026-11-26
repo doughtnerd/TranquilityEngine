@@ -43,7 +43,6 @@
 .debug-link-row .debug-link-pick { flex: 1; }
 .debug-link-row .debug-link-disconnect { width: auto; color: var(--muted); }
 .debug-link-check { display: inline-block; width: 1em; color: var(--accent); }
-.debug-link-empty { padding: 4px 12px; color: var(--muted); font-size: var(--fs-md); }
 .debug-link-separator { height: 1px; margin: 4px 0; background: var(--border); }
 
 .debug-link-prompt { max-width: 440px; }
@@ -56,6 +55,7 @@
 .debug-link-code::placeholder { text-transform: none; }
 .debug-link-discovered { margin-bottom: 10px; border: 1px solid var(--border); border-radius: 4px; background: var(--panel); }
 .debug-link-discovered-title { padding: 3px 8px; color: var(--muted); font-size: var(--fs-sm); border-bottom: 1px solid var(--border); }
+.debug-link-state { padding: 4px 12px; color: var(--muted); font-size: var(--fs-md); }
 .debug-link-discovered-empty { margin: 0; padding: 6px 8px; color: var(--muted); font-size: var(--fs-md); }
 .debug-link-discovered-list { list-style: none; margin: 0; padding: 0; max-height: 140px; overflow: auto; }
 .debug-link-discovered-list:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }

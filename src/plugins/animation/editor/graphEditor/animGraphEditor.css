@@ -2,7 +2,6 @@
    minimap and refusal hint are the shared graph layer's (src/editor/graph/graph.css). */
 .ag-editor { display: flex; flex-direction: column; height: 100%; min-height: 0; }
 .ag-root { display: flex; flex-direction: column; flex: 1; min-height: 0; outline: none; }
-.ag-empty { padding: 16px; color: var(--muted); display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
 .ag-muted { color: var(--muted); font-size: 11px; }
 .ag-unit { color: var(--faint); }
 .ag-crumbs { display: flex; align-items: center; gap: 2px; min-width: 0; overflow: hidden; }
@@ -35,7 +34,8 @@
 
 /* Canvas */
 .ag-pane { outline: none; }
-.ag-canvas-empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; margin: 0; color: var(--faint); pointer-events: none; }
+/* Where the canvas's empty state sits (the EmptyState itself draws it). */
+.ag-canvas-hint { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
 .ag-wire { stroke: var(--accent); }
 .ag-node { position: absolute; box-sizing: border-box; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; box-shadow: 0 2px 8px var(--shadow); cursor: grab; user-select: none; }
 .ag-node.selected { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }

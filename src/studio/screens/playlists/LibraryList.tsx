@@ -14,6 +14,7 @@ import { secondsText } from "./entryRowModel";
 import { COLLAPSE_GLYPH, Glyph } from "./glyphs";
 import { createPlaylistLabel, libraryClick, libraryGroups, menuTargets, sampleDragText, type LibrarySelection } from "./libraryModel";
 import { playlistTitle } from "./playlistPaths";
+import { EmptyState } from "../../../editor/ui/EmptyState";
 
 /** What a thumbnail knows of a sample (null fields until its peaks are read). */
 export interface SampleFacts {
@@ -107,9 +108,7 @@ export function LibraryList(props: LibraryListProps) {
       </div>
       {props.extra && <div class="pl-lib-groups" role="list" aria-label="Generators">{props.extra(query)}</div>}
       {none ? (
-        <p class="pl-tree-empty">
-          No samples in this project yet. <button type="button" class="pl-link" onClick={() => props.onOpenSamples()}>Go to Samples</button>
-        </p>
+        <EmptyState compact title="No samples in this project yet." action={{ label: "Go to Samples", run: () => props.onOpenSamples() }} />
       ) : (
         <div class="pl-lib-groups" role="list" aria-label="Samples">
           {groups.length === 0 && <p class="pl-note">No sample matches “{query.trim()}”.</p>}

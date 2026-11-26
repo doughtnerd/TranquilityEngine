@@ -74,6 +74,7 @@ import "./worlds.css";
 import { usePanelState } from "./panel/Panel";
 import { ProjectSectionToolbar } from "./ProjectSectionToolbar";
 import { NumberField, TextField } from "./settingsControls";
+import { EmptyState } from "./EmptyState";
 
 /**
  * What a Worlds panel copy edits through: the shell's Worlds section session (ADR 0151, shared by every copy) and this
@@ -116,21 +117,19 @@ export function WorldsPanel() {
   worlds.version.value;
   scriptsVersion.value; // scripts define systems
   const project = currentProject.value;
-  if (!project) return <p class="empty">No project open</p>;
+  if (!project) return <EmptyState compact title="No project open" />;
   const session = worlds.open(project);
   const s: PanelState = { session, select: (ref) => (selection.value = { of: session, ref }) };
   const view = session.draft.view;
   if (view.kind === "code") {
     return (
-      <p class="empty">
-        This project starts its Worlds from a code bootstrap, <code>{view.path}</code>. Edit that script to change them.
-      </p>
+      <EmptyState compact title={`This project starts its Worlds from a code bootstrap, ${view.path}. Edit that script to change them.`} />
     );
   }
   if (view.kind === "broken") {
     return (
       <div class="worlds-panel">
-        <p class="empty">{PROJECT_FILE}'s bootstrap section can't be shown as a graph. Fix it in the Code panel:</p>
+        <EmptyState compact title={`${PROJECT_FILE}'s bootstrap section can't be shown as a graph. Fix it in the Code panel:`} />
         <ul class="worlds-problems">{view.problems.map((p) => <li key={p}>{p}</li>)}</ul>
       </div>
     );

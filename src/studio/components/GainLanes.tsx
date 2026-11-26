@@ -3,6 +3,7 @@
 // and what you hear (total dB and linear gain). The sums are `gainLanesModel.ts`'s.
 import { dbText, gainBreakdown, laneBar, laneText, parentsText, totalText, type GainInputs } from "./gainLanesModel";
 import "./audioParts.css";
+import { EmptyState } from "../../editor/ui/EmptyState";
 
 export interface GainLanesProps {
   readonly inputs: GainInputs;
@@ -12,7 +13,7 @@ export interface GainLanesProps {
 
 export function GainLanes(props: GainLanesProps) {
   const b = props.bus ? gainBreakdown(props.inputs, props.bus) : null;
-  if (!b) return <p class="studio-row-empty">Select a bus to see where its level comes from.</p>;
+  if (!b) return <EmptyState compact title="Select a bus to see where its level comes from." />;
   return (
     <div class="studio-gain" role="table" aria-label={`Gain lanes of ${b.name}`}>
       {b.lanes.map((lane) => {

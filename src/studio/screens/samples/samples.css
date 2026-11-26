@@ -46,9 +46,6 @@
 /* The empty project: a centred card over the dock. */
 .studio-dock:has(> .smp-empty-overlay) { position: relative; }
 .smp-empty-overlay { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; background: var(--bg); }
-.smp-empty-card { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 32px 40px; border: 1px dashed var(--border-strong); border-radius: 8px; background: var(--panel); color: var(--muted); }
-.smp-empty-title { font-size: var(--fs-lg); font-weight: 600; color: var(--text-strong); }
-.smp-empty-import { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; background: var(--accent2-soft) !important; border-color: var(--accent2) !important; color: var(--text-strong) !important; }
 
 /* Timeline (the prototype's `.tlbar`, `.trk`/`.th`, `.mp`/`.mr`, `.ruler`, `.lane`, `.readout`, `.warnb`; spec §4.1.5–4.1.6) */
 .smp-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; width: 100%; min-height: 26px; }
@@ -263,7 +260,6 @@ span.smp-tcin.ro { display: inline-block; padding: 2px 6px; border: 1px solid va
 .smp-outline-group .smp-oname { flex: 1 1 auto; min-width: calc(5.5ch + 2px); }
 .smp-otime { margin-left: auto; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .smp-outline-group li.on .smp-otime { color: var(--selection-text); }
-.smp-outline-empty { margin: 0 10px 4px 26px; font-size: var(--fs-sm); }
 
 /* Loop seam */
 .smp-seam-head { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; width: 100%; }
@@ -315,7 +311,6 @@ span.smp-tcin.ro { display: inline-block; padding: 2px 6px; border: 1px solid va
 .smp-fx-tools .smp-ibtn { width: 22px; height: 22px; }
 .smp-fx-tools .smp-ibtn.on { color: var(--accent); }
 .smp-tv { display: flex; flex-direction: column; gap: 4px; padding: 4px 10px 8px 30px; border-top: 1px solid var(--border); }
-.smp-fx-empty { padding: 4px 2px; font-size: var(--fs-sm); list-style: none; }
 .smp-fxm { min-width: 210px; }
 .smp-fxq { margin: 2px 2px 4px; }
 .smp-tci.hi { background: var(--hover); }
