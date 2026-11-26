@@ -1,0 +1,27 @@
+{
+  "format": "myco.playlist@1",
+  "type": "clip",
+  "output": "Weather",
+  "note": "Lightning's thunder: flat, the whole sea hears it.",
+  "playback": {
+    "maxInstances": 3,
+    "whenFull": "stealOldest",
+    "priority": 200
+  },
+  "volume": 0.0,
+  "pitch": -0.21,
+  "volumeRandom": [
+    -1.5,
+    0
+  ],
+  "pitchRandom": [
+    -1.23,
+    1.23
+  ],
+  "entries": [
+    {
+      "sample": "audio/thunder.wav",
+      "loop": "off"
+    }
+  ]
+}

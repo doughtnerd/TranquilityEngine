@@ -1,0 +1,21 @@
+{
+  "format": "myco.playlist@1",
+  "type": "clip",
+  "output": "SFX",
+  "note": "A ship taking a power-up.",
+  "playback": {
+    "maxInstances": 4,
+    "whenFull": "stealOldest",
+    "priority": 180
+  },
+  "volume": -1.94,
+  "spatial": {
+    "attenuation": "sounds/sea.attenuation.json"
+  },
+  "entries": [
+    {
+      "sample": "audio/powerup_pickup.wav",
+      "loop": "off"
+    }
+  ]
+}

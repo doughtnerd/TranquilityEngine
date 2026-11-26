@@ -1,0 +1,16 @@
+{
+  "format": "myco.playlist@1",
+  "type": "clip",
+  "output": "Ambience",
+  "note": "The sea around the camera, looping.",
+  "playback": {
+    "plays": "untilStopped",
+    "maxInstances": 1
+  },
+  "entries": [
+    {
+      "sample": "audio/ocean_loop.wav",
+      "loop": "on"
+    }
+  ]
+}

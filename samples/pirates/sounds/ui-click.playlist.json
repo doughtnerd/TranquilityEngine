@@ -1,0 +1,16 @@
+{
+  "format": "myco.playlist@1",
+  "type": "clip",
+  "output": "UI",
+  "note": "A menu or HUD button.",
+  "playback": {
+    "cooldown": 0.03
+  },
+  "volume": -4.44,
+  "entries": [
+    {
+      "sample": "audio/ui_click.wav",
+      "loop": "off"
+    }
+  ]
+}

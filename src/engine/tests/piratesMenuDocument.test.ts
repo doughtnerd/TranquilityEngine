@@ -105,7 +105,7 @@ describe("the pirates menu as a UI document", () => {
     expect(ui.query("#quick-match Text")!.as(UIText).fontWeight).toBe("bold"); // inherited through the button
     expect(ui.query("#left")!.as(UIPanel).width).toBe("430");
     expect(ui.query("#code")!.as(UIInputField).maxLength).toBe(5);
-    expect(ui.query("#help")!.as(UIText).text).toContain("mouse.  A / D"); // an attribute keeps its double spaces
+    expect(ui.query("#help")!.as(UIText).text).toContain("left stick.  A / D"); // an attribute keeps its double spaces
 
     // Bindings and the home screen.
     expect(textOf(ui.query("#where"))).toBe("Harbour: this computer");

@@ -1,9 +1,9 @@
-// What only clients do (ADR 0017, 0033): read the helm from the mouse and keyboard, float and
+// What only clients do (ADR 0017, 0033): read the helm from the captain's actions, float and
 // colour ships on the waves (ghostly while a ghost, hidden inside others' fog clouds, faded inside
 // a cloud when this client can still see them), carry the flag above its holder, bob power-ups,
 // thin out fading clouds, mark the arena's edge on the water, and play the effects the server
 // reports.
-import { Audio, Camera, Color, GameObject, Input, Mathf, MeshRenderer, ParticleSystem, Plane, Quaternion, Replicated, Transform, Vector3, Water, defineSystem } from "myco";
+import { Audio, Camera, Color, GameObject, Input, InputPlayers, Mathf, MeshRenderer, ParticleSystem, Plane, Quaternion, Replicated, Transform, Vector3, Water, defineSystem } from "myco";
 import {
   BOLT_PREFAB,
   Battery,
@@ -28,10 +28,12 @@ import {
   type ShipView,
 } from "./data";
 import { Hud } from "./behaviors/Hud";
+import { isGamepad, stickAim } from "./controls";
+import { FX_SOUNDS } from "./sounds";
 import { arenaRadius } from "./systems";
 import { flash } from "./weather";
 
-/** Each client World's chosen battery (A: port, D: starboard), kept between ticks. */
+/** Each client World's chosen battery (port or starboard), kept between ticks. */
 const chosenBattery = new WeakMap<object, number>();
 
 const WATER_PLANE = Plane.fromNormalAndPoint(Vector3.up, Vector3.zero);
@@ -48,10 +50,22 @@ export function heldHelm(helm: HelmInput, dialogOpen: boolean): HelmInput {
   return dialogOpen ? { ...helm, steer: 0, fire: 0, drop: 0 } : helm;
 }
 
+/** Where the mouse points on the water, or null when it's over the UI or off the sea. */
+function mouseAim(): { x: number; z: number } | null {
+  const camera = Camera.main;
+  if (!camera || Input.pointerOverUI) return null;
+  const ray = camera.screenPointToRay(Input.mousePosition);
+  const t = WATER_PLANE.raycast(ray);
+  if (t === null) return null;
+  const at = ray.at(t);
+  return { x: at.x, z: at.z };
+}
+
 /**
- * This tick's helm: the point on the water under the mouse, the battery (A or D picks one, and
- * it stays picked), Space to fire and F to drop a ghost ship's fog cloud; held while the HUD's
- * leave dialog is open (`heldHelm`). Only the World with local input sees the mouse and keys.
+ * This tick's helm, from the captain's actions (controls.ts): the point to sail for (the water
+ * under the mouse, or, while the player is on a gamepad, ahead of the ship along the left stick),
+ * the battery (`port` or `starboard` picks one, and it stays picked), `fire` and `drop`; held while
+ * the HUD's leave dialog is open (`heldHelm`). Only a World with local input has a player to read.
  */
 defineSystem({
   name: "pirates.ReadHelm",
@@ -59,22 +73,25 @@ defineSystem({
   worlds: ["client"],
   before: ["pirates.Sail"],
   run(_rows, ctx) {
+    const input = InputPlayers.get(0);
+    if (!input) return;
     const leaving = GameObject.findObjectOfType(Hud)?.leaving ?? false;
-    if (Input.getKey("a") || Input.getKey("arrowleft")) chosenBattery.set(ctx.world, Battery.port);
-    if (Input.getKey("d") || Input.getKey("arrowright")) chosenBattery.set(ctx.world, Battery.starboard);
-    const camera = Camera.main;
-    let x = 0, z = 0, steer = 0;
-    if (camera && !Input.pointerOverUI) {
-      const ray = camera.screenPointToRay(Input.mousePosition);
-      const t = WATER_PLANE.raycast(ray);
-      if (t !== null) {
-        const at = ray.at(t);
-        x = at.x;
-        z = at.z;
-        steer = 1;
-      }
-    }
-    const helm = { x, z, steer, battery: chosenBattery.get(ctx.world) ?? Battery.none, fire: Input.getKey("space") ? 1 : 0, drop: Input.getKey("f") ? 1 : 0 };
+    if (input.held("port")) chosenBattery.set(ctx.world, Battery.port);
+    if (input.held("starboard")) chosenBattery.set(ctx.world, Battery.starboard);
+    let aim: { x: number; z: number } | null;
+    if (isGamepad(input.lastFamily)) {
+      const p = myShip()?.node.transform?.position;
+      const stick = input.vector2("steer");
+      aim = p ? stickAim(p.x, p.z, stick.x, stick.y) : null;
+    } else aim = mouseAim();
+    const helm = {
+      x: aim?.x ?? 0,
+      z: aim?.z ?? 0,
+      steer: aim ? 1 : 0,
+      battery: chosenBattery.get(ctx.world) ?? Battery.none,
+      fire: input.held("fire") ? 1 : 0,
+      drop: input.held("drop") ? 1 : 0,
+    };
     Helm.write(heldHelm(helm, leaving));
   },
 });
@@ -201,32 +218,16 @@ defineSystem({
   },
 });
 
-const SOUNDS: Record<number, { clip: string; volume: number; pitch?: [number, number]; flat?: boolean }> = {
-  [FxKind.fire]: { clip: "audio/cannon_fire.wav", volume: 0.9, pitch: [0.9, 1.1] },
-  [FxKind.splash]: { clip: "audio/cannonball_splash.wav", volume: 0.5, pitch: [0.85, 1.2] },
-  [FxKind.hit]: { clip: "audio/wood_crunch.wav", volume: 0.8, pitch: [0.9, 1.15] },
-  [FxKind.crunch]: { clip: "audio/wood_crunch.wav", volume: 1, pitch: [0.7, 0.85] },
-  [FxKind.sink]: { clip: "audio/wood_crunch.wav", volume: 1, pitch: [0.5, 0.6] },
-  [FxKind.lightning]: { clip: "audio/thunder.wav", volume: 1, flat: true },
-  [FxKind.pickup]: { clip: "audio/powerup_pickup.wav", volume: 0.8 },
-  [FxKind.flag]: { clip: "audio/flag_capture.wav", volume: 0.8, flat: true },
-  [FxKind.cloud]: { clip: "audio/cannonball_splash.wav", volume: 0.6, pitch: [0.4, 0.5] },
-};
-
-/** Plays what the server reports: a sound where it happened, a splash on the water, a lightning bolt. */
+/** Plays what the server reports: its sound (sounds.ts) where it happened, a splash on the water, a lightning bolt. */
 defineSystem({
   name: "pirates.PlayFx",
   phase: "update",
   worlds: ["client"],
   run(_rows, ctx) {
     for (const fx of Fx.read()) {
-      const sound = SOUNDS[fx.kind];
-      if (sound) {
-        const [lo, hi] = sound.pitch ?? [1, 1];
-        const pitch = lo + Math.random() * (hi - lo);
-        if (sound.flat) Audio.playOneShot(sound.clip, { volume: sound.volume, pitch });
-        else Audio.playOneShot(sound.clip, { position: { x: fx.x, y: fx.y, z: fx.z }, volume: sound.volume, pitch, minDistance: 6, maxDistance: 120 });
-      }
+      // The playlist holds the level, variation, bus and falloff; a flat one ignores the position.
+      const sound = FX_SOUNDS[fx.kind];
+      if (sound) Audio.play(sound, { position: { x: fx.x, y: fx.y, z: fx.z } });
       if (fx.kind === FxKind.splash || fx.kind === FxKind.hit || fx.kind === FxKind.sink || fx.kind === FxKind.crunch || fx.kind === FxKind.cloud) {
         const size = fx.kind === FxKind.sink ? 3 : fx.kind === FxKind.cloud ? 6 : fx.kind === FxKind.splash ? 1 : 0.7;
         const node = GameObject.instantiate(SPLASH_PREFAB, { position: [fx.x, fx.y, fx.z] });

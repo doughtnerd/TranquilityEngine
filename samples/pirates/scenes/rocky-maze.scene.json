@@ -311,9 +311,10 @@
         {
           "type": "engine.AudioSource",
           "data": {
-            "clip": "asset:audio/rain_loop.wav",
+            "clip": "asset:sounds/rain.playlist.json",
+            "output": "Rain",
             "loop": true,
-            "volume": 0,
+            "volume": 1,
             "playOnAwake": true
           }
         }
