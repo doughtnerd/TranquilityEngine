@@ -198,20 +198,20 @@ describe("the Babylon material library (ADR 0127)", () => {
 
     it("loads a texture once per path and use, and says it's loading meanwhile", () => {
       useProject({ "images/a.png": "data:image/png;base64,iVBORw0KGgo=" });
-      const first = lib.texture("images/a.png");
+      const first = lib.loadTexture("images/a.png");
       first.catch(() => undefined);
-      expect(lib.texture("images/a.png")).toBe(first);
-      const graph = lib.texture("images/a.png", "graphColor");
+      expect(lib.loadTexture("images/a.png")).toBe(first);
+      const graph = lib.loadTexture("images/a.png", "graphColor");
       graph.catch(() => undefined);
       expect(graph).not.toBe(first);
       expect(lib.loading() || lib.loadedTexture("images/a.png") instanceof Texture).toBe(true);
     });
 
     it("rejects a texture that isn't in the project without counting it as loading, so settled() resolves", async () => {
-      await expect(lib.texture("images/missing.png")).rejects.toThrow();
+      await expect(lib.loadTexture("images/missing.png")).rejects.toThrow();
       expect(lib.loading()).toBe(false);
       await expect(lib.settled()).resolves.toBeUndefined();
-      await expect(lib.texture("images/missing.png", "graphColor")).rejects.toThrow(); // and tries again
+      await expect(lib.loadTexture("images/missing.png", "graphColor")).rejects.toThrow(); // and tries again
     });
   });
 

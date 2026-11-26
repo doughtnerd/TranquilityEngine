@@ -63,6 +63,7 @@ import { LIGHTS_2D_QUALITY } from "../../core/graphics";
 import { authoredSize } from "../../scene/importSettings";
 import { Assets } from "../../scene/Assets";
 import { BabylonMaterialLibrary } from "./materialLibrary";
+import { BabylonMaterials2D } from "./materials2D";
 import { describeDrawn, eagerFeature, lazyFeature, type BabylonFeatureFactory, type BabylonFeatureHost, type BabylonWarmFactory, type FeatureSlot, type FeatureSyncContext } from "./feature";
 import { _registeredRenderFeatures, byPhase, ownerOf, specNeeded, SYNC_PHASES, type RenderFeatureRegistration, type RenderFeatureSpec, type SyncPhase } from "../renderFeatures";
 import { BabylonQuadBatches } from "./quadBatches";
@@ -123,7 +124,6 @@ export class BabylonRenderer {
   private readonly quads: BabylonQuadBatches;
   /** The 2D lighting rig (ADR 0399): part of the core lighting, beside `lighting`, since it reads the material library's textures. */
   private readonly lights2D: BabylonLights2D;
-  private lights2DVersion = -1;
   /** Decal volumes for plugin features (the Decals plugin's 3D decals, ADR 0395). */
   private readonly decals: BabylonDecals;
   /** Dynamic meshes for plugin features (the Lines plugin's 3D lines and trails, ADR 0396). */
@@ -131,6 +131,8 @@ export class BabylonRenderer {
   private readonly cameras = new Map<Camera, CameraEntry>();
   /** Materials and textures (ADR 0127): every material and texture the scene draws is built and cached there. */
   private readonly materials: BabylonMaterialLibrary;
+  /** 2D materials (ADR 0418): sprites', quad batches' and 2D particles' materials, lit by the 2D lighting rig or not. */
+  private readonly materials2D: BabylonMaterials2D;
   private readonly warned = new Set<string>();
   /** Time and drawing-buffer size, read by every graph material. */
   private readonly graphShared: GraphShared = { time: 0, resolution: [1, 1] }; // `mainLight` is the lighting's, set once it exists
@@ -214,32 +216,18 @@ export class BabylonRenderer {
       shared: this.graphShared,
       renderTexture: (path) => this.renderTextures.texture(path),
       editorPicking: () => this.policy.drawPolicy === "perObject", // the editor's picking needs per-object instances
+      warn: (key, message) => this.warnOnce(key, message),
     });
+    this.materials2D = new BabylonMaterials2D({ scene, library: this.materials, warnOnce: (key, message) => this.warnOnce(key, message) });
     this.quads = new BabylonQuadBatches({
       scene,
-      texture: (path, onLoad) => {
-        const t = this.materials.loadedTexture(path);
-        if (t) return t;
-        this.materials.texture(path).then(onLoad, (err) => this.warnOnce(`tile|${path}`, `failed to load tile texture "${path}": ${(err as Error).message}`));
-        return null;
-      },
-      dataTexture: (path, onLoad) => {
-        const t = this.materials.loadedTexture(path, "graphData");
-        if (t) return t;
-        this.materials.texture(path, "graphData").then(onLoad, (err) => this.warnOnce(`map|${path}`, `failed to load "${path}": ${(err as Error).message}`));
-        return null;
-      },
+      materials2D: this.materials2D,
+      texture: (path, onReady) => this.materials.texture(path, "color", () => onReady()),
       sortOrder: (layer, order) => sortingOrder(this.settings.render.sortingLayers, layer, order, (l) => this.warnOnce(`layer|${l}`, unknownLayerMessage(l))),
-      spriteGraph: (material) => this.materials.spriteGraph(material),
-      spriteGraphMaterial: (name, graph, overrides) => this.materials.spriteGraphMaterial(name, graph, overrides),
     });
     this.lights2D = new BabylonLights2D({
       scene,
-      texture: (path) => {
-        const t = this.materials.loadedTexture(path);
-        if (!t) this.materials.texture(path).catch((err) => this.warnOnce(`light2d|${path}`, `failed to load 2D light texture "${path}": ${(err as Error).message}`));
-        return t;
-      },
+      texture: (path) => this.materials.texture(path),
       textureSize: (path) => this.textureSize(path),
     });
     this.decals = new BabylonDecals({ scene, materials: this.materials, warnOnce: (key, message) => this.warnOnce(key, message) });
@@ -411,7 +399,7 @@ export class BabylonRenderer {
     await Promise.all(
       paths.map((p) =>
         this.materials
-          .texture(p)
+          .loadTexture(p)
           .catch((err) => console.error(`[myco] failed to load texture "${p}":`, err))
           .finally(() => onProgress?.(++done / paths.length)),
       ),
@@ -427,13 +415,9 @@ export class BabylonRenderer {
     ctx.view = ctx.viewCamera = null;
     ctx.ready = false;
     this.reflecting = 0; // the mesh feature counts this frame's meshes drawn with a probe as it syncs
-    // 2D lights first (ADR 0399): the sprite and quad features pick their lit materials by this frame's layer batches.
+    // 2D lights first (ADR 0399): a new layout of layer batches refreshes the 2D materials (ADR 0418) before the content draws.
     this.lights2D.enabled = this.policy.lighting2D !== false;
     this.lights2D.sync(world, LIGHTS_2D_QUALITY[Graphics.tier.lights2D] ?? LIGHTS_2D_QUALITY.high);
-    if (this.lights2D.version !== this.lights2DVersion) {
-      this.lights2DVersion = this.lights2D.version;
-      this.quads.refreshLighting();
-    }
     for (const phase of SYNC_PHASES) {
       for (const slot of this.phases.get(phase) ?? []) slot.ensure(world)?.sync(world, ctx);
       this.afterPhase(phase, world, ctx);
@@ -501,6 +485,7 @@ export class BabylonRenderer {
       scene: this.scene,
       lighting: this.lighting,
       materials: this.materials,
+      materials2D: this.materials2D,
       probes: {
         get any() {
           return probes.any;
@@ -672,6 +657,7 @@ export class BabylonRenderer {
     for (let i = this.slots.length - 1; i >= 0; i--) this.slots[i].dispose(); // reverse registration order (ADR 0130)
     this.lighting.dispose(); // after the features that contributed to it (the sky owns its bake)
     this.quads.dispose(); // after the features that drew with them
+    this.materials2D.dispose(); // after everything that drew with them
     this.lights2D.dispose();
     this.decals.dispose();
     this.dynamicMeshes.dispose();

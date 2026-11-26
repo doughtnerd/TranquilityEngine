@@ -2,13 +2,12 @@
  * Which 2D draws are lit (ADR 0399), renderer-neutral: a 2D component's `material` field names a sprite material asset
  * (shader `"sprite-lit"` or `"sprite-unlit"`, or a shader graph with a sprite target, ADR 0415), or is empty for the
  * default, Sprite Lit. Material and graph assets are JSON, read synchronously through `Assets`; one that can't be read,
- * or whose shader isn't a sprite shader, draws with the default and is reported once by the caller
- * (`spriteMaterialProblem`).
+ * or whose shader isn't a sprite shader, draws with the default and is reported once by the backend's 2D materials
+ * (`spriteMaterialProblem`, ADR 0418), which make the lit decision from these.
  */
 import { Assets } from "../../scene/Assets";
 import { isSpriteShader, materialGraph, parseMaterial } from "../../scene/material";
 import { isShaderGraphPath, isSpriteGraphTarget, parseShaderGraph, type ShaderGraphTarget } from "../../scene/shaderGraph";
-import type { QuadLighting } from "../quadBatches";
 
 /** Whether a 2D draw with `material` ("" for the default) is lit by 2D lights. */
 export function spriteMaterialLit(material: string): boolean {
@@ -68,25 +67,4 @@ function graphTargetOf(path: string): string {
   let target = shaders.get(raw);
   if (target === undefined) shaders.set(raw, (target = parseShaderGraph(raw).graph.target));
   return target;
-}
-
-/**
- * A 2D draw's lighting for `QuadBatch.setLighting` (ADR 0399): lit on `sortingLayer` with `image`'s normal and mask maps
- * (its sidecar's secondary textures, ADR 0414), or null when its `material` is Sprite Unlit. The quad-batch host still
- * draws it unlit while its layer has no 2D light. A material shaded by a sprite graph (ADR 0415) always has lighting,
- * naming the material (and `lit: false` for a Sprite Unlit graph).
- */
-export function quadLighting(material: string, sortingLayer: string, image: string): QuadLighting | null {
-  // A sprite graph's material (ADR 0415) always goes to the backend, which builds it from the graph (lit or not).
-  const graph = spriteMaterialGraph(material) ? { material, lit: spriteMaterialLit(material) } : null;
-  if (!graph && !spriteMaterialLit(material)) return null;
-  const path = image.replace(/^asset:/, "");
-  let normalMap: string | null = null, maskMap: string | null = null, normalMapGreenDown = false;
-  if (path && Assets.has(path)) {
-    const s = Assets.importSettings(path);
-    normalMap = s.secondaryTextures.normalMap || null;
-    maskMap = s.secondaryTextures.maskMap || null;
-    normalMapGreenDown = s.normalMapGreen === "down";
-  }
-  return { sortingLayer, normalMap, maskMap, normalMapGreenDown, ...(graph ?? {}) };
 }

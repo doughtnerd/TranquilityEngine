@@ -12,7 +12,8 @@ interface FakeBatch extends QuadBatch {
   quads: number;
   /** The farthest vertex from the map's origin, in local units. */
   extent: [number, number];
-  order: number;
+  order: [string, number];
+  material: string | null;
   tint: [string, number];
   visible: boolean;
   matrix: number[];
@@ -26,10 +27,9 @@ function fakeHost() {
   const host: QuadBatchHost = {
     createBatch(name) {
       const b: FakeBatch = {
-        name, texture: "", quads: 0, extent: [0, 0], order: 0, tint: ["", 0], visible: false, matrix: [], disposed: false,
-        setLighting(l) { (b as { lighting?: unknown }).lighting = l; },
-        setTangents(t) { (b as { tangents?: unknown }).tangents = t; },
-        setBlend(m) { (b as { blend?: unknown }).blend = m; },
+        name, texture: "", quads: 0, extent: [0, 0], order: ["", 0], material: null, tint: ["", 0], visible: false, matrix: [], disposed: false,
+        setMaterial(m) { b.material = m; },
+        setBlend() {},
         setQuads(texture, positions, _uv, indices) {
           b.texture = texture;
           b.quads = indices.length / 6;
@@ -38,9 +38,8 @@ function fakeHost() {
         },
         setTriangles() {},
         setMatrix(m, offset = 0) { b.matrix = Array.from(m).slice(offset, offset + 16); },
-        setOrder(o) { b.order = o; },
+        setOrder(layer, inLayer) { b.order = [layer, inLayer]; },
         setTint(c, a) { b.tint = [c, a]; },
-        setColors() {},
         setMask() {},
         setVisible(v) { b.visible = v; },
         dispose() { b.disposed = true; },
@@ -49,7 +48,6 @@ function fakeHost() {
       return b;
     },
     textureSize: (_path, onLoad) => (loaded ? [64, 32] : (pending.push(onLoad), null)),
-    sortOrder: (layer, order) => ["Back", "Default"].indexOf(layer) * 10000 + order,
   };
   return { host, batches, load: () => ((loaded = true), pending.splice(0).forEach((f) => f())) };
 }
@@ -87,7 +85,7 @@ describe("the tile renderer (ADR 0103, 0136)", () => {
     tiles.sync(world);
     const first = live();
     expect(first.map((b) => b.quads).sort((a, b) => a - b)).toEqual([4 * 2, 16 * 2]);
-    expect(first.every((b) => b.texture === "t.png" && b.order === 3 && b.visible && b.tint[0] === "#ff0000" && b.tint[1] === 0.5)).toBe(true);
+    expect(first.every((b) => b.texture === "t.png" && b.order[0] === "Back" && b.order[1] === 3 && b.material === "" && b.visible && b.tint[0] === "#ff0000" && b.tint[1] === 0.5)).toBe(true);
     // Editing one chunk rebuilds only that chunk.
     map.setTile(18, 0, 0);
     tiles.sync(world);

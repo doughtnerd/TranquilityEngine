@@ -459,8 +459,23 @@ export class BabylonMaterialLibrary {
 
   // --- Textures -------------------------------------------------------------------------------------
 
+  /**
+   * A texture asset for a use (see {@link TextureUse}) if it has loaded (sampled again if its import settings changed
+   * since), else null: it starts loading, and `onReady` runs once with it when it has. A load that fails warns once per
+   * path and use (a later call tries again). What 2D draws, decals, lines and the 2D lights ask each frame.
+   */
+  texture(path: string, use: TextureUse = "color", onReady?: (texture: Texture) => void): Texture | null {
+    const have = this.loadedTexture(path, use);
+    if (have) return have;
+    this.loadTexture(path, use).then(
+      (t) => onReady?.(t),
+      (err: unknown) => this.warn({ key: `texture|${use}|${path}`, message: `failed to load texture "${path}": ${(err as Error).message}` }),
+    );
+    return null;
+  }
+
   /** A texture asset for a use (see {@link TextureUse}), loaded once per path and use. Rejects if it can't be read (a later call tries again). */
-  texture(path: string, use: TextureUse = "color"): Promise<Texture> {
+  loadTexture(path: string, use: TextureUse = "color"): Promise<Texture> {
     const load = textureLoad(path, use);
     const have = this.textures.get(load.key);
     if (have) return Promise.resolve(have);
@@ -511,7 +526,7 @@ export class BabylonMaterialLibrary {
 
   /**
    * A texture already loaded for a use, sampled again if its import settings changed since (the editor's
-   * import settings), or null (none yet: call {@link texture} to load it).
+   * import settings), or null (none yet: call {@link texture} or {@link loadTexture} to load it).
    */
   loadedTexture(path: string, use: TextureUse = "color"): Texture | null {
     const key = textureLoad(path, use).key;
@@ -552,7 +567,7 @@ export class BabylonMaterialLibrary {
     console.warn(`[myco] ${w.message}`);
   }
 
-  private readonly loadGraphTexture = (p: string, linear: boolean) => this.texture(p, linear ? "graphData" : "graphColor");
+  private readonly loadGraphTexture = (p: string, linear: boolean) => this.loadTexture(p, linear ? "graphData" : "graphColor");
 
   /** Filtering and wrapping from the image's import settings (ADR 0040). */
   private sample(key: string, path: string, tex: Texture): void {
@@ -664,7 +679,7 @@ export class BabylonMaterialLibrary {
       const image = slot.image.replace(/^asset:/, "");
       if (!image) continue;
       entry.uses.add(image);
-      this.texture(image)
+      this.loadTexture(image)
         .then((shared) => {
           if (this.assets.get(path) !== entry) return; // replaced meanwhile
           const { texture, owned } = tiledTexture(shared, settings.tiling);
@@ -839,7 +854,7 @@ export class BabylonMaterialLibrary {
     if (image === null) m.albedoTexture = base.albedoTexture;
     else if (!image) m.albedoTexture = null;
     else
-      this.texture(image)
+      this.loadTexture(image)
         .then((tex) => {
           // Still wanting this image, and not disposed meanwhile.
           if (this.wantedTextures.get(m) === image && this.scene.materials.includes(m)) m.albedoTexture = tex;

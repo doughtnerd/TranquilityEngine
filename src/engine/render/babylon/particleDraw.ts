@@ -71,12 +71,12 @@ export interface KernelSource {
 
 /**
  * A 2D particle system's place (ADR 0415): its draw order among layered 2D content (`sortingOrder`), and its layer
- * batch's 2D lighting, or null when unlit. `key` changes with the lighting (the draws are rebuilt), not the order.
+ * batch's 2D lighting, or null when unlit (the 2D materials' setup, ADR 0418: another object when the lighting changes,
+ * and the draws are rebuilt; a new order only moves them).
  */
 export interface ParticleLayer2D {
   order: number;
   lit: LitQuadSetup | null;
-  key: string;
 }
 
 /** The default dot texture's size in pixels. */
