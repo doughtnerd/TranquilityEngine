@@ -1,3 +1,44 @@
+diff --git a/node_modules/svelte/src/animate/index.js b/node_modules/svelte/src/animate/index.js
+index 2ce7708..c18604b 100644
+--- a/node_modules/svelte/src/animate/index.js
++++ b/node_modules/svelte/src/animate/index.js
+@@ -1,5 +1,8 @@
+ /** @import { FlipParams, AnimationConfig } from './public.js' */
+ import { cubicOut } from '../easing/index.js';
++import { current_renderer } from '../internal/client/custom-renderer/state.js';
++// under a custom renderer, geometry and computed styles come from its `measure` hook
++import { client_size, computed_style } from '../internal/client/custom-renderer/measure.js';
+ 
+ /**
+  * The flip function calculates the start and end position of an element and animates between them, translating the x and y values.
+@@ -13,18 +16,20 @@ import { cubicOut } from '../easing/index.js';
+ export function flip(node, { from, to }, params = {}) {
+ 	var { delay = 0, duration = (d) => Math.sqrt(d) * 120, easing = cubicOut } = params;
+ 
+-	var style = getComputedStyle(node);
++	var style = computed_style(node);
++	var client = client_size(node);
+ 
+ 	// find the transform origin, expressed as a pair of values between 0 and 1
+ 	var transform = style.transform === 'none' ? '' : style.transform;
+ 	var [ox, oy] = style.transformOrigin.split(' ').map(parseFloat);
+-	ox /= node.clientWidth;
+-	oy /= node.clientHeight;
++	ox /= client.width;
++	oy /= client.height;
+ 
+-	// calculate effect of parent transforms and zoom
+-	var zoom = get_zoom(node); // https://drafts.csswg.org/css-viewport/#effective-zoom
+-	var sx = node.clientWidth / to.width / zoom;
+-	var sy = node.clientHeight / to.height / zoom;
++	// calculate effect of parent transforms and zoom (a custom renderer's `measure` gives its nodes' sizes
++	// in the units of their boxes, with no zoom)
++	var zoom = current_renderer === null ? get_zoom(node) : 1; // https://drafts.csswg.org/css-viewport/#effective-zoom
++	var sx = client.width / to.width / zoom;
++	var sy = client.height / to.height / zoom;
+ 
+ 	// find the starting position of the transform origin
+ 	var fx = from.left + from.width * ox;
 diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/index.js b/node_modules/svelte/src/compiler/phases/2-analyze/index.js
 index f9e845d..73a606b 100644
 --- a/node_modules/svelte/src/compiler/phases/2-analyze/index.js
@@ -37,6 +78,29 @@ index f9e845d..73a606b 100644
  		accessors:
  			is_custom_element ||
  			(runes ? false : !!options.accessors) ||
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/AnimateDirective.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/AnimateDirective.js
+index 8c5b1a6..501103d 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/AnimateDirective.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/AnimateDirective.js
+@@ -1,16 +1,14 @@
+ /** @import { Context } from '../types' */
+ /** @import { AST } from '#compiler'; */
+ import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ 
+ /**
+  * @param {AST.AnimateDirective} node
+  * @param {Context} context
+  */
+ export function AnimateDirective(node, context) {
+-	if (custom_renderer) {
+-		e.incompatible_with_custom_renderer(node, '`animate:`');
+-	}
++	// Under a custom renderer, `animate:` runs through the renderer's optional `animate` and `measure`
++	// hooks: the runtime throws if the renderer lacks them
+ 
+ 	context.next({ ...context.state, expression: node.metadata.expression });
+ 
 diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/BindDirective.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/BindDirective.js
 index ea70f8c..65f50a2 100644
 --- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/BindDirective.js
@@ -178,6 +242,31 @@ index 3e89452..8bba0d8 100644
  	disallow_children(node);
  
  	for (const attribute of node.attributes) {
+diff --git a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/TransitionDirective.js b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/TransitionDirective.js
+index 3b78997..e1e533b 100644
+--- a/node_modules/svelte/src/compiler/phases/2-analyze/visitors/TransitionDirective.js
++++ b/node_modules/svelte/src/compiler/phases/2-analyze/visitors/TransitionDirective.js
+@@ -1,7 +1,6 @@
+ /** @import { AST } from '#compiler' */
+ /** @import { Context } from '../types' */
+ import * as e from '../../../errors.js';
+-import { custom_renderer } from '../../../state.js';
+ 
+ import { mark_subtree_dynamic } from './shared/fragment.js';
+ 
+@@ -10,10 +9,8 @@ import { mark_subtree_dynamic } from './shared/fragment.js';
+  * @param {Context} context
+  */
+ export function TransitionDirective(node, context) {
+-	if (custom_renderer) {
+-		const directive = node.intro && node.outro ? '`transition:`' : node.intro ? '`in:`' : '`out:`';
+-		e.incompatible_with_custom_renderer(node, directive);
+-	}
++	// Under a custom renderer, transitions run through the renderer's optional `animate` hook (and
++	// `measure`, for transitions that read geometry): the runtime throws if the renderer lacks it
+ 
+ 	mark_subtree_dynamic(context.path);
+ 
 diff --git a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/BindDirective.js b/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/BindDirective.js
 index c7bf24b..9745388 100644
 --- a/node_modules/svelte/src/compiler/phases/3-transform/client/visitors/BindDirective.js
@@ -266,6 +355,92 @@ index c878f2f..0f82a13 100644
  
  	for (const attribute of node.attributes) {
  		if (attribute.type === 'OnDirective') {
+diff --git a/node_modules/svelte/src/internal/client/custom-renderer/animate.js b/node_modules/svelte/src/internal/client/custom-renderer/animate.js
+new file mode 100644
+index 0000000..b0374e9
+--- /dev/null
++++ b/node_modules/svelte/src/internal/client/custom-renderer/animate.js
+@@ -0,0 +1,80 @@
++/** @import { Renderer } from './types.js' */
++import * as e from '../errors.js';
++import { pop_renderer, push_renderer } from './state.js';
++
++/**
++ * The animations a custom renderer runs (or holds, with `fill: 'forwards'`) on each node until they're
++ * cancelled: what `element.getAnimations()` reports in the DOM
++ * @type {WeakMap<object, Set<any>>}
++ */
++var running = new WeakMap();
++
++/**
++ * Throws unless `renderer` can run transitions and animations (its optional `animate` hook) and, for
++ * `animate:`, measure nodes (its `measure` hook). Called when the transition or animation is created,
++ * since the compiler can't see the renderer object.
++ * @param {Renderer<any>} renderer
++ * @param {'transition' | 'in' | 'out' | 'animate'} directive
++ */
++export function require_animate(renderer, directive) {
++	if (typeof renderer.animate !== 'function') {
++		e.renderer_animate_unsupported(directive);
++	}
++
++	if (directive === 'animate' && typeof renderer.measure !== 'function') {
++		e.renderer_measure_unsupported(directive);
++	}
++}
++
++/**
++ * `element.animate(keyframes, options)` under a custom renderer: the renderer's `animate` hook runs the
++ * keyframes on its node and returns a handle (`cancel()`, `currentTime`, `onfinish`, and `onframe`, which
++ * the renderer calls on each of its frames while the animation runs)
++ * @param {Renderer<any>} renderer
++ * @param {any} node
++ * @param {Keyframe[]} keyframes
++ * @param {{ duration: number, fill: 'forwards' }} options
++ * @returns {any}
++ */
++export function renderer_animate(renderer, node, keyframes, options) {
++	var animation = /** @type {any} */ (renderer.animate)(node, keyframes, options);
++	var set = running.get(node);
++	if (set === undefined) running.set(node, (set = new Set()));
++	set.add(animation);
++
++	var cancel = animation.cancel;
++	animation.cancel = function () {
++		set?.delete(animation);
++		return cancel.call(this);
++	};
++
++	return animation;
++}
++
++/**
++ * Whether a custom renderer's node has animations running or held (`element.getAnimations().length`)
++ * @param {object} node
++ */
++export function has_renderer_animations(node) {
++	return (running.get(node)?.size ?? 0) > 0;
++}
++
++/**
++ * Runs `fn` with `renderer` as the current renderer, so that a transition function (`fade`, `flip`...)
++ * called after its component was created (in a microtask, or when an outro starts) measures nodes through
++ * it (`svelte/transition` and `svelte/animate` read geometry with `computed_style` and `bounding_rect`).
++ * With `null`, `fn` just runs.
++ * @template T
++ * @param {Renderer<any> | null} renderer
++ * @param {() => T} fn
++ * @returns {T}
++ */
++export function with_renderer(renderer, fn) {
++	if (renderer === null) return fn();
++	var previous = push_renderer(renderer);
++	try {
++		return fn();
++	} finally {
++		pop_renderer(previous);
++	}
++}
 diff --git a/node_modules/svelte/src/internal/client/custom-renderer/bind.js b/node_modules/svelte/src/internal/client/custom-renderer/bind.js
 new file mode 100644
 index 0000000..9827338
@@ -343,6 +518,71 @@ index 0000000..db8e440
 + */
 +export function is_global_target(node) {
 +	return node !== null && typeof node === 'object' && global_targets.has(node);
++}
+diff --git a/node_modules/svelte/src/internal/client/custom-renderer/measure.js b/node_modules/svelte/src/internal/client/custom-renderer/measure.js
+new file mode 100644
+index 0000000..8140d8a
+--- /dev/null
++++ b/node_modules/svelte/src/internal/client/custom-renderer/measure.js
+@@ -0,0 +1,59 @@
++/** @import { Renderer } from './types.js' */
++import * as e from '../errors.js';
++import { current_renderer } from './state.js';
++
++/**
++ * A node's geometry and computed style from the current custom renderer's `measure(node)` hook (what
++ * `getBoundingClientRect()`, `clientWidth`/`clientHeight` and `getComputedStyle()` give in the DOM)
++ * @param {any} node
++ * @returns {{ left: number, top: number, right: number, bottom: number, width: number, height: number, clientWidth: number, clientHeight: number, style: Record<string, any> }}
++ */
++export function measure_node(node) {
++	var renderer = /** @type {Renderer<any>} */ (current_renderer);
++
++	if (typeof renderer.measure !== 'function') {
++		e.renderer_measure_unsupported('transition');
++	}
++
++	return /** @type {any} */ (renderer.measure)(node);
++}
++
++/**
++ * `getComputedStyle(node)`, or under a custom renderer the `style` its `measure` hook gives
++ * @param {Element} node
++ * @returns {CSSStyleDeclaration}
++ */
++export function computed_style(node) {
++	return current_renderer === null ? getComputedStyle(node) : measure_node(node).style;
++}
++
++/**
++ * `node.getBoundingClientRect()`, or under a custom renderer the box its `measure` hook gives
++ * @param {Element} node
++ * @returns {DOMRect}
++ */
++export function bounding_rect(node) {
++	if (current_renderer === null) return node.getBoundingClientRect();
++	var m = measure_node(node);
++	return /** @type {DOMRect} */ ({
++		x: m.left,
++		y: m.top,
++		left: m.left,
++		top: m.top,
++		right: m.right,
++		bottom: m.bottom,
++		width: m.width,
++		height: m.height
++	});
++}
++
++/**
++ * `node.clientWidth` and `node.clientHeight`, or under a custom renderer the sizes its `measure` hook gives
++ * @param {Element} node
++ * @returns {{ width: number, height: number }}
++ */
++export function client_size(node) {
++	if (current_renderer === null) return { width: node.clientWidth, height: node.clientHeight };
++	var m = measure_node(node);
++	return { width: m.clientWidth, height: m.clientHeight };
 +}
 diff --git a/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js b/node_modules/svelte/src/internal/client/dom/blocks/svelte-head.js
 index 55d169b..21e6f9f 100644
@@ -436,11 +676,328 @@ index e8d5dba..fcb0764 100644
  	) {
  		teardown(() => {
  			target_handler.__removed = true;
+diff --git a/node_modules/svelte/src/internal/client/dom/elements/transitions.js b/node_modules/svelte/src/internal/client/dom/elements/transitions.js
+index 721888b..31b275d 100644
+--- a/node_modules/svelte/src/internal/client/dom/elements/transitions.js
++++ b/node_modules/svelte/src/internal/client/dom/elements/transitions.js
+@@ -8,6 +8,14 @@ import { TRANSITION_GLOBAL, TRANSITION_IN, TRANSITION_OUT } from '../../../../co
+ import { BLOCK_EFFECT, REACTION_RAN, EFFECT_TRANSPARENT } from '#client/constants';
+ import { queue_micro_task } from '../task.js';
+ import { without_reactive_context } from './bindings/shared.js';
++import { current_renderer } from '../../custom-renderer/state.js';
++import {
++	has_renderer_animations,
++	renderer_animate,
++	require_animate,
++	with_renderer
++} from '../../custom-renderer/animate.js';
++import { bounding_rect, computed_style } from '../../custom-renderer/measure.js';
+ 
+ /**
+  * @param {Element} element
+@@ -15,6 +23,9 @@ import { without_reactive_context } from './bindings/shared.js';
+  * @returns {void}
+  */
+ function dispatch_event(element, type) {
++	// a custom renderer's nodes may not dispatch events
++	if (typeof element.dispatchEvent !== 'function') return;
++
+ 	without_reactive_context(() => {
+ 		element.dispatchEvent(new CustomEvent(type));
+ 	});
+@@ -65,6 +76,20 @@ function css_to_keyframe(css) {
+ /** @param {number} t */
+ const linear = (t) => t;
+ 
++/**
++ * `element.animate(keyframes, options)`, or under a custom renderer its `animate` hook
++ * @param {import('../../custom-renderer/types.js').Renderer<any> | null} renderer
++ * @param {Element} element
++ * @param {Keyframe[]} keyframes
++ * @param {{ duration: number, fill: 'forwards' }} options
++ * @returns {globalThis.Animation}
++ */
++function animate_element(renderer, element, keyframes, options) {
++	return renderer === null
++		? element.animate(keyframes, options)
++		: renderer_animate(renderer, element, keyframes, options);
++}
++
+ /** @type {Effect | null} */
+ let animation_effect_override = null;
+ 
+@@ -85,6 +110,10 @@ export function animation(element, get_fn, get_params) {
+ 	var effect = animation_effect_override ?? /** @type {Effect} */ (active_effect);
+ 	var nodes = /** @type {EffectNodes} */ (effect.nodes);
+ 
++	// under a custom renderer, the animation runs through its `animate` hook and measures through `measure`
++	var renderer = current_renderer;
++	if (renderer !== null) require_animate(renderer, 'animate');
++
+ 	/** @type {DOMRect} */
+ 	var from;
+ 
+@@ -97,15 +126,18 @@ export function animation(element, get_fn, get_params) {
+ 	/** @type {null | { position: string, width: string, height: string, transform: string }} */
+ 	var original_styles = null;
+ 
++	/** @type {null | { value: string | null }} The `style` attribute before `fix()`, under a custom renderer */
++	var original_attribute = null;
++
+ 	nodes.a ??= {
+ 		element,
+ 		measure() {
+-			from = this.element.getBoundingClientRect();
++			from = with_renderer(renderer, () => bounding_rect(this.element));
+ 		},
+ 		apply() {
+ 			animation?.abort();
+ 
+-			to = this.element.getBoundingClientRect();
++			to = with_renderer(renderer, () => bounding_rect(this.element));
+ 
+ 			if (
+ 				from.left !== to.left ||
+@@ -113,9 +145,12 @@ export function animation(element, get_fn, get_params) {
+ 				from.top !== to.top ||
+ 				from.bottom !== to.bottom
+ 			) {
+-				const options = get_fn()(this.element, { from, to }, get_params?.());
++				const options = with_renderer(renderer, () =>
++					get_fn()(this.element, { from, to }, get_params?.())
++				);
+ 
+ 				animation = animate(
++					renderer,
+ 					this.element,
+ 					options,
+ 					undefined,
+@@ -133,13 +168,36 @@ export function animation(element, get_fn, get_params) {
+ 			// because the styles applied by the animation take precedence. In the case of crossfade,
+ 			// that means the `translate(...)` of the crossfade transition overrules the `translate(...)`
+ 			// we would apply below, leading to the element jumping somewhere to the top left.
+-			if (element.getAnimations().length) return;
++			if (renderer !== null ? has_renderer_animations(element) : element.getAnimations().length) {
++				return;
++			}
+ 
+ 			// It's important to destructure these to get fixed values - the object itself has getters,
+ 			// and changing the style to 'absolute' can for example influence the width.
+-			var { position, width, height } = getComputedStyle(element);
+-
+-			if (position !== 'absolute' && position !== 'fixed') {
++			var { position, width, height } = with_renderer(renderer, () => computed_style(element));
++
++			if (renderer !== null && position !== 'absolute' && position !== 'fixed') {
++				// custom renderers deal in attributes: the declarations go at the end of the `style` attribute
++				var attribute = /** @type {string | null} */ (renderer.getAttribute(element, 'style'));
++				original_attribute = { value: attribute };
++
++				var css =
++					(attribute?.trim() ? attribute.trim().replace(/;?$/, '; ') : '') +
++					`position: absolute; width: ${width}; height: ${height}`;
++				renderer.setAttribute(element, 'style', css);
++
++				var moved = with_renderer(renderer, () => bounding_rect(element));
++
++				if (from.left !== moved.left || from.top !== moved.top) {
++					var current = with_renderer(renderer, () => computed_style(element)).transform;
++					var translate = `translate(${from.left - moved.left}px, ${from.top - moved.top}px)`;
++					renderer.setAttribute(
++						element,
++						'style',
++						`${css}; transform: ${current && current !== 'none' ? `${current} ${translate}` : translate}`
++					);
++				}
++			} else if (position !== 'absolute' && position !== 'fixed') {
+ 				var style = /** @type {HTMLElement | SVGElement} */ (element).style;
+ 
+ 				original_styles = {
+@@ -161,7 +219,11 @@ export function animation(element, get_fn, get_params) {
+ 			}
+ 		},
+ 		unfix() {
+-			if (original_styles) {
++			if (renderer !== null && original_attribute) {
++				var value = original_attribute.value;
++				if (value === null) renderer.removeAttribute(element, 'style');
++				else renderer.setAttribute(element, 'style', value);
++			} else if (original_styles) {
+ 				var style = /** @type {HTMLElement | SVGElement} */ (element).style;
+ 
+ 				style.position = original_styles.position;
+@@ -202,14 +264,19 @@ export function transition(flags, element, get_fn, get_params) {
+ 	/** @type {AnimationConfig | ((opts: { direction: 'in' | 'out' }) => AnimationConfig) | undefined} */
+ 	var current_options;
+ 
+-	var inert = element.inert;
++	// under a custom renderer, the transition runs through its `animate` hook (and its functions measure
++	// nodes through `measure`); `inert` and the Safari overflow workaround are the DOM's
++	var renderer = current_renderer;
++	if (renderer !== null) require_animate(renderer, is_both ? 'transition' : is_intro ? 'in' : 'out');
++
++	var inert = renderer === null ? element.inert : false;
+ 
+ 	/**
+ 	 * The default overflow style, stashed so we can revert changes during the transition
+ 	 * that are necessary to work around a Safari <18 bug
+ 	 * TODO 6.0 remove this, if older versions of Safari have died out enough
+ 	 */
+-	var overflow = element.style.overflow;
++	var overflow = renderer === null ? element.style.overflow : '';
+ 
+ 	/** @type {Animation | undefined} */
+ 	var intro;
+@@ -222,9 +289,11 @@ export function transition(flags, element, get_fn, get_params) {
+ 			// If a transition is still ongoing, we use the existing options rather than generating
+ 			// new ones. This ensures that reversible transitions reverse smoothly, rather than
+ 			// jumping to a new spot because (for example) a different `duration` was used
+-			return (current_options ??= get_fn()(element, get_params?.() ?? /** @type {P} */ ({}), {
+-				direction
+-			}));
++			return (current_options ??= with_renderer(renderer, () =>
++				get_fn()(element, get_params?.() ?? /** @type {P} */ ({}), {
++					direction
++				})
++			));
+ 		});
+ 	}
+ 
+@@ -232,7 +301,7 @@ export function transition(flags, element, get_fn, get_params) {
+ 	var transition = {
+ 		is_global,
+ 		in() {
+-			element.inert = inert;
++			if (renderer === null) element.inert = inert;
+ 
+ 			if (!is_intro) {
+ 				outro?.abort();
+@@ -247,6 +316,7 @@ export function transition(flags, element, get_fn, get_params) {
+ 			}
+ 
+ 			intro = animate(
++				renderer,
+ 				element,
+ 				get_options(),
+ 				outro,
+@@ -261,7 +331,7 @@ export function transition(flags, element, get_fn, get_params) {
+ 					intro?.abort();
+ 					intro = current_options = undefined;
+ 
+-					element.style.overflow = overflow;
++					if (renderer === null) element.style.overflow = overflow;
+ 				}
+ 			);
+ 		},
+@@ -272,9 +342,10 @@ export function transition(flags, element, get_fn, get_params) {
+ 				return;
+ 			}
+ 
+-			element.inert = true;
++			if (renderer === null) element.inert = true;
+ 
+ 			outro = animate(
++				renderer,
+ 				element,
+ 				get_options(),
+ 				intro,
+@@ -327,6 +398,7 @@ export function transition(flags, element, get_fn, get_params) {
+ 
+ /**
+  * Animates an element, according to the provided configuration
++ * @param {import('../../custom-renderer/types.js').Renderer<any> | null} renderer The custom renderer the element belongs to, or `null`
+  * @param {Element} element
+  * @param {AnimationConfig | ((opts: { direction: 'in' | 'out' }) => AnimationConfig)} options
+  * @param {Animation | undefined} counterpart The corresponding intro/outro to this outro/intro
+@@ -335,7 +407,7 @@ export function transition(flags, element, get_fn, get_params) {
+  * @param {(() => void)} on_finish Called after successfully completing the animation
+  * @returns {Animation}
+  */
+-function animate(element, options, counterpart, t2, on_begin, on_finish) {
++function animate(renderer, element, options, counterpart, t2, on_begin, on_finish) {
+ 	var is_intro = t2 === 1;
+ 	var aborted = false;
+ 
+@@ -348,8 +420,8 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 
+ 		queue_micro_task(() => {
+ 			if (aborted) return;
+-			var o = options({ direction: is_intro ? 'in' : 'out' });
+-			a = animate(element, o, counterpart, t2, on_begin, on_finish);
++			var o = with_renderer(renderer, () => options({ direction: is_intro ? 'in' : 'out' }));
++			a = animate(renderer, element, o, counterpart, t2, on_begin, on_finish);
+ 		});
+ 
+ 		// ...but we want to do so without using `async`/`await` everywhere, so
+@@ -394,7 +466,7 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 		if (d === 0) {
+ 			if (css && !is_intro) {
+ 				var keyframe = css_to_keyframe(css(t2, 1 - t2));
+-				animation = element.animate([keyframe], { duration: 0, fill: 'forwards' });
++				animation = animate_element(renderer, element, [keyframe], { duration: 0, fill: 'forwards' });
+ 			}
+ 
+ 			finish();
+@@ -418,7 +490,7 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 				var styles = css_to_keyframe(css(t, 1 - t));
+ 				keyframes.push(styles);
+ 
+-				needs_overflow_hidden ||= styles.overflow === 'hidden';
++				needs_overflow_hidden ||= renderer === null && styles.overflow === 'hidden';
+ 			}
+ 		}
+ 
+@@ -434,7 +506,7 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 			return t1 + delta * easing(time / d);
+ 		};
+ 
+-		if (tick) {
++		if (tick && renderer === null) {
+ 			loop(() => {
+ 				if (animation.playState !== 'running') return false;
+ 
+@@ -445,8 +517,16 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 			});
+ 		}
+ 
+-		animation = element.animate(keyframes, { duration: d, fill: 'forwards' });
++		animation = animate_element(renderer, element, keyframes, { duration: d, fill: 'forwards' });
+ 		animation.onfinish = finish;
++
++		if (tick && renderer !== null) {
++			// a custom renderer calls `onframe` on each of its frames while the animation runs
++			/** @type {any} */ (animation).onframe = () => {
++				var t = get_t();
++				tick(t, 1 - t);
++			};
++		}
+ 	}
+ 
+ 	if (!duration && !delay) {
+@@ -478,7 +558,7 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 			//
+ 			// fill forwards to prevent the element from rendering without styles applied
+ 			// see https://github.com/sveltejs/svelte/issues/14732
+-			animation = element.animate(keyframes, { duration: delay, fill: 'forwards' });
++			animation = animate_element(renderer, element, keyframes, { duration: delay, fill: 'forwards' });
+ 
+ 			animation.onfinish = () => {
+ 				// remove dummy animation from the stack to prevent conflict with main animation
+@@ -495,7 +575,8 @@ function animate(element, options, counterpart, t2, on_begin, on_finish) {
+ 			if (animation) {
+ 				animation.cancel();
+ 				// This prevents memory leaks in Chromium
+-				animation.effect = null;
++				if (renderer === null) animation.effect = null;
++				else /** @type {any} */ (animation).onframe = null;
+ 				// This prevents onfinish to be launched after cancel(),
+ 				// which can happen in some rare cases
+ 				// see https://github.com/sveltejs/svelte/issues/13681
 diff --git a/node_modules/svelte/src/internal/client/errors.js b/node_modules/svelte/src/internal/client/errors.js
-index 559c9b3..8c23eb2 100644
+index 559c9b3..9bce193 100644
 --- a/node_modules/svelte/src/internal/client/errors.js
 +++ b/node_modules/svelte/src/internal/client/errors.js
-@@ -479,6 +479,56 @@ export function renderer_cannot_cross(guest, host) {
+@@ -479,6 +479,90 @@ export function renderer_cannot_cross(guest, host) {
  	}
  }
  
@@ -494,6 +1051,40 @@ index 559c9b3..8c23eb2 100644
 +	}
 +}
 +
++/**
++ * `%directive%:` needs the custom renderer to define `animate`
++ * @param {string} directive
++ * @returns {never}
++ */
++export function renderer_animate_unsupported(directive) {
++	if (DEV) {
++		const error = new Error(`renderer_animate_unsupported\n\`${directive}:\` needs the custom renderer to define \`animate\`\nhttps://svelte.dev/e/renderer_animate_unsupported`);
++
++		error.name = 'Svelte error';
++
++		throw error;
++	} else {
++		throw new Error(`https://svelte.dev/e/renderer_animate_unsupported`);
++	}
++}
++
++/**
++ * `%directive%:` needs the custom renderer to define `measure`
++ * @param {string} directive
++ * @returns {never}
++ */
++export function renderer_measure_unsupported(directive) {
++	if (DEV) {
++		const error = new Error(`renderer_measure_unsupported\n\`${directive}:\` needs the custom renderer to define \`measure\`\nhttps://svelte.dev/e/renderer_measure_unsupported`);
++
++		error.name = 'Svelte error';
++
++		throw error;
++	} else {
++		throw new Error(`https://svelte.dev/e/renderer_measure_unsupported`);
++	}
++}
++
  /**
   * The `%rune%` rune is only available inside `.svelte` and `.svelte.js/ts` files
   * @param {string} rune
@@ -507,11 +1098,131 @@ index ee2959d..5e1f5ef 100644
  export { cross, is_crossing } from './custom-renderer/cross.js';
 +export { bind_renderer } from './custom-renderer/bind.js';
 +export { global_target } from './custom-renderer/global.js';
+diff --git a/node_modules/svelte/src/transition/index.js b/node_modules/svelte/src/transition/index.js
+index 31e8fbd..cb27c2d 100644
+--- a/node_modules/svelte/src/transition/index.js
++++ b/node_modules/svelte/src/transition/index.js
+@@ -2,6 +2,8 @@
+ 
+ import { DEV } from 'esm-env';
+ import * as w from '../internal/client/warnings.js';
++// under a custom renderer, geometry and computed styles come from its `measure` hook
++import { bounding_rect, computed_style } from '../internal/client/custom-renderer/measure.js';
+ 
+ /** @param {number} x */
+ const linear = (x) => x;
+@@ -50,7 +52,7 @@ export function blur(
+ 	node,
+ 	{ delay = 0, duration = 400, easing = cubic_in_out, amount = 5, opacity = 0 } = {}
+ ) {
+-	const style = getComputedStyle(node);
++	const style = computed_style(node);
+ 	const target_opacity = +style.opacity;
+ 	const f = style.filter === 'none' ? '' : style.filter;
+ 	const od = target_opacity * (1 - opacity);
+@@ -71,7 +73,7 @@ export function blur(
+  * @returns {TransitionConfig}
+  */
+ export function fade(node, { delay = 0, duration = 400, easing = linear } = {}) {
+-	const o = +getComputedStyle(node).opacity;
++	const o = +computed_style(node).opacity;
+ 	return {
+ 		delay,
+ 		duration,
+@@ -91,7 +93,7 @@ export function fly(
+ 	node,
+ 	{ delay = 0, duration = 400, easing = cubic_out, x = 0, y = 0, opacity = 0 } = {}
+ ) {
+-	const style = getComputedStyle(node);
++	const style = computed_style(node);
+ 	const target_opacity = +style.opacity;
+ 	const transform = style.transform === 'none' ? '' : style.transform;
+ 	const od = target_opacity * (1 - opacity);
+@@ -117,7 +119,7 @@ var slide_warning = false;
+  * @returns {TransitionConfig}
+  */
+ export function slide(node, { delay = 0, duration = 400, easing = cubic_out, axis = 'y' } = {}) {
+-	const style = getComputedStyle(node);
++	const style = computed_style(node);
+ 
+ 	if (DEV && !slide_warning && /(contents|inline|table)/.test(style.display)) {
+ 		slide_warning = true;
+@@ -171,7 +173,7 @@ export function scale(
+ 	node,
+ 	{ delay = 0, duration = 400, easing = cubic_out, start = 0, opacity = 0 } = {}
+ ) {
+-	const style = getComputedStyle(node);
++	const style = computed_style(node);
+ 	const target_opacity = +style.opacity;
+ 	const transform = style.transform === 'none' ? '' : style.transform;
+ 	const sd = 1 - start;
+@@ -196,7 +198,7 @@ export function scale(
+  */
+ export function draw(node, { delay = 0, speed, duration, easing = cubic_in_out } = {}) {
+ 	let len = node.getTotalLength();
+-	const style = getComputedStyle(node);
++	const style = computed_style(node);
+ 	if (style.strokeLinecap !== 'butt') {
+ 		len += parseInt(style.strokeWidth);
+ 	}
+@@ -259,14 +261,14 @@ export function crossfade({ fallback, ...defaults }) {
+ 			duration = /** @param {number} d */ (d) => Math.sqrt(d) * 30,
+ 			easing = cubic_out
+ 		} = assign(assign({}, defaults), params);
+-		const from = from_node.getBoundingClientRect();
+-		const to = node.getBoundingClientRect();
++		const from = bounding_rect(from_node);
++		const to = bounding_rect(node);
+ 		const dx = from.left - to.left;
+ 		const dy = from.top - to.top;
+ 		const dw = from.width / to.width;
+ 		const dh = from.height / to.height;
+ 		const d = Math.sqrt(dx * dx + dy * dy);
+-		const style = getComputedStyle(node);
++		const style = computed_style(node);
+ 		const transform = style.transform === 'none' ? '' : style.transform;
+ 		const opacity = +style.opacity;
+ 		return {
 diff --git a/node_modules/svelte/types/index.d.ts b/node_modules/svelte/types/index.d.ts
-index 27cb293..3a72caf 100644
+index 27cb293..2f65660 100644
 --- a/node_modules/svelte/types/index.d.ts
 +++ b/node_modules/svelte/types/index.d.ts
-@@ -2812,6 +2812,38 @@ declare module 'svelte/renderer' {
+@@ -2737,6 +2737,34 @@ declare module 'svelte/reactivity/window' {
+ }
+ 
+ declare module 'svelte/renderer' {
++	/** What a custom renderer's `animate` hook returns: the part of the DOM's `Animation` Svelte uses. */
++	export interface RendererAnimation {
++		/** Milliseconds since the animation started; null once it's cancelled. */
++		readonly currentTime: number | null;
++		/** Called once when the animation reaches its end. */
++		onfinish: (() => void) | null;
++		/** Set by Svelte for `tick` transitions: called once on each of the renderer's frames while it runs. */
++		onframe?: (() => void) | null;
++		/** Stops the animation and removes its values. */
++		cancel(): void;
++	}
++
++	/** What a custom renderer's `measure` hook returns. */
++	export interface RendererMeasurement {
++		/** The node's box after its transforms, as `getBoundingClientRect()` gives it. */
++		left: number;
++		top: number;
++		right: number;
++		bottom: number;
++		width: number;
++		height: number;
++		/** Its untransformed inner size (inside its border), as `clientWidth` and `clientHeight`. */
++		clientWidth: number;
++		clientHeight: number;
++		/** Its computed values by camel-case property name, as `getComputedStyle()` gives them (`opacity`, `transform`, `height`, `paddingTop`, `transformOrigin`...). */
++		style: Record<string, string>;
++	}
++
+ 	/**
+ 	 * A custom renderer. `N` describes the types of the renderer's nodes, for example:
+ 	 *
+@@ -2812,6 +2840,65 @@ declare module 'svelte/renderer' {
  		/** Remove an event listener of the given type and handler from the target node. */
  		removeEventListener(target: N['element'], type: string, handler: any, options?: any): void;
  
@@ -546,6 +1257,33 @@ index 27cb293..3a72caf 100644
 +		 * those components throw when they are created.
 +		 */
 +		addStyles?(hash: string, code: string): void;
++
++		/**
++		 * Runs a transition's or `animate:`'s keyframes on the node, as `element.animate(keyframes, options)`
++		 * does in the DOM. Each keyframe holds CSS values by camel-case property name (`opacity`,
++		 * `transform`, `paddingTop`), evenly spaced over `options.duration` milliseconds (none for a pure
++		 * delay); the last keyframe's values stay until `cancel()` (`fill: 'forwards'`). Return a handle:
++		 * `currentTime` is the milliseconds since it started (null once cancelled); call `onfinish` once,
++		 * when it reaches its end (after the call that created it returns); call `onframe`, when set, once
++		 * on each of the renderer's frames while it runs (a `tick` transition's frames); `cancel()` stops
++		 * it and removes its values. Without `animate`, `transition:`, `in:`, `out:` and `animate:` throw
++		 * when they're created.
++		 */
++		animate?(
++			node: N['element'],
++			keyframes: Array<Record<string, string>>,
++			options: { duration: number; fill: 'forwards' }
++		): RendererAnimation;
++
++		/**
++		 * The node's geometry and computed style, which `animate:` (`flip`), `crossfade`, `fly`, `slide`
++		 * and the other `svelte/transition` and `svelte/animate` functions read: what
++		 * `getBoundingClientRect()`, `clientWidth`/`clientHeight` and `getComputedStyle()` give in the DOM.
++		 * The box is the node's after its transforms, up to date with changes made before the call (as
++		 * reading layout does in the DOM). Without `measure`, `animate:` throws when it's created and those
++		 * functions throw when they run.
++		 */
++		measure?(node: N['element']): RendererMeasurement;
 +
  		/**
  		 * Called when a component (or snippet) that uses this renderer is rendered inside
