@@ -15,6 +15,7 @@ import { isUISourcePath } from "../projectCode/uiModules";
 import { LEGACY_AUDIO_MESSAGE, hasLegacyAudio } from "../engine/audio/project/load";
 import { audioEventRefusal, isAudioEventPath } from "../engine/audio/retiredAudioEvent";
 import { buildTarget } from "../projectCode/buildTarget";
+import type { UIRuntimeSource } from "../projectCode/uiBundle";
 import type { ScriptProblem } from "../projectCode/compile";
 import { link } from "../projectCode/linker";
 import { planPluginCode, type BuiltPlugin } from "../plugins/thirdParty";
@@ -46,6 +47,11 @@ export interface BuildSource {
    * build's code like scripts and don't ship as files, and `.css` files, which components may import.
    */
   readonly ui?: ReadonlyMap<string, string>;
+  /**
+   * The engine's Svelte runtime and renderer, which the UI code is bundled with into the build's code, tree-shaken
+   * (ADR 0421); without it, a project with Svelte UI can't be built.
+   */
+  readonly uiRuntime?: UIRuntimeSource;
 
   /** The project's node_modules, for npm package imports (ADR 0125); without it, scripts importing packages can't be built. */
   readonly packages?: PackageSource;
@@ -228,7 +234,7 @@ export async function planWebBuild(source: BuildSource, options: BuildOptions = 
   const linked = await link(
     { code: pluginPlan.code, json: source.json, ui: source.ui, packages: source.packages, extraEntries: pluginPlan.npmEntries, isAsset: (p) => shipped.includes(p) },
 
-    buildTarget,
+    buildTarget({ ui: source.uiRuntime }),
   );
   stopOn(linked.problems, "Some scripts can't be built");
   const files = linked.output;

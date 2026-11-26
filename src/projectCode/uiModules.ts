@@ -1,7 +1,8 @@
 // Game UI code in a project (ADR 0419): which files are Svelte sources, and the Svelte runtime modules
-// compiled components import, which every host provides from its own copy of the engine's Svelte (one
-// instance with the engine's renderer) instead of bundling them like npm packages. Imports nothing, so
-// the player's build config can read the list.
+// compiled components import, which aren't npm packages of the project: the editor provides them from its
+// own copy of the engine's Svelte (one instance with the engine's renderer), and a game build bundles them
+// from the engine's files into the game's code, tree-shaken (ADR 0421, `uiBundle.ts`). Imports nothing, so
+// the build configs can read it.
 
 /** The runtime modules compiled UI code may import: Svelte's client runtime and packages, and the engine's renderer. */
 export const UI_RUNTIME_SPECIFIERS: readonly string[] = [
@@ -27,14 +28,18 @@ const RUNTIME = new Set(UI_RUNTIME_SPECIFIERS);
 /** True for an import of one of the UI runtime modules. */
 export const isUIRuntimeSpecifier = (specifier: string): boolean => RUNTIME.has(specifier);
 
+/** The engine's renderer (`myco/ui-renderer`) among the engine's files, by path from the engine's root. */
+export const UI_RENDERER_SOURCE = "src/plugins/ui/svelte/renderer.ts";
+
+/** The engine's own modules, by path from the engine's root: what the renderer imports from there stays in the player. */
+export const ENGINE_SOURCE_DIR = "src/engine/";
+
 /**
- * Where a UI runtime module is in a game build (ADR 0041), beside `myco.js`: an entry of the prebuilt
- * player with a fixed name (`svelte/index.js`, `svelte/internal/client.js`, `svelte/myco-ui-renderer.js`).
+ * The prebuilt player's entry beside `myco.js` (ADR 0421) re-exporting what the renderer (bundled into a game's
+ * code) imports from the engine's own modules (`ENGINE_SOURCE_DIR`), by the names it imports, so both share the
+ * engine's instance. Engine code only: the player carries no Svelte.
  */
-export function uiRuntimeFile(specifier: string): string {
-  if (specifier === "myco/ui-renderer") return "svelte/myco-ui-renderer.js";
-  return specifier === "svelte" ? "svelte/index.js" : `${specifier}.js`;
-}
+export const UI_HOST_FILE = "myco-ui-host.js";
 
 /** A Svelte component (`*.svelte`). */
 export const isSvelteComponentPath = (path: string): boolean => path.endsWith(".svelte");

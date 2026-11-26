@@ -12,7 +12,7 @@ import { createBrowserAudioEncoder } from "../export/audioEncoderBrowser";
 import { joinPath } from "./projectPaths";
 import NOTICES from "../../THIRD_PARTY_NOTICES.md?raw";
 import { bakeModelFile } from "../engine/scene/models";
-import { packageSourceFor } from "./projectPackages";
+import { editorUIRuntimeSource, packageSourceFor } from "./projectPackages";
 import { ExportError, isOutputInsideProject, planWebBuild, type BuildOptions, type WebBuildPlan } from "../export/webBuild";
 import { jsonFiles, uiFiles, type EditorProject } from "./projects";
 import { DEFAULT_DEBUG_LINK_PORT } from "../engine/debugLink/config";
@@ -147,7 +147,7 @@ async function writeBuild(project: EditorProject, fs: FileSystem, out: string, t
   // ADR 0403 "Rendezvous" 2: a debug build's serve.mjs hosts the rendezvous from a bundle served beside the editor (rendezvous/rendezvous.mjs); without it the build says so.
   const debugOn = options.debugLink !== undefined || options.debugListen === true || options.debugLan === true || options.debugPort !== undefined || options.debugRendezvous !== undefined;
   const rendezvousBundle = debugOn && options.rendezvousBundle === undefined ? await fetchText(new URL("rendezvous/rendezvous.mjs", document.baseURI).href) : undefined;
-  const plan = await planWebBuild({ name, settings: project.settings, files: project.files, scripts: project.scripts, json: jsonFiles(project), ui: uiFiles(project), packages:
+  const plan = await planWebBuild({ name, settings: project.settings, files: project.files, scripts: project.scripts, json: jsonFiles(project), ui: uiFiles(project), uiRuntime: editorUIRuntimeSource(), packages:
  packageSourceFor(project, "production") }, { ...options, ...(rendezvousBundle !== undefined && { rendezvousBundle }) });
   const encoder = createBrowserAudioEncoder();
   return writeWebBuild(plan, {

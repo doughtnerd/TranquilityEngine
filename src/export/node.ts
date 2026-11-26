@@ -10,7 +10,7 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readProject, ServerError } from "../server/project";
-import { nodePackageSource } from "../server/packages";
+import { nodePackageSource, nodeUIRuntimeSource } from "../server/packages";
 import { DEBUG_LISTENER_CRATES, DEBUG_MULTICAST_PLUGIN, DEFAULT_ICON_SVG, ICON_FILES, ICON_SOURCES, desktopProjectFiles, desktopReadme, type BuildSettings } from "./desktop";
 import { PLAYER_FILE_LIST } from "./format";
 import { acquireProjectContext } from "../engine/core/projectContext";
@@ -102,7 +102,7 @@ export async function exportProject(options: ExportOptions): Promise<ExportResul
   // ADR 0403 "Rendezvous" 2: a debug web build's serve.mjs hosts the rendezvous, so the build carries its bundle.
   const debugOn = options.debugLink !== undefined || options.debugListen || options.debugLan || options.debugPort !== undefined || options.debugRendezvous !== undefined;
   const rendezvousBundle = debugOn && target === "web" ? await readFile(options.rendezvousFile ?? (await ensureRendezvous(log)), "utf8") : undefined;
-  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, ui: project.ui, packages:
+  let plan = await planWebBuild({ name: basename(project.root), settings: project.settings, files: project.files, scripts: project.scripts, json: project.json, ui: project.ui, uiRuntime: nodeUIRuntimeSource(), packages:
  nodePackageSource(project.root, "production") }, { mainScene: options.mainScene, audioCapture: options.audioCapture, audioTake: options.audioTake, audioTakeFrames: options.audioTakeFrames, languages: options.languages, pseudo: options.pseudo, ...(options.debugLink !== undefined && { debugLink: options.debugLink }), ...(options.debugListen && { debugListen: true }), ...(options.debugLan && { debugLan: true }), ...(options.debugPort !== undefined && { debugPort: options.debugPort }), ...(options.debugRendezvous !== undefined && { debugRendezvous: options.debugRendezvous }), ...(rendezvousBundle !== undefined && { rendezvousBundle }) });
   const playerDir = options.playerDir ?? (await ensurePlayer(log));
 
