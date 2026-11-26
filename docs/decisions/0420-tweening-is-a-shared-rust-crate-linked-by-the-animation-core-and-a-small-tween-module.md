@@ -85,6 +85,14 @@ There's a precedent for exactly this split: `native/common/curve` (`myco-curve`)
 - **`build:tween`'s size gate** is about 36 KB raw (the measured build plus 20%).
 - **Measured (spike):** the core's benches, fuel pass and tests unchanged within noise (tweens 1,000: linear 14.8 → 14.3 µs, eased 22.9 → 21.4 µs, vec3/quat 47.7 → 46.5 µs, budget 200 µs); core wasm 879,335 → 879,015 bytes raw, gzip 353 KB both; the standalone module 30,077 bytes raw, 13,789 gzip (12,854 with `wasm-opt -O3`), plus 2,135 bytes gzip of JS glue. Adopting the split commits a rebuilt core, since its source hash covers `native/common/`.
 
+**As built (2026-11-26):**
+
+- **Size gate raised.** `build:tween`'s gate is 53 KB raw, not 36 KB. The sequence player (the owner's choice) and its timeline records added size the spike's build didn't have. Measured: 45,584 bytes raw, 20,012 gzip, plus about 3 KB gzip of JS glue. The gate stays a tripwire at the measured size plus 20%.
+- **Size fixes:** an own clamp helper in place of `f32::clamp` (whose assertion message pulled in float formatting), an insertion-ordered free list, and insertion-ordered sequence completion (no sort, shared with the core). Without them the module was 92 KB, and the core shrank from 879,303 to 868,216 bytes.
+- **The audio core's source hash covers only `native/common/curve`**, not all of `native/common/`. Otherwise tween-crate edits would mark the audio builds stale. Any change to `myco-curve` still rebuilds audio, so "audio unchanged" holds behaviourally, not byte for byte.
+- **Parity:** `native/tween/tests/parity.rs` (Rust) and `tweenBackend.node.test.ts` (TypeScript) run identical scripts on the core and the standalone module and compare every value and record bit for bit.
+- **Timing note for 0418 wave 4:** the core-backed backend's update (`writeInputs(0)`) clears the core's per-frame outputs for every World, so UI runs it outside a game World's evaluate-to-apply span (`runtime/core/tweenBackend.ts`).
+
 ## Alternatives considered
 
 - **UI requires the animation plugin.** Simplest, but every game with UI animation pays 352 KB gzip, even with no skeletal animation.
