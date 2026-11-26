@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { Engine, GameObject, Input, InputPlayers, button, chordOf, defineActions, dpad, vec2 } from "../index";
+import { Assets, Engine, GameObject, Input, InputPlayers, button, chordOf, defineActions, dpad, vec2 } from "../index";
 import { UIButton, UICanvas, UIImage, UIText } from "../ui/components";
 import { UIControlMapper } from "../ui/controlMapper";
 import { World } from "../core/World";
 import { UIPointer, stubDocument } from "./uiPointer";
+import { loadUIDocumentSupport } from "../ui/UIDocument";
+import { buildUI, byId } from "./uiMarkup";
 
 // ADR 0337, 0339 and 0340: the engine's rebinding screen, driven as a player does: clicks through a UI
 // core, keys and pad buttons through Input (focus navigation moves between its buttons and `submit`
@@ -25,6 +27,7 @@ let pads: number[] = [];
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
+  await loadUIDocumentSupport();
   stubDocument();
 });
 
@@ -35,6 +38,7 @@ afterEach(() => {
   Input.inject.releaseAll();
   vi.unstubAllGlobals();
   engine.dispose();
+  Assets.clearSources();
   Input.reset();
 });
 
@@ -61,9 +65,9 @@ async function pointer(height = 1400): Promise<UIPointer> {
   return p;
 }
 
-/** A mapper under a game's canvas, with a UI core laying it out. */
+/** A mapper under a game's canvas (a UI document's), with a UI core laying it out. */
 async function mapper(init: Partial<UIControlMapper> = {}): Promise<UIControlMapper> {
-  const canvas = GameObject.create("Canvas").addBehavior(UICanvas);
+  const canvas = byId(buildUI(`<Canvas id="Canvas"/>`), "Canvas", UICanvas);
   const m = GameObject.create("Controls", { parent: canvas.node }).addBehavior(UIControlMapper, { actions: "jump, move, bomb", ...init } as never);
   step();
   await pointer();
@@ -175,8 +179,9 @@ describe("UIControlMapper (ADR 0337)", () => {
     expect(row(m, "Jump").gamepad!.button.borderColor).toEqual(m.accentColor);
     expect(row(m, "Jump").keyboard!.button.borderColor).toEqual(m.cellColor);
 
-    const canvas = GameObject.create("Menu").addBehavior(UICanvas);
-    const play = GameObject.create("Play", { parent: canvas.node }).addBehavior(UIButton);
+    const menu = buildUI(`<Canvas id="Menu"><Button id="Play"/></Canvas>`);
+    const canvas = byId(menu, "Menu", UICanvas);
+    const play = byId(menu, "Play", UIButton);
     play.focused = true;
     const other = GameObject.create("Controls", { parent: canvas.node }).addBehavior(UIControlMapper, { actions: "jump" } as never);
     step(2);

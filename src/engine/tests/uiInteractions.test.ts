@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameBehavior, GameObject, Input, defineSystem } from "../index";
-import { UIButton, UICanvas, UIInputField, type UILength } from "../ui/components";
+import { UIButton, UIInputField } from "../ui/components";
 import { UIDocument, UIEvents, loadUIDocumentSupport } from "../ui/UIDocument";
 import { _undefineSystem } from "../core/systems";
 import { World } from "../core/World";
 import { UIPointer, stubDocument, type FakeInput } from "./uiPointer";
+import { buildUI, byId } from "./uiMarkup";
 
 // ADR 0309: what the player did to UI (click, submit, change, hover) is recorded once, by the UI core,
 // and every script phase of the World's next frame sees it; a script's own edits are never the player's.
@@ -120,9 +121,8 @@ describe("UI interaction events (ADR 0309)", () => {
     for (const s of seen) expect(s, s.phase).toMatchObject({ clicked: false, changed: false, submitted: false });
   });
 
-  it("gives a bare input field `changed` for the frame the player typed, and never for a script's write", async () => {
-    const canvas = GameObject.create("Canvas").addBehavior(UICanvas);
-    const field = GameObject.create("Name", { parent: canvas.node }).addBehavior(UIInputField, { width: 300 as UILength, height: 40 as UILength });
+  it("gives an input field no handler watches `changed` for the frame the player typed, and never for a script's write", async () => {
+    const field = byId(buildUI(`<Canvas><InputField id="name" width="300" height="40"/></Canvas>`), "name", UIInputField);
     const p = await pointer();
     focus(p, field);
     dom.typeText("Ada");
@@ -171,10 +171,10 @@ describe("UI interaction events (ADR 0309)", () => {
     expect(go.hovered).toBe(true);
   });
 
-  it("keeps one focused field per World: focusing another moves focus", async () => {
+  it("keeps one focused field per World: focusing another, in another document, moves focus", async () => {
     const doc = await form();
     const name = doc.query("#name")!.as(UIInputField);
-    const other = GameObject.create("Other", { parent: doc.query("#form")!.node }).addBehavior(UIInputField);
+    const other = byId(buildUI(`<Canvas><InputField id="other"/></Canvas>`), "other", UIInputField);
     name.focused = true;
     other.focused = true;
     expect(name.focused).toBe(false);

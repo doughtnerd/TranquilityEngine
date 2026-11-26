@@ -12,7 +12,7 @@ import { Color, DEG2RAD, Quaternion, Vector2, Vector3 } from "../core/math";
 import { AssetRef, PlainObject, component, field, getComponentClass, getComponentId, getFields, isListType, type ComponentClass, type FieldInfo, type ScalarFieldType } from "../core/registry";
 import type { World } from "../core/World";
 import { Assets } from "./Assets";
-import { GameObject, _componentAllowedIn, type InstantiateOptions } from "./GameObject";
+import { GameObject, UI_FROM_DOCUMENTS, _componentAllowedIn, _documentOnlyComponentId, type InstantiateOptions } from "./GameObject";
 import { assetRefs } from "./resolvedScene";
 import { nodeRefId } from "./nodeReferences";
 import { foldNodes, type FoldAdapter, type FoldPath, type FoldScope, type NodeStep } from "./overrideFold";
@@ -294,7 +294,17 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
       node.addData(def, data as Record<string, number>);
       return def;
     }
+    // UI is made only by UI documents (ADR 0417): saved UI components, and the removed screen `Text` and `LocalizedText`
+    // (matched by name, their classes are gone), stop the load. No automatic migration.
+    if (REMOVED_UI.has(entry.type)) {
+      this.problem(`${source}: node "${nodePath(node)}" saves "${entry.type}", which was removed. ${UI_FROM_DOCUMENTS}`, at, entry);
+      return undefined;
+    }
     const type = getComponentClass(entry.type) as (new () => Component) | undefined;
+    if (type && _documentOnlyComponentId(type) !== null) {
+      this.problem(`${source}: node "${nodePath(node)}" saves a UI component ("${entry.type}"). ${UI_FROM_DOCUMENTS}`, at, entry);
+      return undefined;
+    }
     if (!type) {
       this.problem(`${source}: unknown component type "${entry.type}". Is the class imported and decorated with @behavior("${entry.type}")?`, at, entry);
       return undefined;
@@ -366,6 +376,16 @@ class Instantiation implements FoldAdapter<GameObject, Made> {
     };
     for (const f of this.fixups) f.apply(resolve);
   }
+}
+
+/** Component types ADR 0417 removed: the screen `Text` and `LocalizedText`, by id and by bare name. */
+const REMOVED_UI = new Set(["engine.Text", "engine.LocalizedText", "Text", "LocalizedText"]);
+
+/** A node's path of names from the World root (`/menu/Canvas/Title`), as `nodeAtPath` reads it. */
+function nodePath(node: GameObject): string {
+  const names: string[] = [];
+  for (let n: GameObject | null = node; n?.parent; n = n.parent) names.unshift(n.name);
+  return `/${names.join("/")}`;
 }
 
 /**

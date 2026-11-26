@@ -1,12 +1,16 @@
 /**
- * Game UI components (ADR 0069, built as ADR 0020 decided). A UI element is a node with one UI
- * component, and the node tree is the UI tree: an element's children lay out inside it with
- * flexbox. A `UICanvas` is the root.
+ * Game UI components (ADR 0069): the element types of UI documents (ADR 0077). A document's element
+ * is a node with one UI component, and the node tree is the UI tree: an element's children lay out
+ * inside it with flexbox. A `UICanvas` is the root.
  *
- * These are plain data, like other components: they register and hold values in any World. Only a
- * World with a render backend lays them out (the UI core, ADR 0076) and draws them (Babylon GUI),
- * loaded the first time it has a `UICanvas`, so servers and tests can create UI without WebGL. No
- * renderer types appear here (ADR 0010).
+ * Only a `UIDocument` building its markup makes them (ADR 0417): `addComponent` throws for these
+ * types, and a scene or prefab saving one fails to load. Scripts reach them through a document's
+ * elements (`element.as(UIButton)`) and write their fields at runtime.
+ *
+ * They are plain data, like other components: they hold values in any World. Only a World with a
+ * render backend lays them out (the UI core, ADR 0076) and draws them (Babylon GUI), loaded the first
+ * time it has a `UICanvas`, so servers and tests can build documents without WebGL. No renderer types
+ * appear here (ADR 0010).
  */
 import { Component } from "../core/Component";
 import { Color, Vector2 } from "../core/math";

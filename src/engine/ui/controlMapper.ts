@@ -23,7 +23,9 @@
  * for them would show up in every list of actions, this screen's included).
  *
  * Like a UI document's elements, the nodes it builds belong to it: they aren't in the scene file
- * and go when it does. Without a `UICanvas` above it, it makes its own screen canvas.
+ * and go when it does. It is the engine's one built-in screen besides documents (ADR 0417 refuses UI
+ * components from `addComponent` and scene files, so it adds them through the World). Without a
+ * `UICanvas` above it (a UI document's canvas), it makes its own screen canvas.
  */
 import { Component } from "../core/Component";
 import { Color } from "../core/math";
@@ -308,8 +310,8 @@ const fill = (template: string, values: Record<string, string | number>) => temp
 const titleCase = (name: string) => name.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").replace(/^./, (c) => c.toUpperCase());
 
 /**
- * A rebinding screen for one player: put it on a node under a `UICanvas` (or anywhere: it makes a
- * screen canvas of its own). Rows list the actions (`actions`, or every defined action), one per
+ * A rebinding screen for one player: put it on a node under a UI document's `<Canvas>` (or anywhere:
+ * it makes a screen canvas of its own). Rows list the actions (`actions`, or every defined action), one per
  * part for a composite binding (Move Up, Move Down…), with a keyboard and a gamepad cell. Clicking
  * a cell (with the mouse, or `submit` on it after focus navigation brought focus there) waits for
  * the player's next press (`PlayerInput.rebind`, adding a binding when the cell is empty; Escape
@@ -600,8 +602,9 @@ export class UIControlMapper extends Component {
   // --- Building ---------------------------------------------------------------------------------
 
   private el<T extends UIComponentType>(world: World, type: new () => T, name: string, parent: GameObject, init: Partial<T> = {}): T {
+    // Engine-built like a document's elements (ADR 0417): `addBehavior` refuses UI components, so through the World.
     const node = world._createNode(name, parent.entity);
-    return node.addBehavior(type as never, init as never) as T;
+    return world._addComponent(node.entity, type, init);
   }
 
   private build(world: World): Built {

@@ -9,6 +9,10 @@
  * itself may hold bindings (`t:text="weapon.{id}.name"`); `translate="no"` marks text as deliberately
  * unlocalised; stylesheets match the language with `:lang()`. All of it follows `Locale.epoch`.
  *
+ * Documents are the only way to make game UI (ADR 0417): the UI components (`UICanvas`, `UIPanel`,
+ * `UIText`, `UIImage`, `UIButton`, `UIInputField`) are made only by a document's build, and
+ * `addComponent` and scene files refuse them. Rows made at runtime come from `list()`.
+ *
  * The nodes it builds belong to the document: they aren't in the scene file, and they're rebuilt when
  * the document, a document it uses or a stylesheet changes. The parsers (`htmlparser2`, `css-tree`)
  * load the first time a World has a document (`loadUIDocumentSupport`, which scene loading awaits
@@ -539,7 +543,7 @@ export class UIDocument extends Component {
     return () => buildListeners.delete(listener);
   }
 
-  /** @internal Editor: the live document element a UI component belongs to, or null (hand-built UI, or removed). */
+  /** @internal Editor: the live document element a UI component belongs to, or null (removed, or the control mapper's own). */
   static _elementOf(component: UIComponentType): UIDocumentElement | null {
     const el = elementByComponent.get(component);
     return el && el._alive ? el : null;
@@ -719,7 +723,8 @@ export class UIDocument extends Component {
     const parentNode = parent ? parent._node : this.node;
     const node = world._createNode(idAttr ?? markup.tag, parentNode.entity);
     el._node = node;
-    el._comp = node.addBehavior(type);
+    // The one place UI components are made (ADR 0417): `addBehavior` refuses them, so the build adds through the World.
+    el._comp = world._addComponent(node.entity, type);
     el._path = scope || parent?._path === null ? null : path; // list rows and what's inside them have none
     elementByComponent.set(el._comp, el);
 

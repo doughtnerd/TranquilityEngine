@@ -7,6 +7,8 @@ import type { TextMeasureRequest } from "../ui/uiCoreTypes";
 import { Assets } from "../scene/Assets";
 import { FakeInput, fakeDocument, stubDocument } from "./uiPointer";
 import { DomInput, FakeCanvas } from "./domInput";
+import { loadUIDocumentSupport } from "../ui/UIDocument";
+import { uiElement } from "./uiMarkup";
 import { UI_FONT_FAMILY, fontEpoch, fontFamilyOf, loadBundledFont, onFontLoaded } from "../ui/fonts";
 
 // ADR 0076: the renderer-neutral UI core: Yoga layout and UI-first routing, no renderer, no GPU.
@@ -18,11 +20,13 @@ let cores: UICore[] = [];
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
+  await loadUIDocumentSupport();
 });
 
 afterEach(() => {
   for (const c of cores.splice(0)) c.dispose();
   engine.dispose();
+  Assets.clearSources();
   Input.reset();
   vi.restoreAllMocks();
 });
@@ -42,10 +46,7 @@ function sync(c: UICore, width = 1280, height = 720): void {
   c.sync(world(), width, height, DT);
 }
 
-function node<T extends UIPanel | UIText | UIImage | UICanvas>(name: string, parent: GameObject | null, type: new () => T, init: Partial<T> = {}): T {
-  const n = GameObject.create(name, { parent });
-  return n.addBehavior(type as never, init as never) as T;
-}
+const node = uiElement;
 
 /** A 1280×720 screen canvas with a column of fixed-size buttons. */
 function menu() {
@@ -298,18 +299,6 @@ describe("UICore layout", () => {
     sync(c);
     expect(c.rectOf(child)).toEqual({ x: 40, y: 0, width: 30, height: 30 });
     expect(warn.mock.calls.filter((a) => String(a[0]).includes("Child")).length).toBe(1);
-  });
-
-  it("warns once about a node with two UI components", async () => {
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const canvas = node("Canvas", null, UICanvas);
-    const panel = node("Both", canvas.node, UIPanel, { width: 10, height: 10 } as Partial<UIPanel>);
-    panel.node.addBehavior(UIText as never, {} as never);
-    const c = await core();
-    sync(c);
-    sync(c);
-    expect(warn.mock.calls.filter((a) => String(a[0]).includes("two UI components")).length).toBe(1);
-    expect(c.elements().length).toBe(1);
   });
 
   it("treats a nested canvas as a root of its own", async () => {

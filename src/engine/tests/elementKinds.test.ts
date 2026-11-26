@@ -1,18 +1,24 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Color, Engine, GameObject } from "../index";
+import { Assets, Color, Engine } from "../index";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "../ui/components";
 import { UI_TAGS, cssFontWeight, isInteractiveKind, isLeafKind, isPaintedUI, textRunOf, uiKindOf, uiPseudoState, uiTypeOfTag } from "../ui/elementKinds";
 import { UI_FONT_FAMILY } from "../ui/fonts";
+import { loadUIDocumentSupport } from "../ui/UIDocument";
+import { uiElement } from "./uiMarkup";
 
 // ADR 0271: the UI element kinds and the resolved text run.
 
 let engine: Engine;
 beforeEach(async () => {
   engine = await Engine.create({ headless: true });
+  await loadUIDocumentSupport();
 });
-afterEach(() => engine.dispose());
+afterEach(() => {
+  engine.dispose();
+  Assets.clearSources();
+});
 
-const make = <T extends UIComponentType>(type: new () => T, init: Partial<T> = {}): T => GameObject.create("n").addBehavior(type as never, init as never) as T;
+const make = <T extends UIComponentType>(type: new () => T, init: Partial<T> = {}): T => uiElement("n", null, type, init);
 
 describe("UI element kinds", () => {
   it("names each component's kind, subclasses first", () => {

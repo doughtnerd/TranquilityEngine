@@ -6,6 +6,7 @@ import { UIDocument, UIEvents, loadUIDocumentSupport, type UIEvent } from "../ui
 import { _undefineSystem } from "../core/systems";
 import { World } from "../core/World";
 import { UIPointer, stubDocument, type FakeInput } from "./uiPointer";
+import { uiElement } from "./uiMarkup";
 
 // ADR 0340: keyboard and gamepad focus navigation, driven by the built-in UI actions (`engine.UIActions`
 // in the `ui` context), through Input.inject, a UI core's layout and pointer, and the public components.
@@ -23,6 +24,7 @@ const systems: string[] = [];
 beforeEach(async () => {
   Input.reset();
   engine = await Engine.create({ headless: true });
+  await loadUIDocumentSupport();
 });
 
 afterEach(() => {
@@ -51,13 +53,13 @@ function press(key: string): void {
 }
 
 function canvas(init: Partial<UICanvas> = {}, name = "Canvas"): UICanvas {
-  return GameObject.create(name).addBehavior(UICanvas, init as never);
+  return uiElement(name, null, UICanvas, init);
 }
 
 /** A 100 × 50 button at (x, y) in its canvas. */
 function button(name: string, parent: { node: GameObject }, x: number, y: number, init: Partial<UIButton> = {}): UIButton {
   const px = (n: number) => String(n) as UILength;
-  return GameObject.create(name, { parent: parent.node }).addBehavior(UIButton, { positionType: "absolute", left: px(x), top: px(y), width: px(100), height: px(50), padding: 0, ...init } as never);
+  return uiElement(name, parent.node, UIButton, { positionType: "absolute", left: px(x), top: px(y), width: px(100), height: px(50), padding: 0, ...init });
 }
 
 /** A UI core laying the World's UI out and routing the pointer, as the renderer does. */
@@ -488,7 +490,7 @@ describe("input fields (ADR 0340)", () => {
   });
 
   function field(name: string, parent: { node: GameObject }, x: number, y: number): UIInputField {
-    return GameObject.create(name, { parent: parent.node }).addBehavior(UIInputField, { positionType: "absolute", left: String(x), top: String(y), width: "200", height: "40" } as never);
+    return uiElement(name, parent.node, UIInputField, { positionType: "absolute", left: String(x), top: String(y), width: "200", height: "40" });
   }
 
   it("focuses a field by navigation without typing; submit starts typing; Tab, Escape and the gamepad leave it", async () => {

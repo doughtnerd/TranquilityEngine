@@ -3,7 +3,7 @@ import { inLiveWorld } from "./liveWorld";
 import { captureView, pixelsNear, type ViewCapture } from "./viewCapture";
 
 // Keyboard focus navigation of game UI (ADR 0340, docs/wiki/guide/ui.md "Keyboard and gamepad navigation"), played for real: a
-// screen canvas with `autoFocus` and four buttons in a 2×2 grid. The arrow keys move focus spatially, Tab and Shift+Tab in
+// UI document's screen canvas with `auto-focus` and four buttons in a 2×2 grid (game UI comes only from documents, ADR 0417). The arrow keys move focus spatially, Tab and Shift+Tab in
 // tree order, Enter clicks the focused button and Escape cancels on the canvas, all read through the public `myco` API
 // (`UIButton.focused`, `UICanvas`, `InputPlayers`) and a script that counts clicks and cancels. While a button has focus,
 // the arrows are the UI's: a game action bound to them doesn't see them. The focused button is drawn in its `focusColor`.
@@ -15,23 +15,20 @@ const ACTIONS = `import { button, defineActions } from "myco";
 export const NavActions = defineActions("game.NavActions", { right: button("<Keyboard>/arrowright") });
 `;
 
-/** Counts the grid's clicks and the canvas's cancels, and shows them in the Status text (what the spec reads). */
-const PROBE = `import { GameBehavior, GameObject, UIButton, UICanvas, UIText, behavior, field } from "myco";
+/** Counts the grid's clicks and the canvas's cancels, and shows them in the #status text (what the spec reads). */
+const PROBE = `import { GameBehavior, UIButton, UICanvas, UIDocument, UIText, behavior } from "myco";
 
 @behavior("game.MenuProbe")
 export class MenuProbe extends GameBehavior {
-  @field(GameObject) a: GameObject | null = null;
-  @field(GameObject) b: GameObject | null = null;
-  @field(GameObject) c: GameObject | null = null;
-  @field(GameObject) d: GameObject | null = null;
-  @field(GameObject) status: GameObject | null = null;
   private readonly clicks: Record<string, number> = { a: 0, b: 0, c: 0, d: 0 };
   private cancels = 0;
 
   update(): void {
-    for (const name of ["a", "b", "c", "d"] as const) if (this[name]?.getComponent(UIButton)?.clicked) this.clicks[name]++;
-    if (this.gameObject.getComponent(UICanvas)?.canceled) this.cancels++;
-    const text = this.status?.getComponent(UIText);
+    const ui = this.gameObject.getComponent(UIDocument);
+    if (!ui?.root) return;
+    for (const name of ["a", "b", "c", "d"]) if (ui.query("#" + name)?.as(UIButton).clicked) this.clicks[name]++;
+    if (ui.root.as(UICanvas).canceled) this.cancels++;
+    const text = ui.query("#status")?.as(UIText);
     if (text) text.text = \`a\${this.clicks.a} b\${this.clicks.b} c\${this.clicks.c} d\${this.clicks.d} cancel\${this.cancels}\`;
   }
 }
@@ -41,9 +38,22 @@ export class MenuProbe extends GameBehavior {
 const FOCUS: [number, number, number] = [255, 0, 255];
 
 const node = (id: string, parent: string | null, components: object[]) => ({ id, name: id, ...(parent ? { parent } : {}), components: [{ type: "engine.Transform", data: {} }, ...components] });
-const button = (id: string, parent: string) => node(id, parent, [{ type: "engine.UIButton", data: { width: 220, height: 120, backgroundColor: [0.2, 0.2, 0.2, 1], focusColor: [1, 0, 1, 1] } }]);
 
-/** A camera and a screen canvas: a column holding two rows of two buttons (a b / c d) and a status line. */
+/** A screen canvas: a column holding two rows of two buttons (a b / c d) and a status line. */
+const MENU = `<Canvas auto-focus>
+  <Style src="menu.ui.css"/>
+  <Panel id="screen">
+    <Panel class="row"><Button id="a"/><Button id="b"/></Panel>
+    <Panel class="row"><Button id="c"/><Button id="d"/></Panel>
+    <Text id="status"/>
+  </Panel>
+</Canvas>`;
+const MENU_CSS = `#screen { width: 100%; height: 100%; flex-direction: column; justify-content: center; align-items: center; gap: 60px; }
+.row { flex-direction: row; gap: 200px; }
+Button { width: 220px; height: 120px; background-color: #333333; focus-color: #ff00ff; }
+#status { font-size: 24px; }`;
+
+/** A camera and the menu document, with the probe beside it. */
 const SCENE = JSON.stringify({
   format: "myco.scene@4",
   settings: { physics: "2d" },
@@ -57,17 +67,9 @@ const SCENE = JSON.stringify({
       ],
     },
     node("menu", null, [
-      { type: "engine.UICanvas", data: { autoFocus: true } },
-      { type: "game.MenuProbe", data: { a: { $node: "a" }, b: { $node: "b" }, c: { $node: "c" }, d: { $node: "d" }, status: { $node: "status" } } },
+      { type: "engine.UIDocument", data: { document: "asset:ui/menu.ui.xml" } },
+      { type: "game.MenuProbe", data: {} },
     ]),
-    node("screen", "menu", [{ type: "engine.UIPanel", data: { width: "100%", height: "100%", flexDirection: "column", justifyContent: "center", alignItems: "center", gap: 60 } }]),
-    node("top", "screen", [{ type: "engine.UIPanel", data: { flexDirection: "row", gap: 200 } }]),
-    button("a", "top"),
-    button("b", "top"),
-    node("bottom", "screen", [{ type: "engine.UIPanel", data: { flexDirection: "row", gap: 200 } }]),
-    button("c", "bottom"),
-    button("d", "bottom"),
-    node("status", "screen", [{ type: "engine.UIText", data: { text: "", fontSize: 24 } }]),
   ],
 });
 
@@ -125,7 +127,7 @@ test("arrow keys and Tab move focus between a canvas's buttons, Enter clicks, Es
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
-  await openEditor(page, { files: { "scripts/navActions.ts": ACTIONS, "scripts/menuProbe.ts": PROBE, "scenes/main.scene.json": SCENE } });
+  await openEditor(page, { files: { "scripts/navActions.ts": ACTIONS, "scripts/menuProbe.ts": PROBE, "ui/menu.ui.xml": MENU, "ui/menu.ui.css": MENU_CSS, "scenes/main.scene.json": SCENE } });
   await play(page);
   const view = page.locator("#game-view canvas").first();
   // Keys go to the game from the window; take the page's focus off the Stop button (Enter would press it) without a

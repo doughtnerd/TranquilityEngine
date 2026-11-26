@@ -2,8 +2,8 @@ import { expect, openEditor, type Page, play, test } from "./fixtures";
 import { inLiveWorld } from "./liveWorld";
 import { captureView, pixelsNear } from "./viewCapture";
 
-// The UIControlMapper (ADR 0337, docs/wiki/guide/input.md "A rebinding screen") drawn for real: a scene with a UICanvas and
-// a UIControlMapper plays in the editor; its rows come from the player's bindings, it draws its panel and cells, and
+// The UIControlMapper (ADR 0337, docs/wiki/guide/input.md "A rebinding screen") drawn for real: a scene with a UIControlMapper
+// plays in the editor (it makes its own screen canvas: a scene can't save UI components, ADR 0417); its rows come from the player's bindings, it draws its panel and cells, and
 // a real click on the keyboard cell then a key press rebinds the action, read back through the public `myco` API
 // (`InputPlayers.get(0).prompt`, the mapper's `rows`, `rebinding` and `status`).
 test.describe.configure({ timeout: 90_000 }); // opening a project compiles its scripts, and Play type-checks them
@@ -13,7 +13,7 @@ const ACTIONS = `import { button, defineActions } from "myco";
 export const MenuActions = defineActions("game.MenuActions", { jump: button("<Keyboard>/j", "<Gamepad>/buttonSouth") });
 `;
 
-/** A camera and a screen canvas holding a control mapper for player 0's jump. */
+/** A camera and a control mapper for player 0's jump, on its own screen canvas. */
 const SCENE = JSON.stringify({
   format: "myco.scene@4",
   settings: { physics: "2d" },
@@ -29,10 +29,7 @@ const SCENE = JSON.stringify({
     {
       id: "menu",
       name: "Menu",
-      components: [
-        { type: "engine.UICanvas", data: {} },
-        { type: "engine.UIControlMapper", data: { actions: "jump" } },
-      ],
+      components: [{ type: "engine.UIControlMapper", data: { actions: "jump" } }],
     },
   ],
 });
