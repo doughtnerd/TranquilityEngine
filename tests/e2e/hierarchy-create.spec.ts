@@ -103,7 +103,7 @@ test("the search box filters rows by name and t:Type, keeping ancestors; Escape 
   await search.fill("t:camera");
   expect(await rowKeys(page)).toEqual(["camera"]);
   await search.fill("zzz");
-  await expect(page.locator(".hierarchy-no-match")).toBeVisible();
+  await expect(page.getByRole("note", { name: "No nodes match “zzz”" })).toBeVisible();
   await search.press("Escape");
   await expect(search).toHaveValue("");
   await expect(row(page, "ceiling")).toHaveCount(1);

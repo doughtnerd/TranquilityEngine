@@ -3,6 +3,7 @@ import { docVersion } from "../state";
 import { Panel } from "./panel/Panel";
 import { UndoTree } from "./undoTree/UndoTree";
 import "./history.css";
+import { EmptyState } from "./EmptyState";
 
 /** What the History panel says that depends on its host: the scene editor's words, or the Audio Studio's (ADR 0341). */
 export interface HistoryPanelWording {
@@ -31,13 +32,13 @@ export function HistoryView(props: { readonly wording?: HistoryPanelWording }) {
   if (!active)
     return (
       <Panel>
-        <p class="empty">{props.wording?.none ?? "No scene open"}</p>
+        <EmptyState compact title={props.wording?.none ?? "No scene open"} />
       </Panel>
     );
   if (!stack)
     return (
       <Panel>
-        <p class="empty">{active.history.name ?? "This editor"} keeps a short undo list rather than a tree: Ctrl+Z / Ctrl+Shift+Z or its Undo and Redo buttons step through it.</p>
+        <EmptyState compact title={`${active.history.name ?? "This editor"} keeps a short undo list rather than a tree.`} body="Ctrl+Z / Ctrl+Shift+Z or its Undo and Redo buttons step through it." />
       </Panel>
     );
 

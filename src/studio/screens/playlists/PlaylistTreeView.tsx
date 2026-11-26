@@ -12,6 +12,7 @@ import { TypeBadge } from "../../components/TypeBadge";
 import { findNode, folderKey, searchTree, type PlaylistNode } from "./playlistTree";
 import { dropZone, type DragSource, type DropPlan, type DropTarget, type DropZone } from "./treeDrop";
 import { COLLAPSE_GLYPH, Glyph } from "./glyphs";
+import { EmptyState } from "../../../editor/ui/EmptyState";
 
 export interface TreeActions {
   open(node: PlaylistNode): void;
@@ -289,7 +290,7 @@ export function PlaylistTreeView(props: PlaylistTreeViewProps) {
       )}
       {drag?.plan?.kind === "refused" && <p class="pl-drop-why" role="status">{drag.plan.reason}</p>}
       {!any && !hits ? (
-        <p class="pl-tree-empty">No playlists or folders yet. Use + to make a playlist; New folder is in its ▾ menu.</p>
+        <EmptyState compact title="No playlists or folders yet. Use + to make a playlist; New folder is in its ▾ menu." />
       ) : hits ? (
         hits.length === 0 ? (
           <p class="pl-note">No playlist matches “{query.trim()}”.</p>

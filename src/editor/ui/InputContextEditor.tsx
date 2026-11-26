@@ -41,6 +41,7 @@ import {
 } from "../inputContextModel";
 import { AssetDocumentFrame, editor, openAssetDocument, Panel, useDraftText } from "../sdk";
 import "./inputContextEditor.css";
+import { EmptyState } from "./EmptyState";
 
 /** The selected context file in the Inspector. */
 export function InputContextInspector(props: { path: string }) {
@@ -52,8 +53,8 @@ export function InputContextPanel() {
   const path = editor.assets.openIn("inputContext");
   const project = editor.project.current;
   editor.project.version; // the file list changes with it
-  if (!project || !path) return <Panel><p class="empty">Double-click an input context (.input.json) in the Assets panel, or create one with New Input Context.</p></Panel>;
-  if (!project.files.includes(path)) return <Panel><p class="empty">{path} isn't in the project any more.</p></Panel>;
+  if (!project || !path) return <Panel><EmptyState compact title="Double-click an input context (.input.json) in the Assets panel, or create one with New Input Context." /></Panel>;
+  if (!project.files.includes(path)) return <Panel><EmptyState compact title={`${path} isn't in the project any more.`} /></Panel>;
   return (
     <Panel>
       <InputContextEditor key={path} path={path} />
@@ -69,7 +70,7 @@ export function InputContextEditor(props: { path: string }) {
   editor.project.version; // scripts reloading may define new action sets
   const listId = useMemo(() => `input-context-controls-${++editors}`, []);
   const project = editor.project.current;
-  if (!project) return <p class="empty">Nothing selected</p>;
+  if (!project) return <EmptyState compact title="Nothing selected" />;
   const doc = openAssetDocument<InputContextSpec>(project, props.path, "inputContext");
   const spec = doc.value.value;
   const readOnly = doc.readOnly;

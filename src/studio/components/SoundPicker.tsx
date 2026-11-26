@@ -10,6 +10,7 @@ import { usePopover, type PopoverPoint } from "../../editor/ui/popover";
 import { flatItems, soundFolder, soundName, soundSections, stepActive, type SoundItem } from "./soundPickerModel";
 import { TypeBadge } from "./TypeBadge";
 import "./audioParts.css";
+import { EmptyState } from "../../editor/ui/EmptyState";
 
 export interface SoundPickerProps {
   /** What it opens beside (the "Add…" button) or at (a point). */
@@ -87,9 +88,9 @@ export function SoundPicker(props: SoundPickerProps) {
         {/* A press in the list keeps focus in the search box: otherwise it moves to the nearest focusable ancestor (a
             panel's document wrapper), the popover closes on that focus move, and the click never lands (J9.1). */}
         <div class="studio-picker-list" id={listId} role="listbox" aria-label="Sounds" onMouseDown={(e) => e.preventDefault()}>
-          {items === null && !failed && <p class="studio-row-empty">Loading…</p>}
-          {failed && <p class="studio-row-empty error">Couldn't list sounds: {failed}</p>}
-          {items !== null && sections.length === 0 && <p class="studio-row-empty">{query ? `No sounds match "${query}".` : "No sounds in this project yet."}</p>}
+          {items === null && !failed && <p class="kit-note" role="status">Loading…</p>}
+          {failed && <p class="kit-note" role="alert">Couldn't list sounds: {failed}</p>}
+          {items !== null && sections.length === 0 && <EmptyState compact title={query ? `No sounds match "${query}".` : "No sounds in this project yet."} />}
           {sections.map((section) => (
             <div key={section.title} role="group" aria-label={section.title}>
               <div class="studio-picker-section">{section.title}</div>

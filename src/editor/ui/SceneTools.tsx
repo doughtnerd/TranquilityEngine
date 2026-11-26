@@ -31,7 +31,7 @@ export function SceneToolButtons() {
         </button>
       </div>
       <div class="group" role="group" aria-label="Snapping">
-        <button class={`snap-toggle${snap.always ? " active" : ""}`} aria-pressed={snap.always} title="Always snap gizmo drags (otherwise hold Ctrl)" onClick={() => updateSnap({ always: !snap.always })}>
+        <button class={`snap-toggle toggle${snap.always ? " active" : ""}`} aria-pressed={snap.always} title="Always snap gizmo drags (otherwise hold Ctrl)" onClick={() => updateSnap({ always: !snap.always })}>
           Snap
         </button>
         <Popover label="Snap settings" buttonClass="snap-settings" buttonText="▾" title="Snap steps and grid">
@@ -41,7 +41,7 @@ export function SceneToolButtons() {
       <AlignMenu />
       <SceneToolbarItems />
       <button
-        class={`camera-preview-toggle${cameraPreviewEnabled.value ? " active" : ""}`}
+        class={`camera-preview-toggle toggle${cameraPreviewEnabled.value ? " active" : ""}`}
         aria-pressed={cameraPreviewEnabled.value}
         title={selectedCamera.value ? "Show what the selected camera sees in a corner of the view" : "Show what a selected camera sees in a corner of the view (select a Camera node)"}
         onClick={() => (cameraPreviewEnabled.value = !cameraPreviewEnabled.value)}
@@ -49,7 +49,7 @@ export function SceneToolButtons() {
         Preview
       </button>
       <button
-        class={`lighting2d-toggle${lighting2DShown.value ? " active" : ""}`}
+        class={`lighting2d-toggle toggle${lighting2DShown.value ? " active" : ""}`}
         aria-pressed={lighting2DShown.value}
         title={lighting2DShown.value ? "2D lighting is on: sprites, tiles and 2D lines are lit by 2D lights. Click to draw them unlit." : "2D lighting is off: 2D draws are unlit. Click to light them by 2D lights."}
         onClick={() => (lighting2DShown.value = !lighting2DShown.value)}

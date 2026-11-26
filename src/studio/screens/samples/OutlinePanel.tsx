@@ -120,7 +120,7 @@ export function OutlinePanel() {
                 <span class="smp-ogh-count">{filtering ? `${g.items.length} of ${g.total}` : g.total}</span>
               </button>
             </h4>
-            {open && g.items.length === 0 && g.empty && <p class="smp-muted smp-outline-empty">{g.empty}</p>}
+            {open && g.items.length === 0 && g.empty && <EmptyState compact title={g.empty} />}
             {open && g.items.length > 0 && (
               <ul role="listbox" aria-label={g.title}>
                 {g.items.map((i) => {

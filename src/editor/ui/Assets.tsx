@@ -57,6 +57,7 @@ import { TreeView, type TreeRow } from "./TreeView";
 import { studioAssetItems } from "../studioLaunch";
 import "./assets.css";
 import "./assetSlices.css";
+import { EmptyState } from "./EmptyState";
 
 /** A context menu item: a label, a shortcut, why it's unavailable, a submenu (the menu bar's shape). */
 type MenuItem = MenuEntry;
@@ -180,7 +181,7 @@ export function AssetsPanel() {
   if (!project)
     return (
       <Panel>
-        <p class="empty">No project open</p>
+        <EmptyState compact title="No project open" />
       </Panel>
     );
   // A folder that's gone (deleted, moved) shows the root instead.
@@ -485,7 +486,7 @@ function AssetItems(props: { project: EditorProject; entries: string[]; selected
         {entries.map((entry) => (
           <AssetItem key={entry} project={project} entry={entry} entries={entries} selected={selected.includes(entry)} showFolder={searching} />
         ))}
-        {entries.length === 0 && <li class="empty">{searching ? "No matching assets" : "This folder is empty"}</li>}
+        {entries.length === 0 && <li role="presentation"><EmptyState compact title={searching ? "No matching assets" : "This folder is empty"} /></li>}
       </ul>
       {b && host && (
         <div

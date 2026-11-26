@@ -13,7 +13,7 @@
   background: var(--input-bg);
   color: var(--text);
   font: inherit;
-  font-size: calc(12px * var(--ui-scale));
+  font-size: var(--fs-md);
   line-height: 16px;
 }
 :where(.studio input[type="search"], .studio-forms input[type="search"]) { padding: 3px 6px; }
@@ -39,7 +39,7 @@
 :where(.studio input[type="number"], .studio-forms input[type="number"])::-webkit-outer-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
 :where(.studio .studio-num.narrow, .studio-forms .studio-num.narrow) { width: 56px; }
 /* Timecode fields (spec §3.14): 11 px monospace, at least 74 px. */
-:where(.studio .studio-timecode, .studio-forms .studio-timecode) { width: 96px; min-width: 74px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: calc(11px * var(--ui-scale)); }
+:where(.studio .studio-timecode, .studio-forms .studio-timecode) { width: 96px; min-width: 74px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: var(--fs-sm); }
 
 /* Checkboxes: the prototype's `.cbx` (16 px, 1.5 px border, a ✓ on the accent when on). */
 :where(.studio input[type="checkbox"], .studio-forms input[type="checkbox"]) {
@@ -82,21 +82,21 @@
 
 /* A field pair (`NumberField`, `SliderField`): label, then the box with its unit (prototype `.nv`). */
 .studio-nv { display: inline-flex; align-items: center; gap: 4px; min-width: 0; }
-.studio-nv-unit { flex: none; min-width: 28px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); white-space: nowrap; }
+.studio-nv-unit { flex: none; min-width: 28px; color: var(--muted); font-size: var(--fs-sm); white-space: nowrap; }
 .studio-nv-unit:empty { display: none; }
 .studio-field-label { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .studio-field-label.scrub { cursor: ew-resize; user-select: none; touch-action: none; }
 .studio-field-label.scrub:hover { color: var(--text); }
 .studio-field-label.disabled { color: var(--faint); }
 /* A standalone row: label | box (prototype `.fld`). */
-.studio-fieldrow { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px 8px; align-items: center; font-size: calc(12px * var(--ui-scale)); }
+.studio-fieldrow { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px 8px; align-items: center; font-size: var(--fs-md); }
 .studio-fieldrow > .studio-nv { justify-self: start; }
 /* A slider row: label | range | box + unit (prototype `.tv`). */
-.studio-slider { display: grid; grid-template-columns: minmax(70px, 110px) minmax(60px, 1fr) auto; gap: 6px; align-items: center; font-size: calc(12px * var(--ui-scale)); min-width: 0; }
-.studio-slider > .studio-field-label { font-size: calc(11px * var(--ui-scale)); }
+.studio-slider { display: grid; grid-template-columns: minmax(70px, 110px) minmax(60px, 1fr) auto; gap: 6px; align-items: center; font-size: var(--fs-md); min-width: 0; }
+.studio-slider > .studio-field-label { font-size: var(--fs-sm); }
 .studio-slider input[type="range"] { width: 100%; }
 .studio-slider .studio-num { width: 64px; }
-.studio-slider-note { max-width: 120px; color: var(--accent); font-size: calc(11px * var(--ui-scale)); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.studio-slider-note { max-width: 120px; color: var(--accent); font-size: var(--fs-sm); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .studio-slider.disabled > .studio-field-label { color: var(--faint); }
 
 
@@ -110,7 +110,7 @@
 :is(.studio, .studio-forms) .dialog:not(.kit-dialog) > :not(h2:first-child, .dialog-buttons) { margin-left: 12px; margin-right: 12px; }
 :is(.studio, .studio-forms) .dialog:not(.kit-dialog):not(:has(> h2:first-child)) { padding-top: 12px; }
 :is(.studio, .studio-forms) .dialog:not(.kit-dialog):not(:has(> .dialog-buttons)) { padding-bottom: 12px; }
-:is(.studio, .studio-forms) .dialog:not(.kit-dialog) > h2:first-child { margin: 0 0 10px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--border); color: var(--text-strong); font-size: calc(13px * var(--ui-scale)); font-weight: 600; letter-spacing: 0; text-transform: none; }
+:is(.studio, .studio-forms) .dialog:not(.kit-dialog) > h2:first-child { margin: 0 0 10px; padding: 8px 12px; background: var(--surface); border-bottom: 1px solid var(--border); color: var(--text-strong); font-size: var(--fs-lg); font-weight: 600; letter-spacing: 0; text-transform: none; }
 :is(.studio, .studio-forms) .dialog:not(.kit-dialog) > .dialog-buttons { margin: 10px 0 0; padding: 8px 12px; border-top: 1px solid var(--border); align-items: center; }
 /* The positive primary of a Studio dialog: the prototype's `.btn.play` (moss). A danger primary keeps its red. */
 :is(.studio, .studio-forms) :is(.dialog-buttons, .kit-dialog-foot) button.primary:not(:disabled) { background: var(--accent2-soft); border-color: var(--accent2); color: var(--text-strong); font-weight: 600; box-shadow: none; }
@@ -118,8 +118,8 @@
 
 
 /* The kit's number box and select (PanelFields) in the prototype's sizes. */
-:is(.studio, .studio-forms) .kit-num { width: 76px; padding: 2px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); line-height: 16px; text-align: right; }
-:is(.studio, .studio-forms) .kit-select { padding: 2px 20px 2px 6px; font: inherit; font-size: calc(12px * var(--ui-scale)); line-height: 16px; }
+:is(.studio, .studio-forms) .kit-num { width: 76px; padding: 2px 6px; font: inherit; font-size: var(--fs-md); line-height: 16px; text-align: right; }
+:is(.studio, .studio-forms) .kit-select { padding: 2px 20px 2px 6px; font: inherit; font-size: var(--fs-md); line-height: 16px; }
 /* The editor kit's `.kit-select` sets the `background` shorthand, which drops the Studio select's chevron: put it back
  * (J5.3/V8: the Switch's By and rule selects looked like text fields). */
 :is(.studio, .studio-forms) .kit-select:not([multiple]):not([size]) {
@@ -137,7 +137,7 @@
 }
 
 /* Checkbox with its label (Checkbox.tsx). */
-.studio-check { display: inline-flex; align-items: center; gap: 6px; font-size: calc(12px * var(--ui-scale)); color: var(--text); cursor: pointer; }
+.studio-check { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-md); color: var(--text); cursor: pointer; }
 .studio-check.disabled { cursor: default; color: var(--muted); }
 
 /* Colour picker (ColourPicker.tsx; prototype `.sw`, `.sw.add`, `.cpk`). The square's white and black overlays and the
@@ -147,11 +147,11 @@
 .studio-swatch[aria-pressed="true"] { outline: 2px solid var(--accent); outline-offset: 1px; }
 .studio-swatch:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .studio-swatch:disabled { opacity: 0.45; cursor: default; }
-.studio-swatch.add { background: var(--button); color: var(--muted); font: inherit; font-size: calc(14px * var(--ui-scale)); line-height: 18px; border-style: dashed; }
+.studio-swatch.add { background: var(--button); color: var(--muted); font: inherit; font-size: var(--fs-lg); line-height: 18px; border-style: dashed; }
 .studio-swatch.add:hover:not(:disabled) { color: var(--text); background: var(--button-hover); }
 .studio-cpk { position: fixed; z-index: 70; width: 250px; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 5px; box-shadow: 0 8px 24px var(--shadow); }
 .studio-cpk-head { display: flex; align-items: center; gap: 6px; }
-.studio-cpk-title { flex: 1; font-size: calc(11px * var(--ui-scale)); line-height: 14px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
+.studio-cpk-title { flex: 1; font-size: var(--fs-sm); line-height: 14px; font-weight: 600; color: var(--muted); }
 .studio-cpk-close, .studio-cpk-btn { flex: none; display: inline-grid; place-items: center; width: 26px; height: 24px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: var(--button); color: var(--text); box-shadow: none; }
 .studio-cpk-close { width: 24px; height: 22px; }
 .studio-cpk-close:hover, .studio-cpk-btn:hover:not(:disabled) { background: var(--button-hover); }

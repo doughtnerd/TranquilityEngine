@@ -14,22 +14,22 @@
 .pk-row.off .pk-name { color: var(--muted); }
 .pk-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pk-meta { display: flex; gap: 4px; align-items: center; }
-.pk-badge { font-size: calc(10px * var(--ui-scale)); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; color: var(--muted); }
+.pk-badge { font-size: var(--fs-xs); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; color: var(--muted); }
 .pk-badge.warn { color: var(--warning); border-color: var(--warning); }
 .pk-count { color: var(--muted); font-variant-numeric: tabular-nums; }
 .pk-more { background: none; border: none; color: var(--muted); padding: 0 4px; }
 .pk-rename { flex: 1; min-width: 0; }
 .pk-includes { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 6px; }
-.pk-include { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--border); border-radius: 3px; padding: 0 2px 0 6px; font-family: var(--mono, monospace); font-size: calc(11px * var(--ui-scale)); }
+.pk-include { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--border); border-radius: 3px; padding: 0 2px 0 6px; font-family: var(--mono, monospace); font-size: var(--fs-sm); }
 .pk-include.unmatched { border-color: var(--warning); color: var(--warning); }
 .pk-x { background: none; border: none; color: var(--muted); padding: 0 4px; }
 .pk-table-wrap { border-radius: 4px; }
 .pk-table-wrap.drop { outline: 2px dashed var(--accent); }
-.pk-table { width: 100%; border-collapse: collapse; font-size: calc(12px * var(--ui-scale)); margin-bottom: 10px; }
+.pk-table { width: 100%; border-collapse: collapse; font-size: var(--fs-md); margin-bottom: 10px; }
 .pk-table th, .pk-table td { text-align: left; padding: 3px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
 .pk-table thead th { color: var(--muted); font-weight: normal; }
 .pk-table tbody th { font-weight: normal; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
-.pk-kind { color: var(--muted); font-size: calc(10px * var(--ui-scale)); text-transform: uppercase; }
+.pk-kind { color: var(--muted); font-size: var(--fs-xs); }
 .pk-warning { color: var(--warning); margin: 2px 0; }
 .pk-loose-rows li { display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
 .pk-loose-rows li span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

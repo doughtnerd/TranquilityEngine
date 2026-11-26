@@ -4,7 +4,7 @@
 // profile parse's rules) applied to the profile's asset document: one labelled undo step each, with Undo and Redo in the
 // frame's head (ADR 0265).
 import { useState } from "preact/hooks";
-import { AssetDocumentFrame, applyToDocument, editor, openAssetDocument, type AssetDocument, type EditResult } from "../../../../editor/sdk";
+import { AssetDocumentFrame, applyToDocument, editor, openAssetDocument, type AssetDocument, type EditResult, EmptyState } from "../../../../editor/sdk";
 import { CHAIN_KINDS, FLIPS, type ChainKind, type Flip, type JointRange, type SkeletonProfile } from "../../../../engine/animation/skeletonProfile";
 import { addChain, addRole, freshName, moveChainRole, removeChain, removeRole, renameChain, renameProfile, renameRole, setChainIk, setChainKind, setChainRoles, setFlip, setMirror, setRange, setRequired, setRootRole } from "./chainLogic";
 import "./skeleton.css";
@@ -17,7 +17,7 @@ const select = (e: Event) => e.currentTarget as HTMLSelectElement;
 export function ProfileEditor(props: { path: string }) {
   editor.project.version; // files change under it
   const project = editor.project.current;
-  if (!project) return <p class="empty">Nothing selected</p>;
+  if (!project) return <EmptyState compact title="Nothing selected" />;
   const doc = openAssetDocument<SkeletonProfile>(project, props.path, "skelprofile");
   const p = doc.value.value;
   const readOnly = doc.readOnly;

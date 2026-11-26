@@ -191,7 +191,7 @@ function TimelinePanel() {
     </div>
   );
   let body;
-  if (s.kind === "none") body = <EmptyState title="Profiler" icon={<Icon name="profiler" size={28} />} body={<p>Engine performance captures: voices, CPU, buses and loudness over time, and why each sound played. Open a capture from the Captures panel, or {NO_CAPTURES.charAt(0).toLowerCase() + NO_CAPTURES.slice(1)}</p>} />;
+  if (s.kind === "none") body = <EmptyState title="No capture open" icon={<Icon name="profiler" size={28} />} body={<p>Open one from the Captures panel, or {NO_CAPTURES.charAt(0).toLowerCase() + NO_CAPTURES.slice(1)}</p>} />;
   else if (s.kind === "opening") body = <p class="pf-note" role="status">Opening {s.path}…</p>;
   else if (s.kind === "failed") body = <p class="pf-error" role="alert">Can't open {s.path}: {s.message}</p>;
   else if (!data || data.tracks.length === 0) body = <EmptyState compact title="Nothing to draw" body="This capture holds no voices, buses, loudness or STATUS samples." />;

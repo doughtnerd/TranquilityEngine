@@ -213,7 +213,7 @@ function ScenePanel() {
     return (
       <Panel bodyClass="sp-panel-body">
         <EmptyState
-          title="Spatial"
+          title="No test scene open"
           icon={<Icon name="spatial" size={28} />}
           body="Pick a test scene in the Scenes panel, or make one."
           action={{ label: "New test scene", title: "Test scenes place emitters, listeners, obstacles and zones to hear how distance, occlusion, reverb zones and Doppler sound, through the engine's own spatial audio", disabled: !writable(), run: () => newScene("blank", "") }}

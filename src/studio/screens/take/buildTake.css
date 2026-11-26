@@ -1,5 +1,5 @@
 /* The Take screen's Record from a build controls (BuildTakeControls.tsx), above the Takes list. Theme tokens only. */
-.bt-controls { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: calc(12px * var(--ui-scale)); }
+.bt-controls { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--border); background: var(--panel); color: var(--text); font-size: var(--fs-md); }
 .bt-head { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .bt-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bt-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: var(--muted); }

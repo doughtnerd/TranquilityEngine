@@ -5,7 +5,7 @@
 .tz-btn:hover:not(:disabled) { color: var(--text); background: var(--hover); }
 .tz-btn:disabled { opacity: 0.4; cursor: default; }
 .tz-btn:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-.tz-pct { margin-left: 2px; color: var(--muted); font-size: calc(11px * var(--ui-scale)); font-variant-numeric: tabular-nums; }
+.tz-pct { margin-left: 2px; color: var(--muted); font-size: var(--fs-sm); font-variant-numeric: tabular-nums; }
 .tz-scrollbar { position: relative; flex: 1 1 auto; height: 14px; margin: 0 12px 0 6px; background: var(--bg-sunken); border-radius: 7px; cursor: pointer; }
 .tz-thumb { position: absolute; top: 0; bottom: 0; min-width: 28px; box-sizing: border-box; background: var(--border-strong); border-radius: 7px; cursor: grab; touch-action: none; }
 .tz-thumb-edge { position: absolute; top: 1px; width: 12px; height: 12px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--text); background: var(--panel); cursor: ew-resize; }

@@ -1,7 +1,7 @@
 /* Biosonic's projects screen (ADR 0380): the Live session bar, in the second accent (the playing colour). The rest is appProjects.css. */
 .bs-live { flex: 0 0 auto; display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding-top: 14px; padding-bottom: 14px; background: var(--playing-bar); border-bottom: 1px solid var(--accent2-soft); }
 .bs-live-text { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-.bs-live-heading { margin: 0; color: var(--accent2); font-size: calc(11px * var(--ui-scale)); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; }
+.bs-live-heading { margin: 0; color: var(--accent2); font-size: var(--fs-sm); font-weight: 600; }
 .bs-live-copy { margin: 0; color: var(--text); }
 .bs-live-button { flex: 0 0 auto; min-height: 36px; padding: 6px 18px; border: 1px solid var(--accent2); border-radius: 4px; background: var(--accent2); color: var(--accent-text); font: inherit; font-weight: 600; cursor: pointer; }
 .bs-live-button:hover:not(:disabled) { filter: brightness(1.12); box-shadow: 0 0 0 1px var(--accent2-soft), 0 0 10px var(--accent2-soft); }
@@ -10,7 +10,7 @@
 @media (pointer: coarse) { .bs-live-button { min-height: 44px; } }
 
 /* Live session: where takes save. */
-.bs-folder { margin: 2px 0 0; display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: calc(12px * var(--ui-scale)); }
+.bs-folder { margin: 2px 0 0; display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--muted); font-size: var(--fs-md); }
 .bs-folder-label { flex: 0 0 auto; }
 .bs-folder-path { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .bs-folder-button { flex: 0 0 auto; padding: 0 4px; border: 0; border-radius: 3px; background: transparent; color: var(--accent2); font: inherit; cursor: pointer; text-decoration: underline; }

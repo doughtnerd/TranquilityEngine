@@ -14,13 +14,13 @@
 .sprite-editor-head, .sprite-editor-foot { flex: none; display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
 .sprite-editor-head { border-bottom: 1px solid var(--border); }
 .sprite-editor-foot { border-top: 1px solid var(--border); justify-content: flex-end; }
-.sprite-editor-head h2 { margin: 0; font-size: 14px; }
-.sprite-editor-file { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sprite-editor-head h2 { margin: 0; font-size: var(--fs-lg); }
+.sprite-editor-file { color: var(--muted); font-size: var(--fs-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sprite-editor-spacer { flex: 1; }
-.sprite-editor-state { margin-right: auto; color: var(--muted); font-size: 12px; }
+.sprite-editor-state { margin-right: auto; color: var(--muted); font-size: var(--fs-md); }
 .sprite-zoom { display: flex; align-items: center; gap: 6px; }
 .sprite-zoom button { padding: 0 8px; }
-.sprite-zoom-value { min-width: 44px; text-align: center; font-size: 12px; color: var(--muted); }
+.sprite-zoom-value { min-width: 44px; text-align: center; font-size: var(--fs-md); color: var(--muted); }
 
 .sprite-editor-body { flex: 1; min-height: 0; display: flex; }
 .sprite-editor-view {
@@ -41,7 +41,7 @@
 .sprite-slice { position: absolute; box-sizing: border-box; border: 1px solid rgb(255 255 255 / 0.75); box-shadow: 0 0 0 1px var(--shadow); cursor: move; }
 .sprite-slice:hover { border-color: #fff; }
 .sprite-slice.selected { border-color: var(--accent); background: var(--accent-soft); z-index: 1; }
-.sprite-slice-name { position: absolute; left: 2px; top: 1px; max-width: calc(100% - 4px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000; pointer-events: none; }
+.sprite-slice-name { position: absolute; left: 2px; top: 1px; max-width: calc(100% - 4px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-xs); color: #fff; text-shadow: 0 0 2px #000, 0 0 2px #000; pointer-events: none; }
 .sprite-drawing { position: absolute; box-sizing: border-box; border: 1px dashed var(--accent); background: var(--accent-soft); pointer-events: none; }
 .sprite-pivot { position: absolute; width: 8px; height: 8px; margin: -5px 0 0 -5px; border: 1px solid #fff; border-radius: 50%; background: var(--accent); pointer-events: none; }
 .sprite-guide { position: absolute; background: var(--accent); opacity: 0.55; }
@@ -61,8 +61,8 @@
 .handle-sw { left: 0; top: 100%; cursor: nesw-resize; }
 .handle-w { left: 0; top: 50%; cursor: ew-resize; }
 
-.sprite-editor-side { flex: none; width: 280px; overflow: auto; border-left: 1px solid var(--border); padding: 8px 12px; display: flex; flex-direction: column; gap: 12px; font-size: 12px; }
-.sprite-editor-side h3 { margin: 0 0 6px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+.sprite-editor-side { flex: none; width: 280px; overflow: auto; border-left: 1px solid var(--border); padding: 8px 12px; display: flex; flex-direction: column; gap: 12px; font-size: var(--fs-md); }
+.sprite-editor-side h3 { margin: 0 0 6px; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); }
 .sprite-field { display: grid; grid-template-columns: 84px 1fr; align-items: center; gap: 6px; margin: 3px 0; min-width: 0; }
 .sprite-field > span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sprite-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }

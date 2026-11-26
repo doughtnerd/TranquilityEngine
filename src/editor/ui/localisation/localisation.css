@@ -9,10 +9,10 @@
 .loc-toolbar input, .loc-toolbar select, .loc-add input, .loc-cell-input, .localise-control input, .localise-control select {
   background: var(--input-bg); color: var(--text); border: 1px solid var(--border); border-radius: 3px; padding: 2px 6px; font: inherit;
 }
-.loc-count { color: var(--muted); font-size: 11px; font-weight: normal; }
+.loc-count { color: var(--muted); font-size: var(--fs-sm); font-weight: normal; }
 .loc-readonly { display: flex; gap: 6px; align-items: center; color: var(--warning); }
 .loc-grid-wrap { overflow: auto; }
-.loc-grid { border-collapse: collapse; width: 100%; font-size: 12px; }
+.loc-grid { border-collapse: collapse; width: 100%; font-size: var(--fs-md); }
 .loc-grid th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; color: var(--muted); padding: 3px 4px; border-bottom: 1px solid var(--border-strong); white-space: nowrap; }
 .loc-grid td { padding: 2px 4px; border-bottom: 1px solid var(--border); vertical-align: top; }
 .loc-grid.compact td, .loc-grid.compact th { padding: 1px 6px; }
@@ -22,11 +22,11 @@
 .loc-cell.status-missing .loc-cell-input { border-style: dashed; }
 .loc-cell.failed .loc-cell-input, .loc-cell-input[aria-invalid="true"] { border-color: var(--danger); }
 .loc-cell-chips { display: flex; gap: 4px; align-items: center; margin-top: 2px; }
-.loc-cell-problems { margin: 2px 0 0; padding: 0; list-style: none; font-size: 11px; }
+.loc-cell-problems { margin: 2px 0 0; padding: 0; list-style: none; font-size: var(--fs-sm); }
 .loc-cell-problems .error { color: var(--danger); }
 .loc-cell-problems .warning { color: var(--warning); }
 .loc-key { min-width: 120px; }
-.loc-table-name { display: block; color: var(--faint); font-size: 10px; }
+.loc-table-name { display: block; color: var(--faint); font-size: var(--fs-xs); }
 .loc-max { width: 48px; }
 .loc-status { white-space: nowrap; color: var(--muted); }
 .loc-status.worst-problem { color: var(--danger); }
@@ -36,17 +36,17 @@
 .loc-add { display: flex; gap: 6px; margin-top: 6px; }
 .loc-add input { flex: 1; }
 .loc-none { color: var(--muted); font-style: italic; margin: 6px 0; }
-.loc-hint { margin: 0 0 4px; color: var(--muted); font-size: 11px; }
+.loc-hint { margin: 0 0 4px; color: var(--muted); font-size: var(--fs-sm); }
 .mono { font-family: var(--font-code); }
 .loc-report-actions { margin: 8px 0; }
-.loc-report-section h4, .loc-exchange-section h4 { margin: 10px 0 2px; font-size: 12px; color: var(--text-strong); }
+.loc-report-section h4, .loc-exchange-section h4 { margin: 10px 0 2px; font-size: var(--fs-md); color: var(--text-strong); }
 .loc-report-rows { margin: 0; padding: 0; list-style: none; }
 .loc-report-rows li { display: flex; gap: 8px; align-items: baseline; padding: 1px 0; }
 .loc-report-detail { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .loc-exchange { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; }
 .loc-exchange-section { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .loc-choices { border: 1px solid var(--border); border-radius: 4px; padding: 4px 8px; display: flex; flex-direction: column; gap: 2px; width: 100%; box-sizing: border-box; }
-.loc-choices legend { color: var(--muted); font-size: 11px; }
+.loc-choices legend { color: var(--muted); font-size: var(--fs-sm); }
 .loc-inline { display: flex; gap: 6px; align-items: center; }
 .loc-file { display: flex; flex-direction: column; gap: 4px; color: var(--muted); }
 .loc-file.disabled { opacity: 0.6; }
@@ -56,7 +56,7 @@
 .localise-control { display: flex; flex-direction: column; gap: 4px; padding: 4px 0; }
 .localise-control .localise-row { display: flex; gap: 4px; align-items: center; }
 .localise-control .localise-row input { flex: 1; min-width: 0; }
-.localise-control .localise-preview { color: var(--muted); font-size: 11px; }
+.localise-control .localise-preview { color: var(--muted); font-size: var(--fs-sm); }
 .localise-control .localise-matches { margin: 0; padding: 0; list-style: none; max-height: 160px; overflow: auto; border: 1px solid var(--border); border-radius: 3px; }
 .localise-control .localise-matches button { display: flex; gap: 8px; width: 100%; text-align: left; background: none; border: none; color: var(--text); padding: 2px 6px; cursor: pointer; font: inherit; }
 .localise-control .localise-matches button:hover, .localise-control .localise-matches button:focus-visible { background: var(--hover); }
