@@ -1,6 +1,6 @@
 # 0357. Subtitles come from string tables, and an optional built-in display shows them from public audio events
 
-- **Status:** Accepted
+- **Status:** Accepted, amended by 0417 (`SubtitleDisplay` builds its canvas from its document)
 - **Date:** 2026-11-22
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
