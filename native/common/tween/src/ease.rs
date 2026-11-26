@@ -1,5 +1,5 @@
 //! Penner easings by id, deterministic: only `+ − × ÷ √`, the exact `round_even`, and
-//! [`trig`](crate::trig)'s polynomial sine and cosine, so every target gives the same bits (no libm
+//! `anim_math::trig`'s polynomial sine and cosine, so every target gives the same bits (no libm
 //! `pow`, `exp` or `sin`). Used by the tween table and timeline programs (ADR 0371, 0372).
 //!
 //! # Ids
@@ -7,7 +7,10 @@
 //! `0` is linear. Id `1 + 3·family + mode` is a family's easing, with the families in order
 //! `quad, cubic, quart, quint, sine, expo, circ, back, elastic, bounce` and the modes
 //! `0 = in`, `1 = out`, `2 = inOut` ([`LAST_ID`] is 30). An unknown id is linear. The ids are
-//! `anim-wire` tween's `EASE_*` constants (a test in `anim-wasm` holds the two equal).
+//! [`crate::wire`]'s `EASE_*` constants (a test in `anim-wasm` holds the two equal).
+//!
+//! Moved here from `anim-math` (ADR 0420 spike). `2^x` ([`exp2`]) stayed in `anim-math`
+//! (`anim_math::trig::exp2`): `anim-match`'s springs use it too.
 //!
 //! # Formulas
 //!
@@ -38,8 +41,7 @@
 //! every id on a 1,001-point grid (the sine polynomial's 3e-7 amplified by elastic's factors of
 //! 10π/3 at most).
 
-use crate::lane::Lane;
-use crate::trig::sin_cos;
+use anim_math::trig::{exp2, sin_cos};
 
 /// The highest easing id.
 pub const LAST_ID: u32 = 30;
@@ -56,27 +58,12 @@ const BACK: u32 = 7;
 const ELASTIC: u32 = 8;
 const BOUNCE: u32 = 9;
 
-const LN2: f32 = core::f32::consts::LN_2;
 const HALF_PI: f32 = core::f32::consts::FRAC_PI_2;
 const PI: f32 = core::f32::consts::PI;
 const BACK_C: f32 = 1.70158;
 const BACK_C_IN_OUT: f32 = BACK_C * 1.525;
 const ELASTIC_C4: f32 = 2.0 * PI / 3.0;
 const ELASTIC_C5: f32 = 2.0 * PI / 4.5;
-
-/// `2^x` for `x` in about `[−100, 100]` (clamped to f32's normal range). Deterministic.
-pub fn exp2(x: f32) -> f32 {
-    let n = x.round_even().clamp(-126.0, 127.0);
-    let y = (x - n) * LN2;
-    // Horner over 1/k!, k = 7..0.
-    let p = 1.0
-        + y * (1.0
-            + y * (0.5
-                + y * (1.0 / 6.0
-                    + y * (1.0 / 24.0
-                        + y * (1.0 / 120.0 + y * (1.0 / 720.0 + y * (1.0 / 5040.0)))))));
-    p * f32::from_bits(((n as i32 + 127) as u32) << 23)
-}
 
 /// The out-bounce parabolas.
 fn bounce_out(t: f32) -> f32 {

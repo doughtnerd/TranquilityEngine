@@ -12,7 +12,7 @@
 //!   [`AosVec3`]/[`AosQuat`]/[`AosTransform`]/[`AosMat3x4`] (one bone, scalar `f32`) share their
 //!   code and agree bit for bit, lane for lane.
 //! - [`layout`] transposes whole poses (with identity padding) and runs local→model;
-//!   [`quant`] packs and unpacks N-bit unorms; [`trig`] has deterministic `sin_cos`/`atan2`; [`ease`] has the Penner easings.
+//!   [`quant`] packs and unpacks N-bit unorms; [`trig`] has deterministic `sin_cos`/`atan2`/`exp2` (the Penner easings moved to `myco-tween`, ADR 0420 spike).
 //! - glam is the AoS interchange type (`From` between `glam::Vec3`/`glam::Quat` and the AoS
 //!   types). glam's own arithmetic is not used: its SSE2, `simd128` and scalar backends order
 //!   some operations differently, which would break the rules below.
@@ -40,7 +40,6 @@
 //!
 //! Nothing in this crate allocates. Pose-level functions ([`layout`]) take caller-owned slices.
 
-pub mod ease;
 mod f32x4;
 mod lane;
 pub mod layout;
