@@ -1,17 +1,20 @@
-// The live take feed, tool side (schema in `schema.ts`, build side in `takeLive.ts`): reassembles the `takeLive`
-// subscription's records into the take as it stands, a `Take` (`engine/audio/take/reader.ts`) rebuilt from the start
-// record's facts and the log's records whenever asked after something new arrived. The log pieces are concatenated by
-// offset and cut back into whole records (the capture framing's 20 B heads); request records, take keyframes and pictures
-// are decoded with the take record codecs, plugin records skipped. A piece that doesn't follow the last one (a hole) or a
-// record that doesn't decode breaks the take: `error` says why and nothing more is read until the next take starts.
-// Pure: no link, no timers, no audio; the Studio's live take (`studio/runtime/liveTake.ts`) feeds it.
-import { Take } from "../../../../engine/audio/take/reader";
-import { decodeTakeRecord, isTakeRecordType, type TakeRecord } from "../../../../engine/audio/take/records";
-import type { TakeMeta } from "../../../../engine/audio/take/types";
-import { CAPTURE_RECORD_HEAD_BYTES, CAPTURE_RECORD_MAX_BYTES } from "../capture/format";
+// The live take feed, tool side (schema in `runtime/debugLink/schema.ts`, build side in `runtime/debugLink/takeLive.ts`):
+// reassembles the `takeLive` subscription's records into the take as it stands, a `Take` (`engine/audio/take/reader.ts`).
+// It keeps the link's concerns only (ADR 0417): which take the records belong to, the log pieces' offsets (a piece that
+// doesn't follow the last one is a hole), and the bytes of a record not yet whole. The log is cut back into records by
+// the capture format (`splitCaptureRecords`); request records, take keyframes and pictures are decoded with the take
+// record codecs (plugin records skipped) and handed to the take assembler (`engine/audio/take/assembler.ts`), which
+// builds the `Take` by the take file's META rules. A hole, a record that doesn't decode or META that doesn't read breaks
+// the take: `error` says why and nothing more is read until the next take starts.
+// Pure: no link, no timers, no audio; the audio link client's live take follow (`audioLinkClient.ts`) feeds it. It lives
+// in the editor half because only tools read live takes (the build only writes the feed).
+import { TakeAssembler } from "../../../../engine/audio/take/assembler";
+import type { Take } from "../../../../engine/audio/take/reader";
+import { decodeTakeRecord, isTakeRecordType } from "../../../../engine/audio/take/records";
+import { splitCaptureRecords } from "../../runtime/capture/format";
 import {
   AudioLinkRecord, decodeTakeLiveEmitters, decodeTakeLiveEnd, decodeTakeLiveLog, decodeTakeLiveStart, type TakeLiveEnd, type TakeLiveStart,
-} from "./schema";
+} from "../../runtime/debugLink/schema";
 
 /** Where a live take stands: none seen yet, recording, or stopped (its end record arrived). */
 export type TakeLiveStreamState = "idle" | "recording" | "stopped";
@@ -28,14 +31,11 @@ const messageOf = (e: unknown): string => (e instanceof Error ? e.message : Stri
 export class TakeLiveStream {
   private start: TakeLiveStart | null = null;
   private end: TakeLiveEnd | null = null;
-  private records: TakeRecord[] = [];
-  private emitters: Record<number, string> = {};
+  private assembler: TakeAssembler | null = null;
   /** Log bytes received (the next piece's offset). */
   private received = 0;
   /** Bytes of a record not yet whole. */
   private pending: Uint8Array = new Uint8Array(0);
-  private seconds = 0;
-  private lastT = 0;
   private broken: string | null = null;
   private built: Take | null = null;
   private dirty = false;
@@ -55,7 +55,7 @@ export class TakeLiveStream {
     return this.end?.message ?? null;
   }
 
-  /** Why the feed broke (a hole, a record that doesn't decode); null while it reads. */
+  /** Why the feed broke (a hole, a record that doesn't decode, META that doesn't read); null while it reads. */
   get error(): string | null {
     return this.broken;
   }
@@ -73,13 +73,13 @@ export class TakeLiveStream {
         if ("refused" in s) return this.fail(s.refused);
         this.start = s;
         this.end = null;
-        this.records = [];
-        this.emitters = {};
+        this.assembler = new TakeAssembler({
+          project: s.project, engine: s.engine, device: s.device, startedMs: s.started, audioHash: s.audioHash, seed: s.seed, seeded: s.seeded,
+        });
         this.received = 0;
         this.pending = new Uint8Array(0);
-        this.seconds = 0;
-        this.lastT = 0;
         this.broken = null;
+        this.built = null;
         return this.touch();
       }
       case AudioLinkRecord.takeLiveEmitters: {
@@ -87,7 +87,7 @@ export class TakeLiveStream {
         const e = decodeTakeLiveEmitters(r.payload);
         if ("refused" in e) return this.fail(e.refused);
         if (e.take !== this.start!.take) return false;
-        for (const [id, name] of Object.entries(e.emitters)) this.emitters[Number(id)] = name;
+        this.assembler!.name(e.emitters);
         return this.touch();
       }
       case AudioLinkRecord.takeLiveLog: {
@@ -97,7 +97,7 @@ export class TakeLiveStream {
         if (p.take !== this.start!.take) return false;
         if (p.offset !== this.received) return this.fail(`the live take skipped from byte ${this.received} to ${p.offset}`);
         this.received += p.bytes.byteLength;
-        this.seconds = Math.max(this.seconds, p.seconds);
+        this.assembler!.tick(p.seconds);
         if (p.bytes.byteLength > 0) {
           const error = this.read(p.bytes);
           if (error) return this.fail(error);
@@ -119,19 +119,18 @@ export class TakeLiveStream {
 
   /** The take as it stands (null before a start record), rebuilt when something arrived since the last call. */
   take(): Take | null {
-    const s = this.start;
-    if (!s) return null;
+    const a = this.assembler;
+    if (!a) return null;
     if (this.built && !this.dirty) return this.built;
-    const end = this.end?.section;
-    const meta: TakeMeta = {
-      project: s.project, engine: s.engine, audioHash: end?.audioHash ?? s.audioHash, seed: end?.seed ?? s.seed, device: s.device,
-      started: new Date(s.started).toISOString(), duration: end ? end.duration : Math.max(this.seconds, this.lastT), emitters: { ...this.emitters },
-      frames: end ? end.frames : this.records.some((r) => r.type === "frame"),
-    };
-    if (!(end?.seeded ?? s.seeded)) meta.seeded = false;
-    this.built = new Take(meta, this.records);
     this.dirty = false;
-    return this.built;
+    const take = this.end ? a.finished(this.end.section, true) : a.running();
+    if (typeof take === "string") {
+      // META didn't read: the feed breaks there, and what was built last stays shown.
+      if (this.broken === null) this.broken = `the live take's META doesn't read: ${take}`;
+      return this.built;
+    }
+    this.built = take;
+    return take;
   }
 
   private reading(): boolean {
@@ -148,7 +147,7 @@ export class TakeLiveStream {
     return this.touch();
   }
 
-  /** Cuts whole records off `pending` + `bytes`; a message when one doesn't decode. */
+  /** Cuts whole records off `pending` + `bytes` into the assembler; a message when one doesn't decode. */
   private read(bytes: Uint8Array): string | null {
     let buf = bytes;
     if (this.pending.byteLength > 0) {
@@ -156,27 +155,17 @@ export class TakeLiveStream {
       buf.set(this.pending, 0);
       buf.set(bytes, this.pending.byteLength);
     }
-    const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-    let off = 0;
-    while (buf.byteLength - off >= CAPTURE_RECORD_HEAD_BYTES) {
-      const type = view.getUint8(off);
-      const len = view.getUint32(off + 4, true);
-      if (len > CAPTURE_RECORD_MAX_BYTES) return `a live take record of ${len} B is past the ${CAPTURE_RECORD_MAX_BYTES} B cap`;
-      if (buf.byteLength - off < CAPTURE_RECORD_HEAD_BYTES + len) break;
-      if (isTakeRecordType(type)) {
-        try {
-          const r = decodeTakeRecord(type, view, off + CAPTURE_RECORD_HEAD_BYTES, len);
-          this.records.push(r);
-          const t = r.type === "frame" ? r.frame.t : r.type === "keyframe" ? r.keyframe.t : (r.requests.at(-1)?.t ?? 0);
-          if (t > this.lastT) this.lastT = t;
-        } catch (e) {
-          return `a live take record doesn't read: ${messageOf(e)}`;
-        }
-      }
-      off += CAPTURE_RECORD_HEAD_BYTES + len;
+    const assembler = this.assembler!;
+    let used: number;
+    try {
+      used = splitCaptureRecords(buf, (head, view, at) => {
+        if (isTakeRecordType(head.type)) assembler.add(decodeTakeRecord(head.type, view, at, head.len));
+      });
+    } catch (e) {
+      return `a live take record doesn't read: ${messageOf(e)}`;
     }
     // Keep the rest (a copy, so the link's buffer isn't held).
-    this.pending = buf.slice(off);
+    this.pending = buf.slice(used);
     return null;
   }
 }

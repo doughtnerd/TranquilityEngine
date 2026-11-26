@@ -1,7 +1,7 @@
-// The Profiler following a connected build (ADR 0403, plan U5): a `LiveHost` whose recording is the build's `capture`
-// subscription on the `audio` topic (schema in `plugins/audio/runtime/debugLink/schema.ts`). The build joins its own ring
-// as an owner and sends the ring's head, then each sealed segment, cut into pieces; here the pieces are put back together,
-// `join()` resolves once the head is whole, and each segment is posted to the live view as an `appendSegment`, exactly
+// The Profiler following a connected build (ADR 0403, plan U5): a `LiveHost` whose recording is the build's live capture,
+// followed through the audio link client (ADR 0417, `plugins/audio/editor/debugLink/audioLinkClient.ts`). The build joins
+// its own ring as an owner and sends the ring's head, then each sealed segment; the client puts their pieces back
+// together, `join()` resolves once the head is whole, and each segment is posted to the live view as an `appendSegment`, exactly
 // as the recorder posts them to the editor's live follow (`LiveFollow`, `editor/mix/liveFollow.ts`), so the capture
 // Worker reads a build's feed and the Studio's own the same way.
 //
@@ -12,15 +12,14 @@
 // come again. A `BuildFollow` is the Profiler's live view of one build: the host, a `LiveFollow` and the store.
 import { signal } from "@preact/signals";
 import type { ConnectedBuild } from "../../../editor/debugLink/editorLink";
-import type { LinkRecord } from "../../../engine/debugLink/records";
+import { audioLinkClient, type AudioLinkClient, type CaptureFollowEnd } from "../../../plugins/audio/editor/debugLink/audioLinkClient";
 import { LiveFollow, type LiveFollowOptions, type LiveHost, type LiveRecording, type LiveScheduler } from "../../../plugins/audio/editor/mix/liveFollow";
 import type { ProfileSource } from "../../../plugins/audio/editor/mix/profilerSource";
 import type { CaptureWorkerRequest } from "../../../plugins/audio/runtime/capture/format";
-import { AUDIO_TOPIC, AudioLinkRecord, decodeCapturePiece, type AudioSubscriptionParams } from "../../../plugins/audio/runtime/debugLink/schema";
 import type { ProfilerStore } from "./profilerStore";
 
-/** The build a Profiler follows: its name and its link (`studioBuild`'s `ConnectedBuild`). */
-export type FollowedBuild = Pick<ConnectedBuild, "name" | "peer">;
+/** The build a Profiler follows: its name and its link (`studioBuild`'s `ConnectedBuild`), and its audio link client if it has one. */
+export type FollowedBuild = Pick<ConnectedBuild, "name" | "peer"> & { readonly client?: AudioLinkClient };
 
 /** How long without a segment before the follow says the build went quiet (segments seal about once a second). */
 const STALL_MS = 3000;
@@ -47,43 +46,11 @@ const GLOBAL_SCHEDULER: LiveScheduler = {
   clearTimeout: (h) => clearTimeout(h as ReturnType<typeof setTimeout>),
 };
 
-/** Joins pieces of one part (the head, or a segment) back together; null until the last piece of a part arrives. */
-class Pieces {
-  private part = -1;
-  private type = -1;
-  private count = 0;
-  private chunks: Uint8Array[] = [];
-
-  /** The whole part once its last piece is in, null while more are due; throws on a piece out of order. */
-  push(type: number, payload: Uint8Array): { part: number; bytes: Uint8Array } | null {
-    const piece = decodeCapturePiece(payload);
-    if ("refused" in piece) throw new Error(piece.refused);
-    if (piece.index === 0) {
-      if (this.chunks.length > 0) throw new Error(`part ${this.part} ended after ${this.chunks.length} of ${this.count} pieces`);
-      this.part = piece.part;
-      this.type = type;
-      this.count = piece.count;
-    } else if (piece.part !== this.part || type !== this.type || piece.count !== this.count || piece.index !== this.chunks.length) {
-      throw new Error(`piece ${piece.index} of part ${piece.part} arrived out of order`);
-    }
-    this.chunks.push(piece.bytes.slice());
-    if (this.chunks.length < this.count) return null;
-    const size = this.chunks.reduce((n, c) => n + c.byteLength, 0);
-    const bytes = new Uint8Array(size);
-    let at = 0;
-    for (const c of this.chunks) {
-      bytes.set(c, at);
-      at += c.byteLength;
-    }
-    this.chunks = [];
-    return { part: this.part, bytes };
-  }
-}
-
 /** `build`'s live capture feed as the Profiler's `LiveHost`: one subscription per `join()`. */
 export function remoteLiveHost(build: FollowedBuild, opts: RemoteLiveOptions = {}): RemoteLiveHost {
   const scheduler = opts.scheduler ?? GLOBAL_SCHEDULER;
   const stallMs = opts.stallMs ?? STALL_MS;
+  const client = build.client ?? audioLinkClient(build.peer);
   /** The recording now (one at a time: `LiveFollow` joins once per start). */
   let current: { end(message: string): void } | null = null;
 
@@ -95,7 +62,6 @@ export function remoteLiveHost(build: FollowedBuild, opts: RemoteLiveOptions = {
     join(): Promise<LiveRecording> {
       if (build.peer.state === "closed") return Promise.reject(new Error(`${build.name} is gone (${build.peer.closedReason || "the link closed"}).`));
       return new Promise<LiveRecording>((resolve, reject) => {
-        const pieces = new Pieces();
         let head: Uint8Array | null = null;
         let post: ((request: CaptureWorkerRequest, transfer: Transferable[]) => void) | null = null;
         /** Segments that arrived before `startLive`. */
@@ -127,7 +93,7 @@ export function remoteLiveHost(build: FollowedBuild, opts: RemoteLiveOptions = {
           if (lost || released) return;
           lost = true;
           clearQuiet();
-          sub.unsubscribe();
+          unfollow?.();
           if (current === me) current = null;
           if (!head) reject(new Error(message));
           opts.onEnded?.(message);
@@ -144,31 +110,23 @@ export function remoteLiveHost(build: FollowedBuild, opts: RemoteLiveOptions = {
           post({ type: "appendSegment", id, bytes: buffer }, [buffer]);
         };
 
-        const onSample = (records: readonly LinkRecord[]): void => {
-          for (const r of records) {
-            if (lost || released) return;
-            if (r.type === AudioLinkRecord.captureLost) {
-              return end(`${build.name}'s capture ring dropped a segment before it was sent, so the live view stopped here (the build goes on recording).`);
-            }
-            if (r.type !== AudioLinkRecord.captureHead && r.type !== AudioLinkRecord.captureSegment) continue;
-            let whole: { part: number; bytes: Uint8Array } | null;
-            try {
-              whole = pieces.push(r.type, r.payload);
-            } catch (e) {
-              return end(`The live capture from ${build.name} broke: ${(e as Error).message}.`);
-            }
-            if (!whole) continue;
-            if (stalled) {
-              stalled = false;
-              opts.onStalled?.(null);
-            }
-            armQuiet();
-            if (r.type === AudioLinkRecord.captureHead) {
-              if (head) return end(`The live capture from ${build.name} sent a second head.`);
-              head = whole.bytes;
-              resolve(recording);
-            } else if (!head) return end(`The live capture from ${build.name} sent a segment before its head.`);
-            else deliver(whole.part, whole.bytes);
+        const heard = (): void => {
+          if (stalled) {
+            stalled = false;
+            opts.onStalled?.(null);
+          }
+          armQuiet();
+        };
+        const endedWith = (e: CaptureFollowEnd): string => {
+          switch (e.kind) {
+            case "lost":
+              return `${build.name}'s capture ring dropped a segment before it was sent, so the live view stopped here (the build goes on recording).`;
+            case "refused":
+              return `${build.name} refused the live capture: ${e.reason}`;
+            case "closed":
+              return `The link to ${build.name} closed (${e.reason}); the live view stopped here.`;
+            case "broken":
+              return `The live capture from ${build.name} broke: ${e.reason}.`;
           }
         };
 
@@ -190,12 +148,25 @@ export function remoteLiveHost(build: FollowedBuild, opts: RemoteLiveOptions = {
             post = null;
             clearQuiet();
             if (current === me) current = null;
-            sub.unsubscribe();
+            unfollow?.();
           },
         };
 
-        const params: AudioSubscriptionParams = { kind: "capture" };
-        const sub = build.peer.subscribe(AUDIO_TOPIC, params, onSample, (message) => end(`${build.name} refused the live capture: ${message}`));
+        let unfollow: (() => void) | null = null;
+        unfollow = client.followCapture({
+          head(bytes) {
+            if (lost || released) return;
+            heard();
+            head = bytes;
+            resolve(recording);
+          },
+          segment(id, bytes) {
+            if (lost || released) return;
+            heard();
+            deliver(id, bytes);
+          },
+          ended: (e) => end(endedWith(e)),
+        });
         armQuiet();
       });
     },

@@ -149,15 +149,13 @@ function fakeHost() {
     createBatch() {
       const b: FakeBatch = {
         positions: [], texture: "", matrix: [], visible: false, disposed: false,
-        setLighting(l) { (b as { lighting?: unknown }).lighting = l; },
-        setTangents(t) { (b as { tangents?: unknown }).tangents = t; },
-        setBlend(m) { (b as { blend?: unknown }).blend = m; },
+        setMaterial() {},
+        setBlend() {},
         setQuads() {},
         setTriangles(texture, positions) { b.texture = texture; b.positions = Array.from(positions); },
         setMatrix(m, offset = 0) { b.matrix = Array.from(m).slice(offset, offset + 16); },
         setOrder() {},
         setTint() {},
-        setColors() {},
         setMask() {},
         setVisible(v) { b.visible = v; },
         dispose() { b.disposed = true; },
@@ -166,7 +164,6 @@ function fakeHost() {
       return b;
     },
     textureSize: () => [64, 32],
-    sortOrder: (_layer, order) => order,
   };
   return { host, batches };
 }

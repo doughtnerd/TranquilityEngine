@@ -13,11 +13,12 @@ import { releaseCapture } from "./capture";
 import { CAPTURE_TRIGGER_MAX_FILES } from "./format";
 import { defaultSaveEnv, webSaveCount, type SaveEnv } from "./save";
 import { keyframeCodecForTests, statusBytes, type CaptureChunkControl } from "./testSupport";
+import { createTakeOwnership } from "./takeOwnership";
 import { installCaptureTrigger, installTakeTrigger, type TriggerEnv } from "./trigger";
 import { takeStateSubscription } from "../debugLink/takeState";
 import { decodeTakeState } from "../debugLink/schema";
 import { RecordWriter, readRecords } from "../../../../engine/debugLink/records";
-import type { DebugTopicHost } from "../../../../engine/debugLink/topics";
+import type { DebugSubscription, DebugTopicHost } from "../../../../engine/debugLink/topics";
 import { audioTopic } from "../debugLink/topic";
 
 /** The recorder and save chunks are the real ones, wrapped: a 4 MiB ring, each save through the rig's fakes. */
@@ -221,32 +222,41 @@ describe("F10: the take trigger (ADR 0348)", () => {
   });
 });
 
-describe("F10 while the Audio Studio owns the takes (ADR 0408)", () => {
-  it("only starts and stops while a take subscription is open, and saves again once it closes", async () => {
+describe("F10 while the Audio Studio owns the takes (ADR 0408, 0417)", () => {
+  /** An F10 trigger over a fake take, with take ownership over the same take; `backups` says whether this build keeps copies. */
+  function rigOwned(opts: { tauri: boolean; backups: boolean }) {
     const target = fakeTarget();
     const { cap, calls } = fakeCapture();
     const toasts: string[] = [];
-    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: false, webSaves: async () => ({ count: 99, max: 16 }), schedule: manualSchedule().schedule });
+    const ownership = createTakeOwnership({ take: cap, backups: () => opts.backups, warn: () => {} });
+    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: opts.tauri, webSaves: async () => ({ count: 99, max: 16 }), schedule: manualSchedule().schedule, ownership });
     const press = async () => {
       target.fire("keydown", key("F10"));
       await new Promise((resolve) => setTimeout(resolve, 0));
     };
-    const sub = takeStateSubscription(() => ({ state: cap.state, seconds: 0 }));
-    await press(); // the web's save cap doesn't apply: nothing is saved here
-    await vi.waitFor(() => expect(calls).toEqual(["start"]));
-    await press();
-    await vi.waitFor(() => expect(calls).toEqual(["start", "stop"]));
-    expect(toasts.at(-1)).toBe("Take stopped: the Audio Studio saves it");
-    sub.close();
-    cap.state = "idle";
-    await press();
-    expect(toasts.at(-1)).toMatch(/Capture limit reached/);
-    uninstall();
+    const sub = takeStateSubscription(() => ({ state: cap.state, seconds: 0 }), ownership);
+    const sample = () => sub.sample(new RecordWriter(), 1);
+    return { cap, calls, toasts, press, sub, sample, uninstall };
+  }
+
+  it("only starts and stops while a take subscription is open, and saves again once it closes", async () => {
+    const r = rigOwned({ tauri: false, backups: false });
+    await r.press(); // the web's save cap doesn't apply: nothing is saved here
+    await vi.waitFor(() => expect(r.calls).toEqual(["start"]));
+    await r.press();
+    await vi.waitFor(() => expect(r.calls).toEqual(["start", "stop"]));
+    expect(r.toasts.at(-1)).toBe("Take stopped: the Audio Studio saves it");
+    r.sub.close();
+    r.cap.state = "idle";
+    await r.press();
+    expect(r.toasts.at(-1)).toMatch(/Capture limit reached/);
+    r.uninstall();
   });
 
   it("the take subscription sends the state now and each change, not every sample", () => {
     let state: "idle" | "recording" | "stopped" = "idle";
-    const sub = takeStateSubscription(() => ({ state, seconds: state === "stopped" ? 4.5 : 0 }));
+    const ownership = createTakeOwnership({ take: fakeCapture().cap, backups: () => false, warn: () => {} });
+    const sub = takeStateSubscription(() => ({ state, seconds: state === "stopped" ? 4.5 : 0 }), ownership);
     const sent: unknown[] = [];
     const sample = () => {
       const out = new RecordWriter();
@@ -264,88 +274,76 @@ describe("F10 while the Audio Studio owns the takes (ADR 0408)", () => {
     sub.close();
   });
 
-  it("keeps a backup copy of each take that stops while the Studio holds it, however it stopped", () => {
-    let state: "idle" | "recording" | "stopped" = "idle";
-    let backups = 0;
-    const sub = takeStateSubscription(() => ({ state, seconds: 0 }), () => void backups++);
-    const sample = () => sub.sample(new RecordWriter(), 1);
-    sample();
-    state = "stopped"; // a take that never recorded under this subscription
-    sample();
-    expect(backups).toBe(0);
-    state = "recording";
-    sample();
-    state = "stopped";
-    sample();
-    sample();
-    expect(backups).toBe(1);
-    state = "recording";
-    sample();
-    state = "stopped";
-    sample();
-    expect(backups).toBe(2);
-    sub.close();
+  it("on desktop and Android, F10 says a copy is kept only once it is written, and the take is saved once", async () => {
+    const r = rigOwned({ tauri: true, backups: true });
+    let finish: () => void = () => {};
+    const save = r.cap.save;
+    await r.press();
+    await vi.waitFor(() => expect(r.calls).toEqual(["start"]));
+    r.sample();
+    r.cap.save = (name?: string) => new Promise<void>((resolve) => (finish = resolve)).then(() => save(name));
+    await r.press();
+    await vi.waitFor(() => expect(r.cap.state).toBe("stopped"));
+    r.sample(); // the subscription sees the stop: the trigger's backup is under way, so it doesn't start another
+    expect(r.toasts, "nothing promised while the copy is being written").toEqual(["Recording a take…"]);
+    finish();
+    await vi.waitFor(() => expect(r.toasts.at(-1)).toBe("Take sent to the Audio Studio (a copy is kept in app data)"));
+    expect(r.calls).toEqual(["start", "stop", "save"]);
+    r.sub.close();
+    r.uninstall();
   });
 
-  it("on desktop and Android, F10 says a copy is kept", async () => {
-    const target = fakeTarget();
-    const { cap, calls } = fakeCapture();
-    const toasts: string[] = [];
-    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: true, schedule: manualSchedule().schedule });
-    const press = async () => {
-      target.fire("keydown", key("F10"));
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    };
-    const sub = takeStateSubscription(() => ({ state: cap.state, seconds: 0 }));
-    await press();
-    await vi.waitFor(() => expect(calls).toEqual(["start"]));
-    await press();
-    await vi.waitFor(() => expect(calls).toEqual(["start", "stop"]));
-    expect(toasts.at(-1)).toBe("Take sent to the Audio Studio (a copy is kept in app data)");
-    sub.close();
-    uninstall();
+  it("a copy that couldn't be written says so instead, in the failure's own words", async () => {
+    const r = rigOwned({ tauri: true, backups: true });
+    await r.press();
+    await vi.waitFor(() => expect(r.calls).toEqual(["start"]));
+    r.cap.saveError = new Error("the disk is full");
+    await r.press();
+    await vi.waitFor(() => expect(r.toasts.at(-1)).toBe("Take sent to the Audio Studio, but no copy could be kept in app data: the disk is full"));
+    expect(r.toasts).not.toContain("Take sent to the Audio Studio (a copy is kept in app data)");
+    r.sub.close();
+    r.uninstall();
   });
 });
 
 describe("a take the Audio Studio starts and stops (ADR 0411 Record session)", () => {
-  it("take.start and take.stop go through the F10 trigger: the same toasts, and F10 stops a take the Studio started", async () => {
+  /** An F10 trigger on the build's own take ownership, the one the audio topic answers through; the topic's `take` subscription claims it. */
+  function rigTopic(tauri: boolean) {
     const target = fakeTarget();
     const { cap, calls } = fakeCapture();
     const toasts: string[] = [];
-    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: true, webSaves: async () => ({ count: 99, max: 16 }), schedule: manualSchedule().schedule });
+    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri, webSaves: async () => ({ count: 99, max: 16 }), schedule: manualSchedule().schedule });
     const topic = audioTopic({} as DebugTopicHost);
-    const sub = takeStateSubscription(() => ({ state: cap.state, seconds: 0 })); // the Studio owns the takes
-    await topic.request!("take.start", undefined); // the web's save cap never applies: the Studio saves
-    expect(calls).toEqual(["start"]);
-    expect(toasts).toEqual(["Recording a take…"]);
-    target.fire("keydown", key("F10"));
-    await vi.waitFor(() => expect(calls).toEqual(["start", "stop"]));
-    expect(toasts.at(-1)).toBe("Take sent to the Audio Studio (a copy is kept in app data)");
-    await topic.request!("take.start", undefined);
-    await topic.request!("take.stop", undefined);
-    expect(calls).toEqual(["start", "stop", "start", "stop"]);
-    expect(toasts.slice(-2)).toEqual(["Recording a take…", "Take sent to the Audio Studio (a copy is kept in app data)"]);
-    sub.close();
-    uninstall();
-    topic.dispose?.();
+    const sub = topic.subscribe!({ kind: "take" }) as DebugSubscription; // the Studio owns the takes
+    const dispose = () => {
+      sub.close();
+      uninstall();
+      topic.dispose?.();
+    };
+    return { target, cap, calls, toasts, topic, dispose };
+  }
+
+  it("take.start and take.stop go through the F10 trigger: the same toasts, and F10 stops a take the Studio started", async () => {
+    const r = rigTopic(true);
+    await r.topic.request!("take.start", undefined); // the web's save cap never applies: the Studio saves
+    expect(r.calls).toEqual(["start"]);
+    expect(r.toasts).toEqual(["Recording a take…"]);
+    r.target.fire("keydown", key("F10"));
+    await vi.waitFor(() => expect(r.calls).toEqual(["start", "stop"]));
+    await vi.waitFor(() => expect(r.toasts.at(-1)).toBe("Take stopped: the Audio Studio saves it"));
+    await r.topic.request!("take.start", undefined);
+    await r.topic.request!("take.stop", undefined);
+    expect(r.calls, "nothing saved here: this build keeps no copies (not a Tauri webview)").toEqual(["start", "stop", "start", "stop"]);
+    await vi.waitFor(() => expect(r.toasts.slice(-2)).toEqual(["Recording a take…", "Take stopped: the Audio Studio saves it"]));
+    r.dispose();
   });
 
-  it("a stop in a browser says the Studio saves it, and a start that fails says why and answers the Studio the error", async () => {
-    const target = fakeTarget();
-    const { cap } = fakeCapture();
-    const toasts: string[] = [];
-    const uninstall = installTakeTrigger({ capture: cap, target, toast: (t) => void toasts.push(t), tauri: false, schedule: manualSchedule().schedule });
-    const topic = audioTopic({} as DebugTopicHost);
-    const sub = takeStateSubscription(() => ({ state: cap.state, seconds: 0 }));
-    await topic.request!("take.start", undefined);
-    await topic.request!("take.stop", undefined);
-    expect(toasts).toEqual(["Recording a take…", "Take stopped: the Audio Studio saves it"]);
-    cap.startError = new Error("the audio core isn't available");
-    await expect(topic.request!("take.start", undefined)).rejects.toThrow("the audio core isn't available");
-    expect(toasts.slice(-2)).toEqual(["Recording a take…", "the audio core isn't available"]);
-    sub.close();
-    uninstall();
-    topic.dispose?.();
+  it("a start that fails says why and answers the Studio the error", async () => {
+    const r = rigTopic(false);
+    r.cap.startError = new Error("the audio core isn't available");
+    await expect(r.topic.request!("take.start", undefined)).rejects.toThrow("the audio core isn't available");
+    expect(r.toasts).toEqual(["Recording a take…", "the audio core isn't available"]);
+    r.dispose();
   });
 });
 

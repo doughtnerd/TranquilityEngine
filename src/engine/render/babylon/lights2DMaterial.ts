@@ -4,7 +4,7 @@
  * the sprite texture's normal map (the directional textures) and mask map (ADR 0414). Fog, tint and slice UVs stay the
  * quad material's. The maths is KSL (`render/lights2D/lightShader.ts`); this is Babylon's injection glue.
  *
- * A lit material belongs to one layer batch (its owner keys materials by batch and the rig's `version`), so its defines
+ * A lit material belongs to one layer batch (the 2D materials, `materials2D.ts`, make a new one when the rig's layout changes), so its defines
  * (style count, directional, maps) are fixed while it lives. With no light textures for the camera drawing it yet (the
  * frame graph rebuilding), it reads white: drawn as if unlit for that frame.
  */
@@ -38,7 +38,7 @@ export interface LitQuadSetup {
   graph?: { normal: boolean; mask: boolean; custom: boolean } | null;
 }
 
-/** The per-vertex 2D tangent attribute (`QuadBatch.setTangents`). */
+/** The per-vertex 2D tangent attribute (the quad batches' deforming meshes, `quadBatches.ts`). */
 export const TANGENT_2D_ATTRIBUTE = "mycoTangent";
 
 const SLOTS = [0, 1, 2, 3] as const;

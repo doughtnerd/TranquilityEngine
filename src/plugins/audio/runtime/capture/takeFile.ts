@@ -1,10 +1,12 @@
 // ADR 0348: opening a take file (`*.sporesample`). A take is a capture file with the `take` header flag, META's `take`
 // section and request records in its stream; this opens it with the capture reader (every check, every refusal, the
 // profile records as `Audio.capture` would have them) and collects the request records the reader checks, then builds the
-// replay's view (`engine/audio/take/reader.ts` `Take`). The Profiler opens the same file as a capture (`openCapture`),
+// replay's view (`engine/audio/take/reader.ts` `Take`) with the take assembler (`engine/audio/take/assembler.ts`, ADR 0417),
+// which reads META by the same rules a live take's does. The Profiler opens the same file as a capture (`openCapture`),
 // passing over the requests.
 import type { TakeExtensionRecord } from "../../../../engine/audio/take/extensions";
-import { Take, readTakeMeta } from "../../../../engine/audio/take/reader";
+import { TakeAssembler } from "../../../../engine/audio/take/assembler";
+import type { Take } from "../../../../engine/audio/take/reader";
 import type { TakeRecord } from "../../../../engine/audio/take/records";
 import { CAPTURE_FLAG_TAKE, CaptureError, readCaptureHeader } from "./format";
 import { openCapture, type CaptureContents, type ReaderOptions } from "./reader";
@@ -37,7 +39,10 @@ export async function openTakeFile(file: Uint8Array, opts: ReaderOptions = {}): 
       opts.onExtensionRecord?.(r);
     },
   });
-  const meta = readTakeMeta(profile.meta, header.startDateMs, profile.meta.take);
-  if (typeof meta === "string") throw new CaptureError("badMeta", 0, meta);
-  return { take: new Take(meta, records), profile, extensions };
+  const { meta } = profile;
+  const assembler = new TakeAssembler({ project: meta.project.name, engine: meta.engine, device: meta.device.userAgent, startedMs: header.startDateMs });
+  for (const r of records) assembler.add(r);
+  const take: Take | string = assembler.finished(meta.take);
+  if (typeof take === "string") throw new CaptureError("badMeta", 0, take);
+  return { take, profile, extensions };
 }

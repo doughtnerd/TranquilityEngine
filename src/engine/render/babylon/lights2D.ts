@@ -7,7 +7,8 @@
  * - `sync(world, limits)` runs once a frame, before the content phase, so the sprite and quad features see this frame's
  *   layer batches: it batches the layers (`render/lights2D/layerBatches.ts`), ranks shadowed lights against the tier's
  *   cap, and builds every light's and shadow's geometry in world space (camera-independent), into vertex streams.
- *   `version` changes when the batching or the texture layout does (lit materials then pick their batch again).
+ *   `version` changes when the batching or the texture layout does, and `onLayoutChange` tells the 2D materials
+ *   (`materials2D.ts`), which pick their lit materials again.
  * - `layout()` is the light textures' layout for the pass plan (ADR 0274): only it rebuilds the frame graph.
  * - `draw…` are called by the frame graph's 2D light task (`frameGraph.ts`) for each camera: one draw per shadow
  *   texture and one per light texture (plus one per sprite light's texture), with nothing per light but vertex data.
@@ -25,6 +26,7 @@ import type { Texture } from "@babylonjs/core/Materials/Textures/texture.js";
 import type { ThinTexture } from "@babylonjs/core/Materials/Textures/thinTexture.js";
 import { ShaderLanguage } from "@babylonjs/core/Materials/shaderLanguage.js";
 import type { Matrix } from "@babylonjs/core/Maths/math.vector.js";
+import { Observable } from "@babylonjs/core/Misc/observable.js";
 import type { Scene } from "@babylonjs/core/scene.js";
 import type { World } from "../../core/World";
 import type { Lights2DLimits } from "../../core/graphics";
@@ -197,6 +199,8 @@ export interface Lights2DState {
 export class BabylonLights2D {
   /** Changes when the layer batches or the texture layout change. */
   version = 0;
+  /** Notified when `version` changes (the 2D materials watch it, ADR 0418). */
+  readonly onLayoutChange = new Observable<void>();
   /** The editor's scene view can switch 2D lighting off (every 2D draw unlit). */
   enabled = true;
   private layers: readonly string[] = [];
@@ -265,7 +269,8 @@ export class BabylonLights2D {
       ? { batches: batching.batches.map((b) => ({ styles: b.styles.length, directional: b.directional })), scale: limits.textureScale, shadowTextures: Math.ceil(kept.length / 4), lowPrecision: this.range !== 1 }
       : null;
     const key = `${JSON.stringify(layout)}|${[...batching.layerBatch].join(",")}|${batching.batches.map((b) => b.styles.join(".")).join(",")}|${this.accurateSets.map((s) => s.size).join(",")}`;
-    if (key !== this.layoutKey) {
+    const changed = key !== this.layoutKey;
+    if (changed) {
       this.layoutKey = key;
       this.version++;
     }
@@ -289,6 +294,7 @@ export class BabylonLights2D {
       styles: new Set(batching.batches.flatMap((b) => b.styles)).size,
       textures: batching.batches.reduce((n, b) => n + b.styles.length * (b.directional ? 3 : 1), 0) + Math.ceil(kept.length / 4),
     };
+    if (changed) this.onLayoutChange.notifyObservers(); // once this frame's batches are in place
   }
 
   /** The light textures' layout this frame, or null when nothing is lit. */
@@ -658,6 +664,7 @@ export class BabylonLights2D {
   }
 
   dispose(): void {
+    this.onLayoutChange.clear();
     for (const row of this.draws) for (const d of row) {
       d.gpu.dispose();
       for (const s of d.sprites) s.gpu.dispose();

@@ -1,6 +1,6 @@
 /**
  * 2D tangents for lit meshes that deform (ADR 0399): where a mesh's texture +U points, per vertex, in the mesh's XY.
- * A lit draw turns its normal map's XY by it (`QuadBatch.setTangents`), so a skinned sprite's normals follow its bones
+ * A lit draw turns its normal map's XY by it (the quad-batch host works them out for `QuadBatch.setTriangles`), so a skinned sprite's normals follow its bones
  * and a 2D ribbon's follow the line. Each triangle's dP/du (from its positions and UVs) is added to its vertices, then
  * normalised; a vertex no triangle gives a direction keeps +X.
  */

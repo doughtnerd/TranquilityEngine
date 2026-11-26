@@ -5,7 +5,7 @@ import { Assets } from "../scene/Assets";
 import { defaultShaderGraph, parseShaderGraph, type GraphNode, type ShaderGraph } from "../scene/shaderGraph";
 import { compileShaderGraph } from "../render/shaderGraph/compile";
 import { nodePorts } from "../render/shaderGraph/nodes";
-import { quadLighting, spriteMaterialGraph, spriteMaterialLit, spriteMaterialProblem } from "../render/lights2D/spriteMaterial";
+import { spriteMaterialGraph, spriteMaterialLit, spriteMaterialProblem } from "../render/lights2D/spriteMaterial";
 import { spriteGraphOverrides } from "../render/babylon/spriteGraphMaterial";
 import { graphCode, graphShaders } from "./graphPluginCode";
 
@@ -91,9 +91,6 @@ describe("2D draws with a sprite graph's material (ADR 0415)", () => {
     expect(spriteMaterialProblem("mesh.shadergraph.json")).toMatch(/target "lit", which 2D draws don't take/);
     expect(spriteMaterialGraph("glow.material.json")).toBe(true);
     expect(spriteMaterialLit("flat.shadergraph.json")).toBe(false);
-    expect(quadLighting("glow.material.json", "Default", "")).toMatchObject({ material: "glow.material.json", lit: true });
-    expect(quadLighting("flat.shadergraph.json", "Default", "")).toMatchObject({ material: "flat.shadergraph.json", lit: false });
-    expect(quadLighting("", "Default", "")?.material).toBeUndefined();
   });
 
   it("give the graph the drawn image and its secondary textures", () => {

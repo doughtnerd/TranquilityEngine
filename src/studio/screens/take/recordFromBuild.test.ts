@@ -12,7 +12,7 @@ import { setAudioBackend } from "../../../plugins/audio/runtime/backend";
 import { releaseCapture } from "../../../plugins/audio/runtime/capture/capture";
 import { openTakeFile } from "../../../plugins/audio/runtime/capture/takeFile";
 import type { CaptureChunkControl } from "../../../plugins/audio/runtime/capture/testSupport";
-import { linkedBuild, type LinkedBuild } from "../profiler/buildLinkTestSupport";
+import { linkedBuild, type LinkedBuild } from "../../../plugins/audio/editor/debugLink/buildLinkTestSupport";
 import { setTakeFrameWidth, takeLive } from "../../../plugins/audio/runtime/capture/take";
 import { BuildTakeRecorder, buildTakeName, buildTakeStatus, saveTakeIntoProject, type BuildTakeSeams, type BuildTakeState } from "./recordFromBuild";
 

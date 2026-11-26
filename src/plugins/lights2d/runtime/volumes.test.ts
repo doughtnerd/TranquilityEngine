@@ -57,20 +57,18 @@ describe("light volume meshes", () => {
 });
 
 function fakeQuads() {
-  const batches: (QuadBatch & { positions: Float32Array | null; colors: Float32Array | null; texture: string; order: number; visible: boolean; disposed: boolean; matrix: number[]; blend: string })[] = [];
+  const batches: (QuadBatch & { positions: Float32Array | null; colors: Float32Array | null; texture: string; order: [string, number]; material: string | null; visible: boolean; disposed: boolean; matrix: number[]; blend: string })[] = [];
   const quads: QuadBatchHost = {
     createBatch() {
       const b: (typeof batches)[number] = {
-        positions: null, colors: null, texture: "", order: 0, visible: false, disposed: false, matrix: [], blend: "alpha",
-        setLighting() {},
-        setTangents() {},
+        positions: null, colors: null, texture: "", order: ["", 0], material: null, visible: false, disposed: false, matrix: [], blend: "alpha",
+        setMaterial(m) { b.material = m; },
         setBlend(m) { b.blend = m; },
         setQuads() {},
         setTriangles(t, p) { b.texture = t; b.positions = p; },
-        setColors(c) { b.colors = c; },
         setMask() {},
         setMatrix(x, o = 0) { b.matrix = Array.from(x).slice(o, o + 16); },
-        setOrder(o) { b.order = o; },
+        setOrder(layer, inLayer) { b.order = [layer, inLayer]; },
         setTint() {},
         setVisible(v) { b.visible = v; },
         dispose() { b.disposed = true; },
@@ -79,7 +77,6 @@ function fakeQuads() {
       return b;
     },
     textureSize: () => [1, 1],
-    sortOrder: (layer, order) => ["Back", "Default", "Front"].indexOf(layer) * 10000 + order,
   };
   return { quads, batches };
 }
@@ -113,7 +110,7 @@ describe("light volume batches (ADR 0415)", () => {
     volumes.sync(engine.world);
     expect(batches).toHaveLength(1);
     const b = batches[0]!;
-    expect(b).toMatchObject({ blend: "additive", visible: true, order: 19999 });
+    expect(b).toMatchObject({ blend: "additive", visible: true, order: ["Default", 9999], material: null }); // unlit, on top of its highest target layer
     expect(b.matrix.slice(12, 14)).toEqual([3, 1]);
     const first = b.positions;
     volumes.sync(engine.world);
