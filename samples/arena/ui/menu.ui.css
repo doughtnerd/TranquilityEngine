@@ -49,3 +49,8 @@
   font-size: 20px;
   color: #9aa0ad;
 }
+
+/* Labels over the game let the pointer through to it, as the old screen Text did (ADR 0385, 0417). */
+Text {
+  raycast-target: false;
+}

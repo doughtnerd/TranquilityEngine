@@ -139,6 +139,11 @@ const HUD_CSS = `/* The navigation HUD's look (ADR 0077): white text with a blac
   text-outline-color: black;
   text-outline-width: 3px;
 }
+
+/* Labels over the game let the pointer through to it, as the old screen Text did (ADR 0385, 0417). */
+Text {
+  raycast-target: false;
+}
 `;
 
 // ---------------------------------------------------------------------------------------------- navigation settings
