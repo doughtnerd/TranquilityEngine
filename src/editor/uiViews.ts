@@ -19,7 +19,8 @@ import type { MarkupAttribute, ResolvedValue, ValueSource } from "../engine/ui/d
 import { uiAnimatedField } from "../engine/ui/animation/UIAnimator";
 import { onUIHostChanged, uiHostElementOf, type UIHostElement } from "../engine/ui/host/UIHost";
 import { normalizeAssetPath } from "../engine/scene/Assets";
-import { UIView } from "../plugins/ui/runtime/UIView";
+import { getComponentClass } from "../engine/core/registry";
+import type { Component } from "../engine/core/Component";
 import { pathKey } from "./document";
 import { selectedUIElement } from "./state";
 import { editorTextFiles } from "./textFiles";
@@ -60,9 +61,19 @@ export function parseUIViewRefKey(key: string): UIViewRef | null {
 /** True for a ref of a view's element (not a document's). */
 export const isUIViewKey = (key: string | null): boolean => !!key && key.startsWith("uiv:");
 
-/** The UIViews on a node, in component order. */
+/**
+ * A `UIView` as the editor reads it. The editor core doesn't import plugins' code (ADR 0146): it finds the UI
+ * plugin's component by its registered id, `engine.UIView`, and reads its component file and rendered canvas.
+ */
+export interface UIView extends Component {
+  readonly component: string;
+  readonly root: UIHostElement | null;
+}
+
+/** The UIViews on a node, in component order (none while the UI plugin isn't loaded). */
 export function viewsOn(node: GameObject): UIView[] {
-  return node.isValid ? node.getComponents(UIView) : [];
+  const type = getComponentClass("engine.UIView");
+  return node.isValid && type ? (node.getComponents(type as never) as unknown as UIView[]) : [];
 }
 
 /** The view a ref's host and index name, or null. */
@@ -356,7 +367,7 @@ function attributeOrigin(el: UIHostElement, field: string): FieldOrigin {
     return s ? elementAtLocation(s, src.line, src.column) : null;
   })() : null;
   const line = (offset: number) => (text !== null ? lineColumnAt(text, offset).line : src.line);
-  if (!element) return { kind: "expression", file: src.file, line: src.line, name: kebab(field), source: "(the file changed since it compiled)" };
+  if (!element) return { kind: "expression", file: src.file, line: src.line, name: kebab(field), source: svelteParserLoaded() ? "(the file changed since it compiled)" : "(Svelte's parser is loading)" };
   const property = kebab(field);
   // An inline style beats attributes (ADR 0077 §2): `style:prop`, then the style attribute, then the attribute.
   const directive = element.directives.find((d) => d.kind === "StyleDirective" && d.name === property);
