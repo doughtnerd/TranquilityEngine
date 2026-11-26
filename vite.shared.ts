@@ -132,6 +132,25 @@ export function svelteUI(options: { dev?: boolean } = {}): Plugin {
 
 const REPO_ROOT = fileURLToPath(new URL(".", import.meta.url));
 
+/** The browser's `path` for svelte2tsx (ADR 0428). */
+const POSIX_PATH = fileURLToPath(new URL("./src/editor/code/posixPath.ts", import.meta.url));
+
+/**
+ * svelte2tsx (the editor's type checking inside Svelte components, ADR 0428) imports Node's `path`, which a browser
+ * build stubs out: its import resolves to `src/editor/code/posixPath.ts` instead. Only svelte2tsx's import, so nothing
+ * else's `path` changes. The dev server's dependency bundler takes it too (`optimizeDeps.rolldownOptions.plugins`).
+ */
+export function svelteCheckPath(): Plugin {
+  return {
+    name: "myco:svelte-check-path",
+    enforce: "pre",
+    resolveId(source, importer) {
+      if ((source !== "path" && source !== "node:path") || !importer || !/[\\/]node_modules[\\/]svelte2tsx[\\/]/.test(importer)) return null;
+      return POSIX_PATH;
+    },
+  };
+}
+
 /** A TypeScript module a relative import names, as written or with `.ts`, `.tsx` or `/index.ts`. */
 function tsModuleFile(base: string): string {
   for (const candidate of [`${base}.ts`, `${base}.tsx`, join(base, "index.ts"), base]) if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;

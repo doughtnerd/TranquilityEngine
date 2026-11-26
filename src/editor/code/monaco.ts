@@ -14,8 +14,8 @@ import { codeLanguageOf, isScriptPath } from "../projectPaths";
 import { codeFilePath, codeFileUri } from "./codeBuffers";
 import { codeAppearance, monacoColors } from "../theme";
 import { compilerOptions, SCRIPT_CHECK } from "../../scriptCompiler.mjs";
-import svelteTypes from "../../../node_modules/svelte/types/index.d.ts?raw"; // not in the package's exports, so by path
-import { isRuneModulePath } from "../../projectCode/uiModules";
+import { isRuneModulePath, isSvelteComponentPath } from "../../projectCode/uiModules";
+import { componentTypeScript, generatedPathOf, SVELTE_CHECK_TYPES, type ComponentRange, type ComponentTypeScript } from "./svelteCheck";
 
 
 (self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
@@ -35,13 +35,10 @@ for (const [path, text] of Object.entries(engineTypes)) ts.typescriptDefaults.ad
 ts.typescriptDefaults.addExtraLib(JSON.stringify({ name: "myco", types: "index.d.ts" }), "file:///node_modules/myco/package.json");
 // Scripts written before the rename import "tranquility" (ADR 0037): the same declarations.
 ts.typescriptDefaults.addExtraLib('export * from "myco";', "file:///node_modules/tranquility/index.d.ts");
-// Svelte UI (ADR 0419): Svelte's declarations (its modules and the runes rune modules use), served as the package, and
-// components as modules scripts and rune modules can import.
-ts.typescriptDefaults.addExtraLib(svelteTypes, "file:///node_modules/svelte/types/index.d.ts");
-ts.typescriptDefaults.addExtraLib(
-  'declare module "*.svelte" {\n  import type { Component } from "svelte";\n  const component: Component<any>;\n  export default component;\n}\n',
-  "file:///node_modules/.myco-svelte/components.d.ts",
-);
+// Svelte UI (ADR 0419): Svelte's declarations (its modules and the runes rune modules use), served as the package, with
+// what components' TypeScript needs (ADR 0428, svelteCheck.ts); Svelte's own `*.svelte` module types a component the
+// service has no TypeScript for yet.
+for (const [path, text] of SVELTE_CHECK_TYPES) ts.typescriptDefaults.addExtraLib(text, `file:///${path}`);
 
 
 // The "myco" theme follows Settings > Appearance: redefined from the editor theme's tokens on change.
@@ -141,6 +138,8 @@ function disposeModels(): void {
   for (const model of monaco.editor.getModels()) if (codeFilePath(model.uri) !== null) model.dispose();
   for (const entry of jsonLibs.values()) entry.lib.dispose();
   jsonLibs.clear();
+  for (const entry of componentLibs.values()) entry.lib.dispose();
+  componentLibs.clear();
 }
 
 /** The declaration files of the project's npm packages the TypeScript service has (ADR 0125), by path. */
@@ -165,7 +164,7 @@ export function setPackageTypes(files: ReadonlyMap<string, string>, untyped: rea
   }
 }
 
-/** A type error in a script (ADR 0125): 1-based line and column. */
+/** A type error in a script (ADR 0125), or in a Svelte component (ADR 0428): 1-based line and column. */
 export interface ScriptDiagnostic {
   readonly path: string;
   readonly line: number;
@@ -176,16 +175,151 @@ export interface ScriptDiagnostic {
 const flatten = (text: string | { messageText: string; next?: unknown[] }): string =>
   typeof text === "string" ? text : [text.messageText, ...((text.next ?? []) as (typeof text)[]).map(flatten)].join(" ");
 
+// ---------------------------------------------------------------------------------------------
+// Svelte components' TypeScript (ADR 0428)
+
+/** A component's TypeScript the TypeScript service has: made from `source`, served at its `generated` path. */
+interface ComponentLib {
+  readonly source: string;
+  readonly check: ComponentTypeScript;
+  readonly lib: monaco.IDisposable;
+}
+
+/** The components' TypeScript the service has, by component path. */
+const componentLibs = new Map<string, ComponentLib>();
+/** The last sync of the components' TypeScript (syncs run one at a time). */
+let componentSync: Promise<void> = Promise.resolve();
+
+/** The components the file models hold, by project path, with their text (unsaved edits included). */
+function componentTexts(): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const model of monaco.editor.getModels()) {
+    const path = codeFilePath(model.uri);
+    if (path !== null && isSvelteComponentPath(path)) out.set(path, model.getValue());
+  }
+  return out;
+}
+
 /**
- * Type-check `project`'s scripts (paths in `files`, its `bufferTexts`, under scripts/) with the
- * TypeScript service, as the Code panel shows them: their syntax and type errors (not warnings or
- * suggestions), in path then line order.
+ * Give the service the TypeScript of the components the models hold (svelte2tsx), made again for those whose text
+ * changed, and drop gone components'. An import of a component resolves to its TypeScript, so scripts and rune
+ * modules see its props.
+ */
+function syncComponents(): Promise<void> {
+  const run = componentSync.then(async () => {
+    const texts = componentTexts();
+    let changed = false;
+    for (const [path, entry] of componentLibs) {
+      if (texts.has(path)) continue;
+      entry.lib.dispose();
+      componentLibs.delete(path);
+      changed = true;
+    }
+    // A rune module with the generated name keeps it (generatedPathOf).
+    const taken = (path: string) => monaco.editor.getModel(uriOf(path)) !== null;
+    for (const [path, text] of texts) {
+      const generated = generatedPathOf(path, taken);
+      const entry = componentLibs.get(path);
+      if (entry && entry.source === text && entry.check.generated === generated) continue;
+      const check = await componentTypeScript(path, text, generated);
+      // Adding a library at a path the service has replaces it (the old one's dispose then does nothing).
+      const lib = ts.typescriptDefaults.addExtraLib(check.code, codeFileUri(generated));
+      if (entry && entry.check.generated !== generated) entry.lib.dispose();
+      componentLibs.set(path, { source: text, check, lib });
+      changed = true;
+    }
+    // Monaco hands the worker its libraries a task after they change: ask it nothing before then.
+    if (changed) await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  componentSync = run.catch(() => {});
+  return run;
+}
+
+/** A type error in a component, at its span (ADR 0428). */
+type ComponentError = ComponentRange & { readonly path: string; readonly message: string };
+
+/**
+ * The type errors of the components the models hold: the errors (not warnings or suggestions) in their TypeScript
+ * that map back into them, and their syntax errors. JavaScript components aren't checked (as svelte-check).
+ */
+async function componentErrors(): Promise<ComponentError[]> {
+  await syncComponents();
+  const checks = [...componentLibs.values()].map((e) => e.check);
+  if (checks.length === 0) return [];
+  const worker = await ts.getTypeScriptWorker();
+  const client = await worker();
+  const out: ComponentError[] = [];
+  for (const check of checks) {
+    if (check.error) out.push({ path: check.path, ...check.error });
+    if (!check.checked) continue;
+    const uri = codeFileUri(check.generated);
+    const found = [...(await client.getSyntacticDiagnostics(uri)), ...(await client.getSemanticDiagnostics(uri))];
+    for (const d of found) {
+      if (d.category !== 1) continue; // errors only
+      const range = check.sourceRange(d.start ?? 0, d.length ?? 0);
+      if (range) out.push({ path: check.path, ...range, message: flatten(d.messageText as never) });
+    }
+  }
+  return out;
+}
+
+/** The owner of the component markers (Monaco's own TypeScript markers don't cover HTML models). */
+const COMPONENT_MARKERS = "svelte-typescript";
+let markersTimer: ReturnType<typeof setTimeout> | undefined;
+
+/** Show the components' type errors as their models' markers (the Code panel's squiggles), once edits pause. */
+function scheduleComponentMarkers(): void {
+  clearTimeout(markersTimer);
+  markersTimer = setTimeout(() => {
+    showComponentMarkers().catch((err: unknown) => console.warn("[editor] couldn't type-check the Svelte components:", err));
+  }, 400);
+}
+
+async function showComponentMarkers(): Promise<void> {
+  if (componentTexts().size === 0 && componentLibs.size === 0) return;
+  const byPath = new Map<string, ComponentError[]>();
+  for (const e of await componentErrors()) byPath.set(e.path, [...(byPath.get(e.path) ?? []), e]);
+  for (const model of monaco.editor.getModels()) {
+    const path = codeFilePath(model.uri);
+    if (path === null || !isSvelteComponentPath(path)) continue;
+    monaco.editor.setModelMarkers(
+      model,
+      COMPONENT_MARKERS,
+      (byPath.get(path) ?? []).map((e) => ({
+        severity: monaco.MarkerSeverity.Error,
+        message: e.message,
+        source: "ts",
+        startLineNumber: e.line,
+        startColumn: e.column,
+        endLineNumber: e.endLine,
+        endColumn: e.endColumn,
+      })),
+    );
+  }
+}
+
+// Any project file's edit can change a component's errors (its own text, a script or rune module it imports, or a
+// component importing it), as can a file coming or going.
+monaco.editor.onDidCreateModel((model) => {
+  if (codeFilePath(model.uri) === null) return;
+  const edits = model.onDidChangeContent(scheduleComponentMarkers);
+  model.onWillDispose(() => {
+    edits.dispose();
+    scheduleComponentMarkers();
+  });
+  scheduleComponentMarkers();
+});
+
+/**
+ * Type-check `project`'s scripts (paths in `files`, its `bufferTexts`, under scripts/), rune modules and
+ * Svelte components (ADR 0428) with the TypeScript service, as the Code panel shows them: their syntax
+ * and type errors (not warnings or suggestions), in path then line order.
  */
 export async function checkScripts(project: unknown, files: ReadonlyMap<string, string>): Promise<ScriptDiagnostic[]> {
   syncProject(project, files);
   const scripts = [...files.keys()].filter((p) => isScriptPath(p) || (isRuneModulePath(p) && p.endsWith(".ts"))).sort(); // plugin sources too (ADR 0139), and rune modules (ADR 0419)
-
-  if (scripts.length === 0) return [];
+  const components = [...files.keys()].some(isSvelteComponentPath); // and Svelte components (ADR 0428)
+  if (scripts.length === 0 && !components) return [];
   const worker = await ts.getTypeScriptWorker();
   const client = await worker(...scripts.map(uriOf));
   const out: ScriptDiagnostic[] = [];
@@ -199,5 +333,6 @@ export async function checkScripts(project: unknown, files: ReadonlyMap<string, 
       out.push({ path, line: at?.lineNumber ?? 1, column: at?.column ?? 1, message: flatten(d.messageText as never) });
     }
   }
+  if (components) for (const e of await componentErrors()) out.push({ path: e.path, line: e.line, column: e.column, message: e.message });
   return out.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.line - b.line));
 }
