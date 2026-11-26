@@ -71,8 +71,14 @@ export class UIView extends Component {
   @field(Number) pixelSize = 0.01;
   /** While it has a focusable element, focus can't leave it (ADR 0340). */
   @field(Boolean) modal = false;
-  /** Focus the first focusable element when the view becomes active. */
+  /** Focus `firstSelected` (else the first focusable element) when the view becomes active. */
   @field(Boolean) autoFocus = false;
+  /**
+   * Where `autoFocus`, a modal view, and `navigate` with nothing focused put focus (ADR 0340): the id of an element the
+   * component renders (`"options"` or `"#options"`), followed as it re-renders (the element that has the id now, none
+   * once it's gone). Empty: the first focusable element.
+   */
+  @field(String) firstSelected = "";
   /** The local player whose UI actions drive it; -1: any local player. */
   @field(Number) player = -1;
 
@@ -91,6 +97,8 @@ export class UIView extends Component {
   private readyPromise: Promise<void> | null = null;
   private readyResolve: (() => void) | null = null;
   private generation = 0;
+  /** The `firstSelected` written on the current tree's canvas as its `first-selected` attribute. */
+  private firstSelectedWritten = "";
 
   /**
    * The component's props. Reactive once mounted: `view.props.score = 10` (or a change inside a prop's
@@ -185,6 +193,7 @@ export class UIView extends Component {
     this.mountedFrom = { path, value };
     const tree = new UIHostTree(this._world, this.node, path || "ui");
     this.tree = tree;
+    this.firstSelectedWritten = ""; // a new canvas has no attributes
     this.copyCanvasFields();
     // Each frame, before the tree restyles: hot reload, the canvas settings, then Svelte's queued updates.
     this.stopFlush = tree.onFlush(() => {
@@ -236,6 +245,12 @@ export class UIView extends Component {
     canvas.modal = this.modal;
     canvas.autoFocus = this.autoFocus;
     canvas.player = this.player;
+    // `firstSelected` names an element by id: the tree resolves it as it resolves `nav-*` references, so it follows re-renders.
+    const first = this.firstSelected.trim();
+    if (first !== this.firstSelectedWritten) {
+      this.firstSelectedWritten = first;
+      this.tree!.setAttributes(this.tree!.root, first ? new Map([["first-selected", first]]) : new Map());
+    }
   }
 
   private teardown(flush: boolean): void {

@@ -93,6 +93,7 @@ const VIEW_FIELDS: Readonly<Record<string, (value: string) => [string, unknown]>
   "pixel-size": (v) => ["pixelSize", Number(v)],
   modal: (v) => ["modal", v === "true" || v === ""],
   "auto-focus": (v) => ["autoFocus", v === "true" || v === ""],
+  "first-selected": (v) => ["firstSelected", v],
   player: (v) => ["player", Number(v)],
 };
 
@@ -161,7 +162,7 @@ export function buildUI(markup: string, options: { parent?: GameObject | null; c
   const root = view.root;
   if (!root || !view.exports) throw new Error(`The test view wasn't mounted (is loadUITestSupport() awaited?): ${markup}`);
   if (rest.size) {
-    root.tree.setAttributes(root, rest);
+    root.tree.setAttributes(root, new Map([...root.attributes, ...rest]));
     root.tree.restyle(root);
   }
   const id = rest.get("id");

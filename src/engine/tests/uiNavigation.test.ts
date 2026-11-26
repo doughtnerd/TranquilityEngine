@@ -599,6 +599,29 @@ describe("Svelte UI (ADR 0340, 0419)", () => {
     expect(log).toEqual(["keydown Enter", "click options", "keydown Escape"]);
   });
 
+  it("follows the view's firstSelected to the element that has the id now, and to nothing once it's gone or cleared", async () => {
+    const doc = buildUI(`<Canvas auto-focus first-selected="#later"><div flex-direction="column"><button id="a" width="100" height="40">A</button><button id="b" width="100" height="40">B</button></div></Canvas>`);
+    const root = uiAs(doc.root, UICanvas);
+    step();
+    expect(root.firstSelected).toBeNull(); // no element has the id yet
+    const b = doc.query("#b")!;
+    b.tree.setAttributes(b, new Map([...b.attributes, ["id", "later"]]));
+    step();
+    expect(root.firstSelected).toBe(b.node);
+    doc.view.firstSelected = "a";
+    step();
+    expect(root.firstSelected).toBe(doc.query("#a")!.node);
+    doc.view.firstSelected = "";
+    step();
+    expect(root.firstSelected).toBeNull();
+    doc.view.firstSelected = "later";
+    step();
+    expect(root.firstSelected).toBe(b.node);
+    b.tree.remove(b);
+    step();
+    expect(root.firstSelected).toBeNull();
+  });
+
   it("follows a nav reference to the element that has the id now, and to nothing once it's gone", async () => {
     const doc = buildUI(`<Canvas><div flex-direction="column"><button id="a" nav-down="c" width="100" height="40">A</button><button id="b" width="100" height="40">B</button></div></Canvas>`);
     const a = uiAs(doc.query("#a")!, UIButton);

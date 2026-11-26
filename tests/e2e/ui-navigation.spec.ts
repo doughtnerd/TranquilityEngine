@@ -213,8 +213,8 @@ test("arrow keys and Tab move focus between a canvas's buttons, Enter clicks, Es
 });
 
 /**
- * A pause menu as a Svelte component: Resume and Quit wrapping round through nav-up and nav-down, a title that can't take
- * focus, and handlers logging focus, clicks and Escape (bubbling out of the view to `<svelte:window>`) into its #log text.
+ * A pause menu as a Svelte component (its view auto-focuses Options, its `firstSelected`): Resume and Quit wrapping round
+ * through nav-up and nav-down, a title that can't take focus, and handlers logging focus, clicks and Escape (bubbling out of the view to `<svelte:window>`) into its #log text.
  */
 const PAUSE = `<script lang="ts">
   let lines: string[] = $state([]);
@@ -244,7 +244,7 @@ const PAUSE_SCENE = JSON.stringify({
         { type: "engine.Camera", data: { projection: "orthographic", orthographicSize: 10, backgroundColor: "#4ec0ca" } },
       ],
     },
-    node("pause", null, [{ type: "engine.UIView", data: { component: "asset:ui/Pause.svelte", autoFocus: true } }]),
+    node("pause", null, [{ type: "engine.UIView", data: { component: "asset:ui/Pause.svelte", autoFocus: true, firstSelected: "options" } }]),
   ],
 });
 
@@ -261,7 +261,7 @@ const pauseState = (page: Page): Promise<PauseState | null> =>
     return { focused: ["title", "resume", "options", "quit"].filter((id) => view.query(`#${id}`)?.component.focused), log };
   });
 
-test("a Svelte view's auto-focus, nav-up and nav-down, focusable and handlers drive keyboard navigation", async ({ page }) => {
+test("a Svelte view's auto-focus, first-selected, nav-up and nav-down, focusable and handlers drive keyboard navigation", async ({ page }) => {
   const errors: string[] = [];
   page.on("pageerror", (err) => errors.push(err.message));
   page.on("console", (msg) => {
@@ -271,10 +271,10 @@ test("a Svelte view's auto-focus, nav-up and nav-down, focusable and handlers dr
   await play(page);
   await page.locator("#game-view canvas").first().focus(); // off the Stop button, without a press in the game
 
-  // auto-focus on the first button that can take focus (the title can't).
-  await expect.poll(async () => (await pauseState(page))?.focused, { timeout: 15_000 }).toEqual(["resume"]);
-  // Down to Options and Quit, then nav-down wraps to Resume; up from Resume, nav-up wraps to Quit; the title never takes focus.
-  for (const [key, to] of [["ArrowDown", "options"], ["ArrowDown", "quit"], ["ArrowDown", "resume"], ["ArrowUp", "quit"], ["ArrowUp", "options"], ["ArrowUp", "resume"]] as const) {
+  // auto-focus on the view's firstSelected.
+  await expect.poll(async () => (await pauseState(page))?.focused, { timeout: 15_000 }).toEqual(["options"]);
+  // Down to Quit, then nav-down wraps to Resume; up from Resume, nav-up wraps to Quit; the title never takes focus.
+  for (const [key, to] of [["ArrowDown", "quit"], ["ArrowDown", "resume"], ["ArrowUp", "quit"], ["ArrowUp", "options"], ["ArrowUp", "resume"]] as const) {
     await frames(page);
     await page.keyboard.press(key);
     await expect.poll(async () => (await pauseState(page))?.focused, { message: `${key} focuses ${to}` }).toEqual([to]);
