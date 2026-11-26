@@ -13,7 +13,7 @@
 // Every sample is its own test that records its result without failing; the last test is the ratchet: every
 // sample listed in baseline.json must still pass. `UPDATE_BASELINE=1` rewrites the baseline from this run.
 // Results, with each failure's category and message, go to node_modules/.cache/svelte-conformance/results.json.
-import { afterAll, assert, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, assert, beforeAll, describe, expect, it, vi, type MockInstance } from "vitest";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -52,6 +52,36 @@ interface Result {
 }
 const results = new Map<string, Result>();
 
+/**
+ * The baseline (baseline.json): the samples that must keep passing (the ratchet), and the samples out of scope (ADR
+ * 0419's "Out of scope": impossible or meaningless in a canvas game, or an expectation only jsdom can meet), each with
+ * its reason. Out-of-scope samples still run, so one that starts passing shows; the in-scope pass rate leaves them out.
+ * TRIAGE.md classifies every sample that doesn't pass.
+ */
+interface Baseline {
+  version: string;
+  counts: Record<string, number>;
+  passing: string[];
+  outOfScope: Record<string, string>;
+}
+const baseline: Baseline | null = existsSync(BASELINE) ? (JSON.parse(readFileSync(BASELINE, "utf8")) as Baseline) : null;
+const outOfScope: Record<string, string> = baseline?.outOfScope ?? {};
+
+/** The run's counts: every sample's, and those of the samples in scope (not skipped, not out of scope). */
+function tally(): { pass: number; fail: number; skip: number; outOfScope: number; inScopeRun: number; inScopePass: number } {
+  const counts = { pass: 0, fail: 0, skip: 0, outOfScope: 0, inScopeRun: 0, inScopePass: 0 };
+  for (const [name, r] of results) {
+    counts[r.status]++;
+    if (r.status === "skip") continue;
+    if (name in outOfScope) counts.outOfScope++;
+    else {
+      counts.inScopeRun++;
+      if (r.status === "pass") counts.inScopePass++;
+    }
+  }
+  return counts;
+}
+
 interface Config {
   skip?: boolean;
   mode?: string[];
@@ -79,6 +109,9 @@ let raf: { reset(): void; tick(ms: number): void } = { reset() {}, tick() {} };
 let testWindow: object = {};
 /** The mounted sample's target: the page's content, which the page `document`'s queries search (pageGlobals.ts). */
 let currentTarget: object | null = null;
+/** The listeners a sample's config added to the page's window, removed after it. */
+const pageListeners: unknown[][] = [];
+let matchMediaSpy: MockInstance | null = null;
 
 class FakeEvent {
   defaultPrevented = false;
@@ -251,6 +284,7 @@ async function runSample(name: string): Promise<Result> {
     raf.reset();
     // A fresh page per sample, as jsdom is for Svelte: no title left by the previous sample's `<svelte:head>`.
     ((renderer.default as unknown as { globalTarget(kind: string): { title: string } }).globalTarget("document")).title = "";
+    matchMediaSpy?.mockClear();
     // ...and `$props.id()` counting from c1 again (Svelte keeps its counter on the global object, jsdom's window per test).
     const svelteGlobal = (globalThis as { __svelte?: { uid?: number } }).__svelte;
     if (svelteGlobal) svelteGlobal.uid = 1;
@@ -315,6 +349,7 @@ async function runSample(name: string): Promise<Result> {
     return { status: "fail", ...classify(err, "run") };
   } finally {
     currentTarget = null;
+    for (const args of pageListeners.splice(0)) (testWindow as { removeEventListener(...a: unknown[]): void }).removeEventListener(...args);
     try {
       mounted?.unmount();
     } catch {
@@ -354,7 +389,15 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
     // (the samples compile with `compile` itself, so the harness registers it once).
     renderer.useHtmlParser((await import("../../src/plugins/ui/svelte/htmlInline")).parseInlineHtml);
     const win = (renderer.default as unknown as { globalTarget(kind: string): object }).globalTarget("window");
-    testWindow = new Proxy(win, { get: (target, key, receiver) => (typeof key === "string" && key in fakeWindow ? fakeWindow[key as keyof typeof fakeWindow] : Reflect.get(target, key, receiver)) });
+    // A config's own window listeners last only for its sample (jsdom's window is fresh per test); see `pageListeners`.
+    const addListener = (win as { addEventListener(...a: unknown[]): void }).addEventListener.bind(win);
+    const added = (...args: unknown[]) => {
+      pageListeners.push(args);
+      addListener(...args);
+    };
+    testWindow = new Proxy(win, { get: (target, key, receiver) => (key === "addEventListener" ? added : typeof key === "string" && key in fakeWindow ? fakeWindow[key as keyof typeof fakeWindow] : Reflect.get(target, key, receiver)) });
+    // Svelte's harness mocks `window.matchMedia` (jsdom has none) and fixtures check its calls: the window target's is spied on, its answers kept.
+    matchMediaSpy = vi.spyOn(win as { matchMedia(q: string): unknown }, "matchMedia");
     // The event constructors tests make events with (dispatched to renderer nodes, which read only `type`). The global
     // `window` and `document` stay undefined (engine code takes a defined `window` for a browser); the `window` a test
     // gets as an argument is the renderer's `<svelte:window>` target.
@@ -396,18 +439,20 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
       for (const l of saved.exception) process.on("uncaughtException", l);
     }
     engine?.dispose();
-    const counts = { pass: 0, fail: 0, skip: 0 };
+    const counts = tally();
     const categories = new Map<string, number>();
-    for (const r of results.values()) {
-      counts[r.status]++;
-      if (r.status === "fail") categories.set(r.category!, (categories.get(r.category!) ?? 0) + 1);
-    }
+    for (const [name, r] of results) if (r.status === "fail" && !(name in outOfScope)) categories.set(r.category!, (categories.get(r.category!) ?? 0) + 1);
     const sorted = [...categories].sort((a, b) => b[1] - a[1]);
+    const samples = Object.fromEntries([...results].map(([n, r]) => [n, n in outOfScope ? { ...r, outOfScope: outOfScope[n] } : r]));
     mkdirSync(dirname(RESULTS), { recursive: true });
-    writeFileSync(RESULTS, JSON.stringify({ version, counts, categories: Object.fromEntries(sorted), samples: Object.fromEntries(results) }, null, 2));
+    writeFileSync(RESULTS, JSON.stringify({ version, counts, categories: Object.fromEntries(sorted), samples }, null, 2));
     const run = counts.pass + counts.fail;
-    original.log(`\nSvelte ${version} runtime-runes on the engine's renderer: ${counts.pass} pass, ${counts.fail} fail, ${counts.skip} skip (${run ? ((100 * counts.pass) / run).toFixed(1) : 0}% of ${run} run)`);
+    const pct = (a: number, b: number) => (b ? ((100 * a) / b).toFixed(1) : "0");
+    original.log(`\nSvelte ${version} runtime-runes on the engine's renderer: ${counts.pass} pass, ${counts.fail} fail, ${counts.skip} skip (${pct(counts.pass, run)}% of ${run} run)`);
+    original.log(`In scope: ${counts.inScopePass} of ${counts.inScopeRun} pass (${pct(counts.inScopePass, counts.inScopeRun)}%); ${counts.outOfScope} run out of scope (baseline.json's outOfScope)`);
     for (const [c, n] of sorted.slice(0, 25)) original.log(`  ${String(n).padStart(4)}  ${c}`);
+    const nowPassing = Object.keys(outOfScope).filter((n) => results.get(n)?.status === "pass");
+    if (nowPassing.length) original.log(`Out of scope but passing now (take them off the list): ${nowPassing.join(", ")}`);
     original.log(`Results: ${RESULTS}`);
   });
 
@@ -428,13 +473,14 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
   it("keeps every sample in the baseline passing (the ratchet)", () => {
     if (FILTER) return;
     const passing = [...results].filter(([, r]) => r.status === "pass").map(([n]) => n).sort();
+    // Every out-of-scope sample names one that exists, with a reason.
+    expect(Object.entries(outOfScope).filter(([n, why]) => !results.has(n) || !why.trim()).map(([n]) => n), "outOfScope entries without a sample or a reason").toEqual([]);
     if (process.env.UPDATE_BASELINE) {
-      const counts = { pass: passing.length, fail: [...results.values()].filter((r) => r.status === "fail").length, skip: [...results.values()].filter((r) => r.status === "skip").length };
-      writeFileSync(BASELINE, `${JSON.stringify({ version, counts, passing }, null, 2)}\n`);
+      const sortedOut = Object.fromEntries(Object.entries(outOfScope).sort(([a], [b]) => (a < b ? -1 : 1)));
+      writeFileSync(BASELINE, `${JSON.stringify({ version, counts: tally(), passing, outOfScope: sortedOut }, null, 2)}\n`);
       return;
     }
-    if (!existsSync(BASELINE)) return;
-    const baseline = JSON.parse(readFileSync(BASELINE, "utf8")) as { passing: string[] };
+    if (!baseline) return;
     const lost = baseline.passing.filter((n) => results.get(n)?.status !== "pass");
     expect(lost, "samples that passed in baseline.json and fail now").toEqual([]);
   });

@@ -22,6 +22,10 @@ function fixtureImports(): Plugin {
       if (source === "../../test" || source === "../../test.ts") return join(root, "tools/svelte-conformance/testShim.ts");
       // Svelte's animation helper patches jsdom's `HTMLElement.prototype.animate`; the fixtures only take its `raf`.
       if (/^\.\.\/\.\.\/\.\.\/animation-helpers(\.js)?$/.test(source)) return PAGE_GLOBALS;
+      // `svelte/reactivity` is the engine's, as a game's components get it (its `MediaQuery` follows the canvas).
+      if (source === "svelte/reactivity") return join(root, "src/plugins/ui/svelte/reactivity.ts");
+      // Svelte's harness compiles into `_output/client/`, which a config can import (HMR); ours is `_output_myco/`.
+      if (source.startsWith("./_output/client/")) return resolve(dirname(importer.split("?")[0]), source.replace("./_output/client/", "./_output_myco/"));
       // Bare imports resolve as the engine's own (one Svelte instance, with the custom-renderer condition).
       if (source === "svelte" || source.startsWith("svelte/") || source === "vitest" || source === "tinyglobby") return this.resolve(source, join(root, "src/myco.ts"), { ...options, skipSelf: true });
       if (!source.startsWith(".")) return null;

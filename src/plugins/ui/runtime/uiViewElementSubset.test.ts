@@ -126,7 +126,7 @@ describe("UIView: the Element subset as Svelte's fixtures use it", () => {
     const { root } = await view();
     const flags = root.querySelector("#flags") as Node & { addEventListener(t: string, f: (e: Event) => void): void; dispatchEvent(e: Event): boolean };
     const seen: unknown[] = [];
-    flags.addEventListener("ping", (e) => seen.push(e.target === flags, e.currentTarget === flags));
+    flags.addEventListener("ping", (e) => seen.push((e.target as unknown) === flags, (e.currentTarget as unknown) === flags));
     flags.dispatchEvent(new Event("ping"));
     expect(seen).toEqual([true, true]);
   });
