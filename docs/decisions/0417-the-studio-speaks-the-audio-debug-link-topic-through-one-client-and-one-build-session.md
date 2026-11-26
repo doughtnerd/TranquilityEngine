@@ -104,6 +104,16 @@ Glossary: **Audio link client**, **Build session**, **Take ownership**, **Take a
 
 - None at proposal. Decided in review with the owner, 2026-11-25.
 
+## Build notes
+
+Where the build (2026-11-26) differs from or adds to the decision above:
+
+- **Client:** also carries `mixOp`, `buildAudio` and `buildFile`, so `remoteMix` and `buildAudioSets` don't value-import schema values either. Failures are one `AudioLinkError` with a kind (`refused`, `closed`, `broken`, `aborted`); the client exposes `linkClosed(reason)` because the peer drops its subscriptions silently when the link closes. `buildLinkTestSupport.ts` moved into `plugins/audio/editor/debugLink/` for the client's tests; `fakePeers.testSupport.ts` fakes WebRTC connections, not a debug-link peer, so it isn't used.
+- **Build session:** "ended" means the link ended (the old Disconnected badge); an ended session stays until the next build connects. `projectRecordings.keepBuildTake` keeps no state: it routes the take when it belongs to the open project. Two callers still send `take.frames` (the session on connect and change, the recorder before start), both through the client. `installBuildAudioDownloads` stays its own effect.
+- **Take ownership:** `takeStateSubscription(read, ownership)` takes the ownership; `TriggerEnv.handedOff` became `ownership: TakeOwnership | null` and `spec.tool` went. A backup the trigger didn't ask for (a script's stop, the size cap) only logs a failure, as before. Failure toast: "Take sent to the Audio Studio, but no copy could be kept in app data: <reason>".
+- **Assembler:** live takes are now held to `readTakeMeta`'s rules: META it refuses breaks the live feed, and record heads are checked more strictly (flags, frame).
+
+
 ## References
 
 - Architecture review, 2026-11-25 (candidates 1, 4, 5, 6).

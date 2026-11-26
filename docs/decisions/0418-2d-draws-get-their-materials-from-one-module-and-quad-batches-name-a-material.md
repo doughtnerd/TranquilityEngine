@@ -91,6 +91,17 @@ Glossary: **2D materials** (Rendering).
 
 - The light-binding spike's outcome (above).
 
+## Build notes
+
+Where the build (2026-11-26) differs from or adds to the decision above:
+
+- **Rig changes:** `BabylonLights2D` gained an `onLayoutChange` observable, notified at the end of `sync`; the 2D materials module listens to it (found through `lights2DOf(scene)` until the spike decides otherwise).
+- **Tangents:** worked out for `setTriangles` meshes only (each move, buffer reused). `setQuads` (tilemaps) still turns the normal map by the matrix, so flipped tiles shade as before. 2D decals draw triangles, so lit normal-mapped decals now get tangents, which they lacked.
+- **Texture call:** `texture(path, use, onReady)` passes the loaded texture to `onReady`; the promise form is renamed `loadTexture`. Warnings go through the renderer's `warnOnce`; every 2D draw's material problem warns under `spritematerial|` (particles used `particlematerial|`), and quad batches now warn too.
+- **Pick orders:** with `QuadBatchHost.sortOrder` gone, features compute `DrawnNode.order` with `sortingOrder(world.settings.render.sortingLayers, …)`. `DrawnRibbon`, `DrawnLayer` and `DrawnDecal` are no longer exported.
+- **Decals:** the host gained `viewCamera()`, and `sync(world, ctx?)` works out the eye itself. `BabylonFeatureHost` gained `materials2D`.
+
+
 ## References
 
 - Architecture review, 2026-11-25 (candidates 2, 3, 7, 8, 9).
