@@ -51,7 +51,7 @@ import type { World } from "../../core/World";
 import { splitSpriteRef } from "../../scene/importSettings";
 import type { WarmContent } from "../../scene/warmUp";
 import { WARM_PREFIX, type WarmItem } from "./warmUp";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "../../ui/components";
+import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UISvg, UIText, UIVideo, type UIComponentType } from "../../ui/components";
 import type { ICanvasRenderingContext } from "@babylonjs/core/Engines/ICanvas.js";
 import { fontEpoch, onFontLoaded } from "../../ui/fonts";
 import { uiInteractions } from "../../ui/interactions";
@@ -287,6 +287,76 @@ function Drawn<T extends ControlClass>(Base: T) {
 
 const DrawnRectangle = Drawn(Rectangle);
 const DrawnImage = Drawn(Image);
+
+/** What `MediaImage` draws: an image element, a video element, a canvas. */
+type Drawable = { readonly width?: number; readonly height?: number };
+
+/**
+ * ADR 0426: an inline SVG's rasterised image or a video's current frame, drawn into the box by `fit` (`fill` stretches,
+ * `contain` fits it whole, `cover` fills the box and crops). Babylon's `Image` waits for an image's `onload`, which a
+ * video never fires, and drops its picture while a new source loads (an SVG re-rasterised each frame of a `draw`
+ * transition would flicker), so this draws whatever it holds.
+ */
+class MediaImage extends Drawn(Control) {
+  source: Drawable | null = null;
+  sourceWidth = 0;
+  sourceHeight = 0;
+  fit: "fill" | "contain" | "cover" = "fill";
+
+  override _draw(context: ICanvasRenderingContext): void {
+    const src = this.source, iw = this.sourceWidth, ih = this.sourceHeight;
+    if (!src || iw <= 0 || ih <= 0) return;
+    const m = (this as unknown as ControlInternals)._currentMeasure;
+    let sx = 0, sy = 0, sw = iw, sh = ih, dx = m.left, dy = m.top, dw = m.width, dh = m.height;
+    if (dw <= 0 || dh <= 0) return;
+    const box = dw / dh, pic = iw / ih;
+    if (this.fit === "contain") {
+      if (pic > box) {
+        dh = dw / pic;
+        dy += (m.height - dh) / 2;
+      } else {
+        dw = dh * pic;
+        dx += (m.width - dw) / 2;
+      }
+    } else if (this.fit === "cover") {
+      if (pic > box) {
+        sw = ih * box;
+        sx = (iw - sw) / 2;
+      } else {
+        sh = iw / box;
+        sy = (ih - sh) / 2;
+      }
+    }
+    context.drawImage(src, sx, sy, sw, sh, dx, dy, dw, dh);
+  }
+}
+
+/**
+ * ADR 0426: an inline SVG's text made ready to rasterise at `w × h` pixels: the root's `width` and `height` set to that
+ * (keeping its `viewBox`, or making one from the size it had, so it scales rather than crops), and `color` for
+ * `currentColor`.
+ */
+function svgForRaster(markup: string, color: string, w: number, h: number): string {
+  const m = /<svg\b([^>]*?)(\/?)>/i.exec(markup);
+  if (!m) return markup;
+  let attrs = m[1];
+  const get = (name: string) => new RegExp(`\\s${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, "i").exec(attrs);
+  const value = (name: string) => {
+    const g = get(name);
+    return g ? (g[2] ?? g[3] ?? "") : null;
+  };
+  const strip = (name: string) => {
+    attrs = attrs.replace(new RegExp(`\\s${name}\\s*=\\s*("[^"]*"|'[^']*')`, "gi"), "");
+  };
+  const ow = parseFloat(value("width") ?? ""), oh = parseFloat(value("height") ?? "");
+  if (value("viewBox") === null && Number.isFinite(ow) && Number.isFinite(oh) && ow > 0 && oh > 0) attrs += ` viewBox="0 0 ${ow} ${oh}"`;
+  strip("width");
+  strip("height");
+  strip("color");
+  if (!/\sxmlns\s*=/.test(attrs)) attrs += ` xmlns="http://www.w3.org/2000/svg"`;
+  attrs += ` width="${Math.max(1, Math.round(w))}" height="${Math.max(1, Math.round(h))}" color="${color}"`;
+  return markup.slice(0, m.index) + `<svg${attrs}${m[2]}>` + markup.slice(m.index + m[0].length);
+}
 
 /**
  * A text block in the language's direction, wrapping lines by the engine's line breaking (ADR 0356 §5): the context's
@@ -594,7 +664,10 @@ export class BabylonUI {
         this.syncUIText(e, c as UIText, el.text!, canvas.root.scaleX, el.transform ?? null);
         break;
       case "image":
-        this.syncImage(e, c as UIImage, el);
+        // ADR 0426: an inline SVG's image and a video's frame; else a texture.
+        if (c instanceof UISvg) this.syncSvg(e, c, el, canvas.root.scaleX);
+        else if (c instanceof UIVideo) this.syncVideo(e, c);
+        else this.syncImage(e, c as UIImage, el);
         break;
       case "input":
         this.syncInput(e, c as UIInputField, el, extra);
@@ -616,6 +689,8 @@ export class BabylonUI {
       // box on the web too.
       t.clipContent = false;
       control = t;
+    } else if (el.comp instanceof UISvg || el.comp instanceof UIVideo) {
+      control = new MediaImage(name);
     } else if (el.kind === "image") {
       const image = new DrawnImage(name);
       image.autoScale = false;
@@ -1047,6 +1122,54 @@ export class BabylonUI {
         img.sourceHeight = sh;
       }
     }
+  }
+
+  /**
+   * ADR 0426: an inline SVG, rasterised as an SVG image at its box's size in texture pixels, again only when its text,
+   * colour or size changed. The image it had stays drawn until the new one has loaded.
+   */
+  private syncSvg(e: ElementEntry, c: UISvg, el: UILaidOutElement, scale: number): void {
+    const img = e.control as MediaImage;
+    if (put(img, "fit", c.fit)) img.fit = c.fit;
+    const w = Math.max(1, Math.round(el.width * scale)), h = Math.max(1, Math.round(el.height * scale));
+    const color = c.color.toCss();
+    const key = c.markup ? `${w}x${h}|${color}|${c.markup}` : "";
+    if (!put(img, "svg", key)) return;
+    if (!key) {
+      img.source = null;
+      img._markAsDirty();
+      return;
+    }
+    const ImageCtor = (globalThis as { Image?: new () => HTMLImageElement }).Image;
+    if (!ImageCtor) return; // no DOM to rasterise in (Node)
+    const picture = new ImageCtor();
+    picture.onload = () => {
+      if (e.dead || lasts.get(img)?.svg !== key) return; // removed, or changed again since
+      img.source = picture;
+      img.sourceWidth = picture.naturalWidth || w;
+      img.sourceHeight = picture.naturalHeight || h;
+      img._markAsDirty();
+    };
+    picture.onerror = () => this.warnOnce(`svg|${c.owner.name}`, `inline SVG "${c.owner.name}" couldn't be drawn: its SVG isn't valid`);
+    picture.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svgForRaster(c.markup, color, w, h))}`;
+  }
+
+  /** ADR 0426: a video's current frame, redrawn each frame while it plays (and when it seeks while paused). */
+  private syncVideo(e: ElementEntry, c: UIVideo): void {
+    const img = e.control as MediaImage;
+    if (put(img, "fit", c.fit)) img.fit = c.fit;
+    const m = c.media;
+    const ready = !!m && (m.readyState ?? 4) >= 2 && (m.videoWidth ?? 0) > 0;
+    const src = ready ? (m as unknown as Drawable) : null;
+    if (img.source !== src) {
+      img.source = src;
+      img._markAsDirty();
+    }
+    if (!m || !ready) return;
+    img.sourceWidth = m.videoWidth ?? 0;
+    img.sourceHeight = m.videoHeight ?? 0;
+    // A new frame while it plays; one frame for a seek or a size change while paused.
+    if (put(img, "frame", m.paused ? `${m.currentTime}|${img.sourceWidth}x${img.sourceHeight}` : NaN) || !m.paused) img._markAsDirty();
   }
 
   private syncInput(e: ElementEntry, c: UIInputField, el: UILaidOutElement, extra: { caretOf?(c: UIInputField): number | null }): void {

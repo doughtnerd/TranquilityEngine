@@ -1,7 +1,7 @@
 import { Assets } from "../scene/Assets";
 import { GameObject } from "../scene/GameObject";
 import { UIDocument } from "../ui/UIDocument";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "../ui/components";
+import { UIAudio, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UISvg, UIText, UIVideo, type UIComponentType } from "../ui/components";
 
 // Test helpers that make game UI the one way a game can (ADR 0417): markup built by a `UIDocument`. Call
 // `loadUIDocumentSupport()` first (in `beforeEach`), so documents build as soon as they're added.
@@ -44,6 +44,9 @@ const TAGS = new Map<Function, string>([
   [UIImage, "Image"],
   [UIButton, "Button"],
   [UIInputField, "InputField"],
+  [UISvg, "Svg"],
+  [UIVideo, "Video"],
+  [UIAudio, "Audio"],
 ]);
 
 /**

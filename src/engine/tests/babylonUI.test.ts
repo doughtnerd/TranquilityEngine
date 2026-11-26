@@ -11,7 +11,7 @@ import { Control } from "@babylonjs/gui/2D/controls/control.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
 import { Assets, Color, Engine, GameObject, Input, Locale, type ProjectSettingsInput } from "../index";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../ui/components";
+import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UISvg, UIText, UIVideo } from "../ui/components";
 import type { UIComponentType } from "../ui/components";
 import { textRunOf, uiKindOf } from "../ui/elementKinds";
 import type { UICoreLike, UILaidOutCanvas, UILaidOutElement } from "../ui/uiCoreTypes";
@@ -1141,6 +1141,83 @@ describe("ADR 0426 on Babylon GUI: skew through the full matrix, and filters", (
       ctx.drawImage = draw;
       (babylon as unknown as { createCanvas: unknown }).createCanvas = create;
       pointer.dispose();
+    }
+  });
+});
+
+describe("ADR 0426 on Babylon GUI: inline SVG and video", () => {
+  it("rasterises an inline SVG at its box's size in texture pixels, with its colour, again only when it changes", () => {
+    const made: { src: string; onload: (() => void) | null; naturalWidth: number; naturalHeight: number }[] = [];
+    vi.stubGlobal("Image", class {
+      src = "";
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      naturalWidth = 0;
+      naturalHeight = 0;
+      constructor() {
+        made.push(this as never);
+      }
+    });
+    try {
+      const canvas = node("C", null, UICanvas);
+      const svg = node("S", canvas.node, UISvg, { markup: `<svg width="24" height="24"><circle cx="12" cy="12" r="10" fill="currentColor"/></svg>`, color: new Color(1, 0, 0, 1) });
+      const core = new FakeCore();
+      core.set([canvasInfo(canvas, { scale: 2 })], [[svg, canvas, { x: 0, y: 0, width: 48, height: 48 }]]);
+      sync(core, {}, 1280, 720, 1);
+      expect(made).toHaveLength(1);
+      const text = decodeURIComponent(made[0].src.replace(/^data:image\/svg\+xml;charset=utf-8,/, ""));
+      // 96 texture pixels (48 UI pixels at 2), the old size kept as the viewBox, and currentColor.
+      expect(text).toBe(`<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" width="96" height="96" color="rgba(255, 0, 0, 1)"><circle cx="12" cy="12" r="10" fill="currentColor"/></svg>`);
+      sync(core, {}, 1280, 720, 1);
+      expect(made).toHaveLength(1); // unchanged: not rasterised again
+      const ctl = byName(rootOf(), "S") as unknown as { source: unknown; sourceWidth: number };
+      expect(ctl.source).toBeNull(); // until it loads
+      made[0].naturalWidth = made[0].naturalHeight = 96;
+      made[0].onload!();
+      expect(ctl.source).toBe(made[0]);
+      svg.color = new Color(0, 0, 1, 1);
+      sync(core, {}, 1280, 720, 1);
+      expect(made).toHaveLength(2);
+      expect(ctl.source).toBe(made[0]); // the old picture stays until the new one has loaded
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("draws a video's current frame by its fit, redrawing each frame while it plays", () => {
+    ui.screen.scaleTo(1280, 720);
+    const canvas = node("C", null, UICanvas);
+    const video = node("V", canvas.node, UIVideo, { fit: "contain" });
+    const listeners: string[] = [];
+    const media = { paused: true, ended: false, currentTime: 0, duration: 10, volume: 1, muted: false, loop: false, playbackRate: 1, readyState: 4, videoWidth: 200, videoHeight: 100, width: 0, height: 0, play() { this.paused = false; }, pause() { this.paused = true; }, addEventListener: (t: string) => listeners.push(t), removeEventListener() {} };
+    video.media = media;
+    const core = new FakeCore();
+    core.set([canvasInfo(canvas)], [[video, canvas, { x: 10, y: 20, width: 100, height: 100 }]]);
+    sync(core);
+    const ctl = byName(rootOf(), "V") as unknown as { source: unknown; sourceWidth: number; isDirty: boolean };
+    expect(ctl.source).toBe(media);
+    expect(ctl.sourceWidth).toBe(200);
+    const ctx = ui.screen.getContext() as unknown as Record<string, unknown>;
+    const draws: number[][] = [];
+    const draw = ctx.drawImage;
+    ctx.drawImage = (src: unknown, ...a: number[]) => {
+      if (src === media) draws.push(a);
+    };
+    try {
+      ui.screen._checkUpdate(null);
+      // contain: 2:1 in a square, 100 × 50 centred.
+      expect(draws.at(-1)).toEqual([0, 0, 200, 100, 10, 45, 100, 50]);
+      const before = draws.length;
+      ui.screen._checkUpdate(null);
+      expect(draws.length).toBe(before); // paused: nothing new to draw
+      media.play();
+      sync(core);
+      ui.screen._checkUpdate(null);
+      sync(core);
+      ui.screen._checkUpdate(null);
+      expect(draws.length).toBe(before + 2); // playing: every frame
+    } finally {
+      ctx.drawImage = draw;
     }
   });
 });

@@ -163,14 +163,21 @@ describe("UIView: Svelte transitions (the patch's animate hook)", () => {
     expect(warn.mock.calls.some((c) => String(c[0]).includes("can't animate filter"))).toBe(false);
   });
 
-  it.skip("draw: replaced below", async () => {
+  it("draws a path in through its stroke dashes (ADR 0426), written into its <svg>'s document each frame", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-
     const draw = await transitions("draw");
     draw.show(true);
-    expect(frames(7, () => field(draw.v, "#box", "opacity"))).toEqual([1, 1, 1, 1, 1, 1, 1]);
-    expect(warn.mock.calls.some((c) => String(c[0]).includes("getTotalLength") && String(c[0]).includes("ADR 0426"))).toBe(true);
-    expect(warn.mock.calls.some((c) => String(c[0]).includes("can't animate stroke-dasharray"))).toBe(true);
+    // The path is 100 long (M0 50 L100 50): dashed at 100, its offset going from 100 to 0 as it draws (cubicInOut).
+    const markup = frames(9, () => String(field(draw.v, "#art", "markup")));
+    const offset = (m: string) => Number(/stroke-dashoffset: ([\d.]+)/.exec(m)?.[1] ?? NaN);
+    expect(markup[0]).toContain("stroke-dasharray: 100");
+    expect(offset(markup[0])).toBeCloseTo(100, 0);
+    expect(offset(markup[3])).toBeGreaterThan(0);
+    expect(offset(markup[3])).toBeLessThan(offset(markup[1]));
+    // Once the intro is over its CSS is gone, as Svelte cancels a finished intro: the path as written.
+    expect(markup[8]).not.toContain("stroke-dash");
+    expect(markup[8]).toContain('<path d="M0 50 L100 50" stroke="red"></path>');
+    expect(warn.mock.calls.some((c) => /getTotalLength|stroke-dash/.test(String(c[0])))).toBe(false);
   });
 });
 

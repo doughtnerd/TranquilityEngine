@@ -55,12 +55,16 @@ import { proxy } from "svelte/internal/client";
 import { Color, Vector2 } from "../../../engine/core/math";
 import { onLocaleEpoch } from "../../../engine/localisation/Locale";
 import { setLocaleTracker } from "../../../engine/localisation/t";
-import { uiTagOfHtml } from "../../../engine/ui/host/htmlTags";
+import { SVG_CONTENT_TAGS, uiTagOfHtml } from "../../../engine/ui/host/htmlTags";
+import { UIAudio, UISvg, UIVideo } from "../../../engine/ui/components";
+import { applyAffine, invert, multiply } from "../../../engine/ui/transform2d";
+import { distanceToOutline, flattenPath, insideFill, parseSvgTransform, pathLength, pointAtLength, shapePath, SVG_GEOMETRY_TAGS, viewBoxMap } from "../../../engine/ui/svg/svgGeometry";
+import { UI_MEDIA_EVENTS, type UIMediaEvent, type UIMediaEventType } from "../../../engine/ui/media";
 import { onUIHostBubbleOut, setUIHostStyles, UIHostElement, UIHostEvent, type UIHostEventType, type UIHostSource, type UIHostTree } from "../../../engine/ui/host/UIHost";
 import { addUIListener, removeUIListener, runUIListeners, uiListenerOptions, type UIListener } from "../../../engine/ui/events";
 import type { UIStylesheet, UITag } from "../../../engine/ui/document/types";
 import { UIGlobals, UIGlobalTarget, type GlobalKind } from "./globalTargets";
-import { animateNode, measureNode } from "./animation";
+import { animateNode, animateSvgNode, measureNode } from "./animation";
 
 const EVENTS: Readonly<Record<string, UIHostEventType>> = {
   click: "click",
@@ -337,6 +341,9 @@ export class UIRenderElement extends UINodeBase {
   /** @internal */ _hosted: UIHostElement | null = null;
   /** @internal Set on the container a view mounts into: the tree it hosts. */ _tree: UIHostTree | null = null;
   /** @internal An input's value set before its element was made (a binding, a script). */ _pendingValue: string | null = null;
+  /** @internal ADR 0426: inside an <svg>, the CSS a Svelte transition is writing now (`draw`'s stroke dashes), by kebab-case property. */ _svgAnim: Readonly<Record<string, string>> | null = null;
+  /** @internal ADR 0426: a media element's media-event relays from its hosted element, by type. */ _mediaRelays = new Map<string, (e: UIMediaEvent) => void>();
+  /** @internal ADR 0426: media properties a script set before the element was made (`volume`, `muted`, `playbackRate`, `currentTime`). */ _pendingMedia = new Map<string, number | boolean>();
   readonly classList: RenderClassList = new RenderClassList(this);
   /** Its inline style, as the DOM's `CSSStyleDeclaration`: `style.color = "red"`, `style.setProperty("--x", "1")`. */
   readonly style: RenderStyle = styleProxy(new RenderStyle(this));
@@ -347,7 +354,8 @@ export class UIRenderElement extends UINodeBase {
     super();
     const ui = uiTagOfHtml(localName);
     // Head content (`<svelte:head>`) is warned about where it's inserted.
-    if (!ui && !HEAD_TAGS.has(localName)) warnOnce(`<${localName}> isn't an HTML tag the UI knows; it renders as a Panel (a <div>).`);
+    // ADR 0426: an <svg>'s shapes are kept as its SVG document (warned about where they're inserted outside one).
+    if (!ui && !HEAD_TAGS.has(localName) && !SVG_CONTENT_TAGS.has(localName.toLowerCase())) warnOnce(`<${localName}> isn't an HTML tag the UI knows; it renders as a Panel (a <div>).`);
     this._uiTag = ui ?? "Panel";
   }
 
@@ -626,18 +634,120 @@ export class UIRenderElement extends UINodeBase {
    * (as the DOM's is). Zero size when nothing lays the World out.
    */
   getBoundingClientRect(): { x: number; y: number; width: number; height: number; top: number; left: number; right: number; bottom: number } {
-    this._hosted?.tree.layoutNow(); // as reading layout does in the DOM: changes made since the last layout count
-    const r = this._hosted?.bounds() ?? { x: 0, y: 0, width: 0, height: 0 };
+    // ADR 0426: a shape inside an <svg> reports its <svg>'s box.
+    const at = this._hosted ?? svgRootOf(this)?._hosted ?? null;
+    at?.tree.layoutNow(); // as reading layout does in the DOM: changes made since the last layout count
+    const r = at?.bounds() ?? { x: 0, y: 0, width: 0, height: 0 };
     return { x: r.x, y: r.y, width: r.width, height: r.height, top: r.y, left: r.x, right: r.x + r.width, bottom: r.y + r.height };
   }
 
   /**
-   * SVG geometry's length (`svelte/transition`'s `draw` reads it): 0, as nothing draws SVG yet (ADR 0426), so `draw`
-   * runs without drawing anything and the element shows as it is.
+   * ADR 0426: an SVG shape's length in its user units (`path`, `rect`, `circle`, `ellipse`, `line`, `polyline`,
+   * `polygon`; the arc length of its path, `svgGeometry.ts`), as `svelte/transition`'s `draw` reads it. 0 for other tags.
    */
   getTotalLength(): number {
-    warnOnce(`<${this.localName}>.getTotalLength(): SVG isn't drawn yet (ADR 0426), so draw transitions show the element as it is.`);
-    return 0;
+    const tag = this.localName.toLowerCase();
+    if (!SVG_GEOMETRY_TAGS.has(tag)) {
+      warnOnce(`<${this.localName}>.getTotalLength(): only SVG shapes (path, rect, circle, ellipse, line, polyline, polygon) have a length.`);
+      return 0;
+    }
+    return pathLength(shapePath(tag, (n) => this.getAttribute(n)));
+  }
+
+  /** ADR 0426: the point `distance` along an SVG shape, in its user units (the origin for other tags). */
+  getPointAtLength(distance: number): { x: number; y: number } {
+    const tag = this.localName.toLowerCase();
+    return SVG_GEOMETRY_TAGS.has(tag) ? pointAtLength(shapePath(tag, (n) => this.getAttribute(n)), Number(distance) || 0) : { x: 0, y: 0 };
+  }
+
+  // --- Media (ADR 0426): `<video>` and `<audio>`, through their hosted `UIVideo`/`UIAudio` --------------------
+
+  /** Start playing (resolves at once; a browser that refuses to play warns). */
+  play(): Promise<void> {
+    const m = mediaOf(this);
+    if (m) return m.play();
+    this._pendingMedia.set("paused", false);
+    return Promise.resolve();
+  }
+
+  pause(): void {
+    const m = mediaOf(this);
+    if (m) m.pause();
+    else this._pendingMedia.set("paused", true);
+  }
+
+  get paused(): boolean {
+    const m = mediaOf(this);
+    return m ? m.paused : this._pendingMedia.get("paused") !== false;
+  }
+
+  get ended(): boolean {
+    return mediaOf(this)?.ended ?? false;
+  }
+
+  /** Seconds played; set it to seek. */
+  get currentTime(): number {
+    return mediaOf(this)?.currentTime ?? Number(this._pendingMedia.get("currentTime") ?? 0);
+  }
+
+  set currentTime(seconds: number) {
+    const m = mediaOf(this);
+    if (m) m.currentTime = Number(seconds) || 0;
+    else this._pendingMedia.set("currentTime", Number(seconds) || 0);
+  }
+
+  /** Seconds; NaN until known. */
+  get duration(): number {
+    return mediaOf(this)?.duration ?? NaN;
+  }
+
+  get volume(): number {
+    return mediaOf(this)?.volume ?? Number(this._pendingMedia.get("volume") ?? 1);
+  }
+
+  set volume(v: number) {
+    setMediaField(this, "volume", Math.min(1, Math.max(0, Number(v))));
+  }
+
+  get muted(): boolean {
+    return mediaOf(this)?.muted ?? this._pendingMedia.get("muted") === true;
+  }
+
+  set muted(v: boolean) {
+    setMediaField(this, "muted", !!v);
+  }
+
+  get playbackRate(): number {
+    return mediaOf(this)?.playbackRate ?? Number(this._pendingMedia.get("playbackRate") ?? 1);
+  }
+
+  set playbackRate(v: number) {
+    setMediaField(this, "playbackRate", Number(v) || 1);
+  }
+
+  get loop(): boolean {
+    return mediaOf(this)?.loop ?? this.hasAttribute("loop");
+  }
+
+  set loop(v: boolean) {
+    if (v) this.setAttribute("loop", "");
+    else this.removeAttribute("loop");
+  }
+
+  get readyState(): number {
+    return mediaOf(this)?.media?.readyState ?? 0;
+  }
+
+  get seeking(): boolean {
+    return mediaOf(this)?.media?.seeking ?? false;
+  }
+
+  get videoWidth(): number {
+    return mediaOf(this)?.media?.videoWidth ?? 0;
+  }
+
+  get videoHeight(): number {
+    return mediaOf(this)?.media?.videoHeight ?? 0;
   }
 
   /** Input fields: their text (what the player typed). Setting it isn't a player change. */
@@ -757,7 +867,235 @@ function treeOf(node: UINode | UIRenderFragment | null): UIHostTree | null {
 }
 
 const isTextKind = (n: unknown): n is UIRenderElement => n instanceof UIRenderElement && n._uiTag === "Text";
-const isLeafKind = (n: UIRenderElement) => n._uiTag === "Image" || n._uiTag === "InputField";
+const isLeafKind = (n: UIRenderElement) => n._uiTag === "Image" || n._uiTag === "InputField" || n._uiTag === "Svg" || n._uiTag === "Video" || n._uiTag === "Audio";
+const isMediaNode = (n: unknown): n is UIRenderElement & { readonly _uiTag: "Video" | "Audio" } => n instanceof UIRenderElement && (n._uiTag === "Video" || n._uiTag === "Audio");
+
+// --- Inline SVG (ADR 0426) -------------------------------------------------------------------------
+
+/** The outermost `<svg>` above `node` (not itself): the hosted element its SVG document belongs to. Null outside one. */
+function svgRootOf(node: UINode): UIRenderElement | null {
+  let root: UIRenderElement | null = null;
+  for (let p = node._parent; p instanceof UIRenderElement && !p._tree; p = p._parent) if (p._uiTag === "Svg") root = p;
+  return root;
+}
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+/** An SVG subtree as XML: attributes as written (event handlers and the root's cascade attributes left out), `draw`'s CSS in `style`. */
+function svgXml(n: UINode, root: boolean): string {
+  if (n instanceof UIRenderText) return escapeText(n.data);
+  if (!(n instanceof UIRenderElement)) return "";
+  let attrs = "";
+  let style = "";
+  let xlink = false;
+  for (const [k, v] of n._attrs) {
+    if (v === null || v === undefined || v === false || typeof v === "function") continue;
+    if (k.startsWith("on") || (root && (k === "class" || k === "id"))) continue;
+    const text = cssText(v);
+    if (text === null) continue;
+    if (k === "style") {
+      if (!root) style = text;
+      continue;
+    }
+    if (k.startsWith("xlink:")) xlink = true;
+    attrs += ` ${k}="${escapeAttr(text)}"`;
+  }
+  if (n._svgAnim) {
+    const more = Object.entries(n._svgAnim).map(([k, v]) => `${k}: ${v}`).join("; ");
+    style = style ? `${style.replace(/;\s*$/, "")}; ${more}` : more;
+  }
+  if (style) attrs += ` style="${escapeAttr(style)}"`;
+  if (root) {
+    if (!n._attrs.has("xmlns")) attrs += ` xmlns="${SVG_NS}"`;
+    if (xlink && !n._attrs.has("xmlns:xlink")) attrs += ` xmlns:xlink="http://www.w3.org/1999/xlink"`;
+  }
+  const inner = n._children.map((c) => svgXml(c, false)).join("");
+  return `<${n.localName}${attrs}>${inner}</${n.localName}>`;
+}
+
+/** Writes an `<svg>`'s SVG document to its hosted element, when it changed. */
+function refreshSvg(svg: UIRenderElement | null): void {
+  const comp = svg?._hosted?.isValid ? svg._hosted.component : null;
+  if (!(comp instanceof UISvg)) return;
+  const text = svgXml(svg!, true);
+  if (comp.markup !== text) comp.markup = text;
+}
+
+/** A node changed: its `<svg>`'s document again, if it's in one (or is one). */
+function svgChanged(node: UINode | UIParent | null): void {
+  if (!node || node instanceof UIRenderFragment) return;
+  refreshSvg(node instanceof UIRenderElement && node._uiTag === "Svg" && !svgRootOf(node) ? node : svgRootOf(node));
+}
+
+/** What a shape inherits (SVG's inherited paint properties), as attributes or inline style give them. */
+interface SvgPaint {
+  fill: string;
+  stroke: string;
+  strokeWidth: number;
+  fillRule: "nonzero" | "evenodd";
+  pointerEvents: string;
+  visible: boolean;
+  strokeLinecap: string;
+}
+
+function svgProp(n: UIRenderElement, name: string): string | null {
+  const style = n.getAttribute("style");
+  if (style) {
+    for (const decl of style.split(";")) {
+      const i = decl.indexOf(":");
+      if (i > 0 && decl.slice(0, i).trim() === name) return decl.slice(i + 1).trim();
+    }
+  }
+  return n._svgAnim?.[name] ?? n.getAttribute(name);
+}
+
+function svgPaintOf(n: UIRenderElement, inherited: SvgPaint): SvgPaint {
+  const width = parseFloat(svgProp(n, "stroke-width") ?? "");
+  const rule = svgProp(n, "fill-rule");
+  const visibility = svgProp(n, "visibility");
+  return {
+    fill: svgProp(n, "fill") ?? inherited.fill,
+    stroke: svgProp(n, "stroke") ?? inherited.stroke,
+    strokeWidth: Number.isFinite(width) ? width : inherited.strokeWidth,
+    fillRule: rule === "evenodd" || rule === "nonzero" ? rule : inherited.fillRule,
+    pointerEvents: svgProp(n, "pointer-events") ?? inherited.pointerEvents,
+    visible: visibility === "hidden" || visibility === "collapse" ? false : visibility === "visible" ? true : inherited.visible,
+    strokeLinecap: svgProp(n, "stroke-linecap") ?? inherited.strokeLinecap,
+  };
+}
+
+const SVG_INITIAL: SvgPaint = { fill: "black", stroke: "none", strokeWidth: 1, fillRule: "nonzero", pointerEvents: "visiblePainted", visible: true, strokeLinecap: "butt" };
+
+/** A shape's paint as computed style (`draw` reads `strokeLinecap` and `strokeWidth` through the `measure` hook). */
+function svgComputedStyle(node: UIRenderElement): Record<string, string> {
+  const chain: UIRenderElement[] = [];
+  for (let n: UIRenderElement | UIRenderFragment | null = node; n instanceof UIRenderElement && !n._tree; n = n._parent) {
+    chain.unshift(n);
+    if (n._uiTag === "Svg" && !svgRootOf(n)) break;
+  }
+  let paint = SVG_INITIAL;
+  for (const n of chain) paint = svgPaintOf(n, paint);
+  return { fill: paint.fill, stroke: paint.stroke, strokeWidth: `${paint.strokeWidth}px`, strokeLinecap: paint.strokeLinecap, fillRule: paint.fillRule, pointerEvents: paint.pointerEvents, opacity: node.getAttribute("opacity") ?? "1", filter: "none", transform: "none" };
+}
+
+/**
+ * ADR 0426: the shape of `svg` under a point of its box (its own pixels, from its corner), topmost first, by each shape's
+ * geometry and `pointer-events` (`visiblePainted` by default: its fill where it's filled, its stroke where it's stroked).
+ * Null: none (the `<svg>` itself is hit).
+ */
+function svgShapeAt(svg: UIRenderElement, x: number, y: number): UIRenderElement | null {
+  const box = svg._hosted?.rect();
+  if (!box) return null;
+  const view = viewBoxMap(svg.getAttribute("viewBox"), svg.getAttribute("preserveAspectRatio"), box.width, box.height);
+  let hit: UIRenderElement | null = null;
+  const walk = (n: UIRenderElement, map: readonly [number, number, number, number, number, number], inherited: SvgPaint) => {
+    if (svgProp(n, "display") === "none") return;
+    const own = parseSvgTransform(n.getAttribute("transform"));
+    const m = own ? multiply(map as never, own) : map;
+    const paint = svgPaintOf(n, inherited);
+    const tag = n.localName.toLowerCase();
+    if (tag === "defs" || tag === "symbol" || tag === "clippath" || tag === "mask" || tag === "lineargradient" || tag === "radialgradient" || tag === "pattern" || tag === "marker") return;
+    if (SVG_GEOMETRY_TAGS.has(tag) && paint.pointerEvents !== "none") {
+      const inv = invert(m as never);
+      if (inv) {
+        const [ux, uy] = applyAffine(inv, x, y);
+        const pe = paint.pointerEvents;
+        const needsVisible = pe.startsWith("visible") || pe === "auto";
+        if (!needsVisible || paint.visible) {
+          const fillOn = pe === "fill" || pe === "visibleFill" || pe === "all" || pe === "visible" || ((pe === "visiblePainted" || pe === "painted" || pe === "auto") && paint.fill !== "none");
+          const strokeOn = pe === "stroke" || pe === "visibleStroke" || pe === "all" || pe === "visible" || ((pe === "visiblePainted" || pe === "painted" || pe === "auto") && paint.stroke !== "none");
+          const polys = flattenPath(shapePath(tag, (a) => n.getAttribute(a)));
+          if ((fillOn && insideFill(polys, ux, uy, paint.fillRule)) || (strokeOn && paint.strokeWidth > 0 && distanceToOutline(polys, ux, uy) <= paint.strokeWidth / 2)) hit = n; // later shapes are on top
+        }
+      }
+    }
+    for (const c of n._children) if (c instanceof UIRenderElement) walk(c, m, paint);
+  };
+  const rootPaint = svgPaintOf(svg, SVG_INITIAL);
+  for (const c of svg._children) if (c instanceof UIRenderElement) walk(c, view, rootPaint);
+  return hit;
+}
+
+/** UI events with a pointer position (the ones an <svg> retargets to its shapes). */
+const POSITIONED: ReadonlySet<string> = new Set(["click", "dblclick", "contextmenu", "pointerdown", "pointerup", "pointermove", "pointerover", "pointerout", "pointercancel", "wheel", "dragstart", "drag", "dragenter", "dragover", "dragleave", "drop", "dragend"]);
+
+/** The nodes from `svg` (excluded) down to `shape` (excluded). */
+function svgPathBetween(svg: UIRenderElement, shape: UIRenderElement): UIRenderElement[] {
+  const out: UIRenderElement[] = [];
+  for (let p = shape._parent; p instanceof UIRenderElement && p !== svg; p = p._parent) out.unshift(p);
+  return out;
+}
+
+// --- Media (ADR 0426) ------------------------------------------------------------------------------
+
+/** A `<video>`'s or `<audio>`'s hosted component, once it's shown. */
+function mediaOf(node: UIRenderElement): UIVideo | UIAudio | null {
+  const c = node._hosted?.isValid ? node._hosted.component : null;
+  return c instanceof UIVideo || c instanceof UIAudio ? c : null;
+}
+
+function setMediaField(node: UIRenderElement, field: "volume" | "muted" | "playbackRate", value: number | boolean): void {
+  const m = mediaOf(node);
+  if (m) {
+    (m as unknown as Record<string, unknown>)[field] = value;
+    m._player.refresh();
+  } else node._pendingMedia.set(field, value);
+}
+
+const MEDIA_EVENT_SET: ReadonlySet<string> = new Set(UI_MEDIA_EVENTS);
+
+/** Relays a media event type from the hosted component to the node's listeners (media events don't bubble). */
+function attachMediaRelay(node: UIRenderElement, type: string): void {
+  const m = mediaOf(node);
+  if (!m || node._mediaRelays.has(type) || !MEDIA_EVENT_SET.has(type)) return;
+  const relay = () => {
+    const e = { type, target: node, currentTarget: node, bubbles: false, eventPhase: 2, defaultPrevented: false, preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} };
+    runListeners(node, type, e, 2);
+  };
+  node._mediaRelays.set(type, relay);
+  m.on(type as UIMediaEventType, relay);
+}
+
+function dropMediaRelays(node: UIRenderElement): void {
+  const m = mediaOf(node);
+  if (m) for (const [type, relay] of node._mediaRelays) m.off(type as UIMediaEventType, relay);
+  node._mediaRelays.clear();
+}
+
+/** `bind:` on `<video>`/`<audio>`: the media element's two-way and read-only properties, through its events. */
+const MEDIA_BINDINGS: Readonly<Record<string, { readonly events: readonly string[]; readonly twoWay: boolean }>> = {
+  currentTime: { events: ["timeupdate", "seeked"], twoWay: true },
+  paused: { events: ["play", "pause"], twoWay: true },
+  volume: { events: ["volumechange"], twoWay: true },
+  muted: { events: ["volumechange"], twoWay: true },
+  playbackRate: { events: ["ratechange"], twoWay: true },
+  duration: { events: ["durationchange", "loadedmetadata", "emptied"], twoWay: false },
+  ended: { events: ["ended", "play"], twoWay: false },
+  readyState: { events: ["loadedmetadata", "loadeddata", "canplay", "canplaythrough", "waiting", "emptied"], twoWay: false },
+  seeking: { events: ["seeking", "seeked"], twoWay: false },
+  videoWidth: { events: ["loadedmetadata", "resize"], twoWay: false },
+  videoHeight: { events: ["loadedmetadata", "resize"], twoWay: false },
+};
+
+function bindMedia(node: UIRenderElement, name: string, get: () => unknown, set: (value: unknown) => void): (() => void) | undefined {
+  const spec = MEDIA_BINDINGS[name];
+  if (!spec) return undefined;
+  const read = () => (node as unknown as Record<string, unknown>)[name];
+  if (spec.twoWay) {
+    const want = get();
+    if (want === undefined || want === null) set(read());
+    else if (name === "paused") {
+      if (!!want !== node.paused) void (want ? node.pause() : node.play());
+    } else if (name === "currentTime") {
+      if (Math.abs(Number(want) - node.currentTime) > 1e-3) node.currentTime = Number(want);
+    } else if (read() !== want) (node as unknown as Record<string, unknown>)[name] = want;
+  } else set(read());
+  const report = () => set(read());
+  for (const type of spec.events) node.addEventListener(type, report);
+  return () => {
+    for (const type of spec.events) node.removeEventListener(type, report);
+  };
+}
 
 /** The outermost Text element `node` is inside, within its run of Text ancestors (it holds the text), or null. */
 function textOwner(node: UINode): UIRenderElement | null {
@@ -797,6 +1135,31 @@ function cssText(value: unknown): string | null {
 /** The attributes the hosted element gets: HTML-only ones dropped, HTML's names mapped onto fields. */
 function hostAttributes(el: UIRenderElement): Map<string, string> {
   const out = new Map<string, string>();
+  // ADR 0426: an <svg>'s own attributes are its SVG document's (`refreshSvg`), but for its size and the cascade's.
+  if (el._uiTag === "Svg") {
+    for (const k of ["id", "class", "style", "width", "height"]) {
+      const s = cssText(el._attrs.get(k));
+      if (s === null) continue;
+      out.set(k, (k === "width" || k === "height") && /^\s*-?[\d.]+px\s*$/.test(s) ? String(parseFloat(s)) : s);
+    }
+    // No size of its own: HTML's 300 × 150 (an icon's CSS usually sets it).
+    if (!out.has("width") && !/\bwidth\s*:/.test(out.get("style") ?? "")) out.set("width", "300");
+    if (!out.has("height") && !/\bheight\s*:/.test(out.get("style") ?? "")) out.set("height", "150");
+    return out;
+  }
+  // ADR 0426: media: `src` (or its first <source>'s), and HTML's boolean attributes as fields.
+  if (el._uiTag === "Video" || el._uiTag === "Audio") {
+    for (const k of ["id", "class", "style", "width", "height"]) {
+      const s = cssText(el._attrs.get(k));
+      if (s !== null) out.set(k, s);
+    }
+    const source = el.children.find((c) => c.localName.toLowerCase() === "source" && c.getAttribute("src"));
+    const src = el.getAttribute("src") ?? source?.getAttribute("src") ?? null;
+    if (src !== null) out.set("src", src);
+    for (const k of ["autoplay", "loop", "muted"]) if (el.hasAttribute(k)) out.set(k, "true");
+    if (el.hasAttribute("controls")) warnOnce(`<${el.localName} controls>: UI media elements have no built-in controls; draw your own with play() and pause().`);
+    return out;
+  }
   for (const [k, v] of el._attrs) {
     const s = cssText(v);
     if (s === null || HTML_ONLY.has(k) || k.startsWith("aria-") || k.startsWith("data-")) continue;
@@ -843,10 +1206,26 @@ function attachDispatcher(el: UIRenderElement, type: UIHostEventType): void {
     e.currentTarget = el;
     e.target = hostedNodes.get(e.element) ?? el;
     if (e.relatedTarget instanceof UIHostElement) e.relatedTarget = hostedNodes.get(e.relatedTarget) ?? null;
-    for (const dom of DOM_TYPES_OF.get(type) ?? []) {
-      runListeners(el, dom, e, phase);
-      if (e._stoppedNow) break;
+    // ADR 0426: on an <svg>, a pointer event goes on to the shape under it, through the shapes' groups.
+    const shape = el._uiTag === "Svg" && e.element === el._hosted && POSITIONED.has(type) ? svgShapeAt(el, e.offsetX, e.offsetY) : null;
+    if (shape) e.target = shape;
+    const run = (n: UIRenderElement, p: 1 | 2 | 3) => {
+      for (const dom of DOM_TYPES_OF.get(type) ?? []) {
+        runListeners(n, dom, e, p);
+        if (e._stoppedNow) break;
+      }
+    };
+    if (!shape) return run(el, phase);
+    const between = svgPathBetween(el, shape);
+    if (phase === 1) {
+      run(el, 1);
+      for (const n of between) if (!e._stopped) run(n, 1);
+    } else {
+      if (!e._stopped) run(shape, 2);
+      for (let i = between.length - 1; i >= 0 && !e._stopped; i--) if (e.bubbles) run(between[i], 3);
+      if (!e._stopped && e.bubbles) run(el, 3);
     }
+    e.currentTarget = el;
   };
   const pair: [(e: UIHostEvent) => void, (e: UIHostEvent) => void] = [make(1), make(3)];
   el._dispatchers.set(type, pair);
@@ -858,6 +1237,20 @@ function attachDispatcher(el: UIRenderElement, type: UIHostEventType): void {
 function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
   const parent = node._parent!;
   if (node instanceof UIRenderComment) return null;
+  // ADR 0426: inside an <svg>, nodes are its SVG document, not UI elements.
+  const svg = svgRootOf(node);
+  if (svg) {
+    refreshSvg(svg);
+    return null;
+  }
+  // A media element's <source> and <track> children say what it plays; they aren't shown.
+  if (isMediaNode(parent)) {
+    if (parent._hosted) parent._hosted.tree.setAttributes(parent._hosted, hostAttributes(parent), writtenAttributes(parent));
+    return null;
+  }
+  if (node instanceof UIRenderElement && SVG_CONTENT_TAGS.has(node.localName.toLowerCase()) && !uiTagOfHtml(node.localName)) {
+    warnOnce(`<${node.localName}> outside an <svg> isn't drawn; it renders as a Panel (a <div>).`);
+  }
   const owner = textOwner(node);
   if (owner) {
     refreshText(owner);
@@ -885,6 +1278,30 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
     made.value = node._pendingValue;
     node._pendingValue = null;
   }
+  if (node._uiTag === "Svg") {
+    refreshSvg(node);
+    // Listeners on its shapes are heard through it (`svgShapeAt` retargets).
+    const listen = (n: UINode) => {
+      if (!(n instanceof UIRenderElement)) return;
+      for (const type of n._listeners.keys()) if (EVENTS[type]) attachDispatcher(node, EVENTS[type]);
+      n._children.forEach(listen);
+    };
+    node._children.forEach(listen);
+    return made;
+  }
+  if (isMediaNode(node)) {
+    const m = mediaOf(node);
+    if (m) {
+      for (const [k, v] of node._pendingMedia) {
+        if (k === "paused") void (v ? m.pause() : m.play());
+        else if (k === "currentTime") m.currentTime = Number(v);
+        else (m as unknown as Record<string, unknown>)[k] = v;
+      }
+      node._pendingMedia.clear();
+      for (const type of node._listeners.keys()) attachMediaRelay(node, type);
+    }
+    return made;
+  }
   for (const c of node._children) materialize(c, tree);
   if (node._uiTag === "Text") refreshText(node);
   return made;
@@ -894,6 +1311,7 @@ function materialize(node: UINode, tree: UIHostTree): UIHostElement | null {
 function forget(node: UINode): void {
   if (node instanceof UIRenderElement) {
     if (node._hosted && node._uiTag === "InputField") node._pendingValue = node._hosted.value;
+    if (node._mediaRelays.size) dropMediaRelays(node);
     node._hosted = null;
     node._dispatchers = new Map();
     node._children.forEach(forget);
@@ -929,6 +1347,13 @@ function refreshText(el: UIRenderElement | null): void {
   el._hosted.tree.setText(el._hosted, collapse(el.textContent));
 }
 
+/** ADR 0426: an attribute changed: an <svg>'s document, or a media element's <source>. */
+function attributeChanged(el: UIRenderElement): void {
+  svgChanged(el);
+  const p = el._parent;
+  if (isMediaNode(p) && p._hosted && el.localName.toLowerCase() === "source") p._hosted.tree.setAttributes(p._hosted, hostAttributes(p), writtenAttributes(p));
+}
+
 function refreshTextOf(node: UINode | null): void {
   if (!node) return;
   refreshText(isTextKind(node) && !textOwner(node) ? node : textOwner(node));
@@ -956,6 +1381,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
   getText: (node) => node.data,
   setText(node, text) {
     node.data = text;
+    if (svgRootOf(node)) return svgChanged(node);
     const owner = textOwner(node);
     if (owner) return refreshText(owner);
     const tree = treeOf(node);
@@ -973,10 +1399,12 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     if (value === undefined || value === null || value === false) return renderer.removeAttribute(el, key);
     el._attrs.set(key, value);
     if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el), writtenAttributes(el));
+    attributeChanged(el);
   },
   removeAttribute(el, name) {
     if (!el._attrs.delete(name)) return;
     if (el._hosted) el._hosted.tree.setAttributes(el._hosted, hostAttributes(el), writtenAttributes(el));
+    attributeChanged(el);
   },
   hasAttribute: (el, name) => el.hasAttribute(name),
   getFirstChild: (el) => el._children[0] ?? null,
@@ -995,6 +1423,7 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     }
     const oldParent = node._parent;
     const oldTree = treeOf(node);
+    const oldSvg = svgRootOf(node);
     const hadOwner = textOwner(node);
     detach(node);
     if (hadOwner) refreshText(hadOwner);
@@ -1020,12 +1449,16 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
       const made = materialize(node, tree);
       if (made) tree.restyle(made);
     }
+    if (oldSvg && oldSvg !== svgRootOf(node)) refreshSvg(oldSvg);
   },
   remove(node) {
     const parent = node._parent;
     const tree = treeOf(node);
     const owner = textOwner(node);
+    const svg = svgRootOf(node);
     detach(node);
+    if (svg) return refreshSvg(svg);
+    if (isMediaNode(parent) && parent._hosted) parent._hosted.tree.setAttributes(parent._hosted, hostAttributes(parent), writtenAttributes(parent));
     dropMediaListeners(node);
     if (owner) return refreshText(owner);
     dematerialize(node, tree);
@@ -1036,12 +1469,17 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     if (isGlobal(el)) return el.addEventListener(type, handler as Handler, options as { once?: boolean });
     const ui = EVENTS[type];
     // Any type is kept, for `dispatchEvent` (an action's custom event); only the UI's events happen by themselves.
-    if (!ui && !el._listeners.has(type)) warnIfNotYet(type);
+    if (!ui && !el._listeners.has(type) && !(isMediaNode(el) && MEDIA_EVENT_SET.has(type))) warnIfNotYet(type);
     let list = el._listeners.get(type);
     if (!list) el._listeners.set(type, (list = []));
     const o = uiListenerOptions(options); // ADR 0422: capture, once and passive
     addUIListener(list, handler as Handler, o.capture, o.once, o.passive);
-    if (ui) attachDispatcher(el, ui);
+    if (ui) {
+      // ADR 0426: a shape's listeners are heard through its <svg>.
+      const svg = svgRootOf(el);
+      attachDispatcher(svg ?? el, ui);
+    }
+    if (isMediaNode(el)) attachMediaRelay(el, type);
   },
   removeEventListener(el, type, handler, options?: unknown) {
     if (isGlobal(el)) return el.removeEventListener(type, handler as Handler);
@@ -1055,7 +1493,12 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
       return stop;
     }
     if (name === "value" && node._uiTag === "InputField") return bindValue(node, get, set);
-    warnOnce(`bind:${name} on <${node.localName}> isn't supported yet; UI elements bind value on <input>.`);
+    // ADR 0426: <video> and <audio>'s media bindings.
+    if (isMediaNode(node)) {
+      const stop = bindMedia(node, name, get, set);
+      if (stop) return stop;
+    }
+    warnOnce(`bind:${name} on <${node.localName}> isn't supported yet; UI elements bind value on <input>, and media properties on <video> and <audio>.`);
   },
   // What <svelte:window>, <svelte:document> and <svelte:body> stand for, and what <svelte:head> content goes into.
   globalTarget(kind) {
@@ -1068,8 +1511,16 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     else warnOnce(`A component's injected CSS (${hash}) wasn't parsed when it compiled, and games have no CSS parser: compile it with the engine's compileSvelteUI, or use css: 'external'.`);
   },
   // `transition:`, `in:`, `out:` and `animate:` (`animation.ts`): keyframes on the UI animator, and geometry.
-  animate: (node, keyframes, options) => animateNode(node, keyframes, options),
-  measure: (node) => measureNode(node),
+  // ADR 0426: inside an <svg>, a shape's keyframes (`draw`'s stroke dashes) are written into its SVG document each frame.
+  animate: (node, keyframes, options) => {
+    const svg = svgRootOf(node);
+    if (!svg) return animateNode(node, keyframes, options);
+    return animateSvgNode(svg._hosted, keyframes, options, (style) => {
+      node._svgAnim = style;
+      refreshSvg(svg);
+    });
+  },
+  measure: (node) => measureNode(node, svgRootOf(node) ? svgComputedStyle(node) : undefined),
 });
 
 export default renderer;

@@ -511,7 +511,8 @@ export function moveUIElement(ref: UIElementRef, parentRef: UIElementRef, index:
 }
 
 /** New elements' starting markup (sizes and looks like the hand-built UI Create menu's, ADR 0069). */
-export const NEW_ELEMENTS: Readonly<Record<Exclude<UITag, "Canvas">, string>> = {
+/** ADR 0426: inline SVG, video and audio are Svelte UI's (the HTML elements), not offered for UI documents. */
+export const NEW_ELEMENTS: Readonly<Record<Exclude<UITag, "Canvas" | "Svg" | "Video" | "Audio">, string>> = {
   Panel: `<Panel width="200" height="100" background-color="#2a2f3a"/>`,
   Text: `<Text>New Text</Text>`,
   Image: `<Image width="100" height="100"/>`,

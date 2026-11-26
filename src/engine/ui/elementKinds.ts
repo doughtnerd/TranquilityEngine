@@ -15,7 +15,7 @@
  * Renderer-neutral and nothing here is public API (ADR 0010).
  */
 import { Locale } from "../localisation/Locale";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType, type UIOverflow, type UITextAlign, type UIWordBreak } from "./components";
+import { UIAudio, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UISvg, UIText, UIVideo, type UIComponentType, type UIOverflow, type UITextAlign, type UIWordBreak } from "./components";
 import type { UIPseudo, UITag } from "./document/types";
 import { fontFamilyOf } from "./fonts";
 import { uiBorderEdges } from "./layout";
@@ -70,7 +70,11 @@ const KINDS: readonly KindSpec[] = [
     graphic: always,
   } as KindSpec<UIInputField> as KindSpec,
   { kind: "text", type: UIText, tag: "Text", leaf: true, interactive: false, flexShrink: 1, paints: (c: UIText) => textRunOf(c)!.text.trim() !== "", graphic: always } as KindSpec<UIText> as KindSpec,
+  // ADR 0426: an inline SVG and a video draw as images (their own pictures); audio is a box that draws nothing.
+  { kind: "image", type: UISvg, tag: "Svg", leaf: true, interactive: false, flexShrink: 0, paints: (c: UISvg) => c.markup !== "", graphic: always } as KindSpec<UISvg> as KindSpec,
+  { kind: "image", type: UIVideo, tag: "Video", leaf: true, interactive: false, flexShrink: 0, paints: (c: UIVideo) => c.src !== "" || c._player.current !== null, graphic: always } as KindSpec<UIVideo> as KindSpec,
   { kind: "image", type: UIImage, tag: "Image", leaf: true, interactive: false, flexShrink: 0, paints: (c: UIImage) => c.image !== "", graphic: always } as KindSpec<UIImage> as KindSpec,
+  { kind: "panel", type: UIAudio, tag: "Audio", leaf: true, interactive: false, flexShrink: 0, paints: () => false, graphic: () => false } as KindSpec<UIAudio> as KindSpec,
   { kind: "panel", type: UIPanel, tag: "Panel", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: panelIsGraphic } as KindSpec<UIPanel> as KindSpec,
 ];
 
