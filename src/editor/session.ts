@@ -3,6 +3,8 @@
 // Play mode, script reloads and plugin changes, and the work they defer to Stop, are the play
 // session's (playSession.ts, ADR 0237); this module creates the editor's one and forwards to it.
 import { errorStatus } from "./messages";
+// The engine's built-in UI components (ADR 0419 wave B), compiled with the editor, for Play and edit mode.
+import "../plugins/builtinUIModules";
 import { Engine, GameObject } from "../engine";
 import { viewport } from "../engine/editor";
 import { pathKey } from "./document";

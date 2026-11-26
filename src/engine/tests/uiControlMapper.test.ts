@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, Input, InputPlayers, button, chordOf, defineActions, dpad, vec2 } from "../index";
 import { UIButton, UICanvas, UIImage, UIText } from "../ui/components";
-import { UIControlMapper } from "../ui/controlMapper";
+import { UIControlMapper } from "../../plugins/ui/runtime/UIControlMapper";
 import { World } from "../core/World";
 import { UIPointer, stubDocument } from "./uiPointer";
 import { loadUIDocumentSupport } from "../ui/UIDocument";
 import { buildUI, byId } from "./uiMarkup";
+// The built-in UI components, as the editor provides them (ADR 0419 wave B).
+import "../../plugins/builtinUIModules";
 
 // ADR 0337, 0339 and 0340: the engine's rebinding screen, driven as a player does: clicks through a UI
 // core, keys and pad buttons through Input (focus navigation moves between its buttons and `submit`
@@ -110,6 +112,9 @@ function focused(m: UIControlMapper): string | null {
   return buttons.find(([, b]) => b?.focused)?.[0] ?? null;
 }
 
+/** A colour's channels, rounded (the screen's colours go through CSS). */
+const rgba = (c: { r: number; g: number; b: number; a: number }) => [c.r, c.g, c.b, c.a].map((v) => Math.round(v * 1000) / 1000);
+
 /** The texts drawn inside a node. */
 const texts = (node: GameObject): string[] => [...node.children.flatMap((c) => [...(c.getComponent(UIText) ? [c.getComponent(UIText)!.text] : []), ...texts(c)])];
 const images = (node: GameObject): string[] => node.children.map((c) => c.getComponent(UIImage)).filter((i) => i && i.display !== "none").map((i) => i!.image);
@@ -170,14 +175,14 @@ describe("UIControlMapper (ADR 0337)", () => {
     expect(focused(m)).toBe("Jump/keyboard");
     expect(m.focusedCell).toMatchObject({ action: "jump", device: "keyboard", label: "Space" });
     // The focused button has the accent border, after mouse use too (Delete and Unbind act on it).
-    expect(row(m, "Jump").keyboard!.button.borderColor).toEqual(m.accentColor);
-    expect(row(m, "Jump").gamepad!.button.borderColor).toEqual(m.cellColor);
+    expect(rgba(row(m, "Jump").keyboard!.button.borderColor)).toEqual(rgba(m.accentColor));
+    expect(rgba(row(m, "Jump").gamepad!.button.borderColor)).toEqual(rgba(m.cellColor));
     pointers[0].click(row(m, "Jump").gamepad!.button);
     step(2);
     tap("escape"); // the click started a rebind
     expect(focused(m)).toBe("Jump/gamepad");
-    expect(row(m, "Jump").gamepad!.button.borderColor).toEqual(m.accentColor);
-    expect(row(m, "Jump").keyboard!.button.borderColor).toEqual(m.cellColor);
+    expect(rgba(row(m, "Jump").gamepad!.button.borderColor)).toEqual(rgba(m.accentColor));
+    expect(rgba(row(m, "Jump").keyboard!.button.borderColor)).toEqual(rgba(m.cellColor));
 
     const menu = buildUI(`<Canvas id="Menu"><Button id="Play"/></Canvas>`);
     const canvas = byId(menu, "Menu", UICanvas);

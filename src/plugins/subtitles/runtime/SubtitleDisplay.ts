@@ -1,12 +1,19 @@
 /**
  * `SubtitleDisplay` (ADR 0357 §5): the optional built-in subtitle and caption display. Add it to any node (a persistent
- * scene or a HUD prefab); it builds its UI document on a child node. The built-in document's root is a `<Canvas>` (screen
- * mode, `sortOrder` 1000, ADR 0417); a replacement document has its own `<Canvas>` root, or shows under a canvas another
- * document built above the node. It shows what `Audio.onLine` and `Audio.onCaption` report, timed
+ * scene or a HUD prefab); it mounts its view on a child node: a `UIView` of the built-in Svelte component
+ * (`@myco/ui/Subtitles.svelte`, ADR 0419 wave B) on its own screen canvas (`sortOrder` 1000), or of a replacement
+ * component (`component`), which gets the same props. It shows what `Audio.onLine` and `Audio.onCaption` report, timed
  * on the heard clock (`Audio.time`), obeying the player's `Subtitles` settings.
  *
+ * **The props a replacement component gets:** `rows` (the rows on screen, oldest first: `{ id, kind: "speech" |
+ * "caption", speaker, text, opacity, color }`, where `speaker` is the formatted name or "" when names aren't shown,
+ * `opacity` the fade and `color` the speaker's CSS colour or null), `position` (`"bottom"` or `"top"`), `margin` (% of
+ * the canvas height from that edge), `maxWidth` (% of the canvas width), `fontSize` (UI pixels) and `background` (the
+ * player's background opacity). Themes for the built-in component set its `--subtitle-*` variables in a global rule
+ * (`:global(:root) { --subtitle-color: #ffee00; }`) of any of the game's components.
+ *
  * Built only on public API — `Audio.onLine`, `Audio.onCaption`, `Audio.time`, `Audio.subtitleLanguage`, `Locale`,
- * `Subtitles` and a `UIDocument` — so a game can leave it out and build its own display on the same events.
+ * `Subtitles` and a `UIView` — so a game can leave it out and build its own display on the same events.
  *
  * Paging measures text with a character estimate at the display's width and font size (`characterFit`): the UI core's
  * text measuring isn't public API.
@@ -16,28 +23,31 @@ import { AssetRef, component, field } from "../../../engine/core/registry";
 import { Locale } from "../../../engine/localisation/Locale";
 import { readingRule } from "../../../engine/localisation/subtitles";
 import { GameObject } from "../../../engine/scene/GameObject";
-import { UICanvas, type UIPanel, UIText } from "../../../engine/ui/components";
-import { UIDocument, type UIDocumentElement } from "../../../engine/ui/UIDocument";
 import { Audio, type AudioCaptionEvent, type AudioLineEvent } from "../../audio/runtime";
+import { UIView } from "../../ui/runtime/UIView";
 import { characterFit, fontSizeFor, showSpeakerNames, SubtitleBoard, type BoardRow, type SpeakerNameMode } from "./board";
-import { displayDocument, ensureBuiltinSource } from "./builtin";
 import { Subtitles } from "./Subtitles";
 
-/** One row's data, also readable by `{name}` bindings in a replacement document's template. */
-interface RowItem {
+/** The built-in component (ADR 0419 wave B). */
+export const SUBTITLES_COMPONENT = "@myco/ui/Subtitles.svelte";
+
+/** One row as the view gets it. */
+interface RowProps {
   id: number;
   kind: "speech" | "caption";
   /** The shown speaker name (formatted), or "" when names aren't shown. */
   speaker: string;
   text: string;
+  /** The fade, 0 to 1. */
+  opacity: number;
+  /** The speaker's colour (CSS), or null. */
+  color: string | null;
 }
 
 @component("engine.SubtitleDisplay")
 export class SubtitleDisplay extends GameBehavior {
-  /** A `*.ui.xml` replacing the built-in one: it needs `#subtitles` with a `<Template>` holding `.speaker` and `.line` texts. */
-  @field(AssetRef, { kind: "uidocument" }) document = "";
-  /** A `*.ui.css` applied after the built-in one (themes override its variables). */
-  @field(AssetRef, { kind: "stylesheet" }) stylesheet = "";
+  /** A Svelte component replacing the built-in one; it gets the rows and their placement as props (see the class's notes). */
+  @field(AssetRef, { kind: "svelte" }) component = "";
   @field(String, { choices: ["bottom", "top"] }) position: "bottom" | "top" = "bottom";
   /** % of the canvas height from the edge (title-safe). */
   @field(Number) margin = 8;
@@ -64,15 +74,14 @@ export class SubtitleDisplay extends GameBehavior {
   private board: SubtitleBoard | null = null;
   private offs: (() => void)[] = [];
   private host: GameObject | null = null;
-  private ui: UIDocument | null = null;
-  private items = new Map<number, RowItem>();
-  private listed = "";
+  private view: UIView | null = null;
+  /** The props last passed to the view, as JSON. */
+  private shown = "";
   private epoch = -1;
   private fitKey = "";
   private fit = characterFit(896, 28.8, 2, "en");
 
   onEnable(): void {
-    ensureBuiltinSource();
     this.board ??= new SubtitleBoard(
       {
         resolve: (key) => {
@@ -104,21 +113,20 @@ export class SubtitleDisplay extends GameBehavior {
   onDestroy(): void {
     if (this.host?.isValid) GameObject.destroy(this.host);
     this.host = null;
-    this.ui = null;
+    this.view = null;
   }
 
   update(): void {
     const board = this.board;
-    if (!board || !this.ui) return;
-    ensureBuiltinSource();
-    const doc = displayDocument(this.document, this.stylesheet);
-    if (this.ui.document !== doc) this.ui.document = doc;
+    const view = this.view;
+    if (!board || !view) return;
+    const path = this.componentPath();
+    if (view.component !== path) view.component = path;
 
     const settings = Subtitles.settings;
     board.options = this.boardOptions();
-    const canvas = this.canvas();
-    const refW = canvas?.referenceResolution.x ?? 1280;
-    const refH = canvas?.referenceResolution.y ?? 720;
+    const refW = view.referenceResolution.x;
+    const refH = view.referenceResolution.y;
     const fontSize = fontSizeFor(settings.size, refH, this.sizeScale);
     const width = (refW * clamp(this.maxWidth, 10, 100)) / 100;
     const fitKey = `${width}|${fontSize}|${this.maxLines}|${this.language()}`;
@@ -137,27 +145,21 @@ export class SubtitleDisplay extends GameBehavior {
     this.show(rows, fontSize, settings.background, showSpeakerNames(rows, this.speakerNames, settings.speakerNames));
   }
 
-  // --- building ------------------------------------------------------------------------------------------------------
+  // --- the view ------------------------------------------------------------------------------------------------------
 
-  /** The child its document builds on; the document brings its own canvas (ADR 0417). */
+  /** The child its view mounts on: a screen canvas of its own, above the game's UI. */
   private mount(): void {
     if (this.host?.isValid) return;
     const host = GameObject.create("Subtitles", { parent: this.node, transform: false });
-    this.ui = host.addBehavior(UIDocument, { document: displayDocument(this.document, this.stylesheet) });
+    this.view = host.addBehavior(UIView, { component: this.componentPath(), mode: "screen", sortOrder: 1000, props: { rows: [] } });
     this.host = host;
-    this.items.clear();
-    this.listed = "";
+    this.shown = "";
   }
 
-  /** The canvas its rows are laid out on: the document's root canvas, else the nearest one above the node. */
-  private canvas(): UICanvas | null {
-    const root = this.ui?.root?.component;
-    if (root instanceof UICanvas) return root;
-    for (let n: GameObject | null = this.node; n; n = n.parent) {
-      const c = n.getComponent(UICanvas);
-      if (c) return c;
-    }
-    return null;
+  /** The component the view mounts: the replacement, else the built-in one. */
+  private componentPath(): string {
+    const own = this.component.trim();
+    return own || `asset:${SUBTITLES_COMPONENT}`;
   }
 
   private language(): string {
@@ -169,74 +171,25 @@ export class SubtitleDisplay extends GameBehavior {
     return { maxStack: this.maxStack, fadeIn: this.fadeIn, fadeOut: this.fadeOut, speech: s.enabled, captions: s.captions && this.captions };
   }
 
-  /** Writes this frame's rows into the document: the list (when rows came or went), then each row's look. */
+  /** Passes this frame's rows and their placement to the view, when they changed. */
   private show(rows: readonly BoardRow[], fontSize: number, background: number, names: boolean): void {
-    const ui = this.ui!;
-    const next = new Map<number, RowItem>();
-    for (const r of rows) {
-      const item = this.items.get(r.id) ?? { id: r.id, kind: r.kind, speaker: "", text: "" };
-      item.text = r.text;
-      item.speaker = names && r.kind === "speech" && r.speaker !== null ? formatName(Subtitles.speaker(r.speaker).name) : "";
-      next.set(r.id, item);
-    }
-    this.items = next;
-    // Bottom: the newest row nearest the bottom edge; top: nearest the top edge.
-    const ordered = [...next.values()];
-    const ids = ordered.map((i) => i.id).join(",");
-    if (ids !== this.listed) {
-      this.listed = ids;
-      ui.list("#subtitles", ordered, undefined, { key: "id" });
-    }
-    const container = ui.query("#subtitles");
-    if (!container) return;
-    const panel = container.component as UIPanel;
-    const margin = `${clamp(this.margin, 0, 50)}%`;
-    const width = clamp(this.maxWidth, 10, 100);
-    set(panel, "positionType", "absolute");
-    set(panel, "flexDirection", this.position === "top" ? "column-reverse" : "column");
-    set(panel, "top", this.position === "top" ? margin : "auto");
-    set(panel, "bottom", this.position === "top" ? "auto" : margin);
-    set(panel, "left", `${(100 - width) / 2}%`);
-    set(panel, "width", `${width}%`);
-    const opacityOf = new Map(rows.map((r) => [r.id, r.opacity]));
-    for (const el of container.children) {
-      const item = el.item as RowItem | undefined;
-      if (!item || !next.has(item.id)) continue;
-      set(el.component as UIPanel, "opacity", opacityOf.get(item.id) ?? 1);
-      el.classList.toggle("speech", item.kind === "speech");
-      el.classList.toggle("caption", item.kind === "caption");
-      for (const box of el.queryAll(".box")) set(box.component as UIPanel, "opacity", background);
-      const line = text(el, ".line");
-      if (line) {
-        set(line, "text", item.text);
-        set(line, "fontSize", fontSize);
-      }
-      const speaker = text(el, ".speaker");
-      if (speaker) {
-        set(speaker, "text", item.speaker);
-        set(speaker, "fontSize", fontSize);
-        set(speaker, "display", item.speaker === "" ? "none" : "flex");
-        const id = rows.find((r) => r.id === item.id)?.speaker;
-        const color = id ? Subtitles.speaker(id).color : null;
-        if (color && (speaker.color.r !== color.r || speaker.color.g !== color.g || speaker.color.b !== color.b || speaker.color.a !== color.a)) speaker.color = color;
-      }
-    }
+    const out: RowProps[] = rows.map((r) => {
+      const look = r.kind === "speech" && r.speaker !== null ? Subtitles.speaker(r.speaker) : null;
+      const speaker = names && look ? formatName(look.name) : "";
+      const c = speaker ? look!.color : null;
+      return { id: r.id, kind: r.kind, speaker, text: r.text, opacity: r.opacity, color: c ? `rgba(${c.r * 100}%, ${c.g * 100}%, ${c.b * 100}%, ${c.a})` : null };
+    });
+    const props = { rows: out, position: this.position, margin: clamp(this.margin, 0, 50), maxWidth: clamp(this.maxWidth, 10, 100), fontSize, background };
+    const json = JSON.stringify(props);
+    if (json === this.shown) return;
+    this.shown = json;
+    this.view!.props = props;
   }
 }
 
 /** `{name}:` through the project's `subtitles.speaker` string when it has one (French writes `{name} :`). */
 function formatName(name: string): string {
   return Locale.has("subtitles.speaker") ? Locale.t("subtitles.speaker", { name }) : `${name}:`;
-}
-
-function text(row: UIDocumentElement, selector: string): UIText | null {
-  const el = row.query(selector);
-  return el && el.component instanceof UIText ? el.component : null;
-}
-
-/** Writes a field only when it differs (so the UI isn't marked changed every frame). */
-function set<T extends object, K extends keyof T>(target: T, key: K, value: T[K]): void {
-  if (target[key] !== value) target[key] = value;
 }
 
 const clamp = (v: number, lo: number, hi: number): number => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : lo);

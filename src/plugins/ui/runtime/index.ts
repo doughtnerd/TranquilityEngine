@@ -6,14 +6,14 @@
 import type { RenderFeatureSpec } from "../../../engine/render/renderFeatures";
 import { isUIComponent, UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../../../engine/ui/components";
 import { UIDocument } from "../../../engine/ui/UIDocument";
-import { UIControlMapper } from "../../../engine/ui/controlMapper";
+import { UIControlMapper } from "./UIControlMapper";
 import { UIView } from "./UIView";
 import type { RuntimePlugin } from "../../runtimeContext";
 import { uiManifest } from "../manifest";
 
 export { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIAlign, type UICanvasMode, type UIDisplay, type UIFlexDirection, type UIImageFit, type UIJustify, type UILength, type UINavigationMode, type UIPositionType, type UITextAlign, type UIWordBreak } from "../../../engine/ui/components";
 export { UIActions, UI_CONTEXT_PRIORITY } from "../../../engine/ui/navigation";
-export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, type UIControlMapperRow, type UIControlMapperSetting, type UIControlMapperSettingKind, type UIControlMapperText } from "../../../engine/ui/controlMapper";
+export { UIControlMapper, type UIControlMapperCell, type UIControlMapperDevice, type UIControlMapperRow, type UIControlMapperSetting, type UIControlMapperSettingKind, type UIControlMapperText } from "./UIControlMapper";
 export { UIClassList, UIDocument, UIDocumentElement, UIEvents, type UIEvent, type UIEventHandler, type UIEventType, type UIListOptions, type UITag } from "../../../engine/ui/UIDocument";
 export { UIView } from "./UIView";
 /** A UI element a `UIView`'s component rendered (ADR 0419): `view.query("#play")`. */

@@ -18,7 +18,7 @@ import { isRuntimePluginActive, RUNTIME_PLUGINS, type RuntimePlugin } from "./ru
 import { applyTestPlugins } from "./testPlugins";
 import { spritesRuntimePlugin } from "./sprites/runtime";
 import { uiRuntimePlugin } from "./ui/runtime";
-import { UIControlMapper } from "../engine/ui/controlMapper";
+import { UIControlMapper } from "./ui/runtime/UIControlMapper";
 import { waterRuntimePlugin } from "./water/runtime";
 
 /** A plugin's render feature spec, as its activation registered it. */

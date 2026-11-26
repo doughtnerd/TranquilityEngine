@@ -109,6 +109,11 @@ export class UIView extends Component {
     return this.tree?.root ?? null;
   }
 
+  /** @internal Apply the props' queued changes now, so a built-in UI's own code reads what they render in the same frame. */
+  _flush(): void {
+    this.mounted?.flush();
+  }
+
   /** The first rendered element a selector matches (`#play`, `.row button`), or null. */
   query(selector: string): UIHostElement | null {
     return this.tree?.isValid ? this.tree.query(selector) : null;
