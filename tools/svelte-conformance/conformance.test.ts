@@ -31,9 +31,12 @@ import { animations, clock, standInAnimate } from "./animationStandIn";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const version = JSON.parse(readFileSync(join(root, "node_modules/svelte/package.json"), "utf8")).version as string;
-const checkout = join(root, "node_modules/.cache/svelte-conformance", version);
+// `SVELTE_CONFORMANCE_CACHE` moves the fixtures and results (a directory holding `<version>/` and `results.json`) so
+// concurrent runs don't share the compiled output; its path must contain "svelte-conformance" (the Vitest config's imports).
+const cache = process.env.SVELTE_CONFORMANCE_CACHE ?? join(root, "node_modules/.cache/svelte-conformance");
+const checkout = join(cache, version);
 const SAMPLES = join(checkout, "packages/svelte/tests/runtime-runes/samples");
-const RESULTS = join(root, "node_modules/.cache/svelte-conformance/results.json");
+const RESULTS = join(cache, "results.json");
 const BASELINE = join(root, "tools/svelte-conformance/baseline.json");
 const FILTER = process.env.FILTER ? new RegExp(process.env.FILTER) : null;
 const SAMPLE_TIMEOUT = 5000;
