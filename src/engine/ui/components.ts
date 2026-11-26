@@ -63,6 +63,22 @@ export type UIScrollBehavior = "auto" | "smooth";
 export type UIOverscrollBehavior = "auto" | "contain" | "none";
 /** ADR 0423: a scrollbar's thickness: `auto` (10 UI pixels), `thin` (6) or `none` (hidden, the element still scrolls). */
 export type UIScrollbarWidth = "auto" | "thin" | "none";
+/**
+ * ADR 0428: the axes a scroller snaps on (`scroll-snap-type`'s first value): `x`, `y`, `both`, or `block` (vertical)
+ * and `inline` (horizontal) in the UI's horizontal writing mode; `none` doesn't snap.
+ */
+export type UIScrollSnapAxis = "none" | "x" | "y" | "block" | "inline" | "both";
+/** ADR 0428: `mandatory` always rests on a snap position; `proximity` only when it ends near one. */
+export type UIScrollSnapStrictness = "proximity" | "mandatory";
+/** ADR 0428: where a snap area lines up with its scroller's snapport on an axis (`scroll-snap-align`). */
+export type UIScrollSnapAlign = "none" | "start" | "end" | "center";
+/** ADR 0428: `always` keeps a scroll gesture from passing over this element's snap position (`scroll-snap-stop`). */
+export type UIScrollSnapStop = "normal" | "always";
+/** ADR 0428: `stable` reserves the vertical scrollbar's space whether or not it shows; `stable both-edges` on both sides. */
+export type UIScrollbarGutter = "auto" | "stable" | "stable both-edges";
+/** ADR 0428: an element's direction (CSS `direction`, HTML `dir`): `rtl` lays rows out from the right and scrolls from there. */
+export type UIDirection = "ltr" | "rtl";
+const SNAP_ALIGN = ["none", "start", "end", "center"];
 
 const OVERFLOW = ["visible", "hidden", "auto", "scroll"];
 const FLEX_DIRECTIONS = ["row", "column", "row-reverse", "column-reverse"];
@@ -213,7 +229,9 @@ abstract class UIElement extends UIComponent {
   /**
    * ADR 0423: how far its content is scrolled right and down, in UI pixels (`scrollLeft`/`scrollTop` on the web).
    * Scripts write them; the UI core keeps them between 0 and how far the content reaches past its padding box, at
-   * each layout. Only an element that clips (`overflow` other than `visible`) scrolls.
+   * each layout. Only an element that clips (`overflow` other than `visible`) scrolls. ADR 0428: an axis whose content
+   * starts at its far end (`row-reverse`, `column-reverse`, `direction: rtl`) is 0 showing that end and negative
+   * toward the other, as CSSOM's offsets are.
    */
   @field(Number) scrollX = 0;
   @field(Number) scrollY = 0;
@@ -227,6 +245,42 @@ abstract class UIElement extends UIComponent {
   @field(Color) scrollbarThumbColor: Color | null = null;
   /** ADR 0423: its scrollbars' track colour; null: the default, a faint dark strip. */
   @field(Color) scrollbarTrackColor: Color | null = null;
+  /**
+   * ADR 0428: whether the vertical scrollbar's space is kept (`scrollbar-gutter`): `auto` draws the bar over the content;
+   * `stable` (on an element that clips) reserves it beside the padding box, on the bar's side, whether or not the bar
+   * shows, so `clientWidth` is smaller and the content doesn't move when it appears; `stable both-edges` on both sides.
+   */
+  @field(String, { choices: ["auto", "stable", "stable both-edges"] }) scrollbarGutter: UIScrollbarGutter = "auto";
+  /**
+   * ADR 0428: CSS Scroll Snap on a scroller (`scroll-snap-type: <axis> [mandatory | proximity]`): the axes it snaps
+   * on. After the wheel settles, a touch drag's momentum, keys, `scrollTo`/`scrollBy`, `scrollIntoView` and
+   * navigation, it rests where a descendant's `scroll-snap-align` says; after a layout change it snaps again.
+   */
+  @field(String, { choices: ["none", "x", "y", "block", "inline", "both"] }) scrollSnapAxis: UIScrollSnapAxis = "none";
+  /** ADR 0428: `mandatory` always rests on a snap position; `proximity` (the default) only near one. */
+  @field(String, { choices: ["proximity", "mandatory"] }) scrollSnapStrictness: UIScrollSnapStrictness = "proximity";
+  /** ADR 0428: how this element lines up in its scroller when snapped, vertically (`scroll-snap-align`'s first value). */
+  @field(String, { choices: SNAP_ALIGN }) scrollSnapAlignBlock: UIScrollSnapAlign = "none";
+  /** ADR 0428: …and horizontally (`scroll-snap-align`'s second value; one value sets both). */
+  @field(String, { choices: SNAP_ALIGN }) scrollSnapAlignInline: UIScrollSnapAlign = "none";
+  /** ADR 0428: `always`: a scroll gesture stops at this element's snap position rather than passing over it. */
+  @field(String, { choices: ["normal", "always"] }) scrollSnapStop: UIScrollSnapStop = "normal";
+  /** ADR 0428: a scroller's snapport inset from its padding box (`scroll-padding`), UI pixels per side. */
+  @field(Number) scrollPaddingTop = 0;
+  @field(Number) scrollPaddingRight = 0;
+  @field(Number) scrollPaddingBottom = 0;
+  @field(Number) scrollPaddingLeft = 0;
+  /** ADR 0428: this element's snap area outset from its border box (`scroll-margin`), UI pixels per side. */
+  @field(Number) scrollMarginTop = 0;
+  @field(Number) scrollMarginRight = 0;
+  @field(Number) scrollMarginBottom = 0;
+  @field(Number) scrollMarginLeft = 0;
+  /**
+   * ADR 0428: its direction (CSS `direction`, HTML `dir`); null (the default) takes its parent's, and a canvas is `ltr`.
+   * In `rtl` a row lays out from the right and a scroller's horizontal scrolling starts at the right: `scrollX` is 0
+   * there and negative toward the left, as browsers' `scrollLeft`. Text runs keep the language's direction.
+   */
+  @field(String, { choices: ["ltr", "rtl"] }) direction: UIDirection | null = null;
   /**
    * ADR 0422: a pointer press on it (or inside it) that moves starts a UI drag: `dragstart` on it, `drag` while it
    * moves, `dragenter`/`dragover`/`dragleave` on the elements under the pointer, `drop` where it's released (if a

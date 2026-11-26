@@ -1623,7 +1623,11 @@ function hostAttributes(el: UIRenderElement): Map<string, string> {
     else if (k === "maxlength" && (tag === "InputField" || tag === "TextArea")) out.set("max-length", s);
     else if (k === "value" && tag === "Progress" && s === "") continue;
     else if (k === "value" && tag === "Button") continue; // an <input type="submit">'s label (`inputButtonLabel`)
-    else if (HTML_ONLY.has(k)) continue;
+    else if (k === "dir") {
+      // ADR 0428: `dir="ltr|rtl"` is the element's direction (`auto` and others: its parent's).
+      const d = s.toLowerCase();
+      if (d === "ltr" || d === "rtl") out.set("direction", d);
+    } else if (HTML_ONLY.has(k)) continue;
     else if (k === "src" && tag === "Image") out.set("image", s);
     else if (k === "inert") out.set("inert", "true"); // HTML's boolean attribute (present: inert)
     else if (k === "disabled") {

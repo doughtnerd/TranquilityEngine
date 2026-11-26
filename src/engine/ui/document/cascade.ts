@@ -723,6 +723,67 @@ const SCROLLBAR_COLOR: Shorthand = {
   },
 };
 
+/** ADR 0428: `scroll-padding`/`scroll-margin`'s `auto` is no inset here. */
+const scrollInset = (p: string) => (p.toLowerCase() === "auto" ? "0" : p);
+
+/** ADR 0428: `scroll-padding` and `scroll-margin`: one to four values to the sides (`auto` is 0). */
+function scrollEdges(prefix: "scrollPadding" | "scrollMargin"): Shorthand {
+  const sides = SIDES.map((s) => `${prefix}${s}`);
+  return {
+    longhands: sides,
+    expand(value) {
+      const four = fourSides(valueParts(value).map(scrollInset));
+      return four ? sides.map((s, i): Longhand => [s, four[i]]) : null;
+    },
+  };
+}
+
+/** ADR 0428: `scroll-padding-block`/`-inline` (and the margins'): `<start> [<end>]` on the vertical or horizontal sides. */
+function scrollAxisEdges(prefix: "scrollPadding" | "scrollMargin", axis: "block" | "inline"): Shorthand {
+  const [a, b] = axis === "block" ? [`${prefix}Top`, `${prefix}Bottom`] : [`${prefix}Left`, `${prefix}Right`];
+  return {
+    longhands: [a, b],
+    expand(value) {
+      const parts = valueParts(value).map(scrollInset);
+      return parts.length === 1 || parts.length === 2 ? [[a, parts[0]], [b, parts[1] ?? parts[0]]] : null;
+    },
+  };
+}
+
+const SNAP_AXES: ReadonlySet<string> = new Set(["x", "y", "block", "inline", "both"]);
+
+/** ADR 0428: `scroll-snap-type: none | <axis> [mandatory | proximity]` (`scrollSnapAxis`, `scrollSnapStrictness`). */
+const SCROLL_SNAP_TYPE: Shorthand = {
+  longhands: ["scrollSnapAxis", "scrollSnapStrictness"],
+  expand(value) {
+    const parts = valueParts(value).map((p) => p.toLowerCase());
+    if (parts.length === 1 && parts[0] === "none") return [["scrollSnapAxis", "none"], ["scrollSnapStrictness", "proximity"]];
+    if (parts.length < 1 || parts.length > 2 || !SNAP_AXES.has(parts[0])) return null;
+    const strictness = parts[1] ?? "proximity";
+    return strictness === "mandatory" || strictness === "proximity" ? [["scrollSnapAxis", parts[0]], ["scrollSnapStrictness", strictness]] : null;
+  },
+};
+
+/** ADR 0428: `scroll-snap-align: <block> [<inline>]` (one value both). */
+const SCROLL_SNAP_ALIGN: Shorthand = {
+  longhands: ["scrollSnapAlignBlock", "scrollSnapAlignInline"],
+  expand(value) {
+    const parts = valueParts(value).map((p) => p.toLowerCase());
+    return parts.length === 1 || parts.length === 2 ? [["scrollSnapAlignBlock", parts[0]], ["scrollSnapAlignInline", parts[1] ?? parts[0]]] : null;
+  },
+};
+
+/** ADR 0428: `scrollbar-gutter: auto | stable | stable both-edges` (either order). */
+const SCROLLBAR_GUTTER: Shorthand = {
+  longhands: ["scrollbarGutter"],
+  expand(value) {
+    const parts = valueParts(value).map((p) => p.toLowerCase()).sort();
+    const key = parts.join(" ");
+    if (key === "auto" || key === "stable") return [["scrollbarGutter", key]];
+    return key === "both-edges stable" ? [["scrollbarGutter", "stable both-edges"]] : null;
+  },
+};
+
 /** Shorthand properties by the field name they're written as (`border-width` → `borderWidth`). */
 const SHORTHANDS: ReadonlyMap<string, Shorthand> = new Map([
   ["padding", edgeShorthand("padding", (s) => `padding${s}`)],
@@ -732,6 +793,15 @@ const SHORTHANDS: ReadonlyMap<string, Shorthand> = new Map([
   ["flex", FLEX],
   ["overflow", OVERFLOW],
   ["scrollbarColor", SCROLLBAR_COLOR],
+  ["scrollbarGutter", SCROLLBAR_GUTTER],
+  ["scrollSnapType", SCROLL_SNAP_TYPE],
+  ["scrollSnapAlign", SCROLL_SNAP_ALIGN],
+  ["scrollPadding", scrollEdges("scrollPadding")],
+  ["scrollMargin", scrollEdges("scrollMargin")],
+  ["scrollPaddingBlock", scrollAxisEdges("scrollPadding", "block")],
+  ["scrollPaddingInline", scrollAxisEdges("scrollPadding", "inline")],
+  ["scrollMarginBlock", scrollAxisEdges("scrollMargin", "block")],
+  ["scrollMarginInline", scrollAxisEdges("scrollMargin", "inline")],
 ]);
 
 /** True when `name` is a shorthand that sets one of `fields` (a Text has no border, so `border` on it sets nothing). */
