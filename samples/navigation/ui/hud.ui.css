@@ -1,0 +1,12 @@
+/* The navigation HUD's look (ADR 0077): white text with a black outline, top left, in reference pixels. */
+#status {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  text-align: left;
+  font-size: 18px;
+  font-weight: bold;
+  color: white;
+  text-outline-color: black;
+  text-outline-width: 3px;
+}

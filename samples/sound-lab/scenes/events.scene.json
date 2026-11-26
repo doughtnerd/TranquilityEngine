@@ -1,14 +1,31 @@
 {
   "format": "myco.scene@5",
-  "settings": { "physics": "3d" },
+  "settings": {
+    "physics": "3d"
+  },
   "nodes": [
     {
       "id": "camera",
       "name": "Camera",
       "components": [
-        { "type": "engine.Transform", "data": { "position": [0, 5, -12], "rotation": [0.1736482, 0, 0, 0.9848078] } },
-        { "type": "engine.Camera", "data": { "projection": "perspective", "fieldOfView": 55 } },
-        { "type": "engine.AudioListener", "data": {} }
+        {
+          "type": "engine.Transform",
+          "data": {
+            "position": [0, 5, -12],
+            "rotation": [0.1736482, 0, 0, 0.9848078]
+          }
+        },
+        {
+          "type": "engine.Camera",
+          "data": {
+            "projection": "perspective",
+            "fieldOfView": 55
+          }
+        },
+        {
+          "type": "engine.AudioListener",
+          "data": {}
+        }
       ]
     },
     {
@@ -17,18 +34,12 @@
       "transform": false,
       "components": [
         {
-          "type": "engine.Text",
+          "type": "lab.SceneSwitch",
           "data": {
-            "text": "Sound Lab: audio events (B goes back to the tour)\nClick the game view first. Footsteps, engine and music play together.",
-            "anchor": "top-left",
-            "align": "left",
-            "offset": [24, 20],
-            "fontSize": 22,
-            "outlineColor": "#000000",
-            "outlineWidth": 4
+            "key": "b",
+            "scene": "scenes/main.scene.json"
           }
-        },
-        { "type": "lab.SceneSwitch", "data": { "key": "b", "scene": "scenes/main.scene.json" } }
+        }
       ]
     },
     {
@@ -37,10 +48,13 @@
       "transform": false,
       "components": [
         {
-          "type": "engine.Text",
-          "data": { "anchor": "top-left", "align": "left", "offset": [24, 110], "fontSize": 24, "outlineColor": "#000000", "outlineWidth": 4 }
-        },
-        { "type": "lab.Footsteps", "data": {} }
+          "type": "lab.Footsteps",
+          "data": {
+            "hud": {
+              "$node": "hud"
+            }
+          }
+        }
       ]
     },
     {
@@ -49,10 +63,13 @@
       "transform": false,
       "components": [
         {
-          "type": "engine.Text",
-          "data": { "anchor": "top-left", "align": "left", "offset": [24, 190], "fontSize": 24, "outlineColor": "#000000", "outlineWidth": 4 }
-        },
-        { "type": "lab.EngineBench", "data": {} }
+          "type": "lab.EngineBench",
+          "data": {
+            "hud": {
+              "$node": "hud"
+            }
+          }
+        }
       ]
     },
     {
@@ -61,11 +78,33 @@
       "transform": false,
       "components": [
         {
-          "type": "engine.Text",
-          "data": { "anchor": "top-left", "align": "left", "offset": [24, 270], "fontSize": 24, "outlineColor": "#000000", "outlineWidth": 4 }
+          "type": "engine.AudioSource",
+          "data": {
+            "clip": "asset:audio/events/music-intensity.playlist.json",
+            "playOnAwake": false
+          }
         },
-        { "type": "engine.AudioSource", "data": { "clip": "asset:audio/events/music-intensity.playlist.json", "playOnAwake": false } },
-        { "type": "lab.MusicIntensity", "data": {} }
+        {
+          "type": "lab.MusicIntensity",
+          "data": {
+            "hud": {
+              "$node": "hud"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "hud",
+      "name": "HUD",
+      "transform": false,
+      "components": [
+        {
+          "type": "engine.UIDocument",
+          "data": {
+            "document": "asset:ui/events.ui.xml"
+          }
+        }
       ]
     }
   ]

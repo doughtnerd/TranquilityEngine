@@ -1,0 +1,10 @@
+<!--
+  The Sound Lab's main page text as a UI document (ADR 0077): the page's heading lines and its readouts.
+  The look is in lab.ui.css, shared by every page; the scripts on the scene's nodes fill the {bindings}.
+-->
+<Canvas>
+  <Style src="lab.ui.css"/>
+  <Panel id="hud">
+    <Text id="loudness" class="readout">{loudness}</Text>
+  </Panel>
+</Canvas>
