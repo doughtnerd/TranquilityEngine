@@ -23,3 +23,25 @@
 .tile-terrains { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 4px; }
 .tile-terrains button { display: inline-flex; align-items: center; gap: 6px; }
 .tile-terrain-swatch { width: 10px; height: 10px; border-radius: 2px; border: 1px solid var(--border-strong); }
+/* ADR 0425: layer locks and Dim inactive layers. */
+.tile-layer-lock { display: inline-flex; align-items: center; justify-content: center; padding: 2px; line-height: 0; }
+.tile-layer-lock svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tile-layers li.locked .tile-layer-name { color: var(--muted); }
+.tile-layer-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tile-dim { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); cursor: pointer; }
+/* ADR 0426: the selection bar, tabs, Replace with…, stamps and prefabs. */
+.tile-selectionbar { align-items: center; padding: 4px; border: 1px solid var(--border); border-radius: 3px; background: var(--panel); }
+.tile-selectionbar .hint { margin: 0; }
+.tile-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--border); }
+.tile-tabs button { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+.tile-replace { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; padding: 4px; border: 1px solid var(--accent); border-radius: 3px; background: var(--accent-soft); color: var(--text); }
+.tile-grid-cell.replacing { border-color: var(--danger); }
+.tile-stamps { list-style: none; margin: 0 0 4px; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.tile-stamps li { display: flex; align-items: center; gap: 4px; }
+.tile-stamps li input { flex: 1; }
+.tile-stamp { flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 6px; text-align: left; }
+.tile-stamp-size { color: var(--muted); font-size: 11px; }
+.tile-stamp-menu { padding: 2px 6px; }
+.tile-stamp-save { display: flex; gap: 4px; }
+.tile-stamp-save input { flex: 1; }
+.tile-prefabs.over { outline: 1px dashed var(--accent); outline-offset: 2px; }

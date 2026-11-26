@@ -459,6 +459,24 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
     }
   }
 
+  /**
+   * Replace every cell of tile `fromId` with tile `toId` (0 clears them), keeping each cell's flip flags, in one layer
+   * or every layer (ADR 0426). Returns how many cells changed. Changes are reported like other script edits
+   * (`TilemapChanges`, `onTileChanged`). Throws for a missing layer or a `toId` the tileset doesn't have.
+   */
+  replaceTile(fromId: number, toId: number, layer?: number | string): number {
+    if (layer !== undefined && !this.layerAt(layer)) throw new Error(`Tilemap "${this.node.name}" has no layer ${JSON.stringify(layer)}.`);
+    if (!fromId || fromId === toId) return 0;
+    const layers = layer === undefined ? this._layers().map((_, i) => i) : [this.indexOf(layer)];
+    let changed = 0;
+    for (const li of layers) {
+      for (const { x, y, id, flags } of [...this.tiles(li)]) {
+        if (id === fromId && this.setCell(x, y, toId ? cellValue(toId, flags) : 0, li)) changed++;
+      }
+    }
+    return changed;
+  }
+
   /** Remove every tile from a layer (or every layer). */
   clearAll(layer?: number | string): void {
     const layers = layer === undefined ? this._layers().map((_, i) => i) : [this.indexOf(layer)];
@@ -547,6 +565,19 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
       const i = this.listeners.indexOf(listener);
       if (i >= 0) this.listeners.splice(i, 1);
     };
+  }
+
+  // --- editor view (ADR 0425) ----------------------------------------------------------------
+
+  private viewOpacity = new Map<number, number>();
+
+  /**
+   * @internal The editor's view-only opacity factor for a layer (Dim inactive layers, ADR 0425), multiplied with the
+   * layer's own opacity in the edit view; null puts it back. Never changes the `layers` field.
+   */
+  _setViewOpacity(layerIndex: number, factor: number | null): void {
+    if (factor === null) this.viewOpacity.delete(layerIndex);
+    else this.viewOpacity.set(layerIndex, factor);
   }
 
   // --- coordinates ---------------------------------------------------------------------------

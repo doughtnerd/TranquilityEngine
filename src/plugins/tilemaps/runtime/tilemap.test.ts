@@ -349,3 +349,40 @@ describe("tile anchors (ADR 0119)", () => {
     expect(tileAnchor(newTileset(), { id: 1, uuid: legacyTileUuid(1), sprite: "", collision: "none" })).toEqual([0, 0]);
   });
 });
+
+describe("Tilemap.replaceTile (ADR 0426)", () => {
+  it("replaces a tile by another, keeping flip flags, in one layer or every layer, and reports each cell", async () => {
+    await setup();
+    const node = GameObject.create("map");
+    const map = node.addBehavior(Tilemap, { tileset: "tiles.tileset.json" });
+    map.layers = [newLayer("A"), newLayer("B")];
+    map.setTile(0, 0, 1);
+    map.setTile(1, 0, 1, 0, FLIP_X | FLIP_DIAGONAL);
+    map.setTile(2, 0, 2);
+    map.setTile(0, 5, 1, "B", FLIP_Y);
+    const seen: [number, number, number][] = [];
+    const stop = map.onTileChanged((c) => seen.push([c.layer, c.previous, c.value]));
+    // Only layer A.
+    expect(map.replaceTile(1, 4, "A")).toBe(2);
+    expect(map.getCell(0, 0)).toBe(4);
+    expect(map.getCell(1, 0)).toBe(cellValue(4, FLIP_X | FLIP_DIAGONAL));
+    expect(map.getTile(2, 0)).toBe(2);
+    expect(map.getCell(0, 5, "B")).toBe(cellValue(1, FLIP_Y));
+    expect(seen).toEqual([
+      [0, 1, 4],
+      [0, cellValue(1, FLIP_X | FLIP_DIAGONAL), cellValue(4, FLIP_X | FLIP_DIAGONAL)],
+    ]);
+    // Every layer; replacing a tile by itself or a tile nobody uses changes nothing.
+    expect(map.replaceTile(1, 3)).toBe(1);
+    expect(map.getCell(0, 5, 1)).toBe(cellValue(3, FLIP_Y));
+    expect(map.replaceTile(3, 3)).toBe(0);
+    expect(map.replaceTile(2, 2, 1)).toBe(0);
+    // 0 clears; the saved layers agree.
+    expect(map.replaceTile(4, 0)).toBe(2);
+    expect([...map.tiles(0)].map((t) => t.id)).toEqual([2]);
+    expect(Object.values(map.toLayerData()[0].palette)).toHaveLength(1);
+    stop();
+    expect(() => map.replaceTile(1, 2, "nope")).toThrow(/no layer/);
+    expect(() => map.replaceTile(2, 99)).toThrow();
+  });
+});

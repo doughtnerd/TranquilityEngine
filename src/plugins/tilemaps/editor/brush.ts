@@ -5,19 +5,26 @@
 // in cell space: rectangles are cell-space rectangles (diamonds on an isometric map), flood fill follows the cells
 // sharing a side, and stamps keep their layout. On hexagonal maps a quarter turn isn't a symmetry, so the brush only
 // flips tiles' images there: Rotate is off and a multi-cell stamp's layout is neither mirrored nor turned.
+// The brush skips locked layers (ADR 0425). A stamp of several named layers (a selection copied across layers, a saved
+// stamp, ADR 0426) pastes with the pencil into the map's layers of the same names. The brush remembers the tileset its
+// tile ids are of, so a stamp copied from one Tilemap paints another with another tileset by tile uuid.
 import { signal, type ReadonlySignal } from "@preact/signals";
 import { type GameObject } from "../../../engine";
 import { Tilemap } from "../runtime";
 import { floodCells, lineCells, rectCells, type Cell, type Stamp } from "../runtime/brushes";
-import { FLIP_DIAGONAL, FLIP_X, FLIP_Y, cellValue, flagsOf, tileIdOf } from "../runtime/format";
-import { compose, flipPoint, rotateClockwise } from "../runtime/tileFlips";
-import { pickWeighted } from "../runtime/tileset";
+import { FLIP_X, FLIP_Y, tileIdOf } from "../runtime/format";
+import { rotateClockwise } from "../runtime/tileFlips";
+import { pickWeighted, type Tileset } from "../runtime/tileset";
 import { cellRandom, newSeed, RANDOM_BRUSH_STREAM } from "../runtime/cellHash";
-import { editor, type OpenScene } from "../../../editor/sdk";
+import { blockTargets, layerLocked } from "./selectionLogic";
+import { orientedStamp } from "./stampLayout";
+import { blockOfStamp, retargetBlock, stampOfBlock, type StampBlock } from "./stampLibrary";
+import { editor, persisted, type OpenScene } from "../../../editor/sdk";
 
-export type BrushTool = "pencil" | "rect" | "fill" | "erase" | "pick";
+export type BrushTool = "pencil" | "rect" | "fill" | "erase" | "pick" | "select";
 
 export const BRUSH_TOOLS: readonly { tool: BrushTool; label: string; key: string; title: string }[] = [
+  { tool: "select", label: "Select", key: "S", title: "Select cells to copy, cut, move, flip or delete (S; Shift adds, Alt subtracts, Ctrl/⌘+A selects every used cell)" },
   { tool: "pencil", label: "Pencil", key: "B", title: "Paint the brush cell by cell (B)" },
   { tool: "rect", label: "Rectangle", key: "U", title: "Drag a rectangle to fill with the brush (U)" },
   { tool: "fill", label: "Fill", key: "G", title: "Flood fill the clicked area with the brush (G)" },
@@ -44,6 +51,25 @@ export const brushTerrain = signal<string | null>(null);
 export const brushFlags = signal(0);
 /** The layer painted, by index. */
 export const activeLayer = signal(0);
+/**
+ * ADR 0426: the stamp's named layers when it has several (a selection copied across layers, a saved stamp): the
+ * pencil pastes each into the map's layer of the same name. Null: `brushStamp` alone, into the active layer.
+ */
+export const brushLayers = signal<StampBlock | null>(null);
+/** ADR 0426: the tileset the brush's tile ids are of (null: the painted map's). Another map's tileset gets the tiles by uuid. */
+export const brushSource = signal<Tileset | null>(null);
+/**
+ * ADR 0426: the prefabs the prefab brush places (project paths), several for random mode. While any is chosen, the
+ * pencil, rectangle and eraser place and remove prefab instances instead of tiles (`prefabBrush.ts`).
+ */
+export const brushPrefabs = signal<readonly string[]>([]);
+/**
+ * ADR 0425: while a Tilemap is being painted, its other layers draw at `DIM_FACTOR` of their opacity in the edit view.
+ * Per user, saved with the editor's settings, never in the scene.
+ */
+export const dimInactiveLayers = persisted("myco.tilemaps.dimInactiveLayers", false);
+/** How much of their opacity the inactive layers keep while dimmed. */
+export const DIM_FACTOR = 0.35;
 
 /** Pick a brush tool: the paint tool becomes the active viewport tool in that mode (null ends painting). */
 export function pickBrushTool(t: BrushTool | null): void {
@@ -51,23 +77,57 @@ export function pickBrushTool(t: BrushTool | null): void {
   else editor.viewport.leave(PAINT_TOOL_ID);
 }
 
+/** Picks the pencil unless a painting tool (pencil, rectangle, fill) is already picked. */
+function pickPaintingTool(): void {
+  const t = brushTool.peek();
+  if (!t || t === "erase" || t === "pick" || t === "select") pickBrushTool("pencil");
+}
+
 /**
  * Brush a stamp (a single tile is 1 × 1): the block as it is, or with `random` one of its tiles per
- * cell. Picks the pencil unless a painting tool (pencil, rectangle, fill) is already picked.
+ * cell. `source` is the tileset its ids are of (absent: the painted map's). Picks the pencil unless a painting tool
+ * (pencil, rectangle, fill) is already picked.
  */
-export function chooseStamp(stamp: Stamp, random = false): void {
+export function chooseStamp(stamp: Stamp, random = false, source: Tileset | null = null): void {
   brushStamp.value = stamp;
+  brushLayers.value = null;
+  brushSource.value = source;
   brushTerrain.value = null;
+  brushPrefabs.value = [];
   brushRandom.value = random;
-  const t = brushTool.peek();
-  if (!t || t === "erase" || t === "pick") pickBrushTool("pencil");
+  pickPaintingTool();
+}
+
+/**
+ * Brush a block of named layers (ADR 0426) of `source`'s tiles: with one layer it paints the active layer, with several
+ * the layers of the same names. The brush's flips start over. Picks the pencil unless a painting tool is picked.
+ */
+export function chooseBlock(block: StampBlock, source: Tileset | null): void {
+  brushStamp.value = stampOfBlock(block);
+  brushLayers.value = block.layers.length > 1 ? block : null;
+  brushSource.value = source;
+  brushTerrain.value = null;
+  brushPrefabs.value = [];
+  brushRandom.value = false;
+  brushFlags.value = 0;
+  pickPaintingTool();
 }
 
 /** Brush a terrain with auto-tiling (null: back to the stamp). Picks the pencil unless another tool but Pick is picked. */
 export function chooseTerrain(name: string | null): void {
   brushTerrain.value = name;
+  if (name) brushPrefabs.value = [];
   const t = brushTool.peek();
-  if (name && (!t || t === "pick")) pickBrushTool("pencil");
+  if (name && (!t || t === "pick" || t === "select")) pickBrushTool("pencil");
+}
+
+/** Brush prefabs (ADR 0426; empty: back to tiles), with several one at random per cell. Picks the pencil unless the pencil, rectangle or eraser is picked. */
+export function choosePrefabs(paths: readonly string[]): void {
+  brushPrefabs.value = paths;
+  if (paths.length === 0) return;
+  brushTerrain.value = null;
+  const t = brushTool.peek();
+  if (t !== "pencil" && t !== "rect" && t !== "erase") pickBrushTool("pencil");
 }
 
 /** Whether the brush can turn on `map`'s grid: not on hexagonal maps (ADR 0421). */
@@ -111,12 +171,15 @@ export interface BrushStroke {
 
 /**
  * Start a stroke with `tool` on the cell pressed: pencil and erase paint it, fill floods from it.
- * The brush read is the Tile Palette's (stamp, flips, random, terrain) as it is now.
+ * The brush read is the Tile Palette's (stamp, flips, random, terrain) as it is now. A locked active layer (ADR 0425)
+ * isn't painted, filled or picked from, and says so; a stamp of several layers still paints the unlocked layers it names.
+ * The selection tool's strokes (`select`) only track the dragged rectangle: the paint tool acts on the selection.
  */
 export function beginStroke(map: Tilemap, tool: BrushTool, cell: Cell): BrushStroke {
   const start: Cell = [cell[0], cell[1]];
   let last: Cell = start;
-  const painter = brushPainter(map);
+  const painter = tool === "pick" || tool === "select" ? null : brushPainter(map, tool);
+  if (!painter && tool !== "select") tellIfLocked(map);
   const shape = footprintShape(tool, map);
   if (tool === "fill") painter?.fill(start);
   else if (tool === "pencil" || tool === "erase") painter?.paint(tool, [start], start);
@@ -137,16 +200,23 @@ export function beginStroke(map: Tilemap, tool: BrushTool, cell: Cell): BrushStr
         pickFromMap(map, start, last);
         return false;
       }
+      if (tool === "select") return false;
       if (tool === "rect") painter?.paint("rect", rectCells(start[0], start[1], last[0], last[1]), [Math.min(start[0], last[0]), Math.min(start[1], last[1])]);
-      return true;
+      return painter !== null;
     },
     footprint() {
-      if (tool === "rect" || tool === "pick") {
+      if (tool === "rect" || tool === "pick" || tool === "select") {
         return { x0: Math.min(start[0], last[0]), y0: Math.min(start[1], last[1]), x1: Math.max(start[0], last[0]) + 1, y1: Math.max(start[1], last[1]) + 1 };
       }
       return footprintOf(shape, last, start);
     },
   };
+}
+
+/** Says in the status bar that the active layer is locked, when it is (ADR 0425). */
+function tellIfLocked(map: Tilemap): void {
+  const layer = paintLayer(map);
+  if (layer >= 0 && layerLocked(map, layer)) editor.messages.info(`The layer “${map.toLayerData()[layer]?.name ?? layer}” is locked. Unlock it in the Tile Palette to paint it.`);
 }
 
 /**
@@ -159,7 +229,7 @@ export function footprintAt(tool: BrushTool, cell: Cell, map: Tilemap | null = n
 
 /** The block `tool` paints at a cell with the brush as it is now: the pencil's stamp as laid out, else one cell. */
 function footprintShape(tool: BrushTool, map: Tilemap | null): { width: number; height: number } {
-  if (tool !== "pencil" || brushTerrain.peek() || brushRandom.peek()) return { width: 1, height: 1 };
+  if (tool !== "pencil" || brushTerrain.peek() || brushRandom.peek() || brushPrefabs.peek().length > 0) return { width: 1, height: 1 };
   const { width, height } = orientedStamp(brushStamp.peek(), brushFlags.peek(), canRotateOn(map));
   return { width, height };
 }
@@ -175,36 +245,22 @@ function stampCorner(x: number, y: number, origin: Cell, width: number, height: 
   return [origin[0] + Math.floor((x - origin[0]) / width) * width, origin[1] + Math.floor((y - origin[1]) / height) * height];
 }
 
-/**
- * The stamp as painted with the brush's flips `flags`: the block's layout transformed as one tile is
- * (mirrored, and turned with width and height swapped), each tile's own flips composed with `flags`.
- * Cells map through `flipPoint`, so the block and its tiles follow tileFlips.ts's one convention.
- * Without `layout` (hexagonal maps, ADR 0421) only the tiles' images flip: the layout stays and turns are dropped.
- */
-function orientedStamp(stamp: Stamp, flags: number, layout = true): Stamp {
-  if (!layout) flags &= FLIP_X | FLIP_Y;
-  if (!flags) return stamp;
-  if (!layout) return { width: stamp.width, height: stamp.height, values: stamp.values.map((v) => withFlips(v, flags)) };
-  const turned = (flags & FLIP_DIAGONAL) !== 0;
-  const width = turned ? stamp.height : stamp.width, height = turned ? stamp.width : stamp.height;
-  const values = new Array<number>(width * height).fill(0);
-  for (let r = 0; r < stamp.height; r++) {
-    for (let c = 0; c < stamp.width; c++) {
-      const [u, v] = flipPoint((c + 0.5) / stamp.width, (r + 0.5) / stamp.height, flags);
-      values[Math.floor(v * height) * width + Math.floor(u * width)] = withFlips(stamp.values[r * stamp.width + c] ?? 0, flags);
-    }
-  }
-  return { width, height, values };
-}
-
-/** A stamp value with `flags` applied after the tile's own; 0 (empty) stays 0. */
-function withFlips(v: number, flags: number): number {
-  return v ? cellValue(tileIdOf(v), compose(flagsOf(v), flags)) : 0;
-}
-
 /** The layer the brush paints on `map`: the active one, clamped to the map's layers (-1 when it has none). */
 function paintLayer(map: Tilemap): number {
   return Math.min(activeLayer.peek(), map.layerCount - 1);
+}
+
+/**
+ * The brush's block as tiles of `map`'s tileset (ADR 0426): as it is when the brush's tiles are that tileset's, else
+ * matched by uuid, the tiles the map's tileset lacks left out with a message.
+ */
+function brushBlockFor(map: Tilemap): StampBlock {
+  const block = brushLayers.peek() ?? blockOfStamp(brushStamp.peek());
+  const from = brushSource.peek(), to = map.tilesetAsset;
+  if (!from || !to || from === to || from.data === to.data) return block;
+  const moved = retargetBlock(block, from, to);
+  if (moved.missing > 0) editor.messages.info(`${moved.missing === 1 ? "1 tile isn't" : `${moved.missing} tiles aren't`} in this Tilemap's tileset; skipped.`);
+  return moved.block;
 }
 
 /** Where a flood fill may spread: the map's tiles plus a margin, or 32 × 32 cells around the click when empty. */
@@ -225,12 +281,23 @@ function sideNeighbours(map: Tilemap): ((x: number, y: number) => readonly (read
   return (x, y) => grid.neighbours(x, y).filter((_, i) => i % 2 === 0);
 }
 
-/** Paints `map`'s active layer with the brush as it is now (null when the map has no layer). */
-function brushPainter(map: Tilemap): { paint(tool: BrushTool, cells: readonly Cell[], origin: Cell): void; fill(at: Cell): void } | null {
-  const layer = paintLayer(map);
-  if (layer < 0) return null;
+/**
+ * Paints `map` with the brush as it is now for a stroke of `tool`: the active layer, or with the pencil and a stamp of
+ * several layers the unlocked layers it names. Null when there's no layer to paint (none, or locked).
+ */
+function brushPainter(map: Tilemap, tool: BrushTool): { paint(tool: BrushTool, cells: readonly Cell[], origin: Cell): void; fill(at: Cell): void } | null {
+  const active = paintLayer(map);
   const terrain = brushTerrain.peek(), random = brushRandom.peek();
-  const stamp = orientedStamp(brushStamp.peek(), brushFlags.peek(), canRotateOn(map));
+  const flags = brushFlags.peek(), layout = canRotateOn(map);
+  const block = brushBlockFor(map);
+  const layered = tool === "pencil" && !terrain && !random && block.layers.length > 1;
+  const targets = layered
+    ? blockTargets(map, block, active).map((t) => ({ layer: t.layer, stamp: orientedStamp({ width: block.width, height: block.height, values: t.values }, flags, layout) }))
+    : active >= 0 && !layerLocked(map, active)
+      ? [{ layer: active, stamp: orientedStamp(stampOfBlock(block), flags, layout) }]
+      : [];
+  if (targets.length === 0) return null;
+  const layer = targets[0].layer, stamp = targets[0].stamp;
   const weight = (id: number) => map.tilesetAsset?.tile(id)?.weight ?? 1;
   const choices = stamp.values.filter((n) => n !== 0).map((value) => ({ value, weight: weight(tileIdOf(value)) }));
   const seed = map.variantSeed;
@@ -255,17 +322,19 @@ function brushPainter(map: Tilemap): { paint(tool: BrushTool, cells: readonly Ce
       map.paintTerrain(cells, terrain, layer);
       return;
     }
-    if (tool === "pencil" && !random && (stamp.width > 1 || stamp.height > 1)) {
+    if (tool === "pencil" && !random && (layered || stamp.width > 1 || stamp.height > 1)) {
       const placed = new Set<string>();
       for (const [x, y] of cells) {
         const [sx, sy] = stampCorner(x, y, origin, stamp.width, stamp.height);
         const k = `${sx},${sy}`;
         if (placed.has(k)) continue;
         placed.add(k);
-        for (let r = 0; r < stamp.height; r++) {
-          for (let c = 0; c < stamp.width; c++) {
-            const v = stamp.values[r * stamp.width + c];
-            if (v) map.setCell(sx + c, sy + r, v, layer);
+        for (const t of targets) {
+          for (let r = 0; r < t.stamp.height; r++) {
+            for (let c = 0; c < t.stamp.width; c++) {
+              const v = t.stamp.values[r * t.stamp.width + c];
+              if (v) map.setCell(sx + c, sy + r, v, t.layer);
+            }
           }
         }
       }
@@ -284,16 +353,19 @@ function brushPainter(map: Tilemap): { paint(tool: BrushTool, cells: readonly Ce
   };
 }
 
-/** Pick the brush from the map: one cell, or the block between two cells (empty cells stay empty). */
+/** Pick the brush from the map: one cell, or the block between two cells (empty cells stay empty). A locked layer isn't picked from. */
 function pickFromMap(map: Tilemap, a: Cell, b: Cell): void {
   const layer = paintLayer(map);
-  if (layer < 0) return;
+  if (layer < 0 || layerLocked(map, layer)) return;
   const x0 = Math.min(a[0], b[0]), y0 = Math.min(a[1], b[1]), w = Math.abs(a[0] - b[0]) + 1, h = Math.abs(a[1] - b[1]) + 1;
   const values: number[] = [];
   for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) values.push(map.getCell(x0 + c, y0 + r, layer));
   if (values.every((v) => v === 0)) return;
   brushStamp.value = { width: w, height: h, values };
+  brushLayers.value = null;
+  brushSource.value = map.tilesetAsset;
   brushTerrain.value = null;
+  brushPrefabs.value = [];
   brushFlags.value = 0;
   pickBrushTool("pencil");
 }

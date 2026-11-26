@@ -171,7 +171,16 @@ export function encodeChunk(cells: ArrayLike<number>): string {
  * the rest empty; `problems` (if given) notes either.
  */
 export function decodeChunk(text: string, problems?: string[]): Int32Array {
-  const cells = new Int32Array(CHUNK_CELLS);
+  return decodeRuns(text, CHUNK_CELLS, problems);
+}
+
+/**
+ * Decode a run-length string (`encodeChunk`'s) into `count` cells: a chunk's 256, or a saved stamp layer's
+ * width × height (ADR 0426). Bad tokens read as empty cells and a short string leaves the rest empty; `problems`
+ * (if given) notes either.
+ */
+export function decodeRuns(text: string, count: number, problems?: string[]): Int32Array {
+  const cells = new Int32Array(count);
   if (!text) return cells;
   let i = 0;
   for (const token of text.split(",")) {
@@ -182,8 +191,8 @@ export function decodeChunk(text: string, problems?: string[]): Int32Array {
       continue;
     }
     const v = Number(m[1]) | 0, n = m[2] ? Number(m[2]) : 1;
-    for (let k = 0; k < n && i < CHUNK_CELLS; k++) cells[i++] = v;
-    if (i >= CHUNK_CELLS) break;
+    for (let k = 0; k < n && i < count; k++) cells[i++] = v;
+    if (i >= count) break;
   }
   return cells;
 }
