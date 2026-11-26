@@ -1,4 +1,5 @@
-import { Audio, GameBehavior, Input, Text, behavior, field, type AudioPlaylistHandle } from "myco";
+import { Audio, GameBehavior, GameObject, Input, behavior, field, type AudioPlaylistHandle } from "myco";
+import { setHud } from "../labHud";
 
 /**
  * An engine two ways (ADR 0343 playlists). E starts and key-offs `engine.playlist.json`: a Sequence whose start clip runs
@@ -10,6 +11,8 @@ import { Audio, GameBehavior, Input, Text, behavior, field, type AudioPlaylistHa
  */
 @behavior("lab.EngineBench")
 export class EngineBench extends GameBehavior {
+  /** The page's UI document node (ui/*.ui.xml): this script fills its `{engine}` binding. */
+  @field(GameObject) hud: GameObject | null = null;
   @field(String) blendEvent = "audio/events/engine.playlist.json";
   @field(String) singleEvent = "audio/events/engine-single.playlist.json";
   @field(String) blendKey = "e";
@@ -51,10 +54,9 @@ export class EngineBench extends GameBehavior {
   }
 
   private show(): void {
-    const label = this.node.getBehavior(Text);
-    if (!label) return;
+    if (!this.hud) return;
     const state = !this.handle ? "off" : this.released ? "released (playing its tail)" : "running";
     const text = `Engine: E blend + start/off clips, T single clip. Now: ${this.which || "-"} ${state}\nUp = full throttle, Right = half (RPM ${this.throttle})`;
-    if (text !== this.shown) label.text = this.shown = text;
+    if (text !== this.shown) setHud(this.hud, "engine", (this.shown = text));
   }
 }

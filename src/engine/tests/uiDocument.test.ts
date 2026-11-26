@@ -163,6 +163,22 @@ describe("stylesheets", () => {
     expect(text.has("gap")).toBe(false); // layout properties don't inherit
   });
 
+  it("takes text-outline-color and text-outline-width, inherited like the other text properties (ADR 0417)", () => {
+    const sheet = parseStylesheet(`.hud { text-outline-color: #000000; text-outline-width: 3px; } .plain { text-outline-color: none; }`, "ui/s.ui.css");
+    expect(sheet.problems).toEqual([]);
+    const warnings: string[] = [];
+    const hudTarget = target("Panel", { classes: ["hud"] });
+    const hud = resolveStyle(hudTarget, element("Panel", { class: "hud" }), UIPanel, [sheet], null, (m) => warnings.push(m));
+    const label = resolveStyle(target("Text", { parent: hudTarget }), element("Text"), UIText, [sheet], hud, () => {});
+    expect(label.get("textOutlineColor")?.value).toEqual(new Color(0, 0, 0, 1)); // through the Panel, which has no such field
+    expect(label.get("textOutlineColor")?.source.kind).toBe("inherited");
+    expect(label.get("textOutlineWidth")?.value).toBe(3);
+    const own = resolveStyle(target("Text", { classes: ["plain"], parent: hudTarget }), element("Text", { class: "plain", "text-outline-width": "1" }), UIText, [sheet], hud, () => {});
+    expect(own.get("textOutlineColor")?.value).toBeNull(); // its own rule: none
+    expect(own.get("textOutlineWidth")?.value).toBe(1); // its own attribute
+    expect(warnings).toEqual([]);
+  });
+
   it("takes display, and position as an alias of position-type, from rules and attributes", () => {
     const sheet = parseStylesheet(`.veil { position: absolute; display: none; } .shown { display: flex; } .flow { position-type: relative; }`, "ui/s.ui.css");
     const warnings: string[] = [];
@@ -269,6 +285,19 @@ describe("UIDocument", () => {
     expect(label.as(UIText).color).toEqual(Color.white); // inherited from .column through the button
     expect(doc.queryAll("Text").map((e) => e.id)).toEqual(["title", null]);
     expect(() => play.as(UIText)).toThrow(/is a UIButton, not a UIText/);
+  });
+
+  it("outlines text from the stylesheet, and leaves text without one unoutlined (ADR 0417)", async () => {
+    files["ui/hud.ui.xml"] = `<Canvas><Style src="hud.ui.css"/><Panel id="hud"><Text id="score">0</Text></Panel><Text id="plain">x</Text></Canvas>`;
+    files["ui/hud.ui.css"] = `#hud { text-outline-color: #000000; text-outline-width: 4px; }`;
+    const doc = await open("ui/hud.ui.xml");
+    expect(doc.problems).toEqual([]);
+    const score = doc.query("#score")!.as(UIText);
+    expect(score.textOutlineColor).toEqual(new Color(0, 0, 0, 1));
+    expect(score.textOutlineWidth).toBe(4);
+    const plain = doc.query("#plain")!.as(UIText);
+    expect(plain.textOutlineColor).toBeNull();
+    expect(plain.textOutlineWidth).toBe(0);
   });
 
   it("follows data bindings each frame", async () => {

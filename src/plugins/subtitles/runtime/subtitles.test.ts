@@ -76,11 +76,12 @@ afterEach(() => {
 });
 
 describe("SubtitleDisplay", () => {
-  it("builds the built-in document under its own screen canvas (sortOrder 1000) without problems", async () => {
+  it("builds the built-in document, whose root is its own screen canvas (sortOrder 1000), without problems", async () => {
     await boot();
     const { doc } = await display();
     expect(doc.problems).toEqual([]);
-    const canvas = doc.node.getComponent(UICanvas)!;
+    expect(doc.node.getComponent(UICanvas)).toBeNull(); // the canvas comes from the document (ADR 0417), not from code
+    const canvas = doc.root!.as(UICanvas);
     expect(canvas.mode).toBe("screen");
     expect(canvas.sortOrder).toBe(1000);
     expect(doc.query("#subtitles")).not.toBeNull();
@@ -88,7 +89,7 @@ describe("SubtitleDisplay", () => {
 
   it("themes through a stylesheet's variables, and takes a replacement document", async () => {
     FILES["ui/theme.ui.css"] = ":root { --subtitle-color: #00ff00; }";
-    FILES["ui/subs.ui.xml"] = `<Panel id="mine"><Panel id="subtitles"><Template><Panel><Text class="speaker"/><Text class="line"/></Panel></Template></Panel></Panel>`;
+    FILES["ui/subs.ui.xml"] = `<Canvas id="mine"><Panel id="subtitles"><Template><Panel><Text class="speaker"/><Text class="line"/></Panel></Template></Panel></Canvas>`;
     await boot();
     const themed = await display({ stylesheet: "asset:ui/theme.ui.css" });
     expect(themed.doc.problems).toEqual([]);

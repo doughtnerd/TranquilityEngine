@@ -5,8 +5,6 @@
  * **Uses** come from:
  * - UI documents (`*.ui.xml`): `t:<field>="key"` attributes; a key with `{name}` bindings (`weapon.{id}.name`) is a
  *   template, which covers every key it matches;
- * - scenes and prefabs (`*.scene.json`, `*.prefab.json`): `engine.LocalizedText`'s `key`, in a node's components and
- *   in prefab instances' overrides;
  * - scripts (`.ts`, `.js`, …): literal first arguments of `Locale.t(…)`, `Locale.text(…)` and `Locale.has(…)`, found by
  *   a text search (best effort: a key built at runtime isn't seen);
  * - line tables (`*.lines.json`, 0357 §1): each line's subtitle key (its `textKey`, else its key; `null`: none);
@@ -15,9 +13,11 @@
  * **Lists:** keys used but defined in no table (`undefinedKeys`), keys defined but never used (`unused`), translations
  * missing per key in the shipped languages (`missing`, with whether the key is used) and needing review
  * (`needsReview`), per-language counts, keys defined in two tables (`duplicates`), and **unkeyed text**: literal text
- * in UI documents (a `Text`'s or `Button`'s content, an `InputField`'s value, `text` and `placeholder` attributes) and
- * literal `UIText`/`Text` fields in scenes, with letters in it, not marked `translate="no"` (on the element or an
- * ancestor), and not bound to a key; dismissed ones (`.myco/localisation-ignore.json`, by `unkeyedId`) are left out.
+ * in UI documents (a `Text`'s or `Button`'s content, an `InputField`'s value, `text` and `placeholder` attributes),
+ * with letters in it, not marked `translate="no"` (on the element or an ancestor), and not bound to a key; dismissed
+ * ones (`.myco/localisation-ignore.json`, by `unkeyedId`) are left out.
+ *
+ * Scenes and prefabs aren't read: game UI is built only from UI documents (ADR 0417), so a scene holds no UI text.
  *
  * Localisation is engine-level and imports nothing from audio: line tables and playlists are read here for the one or
  * two fields gathering needs.
@@ -31,7 +31,7 @@ import { effectiveStatus, parseTranslation, type TranslationFile } from "../stri
 import { hasBinding, parseBindings, parseMarkup } from "../../ui/document/markup";
 import type { MarkupElement } from "../../ui/document/types";
 
-export type KeyUseKind = "document" | "scene" | "script" | "line" | "caption";
+export type KeyUseKind = "document" | "script" | "line" | "caption";
 
 /** One place a key is used. */
 export interface KeyUse {
@@ -39,7 +39,7 @@ export interface KeyUse {
   readonly key: string;
   readonly path: string;
   readonly kind: KeyUseKind;
-  /** Where in the file: `#id` or the element's tag for a document, the node's name or id for a scene, `line 3` for a script, the line key for a line table. */
+  /** Where in the file: `#id` or the element's tag for a document, `line 3` for a script, the line key for a line table. */
   readonly where: string;
   /** A key with `{name}` bindings, covering every key it matches. */
   readonly template: boolean;
@@ -58,9 +58,9 @@ export interface UnkeyedText {
   /** The field it sets (`text`, `placeholder`, `value`). */
   readonly field: string;
   readonly text: string;
-  /** `#id` or the tag (a document), the node's name (a scene). */
+  /** `#id` or the element's tag. */
   readonly where: string;
-  /** The element's or node's id, when it has one (Extract to string table suggests a key from it). */
+  /** The element's id, when it has one (Extract to string table suggests a key from it). */
   readonly id: string | null;
 }
 
@@ -95,7 +95,6 @@ export interface GatherInput {
 export const unkeyedId = (u: Pick<UnkeyedText, "path" | "where" | "field" | "text">): string => `${u.path}|${u.where}|${u.field}|${u.text}`;
 
 const SCRIPT = /\.(ts|tsx|js|mjs|cjs|mts|cts)$/i;
-const SCENE = /\.(scene|prefab)\.json$/i;
 const LOCALE_CALL = /\bLocale\s*\.\s*(?:t|text|has)\s*\(\s*(["'`])([A-Za-z0-9_.{}-]{1,128})\1/g;
 
 /** A key template (`weapon.{id}.name`) as a pattern over keys. */
@@ -134,37 +133,6 @@ function documentUses(path: string, source: string, read: (p: string) => string 
     if (el.template) walk(el.template, off);
   };
   if (markup.root) walk(markup.root, false);
-}
-
-/** `LocalizedText` keys and literal text fields of a scene's or prefab's nodes (any nesting). */
-function sceneUses(path: string, json: unknown, uses: KeyUse[], unkeyed: UnkeyedText[]): void {
-  const visit = (v: unknown) => {
-    if (Array.isArray(v)) return v.forEach(visit);
-    if (!isRecord(v)) return;
-    const node = v;
-    const where = typeof node.name === "string" ? node.name : typeof node.id === "string" ? node.id : "node";
-    const id = typeof node.id === "string" ? node.id : null;
-    if (Array.isArray(node.components)) {
-      const comps = node.components.filter(isRecord);
-      const localized = comps.find((c) => c.type === "engine.LocalizedText");
-      const key = isRecord(localized?.data) && typeof localized.data.key === "string" ? localized.data.key.trim() : "";
-      if (key) uses.push({ key, path, kind: "scene", where, template: false });
-      if (!localized) {
-        for (const c of comps) {
-          if ((c.type === "engine.UIText" || c.type === "engine.Text") && isRecord(c.data) && typeof c.data.text === "string" && hasLetters(c.data.text)) {
-            unkeyed.push({ path, field: "text", text: c.data.text, where, id });
-          }
-        }
-      }
-    }
-    if (Array.isArray(node.overrides)) {
-      for (const o of node.overrides) {
-        if (isRecord(o) && o.component === "engine.LocalizedText" && o.field === "key" && typeof o.value === "string" && o.value.trim()) uses.push({ key: o.value.trim(), path, kind: "scene", where, template: false });
-      }
-    }
-    for (const [k, child] of Object.entries(node)) if (k !== "components" && k !== "overrides" && typeof child === "object") visit(child);
-  };
-  visit(json);
 }
 
 function scriptUses(path: string, text: string, uses: KeyUse[]): void {
@@ -221,7 +189,6 @@ export function gatherKeys(input: GatherInput): GatherReport {
       list.push(parseTranslation(value, path).translation);
       translations.set(kind.table, list);
     } else if (lower.endsWith(".ui.xml") && typeof value === "string") documentUses(path, value, read, uses, unkeyed);
-    else if (SCENE.test(path)) sceneUses(path, value, uses, unkeyed);
     else if (lower.endsWith(".lines.json")) lineTableUses(path, value, uses);
     else if (lower.endsWith(".playlist.json")) captionUses(path, value, uses);
     else if (SCRIPT.test(path) && !lower.endsWith(".d.ts") && typeof value === "string") scriptUses(path, value, uses);

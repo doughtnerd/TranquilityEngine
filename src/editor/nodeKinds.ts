@@ -1,5 +1,5 @@
-// The node kinds the Create menus offer (ADR 0022, 0146): an empty node, a sprite, a camera, a text, a 3D shape
-// (with a matching collider, as in Unity), a light (ADR 0043), a UI element (ADR 0069) or a kind a plugin adds
+// The node kinds the Create menus offer (ADR 0022, 0146): an empty node, a sprite, a camera, a 3D shape
+// (with a matching collider, as in Unity), a light (ADR 0043), a UI Document (ADR 0077, 0417) or a kind a plugin adds
 // (Particle System, Tilemap), each as a node template. The node insertion (ADR 0246, `nodeInsertion.ts`) puts them
 // in the scene.
 import { createAsset } from "./assetKindHost";
@@ -9,36 +9,23 @@ import { WATER_PRESET } from "../engine/render/water/gerstner";
 import { OTHER_CATEGORY } from "./menuCategories";
 
 /** The editor's own node kinds. */
-export type NewNodeKind = "empty" | "sprite" | "camera" | "text" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "water" | `ui-${UIKind}` | "ui-document";
+export type NewNodeKind = "empty" | "sprite" | "camera" | Shape3D | `${LightKind}-light` | "fog" | "reflection-probe" | "water" | "ui-document";
 /** A built-in node kind, or the id of a plugin's Hierarchy create entry (ADR 0146). */
 export type NodeKind = NewNodeKind | (string & {});
 type Shape3D = "cube" | "sphere" | "capsule" | "cylinder" | "plane";
 type LightKind = "directional" | "point" | "spot" | "ambient";
-type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input-field";
-
-/** Game UI elements (ADR 0069): the component each kind adds, with a starting size and look. */
-const UI_ELEMENTS: Record<UIKind, { type: string; data: Record<string, unknown> }> = {
-  canvas: { type: "engine.UICanvas", data: {} },
-  panel: { type: "engine.UIPanel", data: { width: "200", height: "100", backgroundColor: "#2a2f3a" } },
-  text: { type: "engine.UIText", data: { text: "New Text" } },
-  image: { type: "engine.UIImage", data: { width: "100", height: "100" } },
-  button: { type: "engine.UIButton", data: { width: "160", height: "40" } },
-  "input-field": { type: "engine.UIInputField", data: { placeholder: "Enter text…" } },
-};
 
 type Vec3 = readonly [number, number, number];
 
 /**
  * A kind the Create menus offer: its label, the new node's base name, and where the menus put it (ADR 0383): its
- * `category` submenu ("3D Object", "Light"; none: the top level), labelled `short` there when the category already
- * says part of the label ("Canvas" under UI for "UI Canvas").
+ * `category` submenu ("3D Object", "Light"; none: the top level).
  */
 export interface CreatableKind {
   readonly kind: NodeKind;
   readonly label: string;
   readonly name: string;
   readonly category?: string;
-  readonly short?: string;
 }
 
 /** The editor's own kinds, in menu order, with their base names. Plugins' kinds join them in `newNodeKinds()`. */
@@ -46,7 +33,6 @@ const NEW_NODE_KINDS: readonly (CreatableKind & { kind: NewNodeKind })[] = [
   { kind: "empty", label: "Empty", name: "Node" },
   { kind: "sprite", label: "Sprite", name: "Sprite", category: "2D" },
   { kind: "camera", label: "Camera", name: "Camera" },
-  { kind: "text", label: "Text", name: "Text", category: "UI", short: "Screen Text" }, // engine.Text: screen-space (ADR 0020)
   { kind: "cube", label: "Cube", name: "Cube", category: "3D Object" },
   { kind: "sphere", label: "Sphere", name: "Sphere", category: "3D Object" },
   { kind: "capsule", label: "Capsule", name: "Capsule", category: "3D Object" },
@@ -59,12 +45,6 @@ const NEW_NODE_KINDS: readonly (CreatableKind & { kind: NewNodeKind })[] = [
   { kind: "fog", label: "Fog", name: "Fog", category: "Effects" },
   { kind: "reflection-probe", label: "Reflection Probe", name: "Reflection Probe", category: "Light" },
   { kind: "water", label: "Water", name: "Water", category: "Effects" },
-  { kind: "ui-canvas", label: "UI Canvas", name: "Canvas", category: "UI", short: "Canvas" },
-  { kind: "ui-panel", label: "UI Panel", name: "Panel", category: "UI", short: "Panel" },
-  { kind: "ui-text", label: "UI Text", name: "Text", category: "UI", short: "Text" },
-  { kind: "ui-image", label: "UI Image", name: "Image", category: "UI", short: "Image" },
-  { kind: "ui-button", label: "UI Button", name: "Button", category: "UI", short: "Button" },
-  { kind: "ui-input-field", label: "UI Input Field", name: "Input Field", category: "UI", short: "Input Field" },
   { kind: "ui-document", label: "UI Document", name: "UI Document", category: "UI" },
 ];
 
@@ -126,8 +106,6 @@ export function kindTemplate(kind: NodeKind, position: Vec3, topLevel: boolean, 
           { type: "engine.Camera", data: { projection: "orthographic", orthographicSize: 5 } },
         ],
       };
-    case "text":
-      return { name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.Text", data: { text: "New Text" } }] };
     case "cube":
     case "sphere":
     case "capsule":
@@ -147,13 +125,6 @@ export function kindTemplate(kind: NodeKind, position: Vec3, topLevel: boolean, 
     case "ui-document":
       // A markup document (ADR 0077): `asset` is the new `.ui.xml` written first (`kindAssetCreator`), or empty.
       return { name, components: [{ type: "engine.Transform", data: { position: at } }, { type: "engine.UIDocument", data: asset ? { document: asset } : {} }] };
-    case "ui-canvas":
-    case "ui-panel":
-    case "ui-text":
-    case "ui-image":
-    case "ui-button":
-    case "ui-input-field":
-      return { name, components: [{ type: "engine.Transform", data: { position: at } }, structuredClone(UI_ELEMENTS[builtin.slice(3) as UIKind])] };
     default: {
       // A light: directional and spot lights point down and away, like a sun in the afternoon
       // (a -30-degree yaw, then pitched 50 degrees down about the world X axis; a quaternion, ADR 0163, 0164).

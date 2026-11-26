@@ -101,11 +101,11 @@ describe("the document adapter", () => {
   it("offers the document's nodes by id, and writes a picked one as a reference", () => {
     scene().stack.execute(new AddComponent("bird", { type: "test.fieldTarget.Probe" }));
     const t = docTarget([["bird"]], "test.fieldTarget.Probe");
-    expect(t.nodes.choices().map((c) => c.key)).toContain("score");
-    t.set(fieldOf(t, "target"), "score");
-    expect(scene().doc.fieldValue("bird", "test.fieldTarget.Probe", "target")).toEqual({ $node: "score" });
+    expect(t.nodes.choices().map((c) => c.key)).toContain("hud");
+    t.set(fieldOf(t, "target"), "hud");
+    expect(scene().doc.fieldValue("bird", "test.fieldTarget.Probe", "target")).toEqual({ $node: "hud" });
     const after = docTarget([["bird"]], "test.fieldTarget.Probe");
-    expect(after.nodes.keyOf(fieldOf(after, "target").value)).toBe("score");
+    expect(after.nodes.keyOf(fieldOf(after, "target").value)).toBe("hud");
   });
 });
 

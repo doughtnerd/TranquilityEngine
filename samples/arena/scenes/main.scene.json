@@ -26,56 +26,13 @@
       ]
     },
     {
-      "id": "title",
-      "name": "Title",
-      "transform": false,
-      "components": [
-        { "type": "engine.Text", "data": { "text": "ARENA", "anchor": "top", "offset": [0, 110], "fontSize": 84, "color": "#e8eaf0" } }
-      ]
-    },
-    {
-      "id": "subtitle",
-      "name": "Subtitle",
-      "transform": false,
-      "components": [
-        {
-          "type": "engine.Text",
-          "data": { "text": "a two-player netcode sample", "anchor": "top", "offset": [0, 200], "fontSize": 22, "fontWeight": "400", "color": "#9aa0ad" }
-        }
-      ]
-    },
-    {
-      "id": "host",
-      "name": "HostButton",
-      "transform": false,
-      "components": [
-        { "type": "engine.Text", "data": { "text": "[H]  Host a game", "anchor": "center", "offset": [0, 10], "fontSize": 34, "color": "#ffffff" } }
-      ]
-    },
-    {
-      "id": "join",
-      "name": "JoinButton",
-      "transform": false,
-      "components": [
-        { "type": "engine.Text", "data": { "text": "[J]  Join ws://localhost:7777", "anchor": "center", "offset": [0, 70], "fontSize": 34, "color": "#ffffff" } }
-      ]
-    },
-    {
-      "id": "status",
-      "name": "Status",
-      "transform": false,
-      "components": [
-        {
-          "type": "engine.Text",
-          "data": { "text": "Press a key to choose", "anchor": "bottom", "offset": [0, -70], "fontSize": 20, "fontWeight": "400", "color": "#9aa0ad" }
-        }
-      ]
-    },
-    {
       "id": "menu",
       "name": "Menu",
       "transform": false,
-      "components": [{ "type": "arena.Menu", "data": { "status": { "$node": "status" }, "joinLabel": { "$node": "join" }, "serverUrl": "ws://localhost:7777" } }]
+      "components": [
+        { "type": "engine.UIDocument", "data": { "document": "asset:ui/menu.ui.xml" } },
+        { "type": "arena.Menu", "data": { "serverUrl": "ws://localhost:7777" } }
+      ]
     }
   ]
 }

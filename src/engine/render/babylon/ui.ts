@@ -1,5 +1,5 @@
-// Internal (ADR 0076, 0075 stage 9): draws the UI core's laid-out canvases and elements with Babylon GUI,
-// and the interim `Text` component. Layout and routing are the core's (`ui/UICore.ts`); this module
+// Internal (ADR 0076, 0075 stage 9): draws the UI core's laid-out canvases and elements with Babylon GUI.
+// Layout and routing are the core's (`ui/UICore.ts`); this module
 // makes no layout decisions: every element becomes a control at its box (absolute, top-left aligned,
 // in pixels) inside a plain `Container` per canvas, and Babylon's own pointer handling is switched
 // off, so the engine decides who gets the pointer. Loaded on demand by the renderer, so games without
@@ -13,8 +13,6 @@
 //   in UI pixels, and canvas text is rasterised at the device's resolution (crisp on a 2x display),
 //   not scaled up from a CSS-pixel texture. Babylon's own adaptive scaling (`idealWidth`,
 //   `renderScale`) is left alone, because it would also resize the texture.
-// - The interim `Text` components sit in a container scaled by `pixelRatio` alone, so they're placed
-//   in CSS pixels.
 // - A world canvas is a plane with its own texture at `WORLD_RESOLUTION` times the reference
 //   resolution, its root container scaled by that factor.
 import { Matrix } from "@babylonjs/core/Maths/math.vector.js";
@@ -40,12 +38,10 @@ import type { WarmContent } from "../../scene/warmUp";
 import { WARM_PREFIX, type WarmItem } from "./warmUp";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText, type UIComponentType } from "../../ui/components";
 import type { ICanvasRenderingContext } from "@babylonjs/core/Engines/ICanvas.js";
-import { Locale } from "../../localisation/Locale";
-import { fontEpoch, onFontLoaded, withLanguageFonts } from "../../ui/fonts";
+import { fontEpoch, onFontLoaded } from "../../ui/fonts";
 import { uiInteractions } from "../../ui/interactions";
 import { wrapLine, wrapText, type LineBreakMode } from "../../ui/text/lineBreak";
 import type { TextMeasureRequest, UICoreLike, UILaidOutCanvas, UILaidOutElement, UITextRun, UITextWrap } from "../../ui/uiCoreTypes";
-import { Text, type Anchor } from "../components";
 import { flipRows, redrawnPixels, type PixelRect } from "../pixelRegions";
 
 /** World canvases' texture pixels per UI pixel. */
@@ -59,7 +55,7 @@ export interface BabylonUIOptions {
   /** Loads a texture asset (`asset:images/logo.png`). Its URL is what the GUI image loads. */
   texture(ref: string): Promise<Texture>;
   /**
-   * Draw screen canvases and the interim Text only, skipping world canvases (which the main drawing
+   * Draw screen canvases only, skipping world canvases (which the main drawing
    * layer already puts in the scene). The editor's camera preview inset draws its UI with one.
    */
   screenOnly?: boolean;
@@ -98,14 +94,6 @@ interface ElementEntry {
   dead: boolean;
 }
 
-interface TextEntry {
-  control: PaddedTextBlock;
-  last: Last;
-  stamp: number;
-  /** Its box on the drawing canvas (CSS pixels, origin top-left) at the last sync that showed it. */
-  rect: { left: number; top: number; right: number; bottom: number } | null;
-}
-
 /**
  * A text block in the language's direction, wrapping lines by the engine's line breaking (ADR 0356 §5): the context's
  * base direction is the language's, and lines break where `lineBreak.ts` allows (spaces, between CJK characters with
@@ -116,6 +104,14 @@ class LocalisedTextBlock extends TextBlock {
   direction: "ltr" | "rtl" = "ltr";
   /** Where lines may break: `ui/text/lineBreak.ts`'s rules, the same ones `textSize` measured with. */
   breakMode: LineBreakMode = "normal";
+  /**
+   * Texture pixels the redrawn rectangle grows by on every side (Babylon's own hook; Rectangle widens it for its border
+   * the same way). A text block doesn't clip (descenders and outlines reach past its box), but when it changes Babylon
+   * GUI clears and redraws only its old and new boxes, grown by one padding to the left and top: an outline reaching
+   * past the box was left on the texture when the text was cleared or shortened (the flappy sample's start message
+   * left the outlined "p"s of "Space" and "flap" on screen). On WebGPU, `uploadRedrawnPart` uploads that same rectangle.
+   */
+  overflow = 0;
 
   protected override _applyStates(context: ICanvasRenderingContext): void {
     super._applyStates(context);
@@ -128,23 +124,11 @@ class LocalisedTextBlock extends TextBlock {
     const metrics = this as unknown as { _getTextMetricsWidth(m: unknown): number };
     return wrapLine(line ?? "", width, (s) => metrics._getTextMetricsWidth(context.measureText(s)), this.breakMode);
   }
-}
 
-/**
- * The interim Text's block, padded on every side. When a control changes, Babylon GUI clears and
- * redraws its old and new boxes, but it grows the old box by one padding in width and height
- * (`Measure.addAndTransformToRef(-left, -top, right, bottom)`), so the old box takes in the left and
- * top padding but not the right and bottom ones. An outlined text's descenders reach into its bottom
- * padding, so clearing or shortening a text left those pixels on the texture (the flappy sample's
- * start message left the outlined "p"s of "Space" and "flap" on screen). `overflow`, in texture
- * pixels, widens the redrawn rectangle on every side through Babylon's own hook (Rectangle widens it
- * for its border the same way). On WebGPU, `uploadRedrawnPart` uploads that same rectangle.
- */
-class PaddedTextBlock extends LocalisedTextBlock {
-  overflow = 0;
   protected override _computeAdditionalOffsetX(): number {
     return this.overflow;
   }
+
   protected override _computeAdditionalOffsetY(): number {
     return this.overflow;
   }
@@ -152,13 +136,10 @@ class PaddedTextBlock extends LocalisedTextBlock {
 
 /** Draws UI with Babylon GUI. */
 export class BabylonUI {
-  /** The fullscreen texture for screen canvases and the interim Text (standalone: a frame graph task draws it). */
+  /** The fullscreen texture for screen canvases (standalone: a frame graph task draws it). */
   readonly screen: AdvancedDynamicTexture;
   private readonly canvases = new Map<UICanvas, CanvasEntry>();
   private readonly elements = new Map<UIComponentType, ElementEntry>();
-  private readonly texts = new Map<Text, TextEntry>();
-  /** Holds the interim Text controls, scaled by the pixel ratio, below every canvas. */
-  private readonly textRoot: Container;
   private readonly warned = new Set<string>();
   private stamp = 0;
   private disposed = false;
@@ -170,10 +151,6 @@ export class BabylonUI {
     this.screen = readableCanvas(scene.getEngine(), () => AdvancedDynamicTexture.CreateFullscreenUI("myco.ui", true, { width: 0, height: 0, scene, useStandalone: true } as never));
     quiet(this.screen);
     uploadRedrawnPart(this.screen);
-    this.textRoot = new Container("myco.texts");
-    placeBox(this.textRoot);
-    this.textRoot.zIndex = -1e9;
-    this.screen.addControl(this.textRoot);
   }
 
   /**
@@ -185,14 +162,6 @@ export class BabylonUI {
     if (this.disposed) return;
     const stamp = ++this.stamp;
     this.origin = { x: origin.x * pixelRatio, y: origin.y * pixelRatio };
-    this.cssOrigin = { x: origin.x, y: origin.y };
-    this.textRoot.scaleX = this.textRoot.scaleY = pixelRatio;
-    if (put(this.textRoot, "size", `${cssWidth}x${cssHeight}`)) {
-      this.textRoot.widthInPixels = cssWidth;
-      this.textRoot.heightInPixels = cssHeight;
-    }
-    if (put(this.textRoot, "x", this.origin.x)) this.textRoot.leftInPixels = this.origin.x;
-    if (put(this.textRoot, "y", this.origin.y)) this.textRoot.topInPixels = this.origin.y;
 
     for (const c of core.canvases()) {
       if (c.mode === "world" && this.options.screenOnly) continue;
@@ -214,29 +183,8 @@ export class BabylonUI {
     }
   }
 
-  /** The interim Text components, on the screen texture (CSS pixels). */
-  syncTexts(world: World, cssWidth: number, cssHeight: number): void {
-    if (this.disposed) return;
-    const stamp = ++this.stamp;
-    for (const t of world._componentsOfType(Text)) this.syncText(t, cssWidth, cssHeight, stamp);
-    for (const [t, e] of this.texts) {
-      if (e.stamp === stamp) continue;
-      this.textRoot.removeControl(e.control);
-      e.control.dispose();
-      this.texts.delete(t);
-    }
-  }
-
   /** Forget a removed component's control. */
   release(c: Component): void {
-    if (c instanceof Text) {
-      const e = this.texts.get(c);
-      if (!e) return;
-      this.textRoot.removeControl(e.control);
-      e.control.dispose();
-      this.texts.delete(c);
-      return;
-    }
     if (c instanceof UICanvas) {
       const e = this.canvases.get(c);
       if (e) this.removeCanvas(c, e);
@@ -252,7 +200,6 @@ export class BabylonUI {
     this.offFont();
     for (const [c, e] of [...this.canvases]) this.removeCanvas(c, e);
     this.elements.clear();
-    this.texts.clear();
     this.screen.dispose();
   }
 
@@ -297,16 +244,12 @@ export class BabylonUI {
 
   /** Where screen canvases start on the texture, in its pixels (see `sync`'s `origin`). */
   private origin = { x: 0, y: 0 };
-  /** The same, in CSS pixels of the drawing canvas. */
-  private cssOrigin = { x: 0, y: 0 };
 
   /**
-   * What it drew now (ADR 0276): each visible world canvas's plane, and each shown interim Text's box on
-   * the drawing canvas (CSS pixels, origin top-left).
+   * What it drew now (ADR 0276): each visible world canvas's plane.
    */
-  *drawn(): Iterable<{ canvas: UICanvas; mesh: Mesh } | { text: Text; rect: { left: number; top: number; right: number; bottom: number } }> {
+  *drawn(): Iterable<{ canvas: UICanvas; mesh: Mesh }> {
     for (const [canvas, e] of this.canvases) if (e.mesh?.isEnabled()) yield { canvas, mesh: e.mesh };
-    for (const [text, e] of this.texts) if (e.rect && e.control.isVisible) yield { text, rect: e.rect };
   }
 
   /** A font finished loading: forget font metrics measured without it, and redraw every text. */
@@ -383,7 +326,7 @@ export class BabylonUI {
         this.syncPanel(e, c as UIPanel);
         break;
       case "text":
-        this.syncUIText(e, c as UIText, el.text!);
+        this.syncUIText(e, c as UIText, el.text!, canvas.root.scaleX);
         break;
       case "image":
         this.syncImage(e, c as UIImage, el);
@@ -467,13 +410,25 @@ export class BabylonUI {
     if (put(r, "color", ck)) r.color = border.toCss();
   }
 
-  /** A UIText: the core's text run (exactly what it measured), with the component's colour and alignment. */
-  private syncUIText(e: ElementEntry, c: UIText, run: UITextRun): void {
+  /**
+   * A UIText: the core's text run (exactly what it measured), with the component's colour, outline and alignment.
+   * `scale` is its canvas's texture pixels per UI pixel.
+   */
+  private syncUIText(e: ElementEntry, c: UIText, run: UITextRun, scale: number): void {
     const t = e.control as LocalisedTextBlock;
     if (put(t, "text", run.text)) t.text = run.text;
     this.setFont(t, run);
     const ck = colorKey(c.color);
     if (put(t, "color", ck)) t.color = c.color.toCss();
+    // ADR 0417: in UI pixels like the font size, so the canvas's scale scales it too. Stroked twice as wide, centred on
+    // the glyph edge: `textOutlineWidth` shows outside it.
+    const outline = c.textOutlineColor && c.textOutlineWidth > 0 ? c.textOutlineWidth : 0;
+    if (put(t, "outline", `${outline}|${outline ? colorKey(c.textOutlineColor!) : -1}`)) {
+      t.outlineWidth = outline * 2;
+      if (outline) t.outlineColor = c.textOutlineColor!.toCss();
+    }
+    // Kept while the text changes or empties, so the redraw that clears it covers the outline too (see `overflow`).
+    t.overflow = outline ? Math.ceil(outline * scale) + 1 : 0;
     // `start`/`end` already resolved for the language's direction (ADR 0356 §5); justify draws from the left, as before.
     const align = run.align === "center" ? Control.HORIZONTAL_ALIGNMENT_CENTER : run.align === "right" ? Control.HORIZONTAL_ALIGNMENT_RIGHT : Control.HORIZONTAL_ALIGNMENT_LEFT;
     if (put(t, "align", align)) t.textHorizontalAlignment = align;
@@ -594,66 +549,6 @@ export class BabylonUI {
     return s;
   }
 
-  // --- interim Text ---
-
-  private syncText(t: Text, W: number, H: number, stamp: number): void {
-    let e = this.texts.get(t);
-    if (!e) {
-      const control = new PaddedTextBlock(`myco.text.${t.owner.name}`);
-      control.resizeToFit = false;
-      control.textVerticalAlignment = Control.VERTICAL_ALIGNMENT_CENTER;
-      control.clipContent = false; // descenders and outlines may reach past the box
-      placeBox(control);
-      control.isHitTestVisible = false;
-      this.textRoot.addControl(control);
-      e = { control, last: {}, stamp: 0, rect: null };
-      this.texts.set(t, e);
-    }
-    e.stamp = stamp;
-    const ctl = e.control;
-    const visible = t.isActiveAndEnabled && t.text.length > 0;
-    ctl.isVisible = visible;
-    if (!visible) return;
-
-    const outline = t.outlineColor && t.outlineWidth > 0 ? t.outlineWidth : 0;
-    if (put(ctl, "text", t.text)) ctl.text = t.text;
-    const weight = t.fontWeight;
-    // The current language's fonts after its own, in the language's direction (ADR 0356 §5).
-    const family = withLanguageFonts(t.fontFamily);
-    this.setFont(ctl, { fontSize: t.fontSize, fontWeight: weight, fontFamily: family, lineHeight: t.lineHeight });
-    const direction = Locale.direction;
-    if (put(ctl, "dir", direction)) ctl.direction = direction;
-    if (put(ctl, "color", colorKey(t.color))) ctl.color = t.color.toCss();
-    if (put(ctl, "outline", `${outline}|${t.outlineColor ? colorKey(t.outlineColor) : -1}`)) {
-      // Stroked `outlineWidth * 2` wide, centred on the glyph edge: `outlineWidth` shows outside it.
-      ctl.outlineWidth = outline * 2;
-      if (t.outlineColor) ctl.outlineColor = t.outlineColor.toCss();
-    }
-    const align = t.align === "left" ? Control.HORIZONTAL_ALIGNMENT_LEFT : t.align === "right" ? Control.HORIZONTAL_ALIGNMENT_RIGHT : Control.HORIZONTAL_ALIGNMENT_CENTER;
-    if (put(ctl, "align", align)) ctl.textHorizontalAlignment = align;
-
-    // The box, as RenderBackend.drawText: the text plus `pad` on every side.
-    const pad = Math.ceil(outline + 2);
-    const size = textSize(t.text, t.fontSize, weight, family, t.lineHeight);
-    const w = Math.ceil(size.width + pad * 2);
-    const h = Math.ceil(t.lineHeight * t.fontSize * size.lines + pad * 2);
-    if (put(ctl, "pad", pad)) {
-      ctl.paddingLeftInPixels = ctl.paddingRightInPixels = ctl.paddingTopInPixels = ctl.paddingBottomInPixels = pad;
-    }
-    // Kept while hidden, so the redraw that clears the text covers its padding too (see PaddedTextBlock).
-    ctl.overflow = Math.ceil(pad * this.textRoot.scaleX);
-    if (put(ctl, "w", w)) ctl.widthInPixels = w;
-    if (put(ctl, "h", h)) ctl.heightInPixels = h;
-    // Anchor point + offset (offset.y down), and the box's own anchor point on it.
-    const [ax, ay] = anchorFactors(t.anchor);
-    const left = ax * (W - w) + t.offset.x;
-    const top = ay * (H - h) + t.offset.y;
-    if (put(ctl, "x", left)) ctl.leftInPixels = left;
-    if (put(ctl, "y", top)) ctl.topInPixels = top;
-    const x = this.cssOrigin.x + left, y = this.cssOrigin.y + top;
-    e.rect = { left: x, top: y, right: x + w, bottom: y + h };
-  }
-
   private warnOnce(key: string, message: string): void {
     if (this.warned.has(key)) return;
     this.warned.add(key);
@@ -743,20 +638,6 @@ function put(control: object, key: string, value: unknown): boolean {
 function colorKey(c: Color): number {
   const q = (v: number) => Math.round(Math.min(Math.max(v, 0), 1) * 255);
   return (((q(c.r) * 256 + q(c.g)) * 256 + q(c.b)) * 256 + q(c.a));
-}
-
-function anchorFactors(anchor: Anchor): [number, number] {
-  switch (anchor) {
-    case "top-left": return [0, 0];
-    case "top": return [0.5, 0];
-    case "top-right": return [1, 0];
-    case "left": return [0, 0.5];
-    case "right": return [1, 0.5];
-    case "bottom-left": return [0, 1];
-    case "bottom": return [0.5, 1];
-    case "bottom-right": return [1, 1];
-    default: return [0.5, 0.5];
-  }
 }
 
 // --- uploading only what was redrawn ---

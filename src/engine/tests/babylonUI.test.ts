@@ -10,8 +10,7 @@ import type { Container } from "@babylonjs/gui/2D/controls/container.js";
 import { Control } from "@babylonjs/gui/2D/controls/control.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { World } from "../core/World";
-import { Color, Engine, GameObject, Input, Locale, Vector2, type ProjectSettingsInput } from "../index";
-import { Text } from "../render/components";
+import { Color, Engine, GameObject, Input, Locale, type ProjectSettingsInput } from "../index";
 import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../ui/components";
 import type { UIComponentType } from "../ui/components";
 import { textRunOf, uiKindOf } from "../ui/elementKinds";
@@ -109,7 +108,6 @@ const sync = (core: FakeCore, extra: Parameters<BabylonUI["sync"]>[2] = {}, w = 
 const screenRoots = () => ui.screen.rootContainer.children.filter((c) => (c.name ?? "").startsWith("myco.canvas")) as Container[];
 const rootOf = (n = 0) => screenRoots()[n];
 const byName = (root: Container, name: string) => root.children.find((c) => c.name === name)!;
-const textRoot = () => ui.screen.rootContainer.children.find((c) => c.name === "myco.texts") as Container;
 
 describe("screen canvases on Babylon GUI (ADR 0076)", () => {
   it("makes a standalone fullscreen texture and a root container per canvas, scaled by scale x pixel ratio", () => {
@@ -164,7 +162,7 @@ describe("screen canvases on Babylon GUI (ADR 0076)", () => {
     expect([again.leftInPixels, again.widthInPixels]).toEqual([5, 50]);
   });
 
-  it("orders controls by the core's order and canvases by sortOrder, over the interim Text", () => {
+  it("orders controls by the core's order and canvases by sortOrder", () => {
     const low = node("Low", null, UICanvas, { sortOrder: 1 });
     const high = node("High", null, UICanvas, { sortOrder: 9 });
     const a = node("A", low.node, UIPanel);
@@ -177,7 +175,6 @@ describe("screen canvases on Babylon GUI (ADR 0076)", () => {
     expect(byName(lowRoot, "B").zIndex).toBe(1);
     expect(lowRoot.zIndex).toBe(1);
     expect(ui.screen.rootContainer.children.find((c) => c.name === "myco.canvas.High")!.zIndex).toBe(9);
-    expect(textRoot().zIndex).toBeLessThan(1);
   });
 
   it("hides hidden elements and canvases", () => {
@@ -466,82 +463,60 @@ describe("world canvases on Babylon GUI (ADR 0076)", () => {
   });
 });
 
-describe("the interim Text on the screen texture", () => {
-  const textBox = (t: Text, W: number, H: number) => {
-    ui.syncTexts(World.require(), W, H);
-    return textRoot().children.find((c) => c.name === `myco.text.${t.owner.name}`) as TextBlock;
+describe("a UIText's outline (ADR 0417)", () => {
+  const outlined = (init: Partial<UIText>, scale = 1, pixelRatio = 1) => {
+    const canvas = node("C", null, UICanvas);
+    const text = node("T", canvas.node, UIText, { text: "Score", fontSize: 30, ...init });
+    const core = new FakeCore();
+    core.set([canvasInfo(canvas, { scale })], [[text, canvas, { x: 100, y: 50, width: 200, height: 36 }]]);
+    sync(core, {}, 1280, 720, pixelRatio);
+    return { text, core, block: byName(rootOf(), "T") as TextBlock };
   };
 
-  it("places the box by anchor and offset in CSS pixels, below every canvas", () => {
-    const t = GameObject.create("Score").addBehavior(Text, { text: "Hi", fontSize: 20, lineHeight: 1.2, anchor: "top-right", offset: new Vector2(-10, 12), align: "right" });
-    // Node has no canvas, so "Hi" is estimated at 0.55 em a character: 22 wide at 20 px; pad = ceil(0 + 2) = 2.
-    const block = textBox(t, 800, 600);
-    const w = Math.ceil(2 * 20 * 0.55 + 4);
-    expect(textRoot().zIndex).toBeLessThan(-1000);
-    expect(block.widthInPixels).toBe(w);
-    expect(block.heightInPixels).toBe(Math.ceil(20 * 1.2 + 4));
-    expect(block.leftInPixels).toBeCloseTo(800 - w - 10);
-    expect(block.topInPixels).toBeCloseTo(12);
-    expect(block.text).toBe("Hi");
-    expect(block.textHorizontalAlignment).toBe(1); // right
-    expect(block.paddingLeftInPixels).toBe(2);
-
-    t.anchor = "center";
-    t.offset = new Vector2(0, 0);
-    ui.syncTexts(World.require(), 800, 600);
-    expect(block.leftInPixels).toBeCloseTo((800 - w) / 2);
-    expect(block.topInPixels).toBeCloseTo((600 - block.heightInPixels) / 2);
-
-    t.anchor = "bottom-left";
-    ui.syncTexts(World.require(), 800, 600);
-    expect(block.leftInPixels).toBe(0);
-    expect(block.topInPixels).toBeCloseTo(600 - block.heightInPixels);
+  it("draws none by default, or with a colour but no width", () => {
+    const plain = outlined({});
+    expect(plain.block.outlineWidth).toBe(0);
+    plain.text.textOutlineColor = new Color(0, 0, 0, 1);
+    sync(plain.core);
+    expect(plain.block.outlineWidth).toBe(0);
   });
 
-  it("draws the outline, hides empty text, and forgets released text", () => {
-    const t = GameObject.create("Label").addBehavior(Text, { text: "x", outlineColor: new Color(0, 0, 0, 1), outlineWidth: 3 });
-    const block = textBox(t, 100, 100);
+  it("strokes twice the width centred on the glyph edge, in UI pixels, so the canvas's scale scales it with the font", () => {
+    const { block, text, core } = outlined({ textOutlineColor: new Color(0, 0, 0, 1), textOutlineWidth: 3 }, 2, 1.5);
     expect(block.outlineWidth).toBe(6);
     expect(block.outlineColor).toBe("rgba(0, 0, 0, 1)");
-    expect(block.paddingLeftInPixels).toBe(5);
-    t.text = "";
-    ui.syncTexts(World.require(), 100, 100);
-    expect(block.isVisible).toBe(false);
-    ui.release(t);
-    expect(textRoot().children).toHaveLength(0);
+    expect(block.fontSizeInPixels).toBe(30); // both in UI pixels: the canvas root is scaled by scale × pixel ratio
+    expect(rootOf().scaleX).toBe(3);
+    text.textOutlineColor = new Color(1, 0, 0, 1);
+    text.textOutlineWidth = 1;
+    sync(core, {}, 1280, 720, 1.5);
+    expect(block.outlineWidth).toBe(2);
+    expect(block.outlineColor).toBe("rgba(255, 0, 0, 1)");
+    text.textOutlineWidth = 0;
+    sync(core, {}, 1280, 720, 1.5);
+    expect(block.outlineWidth).toBe(0);
   });
 
-  it("redraws the whole padded box when a text is cleared, so outlined descenders don't stay behind", () => {
-    // Babylon grows a control's old box by its left and top padding only; the block widens the redraw itself.
-    ui.screen.scaleTo(800, 600);
-    const t = GameObject.create("Message").addBehavior(Text, { text: "Press Space or click to flap", fontSize: 34, anchor: "top", offset: new Vector2(0, 150), outlineColor: new Color(0, 0, 0, 1), outlineWidth: 5 });
-    const block = textBox(t, 800, 600);
+  it("redraws past the box when an outlined text is cleared, so the outline doesn't stay behind", () => {
+    // Babylon grows a control's old box by its left and top padding only; the block widens the redraw by its outline.
+    ui.screen.scaleTo(1280, 720);
+    const { block, text, core } = outlined({ text: "Press Space or click to flap", textOutlineColor: new Color(0, 0, 0, 1), textOutlineWidth: 5 });
     ui.screen._checkUpdate(null);
     const box = { left: block.leftInPixels, top: block.topInPixels, right: block.leftInPixels + block.widthInPixels, bottom: block.topInPixels + block.heightInPixels };
-
     const rects: number[][] = [];
     const invalidate = ui.screen.invalidateRect.bind(ui.screen);
     ui.screen.invalidateRect = (...r: [number, number, number, number]) => {
       rects.push(r);
       invalidate(...r);
     };
-    t.text = "";
-    ui.syncTexts(World.require(), 800, 600);
+    text.text = "";
+    sync(core);
     ui.screen._checkUpdate(null);
-    expect(block.isVisible).toBe(false);
-    expect(Math.min(...rects.map((r) => r[0]))).toBeLessThanOrEqual(box.left);
-    expect(Math.min(...rects.map((r) => r[1]))).toBeLessThanOrEqual(box.top);
-    expect(Math.max(...rects.map((r) => r[2]))).toBeGreaterThanOrEqual(box.right);
-    expect(Math.max(...rects.map((r) => r[3]))).toBeGreaterThanOrEqual(box.bottom);
-  });
-
-  it("scales the text container by the pixel ratio (CSS-pixel coordinates)", () => {
-    const core = new FakeCore();
-    core.set([], []);
-    sync(core, {}, 800, 600, 2);
-    expect(textRoot().scaleX).toBe(2);
-    expect(textRoot().widthInPixels).toBe(800);
-    expect(textRoot().heightInPixels).toBe(600);
+    expect(rects.length).toBeGreaterThan(0);
+    expect(Math.min(...rects.map((r) => r[0]))).toBeLessThanOrEqual(box.left - 5);
+    expect(Math.min(...rects.map((r) => r[1]))).toBeLessThanOrEqual(box.top - 5);
+    expect(Math.max(...rects.map((r) => r[2]))).toBeGreaterThanOrEqual(box.right + 5);
+    expect(Math.max(...rects.map((r) => r[3]))).toBeGreaterThanOrEqual(box.bottom + 5);
   });
 });
 
@@ -632,7 +607,7 @@ describe("measureText", () => {
 });
 
 describe("the editor's camera preview UI (ADR 0076)", () => {
-  it("draws screen canvases and Text at the inset's origin, and leaves world canvases to the main layer", () => {
+  it("draws screen canvases at the inset's origin, and leaves world canvases to the main layer", () => {
     const preview = new BabylonUI(scene, { texture: async () => new Texture("data:,", scene, { noMipmap: true }), screenOnly: true });
     try {
       const screenCanvas = node("S", null, UICanvas);
@@ -645,8 +620,6 @@ describe("the editor's camera preview UI (ADR 0076)", () => {
       const roots = preview.screen.rootContainer.children.filter((c) => (c.name ?? "").startsWith("myco.canvas")) as Container[];
       expect(roots.map((r) => r.name)).toEqual(["myco.canvas.S"]);
       expect([roots[0].leftInPixels, roots[0].topInPixels, roots[0].scaleX]).toEqual([2000, 1000, 1]); // texture pixels: CSS × pixel ratio
-      const texts = preview.screen.rootContainer.children.find((c) => c.name === "myco.texts") as Container;
-      expect([texts.leftInPixels, texts.topInPixels, texts.widthInPixels, texts.heightInPixels]).toEqual([2000, 1000, 160, 90]);
     } finally {
       preview.dispose();
     }

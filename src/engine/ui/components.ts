@@ -164,6 +164,13 @@ export class UIText extends UIElement {
   @field(String, { choices: ["start", "end", "left", "center", "right", "justify"] }) textAlign: UITextAlign = "start";
   /** How lines wrap: at word boundaries, anywhere, or never. */
   @field(String, { choices: ["break-word", "break-all", "keep-all"] }) wordBreak: UIWordBreak = "break-word";
+  /**
+   * The colour of an outline drawn around the glyphs (ADR 0417; `text-outline-color` in a stylesheet, inherited like
+   * `color`); null draws none. It shows only with a `textOutlineWidth` above 0.
+   */
+  @field(Color) textOutlineColor: Color | null = null;
+  /** How far the outline reaches outside the glyphs, in UI pixels (`text-outline-width`, inherited); 0 draws none. It doesn't change the layout. */
+  @field(Number) textOutlineWidth = 0;
 }
 
 /** A texture laid out as an element. */

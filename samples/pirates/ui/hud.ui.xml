@@ -1,0 +1,138 @@
+<!--
+  The heads-up display as a UI document (ADR 0077, 0417), on the HUD node of prefabs/hud.prefab.json.
+  The look is in hud.ui.css; the behaviour is scripts/behaviors/Hud.ts, which fills the {bindings}
+  from ui.data, makes the leaderboard, the results lines and the minimap's dots from the <Template>s
+  with list(), writes the bars, colours and marker positions that change each frame, and shows and
+  hides the banners and the dialog with the "hidden" class (display: none).
+-->
+<Canvas>
+  <Style src="hud.ui.css"/>
+
+  <Panel id="screen">
+    <Panel id="top">
+      <Panel id="clock-box">
+        <Text id="clock">{clock}</Text>
+      </Panel>
+    </Panel>
+
+    <!-- A line while sunk; the results (eight lines, best first) when the match ends. -->
+    <Panel id="middle-row">
+      <Panel id="middle">
+        <Text id="status">{status}</Text>
+        <Panel id="lines">
+          <Template>
+            <Text class="line">{text}</Text>
+          </Template>
+        </Panel>
+        <Text id="next">{next}</Text>
+      </Panel>
+    </Panel>
+
+    <Panel id="bottom">
+      <Panel id="powers" class="hidden">
+        <Text id="powers-label">{powers}</Text>
+      </Panel>
+      <Panel id="bars">
+        <Panel id="port" class="battery">
+          <Text class="battery-label">{port}</Text>
+          <Panel class="reload"/>
+        </Panel>
+        <Panel id="hull">
+          <Panel id="hull-swatch"/>
+          <Text id="hull-label">{hull}</Text>
+          <Panel id="hull-bar">
+            <Panel id="hull-fill"/>
+          </Panel>
+        </Panel>
+        <Panel id="starboard" class="battery">
+          <Text class="battery-label">{starboard}</Text>
+          <Panel class="reload"/>
+        </Panel>
+      </Panel>
+      <!-- An attribute, not text content: content collapses runs of spaces, as in HTML. -->
+      <Text id="help" text="Mouse: steer   |   A / D: battery   |   Space: fire   |   F: fog cloud (ghost ship)   |   Esc: leave the match"/>
+    </Panel>
+  </Panel>
+
+  <Panel id="overlay">
+    <!-- A row per captain, best first: the script marks this captain's row (.mine), sunk ships (.sunk) and the flag's holder (.holder). -->
+    <Panel id="leaderboard">
+      <Text id="board-title">Captains</Text>
+      <Template>
+        <Panel class="board-row">
+          <Text class="rank">{rank}</Text>
+          <Panel class="swatch" background-color="{swatch}"/>
+          <Text class="name">{name}</Text>
+          <Image class="flag" image="textures/icon_flag.png"/>
+          <Text class="score">{score}</Text>
+        </Panel>
+      </Template>
+    </Panel>
+
+    <!-- The minimap: a layer of dots per kind, bottom to top, placed and coloured by bindings. -->
+    <Panel id="minimap">
+      <Panel id="chart">
+        <Panel id="land" class="layer">
+          <Template><Panel class="dot" left="{left}" top="{top}" width="{size}" height="{size}" border-radius="{round}" background-color="{fill}" border-width="{borderWidth}" border-color="{border}"/></Template>
+        </Panel>
+        <Panel id="clouds" class="layer">
+          <Template><Panel class="dot" left="{left}" top="{top}" width="{size}" height="{size}" border-radius="{round}" background-color="{fill}" border-width="{borderWidth}" border-color="{border}"/></Template>
+        </Panel>
+        <Panel id="pickups" class="layer">
+          <Template><Panel class="dot" left="{left}" top="{top}" width="{size}" height="{size}" border-radius="{round}" background-color="{fill}" border-width="{borderWidth}" border-color="{border}"/></Template>
+        </Panel>
+        <Panel id="flag-dots" class="layer">
+          <Template><Panel class="dot" left="{left}" top="{top}" width="{size}" height="{size}" border-radius="{round}" background-color="{fill}" border-width="{borderWidth}" border-color="{border}"/></Template>
+        </Panel>
+        <Panel id="ships" class="layer">
+          <Template><Panel class="dot" left="{left}" top="{top}" width="{size}" height="{size}" border-radius="{round}" background-color="{fill}" border-width="{borderWidth}" border-color="{border}"/></Template>
+        </Panel>
+        <Panel id="north">
+          <Text>N</Text>
+        </Panel>
+      </Panel>
+      <Text id="legend">{legend}</Text>
+    </Panel>
+
+    <!-- Markers at the screen's edge: the flag (or its holder) off screen, and the way back from outside the arena. -->
+    <Panel id="flag-marker" class="marker hidden">
+      <Panel class="badge">
+        <Image image="textures/icon_flag.png"/>
+      </Panel>
+      <Text class="marker-label">{flagLabel}</Text>
+    </Panel>
+    <Panel id="home-marker" class="marker hidden">
+      <Panel class="badge">
+        <Text>!</Text>
+      </Panel>
+      <Text class="marker-label">{homeLabel}</Text>
+    </Panel>
+
+    <Panel id="edge" class="hidden">
+      <Panel id="edge-box" class="box">
+        <Text class="title">{edgeTitle}</Text>
+        <Text class="detail">{edgeDetail}</Text>
+      </Panel>
+    </Panel>
+
+    <Panel id="fog" class="hidden">
+      <Panel id="fog-box" class="box">
+        <Text class="title">Hidden in the fog</Text>
+        <Text class="detail">{fogDetail}</Text>
+      </Panel>
+    </Panel>
+  </Panel>
+
+  <!-- "Leave the match?" (Escape). -->
+  <Panel id="leave" class="hidden">
+    <Panel id="leave-box">
+      <Text class="title">Leave the match?</Text>
+      <Text class="detail">{leaveDetail}</Text>
+      <Panel id="leave-buttons">
+        <Button id="leave-go">Leave</Button>
+        <Button id="leave-stay">Keep sailing</Button>
+      </Panel>
+      <Text id="leave-hint">Esc: keep sailing</Text>
+    </Panel>
+  </Panel>
+</Canvas>

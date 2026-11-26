@@ -25,7 +25,7 @@ describe("the node Create tree (ADR 0383)", () => {
       "3D Object: Capsule, Cube, Cylinder, Plane, Sphere",
       "Effects: Fog, Water",
       "Light: Ambient Light, Directional Light, Point Light, Reflection Probe, Spot Light",
-      "UI: Button, Canvas, Image, Input Field, Panel, Screen Text, Text, UI Document",
+      "UI: UI Document",
     ]);
   });
 
@@ -43,8 +43,7 @@ describe("the node Create tree (ADR 0383)", () => {
   it("makes each kind's entry with the label it shows", () => {
     const made: string[] = [];
     nodeCreateTree((k, label) => (made.push(`${k.kind}=${label}`), { label }));
-    expect(made).toContain("ui-canvas=Canvas");
-    expect(made).toContain("text=Screen Text");
+    expect(made).toContain("ui-document=UI Document");
     expect(made).toContain("directional-light=Directional Light");
   });
 });

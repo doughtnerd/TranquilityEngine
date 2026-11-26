@@ -115,6 +115,32 @@ function write(path, content) {
   written.push(path);
 }
 
+// ---------------------------------------------------------------------------------------------- the HUD document
+
+// The status panel is a UI document (ADR 0077); scripts/behaviors/Hud.ts fills its {status} binding.
+const HUD_XML = `<!--
+  The navigation sample's status panel as a UI document (ADR 0077): one text block, filled by
+  scripts/behaviors/Hud.ts through the {status} binding. The look is in hud.ui.css.
+-->
+<Canvas>
+  <Style src="hud.ui.css"/>
+  <Text id="status">{status}</Text>
+</Canvas>
+`;
+const HUD_CSS = `/* The navigation HUD's look (ADR 0077): white text with a black outline, top left, in reference pixels. */
+#status {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  text-align: left;
+  font-size: 18px;
+  font-weight: bold;
+  color: white;
+  text-outline-color: black;
+  text-outline-width: 3px;
+}
+`;
+
 // ---------------------------------------------------------------------------------------------- navigation settings
 
 const motion = (ease, easeInTime, easeOutTime) => ({ ease, easeInTime, easeOutTime });
@@ -696,7 +722,7 @@ function buildMain() {
   course("Jump course", "jumper", PREFABS.jumper, COUNTS.jumpers, 12, 48, 1);
   course("Climb course", "climber", PREFABS.climber, COUNTS.climbers, -12, -48, 0.75);
 
-  scene.add("HUD", [{ type: "engine.Text", data: { text: "", fontSize: 18, anchor: "top-left", align: "left", offset: [16, 16], outlineColor: "#000000", outlineWidth: 3 } }, { type: "navdemo.Hud" }], undefined, false);
+  scene.add("HUD", [{ type: "engine.UIDocument", data: { document: "asset:ui/hud.ui.xml" } }, { type: "navdemo.Hud" }], undefined, false);
   return { file: scene.file(), groupCount };
 }
 
@@ -721,6 +747,8 @@ const main = buildMain();
 writeMaterials(main.groupCount);
 writePrefabs();
 write("scenes/main.scene.json", main.file);
+write("ui/hud.ui.xml", HUD_XML);
+write("ui/hud.ui.css", HUD_CSS);
 for (let i = 0; i < 9; i++) write(chunkScene(i), buildChunk(i));
 
 const total = COUNTS.walkers + COUNTS.flyers + COUNTS.walkFlyers + COUNTS.groups * COUNTS.groupSize + COUNTS.flyerGroups * COUNTS.flyerGroupSize + COUNTS.walkFlyGroups * COUNTS.walkFlyGroupSize + COUNTS.jumpers + COUNTS.climbers;
