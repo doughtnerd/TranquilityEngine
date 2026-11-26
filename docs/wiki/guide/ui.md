@@ -131,7 +131,7 @@ An element with `overflow: auto` or `scroll` scrolls its children ([ADR 0423](..
 - **`UIButton`**: a panel that takes the pointer, with `hoverColor`, `pressedColor` and `interactable`. Its children are its label.
 - **`UIInputField`**: a one-line text field: `value`, `placeholder`, `maxLength` (0: no limit), `fontSize`, `color`, `placeholderColor`, and the panel's style.
 - Buttons and input fields also take focus: `focusable`, `focusColor`, `navigation` and `navUp`, `navDown`, `navLeft`, `navRight` ([below](#keyboard-and-gamepad-navigation)).
-- **`UIControlMapper`**: a ready-made controls screen that lists a player's actions and rebinds them (see [Input](input.md#a-rebinding-screen)). It builds its elements as its node's children, under a canvas a document built.
+- **`UIControlMapper`**: a ready-made controls screen that lists a player's actions and rebinds them (see [Input](input.md#a-rebinding-screen)). It draws with a built-in Svelte component on a `UIView` it makes as its node's child.
 
 ## Paint: shadows, gradients and rounded corners
 
@@ -427,6 +427,8 @@ Make a component with the Assets panel's **Create > UI > New Svelte Component** 
 
 - In the editor they compile when the project opens and again whenever you save one (in the Code panel or outside the editor), or create one. A mounted `UIView` shows the new version in its next frame and keeps its `props` (hot reload); its own state starts over. A compile error is reported like a script's (the status line, with the file and line), and the view keeps showing the last version that compiled.
 - Play's type check covers rune modules (Svelte's runes and modules are known to the Code panel's TypeScript service). Inside `.svelte` files, the Svelte compiler's errors are reported, but types aren't checked yet (no svelte-check).
+- **Built-in components:** the engine's own UI (`UIControlMapper`'s screen, `SubtitleDisplay`'s rows) is Svelte too, served at `@myco/ui/` paths. The editor has them always; a game build compiles the ones the project uses (a scene, prefab or script naming `UIControlMapper` or `SubtitleDisplay`) into the game's code with its own components.
+- **Spaces and line breaks:** text content collapses runs of whitespace, as in HTML. To keep them (a readout of several lines, columns padded with spaces), put the text in the `text` attribute of an empty element: `<span text={lines}></span>`.
 - A game build compiles them without the editor's debugging information. The `.svelte` and `.svelte.ts` files don't ship: their compiled code does, with Svelte's runtime and the engine's renderer from the player, never the compiler. Styles are parsed when they compile, so a game that uses only Svelte UI doesn't load the CSS parser.
 
 
