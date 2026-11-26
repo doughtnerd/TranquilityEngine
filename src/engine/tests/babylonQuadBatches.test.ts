@@ -32,7 +32,7 @@ describe("Babylon quad batches drawing tilemaps (ADR 0103, 0136)", () => {
     await SceneManager.load("s.json");
     const scene = new Scene(new NullEngine());
     let loaded = false;
-    const pending: (() => void)[] = [];
+    const pending: ((t: Texture) => void)[] = [];
     const tex = { getBaseSize: () => ({ width: 64, height: 32 }), hasAlpha: false } as unknown as Texture;
     const quads = new BabylonQuadBatches({
       scene,
@@ -48,7 +48,7 @@ describe("Babylon quad batches drawing tilemaps (ADR 0103, 0136)", () => {
     tilemaps.sync(world);
     expect([...scene.meshes]).toHaveLength(0); // texture still loading
     loaded = true;
-    pending.forEach((f) => f());
+    pending.forEach((f) => f(tex));
     tilemaps.sync(world);
     const meshes = [...scene.meshes];
     expect(meshes).toHaveLength(2);

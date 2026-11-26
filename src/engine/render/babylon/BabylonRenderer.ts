@@ -214,32 +214,19 @@ export class BabylonRenderer {
       shared: this.graphShared,
       renderTexture: (path) => this.renderTextures.texture(path),
       editorPicking: () => this.policy.drawPolicy === "perObject", // the editor's picking needs per-object instances
+      warn: (key, message) => this.warnOnce(key, message),
     });
     this.quads = new BabylonQuadBatches({
       scene,
-      texture: (path, onLoad) => {
-        const t = this.materials.loadedTexture(path);
-        if (t) return t;
-        this.materials.texture(path).then(onLoad, (err) => this.warnOnce(`tile|${path}`, `failed to load tile texture "${path}": ${(err as Error).message}`));
-        return null;
-      },
-      dataTexture: (path, onLoad) => {
-        const t = this.materials.loadedTexture(path, "graphData");
-        if (t) return t;
-        this.materials.texture(path, "graphData").then(onLoad, (err) => this.warnOnce(`map|${path}`, `failed to load "${path}": ${(err as Error).message}`));
-        return null;
-      },
+      texture: (path, onReady) => this.materials.texture(path, "color", onReady),
+      dataTexture: (path, onReady) => this.materials.texture(path, "graphData", onReady),
       sortOrder: (layer, order) => sortingOrder(this.settings.render.sortingLayers, layer, order, (l) => this.warnOnce(`layer|${l}`, unknownLayerMessage(l))),
       spriteGraph: (material) => this.materials.spriteGraph(material),
       spriteGraphMaterial: (name, graph, overrides) => this.materials.spriteGraphMaterial(name, graph, overrides),
     });
     this.lights2D = new BabylonLights2D({
       scene,
-      texture: (path) => {
-        const t = this.materials.loadedTexture(path);
-        if (!t) this.materials.texture(path).catch((err) => this.warnOnce(`light2d|${path}`, `failed to load 2D light texture "${path}": ${(err as Error).message}`));
-        return t;
-      },
+      texture: (path) => this.materials.texture(path),
       textureSize: (path) => this.textureSize(path),
     });
     this.decals = new BabylonDecals({ scene, materials: this.materials, warnOnce: (key, message) => this.warnOnce(key, message) });
@@ -411,7 +398,7 @@ export class BabylonRenderer {
     await Promise.all(
       paths.map((p) =>
         this.materials
-          .texture(p)
+          .loadTexture(p)
           .catch((err) => console.error(`[myco] failed to load texture "${p}":`, err))
           .finally(() => onProgress?.(++done / paths.length)),
       ),

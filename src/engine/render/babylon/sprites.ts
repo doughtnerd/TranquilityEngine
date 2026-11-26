@@ -37,10 +37,11 @@ export interface BabylonSpriteHost {
   pixelsPerUnit(): number;
   /** The project's sorting layers, bottom to top (`render.sortingLayers`). */
   sortingLayers(): readonly string[];
-  /** Loads a colour texture asset (the material library's `texture(path)`). */
-  texture(path: string): Promise<Texture>;
-  /** A colour texture asset if already loaded, else null (the material library's `loadedTexture(path)`). */
-  loadedTexture(path: string): Texture | null;
+  /**
+   * A colour texture asset if loaded (sampled again if its import settings changed), else null: it starts loading and
+   * `onReady` runs once it has (the material library's `texture`).
+   */
+  texture(path: string, onReady?: () => void): Texture | null;
   /** A data texture (a normal or mask map, read linear, ADR 0414) if loaded, else null, starting it loading. */
   dataTexture(path: string): Texture | null;
   /** A 2D material's sprite shader graph (ADR 0415), or null (the material library's `spriteGraph`). */
@@ -168,23 +169,19 @@ export class BabylonSprites implements BabylonFeature {
     const { path: image, slice } = splitSpriteRef(s.sprite);
     if (entry.spritePath !== s.sprite) {
       entry.spritePath = s.sprite;
-      const tex = image ? this.host.loadedTexture(image) : null;
+      const requested = s.sprite;
+      const tex = image
+        ? this.host.texture(image, () => {
+            if (entry!.spritePath === requested) entry!.spritePath = null; // re-resolve next sync
+          })
+        : null;
       entry.texture = tex;
       if (tex) tex.hasAlpha = true; // Babylon reads a texture's alpha only when told it has one
       if (entry.material) entry.material.albedoTexture = tex;
       this.spritesDirty = true;
-      if (image && !tex) {
-        const requested = s.sprite;
-        this.host
-          .texture(image)
-          .then(() => {
-            if (entry!.spritePath === requested) entry!.spritePath = null; // re-resolve next sync
-          })
-          .catch((err) => console.error(`[myco] failed to load texture "${image}":`, err));
-      }
     }
     // A sidecar rewritten since the texture loaded (the editor's import settings): sample it anew.
-    if (entry.texture && image) this.host.loadedTexture(image);
+    if (entry.texture && image) this.host.texture(image);
 
     const ready = !s.sprite || !!entry.texture;
     // A skinned slice under a Skeleton2D is another feature's to draw (ADR 0371, `spriteClaims.ts`).

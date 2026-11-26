@@ -31,10 +31,10 @@ import type { BabylonGraphMaterial } from "./graphMaterial";
 /** What the quad batches borrow from the renderer. */
 export interface BabylonQuadBatchDeps {
   readonly scene: Scene;
-  /** A loaded texture, or null (and it starts loading): `onLoad` runs once it has. */
-  texture(path: string, onLoad: () => void): Texture | null;
+  /** A loaded texture, or null (and it starts loading): `onReady` runs once it has (the material library's `texture`). */
+  texture(path: string, onReady: (texture: Texture) => void): Texture | null;
   /** A loaded data texture (a normal or mask map, read linear, ADR 0414), or null (and it starts loading). */
-  dataTexture(path: string, onLoad: () => void): Texture | null;
+  dataTexture(path: string, onReady: (texture: Texture) => void): Texture | null;
   sortOrder(layer: string, order: number): number;
   /** A 2D material's sprite shader graph (ADR 0415), or null (the material library's `spriteGraph`). */
   spriteGraph?(material: string): SpriteGraph | null;
@@ -63,7 +63,7 @@ export class BabylonQuadBatches implements QuadBatchHost {
   }
 
   textureSize(path: string, onLoad: () => void): readonly [number, number] | null {
-    const tex = this.deps.texture(path, onLoad);
+    const tex = this.deps.texture(path, () => onLoad());
     if (!tex) return null;
     const base = tex.getBaseSize();
     return authoredSize(Assets.importSettings(path), base.width, base.height);
@@ -92,8 +92,8 @@ export class BabylonQuadBatches implements QuadBatchHost {
     const rig = lights2DOf(this.deps.scene);
     const batch = rig?.batchOfLayer(lighting.sortingLayer) ?? -1;
     if (!rig || batch < 0) return null;
-    const normal = lighting.normalMap ? this.deps.dataTexture(lighting.normalMap.replace(/^asset:/, ""), onLoad) : null;
-    const mask = lighting.maskMap ? this.deps.dataTexture(lighting.maskMap.replace(/^asset:/, ""), onLoad) : null;
+    const normal = lighting.normalMap ? this.deps.dataTexture(lighting.normalMap.replace(/^asset:/, ""), () => onLoad()) : null;
+    const mask = lighting.maskMap ? this.deps.dataTexture(lighting.maskMap.replace(/^asset:/, ""), () => onLoad()) : null;
     const greenDown = !!lighting.normalMapGreenDown;
     return { key: `lit${batch}@${rig.version}|${normal ? lighting.normalMap : ""}|${mask ? lighting.maskMap : ""}|${greenDown}`, setup: { batch, normal, mask, greenDown } };
   }
@@ -130,7 +130,7 @@ export class BabylonQuadBatches implements QuadBatchHost {
         tex.hasAlpha = true;
         m.albedoTexture = tex;
       };
-      if (texture) apply(this.deps.texture(texture, () => apply(this.deps.texture(texture, () => {})))); // "": plain (a 2D line without a texture)
+      if (texture) apply(this.deps.texture(texture, apply)); // "": plain (a 2D line without a texture)
       if (lit) lightLayeredQuads(m, lit.setup);
       shared = { material: m, users: 0 };
       this.materials.set(key, shared);
@@ -154,13 +154,13 @@ export class BabylonQuadBatches implements QuadBatchHost {
       tex.hasAlpha = true;
       m.albedoTexture = tex;
     };
-    if (texture) apply(this.deps.texture(texture, () => apply(this.deps.texture(texture, () => {})))); // "": plain (a 2D line without a texture)
+    if (texture) apply(this.deps.texture(texture, apply)); // "": plain (a 2D line without a texture)
     const plugin = new QuadMaskPlugin(m, { texture: null, uv: Array.from(mask.uv) });
     if (lit) lightLayeredQuads(m, lit.setup);
     const applyMask = (tex: Texture | null): void => {
       if (tex) plugin.mask.texture = tex;
     };
-    applyMask(this.deps.texture(mask.texture, () => applyMask(this.deps.texture(mask.texture, () => {}))));
+    applyMask(this.deps.texture(mask.texture, applyMask));
     return { material: m, plugin };
   }
 

@@ -567,7 +567,7 @@ export class EffectPlayer {
 export function libraryEffectHost(scene: Scene, library: BabylonMaterialLibrary): EffectHost {
   return {
     scene,
-    texture: (path) => library.texture(path),
+    texture: (path) => library.loadTexture(path),
     material: (path) => library.material(path),
     materialCopy: (path, name) => library.copy(path, name),
   };

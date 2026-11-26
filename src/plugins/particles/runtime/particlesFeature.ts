@@ -35,7 +35,7 @@ function particleHost(host: BabylonFeatureHost): BabylonParticleHost {
       const e = c.node.entity;
       return host.world()!.worldMatrix(e).subarray(e * 16, e * 16 + 16);
     },
-    texture: (path) => host.materials.texture(path),
+    texture: (path) => host.materials.loadTexture(path),
     tierScale: () => PARTICLE_SCALE[Graphics.tier.particles],
     sortOrder: (layer, order) => sortingOrder(host.settings.render.sortingLayers, layer, order, (l) => host.warnOnce(`layer|${l}`, unknownLayerMessage(l))), // 2D systems (ADR 0415)
     warnOnce: (key, message) => host.warnOnce(key, message),
