@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -9,7 +10,9 @@ import { MYCO_ALIASES, typescriptTranspile } from "./vite.shared.ts";
 // renderer. `npm run test:svelte-conformance` (which fetches the fixtures first); never part of `npm test`.
 
 const root = dirname(fileURLToPath(import.meta.url));
-const svelteSrc = join(root, "node_modules/svelte/src");
+// Its real path: the runtime the engine imports resolves through symlinks (a worktree's linked node_modules), and a
+// fixture importing Svelte's sources by relative path must get those same module instances.
+const svelteSrc = realpathSync(join(root, "node_modules/svelte/src"));
 const PAGE_GLOBALS = join(root, "tools/svelte-conformance/pageGlobals.ts");
 
 /** The fixtures import Svelte's harness (`../../test`) and Svelte's sources by relative path: point them at the shim and the installed package. */

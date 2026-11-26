@@ -29,10 +29,11 @@ const SUPPORTED = ":hover, :pressed, :focus, :disabled, :lang(), :is(), :where()
 
 /**
  * Parse a selector list (`#shop .row > span, button:hover`) into selectors to match. Throws an Error
- * that says what's wrong for anything outside the grammar the cascade matches.
+ * that says what's wrong for anything outside the grammar the cascade matches. `anyTag` takes any element name
+ * (the Svelte renderer's nodes keep tags no UI element has, such as `output`); otherwise only known ones.
  */
-export function parseSelectorQuery(text: string): Selector[] {
-  const reader = { text, i: 0 };
+export function parseSelectorQuery(text: string, options?: { anyTag?: boolean }): Selector[] {
+  const reader = { text, i: 0, anyTag: options?.anyTag ?? false };
   const list = readList(reader);
   skipSpace(reader);
   if (reader.i < text.length) fail(reader, `unexpected "${text[reader.i]}"`);
@@ -52,6 +53,8 @@ export function parseCompoundText(text: string): SimpleSelector {
 
 interface Reader {
   readonly text: string;
+  /** Element names needn't be known UI tags. */
+  readonly anyTag?: boolean;
   i: number;
 }
 
@@ -119,7 +122,7 @@ function readCompound(r: Reader): SimpleSelector | null {
   } else if (IDENT.test(r.text.slice(r.i))) {
     const at = r.i;
     const tag = ident(r, "an element");
-    if (!isKnownTag(tag)) {
+    if (!r.anyTag && !isKnownTag(tag)) {
       r.i = at;
       fail(r, `unknown element "${tag}"`);
     }

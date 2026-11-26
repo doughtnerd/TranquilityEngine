@@ -77,6 +77,23 @@ describe("UIView: the Element subset as Svelte's fixtures use it", () => {
     expect(log).toEqual(["submit"]);
   });
 
+  it("answers querySelector, matches and closest with the cascade's selectors: structural, :not(), siblings, any tag", async () => {
+    const { root } = await view();
+    type Queried = Node & { matches(s: string): boolean; closest(s: string): Queried | null; querySelectorAll(s: string): Queried[] };
+    const q = root as Queried;
+    expect(q.querySelector("form > button:last-child").id).toBe("plain");
+    expect(q.querySelector("button:first-of-type").id).toBe("send");
+    expect(q.querySelector("input:not([type=checkbox])").id).toBe("amount");
+    expect(q.querySelector("#send + button").id).toBe("plain");
+    expect(q.querySelector("p ~ button").id).toBe("kind");
+    expect(q.querySelector("mrow").id).toBe("row"); // a tag no UI element has
+    expect(q.querySelectorAll("form :nth-child(2n+1)").map((n) => n.id)).toEqual(["agree", "plain"]);
+    const agree = q.querySelector("#agree") as Queried;
+    expect(agree.matches("form :first-child")).toBe(true);
+    expect(agree.matches("form > :last-child")).toBe(false);
+    expect((q.querySelector("circle") as Queried).closest("svg")!.id).toBe("icon");
+  });
+
   it("gives elements their namespace: SVG inside <svg>, HTML again inside <foreignObject>, MathML inside <math>", async () => {
     const { root } = await view();
     expect(root.namespaceURI).toBe("http://www.w3.org/1999/xhtml");

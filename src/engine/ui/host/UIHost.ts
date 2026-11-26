@@ -71,6 +71,27 @@ function requireCascade(): Cascade {
   return cascade;
 }
 
+const selectorLists = new Map<string, readonly Selector[]>();
+
+/**
+ * Whether `target` matches a selector list in the cascade's grammar (ADR 0418 wave 5), as `UIView.query` reads it:
+ * the Svelte renderer's nodes answer `querySelector`, `matches` and `closest` with it (ADR 0419). Throws for a selector
+ * outside that grammar. The cascade must be loaded.
+ */
+export function matchesUISelector(selector: string, target: StyleTarget): boolean {
+  const P = requireCascade();
+  let list = selectorLists.get(selector);
+  if (!list) {
+    try {
+      list = P.parseSelectorQuery(selector, { anyTag: true });
+    } catch (err) {
+      throw new Error(`Bad selector "${selector}": ${(err as Error).message}.`);
+    }
+    selectorLists.set(selector, list);
+  }
+  return list.some((s) => P.matchSelector(s, target));
+}
+
 function warn(message: string): void {
   console.warn(`[myco] ${message}`);
 }

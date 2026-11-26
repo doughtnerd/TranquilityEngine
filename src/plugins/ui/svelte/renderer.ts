@@ -72,9 +72,9 @@ import { checkRadio, chooseOption, selectOf } from "../../../engine/ui/formContr
 import { applyAffine, invert, multiply } from "../../../engine/ui/transform2d";
 import { distanceToOutline, flattenPath, insideFill, parseSvgTransform, pathLength, pointAtLength, shapePath, SVG_GEOMETRY_TAGS, viewBoxMap } from "../../../engine/ui/svg/svgGeometry";
 import { UI_MEDIA_EVENTS, type UIMediaEvent, type UIMediaEventType } from "../../../engine/ui/media";
-import { onUIHostBubbleOut, onUIHostEdit, setUIHostStyles, UIHostElement, UIHostEvent, type UIHostEventType, type UIHostSource, type UIHostTree } from "../../../engine/ui/host/UIHost";
+import { matchesUISelector, onUIHostBubbleOut, onUIHostEdit, setUIHostStyles, uiHostFocused, UIHostElement, UIHostEvent, type UIHostEventType, type UIHostSource, type UIHostTree } from "../../../engine/ui/host/UIHost";
 import { addUIListener, removeUIListener, runUIListeners, uiListenerOptions, type UIListener } from "../../../engine/ui/events";
-import type { UIStylesheet, UITag } from "../../../engine/ui/document/types";
+import type { StyleTarget, UIStylesheet, UITag } from "../../../engine/ui/document/types";
 import { UIGlobals, UIGlobalTarget, type GlobalKind } from "./globalTargets";
 import { animateNode, animateSvgNode, measureNode } from "./animation";
 import { frameNow, requestFrame } from "./timing";
@@ -655,18 +655,18 @@ export class UIRenderElement extends UINodeBase {
     return serialize(this);
   }
 
-  /** The first element inside this one a selector matches (tags, `#id`, `.class`, `[attr]`, `[attr=value]`, descendant and child combinators). */
+  /** The first element inside this one a selector matches (the cascade's selector grammar, ADR 0418 wave 5). */
   querySelector(selector: string): UIRenderElement | null {
     return this.querySelectorAll(selector)[0] ?? null;
   }
 
   querySelectorAll(selector: string): UIRenderElement[] {
-    const selectors = parseNodeSelectors(selector);
+    const targetOf = selectorTargets();
     const out: UIRenderElement[] = [];
     const visit = (el: UIRenderElement) => {
       for (const c of el._children) {
         if (!(c instanceof UIRenderElement)) continue;
-        if (selectors.some((s) => matchesNode(s, s.length - 1, c, this))) out.push(c);
+        if (matchesUISelector(selector, targetOf(c))) out.push(c);
         visit(c);
       }
     };
@@ -687,17 +687,14 @@ export class UIRenderElement extends UINodeBase {
 
   /** Whether a selector matches it (the selectors `querySelector` takes). */
   matches(selector: string): boolean {
-    const scope = mountOf(this);
-    return this !== scope && parseNodeSelectors(selector).some((s) => matchesNode(s, s.length - 1, this, scope));
+    return !this._tree && matchesUISelector(selector, selectorTargets()(this));
   }
 
   /** Itself or its nearest ancestor a selector matches (within its view), or null. */
   closest(selector: string): UIRenderElement | null {
-    const scope = mountOf(this);
-    const selectors = parseNodeSelectors(selector);
-    for (let el: UIRenderElement | null = this; el && el !== scope; el = el._parent instanceof UIRenderElement ? el._parent : null) {
-      const at = el;
-      if (selectors.some((s) => matchesNode(s, s.length - 1, at, scope))) return at;
+    const targetOf = selectorTargets();
+    for (let el: UIRenderElement | null = this; el && !el._tree; el = el._parent instanceof UIRenderElement ? el._parent : null) {
+      if (matchesUISelector(selector, targetOf(el))) return el;
     }
     return null;
   }
@@ -1162,79 +1159,42 @@ function serialize(node: UINode): string {
 }
 
 /** A compound of a node selector: all of it must match. */
-interface NodeCompound {
-  tag: string | null;
-  id: string | null;
-  classes: string[];
-  attrs: { name: string; value: string | null }[];
-  /** The combinator before this compound (null for the first). */
-  combinator: " " | ">" | null;
-}
-
-const nodeSelectorCache = new Map<string, NodeCompound[][]>();
-
-/** A small selector parser for `querySelector`: tags, `*`, `#id`, `.class`, `[attr]`, `[attr=value]`, descendant and child combinators, comma lists. */
-function parseNodeSelectors(text: string): NodeCompound[][] {
-  const cached = nodeSelectorCache.get(text);
-  if (cached) return cached;
-  const out: NodeCompound[][] = [];
-  for (const part of text.split(",")) {
-    const compounds: NodeCompound[] = [];
-    const tokens = part.trim().replace(/\s*>\s*/g, " > ").split(/\s+/).filter(Boolean);
-    let combinator: " " | ">" | null = null;
-    for (const token of tokens) {
-      if (token === ">") {
-        combinator = ">";
-        continue;
-      }
-      const c: NodeCompound = { tag: null, id: null, classes: [], attrs: [], combinator: compounds.length ? (combinator ?? " ") : null };
-      combinator = null;
-      const re = /([#.]?)([\w-]+|\*)|\[([\w-]+)(?:=["']?([^"'\]]*)["']?)?\]/g;
-      for (let m = re.exec(token); m; m = re.exec(token)) {
-        if (m[3] !== undefined) c.attrs.push({ name: m[3], value: m[4] ?? null });
-        else if (m[1] === "#") c.id = m[2];
-        else if (m[1] === ".") c.classes.push(m[2]);
-        else if (m[2] !== "*") c.tag = m[2].toLowerCase();
-      }
-      compounds.push(c);
-    }
-    if (compounds.length) out.push(compounds);
-  }
-  nodeSelectorCache.set(text, out);
-  return out;
-}
-
-function matchesCompound(c: NodeCompound, el: UIRenderElement): boolean {
-  if (c.tag && c.tag !== el.localName.toLowerCase()) return false;
-  if (c.id && el.getAttribute("id") !== c.id) return false;
-  if (c.classes.length) {
-    const classes = (el.getAttribute("class") ?? "").split(/\s+/);
-    if (!c.classes.every((k) => classes.includes(k))) return false;
-  }
-  for (const a of c.attrs) {
-    const v = el.getAttribute(a.name);
-    if (v === null || (a.value !== null && v !== a.value)) return false;
-  }
-  return true;
-}
-
-/** The mount node of the view `el` is in, or null when it's detached. */
-function mountOf(el: UIRenderElement): UIRenderElement | null {
-  for (let n: UIRenderElement | UIRenderFragment | null = el; n; n = n._parent) if (n instanceof UIRenderElement && n._tree) return n;
-  return null;
-}
-
-/** Whether `compounds[0..i]` matches `el`, its ancestors staying inside `scope` (null: all of them). */
-function matchesNode(compounds: NodeCompound[], i: number, el: UIRenderElement, scope: UIRenderElement | null): boolean {
-  if (!matchesCompound(compounds[i], el)) return false;
-  if (i === 0) return true;
-  const up = (n: UIRenderElement) => (n._parent instanceof UIRenderElement && n._parent !== scope ? n._parent : null);
-  if (compounds[i].combinator === ">") {
-    const p = up(el);
-    return !!p && matchesNode(compounds, i - 1, p, scope);
-  }
-  for (let p = up(el); p; p = up(p)) if (matchesNode(compounds, i - 1, p, scope)) return true;
-  return false;
+/**
+ * The selector target a node is for `querySelector`, `matches` and `closest`: the cascade's grammar (ADR 0418 wave 5:
+ * structural pseudo-classes, `:not()`/`:is()`, attribute operators, sibling combinators), matched by the UI core's own
+ * matcher (`matchesUISelector`). Its ancestors run up to the view's mount node (the page's content, as Svelte's
+ * `target`); positions count element siblings only. Built per query: the nodes change between queries.
+ */
+function selectorTargets(): (el: UIRenderElement) => StyleTarget {
+  const made = new Map<UIRenderElement, StyleTarget>();
+  const targetOf = (el: UIRenderElement): StyleTarget => {
+    let t = made.get(el);
+    if (t) return t;
+    const attributes = new Map<string, string>();
+    for (const name of el.getAttributeNames()) attributes.set(name, el.getAttribute(name)!);
+    const parentNode = !el._tree && el._parent instanceof UIRenderElement ? el._parent : null;
+    let children: StyleTarget[] | undefined;
+    let parent: StyleTarget | null | undefined;
+    const hosted = el._hosted;
+    const fields = el as unknown as { checked?: unknown; disabled?: unknown };
+    t = {
+      tag: el.localName,
+      id: el.getAttribute("id"),
+      classes: (el.getAttribute("class") ?? "").split(/\s+/).filter(Boolean),
+      state: hosted?._target.state ?? { hover: false, pressed: false, focus: false, disabled: fields.disabled === true, checked: fields.checked === true },
+      get parent() {
+        return (parent ??= parentNode ? targetOf(parentNode) : null);
+      },
+      attributes,
+      get children() {
+        return (children ??= el._children.filter((c): c is UIRenderElement => c instanceof UIRenderElement).map(targetOf));
+      },
+      content: el._children.some((c) => c instanceof UIRenderText && c.data !== ""),
+    } as StyleTarget;
+    made.set(el, t);
+    return t;
+  };
+  return targetOf;
 }
 
 // --- Building and dropping hosted elements -------------------------------------------------------
@@ -1930,6 +1890,12 @@ function listen(node: UIRenderElement, type: string, fn: () => void): () => void
   };
 }
 
+/** Whether `node` has its World's UI focus. */
+function isFocused(node: UIRenderElement): boolean {
+  const hosted = node._hosted;
+  return !!hosted && uiHostFocused(hosted.tree.world) === hosted;
+}
+
 /** Svelte's number coercion for `bind:value` on number and range inputs: "" is null, anything else a number. */
 const toNumber = (text: string): number | null => (text === "" ? null : +text);
 
@@ -1937,13 +1903,16 @@ const toNumber = (text: string): number | null => (text === "" ? null : +text);
  * `bind:value`: a field's text (a number, or null when empty, for `type="number"`), a slider's number, a text area's
  * text, a select's chosen option's value (its `value` attribute as given, any type) or, with `multiple`, an array of them.
  */
-function bindValue(node: UIRenderElement, get: () => unknown, set: (value: unknown) => void): () => void {
-  if (node._uiTag === "Select") return bindSelect(node, get, set);
+function bindValue(node: UIRenderElement, get: () => unknown, set: (value: unknown) => void, ownChange?: () => boolean): () => void {
+  if (node._uiTag === "Select") return bindSelect(node, get, set, ownChange);
   const value = get();
   const text = value === null || value === undefined ? "" : String(value);
-  if (node.value !== text) node.value = text;
-  // Read at each change: the type can change while bound (Svelte's DOM binding checks it each time too).
   const numeric = () => node._uiTag === "Slider" || (node._uiTag === "InputField" && String(node.getAttribute("type")).toLowerCase() === "number");
+  // As Svelte's DOM binding: a focused field isn't rewritten with a value from its own change's batch (an update
+  // deferred by async work that depends on it), and a number field keeps its text while it means the value ("1.0").
+  const keep = (isFocused(node) && !!ownChange?.()) || (numeric() && value === toNumber(node.value));
+  if (!keep && node.value !== text) node.value = text;
+  // `numeric` is read at each change: the type can change while bound (Svelte's DOM binding checks it each time too).
   return listen(node, "input", () => set(numeric() ? toNumber(node.value) : node.value));
 }
 
@@ -1953,11 +1922,13 @@ function rawOptionValue(o: UIRenderElement): unknown {
 }
 
 /** ADR 0424: `bind:value` on a select: the option with the bound value is chosen; choosing sets it (an array with `multiple`). */
-function bindSelect(node: UIRenderElement, get: () => unknown, set: (value: unknown) => void): () => void {
+function bindSelect(node: UIRenderElement, get: () => unknown, set: (value: unknown) => void, ownChange?: () => boolean): () => void {
   const multiple = node.hasAttribute("multiple");
   const value = get();
   const options = node.options;
-  if (value === undefined) {
+  if (isFocused(node) && ownChange?.()) {
+    // Focused, and the value is from its own change's batch: left as chosen (Svelte's DOM binding).
+  } else if (value === undefined) {
     // Nothing bound yet: the bound state takes what's chosen, as Svelte's DOM binding does.
     const chosen = options.filter((o) => o.selected);
     if (multiple) set(chosen.map(rawOptionValue));
@@ -2096,6 +2067,9 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
   },
   getParent: (node) => node._parent,
   insert(parent, node, anchor) {
+    // Svelte inserts before an anchor through the anchor's parent (`insert_before`); a detached anchor has none, and
+    // the DOM's `anchor.before(node)` does nothing then (a branch committed after its block left the tree).
+    if (!parent) return;
     if (parent === head && node instanceof UIRenderElement) warnOnce(`<${node.localName}> in <svelte:head> is ignored: in a game, only <title> means something (the window's title).`);
     if (node instanceof UIRenderFragment) {
       for (const c of [...node._children]) renderer.insert(parent, c, anchor);
@@ -2165,14 +2139,14 @@ const renderer = createRenderer<{ fragment: UIRenderFragment; element: UIRenderE
     removeUIListener(el._listeners.get(type), handler as Handler, uiListenerOptions(options).capture);
   },
   // The patch's hooks (patches/svelte+5.59.2.patch): element bindings under a custom renderer, and bindings on the global targets.
-  bind(node, name, get, set) {
+  bind(node, name, get, set, ownChange?: () => boolean) {
     if (isGlobal(node)) {
       const stop = node._bind(name, set);
       if (!stop) warnOnce(`bind:${name} on <svelte:${node.kind}> isn't something a game has.`);
       return stop;
     }
     const tag = node._uiTag;
-    if (name === "value" && (tag === "InputField" || tag === "TextArea" || tag === "Slider" || tag === "Select")) return bindValue(node, get, set);
+    if (name === "value" && (tag === "InputField" || tag === "TextArea" || tag === "Slider" || tag === "Select")) return bindValue(node, get, set, ownChange);
     // ADR 0424: checkboxes and radios.
     if ((name === "checked" && (tag === "Toggle" || tag === "Radio")) || (name === "indeterminate" && tag === "Toggle")) return bindState(node, name, get, set);
     if (name === "group" && (tag === "Toggle" || tag === "Radio")) return bindGroup(node, get, set);
@@ -2287,9 +2261,17 @@ export interface MountedView {
   readonly target: UIRenderElement;
   /** The props the component sees, reactive: assigning a key (or changing something inside one) updates it on the next flush. */
   readonly props: Record<string, unknown>;
+  /** What Svelte's `mount` returned: the root component's exports (`export const`, `export function`, accessors). */
+  readonly exports: Record<string, unknown>;
   /** Apply queued updates now (Svelte batches them in a microtask). */
   flush(): void;
   unmount(): void;
+}
+
+/** `mount`'s options a view passes on. */
+export interface MountViewOptions {
+  /** Svelte's `transformError`: what a `<svelte:boundary>` (and the root one) gets for an error it catches. */
+  transformError?: (error: unknown) => unknown;
 }
 
 /** A component module's component: its default export, or the value itself. */
@@ -2300,19 +2282,20 @@ export function componentOf(module: unknown): Component<Record<string, unknown>>
 }
 
 /** Mount `component` on `tree`'s canvas with `props` (made reactive). */
-export function mountView(tree: UIHostTree, component: Component<Record<string, unknown>>, props: Record<string, unknown>): MountedView {
+export function mountView(tree: UIHostTree, component: Component<Record<string, unknown>>, props: Record<string, unknown>, options: MountViewOptions = {}): MountedView {
   const container = new UIRenderElement("div");
   container._tree = tree;
   container._hosted = tree.root;
   mountedTrees.add(tree);
   hostedNodes.set(tree.root, container);
   const reactive = proxy({ ...props }) as Record<string, unknown>;
-  const instance = mount(component, { target: container as never, props: reactive, renderer } as never);
+  const instance = mount(component, { target: container as never, props: reactive, renderer, transformError: options.transformError } as never) as Record<string, unknown>;
   flushSync();
   let mounted = true;
   return {
     target: container,
     props: reactive,
+    exports: instance,
     flush: () => {
       if (mounted) flushSync();
     },
