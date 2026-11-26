@@ -465,8 +465,17 @@ Make a component with the Assets panel's **Create > UI > New Svelte Component** 
 - **Spaces and line breaks:** text content collapses runs of whitespace, as in HTML. To keep them (a readout of several lines, columns padded with spaces), put the text in the `text` attribute of an empty element: `<span text={lines}></span>`.
 - A game build compiles them without the editor's debugging information. The `.svelte` and `.svelte.ts` files don't ship: their compiled code does, with Svelte's runtime and the engine's renderer from the player, never the compiler. Styles are parsed when they compile, so a game that uses only Svelte UI doesn't load the CSS parser.
 
+**Editing in the editor** (ADR 0419 wave C). A `UIView` in the scene being edited shows its component as it renders, and the editor edits its static parts by writing back to the `.svelte` source:
 
-Not yet: transitions and `animate:`, `{@html}`, npm packages that import Svelte, type checking inside `.svelte` files, and the editor's view of components (picking, Inspector edits).
+- **Selecting.** The Hierarchy lists the view's rendered elements under its node (muted, like a UI document's), and clicking UI in the scene view selects the element under the pointer (a button's label selects the button; the view's canvas selects its node). A selection is the element's place in the file (its line and column), so it stays selected across re-renders and hot reload.
+- **The Inspector** shows its fields and where each value comes from: a literal attribute or the literal `style` (with the file and line), an expression (`width={w}`, `style:color={c}`, text with `{…}`: shown as written, view-only), a scoped or `:global` rule (the selector as written, in the component's `<style>` or an imported `.css` file), inherited from an ancestor, the text, the default, or a transition or animation running over it. Clicking a source opens that file in the Code panel at the line.
+- **Editing** a field writes a literal attribute in kebab-case (or changes the literal `style` where it declares the property), overriding rules and inheritance; ✕ removes it. The id, the static `class` attribute and literal text edit in place, and **Move to class** moves the element's literal attributes and style declarations into a class rule in the component's `<style>` (made at the end of the file if it has none).
+- **Scene-view handles** resize and move static elements (`width`/`height`, `left`/`top`, or reordering among flex siblings), as for UI documents.
+- **The Create menu** inserts tags (`div`, `span`, `p`, `h1`, `button`, `img`, `input`, and the form elements) into the selected element's component, as its last child (after it, when it isn't a container); with the view's node selected, at the end of the component's top level. Rows also rename (the id), duplicate, delete and drag to reorder within the file.
+- **View-only:** expressions, the rows of an `{#each}` and a `{#snippet}`'s elements (one place in the file renders them many times), and a child component's insides (written in its own file: edit a view of that component). They select and show their sources; edits are refused with the reason in the status bar.
+- Every edit changes only its own text (comments and formatting stay), is one step on the scene's undo history (Ctrl+Z, the History panel), and recompiles the project's code, so the view hot-reloads. Samples are read-only, and nothing edits while playing.
+
+Not yet: `{@html}`, npm packages that import Svelte, and type checking inside `.svelte` files.
  How much of Svelte works is measured by `npm run test:svelte-conformance`, which runs Svelte's own runtime tests against the engine's renderer (see the 0419 row of the implementation status).
 
 ## Headless Worlds and tests
