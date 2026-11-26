@@ -30,6 +30,10 @@ import { Control } from "@babylonjs/gui/2D/controls/control.js";
 import { Image } from "@babylonjs/gui/2D/controls/image.js";
 import { Rectangle } from "@babylonjs/gui/2D/controls/rectangle.js";
 import { TextBlock } from "@babylonjs/gui/2D/controls/textBlock.js";
+import type { BaseGradient } from "@babylonjs/gui/2D/controls/gradient/BaseGradient.js";
+import { LinearGradient } from "@babylonjs/gui/2D/controls/gradient/LinearGradient.js";
+import { RadialGradient } from "@babylonjs/gui/2D/controls/gradient/RadialGradient.js";
+import type { Measure } from "@babylonjs/gui/2D/measure.js";
 import type { Component } from "../../core/Component";
 import type { Color } from "../../core/math";
 import type { World } from "../../core/World";
@@ -43,6 +47,7 @@ import { uiInteractions } from "../../ui/interactions";
 import { wrapLine, wrapText, type LineBreakMode } from "../../ui/text/lineBreak";
 import type { TextMeasureRequest, UICoreLike, UILaidOutCanvas, UILaidOutElement, UITextRun, UITextWrap } from "../../ui/uiCoreTypes";
 import { flipRows, redrawnPixels, type PixelRect } from "../pixelRegions";
+import { linearGradientLine, parseBackgroundImage, radialGradientCircle, type PaintBox, type UIBackgroundImage } from "../../ui/document/paintValues";
 
 /** World canvases' texture pixels per UI pixel. */
 const WORLD_RESOLUTION = 2;
@@ -88,6 +93,8 @@ interface ElementEntry {
   control: Control;
   /** Input fields: the text inside and the caret. Images: nothing. */
   label: TextBlock | null;
+  /** Panels whose `backgroundImage` is a `url()` (ADR 0418 wave 2): the image filling the box, under any children. */
+  backdrop: Image | null;
   caret: Rectangle | null;
   last: Last;
   stamp: number;
@@ -112,6 +119,9 @@ class LocalisedTextBlock extends TextBlock {
    * left the outlined "p"s of "Space" and "flap" on screen). On WebGPU, `uploadRedrawnPart` uploads that same rectangle.
    */
   overflow = 0;
+  /** How far its shadow reaches past its box now, and the most of that and the last one (see `PaintedRectangle`). */
+  shadowReach = 0;
+  shadowOverflow = 0;
 
   protected override _applyStates(context: ICanvasRenderingContext): void {
     super._applyStates(context);
@@ -131,6 +141,50 @@ class LocalisedTextBlock extends TextBlock {
 
   protected override _computeAdditionalOffsetY(): number {
     return this.overflow;
+  }
+}
+
+/**
+ * A panel's rectangle with the paint of ADR 0418 wave 2. A Babylon gradient is placed in the texture's pixels, not the
+ * control's, so the rectangle rebuilds its gradient for the box it's drawn in, the moment it draws (assigned to the
+ * protected field, as a setter would mark it dirty again mid-draw).
+ */
+class PaintedRectangle extends Rectangle {
+  /** The gradient `backgroundImage` names, or null. */
+  paint: GradientPaint | null = null;
+  /** Texture pixels the redrawn rectangle grows by on every side, for a shadow that moved or shrank (see `LocalisedTextBlock`). */
+  overflow = 0;
+  /** How far its shadow reaches past its box, in texture pixels. */
+  shadowReach = 0;
+  private paintedBox = "";
+
+  override set backgroundGradient(value: BaseGradient | null) {
+    this.paintedBox = "";
+    super.backgroundGradient = value;
+  }
+
+  override get backgroundGradient(): BaseGradient | null {
+    return super.backgroundGradient;
+  }
+
+  protected override _getRectangleFill(context: ICanvasRenderingContext): string | CanvasGradient {
+    if (this.paint) {
+      const m: Measure = this._currentMeasure;
+      const key = `${m.left}|${m.top}|${m.width}|${m.height}`;
+      if (key !== this.paintedBox) {
+        this.paintedBox = key;
+        this._backgroundGradient = babylonGradient(this.paint, m);
+      }
+    }
+    return super._getRectangleFill(context);
+  }
+
+  protected override _computeAdditionalOffsetX(): number {
+    return super._computeAdditionalOffsetX() + this.overflow;
+  }
+
+  protected override _computeAdditionalOffsetY(): number {
+    return super._computeAdditionalOffsetY() + this.overflow;
   }
 }
 
@@ -323,7 +377,7 @@ export class BabylonUI {
     switch (el.kind) {
       case "panel":
       case "button":
-        this.syncPanel(e, c as UIPanel);
+        this.syncPanel(e, c as UIPanel, el, canvas.root.scaleX);
         break;
       case "text":
         this.syncUIText(e, c as UIText, el.text!, canvas.root.scaleX);
@@ -356,7 +410,7 @@ export class BabylonUI {
       image.autoScale = false;
       control = image;
     } else {
-      const r = new Rectangle(name);
+      const r = new PaintedRectangle(name);
       if (el.kind === "input") {
         label = new LocalisedTextBlock(`${name}.text`);
         label.resizeToFit = false;
@@ -380,7 +434,7 @@ export class BabylonUI {
     placeBox(control);
     control.isHitTestVisible = false;
     canvas.root.addControl(control);
-    return { comp: el.comp, canvas, control, label, caret, last: {}, stamp: 0, dead: false };
+    return { comp: el.comp, canvas, control, label, caret, backdrop: null, last: {}, stamp: 0, dead: false };
   }
 
   private removeElement(c: UIComponentType, e: ElementEntry, canvasGone = false): void {
@@ -390,8 +444,9 @@ export class BabylonUI {
     e.control.dispose();
   }
 
-  private syncPanel(e: ElementEntry, c: UIPanel): void {
-    const r = e.control as Rectangle;
+  /** A panel, button or input field's box. `scale` is its canvas's texture pixels per UI pixel. */
+  private syncPanel(e: ElementEntry, c: UIPanel, el: UILaidOutElement, scale: number): void {
+    const r = e.control as PaintedRectangle;
     let background = c.backgroundColor;
     let border = c.borderColor;
     // Focus colours (ADR 0340) show while the last UI input was navigation: a button's fill, a field's border.
@@ -404,10 +459,78 @@ export class BabylonUI {
     } else if (c instanceof UIInputField && showsFocus) border = c.focusColor;
     const bk = background ? colorKey(background) : -1;
     if (put(r, "bg", bk)) r.background = background ? background.toCss() : "";
-    if (put(r, "radius", c.borderRadius)) r.cornerRadius = c.borderRadius;
+    // ADR 0418 wave 2: a corner's own radius, or (at -1) borderRadius. Babylon's corners, by how Rectangle draws them:
+    // X top-left, Y top-right, Z bottom-right, W bottom-left (its declarations' comments swap Z and W).
+    const corner = (v: number) => (v >= 0 ? v : c.borderRadius);
+    const tl = corner(c.borderTopLeftRadius);
+    const tr = corner(c.borderTopRightRadius);
+    const br = corner(c.borderBottomRightRadius);
+    const bl = corner(c.borderBottomLeftRadius);
+    if (put(r, "radius", `${tl}|${tr}|${br}|${bl}`)) {
+      r.cornerRadiusX = tl;
+      r.cornerRadiusY = tr;
+      r.cornerRadiusZ = br;
+      r.cornerRadiusW = bl;
+    }
     if (put(r, "border", c.borderWidth)) r.thickness = c.borderWidth;
     const ck = colorKey(border);
     if (put(r, "color", ck)) r.color = border.toCss();
+    // The shadow is the background's (Babylon's Rectangle casts it from its fill). Canvas2D shadows ignore the
+    // context's transform, so they're scaled here, as the canvas's scale scales everything else.
+    const shadow = c.boxShadowColor;
+    if (put(r, "shadow", shadow ? `${colorKey(shadow)}|${c.boxShadowOffsetX}|${c.boxShadowOffsetY}|${c.boxShadowBlur}|${scale}` : "none")) {
+      const reach = applyShadow(r, shadow, c.boxShadowOffsetX, c.boxShadowOffsetY, c.boxShadowBlur, scale);
+      r.overflow = Math.max(r.shadowReach, reach); // clears the old shadow too when it shrinks or moves
+      r.shadowReach = reach;
+    }
+    if (put(r, "image", c.backgroundImage)) this.setBackgroundImage(e, r, c.backgroundImage, el);
+    if (e.backdrop) {
+      const inset = c.borderWidth; // the Rectangle insets its children by its thickness
+      const w = Math.max(0, el.width - 2 * inset);
+      const h = Math.max(0, el.height - 2 * inset);
+      if (put(e.backdrop, "w", w)) e.backdrop.widthInPixels = w;
+      if (put(e.backdrop, "h", h)) e.backdrop.heightInPixels = h;
+    }
+  }
+
+  /** A panel's `backgroundImage` (ADR 0418 wave 2): a gradient fill, a texture under its children, or neither. */
+  private setBackgroundImage(e: ElementEntry, r: PaintedRectangle, value: string, el: UILaidOutElement): void {
+    const parsed = parseBackgroundImage(value);
+    if (!parsed.ok) this.warnOnce(`bgimg|${value}`, `UI backgroundImage "${value}" ${parsed.problem}`);
+    const image = parsed.ok ? parsed.value : ({ kind: "none" } as const);
+    r.paint = image.kind === "linear-gradient" || image.kind === "radial-gradient" ? image : null;
+    // In the element's box for now; drawing puts it in the box it's drawn in.
+    r.backgroundGradient = r.paint ? babylonGradient(r.paint, { left: el.x, top: el.y, width: el.width, height: el.height }) : null;
+    if (image.kind !== "url") {
+      if (e.backdrop) {
+        r.removeControl(e.backdrop);
+        e.backdrop.dispose();
+        e.backdrop = null;
+      }
+      return;
+    }
+    let img = e.backdrop;
+    if (!img) {
+      img = new Image(`${r.name}.background`);
+      img.autoScale = false;
+      img.stretch = Image.STRETCH_FILL;
+      img.isHitTestVisible = false;
+      img.zIndex = -1; // under an input field's text and caret
+      placeBox(img);
+      r.addControl(img);
+      e.backdrop = img;
+    }
+    img.source = null;
+    const ref = splitSpriteRef(image.path.startsWith("asset:") ? image.path : `asset:${image.path}`).path;
+    const backdrop = img;
+    this.options
+      .texture(ref)
+      .then((tex) => {
+        if (e.dead || e.backdrop !== backdrop || lasts.get(r)?.image !== value) return; // removed, or another image by now
+        if (tex.url) backdrop.source = tex.url;
+        else this.warnOnce(`img|${ref}`, `UI background image "${ref}" has no URL to draw`);
+      })
+      .catch((err) => this.warnOnce(`img|${ref}`, `failed to load UI background image "${ref}": ${(err as Error).message}`));
   }
 
   /**
@@ -427,8 +550,15 @@ export class BabylonUI {
       t.outlineWidth = outline * 2;
       if (outline) t.outlineColor = c.textOutlineColor!.toCss();
     }
+    // ADR 0418 wave 2: one shadow under the glyphs, scaled by the canvas like a panel's.
+    const shadow = c.textShadowColor;
+    if (put(t, "shadow", shadow ? `${colorKey(shadow)}|${c.textShadowOffsetX}|${c.textShadowOffsetY}|${c.textShadowBlur}|${scale}` : "none")) {
+      const reach = applyShadow(t, shadow, c.textShadowOffsetX, c.textShadowOffsetY, c.textShadowBlur, scale);
+      t.shadowOverflow = Math.max(t.shadowReach, reach); // clears the old shadow too when it shrinks or moves
+      t.shadowReach = reach;
+    }
     // Kept while the text changes or empties, so the redraw that clears it covers the outline too (see `overflow`).
-    t.overflow = outline ? Math.ceil(outline * scale) + 1 : 0;
+    t.overflow = Math.max(outline ? Math.ceil(outline * scale) + 1 : 0, t.shadowOverflow);
     // `start`/`end` already resolved for the language's direction (ADR 0356 §5); justify draws from the left, as before.
     const align = run.align === "center" ? Control.HORIZONTAL_ALIGNMENT_CENTER : run.align === "right" ? Control.HORIZONTAL_ALIGNMENT_RIGHT : Control.HORIZONTAL_ALIGNMENT_LEFT;
     if (put(t, "align", align)) t.textHorizontalAlignment = align;
@@ -483,7 +613,7 @@ export class BabylonUI {
   }
 
   private syncInput(e: ElementEntry, c: UIInputField, el: UILaidOutElement, extra: { caretOf?(c: UIInputField): number | null }): void {
-    this.syncPanel(e, c);
+    this.syncPanel(e, c, el, e.canvas.root.scaleX);
     const label = e.label!;
     const caret = e.caret!;
     const inset = c.borderWidth; // the Rectangle already insets its children by its thickness
@@ -557,6 +687,38 @@ export class BabylonUI {
 }
 
 // --- helpers ---
+
+type GradientPaint = Extract<UIBackgroundImage, { kind: "linear-gradient" | "radial-gradient" }>;
+
+/** A Babylon GUI gradient filling `box` (in the pixels it's drawn in) as CSS draws the parsed one. */
+function babylonGradient(paint: GradientPaint, box: PaintBox): BaseGradient {
+  let g: BaseGradient;
+  if (paint.kind === "linear-gradient") {
+    const l = linearGradientLine(paint.angle, box);
+    g = new LinearGradient(l.x0, l.y0, l.x1, l.y1);
+  } else {
+    const c = radialGradientCircle(box);
+    g = new RadialGradient(c.cx, c.cy, 0, c.cx, c.cy, c.r);
+  }
+  for (const s of paint.stops) g.addColorStop(s.offset, s.color.toCss());
+  return g;
+}
+
+/**
+ * A control's shadow (ADR 0418 wave 2) from UI-pixel values, in texture pixels (`scale` per UI pixel: Canvas2D draws
+ * shadows untransformed). Returns how far it reaches past the box, in texture pixels. Null: none.
+ */
+function applyShadow(ctl: Control, color: Color | null, offsetX: number, offsetY: number, blur: number, scale: number): number {
+  if (!color) {
+    ctl.shadowOffsetX = ctl.shadowOffsetY = ctl.shadowBlur = 0;
+    return 0;
+  }
+  ctl.shadowColor = color.toCss();
+  ctl.shadowOffsetX = offsetX * scale;
+  ctl.shadowOffsetY = offsetY * scale;
+  ctl.shadowBlur = Math.max(0, blur) * scale;
+  return Math.ceil((Math.max(Math.abs(offsetX), Math.abs(offsetY)) + 2 * Math.max(0, blur)) * scale) + 1;
+}
 
 /** Controls sit at absolute pixel boxes from the top-left; the core did the layout. */
 function placeBox(c: Control): void {

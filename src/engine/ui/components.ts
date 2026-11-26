@@ -138,9 +138,37 @@ abstract class UIElement extends UIComponent {
 export class UIPanel extends UIElement {
   /** Null: transparent. */
   @field(Color) backgroundColor: Color | null = null;
+  /** Every corner's radius, for the corners whose own radius below is -1. */
   @field(Number) borderRadius = 0;
   @field(Number) borderWidth = 0;
   @field(Color) borderColor = Color.black;
+
+  // 0418 wave 2: paint
+  /**
+   * One corner's radius in UI pixels; -1 (the default) takes `borderRadius`. A stylesheet's `border-radius` with two
+   * to four values sets these, as CSS does (top-left, top-right, bottom-right, bottom-left).
+   */
+  @field(Number) borderTopLeftRadius = -1;
+  @field(Number) borderTopRightRadius = -1;
+  @field(Number) borderBottomRightRadius = -1;
+  @field(Number) borderBottomLeftRadius = -1;
+  /**
+   * Drawn over the background: `url(asset:images/wood.png)` (stretched to the box), `linear-gradient(angle, stops…)`
+   * or `radial-gradient(stops…)` (a circle at the centre), stops being a colour and an optional position in `%`.
+   * A gradient replaces `backgroundColor`. Empty: none.
+   */
+  @field(String) backgroundImage = "";
+  /**
+   * A shadow under the background, `box-shadow: offset-x offset-y blur colour` in a stylesheet (ADR 0418). It's
+   * drawn by the background, so a panel without a `backgroundColor` or gradient casts none. Null: no shadow.
+   */
+  @field(Color) boxShadowColor: Color | null = null;
+  /** The shadow's offset to the right, in UI pixels. */
+  @field(Number) boxShadowOffsetX = 0;
+  /** The shadow's offset down, in UI pixels. */
+  @field(Number) boxShadowOffsetY = 0;
+  /** How far the shadow blurs, in UI pixels (CSS's blur radius). */
+  @field(Number) boxShadowBlur = 0;
 }
 
 /**
@@ -171,6 +199,16 @@ export class UIText extends UIElement {
   @field(Color) textOutlineColor: Color | null = null;
   /** How far the outline reaches outside the glyphs, in UI pixels (`text-outline-width`, inherited); 0 draws none. It doesn't change the layout. */
   @field(Number) textOutlineWidth = 0;
+
+  // 0418 wave 2: paint
+  /** A shadow under the glyphs (`text-shadow: offset-x offset-y blur colour`, inherited); null draws none. */
+  @field(Color) textShadowColor: Color | null = null;
+  /** The text shadow's offset to the right, in UI pixels (`text-shadow-offset-x`, inherited). */
+  @field(Number) textShadowOffsetX = 0;
+  /** The text shadow's offset down, in UI pixels (`text-shadow-offset-y`, inherited). */
+  @field(Number) textShadowOffsetY = 0;
+  /** How far the text shadow blurs, in UI pixels (`text-shadow-blur`, inherited). */
+  @field(Number) textShadowBlur = 0;
 }
 
 /** A texture laid out as an element. */
