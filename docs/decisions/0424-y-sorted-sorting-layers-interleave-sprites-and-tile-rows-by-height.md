@@ -1,6 +1,6 @@
 # 0424. Y-sorted sorting layers interleave sprites and tile rows by their height on screen
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0014 and 0103)

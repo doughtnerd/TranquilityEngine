@@ -1,6 +1,6 @@
-# 0423. Tile collision and shadow shapes are edited visually with several shapes per tile; any 2D collider can be one-way, bodies and character controllers can drop through, and tile shapes are cached per chunk
+# 0423. Tile collision and shadow shapes are edited visually with several shapes per tile; any 2D collider can be one-way, bodies and character controllers can drop through, tile shapes are cached per chunk, and TilemapCollider2D becomes ShapeCollider2D
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0103 and 0105)
@@ -87,7 +87,7 @@ light (glass, water edges).
   from above, along the node's +Y (rotated and mirrored with the node, 2D frames per 0301). It works for every 2D
   collider: a `BoxCollider2D` moving platform, a `PolygonCollider2D` ledge, an `EdgeCollider2D` bridge. Triggers
   ignore it.
-- On a `TilemapCollider2D`, `oneWay` makes every shape it builds one-way (Unity's Platform Effector on a tilemap);
+- On a `ShapeCollider2D` (until now `TilemapCollider2D`), `oneWay` makes every shape it builds one-way (Unity's Platform Effector on a tilemap);
   tiles marked one-way are one-way either way.
 - The core describes it as tile one-way parts are described today (`oneWay: { up, top, base }`, `top` = the shape's
   highest extent along up when built). The Rapier backend's hook is unchanged; backends without the
@@ -133,11 +133,18 @@ stand on them, as a rigid body can.
   dominates, splitting colliders by region is reconsidered in a new record with measurements.
 - No interface changes: `CollisionShapeSource2D` stays pull-based, shadow casters (0413) read the same shapes.
 
-### The name stays
+### `TilemapCollider2D` becomes `ShapeCollider2D`
 
-`TilemapCollider2D` keeps its class name and its id `engine.TilemapCollider2D`. The only shape source is `Tilemap`,
-Unity users know the name, and renaming would add an alias path for no user benefit today. 0136's open question is
-closed; a second shape source is the time to revisit it.
+It builds from any `CollisionShapeSource2D` (0136), so it is named for that: class `ShapeCollider2D`, id
+`engine.ShapeCollider2D`, shown as "Shape Collider 2D" in Add Component and the Inspector.
+
+- **Old scenes and prefabs** name `engine.TilemapCollider2D`. The component registry gains id aliases
+  (`registerComponentAlias(oldId, newId)` in `core/registry.ts`): an aliased id resolves to the new class when a scene,
+  prefab or override is read, and documents are written with the new id on their next save. Prefab overrides that
+  name the old id keep applying. The Physics plugin registers the alias.
+- **Scripts:** `myco` exports `ShapeCollider2D`, and `TilemapCollider2D` as a deprecated alias of the same class
+  (marked `@deprecated`), so `getComponent(TilemapCollider2D)` keeps working.
+- Create > Tilemap, the importers (0422), the platformer sample, the guides and docs use the new name.
 
 ## Alternatives considered
 
@@ -145,7 +152,7 @@ closed; a second shape source is the time to revisit it.
   options, but one more component to add and keep in step with the collider; a flag on the collider covers the
   common case, and an arc can be a later field.
 - **`Physics2D.ignoreCollision(a, b)`** for drop-through. General and Unity-like, but it ignores the whole
-  `TilemapCollider2D`, solid ground included, and needs the game to know which collider is under the player and when
+  `ShapeCollider2D`, solid ground included, and needs the game to know which collider is under the player and when
   to restore it. Can be added separately; drop-through is the specific need.
 - **Drop-through by timer** (ignore one-way colliders for N seconds). Simpler, but a long fall passes through the
   next platform down, and a short timer fails at low frame rates.
@@ -153,7 +160,10 @@ closed; a second shape source is the time to revisit it.
   Caching the merges gets most of the saving without them.
 - **A collision editor in the scene view** (edit a tile's shape on a placed tile). Shows context, but a tile's shape
   belongs to the tileset; the inspector canvas edits it in one place, as Tiled and Godot do.
-- **Rename to `ShapeCollider2D`** with the old id kept. Matches 0136's intent; rejected for now as above.
+- **Keep `TilemapCollider2D`** (Unity's name). No alias path, but the name says tiles while the component takes any
+  shape source; the owner chose the rename.
+- **Rename the class but keep the id `engine.TilemapCollider2D`.** No registry change, but every scene file would go
+  on naming a component that no longer exists by that name.
 
 ## Consequences
 
@@ -177,7 +187,8 @@ closed; a second shape source is the time to revisit it.
 
 - `polygonText.ts` as the primary editor (kept for the disclosed text field).
 - 0105's "drop-through: toggle layers" advice, replaced by `dropThrough()`.
-- 0136's open question on renaming `TilemapCollider2D` (closed: kept).
+- The `TilemapCollider2D` name and id (0136's open question): renamed to `ShapeCollider2D`, read through an id alias;
+  the old class name stays exported as a deprecated alias.
 
 ## Open questions
 
@@ -186,7 +197,7 @@ closed; a second shape source is the time to revisit it.
 ## References
 
 - ADR 0105 (amended: its open questions on a general one-way flag, drop-through and chunked colliders are answered
-  here), 0103 (amended: a tile may have several collision shapes, edited visually), 0136 (open question closed).
+  here), 0103 (amended: a tile may have several collision shapes, edited visually), 0136 (open question answered: renamed).
 - Rapier `KinematicCharacterController.computeColliderMovement(collider, translation, filterFlags, filterGroups,
   filterPredicate)`.
 - Code: `src/plugins/tilemaps/runtime/collision.ts`, `cellRegions.ts`, `Tilemap.ts`, `editor/TilesetInspector.tsx`;

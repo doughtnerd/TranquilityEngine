@@ -1,6 +1,6 @@
 # 0426. The tile editor gets a selection tool, stamps saved in the tileset, a replace-tile command and a prefab brush
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —

@@ -1,6 +1,6 @@
 # 0421. Tilemaps get isometric, staggered and hexagonal grids through one grid module, and tiles get frame animations
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0103)

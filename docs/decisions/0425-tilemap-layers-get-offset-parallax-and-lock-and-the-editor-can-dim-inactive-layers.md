@@ -1,6 +1,6 @@
 # 0425. Tilemap layers get an offset, a parallax factor and a lock; the editor can dim inactive layers
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** — (amends 0103)

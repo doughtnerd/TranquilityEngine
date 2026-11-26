@@ -1,6 +1,6 @@
 # 0422. Tiled and LDtk files import once into native tilesets and prefabs, from the Tilemaps plugin's editor half
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-11-26
 - **Deciders:** Chris Carlson
 - **Supersedes:** —
@@ -92,7 +92,7 @@ runtime never reads either format.
 - **One Tilemap child per tileset the map uses**, each holding the layers' cells from that tileset. A Tiled layer
   that mixes tilesets appears in each Tilemap under the same name. Every imported layer gets order in layer = its
   position in Tiled's layer stack, so layers in different Tilemaps interleave as they did in Tiled. Tilemaps whose
-  tiles collide get a `TilemapCollider2D`.
+  tiles collide get a `ShapeCollider2D` (0423).
 - Layer `visible`, `opacity`, `tintcolor`, `locked`, offsets and parallax factors map directly (offset and parallax
   per 0425); group layers flatten (names joined with `/`, opacity and visibility multiplied, offsets added,
   parallax multiplied).
@@ -115,7 +115,7 @@ runtime never reads either format.
   order. Tiles off the layer's grid snap to it, with a warning. Layer opacity, visibility and pixel offsets map directly (0425).
 - **IntGrid layers** → a Tilemap of their own, hidden, on a generated `<project>.intgrid.tileset.json` with one tile
   per IntGrid value: no sprite, `data` `{ intGrid: value, name: identifier }`, and the collision chosen in the dialog
-  (default none). A `TilemapCollider2D` is added when any value collides. Scripts read the semantics with
+  (default none). A `ShapeCollider2D` (0423) is added when any value collides. Scripts read the semantics with
   `getTileData`.
 - Entities → nodes with a `MapObject`: the identifier as its type, field instances as its properties (points in local
   units, colours as `#rrggbb`, entity references as the target node's id), and the entity's tile, if any, as a
