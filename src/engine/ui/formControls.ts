@@ -13,8 +13,9 @@
  *   the option with that value; options' `selected` written (markup, a script) set `value`; with nothing chosen the
  *   first enabled option is (HTML's selectedness).
  * - **Groups**: radios with one `name` in one form (or, outside forms, one canvas) are one group.
- * - **Reset** puts each control in the form back as the UI core first saw it (`rememberDefaults`), HTML's default
- *   value and checkedness.
+ * - **Reset** puts each control in the form back to its defaults: as the UI core first saw it (`rememberDefaults`),
+ *   unless its front end says what they are (`setUIDefaults`: the Svelte renderer hands over HTML's `defaultValue`,
+ *   `defaultChecked` and options' `selected` attributes).
  */
 import type { World } from "../core/World";
 import type { GameObject } from "../scene/GameObject";

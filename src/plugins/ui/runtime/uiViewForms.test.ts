@@ -122,8 +122,9 @@ describe("UIView: form elements (ADR 0424)", () => {
     expect(echo()).toContain(" one\ntwo".replace("\n", " ")); // text collapses whitespace when drawn in <p>
     click(v.query("#go")!.as(UIButton));
     expect(log).toEqual(["submit"]);
-    // A reset button puts the controls back as they were made, and the bindings take their values again (as Svelte's
-    // DOM bindings do on a form's reset).
+    // A reset button puts the controls back to HTML's defaults (none written here: unchecked, empty, a select's first
+    // option), and the bindings take their values again as Svelte's DOM bindings do on a form's reset (a reset bind:group
+    // is null for radios and [] for checkboxes).
     click(v.query("#agree")!.as(UIToggle));
     click(v.query("#egg")!.as(UIToggle));
     expect(echo()).toMatch(/^true m ham,egg /);
@@ -132,7 +133,7 @@ describe("UIView: form elements (ADR 0424)", () => {
     frame();
     expect(log).toEqual(["submit", "agree true", "reset"]);
     expect(v.query("#agree")!.as(UIToggle).checked).toBe(false);
-    expect(echo()).toMatch(/^false m ham /);
+    expect(echo()).toBe("false 30 object: r number:1"); // the <p> collapses the empty size, toppings and notes
   });
 
   it("makes an <input> again as what its new type says, in place", async () => {
