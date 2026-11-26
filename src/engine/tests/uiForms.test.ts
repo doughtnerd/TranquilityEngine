@@ -6,7 +6,7 @@ import { UIPointer, stubDocument } from "./uiPointer";
 import { buildUI, byId, loadUITestSupport, type TestUI } from "./uiMarkup";
 import type { UIHostEvent } from "../ui/host/UIHost";
 
-// ADR 0424: HTML's form elements as UI core kinds, in UI documents: checkboxes, radios, sliders, number and password
+// ADR 0424: HTML's form elements as UI core kinds, rendered by a view: checkboxes, radios, sliders, number and password
 // fields, text areas, selects with their popup list, progress bars and meters, labels and forms; their `input`/`change`
 // events and default actions, keyboard and gamepad navigation, the `:checked`, `:indeterminate`, `:disabled` and
 // `:placeholder-shown` pseudo-classes and the parts each draws. Driven through a UI core routing `Input`'s DOM adapter

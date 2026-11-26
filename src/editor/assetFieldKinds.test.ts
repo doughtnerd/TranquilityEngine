@@ -19,7 +19,7 @@ useCoreAssetKinds(); // core asset kinds, as main.tsx registers them (ADR 0143)
 
 // Sky assets are the Sky plugin's (ADR 0134), its kind `referencedAs` environment; materials and
 // shader graphs are the Materials plugin's, `referencedAs` material.
-// Models, environment maps, cubemaps, LUTs and UI documents: the Meshes, Environment, Post-processing and UI plugins' (ADR 0140).
+// Models, environment maps, cubemaps, LUTs and Svelte components: the Meshes, Environment, Post-processing and UI plugins' (ADR 0140).
 const RENDER_PLUGINS = [meshesEditorPlugin, environmentEditorPlugin, postProcessingEditorPlugin, uiEditorPlugin];
 beforeAll(() => activatePlugins([materialsEditorPlugin, skyEditorPlugin, particlesEditorPlugin, navigationEditorPlugin, tilemapsEditorPlugin, ...RENDER_PLUGINS]));
 afterAll(() => {

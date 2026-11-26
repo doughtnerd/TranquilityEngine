@@ -36,7 +36,7 @@ class HierarchyView {
   readonly collapsed = signal<ReadonlySet<string>>(new Set());
   /** Prefab instances showing their inner nodes, by path key (instances start collapsed). */
   readonly expanded = signal<ReadonlySet<string>>(new Set());
-  /** UI document element rows the user opened (they start closed: a document can have hundreds). */
+  /** UI element rows the user opened (they start closed: a view can have hundreds). */
   readonly uiExpanded = signal<ReadonlySet<string>>(new Set());
   /** Bone rows the user opened (ADR 0373: they start closed, a rig has dozens). */
   readonly boneExpanded = signal<ReadonlySet<string>>(new Set());

@@ -22,7 +22,7 @@
 .tree .row.filter-context .name { opacity: 0.55; }
 .tree .row.scene-hidden .name { font-style: italic; opacity: 0.55; }
 
-/* Elements a UI document builds (ADR 0077): the markup file's, not the scene's, so muted and read-only. */
+/* Elements a UI view renders (ADR 0419): the component file's, not the scene's, so muted. */
 .tree .row.ui-element { color: var(--muted); font-style: italic; }
 .tree .row.ui-element.selected { color: var(--selection-text); }
 .tree .row.ui-element .ui-element-icon { flex: none; width: 12px; margin-right: 3px; font-size: 9px; font-style: normal; color: var(--accent); opacity: 0.8; }

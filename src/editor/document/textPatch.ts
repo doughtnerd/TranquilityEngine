@@ -1,5 +1,5 @@
 // A text file's change as one replaced stretch (ADR 0077): the differing middle of the old and new
-// text, so history files stay small. The scene's history keeps these for the UI documents its
+// text, so history files stay small. The scene's history keeps these for the UI files its
 // commands write; an asset document's history (ADR 0141) is a tree of them over one file.
 
 /**

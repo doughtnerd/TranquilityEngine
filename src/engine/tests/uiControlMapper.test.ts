@@ -66,7 +66,7 @@ async function pointer(height = 1400): Promise<UIPointer> {
   return p;
 }
 
-/** A mapper under a game's canvas (a UI document's), with a UI core laying it out. */
+/** A mapper under a game's canvas (a UI view's), with a UI core laying it out. */
 async function mapper(init: Partial<UIControlMapper> = {}): Promise<UIControlMapper> {
   const canvas = byId(buildUI(`<Canvas id="Canvas"/>`), "Canvas", UICanvas);
   const m = GameObject.create("Controls", { parent: canvas.node }).addBehavior(UIControlMapper, { actions: "jump, move, bomb", ...init } as never);

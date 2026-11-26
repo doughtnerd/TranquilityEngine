@@ -1,4 +1,4 @@
-// The selected UI element's box (a UI document's, or one a UIView rendered), outlined in the scene view (ADR 0077 §4). Drawn as an SVG
+// The selected UI element's box (one a UIView rendered), outlined in the scene view (ADR 0077 §4). Drawn as an SVG
 // polygon over the viewport, following the UI core's layout boxes every frame: a rectangle on a
 // screen canvas, the projected quad on a world canvas, clipped to what an `overflow: hidden` ancestor shows (ADR 0418). Renderer-neutral DOM (no backend code); the
 // boxes come from the UI core's layout (ADR 0076). The
@@ -29,7 +29,7 @@ export function installUIElementOutline(engine: Engine): () => void {
   const frame = () => {
     raf = requestAnimationFrame(frame);
     const scene = openScene.peek();
-    const el = scene ? selectedUIComponent(scene.sync) : null; // a UI document's element, or a view's (ADR 0419 wave C)
+    const el = scene ? selectedUIComponent(scene.sync) : null; // a view's element (ADR 0419 wave C)
     const canvas = viewportCanvas(world);
     // The part that's drawn (ADR 0418: an `overflow: hidden` ancestor clips it), else the whole box.
     const box = el && canvas && el.node.activeInHierarchy ? viewport(world).uiElementBox(el.component) : null;

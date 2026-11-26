@@ -606,7 +606,7 @@ button:disabled.primary { opacity: 0.5; }
 .sample-meta { color: var(--faint); font-size: calc(11px * var(--ui-scale)); }
 .sample-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
-/* The selected UI document element's box in the scene view (ADR 0077, uiOutline.ts). */
+/* The selected UI element's box in the scene view (ADR 0077, 0419; uiOutline.ts). */
 .ui-element-outline { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; overflow: hidden; }
 .ui-element-outline polygon { fill: var(--accent-faint); stroke: var(--accent); stroke-width: 1.5px; stroke-dasharray: 4 2; }
 /* ADR 0077: the selected UI element's resize handles and the flex reorder marker (uiHandles.ts). Only the handles take the pointer. */

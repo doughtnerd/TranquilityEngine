@@ -58,7 +58,7 @@ import { editableNow, statusSentence, whyNotEdit } from "../editGate";
 
 /**
  * What the Inspector shows (ADR 0242, `inspectorTarget`): a live World's node while playing, an
- * asset, a UI document element, the selected nodes or the open scene's settings.
+ * asset, a UI element a view rendered, the selected nodes or the open scene's settings.
  */
 export function Inspector() {
   const target = inspectorTarget.value;

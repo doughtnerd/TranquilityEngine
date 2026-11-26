@@ -75,7 +75,7 @@ afterEach(() => {
   Assets.clearSources();
 });
 
-/** One element (ADR 0417: built by a UI document), its fields then written as a script writes them. */
+/** One element (ADR 0417, 0419: rendered by a UI view), its fields then written as a script writes them. */
 const node = uiElement;
 
 function canvasInfo(comp: UICanvas, over: Partial<UILaidOutCanvas> = {}): UILaidOutCanvas {
@@ -947,7 +947,7 @@ describe("transforms on Babylon GUI (ADR 0418 wave 3)", () => {
     pointer.sync();
     ui.sync(World.require(), pointer.core, {}, 1280, 720, 1);
   };
-  /** A UI document laid out by a real UI core (which works out the transforms), drawn by the Babylon layer. */
+  /** A UI view laid out by a real UI core (which works out the transforms), drawn by the Babylon layer. */
   async function drawn(markup: string) {
     const doc = buildUI(markup);
     const pointer = await UIPointer.create(World.require());

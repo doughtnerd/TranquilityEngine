@@ -35,7 +35,7 @@ const emptyPatch = (p: DocPatch | undefined) => !p || (!p.nodes && !p.order && !
  * navigating, or `back`/`forward` in creation order). Listeners hear every change, including each
  * command inside an open group, so the World and UI stay live during a drag.
  *
- * Commands may also write text files (`Command.files`, ADR 0077's UI documents): the stack writes
+ * Commands may also write text files (`Command.files`: UI edits to Svelte sources, ADR 0419): the stack writes
  * them through `files` and keeps each file's change in the step, so undo and redo write them back
  * in order with scene edits. A step that only changed files doesn't make the scene dirty.
  *

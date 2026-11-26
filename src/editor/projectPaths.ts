@@ -38,7 +38,7 @@ const CODE_LANGUAGES: ReadonlyMap<string, CodeLanguage> = new Map([
 
 /**
  * Files the project keeps as text (and the Code panel can edit): its JSON and text files (ADR 0254:
- * JavaScript and TypeScript modules, Markdown and plain text, UI documents and stylesheets, shader
+ * JavaScript and TypeScript modules, Markdown and plain text, Svelte components and stylesheets, shader
  * code). A `.ts` file is a script (`isScriptPath`), not one of these.
  */
 export const isTextAsset = (path: string) => projectFileKind(path) !== "url";

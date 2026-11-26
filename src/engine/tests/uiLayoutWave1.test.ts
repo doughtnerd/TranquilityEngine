@@ -10,7 +10,7 @@ import { UIPointer } from "./uiPointer";
 
 // ADR 0418 wave 1: layout on Yoga. Per-side padding, margin and border widths with CSS shorthands, min/max sizes,
 // wrapping, align-self/-content, flex-shrink/-basis, aspect-ratio, overflow: hidden (clipping drawing order, hits,
-// picking and navigation) and z-index, through UI documents, the UI core and keyboard navigation.
+// picking and navigation) and z-index, through UI views, the UI core and keyboard navigation.
 
 const DT = 1 / 60;
 let engine: Engine;
