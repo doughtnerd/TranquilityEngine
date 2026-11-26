@@ -26,7 +26,7 @@ describe("UI element kinds", () => {
   });
 
   it("maps every markup tag to its component type", () => {
-    expect([...UI_TAGS].sort()).toEqual(["Button", "Canvas", "Form", "Image", "InputField", "Label", "Meter", "Option", "Panel", "Progress", "Radio", "Select", "Slider", "Text", "TextArea", "Toggle"]);
+    expect([...UI_TAGS].sort()).toEqual(["Audio", "Button", "Canvas", "Form", "Image", "InputField", "Label", "Meter", "Option", "Panel", "Progress", "Radio", "Select", "Slider", "Svg", "Text", "TextArea", "Toggle", "Video"]);
     expect(uiTypeOfTag("InputField")).toBe(UIInputField);
     expect(uiTypeOfTag("Button")).toBe(UIButton);
   });

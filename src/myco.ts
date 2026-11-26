@@ -104,6 +104,13 @@ export {
   type UIButtonType,
   type UIInputType,
   type UITextAreaWrap,
+  // ADR 0426
+  UISvg,
+  UIVideo,
+  UIAudio,
+  type UIMediaEvent,
+  type UIMediaEventType,
+  type UIMediaSource,
   type UIAlign,
   type UICanvasMode,
   type UIDisplay,

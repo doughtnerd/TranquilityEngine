@@ -3,12 +3,15 @@
  * properties, and `transform-origin`, parsed from CSS text into the transform fields' values. The cascade
  * (`cascade.ts`) expands and checks them. Pure: a value that can't be read comes back as a message saying why.
  *
- * The fields hold one translate, one rotation and one scale, applied as CSS applies the individual properties
- * (translate, then rotate, then scale; `transform2d.ts`). A `transform` list is composed left to right and folded into
- * those fields; a list that can't fold is refused with a message: a rotation after an unequal scale (a skew), or a
- * percentage translate after a rotation that isn't a half turn (its axis would no longer be its own box's).
+ * The fields hold one translate, one rotation, one scale and (ADR 0426) a full matrix, applied as CSS applies the
+ * individual properties before `transform` (translate, rotate, scale, then the matrix; `transform2d.ts`). A `transform`
+ * list is composed left to right and folded into translate, rotate and scale when it can be. A list that can't fold (one
+ * with `skew()`, `skewX()`, `skewY()` or `matrix()`, or a rotation after an unequal scale) is held as the matrix, after
+ * its leading translates (which keep `%`). A `%` translate later in such a list is refused with a message: a matrix
+ * holds pixels, and the axis would no longer be the element's own box's.
  */
 import { splitTopLevel, type PaintParse } from "./paintValues";
+import { matrixText, multiply, type UIAffine } from "../transform2d";
 
 /** The transform fields a value sets, as the fields store them (lengths as `"12"` or `"50%"`). */
 export interface UITransformValue {
@@ -17,6 +20,8 @@ export interface UITransformValue {
   readonly scaleX: number;
   readonly scaleY: number;
   readonly rotate: number;
+  /** ADR 0426: the full matrix (`matrix(a, b, c, d, e, f)`), or "" when the list folds. */
+  readonly transformMatrix: string;
 }
 
 const ok = <T>(value: T): PaintParse<T> => ({ ok: true, value });
@@ -177,50 +182,130 @@ function args(inner: string): string[] {
   return (byComma.length > 1 ? byComma : splitTopLevel(inner, " ")).filter((s) => s !== "");
 }
 
-const FUNCTIONS = ["translate", "translatex", "translatey", "scale", "scalex", "scaley", "rotate"];
+const FUNCTIONS = ["translate", "translatex", "translatey", "scale", "scalex", "scaley", "rotate", "skew", "skewx", "skewy", "matrix"];
+
+/** One function of a list, read: a translate (lengths), a scale, a rotation or (ADR 0426) a matrix holding a skew or `matrix()`. */
+type Step =
+  | { readonly kind: "translate"; readonly x: Len; readonly y: Len }
+  | { readonly kind: "scale"; readonly x: number; readonly y: number }
+  | { readonly kind: "rotate"; readonly angle: number }
+  | { readonly kind: "matrix"; readonly m: UIAffine };
+
+const ZERO: Len = { n: 0, pct: false };
+const tan = (deg: number) => Math.tan((deg * Math.PI) / 180);
+const NUMBER_ONLY = new RegExp(`^${NUMBER}$`, "i");
+
+/** Reads one function's arguments, or says why it can't. */
+function readStep(fn: string, name: string, a: string[]): Step | string {
+  if (name === "rotate") {
+    const angle = a.length === 1 ? parseAngle(a[0]) : undefined;
+    return angle === undefined ? "has a rotate() that isn't one angle (45deg, 0.25turn)." : { kind: "rotate", angle };
+  }
+  if (name.startsWith("translate")) {
+    const lens = a.map(parseLen);
+    if (lens.some((l) => !l) || a.length < 1 || a.length > (name === "translate" ? 2 : 1)) return `has a ${fn}() that isn't ${name === "translate" ? "one or two lengths" : "one length"} (px or %).`;
+    const [x, y] = name === "translatey" ? [ZERO, lens[0]!] : [lens[0]!, name === "translate" ? (lens[1] ?? ZERO) : ZERO];
+    return { kind: "translate", x, y };
+  }
+  if (name.startsWith("skew")) {
+    const angles = a.map(parseAngle);
+    if (angles.some((x) => x === undefined) || a.length < 1 || a.length > (name === "skew" ? 2 : 1)) return `has a ${fn}() that isn't ${name === "skew" ? "one or two angles" : "one angle"}.`;
+    const ax = name === "skewy" ? 0 : angles[0]!;
+    const ay = name === "skewx" ? 0 : name === "skew" ? (angles[1] ?? 0) : angles[0]!;
+    return { kind: "matrix", m: [1, tan(ay), tan(ax), 1, 0, 0] };
+  }
+  if (name === "matrix") {
+    const n = a.map((x) => (NUMBER_ONLY.test(x.trim()) ? parseFloat(x) : NaN));
+    if (n.length !== 6 || n.some((x) => !Number.isFinite(x))) return "has a matrix() that isn't six numbers (a, b, c, d, e, f).";
+    return { kind: "matrix", m: n as unknown as UIAffine };
+  }
+  const ks = a.map(parseFactor);
+  if (ks.some((k) => k === undefined) || a.length < 1 || a.length > (name === "scale" ? 2 : 1)) return `has a ${fn}() that isn't ${name === "scale" ? "one or two numbers" : "one number"}.`;
+  const sx = name === "scaley" ? 1 : ks[0]!, sy = name === "scalex" ? 1 : name === "scale" ? (ks[1] ?? ks[0]!) : ks[0]!;
+  return { kind: "scale", x: sx, y: sy };
+}
+
+/** The fold's problem for a list with a skew or `matrix()`, which never folds. */
+const HOLDS_MATRIX = "holds a matrix.";
+
+/** Folds the steps into translate, rotate and scale; a problem when they don't fold. */
+function fold(steps: readonly Step[]): UITransformValue | string {
+  const f: Fold = { tx: { n: 0, pct: false }, ty: { n: 0, pct: false }, rotate: 0, sx: 1, sy: 1 };
+  for (const s of steps) {
+    let problem: string | null = null;
+    if (s.kind === "matrix") return HOLDS_MATRIX;
+    if (s.kind === "rotate") problem = foldRotate(f, s.angle);
+    else if (s.kind === "translate") problem = foldTranslate(f, s.x, s.y);
+    else {
+      f.sx *= s.x;
+      f.sy *= s.y;
+    }
+    if (problem) return problem;
+  }
+  return { translateX: lenText(f.tx), translateY: lenText(f.ty), scaleX: round(f.sx), scaleY: round(f.sy), rotate: round(f.rotate), transformMatrix: "" };
+}
+
+/**
+ * ADR 0426: the steps as the leading translates (kept in the translate fields, `%` allowed) and the rest composed into
+ * one matrix (pixels only).
+ */
+function asMatrix(steps: readonly Step[]): UITransformValue | string {
+  let tx: Len = ZERO, ty: Len = ZERO;
+  let i = 0;
+  for (; i < steps.length; i++) {
+    const s = steps[i];
+    if (s.kind !== "translate") break;
+    const x = addLen(tx, s.x), y = addLen(ty, s.y);
+    if (!x || !y) return "mixes px and % translates on one axis.";
+    tx = x;
+    ty = y;
+  }
+  let m: UIAffine = [1, 0, 0, 1, 0, 0];
+  for (; i < steps.length; i++) {
+    const s = steps[i];
+    let step: UIAffine;
+    if (s.kind === "translate") {
+      if ((s.x.pct && Math.abs(s.x.n) > NEAR) || (s.y.pct && Math.abs(s.y.n) > NEAR)) return "has a % translate after a skew, matrix or rotation it can't fold; a matrix holds pixels (use px, or put translate first).";
+      step = [1, 0, 0, 1, s.x.n, s.y.n];
+    } else if (s.kind === "scale") step = [s.x, 0, 0, s.y, 0, 0];
+    else if (s.kind === "rotate") {
+      const r = (s.angle * Math.PI) / 180;
+      step = [Math.cos(r), Math.sin(r), -Math.sin(r), Math.cos(r), 0, 0];
+    } else step = s.m;
+    m = multiply(m, step);
+  }
+  return { translateX: lenText(tx), translateY: lenText(ty), scaleX: 1, scaleY: 1, rotate: 0, transformMatrix: matrixText(m) };
+}
 
 /**
  * `transform`: `none`, or a list of `translate(x[, y])`, `translateX()`, `translateY()`, `scale(s[, sy])`, `scaleX()`,
- * `scaleY()` and `rotate(angle)`, composed left to right and folded into the five transform fields.
+ * `scaleY()`, `rotate(angle)` and (ADR 0426) `skew(ax[, ay])`, `skewX()`, `skewY()` and `matrix(a, b, c, d, e, f)`,
+ * composed left to right: folded into translate, rotate and scale when it can be, else held as the matrix.
  */
 export function parseTransform(raw: string): PaintParse<UITransformValue> {
   const v = raw.trim();
-  if (v.toLowerCase() === "none") return ok({ translateX: "0", translateY: "0", scaleX: 1, scaleY: 1, rotate: 0 });
-  const f: Fold = { tx: { n: 0, pct: false }, ty: { n: 0, pct: false }, rotate: 0, sx: 1, sy: 1 };
+  if (v.toLowerCase() === "none") return ok({ translateX: "0", translateY: "0", scaleX: 1, scaleY: 1, rotate: 0, transformMatrix: "" });
   const re = /([a-zA-Z0-9-]+)\(([^()]*)\)/y;
+  const steps: Step[] = [];
   let i = 0;
-  let any = false;
   while (i < v.length) {
     while (i < v.length && /\s/.test(v[i])) i++;
     if (i >= v.length) break;
     re.lastIndex = i;
     const m = re.exec(v);
-    if (!m) return fail("isn't a list of transform functions (translate(), scale(), rotate()).");
+    if (!m) return fail("isn't a list of transform functions (translate(), scale(), rotate(), skew(), matrix()).");
     i = re.lastIndex;
-    any = true;
     const name = m[1].toLowerCase();
-    if (!FUNCTIONS.includes(name)) return fail(`uses ${m[1]}(), which isn't supported (translate, scale and rotate are; 3D, skew and matrix aren't).`);
-    const a = args(m[2]);
-    let problem: string | null = null;
-    if (name === "rotate") {
-      const angle = a.length === 1 ? parseAngle(a[0]) : undefined;
-      if (angle === undefined) return fail("has a rotate() that isn't one angle (45deg, 0.25turn).");
-      problem = foldRotate(f, angle);
-    } else if (name.startsWith("translate")) {
-      const lens = a.map(parseLen);
-      const zero: Len = { n: 0, pct: false };
-      if (lens.some((l) => !l) || a.length < 1 || a.length > (name === "translate" ? 2 : 1)) return fail(`has a ${m[1]}() that isn't ${name === "translate" ? "one or two lengths" : "one length"} (px or %).`);
-      const [x, y] = name === "translatey" ? [zero, lens[0]!] : [lens[0]!, name === "translate" ? (lens[1] ?? zero) : zero];
-      problem = foldTranslate(f, x, y);
-    } else {
-      const ks = a.map(parseFactor);
-      if (ks.some((k) => k === undefined) || a.length < 1 || a.length > (name === "scale" ? 2 : 1)) return fail(`has a ${m[1]}() that isn't ${name === "scale" ? "one or two numbers" : "one number"}.`);
-      const sx = name === "scaley" ? 1 : ks[0]!, sy = name === "scalex" ? 1 : name === "scale" ? (ks[1] ?? ks[0]!) : ks[0]!;
-      f.sx *= sx;
-      f.sy *= sy;
-    }
-    if (problem) return fail(problem);
+    if (!FUNCTIONS.includes(name)) return fail(`uses ${m[1]}(), which isn't supported (translate, scale, rotate, skew and matrix are; 3D isn't).`);
+    const step = readStep(m[1], name, args(m[2]));
+    if (typeof step === "string") return fail(step);
+    steps.push(step);
   }
-  if (!any) return fail("is empty.");
-  return ok({ translateX: lenText(f.tx), translateY: lenText(f.ty), scaleX: round(f.sx), scaleY: round(f.sy), rotate: round(f.rotate) });
+  if (!steps.length) return fail("is empty.");
+  const folded = fold(steps);
+  if (typeof folded !== "string") return ok(folded);
+  const held = asMatrix(steps);
+  if (typeof held !== "string") return ok(held);
+  // Neither: the fold's own reason when it was about lengths, else the matrix's.
+  return fail(folded === HOLDS_MATRIX || /skews/.test(folded) ? held : folded);
 }

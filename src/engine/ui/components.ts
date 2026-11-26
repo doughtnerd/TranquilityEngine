@@ -19,6 +19,7 @@ import { AssetRef, component, field } from "../core/registry";
 import { GameObject } from "../scene/GameObject";
 import { uiInteractions } from "./interactions";
 import { resetFormEvent, submitForm } from "./formControls";
+import { _addMediaPlayer, _removeMediaPlayer, AudioSourceMedia, makeVideoSource, UIMediaPlayer, type UIMediaEvent, type UIMediaEventType, type UIMediaFields, type UIMediaSource } from "./media";
 // Keyboard and gamepad navigation (ADR 0340) comes with the components: `engine.UIActions`, the `ui` context and `engine.UINavigation`.
 import "./navigation";
 
@@ -250,6 +251,39 @@ abstract class UIElement extends UIComponent {
    */
   @field(String) transformOriginX: UILength = "50%";
   @field(String) transformOriginY: UILength = "50%";
+  /**
+   * ADR 0426: a full 2D matrix applied after translate, rotate and scale, as `matrix(a, b, c, d, e, f)` (pixels); "" (the
+   * default) for none. A stylesheet's `transform` list that doesn't fold into the three (one with `skew()`, `skewX()`,
+   * `skewY()` or `matrix()`, or a rotation after an unequal scale) sets it. It animates as CSS interpolates matrices.
+   */
+  @field(String) transformMatrix = "";
+
+  // ADR 0426: CSS filters, drawn over the element and its children (a stylesheet's `filter` sets them). Each function is a
+  // field, so transitions and keyframes animate them; they apply in this order whatever order `filter` lists them in.
+  /** `blur()`: a Gaussian blur, its standard deviation in UI pixels. 0: none. */
+  @field(Number) filterBlur = 0;
+  /** `brightness()`: 1 as it is, 0 black, above 1 brighter. */
+  @field(Number) filterBrightness = 1;
+  /** `contrast()`: 1 as it is, 0 flat grey. */
+  @field(Number) filterContrast = 1;
+  /** `grayscale()`: 0 as it is, 1 fully grey. */
+  @field(Number) filterGrayscale = 0;
+  /** `hue-rotate()`, in degrees. */
+  @field(Number) filterHueRotate = 0;
+  /** `invert()`: 0 as it is, 1 inverted. */
+  @field(Number) filterInvert = 0;
+  /** `opacity()`: like `opacity`, applied as a filter step (after the ones before it). 1 as it is. */
+  @field(Number) filterOpacity = 1;
+  /** `saturate()`: 1 as it is, 0 grey, above 1 more saturated. */
+  @field(Number) filterSaturate = 1;
+  /** `sepia()`: 0 as it is, 1 fully sepia. */
+  @field(Number) filterSepia = 0;
+  /** `drop-shadow()`'s colour: a shadow of what's drawn (its shape, not its box). Null: none. */
+  @field(Color) filterDropShadowColor: Color | null = null;
+  /** The drop shadow's offset right and down, and its blur, in UI pixels. */
+  @field(Number) filterDropShadowOffsetX = 0;
+  @field(Number) filterDropShadowOffsetY = 0;
+  @field(Number) filterDropShadowBlur = 0;
 }
 
 /** A box: background, border and rounded corners, laying out its children. */
@@ -350,6 +384,214 @@ export class UIImage extends UIElement {
 }
 
 /**
+ * ADR 0426: an inline SVG (`<svg>` in Svelte UI), drawn as an image of its SVG document: the renderer keeps the `<svg>`
+ * and its shapes as a subtree and writes it here as text when anything in it changes, and the drawing layer rasterises
+ * that text (once per change). It lays out as an image (its `width` and `height` from the `<svg>`'s attributes or
+ * styles), and the pointer stops at its box.
+ */
+@component("engine.UISvg")
+export class UISvg extends UIImage {
+  /** The SVG document drawn, as text (`<svg xmlns="http://www.w3.org/2000/svg" …>…</svg>`). Empty: nothing. */
+  @field(String) markup = "";
+  /** What `currentColor` is in it (`color`, inherited as text's is). */
+  @field(Color) color = Color.white;
+
+  constructor() {
+    super();
+    // HTML's size for an <svg> without one of its own (its attributes or the stylesheet set it).
+    this.width = "300";
+    this.height = "150";
+  }
+}
+
+/** The media API `UIVideo` and `UIAudio` share (ADR 0426, `media.ts`). */
+interface UIMediaElement {
+  readonly _player: UIMediaPlayer;
+}
+
+function mediaPlay(c: UIMediaElement): Promise<void> {
+  return c._player.play();
+}
+
+/**
+ * ADR 0426: a video (`<video>` in Svelte UI): an image whose picture is a video's current frame, drawn each frame while
+ * it plays. Its source is an `HTMLVideoElement` made from `src` in a browser, or any media element a script hands to
+ * `media` (a stream, or one it made). `play()`, `pause()`, `currentTime`, `duration`, `paused` and `ended` are the
+ * media element's; `loop`, `muted`, `volume` and `playbackRate` are fields kept on it each frame. `on("ended", …)` and
+ * the other media events come from it.
+ */
+@component("engine.UIVideo")
+export class UIVideo extends UIImage implements UIMediaElement, UIMediaFields {
+  /** The video: a file in the project (`asset:videos/intro.webm`) or a URL. */
+  @field(String) src = "";
+  /** Start playing once it's shown (browsers allow only muted video to start without a gesture). */
+  @field(Boolean) autoplay = false;
+  @field(Boolean) loop = false;
+  @field(Boolean) muted = false;
+  /** 0..1. */
+  @field(Number) volume = 1;
+  /** 1: normal speed. */
+  @field(Number) playbackRate = 1;
+
+  /** @internal */
+  readonly _player: UIMediaPlayer = new UIMediaPlayer(this, () => makeVideoSource());
+
+  /** The media element it shows: one made from `src` in a browser (null headless until one is set), or one a script set. */
+  get media(): UIMediaSource | null {
+    return this._player.media;
+  }
+
+  set media(source: UIMediaSource | null) {
+    this._player.media = source;
+  }
+
+  play(): Promise<void> {
+    return mediaPlay(this);
+  }
+
+  pause(): void {
+    this._player.pause();
+  }
+
+  get paused(): boolean {
+    return this._player.current?.paused ?? true;
+  }
+
+  get ended(): boolean {
+    return this._player.current?.ended ?? false;
+  }
+
+  /** Seconds; set it to seek. */
+  get currentTime(): number {
+    return this._player.current?.currentTime ?? 0;
+  }
+
+  set currentTime(seconds: number) {
+    const m = this._player.media;
+    if (m) m.currentTime = seconds;
+  }
+
+  /** Seconds; NaN until known. */
+  get duration(): number {
+    return this._player.current?.duration ?? NaN;
+  }
+
+  /** Listen to a media event (`play`, `pause`, `ended`, `timeupdate`, `volumechange`, `durationchange`…). */
+  on(type: UIMediaEventType, listener: (e: UIMediaEvent) => void): void {
+    this._player.on(type, listener);
+  }
+
+  off(type: UIMediaEventType, listener: (e: UIMediaEvent) => void): void {
+    this._player.off(type, listener);
+  }
+
+  override _onActivate(): void {
+    super._onActivate();
+    _addMediaPlayer(this._world, this._player);
+  }
+
+  override _onDeactivate(): void {
+    _removeMediaPlayer(this._world, this._player);
+    this._player.stop();
+    super._onDeactivate();
+  }
+
+  override _onDetach(): void {
+    _removeMediaPlayer(this._world, this._player);
+    this._player.dispose();
+    super._onDetach();
+  }
+}
+
+/**
+ * ADR 0426: a sound (`<audio>` in Svelte UI). Not drawn (`display: none`, as an `<audio>` without controls). It plays
+ * through the audio plugin: an `AudioSource` on its node, made the first time it plays, its mixer bus Master. The media
+ * API is `UIVideo`'s; a script may hand `media` any media element instead (an `HTMLAudioElement`).
+ */
+@component("engine.UIAudio")
+export class UIAudio extends UIPanel implements UIMediaElement, UIMediaFields {
+  /** The sound: a clip in the project (`asset:sounds/theme.ogg`). */
+  @field(String) src = "";
+  @field(Boolean) autoplay = false;
+  @field(Boolean) loop = false;
+  @field(Boolean) muted = false;
+  @field(Number) volume = 1;
+  /** 1: normal speed. Through the engine's audio it changes the pitch too. */
+  @field(Number) playbackRate = 1;
+
+  /** @internal */
+  readonly _player: UIMediaPlayer = new UIMediaPlayer(this, (o) => new AudioSourceMedia(o.node));
+
+  constructor() {
+    super();
+    this.display = "none";
+    this.raycastTarget = false;
+  }
+
+  get media(): UIMediaSource | null {
+    return this._player.media;
+  }
+
+  set media(source: UIMediaSource | null) {
+    this._player.media = source;
+  }
+
+  play(): Promise<void> {
+    return mediaPlay(this);
+  }
+
+  pause(): void {
+    this._player.pause();
+  }
+
+  get paused(): boolean {
+    return this._player.current?.paused ?? true;
+  }
+
+  get ended(): boolean {
+    return this._player.current?.ended ?? false;
+  }
+
+  get currentTime(): number {
+    return this._player.current?.currentTime ?? 0;
+  }
+
+  set currentTime(seconds: number) {
+    const m = this._player.media;
+    if (m) m.currentTime = seconds;
+  }
+
+  get duration(): number {
+    return this._player.current?.duration ?? NaN;
+  }
+
+  on(type: UIMediaEventType, listener: (e: UIMediaEvent) => void): void {
+    this._player.on(type, listener);
+  }
+
+  off(type: UIMediaEventType, listener: (e: UIMediaEvent) => void): void {
+    this._player.off(type, listener);
+  }
+
+  override _onActivate(): void {
+    super._onActivate();
+    _addMediaPlayer(this._world, this._player);
+  }
+
+  override _onDeactivate(): void {
+    _removeMediaPlayer(this._world, this._player);
+    this._player.stop();
+    super._onDeactivate();
+  }
+
+  override _onDetach(): void {
+    _removeMediaPlayer(this._world, this._player);
+    this._player.dispose();
+    super._onDetach();
+  }
+}
+
+/**
  * What buttons and input fields share (ADR 0340): they take focus, from the pointer, scripts, and
  * keyboard and gamepad navigation (`engine.UINavigation`, driven by `engine.UIActions`). One element
  * of a World has focus at a time.
@@ -372,7 +614,6 @@ abstract class UIFocusable extends UIPanel {
   @field(GameObject) navLeft: GameObject | null = null;
   @field(GameObject) navRight: GameObject | null = null;
 
-  /** True while it has focus. */
   /** True while it has focus (a click, a script or navigation gave it). Set it to focus or unfocus it. */
   get focused(): boolean {
     return uiInteractions(this._world).isFocused(this as unknown as UIFocusableElement) && this.isActiveAndEnabled;
@@ -757,7 +998,7 @@ export class UIForm extends UIPanel {
 }
 
 /** Every UI component type, for the render backend and the routing. */
-export const UI_TYPES = [UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UITextArea, UIToggle, UIRadio, UISlider, UISelect, UIOption, UIProgress, UIMeter, UILabel, UIForm] as const;
+export const UI_TYPES = [UICanvas, UIPanel, UIText, UIImage, UIButton, UIInputField, UITextArea, UIToggle, UIRadio, UISlider, UISelect, UIOption, UIProgress, UIMeter, UILabel, UIForm, UISvg, UIVideo, UIAudio] as const;
 
 /** An element that takes focus (ADR 0340, 0424). */
 export type UIFocusableElement = UIButton | UIInputField | UIToggle | UIRadio | UISlider | UISelect;
@@ -768,7 +1009,7 @@ export function isFocusableUI(c: unknown): c is UIFocusableElement {
 }
 
 /** Any UI component. */
-export type UIComponentType = UICanvas | UIPanel | UIText | UIImage | UIButton | UIInputField | UIToggle | UIRadio | UISlider | UISelect | UIProgress | UIMeter | UILabel | UIForm;
+export type UIComponentType = UICanvas | UIPanel | UIText | UIImage | UIButton | UIInputField | UIToggle | UIRadio | UISlider | UISelect | UIProgress | UIMeter | UILabel | UIForm | UISvg | UIVideo | UIAudio;
 
 /** @internal True for a UI component (the render backend releases those through its UI runtime). */
 export function isUIComponent(c: Component): c is UIComponentType {

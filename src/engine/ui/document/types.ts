@@ -22,9 +22,12 @@ export interface SourceProblem {
 // --- Markup (`*.ui.xml`) ------------------------------------------------------------------------
 
 /** Element names and the UI components they make (ADR 0069 components). */
+/** ADR 0426: `Svg`, `Video` and `Audio` are the HTML `svg`, `video` and `audio` elements (Svelte UI). */
 export type UITag = "Canvas" | "Panel" | "Text" | "Image" | "Button" | "InputField"
   // ADR 0424: form elements.
-  | "TextArea" | "Toggle" | "Radio" | "Slider" | "Select" | "Option" | "Progress" | "Meter" | "Label" | "Form";
+  | "TextArea" | "Toggle" | "Radio" | "Slider" | "Select" | "Option" | "Progress" | "Meter" | "Label" | "Form"
+  // ADR 0426: inline SVG and media.
+  | "Svg" | "Video" | "Audio";
 
 export interface MarkupAttribute {
   /** As written: a field (`fontSize`), `id`, `class`, `translate`, or a key binding `t:<field>` (ADR 0356 §4). */

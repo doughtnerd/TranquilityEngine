@@ -24,6 +24,8 @@ const DOCUMENT_ONLY = new Set([
   "engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField",
   // ADR 0424: form elements.
   "engine.UITextArea", "engine.UIToggle", "engine.UIRadio", "engine.UISlider", "engine.UISelect", "engine.UIOption", "engine.UIProgress", "engine.UIMeter", "engine.UILabel", "engine.UIForm",
+  // ADR 0426: inline SVG and media.
+  "engine.UISvg", "engine.UIVideo", "engine.UIAudio",
 ]);
 
 const shortName = (type: string) => type.replace(/^[^.]*\./, "");

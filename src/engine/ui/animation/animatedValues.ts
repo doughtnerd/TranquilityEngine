@@ -8,12 +8,16 @@
  *   values it can't interpolate. They write back as the fields store them (`"12.5"`, `"40%"`).
  * - Colours interpolate in linear RGB, alpha linearly. A colour that's none (a shadow's, a background's) animates as
  *   the other colour fully transparent.
+ * - ADR 0426: the transform matrix (`transformMatrix`) interpolates as CSS interpolates matrices: decomposed into
+ *   translation, rotation, shear and scales, each mixed, and recomposed (`transform2d.ts`). It tweens one float, the
+ *   progress, and the mix is worked out as it's read back. "" (none) is the identity.
  * - Anything else (choices, booleans, strings, assets) is discrete: it jumps at the midpoint of the eased progress.
  */
 import { Color } from "../../core/math";
+import { interpolateAffine, matrixText, parseMatrixText } from "../transform2d";
 
 /** What kind of value a field holds, for animating it. */
-export type AnimatedKind = "number" | "length" | "color" | "discrete";
+export type AnimatedKind = "number" | "length" | "color" | "matrix" | "discrete";
 
 /** String fields that hold a `UILength`. */
 const LENGTH_FIELDS: ReadonlySet<string> = new Set([
@@ -34,6 +38,7 @@ export function animatedKind(field: string, type: unknown): AnimatedKind {
   if (type === Number) return "number";
   if (type === Color) return "color";
   if (type === String && LENGTH_FIELDS.has(field)) return "length";
+  if (type === String && field === "transformMatrix") return "matrix";
   return "discrete";
 }
 
@@ -56,6 +61,15 @@ const tidy = (n: number) => {
   const r = Math.round(n * 1e4) / 1e4;
   return Object.is(r, -0) ? 0 : r;
 };
+
+/** A matrix field's value as a map (null: none or the identity); undefined when it isn't one. */
+function matrixOf(v: unknown): ReturnType<typeof parseMatrixText> | undefined {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  if (s === "" || s.toLowerCase() === "none") return null;
+  const n = (/^matrix\(([^()]*)\)$/i.exec(s)?.[1] ?? s).split(/[\s,]+/).filter((p) => p !== "").map(Number);
+  return n.length === 6 && n.every(Number.isFinite) ? parseMatrixText(s) : undefined;
+}
 
 function discrete(a: unknown, b: unknown): AnimatedPair {
   return { width: 1, from: [0], to: [1], discrete: true, decode: (f, at) => (f[at] >= 0.5 ? b : a) };
@@ -101,6 +115,11 @@ export function animatedPair(field: string, kind: AnimatedKind, a: unknown, b: u
         discrete: false,
         decode: (f, at) => new Color(clamp01(linearToSrgb(f[at])), clamp01(linearToSrgb(f[at + 1])), clamp01(linearToSrgb(f[at + 2])), clamp01(f[at + 3])),
       };
+    }
+    case "matrix": {
+      const ma = matrixOf(a), mb = matrixOf(b);
+      if (ma === undefined || mb === undefined) return discrete(a, b);
+      return { width: 1, from: [0], to: [1], discrete: false, decode: (f, at) => (f[at] === 0 ? a : f[at] === 1 ? b : matrixText(interpolateAffine(ma, mb, f[at]))) };
     }
     default:
       return discrete(a, b);

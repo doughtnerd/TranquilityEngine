@@ -39,7 +39,7 @@
 {:else if show && kind === "blur"}
   <div id="box" transition:blur={{ duration: 100 }}></div>
 {:else if show && kind === "draw"}
-  <path id="box" in:draw={{ duration: 100 }}></path>
+  <svg id="art" width="100" height="100" viewBox="0 0 100 100"><path d="M0 50 L100 50" stroke="red" in:draw={{ duration: 100 }}></path></svg>
 {:else if show && kind === "tick"}
   <p id="box" in:typewriter={{ duration: 100 }}>Hello</p>
 {:else if show && kind === "probe"}

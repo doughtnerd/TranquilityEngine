@@ -27,6 +27,19 @@ export const HTML_TAGS: ReadonlyMap<string, UITag> = new Map<string, UITag>([
   ["meter", "Meter"],
   ["label", "Label"],
   ["form", "Form"],
+  // ADR 0426: an inline SVG (its shapes stay an SVG subtree, drawn as an image), video and audio.
+  ["svg", "Svg"],
+  ["video", "Video"],
+  ["audio", "Audio"],
+]);
+
+/**
+ * ADR 0426: the SVG elements kept inside an `<svg>` (by lowercase name): its shapes, groups, text, references, definitions
+ * and paint servers. They aren't UI elements: the renderer keeps them as the `<svg>`'s SVG document.
+ */
+export const SVG_CONTENT_TAGS: ReadonlySet<string> = new Set([
+  "path", "rect", "circle", "ellipse", "line", "polyline", "polygon", "g", "text", "tspan", "textpath", "use", "defs", "symbol",
+  "lineargradient", "radialgradient", "stop", "pattern", "clippath", "mask", "marker", "image", "title", "desc", "switch", "foreignobject", "style",
 ]);
 
 /** The UI element an HTML tag makes, or null for a tag without one (the renderer makes those a Panel, with a warning). */

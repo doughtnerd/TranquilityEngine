@@ -1,6 +1,7 @@
 // ADR 0418 wave 3: transforms. The affine module everything reads (composition, inversion, origin), the CSS values
 // (`transform`, `translate`, `scale`, `rotate`, `transform-origin`) and the cascade that expands them, and the UI core's
-// hit-testing, picking, clipping, corners and keyboard navigation on transformed elements.
+// hit-testing, picking, clipping, corners and keyboard navigation on transformed elements. ADR 0426: the full matrix
+// (skew, `matrix()`), held when a list doesn't fold, hit exactly and interpolated as CSS interpolates matrices.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Engine, Input } from "../index";
 import { UIButton, UIPanel } from "../ui/components";
@@ -9,7 +10,8 @@ import { World } from "../core/World";
 import { UICore } from "../ui/UICore";
 import { Assets } from "../scene/Assets";
 import { loadUIDocumentSupport } from "../ui/UIDocument";
-import { applyAffine, compose, decompose, invert, localTransform, multiply, type UIAffine, type UITransformFields } from "../ui/transform2d";
+import { applyAffine, compose, decompose, decomposeCss, interpolateAffine, invert, localTransform, matrixText, multiply, parseMatrixText, recompose, type UIAffine, type UITransformFields } from "../ui/transform2d";
+import { uiAnimationReady } from "../ui/animation/UIAnimator";
 import { parseTransform, parseTransformOrigin, parseTranslate, parseScale, parseRotate } from "../ui/document/transformValues";
 import { buildUI, byId } from "./uiMarkup";
 import { UIPointer } from "./uiPointer";
@@ -103,20 +105,35 @@ describe("transform values (ADR 0418 wave 3)", () => {
   const value = <T,>(r: { ok: true; value: T } | { ok: false; problem: string }) => (r.ok ? r.value : r.problem);
 
   it("folds a transform list, composed left to right, into translate, rotate and scale", () => {
-    expect(value(parseTransform("translate(10px, 20%) scale(2) rotate(45deg)"))).toEqual({ translateX: "10", translateY: "20%", scaleX: 2, scaleY: 2, rotate: 45 });
-    expect(value(parseTransform("translateX(5px) translateY(-50%) scaleX(1.5) scaleY(0.5)"))).toEqual({ translateX: "5", translateY: "-50%", scaleX: 1.5, scaleY: 0.5, rotate: 0 });
-    expect(value(parseTransform("none"))).toEqual({ translateX: "0", translateY: "0", scaleX: 1, scaleY: 1, rotate: 0 });
+    const none = { transformMatrix: "" };
+    expect(value(parseTransform("translate(10px, 20%) scale(2) rotate(45deg)"))).toEqual({ translateX: "10", translateY: "20%", scaleX: 2, scaleY: 2, rotate: 45, ...none });
+    expect(value(parseTransform("translateX(5px) translateY(-50%) scaleX(1.5) scaleY(0.5)"))).toEqual({ translateX: "5", translateY: "-50%", scaleX: 1.5, scaleY: 0.5, rotate: 0, ...none });
+    expect(value(parseTransform("none"))).toEqual({ translateX: "0", translateY: "0", scaleX: 1, scaleY: 1, rotate: 0, ...none });
     // A translate after a rotation and scale moves along the turned, scaled axes.
-    expect(value(parseTransform("rotate(90deg) translate(10px)"))).toEqual({ translateX: "0", translateY: "10", scaleX: 1, scaleY: 1, rotate: 90 });
-    expect(value(parseTransform("scale(2) translate(10px, 25%)"))).toEqual({ translateX: "20", translateY: "50%", scaleX: 2, scaleY: 2, rotate: 0 });
+    expect(value(parseTransform("rotate(90deg) translate(10px)"))).toEqual({ translateX: "0", translateY: "10", scaleX: 1, scaleY: 1, rotate: 90, ...none });
+    expect(value(parseTransform("scale(2) translate(10px, 25%)"))).toEqual({ translateX: "20", translateY: "50%", scaleX: 2, scaleY: 2, rotate: 0, ...none });
     expect(value(parseTransform("rotate(0.25turn) rotate(-1.5707963267948966rad)"))).toMatchObject({ rotate: 0 });
   });
 
+  it("holds a list that doesn't fold as the full matrix, after its leading translates (ADR 0426)", () => {
+    const t = Math.round(Math.tan(Math.PI / 18) * 1e6) / 1e6;
+    expect(value(parseTransform("skewX(10deg)"))).toEqual({ translateX: "0", translateY: "0", scaleX: 1, scaleY: 1, rotate: 0, transformMatrix: `matrix(1, 0, ${t}, 1, 0, 0)` });
+    expect(value(parseTransform("skewY(10deg)"))).toMatchObject({ transformMatrix: `matrix(1, ${t}, 0, 1, 0, 0)` });
+    expect(value(parseTransform("skew(45deg, 0)"))).toMatchObject({ transformMatrix: "matrix(1, 0, 1, 1, 0, 0)" });
+    expect(value(parseTransform("matrix(1, 2, 3, 4, 5, 6)"))).toMatchObject({ transformMatrix: "matrix(1, 2, 3, 4, 5, 6)" });
+    // The leading translate keeps its %; the rest composes left to right in px.
+    expect(value(parseTransform("translate(-50%, 10px) skewX(45deg) translate(10px, 0)"))).toEqual({ translateX: "-50%", translateY: "10", scaleX: 1, scaleY: 1, rotate: 0, transformMatrix: "matrix(1, 0, 1, 1, 10, 0)" });
+    // A rotation after an unequal scale (refused by wave 3) is a matrix now.
+    expect(value(parseTransform("scale(2, 1) rotate(90deg)"))).toMatchObject({ scaleX: 1, rotate: 0, transformMatrix: "matrix(0, 1, -2, 0, 0, 0)" });
+    expect(value(parseTransform("matrix(1, 0, 0, 1, 0, 0)"))).toMatchObject({ transformMatrix: "" });
+  });
+
   it("says why a list can't fold or be read", () => {
-    expect(value(parseTransform("scale(2, 1) rotate(45deg)"))).toMatch(/skews/);
     expect(value(parseTransform("rotate(45deg) translate(10%)"))).toMatch(/% translate after a rotation/);
+    expect(value(parseTransform("skewX(10deg) translate(10%)"))).toMatch(/% translate after a skew/);
     expect(value(parseTransform("translate(10px) rotate(180deg) translate(50%)"))).toMatch(/mixes px and %/);
-    expect(value(parseTransform("skew(10deg)"))).toMatch(/skew\(\), which isn't supported/);
+    expect(value(parseTransform("matrix(1, 2, 3)"))).toMatch(/six numbers/);
+    expect(value(parseTransform("skew(1px)"))).toMatch(/angle/);
     expect(value(parseTransform("rotate(1px)"))).toMatch(/angle/);
     expect(value(parseTransform("translate3d(1px, 2px, 3px)"))).toMatch(/isn't supported/);
     expect(value(parseTransform("rotate(45deg"))).toMatch(/transform functions/);
@@ -169,16 +186,16 @@ describe("transforms in the cascade (ADR 0418 wave 3)", () => {
   it("warns once about a value it can't read, leaving the fields alone", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
     const doc = buildUI(`<Canvas><Panel id="a" class="bad"/><Panel id="b" class="bad"/></Canvas>`, {
-      css: `.bad { transform: scale(2, 1) rotate(10deg); rotate: 5px; translate: 1px 2px 3px; transform-origin: middle }`,
+      css: `.bad { transform: skewX(10deg) translate(5%); rotate: 5px; translate: 1px 2px 3px; transform-origin: middle }`,
     });
     const a = byId(doc, "a", UIPanel);
-    expect([a.scaleX, a.rotate, a.translateX, a.transformOriginX]).toEqual([1, 0, "0", "50%"]);
+    expect([a.scaleX, a.rotate, a.translateX, a.transformOriginX, a.transformMatrix]).toEqual([1, 0, "0", "50%", ""]);
     const text = warn.mock.calls.flat().join("\n");
-    expect(text).toMatch(/"scale\(2, 1\) rotate\(10deg\)" rotates after an unequal scale/);
+    expect(text).toMatch(/"skewX\(10deg\) translate\(5%\)" has a % translate after a skew/);
     expect(text).toMatch(/"5px" isn't a valid rotate/);
     expect(text).toMatch(/3D transforms aren't supported/);
     expect(text).toMatch(/"middle" isn't a position/);
-    expect(warn.mock.calls.filter((c) => String(c.join(" ")).includes("rotates after an unequal scale"))).toHaveLength(1); // two elements, one warning
+    expect(warn.mock.calls.filter((c) => String(c.join(" ")).includes("% translate after a skew"))).toHaveLength(1); // two elements, one warning
   });
 });
 
@@ -310,5 +327,65 @@ describe("the editor's view of transforms (ADR 0418 wave 3)", () => {
     const core = await laidOut();
     expect(core.pickAll(75, 50)).toEqual([over, under] as UIComponentType[]);
     expect(core.pickAll(250, 50)).toEqual([]);
+  });
+});
+
+describe("matrix transforms with skew (ADR 0426)", () => {
+  const box = { x: 100, y: 100, width: 200, height: 50 };
+
+  it("applies the full matrix after translate, rotate and scale, about the origin", () => {
+    // skewX(45deg) about the middle (200, 125): a point d below the middle moves d right.
+    const m = localTransform(fields({ transformMatrix: "matrix(1, 0, 1, 1, 0, 0)" }), box)!;
+    near(at(m, 200, 125), [200, 125]);
+    near(at(m, 200, 150), [225, 150]);
+    near(at(m, 200, 100), [175, 100]);
+    // T · R · S · M: scaled by 2 after the skew (as `scale(2) skewX(45deg)`).
+    const s = localTransform(fields({ scaleX: 2, scaleY: 2, transformMatrix: "matrix(1, 0, 1, 1, 0, 0)" }), box)!;
+    near(at(s, 200, 150), [250, 175]);
+    expect(localTransform(fields({ transformMatrix: "matrix(1, 0, 0, 1, 0, 0)" }), box)).toBeNull();
+  });
+
+  it("hits a skewed button where it's drawn, the pointer through the exact inverse", async () => {
+    const doc = buildUI(`<Canvas><Button id="b" position="absolute" left="100" top="100" width="200" height="50" padding="0" transform="skewX(45deg)"/></Canvas>`);
+    const b = byId(doc, "b", UIButton);
+    expect(b.transformMatrix).toBe("matrix(1, 0, 1, 1, 0, 0)");
+    const core = await laidOut();
+    // Its bottom edge moved 25 right and its top 25 left: (75..275) along the top, (125..325) along the bottom.
+    expect(core.hitTest(80, 102)).toBe(b);
+    expect(core.hitTest(320, 148)).toBe(b);
+    expect(core.hitTest(110, 148)).toBeNull(); // laid out there, drawn to the right now
+    expect(core.hitTest(290, 102)).toBeNull();
+    const c = core.cornersOf(b)!;
+    c.points.forEach((pt, i) => near(pt, [[75, 100], [275, 100], [325, 150], [125, 150]][i]));
+  });
+
+  it("decomposes and interpolates a matrix as CSS does: translation, rotation, shear and scales mixed apart", () => {
+    // A quarter turn with a skew, half way from the identity: an eighth turn, half the shear, half the translation.
+    const to = multiply(multiply([0, 1, -1, 0, 40, 20], [1, 0, 1, 1, 0, 0]), [2, 0, 0, 1, 0, 0]);
+    const d = decomposeCss(to)!;
+    near([d.translateX, d.translateY, d.rotate, d.skew, d.scaleX, d.scaleY], [40, 20, 90, 1, 2, 1]);
+    near(recompose(d), to);
+    const half = decomposeCss(interpolateAffine(null, to, 0.5))!;
+    near([half.translateX, half.translateY, half.rotate, half.skew, half.scaleX, half.scaleY], [20, 10, 45, 0.5, 1.5, 1]);
+    // Not the long way round: from 170° to −170° passes through 180°.
+    const r = (deg: number): UIAffine => [Math.cos((deg * Math.PI) / 180), Math.sin((deg * Math.PI) / 180), -Math.sin((deg * Math.PI) / 180), Math.cos((deg * Math.PI) / 180), 0, 0];
+    expect(Math.abs(decomposeCss(interpolateAffine(r(170), r(-170), 0.5))!.rotate)).toBeCloseTo(180, 6);
+    expect(parseMatrixText("matrix(1 0 0 1 5 6)")).toEqual([1, 0, 0, 1, 5, 6]);
+    expect(matrixText([1, 0, 0, 1, 0, 0])).toBe("");
+  });
+
+  it("transitions a skew through the decomposition, starting from no matrix", async () => {
+    await uiAnimationReady(World.require());
+    const doc = buildUI(`<Canvas><Panel id="p" class="a" width="100" height="100"/></Canvas>`, { css: `.a { transition: transform 1s linear } .a.on { transform: skewX(45deg) }` });
+    await doc.ready;
+    const p = byId(doc, "p", UIPanel);
+    engine.step(1 / 64);
+    expect(p.transformMatrix).toBe("");
+    doc.query("#p")!.classList.add("on");
+    for (let i = 0; i < 33; i++) engine.step(1 / 64);
+    // Half way through the shear (0 → 1): a shear of 0.5, nothing else.
+    near(parseMatrixText(p.transformMatrix)!, [1, 0, 0.5, 1, 0, 0]);
+    for (let i = 0; i < 40; i++) engine.step(1 / 64);
+    expect(p.transformMatrix).toBe("matrix(1, 0, 1, 1, 0, 0)");
   });
 });

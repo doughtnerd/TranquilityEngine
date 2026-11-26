@@ -15,7 +15,7 @@
  * Renderer-neutral and nothing here is public API (ADR 0010).
  */
 import { Locale } from "../localisation/Locale";
-import { UIButton, UICanvas, UIForm, UIImage, UIInputField, UILabel, UIMeter, UIOption, UIPanel, UIProgress, UIRadio, UISelect, UISlider, UIText, UITextArea, UIToggle, type UIComponentType, type UIOverflow, type UITextAlign, type UIWordBreak } from "./components";
+import { UIAudio, UIButton, UICanvas, UIForm, UIImage, UIInputField, UILabel, UIMeter, UIOption, UIPanel, UIProgress, UIRadio, UISelect, UISlider, UISvg, UIText, UITextArea, UIToggle, UIVideo, type UIComponentType, type UIOverflow, type UITextAlign, type UIWordBreak } from "./components";
 import { selectLabel } from "./formControls";
 import type { UIPseudo, UIPseudoState, UITag } from "./document/types";
 import { fontFamilyOf } from "./fonts";
@@ -99,7 +99,11 @@ const KINDS: readonly KindSpec[] = [
   { kind: "label", type: UILabel, tag: "Label", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: always } as KindSpec<UILabel> as KindSpec,
   { kind: "form", type: UIForm, tag: "Form", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: panelIsGraphic } as KindSpec<UIForm> as KindSpec,
   { kind: "text", type: UIText, tag: "Text", leaf: true, interactive: false, flexShrink: 1, paints: (c: UIText) => textRunOf(c)!.text.trim() !== "", graphic: always } as KindSpec<UIText> as KindSpec,
+  // ADR 0426: an inline SVG and a video draw as images (their own pictures); audio is a box that draws nothing.
+  { kind: "image", type: UISvg, tag: "Svg", leaf: true, interactive: false, flexShrink: 0, paints: (c: UISvg) => c.markup !== "", graphic: always } as KindSpec<UISvg> as KindSpec,
+  { kind: "image", type: UIVideo, tag: "Video", leaf: true, interactive: false, flexShrink: 0, paints: (c: UIVideo) => c.src !== "" || c._player.current !== null, graphic: always } as KindSpec<UIVideo> as KindSpec,
   { kind: "image", type: UIImage, tag: "Image", leaf: true, interactive: false, flexShrink: 0, paints: (c: UIImage) => c.image !== "", graphic: always } as KindSpec<UIImage> as KindSpec,
+  { kind: "panel", type: UIAudio, tag: "Audio", leaf: true, interactive: false, flexShrink: 0, paints: () => false, graphic: () => false } as KindSpec<UIAudio> as KindSpec,
   { kind: "panel", type: UIPanel, tag: "Panel", leaf: false, interactive: false, flexShrink: 0, paints: panelPaints, graphic: panelIsGraphic } as KindSpec<UIPanel> as KindSpec,
 ];
 

@@ -14,6 +14,8 @@ import { hasBinding, resolvePath } from "./sourceText";
 import { parseColor } from "./cssColor";
 import { parseBackgroundImage, parseCornerRadii, parseShadow } from "./paintValues";
 import { parseRotate, parseScale, parseTransform, parseTransformOrigin, parseTranslate } from "./transformValues";
+import { matrixText, type UIAffine } from "../transform2d";
+import { FILTER_FIELDS, parseFilter } from "./filterValues";
 import {
   animationSpecs,
   ANIMATION_PROPERTIES,
@@ -491,7 +493,7 @@ export function expandPaintShorthand(property: string, value: string): PaintExpa
 // `transform`, `translate`, `scale` and `transform-origin` are shorthands of the transform fields, expanded where they're
 // declared, as the paint shorthands are (typed values, parsed by `transformValues.ts`). `rotate` is a field itself and
 // takes an angle. A `transform` list folds into the fields, applied as translate, rotate, scale (`transform2d.ts`); a list
-// that can't fold (a skew) is refused with a warning. The `translate` attribute stays HTML's localisation marker
+// that can't fold (a skew, `matrix()`) is held in `transformMatrix` (ADR 0426). The `translate` attribute stays HTML's localisation marker
 // (ADR 0356 §4), so markup writes `transform="translate(…)"` or `translate-x`/`translate-y`.
 
 /** A px or % length, as a transform length field stores it (`"12"`, `"50%"`). Undefined when it isn't one. */
@@ -517,6 +519,13 @@ const TRANSFORM_VALUES: Readonly<Record<string, (value: string, file: string) =>
     const r = parseRotate(value);
     return r.ok ? r.value : undefined;
   },
+  // ADR 0426: `matrix(a, b, c, d, e, f)` (or six numbers), stored as `matrix()` text; "" or `none` for none.
+  transformMatrix: (value) => {
+    const v = value.trim();
+    if (v === "" || v.toLowerCase() === "none") return "";
+    const n = (/^matrix\(([^()]*)\)$/i.exec(v)?.[1] ?? v).split(/[\s,]+/).filter((p) => p !== "").map(Number);
+    return n.length === 6 && n.every(Number.isFinite) ? matrixText(n as unknown as UIAffine) : undefined;
+  },
 };
 
 const fieldsFrom = (r: { ok: true; value: object } | { ok: false; problem: string }): PaintExpansion => (r.ok ? { ok: true, fields: Object.entries(r.value) } : r);
@@ -529,10 +538,14 @@ const TRANSFORM_SHORTHANDS: Readonly<Record<string, (value: string) => PaintExpa
   transformOrigin: (value) => fieldsFrom(parseTransformOrigin(value)),
 };
 
-/** The expansion of a shorthand that sets typed values (paint, ADR 0418 wave 2; transforms, wave 3), or undefined. */
+/** ADR 0426: `filter` sets every filter field (`filterValues.ts`). */
+const filterShorthand = (value: string): PaintExpansion => fieldsFrom(parseFilter(value));
+
+/** The expansion of a shorthand that sets typed values (paint, ADR 0418 wave 2; transforms, wave 3; filters, 0426), or undefined. */
 function typedShorthand(property: string): ((value: string) => PaintExpansion) | undefined {
   if (Object.prototype.hasOwnProperty.call(PAINT_SHORTHANDS, property)) return PAINT_SHORTHANDS[property];
   if (Object.prototype.hasOwnProperty.call(TRANSFORM_SHORTHANDS, property)) return TRANSFORM_SHORTHANDS[property];
+  if (property === "filter") return filterShorthand;
   return undefined;
 }
 
@@ -1014,7 +1027,7 @@ function longhandsOf(property: string): readonly string[] | null {
   if (plain) return plain.longhands;
   switch (property) {
     case "transform":
-      return ["translateX", "translateY", "scaleX", "scaleY", "rotate"];
+      return ["translateX", "translateY", "scaleX", "scaleY", "rotate", "transformMatrix"];
     case "translate":
       return ["translateX", "translateY"];
     case "scale":
@@ -1027,6 +1040,8 @@ function longhandsOf(property: string): readonly string[] | null {
       return ["textShadowColor", "textShadowOffsetX", "textShadowOffsetY", "textShadowBlur"];
     case "borderRadius":
       return ["borderRadius", ...CORNERS];
+    case "filter":
+      return FILTER_FIELDS;
   }
   return null;
 }

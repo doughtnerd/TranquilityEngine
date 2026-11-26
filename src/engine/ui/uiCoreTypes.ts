@@ -17,6 +17,7 @@ import type { Camera } from "../render/components";
 import type { UICanvas, UIComponentType } from "./components";
 import type { UIRect } from "./layout";
 import type { UIAffine } from "./transform2d";
+import type { UIFilterStep } from "./filters";
 
 export type UIKind = "canvas" | "panel" | "text" | "image" | "button" | "input"
   // ADR 0424: form elements.
@@ -165,6 +166,12 @@ export interface UILaidOutElement {
   readonly reach: UIRect;
   /** ADR 0423: with `overflow` other than `visible`: its scroll state; else null. */
   readonly scroll: UIScrollInfo | null;
+  /**
+   * ADR 0426: the CSS filter drawn over it (`filters.ts`): its own steps, then each ancestor's, nearest first, as a
+   * filter applies to an element's subtree; lengths in canvas UI pixels through each filtering element's transform.
+   * Null or absent: none.
+   */
+  readonly filter?: readonly UIFilterStep[] | null;
   /**
    * ADR 0424: what a form element draws over its own box (a checkbox's fill and mark, a slider's track, fill and thumb,
    * a progress bar's fill, a select's arrow), in its box's frame; null for other elements and when there's nothing.
