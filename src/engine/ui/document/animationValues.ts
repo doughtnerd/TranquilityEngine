@@ -8,11 +8,18 @@
  */
 import { splitTopLevel, type PaintParse } from "./paintValues";
 
-/** A CSS timing function: `linear`, a cubic Bézier (the keywords are ones), or `steps()`. */
+/**
+ * A CSS timing function: `linear`, a cubic Bézier (the keywords are ones), `steps()`, or (ADR 0428) the `linear()`
+ * function: its points `[input, output]` after CSS's normalisation (inputs filled in and never decreasing).
+ */
 export type UITimingFunction =
   | { readonly kind: "linear" }
   | { readonly kind: "bezier"; readonly x1: number; readonly y1: number; readonly x2: number; readonly y2: number }
-  | { readonly kind: "steps"; readonly steps: number; readonly position: "jump-start" | "jump-end" | "jump-none" | "jump-both" };
+  | { readonly kind: "steps"; readonly steps: number; readonly position: "jump-start" | "jump-end" | "jump-none" | "jump-both" }
+  | { readonly kind: "points"; readonly points: readonly (readonly [number, number])[] };
+
+/** ADR 0428: `transition-behavior`: `allow-discrete` lets values that don't interpolate transition (they flip part-way). */
+export type UITransitionBehavior = "normal" | "allow-discrete";
 
 export type UIAnimationDirection = "normal" | "reverse" | "alternate" | "alternate-reverse";
 export type UIAnimationFillMode = "none" | "forwards" | "backwards" | "both";
@@ -24,6 +31,8 @@ export interface UITransitionSpec {
   readonly duration: number;
   readonly delay: number;
   readonly timing: UITimingFunction;
+  /** ADR 0428: `transition-behavior: allow-discrete`; absent for `normal`. */
+  readonly allowDiscrete?: true;
 }
 
 /** One animation of `animation-name`, with its settings (times in seconds; `iterations` may be `Infinity`). */
@@ -80,13 +89,47 @@ export function parseTime(raw: string): number | undefined {
 /** True when `raw` looks like a time, valid or not (`1s`, `-2ms`), so a shorthand can tell it from a name. */
 const looksLikeTime = (raw: string) => TIME_WITH_UNIT.test(raw.trim());
 
-/** A timing function: the keywords, `cubic-bezier(x1, y1, x2, y2)` (x in 0–1) or `steps(n[, position])`. */
+/**
+ * ADR 0428: `linear()`'s arguments: stops of an output number with up to two input percentages, normalised as CSS
+ * Easing 2 does (the first input defaults to 0%, the last to 100%, an input below an earlier one rises to it, and stops
+ * without inputs are spread evenly between their neighbours).
+ */
+function parseLinearPoints(args: readonly string[]): PaintParse<UITimingFunction> {
+  const stops: { y: number; x: number | null }[] = [];
+  for (const arg of args) {
+    const tokens = arg.split(/\s+/).filter(Boolean);
+    const numbers = tokens.filter((t) => PLAIN_NUMBER.test(t));
+    const inputs = tokens.filter((t) => /%$/.test(t));
+    if (numbers.length !== 1 || inputs.length > 2 || numbers.length + inputs.length !== tokens.length) return fail(`"${arg}" isn't a linear() stop (an output number and up to two input percentages).`);
+    const xs = inputs.map((t) => (PLAIN_NUMBER.test(t.slice(0, -1)) ? parseFloat(t) / 100 : NaN));
+    if (xs.some((x) => !Number.isFinite(x))) return fail(`"${arg}" has an input that isn't a percentage.`);
+    const y = parseFloat(numbers[0]);
+    if (xs.length === 0) stops.push({ y, x: null });
+    else for (const x of xs) stops.push({ y, x });
+  }
+  if (stops.length < 2) return fail("linear() needs at least two stops.");
+  if (stops[0].x === null) stops[0].x = 0;
+  if (stops[stops.length - 1].x === null) stops[stops.length - 1].x = 1;
+  let max = -Infinity;
+  for (const s of stops) if (s.x !== null) s.x = max = Math.max(max, s.x);
+  for (let i = 1; i < stops.length; i++) {
+    if (stops[i].x !== null) continue;
+    let j = i;
+    while (stops[j].x === null) j++;
+    const from = stops[i - 1].x!, to = stops[j].x!;
+    for (let k = i; k < j; k++) stops[k].x = from + ((to - from) * (k - i + 1)) / (j - i + 1);
+    i = j;
+  }
+  return ok({ kind: "points", points: stops.map((s) => [s.x!, s.y] as const) });
+}
+
+/** A timing function: the keywords, `cubic-bezier(x1, y1, x2, y2)` (x in 0–1), `steps(n[, position])` or `linear(…)` (ADR 0428). */
 export function parseTimingFunction(raw: string): PaintParse<UITimingFunction> {
   const v = raw.trim().toLowerCase();
   const keyword = KEYWORD_TIMING[v];
   if (keyword) return ok(keyword);
   const fn = /^([a-z-]+)\((.*)\)$/s.exec(v);
-  if (!fn) return fail(`"${raw.trim()}" isn't a timing function (linear, ease, ease-in, ease-out, ease-in-out, cubic-bezier(), steps()).`);
+  if (!fn) return fail(`"${raw.trim()}" isn't a timing function (linear, ease, ease-in, ease-out, ease-in-out, cubic-bezier(), steps(), linear()).`);
   const args = splitTopLevel(fn[2], ",").map((a) => a.trim());
   if (fn[1] === "cubic-bezier") {
     const n = args.map((a) => (PLAIN_NUMBER.test(a) ? parseFloat(a) : NaN));
@@ -102,7 +145,8 @@ export function parseTimingFunction(raw: string): PaintParse<UITimingFunction> {
     if (steps < 1 || (position === "jump-none" && steps < 2)) return fail(position === "jump-none" ? "steps(n, jump-none) needs at least 2 steps." : "steps() needs at least 1 step.");
     return ok({ kind: "steps", steps, position });
   }
-  return fail(`${fn[1]}() isn't a supported timing function (cubic-bezier(), steps()).`);
+  if (fn[1] === "linear") return parseLinearPoints(args);
+  return fail(`${fn[1]}() isn't a supported timing function (cubic-bezier(), steps(), linear()).`);
 }
 
 /** True for a token that starts a timing function (so a shorthand reads it as one). */
@@ -136,6 +180,8 @@ export interface UITransitionLonghands {
   duration?: readonly number[];
   timing?: readonly UITimingFunction[];
   delay?: readonly number[];
+  /** ADR 0428: `transition-behavior`. */
+  behavior?: readonly UITransitionBehavior[];
 }
 
 /** `transition-property`: `none`, `all`, or property names. */
@@ -148,14 +194,16 @@ export function parseTransitionProperty(raw: string): PaintParse<string[]> {
 }
 
 /**
- * `transition`: comma-separated single transitions, each `[property] [duration] [timing] [delay]` in any order (the
- * first time is the duration, the second the delay). `none` alone is no transition.
+ * `transition`: comma-separated single transitions, each `[property] [duration] [timing] [delay] [behavior]` in any
+ * order (the first time is the duration, the second the delay; `allow-discrete` or `normal`, ADR 0428). `none` alone
+ * is no transition. `behavior` is set only when one is written, so shorthands without it read as before.
  */
-export function parseTransition(raw: string): PaintParse<Required<UITransitionLonghands>> {
-  const property: string[] = [], duration: number[] = [], timing: UITimingFunction[] = [], delay: number[] = [];
+export function parseTransition(raw: string): PaintParse<Required<Omit<UITransitionLonghands, "behavior">> & Pick<UITransitionLonghands, "behavior">> {
+  const property: string[] = [], duration: number[] = [], timing: UITimingFunction[] = [], delay: number[] = [], behavior: UITransitionBehavior[] = [];
+  let anyBehavior = false;
   const parts = splitTopLevel(raw, ",");
   for (const single of parts) {
-    let prop: string | null = null, dur: number | null = null, del: number | null = null, tf: UITimingFunction | null = null;
+    let prop: string | null = null, dur: number | null = null, del: number | null = null, tf: UITimingFunction | null = null, be: UITransitionBehavior | null = null;
     for (const token of splitTopLevel(single.trim(), " ")) {
       if (looksLikeTime(token) || token === "0") {
         const t = parseTime(token);
@@ -170,16 +218,21 @@ export function parseTransition(raw: string): PaintParse<Required<UITransitionLo
         const r = parseTimingFunction(token);
         if (!r.ok) return r;
         tf = r.value;
+      } else if ((token.toLowerCase() === "allow-discrete" || token.toLowerCase() === "normal") && be === null) {
+        be = token.toLowerCase() as UITransitionBehavior;
+        anyBehavior = true;
       } else if (IDENT.test(token) && prop === null) prop = token.toLowerCase();
-      else return fail(`"${token}" isn't a property, time or timing function.`);
+      else return fail(`"${token}" isn't a property, time, timing function or transition behavior.`);
     }
     if (prop === "none" && parts.length > 1) return fail("none can only be the whole transition.");
     property.push(prop ?? "all");
     duration.push(dur ?? 0);
     delay.push(del ?? 0);
     timing.push(tf ?? EASE);
+    behavior.push(be ?? "normal");
   }
-  return ok({ property, duration, timing, delay });
+  // The shorthand resets `transition-behavior` too; it's left out when no item names one (all `normal`, the initial value).
+  return ok(anyBehavior ? { property, duration, timing, delay, behavior } : { property, duration, timing, delay });
 }
 
 /** Reads one transition longhand (`transition-duration`…) into `into`; a problem, or null. */
@@ -188,7 +241,14 @@ export function parseTransitionLonghand(name: string, raw: string, into: UITrans
     case "transition": {
       const r = parseTransition(raw);
       if (!r.ok) return r.problem;
-      Object.assign(into, r.value);
+      // The shorthand resets `transition-behavior` too (to `normal` where an item doesn't name one).
+      Object.assign(into, r.value, { behavior: r.value.behavior ?? r.value.property.map((): UITransitionBehavior => "normal") });
+      return null;
+    }
+    case "transition-behavior": {
+      const r = list(raw, keywordItem<UITransitionBehavior>(BEHAVIORS, "a transition behavior (normal, allow-discrete)"));
+      if (!r.ok) return r.problem;
+      into.behavior = r.value;
       return null;
     }
     case "transition-property": {
@@ -226,7 +286,13 @@ export function transitionSpecs(l: UITransitionLonghands): UITransitionSpec[] {
   const props = l.property ?? ["all"];
   if (props.length === 1 && props[0] === "none") return [];
   return props
-    .map((property, i) => ({ property, duration: at(l.duration, i, 0), delay: at(l.delay, i, 0), timing: at(l.timing, i, EASE) }))
+    .map((property, i): UITransitionSpec => ({
+      property,
+      duration: at(l.duration, i, 0),
+      delay: at(l.delay, i, 0),
+      timing: at(l.timing, i, EASE),
+      ...(at(l.behavior, i, "normal" as UITransitionBehavior) === "allow-discrete" ? { allowDiscrete: true as const } : {}),
+    }))
     .filter((t) => t.property !== "none");
 }
 
@@ -245,6 +311,7 @@ export interface UIAnimationLonghands {
 }
 
 const DIRECTIONS: ReadonlySet<string> = new Set(["normal", "reverse", "alternate", "alternate-reverse"]);
+const BEHAVIORS: ReadonlySet<string> = new Set(["normal", "allow-discrete"]);
 const FILLS: ReadonlySet<string> = new Set(["none", "forwards", "backwards", "both"]);
 const PLAY_STATES: ReadonlySet<string> = new Set(["running", "paused"]);
 
@@ -368,7 +435,7 @@ export function animationSpecs(l: UIAnimationLonghands): UIAnimationSpec[] {
 
 /** The transition and animation properties (kebab-case), which are cascade data, not fields. */
 export const ANIMATION_PROPERTIES: ReadonlySet<string> = new Set([
-  "transition", "transition-property", "transition-duration", "transition-timing-function", "transition-delay",
+  "transition", "transition-property", "transition-duration", "transition-timing-function", "transition-delay", "transition-behavior",
   "animation", "animation-name", "animation-duration", "animation-timing-function", "animation-delay",
   "animation-iteration-count", "animation-direction", "animation-fill-mode", "animation-play-state",
 ]);

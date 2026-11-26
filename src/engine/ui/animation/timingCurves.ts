@@ -3,7 +3,7 @@
  * through on the tween backend. A `cubic-bezier()` (and `ease`, `ease-in`, `ease-out`, `ease-in-out`) is exactly one
  * Bézier segment of an engine curve (0346): key (0, 0) with its `out` handle at (x1, y1), key (1, 1) with its `in`
  * handle at (x2, y2), and the curve evaluator's bisection finds the parameter as a CSS engine does. `steps()` is step
- * keys. `linear` needs no curve (the tween's linear easing).
+ * keys, and `linear()` (ADR 0428) linear keys at its points. `linear` needs no curve (the tween's linear easing).
  *
  * A reversed curve is what a segment traversed backwards (`animation-direction: reverse`, an alternate iteration)
  * eases through from its later keyframe to its earlier one: `1 − f(1 − x)`. Pure.
@@ -47,6 +47,20 @@ export function timingCurve(tf: UITimingFunction, reversed = false): Curve | nul
       [1, 1, "bezier", { in: [b.x2 - 1, b.y2 - 1], out: [0, 0] }],
     ];
   }
+  if (tf.kind === "points") {
+    // ADR 0428: `linear()` is its points as linear keys (a repeated input is a jump: the evaluator takes the last key
+    // at an input). Reversed: each point mirrored, `(1 − x, 1 − y)`, in reverse order.
+    const points = reversed ? tf.points.map(([x, y]) => [1 - x, 1 - y] as const).reverse() : tf.points;
+    if (points.length === 2 && points[0][0] === 0 && points[0][1] === 0 && points[1][0] === 1 && points[1][1] === 1) return null;
+    const keys: CurveKey[] = points.map(([x, y]) => [x, y]);
+    // Before its first input and after its last, CSS extends the first and last segments' lines (CSS Easing 2); the
+    // curve gets keys at 0 and 1 on them.
+    const line = (p: readonly [number, number], q: readonly [number, number], x: number) => (q[0] === p[0] ? q[1] : p[1] + ((x - p[0]) * (q[1] - p[1])) / (q[0] - p[0]));
+    const n = points.length;
+    if (points[0][0] > 0) keys.unshift([0, line(points[0], points[1], 0)]);
+    if (points[n - 1][0] < 1) keys.push([1, line(points[n - 2], points[n - 1], 1)]);
+    return keys;
+  }
   const n = tf.steps;
   const levels = stepLevels(n, tf.position);
   const keys: CurveKey[] = [];
@@ -71,5 +85,7 @@ export function timingKey(tf: UITimingFunction, reversed: boolean): string {
       return `b${dir}:${tf.x1},${tf.y1},${tf.x2},${tf.y2}`;
     case "steps":
       return `s${dir}:${tf.steps},${tf.position}`;
+    case "points":
+      return `p${dir}:${tf.points.map((p) => p.join(" ")).join(",")}`;
   }
 }
