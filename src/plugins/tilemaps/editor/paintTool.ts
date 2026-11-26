@@ -3,6 +3,11 @@
 // the scene view paint instead of selecting. Each stroke is one undo step (Escape mid-stroke puts it back).
 // Draws the map's grid around the pointer and the brush's footprint (the brush's, ADR 0289) as an overlay: on
 // isometric, staggered and hexagonal maps (ADR 0421) the cells' own outlines, and the footprint as the outline of its cells.
+// ADR 0426: the selection tool (S) drags cell rectangles (Shift adds, Alt subtracts), moves the selection by dragging
+// inside it (Alt-drag copies), and acts on it with Ctrl/⌘+C, Ctrl/⌘+X, Delete, X, Y and Z (Ctrl/⌘+A selects every used
+// cell, Escape selects nothing); the selection is outlined cell by cell. With prefabs chosen, the pencil, rectangle and
+// eraser place and remove prefab instances (`prefabBrush.ts`). ADR 0425: while painting with Dim inactive layers on,
+// the map's other layers draw at 35 % in the edit view.
 import { effect } from "@preact/signals";
 import type { Tilemap } from "../runtime";
 import { Quat } from "../../../engine/core/math";
@@ -10,13 +15,34 @@ import { viewport } from "../../../engine/editor";
 import type { EditorOverlay } from "../../../engine/editor";
 import type { Cell } from "../runtime/brushes";
 import { traceCellOutlines } from "../runtime/cellRegions";
-import { PAINT_TOOL_ID, activeLayer, beginStroke, brushTerrain, brushTool, canRotateOn, commitTilemap, flipBrush, footprintAt, pickBrushTool, tilemapOf, type BrushStroke, type BrushTool, type Footprint } from "./brush";
+import {
+  DIM_FACTOR,
+  PAINT_TOOL_ID,
+  activeLayer,
+  beginStroke,
+  brushTerrain,
+  brushTool,
+  canRotateOn,
+  commitTilemap,
+  dimInactiveLayers,
+  flipBrush,
+  footprintAt,
+  pickBrushTool,
+  tilemapOf,
+  type BrushStroke,
+  type BrushTool,
+  type Footprint,
+} from "./brush";
+import { beginPrefabStroke, commitPrefabStroke, paintsPrefabs, type PrefabStroke } from "./prefabBrush";
+import { cellKey, keyCell, type CellSelection } from "./selectionLogic";
+import { clearTileSelection, copyTiles, cutTiles, deleteTiles, moveTiles, selectAllUsed, selectCells, selectionOf, tileSelection, transformTiles } from "./tileSelection";
 import { type ViewportToolContribution, editor } from "../../../editor/sdk";
 
 const GRID = 0x5a6270;
 const BRUSH = 0x4fc3f7;
 const ERASE = 0xef5350;
 const PICK = 0xffd54f;
+const SELECTION = 0xffb74d;
 /** Grid cells drawn on each side of the pointer. */
 const GRID_REACH = 12;
 
@@ -42,10 +68,34 @@ interface PaintState {
   hover: Cell | null;
   /** The brush's stroke while the press goes on. */
   stroke: BrushStroke | null;
+  /** A prefab brush stroke while the press goes on (ADR 0426). */
+  prefabStroke: PrefabStroke | null;
+  /** The selection being moved: where the drag started and the cell it's on now (ADR 0426). */
+  moving: { from: Cell; to: Cell; copy: boolean } | null;
 }
 
 /** Keys that pick a brush tool while a tilemap is selected (plus Shift+E erase, X/Y/Z flip). */
-const PAINT_TOOL_KEYS: Record<string, BrushTool> = { b: "pencil", u: "rect", g: "fill", i: "pick" };
+const PAINT_TOOL_KEYS: Record<string, BrushTool> = { b: "pencil", u: "rect", g: "fill", i: "pick", s: "select" };
+
+/** True when a key event comes from a text field or another place with its own keys. */
+function ownKeys(target: EventTarget | null): boolean {
+  return !!(target as Element | null)?.closest?.("input, textarea, select, [contenteditable=''], [contenteditable='true'], .monaco-editor, .asset-browser, .dialog");
+}
+
+/** The Tilemap the dim view opacity was set on and how many layers it had then (ADR 0425). */
+let dimmed: { map: Tilemap; layers: number } | null = null;
+
+/** Dim the painted map's inactive layers in the edit view, or undim the map dimmed before. */
+function applyDim(map: Tilemap | null, active: number): void {
+  if (dimmed && dimmed.map !== map) {
+    for (let i = 0; i < dimmed.layers; i++) dimmed.map._setViewOpacity(i, null);
+    dimmed = null;
+  }
+  if (!map) return;
+  const layers = map.layerCount;
+  for (let i = 0; i < Math.max(layers, dimmed?.layers ?? 0); i++) map._setViewOpacity(i, i === active || i >= layers ? null : DIM_FACTOR);
+  dimmed = { map, layers };
+}
 
 /** The scene view tilemap paint tool. */
 export const paintTool: ViewportToolContribution<BrushTool> = {
@@ -54,22 +104,35 @@ export const paintTool: ViewportToolContribution<BrushTool> = {
   // editing, Escape, play and another scene).
   endsOnSelection: () => !paintTarget(),
   install(view) {
-    const state: PaintState = { hover: null, stroke: null };
+    const state: PaintState = { hover: null, stroke: null, prefabStroke: null, moving: null };
     view.overlay(() => paintOverlay(state));
     view.setCursor("crosshair");
 
-    // Another node selected paints its first layer.
+    // Another node selected paints its first layer, and the tile selection (of the map before) goes.
     let lastKey = editor.scene.selection.peekActive();
     const stopSelection = effect(() => {
       const key = editor.scene.selection.active;
       if (key === lastKey) return;
       lastKey = key;
       activeLayer.value = 0;
+      if (tileSelection.peek().map !== paintTarget()) clearTileSelection();
+    });
+
+    // ADR 0425: Dim inactive layers, while the paint tool is active on a map.
+    const stopDim = effect(() => {
+      const on = dimInactiveLayers.value && brushTool.value !== null;
+      void editor.scene.selection.active;
+      const active = activeLayer.value;
+      applyDim(on ? paintTarget() : null, active);
     });
 
     view.onKey((e) => {
-      if (!paintTarget()) return false;
+      const map = paintTarget();
+      if (!map) return false;
       const key = e.key.toLowerCase();
+      const selecting = brushTool.peek() === "select" && selectionOf(map).size > 0;
+      if (brushTool.peek() && key === "escape" && selectionOf(map).size > 0) return clearTileSelection();
+      if (selecting && (key === "delete" || key === "backspace")) return deleteTiles();
       if (e.shiftKey) {
         if (key !== "e") return false;
         pickBrushTool("erase");
@@ -82,12 +145,33 @@ export const paintTool: ViewportToolContribution<BrushTool> = {
       }
       if (brushTool.peek() && (key === "x" || key === "y" || key === "z")) {
         // Z (turn) is off on hexagonal maps (ADR 0421): the key isn't the paint tool's there.
-        if (key === "z" && !canRotateOn(paintTarget())) return false;
-        flipBrush(key === "x" ? "x" : key === "y" ? "y" : "rotate", paintTarget());
+        if (key === "z" && !canRotateOn(map)) return false;
+        const axis = key === "x" ? "x" : key === "y" ? "y" : "rotate";
+        if (selecting) transformTiles(axis);
+        else flipBrush(axis, map);
         return true;
       }
       return false;
     });
+
+    // Ctrl/⌘ + C, X and A reach no viewport tool's keys (they're the editor's node shortcuts), so the selection tool
+    // takes them here first while it has a selection of the selected map (A: while it's the active tool).
+    const onModifiedKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || ownKeys(e.target)) return;
+      const key = e.key.toLowerCase();
+      if (key !== "c" && key !== "x" && key !== "a") return;
+      const map = brushTool.peek() ? paintTarget() : null;
+      if (!map) return;
+      let done = false;
+      if (key === "a" && brushTool.peek() === "select") {
+        selectAllUsed(map);
+        done = true;
+      } else if (key !== "a" && selectionOf(map).size > 0) done = key === "c" ? copyTiles() : cutTiles();
+      if (!done) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    };
+    window.addEventListener("keydown", onModifiedKey, true);
 
     view.onHover((p) => {
       const map = p && brushTool.peek() ? paintTarget() : null;
@@ -103,7 +187,72 @@ export const paintTool: ViewportToolContribution<BrushTool> = {
       if (!current || !map || !scene || !path) return null;
       const cell = cellAt(map, p.x, p.y);
       if (!cell) return null;
+
+      if (current === "select") {
+        const selected = selectionOf(map);
+        // Inside the selection (no Shift): move it, Alt copies. The move is the gesture's one undo step.
+        if (!p.shift && selected.has(cellKey(cell[0], cell[1]))) {
+          const copy = p.alt;
+          const drag = view.gesture(copy ? "Copy tiles" : "Move tiles", {
+            move(m) {
+              const c = state.moving && cellAt(map, m.x, m.y);
+              if (!c || !state.moving) return;
+              state.moving.to = c;
+              state.hover = c;
+            },
+            end() {
+              const m = state.moving;
+              state.moving = null;
+              if (m) moveTiles(m.to[0] - m.from[0], m.to[1] - m.from[1], m.copy);
+            },
+            cancel: () => void (state.moving = null),
+          });
+          if (!drag) return null;
+          state.moving = { from: cell, to: cell, copy };
+          return drag;
+        }
+        // Elsewhere: a rectangle that replaces, adds to (Shift) or takes from (Alt) the selection. Not a document edit.
+        const mode = p.shift ? "add" : p.alt ? "subtract" : "replace";
+        state.stroke = beginStroke(map, "select", cell);
+        state.hover = cell;
+        return {
+          move(m) {
+            const c = state.stroke && cellAt(map, m.x, m.y);
+            if (c && state.stroke?.moveTo(c)) state.hover = c;
+          },
+          end() {
+            const s = state.stroke;
+            state.stroke = null;
+            if (s) selectCells(map, s.start, s.last, mode);
+          },
+          cancel: () => void (state.stroke = null),
+        };
+      }
+
       const strokeTool: BrushTool = p.alt ? "pick" : current;
+
+      // ADR 0426: the prefab brush. Released, the stroke's node removes and adds are the gesture's one undo step.
+      if (strokeTool !== "pick" && paintsPrefabs(strokeTool)) {
+        const prefabTool = strokeTool as "pencil" | "rect" | "erase";
+        const label = prefabTool === "erase" ? "Erase prefabs" : "Paint prefabs";
+        const drag = view.gesture(label, {
+          move(m) {
+            const c = state.prefabStroke && cellAt(map, m.x, m.y);
+            if (c && state.prefabStroke?.moveTo(c)) state.hover = c;
+          },
+          end() {
+            const s = state.prefabStroke;
+            state.prefabStroke = null;
+            if (s) commitPrefabStroke(scene, path, map, s.tool === "erase" ? "erase" : "paint", s.cells(), label);
+          },
+          cancel: () => void (state.prefabStroke = null),
+        });
+        if (!drag) return null;
+        state.prefabStroke = beginPrefabStroke(prefabTool, cell);
+        state.hover = cell;
+        return drag;
+      }
+
       const label = strokeTool === "erase" ? "Erase tiles" : strokeTool === "fill" ? "Fill tiles" : strokeTool === "pick" ? "Pick tiles" : brushTerrain.peek() ? "Paint terrain" : "Paint tiles";
       // Released, the stroke commits what it painted, as the gesture's one undo step; Escape puts it back.
       const finish = () => {
@@ -129,22 +278,44 @@ export const paintTool: ViewportToolContribution<BrushTool> = {
       return drag;
     });
 
-    return stopSelection;
+    return () => {
+      stopSelection();
+      stopDim();
+      applyDim(null, 0);
+      window.removeEventListener("keydown", onModifiedKey, true);
+    };
   },
 };
 
-/** The grid around the pointer and the brush footprint (or the rectangle being dragged). */
+/** World-space point of a local point on the map's plane. */
+function toWorld(map: Tilemap, [x, y]: readonly [number, number]): [number, number, number] {
+  const p = map.node.transform!.localToWorld.transformPoint({ x, y, z: 0 });
+  return [p.x, p.y, p.z];
+}
+
+/** The grid around the pointer, the brush footprint (or the rectangle being dragged) and the tile selection. */
 function paintOverlay(state: PaintState): EditorOverlay {
   const overlay: EditorOverlay = { lines: [], handles: [] };
   const t = brushTool.peek();
   const map = t ? paintTarget() : null;
+  if (!t || !map || !map.node.transform) return overlay;
+  const selected = selectionOf(map);
+  if (selected.size > 0) {
+    const m = state.moving;
+    selectionOverlay(overlay, map, selected, m ? m.to[0] - m.from[0] : 0, m ? m.to[1] - m.from[1] : 0);
+  }
   const hover = state.hover;
-  if (!t || !map || !hover || !map.node.transform) return overlay;
+  if (!hover) return overlay;
   const tr = map.node.transform;
-  const s = state.stroke;
+  const s = state.stroke ?? state.prefabStroke;
   const tool = s?.tool ?? t;
-  const footprint = s ? s.footprint() : footprintAt(t, hover, map);
-  const color = tool === "erase" ? ERASE : tool === "pick" ? PICK : BRUSH;
+  const footprint = state.stroke
+    ? state.stroke.footprint()
+    : state.prefabStroke?.tool === "rect"
+      ? { x0: Math.min(state.prefabStroke.start[0], hover[0]), y0: Math.min(state.prefabStroke.start[1], hover[1]), x1: Math.max(state.prefabStroke.start[0], hover[0]) + 1, y1: Math.max(state.prefabStroke.start[1], hover[1]) + 1 }
+      : footprintAt(t, hover, map);
+  const color = tool === "erase" ? ERASE : tool === "pick" ? PICK : tool === "select" ? SELECTION : BRUSH;
+  if (state.moving) return overlay;
   if (map.gridShape !== "square") return gridOverlay(overlay, map, hover, footprint, color);
   const cs = map.cellSize;
   const w = (cx: number, cy: number): [number, number, number] => {
@@ -167,15 +338,23 @@ function paintOverlay(state: PaintState): EditorOverlay {
 const TRACE_LIMIT = 16_384;
 
 /**
+ * The selection's outline (ADR 0426), shifted by `(dx, dy)` cells while it is being moved: its cells' outlines traced as
+ * shapes on the map's grid (squares, diamonds, hexagons). A large selection is traced by its edge cells only.
+ */
+function selectionOverlay(overlay: EditorOverlay, map: Tilemap, selected: CellSelection, dx: number, dy: number): void {
+  let cells = [...selected].map(keyCell);
+  const all = cells.length <= TRACE_LIMIT;
+  if (!all) cells = cells.filter(([x, y]) => !(selected.has(cellKey(x + 1, y)) && selected.has(cellKey(x - 1, y)) && selected.has(cellKey(x, y + 1)) && selected.has(cellKey(x, y - 1))));
+  const outline = (x: number, y: number) => map.cellOutline(x + dx, y + dy).map((p): [number, number] => [p.x, p.y]);
+  for (const loop of traceCellOutlines(cells, outline)) if (all || area(loop) > 0) overlay.lines.push({ points: loop.map((p) => toWorld(map, p)), closed: true, color: SELECTION });
+}
+
+/**
  * The overlay on a non-square grid (ADR 0421): each cell's outline around the pointer, and the footprint's cells
  * outlined as one shape.
  */
 function gridOverlay(overlay: EditorOverlay, map: Tilemap, [hx, hy]: Cell, { x0, y0, x1, y1 }: Footprint, color: number): EditorOverlay {
-  const tr = map.node.transform!;
-  const w = ([x, y]: readonly [number, number]): [number, number, number] => {
-    const p = tr.localToWorld.transformPoint({ x, y, z: 0 });
-    return [p.x, p.y, p.z];
-  };
+  const w = (p: readonly [number, number]) => toWorld(map, p);
   const segs: number[] = [];
   for (let y = hy - GRID_REACH; y <= hy + GRID_REACH; y++) {
     for (let x = hx - GRID_REACH; x <= hx + GRID_REACH; x++) {
