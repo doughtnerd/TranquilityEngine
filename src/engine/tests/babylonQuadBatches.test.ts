@@ -98,3 +98,35 @@ describe("Babylon quad batches drawing triangles (ADR 0370, 0371: skinned sprite
     quads.dispose();
   });
 });
+
+describe("Babylon quad batches updated in place (ADR 0421: animated tiles)", () => {
+  it("takes setQuads with the same texture, vertex count and indices array as a vertex update, not a new mesh", () => {
+    const scene = new Scene(new NullEngine());
+    const tex = { getBaseSize: () => ({ width: 8, height: 8 }), hasAlpha: false } as unknown as Texture;
+    const quads = new BabylonQuadBatches({ scene, materials2D: new BabylonMaterials2D({ scene, library: { texture: () => tex } }), texture: () => tex, sortOrder: (_layer, order) => order });
+    const batch = quads.createBatch("tiles");
+    batch.setVisible(true);
+    batch.setOrder("Default", 4);
+    const positions = new Float32Array([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0]);
+    const uvs = new Float32Array([0, 0, 0.5, 0, 0.5, 1, 0, 1]);
+    const indices = new Uint32Array([0, 1, 2, 0, 2, 3]);
+    batch.setQuads("t.png", positions, uvs, indices);
+    // The first repeat may make the buffers updatable; from then on the same mesh is updated.
+    uvs.set([0.5, 0, 1, 0, 1, 1, 0.5, 1]);
+    batch.setQuads("t.png", positions, uvs, indices);
+    const mesh = quads.meshOf(batch)!;
+    expect(Array.from(mesh.getVerticesData("uv")!)).toEqual([0.5, 0, 1, 0, 1, 1, 0.5, 1]);
+    uvs.set([0, 0, 0.5, 0, 0.5, 1, 0, 1]);
+    batch.setQuads("t.png", positions, uvs, indices);
+    expect(quads.meshOf(batch)).toBe(mesh);
+    expect(mesh.isDisposed()).toBe(false);
+    expect(Array.from(mesh.getVerticesData("uv")!)).toEqual([0, 0, 0.5, 0, 0.5, 1, 0, 1]);
+    expect(mesh.alphaIndex).toBe(4);
+    expect(mesh.isEnabled()).toBe(true);
+    // Another indices array (new geometry): a new mesh.
+    batch.setQuads("t.png", positions, uvs, new Uint32Array([0, 1, 2, 0, 2, 3]));
+    expect(quads.meshOf(batch)).not.toBe(mesh);
+    expect(mesh.isDisposed()).toBe(true);
+    quads.dispose();
+  });
+});

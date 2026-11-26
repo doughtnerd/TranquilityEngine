@@ -4,7 +4,8 @@
  * materials (`materials2D.ts`) their material, from the batch's texture, material asset, sorting layer, blend, mask and
  * tint: shared by batches asking for the same, lit by the sorting layer's 2D lights or not, replaced in place when the
  * 2D lighting changes. Knows nothing of tiles or bones: the features (tiles, 2D lines and decals, skinned sprites with
- * `setTriangles`, updated in place each frame, light volumes) decide what the geometry is.
+ * `setTriangles`, updated in place each frame, light volumes) decide what the geometry is. Either call with the same
+ * texture, vertex count and `indices` array as before moves the vertices in place (an animated tile's frame, ADR 0421).
  *
  * A deforming mesh (`setTriangles`) whose material has a normal map gets a 2D tangent per vertex, worked out here from
  * its positions and UVs (`tangents2D`) each time it moves, so the normals follow its bones or its line; quads
@@ -89,12 +90,14 @@ export class BabylonQuadBatches implements QuadBatchHost {
 class BabylonQuadBatch implements QuadBatch {
   mesh: Mesh | null = null;
   private texture = "";
-  /** What the mesh was built from (`setTriangles` only moves the vertices of an updatable mesh with the same indices). */
+  /** What the mesh was built from (`setQuads` and `setTriangles` only move the vertices of an updatable mesh with the same indices). */
   private indices: Uint32Array | null = null;
   private positions: Float32Array | null = null;
   private uvs: Float32Array | null = null;
   private vertexFloats = 0;
   private updatable = false;
+  /** Built by `setTriangles`: a deforming mesh, which gets 2D tangents when its material has a normal map. */
+  private deforming = false;
   private tint: Tint2D = { r: 1, g: 1, b: 1, a: 1 };
   private color = "#ffffff";
   private opacity = 1;
@@ -118,24 +121,36 @@ class BabylonQuadBatch implements QuadBatch {
   ) {}
 
   setQuads(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void {
-    this.build(texture, positions, uvs, indices, colors ?? null, false);
+    // ADR 0421: the same texture, vertex count and `indices` array again (an animated tile's frame) moves the vertices in
+    // place. A static mesh is rebuilt once with updatable buffers the first time, then updated in place.
+    if (this.sameGeometry(texture, positions, indices) && this.updatable) this.update(positions, uvs, colors ?? null, false);
+    else this.build(texture, positions, uvs, indices, colors ?? null, this.sameGeometry(texture, positions, indices), false);
   }
 
   setTriangles(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void {
-    const mesh = this.mesh;
-    if (mesh && this.updatable && texture === this.texture && indices === this.indices && positions.length === this.vertexFloats) {
-      mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
-      mesh.updateVerticesData(VertexBuffer.UVKind, uvs); // a 2D ribbon's texture moves along it (ADR 0396)
-      this.positions = positions;
-      this.uvs = uvs;
-      this.applyColors(mesh, colors ?? null);
-      this.applyTangents();
-      return;
-    }
-    this.build(texture, positions, uvs, indices, colors ?? null, true);
+    if (this.sameGeometry(texture, positions, indices) && this.updatable) this.update(positions, uvs, colors ?? null, true);
+    else this.build(texture, positions, uvs, indices, colors ?? null, true, true);
   }
 
-  private build(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors: Float32Array | null, updatable: boolean): void {
+  /** Whether the mesh was built from this texture, vertex count and `indices` array (so only its vertices move). */
+  private sameGeometry(texture: string, positions: Float32Array, indices: Uint32Array): boolean {
+    return !!this.mesh && texture === this.texture && indices === this.indices && positions.length === this.vertexFloats;
+  }
+
+  /** Move an updatable mesh's vertices (and their UVs and colours) in place. */
+  private update(positions: Float32Array, uvs: Float32Array, colors: Float32Array | null, deforming: boolean): void {
+    const mesh = this.mesh!;
+    mesh.updateVerticesData(VertexBuffer.PositionKind, positions);
+    mesh.updateVerticesData(VertexBuffer.UVKind, uvs); // a 2D ribbon's texture moves along it (ADR 0396); a tile's frame changes (ADR 0421)
+    this.positions = positions;
+    this.uvs = uvs;
+    this.deforming = deforming;
+    this.applyColors(mesh, colors);
+    this.applyTangents();
+  }
+
+  /** `updatable`: its buffers can be updated in place; `deforming`: triangles that move (they get 2D tangents, ADR 0399). */
+  private build(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors: Float32Array | null, updatable: boolean, deforming: boolean): void {
     if (this.disposed) return;
     this.mesh?.dispose();
     this.mesh = null;
@@ -146,6 +161,7 @@ class BabylonQuadBatch implements QuadBatch {
     this.uvs = uvs;
     this.vertexFloats = positions.length;
     this.updatable = updatable;
+    this.deforming = deforming;
     if (indices.length >= 3) {
       const mesh = new Mesh(this.name, this.owner.scene);
       const data = new VertexData();
@@ -190,7 +206,7 @@ class BabylonQuadBatch implements QuadBatch {
   private applyTangents(): void {
     const mesh = this.mesh;
     if (!mesh) return;
-    if (!this.updatable || !this.look?.normalMapped || !this.positions || !this.uvs || !this.indices) {
+    if (!this.deforming || !this.look?.normalMapped || !this.positions || !this.uvs || !this.indices) {
       if (this.tangents) mesh.removeVerticesData(TANGENT_2D_ATTRIBUTE);
       this.tangents = null;
       return;
@@ -269,7 +285,7 @@ class BabylonQuadBatch implements QuadBatch {
     const mesh = this.mesh;
     if (!mesh || !this.look) return;
     if (mesh.material !== this.look.material) mesh.material = this.look.material;
-    if (!!this.tangents !== (this.updatable && this.look.normalMapped)) this.applyTangents();
+    if (!!this.tangents !== (this.deforming && this.look.normalMapped)) this.applyTangents();
   }
 
   dispose(): void {

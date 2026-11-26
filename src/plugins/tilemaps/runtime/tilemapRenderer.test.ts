@@ -1,5 +1,5 @@
 // ADR 0136: the tile renderer is renderer-neutral, so it's tested against a fake quad-batch host.
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { Assets, Engine, GameObject, SceneManager, Vector2 } from "../../../myco";
 import type { QuadBatch, QuadBatchHost } from "../../../engine/render/quadBatches";
 import { newLayer } from "./format";
@@ -20,6 +20,11 @@ interface FakeBatch extends QuadBatch {
   visible: boolean;
   matrix: number[];
   disposed: boolean;
+  /** The arrays of the last `setQuads`, and how many times it was called. */
+  positions: Float32Array;
+  uvs: Float32Array;
+  indices: Uint32Array;
+  sets: number;
 }
 
 function fakeHost() {
@@ -30,10 +35,15 @@ function fakeHost() {
     createBatch(name) {
       const b: FakeBatch = {
         name, texture: "", quads: 0, extent: [0, 0], order: ["", 0], within: undefined, material: null, tint: ["", 0], visible: false, matrix: [], disposed: false,
+        positions: new Float32Array(0), uvs: new Float32Array(0), indices: new Uint32Array(0), sets: 0,
         setMaterial(m) { b.material = m; },
         setBlend() {},
-        setQuads(texture, positions, _uv, indices) {
+        setQuads(texture, positions, uvs, indices) {
           b.texture = texture;
+          b.positions = positions;
+          b.uvs = uvs;
+          b.indices = indices;
+          b.sets++;
           b.quads = indices.length / 6;
           b.extent = [0, 0];
           for (let i = 0; i < positions.length; i += 3) b.extent = [Math.max(b.extent[0], positions[i]), Math.max(b.extent[1], positions[i + 1])];
@@ -176,5 +186,274 @@ describe("the tile renderer (ADR 0103, 0136)", () => {
     tiles.sync(engine.world);
     expect(live().some((b) => before.includes(b))).toBe(false);
     expect(live().every((b) => b.within === undefined)).toBe(true);
+  });
+});
+
+/** An Engine with `files` as its assets (plus an empty scene) and `project` settings, its scene loaded; and a loaded fake host. */
+async function setup(files: Record<string, unknown>, project: Record<string, unknown> = {}, kind?: "editor") {
+  Assets.clearSources();
+  Assets.addSource(Assets.fromObject({ "s.json": { format: "myco.scene@1", nodes: [] }, "t.png": "data:image/png;base64,", "u.png": "data:image/png;base64,", ...files }));
+  const engine = await Engine.create({ headless: true, project, ...(kind ? { kind } : {}) });
+  engines.push(engine);
+  await SceneManager.load("s.json");
+  const fake = fakeHost();
+  fake.load();
+  return { engine, ...fake, live: () => fake.batches.filter((b) => !b.disposed) };
+}
+
+/** Advance the World's scaled time by `seconds`, a frame at a time. */
+function advance(engine: Engine, seconds: number): void {
+  for (let t = 0; t < seconds - 1e-9; t += 0.05) engine.step(Math.min(0.05, seconds - t));
+}
+
+const SLICES = { format: "myco.import@1", sprites: ["a", "b", "c"].map((name, i) => ({ name, rect: [i * 16, 0, 16, 16], pivot: [0, 0] })) };
+/** u0 of slice i of `SLICES` in the fake 64 × 32 texture. */
+const sliceU = (i: number) => (i * 16) / 64;
+
+describe("the tile renderer's animated tiles (ADR 0421)", () => {
+  const files = (start?: "random") => ({
+    "t.png.meta.json": SLICES,
+    "ts.tileset.json": {
+      format: "myco.tileset@1",
+      tileSize: [16, 16],
+      tiles: [
+        { id: 1, sprite: "asset:t.png#a", animation: { frames: [{ sprite: "asset:t.png#a", duration: 0.1 }, { sprite: "asset:t.png#b", duration: 0.2 }, { sprite: "asset:t.png#c", duration: 0.1 }], ...(start ? { start } : {}) } },
+        { id: 2, sprite: "asset:t.png#c" },
+        { id: 3, sprite: "asset:t.png#a", animation: { frames: [{ sprite: "asset:t.png#a", duration: 0.1 }, { sprite: "asset:u.png", duration: 0.1 }] } },
+      ],
+    },
+  });
+
+  it("puts a square chunk's animated tiles in their own batch and rewrites their UVs in the same arrays when a frame changes", async () => {
+    const { engine, host, live } = await setup(files());
+    const tiles = new TilemapRenderer(host);
+    const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("G", "Default")] });
+    map.setTile(0, 0, 1);
+    map.setTile(1, 0, 1);
+    map.setTile(2, 0, 2);
+    tiles.sync(engine.world);
+    expect(live()).toHaveLength(2);
+    const animated = live().find((b) => b.quads === 2)!, still = live().find((b) => b.quads === 1)!;
+    expect(animated.uvs[0]).toBeCloseTo(sliceU(0), 3);
+    const [positions, uvs, indices] = [animated.positions, animated.uvs, animated.indices];
+    // Not yet at the next frame: nothing is sent again.
+    advance(engine, 0.05);
+    tiles.sync(engine.world);
+    expect(animated.sets).toBe(1);
+    // Frame 1: the animated batch gets the same arrays again, with the new UVs; the static batch isn't touched.
+    advance(engine, 0.1);
+    tiles.sync(engine.world);
+    expect(animated.sets).toBe(2);
+    expect(animated.positions).toBe(positions);
+    expect(animated.uvs).toBe(uvs);
+    expect(animated.indices).toBe(indices);
+    expect(animated.uvs[0]).toBeCloseTo(sliceU(1), 3);
+    expect(animated.uvs[8]).toBeCloseTo(sliceU(1), 3);
+    expect(still.sets).toBe(1);
+    expect(live()).toHaveLength(2); // nothing rebuilt
+    // Past the loop's end it starts again.
+    advance(engine, 0.3);
+    tiles.sync(engine.world);
+    expect(animated.uvs[0]).toBeCloseTo(sliceU(0), 3);
+  });
+
+  it("follows animationSpeed (0 stops), and draws a frame from another image as the tile's sprite", async () => {
+    const { engine, host, live } = await setup(files());
+    const tiles = new TilemapRenderer(host);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("G", "Default")], animationSpeed: 0 });
+    map.setTile(0, 0, 1);
+    map.setTile(0, 1, 3);
+    tiles.sync(engine.world);
+    const [batch] = live(); // both animated tiles, cell (0, 0) first
+    advance(engine, 0.5);
+    tiles.sync(engine.world);
+    expect(batch.sets).toBe(1); // stopped
+    expect(batch.uvs[0]).toBeCloseTo(sliceU(0), 3);
+    map.animationSpeed = 0.25; // 0.5 s of World time is 0.125 s of animation: frame 1
+    tiles.sync(engine.world);
+    expect(batch.uvs[0]).toBeCloseTo(sliceU(1), 3);
+    expect(batch.texture).toBe("t.png");
+    expect(batch.uvs[8]).toBeCloseTo(sliceU(0), 3); // tile 3's frame 1 is from u.png: drawn as its own sprite
+    expect(warn.mock.calls.some(([m]) => String(m).includes("u.png"))).toBe(true);
+    warn.mockRestore();
+  });
+
+  it("starts random tiles at offsets from the cell and the seed, the same every time", async () => {
+    const { engine, host, live } = await setup(files("random"));
+    const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("G", "Default")], variantSeed: 7 });
+    map.fillRect(0, 0, 16, 1, 1);
+    advance(engine, 0.2);
+    const draw = () => {
+      const other = fakeHost();
+      other.load();
+      new TilemapRenderer(other.host).sync(engine.world);
+      return Array.from(other.batches[0].uvs);
+    };
+    new TilemapRenderer(host).sync(engine.world);
+    const first = Array.from(live()[0].uvs);
+    expect(draw()).toEqual(first);
+    const us = new Set(first.filter((_, i) => i % 8 === 0).map((u) => Math.round(u * 4)));
+    expect(us.size).toBeGreaterThan(1); // not in lock-step
+    // Another seed, other offsets.
+    map.variantSeed = 8;
+    expect(draw()).not.toEqual(first);
+  });
+
+  it("shows first frames in the editor's edit World", async () => {
+    const { engine, host, live } = await setup(files("random"), {}, "editor");
+    const tiles = new TilemapRenderer(host);
+    const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("G", "Default")] });
+    map.fillRect(0, 0, 4, 1, 1);
+    advance(engine, 0.15);
+    tiles.sync(engine.world);
+    const uvs = live()[0].uvs;
+    for (let q = 0; q < 4; q++) expect(uvs[q * 8]).toBeCloseTo(sliceU(0), 3);
+    advance(engine, 0.15);
+    tiles.sync(engine.world);
+    expect(live()[0].sets).toBe(1);
+  });
+});
+
+describe("the tile renderer's layer offset, parallax and view opacity (ADR 0425)", () => {
+  const files = { "ts.tileset.json": { format: "myco.tileset@1", tileSize: [16, 16], tiles: [{ id: 1, sprite: "asset:t.png" }] } };
+
+  it("shifts a layer by its offset in the batch matrix, without rebuilding, and reads cells under it", async () => {
+    const { engine, host, batches, live } = await setup(files);
+    const tiles = new TilemapRenderer(host);
+    const node = GameObject.create("map");
+    node.transform!.position.x = 2;
+    const map = node.addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("G", "Default"), newLayer("H", "Default")], cellSize: new Vector2(2, 2) });
+    map.setTile(0, 0, 1, 0);
+    map.setTile(0, 0, 1, 1);
+    tiles.sync(engine.world);
+    map.setLayerOffset("H", 1, 0.5);
+    tiles.sync(engine.world);
+    const [g, h] = live();
+    expect(batches.some((b) => b.disposed)).toBe(false);
+    expect([g.matrix[12], g.matrix[13]]).toEqual([2, 0]);
+    expect([h.matrix[12], h.matrix[13]]).toEqual([3, 0.5]);
+    expect(map.layerOffset(1)).toEqual(new Vector2(1, 0.5));
+    expect(map.toLayerData()[1].offset).toEqual([1, 0.5]);
+    // Cells: under the offset with a layer, as before without one.
+    expect(map.worldToCell({ x: 2.5, y: 0.25 })).toEqual(new Vector2(0, 0));
+    expect(map.worldToCell({ x: 2.5, y: 0.25 }, "H")).toEqual(new Vector2(-1, -1));
+    expect(map.localToCell({ x: 1.5, y: 0.75 }, 1)).toEqual(new Vector2(0, 0));
+    map.setLayerOffset(1, 0, 0);
+    expect(map.toLayerData()[1].offset).toBeUndefined();
+    expect(() => map.setLayerOffset(5, 1, 1)).toThrow();
+  });
+
+  it("moves a parallax layer by (1 − parallax) × (view camera − node) each frame", async () => {
+    const { engine, host, live } = await setup(files);
+    let view: [number, number] | null = [10, 4];
+    const tiles = new TilemapRenderer(host, () => view);
+    const node = GameObject.create("map");
+    node.transform!.position.x = 2;
+    const map = node.addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("G", "Default")] });
+    map.setTile(0, 0, 1);
+    map.setLayerParallax(0, 0.5, 0);
+    tiles.sync(engine.world);
+    const [b] = live();
+    expect([b.matrix[12], b.matrix[13]]).toEqual([2 + 0.5 * (10 - 2), 4]);
+    view = [20, -6];
+    tiles.sync(engine.world);
+    expect([b.matrix[12], b.matrix[13]]).toEqual([2 + 0.5 * (20 - 2), -6]);
+    expect(map.layerParallax(0)).toEqual(new Vector2(0.5, 0));
+    expect(map.toLayerData()[0].parallax).toEqual([0.5, 0]);
+    // Without a view camera, or at parallax 1, it draws with the node.
+    view = null;
+    tiles.sync(engine.world);
+    expect(b.matrix[12]).toBe(2);
+    view = [20, -6];
+    map.setLayerParallax(0, 1, 1);
+    tiles.sync(engine.world);
+    expect([b.matrix[12], b.matrix[13]]).toEqual([2, 0]);
+  });
+
+  it("multiplies a layer's opacity by the view-only factor, leaving the layer data alone", async () => {
+    const { engine, host, live } = await setup(files);
+    const tiles = new TilemapRenderer(host);
+    const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [{ ...newLayer("G", "Default"), opacity: 0.5 }, newLayer("H", "Default")] });
+    map.setTile(0, 0, 1, 0);
+    map.setTile(0, 0, 1, 1);
+    map._setViewOpacity(1, 0.35);
+    tiles.sync(engine.world);
+    expect(live().map((b) => b.tint[1])).toEqual([0.5, 0.35]);
+    expect(map.toLayerData().map((l) => l.opacity)).toEqual([0.5, 1]);
+    map._setViewOpacity(1, null);
+    tiles.sync(engine.world);
+    expect(live().map((b) => b.tint[1])).toEqual([0.5, 1]);
+  });
+});
+
+describe("the tile renderer on y-sorted sorting layers (ADR 0424)", () => {
+  const files = {
+    "t.png.meta.json": SLICES,
+    "ts.tileset.json": { format: "myco.tileset@1", tileSize: [16, 16], tiles: [{ id: 1, sprite: "asset:t.png#a" }, { id: 2, sprite: "asset:t.png#b", sortOffset: 1 }, { id: 3, sprite: "asset:u.png" }] },
+  };
+  const project = { render: { sortingLayers: ["Ground", "Actors"], ySortedLayers: ["Actors"] } };
+
+  it("draws a batch per row and texture, higher rows first, split by sortOffset; and per chunk again off a y-sorted layer", async () => {
+    const { engine, host, live } = await setup(files, project);
+    const tiles = new TilemapRenderer(host);
+    const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("Walls", "Actors")] });
+    map.fillRect(0, 0, 3, 3, 1);
+    map.setTile(1, 0, 2); // sorts a cell higher: with row 1
+    map.setTile(2, 2, 3); // another texture in row 2
+    tiles.sync(engine.world);
+    const rows = live();
+    expect(rows).toHaveLength(5);
+    const row = (y: number, slice = 0) => rows.find((b) => b.texture === "t.png" && Math.abs(b.uvs[0] - sliceU(slice)) < 0.01 && b.extent[1] === y + 1)!;
+    const other = rows.find((b) => b.texture === "u.png")!; // in row 2
+    expect(row(0).quads).toBe(2);
+    expect(row(0, 1).quads).toBe(1); // the sortOffset tile
+    expect(other.quads).toBe(1);
+    expect(row(2).within).toBeLessThan(row(1).within!);
+    expect(row(1).within).toBeLessThan(row(0).within!);
+    expect(row(0, 1).within).toBe(row(1).within);
+    expect(other.within).toBe(row(2).within);
+    // Moving the node down raises every row's place (lower things draw later), keeping their order.
+    const before = row(0).within!;
+    map.node.transform!.position.y = -5;
+    tiles.sync(engine.world);
+    expect(row(0).within).toBeGreaterThan(before);
+    // Off a y-sorted layer: one batch per chunk and texture again.
+    map.layers = map.toLayerData().map((l) => ({ ...l, sortingLayer: "Ground" }));
+    tiles.sync(engine.world);
+    expect(live().map((b) => b.quads).sort()).toEqual([1, 8]);
+    expect(live().every((b) => b.within === undefined)).toBe(true);
+  });
+
+  it("sorts non-square rows by their bottom corner", async () => {
+    const { engine, host, live } = await setup(files, project);
+    const tiles = new TilemapRenderer(host);
+    const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("Walls", "Actors")], gridShape: "isometric" });
+    map.setTile(0, 0, 1); // the front corner
+    map.setTile(1, 0, 1); // a row back, with (0, 1)
+    map.setTile(0, 1, 1);
+    tiles.sync(engine.world);
+    const batches = live();
+    expect(batches.map((b) => b.quads).sort()).toEqual([1, 2]);
+    const front = batches.find((b) => b.quads === 1)!, back = batches.find((b) => b.quads === 2)!;
+    expect(back.within).toBeLessThan(front.within!);
+  });
+});
+
+describe("the tile renderer's painter's order across textures (ADR 0421)", () => {
+  it("gives a non-square chunk's texture batches ordered steps of their own, inside the chunk's", async () => {
+    const { engine, host, live } = await setup({ "ts.tileset.json": { format: "myco.tileset@1", tileSize: [16, 16], tiles: [{ id: 1, sprite: "asset:t.png" }, { id: 2, sprite: "asset:u.png" }] } });
+    const tiles = new TilemapRenderer(host);
+    const map = GameObject.create("map").addBehavior(Tilemap, { tileset: "ts.tileset.json", layers: [newLayer("G", "Default")], gridShape: "isometric" });
+    map.setTile(0, 0, 1);
+    map.setTile(1, 1, 2);
+    map.setTile(16, 16, 1); // a chunk farther back
+    tiles.sync(engine.world);
+    const inChunk = (key: string) => live().filter((b) => b.name.endsWith(`:${key}`)).map((b) => b.within!);
+    const near = inChunk("0,0"), far = inChunk("1,1");
+    expect(near).toHaveLength(2);
+    expect(new Set(near).size).toBe(2);
+    expect(Math.max(...far)).toBeLessThan(Math.min(...near));
+    for (const w of [...near, ...far]) expect(w).toBeLessThan(1);
   });
 });

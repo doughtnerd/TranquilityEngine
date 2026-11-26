@@ -168,6 +168,8 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
   private runtime: RuntimeLayer[] = [];
   private listeners: ((change: TileChange) => void)[] = [];
   private grid: { key: string; grid: TileGrid } | null = null;
+  /** ADR 0425: view-only opacity factors by layer index (`_setViewOpacity`). */
+  private readonly viewOpacity = new Map<number, number>();
   /** @internal Goes up when anything about the cells or layers changes. */
   _version = 0;
 
@@ -208,6 +210,7 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
         }
       }
       if (prev) for (const key of prev.chunks.keys()) if (!layer.chunks.has(key)) changed = true;
+      if (prev && !samePair(prev.meta.offset, meta.offset, 0)) changed = true; // collision follows the offset (ADR 0425)
       if (changed) layer.version = nextVersion++;
       meta.chunks = {}; // the runtime arrays hold the cells now
       meta.palette = {}; // and the runtime maps the palette
@@ -364,6 +367,69 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
 
   private indexOf(layer: number | string): number {
     return typeof layer === "string" ? this.layerIndex(layer) : layer;
+  }
+
+  private requireLayer(layer: number | string): RuntimeLayer {
+    const l = this.layerAt(layer);
+    if (!l) throw new Error(`Tilemap "${this.node.name}" has no layer ${JSON.stringify(layer)}.`);
+    return l;
+  }
+
+  /** ADR 0425: how far a layer's drawing and collision are shifted, in local units ((0, 0) for a missing layer). */
+  layerOffset(layer: number | string): Vector2 {
+    const o = this.layerAt(layer)?.meta.offset;
+    return new Vector2(o?.[0] ?? 0, o?.[1] ?? 0);
+  }
+
+  /**
+   * ADR 0425: shift a layer's drawing and collision by (x, y) local units. Cells keep their coordinates (`worldToCell`
+   * with the layer reads them under the offset). Changes the runtime layer only, like other script edits
+   * (`toLayerData()` writes it). Throws for a missing layer or a value that isn't finite.
+   */
+  setLayerOffset(layer: number | string, x: number, y: number): void {
+    const l = this.requireLayer(layer);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new RangeError(`Tilemap "${this.node.name}": a layer offset is two finite numbers, not (${x}, ${y}).`);
+    const was = l.meta.offset ?? [0, 0];
+    if (was[0] === x && was[1] === y) return;
+    if (x === 0 && y === 0) delete l.meta.offset;
+    else l.meta.offset = [x, y];
+    l.version = nextVersion++; // collision follows the offset (ADR 0425)
+    this._version = nextVersion++;
+  }
+
+  /** ADR 0425: how much a layer moves with the view camera, per axis ((1, 1) moves with the map; for a missing layer too). */
+  layerParallax(layer: number | string): Vector2 {
+    const p = this.layerAt(layer)?.meta.parallax;
+    return new Vector2(p?.[0] ?? 1, p?.[1] ?? 1);
+  }
+
+  /**
+   * ADR 0425: a layer's parallax factor (Tiled's): 1 moves with the map, 0 stays with the view camera, 0.5 scrolls at
+   * half speed. Visual only: collision and `worldToCell` ignore it. Changes the runtime layer only, like other script
+   * edits. Throws for a missing layer or a value that isn't finite.
+   */
+  setLayerParallax(layer: number | string, x: number, y: number): void {
+    const l = this.requireLayer(layer);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new RangeError(`Tilemap "${this.node.name}": a layer parallax is two finite numbers, not (${x}, ${y}).`);
+    const was = l.meta.parallax ?? [1, 1];
+    if (was[0] === x && was[1] === y) return;
+    if (x === 1 && y === 1) delete l.meta.parallax;
+    else l.meta.parallax = [x, y];
+    this._version = nextVersion++;
+  }
+
+  /**
+   * @internal ADR 0425: the editor's Dim inactive layers: draw layer `layer` at `factor` × its opacity in this World's
+   * view, or as it is (null). View state only: never touches `layers`, isn't saved or copied.
+   */
+  _setViewOpacity(layer: number, factor: number | null): void {
+    if (factor === null || !Number.isFinite(factor)) this.viewOpacity.delete(layer);
+    else this.viewOpacity.set(layer, Math.max(0, factor));
+  }
+
+  /** @internal ADR 0425: what the renderer multiplies a layer's opacity by (`_setViewOpacity`; 1 when unset). */
+  _viewOpacity(layer: number): number {
+    return this.viewOpacity.get(layer) ?? 1;
   }
 
   // --- cells ---------------------------------------------------------------------------------
@@ -551,9 +617,13 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
 
   // --- coordinates ---------------------------------------------------------------------------
 
-  /** The cell holding a point in the node's local space (on any grid shape). */
-  localToCell(p: Vec2Like): Vector2 {
-    const [x, y] = this._grid().localToCell(p.x, p.y);
+  /**
+   * The cell holding a point in the node's local space (on any grid shape). With `layer`, the cell of that layer drawn
+   * there: its offset (ADR 0425) is taken off first (parallax is visual only and ignored).
+   */
+  localToCell(p: Vec2Like, layer?: number | string): Vector2 {
+    const o = layer === undefined ? undefined : this.layerAt(layer)?.meta.offset;
+    const [x, y] = this._grid().localToCell(p.x - (o?.[0] ?? 0), p.y - (o?.[1] ?? 0));
     return new Vector2(x, y);
   }
 
@@ -577,11 +647,11 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
     return this._grid().cellOutline(Math.floor(x), Math.floor(y)).map(([px, py]) => new Vector2(px, py));
   }
 
-  /** The cell holding a world point. */
-  worldToCell(p: Vec2Like | Vec3Like): Vector2 {
+  /** The cell holding a world point. With `layer`, the cell of that layer drawn there, under its offset (ADR 0425). */
+  worldToCell(p: Vec2Like | Vec3Like, layer?: number | string): Vector2 {
     const t = this.node.transform;
     const local = t ? t.localToWorld.inverseTransformPoint({ x: p.x, y: p.y, z: (p as Vec3Like).z ?? 0 }) : p;
-    return this.localToCell(local);
+    return this.localToCell(local, layer);
   }
 
   /** A cell's centre in world space. */
@@ -600,6 +670,11 @@ export class Tilemap extends Component implements CollisionShapeSource2D {
 function sameCells(a: Int32Array, b: Int32Array): boolean {
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
   return true;
+}
+
+/** Whether two optional pairs are the same, an absent one reading as (`missing`, `missing`). */
+function samePair(a: readonly [number, number] | undefined, b: readonly [number, number] | undefined, missing: number): boolean {
+  return (a?.[0] ?? missing) === (b?.[0] ?? missing) && (a?.[1] ?? missing) === (b?.[1] ?? missing);
 }
 
 function compareChunkKeys(a: string, b: string): number {
