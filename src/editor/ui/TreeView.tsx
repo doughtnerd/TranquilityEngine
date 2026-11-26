@@ -126,8 +126,6 @@ export interface TreeViewProps {
   readonly class?: string;
   /** More than one row can be selected. */
   readonly multiselectable?: boolean;
-  /** Alternate the rows' background by visible row order (every second row, whatever its depth). */
-  readonly striped?: boolean;
   /** Indent per level, in pixels. */
   readonly indent?: number;
   /** Who this view belongs to (its panel's view state), for `renameRow`'s `owner`. */
@@ -204,8 +202,7 @@ export function TreeView(props: TreeViewProps) {
 
   const renderRow = (row: TreeRow, depth: number): ComponentChildren => {
     const isRenaming = !!current && current.key === row.key && (current.view === null || current.view === view) && !!row.rename;
-    const odd = props.striped && rowIndex % 2 === 1;
-    const classes = ["row", odd && "stripe-odd", row.className, row.selected && "selected", row.drop && `drop-${row.drop}`, row.dragging && "dragging"].filter(Boolean).join(" ");
+    const classes = ["row", row.className, row.selected && "selected", row.drop && `drop-${row.drop}`, row.dragging && "dragging"].filter(Boolean).join(" ");
     const endRename = () => {
       if (renaming.peek()?.key === row.key) renaming.value = null;
     };
@@ -281,7 +278,7 @@ export function TreeView(props: TreeViewProps) {
   };
 
   return (
-    <ul class={`tree-view ${props.class ?? "tree"}${props.striped ? " striped" : ""}`} role="tree" aria-label={props.label} aria-multiselectable={props.multiselectable || undefined} onKeyDown={onKeyDown}>
+    <ul class={`tree-view ${props.class ?? "tree"}`} role="tree" aria-label={props.label} aria-multiselectable={props.multiselectable || undefined} onKeyDown={onKeyDown}>
       {rows.map((r) => renderRow(r, 0))}
     </ul>
   );

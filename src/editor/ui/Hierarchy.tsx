@@ -169,7 +169,7 @@ export function Hierarchy() {
             </button>
           </div>
           <HierarchySearch />
-          <TreeView tree={HIERARCHY_TREE} label="Scene nodes" rows={sceneRows(view, scene)} owner={view} multiselectable striped />
+          <TreeView tree={HIERARCHY_TREE} label="Scene nodes" rows={sceneRows(view, scene)} owner={view} multiselectable />
           {filter && filter.matches.size === 0 && <p class="empty hierarchy-no-match">No nodes match “{view.query.value.trim()}”</p>}
           <HierarchyMenu owner={view} />
           <UIElementDragGhost />
