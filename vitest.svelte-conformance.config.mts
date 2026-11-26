@@ -10,6 +10,7 @@ import { MYCO_ALIASES, typescriptTranspile } from "./vite.shared.ts";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const svelteSrc = join(root, "node_modules/svelte/src");
+const PAGE_GLOBALS = join(root, "tools/svelte-conformance/pageGlobals.ts");
 
 /** The fixtures import Svelte's harness (`../../test`) and Svelte's sources by relative path: point them at the shim and the installed package. */
 function fixtureImports(): Plugin {
@@ -19,6 +20,8 @@ function fixtureImports(): Plugin {
     async resolveId(source, importer, options) {
       if (!importer || !importer.includes("svelte-conformance")) return null;
       if (source === "../../test" || source === "../../test.ts") return join(root, "tools/svelte-conformance/testShim.ts");
+      // Svelte's animation helper patches jsdom's `HTMLElement.prototype.animate`; the fixtures only take its `raf`.
+      if (/^\.\.\/\.\.\/\.\.\/animation-helpers(\.js)?$/.test(source)) return PAGE_GLOBALS;
       // Bare imports resolve as the engine's own (one Svelte instance, with the custom-renderer condition).
       if (source === "svelte" || source.startsWith("svelte/") || source === "vitest" || source === "tinyglobby") return this.resolve(source, join(root, "src/myco.ts"), { ...options, skipSelf: true });
       if (!source.startsWith(".")) return null;
@@ -35,7 +38,13 @@ function fixtureImports(): Plugin {
     },
     // Svelte's test helpers in TypeScript (`suite.ts`) sit under node_modules/.cache, which the engine's tsc plugin skips.
     transform(code, id) {
-      if (!id.includes("svelte-conformance") || !id.endsWith(".ts")) return null;
+      if (!id.includes("svelte-conformance")) return null;
+      // A config naming the page's `window` or `document` (jsdom globals in Svelte's harness) gets the harness's (pageGlobals.ts).
+      if (/[\\/]_config\.js$/.test(id.split("?")[0])) {
+        const names = ["window", "document"].filter((n) => new RegExp(`(?<![.\\w$])${n}\\b`).test(code));
+        return names.length ? `import { ${names.join(", ")} } from ${JSON.stringify(PAGE_GLOBALS)};\n${code}` : null;
+      }
+      if (!id.endsWith(".ts")) return null;
       return ts.transpileModule(code, { fileName: id, compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
     },
   };

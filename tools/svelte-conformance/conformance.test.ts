@@ -28,6 +28,7 @@ import { SVELTE_UI_RENDERER } from "../../vite.shared";
 import { assertHtmlEqual, assertHtmlEqualWithOptions } from "./htmlEqual";
 import { ok } from "./testShim";
 import { animations, clock, standInAnimate } from "./animationStandIn";
+import { setPage } from "./pageGlobals";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const version = JSON.parse(readFileSync(join(root, "node_modules/svelte/package.json"), "utf8")).version as string;
@@ -46,6 +47,8 @@ interface Result {
   status: Status;
   category?: string;
   message?: string;
+  /** With `DEBUG=stack`: where a failure was thrown. */
+  stack?: string;
 }
 const results = new Map<string, Result>();
 
@@ -73,6 +76,8 @@ let engine: Engine;
 let raf: { reset(): void; tick(ms: number): void } = { reset() {}, tick() {} };
 /** The `window` tests get: the renderer's `<svelte:window>` target (its listeners, sizes and `dispatchEvent`), with the event constructors. */
 let testWindow: object = {};
+/** The mounted sample's target: the page's content, which the page `document`'s queries search (pageGlobals.ts). */
+let currentTarget: object | null = null;
 
 class FakeEvent {
   defaultPrevented = false;
@@ -117,7 +122,7 @@ function compileSample(dir: string, config: Config): void {
     const abs = join(dir, file);
     const text = readFileSync(abs, "utf8").replace(/\r\n/g, "\n");
     if (file.endsWith(".svelte.js")) {
-      const r = compileModule(text, { filename: abs, generate: "client", dev: !!extra.dev, experimental: { async: true } });
+      const r = compileModule(text, { filename: abs, rootDir: dir, generate: "client", dev: !!extra.dev, experimental: { async: true } });
       write(join(out, file), r.js.code);
     } else if (file.endsWith(".js")) {
       const source = relative(dirname(join(out, file)), abs).replace(/\\/g, "/");
@@ -125,7 +130,7 @@ function compileSample(dir: string, config: Config): void {
     } else if (file.endsWith(".svelte") && !file.endsWith(".server.svelte")) {
       const name = file.replace(/\.client\.svelte$/, ".svelte");
       const base = svelteUIOptions(abs, { renderer: SVELTE_UI_RENDERER, dev: !!extra.dev });
-      const options = { ...base, ...extra, experimental: { ...(extra.experimental as object), async: true, customRenderer: SVELTE_UI_RENDERER }, runes: "runes" in extra ? (extra.runes as boolean) : true, filename: abs, generate: "client" as const };
+      const options = { ...base, ...extra, experimental: { ...(extra.experimental as object), async: true, customRenderer: SVELTE_UI_RENDERER }, runes: "runes" in extra ? (extra.runes as boolean) : true, filename: abs, rootDir: dir, generate: "client" as const };
       if (options.css !== "injected") options.css = "external";
       const r = compile(text, options as never);
       let code = r.js.code;
@@ -137,7 +142,13 @@ function compileSample(dir: string, config: Config): void {
   }
 }
 
-function classify(err: unknown, stage: "compile" | "run"): { category: string; message: string } {
+function classify(err: unknown, stage: "compile" | "run"): { category: string; message: string; stack?: string } {
+  const e = err as { message?: string; name?: string; code?: string; stack?: string };
+  if (process.env.DEBUG === "stack" && e?.stack) return { ...classifyMessage(e, stage), stack: e.stack.split("\n").slice(1, 12).join("\n") };
+  return classifyMessage(e, stage);
+}
+
+function classifyMessage(err: unknown, stage: "compile" | "run"): { category: string; message: string } {
   const e = err as { message?: string; name?: string; code?: string };
   const message = process.env.DEBUG ? `${String(e?.message ?? err)}${(err as { actual?: unknown })?.actual !== undefined ? `\nactual:   ${JSON.stringify((err as { actual?: unknown }).actual)}\nexpected: ${JSON.stringify((err as { expected?: unknown }).expected)}` : ""}` : String(e?.message ?? err).split("\n")[0].slice(0, 300);
   const refused = /^(`[^`]+`|[^ ]+) is not compatible with `customRenderer`/.exec(message);
@@ -194,8 +205,8 @@ async function runSample(name: string): Promise<Result> {
   const logs: unknown[] = [];
   const warnings: unknown[] = [];
   const errors: unknown[] = [];
-  const original = { log: console.log, warn: console.warn, error: console.error };
-  console.log = (...args: unknown[]) => logs.push(...args);
+  const original = { log: console.log, warn: console.warn, error: console.error, group: console.group, groupCollapsed: console.groupCollapsed, groupEnd: console.groupEnd };
+  console.log = (...args: unknown[]) => void logs.push(...args); // returns undefined, as console.log does (`{console.log(x)}` renders "")
   console.warn = (...args: unknown[]) => {
     if (typeof args[0] === "string" && args[0].startsWith("[myco]")) return; // the engine's own notes, not Svelte's
     if (typeof args[0] === "string" && args[0].startsWith("%c[svelte]")) {
@@ -206,7 +217,10 @@ async function runSample(name: string): Promise<Result> {
       warnings.push(message);
     } else warnings.push(...args);
   };
-  console.error = (...args: unknown[]) => errors.push(...args);
+  console.error = (...args: unknown[]) => void errors.push(...args);
+  // `$inspect` and `$inspect.trace` group their output: the group labels are logs too, as in Svelte's harness.
+  console.group = console.groupCollapsed = (...args: unknown[]) => void logs.push(...args);
+  console.groupEnd = () => {};
 
   const world = World.require();
   const node = GameObject.create(`conformance ${name}`);
@@ -219,11 +233,14 @@ async function runSample(name: string): Promise<Result> {
   process.on("uncaughtException", onRejection);
   try {
     raf.reset();
+    // A fresh page per sample, as jsdom is for Svelte: no title left by the previous sample's `<svelte:head>`.
+    ((renderer.default as unknown as { globalTarget(kind: string): { title: string } }).globalTarget("document")).title = "";
     (globalThis as { requestAnimationFrame?: unknown }).requestAnimationFrame = setTimeout;
     config.before_test?.();
     const mod = (await import(join(dir, "_output_myco/main.svelte.js"))) as { default: never };
     mounted = renderer.mountView(tree, mod.default, config.props ?? {});
     const target = mounted.target;
+    currentTarget = target;
     if (config.error) {
       unintended = true;
       assert.fail("Expected a runtime error");
@@ -278,6 +295,7 @@ async function runSample(name: string): Promise<Result> {
     if (!unintended && config.error && message.includes(config.error)) return { status: "pass" };
     return { status: "fail", ...classify(err, "run") };
   } finally {
+    currentTarget = null;
     try {
       mounted?.unmount();
     } catch {
@@ -294,6 +312,9 @@ async function runSample(name: string): Promise<Result> {
     console.log = original.log;
     console.warn = original.warn;
     console.error = original.error;
+    console.group = original.group;
+    console.groupCollapsed = original.groupCollapsed;
+    console.groupEnd = original.groupEnd;
     tree.dispose();
     GameObject.destroy(node);
     world.applyDestroys();
@@ -318,6 +339,7 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
     // The event constructors tests make events with (dispatched to renderer nodes, which read only `type`). The global
     // `window` and `document` stay undefined (engine code takes a defined `window` for a browser); the `window` a test
     // gets as an argument is the renderer's `<svelte:window>` target.
+    setPage({ window: testWindow, document: (renderer.default as unknown as { globalTarget(kind: string): object }).globalTarget("document"), target: () => currentTarget, tick: (ms) => raf.tick(ms) });
     for (const [k, v] of Object.entries(fakeWindow)) if (!(k in globalThis)) (globalThis as Record<string, unknown>)[k] = v;
     // Svelte's `raf` test helper, with its animation stand-in moved from `element.animate` to the renderer's `animate`
     // hook (animationStandIn.ts): keyframes go to the node's inline style on the test's clock, as in Svelte's DOM runs.
@@ -378,7 +400,7 @@ describe(`Svelte ${version} runtime-runes fixtures on the engine's renderer`, ()
       }
       results.set(name, result);
       // `DEBUG=1` with a FILTER: show why each failure failed.
-      if (process.env.DEBUG && result.status === "fail") original.log(`${name}: ${result.category}\n${result.message}`);
+      if (process.env.DEBUG && result.status === "fail") original.log(`${name}: ${result.category}\n${result.message}${result.stack ? `\n${result.stack}` : ""}`);
     });
   }
 
