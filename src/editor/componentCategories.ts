@@ -34,6 +34,7 @@ const BY_NAME: Readonly<Record<string, string>> = {
   Text: "Rendering",
   WaterSurface: "Rendering",
   Tilemap: "Rendering",
+  MapObject: "Rendering",
   LineRenderer: "Rendering", // ADR 0396
   TrailRenderer: "Rendering",
   DecalProjector: "Rendering", // ADR 0395
