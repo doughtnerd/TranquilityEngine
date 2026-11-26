@@ -22,7 +22,9 @@ export interface QuadBatch {
   /**
    * Replace the geometry: per quad, 4 corners × xyz `positions` (the node's local units), 4 × uv (`uvs`,
    * v up) and 6 `indices`, and optionally a colour per vertex (`colors`: RGBA, 0..1 sRGB and alpha, multiplying the tint).
-   * Shown once it has quads and is visible.
+   * Shown once it has quads and is visible. A call with the same texture, vertex count and `indices` array as the last
+   * one only updates the vertices (positions, UVs and colours) in place, as `setTriangles` does: an animated tile layer
+   * rewrites its quads' UVs in the same arrays and calls again (ADR 0421), with no rebuild.
    */
   setQuads(texture: string, positions: Float32Array, uvs: Float32Array, indices: Uint32Array, colors?: Float32Array | null): void;
   /**

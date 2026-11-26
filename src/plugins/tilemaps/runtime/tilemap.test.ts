@@ -5,7 +5,7 @@ import { floodCells, lineCells, rectCells } from "./brushes";
 import { greedyRectangles, rowRuns, traceOutlines } from "./cellRegions";
 import { buildTileShapes } from "./collision";
 import { CHUNK_CELLS, cellToChunk, cellValue, decodeChunk, encodeChunk, migrateLayer, newLayer, FLIP_Y } from "./format";
-import { buildChunkMeshes, type TileFrame } from "./mesh";
+import { buildChunkMeshes, writeTileQuad, type TileFrame } from "./mesh";
 import { blobMasks, canonicalBlob, maskToPattern, neighbourMask, patternScore, pickTerrainTile, sidesPattern } from "./neighbourPatterns";
 import { flipPoint, rotateClockwise, sourceCorner } from "./tileFlips";
 import { Tileset, legacyTileUuid, newTileset, parseTileset, pickWeighted, tileAnchor, type TileDef } from "./tileset";
@@ -177,6 +177,26 @@ describe("chunk meshes (ADR 0103)", () => {
     expect(meshes[1].positions[7]).toBe((1 + 2) * 2); // a 1 × 2 tile in row 1 reaches the top of row 2
     expect(sourceCorner(0, 0, FLIP_DIAGONAL | FLIP_X)).toEqual([0, 1]); // turned clockwise: top-left shows the bottom-left
     expect(sourceCorner(0, 0, FLIP_Y)).toEqual([0, 1]);
+  });
+
+  it("splits a texture's tiles into groups, says each quad's cell, and rewrites a quad as a fresh build lays it out (ADR 0421, 0424)", () => {
+    const cells = new Int32Array(CHUNK_CELLS);
+    cells[0] = 1;
+    cells[1] = cellValue(2, FLIP_X);
+    cells[17] = 1;
+    const frames: Record<number, TileFrame> = { 1: { texture: "a.png", uv: [0, 0, 0.5, 0.5], size: [1, 1] }, 2: { texture: "a.png", uv: [0.5, 0, 1, 0.5], size: [1, 2] } };
+    const meshes = buildChunkMeshes(cells, 0, 0, { x: 1, y: 1 }, (id) => frames[id] ?? null, (i) => `row${Math.floor(i / 16)}`);
+    expect(meshes.map((m) => [m.texture, m.group, Array.from(m.cells)])).toEqual([["a.png", "row0", [0, 1]], ["a.png", "row1", [17]]]);
+    // Without groups: one mesh per texture, as before.
+    expect(buildChunkMeshes(cells, 0, 0, { x: 1, y: 1 }, (id) => frames[id] ?? null).map((m) => m.quads)).toEqual([3]);
+    // Rewriting quad 1 with tile 1's frame gives what a build with tile 1 there would.
+    const [row0] = meshes;
+    writeTileQuad(row0.positions, row0.uvs, 1, { x: 1, y: 1 }, 1, 0, frames[1], FLIP_X);
+    const swapped = cells.slice();
+    swapped[1] = cellValue(1, FLIP_X);
+    const [fresh] = buildChunkMeshes(swapped, 0, 0, { x: 1, y: 1 }, (id) => frames[id] ?? null, (i) => `row${Math.floor(i / 16)}`);
+    expect(Array.from(row0.positions)).toEqual(Array.from(fresh.positions));
+    expect(Array.from(row0.uvs)).toEqual(Array.from(fresh.uvs));
   });
 });
 
