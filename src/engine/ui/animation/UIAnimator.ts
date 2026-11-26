@@ -574,10 +574,12 @@ export class UIAnimator {
     if (!s.transitions.size && !s.animations.length) this.elements.delete(s.comp);
   }
 
-  private write(s: ElementState, field: string, value: unknown): void {
+  /** Writes a field and remembers it; `fresh` for a value made for this write (an eased value), stored as it is. */
+  private write(s: ElementState, field: string, value: unknown, fresh = false): void {
     const comp = s.comp as unknown as Record<string, unknown>;
-    if (!same(comp[field], value)) comp[field] = clone(value);
-    s.written.set(field, clone(value));
+    const v = fresh ? value : clone(value);
+    if (!same(comp[field], v)) comp[field] = v;
+    s.written.set(field, comp[field] === v ? v : clone(v));
   }
 
   private queue(s: ElementState, event: UIAnimationEvent): void {
@@ -608,30 +610,16 @@ export class UIAnimator {
     let tweens = 0;
 
     // Before the backend's update: drop what's gone, notice scripts' writes, advance runs, create the tweens due.
-    for (const [comp, s] of this.elements) {
+    // (forEach, not for…of over entries: no entry arrays per element per frame.)
+    this.elements.forEach((s, comp) => {
       if (!comp.node.isValid || comp._destroyed) {
         this.drop(comp, s);
-        continue;
+        return;
       }
-      const fields = comp as unknown as Record<string, unknown>;
-      for (const [field, value] of s.written) {
-        if (same(fields[field], value)) continue;
-        // A script wrote it: it wins over the transition, or that field of an animation.
-        const tr = s.transitions.get(field);
-        if (tr) {
-          tr.tracks[0].overridden = true;
-          this.release(tr.tracks[0]);
-          s.transitions.delete(field);
-        }
-        for (const r of s.animations) for (const t of r.tracks) if (t.field === field && !t.overridden) {
-          t.overridden = true;
-          this.release(t);
-        }
-        if (!this.animated(s, field)) this.unwatch(s, field);
-        else s.written.set(field, clone(fields[field]));
-      }
-      for (const run of this.runsOf(s)) tweens += this.advance(s, run, dt, backend);
-    }
+      s.written.forEach((value, field) => this.noticeScript(s, field, value));
+      for (const run of s.animations) tweens += this.advance(s, run, dt, backend);
+      s.transitions.forEach((run) => (tweens += this.advance(s, run, dt, backend)));
+    });
 
     if (backend && tweens > 0) {
       backend.update(PASS_NORMAL, world.time.deltaTime, dt);
@@ -643,15 +631,34 @@ export class UIAnimator {
     }
 
     // After it: write values, decide ends, queue events.
-    for (const s of [...this.elements.values()]) {
-      for (const [field, run] of [...s.transitions]) this.finish(s, run, field);
-      for (const run of [...s.animations]) this.finish(s, run, null);
+    // (Deleting from a Map while iterating it is safe; the animations array is replaced, never spliced, as runs end.)
+    for (const s of this.elements.values()) {
+      const animations = s.animations;
+      for (let i = 0; i < animations.length; i++) this.finish(s, animations[i], null);
+      s.transitions.forEach((run, field) => this.finish(s, run, field));
       this.forget(s);
     }
   }
 
-  private runsOf(s: ElementState): Run[] {
-    return s.transitions.size ? [...s.animations, ...s.transitions.values()] : s.animations;
+  /** A field whose value isn't what the animator last wrote: a script wrote it, and wins over its transition or animation. */
+  private noticeScript(s: ElementState, field: string, value: unknown): void {
+    const comp = s.comp as unknown as Record<string, unknown>;
+    if (same(comp[field], value)) return;
+    const tr = s.transitions.get(field);
+    if (tr) {
+      tr.tracks[0].overridden = true;
+      this.release(tr.tracks[0]);
+      s.transitions.delete(field);
+    }
+    for (const r of s.animations) {
+      for (const t of r.tracks) {
+        if (t.field !== field || t.overridden) continue;
+        t.overridden = true;
+        this.release(t);
+      }
+    }
+    if (!this.animated(s, field)) this.unwatch(s, field);
+    else s.written.set(field, clone(comp[field]));
   }
 
   /** Moves a run's clock and creates the tweens due before the update. Returns how many tracks run on tweens. */
@@ -679,6 +686,10 @@ export class UIAnimator {
     const comp = s.comp as unknown as Record<string, unknown>;
     for (const t of run.tracks) {
       if (t.overridden) continue;
+      if (t.seg >= 0 && at >= t.segStart && at < t.segEnd) {
+        if (t.mode === "tween") live++; // still in its segment
+        continue;
+      }
       const seg = segmentAt(run, t, at);
       if (seg.id !== t.seg) {
         if (t.mode === "tween" && t.segEnd > at) this.release(t); // left before its end (a jump)
@@ -733,7 +744,7 @@ export class UIAnimator {
       return;
     }
     const comp = s.comp as unknown as Record<string, unknown>;
-    const others = (f: string) => comp[f];
+    const others = (f: string) => comp[f]; // read only on the paths evaluated here
     const local = run.time - run.delay, localPrev = run.prev - run.delay;
     const end = endOf(run);
     const animation = run.kind === "animation";
@@ -749,8 +760,8 @@ export class UIAnimator {
     if (local < end) {
       for (const t of run.tracks) {
         if (t.overridden) continue;
-        const value = t.mode === "tween" && t.out !== undefined ? t.out : valueAtTime(run, t, local, others);
-        this.write(s, t.field, value);
+        const tweened = t.mode === "tween" && t.out !== undefined;
+        this.write(s, t.field, tweened ? t.out : valueAtTime(run, t, local, others), tweened);
         t.dirty = false;
       }
       if (animation && run.duration > 0 && wasStarted && localPrev >= 0) {

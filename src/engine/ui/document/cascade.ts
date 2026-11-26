@@ -764,6 +764,22 @@ export function isAnimationProperty(name: string): boolean {
   return ANIMATION_PROPERTIES.has(kebabName(name));
 }
 
+/** Declarations already read (an element restyles often; its sheets' values are few): the longhands set, or a problem. */
+const longhandCache = new Map<string, Readonly<UITransitionLonghands | UIAnimationLonghands> | string>();
+
+function parsedLonghands(name: string, raw: string, transition: boolean): Readonly<UITransitionLonghands | UIAnimationLonghands> | string {
+  const key = `${name}:${raw}`;
+  let parsed = longhandCache.get(key);
+  if (parsed === undefined) {
+    const into: UITransitionLonghands & UIAnimationLonghands = {};
+    const problem = transition ? parseTransitionLonghand(name, raw, into) : parseAnimationLonghand(name, raw, into);
+    parsed = problem ?? into;
+    if (longhandCache.size >= 1024) longhandCache.clear();
+    longhandCache.set(key, parsed);
+  }
+  return parsed;
+}
+
 /** The transition and animation declarations that apply to one element, in cascade order. */
 class AnimationCascade {
   private readonly transition: UITransitionLonghands = {};
@@ -775,10 +791,15 @@ class AnimationCascade {
     if (raw === undefined) return warn(`${where}: uses a variable that isn't defined.`);
     const name = kebabName(property);
     const transition = name.startsWith("transition");
-    const problem = transition ? parseTransitionLonghand(name, raw, this.transition) : parseAnimationLonghand(name, raw, this.animation);
-    if (problem) return warn(`${where}: "${raw}" isn't valid: ${problem}`);
-    if (transition) this.transitionSource = source;
-    else this.animationSource = source;
+    const parsed = parsedLonghands(name, raw, transition);
+    if (typeof parsed === "string") return warn(`${where}: "${raw}" isn't valid: ${parsed}`);
+    if (transition) {
+      Object.assign(this.transition, parsed);
+      this.transitionSource = source;
+    } else {
+      Object.assign(this.animation, parsed);
+      this.animationSource = source;
+    }
   }
 
   finish(out: Map<string, ResolvedValue>): void {

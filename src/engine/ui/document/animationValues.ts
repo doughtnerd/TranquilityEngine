@@ -42,6 +42,9 @@ const ok = <T>(value: T): PaintParse<T> => ({ ok: true, value });
 const fail = <T>(problem: string): PaintParse<T> => ({ ok: false, problem });
 
 const NUMBER = "[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:e[-+]?\\d+)?";
+const TIME = new RegExp(`^(${NUMBER})(s|ms)?$`, "i");
+const TIME_WITH_UNIT = new RegExp(`^${NUMBER}(s|ms)$`, "i");
+const PLAIN_NUMBER = new RegExp(`^${NUMBER}$`);
 
 export const LINEAR: UITimingFunction = { kind: "linear" };
 export const EASE: UITimingFunction = { kind: "bezier", x1: 0.25, y1: 0.1, x2: 0.25, y2: 1 };
@@ -67,7 +70,7 @@ const STEP_POSITIONS: Readonly<Record<string, "jump-start" | "jump-end" | "jump-
 
 /** A time: `0.3s`, `300ms` (a bare `0` too). Undefined for anything else. */
 export function parseTime(raw: string): number | undefined {
-  const m = new RegExp(`^(${NUMBER})(s|ms)?$`, "i").exec(raw.trim());
+  const m = TIME.exec(raw.trim());
   if (!m) return undefined;
   const n = parseFloat(m[1]);
   if (!m[2]) return n === 0 ? 0 : undefined;
@@ -75,7 +78,7 @@ export function parseTime(raw: string): number | undefined {
 }
 
 /** True when `raw` looks like a time, valid or not (`1s`, `-2ms`), so a shorthand can tell it from a name. */
-const looksLikeTime = (raw: string) => new RegExp(`^${NUMBER}(s|ms)$`, "i").test(raw.trim());
+const looksLikeTime = (raw: string) => TIME_WITH_UNIT.test(raw.trim());
 
 /** A timing function: the keywords, `cubic-bezier(x1, y1, x2, y2)` (x in 0–1) or `steps(n[, position])`. */
 export function parseTimingFunction(raw: string): PaintParse<UITimingFunction> {
@@ -86,7 +89,7 @@ export function parseTimingFunction(raw: string): PaintParse<UITimingFunction> {
   if (!fn) return fail(`"${raw.trim()}" isn't a timing function (linear, ease, ease-in, ease-out, ease-in-out, cubic-bezier(), steps()).`);
   const args = splitTopLevel(fn[2], ",").map((a) => a.trim());
   if (fn[1] === "cubic-bezier") {
-    const n = args.map((a) => (new RegExp(`^${NUMBER}$`).test(a) ? parseFloat(a) : NaN));
+    const n = args.map((a) => (PLAIN_NUMBER.test(a) ? parseFloat(a) : NaN));
     if (n.length !== 4 || n.some((x) => !Number.isFinite(x))) return fail("cubic-bezier() takes four numbers.");
     if (n[0] < 0 || n[0] > 1 || n[2] < 0 || n[2] > 1) return fail("cubic-bezier()'s x values must be between 0 and 1.");
     return ok({ kind: "bezier", x1: n[0], y1: n[1], x2: n[2], y2: n[3] });
@@ -247,7 +250,7 @@ const PLAY_STATES: ReadonlySet<string> = new Set(["running", "paused"]);
 
 function iterationItem(part: string): PaintParse<number> {
   if (part.toLowerCase() === "infinite") return ok(Infinity);
-  if (!new RegExp(`^${NUMBER}$`).test(part)) return fail(`"${part}" isn't an iteration count (a number or infinite).`);
+  if (!PLAIN_NUMBER.test(part)) return fail(`"${part}" isn't an iteration count (a number or infinite).`);
   const n = parseFloat(part);
   return n >= 0 ? ok(n) : fail(`"${part}": an iteration count can't be negative.`);
 }
@@ -287,7 +290,7 @@ export function parseAnimation(raw: string): PaintParse<Required<UIAnimationLong
         const r = parseTimingFunction(token);
         if (!r.ok) return r;
         tf = r.value;
-      } else if ((k === "infinite" || new RegExp(`^${NUMBER}$`).test(k)) && it === null) {
+      } else if ((k === "infinite" || PLAIN_NUMBER.test(k)) && it === null) {
         const r = iterationItem(token);
         if (!r.ok) return r;
         it = r.value;
