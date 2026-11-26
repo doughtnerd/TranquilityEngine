@@ -1,5 +1,6 @@
 // Editing Svelte UI from the editor (ADR 0419 wave C): the Inspector's fields, text, id and classes, Move to class,
-// Create, the hierarchy's rename, duplicate, delete and drag, and the scene view's handles, all written back to the
+// Localise and Extract to string table (ADR 0356 §9, 0419 wave F), Create, the hierarchy's rename, duplicate, delete
+// and drag, and the scene view's handles, all written back to the
 // view's `.svelte` source with edits that change only their own text (`uiEdit/svelteText.ts`, on `parse()` spans).
 // The rules:
 //
@@ -13,14 +14,17 @@
 import type { UIHostElement } from "../engine/ui/host/UIHost";
 import { getFields, type FieldInfo } from "../engine/core/registry";
 import { camelCase, convertValue } from "../engine/ui/document/cascade";
-import { WriteFiles } from "./document";
+import { isStringKey } from "../engine/localisation/strings/format";
+import { WriteFiles, type FileWrite } from "./document";
 import { errorStatus } from "./messages";
 import { status, type OpenScene } from "./state";
 import { beginEditStep, editableNow, whyNotEdit } from "./editGate";
 import { selectUIElement } from "./inspectorTarget";
 import type { UndoStep } from "./undoStep";
 import { cssValue, kebab } from "./uiFieldSources";
+import { localisableParts, type LocalisablePart } from "./uiEdit/svelteStrings";
 import {
+  addNamedImport,
   duplicateElement,
   elementAtLocation,
   idsIn,
@@ -33,9 +37,12 @@ import {
   removeAttribute,
   removeElement,
   setAttribute,
+  setAttributeExpression,
+  setExpressionLiteral,
   setRuleDeclarations,
   setStyleProperty,
   setText,
+  setTextExpression,
   styleDeclarations,
   SvelteEditError,
   type SvelteElement,
@@ -81,8 +88,11 @@ function editable(ref: UIViewRef): Editable | null {
   return { scene, el, file: ref.file, element };
 }
 
-/** Run `change` on the file's text and record the result as one undoable step. False (with a status) when nothing changed or it was refused. */
-function commit(scene: OpenScene, file: string, label: string, change: (text: string) => string): string | null {
+/**
+ * Run `change` on the file's text and record the result, with `also` (other files' writes), as one undoable step. Null
+ * (with a status) when nothing changed or it was refused.
+ */
+function commit(scene: OpenScene, file: string, label: string, change: (text: string) => string, also: readonly FileWrite[] = []): string | null {
   const host = scene.stack.files;
   if (!host) {
     status.value = { kind: "error", text: "This scene can't write files." };
@@ -96,7 +106,7 @@ function commit(scene: OpenScene, file: string, label: string, change: (text: st
   try {
     const after = change(before);
     if (after === before) return null;
-    scene.stack.execute(new WriteFiles(label, [{ path: file, text: after }]));
+    scene.stack.execute(new WriteFiles(label, [{ path: file, text: after }, ...also]));
     return after;
   } catch (err) {
     status.value = err instanceof SvelteEditError ? { kind: "info", text: `Couldn't ${label.toLowerCase()}: ${err.message}.` } : errorStatus(`Couldn't ${label.toLowerCase()}`, err);
@@ -217,6 +227,84 @@ export function setUIViewElementClasses(ref: UIViewRef, classes: string): boolea
     return false;
   }
   return setUIViewElementAttributes(ref, { class: list.length ? list.join(" ") : null }, "Set class");
+}
+
+// --- Localised text (ADR 0356 §9, 0419 wave F) ----------------------------------------------------------
+
+/** The text a rendered element shows that can be localised (its text content, its text attributes), each as written; [] when its source can't be read. */
+export function uiViewElementTexts(scene: OpenScene | null, ref: UIViewRef): LocalisablePart[] {
+  if (!scene) return [];
+  const source = sourceOfFile(ref.file);
+  const element = source && elementAtLocation(source, ref.line, ref.column);
+  return source && element ? localisableParts(source, element) : [];
+}
+
+/** The literal part `field` of the element `e`, or why it can't be localised. */
+function literalPart(e: Editable, field: string): { text: string } | { reason: string } {
+  const part = localisableParts(sourceOfFile(e.file)!, e.element).find((p) => p.field === field);
+  if (!part) return { reason: field === "text" ? `${label(e.el)} has no text` : `${label(e.el)} has no ${field} text` };
+  if (part.state.kind === "keyed") return { reason: `it shows the key ${part.state.call.key} already` };
+  if (part.state.kind === "dynamic") return { reason: part.state.reason };
+  return { text: part.state.text };
+}
+
+/** `{t("key")}` in place of the literal `field` (text content or attribute), with `t` imported from `myco`. */
+function writeKey(text: string, start: number, field: string, key: string): string {
+  const call = `t(${JSON.stringify(key)})`;
+  const keyed = field === "text" ? setTextExpression(text, start, call) : setAttributeExpression(text, start, field, call);
+  return addNamedImport(keyed, "t", "myco");
+}
+
+/** Check a localise request: the element can be edited, its `field` is literal text, and `key` is a key. Null (with a status) otherwise. */
+function localisable(ref: UIViewRef, field: string, key: string, verb: string): Editable | null {
+  const e = editable(ref);
+  if (!e) return null;
+  const part = literalPart(e, field);
+  const why = "reason" in part ? part.reason : !isStringKey(key.trim()) ? `"${key.trim()}" isn't a key (letters, digits, _ . -)` : null;
+  if (why) {
+    status.value = { kind: "info", text: `Couldn't ${verb}: ${why}.` };
+    return null;
+  }
+  return e;
+}
+
+/**
+ * Localise a rendered element's literal text (`field`: `text` for its text content, or a text attribute such as
+ * `placeholder`) with an existing key, as one undo step: the source says `{t("key")}` instead (`t` imported from
+ * `myco` in the component's script if it isn't). Refused, with the reason, for view-only elements and text with
+ * expressions or elements in it.
+ */
+export function localiseUIViewText(ref: UIViewRef, field: string, key: string): boolean {
+  const e = localisable(ref, field, key, `localise the ${field}`);
+  if (!e) return false;
+  return commit(e.scene, e.file, `Localise ${field}`, (t) => writeKey(t, e.element.start, field, key.trim())) !== null;
+}
+
+/**
+ * Extract to string table (ADR 0356 §9): write `tableText` (the table with the new key, `localiseKeys.ts`'s
+ * `extractToTable`, the literal text as its reference text) to `tablePath` and localise the field with `key`, both
+ * files in one undo step. The caller checks the table's ownership (0356 §9, 0357 §1).
+ */
+export function extractUIViewText(ref: UIViewRef, field: string, key: string, tablePath: string, tableText: string): boolean {
+  const e = localisable(ref, field, key, `extract the ${field}`);
+  if (!e) return false;
+  return commit(e.scene, e.file, `Extract ${field} to ${tablePath.slice(tablePath.lastIndexOf("/") + 1)}`, (t) => writeKey(t, e.element.start, field, key.trim()), [{ path: tablePath, text: tableText }]) !== null;
+}
+
+/** The literal text of `field` (text content or attribute) when it's one keyed expression, so Unlink can write it back. */
+function keyedPart(e: Editable, field: string): boolean {
+  return localisableParts(sourceOfFile(e.file)!, e.element).some((p) => p.field === field && p.state.kind === "keyed" && !(field === "text" && e.element.content[0]?.kind === "expression" && e.element.content[0].html));
+}
+
+/** Unlink a keyed `field` (text content or attribute): `{t("key")}` becomes the literal `text` again (its reference text), as one undo step. */
+export function unlinkUIViewText(ref: UIViewRef, field: string, text: string): boolean {
+  const e = editable(ref);
+  if (!e) return false;
+  if (!keyedPart(e, field)) {
+    status.value = { kind: "info", text: `Couldn't unlink the ${field}: it isn't one {t("key")}.` };
+    return false;
+  }
+  return commit(e.scene, e.file, `Unlink ${field} from its key`, (t) => setExpressionLiteral(t, e.element.start, field, text)) !== null;
 }
 
 // --- Structure ------------------------------------------------------------------------------------------

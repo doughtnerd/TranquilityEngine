@@ -535,6 +535,22 @@ export function setAttributeExpression(text: string, at: number, name: string, e
 }
 
 /**
+ * Write `value` as literal text where the element starting at `at` has one expression: its text content (`field`
+ * `text`, when that's a single `{…}` tag) or attribute `field` (`name={…}` becomes `name="value"`). Refused otherwise.
+ */
+export function setExpressionLiteral(text: string, at: number, field: string, value: string): string {
+  const { el } = element(text, at);
+  if (field === "text") {
+    const only = el.content.length === 1 ? el.content[0] : null;
+    if (only?.kind !== "expression" || only.html) throw new SvelteEditError("its text isn't one {…} expression");
+    return splice(text, only.start, only.end, escapeText(value));
+  }
+  const a = el.attributes.find((x) => x.name === field);
+  if (!a || a.value.kind !== "dynamic") throw new SvelteEditError(`its ${field} isn't an expression`);
+  return splice(text, a.start, a.end, `${field}="${escapeAttribute(value)}"`);
+}
+
+/**
  * Make sure the component's instance `<script>` imports `name` from `from` (`import { t } from "myco"`): added to an
  * import of that module with named specifiers, else as a new import after the last one, else in a new `<script>` at
  * the top of the file. Refused when another import already binds `name`.

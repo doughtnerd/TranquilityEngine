@@ -1,8 +1,10 @@
 // The Localisation panel (ADR 0356 §9, T7): Strings, Report and Exchange tabs over the open project's string tables.
-// It connects the pure models (`stringsModel.ts`, `reportModel.ts`, `exchangeModel.ts`) to the project:
+// It connects the pure models (`stringsModel.ts`, `reportModel.ts`, `textFit.ts`, `exchangeModel.ts`) to the project:
 // every write goes through the files' asset documents (the `strings` kind), so each edit is one undo step in that
 // file's history and Ctrl+Z in the panel undoes the chosen table's last edit. Tables audio data names are the Studio's
-// (0357 §1): while the Studio holds the project they show read-only with "Edit in the Studio".
+// (0357 §1): while the Studio holds the project they show read-only with "Edit in the Studio". The Report adds Svelte
+// UI's unkeyed text (dismissals kept in `.myco/localisation-ignore.json`) and, on request, the text fit check over what
+// the open scene's views render (ADR 0419 wave F).
 import { signal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { gatherKeys } from "../../../engine/localisation/exchange/gather";
@@ -12,17 +14,25 @@ import { languageOf } from "../../../engine/localisation/languages";
 import { languagesOf, stringsFiles } from "./projectStrings";
 import { stringsPathKind, translationPath, type StringTable } from "../../../engine/localisation/strings/format";
 import type { TranslationFile } from "../../../engine/localisation/strings/translation";
+import { viewport } from "../../../engine/editor";
+import { estimateText } from "../../../engine/ui/layout";
 import { openAssetDocument, readAsset } from "../../assetDocuments";
 import { openAsset, openIn } from "../../assetKindHost";
-import { otherAppHolds } from "../../projectLocks";
+import { openScript } from "../../code/codeBuffers";
+import { errorStatus } from "../../messages";
+import { joinPath } from "../../projectPaths";
 import type { EditorProject } from "../../projects";
-import { currentProject, docVersion, status } from "../../state";
+import { currentProject, docVersion, openScene, status } from "../../state";
+import { loadSvelteParser, svelteParserLoaded } from "../../uiEdit/svelteText";
+import { fitTargets, unkeyedTextOf, type SizeOf } from "../../uiViewStrings";
 import { Panel, usePanelState } from "../panel/Panel";
 import type { EditResult } from "../../sdk/editResult";
 import { exportFiles, importPreviewOf, importWrites } from "./exchangeModel";
 import { ExchangeView, type ExportChoice } from "./ExchangeView";
-import { exchangeProjectOf, studioOwnedTables, tableAccess, type LockState } from "./localisationData";
+import { exchangeProjectOf, studioOwnedTables, tableAccess } from "./localisationData";
 import { localisationReport } from "./reportModel";
+import { refreshStudioLock, studioLock } from "./studioLock";
+import { fitCheck, type FitMeasure, type FitResult } from "./textFit";
 import { ReportView } from "./ReportView";
 import { STRINGS_KIND, stringsFormat, type StringsFile } from "./stringsKind";
 import {
@@ -39,16 +49,51 @@ const TABS: readonly { id: Tab; label: string }[] = [
   { id: "exchange", label: "Exchange" },
 ];
 
-/** The Studio's lock on the open project, as last read (0341). */
-const studioLock = signal<LockState>("unknown");
+/** Dismissed unkeyed text (`.myco/localisation-ignore.json`), as last read. */
+const ignored = signal<readonly string[]>([]);
+const IGNORE_FILE = ".myco/localisation-ignore.json";
+/** Bumped once Svelte's parser has loaded (the unkeyed-text list reads components through it). */
+const parserReady = signal(0);
 
-async function refreshStudioLock(project: EditorProject): Promise<void> {
-  if (!project.fileSystem || !project.root) return void (studioLock.value = "none");
+async function readIgnored(project: EditorProject): Promise<void> {
+  const fs = project.fileSystem, root = project.root;
+  if (!fs || !root) return;
   try {
-    studioLock.value = (await otherAppHolds(project.fileSystem, project.root, "editor")) ? "held" : "none";
+    const path = joinPath(root, IGNORE_FILE);
+    const raw: unknown = (await fs.exists(path)) ? JSON.parse(await fs.readText(path)) : [];
+    ignored.value = Array.isArray(raw) ? raw.filter((x): x is string => typeof x === "string") : [];
   } catch {
-    studioLock.value = "unknown";
+    ignored.value = [];
   }
+}
+
+async function dismiss(project: EditorProject, id: string): Promise<void> {
+  const next = [...new Set([...ignored.peek(), id])];
+  ignored.value = next;
+  const fs = project.fileSystem, root = project.root;
+  if (!fs || !root || !project.canSave) return;
+  try {
+    await fs.mkdir(joinPath(root, ".myco"));
+    await fs.writeText(joinPath(root, IGNORE_FILE), `${JSON.stringify(next, null, 2)}\n`);
+  } catch (err) {
+    status.value = errorStatus("Couldn't save the dismissed text", err);
+  }
+}
+
+/** The fit check's measurer: the engine's canvas text measuring where there's a canvas, else the UI core's estimate. */
+async function engineMeasure(): Promise<FitMeasure> {
+  try {
+    const m = await import("../../../engine/render/babylon/ui");
+    return m.measureText;
+  } catch {
+    return estimateText;
+  }
+}
+
+/** Open a report row's file: a component or script in the Code panel at its line, anything else as its asset. */
+function openRow(path: string, line?: number): void {
+  if (line !== undefined && /\.(svelte|ts|tsx|js|mjs)$/i.test(path)) openScript(path, { line, column: 1 });
+  else openAsset(path);
 }
 
 /** The files gathering reads: every project file's value (strings files as their documents hold them), and the scripts' text. */
@@ -73,11 +118,14 @@ export function LocalisationPanel() {
   const project = currentProject.value;
   const tab = usePanelState<Tab>("tab", "strings");
   const query = usePanelState<StringsQuery>("query", ALL_STRINGS);
+  const fit = usePanelState<FitResult | null>("fit", null);
+  const fitting = usePanelState("fitting", false);
   const choice = usePanelState<ExportChoice>("export", { format: "xliff", tables: [], languages: [], onlyNeedsWork: false });
   const pending = usePanelState<{ preview: ImportPreview; names: string[] } | null>("import", null);
   useEffect(() => {
     if (!project) return;
     void refreshStudioLock(project);
+    void readIgnored(project);
     const timer = setInterval(() => void refreshStudioLock(project), 5000);
     return () => clearInterval(timer);
   }, [project]);
@@ -144,9 +192,28 @@ export function LocalisationPanel() {
     status.value = { kind: "info", text: `Imported into ${files.length} translation file${files.length === 1 ? "" : "s"}${blocked.length ? `; left out ${blocked.join(", ")} (the Studio's, while it runs)` : ""}.` };
   };
 
+  const runFit = async () => {
+    fitting.value = true;
+    try {
+      const measure = await engineMeasure();
+      await loadSvelteParser();
+      const scene = openScene.value;
+      const sizeOf: SizeOf = (c) => (scene ? (viewport(scene.sync.world).uiElementBox(c)?.size ?? null) : null);
+      const { targets, unrendered } = fitTargets(scene?.sync.sceneNode ?? null, sizeOf, project.files);
+      fit.value = fitCheck({ project: data, targets, unrendered, measure });
+    } catch (err) {
+      status.value = errorStatus("Couldn't check the text fit", err);
+    } finally {
+      fitting.value = false;
+    }
+  };
+
   const selectedTable = query.value.table;
   const rows = stringRows(data);
   const gathered = tab.value === "report" ? gatherKeys({ files: gatherFiles(project), languages }) : null;
+  parserReady.value;
+  if (gathered && !svelteParserLoaded()) void loadSvelteParser().then(() => parserReady.value++, () => {});
+  const unkeyed = gathered && svelteParserLoaded() ? unkeyedTextOf(project.files) : [];
 
   return (
     <Panel class="localisation">
@@ -198,7 +265,14 @@ export function LocalisationPanel() {
             />
           )}
           {tab.value === "report" && gathered && (
-            <ReportView report={localisationReport(gathered)} onOpen={(p) => openAsset(p)} />
+            <ReportView
+              report={localisationReport(gathered, { unkeyed, ignore: ignored.value, fit: fit.value })}
+              fitting={fitting.value}
+              fitted={fit.value !== null}
+              onRunFit={() => void runFit()}
+              onOpen={openRow}
+              onDismiss={(id) => void dismiss(project, id)}
+            />
           )}
           {tab.value === "exchange" && (
             <ExchangeView

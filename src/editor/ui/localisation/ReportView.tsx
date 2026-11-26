@@ -1,12 +1,20 @@
 // The Localisation panel's Report tab (ADR 0356 §7–§9): per-language progress, then each list — missing translations,
-// keys defined nowhere, unused keys and keys in two tables. Each row opens its file. A view: the report comes from `reportModel.ts` through the panel.
+// keys defined nowhere, unused keys, unkeyed text in Svelte UI (with Dismiss), keys in two tables and, once run, the
+// text fit check's overflows. Each row opens its file (at its line). A view: the report comes from `reportModel.ts`
+// through the panel.
 import { EmptyState } from "../EmptyState";
 import type { LocalisationReport } from "./reportModel";
 import "./localisation.css";
 
 export interface ReportViewProps {
   readonly report: LocalisationReport;
-  onOpen(path: string): void;
+  /** The fit check is running. */
+  readonly fitting?: boolean;
+  /** The fit check has been run (its section is in the report). */
+  readonly fitted?: boolean;
+  onRunFit?(): void;
+  onOpen(path: string, line?: number): void;
+  onDismiss?(id: string): void;
 }
 
 export function ReportView(p: ReportViewProps) {
@@ -43,7 +51,14 @@ export function ReportView(p: ReportViewProps) {
           </table>
         )}
       </section>
-      {r.issues === 0 && <EmptyState compact title="Nothing to fix" body="Every key the game uses is translated and defined." />}
+      {p.onRunFit && (
+        <div class="loc-report-actions">
+          <button type="button" onClick={p.onRunFit} disabled={p.fitting} title="Lay out the keyed text the open scene's views render with a fixed size, in each language and the pseudo-language, and list text that overflows">
+            {p.fitting ? "Checking fit…" : p.fitted ? "Check text fit again" : "Check text fit"}
+          </button>
+        </div>
+      )}
+      {r.issues === 0 && <EmptyState compact title="Nothing to fix" body={p.fitted ? "Every key the game uses is translated, defined and fits." : "Every key the game uses is translated and defined."} />}
       {r.sections.map((s) => (
         <section key={s.id} class="loc-report-section" aria-label={s.title} data-section={s.id}>
           <h4>
@@ -54,10 +69,15 @@ export function ReportView(p: ReportViewProps) {
             <ul class="loc-report-rows">
               {s.rows.slice(0, 200).map((row) => (
                 <li key={row.id}>
-                  <button type="button" class="link-button mono" title={`Open ${row.path}`} onClick={() => p.onOpen(row.path)}>
+                  <button type="button" class="link-button mono" title={`Open ${row.path}${row.line ? ` at line ${row.line}` : ""}`} onClick={() => p.onOpen(row.path, row.line)}>
                     {row.key}
                   </button>
                   <span class="loc-report-detail">{row.detail}</span>
+                  {row.dismiss && p.onDismiss && (
+                    <button type="button" class="link-button" aria-label={`Dismiss "${row.key}"`} title="Leave it out of this list (kept in .myco/localisation-ignore.json)" onClick={() => p.onDismiss!(row.dismiss!)}>
+                      Dismiss
+                    </button>
+                  )}
                 </li>
               ))}
               {s.rows.length > 200 && <li class="loc-none">…and {s.rows.length - 200} more</li>}

@@ -6,6 +6,7 @@ import { resolveUIViewElement, selectedUIViewRef, uiViewVersion, viewElementSour
 import { movableViewAttributes, moveUIViewElementToClass, renameUIViewElement, setUIViewElementClasses, setUIViewElementField, setUIViewElementText, suggestedViewClassName, whyNotEditViewElement } from "../uiViewEdits";
 import { styleDeclarations } from "../uiEdit/svelteText";
 import { DraftInput, FieldSourceView, MoveToClass } from "./UIFieldSourceView";
+import { UIViewLocalise } from "./localisation/UIViewLocalise";
 import "./ui-element-inspector.css";
 
 const fileName = (path: string) => path.slice(path.lastIndexOf("/") + 1);
@@ -28,6 +29,7 @@ function rawText(row: FieldSourceRow, text: string | null): string {
  * an expression `{…}` (view-only, shown as written), a scoped or global rule, inherited, the text, the default, or a
  * transition or animation. Static parts of the view's own component edit in place, written back to the `.svelte`
  * source (Ctrl+Z undoes them); `{#each}` rows, snippets and child components' insides are view-only, and say why.
+ * Its text (content and text attributes) can be localised: Localise / Extract to string table (ADR 0356 §9).
  */
 export function UIViewElementInspector() {
   uiViewVersion.value; // follow re-renders and hot reload
@@ -93,6 +95,7 @@ export function UIViewElementInspector() {
           </>
         )}
       </dl>
+      <UIViewLocalise uiRef={ref} id={el.id ?? null} tag={el.tag} />
       {!readOnly && <MoveToClass key={`${ref.line}:${ref.column}`} count={movableViewAttributes(ref, el).length} suggested={suggestedViewClassName(el)} onMove={(name) => moveUIViewElementToClass(ref, name)} target={`${fileName(ref.file)}'s <style>`} />}
       <section class="component">
         <h3>{el.component.constructor.name}</h3>
