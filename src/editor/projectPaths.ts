@@ -13,7 +13,8 @@ export function joinPath(root: string, path: string): string {
 }
 
 /** Monaco's id for a language the Code panel edits in. */
-export type CodeLanguage = "json" | "javascript" | "typescript" | "markdown" | "plaintext" | "xml" | "css";
+export type CodeLanguage = "json" | "javascript" | "typescript" | "markdown" | "plaintext" | "xml" | "css" | "html";
+
 
 /**
  * The language the Code panel edits a project's JSON and text files in (ADR 0254 says which files
@@ -29,7 +30,11 @@ const CODE_LANGUAGES: ReadonlyMap<string, CodeLanguage> = new Map([
   ["md", "markdown"],
   ["xml", "xml"],
   ["css", "css"],
+  // Svelte UI (ADR 0419): components edit as HTML (markup with <script> and <style>), rune modules (`*.svelte.ts`) as TypeScript.
+  ["svelte", "html"],
+  ["ts", "typescript"],
 ]);
+
 
 /**
  * Files the project keeps as text (and the Code panel can edit): its JSON and text files (ADR 0254:

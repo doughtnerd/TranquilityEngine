@@ -28,7 +28,9 @@ import { saveOpenScene } from "./project";
 import { createSceneTabs } from "./sceneTabs";
 import { applyProjectPlugins } from "../plugins/editorPlugins";
 import { loadProjectCode, unloadThirdPartyPlugins } from "../plugins/thirdPartyEditor";
-import { editorSettings, joinPath, openFolderProject, useProjectAssets, type EditorProject } from "./projects";
+import { editorSettings, joinPath, openFolderProject, uiFiles, useProjectAssets, type EditorProject } from "./projects";
+import { isUISourcePath } from "../projectCode/uiModules";
+
 import { currentProject, docVersion, openScene, playing, sceneCamera, scriptProblems, scriptsVersion, status, viewMode, type OpenScene } from "./state";
 import { closeAllScripts } from "./code/codeBuffers";
 import { preloadCodeEditor } from "./code/codeState";
@@ -396,8 +398,10 @@ export function reloadScripts(options: { outside?: boolean } = {}): Promise<void
 /**
  * Save a file from the Code panel: a script (then scripts reload), or a JSON (which must parse)
  * or JavaScript file. Scripts also reload after saving JSON one of them mentions, since scripts
- * can import JSON.
+ * can import JSON, and after saving UI code (ADR 0419: a Svelte component or rune module, or a `.css`
+ * file one of them mentions), which compiles with them: mounted `UIView`s show the new version.
  */
+
 export async function saveCodeFile(path: string, text: string): Promise<void> {
   const project = currentProject.value;
   if (!project) throw new Error("No project is open.");
@@ -407,7 +411,8 @@ export async function saveCodeFile(path: string, text: string): Promise<void> {
   docVersion.value++; // e.g. the Assets panel
   const name = path.slice(path.lastIndexOf("/") + 1);
   // A plugin's manifest (ADR 0139) decides what loads, so saving one reloads the project's code too.
-  if (/^plugins\/[^/]+\/plugin\.json$/.test(path) || (path.endsWith(".json") && [...project.scripts.values()].some((s) => s.includes(name)))) await reloadScripts();
+  if (/^plugins\/[^/]+\/plugin\.json$/.test(path) || (path.endsWith(".json") && [...project.scripts.values()].some((s) => s.includes(name))) || isUISourcePath(path) || (path.endsWith(".css") && [...uiFiles(project)].some(([p, s]) => isUISourcePath(p) && s.includes(name)))) await reloadScripts();
+
   else status.value = { kind: "info", text: `Saved ${path}.` };
 }
 

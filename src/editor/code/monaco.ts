@@ -14,6 +14,9 @@ import { codeLanguageOf, isScriptPath } from "../projectPaths";
 import { codeFilePath, codeFileUri } from "./codeBuffers";
 import { codeAppearance, monacoColors } from "../theme";
 import { compilerOptions, SCRIPT_CHECK } from "../../scriptCompiler.mjs";
+import svelteTypes from "../../../node_modules/svelte/types/index.d.ts?raw"; // not in the package's exports, so by path
+import { isRuneModulePath } from "../../projectCode/uiModules";
+
 
 (self as unknown as { MonacoEnvironment: monaco.Environment }).MonacoEnvironment = {
   // Each language service runs in its own worker; everything else in the editor's.
@@ -32,6 +35,14 @@ for (const [path, text] of Object.entries(engineTypes)) ts.typescriptDefaults.ad
 ts.typescriptDefaults.addExtraLib(JSON.stringify({ name: "myco", types: "index.d.ts" }), "file:///node_modules/myco/package.json");
 // Scripts written before the rename import "tranquility" (ADR 0037): the same declarations.
 ts.typescriptDefaults.addExtraLib('export * from "myco";', "file:///node_modules/tranquility/index.d.ts");
+// Svelte UI (ADR 0419): Svelte's declarations (its modules and the runes rune modules use), served as the package, and
+// components as modules scripts and rune modules can import.
+ts.typescriptDefaults.addExtraLib(svelteTypes, "file:///node_modules/svelte/types/index.d.ts");
+ts.typescriptDefaults.addExtraLib(
+  'declare module "*.svelte" {\n  import type { Component } from "svelte";\n  const component: Component<any>;\n  export default component;\n}\n',
+  "file:///node_modules/.myco-svelte/components.d.ts",
+);
+
 
 // The "myco" theme follows Settings > Appearance: redefined from the editor theme's tokens on change.
 effect(() => {
@@ -172,7 +183,8 @@ const flatten = (text: string | { messageText: string; next?: unknown[] }): stri
  */
 export async function checkScripts(project: unknown, files: ReadonlyMap<string, string>): Promise<ScriptDiagnostic[]> {
   syncProject(project, files);
-  const scripts = [...files.keys()].filter(isScriptPath).sort(); // plugin sources too (ADR 0139)
+  const scripts = [...files.keys()].filter((p) => isScriptPath(p) || (isRuneModulePath(p) && p.endsWith(".ts"))).sort(); // plugin sources too (ADR 0139), and rune modules (ADR 0419)
+
   if (scripts.length === 0) return [];
   const worker = await ts.getTypeScriptWorker();
   const client = await worker(...scripts.map(uriOf));

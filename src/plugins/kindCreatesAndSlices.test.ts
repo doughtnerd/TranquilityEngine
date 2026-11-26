@@ -29,9 +29,12 @@ describe("the New… menu's file entries (ADR 0149)", () => {
     const labels = kindCreators().map((c) => c.label);
     expect(labels.slice(0, 2)).toEqual(["New Scene", "New Render Texture"]);
     expect(labels).toContain("New UI Document");
+    expect(labels).toContain("New Svelte Component"); // ADR 0419
     expect(labels).toContain("New Material");
     halves.off();
     expect(kindCreators().map((c) => c.label)).not.toContain("New UI Document");
+    expect(kindCreators().map((c) => c.label)).not.toContain("New Svelte Component");
+
     expect(kindCreators().map((c) => c.label)).not.toContain("New Material");
   });
 });

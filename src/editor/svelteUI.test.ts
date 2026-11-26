@@ -3,6 +3,16 @@ import { Assets, Color, Engine, GameObject } from "../engine";
 import { UIText } from "../engine/ui/components";
 import { UIView } from "../plugins/ui/runtime/UIView";
 import { loadedScriptModule, replaceScripts } from "./scriptLoader";
+import { MemoryFileSystem } from "./memoryFs";
+import { joinPath, openFolderProject, useProjectAssets } from "./projects";
+import { currentProject, playState, scriptProblems, status } from "./state";
+import { saveCodeFile } from "./session";
+import { loadProjectCode } from "../plugins/thirdPartyEditor";
+import { kindCreators } from "./assetKindHost";
+import { useCoreAssetKinds } from "./testing";
+import { useEditorPlugins } from "../plugins/testEditorPlugins";
+import { uiEditorPlugin } from "../plugins/ui/editor";
+
 
 // ADR 0419 wave A part 2: a project's Svelte UI compiles in the editor with its scripts (the project code
 // linker's memory target, dev mode), each component becomes its `.svelte` file's asset value, a `UIView`
@@ -119,5 +129,60 @@ describe("Svelte UI in the editor", () => {
   it("reports what UI code can't import", async () => {
     const result = await replaceScripts(new Map(), new Map(), undefined, [], files("v1", { "ui/Bad.svelte": `<script>import x from "./missing.svelte";</script><p>{x}</p>` }));
     expect(result.problems).toEqual([{ path: "ui/Bad.svelte", message: `can't find "./missing.svelte"` }]);
+  });
+});
+
+describe("Svelte UI in an open project", () => {
+  useCoreAssetKinds();
+  useEditorPlugins([uiEditorPlugin], "each");
+  const ROOT = "C:\\Games\\svelte";
+
+  afterEach(() => {
+    currentProject.value = null;
+    playState.value = "edit";
+  });
+
+  async function openProject(): Promise<void> {
+    const fs = new MemoryFileSystem();
+    const project = { "project.json": JSON.stringify({ name: "Svelte UI" }), ...Object.fromEntries(files()) };
+    for (const [path, text] of Object.entries(project)) fs.files.set(joinPath(ROOT, path), text);
+    const opened = await openFolderProject(fs, ROOT);
+    useProjectAssets(opened);
+    currentProject.value = opened;
+    const loaded = await loadProjectCode(opened); // what opening a project does
+    expect(loaded.problems).toEqual([]);
+  }
+
+  it("compiles the project's components on open, and again when one is saved in the Code panel (hot reload)", async () => {
+    await openProject();
+    const view = await mount({ title: "Hi" });
+    view.props.title = "Yo";
+    engine.step(DT);
+    expect(view.query("#title")!.as(UIText).text).toBe("Yo v1");
+
+    await saveCodeFile("ui/Hud.svelte", hud("saved"));
+    expect(scriptProblems.value).toEqual([]);
+    engine.step(DT);
+    expect(view.query("#title")!.as(UIText).text).toBe("Yo saved");
+
+    // A compile error is reported in the status line like a script's.
+    await saveCodeFile("ui/Hud.svelte", hud("broken").replace("</section>", "{#if title}</section>"));
+    expect(scriptProblems.value).toEqual([{ path: "ui/Hud.svelte", message: expect.stringMatching(/^line \d+: /) }]);
+    expect(status.value).toMatchObject({ kind: "error", text: expect.stringContaining("ui/Hud.svelte") });
+    engine.step(DT);
+    expect(view.query("#title")!.as(UIText).text).toBe("Yo saved");
+  });
+
+  it("New Svelte Component writes a starter component in ui/ that compiles, ready for a UIView", async () => {
+    await openProject();
+    const create = kindCreators().find((c) => c.label === "New Svelte Component")!;
+    expect(create.kind).toBe("svelte");
+    const path = await create.create("ui");
+    expect(path).toBe("ui/NewComponent.svelte");
+    expect(scriptProblems.value).toEqual([]);
+    const view = GameObject.create("New").addBehavior(UIView, { component: `asset:${path}` });
+    await view.ready;
+    expect(view.query("h1")!.as(UIText).text).toBe("New Component");
+    expect(view.query("h1")!.as(UIText).fontSize).toBe(32);
   });
 });

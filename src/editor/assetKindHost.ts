@@ -11,6 +11,8 @@ import { freePath } from "./freePath";
 import { showPanel } from "./layout/store";
 import type { EditorProject } from "./projects";
 import { readOnlyMessage } from "./readOnly";
+import { isUISourcePath } from "../projectCode/uiModules";
+
 import { assetKinds } from "./sdk/contributions";
 import { messages } from "./sdk/messages";
 import { currentProject, docVersion } from "./state";
@@ -50,8 +52,11 @@ export async function createProjectFile(options: CreateFileOptions): Promise<str
   }
   docVersion.value++;
   messages.info(options.created ? options.created(path) : `Created ${fileName(path)}.`);
+  // UI code (ADR 0419) compiles with the scripts: a new component loads (and a UIView's field can take it) once they reload.
+  if (isUISourcePath(path)) await (await import("./session")).reloadScripts();
   return path;
 }
+
 
 /** What `createAsset` makes. */
 export interface CreateAssetOptions<T> {

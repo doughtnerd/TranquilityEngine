@@ -8,6 +8,9 @@
 import { isTauri } from "../engine/platform/FileSystem";
 import { assetDocumentsDeleted } from "./assetDocuments";
 import { followMovedAssets } from "./assetOps";
+import { isUISourcePath } from "../projectCode/uiModules";
+import { reloadScripts } from "./session";
+
 import { logMessage } from "./messages";
 import { acquireLock, takePendingMoves, type HeldLock } from "./projectLocks";
 import type { EditorProject, FileChanges } from "./projects";
@@ -48,7 +51,10 @@ export async function applyProjectChanges(project: EditorProject, changes: Pick<
   const result = await project.rereadFiles(changes.files);
   if (result.removed.length > 0) await assetDocumentsDeleted(result.removed);
   if (result.changed.length + result.added.length + result.removed.length > 0) docVersion.value++;
+  // UI code (ADR 0419) compiles with the scripts: an outside edit to it reloads them, as the Code panel's save does.
+  if ([...result.changed, ...result.added, ...result.removed].some((p) => isUISourcePath(p) || (p.endsWith(".css") && !p.endsWith(".ui.css")))) await reloadScripts();
   return result;
+
 }
 
 /** Take the moves waiting in `pending-moves.json` (the Studio's, ADR 0341) and follow them. Resolves to whether any moved. */
