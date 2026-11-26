@@ -6,7 +6,7 @@ import { openSceneFile } from "./project";
 import { openScene } from "./state";
 import { DEMO_SCENE, demoAssets, demoSettings, insertNew } from "./testing";
 
-// ADR 0069: the game UI components in the Create menu and the Add Component menu's UI category.
+// ADR 0417: game UI is made only from UI documents, so the Create menu's UI section is UI Document alone.
 
 let engine: Engine | null = null;
 afterEach(() => {
@@ -14,21 +14,17 @@ afterEach(() => {
   engine = null;
 });
 
-describe("UI in the editor (ADR 0069)", () => {
-  it("files the UI components under UI", () => {
-    for (const id of ["engine.UICanvas", "engine.UIPanel", "engine.UIText", "engine.UIImage", "engine.UIButton", "engine.UIInputField"]) expect(buildMenuTree([{ id, name: id, group: "Engine" as const }], new Map())[0]!.label).toBe("UI");
+describe("UI in the editor (ADR 0077, 0417)", () => {
+  it("files UIDocument under UI", () => {
+    expect(buildMenuTree([{ id: "engine.UIDocument", name: "UIDocument", group: "Engine" as const }], new Map())[0]!.label).toBe("UI");
   });
 
-  it("creates each UI element with its component", async () => {
+  it("offers only UI Document under UI, and creates it as a UIDocument node", async () => {
     engine = await Engine.create({ headless: true, kind: "editor", project: demoSettings(), assets: demoAssets() });
     openSceneFile(engine, DEMO_SCENE);
     const scene = openScene.value!;
+    expect(newNodeKinds().filter((k) => k.category === "UI").map((k) => k.label)).toEqual(["UI Document"]);
     const made = (kind: NodeKind) => scene.doc.node(insertNew(scene, kind));
-    expect(newNodeKinds().filter((k) => k.kind.startsWith("ui-")).map((k) => k.label)).toEqual(["UI Canvas", "UI Panel", "UI Text", "UI Image", "UI Button", "UI Input Field", "UI Document"]);
-    const types = (kind: NodeKind) => made(kind).components!.map((c) => c.type);
-    expect(types("ui-canvas")).toEqual(["engine.Transform", "engine.UICanvas"]);
-    expect(types("ui-button")).toEqual(["engine.Transform", "engine.UIButton"]);
-    expect(types("ui-input-field")).toEqual(["engine.Transform", "engine.UIInputField"]);
-    expect(made("ui-text").components![1].data).toEqual({ text: "New Text" });
+    expect(made("ui-document").components!.map((c) => c.type)).toEqual(["engine.Transform", "engine.UIDocument"]);
   });
 });

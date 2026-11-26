@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import "../engine";
-import { componentCatalog } from "../engine/editor";
+import { componentCatalog } from "./componentEdits";
 import { buildMenuTree } from "./componentCategories";
 
 /** The Add Component submenu an engine component id lands in. */

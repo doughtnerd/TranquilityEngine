@@ -1,21 +1,27 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { Color, Engine, GameObject } from "../engine";
-import { UIButton, UICanvas, UIImage, UIInputField, UIPanel, UIText } from "../engine/ui/components";
+import { Assets, Engine, GameObject } from "../engine";
+import { UIDocument, loadUIDocumentSupport } from "../engine/ui/UIDocument";
 import { orderClickHits, partitionUIHits } from "./uiPicking";
-import type { UIComponentType } from "../engine/ui/components";
 
 let engine: Engine;
 beforeEach(async () => {
+  Assets.clearSources();
+  // UI elements come only from documents (ADR 0417): a text, a bare panel and a painted one.
+  Assets.addSource(Assets.fromObject({ "ui/pick.ui.xml": `<Canvas><Text id="a">a</Text><Panel id="bare"/><Panel id="b" background-color="#ffffff"/></Canvas>` }));
   engine = await Engine.create({ headless: true });
+  await loadUIDocumentSupport();
 });
-afterEach(() => engine.dispose());
-
-const make = <T extends UIPanel | UIText | UIImage | UICanvas | UIInputField | UIButton>(type: new () => T, init: Partial<T> = {}): T => GameObject.create("n").addBehavior(type as never, init as never) as T;
+afterEach(() => {
+  engine.dispose();
+  Assets.clearSources();
+});
 
 describe("click ordering", () => {
-  it("splits hits keeping order and puts painted UI before the scene and bare UI after", () => {
-    const bare = make(UIPanel), a = make(UIText, { text: "a" }), b = make(UIPanel, { backgroundColor: Color.white });
-    expect(partitionUIHits([a, bare, b])).toEqual({ painted: [a, b], bare: [bare] });
+  it("splits hits keeping order and puts painted UI before the scene and bare UI after", async () => {
+    const doc = GameObject.create("UI").addBehavior(UIDocument, { document: "asset:ui/pick.ui.xml" });
+    await doc.ready;
+    const [a, bare, b] = ["#a", "#bare", "#b"].map((s) => doc.query(s)!.component);
+    expect(partitionUIHits([a!, bare!, b!])).toEqual({ painted: [a, b], bare: [bare] });
     expect(orderClickHits(["ui:a", "ui:b"], ["mesh", "ui:a"], ["ui:bare", "mesh"])).toEqual(["ui:a", "ui:b", "mesh", "ui:bare"]);
   });
 });
