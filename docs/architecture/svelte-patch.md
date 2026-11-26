@@ -7,9 +7,10 @@
 | `bind(node, name, get, set)` | element `bind:`, and bindings on `<svelte:window>`/`<svelte:document>` | [Element bindings](#element-bindings-bind) |
 | `globalTarget(kind)` | `<svelte:window>`, `<svelte:document>`, `<svelte:body>` (events, bindings, actions), `<svelte:head>` and its `<title>` | [Global targets](#global-targets-globaltarget) |
 | `addStyles(hash, code)` | `css: 'injected'` | [Injected styles](#injected-styles-addstyles) |
+| `animate(node, keyframes, options)`, `measure(node)` | `transition:`, `in:`, `out:`, `animate:`, `svelte/transition`, `svelte/animate` | [Transitions and animations](#transitions-and-animations-animate-measure) |
 | none (the existing `addEventListener`) | legacy `on:` | [Legacy `on:`](#legacy-on) |
 
-Later hooks from 0419 (`animate`/`measure` for transitions and `animate:`, `html` for `{@html}`) go into the same patch file the same way. They aren't written yet.
+The last hook from 0419, `html` for `{@html}`, goes into the same patch file the same way. It isn't written yet.
 
 Every hook is optional, and a renderer without one behaves as before except where noted. The compiler only has the renderer's module path, never the renderer object, so it can't refuse at compile time when a hook is missing: the runtime throws a clear error (`renderer_*_unsupported`) when the feature is first used. Upstream, each error message would also go into `messages/client-errors/` so `errors.js` is generated as usual.
 
@@ -111,6 +112,62 @@ Under a custom renderer, `<svelte:options css="injected" />` is refused and the 
 
 The analyzer stops refusing them. Their client output was already renderer-neutral: `$.event(type, node, handler, capture, passive)`, which goes through the renderer's `addEventListener(node, type, handler, { capture, passive })`, with the modifiers as Svelte's wrappers (`$.once`, `$.preventDefault`, `$.stopPropagation`, `$.stopImmediatePropagation`, `$.self`, `$.trusted`, which only call the event's own methods), and `on:click` without a handler forwarding to the component's own listeners. No hook is needed. The runes-mode deprecation warning and the rule against mixing `on:` and event attributes in one component are unchanged.
 
+## Transitions and animations (`animate`, `measure`)
+
+### The problem
+
+`transition:`, `in:`, `out:` and `animate:` are refused under a custom renderer (`phases/2-analyze/visitors/TransitionDirective.js`, `AnimateDirective.js`). Their compiled output is already renderer-neutral (`$.transition(flags, node, fn, params)`, `$.animation(node, fn, params)`), but the runtime (`internal/client/dom/elements/transitions.js`) is DOM code:
+
+- it plays keyframes with `element.animate(keyframes, { duration, fill: 'forwards' })` (Web Animations) and reads the handle's `currentTime`, `onfinish` and `cancel()`;
+- `tick` transitions run on `requestAnimationFrame` (`loop`), which a custom renderer's world may not have, or not in step with its frames;
+- `animate:` measures with `getBoundingClientRect()`, `getComputedStyle()` and `getAnimations()`, and its `fix()` takes a leaving item out of flow by writing `element.style`;
+- it sets `element.inert`, and `element.style.overflow` for a Safari bug;
+- and `svelte/transition` (`fade`, `fly`, `slide`, `scale`, `blur`, `draw`, `crossfade`) and `svelte/animate` (`flip`) read geometry with the global `getComputedStyle(node)`, `node.getBoundingClientRect()` and `node.clientWidth`.
+
+A custom renderer's nodes are not DOM elements, so none of that works on them.
+
+### The change
+
+1. **Two optional renderer hooks:**
+
+   ```ts
+   animate?(node: N['element'], keyframes: Array<Record<string, string>>, options: { duration: number; fill: 'forwards' }): RendererAnimation;
+   measure?(node: N['element']): RendererMeasurement;
+
+   interface RendererAnimation {
+   	readonly currentTime: number | null; // ms since it started; null once cancelled
+   	onfinish: (() => void) | null;       // called once at its end, after the call that created it returned
+   	onframe?: (() => void) | null;       // set by Svelte for `tick` transitions: called on each of the renderer's frames while it runs
+   	cancel(): void;                      // stops it and removes its values
+   }
+
+   interface RendererMeasurement {
+   	left: number; top: number; right: number; bottom: number; width: number; height: number; // the box after transforms
+   	clientWidth: number; clientHeight: number; // the untransformed inner size
+   	style: Record<string, string>;             // computed values by camel-case name
+   }
+   ```
+
+   `animate` takes what `element.animate` takes from Svelte: keyframes whose values are CSS text by camel-case property (`css_to_keyframe` of the transition's `css(t, u)`, sampled per 60 Hz frame with the easing applied), evenly spaced over `duration` ms (none for a pure delay), the last one held until `cancel()`. `measure` gives what the DOM's `getBoundingClientRect()`, `clientWidth`/`clientHeight` and `getComputedStyle()` give, up to date with changes made before the call (as reading layout is in the DOM: `animate:` measures right after the each block moved its items).
+
+2. **The analyzer stops refusing** the four directives under a custom renderer.
+
+3. **The runtime** (`dom/elements/transitions.js`), with the renderer captured when the transition or animation is created (`current_renderer`), since the work happens later, in microtasks and in the renderer's frame callbacks:
+   - `element.animate(...)` goes through `animate_element(renderer, ...)`: the DOM call, or `renderer_animate` (`internal/client/custom-renderer/animate.js`), which calls the hook and keeps the handle in a per-node set until it's cancelled (what `getAnimations()` reports in the DOM);
+   - a `tick` transition sets the handle's `onframe` instead of starting a `loop`;
+   - the transition function runs with the renderer pushed as current (`with_renderer`), including a deferred one (`crossfade`'s), so `svelte/transition` measures through it;
+   - `animate:` measures with `bounding_rect` and `computed_style` (`internal/client/custom-renderer/measure.js`: the DOM calls, or the current renderer's `measure`), tests `has_renderer_animations(node)` instead of `getAnimations()`, and its `fix()`/`unfix()` append `position: absolute; width; height; transform` to the `style` attribute through the renderer's `getAttribute`/`setAttribute` (custom renderers deal in attributes, as `set_style` does) and put it back after;
+   - `inert`, the Safari overflow workaround and `animation.effect = null` stay DOM-only;
+   - intro and outro events are dispatched only on nodes that have `dispatchEvent`.
+
+   DOM behaviour is unchanged: with no renderer, every path is the one it was.
+
+4. **`svelte/transition` and `svelte/animate`** call `computed_style(node)`, `bounding_rect(node)` and (`flip`) `client_size(node)` instead of `getComputedStyle`, `getBoundingClientRect` and `clientWidth`/`clientHeight`; under a custom renderer `flip` takes no zoom (the renderer's sizes are in its boxes' units).
+
+5. **Without `animate`**, `$.transition` and `$.animation` throw `renderer_animate_unsupported` (`` `transition:` needs the custom renderer to define `animate` ``; `in:`, `out:`, `animate:` likewise) when they're created. **Without `measure`**, `$.animation` throws `renderer_measure_unsupported` when it's created, and a transition function that measures throws it when it runs.
+
+Semantics stay Svelte's: intros on mount (`mount`'s `intro`), local transitions playing only when their own block changes and `|global` with any, outros delaying removal (and the each block's outro groups), bidirectional `transition:` reversing from its current `t` (`currentTime`), delays as a keyframe-holding animation the length of the delay, `introstart`/`introend`/`outrostart`/`outroend`.
+
 ## What the engine's renderer does with it
 
 `src/plugins/ui/svelte/renderer.ts` and `globalTargets.ts`:
@@ -118,6 +175,8 @@ The analyzer stops refusing them. Their client output was already renderer-neutr
 - **`bind`**: `bind:value` on `input` (from the UI core's input and change events, ADR 0309). On the window: `innerWidth`/`innerHeight` (and `outerWidth`/`outerHeight`, the same) are the drawing canvas's size in CSS pixels, `devicePixelRatio`, `online`, and `scrollX`/`scrollY` (always 0). On the document: `activeElement` (the node with the UI's focus, ADR 0340, else the body), `visibilityState`, `fullscreenElement`/`pointerLockElement` (null). They're read-only and follow changes each frame. Other names warn once and do nothing yet (`bind:checked`/`bind:value` on toggles and sliders come with those elements; size bindings on elements with `measure`).
 - **`globalTarget`**: three targets fed once a frame from the engine's device snapshot after UI routing (so keys while a text field types, and keys and buttons the UI claimed, never reach them): `keydown`/`keyup` (DOM `key`/`code` and modifier flags), `pointerdown`/`pointerup`/`mousedown`/`mouseup` for buttons pressed outside UI, `pointermove`/`mousemove`, `wheel`, delivered body → document → window until a handler stops it; `resize` and `online`/`offline` on the window; `visibilitychange` on the document. `document.title` (from `<title>`) sets the page's title, which is the window's title in a desktop build. Other `<svelte:head>` content is kept off the UI and warned about once.
 - **`addStyles`**: the cascade's rule data. Games ship no CSS parser, so the engine's compile step (`compileSvelteUI`) parses an injected component's CSS when it compiles and the module registers it by hash (`injectStyles`); `addStyles` then adds it to every view, as `:global` rules and imported `.css` are.
+- **`animate`** (`animation.ts`): the hosted element's `UIHostElement.animate`, which converts each keyframe's CSS with the cascade's value conversion (`keyframeValues`: shorthands such as `transform`, `padding`, `border-width` expand; variables substitute) into per-field keyframe tracks and plays them on the UI animator (`UIAnimator.play`, ADR 0418 wave 4): per-segment tweens on the tween backend (both backends hold 256 sequences but 4,096 tweens), on unscaled time, the first keyframe shown the frame it's called (one started in an animation's end hook, after a delay, starts in that frame), linear between keyframes (Svelte samples its easing into them), stretches of equal values merged into one segment, the last values held until `cancel()`, kept across restyles and drawn over stylesheet animations, no CSS animation events. `onframe` and `onfinish` run after the frame's values are written (`engine.UIAnimation`, late update). A node outside a mounted view finishes at once; nothing plays in a scene being edited. A property the element can't animate is warned about once per tag and left out: `filter` (`blur`) and SVG's `stroke-*` (`draw`) until ADR 0426, so `blur` fades and `draw` shows the element as it is (`getTotalLength()` is 0, with a warning).
+- **`measure`** (`animation.ts`): the node's `getBoundingClientRect()` (the transformed box's bounds in canvas UI pixels), which first lays the UI out when a hosted tree changed since the last layout in that frame (`UIHostTree.layoutNow`: pending restyles, then `UILayoutSource.relayout`, the pointer-routing UI core's `sync` at its last size); `clientWidth`/`clientHeight` from the layout less borders; `UIHostElement.computedStyle()` by camel-case name with `getPropertyValue` (sizes, sides, `transform` as `translate() rotate() scale()` or `none`, `transform-origin` in px, `opacity`, `display`, `position`, `overflow`, colours as `rgba()`; `filter: none`, `zoom: 1`, `stroke-linecap: butt` for what isn't drawn yet; anything else "").
 - **Legacy `on:`**: elements keep listeners of any type (an action's custom event reaches `on:custom` through `dispatchEvent`); the UI's own events (`click`, `input`, `change`, `submit`, `focus`, `blur`, `pointerenter`, `pointerleave`) happen by themselves. Without event propagation yet (a later record), `capture` changes nothing and `stopPropagation` stops the element's remaining listeners.
 
 ## Tests
@@ -125,8 +184,12 @@ The analyzer stops refusing them. Their client output was already renderer-neutr
 - `src/plugins/ui/svelte/sveltePatch.test.ts`: each hook's compile output under a custom renderer (and DOM output unchanged); `bind` runs again after its cleanup when the bound state changes; `global_target`, `head` and `append_styles` call the hooks; listeners on a global target go with their component; each missing hook throws its clear error.
 - `src/plugins/ui/runtime/uiView.test.ts`: `<input bind:value>` both ways through a `UIView`, and `bind:this` giving the renderer's node.
 - `src/plugins/ui/runtime/uiViewGlobals.test.ts`: through a `UIView` and the engine's renderer: window size bindings and `resize` from the canvas, keys from the device snapshot through body, document and window, `document.activeElement` following the UI's focus, `<title>` setting the page's title, `css: 'injected'`, legacy `on:` with modifiers and its listeners going on unmount.
-- The conformance harness (`npm run test:svelte-conformance`) runs Svelte's own runtime samples among the rest.
+- `src/plugins/ui/svelte/sveltePatch.test.ts` also: the four directives compile under a custom renderer as for the DOM; missing `animate`/`measure` throw their errors; `fade`, `fly`, `flip` and `crossfade` measure through the renderer.
+- `src/plugins/ui/runtime/uiViewTransitions.test.ts`: through a `UIView`, frame by frame: `fade` in and out with its events and removal after the outro, reversal midway, `in:fly` with `out:fade`, `scale`, `slide` (laid-out height and padding, clipped), a delay, a `tick` transition, unscaled time, `blur` and `draw` degrading with one warning, `animate:flip` on a reorder, `crossfade` between two lists, local versus `|global`, the `measure` hook on a transformed, padded, bordered box, and `svelte/motion` (`Tween`, `Spring`) through `style:`.
+- The conformance harness (`npm run test:svelte-conformance`) runs Svelte's own runtime samples among the rest. Its stand-in for the `animate` hook (`tools/svelte-conformance/animationStandIn.ts`) is Svelte's own test helper moved from `element.animate` to the hook: keyframes written to the node's inline style on the test's clock, so transition samples read as against the DOM.
 
 ## Upstream shape
 
-Four pull requests, one per section, each: the source changes above, its error message file, a `custom-renderer` test sample with a minimal renderer that has (and one that lacks) the hook, and the hook documented beside `addEventListener` in the renderer interface. `bind` and `globalTarget` share the window/document binding change; whichever lands second carries it. All are additive: renderers without the hooks behave as before, except that a refusal moves from compile time to the feature's first use, and (`addStyles`) an inherited `css: 'injected'` is honoured rather than ignored.
+Five pull requests, one per section (`animate` and `measure` together: `animate:` needs both), each: the source changes above, its error message files, a `custom-renderer` test sample with a minimal renderer that has (and one that lacks) the hook, and the hook documented beside `addEventListener` in the renderer interface. `bind` and `globalTarget` share the window/document binding change; whichever lands second carries it. The transitions PR also moves Svelte's test `Animation` stand-in (`tests/animation-helpers.js`) behind a test renderer's `animate`, so the existing transition samples run under a custom renderer too. All are additive: renderers without the hooks behave as before, except that a refusal moves from compile time to the feature's first use, and (`addStyles`) an inherited `css: 'injected'` is honoured rather than ignored.
+
+Open points for the transitions PR: the `onframe` property is ours (Web Animations has no per-frame callback; the alternative is the renderer driving Svelte's `raf`, which is global); `measure`'s style is a plain record rather than a `CSSStyleDeclaration`; the keyframes stay pre-sampled CSS text, as for the DOM, though a renderer could do better with the `css` function and easing themselves.
