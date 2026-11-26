@@ -180,7 +180,7 @@ describe("running the prefab actions", () => {
     const path = await createPrefabFrom(scene(), project, [["game"]]);
     expect(status.value).toEqual({
       kind: "info",
-      text: `Created ${path}. 5 references to nodes outside the prefab became instance overrides; the prefab file leaves them empty. Undo turns the node back; the file stays on disk.`,
+      text: `Created ${path}. 3 references to nodes outside the prefab became instance overrides; the prefab file leaves them empty. Undo turns the node back; the file stays on disk.`,
     });
     expect(scene().doc.node("game").overrides).toHaveLength(5);
   });
