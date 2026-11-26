@@ -17,6 +17,7 @@ import { findInner } from "./prefabs";
 import { inspectedWorld, liveInspecting, liveSelection } from "./runtimeInspect";
 import { docVersion, openScene, selectedKeys, selectedUIElement, type OpenScene } from "./state";
 import { parseUIRefKey, uiRefKey, type UIElementRef } from "./uiDocuments";
+import { parseUIViewRefKey, uiViewRefKey, type UIViewRef } from "./uiViews";
 
 /** What the Inspector shows, highest priority first. */
 export type InspectorTarget =
@@ -26,6 +27,8 @@ export type InspectorTarget =
   | { readonly kind: "asset"; readonly path: string }
   /** An element of a UI document. */
   | { readonly kind: "uiElement"; readonly ref: UIElementRef }
+  /** An element a UIView rendered from a Svelte component (ADR 0419 wave C). */
+  | { readonly kind: "uiViewElement"; readonly ref: UIViewRef }
   /** A bone of the Skeleton on the node at `path` (ADR 0373), named by `bone`; `provider` is the contribution listing it (`registerSkeletonBones`). */
   | { readonly kind: "bone"; readonly scene: OpenScene; readonly path: NodePath; readonly bone: string; readonly provider: string }
   /** The selected nodes that still exist (an undo may have removed some), active last. */
@@ -66,6 +69,8 @@ export const inspectorTarget = computed<InspectorTarget>(() => {
   const element = selectedUIElement.value;
   const ref = element !== null ? parseUIRefKey(element) : null;
   if (ref) return { kind: "uiElement", ref };
+  const viewRef = element !== null ? parseUIViewRefKey(element) : null;
+  if (viewRef) return { kind: "uiViewElement", ref: viewRef };
   docVersion.value; // an undo may remove selected nodes
   const scene = openScene.value;
   if (!scene) return { kind: "nothing" };
@@ -120,13 +125,13 @@ export function previewAssets(entries: readonly string[]): void {
   setPanelSelection(entries);
 }
 
-/** Select a UI document element (null clears it). Clears the nodes and the Assets panel's entries. */
-export function selectUIElement(ref: UIElementRef | null): void {
+/** Select a UI document element, or an element a UIView rendered (null clears it). Clears the nodes and the Assets panel's entries. */
+export function selectUIElement(ref: UIElementRef | UIViewRef | null): void {
   batch(() => {
     if (selectedKeys.peek().length > 0) selectedKeys.value = [];
     if (selectedAssets.peek().length > 0) setPanelSelection([]);
     if (selectedBone.peek() !== null) selectedBone.value = null;
-    selectedUIElement.value = ref ? uiRefKey(ref) : null;
+    selectedUIElement.value = ref ? ("file" in ref ? uiViewRefKey(ref) : uiRefKey(ref)) : null;
   });
 }
 

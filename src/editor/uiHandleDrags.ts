@@ -2,14 +2,21 @@
 // handles, and the resize, move and reorder drags, each one undo step over the element's file (see
 // uiHandles.ts, which draws the handles and turns pointer events into these drags). A drag reads
 // boxes on the canvas through the `BoxOf` it's given.
+//
+// ADR 0419 wave C: the same handles work on the elements a UIView renders from a Svelte component. Both kinds are
+// reached through a `HandleSubject` (the element, its parent and flow siblings with their places in the file, and
+// the edits that write attributes or reorder it), so the drags don't care which file format they write; on a
+// view's dynamic parts (expressions, `{#each}` rows, child components) handles are refused with the reason.
 import type { UIDocumentElement } from "../engine/ui/UIDocument";
 import type { UIComponentType } from "../engine/ui/components";
+import type { UIHostElement } from "../engine/ui/host/UIHost";
 import { elementSource } from "../engine/ui/documentSource";
 import { uiBorderEdges } from "../engine/ui/layout";
 import { hasTransform, type UITransformFields } from "../engine/ui/transform2d";
 import { openScene } from "./state";
 import { beginUIEdit, moveUIElement, setUIElementAttributes } from "./uiDocumentEdits";
 import { whyNotEdit } from "./editGate";
+import type { UndoStep } from "./undoStep";
 import {
   boxMap,
   isColumn,
@@ -26,23 +33,117 @@ import {
   type ReorderTarget,
 } from "./uiHandleMath";
 import { elementLabel, resolveUIElement, type UIElementRef } from "./uiDocuments";
+import { refOfViewElement, resolveUIViewElement, sourceOfFile, viewElementLabel, type UIViewRef } from "./uiViews";
+import { beginUIViewEdit, moveUIViewElement, setUIViewElementAttributes, whyNotEditViewElement } from "./uiViewEdits";
+import { elementAtLocation } from "./uiEdit/svelteText";
 
 /** A UI component's box on the viewport canvas (CSS pixels) with its size in UI pixels, or null. */
 export type BoxOf = (c: UIComponentType) => BoxOnCanvas | null;
 
-/** Why the scene view shows no handles on `el` (outline only), or null when it does. */
-export function whyNoHandles(el: UIDocumentElement): string | null {
-  const reason = whyNotEdit({ kind: "ui-documents" });
-  if (reason) return reason;
+/** A UI element as the handles see it: its component, whether it's shown, its parent and its place among the elements written beside it (-1: none). */
+interface HandleElement {
+  readonly component: UIComponentType;
+  readonly active: boolean;
+  readonly parent: HandleElement | null;
+  readonly index: number;
+  readonly children: readonly HandleElement[];
+}
+
+/** What a drag acts on: the element, and the edits that write it (a UI document's markup, or a view's `.svelte` source). */
+interface HandleSubject {
+  readonly el: HandleElement;
+  readonly label: string;
+  /** Why it gets no handles, or null. */
+  readonly whyNot: string | null;
+  begin(label: string): UndoStep | null;
+  setAttributes(attributes: Record<string, string>, label: string): boolean;
+  /** Move it to be the `index`th element written in its parent (as `moveUIElement` counts). */
+  reorder(index: number): boolean;
+}
+
+function documentElement(el: UIDocumentElement): HandleElement {
   const src = elementSource(el);
-  if (!src) return "it's made by a script (a list row)";
-  if (src.label) return "a button's label is its text content";
-  if (!el.parent || el.tag === "Canvas") return "the root fills its canvas";
-  return null;
+  return {
+    component: el.component,
+    get active() {
+      return el.node.activeInHierarchy;
+    },
+    get parent() {
+      return el.parent ? documentElement(el.parent) : null;
+    },
+    index: src && !src.label ? src.index : -1,
+    get children() {
+      return el.children.map(documentElement);
+    },
+  };
+}
+
+function viewElement(el: UIHostElement): HandleElement {
+  return {
+    component: el.component,
+    get active() {
+      return el.node.activeInHierarchy;
+    },
+    get parent() {
+      return el.parent ? viewElement(el.parent) : null;
+    },
+    get index() {
+      const s = el.source, src = s ? sourceOfFile(s.file) : null;
+      const at = s && src ? elementAtLocation(src, s.line, s.column) : null;
+      return at && !at.block && !at.repeated ? at.index : -1;
+    },
+    get children() {
+      return el.children.filter((c) => !c.synthetic).map(viewElement);
+    },
+  };
+}
+
+/** The subject of a drag on the element `ref` names (a UI document's, or a view's), or null when it's gone. */
+function subjectOf(ref: UIElementRef | UIViewRef): HandleSubject | null {
+  const scene = openScene.peek();
+  if (!scene) return null;
+  if ("file" in ref) {
+    const el = resolveUIViewElement(scene.sync, ref);
+    if (!el) return null;
+    const parentRef = el.parent?.source ? refOfViewElement(scene.sync, el.parent) : null;
+    const why = whyNotEditViewElement(scene, ref) ?? (el.parent ? null : "the root fills its canvas");
+    return {
+      el: viewElement(el),
+      label: viewElementLabel(el),
+      whyNot: why,
+      begin: (label) => beginUIViewEdit(label),
+      setAttributes: (attributes, label) => setUIViewElementAttributes(ref, attributes, label),
+      reorder: (index) => moveUIViewElement(ref, parentRef ?? { host: ref.host, index: ref.index }, index),
+    };
+  }
+  const el = resolveUIElement(scene.sync, ref);
+  if (!el) return null;
+  const src = elementSource(el);
+  const why = whyNotEdit({ kind: "ui-documents" }) ?? (!src ? "it's made by a script (a list row)" : src.label ? "a button's label is its text content" : !el.parent || el.tag === "Canvas" ? "the root fills its canvas" : null);
+  const parentRef: UIElementRef = { host: ref.host, index: ref.index, path: (el.parent && elementSource(el.parent)?.path) ?? "" };
+  return {
+    el: documentElement(el),
+    label: elementLabel(el),
+    whyNot: why,
+    begin: (label) => beginUIEdit(label),
+    setAttributes: (attributes, label) => setUIElementAttributes(ref, attributes, label),
+    reorder: (index) => moveUIElement(ref, parentRef, index),
+  };
+}
+
+/** Why the scene view shows no handles on the element `ref` names (outline only), or null when it does. */
+export function whyNoHandles(ref: UIElementRef | UIViewRef): string | null {
+  const s = subjectOf(ref);
+  return s ? s.whyNot : "it's gone";
+}
+
+/** The element a ref names, for the handles' overlay: its component and whether it's shown, or null. */
+export function handleElement(ref: UIElementRef | UIViewRef): { readonly component: UIComponentType; readonly active: boolean } | null {
+  return subjectOf(ref)?.el ?? null;
 }
 
 /** The parent's padding box (inside its border) in its own frame, UI pixels: origin and size. */
-function paddingBox(parent: UIDocumentElement, box: BoxOnCanvas): { x: number; y: number; width: number; height: number } {
+function paddingBox(parent: HandleElement, box: BoxOnCanvas): { x: number; y: number; width: number; height: number } {
   const [top, right, bottom, left] = uiBorderEdges(parent.component); // each side's own width (ADR 0418)
   return { x: left, y: top, width: Math.max(0, box.size[0] - left - right), height: Math.max(0, box.size[1] - top - bottom) };
 }
@@ -58,15 +159,15 @@ export interface HandleDrag {
   cancel(): void;
 }
 
-const fieldsOf = (el: UIDocumentElement) => el.component as unknown as Record<string, unknown>;
+const fieldsOf = (el: HandleElement) => el.component as unknown as Record<string, unknown>;
 
 /** Attributes as a stable string, to skip pointer moves that write the same thing again. */
 const attrKey = (a: Record<string, string>) => JSON.stringify(Object.entries(a).sort());
 
 /** A drag that writes attributes on each move, as one undo step (resize, and moving an absolute element). */
-function attributeDrag(kind: "resize" | "move", ref: UIElementRef, label: string, map: BoxMap, pointer: Point, compute: (dx: number, dy: number, options: DragOptions) => Record<string, string>): HandleDrag | null {
+function attributeDrag(kind: "resize" | "move", subject: HandleSubject, label: string, map: BoxMap, pointer: Point, compute: (dx: number, dy: number, options: DragOptions) => Record<string, string>): HandleDrag | null {
   const start = map.toLocal(pointer);
-  const step = start && beginUIEdit(label);
+  const step = start && subject.begin(label);
   if (!start || !step) return null;
   let last = "";
   let open = true;
@@ -81,7 +182,7 @@ function attributeDrag(kind: "resize" | "move", ref: UIElementRef, label: string
       const key = attrKey(attrs);
       if (key === last || Object.keys(attrs).length === 0) return;
       last = key;
-      wrote = setUIElementAttributes(ref, attrs, label) || wrote;
+      wrote = subject.setAttributes(attrs, label) || wrote;
     },
     marker: () => null,
     finish() {
@@ -99,10 +200,10 @@ function attributeDrag(kind: "resize" | "move", ref: UIElementRef, label: string
 }
 
 /** Start dragging resize handle `id` of the element at `ref`, pressed at `pointer` (canvas CSS pixels). Null if it can't be resized. */
-export function beginResize(ref: UIElementRef, id: HandleId, pointer: Point, boxOf: BoxOf): HandleDrag | null {
-  const scene = openScene.peek();
-  const el = scene ? resolveUIElement(scene.sync, ref) : null;
-  if (!el || whyNoHandles(el)) return null;
+export function beginResize(ref: UIElementRef | UIViewRef, id: HandleId, pointer: Point, boxOf: BoxOf): HandleDrag | null {
+  const subject = subjectOf(ref);
+  if (!subject || subject.whyNot) return null;
+  const el = subject.el;
   const box = boxOf(el.component), map = box && boxMap(box);
   if (!box || !map) return null;
   const parentBox = el.parent ? boxOf(el.parent.component) : null;
@@ -120,7 +221,7 @@ export function beginResize(ref: UIElementRef, id: HandleId, pointer: Point, box
     parentWidth: pad.width,
     parentHeight: pad.height,
   };
-  return attributeDrag("resize", ref, `Resize ${elementLabel(el)}`, map, pointer, (dx, dy, o) => resizeAttributes(start, id, dx, dy, o));
+  return attributeDrag("resize", subject, `Resize ${subject.label}`, map, pointer, (dx, dy, o) => resizeAttributes(start, id, dx, dy, o));
 }
 
 /**
@@ -128,37 +229,36 @@ export function beginResize(ref: UIElementRef, id: HandleId, pointer: Point, box
  * absolutely positioned element moves; one in flex flow reorders among its siblings. Null if it
  * can't move.
  */
-export function beginMove(ref: UIElementRef, pointer: Point, boxOf: BoxOf): HandleDrag | null {
-  const scene = openScene.peek();
-  const el = scene ? resolveUIElement(scene.sync, ref) : null;
+export function beginMove(ref: UIElementRef | UIViewRef, pointer: Point, boxOf: BoxOf): HandleDrag | null {
+  const subject = subjectOf(ref);
+  const el = subject?.el;
   const parent = el?.parent;
-  if (!el || !parent || whyNoHandles(el)) return null;
+  if (!subject || !el || !parent || subject.whyNot) return null;
   const box = boxOf(el.component), parentBox = boxOf(parent.component);
   const map = box && boxMap(box), parentMap = parentBox && boxMap(parentBox);
   if (!box || !map || !parentBox || !parentMap) return null;
   const pad = paddingBox(parent, parentBox);
   const f = fieldsOf(el);
-  const label = elementLabel(el);
+  const label = subject.label;
   if (f.positionType === "absolute") {
     // ADR 0418 wave 3: offsets are in the parent's frame, from where layout put the box (its own translate aside).
     const topLeft = parentMap.toLocal((box.layoutPoints ?? box.points)[0]);
     if (!topLeft) return null;
     const start = { left: f.left, top: f.top, right: f.right, bottom: f.bottom, x: topLeft[0] - pad.x, y: topLeft[1] - pad.y, parentWidth: pad.width, parentHeight: pad.height };
-    return attributeDrag("move", ref, `Move ${label}`, parentMap, pointer, (dx, dy, o) => moveAttributes(start, dx, dy, o));
+    return attributeDrag("move", subject, `Move ${label}`, parentMap, pointer, (dx, dy, o) => moveAttributes(start, dx, dy, o));
   }
-  return reorderDrag(ref, el, parent, parentMap, pad, boxOf, label);
+  return reorderDrag(subject, el, parent, parentMap, pad, boxOf, label);
 }
 
 /** The siblings in flow (shown, not absolute, written in the file) along the parent's main axis, with the dragged element's markup index. */
-function flowSiblings(el: UIDocumentElement, parent: UIDocumentElement, parentMap: BoxMap, boxOf: BoxOf): { siblings: FlowSibling[]; self: number } {
+function flowSiblings(el: HandleElement, parent: HandleElement, parentMap: BoxMap, boxOf: BoxOf): { siblings: FlowSibling[]; self: number } {
   const column = isColumn(String(fieldsOf(parent).flexDirection ?? "row"));
   const siblings: FlowSibling[] = [];
   for (const s of parent.children) {
-    const src = elementSource(s);
-    if (s === el || !src || src.label || !s.node.activeInHierarchy) continue;
+    if (s.component === el.component || s.index < 0 || !s.active) continue;
     const sf = fieldsOf(s);
     if (sf.positionType === "absolute" || sf.display === "none") continue;
-    const index = src.index;
+    const index = s.index;
     const b = index >= 0 ? boxOf(s.component) : null;
     if (!b) continue;
     const local = b.points.map((p) => parentMap.toLocal(p));
@@ -166,15 +266,14 @@ function flowSiblings(el: UIDocumentElement, parent: UIDocumentElement, parentMa
     const along = local.map((p) => p![column ? 1 : 0]);
     siblings.push({ index, start: Math.min(...along), end: Math.max(...along) });
   }
-  return { siblings, self: elementSource(el)?.index ?? -1 };
+  return { siblings, self: el.index };
 }
 
-function reorderDrag(ref: UIElementRef, el: UIDocumentElement, parent: UIDocumentElement, parentMap: BoxMap, pad: { x: number; y: number; width: number; height: number }, boxOf: BoxOf, label: string): HandleDrag | null {
+function reorderDrag(subject: HandleSubject, el: HandleElement, parent: HandleElement, parentMap: BoxMap, pad: { x: number; y: number; width: number; height: number }, boxOf: BoxOf, label: string): HandleDrag | null {
   const direction = String(fieldsOf(parent).flexDirection ?? "row");
   const column = isColumn(direction);
   const { siblings, self } = flowSiblings(el, parent, parentMap, boxOf);
   if (self < 0) return null;
-  const parentRef: UIElementRef = { host: ref.host, index: ref.index, path: elementSource(parent)?.path ?? "" };
   // The marker spans the parent's content box (inside its padding).
   const p = (parent.component as { padding?: number }).padding;
   const inset = typeof p === "number" && Number.isFinite(p) ? Math.max(0, p) : 0;
@@ -198,7 +297,7 @@ function reorderDrag(ref: UIElementRef, el: UIDocumentElement, parent: UIDocumen
     finish() {
       if (!open) return false;
       open = false;
-      return !!target && !target.same && moveUIElement(ref, parentRef, target.index);
+      return !!target && !target.same && subject.reorder(target.index);
     },
     cancel() {
       open = false;

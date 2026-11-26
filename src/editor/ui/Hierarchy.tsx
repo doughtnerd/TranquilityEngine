@@ -16,10 +16,13 @@ import { inspectorTarget, select, selectBone, selectUIElement, showSceneSettings
 import { skeletonBones, type SkeletonBoneRow, type SkeletonBonesContribution } from "../sdk/contributions";
 import { docVersion, isSelected, openScene, selectedKeys, selectedUIElement, type OpenScene } from "../state";
 import { documentRows, resolveUIElement, rowAncestry, selectedUIRef, uiBuildVersion, watchUIDocumentBuilds, type UIDocumentRows, type UIElementRow } from "../uiDocuments";
-import { HIERARCHY_TREE, HierarchyMenu, openCreateMenu, openHierarchyMenu, openUIElementMenu, uiTreeKey } from "./HierarchyMenu";
+import { HIERARCHY_TREE, HierarchyMenu, openCreateMenu, openHierarchyMenu, openUIElementMenu, openUIViewElementMenu, uiTreeKey } from "./HierarchyMenu";
 import { renameUIElement } from "../uiDocumentEdits";
+import { resolveUIViewElement, selectedUIViewRef, uiViewVersion, viewRowAncestry, viewRows, watchUIViews, whyViewOnly, type UIViewRow, type UIViewRows } from "../uiViews";
+import { renameUIViewElement, whyNotEditViewElement } from "../uiViewEdits";
+
 import { whyNotEdit } from "../editGate";
-import { startUIElementDrag, uiDropDescription, uiElementDrag } from "../uiElementDrag";
+import { startUIElementDrag, startUIViewElementDrag, uiDropDescription, uiElementDrag } from "../uiElementDrag";
 import "./hierarchy.css";
 import { liveInspecting } from "../runtimeInspect";
 import { RuntimeHierarchy, WorldPicker } from "./RuntimeHierarchy";
@@ -81,19 +84,26 @@ function boneSelectionUnder(key: string): boolean {
   return host === key || host.startsWith(`${key}/`) || ancestorKeys(scene.doc, host).includes(key);
 }
 
-/** True if the selected UI element (ADR 0077) is in a document on the node at `key` or below it. */
+/** True if the selected UI element (ADR 0077; or a view's, ADR 0419 wave C) is on the node at `key` or below it. */
 function uiSelectionUnder(key: string): boolean {
-  const ref = selectedUIRef(), scene = openScene.value;
+  const ref = selectedUIRef() ?? selectedUIViewRef(), scene = openScene.value;
   if (!ref || !scene) return false;
   return ref.host === key || ref.host.startsWith(`${key}/`) || ancestorKeys(scene.doc, ref.host).includes(key);
 }
 
-/** The UI documents on the node at `key`, with their element trees (none while searching: the search is over scene nodes). */
-function uiDocumentsAt(view: HierarchyView, key: string): UIDocumentRows[] {
+/** A node's UI under its own children: a UI document's element tree, or the elements a UIView rendered (ADR 0419 wave C). */
+type UIGroup = { readonly kind: "document"; readonly rows: UIDocumentRows } | { readonly kind: "view"; readonly rows: UIViewRows };
+
+/** The UI documents and views on the node at `key`, with their element trees (none while searching: the search is over scene nodes). */
+function uiDocumentsAt(view: HierarchyView, key: string): UIGroup[] {
   uiBuildVersion.value; // re-read when a document builds or hot-reloads
+  uiViewVersion.value; // or a view renders again
   const scene = openScene.value;
   if (!scene || view.filter.value) return [];
-  return documentRows(scene.sync, key).filter((d) => d.root);
+  return [
+    ...documentRows(scene.sync, key).filter((d) => d.root).map((rows) => ({ kind: "document" as const, rows })),
+    ...viewRows(scene.sync, key).filter((v) => v.rows.length > 0).map((rows) => ({ kind: "view" as const, rows })),
+  ];
 }
 
 /** A row click: select it alone, Ctrl/Cmd toggles it, Shift selects the visible rows from the anchor (Ctrl+Shift adds them). */
@@ -121,6 +131,7 @@ export function Hierarchy() {
   const view = usePanelValue("hierarchy.view", () => new HierarchyView());
   docVersion.value; // re-render when the document changes
   watchUIDocumentBuilds();
+  watchUIViews();
   if (liveInspecting())
     return (
       <Panel>
@@ -382,12 +393,76 @@ function nodeRow(view: HierarchyView, scene: OpenScene, spec: NodeRowSpec): Tree
   };
 }
 
-/** A node's UI documents' element rows (ADR 0077), under its own children; none while searching. */
-function uiDocumentRows(view: HierarchyView, documents: readonly UIDocumentRows[]): TreeRow[] {
-  if (documents.length === 0) return [];
+/** A node's UI documents' element rows (ADR 0077) and its views' rendered elements (ADR 0419 wave C), under its own children; none while searching. */
+function uiDocumentRows(view: HierarchyView, groups: readonly UIGroup[]): TreeRow[] {
+  if (groups.length === 0) return [];
+  const documents = groups.flatMap((g) => (g.kind === "document" ? [g.rows] : []));
+  const views = groups.flatMap((g) => (g.kind === "view" ? [g.rows] : []));
   const selectedKey = selectedUIElement.value;
-  const opened = selectedKey ? new Set(rowAncestry(documents, selectedKey) ?? []) : new Set<string>();
-  return documents.flatMap((d) => (d.root ? [uiElementRow(view, d.root, d.file ?? d.root.file, opened)] : []));
+  const opened = selectedKey ? new Set([...(rowAncestry(documents, selectedKey) ?? []), ...(viewRowAncestry(views, selectedKey) ?? [])]) : new Set<string>();
+  return [
+    ...documents.flatMap((d) => (d.root ? [uiElementRow(view, d.root, d.file ?? d.root.file, opened)] : [])),
+    ...views.flatMap((v) => v.rows.map((r) => uiViewElementRow(view, r, v.file, opened))),
+  ];
+}
+
+/**
+ * An element a UIView rendered from a Svelte component (ADR 0419 wave C): rendered from the file, not saved in the
+ * scene, so it's marked as the file's like a document's element. Clicking selects it; the menu creates inside it,
+ * renames (its id), duplicates and deletes; dragging reorders it within its file. `{#each}` rows, snippets and child
+ * components' insides select, but are view-only (their rows say why).
+ */
+function uiViewElementRow(view: HierarchyView, row: UIViewRow, viewFile: string, opened: ReadonlySet<string>): TreeRow {
+  const uiExpanded = view.uiExpanded;
+  const open = uiExpanded.value.has(row.key) || opened.has(row.key);
+  const key = uiTreeKey(row.key);
+  const scene = openScene.peek();
+  const viewOnly = scene ? whyViewOnly(scene.sync, row.ref) : null;
+  const renamable = !!scene && !whyNotEditViewElement(scene, row.ref);
+  const drop = uiElementDrag.value?.target?.row === row.key ? uiElementDrag.value.target.mode : null;
+  const where = `${row.file}:${row.ref.line}${row.file === viewFile ? "" : ` (inside ${viewFile})`}`;
+  return {
+    key,
+    label: row.label,
+    expandable: row.children.length > 0,
+    open,
+    children: open ? row.children.map((c) => uiViewElementRow(view, c, viewFile, opened)) : undefined,
+    selected: selectedUIElement.value === row.key,
+    className: `ui-element ui-view-element${viewOnly ? " view-only" : ""}`,
+    attrs: { "data-ui-key": row.key },
+    title: `<${row.tag}> from ${where}. Rendered from the Svelte component, not saved in the scene; ${viewOnly ? `view-only: ${viewOnly}.` : "edits are written to the file."}`,
+    icon: (
+      <span class="ui-element-icon" aria-hidden="true">
+        ◇
+      </span>
+    ),
+    drop,
+    dragging: uiElementDrag.value?.key === row.key,
+    setOpen: (on) => setMember(uiExpanded, row.key, on),
+    select: () => selectUIElement(row.ref),
+    menu: (x, y) => {
+      selectUIElement(row.ref);
+      openUIViewElementMenu(x, y, row.ref, view);
+    },
+    activate: () => {
+      if (renamable) renameRow(HIERARCHY_TREE, key, view);
+    },
+    rename: renamable
+      ? (() => {
+          const initial = (scene && resolveUIViewElement(scene.sync, row.ref)?.id) ?? "";
+          return {
+            value: initial,
+            label: "Element id",
+            placeholder: "id",
+            commit: (value: string) => {
+              if (value.trim() !== initial) renameUIViewElement(row.ref, value);
+            },
+          };
+        })()
+      : null,
+    remove: () => void deleteSelected(),
+    drag: viewOnly ? undefined : (e) => startUIViewElementDrag(e, row.ref, row.key, row.label),
+  };
 }
 
 /**

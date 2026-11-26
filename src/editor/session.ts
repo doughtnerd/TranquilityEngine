@@ -24,6 +24,7 @@ import { installGizmo } from "./gizmo";
 import { installViewportTheme } from "./viewportTheme";
 import { OrbitCamera } from "./OrbitCamera";
 import { createPlaySession } from "./playSession";
+import { onUICodeWritten } from "./textFiles";
 import { saveOpenScene } from "./project";
 import { createSceneTabs } from "./sceneTabs";
 import { applyProjectPlugins } from "../plugins/editorPlugins";
@@ -391,9 +392,13 @@ export async function openScriptExternally(path: string): Promise<void> {
  * the Inspector stay. During play they swap into the running game (ADR 0125), and the Editor
  * World rebuilds on Stop.
  */
-export function reloadScripts(options: { outside?: boolean } = {}): Promise<void> {
+export function reloadScripts(options: { outside?: boolean; quiet?: boolean } = {}): Promise<void> {
   return play.reloadScripts(options);
 }
+
+// ADR 0419 wave C: an edit of Svelte UI code from the Inspector, the Hierarchy or the scene view (and its undo and
+// redo) compiles the project's code again, so mounted views hot-reload; a compile error still reports itself.
+onUICodeWritten(() => reloadScripts({ quiet: true }));
 
 /**
  * Save a file from the Code panel: a script (then scripts reload), or a JSON (which must parse)

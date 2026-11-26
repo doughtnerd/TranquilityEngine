@@ -26,7 +26,7 @@ The coordinator's plan for building ADRs 0418 (the UI core grows toward web CSS)
 | Z1 ✅ merged | 0419 wave B: built-in UI (`UIControlMapper`, `SubtitleDisplay`) and the samples to Svelte | X2 (`t()`), Y3 (bubbling) |
 | Z2 (0424 ✅ merged, 0426 ✅ merged with Z1: conformance 1125/1311, 85.8%; 0425 to go) | Form elements (0424); inline rich text, `{@html}`, `contenteditable` (0425); filters, SVG, video/audio, matrix transforms with skew (0426) | Y-wave |
 | Z3 | Svelte's timing on the engine frame: a patch hook so the renderer drives Svelte's internal `raf` (`svelte/motion` Tween/Spring, `tick` transitions, its timers) from the UI step on unscaled time, headless included; `prefers-reduced-motion` in canvas `@media` and `prefersReducedMotion`, from an engine setting | 0425 (patch) |
-| C | 0419 wave C: editor tooling for `.svelte` (picking by template location, literal attribute editing, Create menu, Inspector sources) | Z1 |
+| C ✅ merged | 0419 wave C: editor tooling for `.svelte` (picking by template location, literal attribute editing, Create menu, Inspector sources) | Z1 |
 | D | 0419 wave D: retire UI documents (`UIDocument`, `*.ui.xml`, `*.ui.css`, markup parser, markup edits) once conformance meets the gate | C, conformance |
 | End | Affected e2e specs once; per-wave captures and the frame-time check (Pirates HUD, control mapper) | all |
 

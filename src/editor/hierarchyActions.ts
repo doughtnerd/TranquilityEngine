@@ -14,6 +14,8 @@ import { editableNow } from "./editGate";
 import { select } from "./inspectorTarget";
 import { duplicateUIElement } from "./uiDocumentEdits";
 import { selectedUIRef } from "./uiDocuments";
+import { selectedUIViewRef } from "./uiViews";
+import { duplicateUIViewElement } from "./uiViewEdits";
 
 /** The copied nodes, or null. */
 export const nodeClipboard = signal<NodeClipboard | null>(null);
@@ -119,6 +121,8 @@ export function pasteClipboardAt(key: string | null, asChild = false): boolean {
 export function duplicateSelection(): boolean {
   const ui = selectedUIRef();
   if (ui) return duplicateUIElement(ui); // a UI document's element (ADR 0077): in its markup file
+  const viewEl = selectedUIViewRef();
+  if (viewEl) return duplicateUIViewElement(viewEl); // an element a UIView rendered (ADR 0419 wave C): in its .svelte source
   const scene = editableNow({ kind: "scene" }, "duplicate nodes");
   if (!scene) return false;
   const keys = selectedKeys.value;

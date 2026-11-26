@@ -187,8 +187,8 @@ export function attributeText(value: unknown): string {
 
 const pixels = (n: number) => (n === 0 ? "0" : `${n}px`);
 
-/** An attribute's value as a stylesheet declaration writes it: colours as hex, lengths with `px`, assets as `url()`. */
-function cssValue(info: FieldInfo | null, raw: string): string {
+/** An attribute's value as a stylesheet declaration writes it: colours as hex, lengths with `px`, assets as `url()` (Move to class, here and for Svelte UI). */
+export function cssValue(info: FieldInfo | null, raw: string): string {
   const v = raw.trim();
   if (!info || v.includes("var(")) return v;
   const number = /^-?(\d+\.?\d*|\.\d+)(px)?$/.test(v) ? parseFloat(v) : null;

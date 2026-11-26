@@ -238,6 +238,8 @@ export type FieldOrigin =
   | { readonly kind: "content"; readonly file: string; readonly line: number; readonly bound: boolean }
   /** An attribute with a `{name}` binding: the document's `data` (or a list item) sets it. */
   | { readonly kind: "binding"; readonly file: string; readonly attribute: MarkupAttribute; readonly line: number }
+  /** ADR 0419 wave C: a Svelte expression sets it (`width={w}`, `style:color={c}`, text with `{…}`): view-only, shown as written. */
+  | { readonly kind: "expression"; readonly file: string; readonly line: number; readonly name: string; readonly source: string }
   /** Nothing sets it: the component's default. */
   | { readonly kind: "default" }
   /**
@@ -369,6 +371,8 @@ export function describeOrigin(origin: FieldOrigin): string {
       return `Text content${origin.bound ? " with {bindings}" : ""} · ${origin.file}:${origin.line}`;
     case "binding":
       return `Bound: ${origin.attribute.name}="${origin.attribute.value}" (set from the document's data at runtime) · ${origin.file}:${origin.line}`;
+    case "expression":
+      return `Expression: ${origin.name}${origin.source.startsWith("{") || origin.name === "text" ? " " : "="}${origin.source} (view-only: edit it in the Code panel) · ${origin.file}:${origin.line}`;
     case "default":
       return "Default";
     case "animated":
@@ -376,8 +380,8 @@ export function describeOrigin(origin: FieldOrigin): string {
   }
 }
 
-/** A short badge for an origin: Attribute, Rule, Inherited, Content, Bound or Default. */
+/** A short badge for an origin: Attribute, Rule, Inherited, Content, Bound, Expression or Default. */
 export function originBadge(origin: FieldOrigin): string {
   if (origin.kind === "animated") return origin.via === "transition" ? "Transition" : "Animation";
-  return { attribute: "Attribute", rule: "Rule", inherited: "Inherited", content: "Content", binding: "Bound", default: "Default" }[origin.kind];
+  return { attribute: "Attribute", rule: "Rule", inherited: "Inherited", content: "Content", binding: "Bound", expression: "Expression", default: "Default" }[origin.kind];
 }
